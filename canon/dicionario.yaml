@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.56"
+versao_dicionario: "1.57"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11277,6 +11277,221 @@ entradas:
       - "Resultado"
       - "conflito"
     variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Chave de idempotência da criação de pedido"
+    canonico: "intent_key = base32(HMAC-SHA256(segredo_intents, tenant_id ⟂ contact_id ⟂ draft_id ⟂ draft_version))[:26]"
+    literais:
+      - "intent_key"
+      - "base32(HMAC-SHA256(segredo_intents, tenant_id"
+      - "contact_id"
+      - "draft_id"
+      - "draft_version))[:26]"
+    nomes:
+      - "intent_key"
+      - "base32"
+      - "HMAC"
+      - "SHA256"
+      - "segredo_intents"
+      - "tenant_id"
+      - "contact_id"
+      - "draft_id"
+      - "draft_version"
+    nomes_nota:
+      - "orders_mirror.intent_key"
+      - "order_intents.intent_key"
+      - "numero_publico"
+    variantes_literais:
+      - "hash(msisdn + sku + janela_5min)"
+  - seccao: "3.44"
+    conceito: "Hash do rascunho confirmado"
+    canonico: "draft_hash = SHA-256(linhas canonicalizadas ⟂ entrega_modo)"
+    literais:
+      - "draft_hash"
+      - "SHA-256(linhas canonicalizadas"
+      - "entrega_modo)"
+    nomes:
+      - "draft_hash"
+      - "SHA"
+      - "linhas"
+      - "canonicalizadas"
+      - "entrega_modo"
+    nomes_nota:
+      - "bytea"
+      - "CHECK"
+      - "SHA"
+      - "ctx"
+      - "sku"
+      - "qty"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Segredo da derivação"
+    canonico: "segredo_intents"
+    literais:
+      - "segredo_intents"
+    nomes:
+      - "segredo_intents"
+    nomes_nota:
+      - "anel"
+      - "true"
+      - "kid"
+      - "base64"
+      - "de"
+      - "octetos"
+      - "pepper_contact_hmac"
+      - "actual"
+      - "intent_key"
+      - "orders_mirror.intent_key"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Identificador opaco do carrinho"
+    canonico: 'cart_id = base32(HMAC-SHA256(segredo_intents, "cart" ⟂ tenant_id ⟂ contact_id ⟂ draft_id ⟂ draft_version))[:26]'
+    literais:
+      - "cart_id"
+      - 'base32(HMAC-SHA256(segredo_intents, "cart"'
+      - "tenant_id"
+      - "contact_id"
+      - "draft_id"
+      - "draft_version))[:26]"
+    nomes:
+      - "cart_id"
+      - "base32"
+      - "HMAC"
+      - "SHA256"
+      - "segredo_intents"
+      - "cart"
+      - "tenant_id"
+      - "contact_id"
+      - "draft_id"
+      - "draft_version"
+    nomes_nota:
+      - "cart_id"
+      - "propose_cart"
+      - "intent_key"
+      - "confirm"
+      - "createOrder"
+      - "draft_id"
+      - "draft_version"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Códigos de recusa da criação de pedido"
+    canonico: "OrdersModule.erro ∈ {NOT_FOUND, VALIDATION_ERROR, TENANT_MISMATCH, PRICE_CHANGED, OUT_OF_STOCK, LIMIT_EXCEEDED, INTENT_REUSED_WITH_DIFFERENT_CONTENT, UPSTREAM_TIMEOUT, UPSTREAM_DOWN}"
+    literais:
+      - "OrdersModule.erro"
+      - "NOT_FOUND"
+      - "VALIDATION_ERROR"
+      - "TENANT_MISMATCH"
+      - "PRICE_CHANGED"
+      - "OUT_OF_STOCK"
+      - "LIMIT_EXCEEDED"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+    nomes:
+      - "OrdersModule.erro"
+      - "NOT_FOUND"
+      - "VALIDATION_ERROR"
+      - "TENANT_MISMATCH"
+      - "PRICE_CHANGED"
+      - "OUT_OF_STOCK"
+      - "LIMIT_EXCEEDED"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+    nomes_nota:
+      - "tool_audit.error_code"
+      - "ServicosModule.erro"
+      - "OfferView.avisos"
+      - "ERROS"
+      - "CommerceRegistry"
+      - "PRICE_CHANGED"
+      - "VALIDATION_ERROR"
+      - "conflito"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Origem do preço de uma linha"
+    canonico: "origem_preco ∈ {offer_terms, cotacao_dono}"
+    literais:
+      - "origem_preco"
+      - "offer_terms"
+      - "cotacao_dono"
+    nomes:
+      - "origem_preco"
+      - "offer_terms"
+      - "cotacao_dono"
+    nomes_nota:
+      - "offer_terms"
+      - "qty"
+      - "preco_minor"
+      - "preco_total_minor"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Prazo do dono para confirmar"
+    canonico: "MINUTOS_PARA_O_DONO (15)"
+    literais:
+      - "MINUTOS_PARA_O_DONO"
+    nomes:
+      - "MINUTOS_PARA_O_DONO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Lembrete ao dono"
+    canonico: "MINUTOS_PARA_O_LEMBRETE (5)"
+    literais:
+      - "MINUTOS_PARA_O_LEMBRETE"
+    nomes:
+      - "MINUTOS_PARA_O_LEMBRETE"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Janela do «pedido por pagar semelhante»"
+    canonico: "MINUTOS_DO_PEDIDO_POR_PAGAR (30)"
+    literais:
+      - "MINUTOS_DO_PEDIDO_POR_PAGAR"
+    nomes:
+      - "MINUTOS_DO_PEDIDO_POR_PAGAR"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Estados em que uma encomenda está «por pagar»"
+    canonico: "ESTADOS_POR_PAGAR = {criada, aguarda_pagamento, pendente_confirmacao}"
+    literais:
+      - "ESTADOS_POR_PAGAR"
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+    nomes:
+      - "ESTADOS_POR_PAGAR"
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+    nomes_nota:
+      - "estado"
+      - "paga"
+      - "cancelada"
+      - "expirada"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Retoma de uma intenção abandonada"
+    canonico: "MINUTOS_PARA_RETOMAR (2)"
+    literais:
+      - "MINUTOS_PARA_RETOMAR"
+    nomes:
+      - "MINUTOS_PARA_RETOMAR"
+    nomes_nota:
+      - "em_curso"
+      - "falhada"
+    variantes_literais: []
+  - seccao: "3.44"
+    conceito: "Tecto de espera por uma intenção de outro"
+    canonico: "TECTO_DE_ESPERA_MS (3000)"
+    literais:
+      - "TECTO_DE_ESPERA_MS"
+    nomes:
+      - "TECTO_DE_ESPERA_MS"
+    nomes_nota:
+      - "UPSTREAM_TIMEOUT"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -13082,6 +13297,27 @@ dominios:
       - "COM_DELIVERY_ENABLED"
     seccao: "3.43"
     conceito: "Bandeira de uma transição"
+    so_no_registo: false
+  - coluna: "OrdersModule.erro"
+    valores:
+      - "NOT_FOUND"
+      - "VALIDATION_ERROR"
+      - "TENANT_MISMATCH"
+      - "PRICE_CHANGED"
+      - "OUT_OF_STOCK"
+      - "LIMIT_EXCEEDED"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+    seccao: "3.44"
+    conceito: "Códigos de recusa da criação de pedido"
+    so_no_registo: false
+  - coluna: "origem_preco"
+    valores:
+      - "offer_terms"
+      - "cotacao_dono"
+    seccao: "3.44"
+    conceito: "Origem do preço de uma linha"
     so_no_registo: false
 
 variantes:

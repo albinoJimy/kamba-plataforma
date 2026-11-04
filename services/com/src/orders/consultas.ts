@@ -161,3 +161,184 @@ export const SQL_EMITIR = `
     $1, $2::smallint, $3::uuid, $4, $5, $6::jsonb, $7, $8::text[]
   ) AS event_id
 `;
+
+// ------------------------------------------- KAM-046: o recibo de intenção
+
+/*
+ * As sete cadeias abaixo são a *saga* de `createOrder` do §6.3 e o fluxo de
+ * confirmação do dono do critério 7. O `INSERT` do recibo **não** está aqui,
+ * pela razão de sempre: entra por `repo.inserirNoTenant`, com o
+ * `ON CONFLICT (tenant_id, intent_key) DO NOTHING RETURNING` no `sufixo` — e é
+ * esse `ON CONFLICT` que serializa as cinquenta concorrentes do critério 3.
+ *
+ * **Porque é que o `DO NOTHING` basta, e o que ele faz que uma leitura não
+ * faz:** com `ON CONFLICT DO NOTHING` o PostgreSQL **espera** pela transacção
+ * que inseriu a linha em conflito e só depois decide — salta se ela confirmou,
+ * insere se ela abortou. Logo quem perde a corrida só lê o recibo **depois** de
+ * o vencedor ter confirmado a saga inteira, e o que lê é o estado final com o
+ * `order_id`. Um `SELECT` antes do `INSERT` não tem essa propriedade: as
+ * cinquenta liam zero linhas ao mesmo tempo e as cinquenta inseriam.
+ */
+
+/**
+ * O recibo de uma ou mais chaves do anel (§6.3, passo 2).
+ *
+ * **`= ANY($2)` e não um `IN` por marcador**, porque as chaves são uma ou duas
+ * conforme o segredo já tenha rodado — ver o `chavesDoAnel` do `intents.ts`. Com
+ * um marcador por chave, o texto desta cadeia mudava com o estado do cofre, e
+ * então não havia cadeia nenhuma para o *gate* 8 confrontar.
+ *
+ * A ordem é a do `criado_at` **descendente**: com as duas versões do anel a
+ * acertar (o que só acontece a rodar), vale o recibo mais recente.
+ */
+export const SQL_LER_INTENCAO = `
+  SELECT tenant_id, intent_key, draft_hash, estado, order_id, criado_at
+    FROM platform.order_intents
+   WHERE tenant_id = $1 AND intent_key = ANY($2::text[])
+   ORDER BY criado_at DESC
+`;
+
+/**
+ * Fecha o recibo: `concluida` com a encomenda (§6.3, passo 3).
+ *
+ * `WHERE estado = 'em_curso'` e não um `UPDATE` incondicional: o
+ * `order_intents_concluida_exige_encomenda_ck` exige os dois lados ao mesmo
+ * tempo, e um recibo que já esteja `concluida` com **outra** encomenda é uma
+ * saga que correu duas vezes — o que se quer é que a segunda não escreva, não
+ * que ela sobreponha. Zero linhas é a resposta, e quem chama relê.
+ */
+export const SQL_CONCLUIR_INTENCAO = `
+  UPDATE platform.order_intents
+     SET estado = 'concluida', order_id = $3
+   WHERE tenant_id = $1 AND intent_key = $2 AND estado = 'em_curso'
+  RETURNING intent_key, estado, order_id
+`;
+
+/**
+ * Marca `falhada` uma intenção `em_curso` abandonada (critério 5).
+ *
+ * «Intenção `em_curso` > 2 min é retomada ou marcada `falhada`», e são **duas**
+ * instruções e não uma: esta fecha a abandonada, e o `SQL_RETOMAR_INTENCAO`
+ * reabre-a. Cada uma tem o estado esperado no predicado, pelo que de N
+ * concorrentes passa **uma** — a retoma por leitura-e-escrita deixava passar
+ * todas, que é a lição que o `idempotency.py` da TLS escreveu para a mesma
+ * tabela do outro lado.
+ *
+ * O instante entra como argumento e não é `now() - interval`, para que o ensaio
+ * possa pôr a fronteira numa igualdade exacta em vez de dormir dois minutos.
+ *
+ * **O `criado_at` não se reescreve**, e não é escolha: o
+ * `UPDATE_DA_APP_EM_INTENCOES` da revisão `0030` dá ao `kamba_app` duas colunas
+ * — `estado` e `order_id` — e o instante da criação de um recibo não é de quem
+ * o retoma. A consequência é dita: um recibo retomado continua a parecer velho,
+ * pelo que a janela de abandono conta desde a **primeira** tentativa e não desde
+ * a última. Para a retoma isso é inofensivo (o predicado é o estado, não a
+ * idade); para uma segunda retoma concorrente também, porque o estado é que
+ * decide.
+ */
+export const SQL_FALHAR_INTENCAO = `
+  UPDATE platform.order_intents
+     SET estado = 'falhada'
+   WHERE tenant_id = $1 AND intent_key = $2 AND estado = 'em_curso'
+     AND criado_at < $3
+  RETURNING intent_key, criado_at
+`;
+
+/** Reabre um recibo `falhada`. A segunda metade do critério 5. */
+export const SQL_RETOMAR_INTENCAO = `
+  UPDATE platform.order_intents
+     SET estado = 'em_curso'
+   WHERE tenant_id = $1 AND intent_key = $2 AND estado = 'falhada'
+  RETURNING intent_key, estado
+`;
+
+/**
+ * O «já tem o pedido K7H3Q9 por pagar» do critério 8.
+ *
+ * Três filtros que são o critério à letra — **mesmo contacto**, **mesmo
+ * `draft_hash`**, **não paga** — mais a janela de 30 minutos, que entra como
+ * argumento (`$4`) pela razão do `SQL_COTACAO_VALIDA` do `produtos`: para que a
+ * fronteira se escreva como igualdade em vez de se dormir.
+ *
+ * **«Não paga» são os três estados antes do dinheiro** e não `estado <> 'paga'`:
+ * uma encomenda `cancelada` ou `expirada` não é um pedido por pagar, e dizer ao
+ * cliente que tem um pedido que já caducou era pior do que não dizer nada. Os
+ * três são `criada`, `aguarda_pagamento` e `pendente_confirmacao`, que é o
+ * caminho do §6.2 até ao `paga`.
+ *
+ * O `$5` exclui o recibo da própria chamada: na repetição de um toque, o recibo
+ * desta intenção já está `concluida` e apontaria para a encomenda que acabámos
+ * de devolver — o que dizia ao cliente que tem por pagar o pedido que ele está a
+ * fazer agora.
+ *
+ * **Isto nunca bloqueia**, e é a segunda metade do critério: a resposta é um
+ * *facto* para o agente perguntar, e quem decide é o cliente.
+ */
+export const SQL_PEDIDO_POR_PAGAR = `
+  SELECT m.id, m.numero_publico, m.estado, m.total_minor, m.currency,
+         m.criado_at
+    FROM platform.order_intents i
+    JOIN platform.orders_mirror m
+      ON m.tenant_id = i.tenant_id AND m.id = i.order_id
+   WHERE i.tenant_id = $1
+     AND i.draft_hash = $2
+     AND i.estado = 'concluida'
+     AND i.intent_key <> $5
+     AND m.contact_id = $3
+     AND m.criado_at > $4
+     AND m.estado IN ('criada', 'aguarda_pagamento', 'pendente_confirmacao')
+     AND m.deleted_at IS NULL
+   ORDER BY m.criado_at DESC
+   LIMIT 1
+`;
+
+/**
+ * Põe (ou tira) o pedido de confirmação ao dono. Critério 7.
+ *
+ * **Um CAS pelo subestado esperado (`$4`) e não um `UPDATE` cego**, e é o que
+ * torna «sim do dono» idempotente: dois cliques no mesmo botão dão uma escrita e
+ * uma releitura. Os cinco subestados são o `orders_mirror_confirmacao_ck` da
+ * revisão `0030`.
+ *
+ * **Não muda o `estado`**, e é a letra do critério: o item `confirmar_dono`
+ * deixa a encomenda `criada`. Por isso esta instrução não dispara o *trigger*
+ * diferido `order_estado_exige_log` (ele devolve `NULL` quando o estado não
+ * muda) nem o `order_transicao_valida` (que só consulta o grafo numa mudança de
+ * estado), e **não** há linha de `order_state_log` a escrever — o que é certo,
+ * porque aquela tabela tem `CHECK (de <> para)` e aqui não há `de`.
+ *
+ * O `criada` no predicado é a barreira contra pedir confirmação a uma encomenda
+ * que já passou: uma encomenda em `aguarda_pagamento` tem referência emitida, e
+ * pôr-lhe `confirmacao_dono='pendente'` era pedir ao dono que confirmasse o que
+ * o cliente já está a pagar.
+ */
+export const SQL_CONFIRMACAO_DO_DONO = `
+  UPDATE platform.orders_mirror
+     SET confirmacao_dono = $3,
+         atualizado_at = now()
+   WHERE tenant_id = $1 AND id = $2 AND confirmacao_dono = $4
+     AND estado = 'criada' AND deleted_at IS NULL
+  RETURNING id, numero_publico, estado, confirmacao_dono, version
+`;
+
+/**
+ * Relê o subestado da confirmação, para distinguir as três razões de zero linhas.
+ *
+ * Existe **como constante e não como cadeia dentro da função** pela razão que
+ * este ficheiro inteiro tem: o que o *gate* 8 confronta contra PostgreSQL é o
+ * texto que o módulo envia, e um SQL escrito na função que o usa nunca é lido
+ * pela suite — o `TestCoberturaDasConsultas` do `test_outbox.py` procura por
+ * `export const SQL_… = ` e um literal escondido passava por entre ele. Foi
+ * assim que o `SQL_GRELHA` do KAM-047 chegou com um defeito que nenhuma bateria
+ * tocava.
+ *
+ * **Sem o `estado = 'criada'`** que o `SQL_CONFIRMACAO_DO_DONO` tem: é
+ * precisamente essa a diferença que esta leitura serve para medir — se a linha
+ * existe e o `UPDATE` não a apanhou, ou o subestado não batia ou a encomenda já
+ * saiu de `criada`.
+ */
+export const SQL_LER_CONFIRMACAO = `
+  SELECT confirmacao_dono, estado, version
+    FROM platform.orders_mirror
+   WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+`;
