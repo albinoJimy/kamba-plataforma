@@ -18,7 +18,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  CONFIRMACOES_DO_DONO,
   ERROS_DA_CRIACAO,
+  ESTADOS_POR_PAGAR,
   MINUTOS_PARA_O_DONO,
   MINUTOS_PARA_O_LEMBRETE,
   MOEDA,
@@ -34,6 +36,8 @@ import {
   type LinhaResolvida,
   type RascunhoDoCarrinho,
 } from "../src/orders/index.ts";
+import { SQL_PEDIDO_POR_PAGAR } from "../src/orders/consultas.ts";
+import { ORDER_STATES } from "../src/port/contrato.ts";
 
 const TENANT = "3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60";
 const CONTACTO = "7c1d5e3a-2b4f-4a6c-8d0e-1f2a3b4c5d6e";
@@ -409,4 +413,60 @@ test("o lembrete não se repete, e a expiração ignora se ele foi enviado", () 
     new Date(pedido.getTime() + minutos * 60_000);
   assert.equal(decidirPorSilencio(pedido, em(7), true), "aguardar");
   assert.equal(decidirPorSilencio(pedido, em(16), true), "expirar");
+});
+
+test("os ESTADOS_POR_PAGAR são exactamente os três que a consulta filtra", () => {
+  // **Uma constante sem consumidor é uma declaração morta**, e o dicionário
+  // §3.44 nomeia esta lista: sem este caso, ela e o `IN (...)` do
+  // `SQL_PEDIDO_POR_PAGAR` eram duas fontes para a mesma regra e podiam
+  // divergir sem ninguém ver — que é o modo de falha que esta casa já pagou
+  // quatro vezes noutro eixo (as contagens em prosa).
+  //
+  // **Nos dois sentidos**, como o `EXERCITADAS` da suite do *gate* 8: um estado
+  // na constante que a consulta não filtre, e um na consulta que a constante não
+  // declare, reprovam os dois.
+  const naConsulta = [...SQL_PEDIDO_POR_PAGAR.matchAll(/'([a-z_]+)'/g)].map(
+    (m) => m[1],
+  );
+  const doEstado = naConsulta.filter((v) =>
+    (ESTADOS_POR_PAGAR as readonly string[]).includes(v as string),
+  );
+  assert.deepEqual(
+    [...new Set(doEstado)].sort(),
+    [...ESTADOS_POR_PAGAR].sort(),
+    "a constante e o IN (...) da consulta divergiram",
+  );
+  // E os três são estados do domínio da coluna (os doze do dicionário §3.3).
+  for (const estado of ESTADOS_POR_PAGAR) {
+    assert.ok(
+      (ORDER_STATES as readonly string[]).includes(estado),
+      `${estado} não é um dos doze ORDER_STATES`,
+    );
+  }
+  // **Três e não «tudo menos `paga`»**: uma encomenda `cancelada` ou `expirada`
+  // não é um pedido por pagar, e afirmar isto impede que alguém «simplifique» a
+  // consulta para `estado <> 'paga'`.
+  for (const fora of ["paga", "cancelada", "expirada", "entregue"] as const) {
+    assert.equal(
+      (ESTADOS_POR_PAGAR as readonly string[]).includes(fora),
+      false,
+      fora,
+    );
+  }
+});
+
+test("os cinco CONFIRMACOES_DO_DONO são o domínio do CHECK da revisão 0030", () => {
+  // A mesma razão: a lista existe para que o módulo e a base digam o mesmo, e
+  // sem um caso que a prenda ela é uma cópia que ninguém confronta. O domínio a
+  // sério é o `orders_mirror_confirmacao_ck`, e quem o mede contra o motor é o
+  // `db/tests_encomendas/test_idempotencia.py`.
+  assert.deepEqual(
+    [...CONFIRMACOES_DO_DONO],
+    ["nao_aplicavel", "pendente", "confirmada", "recusada", "expirada"],
+  );
+  // O valor de omissão da coluna e o que o critério 7 exige são destes cinco.
+  assert.ok((CONFIRMACOES_DO_DONO as readonly string[]).includes("pendente"));
+  assert.ok(
+    (CONFIRMACOES_DO_DONO as readonly string[]).includes("nao_aplicavel"),
+  );
 });
