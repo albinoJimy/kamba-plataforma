@@ -1870,7 +1870,7 @@ está partida em dois sítios.
 
 ### Critérios de Aceitação
 
-- [ ] A **lista fechada de erros da porta** (`ERROS` de `../services/com/src/port/contrato.ts`, dicionário §3.39) deixa de ter cinco valores e passa a expressar o que os módulos devolvem: o `conflito` do CAS (KAM-044) e os nove códigos do `OrdersModule.erro` (§3.44, todos já `tool_audit.error_code` do §3.27, pelo que não entra nome novo no dicionário). **Esta é uma alteração ao dicionário e é decisão do fundador**: o ticket entrega a medição e as opções, não a decisão — ver os Detalhes Técnicos.
+- [ ] A porta expressa o que os módulos devolvem, pela decisão que o fundador tomou a 2026-11-04 e que são **dois movimentos**: o `ERROS` de `../services/com/src/port/contrato.ts` alarga-se aos nove códigos do `OrdersModule.erro` (§3.44), e o `Resultado<T>` ganha um terceiro caso **só para o conflito de CAS**. **Não é deste ticket entregá-la:** o contrato é do **KAM-042**, que o pinou num teste, e a alteração abre em ticket próprio. O que este critério exige é que o KAM-178 **consuma** a porta já alargada — ver os Detalhes Técnicos para o que a decisão diz e o que ela não é.
 - [ ] O COM serve `POST /internal/...` com o cabeçalho `x-kamba-interno` (a forma do KAM-025) e o `x-kamba-tenant` que o KAM-042 já desenhou e que hoje está **verde sobre zero rotas**; uma rota sem `ctx` utilizável responde **fail-closed** e nunca com uma resposta que pareça legítima (ISO-09).
 - [ ] Os **doze** métodos da porta deixam de devolver `NOT_IMPLEMENTED`: `createOrder` e `requestOwnerConfirmation` pelo `create_order.ts`/`owner_confirmation.ts` do KAM-046, `transition`, `getOrder` e `listOrders` pelo módulo do KAM-044, e os de reserva pelo KAM-045 quando ele fundir. O `../docs/com/port-coverage.md` §2 passa a dizer **doze implementados, zero com ticket dono**, e os casos de `xfail strict` do `port.iso.test.ts` são substituídos pelos testes de isolamento a sério — `ctx` do tenant A sobre um id de B dá `TENANT_MISMATCH` ou `NOT_FOUND`, nunca a linha de B.
 - [ ] O `listOrders` ganha o **cursor opaco** e os filtros do ISO-10: filtro vazio, cursor forjado e `OR` injectado são `VALIDATION_ERROR` e nunca devolvem a linha de outro tenant.
@@ -1881,18 +1881,32 @@ está partida em dois sítios.
 
 ### Detalhes Técnicos
 
-- **A decisão que sobe ao fundador, e as três saídas medidas.** O §3.39 fecha os
-  erros da porta em cinco (`NOT_IMPLEMENTED`, `NOT_FOUND`, `TENANT_MISMATCH`,
-  `VALIDATION_ERROR`, `UPSTREAM_DOWN`) e os módulos devolvem mais: o `conflito`
-  do CAS e os nove do `OrdersModule.erro`. As saídas, com o custo de cada uma:
-  **(a)** alargar a lista do §3.39 aos nove — que já são canónicos como
-  `tool_audit.error_code`, pelo que não entra nome novo no dicionário, mas a
-  lista deixa de ser a mesma que o KAM-042 pinou num teste; **(b)** dar à porta
-  um `Resultado` de três casos, o que muda a assinatura dos doze métodos;
-  **(c)** traduzir no adaptador, o que diz ao cliente que o pedido dele não serve
-  quando o que mudou foi o preço. A **(c)** é a que o KAM-044 e o KAM-046
-  recusaram, pela razão escrita nos dois. Entrega-se a medição e a comparação; a
-  escolha é de quem assina o dicionário.
+- **A decisão da porta, tomada a 2026-11-04, e o que ela corrige numa premissa
+  deste bloco.** A primeira versão deste ticket dizia que alargar os erros era
+  «uma alteração ao dicionário». **Não é**, e a medição que o mostra está no
+  próprio ficheiro: o `ERROS` de `../services/com/src/port/contrato.ts` é que
+  fecha os cinco, e o §3.39 do dicionário declara **um** nome — o
+  `NOT_IMPLEMENTED`, «o único nome novo de erro» — e diz dos outros quatro que
+  «importam-se do §3.27 pelo nome em vez de serem redeclarados com significado
+  novo». Os cinco nunca foram o universo dos erros da porta: eram o
+  **subconjunto** de que os doze precisavam quando os doze devolviam todos
+  `NOT_IMPLEMENTED`. Logo alargá-los aos nove do `OrdersModule.erro` — que são
+  nomes do §3.27 — **cumpre** a regra escrita acima da lista em vez de a alterar,
+  e o que muda é a lista no código e a contagem que o `port.contrato.test.ts`
+  pina. É para isso que a contagem existe: quem a mexer vem ler porquê.
+- **E são dois movimentos e não um, porque o `conflito` não é um código de erro.**
+  Uma falha de CAS **não é uma recusa sobre dados** — é «relê e reavalia», e o
+  critério 2 do KAM-044 escreve-o à letra: as dezanove perdedoras «releem e
+  reavaliam (nunca forçam)». Codificá-la como erro é o mesmo erro de categoria
+  que o comentário do `NOT_IMPLEMENTED` avisa, porque «todos descrevem uma recusa
+  sobre dados» e nenhum consegue dizer «tenta outra vez com o que leres agora».
+  Por isso o `Resultado<T>` ganha um terceiro caso **só para o conflito**, e não
+  a tríade genérica: essa mudava a semântica dos doze sem necessidade. O caso
+  novo é o que os módulos já têm.
+- **A terceira saída está excluída, e não por preferência.** Traduzir no
+  adaptador diz a quem chama que o pedido dele não serve quando o que mudou foi o
+  preço. O KAM-044 e o KAM-046 recusaram-na **por escrito e independentemente**,
+  cada um no seu ficheiro; isso é evidência e não gosto.
 - **Rotas:** a forma é a do `POST /internal/turn` e `/internal/resume` do
   KAM-025 — credencial no cabeçalho, comparação em tempo constante, e o segredo
   no inventário. Reaproveita-se o `agr_internal_token`? **Não:** uma credencial
@@ -1934,7 +1948,7 @@ está partida em dois sítios.
 - [ ] **Números só de tools:** o `Fact` construído na TLS a partir do número do backend; o modelo nunca soma (ADR-007).
 - [ ] **Sem segredos:** a credencial da API interna e o `segredo_intents` no cofre, com entrada no inventário.
 - [ ] **Idempotência:** o duplo toque através do grafo dá uma encomenda, com as duas barreiras do §6.3 medidas (ADR-013).
-- [ ] **A decisão do §3.39 tomada e registada** por quem assina o dicionário, com a emenda escrita.
+- [ ] **A porta alargada já fundiu** pelo ticket do KAM-042, e este consome-a: nenhum método traduz um `PRICE_CHANGED` para `VALIDATION_ERROR` nem um conflito de CAS para um erro.
 - [ ] Linha de «Controlo de versões» em cada documento formal tocado, e o campo `Versão` do cabeçalho a condizer.
 - [ ] Revisão adversarial independente, com os achados verificados.
 
@@ -1949,8 +1963,9 @@ KAM-046), docs/com/port-coverage.md, docs/tecnica/03_Core_Comercio_Medusa.md
 KAM-029 e KAM-031).
 Objectivo: a API interna do COM, os doze metodos da porta ligados ao adaptador, e
 os executores das tools de comercio da ToolLayer a chamar essa API.
-- A lista de cinco erros do §3.39 nao expressa o que os modulos devolvem. Entrega
-  a medicao e as tres saidas; a escolha e do fundador e nao tua.
+- A porta alargada (nove codigos no ERROS, mais um terceiro caso no Resultado
+  so para o conflito de CAS) e decisao tomada e NAO e deste ticket: e do
+  KAM-042, em ticket proprio. Consome-a; nao a entregues aqui.
 - O comTenant CONFIRMA quando o trabalho devolve um valor: uma recusa depois de
   uma escrita confirma essa escrita. Ver o reservarIntencao do KAM-046.
 - A saga do §6.3 precisa de DUAS transaccoes que confirmem em instantes
@@ -2009,4 +2024,4 @@ duplo toque pelo grafo. PR com o template §7. Commits: feat(KAM-178): ...
 | 1.5 | Novembro 2026 | **KAM-044: as duas secções de verificação, depois de o código ter fundido — e isso é um defeito de processo que fica dito.** O PR #112 fundiu a 2026-11-03 (`84f3169`) com os treze portões bloqueantes verdes e **sem tocar neste ficheiro**, pelo que o bloco ficou com as catorze caixas por marcar e sem secção de verificação; nesse intervalo o `vagas.py` da fábrica contou o KAM-044 como **vaga pronta**, porque decide pela existência do cabeçalho «Verificação dos Critérios de Aceitação» e não pelas caixas. **Cinco critérios marcados de oito e quatro itens de seis na DoD**, cada um com nome de ensaio e saída de execução. **Os três critérios devolvidos não são trabalho deste ticket, e o credor de cada um está nomeado:** o 3 pede que o evento seja autenticado pelo PAY, o que exige a FK `payment_charges.order_id` que não existe (**KAM-055**, a quem esta entrega impõe um contrato novo — inserir em `events_consumed` antes de chamar `transition`); o 7 pede um *job* agendado (**KAM-071**) e correcções que são do `createOrder` (**KAM-046**), do `releaseReservation` (**KAM-045**) e do lado do Registo, que é **NÃO VERIFICADO** por não haver Medusa em `../infra/compose/`; e o 8 pede seis eventos quando o sexto **não tem contrato publicado** — saem cinco, a ausência está medida em ensaio e a divergência é a **dívida 174**, sem credor. Na DoD ficam vazios o 1, que é a soma dos outros, e o 6, cuja segunda metade pede «revisão por dois revisores»: houve **uma** revisão adversarial independente, com os doze achados verificados um a um, e emendar a letra de um critério é de quem o escreveu. **Uma ressalva do critério 6 é agora um ticket:** o `FOR EACH STATEMENT` do registo é `BEFORE TRUNCATE OR DELETE` e deixa passar um `UPDATE` sem linhas a quem tem o privilégio — dívida 176, credor **KAM-176**. Nenhuma linha de código é tocada por esta emenda. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-044, critério 8: o sexto evento não existe, por decisão do fundador a 2026-11-04, e a caixa fecha.** A letra do critério enumerava seis eventos e o sexto — `order.reconciliation_issue` — não tinha contrato publicado, não estava nos trinta e oito tipos do §3.5 do dicionário e não estava no `../docs/tecnica/06` §5: estava só no §12 do `../docs/tecnica/03`, de onde saiu nesta data. O critério passa à **forma canónica** — cinco eventos —, pelo mesmo mecanismo com que o KAM-051 pôs quatro dos seus critérios caducados na forma do canon, e a célula da verificação passa de `parcial` a **marcada**. **A caixa 1 da Definition of Done continua vazia**, porque os critérios 3 e 7 continuam devolvidos: o 3 espera a FK do **KAM-055** e o 7 espera o **KAM-071**, o **KAM-046** e o **KAM-045**. Passa a ser **seis critérios marcados de oito**. O ensaio `test_o_sexto_tipo_nao_tem_contrato_publicado` fica e muda de papel: media uma ausência, passa a guardar a decisão. **A proveniência da decisão, porque afirmá-la sem ela era uma afirmação sem medição:** resposta directa do fundador a esta sessão (a do KAM-044) a 2026-11-04, à pergunta de qual das duas saídas que a dívida 174 escreveu seguir. **E o que o fecho da 174 deixou em aberto entra como dívida 177**, com credor **KAM-080**: a regra (2) do §10.3 fica com registo e com métrica e sem caminho de alerta. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-046: as duas secções de verificação, com três critérios de oito e duas caixas de DoD.** O bloco ganha a «Verificação dos Critérios de Aceitação» e a «Verificação da Definition of Done», com os critérios 3, 4 e 8 **marcados** e as caixas 4 (privacidade) e 5 (isolamento) do DoD. **Os cinco que ficam `parcial` ficam pela mesma família de razão, e cada um com o credor escrito:** o critério 1 e a caixa 3 do DoD pedem o envelope `Fact`, que é do contrato da ToolLayer e vive em Python (**KAM-029/KAM-031**); o critério 2 pede que o segredo «venha do cofre» e não há quem monte o módulo, porque a API interna do COM não existe (**o ticket que ligar a porta**); o critério 5 pede a reconciliação «≤ 5 min» e o estado que a falha produz — um recibo sem encomenda — **não é** nenhum dos cinco tipos de divergência do §10.3, nem há agendador (**KAM-071**); o critério 6 pede `OUT_OF_STOCK` e a `offer_terms` não tem coluna de quantidade, com o Registo da opção B a não existir em `../infra/compose/` (**KAM-045**); e o critério 7 pede o `charge.requested`, que **não existe** no catálogo publicado nem no §3.5 — vive só no §12 do `../docs/tecnica/03`, que é a dívida **37** (**KAM-054/055**, mais um ticket de canon), além do horário comercial do tenant (**Produto**, calibração no **KAM-096**) e do agendador do prazo (**KAM-071**, com o aviso ao dono no **KAM-115**). **Uma caixa do DoD é devolvida a quem a escreveu:** «revisão por dois revisores (dinheiro)» foi escrita antes da decisão do fundador de Outubro de 2026, que fixou **uma** revisão adversarial por ticket; o que o ticket entrega é uma revisão independente, com os achados verificados. **E duas decisões do ticket ficam registadas aqui porque mudam o que o bloco afirma:** a *saga* é de **duas** transacções e não de uma — com uma só, o `order_intents` nunca ficava `em_curso` e a retoma dos dois minutos do critério 5 guardava um estado inalcançável —, e o `cart_id` **não** é a `intent_key`, porque ele sai no botão `confirm:{cart_id}` que o cliente vê e devolve, e uma chave de idempotência que o cliente conhece é uma chave que o cliente pode citar. O ticket **não escreveu revisão de base de dados**: as cinco tabelas, os três *triggers* e as duas unicidades são da `0030` (KAM-044). | Equipa KAMBÁ |
-| 1.8 | Novembro 2026 | **KAM-178** acrescentado, e **não entregue no mesmo PR** — a mesma forma do KAM-176. **O número lê-se da base e este vai mudar, e isso está dito em vez de ser descoberto:** a 1.8 é a seguinte à 1.7 que o KAM-046 fundiu, e o PR do **KAM-176** reclama a 1.8 e a 1.9 ao mesmo tempo. Deixar-lhe os dois números e tomar a 1.10 **não é alcançável**: o `lint_backlog` recusa um buraco na sequência, pelo que um ramo verde não pode reservar números para outro. Como o KAM-176 tem o número de ticket mais baixo, funde primeiro — e então este ramo re-integra e esta linha passa a **1.10**. O que se entrega: o que se entrega é o ticket. Fecha a lacuna que o KAM-046 nomeou ao entregar: o **credor que liga o backend** não existia em ticket nenhum, apesar de o KAM-042 (API interna do COM), o KAM-044 (ligação do `transition` à porta) e o KAM-031 (executores das cinco tools) o terem deferido por escrito, cada um com outras palavras e nenhum com um `KAM-NNN`. Sem ele, três caixas do KAM-046 ficam sem quem as feche. O bloco leva **uma decisão que é do fundador** e não do executor: a lista de erros que o §3.39 do dicionário fecha em cinco não expressa o `conflito` do CAS (KAM-044) nem os nove códigos que o KAM-046 declara, e o critério 1 entrega a medição e as três saídas com o custo de cada uma. **A tabela do §3 e a contagem do §2 acompanham** (12 → **13** tickets, 8 → 9 na Fase 0), e o `Bloqueia` do KAM-042 e do KAM-046 ganha a aresta recíproca que a dependência obriga. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | **KAM-178** acrescentado, e **não entregue no mesmo PR** — a mesma forma do KAM-176. **O número lê-se da base e este vai mudar, e isso está dito em vez de ser descoberto:** a 1.8 é a seguinte à 1.7 que o KAM-046 fundiu, e o PR do **KAM-176** reclama a 1.8 e a 1.9 ao mesmo tempo. Deixar-lhe os dois números e tomar a 1.10 **não é alcançável**: o `lint_backlog` recusa um buraco na sequência, pelo que um ramo verde não pode reservar números para outro. Como o KAM-176 tem o número de ticket mais baixo, funde primeiro — e então este ramo re-integra e esta linha passa a **1.10**. O que se entrega: o que se entrega é o ticket. Fecha a lacuna que o KAM-046 nomeou ao entregar: o **credor que liga o backend** não existia em ticket nenhum, apesar de o KAM-042 (API interna do COM), o KAM-044 (ligação do `transition` à porta) e o KAM-031 (executores das cinco tools) o terem deferido por escrito, cada um com outras palavras e nenhum com um `KAM-NNN`. Sem ele, três caixas do KAM-046 ficam sem quem as feche. **A decisão da porta foi tomada a 2026-11-04**, e corrige uma premissa da primeira versão deste bloco: alargar os erros **não** é alterar o dicionário — o `ERROS` de `../services/com/src/port/contrato.ts` é que fecha os cinco, e o §3.39 declara **um** nome e manda importar os outros do §3.27 pelo nome, pelo que alargá-los aos nove **cumpre** a regra. São dois movimentos (os nove códigos, e um terceiro caso no `Resultado<T>` só para o conflito de CAS), o credor é o **KAM-042** e abre em ticket próprio; o critério 1 deste bloco passa a **consumir** a porta alargada. **A tabela do §3 e a contagem do §2 acompanham** (12 → **13** tickets, 8 → 9 na Fase 0), e o `Bloqueia` do KAM-042 e do KAM-046 ganha a aresta recíproca que a dependência obriga. | Equipa KAMBÁ |
