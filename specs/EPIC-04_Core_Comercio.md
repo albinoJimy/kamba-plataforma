@@ -2154,6 +2154,41 @@ ausência de vermelho era informação e não ruído.
 | A caixa da **própria revisão adversarial** estava `[x]` com a célula de prova a ser o marcador `REVISAO_ADVERSARIAL`, não preenchido. É **o mesmo defeito que a linha 1.9 deste epic nomeia** a propósito do KAM-176, reproduzido mil linhas abaixo | Preenchida com esta revisão, e a lição fica: marcar a caixa da revisão em lote com as outras é marcá-la antes de a revisão existir |
 | A caixa 6 da DoD estava **devolvida contra a letra que este PR já tinha emendado**, e a contagem da prosa (quatro) discordava das caixas (três) | A caixa 6 está marcada e a célula verifica a letra que o ticket tem. A contagem era o sintoma |
 
+#### A lição deste ticket não é a contagem: é como os seis apareceram
+
+**Seis dos vinte só apareceram por mutação, e a minha *self-validation* tinha
+corrido tudo verde sem mutar nada.** É a frase que vale guardar deste bloco, e
+não o 20/20. As baterias que eu escrevi passavam; o que elas não faziam era
+responder à pergunta seguinte — *falhariam se a propriedade fosse violada?* Em
+seis casos a resposta era **não**, e nenhuma quantidade de releitura o mostrava:
+`299` em todos os estados HTTP, o `platform.` fora das três tabelas, o contacto
+trocado no corpo, um `self.fail()` dentro de um ramo — e verde nos quatro.
+
+**E o caso que mais ensina não é nenhum desses: é a recíproca que eu escrevi
+para evitar o defeito e que media o caso errado.** Ela afirmava, sobre um
+carrinho editado, o `draft_id` igual e a versão a subir — mas editava **depois**
+de confirmar, onde o que é certo é o `draft_id` **novo**. Media (b) com a
+asserção de (a), passava, e passava com confiança: o nome dizia «carrinho
+editado», a asserção era plausível, e o caso vizinho que ela devia proteger
+estava aberto. Só se denunciou quando a correcção do defeito a deixou
+**vermelha** — isto é, quando o produto passou a estar certo, o teste passou a
+estar errado, e foi essa inversão que o revelou.
+
+> **Um teste que mede o caso errado passa, e passa com confiança.**
+
+Daí as duas disciplinas que este bloco deixa, e que não são sobre mais cuidado:
+
+```text
+MUTAR      antes de dizer que uma propriedade esta medida, viola-a e exige o vermelho
+CONTROLO   um canario de recusa sem o caminho legitimo ao lado nao mede a recusa
+```
+
+A segunda é a que o `repo-base/index.ts` já tinha escrito — «é a segunda vez
+neste ficheiro que um caso que afirma o **uso correcto** encontra o defeito; os
+canários da recusa passavam todos» — e que este ticket repetiu em três sítios: o
+`cart_id` obrigatório, o filtro por contacto do `listOrders` e os contadores do
+`/metrics`, os três com o caminho legítimo acrescentado ao lado das recusas.
+
 **Dois achados ficam sem correcção no PR, e os dois são ditos em vez de
 escondidos.** O **oitavo** é que a sentinela do `lint_arch medusa` é uma frase:
 ela aceita qualquer ficheiro onde a cadeia `x-kamba-tenant` apareça, pelo que a
