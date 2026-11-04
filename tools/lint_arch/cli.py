@@ -5,6 +5,8 @@
     python -m lint_arch commit-msg <ficheiro>    mensagem de commit
     python -m lint_arch pr-title [<titulo>]      titulo de PR (KAM-164)
     python -m lint_arch pr-title-canario         prova que o pr-title morde
+    python -m lint_arch commit-range             mensagens dos commits do PR (KAM-174)
+    python -m lint_arch commit-range-canario     prova que o commit-range morde
     python -m lint_arch branch [<nome>]          nome de ramo
     python -m lint_arch tool-schema [--root .]   esquemas de tool (KAM-028)
     python -m lint_arch medusa [--root .]        Registo de comercio (KAM-042)
@@ -23,7 +25,8 @@ import sys
 from pathlib import Path
 
 from . import blocklist as blocklist_module
-from . import canario_titulo
+from . import canario_commits, canario_titulo
+from . import commits as commits_module
 from . import conventions as conventions_module
 from . import manifests, medusa, names, structure, tool_schema, versions
 
@@ -181,6 +184,16 @@ def _check_aliases(root: Path) -> list[str]:
 #: *shell* na maquina do CI. Pelo ambiente, o titulo nunca passa pelo *shell*.
 AMBIENTE_TITULO_PR = "KAMBA_PR_TITLE"
 
+#: Variaveis de onde o `commit-range` le o accionamento e o *merge ref* quando
+#: nenhum e passado na linha de comando (KAM-174). Os dois valores vao **em
+#: bruto**, como o evento os traz, e quem decide o que fazer com eles e
+#: `commits.decidir_intervalo`, que e uma funcao pura com testes. E a forma do
+#: *gate* 9 (`GATE9_EVENTO`, `GATE9_BASE`, `GATE9_HEAD`), e existe pela mesma
+#: razao: nao ha *lint* de *workflows* neste repositorio, pelo que uma condicao
+#: escrita em YAML nao seria verificavel por teste nenhum.
+AMBIENTE_EVENTO = "GATE2_EVENTO"
+AMBIENTE_MERGE_REF = "GATE2_MERGE_REF"
+
 
 def _ajuda_do_titulo(title: str, rules: conventions_module.Conventions) -> str:
     """O bloco de ajuda de um titulo recusado, no padrao do `tools/githooks/commit-msg`.
@@ -217,6 +230,45 @@ def _ajuda_do_titulo(title: str, rules: conventions_module.Conventions) -> str:
         "  verificacao corre outra vez no evento `edited`.\n"
         "\n"
         "  As regras estao em tools/conventions.json (specs/01 §5 e §7).\n"
+    )
+
+
+def _ajuda_da_mensagem(rules: conventions_module.Conventions) -> str:
+    """O bloco de ajuda de um intervalo recusado (KAM-174).
+
+    No padrao do `_ajuda_do_titulo` e do `tools/githooks/commit-msg`, com uma
+    diferenca: **nao ecoa a mensagem**. Os assuntos recusados ja vao, um por
+    linha, no relatorio do `_report`, e cada um deles passou pelo `!r` de
+    `AchadoNoCommit.__str__` — que escapa a nova linha e com ela o inicio de
+    linha de que um *workflow command* precisa. Ecoa-los aqui outra vez era
+    repetir a lista e abrir a mesma porta duas vezes.
+
+    O que esta ajuda diz, e que a do titulo nao pode dizer: **como se corrige**.
+    Um assunto de *commit* vive no ramo, pelo que a correccao e reescrever o
+    proprio ramo — que o autor pode fazer, ao contrario de um *commit* de `main`.
+    """
+    return (
+        "\n"
+        "  Formato esperado:  tipo(KAM-NNN): descricao no imperativo\n"
+        "  Exemplo:           fix(KAM-174): le as mensagens dos commits do intervalo\n"
+        f"  Tipos:             {', '.join(rules.types)}\n"
+        "\n"
+        "  Isentos (tools/conventions.json, exemptHeaderPatterns): "
+        f"{', '.join(rules.exempt_header_patterns)}\n"
+        "  — o `Merge branch ...` que o git escreve ao trazer a main para dentro do\n"
+        "  ramo e isento, e nao precisa de ser baptizado a mao.\n"
+        "\n"
+        "  O que se varre: so os commits que este PR acrescenta (do primeiro ao segundo\n"
+        "  pai do merge ref). Nenhum commit de main entra no intervalo, pelo que o que\n"
+        "  esta vermelho e teu e corrige-se no teu ramo:\n"
+        "\n"
+        "      git rebase -i <primeiro pai>   # ou `git commit --amend` no ultimo\n"
+        "\n"
+        "  Porque e que o assunto do commit conta: com squash_merge_commit_title:\n"
+        "  COMMIT_OR_PR_TITLE, num PR de um so commit o GitHub leva o assunto desse\n"
+        "  commit para o main — e nenhum outro portao o le.\n"
+        "\n"
+        "  As regras estao em tools/conventions.json (specs/01 §5).\n"
     )
 
 
@@ -265,6 +317,32 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "pr-title-canario",
         help="prova que o pr-title recusa o que tem de recusar (KAM-164)",
+    )
+    commit_range = sub.add_parser(
+        "commit-range",
+        help="valida as mensagens dos commits que o PR acrescenta (KAM-174)",
+    )
+    commit_range.add_argument(
+        "--evento",
+        default=None,
+        help=f"o accionamento, em bruto (omitido: le-se de ${AMBIENTE_EVENTO})",
+    )
+    commit_range.add_argument(
+        "--merge-ref",
+        default=None,
+        help=f"o merge ref do evento, em bruto (omitido: ${AMBIENTE_MERGE_REF})",
+    )
+    commit_range.add_argument(
+        "--exigir-intervalo",
+        action="store_true",
+        help=(
+            "esta invocacao e a do portao: dentro do CI, um accionamento vazio "
+            "passa a ser erro em vez de modo local (passa-a so o alvo `ci-2`)"
+        ),
+    )
+    sub.add_parser(
+        "commit-range-canario",
+        help="prova que o commit-range recusa o que tem de recusar (KAM-174)",
     )
     branch = sub.add_parser("branch", help="valida um nome de ramo")
     branch.add_argument("name", nargs="?", help="nome do ramo (omitido: o ramo actual)")
@@ -321,6 +399,63 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"lint_arch pr-title canario: {numeros['negativos']} negativos e "
                 f"{numeros['positivos']} positivos; {len(falhas)} falha(s)"
+            )
+            return 1 if falhas else 0
+        if args.command == "commit-range":
+            # Os dois valores vao em bruto. Quem decide e `decidir_intervalo`,
+            # que levanta `IntervaloInvalido` — um ValueError, pelo que o
+            # `except` abaixo o traduz em codigo 2. Fail-closed: um accionamento
+            # que decide um merge e nao traz merge ref e configuracao quebrada,
+            # nao um PR conforme.
+            evento = (
+                args.evento
+                if args.evento is not None
+                else os.environ.get(AMBIENTE_EVENTO, "")
+            )
+            merge_ref = (
+                args.merge_ref
+                if args.merge_ref is not None
+                else os.environ.get(AMBIENTE_MERGE_REF, "")
+            )
+            # **A conjuncao das duas, e nenhuma delas sozinha.** A bandeira diz
+            # «esta invocacao e a do portao» — o `ci-2` passa-a, o `bootstrap`
+            # nao —, e o `CI` diz «ha um accionamento a chegar». Sem a bandeira,
+            # a guarda punha vermelha a invocacao que o `make bootstrap` faz
+            # dentro de **todos** os jobs que usam a accao `preparar`; sem o
+            # `CI`, punha vermelho o `make ci-2` de quem desenvolve, que nao tem
+            # PR. Juntas, restam os casos em que as variaveis deviam ter chegado
+            # e nao chegaram.
+            exigir = args.exigir_intervalo and bool(os.environ.get("CI", "").strip())
+            intervalo = commits_module.decidir_intervalo(evento, merge_ref, exigir)
+            if intervalo.modo == commits_module.MODO_SEM_PASSAGEM:
+                # Declara-se o modo em vez de passar em silencio: uma execucao
+                # local que nao varre nada nao pode ler-se como «os commits estao
+                # conformes».
+                print(
+                    f"lint_arch: mensagens dos commits: NAO verificadas "
+                    f"({intervalo.razao})"
+                )
+                return 0
+            resultado = commits_module.verificar_intervalo(
+                root, intervalo.pai1, intervalo.pai2, rules
+            )
+            commits_module.exigir_commits(evento, resultado.commits)
+            status = _report(
+                "mensagens dos commits",
+                [str(achado) for achado in resultado.achados],
+            )
+            print(f"lint_arch: mensagens dos commits: {resultado.onde}")
+            if status != 0:
+                print(_ajuda_da_mensagem(rules), file=sys.stderr)
+            return status
+        if args.command == "commit-range-canario":
+            falhas, numeros = canario_commits.canario(rules)
+            for falha in falhas:
+                print(f"canario: {falha}", file=sys.stderr)
+            print(
+                f"lint_arch commit-range canario: {numeros['negativos']} negativos, "
+                f"{numeros['positivos']} positivos e {numeros['commits']} commit(s) "
+                f"no intervalo descartavel; {len(falhas)} falha(s)"
             )
             return 1 if falhas else 0
         if args.command == "branch":
