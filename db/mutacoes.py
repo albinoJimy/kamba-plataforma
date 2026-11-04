@@ -6396,7 +6396,7 @@ def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
     * `registry/` e `specs/INDICE.md` — a enumeracao de *tools* e de
       consumidores le o registo, e o leitor de dispensas confronta o credor com
       o §4 do backlog;
-    * `services/`, `packages/*/src` e `libs/py-core/src` — **a fonte que a
+    * `services/*/src`, `packages/*/src` e `libs/py-core/src` — **a fonte que a
       enumeracao varre e que o *lint* le**. Sem elas a enumeracao devolvia zero
       itens e levantava, e a linha de base da suite ficava vermelha: uma
       mutacao «apanhada» sobre isso nao significa nada (a licao que o KAM-004
@@ -6416,7 +6416,21 @@ def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
     shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
     (destino / "specs").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "specs" / "INDICE.md", destino / "specs" / "INDICE.md")
-    shutil.copytree(RAIZ / "services", destino / "services", ignore=ignorar)
+    # **O `src/` de cada servico, e nunca a raiz do servico.** Os
+    # `services/<nome>/node_modules` levam as ligacoes de *workspace* do pnpm, e
+    # o `copytree` **segue-as**: no Linux isso da uma recursao por
+    # `@kamba/core-ts` -> `@kamba/meta-sim` -> `@kamba/core-ts` ate o caminho
+    # nao caber, e o `shutil.Error` tem um nome de ficheiro de quatro mil
+    # caracteres. Medido no gate 8 (`db/tests/test_mutacoes.py` exercita esta
+    # funcao). No Windows o mesmo caminho dava `WinError 1920`, por nao
+    # conseguir seguir as ligacoes — o mesmo defeito a falhar de duas maneiras.
+    for servico in ("agr", "com", "gwy", "worker-canal", "onboarding-web"):
+        shutil.copytree(
+            RAIZ / "services" / servico / "src",
+            destino / "services" / servico / "src",
+            ignore=ignorar,
+            dirs_exist_ok=True,
+        )
     for pacote in ("contracts", "core-ts"):
         shutil.copytree(
             RAIZ / "packages" / pacote / "src",

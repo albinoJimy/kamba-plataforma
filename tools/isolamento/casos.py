@@ -93,6 +93,15 @@ RESERVADAS = ("X-07",)
 
 _TICKET = re.compile(r"^KAM-[0-9]{3}$")
 
+#: As chaves de topo que `ci/isolamento-dispensas.yaml` aceita.
+#:
+#: Constante e nao literal dentro do `exigir_chaves`: ha um portao no
+#: `tools/lint_arch/tests/test_kamba_yaml.py` que confronta **cada** `ci/*.yaml`
+#: com o conjunto que o seu leitor declara, e com o literal enterrado na funcao
+#: ele tinha de o repetir — duas copias a divergir no dia em que uma chave
+#: nascesse. Um ficheiro de `ci/` sem leitor declarado falha o gate 4.
+CHAVES = frozenset({"version", "dispensas"})
+
 #: O minimo de corpo de uma razao de dispensa. Ver o ponto 2 da *docstring*.
 RAZAO_MINIMA = 60
 
@@ -234,7 +243,7 @@ def ler_dispensas(raiz: Path = RAIZ) -> dict[str, Dispensa]:
     if not caminho.is_file():
         raise RegistoInvalido(f"ficheiro em falta: {caminho}")
     dados = load_file(caminho)
-    exigir_chaves(dados, {"version", "dispensas"}, caminho.name, erro=RegistoInvalido)
+    exigir_chaves(dados, set(CHAVES), caminho.name, erro=RegistoInvalido)
     if dados.get("version") != 1:
         raise RegistoInvalido(f"{caminho.name}: 'version' tem de ser 1")
     tickets = _tickets_do_backlog(raiz)

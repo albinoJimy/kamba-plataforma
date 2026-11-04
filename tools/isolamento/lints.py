@@ -137,13 +137,18 @@ class Excepcao:
 _TICKET = re.compile(r"^KAM-[0-9]{3}$")
 RAZAO_MINIMA = 80
 
+#: As chaves de topo que `ci/isolamento-set-sessao.yaml` aceita. Constante
+#: pela razao escrita no `CHAVES` de `casos.py`: o gate 4 confronta cada
+#: `ci/*.yaml` com o conjunto que o seu leitor declara.
+CHAVES = frozenset({"version", "excepcoes"})
+
 
 def ler_excepcoes(raiz: Path = RAIZ) -> dict[str, Excepcao]:
     caminho = raiz / "ci" / "isolamento-set-sessao.yaml"
     if not caminho.is_file():
         raise LintInvalido(f"ficheiro em falta: {caminho}")
     dados = load_file(caminho)
-    exigir_chaves(dados, {"version", "excepcoes"}, caminho.name, erro=LintInvalido)
+    exigir_chaves(dados, set(CHAVES), caminho.name, erro=LintInvalido)
     if dados.get("version") != 1:
         raise LintInvalido(f"{caminho.name}: 'version' tem de ser 1")
     entradas: dict[str, Excepcao] = {}
