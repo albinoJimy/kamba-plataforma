@@ -37,6 +37,31 @@ disciplina do resto: nenhuma afirmação sem a medição que a sustenta.
 omissão do compose; a D12 continua **aberta**, como já estava; a ADR-P09
 continua **proposta**.
 
+> **ACRESCENTO DE 2026-11-03, DEPOIS DE O ENSAIO SER ENTREGUE: o fundador
+> deferiu.** A sessão que orquestra o trabalho relatou a decisão — **fica a
+> *flag*, a omissão em Valkey mantém-se, e a D12 não fecha agora**.
+>
+> **A proveniência fica dita porque importa:** a decisão chegou-me **relatada
+> por essa sessão** e não lida por mim no registo de decisões da Carta §4.2. Não
+> se escreveu nada nesse registo a partir daqui — registar uma decisão do
+> fundador no canon não é acto de quem executa o ticket —, e o que este ADR
+> local registra é o **ensaio**, que é o que o critério 6 lhe pede.
+>
+> **O que a deferição muda:** nada no código e nada nos dois ficheiros de
+> licença, onde o Redis e a Valkey seguem os dois `pendentes_de_decisao`
+> (verificado, e de propósito não alterado). O que muda é o estado da caixa do
+> critério 6: deixa de ser uma pergunta em aberto e passa a ser uma caixa
+> **devolvida com o decisor nomeado**.
+>
+> **E a razão da deferição vale ser escrita, porque explica porque é que uma
+> decisão de licença não bloqueou um PR.** O `${KAMBA_QUEUE_IMAGE}`, o
+> `${KAMBA_QUEUE_CLI}` e o nome neutro do serviço `queue` tornam a troca para
+> Redis **um valor de ambiente e não uma reescrita**; e não há produção para
+> afectar enquanto a **D1** não decidir o alojamento. O custo de reverter a
+> omissão está medido em **uma variável**. **Isto não é uma dispensa** — é a
+> decisão adiada com o custo de a mudar conhecido, que é o contrário de a adiar
+> sem saber o que custa.
+
 Não se marca o critério 6 como satisfeito. E também **não** se executa a segunda
 metade dele («se falhar, regressa-se a Redis e abre-se D12»): o ensaio não
 *falhou* — ficou **incompleto**, e a diferença entre as duas coisas é exactamente
