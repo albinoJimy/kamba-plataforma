@@ -293,6 +293,15 @@ def _correr_na_imagem(
             alvo = modulos / relativo / "node_modules"
             if not alvo.is_dir():
                 continue
+            # **O ponto de montagem tem de existir na arvore montada**, e e por
+            # isso que esta linha existe: o `/repo` vai `:ro`, e o Docker nao
+            # cria um directorio dentro de um *bind* de leitura para servir de
+            # ponto de montagem — sai **125** («error in docker run») antes de o
+            # `node` arrancar, e o condutor nao deixa relatorio nenhum. Medido:
+            # os quatro grupos sairam 125 na copia que a prova por mutacao
+            # constroi. A pasta cria-se **na copia**, que e nossa; a arvore real
+            # nunca chega aqui, porque la `modulos == raiz`.
+            (raiz / relativo / "node_modules").mkdir(parents=True, exist_ok=True)
             dentro = (relativo / "node_modules").as_posix()
             comando += ["--volume", f"{alvo.as_posix()}:/repo/{dentro}:ro"]
     for nome in VARIAVEIS:
