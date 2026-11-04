@@ -27,10 +27,16 @@
  * chegar cada método devolve `NOT_IMPLEMENTED` com o ticket dono escrito em
  * `docs/com/port-coverage.md`.
  *
- * **Desde o KAM-178 são oito os ligados e quatro os que esperam**, e os quatro
- * são os das reservas (KAM-045). Os `ERROS` passaram de cinco a dez e o
- * `Resultado` ganhou um terceiro caso para o conflito de CAS — ver as notas de
- * cada um, e o `docs/com/port-coverage.md` §2 para o estado de cada método.
+ * **Desde o KAM-178 são sete os ligados e cinco os que esperam**, e os cinco
+ * **não são todos do KAM-045**: quatro são as reservas, que são um ticket de
+ * implementação, e o quinto é o `createOrder`, cujo credor é uma **decisão**
+ * sobre o `OrderIntent` desta página — a *saga* existe e serve-se pela API
+ * interna. A distinção está escrita no método, e apagá-la aqui era desfazer o
+ * que o ticket pagou para dizer.
+ *
+ * Os `ERROS` passaram de cinco a dez e o `Resultado` ganhou um terceiro caso
+ * para o conflito de CAS — ver as notas de cada um, e o
+ * `docs/com/port-coverage.md` §2 para o estado de cada método.
  */
 
 /** O mínimo de um cliente SQL de que a porta e os adaptadores precisam. */
@@ -188,7 +194,11 @@ export function conflito<T>(valor: T): Conflito<T> {
   return { tipo: "conflito", valor };
 }
 
-/** Atalho para o `NOT_IMPLEMENTED`. Hoje é o que os quatro do KAM-045 devolvem. */
+/**
+ * Atalho para o `NOT_IMPLEMENTED`. Hoje é o que **cinco** métodos devolvem: os
+ * quatro das reservas (KAM-045) e o `createOrder`, por uma razão de outra
+ * natureza — ver o método, e o `docs/com/port-coverage.md` §2.
+ */
 export function naoImplementado<T>(): ResultadoFinal<T> {
   return { tipo: "erro", erro: "NOT_IMPLEMENTED" };
 }

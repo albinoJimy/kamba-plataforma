@@ -142,16 +142,27 @@ export const TABELA_DAS_INTENCOES = "platform.order_intents";
  * **importam-se** de lá pelo nome em vez de serem redeclarados com significado
  * novo. Nenhum nome novo entra no dicionário por causa desta lista.
  *
- * **E não são os cinco `ERROS` da porta `CommerceRegistry`** (§3.39). Essa lista
- * fecha em `NOT_IMPLEMENTED`, `NOT_FOUND`, `TENANT_MISMATCH`,
- * `VALIDATION_ERROR` e `UPSTREAM_DOWN`, e **nenhum** dos quatro códigos que os
- * critérios 4 e 6 nomeiam cabe lá: um `PRICE_CHANGED` traduzido para
- * `VALIDATION_ERROR` dizia ao cliente que o pedido dele não serve, quando o que
- * mudou foi o preço e o que ele tem de fazer é ver o novo. É exactamente a
- * mesma tensão que o KAM-044 encontrou com o `conflito` do CAS, e resolve-se da
- * mesma forma: o módulo tem o seu domínio, e **ligar isto aos métodos 4 e 5 da
- * porta é alterar o §3.39** — o que é canon e não é deste ticket. Fica registado
- * em `docs/com/port-coverage.md` §2 com o credor.
+ * **E são agora os mesmos nove da porta `CommerceRegistry`** (§3.39, emenda
+ * 1.59), que é a dívida documental **179** a ser paga pelo KAM-178. Esta nota
+ * dizia que eles não eram os da porta, que «nenhum dos quatro códigos que os
+ * critérios 4 e 6 nomeiam cabe lá» e que «ligar isto aos métodos 4 e 5 da porta
+ * é alterar o §3.39 — o que é canon e não é deste ticket». **Das três, uma era
+ * verdadeira, uma era falsa e a terceira era uma inferência errada**, e vale
+ * separá-las porque foi a terceira que fez o dano:
+ *
+ *   verdadeira  alargar o `ERROS` **toca** o §3.39, que declara o contrato da
+ *               porta, pelo que pede emenda
+ *   falsa       «nenhum dos quatro cabe la» — os quatro sao precisamente nomes
+ *               dos treze do §3.27, que e de onde o §3.39 manda importar
+ *   inferencia  tratar «toca o §3.39» como «precisa do fundador», quando e uma
+ *               emenda de linha **L5** que *segue* a regra que o §3.39 escreve
+ *
+ * O que **se preserva**, porque estava certo e foi o que decidiu o terceiro caso
+ * do `Resultado<T>`: um `PRICE_CHANGED` traduzido para `VALIDATION_ERROR` dizia
+ * ao cliente que o pedido dele não serve quando o que mudou foi o preço, e é
+ * exactamente a mesma tensão que o KAM-044 encontrou com o `conflito` do CAS.
+ * **A resolução foi a mesma para as duas e não a tradução:** a porta passou a
+ * dizer o que os módulos dizem.
  */
 export const ERROS_DA_CRIACAO = [
   "NOT_FOUND",

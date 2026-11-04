@@ -182,8 +182,9 @@ export class ChamadaNaoPermitidaError extends Error {
   override readonly name = "ChamadaNaoPermitidaError";
   constructor(sql: string) {
     super(
-      "o Registo.emitir aceita duas cadeias e mais nenhuma: a do " +
-        "platform.evt_emitir e a do platform.audit_append. Nao e um cliente " +
+      "o Registo.emitir aceita quatro cadeias e mais nenhuma: o " +
+        "platform.evt_emitir, o platform.audit_append, o platform.ten_tecto e " +
+        "o SELECT do platform.order_state_graph. Nao e um cliente " +
         "SQL — e a porta estreita para as duas chamadas de funcao que o " +
         "repo-base nao pode verificar, porque nao tem WHERE. Uma leitura de " +
         "tabela por aqui saia sem filtro de tenant, sem o contador de recusas " +
@@ -194,12 +195,17 @@ export class ChamadaNaoPermitidaError extends Error {
 }
 
 /**
- * O cliente embrulhado: só as quatro cadeias da lista passam.
+ * O cliente embrulhado: só as **quatro** cadeias da lista passam.
  *
  * A comparação é por **igualdade com a constante** e não por padrão: um
  * `includes("evt_emitir")` deixava passar
  * `SELECT * FROM product; -- evt_emitir`, e o que se quer afirmar é que o texto
  * é exactamente um dos quatro que este repositório escreveu.
+ *
+ * **Eram duas e a mensagem do erro dizia duas depois de serem quatro** — achado
+ * da revisão adversarial, e não é cosmético: quem estiver a depurar uma
+ * `ChamadaNaoPermitidaError` procura as cadeias que a mensagem nomeia, e duas
+ * de quatro mandam-no procurar no sítio errado.
  *
  * **Devolve `rowCount` e o `ClienteSql` da porta não o tem.** A forma larga é a
  * do `orders/contrato.ts`, e é a que o `checkCeiling` do `ten` exige na
