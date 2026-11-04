@@ -198,6 +198,79 @@ imagens:
       public key PEMs`. Uma imagem assinada antes daquela data precisa da chave
       anterior; uma assinada depois precisa da de `main`.
 
+  # ---------------------------------------------------------------- KAM-076
+  #
+  # As quatro imagens do compose de producao do conjunto reduzido. As versoes
+  # das tres primeiras foram **afirmadas por execucao** a 2026-11-03 — correu-se
+  # a imagem fixada pelo digest e leu-se a versao de dentro dela —, porque uma
+  # etiqueta nao prova versao nenhuma. A do Langfuse foi lida do rotulo OCI da
+  # imagem, que e declaracao do publicador e nao execucao: fica dito qual e qual.
+  - nome: caddy
+    etiqueta: 2.10.2-alpine
+    digest: "sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d"
+    lido_em: "2026-11-03"
+    lido_de: "docker buildx imagetools inspect docker.io/library/caddy:2.10.2-alpine (indice OCI multi-arquitectura); `caddy version` dentro da imagem deu `v2.10.2`, e o rotulo OCI `org.opencontainers.image.licenses` da imagem diz `Apache-2.0`"
+    componentes:
+      - caddy
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto Caddy publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado, e o servico nao termina TLS
+      neste ticket (`auto_https off`). Em falta: SBOM por imagem e varrimento
+      das camadas (KAM-078).
+
+  # O proxy de saida. **Nao e o Squid, e a razao e de licenca**: o Squid, o
+  # HAProxy e o tinyproxy sao GPL-2.0, e o `ci/licenses.yaml` nega o prefixo
+  # `GPL-` (so passa com waiver que cite um ADR). O Envoy e Apache-2.0 e faz as
+  # duas coisas que o criterio 3 pede: allowlist por FQDN e **registo** do que
+  # recusa.
+  - nome: envoyproxy/envoy
+    etiqueta: v1.36.3
+    digest: "sha256:d68fc27a15a17ae3b13df8c8631523a2fe1192b39ec867dffe870b666c55c2dd"
+    lido_em: "2026-11-03"
+    lido_de: "docker buildx imagetools inspect docker.io/envoyproxy/envoy:v1.36.3 (indice OCI multi-arquitectura); `--version` dentro da imagem deu `.../1.36.3/Clean/RELEASE/BoringSSL`"
+    componentes:
+      - envoy
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto Envoy publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado, e o contentor corre so de
+      leitura, sem root e sem rota de entrada do exterior. Em falta: SBOM por
+      imagem e varrimento das camadas (KAM-078).
+
+  - nome: prom/prometheus
+    etiqueta: v3.7.3
+    digest: "sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038"
+    lido_em: "2026-11-03"
+    lido_de: "docker buildx imagetools inspect docker.io/prom/prometheus:v3.7.3 (lista de manifestos); `prometheus --version` dentro da imagem deu `version 3.7.3`, e o `/LICENSE` da imagem comeca por `Apache License`"
+    componentes:
+      - prometheus
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto Prometheus publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado, e o servico corre so na rede
+      `ops`, que e interna, com configuracao so de leitura. Em falta: SBOM por
+      imagem e varrimento das camadas (KAM-078).
+
+  # **So em *staging*** (perfil `staging-obs`, criterio 2 do KAM-076). O ADR-018
+  # tira o Langfuse de producao: exige quatro servicos de estado e 16 GiB
+  # (CONFIRMADO), e os seus *traces* contem conversas — transferencia sob
+  # ADR-008. Esta imagem nunca e referenciada pelo compose de producao, e o
+  # `compose_prod` falha se la aparecer.
+  - nome: langfuse/langfuse
+    etiqueta: 4.74.0
+    digest: "sha256:f409386b80aa7a77d15b16cf250118d05dab0f4535174f2d4a310ebcf1d7bfc1"
+    lido_em: "2026-11-03"
+    lido_de: "docker buildx imagetools inspect docker.io/langfuse/langfuse:4.74.0 (lista de manifestos); a etiqueta `4` resolve para o mesmo digest, e o rotulo `org.opencontainers.image.version` da imagem diz `4.74.0`. A versao **nao** foi afirmada por execucao, ao contrario das tres acima: a imagem nao arranca sem o ClickHouse e o S3 que o compose de staging nao traz"
+    componentes:
+      - langfuse
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto Langfuse publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado, e a imagem so corre em
+      *staging*, atras de um perfil, com dados sinteticos e sem arrancar por
+      completo. Em falta: SBOM por imagem e varrimento das camadas (KAM-078).
+
 # Codigo que lanca contentores sem passar por um compose. Um
 # `subprocess.run(["docker", "run", imagem])` nao e um manifesto, e nenhum
 # leitor estruturado o encontra: o ficheiro declara-se aqui, com a constante de
@@ -308,3 +381,10 @@ fontes_adicionais:
       As duas imagens vem das constantes ja declaradas de db/gate_bd.py
       (IMAGEM) e db/tests_identidade/node.py (IMAGEM_NODE). Um digest proprio
       aqui era um digest a mais para manter por causa de um spike.
+  # KAM-076: o guiao dos dez destinos levanta o `proxy-saida` do **proprio**
+  # compose de producao (onde o digest do Envoy esta declarado) e poe duas
+  # sondas nas redes `data` e `app` com `docker run`. A sonda corre na imagem
+  # oficial do Python, que este inventario ja fixa — e por isso ha constante
+  # local a conferir, ao contrario das duas entradas acima.
+  - ficheiro: tools/compose_prod/egress_dez.py
+    constante: IMAGEM_SONDA

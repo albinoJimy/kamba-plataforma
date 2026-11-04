@@ -294,6 +294,53 @@ componentes:
       A licenca passa. Se e SeaweedFS ou S3 gerido e a decisao D6, que esta
       aberta e nao e de licenca.
 
+  # ----------------------------------------------------------- KAM-076
+  - componente: caddy
+    versao: "2.10.2"
+    licenca: Apache-2.0
+    data_verificacao: "2026-11-03"
+    fonte: "rotulo OCI `org.opencontainers.image.licenses` da imagem fixada (docker image inspect caddy@sha256:4c6e91c6...), que diz `Apache-2.0`"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:caddy"
+    nota: >-
+      Proxy inverso de entrada. A licenca vem do rotulo OCI da propria imagem —
+      declaracao do publicador — e nao de um ficheiro de licenca: a imagem
+      `alpine` do Caddy nao traz nenhum.
+
+  - componente: envoy
+    versao: "1.36.3"
+    licenca: Apache-2.0
+    data_verificacao: "2026-11-03"
+    fonte: "raw.githubusercontent.com/envoyproxy/envoy/v1.36.3/LICENSE, lido na etiqueta da versao que corre: comeca por `Apache License` e e a Version 2.0"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:envoy"
+    nota: >-
+      Proxy de **saida** com allowlist de FQDN. Entrou no lugar do Squid por
+      licenca e nao por preferencia: o Squid, o HAProxy e o tinyproxy sao
+      GPL-2.0, que `ci/licenses.yaml` nega por prefixo. A imagem nao traz
+      ficheiro de licenca proprio nem rotulo OCI (medido) — o que ela traz sao
+      os `copyright` dos pacotes Debian de base, e um deles e GPL: por isso a
+      fonte e o LICENSE do projecto na etiqueta, e nao a imagem.
+
+  - componente: prometheus
+    versao: "3.7.3"
+    licenca: Apache-2.0
+    data_verificacao: "2026-11-03"
+    fonte: "`/LICENSE` dentro da imagem fixada (prom/prometheus@sha256:49214755...), que comeca por `Apache License`; `prometheus --version` na mesma imagem deu `version 3.7.3`"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:prometheus"
+    nota: >-
+      Unico membro da rede `ops` neste ticket, e com configuracao minima: as
+      metricas, os paineis e os 12 alertas sao o KAM-080. O Grafana e o Loki
+      **nao** entram — sao AGPL-3.0, que este ficheiro nega por prefixo, e
+      fechar essa licenca e decisao com ADR.
+
   - componente: bullmq
     versao: "6.3.11"
     licenca: MIT
@@ -321,21 +368,33 @@ componentes:
       a producao exige licenca comercial. A expressao e um `AND`: pela politica
       a pior manda, e o componente so entra com excepcao registada em ADR.
 
+  # KAM-076: deixa de ser `nao_adoptado`. A versao sobe de 4.55.0 (a que o E4
+  # leu) para a que o perfil `staging-obs` corre, e a licenca foi **relida** na
+  # etiqueta dessa versao — nao herdada do E4.
   - componente: langfuse
-    versao: "4.55.0"
+    versao: "4.74.0"
     licenca: MIT
-    data_verificacao: "2026-10-08"
-    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.8 (LICENSE)"
+    data_verificacao: "2026-11-03"
+    fonte: "raw.githubusercontent.com/langfuse/langfuse/v4.74.0/LICENSE, lido na etiqueta da versao que corre: «Portions of this software are licensed as follows», MIT Expat fora das pastas `ee/`; copyright ClickHouse, Inc. 2023-2026"
     estado_verificacao: CONFIRMADO
-    estado: nao_adoptado
+    estado: permitido
     ligacoes:
       - "imagem:langfuse"
       - "npm:langfuse"
       - "pypi:langfuse"
     ee: >-
-      As pastas `ee/`, `web/src/ee/` e `worker/src/ee/` estao sob a Enterprise
-      License: desenvolvimento e teste sim, producao so com acordo.
-    nota: Fora do Piloto pelo ADR-018; so no perfil de observabilidade de staging (KAM-076).
+      ATENCAO, mudou face ao E4 §2.8: a v4.55.0 listava **tres** pastas sob a
+      Enterprise License (`ee/`, `web/src/ee/`, `worker/src/ee/`) e a v4.74.0
+      lista **quatro** — junta-se `packages/shared/src/server/ee/`.
+      Desenvolvimento e teste sim, producao so com acordo. No compose de
+      *staging* a *flag* fica inactiva (`LANGFUSE_EE_LICENSE_KEY` vazia), que e
+      o criterio 8 do KAM-076.
+    nota: >-
+      **So em *staging***, atras do perfil `staging-obs`, com dados sinteticos
+      (ADR-018). Nunca em producao: exige quatro servicos de estado e 16 GiB
+      (CONFIRMADO) e os *traces* contem conversas, logo transferencia sob
+      ADR-008. O `compose_prod lint` falha se o nome aparecer no ficheiro de
+      producao. `permitido` e sobre a **licenca**, e nao sobre producao.
 
   # ------------------------------------------------------------ bloqueados
   - componente: langgraph-api

@@ -1,0 +1,108 @@
+# Proxy inverso de producao — KAM-076.
+#
+# O QUE ESTE FICHEIRO E, E O QUE NAO E
+#
+# E a forma da borda: quem escuta, em que porta, e para onde encaminha. O
+# criterio 5 do KAM-076 pede que no exterior so 443 esteja aberto, e e isto que
+# o garante do lado do proxy — nenhum outro servico do compose tem `ports:`.
+#
+# **NAO E O TLS.** Certificados, cadeia validada pela Meta (que nao aceita
+# autoassinado, CONFIRMADO em E1 §5), renovacao automatica, WAF e `rate limit`
+# na origem sao o **KAM-077**. Aqui o TLS esta deliberadamente desligado
+# (`auto_https off`) e o 443 fala HTTP: um certificado por omissao gerado pelo
+# Caddy daria um verde falso ao `openssl s_client -verify_return_error` que o
+# KAM-077 tem de correr, e um verde falso num gate de TLS e pior do que um
+# vermelho honesto.
+#
+# POR QUE TRES NOMES E NAO UM
+#
+# O criterio 5 reparte a borda em tres: o GWY e o unico que fala com a Meta
+# (ADR-001), o Chatwoot e exposto a operadores e PMEs, e o `onboarding-web` e
+# publico (ADR-019). O Medusa admin e o Grafana **nao** estao aqui, de
+# proposito: «so por VPN», e o que nao tem rota pela borda nao se expoe por
+# esquecimento.
+
+{
+	# Sem TLS automatico: ver a nota acima. O KAM-077 troca este bloco.
+	auto_https off
+
+	# A API de administracao escuta **so** dentro do contentor. E ela que a
+	# sonda do `healthcheck` usa. Sem esta linha o Caddy abre a 2019 em todas
+	# as interfaces do contentor, e a rede `edge` nao e sitio para uma API que
+	# reescreve a configuracao do proxy.
+	admin 127.0.0.1:2019
+
+	# Logs em JSON, como o resto da pilha (ADR-010, `docs/logs.md`). Sem corpo
+	# e sem cabecalhos: um proxy que registe o corpo dos webhooks guarda
+	# conversas, e isso e conteudo (`docs/tecnica/08` §7.3).
+	log {
+		output stderr
+		format json
+	}
+}
+
+# ----------------------------------------------------------------- a porta
+#
+# **Escuta em 8443 e nao em 443, e a razao foi medida.** O binario do Caddy
+# traz uma *file capability* (`cap_net_bind_service`), e um contentor com
+# `cap_drop: ALL` e `no-new-privileges:true` **nao consegue sequer executar**
+# um binario com capacidades de ficheiro: a 2026-11-03 o contentor repetia
+# `exec /usr/bin/caddy: operation not permitted` e ficava unhealthy em ciclo.
+#
+# **A capacidade tem de ser concedida de qualquer forma**, e isso tambem foi
+# medido: sem `cap_add: [NET_BIND_SERVICE]` o `exec` falha mesmo sem
+# `no-new-privileges`, porque o bit *effective* da capacidade de ficheiro nao
+# esta no *bounding set*. Nao e a porta que o impede — e o ficheiro.
+#
+# Por isso fazem-se as duas coisas: concede-se a capacidade (unica forma de o
+# binario arrancar) **e** escuta-se acima de 1024, para que ela nunca seja
+# exercida. O `ports: 443:8443` do compose mantem a porta **externa** em 443,
+# que e o que o criterio 5 exige. Uma capacidade concedida e nao usada e mais
+# barata de rever do que uma capacidade concedida e necessaria.
+
+# ------------------------------------------------------------------ webhooks
+#
+# O caminho da Meta. Vai **directo a origem**, sem CDN: e a opcao (b) da D12 em
+# `docs/tecnica/08` §15, que e a que vale por omissao de construcao ate parecer
+# em contrario. Um CDN aqui veria o corpo dos webhooks e seria subprocessador
+# com acesso a conteudo (ADR-008, N1).
+:8443 {
+	log {
+		output stderr
+		format json
+	}
+
+	# O GWY e o unico endpoint da Meta (ADR-001). Duas replicas: o Caddy
+	# reparte por elas pelo DNS do compose, que devolve os dois enderecos.
+	handle /webhooks/* {
+		reverse_proxy gwy:3000 {
+			lb_policy round_robin
+			# A assinatura `X-Hub-Signature-256` e calculada sobre o **corpo
+			# bruto** (E1 §5). O Caddy nao reescreve o corpo; esta linha e
+			# aqui para que ninguem acrescente um `request_body` que o faca.
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle /healthz {
+		reverse_proxy gwy:3000 {
+			lb_policy round_robin
+		}
+	}
+
+	# O painel de atendimento, para operadores e PMEs.
+	handle /app/* {
+		reverse_proxy chatwoot:3000
+	}
+
+	# O onboarding self-service da PME (ADR-019).
+	handle /onboarding/* {
+		reverse_proxy onboarding-web:3003
+	}
+
+	# O que nao e nenhum dos acima nao existe. Um proxy que encaminhe por
+	# omissao expoe o que alguem acrescentar ao compose sem pensar na borda.
+	handle {
+		respond 404
+	}
+}

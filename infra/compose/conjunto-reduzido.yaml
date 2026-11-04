@@ -1,0 +1,264 @@
+# O conjunto reduzido do Piloto — KAM-076, criterio 1
+#
+# O criterio 1 diz: «`docker compose config` lista **exactamente** os servicos
+# do conjunto reduzido». «Exactamente» exige os dois sentidos, e um teste que
+# so leia o compose nao os tem: sabe o que **esta** la e nao sabe o que
+# **devia** estar. Este ficheiro e o outro lado da comparacao.
+#
+# A fonte e o `docs/tecnica/09` §3.1 (revisao servico a servico) e §4.2 (memoria
+# por servico). O que sai e porque sai esta na coluna `razao`, com o ADR.
+#
+# Tres estados, e a distincao e o que torna o criterio verificavel sem mentir:
+#
+#   presente    esta no compose de producao, hoje, e o lint exige que esteja.
+#   pendente    pertence ao conjunto reduzido e **nao** esta no compose, com o
+#               ticket que o traz e a razao pela qual nao pode entrar hoje. O
+#               lint exige que **nao** esteja (senao entrou sem passar por
+#               aqui) e conta-os em voz alta em cada execucao.
+#   proibido    nao entra em producao. E a *denylist* do criterio 1: o lint
+#               falha se o nome aparecer no ficheiro de producao.
+#
+# Um nome que nao esteja em nenhuma das tres listas tambem falha: um servico
+# novo no compose de producao passa por este ficheiro ou nao passa.
+#
+# `memoria_mib` e o **total do servico**, em MiB inteiros, e `replicas` diz por
+# quantos contentores esse total se divide (1 quando a chave falta).
+#
+# A DISTINCAO NAO E COSMETICA, E CUSTOU UM DEFEITO. O `mem_limit` do compose e
+# **por contentor**, e o `deploy.replicas` e honrado pelo `docker compose` fora
+# de swarm (medido: `docker compose config` resolve `gwy` com `replicas: 2` e
+# um `mem_limit` proprio). A primeira versao deste ficheiro punha o total do
+# bloco no `mem_limit` de cada replica, e a soma do criterio 4 contava-o **uma**
+# vez: o GWY reservava 2x512 MiB onde o bloco propoe «2x0,25 GB», o AGR 2x2560
+# onde propoe 2,5 GB, e o conjunto passava o tecto em 922 MiB sem que o lint
+# dissesse nada. Hoje o lint exige `mem_limit x replicas == memoria_mib`.
+#
+# Os valores sao os limites propostos do bloco KAM-076 («Limites propostos
+# (ESTIMATIVA, ~1,25x o doc 09 §4.2)»). **E ESTIMATIVA, e nao medicao.** O
+# ajuste e o KAM-084; a soma e a que o criterio 4 limita a 80% da RAM do *host*.
+
+version: 1
+
+# A RAM do *host* de producao do perfil P0 (`docs/tecnica/09` §4.4): 8 vCPU/32 GB.
+# O criterio 4 limita a soma dos `mem_limit` a 80% dela.
+host_ram_mib: 32768
+fraccao_maxima_pct: 80
+
+servicos:
+  # ----------------------------------------------------------------- borda
+  - nome: proxy-tls
+    estado: presente
+    rede: edge
+    memoria_mib: 512
+    razao: >-
+      Proxy inverso que termina TLS e e o unico que publica 443
+      (`docs/tecnica/09` §3.1, linha «novo»). O TLS a serio — certificados,
+      renovacao, cadeia validada pela Meta — e o KAM-077: aqui entra o
+      contentor, a rede e o limite, com uma configuracao minima.
+
+  - nome: proxy-saida
+    estado: presente
+    rede: edge
+    memoria_mib: 512
+    razao: >-
+      Proxy de saida com allowlist de FQDN (`docs/tecnica/09` §3.2, regra 2).
+      E o unico caminho de `app` para fora, e e ele que registar as ligacoes
+      recusadas — a metade «e registadas» do criterio 3.
+
+  # -------------------------------------------------------------- aplicacao
+  - nome: gwy
+    estado: presente
+    rede: app
+    memoria_mib: 512
+    replicas: 2
+    razao: >-
+      Entrada unica do trafego externo (ADR-001). Duas replicas, criterio 5.
+      O limite do bloco e «2x0,25 GB»; aqui e por servico e nao por replica.
+
+  - nome: worker-canal
+    estado: presente
+    rede: app
+    memoria_mib: 256
+    razao: >-
+      Consumidor da fila de entrada do canal (KAM-013). Nao esta nomeado na
+      lista do bloco, que diz «GWY x2, AGR workers x2»: o worker de entrada
+      nasceu depois do doc 09 §4.2. Este quarto de GB sai da linha «SO e
+      proxies» (1,5 GB), que com os dois proxies e o pgBackRest fecha exacta.
+
+  - nome: agr
+    estado: presente
+    rede: app
+    memoria_mib: 2560
+    replicas: 2
+    razao: >-
+      Runtime de agentes, LangGraph como biblioteca (ADR-002). Duas replicas,
+      criterio 5.
+
+  - nome: com
+    estado: presente
+    rede: app
+    memoria_mib: 512
+    razao: >-
+      Servico que encapsula o Registo de comercio (`docs/tecnica/03` §3.1).
+      Nao e o Medusa: e quem tem as credenciais dele. Sai do orcamento do
+      Medusa, que o doc 09 §4.2 conta numa linha so.
+
+  - nome: onboarding-web
+    estado: presente
+    rede: app
+    memoria_mib: 768
+    razao: Onboarding self-service da PME (ADR-019). Substitui a vitrine.
+
+  - nome: chatwoot
+    estado: presente
+    rede: app
+    memoria_mib: 3072
+    razao: >-
+      Painel de atendimento, MIT fora de `enterprise/` (ADR-002, E4 §2.2).
+      Exposto em 443 para operadores e PMEs. Minimo oficial do conjunto
+      web+Sidekiq: 4 GB e 4 nucleos (CONFIRMADO, doc 09 §4.1) — reparte-se
+      entre este e o `chatwoot-worker`, que somados dao os 5 GB do bloco.
+
+  - nome: chatwoot-worker
+    estado: presente
+    rede: app
+    memoria_mib: 2048
+    razao: >-
+      Sidekiq do Chatwoot, em contentor proprio. «Sidekiq pode exceder 1 GB em
+      carga» e INDICIO (doc 09 §4.1): o limite e maior do que o indicio por
+      isso mesmo.
+
+  - nome: litellm
+    estado: presente
+    rede: app
+    memoria_mib: 2048
+    razao: >-
+      Unico caminho para modelos, >= 1.83.0 por digest e com cosign
+      (ADR-005). Sai para fora **so** pelo `proxy-saida`.
+
+  # ------------------------------------------------------------------ dados
+  - nome: postgres
+    estado: presente
+    rede: data
+    memoria_mib: 5120
+    razao: >-
+      PostgreSQL 18.6 + pgvector 0.8.7 (ADR-006); bases separadas `platform`,
+      `medusa` e `chatwoot`.
+
+  - nome: queue
+    estado: presente
+    rede: data
+    memoria_mib: 768
+    razao: >-
+      Fila compativel com Redis, AOF (ADR-009). O nome do servico nao carrega
+      a D12: nem `redis` nem `valkey`. Reconstruivel a partir do *outbox*.
+
+  - nome: seaweedfs
+    estado: presente
+    rede: data
+    memoria_mib: 1024
+    razao: >-
+      `StorageProvider`, sem MinIO (ADR-014). **A D6 esta aberta** (SeaweedFS
+      ou S3 gerido) e este ticket nao a decide: o servico entra atras da
+      *flag* do Compose `profiles: [sto-proprio]`: uma pilha levantada sem
+      `--profile sto-proprio` nao o traz. **Nao** ha variavel `KAMBA_STO_MODO`
+      — a primeira versao deste ficheiro prometia uma, e nada a lia.
+
+  # -------------------------------------------------------------- operacao
+  - nome: prometheus
+    estado: presente
+    rede: ops
+    memoria_mib: 1024
+    razao: >-
+      A linha «monitorizacao» do doc 09 §4.2, e o unico membro de `ops` hoje.
+      Entra com configuracao minima: **as metricas, os paineis e os 12 alertas
+      sao o KAM-080**. Mede-se que `ops` existe e esta isolada; nao se afirma
+      que ha observabilidade.
+
+  # ------------------------------------------------------------- pendentes
+  - nome: medusa
+    estado: pendente
+    ticket: KAM-042
+    memoria_mib: 2048
+    razao: >-
+      Registo de comercio, Medusa v2.21.2. **Nao ha imagem publicada do
+      Medusa** — `spikes/medusa-d3/contentor.py` apurou-o e o spike corre-o na
+      imagem oficial do Node — e nao ha `services/medusa/Dockerfile`. Construir
+      um exige gerar um lockfile, e nesta maquina nao ha `node` nem `pnpm`
+      (ADR-L001). O limite fica reservado na soma do criterio 4; o servico
+      entra com o ticket que o constroi. As *flags* EE (`rbac`, `auth-oidc`,
+      `policies`) ja sao verificadas por `tools/lint_arch/medusa.py`.
+
+  - nome: alertmanager
+    estado: pendente
+    ticket: KAM-080
+    memoria_mib: 256
+    razao: Encaminhamento dos 12 alertas do doc 09 §9.2. Apache-2.0.
+
+  - nome: grafana
+    estado: pendente
+    ticket: KAM-080
+    memoria_mib: 512
+    razao: >-
+      Paineis como codigo, so por VPN. **AGPL-3.0**, que `ci/licenses.yaml`
+      nega por prefixo: entrar exige fechar a licenca com um ADR, e isso nao e
+      deste ticket. A regra «so por VPN» do criterio 5 ja esta escrita e morde
+      no dia em que o servico nascer (sentinela do `compose_prod`).
+
+  - nome: loki
+    estado: pendente
+    ticket: KAM-080
+    memoria_mib: 256
+    razao: >-
+      Logs JSON sem conteudo, retencao 30 dias. **AGPL-3.0**, mesma leitura do
+      Grafana.
+
+  - nome: pgbackrest
+    estado: pendente
+    ticket: KAM-079
+    memoria_mib: 256
+    razao: >-
+      Backups para repositorio fora do *host* (ADR-P07). Vive em `ops` e e o
+      KAM-079 que o configura.
+
+# A *denylist* do criterio 1. Seis nomes, e cada um tem o ADR que o proibe.
+#
+# Nao substitui a `tools/blocklist.yaml`, que proibe quatro destes em **todo** o
+# repositorio. Esta lista e mais larga de proposito: o `langfuse`, o
+# `nominatim` e o `storefront` **nao** estao proibidos no repositorio — o
+# Langfuse v4 corre em *staging* com dados sinteticos (perfil `staging-obs`), e
+# os outros dois sao Clusters. O que esta proibido e aparecerem **no ficheiro de
+# producao**, e e isso que esta lista diz.
+proibidos:
+  - nome: langfuse
+    adr: ADR-018
+    razao: >-
+      Exige Postgres + ClickHouse + Redis + S3 e a doc recomenda 4 nucleos e
+      16 GiB (CONFIRMADO); os *traces* levam conversas, logo transferencia sob
+      ADR-008. So em *staging*, com dados sinteticos.
+
+  - nome: nominatim
+    adr: ADR-018
+    razao: >-
+      GEO e Clusters (doc 09 §3.1). Minimo oficial 2 GB, a planear 4-8 GB.
+      Nao ha ADR proprio: a exclusao e de fase, e o doc 09 §3.1 e a fonte.
+
+  - nome: typebot
+    adr: ADR-002
+    razao: FSL-1.1 proibe «Competing Use»; os fluxos correm em LangGraph.
+
+  - nome: n8n
+    adr: ADR-002
+    razao: Sustainable Use License 1.0; fora de producao.
+
+  - nome: storefront
+    adr: ADR-019
+    razao: >-
+      A vitrine fica fora do Piloto (Clusters); no lugar dela entra o
+      `onboarding-web`.
+
+  - nome: minio
+    adr: ADR-014
+    razao: >-
+      Repositorio arquivado em 2026-04-24, sem manutencao. AGPL-3.0, que
+      `ci/licenses.yaml` nega.

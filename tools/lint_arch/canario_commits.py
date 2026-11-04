@@ -158,6 +158,25 @@ POSITIVOS: tuple[str, ...] = (
     "Merge pull request #47 from albinoJimy/fix/KAM-149-codeowners-no-prefixo-removido",
     'Revert "chore(KAM-001): cria a arvore do monorepo"',
     "fixup! fix(KAM-174): le as mensagens dos commits do intervalo",
+    # **Dois rodapes seguidos.** E a forma normal de os escrever, e e a que o
+    # GitHub compoe na mensagem de *squash* — a do proprio KAM-174 (`c75d5234`)
+    # leva dois `Co-authored-by` em linhas consecutivas. A versao anterior do
+    # `_check_body_and_footer` exigia linha em branco antes de **cada** rodape e
+    # recusava-os: um falso positivo que este ticket tornou bloqueante, porque
+    # ate ele nenhum portao lia mensagens de *commit*. Sem este positivo, o dia
+    # em que a regra voltar a apertar passa sem ninguem dar por isso.
+    "fix(KAM-174): le as mensagens dos commits do intervalo\n"
+    "\n"
+    "O corpo em condicoes.\n"
+    "\n"
+    "Co-authored-by: Armando Albino <a@b.c>\n"
+    "Co-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+    "fix(KAM-174): le as mensagens dos commits do intervalo\n"
+    "\n"
+    "O corpo em condicoes.\n"
+    "\n"
+    "Refs: KAM-002\n"
+    "Signed-off-by: Alguem <a@b.c>",
 )
 
 
