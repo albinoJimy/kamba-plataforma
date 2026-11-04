@@ -9,19 +9,21 @@ E prova-se tambem a guarda de PII da `0004` sobre **estes** payloads: um
 `order.created` com um telefone dentro e recusado pela base com
 `check_violation`, antes de qualquer escrita no outbox.
 
-## Cinco tipos e nao seis, e a razao esta medida
+## Cinco tipos e nao seis, e o sexto foi decidido fora
 
 O criterio 8 enumera seis eventos. **Cinco** tem contrato publicado em
 `contratos/eventos/` e estao nos trinta e oito tipos que o dicionario §3.5 fixa;
-o sexto — `order.reconciliation_issue` — nao tem contrato, nao esta no §3.5 e nao
-esta no `docs/tecnica/06` §5. Esta so no §12 do `docs/tecnica/03`, que e o
-documento que a divida documental 37 descreve como «um segundo catalogo de
+o sexto — `order.reconciliation_issue` — nao tem contrato, nao esta no §3.5 e
+nao esta no `docs/tecnica/06` §5. **Estava** so no §12 do `docs/tecnica/03`, que
+e o documento que a divida documental 37 descreve como «um segundo catalogo de
 eventos, paralelo ao do `docs/tecnica/06` §5, e discorda dele em nomes e em
-payloads».
+payloads» — e a **2026-11-04 o fundador decidiu que o evento nao existe**, pelo
+que a linha saiu do §12 e a divida 174 ficou riscada.
 
-Este ficheiro mede os cinco e mede a **ausencia** do sexto, para que ela seja um
-facto verificado e nao uma omissao: o que fica no lugar dele e a linha de
-`order_reconciliation_issues`, que o `test_reconciliacao` mede.
+Este ficheiro mede os cinco e mede a **ausencia** do sexto. Essa medicao nasceu
+para que a ausencia fosse um facto verificado e nao uma omissao, e depois da
+decisao **mudou de papel: passa a guarda-la**. O que fica no lugar do evento e a
+linha de `order_reconciliation_issues`, que o `test_reconciliacao` mede.
 """
 
 from __future__ import annotations
@@ -230,7 +232,7 @@ class TestEmissaoPeloOutbox(ComEncomendas):
         )
 
     def test_o_sexto_tipo_nao_tem_contrato_publicado(self) -> None:
-        """A medicao da ausencia. Ver a nota do modulo.
+        """A medicao da ausencia, que depois da decisao a guarda. Ver a nota.
 
         O `evt_emitir` **aceitaria** o tipo — nao valida contra o catalogo —, e
         e exactamente por isso que isto se mede aqui: a recusa vem do
@@ -242,9 +244,11 @@ class TestEmissaoPeloOutbox(ComEncomendas):
         raiz = Path(__file__).resolve().parents[2]
         self.assertFalse(
             (raiz / "contratos" / "eventos" / SEM_CONTRATO).exists(),
-            "se alguem publicar o contrato, este ensaio tem de cair e o "
-            "`reconcile.ts` passa a emitir — e a emenda do dicionario §3.5 "
-            "(trinta e oito tipos) tem de vir com ele",
+            "o fundador decidiu a 2026-11-04 que este evento nao existe, e a "
+            "linha dele saiu do §12 do docs/tecnica/03. Se alguem publicar o "
+            "contrato, nao basta fazer cair este ensaio: reabre a decisao, "
+            "porque leva a emenda do dicionario §3.5 (trinta e oito tipos) e a "
+            "contagem que tres ficheiros repetem",
         )
         for tipo, _ in TIPOS:
             with self.subTest(tipo=tipo):

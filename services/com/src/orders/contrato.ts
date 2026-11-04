@@ -42,17 +42,20 @@ export interface ClienteSql {
 // ------------------------------------------------------------------- eventos
 
 /**
- * Os **cinco** tipos de evento deste módulo, e o sexto que o critério 8 pede e
- * que o catálogo publicado não tem.
+ * Os **cinco** tipos de evento deste módulo, e o sexto que o critério 8 pedia e
+ * que foi decidido não existir.
  *
  * O critério 8 enumera seis: `order.created`, `order.paid`, `order.expired`,
  * `order.cancelled`, `order.delivered` e `order.reconciliation_issue`. Dos
  * seis, **cinco** têm contrato em `contratos/eventos/` e estão nos trinta e oito
- * tipos que o dicionário §3.5 fixa. O sexto **não existe**: não tem contrato,
- * não está no §3.5 e não está no `docs/tecnica/06` §5 — só no §12 do
- * `docs/tecnica/03`, que é exactamente o documento que a dívida documental 37
- * descreve como «um segundo catálogo de eventos, paralelo ao do
- * `docs/tecnica/06` §5, e discorda dele em nomes e em payloads».
+ * tipos que o dicionário §3.5 fixa. O sexto **não existe**, e desde 2026-11-04 já
+ * não está nem no §12: não tem contrato, não está no §3.5, não está no
+ * `docs/tecnica/06` §5, e o fundador decidiu tirar a linha dele do §12 do
+ * `docs/tecnica/03` — que era exactamente o documento que a dívida documental
+ * 37 descreve como «um segundo catálogo de eventos, paralelo ao do
+ * `docs/tecnica/06` §5, e discorda dele em nomes e em payloads». **A dívida 174,
+ * que o KAM-044 abriu para esta divergência, está riscada**; a 37 continua
+ * aberta, porque tirar um evento não reconcilia os dois catálogos.
  *
  * Resolve-se a favor do dicionário (fonte 4) contra o bloco (fonte 8) e contra
  * o §12 (fonte 9), que é a mesma escolha que o `produtos/eventos.ts` do KAM-043
@@ -66,9 +69,11 @@ export interface ClienteSql {
  * **O que fica no lugar dele, e não é menos:** a divergência é registada em
  * `platform.order_reconciliation_issues` (revisão `0030`), que são os *Detalhes
  * Técnicos* do bloco à letra e é o que a métrica «divergências abertas > 5 min
- * = 0» lê. O que não sai é o **evento**, e quem o quiser tem de acrescentar um
- * trigésimo-nono contrato ao catálogo e emendar a contagem do §3.5 — que é
- * alteração do dicionário e não deste módulo.
+ * = 0» lê. O que não sai é o **evento**, e isso está decidido: quem o quiser
+ * reabre a escolha com o fundador, porque acrescentar o trigésimo-nono contrato
+ * ao catálogo e emendar a contagem do §3.5 é alteração do dicionário e não deste
+ * módulo. O `test_o_sexto_tipo_nao_tem_contrato_publicado` de
+ * `db/tests_encomendas/test_outbox.py` guarda a decisão.
  */
 export const TIPO_CREATED = "order.created";
 export const TIPO_PAID = "order.paid";

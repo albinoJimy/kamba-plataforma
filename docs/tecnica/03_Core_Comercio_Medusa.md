@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Core de Comércio (COM): Medusa v2 sujeito a spike, modelo de dados `platform`, encomendas, reservas, Catálogo AI, reviews |
-| Versão | 1.4 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md` (âncora), `../exploracao/11-arquitetura-detalhada-engenharia.md` §2–§5, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -945,10 +945,24 @@ Envelope único versionado do documento 11 §3 (`id`, `tipo`, `versao`, `tenant_
 | `order.delivered` | COM / GEO (C) | Reputação (review +2 h), Revendedores (D), DAT | `order_id`, `entrega_confirmada_por` | P |
 | `order.refund_requested` | COM | HND/ops, PAY (caso manual) | `order_id`, `motivo` | P |
 | `review.requested` / `review.created` | Reputação | AGR, IDX (C), DAT | `order_id`, `nota`, `peso_ranking` | P (ranking: C) |
-| `order.reconciliation_issue` | COM | OBS, ops | `order_id`, `tipo` | P |
 | `booking.created` | COM (`servicos`, ao confirmar um hold) | AGR (confirma ao cliente), *scheduler* de lembretes (KAM-048), DAT | `booking_id`, `contact_id`, `service_id`, `resource_id`, `inicio_at`, `fim_at` | P |
 | `booking.cancelled` | COM (`servicos`: cancelamento do cliente, ou `expirar_holds`) | AGR, DAT | `booking_id`, `motivo` (`hold_expirado`, …) | P |
 | `booking.reminder_due` | *scheduler* (KAM-048) | AGR (mensagem livre ou *template utility*) | `booking_id`, `inicio_at` | P (KAM-048) |
+
+**O `order.reconciliation_issue` saiu desta tabela a 2026-11-04, por decisão do
+fundador, e não é omissão.** Ele estava aqui e **em mais sítio nenhum**: sem
+contrato em `../../contratos/eventos/`, fora dos **trinta e oito** tipos que o
+`../../specs/02_Dicionario_de_Dados_Canonico.md` §3.5 fixa e ausente do `06` §5 —
+que é quem dá produtor, consumidores, agregado, classe de PII e fase. O KAM-044
+mediu a consequência de o emitir: `TipoDesconhecidoError` no `validarPayload`,
+antes de o *gate* 7 ver o envelope. As duas saídas estavam escritas na **dívida
+documental 174** — publicar o trigésimo-nono contrato, ou tirar o evento daqui —
+e a decisão foi a segunda. **O que fica no lugar dele é a linha de
+`platform.order_reconciliation_issues`** (revisão `0030`), que é o que a métrica
+«divergências abertas > 5 min = 0» lê; o que não existe é o evento. Um ensaio
+guarda a decisão: o `test_o_sexto_tipo_nao_tem_contrato_publicado` de
+`../../db/tests_encomendas/test_outbox.py` fica vermelho se alguém publicar o
+contrato sem reabrir esta escolha.
 
 **Os três de marcação entram com o KAM-047**, e o `06` §5 — que é quem dá produtor, consumidores, agregado, classe de PII e fase de cada tipo — **não os lista**: a falta fica em `../dividas-documentais.md`. O agregado dos três é `booking`, como os contratos v1 publicados pelo KAM-007 já fixam (`const: "booking"`). A classe de PII é *proposta*: **P1** para o `booking.created`, pela mesma propriedade que põe o `order.created` em P1 naquela tabela — o payload liga o evento a um contacto identificável na plataforma —, e **P0** para os outros dois, que levam só o identificador da marcação. Nenhum leva telefone, nome ou morada, e o `evt_emitir` recusa um payload com padrão de telefone.
 
@@ -1056,3 +1070,4 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | 1.2 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): adopção de `expira_at` em §1.4, §3.3, §4.3, §5.4, §6.4, §6.5 e §13 (8 ocorrências) e de `preco_tipo` em §5.4, §7.1, §8.3 e §12 (8 ocorrências), dicionário §3.3 e emenda 1.12; em §5.5, o papel passa a `kamba_batch` (dicionário §3.2) e a política de RLS a `tenant_iso` (emenda 1.5). A citação histórica do DDL do documento 11 em §5.1 fica como está. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-140: §5.2 e §5.3 — **dois DDL inteiros saem** e remetem para `01` §7.1 e §6.2. O de `tenant_channels` era a forma morta completa (omitia dez colunas, duas com contrato escrito noutro sítio); o de `contacts`/`contact_endpoints` divergia da revisão `0003` em quatro pontos, um deles o `consentimento jsonb` que a própria revisão recusou por escrito. §2 (ADR-013), §6.1, §6.2, §6.6 e §10.1 — **um evento de pagamento por caminho**, como o `00` §6.2 manda: o `payment.confirmed` fecha `aguarda_pagamento → paga`, o `payment.manual_confirmed` fecha `pendente_confirmacao → paga`, que estava sem evento nenhum. §5.5 e §11 — o `contact_deks` entra nas tabelas sob RLS, e a ordem de FK passa a ser a que as revisões `0001` e `0003` seguem, que não era a escrita. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | **KAM-047: o módulo `servicos` deixa de ser lacuna.** §5.7 nasce com o DDL das quatro tabelas do esquema próprio, a restrição de exclusão GiST que torna a sobreposição impossível por construção, a tranca por recurso que a acompanha, o ciclo do hold, a RLS `FORCE` e a matriz de privilégios — fechando a lacuna que o `02` §8.3 registava («onde vive a agenda»). §12 ganha as **três** linhas de marcação (`booking.created`, `booking.cancelled`, `booking.reminder_due`), que o §3.5 do dicionário já tinha entre os trinta e oito tipos do Piloto e que este mapa não tinha. **Três números vêm de execução e não de leitura:** `btree_gist` 1.8 existe na imagem fixada e instala-se sem superutilizador (é `trusted`); 1.000 tentativas concorrentes no mesmo intervalo dão **uma** marcação em ~57 s com zero *deadlocks*, e **486** sem a tranca; e um `CHECK` com subconsulta para validar o fuso é recusado pelo motor (`0A000`), pelo que a validação é um *trigger*. **Duas divergências com o DDL *proposta* do bloco KAM-047, resolvidas a favor do dicionário** (emenda 1.45): `booking_id`/`inicio_at`/`fim_at` contra `id`/`inicio`/`fim`, e `preco_tipo` contra a forma que a emenda 1.12 do dicionário já substituía. **O que fica por decidir:** a cadência do varrimento, e com ela o `p99 ≤ 60 s` do critério 3 (KAM-071); a classe de PII dos três eventos, que o `06` §5 não dá; e a ratificação, que é do fundador. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **O `order.reconciliation_issue` sai da tabela do §12, por decisão do fundador a 2026-11-04.** A linha dava-lhe produtor (COM), consumidores (OBS, ops), *payload* (`order_id`, `tipo`) e fase (P), e o evento não existia em mais sítio nenhum: sem contrato publicado, fora dos trinta e oito tipos do §3.5 do dicionário e ausente do `06` §5. Era a **dívida documental 174**, aberta pelo KAM-044 — cujo critério 8 mandava emiti-lo —, que escreveu as duas saídas possíveis e ficou sem credor; a decisão é a saída de o tirar daqui, e a dívida fica riscada. Fica no lugar dele a linha de `platform.order_reconciliation_issues` da revisão `0030`, que é o que a métrica lê, e um ensaio que guarda a decisão. **Nenhuma outra linha desta tabela é tocada**, e a dívida 37 — que descreve esta tabela como um segundo catálogo paralelo ao do `06` §5 — continua aberta: esta emenda tira um evento, não reconcilia os dois catálogos. | Equipa KAMBÁ |
