@@ -49,11 +49,12 @@ enumeracao, porque a ausencia de uma coisa nao se vê a ler a lista do que ha.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final
 
 from . import get_store_info
 from . import vendedor
-from .especificacoes import Catalogo, EspecificacaoDeTool
+from .especificacoes import Catalogo, EspecificacaoDeTool, Executor
 
 #: O credor das cinco tools do Vendedor. **Era `KAM-031` e passou a ser o ticket
 #: que liga cada backend** (`tls/vendedor.py`, `CREDORES`), e a correccao e do
@@ -68,28 +69,11 @@ from .especificacoes import Catalogo, EspecificacaoDeTool
 #: O credor das cinco tools de Servicos (grafo de Servicos).
 CREDOR_DE_SERVICOS: Final = "KAM-035"
 
-#: As onze do §6.2, pela ordem em que esse documento as escreve.
-ESPECIFICACOES_DO_PILOTO: Final = (
-    EspecificacaoDeTool(
-        nome="search_catalog", klass="read", backend="idx", credor=vendedor.CREDORES["search_catalog"]
-    ),
-    EspecificacaoDeTool(
-        nome="get_price_stock", klass="read", backend="com", credor=vendedor.CREDORES["get_price_stock"]
-    ),
-    EspecificacaoDeTool(
-        nome="propose_cart", klass="read", backend="com", credor=vendedor.CREDORES["propose_cart"]
-    ),
-    # `money`: o unico nome do catalogo em portugues, como o §6.2 o escreve. O
-    # botao e `confirm:{cart_id}`, e o campo que ele cita entra com o modelo —
-    # que e do KAM-031.
-    EspecificacaoDeTool(
-        nome="criar_pedido", klass="money", backend="com", credor=vendedor.CREDORES["criar_pedido"]
-    ),
-    EspecificacaoDeTool(
-        nome="get_order_status", klass="read", backend="com", credor=vendedor.CREDORES["get_order_status"]
-    ),
-    # A unica `ligada`. `backend="plataforma"`: le a `platform.tenants`, que e a
-    # nossa base, e nao o COM.
+#: As seis que nao sao do Vendedor: a unica `ligada` do KAM-028 e as cinco de
+#: Servicos. Separadas porque sao as que o `especificacoes_do_piloto` nao mexe.
+_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR: Final = (
+    # A `get_store_info`. `backend="plataforma"`: le a `platform.tenants`, que e
+    # a nossa base, e nao o COM.
     EspecificacaoDeTool(
         nome="get_store_info",
         klass="read",
@@ -117,8 +101,85 @@ ESPECIFICACOES_DO_PILOTO: Final = (
     ),
 )
 
+#: As onze do §6.2, pela ordem em que esse documento as escreve. **As cinco do
+#: Vendedor `declaradas`**, que e o estado sem os executores do KAM-178 — e e o
+#: que a bateria do registo compara contra o `registry/*.yaml`.
+ESPECIFICACOES_DO_PILOTO: Final = (
+    # As cinco do Vendedor, `declaradas`. **Derivam-se das tabelas do
+    # `vendedor.py`** em vez de se reescreverem uma a uma: a `klass`, o `backend`
+    # e o credor de cada uma tem um dono so, e escrever a lista duas vezes era a
+    # divergencia que o `CREDORES` daquele ficheiro ja fechou uma vez.
+    *(
+        EspecificacaoDeTool(
+            nome=nome,
+            klass=vendedor.CLASSES[nome],
+            backend=vendedor.BACKENDS[nome],
+            credor=vendedor.CREDORES[nome],
+        )
+        for nome in vendedor.MODELOS
+    ),
+    *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
+)
 
-def catalogo_do_piloto() -> Catalogo:
+
+def especificacoes_do_piloto(
+    executores: Mapping[str, Executor] | None = None,
+) -> tuple[EspecificacaoDeTool, ...]:
+    """As onze, com as do Vendedor **ligadas** onde houver executor (KAM-178).
+
+    Uma entrada do Vendedor passa de `declarada` a `ligada` quando o chamador
+    traz o executor dela, e so entao: o modelo de argumentos e do KAM-031 e esta
+    sempre aqui, mas uma especificacao com modelo e sem executor **nao e
+    construivel** (o invariante do `EspecificacaoDeTool`) — e um catalogo meio
+    ligado era pior do que nenhum, porque a tool aparecia ao modelo e recusava.
+
+    **As que nao tem executor ficam `declaradas`, com o credor que ja tinham.**
+    E o caso do `search_catalog`, cujo backend e o IDX: o `idx.candidatos` e o
+    **KAM-061**, de fase 1, e nao existe na arvore. Liga-la a um `stand-in` era
+    servir um catalogo que nao e o catalogo.
+
+    Chamar isto **sem** executores devolve as onze como o KAM-031 as deixou, que
+    e o que a bateria do registo compara.
+    """
+    ligaveis = dict(executores or {})
+    do_vendedor = []
+    for nome, modelo in vendedor.MODELOS.items():
+        executor = ligaveis.get(nome)
+        if executor is None:
+            do_vendedor.append(
+                EspecificacaoDeTool(
+                    nome=nome,
+                    klass=vendedor.CLASSES[nome],
+                    backend=vendedor.BACKENDS[nome],
+                    credor=vendedor.CREDORES[nome],
+                )
+            )
+            continue
+        do_vendedor.append(
+            EspecificacaoDeTool(
+                nome=nome,
+                klass=vendedor.CLASSES[nome],
+                backend=vendedor.BACKENDS[nome],
+                modelo=modelo,
+                executor=executor,
+                # O botao `confirm:{cart_id}` cita o `cart_id`, e so a tool
+                # `money` o exige — uma `read` que pedisse botao punha o runtime
+                # a pedir confirmacao para responder ao horario da loja.
+                campo_de_confirmacao=(
+                    "cart_id" if nome == "criar_pedido" else None
+                ),
+            )
+        )
+    # A ordem e a do §6.2: as cinco do Vendedor, a `get_store_info`, as cinco de
+    # Servicos. **Reconstroi-se em vez de se filtrar o `ESPECIFICACOES_DO_PILOTO`**
+    # porque uma entrada `ligada` e uma `declarada` sao objectos diferentes, e
+    # filtrar uma tupla fixa dava duas listas a manter em sincronia.
+    return (*do_vendedor, *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR)
+
+
+def catalogo_do_piloto(
+    executores: Mapping[str, Executor] | None = None,
+) -> Catalogo:
     """O catalogo que o arranque liga ao `AgentRegistry` (§5.2, validacao 1).
 
     E uma funcao e nao uma constante de modulo porque o `Catalogo` valida ao
@@ -126,5 +187,8 @@ def catalogo_do_piloto() -> Catalogo:
     erro de especificacao rebentava antes de o `__main__` ter o log montado —
     com um *stack trace* de importacao em vez do codigo de saida que o
     dicionario §3.26 lhe da.
+
+    Os `executores` sao os do KAM-178 (`tls/com.py`); sem eles o catalogo e o que
+    o KAM-031 deixou, e o `log` de arranque di-lo (`ligadas_N_de_11`).
     """
-    return Catalogo(ESPECIFICACOES_DO_PILOTO)
+    return Catalogo(especificacoes_do_piloto(executores))
