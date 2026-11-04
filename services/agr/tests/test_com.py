@@ -140,8 +140,15 @@ class ComDeEnsaio:
                 },
             )
         if rota == "/internal/create-order":
+            # **As quatro partes, e o `contact_id` e a quarta.** A versao anterior
+            # deste duplo tinha tres e a docstring dizia quatro: um defeito que
+            # mandasse o contacto errado era invisivel aqui, embora ele participe
+            # da `intent_key` **e** da derivacao do `cart_id` (o `cartIdValido`
+            # do COM inclui-o). Achado da revisao adversarial, medido com uma
+            # mutacao que trocava o contacto e que a bateria nao via.
             chave = (
                 cabecalhos[CABECALHO_TENANT],
+                corpo["contact_id"],
                 corpo["draft_id"],
                 int(corpo["draft_version"]),
             )
@@ -254,6 +261,32 @@ class TestExecutores(unittest.TestCase):
             )
         )
         self.assertEqual(self.com.cabecalhos[0][CABECALHO_TENANT], TENANT)
+
+    def test_o_contacto_do_corpo_e_o_do_ctx_e_nunca_outro(self) -> None:
+        """O par do caso de cima, e faltava.
+
+        O `contact_id` participa da `intent_key` **e** da derivacao do `cart_id`
+        (o `cartIdValido` do COM inclui-o), e nenhuma asserçao o prendia: uma
+        mutacao que mandasse o contacto de outra pessoa passava a bateria
+        inteira. Achado da revisao adversarial.
+
+        Vai no **corpo** e nao no cabecalho, ao contrario do tenant, e a razao
+        esta no `ClienteDoCom`: o tenant e o que um proxy pode registar sem abrir
+        o corpo e e o que o `lint_arch medusa` verifica na rota; o contacto e do
+        turno.
+        """
+        from kamba_agr.tls.vendedor import ArgumentosDeProposeCart, ItemDoCarrinho
+
+        self.executores["propose_cart"](
+            self._pedido(
+                "propose_cart",
+                ArgumentosDeProposeCart(
+                    items=(ItemDoCarrinho(sku="arroz-5kg", qty=1),)
+                ),
+                rascunho=RASCUNHO,
+            )
+        )
+        self.assertEqual(self.com.pedidos[0]["corpo"]["contact_id"], CONTACTO)
 
     def test_o_propose_cart_devolve_o_fact_total_construido_na_tls(self) -> None:
         """O criterio 5 e a caixa «numeros so de tools» da DoD (ADR-007).
@@ -593,41 +626,39 @@ class TestDuploToquePeloGrafo(unittest.TestCase):
         self.assertEqual(len(proposta), 1)
         self.assertEqual(proposta[0]["corpo"]["draft_id"], carrinho["draft_id"])
 
-    def test_o_duplo_toque_pelo_grafo_manda_a_mesma_intencao_e_da_uma_encomenda(
-        self,
-    ) -> None:
-        """O criterio 7: o no re-executa e a intencao e **a mesma**."""
+    def test_o_segundo_toque_no_mesmo_botao_e_barrado_antes_do_backend(self) -> None:
+        """A barreira da TLS, medida pelo que ela faz e nao pelo que se esperava.
+
+        **Este caso chamava-se «manda a mesma intencao e da uma encomenda» e as
+        asseroes de identidade dele viviam num ramo morto** — um
+        `if len(criacoes) == 2:` que nunca era tomado, porque o segundo toque e
+        barrado pelo `stage` antes de chegar ao backend. O que ficava de pe era
+        `len(encomendas) == 1`, que passava por ter havido **uma** chamada ao
+        todo: aparelho de prova vazio no meio da citacao do criterio 7. Achado da
+        revisao adversarial, medido com um `self.fail()` dentro do ramo.
+
+        A substancia do criterio esta no caso seguinte, que re-executa o no e
+        **assere sem condicao**. Este mede a outra propriedade, que tambem e
+        real: num segundo turno com o mesmo botao, o `confirm_gate` recusa e o
+        `create_order` **nao corre** — pelo que a barreira do COM nem e
+        exercitada.
+        """
         conversa, com = self._conversa()
         primeiro = conversa.turno("quero comprar uma camisa azul")
         cart_id = primeiro["cart"]["cart_id"]
 
         segundo = conversa.turno("confirm:" + cart_id, tipo="interactive")
         self.assertEqual(segundo["stage"], "awaiting_payment")
-
         criacoes = [p for p in com.pedidos if p["rota"] == "/internal/create-order"]
         self.assertEqual(len(criacoes), 1, "o primeiro toque nao criou nada")
 
-        # **A re-execucao do no sobre o mesmo *checkpoint***: o mesmo
-        # `thread_id`, o mesmo botao, o mesmo carrinho. Em producao isto e o que
-        # acontece quando a Meta re-entrega o *webhook* ou quando o
-        # `interrupt()` do ADR-002 faz o no reiniciar.
-        _ = conversa.turno("confirm:" + cart_id, tipo="interactive")
+        terceiro = conversa.turno("confirm:" + cart_id, tipo="interactive")
 
+        # **O segundo toque nao chega ao backend**, e e isso que se afirma — sem
+        # ramo e sem condicao.
         criacoes = [p for p in com.pedidos if p["rota"] == "/internal/create-order"]
-        if len(criacoes) == 2:
-            # Se o segundo toque chegou ao backend, **a identidade tem de ser a
-            # mesma** — e e isso que faz a barreira do COM encontrar o recibo.
-            self.assertEqual(
-                criacoes[0]["corpo"]["draft_id"], criacoes[1]["corpo"]["draft_id"]
-            )
-            self.assertEqual(
-                criacoes[0]["corpo"]["draft_version"],
-                criacoes[1]["corpo"]["draft_version"],
-            )
-        # **Uma encomenda, nas duas vias**: ou a TLS barrou o segundo toque (a
-        # barreira do `cart_id` e do `stage`), ou o COM devolveu o recibo da
-        # primeira. As duas sao a mesma propriedade vista de lados diferentes, e
-        # nenhuma delas cria uma segunda linha.
+        self.assertEqual(len(criacoes), 1, "o segundo toque chegou ao backend")
+        self.assertIn("STALE_CONFIRMATION", terceiro.get("avisos") or ())
         self.assertEqual(len(com.encomendas), 1, "duas encomendas: %r" % (com.encomendas,))
 
     def test_a_segunda_execucao_do_no_reenvia_a_mesma_intencao(self) -> None:
@@ -692,23 +723,100 @@ class TestDuploToquePeloGrafo(unittest.TestCase):
         # E o substituto do COM devolve o recibo da primeira: **uma** encomenda.
         self.assertEqual(len(com.encomendas), 1)
 
-    def test_um_carrinho_editado_e_intencao_nova_e_da_encomenda_nova(self) -> None:
-        """A reciproca, que e o que prova que a chave nao e constante.
+    def test_uma_recompra_identica_e_intencao_nova_e_da_encomenda_nova(self) -> None:
+        """O ACHADO 1 da revisao adversarial, fixado pelo nome.
 
-        «Carrinho editado ⇒ nova `draft_version`» (§6.3). Sem este caso, uma
-        implementacao que devolvesse sempre a mesma chave passava o caso de cima
-        e **bloqueava recompras** — que e metade do defeito que o desenho por
-        intencao corrige.
+        «Recompra ⇒ novo `draft_id` ⇒ nova encomenda» (§6.3), e o caso que fecha
+        e o do conteudo **igual** — nao o do carrinho editado, que o caso de
+        baixo ja media. Com o rascunho a sobreviver a criacao da encomenda, a
+        mesma frase outra vez na mesma conversa reusava o `draft_id` **e** a
+        `draft_version` (as linhas nao mudaram), derivava a mesma `intent_key`, e
+        o COM devolvia o recibo da primeira: o cliente confirmava e recebia o
+        numero da encomenda anterior, **sem encomenda nova e sem recusa**.
+
+        Medido antes da correccao: duas chamadas ao backend com
+        `draft_id` igual nas duas, e **uma** encomenda. Caminho feliz de uma tool
+        de classe `money`.
+        """
+        conversa, com = self._conversa()
+        primeiro = conversa.turno("quero comprar uma camisa azul")
+        conversa.turno("confirm:" + primeiro["cart"]["cart_id"], tipo="interactive")
+        self.assertEqual(len(com.encomendas), 1)
+
+        # **A mesma frase**: o mesmo artigo, a mesma quantidade, a mesma conversa.
+        segundo = conversa.turno("quero comprar uma camisa azul")
+        self.assertEqual(
+            tuple(segundo["cart"]["linhas"]),
+            tuple(primeiro["cart"]["linhas"]),
+            "a sonda deixou de medir o conteudo igual",
+        )
+        # O rascunho anterior esta **gasto**, pelo que o `draft_id` e outro.
+        self.assertNotEqual(
+            segundo["cart"]["draft_id"],
+            primeiro["cart"]["draft_id"],
+            "o rascunho gasto foi reusado: a recompra fica bloqueada",
+        )
+        conversa.turno("confirm:" + segundo["cart"]["cart_id"], tipo="interactive")
+        self.assertEqual(
+            len(com.encomendas), 2, "uma recompra identica tem de dar encomenda nova"
+        )
+        criacoes = [p for p in com.pedidos if p["rota"] == "/internal/create-order"]
+        self.assertEqual(len(criacoes), 2)
+        self.assertNotEqual(
+            criacoes[0]["corpo"]["draft_id"], criacoes[1]["corpo"]["draft_id"]
+        )
+
+    def test_um_carrinho_editado_antes_de_confirmar_sobe_a_versao(self) -> None:
+        """«Carrinho editado ⇒ nova `draft_version`» (§6.3), e **antes** de confirmar.
+
+        **Este caso nao existia, e e o que a frase do §6.3 descreve.** A versao
+        anterior dele editava o carrinho **depois** de confirmar e afirmava a
+        propriedade deste — `draft_id` igual, `draft_version` a subir —, o que
+        era medir o caso (b) com a asserçao do caso (a). Os dois sao diferentes e
+        os dois importam:
+
+            (a) editado ANTES de confirmar  -> mesmo draft_id, versao sobe
+            (b) editado DEPOIS de confirmar -> recompra, draft_id novo
+
+        Separa-los saiu da correccao do ACHADO 1: ao marcar o rascunho como
+        gasto, o caso antigo passou a medir (b) e a asserçao de (a) ficou
+        vermelha — o que foi a prova de que ela estava no caso errado.
+
+        O (a) e o que **nao** pode partir com a correccao: dois carrinhos antes
+        de haver encomenda sao a mesma intencao a ser editada, e um `draft_id`
+        novo a cada edicao fazia de cada toque uma encomenda nova.
+        """
+        conversa, com = self._conversa()
+        primeiro = conversa.turno("quero comprar uma camisa azul")
+        # **Sem confirmar.** O cliente muda de ideias antes de tocar no botao.
+        segundo = conversa.turno("quero comprar 3 unidades da camisa azul")
+
+        self.assertEqual(segundo["cart"]["draft_id"], primeiro["cart"]["draft_id"])
+        self.assertEqual(segundo["cart"]["draft_version"], 2)
+        self.assertNotEqual(
+            tuple(segundo["cart"]["linhas"]), tuple(primeiro["cart"]["linhas"])
+        )
+        self.assertEqual(len(com.encomendas), 0, "nada se criou sem confirmacao")
+
+        conversa.turno("confirm:" + segundo["cart"]["cart_id"], tipo="interactive")
+        self.assertEqual(len(com.encomendas), 1, "a edicao confirmada da uma encomenda")
+
+    def test_um_carrinho_editado_depois_de_confirmar_e_recompra(self) -> None:
+        """O caso (b): depois de haver encomenda, editar e recomprar.
+
+        E a mesma propriedade do `test_uma_recompra_identica...` com conteudo
+        diferente, e fica ao lado dele porque a distincao entre os dois casos e o
+        que o ACHADO 1 custou: um deles passava e o outro nao, e o que passava
+        era o que nao fechava.
         """
         conversa, com = self._conversa()
         primeiro = conversa.turno("quero comprar uma camisa azul")
         conversa.turno("confirm:" + primeiro["cart"]["cart_id"], tipo="interactive")
 
-        # Um carrinho novo, com outra quantidade: o `cart_build` corre outra vez
-        # e a `draft_version` sobe.
         segundo = conversa.turno("quero comprar 3 unidades da camisa azul")
-        self.assertEqual(segundo["cart"]["draft_id"], primeiro["cart"]["draft_id"])
-        self.assertEqual(segundo["cart"]["draft_version"], 2)
+        # O rascunho anterior esta gasto: `draft_id` novo e versao de volta a um.
+        self.assertNotEqual(segundo["cart"]["draft_id"], primeiro["cart"]["draft_id"])
+        self.assertEqual(segundo["cart"]["draft_version"], 1)
 
         conversa.turno("confirm:" + segundo["cart"]["cart_id"], tipo="interactive")
         self.assertEqual(

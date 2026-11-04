@@ -102,7 +102,20 @@ VARIAVEL_DA_BASE: Final = "KAMBA_COM_URL"
 ENTREGA_DO_PILOTO: Final = "levantamento"
 
 #: Os codigos que a API interna devolve no corpo e que **sao** erros da TLS.
-#: Os onze do §6.5 mais os dois do §6.3; o `NOT_IMPLEMENTED` **nao** esta aqui.
+#:
+#: **Sao nove, e sao os nove do `OrdersModule.erro`** (dicionario §3.44) — que e
+#: a lista que o COM pode devolver depois do KAM-178, e nao os treze do §3.27. A
+#: primeira versao desta nota dizia «os onze do §6.5 mais os dois do §6.3» sobre
+#: um conjunto de nove, e isso nao e cosmetico: se algum dia um dos quatro
+#: codigos canonicos que faltam (`ENTITLEMENT_DENIED`, `TOOL_NOT_ALLOWED`,
+#: `SLOT_TAKEN`, `HOLD_EXPIRED`) vier no corpo, cai em `UPSTREAM_DOWN` e **perde
+#: o nome** — e o comentario dizia o contrario. Os quatro nao vem: os dois
+#: primeiros sao do passo 2 do `invoke` e os dois ultimos sao do modulo
+#: `servicos`, que nao e servido por esta API. Achado da revisao adversarial.
+#:
+#: O `NOT_IMPLEMENTED` **nao** esta aqui, e por desenho: ele para na API interna
+#: do COM, que o traduz para 501 (§3.39), e um 501 cai no ramo do estado — nao no
+#: do nome.
 _CODIGOS_DA_TLS: Final = frozenset(
     {
         "NOT_FOUND",

@@ -31,9 +31,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createApp } from "../src/app.ts";
+import { FiltroEmFaltaError, repoBase } from "../src/repo-base/index.ts";
 import {
   CABECALHO_INTERNO,
   CABECALHO_TENANT,
+  CORPO_MAXIMO,
   ESTADO_POR_ERRO,
   ROTAS,
   type DependenciasDaApi,
@@ -315,26 +317,49 @@ test("um corpo acima do tecto e 413, e nao chega ao JSON.parse", async () => {
 // ------------------------------------------------------- os codigos e os estados
 
 test("o NOT_IMPLEMENTED da 501 e o codigo vai no corpo (§3.39)", async () => {
-  const { aplicacao } = app();
+  // **Medido na rota e não no mapa**, que é a diferença entre um caso e uma
+  // tautologia: a primeira versão deste caso afirmava
+  // `ESTADO_POR_ERRO.NOT_IMPLEMENTED === 501` e mais nada — comparava a tabela
+  // consigo mesma e não media tradução nenhuma.
+  //
+  // O método de ensaio devolve `naoImplementado()`, que é o que os quatro do
+  // KAM-045 devolvem hoje, e a asserção é a resposta HTTP: **501**, com o nome
+  // do código no corpo. O §3.39 di-lo por extenso: aquele código «pára na API
+  // interna do COM, que o traduz para 501».
+  const { operacoes } = operacoesDeEnsaio();
+  const porta = operacoes.porta as unknown as Record<string, unknown>;
+  porta["getOfferView"] = async () => naoImplementado();
+  const aplicacao = createApp(undefined, { operacoes, credencial: CREDENCIAL });
+
   const r = await aplicacao.fetch(
-    pedido(
-      "/internal/create-order",
-      {
-        ...CTX_DO_CORPO,
-        contact_id: CONTACTO,
-        draft_id: "d1",
-        draft_version: 1,
-        entrega_modo: "levantamento",
-        linhas: [{ sku: "arroz-5kg", qty: 1 }],
-        total_esperado_minor: "2500000",
-      },
-      BONS,
-    ),
+    pedido("/internal/offer-view", { ...CTX_DO_CORPO, sku: "arroz-5kg" }, BONS),
   );
-  // A *saga* da API interna responde `ok`; o que dá 501 é o método **da porta**,
-  // e é ele que o §3.39 manda traduzir. Confirma-se o mapa, não a rota.
+  assert.equal(r.status, 501);
+  assert.deepEqual(await r.json(), {
+    tipo: "erro",
+    erro: "NOT_IMPLEMENTED",
+  });
   assert.equal(ESTADO_POR_ERRO.NOT_IMPLEMENTED, 501);
-  assert.equal(r.status, 200);
+});
+
+test("cada um dos dez codigos sai com o estado da tabela, e o nome no corpo", async () => {
+  // **A tabela inteira exercitada pela rota**, e não só a entrada do
+  // `NOT_IMPLEMENTED`: o consumidor é o executor da ToolLayer, que precisa do
+  // nome para o `ToolResult` (§6.5 trata os três 409 de maneiras diferentes), e
+  // o estado é para quem opera. Um código sem entrada na tabela daria
+  // `undefined` no estado, que o `Response` recusa — pelo que este caso também
+  // afirma que a tabela cobre os dez.
+  for (const [codigo, estado] of Object.entries(ESTADO_POR_ERRO)) {
+    const { operacoes } = operacoesDeEnsaio();
+    const porta = operacoes.porta as unknown as Record<string, unknown>;
+    porta["getOrder"] = async () => ({ tipo: "erro" as const, erro: codigo });
+    const aplicacao = createApp(undefined, { operacoes, credencial: CREDENCIAL });
+    const r = await aplicacao.fetch(
+      pedido("/internal/get-order", { ...CTX_DO_CORPO, order_id: ORDER }, BONS),
+    );
+    assert.equal(r.status, estado, codigo);
+    assert.deepEqual(await r.json(), { tipo: "erro", erro: codigo }, codigo);
+  }
 });
 
 test("o conflito de CAS sai como 409 com tipo conflito, e nao como um erro", async () => {
@@ -429,6 +454,65 @@ test("o propose-cart nao devolve o draft_hash", async () => {
 
 // ------------------------------------------------------------------ as outras rotas
 
+test("o create-order sem cart_id e 400, e a saga nao corre", async () => {
+  // **O `cart_id` é obrigatório nesta rota desde a revisão adversarial.** O
+  // `cartIdValido` do `create_order.ts` — a comparação em tempo constante que
+  // liga o botão `confirm:{cart_id}` ao rascunho — só corre se o pedido o
+  // trouxer: omiti-lo saltava a barreira **sem recusa**, e a superfície nova
+  // deixava optar por não a ter. O caso anterior mandava exactamente esse corpo
+  // e afirmava **200** — codificava o contorno como aceitável.
+  const { aplicacao, chamadas } = app();
+  const base = {
+    ...CTX_DO_CORPO,
+    contact_id: CONTACTO,
+    draft_id: "d1",
+    draft_version: 1,
+    entrega_modo: "levantamento",
+    linhas: [{ sku: "arroz-5kg", qty: 1 }],
+    total_esperado_minor: "2500000",
+  };
+  for (const cartId of [undefined, "", 42, null]) {
+    const corpo =
+      cartId === undefined ? base : { ...base, cart_id: cartId as never };
+    const r = await aplicacao.fetch(pedido("/internal/create-order", corpo, BONS));
+    assert.equal(r.status, 400, JSON.stringify(cartId));
+    assert.deepEqual(await r.json(), { tipo: "erro", erro: "VALIDATION_ERROR" });
+  }
+  assert.equal(chamadas.contagem.get("createOrderDaSaga"), undefined);
+
+  // E o caminho legítimo, **sem o qual os quatro de cima não dizem nada**: com
+  // `cart_id`, a saga corre.
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/create-order",
+      { ...base, cart_id: "C7H3Q9ABCDEFGHJKMNPQRSTVWX" },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  assert.equal(chamadas.contagem.get("createOrderDaSaga"), 1);
+});
+
+test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", async () => {
+  // O `CORPO_MAXIMO` diz «em octetos» e o `String.length` conta unidades
+  // UTF-16: 8192 caracteres de três octetos são ~24 KiB a entrar no
+  // `JSON.parse`, que é o que o tecto diz impedir. O caso que o media usava
+  // ASCII, onde as duas contagens coincidem. Achado da revisão adversarial.
+  const { aplicacao, chamadas } = app();
+  const tresOctetos = "\u4e00".repeat(3 * 1024); // 3072 caracteres, 9216 octetos
+  assert.ok(tresOctetos.length < CORPO_MAXIMO, "o caso deixou de medir o UTF-16");
+  assert.ok(Buffer.byteLength(tresOctetos, "utf8") > CORPO_MAXIMO);
+  const r = await aplicacao.fetch(
+    new Request("http://127.0.0.1/internal/get-order", {
+      method: "POST",
+      headers: { ...BONS, "content-type": "application/json" },
+      body: `{"x":"${tresOctetos}"}`,
+    }),
+  );
+  assert.equal(r.status, 413);
+  assert.equal(chamadas.contagem.size, 0);
+});
+
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
   // As sete rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
@@ -454,6 +538,24 @@ test("sem a API montada, o /internal/* responde 503 e nao 404", async () => {
 // ------------------------------------------------------------------- /metrics
 
 test("criterio 8: o /metrics serve as duas metricas, sem credencial e em texto", async () => {
+  // **Os contadores sobem primeiro, e isso é o que torna a asserção do `OBS-I`
+  // falsificável.** A primeira versão deste caso corria sobre uma população
+  // vazia: o `!corpo.includes(TENANT)` passava mesmo que a exposição ganhasse
+  // uma etiqueta de tenant, porque não havia série nenhuma com valor. Achado da
+  // revisão adversarial.
+  //
+  // Faz-se subir pelo caminho real — uma consulta sem filtro é recusada pelo
+  // `repoBase` e incrementa o `com_repo_filtro_em_falta_total`, e uma com filtro
+  // incrementa o `com_repo_consultas_total` —, e não chamando o contador à mão:
+  // o que se quer medir é que o que o repo-base conta é o que a rota serve.
+  const repo = repoBase(
+    { async query() { return { rows: [] }; } },
+    TENANT,
+    "merch",
+  );
+  await assert.rejects(() => repo.noTenant("SELECT 1", []), FiltroEmFaltaError);
+  await repo.noTenant("SELECT 1 WHERE tenant_id = $1", []);
+
   const { aplicacao } = app();
   const r = await aplicacao.fetch(
     new Request("http://127.0.0.1/metrics", { method: "GET" }),
@@ -468,6 +570,17 @@ test("criterio 8: o /metrics serve as duas metricas, sem credencial e em texto",
     assert.ok(corpo.includes(`# TYPE ${nome} counter`), nome);
     assert.ok(corpo.includes(`${nome}{filtro="tenant"}`), nome);
     assert.ok(corpo.includes(`${nome}{filtro="merchant"}`), nome);
+  }
+  // **As duas séries do `tenant` têm valor**, pelo que a asserção de baixo corre
+  // sobre uma população que existe. Lê-se o número do corpo e não do contador,
+  // que é o ponto: é a exposição que se mede.
+  for (const nome of [
+    "com_repo_filtro_em_falta_total",
+    "com_repo_consultas_total",
+  ]) {
+    const achado = new RegExp(`${nome}\\{filtro="tenant"\\} (\\d+)`).exec(corpo);
+    assert.ok(achado !== null, nome);
+    assert.ok(Number(achado?.[1]) > 0, `${nome} ficou a zero: ${achado?.[1]}`);
   }
   // **Nenhum identificador em etiqueta** (`OBS-I`): a única etiqueta é o filtro.
   assert.ok(!corpo.includes(TENANT), "um tenant_id saiu numa etiqueta");

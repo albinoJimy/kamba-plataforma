@@ -24,6 +24,10 @@ import {
   LIMITE_POR_OMISSAO,
   SQL_LISTAR,
   SQL_VISTA,
+  TABELA_DAS_DIVERGENCIAS,
+  TABELA_DO_ESPELHO,
+  TABELA_DO_REGISTO,
+  cartId,
   cifrarCursor,
   getOrder,
   lerCursor,
@@ -97,15 +101,41 @@ function baseDeEnsaio(linhas: readonly ReturnType<typeof linha>[]) {
         saida = saida.filter((l) => l.id === parametros[1]);
         return { rows: saida.map(({ _tenant, ...resto }) => resto) };
       }
+      // **Os cinco argumentos, e não três.** A primeira versão deste duplo
+      // ignorava o `contactId` (`$3`) e o `id` do desempate do cursor (`$5`),
+      // pelo que o filtro por contacto não tinha caminho legítimo medido e a
+      // razão escrita para o `id` entrar na ordem — «duas encomendas podem
+      // nascer no mesmo microssegundo» — **não podia** ser medida: o duplo não
+      // olhava para o argumento. Achado da revisão adversarial.
       const estado = parametros[1];
+      const contacto = parametros[2];
       const cursorAt = parametros[3];
+      const cursorId = parametros[4];
       if (typeof estado === "string") {
         saida = saida.filter((l) => l.estado === estado);
       }
-      if (typeof cursorAt === "string") {
-        saida = saida.filter((l) => l.criado_at < cursorAt);
+      if (typeof contacto === "string") {
+        saida = saida.filter((l) => l.contact_id === contacto);
       }
-      saida = [...saida].sort((a, b) => (a.criado_at < b.criado_at ? 1 : -1));
+      if (typeof cursorAt === "string") {
+        // A comparação de linhas do `SQL_LISTAR`: `(criado_at, id) < ($4, $5)`.
+        // Com o desempate, e não só pelo instante — é o que o cursor precisa
+        // quando duas linhas nascem no mesmo microssegundo.
+        const id = typeof cursorId === "string" ? cursorId : "";
+        saida = saida.filter(
+          (l) =>
+            l.criado_at < cursorAt || (l.criado_at === cursorAt && l.id < id),
+        );
+      }
+      saida = [...saida].sort((a, b) =>
+        a.criado_at === b.criado_at
+          ? a.id < b.id
+            ? 1
+            : -1
+          : a.criado_at < b.criado_at
+            ? 1
+            : -1,
+      );
       const limite = parametros[5];
       if (typeof limite === "number") saida = saida.slice(0, limite);
       return { rows: saida.map(({ _tenant, ...resto }) => resto) };
@@ -310,16 +340,89 @@ test("um cursor emitido antes da rotacao continua a valer", () => {
 });
 
 test("o cursor nao e o cart_id: o mesmo segredo nao produz o mesmo valor", () => {
-  // A separação é no **domínio** e não na chave — é a mesma escolha do `cartId`,
-  // e é o que faz com que conhecer um não dê o outro.
+  // **A comparação é com um `cart_id` a sério**, e a primeira versão deste caso
+  // não derivava nenhum: ela afirmava `!cursor.includes(posicao.id)`, que passa
+  // por o corpo ser base64 — e o próprio módulo diz que o corpo **é legível**
+  // («é opaco, não secreto»). Media codificação, não separação de domínio.
+  // Achado da revisão adversarial.
+  //
+  // A propriedade que a nota do módulo vende como razão para **não** haver um
+  // segredo próprio para cursores é esta: a separação está no domínio e não na
+  // chave, pelo que o mesmo segredo e as mesmas partes dão valores diferentes.
   const posicao = { criadoAt: "2026-11-03T10:00:00.000Z", id: linha(3).id };
   const cursor = cifrarCursor(ANEL, TENANT_A, posicao);
-  assert.ok(!cursor.includes(posicao.id), "o id nao vai em claro sem cifrar");
-  // O corpo é legível (é opaco, não secreto) mas a assinatura é que manda: um
-  // corpo alterado não passa.
+  const doCarrinho = cartId(ACTUAL, {
+    tenantId: TENANT_A,
+    contactId: CONTACTO,
+    draftId: posicao.id,
+    draftVersion: 1,
+  });
+  assert.notEqual(cursor, doCarrinho);
+  assert.ok(!cursor.includes(doCarrinho), "o cursor nao contem o cart_id");
+  assert.ok(!doCarrinho.includes(cursor), "o cart_id nao contem o cursor");
+  // E um `cart_id` **não** se lê como cursor: a verificação do cursor recusa-o,
+  // o que é a metade que importa para quem tentar passar um pelo outro.
+  assert.equal(lerCursor(ANEL, TENANT_A, doCarrinho), null);
+
+  // A assinatura é que manda: um corpo alterado não passa.
   const [corpo] = cursor.split(".");
   const outro = `${corpo}.${Buffer.alloc(16, 1).toString("base64url")}`;
   assert.equal(lerCursor(ANEL, TENANT_A, outro), null);
+});
+
+test("o filtro por contacto tem caminho legitimo, e nao devolve o de outro", async () => {
+  // **O filtro por contacto não tinha caminho legítimo medido**: o duplo de
+  // ensaio ignorava o `$3`. Agora honra-o, e este caso é o que o prova — com
+  // duas encomendas de dois contactos do mesmo tenant.
+  const OUTRO = "9d1d5e3a-2b4f-4a6c-8d0e-1f2a3b4c5d6e";
+  const minhas = linha(1);
+  const dele = { ...linha(2), contact_id: OUTRO };
+  const { cliente, vistos } = baseDeEnsaio([minhas, dele]);
+  const r = await listOrders(leitura(cliente), ANEL, { contactId: CONTACTO });
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  assert.deepEqual(
+    r.valor.itens.map((i) => i.orderId),
+    [minhas.id],
+  );
+  // E o contacto foi ao predicado como `$3`, e não ficou pelo lado do cliente.
+  const listagem = vistos.find((v) => v.sql === SQL_LISTAR);
+  assert.equal(listagem?.parametros[2], CONTACTO);
+});
+
+test("o cursor desempata pelo id quando duas linhas nascem no mesmo instante", async () => {
+  // **A razão escrita para o `id` entrar na ordem, medida.** Duas encomendas no
+  // mesmo microssegundo: sem o desempate, a segunda página saltava uma delas ou
+  // repetia-a. O `SQL_LISTAR` ordena por `(criado_at DESC, id DESC)` e compara
+  // a linha inteira; é essa comparação que este caso exercita.
+  const mesmo = "2026-11-02T10:00:00.000Z";
+  const a = { ...linha(1), criado_at: mesmo };
+  const b = { ...linha(2), criado_at: mesmo };
+  const { cliente } = baseDeEnsaio([a, b]);
+
+  const primeira = await listOrders(leitura(cliente), ANEL, {
+    estado: "criada",
+    limite: 1,
+  });
+  assert.equal(primeira.tipo, "ok");
+  if (primeira.tipo !== "ok") return;
+  assert.equal(primeira.valor.itens.length, 1);
+  assert.notEqual(primeira.valor.proximo, null);
+
+  const segunda = await listOrders(leitura(cliente), ANEL, {
+    estado: "criada",
+    limite: 1,
+    cursor: primeira.valor.proximo,
+  });
+  assert.equal(segunda.tipo, "ok");
+  if (segunda.tipo !== "ok") return;
+  assert.equal(segunda.valor.itens.length, 1, "a segunda linha foi saltada");
+  const ids = [
+    primeira.valor.itens[0]?.orderId,
+    segunda.valor.itens[0]?.orderId,
+  ];
+  assert.equal(new Set(ids).size, 2, "a mesma linha veio duas vezes");
+  assert.deepEqual([...ids].sort(), [a.id, b.id].sort());
 });
 
 // ------------------------------------------------------------------- getOrder
@@ -348,4 +451,31 @@ test("o getOrder le pelo SQL_VISTA e devolve a OrderView do §3.2", async () => 
 test("um order_id que nao e UUID e VALIDATION_ERROR, sem ir a base", async () => {
   const r = await getOrder(leitura(CLIENTE_PROIBIDO), "' OR 1=1 --");
   assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
+});
+
+// ------------------------------------------- as tres tabelas, pelo esquema
+
+test("as tres constantes de tabela estao qualificadas pelo esquema", () => {
+  // **A correcção não estava presa por nada**, e podia regredir em silêncio:
+  // todos os testes referem a constante e nunca o literal, e a suite de base de
+  // dados escreve os três `INSERT` ela própria. Medido pela revisão
+  // adversarial, que tirou o `platform.` e viu a bateria inteira verde.
+  //
+  // **O que esta asserção é, e o que não é:** é sobre o **nome**, porque o
+  // `42P01` só acontece contra um PostgreSQL sem `search_path` — e isso é do
+  // *gate* 8, onde as cadeias do módulo correm a sério. Uma asserção sobre o
+  // nome é mais fraca do que a base, e é a que existe em JavaScript; fica dita
+  // em vez de se deixar a impressão de que mede o erro.
+  for (const tabela of [
+    TABELA_DO_ESPELHO,
+    TABELA_DO_REGISTO,
+    TABELA_DAS_DIVERGENCIAS,
+  ]) {
+    assert.match(
+      tabela,
+      /^platform\./,
+      `${tabela} sem esquema: o inserirNoTenant constroi o INSERT com este ` +
+        "nome, nada poe o search_path, e ela morre em 42P01 (KAM-178)",
+    );
+  }
 });
