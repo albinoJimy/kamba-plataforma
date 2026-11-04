@@ -5674,7 +5674,12 @@ MUTACOES = [
     #
     # **Sete, e a lista nasceu de uma revisao adversarial que a pediu.** Ela
     # mediu que o `ENABLE ALWAYS` dos cinco *triggers* desta revisao nao tinha
-    # ensaio nenhum nem mutacao nenhuma — e que a `0029` tem quinze. Cada uma
+    # ensaio nenhum nem mutacao nenhuma — e que a `0029` tem **catorze**. Dizia
+    # «quinze», e eram catorze no dia em que a frase foi escrita: medido no
+    # KAM-175 com `grep -c "', REV29,"` sobre este ficheiro em `c75d523`, antes e
+    # depois da troca de mutacao que esse ticket faz. Corrigido aqui e nao numa
+    # linha de divida porque e um numero em prosa dentro de um ficheiro que o
+    # KAM-175 ja altera, e porque a verificacao desse ticket o cita. Cada uma
     # ataca **uma** barreira do ticket, pela ordem do que custa mais se nao
     # morder: primeiro as que deixariam escrever `paga` por fora, depois as que
     # deixariam o estado mudar sem registo, por fim as que deixariam o espelho

@@ -1,0 +1,24 @@
+# Lista de saidas de `prometheus` — KAM-067, criterio 9; servico do KAM-076.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; a aplicacao na rede e a allowlist de `proxy-saida.yaml`.
+#
+# Monitorizacao. Esta em `ops` (que e `internal: true`) e em `app`, para poder
+# raspar os servicos — e raspar um servico da pilha e rede do compose, nao
+# saida. Hoje a configuracao so se raspa a si proprio: **as metricas, os
+# paineis e os 12 alertas do doc 09 §9.2 sao o KAM-080**.
+#
+# E o unico membro de `ops`, e esta na pilha por isso: uma rede declarada e sem
+# membros **nao e criada** pelo Docker (medido a 2026-11-03,
+# `docs/evidencia/KAM-076.md` §2), e o criterio 3 pede quatro redes.
+#
+# Uma nota para o KAM-080: o Alertmanager vai precisar de sair — enviar um
+# alerta e uma saida —, e esse destino entra aqui com aquele ticket, com o FQDN
+# do canal escolhido. O Prometheus em si nao sai.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+
+version: 1
+servico: prometheus
+por_omissao: negar
+destinos: []

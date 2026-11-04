@@ -91,6 +91,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         test-ts typecheck up \
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
         log-lint money-lint env-lint x11 storage-contrato mermaid \
+        compose-prod-lint compose-prod-egress \
         ordem-dos-ensaios
 
 ## help: lista os comandos disponiveis
@@ -406,6 +407,7 @@ ci-2:
 	@$(MAKE) log-lint
 	@$(MAKE) money-lint
 	@$(MAKE) env-lint
+	@$(MAKE) compose-prod-lint
 	@# Nao ha linter de estilo: os gates de lint sao deste ticket, mas a escolha do
 	@# ESLint ficou declarada fora de ambito no KAM-001 (ADR-L001 §8) e nao se
 	@# decide aqui por conveniencia. `make ci-2` cobre tipos e arquitectura.
@@ -496,6 +498,56 @@ env-lint:
 	@echo "==> env_lint: ambientes dev/staging/prod"
 	@$(PYTHON) -m env_lint --root $(ROOT) lint
 	@$(PYTHON) -m env_lint --root $(ROOT) canario
+
+# --- Compose de producao do conjunto reduzido (KAM-076) -----------------------
+#
+# **Entra no gate 2 e nao abre *job* novo**, pela mesma razao escrita acima para
+# o `log-lint`, o `money-lint` e o `env-lint`: um *job* novo acrescenta um
+# contexto exigido ao *ruleset* de `main`, e isso e alteracao de regra de
+# bloqueio, que precisa do fundador. (Ha uma recomendacao escrita sobre isso em
+# `docs/evidencia/KAM-076.md` §7, com a medicao; a decisao nao e deste ticket.)
+#
+# Tres passos, e cada um verifica uma coisa diferente:
+#
+#   lint     os criterios 1, 2, 4, 5 e 8 do bloco, por leitura: o conjunto
+#            exacto nos dois sentidos, a *denylist* dos seis nomes, as imagens
+#            por digest, as quatro redes e quem esta em cada uma, o
+#            endurecimento e a soma dos limites, as replicas e o `/healthz`, as
+#            portas, e as *flags* de edicao paga.
+#   gerar    a configuracao do proxy de saida e **gerada** da allowlist e
+#            versionada (como o `llm/litellm.config.yaml` o e de
+#            `llm/aliases.yaml`). `--verificar` falha se divergir: a allowlist
+#            deixa de poder discordar da configuracao que a aplica.
+#   canario  a prova de que o lint morde, por **mutacao da arvore real** e nao
+#            por fixtures — a razao esta em `tools/compose_prod/canario.py`.
+#            Trinta e quatro casos; cada um exige o achado da sua regra e **so**
+#            esse, e nenhuma regra pode ficar sem caso.
+#
+# O criterio 3 (egress *default-deny* com dez destinos) **nao esta aqui**: uma
+# rota nao se le num ficheiro. Esse e o `compose-prod-egress`, no gate 6, que
+# levanta o proxy a serio.
+#
+# So biblioteca padrao: corre com o Python do anfitriao, em segundos.
+
+## compose-prod-lint: o contrato do compose de producao (KAM-076)
+compose-prod-lint:
+	@echo "==> compose_prod: conjunto reduzido, redes, endurecimento e limites"
+	@$(PYTHON) -m compose_prod --root $(ROOT) lint
+	@$(PYTHON) -m compose_prod --root $(ROOT) gerar --verificar
+	@$(PYTHON) -m compose_prod --root $(ROOT) canario
+
+## compose-prod-egress: egress default-deny com dez destinos reais (KAM-076)
+compose-prod-egress:
+	@echo "==> compose_prod: egress default-deny, 10 destinos (criterio 3)"
+	@# Precisa de Docker: levanta o `proxy-saida` do **proprio** compose de
+	@# producao, com as quatro redes de verdade, e poe duas sondas — uma em
+	@# `data`, outra em `app`. Mede o **veredicto do proxy** e nao se o destino
+	@# responde, para que o guiao nao fique vermelho num runner sem saida para a
+	@# Internet; a razao esta em `tools/compose_prod/egress_dez.py`.
+	@command -v docker >/dev/null 2>&1 || { \
+	  echo "    ERRO: o guiao dos dez destinos precisa do Docker." >&2; \
+	  exit 1; }
+	@$(PYTHON) -m compose_prod --root $(ROOT) egress-dez
 
 ## x11: X-11 — 1 030 fixtures com dados pessoais pelos dois loggers, 0 achados
 x11:
@@ -990,6 +1042,10 @@ ci-6:
 	  echo "    ERRO: o gate 6 precisa do Docker para levantar o PostgreSQL." >&2; \
 	  exit 1; }
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_isolamento
+	@# E o egress *default-deny* do KAM-076 (criterio 3). Entra no gate 6 e nao
+	@# num *job* proprio pela mesma razao do X-11, logo acima: o gate 6 ja tem
+	@# Docker, e um *job* novo seria um contexto exigido novo no *ruleset*.
+	@$(MAKE) compose-prod-egress
 
 ## ci-7: gate 7 — contratos de evento: compatibilidade, PII, exemplos (KAM-007)
 ci-7:

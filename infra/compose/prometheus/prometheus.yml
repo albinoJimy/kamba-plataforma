@@ -1,0 +1,33 @@
+# Prometheus de producao — KAM-076.
+#
+# **ESTA CONFIGURACAO NAO E OBSERVABILIDADE, E NAO SE DEVE LER COMO TAL.**
+#
+# O KAM-076 traz o contentor, a rede `ops` e o limite de memoria. O que o doc 09
+# §9 pede — as metricas por tenant, a latencia de ingress, a profundidade da
+# fila, o custo LLM, os 12 alertas com `runbook_url`, os paineis como codigo e a
+# sonda sintetica externa — e o **KAM-080**, que depende deste ticket. Nao se
+# acrescenta aqui um `scrape_config` por servico por antecipacao: um alvo que
+# raspa um `/metrics` que ainda nao existe produz um `up 0` permanente, e um
+# painel cheio de alvos em baixo ensina a equipa a ignorar o painel.
+#
+# O unico alvo e o proprio Prometheus. Serve duas coisas verificaveis hoje:
+# que o processo arranca com a configuracao montada so de leitura, e que `ops`
+# existe e esta isolada (uma rede sem membros nao e criada pelo Docker).
+#
+# Sem `alerting:` e sem `rule_files:`: a regra do doc 09 §9.2 e «alerta sem
+# runbook e removido», e os *stubs* RB-K01 a RB-K10 sao do KAM-080. Um ficheiro
+# de regras vazio aqui passaria o `promtool` e nao diria nada.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    # `tenant_id` e a unica etiqueta de tenant permitida (criterio 3 do
+    # KAM-080); aqui nao ha nenhuma, e o ambiente nao e identificador pessoal.
+    ambiente: prod
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - 127.0.0.1:9090

@@ -1,0 +1,77 @@
+# Lista de saidas de `proxy-saida` — KAM-067, criterio 9; servico do KAM-076.
+#
+# **ESTE FICHEIRO E A ALLOWLIST.** Os outros servicos declaram o que querem
+# alcancar; este declara o que o proxy de facto abre, e e o unico contentor da
+# pilha com rota para fora a partir de `app`. O `docs/tecnica/09` §3.2 regra 2
+# diz que «`app` so sai pelo proxy de saida com allowlist de FQDN»: a allowlist
+# e isto, e a configuracao do Envoy em `infra/compose/envoy/egress.yaml` e
+# **gerada** daqui por `python -m compose_prod gerar`, como o
+# `llm/litellm.config.yaml` e gerado de `llm/aliases.yaml`.
+#
+# A regra que o `compose_prod` impoe nos dois sentidos:
+#
+#   * todo o destino declarado por um servico de `app` esta aqui — senao o
+#     servico declarou uma saida que o proxy recusa, e o contrato mentia;
+#   * todo o destino daqui e declarado por pelo menos um servico de `app` —
+#     senao e um destino aprovado sem dono, que e o contrario de negar por
+#     omissao (e a razao escrita em `tools/supply_chain/egress.py`).
+#
+# ----------------------------------------------------------------------------
+# O QUE O CRITERIO 3 NOMEIA E AQUI **NAO** ESTA, E PORQUE
+#
+# O criterio 3 do KAM-076 diz que de `app` «so passam `graph.facebook.com`, o
+# FQDN do facilitador e os FQDN de LLM/STT autorizados». Dois dos tres nao
+# entram hoje, e nao e esquecimento:
+#
+#   facilitador  `api.proxypay.co.ao` e `api.sandbox.proxypay.co.ao` sao
+#                CONFIRMADO (`E2` §1.2, doc 09 §6). **Nenhum servico do
+#                repositorio os declara**: nao ha `services/pay/`, e o
+#                adaptador de pagamento e o KAM-056. Por-los aqui criava um
+#                destino aprovado sem dono — e seria ainda destino de
+#                transferencia sem `apd_ref` (KAM-069). Entram com o KAM-056,
+#                com o servico que os chama.
+#   STT          nenhum provedor de *speech-to-text* esta escolhido nem
+#                declarado em `llm/aliases.yaml`. Um FQDN de STT aqui era
+#                invencao.
+#
+# O guiao dos dez destinos (`compose_prod egress-dez`) **testa os dois como
+# bloqueados**, com esta razao no relatorio, em vez de os dar por cumpridos. O
+# criterio 3 fica parcialmente satisfeito, e esta dito no PR.
+
+version: 1
+servico: proxy-saida
+por_omissao: negar
+destinos:
+  - fqdn: graph.facebook.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Declarado por `gwy`. Graph API da Meta; o ADR-001 faz do GWY o unico
+      servico que lhe fala, e o doc 09 §3.2 regra 2 nomeia este FQDN na
+      allowlist.
+    ticket: KAM-076
+
+  - fqdn: api.anthropic.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Declarado por `litellm`. Fornecedor de `kamba-router` e `kamba-chat`
+      (ordem 1) em `llm/aliases.yaml`.
+    ticket: KAM-076
+
+  - fqdn: api.openai.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Declarado por `litellm`. Fornecedor de `kamba-chat` na ordem 2, o
+      *fallback*: comutar para um FQDN fora desta lista era criar destino de
+      dados novo.
+    ticket: KAM-076
+
+  - fqdn: generativelanguage.googleapis.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Declarado por `litellm`. Fornecedor de `kamba-vision` (KAM-033) e
+      `kamba-embed` (KAM-063).
+    ticket: KAM-076
