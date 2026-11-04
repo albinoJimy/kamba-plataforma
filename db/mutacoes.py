@@ -5674,7 +5674,12 @@ MUTACOES = [
     #
     # **Sete, e a lista nasceu de uma revisao adversarial que a pediu.** Ela
     # mediu que o `ENABLE ALWAYS` dos cinco *triggers* desta revisao nao tinha
-    # ensaio nenhum nem mutacao nenhuma — e que a `0029` tem quinze. Cada uma
+    # ensaio nenhum nem mutacao nenhuma — e que a `0029` tem **catorze**. Dizia
+    # «quinze», e eram catorze no dia em que a frase foi escrita: medido no
+    # KAM-175 com `grep -c "', REV29,"` sobre este ficheiro em `c75d523`, antes e
+    # depois da troca de mutacao que esse ticket faz. Corrigido aqui e nao numa
+    # linha de divida porque e um numero em prosa dentro de um ficheiro que o
+    # KAM-175 ja altera, e porque a verificacao desse ticket o cita. Cada uma
     # ataca **uma** barreira do ticket, pela ordem do que custa mais se nao
     # morder: primeiro as que deixariam escrever `paga` por fora, depois as que
     # deixariam o estado mudar sem registo, por fim as que deixariam o espelho
@@ -5760,14 +5765,28 @@ MUTACOES = [
     # `test_insert_directo_no_ledger_falha_por_privilegio` tem de morder — e
     # tem de morder **por privilegio**, nao por `CHECK`: a linha que ele tenta e
     # deliberadamente valida em tudo o mais.
-    ('revisao 0029: o trigger de imutabilidade deixa de cobrir o DELETE', REV29,
-     'BEFORE UPDATE OR DELETE ON {EVENTOS}',
-     'BEFORE UPDATE ON {EVENTOS}',
+    ('revisao 0029: o trigger por instrucao volta a cobrir so o TRUNCATE', REV29,
+     'BEFORE TRUNCATE OR DELETE OR UPDATE ON {EVENTOS}',
+     'BEFORE TRUNCATE ON {EVENTOS}',
      "tests_pagamentos"),
-    # Um `DELETE` no ledger passa a correr para quem tiver o privilegio — o
-    # superutilizador, que e quem o `deny_mutation` existe para prender. E a
-    # mutacao que a `0006` ja tinha na sua forma (`o audit_log deixa de ter
-    # trigger de UPDATE`), aqui pelo outro verbo.
+    # **Esta mutacao substitui a do por linha, e a troca e consequencia do
+    # KAM-175.** Era `BEFORE UPDATE OR DELETE ON {EVENTOS}` ->
+    # `BEFORE UPDATE ON {EVENTOS}`, no `payment_events_imutavel`: um `DELETE` no
+    # ledger passava a correr para quem tivesse o privilegio. Depois de o por
+    # instrucao passar a `BEFORE TRUNCATE OR DELETE OR UPDATE`, essa mutacao
+    # **sobreviveria** — o `DELETE` continua recusado pelo outro *trigger*, e o
+    # por linha ficou estritamente redundante (medido). Uma mutacao que nao se
+    # consegue matar nao mede cobertura: mede so que alguem a escreveu.
+    #
+    # A que fica mede a barreira que **da** a propriedade. Retirar o
+    # `OR DELETE OR UPDATE` repoe exactamente o defeito que o KAM-175 fechou: um
+    # `DELETE` e um `UPDATE` cujo predicado nao casa com linha nenhuma voltam a
+    # devolver `DELETE 0` / `UPDATE 0` a quem tem o privilegio — o
+    # superutilizador, que e quem o `deny_mutation` existe para prender. Tem de
+    # morrer no `TestBarreiraNaoDependeDeQuantasLinhas`, nos dois ensaios
+    # separados (o do `DELETE` e o do `UPDATE`), e o `TRUNCATE` e o `DELETE` com
+    # linhas ficam verdes de qualquer forma — e por isso que a correccao precisa
+    # dos casos sem linhas e nao se deixa provar pelos que ja existiam.
     ('revisao 0029: os triggers do ledger deixam de ser ALWAYS', REV29,
      'op.execute("ALTER TABLE " + EVENTOS + " ENABLE ALWAYS TRIGGER payment_events_imutavel")',
      'pass  # sem ENABLE ALWAYS',

@@ -24,6 +24,12 @@ from __future__ import annotations
 
 from tests_pagamentos.base import ComLedger
 
+#: Os dois *triggers* que ligam a `deny_mutation` ao ledger, pela ordem do
+#: catalogo. Desde o KAM-175 os **dois** mordem o `UPDATE` e o `DELETE` — o por
+#: instrucao passou a `BEFORE TRUNCATE OR DELETE OR UPDATE` —, pelo que forjar
+#: um elo partido obriga a desligar os dois e nao so o por linha.
+TRIGGERS_DO_LEDGER = ("payment_events_imutavel", "payment_events_sem_truncate")
+
 
 class TestFormulaDoElo(ComLedger):
     """A formula, chamada directamente. Sem cobranca nenhuma."""
@@ -313,27 +319,45 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
 
     # ------------------------------------------------------------- auxiliares
 
-    def _desligar_trigger(self) -> str:
-        """Desliga o `payment_events_imutavel` e **devolve o que ele era**.
+    def _desligar_trigger(self) -> dict[str, str]:
+        """Desliga **os dois** *triggers* e devolve o que cada um era.
 
         Devolver o estado anterior nao e zelo: e o que impede este ensaio de
         contaminar o `TestTriggersSaoAlways`. Ver o `_repor_trigger`.
+
+        **Sao dois desde o KAM-175, e nao por simetria.** O
+        `payment_events_sem_truncate` passou a
+        `BEFORE TRUNCATE OR DELETE OR UPDATE ... FOR EACH STATEMENT` para fechar
+        o caso sem linhas, e com isso passou a morder tambem o `DELETE` **com**
+        linhas que o `test_uma_linha_removida_no_meio_e_apanhada_pelo_encadeamento`
+        usa para forjar o buraco na cadeia. Desligar so o por linha deixava esse
+        ensaio a falhar com `42501` — e e o unico ensaio existente que a
+        alteracao da `0029` quebra.
         """
+        # `= ANY(%s)` e nao `IN %s`: o `pg8000` nao expande um tuplo em lista de
+        # valores, e um `IN %s` chegava ao servidor como `IN $1` com um array.
         self.semente.execute(
-            "SELECT t.tgenabled FROM pg_trigger t "
+            "SELECT t.tgname::text, t.tgenabled::text FROM pg_trigger t "
             "  JOIN pg_class c ON c.oid = t.tgrelid "
             "  JOIN pg_namespace n ON n.oid = c.relnamespace "
             " WHERE n.nspname = 'platform' AND c.relname = 'payment_events' "
-            "   AND t.tgname = 'payment_events_imutavel'"
+            "   AND t.tgname::text = ANY(%s)",
+            (list(TRIGGERS_DO_LEDGER),),
         )
-        anterior = str(self.semente.fetchone()[0])
-        self.semente.execute(
-            "ALTER TABLE platform.payment_events "
-            "DISABLE TRIGGER payment_events_imutavel"
+        anterior = {str(nome): str(estado) for nome, estado in self.semente.fetchall()}
+        self.assertEqual(
+            sorted(anterior),
+            sorted(TRIGGERS_DO_LEDGER),
+            "os dois triggers do ledger tem de existir para este ensaio "
+            "poder desliga-los",
         )
+        for nome in TRIGGERS_DO_LEDGER:
+            self.semente.execute(
+                f"ALTER TABLE platform.payment_events DISABLE TRIGGER {nome}"
+            )
         return anterior
 
-    def _repor_trigger(self, anterior: str) -> None:
+    def _repor_trigger(self, anterior: dict[str, str]) -> None:
         """Repoe **o que estava**, e nao o que devia estar.
 
         ## Porque e que isto nao e `ENABLE ALWAYS` fixo
@@ -356,17 +380,18 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
         escrever o estado que outro ensaio afirma. E a mesma disciplina do passo
         de canario do `test_concorrencia.py`, que repoe a restricao que largou.
         """
-        if anterior == "A":
-            instrucao = "ENABLE ALWAYS TRIGGER"
-        elif anterior == "R":
-            instrucao = "ENABLE REPLICA TRIGGER"
-        elif anterior == "D":
-            instrucao = "DISABLE TRIGGER"
-        else:
-            instrucao = "ENABLE TRIGGER"
-        self.semente.execute(
-            f"ALTER TABLE platform.payment_events {instrucao} payment_events_imutavel"
-        )
+        for nome, estado in anterior.items():
+            if estado == "A":
+                instrucao = "ENABLE ALWAYS TRIGGER"
+            elif estado == "R":
+                instrucao = "ENABLE REPLICA TRIGGER"
+            elif estado == "D":
+                instrucao = "DISABLE TRIGGER"
+            else:
+                instrucao = "ENABLE TRIGGER"
+            self.semente.execute(
+                f"ALTER TABLE platform.payment_events {instrucao} {nome}"
+            )
 
     def _verificar(self):
         self.semente.execute(
