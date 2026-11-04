@@ -73,11 +73,10 @@ SEM_TRANSICAO = (
 #: As arestas do diagrama do §7.1, lidas do documento uma a uma:
 #: `(estado, tipo_evento, decisao) -> estado`.
 #:
-#: Tres arestas do diagrama **nao** estao aqui, e nenhuma por esquecimento:
+#: **Duas** arestas do diagrama nao estao aqui, e nenhuma por esquecimento. Eram
+#: tres, e a primeira entrou com o KAM-054 — ver a nota ao lado do
+#: `("paga", "confirmacao_manual_revertida")` na tabela:
 #:
-#:     paga -> reembolso_pendente: «disputa»
-#:         nao ha tipo de evento para uma disputa nos dezassete do §6.2. Abrir um
-#:         caso e `refund_cases` (§6.3, KAM-054)
 #:     pendente_confirmacao -> paga: «confirmacao humana auditada»
 #:         esta aqui, mas por `pagamento_confirmado` — «confirmacao humana
 #:         auditada» e um `authn_method` (`manual`, com `actor_id`) e nao um tipo
@@ -103,6 +102,14 @@ ARESTAS = {
     ("pendente_confirmacao", "confirmacao_manual_rejeitada"): "emitida",
     ("expirada", "pagamento_confirmado"): "paga",
     ("falhada", "pagamento_confirmado"): "paga",
+    # A quinta aresta, pela revisao `0032` (KAM-054). A `0029` deixou-a de fora
+    # e nomeou a condicao: «nao ha tipo de evento para uma disputa nos
+    # dezassete do §6.2. Abrir um caso de disputa e `refund_cases` (§6.3), que e
+    # do KAM-054. Sem evento, nao ha aresta — e inventar um tipo era alargar o
+    # escopo.» Com a `refund_cases` a existir, o evento que faltava **ja
+    # estava** nos dezassete: e o `confirmacao_manual_revertida` do M-8. A
+    # condicao cumpriu-se sem se inventar tipo nenhum.
+    ("paga", "confirmacao_manual_revertida"): "reembolso_pendente",
     ("reembolso_pendente", "reembolso_manual_registado"): "reembolsada",
 }
 

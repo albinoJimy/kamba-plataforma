@@ -256,8 +256,21 @@ class TestDowngradeDa0029(unittest.TestCase):
         # suite inteira por causa disso.
         self.assertEqual(
             self.triggers_sempre_activos(),
-            [("payment_events_imutavel", "A"), ("payment_events_sem_truncate", "A")],
-            "a revisao tem de criar os dois triggers com ENABLE ALWAYS: sem "
+            [
+            # O `payment_events_g8_humano` e da revisao `0032` (KAM-054) e
+            # entra nesta lista por ser o terceiro *trigger* da tabela: e o
+            # G8 do §5 — um `pagamento_confirmado` com
+            # `authn_method='manual'` exige uma fase de
+            # `manual_confirmations` com `valor_bate` e o mesmo actor. Tem
+            # `ENABLE ALWAYS` pela mesma razao que os outros dois, e aqui
+            # ela e **mais** forte: sem o `ALWAYS`, um superutilizador em
+            # `session_replication_role = replica` confirmava um pagamento
+            # por via humana sem fase nenhuma.
+                ("payment_events_g8_humano", "A"),
+                ("payment_events_imutavel", "A"),
+                ("payment_events_sem_truncate", "A"),
+            ],
+            "a revisao tem de criar os triggers com ENABLE ALWAYS: sem "
             "isso, um SET session_replication_role = replica salta-os e a "
             "imutabilidade do ledger passa a depender de ninguem o escrever",
         )
@@ -272,7 +285,11 @@ class TestDowngradeDa0029(unittest.TestCase):
         """
         self.assertEqual(
             self.triggers_sempre_activos(),
-            [("payment_events_imutavel", "A"), ("payment_events_sem_truncate", "A")],
+            [
+                ("payment_events_g8_humano", "A"),
+                ("payment_events_imutavel", "A"),
+                ("payment_events_sem_truncate", "A"),
+            ],
         )
 
     def test_o_downgrade_nao_toca_na_auditoria_nem_no_outbox(self) -> None:

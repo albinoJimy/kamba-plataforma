@@ -1826,6 +1826,133 @@ INVENTARIO = {
         "evt_tipo": ("text", NAO, None, "nao — nome de tipo de evento de dominio"),
         "evt_versao": ("smallint", NAO, "1", "nao"),
     },
+    # ------------------------------------------------- KAM-054, revisao 0032
+    #
+    # As quatro da confirmacao humana auditada. **Nenhuma guarda telefone nem
+    # texto de mensagem**, e nas duas primeiras isso e a regra M-1 e nao
+    # higiene: quem confirma identifica-se pelo BSUID do canal resolvido a
+    # `contact_id`, e nao ha coluna por onde uma mensagem a dizer «sou o dono»
+    # entre. O `canal_msg_id` e um identificador opaco da Meta e nao o conteudo.
+    "payment_confirmers": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — referencia opaca a contacts (KAM-008). E o BSUID do canal "
+            "resolvido, e e a unica forma de dizer quem confirma (M-1)",
+        ),
+        "papel": ("text", NAO, None, "nao — dominio fechado de dois valores"),
+        "pode_segunda_aprovacao": ("boolean", NAO, "false", "nao"),
+        "ativo": (
+            "boolean",
+            NAO,
+            "true",
+            "nao — retirar um funcionario e pôr isto a false, nao apagar a "
+            "linha: a linha fica para a auditoria",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "manual_confirmations": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "charge_id": ("uuid", NAO, None, "nao"),
+        "fase": ("text", NAO, None, "nao — dominio fechado de cinco valores"),
+        "actor_contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — referencia opaca a contacts. Na fase declaracao_cliente e o "
+            "contacto do cliente, e e dela que a guarda do M-1 le quem o cliente e",
+        ),
+        "canal_msg_id": (
+            "text",
+            NAO,
+            None,
+            "nao — identificador opaco da mensagem no canal, nao o conteudo "
+            "dela. E a chave de idempotencia do criterio 9",
+        ),
+        "valor_declarado_minor": (
+            "bigint",
+            SIM,
+            None,
+            "nao — unidade menor inteira, e **nao e um saldo**: e o valor que o "
+            "dono escreveu ao ver a app do banco dele (M-4). Ver "
+            "`EM_UNIDADE_MENOR` em `test_catalogo.py`",
+        ),
+        "valor_bate": (
+            "boolean",
+            SIM,
+            None,
+            "nao — o veredicto do desafio do valor, sem tolerancia. Anulavel "
+            "porque a declaracao do cliente nao tem valor declarado",
+        ),
+        "evidencia_ref": (
+            "text",
+            SIM,
+            None,
+            "nao — referencia ao anexo no STO, **nunca o conteudo**, e com o "
+            "rotulo nao_prova imposto por CHECK (M-7). Nenhum modulo do "
+            "ManualProvider le a imagem",
+        ),
+        "motivo": ("text", SIM, None, "nao — codigo de recusa, nao texto livre"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "refund_cases": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "order_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — **sem FK**: a FK para orders_mirror fica no KAM-055 com a da "
+            "payment_charges, porque pô-la so num dos dois lados deixava o par "
+            "incoerente",
+        ),
+        "charge_id": ("uuid", SIM, None, "nao"),
+        "motivo": ("text", NAO, None, "nao — razao escrita, obrigatoria (M-8)"),
+        "valor_minor": (
+            "bigint",
+            NAO,
+            None,
+            "nao — unidade menor inteira, e **nao e um saldo**: e o montante da "
+            "cobranca que se reverteu, e a plataforma nao detem nada por causa "
+            "dele (ADR-004, G-6). Ver `EM_UNIDADE_MENOR`",
+        ),
+        "estado": ("text", NAO, "'aberto'::text", "nao — dominio de quatro"),
+        "prova_ref": (
+            "text",
+            SIM,
+            None,
+            "nao — referencia a prova que a PME junta ao executar, no STO",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "fechado_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+    "fraud_signals": {
+        "id": ("bigint", NAO, None, "nao — identidade, pela razao do events_outbox"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — referencia opaca a contacts. Anulavel: um sinal pode ser do "
+            "tenant e nao de um contacto",
+        ),
+        "charge_id": ("uuid", SIM, None, "nao"),
+        "regra": ("text", NAO, None, "nao — nome da regra determinista"),
+        "severidade": ("smallint", NAO, None, "nao — 1 a 5 por CHECK"),
+        "accao": ("text", NAO, None, "nao — dominio fechado de cinco valores"),
+        "detalhe": (
+            "jsonb",
+            NAO,
+            "'{}'::jsonb",
+            "nao — os agregados da janela e a identificacao da confirmacao. "
+            "**Sem telefone e sem texto de mensagem**: o contacto vai na coluna "
+            "contact_id",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: **A terceira vista do esquema** (KAM-053, revisao `0029`), e esta aqui pela
@@ -2250,6 +2377,25 @@ class TestInventario(ComBase):
                 (nome, "a", "a")
                 for nome in sorted(
                     [
+                        # KAM-054 (0032): **dez**, e todas com nome da casa em
+                        # vez do `_fkey` que o PostgreSQL geraria. Nenhuma apaga
+                        # em cascata, pela razao geral: apagar um tenant nao
+                        # apaga o rasto de quem confirmou um pagamento dele, e o
+                        # `deleted_at` do dicionario §2 e que faz o *soft
+                        # delete*.
+                        #
+                        # A FK de `refund_cases.order_id` **nao** esta aqui: e
+                        # do KAM-055, com a da `payment_charges`.
+                        "payment_confirmers_tenant_fk",
+                        "payment_confirmers_contact_fk",
+                        "manual_confirmations_tenant_fk",
+                        "manual_confirmations_charge_fk",
+                        "manual_confirmations_actor_fk",
+                        "refund_cases_tenant_fk",
+                        "refund_cases_charge_fk",
+                        "fraud_signals_tenant_fk",
+                        "fraud_signals_contact_fk",
+                        "fraud_signals_charge_fk",
                         # KAM-019: as tres do handoff. A da conversa e
                         # **composta** com o `tenant_id`, pela mesma razao das
                         # da saida; a `handoff_accounts` nao referencia a
@@ -2639,6 +2785,45 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-054 (0032)
+                    #
+                    # **Quinze**: quatro do `payment_confirmers` (a chave
+                    # composta, o dominio do papel e as duas chaves primarias
+                    # contadas como uma), cinco da `manual_confirmations`, cinco
+                    # da `refund_cases` e tres do `fraud_signals` — mais os
+                    # `_pkey` das tres com `id`.
+                    #
+                    # Tres fazem trabalho que vale a pena nomear:
+                    #
+                    #   manual_confirmations_evidencia_ck  o M-7 imposto pela
+                    #     base: `evidencia_ref LIKE 'nao_prova:%'`. Nao ha como
+                    #     gravar um anexo do cliente sem dizer, no proprio
+                    #     registo, que ele nao prova pagamento nenhum. O rotulo
+                    #     tem de estar no **principio**, e ha ensaio para isso
+                    #   manual_confirmations_msg_uq  a idempotencia do criterio
+                    #     9, por `(charge_id, canal_msg_id)` e nao pelo
+                    #     `canal_msg_id` so: os identificadores de mensagem vem
+                    #     da Meta, e uma colisao global fazia a segunda cobranca
+                    #     recusar uma confirmacao legitima
+                    #   refund_cases_fechado  a equivalencia nos dois sentidos
+                    #     entre o estado terminal e o instante de fecho. Um
+                    #     `AND` onde devia estar o `=` aceitava um caso
+                    #     `concluido` sem data e uma data sem conclusao
+                    "payment_confirmers_pk",
+                    "payment_confirmers_papel_ck",
+                    "manual_confirmations_pkey",
+                    "manual_confirmations_msg_uq",
+                    "manual_confirmations_fase_ck",
+                    "manual_confirmations_valor_ck",
+                    "manual_confirmations_evidencia_ck",
+                    "refund_cases_pkey",
+                    "refund_cases_valor_ck",
+                    "refund_cases_estado_ck",
+                    "refund_cases_um_sujeito",
+                    "refund_cases_fechado",
+                    "fraud_signals_pkey",
+                    "fraud_signals_severidade_ck",
+                    "fraud_signals_accao_ck",
                     # ------------------------------------- KAM-053 (0029)
                     #
                     # **Trinta e duas**: onze da `payment_charges`, tres do

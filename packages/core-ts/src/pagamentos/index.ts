@@ -50,10 +50,19 @@
  *                   orquestracao — ler o *inbox*, abrir transacção, chamar a
  *                   porta — e I/O e vive no servico `pay`, que nao existe
  *
- * O ledger `payment_events` e o KAM-053; o `ManualProvider` e o KAM-054; a
- * `payment_charges` e as FK para `orders_mirror` sao o KAM-055; o ProxyPay e o
- * KAM-056; o billing e o KAM-059. **Nenhum deles esta aqui**, e o `refund` e o
- * `payout` devolvem `NOT_SUPPORTED` por ADR-004 e nao por estarem por fazer.
+ * E, desde o **KAM-054**, o `ManualProvider`:
+ *
+ *     manual        o adaptador do §4 (`humanOnly`), o tecto por pedido e o
+ *                   opt-in do `cod` no `createCharge`, a tabela pura das regras
+ *                   M-1, M-3, M-4 e M-5, e as cadeias SQL das cinco funcoes de
+ *                   fase. As barreiras vivem na revisao `0032` — o
+ *                   `avaliarConfirmacao` daqui e o oraculo da suite e a
+ *                   mensagem que o agente mostra ao dono, nao a recusa
+ *
+ * **A frase que estava aqui dizia «nenhum deles esta aqui», e passou a ser
+ * falsa em um dos cinco.** As FK para `orders_mirror` sao o KAM-055; o ProxyPay
+ * e o KAM-056; o billing e o KAM-059 — esses tres continuam fora. O `refund` e
+ * o `payout` devolvem `NOT_SUPPORTED` por ADR-004 e nao por estarem por fazer.
  *
  * ## `beneficiary_kind` e `pme`, e **nao** `tenant`
  *
@@ -227,6 +236,57 @@ export {
   type OpcoesDoFake,
   type ResolverChave,
 } from "./fake.ts";
+
+export {
+  ACCAO_DE_RETENCAO,
+  ALERTA_DESVIO_SEMANAL,
+  AVISOS,
+  CADEIAS_DO_MANUAL,
+  CAPACIDADES_DO_MANUAL,
+  CHAVE_DIARIA,
+  CHAVE_DUPLA,
+  CHAVE_MAX,
+  CHAVE_POR_CONTACTO,
+  FASES,
+  IMPORTACOES_PROIBIDAS,
+  ETIQUETAS_DA_METRICA,
+  JANELA_DE_SILENCIO_HORAS,
+  METRICA_CONFIRMACOES,
+  MODULOS_DO_MANUAL,
+  PAPEIS_DE_CONFIRMADOR,
+  PROPOSTAS_DE_OMISSAO,
+  PROVIDER_MANUAL,
+  REGRA_DIARIA,
+  REGRA_POR_CONTACTO,
+  ROTULO_NAO_PROVA,
+  SQL_MANUAL_CONFIRMADOR,
+  SQL_MANUAL_CONFIRMAR,
+  SQL_MANUAL_DECLARAR,
+  SQL_MANUAL_EXPIRAR_CONFIRMACAO,
+  SQL_MANUAL_JANELA,
+  SQL_MANUAL_REVERTER,
+  ManualProvider,
+  type ConfirmadorConhecido,
+  type DecisaoDoManual,
+  type EntradaDaConfirmacao,
+  type Fase,
+  type JanelaDoManual,
+  type LeitorDeInstrucoes,
+  type LeitorDeLimites,
+  type LimitesDoManual,
+  type MotivoManual,
+  type OpcoesDoManual,
+  type OwnerNotifier,
+  type PapelDeConfirmador,
+  type RegraManual,
+  type VeredictoDoManual,
+  avaliarConfirmacao,
+  cobre,
+  evidenciaNaoProva,
+  expiraEm,
+  janelaDeSilencioSegundos,
+  rotuloDaEvidencia,
+} from "./manual.ts";
 
 export {
   ADAPTADORES_COM_LICENCA_BNA,
