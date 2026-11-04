@@ -73,17 +73,41 @@ def load(path: Path) -> Conventions:
     )
 
 
-def check_commit_message(message: str, rules: Conventions) -> list[str]:
-    """Devolve a lista de problemas da mensagem. Lista vazia = conforme."""
-    # Comentarios do `git commit` nao fazem parte da mensagem. Tiram-se **antes**
-    # de qualquer outra coisa, para que o cabecalho e o corpo sejam contados a
-    # partir do mesmo sitio: contar o corpo a partir da linha 1 do ficheiro bruto
-    # trataria o proprio cabecalho como corpo quando o `git` prefixa comentarios.
-    lines = [
-        line
-        for line in message.replace("\r\n", "\n").split("\n")
-        if not line.startswith("#")
-    ]
+def check_commit_message(
+    message: str, rules: Conventions, tirar_comentarios: bool = True
+) -> list[str]:
+    """Devolve a lista de problemas da mensagem. Lista vazia = conforme.
+
+    **`tirar_comentarios` distingue as duas entradas, nao as duas regras.** A
+    forma continua a vir toda de `tools/conventions.json`, e nao ha segunda
+    implementacao de nada: o que muda e o que conta como **texto da mensagem**.
+
+    * O *hook* `tools/githooks/commit-msg` recebe o `COMMIT_EDITMSG` **antes** do
+      *cleanup* do `git`, com o bloco de comentarios que o editor escreve. Esses
+      nao fazem parte da mensagem, e tiram-se — e tiram-se antes de tudo, para
+      que o cabecalho e o corpo sejam contados do mesmo sitio. E a omissao.
+    * Uma mensagem **ja guardada** num *commit* ja passou pelo *cleanup*: o `git`
+      removeu os seus proprios comentarios, pelo que uma linha `#` que sobreviva
+      ali e **conteudo**. Quem a le da historia passa `tirar_comentarios=False`,
+      e e o que o *gate* 2 faz (`commits.py`).
+
+    **A razao e um defeito medido.** Com `-m` ou `-F`, o *cleanup* por omissao e
+    `whitespace`, que **nao** tira comentarios: um `git commit -m '#123
+    arrumacoes no modulo' -m 'fix(KAM-174): …'` guarda `#123 arrumacoes no
+    modulo` como assunto — e o `git` usa-o como `%s`. Com a remocao activa, esta
+    funcao saltava essa linha, julgava a **seguinte**, e dava a mensagem por
+    conforme; num PR de um so *commit*, com `squash_merge_commit_title:
+    COMMIT_OR_PR_TITLE`, esse assunto ia para o `main` fora da forma. Medido a
+    2026-11-03, achado A1 da revisao adversarial do KAM-174. O *hook* aceita-o
+    pela mesma via — e nao e por isso que se salva o caso: o *hook* dispensa-se
+    com `--no-verify`, e o ponto de imposicao e o *gate*.
+    """
+    linhas_cruas = message.replace("\r\n", "\n").split("\n")
+    lines = (
+        [line for line in linhas_cruas if not line.startswith("#")]
+        if tirar_comentarios
+        else list(linhas_cruas)
+    )
     # Linhas vazias antes do cabecalho tambem nao contam.
     while lines and not lines[0].strip():
         lines.pop(0)

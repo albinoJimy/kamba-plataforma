@@ -74,8 +74,42 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          # O `lint-arch` do gate 2 passou a ler as mensagens dos commits que o
+          # PR acrescenta (KAM-174). Com a profundidade 1 do `checkout` por
+          # omissao — que era o que este job tinha — ha **um** commit no clone e
+          # nao existe historia de ramo nenhuma para ler.
+          #
+          # **Porque 0 e nao uma profundidade finita.** O intervalo e
+          # `pai1..pai2` do merge ref, e o `rev-list` precisa de todos os commits
+          # que o PR acrescenta **e** do ponto onde os dois pais convergem. Uma
+          # profundidade finita que um PR grande estoure nao da erro: da um
+          # intervalo truncado, isto e, um verde que nao significa nada. O
+          # `commits.py:_recusar_clone_raso` recusa um clone raso de proposito,
+          # pelo que uma profundidade finita poria o gate vermelho em vez de
+          # mentir — mas vermelho sem correccao possivel para quem tem um PR
+          # grande, o que e pior do que pagar o clone. O gate 9 paga o mesmo pela
+          # mesma razao.
+          #
+          # O custo esta medido e escrito em `docs/ci.md` §3, no gate 2.
+          fetch-depth: 0
       - uses: ./.github/actions/preparar
       - name: make ci-2
+        # As duas variaveis vao em bruto, como o evento as traz. O que fazer com
+        # elas decide-se em `commits.py:decidir_intervalo`, que tem testes; este
+        # YAML nao tem condicao nenhuma dentro, porque nao ha *lint* de
+        # *workflows* e uma condicao aqui nao seria verificavel. O que verifica
+        # estas duas linhas e `tools/lint_arch/tests/test_ci_gate2.py`.
+        #
+        # `github.sha` e, no evento `pull_request`, o commit de merge de teste —
+        # o merge ref — cujo **pai 1 e a base** e cujo **pai 2 e a cabeca do
+        # ramo** (medido em `refs/pull/112/merge` a 2026-11-03). Nos
+        # accionamentos sem merge ref o valor chega e e ignorado: quem decide e o
+        # accionamento, nao a presenca do SHA, porque em `push` o `github.sha`
+        # tambem e valido e ali a passagem **nao** corre.
+        env:
+          GATE2_EVENTO: ${{ github.event_name }}
+          GATE2_MERGE_REF: ${{ github.sha }}
         run: make ci-2
 
   gate-3-referencias:
