@@ -142,13 +142,21 @@ function base(opcoes: Opcoes = {}): {
           };
         }
         // **Esta base honra o `contact_id = $2`** (KAM-179), e é o que faz os
-        // casos medirem a propriedade em vez da forma da assinatura: uma base
-        // que devolvesse a linha a quem quer que a pedisse ficava verde com o
-        // predicado e **continuava** verde se alguém o apagasse. O `$1` é o
+        // casos medirem a propriedade em vez da forma da assinatura. O `$1` é o
         // `tenant_id` que o repo-base injecta, pelo que o contacto é o `$2`.
+        //
+        // **E decide pelo texto do SQL, não pela posição do argumento.** A
+        // primeira versão comparava `parametros[1]` com o `contact_id` da linha
+        // e mais nada: ficava verde com o predicado **apagado** das duas
+        // instruções, porque o SQL lhe era opaco — media a forma da chamada e
+        // não o predicado, e o comentário aqui afirmava o contrário. Achado da
+        // revisão adversarial, e é o mesmo defeito que esta casa já apanhou num
+        // ensaio citado como prova de uma barreira. Sem o predicado no texto,
+        // esta base faz o que o PostgreSQL faria: devolve a linha.
         visto.cotacoesPedidas.push([...parametros]);
         const linha = opcoes.cotacao;
         if (linha === null || linha === undefined) return { rows: [] };
+        if (!/contact_id\s*=\s*\$2/.test(sql)) return { rows: [linha] };
         return {
           rows: parametros[1] === linha["contact_id"] ? [linha] : [],
         };
@@ -371,12 +379,31 @@ test("KAM-179: X nao le a cotacao de Y, com o mesmo (sku, qty) e o mesmo tenant"
   ]);
 });
 
-test("KAM-179: um contactId vazio e VALIDATION_ERROR e nao ok(null)", async () => {
+/**
+ * Um `contactId` que o módulo não pode usar: vazio, só espaços, ou **malformado
+ * sem ser vazio**.
+ *
+ * O terceiro grupo é o que importa, e entrou com a revisão adversarial: a
+ * primeira versão deste ticket só recusava o vazio, pelo que um `uuid` truncado
+ * ou com lixo **chegava à base** e o `22P02` do motor atravessava a porta como
+ * excepção. A forma é a canónica do `eUuid`.
+ */
+const CONTACTOS_INUTILIZAVEIS = [
+  "",
+  "   ",
+  "nao-e-um-uuid",
+  "0c0c0c0c-0c0c-4c0c-8c0c",
+  "0c0c0c0c0c0c4c0c8c0c0c0c0c0c0c0c",
+  "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0g",
+  "' OR 1=1 --",
+];
+
+test("KAM-179: um contactId inutilizavel e VALIDATION_ERROR e nao ok(null)", async () => {
   // «Não há cotação para este cliente» e «o chamador não disse de que cliente se
   // trata» são coisas diferentes: responder `null` à segunda escondia o defeito
   // de quem chama por trás de uma resposta legítima. E recusa **antes** de falar
   // com a base.
-  for (const contactId of ["", "   "]) {
+  for (const contactId of CONTACTOS_INUTILIZAVEIS) {
     const { cliente, visto } = base();
     const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
       getValidQuote(r, contactId, SKU, 10, AGORA),
@@ -411,6 +438,35 @@ test("KAM-179: X nao aceita a cotacao de Y, mesmo com o id dela na mao", async (
     aceitarCotacao(r, CONTACTO, "q-de-y", AGORA),
   );
   assert.deepEqual(resultado, { tipo: "erro", erro: "NOT_FOUND" });
+});
+
+test("KAM-179: um contactId inutilizavel nao aceita cotacao nenhuma, e nao chega a base", async () => {
+  // A mesma propriedade do `getValidQuote`, na operação que **escreve** — e aqui
+  // pesa mais: um `contact_id` que não casa por acaso em vez de por desenho é um
+  // predicado cuja protecção muda com os dados.
+  for (const contactId of CONTACTOS_INUTILIZAVEIS) {
+    const { cliente, visto } = base({
+      cotacao: {
+        id: "q1",
+        contact_id: CONTACTO,
+        sku: SKU,
+        qty: 10,
+        preco_total_minor: "12500000",
+        currency: "AOA",
+        valida_ate: "2026-11-03T12:00:00.000Z",
+        estado: "emitida",
+      },
+    });
+    const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
+      aceitarCotacao(r, contactId, "q1", AGORA),
+    );
+    assert.deepEqual(
+      resultado,
+      { tipo: "erro", erro: "VALIDATION_ERROR" },
+      JSON.stringify(contactId),
+    );
+    assert.deepEqual(visto.cotacoesPedidas, [], JSON.stringify(contactId));
+  }
 });
 
 test("KAM-179: o dono dela aceita-a, e o predicado nao fecha o caminho legitimo", async () => {

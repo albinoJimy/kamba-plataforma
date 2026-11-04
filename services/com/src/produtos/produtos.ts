@@ -67,6 +67,7 @@
 
 import {
   erro,
+  eUuid,
   ok,
   type OfferView,
   type OwnerConfirmation,
@@ -692,9 +693,16 @@ export async function getValidQuote(
   qty: number,
   agora: Date,
 ): Promise<Resultado<Cotacao | null>> {
-  if (typeof contactId !== "string" || contactId.trim().length === 0) {
-    return erro("VALIDATION_ERROR");
-  }
+  // **A forma canónica, e não «não vazio»** (KAM-179). A primeira versão deste
+  // ticket aceitava qualquer cadeia não vazia, e isso reabria pelo lado um
+  // caminho que o módulo já tinha fechado: um `contactId` malformado chegava à
+  // base, o motor devolvia `22P02` — que não é nenhum dos três `SQLSTATE` que
+  // este módulo traduz — e a excepção **atravessava a porta**. As outras
+  // guardas de `contactId` deste serviço usam o `eUuid` (o `exigirPartes` do
+  // `orders/intents.ts` e o `exigirCtx` do `servicos/contrato.ts`), e uma
+  // segunda forma para o mesmo identificador era a assimetria por onde a
+  // barreira desaparece. Achado da revisão adversarial.
+  if (!eUuid(contactId)) return erro("VALIDATION_ERROR");
   if (!Number.isInteger(qty) || qty <= 0) return erro("VALIDATION_ERROR");
   const linhas = await r.repo.noTenant(SQL_COTACAO_VALIDA, [
     contactId,
@@ -821,9 +829,8 @@ export async function aceitarCotacao(
   id: string,
   agora: Date,
 ): Promise<Resultado<void>> {
-  if (typeof contactId !== "string" || contactId.trim().length === 0) {
-    return erro("VALIDATION_ERROR");
-  }
+  // A forma canónica, pela razão escrita no `getValidQuote`.
+  if (!eUuid(contactId)) return erro("VALIDATION_ERROR");
   const linhas = await r.repo.noTenant(SQL_ACEITAR_COTACAO, [
     contactId,
     id,

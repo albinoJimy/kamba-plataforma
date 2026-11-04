@@ -78,7 +78,7 @@ import {
   SQL_COTACAO_VALIDA,
   SQL_TERMOS,
 } from "../produtos/consultas.ts";
-import { erro, ok, type Resultado } from "../port/contrato.ts";
+import { erro, eUuid, ok, type Resultado } from "../port/contrato.ts";
 import type { ClienteSql, Ctx, LinhaDaEncomenda } from "./contrato.ts";
 import {
   cartId,
@@ -245,9 +245,11 @@ export async function resolverLinha(
   pedido: PedidoDeProposta,
   agora: Date,
 ): Promise<Resultado<LinhaResolvida>> {
-  if (typeof contactId !== "string" || contactId.trim().length === 0) {
-    return erro("VALIDATION_ERROR");
-  }
+  // A forma canónica, pela razão escrita no `getValidQuote` do `produtos.ts`:
+  // o `exigirPartes` deste módulo já exige o `eUuid` para o mesmo
+  // identificador, e duas formas para o mesmo campo é a assimetria por onde a
+  // barreira desaparece.
+  if (!eUuid(contactId)) return erro("VALIDATION_ERROR");
   if (typeof pedido?.sku !== "string" || pedido.sku.trim().length === 0) {
     return erro("VALIDATION_ERROR");
   }

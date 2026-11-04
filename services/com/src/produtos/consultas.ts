@@ -291,7 +291,7 @@ export const SQL_COTACAO_VALIDA = `
 /**
  * Marca uma cotação como aceite. O único `UPDATE` que o `kamba_app` pode.
  *
- * **O `valida_ate > $3` é o critério 6 e faltava.** «Cotação expirada não é
+ * **O `valida_ate > $4` é o critério 6 e faltava.** «Cotação expirada não é
  * aceite», diz o critério; a primeira versão desta instrução filtrava só por
  * `estado = 'emitida'`, e isso não bastava **pela razão que este módulo escreve
  * em todo o lado**: a expiração é por `valida_ate` e não pelo estado, e um

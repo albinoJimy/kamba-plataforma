@@ -9971,7 +9971,9 @@ entradas:
       - "traceId"
       - "OrderIntent.contactId"
       - "OrderFilter.contactId"
-    variantes_literais: []
+    variantes_literais:
+      - "getValidQuote(ctx, sku, qty)"
+      - "getValidQuote(sku, qty)"
   - seccao: "3.40"
     conceito: "Origem de um preço de linha"
     canonico: "origem_preco ∈ {offer_terms, cotacao_dono}"
