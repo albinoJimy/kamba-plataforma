@@ -954,11 +954,14 @@ test("uma draft_version nova cria encomenda distinta", async () => {
 // --------------------------------------------------------- recusas de forma
 
 test("um rascunho sem forma recusa-se sem escrever nada", async () => {
+  // O número é do intervalo fictício (`999`), pela razão que o
+  // `orders.intents.test.ts` escreve: um de forma real num ficheiro sem entrada
+  // no inventário de `tools/meta-sim` **falha o gate 7**.
   const { m, o } = montar({ termos: [termos()] });
   assert.deepEqual(
     await createOrder(m, {
       ...PEDIDO,
-      rascunho: { ...RASCUNHO, contactId: "+244923000000" },
+      rascunho: { ...RASCUNHO, contactId: "+999100000001" },
     }),
     { tipo: "erro", erro: "VALIDATION_ERROR" },
   );

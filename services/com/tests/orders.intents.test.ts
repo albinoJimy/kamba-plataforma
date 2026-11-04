@@ -108,10 +108,19 @@ test("nenhuma parte da intent_key é um telefone, e a assinatura é a prova", ()
   // O ADR-010 e a caixa de privacidade: a chave leva `tenant_id`, `contact_id`,
   // `draft_id` e `draft_version`, e nada mais tem por onde entrar. O que se mede
   // é que as quatro partes **são** as quatro: um `tenant_id` ou `contact_id` que
-  // não seja UUID canónico é recusado, pelo que um `+244` não chega ao HMAC.
+  // não seja UUID canónico é recusado, pelo que um telefone não chega ao HMAC.
+  //
+  // **O número é do intervalo fictício** (`999`, `tools/meta-sim/src/numeros.ts`)
+  // e não de forma real: o `varrer` do *gate* 7 confronta o repositório com o
+  // inventário de `tools/meta-sim/src/inventario.ts`, e um número de forma real
+  // num ficheiro sem entrada **falha o gate** — medido, duas divergências neste
+  // ficheiro e duas no `orders.saga.test.ts`. O que o caso mede não muda: o que
+  // é recusado é não ser um UUID canónico, e o intervalo fictício não o é tanto
+  // como um número real. Acrescentar entrada ao inventário era o «raquete» que o
+  // `docs/meta-sim.md` §6 nomeia.
   for (const campo of ["tenantId", "contactId"] as const) {
     assert.throws(
-      () => intentKey(ACTUAL, { ...PARTES, [campo]: "+244923000000" }),
+      () => intentKey(ACTUAL, { ...PARTES, [campo]: "+999100000001" }),
       ParteInvalidaError,
       campo,
     );
