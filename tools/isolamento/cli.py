@@ -69,9 +69,13 @@ def main(argumentos: list[str] | None = None) -> int:
         extra = f" ({indecisos} indeciso(s))" if indecisos else ""
         print(f"    {tipo}: {len(lista)}{extra}")
 
-    # 2. Cobertura.
+    # 2. Cobertura. As dispensas leem-se da **raiz pedida** e nao da do modulo:
+    # com `--root` noutra arvore, a cobertura confrontava os itens de uma com as
+    # dispensas de outra.
     try:
-        problemas = registo.cobertura(itens)
+        problemas = registo.cobertura(
+            itens, dispensas=registo.ler_dispensas(raiz)
+        )
     except registo.RegistoInvalido as erro:
         print(f"isolamento: registo ou dispensas invalidos: {erro}", file=sys.stderr)
         return 2
@@ -111,7 +115,7 @@ def main(argumentos: list[str] | None = None) -> int:
     for linha in relatorio(resultado).splitlines():
         print(f"    {linha}")
 
-    print(registo.relatorio(itens))
+    print(registo.relatorio(itens, raiz))
     return 0
 
 

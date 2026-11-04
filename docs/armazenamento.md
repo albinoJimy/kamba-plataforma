@@ -105,9 +105,12 @@ Quatro coisas que vale a pena saber antes de usar:
 
 O X-08 da matriz (`tecnica/08` §3.7: «A pede URL assinada de objecto de B e
 lista prefixos») está na bateria de contrato, e corre sobre os três alvos. A
-suite ponta a ponta do KAM-066 ainda não existe; quando existir, o caso
-regista-se lá (`registerCase`), como o bloco do KAM-066 pede. O X-07 não é
-deste ticket: é um identificador reservado pelo KAM-066.
+suite ponta a ponta do KAM-066 **passou a existir** (`tools/isolamento/`), e o
+caso do X-08 regista-se lá com o `registar_caso` — que é o nome que o
+`registerCase` do bloco tem nesta casa. A bateria `X-08` existe com zero casos
+e o credor é este ticket mais o KAM-020; o guia está no README do pacote. O
+X-07 não é deste ticket: é um identificador **reservado** pelo KAM-066, e o
+`registar_caso` recusa um caso nessa bateria para que ele não seja reutilizado.
 
 ---
 
@@ -264,7 +267,8 @@ python infra/storage/mutacoes.py                # todas, em cópia fora do repos
    decisão não existe.
 3. **A forma da chave no KAM-020**, que escreve um segmento `media/` que esta
    forma não tem (dicionário §3.11).
-4. **O registo do X-08 na suite do KAM-066**, quando ela existir.
+4. **O registo do X-08 na suite do KAM-066**, que existe desde esse ticket:
+   o caso escreve-se em `tools/isolamento/baterias/` com o `registar_caso`.
 5. **O consumo de `config.destino` pelo KAM-069**, quando ele existir.
 6. **Um endereço público para as URLs assinadas.** Há um só `endpoint`: a URL
    assinada aponta para onde o serviço fala com o servidor. Um consumidor fora

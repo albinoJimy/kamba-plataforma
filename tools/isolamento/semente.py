@@ -86,6 +86,59 @@ class ParDeContactos:
     y: Contacto
 
 
+#: O modulo da vertical com que o X-02 invoca a ToolLayer. Tem de ser o `id` de
+#: uma vertical do REG: a camada le o entitlement por ele (KAM-009, KAM-028).
+MODULO_DA_VERTICAL = "vendedor"
+
+
+def activar_tenant(cursor: Any, tenant_id: str) -> None:
+    """Poe o tenant em `ativo`, para o X-02 chegar ao executor.
+
+    **A segunda razao pela qual o X-02 nao media nada**, e a primeira execucao
+    tambem a mostrou. A receita de `tenants` da suite da base insere `(id, tipo,
+    nome)` e o `estado` fica no `DEFAULT 'onboarding'`; o `SQL_ENTITLEMENT` do
+    TEN escreve, por SQL, que o estado do tenant tem de ser diferente de
+    `onboarding`, `suspenso` e `encerrado`. Com o tenant em `onboarding`, **toda**
+    a invocacao devolvia `ENTITLEMENT_DENIED` antes de chegar ao executor — e
+    «zero canarios de B» era verde porque nenhuma tool respondia a ninguem.
+
+    Nao ha reposicao: o tenant e desta classe de ensaio e o `apagar_tenant` da
+    suite da base apaga-o inteiro no fim.
+    """
+    cursor.execute(
+        "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant_id,)
+    )
+
+
+def semear_entitlement(cursor: Any, tenant_id: str) -> None:
+    """Liga o modulo da vertical no tenant, para o X-02 chegar ao executor.
+
+    **Sem isto, o X-02 nao mede o que diz medir**, e o primeiro ensaio
+    mostrou-o: a receita de `entitlements` da suite da base poe o **canario** na
+    coluna `modulo` — tem de o por, e a coluna onde ele cabe —, pelo que o
+    tenant semeado nao tem nenhum modulo *real* activo. O passo 2 do pipeline
+    de `invoke` recusa com `ENTITLEMENT_DENIED` antes de chegar ao executor, e
+    entao «zero canarios de B» era verde porque **nenhuma** tool respondia a
+    ninguem — a forma mais pura de passar pela razao errada.
+
+    `ON CONFLICT DO NOTHING`: o tenant pode ja ter esta linha se alguem
+    acrescentar a receita mais tarde, e duas execucoes da suite na mesma base
+    nao se podem pisar.
+    """
+    cursor.execute(
+        "INSERT INTO platform.entitlements (tenant_id, modulo, ativo) "
+        "VALUES (%s, %s, true) ON CONFLICT (tenant_id, modulo) DO NOTHING",
+        (tenant_id, MODULO_DA_VERTICAL),
+    )
+
+
+def retirar_entitlement(cursor: Any, tenant_id: str) -> None:
+    cursor.execute(
+        "DELETE FROM platform.entitlements WHERE tenant_id = %s AND modulo = %s",
+        (tenant_id, MODULO_DA_VERTICAL),
+    )
+
+
 def _criar_contacto(cursor: Any, tenant_id: str, rotulo: str) -> str:
     """Um contacto novo no tenant, e devolve o `contact_id`."""
     marca = canario(rotulo)
@@ -97,34 +150,59 @@ def _criar_contacto(cursor: Any, tenant_id: str, rotulo: str) -> str:
     return str(cursor.fetchone()[0])
 
 
-def _encomenda(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> None:
+def _encomenda(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> str:
+    """A encomenda do contacto, **com o recibo de intencao concluido**.
+
+    O recibo nao e zelo: a leitura por contacto do repositorio
+    (`SQL_PEDIDO_POR_PAGAR`) faz `JOIN platform.order_intents i ON m.id =
+    i.order_id` com `i.estado = 'concluida'`, pelo que uma encomenda sem recibo
+    ligado nao e lida por ninguem — e o `C-01/consultas` ficava verde sobre uma
+    leitura que devolve `null` aos **dois** contactos. Medido na terceira
+    execucao do *gate*.
+
+    Devolve o `id` da encomenda: a projeccao daquela consulta nao inclui o
+    `intent_key` (que e onde o canario cabe), pelo que o que o caso compara
+    naquela leitura e o **identificador da linha**. Ver
+    `COLUNA_DO_CANARIO` e `Contacto.ids`.
+    """
     cursor.execute(
         "INSERT INTO platform.orders_mirror "
         "(tenant_id, contact_id, intent_key, total_minor, lines_snapshot) "
-        "VALUES (%s, %s, %s, 0, '[]'::jsonb)",
+        "VALUES (%s, %s, %s, 0, '[]'::jsonb) RETURNING id::text",
         (tenant_id, contact_id, marca),
     )
+    order_id = str(cursor.fetchone()[0])
+    cursor.execute(
+        "INSERT INTO platform.order_intents "
+        "(tenant_id, intent_key, draft_hash, estado, order_id) "
+        "VALUES (%s, %s, sha256(convert_to(%s, 'UTF8')), 'concluida', %s)",
+        (tenant_id, marca, marca, order_id),
+    )
+    return order_id
 
 
-def _cotacao(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> None:
+def _cotacao(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> str:
     cursor.execute(
         "INSERT INTO platform.price_quotes "
         "(tenant_id, contact_id, sku, qty, preco_total_minor, valida_ate, "
         " emitida_por) "
-        "VALUES (%s, %s, %s, 1, 1000, now() + interval '24 hours', %s)",
+        "VALUES (%s, %s, %s, 1, 1000, now() + interval '24 hours', %s) "
+        "RETURNING id::text",
         (tenant_id, contact_id, marca, tenant_id),
     )
+    return str(cursor.fetchone()[0])
 
 
-def _consentimento(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> None:
+def _consentimento(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> str:
     cursor.execute(
         "INSERT INTO platform.consent_event "
         "(tenant_id, contact_id, purpose, text_version, accepted, canal, "
         " evidence_hash) "
         "VALUES (%s, %s, 'transacao', %s, true, 'whatsapp', "
-        "        sha256(convert_to(%s, 'UTF8')))",
+        "        sha256(convert_to(%s, 'UTF8'))) RETURNING id::text",
         (tenant_id, contact_id, marca, marca),
     )
+    return str(cursor.fetchone()[0])
 
 
 _RECEITAS = {
@@ -144,12 +222,15 @@ def semear_contactos(cursor: Any, tenant_id: str) -> ParDeContactos:
     for rotulo in ("x", "y"):
         contact_id = _criar_contacto(cursor, tenant_id, rotulo)
         canarios: dict[tuple[str, str], str] = {}
+        ids: dict[tuple[str, str], str] = {}
         for chave in TABELAS:
             marca = canario(f"{rotulo}_{chave[1]}")
             canarios[chave] = marca
-            _RECEITAS[chave](cursor, tenant_id, contact_id, marca)
+            ids[chave] = _RECEITAS[chave](cursor, tenant_id, contact_id, marca)
         par.append(
-            Contacto(id=contact_id, tenant_id=tenant_id, canarios=canarios)
+            Contacto(
+                id=contact_id, tenant_id=tenant_id, canarios=canarios, ids=ids
+            )
         )
     return ParDeContactos(x=par[0], y=par[1])
 
@@ -168,6 +249,16 @@ def apagar_contactos(cursor: Any, par: ParDeContactos) -> None:
     regressoes de tudo o que corre a seguir.
     """
     for contacto in (par.y, par.x):
+        # **O recibo primeiro.** A `order_intents` referencia a `orders_mirror`
+        # pela FK composta `(tenant_id, order_id)`, e apagar a encomenda antes
+        # do recibo dava violacao de FK no fim de **cada** execucao da suite —
+        # medido, no `tearDownClass`. A chave do recibo e o mesmo canario da
+        # encomenda (`intent_key`), que e como ele se encontra sem o guardar.
+        cursor.execute(
+            "DELETE FROM platform.order_intents "
+            "WHERE tenant_id = %s AND intent_key = %s",
+            (contacto.tenant_id, contacto.canarios[("platform", "orders_mirror")]),
+        )
         for chave in reversed(TABELAS):
             cursor.execute(
                 f"DELETE FROM {chave[0]}.{chave[1]} "

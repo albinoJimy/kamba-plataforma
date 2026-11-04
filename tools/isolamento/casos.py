@@ -33,8 +33,9 @@ entrada com o credor e a razao). Tres trincos, e o terceiro e o que impede a
 valvula de virar porta:
 
 1. **o credor e um ticket que existe** — confronta-se com o §4 do
-   `specs/INDICE.md`, nao com uma expressao regular. Um `KAM-999` inventado nao
-   passa;
+   `specs/INDICE.md`, nao com uma expressao regular. Um numero inventado que
+   tenha a forma de um ticket **nao** passa — e so a forma que uma expressao
+   regular ve;
 2. **a razao tem de ter corpo** — sessenta caracteres, o dobro do que os
    `rls_exceptions` pedem, porque uma dispensa ao isolamento e a unica coisa
    neste ficheiro que ninguem mede depois;
@@ -216,8 +217,10 @@ def _tickets_do_backlog(raiz: Path) -> set[str]:
     """Os `KAM-NNN` do §4 do `specs/INDICE.md`.
 
     Le-se o indice e nao uma expressao regular: um credor que nao existe no
-    backlog e uma dispensa que ninguem vai pagar, e um `KAM-999` passava por um
-    ticket so por ter a forma de um.
+    backlog e uma dispensa que ninguem vai pagar, e um numero inventado passava
+    por um ticket so por ter a forma de um. (O canario que o prova esta em
+    `tests/test_cobertura.py`, com a referencia invalida declarada em
+    `ci/refs-allow.yaml` — e e o unico sitio onde ela precisa de estar.)
     """
     indice = raiz / "specs" / "INDICE.md"
     if not indice.is_file():
@@ -342,10 +345,10 @@ def cobertura(
     return problemas
 
 
-def relatorio(itens: Sequence[Item]) -> str:
+def relatorio(itens: Sequence[Item], raiz: Path = RAIZ) -> str:
     """Contagem por tipo, e por bateria. Para o registo do *gate*."""
     casos = carregar_casos()
-    dispensas = ler_dispensas()
+    dispensas = ler_dispensas(raiz)
     cobertos = {alvo for caso in casos.values() for alvo in caso.enumeravel}
     linhas = [
         f"itens enumerados: {len(itens)}",

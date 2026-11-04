@@ -90,15 +90,34 @@ WEBHOOK_DO_GWY = (
 #: alvo de IDOR mais directo do conjunto.
 CANAIS_DO_GWY = ("rota:gwy:canais:montarCanais:POST:/internal/channels",)
 
-#: Os estados que contam como recusa uniforme. O criterio escreve «403/404»; o
-#: AGR documenta 400 (`corpo_invalido`) e 401 (sem credencial interna) para as
-#: suas rotas internas, e o GWY responde 404 a uma rota que nao esta montada.
-#: O que o caso exige nao e um numero — e que **o mesmo ataque de a rotas
-#: diferentes nao produza estados diferentes na mesma rota**.
-RECUSAS_ACEITAVEIS = (400, 401, 403, 404)
+#: Os estados que contam como recusa. O criterio escreve «403/404», e esta
+#: lista e mais larga — com razao escrita, uma a uma:
+#:
+#:   400  `corpo_invalido` do AGR. Um corpo que mistura o tenant de A com o
+#:        `thread_id` de B e recusado por `thread_id_incoerente` **antes** de
+#:        qualquer leitura: a recusa mais cedo que ha, e nao diz nada sobre B.
+#:   401  sem credencial interna, ou `secret` do *agent bot* errado.
+#:   403  a recusa que o criterio nomeia.
+#:   404  a recusa que o criterio nomeia, e a do GWY a uma rota nao montada.
+#:   409  conflito. E a recusa que o criterio 4 do KAM-016 promete para um
+#:        numero ja ligado a outro tenant: diz que ha conflito e nao diz com
+#:        quem.
+#:   503  `Retry-After`. E a resposta documentada do §14 do `docs/tecnica/02`
+#:        para «nao se consome agora e fica na fila» — o consumidor por ligar, o
+#:        grafo nao registado, o tecto do tenant cheio. Nao e uma resposta sobre
+#:        o recurso: nao distingue um identificador de B de um inexistente, e e
+#:        isso que o criterio pede ao escrever «uniformes».
+#:
+#: **O 2xx fica de fora, e e o unico que importa manter de fora**: um 200 a um
+#: identificador de outro tenant e a falha que esta bateria existe para apanhar.
+#: O que o caso exige nao e um numero da lista — e que **o mesmo ataque nao
+#: produza estados diferentes na mesma rota**.
+RECUSAS_ACEITAVEIS = (400, 401, 403, 404, 409, 503)
 
 
-def _uniformidade(rotulo: str, estados: list[int]) -> list[str]:
+def _uniformidade(
+    rotulo: str, estados: list[int], aceitaveis: tuple[int, ...] = RECUSAS_ACEITAVEIS
+) -> list[str]:
     """Os achados de uniformidade de uma rota atacada varias vezes."""
     achados: list[str] = []
     distintos = sorted(set(estados))
@@ -109,11 +128,11 @@ def _uniformidade(rotulo: str, estados: list[int]) -> list[str]:
             "aprende, por ela, qual dos identificadores existe. O criterio 3 "
             "pede recusas **uniformes**."
         )
-    fora = sorted({estado for estado in distintos if estado not in RECUSAS_ACEITAVEIS})
+    fora = sorted({estado for estado in distintos if estado not in aceitaveis})
     if fora:
         achados.append(
             f"{rotulo}: identificadores de B produziram {fora}, que nao e uma "
-            f"recusa ({RECUSAS_ACEITAVEIS}). Um 2xx a um identificador de outro "
+            f"recusa ({aceitaveis}). Um 2xx a um identificador de outro "
             "tenant e a falha que esta bateria existe para apanhar."
         )
     return achados
@@ -179,7 +198,12 @@ def _varrer_entradas(ctx, rotulo: str, entradas: list[dict]) -> list[str]:  # no
     return achados
 
 
-def _caso_ts(grupo: str, itens: tuple[str, ...], com_idor: bool):
+def _caso_ts(
+    grupo: str,
+    itens: tuple[str, ...],
+    com_idor: bool,
+    aceitaveis: tuple[int, ...] = RECUSAS_ACEITAVEIS,
+):
     """Fabrica o `fn` de um grupo de rotas de TypeScript."""
 
     def correr(ctx) -> list[str]:  # noqa: ANN001
@@ -204,7 +228,11 @@ def _caso_ts(grupo: str, itens: tuple[str, ...], com_idor: bool):
             achados.extend(_varrer_entradas(ctx, item, entradas))
             if com_idor:
                 achados.extend(
-                    _uniformidade(item, [int(e.get("estado", -1)) for e in entradas])
+                    _uniformidade(
+                        item,
+                        [int(e.get("estado", -1)) for e in entradas],
+                        aceitaveis,
+                    )
                 )
             else:
                 # Numa sonda nao ha o que ser uniforme: o que ha a provar e que
@@ -263,12 +291,28 @@ registar_caso(
     origens=("corpo", "cabecalhos", "erro"),
 )
 
+#: O `502` da `POST /internal/channels`, e porque e que ele entra **so neste caso**.
+#:
+#: Medido: com os identificadores de B no corpo, a rota responde `502` uniforme
+#: nas quatro tentativas, com `{"error":"onboarding falhou"}`. O 502 vem de o
+#: condutor dar ao `Onboarding` duplos de `graph` e de `cofre` que **levantam**
+#: em todos os metodos: o condutor nao fala com a Meta, e nao deve.
+#:
+#: O que isso quer dizer, dito por inteiro: o ataque **chega a rota**, a rota
+#: abre a transaccao com o contexto de A, e recusa — e o oraculo confirma que
+#: nada de B saiu no corpo, nos cabecalhos nem na nota. O que **nao** se mede
+#: aqui e o `409` que o criterio 4 do KAM-016 promete para um numero ja ligado a
+#: outro tenant: para chegar la, a troca com a Meta tem de ter sucesso, e isso
+#: pede o simulador (`tools/meta-sim`, KAM-024). Fica dito em vez de ficar por
+#: dizer, e esta na caixa do criterio 3 do bloco como **parcial**, com o credor.
+ESTADOS_DOS_CANAIS = (*RECUSAS_ACEITAVEIS, 502)
+
 registar_caso(
     id="X-01/ts/canais",
     bateria="X-01",
     camada="rotas",
     enumeravel=CANAIS_DO_GWY,
-    fn=_caso_ts("canais", CANAIS_DO_GWY, com_idor=True),
+    fn=_caso_ts("canais", CANAIS_DO_GWY, com_idor=True, aceitaveis=ESTADOS_DOS_CANAIS),
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),
 )

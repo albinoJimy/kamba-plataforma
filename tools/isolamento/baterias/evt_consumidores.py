@@ -60,6 +60,13 @@ CONSUMIDORES = (
 )
 
 #: As tres tabelas do caminho de consumo.
+#:
+#: **A `events_dlq` nao se le com `kamba_app`**, e nao e esquecimento: a receita
+#: dela declara `leitura_do_papel=False` porque o papel nao tem `SELECT` na
+#: tabela, e uma leitura cruzada que rebenta com `42501` nao prova isolamento
+#: nenhum — prova o privilegio em falta, que e outra coisa (e mais forte). Por
+#: isso o caso **nao** a varre por SQL directo: filtra-a pelo que o `Contexto`
+#: diz ser legivel, e o que ha a provar nela esta no X-04 da suite da base.
 TABELAS = (
     ("platform", "events_log"),
     ("platform", "events_consumed"),
@@ -80,8 +87,23 @@ def _consumidores(ctx) -> list[str]:  # noqa: ANN001
             "EVT: o contexto nao traz cursores. Num gate, saltar e falhar."
         ]
     achados: list[str] = []
+    #: As que o papel **le**. O `Contexto` traz as tabelas ja filtradas por
+    #: `leitura_do_papel`, e e dai que se tira a lista — nao de uma segunda
+    #: lista literal, que divergiria no dia em que um privilegio mudasse.
+    legiveis = {
+        (schema, tabela)
+        for schema, tabela, _, _ in ctx.tabelas
+        if (schema, tabela) in TABELAS
+    }
+    if not legiveis:
+        return [
+            "EVT: nenhuma das tres tabelas do caminho de consumo e legivel pelo "
+            f"papel ({list(TABELAS)}). O caso nao mede o que diz medir."
+        ]
 
     for schema, tabela in TABELAS:
+        if (schema, tabela) not in legiveis:
+            continue
         cursor = ctx.cursor_de("app", ctx.a.id)
         cursor.execute(f"SELECT * FROM {schema}.{tabela}")
         linhas = [tuple(linha) for linha in cursor.fetchall()]

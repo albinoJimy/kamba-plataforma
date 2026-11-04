@@ -857,6 +857,17 @@ MUTACOES = [
     # contacto. **Nao ha RLS que a apanhe** — X e Y estao no mesmo tenant e a
     # politica `tenant_iso` deixa passar os dois —, pelo que esta e a unica
     # mutacao deste ficheiro que so o C-01 mata.
+    #
+    # shortcut: esta mutacao esta conferida por `--aplicaveis` e **nao esta
+    # provada por execucao**. A linha de base da `tests_isolamento` na copia
+    # fica vermelha porque o condutor de TypeScript nao termina lá — os quatro
+    # casos de `precisa="node"` saem com `executado: false` —, e a causa nao
+    # ficou isolada: na arvore real os mesmos casos correm verdes (83 ensaios,
+    # 120,8 s, OK). Enquanto isto durar, a prova por mutacao do eixo do contacto
+    # e NAO VERIFICADA. Revisto quando a tarefa nocturna de mutacoes correr
+    # sobre este ficheiro pela primeira vez — que e quando o defeito aparece num
+    # artefacto em vez de na maquina de quem o escreveu —, pelo Engenheiro de
+    # Plataforma.
     ("isolamento: a leitura do contacto deixa de filtrar por contacto", ISO_C01,
      '            f"SELECT {coluna} FROM {schema}.{tabela} WHERE contact_id = %s",',
      '            f"SELECT {coluna} FROM {schema}.{tabela}",', ISOLAMENTO),
@@ -6245,6 +6256,53 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         destino / ".github" / "workflows" / "ci.yaml",
     )
     shutil.copy(RAIZ / "Makefile", destino / "Makefile")
+    # KAM-066: o *harness* de isolamento cruzado, e **a regra escrita no fim
+    # desta funcao a ser cumprida outra vez**. O
+    # `db/tests_isolamento/test_casos_cruzados.py` importa `isolamento` de
+    # `tools/`, e sem estas linhas a linha de base da `tests_isolamento` ficava
+    # vermelha com `ModuleNotFoundError: No module named 'isolamento'` — e uma
+    # mutacao «apanhada» sobre isso nao significa nada. Medido, na primeira
+    # execucao da mutacao do predicado de contacto.
+    #
+    # Cinco pecas, e cada uma tem razao:
+    #
+    #   tools/isolamento   o *harness*: a enumeracao, o registo, o oraculo, as
+    #                      baterias e o condutor
+    #   registry/          a enumeracao de *tools* e de consumidores le-o, e o
+    #                      caso `JOB/filas-de-evento` confronta a derivacao do
+    #                      nome de fila com os consumidores que ele declara
+    #   specs/INDICE.md    o leitor de dispensas confronta o credor com o §4 do
+    #                      backlog: sem o ficheiro, levanta
+    #   services/gwy,      a fonte que a enumeracao de rotas varre e que o
+    #   worker-canal,      condutor importa. O `services/agr` e o
+    #   onboarding-web    `services/com/src` ja vinham acima
+    shutil.copytree(
+        RAIZ / "tools" / "isolamento", destino / "tools" / "isolamento",
+        ignore=ignorar,
+    )
+    # `dirs_exist_ok`: o `registry/` ja vem de cima (a validacao do registo do
+    # AGR precisa dele), e repeti-lo rebentava com `FileExistsError` no Windows.
+    # Copia-se de novo em vez de confiar na ordem: esta funcao e longa e a
+    # proxima linha a mudar de sitio nao pode partir a linha de base.
+    shutil.copytree(
+        RAIZ / "registry", destino / "registry", ignore=ignorar, dirs_exist_ok=True
+    )
+    shutil.copy(RAIZ / "specs" / "INDICE.md", destino / "specs" / "INDICE.md")
+    # **So o `src/`**, como o `services/com` acima, e por uma razao de sistema de
+    # ficheiros: `services/gwy/node_modules` leva os atalhos do `pnpm`, e o
+    # `copytree` do Windows nao os consegue seguir (`WinError 1920`). Os modulos
+    # chegam a copia por atalho, do `KAMBA_RAIZ_NODE_MODULES` — ver
+    # `tools/isolamento/condutor/ponte.py`, `ARVORES_DE_MODULOS`.
+    for servico in ("gwy", "worker-canal", "onboarding-web"):
+        shutil.copytree(
+            RAIZ / "services" / servico / "src",
+            destino / "services" / servico / "src",
+            ignore=ignorar,
+        )
+        shutil.copy(
+            RAIZ / "services" / servico / "package.json",
+            destino / "services" / servico / "package.json",
+        )
 
 
 def _copiar_para_o_gate_9(destino: Path, ignorar) -> None:

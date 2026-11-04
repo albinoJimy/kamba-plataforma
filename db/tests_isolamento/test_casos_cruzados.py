@@ -95,12 +95,20 @@ class ComHarness(ComDoisTenants):
         super().setUpClass()
         administrador = cls._cursores["admin"]
         cls.par = semente.semear_contactos(administrador, cls.a.id)
+        # As duas condicoes de que o passo 2 do pipeline depende, e que a
+        # primeira execucao mostrou em falta: o tenant tem de estar `ativo` e o
+        # modulo da vertical tem de estar ligado. A razao por extenso esta em
+        # `semente.activar_tenant` e em `semente.semear_entitlement` — sem elas
+        # **nenhuma** tool responde, e o X-02 fica verde sem medir nada.
+        semente.activar_tenant(administrador, cls.a.id)
+        semente.semear_entitlement(administrador, cls.a.id)
 
     @classmethod
     def tearDownClass(cls) -> None:
         # **Antes** do `apagar_tenant` do `super`: as linhas das tres tabelas
         # apontam para contactos que ele apaga.
         semente.apagar_contactos(cls._cursores["admin"], cls.par)
+        semente.retirar_entitlement(cls._cursores["admin"], cls.a.id)
         super().tearDownClass()
 
     def contexto(self) -> Contexto:
@@ -200,6 +208,21 @@ class TestCasosDoAgr(ComHarness):
 
     def test_os_casos_que_precisam_do_agr(self) -> None:
         self.exigir({"agr"})
+
+
+class TestCasosDeNode(ComHarness):
+    """X-01 das dezassete rotas de TypeScript, e as tres leituras do contacto.
+
+    As aplicacoes Hono respondem **em processo**, pelo `app.request()` — e a
+    forma que os testes do GWY ja usam —, pelo que nao se levanta servidor
+    nenhum. O condutor corre com o `node` do `PATH` quando ele existe (e no
+    *runner* existe: o `make bootstrap` instala-o e constroi os pacotes) e, sem
+    ele, na imagem fixada por digest, na rede do contentor da base — o mesmo
+    padrao que `db/tests_identidade/node.py` ja usa.
+    """
+
+    def test_os_casos_que_precisam_de_node(self) -> None:
+        self.exigir({"node"})
 
 
 class TestCasosSemDependencias(ComHarness):

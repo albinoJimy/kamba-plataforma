@@ -135,22 +135,40 @@ def _x05(ctx) -> list[str]:  # noqa: ANN001
 
     # A sonda positiva do proprio verificador: um defeito inventado tem de ser
     # nomeado. Sem isto, `verificar_rls` podia devolver sempre `[]`.
-    achados += _rls_morde(cursor, catalogo)
+    achados += _rls_morde(ctx, catalogo)
     return achados
 
 
-def _rls_morde(cursor, catalogo) -> list[str]:  # noqa: ANN001
+def _rls_morde(ctx, catalogo) -> list[str]:  # noqa: ANN001
     """Cria uma tabela com `tenant_id` sem RLS e exige que o X-05 a nomeie.
 
-    E o `RLS-CONTROLO` desta bateria: a tabela nasce num `SAVEPOINT`, e o
-    `ROLLBACK` desfaz-na — **nada e confirmado**. DDL confirmado numa limpeza
-    repara o esquema na base viva e esconde regressoes de tudo o que corre a
-    seguir, que e um defeito que a revisao adversarial desta casa ja apanhou
-    uma vez.
+    E o `RLS-CONTROLO` desta bateria, pela ideia do `spikes/medusa-d3/iso.py`:
+    uma afirmacao de conformidade so vale se o verificador souber dizer «esta
+    mal», e quatro afirmacoes de «zero problemas» ficam verdes com um
+    `verificar_rls` que devolva sempre `[]`.
+
+    **Numa ligacao propria, que nunca confirma.** Os cursores de semente da
+    suite estao em *autocommit* — tem de estar, para que os casos vejam as
+    linhas noutras ligacoes — e em *autocommit* um `SAVEPOINT` rebenta com
+    `25P01`: nao ha transaccao para o receber. Pior: um `CREATE TABLE` em
+    *autocommit* fica **confirmado**, e DDL confirmado numa limpeza repara o
+    esquema na base viva e esconde regressoes de tudo o que corre a seguir —
+    defeito que a revisao adversarial desta casa ja apanhou uma vez. Por isso a
+    tabela nasce numa transaccao de uma ligacao nova, e morre com o `ROLLBACK`.
+
+    O papel e o `migrator`: e ele o dono do schema `platform`, e o unico que
+    pode criar ali uma tabela.
     """
+    if ctx.ligar is None:
+        return [
+            "X-05 (controlo): o contexto nao traz `ligar`, e a sonda positiva "
+            "precisa de uma ligacao propria (ver a docstring). Num gate, "
+            "saltar e falhar."
+        ]
     nome = "platform.controlo_do_x05"
-    cursor.execute("SAVEPOINT rls_controlo")
+    conexao = ctx.ligar("migrator")
     try:
+        cursor = conexao.cursor()
         cursor.execute(f"CREATE TABLE {nome} (tenant_id uuid NOT NULL)")
         problemas = catalogo.verificar_rls(cursor, catalogo.excepcoes_rls())
         if not any(nome in problema for problema in problemas):
@@ -163,7 +181,8 @@ def _rls_morde(cursor, catalogo) -> list[str]:  # noqa: ANN001
             ]
         return []
     finally:
-        cursor.execute("ROLLBACK TO SAVEPOINT rls_controlo")
+        conexao.rollback()
+        conexao.close()
 
 
 registar_caso(

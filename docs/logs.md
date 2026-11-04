@@ -446,8 +446,13 @@ reproduzidos, não se corrigiram, e ficam aqui em vez de num comentário.
    vê-os se lhos derem; ninguém lhos dá ainda.
 8. **O X-11 sobre a suite cruzada ponta a ponta.** O ticket pede o varrimento
    também «sobre os logs de uma execução ponta a ponta da suite cruzada». Essa
-   suite é o KAM-066 e não existe; a que há no *gate* 6 é a camada SQL, que não
-   escreve pelo *logger*. Quando o KAM-066 existir, regista o X-11 como caso.
+   suite **passou a existir** com o KAM-066 (`tools/isolamento/`), e tem oráculo
+   próprio que varre os *logs* de cada caso — o do AGR captura o `stdout` e o
+   `stderr` do serviço durante cada pedido. O que continua em aberto é o X-11
+   **como caso registado** daquela suite: a bateria `X-11` existe em
+   `casos.BATERIAS` com zero casos, e quem a inscrever chama o `registar_caso`
+   do pacote. São duas medições diferentes e nenhuma substitui a outra — o X-11
+   do `make x11` é o varrimento do *logger* em si, com as suas 1 030 *fixtures*.
 9. **Atributos de tracing OTel.** O ticket diz que levam a mesma *allowlist*.
    Não há tracing no repositório, pelo que não há o que verificar; a regra fica
    escrita (§9) para o ticket que o trouxer.

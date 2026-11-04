@@ -127,9 +127,62 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         )
 
     def test_as_tres_leituras_do_contacto(self) -> None:
+        for mapa in (
+            c01_contacto.TABELA_DA_LEITURA,
+            c01_contacto.MARCA_DA_LEITURA,
+            c01_contacto.SQL_DA_LEITURA,
+        ):
+            with self.subTest(mapa=sorted(mapa)):
+                self.assertEqual(set(c01_contacto.LEITURAS), set(mapa))
+
+
+class TestAFixacaoDasCotacoes(unittest.TestCase):
+    """A leitura de cotacoes nao filtra por contacto, e isso esta fixado.
+
+    O que esta bateria tem de garantir e o aviso: no dia em que o predicado
+    aparecer, o caso fica **vermelho** e obriga quem o acrescentou a trocar a
+    fixacao pela propriedade do criterio 6. Um comentario nao faz isso.
+    """
+
+    def test_hoje_a_arvore_real_nao_tem_o_predicado(self) -> None:
         self.assertEqual(
-            set(c01_contacto.LEITURAS), set(c01_contacto.TABELA_DA_LEITURA)
+            c01_contacto._cotacoes_sem_predicado(Contexto(raiz=RAIZ), "cotacoes"),
+            [],
+            "a `SQL_COTACAO_VALIDA` passou a filtrar por contacto: tire "
+            "'cotacoes' de SEM_PREDICADO_DE_CONTACTO e afirme a propriedade",
         )
+
+    def test_com_o_predicado_a_fixacao_avisa(self) -> None:
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as temporario:
+            raiz = Path(temporario)
+            relativo, constante = c01_contacto.SQL_DA_LEITURA["cotacoes"]
+            caminho = raiz / relativo
+            caminho.parent.mkdir(parents=True)
+            caminho.write_text(
+                f"export const {constante} = `\n"
+                "  SELECT id FROM platform.price_quotes\n"
+                "   WHERE tenant_id = $1 AND contact_id = $2\n"
+                "`;\n",
+                encoding="utf-8",
+            )
+            achados = c01_contacto._cotacoes_sem_predicado(
+                Contexto(raiz=raiz), "cotacoes"
+            )
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("KAM-043", achados[0])
+        self.assertIn("SEM_PREDICADO_DE_CONTACTO", achados[0])
+
+    def test_um_sql_que_desapareca_e_achado(self) -> None:
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as temporario:
+            achados = c01_contacto._cotacoes_sem_predicado(
+                Contexto(raiz=Path(temporario)), "cotacoes"
+            )
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("nao existe", achados[0])
 
 
 class TestOsCasosDeFilas(unittest.TestCase):

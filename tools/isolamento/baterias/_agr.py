@@ -24,6 +24,8 @@ aceitado a mistura. Por isso o duplo e um registador e o caso le-o.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
 import json
 import sys
 import uuid
@@ -59,6 +61,32 @@ class _Registador:
     def sincrono(self, *args: Any, **kwargs: Any) -> Any:
         self.chamadas.append((args, kwargs))
         return self._devolver
+
+
+def _pedir_com_logs(
+    app: Any,
+    metodo: str,
+    caminho: str,
+    corpo: bytes = b"",
+    cabecalhos: dict[str, str] | None = None,
+) -> tuple[int, dict[str, str], str, str]:
+    """`_pedir`, com o que o servico escreveu em `stdout` e `stderr`.
+
+    O criterio 9 pede que o oraculo varra **tambem** os *logs* de cada caso, e
+    os *logs* desta casa sao linhas JSON em `stdout` (`kamba_core.logger`). Sem
+    esta captura, a origem `logs` do caso varria uma lista vazia — que e varrer
+    nada e chamar-lhe cobertura.
+
+    Captura-se `stdout` **e** `stderr`: o `onError` do Hono e o tratador do
+    Starlette escrevem no segundo, e e la que uma pilha com um identificador de
+    B apareceria.
+    """
+    saida = io.StringIO()
+    with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(saida):
+        estado, resposta_cabecalhos, texto = asyncio.run(
+            _pedir(app, metodo, caminho, corpo, cabecalhos)
+        )
+    return estado, resposta_cabecalhos, texto, saida.getvalue()
 
 
 async def _pedir(
@@ -126,19 +154,83 @@ def _montar(ctx) -> tuple[Any, dict[str, _Registador]]:  # noqa: ANN001
         "verificar_bot": _Registador(),
     }
 
+    class _Vaga:
+        """Uma vaga que se da sempre. A admissao nao e o que este caso mede.
+
+        Serve os dois protocolos — `with` e `async with` — porque o duplo nao
+        sabe qual deles o chamador usa, e um `AttributeError` por protocolo
+        errado seria mais um achado do andaime.
+        """
+
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *_: Any) -> bool:
+            return False
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *_: Any) -> bool:
+            return False
+
     class _Admissao:
-        """Recusa sempre, e registra. A admissao nao e o que este caso mede."""
+        """Da vaga, e **recusa o ritmo**. Registra tudo o que lhe chega.
+
+        O ritmo recusado e deliberado, e e o que faz a sonda positiva: o
+        `/internal/turn` com um corpo coerente de A passa a autenticacao, passa
+        a leitura do contrato, **chega a admissao** e devolve 200 `descartado`
+        sem chamar o executor. Isso prova duas coisas de uma vez — a rota esta
+        montada (senao as recusas dos ataques nao provavam nada) e o executor
+        **nao** foi chamado por nenhum caminho deste caso.
+        """
 
         def __init__(self) -> None:
             self.chamadas: list[Any] = []
 
-        def admitir(self, *args: Any, **kwargs: Any) -> Any:
-            self.chamadas.append((args, kwargs))
-            raise RuntimeError("admissao de ensaio: nao admite")
+        def vaga(self, invocacao: Any) -> Any:
+            self.chamadas.append(("vaga", invocacao))
+            return _Vaga()
+
+        def vaga_de(self, tenant_id: str, *, prioritario: bool = False) -> Any:
+            self.chamadas.append(("vaga_de", tenant_id, prioritario))
+            return _Vaga()
+
+        def aceita_o_ritmo(self, _invocacao: Any) -> bool:
+            return False
+
+        def deve_avisar(self, _invocacao: Any) -> bool:
+            return False
 
     class _Trancas:
+        """Da a tranca, e registra. **Nao recusa**, e a primeira versao recusava.
+
+        Mediu-se: com a tranca a levantar, a sonda positiva do
+        `/internal/turn` rebentava com `RuntimeError` em vez de chegar a
+        admissao, e o caso reportava um achado que era do andaime. Uma tranca
+        recusada e um cenario legitimo — e do KAM-025 e a suite dele mede-o —,
+        e nao e o que esta bateria mede.
+        """
+
+        def __init__(self) -> None:
+            self.chamadas: list[Any] = []
+
         def tomar(self, *args: Any, **kwargs: Any) -> Any:
-            raise RuntimeError("trancas de ensaio: nao toma")
+            self.chamadas.append((args, kwargs))
+            return _Vaga()
+
+        def __getattr__(self, nome: str) -> Any:
+            # Qualquer outro metodo da tranca que o AGR venha a chamar devolve
+            # o mesmo gestor de contexto permissivo. **Falha aberta de
+            # proposito, e so aqui**: um duplo que levante por um metodo novo
+            # faz o caso acusar o andaime, e um caso que acusa o andaime ensina
+            # a ignorar a lista. O que o caso afirma esta nos duplos
+            # registadores (`executar`, `retomar`, `decidir`), nao aqui.
+            def permissivo(*_args: Any, **_kwargs: Any) -> Any:
+                self.chamadas.append((nome, _args, _kwargs))
+                return _Vaga()
+
+            return permissivo
 
     admissao = _Admissao()
     rotas = api_interna.rotas(
@@ -147,9 +239,16 @@ def _montar(ctx) -> tuple[Any, dict[str, _Registador]]:  # noqa: ANN001
         admissao=admissao,
         trancas=_Trancas(),
         retomar=duplos["retomar"],
-        # O verificador do *agent bot* recusa: o que este caso mede e o
-        # isolamento, e uma retoma que passasse a autenticacao media outra coisa.
-        verificar_bot=lambda cabecalho, thread: None,
+        # **O verificador do *agent bot* recusa, e `None` nao e recusar.** A
+        # primeira versao devolvia `None` a pensar que era «nao autorizado», e
+        # e o contrario: a funcao devolve o **motivo** quando recusa, pelo que
+        # `None` autorizava tudo. Medido — a `/internal/draft-decision` passava
+        # a autenticacao, chegava ao `decidir` e rebentava com `AttributeError`
+        # no duplo. Quem ataca nao tem o `secret` do *agent bot* (e um segredo
+        # por conta do HND, nao do tenant), pelo que a postura certa do ataque e
+        # a recusa — e e ela que faz valer a afirmacao de que os duplos de
+        # `retomar` e de `decidir` **nao** foram chamados.
+        verificar_bot=lambda _cabecalho, _thread: "secret_errado",
         aviso=duplos["aviso"].sincrono,
         eventos=None,
         decidir=duplos["decidir"],
@@ -160,49 +259,51 @@ def _montar(ctx) -> tuple[Any, dict[str, _Registador]]:  # noqa: ANN001
 def _corpos_com_ids_de_b(ctx) -> dict[str, list[dict]]:  # noqa: ANN001
     """Por caminho, os corpos que misturam o tenant de A com coisas de B.
 
-    Tres formas de IDOR, e as tres sao o mesmo ataque por portas diferentes:
-    o `tenant_id` de B com o resto de A, o `tenant_id` de A com os
-    identificadores de B, e o canario de B posto num campo de dominio aberto.
+    ## O que «A usa IDs de B» quer dizer **nesta** superficie
+
+    A `/internal/*` do AGR nao tem identidade de tenant: a credencial e **da
+    instancia** (`agr_internal_token`) e quem chama e o nosso proprio *shim*
+    (ADR-L004). Nao ha, portanto, um «A autenticado» a pedir o recurso de B — e
+    um corpo inteiramente de B nao e um ataque, e um pedido legitimo pelo
+    tenant B, que foi o que a primeira versao deste caso enviou (e que, com
+    razao, devolveu o mesmo 200 `descartado` de qualquer corpo coerente, a
+    quebrar a uniformidade por nao ser um ataque).
+
+    O que e um ataque aqui e a **mistura**: um corpo em que o `tenant_id` e de
+    um e os identificadores sao de outro. E a unica forma de um chamador — ou de
+    um modelo que lhe tenha chegado ao corpo — pedir o recurso de B pela via de
+    A. E e precisamente o que o `thread_id` fecha: ele e derivado de
+    `(tenant_id, contact_id)`, pelo que a mistura **nao tem `thread_id`
+    valido** e e recusada antes de qualquer leitura (`thread_id_incoerente`).
+
+    Duas variantes por caminho: a mistura crua, e a mistura com o canario de B
+    posto num campo de texto livre — para que o oraculo tenha o que procurar nas
+    mensagens de erro, que e por onde a fuga sairia.
     """
     a, b = ctx.a.id, ctx.b.id
     contacto_de_b = str(uuid.uuid5(uuid.NAMESPACE_URL, f"kamba-x01:{b}"))
     canario_de_b = next(iter(ctx.oraculo.proibidos.values()))
     thread_de_b = f"{b}:{contacto_de_b}"
+
+    def _invocacao(**sobrepor: Any) -> dict:
+        corpo = {
+            "tenant_id": a,
+            "contact_id": contacto_de_b,
+            "conversation_id": str(uuid.uuid4()),
+            "channel_id": str(uuid.uuid4()),
+            "wamid": "wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8],
+            "type": "text",
+            "modo": "bot",
+            "thread_id": thread_de_b,
+            "vertical": "vendedor",
+        }
+        corpo.update(sobrepor)
+        return corpo
+
     return {
         "/internal/turn": [
-            {
-                "tenant_id": b,
-                "contact_id": contacto_de_b,
-                "conversation_id": str(uuid.uuid4()),
-                "channel_id": str(uuid.uuid4()),
-                "wamid": "wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8],
-                "type": "text",
-                "modo": "bot",
-                "thread_id": thread_de_b,
-                "vertical": "vendedor",
-            },
-            {
-                "tenant_id": a,
-                "contact_id": contacto_de_b,
-                "conversation_id": str(uuid.uuid4()),
-                "channel_id": str(uuid.uuid4()),
-                "wamid": "wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8],
-                "type": "text",
-                "modo": "bot",
-                "thread_id": thread_de_b,
-                "vertical": "vendedor",
-            },
-            {
-                "tenant_id": a,
-                "contact_id": contacto_de_b,
-                "conversation_id": str(uuid.uuid4()),
-                "channel_id": str(uuid.uuid4()),
-                "wamid": "wamid." + canario_de_b,
-                "type": "text",
-                "modo": "bot",
-                "thread_id": thread_de_b,
-                "vertical": "vendedor",
-            },
+            _invocacao(),
+            _invocacao(wamid="wamid." + canario_de_b),
         ],
         "/internal/resume": [
             {"thread_id": thread_de_b, "handoff_id": str(uuid.uuid4()), "outcome": "resolved"},
@@ -241,15 +342,14 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
         item = ITEM_DE[caminho]
         estados: list[int] = []
         for corpo in corpos:
-            estado, cabecalhos, texto = asyncio.run(
-                _pedir(
-                    app,
-                    "POST",
-                    caminho,
-                    json.dumps(corpo).encode(),
-                    {"content-type": "application/json", "x-kamba-interno": CREDENCIAL},
-                )
+            estado, cabecalhos, texto, registo = _pedir_com_logs(
+                app,
+                "POST",
+                caminho,
+                json.dumps(corpo).encode(),
+                {"content-type": "application/json", "x-kamba-interno": CREDENCIAL},
             )
+            ctx.logs.append(registo)
             estados.append(estado)
             achados.extend(
                 f"{item}: {fuga}"
@@ -287,14 +387,12 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
     from kamba_agr.contexto import thread_id_de  # noqa: PLC0415
 
     corpo_de_a["thread_id"] = thread_id_de(ctx.a.id, corpo_de_a["contact_id"])
-    estado, _, _ = asyncio.run(
-        _pedir(
-            app,
-            "POST",
-            "/internal/turn",
-            json.dumps(corpo_de_a).encode(),
-            {"content-type": "application/json", "x-kamba-interno": CREDENCIAL},
-        )
+    estado, _, _, _ = _pedir_com_logs(
+        app,
+        "POST",
+        "/internal/turn",
+        json.dumps(corpo_de_a).encode(),
+        {"content-type": "application/json", "x-kamba-interno": CREDENCIAL},
     )
     if estado == 404:
         achados.append(
@@ -308,7 +406,8 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
 def atacar_sonda(ctx) -> list[str]:  # noqa: ANN001
     """O X-01 da `/healthz` do AGR: responde, e nao leva nada de B."""
     app, _ = _montar(ctx)
-    estado, cabecalhos, texto = asyncio.run(_pedir(app, "GET", "/healthz"))
+    estado, cabecalhos, texto, registo = _pedir_com_logs(app, "GET", "/healthz")
+    ctx.logs.append(registo)
     achados: list[str] = []
     if estado != 200:
         achados.append(
@@ -317,6 +416,8 @@ def atacar_sonda(ctx) -> list[str]:  # noqa: ANN001
         )
     achados.extend(
         f"rota:agr:…/healthz: {fuga}"
-        for fuga in ctx.oraculo.varrer_tudo({"corpo": texto, "cabecalhos": cabecalhos})
+        for fuga in ctx.oraculo.varrer_tudo(
+            {"corpo": texto, "cabecalhos": cabecalhos, "logs": ctx.logs}
+        )
     )
     return achados

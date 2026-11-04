@@ -30,6 +30,15 @@ class Contacto:
     tenant_id: str
     #: `(schema, tabela) -> canario deste contacto nessa tabela`.
     canarios: Mapping[tuple[str, str], str]
+    #: `(schema, tabela) -> id da linha deste contacto nessa tabela`.
+    #:
+    #: Existe porque **ha leituras que nao projectam a coluna do canario**, e
+    #: isso mediu-se: a `SQL_PEDIDO_POR_PAGAR` do COM projecta
+    #: `(id, numero_publico, estado, total_minor, currency, criado_at)` e nao o
+    #: `intent_key`, que e onde o canario de `orders_mirror` cabe. Comparar o
+    #: canario naquela leitura era impossivel; comparar o **identificador da
+    #: linha** e a mesma afirmacao — a linha de Y nao pode sair na leitura de X.
+    ids: Mapping[tuple[str, str], str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass

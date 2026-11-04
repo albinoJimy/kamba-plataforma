@@ -200,16 +200,26 @@ def _atacar(ctx, nomes: tuple[str, ...], abrir_ligacao) -> list[str]:  # noqa: A
 
 
 def _declaradas(ctx) -> list[str]:  # noqa: ANN001
-    """As dez `declaradas`. Sem base: nenhuma chega a abrir ligacao."""
+    """As dez `declaradas`, invocadas com o contexto de A e argumentos de B.
 
-    def abrir_ligacao():  # noqa: ANN202
-        raise AssertionError(
-            "uma entrada `declarada` abriu ligacao. A recusa tem de vir antes "
-            "do passo 6 do pipeline (§6.1), e uma tool sem executor que chega a "
-            "base e um passo fora de ordem."
+    **A ligacao vem do contexto quando ha uma**, e isso e uma correccao: a
+    primeira versao passava um `abrir_ligacao` que levantava, para afirmar de
+    passagem que uma entrada `declarada` nunca chega a base. A afirmacao e
+    plausivel — a recusa vem do passo 1 do pipeline (§6.1) — mas o pipeline
+    escreve `tool_audit` para `write`/`money` (criterio 5 do KAM-028), e o
+    `criar_pedido` e `money` **e** declarado: uma escrita de auditoria numa
+    recusa abria a ligacao, o duplo levantava, e o caso reportava um achado que
+    era do duplo e nao do codigo. Um caso que acusa o seu proprio andaime
+    ensina a ignorar a lista.
+    """
+
+    def sem_base():  # noqa: ANN202
+        raise RuntimeError(
+            "a ToolLayer pediu uma ligacao e este contexto nao tem base. O "
+            "caso corre em `db/tests_isolamento/`, onde ha uma."
         )
 
-    return _atacar(ctx, TOOLS_DECLARADAS, abrir_ligacao)
+    return _atacar(ctx, TOOLS_DECLARADAS, ctx.abrir_ligacao or sem_base)
 
 
 def _ligadas(ctx) -> list[str]:  # noqa: ANN001
