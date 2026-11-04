@@ -46,16 +46,31 @@ class TestRepositorioReal(unittest.TestCase):
         # repositorio referencia, pelo que o `verificar` passa de 0 para 1 e o
         # `por_apurar` fica nos mesmos 6: as outras seis continuam por apurar,
         # e nenhuma delas e esta.
-        self.assertEqual(resumo["imagens"], 7)
+        # **KAM-076: as imagens passam de 7 a 11.** As quatro novas sao o Caddy
+        # (proxy TLS), o Envoy (proxy de saida), o Prometheus (o unico membro da
+        # rede `ops`) e o Langfuse — este ultimo **so em *staging***, atras do
+        # perfil `staging-obs`, e nunca em producao (ADR-018).
+        #
+        # O Envoy entrou no lugar do Squid **por licenca**: o Squid, o HAProxy e
+        # o tinyproxy sao GPL-2.0, que o `ci/licenses.yaml` nega por prefixo.
+        self.assertEqual(resumo["imagens"], 11)
         self.assertEqual(resumo["cosign"]["verificar"], 1)
-        self.assertEqual(resumo["cosign"]["por_apurar"], 6)
+        # As quatro novas entram todas `por_apurar`: ninguem verificou se os
+        # projectos publicam assinatura, e `n/a` afirmaria que **nao** existe.
+        self.assertEqual(resumo["cosign"]["por_apurar"], 10)
 
         _, resumo = runtime.verificar(ROOT)
         self.assertEqual(resumo["dockerfiles"], 5)
         # KAM-019: oito mais os quatro do compose do spike, todos `read_only`.
         # **KAM-030: mais um**, o proxy LiteLLM do `make llm-proxy` — tambem
         # `read_only`, com `cap_drop: ALL` e `no-new-privileges`.
-        self.assertEqual(resumo["servicos"], 13)
+        #
+        # **KAM-076: de 13 para 42**, e o salto e de dois ficheiros: o compose de
+        # **producao** (14 servicos) e o de ***staging*** (15 — os mesmos mais o
+        # Langfuse do perfil `staging-obs`). Os 29 correm todos `read_only`, com
+        # utilizador nao-root, `mem_limit` e `cpus`; o que cada um precisa de
+        # escrever esta em `volumes:` ou `tmpfs:`.
+        self.assertEqual(resumo["servicos"], 42)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -68,8 +83,26 @@ class TestRepositorioReal(unittest.TestCase):
         # NAO vazia** — tres FQDN de fornecedores de LLM. E a unica lista de
         # saidas da pilha com destinos, e por desenho: o `agr` continua com
         # `destinos: []` e fala com o proxy na rede interna.
-        self.assertEqual(resumo["servicos"], 13)
-        self.assertEqual(resumo["destinos"], 3)
+        # **KAM-076: de 13 para 17 servicos com lista de saidas.** Os quatro
+        # novos sao o `proxy-tls`, o `proxy-saida`, o `prometheus` e o
+        # `langfuse`; tres deles com `destinos: []`, e a lista vazia e a
+        # afirmacao — o Caddy recebe 443 e nao abre ligacao para fora, o
+        # Prometheus raspa a pilha pela rede do compose, e o Langfuse tem a
+        # telemetria propria desligada por `TELEMETRY_ENABLED: "false"`.
+        self.assertEqual(resumo["servicos"], 17)
+        # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
+        # os 3 do `litellm` continuam, o `gwy` passa a declarar
+        # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
+        # Meta, e o `docs/tecnica/09` §3.2 regra 2 nomeia o FQDN), e o
+        # `proxy-saida` declara os **quatro** que de facto abre — os tres do
+        # LiteLLM mais o da Meta.
+        #
+        # Os quatro do proxy nao sao destinos novos: sao os mesmos, declarados
+        # do lado de quem abre a ligacao. O `compose_prod lint` exige a
+        # igualdade nos dois sentidos — um destino que um servico declare e o
+        # proxy nao sirva, e um que o proxy sirva e nenhum servico declare, sao
+        # os dois achado.
+        self.assertEqual(resumo["destinos"], 8)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12
