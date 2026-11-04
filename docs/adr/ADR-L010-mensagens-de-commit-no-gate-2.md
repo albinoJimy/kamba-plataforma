@@ -1,4 +1,4 @@
-# ADR-L009 — O *gate* 2 passa a ler as mensagens dos *commits* de um PR: autorizado
+# ADR-L010 — O *gate* 2 passa a ler as mensagens dos *commits* de um PR: autorizado
 
 | Campo | Valor |
 |---|---|
