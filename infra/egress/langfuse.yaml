@@ -1,0 +1,28 @@
+# Lista de saidas de `langfuse` — KAM-067, criterio 9; servico do KAM-076.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; a aplicacao na rede e a allowlist de `infra/egress/proxy-saida.yaml`.
+#
+# **Este servico so existe em *staging***, atras do perfil `staging-obs`
+# (criterio 2 do KAM-076, ADR-018). Nao esta — e nao pode estar — no compose de
+# producao: exige quatro servicos de estado e 16 GiB (CONFIRMADO, doc 09 §9.3) e
+# os seus *traces* contem conversas, logo transferencia sob ADR-008. O
+# `compose_prod lint` falha se o nome aparecer no ficheiro de producao.
+#
+# A lista esta **vazia**, e isso e uma afirmacao e nao uma omissao. O Langfuse
+# tem telemetria propria para o projecto, e ela esta desligada por
+# `TELEMETRY_ENABLED: "false"` no compose de *staging*: fecha-se desligando a
+# saida, nao declarando o destino — a mesma regra que o
+# `raw.githubusercontent.com` do LiteLLM (KAM-030) e o `beacon.langchain.com` do
+# KAM-025. Se alguem ligar a telemetria, o destino tem de entrar aqui **e** na
+# allowlist do proxy, e passa a ser subprocessador a registar (KAM-069).
+#
+# O que ele alcanca de facto — `postgres` e `queue` — sao redes do compose e nao
+# saidas.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+
+version: 1
+servico: langfuse
+por_omissao: negar
+destinos: []

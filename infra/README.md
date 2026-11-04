@@ -8,6 +8,13 @@
 | `envs/{staging,prod}/*.tf` | Os módulos de raiz em OpenTofu. Não declaram recursos: chamam a costura | KAM-075 |
 | [`modules/`](modules/) | `provider-pendente/` (a costura do fornecedor, a falhar fechado) e `host-base/` (o cloud-init do primeiro arranque) | KAM-075 |
 | `compose/docker-compose.dev.yml` | Pilha de **desenvolvimento local**: Postgres 18.6 + pgvector, fila compatível com Redis (AOF), e os cinco serviços | KAM-001 |
+| [`compose/conjunto-reduzido.yaml`](compose/conjunto-reduzido.yaml) | **O conjunto reduzido declarado**: cada serviço `presente`, `pendente` (com ticket) ou `proibido` (com ADR), e a memória proposta. É o outro lado do «exactamente» do critério 1 | KAM-076 |
+| `compose/docker-compose.prod.yml` | Pilha de **produção**: o conjunto reduzido em quatro redes isoladas, contentores endurecidos e limites | KAM-076 |
+| `compose/docker-compose.staging.yml` | Pilha de ***staging***, **com as mesmas imagens**, mais o perfil `staging-obs` (Langfuse v4, dados sintéticos) | KAM-076 |
+| `compose/caddy/Caddyfile` | A borda: quem escuta e para onde encaminha. **Não** é o TLS — é o KAM-077 | KAM-076 |
+| `compose/envoy/envoy.yaml` | O proxy de saída. **Ficheiro gerado** de `egress/proxy-saida.yaml` por `python -m compose_prod gerar` | KAM-076 |
+| `compose/envoy/sonda.sh` | A sonda de saúde do proxy de saída (a imagem do Envoy não traz `curl` nem `wget`) | KAM-076 |
+| `compose/prometheus/prometheus.yml` | Configuração mínima, só para que a rede `ops` exista. **As métricas e os alertas são o KAM-080** | KAM-076 |
 | `compose/postgres/initdb/` | Bases e extensões do arranque local (sem tabelas) | KAM-001 |
 | `egress/` | As saídas declaradas por serviço (`por_omissao: negar`) | KAM-067 |
 
@@ -21,15 +28,45 @@ A ferramenta está fixada em
 
 | O que falta | Ticket |
 |---|---|
-| Compose de produção do conjunto reduzido, redes isoladas, proxy de saída | KAM-076 |
-| Alojamento, proxy inverso com TLS, *edge* e WAF; *scan* externo de portas | KAM-077 |
-| Prometheus, Alertmanager, Grafana, Loki, sonda sintética externa | KAM-076 |
-| `pgBackRest`, RPO/RTO, teste de restauro | KAM-077 |
+| Alojamento, TLS a sério, *edge* e WAF; *scan* externo de portas | KAM-077 |
+| Métricas, painéis, logs e os 12 alertas. O contentor do Prometheus já cá está, com configuração mínima; **o Grafana e o Loki não**, e a razão é de licença — são **AGPL-3.0**, que o `../ci/licenses.yaml` nega por prefixo | KAM-080 |
+| Alertmanager e sonda sintética externa | KAM-080 |
+| O **Medusa**: não há imagem publicada e não há `services/medusa/Dockerfile`. Está `pendente` no conjunto reduzido, com a memória reservada na soma | KAM-042 |
+| `pgBackRest`, RPO/RTO, teste de restauro | KAM-079 |
 | SBOM por imagem, assinatura cosign e `release.lock` (as imagens já vêm por *digest*, e cada serviço declara as suas saídas em `infra/egress/` e `services/*/egress.yaml`: KAM-067, `../docs/supply-chain.md`) | KAM-078 |
 
-A topologia-alvo está em `../docs/tecnica/09` §3; as regras de rede em §3.2. Duas
-delas já são cumpridas pelo compose local: a rede `data` é `internal: true` (sem
-rota de saída) e nenhuma porta é publicada fora de `127.0.0.1`.
+A topologia-alvo está em `../docs/tecnica/09` §3; as regras de rede em §3.2, e
+**as quatro estão agora cumpridas e medidas** no compose de produção
+(`../docs/evidencia/KAM-076.md` §2 e §3). O compose local cumpre duas delas: a
+rede `data` é `internal: true` e nenhuma porta é publicada fora de `127.0.0.1`.
+
+---
+
+## 1.1 Verificar o compose de produção
+
+```bash
+cd tools && python -m compose_prod --root .. lint
+```
+
+```bash
+cd tools && python -m compose_prod --root .. egress-dez
+```
+
+O primeiro corre no gate 2 (`make compose-prod-lint`) e o segundo no gate 6
+(`make compose-prod-egress`, que precisa de Docker). **Nenhum abre *job* novo**,
+pela mesma razão do `env-lint`: um *job* novo acrescenta um contexto exigido ao
+*ruleset* de `main`, e isso é alteração de regra de bloqueio.
+
+O que verificam, e o que **não** verificam, está em
+[`../tools/compose_prod/README.md`](../tools/compose_prod/README.md). As duas
+coisas que não se provam por leitura — o egress e o consumo — estão medidas em
+`../docs/evidencia/KAM-076.md`.
+
+> **A pilha de produção não arranca por inteiro nesta máquina**, e é de
+> propósito que está dito: os cinco serviços nossos vêm por `build:` e exigem
+> `node`/`pnpm`, que não estão no `PATH` (ADR-L001). O `release.lock` que os
+> traria por *digest* é o **KAM-078**, que depende deste ticket —
+> `../docs/evidencia/KAM-076.md` §5.
 
 ---
 

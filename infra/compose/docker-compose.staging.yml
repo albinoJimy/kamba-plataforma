@@ -1,0 +1,636 @@
+# Compose de ***staging*** — KAM-076.
+#
+# O objectivo do ticket e «o Compose de producao (e o de *staging*, **com as
+# mesmas imagens**)». A frase entre parenteses e a propriedade que faz de
+# *staging* uma prova sobre producao, e nao sobre outra pilha parecida: todo o
+# digest que corre em producao corre aqui. O `compose_prod lint` compara os dois
+# ficheiros e falha se um digest de producao faltar aqui
+# (`staging-com-outras-imagens`).
+#
+# AS TRES DIFERENCAS FACE A PRODUCAO, E SO ESTAS
+#
+# 1. **O perfil `staging-obs`** (criterio 2): o Langfuse v4 corre aqui, com
+#    dados sinteticos, e **nunca** em producao. Nao e um servico ao lado — esta
+#    atras de um perfil, pelo que um `docker compose up` sem `--profile
+#    staging-obs` nao o levanta. O ADR-018 tira-o de producao por duas razoes,
+#    e a segunda e a que importa: exige quatro servicos de estado (Postgres,
+#    ClickHouse, Redis, S3) e 16 GiB (CONFIRMADO), e os seus *traces* contem
+#    conversas — transferencia sob ADR-008.
+# 2. **O perfil nao arranca com dados reais.** O criterio 2 di-lo por escrito. O
+#    `KAMBA_DATA_CLASS` deste ficheiro e `synthetic` e o `compose_prod lint`
+#    falha se alguem escrever `real` aqui (`staging-obs-com-dados-reais`).
+#    `staging` nunca tem dados pessoais reais (doc 09 §6, E3 req. 24).
+# 3. **O perfil de maquina e menor**: 4 vCPU/16 GB (doc 09 §4.4, perfil P0),
+#    contra os 8/32 de producao. Os `mem_limit` sao os **mesmos** de proposito:
+#    um *staging* com limites mais largos nao reproduz o OOM que producao teria.
+#    Com o Langfuse ligado a soma passa os 16 GB da maquina de *staging*, e e
+#    por isso que o perfil se liga para um ensaio e se desliga a seguir — esta
+#    dito aqui e medido no KAM-084.
+#
+# O QUE NAO ESTA AQUI
+#
+# O `langfuse` tem **quatro** dependencias de estado e este ficheiro traz duas:
+# reutiliza o `postgres` e a `queue` da pilha, e deixa o ClickHouse e o S3 por
+# declarar. **Com isso o Langfuse v4 nao arranca por completo** — e deliberado e
+# nao disfarcado: o criterio 2 pede que o perfil «so exista em *staging*» e que
+# nao arranque com dados reais, e nao pede um Langfuse a funcionar. Montar a
+# pilha inteira dele seria trazer dois digests e ~16 GiB para servir um perfil
+# que nao esta no caminho de nenhum criterio. O ticket que o quiser a funcionar
+# traz-lhe o ClickHouse e o S3, e esta nota e o aviso de que faltam.
+#
+# A anotacao esta na linha do servico, para que ninguem o levante a espera de
+# um painel.
+
+name: kamba-staging
+
+x-endurecido: &endurecido
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-saida: &saida
+  HTTP_PROXY: http://proxy-saida:3128
+  HTTPS_PROXY: http://proxy-saida:3128
+  NO_PROXY: localhost,127.0.0.1,postgres,queue,seaweedfs,litellm,gwy,agr,com,chatwoot,onboarding-web,worker-canal,prometheus,proxy-tls,langfuse,.internal
+
+x-node: &node
+  <<: *endurecido
+  user: "node"
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  environment: &node-env
+    # `production` tambem aqui: um *staging* em modo de desenvolvimento nao
+    # reproduz o que producao faz (compilacao, cache, nivel de log).
+    NODE_ENV: production
+    HOST: 0.0.0.0
+    KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    # Nunca `real` em *staging* (doc 09 §6; E3 req. 24).
+    KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+
+services:
+  # ================================================================= borda
+  proxy-tls:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    <<: *endurecido
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /data:size=32m
+      - /config:size=16m
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    # A **unica** capacidade concedida em toda a pilha, e e para o `exec`
+    # funcionar e nao para ser usada: `/usr/bin/caddy` traz
+    # `cap_net_bind_service=ep` como capacidade de **ficheiro**, e com
+    # `cap_drop: ALL` o kernel recusa executar o binario (medido a
+    # 2026-11-03: `exec /usr/bin/caddy: operation not permitted`, com e sem
+    # `no-new-privileges`). O Caddy escuta em 8443, acima de 1024, pelo que
+    # a capacidade fica concedida e **nunca exercida**. O `compose_prod`
+    # falha se qualquer outro servico acrescentar capacidades.
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "443:8443"
+    networks:
+      - edge
+      - app
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  proxy-saida:
+    image: envoyproxy/envoy:v1.36.3@sha256:d68fc27a15a17ae3b13df8c8631523a2fe1192b39ec867dffe870b666c55c2dd
+    <<: *endurecido
+    user: "101:101"
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    volumes:
+      # A **mesma** allowlist de producao. Um *staging* que pudesse sair para
+      # onde producao nao sai nao provava o egress de producao; os destinos de
+      # sandbox do facilitador entram com o KAM-056, na allowlist, para os dois.
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./envoy/sonda.sh:/etc/envoy/sonda.sh:ro
+    command:
+      - "--config-path"
+      - "/etc/envoy/envoy.yaml"
+      - "--log-level"
+      - "info"
+    networks:
+      - app
+      - edge
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      # A sonda vive em `envoy/sonda.sh` e nao nesta linha: as duas razoes —
+      # a imagem nao traz `curl` nem `wget`, e um `/dev/tcp` escrito aqui faz
+      # o `supply_chain runtime` falhar com `arranque-nao-verificavel` — estao
+      # escritas no proprio ficheiro.
+      # Invocada por `bash` e nao pelo bit de execucao: o `git` guardou o
+      # ficheiro como 100755, mas uma montagem que nao preserve o modo
+      # deixava o contentor **permanentemente** unhealthy — e foi o que
+      # esta maquina quase esconder, porque as montagens do Docker em
+      # Windows dao modos permissivos. Com `bash` a frente, o modo nao
+      # entra na equacao.
+      test: ["CMD", "bash", "/etc/envoy/sonda.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # ============================================================= aplicacao
+  gwy:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/gwy/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3000"
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3001"
+    networks:
+      - app
+      - data
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3001/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      queue:
+        condition: service_healthy
+
+  agr:
+    <<: *endurecido
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      <<: *saida
+      HOST: 0.0.0.0
+      PORT: "8000"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+      KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 1280m
+    cpus: 2.0
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, sys, urllib.request;
+          porta = os.environ.get('PORT', '8000');
+          sys.exit(0 if urllib.request.urlopen(
+          f'http://127.0.0.1:{porta}/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  com:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/com/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3002"
+    networks:
+      - app
+      - data
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3002/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  onboarding-web:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3003"
+    networks:
+      - app
+    mem_limit: 768m
+    cpus: 0.5
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3003/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  chatwoot:
+    image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    <<: *endurecido
+    user: "1001:1001"
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /app/tmp:size=256m
+      - /app/log:size=64m
+      - /app/storage:size=256m
+    environment:
+      <<: *saida
+      RAILS_ENV: production
+      NODE_ENV: production
+      INSTALLATION_ENV: docker
+      DISABLE_ENTERPRISE: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
+      POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010), projecto staging}
+      POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010), projecto staging}
+      REDIS_URL: redis://queue:6379/1
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010), projecto staging}
+      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN de staging do painel}
+    command: ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+    networks:
+      - app
+      - data
+    mem_limit: 3072m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  chatwoot-worker:
+    image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    <<: *endurecido
+    user: "1001:1001"
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /app/tmp:size=256m
+      - /app/log:size=64m
+      - /app/storage:size=256m
+    environment:
+      <<: *saida
+      RAILS_ENV: production
+      NODE_ENV: production
+      INSTALLATION_ENV: docker
+      DISABLE_ENTERPRISE: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
+      POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010), projecto staging}
+      POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010), projecto staging}
+      REDIS_URL: redis://queue:6379/1
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010), projecto staging}
+      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN de staging do painel}
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    networks:
+      - app
+      - data
+    mem_limit: 2048m
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f sidekiq > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
+    <<: *endurecido
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ../../llm/litellm.config.yaml:/etc/litellm/config.yaml:ro
+    command:
+      - "--config"
+      - "/etc/litellm/config.yaml"
+      - "--port"
+      - "4000"
+      - "--num_workers"
+      - "1"
+    environment:
+      <<: *saida
+      # Chave propria e *budget* baixo em *staging* (doc 09 §6).
+      # **Os nomes sao os que o `llm/litellm.config.yaml` **gerado** le**, e nao
+      # os do `docker-compose.llm.yml`: aquele ficheiro define
+      # `LITELLM_MASTER_KEY` e `LLM_KEY_P1..P3`, que o config gerado **nao**
+      # procura. Medido a 2026-11-03: com aqueles nomes o proxy recusa arrancar
+      # com `UnsafeMasterKeyError: no master key is set` e fica a 100% de CPU em
+      # ciclo de reinicio. Os quatro nomes certos saem de
+      # `grep -o 'os.environ/[A-Z_]*' llm/litellm.config.yaml` e estao no
+      # runbook `docs/runbooks/rotacao-de-chaves-de-llm.md`.
+      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic: ${KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010), projecto staging}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010), projecto staging}
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+    networks:
+      - app
+    mem_limit: 2048m
+    cpus: 1.5
+    healthcheck:
+      # O `/health/liveliness` nao exige a *master key*; o `/health` exige.
+      # A imagem nao traz `curl` — traz o Python da propria aplicacao, e e
+      # a sonda que o KAM-030 ja provou em `docker-compose.llm.yml`.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2).status==200 else 1)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  # ================================================================== dados
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    <<: *endurecido
+    user: "999:999"
+    tmpfs:
+      - /var/run/postgresql:mode=0775,uid=999,gid=999
+      - /tmp:size=64m,mode=1777
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?do cofre (KAM-010), projecto staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?do cofre (KAM-010), projecto staging}
+      POSTGRES_DB: ${POSTGRES_DB:-kamba_platform}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - data
+    mem_limit: 5120m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kamba} -d ${POSTGRES_DB:-kamba_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  queue:
+    image: ${KAMBA_QUEUE_IMAGE:-valkey/valkey:9.1.2-trixie@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd}
+    <<: *endurecido
+    user: "999:1000"
+    command:
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--dir"
+      - "/data"
+      - "--save"
+      - ""
+      - "--maxmemory"
+      - "600mb"
+      - "--maxmemory-policy"
+      - "noeviction"
+    volumes:
+      - queue-data:/data
+    networks:
+      - data
+    mem_limit: 768m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "${KAMBA_QUEUE_CLI:-valkey-cli} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    <<: *endurecido
+    user: "1000:1000"
+    profiles:
+      - sto-proprio
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=256"]
+    volumes:
+      - seaweedfs-data:/data
+    networks:
+      - data
+    mem_limit: 1024m
+    cpus: 1.0
+    healthcheck:
+      # **As duas portas, e nao so a do master.** A sonda antiga interrogava
+      # so o `9333` (master) e o gateway S3 do `8333` podia estar morto com o
+      # contentor `healthy` — e o S3 e a unica coisa que o `StorageProvider`
+      # usa. Achado da revisao adversarial.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && wget -q -O /dev/null http://127.0.0.1:8333/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # =============================================================== operacao
+  prometheus:
+    image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
+    <<: *endurecido
+    user: "65534:65534"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.listen-address=127.0.0.1:9090"
+    networks:
+      - ops
+      - app
+    mem_limit: 1024m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  # ================================================= perfil `staging-obs`
+  #
+  # **SO EM *STAGING*, E SO COM DADOS SINTETICOS** (criterio 2, ADR-018).
+  #
+  # ATENCAO, ANTES DE O LEVANTAR: o Langfuse v4 exige **quatro** servicos de
+  # estado — Postgres, ClickHouse, Redis e S3 — e aqui so ha dois (reutiliza o
+  # `postgres` e a `queue` da pilha). **Nao arranca por completo**: falta-lhe o
+  # ClickHouse e o bucket S3, de proposito, pela razao escrita no cabecalho
+  # deste ficheiro. Esta aqui para que o perfil exista, esteja atras de um
+  # perfil e nao de um `docker compose up`, e seja verificavel; nao para dar
+  # painel a ninguem.
+  #
+  # O ADR-018 tira-o de producao por duas razoes, e a segunda pesa mais: 4
+  # nucleos, 16 GiB e 100 GiB de disco (CONFIRMADO), e os *traces* contem
+  # conversas — logo transferencia sob ADR-008. A *flag* `ee/` fica inactiva
+  # (criterio 8).
+  langfuse:
+    # Langfuse v4 (4.74.0). Digest lido de `docker buildx imagetools inspect
+    # docker.io/langfuse/langfuse:4.74.0` a 2026-11-03 (indice multi-plataforma);
+    # a etiqueta `4` resolve para o mesmo digest, e o rotulo
+    # `org.opencontainers.image.version` da imagem diz `4.74.0`.
+    image: langfuse/langfuse:4.74.0@sha256:f409386b80aa7a77d15b16cf250118d05dab0f4535174f2d4a310ebcf1d7bfc1
+    <<: *endurecido
+    user: "1000:1000"
+    profiles:
+      - staging-obs
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      <<: *saida
+      # Criterio 8: `ee/` inactivo. Sem chave de licenca, as funcionalidades
+      # Enterprise do Langfuse ficam desligadas — e esta variavel fica vazia de
+      # proposito, nao por omissao.
+      LANGFUSE_EE_LICENSE_KEY: ""
+      DATABASE_URL: postgresql://${POSTGRES_USER:?do cofre (KAM-010), projecto staging}:${POSTGRES_PASSWORD:?do cofre (KAM-010), projecto staging}@postgres:5432/kamba_langfuse
+      REDIS_CONNECTION_STRING: redis://queue:6379/2
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?do cofre (KAM-010), projecto staging}
+      SALT: ${LANGFUSE_SALT:?do cofre (KAM-010), projecto staging}
+      NEXTAUTH_URL: ${LANGFUSE_URL:?o FQDN de staging do Langfuse}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_INIT_ORG_ID: kamba-staging
+    networks:
+      - app
+      - data
+    mem_limit: 2048m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/public/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+networks:
+  edge:
+    driver: bridge
+  app:
+    driver: bridge
+    internal: true
+  data:
+    driver: bridge
+    internal: true
+  ops:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres-data:
+  queue-data:
+  seaweedfs-data:
+  prometheus-data:

@@ -5,10 +5,6 @@
 # de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
 # deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
 #
-# Hoje o servico e o esqueleto do KAM-001 (`/healthz`) e nao abre ligacao
-# nenhuma para fora. Quando chamar a Graph API da Meta,
-# o destino entra aqui, com o ticket que o introduz.
-#
 # Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
 # Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
 # redes do compose.
@@ -16,4 +12,18 @@
 version: 1
 servico: gwy
 por_omissao: negar
-destinos: []
+destinos:
+  - fqdn: graph.facebook.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Graph API da Meta. O `docs/tecnica/09` §3.2 regra 2 nomeia este FQDN como
+      conteudo da allowlist do proxy de saida, e o ADR-001 faz do GWY o unico
+      servico que fala com a Meta — logo o dono do destino nao e ambiguo.
+      Entra com o KAM-076 porque e o ticket que aplica a allowlist na rede, e
+      o criterio 3 dele exige que **este** destino passe de `app`. O GWY de
+      hoje ainda nao abre a ligacao (recebe webhooks, nao envia): o envio vem
+      com os tickets da Meta, e e por isso que a razao esta aqui e nao a
+      espera deles. Destino de transferencia internacional ja reconhecido
+      (ADR-008); a Meta e subprocessador desde o primeiro webhook.
+    ticket: KAM-076

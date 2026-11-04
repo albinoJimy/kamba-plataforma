@@ -312,7 +312,21 @@ MUTACOES: tuple[Mutacao, ...] = (
     Mutacao(
         "heredoc-por-fechar",
         "um here-document que nunca fecha",
-        frozenset({"ficheiro-ilegivel", "imagem-nao-resolvida", "inventario-entrada-morta"}),
+        # O `inventario-entrada-morta` **saiu** desta expectativa com o KAM-076,
+        # e a razao e o grafo de referencias e nao a regra.
+        #
+        # A mutacao torna o `services/agr/Dockerfile` ilegivel, e ate aqui isso
+        # orfanava a imagem `python`: era o **unico** sitio do repositorio que a
+        # referenciava, pelo que a entrada do inventario ficava morta. O KAM-076
+        # acrescentou-lhe uma segunda referencia — o `IMAGEM_SONDA` de
+        # `tools/compose_prod/egress_dez.py`, que e a sonda do guiao dos dez
+        # destinos —, logo quebrar o Dockerfile do AGR ja nao a deixa sem dono.
+        #
+        # O caso continua a provar o que o nome dele diz, que e o caminho do
+        # ficheiro ilegivel; e a regra `inventario-entrada-morta` continua
+        # provada por outras duas mutacoes (o `litellm-database-sem-cosign` e a
+        # entrada solta), acima do minimo de 1 que o `MINIMO_POR_REGRA` exige.
+        frozenset({"ficheiro-ilegivel", "imagem-nao-resolvida"}),
         lambda c: c.trocar("services/agr/Dockerfile", r"^USER nobody$", "RUN <<FIM\necho x\nUSER nobody"),
     ),
     Mutacao(
