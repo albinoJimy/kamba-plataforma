@@ -201,11 +201,18 @@ class TestBarreiraNaoDependeDeQuantasLinhas(ComLedger):
     dos dois *triggers* morde o caso sem linhas.
     """
 
-    #: Um predicado que nao casa com linha nenhuma **e que nao e constante**: o
-    #: `id` e `GENERATED ALWAYS AS IDENTITY` e comeca em 1, pelo que nenhuma
-    #: linha o tem e o planeador tem de abrir a instrucao para o descobrir. Um
-    #: `WHERE false` media outra coisa.
-    SEM_LINHAS = " WHERE id = -1"
+    #: Dois predicados que nao casam com linha nenhuma, e sao dois de proposito.
+    #:
+    #: O `id = -1` e o caso **real**: o `id` e `GENERATED ALWAYS AS IDENTITY` e
+    #: comeca em 1, pelo que nenhuma linha o tem e o planeador tem de abrir a
+    #: instrucao para o descobrir.
+    #:
+    #: O `false` e o caso **degenerado**, e esta aqui porque a propriedade que o
+    #: KAM-175 afirma nao tem ressalva — «independentemente de quantas linhas a
+    #: instrucao toca». Com um `One-Time Filter: false` o planeador sabe de
+    #: antemao que nao ha linhas, e um *trigger* por instrucao que nao disparasse
+    #: nesse caso deixava um buraco que o `id = -1` nao via. Medido: dispara.
+    PREDICADOS_SEM_LINHAS = (" WHERE id = -1", " WHERE false")
 
     def setUp(self) -> None:
         super().setUp()
@@ -227,11 +234,13 @@ class TestBarreiraNaoDependeDeQuantasLinhas(ComLedger):
         existir, o que nao distinguia nada.
         """
         cursor = self.ligar("admin").cursor()
-        self.assertErroSql(
-            PRIVILEGIO_INSUFICIENTE,
-            cursor,
-            "DELETE FROM platform.payment_events" + self.SEM_LINHAS,
-        )
+        for predicado in self.PREDICADOS_SEM_LINHAS:
+            with self.subTest(predicado=predicado.strip()):
+                self.assertErroSql(
+                    PRIVILEGIO_INSUFICIENTE,
+                    cursor,
+                    "DELETE FROM platform.payment_events" + predicado,
+                )
 
     def test_o_update_sem_linhas_e_recusado(self) -> None:
         """A segunda metade, que a divida 175 **nao** nomeava.
@@ -242,10 +251,94 @@ class TestBarreiraNaoDependeDeQuantasLinhas(ComLedger):
         asercao que cobrisse os dois casos nao distinguia qual deles regrediu.
         """
         cursor = self.ligar("admin").cursor()
+        for predicado in self.PREDICADOS_SEM_LINHAS:
+            with self.subTest(predicado=predicado.strip()):
+                self.assertErroSql(
+                    PRIVILEGIO_INSUFICIENTE,
+                    cursor,
+                    "UPDATE platform.payment_events SET motivo = 'x'" + predicado,
+                )
+
+    def test_a_lista_de_eventos_do_trigger_esta_no_catalogo(self) -> None:
+        """O `tgtype`, e nao so o nome e o `tgenabled`.
+
+        Os tres confrontos que esta suite ja tinha — o `TestTriggersSaoAlways` e
+        os dois do `test_downgrade.py` — comparam
+        `[('payment_events_imutavel', 'A'), ('payment_events_sem_truncate', 'A')]`:
+        **nomes e estado**, nada sobre que eventos cada um cobre. Isto e, a forma
+        nova so se confirmava por comportamento, e o catalogo nao a prendia.
+
+        Aqui prende-se, pelo `pg_get_triggerdef`, que e a forma que o servidor
+        reconstroi da sua propria tabela de catalogo.
+        """
+        definicoes = {
+            nome: texto
+            for nome, texto in self.consultar(
+                "SELECT t.tgname::text, pg_get_triggerdef(t.oid) FROM pg_trigger t "
+                "  JOIN pg_class c ON c.oid = t.tgrelid "
+                "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+                " WHERE n.nspname = 'platform' AND c.relname = 'payment_events' "
+                "   AND NOT t.tgisinternal"
+            )
+        }
+        # **Nao se compara a frase inteira**: o `pg_get_triggerdef` reordena os
+        # eventos pela ordem canonica do catalogo, que nao e a ordem em que a
+        # revisao os escreveu. O que se prende e o **conjunto** de verbos e o
+        # nivel, que e a propriedade; a ordem do texto nao e.
+        por_linha = definicoes["payment_events_imutavel"]
+        por_instrucao = definicoes["payment_events_sem_truncate"]
+
+        self.assertIn("FOR EACH ROW", por_linha)
+        self.assertIn("FOR EACH STATEMENT", por_instrucao)
+        for verbo in ("UPDATE", "DELETE"):
+            with self.subTest(trigger="imutavel", verbo=verbo):
+                self.assertIn(verbo, por_linha.split(" ON ")[0])
+        self.assertNotIn(
+            "TRUNCATE",
+            por_linha,
+            "o FOR EACH ROW nao admite TRUNCATE, e e a razao de serem dois",
+        )
+        for verbo in ("TRUNCATE", "DELETE", "UPDATE"):
+            with self.subTest(trigger="sem_truncate", verbo=verbo):
+                self.assertIn(
+                    verbo,
+                    por_instrucao.split(" ON ")[0],
+                    "o por instrucao tem de cobrir os tres eventos: e ele que "
+                    "da a propriedade para a instrucao que nao toca linha "
+                    "nenhuma (KAM-175)",
+                )
+
+    def test_o_insert_com_on_conflict_do_update_tambem_e_recusado(self) -> None:
+        """Uma consequencia do `FOR EACH STATEMENT` que vale declarar.
+
+        Um *trigger* `BEFORE UPDATE ... FOR EACH STATEMENT` dispara num
+        `INSERT ... ON CONFLICT DO UPDATE` **mesmo quando nao ha conflito** e o
+        ramo de `UPDATE` nunca e tomado. Isto e: depois do KAM-175, a unica
+        forma de escrever no ledger continua a ser a `append_payment_event`, e
+        um `INSERT` idempotente por `ON CONFLICT DO UPDATE` deixa de ser
+        possivel — mesmo para quem tenha o privilegio.
+
+        **Fica medido em vez de ser surpresa.** A `append_payment_event` nao usa
+        `ON CONFLICT` (a idempotencia dela vem do `FOR UPDATE` na cobranca e da
+        restricao `payment_events_uq`), pelo que isto nao quebra caminho nenhum
+        hoje; quem escrever a proxima porta precisa de o saber antes, e nao
+        depois de uma recusa que fala de imutabilidade num `INSERT` legitimo.
+        """
+        cursor = self.ligar("admin").cursor()
         self.assertErroSql(
             PRIVILEGIO_INSUFICIENTE,
             cursor,
-            "UPDATE platform.payment_events SET motivo = 'x'" + self.SEM_LINHAS,
+            "INSERT INTO platform.payment_events ("
+            "  tenant_id, charge_id, order_id, provider, account_id,"
+            "  referencia, tipo_evento, sequencia, valor_minor,"
+            "  authn_method, authn_ok, decisao, actor_kind,"
+            "  payload_hash, row_hash)"
+            " VALUES (%s, %s, %s, 'fakeprovider', %s, 'REF-ONCONFLICT',"
+            "  'pagamento_recebido', 1, %s, 'hmac', true, 'informativo',"
+            "  'provider', sha256('{}'::bytea), sha256('{}'::bytea))"
+            " ON CONFLICT (provider, account_id, referencia, tipo_evento, sequencia)"
+            " DO UPDATE SET motivo = 'adulterado'",
+            (self.tenant, self.cobranca, str(uuid.uuid4()), self.conta, VALOR),
         )
 
     def test_os_dois_casos_sem_linhas_tambem_na_ligacao_de_semente(self) -> None:
@@ -259,8 +352,8 @@ class TestBarreiraNaoDependeDeQuantasLinhas(ComLedger):
         import pg8000.dbapi
 
         for instrucao in (
-            "DELETE FROM platform.payment_events" + self.SEM_LINHAS,
-            "UPDATE platform.payment_events SET motivo = 'x'" + self.SEM_LINHAS,
+            "DELETE FROM platform.payment_events WHERE id = -1",
+            "UPDATE platform.payment_events SET motivo = 'x' WHERE id = -1",
         ):
             with self.subTest(instrucao=instrucao.split()[0]):
                 with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
@@ -273,9 +366,16 @@ class TestBarreiraNaoDependeDeQuantasLinhas(ComLedger):
         """O controlo positivo da correccao: `DELETE` com linhas e `TRUNCATE`.
 
         Sem ele, uma alteracao que **afrouxasse** a barreira ficava verde nos
-        dois ensaios de cima — trocava-se um falso negativo por outro. O
-        `DELETE` sem `WHERE` corre sobre uma tabela que o `setUp` deixou com
-        linhas, e e por isso que ele mede o caso «com linhas».
+        dois ensaios de cima — trocava-se um falso negativo por outro.
+
+        **O que este ensaio NAO mede e o caso «com linhas».** Media-o antes do
+        KAM-175; deixou de o medir por causa dele. O `payment_events_sem_truncate`
+        recusa **antes de haver linhas**, pelo que a asercao sai igual contra uma
+        tabela vazia e a populacao deixou de ser carga dela. Quem mede «com
+        linhas» e que o por linha ainda morde e o
+        `TestCanarioDoTriggerPorInstrucao`, que desliga um *trigger* de cada vez.
+        Aqui o que se mede e que os dois verbos que ja eram recusados continuam a
+        ser — que e o que um afrouxamento quebraria.
         """
         cursor = self.ligar("admin").cursor()
         for instrucao in (
@@ -325,7 +425,7 @@ class TestCanarioDoTriggerPorInstrucao(ComLedger):
     ensaios seguintes, e a suite passava a medir uma tabela sem *trigger*.
     """
 
-    SEM_LINHAS = TestBarreiraNaoDependeDeQuantasLinhas.SEM_LINHAS
+    SEM_LINHAS = " WHERE id = -1"
 
     def test_sem_o_trigger_por_instrucao_o_caso_sem_linhas_passa(self) -> None:
         conexao = self.ligar("admin")
@@ -392,6 +492,61 @@ class TestCanarioDoTriggerPorInstrucao(ComLedger):
                 cursor,
                 "DELETE FROM platform.payment_events",
             )
+        finally:
+            conexao.rollback()
+
+    def test_sem_o_por_linha_o_caso_com_linhas_continua_recusado(self) -> None:
+        """A simetria, e e ela que torna «estritamente redundante» uma medicao.
+
+        O critério 5 afirma que o `payment_events_imutavel` passou a ser
+        redundante, e a afirmacao e esta: **desligado so o por linha**, com o por
+        instrucao ligado, um `DELETE` e um `UPDATE` **com** linhas continuam
+        recusados. Sem este ensaio a palavra «medido» era emprestada — o canario
+        irmao desliga o *trigger* ao contrario e prova a proposicao **inversa**
+        (que o por linha ainda morde), que e outra coisa.
+
+        Os dois juntos dao a tabela inteira: cada *trigger* sozinho fecha o caso
+        com linhas, e so o por instrucao fecha o caso sem linhas.
+        """
+        # **A semente nao e opcional neste ensaio**, e e o que o distingue do
+        # irmao: sem linhas, o por instrucao recusaria de qualquer forma e a
+        # asercao deixava de medir «com linhas».
+        tenant = self.criar_tenant()
+        conta = self.criar_conta(tenant)
+        cobranca = self.criar_cobranca(tenant, conta)
+        semeador = self.cursor_papel("app", tenant)
+        self.appendar(
+            semeador, cobranca, conta, "pagamento_recebido",
+            p_decisao="informativo",
+        )
+        self.confirmar(semeador, tenant)
+        self.assertGreater(
+            len(self.eventos_da_cobranca(cobranca)),
+            0,
+            "o ensaio precisa de linhas para medir o caso «com linhas»",
+        )
+
+        conexao = self.ligar("admin")
+        cursor = conexao.cursor()
+        try:
+            cursor.execute(
+                "ALTER TABLE platform.payment_events "
+                "DISABLE TRIGGER payment_events_imutavel"
+            )
+            cursor.execute(
+                "SELECT t.tgenabled::text FROM pg_trigger t "
+                "  JOIN pg_class c ON c.oid = t.tgrelid "
+                "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+                " WHERE n.nspname = 'platform' AND c.relname = 'payment_events' "
+                "   AND t.tgname = 'payment_events_sem_truncate'"
+            )
+            self.assertEqual(str(cursor.fetchone()[0]), "A")
+            for instrucao in (
+                "DELETE FROM platform.payment_events",
+                "UPDATE platform.payment_events SET motivo = 'x'",
+            ):
+                with self.subTest(instrucao=instrucao.split()[0]):
+                    self.assertErroSql(PRIVILEGIO_INSUFICIENTE, cursor, instrucao)
         finally:
             conexao.rollback()
 
