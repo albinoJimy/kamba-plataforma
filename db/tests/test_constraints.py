@@ -487,3 +487,256 @@ class TestIdentificadoresETempos(_ComApp):
             (identificador,),
         )
         self.assertEqual(self.cursor.fetchone()[0], "2026-10-11 12:00:00")
+
+
+#: Os oito passos da saga, pela ordem do `PASSOS` de
+#: `packages/core-ts/src/provisioning/contrato.ts`. O dicionario secao 3.47
+#: fixa-os.
+PASSOS_DA_SAGA = {
+    "tenant_e_caso", "chave_llm", "canal_comercio", "conta_atendimento",
+    "entitlements", "espera_es", "inbox_e_rota", "teste_ponta_a_ponta",
+}
+ESTADOS_DE_PASSO = {"em_curso", "concluido", "falhado", "escalado", "compensado"}
+ESPERAS = {"aguarda_es", "aguarda_catalogo", "aguarda_teste"}
+
+#: Sentinela que distingue as duas coisas que `None` confundiria: **fora** do
+#: `INSERT` (para medir o `NOT NULL`) e **dentro** com valor nulo (para medir
+#: que um `CHECK` sobre coluna anulavel deixa passar o nulo).
+NULO = object()
+
+
+class TestProvisioningStep(_ComApp):
+    """Os oito `CHECK` e a chave primaria da revisao `0034` (KAM-091).
+
+    **Isto existe porque a revisao adversarial mediu que nao existia.** O
+    `test_downgrade_0034.py` e o `test_inventario.py` afirmam as restricoes pelo
+    **nome** (`conname`), e um nome nao e um predicado: tirem-se as ancoras ao
+    `provisioning_step_error_code_ck` — de `'^[A-Za-z][A-Za-z0-9_]{2,63}$'` para
+    `'[A-Za-z][A-Za-z0-9_]{2,63}'` — e as duas superficies continuam verdes,
+    enquanto a coluna passa a aceitar uma chave do LiteLLM que tenha um pedaco
+    `snake_case` la dentro. Que e **a fuga** que esta revisao existe para fechar.
+
+    Os `INSERT` correm como `kamba_app`, que e quem os fara em producao: a saga
+    corre sob o `app.tenant_id` do caso (criterio 6 dos *Testes Requeridos* do
+    bloco). Um ensaio que so passasse como superutilizador nao provava o
+    privilegio — e, pior, com `FORCE` nem chegava a avaliar o `CHECK`: a
+    politica recusava a linha no `WITH CHECK` (42501) primeiro.
+
+    **Nao ha `tenants` semeada**, e isso nao e atalho: esta tabela **nao tem
+    FK** para `platform.tenants` porque e o passo 1 da saga que escreve essa
+    linha. Um `tenant_id` que nao existe em `tenants` e um estado legitimo aqui.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tenant = str(uuid.uuid4())
+        factories.contexto(self.cursor, self.tenant)
+
+    # -------------------------------------------------------------- auxiliares
+
+    def _campos(self, **mudancas) -> dict:
+        """A linha valida minima, com as mudancas pedidas por cima.
+
+        Um campo a `None` **fica fora** do `INSERT`, para se poder testar o
+        `NOT NULL`; um campo a `NULO` entra com o valor nulo.
+        """
+        valores = {
+            "onboarding_id": str(uuid.uuid4()),
+            "tenant_id": self.tenant,
+            "step": "tenant_e_caso",
+            "status": "em_curso",
+            "attempt": 1,
+        }
+        valores.update(mudancas)
+        return {k: v for k, v in valores.items() if v is not None}
+
+    def _inserir(self, **mudancas) -> None:
+        valores = self._campos(**mudancas)
+        valores = {k: (None if v is NULO else v) for k, v in valores.items()}
+        self.cursor.execute(
+            f"INSERT INTO platform.provisioning_step ({', '.join(valores)}) "
+            f"VALUES ({', '.join(['%s'] * len(valores))})",
+            tuple(valores.values()),
+        )
+
+    def _rejeitado(self, esperado: str, **mudancas) -> None:
+        valores = self._campos(**mudancas)
+        valores = {k: (None if v is NULO else v) for k, v in valores.items()}
+        self.assertErroSql(
+            esperado,
+            self.cursor,
+            f"INSERT INTO platform.provisioning_step ({', '.join(valores)}) "
+            f"VALUES ({', '.join(['%s'] * len(valores))})",
+            tuple(valores.values()),
+        )
+
+    # ------------------------------------------------- os tres dominios fechados
+
+    def test_os_oito_passos_entram_e_sao_exactamente_estes(self) -> None:
+        """As duas metades de «aceita exactamente», como o resto do ficheiro."""
+        for passo in sorted(PASSOS_DA_SAGA):
+            with self.subTest(passo=passo):
+                self._inserir(step=passo)
+        self.assertEqual(
+            self.dominio_no_catalogo("provisioning_step_step_ck"),
+            PASSOS_DA_SAGA,
+            "um nono passo acrescentado por engano passava sem esta metade",
+        )
+
+    def test_um_passo_que_o_contrato_nao_tem_e_recusado(self) -> None:
+        # `chatwoot` e o nome do **fornecedor**, e o contrato recusa-o de
+        # proposito: o passo chama-se `conta_atendimento` porque o fornecedor e
+        # uma decisao aberta.
+        self._rejeitado(VIOLACAO_DE_CHECK, step="chatwoot")
+
+    def test_os_cinco_estados_entram_e_sao_exactamente_estes(self) -> None:
+        for estado in sorted(ESTADOS_DE_PASSO):
+            with self.subTest(estado=estado):
+                # Os dois estados de falha exigem codigo (ver abaixo).
+                codigo = "erro_opaco" if estado in ("falhado", "escalado") else None
+                self._inserir(status=estado, error_code=codigo)
+        self.assertEqual(
+            self.dominio_no_catalogo("provisioning_step_status_ck"),
+            ESTADOS_DE_PASSO,
+        )
+
+    def test_running_e_recusado_e_e_o_nome_do_esboco(self) -> None:
+        """O `../docs/tecnica/10` secao 5.2 escreve `status: 'running'`.
+
+        Esta e a divida documental 193: o esboco daquele documento usa tres
+        formas que esta tabela recusa. O ensaio prende a recusa.
+        """
+        self._rejeitado(VIOLACAO_DE_CHECK, status="running")
+
+    def test_as_tres_esperas_entram_e_sao_exactamente_estas(self) -> None:
+        for espera in sorted(ESPERAS):
+            with self.subTest(espera=espera):
+                self._inserir(status_de_espera=espera)
+        self.assertEqual(
+            self.dominio_no_catalogo("provisioning_step_espera_ck"),
+            ESPERAS,
+            "o dominio e do `marcarEspera` e nao o `onboarding_case.fase`, que "
+            "tem seis valores e nao tem o `aguarda_teste`",
+        )
+
+    def test_uma_fase_do_caso_nao_serve_de_espera_do_passo(self) -> None:
+        """`kyc_pendente` e do `onboarding_case.fase` (secao 3.2), nao desta coluna."""
+        self._rejeitado(VIOLACAO_DE_CHECK, status_de_espera="kyc_pendente")
+
+    # ------------------------------------------------- a forma do `error_code`
+
+    def test_um_codigo_bem_formado_entra(self) -> None:
+        for codigo in ("erro_opaco", "upstream_timeout", "Erro", "A_1"):
+            with self.subTest(codigo=codigo):
+                self._inserir(status="falhado", error_code=codigo)
+
+    def test_uma_chave_do_litellm_nao_entra_no_error_code(self) -> None:
+        """**A fuga que esta revisao fecha, medida com valores concretos.**
+
+        A revisao adversarial do KAM-091 mostrou que o `erro.name` e escrevivel
+        por quem lanca, e punha a chave inteira nesta coluna. O codigo passou a
+        devolver `erro_opaco` para o que nao casa a forma; isto prende a mesma
+        recusa **na coluna**, que e a terceira superficie que a caixa dos
+        segredos nomeia.
+
+        **O terceiro e o quarto casos sao o que mata a mutacao das ancoras.**
+        Sem o `^` e o `$`, o `~` casa uma subcadeia: `sk-abc_def_ghi` tem
+        `abc_def_ghi` la dentro e passaria, levando a chave inteira para a
+        coluna. Com as ancoras, nao passa.
+        """
+        for codigo in (
+            "sk-1234567890abcdef",
+            'Error: {"error":"invalid key sk-1234567890abcdef"}',
+            "sk-abc_def_ghi",
+            "1234567890abcdef_chave",
+            "erro com espacos",
+            "x",
+            "",
+        ):
+            with self.subTest(codigo=codigo):
+                self._rejeitado(
+                    VIOLACAO_DE_CHECK, status="falhado", error_code=codigo
+                )
+
+    def test_um_codigo_acima_do_tecto_nao_entra(self) -> None:
+        """64 caracteres passam, 65 nao: o tecto e `{2,63}` depois do primeiro."""
+        self._inserir(status="falhado", error_code="e" + "x" * 63)
+        self._rejeitado(
+            VIOLACAO_DE_CHECK, status="falhado", error_code="e" + "x" * 64
+        )
+
+    # ------------------------------------------------- as duas implicacoes
+
+    def test_uma_falha_terminal_sem_codigo_e_recusada(self) -> None:
+        for estado in ("falhado", "escalado"):
+            with self.subTest(estado=estado):
+                self._rejeitado(VIOLACAO_DE_CHECK, status=estado)
+
+    def test_um_estado_que_nao_e_de_falha_passa_sem_codigo(self) -> None:
+        """O controlo positivo da implicacao: ela nao proibe o nulo em geral."""
+        for estado in ("em_curso", "concluido", "compensado"):
+            with self.subTest(estado=estado):
+                self._inserir(status=estado)
+
+    def test_um_passo_concluido_com_erro_e_recusado(self) -> None:
+        self._rejeitado(
+            VIOLACAO_DE_CHECK, status="concluido", error_code="erro_opaco"
+        )
+
+    def test_um_passo_concluido_a_espera_de_alguem_e_recusado(self) -> None:
+        """A metade do `status_de_espera`, medida **sozinha**.
+
+        Apagada, a implicacao continuava a recusar o caso do `error_code` e este
+        ensaio era o unico a ficar vermelho — que e a razao de ser dois ensaios
+        e nao um.
+        """
+        self._rejeitado(
+            VIOLACAO_DE_CHECK, status="concluido", status_de_espera="aguarda_es"
+        )
+
+    def test_um_passo_compensado_guarda_o_erro_e_a_espera(self) -> None:
+        """O `marcarCompensado` **nao** limpa nada, e nenhum `CHECK` o obriga.
+
+        A referencia externa e o codigo do recurso desfeito sao o que a
+        reconciliacao precisa para o reconhecer — sem isto, ela classificava um
+        recurso compensado como `externo_em_falta` e voltava a cria-lo.
+        """
+        self._inserir(
+            status="compensado",
+            error_code="upstream_down",
+            status_de_espera="aguarda_es",
+            external_id="conta-de-ensaio-1",
+        )
+
+    # ------------------------------------------------- o resto
+
+    def test_um_external_id_vazio_e_recusado_e_o_nulo_nao(self) -> None:
+        """Vazio gravava «ha um recurso la fora» sem dizer qual."""
+        self._rejeitado(VIOLACAO_DE_CHECK, external_id="")
+        self._rejeitado(VIOLACAO_DE_CHECK, external_id="   ")
+        # O nulo passa: dois dos oito `ensure` devolvem `null`.
+        self._inserir(external_id=NULO)
+
+    def test_um_attempt_negativo_e_recusado_e_o_zero_nao(self) -> None:
+        """Zero e legitimo: o `marcarEspera` repoe a zero."""
+        self._rejeitado(VIOLACAO_DE_CHECK, attempt=-1)
+        self._inserir(attempt=0)
+
+    def test_o_attempt_nao_tem_omissao(self) -> None:
+        """**Sem `DEFAULT`, de proposito**, e e a correccao de um desvio de um.
+
+        Um `DEFAULT 0` convidava o `ON CONFLICT ... DO UPDATE SET attempt =
+        attempt + 1` a deixar o `attempt` fora do `INSERT` e a devolver zero a
+        primeira volta, deslocando as tres metades do criterio 5 em silencio.
+        Sem omissao, esse `INSERT` leva `23502`.
+        """
+        self._rejeitado(VIOLACAO_DE_NOT_NULL, attempt=None)
+
+    def test_o_mesmo_passo_do_mesmo_caso_duas_vezes_e_recusado(self) -> None:
+        """A chave primaria **e** a `UNIQUE(onboarding_id, step)` do contrato."""
+        caso = str(uuid.uuid4())
+        self._inserir(onboarding_id=caso, step="chave_llm")
+        self._inserir(onboarding_id=caso, step="canal_comercio")
+        self._rejeitado(
+            VIOLACAO_DE_UNICIDADE, onboarding_id=caso, step="chave_llm"
+        )
