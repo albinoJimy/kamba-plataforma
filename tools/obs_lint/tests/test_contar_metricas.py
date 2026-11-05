@@ -125,43 +125,97 @@ class TestNomes(_ComArvore):
 
 
 class TestRepositorio(unittest.TestCase):
-    """Sobre a arvore real: **pisos e estrutura, nunca igualdades**.
+    """Sobre a arvore real: **o conjunto nomeado, e nao a contagem**.
 
-    ## Porque e que aqui nao ha um numero exacto, e houve
+    ## As duas versoes erradas que esta classe teve, por ordem
 
-    A primeira versao desta classe prendia `len(modulos) == 18` e
-    `len(todos) == 107`, com a justificacao de que «um numero que se mexe sem
-    ninguem notar e pior do que nenhum». **Estava errada, e o CI mostrou-o na
-    mesma tarde:** o KAM-091 fundiu com um `provisioning/metricas.ts` (6
-    metricas) e o teste ficou vermelho com `19 != 18` — num *merge* que nao tinha
-    nada a ver com este ticket.
+    **A primeira prendia `len(modulos) == 18` e `len(todos) == 107`**, com a
+    justificacao de que «um numero que se mexe sem ninguem notar e pior do que
+    nenhum». A intencao estava certa; a forma nao. O KAM-091 fundiu com um
+    `provisioning/metricas.ts` (6 metricas) e o teste ficou vermelho com
+    `19 != 18` — num *merge* que nao tinha nada a ver com este ticket, e dizendo
+    so que um numero mudou, nunca **qual**.
 
-    O defeito nao e o numero estar desactualizado. E que **uma igualdade aqui
-    faz o PR de outra pessoa falhar por acrescentar um modulo de metricas**, que
-    e precisamente o que se quer que ela faca. Um portao que castiga o
-    comportamento certo nao e um portao.
+    **A segunda trocou a igualdade por um piso** (`>= 19`, `>= 113`), para nao
+    reprovar quem acrescenta uma metrica. Resolvia o falso alarme e abria o
+    buraco do lado oposto: um modulo novo passava **calado**, e com ele a prosa
+    que cita os totais. E exactamente o defeito que o
+    `tools/isolamento/baterias/x01_rotas.py` nomeia — «as listas sao literais de
+    proposito. Um filtro fazia a cobertura passar para sempre e uma rota nova
+    nascia coberta, que e o *sem teste silencioso*». Um piso e um filtro com
+    outro nome.
 
-    Onde a exactidao pertence e no `TestPredicado` e no `TestNomes`, que correm
-    sobre arvores sinteticas: ali o numero e exacto porque a arvore e escrita
-    pelo teste. Aqui o que se afirma e o que **nao pode** deixar de ser verdade:
+    **Esta e a forma do repositorio**, e a correccao veio de fora (do
+    orquestrador, a propor o padrao das listas `TABELAS_*` do
+    `db/tests/base.py`): asserir o **conjunto**. Um modulo novo aparece como
+    nome a mais e **diz qual**; um que morra aparece como nome a menos. A
+    diferenca entre as tres versoes nao e o rigor — e a mensagem de erro, e e a
+    mensagem que paga o minuto de quem a le.
+
+    O custo fica dito onde se paga: quem acrescentar um modulo de metricas tem
+    de actualizar esta lista **e** propagar os totais para a prosa. O `RECADO`
+    diz-lhe as duas coisas e onde.
+
+    Onde a exactidao dos **numeros** pertence e no `TestPredicado` e no
+    `TestNomes`, que correm sobre arvores sinteticas escritas pelo proprio
+    teste. Aqui afirma-se o inventario, a estrutura e a ordem:
 
       * todo o modulo encontrado emite formato de exposicao (o predicado 1);
-      * o modulo do COM conta **zero**, porque importa os nomes — e a
-        reconciliacao que a documentacao explica;
-      * os totais **nao descem** sem que alguem o note.
-
-    O numero exacto do dia vive na documentacao, com a **data** e o **comando**
-    que o reproduz, que e onde um numero datado pertence.
+      * o inventario e **exactamente** o que esta lista diz;
+      * o modulo do COM conta **zero**, porque importa os nomes;
+      * o AGR e o modulo com **mais** metricas, que e o que tornou a sua lacuna
+        a maior da arvore.
     """
 
-    #: Os pisos medidos a 2026-11-05, na base `8b6edc3`.
+    #: O inventario nomeado dos modulos de metricas, a 2026-11-05 (`8b6edc3`).
     #:
-    #: Sao pisos e nao alvos: crescem com os tickets, e um ticket que
-    #: acrescente um modulo de metricas **nao** deve ficar vermelho por isso.
-    #: Descer, sim, e que precisa de explicacao — um modulo que desaparece ou
-    #: deixa de emitir `# TYPE` e uma metrica que ninguem passou a servir.
-    PISO_DE_MODULOS = 19
-    PISO_DE_NOMES = 113
+    #: **E uma lista literal e nao uma contagem**, e a escolha e do repositorio e
+    #: nao minha: o `tools/isolamento/baterias/x01_rotas.py` escreve a razao —
+    #: «as listas sao literais de proposito. Um filtro fazia a cobertura passar
+    #: para sempre e uma rota nova nascia coberta, que e o "sem teste
+    #: silencioso"». Um **piso** tem o mesmo defeito que o filtro: um modulo de
+    #: metricas novo passava calado, e com ele a prosa que cita os totais.
+    #:
+    #: Um conjunto diz **qual** modulo nasceu ou morreu; uma contagem diz so que
+    #: o numero mudou. A diferenca e a mensagem de erro, e e a mensagem que paga
+    #: o minuto de quem a le.
+    MODULOS = (
+        "libs/py-core/src/kamba_core/ten/metricas.py",
+        "packages/core-ts/src/agr/metricas.ts",
+        "packages/core-ts/src/avisos/metricas.ts",
+        "packages/core-ts/src/chr/metricas.ts",
+        "packages/core-ts/src/coexistencia/metricas.ts",
+        "packages/core-ts/src/consentimento/metricas.ts",
+        "packages/core-ts/src/entrada/metricas.ts",
+        "packages/core-ts/src/eventos/metricas.ts",
+        "packages/core-ts/src/hnd/metricas.ts",
+        "packages/core-ts/src/med/metricas.ts",
+        "packages/core-ts/src/metering/metricas.ts",
+        "packages/core-ts/src/modos/metricas.ts",
+        "packages/core-ts/src/onboarding/metricas.ts",
+        "packages/core-ts/src/outbound/metricas.ts",
+        # Nasceu com o KAM-091 (saga de provisioning) **enquanto este ticket
+        # estava aberto**, e foi o que mostrou que uma igualdade sobre a
+        # contagem reprovava o PR de quem acrescenta uma metrica.
+        "packages/core-ts/src/provisioning/metricas.ts",
+        "packages/core-ts/src/qualidade/metricas.ts",
+        "packages/core-ts/src/ten/metricas.ts",
+        "services/agr/src/kamba_agr/metricas.py",
+        # Conta **zero** nomes, e esta aqui por isso: e um modulo de exposicao
+        # que importa os nomes do `repo-base`. Ver o teste da reconciliacao.
+        "services/com/src/metricas.ts",
+    )
+
+    #: O que fazer quando este teste ficar vermelho. Vai na mensagem de erro,
+    #: porque e o unico sitio onde quem o ve esta a olhar.
+    RECADO = (
+        "Acrescentou ou removeu um modulo de metricas. Isto nao e um defeito: e "
+        "a propagacao que vem com ele. (1) actualize esta lista; (2) corra "
+        "`python tools/obs_lint/contar_metricas.py` e leve os numeros novos a "
+        "`docs/observabilidade.md` §2.1 e §2.2 e a seccao de verificacao do "
+        "KAM-080 no `specs/EPIC-08`. Os totais citados na prosa vivem desses "
+        "numeros, e um numero parado na prosa e pior do que nenhum."
+    )
 
     def test_cada_modulo_encontrado_emite_formato_de_exposicao(self) -> None:
         """O predicado 1, verificado na arvore real e nao so nas sinteticas."""
@@ -173,17 +227,20 @@ class TestRepositorio(unittest.TestCase):
                     cm.MARCA_DE_EXPOSICAO, modulo.read_text(encoding="utf-8")
                 )
 
-    def test_os_totais_nao_descem(self) -> None:
-        modulos = cm._modulos(RAIZ)
-        todos: set[str] = set()
-        for modulo in modulos:
-            todos |= cm._nomes(modulo)
-        self.assertGreaterEqual(
-            len(modulos),
-            self.PISO_DE_MODULOS,
-            [p.relative_to(RAIZ).as_posix() for p in modulos],
+    def test_o_inventario_dos_modulos_e_exactamente_este(self) -> None:
+        """O **conjunto**, que diz qual mudou — e nao a contagem, que nao diz."""
+        encontrados = {
+            m.relative_to(RAIZ).as_posix() for m in cm._modulos(RAIZ)
+        }
+        esperados = set(self.MODULOS)
+        novos = sorted(encontrados - esperados)
+        idos = sorted(esperados - encontrados)
+        self.assertEqual(
+            encontrados,
+            esperados,
+            f"modulos novos: {novos or 'nenhum'}; desaparecidos: "
+            f"{idos or 'nenhum'}. {self.RECADO}",
         )
-        self.assertGreaterEqual(len(todos), self.PISO_DE_NOMES)
 
     def test_o_com_conta_zero_porque_importa_os_nomes_do_repo_base(self) -> None:
         """A reconciliacao, que e estrutural e nao um numero.
