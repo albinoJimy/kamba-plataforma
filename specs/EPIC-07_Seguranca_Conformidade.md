@@ -1275,6 +1275,36 @@ Não expandas escopo: sem SOC/SIEM nem detecção automática. Entrega: document
 
 ## KAM-149 — `docs/seguranca/validar.py` aborta com a contagem do canon fixada
 
+> **O ficheiro que este ticket corrige não está neste repositório.** O
+> `../docs/seguranca/validar.py` desta árvore é um esboço que sai com código **2** e que diz, na
+> própria *docstring*, que o validador vive em `albinoJimy/kamba` (privado), no mesmo caminho. É
+> de lá que se lê a «linha 43» que a tabela de referências abaixo cita: aqui essa linha não
+> existe. O mesmo vale para `../docs/seguranca/lacunas.md`, onde o bloco manda ler a lacuna L-20.
+
+São **sete** os ficheiros de `../docs/seguranca/` nessa condição, e a fronteira não é «segurança»:
+é **a lista do que ainda não está protegido** — ameaças, lacunas, riscos residuais, matriz, e os
+dois *scripts* que as leem — contra **procedimento**, que ficou público (resposta a incidentes,
+exercício de simulação, contactos, os três modelos de notificação). Saiu na fotografia pública do
+**KAM-156**.
+
+Medido a 2026-11-05, para quem pegar nisto não repetir o ciclo:
+
+```text
+esta árvore  docs/seguranca/validar.py       12 linhas, sai com 2, sem a linha 43
+privado      docs/seguranca/validar.py      315 linhas, com a linha 43 e com a 150
+privado      topo f344990, de 2026-10-13 — sem antepassado comum com esta linha
+
+# contagem pela própria regex da linha 39 do validador, nas duas árvores:
+esta árvore  len(KAM) = 180                 o assert prende 138  ->  ABORTA
+privado      len(KAM) = 150                 o assert prende 138  ->  ABORTA
+```
+
+**O `assert` aborta nas duas árvores**, e é esse o facto que fecha a questão de desenho: o defeito
+é real onde o código mora, e não um enunciado desta linha aplicado a um ficheiro de outra. A
+correcção de classe — deixar de fixar a contagem — é a certa nos dois sítios, e o `180` acima é só
+a contagem desta árvore. **Em que repositório o ticket aterra é decisão do fundador, e está
+pendente**; até ela, nenhum critério deste bloco está satisfeito e nenhuma caixa está marcada.
+
 | Campo | Valor |
 |---|---|
 | Epic | EPIC-07 — Segurança e Conformidade |
@@ -1359,6 +1389,11 @@ Fazer o `validar.py` correr até ao fim e reportar os seus erros, sem depender d
 
 ```text
 És o executor do ticket KAM-149 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
+ANTES DE TUDO, E POUPA-TE O CICLO: o docs/seguranca/validar.py desta árvore é um esboço de 12
+linhas que sai com 2. Não tem a linha 43, não tem o assert, não tem as quatro verificações. O
+validador real tem 315 linhas e vive em albinoJimy/kamba (privado), no mesmo caminho — e o
+docs/seguranca/lacunas.md (L-20) está na mesma condição. Em que repositório este ticket aterra é
+decisão do fundador, e está pendente: confirma-a antes de escrever código.
 Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-149), docs/seguranca/validar.py (linha 43),
 docs/seguranca/lacunas.md (L-20) e docs/dividas-documentais.md (linha 6).
 Objectivo: o validador corre até ao fim e reporta, sem contagem do canon fixada no código.
