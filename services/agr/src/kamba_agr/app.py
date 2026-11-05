@@ -24,14 +24,45 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from kamba_core import healthz
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 from .meta import SERVICE, VERSION
+from .metricas import METRICAS
+
+#: O `Content-Type` do formato de exposicao do Prometheus.
+#:
+#: E o mesmo do `services/com/src/metricas.ts` e do
+#: `packages/core-ts/src/ten/metricas.ts` — «quem serve as metricas de um
+#: processo serve-as todas do mesmo modo». **O corpo e texto e nao JSON**: um
+#: `application/json` fazia o *scraper* recusar a resposta.
+TIPO_DE_CONTEUDO_DAS_METRICAS = "text/plain; version=0.0.4; charset=utf-8"
 
 
 async def healthz_endpoint(_request: Request) -> JSONResponse:
     return JSONResponse(healthz(SERVICE, VERSION))
+
+
+async def metricas_endpoint(_request: Request) -> PlainTextResponse:
+    """As 44 metricas do AGR, no formato de exposicao do Prometheus (KAM-080).
+
+    **Esta rota nasceu com o KAM-080, e nao antes.** O `metricas.py` declarava as
+    44 desde o KAM-025 e dizia, no proprio modulo, que «no AGR ainda nao expoe»;
+    o `docs/runbooks/degradacao-do-agr.md` nomeava a falta por escrito. Era a
+    maior lacuna de observabilidade medida nesta arvore: das 109 metricas do
+    repositorio, 44 viviam aqui sem nenhuma rota que as servisse.
+
+    Fica na **mesma** aplicacao que a `/healthz`, e nao numa segunda porta como
+    no GWY. A diferenca entre os dois nao e de gosto: a aplicacao publica do GWY
+    recebe *webhooks* da Internet, e por isso os contadores dele vivem numa app
+    interna separada (3010). O AGR **nao tem superficie publica** — so
+    `/internal/*`, na rede `app`, sem `ports:` no compose —, pelo que uma
+    segunda porta so acrescentava uma porta. E a mesma leitura do COM, que serve
+    `/metrics` na porta da sua API interna (KAM-178).
+    """
+    return PlainTextResponse(
+        METRICAS.exposicao(), media_type=TIPO_DE_CONTEUDO_DAS_METRICAS
+    )
 
 
 def create_app(
@@ -47,7 +78,18 @@ def create_app(
     Fechar a tomada larga as trancas que ela tivesse, e sem isso as trancas de
     um processo que para ficam ate o PostgreSQL notar a tomada fechada.
     """
-    rotas: list[Route] = [Route("/healthz", healthz_endpoint, methods=["GET"])]
+    # A `/metrics` entra **sempre**, como a `/healthz`, e nao com as
+    # `rotas_internas`. A razao e a do docstring do modulo, ao contrario: uma
+    # rota que nao funciona sem as portas nao se monta sem elas, e esta
+    # funciona sem nenhuma — o registo de metricas vive em memoria no processo
+    # e nao depende de base de dados, de tranca nem de LLM. Monta-la so com as
+    # portas fazia o `/metrics` do AGR responder 404 exactamente no arranque,
+    # que e quando um painel precisa de distinguir «zero turnos» de «nao
+    # arrancou».
+    rotas: list[Route] = [
+        Route("/healthz", healthz_endpoint, methods=["GET"]),
+        Route("/metrics", metricas_endpoint, methods=["GET"]),
+    ]
     rotas.extend(rotas_internas or ())
 
     if ao_encerrar is None:

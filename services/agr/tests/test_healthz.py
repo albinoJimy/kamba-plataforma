@@ -87,7 +87,13 @@ class TestHealthz(unittest.TestCase):
         )
 
     def test_rota_desconhecida_nao_responde_200(self) -> None:
-        for path in ("/", "/healthz/", "/metrics", "/admin"):
+        # A `/metrics` saiu desta lista com o **KAM-080**, que lhe criou a rota.
+        # Nao e o teste a ceder ao codigo: quando esta linha foi escrita o AGR
+        # nao tinha `/metrics` e o 404 era o comportamento correcto a prender.
+        # O que mudou foi o comportamento, de proposito e com ticket — e a
+        # prova de que mudou e o `TestMetricas` abaixo, que exige 200 e o
+        # `Content-Type` do formato de exposicao.
+        for path in ("/", "/healthz/", "/metrics/", "/admin"):
             with self.subTest(path=path):
                 self.assertNotEqual(request(path)[0], 200)
 
@@ -95,6 +101,96 @@ class TestHealthz(unittest.TestCase):
         for method in ("POST", "DELETE", "PUT"):
             with self.subTest(method=method):
                 self.assertEqual(request("/healthz", method)[0], 405)
+
+
+class TestMetricas(unittest.TestCase):
+    """A rota `/metrics` do KAM-080 — as 44 metricas que o AGR nao servia."""
+
+    def test_metrics_responde_200_em_texto(self) -> None:
+        estado, cabecalhos, _corpo = request("/metrics")
+        self.assertEqual(estado, 200)
+        tipo = cabecalhos.get("content-type", "")
+        # O formato de exposicao e `text/plain; version=0.0.4`. Um
+        # `application/json` fazia o *scraper* recusar a resposta, e e por isso
+        # que o tipo se prende e nao so o codigo.
+        self.assertIn("text/plain", tipo)
+        self.assertIn("version=0.0.4", tipo)
+
+    def test_metrics_so_aceita_get(self) -> None:
+        for method in ("POST", "DELETE", "PUT"):
+            with self.subTest(method=method):
+                self.assertEqual(request("/metrics", method)[0], 405)
+
+    def test_um_processo_sem_turnos_serve_corpo_vazio(self) -> None:
+        """**Uma divergencia medida, e nao um defeito desta rota.**
+
+        O `exposicao()` do AGR faz `if not series: continue`: uma metrica que
+        ainda nao foi contada **nao aparece**, nem com `# HELP`. Logo um processo
+        acabado de arrancar serve um corpo vazio.
+
+        Isto contraria a regra que os modulos TypeScript escrevem — «as series
+        aparecem sempre, mesmo a zero», porque «um painel que mostre *sem dados*
+        nao distingue *ninguem foi recusado* de *o processo nao arrancou*»
+        (`services/com/src/metricas.ts`, `packages/core-ts/src/ten/metricas.ts`).
+
+        **Nao se corrigiu aqui, e a razao nao e falta de tempo:** o
+        comportamento esta preso por tres testes de outro ticket —
+        `test_metricas.py::test_a_exposicao_vazia_e_vazia` exige exactamente
+        `""`, e `test_degracao.py` exige duas vezes que uma metrica **nao**
+        apareca antes de acontecer. E uma decisao do modulo (KAM-025/KAM-037),
+        nao um descuido, e inverte-la e mexer no criterio de outro ticket.
+
+        O que **nao** se perde: o `up` do Prometheus fica a 1 (o alvo responde
+        200), pelo que «o processo nao arrancou» continua distinguivel — pelo
+        `up` e nao pela serie. Fica registado em `docs/observabilidade.md` §5.
+        """
+        estado, _cabecalhos, corpo = request("/metrics")
+        self.assertEqual(estado, 200)
+        self.assertEqual(corpo, b"")
+
+    def test_depois_de_contar_o_corpo_traz_o_formato_sem_identificadores(self) -> None:
+        """O formato de exposicao, e o `OBS-I` medido **na saida**.
+
+        E a unica verificacao desta arvore que le o **texto servido** em vez do
+        codigo que o produz: o `obs_lint` verifica o catalogo e as regras, e nao
+        ve o que um processo emite de facto.
+        """
+        from kamba_agr import metricas as modulo
+
+        self.addCleanup(modulo.METRICAS.repor)
+        for desfecho in modulo.DESFECHOS:
+            modulo.METRICAS.contar(modulo.METRICA_TURNOS, desfecho)
+        modulo.METRICAS.medir(modulo.METRICA_FILA, 3)
+
+        corpo = request("/metrics")[2].decode("utf-8")
+        self.assertIn(f"# HELP {modulo.METRICA_TURNOS}", corpo)
+        self.assertIn(f"# TYPE {modulo.METRICA_TURNOS} counter", corpo)
+        self.assertIn(f"{modulo.METRICA_FILA} 3", corpo)
+
+        proibidas = (
+            "contact_id",
+            "contact_hmac",
+            "telefone",
+            "phone",
+            "msisdn",
+            "bsuid",
+            "wamid",
+            "tenant_id",
+        )
+        series = [
+            linha
+            for linha in corpo.splitlines()
+            if not linha.startswith("#") and "{" in linha
+        ]
+        self.assertTrue(series, "sem series nao se mede nada")
+        for linha in series:
+            etiquetas = linha[linha.index("{") + 1 : linha.rindex("}")]
+            for proibida in proibidas:
+                self.assertNotIn(
+                    f"{proibida}=",
+                    etiquetas,
+                    f"{proibida} em {linha[: linha.index('{')]}",
+                )
 
 
 class TestMetadados(unittest.TestCase):
