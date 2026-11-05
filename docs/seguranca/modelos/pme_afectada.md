@@ -79,4 +79,4 @@ hora ou data].
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 0.1 | Novembro 2026 | Emissão (KAM-113): modelo de aviso à PME afectada. *Esboço*: não enviar sem revisão do advogado, salvo a excepção do fundador ([`../resposta_incidentes.md`](../resposta_incidentes.md) §9.4) | Equipa KAMBÁ |
+| 0.1 | Novembro 2026 | Emissão (KAM-113): modelo de aviso à PME afectada, pelo contacto verificado do dono e **nunca pelo WhatsApp se o incidente envolver o canal** — sete secções, do que aconteceu ao que a PME pode ter de fazer a seguir, com contagens e categorias e nenhum registo de clientes dela. *Esboço*: não enviar sem revisão do advogado, salvo a excepção do fundador ([`../resposta_incidentes.md`](../resposta_incidentes.md) §9.4) | Equipa KAMBÁ |
