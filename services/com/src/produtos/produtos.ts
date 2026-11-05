@@ -67,6 +67,7 @@
 
 import {
   erro,
+  eUuid,
   ok,
   type OfferView,
   type OwnerConfirmation,
@@ -666,23 +667,45 @@ export async function ajustarStock(
 // ---------------------------------------------------- critério 6: as cotações
 
 /**
- * A cotação válida de um `(sku, qty)`, ou **nada** (critério 6).
+ * A cotação válida de um `(contacto, sku, qty)`, ou **nada** (critério 6).
  *
  * Devolve `null` e não um erro quando não há: «não há cotação» é uma resposta e
  * não uma falha, e o chamador que precisa de uma recusa é o `createOrder`
  * (KAM-046), que sabe o que fazer com a ausência.
+ *
+ * **O `contactId` é um argumento e não um campo do `ctx`** (KAM-179): o `Ctx` da
+ * porta leva `tenantId`, `actor` e `traceId`, e o contacto chega por chamada —
+ * como no `OrderIntent.contactId` e no `OrderFilter.contactId`. A assinatura é a
+ * do §3.40 do dicionário, emendado por este ticket.
+ *
+ * Um `contactId` vazio é `VALIDATION_ERROR` e não `ok(null)`: «não há cotação
+ * para este cliente» e «o chamador não disse de que cliente se trata» são coisas
+ * diferentes, e responder `null` à segunda escondia o defeito de quem chama por
+ * trás de uma resposta legítima.
  *
  * O instante vai como argumento e não é `now()` na consulta, para que o teste do
  * critério possa pôr a fronteira numa igualdade exacta em vez de dormir.
  */
 export async function getValidQuote(
   r: Registo,
+  contactId: string,
   sku: string,
   qty: number,
   agora: Date,
 ): Promise<Resultado<Cotacao | null>> {
+  // **A forma canónica, e não «não vazio»** (KAM-179). A primeira versão deste
+  // ticket aceitava qualquer cadeia não vazia, e isso reabria pelo lado um
+  // caminho que o módulo já tinha fechado: um `contactId` malformado chegava à
+  // base, o motor devolvia `22P02` — que não é nenhum dos três `SQLSTATE` que
+  // este módulo traduz — e a excepção **atravessava a porta**. As outras
+  // guardas de `contactId` deste serviço usam o `eUuid` (o `exigirPartes` do
+  // `orders/intents.ts` e o `exigirCtx` do `servicos/contrato.ts`), e uma
+  // segunda forma para o mesmo identificador era a assimetria por onde a
+  // barreira desaparece. Achado da revisão adversarial.
+  if (!eUuid(contactId)) return erro("VALIDATION_ERROR");
   if (!Number.isInteger(qty) || qty <= 0) return erro("VALIDATION_ERROR");
   const linhas = await r.repo.noTenant(SQL_COTACAO_VALIDA, [
+    contactId,
     sku,
     qty,
     agora.toISOString(),
@@ -794,16 +817,22 @@ export async function emitirCotacao(
  * `estado='emitida'` passava a `aceite` em Novembro. Achado da revisão
  * adversarial, que usou contra o código o argumento do comentário ao lado dele.
  *
- * `NOT_FOUND` cobre os três casos em que não há o que aceitar — não existe, já
- * não está `emitida`, ou venceu — e isso é deliberado: distingui-los dava a quem
- * chama um oráculo sobre cotações que a RLS já esconde.
+ * `NOT_FOUND` cobre os **quatro** casos em que não há o que aceitar — não
+ * existe, é de outro contacto, já não está `emitida`, ou venceu — e isso é
+ * deliberado: distingui-los dava a quem chama um oráculo sobre cotações que a
+ * RLS já esconde. O quarto caso entrou com o KAM-179, e é o que impede X de pôr
+ * a cotação de Y a `aceite` com o `id` que a leitura lhe devolveu.
  */
 export async function aceitarCotacao(
   r: Registo,
+  contactId: string,
   id: string,
   agora: Date,
 ): Promise<Resultado<void>> {
+  // A forma canónica, pela razão escrita no `getValidQuote`.
+  if (!eUuid(contactId)) return erro("VALIDATION_ERROR");
   const linhas = await r.repo.noTenant(SQL_ACEITAR_COTACAO, [
+    contactId,
     id,
     agora.toISOString(),
   ]);

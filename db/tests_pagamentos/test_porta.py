@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import uuid
 
+from tests import factories
 from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     VIOLACAO_DE_CHECK,
@@ -1109,15 +1110,66 @@ class TestOsCheckMordemSozinhos(ComLedger):
         """O `humano_exige_actor`: uma confirmacao humana sem humano.
 
         E a outra restricao do §6.2, e e a que torna o `actor_id` do §4.1 uma
-        propriedade da base: o KAM-054 vai escrever confirmacoes manuais, e uma
-        sem actor nao se consegue auditar.
+        propriedade da base: o KAM-054 escreve confirmacoes manuais, e uma sem
+        actor nao se consegue auditar.
+
+        **E semeia a fase, pela mesma razao que a sonda positiva ao lado.** O
+        `payment_events_g8_humano` do KAM-054 e `BEFORE INSERT` e levanta
+        `check_violation` **antes** de qualquer `CHECK` de tabela ser avaliado:
+        sem fase nenhuma, a recusa que este ensaio lia passava a ser a do
+        *trigger* e nao a do `humano_exige_actor` — apagar a restricao da `0029`
+        deixava-o verde. Apanhado pela revisao adversarial do KAM-054, que notou
+        que a sonda positiva tinha sido corrigida e a irma negativa nao.
+
+        Com a fase semeada, o que distingue este caso do positivo e **uma** coisa:
+        o `actor_id` nulo. O G8 nao casa a fase (ela e de outro actor), mas o
+        `humano_exige_actor` recusa primeiro — e as duas recusas dao
+        `check_violation`, pelo que o que este ensaio prende e que **ha** recusa
+        quando falta o actor, com a via legitima medida ao lado.
         """
+        actor = factories.contacto(self.semente, self.tenant)
+        self.semente.execute(
+            "INSERT INTO platform.manual_confirmations "
+            "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, %s, %s, true, 'confirma')",
+            (self.tenant, self.cobranca, actor, f"sem-actor:{uuid.uuid4().hex}", VALOR),
+        )
         sql, args = self.inserir(authn_method="manual", actor_id=None)
         self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
 
     def test_o_check_aceita_manual_com_actor(self) -> None:
-        """A sonda positiva da restricao acima."""
-        sql, args = self.inserir(authn_method="manual", actor_id=str(uuid.uuid4()))
+        """A sonda positiva da restricao acima, e agora com a fase que o G8 pede.
+
+        **Este ensaio mediu o buraco que o KAM-054 fechou, e e por isso que
+        mudou.** Ate ao `payment_events_g8_humano` da revisao `0032`, esta linha
+        entrava com um `actor_id` **aleatorio**: um `pagamento_confirmado` com
+        `authn_method='manual'` passava com qualquer uuid, sem confirmador, sem
+        desafio de valor e sem limites. O G8 do §5 («Limites (so humano):
+        M-2..M-5 cumpridos») nao existia em sitio nenhum.
+
+        Agora exige-se a fase de `manual_confirmations` desta cobranca, com
+        `valor_bate` e com o mesmo actor — e e **o superutilizador** a levar com
+        a recusa quando ela falta, o que e a prova de que a barreira esta na
+        tabela e nao dentro da `append_payment_event`.
+
+        O que o ensaio continua a medir e o que media: que o
+        `humano_exige_actor` **aceita** um `manual` com actor. Sem esta sonda
+        positiva, o `test_o_check_recusa_authn_method_manual_sem_actor` ao lado
+        ficava verde sobre uma restricao que recusasse tudo.
+
+        O `TestG8DoCaminhoHumano` do `test_confirmacao_manual.py` mede a recusa
+        do G8 nas duas direccoes, e nao se repete aqui.
+        """
+        actor = factories.contacto(self.semente, self.tenant)
+        self.semente.execute(
+            "INSERT INTO platform.manual_confirmations "
+            "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, %s, %s, true, 'confirma')",
+            (self.tenant, self.cobranca, actor, f"sonda:{uuid.uuid4().hex}", VALOR),
+        )
+        sql, args = self.inserir(authn_method="manual", actor_id=actor)
         self.cursor.execute(sql, args)
         self.conexao.rollback()
 

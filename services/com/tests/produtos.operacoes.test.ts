@@ -56,6 +56,8 @@ import {
 
 const TENANT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CONTACTO = "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c";
+/** O contacto Y, **do mesmo tenant**: é nele que o KAM-179 se mede. */
+const OUTRO_CONTACTO = "0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d";
 const SKU = "arroz-5kg";
 const AGORA = new Date("2026-11-02T12:00:00.000Z");
 
@@ -64,12 +66,18 @@ interface Registo {
   readonly escritas: string[];
   readonly auditorias: unknown[][];
   readonly eventos: string[];
+  /** Os parâmetros de cada consulta à `price_quotes` que não é `INSERT`. */
+  readonly cotacoesPedidas: unknown[][];
 }
 
 interface Opcoes {
   /** A oferta existe? Se não, o `lerParaEscrita` devolve nada. */
   readonly oferta?: Partial<Record<string, unknown>> | null;
-  /** A cotação que o `SQL_COTACAO_VALIDA` devolve, ou nada. */
+  /**
+   * A linha de `price_quotes` que existe na base de ensaio, ou nada.
+   *
+   * **Leva `contact_id`**, e a base honra-o: ver a nota do `cliente`.
+   */
   readonly cotacao?: Record<string, unknown> | null;
 }
 
@@ -77,7 +85,12 @@ function base(opcoes: Opcoes = {}): {
   cliente: ClienteSql;
   visto: Registo;
 } {
-  const visto: Registo = { escritas: [], auditorias: [], eventos: [] };
+  const visto: Registo = {
+    escritas: [],
+    auditorias: [],
+    eventos: [],
+    cotacoesPedidas: [],
+  };
   const oferta =
     opcoes.oferta === undefined
       ? {
@@ -128,7 +141,25 @@ function base(opcoes: Opcoes = {}): {
             ],
           };
         }
-        return { rows: opcoes.cotacao ? [opcoes.cotacao] : [] };
+        // **Esta base honra o `contact_id = $2`** (KAM-179), e é o que faz os
+        // casos medirem a propriedade em vez da forma da assinatura. O `$1` é o
+        // `tenant_id` que o repo-base injecta, pelo que o contacto é o `$2`.
+        //
+        // **E decide pelo texto do SQL, não pela posição do argumento.** A
+        // primeira versão comparava `parametros[1]` com o `contact_id` da linha
+        // e mais nada: ficava verde com o predicado **apagado** das duas
+        // instruções, porque o SQL lhe era opaco — media a forma da chamada e
+        // não o predicado, e o comentário aqui afirmava o contrário. Achado da
+        // revisão adversarial, e é o mesmo defeito que esta casa já apanhou num
+        // ensaio citado como prova de uma barreira. Sem o predicado no texto,
+        // esta base faz o que o PostgreSQL faria: devolve a linha.
+        visto.cotacoesPedidas.push([...parametros]);
+        const linha = opcoes.cotacao;
+        if (linha === null || linha === undefined) return { rows: [] };
+        if (!/contact_id\s*=\s*\$2/.test(sql)) return { rows: [linha] };
+        return {
+          rows: parametros[1] === linha["contact_id"] ? [linha] : [],
+        };
       }
       if (sql.includes("platform.offer_terms")) {
         if (/^\s*UPDATE/i.test(sql)) {
@@ -284,7 +315,7 @@ test("criterio 6: getValidQuote devolve nada quando nao ha, e nao um erro", asyn
   // ausência. Um erro obrigava-o a distinguir «não há» de «a ligação caiu».
   const { cliente } = base({ cotacao: null });
   const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
-    getValidQuote(r, SKU, 10, AGORA),
+    getValidQuote(r, CONTACTO, SKU, 10, AGORA),
   );
   assert.deepEqual(resultado, { tipo: "ok", valor: null });
 });
@@ -293,6 +324,7 @@ test("criterio 6: getValidQuote devolve a cotacao viva, com o total em bigint", 
   const { cliente } = base({
     cotacao: {
       id: "q1",
+      contact_id: CONTACTO,
       sku: SKU,
       qty: 10,
       preco_total_minor: "12500000",
@@ -302,7 +334,7 @@ test("criterio 6: getValidQuote devolve a cotacao viva, com o total em bigint", 
     },
   });
   const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
-    getValidQuote(r, SKU, 10, AGORA),
+    getValidQuote(r, CONTACTO, SKU, 10, AGORA),
   );
   assert.equal(resultado.tipo, "ok");
   if (resultado.tipo === "ok" && resultado.valor !== null) {
@@ -319,10 +351,153 @@ test("criterio 6: getValidQuote recusa uma quantidade que nao e inteiro positivo
   for (const qty of [0, -1, 2.5]) {
     const { cliente } = base();
     const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
-      getValidQuote(r, SKU, qty, AGORA),
+      getValidQuote(r, CONTACTO, SKU, qty, AGORA),
     );
     assert.deepEqual(resultado, { tipo: "erro", erro: "VALIDATION_ERROR" }, String(qty));
   }
+});
+
+// ------------------------- KAM-179: a cotação é do contacto a quem foi dada
+
+test("KAM-179: X nao le a cotacao de Y, com o mesmo (sku, qty) e o mesmo tenant", async () => {
+  // **O achado inteiro, num caso.** A cotação existe, está `emitida`, não
+  // venceu, é do mesmo tenant e é do mesmo `(sku, qty)` — e é de **Y**. Antes do
+  // predicado, X recebia-a, com o preço negociado para Y dentro dela; a RLS não
+  // a escondia, porque os dois contactos são do mesmo tenant e a `tenant_iso`
+  // deixa passar os dois.
+  const { cliente, visto } = base({
+    cotacao: {
+      id: "q-de-y",
+      contact_id: OUTRO_CONTACTO,
+      sku: SKU,
+      qty: 10,
+      preco_total_minor: "9000000",
+      currency: "AOA",
+      valida_ate: "2026-11-03T12:00:00.000Z",
+      estado: "emitida",
+    },
+  });
+  const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
+    getValidQuote(r, CONTACTO, SKU, 10, AGORA),
+  );
+  assert.deepEqual(resultado, { tipo: "ok", valor: null });
+  // E o contacto **chega à consulta** como `$2`, depois do `tenant_id` que o
+  // repo-base injecta. Sem esta asserção, um dia em que o argumento se perdesse
+  // a caminho da consulta dava o mesmo `null` por acaso.
+  assert.deepEqual(visto.cotacoesPedidas, [
+    [TENANT, CONTACTO, SKU, 10, AGORA.toISOString()],
+  ]);
+});
+
+/**
+ * Um `contactId` que o módulo não pode usar: vazio, só espaços, ou **malformado
+ * sem ser vazio**.
+ *
+ * O terceiro grupo é o que importa, e entrou com a revisão adversarial: a
+ * primeira versão deste ticket só recusava o vazio, pelo que um `uuid` truncado
+ * ou com lixo **chegava à base** e o `22P02` do motor atravessava a porta como
+ * excepção. A forma é a canónica do `eUuid`.
+ */
+const CONTACTOS_INUTILIZAVEIS = [
+  "",
+  "   ",
+  "nao-e-um-uuid",
+  "0c0c0c0c-0c0c-4c0c-8c0c",
+  "0c0c0c0c0c0c4c0c8c0c0c0c0c0c0c0c",
+  "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0g",
+  "' OR 1=1 --",
+];
+
+test("KAM-179: um contactId inutilizavel e VALIDATION_ERROR e nao ok(null)", async () => {
+  // «Não há cotação para este cliente» e «o chamador não disse de que cliente se
+  // trata» são coisas diferentes: responder `null` à segunda escondia o defeito
+  // de quem chama por trás de uma resposta legítima. E recusa **antes** de falar
+  // com a base.
+  for (const contactId of CONTACTOS_INUTILIZAVEIS) {
+    const { cliente, visto } = base();
+    const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
+      getValidQuote(r, contactId, SKU, 10, AGORA),
+    );
+    assert.deepEqual(
+      resultado,
+      { tipo: "erro", erro: "VALIDATION_ERROR" },
+      JSON.stringify(contactId),
+    );
+    assert.deepEqual(visto.cotacoesPedidas, [], JSON.stringify(contactId));
+  }
+});
+
+test("KAM-179: X nao aceita a cotacao de Y, mesmo com o id dela na mao", async () => {
+  // A escalada de leitura para escrita: o `getValidQuote` devolve o `id`, e sem
+  // o predicado no `UPDATE` quem o tivesse punha a cotação de Y a `aceite`.
+  // `NOT_FOUND` e não `TENANT_MISMATCH`, porque o tenant está certo e distinguir
+  // os casos dava a quem chama um oráculo sobre cotações que não são suas.
+  const { cliente } = base({
+    cotacao: {
+      id: "q-de-y",
+      contact_id: OUTRO_CONTACTO,
+      sku: SKU,
+      qty: 10,
+      preco_total_minor: "9000000",
+      currency: "AOA",
+      valida_ate: "2026-11-03T12:00:00.000Z",
+      estado: "emitida",
+    },
+  });
+  const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
+    aceitarCotacao(r, CONTACTO, "q-de-y", AGORA),
+  );
+  assert.deepEqual(resultado, { tipo: "erro", erro: "NOT_FOUND" });
+});
+
+test("KAM-179: um contactId inutilizavel nao aceita cotacao nenhuma, e nao chega a base", async () => {
+  // A mesma propriedade do `getValidQuote`, na operação que **escreve** — e aqui
+  // pesa mais: um `contact_id` que não casa por acaso em vez de por desenho é um
+  // predicado cuja protecção muda com os dados.
+  for (const contactId of CONTACTOS_INUTILIZAVEIS) {
+    const { cliente, visto } = base({
+      cotacao: {
+        id: "q1",
+        contact_id: CONTACTO,
+        sku: SKU,
+        qty: 10,
+        preco_total_minor: "12500000",
+        currency: "AOA",
+        valida_ate: "2026-11-03T12:00:00.000Z",
+        estado: "emitida",
+      },
+    });
+    const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
+      aceitarCotacao(r, contactId, "q1", AGORA),
+    );
+    assert.deepEqual(
+      resultado,
+      { tipo: "erro", erro: "VALIDATION_ERROR" },
+      JSON.stringify(contactId),
+    );
+    assert.deepEqual(visto.cotacoesPedidas, [], JSON.stringify(contactId));
+  }
+});
+
+test("KAM-179: o dono dela aceita-a, e o predicado nao fecha o caminho legitimo", async () => {
+  // A outra direcção, que é o que impede a correcção de ser «deixar de aceitar
+  // cotações»: com o contacto certo, a mesma linha aceita-se.
+  const { cliente } = base({
+    cotacao: {
+      id: "q1",
+      contact_id: CONTACTO,
+      sku: SKU,
+      qty: 10,
+      preco_total_minor: "12500000",
+      currency: "AOA",
+      valida_ate: "2026-11-03T12:00:00.000Z",
+      estado: "emitida",
+    },
+  });
+  const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
+    aceitarCotacao(r, CONTACTO, "q1", AGORA),
+  );
+  assert.deepEqual(resultado, { tipo: "ok", valor: undefined });
 });
 
 // ------------------------------------------------- DoD: a idempotência
@@ -696,7 +871,7 @@ test("criterio 6: aceitar uma cotacao vencida nao a aceita", async () => {
   // é a forma de o tipo guardar a correcção.
   const { cliente } = base({ cotacao: null });
   const resultado = await comRegisto(deps(cliente), ctx(), (r) =>
-    aceitarCotacao(r, "q1", AGORA),
+    aceitarCotacao(r, CONTACTO, "q1", AGORA),
   );
   assert.deepEqual(resultado, { tipo: "erro", erro: "NOT_FOUND" });
 });
