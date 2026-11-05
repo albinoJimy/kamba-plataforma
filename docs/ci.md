@@ -50,7 +50,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 3c | Coerência do backlog: o §4 do `specs/INDICE.md`, o bloco de cada ticket e a tabela-resumo do §3 de cada epic | `make ci-3c` | Arquitecto de Plataforma | KAM-138 (activo desde o KAM-138) |
 | 4 | Unit e cobertura — e, desde o KAM-173, as suites Python outra vez na ordem inversa | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
-| 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
+| 6 | Isolamento de tenant e de contacto: a enumeração das superfícies e a cobertura de casos (KAM-066), o *lint* do `SET LOCAL`, os *logs* sem identificadores (X-11) e a camada SQL (RLS, X-03, X-04, X-05) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta entrou com o KAM-066) |
 | 7 | Contratos | `make ci-7` | Plataforma | KAM-007 (eventos); KAM-024 (webhooks da Meta, por fazer) |
 | 8 | Migrações: aplicar, reverter, voltar a aplicar | `make ci-8` | Plataforma | `docs/tecnica/09` §7 (activo desde o KAM-003) |
 | 9 | Segredos (árvore **e** história do PR) | `make ci-9` | Segurança | **proposta** |
@@ -847,6 +847,19 @@ Isto tem quatro consequências que ficam ditas em vez de serem descobertas:
   tem cópias inteiras do repositório; ficam fora por não estarem numa raiz, e
   uma pasta com ponto à cabeça **dentro** de uma raiz fica fora pela regra do
   ponto.
+- **Um andaime de ensaio em TypeScript entra no universo se o caminho dele cair
+  num padrão de estrato**, e os padrões do `critico` casam em qualquer sítio —
+  `tools/` incluído. Medido a 2026-11-05 no KAM-066:
+  `tools/isolamento/condutor/rotas.ts`, 1310 linhas de condutor corrido por
+  `node <ficheiro> <grupo> <saída>` a partir do Python, foi reclamado pelo
+  padrão `*/isolamento/*` e levou o `critico` de **94,23% a 88,07%** sozinho,
+  contra 90 de mínimo. A convenção desta casa para esta espécie de ficheiro é
+  `<pacote>/tests/`, onde o `**/tests/**` dos `excluidos` já o cobre — o
+  precedente é o `packages/core-ts/tests/x11_conduzir.ts`, condutor do X-11
+  corrido pelo `make x11`, que diz na própria *docstring* que vive em `tests/`
+  **por não ser um teste**. Mover o ficheiro é trabalho normal de um PR;
+  acrescentar-lhe uma linha nos `excluidos` é mudar o critério do portão, e
+  isso não é de quem escreve o ticket.
 - **O universo é o disco, não o índice do git.** Um ficheiro por versionar
   dentro de uma raiz conta; o número local pode portanto divergir do número do
   CI, que mede um *checkout* limpo. É a mesma propriedade do lado Python
@@ -1431,10 +1444,72 @@ Três coisas a saber antes de mexer nele:
 - **o padrão do NIF é um parâmetro** (`make x11 X11_NIF='<regex>'`). Nenhum
   documento o define, e sem ele a saída diz que o NIF não é medido por padrão
   próprio;
-- **não varre a suite cruzada ponta a ponta**, que é o KAM-066 e não existe. A
-  camada SQL deste *gate* não escreve pelo *logger*.
+- **não varre a suite cruzada ponta a ponta.** Desde o KAM-066 ela existe (ver
+  logo abaixo) e tem oráculo próprio, com as cinco origens do critério 9 —
+  corpo, cabeçalhos, erros, *logs* e *spans*. **Cada caso varre as que declara,
+  e o corredor verifica-lhes só a forma**: os *logs* são varridos a sério em
+  dois dos dezasseis casos (os do AGR) e nenhum caso alimenta *spans*, porque
+  nada neste repositório emite *traces*. O X-11 continua a
+  ser o varrimento do *logger* em si, com as suas 1 030 *fixtures*; são duas
+  medições diferentes e nenhuma substitui a outra.
 
 O desenho, os padrões e os limites estão em [`logs.md`](logs.md) §4.2 e §7.
+
+#### A enumeração das superfícies e a cobertura de casos (KAM-066)
+
+O segundo passo do `make ci-6` é `make isolamento-a-seco`, e também não precisa
+de base de dados. **É o passo que torna este *gate* um portão e não uma
+suite**, e o critério 2 do bloco diz porquê em cinco palavras: «não existe "sem
+teste" silencioso».
+
+Quatro verificações, por ordem de custo, e a primeira que falhar para:
+
+| Passo | O que faz |
+|---|---|
+| enumeração | descobre, **na fonte**, as quatro superfícies que o bloco nomeia: rotas (`app.get/post` do Hono e `Route(...)` do Starlette), *tools* do REG (a lista `tools:` de cada `registry/*.yaml`), filas BullMQ (`new Queue`/`new Worker`) e consumidores EVT (um por `{tipo, versão}` de cada vertical) |
+| cobertura | todo o item enumerado tem caso registado ou dispensa escrita; nenhum caso e nenhuma dispensa está morta |
+| *lint* | nenhum `SET app.tenant_id` sobrevive à transacção — incluindo o `is_local` que vem por parâmetro, que é a regra que apanha o único sítio real deste conjunto |
+| casos | os que não precisam de nada: os dois contratos de fila |
+
+Lê ficheiros e **só** usa a biblioteca padrão, pela razão do `lint_arch`: um
+verificador que precisasse de instalação chegava sempre tarde.
+
+**A enumeração falha fechada.** O que ela não consegue resolver estaticamente —
+o nome de uma fila calculado em execução — entra como item *indeciso*, com o
+sítio por identificador em vez do nome, e exige caso como qualquer outro. E um
+tipo de superfície que fique a zero é **erro** e não resultado, pelo padrão do
+`canon_lint/superficies.py`: zero itens diz-se em vez de passar por conforme.
+
+As dispensas vivem em [`../ci/isolamento-dispensas.yaml`](../ci/isolamento-dispensas.yaml)
+e o ficheiro **nasceu vazio** — hoje nenhuma superfície está dispensada. Três
+trincos impedem a válvula de virar porta: o credor tem de ser um `KAM-NNN` que
+existe no §4 do backlog, a razão tem de ter 60 caracteres, e uma dispensa morta
+falha o *gate*.
+
+A lacuna **X-07** fica registada: a lista de `docs/tecnica/08` §3.7 salta do
+X-06 para o X-08, e o `registar_caso` recusa um caso nessa bateria para que o
+identificador não seja reutilizado.
+
+#### Os casos cruzados contra a base (KAM-066)
+
+O terceiro passo é a *suite* `db/tests_isolamento`, que já existia, com
+`test_casos_cruzados.py` a correr os casos do *harness*. É a única *suite*
+deste repositório onde há, ao mesmo tempo, PostgreSQL, o pacote do AGR
+importável e `node` — e é a dependência de cada caso (`precisa`) que escolhe
+onde ele corre, não a bateria.
+
+As aplicações Hono respondem **em processo**, pelo `app.request()`, e o AGR
+pelo ASGI conduzido directamente: não se levanta servidor nenhum. O condutor de
+TypeScript usa o `node` do `PATH` quando existe e, sem ele, a imagem fixada por
+*digest* na rede do contentor da base — o mesmo padrão de
+`db/tests_identidade/node.py`.
+
+**Num *gate*, saltar é falhar**: um caso cujo `precisa` não está satisfeito não
+é saltado — devolve um achado que diz o que faltava. É a mesma regra que
+`db/correr_suite.py` aplica à *suite* inteira.
+
+O guia «como acrescentar um caso» está em
+[`../tools/isolamento/README.md`](../tools/isolamento/README.md).
 
 ---
 

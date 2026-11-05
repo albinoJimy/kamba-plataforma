@@ -857,6 +857,8 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from canon_lint import documentos as canon_documentos
         from canon_lint.dicionario import CHAVES_DA_POLITICA
         from contract_diff import pii
+        from isolamento.casos import CHAVES as chaves_dispensas
+        from isolamento.lints import CHAVES as chaves_set_sessao
         from coverage_gate import CHAVES as chaves_thresholds
         from lint_backlog.cli import CHAVES as chaves_backlog
         from lint_contagens import cli as contagens
@@ -882,6 +884,9 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
             "ci/ruleset.yaml": ruleset_config.CHAVES,
             "ci/rls_exceptions.yaml": {"version", "excepcoes"},
             "ci/secdef_allowlist.yaml": {"version", "funcoes"},
+            # KAM-066: as duas listas do *harness* de isolamento cruzado.
+            "ci/isolamento-dispensas.yaml": chaves_dispensas,
+            "ci/isolamento-set-sessao.yaml": chaves_set_sessao,
             "ci/supply-chain/imagens.yaml": imagens._CHAVES_TOPO,
             "ci/supply-chain/licencas.yaml": licencas._CHAVES_TOPO,
         }

@@ -410,3 +410,11 @@ fontes_adicionais:
   # local a conferir, ao contrario das duas entradas acima.
   - ficheiro: tools/compose_prod/egress_dez.py
     constante: IMAGEM_SONDA
+  # KAM-066: a ponte do condutor de rotas do *harness* de isolamento cruzado.
+  # Corre o condutor de TypeScript — que ataca as aplicacoes Hono em processo,
+  # pelo `app.request()` — com o `node` do PATH quando ele existe e, sem ele, na
+  # imagem oficial, na rede do contentor da base. E a mesma razao dos oito
+  # `db/tests_*/node.py` acima, e entra aqui pela mesma: um ficheiro que chama o
+  # Docker e nao esta declarado e uma imagem que ninguem fixou nem inventariou.
+  - ficheiro: tools/isolamento/condutor/ponte.py
+    constante: IMAGEM_NODE

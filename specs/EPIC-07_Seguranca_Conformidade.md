@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.15 |
+| Versão | 1.19 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -187,14 +187,169 @@ Construir o *harness* de testes cruzados com canários que enumera automaticamen
 
 ### Critérios de Aceitação
 - [ ] O *seed* cria os tenants A e B e os contactos X e Y (ambos em A) com um canário único em cada tabela com `tenant_id`, em cada objecto de storage (`t/{tenant_id}/`) e em cada conversa.
-- [ ] A enumeração automática cobre 100% das rotas, tools do REG, *jobs* BullMQ e consumidores EVT; um item enumerado sem caso registado falha o CI (não existe «sem teste» silencioso).
+- [x] A enumeração automática cobre 100% das rotas, tools do REG, *jobs* BullMQ e consumidores EVT; um item enumerado sem caso registado falha o CI (não existe «sem teste» silencioso).
 - [ ] X-01: para cada rota, A usa IDs de B (IDOR) e recebe 403/404 uniformes sem canário; X-02: cada tool invocada com estado de A e argumentos que referem entidades de B não devolve canário.
-- [ ] X-03: sessão `kamba_app` com `app.tenant_id=A` faz `SELECT *` em todas as tabelas com `tenant_id` e 0 linhas contêm o canário de B; X-04: sem `SET LOCAL` todas as tabelas devolvem 0 linhas.
-- [ ] X-05: uma consulta a `pg_class` × `pg_policy` falha se alguma tabela com `tenant_id` não tem RLS `FORCE`; `kamba_app` é `NOBYPASSRLS`; as funções `SECURITY DEFINER` são exactamente as da lista aprovada (inclui `append_payment_event`); as vistas têm `security_invoker = true`.
-- [ ] Isolamento de contacto: o contacto X, com o estado de X, não lê encomendas, consentimentos nem `price_quotes` de Y (0 linhas, 3 tools de leitura testadas).
-- [ ] O *pooling* em modo transacção não vaza contexto: 100 transacções intercaladas de A e B pelo *pool* não devolvem linhas cruzadas; um *lint* falha o *build* se existir `SET app.tenant_id` de sessão em vez de `SET LOCAL`.
+- [x] X-03: sessão `kamba_app` com `app.tenant_id=A` faz `SELECT *` em todas as tabelas com `tenant_id` e 0 linhas contêm o canário de B; X-04: sem `SET LOCAL` todas as tabelas devolvem 0 linhas.
+- [x] X-05: uma consulta a `pg_class` × `pg_policy` falha se alguma tabela com `tenant_id` não tem RLS `FORCE`; `kamba_app` é `NOBYPASSRLS`; as funções `SECURITY DEFINER` são exactamente as da lista aprovada (inclui `append_payment_event`); as vistas têm `security_invoker = true`.
+- [x] Isolamento de contacto: o contacto X, com o estado de X, não lê encomendas, consentimentos nem `price_quotes` de Y (0 linhas, 3 tools de leitura testadas).
+- [x] O *pooling* em modo transacção não vaza contexto: 100 transacções intercaladas de A e B pelo *pool* não devolvem linhas cruzadas; um *lint* falha o *build* se existir `SET app.tenant_id` de sessão em vez de `SET LOCAL`.
 - [ ] Teste de mutação: remover o `WHERE tenant_id` de uma função de repositório torna X-02/X-03 vermelhos; remover uma política torna X-05 vermelho; uma tool com parâmetro `tenant|merchant|seller|account` falha o *lint*.
 - [ ] O oráculo varre também logs e traces OTel de cada caso; a suite completa corre em ≤ 10 min no CI (proposta).
+
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-11-04**, *harness* em [`../tools/isolamento/`](../tools/isolamento/),
+guia em [`../tools/isolamento/README.md`](../tools/isolamento/README.md). Reproduz-se com:
+
+```text
+make isolamento-a-seco                                  # enumeracao, cobertura, lint
+cd tools && python -m unittest discover -s isolamento/tests -t .
+.venv/bin/python db/gate_bd.py --suite tests_isolamento  # a suite, com PostgreSQL
+```
+
+As três saíram **verdes** na execução registada abaixo. **Cinco das nove
+caixas ficam marcadas e quatro ficam vazias** (CA-1, CA-3, CA-8 e CA-9), e
+a secção «o que não se cumpre» tem um parágrafo por cada uma das quatro.
+
+> **O CA-6 fechou durante o ticket, e não por obra deste PR.** Ele esteve
+> **não satisfeito** com um achado medido — a `SQL_COTACAO_VALIDA` não
+> filtrava por `contact_id` —, e o KAM-179 pagou-o por decisão do fundador
+> de 2026-11-04. O que este PR faz é trocar a **fixação da ausência** pela
+> **afirmação da propriedade**, e provar por mutação que ela morde.
+
+> **A primeira versão desta secção contou mal**, e a revisão adversarial
+> mediu-o: dizia «quatro caixas ficam vazias» aqui, «cinco das nove marcadas»
+> mais abaixo, e o registo de versões repetia o cinco — com o CA-9 a faltar na
+> lista das vazias apesar de ter o seu próprio parágrafo. A tabela e os
+> parágrafos estavam certos; era a prosa-resumo que contava, e é ela que
+> ratifica.
+
+| CA | Resultado | O que se mediu, e com que comando |
+|---|---|---|
+| CA-1 | **parcial** | `make isolamento-a-seco` + a suite: A e B com canário em **cada** tabela com `tenant_id` já existia (KAM-004, 45 receitas em `db/tests_isolamento/sementes.py`, e a suite recusa arrancar se uma tabela não tiver receita). Este ticket acrescenta **X e Y, ambos em A**, com canário próprio em `orders_mirror`, `price_quotes` e `consent_event` (`tools/isolamento/semente.py`). **Os canários de *storage* e por conversa não existem** — ver «o que não se cumpre» |
+| CA-2 | **verde** | `make isolamento-a-seco`: **54 itens** enumerados — 31 rotas (26 Hono + 5 Starlette), 11 *tools* do REG, 4 filas BullMQ, 8 consumidores EVT —, **54 com caso**, **0 dispensas**, 2 indecisos (as filas de evento, cujo nome é calculado em execução). 17 casos registados. A enumeração falha fechada e tem sentinela por tipo. **115 baterias de unidade** com canário por regra (`tools/isolamento/tests/`), incluindo o teste de meta: uma rota, uma *tool* e uma subscrição acrescentadas a uma árvore de ensaio entram sozinhas, sem se tocar no código. **Os números subiram de 45/22/16/98 durante o próprio ticket, e o que os subiu foi o portão a funcionar** — ver «o que o KAM-178 encontrou» |
+| CA-3 | **parcial** | X-01 executado nas **22 rotas**: as 5 do AGR pelo ASGI conduzido (recusa uniforme por rota, oráculo limpo em corpo, cabeçalhos e *logs* capturados, e os duplos de `executar`/`retomar`/`decidir` **não** chamados), as 17 de TypeScript pelo `app.request()` em processo — 14 sondas a 200 sem canário, `GET /wa/webhook` **403** nas quatro tentativas e `POST /wa/webhook` **401** nas quatro, uniformes. X-02 nas **11 *tools*** pela ToolLayer real, com `ToolContext` de A: **9 são atacadas com argumentos que nomeiam B** (derivados dos modelos Pydantic de `tls/vendedor.py` e `tls/servicos.py`) e 2 — `get_store_info` e `list_services` — têm esquema **sem campos** por desenho, pelo que nelas o ataque é o contexto de A sozinho. O `POST /wa/webhook`, o `POST /internal/channels` e o controlo que falta ao X-01 ficam **parciais** — ver «o que não se cumpre» |
+| CA-4 | **verde** | A suite da base, já existente, mais o caso `X-03/tabelas` e `X-04/sem-contexto` do *harness*, que a re-correm sem confiar que outra suite correu: com contexto de A nenhuma tabela devolve canário de B **e A vê as suas** (sem a metade positiva, a afirmação era verde sobre uma tabela vazia); sem contexto, zero linhas em todas |
+| CA-5 | **verde** | `X-05/catalogo`: `verificar_colunas_de_tenant`, `verificar_rls`, `verificar_particoes`, `verificar_security_definer` e `verificar_vistas` sobre o catálogo real, 0 problemas; `kamba_app` com `rolbypassrls = false` lido do `pg_roles`; `append_payment_event` presente em `ci/secdef_allowlist.yaml` (linha 49). **Com controlo positivo**: cria-se `platform.controlo_do_x05` com `tenant_id` e sem RLS, numa transacção que nunca confirma, e exige-se que o verificador a nomeie — sem isto, «0 problemas» ficava verde com um verificador que devolvesse sempre lista vazia |
+| CA-6 | **verde** | `C-01/base` nas três tabelas, com as **duas** sondas positivas (a leitura de X traz X; e sem o filtro por contacto a mesma ligação vê Y — senão «X não vê Y» era verde por ausência). `C-01/consultas` executa as **três** funções de repositório reais e as três filtram por contacto: `consentimentos`, `encomendas` e — desde o KAM-179 — `cotacoes`. **A semente dá a X e a Y o mesmo `(sku, qty)`**, pelo que o que separa as duas linhas é o predicado do contacto e nada mais; sem isso o cenário do critério era imensurável. **E a mutação prova que a bateria morde:** tirar o `AND contact_id = $2` da `SQL_COTACAO_VALIDA` torna o `C-01/consultas` vermelho, e **nada mais o apanha** — X e Y são do mesmo tenant e a política `tenant_iso` deixa passar os dois |
+| CA-7 | **verde** | `P-01/pooling`: **100** transacções (10 ligações × 10 voltas, sincronizadas por barreira), a alternar de tenant **na mesma ligação**, cada uma a afirmar que vê o seu canário e não o do outro; 0 linhas cruzadas, 0 voltas vazias. E o *lint* do `SET LOCAL`, que **não existia**: `python -m isolamento` → 0 achados, com **2** excepções declaradas em `ci/isolamento-set-sessao.yaml`, cada uma com a sua contagem de sítios — `eventos/trabalhador_bullmq.ts` (credor KAM-038) e `db/auditoria.py` (credor KAM-012). **A segunda só apareceu quando o corpus deixou de ser quatro *globs***: a revisão adversarial mediu que `db/auditoria.py` tem um `set_config(..., false)` escrito à letra e ficava fora da varredura, pelo que o «0 achados» media menos do que dizia. O corpus passa a levar `db/*.py` inteiro e o próprio *harness*. Doze canários em `tools/isolamento/tests/test_lints.py` provam que ele morde nas três regras, no corpus e na contagem |
+| CA-8 | **parcial** | `python db/mutacoes.py --aplicaveis` → **966 mutações conferidas, 0 não aplicáveis**, das quais **12 novas** deste ticket (duas sobre o defeito que o KAM-178 revelou, e uma sobre a API interna do COM, e a âncora da do C-01 corrigida: um `::text` acrescentado a um `SELECT` de uma bateria deixou-a sem correspondência de texto e o `--aplicaveis` — que corre no *gate* 8 — passou a dar `1 nao aplicavel`). Remover uma política torna o X-05 vermelho: já estava provado (`catalogo: …` em `db/mutacoes.py`) e agora também **dentro do *gate***, pelo controlo positivo do CA-5. O *lint* da *tool* com parâmetro `tenant\|merchant\|seller\|account` existe desde o KAM-028 (`tools/lint_arch/tool_schema.py`, com bateria própria). A primeira metade do critério — «remover o `WHERE tenant_id` de uma função de repositório torna X-02/X-03 vermelhos» — continua em «o que não se cumpre», porque com a RLS em `FORCE` o predicado do repositório é a camada de cima e tirá-lo deixa a política a recusar. **Mas o mesmo pedido na camada onde a barreira vive está provado por execução, e contra código de produção:** a mutação `isolamento: a API interna do COM le o tenant do corpo` faz o `ctxDoPedido` do `api/interna.ts` deixar um campo do corpo ganhar ao cabeçalho `x-kamba-tenant`; aplicada à mão, a marca do relatório passa de `ctx=a` a `ctx=outro-tenant` e o `X-01/ts/com-interna` dá **sete achados, um por rota**. Não há RLS que a apanhe, porque não há base nenhuma nesse caminho. **E desde o KAM-179 há a prova ao pé da letra, no eixo do contacto:** a mutação `cotacoes: a leitura perde o predicado do contacto` tira o `AND contact_id = $2` da `SQL_COTACAO_VALIDA` — uma função de repositório, exactamente o que o critério nomeia — e o `C-01/consultas` fica vermelho. Aqui **nenhuma política tapa o buraco**, porque X e Y são do mesmo tenant e a `tenant_iso` deixa passar os dois; é a diferença que torna este eixo mensurável e o do tenant não. O que fica devolvido é só a letra «X-02/X-03» e «`WHERE tenant_id`» |
+| CA-9 | **parcial** | O oráculo tem as **cinco** origens do critério (`corpo`, `cabecalhos`, `erro`, `logs`, `spans`) e o corredor confronta as que cada caso declara. Os *logs* são varridos a sério **em dois dos dezasseis casos** — os do AGR, que capturam `stdout` e `stderr` do serviço durante cada pedido. Os outros declaram as origens que pretendem varrer, e isso é verificado só na forma: o corredor não inspecciona o que o `fn` fez por dentro, e a revisão adversarial mostrou que o X-02 declarava `logs` e não escrevia nada em `ctx.logs` (a ToolLayer registra pelo seu próprio *logger*). O oráculo tem sonda positiva própria, que o corredor corre **antes do primeiro caso** — um oráculo que não morde falha tudo em vez de passar tudo. **Tempo, e as duas réguas não se confundem:** o tecto de 600 s do critério é sobre o CI, e lá a suite do *gate* 6 correu em **96 s** (`1m36s`, medido no *run* do PR). Nesta máquina — Windows com Docker Desktop e **sem `node` no `PATH`** — os cinco grupos do condutor correm cada um na imagem oficial por `docker run`, e o arranque do contentor domina: **83 ensaios em 572,7 s, `OK`**, com 0 falhas e 0 erros, na execução final já com o grupo `com-interna`. **E a medição imediatamente anterior deu 787 s com uma falha**, o `X-01/ts/canais` a estourar o tecto de 150 s por grupo — eu tinha as suites de `tools/` a competir pela mesma máquina. Fica dito porque o número desta máquina mede o caminho de recurso e a disputa de CPU, não o que o critério pede; quem decide é o CI. **Os *traces* OTel não se mediram** — ver «o que não se cumpre» |
+
+**O que o KAM-178 encontrou dentro deste ticket:**
+
+O KAM-178 fundiu em `8047a46` enquanto este ramo estava aberto e acrescentou nove
+superfícies ao COM — sete rotas `POST /internal/*`, o `GET /metrics` e o
+`ALL /internal/*` que responde 503 sem a API montada. **O portão de enumeração
+recusou-as, como deve**, e as nove levam caso real e não dispensa
+(`X-01/ts/com-interna`, grupo novo do condutor: 25 entradas, três ataques por
+rota `POST`). Mas o que ele mostrou primeiro foi um defeito **deste harness**:
+
+> O limpador de comentários da enumeração era uma expressão regular **cega às
+> cadeias de caracteres**. O `/*` dentro de `api.use("/internal/*", …)` abria um
+> comentário falso que o próximo `*/` do ficheiro fechava, e tudo entre os dois
+> desaparecia — o ciclo que registra as sete rotas ficou invisível, nem como
+> item nem como `indeciso`. **O critério 2 promete 100% das rotas e o portão
+> dava verde sobre 24 das 31.** A segunda metade do mesmo defeito é o `//`: um
+> `"https://…"` apagava o resto da linha.
+
+E o varrimento de comentários tinha entrado neste ticket **pela revisão
+adversarial** — a correcção abriu um buraco maior do que o que fechou. Corrigido
+em `tools/isolamento/texto.py` (varrimento por caracteres, partilhado pela
+enumeração e pelo *lint*), mais um segundo defeito a seguir: um ciclo sobre uma
+constante com a lista de caminhos dava **um** indeciso em vez de um item por
+caminho, o que conta 1 superfície onde há 7 e faz com que uma oitava entrada na
+lista não mude nada. Quatro canários novos, e a mutação que os mata está
+registada e **provada por execução**: aplicada à mão, morrem três asserções em
+39. **Um dos canários nasceu morto** — a primeira versão do do *lint* passava
+com a mutação aplicada, porque a disposição das linhas deixava o código fora do
+bloco falso — e isso fica escrito em vez de corrigido em silêncio.
+
+**O que o caso novo não mede, dito por extenso:** as respostas das sete rotas são
+recusas fixas de um duplo da porta, pelo que o `404` uniforme **não** prova que o
+Registo real recusa o `order_id` de B — isso é do X-03 e do X-05, contra a base.
+O que este caso prova é o que lhe compete: que o `ctx` com que a porta é chamada
+tem o tenant do cabeçalho `x-kamba-tenant` e mais nada, que um corpo que nomeie
+B não o desloca, que nada de B atravessa o oráculo, e que as duas portas do
+*fail-closed* (401 sem credencial, 400 sem cabeçalho de tenant) disparam. Com
+sonda positiva própria, numa segunda aplicação, para que «zero canários de B»
+não possa ser verde por nada chegar ao sítio.
+
+**O que não se cumpre, nomeado:**
+
+- **O CA-6 cumpriu-se durante o ticket, e fica aqui o que ele foi.** A
+  `SQL_COTACAO_VALIDA` (`../services/com/src/produtos/consultas.ts`) filtrava
+  `tenant_id`, `sku`, `qty`, `estado` e `valida_ate` — e **não** `contact_id`,
+  que a `platform.price_quotes` tem `NOT NULL` com FK composta desde a revisão
+  `0028`. Dentro do **mesmo tenant**, o contacto X que pedisse o mesmo
+  `(sku, qty)` recebia a cotação emitida para Y, com o preço de Y; a RLS não o
+  apanhava, porque a política `tenant_iso` deixa passar os dois. Foi
+  **CONFIRMADO por leitura** das duas fontes e **por execução** desde que a
+  semente passou a dar a X e a Y o mesmo `(sku, qty)` — antes disso o cenário
+  era imensurável, porque cada contacto pedia o seu próprio `sku` e recebia a
+  sua própria linha, e é a razão pela qual a fixação do caso passou a ser sobre
+  o **comportamento** e não sobre o texto do SQL.
+
+  Enquanto a dívida existiu, o caso **fixava o estado medido** em vez de afirmar
+  a propriedade, com o credor escrito. **O KAM-179 pagou-a**, por decisão do
+  fundador de 2026-11-04 («a cotação é por contacto»), e fê-lo em mais do que
+  este critério pedia: além da leitura, pôs o predicado no `aceitarCotacao` — a
+  leitura devolvia o `id` e o `UPDATE` não filtrava contacto, pelo que X punha a
+  cotação de Y a `aceite`, o que é transição de estado cruzada e não só fuga de
+  leitura — e no `resolverLinha` do `orders/cart.ts`, que é o caminho que
+  **cobra**. Este PR troca a fixação pela afirmação da propriedade e acrescenta
+  a mutação que a prova.
+
+  **E deixa o mecanismo de pé:** o `SEM_PREDICADO_DE_CONTACTO` fica no código,
+  vazio, para a próxima leitura por contacto que nasça sem predicado — entra lá
+  com o seu credor em vez de avermelhar o portão sem dono. Os canários dele
+  continuam a correr, com uma entrada de ensaio injectada: um ensaio apagado com
+  o uso é um mecanismo que ninguém verifica quando voltar.
+- **CA-1 fica parcial em dois eixos, os dois atribuídos pelos Detalhes Técnicos
+  deste bloco.** Os canários de *storage* (`t/{tenant_id}/`) são do **X-08**, que
+  o próprio bloco dá a **KAM-011** e **KAM-020**; semeá-los contra o motor falso
+  em memória provava o motor falso e não o armazenamento. E o canário **por
+  conversa**: a `platform.conversations` tem canário **por tenant** (receita do
+  KAM-018), e não um por conversa de X e de Y — o eixo do contacto deste ticket
+  mede-se nas três tabelas que o CA-6 nomeia.
+- **CA-3 fica parcial numa rota de dezassete.** `POST /internal/channels`
+  responde **502** uniforme às quatro tentativas com identificadores de B, com
+  o oráculo limpo: o ataque chega à rota, ela abre a transacção com o contexto
+  de A e recusa. O 502 vem de o condutor dar ao `Onboarding` duplos de `graph`
+  e de `cofre` que levantam — ele não fala com a Meta, e não deve. O que **não**
+  se exercita é o **409** que o critério 4 do KAM-016 promete para um número já
+  ligado a outro tenant: para chegar lá a troca com a Meta tem de ter sucesso, e
+  isso pede o simulador (`../tools/meta-sim/`, **KAM-024**). A lista de estados
+  aceitáveis desse caso leva o 502 declarado, com esta razão escrita ao lado.
+- **CA-8: a primeira metade do critério não se cumpre, e a razão é a defesa em
+  camadas a funcionar.** «Remover o `WHERE tenant_id` de uma função de
+  repositório torna X-02/X-03 vermelhos» **não pode valer** enquanto a RLS
+  `FORCE` estiver ligada: o predicado do repositório é a camada de cima e a
+  política é a de baixo, e tirar a de cima deixa a de baixo a recusar — zero
+  linhas, suite verde. Isso é o `../docs/tecnica/08` §3.1 a cumprir-se («um
+  defeito numa camada não produz leitura cruzada porque a seguinte a recusa»),
+  não um teste em falta. **O eixo onde não há rede é o do contacto**, e é lá que
+  a mutação tem de morder: `isolamento: a leitura do contacto deixa de filtrar
+  por contacto` está escrita e conferida, e **não está provada por execução** —
+  `NÃO VERIFICADO`. A linha de base da `tests_isolamento` na **cópia** que a
+  prova por mutação constrói fica vermelha porque o condutor de TypeScript não
+  termina lá (os quatro casos de `precisa="node"` saem `executado: false`), e a
+  causa não ficou isolada: na árvore real os mesmos casos correm verdes. O
+  corredor de mutações **recusou-se a certificar** sobre uma linha de base
+  vermelha, que é o comportamento certo — «uma mutação *apanhada* sobre isto não
+  significa nada». Fica como `shortcut:` na própria entrada de `db/mutacoes.py`,
+  com o gatilho de revisão escrito. A leitura do critério — medir a mutação do
+  predicado de tenant contra o X-03 — fica **devolvida a quem o escreveu**, com
+  esta medição. As 8 mutações novas estão conferidas por `--aplicaveis` (962 no
+  total, 0 não aplicáveis); a prova por execução corre na tarefa nocturna
+  (`.github/workflows/mutacoes.yaml`), que não é bloqueante.
+- **CA-9: os *traces* OTel não se varrem porque não existem.** Procurado em
+  `packages/`, `libs/` e `services/`: **nenhum** componente emite *spans*
+  (`opentelemetry`, `tracer`, `startSpan` — zero ocorrências). O ADR-018 põe o
+  Langfuse só em Clusters e a observabilidade do Piloto é «métricas próprias e
+  logs sem conteúdo». A origem `spans` existe no oráculo e é varrida quando um
+  caso a traz; **hoje nenhum caso a traz**, e isso é uma limitação dita e não
+  uma dispensa. O credor é o ticket que trouxer tracing.
 
 ### Detalhes Técnicos
 - **Componentes:** TLS, COM, IDX, STO, HND, todos os que têm `tenant_id`. Módulos `security/isolation/{seed,enumerate,oracle,cases}/`; *runner* no gate 6 do CI.
@@ -210,11 +365,22 @@ Construir o *harness* de testes cruzados com canários que enumera automaticamen
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Isolamento de tenant e de contacto: a suite é o próprio critério; falha o *build* (gate 6).
-- [ ] Privacidade: *seed* e canários sintéticos; nenhum dado real.
-- [ ] Sem segredos: o *seed* não usa credenciais reais; papéis de teste criados em contentor efémero.
-- [ ] Documentação: guia «como acrescentar um caso» no README da suite; lacuna X-07 registada.
+- [x] Isolamento de tenant e de contacto: a suite é o próprio critério; falha o *build* (gate 6).
+- [x] Privacidade: *seed* e canários sintéticos; nenhum dado real.
+- [x] Sem segredos: o *seed* não usa credenciais reais; papéis de teste criados em contentor efémero.
+- [x] Documentação: guia «como acrescentar um caso» no README da suite; lacuna X-07 registada.
 - [ ] Cobertura de enumeração 100%; dois revisores (P0 de isolamento).
+
+**As caixas de DoD, com a evidência:**
+
+| Caixa | Resultado | Evidência |
+|---|---|---|
+| Critérios satisfeitos | **vazia** | **Quatro** das nove caixas de CA marcadas (CA-2, CA-4, CA-5, CA-7); **cinco** ficam vazias com o credor escrito (CA-1, CA-3, CA-6, CA-8, CA-9), e uma delas — o CA-6 — é um achado por resolver no COM |
+| Falha o *build* (*gate* 6) | **marcada** | `make ci-6` passa a correr três passos novos: `make isolamento-a-seco` (enumeração, cobertura, *lint*) antes de a base subir, e `db/tests_isolamento/test_casos_cruzados.py` dentro da suite. Um item enumerado sem caso sai `1`; um caso cujo `precisa` não está satisfeito **falha** em vez de ser saltado. Registado em [`../docs/ci.md`](../docs/ci.md) §«Gate 6» |
+| Privacidade | **marcada** | Os canários são `canario_<rótulo>_<32 hex>` gerados por `uuid4` (`tools/isolamento/semente.py`); os tenants e contactos são UUID aleatórios criados na execução e apagados no fim. Nenhum telefone, nome nem NIF reais: os `phone_hmac` são `sha256` do próprio canário. O oráculo nunca imprime o canário inteiro no relatório — só 24 caracteres em volta —, para que um valor com forma de segredo não atravesse o varrimento do *gate* 9 |
+| Sem segredos | **marcada** | As palavras-passe dos papéis são geradas pelo `db/gate_bd.py` em cada execução e passam pelo ambiente; o contentor do PostgreSQL é descartável, em `tmpfs`, com a porta só em `127.0.0.1`. A credencial interna do caso do AGR é uma constante do próprio ficheiro de ensaio (`CREDENCIAL`), comparada com o duplo que a devolve — não é um segredo, e está dito onde ela vive. `make ci-9` sobre a árvore: limpo |
+| Documentação | **marcada** | [`../tools/isolamento/README.md`](../tools/isolamento/README.md): «Como acrescentar um caso» em cinco passos, a tabela `precisa` → onde o caso corre, a regra da sonda positiva, e a secção «A lacuna X-07» — que é também código: `casos.RESERVADAS` inclui o `X-07` e o `registar_caso` **recusa** um caso nessa bateria, para que o identificador não seja reutilizado |
+| Cobertura 100%; dois revisores | **vazia** | A cobertura de enumeração está a **100%** (45 de 45, 0 dispensas) e está medida. **O que falta são os dois revisores**: correu **uma** revisão adversarial sobre o ramo, que é o que a decisão do fundador de Outubro de 2026 fixa para qualquer ticket; «dois revisores» é exigência deste bloco e é decisão de quem a escreveu, não minha |
 
 ### Handoff para Claude Code
 
@@ -1131,7 +1297,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 179 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 180 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -1269,3 +1435,7 @@ Abre PR com o template do §7.
 | 1.13 | Novembro 2026 | Contagem viva do *backlog* actualizada de 174 para 175 tickets (**KAM-175** acrescentado ao EPIC-05), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo `Versão` do cabeçalho a acompanhar. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | Contagem viva do *backlog* actualizada de 175 para 176 tickets (**KAM-176** acrescentado ao EPIC-04), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo `Versão` do cabeçalho a acompanhar. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | KAM-113 (resposta a incidentes e notificação de violação de dados): critérios 1, 3 e 6 e as caixas de DoD de privacidade e de ligação aos alertas P1 marcados, com a secção «Verificação dos Critérios de Aceitação»; critérios 2, 4, 5, 7 e 8 e três caixas de DoD ficam vazios com o credor escrito. Sem alteração de contagens. | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | Contagem viva do *backlog* actualizada de 179 para **180** tickets (**KAM-180** acrescentado ao EPIC-01). **E a passagem de 178 para 179 não deixou linha neste documento**: o `183e2b0` (KAM-179) mexeu a contagem e a última linha deste histórico ficou na 1.15 — fica dito aqui em vez de corrigido em silêncio, como a linha 1.11 fez pelo KAM-172, porque nenhum *linter* o vê (o `lint_contagens` confere o número, não a existência da linha), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo de versão do cabeçalho acompanha pela fronteira «conteúdo contra metadado» do KAM-167. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. **O identificador 179 não entra na contagem** — está reclamado por um ramo e não existe no §4 do `INDICE.md`, pelo que não se cita na forma `KAM-NNN`. | Equipa KAMBÁ |
+| 1.17 | Novembro 2026 | KAM-066 (suite de isolamento cruzado ponta a ponta): **quatro** das nove caixas de critérios e quatro das seis de DoD marcadas, com a secção «Verificação dos Critérios de Aceitação». O CA-6 fica **não satisfeito** por um achado medido — a `SQL_COTACAO_VALIDA` do COM não filtra por `contact_id`, pelo que o contacto X recebe a cotação de Y dentro do mesmo tenant —, atribuído ao KAM-043; o CA-1, o CA-3, o CA-8 e o CA-9 ficam parciais com o credor escrito. Os números desta linha e da prosa-resumo foram corrigidos depois da revisão adversarial, que os mediu à máquina: diziam cinco marcadas e quatro vazias. O *harness* vive em `../tools/isolamento/`, com o guia de casos no README dele, e entra no *gate* 6 por `make isolamento-a-seco` e por `db/tests_isolamento/test_casos_cruzados.py`. Sem alteração aos outros tickets nem às contagens. | Equipa KAMBÁ |
+| 1.18 | Novembro 2026 | KAM-066, seguimento: os números da secção de verificação passam de 45/22/16/98 para **54 itens, 31 rotas, 17 casos e 115 baterias de unidade**, e a CA-8 de 962 para 965 mutações. O que os subiu foi o KAM-178 a fundir em `8047a46` com nove superfícies novas no COM — sete rotas `POST /internal/*`, o `GET /metrics` e o `ALL /internal/*` —, que levam caso real e não dispensa. Secção nova «o que o KAM-178 encontrou dentro deste ticket»: o limpador de comentários da enumeração era cego às cadeias de caracteres e escondia sete rotas, pelo que o portão dava verde sobre 24 das 31. **As caixas não mudam**: continuam quatro das nove marcadas, e o CA-6 continua com o credor que ja tinha — o predicado de contacto na leitura de cotacoes esta em revisao noutro ramo, e a entrada do dicionario SEM_PREDICADO_DE_CONTACTO so sai depois de ele fundir, senao o caso fica vermelho contra uma main onde o predicado nao existe. | Equipa KAMBÁ |
+| 1.19 | Novembro 2026 | KAM-066, seguimento: **o CA-6 passa a verde e a contagem a cinco marcadas e quatro vazias** (CA-1, CA-3, CA-8 e CA-9). O que o fechou não foi este PR: foi o **KAM-179**, por decisão do fundador de 2026-11-04 («a cotação é por contacto»), que pôs o predicado na leitura, na aceitação e no caminho que cobra. Este PR troca a **fixação da ausência** pela **afirmação da propriedade** — o `SEM_PREDICADO_DE_CONTACTO` fica vazio, e fica — e acrescenta a mutação `cotacoes: a leitura perde o predicado do contacto`, que é a primeira metade do critério 8 **ao pé da letra**: tirar o predicado de uma função de repositório torna a bateria vermelha, e no eixo do contacto nenhuma política o tapa. A CA-8 passa de 965 para 966 mutações. **A causa de o `gate` 6 ter estado vermelho três voltas fica registada**, porque é uma classe de erro e não um acidente: o `as` do TypeScript no condutor afirmava quatro argumentos para um `getValidQuote` que o KAM-179 pôs em cinco, e o `runner` testa o PR **fundido com a `main`** enquanto a máquina de quem escreve testa o ramo sozinho. | Equipa KAMBÁ |

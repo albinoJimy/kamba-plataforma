@@ -104,6 +104,19 @@ GUARD_PY = "libs/py-core/src/kamba_core/tenant_guard/__init__.py"
 PYCORE_UNIT = "pycore_unit"
 CATALOGO = "db/tests_isolamento/catalogo.py"
 ISOLAMENTO = "tests_isolamento"
+# ------------------------------------------------------------------- KAM-066
+#: O *harness* de isolamento cruzado: a maquina que recusa a ausencia de um
+#: teste. Cada mutacao daqui apaga **uma** verificacao dele, e o que tem de a
+#: matar sao as baterias de `tools/isolamento/tests`.
+ISOLAMENTO_UNIT = "isolamento_unit"
+ISO_ENUM = "tools/isolamento/enumeracao.py"
+ISO_CASOS = "tools/isolamento/casos.py"
+ISO_LINTS = "tools/isolamento/lints.py"
+ISO_ORACULO = "tools/isolamento/oraculo.py"
+ISO_C01 = "tools/isolamento/baterias/c01_contacto.py"
+ISO_TEXTO = "tools/isolamento/texto.py"
+COM_API_INTERNA = "services/com/src/api/interna.ts"
+COM_CONSULTAS_PRODUTOS = "services/com/src/produtos/consultas.ts"
 REV3 = "db/migrations/versions/0003_identidade_de_contacto.py"
 IDENTIDADE = "tests_identidade"
 ID_CHAVES = "packages/core-ts/src/identity/chaves.ts"
@@ -160,6 +173,12 @@ SUITES_DE_TOOLS = {
     LLM_CONFIG: ("llm_config", "test_llm_config.py"),
     PIP_NA_BUILD: ("lint_arch", "test_pip_na_build.py"),
     COSIGN: ("supply_chain", "test_cosign.py"),
+    # KAM-066: as baterias de unidade do *harness* de isolamento cruzado.
+    # Correm sem base de dados — a enumeracao, a cobertura, o *lint* do `SET
+    # LOCAL` e o oraculo leem ficheiros —, e e por isso que as mutacoes do
+    # *harness* nao pagam um contentor cada. Os casos que precisam de
+    # PostgreSQL mutam-se com a suite `tests_isolamento`.
+    ISOLAMENTO_UNIT: ("isolamento", "test_*.py"),
 }
 #: O leitor de YAML (KAM-136). As duas suites leem por ele as listas de
 #: excepcoes de `ci/` e o limiar do estrato `critico`.
@@ -798,6 +817,141 @@ MUTACOES = [
      '    finally:\n'
      '        with _TRINCO_EM_USO:\n'
      '            _EM_USO.discard(chave)\n', PYCORE_UNIT),
+    # ------------------------------------------------------------- KAM-066
+    #
+    # O criterio 8 do bloco pede a prova nas duas direccoes, e e a parte que
+    # faz a diferenca entre uma suite e um portao: «uma suite de isolamento que
+    # fica verde com a RLS desligada e pior do que nao ter suite, porque da
+    # confianca». Cada mutacao destas apaga **uma** verificacao do *harness*, e
+    # o que tem de a matar sao as baterias dele.
+    ("isolamento: a enumeracao ignora as rotas de Python", ISO_ENUM,
+     "    return _rotas_ts(raiz) + _rotas_python(raiz)",
+     "    return _rotas_ts(raiz)", ISOLAMENTO_UNIT),
+    # Sem o sentinela, um tipo de superficie que deixe de ser lido passa por
+    # «conforme» — e a cobertura de 100% passa a ser sobre zero itens.
+    ("isolamento: um tipo de superficie vazio deixa de ser erro", ISO_ENUM,
+     "    vazios = [tipo for tipo, lista in por_tipo(itens).items() if not lista]",
+     "    vazios = []", ISOLAMENTO_UNIT),
+    # A mutacao mais directa do criterio 2: um item sem caso deixa de falhar.
+    ("isolamento: um item sem caso deixa de ser achado", ISO_CASOS,
+     "        if tem_caso or tem_dispensa:",
+     "        if tem_caso or tem_dispensa or True:", ISOLAMENTO_UNIT),
+    # O trinco que impede a valvula de virar porta: um credor inventado passa.
+    ("isolamento: um credor fora do backlog passa", ISO_CASOS,
+     "        if credor not in tickets:", "        if False:", ISOLAMENTO_UNIT),
+    # O limpador de comentarios volta a ser cego as cadeias de caracteres.
+    # **E a mutacao do defeito que a correccao de outro achado abriu:** o
+    # varrimento de comentarios entrou neste ticket pela revisao adversarial
+    # (uma rota comentada estava a ser contada), e a expressao regular que a
+    # fechou nao sabia o que era um literal — o `/*` dentro de
+    # `api.use("/internal/*", ...)` abria um comentario falso e o proximo `*/`
+    # do ficheiro fechava-o, apagando o codigo entre os dois. Medido a
+    # 2026-11-05 no `services/com/src/api/interna.ts` do KAM-178: as **sete**
+    # rotas `POST /internal/...` ficaram invisiveis a enumeracao, nem como item
+    # nem como indeciso, e o portao dava verde sobre 24 das 31 rotas.
+    #
+    # **Provada por execucao**: com esta mutacao aplicada a mao, morrem **tres**
+    # asercoes em 39 — as duas metades (`/*` e `//`) do
+    # `test_um_literal_com_barra_e_asterisco_nao_cega_o_resto` da enumeracao e o
+    # `test_num_ts_um_literal_com_barra_e_asterisco_nao_esconde_o_que_vem_depois`
+    # do *lint* —, e as restantes continuam verdes. O canario do *lint* teve de
+    # ser **redisposto** para morder: a primeira versao punha o `*/` antes do
+    # `set_config` e o achado aparecia de qualquer maneira. Fica dito porque um
+    # canario que passa com a mutacao aplicada e um canario morto.
+    ("isolamento: o limpador de comentarios volta a ser cego as cadeias",
+     ISO_TEXTO, "        if caracter in _FECHOS:", "        if False:",
+     ISOLAMENTO_UNIT),
+    # Um ciclo sobre uma lista de caminhos volta a dar **um** indeciso em vez de
+    # um item por caminho. Nao e falso — um indeciso tambem para o *gate* —, mas
+    # conta 1 superficie onde ha 7, e uma oitava entrada na lista deixa de mudar
+    # a enumeracao. E o criterio 2 a medir-se a si mesmo.
+    ("isolamento: um ciclo sobre uma lista de rotas volta a ser indeciso",
+     ISO_ENUM,
+     "                do_ciclo = _caminhos_do_ciclo(alvo, ciclos, listas)",
+     "                do_ciclo = None", ISOLAMENTO_UNIT),
+    # O *lint* deixa de reconhecer o `false` escrito a letra.
+    ("isolamento: o lint aceita set_config de sessao a letra", ISO_LINTS,
+     "_FALSIDADE = (\"false\", \"'false'\", '\"false\"')",
+     "_FALSIDADE = ()", ISOLAMENTO_UNIT),
+    # A regra 3 do *lint*: deixa de ir ver o que os chamadores passam. E a
+    # regra que apanha o unico sitio real deste conjunto, e nenhuma das outras
+    # duas o via — o SQL esta correcto e e **a chamada** que esta errada.
+    ("isolamento: o lint deixa de ver os chamadores do is_local", ISO_LINTS,
+     "                valores, indecisos = _is_local_dos_chamadores(raiz, nome)",
+     "                valores, indecisos = set(), []", ISOLAMENTO_UNIT),
+    # O oraculo deixa de encontrar. Sem a sonda positiva do
+    # `confirmar_que_morde`, esta mutacao tornava verdes **todas** as
+    # afirmacoes de «zero canarios» da suite — que e precisamente o cenario que
+    # o criterio 8 manda provar.
+    ("isolamento: o oraculo deixa de encontrar o canario", ISO_ORACULO,
+     "            posicao = texto.find(proibido)", "            posicao = -1",
+     ISOLAMENTO_UNIT),
+    # O eixo do contacto, contra a base: a leitura deixa de filtrar por
+    # contacto. **Nao ha RLS que a apanhe** — X e Y estao no mesmo tenant e a
+    # politica `tenant_iso` deixa passar os dois —, pelo que esta e a unica
+    # mutacao deste ficheiro que so o C-01 mata.
+    #
+    # shortcut: esta mutacao esta conferida por `--aplicaveis` e **nao esta
+    # provada por execucao**. A linha de base da `tests_isolamento` na copia
+    # fica vermelha porque o condutor de TypeScript nao termina lá — os quatro
+    # casos de `precisa="node"` saem com `executado: false` —, e a causa nao
+    # ficou isolada: na arvore real os mesmos casos correm verdes (83 ensaios,
+    # 572,7 s, OK a 2026-11-05, ja com o grupo `com-interna`; 96 s no CI, onde ha
+    # `node` no PATH e o condutor nao paga arranque de contentor por grupo). Enquanto isto durar, a prova por mutacao do eixo do contacto
+    # e NAO VERIFICADA. Revisto quando a tarefa nocturna de mutacoes correr
+    # sobre este ficheiro pela primeira vez — que e quando o defeito aparece num
+    # artefacto em vez de na maquina de quem o escreveu —, pelo Engenheiro de
+    # Plataforma.
+    ("isolamento: a leitura do contacto deixa de filtrar por contacto", ISO_C01,
+     '            f"SELECT {coluna}::text FROM {schema}.{tabela} WHERE contact_id = %s",',
+     '            f"SELECT {coluna}::text FROM {schema}.{tabela}",', ISOLAMENTO),
+    # **A metade do criterio 8 que e alcancavel, e a razao por que esta e que e.**
+    #
+    # O criterio pede «remover o `WHERE tenant_id` de uma funcao de repositorio
+    # torna X-02/X-03 vermelhos». Com a RLS em `FORCE` isso nao da: o predicado
+    # do repositorio e a camada **de cima**, e tirando-o fica a politica
+    # `tenant_iso` a recusar — a leitura devolve zero linhas e o caso continua
+    # verde, por outra razao. A leitura esta devolvida a quem escreveu o
+    # criterio, no «o que nao se cumpre» do bloco.
+    #
+    # Esta mutacao e o mesmo pedido na camada onde a barreira **vive**: o
+    # `ctxDoPedido` da API interna do COM constroi o `ctx` com o tenant do
+    # cabecalho `x-kamba-tenant` e nunca do corpo, e esta mutacao faz um campo do
+    # corpo ganhar-lhe. Os tres ataques do `X-01/ts/com-interna` mandam
+    # `tenant_id` de B no corpo, pelo que dois dos tres passam a chamar a porta
+    # com o `ctx` de B — a marca `ctx` do relatorio passa de `a` a
+    # `outro-tenant` e o caso fica vermelho. **Nao ha RLS que a apanhe**: nao
+    # ha base nenhuma neste caminho, e e precisamente por isso que ele precisa
+    # de caso proprio.
+    #
+    # **Provada por execucao a 2026-11-05, e contra codigo de producao e nao
+    # contra o proprio aparelho** — que e a diferenca entre esta e as outras
+    # mutacoes do *harness*. Aplicada a mao ao `interna.ts`, o condutor correu o
+    # grupo `com-interna` na arvore mutada e a marca do relatorio passou de
+    # `ctx=a` a `ctx=outro-tenant`; o caso registado sobre esse relatorio deu
+    # **sete achados, um por rota**, cada um a nomear o `ctx` deslocado. A
+    # arvore foi restaurada e o `--aplicaveis` confirmou 0 nao aplicaveis.
+    ("isolamento: a API interna do COM le o tenant do corpo", COM_API_INTERNA,
+     "    tenantId: tenantHeader.toLowerCase(),",
+     '    tenantId: String(corpo["tenant_id"] ?? tenantHeader).toLowerCase(),',
+     ISOLAMENTO),
+    # **A primeira metade do criterio 8, ao pe da letra, e agora possivel.**
+    #
+    # O criterio pede «remover o `WHERE tenant_id` de uma funcao de repositorio
+    # torna X-02/X-03 vermelhos», e a leitura que eu devolvi dizia que com a RLS
+    # em `FORCE` isso nao da: tirar o predicado do repositorio deixa a politica
+    # a recusar, e o caso fica verde por outra razao. Isso continua verdade para
+    # o eixo do **tenant**.
+    #
+    # No eixo do **contacto** nao ha politica a tapar o buraco: X e Y estao no
+    # mesmo tenant e a `tenant_iso` deixa passar os dois. Logo tirar o
+    # `contact_id = $2` da `SQL_COTACAO_VALIDA` — que o KAM-179 acrescentou por
+    # decisao do fundador de 2026-11-04 — **tem** de avermelhar o
+    # `C-01/consultas`, e nada o apanha se nao for esta bateria. E a mutacao que
+    # este ticket existia para poder escrever, e so se pode escrever desde que o
+    # predicado existe: enquanto nao existia, a bateria fixava a ausencia.
+    ("cotacoes: a leitura perde o predicado do contacto", COM_CONSULTAS_PRODUTOS,
+     "     AND contact_id = $2", "     AND $2 = $2", ISOLAMENTO),
     ("catalogo: a descoberta ignora o schema platform", CATALOGO,
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast")',
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast", "platform")',
@@ -6183,6 +6337,53 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         destino / ".github" / "workflows" / "ci.yaml",
     )
     shutil.copy(RAIZ / "Makefile", destino / "Makefile")
+    # KAM-066: o *harness* de isolamento cruzado, e **a regra escrita no fim
+    # desta funcao a ser cumprida outra vez**. O
+    # `db/tests_isolamento/test_casos_cruzados.py` importa `isolamento` de
+    # `tools/`, e sem estas linhas a linha de base da `tests_isolamento` ficava
+    # vermelha com `ModuleNotFoundError: No module named 'isolamento'` — e uma
+    # mutacao «apanhada» sobre isso nao significa nada. Medido, na primeira
+    # execucao da mutacao do predicado de contacto.
+    #
+    # Cinco pecas, e cada uma tem razao:
+    #
+    #   tools/isolamento   o *harness*: a enumeracao, o registo, o oraculo, as
+    #                      baterias e o condutor
+    #   registry/          a enumeracao de *tools* e de consumidores le-o, e o
+    #                      caso `JOB/filas-de-evento` confronta a derivacao do
+    #                      nome de fila com os consumidores que ele declara
+    #   specs/INDICE.md    o leitor de dispensas confronta o credor com o §4 do
+    #                      backlog: sem o ficheiro, levanta
+    #   services/gwy,      a fonte que a enumeracao de rotas varre e que o
+    #   worker-canal,      condutor importa. O `services/agr` e o
+    #   onboarding-web    `services/com/src` ja vinham acima
+    shutil.copytree(
+        RAIZ / "tools" / "isolamento", destino / "tools" / "isolamento",
+        ignore=ignorar,
+    )
+    # `dirs_exist_ok`: o `registry/` ja vem de cima (a validacao do registo do
+    # AGR precisa dele), e repeti-lo rebentava com `FileExistsError` no Windows.
+    # Copia-se de novo em vez de confiar na ordem: esta funcao e longa e a
+    # proxima linha a mudar de sitio nao pode partir a linha de base.
+    shutil.copytree(
+        RAIZ / "registry", destino / "registry", ignore=ignorar, dirs_exist_ok=True
+    )
+    shutil.copy(RAIZ / "specs" / "INDICE.md", destino / "specs" / "INDICE.md")
+    # **So o `src/`**, como o `services/com` acima, e por uma razao de sistema de
+    # ficheiros: `services/gwy/node_modules` leva os atalhos do `pnpm`, e o
+    # `copytree` do Windows nao os consegue seguir (`WinError 1920`). Os modulos
+    # chegam a copia por atalho, do `KAMBA_RAIZ_NODE_MODULES` — ver
+    # `tools/isolamento/condutor/ponte.py`, `ARVORES_DE_MODULOS`.
+    for servico in ("gwy", "worker-canal", "onboarding-web"):
+        shutil.copytree(
+            RAIZ / "services" / servico / "src",
+            destino / "services" / servico / "src",
+            ignore=ignorar,
+        )
+        shutil.copy(
+            RAIZ / "services" / servico / "package.json",
+            destino / "services" / servico / "package.json",
+        )
 
 
 def _copiar_para_o_gate_9(destino: Path, ignorar) -> None:
@@ -6263,6 +6464,107 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     # de aplicar a primeira. Encontrado ao correr um filtro largo no KAM-015.
     (destino / "canon").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "canon" / "dicionario.yaml", destino / "canon" / "dicionario.yaml")
+
+
+def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
+    """O que as mutacoes do *harness* de isolamento precisam (KAM-066).
+
+    E mais do que o pacote, e cada peca tem razao:
+
+    * `tools/isolamento` — o que se muta e as baterias que o medem;
+    * `tools/kamba_yaml.py` — por onde se leem as listas de `ci/`;
+    * `ci/isolamento-*.yaml` — as dispensas e as excepcoes ao `SET LOCAL`;
+    * `registry/` e `specs/INDICE.md` — a enumeracao de *tools* e de
+      consumidores le o registo, e o leitor de dispensas confronta o credor com
+      o §4 do backlog;
+    * `services/*/src`, `packages/*/src` e `libs/py-core/src` — **a fonte que a
+      enumeracao varre e que o *lint* le**. Sem elas a enumeracao devolvia zero
+      itens e levantava, e a linha de base da suite ficava vermelha: uma
+      mutacao «apanhada» sobre isso nao significa nada (a licao que o KAM-004
+      pagou com dez mutacoes em dez);
+    * `db/mutacoes.py` — este ficheiro. O `test_lints.py` afirma que a lista de
+      mutacoes esta **fora** do corpus do *lint*, porque ela contem, como dado,
+      o texto `set_config(..., %s, false)`.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "isolamento", destino / "tools" / "isolamento",
+        ignore=ignorar,
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    (destino / "ci").mkdir(parents=True, exist_ok=True)
+    for nome in ("isolamento-dispensas.yaml", "isolamento-set-sessao.yaml"):
+        shutil.copy(RAIZ / "ci" / nome, destino / "ci" / nome)
+    shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
+    (destino / "specs").mkdir(parents=True, exist_ok=True)
+    shutil.copy(RAIZ / "specs" / "INDICE.md", destino / "specs" / "INDICE.md")
+    # **O `src/` de cada servico, e nunca a raiz do servico.** Os
+    # `services/<nome>/node_modules` levam as ligacoes de *workspace* do pnpm, e
+    # o `copytree` **segue-as**: no Linux isso da uma recursao por
+    # `@kamba/core-ts` -> `@kamba/meta-sim` -> `@kamba/core-ts` ate o caminho
+    # nao caber, e o `shutil.Error` tem um nome de ficheiro de quatro mil
+    # caracteres. Medido no gate 8 (`db/tests/test_mutacoes.py` exercita esta
+    # funcao). No Windows o mesmo caminho dava `WinError 1920`, por nao
+    # conseguir seguir as ligacoes — o mesmo defeito a falhar de duas maneiras.
+    for servico in ("agr", "com", "gwy", "worker-canal", "onboarding-web"):
+        shutil.copytree(
+            RAIZ / "services" / servico / "src",
+            destino / "services" / servico / "src",
+            ignore=ignorar,
+            dirs_exist_ok=True,
+        )
+        # **E o `package.json` de cada um.** E ele que declara
+        # `"type": "module"`, e o `node` resolve o tipo de um `.ts` subindo a
+        # arvore ate encontrar um: sem ele, `services/com/src/produtos/…` era
+        # tratado como CommonJS e o `import` rebentava com `Cannot use import
+        # statement outside a module` — que os `catch` do condutor transformam
+        # em `executado: false`. E o candidato que a revisao adversarial
+        # apontou para o `executado: false` da copia (achado 21).
+        #
+        # **O `agr` nao tem `package.json`, e e por isso que isto pergunta pela
+        # origem.** Ele e o servico em Python; a primeira versao desta linha
+        # copiava os cinco sem perguntar e rebentou **no CI** com
+        # `FileNotFoundError: services/agr/package.json`, dentro do
+        # `_copiar_para_o_isolamento`. Localmente nao aparecia: o
+        # `--aplicaveis` so confere texto e nunca constroi a copia, e e o
+        # `make ci-8` que a constroi. Medido a 2026-11-05.
+        origem = RAIZ / "services" / servico / "package.json"
+        alvo = destino / "services" / servico / "package.json"
+        if origem.exists() and not alvo.exists():
+            shutil.copy(origem, alvo)
+    for pacote in ("contracts", "core-ts"):
+        shutil.copytree(
+            RAIZ / "packages" / pacote / "src",
+            destino / "packages" / pacote / "src",
+            ignore=ignorar,
+        )
+    shutil.copytree(
+        RAIZ / "libs" / "py-core" / "src",
+        destino / "libs" / "py-core" / "src",
+        ignore=ignorar,
+    )
+    # **Todo o `db/*.py`, e nao so este ficheiro.** O corpus do *lint* passou a
+    # ser `db/*.py` inteiro (achado 5 da revisao adversarial), e com ele vem a
+    # excepcao declarada de `db/auditoria.py#main` e o ensaio que exige o
+    # `db/auditoria.py` e o `db/ligacao.py` dentro do corpus. Com um ficheiro so
+    # na copia, a excepcao parecia **morta** e a linha de base ficava vermelha.
+    #
+    # Medido no *gate* 8 a 2026-11-05, pelo
+    # `test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia` — o
+    # portao desenhado para esta classe de atraso, «a receita esta atras do que
+    # a suite abre». Nao se ve nesta maquina: o `--aplicaveis` so confere texto
+    # e nunca constroi a copia.
+    #
+    # Nao e `copytree` de `db/`: as suites de `db/tests_*` nao entram aqui, e o
+    # `glob` de topo e exactamente o que o corpus nomeia.
+    (destino / "db").mkdir(parents=True, exist_ok=True)
+    for ficheiro in sorted(RAIZ.glob("db/*.py")):
+        shutil.copy(ficheiro, destino / "db" / ficheiro.name)
+    # E as revisoes, pelo segundo *glob* do corpus (`db/migrations/versions/*.py`).
+    (destino / "db" / "migrations" / "versions").mkdir(parents=True, exist_ok=True)
+    for ficheiro in sorted(RAIZ.glob("db/migrations/versions/*.py")):
+        shutil.copy(
+            ficheiro, destino / "db" / "migrations" / "versions" / ficheiro.name
+        )
 
 
 def _copiar_para_as_contagens(destino: Path, ignorar) -> None:
@@ -6415,6 +6717,7 @@ COPIA_DE_TOOLS = {
     LLM_CONFIG: _copiar_para_os_aliases,
     PIP_NA_BUILD: _copiar_para_o_pip_na_build,
     COSIGN: _copiar_para_o_cosign,
+    ISOLAMENTO_UNIT: _copiar_para_o_isolamento,
 }
 
 

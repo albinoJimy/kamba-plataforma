@@ -165,6 +165,51 @@ def _payment_account(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _caso_de_reembolso(cursor, tenant_id: str, canario: str) -> None:
+    """Um caso de reembolso aberto (KAM-054). O canario vai no `motivo`.
+
+    O `motivo` e `text NOT NULL` e e a razao escrita que o M-8 exige — a unica
+    coluna de texto arbitrario desta tabela, e por isso o canario vai la.
+
+    **O `charge_id` fica nulo e o `order_id` leva um UUID solto**, e e o que o
+    `refund_cases_um_sujeito` aceita: exactamente um dos dois nao-nulo. O
+    `order_id` **nao tem FK** nesta revisao (a FK para `orders_mirror` e do
+    KAM-055, pela razao escrita na `0029`), pelo que um UUID solto nao prende
+    nada; o `charge_id` tem, e usa-lo obrigava a semear uma `payment_charges`,
+    que esta em `SEM_RECEITA_COM_RAZAO` por causa do *trigger*
+    `assert_beneficiary`.
+
+    Semeia o administrador: **nenhum papel de aplicacao tem `INSERT`** nesta
+    tabela — quem a escreve e a `manual_reverter`, que e `SECURITY DEFINER`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.refund_cases "
+        "(tenant_id, order_id, motivo, valor_minor, estado) "
+        "VALUES (%s, gen_random_uuid(), %s, 1000, 'aberto')",
+        (tenant_id, canario),
+    )
+
+
+def _sinal_de_fraude(cursor, tenant_id: str, canario: str) -> None:
+    """Um sinal do motor determinista (KAM-054). O canario vai na `regra`.
+
+    A `regra` e `text NOT NULL` e e o nome da regra que disparou — a unica
+    coluna de texto arbitrario, pelo que o canario vai la. O `contact_id` e o
+    `charge_id` ficam nulos: os dois sao anulaveis de propósito (um sinal pode
+    ser do tenant e nao de um contacto), e o segundo evitava a
+    `payment_charges`.
+
+    Semeia o administrador, pela razao da `refund_cases`: nenhum papel de
+    aplicacao tem `INSERT` — quem escreve e a `manual_confirmar`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.fraud_signals "
+        "(tenant_id, regra, severidade, accao) "
+        "VALUES (%s, %s, 3, 'reter_confirmacao')",
+        (tenant_id, canario),
+    )
+
+
 def _oferta(cursor, tenant_id: str, canario: str) -> None:
     """Os termos comerciais de um SKU (KAM-043, revisao `0028`).
 
@@ -1131,6 +1176,29 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # estao no `GRANT UPDATE (...)` por coluna da revisao `0028`, e tinham de
     # estar: uma coluna fora dele fazia os testes de escrita cruzada falharem
     # por privilegio onde deviam falhar por politica.
+    # KAM-054, revisao `0032`. **Duas das quatro**, e as outras duas estao em
+    # `SEM_RECEITA_COM_RAZAO` — ver as entradas da `manual_confirmations` e do
+    # `payment_confirmers` nessa lista.
+    #
+    # As duas com `escrita_do_papel=False` e `coluna_alteravel=None`, e pela
+    # mesma razao: **nenhum papel de aplicacao escreve nestas tabelas**. O
+    # `kamba_app` tem `SELECT` e mais nada, e quem escreve sao as quatro funcoes
+    # `manual_*`, que correm `SECURITY DEFINER`. O que isso troca, e e mais
+    # forte: o X-03/X-04 passa a provar que o papel **nao tem o privilegio** em
+    # vez de provar que a politica o recusa — e isso nao depende de a politica
+    # estar certa. E a mesma escolha da `payment_accounts` e dos
+    # `entitlements`.
+    #
+    # As duas semeiam pelo **administrador**, e aqui a razao e mais simples do
+    # que nas de identidade: nem o `kamba_batch` tem `INSERT` nelas.
+    ("platform", "refund_cases"): Receita(
+        _caso_de_reembolso, "motivo", None, None,
+        semeador="admin", escrita_do_papel=False,
+    ),
+    ("platform", "fraud_signals"): Receita(
+        _sinal_de_fraude, "regra", None, None,
+        semeador="admin", escrita_do_papel=False,
+    ),
     ("platform", "offer_terms"): Receita(_oferta, "sku", "nome", "nome alterado"),
     # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
     # vai buscar o contacto por subconsulta, e o `kamba_batch` **nao tem
@@ -1542,6 +1610,61 @@ SEM_RECEITA_COM_RAZAO = {
     # Esta linha e a consequencia desse achado nesta bateria, nao uma segunda
     # opiniao sobre ele.
     ("platform", "payment_charges"),
+    # KAM-054: o registo das fases da confirmacao manual, e a razao e a soma
+    # das duas que ja estao nesta lista.
+    #
+    # Como a `payment_events`: **nenhum papel de aplicacao tem `INSERT`**, pelo
+    # que nao ha receita para escrever — as unicas portas sao as quatro funcoes
+    # `manual_*`, todas `SECURITY DEFINER`, e cada uma delas exige uma cobranca
+    # existente e visivel e escreve tambem no ledger. Uma semente que chamasse
+    # qualquer uma nao semeava uma linha: corria o ticket inteiro.
+    #
+    # E como a `payment_charges`: o `charge_id` e `NOT NULL` com FK, logo uma
+    # receita que inserisse directamente tinha de semear uma cobranca — e a
+    # cobranca esta fora desta bateria por causa do *trigger*
+    # `assert_beneficiary`, que recusa **antes** de a politica dizer nada.
+    # Herdaria, portanto, a mesma ambiguidade: o X-04 media a G-1 com o nome do
+    # `WITH CHECK`.
+    #
+    # O isolamento prova-se em
+    # `db/tests_pagamentos/test_confirmacao_manual.py::TestIsolamentoDaConfirmacao`,
+    # que faz as perguntas do X-03/X-04 sobre esta tabela sem precisar de apagar
+    # nada — e faz tres que esta bateria nao sabe fazer: as fases de A nao se
+    # leem do contexto de B (com a sonda positiva ao lado), as funcoes `DEFINER`
+    # **recusam** com o contexto de B sobre uma cobranca de A (o `FORCE` prende
+    # tambem o dono), e um confirmador que **esta** em `payment_confirmers` do
+    # tenant B nao confirma uma cobranca de A, que e a RLS cruzada que o DoD
+    # nomeia.
+    ("platform", "manual_confirmations"),
+    # KAM-054: a lista de quem pode confirmar, e a razao e **a unica desta
+    # lista que e sobre o canario** e nao sobre uma barreira.
+    #
+    # Esta bateria identifica a linha de cada tenant por um valor que a receita
+    # escolhe, e procura o valor de B em tudo o que A le. As seis colunas desta
+    # tabela nao deixam escolher nenhum: `papel` e um dominio fechado de dois
+    # valores, `pode_segunda_aprovacao` e `ativo` sao booleanos, o `criado_at` e
+    # um instante, e os dois UUID sao **chaves estrangeiras** — o `tenant_id`
+    # para `tenants` e o `contact_id` para `contacts`. A `conversations` pôde pôr
+    # o canario na chave primaria porque o `id` dela e livre; aqui nao e.
+    #
+    # Libertar o `contact_id` obrigava a receita a inserir um contacto proprio
+    # por tenant, e isso **mediu-se**: parte a bateria de identidade, que conta
+    # os contactos de cada tenant e procura o canario **dela** neles. Sete
+    # ensaios vermelhos em `TestContactosVistosPelaAplicacao`,
+    # `TestEscritaCruzada` e `TestReutilizacaoDeLigacao`, nenhum deles sobre
+    # esta tabela. Inventar uma coluna de texto para esta bateria a poder semear
+    # era pior: acrescentava superficie a uma tabela cuja estreiteza e a
+    # propria regra M-1.
+    #
+    # O isolamento prova-se em
+    # `db/tests_pagamentos/test_confirmacao_manual.py::TestIsolamentoDaConfirmacao`,
+    # com as perguntas do X-03/X-04 — os confirmadores de A nao se leem do
+    # contexto de B, com a sonda positiva ao lado — e com uma que esta bateria
+    # nao sabe fazer: um contacto que **esta** em `payment_confirmers` do tenant
+    # B nao confirma uma cobranca de A, que e a RLS cruzada que o DoD nomeia.
+    # O privilegio mede-se no `TestPrivilegiosDasQuatroTabelas`, que exige
+    # `42501` no `INSERT` do `kamba_app`.
+    ("platform", "payment_confirmers"),
     # KAM-030. Pela razao da `audit_log` e da `tool_audit`: as receitas semeiam
     # **e apagam**, e o *trigger* `ENABLE ALWAYS` da revisao `0023` recusa o
     # `DELETE`. O isolamento prova-se em `db/tests_agr/test_llm_call_log.py`,
@@ -1658,6 +1781,10 @@ ORDEM = (
     ("platform", "orders_mirror"),
     ("platform", "order_intents"),
     ("platform", "order_reconciliation_issues"),
+    # KAM-054: as duas so dependem de `tenants` e ninguem as aponta, pelo que
+    # ficam no fim, como as do KAM-009.
+    ("platform", "refund_cases"),
+    ("platform", "fraud_signals"),
 )
 
 #: As identidades com que as receitas semeiam.
