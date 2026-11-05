@@ -12048,7 +12048,10 @@ entradas:
       - "bigint"
       - "stock_modo"
       - "garantido"
-      - "offer_terms_stock_garantido_exige_quantidade_ck"
+      - "SQL_RESERVAR"
+      - "offer_terms"
+      - "tests_produtos"
+      - "upsertProductDraft"
     variantes_literais: []
   - seccao: "3.46"
     conceito: "Quantidade prometida a reservas activas"
