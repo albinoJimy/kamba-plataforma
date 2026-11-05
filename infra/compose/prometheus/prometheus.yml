@@ -1,33 +1,104 @@
-# Prometheus de producao — KAM-076.
+# Prometheus de producao — KAM-076 (o contentor), KAM-080 (a observabilidade).
 #
-# **ESTA CONFIGURACAO NAO E OBSERVABILIDADE, E NAO SE DEVE LER COMO TAL.**
+# O KAM-076 trouxe o contentor, a rede `ops` e o limite de memoria, e escreveu
+# aqui, por extenso, que **esta configuracao nao era observabilidade**. Este
+# ficheiro e a parte que faltava: os alvos, as regras e o encaminhamento.
 #
-# O KAM-076 traz o contentor, a rede `ops` e o limite de memoria. O que o doc 09
-# §9 pede — as metricas por tenant, a latencia de ingress, a profundidade da
-# fila, o custo LLM, os 12 alertas com `runbook_url`, os paineis como codigo e a
-# sonda sintetica externa — e o **KAM-080**, que depende deste ticket. Nao se
-# acrescenta aqui um `scrape_config` por servico por antecipacao: um alvo que
-# raspa um `/metrics` que ainda nao existe produz um `up 0` permanente, e um
-# painel cheio de alvos em baixo ensina a equipa a ignorar o painel.
+# ## Os alvos sao tres, e nao treze
 #
-# O unico alvo e o proprio Prometheus. Serve duas coisas verificaveis hoje:
-# que o processo arranca com a configuracao montada so de leitura, e que `ops`
-# existe e esta isolada (uma rede sem membros nao e criada pelo Docker).
+# O KAM-076 recusou acrescentar um `scrape_config` por servico «por
+# antecipacao», com a razao certa: «um alvo que raspa um `/metrics` que ainda
+# nao existe produz um `up 0` permanente, e um painel cheio de alvos em baixo
+# ensina a equipa a ignorar o painel».
 #
-# Sem `alerting:` e sem `rule_files:`: a regra do doc 09 §9.2 e «alerta sem
-# runbook e removido», e os *stubs* RB-K01 a RB-K10 sao do KAM-080. Um ficheiro
-# de regras vazio aqui passaria o `promtool` e nao diria nada.
+# Medido a 2026-11-05, antes deste ticket: das 109 metricas declaradas no
+# codigo, **23** estavam expostas num `/metrics` de processo, e em `docker
+# compose` so **duas** superficies eram alcancaveis — `gwy:3010` e `com:3002`.
+# As 44 do AGR nao tinham rota nenhuma.
+#
+# Este ticket acrescenta a terceira (o AGR) e **para ai**. Os modulos
+# `outbound`, `metering`, `hnd`, `qualidade`, `coexistencia`, `avisos`,
+# `consentimento`, `modos` e `onboarding` do `packages/core-ts` declaram
+# metricas que **nenhum servico importa** (medido: `grep -rn "core-ts/outbound"
+# services` da zero) — sao biblioteca a espera de quem as ligue, e raspa-las
+# hoje publicava zeros permanentes. Estao nomeadas uma a uma, com o credor, em
+# `../../../ops/metricas/catalogo.yaml`.
+#
+# ## Porque e que o `gwy` e o `agr` usam `dns_sd_configs` e o `com` tambem
+#
+# Os dois correm com `deploy.replicas: 2`. Um `static_configs` com o nome do
+# servico resolve-o por DNS e o Prometheus raspa **um** dos enderecos — pelo que
+# metade das series desaparecia sem que nada ficasse vermelho. E o modo de falha
+# pior desta familia: nao e um alvo em baixo, e um numero errado com ar de certo.
+#
+# O `dns_sd_configs` com `type: A` descobre **todos** os enderecos que o DNS do
+# compose devolve para aquele nome, e da uma serie por replica. O `com` usa a
+# mesma forma por uniformidade — no dia em que ganhar uma segunda replica, nao
+# ha nada a mudar aqui, e uma configuracao que se corrige sozinha vale mais do
+# que duas formas a conviver.
 
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
   external_labels:
-    # `tenant_id` e a unica etiqueta de tenant permitida (criterio 3 do
-    # KAM-080); aqui nao ha nenhuma, e o ambiente nao e identificador pessoal.
+    # `tenant_id` nao entra em etiqueta nenhuma — nem aqui. O ambiente nao e
+    # identificador pessoal, e e o que distingue duas instalacoes num painel.
     ambiente: prod
 
+# ------------------------------------------------------------------ alertas
+#
+# O Alertmanager entra no compose com este ticket (Apache-2.0, 256 MiB, ja
+# orcamentado no `conjunto-reduzido.yaml` do KAM-076).
+#
+# **O que ele ainda nao faz e sair.** O `infra/egress/alertmanager.yaml` fica
+# com `destinos: []` porque o **canal de alertas nao esta escolhido**, e um FQDN
+# inventado aqui era pior do que a lista vazia. O efeito, dito sem rodeios: as
+# regras avaliam, os alertas agrupam-se e ficam visiveis no Alertmanager, e
+# **nenhum ser humano e notificado**. A caixa do criterio 4 que pede «chega ao
+# canal certo» fica vazia por esta razao.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# ------------------------------------------------------------------- regras
+#
+# O ficheiro valida-se com `make obs-promtool`, que corre o `promtool` de dentro
+# desta mesma imagem. As regras que **nao** se escreveram, e porque, estao em
+# `../../../ops/metricas/catalogo.yaml` (`regras_por_escrever`).
+rule_files:
+  - /etc/prometheus/regras/*.yml
+
+# -------------------------------------------------------------------- alvos
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets:
           - 127.0.0.1:9090
+
+  # A app **interna** do GWY, na 3010. A publica (3000) nao serve `/metrics` de
+  # proposito, e um teste do GWY exige que nao sirva: a superficie que recebe
+  # webhooks da Internet nao expoe contadores.
+  - job_name: gwy
+    dns_sd_configs:
+      - names:
+          - gwy
+        type: A
+        port: 3010
+
+  # O COM serve `/metrics` na mesma porta da API interna (KAM-178).
+  - job_name: com
+    dns_sd_configs:
+      - names:
+          - com
+        type: A
+        port: 3002
+
+  # O AGR, com as 44 metricas que ja declarava e nao servia (KAM-080).
+  - job_name: agr
+    dns_sd_configs:
+      - names:
+          - agr
+        type: A
+        port: 8000

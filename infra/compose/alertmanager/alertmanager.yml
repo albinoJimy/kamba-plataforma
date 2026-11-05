@@ -1,0 +1,110 @@
+# Alertmanager de producao — KAM-080.
+#
+# Apache-2.0 (lido do `LICENSE` do projecto na etiqueta `v0.28.1`; a imagem
+# **nao traz** `/LICENSE`, que foi medido — e a mesma armadilha que o KAM-076
+# registou para o Envoy, cujo unico ficheiro de licenca dentro da imagem era o
+# `copyright` GPL de um pacote Debian de base).
+#
+# ## O QUE ESTE FICHEIRO FAZ, E O QUE ELE NAO FAZ
+#
+# Faz: agrupar, desduplicar, silenciar e **encaminhar por severidade**.
+#
+# Nao faz: **notificar ninguem.** Os tres `receivers` nao tem notificador
+# configurado, e isso e deliberado e nao esta por acabar:
+#
+#   * o **canal de alertas nao esta escolhido**. O `docs/tecnica/09` §16 fixa a
+#     rotacao e o escalamento, e **nao** nomeia transporte: nao diz e-mail, nem
+#     SMS, nem Slack, nem um fornecedor de paging;
+#   * escolher um e acrescentar um **subprocessador**, que entra no inventario
+#     do **KAM-069**, e e uma decisao que nao e de quem escreve este ticket;
+#   * e o `infra/egress/alertmanager.yaml` e `destinos: []` por omissao negada:
+#     um FQDN inventado aqui passava o gate e mandava alertas para um sitio que
+#     ninguem decidiu.
+#
+# **O efeito, dito sem rodeios:** as regras avaliam, os alertas agrupam-se e
+# ficam visiveis no Alertmanager, e **nenhum ser humano e notificado**. A metade
+# do criterio 4 que pede «chega ao canal certo» fica **vazia** por esta razao, e
+# nao se marca com a existencia deste ficheiro.
+#
+# Um `receiver` com nome e sem notificador e a forma de o dizer **em
+# configuracao valida** em vez de em prosa: o `amtool check-config` aceita-o, a
+# arvore de encaminhamento esta escrita e testada, e no dia em que o canal for
+# escolhido o que falta e um bloco de notificador por `receiver` — nao e
+# redesenhar o encaminhamento.
+#
+# ## O escalamento do §16 nao se escreve aqui, e vale dizer porque
+#
+# O §16 diz «primario → secundario (15 min) → arquitecto». O Alertmanager
+# **nao** implementa isso: ele reenvia ao mesmo `receiver` em
+# `repeat_interval`, e nao sabe que o primeiro humano nao respondeu — quem sabe
+# isso e um sistema de *paging* com confirmacao de recepcao, que nao existe aqui.
+#
+# O que este ficheiro da e a materia-prima: `repeat_interval` curto nos P1, para
+# que o alerta volte enquanto ninguem o silencia. A passagem ao secundario e,
+# hoje, **procedimento humano** — esta em `docs/observabilidade.md` §4 e no §16,
+# e nao se finge que e automatica.
+
+global:
+  # Quanto tempo depois de a condicao deixar de se verificar se considera
+  # resolvido. Tem de ser maior do que o `evaluation_interval` de 30 s do
+  # Prometheus, senao um alerta a oscilar resolve-se entre avaliacoes.
+  resolve_timeout: 5m
+
+# ------------------------------------------------------------ encaminhamento
+route:
+  # Agrupa pelo alerta, pela severidade e pelo componente. **Nao** pelo
+  # `instance`: com `deploy.replicas: 2` no `gwy` e no `agr`, agrupar por
+  # instancia dava dois alertas para o mesmo problema.
+  group_by:
+    - alertname
+    - severity
+    - componente
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: registo-p3
+
+  routes:
+    # P1 — acorda alguem. `group_wait: 0s` porque esperar 30 s para agrupar um
+    # P1 e esperar 30 s.
+    - matchers:
+        - 'severity="P1"'
+      receiver: primario-p1
+      group_wait: 0s
+      repeat_interval: 15m
+
+    # P2 — horario comercial; reenvio de hora a hora.
+    - matchers:
+        - 'severity="P2"'
+      receiver: primario-p2
+      repeat_interval: 1h
+
+    - matchers:
+        - 'severity="P3"'
+      receiver: registo-p3
+      repeat_interval: 12h
+
+# ------------------------------------------------------------------ receivers
+#
+# Tres, um por severidade, **sem notificador**. Ver a nota do cabecalho: a
+# ausencia e a declaracao de que o canal nao esta escolhido.
+receivers:
+  - name: primario-p1
+  - name: primario-p2
+  - name: registo-p3
+
+# ------------------------------------------------------------------- inibicao
+#
+# Quando o ingress esta parado, tudo a jusante fica em silencio — e sem esta
+# regra a equipa recebia a causa e seis consequencias ao mesmo tempo, que e o
+# modo de falha que faz desligar alertas.
+#
+# So inibe P2 e P3: um P1 nunca se inibe, porque dois P1 ao mesmo tempo podem
+# ser dois problemas.
+inhibit_rules:
+  - source_matchers:
+      - 'alertname="ingress_parado"'
+    target_matchers:
+      - 'severity=~"P2|P3"'
+    equal:
+      - ambiente
