@@ -72,3 +72,11 @@ hora ou data].
 | Cópia guardada no repositório de provas | ☐ |
 
 *(a confirmar por parecer)* — todo o texto jurídico deste modelo.
+
+---
+
+## Controlo de versões
+
+| Versão | Data | Alteração | Autor |
+|---|---|---|---|
+| 0.1 | Novembro 2026 | Emissão (KAM-113): modelo de aviso à PME afectada. *Esboço*: não enviar sem revisão do advogado, salvo a excepção do fundador ([`../resposta_incidentes.md`](../resposta_incidentes.md) §9.4) | Equipa KAMBÁ |
