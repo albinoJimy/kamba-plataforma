@@ -35,7 +35,11 @@ administrador a politica nao se aplica, e o teste nao prova nada.
 from __future__ import annotations
 
 from tests_produtos.base import SKU_PARTILHADO, ComOfertas, daqui_a
-from tests_produtos.consultas import SQL_TERMOS
+from tests_produtos.consultas import (
+    SQL_ACEITAR_COTACAO,
+    SQL_COTACAO_VALIDA,
+    SQL_TERMOS,
+)
 
 #: As duas tabelas que esta revisao cria. A gama ISO aplica-se as duas.
 TABELAS = ("offer_terms", "price_quotes")
@@ -329,4 +333,86 @@ class TestAsCotacoesNaoAtravessamTenants(ComOfertas):
             (a, contacto, SKU_PARTILHADO, daqui_a(horas=1), a),
         )
         self.assertIsNotNone(cursor.fetchone()[0])
+        cursor.connection.rollback()
+
+
+class TestAsCotacoesNaoAtravessamContactos(ComOfertas):
+    """O KAM-179: a cotacao e do contacto a quem foi dada.
+
+    **A RLS nao tem nada a dizer sobre isto, e e o ponto.** Os dois contactos
+    sao do mesmo tenant, pelo que a politica `tenant_iso` deixa passar os dois e
+    as quatro bandeiras do `TestAsBandeirasDaRls` continuam verdes enquanto X le
+    o preco negociado para Y. O predicado e o do codigo, e e por isso que estes
+    casos correm o SQL **do modulo** em vez de uma copia dele.
+
+    Decisao do fundador de 2026-11-04: a cotacao e **por contacto**. O
+    `emitida_por` ja e a coluna de quem a emitiu, pelo que o `contact_id` ao
+    lado dele e o cliente **para quem** o preco foi dado.
+
+    Cada negativa leva a sua positiva ao lado, na mesma ligacao e com o mesmo
+    papel, pela razao que o cabecalho deste modulo escreve: «zero linhas» contra
+    uma tabela vazia fica verde sem predicado nenhum.
+    """
+
+    def test_x_nao_le_a_cotacao_de_y_dentro_do_mesmo_tenant(self) -> None:
+        a = self.criar_tenant()
+        x = self.criar_contacto(a)
+        y = self.criar_contacto(a)
+        self.criar_oferta(a)
+        self.criar_cotacao(a, y)
+        cursor = self.cursor_app(a)
+        agora = daqui_a()
+
+        # Como X, sobre o mesmo `(sku, qty)`: zero linhas.
+        cursor.execute(
+            SQL_COTACAO_VALIDA.sql,
+            SQL_COTACAO_VALIDA.args(a, x, SKU_PARTILHADO, 10, agora),
+        )
+        self.assertEqual(list(cursor.fetchall()), [])
+
+        # A sonda positiva: como Y, a mesma consulta devolve a cotacao. Sem
+        # ela, este caso ficava verde com a tabela vazia, com um `qty` errado ou
+        # com uma cotacao ja vencida — e nao media predicado nenhum.
+        cursor.execute(
+            SQL_COTACAO_VALIDA.sql,
+            SQL_COTACAO_VALIDA.args(a, y, SKU_PARTILHADO, 10, agora),
+        )
+        self.assertEqual(len(cursor.fetchall()), 1)
+        cursor.connection.rollback()
+
+    def test_x_nao_poe_a_cotacao_de_y_a_aceite(self) -> None:
+        """A escalada de leitura para escrita, medida contra a base.
+
+        O `getValidQuote` devolve o `id` da cotacao. Sem o predicado no
+        `UPDATE`, quem o tivesse punha a cotacao de outro contacto a `aceite` —
+        e `UPDATE 0` nao e recusa que alguem veja: e por isso que a assercao e
+        sobre o `rowcount` **e** sobre o estado relido.
+        """
+        a = self.criar_tenant()
+        x = self.criar_contacto(a)
+        y = self.criar_contacto(a)
+        self.criar_oferta(a)
+        cotacao = self.criar_cotacao(a, y)
+        cursor = self.cursor_app(a)
+        agora = daqui_a()
+
+        cursor.execute(
+            SQL_ACEITAR_COTACAO.sql,
+            SQL_ACEITAR_COTACAO.args(a, x, cotacao, agora),
+        )
+        self.assertEqual(list(cursor.fetchall()), [])
+
+        # E a linha de Y continua `emitida`: o `UPDATE` nao casou, e nao casou
+        # **por causa do contacto** — a positiva abaixo mostra que tudo o resto
+        # do predicado estava satisfeito.
+        cursor.execute(
+            "SELECT estado FROM platform.price_quotes WHERE id = %s", (cotacao,)
+        )
+        self.assertEqual(cursor.fetchone()[0], "emitida")
+
+        cursor.execute(
+            SQL_ACEITAR_COTACAO.sql,
+            SQL_ACEITAR_COTACAO.args(a, y, cotacao, agora),
+        )
+        self.assertEqual(len(cursor.fetchall()), 1)
         cursor.connection.rollback()
