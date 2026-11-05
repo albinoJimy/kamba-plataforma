@@ -405,7 +405,14 @@ class TestFalhaFechada(ComDuasLinhas):
     """Sem *reflog*, o comando diz que nao sabe. Nunca diz que esta conforme."""
 
     def test_sem_reflog_diz_que_nao_sabe(self) -> None:
-        ramo = self._ramo_sem_reflog("claude/sem-reflog-abc123", self.antiga)
+        """Sem *reflog* **e** com a ponta a tocar a linha certa: nao se sabe.
+
+        O ramo e cortado da linha **certa**, de proposito. Um ramo sem *reflog*
+        na linha **errada** e `RECUSADO` pela ponta, que e um sinal conclusivo —
+        ver `TestOSinalDaPonta`. O «nao sei» e para quando nenhum dos dois sinais
+        responde, e e este o estado.
+        """
+        ramo = self._ramo_sem_reflog("claude/sem-reflog-abc123", self.publica)
         caminho = base.caminho_do_reflog(self.raiz, ramo)
         assert caminho is not None
         self.assertFalse(caminho.is_file(), "a fixture tem de deixar o ramo sem log")
@@ -417,7 +424,7 @@ class TestFalhaFechada(ComDuasLinhas):
         self.assertEqual(veredicto.codigo, 2)
 
     def test_sem_reflog_o_cli_sai_nao_zero_e_nao_diz_conforme(self) -> None:
-        ramo = self._ramo_sem_reflog("claude/sem-reflog-abc123", self.antiga)
+        ramo = self._ramo_sem_reflog("claude/sem-reflog-abc123", self.publica)
         saida, erro = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erro):
             codigo = cli.main(["--root", str(self.raiz), "base", ramo])
@@ -425,6 +432,26 @@ class TestFalhaFechada(ComDuasLinhas):
         self.assertIn("NAO SE SABE", erro.getvalue())
         self.assertNotIn("conforme", erro.getvalue())
         self.assertEqual(saida.getvalue(), "")
+
+    def test_o_nao_sei_nao_manda_reparar_e_o_recusado_manda(self) -> None:
+        """Os dois estados nao-conformes imprimem textos diferentes.
+
+        Dizer «nao sei» e a seguir mandar reparar era contradizer-se na linha
+        seguinte, e deixava os dois estados distintos so na etiqueta.
+        """
+        desconhecido = self._ramo_sem_reflog("claude/sem-reflog-abc123", self.publica)
+        recusado = self._ramo_criado_em("claude/errado-abc123", self.antiga)
+
+        textos = {}
+        for ramo in (desconhecido, recusado):
+            erro = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(erro):
+                cli.main(["--root", str(self.raiz), "base", ramo])
+            textos[ramo] = erro.getvalue()
+
+        self.assertIn("Como reparar", textos[recusado])
+        self.assertNotIn("Como reparar", textos[desconhecido])
+        self.assertIn("Como descobrir", textos[desconhecido])
 
     def test_referencia_que_nao_existe_diz_que_nao_sabe(self) -> None:
         """Quem nunca fez o `fetch` com *refspec* nao tem a referencia local.
@@ -497,6 +524,180 @@ class TestDentroDeUmWorktree(ComDuasLinhas):
         assert caminho is not None
         self.assertTrue(caminho.is_file())
         self.assertNotIn("worktrees", str(caminho))
+
+
+class TestOSinalDaPonta(ComDuasLinhas):
+    """A recusa conclusiva que **nao** precisa de *reflog* — achado da revisão.
+
+    Os 37 ramos `claude/*` parados em `f344990` nao tem ficheiro de *log* nenhum,
+    porque a aplicacao cria o ramo sem o escrever. Sem este sinal o instrumento
+    respondia «nao sei» a **37 de 37** dos ramos em que o defeito esta vivo, e
+    «recusado» so aos que alguem ja tinha reparado — isto e, respondia aos que
+    nao precisavam de resposta.
+    """
+
+    def test_ramo_sem_reflog_na_linha_errada_e_recusado_pela_ponta(self) -> None:
+        ramo = self._ramo_sem_reflog("claude/gerado-abc123", self.antiga)
+        caminho = base.caminho_do_reflog(self.raiz, ramo)
+        assert caminho is not None
+        self.assertFalse(caminho.is_file(), "a fixture tem de deixar o ramo sem log")
+
+        veredicto = self._avaliar(ramo)
+        self.assertEqual(veredicto.estado, base.RECUSADO)
+        self.assertEqual(veredicto.codigo, 1)
+        self.assertIn("antepassado comum", veredicto.razao)
+
+    def test_a_ponta_distingue_sem_antepassado_comum_de_apenas_a_frente(self) -> None:
+        """A premissa do sinal, e porque e que `e_antepassado` nao servia aqui.
+
+        Um ramo com trabalho por cima da linha certa **nao** e antepassado da
+        referencia — esta a frente dela — pelo que `e_antepassado` responde
+        `False` para o ramo bom e para o cortado, e nao discrimina nada. O que
+        discrimina e **nao ter antepassado comum nenhum**.
+        """
+        bom = self._ramo_criado_em("feature/KAM-180-certo", self.publica)
+        _git(self.raiz, "checkout", "--quiet", bom)
+        _commit(self.raiz, "frente.txt", "feat(KAM-180): trabalho por cima")
+        ponta_boa = _git(self.raiz, "rev-parse", bom)
+
+        # As duas pontas respondem `False` ao `e_antepassado`...
+        self.assertIs(
+            base.e_antepassado(self.raiz, ponta_boa, base.REFERENCIA_PADRAO), False
+        )
+        self.assertIs(
+            base.e_antepassado(self.raiz, self.antiga, base.REFERENCIA_PADRAO), False
+        )
+        # ...e **so** o antepassado comum as separa.
+        self.assertIs(
+            base.tem_antepassado_comum(self.raiz, ponta_boa, base.REFERENCIA_PADRAO),
+            True,
+        )
+        self.assertIs(
+            base.tem_antepassado_comum(self.raiz, self.antiga, base.REFERENCIA_PADRAO),
+            False,
+        )
+
+    def test_o_ramo_bom_com_trabalho_por_cima_continua_conforme(self) -> None:
+        """O controlo do sinal da ponta: nao pode recusar quem esta a frente."""
+        ramo = self._ramo_criado_em("feature/KAM-180-certo", self.publica)
+        _git(self.raiz, "checkout", "--quiet", ramo)
+        _commit(self.raiz, "frente.txt", "feat(KAM-180): trabalho por cima")
+        self.assertEqual(self._avaliar(ramo).estado, base.CONFORME)
+
+    def test_o_reflog_ainda_decide_o_que_a_ponta_nao_ve(self) -> None:
+        """O ramo reparado tem ponta boa, pelo que **so** o reflog o apanha.
+
+        É a razão de os dois sinais serem necessários: este caso fica verde se
+        alguém tirar a leitura do *reflog* por achar que a ponta já basta.
+        """
+        ramo = self._ramo_reparado("claude/reparado-abc123")
+        ponta = _git(self.raiz, "rev-parse", ramo)
+        self.assertIs(
+            base.tem_antepassado_comum(self.raiz, ponta, base.REFERENCIA_PADRAO), True
+        )
+        self.assertEqual(self._avaliar(ramo).estado, base.RECUSADO)
+
+
+class TestAReferenciaPorExtenso(ComDuasLinhas):
+    """Um ramo **local** chamado `publico/main` sequestra o nome curto.
+
+    `base.py` escreve isto como premissa de desenho — e a revisão adversarial
+    mostrou que estava defendida **por comentário**, que é o que o critério 3
+    proíbe. Construído, o veredicto **inverte-se nos dois sentidos**: o ramo bom
+    sai recusado e o cortado sai conforme.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # O ramo local que tem o nome da referencia curta, na linha ERRADA.
+        _git(self.raiz, "branch", "publico/main", self.antiga)
+
+    def test_o_nome_curto_resolve_para_a_linha_errada(self) -> None:
+        """A premissa: sem isto, os casos abaixo nao mediriam nada."""
+        self.assertEqual(_git(self.raiz, "rev-parse", "publico/main"), self.antiga)
+        self.assertEqual(
+            _git(self.raiz, "rev-parse", base.REFERENCIA_PADRAO), self.publica
+        )
+
+    def test_a_referencia_por_extenso_da_as_respostas_certas(self) -> None:
+        for ramo, commit, esperado in (
+            ("feature/KAM-180-certo", self.publica, base.CONFORME),
+            ("claude/errado-abc123", self.antiga, base.RECUSADO),
+        ):
+            with self.subTest(ramo=ramo):
+                self._ramo_criado_em(ramo, commit)
+                self.assertEqual(
+                    base.avaliar(self.raiz, ramo, base.REFERENCIA_PADRAO).estado,
+                    esperado,
+                )
+
+    def test_o_nome_curto_inverteria_as_duas_respostas(self) -> None:
+        """O defeito, medido: e por isso que a constante leva `refs/remotes/`."""
+        for ramo, commit, invertido in (
+            ("feature/KAM-180-certo", self.publica, base.RECUSADO),
+            ("claude/errado-abc123", self.antiga, base.CONFORME),
+        ):
+            with self.subTest(ramo=ramo):
+                self._ramo_criado_em(ramo, commit)
+                self.assertEqual(
+                    base.avaliar(self.raiz, ramo, "publico/main").estado, invertido
+                )
+
+    def test_a_constante_leva_o_prefixo(self) -> None:
+        self.assertTrue(base.REFERENCIA_PADRAO.startswith("refs/remotes/"))
+
+
+class TestReflogPodado(ComDuasLinhas):
+    """Um *reflog* podado **em parte** dava `conforme` — achado da revisão.
+
+    O `gc.reflogExpireUnreachable` são **30 dias** por omissão, e as entradas que
+    apontam para a linha antiga são inalcançáveis a partir da certa: são as
+    primeiras a cair. Num ramo **reparado** sobram as entradas posteriores, cuja
+    coluna antiga é o *commit* de **depois** da reparação — e a resposta saía
+    `conforme`, que é o mesmo falso negativo do `reflog show` por outra via.
+    """
+
+    def _podar_a_primeira(self, ramo: str) -> None:
+        caminho = base.caminho_do_reflog(self.raiz, ramo)
+        assert caminho is not None
+        linhas = caminho.read_text(encoding="utf-8").splitlines(keepends=True)
+        self.assertGreater(len(linhas), 1, "a fixture tem de ter mais de uma entrada")
+        caminho.write_text("".join(linhas[1:]), encoding="utf-8")
+
+    def test_reparado_com_a_primeira_entrada_podada_nao_sai_conforme(self) -> None:
+        ramo = self._ramo_reparado("claude/reparado-abc123")
+        self.assertEqual(self._avaliar(ramo).estado, base.RECUSADO)
+        self._podar_a_primeira(ramo)
+        veredicto = self._avaliar(ramo)
+        self.assertNotEqual(veredicto.estado, base.CONFORME)
+        self.assertEqual(veredicto.estado, base.DESCONHECIDO)
+        self.assertIn("nao e de criacao", veredicto.razao)
+
+    def test_o_conforme_exige_entrada_de_criacao(self) -> None:
+        """A regra, nas duas direcções, para que não seja um acaso do caso acima."""
+        criado = self._ramo_criado_em("feature/KAM-180-certo", self.publica)
+        origem, _ = base.origem_do_ramo(self.raiz, criado)
+        assert origem is not None
+        self.assertTrue(origem.de_criacao)
+        self.assertEqual(self._avaliar(criado).estado, base.CONFORME)
+
+        # O mesmo commit de origem, mas sem entrada de criacao: nao fecha verde.
+        sem_criacao = "claude/sem-criacao-abc123"
+        self._ramo_sem_reflog(sem_criacao, self.publica)
+        _git(self.raiz, "checkout", "--quiet", sem_criacao)
+        _commit(self.raiz, "t.txt", "feat(KAM-180): trabalho sem entrada de criacao")
+        origem, _ = base.origem_do_ramo(self.raiz, sem_criacao)
+        assert origem is not None
+        self.assertFalse(origem.de_criacao)
+        self.assertEqual(origem.commit, self.publica)
+        self.assertEqual(self._avaliar(sem_criacao).estado, base.DESCONHECIDO)
+
+    def test_reflog_esvaziado_por_completo_continua_a_cair_em_nao_sei(self) -> None:
+        ramo = self._ramo_criado_em("feature/KAM-180-certo", self.publica)
+        caminho = base.caminho_do_reflog(self.raiz, ramo)
+        assert caminho is not None
+        caminho.write_text("", encoding="utf-8")
+        self.assertEqual(self._avaliar(ramo).estado, base.DESCONHECIDO)
 
 
 class TestArmadilhaDoMergeBase(ComDuasLinhas):
@@ -633,10 +834,16 @@ class TestNoRepositorioReal(unittest.TestCase):
         instrumento existe para dizer.
         """
         veredicto = base.avaliar(RAIZ)
-        self.assertIn(
+        # **Exige `CONFORME` e nada mais.** Aceitar tambem `DESCONHECIDO`
+        # deixava-o verde com uma implementacao que respondesse sempre «nao
+        # sei», pelo que nao distinguia um instrumento que funciona de um que
+        # esta calado — achado da revisao adversarial. Quem corra a bateria num
+        # *worktree* por reparar ve isto vermelho, e **e** o alarme.
+        self.assertEqual(
             veredicto.estado,
-            (base.CONFORME, base.DESCONHECIDO),
-            f"a base deste ramo foi RECUSADA: {veredicto.razao}",
+            base.CONFORME,
+            f"a base deste ramo nao e conforme ({veredicto.estado}): "
+            f"{veredicto.razao}",
         )
 
     @unittest.skipUnless(

@@ -284,6 +284,11 @@ def _relatorio_da_base(veredicto: base_module.Veredicto) -> int:
 
     O estado vai para o `stdout` quando e `conforme` e para o `stderr` quando nao
     e, como no `_report`: quem corre isto num *pipe* quer o silencio no caso bom.
+
+    **E os dois estados nao-conformes imprimem textos diferentes**, que e o que da
+    substancia a esta funcao: um `RECUSADO` sabe que ha o que reparar e diz como;
+    um `DESCONHECIDO` nao sabe, pelo que manda-lo reparar era contradizer-se na
+    linha seguinte. Imprimiam o mesmo bloco — achado da revisao adversarial.
     """
     etiqueta = {
         base_module.CONFORME: "conforme",
@@ -303,7 +308,10 @@ def _relatorio_da_base(veredicto: base_module.Veredicto) -> int:
     if veredicto.origem is not None:
         print(f"  origem:     {veredicto.origem}", file=sys.stderr)
     print(f"  porque:     {veredicto.razao}", file=sys.stderr)
-    print(base_module.texto_da_reparacao(veredicto), file=sys.stderr)
+    if veredicto.estado == base_module.RECUSADO:
+        print(base_module.texto_da_reparacao(veredicto), file=sys.stderr)
+    else:
+        print(base_module.texto_do_desconhecido(veredicto), file=sys.stderr)
     return veredicto.codigo
 
 

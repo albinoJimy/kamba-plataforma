@@ -12,9 +12,11 @@ ler-se pela ultima entrada, o «nao sei» passa a valer zero — e exige que a
 bateria fique vermelha. O repositorio nao e tocado.
 
 **As duas que o ticket nomeia** sao a primeira (`pasta`) e a segunda
-(`codigo-de-saida`). As outras cinco estao aqui porque a implementacao as corre
-de verdade: cada uma e uma forma de responder «onde estou agora» em vez de «fui
-cortado», que e o defeito que o ticket existe para fechar.
+(`codigo-de-saida`). As outras dez estao aqui porque a implementacao as corre de
+verdade: cada uma e uma forma de responder «onde estou agora» em vez de «fui
+cortado», que e o defeito que o ticket existe para fechar. **Quatro delas sao da
+revisao adversarial** — `ponta`, `ponta-e-antepassado`, `referencia` e `criacao` —
+e cada uma cobre um defeito que estava no codigo e nao so uma mutacao que faltava.
 
 **Porque nao entra em `mutacoes.py` nem em `mutacoes_codeowners.py`, ao lado.**
 Aquele e o arreio do *gate* 4 e este o do resolvedor de `CODEOWNERS`; nenhum dos
@@ -32,13 +34,22 @@ repositorio passava calado. Os restantes constroem os seus proprios repositorios
 em directorios temporarios, *worktrees* incluidos, pelo que correm na copia tal
 como correm aqui.
 
-**Uma forma de errar nao tem mutacao propria, e a razao e que seria a mesma
-prova.** Decidir pela **mensagem** do *reflog* (`branch: Reset to
-refs/remotes/publico/main`) produz o mesmo veredicto errado que a mutacao
-`coluna-nova`: as duas leem algo que reflecte a **reparacao** e nao a origem, e o
-caso que as apanha e o mesmo (`TestORamoReparado`). Escrever a segunda era
-duplicar a prova, nao acrescentar uma. Que a mensagem nao e guardada esta fixado
-em `test_a_entrada_descarta_a_mensagem`.
+**Duas formas de errar nao tem mutacao propria, e a razao fica escrita em vez de
+a ausencia passar calada.**
+
+* Decidir pela **mensagem** do *reflog* (`branch: Reset to
+  refs/remotes/publico/main`) produz o mesmo veredicto errado que a mutacao
+  `coluna-nova`: as duas leem algo que reflecte a **reparacao** e nao a origem, e
+  o caso que as apanha e o mesmo (`TestORamoReparado`). Escrever a segunda era
+  duplicar a prova, nao acrescentar uma. Que a mensagem nao e guardada esta
+  fixado em `test_a_entrada_descarta_a_mensagem`.
+* Tirar a validacao `_hexadecimal` da entrada do *reflog* **sobrevive**, e nao e
+  um ensaio em falta: a jusante o `merge-base` tambem falha fechada — com
+  `velho = "isto"` sai 128 e o veredicto cai em `DESCONHECIDO`, que e a mesma
+  resposta. E defesa redundante, nao comportamento. Verificado com o mecanismo
+  deste arreio, e nao presumido. Uma entrada que sobrevivesse sempre punha o
+  arreio vermelho para sempre, o que e pior do que a ausencia registada aqui — e
+  a mesma razao que o `mutacoes_codeowners.py` escreveu para a sua.
 
 Nao faz parte de nenhum gate — ligar isto a um portao e decisao do fundador, como
 o ticket escreve. Corre-se quando se mexe no `base.py`, e o resultado registra-se
@@ -72,7 +83,7 @@ MUTACOES: list[tuple[str, str, str, str]] = [
     # **invertido** nas duas linhas, pelo que esta mutacao erra nos dois
     # sentidos; e o controlo estatico apanha-a tambem.
     ("pasta: a decisao passa a vir de .claude/skills/", ALVO,
-     "    resposta = e_antepassado(raiz, origem, referencia)\n",
+     "    resposta = e_antepassado(raiz, origem.commit, referencia)\n",
      '    resposta = (raiz / ".claude" / "skills" / "software-factory").is_dir()\n'),
     # O defeito real, e nao uma caricatura dele: capturar a saida do `merge-base`
     # nu e ler o vazio como «zero diferencas». E a forma que esteve a apagar sete
@@ -89,18 +100,43 @@ MUTACOES: list[tuple[str, str, str, str]] = [
 
     # --- a leitura do reflog, que e o que separa o ticket de um falso negativo ---
     ("coluna-nova: a origem passa a sair do valor novo (o defeito do `reflog show`)", ALVO,
-     "    if entrada.velho != NULO:\n"
-     '        return entrada.velho, "coluna do valor antigo da primeira entrada do reflog"\n'
-     '    return entrada.novo, "coluna do valor novo da entrada de criacao do ramo"\n',
-     '    return entrada.novo, "coluna do valor novo da entrada de criacao do ramo"\n'),
+     "                commit=entrada.velho,\n",
+     "                commit=entrada.novo,\n"),
     ("coluna-antiga-sempre: a excepcao do OID nulo desaparece", ALVO,
-     "    if entrada.velho != NULO:\n"
-     '        return entrada.velho, "coluna do valor antigo da primeira entrada do reflog"\n'
-     '    return entrada.novo, "coluna do valor novo da entrada de criacao do ramo"\n',
-     '    return entrada.velho, "coluna do valor antigo da primeira entrada do reflog"\n'),
+     "            commit=entrada.novo,\n",
+     "            commit=entrada.velho,\n"),
     ("ultima-entrada: o reflog passa a ler-se pelo fim (o presente)", ALVO,
      "            primeira = ficheiro.readline()\n",
      "            primeira = ficheiro.readlines()[-1]\n"),
+    # **Prova positiva de nascimento.** Sem isto, um reflog podado pelo `gc` e
+    # indistinguivel de um ramo criado sem log, e o veredicto saia `conforme` —
+    # o mesmo falso negativo do `reflog show`, por outra via.
+    ("criacao: o conforme deixa de exigir entrada de criacao", ALVO,
+     "    if not origem.de_criacao:\n",
+     "    if False:\n"),
+
+    # --- o sinal da ponta, que e o que faz o instrumento morder nos 37 ramos ---
+    #
+    # Sem ele o comando respondia «nao sei» a **todos** os ramos em que o defeito
+    # esta vivo — 38 de 51 a 2026-11-05 —, porque a aplicacao cria o ramo sem
+    # entrada de reflog nenhuma.
+    ("ponta: a recusa conclusiva pela ponta desaparece", ALVO,
+     "    if ponta is not None and tem_antepassado_comum(raiz, ponta, referencia) is False:\n",
+     "    if False:\n"),
+    # A forma plausivel de errar o sinal da ponta: um ramo normal, com trabalho
+    # por cima da linha certa, **nao** e antepassado da referencia — esta a
+    # frente dela. Trocar as duas funcoes recusa todo o trabalho em curso.
+    ("ponta-e-antepassado: a ponta passa a medir-se por e_antepassado", ALVO,
+     "tem_antepassado_comum(raiz, ponta, referencia) is False",
+     "e_antepassado(raiz, ponta, referencia) is False"),
+
+    # --- a referencia, cuja premissa estava defendida so por comentario ---
+    #
+    # Um ramo **local** chamado `publico/main` resolve primeiro, e o veredicto
+    # inverte-se nos dois sentidos.
+    ("referencia: a referencia perde o refs/remotes/ por extenso", ALVO,
+     'REFERENCIA_PADRAO = "refs/remotes/publico/main"\n',
+     'REFERENCIA_PADRAO = "publico/main"\n'),
 
     # --- o directorio de onde o reflog se le, que e o que faz isto valer num worktree ---
     ("git-dir: o reflog passa a procurar-se no directorio do worktree", ALVO,

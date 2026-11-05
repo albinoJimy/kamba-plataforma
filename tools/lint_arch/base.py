@@ -35,12 +35,17 @@ tres estao recusadas por ensaio em `tests/test_base.py`, nao por comentario:
    fontes — e a unica.
 2. **O `rev-list` responde, e a resposta nao quer dizer o que parece.**
    `git rev-list --left-right --count f344990...HEAD` **responde** entre linhas
-   sem antepassado comum — `231\t164`, medido a 2026-11-05 — porque `...` em
-   `rev-list` e diferenca simetrica e nao precisa de antepassado comum. Le-se como
-   «tenho 164 a frente e 231 atras» quando o que se passa e que **nao ha relacao
-   nenhuma**: o 231 e a linha antiga inteira e fica fixo. Quem diz a verdade e o
-   `git diff A...HEAD`, com `fatal: no merge base`. Este modulo nao usa `rev-list`
-   para decidir, e ha ensaio que o fixa.
+   sem antepassado comum — `231\t164` na primeira medicao de 2026-11-05 — porque
+   `...` em `rev-list` e diferenca simetrica e nao precisa de antepassado comum.
+   Le-se como «tenho 164 a frente e 231 atras» quando o que se passa e que **nao
+   ha relacao nenhuma**. **O lado esquerdo e que e o sinal, e e fixo**: 231 e a
+   linha antiga **inteira**, e nao se move. O lado direito conta a linha certa
+   ate ao `HEAD`, pelo que sobe a cada *commit* — na mesma arvore e no mesmo dia
+   mediu-se `164` e, poucos *commits* depois, `165`. Citar o par como se fosse
+   uma medicao estavel engana duas vezes: a primeira por sugerir relacao onde nao
+   ha, a segunda por nao se reproduzir. Quem diz a verdade e o `git diff
+   A...HEAD`, com `fatal: no merge base`. Este modulo nao usa `rev-list` para
+   decidir, e ha ensaio que o fixa.
 3. **A pasta `.claude/skills/` responde a pergunta errada.** Na linha errada
    chama-se `agentic-engineering` e na certa `software-factory` — medido por
    `git ls-tree`, **7** ficheiros contra **12**. Mas **muda sozinha quando se
@@ -49,6 +54,17 @@ tres estao recusadas por ensaio em `tests/test_base.py`, nao por comentario:
    Esta armadilha apanhou duas leituras no mesmo dia. **Este modulo nao le essa
    pasta** — nem para confirmar — e isso e um controlo com ensaio proprio e
    mutacao propria, nao uma intencao escrita aqui.
+
+**Dois sinais, e nenhum deles sozinho responde.** `avaliar` le primeiro a
+**ponta** do ramo, porque e um sinal **conclusivo** e nao precisa de *reflog*: se
+a ponta nao tem antepassado comum nenhum com a `publico/main`, o ramo esta na
+outra historia e foi cortado, e pronto. Isso cobre o caso **normal** — medido a
+2026-11-05, os **38 de 51** ramos `claude/*` parados em `f344990` nao tem
+ficheiro de *reflog* nenhum, porque a aplicacao cria o ramo sem o escrever. Mas a
+ponta nao
+responde a tudo: a **reparacao** da-lhe um antepassado comum e apaga o sinal, e
+e ai que entra o *reflog*, que e o unico que distingue um ramo reparado de um que
+nasceu bem. Nenhum dos dois e dispensavel, e a ordem e por conclusividade.
 
 **O que ele le, e porque e que e o ficheiro cru.** A origem sai da **coluna do
 valor antigo** da primeira entrada do *reflog*, lida de
@@ -78,10 +94,13 @@ excepcao nao e uma heuristica. A prosa do ticket diz «a coluna do valor antigo�
 isto e mais preciso do que ela e nao diferente dela — o caso de criacao e o unico
 em que a coluna antiga nao nomeia *commit* nenhum.
 
-**Falha fechada.** Sem *reflog* — e ha exemplares reais: o ramo que a aplicacao
-gerou para esta sessao nao tem ficheiro de *log* nenhum — o veredicto e
-`DESCONHECIDO` e o codigo de saida e 2. «Nao sei» nunca se imprime como
-«conforme».
+**Falha fechada, e o `conforme` exige prova positiva.** Sem *reflog* **e** com a
+ponta a tocar a linha certa, o veredicto e `DESCONHECIDO` com codigo 2: «nao sei»
+nunca se imprime como «conforme». E o verde so o da uma **entrada de criacao**,
+porque e a unica que prova onde o ramo nasceu — quando a primeira entrada
+sobrevivente nao e de criacao, um *log* podado pelo `gc` e indistinguivel de um
+ramo criado sem *log*, e as duas historias levam a leituras opostas. Ver
+`avaliar`, que tem os dois casos medidos.
 
 **Onde isto para, e e deliberado.** Fazer deste modulo um portao que trava fusoes
 e **regra de bloqueio, logo decisao do fundador**. O que o ticket entrega e o
@@ -115,6 +134,19 @@ DESCONHECIDO = "desconhecido"
 #: ramo, e uma impossibilidade de medir. As duas sao nao-zero, que e o que
 #: «falha fechada» exige; a distincao serve para quem automatiza.
 CODIGOS = {CONFORME: 0, RECUSADO: 1, DESCONHECIDO: 2}
+
+
+@dataclasses.dataclass(frozen=True)
+class Origem:
+    """O *commit* onde o ramo nasceu, e como se soube.
+
+    `de_criacao` distingue as duas procedencias, e a distincao **decide**: so uma
+    entrada de criacao prova que o ramo nasceu onde diz. Ver `avaliar`.
+    """
+
+    commit: str
+    porque: str
+    de_criacao: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -221,7 +253,7 @@ def ler_entrada(linha: str) -> Entrada | None:
     return Entrada(velho=velho, novo=novo)
 
 
-def origem_do_ramo(raiz: Path, ramo: str) -> tuple[str | None, str]:
+def origem_do_ramo(raiz: Path, ramo: str) -> tuple[Origem | None, str]:
     """O *commit* onde o ramo nasceu, e a razao quando nao se sabe.
 
     Le a **primeira** entrada do *reflog* cru — a mais antiga, que e a que fala
@@ -249,8 +281,53 @@ def origem_do_ramo(raiz: Path, ramo: str) -> tuple[str | None, str]:
     # entrada de criacao o ramo nao existia antes dela, pelo que o valor que
     # nomeia a origem esta na coluna nova.
     if entrada.velho != NULO:
-        return entrada.velho, "coluna do valor antigo da primeira entrada do reflog"
-    return entrada.novo, "coluna do valor novo da entrada de criacao do ramo"
+        return (
+            Origem(
+                commit=entrada.velho,
+                porque="coluna do valor antigo da primeira entrada do reflog",
+                de_criacao=False,
+            ),
+            "",
+        )
+    return (
+        Origem(
+            commit=entrada.novo,
+            porque="coluna do valor novo da entrada de criacao do ramo",
+            de_criacao=True,
+        ),
+        "",
+    )
+
+
+def ponta_do_ramo(raiz: Path, ramo: str) -> str | None:
+    """O *commit* a que o ramo aponta agora."""
+    resultado = _git(raiz, "rev-parse", "--verify", f"refs/heads/{ramo}")
+    if resultado.returncode != 0:
+        return None
+    return resultado.stdout.strip() or None
+
+
+def tem_antepassado_comum(raiz: Path, commit: str, referencia: str) -> bool | None:
+    """Ha **algum** antepassado comum entre `commit` e `referencia`?
+
+    `git merge-base` sem `--is-ancestor`, e decidido **pelo codigo de saida**: 0 =
+    ha, 1 = nao ha (e nao imprime nada), qualquer outro = nao se sabe. E a mesma
+    armadilha da armadilha 1, do outro lado: quem capturar a saida e nao ler o
+    codigo nao distingue «nao ha antepassado comum» de «nao consegui medir».
+
+    **Isto nao e o mesmo que `e_antepassado`, e a diferenca e o que torna o sinal
+    util.** Um ramo normal, com trabalho por cima da linha certa, **nao** e
+    antepassado da referencia — esta a frente dela —, pelo que `e_antepassado`
+    responde `False` e nao distingue nada. Mas **tem** antepassado comum com ela.
+    Nao ter nenhum e outra coisa: significa que as duas historias nunca se
+    tocaram.
+    """
+    resultado = _git(raiz, "merge-base", commit, referencia)
+    if resultado.returncode == 0:
+        return True
+    if resultado.returncode == 1:
+        return False
+    return None
 
 
 def e_antepassado(raiz: Path, commit: str, referencia: str) -> bool | None:
@@ -278,9 +355,39 @@ def avaliar(
 ) -> Veredicto:
     """O veredicto sobre a base do ramo.
 
-    Tres leituras, por esta ordem, e cada uma com o seu codigo de saida
-    verificado: o ramo actual, a origem pelo *reflog* cru, e o parentesco pelo
-    `merge-base --is-ancestor`.
+    **Dois sinais, e cada um responde a metade da pergunta.** A ordem nao e
+    estilo: o primeiro e conclusivo e o segundo nao, pelo que o primeiro vem
+    primeiro.
+
+    1. **A ponta, como recusa conclusiva.** Se a ponta do ramo nao tem
+       antepassado comum **nenhum** com a referencia, o ramo foi cortado — e
+       sabe-se **sem** *reflog*. Um ramo nascido na linha certa nao consegue
+       chegar a uma ponta que nunca tocou essa linha: para isso teria de ter sido
+       movido para a outra historia, e ai foi cortado de qualquer forma. Isto
+       importa porque **e o caso normal, nao o excepcional**: medido a
+       2026-11-05, os **38 de 51** ramos `claude/*` parados em `f344990` nao tem
+       ficheiro de *reflog* nenhum — a aplicacao cria o ramo sem o escrever —,
+       pelo que sem este sinal o instrumento respondia «nao sei» a **todos** os
+       ramos em que o defeito esta vivo, e «recusado» so aos que alguem ja tinha
+       reparado: respondia aos que nao precisavam de resposta. Com o sinal, os 51
+       dao **50 recusados e 1 conforme**, sem nenhum «nao sei». Achado da revisao
+       adversarial, e e de desenho e nao de redaccao.
+    2. **O *reflog*, para a origem.** So ele distingue um ramo **reparado** de um
+       que nasceu bem, porque a reparacao da a ponta um antepassado comum e apaga
+       o sinal 1. Ver o cabecalho do modulo.
+
+    **E o `conforme` exige prova positiva de nascimento.** So fecha em verde uma
+    **entrada de criacao** (coluna antiga nula), que e a unica que prova onde o
+    ramo nasceu. Quando a primeira entrada sobrevivente nao e de criacao, ha duas
+    historias indistinguiveis — o ramo foi criado sem *log* (e a coluna antiga e
+    a origem) ou o *log* foi **podado** e a entrada de criacao desapareceu — e
+    nesse caso «esta na linha certa» nao e uma medicao, e uma suposicao. Nao e
+    hipotetico: o `gc.reflogExpireUnreachable` sao **30 dias** por omissao, e as
+    entradas que apontam para `f344990` sao inalcancaveis a partir da
+    `publico/main`, logo sao as primeiras a cair. Medido: num ramo reparado a
+    quem se tire **so** a primeira entrada, a coluna antiga da entrada seguinte e
+    o *commit* de depois da reparacao e a resposta saia `conforme` — o mesmo
+    falso negativo do `reflog show`, por outra via. Tambem achado da revisao.
     """
     ramo = ramo or ramo_actual(raiz)
     if ramo is None:
@@ -295,40 +402,108 @@ def avaliar(
             referencia=referencia,
         )
 
-    origem, porque = origem_do_ramo(raiz, ramo)
-    if origem is None:
+    # --- 1. a ponta, como recusa conclusiva ---------------------------------
+    ponta = ponta_do_ramo(raiz, ramo)
+    if ponta is not None and tem_antepassado_comum(raiz, ponta, referencia) is False:
         return Veredicto(
-            estado=DESCONHECIDO, ramo=ramo, origem=None, razao=porque,
+            estado=RECUSADO,
+            ramo=ramo,
+            origem=ponta,
+            razao=(
+                f"a ponta {ponta[:7]} nao tem antepassado comum NENHUM com "
+                f"{referencia}: o ramo esta na outra linha de historia "
+                "(medido pela ponta, que nao precisa de reflog)"
+            ),
             referencia=referencia,
         )
 
-    resposta = e_antepassado(raiz, origem, referencia)
+    # --- 2. o reflog, para a origem -----------------------------------------
+    origem, porque_nao = origem_do_ramo(raiz, ramo)
+    if origem is None:
+        return Veredicto(
+            estado=DESCONHECIDO, ramo=ramo, origem=None, razao=porque_nao,
+            referencia=referencia,
+        )
+
+    resposta = e_antepassado(raiz, origem.commit, referencia)
     if resposta is None:
         return Veredicto(
             estado=DESCONHECIDO,
             ramo=ramo,
-            origem=origem,
+            origem=origem.commit,
             razao=(
-                f"o git nao conseguiu comparar {origem[:7]} com {referencia}: "
+                f"o git nao conseguiu comparar {origem.commit[:7]} com {referencia}: "
                 f"a referencia existe localmente? "
                 f"(`git fetch publico main:{referencia} --force`)"
             ),
             referencia=referencia,
         )
-    if resposta:
+    if not resposta:
         return Veredicto(
-            estado=CONFORME, ramo=ramo, origem=origem,
-            razao=f"a origem esta na linha de {referencia} ({porque})",
+            estado=RECUSADO,
+            ramo=ramo,
+            origem=origem.commit,
+            razao=(
+                f"a origem {origem.commit[:7]} NAO esta na linha de {referencia} "
+                f"({origem.porque})"
+            ),
+            referencia=referencia,
+        )
+    # A origem esta na linha certa. Isso so fecha em verde com prova positiva de
+    # nascimento; sem ela, um reflog podado e indistinguivel de um ramo criado
+    # sem log. Ver a docstring.
+    if not origem.de_criacao:
+        return Veredicto(
+            estado=DESCONHECIDO,
+            ramo=ramo,
+            origem=origem.commit,
+            razao=(
+                f"a primeira entrada do reflog de {ramo!r} nao e de criacao, pelo "
+                f"que nao prova onde o ramo nasceu: a origem aparente "
+                f"({origem.commit[:7]}) esta na linha de {referencia}, mas um "
+                "reflog podado pelo gc da exactamente esta leitura"
+            ),
             referencia=referencia,
         )
     return Veredicto(
-        estado=RECUSADO,
+        estado=CONFORME,
         ramo=ramo,
-        origem=origem,
-        razao=(
-            f"a origem {origem[:7]} NAO esta na linha de {referencia} ({porque})"
-        ),
+        origem=origem.commit,
+        razao=f"a origem esta na linha de {referencia} ({origem.porque})",
         referencia=referencia,
+    )
+
+
+def texto_do_desconhecido(veredicto: Veredicto) -> str:
+    """O que fazer quando o instrumento **nao sabe**, que nao e o que reparar.
+
+    Existe porque imprimir o bloco de reparacao num `DESCONHECIDO` era dizer «nao
+    sei» e a seguir mandar reparar — o `cli.py` justifica o seu proprio relatorio
+    por distinguir tres estados e, imprimindo o mesmo texto em dois deles,
+    distinguia-os so na etiqueta. Achado da revisao adversarial.
+
+    Nao propoe reparacao: **nao se sabe se e preciso**. Propoe como descobrir.
+    """
+    return (
+        "\n"
+        "  O que isto quer dizer: a ponta deste ramo **toca** a linha de\n"
+        f"  {veredicto.referencia}, pelo que nao esta na outra historia — mas nao se\n"
+        "  conseguiu provar onde o ramo NASCEU. Pode ter nascido bem, ou ter sido\n"
+        "  cortado e reparado, ou ter o reflog podado pelo gc.\n"
+        "\n"
+        "  Como descobrir, por ordem de custo:\n"
+        "\n"
+        f"      git rev-parse --short HEAD; git rev-parse --short {veredicto.referencia}\n"
+        "      git log --oneline -1 $(git rev-parse --git-common-dir)/../..  # ha trabalho teu?\n"
+        "\n"
+        "  Se nao tens trabalho por committar, o mais barato e nao descobrir:\n"
+        f"  corta um ramo novo de {veredicto.referencia} e segue dele.\n"
+        "\n"
+        f"      git fetch publico main:{veredicto.referencia} --force\n"
+        f"      git checkout -b fix/KAM-NNN-<slug> {veredicto.referencia}\n"
+        "\n"
+        "  Se tens, nao mexas no ramo antes de o guardar: committa, e so depois\n"
+        "  decide. Um ramo com trabalho e barato de rebasear e caro de perder.\n"
     )
 
 
