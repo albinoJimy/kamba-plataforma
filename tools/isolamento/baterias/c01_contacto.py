@@ -306,6 +306,12 @@ def _fixacao_das_cotacoes(
         # do bloco, com credor — mas fica dito na saida do *gate*, para que
         # ninguem leia este verde como «o isolamento de contacto esta provado».
         return []
+    # **A mensagem leva o que a leitura devolveu, e isso nao e enfeite.** A
+    # primeira versao dizia so «nao devolveu nem uma nem outra» e listava duas
+    # causas possiveis; quando ela disparou no CI — verde nesta maquina,
+    # vermelha no *runner* — nao havia como escolher entre as duas sem mais uma
+    # volta de 17 minutos. Um diagnostico que obriga a adivinhar nao e um
+    # diagnostico. Vai o texto cru, truncado, e as duas marcas esperadas.
     return [
         f"C-01/consultas {leitura}: a leitura do contacto X nao devolveu **nem** "
         f"a linha de X nem a de Y. O caso nao mediu nada: ou a semente nao "
@@ -313,6 +319,8 @@ def _fixacao_das_cotacoes(
         f"`{constante}` deixou de devolver linha a quem pede. Sem uma das duas "
         "marcas na resposta, nada do que esta bateria afirma sobre as cotacoes "
         "tem suporte."
+        f" || esperava `{marca_de_x}` (X) ou `{marca_de_y}` (Y);"
+        f" a leitura devolveu: {texto_de_x[:600]!r}"
     ]
 
 

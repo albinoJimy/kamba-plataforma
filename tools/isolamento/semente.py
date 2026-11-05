@@ -204,21 +204,39 @@ SKU_PARTILHADO = "canario_c01_sku_partilhado"
 QTY_PARTILHADA = 1
 
 
-def _cotacao(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> str:
+def _cotacao(
+    cursor: Any, tenant_id: str, contact_id: str, marca: str, ordem: int = 0
+) -> str:
     """A cotacao do contacto, com o `(sku, qty)` **partilhado** com o outro.
 
     O `marca` nao vai para o `sku` (ver `SKU_PARTILHADO`): vai para o
     `emitida_por`? Nao — esse e um UUID. Fica **sem canario de texto**, e e o
     `id` devolvido que identifica a linha. E a unica das tres tabelas onde isso
     acontece, e a razao esta no comentario do `SKU_PARTILHADO`.
+
+    ## O `ordem` existe porque `now()` nao serve para ordenar aqui
+
+    A `SQL_COTACAO_VALIDA` faz `ORDER BY criado_at DESC LIMIT 1`, e o
+    `criado_at` tem `DEFAULT now()`. **Em PostgreSQL o `now()` e o instante de
+    inicio da transaccao**, nao do comando: as duas cotacoes semeadas na mesma
+    transaccao ficam com `criado_at` **igual**, e qual delas aquela consulta
+    devolve passa a ser arbitrario — decide o plano, nao o dado.
+
+    Isso torna a fixacao do `C-01/consultas` instavel por construcao: ela afirma
+    que a leitura de X devolve a linha de **Y** (a mais recente), e com empate
+    nao ha mais recente. O `ordem` desempata com um deslocamento explicito, pelo
+    que a linha de Y e inequivocamente a ultima. Sem isto, a mesma arvore podia
+    dar verde numa maquina e vermelho noutra — e uma suite de isolamento que
+    varia com o plano nao mede isolamento nenhum.
     """
     cursor.execute(
         "INSERT INTO platform.price_quotes "
         "(tenant_id, contact_id, sku, qty, preco_total_minor, valida_ate, "
-        " emitida_por) "
-        "VALUES (%s, %s, %s, %s, 1000, now() + interval '24 hours', %s) "
+        " emitida_por, criado_at) "
+        "VALUES (%s, %s, %s, %s, 1000, now() + interval '24 hours', %s, "
+        "        now() + (%s * interval '1 second')) "
         "RETURNING id::text",
-        (tenant_id, contact_id, SKU_PARTILHADO, QTY_PARTILHADA, tenant_id),
+        (tenant_id, contact_id, SKU_PARTILHADO, QTY_PARTILHADA, tenant_id, ordem),
     )
     return str(cursor.fetchone()[0])
 
@@ -235,6 +253,9 @@ def _consentimento(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> 
     return str(cursor.fetchone()[0])
 
 
+#: A chave da tabela que precisa de desempate de ordem (ver `_cotacao`).
+_COTACOES = ("platform", "price_quotes")
+
 _RECEITAS = {
     ("platform", "orders_mirror"): _encomenda,
     ("platform", "price_quotes"): _cotacao,
@@ -249,14 +270,21 @@ def semear_contactos(cursor: Any, tenant_id: str) -> ParDeContactos:
     ficar confirmadas antes de os casos as lerem noutras ligacoes.
     """
     par = []
-    for rotulo in ("x", "y"):
+    for indice, rotulo in enumerate(("x", "y")):
         contact_id = _criar_contacto(cursor, tenant_id, rotulo)
         canarios: dict[tuple[str, str], str] = {}
         ids: dict[tuple[str, str], str] = {}
         for chave in TABELAS:
             marca = canario(f"{rotulo}_{chave[1]}")
             canarios[chave] = marca
-            ids[chave] = _RECEITAS[chave](cursor, tenant_id, contact_id, marca)
+            # O `ordem` so interessa a `price_quotes`, e porque: a
+            # `SQL_COTACAO_VALIDA` ordena por `criado_at DESC` e o `now()` e o
+            # mesmo nas duas linhas desta transaccao. Ver `_cotacao`. O `y` leva
+            # o indice 1, pelo que e inequivocamente a mais recente.
+            extra = {"ordem": indice} if chave == _COTACOES else {}
+            ids[chave] = _RECEITAS[chave](
+                cursor, tenant_id, contact_id, marca, **extra
+            )
         par.append(
             Contacto(
                 id=contact_id, tenant_id=tenant_id, canarios=canarios, ids=ids

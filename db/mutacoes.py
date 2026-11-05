@@ -6501,9 +6501,18 @@ def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
         # statement outside a module` — que os `catch` do condutor transformam
         # em `executado: false`. E o candidato que a revisao adversarial
         # apontou para o `executado: false` da copia (achado 21).
+        #
+        # **O `agr` nao tem `package.json`, e e por isso que isto pergunta pela
+        # origem.** Ele e o servico em Python; a primeira versao desta linha
+        # copiava os cinco sem perguntar e rebentou **no CI** com
+        # `FileNotFoundError: services/agr/package.json`, dentro do
+        # `_copiar_para_o_isolamento`. Localmente nao aparecia: o
+        # `--aplicaveis` so confere texto e nunca constroi a copia, e e o
+        # `make ci-8` que a constroi. Medido a 2026-11-05.
+        origem = RAIZ / "services" / servico / "package.json"
         alvo = destino / "services" / servico / "package.json"
-        if not alvo.exists():
-            shutil.copy(RAIZ / "services" / servico / "package.json", alvo)
+        if origem.exists() and not alvo.exists():
+            shutil.copy(origem, alvo)
     for pacote in ("contracts", "core-ts"):
         shutil.copytree(
             RAIZ / "packages" / pacote / "src",
