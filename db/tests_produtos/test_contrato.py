@@ -453,13 +453,21 @@ class TestOContratoComOModulo(ComOfertas):
             "SQL_PUBLICAR": (tenant, SKU_PARTILHADO),
             "SQL_AJUSTAR_STOCK": (tenant, SKU_PARTILHADO, "garantido"),
             "SQL_PESQUISAR": (tenant, "arroz", "arroz", 5),
-            "SQL_COTACAO_VALIDA": (tenant, SKU_PARTILHADO, 10, agora),
-            # Tres e nao dois: o `valida_ate > $3` entrou com um achado da
+            # Cinco e nao quatro: o `contact_id = $2` entrou com o KAM-179.
+            # A cotacao e **por contacto**, por decisao do fundador de
+            # 2026-11-04: sem o predicado, dentro do mesmo tenant o contacto X
+            # recebia o total negociado para Y. Ver o
+            # `test_x_nao_le_a_cotacao_de_y_dentro_do_mesmo_tenant`, que e quem
+            # mede a propriedade — este caso so prova que o texto corre.
+            "SQL_COTACAO_VALIDA": (tenant, contacto, SKU_PARTILHADO, 10, agora),
+            # Quatro e nao dois. O `valida_ate > $4` entrou com um achado da
             # revisao adversarial — «cotacao expirada nao e aceite» e o
             # criterio 6, e filtrar so por `estado = 'emitida'` nao bastava,
             # porque a expiracao e por `valida_ate` e um estado so muda
-            # quando alguem o muda.
-            "SQL_ACEITAR_COTACAO": (tenant, cotacao, agora),
+            # quando alguem o muda. O `contact_id = $2` entrou com o KAM-179,
+            # e aqui fecha a escalada de leitura para escrita: com o `id` que a
+            # leitura devolvia, X punha a cotacao de Y a `aceite`.
+            "SQL_ACEITAR_COTACAO": (tenant, contacto, cotacao, agora),
             "SQL_AUDITAR": (
                 tenant,
                 "owner",
