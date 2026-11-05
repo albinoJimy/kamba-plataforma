@@ -8,6 +8,7 @@
     python -m lint_arch commit-range             mensagens dos commits do PR (KAM-174)
     python -m lint_arch commit-range-canario     prova que o commit-range morde
     python -m lint_arch branch [<nome>]          nome de ramo
+    python -m lint_arch base [<ramo>]            base do ramo, pela origem (KAM-180)
     python -m lint_arch tool-schema [--root .]   esquemas de tool (KAM-028)
     python -m lint_arch medusa [--root .]        Registo de comercio (KAM-042)
     python -m lint_arch all [--root .]           deps + structure + tool-schema + medusa
@@ -24,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import base as base_module
 from . import blocklist as blocklist_module
 from . import canario_commits, canario_titulo
 from . import commits as commits_module
@@ -272,6 +274,39 @@ def _ajuda_da_mensagem(rules: conventions_module.Conventions) -> str:
     )
 
 
+def _relatorio_da_base(veredicto: base_module.Veredicto) -> int:
+    """Imprime o veredicto da base do ramo (KAM-180).
+
+    Printer proprio e nao o `_report`: este tem **tres** estados e nao dois, e a
+    diferenca e o ponto do ticket. Um `DESCONHECIDO` empurrado para a forma de
+    «achado» ou de «conforme» era exactamente a confusao que o instrumento existe
+    para fechar — «nao sei» tem de se ler como «nao sei».
+
+    O estado vai para o `stdout` quando e `conforme` e para o `stderr` quando nao
+    e, como no `_report`: quem corre isto num *pipe* quer o silencio no caso bom.
+    """
+    etiqueta = {
+        base_module.CONFORME: "conforme",
+        base_module.RECUSADO: "RECUSADO",
+        base_module.DESCONHECIDO: "NAO SE SABE",
+    }[veredicto.estado]
+
+    if veredicto.estado == base_module.CONFORME:
+        print(f"lint_arch: base do ramo: {etiqueta}")
+        print(f"  ramo:       {veredicto.ramo}")
+        print(f"  origem:     {veredicto.origem}")
+        print(f"  porque:     {veredicto.razao}")
+        return veredicto.codigo
+
+    print(f"lint_arch: base do ramo: {etiqueta}", file=sys.stderr)
+    print(f"  ramo:       {veredicto.ramo}", file=sys.stderr)
+    if veredicto.origem is not None:
+        print(f"  origem:     {veredicto.origem}", file=sys.stderr)
+    print(f"  porque:     {veredicto.razao}", file=sys.stderr)
+    print(base_module.texto_da_reparacao(veredicto), file=sys.stderr)
+    return veredicto.codigo
+
+
 def _report(title: str, findings: list[str]) -> int:
     if not findings:
         print(f"lint_arch: {title}: conforme")
@@ -346,6 +381,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     branch = sub.add_parser("branch", help="valida um nome de ramo")
     branch.add_argument("name", nargs="?", help="nome do ramo (omitido: o ramo actual)")
+    # **Subcomando daqui e nao ferramenta nova em `tools/`**, e a escolha tem
+    # razao: o `branch` ao lado responde a outra metade da mesma pergunta — «este
+    # ramo esta em condicoes de se trabalhar nele?» —, e o `tools/conventions.json`
+    # ja e a fonte unica da forma do nome que a reparacao sugere. Uma ferramenta
+    # propria acrescentava superficie para a mesma pergunta e punha a mensagem de
+    # reparacao a repetir, numa segunda copia, a forma que este pacote ja sabe.
+    # O nome `base` e o substantivo que o ticket usa de ponta a ponta.
+    base = sub.add_parser(
+        "base",
+        help="a base do ramo actual, lida pela origem e nao pelo estado (KAM-180)",
+    )
+    base.add_argument("name", nargs="?", help="nome do ramo (omitido: o ramo actual)")
+    base.add_argument(
+        "--referencia",
+        default=base_module.REFERENCIA_PADRAO,
+        help=f"a referencia que conta (omitida: {base_module.REFERENCIA_PADRAO})",
+    )
 
     args = parser.parse_args(argv)
     root = (args.root or _default_root()).resolve()
@@ -361,6 +413,14 @@ def main(argv: list[str] | None = None) -> int:
             return _report("Registo de comercio", medusa.check(root))
         if args.command == "aliases":
             return _report("aliases de LLM", _check_aliases(root))
+        if args.command == "base":
+            # Nao carrega o `conventions.json`: a pergunta e sobre a historia do
+            # ramo e nao sobre a forma do nome. Assim tambem responde num
+            # repositorio a que falte o ficheiro das convencoes, que e um dos
+            # estados em que um worktree cortado da linha errada pode estar.
+            return _relatorio_da_base(
+                base_module.avaliar(root, args.name, args.referencia)
+            )
         if args.command == "all":
             # Os cinco correm **sempre**, e o codigo de saida e o maximo: parar
             # no primeiro achado escondia os outros, e quem corre `all` quer a

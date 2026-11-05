@@ -160,7 +160,48 @@ de paralelismo da estação 1.3 aplica-se depois dela, não antes.
 > **E se entrares num worktree, confirma a base lá dentro.** O `EnterWorktree` ramifica de
 > `origin/<default-branch>`, e aqui o `origin` é o espelho privado, sem antepassado comum com o
 > `publico`: numa entrada medida, pôs a sessão em `f344990` — o merge de um PR dezenas de
-> commits atrás.
+> commits atrás. **É sistemático, e não intermitente:** medido a 2026-11-05, **37 dos 50** ramos
+> `claude/*` estão parados nesse commit — eram 33 de 45 no dia anterior, pelo que a proporção não
+> está a cair. Uma das sessões trabalhou **1339 ficheiros atrás** da base antes de reparar.
+>
+> ```bash
+> python -m lint_arch base      # com tools/ no PYTHONPATH; 0 conforme, 1 recusado, 2 nao sei
+> ```
+>
+> **Mas o instrumento que escolhes decide a pergunta que respondes**, e trocar as duas produziu
+> as duas leituras erradas de 2026-11-04 — nenhuma delas descuido de quem mediu:
+>
+> | Instrumento | A pergunta a que responde |
+> |---|---|
+> | A pasta `.claude/skills/` (`agentic-engineering` ou `software-factory`) | **«Onde estou agora?»** |
+> | O `HEAD` do worktree | **«Onde estou agora?»** |
+> | A coluna do valor **antigo** do reflog cru, e o ramo `claude/<slug>` abandonado | **«Fui cortado?»** |
+>
+> A pasta e o `HEAD` **mudam sozinhos quando se ramifica**, pelo que um ramo já **reparado** fica
+> indistinguível de um que nunca foi cortado. Foi assim que uma sessão correu o `ls` depois de se
+> ter reparado, viu `software-factory` e concluiu que o sinal estava errado; e assim que a
+> coordenação mediu os `HEAD` dos três worktrees **depois** das reparações, viu-os todos em
+> `c3b1fe2` e registou «uma de três, logo é intermitente» — uma conclusão sobre a **origem**
+> tirada de uma medição do **presente**.
+>
+> **O que sobrevive à reparação** é o ramo `claude/<slug>` que o `EnterWorktree` deixa parado em
+> `f344990` mesmo depois de o `feature/…` nascer por cima — não o apagues antes de fundir — e a
+> **coluna do valor antigo** do reflog cru (`logs/refs/heads/<ramo>` dentro do `--git-common-dir`).
+> **Não é o `git reflog show` nu**, que imprime o valor **novo**: num ramo já reparado dá
+> `branch: Reset to refs/remotes/publico/main` com o commit de **depois** da reparação, e a
+> resposta sai «conforme». O `lint_arch base` lê a coluna certa; o KAM-180 tem o caso de ensaio.
+>
+> **E duas formas de medir isto respondem sem dar erro.** O `git merge-base` entre as duas linhas
+> sai com código **1 e sem saída** — um script que capture a saída sem ler o código fica com a
+> variável vazia, e `git diff $BASE $ramo` **sem aspas** colapsa em `git diff $ramo` e devolve uma
+> resposta plausível (com aspas falha alto, que é o que se quer). E o
+> `git rev-list --left-right --count f344990...HEAD` **responde** entre linhas sem antepassado
+> comum — `231 164`, medido a 2026-11-05 — porque `...` em `rev-list` é diferença simétrica: o 231
+> é a linha antiga inteira e fica fixo. Quem diz a verdade é o `git diff A...HEAD`, com
+> `fatal: no merge base`.
+>
+> Ligar isto a um portão que trave fusões é **regra de bloqueio, logo decisão do fundador**: o
+> KAM-180 entrega o instrumento e a medição, e não a ligação.
 
 As seis linhas, com artefacto de entrada, artefacto de saída, portões e a tabela de autoridade
 completa — o que posso fazer sozinho e onde tenho de parar e pedir — estão em
