@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -138,7 +140,7 @@ class TestMetricas(unittest.TestCase):
             with self.subTest(method=method):
                 self.assertEqual(request("/metrics", method)[0], 405)
 
-    def test_um_processo_sem_turnos_serve_corpo_vazio(self) -> None:
+    def test_um_processo_fresco_serve_corpo_vazio(self) -> None:
         """**Uma divergencia medida, e nao um defeito desta rota.**
 
         O `exposicao()` do AGR faz `if not series: continue`: uma metrica que
@@ -153,17 +155,53 @@ class TestMetricas(unittest.TestCase):
         **Nao se corrigiu aqui, e a razao nao e falta de tempo:** o
         comportamento esta preso por tres testes de outro ticket —
         `test_metricas.py::test_a_exposicao_vazia_e_vazia` exige exactamente
-        `""`, e `test_degracao.py` exige duas vezes que uma metrica **nao**
+        `""`, e `test_degradacao.py` exige duas vezes que uma metrica **nao**
         apareca antes de acontecer. E uma decisao do modulo (KAM-025/KAM-037),
         nao um descuido, e inverte-la e mexer no criterio de outro ticket.
 
         O que **nao** se perde: o `up` do Prometheus fica a 1 (o alvo responde
         200), pelo que «o processo nao arrancou» continua distinguivel — pelo
         `up` e nao pela serie. Fica registado em `docs/observabilidade.md` §5.
+
+        ## Porque e que isto corre num subprocesso
+
+        **Porque a premissa e «processo fresco», e um ensaio dentro de uma suite
+        nao esta num.** O registo de metricas e global ao processo, e o alvo
+        `ordem-dos-ensaios` (KAM-173) corre a suite nas duas ordens: na inversa,
+        outro ensaio desta pasta ja contou um evento antes deste, e o corpo
+        deixa de estar vazio. O gate 4 mediu-o:
+
+            AssertionError: b'# HELP agr_evt_consumidos_total ...' != b''
+
+        **Nao foi um falso alarme: foi o portao a fazer o que existe para
+        fazer.** A primeira versao assumia a premissa em vez de a controlar, e
+        um ensaio que assume a sua premissa passa pela ordem em que calhou.
+
+        E **nao se trocou por limpar o registo no `setUp`**: isso fecharia o
+        portao e passaria a medir «registo limpo» em vez de «processo fresco»,
+        com o nome do ensaio a prometer mais do que ele ve. O subprocesso mede o
+        que a frase diz.
+
+        O que este ensaio acrescenta ao do outro ticket, e a razao de nao ser
+        uma copia: aquele prende o `exposicao()`, esta prende a **rota** — que o
+        `PlainTextResponse` nao acrescenta cabecalho, prefixo nem linha a uma
+        exposicao vazia.
         """
-        estado, _cabecalhos, corpo = request("/metrics")
-        self.assertEqual(estado, 200)
-        self.assertEqual(corpo, b"")
+        sonda = Path(__file__).resolve().parent / "sonda_de_processo_fresco.py"
+        corrida = subprocess.run(
+            [sys.executable, str(sonda)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(
+            corrida.returncode, 0, f"a sonda falhou: {corrida.stderr[-600:]}"
+        )
+        self.assertEqual(
+            corrida.stdout.strip(),
+            "200 0",
+            f"esperava «200 0» (200 e zero octetos); stderr: {corrida.stderr[-300:]}",
+        )
 
     def test_depois_de_contar_o_corpo_traz_o_formato_sem_identificadores(self) -> None:
         """O formato de exposicao, e o `OBS-I` medido **na saida**.
