@@ -100,12 +100,16 @@ script **não está no CI** (lacuna L-20).
 > frase não se força a valer.** Foi medido com os artefactos presentes, no repositório privado. O
 > **KAM-156** tirou desta cópia a matriz, o STRIDE, a DPIA, as lacunas e os riscos residuais, pelo
 > que três das quatro famílias do validador deixaram de ter fonte nesta árvore. Recriado pelo
-> KAM-149, ele reporta-as como **erro de configuração** a nomear o ficheiro que falta — e não «0
-> erros», que aqui seria um limpo falso. A saída de hoje: **1 erro de conteúdo** (um caminho
-> desactualizado em `../docs/seguranca/resposta_incidentes.md`, devolvido ao dono deste ticket) e
-> **5 problemas de configuração**, em `../docs/evidencia/KAM-149.md`. Os três erros que o KAM-152
+> KAM-149, ele reporta-as como **erro de configuração** a nomear o ficheiro que falta, e salta-as.
+> A saída de hoje: **3 erros de conteúdo** — os três modelos de notificação de
+> `../docs/seguranca/modelos/`, sem tabela de «Controlo de versões», que o original nunca varria —
+> e **5 problemas de configuração**, em `../docs/evidencia/KAM-149.md`. Os três erros que o KAM-152
 > mediu na matriz **não são alcançáveis nesta árvore** e ficam com este ticket, na cópia onde a
-> matriz vive. As linhas da tabela abaixo que citam a saída do validador leem-se com esta emenda.
+> matriz vive; que o número coincida é coincidência. As linhas da tabela abaixo que citam a saída
+> do validador leem-se com esta emenda — e a linha do CA 1, em particular, diz «96 células de 96»
+> porque era isso que a lista escrita à mão esperava: o validador novo deriva os componentes de
+> `../docs/tecnica/00` e espera **114** (19 × 6), porque o `ENT`, o `GEO` e o `DAT` existem na
+> arquitectura e faltavam à lista.
 
 | CA | Estado | Evidência |
 |---|---|---|
@@ -1292,11 +1296,13 @@ Não expandas escopo: sem SOC/SIEM nem detecção automática. Entrega: document
 > validador vivia em `albinoJimy/kamba` (privado), no mesmo caminho. Era de lá que se lia a «linha
 > 43» que a tabela de referências abaixo cita.
 
-São **sete** os ficheiros de `../docs/seguranca/` nessa condição, e a fronteira não é «segurança»:
-é **a lista do que ainda não está protegido** — ameaças, lacunas, riscos residuais, DPIA
-simplificada, matriz, e os dois *scripts* que as leem — contra **procedimento**, que ficou público
-(resposta a incidentes, exercício de simulação, contactos, os três modelos de notificação). Saiu
-na fotografia pública do **KAM-156**, cuja tabela de sete é a lista canónica.
+Eram **sete** os ficheiros de `../docs/seguranca/` nessa condição **à data do KAM-156**, e a
+fronteira não é «segurança»: é **a lista do que ainda não está protegido** — ameaças, lacunas,
+riscos residuais, DPIA simplificada, matriz, e os dois *scripts* que as leem — contra
+**procedimento**, que ficou público (resposta a incidentes, exercício de simulação, contactos, os
+três modelos de notificação). A tabela de sete do **KAM-156** é a lista canónica dessa data.
+Depois deste ticket são **seis em quinze**: o `validar.py` deixou de ser esboço, e entraram o
+`provar_guarda.py` e o `varrer_ast.py`.
 
 Medido a 2026-11-05, e é a medição que mostra porque a correcção é **de classe** e não de valor:
 
@@ -1429,24 +1435,45 @@ que credor.
 
 | CA | Estado | Evidência |
 |---|---|---|
-| 1 — corre até ao fim, relatório, código 0 ou 1, nunca *traceback* | **satisfeito** | `python docs/seguranca/validar.py .` imprime `MATRIZ`, `STRIDE`, `DPIA` e `DOCS` e sai com **1**; sem excepção. O «antes» (`AssertionError: (180, 20, 13)`, **sem nenhuma família impressa**) e o «depois» integrais na evidência, §1 e §2 |
+| 1 — corre até ao fim, relatório, código 0 ou 1, nunca *traceback* | **satisfeito, com o âmbito dito** | `python docs/seguranca/validar.py .` imprime `MATRIZ`, `STRIDE`, `DPIA` e `DOCS` e sai com **1**; sem excepção. O «antes» (`AssertionError: (180, 20, 13)`, **sem nenhuma família impressa**) na evidência §1. A revisão adversarial semeou 15 entradas patológicas e achou **seis** caminhos para *traceback* na primeira versão (fonte canónica ausente, CSV só de comentários, `.md` não-UTF-8, pasta com nome `.md`): **todos fechados**, e cada um com caso no provador. Fica **um**, e é deliberado: o `assert "\r" not in bruto` que o critério 5 manda manter **é** um *traceback* quando dispara. Logo a promessa verdadeira é a da *docstring* — «nunca por causa de uma contagem» — e não a deste critério, escrita sem âmbito |
 | 2 — nenhuma contagem do canon fixada no código | **satisfeito** | `docs/seguranca/varrer_ast.py docs/seguranca` → **0** contagens fixadas em 4 ficheiros, lido por árvore sintáctica e não por texto. O mesmo instrumento dá **3** no validador de 315 linhas. `KAM`, `ADR` e `DEC` continuam lidos das fontes canónicas. Evidência §4 |
 | 3 — a guarda muda de forma: propriedade, erro de configuração com mensagem | **satisfeito** | A guarda é sobre **conjunto vazio ou abaixo de um piso manifestamente baixo**, reportada no bloco `ERROS DE CONFIGURACAO` com a fonte nomeada. Um piso é limite inferior monótono e não envelhece: `len(KAM) >= 10` continua verdadeiro enquanto o canon crescer. **Com uma emenda à premissa do critério:** ele supõe que um conjunto vazio faria as verificações de existência «passar». Medido, não faz — elas têm a forma `if ident not in KAM: erro(...)`, pelo que o vazio faz **falhar** tudo (50 erros no caso semeado). O que a guarda entrega é **diagnóstico**, nomeando a causa antes das consequências, e não a prevenção de um falso verde. Evidência §2 e §3 |
-| 4 — a guarda demonstrada a morder | **satisfeito** | `docs/seguranca/provar_guarda.py`, quatro casos: fontes reais → **não dispara**; `INDICE.md` semeado a render 0 linhas → erro de configuração, sem *traceback*, sem «0 erros»; semeado a render 3 → dispara pelo piso, que um teste de «não vazio» deixaria passar; e o `assert` antigo → `AssertionError` sem família nenhuma impressa. **Nada é escrito no repositório**: as fontes semeadas vivem em pastas temporárias. Evidência §3 |
+| 4 — a guarda demonstrada a morder | **satisfeito** | `docs/seguranca/provar_guarda.py`, **12 casos**, que falham se a expectativa não se cumprir: controlo com fontes reais (não dispara), vazio e piso para `KAM`, `ADR` e `DEC`, as duas fontes canónicas apagadas, um `.md` não-UTF-8, uma pasta com nome `.md`, o `assert` antigo, e a limitação `deriva_calada`. **Nada é escrito no repositório** (`git status` vazio depois). Os casos do `ADR` e do `DEC` entraram por achado da revisão: a primeira versão testava só o `KAM`. Evidência §3 |
 | 5 — varrimento da mesma classe em `docs/seguranca/` | **satisfeito** | Dois instrumentos, e a diferença entre eles é o achado: o varrimento por expressão regular dá **3** no `validar.py` novo, mas os três estão na *docstring*, onde o `assert` antigo é **citado para ser explicado**; por AST dá **0**. O `gerar_matriz.py` de `origin/main` (384 linhas, não o esboço de 12) está **limpo**: o seu único `assert` é `len(r) == len(COLUNAS)`, propriedade. O `assert "\r" not in bruto` **mantém-se**, na linha 309. Evidência §4 |
 | 6 — a secção de verificação do KAM-065 volta a ser verdadeira | **satisfeito, registando o que ele diz agora** | A frase «OK: 0 erros» do bloco do KAM-065 ganhou a emenda deste ticket, em vez de ser forçada a valer: ela foi medida com os artefactos presentes, e o KAM-156 tirou-os desta cópia. O validador reporta hoje **1 erro de conteúdo** e **5 problemas de configuração**. Evidência §2 e §6 |
 | 7 — sem dependências novas | **satisfeito** | `validar.py` corre com `csv`, `glob`, `io`, `os`, `re`, `sys`; `provar_guarda.py` acrescenta `ast`, `shutil`, `subprocess` e `tempfile`. Todos da biblioteca padrão; nenhum ficheiro de requirements foi tocado |
 
-**O erro de conteúdo, contado e nomeado — 1, e não corrigido:**
-`../docs/seguranca/resposta_incidentes.md` cita `ops/runbooks/RB-K10.md`, que não existe. Medido: o
-ficheiro **existe** em `../docs/runbooks/RB-K10-incidente-de-seguranca.md` — o KAM-083 entregou-o
-noutro caminho e a citação ficou para trás. **Devolvido ao dono do KAM-065**, ou a linha de dívida
-documental conforme seja código ou texto. Não foi acrescentado a `FUTUROS`: esconder o erro na
-lista de dispensas era o limpo falso que este ticket existe para acabar.
+**Os erros de conteúdo, contados e nomeados — 3, e não corrigidos:** os três modelos de
+notificação (`../docs/seguranca/modelos/{apd,pme_afectada,titular}.md`), documentos reais de 91, 74
+e 73 linhas, **nenhum com tabela de «Controlo de versões»**. Só aparecem porque a travessia passou
+a ser recursiva — o `os.listdir` do original não descia a `modelos/`, pelo que os três nunca eram
+varridos e o «N ficheiros verificados» lia-se como cobertura que não havia (achado da revisão
+adversarial). **Devolvidos ao dono do KAM-065**, ou a linha de dívida documental conforme sejam
+código ou texto.
+
+Que sejam três é **coincidência** com os três que o KAM-152 mediu na matriz: esses são outros e
+**não são alcançáveis nesta árvore**, onde a matriz não tem fonte.
+
+**Um erro que eu reportei e que não era um erro.** A primeira versão desta secção dava como achado
+`ops/runbooks/RB-K10.md` citado pelo `resposta_incidentes.md`, atribuído a uma entrega do KAM-083
+«que ficou para trás». Medido pela revisão adversarial, é falso nos dois sentidos: o
+`../docs/runbooks/RB-K10-incidente-de-seguranca.md` é um **esboço do KAM-080** que declara no
+cabeçalho que o runbook completo é o **KAM-083**; o KAM-083 está **aberto**; e a linha 7 do
+`resposta_incidentes.md` diz, na mesma frase, «(ainda não existe)». É entrega futura nomeada como
+tal, que é a definição de `FUTUROS` — logo o documento está correcto e o defeito era do validador.
+Declarado em `FUTUROS` com a razão escrita.
 
 **A lacuna L-20 continua aberta e sem ticket:** pôr o `validar.py` e o `provar_guarda.py` no CI
 toca em `tools/` e `.github/`, e um portão novo entra nos *required checks* e no espelho do
-*ruleset* — decisão de CI, não um `fix` de uma linha.
+*ruleset* — decisão de CI, não um `fix` de uma linha. E o ticket dela ganhou uma decisão que antes
+não existia: **o validador sai com 1 por desenho** enquanto três famílias não tiverem fonte, pelo
+que o critério de verde tem de ser `exit == 0` **ou** «zero erros de conteúdo».
+
+**Não escrito, e declarado:** a caixa 3 do DoD pede que «o controlo de versões do registo e deste
+epic registem a emenda». A parte riscada da dívida 6 está feita; **nenhuma das duas linhas de
+versão foi escrita** — a deste epic porque se escreve na integração (a tabela está na 1.19 e a
+próxima é a 1.20), e a do `../docs/dividas-documentais.md` pela mesma razão, para não disputar a
+linha com as outras sessões que correm em paralelo. **Credor: quem integrar.**
 
 ### Handoff para Claude Code
 

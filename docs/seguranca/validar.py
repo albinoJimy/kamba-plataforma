@@ -95,10 +95,16 @@ MARCA_DE_ESBOCO = "nao vive neste repositorio"
 
 
 def e_esboco(caminho):
-    """O ficheiro existe mas e o aviso de que o conteudo esta noutro sitio."""
+    """O ficheiro existe mas e o aviso de que o conteudo esta noutro sitio.
+
+    Apanha tambem o `UnicodeDecodeError`, que **nao** e um `OSError`: com so
+    `except OSError` aqui, um `.md` que nao fosse UTF-8 passava por esta funcao e
+    levantava, depois de o `ler_ou_nada` da familia `docs` ja o ter reportado em
+    paz. Achado 3 da revisao adversarial, caso 12.
+    """
     try:
         return MARCA_DE_ESBOCO in ler(caminho)
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return False
 
 
@@ -121,9 +127,35 @@ def fonte_utilizavel(caminho, familia):
 
 
 # ------------------------------------------------------------ fontes canonicas
-indice = ler("specs/INDICE.md")
+#
+# Lidas com `ler_ou_nada`: um ficheiro ausente, ilegivel ou que nao seja UTF-8 e
+# um **erro de configuracao**, nunca uma excepcao. Sem isto, um `INDICE.md`
+# ausente dava `FileNotFoundError` antes da primeira familia — a mesma forma de
+# falha do `assert` que este ticket corrigiu, com outro nome. Achado 3 da revisao
+# adversarial.
+def ler_ou_nada(caminho, familia):
+    """O conteudo, ou `None` com o motivo registado. Nunca levanta."""
+    try:
+        return ler(caminho)
+    except FileNotFoundError:
+        problema_de_configuracao("%s: a fonte %s nao existe" % (familia, caminho))
+    except IsADirectoryError:
+        problema_de_configuracao("%s: %s e uma pasta e nao um ficheiro" % (familia, caminho))
+    except UnicodeDecodeError as erro_de_leitura:
+        problema_de_configuracao(
+            "%s: %s nao e UTF-8 (%s)" % (familia, caminho, erro_de_leitura.reason)
+        )
+    except OSError as erro_de_leitura:
+        problema_de_configuracao(
+            "%s: %s nao se consegue ler (%s)"
+            % (familia, caminho, type(erro_de_leitura).__name__)
+        )
+    return None
+
+
+indice = ler_ou_nada("specs/INDICE.md", "canon") or ""
 KAM = set(re.findall(r"^\| (KAM-\d{3}) \|", indice, re.M))
-arq = ler("docs/tecnica/00_Arquitectura_Solucao.md")
+arq = ler_ou_nada("docs/tecnica/00_Arquitectura_Solucao.md", "canon") or ""
 ADR = set(re.findall(r"^\| \*{0,2}(ADR-\d{3})\*{0,2} \|", arq, re.M))
 DEC = set(re.findall(r"^\| (D\d{1,2}) \|", arq, re.M))
 
@@ -190,8 +222,19 @@ RE_TEL = re.compile(r"\+244[\s\d]{6,}|(?<!\d)9\d{8}(?!\d)")
 # Caminhos que se citam de proposito sem existirem: entregas futuras de outros
 # tickets, nomeadas como tal no texto. Cada um e declarado aqui, nao dispensado
 # por padrao.
+#
+# Duas entradas do original sairam porque **passaram a existir** nesta arvore
+# (`docs/evidencia/KAM-024.md` e `docs/isolamento.md`): uma dispensa que ja nao
+# dispensa nada e uma porta aberta que ninguem vigia.
 FUTUROS = {
     "docs/tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md",
+    # KAM-083, aberto. O `docs/seguranca/resposta_incidentes.md` cita-o e diz, na
+    # mesma frase, «(ainda nao existe)»; o que esta em
+    # `docs/runbooks/RB-K10-incidente-de-seguranca.md` e um **esboco do KAM-080**
+    # que declara no cabecalho que o runbook completo e o KAM-083. Logo e entrega
+    # futura nomeada como tal, que e exactamente o que esta lista cobre — e nao um
+    # caminho atrasado.
+    "ops/runbooks/RB-K10.md",
 }
 
 
@@ -208,7 +251,11 @@ def existe_teste(caminho, nome):
     alvo = os.path.join(RAIZ, caminho)
     if not os.path.exists(alvo):
         return False
-    corpo = io.open(alvo, encoding="utf-8").read()
+    try:
+        corpo = io.open(alvo, encoding="utf-8").read()
+    except (OSError, UnicodeDecodeError):
+        # Um ficheiro de teste ilegivel nao e um teste que exista.
+        return False
     nome = nome.strip().strip("`").strip()
     if caminho.endswith(".py"):
         return re.search(r"def " + re.escape(nome) + r"\(", corpo) is not None
@@ -293,10 +340,57 @@ OBRIG = [
     "fase", "estado_evidencia", "juridico", "criterio_saida",
 ]
 DONOS = {"SEG", "AP", "RP", "PRIV", "OPS", "T&S", "ADV"}
-COMP = {
+#: Os componentes, **lidos da arquitectura** e nao escritos aqui.
+#:
+#: O original tinha duas listas a mao, no mesmo ficheiro, com conteudos
+#: diferentes — 17 nomes na da matriz e 16 na do STRIDE — e **nenhuma** das duas
+#: tinha o `ENT` nem o `GEO`, que o `docs/tecnica/00` ja define. Isso e a classe
+#: de defeito deste ticket numa instancia mais fraca: um literal no codigo a
+#: afirmar o estado presente de um canon que cresce. O modo de falha era
+#: silencioso e dos dois lados — uma linha da matriz com `componente = ENT` dava
+#: «componente desconhecido» falso, e o STRIDE nunca esperava as celulas dos
+#: componentes novos, pelo que elas ficavam invisiveis em vez de em falta.
+#:
+#: Agora derivam da fonte, com a lista a mao como recurso declarado se a leitura
+#: se quebrar — e a quebra e reportada. Achado 7 da revisao adversarial.
+COMP_DE_RECURSO = (
     "GWY", "CHR", "AGR", "REG", "TLS", "HND", "COM", "PAY", "IDX", "EVT", "TEN",
     "LLM", "MED", "STO", "OBS", "GOV", "DAT",
-}
+)
+def _codigos_de_componente(texto):
+    """Os codigos da tabela de componentes, pelo maior bloco contiguo.
+
+    Nao se filtra por lista de excepcoes: o `| ADR | Decisao | ... |` de outra
+    tabela do mesmo documento tambem casa o padrao de uma linha de tres letras,
+    e uma lista de nomes a excluir era outra afirmacao a envelhecer. O que
+    distingue a tabela certa e ser **a maior corrida de linhas seguidas** dessa
+    forma, e isso nao precisa de manutencao.
+    """
+    blocos, actual, anterior = [], [], None
+    for n, linha in enumerate(texto.splitlines()):
+        m = re.match(r"^\| \*{0,2}([A-Z]{3})\*{0,2} \|", linha)
+        if m and (anterior is None or n == anterior + 1):
+            actual.append(m.group(1))
+            anterior = n
+        elif m:
+            blocos.append(actual)
+            actual, anterior = [m.group(1)], n
+    blocos.append(actual)
+    return sorted(set(max(blocos, key=len))) if blocos else []
+
+
+_componentes = _codigos_de_componente(arq)
+#: Piso da mesma familia dos outros: so dispara se a leitura se quebrar.
+MINIMO_DE_COMPONENTES = 10
+if len(_componentes) < MINIMO_DE_COMPONENTES:
+    problema_de_configuracao(
+        "componentes: a arquitectura rendeu %d codigos de componente, abaixo do "
+        "piso %d — a expressao regular deixou de bater. A verificacao de "
+        "componente e a forma do STRIDE usam a lista de recurso do codigo, que "
+        "pode estar atrasada." % (len(_componentes), MINIMO_DE_COMPONENTES)
+    )
+    _componentes = list(COMP_DE_RECURSO)
+COMP = set(_componentes)
 ESTADOS = {"CONFIRMADO", "INDÍCIO", "NÃO VERIFICADO"}
 CONTROLO = {"existe-testado", "existe-nao-testado", "nao-existe", "parcial", "sem-ticket"}
 
@@ -308,12 +402,33 @@ else:
         bruto = f.read()
     assert "\r" not in bruto, "CRLF na matriz"
     linhas = [r for r in csv.reader(io.StringIO(bruto)) if r and not r[0].startswith("#")]
+    if not linhas:
+        # Sem esta guarda, `linhas[0]` dava `IndexError` num CSV vazio ou feito
+        # so de comentarios. Achado 3 da revisao adversarial, casos 8 e 9.
+        problema_de_configuracao(
+            "matriz: %s nao tem nenhuma linha fora dos comentarios — nem cabecalho" % MATRIZ
+        )
+        linhas = [[]]
     cab, corpo = linhas[0], linhas[1:]
-    if cab[:11] != OBRIG:
-        erro("matriz: as 11 primeiras colunas nao sao as do criterio: %s" % cab[:11])
+    if cab[: len(OBRIG)] != OBRIG:
+        erro(
+            "matriz: as %d primeiras colunas nao sao as do criterio: %s"
+            % (len(OBRIG), cab[: len(OBRIG)])
+        )
+    # Piso de linhas, da mesma familia dos `PISOS` do canon: uma matriz com
+    # cabecalho certo e duas linhas nao e uma matriz de conformidade, e sem isto
+    # passava com «0 erros». Nao e uma contagem — e um limite inferior monotono,
+    # muito abaixo de qualquer valor plausivel. Achado 2 da revisao adversarial.
+    MINIMO_DE_LINHAS = 20
     if not corpo:
         problema_de_configuracao(
             "matriz: %s tem cabecalho e ZERO linhas de dados — nada a verificar" % MATRIZ
+        )
+    elif len(corpo) < MINIMO_DE_LINHAS:
+        problema_de_configuracao(
+            "matriz: %s tem %d linhas de dados, abaixo do piso %d — fonte oca ou "
+            "truncada. Nao e uma contagem da matriz: e um piso que so dispara se a "
+            "fonte se degradar" % (MATRIZ, len(corpo), MINIMO_DE_LINHAS)
         )
     ids = []
     contagem = {}
@@ -383,10 +498,11 @@ else:
 # A forma: 16 componentes x 6 categorias = 96 celulas unicas. O numero 96 nao e
 # uma contagem do canon — e o produto de duas listas que estao aqui, e muda se
 # e so se uma delas mudar.
-COMPS = [
-    "GWY", "CHR", "AGR", "REG", "TLS", "HND", "COM", "PAY", "IDX", "EVT", "TEN",
-    "LLM", "MED", "STO", "OBS", "GOV",
-]
+#: A **mesma** lista da matriz, e nao uma segunda escrita a mao: era assim que
+#: as duas divergiam (17 contra 16) no mesmo ficheiro. O numero de celulas
+#: esperadas passa a derivar da fonte, pelo que um componente novo na
+#: arquitectura aparece como celula **em falta** em vez de ficar invisivel.
+COMPS = sorted(COMP)
 CATEGORIAS = "STRIDE"
 STRIDE_MD = "docs/seguranca/ameacas_stride.md"
 if not fonte_utilizavel(STRIDE_MD, "stride"):
@@ -431,6 +547,11 @@ else:
     )
     if sem_nada:
         erro("stride: celulas sem teste nem ticket: %s" % sem_nada)
+    # Propriedade, nao conteudo: «tem um diagrama» nao diz que ameacas existem.
+    # Estava no original, saiu na primeira versao deste ficheiro sem ser
+    # declarada, e volta. Achado da revisao adversarial.
+    if "flowchart" not in stride:
+        erro("stride: sem diagrama")
 
 # ------------------------------------------------------------------------ dpia
 #
@@ -447,8 +568,19 @@ if not fonte_utilizavel(DPIA_MD, "dpia"):
 else:
     dpia = ler(DPIA_MD)
     ops = re.findall(r"^\| (O-\d{2}) \|(.*)$", dpia, re.M)
+    #: Numero minimo de colunas por operacao. Com o `[:-1]` do original e uma
+    #: linha `| O-NN |` sem campos, `campos` fica vazio e `any(...)` sobre uma
+    #: lista vazia e `False`: seis linhas nuas passavam a familia com ZERO erros.
+    #: Achado 2 e nota da revisao adversarial.
+    MINIMO_DE_COLUNAS = 4
     for ident, resto in ops:
         campos = [c.strip() for c in resto.split("|")][:-1]
+        if len(campos) < MINIMO_DE_COLUNAS:
+            erro(
+                "dpia %s: %d coluna(s), menos do que as %d minimas"
+                % (ident, len(campos), MINIMO_DE_COLUNAS)
+            )
+            continue
         if any(not c for c in campos):
             erro("dpia %s: campo vazio" % ident)
     print(
@@ -464,7 +596,18 @@ else:
 # existem e tem texto, esbocos incluidos — um esboco e um documento curto, nao
 # um ficheiro vazio, e as referencias que ele faz tem de resolver como as
 # outras.
-alvos = ["docs/seguranca/" + f for f in sorted(os.listdir(SEG)) if f.endswith(".md")]
+# **Recursivo**, ao contrario do original: o `os.listdir` nao descia a
+# `docs/seguranca/modelos/`, pelo que os tres modelos de notificacao — 91, 74 e
+# 73 linhas de documento real, que nem sao esbocos — nunca eram varridos, e o
+# «N ficheiros verificados» lia-se como cobertura que nao havia. Achado 8 da
+# revisao adversarial.
+alvos = sorted(
+    (os.path.join(dir_, f).replace("\\", "/")[len(RAIZ) + 1:]
+     if dir_.startswith(RAIZ) else os.path.join(dir_, f).replace("\\", "/"))
+    for dir_, _sub, ficheiros in os.walk(SEG)
+    for f in ficheiros
+    if f.endswith(".md")
+)
 _analises = os.path.join(RAIZ, "docs", "analises")
 if os.path.isdir(_analises):
     alvos += [
@@ -473,7 +616,9 @@ if os.path.isdir(_analises):
         if f.startswith("ANALISE-06")
     ]
 for a in alvos:
-    t = ler(a)
+    t = ler_ou_nada(a, "docs")
+    if t is None:
+        continue
     verificar_refs(t, a.replace("\\", "/"), os.path.dirname(a))
     # Um esboco e um aviso de duas duzias de linhas e nao um documento do
     # conjunto: exigir-lhe controlo de versoes era exigir-lhe que fingisse ser
