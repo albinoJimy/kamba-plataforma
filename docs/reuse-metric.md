@@ -284,7 +284,11 @@ aberto.
 
 ## 6. O resultado de hoje
 
-Medido em `183e2b0`, a 2026-11-05, com `make reuso`:
+Medido a 2026-11-05 com `make reuso`, no ramo do KAM-039 sobre a `main` em
+`8f8ac19`. **O *commit* exacto nao se escreve aqui a mao:** o artefacto leva-o,
+com a marca de arvore suja ao lado — foi um achado da revisao adversarial que
+a afirmacao «medido em X» nao era verificavel pelo instrumento, e um numero
+escrito a mao envelhece no *commit* seguinte.
 
 | Medida | Valor |
 |---|---|
