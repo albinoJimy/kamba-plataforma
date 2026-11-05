@@ -78,7 +78,13 @@ import {
   SQL_COTACAO_VALIDA,
   SQL_TERMOS,
 } from "../produtos/consultas.ts";
-import { erro, ok, type Resultado } from "../port/contrato.ts";
+import {
+  erro,
+  eUuid,
+  ok,
+  type Resultado,
+  type ResultadoFinal,
+} from "../port/contrato.ts";
 import type { ClienteSql, Ctx, LinhaDaEncomenda } from "./contrato.ts";
 import {
   cartId,
@@ -231,12 +237,25 @@ export function precoValido(termos: Termos, agora: Date): boolean {
  * para aquela quantidade — ignorá-la era perder a negociação que ele fez. A
  * cotação **ganha** ao `offer_terms` quando existe, que é o sentido de ela
  * existir.
+ *
+ * **E é por a cotação ganhar que o `contactId` desce até aqui** (KAM-179). Este
+ * é o caminho que põe o preço na encomenda: sem o predicado de contacto na
+ * leitura, o contacto X que pedisse o mesmo `(sku, qty)` pagava o total
+ * negociado para Y, com `origem_preco='cotacao_dono'` a dizer que o dono o
+ * prometeu. O valor estava à mão desde sempre — o `RascunhoDoCarrinho.contactId`
+ * —, e o que faltava era descê-lo.
  */
 export async function resolverLinha(
   l: Leitura,
+  contactId: string,
   pedido: PedidoDeProposta,
   agora: Date,
 ): Promise<Resultado<LinhaResolvida>> {
+  // A forma canónica, pela razão escrita no `getValidQuote` do `produtos.ts`:
+  // o `exigirPartes` deste módulo já exige o `eUuid` para o mesmo
+  // identificador, e duas formas para o mesmo campo é a assimetria por onde a
+  // barreira desaparece.
+  if (!eUuid(contactId)) return erro("VALIDATION_ERROR");
   if (typeof pedido?.sku !== "string" || pedido.sku.trim().length === 0) {
     return erro("VALIDATION_ERROR");
   }
@@ -257,6 +276,7 @@ export async function resolverLinha(
   if (termos.estado !== "publicado") return erro("NOT_FOUND");
 
   const cotacoes = await l.repo.noTenant(SQL_COTACAO_VALIDA, [
+    contactId,
     pedido.sku,
     pedido.qty,
     agora.toISOString(),
@@ -352,7 +372,11 @@ export async function proposeCart(
   anel: AnelDoSegredo,
   rascunho: RascunhoDoCarrinho,
   agora: Date,
-): Promise<Resultado<Proposta>> {
+  // **`ResultadoFinal` e nao `Resultado`**, pela emenda 1.59 do dicionario: o
+  // terceiro caso do `Resultado` e so para o conflito de CAS, e esta operacao
+  // nao tem CAS nenhum — le e nao escreve. Declarar o tipo largo dizia a quem
+  // chama que tem de tratar um caso que esta funcao nunca produz.
+): Promise<ResultadoFinal<Proposta>> {
   if (!Array.isArray(rascunho?.linhas) || rascunho.linhas.length === 0) {
     return erro("VALIDATION_ERROR");
   }
@@ -387,7 +411,7 @@ export async function proposeCart(
 
   const resolvidas: LinhaResolvida[] = [];
   for (const item of canonicos) {
-    const linha = await resolverLinha(l, item, agora);
+    const linha = await resolverLinha(l, rascunho.contactId, item, agora);
     // **Uma linha que não resolve recusa o carrinho inteiro**, e não se devolve
     // um carrinho parcial: o total de um carrinho a que falta uma linha é um
     // número que o cliente leria como o preço do que pediu.

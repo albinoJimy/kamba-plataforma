@@ -26,6 +26,17 @@
  * `propose_cart` (KAM-046). A porta nomeia-os; a implementação é deles, e até
  * chegar cada método devolve `NOT_IMPLEMENTED` com o ticket dono escrito em
  * `docs/com/port-coverage.md`.
+ *
+ * **Desde o KAM-178 são sete os ligados e cinco os que esperam**, e os cinco
+ * **não são todos do KAM-045**: quatro são as reservas, que são um ticket de
+ * implementação, e o quinto é o `createOrder`, cujo credor é uma **decisão**
+ * sobre o `OrderIntent` desta página — a *saga* existe e serve-se pela API
+ * interna. A distinção está escrita no método, e apagá-la aqui era desfazer o
+ * que o ticket pagou para dizer.
+ *
+ * Os `ERROS` passaram de cinco a dez e o `Resultado` ganhou um terceiro caso
+ * para o conflito de CAS — ver as notas de cada um, e o
+ * `docs/com/port-coverage.md` §2 para o estado de cada método.
  */
 
 /** O mínimo de um cliente SQL de que a porta e os adaptadores precisam. */
@@ -75,14 +86,35 @@ export interface Ctx {
 }
 
 /**
- * Os códigos de erro da porta. Lista **fechada**.
+ * Os códigos de erro da porta. Lista **fechada**, e **dez** desde o KAM-178.
  *
- * Quatro dos cinco são os do §3.27 do dicionário — a lista fechada de
- * `tool_audit.error_code` —, e importam-se de lá pelo nome em vez de serem
- * redeclarados com significado novo. O quinto é o `NOT_IMPLEMENTED`, que é
- * nome **novo** e entra no dicionário §3.39 marcado como *proposta*: nenhum
- * dos treze existentes serve, porque todos descrevem uma recusa sobre dados e
- * este descreve a ausência da implementação.
+ * Nove dos dez são os do §3.27 do dicionário — a lista fechada de
+ * `tool_audit.error_code`, treze desde a emenda 1.47 —, e importam-se de lá
+ * pelo nome em vez de serem redeclarados com significado novo. O décimo é o
+ * `NOT_IMPLEMENTED`, que é nome **novo** e entra no dicionário §3.39 marcado
+ * como *proposta*: nenhum dos treze existentes serve, porque todos descrevem
+ * uma recusa sobre dados e este descreve a ausência da implementação.
+ *
+ * ## Eram cinco e são dez, e o alargamento **cumpre** a regra acima
+ *
+ * Os cinco nunca foram o universo dos erros da porta: eram o **subconjunto** de
+ * que os doze métodos precisavam no dia em que os doze devolviam todos
+ * `NOT_IMPLEMENTED`. Os nove que o `ERROS_DA_CRIACAO` do `../orders/create_order.ts`
+ * fecha — e que o §3.44 declara como `OrdersModule.erro` — são **todos** nomes
+ * do §3.27, pelo que alargar a lista a eles é exactamente o que a frase acima
+ * manda fazer: importar de lá pelo nome. Nenhum nome novo entra no dicionário
+ * por causa deste alargamento.
+ *
+ * O que muda com ele é a lista aqui e a **contagem** que o
+ * `../../tests/port.contrato.test.ts` pina. É para isso que a contagem existe: quem
+ * a mexe vem ler porquê. Decisão do **orquestrador** a 2026-11-04, emenda de
+ * nível L5 ao §3.39 — toca o dicionário e não é escolha de canon, porque segue
+ * a regra que o §3.39 já escreve.
+ *
+ * **E a terceira saída está excluída por evidência e não por gosto:** traduzir
+ * um `PRICE_CHANGED` para `VALIDATION_ERROR` no adaptador diz a quem viu o preço
+ * mudar que o pedido dele não serve. O KAM-044 e o KAM-046 recusaram-na os dois,
+ * por escrito e independentemente, cada um no seu ficheiro.
  *
  * O `NOT_IMPLEMENTED` **não** é um `tool_audit.error_code`: uma tool nunca o
  * devolve a um cliente. Pára na API interna do COM, que o traduz para 501.
@@ -90,34 +122,84 @@ export interface Ctx {
 export const ERROS = [
   "NOT_IMPLEMENTED",
   "NOT_FOUND",
-  "TENANT_MISMATCH",
   "VALIDATION_ERROR",
+  "TENANT_MISMATCH",
+  "PRICE_CHANGED",
+  "OUT_OF_STOCK",
+  "LIMIT_EXCEEDED",
+  "INTENT_REUSED_WITH_DIFFERENT_CONTENT",
+  "UPSTREAM_TIMEOUT",
   "UPSTREAM_DOWN",
 ] as const;
 export type Erro = (typeof ERROS)[number];
 
 /**
- * O resultado de uma operação, como união discriminada.
+ * O resultado de uma operação que **não** tem CAS: dois casos, como sempre.
  *
  * A mesma escolha do módulo `servicos`, e vale a pena repetir a razão: uma
  * recusa de domínio é uma **resposta** e não uma excepção, porque o grafo tem
  * de a poder mostrar ao cliente. Um `throw` obrigava cada chamador a distinguir
  * «este tenant não tem este SKU» de «a ligação caiu» pelo nome de uma classe.
  */
-export type Resultado<T> =
+export type ResultadoFinal<T> =
   | { readonly tipo: "ok"; readonly valor: T }
   | { readonly tipo: "erro"; readonly erro: Erro };
 
-export function ok<T>(valor: T): Resultado<T> {
+/**
+ * Uma transição perdeu o *compare-and-set*. **Traz a releitura.**
+ *
+ * «Relê e reavalia (nunca forças)» — §6.2 do `docs/tecnica/03`, e o critério 2
+ * do KAM-044 à letra: das vinte concorrentes, uma vence e dezanove «releem e
+ * reavaliam». O `valor` é o estado **relido**, para que quem chama reavalie sem
+ * segunda viagem.
+ */
+export type Conflito<T> = { readonly tipo: "conflito"; readonly valor: T };
+
+/**
+ * O resultado de uma operação da porta: **três** casos desde o KAM-178.
+ *
+ * ## O terceiro caso é só para o conflito de CAS, e não uma tríade genérica
+ *
+ * A razão é de **categoria** e não de conveniência. Um conflito de CAS não é
+ * uma recusa sobre dados: é «relê e reavalia», e nenhum dos dez `ERROS`
+ * consegue dizer isso — «todos descrevem uma recusa sobre dados», como o
+ * comentário do `NOT_IMPLEMENTED` avisa para o seu próprio caso. Codificá-lo
+ * como erro era o mesmo erro de categoria.
+ *
+ * Por isso o caso novo é **exactamente** o que os módulos já têm (a união de
+ * três do `../orders/transition.ts` e do `../orders/owner_confirmation.ts`) e
+ * nada mais: uma tríade genérica mudava a semântica dos doze métodos sem
+ * necessidade, e as operações sem CAS continuam a devolver duas formas
+ * (`ResultadoFinal`).
+ *
+ * **O limite, que fica dito:** num `Resultado<void>` o `conflito` não leva
+ * informação de releitura, porque o `void` não tem nenhuma para levar. É uma
+ * propriedade da assinatura do `requestOwnerConfirmation` no §3.2 — que é
+ * `Promise<void>` — e não do caso novo; quem precisar do subestado relido lê-o
+ * com o `getOrder`. Alargar aquela assinatura era alargar o contrato dos doze
+ * por um método.
+ */
+export type Resultado<T> = ResultadoFinal<T> | Conflito<T>;
+
+export function ok<T>(valor: T): ResultadoFinal<T> {
   return { tipo: "ok", valor };
 }
 
-export function erro<T>(codigo: Erro): Resultado<T> {
+export function erro<T>(codigo: Erro): ResultadoFinal<T> {
   return { tipo: "erro", erro: codigo };
 }
 
-/** Atalho para o `NOT_IMPLEMENTED`, que hoje é o que os doze devolvem. */
-export function naoImplementado<T>(): Resultado<T> {
+/** O conflito de CAS, com a releitura. Ver o `Conflito`. */
+export function conflito<T>(valor: T): Conflito<T> {
+  return { tipo: "conflito", valor };
+}
+
+/**
+ * Atalho para o `NOT_IMPLEMENTED`. Hoje é o que **cinco** métodos devolvem: os
+ * quatro das reservas (KAM-045) e o `createOrder`, por uma razão de outra
+ * natureza — ver o método, e o `docs/com/port-coverage.md` §2.
+ */
+export function naoImplementado<T>(): ResultadoFinal<T> {
   return { tipo: "erro", erro: "NOT_IMPLEMENTED" };
 }
 

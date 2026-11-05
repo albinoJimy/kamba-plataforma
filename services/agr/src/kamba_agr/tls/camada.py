@@ -201,6 +201,10 @@ class Invocacao:
     #: de cima e do turno (vai ao `usage_ledger` e a linha de auditoria), esta e
     #: do carrinho, e um segundo toque com `wamid` novo e um turno novo.
     chave: str | None = None
+    #: O rascunho do §6.3, para as duas tools de comercio que o exigem (KAM-178).
+    #: Ver a nota do `Pedido.rascunho`: vem de quem constroi a invocacao e nunca
+    #: dos `args`, para que o modelo nao veja a identidade da intencao.
+    rascunho: Mapping[str, Any] | None = None
     #: Se a reserva do passo 5 nos fez donos da linha — e portanto se o
     #: `finally` do pipeline a tem de fechar.
     dono_da_chave: bool = False
@@ -522,6 +526,7 @@ class ToolLayer:
         confirmation: Confirmation | None = None,
         idempotency_key: str | None = None,
         tecto: tuple[str, int] | None = None,
+        rascunho: Mapping[str, Any] | None = None,
     ) -> ToolResult:
         """Os oito passos, pela ordem, falhando fechada em cada um.
 
@@ -564,6 +569,7 @@ class ToolLayer:
                 confirmation,
                 idempotency_key,
                 tecto,
+                rascunho,
             )
         )
         try:
@@ -644,6 +650,7 @@ class ToolLayer:
         confirmation: Confirmation | None,
         idempotency_key: str | None,
         tecto: tuple[str, int] | None,
+        rascunho: Mapping[str, Any] | None = None,
     ) -> tuple[ToolResult, Any]:
         """Corre na *thread*. Devolve o resultado **e** a ligacao, ou larga-a.
 
@@ -663,6 +670,7 @@ class ToolLayer:
             idempotency_key=idempotency_key,
             tecto=tecto,
             ligacao=ligacao,
+            rascunho=rascunho,
         )
         inv.comecou = self._relogio()
         resultado: ToolResult | None = None
@@ -865,6 +873,11 @@ class ToolLayer:
             # retoma de uma linha `falhada` duplicava o efeito em vez de o
             # reencontrar.
             chave=inv.chave,
+            # O rascunho do §6.3 (KAM-178). Ver a nota do `Pedido.rascunho`: sem
+            # ele, o executor do `criar_pedido` so tem o `cart_id` — que e
+            # derivado e nao guardado — e o COM nao tem como reencontrar a
+            # intencao.
+            rascunho=inv.rascunho,
         )
         try:
             inv.resposta = especificacao.executor(pedido)

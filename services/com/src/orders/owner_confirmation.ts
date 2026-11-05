@@ -186,9 +186,12 @@ async function escrever(
  * Pede a confirmação ao dono: `nao_aplicavel` → `pendente`.
  *
  * **Não emite nada e não reserva nada** — ver a nota do módulo. É o método 5 da
- * porta (`requestOwnerConfirmation`) do lado do módulo; a ligação ao adaptador
- * fica para quem decidir como a porta expressa os códigos deste domínio
- * (`docs/com/port-coverage.md` §2).
+ * porta (`requestOwnerConfirmation`) do lado do módulo, e **está ligado ao
+ * adaptador desde o KAM-178**: os três casos atravessam a porta um a um, com o
+ * `conflito` a ser o terceiro caso do `Resultado` e não um `VALIDATION_ERROR`.
+ * Esta nota dizia que a ligação «fica para quem decidir como a porta expressa os
+ * códigos deste domínio»; a decisão foi tomada (emenda 1.59 do dicionário) e o
+ * resíduo de credor fica apagado em vez de ficar a nomear uma espera que acabou.
  *
  * Uma encomenda que já está `pendente` devolve `ok`: pedir duas vezes é o que o
  * lembrete dos cinco minutos faz, e tratá-lo como conflito obrigava o
