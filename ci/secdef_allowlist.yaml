@@ -68,3 +68,74 @@ funcoes:
       **nao** e uma segunda entrada: resolve-se com a politica `pay_hooks_token`
       por papel mais um `GRANT` por coluna, que o DoD do bloco exige ao escrever
       «SECURITY DEFINER apenas em append_payment_event».
+
+  - funcao: platform.manual_declarar(p_charge_id uuid, p_actor_contact_id uuid, p_canal_msg_id text, p_evidencia_ref text)
+    adr: ADR-013
+    razao: >-
+      E uma das quatro portas de escrita de `platform.manual_confirmations`
+      (KAM-054): nenhum papel de aplicacao tem `INSERT` nessa tabela, e e o
+      `DEFINER` que lhe da o privilegio que o chamador nao tem. Com `SECURITY
+      INVOKER` a excepcao nao desaparecia — mudava de sitio e no sitio novo era
+      maior: era preciso conceder `INSERT` ao `kamba_app`, e com esse privilegio
+      escreve-se uma fase `declaracao_cliente` com o `actor_contact_id` a
+      escolha. A guarda do M-1 que impede o cliente de confirmar o proprio
+      pagamento descobre **quem e o cliente** lendo precisamente essa fase, pelo
+      que quem a pudesse escrever escolhia quem o cliente e — isto e, a fraude
+      mais obvia deste caminho ficava aberta por um `GRANT`.
+      A excepcao e estreita: o `DEFINER` nao contorna o `FORCE ROW LEVEL
+      SECURITY` (a funcao corre como o `kamba_migrator`, que e `NOBYPASSRLS`, e o
+      `FORCE` vincula o dono — `db/rls.py`), pelo que uma chamada com o contexto
+      do tenant A sobre uma cobranca de B nao encontra a cobranca e recusa. E
+      esta funcao nao confirma nada: nao escreve `pagamento_confirmado` nenhum.
+
+  - funcao: platform.manual_confirmar(p_charge_id uuid, p_actor_contact_id uuid, p_canal_msg_id text, p_valor_declarado_minor bigint)
+    adr: ADR-013
+    razao: >-
+      E onde vivem as regras M-1, M-3, M-4 e M-5 do `docs/tecnica/04` secao 4.2
+      (KAM-054), e a razao de ser `DEFINER` e a mesma da `manual_declarar` mais
+      uma: as regras tem de viver do lado de quem tem o privilegio, senao quem
+      tem o privilegio contorna-as. Com `INVOKER` e `INSERT` concedido ao
+      `kamba_app`, escrevia-se directamente uma fase `confirmacao` com
+      `valor_bate` verdadeiro — e o G8 do `payment_events_g8_humano`, que exige
+      exactamente essa fase, passava a validar um facto que o atacante acabou de
+      inventar.
+      A excepcao e estreita e mede-se: a funcao **decide** e nao recebe decisao
+      por parametro, pelo que nao ha argumento por onde quem chama a influencie
+      alem do valor declarado e da sua propria identidade; o `DEFINER` nao
+      contorna o `FORCE` (ver a entrada acima); e o `avaliarConfirmacao` do
+      `packages/core-ts/src/pagamentos/manual.ts` nao e uma segunda
+      implementacao da regra mas o oraculo que a suite confronta caso a caso com
+      esta funcao contra um PostgreSQL real.
+
+  - funcao: platform.manual_expirar_confirmacao(p_charge_id uuid, p_janela_horas integer)
+    adr: ADR-013
+    razao: >-
+      Escreve a fase `rejeicao` da omissao do dono (F-18, KAM-054, criterio 7) na
+      `manual_confirmations`, onde nenhum papel de aplicacao tem `INSERT`, pela
+      razao escrita na entrada da `manual_declarar`. Com `INVOKER`, o privilegio
+      que ela exigiria era o mesmo que desfaz a guarda do M-1.
+      A excepcao e estreita por uma propriedade propria desta funcao: ela nao
+      pode confirmar nem reverter nada — escreve uma rejeicao e um
+      `confirmacao_manual_rejeitada`, e o `next_state` so lhe da a aresta
+      `pendente_confirmacao -> emitida`. Nao toca no `valid_until` da cobranca, o
+      que e o que faz a reserva da encomenda manter-se ate ao `expira_at`. E a
+      unica das quatro concedida tambem ao `kamba_batch`, porque e a unica que um
+      varrimento corre (KAM-071).
+
+  - funcao: platform.manual_reverter(p_charge_id uuid, p_actor_contact_id uuid, p_canal_msg_id text, p_motivo text)
+    adr: ADR-013
+    razao: >-
+      Escreve a fase `reversao`, abre o `refund_cases` e escreve o
+      `confirmacao_manual_revertida` numa transaccao (M-8, KAM-054, criterio 8).
+      As tres tabelas que ela toca nao tem `INSERT` para papel de aplicacao
+      nenhum, e as razoes sao diferentes em cada uma: na
+      `manual_confirmations` e a guarda do M-1 (ver acima); na `refund_cases`,
+      um `INSERT` concedido abria um caso de reembolso sem reversao e sem evento
+      no ledger, que e a «abuso de reembolso» da tabela do secao 9; e sem ser a
+      mesma funcao a fazer as tres, a atomicidade entre o caso e o evento
+      deixava de existir.
+      A excepcao e estreita: exige motivo escrito e recusa sem ele, o
+      `actor_kind` do evento e `ops` e nao `dono`, o valor do caso de reembolso e
+      o da **cobranca** e nao um argumento, e nada se apaga — o
+      `payment_events` recusa `UPDATE` e `DELETE` por *trigger*, incluindo ao
+      superutilizador e incluindo quando nao casam linha nenhuma (KAM-175).
