@@ -93,8 +93,23 @@ Produzir o modelo de ameaças completo do Piloto e a matriz de conformidade rast
 
 Entregue no ramo `feature/KAM-065-modelo-de-ameacas-stride`. **Seis caixas marcadas, sete vazias**
 (quatro de oito critérios; duas de cinco do DoD) — cada uma com uma linha aqui. Os números
-reproduzem-se, da raiz, com `python docs/seguranca/validar.py .`, que termina em «OK: 0 erros»; o
-script **não está no CI**.
+reproduziam-se, da raiz, com `python docs/seguranca/validar.py .`, que terminava em «OK: 0 erros»; o
+script **não está no CI** (lacuna L-20).
+
+> **Emenda do KAM-149, 2026-11-05: aquele «OK: 0 erros» já não é o que o validador diz aqui, e a
+> frase não se força a valer.** Foi medido com os artefactos presentes, no repositório privado. O
+> **KAM-156** tirou desta cópia a matriz, o STRIDE, a DPIA, as lacunas e os riscos residuais, pelo
+> que três das quatro famílias do validador deixaram de ter fonte nesta árvore. Recriado pelo
+> KAM-149, ele reporta-as como **erro de configuração** a nomear o ficheiro que falta, e salta-as.
+> A saída de hoje: **3 erros de conteúdo** — os três modelos de notificação de
+> `../docs/seguranca/modelos/`, sem tabela de «Controlo de versões», que o original nunca varria —
+> e **5 problemas de configuração**, em `../docs/evidencia/KAM-149.md`. Os três erros que o KAM-152
+> mediu na matriz **não são alcançáveis nesta árvore** e ficam com este ticket, na cópia onde a
+> matriz vive; que o número coincida é coincidência. As linhas da tabela abaixo que citam a saída
+> do validador leem-se com esta emenda — e a linha do CA 1, em particular, diz «96 células de 96»
+> porque era isso que a lista escrita à mão esperava: o validador novo deriva os componentes de
+> `../docs/tecnica/00` e espera **114** (19 × 6), porque o `ENT`, o `GEO` e o `DAT` existem na
+> arquitectura e faltavam à lista.
 
 | CA | Estado | Evidência |
 |---|---|---|
@@ -1275,6 +1290,59 @@ Não expandas escopo: sem SOC/SIEM nem detecção automática. Entrega: document
 
 ## KAM-149 — `docs/seguranca/validar.py` aborta com a contagem do canon fixada
 
+> **O ficheiro que este ticket corrige não estava neste repositório — e o KAM-149 recria-o aqui,
+> por decisão do fundador de 2026-11-05.** Até então o `../docs/seguranca/validar.py` desta árvore
+> era um esboço de 12 linhas que saía com código **2**, e que dizia, na própria *docstring*, que o
+> validador vivia em `albinoJimy/kamba` (privado), no mesmo caminho. Era de lá que se lia a «linha
+> 43» que a tabela de referências abaixo cita.
+
+Eram **sete** os ficheiros de `../docs/seguranca/` nessa condição **à data do KAM-156**, e a
+fronteira não é «segurança»: é **a lista do que ainda não está protegido** — ameaças, lacunas,
+riscos residuais, DPIA simplificada, matriz, e os dois *scripts* que as leem — contra
+**procedimento**, que ficou público (resposta a incidentes, exercício de simulação, contactos, os
+três modelos de notificação). A tabela de sete do **KAM-156** é a lista canónica dessa data.
+Depois deste ticket são **seis em quinze**: o `validar.py` deixou de ser esboço, e entraram o
+`provar_guarda.py` e o `varrer_ast.py`.
+
+Medido a 2026-11-05, e é a medição que mostra porque a correcção é **de classe** e não de valor:
+
+```text
+antes, esta árvore  docs/seguranca/validar.py       12 linhas, saía com 2, sem a linha 43
+privado             docs/seguranca/validar.py      315 linhas, com a linha 43 e com a 150
+privado             topo f344990, de 2026-10-13 — sem antepassado comum com esta linha
+
+# contagem pela própria regex da linha 39 do validador, nas duas árvores:
+esta árvore  len(KAM) = 180                 o assert prendia 138  ->  ABORTAVA
+privado      len(KAM) = 150                 o assert prendia 138  ->  ABORTAVA
+```
+
+**O `assert` abortava nas duas árvores**, e é esse o facto que fecha a questão de desenho: o
+defeito era real onde o código morava, e não um enunciado desta linha aplicado a um ficheiro de
+outra. **Trocar 138 por 180 repunha hoje e voltava a quebrar no ticket seguinte.** Os dois valores
+da cerca acima são medições datadas e não contagens vivas: nenhum deles se corrige quando o
+*backlog* crescer, e é por isso que estão lá e não em prosa.
+
+**O que foi recriado, e o que ficou de fora.** O repositório é público, e os artefactos que
+descrevem *o que ainda não está protegido* — matriz, STRIDE, DPIA, lacunas, riscos residuais —
+ficaram fora desta cópia pelo **KAM-156**. Portou-se a **lógica** de verificação, não os **dados**:
+veio a estrutura (as 11 colunas, os vocabulários fechados, as 96 células como produto de 16 × 6, o
+mínimo de 6 operações) e **não** os literais que codificam achados (as séries de identificadores da
+matriz, os ADR que ela tem de cobrir, os termos que o STRIDE marca como não confiáveis, os nomes
+das operações da DPIA). Esses ficam devolvidos ao fundador na secção de verificação.
+
+**E é aí que a guarda faz o trabalho central**, em vez de ser uma rede: as famílias `matriz`,
+`stride` e `dpia` não têm fonte nesta árvore, e o validador reporta-as como **erro de configuração
+a nomear o ficheiro que falta**, e salta-as. A família `docs` corre a sério.
+
+Medido, e não é o que parecia: o que isto evita **não** é um «0 erros» mentiroso. Com o `assert`
+relaxado numa cópia, o validador anterior morria nesta árvore com `KeyError: 'id'` na família da
+matriz e imprimia **zero** linhas. O que a guarda das fontes entrega é **o relatório existir**; a
+guarda do canon entrega **diagnóstico** — nomear a causa antes das suas consequências, que no caso
+semeado são 50 erros de conteúdo e não zero.
+
+O bloco do KAM-149 existe nos **dois** repositórios, com o mesmo identificador e o mesmo título.
+Esta entrega é na linha activa; a cópia privada fica como está.
+
 | Campo | Valor |
 |---|---|
 | Epic | EPIC-07 — Segurança e Conformidade |
@@ -1317,13 +1385,13 @@ Fazer o `validar.py` correr até ao fim e reportar os seus erros, sem depender d
 
 ### Critérios de Aceitação
 
-- [ ] **`python docs/seguranca/validar.py .` corre até ao fim, da raiz do repositório**, e termina com o seu relatório (as linhas `MATRIZ`, `STRIDE`, `DPIA`, `DOCS` e a contagem final de erros) e com código de saída 0 ou 1 — nunca com um *traceback*. O «antes» (`AssertionError: (143, 20, 13)`) e o «depois» ficam na evidência.
-- [ ] **Nenhuma contagem do canon fica fixada no código.** Uma busca por literais de contagem no `validar.py` não devolve nenhum; os conjuntos `KAM`, `ADR` e `DEC` continuam a ser lidos das fontes canónicas (`specs/INDICE.md` §4, `../docs/tecnica/00` §8 e §13.3), que é o que estava correcto.
-- [ ] **A guarda que o `assert` pretendia dar não desaparece — muda de forma.** O que ele protegia era o caso em que uma expressão regular deixa de bater e os conjuntos vêm **vazios**, o que faria todas as verificações de existência passar por não terem com que comparar. A guarda passa a ser sobre essa propriedade — conjunto vazio, ou abaixo de um piso manifestamente baixo — e **não** sobre o valor exacto, e é reportada como **erro de configuração** com mensagem, não como excepção. Trocar o número por um número novo não satisfaz este critério.
-- [ ] **A guarda nova é demonstrada a morder:** com uma fonte canónica semeada de modo a devolver conjunto vazio (ficheiro temporário, não commitado), o validador falha com a mensagem e não dá «0 erros». É o teste que prova que a protecção não se perdeu ao sair o `assert`.
-- [ ] **Varrimento da mesma classe em `docs/seguranca/`,** porque este caso veio de uma leitura e não de uma varredura: `gerar_matriz.py` e os outros *scripts* da pasta são verificados à procura de contagens do canon fixadas, e cada ocorrência entra neste ticket ou fica registada como coberta. O `assert "\r" not in bruto` da linha 150 **mantém-se** — é uma propriedade, não uma contagem.
-- [ ] **A secção de verificação do bloco do KAM-065 volta a ser verdadeira.** Ela cita «OK: 0 erros» como evidência; o ticket corre o validador e **registra o que ele diz agora** — se houver erros reais escondidos pelo `assert` desde que o *backlog* passou de 138, eles aparecem aqui e são nomeados, não corrigidos (ver Fora de âmbito).
-- [ ] **Sem dependências novas**, e o validador continua a correr com a biblioteca padrão.
+- [x] **`python docs/seguranca/validar.py .` corre até ao fim, da raiz do repositório**, e termina com o seu relatório (as linhas `MATRIZ`, `STRIDE`, `DPIA`, `DOCS` e a contagem final de erros) e com código de saída 0 ou 1 — nunca com um *traceback*. O «antes» (`AssertionError: (143, 20, 13)`) e o «depois» ficam na evidência.
+- [x] **Nenhuma contagem do canon fica fixada no código.** Uma busca por literais de contagem no `validar.py` não devolve nenhum; os conjuntos `KAM`, `ADR` e `DEC` continuam a ser lidos das fontes canónicas (`specs/INDICE.md` §4, `../docs/tecnica/00` §8 e §13.3), que é o que estava correcto.
+- [x] **A guarda que o `assert` pretendia dar não desaparece — muda de forma.** O que ele protegia era o caso em que uma expressão regular deixa de bater e os conjuntos vêm **vazios**, o que faria todas as verificações de existência passar por não terem com que comparar. A guarda passa a ser sobre essa propriedade — conjunto vazio, ou abaixo de um piso manifestamente baixo — e **não** sobre o valor exacto, e é reportada como **erro de configuração** com mensagem, não como excepção. Trocar o número por um número novo não satisfaz este critério.
+- [x] **A guarda nova é demonstrada a morder:** com uma fonte canónica semeada de modo a devolver conjunto vazio (ficheiro temporário, não commitado), o validador falha com a mensagem e não dá «0 erros». É o teste que prova que a protecção não se perdeu ao sair o `assert`.
+- [x] **Varrimento da mesma classe em `docs/seguranca/`,** porque este caso veio de uma leitura e não de uma varredura: `gerar_matriz.py` e os outros *scripts* da pasta são verificados à procura de contagens do canon fixadas, e cada ocorrência entra neste ticket ou fica registada como coberta. O `assert "\r" not in bruto` da linha 150 **mantém-se** — é uma propriedade, não uma contagem.
+- [x] **A secção de verificação do bloco do KAM-065 volta a ser verdadeira.** Ela cita «OK: 0 erros» como evidência; o ticket corre o validador e **registra o que ele diz agora** — se houver erros reais escondidos pelo `assert` desde que o *backlog* passou de 138, eles aparecem aqui e são nomeados, não corrigidos (ver Fora de âmbito).
+- [x] **Sem dependências novas**, e o validador continua a correr com a biblioteca padrão.
 
 ### Detalhes Técnicos
 
@@ -1346,19 +1414,79 @@ Fazer o `validar.py` correr até ao fim e reportar os seus erros, sem depender d
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em `docs/evidencia/KAM-149.md`, com o *traceback* do «antes» e o relatório do «depois»).
-- [ ] Código revisto por ≥ 1 revisor, pelo Responsável de Segurança por tocar na verificação dos artefactos de segurança; testes verdes.
-- [ ] Documentação actualizada: a parte de código da linha 6 de `../docs/dividas-documentais.md` fica riscada com referência a este ticket; o controlo de versões do registo e deste epic registam a emenda; Conventional Commits.
-- [ ] **Sem segredos** — não aplicável; o validador lê documentos e não acede à rede.
-- [ ] **Dependências** — nenhuma nova.
-- [ ] **Sincronia mestre↔epics** — a linha de `specs/INDICE.md` §4 e este bloco dizem o mesmo, e o `Bloqueia` do KAM-065 inclui este ticket (reciprocidade do grafo, busca G5 do KAM-129).
-- [ ] Os erros que o validador reportar depois da correcção estão **contados e nomeados** no PR, e devolvidos ao dono do KAM-065 — não corrigidos aqui.
-- [ ] A lacuna **L-20** continua aberta e nomeada no PR como trabalho sem ticket.
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em `docs/evidencia/KAM-149.md`, com o *traceback* do «antes» e o relatório do «depois»).
+- [ ] Código revisto por ≥ 1 revisor, pelo Responsável de Segurança por tocar na verificação dos artefactos de segurança; testes verdes. — **DEVOLVIDA ao fundador.** A revisão adversarial correu e os portões estão verdes, mas a assinatura do Responsável de Segurança é de pessoa e não de máquina. A decisão em vigor nesta fase é **fundir com CI verde sem esperar revisão humana até produção**, pelo que esta caixa não bloqueia a fusão e fica a aguardar o papel quando ele existir. O que ela guarda, e que vale rever, é a fronteira de **conteúdo contra estrutura** da §8 da evidência: os literais que codificam achados não foram portados para esta cópia pública.
+- [x] Documentação actualizada: a parte de código da linha 6 de `../docs/dividas-documentais.md` fica riscada com referência a este ticket; o controlo de versões do registo e deste epic registam a emenda; Conventional Commits.
+- [x] **Sem segredos** — não aplicável; o validador lê documentos e não acede à rede.
+- [x] **Dependências** — nenhuma nova.
+- [x] **Sincronia mestre↔epics** — a linha de `specs/INDICE.md` §4 e este bloco dizem o mesmo, e o `Bloqueia` do KAM-065 inclui este ticket (reciprocidade do grafo, busca G5 do KAM-129).
+- [x] Os erros que o validador reportar depois da correcção estão **contados e nomeados** no PR, e devolvidos ao dono do KAM-065 — não corrigidos aqui.
+- [x] A lacuna **L-20** continua aberta e nomeada no PR como trabalho sem ticket.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `fix/KAM-149-o-bloco-nao-dizia-onde-esta-o-alvo`, com a `main` integrada em
+`2359854`. **Catorze caixas marcadas, uma devolvida** (a assinatura do Responsável de Segurança,
+ao fundador). Evidência integral, com as saídas de execução, em `../docs/evidencia/KAM-149.md`.
+
+O validador foi **recriado nesta árvore** por decisão do fundador de 2026-11-05, portando a
+**lógica** de verificação e não os **dados**: ver a §8 da evidência para o que ficou de fora e com
+que credor.
+
+| CA | Estado | Evidência |
+|---|---|---|
+| 1 — corre até ao fim, relatório, código 0 ou 1, nunca *traceback* | **satisfeito, com o âmbito dito** | `python docs/seguranca/validar.py .` imprime `MATRIZ`, `STRIDE`, `DPIA` e `DOCS` e sai com **1**; sem excepção. O «antes» (`AssertionError: (180, 20, 13)`, **sem nenhuma família impressa**) na evidência §1. A revisão adversarial semeou 15 entradas patológicas e achou **seis** caminhos para *traceback* na primeira versão (fonte canónica ausente, CSV só de comentários, `.md` não-UTF-8, pasta com nome `.md`): **todos fechados**, e cada um com caso no provador. Fica **um**, e é deliberado: o `assert "\r" not in bruto` que o critério 5 manda manter **é** um *traceback* quando dispara. Logo a promessa verdadeira é a da *docstring* — «nunca por causa de uma contagem» — e não a deste critério, escrita sem âmbito |
+| 2 — nenhuma contagem do canon fixada no código | **satisfeito** | `docs/seguranca/varrer_ast.py docs/seguranca` → **0** contagens fixadas em 4 ficheiros, lido por árvore sintáctica e não por texto. O mesmo instrumento dá **3** no validador de 315 linhas. `KAM`, `ADR` e `DEC` continuam lidos das fontes canónicas. Evidência §4 |
+| 3 — a guarda muda de forma: propriedade, erro de configuração com mensagem | **satisfeito** | A guarda é sobre **conjunto vazio ou abaixo de um piso manifestamente baixo**, reportada no bloco `ERROS DE CONFIGURACAO` com a fonte nomeada. Um piso é limite inferior monótono e não envelhece: `len(KAM) >= 10` continua verdadeiro enquanto o canon crescer. **Com uma emenda à premissa do critério:** ele supõe que um conjunto vazio faria as verificações de existência «passar». Medido, não faz — elas têm a forma `if ident not in KAM: erro(...)`, pelo que o vazio faz **falhar** tudo (50 erros no caso semeado). O que a guarda entrega é **diagnóstico**, nomeando a causa antes das consequências, e não a prevenção de um falso verde. Evidência §2 e §3 |
+| 4 — a guarda demonstrada a morder | **satisfeito** | `docs/seguranca/provar_guarda.py`, **12 casos**, que falham se a expectativa não se cumprir: controlo com fontes reais (não dispara), vazio e piso para `KAM`, `ADR` e `DEC`, as duas fontes canónicas apagadas, um `.md` não-UTF-8, uma pasta com nome `.md`, o `assert` antigo, e a limitação `deriva_calada`. **Nada é escrito no repositório** (`git status` vazio depois). Os casos do `ADR` e do `DEC` entraram por achado da revisão: a primeira versão testava só o `KAM`. Evidência §3 |
+| 5 — varrimento da mesma classe em `docs/seguranca/` | **satisfeito** | Dois instrumentos, e a diferença entre eles é o achado: o varrimento por expressão regular dá **3** no `validar.py` novo, mas os três estão na *docstring*, onde o `assert` antigo é **citado para ser explicado**; por AST dá **0**. O `gerar_matriz.py` de `origin/main` (384 linhas, não o esboço de 12) está **limpo**: o seu único `assert` é `len(r) == len(COLUNAS)`, propriedade. O `assert "\r" not in bruto` **mantém-se**, na linha 309. Evidência §4 |
+| 6 — a secção de verificação do KAM-065 volta a ser verdadeira | **satisfeito, registando o que ele diz agora** | A frase «OK: 0 erros» do bloco do KAM-065 ganhou a emenda deste ticket, em vez de ser forçada a valer: ela foi medida com os artefactos presentes, e o KAM-156 tirou-os desta cópia. O validador reporta hoje **1 erro de conteúdo** e **5 problemas de configuração**. Evidência §2 e §6 |
+| 7 — sem dependências novas | **satisfeito** | `validar.py` corre com `csv`, `glob`, `io`, `os`, `re`, `sys`; `provar_guarda.py` acrescenta `ast`, `shutil`, `subprocess` e `tempfile`. Todos da biblioteca padrão; nenhum ficheiro de requirements foi tocado |
+
+**Os erros de conteúdo, contados e nomeados — 3, e não corrigidos:** os três modelos de
+notificação (`../docs/seguranca/modelos/{apd,pme_afectada,titular}.md`), documentos reais de 91, 74
+e 73 linhas, **nenhum com tabela de «Controlo de versões»**. Só aparecem porque a travessia passou
+a ser recursiva — o `os.listdir` do original não descia a `modelos/`, pelo que os três nunca eram
+varridos e o «N ficheiros verificados» lia-se como cobertura que não havia (achado da revisão
+adversarial). **Devolvidos ao dono do KAM-065**, ou a linha de dívida documental conforme sejam
+código ou texto.
+
+Que sejam três é **coincidência** com os três que o KAM-152 mediu na matriz: esses são outros e
+**não são alcançáveis nesta árvore**, onde a matriz não tem fonte.
+
+**Um erro que eu reportei e que não era um erro.** A primeira versão desta secção dava como achado
+`ops/runbooks/RB-K10.md` citado pelo `resposta_incidentes.md`, atribuído a uma entrega do KAM-083
+«que ficou para trás». Medido pela revisão adversarial, é falso nos dois sentidos: o
+`../docs/runbooks/RB-K10-incidente-de-seguranca.md` é um **esboço do KAM-080** que declara no
+cabeçalho que o runbook completo é o **KAM-083**; o KAM-083 está **aberto**; e a linha 7 do
+`resposta_incidentes.md` diz, na mesma frase, «(ainda não existe)». É entrega futura nomeada como
+tal, que é a definição de `FUTUROS` — logo o documento está correcto e o defeito era do validador.
+Declarado em `FUTUROS` com a razão escrita.
+
+**A lacuna L-20 continua aberta e sem ticket:** pôr o `validar.py` e o `provar_guarda.py` no CI
+toca em `tools/` e `.github/`, e um portão novo entra nos *required checks* e no espelho do
+*ruleset* — decisão de CI, não um `fix` de uma linha. E o ticket dela ganhou uma decisão que antes
+não existia: **o validador sai com 1 por desenho** enquanto três famílias não tiverem fonte, pelo
+que o critério de verde tem de ser `exit == 0` **ou** «zero erros de conteúdo».
+
+**Não escrito, e declarado:** a caixa 3 do DoD pede que «o controlo de versões do registo e deste
+epic registem a emenda». A parte riscada da dívida 6 está feita; **nenhuma das duas linhas de
+versão foi escrita** — a deste epic porque se escreve na integração (a tabela está na 1.19 e a
+próxima é a 1.20), e a do `../docs/dividas-documentais.md` pela mesma razão, para não disputar a
+linha com as outras sessões que correm em paralelo. **Credor: quem integrar.**
 
 ### Handoff para Claude Code
 
 ```text
 És o executor do ticket KAM-149 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
+JÁ ENTREGUE a 2026-11-05: o validador foi RECRIADO nesta árvore, por decisão do fundador. O que
+segue é o enunciado original, mantido para o registo. Antes da entrega o
+docs/seguranca/validar.py daqui era um esboço de 12 linhas que saía com 2, sem a linha 43 e sem as
+quatro verificações; o de 315 linhas vive em albinoJimy/kamba (privado) e lá continua.
+- O passo REPRODUZ PRIMEIRO abaixo NÃO corre nesta árvore: o esboço saía com 2 sem excepção
+  nenhuma. O tuplo do AssertionError tem a contagem VIVA no primeiro elemento, pelo que cresce a
+  cada ticket novo — a saída registada (143, 20, 13) é de quando foi medida, e contra esta árvore o
+  mesmo assert dá (180, 20, 13). O «antes» medido está em docs/evidencia/KAM-149.md.
 Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-149), docs/seguranca/validar.py (linha 43),
 docs/seguranca/lacunas.md (L-20) e docs/dividas-documentais.md (linha 6).
 Objectivo: o validador corre até ao fim e reporta, sem contagem do canon fixada no código.
