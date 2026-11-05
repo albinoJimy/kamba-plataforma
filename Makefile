@@ -92,7 +92,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
         log-lint money-lint env-lint x11 storage-contrato mermaid \
         compose-prod-lint compose-prod-egress \
-        ordem-dos-ensaios
+        ordem-dos-ensaios isolamento-a-seco
 
 ## help: lista os comandos disponiveis
 help:
@@ -548,6 +548,28 @@ compose-prod-egress:
 	  echo "    ERRO: o guiao dos dez destinos precisa do Docker." >&2; \
 	  exit 1; }
 	@$(PYTHON) -m compose_prod --root $(ROOT) egress-dez
+
+## isolamento-a-seco: KAM-066 — enumeracao, cobertura de casos e lint do SET LOCAL
+#
+# O passo do *gate* 6 que **nao** precisa de base de dados, nem de `node`, nem
+# de rede. Quatro verificacoes, por ordem de custo, e a primeira que falhar
+# para:
+#
+#   1 enumeracao   as quatro superficies do criterio 2 — rotas, tools do REG,
+#                  filas BullMQ, consumidores EVT —, com o sentinela da casa:
+#                  um tipo que fique a zero diz-se em vez de passar por conforme
+#   2 cobertura    todo o item enumerado tem caso registado ou dispensa escrita;
+#                  nenhum caso e nenhuma dispensa esta morta
+#   3 lint         nenhum `SET app.tenant_id` sobrevive a transaccao, incluindo
+#                  o `is_local` que vem por parametro (e e esse que apanha o
+#                  unico sitio real deste conjunto)
+#   4 casos        os que nao precisam de nada: os dois contratos de fila
+#
+# Corre com o `$(PYTHON)` do anfitriao e nao com o do *venv*: so usa a
+# biblioteca padrao e o `tools/kamba_yaml.py`, e e isso que o deixa correr
+# antes de qualquer instalacao — a mesma razao do `lint_arch`.
+isolamento-a-seco:
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from isolamento.cli import main; sys.exit(main(['--root', '$(ROOT)']))"
 
 ## x11: X-11 — 1 030 fixtures com dados pessoais pelos dois loggers, 0 achados
 x11:
@@ -1030,11 +1052,20 @@ ci-6:
 	@# O X-11 primeiro: nao precisa de base de dados, e se os logs levam
 	@# identificadores nao vale a pena levantar um PostgreSQL para o saber.
 	@$(MAKE) x11
+	@# E o passo a seco do KAM-066, pela mesma razao: ele enumera as quatro
+	@# superficies — rotas, tools do REG, filas BullMQ, consumidores EVT —,
+	@# recusa a que nao tenha caso registado, e corre o *lint* do `SET LOCAL`.
+	@# Le ficheiros, leva segundos, e nao vale levantar um PostgreSQL para
+	@# descobrir que uma rota nova nao tem caso.
+	@$(MAKE) isolamento-a-seco
 	@echo "==> gate 6: isolamento de tenant contra um PostgreSQL 18.6 descartavel"
 	@# A camada SQL do isolamento (ADR-015): a suite semeia dois tenants com
 	@# canarios em todas as tabelas com `tenant_id` — descobertas pelo catalogo —
-	@# e tenta ler e escrever os dados de um com o contexto do outro. A suite
-	@# ponta a ponta (rotas, tools, storage) e o KAM-066.
+	@# e tenta ler e escrever os dados de um com o contexto do outro. Desde o
+	@# KAM-066 corre tambem os casos do *harness* cruzado (X-01 das rotas, X-02
+	@# das tools, isolamento de contacto e as cem transaccoes do *pool*), que e
+	@# a unica suite deste repositorio onde ha base, pacote do AGR e `node` ao
+	@# mesmo tempo.
 	@if [ ! -x "$(VENV_PYTHON)" ]; then \
 	  echo "    ERRO: $(VENV) nao existe. Corra 'make bootstrap'." >&2; exit 1; \
 	fi

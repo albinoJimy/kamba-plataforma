@@ -159,6 +159,19 @@ excepcoes:
     token: ADR-022
     razao: Mesma linha e mesma razao de `ADR-021`.
 
+  - ficheiro: tools/isolamento/tests/test_cobertura.py
+    token: KAM-999
+    razao: >-
+      Caso do trinco do credor das dispensas de isolamento (KAM-066): o leitor
+      de `ci/isolamento-dispensas.yaml` confronta o credor com o §4 deste
+      indice, e nao so com a forma `^KAM-\d{3}$`. O `KAM-999` tem a forma de um
+      ticket e nao e um ticket, e e com ele que se prova que uma dispensa cujo
+      credor nao existe e recusada — uma dispensa que ninguem vai pagar. E a
+      mesma razao do `KAM-0001` do `tools/lint_arch/tests/test_conventions.py` e
+      do `KAM-0311` do `services/agr/tests/test_tls.py`, com uma diferenca que
+      vale dizer: aqueles dois medem a **forma**, e este mede a **existencia**,
+      que e o que nenhuma expressao regular ve.
+
   - ficheiro: services/agr/tests/test_tls.py
     token: KAM-0311
     razao: >-
