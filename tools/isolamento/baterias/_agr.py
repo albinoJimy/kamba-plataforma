@@ -522,3 +522,68 @@ def atacar_sonda(ctx) -> list[str]:  # noqa: ANN001
         )
     )
     return achados
+
+
+def atacar_metricas(ctx) -> list[str]:  # noqa: ANN001
+    """O X-01 da `/metrics` do AGR (KAM-080): responde, e nao leva nada de B.
+
+    A rota nasceu com o KAM-080 — o AGR declarava 44 metricas e nao servia
+    nenhuma. E entra nesta bateria pela razao que o `x01_rotas` escreve para as
+    metricas em TypeScript: *«uma rota de sonda nao escapa ao criterio por nao
+    ter argumentos: ela responde, e o que ela responde atravessa o oraculo como
+    qualquer outra»*.
+
+    **Aqui a afirmacao e mais forte do que numa sonda**, e e por isso que o caso
+    e proprio e nao uma linha na lista da sonda: o corpo da `/healthz` sao quatro
+    campos fixos, e o da `/metrics` e **tudo o que o processo contou**. Se um dia
+    alguem acrescentar uma etiqueta por *tenant* a uma das 44 — que e exactamente
+    o que o `OBS-I` proibe e o `obs_lint` recusa no catalogo —, e aqui que isso
+    fica vermelho, porque o oraculo varre o corpo a procura dos identificadores
+    de B.
+
+    **O caso conta antes de ler**, e nao e detalhe: o `exposicao()` do AGR nao
+    emite series a zero (`if not series: continue`), pelo que um processo fresco
+    serve corpo **vazio** — e um oraculo sobre um corpo vazio nao mede nada.
+    Conta-se um turno, e o que se afirma e que nada de B aparece no texto
+    servido.
+
+    **Monta `create_app()` sem rotas internas, e nao o `_montar` desta
+    bateria**, que e o que os outros casos do AGR usam. Nao e atalho: a
+    `/metrics` **nao depende** das portas — o registo de metricas vive em
+    memoria —, e o `_montar` importa o `api_interna`, que arrasta o `yaml`, o
+    `pydantic` e o registo das verticais. Pedir-lhe isso era fazer este caso
+    depender de meio AGR para ler um contador, e um caso que precisa de mais do
+    que mede e um caso que falha por razoes que nao sao a sua.
+    """
+    _no_caminho()
+    from kamba_agr import metricas as modulo  # noqa: PLC0415
+    from kamba_agr.app import create_app  # noqa: PLC0415
+
+    app = create_app()
+
+    # Conta algo, para que haja series. Os valores de etiqueta do AGR vem de
+    # listas fechadas, pelo que isto nao injecta identificador nenhum — o que
+    # injectaria seria a gramatica do `contar` a ceder, e ela nao cede.
+    modulo.METRICAS.contar(modulo.METRICA_TURNOS, "executado")
+
+    estado, cabecalhos, texto, registo = _pedir_com_logs(app, "GET", "/metrics")
+    ctx.logs.append(registo)
+
+    achados: list[str] = []
+    if estado != 200:
+        achados.append(
+            f"rota:agr:…/metrics: respondeu {estado} e nao 200; o caso nao mediu "
+            "o que queria medir."
+        )
+    if "# TYPE" not in texto:
+        achados.append(
+            "rota:agr:…/metrics: o corpo nao traz `# TYPE`, logo nao ha series e "
+            "o oraculo varreria o vazio. O caso tem de contar antes de ler."
+        )
+    achados.extend(
+        f"rota:agr:…/metrics: {fuga}"
+        for fuga in ctx.oraculo.varrer_tudo(
+            {"corpo": texto, "cabecalhos": cabecalhos, "logs": ctx.logs}
+        )
+    )
+    return achados
