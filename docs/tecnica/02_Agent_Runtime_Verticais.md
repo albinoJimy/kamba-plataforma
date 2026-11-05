@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Agent Runtime e Verticais |
-| Versão | 1.5 |
+| Versão | 1.6 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E4_Stack_Licencas.md`, `evidencia/E1_Meta_WhatsApp.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §4, `../exploracao/12-diagramas-c4-fluxogramas.md` C4.1, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -244,6 +244,30 @@ como os `facts`.
 
 **Medida de reaproveitamento (ADR-012):** `reuso = 1 − LoC_específico / LoC_total` calculado sobre o caminho de execução da vertical (grafo + tools + prompts + migrações), medido em CI; limiar ≥ 70% para uma vertical nova. **Vertical «provada»** (gate da Fase 0, doc 00 §13.2) quando: (a) Vendedor e Serviços correm no mesmo AGR/TLS/EVT/TEN sem *flags* de vertical no core; (b) um evento produzido por uma vertical (proposta: `payment.confirmed` de um sinal de marcação ou de uma encomenda) é consumido pelo handler da outra sem alteração do bus;
 (c) os testes cruzados de isolamento passam para ambas; (d) nenhuma excepção no core (`grep` de nomes de vertical em `core/` = 0).
+
+**Como é que isto se mede, e duas emendas que a medição obrigou (KAM-039).** As
+regras de contagem da medida — a unidade, o que entra em cada parcela, e o que
+ela **não** mede — estão em [`../reuse-metric.md`](../reuse-metric.md), e o
+instrumento é o `make reuso`. Medido em `183e2b0`: `reuso = 87,58%` para a
+vertical Serviços, e `0` excepções no núcleo. Duas coisas desta secção não
+sobreviveram à medição:
+
+- **o `compose` está na coluna «Partilhado (core)» da tabela acima sem a ressalva
+  que a linha «Persona / prompts» da mesma tabela faz.** O `compose`, o
+  `ask_repeat` e o `safe_reply` escrevem **texto de persona**, que essa linha põe
+  na coluna do que é próprio da vertical: o `compose` do Vendedor explica avisos
+  por um dicionário indexado ao domínio dele, e o `safe_reply` dele diz que só
+  ajuda com «produtos, preços e pedidos». Os três são próprios de Serviços
+  (KAM-035, `ANALISE-40` achado 10). O que é partilhado é a **estrutura**;
+- **a condição (d) está escrita como um `grep` e não se pode cumprir como um
+  `grep`.** Corrida à letra sobre o núcleo, a busca devolve **162** ocorrências,
+  das quais **114** são prosa de comentário a explicar porque é que o núcleo
+  *não* depende de uma vertical — um portão sobre esse número obrigava a apagar a
+  explicação para ficar verde. A condição verificável é a **classificada**:
+  `prosa` (nunca é excepção), `conteudo` (tabela indexada pela vertical, ou
+  identificador: configuração, que se conta e se nomeia) e `fluxo` (o nome decide
+  um ramo: **é** a excepção, e é esse que tem de ser 0).
+  Ver [`../reuse-metric.md`](../reuse-metric.md) §4.
 
 ---
 
@@ -1003,3 +1027,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.3 | Outubro 2026 | **KAM-139** (variantes vivas do dicionário): §5.1, §6.1 e §6.2 passam a dizer `valor_max_pedido_minor` (3 ocorrências) e §5.3 passa a dizer `expira_at` (1 ocorrência) — eram variantes vivas das formas canónicas do dicionário §3.2 e §3.3 (emenda 1.12). | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-140: §5.1 — os dois manifestos de exemplo (`vendedor.yaml` e `servicos.yaml`) passam a subscrever os **dois** eventos de pagamento. O dicionário §3.4 diz que quem não distingue o caminho subscreve ambos, e o *gate* 3b já impõe essa regra em `registry/*.yaml` — o exemplo escapava-lhe só por viver num `.md`, e foi medido no KAM-139. §8.2 — a linha do sinal de marcação dizia que é o `payment.confirmed` que a confirma, quando o §3.5 nomeia o `payment.manual_confirmed` como o do *gate* da Fase 0 desta vertical; era o inverso. O `vendedor.yaml` não estava no ticket e tinha o mesmo defeito. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | KAM-031: §5.3 — o estado partilhado passa a declarar `ofertas`, `avisos`, `handoff_motivo` e `admissao` (emenda 1.40 do dicionario). Os tres aparecem ao escrever o grafo do Vendedor contra o §7.3 e nenhum era declaravel sem emenda: o `ofertas` e o quarto parametro do validador do KAM-032 (o nome de um produto vive no `ToolResult.data` do `05` §6.3 e nao num `Fact`, divida 105); o `avisos` e por onde os criterios 3 e 6 do bloco mandam `STALE_CONFIRMATION` e `OUT_OF_STOCK` chegar ao `compose` «como *facts*», o que um `Fact` nao pode ser — e um numero com proveniencia, de `kind` fechado nos quatro do §6.2; e o `handoff_motivo` ja era lido pelo codigo do §11 sem estar declarado. | Equipa KAMBA |
+| 1.6 | Novembro 2026 | **KAM-039** (prova da regra de dois): §5.4 ganha como se mede a medida de reaproveitamento — regras de contagem em [`../reuse-metric.md`](../reuse-metric.md), instrumento `make reuso`, e o resultado medido em `183e2b0` (87,58%, 0 excepcoes no nucleo). E duas **emendas** que a medicao obrigou, nenhuma de estilo. A primeira: a tabela desta seccao poe o `compose` na coluna «Partilhado (core)» sem a ressalva que a sua propria linha «Persona / prompts» faz — o `compose`, o `ask_repeat` e o `safe_reply` escrevem texto de persona e sao proprios da vertical (KAM-035, `ANALISE-40` achado 10), e o que e partilhado e a estrutura. A segunda: a condicao (d) esta escrita como um `grep` e **nao se pode cumprir como um `grep`** — a busca a letra devolve 162 ocorrencias no nucleo, 114 delas prosa a explicar porque e que o nucleo nao depende de vertical nenhuma, e um portao sobre esse numero obrigava a apagar a explicacao para ficar verde. A condicao verificavel e a classificada em `prosa`, `conteudo` e `fluxo`, e e o `fluxo` que tem de ser 0. | Equipa KAMBA |
