@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K03** |
 | Cenario | Latencia de resposta acima do alvo, fila a crescer, ou orcamento diario do tenant perto do tecto |
 | Severidade | **P2** (latencia e fila), **P3** (orcamento) |
-| Alertas que apontam para aqui | `fila_idade` (P2), `latencia_p95` (P2) e `orcamento_llm` (P3), este ultimo em conjunto com o **RB-K09** |
+| Alertas que apontam para aqui | `fila_de_entrada_a_crescer` (P2), `fila_do_agente_a_crescer` (P2), `latencia_de_resposta_alta` (P2) e `llm_sem_budget` (P3). **Nao** a `degradacao_acima_do_limiar` nem o `disjuntor_do_llm_aberto`, que apontam para [`degradacao-do-agr.md`](degradacao-do-agr.md) — a pagina que fala deles |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K03** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K02** |
 | Cenario | Criacao de referencia falha, callbacks parados, ou reconciliacao encontra pagamento por reconhecer |
 | Severidade | **P1** |
-| Alertas que apontam para aqui | `callbacks_hmac_falhados` (P1) e `pagamento_por_reconhecer` (P1) |
+| Alertas que apontam para aqui | **Nenhum, hoje.** Os dois que lhe pertencem — falhas HMAC > 3/h e pagamento por reconhecer — estao **por escrever**: o `hnd_callback_rejeitado_total` existe e o modulo `hnd` nao e importado por nenhum servico. Ver `regras_por_escrever` em [`../../ops/metricas/catalogo.yaml`](../../ops/metricas/catalogo.yaml) |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K02** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

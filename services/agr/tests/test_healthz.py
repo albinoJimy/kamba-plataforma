@@ -91,11 +91,28 @@ class TestHealthz(unittest.TestCase):
         # Nao e o teste a ceder ao codigo: quando esta linha foi escrita o AGR
         # nao tinha `/metrics` e o 404 era o comportamento correcto a prender.
         # O que mudou foi o comportamento, de proposito e com ticket — e a
-        # prova de que mudou e o `TestMetricas` abaixo, que exige 200 e o
-        # `Content-Type` do formato de exposicao.
-        for path in ("/", "/healthz/", "/metrics/", "/admin"):
+        # prova de que mudou e o `TestMetricas` abaixo.
+        #
+        # **E nao se substituiu por `/metrics/`.** A primeira correccao fez
+        # isso, e o `/metrics/` nao e uma rota desconhecida: o Starlette tem
+        # `redirect_slashes` e devolve **307** para `/metrics`, pelo que o
+        # `assertNotEqual(307, 200)` passava trivialmente e o teste deixava de
+        # afirmar o que o nome promete. Medido. O que esta aqui sao caminhos que
+        # **nao** redireccionam para nada.
+        for path in ("/", "/metricas", "/metrics/extra", "/admin"):
             with self.subTest(path=path):
-                self.assertNotEqual(request(path)[0], 200)
+                self.assertEqual(request(path)[0], 404)
+
+    def test_as_duas_rotas_com_barra_final_redireccionam_e_nao_sao_404(self) -> None:
+        """O que o teste acima **nao** afirma, dito em separado.
+
+        O `redirect_slashes` do Starlette esta ligado, logo `/healthz/` e
+        `/metrics/` dao **307** e nao 404. Isto prende-o para que ninguem volte
+        a usar uma barra final como se fosse um caminho desconhecido.
+        """
+        for path in ("/healthz/", "/metrics/"):
+            with self.subTest(path=path):
+                self.assertEqual(request(path)[0], 307)
 
     def test_healthz_so_aceita_get(self) -> None:
         for method in ("POST", "DELETE", "PUT"):
@@ -183,6 +200,27 @@ class TestMetricas(unittest.TestCase):
             if not linha.startswith("#") and "{" in linha
         ]
         self.assertTrue(series, "sem series nao se mede nada")
+
+        # Duas metades, e a segunda e a que importa.
+        #
+        # A primeira — os **nomes** de etiqueta — era a unica que este teste
+        # fazia, e a revisao adversarial mostrou que **nao pode falhar**: os
+        # nomes de eixo do AGR vem de dois literais (`_COM_MOTIVO` e
+        # `_NOME_DO_EIXO`, com `outcome` por omissao), pelo que um `contact_id=`
+        # e impossivel por construcao. Fica, porque e barata e porque um
+        # literal novo pode sempre ser escrito errado — mas sozinha era prova
+        # tautologica.
+        #
+        # A segunda — os **valores** — e onde um identificador podia de facto
+        # viajar: o valor vem de quem chama o `contar`, e e por isso que a
+        # gramatica existe. E o que esta metade mede.
+        formas_de_identificador = (
+            re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+            re.compile(r"(?:\+|00)?244\d{9}"),
+            re.compile(r"\b9\d{8}\b"),
+            re.compile(r"[0-9a-f]{32}"),
+            re.compile(r"\bwamid\.[A-Za-z0-9_=-]+"),
+        )
         for linha in series:
             etiquetas = linha[linha.index("{") + 1 : linha.rindex("}")]
             for proibida in proibidas:
@@ -190,6 +228,11 @@ class TestMetricas(unittest.TestCase):
                     f"{proibida}=",
                     etiquetas,
                     f"{proibida} em {linha[: linha.index('{')]}",
+                )
+            for forma in formas_de_identificador:
+                self.assertIsNone(
+                    forma.search(etiquetas),
+                    f"forma de identificador {forma.pattern} em {linha[: linha.index('{')]}",
                 )
 
 

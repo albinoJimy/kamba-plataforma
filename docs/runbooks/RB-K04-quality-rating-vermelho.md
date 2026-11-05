@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K04** |
 | Cenario | A Meta baixou a classificacao de qualidade do numero ou de um template |
 | Severidade | **P1** (vermelho), **P3** (amarelo) |
-| Alertas que apontam para aqui | `quality_rating` (P1 em vermelho, P3 em amarelo) |
+| Alertas que apontam para aqui | **Nenhum, hoje.** O `quality_rating` esta **por escrever**: o `channel_quality{rating}` existe e o modulo `qualidade` nao e importado por nenhum servico |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K04** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

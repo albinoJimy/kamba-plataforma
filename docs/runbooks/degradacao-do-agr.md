@@ -10,9 +10,12 @@
 >
 > - **há regras de alerta** — [`../../infra/compose/prometheus/regras/kamba.yml`](../../infra/compose/prometheus/regras/kamba.yml),
 >   validadas por `make obs-promtool` —, e **duas delas são deste runbook**: a
->   `degradacao_acima_do_limiar` e a `disjuntor_do_llm_aberto`, que são
+>   `degradacao_acima_do_limiar` (P2) e o `disjuntor_do_llm_aberto` (P2), que são
 >   exactamente as métricas que o KAM-037 escreveu como «o alerta, na forma que
->   esta casa usa, porque não há sistema de alertas»;
+>   esta casa usa, porque não há sistema de alertas». **O `runbook_url` das duas
+>   aponta para esta página**, e não para um `RB-K` — porque é esta que fala
+>   delas, e um alerta cujo runbook não menciona o alerta cumpre a regra do §9.2
+>   na forma e não no efeito;
 > - **o AGR expõe `/metrics`** na porta 8000, na mesma aplicação da `/healthz`,
 >   e o Prometheus raspa-o. A leitura por `METRICAS.exposicao()` continua a ser
 >   o que a bateria lê — é a mesma função que a rota serve;

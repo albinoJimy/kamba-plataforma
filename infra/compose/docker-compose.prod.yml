@@ -674,13 +674,14 @@ services:
     # Prometheus 3.7.3 (Apache-2.0). Verificado por execucao a 2026-11-03:
     # `prometheus --version` dentro desta imagem deu `version 3.7.3`.
     #
-    # **E o unico membro de `ops`, e esta aqui para que `ops` exista.** Uma rede
-    # declarada e sem membros nao e criada pelo Docker (medido, §2 da
-    # evidencia), e o criterio 3 pede quatro redes.
+    # **Foi o unico membro de `ops` ate ao KAM-080**, e estava aqui para que
+    # `ops` existisse: uma rede declarada e sem membros nao e criada pelo Docker
+    # (medido, §2 da evidencia do KAM-076), e o criterio 3 pede quatro redes.
+    # Hoje tem **dois** membros — este e o `alertmanager`, 100 linhas abaixo.
     #
     # **Actualizado pelo KAM-080.** Onde esta nota dizia «a configuracao so se
     # raspa a si proprio» e «nao se afirma que ha observabilidade», hoje ha tres
-    # alvos (`gwy`, `com`, `agr`), seis regras de alerta e o Alertmanager ao
+    # alvos (`gwy`, `com`, `agr`), oito regras de alerta e o Alertmanager ao
     # lado. O que **continua** verdade, e nao se apaga por ser inconveniente:
     #
     #   * os alvos sao tres e nao treze. Os modulos `outbound`, `metering`,
@@ -688,8 +689,10 @@ services:
     #     raspa-las publicava zeros permanentes — a razao esta no
     #     `prometheus/prometheus.yml` e o credor de cada uma no
     #     `../../ops/metricas/catalogo.yaml`;
-    #   * sao **seis** regras e nao as doze do doc 09 §9.2. As outras seis nao
-    #     tem metrica que um processo sirva, e estao nomeadas uma a uma;
+    #   * sao **oito** regras, que cobrem **4 das 12** linhas do doc 09 §9.2
+    #     (a fila da duas, uma por servico) mais tres que nao sao do §9.2. As
+    #     **8** linhas que faltam nao tem metrica que um processo sirva, e estao
+    #     nomeadas uma a uma;
     #   * o Alertmanager **nao notifica ninguem**: os `receivers` nao tem
     #     notificador porque o canal nao esta escolhido (KAM-069, subprocessador).
     #

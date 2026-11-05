@@ -247,6 +247,150 @@ class TestRegras(unittest.TestCase):
         self.assertEqual(self._correr(regra), {"metrica_fora_do_catalogo"})
 
 
+class TestFurosDaRevisao(unittest.TestCase):
+    """Os furos que a revisão adversarial mediu, um teste por furo.
+
+    Cada um destes passava antes e falha agora. Estão aqui, e não só nas
+    *fixtures* do canário, porque um teste sobre a função diz **qual** regra
+    morde e a *fixture* diz só que alguma morde — e porque um escape que um
+    portão podia ter apanhado vira portão.
+    """
+
+    def _expr(self, expressao: str, conhecidas=("m_base_total",), servidas=None) -> set[str]:
+        return _nomes(
+            lint._verificar_expressao(
+                expressao,
+                "x",
+                set(conhecidas),
+                set(servidas if servidas is not None else conhecidas),
+                "a expressao",
+            )
+        )
+
+    # --- furo 4: o tecto sozinho nunca fazia olhar um valor ------------------
+
+    def test_um_nome_permitido_com_so_tecto_nao_passa(self) -> None:
+        """`tenant_id` + `cardinalidade_maxima: 64` passava, e 64 UUIDs cabem em 64."""
+        achados = _regras(_etiqueta(nome="tenant_id", cardinalidade_maxima=64))
+        self.assertEqual(_nomes(achados), {"etiqueta_sem_dominio"})
+
+    def test_um_nome_qualquer_com_so_tecto_continua_a_passar(self) -> None:
+        """A exigência da lista fechada é só para os permitidos por nome."""
+        self.assertEqual(_regras(_etiqueta(nome="eixo", cardinalidade_maxima=16)), [])
+
+    def test_um_tecto_booleano_nao_passa_por_inteiro(self) -> None:
+        """`isinstance(True, int)` é verdade em Python; `type(...) is int` não."""
+        achados = _regras(_etiqueta(nome="eixo", cardinalidade_maxima=True))
+        self.assertEqual(_nomes(achados), {"etiqueta_sem_dominio"})
+
+    # --- furo 5: criar uma etiqueta, em vez de filtrar por ela ---------------
+
+    def test_label_replace_que_cria_um_identificador_morde(self) -> None:
+        expressao = 'label_replace(m_base_total, "contact_id", "$1", "instance", "(.*)")'
+        self.assertEqual(self._expr(expressao), {"etiqueta_proibida"})
+
+    def test_label_join_que_cria_um_telefone_morde(self) -> None:
+        expressao = 'label_join(m_base_total, "telefone", "-", "instance")'
+        self.assertEqual(self._expr(expressao), {"etiqueta_proibida"})
+
+    def test_label_replace_com_um_nome_limpo_passa(self) -> None:
+        expressao = 'label_replace(m_base_total, "eixo", "$1", "instance", "(.*)")'
+        self.assertEqual(self._expr(expressao), set())
+
+    def test_label_replace_que_cria_um_nome_fora_da_gramatica_morde(self) -> None:
+        expressao = 'label_replace(m_base_total, "Eixo-Mau", "$1", "instance", "(.*)")'
+        self.assertEqual(self._expr(expressao), {"etiqueta_fora_da_gramatica"})
+
+    def test_o_primeiro_argumento_pode_ter_cadeias_dentro(self) -> None:
+        """Uma repartição por vírgulas com `[^,]+` apanhava `"1"` em vez de `"dst"`."""
+        expressao = 'label_replace(sum(m_base_total{a="1"}), "contact_id", "$1", "instance", "(.*)")'
+        self.assertIn("etiqueta_proibida", self._expr(expressao))
+
+    def test_as_etiquetas_criadas_leem_se_do_segundo_argumento(self) -> None:
+        self.assertEqual(
+            lint._etiquetas_criadas('label_join(m, "destino", "-", "a", "b")'), {"destino"}
+        )
+
+    # --- furo 6: o nome da métrica escondido num `__name__` -----------------
+
+    def test_name_exacto_nao_contorna_o_catalogo(self) -> None:
+        self.assertEqual(
+            self._expr('{__name__="metrica_nao_catalogada_total"} > 0'),
+            {"metrica_fora_do_catalogo"},
+        )
+
+    def test_name_por_regex_nao_contorna_o_catalogo(self) -> None:
+        self.assertEqual(
+            self._expr('m_base_total{__name__=~"segredo_total"} > 0'),
+            {"metrica_fora_do_catalogo"},
+        )
+
+    def test_um_name_que_esta_no_catalogo_passa(self) -> None:
+        self.assertEqual(self._expr('{__name__="m_base_total"} > 0'), set())
+
+    # --- furo 8: a promessa do `exposta_por` --------------------------------
+
+    def test_uma_metrica_sem_produtor_nao_pode_ser_citada(self) -> None:
+        achados = self._expr(
+            "increase(sem_produtor_total[10m]) > 0",
+            conhecidas=("m_base_total", "sem_produtor_total"),
+            servidas=("m_base_total",),
+        )
+        self.assertEqual(achados, {"metrica_sem_produtor"})
+
+    def test_uma_metrica_com_produtor_passa(self) -> None:
+        achados = self._expr(
+            "increase(com_produtor_total[10m]) > 0",
+            conhecidas=("m_base_total", "com_produtor_total"),
+            servidas=("m_base_total", "com_produtor_total"),
+        )
+        self.assertEqual(achados, set())
+
+    # --- furo 16 e o falso positivo do `on(...)` ----------------------------
+
+    def test_as_clausulas_de_agrupamento_nao_sao_metricas(self) -> None:
+        """O `on(job, instance)` da minha própria regra dava dois falsos positivos."""
+        citadas = lint._metricas_citadas(
+            "a_total > 8000 and on(job, instance) increase(b_total[10m]) > 0"
+        )
+        self.assertEqual(citadas, {"a_total", "b_total"})
+
+    def test_agrupar_por_um_identificador_morde_como_etiqueta(self) -> None:
+        """E não como «métrica fora do catálogo», que mandava a pessoa ao sítio errado."""
+        self.assertEqual(
+            self._expr("sum by (contact_id) (m_base_total)"), {"etiqueta_proibida"}
+        )
+
+    def test_as_funcoes_novas_do_promql_nao_dao_falso_positivo(self) -> None:
+        for expressao in (
+            "atan(m_base_total) > 0",
+            "m_base_total @ end() > 0",
+            "m_base_total @ start() > 0",
+            "pi() > 0",
+            "limitk(5, m_base_total)",
+            "histogram_count(m_base_total)",
+        ):
+            with self.subTest(expressao=expressao):
+                self.assertEqual(self._expr(expressao), set(), expressao)
+
+    # --- furo 7: as superfícies do painel que não eram lidas ----------------
+
+    def test_uma_consulta_no_templating_le_se(self) -> None:
+        """Uma variável de painel vive em `templating.list[].query`, fora de `panels`."""
+        painel = {
+            "panels": [{"targets": [{"expr": "m_base_total"}]}],
+            "templating": {"list": [{"name": "v", "query": 'm_base_total{contact_id!=""}'}]},
+        }
+        expressoes = lint._expressoes_do_painel(painel)
+        self.assertIn('m_base_total{contact_id!=""}', expressoes)
+
+    def test_uma_consulta_numa_anotacao_le_se(self) -> None:
+        painel = {"annotations": {"list": [{"expr": 'm_base_total{telefone="244900000000"}'}]}}
+        self.assertEqual(
+            lint._expressoes_do_painel(painel), ['m_base_total{telefone="244900000000"}']
+        )
+
+
 class _ComCopia(unittest.TestCase):
     """Copia uma fixture para um temporario, para a poder estragar."""
 

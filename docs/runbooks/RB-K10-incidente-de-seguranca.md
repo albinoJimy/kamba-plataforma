@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K10** |
 | Cenario | Fuga, acesso indevido, ou comprometimento confirmado |
 | Severidade | **P1** |
-| Alertas que apontam para aqui | Nenhuma regra de alerta aponta para aqui hoje — ver §4 |
+| Alertas que apontam para aqui | Nenhuma regra de alerta aponta para aqui, e e deliberado — ver §4 |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K10** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

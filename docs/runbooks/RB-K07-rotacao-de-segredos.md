@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K07** |
 | Cenario | Um segredo do inventario aproxima-se do fim de vida, ou ha suspeita de fuga |
 | Severidade | **P3** (planeada); se for fuga confirmada, escala a **P1** pelo RB-K10 |
-| Alertas que apontam para aqui | `segredo_a_expirar` (P3) |
+| Alertas que apontam para aqui | **Nenhum, hoje.** O `segredo_a_expirar` esta **por escrever**: o `ops/secrets-inventory.yaml` tem o `rotacao_dias` e nada o le para uma serie (credor KAM-072) |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K07** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K08** |
 | Cenario | WAL parado, *host* perdido, erro de integridade, ou restauro mensal falhado |
 | Severidade | **P1** (WAL parado), **P2** (restauro mensal falhado) |
-| Alertas que apontam para aqui | `wal_atrasado` (P1), `restauro_mensal_falhou` (P2) e `ingress_parado` (P1), este em conjunto com o **RB-K01** |
+| Alertas que apontam para aqui | **Nenhum, hoje.** O WAL e o restauro mensal estao **por escrever**: nao ha pgBackRest nem metrica de idade do WAL (credor **KAM-079**). O `ingress_parado` aponta para o RB-K01 |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K08** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

@@ -9,11 +9,16 @@ processos nossos chamam; trazer o FastAPI e o Pydantic para producao por isso
 era pagar uma arvore de dependencias por nove `isinstance`. A nota fica aqui,
 e nao num ADR novo, porque confirmar uma decisao nao e tomar outra.
 
-`create_app()` sem argumentos continua a dar a aplicacao do KAM-001 — so a
-`/healthz`. As rotas internas montam-se quando as portas existem, e e o
+`create_app()` sem argumentos da a `/healthz` **e a `/metrics`** (esta desde o
+KAM-080). As rotas **internas** montam-se quando as portas existem, e e o
 `__main__.py` que as liga: uma aplicacao construida sem elas **nao** tem
 `/internal/*`, em vez de as ter a responder 500. Um esqueleto que expoe uma rota
 que nao funciona e pior do que um que a nao expoe.
+
+A `/metrics` nao segue essa regra, e a razao esta no `metricas_endpoint`: o
+registo de metricas vive em memoria e nao depende de porta nenhuma, pelo que
+monta-la com as rotas internas fazia-a responder 404 exactamente no arranque —
+que e quando um painel precisa de distinguir «zero turnos» de «nao arrancou».
 """
 
 from __future__ import annotations

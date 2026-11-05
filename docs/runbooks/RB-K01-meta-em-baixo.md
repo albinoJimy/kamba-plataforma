@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K01** |
 | Cenario | A Cloud API da Meta nao aceita envios, ou a ingestao parou |
 | Severidade | **P1** |
-| Alertas que apontam para aqui | `ingress_parado` (P1), em conjunto com o **RB-K08** |
+| Alertas que apontam para aqui | `ingress_parado` (P1) e `alvo_em_baixo` (P1). **Por escrever:** a metade da sonda sintetica, que exige producao |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K01** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K09** |
 | Cenario | Pico de mensagens de um contacto ou IP, ou custo de LLM anomalo |
 | Severidade | **P3** (pelo alerta de orcamento); escala com o volume |
-| Alertas que apontam para aqui | `orcamento_llm` (P3), em conjunto com o **RB-K03** |
+| Alertas que apontam para aqui | **Nenhum directamente.** O `llm_sem_budget` (P3) aponta para o RB-K03 e **nomeia esta pagina** na sua anotacao: o §13 separa «LLM em baixo» de «denial of wallet» e o sinal e o mesmo, pelo que quem atende decide qual e |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K09** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

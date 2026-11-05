@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K06** |
 | Cenario | `account_update` com `PARTNER_REMOVED`, `PRIMARY_INACTIVITY` ou `ACCOUNT_DISCONNECTED` |
 | Severidade | **P2** |
-| Alertas que apontam para aqui | `account_update` (P2) |
+| Alertas que apontam para aqui | **Nenhum, hoje.** O `account_update` esta **por escrever**: o `channel_disconnected_total` existe e o modulo `coexistencia` nao e importado por nenhum servico |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K06** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

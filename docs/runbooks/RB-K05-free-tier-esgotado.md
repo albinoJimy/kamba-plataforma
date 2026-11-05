@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K05** |
 | Cenario | O numero aproxima-se das 1.000 mensagens de servico gratuitas do mes, ou esgota-as |
 | Severidade | **P2** (100%), **P3** (80%) |
-| Alertas que apontam para aqui | `free_tier` (P3 aos 80%, P2 aos 100%) |
+| Alertas que apontam para aqui | **Nenhum, hoje.** O `free_tier` esta **por escrever**: o `meta_free_tier_used_ratio` existe e o modulo `metering` nao e importado por nenhum servico (credor KAM-023) |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K05** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 

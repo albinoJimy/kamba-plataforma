@@ -151,6 +151,7 @@ REGRAS_OBRIGATORIAS = (
     "runbook_inexistente",
     "severidade_invalida",
     "metrica_fora_do_catalogo",
+    "metrica_sem_produtor",
 )
 
 #: Palavras do PromQL que aparecem onde um nome de metrica apareceria e que
@@ -158,15 +159,19 @@ REGRAS_OBRIGATORIAS = (
 #: `increase` como metrica em falta no catalogo.
 PALAVRAS_DO_PROMQL = frozenset(
     """
-    abs absent absent_over_time avg avg_over_time bool by ceil changes clamp
-    clamp_max clamp_min count count_over_time count_values day_of_month
-    day_of_week day_of_year days_in_month delta deriv exp floor group group_left
-    group_right histogram_quantile holt_winters hour idelta ignoring increase
-    irate label_join label_replace last_over_time ln log10 log2 max max_over_time
-    min min_over_time minute month offset on or and unless predict_linear
-    present_over_time quantile quantile_over_time rate resets round scalar sgn
-    sort sort_desc sqrt stddev stddev_over_time stdvar stdvar_over_time sum
-    sum_over_time time timestamp topk bottomk vector without year inf nan
+    abs absent absent_over_time acos acosh and asin asinh atan atanh atan2 avg
+    avg_over_time bool bottomk by ceil changes clamp clamp_max clamp_min cos cosh
+    count count_over_time count_values day_of_month day_of_week day_of_year
+    days_in_month deg delta deriv double_exponential_smoothing end exp floor
+    group group_left group_right histogram_avg histogram_count histogram_fraction
+    histogram_quantile histogram_stddev histogram_stdvar histogram_sum
+    holt_winters hour idelta ignoring increase info irate label_join
+    label_replace last_over_time limitk limit_ratio ln log10 log2 mad_over_time
+    max max_over_time min min_over_time minute month offset on or pi
+    predict_linear present_over_time quantile quantile_over_time rad rate resets
+    round scalar sgn sin sinh sort sort_by_label sort_by_label_desc sort_desc
+    sqrt start stddev stddev_over_time stdvar stdvar_over_time sum sum_over_time
+    tan tanh time timestamp topk unless vector without year inf nan
     """.split()
 )
 
@@ -175,6 +180,94 @@ _IDENTIFICADOR = re.compile(r"\b[a-z_][a-z0-9_]*\b")
 
 #: Uma etiqueta usada dentro de um selector: `{rating="red"}`.
 _ETIQUETA_EM_SELECTOR = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=~|!~|!=|=)")
+
+#: O nome de uma metrica escondido num selector `__name__`.
+#:
+#: **Este e o furo que o `_metricas_citadas` deixava aberto por desenho.** Ele
+#: apaga as cadeias antes de varrer, e o nome da metrica dentro de
+#: `{__name__="x"}` vive **dentro** de uma cadeia — pelo que qualquer serie do
+#: TSDB se podia citar sem passar pelo catalogo, o que anula a premissa da
+#: `regras_por_escrever` («uma regra sobre uma serie que ninguem produz nao se
+#: escreve»). Medido.
+_NOME_POR_SELECTOR = re.compile(r"__name__\s*(?:=~|!~|!=|=)\s*([\"'])(.*?)\1")
+
+#: As duas funcoes que **criam** uma etiqueta em vez de filtrar por ela.
+_CRIA_ETIQUETA = re.compile(r"\blabel_(?:replace|join)\s*\(")
+
+#: As clausulas que nomeiam **etiquetas** e nao metricas.
+#:
+#: Sem isto, o `on(job, instance)` da `latencia_de_resposta_alta` dava `job` e
+#: `instance` como metricas em falta no catalogo — dois falsos positivos no meu
+#: proprio ficheiro de regras, que foi como este caso apareceu.
+#:
+#: E o mesmo tratamento melhora uma mensagem: um `sum by (contact_id)` era
+#: apanhado, mas pela regra errada («a expressao cita `contact_id`, que nao esta
+#: no catalogo») — e quem le aquilo acrescenta o `contact_id` ao catalogo e o
+#: achado desaparece. Lido como **etiqueta**, a mensagem passa a ser a certa.
+_AGRUPAMENTO = re.compile(
+    r"\b(?:on|ignoring|by|without|group_left|group_right)\s*\(([^)]*)\)"
+)
+
+
+def _argumentos(texto: str) -> list[str]:
+    """Reparte a lista de argumentos de uma chamada, ao nivel de topo.
+
+    `texto` comeca **depois** do parentese de abertura. Respeita parenteses,
+    chaves, parentesis rectos e cadeias — porque o primeiro argumento de um
+    `label_replace` e um vector que pode trazer tudo isso dentro
+    (`label_replace(sum(x{a="1"}), "dst", ...)`), e uma reparticao por virgulas
+    com `[^,]+` apanhava `"1"` em vez de `"dst"`.
+    """
+    argumentos: list[str] = []
+    actual: list[str] = []
+    profundidade = 0
+    aspa = ""
+    for caractere in texto:
+        if aspa:
+            actual.append(caractere)
+            if caractere == aspa:
+                aspa = ""
+            continue
+        if caractere in "\"'":
+            aspa = caractere
+            actual.append(caractere)
+        elif caractere in "([{":
+            profundidade += 1
+            actual.append(caractere)
+        elif caractere in ")]}":
+            if profundidade == 0:
+                argumentos.append("".join(actual))
+                return argumentos
+            profundidade -= 1
+            actual.append(caractere)
+        elif caractere == "," and profundidade == 0:
+            argumentos.append("".join(actual))
+            actual = []
+        else:
+            actual.append(caractere)
+    argumentos.append("".join(actual))
+    return argumentos
+
+
+def _etiquetas_criadas(expressao: str) -> set[str]:
+    """As etiquetas que a expressao **cria**, nao as que filtra.
+
+    O `label_replace(v, dst, repl, src, regex)` e o `label_join(v, dst, sep,
+    src...)` tem o nome novo no **segundo** argumento. E a forma mais natural de
+    **por** um identificador numa serie, e era a que escapava inteira: o nome
+    viaja dentro de uma cadeia, logo o `_metricas_citadas` apaga-o e o
+    `_etiquetas_citadas` nao tem operador para o casar. Medido nas duas
+    superficies.
+    """
+    criadas: set[str] = set()
+    for achado in _CRIA_ETIQUETA.finditer(str(expressao)):
+        argumentos = _argumentos(str(expressao)[achado.end() :])
+        if len(argumentos) < 2:
+            continue
+        destino = argumentos[1].strip()
+        if len(destino) >= 2 and destino[0] in "\"'" and destino[-1] == destino[0]:
+            criadas.add(destino[1:-1])
+    return criadas
 
 
 class ConfiguracaoInvalida(Exception):
@@ -266,6 +359,35 @@ def _verificar_etiqueta(nome_da_metrica: str, etiqueta: dict, onde: str) -> list
     dominio = etiqueta.get("dominio")
     tecto = etiqueta.get("cardinalidade_maxima")
 
+    # **Um nome permitido por nome tem de declarar lista fechada**, e nunca
+    # basta um tecto.
+    #
+    # Era o furo que esvaziava a regra 1. O `tenant_id` passa pelo nome (e o que
+    # o criterio 3 escreve), e com `cardinalidade_maxima: 64` passava tambem a
+    # regra do dominio **sem que nenhum valor fosse olhado** — porque a gramatica
+    # do valor so corre no ramo da lista. Um tecto de 64 e 64 UUIDs: exactamente
+    # a re-identificacao que o `OBS-I` recusa. Medido.
+    #
+    # A lista fechada forca os valores a existirem, e e la que a gramatica os
+    # apanha. Para um `tenant_id` isso quer dizer, na pratica, que ele nao entra:
+    # nenhum conjunto de UUIDs casa `^[a-z][a-z0-9_]{1,62}$`. E o resultado certo,
+    # e a saida continua a ser a que as emendas 1.21 e 1.25 escreveram — o
+    # por-tenant sai de consulta.
+    if nome in ETIQUETAS_PERMITIDAS_POR_NOME and dominio is None:
+        achados.append(
+            Achado(
+                "etiqueta_sem_dominio",
+                sitio,
+                (
+                    f"`{nome}` e permitido pelo nome e por isso tem de declarar "
+                    "`dominio` (lista fechada), nunca so `cardinalidade_maxima`: "
+                    "um tecto nao faz olhar valor nenhum, e 64 UUIDs cabem num "
+                    "tecto de 64"
+                ),
+            )
+        )
+        return achados
+
     if dominio is None and tecto is None:
         achados.append(
             Achado(
@@ -323,7 +445,11 @@ def _verificar_etiqueta(nome_da_metrica: str, etiqueta: dict, onde: str) -> list
                     )
                     break
     if tecto is not None:
-        if not isinstance(tecto, int) or tecto <= 0:
+        # `isinstance(True, int)` e **verdade** em Python, pelo que um
+        # `cardinalidade_maxima: true` passava como se fosse o inteiro 1. O
+        # `type(...) is int` e o que recusa o booleano — e e a mesma disciplina
+        # que o `logger` desta casa usa («tipos exactos, nunca `isinstance`»).
+        if type(tecto) is not int or tecto <= 0:
             achados.append(
                 Achado("etiqueta_sem_dominio", sitio, f"`cardinalidade_maxima` de `{nome}` invalida")
             )
@@ -348,11 +474,17 @@ def _metricas_citadas(expressao: str) -> set[str]:
     falta. A correccao, nesse dia, e acrescentar a palavra — e o erro e visivel
     e barato, ao contrario de o lint deixar passar uma metrica inexistente.
     """
+    # Os nomes escondidos em `__name__` leem-se **antes** de apagar as cadeias,
+    # que e onde eles vivem.
+    escondidos = {achado.group(2) for achado in _NOME_POR_SELECTOR.finditer(str(expressao))}
     sem_cadeias = re.sub(r'"[^"]*"', '""', str(expressao))
     sem_cadeias = re.sub(r"'[^']*'", "''", sem_cadeias)
-    sem_etiquetas = _ETIQUETA_EM_SELECTOR.sub("", sem_cadeias)
+    # As clausulas de agrupamento saem **antes** da varredura: o que esta dentro
+    # delas sao nomes de etiqueta, e lidos como metricas davam falsos positivos.
+    sem_agrupamento = _AGRUPAMENTO.sub("", sem_cadeias)
+    sem_etiquetas = _ETIQUETA_EM_SELECTOR.sub("", sem_agrupamento)
     candidatos = set(_IDENTIFICADOR.findall(sem_etiquetas))
-    return {c for c in candidatos if c not in PALAVRAS_DO_PROMQL}
+    return {c for c in candidatos if c not in PALAVRAS_DO_PROMQL} | escondidos
 
 
 def _etiquetas_citadas(expressao: str) -> set[str]:
@@ -361,10 +493,21 @@ def _etiquetas_citadas(expressao: str) -> set[str]:
     Uma regra pode filtrar por uma etiqueta que o catalogo nao declara — e e
     por ai que um `contact_id` entraria numa expressao sem passar pelo catalogo.
     """
-    return set(_ETIQUETA_EM_SELECTOR.findall(str(expressao)))
+    nos_selectores = set(_ETIQUETA_EM_SELECTOR.findall(str(expressao)))
+    # E as que uma clausula de agrupamento nomeia: um `sum by (contact_id)`
+    # agrupa **por** um identificador, que e a mesma fuga que um selector.
+    nos_agrupamentos = {
+        nome.strip()
+        for achado in _AGRUPAMENTO.finditer(str(expressao))
+        for nome in achado.group(1).split(",")
+        if nome.strip()
+    }
+    return nos_selectores | nos_agrupamentos
 
 
-def _verificar_regra(regra: dict, onde: str, conhecidas: set[str], raiz: Path) -> list[Achado]:
+def _verificar_regra(
+    regra: dict, onde: str, conhecidas: set[str], raiz: Path, servidas: set[str] | None = None
+) -> list[Achado]:
     achados: list[Achado] = []
     nome = str(regra.get("alert") or regra.get("record") or "?")
     sitio = f"{onde}:{nome}"
@@ -417,57 +560,66 @@ def _verificar_regra(regra: dict, onde: str, conhecidas: set[str], raiz: Path) -
                     )
                 )
 
-    expressao = regra.get("expr", "")
-    for metrica in sorted(_metricas_citadas(expressao)):
-        if metrica not in conhecidas:
-            achados.append(
-                Achado(
-                    "metrica_fora_do_catalogo",
-                    sitio,
-                    (
-                        f"a expressao cita `{metrica}`, que nao esta em {CATALOGO}. "
-                        "Um alerta sobre uma metrica que ninguem expoe nunca dispara, "
-                        "e um alerta que nunca dispara parece cobertura"
-                    ),
-                )
-            )
-    for etiqueta in sorted(_etiquetas_citadas(expressao)):
-        if etiqueta in ETIQUETAS_PROIBIDAS:
-            achados.append(
-                Achado(
-                    "etiqueta_proibida",
-                    sitio,
-                    f"a expressao filtra por `{etiqueta}`: {ETIQUETAS_PROIBIDAS[etiqueta]}",
-                )
-            )
+    achados.extend(
+        _verificar_expressao(
+            regra.get("expr", ""),
+            sitio,
+            conhecidas,
+            servidas if servidas is not None else conhecidas,
+            "a expressao",
+        )
+    )
     return achados
 
 
-def _expressoes_do_painel(dados: object, caminho: str = "panels") -> list[str]:
-    """As expressoes de um painel, a qualquer profundidade.
+#: As chaves de um painel do Grafana que levam PromQL.
+#:
+#: O `expr` e o obvio. O `query` **nao** e: uma variavel de painel vive em
+#: `templating.list[].query` e nem se chama `expr`, e uma anotacao vive em
+#: `annotations.list[].expr` — as duas **fora** de `panels`.
+#:
+#: Era o furo: a primeira versao descia a `panels` e argumentava, na propria
+#: *docstring*, que o fazia «porque e exactamente onde alguem poria a consulta
+#: que nao quer que seja vista». O sitio melhor para isso era o `templating`, e
+#: esse nao era visto. Medido com um painel cujo `templating` filtrava por
+#: `contact_id`: zero achados.
+CHAVES_COM_PROMQL = ("expr", "query")
 
-    Desce recursivamente porque um painel pode ter `panels` dentro de uma `row`,
-    e uma varredura so do primeiro nivel perdia as consultas de dentro das
-    linhas — que e exactamente onde alguem poria a consulta que nao quer que
-    seja vista.
+
+def _expressoes_do_painel(dados: object) -> list[str]:
+    """As expressoes de um painel, **do documento inteiro** e a qualquer profundidade.
+
+    Varre o documento todo e nao so `panels`, pela razao da nota do
+    `CHAVES_COM_PROMQL`: as consultas de uma variavel e de uma anotacao vivem
+    fora de `panels`, e um painel pode ainda ter `panels` dentro de uma `row`.
+    O preco e um falso positivo possivel num `query` que nao seja PromQL — que e
+    visivel e barato, ao contrario de uma consulta que ninguem le.
     """
     encontradas: list[str] = []
     if isinstance(dados, dict):
         for chave, valor in dados.items():
-            if chave == "expr" and isinstance(valor, str):
+            if chave in CHAVES_COM_PROMQL and isinstance(valor, str):
                 encontradas.append(valor)
             else:
-                encontradas.extend(_expressoes_do_painel(valor, f"{caminho}.{chave}"))
+                encontradas.extend(_expressoes_do_painel(valor))
     elif isinstance(dados, list):
         for item in dados:
-            encontradas.extend(_expressoes_do_painel(item, caminho))
+            encontradas.extend(_expressoes_do_painel(item))
     return encontradas
 
 
-def _verificar_painel(
-    expressao: str, onde: str, conhecidas: set[str]
+def _verificar_expressao(
+    expressao: str, onde: str, conhecidas: set[str], servidas: set[str], sujeito: str
 ) -> list[Achado]:
+    """As verificacoes que valem para uma expressao, venha de regra ou de painel.
+
+    Estava duplicada entre o `_verificar_regra` e o `_verificar_painel`, e a
+    duplicacao custou dois furos: o `label_replace` e o `__name__` foram
+    fechados num sitio e nao no outro durante a mesma revisao. Uma funcao, duas
+    chamadas.
+    """
     achados: list[Achado] = []
+
     for metrica in sorted(_metricas_citadas(expressao)):
         if metrica not in conhecidas:
             achados.append(
@@ -475,21 +627,59 @@ def _verificar_painel(
                     "metrica_fora_do_catalogo",
                     onde,
                     (
-                        f"o painel cita `{metrica}`, que nao esta em {CATALOGO}. "
-                        "Um painel sobre uma metrica que ninguem expoe mostra um "
-                        "grafico vazio para sempre"
+                        f"{sujeito} cita `{metrica}`, que nao esta em {CATALOGO}. "
+                        "Um alerta sobre uma metrica que ninguem expoe nunca dispara, "
+                        "e um painel sobre ela mostra um grafico vazio para sempre"
                     ),
                 )
             )
+        elif metrica not in servidas:
+            achados.append(
+                Achado(
+                    "metrica_sem_produtor",
+                    onde,
+                    (
+                        f"{sujeito} cita `{metrica}`, que esta no catalogo com "
+                        "`exposta_por` vazio — nenhum processo a serve. O catalogo "
+                        "promete que «nenhuma regra de alerta a pode citar»; esta "
+                        "e a verificacao que o cumpre"
+                    ),
+                )
+            )
+
     for etiqueta in sorted(_etiquetas_citadas(expressao)):
         if etiqueta in ETIQUETAS_PROIBIDAS:
             achados.append(
                 Achado(
                     "etiqueta_proibida",
                     onde,
-                    f"o painel filtra por `{etiqueta}`: {ETIQUETAS_PROIBIDAS[etiqueta]}",
+                    f"{sujeito} filtra por `{etiqueta}`: {ETIQUETAS_PROIBIDAS[etiqueta]}",
                 )
             )
+
+    for etiqueta in sorted(_etiquetas_criadas(expressao)):
+        if etiqueta in ETIQUETAS_PROIBIDAS:
+            achados.append(
+                Achado(
+                    "etiqueta_proibida",
+                    onde,
+                    (
+                        f"{sujeito} **cria** a etiqueta `{etiqueta}` com um "
+                        f"`label_replace`/`label_join`: {ETIQUETAS_PROIBIDAS[etiqueta]}. "
+                        "Criar e pior do que filtrar: filtrar le um identificador que "
+                        "ja existe, criar po-lo numa serie nova"
+                    ),
+                )
+            )
+        elif not GRAMATICA_DA_ETIQUETA.match(etiqueta):
+            achados.append(
+                Achado(
+                    "etiqueta_fora_da_gramatica",
+                    onde,
+                    f"{sujeito} cria `{etiqueta}`, que nao casa {GRAMATICA_DA_ETIQUETA.pattern}",
+                )
+            )
+
     return achados
 
 
@@ -521,6 +711,21 @@ def verificar(raiz: Path) -> tuple[list[Achado], dict[str, int]]:
 
     conhecidas = {str(m["nome"]) for m in catalogo["metricas"] if isinstance(m, dict) and "nome" in m}
 
+    # As que **algum processo serve**. O catalogo promete, por escrito, que uma
+    # metrica com `exposta_por` vazio nao pode ser citada por regra nenhuma — «e
+    # o que o *lint* verifica». Nao verificava: o `conhecidas` era o conjunto de
+    # todos os nomes, sem filtro, e a garantia nao existia em codigo. Medido.
+    #
+    # Uma chave `exposta_por` **ausente** conta como servida: as entradas
+    # sinteticas do Prometheus (`up`, `scrape_duration_seconds`) nao vem de
+    # codigo nosso e a ausencia da chave nao e uma declaracao de que ninguem as
+    # serve. O que a regra apanha e a **lista vazia**, que e a declaracao.
+    servidas = {
+        str(m["nome"])
+        for m in catalogo["metricas"]
+        if isinstance(m, dict) and "nome" in m and m.get("exposta_por", ["?"]) != []
+    }
+
     total_de_regras = 0
     total_de_alertas = 0
     for ficheiro in ficheiros:
@@ -541,7 +746,7 @@ def verificar(raiz: Path) -> tuple[list[Achado], dict[str, int]]:
                 total_de_regras += 1
                 if "alert" in regra:
                     total_de_alertas += 1
-                achados.extend(_verificar_regra(regra, onde, conhecidas, raiz))
+                achados.extend(_verificar_regra(regra, onde, conhecidas, raiz, servidas))
 
     if total_de_regras == 0:
         raise ConfiguracaoInvalida(f"{REGRAS}: zero regras lidas")
@@ -549,20 +754,27 @@ def verificar(raiz: Path) -> tuple[list[Achado], dict[str, int]]:
     pasta_de_paineis = raiz / PAINEIS
     if not pasta_de_paineis.is_dir():
         raise ConfiguracaoInvalida(f"{PAINEIS} nao existe")
-    ficheiros_de_painel = sorted(pasta_de_paineis.glob("*.json"))
+    # `rglob` e nao `glob`: o *file provider* do Grafana varre a pasta
+    # **recursivamente**, e o `foldersFromFilesStructure: false` do
+    # `provisionamento.yaml` so decide se as subpastas se tornam pastas do
+    # Grafana — nao se sao lidas. Com `glob`, um painel em `paineis/sub/mau.json`
+    # era provisionado e nao era verificado. Medido.
+    ficheiros_de_painel = sorted(pasta_de_paineis.rglob("*.json"))
     if not ficheiros_de_painel:
         raise ConfiguracaoInvalida(f"{PAINEIS} nao tem paineis")
 
     total_de_consultas = 0
     for ficheiro in ficheiros_de_painel:
-        onde = f"{PAINEIS}/{ficheiro.name}"
+        onde = f"{PAINEIS}/{ficheiro.relative_to(pasta_de_paineis).as_posix()}"
         try:
             dados = json.loads(ficheiro.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as erro:
             raise ConfiguracaoInvalida(f"{onde} nao se le: {erro}") from erro
-        for expressao in _expressoes_do_painel(dados.get("panels")):
+        for expressao in _expressoes_do_painel(dados):
             total_de_consultas += 1
-            achados.extend(_verificar_painel(expressao, onde, conhecidas))
+            achados.extend(
+                _verificar_expressao(expressao, onde, conhecidas, servidas, "o painel")
+            )
 
     numeros = {
         "metricas": len(conhecidas),

@@ -570,6 +570,18 @@ obs-lint:
 	@$(PYTHON) -m obs_lint --root $(ROOT) canario
 
 ## obs-promtool: valida as regras de alerta com o promtool (KAM-080)
+#
+# **Dois passos, e o segundo e o que importa.** O `check rules` le a sintaxe; o
+# `test rules` corre as regras contra series sinteticas e confronta o que elas
+# fazem com o que deviam fazer.
+#
+# A razao de haver o segundo foi medida: a primeira versao do `kamba.yml` passou
+# o `check rules` com **tres** alertas que nunca disparavam (contadores que
+# nascem a 1, que o `increase` nao ve subir) e **um** que nunca resolvia (um
+# *gauge* que fica alto para sempre). Uma expressao PromQL sintacticamente
+# valida que nunca produz resultado e indistinguivel de uma que funciona, se so
+# se verificar a sintaxe — e o `obs_lint` tambem nao a apanha, porque verifica
+# etiquetas e runbooks e nao semantica temporal.
 obs-promtool:
 	@echo "==> promtool: regras de alerta"
 	@# Precisa de Docker. O `promtool` vem **dentro** da imagem do Prometheus
@@ -591,6 +603,8 @@ obs-promtool:
 	@# lancador sem digest e o achado `lancador-nao-declarado` esta certo. E a
 	@# mesma forma do lancador do `mermaid_lint` neste ficheiro.
 	@docker run --rm --entrypoint promtool -v "$(ROOT)":/w prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /w/infra/compose/prometheus/regras/kamba.yml
+	@echo "==> promtool: comportamento das regras (o que o check rules nao ve)"
+	@docker run --rm --entrypoint promtool -v "$(ROOT)":/w prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 test rules /w/infra/compose/prometheus/regras/testes/kamba_test.yml
 
 ## compose-prod-egress: egress default-deny com dez destinos reais (KAM-076)
 compose-prod-egress:
