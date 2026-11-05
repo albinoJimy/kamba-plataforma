@@ -32,24 +32,43 @@ python spikes/factura-ai/sandbox.py --base https://sandbox.exemplo.ao
 ```
 
 A primeira forma é a que o ticket exige: **corre contra um *mock* antes de tocar
-em fornecedor nenhum**. A terceira é a que se corre quando as chaves de teste
-existirem — e obter essas chaves é acto do fundador, não desta pasta.
+em fornecedor nenhum**.
+
+> **A terceira forma não funciona contra um fornecedor como está, e é importante
+> dizê-lo aqui.** O contrato que este cliente fala é o do `provedor_mock.py`,
+> inventado para a medição: rotas `/v1/.../documents`, cabeçalho
+> `X-Mock-Signature`, segredo entregue no corpo do registo, campos em português,
+> e **nenhuma autenticação**. O `E2` §6.2 documenta, para a Vero,
+> `POST /v1/organisations/{ORG_ID}/invoices`, `X-Vero-Signature` e um
+> `Bearer vero_test_sk_...` obrigatório. Apontado ao *sandbox* de um fornecedor,
+> este cliente **devolve 401 na primeira chamada e corre zero ensaios**.
+>
+> Faltam, portanto, duas coisas e não uma: as **chaves de teste**, que são acto
+> do fundador, e **adaptar o cliente** ao contrato real — autenticação, rotas,
+> nomes de campo, cabeçalho de assinatura. A segunda está devolvida ao Engenheiro
+> de Plataforma no §5.3 do relatório. **Não é «correr e ler».**
 
 ## O que mede
 
 | # | Predicado do critério 4 |
 |---|---|
-| 1 | Criar organização — uma por PME, com identificadores distintos |
+| 1 | Criar organização — **uma por PME**: NIFs distintos dão organizações distintas, e o mesmo NIF **não** cria uma segunda |
 | 2 | Emitir factura, com numeração fiscal |
-| 3 | Emitir proforma **sem** numeração fiscal e com o rótulo que o `E5` B10 exige |
+| 3 | Emitir proforma **sem** numeração fiscal e com rótulo que a declara **não fiscal** (o risco B10 do `E5`) |
 | 4 | Emitir nota de crédito sobre a factura, e **recusar** uma sem documento de origem |
-| 5 | Repetir com a mesma `idempotencyKey` 2× e obter **um** documento |
-| 6 | Verificar a assinatura HMAC-SHA256 do *webhook*, e **recusar** um corpo adulterado |
-| 7 | O *sandbox* **não** submete à AGT |
+| 5 | Mesma `idempotencyKey` 2× → **um** documento; e a chave **não** é partilhada entre contribuintes |
+| 6 | O *webhook* é assinado (HMAC-SHA256 do corpo) **e** notifica o documento que foi emitido, da organização certa |
+| 7 | O provedor **declara** que o *sandbox* não submete à AGT |
 
-Quatro dos sete têm **metade negativa** — a nota órfã, o corpo adulterado, a
-proforma numerada, a segunda chamada com a mesma chave. Sem ela, um provedor que
-dissesse sempre «sim» passava no ensaio, e o ensaio não media nada.
+**O predicado 7 é uma declaração, não uma medição**, e o ensaio di-lo na saída:
+lê o campo `submetido_agt` que o próprio provedor devolve, pelo que um provedor
+que submeta à AGT e minta no campo **passa**. O que o fecha é a garantia por
+escrito do fornecedor, que é a pergunta 7 do §2.3 do relatório — não este ensaio.
+
+O predicado 3 (rótulo) usa um **predicado de texto próprio do cliente**, e não a
+constante do *mock*: comparar o rótulo devolvido com a constante do provedor
+punha alvo e oráculo no mesmo literal, e trocar o literal deixava o ensaio verde
+com a proforma a declarar-se factura fiscal.
 
 ## O canário, e porque existe
 
@@ -58,21 +77,37 @@ sobre o corpo que viaja. **Um falso que decidisse pelo nome do ensaio ficava
 verde com a implementação apagada** — e o relatório teria uma linha de evidência
 que não media predicado nenhum.
 
-O `--canario` estraga o *mock* de seis maneiras e **exige que o ensaio
+O `--canario` estraga o *mock* de dez maneiras e **exige que o ensaio
 correspondente fique vermelho** em cada uma:
 
-| Defeito injectado | Ensaio que tem de avermelhar |
-|---|---|
-| `idempotencia-ignorada` | 5 |
-| `assinatura-de-outro-corpo` | 6 |
-| `segredo-errado` | 6 |
-| `proforma-numerada` | 3 |
-| `nota-sem-origem` | 4 |
-| `sandbox-submete` | 7 |
+| Defeito injectado | Ensaio que tem de avermelhar | Veio de |
+|---|---|---|
+| `idempotencia-ignorada` | 5 | desenho inicial |
+| `idempotencia-global` | 5 | **revisão adversarial** |
+| `assinatura-de-outro-corpo` | 6 | desenho inicial |
+| `segredo-errado` | 6 | desenho inicial |
+| `webhook-de-outra-org` | 6 | **revisão adversarial** |
+| `proforma-numerada` | 3 | desenho inicial |
+| `rotulo-errado` | 3 | **revisão adversarial** |
+| `nota-sem-origem` | 4 | desenho inicial |
+| `nif-duplicado` | 1 | **revisão adversarial** |
+| `sandbox-submete` | 7 | desenho inicial |
 
-A assinatura tem **dois** defeitos e não um de propósito: assinar outro corpo e
-assinar com outro segredo são falhas distintas, e um único defeito podia cobrir
-só uma delas.
+A assinatura tem **três** defeitos e não um de propósito: assinar outro corpo,
+assinar com outro segredo e notificar o documento errado são falhas distintas, e
+um único defeito podia cobrir só uma delas.
+
+**Os quatro defeitos que a revisão adversarial acrescentou valem por si**, porque
+cada um era um predicado que ficava verde sem estar a ser medido:
+
+- `rotulo-errado` — o oráculo do rótulo era a constante do próprio *mock*. Trocar o literal por «Factura fiscal — documento válido para a AGT» dava **7/7 verdes** com a proforma a declarar-se documento fiscal, que é o risco B10 por inteiro.
+- `idempotencia-global` — com a chave de idempotência partilhada entre contribuintes, a PME B pedia uma factura e recebia o documento da PME A. **7/7 verdes.**
+- `webhook-de-outra-org` — um *webhook* **bem assinado** a notificar um documento que não foi o emitido, e de outra organização. **7/7 verdes**: a assinatura conferia e mais nada era verificado.
+- `nif-duplicado` — dois pedidos com o mesmo NIF criavam duas organizações. «Uma organização por PME», que é o predicado 1 da matriz e aquele de que a condição (b) da regra depende, não estava medido.
+
+**E o que o canário não prova:** que esta lista esgota as maneiras de quebrar o
+contrato. Prova que cada ensaio reprova quando o seu predicado desaparece, o que
+é menos — e é o que o *script* imprime no fim.
 
 ## Fronteiras
 
@@ -85,5 +120,5 @@ só uma delas.
 
 | Ficheiro | O que é |
 |---|---|
-| `provedor_mock.py` | O *mock*: servidor HTTP com organizações, documentos, idempotência e *webhook* assinado; aceita os seis defeitos do canário |
+| `provedor_mock.py` | O *mock*: servidor HTTP com organizações, documentos, idempotência e *webhook* assinado; aceita os dez defeitos do canário |
 | `sandbox.py` | O cliente: os sete ensaios, o receptor de *webhook*, e o canário |

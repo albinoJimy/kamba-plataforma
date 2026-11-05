@@ -6,9 +6,15 @@ contrato que o `docs/tecnica/evidencia/validacao/KAM-126_Factura_AI.md` §4
 descreve a partir da documentacao publica da Vero (INDICIO) — organizacoes,
 documentos com chave de idempotencia, e `webhook` assinado com HMAC-SHA256.
 
+**Este contrato e inventado.** As rotas, os nomes de campo e o cabecalho de
+assinatura sao deste mock, nao da Vero: o `E2` §6.2 documenta
+`POST /v1/organisations/{ORG_ID}/invoices` e `X-Vero-Signature`, e exige um
+`Bearer`. Apontar o `sandbox.py` a um fornecedor real **nao e mudar o alvo**:
+e adaptar o cliente. Esta escrito no §5.3 do relatorio, com credor.
+
 **O mock esta escrito para poder reprovar.** A idempotencia guarda de facto a
-chave e devolve o documento anterior; a assinatura calcula-se de facto sobre o
-corpo que viaja. Um falso que decidisse pelo nome do ensaio ficava verde com a
+chave **por organizacao**; a assinatura calcula-se de facto sobre o corpo que
+viaja. Um falso que decidisse pelo nome do ensaio ficava verde com a
 implementacao apagada, e nao mediria predicado nenhum. Por isso tambem aceita
 **defeitos** injectados (`DEFEITOS`), que o canario do `sandbox.py` usa para
 exigir que cada ensaio fique vermelho quando o predicado deixa de valer.
@@ -31,17 +37,35 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 #: Os defeitos que o canario injecta. Cada um apaga **um** predicado, e o
 #: ensaio correspondente do `sandbox.py` tem de ficar vermelho por causa dele.
+#:
+#: Os quatro ultimos nasceram da revisao adversarial do KAM-126: sem eles, o
+#: canario provava que o instrumento apanha os defeitos que o autor escolheu,
+#: e **nao** que os ensaios medem os predicados. Em particular, tres mutacoes
+#: de multi-tenancy deixavam 7/7 verdes — a chave de idempotencia global entre
+#: contribuintes, o `webhook` a notificar documento de outra organizacao, e
+#: dois NIFs iguais a criar duas organizacoes.
 DEFEITOS = (
     "idempotencia-ignorada",
+    "idempotencia-global",
     "assinatura-de-outro-corpo",
     "segredo-errado",
+    "webhook-de-outra-org",
     "proforma-numerada",
+    "rotulo-errado",
     "nota-sem-origem",
+    "nif-duplicado",
     "sandbox-submete",
 )
 
-#: Rotulo que o E5 B10 exige num documento que nao e factura.
+#: Rotulo que o `E5` («Bloqueios e riscos», B10) exige num documento que nao e
+#: factura. O `sandbox.py` **nao importa esta constante**: compara o rotulo
+#: contra um predicado proprio, porque alvo e oraculo no mesmo literal nao
+#: mediriam nada (achado 2 da revisao adversarial).
 ROTULO_PROFORMA = "Orcamento — nao e factura"
+
+#: O que o defeito `rotulo-errado` poe no lugar dele: um rotulo que declara a
+#: proforma como documento fiscal valido, que e exactamente o risco B10.
+ROTULO_ENGANOSO = "Factura fiscal — documento valido para a AGT"
 
 
 @dataclass
@@ -52,9 +76,11 @@ class Estado:
     #: Segredo do `webhook`, gerado em cada arranque. Nunca em ficheiro.
     segredo: str = field(default_factory=lambda: secrets.token_hex(32))
     organizacoes: dict[str, dict] = field(default_factory=dict)
+    #: NIF -> id da organizacao. Uma organizacao por PME.
+    nifs: dict[str, str] = field(default_factory=dict)
     documentos: dict[str, dict] = field(default_factory=dict)
     #: (organizacao, chave de idempotencia) -> id do documento ja emitido.
-    idempotencia: dict[tuple[str, str], str] = field(default_factory=dict)
+    idempotencia: dict[tuple[str, str] | str, str] = field(default_factory=dict)
     callback: str | None = None
     proximo_numero: int = 1
 
@@ -103,16 +129,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if caminho == "/v1/organisations":
-            nif = corpo.get("nif", "")
-            if not nif.startswith("SINTETICO-"):
-                # O proprio mock recusa um NIF que nao seja declaradamente
-                # sintetico. E a fronteira do ticket posta no instrumento.
-                self._responder(422, {"erro": "NIF tem de ter a forma SINTETICO-<n>"})
-                return
-            org_id = f"org_{len(estado.organizacoes) + 1}"
-            registo = {"id": org_id, "nif": nif, "nome": corpo.get("nome", "")}
-            estado.organizacoes[org_id] = registo
-            self._responder(201, registo)
+            self._criar_organizacao(corpo)
             return
 
         partes = caminho.split("/")
@@ -133,6 +150,30 @@ class _Handler(BaseHTTPRequestHandler):
             self._responder(200, doc)
             return
         self._responder(404, {"erro": f"rota desconhecida: {caminho}"})
+
+    # -- organizacoes ---------------------------------------------------------
+
+    def _criar_organizacao(self, corpo: dict) -> None:
+        estado = self.estado
+        nif = corpo.get("nif", "")
+        if not nif.startswith("SINTETICO-"):
+            # O proprio mock recusa um NIF que nao seja declaradamente
+            # sintetico. E a fronteira do ticket posta no instrumento.
+            self._responder(422, {"erro": "NIF tem de ter a forma SINTETICO-<n>"})
+            return
+
+        # Uma organizacao por PME: o mesmo NIF duas vezes devolve a **mesma**
+        # organizacao, com 200. O defeito `nif-duplicado` cria uma segunda, e o
+        # ensaio 1 tem de o apanhar.
+        if nif in estado.nifs and not estado.tem("nif-duplicado"):
+            self._responder(200, {**estado.organizacoes[estado.nifs[nif]], "repetido": True})
+            return
+
+        org_id = f"org_{len(estado.organizacoes) + 1}"
+        registo = {"id": org_id, "nif": nif, "nome": corpo.get("nome", "")}
+        estado.organizacoes[org_id] = registo
+        estado.nifs.setdefault(nif, org_id)
+        self._responder(201, registo)
 
     # -- emissao --------------------------------------------------------------
 
@@ -160,9 +201,11 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
         # Idempotencia: a segunda chamada com a mesma chave devolve o **mesmo**
-        # documento, com 200 em vez de 201. O defeito `idempotencia-ignorada`
-        # emite um documento novo, e o ensaio 5 tem de o apanhar.
-        marca = (org_id, chave)
+        # documento, com 200 em vez de 201. A chave e por organizacao -- duas
+        # PMEs com a mesma chave sao dois documentos. Dois defeitos distintos a
+        # quebram: `idempotencia-ignorada` emite sempre documento novo, e
+        # `idempotencia-global` partilha a chave entre contribuintes.
+        marca: tuple[str, str] | str = chave if estado.tem("idempotencia-global") else (org_id, chave)
         if marca in estado.idempotencia and not estado.tem("idempotencia-ignorada"):
             doc_id = estado.idempotencia[marca]
             self._responder(200, {**estado.documentos[doc_id], "repetido": True})
@@ -185,12 +228,18 @@ class _Handler(BaseHTTPRequestHandler):
             "estado": "pendente",
             "ambiente": "sandbox",
             # O `sandbox` nao submete a AGT. O defeito `sandbox-submete` diz o
-            # contrario, e o ensaio 7 tem de o apanhar.
+            # contrario, e o ensaio 7 tem de o apanhar. **E uma declaracao do
+            # provedor, nao uma medicao** -- ver o ensaio 7 do `sandbox.py`.
             "submetido_agt": bool(estado.tem("sandbox-submete")),
             "idempotencyKey": chave,
         }
-        if tipo == "proforma" and not estado.tem("proforma-numerada"):
-            doc["rotulo"] = ROTULO_PROFORMA
+        if tipo == "proforma":
+            # O rotulo do B10. O defeito `rotulo-errado` troca-o por um que
+            # declara a proforma como documento fiscal, **sem** lhe dar numero:
+            # isola o predicado do rotulo do predicado da numeracao.
+            doc["rotulo"] = ROTULO_ENGANOSO if estado.tem("rotulo-errado") else ROTULO_PROFORMA
+            if estado.tem("proforma-numerada"):
+                doc.pop("rotulo")
 
         estado.documentos[doc_id] = doc
         estado.idempotencia[marca] = doc_id
@@ -203,7 +252,15 @@ class _Handler(BaseHTTPRequestHandler):
         estado = self.estado
         if not estado.callback:
             return
-        carga = {"evento": "invoice.issued", "documento": doc}
+
+        # O defeito `webhook-de-outra-org` notifica um documento que nao foi o
+        # emitido, e de outra organizacao, **bem assinado**. Uma verificacao que
+        # so olhe para a assinatura e para o nome do evento fica verde com ele.
+        notificado = doc
+        if estado.tem("webhook-de-outra-org"):
+            notificado = {**doc, "id": "doc_INEXISTENTE", "organisation": "org_DE_OUTRA_PME"}
+
+        carga = {"evento": "invoice.issued", "documento": notificado}
         bruto = json.dumps(carga, ensure_ascii=False).encode("utf-8")
 
         # A assinatura calcula-se sobre o corpo que viaja, com o segredo que foi

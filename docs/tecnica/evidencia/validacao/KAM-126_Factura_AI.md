@@ -13,8 +13,11 @@
 | Instrumento de medição | `spikes/factura-ai/` (descartável; não é código de produção e não é um portão) |
 
 > **Este relatório não valida nenhum certificado, e não pode.** A lista oficial
-> actual de softwares certificados pela AGT **não foi obtida** — a de Dezembro de
-> 2025, com 43 certificados, é a última de que há notícia (`../E2_Pagamentos_Angola.md` §6.2).
+> actual de softwares certificados pela AGT **não foi obtida**. A última de que há
+> notícia é de Dezembro de 2025, e **as duas fontes desta casa não dizem o mesmo
+> número**: `../E2_Pagamentos_Angola.md` §6.2 dá **43 certificados** e
+> `../E3_Regulatorio_Dados.md` §6 dá **21 sistemas certificados**, as duas
+> CONFIRMADO e do mesmo período (§9, afirmação 9b).
 > Sem essa lista, todo o número de certificado que aparece abaixo é **declaração
 > do fornecedor**, e nenhuma célula deste documento diz o contrário. O critério 2
 > do ticket escreve a regra à letra: **CONFIRMADO só se constar da lista oficial**.
@@ -42,9 +45,13 @@
 | Qual é a fórmula do custo, e qual o preço de equilíbrio da condição (c) | **Quanto custa a Vero** — modelo *freemium* sem preçário publicado |
 | Que perguntas de dados pessoais e de transferência internacional têm de ter resposta antes da primeira chamada em produção | **Se há transferência** — depende de onde o parceiro aloja, e isso é NÃO VERIFICADO |
 
-> **A KAMBÁ nunca é a emissora.** O Decreto Presidencial n.º 71/25 art. 16 põe a
-> obrigação no contribuinte, e o art. 17 exige software «validado ou
-> disponibilizado» pela AGT (CONFIRMADO, `../E2_Pagamentos_Angola.md` §6.1). Um
+> **A KAMBÁ nunca é a emissora.** O Decreto Presidencial n.º 71/25 põe a
+> obrigação no contribuinte e exige software «validado ou disponibilizado» pela
+> AGT (CONFIRMADO quanto à substância, `../E2_Pagamentos_Angola.md` §6.1). **A
+> numeração do artigo está em conflito entre as duas fontes de evidência** — o
+> `E2` §6.1 dá o art. 17, o `../E3_Regulatorio_Dados.md` §6 dá o art. 7.º, ambos
+> CONFIRMADO, e o próprio `E2` acrescenta «confirmar numeração» (§9, afirmações
+> 2 e 2b). Nenhum pedido escrito deste relatório invoca um número de artigo. Um
 > parceiro certificado chamado por API deixa a PME como emissora e o software do
 > parceiro como o software certificado. Se a KAMBÁ quisesse emitir com motor
 > próprio, teria de se certificar — e o processo, o custo e o prazo disso são
@@ -68,10 +75,18 @@ e as linhas do §9 que dela dependem mudam de estado.
 **P1 — Lista oficial actual de softwares certificados.**
 
 > Qual é a lista oficial e actual dos softwares de facturação certificados ou
-> validados pela AGT ao abrigo do art. 17 do Decreto Presidencial n.º 71/25, com
-> o número de certificado de cada um? Onde é publicada e com que periodicidade é
-> actualizada? Como se verifica, caso a caso, se um número de certificado no
-> formato `FE/<n>/AGT/<ano>` é válido e está em vigor?
+> validados pela AGT ao abrigo do Decreto Presidencial n.º 71/25, com o número de
+> certificado de cada um? Onde é publicada e com que periodicidade é actualizada?
+> Como se verifica, caso a caso, se um número de certificado no formato
+> `FE/<n>/AGT/<ano>` é válido e está em vigor? E qual é o artigo do diploma que
+> fixa a exigência de software validado — o 7.º ou o 17.º?
+
+*Nota sobre a última parte:* não é zelo de redacção. As duas fontes de evidência
+desta casa divergem — `../E2_Pagamentos_Angola.md` §6.1 dá o **art. 17** e
+`../E3_Regulatorio_Dados.md` §6 dá o **art. 7.º**, as duas marcadas CONFIRMADO, e
+a primeira com a reserva «confirmar numeração» —, e nenhuma delas leu o diploma
+no Diário da República. Citar o artigo errado num pedido escrito à autoridade
+fiscal é um custo gratuito.
 
 *Porque se pergunta:* é a única forma de pôr um `CONFIRMADO` na coluna de
 validação do §3. Hoje todas as células dessa coluna são `NÃO VERIFICADO`.
@@ -84,7 +99,7 @@ validação do §3. Hoje todas as células dessa coluna são `NÃO VERIFICADO`.
 > com o seu NIF, mantendo-se cada contribuinte como emissor? Em caso afirmativo:
 > (a) é exigido algum registo, comunicação ou autorização prévia relativa a essa
 > plataforma terceira; (b) quem responde perante a AGT pelo conteúdo do documento
-> emitido; (c) o registo de estabelecimentos do art. 17 é feito pelo contribuinte
+> emitido; (c) o registo de estabelecimentos exigido pelo diploma é feito pelo contribuinte
 > ou pode ser feito pela plataforma em nome dele?
 
 *Porque se pergunta:* é a **pergunta 27** de `../E2_Pagamentos_Angola.md` §9, e é
@@ -123,8 +138,12 @@ declarou em Abril de 2026 que «o prazo não será prorrogado».
 ### 2.3 Questionário aos fornecedores
 
 Mesmo texto para todos, para que as respostas sejam comparáveis. **Quem envia: o
-fundador.** As onze perguntas correspondem, uma a uma, às colunas da matriz do §4
-que hoje estão a `NÃO VERIFICADO`.
+fundador.** As onze primeiras perguntas cobrem as colunas da matriz do §4 que
+hoje estão a `NÃO VERIFICADO`, **sem correspondência um-para-um**: a 4 cobre três
+predicados (proformas, factura-recibo, notas de crédito), a 10 cobre dois
+(limites de taxa e SLA), a 1 e a 2 não correspondem a predicado nenhum, e o
+predicado 12 (SDK) não é pedido por pergunta nenhuma — é a única coluna da matriz
+que estas perguntas deixam de fora.
 
 1. Número de certificado AGT, data de emissão, âmbito e cópia do documento de certificação.
 2. Propriedade da empresa (sócios, país de registo), ano de início de actividade, número de clientes activos e existência de auditoria ou certificação de segurança.
@@ -240,20 +259,37 @@ porque não há chaves de teste e pedi-las é contacto.
 `spikes/factura-ai/`, descartável, biblioteca padrão do Python, sem dependências.
 Dois ficheiros fazem o trabalho: `provedor_mock.py` é um servidor HTTP que
 implementa o contrato, e `sandbox.py` é o cliente que mede os sete predicados
-contra qualquer base URL. O *mock* é o alvo por omissão; apontar o `sandbox.py` a
-um fornecedor é mudar uma variável de ambiente, e é o que se faz quando as chaves
-existirem.
+contra qualquer base URL. O *mock* é o alvo por omissão, e o alvo muda-se com `--base`.
+
+> **O que o `--base` não resolve, e convém dizê-lo antes de alguém se enganar.**
+> O contrato que o cliente fala é o do *mock* — rotas `/v1/.../documents`,
+> cabeçalho `X-Mock-Signature`, segredo entregue no corpo do registo, campos em
+> português, e **nenhuma autenticação**. O `../E2_Pagamentos_Angola.md` §6.2
+> documenta, para a Vero, `POST /v1/organisations/{ORG_ID}/invoices`,
+> `X-Vero-Signature` e um `Bearer vero_test_sk_...` obrigatório. Apontado ao
+> *sandbox* de um fornecedor, este cliente **devolve 401 na primeira chamada e
+> corre zero ensaios**. Adaptar o cliente — autenticação, rotas, nomes de campo,
+> cabeçalho de assinatura — é trabalho que falta, está no §5.3 com credor, e
+> **não é «correr e ler»**.
 
 > **O *mock* foi escrito para poder reprovar.** Um falso que decide pelo nome do
 > ensaio não mede predicado nenhum: fica verde com a implementação apagada. Por
 > isso o *mock* guarda de facto a `idempotencyKey` e devolve o documento anterior,
 > e assina de facto com HMAC-SHA256 sobre o corpo. E por isso o *script* tem um
-> **canário** (`sandbox.py --canario`) que estraga o *mock* de seis maneiras — a
-> idempotência que ignora a chave, a assinatura calculada sobre outro corpo, o
-> segredo errado, a proforma numerada como factura, a nota de crédito sem
-> documento de origem, e o *sandbox* a submeter à AGT — e **exige que o ensaio
-> correspondente fique vermelho em cada uma**. Um ensaio que não reprova quando
-> devia não é evidência.
+> **canário** (`sandbox.py --canario`) que estraga o *mock* de **dez** maneiras e
+> **exige que o ensaio correspondente fique vermelho em cada uma**. Um ensaio que
+> não reprova quando devia não é evidência.
+>
+> **Quatro dos dez defeitos nasceram da revisão adversarial deste ticket, e
+> valem por si.** O oráculo do rótulo da proforma era a constante do próprio
+> *mock*, pelo que trocar o literal deixava o ensaio verde com a proforma a
+> declarar-se «factura fiscal válida para a AGT» — exactamente o risco B10 que o
+> ensaio existe para medir. E **três mutações de multi-tenancy deixavam 7/7
+> verdes**: a chave de idempotência partilhada entre contribuintes (a PME B pedia
+> factura e recebia o documento da PME A), o *webhook* bem assinado a notificar o
+> documento de outra organização, e dois NIFs iguais a criar duas organizações. O
+> predicado 1 da matriz é «uma organização por PME», e é dele que a condição (b)
+> da regra depende: estava por medir no sítio onde mais dói.
 
 ### 5.2 Resultado contra o *mock*
 
@@ -262,18 +298,30 @@ Execução de 2026-11-05, `python spikes/factura-ai/sandbox.py` e
 
 | # | Predicado do critério 4 | Resultado contra o *mock* | Canário correspondente |
 |---|---|---|---|
-| 1 | Criar organização (uma por PME) | **verde** | — |
-| 2 | Emitir factura | **verde** | — |
-| 3 | Emitir proforma, sem numeração fiscal | **verde** | `proforma-numerada` → vermelho, como se exige |
-| 4 | Emitir nota de crédito sobre a factura | **verde** | `nota-sem-origem` → vermelho, como se exige |
-| 5 | Mesma `idempotencyKey` 2× → **um** documento | **verde** | `idempotencia-ignorada` → vermelho, como se exige |
-| 6 | Assinatura do *webhook* verificada | **verde** | `assinatura-de-outro-corpo`, `segredo-errado` → vermelho, como se exige |
-| 7 | *Sandbox* não submete à AGT | **verde** | `sandbox-submete` → vermelho, como se exige |
+| 1 | Criar organização — uma por PME, e o mesmo NIF não cria uma segunda | **verde** | `nif-duplicado` → vermelho |
+| 2 | Emitir factura, com numeração fiscal | **verde** | — |
+| 3 | Proforma sem numeração **e** rotulada como não fiscal | **verde** | `proforma-numerada`, `rotulo-errado` → vermelho |
+| 4 | Nota de crédito sobre a factura; órfã recusada | **verde** | `nota-sem-origem` → vermelho |
+| 5 | Mesma `idempotencyKey` 2× → **um** documento, e a chave não é partilhada entre PMEs | **verde** | `idempotencia-ignorada`, `idempotencia-global` → vermelho |
+| 6 | *Webhook* assinado **e** do documento certo, da organização certa | **verde** | `assinatura-de-outro-corpo`, `segredo-errado`, `webhook-de-outra-org` → vermelho |
+| 7 | O provedor **declara** que o *sandbox* não submete à AGT | **verde**, e é uma declaração, não uma medição | `sandbox-submete` → vermelho |
 
-**Seis canários, seis vermelhos.** O que isto demonstra é que os sete ensaios
-medem o que dizem medir. **O que não demonstra é absolutamente nada sobre a
-Vero, a Cacimbo, a SIGESC ou a XDFE** — um *mock* que eu escrevi passa nos
-ensaios que eu escrevi, e seria estranho se não passasse.
+**Dez canários, dez vermelhos.** O que isto demonstra é que **cada ensaio
+reprova quando o seu predicado desaparece**, que é menos do que «os ensaios
+medem o que dizem medir» e é tudo o que um canário pode dar: não prova que a
+lista de defeitos esgota as maneiras de quebrar o contrato.
+
+**Duas ressalvas que não se devem perder de vista.**
+
+O **predicado 7 é uma declaração, não uma medição.** O ensaio lê o campo
+`submetido_agt` que o próprio provedor devolve; um provedor que submeta à AGT e
+minta no campo passa. Está escrito assim na saída do *script*, e o que fecha
+este predicado é a garantia **por escrito** do fornecedor — pergunta 7 do §2.3.
+É também por isto que o §4 marca «Garantia por escrito: NV» no predicado 4.
+
+E **nada disto mede fornecedor nenhum** — nem a Vero, nem a Cacimbo, nem a
+SIGESC, nem a XDFE. Um *mock* que eu escrevi passa nos ensaios que eu escrevi, e
+seria estranho se não passasse.
 
 ### 5.3 O que falta, e o que custa
 
@@ -281,10 +329,12 @@ ensaios que eu escrevi, e seria estranho se não passasse.
 |---|---|---|
 | Obter chaves de teste do *sandbox* | fundador | contacto com o fornecedor |
 | Garantia **por escrito** de que o *sandbox* não submete à AGT | fundador | contacto com o fornecedor |
-| Correr `sandbox.py` contra o *sandbox* do fornecedor e anexar a saída ao §5.2 | sessão seguinte | as duas linhas acima |
+| Adaptar o cliente ao contrato real do fornecedor (autenticação, rotas, nomes de campo, cabeçalho de assinatura) | **Engenheiro de Plataforma** | documentação da API do fornecedor |
+| Correr `sandbox.py` contra o *sandbox* do fornecedor e anexar a saída ao §5.2 | **Engenheiro de Plataforma** | as três linhas acima |
 
-O teste cabe nos «≤ 2 dias» do critério 4 — o instrumento está escrito e o
-trabalho que resta é correr e ler. **Dados sintéticos, sem NIF reais:** os NIFs
+O «≤ 2 dias» do critério 4 conta a partir de haver chaves **e** um cliente que
+fale o contrato do fornecedor. O instrumento está escrito contra o *mock*; o
+trabalho de o adaptar não está feito e não é de minutos. **Dados sintéticos, sem NIF reais:** os NIFs
 que o *script* usa têm a forma `SINTETICO-<n>` e não a de um NIF angolano, de
 propósito, para que nenhum deles possa coincidir com um contribuinte real; o
 `spikes/factura-ai/README.md` escreve essa regra e a de apagar as chaves no fim.
@@ -453,7 +503,15 @@ Credor: **Responsável de Produto** (papel, não sessão).
 
 ADR-008: **nenhum dado pessoal de produção sai de Angola sem a notificação ou
 autorização da APD aplicável.** O inventário de subprocessadores pede, por
-fornecedor, um `apd_ref` na forma `APD-<AAAA>-<NNNNN>`.
+fornecedor, um `apd_ref`.
+
+> **O `apd_ref` não tem forma prescrita, e é de propósito.** A forma canónica na
+> árvore é `^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$` — um *token* livre, não um
+> número com máscara —, e o comentário que a acompanha diz que não é invenção do
+> ticket que a introduziu: é a mesma expressão que duas outras superfícies já
+> usavam (KAM-011). Logo **a referência que a APD devolver serve como ela vier**,
+> incluindo uma do género «protocolo 123 de 2026», e não há que a reformatar nem
+> inventar um número para satisfazer a regra de bloqueio abaixo.
 
 | Fornecedor | País de alojamento | Destino adequado? | Procedimento | `apd_ref` |
 |---|---|---|---|---|
@@ -480,21 +538,39 @@ módulo de Orçamento expresso **pode ser confundido com documento fiscal**, e a
 plataforma não é software validado pela AGT. Mitigação já desenhada: rótulo
 «Orçamento — não é factura» e ausência de numeração fiscal (**INDÍCIO**).
 
-Entra na lista de perguntas ao parecer jurídico (`Pacote_Parecer_Juridico.md`),
-nesta forma:
+A pergunta que o critério 6 manda listar é a **8 das «Perguntas para o
+advogado»** do `../E5_Modulos_Entrada.md`, e ela tem **duas metades**:
+«Orçamento/proforma gerado pela plataforma: precisa de algum requisito formal ou
+de validação AGT? **Qual a diferença legal entre orçamento e factura proforma?**»
+Entram as duas na lista de perguntas ao parecer jurídico
+(`Pacote_Parecer_Juridico.md`), nesta forma:
 
-> Um documento emitido por uma plataforma de software não certificada, intitulado
-> «Orçamento», sem numeração fiscal e com os valores e o prazo de validade,
-> enviado por WhatsApp a um cliente, pode ser qualificado como documento
-> equivalente a factura para efeitos do Decreto Presidencial n.º 71/25? Que
-> elementos o desqualificam, e que elementos o qualificariam? O rótulo «não é
+> **(a)** Um documento emitido por uma plataforma de software não certificada,
+> intitulado «Orçamento», sem numeração fiscal e com os valores e o prazo de
+> validade, enviado por WhatsApp a um cliente, pode ser qualificado como
+> documento equivalente a factura para efeitos do Decreto Presidencial n.º 71/25?
+> Que elementos o desqualificam, e que elementos o qualificariam? O rótulo «não é
 > factura» é bastante, ou é preciso mais?
+>
+> **(b)** Qual é a **diferença legal entre um orçamento e uma factura proforma**
+> no direito angolano? São a mesma figura com dois nomes, ou a proforma tem
+> requisitos formais que o orçamento não tem? Se um software certificado emitir
+> uma proforma em nome da PME, essa proforma é documento fiscal — e, se for,
+> pode a plataforma gerar orçamentos sem passar pelo parceiro certificado?
 
-*Porque importa:* se a resposta for que o orçamento pode ser qualificado, o
-módulo de Orçamento expresso **já hoje** precisa de parceiro certificado — e
-Factura AI deixa de ser Fase 2 para passar a ser pré-requisito de um módulo do
-Piloto. É a pergunta deste relatório com maior capacidade de mudar o roteiro, e a
-resposta não é minha.
+*Porque importa a metade (a):* se a resposta for que o orçamento pode ser
+qualificado, o módulo de Orçamento expresso **já hoje** precisa de parceiro
+certificado — e Factura AI deixa de ser Fase 2 para passar a ser pré-requisito de
+um módulo do Piloto. É a pergunta deste relatório com maior capacidade de mudar o
+roteiro, e a resposta não é minha.
+
+*Porque importa a metade (b), e esta faltava:* **este relatório e o seu
+instrumento colapsam as duas figuras**. O predicado 5 da matriz chama-se
+«Proformas», o `spikes/factura-ai/` rotula uma **proforma** com o rótulo de
+**orçamento** do B10, e o ensaio 3 mede essa proforma como se bastasse não ter
+numeração para não ser documento fiscal. Se a resposta (b) disser que a proforma
+de um software certificado **é** documento fiscal, então o ensaio 3 e o predicado
+5 estão a medir a coisa errada, e é a resposta (b) que o diz — não eu.
 
 ---
 
@@ -579,14 +655,17 @@ a tabela que a caixa de DoD «nenhum NÃO VERIFICADO tratado como facto» exige.
 | # | Afirmação | Estado | Fonte | Data |
 |---|---|---|---|---|
 | 1 | Facturação electrónica obrigatória; DP 71/25 art. 16 põe a obrigação no contribuinte | **CONFIRMADO** | `../E2_Pagamentos_Angola.md` §6.1 | 2025-03-20 |
-| 2 | Art. 17: software «validado ou disponibilizado» pela AGT | **CONFIRMADO** | `../E2_Pagamentos_Angola.md` §6.1 | 2025-03-20 |
-| 3 | Plataforma que emita por conta da PME sem ser software certificado **não é válida** | **CONFIRMADO** | `../E2_Pagamentos_Angola.md` §6.1; `../E3_Regulatorio_Dados.md` §6 | 2026 |
+| 2 | O DP 71/25 exige software «validado ou disponibilizado» pela AGT | **CONFIRMADO** quanto à substância; a fonte acrescenta **«confirmar numeração»** e é um resumo em angolex, não o diploma | `../E2_Pagamentos_Angola.md` §6.1 | 2025-03-20 |
+| 2b | **Qual é o artigo** que fixa essa exigência: art. 17 (`E2` §6.1) ou art. 7.º (`E3` §6) | **INDÍCIO (conflito)** — as duas fontes dizem CONFIRMADO e divergem; nenhuma leu o Diário da República | `../E2_Pagamentos_Angola.md` §6.1; `../E3_Regulatorio_Dados.md` §6 | 2025-2026 |
+| 2c | **Qual dos dois está em vigor** | **NÃO VERIFICADO** — acrescentado a P1 | — | — |
+| 3 | Plataforma que emita por conta da PME sem ser software certificado **não é válida** | **INDÍCIO** — a frase vive na coluna «Implicação para o desenho» das duas fontes, que é leitura de desenho de quem escreveu a evidência, e não uma afirmação com fonte própria | `../E2_Pagamentos_Angola.md` §6.1; `../E3_Regulatorio_Dados.md` §6 | 2026 |
 | 4 | DE 683/25 fixa a estrutura de dados e as especificações técnicas | **CONFIRMADO** | `../E2_Pagamentos_Angola.md` §6.1 | 2025-08-22 |
 | 5 | Fase 1 (grandes contribuintes e fornecedores do Estado): 1 Jan 2026 | **CONFIRMADO** | `../E2_Pagamentos_Angola.md` §6.1 | 2026 |
 | 6 | Fase 2 (regimes geral e simplificado): 1 Jan 2027 | **INDÍCIO forte** — sem diploma de 2026 lido | `../E2_Pagamentos_Angola.md` §6.1 | 2026 |
 | 7 | Fontes alternativas dão 21 Set 2026 para a Fase 2 | **INDÍCIO (conflito)** | `../E2_Pagamentos_Angola.md` §6.1 | 2025-04 / 2026-09 |
 | 8 | **Qual das duas datas está em vigor** | **NÃO VERIFICADO** — P3 | — | — |
-| 9 | A AGT divulgou lista com 43 certificados em Dez 2025 | **CONFIRMADO** (existência) | `../E2_Pagamentos_Angola.md` §6.2 | 2025-12 |
+| 9 | A AGT divulgou uma lista de softwares certificados em Dez 2025 | **CONFIRMADO** (existência) | `../E2_Pagamentos_Angola.md` §6.2 | 2025-12 |
+| 9b | **Quantos certificados tinha**: 43 (`E2` §6.2) ou 21 sistemas (`E3` §6) | **INDÍCIO (conflito)** — as duas CONFIRMADO, do mesmo período | `../E2_Pagamentos_Angola.md` §6.2; `../E3_Regulatorio_Dados.md` §6 | 2025-10 / 2025-12 |
 | 10 | **Lista oficial actual de softwares certificados** | **NÃO VERIFICADO** — P1 | — | — |
 | 11 | Vero declara `FE/271/AGT/2026` | **INDÍCIO** — declaração do fornecedor | `vero.ao` | 2026-10-08 |
 | 12 | CacimboERP declara `FE/6/AGT/2025` | **INDÍCIO** | `feinfo.cacimboweb.com` | 2026-10-08 |
@@ -604,13 +683,18 @@ a tabela que a caixa de DoD «nenhum NÃO VERIFICADO tratado como facto» exige.
 | 24 | **Preço da Vero** | **NÃO VERIFICADO** — sem preçário publicado | — | — |
 | 25 | Existe desconto por volume ou preço de parceiro em qualquer candidato | **NÃO VERIFICADO** — p. 14 | — | — |
 | 26 | **Preço hipotético de Factura AI** | **NÃO VERIFICADO** — e não se inventa | — | — |
-| 27 | Com Cacimbo Micro, (c) exige `P ≥ 104 167` Kz/PME/mês | **CONFIRMADO** como aritmética sobre a afirmação 21, que é INDÍCIO | §6.4 | 2026-11-05 |
+| 26b | O escalão aplicável à base-alvo é o **Micro** | **NÃO VERIFICADO** — é **hipótese de planeamento** (§6.2), e depende do volume de negócios de cada PME | — | — |
+| 27 | Com Cacimbo Micro, (c) exige `P ≥ 104 167` Kz/PME/mês | **CONFIRMADO** como aritmética; mas sobre a afirmação 21, que é **INDÍCIO**, e sob a 26b, que é **NÃO VERIFICADO** | §6.4 | 2026-11-05 |
 | 28 | A assinatura SaaS da própria KAMBÁ tem de ser facturada com software certificado | **INDÍCIO** | `../E2_Pagamentos_Angola.md` §7 | 2025 |
 | 29 | Os sete predicados do critério 4 passam **contra o *mock*** | **CONFIRMADO** — medido a 2026-11-05 | §5.2; `spikes/factura-ai/` | 2026-11-05 |
-| 30 | Os seis canários ficam vermelhos quando o *mock* é estragado | **CONFIRMADO** — medido a 2026-11-05 | §5.2 | 2026-11-05 |
+| 30 | Os dez canários ficam vermelhos quando o *mock* é estragado | **CONFIRMADO** — medido a 2026-11-05 | §5.2 | 2026-11-05 |
+| 30b | O predicado 7 é uma **declaração do provedor**, não uma medição: um provedor que submeta e minta passa | **CONFIRMADO** — é o que o ensaio lê | §5.2; `sandbox.py` | 2026-11-05 |
+| 30c | A lista de dez defeitos **esgota** as maneiras de quebrar o contrato | **NÃO VERIFICADO** — um canário não o pode provar | — | — |
 | 31 | **Qualquer fornecedor satisfaz os sete predicados** | **NÃO VERIFICADO** — nenhuma medição contra fornecedor | — | — |
+| 31b | O cliente do *spike* fala o contrato do ***mock***, não o da Vero: sem `Bearer`, com rotas e cabeçalho de assinatura diferentes | **CONFIRMADO** — lido no `sandbox.py` contra `../E2_Pagamentos_Angola.md` §6.2 | §5.1 | 2026-11-05 |
 | 32 | **Onde residem os dados fiscais** de cada candidato | **NÃO VERIFICADO** nos quatro | — | — |
 | 33 | **Há transferência internacional** | **NÃO VERIFICADO** — depende da afirmação 32 | — | — |
+| 33b | A forma canónica de um `apd_ref` nesta árvore é um *token* livre, `^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$`, e não um número com máscara | **CONFIRMADO** — lido em `tools/env_lint/lint.py`, com o comentário a remeter para KAM-011 | árvore | 2026-11-05 |
 | 34 | Transferência para fora de Angola exige notificação (destino adequado) ou autorização (não adequado) | **CONFIRMADO** — arts. 33/34 da Lei 22/11 | `../E3_Regulatorio_Dados.md` §2 | 2011 |
 | 35 | Não há lista pública de países adequados da APD | **CONFIRMADO** quanto à ausência nas fontes consultadas | `../E3_Regulatorio_Dados.md` §2 | 2026 |
 | 36 | Uma factura a cliente particular contém dados pessoais | **INDÍCIO** — inferência do art. 4 da Lei 22/11 | §7.1 | — |
@@ -620,8 +704,8 @@ a tabela que a caixa de DoD «nenhum NÃO VERIFICADO tratado como facto» exige.
 | 40 | Processo, custo e prazo de certificação de software próprio | **NÃO VERIFICADO** — p. 28 | — | — |
 | 41 | A regra do §8.1, aplicada ao que hoje se sabe, dá **adiar** | **CONFIRMADO** — as quatro condições e os seus estados estão no §8.2 | §8.2 | 2026-11-05 |
 
-**Contagem: 41 afirmações — 12 CONFIRMADO, 14 INDÍCIO (1 deles «forte», 1
-«conflito»), 15 NÃO VERIFICADO.** Nenhum NÃO VERIFICADO é usado como premissa de
+**Contagem: 49 afirmações — 14 CONFIRMADO, 17 INDÍCIO (1 «forte» e 3 de
+«conflito»), 18 NÃO VERIFICADO.** Nenhum NÃO VERIFICADO é usado como premissa de
 nenhuma conclusão deste relatório; os quatro que mais pesam — a data da Fase 2, a
 lista da AGT, a resposta P2 e o preço de Factura AI — são precisamente as razões
 pelas quais a recomendação é **adiar** e não «avançar».
@@ -636,10 +720,12 @@ pelas quais a recomendação é **adiar** e não «avançar».
 | Enviar as catorze perguntas aos fornecedores (§2.3) | Contactar fornecedores é acto do fundador | **fundador** |
 | Preencher propriedade e continuidade dos quatro candidatos (§3.1) | Precisa das respostas acima e de consulta ao registo comercial | **fundador** |
 | Obter chaves de teste e a garantia escrita de que o *sandbox* não submete à AGT (§5.3) | Pedir chaves é contacto com fornecedor | **fundador** |
-| Correr `sandbox.py` contra o *sandbox* do fornecedor | Depende da linha acima | **fundador** (desbloqueia), depois sessão de execução |
+| **Adaptar o cliente do *spike* ao contrato real do fornecedor** — autenticação `Bearer`, rotas, nomes de campo, cabeçalho de assinatura (§5.1, §5.3) | O cliente fala o contrato do *mock*; contra um fornecedor devolve 401 e corre zero ensaios. **Não é «correr e ler»**, e eu tinha escrito que era | **Engenheiro de Plataforma** |
+| Correr `sandbox.py` contra o *sandbox* do fornecedor e anexar a saída ao §5.2 | Depende das duas linhas acima | **Engenheiro de Plataforma** |
+| Responder à metade (b) da pergunta 8 do `E5`: diferença legal entre orçamento e factura proforma (§7.4) | O relatório e o instrumento colapsam as duas figuras; se a proforma for documento fiscal, o ensaio 3 mede a coisa errada | **fundador** (envia ao parecer) |
 | Ler os contratos e as cláusulas de responsabilidade fiscal (§4, predicado 13) | Ler e aceitar contratos é fronteira desta sessão | **fundador** |
 | Revisão da fórmula de custo por segunda pessoa (§6.6) | Quem escreveu as contas não as revê | **Responsável de Produto** |
-| Levar a pergunta B10 ao parecer jurídico (§7.4) | O pacote do parecer é enviado por acto humano | **fundador** |
+| Levar as duas metades da pergunta 8 do `E5` ao parecer jurídico (§7.4) | O pacote do parecer é enviado por acto humano | **fundador** |
 | Decidir D7 | É decisão do fundador, e o gatilho dela é a resposta da AGT | **fundador** |
 | Entregar a recomendação ao Responsável de Produto | Acto de entrega, fora do alcance de uma sessão | **fundador** |
 
@@ -664,4 +750,4 @@ pelas quais a recomendação é **adiar** e não «avançar».
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
-| 1.0 | Novembro de 2026 | Emissão inicial, KAM-126. Questionário à AGT com as três perguntas que desbloqueiam o ticket (lista oficial, API por terceiros em nome de várias empresas — a pergunta 27 de `../E2_Pagamentos_Angola.md` §9 —, e a data da Fase 2), questionário de catorze perguntas aos fornecedores, ficha de **quatro** candidatos acima do mínimo de três, e matriz de treze predicados onde **45 das 52 células estão a NÃO VERIFICADO** e nenhuma está a SIM. Nenhum certificado afirmado como validado: a lista oficial da AGT não foi obtida, e a coluna de validação diz NÃO VERIFICADO nas quatro linhas. *Script* de *sandbox* em `spikes/factura-ai/` com os sete predicados do critério 4 medidos contra um *mock* e **seis canários a provar que os ensaios reprovam quando devem** — e com a ressalva de que nada disso mede fornecedor nenhum. Modelo de custo com a única coluna de preços datados que existe (CacimboERP), as duas leituras do valor «inicial» que diferem **50%** no ano 1, e a inversão da condição (c) a dar o `P` mínimo de **104 167 Kz/PME/mês** no escalão Micro — sem inventar o preço de Factura AI, que fica NÃO VERIFICADO. Registado que o preçário por contribuinte é **custo variável puro, linear em `N`, sem economia de escala**, e que a facturação da assinatura da própria KAMBÁ é o mesmo problema **sem depender da resposta P2**. Análise de dados com as três perguntas do critério 6 todas a NÃO VERIFICADO por dependerem de onde o parceiro aloja, `apd_ref` vazio nos quatro candidatos e a regra de bloqueio que isso impõe à primeira factura real. Recomendação **adiar**, pela regra pré-registada e não por juízo: (a) e (d) falham, (b) não foi medido, (c) não é mensurável. Tabela de **41 afirmações com estado** (12 CONFIRMADO, 14 INDÍCIO, 15 NÃO VERIFICADO) e **dez caixas devolvidas, todas com credor que sobrevive à fusão**. | Equipa KAMBÁ |
+| 1.0 | Novembro de 2026 | Emissão inicial, KAM-126. Questionário à AGT com as três perguntas que desbloqueiam o ticket (lista oficial, API por terceiros em nome de várias empresas — a pergunta 27 de `../E2_Pagamentos_Angola.md` §9 —, e a data da Fase 2), questionário de catorze perguntas aos fornecedores, ficha de **quatro** candidatos acima do mínimo de três, e matriz de treze predicados onde **45 das 52 células estão a NÃO VERIFICADO** e nenhuma está a SIM. Nenhum certificado afirmado como validado: a lista oficial da AGT não foi obtida, e a coluna de validação diz NÃO VERIFICADO nas quatro linhas. *Script* de *sandbox* em `spikes/factura-ai/` com os sete predicados do critério 4 medidos contra um *mock* e **dez canários a provar que cada ensaio reprova quando o seu predicado desaparece** — e com a ressalva de que nada disso mede fornecedor nenhum. Modelo de custo com a única coluna de preços datados que existe (CacimboERP), as duas leituras do valor «inicial» que diferem **50%** no ano 1, e a inversão da condição (c) a dar o `P` mínimo de **104 167 Kz/PME/mês** no escalão Micro — sem inventar o preço de Factura AI, que fica NÃO VERIFICADO. Registado que o preçário por contribuinte é **custo variável puro, linear em `N`, sem economia de escala**, e que a facturação da assinatura da própria KAMBÁ é o mesmo problema **sem depender da resposta P2**. Análise de dados com as três perguntas do critério 6 todas a NÃO VERIFICADO por dependerem de onde o parceiro aloja, `apd_ref` vazio nos quatro candidatos e a regra de bloqueio que isso impõe à primeira factura real. Recomendação **adiar**, pela regra pré-registada e não por juízo: (a) e (d) falham, (b) não foi medido, (c) não é mensurável. Tabela de **49 afirmações com estado** (14 CONFIRMADO, 17 INDÍCIO, 18 NÃO VERIFICADO) e **doze caixas devolvidas, todas com credor que sobrevive à fusão**. **Incorpora a revisão adversarial**, que encontrou treze achados — todos verificados contra a árvore antes de gerarem trabalho. Os quatro materiais: (i) o oráculo do rótulo da proforma era a constante do próprio *mock*, pelo que trocá-lo deixava 7/7 verdes com a proforma a declarar-se «factura fiscal válida para a AGT» — o risco B10 por inteiro; (ii) três mutações de multi-tenancy deixavam 7/7 verdes (chave de idempotência partilhada entre contribuintes, *webhook* assinado a notificar documento de outra organização, dois NIFs iguais a criar duas organizações), pelo que **dois dos sete predicados estavam por medir**, um deles o de que a condição (b) depende; (iii) o cliente fala o contrato do *mock* e não o da Vero — sem `Bearer`, com rotas e cabeçalho de assinatura diferentes —, logo apontá-lo a um fornecedor devolve 401 e corre zero ensaios, e o §5.1 dizia «mudar uma variável de ambiente» quando não existe variável nenhuma; (iv) a numeração do artigo que exige software validado **está em conflito entre as duas fontes desta casa** (art. 17 no `E2` §6.1, art. 7.º no `../E3_Regulatorio_Dados.md` §6, as duas CONFIRMADO, a primeira com a reserva «confirmar numeração»), pelo que nenhum pedido escrito deste relatório invoca mais um número de artigo. Corrigidos também: a afirmação «plataforma sem software certificado não é válida» desce a **INDÍCIO**, por viver na coluna «Implicação para o desenho» das fontes e não ter afirmação própria; o conflito **43 contra 21** certificados entre `E2` §6.2 e `E3` §6 fica registado; o formato do `apd_ref` passa a ser o canónico da árvore (*token* livre, não `APD-<AAAA>-<NNNNN>`, que vinha de uma *fixture* de teste); a **metade (b) da pergunta 8 do `E5`** — diferença legal entre orçamento e factura proforma — entra no parecer, com a nota de que este relatório colapsa as duas figuras; e o predicado 7 passa a dizer-se pelo que é, **uma declaração do provedor e não uma medição**. | Equipa KAMBÁ |

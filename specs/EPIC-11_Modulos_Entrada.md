@@ -754,13 +754,30 @@ Os sete predicados do critério foram **medidos contra o *mock***, a 2026-11-05,
 e os sete ficaram verdes (§5.2). O instrumento é `spikes/factura-ai/`, e corre
 com `python spikes/factura-ai/sandbox.py`. O que **não** aconteceu: nada foi
 medido contra fornecedor, porque não há chaves de teste e pedi-las é contacto.
-Quatro dos sete ensaios têm **metade negativa** — a nota de crédito órfã, o corpo
-adulterado, a proforma numerada, a segunda chamada com a mesma chave —, e o
-*script* tem um **canário** que estraga o *mock* de seis maneiras e exige que o
+O *script* tem um **canário** que estraga o *mock* de dez maneiras e exige que o
 ensaio correspondente fique vermelho em cada uma: `python
-spikes/factura-ai/sandbox.py --canario` dá **seis defeitos, seis vermelhos**. Sem
+spikes/factura-ai/sandbox.py --canario` dá **dez defeitos, dez vermelhos**. Sem
 isso, um falso que decidisse pelo nome do ensaio ficava verde com a implementação
-apagada, e a linha de evidência não media predicado nenhum. Dados sintéticos:
+apagada, e a linha de evidência não media predicado nenhum.
+
+**Quatro desses dez defeitos vieram da revisão adversarial, e são o achado mais
+útil que ela produziu.** O oráculo do rótulo da proforma era a constante do
+próprio *mock* — alvo e oráculo no mesmo literal —, pelo que trocar o literal
+deixava o ensaio **verde** com a proforma a declarar-se «factura fiscal válida
+para a AGT», que é o risco B10 por inteiro. E três mutações de multi-tenancy
+deixavam **7/7 verdes**: a chave de idempotência partilhada entre contribuintes,
+o *webhook* bem assinado a notificar documento de outra organização, e dois NIFs
+iguais a criar duas organizações. **Dois dos sete predicados estavam por medir**,
+e um deles é o predicado de que a condição (b) da regra depende.
+
+Duas ressalvas que a revisão também obrigou a escrever. O **predicado 7 é uma
+declaração do provedor, não uma medição**: lê o campo `submetido_agt` que o
+próprio provedor devolve, e um provedor que submeta e minta passa — fecha-se com
+a garantia escrita, não com o ensaio. E **o cliente fala o contrato do *mock*,
+não o da Vero**: sem `Bearer`, com rotas e cabeçalho de assinatura diferentes,
+pelo que apontá-lo ao *sandbox* de um fornecedor devolve 401 e corre zero
+ensaios. Adaptá-lo é trabalho que falta e que ficou devolvido ao Engenheiro de
+Plataforma — não era «correr e ler», como eu tinha escrito. Dados sintéticos:
 os NIFs têm a forma `SINTETICO-<n>`, e **o próprio *mock* recusa com 422** um NIF
 que não comece por `SINTETICO-` — a fronteira está no instrumento e não só na
 intenção de quem o corre.
@@ -777,7 +794,9 @@ coluna da Vero **não se preenche**, porque *freemium* sem limites publicados n�
 é a única forma honesta de a fazer sem inventar o preço: a condição (c) exige
 `P ≥ 10 × Custo_PME_mes`, o que dá **≥ 104 167 Kz/PME/mês** no escalão Micro.
 A condição (c) deixou de ser uma incógnita e passou a ser uma pergunta de preço
-ao fundador, com um número exacto do lado de lá. A assinatura da própria KAMBÁ
+ao fundador, com um número do lado de lá — exacto como aritmética, e assente num
+preço que é **INDÍCIO** e num escalão que é **hipótese de planeamento**. A
+assinatura da própria KAMBÁ
 está no §6.5, com o achado de que é **o mesmo problema sem depender da resposta
 P2** — ali a KAMBÁ é o contribuinte e não emite em nome de ninguém.
 
@@ -790,12 +809,22 @@ subsubcontratante» é **inferência e não parecer**; se há transferência
 internacional depende da primeira. O `apd_ref` está vazio nos quatro candidatos
 (§7.3), com a regra de bloqueio que isso impõe: **nenhuma chamada com dados de
 produção antes de país e `apd_ref`**. Não trava o *sandbox*, porque dados
-sintéticos não são dados pessoais. O «orçamento ≠ factura» do
-`../docs/tecnica/evidencia/E5_Modulos_Entrada.md` («Bloqueios e riscos», B10) está no §7.4 **redigido
-como pergunta ao parecer**, com a nota de que é a pergunta do relatório com maior
-capacidade de mudar o roteiro: se um orçamento puder ser qualificado como
-documento equivalente a factura, Factura AI deixa de ser Fase 2 e passa a
-pré-requisito de um módulo do Piloto.
+sintéticos não são dados pessoais. O formato do `apd_ref` foi corrigido pela
+revisão: o §7.3 prescrevia `APD-<AAAA>-<NNNNN>`, forma que **não existe na
+árvore** e que eu tinha tirado de uma *fixture* de teste; o canónico é um *token*
+livre, pelo que a referência que a APD devolver serve como vier.
+
+O «orçamento ≠ factura» está no §7.4 **redigido como pergunta ao parecer**, agora
+com as **duas metades** da pergunta 8 das «Perguntas para o advogado» do
+`../docs/tecnica/evidencia/E5_Modulos_Entrada.md` — a revisão mostrou que eu
+tinha escrito só a primeira e que nunca citava a pergunta 8. A metade (a): se um
+orçamento puder ser qualificado como documento equivalente a factura, Factura AI
+deixa de ser Fase 2 e passa a pré-requisito de um módulo do Piloto. A metade (b),
+que faltava: **qual é a diferença legal entre orçamento e factura proforma** — e
+importa porque **este relatório e o seu instrumento colapsam as duas figuras**
+(o predicado 5 da matriz chama-se «Proformas», e o *mock* rotula uma proforma com
+o rótulo de orçamento do B10). Se a proforma de um software certificado for
+documento fiscal, o ensaio 3 e o predicado 5 medem a coisa errada.
 
 **7 — Recomendação. Marcada.** §8 do relatório, com a regra pré-registada em
 tabela, aplicada condição a condição, e o resultado **adiar**. A certificação
@@ -806,13 +835,15 @@ insumo para D7 está no §8.4, com o que este relatório entrega e o que D7 cont
 a precisar.
 
 **8 — Relatório com estado por afirmação. Marcado.** §9 do relatório:
-**41 afirmações**, cada uma com estado — 12 CONFIRMADO, 14 INDÍCIO (um «forte»,
-um «conflito»), 15 NÃO VERIFICADO. Nenhum NÃO VERIFICADO é premissa de nenhuma
+**49 afirmações**, cada uma com estado — 14 CONFIRMADO, 17 INDÍCIO (um «forte» e
+três de «conflito»), 18 NÃO VERIFICADO. Nenhum NÃO VERIFICADO é premissa de nenhuma
 conclusão, e os quatro que mais pesam — a data da Fase 2, a lista da AGT, a
 resposta P2 e o preço de Factura AI — são exactamente as razões pelas quais a
 recomendação é «adiar» e não «avançar». A decisão com dono e data está no §8.4 e
-no §10 (dez caixas devolvidas, **todas com credor que sobrevive à fusão**:
-fundador ou Responsável de Produto, nenhuma «a sessão escreve-a»).
+no §10 (**doze** caixas devolvidas, **todas com credor que sobrevive à fusão**:
+fundador, Responsável de Produto ou Engenheiro de Plataforma, nenhuma «a sessão
+escreve-a» — a linha do §5.3 que dizia «sessão seguinte» foi a revisão
+adversarial que a apanhou, e passou a papel).
 
 ### Verificação da Definition of Done
 
@@ -822,8 +853,8 @@ mas **a primeira é falsa**: dois dos oito critérios estão devolvidos. Marcar 
 caixa seria dizer que estão satisfeitos. Credor: **fundador** (desbloqueia 1 e 4).
 
 **2 — Nenhum NÃO VERIFICADO tratado como facto; cada um com estado final.
-Marcada.** A tabela de 41 afirmações do §9 dá estado final a cada um, e os
-catorze NÃO VERIFICADOS estão nomeados. A prova de que não são tratados como
+Marcada.** A tabela de 49 afirmações do §9 dá estado final a cada um, e os
+dezoito NÃO VERIFICADOS estão nomeados. A prova de que não são tratados como
 facto é a recomendação: **adiar** é precisamente o que se conclui quando se
 recusa promovê-los.
 
@@ -988,4 +1019,4 @@ Não implementes os módulos nem os custos (KAM-124). Testes: vistas, CI de esco
 | 1.1 | Outubro 2026 | KAM-129: as 3 referências aos artefactos de validação passam a `../docs/tecnica/evidencia/validacao/…`; antes não resolviam de posição nenhuma. Os artefactos visados continuam a ser saída dos KAM-120 (registo do *bake-off*), KAM-126 e KAM-127, e não se criam aqui. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: os **22** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. Com ele, a referência a um ficheiro da biblioteca exploratória que não tinha directorio nenhum passa a ter o seu, e deixa de não resolver de posição alguma. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-128: As **5** linhas de cabeçalho — `Documento-fonte`, `Documentos relacionados` e três `Documentos de referência` de blocos de ticket — passam a citar o ficheiro da biblioteca exploratória pelo caminho completo. As restantes referências dessas mesmas linhas já estavam certas e ficaram intactas. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
-| 1.4 | Novembro 2026 | KAM-126: *spike* de Factura AI entregue. **Seis dos oito critérios marcados e dois devolvidos ao fundador**, porque dependem de contactar a AGT ou um fornecedor — a fronteira que o próprio *handoff* escreve. Novo relatório em `../docs/tecnica/evidencia/validacao/KAM-126_Factura_AI.md` com **41 afirmações com estado** (12 CONFIRMADO, 14 INDÍCIO, 15 NÃO VERIFICADO), o questionário à AGT com as três perguntas que desbloqueiam o ticket, ficha de **quatro** candidatos acima do mínimo de três, e matriz de treze predicados onde **45 das 52 células estão a NÃO VERIFICADO e nenhuma está a SIM**. Nenhum certificado afirmado como validado: a lista oficial da AGT não foi obtida. Novo instrumento descartável em `spikes/factura-ai/`, com os sete predicados do critério 4 medidos contra um *mock* e **seis canários a provar que os ensaios reprovam quando devem**; **nenhum código de facturação entrou na `main`** e nada foi medido contra fornecedor. Modelo de custo com os preços datados da CacimboERP, as duas leituras do valor inicial que diferem **50%** no ano 1, o achado de que um preçário por contribuinte é **custo variável puro sem economia de escala**, e a condição (c) invertida a dar o preço mínimo de **104 167 Kz/PME/mês** — sem inventar o preço de Factura AI. Recomendação **adiar**, pela regra pré-registada: (a) e (d) falham, (b) não foi medido, (c) não é mensurável. Sem alteração a tickets vizinhos. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | KAM-126: *spike* de Factura AI entregue. **Seis dos oito critérios marcados e dois devolvidos ao fundador**, porque dependem de contactar a AGT ou um fornecedor — a fronteira que o próprio *handoff* escreve. Novo relatório em `../docs/tecnica/evidencia/validacao/KAM-126_Factura_AI.md` com **49 afirmações com estado** (14 CONFIRMADO, 17 INDÍCIO, 18 NÃO VERIFICADO), o questionário à AGT com as três perguntas que desbloqueiam o ticket, ficha de **quatro** candidatos acima do mínimo de três, e matriz de treze predicados onde **45 das 52 células estão a NÃO VERIFICADO e nenhuma está a SIM**. Nenhum certificado afirmado como validado: a lista oficial da AGT não foi obtida. Novo instrumento descartável em `spikes/factura-ai/`, com os sete predicados do critério 4 medidos contra um *mock* e **dez canários a provar que cada ensaio reprova quando o seu predicado desaparece**; **nenhum código de facturação entrou na `main`** e nada foi medido contra fornecedor. Modelo de custo com os preços datados da CacimboERP, as duas leituras do valor inicial que diferem **50%** no ano 1, o achado de que um preçário por contribuinte é **custo variável puro sem economia de escala**, e a condição (c) invertida a dar o preço mínimo de **104 167 Kz/PME/mês**, exacto como aritmética sobre um preço que é INDÍCIO e um escalão que é hipótese de planeamento — sem inventar o preço de Factura AI. Recomendação **adiar**, pela regra pré-registada: (a) e (d) falham, (b) não foi medido, (c) não é mensurável. **Doze caixas devolvidas, todas com credor que sobrevive à fusão.** A revisão adversarial deu **treze achados, todos verificados contra a árvore**, e quatro mudaram o produto: o oráculo do rótulo da proforma era a constante do próprio *mock* (trocá-lo dava 7/7 verdes com a proforma a declarar-se factura fiscal); três mutações de multi-tenancy deixavam 7/7 verdes, pelo que **dois dos sete predicados estavam por medir**; o cliente fala o contrato do *mock* e não o da Vero, logo apontá-lo a um fornecedor dá 401 e zero ensaios; e a **numeração do artigo que exige software validado está em conflito** entre o `E2` §6.1 (art. 17) e o `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` §6 (art. 7.º), ambos CONFIRMADO. O canário passou de seis a dez defeitos. Sem alteração a tickets vizinhos e sem tocar no `specs/INDICE.md`. | Equipa KAMBÁ |
