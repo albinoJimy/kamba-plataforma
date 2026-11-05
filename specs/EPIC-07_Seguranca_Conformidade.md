@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.19 |
+| Versão | 1.20 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1440,16 +1440,28 @@ que credor.
 | 3 — a guarda muda de forma: propriedade, erro de configuração com mensagem | **satisfeito** | A guarda é sobre **conjunto vazio ou abaixo de um piso manifestamente baixo**, reportada no bloco `ERROS DE CONFIGURACAO` com a fonte nomeada. Um piso é limite inferior monótono e não envelhece: `len(KAM) >= 10` continua verdadeiro enquanto o canon crescer. **Com uma emenda à premissa do critério:** ele supõe que um conjunto vazio faria as verificações de existência «passar». Medido, não faz — elas têm a forma `if ident not in KAM: erro(...)`, pelo que o vazio faz **falhar** tudo (50 erros no caso semeado). O que a guarda entrega é **diagnóstico**, nomeando a causa antes das consequências, e não a prevenção de um falso verde. Evidência §2 e §3 |
 | 4 — a guarda demonstrada a morder | **satisfeito** | `docs/seguranca/provar_guarda.py`, **12 casos**, que falham se a expectativa não se cumprir: controlo com fontes reais (não dispara), vazio e piso para `KAM`, `ADR` e `DEC`, as duas fontes canónicas apagadas, um `.md` não-UTF-8, uma pasta com nome `.md`, o `assert` antigo, e a limitação `deriva_calada`. **Nada é escrito no repositório** (`git status` vazio depois). Os casos do `ADR` e do `DEC` entraram por achado da revisão: a primeira versão testava só o `KAM`. Evidência §3 |
 | 5 — varrimento da mesma classe em `docs/seguranca/` | **satisfeito** | Dois instrumentos, e a diferença entre eles é o achado: o varrimento por expressão regular dá **3** no `validar.py` novo, mas os três estão na *docstring*, onde o `assert` antigo é **citado para ser explicado**; por AST dá **0**. O `gerar_matriz.py` de `origin/main` (384 linhas, não o esboço de 12) está **limpo**: o seu único `assert` é `len(r) == len(COLUNAS)`, propriedade. O `assert "\r" not in bruto` **mantém-se**, na linha 309. Evidência §4 |
-| 6 — a secção de verificação do KAM-065 volta a ser verdadeira | **satisfeito, registando o que ele diz agora** | A frase «OK: 0 erros» do bloco do KAM-065 ganhou a emenda deste ticket, em vez de ser forçada a valer: ela foi medida com os artefactos presentes, e o KAM-156 tirou-os desta cópia. O validador reporta hoje **1 erro de conteúdo** e **5 problemas de configuração**. Evidência §2 e §6 |
+| 6 — a secção de verificação do KAM-065 volta a ser verdadeira | **satisfeito, registando o que ele diz agora** | A frase «OK: 0 erros» do bloco do KAM-065 ganhou a emenda deste ticket, em vez de ser forçada a valer: ela foi medida com os artefactos presentes, e o KAM-156 tirou-os desta cópia. O validador reporta hoje **0 erros de conteúdo** e **5 problemas de configuração** — os cinco são as fontes privadas, por desenho, e o comando continua a sair **1** por causa deles. **O «1 erro» que esta célula dizia era falso quando foi escrito:** a medição na `c792cc4` dava **3**, como a prosa abaixo já dizia — duas superfícies do mesmo bloco a discordar, que nenhum portão lê. Evidência §2 e §6 |
 | 7 — sem dependências novas | **satisfeito** | `validar.py` corre com `csv`, `glob`, `io`, `os`, `re`, `sys`; `provar_guarda.py` acrescenta `ast`, `shutil`, `subprocess` e `tempfile`. Todos da biblioteca padrão; nenhum ficheiro de requirements foi tocado |
 
-**Os erros de conteúdo, contados e nomeados — 3, e não corrigidos:** os três modelos de
-notificação (`../docs/seguranca/modelos/{apd,pme_afectada,titular}.md`), documentos reais de 91, 74
-e 73 linhas, **nenhum com tabela de «Controlo de versões»**. Só aparecem porque a travessia passou
-a ser recursiva — o `os.listdir` do original não descia a `modelos/`, pelo que os três nunca eram
-varridos e o «N ficheiros verificados» lia-se como cobertura que não havia (achado da revisão
-adversarial). **Devolvidos ao dono do KAM-065**, ou a linha de dívida documental conforme sejam
-código ou texto.
+**Os erros de conteúdo, contados e nomeados — 3, e não corrigidos neste ticket:** os três
+modelos de notificação (`../docs/seguranca/modelos/{apd,pme_afectada,titular}.md`), documentos
+reais que então tinham 91, 74 e 73 linhas, **nenhum com tabela de «Controlo de versões»**. Só
+aparecem porque a travessia passou a ser recursiva — o `os.listdir` do original não descia a
+`modelos/`, pelo que os três nunca eram varridos e o «N ficheiros verificados» lia-se como
+cobertura que não havia (achado da revisão adversarial). **Devolvidos ao dono do KAM-065**, ou a
+linha de dívida documental conforme sejam código ou texto.
+
+**E foram pagos, por decisão do fundador de 2026-11-05, no `fix/KAM-113`:** os três ganharam a
+secção «Controlo de versões» na forma do irmão `resposta_incidentes.md`, com a linha `0.1` da
+emissão que devia ter sido escrita no `dc01fce`, e passaram a **99, 82 e 81** linhas. O validador
+passou de **3** erros de conteúdo a **0**. Nenhuma palavra do texto dos modelos foi tocada, e
+**não** se abriu linha de dívida documental, porque a dívida foi paga em vez de registada.
+
+**Este parágrafo existe porque a revisão adversarial do `fix/KAM-113` o exigiu, e vale como
+achado:** pagar a dívida deixava este bloco a declará-la aberta, com três contagens de linhas
+velhas e o estado ao contrário — e **nenhum dos sete portões o lê**. É a classe que o CA 8 do
+KAM-167 nomeia, «nenhum documento vizinho fica a afirmar o estado antigo», e a única coisa que a
+apanhou foi um revisor a quem não se disse o que procurar.
 
 Que sejam três é **coincidência** com os três que o KAM-152 mediu na matriz: esses são outros e
 **não são alcançáveis nesta árvore**, onde a matriz não tem fonte.
@@ -1567,3 +1579,4 @@ Abre PR com o template do §7.
 | 1.17 | Novembro 2026 | KAM-066 (suite de isolamento cruzado ponta a ponta): **quatro** das nove caixas de critérios e quatro das seis de DoD marcadas, com a secção «Verificação dos Critérios de Aceitação». O CA-6 fica **não satisfeito** por um achado medido — a `SQL_COTACAO_VALIDA` do COM não filtra por `contact_id`, pelo que o contacto X recebe a cotação de Y dentro do mesmo tenant —, atribuído ao KAM-043; o CA-1, o CA-3, o CA-8 e o CA-9 ficam parciais com o credor escrito. Os números desta linha e da prosa-resumo foram corrigidos depois da revisão adversarial, que os mediu à máquina: diziam cinco marcadas e quatro vazias. O *harness* vive em `../tools/isolamento/`, com o guia de casos no README dele, e entra no *gate* 6 por `make isolamento-a-seco` e por `db/tests_isolamento/test_casos_cruzados.py`. Sem alteração aos outros tickets nem às contagens. | Equipa KAMBÁ |
 | 1.18 | Novembro 2026 | KAM-066, seguimento: os números da secção de verificação passam de 45/22/16/98 para **54 itens, 31 rotas, 17 casos e 115 baterias de unidade**, e a CA-8 de 962 para 965 mutações. O que os subiu foi o KAM-178 a fundir em `8047a46` com nove superfícies novas no COM — sete rotas `POST /internal/*`, o `GET /metrics` e o `ALL /internal/*` —, que levam caso real e não dispensa. Secção nova «o que o KAM-178 encontrou dentro deste ticket»: o limpador de comentários da enumeração era cego às cadeias de caracteres e escondia sete rotas, pelo que o portão dava verde sobre 24 das 31. **As caixas não mudam**: continuam quatro das nove marcadas, e o CA-6 continua com o credor que ja tinha — o predicado de contacto na leitura de cotacoes esta em revisao noutro ramo, e a entrada do dicionario SEM_PREDICADO_DE_CONTACTO so sai depois de ele fundir, senao o caso fica vermelho contra uma main onde o predicado nao existe. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | KAM-066, seguimento: **o CA-6 passa a verde e a contagem a cinco marcadas e quatro vazias** (CA-1, CA-3, CA-8 e CA-9). O que o fechou não foi este PR: foi o **KAM-179**, por decisão do fundador de 2026-11-04 («a cotação é por contacto»), que pôs o predicado na leitura, na aceitação e no caminho que cobra. Este PR troca a **fixação da ausência** pela **afirmação da propriedade** — o `SEM_PREDICADO_DE_CONTACTO` fica vazio, e fica — e acrescenta a mutação `cotacoes: a leitura perde o predicado do contacto`, que é a primeira metade do critério 8 **ao pé da letra**: tirar o predicado de uma função de repositório torna a bateria vermelha, e no eixo do contacto nenhuma política o tapa. A CA-8 passa de 965 para 966 mutações. **A causa de o `gate` 6 ter estado vermelho três voltas fica registada**, porque é uma classe de erro e não um acidente: o `as` do TypeScript no condutor afirmava quatro argumentos para um `getValidQuote` que o KAM-179 pôs em cinco, e o `runner` testa o PR **fundido com a `main`** enquanto a máquina de quem escreve testa o ramo sozinho. | Equipa KAMBÁ |
+| 1.20 | Novembro 2026 | **O bloco do KAM-149 deixa de declarar aberta uma dívida que já está paga, e os dois números dele passam a bater.** O `fix/KAM-113` deu aos três modelos de `../docs/seguranca/modelos/` a secção «Controlo de versões» que lhes faltava desde o `dc01fce`, por decisão do fundador de 2026-11-05: o validador passou de **3** erros de conteúdo a **0**, e os três documentos de 91, 74 e 73 linhas para **99, 82 e 81**. O CA 6 dizia «1 erro de conteúdo» e a prosa do mesmo bloco dizia «3» — **as duas superfícies discordavam já na `c792cc4`**, e a medição dava 3; agora dizem 0 as duas. Nada disto é lido por portão nenhum, e quem o apanhou foi a revisão adversarial do ramo que pagou a dívida, a quem não se disse o que procurar. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |

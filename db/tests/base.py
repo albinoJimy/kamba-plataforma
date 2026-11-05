@@ -383,6 +383,19 @@ TABELAS_0032 = (
 #: `test_inventario.py` e que as conta.
 TABELAS_0033 = ("stock_reservations",)
 
+#: O que a revisao 0034 (KAM-091) acrescenta: o estado da saga de provisioning.
+#:
+#: **Uma**, a `platform.provisioning_step`. Chega depois do codigo dela, que
+#: fundiu sem a tabela porque a cadeia e linear e a `0033` ainda nao estava em
+#: `main`; a caixa da DoD do KAM-091 ficou vazia com o credor escrito.
+#:
+#: **Tem `tenant_id NOT NULL`** — pre-alocado, e **sem FK** para `tenants`,
+#: porque e o passo 1 da saga que escreve essa linha —, RLS `FORCE` e politica
+#: `tenant_iso`, e entra no X-05 do *gate* 6 sem ninguem a declarar. Nao entra
+#: em `ci/rls_exceptions.yaml`, que tem **uma** excepcao (a `audit_heads`, pelo
+#: ADR-015) e deve continuar a ter so essa.
+TABELAS_0034 = ("provisioning_step",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -391,21 +404,40 @@ TABELAS = tuple(
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
-        + TABELAS_0032 + TABELAS_0033
+        + TABELAS_0032 + TABELAS_0033 + TABELAS_0034
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0033`.
+#:
+#: O `downgrade` da `0034` leva a base para aqui.
+TABELAS_ATE_0033 = tuple(sorted(set(TABELAS) - set(TABELAS_0034)))
 
 #: O que existe em `platform` quando a base esta na revisao `0032`.
 #:
 #: O `downgrade` da `0033` leva a base para aqui.
-TABELAS_ATE_0032 = tuple(sorted(set(TABELAS) - set(TABELAS_0033)))
+#:
+#: **Subtrai tambem o `TABELAS_0034`**, e esquece-lo era o defeito que a nota do
+#: `TABELAS_ATE_0023` descreve visto do outro lado: esta tupla e a `ATE_0031`
+#: derivam de `TABELAS` e nao da `ATE_*` imediatamente acima — as duas unicas
+#: que o fazem —, pelo que uma tabela nova no topo da cadeia entra nelas sozinha
+#: e avermelha os ensaios de `downgrade` de **outras** revisoes. O sintoma
+#: aparece a revisoes de distancia da causa.
+TABELAS_ATE_0032 = tuple(
+    sorted(set(TABELAS) - set(TABELAS_0033) - set(TABELAS_0034))
+)
 
 #: O que existe em `platform` quando a base esta na revisao `0031`.
 #:
 #: A `0031` (KAM-176) alarga um *trigger* e nao cria tabela, pelo que o conjunto
 #: na `0031` e o da `0030`. O `downgrade` da `0032` leva a base para aqui.
+#:
+#: Subtrai o `TABELAS_0034` pela razao que a nota do `TABELAS_ATE_0032` escreve.
 TABELAS_ATE_0031 = tuple(
-    sorted(set(TABELAS) - set(TABELAS_0032) - set(TABELAS_0033))
+    sorted(
+        set(TABELAS) - set(TABELAS_0032) - set(TABELAS_0033)
+        - set(TABELAS_0034)
+    )
 )
 
 #: O que existe em `platform` quando a base esta na revisao `0029`.

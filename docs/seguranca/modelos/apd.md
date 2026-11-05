@@ -89,3 +89,11 @@ declaradas é melhor do que uma tardia por esperar pela certeza.]
 | Cópia guardada no repositório de provas | ☐ |
 
 *(a confirmar por parecer)* — todo o texto jurídico deste modelo.
+
+---
+
+## Controlo de versões
+
+| Versão | Data | Alteração | Autor |
+|---|---|---|---|
+| 0.1 | Novembro 2026 | Emissão (KAM-113): modelo de notificação de violação de dados à APD — assunto e oito campos numerados (quem notifica, o que aconteceu, dados afectados, consequências prováveis, medidas, comunicação a terceiros, ponto de contacto e informação em falta), com as quatro regras de preenchimento à cabeça e lista de verificação final. *Esboço*: não enviar sem revisão do advogado, salvo a excepção do fundador ([`../resposta_incidentes.md`](../resposta_incidentes.md) §9.4), e todo o enquadramento legal fica a confirmar por parecer | Equipa KAMBÁ |

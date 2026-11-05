@@ -597,8 +597,8 @@ else:
 # um ficheiro vazio, e as referencias que ele faz tem de resolver como as
 # outras.
 # **Recursivo**, ao contrario do original: o `os.listdir` nao descia a
-# `docs/seguranca/modelos/`, pelo que os tres modelos de notificacao — 91, 74 e
-# 73 linhas de documento real, que nem sao esbocos — nunca eram varridos, e o
+# `docs/seguranca/modelos/`, pelo que os tres modelos de notificacao — 99, 82 e
+# 81 linhas de documento real, que nem sao esbocos — nunca eram varridos, e o
 # «N ficheiros verificados» lia-se como cobertura que nao havia. Achado 8 da
 # revisao adversarial.
 alvos = sorted(
