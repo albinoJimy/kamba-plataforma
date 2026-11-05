@@ -119,8 +119,15 @@ class TestArvoreReal(unittest.TestCase):
                 msg=f"{nome}: {bruto} x {replicas} != {presentes[nome].memoria_mib} MiB",
             )
 
-        self.assertEqual(do_compose, 20736, "a reserva real dos 14 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 20736)
+        # **KAM-080: de 14 para 15 presentes, e de 20 736 para 20 992 MiB.** O
+        # `alertmanager` estava `pendente` com 256 MiB **ja orcamentados** desde
+        # o KAM-076, e passou a `presente`. O que isso move e a reserva **real**
+        # — a dos presentes —, e nao o total do manifesto: esse continua nos
+        # 24 064 MiB que o teste seguinte prende, porque o manifesto ja contava
+        # os pendentes. E a distincao que estes dois numeros existem para
+        # mostrar.
+        self.assertEqual(do_compose, 20992, "a reserva real dos 15 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 20992)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_o_gwy_e_o_agr_tem_duas_replicas_no_manifesto(self) -> None:
