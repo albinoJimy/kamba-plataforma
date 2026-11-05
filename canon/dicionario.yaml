@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.60"
+versao_dicionario: "1.61"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11590,6 +11590,192 @@ entradas:
     nomes_nota:
       - "UPSTREAM_TIMEOUT"
     variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Reserva de stock"
+    canonico: "platform.stock_reservations, quinze colunas"
+    literais:
+      - "platform.stock_reservations"
+    nomes:
+      - "platform.stock_reservations"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "line_no"
+      - "sku"
+      - "qty"
+      - "estado"
+      - "motivo"
+      - "expira_at"
+      - "confirmada_at"
+      - "consumida_at"
+      - "libertada_at"
+      - "version"
+      - "criado_at"
+      - "atualizado_at"
+      - "UNIQUE"
+      - "orders_mirror"
+      - "lines_snapshot"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Quantidade declarada de um SKU"
+    canonico: "offer_terms.stock_quantidade"
+    literais:
+      - "offer_terms.stock_quantidade"
+    nomes:
+      - "offer_terms.stock_quantidade"
+    nomes_nota:
+      - "bigint"
+      - "stock_modo"
+      - "garantido"
+      - "offer_terms_stock_garantido_exige_quantidade_ck"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Quantidade prometida a reservas activas"
+    canonico: "offer_terms.stock_reservada"
+    literais:
+      - "offer_terms.stock_reservada"
+    nomes:
+      - "offer_terms.stock_reservada"
+    nomes_nota:
+      - "bigint"
+      - "NOT"
+      - "NULL"
+      - "DEFAULT"
+      - "WHERE"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Estado de uma reserva de stock"
+    canonico: "stock_reservations.estado ∈ {ativa, consumida, libertada}"
+    literais:
+      - "stock_reservations.estado"
+      - "ativa"
+      - "consumida"
+      - "libertada"
+    nomes:
+      - "stock_reservations.estado"
+      - "ativa"
+      - "consumida"
+      - "libertada"
+    nomes_nota:
+      - "ativa"
+      - "consumida"
+      - "libertada"
+      - "estado"
+      - "hmac_key_versions"
+      - "events_dlq"
+      - "evt_acoes"
+      - "offer_terms"
+      - "order_intents"
+      - "stock_reserva_transicao"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Motivo de libertação de uma reserva"
+    canonico: "stock_reservations.motivo ∈ {expirada, cancelada, recusada_dono}"
+    literais:
+      - "stock_reservations.motivo"
+      - "expirada"
+      - "cancelada"
+      - "recusada_dono"
+    nomes:
+      - "stock_reservations.motivo"
+      - "expirada"
+      - "cancelada"
+      - "recusada_dono"
+    nomes_nota:
+      - "MOTIVOS_DE_LIBERTACAO"
+      - "stock_reservations_libertada_exige_motivo_ck"
+      - "libertada"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "TTL de uma reserva por tenant"
+    canonico: "TTL_OMISSAO_MS (48 h), em [TTL_MINIMO_MS (24 h), TTL_MAXIMO_MS (72 h)]"
+    literais:
+      - "TTL_OMISSAO_MS"
+      - "[TTL_MINIMO_MS"
+      - ", TTL_MAXIMO_MS"
+      - "]"
+    nomes:
+      - "TTL_OMISSAO_MS"
+      - "TTL_MINIMO_MS"
+      - "TTL_MAXIMO_MS"
+    nomes_nota:
+      - "CHECK"
+      - "TTL_DO_HOLD_MS"
+      - "end_datetime"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Folga sobre o fim da validade da cobrança"
+    canonico: "FOLGA_MS (15 min)"
+    literais:
+      - "FOLGA_MS"
+    nomes:
+      - "FOLGA_MS"
+    nomes_nota:
+      - "expira_at"
+      - "fim_validade_cobranca"
+      - "min"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Reserva de uma cobrança push"
+    canonico: "TTL_EXPRESS_MS (30 min)"
+    literais:
+      - "TTL_EXPRESS_MS"
+    nomes:
+      - "TTL_EXPRESS_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Vida de uma reserva provisória"
+    canonico: "PROVISORIA_MS (2 min)"
+    literais:
+      - "PROVISORIA_MS"
+    nomes:
+      - "PROVISORIA_MS"
+    nomes_nota:
+      - "charge.issued"
+      - "confirmada_at"
+      - "ativa"
+      - "MINUTOS_PARA_RETOMAR"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Intervalo do varrimento da expiração"
+    canonico: "INTERVALO_DO_VARRIMENTO_MS (60 s)"
+    literais:
+      - "INTERVALO_DO_VARRIMENTO_MS"
+    nomes:
+      - "INTERVALO_DO_VARRIMENTO_MS"
+    nomes_nota:
+      - "LOTE_DO_VARRIMENTO"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Atraso da libertação de uma reserva"
+    canonico: "reservation_release_lag"
+    literais:
+      - "reservation_release_lag"
+    nomes:
+      - "reservation_release_lag"
+    nomes_nota:
+      - "libertada_at"
+      - "expira_at"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "SQLSTATE das barreiras da reserva"
+    canonico: "KA008 (a version não subiu de um), KA009 (estado terminal)"
+    literais:
+      - "KA008"
+      - "version"
+      - "KA009"
+    nomes:
+      - "KA008"
+      - "version"
+      - "KA009"
+    nomes_nota:
+      - "KA003"
+      - "KA007"
+      - "check_violation"
+      - "CommerceRegistry"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -13416,6 +13602,22 @@ dominios:
       - "cotacao_dono"
     seccao: "3.44"
     conceito: "Origem do preço de uma linha"
+    so_no_registo: false
+  - coluna: "stock_reservations.estado"
+    valores:
+      - "ativa"
+      - "consumida"
+      - "libertada"
+    seccao: "3.45"
+    conceito: "Estado de uma reserva de stock"
+    so_no_registo: false
+  - coluna: "stock_reservations.motivo"
+    valores:
+      - "expirada"
+      - "cancelada"
+      - "recusada_dono"
+    seccao: "3.45"
+    conceito: "Motivo de libertação de uma reserva"
     so_no_registo: false
 
 variantes:
