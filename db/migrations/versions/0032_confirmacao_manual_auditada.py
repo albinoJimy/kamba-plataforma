@@ -113,8 +113,10 @@ lista: le e nao escreve, e fica `STABLE SECURITY INVOKER`.
   a `0030`, mas a `payment_charges.order_id` continua **sem FK** por decisao
   escrita da `0029` («a FK e do KAM-055»), e pôr a FK so num dos dois lados
   deixava o par incoerente. Fica no KAM-055 com a outra, e o `CHECK` de
-  exclusividade — exactamente um de `order_id`/`charge_id` — fica **aqui**,
-  porque nao depende de tabela nenhuma.
+  **pelo menos** um de `order_id`/`charge_id` — fica **aqui**, porque nao
+  depende de tabela nenhuma. **Inclusivo e nao exclusivo**, ao contrario do que
+  esta frase dizia: a `manual_reverter` insere os dois, pelo que um XOR partia a
+  funcao — ver o `_reembolsos`.
 * **As regras de anomalia de `fraud_signals`** (valor divergente, duplicados,
   padroes): KAM-060. A tabela e deste ticket porque o criterio 6 escreve nela;
   as regras que a enchem nao.
@@ -177,8 +179,57 @@ FASES = (
     "'reversao'",
 )
 
-#: As duas fases que **concluem** uma confirmacao, e sao as que o G8 exige.
+#: As duas fases em que uma confirmacao **pode** ter concluido. Nao bastam: o
+#: que o G8 exige e a `decisao`, abaixo — ver `DECISOES_DO_MANUAL`.
 FASES_QUE_CONCLUEM = ("'confirmacao'", "'segunda_aprovacao'")
+
+#: O dominio de `manual_confirmations.decisao`, e e a emenda que as duas
+#: revisoes adversariais obrigaram.
+#:
+#: **O defeito que esta coluna fecha, e porque era um so visto de quatro
+#: angulos.** A fase `confirmacao` era escrita por **tres** decisoes —
+#: `confirma`, `retem` (M-3) e `exige_segunda` (M-5) — e as tres com
+#: `valor_bate` verdadeiro, porque as tres passam o M-4 antes de se decidirem.
+#: Isto e: a fase registava uma **tentativa** e tudo o que a lia lia-a como
+#: **aprovacao**. Os quatro leitores, e o que cada um deixava passar:
+#:
+#:     o G8            aceitava a fase de uma tentativa **retida** ou **a
+#:                     espera da segunda assinatura** como prova de que M-1..M-5
+#:                     foram cumpridos. Como o `kamba_app` tem `EXECUTE` em
+#:                     `append_payment_event` — tem de ter, e o caminho do
+#:                     facilitador —, bastava chamar a porta do ledger com
+#:                     `authn_method => 'manual'` e o `actor_id` daquela
+#:                     tentativa para a cobranca ficar **paga**: sem a segunda
+#:                     assinatura do M-5 e por cima da retencao do M-3. Era
+#:                     exactamente o ataque que o cabecalho desta revisao diz
+#:                     que o G8 existe para fechar
+#:     o `v_primeira`  contava uma tentativa retida como «a primeira
+#:                     aprovacao», pelo que uma cobranca acima do limiar ficava
+#:                     paga com **uma** aprovacao genuina e um registo a dizer
+#:                     `segunda_aprovacao`. E, ao contrario, trancava o proprio
+#:                     confirmador fora da cobranca dele para sempre, com
+#:                     `mesmo_confirmador`
+#:     a `manual_janela` somava ao dia o dinheiro de cobrancas que **nao** foram
+#:                     pagas, contra o que o proprio `COMMENT` dela afirma — e
+#:                     uma retencao passava a empurrar a seguinte, propagando
+#:                     «retido para analise» a confirmacoes legitimas
+#:     a idempotencia  devolvia `decisao = 'confirma'` para **tudo** o que nao
+#:                     fosse `rejeicao`, pelo que a reentrega de uma mensagem
+#:                     retida dizia a quem chama «confirmado»
+#:
+#: Nenhum dos quatro se corrige por si: o predicado que falta e o mesmo nos
+#: quatro, e e este. `NULL` nas fases que nao decidem nada (`declaracao_cliente`
+#: e `reversao`), e o `CHECK` abaixo liga as duas coisas nos dois sentidos.
+DECISOES_DO_MANUAL = (
+    "'confirma'",
+    "'exige_segunda'",
+    "'retem'",
+    "'rejeita'",
+)
+
+#: As fases que **tem** decisao. Exactamente as que a `manual_confirmar` e a
+#: `manual_expirar_confirmacao` escrevem.
+FASES_COM_DECISAO = ("'confirmacao'", "'segunda_aprovacao'", "'rejeicao'")
 
 #: Os quatro estados de `refund_cases.estado` do §6.3.
 ESTADOS_DE_REEMBOLSO = (
@@ -405,6 +456,7 @@ def _confirmacoes() -> None:
           valor_bate            boolean,
           evidencia_ref         text,
           motivo                text,
+          decisao               text,
           criado_at             timestamptz NOT NULL DEFAULT now(),
           CONSTRAINT manual_confirmations_msg_uq UNIQUE (charge_id, canal_msg_id),
           CONSTRAINT manual_confirmations_tenant_fk FOREIGN KEY (tenant_id)
@@ -419,7 +471,22 @@ def _confirmacoes() -> None:
             CHECK (valor_declarado_minor IS NULL OR valor_declarado_minor >= 0),
           CONSTRAINT manual_confirmations_evidencia_ck
             CHECK (evidencia_ref IS NULL
-                   OR evidencia_ref LIKE '{ROTULO_NAO_PROVA}')
+                   OR evidencia_ref LIKE '{ROTULO_NAO_PROVA}'),
+          -- **Sem `IS NULL OR`, e nao e descuido:** num `CHECK`,
+          -- `NULL IN (...)` avalia a `NULL` e um `CHECK` so recusa o `FALSE`,
+          -- pelo que esta forma ja aceita o nulo — e e a forma que o resto do
+          -- esquema usa nas colunas anulaveis com dominio (o `motivo_falha` da
+          -- `0029`). O *gate* 3b exige-a: com o `IS NULL OR` a frente, o leitor
+          -- dele nao reconhece o dominio como fechado e devolve «sem CHECK
+          -- fechado». Medido.
+          CONSTRAINT manual_confirmations_decisao_ck
+            CHECK (decisao IN ({", ".join(DECISOES_DO_MANUAL)})),
+          -- A equivalencia nos **dois** sentidos, e nao um `AND`: uma fase que
+          -- decide sem decisao escrita e um registo que nao diz o que
+          -- aconteceu, e uma decisao numa fase que nao decide e uma afirmacao
+          -- sobre nada. E a forma da `refund_cases_fechado`, pela mesma razao.
+          CONSTRAINT manual_confirmations_decisao_da_fase
+            CHECK ((fase IN ({", ".join(FASES_COM_DECISAO)})) = (decisao IS NOT NULL))
         )
         """
     )
@@ -450,6 +517,14 @@ def _confirmacoes() -> None:
         "proprio registo. Nenhum modulo do ManualProvider le o conteudo.'"
     )
     op.execute(
+        f"COMMENT ON COLUMN {CONFIRMACOES}.decisao IS "
+        "'O que a manual_confirmar decidiu nesta fase (KAM-054). E o predicado "
+        "que o G8, o v_primeira da dupla e a manual_janela leem — e nao a fase, "
+        "que e escrita por tres decisoes diferentes e por isso registava uma "
+        "tentativa onde eles liam uma aprovacao. NULL nas fases que nao decidem "
+        "nada; a equivalencia esta no manual_confirmations_decisao_da_fase.'"
+    )
+    op.execute(
         f"COMMENT ON COLUMN {CONFIRMACOES}.valor_bate IS "
         "'O desafio do valor do M-4: valor_declarado_minor = "
         "payment_charges.amount_minor, sem tolerancia. Anulavel porque a fase "
@@ -465,10 +540,19 @@ def _reembolsos() -> None:
     e quem o executa e a PME a partir da conta dela, que e o que o estado
     `a_executar_pela_pme` diz por extenso.
 
-    O `CHECK` de exclusividade — exactamente um de `order_id`/`charge_id` —
-    **nao** esta no §6.3, que faz as duas colunas anulaveis sem dizer nada. Entra
-    porque um caso sem nenhum dos dois nao e um caso de nada: nao ha como saber
-    o que reembolsar. As **FK** e que ficam para o KAM-055, pela razao escrita na
+    O `CHECK` **nao** esta no §6.3, que faz as duas colunas anulaveis sem dizer
+    nada. Entra porque um caso sem nenhum dos dois nao e um caso de nada: nao ha
+    como saber o que reembolsar.
+
+    **E e inclusivo — «pelo menos um» — e nao exclusivo.** O cabecalho desta
+    revisao dizia «exactamente um», e era prosa errada sobre codigo certo: a
+    `manual_reverter` insere os **dois** (o `order_id` da cobranca e o
+    `charge_id`), pelo que um XOR partia a funcao. A revisao adversarial apanhou
+    a divergencia, e nota-se que o nome — `refund_cases_um_sujeito` — e o mesmo
+    padrao do `payment_events_um_sujeito` da `0029`, que **e** um XOR: quem ler
+    o catalogo pelo nome le a restricao errada. Fica a prosa corrigida e o nome
+    como esta, porque renomear uma restricao desta familia e mexer no inventario
+    fechado de duas revisoes. As **FK** e que ficam para o KAM-055, pela razao escrita na
     `0029` para o par `order_id`/`billing_cycle_id` da `payment_charges`: pôr a
     FK de `order_id` so num dos dois lados deixava o par incoerente.
     """
@@ -599,6 +683,18 @@ def _janela() -> None:
     KAM-055, e a resposta a «quem e o cliente desta cobranca» passa a ter **uma**
     fonte, que e a mesma que a guarda do M-1 usa.
 
+    ## So o que **concluiu** conta, e isso e a coluna `decisao`
+
+    As duas janelas filtram por `decisao = 'confirma'` e nao pela fase. A
+    primeira versao filtrava pela fase, e as tres revisoes adversariais mediram
+    o que isso somava: a fase `confirmacao` e escrita tambem por um `retem` e
+    por um `exige_segunda`, pelo que a soma do dia continha o dinheiro de
+    cobrancas que **nao** foram pagas — contra o que o `COMMENT` desta funcao
+    afirma — e uma retencao passava a empurrar a seguinte, propagando «retido
+    para analise» a confirmacoes legitimas. No caso da dupla era pior: depois de
+    um `exige_segunda`, a propria cobranca em avaliacao ja estava no conjunto, e
+    a porta somava-lhe o montante **outra vez**.
+
     ## Uma confirmacao revertida continua a contar
 
     Nao se subtrai a reversao da soma do dia, e e escolha e nao esquecimento: um
@@ -630,6 +726,7 @@ def _janela() -> None:
                  SELECT m.charge_id FROM {CONFIRMACOES} m
                   WHERE m.tenant_id = p_tenant_id
                     AND m.fase IN ({", ".join(FASES_QUE_CONCLUEM)})
+                    AND m.decisao = 'confirma'
                     AND m.valor_bate
                     AND (m.criado_at AT TIME ZONE '{FUSO}')::date
                         = (p_agora AT TIME ZONE '{FUSO}')::date)), 0)::bigint,
@@ -637,6 +734,7 @@ def _janela() -> None:
             (SELECT count(DISTINCT m.charge_id) FROM {CONFIRMACOES} m
               WHERE m.tenant_id = p_tenant_id
                 AND m.fase IN ({", ".join(FASES_QUE_CONCLUEM)})
+                AND m.decisao = 'confirma'
                 AND m.valor_bate
                 AND m.criado_at > p_agora - interval '24 hours'
                 AND EXISTS (
@@ -830,10 +928,31 @@ def _g8_humano() -> None:
           -- evento com `actor_id` = B, e a atribuicao do acto humano no ledger
           -- deixava de ser verificavel — que e precisamente o que o M-6 existe
           -- para garantir.
+          --
+          -- **E exige a `decisao`, nao so a fase.** A primeira versao pedia
+          -- `fase IN ('confirmacao','segunda_aprovacao') AND valor_bate`, e as
+          -- duas revisoes adversariais mediram o que isso deixava passar: a
+          -- fase `confirmacao` e escrita tambem por um `retem` (M-3) e por um
+          -- `exige_segunda` (M-5), as duas com `valor_bate` verdadeiro — pelo
+          -- que uma tentativa **retida para ops**, ou uma que espera a segunda
+          -- assinatura, deixava na base a prova que este gate exige. Com o
+          -- `kamba_app` a ter `EXECUTE` em `append_payment_event`, isso pagava
+          -- a cobranca por uma chamada directa a porta do ledger. Ver
+          -- `DECISOES_DO_MANUAL`.
+          --
+          -- **Isto nao altera o criterio do G8; aproxima a implementacao
+          -- dele.** O §5 escreve «G8 | Limites (so humano): M-2..M-5
+          -- cumpridos», e so o ramo `confirma` da `manual_confirmar` e
+          -- alcancavel com M-1, M-3, M-4 e M-5 todos cumpridos — pelo que
+          -- `decisao = 'confirma'` e o procurador fiel daquela frase, e
+          -- `fase IN (...)` era um procurador mais fraco do que ela. O M-2 e o
+          -- tecto por pedido e impoe-se na **criacao** da cobranca (o `KA007`
+          -- da `0030` e o `createCharge`), nao na confirmacao.
           IF NOT EXISTS (
             SELECT 1 FROM {CONFIRMACOES} m
              WHERE m.charge_id = NEW.charge_id
                AND m.fase IN ({", ".join(FASES_QUE_CONCLUEM)})
+               AND m.decisao = 'confirma'
                AND m.valor_bate
                AND m.actor_contact_id = NEW.actor_id) THEN
             RAISE EXCEPTION
@@ -855,6 +974,12 @@ def _g8_humano() -> None:
         "com valor_bate e com o mesmo actor. SECURITY INVOKER: le a tabela sob a "
         "RLS de quem chama, e a fase e do mesmo tenant que a cobranca.'"
     )
+    # Toda a funcao nasce com `EXECUTE` para `PUBLIC`, e as funcoes de
+    # *trigger* da `0029` levam `REVOKE`. Esta nao levava: desvio de convencao
+    # apanhado pela revisao adversarial. O impacto pratico e nulo — o PostgreSQL
+    # recusa invocar directamente uma funcao `RETURNS trigger` —, e e por isso
+    # que se corrige em vez de se discutir.
+    op.execute("REVOKE ALL ON FUNCTION platform.exigir_fase_manual() FROM PUBLIC")
     op.execute(
         """
         CREATE TRIGGER payment_events_g8_humano
@@ -999,7 +1124,7 @@ def _confirmar() -> None:
     A mesma ordem esta no `avaliarConfirmacao` do
     `packages/core-ts/src/pagamentos/manual.ts`, que e o oraculo da suite de
     unidade e a mensagem que o agente mostra ao dono. **A que vale e esta**, e o
-    `test_a_tabela_pura_concorda_com_a_base` mede caso a caso que as duas
+    `TestAcordoComATabelaPura` mede caso a caso que as duas
     concordam contra um PostgreSQL real — nao por leitura.
 
     ## Quem e «o cliente» le-se da fase `declaracao_cliente`
@@ -1037,6 +1162,7 @@ def _confirmar() -> None:
           v_existente platform.manual_confirmations;
           v_conf      platform.payment_confirmers;
           v_cliente   uuid;
+          v_ronda     timestamptz;
           v_primeira  uuid;
           v_bate      boolean;
           v_decisao   text;
@@ -1051,6 +1177,21 @@ def _confirmar() -> None:
           v_estado    text;
           v_authn_ok  boolean;
         BEGIN
+          -- Os dois argumentos sem os quais nao ha acto humano para registar.
+          -- Sem esta guarda a decisao certa era tomada (`sem_confirmador`) e o
+          -- `INSERT` seguinte morria no `actor_contact_id NOT NULL` com
+          -- `23502`, pelo que a fase de `rejeicao` e o
+          -- `confirmacao_manual_rejeitada` que o M-6 exige **nao** se
+          -- escreviam. O desenho tem resposta para «um BSUID fora da tabela» e
+          -- nao tinha para «sem BSUID»: medido pela revisao adversarial.
+          IF p_actor_contact_id IS NULL OR p_canal_msg_id IS NULL THEN
+            RAISE EXCEPTION
+              'manual_confirmar: sem actor (%) ou sem canal_msg_id (%) nao ha '
+              'acto humano para auditar (M-6)',
+              p_actor_contact_id, p_canal_msg_id
+              USING ERRCODE = 'check_violation';
+          END IF;
+
           SELECT * INTO v_charge FROM {COBRANCAS}
             WHERE id = p_charge_id FOR UPDATE;
           IF NOT FOUND THEN
@@ -1060,17 +1201,41 @@ def _confirmar() -> None:
               USING ERRCODE = 'check_violation';
           END IF;
 
-          -- Idempotencia (criterio 9): a mesma mensagem da **uma** confirmacao.
+          -- Idempotencia (criterio 9): a mesma mensagem da **uma** confirmacao,
+          -- e devolve **a decisao que ficou gravada**.
+          --
+          -- A primeira versao derivava a decisao da **fase**, com um `CASE` que
+          -- mandava tudo o que nao era `rejeicao` para `confirma`. As tres
+          -- revisoes adversariais mediram o mesmo: a fase `confirmacao` e
+          -- escrita por `confirma`, por `retem` e por `exige_segunda`, pelo que
+          -- a reentrega de uma mensagem **retida** respondia
+          -- `decisao = 'confirma'` com `motivo = 'limite_diario'` e
+          -- `estado_novo = 'pendente_confirmacao'` — tres campos a
+          -- contradizerem-se, e o primeiro a dizer a quem reentrega (o CHR, por
+          -- retentativa, que e a razao escrita para este ramo nao levantar) que
+          -- um pagamento retido para ops foi confirmado. O `ELSE` apanhava
+          -- tambem a `declaracao_cliente` e a `reversao`.
+          --
+          -- Com a coluna, nao se deriva nada: devolve-se o que esta escrito.
           SELECT * INTO v_existente FROM {CONFIRMACOES}
             WHERE charge_id = p_charge_id AND canal_msg_id = p_canal_msg_id;
           IF FOUND THEN
+            -- Uma mensagem que pertence a uma fase que esta funcao **nao**
+            -- escreve nao e uma confirmacao repetida: e outro facto com o mesmo
+            -- identificador. Recusa-se em vez de se inventar uma decisao —
+            -- era por aqui que o `canal_msg_id` da mensagem «paguei» do
+            -- proprio cliente devolvia `confirma`.
+            IF v_existente.decisao IS NULL THEN
+              RAISE EXCEPTION
+                'manual_confirmar: o canal_msg_id % desta cobranca pertence a '
+                'fase %, que nao e uma confirmacao; nao ha decisao para repetir',
+                p_canal_msg_id, v_existente.fase
+                USING ERRCODE = 'check_violation';
+            END IF;
             RETURN QUERY SELECT
               v_existente.id, NULL::bigint, v_charge.estado,
-              CASE v_existente.fase
-                WHEN 'rejeicao' THEN 'rejeita'
-                WHEN 'segunda_aprovacao' THEN 'confirma'
-                ELSE 'confirma' END,
-              v_existente.motivo, v_existente.valor_bate, NULL::bigint, true;
+              v_existente.decisao, v_existente.motivo, v_existente.valor_bate,
+              NULL::bigint, true;
             RETURN;
           END IF;
 
@@ -1111,9 +1276,18 @@ def _confirmar() -> None:
               USING ERRCODE = 'check_violation';
           END IF;
 
-          SELECT m.actor_contact_id INTO v_cliente FROM {CONFIRMACOES} m
+          -- **A declaracao mais recente, e nao a mais antiga.** Uma cobranca
+          -- pode ter mais do que uma: o F-18 devolve-a a `emitida` e o cliente
+          -- declara outra vez (ha ensaio disso). A ronda corrente e a da ultima
+          -- declaracao, e era a primeira que esta leitura tomava — pelo que a
+          -- guarda do M-1 protegia o declarante **antigo** e o cliente da ronda
+          -- a correr nao estava protegido por guarda nenhuma. A
+          -- `manual_expirar_confirmacao` ja lia a mais recente, e as duas
+          -- discordavam: medido pela revisao adversarial.
+          SELECT m.criado_at, m.actor_contact_id INTO v_ronda, v_cliente
+            FROM {CONFIRMACOES} m
             WHERE m.charge_id = p_charge_id AND m.fase = 'declaracao_cliente'
-            ORDER BY m.criado_at, m.id LIMIT 1;
+            ORDER BY m.criado_at DESC, m.id DESC LIMIT 1;
           IF v_cliente IS NULL THEN
             RAISE EXCEPTION
               'manual_confirmar: a cobranca % nao tem fase declaracao_cliente, '
@@ -1122,12 +1296,37 @@ def _confirmar() -> None:
               USING ERRCODE = 'check_violation';
           END IF;
 
+          -- **A primeira aprovacao e a que aprovou e nao bastou, e e da ronda
+          -- corrente.** Duas correccoes da revisao adversarial numa linha:
+          --
+          --   `decisao = 'exige_segunda'`  e o que «deu a primeira aprovacao»
+          --     quer dizer. Sem isto, uma tentativa **retida** contava como
+          --     aprovacao: uma cobranca acima do limiar ficava paga com **uma**
+          --     aprovacao genuina, e o proprio confirmador ficava trancado
+          --     fora dela para sempre com `mesmo_confirmador`
+          --   `criado_at > v_ronda`  recorta a ronda. Sem isto, a aprovacao de
+          --     uma ronda que o F-18 ja fechou servia de primeira assinatura
+          --     numa ronda nova — isto e, a dupla do M-5 concluia-se com uma
+          --     assinatura de ontem
           SELECT m.actor_contact_id INTO v_primeira FROM {CONFIRMACOES} m
             WHERE m.charge_id = p_charge_id AND m.fase = 'confirmacao'
+              AND m.decisao = 'exige_segunda'
               AND m.valor_bate
+              AND m.criado_at >= v_ronda
             ORDER BY m.criado_at, m.id LIMIT 1;
 
-          v_bate := (p_valor_declarado_minor = v_charge.amount_minor);
+          -- **`IS NOT DISTINCT FROM` e nao `=`**, e e a licao que a `0029`
+          -- escreveu no `_append` e esta funcao nao aplicou: com
+          -- `p_valor_declarado_minor` nulo, `= ` avalia a `NULL`, o
+          -- `IF NOT v_bate` nao disparava e o M-4 era **saltado** — a execucao
+          -- seguia para os limites e para a dupla e podia chegar a `confirma`
+          -- sem o desafio do valor ter corrido. O que impedia o pagamento era
+          -- so o G8, que pede `valor_bate` verdadeiro: isto e, uma regra do
+          -- §4.2 passava a depender de um *trigger* do §5. Medido pela revisao
+          -- adversarial. Com o `IS NOT DISTINCT FROM`, um valor nulo da
+          -- `false` e a resposta e `valor_nao_bate`, que e o que o dono tem de
+          -- ler.
+          v_bate := (p_valor_declarado_minor IS NOT DISTINCT FROM v_charge.amount_minor);
           v_regra := NULL;
 
           IF p_actor_contact_id = v_cliente THEN
@@ -1180,10 +1379,11 @@ def _confirmar() -> None:
 
           INSERT INTO {CONFIRMACOES} (
               tenant_id, charge_id, fase, actor_contact_id, canal_msg_id,
-              valor_declarado_minor, valor_bate, motivo)
+              valor_declarado_minor, valor_bate, motivo, decisao)
             VALUES (
               v_charge.tenant_id, p_charge_id, v_fase, p_actor_contact_id,
-              p_canal_msg_id, p_valor_declarado_minor, v_bate, v_motivo)
+              p_canal_msg_id, p_valor_declarado_minor, v_bate, v_motivo,
+              v_decisao)
             RETURNING id INTO v_id;
 
           IF v_decisao = 'retem' THEN
@@ -1361,12 +1561,12 @@ def _expirar() -> None:
           -- criterio 9 aplicada ao caminho que nao tem mensagem.
           INSERT INTO {CONFIRMACOES} (
               tenant_id, charge_id, fase, actor_contact_id, canal_msg_id,
-              valor_bate, motivo)
+              valor_bate, motivo, decisao)
             VALUES (
               v_charge.tenant_id, p_charge_id, 'rejeicao', v_cliente,
               'omissao:' || p_charge_id::text || ':'
                 || extract(epoch FROM v_pedido)::bigint::text,
-              false, 'silencio_do_dono')
+              false, 'silencio_do_dono', 'rejeita')
             RETURNING id INTO v_id;
 
           SELECT a.event_id, a.estado_novo INTO v_event, v_estado
@@ -1460,13 +1660,63 @@ def _reverter() -> None:
               USING ERRCODE = 'check_violation';
           END IF;
 
+          -- **Quem reverte tem de ser um confirmador activo deste tenant.**
+          -- A primeira versao aceitava qualquer `p_actor_contact_id` e escrevia
+          -- `actor_kind => 'ops'`: um turno de conversa movia qualquer cobranca
+          -- `paga` para `reembolso_pendente` e abria um caso pelo valor inteiro,
+          -- que e a «abuso de reembolso» do §9. O argumento escrito de defesa
+          -- protegia o **montante** do caso e nao a legitimidade de quem o
+          -- abre. Medido pela revisao adversarial.
+          --
+          -- **E e metade do que o §9 pede, e a outra metade fica dita.** A
+          -- linha e «confirmacoes de ops exigem motivo **e dupla aprovacao**»:
+          -- o motivo esta imposto abaixo, a dupla **nao** — exige um segundo
+          -- acto e um estado intermedio que esta revisao nao desenha. Divida
+          -- documental com credor, e nao uma caixa marcada em espirito.
+          IF NOT EXISTS (
+            SELECT 1 FROM {CONFIRMADORES} c
+             WHERE c.tenant_id = v_charge.tenant_id
+               AND c.contact_id = p_actor_contact_id
+               AND c.ativo) THEN
+            RAISE EXCEPTION
+              'manual_reverter: o contacto % nao e um confirmador activo do '
+              'tenant desta cobranca; uma reversao e um acto auditado (M-8, '
+              'docs/tecnica/04 secao 9)', p_actor_contact_id
+              USING ERRCODE = 'check_violation';
+          END IF;
+
+          -- **A repeticao procura uma fase `reversao`, e nao qualquer fase.**
+          -- A primeira versao casava por `canal_msg_id` em qualquer fase, pelo
+          -- que um identificador ja usado por uma **confirmacao** fazia esta
+          -- funcao devolver a linha dessa confirmacao e **nao reverter nada** —
+          -- em silencio, com um `refund_case_id` de outro caso ou nulo. E a
+          -- mesma classe do `CASE` da idempotencia da `manual_confirmar`, e
+          -- saiu da mesma revisao adversarial.
           SELECT m.id INTO v_id FROM {CONFIRMACOES} m
-            WHERE m.charge_id = p_charge_id AND m.canal_msg_id = p_canal_msg_id;
+            WHERE m.charge_id = p_charge_id
+              AND m.canal_msg_id = p_canal_msg_id
+              AND m.fase = 'reversao';
           IF v_id IS NOT NULL THEN
             SELECT r.id INTO v_caso FROM {REEMBOLSOS} r
               WHERE r.charge_id = p_charge_id ORDER BY r.criado_at LIMIT 1;
             RETURN QUERY SELECT v_id, NULL::bigint, v_charge.estado, v_caso;
             RETURN;
+          END IF;
+
+          -- E se o identificador pertencer a **outra** fase desta cobranca,
+          -- recusa-se com a razao escrita em vez de se levar um `23505` do
+          -- `manual_confirmations_msg_uq` tres linhas abaixo. A forma e a mesma
+          -- da `manual_confirmar`, e a razao e a mesma: um nome de restricao nao
+          -- e uma resposta a quem chama.
+          IF EXISTS (
+            SELECT 1 FROM {CONFIRMACOES} m
+             WHERE m.charge_id = p_charge_id
+               AND m.canal_msg_id = p_canal_msg_id) THEN
+            RAISE EXCEPTION
+              'manual_reverter: o canal_msg_id % desta cobranca pertence a uma '
+              'fase que nao e uma reversao; uma reversao e um acto proprio e '
+              'leva o seu identificador', p_canal_msg_id
+              USING ERRCODE = 'check_violation';
           END IF;
 
           INSERT INTO {CONFIRMACOES} (

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.60"
+versao_dicionario: "1.61"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11678,6 +11678,29 @@ entradas:
       - "pendente_confirmacao"
     variantes_literais: []
   - seccao: "3.45"
+    conceito: "Decisão da fase"
+    canonico: "manual_confirmations.decisao ∈ {confirma, exige_segunda, retem, rejeita}"
+    literais:
+      - "manual_confirmations.decisao"
+      - "confirma"
+      - "exige_segunda"
+      - "retem"
+      - "rejeita"
+    nomes:
+      - "manual_confirmations.decisao"
+      - "confirma"
+      - "exige_segunda"
+      - "retem"
+      - "rejeita"
+    nomes_nota:
+      - "confirmacao"
+      - "valor_bate"
+      - "manual_janela"
+      - "declaracao_cliente"
+      - "reversao"
+      - "manual_confirmations_decisao_da_fase"
+    variantes_literais: []
+  - seccao: "3.45"
     conceito: "Idempotência da confirmação"
     canonico: "manual_confirmations UNIQUE (charge_id, canal_msg_id)"
     literais:
@@ -13936,6 +13959,15 @@ dominios:
       - "reversao"
     seccao: "3.45"
     conceito: "Fase da confirmação"
+    so_no_registo: false
+  - coluna: "manual_confirmations.decisao"
+    valores:
+      - "confirma"
+      - "exige_segunda"
+      - "retem"
+      - "rejeita"
+    seccao: "3.45"
+    conceito: "Decisão da fase"
     so_no_registo: false
   - coluna: "refund_cases.estado"
     valores:

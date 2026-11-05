@@ -485,6 +485,146 @@ class TestLimitesDaJanela(ComConfirmacaoManual):
         self.confirmar(self.cursor, self.tenant)
         self.assertEqual(linha[4], "limite_diario")
 
+    # ------------------------------------------------- a acumulacao, medida
+    #
+    # **Os ensaios acima mediam um tecto por pedido e nao um tecto de janela.**
+    # Em todos eles a soma do dia e a contagem do contacto comecavam a zero,
+    # pelo que `soma + amount > tecto` e `contagem + 1 > tecto` davam o mesmo
+    # resultado que `amount > tecto` e `1 > tecto`. A revisao adversarial
+    # nomeou a mutacao que isso deixava sobreviver: apagar
+    # `v_janela.soma_do_dia_minor +` e `v_janela.confirmacoes_do_contacto +` da
+    # funcao, e os ensaios todos ficavam verdes — sobre a regra que o §9 nomeia
+    # contra «um comprador a juntar confirmacoes».
+    #
+    # Os tres ensaios abaixo confirmam **uma** cobranca e medem a seguinte. E a
+    # unica forma de a acumulacao entrar na decisao.
+
+    def _confirmar_uma(self, valor: int = VALOR) -> str:
+        """Confirma uma cobranca nova deste tenant, e devolve o `id`."""
+        cobranca = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual",
+            amount_minor=valor,
+        )
+        self.declarar(cobranca, self.cliente, f"d-{uuid.uuid4().hex}")
+        self.confirmar(self.cursor, self.tenant)
+        linha = self.confirmar_manual(
+            cobranca, self.dono, f"c-{uuid.uuid4().hex}", valor
+        )
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(linha[3], "confirma", "a semente da acumulacao tem de pagar")
+        return cobranca
+
+    def test_a_primeira_confirmacao_conta_para_o_tecto_da_segunda(self) -> None:
+        """A acumulacao do tecto diario, a entrar numa decisao.
+
+        Duas cobrancas de `VALOR` com tecto diario `2 * VALOR - 1`: a primeira
+        passa (0 + VALOR <= tecto) e a segunda retem (VALOR + VALOR > tecto).
+        **Sem o termo acumulado, a segunda passava** — e e por isso que este
+        ensaio e o que mede o criterio 6.
+        """
+        self.dar_limites(self.tenant, manual_daily_max_minor=2 * VALOR - 1)
+        self._confirmar_uma()
+
+        segunda = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual"
+        )
+        self.declarar(segunda, self.cliente, "d-2")
+        self.confirmar(self.cursor, self.tenant)
+        linha = self.confirmar_manual(segunda, self.dono, "c-2", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(linha[3], "retem")
+        self.assertEqual(linha[4], "limite_diario")
+
+    def test_e_com_o_tecto_a_dar_para_as_duas_a_segunda_passa(self) -> None:
+        """A sonda positiva da acumulacao: o mesmo arranjo, tecto a chegar."""
+        self.dar_limites(self.tenant, manual_daily_max_minor=2 * VALOR)
+        self._confirmar_uma()
+
+        segunda = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual"
+        )
+        self.declarar(segunda, self.cliente, "d-2")
+        self.confirmar(self.cursor, self.tenant)
+        linha = self.confirmar_manual(segunda, self.dono, "c-2", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(linha[3], "confirma")
+
+    def test_a_contagem_do_contacto_acumula_entre_cobrancas(self) -> None:
+        """A acumulacao do tecto por contacto, a entrar numa decisao.
+
+        Tecto de **uma** confirmacao por contacto em 24 h: a primeira passa, a
+        segunda do **mesmo** cliente retem. Sem o `contagem + 1`, a segunda
+        passava.
+        """
+        self.dar_limites(self.tenant, manual_max_por_contacto_24h=1)
+        self._confirmar_uma()
+
+        segunda = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual"
+        )
+        self.declarar(segunda, self.cliente, "d-2")
+        self.confirmar(self.cursor, self.tenant)
+        linha = self.confirmar_manual(segunda, self.dono, "c-2", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(linha[3], "retem")
+        self.assertEqual(linha[4], "limite_por_contacto")
+
+    def test_e_a_contagem_e_do_contacto_e_nao_do_tenant(self) -> None:
+        """A sonda que separa «conta» de «conta a dimensao certa».
+
+        O mesmo tecto de uma por contacto, mas a segunda cobranca declarada por
+        **outro** cliente: passa. Sem a dimensao do contacto — se a contagem
+        fosse por tenant — esta ficava retida, e o tecto do §9 deixava de ser
+        «historico do contacto» para ser um tecto de vendas da PME.
+        """
+        self.dar_limites(self.tenant, manual_max_por_contacto_24h=1)
+        self._confirmar_uma()
+
+        outro_cliente = self.criar_contacto(self.tenant)
+        segunda = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual"
+        )
+        self.declarar(segunda, outro_cliente, "d-2")
+        self.confirmar(self.cursor, self.tenant)
+        linha = self.confirmar_manual(segunda, self.dono, "c-2", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(linha[3], "confirma")
+
+    def test_uma_retencao_nao_conta_para_o_tecto_do_dia(self) -> None:
+        """So o que **concluiu** conta, e e a coluna `decisao` que o diz.
+
+        Uma retencao escreve `fase='confirmacao'` com `valor_bate` verdadeiro.
+        Enquanto a janela filtrava pela fase, essa retencao somava ao dia o
+        dinheiro de uma cobranca que **nao** foi paga — e a primeira retencao do
+        dia empurrava a seguinte, propagando «retido para analise» a
+        confirmacoes legitimas. Medido pelas tres revisoes adversariais.
+        """
+        self.dar_limites(self.tenant, manual_daily_max_minor=VALOR)
+        # Esta retem: VALOR + VALOR > VALOR.
+        grande = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual",
+            amount_minor=2 * VALOR,
+        )
+        self.declarar(grande, self.cliente, "d-grande")
+        self.confirmar(self.cursor, self.tenant)
+        retida = self.confirmar_manual(grande, self.dono, "c-grande", 2 * VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(retida[3], "retem")
+
+        # E a seguinte, de VALOR, passa: a retida nao conta.
+        segunda = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual"
+        )
+        self.declarar(segunda, self.cliente, "d-2")
+        self.confirmar(self.cursor, self.tenant)
+        linha = self.confirmar_manual(segunda, self.dono, "c-2", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(
+            linha[3],
+            "confirma",
+            "uma retencao nao e dinheiro confirmado e nao pode consumir o tecto",
+        )
+
     def test_a_janela_conta_o_contacto_que_declarou_e_nao_quem_confirma(self) -> None:
         """A dimensao do M-3, medida.
 
@@ -595,6 +735,36 @@ class TestSilencioDoDono(ComConfirmacaoManual):
         self.assertFalse(ok)
         self.assertEqual(especie, "sistema")
 
+    def test_a_janela_e_em_horas_e_nao_noutra_unidade(self) -> None:
+        """A unidade do `p_janela_horas`, medida — e nao so o facto de ser lida.
+
+        Os dois ensaios acima passam `24` sobre uma declaracao com segundos de
+        vida e `0`. O par prova que o parametro e lido e **nada** sobre o seu
+        significado: trocar `hours =>` por `mins =>` na funcao deixava os dois
+        verdes, porque 24 minutos tambem nao passaram e 0 continua a expirar
+        tudo. Medido pela revisao adversarial.
+
+        Este mede a grandeza: a declaracao e empurrada **duas horas** para tras
+        pela semente, e entao `3` horas nao expira e `1` expira. Com a unidade
+        em minutos, o primeiro expirava e o ensaio ficava vermelho.
+        """
+        self.semente.execute(
+            "UPDATE platform.manual_confirmations "
+            "   SET criado_at = criado_at - interval '2 hours' "
+            " WHERE charge_id = %s AND fase = 'declaracao_cliente'",
+            (self.cobranca,),
+        )
+        self.assertEqual(
+            self.expirar(self.cobranca, horas=3),
+            [],
+            "duas horas nao chegam a uma janela de tres",
+        )
+        self.confirmar(self.cursor, self.tenant)
+        linhas = self.expirar(self.cobranca, horas=1)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(len(linhas), 1, "duas horas passam uma janela de uma")
+        self.assertEqual(linhas[0][2], "emitida")
+
     def test_a_reserva_mantem_se_ate_expira_at(self) -> None:
         """A metade do criterio 7 que e facil de perder.
 
@@ -657,7 +827,11 @@ class TestReversao(ComConfirmacaoManual):
         self.cobranca_paga()
         self.confirmar(self.cursor, self.tenant)
         self.eventos_antes = self.quantos_eventos(self.cobranca)
+        # **O actor de ops e um confirmador activo**, porque a `manual_reverter`
+        # passou a exigi-lo. A fixture era anterior a guarda, e os cinco ensaios
+        # desta classe caíram quando ela entrou — o que e a guarda a morder.
         self.ops = self.criar_contacto(self.tenant)
+        self.criar_confirmador(self.tenant, self.ops, papel="dono", segunda=True)
 
     def test_a_reversao_abre_o_caso_e_move_a_cobranca(self) -> None:
         _, evento, estado, caso = self.reverter(
@@ -712,6 +886,38 @@ class TestReversao(ComConfirmacaoManual):
                     else (),
                 )
 
+    def test_quem_nao_e_confirmador_nao_reverte(self) -> None:
+        """A guarda que a revisao adversarial obrigou.
+
+        A primeira versao aceitava **qualquer** `p_actor_contact_id` e escrevia
+        `actor_kind => 'ops'`: um turno de conversa movia qualquer cobranca
+        `paga` para `reembolso_pendente` e abria um caso pelo valor inteiro, que
+        e a «abuso de reembolso» do §9. O argumento escrito de defesa protegia o
+        **montante** do caso e nao a legitimidade de quem o abre.
+        """
+        estranho = self.criar_contacto(self.tenant)
+        with self.assertRaises(Exception) as apanhado:
+            self.reverter(self.cobranca, estranho, "rev-x", "motivo escrito")
+        self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_CHECK)
+        self.assertIn("confirmador activo", str(apanhado.exception))
+
+    def test_e_um_confirmador_inactivo_tambem_nao(self) -> None:
+        """A mesma guarda, pela outra metade do predicado."""
+        inactivo = self.criar_contacto(self.tenant)
+        self.criar_confirmador(self.tenant, inactivo, ativo=False)
+        with self.assertRaises(Exception) as apanhado:
+            self.reverter(self.cobranca, inactivo, "rev-y", "motivo escrito")
+        self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_CHECK)
+
+    def test_um_confirmador_de_outro_tenant_nao_reverte(self) -> None:
+        """O predicado filtra pelo tenant da **cobranca**, e nao so pela tabela."""
+        vizinho = self.criar_tenant()
+        de_b = self.criar_contacto(vizinho)
+        self.criar_confirmador(vizinho, de_b, papel="dono", segunda=True)
+        with self.assertRaises(Exception) as apanhado:
+            self.reverter(self.cobranca, de_b, "rev-z", "motivo escrito")
+        self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_CHECK)
+
     def test_reverter_sem_motivo_e_recusado(self) -> None:
         for motivo in (None, "", "   "):
             with self.subTest(motivo=motivo):
@@ -750,6 +956,52 @@ class TestReversao(ComConfirmacaoManual):
         self.assertEqual(segunda[3], primeira[3])
         self.assertEqual(self.quantos_eventos(self.cobranca), contagem)
         self.assertEqual(len(self.casos_de_reembolso(self.cobranca)), 1)
+
+    def test_um_canal_msg_id_de_uma_confirmacao_nao_e_uma_reversao_repetida(self) -> None:
+        """A primeira versao devolvia a linha da confirmacao e nao revertia nada.
+
+        A guarda de idempotencia casava por `canal_msg_id` em **qualquer** fase,
+        pelo que um identificador ja usado por uma confirmacao fazia esta funcao
+        sair pelo ramo da repeticao — em silencio, sem reverter, com um
+        `refund_case_id` de outro caso ou nulo. Apanhado pela revisao
+        adversarial; e a mesma classe do `CASE` da `manual_confirmar`.
+
+        Procura agora so fases `reversao`, pelo que o `canal_msg_id` da
+        confirmacao **reverte** de verdade — e e isso que este ensaio mede.
+        """
+        self.semente.execute(
+            "SELECT canal_msg_id FROM platform.manual_confirmations "
+            " WHERE charge_id = %s AND fase = 'confirmacao'",
+            (self.cobranca,),
+        )
+        msg_da_confirmacao = self.semente.fetchone()[0]
+
+        # **A recusa e explicita, e nao um nome de restricao.** Com a guarda de
+        # repeticao a casar so fases `reversao`, este identificador deixa de
+        # sair pelo ramo da repeticao — e bateria no
+        # `manual_confirmations_msg_uq` tres linhas abaixo, porque a unicidade e
+        # `(charge_id, canal_msg_id)`. O que o ensaio mede e que a funcao o diz
+        # por extenso em vez de deixar um `23505` chegar a quem chama.
+        with self.assertRaises(Exception) as apanhado:
+            self.reverter(
+                self.cobranca, self.ops, msg_da_confirmacao, "engano do dono"
+            )
+        self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_CHECK)
+        self.assertIn("nao e uma reversao", str(apanhado.exception))
+        self.cursor.execute("ROLLBACK")
+        self.cursor.execute(
+            "SELECT set_config('app.tenant_id', %s, true)", (self.tenant,)
+        )
+        self.cursor.fetchone()
+
+        # E a sonda positiva: com identificador proprio, reverte.
+        _, evento, estado, caso = self.reverter(
+            self.cobranca, self.ops, "rev-propria", "engano do dono"
+        )
+        self.confirmar(self.cursor, self.tenant)
+        self.assertIsNotNone(evento, "com identificador proprio, reverte")
+        self.assertEqual(estado, "reembolso_pendente")
+        self.assertIsNotNone(caso)
 
     def test_a_quinta_aresta_existe_e_so_de_paga(self) -> None:
         """A aresta nova, e **so** ela: de `emitida` continua recusada."""
@@ -808,6 +1060,64 @@ class TestIdempotencia(ComConfirmacaoManual):
         for _ in range(3):
             self.declarar(self.cobranca, self.cliente, "d")
         self.confirmar(self.cursor, self.tenant)
+
+    def test_repetir_uma_retida_devolve_retem_e_nao_confirma(self) -> None:
+        """**O defeito perfeito, e esta e a medicao que faltava.**
+
+        A reentrega de uma mensagem e a razao escrita para este ramo nao
+        levantar: quem reentrega e o CHR, por retentativa. Enquanto a decisao
+        era derivada da **fase**, uma confirmacao **retida** voltava como
+        `decisao = 'confirma'` com `motivo = 'limite_diario'` e
+        `estado_novo = 'pendente_confirmacao'` — tres campos a contradizerem-se,
+        e o primeiro a dizer a quem chama que um pagamento retido para ops foi
+        confirmado. E a frase que o `TestAcordoComATabelaPura` usa para se
+        justificar: «o agente diz ao dono uma razao que nao e a razao».
+        """
+        self.dar_limites(self.tenant, manual_daily_max_minor=VALOR - 1)
+        self.declarar(self.cobranca, self.cliente, "d")
+        self.confirmar(self.cursor, self.tenant)
+        primeira = self.confirmar_manual(self.cobranca, self.dono, "msg-r", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(primeira[3], "retem")
+
+        segunda = self.confirmar_manual(self.cobranca, self.dono, "msg-r", VALOR)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(segunda[3], "retem", "a repeticao devolve o que ficou gravado")
+        self.assertEqual(segunda[4], "limite_diario")
+        self.assertTrue(segunda[7])
+
+    def test_repetir_uma_a_espera_da_segunda_devolve_exige_segunda(self) -> None:
+        """O mesmo, no caminho da dupla do M-5."""
+        alta = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual",
+            amount_minor=TECTO_DA_DUPLA + 1,
+        )
+        self.declarar(alta, self.cliente, "d-alta")
+        self.confirmar(self.cursor, self.tenant)
+        primeira = self.confirmar_manual(alta, self.dono, "msg-e", TECTO_DA_DUPLA + 1)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(primeira[3], "exige_segunda")
+
+        segunda = self.confirmar_manual(alta, self.dono, "msg-e", TECTO_DA_DUPLA + 1)
+        self.confirmar(self.cursor, self.tenant)
+        self.assertEqual(segunda[3], "exige_segunda")
+        self.assertTrue(segunda[7])
+
+    def test_o_canal_msg_id_da_declaracao_nao_e_uma_confirmacao_repetida(self) -> None:
+        """Era a via pela qual o cliente obtinha um «confirma».
+
+        O `canal_msg_id` da mensagem «paguei» do proprio cliente, passado a
+        `manual_confirmar`, casava a fase `declaracao_cliente` e o `CASE`
+        devolvia `confirma` com `valor_bate` nulo — sem passar por confirmador
+        nenhum. Uma mensagem que pertence a uma fase que esta funcao nao escreve
+        e outro facto com o mesmo identificador, e recusa-se.
+        """
+        self.declarar(self.cobranca, self.cliente, "msg-do-cliente")
+        self.confirmar(self.cursor, self.tenant)
+        with self.assertRaises(Exception) as apanhado:
+            self.confirmar_manual(self.cobranca, self.dono, "msg-do-cliente", VALOR)
+        self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_CHECK)
+        self.assertIn("nao e uma confirmacao", str(apanhado.exception))
 
     def test_a_unicidade_e_por_cobranca_e_nao_global(self) -> None:
         """O mesmo `canal_msg_id` noutra cobranca e outro facto.
@@ -975,8 +1285,8 @@ class TestG8DoCaminhoHumano(ComConfirmacaoManual):
         self.semente.execute(
             "INSERT INTO platform.manual_confirmations "
             "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
-            " valor_declarado_minor, valor_bate) "
-            "VALUES (%s, %s, 'confirmacao', %s, 'g8-ok', %s, true)",
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, 'g8-ok', %s, true, 'confirma')",
             (self.tenant, self.cobranca, self.dono, VALOR),
         )
         sql, args = self.inserir_evento_humano(self.cobranca, self.dono, self.directo)
@@ -993,8 +1303,8 @@ class TestG8DoCaminhoHumano(ComConfirmacaoManual):
         self.semente.execute(
             "INSERT INTO platform.manual_confirmations "
             "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
-            " valor_declarado_minor, valor_bate) "
-            "VALUES (%s, %s, 'confirmacao', %s, 'g8-outro', %s, true)",
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, 'g8-outro', %s, true, 'confirma')",
             (self.tenant, self.cobranca, self.dono, VALOR),
         )
         sql, args = self.inserir_evento_humano(
@@ -1006,8 +1316,8 @@ class TestG8DoCaminhoHumano(ComConfirmacaoManual):
         self.semente.execute(
             "INSERT INTO platform.manual_confirmations "
             "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
-            " valor_declarado_minor, valor_bate) "
-            "VALUES (%s, %s, 'confirmacao', %s, 'g8-valor', %s, false)",
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, 'g8-valor', %s, false, 'confirma')",
             (self.tenant, self.cobranca, self.dono, VALOR - 1),
         )
         sql, args = self.inserir_evento_humano(self.cobranca, self.dono, self.directo)
@@ -1030,6 +1340,71 @@ class TestG8DoCaminhoHumano(ComConfirmacaoManual):
             self.cobranca, self.cliente, self.directo
         )
         self.assertErroSql(VIOLACAO_DE_CHECK, self.directo, sql, args)
+
+    def _semear_fase(self, decisao: str, fase: str = "confirmacao",
+                     actor: str | None = None, bate: bool = True) -> None:
+        """Uma fase com a decisao pedida, pela semente (nao pela funcao).
+
+        Serve os ensaios que precisam de uma fase que a `manual_confirmar`
+        produz mas que o ensaio nao quer produzir pelo caminho inteiro.
+        """
+        self.semente.execute(
+            "INSERT INTO platform.manual_confirmations "
+            "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                self.tenant, self.cobranca, fase, actor or self.dono,
+                f"g8-{decisao}-{uuid.uuid4().hex}", VALOR, bate, decisao,
+            ),
+        )
+
+    def test_uma_fase_retida_nao_serve(self) -> None:
+        """**O buraco que as tres revisoes adversariais encontraram.**
+
+        Uma confirmacao que o M-3 **retirou de circulacao** escreve
+        `fase='confirmacao'` com `valor_bate` verdadeiro — porque o M-4 ja tinha
+        passado. Enquanto o G8 pedia so a fase, essa linha era a prova que ele
+        exige: bastava chamar a porta do ledger com `authn_method='manual'` e o
+        `actor_id` daquela tentativa para a cobranca ficar **paga**, por cima de
+        uma retencao para ops. E o `kamba_app` tem `EXECUTE` nessa porta — tem
+        de ter, e o caminho do facilitador.
+
+        O que fecha o buraco e a coluna `decisao`, e e este ensaio que o mede.
+        """
+        self._semear_fase("retem")
+        sql, args = self.inserir_evento_humano(self.cobranca, self.dono, self.directo)
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.directo, sql, args)
+
+    def test_uma_fase_a_espera_da_segunda_assinatura_tambem_nao(self) -> None:
+        """O mesmo buraco pelo outro lado, e este paga **sem a dupla do M-5**.
+
+        Acima do limiar, a primeira aprovacao escreve `fase='confirmacao'` com
+        `valor_bate` e fica a espera da segunda. Enquanto o G8 pedia so a fase,
+        uma cobranca que exige **duas** assinaturas ficava paga com a prova de
+        **uma**.
+        """
+        self._semear_fase("exige_segunda")
+        sql, args = self.inserir_evento_humano(self.cobranca, self.dono, self.directo)
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.directo, sql, args)
+
+    def test_uma_fase_de_rejeicao_nao_serve(self) -> None:
+        """A terceira decisao que escreve fase, e a mais obvia."""
+        self._semear_fase("rejeita", fase="rejeicao", bate=False)
+        sql, args = self.inserir_evento_humano(self.cobranca, self.dono, self.directo)
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.directo, sql, args)
+
+    def test_so_a_decisao_confirma_serve(self) -> None:
+        """A sonda positiva das tres acima, e a que separa fase de decisao.
+
+        A **mesma** fase (`confirmacao`), o **mesmo** `valor_bate`, o **mesmo**
+        actor — e a decisao a mudar. Sem este par, os tres ensaios acima podiam
+        estar verdes porque a semente estava mal feita.
+        """
+        self._semear_fase("confirma")
+        sql, args = self.inserir_evento_humano(self.cobranca, self.dono, self.directo)
+        self.directo.execute(sql, args)
+        self.admin.rollback()
 
     def test_o_confirmado_por_hmac_nao_e_afectado(self) -> None:
         """A sonda que separa «o G8 funciona» de «o G8 parte o outro caminho».
@@ -1162,11 +1537,34 @@ class TestIsolamentoDaConfirmacao(ComConfirmacaoManual):
         self.assertIn("nao e visivel", str(apanhado.exception))
 
     def test_e_a_de_confirmar_tambem(self) -> None:
+        """E **discrimina** a recusa, que era o que faltava.
+
+        A primeira versao corria sobre a `self.cobranca`, que o `setUp` desta
+        classe leva a `paga` — e afirmava so o `SQLSTATE`. Sobre uma cobranca
+        `paga`, a invisibilidade da RLS e a guarda de estado levantam **o
+        mesmo** `23514`: tirar o `FOR UPDATE` filtrado pela politica deixava o
+        ensaio verde, porque a cobranca passava a ser vista e era recusada por
+        estar paga. Medido pela revisao adversarial.
+
+        Corre agora sobre uma cobranca em `pendente_confirmacao` — onde a guarda
+        de estado **nao** dispara — e prende a mensagem da RLS.
+        """
+        pendente = self.criar_cobranca(
+            self.tenant, self.conta, provider="manual", metodo="manual"
+        )
+        self.declarar(pendente, self.cliente, "d-pendente")
+        self.confirmar(self.cursor, self.tenant)
+
         with self.assertRaises(Exception) as apanhado:
             self.confirmar_manual(
-                self.cobranca, self.dono, "c-cruzada", VALOR, cursor=self.cursor_b
+                pendente, self.dono, "c-cruzada", VALOR, cursor=self.cursor_b
             )
         self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_CHECK)
+        self.assertIn(
+            "nao e visivel",
+            str(apanhado.exception),
+            "a recusa tem de ser a da RLS e nao a da guarda de estado",
+        )
 
     def test_sem_contexto_de_tenant_nenhuma_das_quatro_devolve_linhas(self) -> None:
         sem = self.cursor_papel("app", None)

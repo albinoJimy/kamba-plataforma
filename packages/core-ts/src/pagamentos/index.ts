@@ -284,7 +284,6 @@ export {
   cobre,
   evidenciaNaoProva,
   expiraEm,
-  janelaDeSilencioSegundos,
   rotuloDaEvidencia,
 } from "./manual.ts";
 

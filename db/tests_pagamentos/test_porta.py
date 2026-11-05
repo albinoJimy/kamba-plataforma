@@ -1110,9 +1110,31 @@ class TestOsCheckMordemSozinhos(ComLedger):
         """O `humano_exige_actor`: uma confirmacao humana sem humano.
 
         E a outra restricao do §6.2, e e a que torna o `actor_id` do §4.1 uma
-        propriedade da base: o KAM-054 vai escrever confirmacoes manuais, e uma
-        sem actor nao se consegue auditar.
+        propriedade da base: o KAM-054 escreve confirmacoes manuais, e uma sem
+        actor nao se consegue auditar.
+
+        **E semeia a fase, pela mesma razao que a sonda positiva ao lado.** O
+        `payment_events_g8_humano` do KAM-054 e `BEFORE INSERT` e levanta
+        `check_violation` **antes** de qualquer `CHECK` de tabela ser avaliado:
+        sem fase nenhuma, a recusa que este ensaio lia passava a ser a do
+        *trigger* e nao a do `humano_exige_actor` — apagar a restricao da `0029`
+        deixava-o verde. Apanhado pela revisao adversarial do KAM-054, que notou
+        que a sonda positiva tinha sido corrigida e a irma negativa nao.
+
+        Com a fase semeada, o que distingue este caso do positivo e **uma** coisa:
+        o `actor_id` nulo. O G8 nao casa a fase (ela e de outro actor), mas o
+        `humano_exige_actor` recusa primeiro — e as duas recusas dao
+        `check_violation`, pelo que o que este ensaio prende e que **ha** recusa
+        quando falta o actor, com a via legitima medida ao lado.
         """
+        actor = factories.contacto(self.semente, self.tenant)
+        self.semente.execute(
+            "INSERT INTO platform.manual_confirmations "
+            "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, %s, %s, true, 'confirma')",
+            (self.tenant, self.cobranca, actor, f"sem-actor:{uuid.uuid4().hex}", VALOR),
+        )
         sql, args = self.inserir(authn_method="manual", actor_id=None)
         self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
 
@@ -1143,8 +1165,8 @@ class TestOsCheckMordemSozinhos(ComLedger):
         self.semente.execute(
             "INSERT INTO platform.manual_confirmations "
             "(tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, "
-            " valor_declarado_minor, valor_bate) "
-            "VALUES (%s, %s, 'confirmacao', %s, %s, %s, true)",
+            " valor_declarado_minor, valor_bate, decisao) "
+            "VALUES (%s, %s, 'confirmacao', %s, %s, %s, true, 'confirma')",
             (self.tenant, self.cobranca, actor, f"sonda:{uuid.uuid4().hex}", VALOR),
         )
         sql, args = self.inserir(authn_method="manual", actor_id=actor)

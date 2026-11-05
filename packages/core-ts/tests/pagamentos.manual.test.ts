@@ -380,6 +380,18 @@ describe("M-1 — quem confirma, e o cliente nunca (criterio 2)", () => {
     assert.equal(v.motivo, "cliente_nao_confirma");
   });
 
+  it("sem cliente conhecido recusa, e nao salta a porta", () => {
+    // **A correccao de uma divergencia medida.** A primeira versao tinha a
+    // conjuncao ao contrario (`clienteContactId !== null && …`), pelo que com
+    // `null` a guarda do M-1 **nao corria** e a avaliacao seguia para as outras
+    // portas, podendo devolver `confirma`. Do lado da base, uma cobranca sem
+    // fase `declaracao_cliente` levanta. Os dois lados passam a falhar fechado.
+    const v = avaliarConfirmacao(entrada({ clienteContactId: null }));
+    assert.equal(v.decisao, "rejeita");
+    assert.equal(v.motivo, "sem_cliente");
+    assert.equal(v.regra, "M-1");
+  });
+
   it("o dono, que esta na tabela e nao e o cliente, confirma", () => {
     const v = avaliarConfirmacao(entrada());
     assert.equal(v.decisao, "confirma");
@@ -621,6 +633,21 @@ describe("M-7 — a evidencia e rotulada, e o rotulo e obrigatorio (criterio 3)"
     );
   });
 
+  it("apara os espacos, em vez de os rotular", () => {
+    // A primeira versao validava com `trim()` e concatenava o **original**,
+    // pelo que `' sto://a'` dava `'nao_prova: sto://a'` — que a base aceita e
+    // ninguem resolve, numa tabela sem `UPDATE`.
+    assert.equal(evidenciaNaoProva("  sto://a/b.jpg  "), "nao_prova:sto://a/b.jpg");
+  });
+
+  it("recusa rotular o que ja esta rotulado", () => {
+    assert.throws(
+      () => evidenciaNaoProva("nao_prova:sto://a/b.jpg"),
+      (erro: ProviderError) =>
+        erro.codigo === "VALIDATION" && erro.message.includes("ja esta rotulada"),
+    );
+  });
+
   it("uma referencia sem rotulo le-se como sem rotulo", () => {
     // **Este caso apanhou um defeito real.** A primeira versao do
     // `rotuloDaEvidencia` devolvia «o que vem antes do primeiro dois-pontos», e
@@ -639,15 +666,31 @@ describe("M-7 — a evidencia e rotulada, e o rotulo e obrigatorio (criterio 3)"
     const raiz = fileURLToPath(new URL("../src/pagamentos/", import.meta.url));
     const { MODULOS_DO_MANUAL } = await import("../src/pagamentos/manual.ts");
 
+    // **Varre o ficheiro inteiro e nao linha a linha**, porque um `import`
+    // partido por linhas e a forma normal de importar tres nomes — e a primeira
+    // versao desta varredura nao o via. Os comentarios saem primeiro: um
+    // `// import ... from "ocr-lib"` nao e uma importacao, e um lint que o
+    // acusasse ensinava a nao escrever a explicacao (e a regra do `money_lint`).
     const varrer = (fonte: string): string[] => {
+      const semComentarios = fonte
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/^[ \t]*\/\/[^\n]*$/gm, " ");
       const achados: string[] = [];
-      for (const linha of fonte.split("\n")) {
-        const casa = /^\s*(?:import|export)[^"']*["']([^"']+)["']/.exec(linha);
-        const dinamico = /\bimport\s*\(\s*["']([^"']+)["']/.exec(linha);
-        const alvo = casa?.[1] ?? dinamico?.[1];
-        if (alvo === undefined) continue;
-        for (const proibida of IMPORTACOES_PROIBIDAS) {
-          if (alvo.toLowerCase().includes(proibida)) achados.push(`${alvo} (${proibida})`);
+      const padroes = [
+        /\b(?:import|export)\b[\s\S]*?\bfrom\s*["']([^"']+)["']/g,
+        /\bimport\s*["']([^"']+)["']/g,
+        /\bimport\s*\(\s*["']([^"']+)["']/g,
+        /\brequire\s*\(\s*["']([^"']+)["']/g,
+      ];
+      for (const padrao of padroes) {
+        for (const casa of semComentarios.matchAll(padrao)) {
+          const alvo = casa[1];
+          if (alvo === undefined) continue;
+          for (const proibida of IMPORTACOES_PROIBIDAS) {
+            if (alvo.toLowerCase().includes(proibida)) {
+              achados.push(`${alvo} (${proibida})`);
+            }
+          }
         }
       }
       return achados;
@@ -659,12 +702,33 @@ describe("M-7 — a evidencia e rotulada, e o rotulo e obrigatorio (criterio 3)"
     }
     assert.deepEqual(achados, [], "o ManualProvider nao le o conteudo da imagem");
 
+    // **A composicao da lista esta presa a parte, e e isso que faltava.** A
+    // primeira versao percorria a `IMPORTACOES_PROIBIDAS` nos canarios **e** na
+    // varredura: as duas pontas derivavam da mesma lista, pelo que apagar
+    // `"ocr"` dela deixava o ensaio verde com uma varredura que ja nao procura
+    // OCR. Medido pela revisao adversarial. Os fragmentos que **tem** de estar
+    // escrevem-se por extenso, e sao os que o criterio 3 nomeia por classe:
+    // OCR e visao.
+    const EXIGIDOS = [
+      "ocr",
+      "tesseract",
+      "vision",
+      "visao",
+      "opencv",
+      "rekognition",
+      "textract",
+    ] as const;
+    for (const exigido of EXIGIDOS) {
+      assert.ok(
+        (IMPORTACOES_PROIBIDAS as readonly string[]).includes(exigido),
+        `'${exigido}' tem de estar em IMPORTACOES_PROIBIDAS: e a classe que o ` +
+          "criterio 3 nomeia, e uma lista que a perca deixa de medir o criterio",
+      );
+    }
+
     // **O passo de canario, e e um por fragmento.** Sem ele, um zero nao
     // distingue «nao ha» de «nao se procurou» — e e a licao do `codegraph
-    // status`, que sai 0 sem indice. Um canario so provava que a varredura
-    // apanha **um** nome; com um por fragmento, uma entrada da lista que
-    // deixasse de ser procurada — por um erro no `includes`, ou por alguem a
-    // escrever com maiusculas — fica vermelha.
+    // status`, que sai 0 sem indice.
     //
     // A contagem **nao** e 1 por caso: `node-tesseract-ocr` casa `ocr` **e**
     // `tesseract`, e foi assim que a primeira versao deste ensaio falhou com
@@ -683,10 +747,25 @@ describe("M-7 — a evidencia e rotulada, e o rotulo e obrigatorio (criterio 3)"
         `e com maiusculas: o especificador normaliza-se antes de comparar`,
       );
     }
+    // **A forma multilinha, que a primeira versao da varredura nao via.** A
+    // regex casava `import ... from "..."` numa linha so, e um
+    // `import {\n  lerImagem,\n} from "node-tesseract-ocr";` escapava — e
+    // nenhum canario plantava essa forma, pelo que o zero nao a cobria.
+    // Apanhado pela revisao adversarial.
+    assert.ok(
+      varrer('import {\n  lerImagem,\n} from "node-tesseract-ocr";\n').length > 0,
+      "a varredura tem de apanhar um import partido por linhas",
+    );
+    assert.ok(
+      varrer('export {\n  x,\n} from "@acme/vision-sdk";\n').length > 0,
+      "e um re-export partido por linhas",
+    );
+
     // E a sonda negativa da varredura: um nome inocente nao e achado. Sem ela,
     // uma varredura que devolvesse tudo passava os canarios acima.
     assert.deepEqual(varrer('import { x } from "node:crypto";\n'), []);
     assert.deepEqual(varrer('const y = "ocr";\n'), []);
+    assert.deepEqual(varrer('// import { x } from "ocr-lib";\n'), []);
   });
 });
 
@@ -750,6 +829,22 @@ describe("os avisos fixos e a janela do F-18", () => {
       () => expiraEm("ontem"),
       (erro: ProviderError) => erro.codigo === "VALIDATION",
     );
+  });
+
+  it("um instante **sem fuso** levanta, e era o caso do meio que faltava", () => {
+    // `'2026-11-04T10:00:00'` e **valido** para o `Date` e e lido em hora
+    // local, pelo que a mesma entrada dava instantes diferentes em maquinas
+    // diferentes — e o que saia era um ISO com `Z`, de aspecto correcto. E a
+    // mesma classe do `rotuloDaEvidencia`: passava por absoluto um instante que
+    // nao o era. Medido pela revisao adversarial.
+    assert.throws(
+      () => expiraEm("2026-11-04T10:00:00"),
+      (erro: ProviderError) =>
+        erro.codigo === "VALIDATION" && erro.message.includes("sem fuso"),
+    );
+    // E as duas formas que **passam**, que e a sonda positiva do caso acima.
+    assert.equal(expiraEm("2026-11-04T10:00:00Z"), "2026-11-05T10:00:00.000Z");
+    assert.equal(expiraEm("2026-11-04T11:00:00+01:00"), "2026-11-05T10:00:00.000Z");
   });
 });
 

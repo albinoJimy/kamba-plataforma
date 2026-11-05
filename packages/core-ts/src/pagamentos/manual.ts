@@ -29,8 +29,9 @@
  * A tabela pura daqui **nao e a barreira**: e o oraculo que a suite de unidade
  * exercita caso a caso (os «Testes Requeridos» do bloco pedem «regras M-1..M-5
  * e M-8 como tabela de casos»). Quem recusa e a base — e as duas tem de
- * concordar, o que o `test_a_tabela_pura_concorda_com_a_base` mede caso a caso
- * contra um PostgreSQL real.
+ * concordar, o que o `TestAcordoComATabelaPura` de
+ * `db/tests_pagamentos/test_confirmacao_manual.py` mede caso a caso contra um
+ * PostgreSQL real, **lendo os casos deste ficheiro** e nao os transcrevendo.
  *
  * ## A imagem de comprovativo nao e lida, e isso e verificado
  *
@@ -44,11 +45,13 @@
  *
  * O criterio 3 faz disso uma medicao: «nenhum modulo do `ManualProvider` le o
  * conteudo da imagem (*lint* de importacoes de OCR/visao = 0)». A medicao esta
- * em `pagamentos.manual.lint.test.ts`, que varre os modulos deste adaptador
- * contra `IMPORTACOES_PROIBIDAS` e tem **passo de canario**: com uma
- * importacao plantada, a varredura tem de ficar vermelha. Sem o canario, um
- * zero nao distingue «nao ha» de «nao se procurou» — que e a licao do
- * `codegraph status` no `references/evidencia-e-verificacao.md`.
+ * no caso «nenhum modulo do adaptador importa OCR ou visao, e ha canario» de
+ * `pagamentos.manual.test.ts`, que varre os modulos deste adaptador contra
+ * `IMPORTACOES_PROIBIDAS` e tem **passo de canario por fragmento**: cada
+ * entrada da lista e plantada nas tres formas (estatica, dinamica, maiusculas)
+ * e tem de ser apanhada, e a composicao da lista esta presa a parte. Sem o
+ * canario, um zero nao distingue «nao ha» de «nao se procurou» — que e a licao
+ * do `codegraph status` no `references/evidencia-e-verificacao.md`.
  *
  * ## As duas direccoes, e porque sao duas
  *
@@ -66,8 +69,9 @@
  * tenant, **nao de constante**». Este modulo nao tem nenhum dos quatro numeros.
  * O que tem e `PROPOSTAS_DE_OMISSAO`, que e uma tabela de **documentacao** —
  * nao se le em decisao nenhuma, e o
- * `test_as_propostas_nao_entram_em_decisao_nenhuma` prova-o tirando-lhe os
- * valores e exigindo que as decisoes nao mudem.
+ * caso «nenhuma decisao muda se a tabela de propostas for outra» da suite
+ * prova-o, e a estrutura prova-o melhor: o `avaliarConfirmacao` le so a
+ * `entrada` e o `createCharge` le so o `limites.manualMaxMinor`.
  */
 
 import {
@@ -237,15 +241,23 @@ export const CHAVE_POR_CONTACTO = "manual_max_por_contacto_24h";
  * Estao aqui para que quem provisiona um tenant (KAM-091) saiba com que numeros
  * o desenho foi pensado, e para que a calibracao do KAM-096 tenha um ponto de
  * partida escrito. **Nenhuma funcao deste modulo os le**, e isso nao e uma
- * promessa: o `test_as_propostas_nao_entram_em_decisao_nenhuma` substitui a
- * tabela por zeros e exige que o veredicto de cada caso da tabela de regras
- * fique igual.
+ * promessa: nenhuma funcao referencia esta tabela fora dela propria e de duas
+ * mensagens de erro.
  *
  * O endurecimento silencioso — «um numero que eu propus numa conversa aparece,
  * tres documentos depois, como requisito com ar de medicao» — e o defeito que
  * esta separacao fecha. Os dois `null` dizem o que ainda nao tem proposta
  * nenhuma: o §4.2 M-3 nomeia as duas chaves e **nao da valor a nenhuma**, e
  * inventar um aqui era exactamente o defeito.
+ *
+ * **A prova de que a tabela nao entra em decisao nenhuma e estrutural**, e
+ * esta no caso «nenhuma decisao muda se a tabela de propostas for outra» da
+ * suite: as quatro chaves aparecem so nesta tabela e em duas mensagens de
+ * erro, o `avaliarConfirmacao` le so a `entrada`, e o `createCharge` le so o
+ * `limites.manualMaxMinor`. A primeira versao deste comentario nomeava um
+ * ensaio — `test_as_propostas_nao_entram_em_decisao_nenhuma` — que **nao
+ * existia**: apanhado pela revisao adversarial, e e a mesma classe de defeito
+ * que uma caixa marcada com evidencia que nao a sustenta.
  */
 export const PROPOSTAS_DE_OMISSAO: Readonly<Record<string, Minor | null>> = {
   [CHAVE_MAX]: 5_000_000n,
@@ -258,6 +270,14 @@ export const PROPOSTAS_DE_OMISSAO: Readonly<Record<string, Minor | null>> = {
 export type MotivoManual =
   /** M-1: o cliente nunca confirma o seu proprio pagamento (criterio 2). */
   | "cliente_nao_confirma"
+  /**
+   * M-1: nao se sabe quem e o cliente, logo a guarda nao pode correr.
+   *
+   * Falha fechado, e e o mesmo que a base faz: sem fase `declaracao_cliente`
+   * a `manual_confirmar` levanta. Uma guarda que se salta por falta de dado
+   * e pior do que uma guarda que recusa.
+   */
+  | "sem_cliente"
   /** M-1: o BSUID nao esta em `payment_confirmers` — ou esta inactivo. */
   | "sem_confirmador"
   /** M-1: esta na tabela, mas sem `pode_segunda_aprovacao` na segunda volta. */
@@ -387,10 +407,19 @@ export function avaliarConfirmacao(entrada: EntradaDaConfirmacao): VeredictoDoMa
   const valorBate = entrada.valorDeclarado === entrada.amount;
 
   // (1) O cliente nunca confirma, e esta porta fecha-se antes de todas.
-  if (
-    entrada.clienteContactId !== null &&
-    entrada.actorContactId === entrada.clienteContactId
-  ) {
+  //
+  // **Um `clienteContactId` nulo recusa, e nao salta a porta.** A primeira
+  // versao tinha a conjuncao ao contrario — `clienteContactId !== null && …` —,
+  // pelo que com `null` a guarda **nao corria** e a avaliacao seguia para as
+  // outras portas, podendo devolver `confirma`. A revisao adversarial mediu a
+  // divergencia: do lado da base, uma cobranca sem fase `declaracao_cliente`
+  // levanta, porque sem ela nao se sabe quem e o cliente e a guarda mais
+  // importante deste caminho nao pode correr. Os dois lados passam a falhar
+  // fechado.
+  if (entrada.clienteContactId === null) {
+    return _rejeita("sem_cliente", "M-1", valorBate);
+  }
+  if (entrada.actorContactId === entrada.clienteContactId) {
     return _rejeita("cliente_nao_confirma", "M-1", valorBate);
   }
 
@@ -815,8 +844,17 @@ export const IMPORTACOES_PROIBIDAS = [
  *
  * Tres e nao um: a regra e sobre o adaptador e nao sobre um ficheiro, e a forma
  * de a contornar sem a quebrar era pôr o leitor de imagem no modulo ao lado e
- * importar dele. O `dinheiro.ts` e o `tipos.ts` entram porque este modulo os
- * importa e uma importacao transitiva le a imagem tao bem como uma directa.
+ * importar dele.
+ *
+ * **A justificacao estava errada e fica corrigida.** Ela dizia que o
+ * `dinheiro.ts` e o `tipos.ts` entram «porque este modulo os importa», e o
+ * bloco de `import` deste ficheiro tem **uma** fonte: o `./tipos.ts`. A
+ * varredura e, portanto, mais larga do que a razao que a justificava — o que e
+ * inofensivo em si, mas se alguem verificasse a razao e «corrigisse» a lista, a
+ * varredura ficava mais estreita. A razao certa e outra: os tres sao os modulos
+ * que o adaptador **pode** vir a importar sem que a regra mude de sitio, e o
+ * `dinheiro.ts` e o unico candidato natural a tocar num montante lido de uma
+ * imagem. Apanhado pela revisao adversarial.
  */
 export const MODULOS_DO_MANUAL = [
   "manual.ts",
@@ -824,17 +862,44 @@ export const MODULOS_DO_MANUAL = [
   "dinheiro.ts",
 ] as const;
 
-/** A janela do F-18 em segundos, para quem precisa de a passar ao SQL. */
-export function janelaDeSilencioSegundos(horas: number = JANELA_DE_SILENCIO_HORAS): number {
-  return horas * 3_600;
-}
+// **A `janelaDeSilencioSegundos` foi retirada, e nao substituida.**
+//
+// Ela devolvia segundos e dizia, no proprio comentario, que era «para quem
+// precisa de a passar ao SQL» — e a unica cadeia SQL que recebe uma janela
+// passa-a a `p_janela_horas`, que e um `integer` em **horas**. Quem seguisse o
+// comentario mandava 86 400 e a janela do F-18 passava de 24 h a cerca de dez
+// anos: a `manual_expirar_confirmacao` devolvia zero linhas para sempre e
+// nenhuma omissao do dono expirava, sem erro, sem registo e sem nada.
+//
+// Nao tinha chamador nem ensaio (medido por varredura da arvore), pelo que sai
+// em vez de se corrigir: o que se passa ao SQL e o `JANELA_DE_SILENCIO_HORAS`,
+// que ja esta exportado e e o que o nome diz. Apanhado pela revisao
+// adversarial.
 
-/** O `evidencia_ref` com o rotulo obrigatorio do M-7, numa forma so. */
+/**
+ * O `evidencia_ref` com o rotulo obrigatorio do M-7, numa forma so.
+ *
+ * **Apara, e recusa rotular o que ja esta rotulado.** A primeira versao
+ * validava com `trim()` e concatenava o **original**, pelo que `' sto://a'`
+ * dava `'nao_prova: sto://a'` e `'nao_prova:x'` dava
+ * `'nao_prova:nao_prova:x'` — as duas passam o `CHECK` da base
+ * (`LIKE 'nao_prova:%'`) e o `rotuloDaEvidencia` le-as como rotuladas, pelo que
+ * o que ficava corrompido era a **referencia**, numa tabela que nao tem
+ * `UPDATE` para papel nenhum. Apanhado pela revisao adversarial.
+ */
 export function evidenciaNaoProva(referenciaDoAnexo: string): string {
-  if (referenciaDoAnexo.trim() === "") {
+  const limpa = referenciaDoAnexo.trim();
+  if (limpa === "") {
     throw new ProviderError("VALIDATION", "a referencia do anexo nao pode ser vazia");
   }
-  return `${ROTULO_NAO_PROVA}:${referenciaDoAnexo}`;
+  if (limpa.startsWith(`${ROTULO_NAO_PROVA}:`)) {
+    throw new ProviderError(
+      "VALIDATION",
+      `a referencia '${limpa}' ja esta rotulada: rotula-la outra vez dava ` +
+        "`nao_prova:nao_prova:...`, que a base aceita e ninguem consegue resolver",
+    );
+  }
+  return `${ROTULO_NAO_PROVA}:${limpa}`;
 }
 
 /**
@@ -856,8 +921,26 @@ export function rotuloDaEvidencia(evidenciaRef: string): string | null {
   return evidenciaRef.startsWith(prefixo) ? ROTULO_NAO_PROVA : null;
 }
 
-/** O instante em que o silencio do dono expira (F-18). */
+/**
+ * O instante em que o silencio do dono expira (F-18).
+ *
+ * **Exige fuso explicito**, e a razao mediu-se. O `Instant` e `type Instant =
+ * string` sem forma imposta, e o `new Date(...)` so levanta quando o resultado
+ * e `NaN`: `'2026-11-04T10:00:00'` — sem `Z` e sem deslocamento — e **valido**
+ * e e lido em hora **local**, pelo que a mesma entrada dava instantes
+ * diferentes em maquinas diferentes e o valor que saia era um ISO com `Z`, de
+ * aspecto correcto. E a mesma classe de defeito do `rotuloDaEvidencia`: passava
+ * por instante absoluto um instante que nao o era. Apanhado pela revisao
+ * adversarial, que nomeou tambem o remedio.
+ */
 export function expiraEm(pedidoEm: Instant, horas: number = JANELA_DE_SILENCIO_HORAS): Instant {
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/.test(pedidoEm)) {
+    throw new ProviderError(
+      "VALIDATION",
+      `instante sem fuso: '${pedidoEm}'. O dicionario fixa instantes em UTC, e ` +
+        "um instante sem `Z` nem deslocamento le-se na hora local da maquina",
+    );
+  }
   const base = new Date(pedidoEm);
   if (Number.isNaN(base.getTime())) {
     throw new ProviderError("VALIDATION", `instante invalido: '${pedidoEm}'`);

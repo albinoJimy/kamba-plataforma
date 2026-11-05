@@ -1896,6 +1896,17 @@ INVENTARIO = {
             "ManualProvider le a imagem",
         ),
         "motivo": ("text", SIM, None, "nao — codigo de recusa, nao texto livre"),
+        "decisao": (
+            "text",
+            SIM,
+            None,
+            "nao — o que a manual_confirmar decidiu nesta fase, de um dominio "
+            "fechado de quatro. **E o predicado que o G8, a dupla do M-5 e a "
+            "manual_janela leem**, e nao a fase: a fase e escrita por tres "
+            "decisoes diferentes e por isso registava uma tentativa onde eles "
+            "liam uma aprovacao. Anulavel nas fases que nao decidem nada, com a "
+            "equivalencia imposta pelo manual_confirmations_decisao_da_fase",
+        ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
     "refund_cases": {
@@ -2816,6 +2827,15 @@ class TestInventario(ComBase):
                     "manual_confirmations_fase_ck",
                     "manual_confirmations_valor_ck",
                     "manual_confirmations_evidencia_ck",
+                    #   manual_confirmations_decisao_ck  o dominio de quatro
+                    #   manual_confirmations_decisao_da_fase  a equivalencia nos
+                    #     **dois** sentidos entre «a fase decide» e «ha decisao
+                    #     escrita». As duas sao a emenda que as tres revisoes
+                    #     adversariais obrigaram: sem a coluna, o G8 aceitava a
+                    #     fase de uma confirmacao **retida** como prova de que
+                    #     os limites foram cumpridos
+                    "manual_confirmations_decisao_ck",
+                    "manual_confirmations_decisao_da_fase",
                     "refund_cases_pkey",
                     "refund_cases_valor_ck",
                     "refund_cases_estado_ck",
