@@ -73,8 +73,11 @@ import {
 } from "./consultas.ts";
 import type { Encomendas } from "./transition.ts";
 
-/** A tabela das divergências. */
-export const TABELA_DAS_DIVERGENCIAS = "order_reconciliation_issues";
+/**
+ * A tabela das divergências. **Qualificada pelo esquema** — ver o
+ * `TABELA_DO_REGISTO` do `transition.ts` para a razão (KAM-178).
+ */
+export const TABELA_DAS_DIVERGENCIAS = "platform.order_reconciliation_issues";
 
 /** Os cinco tipos, pela ordem em que o §10.3 escreve as regras. */
 export const TIPOS_DE_DIVERGENCIA = [

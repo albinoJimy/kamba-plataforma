@@ -142,10 +142,20 @@ class TestFechoPorAlvo(unittest.TestCase):
     #: Estes numeros sao agora confrontados com o oraculo do `pnpm` em
     #: `test_oraculo_pnpm.py`, que e quem manda; aqui ficam para que uma
     #: dependencia nova seja uma decisao e nao um acidente.
+    #:
+    #: **E foi: o `services/com` passou de 27 a 44 pelo KAM-178**, que lhe
+    #: declarou o `pg` (e o `@types/pg`) para o `server.ts` abrir a transacao de
+    #: tenant. Os 17 a mais face ao `gwy` sao o `pg` e os treze do fecho dele,
+    #: mais o `@types/pg`, o `@types/node` e o `undici-types` — medido, e nao
+    #: contado a mao. **O numero e agora o mesmo do `worker-canal`**, e isso e a
+    #: propriedade e nao uma coincidencia: os dois declaram o mesmo (`hono`,
+    #: `@kamba/core-ts`, `pg`) e por isso carregam o mesmo. Esta linha mudar foi
+    #: exactamente o que ela existe para obrigar: a dependencia nova foi uma
+    #: decisao escrita e nao um acidente.
     DEPENDENCIAS_POR_SERVICO = {
         "services/gwy": 27,
         "services/worker-canal": 44,
-        "services/com": 27,
+        "services/com": 44,
         "services/onboarding-web": 27,
     }
 

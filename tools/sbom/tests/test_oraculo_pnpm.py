@@ -66,7 +66,7 @@ class TestOraculoPnpm(unittest.TestCase):
                     f"a menos {sorted(set(esperado) - set(obtido))}",
                 )
 
-    def test_o_pg_nao_chega_aos_tres_servicos_que_o_nao_tem(self) -> None:
+    def test_o_pg_nao_chega_aos_dois_servicos_que_o_nao_tem(self) -> None:
         """O defeito que a revisao adversarial encontrou, fixado pelo nome.
 
         O `pg` esta resolvido no *snapshot* do `bullmq` como *peer* opcional,
@@ -74,6 +74,18 @@ class TestOraculoPnpm(unittest.TestCase):
         `devDependencies`. Segui-lo trazia o `pg` e mais treze ao `gwy`, ao
         `com` e ao `onboarding-web` — o grupo excluido um nivel acima a voltar
         a entrar um nivel abaixo.
+
+        **Eram tres e sao dois: o `services/com` saiu desta lista pelo KAM-178**,
+        que lhe declarou o `pg` para o `server.ts` abrir a transacao de tenant.
+        A propriedade que este caso guarda **nao se afrouxou** — ela e «a aresta
+        do *peer* opcional nao arrasta o `pg`», e continua medida nos dois que o
+        nao declaram. O que mudou e que no `com` ela deixou de ser mensuravel:
+        com uma aresta **declarada**, a presenca do `pg` nao diz por onde ele
+        entrou. Por isso o `com` **nao foi apagado** — mudou de caso, para o
+        `test_quem_declara_o_pg_continua_a_leva_lo`, que e onde a afirmacao sobre
+        ele passa a ter conteudo.
+
+        Tirar o `com` daqui sem o pôr la era trocar uma medicao por nenhuma.
         """
         arrastados = {
             "pg", "pg-cloudflare", "pg-connection-string", "pg-int8", "pg-pool",
@@ -82,7 +94,7 @@ class TestOraculoPnpm(unittest.TestCase):
             "xtend",
         }
         self.assertEqual(len(arrastados), 14)
-        for servico in ("services/gwy", "services/com", "services/onboarding-web"):
+        for servico in ("services/gwy", "services/onboarding-web"):
             with self.subTest(servico=servico):
                 nomes = {
                     x.rsplit("@", 1)[0]
@@ -128,8 +140,14 @@ class TestOraculoPnpm(unittest.TestCase):
         self.assertEqual(pares, frozenset({"bullmq-otel", "ioredis", "pg", "redis"}))
 
     def test_quem_declara_o_pg_continua_a_leva_lo(self) -> None:
-        """Cortar a aresta do *peer* nao pode tirar o `pg` a quem o declara."""
-        for alvo in ("services/worker-canal", "packages/core-ts"):
+        """Cortar a aresta do *peer* nao pode tirar o `pg` a quem o declara.
+
+        **O `services/com` entra aqui pelo KAM-178**, e e o par do caso de cima:
+        ele saiu da lista dos que nao tem o `pg` porque passou a declara-lo, e
+        uma afirmacao que apenas desaparecesse de um caso sem aparecer no outro
+        era uma medicao perdida em silencio.
+        """
+        for alvo in ("services/com", "services/worker-canal", "packages/core-ts"):
             with self.subTest(alvo=alvo):
                 nomes = {
                     x.rsplit("@", 1)[0]

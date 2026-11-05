@@ -43,6 +43,10 @@ AMBIENTE_BASE = {
     "KAMBA_ENV": "dev",
     # O nome e `KAMBA_SECRET_` + o `id` do inventario em maiusculas (ADR-L002).
     "KAMBA_SECRET_AGR_INTERNAL_TOKEN": CREDENCIAL,
+    # KAM-178: o AGR **apresenta** a credencial da API interna do COM, e ela e
+    # obrigatoria ao arranque nos tres ambientes (`ops/secrets-inventory.yaml`).
+    # **Nao e o `agr_internal_token`**: uma credencial por servico.
+    "KAMBA_SECRET_COM_INTERNAL_TOKEN": CREDENCIAL,
     # KAM-030: a pasta com `aliases.yaml` e `precos.yaml`. **Explicita e nao a
     # omissao relativa**, porque a omissao (`"llm"`) depende do directorio de
     # onde a *suite* corre, e uma bateria que passa ou falha pelo `cwd` nao
@@ -196,6 +200,27 @@ class TestArranque(unittest.TestCase):
         self.assertEqual(codigo, 2)
         correr.assert_not_called()
         self.assertEqual(self.erro()["error_code"].split(":")[0], "cofre_indisponivel")
+
+    def test_sem_o_segredo_do_com_o_arranque_recusa(self) -> None:
+        """KAM-178: o AGR apresenta a credencial do COM, logo nao arranca sem ela.
+
+        **E a mesma regra do `agr_internal_token` e nao uma nova**: o inventario
+        poe o `com_internal_token` em `obrigatorio_em: [dev, staging, prod]` com
+        dois consumidores — o COM verifica, o AGR apresenta —, e a razao e a que
+        aquela entrada escreve: uma rota que corre sem credencial em `dev` e uma
+        rota que alguem esquece de proteger em `prod`.
+        """
+        ambiente = {k: v for k, v in AMBIENTE_BASE.items()}
+        del ambiente["KAMBA_SECRET_COM_INTERNAL_TOKEN"]
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("KAMBA_SECRET_COM_INTERNAL_TOKEN", None)
+            codigo, correr = self._correr(ambiente)
+        self.assertEqual(codigo, 2)
+        correr.assert_not_called()
+        self.assertEqual(self.erro()["error_code"].split(":")[0], "cofre_indisponivel")
+        # E o valor nunca sai, como no caso do segredo do AGR.
+        self.assertNotIn(CREDENCIAL, self.saida.getvalue())
+        self.assertNotIn("com_internal_token", self.saida.getvalue())
 
     def test_sem_checkpointer_o_arranque_recusa(self) -> None:
         """O criterio 3 do KAM-026, e o codigo de saida e proprio."""

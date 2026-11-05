@@ -1,8 +1,8 @@
 {
   "_comando": "pnpm --filter ./<importador> list --prod --depth Infinity --json",
   "_imagem": "node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66",
-  "_lockfile_sha256": "0ec4470365d929e2c6ad235b59cc144a6c4b4b31eb681a6f3c5ba23aee72107e",
-  "_medido_em": "2026-10-20",
+  "_lockfile_sha256": "a3d354cbc0db9a05683f8eb94a35e780a747e52e7942684153bd0ff7201f65fe",
+  "_medido_em": "2026-11-04",
   "_pnpm": "12.11.2",
   "fecho_de_producao": {
     ".": [],
@@ -57,11 +57,25 @@
       "msgpackr@2.1.0",
       "node-abort-controller@3.1.1",
       "node-gyp-build-optional-packages@5.2.2",
+      "pg-cloudflare@1.4.1",
+      "pg-connection-string@2.14.1",
+      "pg-int8@1.0.1",
+      "pg-pool@3.14.0",
+      "pg-protocol@1.16.1",
+      "pg-types@2.2.0",
+      "pg@8.23.1",
+      "pgpass@1.0.5",
+      "postgres-array@2.0.0",
+      "postgres-bytea@1.0.1",
+      "postgres-date@1.0.7",
+      "postgres-interval@1.2.0",
       "redis-errors@1.2.0",
       "redis-parser@3.0.0",
       "semver@7.8.5",
+      "split2@4.2.0",
       "standard-as-callback@2.1.0",
-      "tslib@2.8.1"
+      "tslib@2.8.1",
+      "xtend@4.0.2"
     ],
     "services/gwy": [
       "@hono/node-server@2.1.4",

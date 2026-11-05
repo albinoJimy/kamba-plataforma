@@ -67,6 +67,12 @@ SQL_CONFIRMACAO_DO_DONO = exigir("SQL_CONFIRMACAO_DO_DONO")
 SQL_LER_CONFIRMACAO = exigir("SQL_LER_CONFIRMACAO")
 SQL_ENCOMENDA_DA_CHAVE = exigir("SQL_ENCOMENDA_DA_CHAVE")
 
+# As duas leituras da porta (KAM-178), exercitadas em `test_leitura.py`. O
+# `SQL_LISTAR` e a unica cadeia deste modulo com `COALESCE` do lado esquerdo de
+# uma igualdade e com comparacao de linhas, e nenhuma das duas se prova lendo.
+SQL_VISTA = exigir("SQL_VISTA")
+SQL_LISTAR = exigir("SQL_LISTAR")
+
 #: As que a suite exercita contra a base, para o teste de cobertura do contrato.
 #:
 #: **Nos dois sentidos**, como o `test_contrato` do KAM-047 e do KAM-043: uma
@@ -88,4 +94,6 @@ EXERCITADAS = (
     "SQL_CONFIRMACAO_DO_DONO",
     "SQL_LER_CONFIRMACAO",
     "SQL_ENCOMENDA_DA_CHAVE",
+    "SQL_VISTA",
+    "SQL_LISTAR",
 )

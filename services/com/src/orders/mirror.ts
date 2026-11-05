@@ -39,8 +39,13 @@ import {
 import type { EspelhoNovo, EstadoDaEncomenda, OrderState } from "./contrato.ts";
 import type { Encomendas } from "./transition.ts";
 
-/** A tabela do espelho. */
-export const TABELA_DO_ESPELHO = "orders_mirror";
+/**
+ * A tabela do espelho. **Qualificada pelo esquema** — ver o `TABELA_DO_REGISTO`
+ * do `transition.ts` para a razão: o `inserirNoTenant` constrói o `INSERT` com
+ * este nome, nada põe o `search_path`, e sem o `platform.` o `INSERT` morre em
+ * `42P01` no dia em que a porta ligar (KAM-178).
+ */
+export const TABELA_DO_ESPELHO = "platform.orders_mirror";
 
 /**
  * As colunas que a inserção devolve. O mesmo conjunto do `SQL_LER` e do

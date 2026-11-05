@@ -37,11 +37,20 @@
  *
  * ## O que este adaptador faz hoje
  *
- * Os doze métodos devolvem `NOT_IMPLEMENTED` — cada um com o ticket dono
- * escrito em `docs/com/port-coverage.md`, e cada um com um teste que falha no
- * dia em que a implementação chegar sem o teste de isolamento ao lado
- * (critério 6). O que **não** é adiado, porque é a costura e não a
- * funcionalidade:
+ * **Sete dos doze métodos estão ligados** (KAM-178): os três do catálogo
+ * (KAM-043) mais o `requestOwnerConfirmation`, o `transition`, o `getOrder` e o
+ * `listOrders`. Os outros cinco devolvem `NOT_IMPLEMENTED` — cada um com o
+ * ticket dono escrito em `docs/com/port-coverage.md`, e cada um com um teste
+ * que falha no dia em que a implementação chegar sem o teste de isolamento ao
+ * lado (critério 6 do KAM-042).
+ *
+ * **Quatro são as reservas e esperam pelo KAM-045.** O quinto é o `createOrder`,
+ * e o credor dele não é um ticket de implementação: é uma **decisão** sobre o
+ * §3.39 que ninguém tomou, e está escrita no comentário desse método abaixo. A
+ * *saga* do §6.3 **existe e serve-se** — pela API interna (`../../api/interna.ts`),
+ * que é a superfície do COM e não a porta.
+ *
+ * O que **não** é adiado, porque é a costura e não a funcionalidade:
  *
  *   1. o `ctx` verifica-se nas doze, antes de qualquer outra coisa (ISO-09);
  *   2. o `merchant_id` resolve-se de `platform.tenants` e nunca de um
@@ -59,9 +68,12 @@
  */
 
 import {
+  conflito,
   erro,
+  eUuid,
   exigirCtx,
   naoImplementado,
+  ok,
   PRECO_TIPOS,
   STOCK_MODOS,
   type Cause,
@@ -83,13 +95,35 @@ import {
   type ProductRef,
   type Reservation,
   type Resultado,
+  type ResultadoFinal,
 } from "../../port/contrato.ts";
+import {
+  comoResultadoDaPorta,
+  createOrder as createOrderDaSaga,
+  filtroLido,
+  getOrder as getOrderDoModulo,
+  listOrders as listOrdersDoModulo,
+  proposeCart as proposeCartDoModulo,
+  requestOwnerConfirmation as requestOwnerConfirmationDoModulo,
+  transition as transitionDoModulo,
+  type AnelDoSegredo,
+  type AutoridadeDeStock,
+  type Encomendas,
+  type PedidoDeCriacao,
+  type Proposta,
+  type RascunhoDoCarrinho,
+  type ResultadoDaCriacao,
+} from "../../orders/index.ts";
 import {
   idsDoRegisto,
   repoBase,
   type IdsDoRegisto,
   type RepoBase,
 } from "../../repo-base/index.ts";
+import { SQL_TECTO } from "@kamba/core-ts/ten";
+
+import { SQL_GRAFO } from "../../orders/consultas.ts";
+import type { ClienteSql as ClienteSqlDoModulo } from "../../orders/contrato.ts";
 import {
   RELOGIO_DO_SISTEMA,
   SQL_AUDITAR,
@@ -102,16 +136,55 @@ import {
   type Relogio,
 } from "../../produtos/index.ts";
 
-/** As duas únicas cadeias que o `Registo.emitir` aceita. Lista **fechada**. */
-const CHAMADAS_PERMITIDAS: readonly string[] = [SQL_EMITIR, SQL_AUDITAR];
+/**
+ * As cadeias que o `Registo.emitir` aceita. Lista **fechada**, e **quatro**
+ * desde o KAM-178.
+ *
+ * As duas primeiras são chamadas de função que escrevem (`evt_emitir`,
+ * `audit_append`). As duas que entram agora são **leituras sem filtro de
+ * tenant**, e nenhuma é uma excepção aberta a quem vier depois:
+ *
+ * ```text
+ * SQL_TECTO   SELECT platform.ten_tecto($1, $2)   chamada de funcao, nao le tabela
+ * SQL_GRAFO   platform.order_state_graph          tabela SEM coluna tenant_id
+ * ```
+ *
+ * O `SQL_TECTO` é do `@kamba/core-ts/ten` e é por onde o `transition` e o
+ * `reservarIntencao` lêem o tecto do tenant — o **mínimo** entre os módulos
+ * activos, que uma leitura directa a `entitlements.limites` perdia. O
+ * `SQL_GRAFO` é o grafo de transições, e o `orders/consultas.ts` já escreveu
+ * por que razão ele vem por aqui: «não tem filtro de tenant porque a tabela não
+ * tem `tenant_id`: as transições válidas de um sistema não são configuração de
+ * tenant. Por isso **não** entra pelo repo-base — entra pela porta estreita das
+ * chamadas de função, como o `evt_emitir`». Esta lista é o que faz dessa frase
+ * uma propriedade em vez de uma intenção.
+ *
+ * **Sem elas, ligar a porta era impossível e falhava em execução:** o
+ * `checkCeiling` e o `lerGrafo` recebem o `emitir` e levantavam
+ * `ChamadaNaoPermitidaError` na primeira transição para `pendente_confirmacao`
+ * e em toda a transição — isto é, a barreira recusava o uso correcto, que é o
+ * defeito que o `repo-base/index.ts` nomeia («uma barreira que recusa o uso
+ * correcto e aceita o contorno não protege: ensina o contorno»).
+ *
+ * A comparação continua a ser por **igualdade com a constante**, pelo que
+ * acrescentar um nome aqui é uma linha visível em revisão — e não um padrão que
+ * passa a aceitar uma família de consultas.
+ */
+const CHAMADAS_PERMITIDAS: readonly string[] = [
+  SQL_EMITIR,
+  SQL_AUDITAR,
+  SQL_TECTO,
+  SQL_GRAFO,
+];
 
 /** Uma consulta chegou ao `Registo.emitir` que não é uma das duas chamadas. */
 export class ChamadaNaoPermitidaError extends Error {
   override readonly name = "ChamadaNaoPermitidaError";
   constructor(sql: string) {
     super(
-      "o Registo.emitir aceita duas cadeias e mais nenhuma: a do " +
-        "platform.evt_emitir e a do platform.audit_append. Nao e um cliente " +
+      "o Registo.emitir aceita quatro cadeias e mais nenhuma: o " +
+        "platform.evt_emitir, o platform.audit_append, o platform.ten_tecto e " +
+        "o SELECT do platform.order_state_graph. Nao e um cliente " +
         "SQL — e a porta estreita para as duas chamadas de funcao que o " +
         "repo-base nao pode verificar, porque nao tem WHERE. Uma leitura de " +
         "tabela por aqui saia sem filtro de tenant, sem o contador de recusas " +
@@ -122,20 +195,37 @@ export class ChamadaNaoPermitidaError extends Error {
 }
 
 /**
- * O cliente embrulhado: só as duas chamadas de função passam.
+ * O cliente embrulhado: só as **quatro** cadeias da lista passam.
  *
  * A comparação é por **igualdade com a constante** e não por padrão: um
  * `includes("evt_emitir")` deixava passar
  * `SELECT * FROM product; -- evt_emitir`, e o que se quer afirmar é que o texto
- * é exactamente um dos dois que este repositório escreveu.
+ * é exactamente um dos quatro que este repositório escreveu.
+ *
+ * **Eram duas e a mensagem do erro dizia duas depois de serem quatro** — achado
+ * da revisão adversarial, e não é cosmético: quem estiver a depurar uma
+ * `ChamadaNaoPermitidaError` procura as cadeias que a mensagem nomeia, e duas
+ * de quatro mandam-no procurar no sítio errado.
+ *
+ * **Devolve `rowCount` e o `ClienteSql` da porta não o tem.** A forma larga é a
+ * do `orders/contrato.ts`, e é a que o `checkCeiling` do `ten` exige na
+ * assinatura — com a estreita, o `tsc` recusa a passagem (`TS2345`, medido no
+ * *gate* 2 e escrito naquele ficheiro). O `pg` devolve as duas; quando o
+ * cliente por baixo não der `rowCount`, usa-se o número de linhas, e isso é
+ * exacto para as quatro cadeias desta lista porque **as quatro são `SELECT`**.
+ * Nenhuma é um `UPDATE` sem `RETURNING`, que é o único caso em que as duas
+ * contagens divergem.
  */
-function chamadasDeFuncao(cliente: ClienteSql): ClienteSql {
+function chamadasDeFuncao(cliente: ClienteSql): ClienteSqlDoModulo {
   return {
     async query(sql: string, parametros?: readonly unknown[]) {
       if (!CHAMADAS_PERMITIDAS.includes(sql)) {
         throw new ChamadaNaoPermitidaError(sql);
       }
-      return cliente.query(sql, parametros);
+      const resposta = await cliente.query(sql, parametros);
+      const linhas = resposta.rows as Record<string, unknown>[];
+      const contagem = (resposta as { rowCount?: number | null }).rowCount;
+      return { rows: linhas, rowCount: contagem ?? linhas.length };
     },
   };
 }
@@ -245,6 +335,32 @@ export interface Dependencias {
    * é o serviço, e não este ficheiro — ver o `ComTenant`.
    */
   readonly comTenant: ComTenant;
+  /**
+   * O anel `[actual, anterior]` do `segredo_intents` (§3.44).
+   *
+   * **Obrigatório, e é o que torna o arranque sem segredo um arranque que não
+   * serve pedidos** (KAM-178, critério 6): sem anel não há `intent_key`, não há
+   * `cart_id` e não há cursor assinado. Quem o lê do cofre é o serviço, pelo
+   * `Secrets.getRing` do KAM-010 — este ficheiro não fala com o cofre, pela
+   * mesma razão por que não escolhe ligações.
+   */
+  readonly anel: AnelDoSegredo;
+  /**
+   * As bandeiras ligadas, para o grafo de estados do `transition`.
+   *
+   * Vazio no Piloto, onde o `COM_DELIVERY_ENABLED` está desligado. A base
+   * confirma-as por `current_setting('app.com_delivery_enabled')` e, se as duas
+   * não concordarem, **ganha a base**.
+   */
+  readonly bandeiras?: readonly string[];
+  /**
+   * A autoridade do stock. **Ausente na Fase 0**, e é dito.
+   *
+   * Ver a `AutoridadeDeStock` do `create_order.ts`: a `offer_terms` não tem
+   * coluna de quantidade e o Registo da opção B não existe em `infra/compose/`.
+   * Credor: **KAM-045**.
+   */
+  readonly stockDisponivel?: AutoridadeDeStock;
 }
 
 /**
@@ -293,7 +409,7 @@ export interface Registo {
    * módulo `produtos` precisam, e mudá-lo obrigava aqueles dois ficheiros a
    * conhecer esta fronteira. O que mudou é que a fronteira passou a morder.
    */
-  readonly emitir: ClienteSql;
+  readonly emitir: ClienteSqlDoModulo;
 }
 
 /*
@@ -418,19 +534,70 @@ export function adaptadorMedusa(
       );
     },
 
+    /**
+     * **Continua `NOT_IMPLEMENTED`, e o credor não é um ticket: é uma decisão.**
+     *
+     * A *saga* do §6.3 existe, está medida e **serve-se** — pelo
+     * `POST /internal/create-order` da API interna (`../../api/interna.ts`), que é
+     * a superfície do COM. O que não se consegue ligar é **este método**, e a
+     * razão está no tipo do argumento e não em trabalho que falte.
+     *
+     * O `OrderIntent` do §3.2 tem quatro campos — `intentKey`, `contactId`,
+     * `linhas`, `entregaModo` — e o `createOrder` do KAM-046 precisa de três
+     * que ele não tem:
+     *
+     * ```text
+     * draftId, draftVersion    a `intent_key` DERIVA-SE deles (§6.3), e o
+     *                          modulo recusa uma chave do chamador por escrito:
+     *                          «nenhum dos dois se aceita do chamador»
+     * totalEsperadoMinor       e por ele que se mede o PRICE_CHANGED; sem ele a
+     *                          revalidacao nao tem com o que comparar
+     * ```
+     *
+     * E o terceiro **não é uma omissão a preencher**: o `OrderIntent` diz, na
+     * sua própria nota, «nenhuma linha leva preço, e é regra da porta e não
+     * omissão» (§3.2, regra 4). O total que o cliente confirmou é um número do
+     * chamador, e acrescentá-lo contradiz essa regra escrita.
+     *
+     * Logo ligar este método pede um **terceiro movimento** no §3.39 — alargar o
+     * `OrderIntent` e resolver, por escrito, a tensão com a regra 4 —, e a
+     * decisão de 2026-11-04 autoriza **dois**: os nove códigos e o terceiro caso
+     * do `Resultado`. Alargá-lo por conta própria era resolver em silêncio um
+     * conflito entre o §3.39 e o §3.44, que é o defeito que a ordem das fontes
+     * existe para impedir. Fica **devolvido com o credor escrito** na
+     * verificação do bloco KAM-178, e em `docs/com/port-coverage.md` §2.
+     */
     async createOrder(ctx: Ctx, i: OrderIntent): Promise<Resultado<OrderRef>> {
       exigirCtx(ctx);
       void i;
       return naoImplementado();
     },
 
+    /**
+     * **Ligado** ao `owner_confirmation.ts` do KAM-046 (KAM-178, critério 3).
+     *
+     * Os três casos do módulo atravessam a porta um a um — e o `conflito` é o
+     * terceiro caso do `Resultado` e não um `VALIDATION_ERROR`: a encomenda já
+     * saiu de `criada`, ou o subestado é outro, e o que quem chama tem de fazer
+     * é reler.
+     *
+     * **O limite, que fica dito:** o `Resultado<void>` do §3.2 não leva o
+     * subestado relido, porque o `void` não tem onde o levar. Quem o precisa
+     * lê-o com o `getOrder`. Ver a nota do `Conflito` no `../../port/contrato.ts`.
+     */
     async requestOwnerConfirmation(
       ctx: Ctx,
       orderId: string,
     ): Promise<Resultado<void>> {
-      exigirCtx(ctx);
-      void orderId;
-      return naoImplementado();
+      return comRegisto(deps, ctx, async (r) => {
+        const resultado = await requestOwnerConfirmationDoModulo(
+          encomendasDe(deps, r),
+          orderId,
+        );
+        if (resultado.tipo === "ok") return ok(undefined);
+        if (resultado.tipo === "erro") return erro(resultado.erro);
+        return conflito(undefined);
+      });
     },
 
     async reserveStock(
@@ -475,6 +642,24 @@ export function adaptadorMedusa(
       return naoImplementado();
     },
 
+    /**
+     * **Ligado** à primitiva do KAM-044 (KAM-178, critério 3).
+     *
+     * O `comoResultadoDaPorta` leva os três casos intactos, com o `conflito` a
+     * trazer a releitura: é o segundo movimento da decisão de 2026-11-04, e é o
+     * que torna o §6.2 («falha de CAS ⇒ reler e reavaliar, nunca forçar»)
+     * observável do lado de quem chama a porta.
+     *
+     * **Duas transições não são alcançáveis por aqui, e é do tipo e não do
+     * módulo:** o `entregue` exige `entrega_confirmada_por` (o contrato do
+     * `order.delivered` e o `orders_mirror_entregue_exige_quem_ck`) e o
+     * `expirada` exige um instante quando a encomenda não tem `expira_at`. O
+     * `Cause` do §3.2 é `{causa, eventoId}` e não leva nenhum dos dois, pelo que
+     * as duas respondem `VALIDATION_ERROR` por esta via. É o mesmo credor do
+     * `createOrder` — uma decisão sobre o §3.39 — e está escrito na verificação
+     * do bloco; as duas alcançam-se pelo módulo, que é por onde o KAM-050 e o
+     * varrimento de expiração as vão chamar.
+     */
     async transition(
       ctx: Ctx,
       orderId: string,
@@ -482,27 +667,159 @@ export function adaptadorMedusa(
       expectedVersion: number,
       causa: Cause,
     ): Promise<Resultado<OrderRef>> {
-      exigirCtx(ctx);
-      void orderId;
-      void to;
-      void expectedVersion;
-      void causa;
-      return naoImplementado();
+      return comRegisto(deps, ctx, async (r) => {
+        const resultado = await transitionDoModulo(encomendasDe(deps, r), {
+          orderId,
+          para: to,
+          expectedVersion,
+          causa: { causa: causa?.causa ?? "", eventoId: causa?.eventoId ?? null },
+        });
+        return comoResultadoDaPorta(resultado);
+      });
     },
 
+    /**
+     * **Ligado** ao `listagem.ts` (KAM-178, critério 3).
+     *
+     * O `orderId` verifica-se **antes** do `comRegisto`, pela regra que este
+     * ficheiro já escreve para o `exigirCtx` e para a `OwnerConfirmation`: «o
+     * que falha, falha antes de custar uma ligação». O módulo repete a
+     * verificação por dentro, para quem o use sem a porta.
+     */
     async getOrder(ctx: Ctx, orderId: string): Promise<Resultado<OrderView>> {
-      exigirCtx(ctx);
-      void orderId;
-      return naoImplementado();
+      if (!eUuid(orderId)) {
+        // O `ctx` primeiro, pela ordem do ISO-09: um `ctx` mal montado não se
+        // esconde atrás de um erro de validação do argumento.
+        exigirCtx(ctx);
+        return erro("VALIDATION_ERROR");
+      }
+      return comRegisto(deps, ctx, (r) =>
+        getOrderDoModulo({ ctx: r.ctx, repo: r.repo }, orderId),
+      );
     },
 
+    /**
+     * **Ligado** ao `listagem.ts`, com o cursor opaco (KAM-178, critérios 3 e 4).
+     *
+     * O anel vem das dependências e não do argumento: é com ele que o cursor se
+     * assina, e um cursor cuja chave viesse de fora era um cursor que quem chama
+     * pode fabricar.
+     */
     async listOrders(
       ctx: Ctx,
       f: OrderFilter,
     ): Promise<Resultado<Page<OrderView>>> {
+      // **Os três casos do ISO-10 recusam-se aqui, antes da transacção**, e é
+      // uma correcção que um caso vermelho apanhou: com a validação só dentro
+      // do módulo, um filtro vazio pagava uma ida à base (o `idsDoRegisto` do
+      // `comRegisto`) para devolver um erro que não depende dela. O `filtroLido`
+      // é puro e precisa só do anel e do tenant, que existem antes de haver
+      // ligação.
+      const validado = exigirCtx(ctx);
+      const lido = filtroLido(deps.anel, validado.tenantId, f);
+      if (lido.tipo === "erro") return lido;
+      return comRegisto(deps, ctx, (r) =>
+        listOrdersDoModulo({ ctx: r.ctx, repo: r.repo }, deps.anel, f),
+      );
+    },
+  };
+}
+
+/**
+ * O `Encomendas` que os módulos do KAM-044 e do KAM-046 recebem.
+ *
+ * O `Registo` do `comRegisto` já tem as três peças — `ctx` validado, `repo` que
+ * recusa uma consulta sem filtro, `emitir` estreito às quatro cadeias — e esta
+ * função só lhes dá o nome que aqueles módulos esperam. As bandeiras vêm das
+ * dependências porque são **configuração do serviço** e não argumento de
+ * negócio, e entram **só se vierem**: com `exactOptionalPropertyTypes`,
+ * `{bandeiras: undefined}` e `{}` são tipos diferentes, e o certo é o segundo —
+ * quem decide a omissão é o módulo.
+ */
+function encomendasDe(deps: Dependencias, r: Registo): Encomendas {
+  const base = { ctx: r.ctx, repo: r.repo, emitir: r.emitir };
+  return deps.bandeiras === undefined
+    ? base
+    : { ...base, bandeiras: deps.bandeiras };
+}
+
+/**
+ * As operações do COM: a porta, mais as duas que a porta não nomeia.
+ *
+ * ## Porque é que isto existe, e porque é que não é um décimo-terceiro método
+ *
+ * O §3.39 fecha a porta em **doze** métodos, e a contagem está presa num teste.
+ * Duas operações que a API interna serve não estão lá:
+ *
+ * ```text
+ * proposeCart   le e nao escreve; e a tool `propose_cart` do §6.2, e o
+ *               `cart.ts` do KAM-046 e que a implementa
+ * createOrder   a saga do §6.3, com as DUAS transaccoes e o pedido completo
+ *               (`PedidoDeCriacao`), que o `OrderIntent` do §3.2 nao expressa
+ * ```
+ *
+ * Acrescentá-las à porta era alargar um contrato que o dicionário fecha — a
+ * mesma recusa que o `rascunhoDoDraft` deste ficheiro já escreveu para o
+ * `precoTipo`. Por isso a API interna consome **esta** interface, e a porta
+ * continua a ser a costura do PA-03-1: trocar de Registo troca o adaptador, e
+ * estas duas vêm com ele.
+ */
+export interface OperacoesDoCom {
+  /** A porta, com os sete métodos ligados. */
+  readonly porta: CommerceRegistry;
+  /** O `propose_cart` do §6.2. Lê e não escreve. */
+  proposeCart(
+    ctx: Ctx,
+    rascunho: RascunhoDoCarrinho,
+  ): Promise<ResultadoFinal<Proposta>>;
+  /** A *saga* do §6.3, idempotente por `intent_key`. */
+  createOrder(ctx: Ctx, pedido: PedidoDeCriacao): Promise<ResultadoDaCriacao>;
+}
+
+/**
+ * As operações do COM, montadas sobre o adaptador da opção B.
+ *
+ * **O `abrir` da *saga* é `comRegisto` chamado outra vez**, e é o que lhe dá as
+ * duas transacções do §6.3: cada chamada entra num `comTenant` novo, que
+ * confirma quando o trabalho devolve um valor. As chamadas da *saga* são
+ * **sequenciais** e nunca aninhadas — é o que o `LigacaoEmUsoError` do
+ * `tenant_guard` exige de quem partilha uma ligação —, e o `esperarPorOutra`
+ * dela corre fora de transacção de propósito, porque sob `READ COMMITTED` uma
+ * transacção aberta lê o mesmo recibo quantas vezes o leia.
+ */
+export function operacoesDoCom(
+  deps: Dependencias,
+  agora: Relogio = RELOGIO_DO_SISTEMA,
+): OperacoesDoCom {
+  return {
+    porta: adaptadorMedusa(deps, agora),
+
+    async proposeCart(ctx: Ctx, rascunho: RascunhoDoCarrinho) {
+      return comRegisto(deps, ctx, (r) =>
+        proposeCartDoModulo(
+          { ctx: r.ctx, repo: r.repo },
+          deps.anel,
+          rascunho,
+          agora(),
+        ),
+      );
+    },
+
+    async createOrder(ctx: Ctx, pedido: PedidoDeCriacao) {
+      // O `exigirCtx` corre **antes** da primeira transacção, como em todo o
+      // resto deste ficheiro: um `ctx` sem tenant não abre ligação nenhuma
+      // (ISO-09), e aqui isso vale duas vezes porque a saga abre três.
       exigirCtx(ctx);
-      void f;
-      return naoImplementado();
+      const montagem = {
+        abrir: <T>(trabalho: (e: Encomendas) => Promise<T>): Promise<T> =>
+          comRegisto(deps, ctx, (r) => trabalho(encomendasDe(deps, r))),
+        anel: deps.anel,
+        agora: () => agora(),
+        ...(deps.stockDisponivel === undefined
+          ? {}
+          : { stockDisponivel: deps.stockDisponivel }),
+      };
+      return createOrderDaSaga(montagem, pedido);
     },
   };
 }
