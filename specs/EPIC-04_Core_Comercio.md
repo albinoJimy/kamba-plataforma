@@ -808,10 +808,14 @@ python db/gate_bd.py --suite tests_isolamento   Ran  79 tests in 185.625s / OK
 gate 3b  dict_export --check, canon_lint check, canon_lint canario      3 × exit 0
 gate 3   lint_refs, lint_handoff, lint_contagens; gate 3c lint_backlog  4 × exit 0
 build + typecheck + test em contentor (node:24.21.0-alpine)             exit 0
-  services/com     pass 347  fail 0        packages/core-ts  pass 1891  fail 0
+  services/com     pass 353  fail 0        packages/core-ts  pass 1891  fail 0
   services/gwy     pass  84  fail 0        tools/meta-sim    pass  162  fail 0
   worker-canal     pass  22  fail 0        onboarding-web    pass    5  fail 0
 ```
+
+**O gate 8 e o gate 6 acima são da árvore *depois* da integração** (`Ran 170` e
+`Ran 79`, as duas `OK`), não de uma corrida antiga: era a condição para os
+números valerem alguma coisa, porque a integração mudou a cadeia de migrações.
 
 **E as duas suites de base de dados correram outra vez depois da integração**, que
 é a parte que torna os números acima utilizáveis: o KAM-054 fundiu enquanto este
@@ -823,6 +827,20 @@ integração renumerou a secção do dicionário (3.45 → **3.46**) e a emenda
 (1.61 → **1.63**), porque o KAM-054 tomou as três: quem funde em segundo
 renumera, **à mão e nas linhas que são suas** — um `sed` sobre «3.45» apagava a
 secção dele.
+
+**E o que se esquece ao renumerar não é a linha de versão: são as citações
+cruzadas, que nenhum *linter* apanha.** Medido aqui: depois de deslocar a linha
+de «Controlo de versões» para a 1.63, as **oito** células da secção 3.46
+continuavam a auto-citar-se como «(emenda 1.61, KAM-045)» — e os sete *linters*
+passavam todos, porque nenhum deles lê o que uma célula diz sobre si mesma. A
+lição é do KAM-054, que na re-integração dele teve de deslocar duas
+auto-citações, sete referências a dívidas e duas citações de emenda; chegou aqui
+por escrito e pagou-se logo. Encontram-se com um `grep` **com contexto**
+(`.{0,45}` dos dois lados) sobre os ficheiros tocados, e distinguem-se das
+alheias pelo ticket que a própria célula nomeia. O deslocamento faz-se numa
+**passagem só, com alvo unívoco** (`emenda 1.61, KAM-045` → `emenda 1.63,
+KAM-045`): uma cadeia `1.61→1.62` seguida de `1.62→1.63` deslocava a mesma
+célula duas vezes.
 
 **O *gate* 3b são três comandos e não um**, e correr só o `canon_lint` dava verde
 falso: o `canon/dicionario.yaml` é **gerado** do Markdown pelo `dict_export`, e

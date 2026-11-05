@@ -41,12 +41,18 @@ import {
   TTL_MAXIMO_MS,
   TTL_MINIMO_MS,
   TTL_OMISSAO_MS,
+  agendarExpiracoes,
   atrasoAte,
+  atrasosDaLibertacao,
   autoridadeDeStock,
   commitReservation,
   decidir,
+  extendReservation,
   fimDaValidade,
+  fixarPrazo,
   jobIdDaReserva,
+  lerReservas,
+  terminal,
   percentil,
   prazoDaReserva,
   prazoDoEvento,
@@ -647,6 +653,154 @@ test("KAM-045 critério 5: sem provedor o varrimento adia em vez de libertar", a
   const semProvedor = { semTenant: v.semTenant, agora: v.agora };
   const resultado = await varrer(semProvedor);
   assert.deepEqual(resultado, { vistas: 1, libertadas: 0, consumidas: 0, adiadas: 1 });
+});
+
+// ------------------------------- os caminhos que faltavam ao estrato `restante`
+
+test("KAM-045 critério 7: o extendReservation recusa um instante que não é data", async () => {
+  const { r, vistas } = ofertaQueHonraOPredicado(10);
+  const resultado = await extendReservation(r, ENCOMENDA, "nao-e-uma-data");
+  assert.equal(resultado.tipo, "erro");
+  assert.equal(
+    vistas.length,
+    0,
+    "recusou antes de escrever: um Invalid Date numa coluna NOT NULL era um " +
+      "erro do motor onde devia haver um erro de domínio",
+  );
+});
+
+test("KAM-045 critério 7: o extendReservation passa o tecto em horas ao SQL", async () => {
+  // As quatro condições do `SQL_ESTENDER` medem-se contra a base no *gate* 8; o
+  // que se mede aqui é o que o módulo **envia**: o tecto como intervalo, em
+  // horas, derivado do `TTL_MAXIMO_MS` e não escrito à mão.
+  const movidas: unknown[][] = [];
+  const repo = {
+    tenantId: TENANT,
+    async noTenant(sql: string, valores: readonly unknown[] = []) {
+      movidas.push([...valores]);
+      if (sql.includes("criado_at + $4::interval")) {
+        return [
+          {
+            id: RESERVA,
+            line_no: 0,
+            sku: "arroz-5kg",
+            qty: 1,
+            expira_at: "2026-11-07T10:00:00.000Z",
+            confirmada_at: AGORA.toISOString(),
+            version: 2,
+          },
+        ];
+      }
+      return [];
+    },
+    async inserirNoTenant() {
+      return [];
+    },
+  };
+  const resultado = await extendReservation(
+    { repo, agora: () => AGORA },
+    ENCOMENDA,
+    "2026-11-07T10:00:00.000Z",
+  );
+  assert.equal(resultado.tipo, "ok");
+  assert.deepEqual(movidas[0]?.[2], "72 hours", "o tecto vai em horas");
+  if (resultado.tipo === "ok") {
+    assert.equal(
+      resultado.valor[0]?.confirmadaAt,
+      AGORA.toISOString(),
+      "e o confirmada_at vem do RETURNING: devolver null afirmava que a " +
+        "reserva não tem cobrança, o contrário do que a tornou elegível",
+    );
+  }
+});
+
+test("KAM-045 critério 3: o fixarPrazo envia o prazo calculado e recusa id vazio", async () => {
+  const enviados: unknown[][] = [];
+  const repo = {
+    tenantId: TENANT,
+    async noTenant(_sql: string, valores: readonly unknown[] = []) {
+      enviados.push([...valores]);
+      return [
+        {
+          id: RESERVA,
+          line_no: 0,
+          sku: "arroz-5kg",
+          qty: 1,
+          expira_at: valores[1],
+          version: 2,
+        },
+      ];
+    },
+    async inserirNoTenant() {
+      return [];
+    },
+  };
+  const r = { repo, agora: () => AGORA };
+  const resultado = await fixarPrazo(r, { orderId: ENCOMENDA }, TTL_OMISSAO_MS);
+  assert.equal(resultado.tipo, "ok");
+  assert.equal(
+    enviados[0]?.[1],
+    new Date(AGORA.getTime() + TTL_OMISSAO_MS + FOLGA_MS).toISOString(),
+    "sem prazo no evento, o módulo envia o ttl limitado mais a folga",
+  );
+
+  const vazio = await fixarPrazo(r, { orderId: "   " }, TTL_OMISSAO_MS);
+  assert.equal(vazio.tipo, "erro");
+});
+
+test("KAM-045: o lerReservas e o terminal lêem o que a base devolve", async () => {
+  const repo = {
+    tenantId: TENANT,
+    async noTenant() {
+      return [
+        {
+          id: RESERVA,
+          order_id: ENCOMENDA,
+          line_no: 0,
+          sku: "arroz-5kg",
+          qty: 2,
+          estado: "libertada",
+          motivo: "cancelada",
+          expira_at: AGORA.toISOString(),
+          confirmada_at: null,
+          version: 3,
+        },
+      ];
+    },
+    async inserirNoTenant() {
+      return [];
+    },
+  };
+  const reservas = await lerReservas({ repo }, ENCOMENDA);
+  assert.equal(reservas.length, 1);
+  assert.equal(reservas[0]?.motivo, "cancelada");
+  assert.equal(reservas[0]?.confirmadaAt, null, "o nulo atravessa como nulo");
+  assert.equal(terminal("libertada"), true);
+  assert.equal(terminal("consumida"), true);
+  assert.equal(terminal("ativa"), false, "só os dois terminais são terminais");
+});
+
+test("KAM-045 critério 4: o agendarExpiracoes salta as terminais e não falha sem fila", async () => {
+  const fila = new FilaDeExpiracaoEmMemoria();
+  const agendados = await agendarExpiracoes(fila, AGORA, TENANT, [
+    reservaActiva(),
+    { ...reservaActiva(), reservationId: "outra", estado: "libertada" },
+  ]);
+  assert.equal(agendados.length, 1, "a libertada não se agenda");
+  assert.equal(fila.contar(), 1);
+  await fila.agendarRepetivel(INTERVALO_DO_VARRIMENTO_MS);
+  assert.equal(fila.intervalo, INTERVALO_DO_VARRIMENTO_MS);
+});
+
+test("KAM-045 critério 4: os atrasos vêm da base, em segundos e ordenados", async () => {
+  const semTenant = async () => [{ atraso_s: 12 }, { atraso_s: 48 }];
+  const atrasos = await atrasosDaLibertacao({ semTenant }, AGORA);
+  assert.deepEqual([...atrasos], [12, 48]);
+  assert.equal(
+    percentil(atrasos, 0.99),
+    48,
+    "o p99 de dois é o maior, e o critério pede <= 60 s",
+  );
 });
 
 // ------------------------------------------------- a autoridade do OUT_OF_STOCK
