@@ -33,7 +33,7 @@ groups:
     rules:
       # --------------------------------------------------------- §9.2 linha 1
       - alert: ingress_parado
-        expr: 'increase(gwy_requests_total[10m]) == 0 and on() ((hour() >= 6) and (hour() < 22))'
+        expr: '(increase(gwy_requests_total[10m]) == 0 or absent(gwy_requests_total)) and on() ((hour() >= 6) and (hour() < 22))'
         for: 10m
         labels:
           severity: P1
@@ -41,6 +41,16 @@ groups:
         annotations:
           resumo: Zero webhooks recebidos ha mais de 10 min em horario comercial.
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-meta-em-baixo.md
+          porque_o_absent: >-
+            **O `absent()` nao e defensivo, e o que faz a regra funcionar.** Sem
+            ele esta regra tinha o defeito exacto que existe para apanhar: um
+            `increase()` sobre uma serie que **desapareceu** nao devolve zero,
+            devolve **nada** — e uma expressao sem resultado nao dispara. Quando
+            o GWY morre, a serie fica obsoleta ao fim de 5 min e sai do indice,
+            pelo que a versao sem `absent()` ficava **calada precisamente no caso
+            de «ingress parado»**, e so disparava no caso benigno de o GWY estar
+            vivo e sem transito. Medido ao reler a regra, antes de a revisao
+            responder.
           limite: >-
             O §9.2 pede «sonda falha 2x **ou** 0 mensagens > 10 min». So a
             segunda metade esta aqui: **nao ha sonda sintetica externa**, porque
