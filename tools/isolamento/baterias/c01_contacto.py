@@ -119,12 +119,27 @@ MARCA_DA_LEITURA = {
     "consentimentos": "canario",
 }
 
-#: A leitura que **nao** tem predicado de contacto no repositorio, e o ticket a
-#: quem isso pertence.
+#: As leituras que **nao** tem predicado de contacto no repositorio, e o ticket a
+#: quem isso pertence. **Hoje esta vazio, e foi deste ticket que nasceu.**
 #:
-#: Ver `_fixacao_das_cotacoes` para o que se mediu e porque e que esta bateria
-#: fixa o estado em vez de afirmar a propriedade.
-SEM_PREDICADO_DE_CONTACTO = {"cotacoes": "KAM-043"}
+#: A `cotacoes` esteve aqui com o credor KAM-043: a `SQL_COTACAO_VALIDA` filtrava
+#: `(tenant_id, sku, qty, estado, valida_ate)` e nao por `contact_id`, pelo que
+#: dentro do mesmo tenant o contacto X que pedisse o mesmo `(sku, qty)` recebia
+#: a cotacao emitida para Y — e a RLS nao o apanhava, porque os dois contactos
+#: sao do mesmo tenant. Enquanto a divida existiu, esta bateria **fixava o
+#: estado medido** em vez de afirmar a propriedade, para nao dar por provado o
+#: que nao estava.
+#:
+#: **O KAM-179 pagou-a**, por decisao do fundador de 2026-11-04 («a cotacao e
+#: por contacto»): a leitura, a aceitacao e o caminho que cobra passaram a levar
+#: o predicado. Com o dicionario vazio, o caso corre a asserção do criterio 6 —
+#: a leitura de X devolve a linha de X e **nao** a de Y — e a mutacao
+#: `cotacoes: a leitura perde o predicado do contacto` prova que ela morde.
+#:
+#: Deixa-se o dicionario, e nao se apaga o mecanismo: a proxima leitura por
+#: contacto que nasca sem predicado entra aqui com o seu credor em vez de
+#: avermelhar o portao sem dono.
+SEM_PREDICADO_DE_CONTACTO: dict[str, str] = {}
 
 #: A constante de SQL de cada leitura, e o ficheiro onde vive. O caso le-a para
 #: afirmar sobre o **predicado escrito**, e nao sobre o que uma execucao

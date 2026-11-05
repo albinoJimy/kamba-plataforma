@@ -1014,8 +1014,20 @@ async function lerPorContacto(
   ) => Promise<unknown>;
 
   const produtos = await importarDoRepo("services/com/src/produtos/produtos.ts");
+  // **Cinco argumentos, e o `contactId` e o segundo.** O KAM-179 acrescentou-o
+  // por decisao do fundador de 2026-11-04: a cotacao e por contacto.
+  //
+  // O `as` e uma afirmacao ao verificador de tipos e **nao** uma verificacao: o
+  // modulo entra por `importarDoRepo`, em execucao, e um `as` errado nao da erro
+  // de compilacao nenhum — da um argumento no sitio errado. Medido, e custou
+  // tres voltas de CI: enquanto este tipo dizia quatro argumentos e a funcao ja
+  // tinha cinco, a chamada punha a `Date` no parametro `qty`, o
+  // `Number.isInteger(qty)` dava falso e a leitura devolvia `VALIDATION_ERROR`.
+  // **E so no CI**, porque o *runner* testa o PR fundido com a `main` e esta
+  // maquina testava o ramo sozinho.
   const getValidQuote = produtos["getValidQuote"] as (
     r: Record<string, unknown>,
+    contactId: string,
     sku: string,
     qty: number,
     agora: Date,
@@ -1157,10 +1169,11 @@ async function lerPorContacto(
     );
     const notaDaCotacao =
       daCotacao.nota ||
-      "o `SQL_COTACAO_VALIDA` filtra `(tenant_id, sku, qty, estado, " +
-        "valida_ate)` e **nao** por `contact_id`, apesar de a tabela ter a " +
-        "coluna. A separacao entre X e Y nesta leitura e o `sku` que se pede, " +
-        "nao um predicado de contacto.";
+      "o `SQL_COTACAO_VALIDA` filtra `(tenant_id, contact_id, sku, qty, " +
+        "estado, valida_ate)` desde o KAM-179. X e Y tem o **mesmo** " +
+        "`(sku, qty)` por desenho da semente, pelo que o que separa as duas " +
+        "linhas e o predicado do contacto e nada mais — e e isso que esta " +
+        "leitura mede.";
     const sku = String(
       daCotacao.valores?.["sku"] ?? contacto.canarios["platform.price_quotes"] ?? "",
     );
@@ -1194,6 +1207,9 @@ async function lerPorContacto(
             traceId: "x01",
           },
         },
+        // O `contactId` e o segundo argumento desde o KAM-179, e e **ele** que
+        // esta leitura mede: X e Y tem o mesmo `(sku, qty)`.
+        contacto.id,
         sku,
         qty,
         agoraDaCotacao,

@@ -116,6 +116,7 @@ ISO_ORACULO = "tools/isolamento/oraculo.py"
 ISO_C01 = "tools/isolamento/baterias/c01_contacto.py"
 ISO_TEXTO = "tools/isolamento/texto.py"
 COM_API_INTERNA = "services/com/src/api/interna.ts"
+COM_CONSULTAS_PRODUTOS = "services/com/src/produtos/consultas.ts"
 REV3 = "db/migrations/versions/0003_identidade_de_contacto.py"
 IDENTIDADE = "tests_identidade"
 ID_CHAVES = "packages/core-ts/src/identity/chaves.ts"
@@ -934,6 +935,23 @@ MUTACOES = [
      "    tenantId: tenantHeader.toLowerCase(),",
      '    tenantId: String(corpo["tenant_id"] ?? tenantHeader).toLowerCase(),',
      ISOLAMENTO),
+    # **A primeira metade do criterio 8, ao pe da letra, e agora possivel.**
+    #
+    # O criterio pede «remover o `WHERE tenant_id` de uma funcao de repositorio
+    # torna X-02/X-03 vermelhos», e a leitura que eu devolvi dizia que com a RLS
+    # em `FORCE` isso nao da: tirar o predicado do repositorio deixa a politica
+    # a recusar, e o caso fica verde por outra razao. Isso continua verdade para
+    # o eixo do **tenant**.
+    #
+    # No eixo do **contacto** nao ha politica a tapar o buraco: X e Y estao no
+    # mesmo tenant e a `tenant_iso` deixa passar os dois. Logo tirar o
+    # `contact_id = $2` da `SQL_COTACAO_VALIDA` — que o KAM-179 acrescentou por
+    # decisao do fundador de 2026-11-04 — **tem** de avermelhar o
+    # `C-01/consultas`, e nada o apanha se nao for esta bateria. E a mutacao que
+    # este ticket existia para poder escrever, e so se pode escrever desde que o
+    # predicado existe: enquanto nao existia, a bateria fixava a ausencia.
+    ("cotacoes: a leitura perde o predicado do contacto", COM_CONSULTAS_PRODUTOS,
+     "     AND contact_id = $2", "     AND $2 = $2", ISOLAMENTO),
     ("catalogo: a descoberta ignora o schema platform", CATALOGO,
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast")',
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast", "platform")',

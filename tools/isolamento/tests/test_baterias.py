@@ -315,17 +315,33 @@ class TestAPonteEOCondutorConcordam(unittest.TestCase):
 class TestAFixacaoDasCotacoes(unittest.TestCase):
     """A fixacao e sobre o que a leitura devolveu, nao sobre o texto do SQL.
 
-    A revisao adversarial mostrou a cadeia que a versao por texto permitia: o
-    KAM-043 acrescenta `contact_id` a **projeccao** (sem predicado), a fixacao
+    A revisao adversarial mostrou a cadeia que a versao por texto permitia: um
+    ticket acrescenta `contact_id` a **projeccao** (sem predicado), a fixacao
     anuncia «o credor pagou a divida», quem le tira a leitura de
     `SEM_PREDICADO_DE_CONTACTO`, e a asserção que passa a correr fica verde por
     outra razao. Estas tres baterias fecham as tres direccoes.
+
+    **O mecanismo deixou de estar em uso e os ensaios ficam**, porque o
+    `SEM_PREDICADO_DE_CONTACTO` continua a existir para a proxima divida: o
+    KAM-179 pagou a das cotacoes, e o dia em que outra leitura por contacto
+    nascer sem predicado e o dia em que isto volta a correr. Um ensaio apagado
+    com o uso e um mecanismo que ninguem verifica quando voltar.
     """
 
     X = "11111111-1111-1111-1111-111111111111"
     Y = "22222222-2222-2222-2222-222222222222"
 
     def fixar(self, texto_de_x: str) -> list[str]:
+        # **O credor injecta-se, porque o dicionario esta vazio.** O KAM-179
+        # pagou a divida das cotacoes e o `SEM_PREDICADO_DE_CONTACTO` ficou sem
+        # entradas; o mecanismo fica, e estes ensaios verificam-no com uma
+        # entrada de ensaio. Sem a injeccao, eles levantavam `KeyError` e a
+        # tentacao era apaga-los — o que deixava o mecanismo sem canario para o
+        # dia em que a proxima leitura por contacto nascer sem predicado.
+        c01_contacto.SEM_PREDICADO_DE_CONTACTO["cotacoes"] = "KAM-179"
+        self.addCleanup(
+            c01_contacto.SEM_PREDICADO_DE_CONTACTO.pop, "cotacoes", None
+        )
         return c01_contacto._fixacao_das_cotacoes(
             Contexto(raiz=RAIZ), "cotacoes", texto_de_x, self.X, self.Y
         )
@@ -338,7 +354,6 @@ class TestAFixacaoDasCotacoes(unittest.TestCase):
         """O predicado apareceu: o caso fica vermelho e nomeia o credor."""
         achados = self.fixar(f'{{"id":"{self.X}"}}')
         self.assertEqual(len(achados), 1, achados)
-        self.assertIn("KAM-043", achados[0])
         self.assertIn("SEM_PREDICADO_DE_CONTACTO", achados[0])
 
     def test_uma_leitura_vazia_e_achado_e_nao_silencio(self) -> None:
