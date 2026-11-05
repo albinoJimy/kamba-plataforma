@@ -192,9 +192,12 @@ tests/condutor/ o condutor de TypeScript: ataca as apps Hono em processo
 e a separacao nao e arrumacao.** O `ci/thresholds.yaml` classifica por caminho:
 `*/isolamento/*` e padrao do estrato `critico`, e um ficheiro `.ts` do universo
 que nenhum teste carrega entra com todas as suas linhas no denominador e zero no
-numerador. Medido: as 1310 linhas do condutor levaram o estrato de 94,23% a
-88,07% no *gate* 4, contra 90 de minimo. O `**/tests/**` dos `excluidos` ja
-existia e ja cobria o caso gemeo — o `packages/core-ts/tests/x11_conduzir.ts`,
+numerador. Medido **no *gate* 4 do commit `6212517`**, quando o condutor tinha
+1310 linhas: levaram o estrato de 94,23% a 88,07%, contra 90 de minimo. O
+ficheiro cresceu desde entao (o grupo `com-interna` do KAM-178), e por isso a
+medicao fica datada em vez de arredondada — o que ela mostra e o sinal, nao o
+numero de hoje. O `**/tests/**` dos `excluidos` ja existia e ja cobria o caso
+gemeo — o `packages/core-ts/tests/x11_conduzir.ts`,
 que o `make x11` conduz e que diz na propria *docstring* que vive em `tests/`
 por nao ser um teste. Um andaime de ensaio em TypeScript vai para `tests/`;
 **mexer no criterio do portao para o acomodar seria outra coisa, e nao e de

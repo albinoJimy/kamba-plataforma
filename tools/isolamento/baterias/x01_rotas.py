@@ -10,11 +10,16 @@ as respostas a identificadores de B sao indistinguiveis entre si.
 ## As rotas desta arvore nao sao todas iguais, e o caso diz qual e qual
 
 ```text
-7 rotas levam identificadores   o IDOR e possivel, e e o que se ataca
-15 rotas sao sonda ou metricas  nao recebem identificador nenhum; o que se
-                                prova e que a resposta nao leva canario nem
-                                `tenant_id`, e que o oraculo morderia se levasse
+14 rotas levam identificadores   o IDOR e possivel, e e o que se ataca
+16 rotas sao sonda ou metricas   nao recebem identificador nenhum; o que se
+                                 prova e que a resposta nao leva canario nem
+                                 `tenant_id`, e que o oraculo morderia se levasse
 ```
+
+As sete `POST /internal/*` do COM (KAM-178) entram na primeira metade, e o
+`ALL /internal/*` da app sem API montada entra nela tambem: ele recebe os mesmos
+corpos, e o que se afirma e que os recusa de forma indistinguivel. O
+`GET /metrics` do COM entra na segunda.
 
 Uma rota de sonda nao escapa ao criterio por nao ter argumentos: ela responde, e
 o que ela responde atravessa o oraculo como qualquer outra. O `/metrics` e o
@@ -29,11 +34,14 @@ tenant e o dia em que esta bateria tem de ficar vermelha.
   `services/agr/tests/`, que e onde o `starlette`, o `pydantic` e o `yaml` do
   AGR existem — o *venv* do *gate* 6 tem-nos, mas a suite da base nao tem o
   pacote do AGR no caminho de importacao.
-* **As dezassete rotas de TypeScript** sao Hono, e uma aplicacao Hono responde
-  em processo pelo `app.request()` (e a forma que os testes do GWY ja usam).
-  O caso chama um **condutor** em `node` e le o relatorio JSON dele; corre em
-  `db/tests_isolamento/`, porque a rota `POST /internal/channels` precisa de uma
-  transaccao real contra a base do *gate*.
+* **As vinte e seis rotas de TypeScript** sao Hono, e uma aplicacao Hono
+  responde em processo pelo `app.request()` (e a forma que os testes do GWY ja
+  usam). O caso chama um **condutor** em `node` e le o relatorio JSON dele;
+  corre em `db/tests_isolamento/`, porque a rota `POST /internal/channels`
+  precisa de uma transaccao real contra a base do *gate*. **O grupo
+  `com-interna` e a excepcao**: os duplos substituem a porta do COM, pelo que
+  ele corre sem base nenhuma — o que se mede nele e a construcao do `ctx`, e nao
+  a filtragem.
 
 Nenhuma das duas metades e um servidor levantado: sao as aplicacoes em processo.
 Isso nao e so velocidade — e o que torna o caso determinista e o que permite
@@ -42,6 +50,8 @@ forte desta bateria.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from ..casos import registar_caso
 
@@ -129,11 +139,25 @@ def _uniformidade(
             "pede recusas **uniformes**."
         )
     fora = sorted({estado for estado in distintos if estado not in aceitaveis})
-    if fora:
+    if not fora:
+        return achados
+    # **Duas mensagens, e nao uma**, porque os `aceitaveis` nao sao sempre uma
+    # lista de recusas: o `aceitaveis_por_item` deixa um item responder 200 (o
+    # `GET /metrics` do COM) ou so 503 (o `ALL /internal/*`). Dizer «404 nao e
+    # uma recusa» ao `/metrics` era o relatorio a nomear a coisa errada —
+    # naquele item um 404 nao e uma fuga, e a rota em baixo.
+    if 200 not in aceitaveis:
         achados.append(
             f"{rotulo}: identificadores de B produziram {fora}, que nao e uma "
             f"recusa ({aceitaveis}). Um 2xx a um identificador de outro "
             "tenant e a falha que esta bateria existe para apanhar."
+        )
+    else:
+        achados.append(
+            f"{rotulo}: as tentativas produziram {fora}, fora dos estados que "
+            f"este item pode responder ({aceitaveis}). Este item responde 2xx "
+            "quando esta de pe, pelo que um estado de fora quer dizer que ele "
+            "nao respondeu — e entao o caso nao mediu o que diz medir."
         )
     return achados
 
@@ -203,8 +227,25 @@ def _caso_ts(
     itens: tuple[str, ...],
     com_idor: bool,
     aceitaveis: tuple[int, ...] = RECUSAS_ACEITAVEIS,
+    aceitaveis_por_item: dict[str, tuple[int, ...]] | None = None,
+    afirmacoes: Callable[[str, list[dict]], list[str]] | None = None,
 ):
-    """Fabrica o `fn` de um grupo de rotas de TypeScript."""
+    """Fabrica o `fn` de um grupo de rotas de TypeScript.
+
+    `aceitaveis_por_item` sobrepoe o `aceitaveis` **so** para os itens que
+    nomeia, e existe porque um grupo pode cobrir superficies cujas respostas
+    legitimas nao sao as mesmas: as nove do COM incluem um `/metrics` que
+    responde 200 e um `ALL /internal/*` que responde 503. Alargar o
+    `RECUSAS_ACEITAVEIS` global para acomodar o 200 enfraquecia os outros casos
+    — era deixar de apanhar precisamente a falha que esta bateria existe para
+    apanhar.
+
+    `afirmacoes` e `fn(item, entradas) -> list[str]`, para as medicoes que um
+    grupo escreve na `nota` de cada entrada e que o oraculo nao ve. Recebe as
+    entradas **executadas** de um item; e um parametro e nao um segundo caso
+    porque o condutor corre uma vez por grupo.
+    """
+    por_item_aceitaveis = dict(aceitaveis_por_item or {})
 
     def correr(ctx) -> list[str]:  # noqa: ANN001
         por_item, achados = _relatorio_ts(ctx, grupo)
@@ -226,12 +267,14 @@ def _caso_ts(
                 )
                 continue
             achados.extend(_varrer_entradas(ctx, item, entradas))
+            if afirmacoes is not None:
+                achados.extend(afirmacoes(item, entradas))
             if com_idor:
                 achados.extend(
                     _uniformidade(
                         item,
                         [int(e.get("estado", -1)) for e in entradas],
-                        aceitaveis,
+                        por_item_aceitaveis.get(item, aceitaveis),
                     )
                 )
             else:
@@ -313,6 +356,266 @@ registar_caso(
     camada="rotas",
     enumeravel=CANAIS_DO_GWY,
     fn=_caso_ts("canais", CANAIS_DO_GWY, com_idor=True, aceitaveis=ESTADOS_DOS_CANAIS),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)
+
+
+# ------------------------------------------------- a API interna do COM
+#
+# As nove superficies que o KAM-178 acrescentou ao COM. A propriedade medida
+# **nao** e «a RLS filtra» — com um duplo da porta nao ha base de dados —, e
+# esta:
+#
+#     o `ctx` que a porta recebe tem o tenant do cabecalho `x-kamba-tenant` e
+#     mais nada
+#
+# O `ctxDoPedido` de `services/com/src/api/interna.ts` le o tenant **so** do
+# cabecalho; o `actor` e o `trace_id` vem do corpo, e nenhum tenant vem de la.
+# Por isso cada uma das sete rotas `POST /internal/*` leva tres ataques com a
+# credencial certa e `x-kamba-tenant: <A>`: um corpo valido de A com campos
+# extra que nomeiam B (`tenant_id`, `tenant`, `merchant_id` e o canario de B num
+# campo livre), um corpo cujos identificadores de dominio sao de B, e os dois
+# juntos. O condutor registra o `ctx` de cada chamada que chegou ao duplo da
+# porta e escreve o veredicto na `nota` da entrada; este caso le-o.
+#
+# ## A sonda positiva, e as duas portas do *fail-closed*
+#
+# «Zero canarios de B» e verde quando nada chega ao sitio. O condutor prova, no
+# mesmo relatorio, que o caminho esta vivo — a porta foi chamada com o `ctx` de
+# A, devolveu um valor com o canario de **A**, e esse canario chegou a resposta —
+# e que as duas portas do modulo disparam: sem credencial, 401; com credencial e
+# sem `x-kamba-tenant`, 400. As tres medicoes vem em marcas na `nota`, e as tres
+# sao exigidas aqui: uma afirmacao nao medida nao e um verde.
+
+
+#: As sete rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM.
+ROTAS_POST_DA_API_INTERNA_DO_COM = (
+    "rota:com:api/interna:apiInterna:POST:/internal/offer-view",
+    "rota:com:api/interna:apiInterna:POST:/internal/propose-cart",
+    "rota:com:api/interna:apiInterna:POST:/internal/create-order",
+    "rota:com:api/interna:apiInterna:POST:/internal/get-order",
+    "rota:com:api/interna:apiInterna:POST:/internal/list-orders",
+    "rota:com:api/interna:apiInterna:POST:/internal/transition",
+    "rota:com:api/interna:apiInterna:POST:/internal/request-owner-confirmation",
+)
+
+#: O `GET /metrics` do COM. Sem credencial e sem identificadores (§3.39).
+ITEM_DAS_METRICAS_DO_COM = "rota:com:api/interna:rotaDasMetricas:GET:/metrics"
+
+#: O `ALL /internal/*` da app construida **sem** a API montada.
+ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*"
+
+#: As nove, que e o que o caso cobre. Literais pela razao do topo do modulo: um
+#: filtro fazia uma oitava rota nascer coberta.
+ROTAS_DA_API_INTERNA_DO_COM = (
+    *ROTAS_POST_DA_API_INTERNA_DO_COM,
+    ITEM_DAS_METRICAS_DO_COM,
+    ITEM_SEM_API_DO_COM,
+)
+
+#: Os estados aceitaveis que **nao** sao os do `RECUSAS_ACEITAVEIS`, item a item
+#: e com a razao escrita:
+#:
+#:   200  o `GET /metrics`. Serve a exposicao Prometheus, e servi-la e o que ela
+#:        faz. Nao e uma resposta sobre o recurso de ninguem — nao recebe
+#:        identificador nenhum —, e a afirmacao sobre ela e outra: o corpo nao
+#:        leva canario, nao leva `tenant_id` e nao leva rotulo por tenant
+#:        (`OBS-I`). Um 4xx aqui era a rota em baixo, e o caso ficava verde por
+#:        nao ter medido nada.
+#:   503  o `ALL /internal/*` da app sem `api`. O `services/com/src/app.ts`
+#:        escolhe-o de proposito em vez de 404: um 404 dizia a quem chama «essa
+#:        rota nao existe», e ela existe — so nao esta montada, que e um defeito
+#:        de arranque e nao um pedido errado. E *fail-closed* (nenhuma operacao
+#:        corre) e nao distingue tenants, e e isso que as tres tentativas medem.
+#:
+#: **O `RECUSAS_ACEITAVEIS` global nao se alarga para acomodar o 200**: era
+#: deixar de apanhar, em todos os outros casos, precisamente a falha que esta
+#: bateria existe para apanhar.
+ACEITAVEIS_DA_API_INTERNA_DO_COM: dict[str, tuple[int, ...]] = {
+    ITEM_DAS_METRICAS_DO_COM: (200,),
+    ITEM_SEM_API_DO_COM: (503,),
+}
+
+#: Quantos ataques o criterio pede por rota, e que o condutor tem de ter feito.
+ATAQUES_POR_ROTA_DO_COM = 3
+
+
+def _marca(nota: object, chave: str) -> str | None:
+    """O valor de `chave=...` na nota do condutor, ou `None` se nao vier.
+
+    A `nota` deste grupo e uma lista de marcas separadas por espacos, e nao
+    texto livre: e o canal por onde uma medicao feita em `node` — o `ctx` com
+    que a porta foi chamada — chega ao lado que decide se ha achado. **Nunca
+    leva um canario**, pelo mesmo motivo que a `EntradaDeRota` do condutor
+    escreve na sua.
+    """
+    prefixo = f"{chave}="
+    for pedaco in str(nota or "").split():
+        if pedaco.startswith(prefixo):
+            return pedaco[len(prefixo) :]
+    return None
+
+
+def _exigir_marca(
+    item: str, entradas: list[dict], chave: str, esperado: str, porque: str
+) -> list[str]:
+    """Um achado por `(item, chave)` quando alguma entrada nao traz `esperado`."""
+    valores = [_marca(entrada.get("nota"), chave) for entrada in entradas]
+    maus = sorted(
+        {"(em falta)" if valor is None else valor for valor in valores}
+        - {esperado}
+    )
+    if not maus:
+        return []
+    return [f"{item}: `{chave}` saiu {maus} e nao {[esperado]}. {porque}"]
+
+
+def _contar_ataques(item: str, entradas: list[dict]) -> list[str]:
+    if len(entradas) == ATAQUES_POR_ROTA_DO_COM:
+        return []
+    return [
+        f"{item}: o condutor deixou {len(entradas)} entrada(s) e o criterio pede "
+        f"{ATAQUES_POR_ROTA_DO_COM} ataques (corpo de A com campos de B, "
+        "identificadores de dominio de B, e os dois juntos). Um ataque que nao "
+        "se fez e um ataque que nao mediu, e a uniformidade de dois estados diz "
+        "menos do que a de tres."
+    ]
+
+
+def _afirmacoes_da_api_interna_do_com(item: str, entradas: list[dict]) -> list[str]:
+    """As medicoes que vem na `nota` do condutor, e que o oraculo nao ve.
+
+    O oraculo diz se algo de B saiu. Estas dizem se o caso mediu o que diz medir:
+    o `ctx` com que a porta foi chamada, a sonda positiva, e as duas portas do
+    *fail-closed*.
+    """
+    if item == ITEM_DAS_METRICAS_DO_COM:
+        return [
+            *_exigir_marca(
+                item,
+                entradas,
+                "metricas",
+                "limpa",
+                "A exposicao do COM tem de sair sem rotulo por tenant e sem o "
+                "`tenant_id` de A no corpo (`OBS-I`): as duas series sao "
+                "contagens por filtro, e `rotulo-por-tenant` quer dizer que "
+                "alguem lhes acrescentou uma etiqueta com identificador.",
+            ),
+            *_exigir_marca(
+                item,
+                entradas,
+                "series",
+                "com-valor",
+                "A serie `com_repo_consultas_total{filtro=\"tenant\"}` saiu a "
+                "zero ou nao saiu: a afirmacao de cima correu sobre uma "
+                "populacao vazia, e sobre populacao vazia ela passa mesmo que a "
+                "exposicao ganhe uma etiqueta por tenant. E o achado que a "
+                "revisao adversarial do KAM-178 fez no teste desta rota.",
+            ),
+            *_exigir_marca(
+                item,
+                entradas,
+                "contadores",
+                "subidos",
+                "O condutor nao conseguiu fazer subir os contadores pelo "
+                "caminho real (`repoBase.noTenant`), pelo que nao se mediu que "
+                "o que o repo-base conta e o que a rota serve.",
+            ),
+        ]
+
+    if item == ITEM_SEM_API_DO_COM:
+        return [
+            *_contar_ataques(item, entradas),
+            *_exigir_marca(
+                item,
+                entradas,
+                "sem-api",
+                "corpo-igual",
+                "Os tres ataques a app sem `api` montada receberam corpos "
+                "diferentes entre si. Um corpo que varie com o identificador "
+                "que se manda distingue tenants, que e o oraculo de existencia "
+                "que o criterio 3 proibe ao pedir recusas uniformes.",
+            ),
+        ]
+
+    return [
+        *_contar_ataques(item, entradas),
+        *_exigir_marca(
+            item,
+            entradas,
+            "ctx",
+            "a",
+            "**E a afirmacao central deste caso**: o duplo da porta tem de ter "
+            "sido chamado, em cada ataque, com `ctx.tenantId` igual ao tenant do "
+            "cabecalho `x-kamba-tenant`. `outro-tenant` quer dizer que um campo "
+            "do corpo deslocou o `ctx`; `nenhuma-chamada` quer dizer que o "
+            "ataque nao chegou a porta, e entao a afirmacao nao se mediu.",
+        ),
+        *_exigir_marca(
+            item,
+            entradas,
+            "sonda",
+            "viva",
+            "A sonda positiva: com um corpo legitimo de A, a porta tem de ser "
+            "chamada com o `ctx` de A, devolver um valor com o canario de A, e "
+            "esse canario tem de chegar a resposta. Sem ela, «o canario de B nao "
+            "saiu» e verde por a rota nunca ter chegado a porta.",
+        ),
+        *_exigir_marca(
+            item,
+            entradas,
+            "fecho-sem-credencial",
+            "401",
+            "A primeira porta do *fail-closed*: sem `x-kamba-interno`, 401 sem "
+            "corpo. Se nao disparou, os duplos estao mal montados e o resto do "
+            "caso mede outra coisa que nao a rota.",
+        ),
+        *_exigir_marca(
+            item,
+            entradas,
+            "fecho-sem-tenant",
+            "400",
+            "A segunda porta do *fail-closed*: com credencial e sem "
+            "`x-kamba-tenant`, 400 `{\"error\":\"ctx\"}` e nenhuma operacao "
+            "corre. Se nao disparou, o `ctx` nao vem do cabecalho — e e isso que "
+            "este caso diz medir.",
+        ),
+        *_exigir_marca(
+            item,
+            entradas,
+            "ids-de-b",
+            "tenant-b",
+            "O condutor usou um UUID substituto no `contact_id` em vez do "
+            "identificador de B, porque o `KAMBA_X01_TENANT_B` nao tinha forma "
+            "de UUID. O ataque fez-se, mas o identificador real de B nunca "
+            "entrou nos campos de dominio: metade do que o caso diz medir ficou "
+            "por medir.",
+        ),
+        *_exigir_marca(
+            item,
+            entradas,
+            "canario-de-b",
+            "presente",
+            "O condutor nao recebeu `KAMBA_X01_CANARIOS`, pelo que os ataques "
+            "levaram um substituto em vez do canario de B. «Nada de B saiu» "
+            "ficava verde por B nunca ter entrado.",
+        ),
+    ]
+
+
+registar_caso(
+    id="X-01/ts/com-interna",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DA_API_INTERNA_DO_COM,
+    fn=_caso_ts(
+        "com-interna",
+        ROTAS_DA_API_INTERNA_DO_COM,
+        com_idor=True,
+        aceitaveis_por_item=ACEITAVEIS_DA_API_INTERNA_DO_COM,
+        afirmacoes=_afirmacoes_da_api_interna_do_com,
+    ),
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),
 )

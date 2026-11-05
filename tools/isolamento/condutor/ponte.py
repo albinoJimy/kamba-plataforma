@@ -1,6 +1,6 @@
 """Como correr o condutor de TypeScript a partir da suite, e ler o que ele mediu.
 
-As dezassete rotas de TypeScript do criterio 3 e as tres leituras por contacto
+As vinte e seis rotas de TypeScript do criterio 3 e as tres leituras por contacto
 do criterio 6 vivem em Hono e em modulos de `services/*`. Uma aplicacao Hono
 responde em processo pelo `app.request()` — sem servidor, sem porta, sem espera —
 e e isso que torna o ataque deterministico. Mas o processo e `node`, e a suite e
@@ -69,7 +69,11 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 
 #: Os grupos que o condutor conhece. A lista esta aqui e nele, e as duas tem de
 #: concordar: um grupo que so exista num dos lados e um caso que nunca corre.
-GRUPOS = ("sondas", "webhook", "canais", "contacto")
+#:
+#: O `com-interna` sao as nove superficies que o KAM-178 acrescentou ao COM, e e
+#: o unico grupo de rotas que **nao** precisa de base: os duplos substituem a
+#: porta, pelo que corre com `KAMBA_X01_PG` ausente.
+GRUPOS = ("sondas", "webhook", "canais", "contacto", "com-interna")
 
 #: A imagem usada quando nao ha `node` no `PATH`. A mesma versao de
 #: `.node-version`, fixada pelo digest que `ci/supply-chain/imagens.yaml`
@@ -368,7 +372,7 @@ def correr(
         else:
             raise SemNodeNemDocker(
                 "nao ha `node` no PATH nem `docker` para correr a imagem "
-                f"{IMAGEM_NODE.split('@')[0]}. As dezassete rotas de TypeScript "
+                f"{IMAGEM_NODE.split('@')[0]}. As vinte e seis rotas de TypeScript "
                 "do criterio 3 e as tres leituras por contacto do criterio 6 "
                 "correm em processo num `node`, e sem um dos dois este caso nao "
                 "se mede — num gate, saltar e falhar."

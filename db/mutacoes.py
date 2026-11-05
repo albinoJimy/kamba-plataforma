@@ -115,6 +115,7 @@ ISO_LINTS = "tools/isolamento/lints.py"
 ISO_ORACULO = "tools/isolamento/oraculo.py"
 ISO_C01 = "tools/isolamento/baterias/c01_contacto.py"
 ISO_TEXTO = "tools/isolamento/texto.py"
+COM_API_INTERNA = "services/com/src/api/interna.ts"
 REV3 = "db/migrations/versions/0003_identidade_de_contacto.py"
 IDENTIDADE = "tests_identidade"
 ID_CHAVES = "packages/core-ts/src/identity/chaves.ts"
@@ -894,7 +895,8 @@ MUTACOES = [
     # fica vermelha porque o condutor de TypeScript nao termina lá — os quatro
     # casos de `precisa="node"` saem com `executado: false` —, e a causa nao
     # ficou isolada: na arvore real os mesmos casos correm verdes (83 ensaios,
-    # 120,8 s, OK). Enquanto isto durar, a prova por mutacao do eixo do contacto
+    # 572,7 s, OK a 2026-11-05, ja com o grupo `com-interna`; 96 s no CI, onde ha
+    # `node` no PATH e o condutor nao paga arranque de contentor por grupo). Enquanto isto durar, a prova por mutacao do eixo do contacto
     # e NAO VERIFICADA. Revisto quando a tarefa nocturna de mutacoes correr
     # sobre este ficheiro pela primeira vez — que e quando o defeito aparece num
     # artefacto em vez de na maquina de quem o escreveu —, pelo Engenheiro de
@@ -902,6 +904,36 @@ MUTACOES = [
     ("isolamento: a leitura do contacto deixa de filtrar por contacto", ISO_C01,
      '            f"SELECT {coluna}::text FROM {schema}.{tabela} WHERE contact_id = %s",',
      '            f"SELECT {coluna}::text FROM {schema}.{tabela}",', ISOLAMENTO),
+    # **A metade do criterio 8 que e alcancavel, e a razao por que esta e que e.**
+    #
+    # O criterio pede «remover o `WHERE tenant_id` de uma funcao de repositorio
+    # torna X-02/X-03 vermelhos». Com a RLS em `FORCE` isso nao da: o predicado
+    # do repositorio e a camada **de cima**, e tirando-o fica a politica
+    # `tenant_iso` a recusar — a leitura devolve zero linhas e o caso continua
+    # verde, por outra razao. A leitura esta devolvida a quem escreveu o
+    # criterio, no «o que nao se cumpre» do bloco.
+    #
+    # Esta mutacao e o mesmo pedido na camada onde a barreira **vive**: o
+    # `ctxDoPedido` da API interna do COM constroi o `ctx` com o tenant do
+    # cabecalho `x-kamba-tenant` e nunca do corpo, e esta mutacao faz um campo do
+    # corpo ganhar-lhe. Os tres ataques do `X-01/ts/com-interna` mandam
+    # `tenant_id` de B no corpo, pelo que dois dos tres passam a chamar a porta
+    # com o `ctx` de B — a marca `ctx` do relatorio passa de `a` a
+    # `outro-tenant` e o caso fica vermelho. **Nao ha RLS que a apanhe**: nao
+    # ha base nenhuma neste caminho, e e precisamente por isso que ele precisa
+    # de caso proprio.
+    #
+    # **Provada por execucao a 2026-11-05, e contra codigo de producao e nao
+    # contra o proprio aparelho** — que e a diferenca entre esta e as outras
+    # mutacoes do *harness*. Aplicada a mao ao `interna.ts`, o condutor correu o
+    # grupo `com-interna` na arvore mutada e a marca do relatorio passou de
+    # `ctx=a` a `ctx=outro-tenant`; o caso registado sobre esse relatorio deu
+    # **sete achados, um por rota**, cada um a nomear o `ctx` deslocado. A
+    # arvore foi restaurada e o `--aplicaveis` confirmou 0 nao aplicaveis.
+    ("isolamento: a API interna do COM le o tenant do corpo", COM_API_INTERNA,
+     "    tenantId: tenantHeader.toLowerCase(),",
+     '    tenantId: String(corpo["tenant_id"] ?? tenantHeader).toLowerCase(),',
+     ISOLAMENTO),
     ("catalogo: a descoberta ignora o schema platform", CATALOGO,
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast")',
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast", "platform")',

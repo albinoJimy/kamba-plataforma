@@ -6,7 +6,7 @@
  *
  * ## Porque e que isto e um guiao de `node` e nao um caso de Python
  *
- * As dezassete rotas de TypeScript sao Hono, e uma aplicacao Hono responde pelo
+ * As vinte e seis rotas de TypeScript sao Hono, e uma aplicacao Hono responde pelo
  * `app.request()` sem nenhum servidor levantado — e a forma que os testes do GWY
  * ja usam. Nenhuma porta, nenhum `fetch` sobre `localhost`, nenhuma espera: o
  * ataque e deterministico e o `fn` do caso em `tools/isolamento/baterias/`
@@ -1234,6 +1234,662 @@ async function lerPorContacto(
   return entradas;
 }
 
+// ------------------------------------------------------ a API interna do COM
+//
+// As nove superficies que o KAM-178 acrescentou ao COM: as sete rotas
+// `POST /internal/*`, o `GET /metrics` e o `ALL /internal/*` da app construida
+// **sem** a API montada.
+//
+// ## A propriedade que este grupo mede, e a que ele **nao** mede
+//
+// Nao mede «a RLS filtra»: com um duplo da porta nao ha base de dados nenhuma.
+// Mede esta, que e a da camada que o ticket acrescentou:
+//
+//     o `ctx` que a porta recebe tem o tenant do cabecalho `x-kamba-tenant`
+//     e mais nada
+//
+// Um corpo que nomeie o tenant B, um contacto de B ou identificadores de B nao
+// desloca o `ctx` para B, e nada de B volta na resposta. O `ctxDoPedido` do
+// `api/interna.ts` le o tenant **so** do cabecalho; esta e a afirmacao que o
+// torna falsificavel, e por isso o duplo da porta **registra o `ctx` de cada
+// chamada** e o relatorio leva essa medicao numa `nota` por entrada — e o lado
+// Python que a acusa.
+//
+// Que o Registo real recuse o `order_id` de B e **outra** afirmacao, do
+// adaptador e da RLS: corre no X-03 e no X-05, com base. Fica dito em vez de
+// ficar por dizer.
+//
+// ## Os duplos nao ecoam o pedido, e e isso que impede um achado inventado
+//
+// Um duplo que devolvesse o `sku` ou o `order_id` que recebeu punha o canario
+// de B na resposta **por o condutor o ter mandado** — a mesma armadilha que o
+// grupo do webhook descreve ao nao assinar com o anel da Meta. Os valores
+// destes duplos sao fixos e de A: nenhum depende do corpo do ataque.
+//
+// ## O duplo recusa, como o `graph` e o `cofre` do grupo dos canais
+//
+// Em `modo: "recusa"` a porta devolve `NOT_FOUND` a **todas** as chamadas. E
+// escolha com razao: o criterio 3 pede estados **uniformes** nas tres
+// tentativas de cada rota, e um duplo que servisse o corpo legitimo de A com
+// 200 e recusasse os de B com 404 media a decisao do duplo e nao a da rota. O
+// 404 uniforme deixa medir o que esta bateria quer — o `ctx` que chegou a
+// porta, e a ausencia de B na resposta — sem que o estado diga nada sobre B.
+//
+// A metade positiva corre num **segundo** app, em `modo: "sonda"`, e nao entra
+// nas entradas do relatorio: se entrasse, o 200 dela quebrava a uniformidade
+// que o criterio pede. O que dela vai para o relatorio e o veredicto, na
+// `nota`.
+
+/** As sete rotas, pela ordem de `services/com/src/api/interna.ts`. */
+const ROTAS_DO_COM = [
+  "/internal/offer-view",
+  "/internal/propose-cart",
+  "/internal/create-order",
+  "/internal/get-order",
+  "/internal/list-orders",
+  "/internal/transition",
+  "/internal/request-owner-confirmation",
+] as const;
+
+/** O `item` enumerado de uma das sete. Copiado do caso, nao derivado dele. */
+function itemDoCom(rota: string): string {
+  return `rota:com:api/interna:apiInterna:POST:${rota}`;
+}
+
+const ITEM_DAS_METRICAS_DO_COM = "rota:com:api/interna:rotaDasMetricas:GET:/metrics";
+const ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*";
+
+/**
+ * A rota por onde se ataca o `ALL /internal/*`.
+ *
+ * O item enumerado e um padrao, e um padrao nao se pede: pede-se um caminho que
+ * ele apanhe. Esta e uma das sete, para que o ataque seja o mesmo que as outras
+ * entradas levam — a diferenca medida e so a app nao ter a API montada.
+ */
+const ROTA_DE_AMOSTRA_DO_COM = "/internal/get-order";
+
+/**
+ * A credencial interna do duplo.
+ *
+ * Obviamente falsa e de baixa entropia, pela razao que
+ * `services/gwy/tests/webhook.test.ts` escreve ao lado do seu: um valor com
+ * forma de segredo atribuido a um nome que significa segredo dispara o *gate* 9,
+ * e tem razao em disparar.
+ */
+const INTERNO_DE_ENSAIO = "ensaio-x01-interno-do-com";
+
+/** Os valores de A. Fixos: nenhum duplo devolve o que o ataque mandou. */
+const SKU_DE_A = "arroz-5kg-de-a";
+const ORDER_DE_A = "0000000a-0000-4000-8000-00000000000a";
+const CONTACTO_DE_A = "0000000c-0000-4000-8000-00000000000c";
+const CARRINHO_DE_A = "C7H3Q9ABCDEFGHJKMNPQRSTVWX";
+
+/**
+ * O contacto de B quando o `KAMBA_X01_TENANT_B` nao tem forma de UUID.
+ *
+ * O `rascunhoDoCorpo` exige `eUuid(contact_id)`: um valor sem essa forma dava
+ * **400** onde os outros ataques dao 404, e a falta de uniformidade passava a
+ * ser culpa da forma do corpo em vez do identificador — que e exactamente o que
+ * o grupo dos canais evita ao usar o mesmo `session_info` em todos os ataques.
+ * Qual dos dois se usou vai na `nota` (`ids-de-b=`), porque um substituto quer
+ * dizer que o identificador real de B nunca entrou nos campos de dominio.
+ */
+const CONTACTO_DE_B_SUBSTITUTO = "0000000b-0000-4000-8000-00000000000b";
+
+/** O `ctx` que o corpo transporta: o `actor` e o `trace_id` do turno (§3.39). */
+const CTX_DO_CORPO_DO_COM = {
+  actor: { kind: "agente", id: "grafo-vendedor" },
+  trace_id: "x01-com-interna",
+};
+
+/** Uma chamada que chegou ao duplo da porta, e o `ctx` com que chegou. */
+interface ChamadaDaPorta {
+  readonly metodo: string;
+  readonly tenantId: string;
+}
+
+type ModoDoDuplo = "recusa" | "sonda";
+
+/**
+ * As operacoes do COM, em duplo, com o registo do `ctx` de cada chamada.
+ *
+ * A forma e a de `services/com/tests/api.interna.test.ts` — a porta mais o
+ * `proposeCart` e o `createOrder` das operacoes — e nao se reinventa. Dos doze
+ * metodos da porta, **sete** sao alcancaveis por estas sete rotas (o
+ * `despachar` chama cinco da porta e dois das operacoes); os restantes nao se
+ * duplicam, porque um duplo que nada chama e codigo que ninguem mede.
+ *
+ * O `registo` e a medicao central deste grupo: a afirmacao «o `ctx` tem o
+ * tenant do cabecalho e mais nada» le-se nele, e nao na resposta.
+ *
+ * **Os valores de `modo: "sonda"` nao sao as formas do Registo real.** Levam o
+ * canario de A para que a sonda positiva possa seguir o caminho porta →
+ * resposta; o que eles tem de ser e **fixos**, e sao.
+ */
+function operacoesDeEnsaioDoCom(
+  modo: ModoDoDuplo,
+  canarioDeA: string,
+  ok: (valor: unknown) => unknown,
+  erro: (codigo: string) => unknown,
+): { operacoes: Record<string, unknown>; registo: ChamadaDaPorta[] } {
+  const registo: ChamadaDaPorta[] = [];
+
+  /**
+   * O canario de A em `linhas[0].sku`, e nao num campo inventado.
+   *
+   * E uma razao de caminho: o `POST /internal/propose-cart` reescreve a resposta
+   * campo a campo (`cart_id`, `total_minor`, `currency`,
+   * `exige_confirmacao_do_dono`, `linhas`) e deixa cair tudo o mais — um canario
+   * noutro sitio nunca chegava a resposta daquela rota, e a sonda positiva dela
+   * ficava cega por construcao.
+   */
+  const valorDeA = (extra: Record<string, unknown>): Record<string, unknown> => ({
+    linhas: [{ sku: canarioDeA, qty: 1 }],
+    ...extra,
+  });
+
+  /** Registra a chamada e devolve o que o `modo` manda. */
+  const servir = (metodo: string, ctx: unknown, valor: Record<string, unknown>) => {
+    registo.push({
+      metodo,
+      tenantId: String((ctx as { tenantId?: unknown } | null)?.tenantId ?? ""),
+    });
+    return modo === "sonda" ? ok(valor) : erro("NOT_FOUND");
+  };
+
+  const porta = {
+    async getOfferView(ctx: unknown) {
+      return servir(
+        "getOfferView",
+        ctx,
+        valorDeA({
+          sku: SKU_DE_A,
+          precoTipo: "fixo",
+          precoDisplay: canarioDeA,
+          stockModo: "garantido",
+          disponibilidade: "disponivel",
+          atualizadoAt: "2026-11-05T10:00:00.000Z",
+        }),
+      );
+    },
+    async getOrder(ctx: unknown) {
+      return servir(
+        "getOrder",
+        ctx,
+        valorDeA({
+          orderId: ORDER_DE_A,
+          numeroPublico: "K7H3Q1",
+          estado: "criada",
+          version: 1,
+          contactId: CONTACTO_DE_A,
+          totalMinor: 2_500_000n,
+          currency: "AOA",
+          criadoAt: "2026-11-05T10:00:00.000Z",
+        }),
+      );
+    },
+    async listOrders(ctx: unknown) {
+      return servir("listOrders", ctx, {
+        itens: [
+          valorDeA({
+            orderId: ORDER_DE_A,
+            numeroPublico: "K7H3Q1",
+            estado: "criada",
+          }),
+        ],
+        proximo: null,
+      });
+    },
+    async transition(ctx: unknown) {
+      return servir(
+        "transition",
+        ctx,
+        valorDeA({
+          orderId: ORDER_DE_A,
+          numeroPublico: "K7H3Q1",
+          estado: "paga",
+          version: 2,
+        }),
+      );
+    },
+    async requestOwnerConfirmation(ctx: unknown) {
+      return servir("requestOwnerConfirmation", ctx, valorDeA({ estado: "pedida" }));
+    },
+  };
+
+  const operacoes: Record<string, unknown> = {
+    porta,
+    async proposeCart(ctx: unknown) {
+      return servir(
+        "proposeCart",
+        ctx,
+        valorDeA({
+          cartId: CARRINHO_DE_A,
+          totalMinor: 2_500_000n,
+          currency: "AOA",
+          exigeConfirmacaoDoDono: false,
+          // O `draftHash` **nao sai** da rota (o `api/interna.ts` deixa-o cair);
+          // esta aqui porque o campo existe no valor que o modulo devolve.
+          draftHash: Buffer.alloc(32, 1),
+        }),
+      );
+    },
+    async createOrder(ctx: unknown) {
+      return servir(
+        "createOrderDaSaga",
+        ctx,
+        valorDeA({
+          orderId: ORDER_DE_A,
+          numeroPublico: "K7H3Q1",
+          estado: "criada",
+          version: 1,
+          totalMinor: 2_500_000n,
+          currency: "AOA",
+          confirmacaoDono: "nao_aplicavel",
+          repeticao: false,
+          pedidoPorPagar: null,
+        }),
+      );
+    },
+  };
+
+  return { operacoes, registo };
+}
+
+async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
+  const tenantA = ambiente("KAMBA_X01_TENANT_A").toLowerCase();
+  const tenantB = ambiente("KAMBA_X01_TENANT_B");
+  const canario = canarioOuSubstituto();
+  // O canario de **A**, que o ambiente nao traz: a ponte passa so os de B (e o
+  // oraculo so proibe esses). Este e deterministico a partir do tenant e tem a
+  // forma do `oraculo.FORMA_DO_CANARIO`, para que se leia como o que e — o valor
+  // que tem de **chegar** a resposta, e nao o que nao pode chegar.
+  const canarioDeA = `canario_a_${createHash("sha256")
+    .update(`x01-com-interna:${tenantA}`, "utf8")
+    .digest("hex")
+    .slice(0, 32)}`;
+
+  /** As entradas que este grupo tem de deixar, mesmo quando nao mede nada. */
+  const previstas: { item: string; metodo: string; caminho: string; vezes: number }[] = [
+    ...ROTAS_DO_COM.map((rota) => ({
+      item: itemDoCom(rota),
+      metodo: "POST",
+      caminho: rota,
+      vezes: 3,
+    })),
+    {
+      item: ITEM_DAS_METRICAS_DO_COM,
+      metodo: "GET",
+      caminho: "/metrics",
+      vezes: 1,
+    },
+    {
+      item: ITEM_SEM_API_DO_COM,
+      metodo: "POST",
+      caminho: ROTA_DE_AMOSTRA_DO_COM,
+      vezes: 3,
+    },
+  ];
+
+  function semExecucao(nota: string): void {
+    for (const prevista of previstas) {
+      for (let vez = 0; vez < prevista.vezes; vez += 1) {
+        relatorio.rotas.push({
+          item: prevista.item,
+          metodo: prevista.metodo,
+          caminho: prevista.caminho,
+          estado: 0,
+          corpo: "",
+          cabecalhos: {},
+          executado: false,
+          nota,
+        });
+      }
+    }
+  }
+
+  let createApp: (log: undefined, api?: Record<string, unknown>) => AppHono;
+  let cabecalhoInterno: string;
+  let cabecalhoTenant: string;
+  let ok: (valor: unknown) => unknown;
+  let erro: (codigo: string) => unknown;
+  let eUuid: (valor: unknown) => boolean;
+  try {
+    const app = await importarDoRepo("services/com/src/app.ts");
+    const interna = await importarDoRepo("services/com/src/api/interna.ts");
+    const port = await importarDoRepo("services/com/src/port/index.ts");
+    createApp = app["createApp"] as typeof createApp;
+    cabecalhoInterno = String(interna["CABECALHO_INTERNO"]);
+    cabecalhoTenant = String(interna["CABECALHO_TENANT"]);
+    ok = port["ok"] as typeof ok;
+    erro = port["erro"] as typeof erro;
+    eUuid = port["eUuid"] as typeof eUuid;
+  } catch (falha) {
+    semExecucao(`nao se conseguiu importar o COM: ${razao(falha)}`);
+    return;
+  }
+
+  // O identificador de B que entra nos campos de dominio que exigem UUID. Ver
+  // o `CONTACTO_DE_B_SUBSTITUTO`.
+  const bTemUuid = eUuid(tenantB);
+  const contactoDeB = bTemUuid ? tenantB : CONTACTO_DE_B_SUBSTITUTO;
+  const marcaDosIds = bTemUuid ? "ids-de-b=tenant-b" : "ids-de-b=substituto";
+  // Sem `KAMBA_X01_CANARIOS` o `canarioOuSubstituto` devolve um substituto, e os
+  // ataques passam a levar uma cadeia que nao e de B nenhum: «nada de B saiu»
+  // ficava verde por B nunca ter entrado. Diz-se numa marca em vez de se calar.
+  const marcaDoCanario =
+    canarios().length === 0 ? "canario-de-b=ausente" : "canario-de-b=presente";
+
+  /** O corpo legitimo de cada rota. Identificadores de A, e so de A. */
+  function corpoDeA(rota: string): Record<string, unknown> {
+    const rascunho = {
+      contact_id: CONTACTO_DE_A,
+      draft_id: "rascunho-de-a",
+      draft_version: 1,
+      entrega_modo: "levantamento",
+      linhas: [{ sku: SKU_DE_A, qty: 1 }],
+    };
+    if (rota === "/internal/offer-view") return { sku: SKU_DE_A };
+    if (rota === "/internal/propose-cart") return rascunho;
+    if (rota === "/internal/create-order") {
+      return { ...rascunho, total_esperado_minor: "2500000", cart_id: CARRINHO_DE_A };
+    }
+    if (rota === "/internal/list-orders") {
+      return { estado: "criada", contact_id: CONTACTO_DE_A, limite: 5 };
+    }
+    if (rota === "/internal/transition") {
+      return {
+        order_id: ORDER_DE_A,
+        para: "paga",
+        expected_version: 1,
+        causa: "payment.confirmed",
+        evento_id: "evento-de-a",
+      };
+    }
+    return { order_id: ORDER_DE_A };
+  }
+
+  /**
+   * O mesmo corpo, com os identificadores de **dominio** de B.
+   *
+   * O canario de B e o identificador mais forte de B que este condutor tem — e
+   * a cadeia que o *seed* pos numa linha dele —, e por isso e ele que vai no
+   * `sku`, no `order_id`, no `cart_id` e no `draft_id`. O `contact_id` tem de
+   * ter forma de UUID (`rascunhoDoCorpo`), e e o `contactoDeB`.
+   */
+  function corpoDeB(rota: string): Record<string, unknown> {
+    const rascunho = {
+      contact_id: contactoDeB,
+      draft_id: `rascunho-${canario}`,
+      draft_version: 1,
+      entrega_modo: "levantamento",
+      linhas: [{ sku: canario, qty: 1 }],
+    };
+    if (rota === "/internal/offer-view") return { sku: canario };
+    if (rota === "/internal/propose-cart") return rascunho;
+    if (rota === "/internal/create-order") {
+      return { ...rascunho, total_esperado_minor: "999", cart_id: canario };
+    }
+    if (rota === "/internal/list-orders") {
+      return { estado: "criada", contact_id: contactoDeB, limite: 5 };
+    }
+    if (rota === "/internal/transition") {
+      return {
+        order_id: canario,
+        para: "paga",
+        expected_version: 1,
+        causa: "payment.confirmed",
+        evento_id: `evento-${canario}`,
+      };
+    }
+    return { order_id: canario };
+  }
+
+  /**
+   * Os campos extra que **nomeiam B** e que nenhuma rota le.
+   *
+   * O `ctxDoPedido` constroi o `ctx` com o tenant do cabecalho e o `actor` e o
+   * `trace_id` do corpo; nao ha caminho nenhum no `api/interna.ts` que leia um
+   * tenant do corpo. Estes quatro campos sao a afirmacao disso: um corpo que
+   * diga `tenant_id`, `tenant` e `merchant_id` de B, e que leve o canario de B
+   * num campo livre, nao desloca o `ctx`.
+   */
+  const camposDeB: Record<string, unknown> = {
+    tenant_id: tenantB,
+    tenant: tenantB,
+    merchant_id: tenantB,
+    nota_livre: canario,
+  };
+
+  /** Os tres ataques do criterio, por rota. */
+  function ataquesAoCom(rota: string): Record<string, unknown>[] {
+    return [
+      // 1. Corpo valido de A, com os campos extra que nomeiam B.
+      { ...CTX_DO_CORPO_DO_COM, ...corpoDeA(rota), ...camposDeB },
+      // 2. Corpo valido cujos identificadores de dominio sao de B.
+      { ...CTX_DO_CORPO_DO_COM, ...corpoDeB(rota) },
+      // 3. Os dois ao mesmo tempo.
+      { ...CTX_DO_CORPO_DO_COM, ...corpoDeB(rota), ...camposDeB },
+    ];
+  }
+
+  const cabecalhosDeA: Record<string, string> = {
+    "content-type": "application/json",
+    [cabecalhoInterno]: INTERNO_DE_ENSAIO,
+    [cabecalhoTenant]: tenantA,
+  };
+
+  let appDeRecusa: AppHono;
+  let registoDeRecusa: ChamadaDaPorta[];
+  let appDaSonda: AppHono;
+  let registoDaSonda: ChamadaDaPorta[];
+  let appSemApi: AppHono;
+  try {
+    const recusa = operacoesDeEnsaioDoCom("recusa", canarioDeA, ok, erro);
+    registoDeRecusa = recusa.registo;
+    appDeRecusa = createApp(undefined, {
+      operacoes: recusa.operacoes,
+      credencial: INTERNO_DE_ENSAIO,
+    });
+    const sonda = operacoesDeEnsaioDoCom("sonda", canarioDeA, ok, erro);
+    registoDaSonda = sonda.registo;
+    appDaSonda = createApp(undefined, {
+      operacoes: sonda.operacoes,
+      credencial: INTERNO_DE_ENSAIO,
+    });
+    // **Sem `api`**, que e o caminho do `ALL /internal/*`.
+    appSemApi = createApp(undefined);
+  } catch (falha) {
+    semExecucao(`nao se conseguiu montar o COM com os duplos: ${razao(falha)}`);
+    return;
+  }
+
+  /** O `ctx` de todas as chamadas que chegaram a porta, em uma marca. */
+  function marcaDoCtx(chamadas: ChamadaDaPorta[]): string {
+    if (chamadas.length === 0) return "ctx=nenhuma-chamada";
+    return chamadas.every((chamada) => chamada.tenantId === tenantA)
+      ? "ctx=a"
+      : "ctx=outro-tenant";
+  }
+
+  for (const rota of ROTAS_DO_COM) {
+    const item = itemDoCom(rota);
+    const corpoLegitimo = JSON.stringify({ ...CTX_DO_CORPO_DO_COM, ...corpoDeA(rota) });
+
+    // --- a sonda positiva ---------------------------------------------------
+    //
+    // «Zero canarios de B» e verde quando nada chega ao sitio. Esta medida diz
+    // que o caminho esta vivo: a porta foi chamada com o `ctx` de A, devolveu um
+    // valor com o canario de A, e esse canario **chegou a resposta**.
+    registoDaSonda.length = 0;
+    const sonda = await medir(item, "POST", rota, appDaSonda, {
+      method: "POST",
+      body: corpoLegitimo,
+      headers: cabecalhosDeA,
+    });
+    const marcaDaSonda = !sonda.executado
+      ? "sonda=lancou"
+      : registoDaSonda.length === 0
+        ? "sonda=sem-chamada"
+        : marcaDoCtx(registoDaSonda) !== "ctx=a"
+          ? "sonda=ctx-nao-e-de-a"
+          : sonda.estado !== 200
+            ? `sonda=estado-${sonda.estado}`
+            : sonda.corpo.includes(canarioDeA)
+              ? "sonda=viva"
+              : "sonda=sem-canario-de-a";
+
+    // --- as duas portas do *fail-closed* ------------------------------------
+    //
+    // Se nao dispararem, os duplos estao mal montados — e entao as afirmacoes
+    // de cima medem outra coisa que nao a rota.
+    const semCredencial = await medir(item, "POST", rota, appDeRecusa, {
+      method: "POST",
+      body: corpoLegitimo,
+      headers: { "content-type": "application/json", [cabecalhoTenant]: tenantA },
+    });
+    const semTenant = await medir(item, "POST", rota, appDeRecusa, {
+      method: "POST",
+      body: corpoLegitimo,
+      headers: {
+        "content-type": "application/json",
+        [cabecalhoInterno]: INTERNO_DE_ENSAIO,
+      },
+    });
+    const comuns = [
+      marcaDaSonda,
+      `fecho-sem-credencial=${semCredencial.estado}`,
+      `fecho-sem-tenant=${semTenant.estado}`,
+      marcaDosIds,
+      marcaDoCanario,
+    ].join(" ");
+
+    // --- os tres ataques ----------------------------------------------------
+    for (const corpo of ataquesAoCom(rota)) {
+      registoDeRecusa.length = 0;
+      const medida = await medir(item, "POST", rota, appDeRecusa, {
+        method: "POST",
+        body: JSON.stringify(corpo),
+        headers: cabecalhosDeA,
+      });
+      relatorio.rotas.push({
+        ...medida,
+        nota: medida.executado
+          ? `${marcaDoCtx(registoDeRecusa)} ${comuns}`
+          : medida.nota,
+      });
+    }
+  }
+
+  // --- o `GET /metrics` -----------------------------------------------------
+  //
+  // **Os contadores sobem primeiro, pelo caminho real**, e a razao e a que a
+  // revisao adversarial do KAM-178 escreveu no teste daquela rota: sobre uma
+  // populacao vazia, «nao ha rotulo por tenant» passava mesmo que a exposicao
+  // ganhasse um, porque nao havia serie nenhuma com valor. Uma consulta sem
+  // filtro e recusada pelo `repoBase` e incrementa o
+  // `com_repo_filtro_em_falta_total`; uma com filtro incrementa o
+  // `com_repo_consultas_total`. O que se mede e que **o que o repo-base conta e
+  // o que a rota serve**, e nao o contador chamado a mao.
+  let marcaDosContadores = "contadores=subidos";
+  try {
+    const base = await importarDoRepo("services/com/src/repo-base/index.ts");
+    const repoBase = base["repoBase"] as (
+      cliente: unknown,
+      tenantId: string,
+      merchantId: string,
+    ) => unknown;
+    const repo = repoBase(
+      {
+        async query() {
+          return { rows: [] };
+        },
+      },
+      tenantA,
+      "x01-merchant-nao-usado",
+    ) as { noTenant(sql: string, parametros: unknown[]): Promise<unknown> };
+    await repo.noTenant("SELECT 1", []).catch(() => undefined);
+    await repo.noTenant("SELECT 1 WHERE tenant_id = $1", []);
+  } catch (falha) {
+    // Nao e erro fatal: a leitura do `/metrics` faz-se de qualquer modo, e a
+    // marca diz ao lado Python que a afirmacao correu sobre populacao vazia. O
+    // `razao` vai para o `stderr` e **nao** para a `nota`, que nao leva texto
+    // livre: o lado Python le marcas.
+    diagnostico(`nao se conseguiram subir os contadores do COM: ${razao(falha)}\n`);
+    marcaDosContadores = "contadores=nao-subidos";
+  }
+
+  const metricas = await medir(
+    ITEM_DAS_METRICAS_DO_COM,
+    "GET",
+    "/metrics",
+    appDeRecusa,
+  );
+  // Um **rotulo** por tenant, e nao a palavra «tenant»: a exposicao do COM tem
+  // `com_repo_consultas_total{filtro="tenant"}`, onde `tenant` e o *valor* do
+  // rotulo `filtro` e nao um identificador. O que o `OBS-I` proibe e um rotulo
+  // chamado `tenant`, `tenant_id`, `merchant_id`, `contact_id` ou `sku`.
+  const temRotuloPorTenant = /[{,]\s*(tenant|tenant_id|merchant_id|contact_id|sku)\s*=/.test(
+    metricas.corpo,
+  );
+  const achadoDaSerie = /com_repo_consultas_total\{filtro="tenant"\} (\d+)/.exec(
+    metricas.corpo,
+  );
+  const marcaDaSerie =
+    achadoDaSerie === null
+      ? "series=sem-a-serie"
+      : Number(achadoDaSerie[1]) > 0
+        ? "series=com-valor"
+        : "series=a-zero";
+  const marcaDasMetricas = temRotuloPorTenant
+    ? "metricas=rotulo-por-tenant"
+    : tenantA !== "" && metricas.corpo.includes(tenantA)
+      ? "metricas=tenant-a-no-corpo"
+      : "metricas=limpa";
+  relatorio.rotas.push({
+    ...metricas,
+    nota: metricas.executado
+      ? `${marcaDasMetricas} ${marcaDaSerie} ${marcaDosContadores}`
+      : metricas.nota,
+  });
+
+  // --- o `ALL /internal/*`, na app construida **sem** `api` -----------------
+  //
+  // Os mesmos tres ataques a uma das sete rotas. A afirmacao e 503 uniforme e
+  // **sem corpo que distinga tenants** — e isso mede-se comparando os tres
+  // corpos entre si, que e a unica forma de o dizer sem inspeccionar o que a
+  // app devolveu a procura de uma lista de valores proibidos.
+  const semApi: EntradaDeRota[] = [];
+  for (const corpo of ataquesAoCom(ROTA_DE_AMOSTRA_DO_COM)) {
+    semApi.push(
+      await medir(
+        ITEM_SEM_API_DO_COM,
+        "POST",
+        ROTA_DE_AMOSTRA_DO_COM,
+        appSemApi,
+        {
+          method: "POST",
+          body: JSON.stringify(corpo),
+          headers: cabecalhosDeA,
+        },
+      ),
+    );
+  }
+  const corposDistintos = new Set(
+    semApi.filter((entrada) => entrada.executado).map((entrada) => entrada.corpo),
+  );
+  const marcaSemApi =
+    corposDistintos.size === 1
+      ? "sem-api=corpo-igual"
+      : `sem-api=corpos-distintos-${corposDistintos.size}`;
+  for (const entrada of semApi) {
+    relatorio.rotas.push({
+      ...entrada,
+      nota: entrada.executado ? marcaSemApi : entrada.nota,
+    });
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -1241,6 +1897,9 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   webhook: grupoDoWebhook,
   canais: grupoDosCanais,
   contacto: grupoDoContacto,
+  // O nome tem de ser o mesmo do `GRUPOS` do `condutor/ponte.py`: um grupo que
+  // so exista num dos lados e um caso que nunca corre.
+  "com-interna": grupoDaApiInternaDoCom,
 };
 
 async function main(): Promise<number> {

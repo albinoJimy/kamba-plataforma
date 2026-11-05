@@ -9,12 +9,14 @@ os dois casos de *jobs*, que nao precisam de nada.
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
 from isolamento import enumeracao
 from isolamento.baterias import c01_contacto, jobs_filas, x01_rotas, x02_tools
 from isolamento.contexto import Contexto
+from isolamento.oraculo import Oraculo
 
 RAIZ = Path(__file__).resolve().parents[3]
 
@@ -107,12 +109,32 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
 
     def test_as_rotas_de_typescript(self) -> None:
         declaradas = (
-            x01_rotas.SONDAS_TS + x01_rotas.WEBHOOK_DO_GWY + x01_rotas.CANAIS_DO_GWY
+            x01_rotas.SONDAS_TS
+            + x01_rotas.WEBHOOK_DO_GWY
+            + x01_rotas.CANAIS_DO_GWY
+            + x01_rotas.ROTAS_DA_API_INTERNA_DO_COM
         )
         enumeradas = {
             item for item in self.itens if item.startswith("rota:")
         } - set(x01_rotas.ROTAS_INTERNAS_DO_AGR) - set(x01_rotas.SONDA_DO_AGR)
         self.assertEqual(set(declaradas), enumeradas)
+
+    def test_as_nove_superficies_da_api_interna_do_com(self) -> None:
+        """As nove do KAM-178 sao **exactamente** as que a enumeracao da ao COM.
+
+        A lista de cima ja apanharia uma divergencia, mas apanha-a somada as
+        outras tres. Esta diz o que importa dizer: no dia em que uma oitava rota
+        entrar na constante `ROTAS` de `services/com/src/api/interna.ts`, e este
+        ensaio que fica vermelho e nomeia o sitio.
+        """
+        do_com = {item for item in self.itens if item.startswith("rota:com:")}
+        # A sonda do COM pertence ao caso das sondas, nao a este.
+        esperadas = set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM) | {
+            "rota:com:app:createApp:GET:/healthz"
+        }
+        self.assertEqual(do_com, esperadas)
+        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 9)
+        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 9)
 
     def test_as_onze_tools(self) -> None:
         declaradas = set(x02_tools.TOOLS_LIGADAS) | set(x02_tools.TOOLS_DECLARADAS)
@@ -134,6 +156,160 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         ):
             with self.subTest(mapa=sorted(mapa)):
                 self.assertEqual(set(c01_contacto.LEITURAS), set(mapa))
+
+
+class TestOsAceitaveisPorItem(unittest.TestCase):
+    """Os nove itens do COM nao respondem todos a mesma coisa.
+
+    O `GET /metrics` responde **200** e o `ALL /internal/*` responde **503**; as
+    sete `POST /internal/*` respondem recusa. A sobreposicao e por item, e e
+    isso que estes dois canarios fixam: alargar o `RECUSAS_ACEITAVEIS` global
+    para acomodar o 200 fazia **todos** os outros casos deixar de apanhar um 200
+    a um identificador de outro tenant, que e a falha que a bateria existe para
+    apanhar.
+    """
+
+    CANARIO = "canario_b_" + "0" * 32
+
+    def entrada(self, item: str, estado: int) -> dict:
+        return {
+            "item": item,
+            "estado": estado,
+            "corpo": "{}",
+            "cabecalhos": {},
+            "executado": True,
+            "nota": "",
+        }
+
+    def relatorio(self, estados: dict[str, int]) -> dict:
+        """Um relatorio de ensaio com as nove superficies, tres ataques cada.
+
+        O `/metrics` leva uma entrada so, como o condutor o reporta. Os estados
+        de omissao sao os que o grupo mede hoje; `estados` sobrepoe-nos.
+        """
+        omissao = {
+            **{item: 404 for item in x01_rotas.ROTAS_POST_DA_API_INTERNA_DO_COM},
+            x01_rotas.ITEM_DAS_METRICAS_DO_COM: 200,
+            x01_rotas.ITEM_SEM_API_DO_COM: 503,
+        }
+        rotas = []
+        for item, estado in {**omissao, **estados}.items():
+            vezes = 1 if item == x01_rotas.ITEM_DAS_METRICAS_DO_COM else 3
+            rotas.extend(self.entrada(item, estado) for _ in range(vezes))
+        return {"rotas": rotas, "contacto": []}
+
+    def achados(self, estados: dict[str, int]) -> list[str]:
+        # Sem `afirmacoes`: o que este ensaio mede e a tabela de estados, e as
+        # marcas da `nota` tem canario proprio nos ensaios do condutor.
+        fn = x01_rotas._caso_ts(
+            "com-interna",
+            x01_rotas.ROTAS_DA_API_INTERNA_DO_COM,
+            com_idor=True,
+            aceitaveis_por_item=x01_rotas.ACEITAVEIS_DA_API_INTERNA_DO_COM,
+        )
+        relatorio = self.relatorio(estados)
+        return fn(
+            Contexto(
+                raiz=RAIZ,
+                oraculo=Oraculo({"tenant_id": self.CANARIO}),
+                node=lambda _grupo: relatorio,
+            )
+        )
+
+    def test_o_metrics_a_200_nao_da_achado(self) -> None:
+        self.assertEqual(self.achados({}), [])
+
+    def test_uma_rota_post_a_200_da_achado(self) -> None:
+        alvo = x01_rotas.ROTAS_POST_DA_API_INTERNA_DO_COM[3]
+        achados = self.achados({alvo: 200})
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn(alvo, achados[0])
+        self.assertIn("nao e uma recusa", achados[0])
+
+    def test_o_metrics_a_404_da_achado(self) -> None:
+        """O 200 do `/metrics` e o estado dele, nao uma excepcao de conveniencia."""
+        achados = self.achados({x01_rotas.ITEM_DAS_METRICAS_DO_COM: 404})
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("nao mediu o que diz medir", achados[0])
+
+    def test_a_sobreposicao_nao_toca_nos_outros_casos(self) -> None:
+        """O `RECUSAS_ACEITAVEIS` global continua sem o 200."""
+        self.assertNotIn(200, x01_rotas.RECUSAS_ACEITAVEIS)
+        self.assertNotIn(200, x01_rotas.ESTADOS_DOS_CANAIS)
+
+
+class TestAsMarcasDaApiInternaDoCom(unittest.TestCase):
+    """As medicoes que vem na `nota` do condutor, e que o oraculo nao ve.
+
+    O `ctx` com que a porta foi chamada mede-se em `node` e viaja numa marca;
+    sem estes canarios, uma marca que deixasse de ser escrita passava a nao ser
+    exigida — e a afirmacao central do caso ficava verde por nao vir.
+    """
+
+    POST = x01_rotas.ROTAS_POST_DA_API_INTERNA_DO_COM[0]
+    CONFORME = (
+        "ctx=a sonda=viva fecho-sem-credencial=401 fecho-sem-tenant=400 "
+        "ids-de-b=tenant-b canario-de-b=presente"
+    )
+
+    def entradas(self, nota: str, quantas: int = 3) -> list[dict]:
+        return [{"nota": nota} for _ in range(quantas)]
+
+    def afirmar(self, item: str, entradas: list[dict]) -> list[str]:
+        return x01_rotas._afirmacoes_da_api_interna_do_com(item, entradas)
+
+    def test_as_marcas_conformes_nao_dao_achado(self) -> None:
+        self.assertEqual(self.afirmar(self.POST, self.entradas(self.CONFORME)), [])
+
+    def test_o_ctx_deslocado_e_achado(self) -> None:
+        nota = self.CONFORME.replace("ctx=a", "ctx=outro-tenant")
+        achados = self.afirmar(self.POST, self.entradas(nota))
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("afirmacao central", achados[0])
+
+    def test_uma_marca_em_falta_e_achado_e_nao_silencio(self) -> None:
+        """Uma afirmacao que nao veio e uma afirmacao nao medida."""
+        achados = self.afirmar(self.POST, self.entradas(""))
+        self.assertEqual(len(achados), 6, achados)
+        for achado in achados:
+            self.assertIn("(em falta)", achado)
+
+    def test_a_sonda_morta_e_achado(self) -> None:
+        nota = self.CONFORME.replace("sonda=viva", "sonda=sem-chamada")
+        achados = self.afirmar(self.POST, self.entradas(nota))
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("sonda positiva", achados[0])
+
+    def test_um_ataque_a_menos_e_achado(self) -> None:
+        achados = self.afirmar(self.POST, self.entradas(self.CONFORME, quantas=2))
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("3 ataques", achados[0])
+
+    def test_as_metricas_sobre_populacao_vazia_sao_achado(self) -> None:
+        """«Sem rotulo por tenant» passa sobre uma serie a zero: e o achado do KAM-178."""
+        entradas = [{"nota": "metricas=limpa series=a-zero contadores=subidos"}]
+        achados = self.afirmar(x01_rotas.ITEM_DAS_METRICAS_DO_COM, entradas)
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("populacao vazia", achados[0])
+
+    def test_o_corpo_que_distingue_tenants_sem_api_e_achado(self) -> None:
+        entradas = self.entradas("sem-api=corpos-distintos-3")
+        achados = self.afirmar(x01_rotas.ITEM_SEM_API_DO_COM, entradas)
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("distingue tenants", achados[0])
+
+
+class TestAPonteEOCondutorConcordam(unittest.TestCase):
+    """Um grupo que so exista num dos lados e um caso que nunca corre."""
+
+    def test_os_grupos_do_condutor_sao_os_da_ponte(self) -> None:
+        from isolamento.condutor import ponte  # noqa: PLC0415
+
+        guiao = (RAIZ / ponte.GUIAO).read_text(encoding="utf-8")
+        inicio = guiao.index("const GRUPOS: Record<")
+        corpo = guiao[inicio : guiao.index("};", inicio)]
+        no_condutor = set(re.findall(r'^\s*"?([a-z-]+)"?:\s*grupo', corpo, re.M))
+        self.assertEqual(no_condutor, set(ponte.GRUPOS))
 
 
 class TestAFixacaoDasCotacoes(unittest.TestCase):
