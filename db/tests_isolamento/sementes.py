@@ -212,6 +212,38 @@ def _encomenda(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _reserva_de_stock(cursor, tenant_id: str, canario: str) -> None:
+    """Uma reserva de stock (KAM-045, revisao `0033`).
+
+    O canario vai no `sku`, que e texto livre e **nao entra em unicidade
+    nenhuma** — a `stock_reservations_linha_uq` e `(tenant_id, order_id,
+    line_no)`. E por isso esta receita semeia o mesmo canario nos dois tenants
+    sem colidir, que e o que o oraculo do X-03 precisa.
+
+    **A encomenda vai pelo `_UMA_ENCOMENDA`**, pela razao medida que esse
+    comentario escreve. A FK e composta
+    (`stock_reservations_encomenda_do_mesmo_tenant_fk`), pela correccao de
+    2026-10-27 do `docs/tecnica/03` secao 5.4 e pelo ISO-58 do spike KAM-041:
+    uma FK simples deixava a reserva de A apontar para a encomenda de B.
+
+    O `estado` nao entra: nasce `ativa` pela omissao. O `expira_at` e `NOT NULL`
+    e entra por expressao — 48 h, que e o TTL de omissao do criterio 2.
+
+    **Semeada pelo administrador**, como a `orders_mirror` e a `price_quotes`: a
+    receita vai buscar a encomenda por subconsulta, e o semeador tem de a ver
+    independentemente de contexto de tenant. O `kamba_batch` tambem a veria (tem
+    `BYPASSRLS` e `SELECT` na `orders_mirror` desde a `0030`), mas o
+    administrador e o que nao depende de nenhuma dessas duas propriedades se
+    manterem.
+    """
+    cursor.execute(
+        "INSERT INTO platform.stock_reservations "
+        "(tenant_id, order_id, line_no, sku, qty, expira_at) "
+        f"VALUES (%s, {_UMA_ENCOMENDA}, 0, %s, 1, now() + interval '48 hours')",
+        (tenant_id, tenant_id, canario),
+    )
+
+
 def _recibo_de_intencao(cursor, tenant_id: str, canario: str) -> None:
     """O recibo de idempotencia da criacao (KAM-044, revisao `0030`).
 
@@ -306,6 +338,27 @@ _UM_CONTACTO = (
 )
 _UMA_DEK = (
     "COALESCE((SELECT dek_id FROM platform.contact_deks WHERE tenant_id = %s "
+    "ORDER BY criado_at LIMIT 1), gen_random_uuid())"
+)
+
+#: A encomenda que a reserva de stock referencia (KAM-045).
+#:
+#: **`COALESCE` com `gen_random_uuid()`, como o `_UM_CONTACTO`**, e pela mesma
+#: razao medida que o `_encomenda` escreve: num `INSERT ... SELECT`, o ataque
+#: (inserir a linha de B com o contexto de A) nao encontrava a encomenda de B, o
+#: `SELECT` devolvia zero linhas, e um `INSERT` de zero linhas **nao da erro** —
+#: o teste do `WITH CHECK` ficava vermelho a espera de uma recusa que nao
+#: acontecia. Dentro de um `VALUES`, a subconsulta escalar insere **sempre** uma
+#: linha, e a recusa chega.
+#:
+#: E a recusa que chega e a da **politica** e nao a da FK, que e o que o
+#: `_inserir_tem_de_falhar` exige (`42501` mais o texto «row-level security»).
+#: O PostgreSQL verifica o `WITH CHECK` da RLS no proprio `INSERT`, e as
+#: restricoes de chave estrangeira sao *triggers* `AFTER`: a politica recusa
+#: antes de a FK chegar a ser consultada, pelo que o UUID inventado pelo
+#: `COALESCE` nunca e testado contra a `orders_mirror`.
+_UMA_ENCOMENDA = (
+    "COALESCE((SELECT id FROM platform.orders_mirror WHERE tenant_id = %s "
     "ORDER BY criado_at LIMIT 1), gen_random_uuid())"
 )
 
@@ -1186,6 +1239,22 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "order_reconciliation_issues"): Receita(
         _divergencia, "id", "resolvida_at", None, guardado=_uuid,
     ),
+    # KAM-045. O canario no `sku` e a coluna alteravel no `expira_at`, que esta
+    # no `GRANT UPDATE (...)` por coluna da revisao `0033` — uma coluna fora
+    # dele fazia os testes de escrita cruzada falharem por privilegio onde
+    # devem falhar por politica.
+    #
+    # **O `estado` nao serve de coluna alteravel**, e a razao e medida: o
+    # `test_update_sem_where_so_toca_nas_linhas_de_a` corre
+    # `SET <coluna> = <coluna>`, e com o `estado` isso era uma mudanca de estado
+    # para si mesmo — que o *trigger* `stock_reserva_transicao` nao recusa
+    # (compara com `IS DISTINCT FROM`), mas que um `CHECK` acoplado recusaria se
+    # o estado fosse `libertada` sem motivo. O `expira_at` nao tem `CHECK`
+    # acoplado nenhum e aceita o valor de volta sem efeito.
+    ("platform", "stock_reservations"): Receita(
+        _reserva_de_stock, "sku", "expira_at", "2099-01-01T00:00:00+00:00",
+        semeador="admin",
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -1658,6 +1727,11 @@ ORDEM = (
     ("platform", "orders_mirror"),
     ("platform", "order_intents"),
     ("platform", "order_reconciliation_issues"),
+    # KAM-045: **depois da `orders_mirror`**, que ela referencia por FK composta.
+    # A ordem inversa e a de apagar, pelo que a reserva sai antes da encomenda
+    # que a subconsulta da receita foi buscar — que e o que a FK sem `CASCADE`
+    # exige. Ninguem a aponta, pelo que fica no fim.
+    ("platform", "stock_reservations"),
 )
 
 #: As identidades com que as receitas semeiam.

@@ -80,6 +80,15 @@ const IMPLEMENTADOS = new Set<string>([
   "transition",
   "getOrder",
   "listOrders",
+  // **As quatro das reservas, ligadas pelo KAM-045.** Entram aqui **e** levam o
+  // teste de isolamento a sério em `TestOIsolamentoDasQuatroDoKam045`, que é a
+  // troca que o critério 6 do KAM-042 pede por cada `xfail strict` que
+  // desaparece. Sem a entrada nesta lista, aquele caso desaparecia sem ninguém
+  // notar — é o que o próprio texto da asserção avisa.
+  "reserveStock",
+  "extendReservation",
+  "commitReservation",
+  "releaseReservation",
 ]);
 
 /**
@@ -97,10 +106,11 @@ const DONO: Readonly<Record<string, string>> = {
   // Ligá-lo pede um **terceiro** movimento no §3.39, e a decisão de 2026-11-04
   // autoriza dois. Ver a verificação do bloco KAM-178.
   createOrder: "KAM-178",
-  reserveStock: "KAM-045",
-  extendReservation: "KAM-045",
-  commitReservation: "KAM-045",
-  releaseReservation: "KAM-045",
+  // As quatro das reservas saíram desta tabela com o **KAM-045**, que as ligou:
+  // estão no `IMPLEMENTADOS` acima e o isolamento delas está medido em
+  // `TestOIsolamentoDasQuatroDoKam045`. A partição do `METODOS_DA_PORTA` entre
+  // esta tabela e aquela lista é verificada por asserção, pelo que tirá-las de
+  // um lado sem as pôr no outro faz a suite falhar.
 };
 
 /** Argumentos plausíveis por método, com **ids do tenant B** (ISO-01..08). */
@@ -279,10 +289,24 @@ test("criterio 5: com merchant provisionado, o repo nasce ligado a ele", async (
 test("a particao entre implementados e por implementar cobre os doze", () => {
   // **Sem isto, a lista acima podia crescer sem ninguem notar** e os casos de
   // `xfail strict` desapareciam um a um em silencio — que e o contrario do que
-  // «strict» quer dizer. Os doze da porta sao exactamente os tres
-  // implementados mais os nove com ticket dono, sem sobreposicao.
-  assert.equal(IMPLEMENTADOS.size, 7, "tres do KAM-043 e quatro do KAM-178");
-  assert.equal(Object.keys(DONO).length, 5, "cinco continuam por implementar");
+  // «strict» quer dizer. Os doze da porta sao exactamente os implementados
+  // mais os que tem ticket dono, sem sobreposicao.
+  //
+  // **A contagem e presa de proposito: quem a mexe vem ler porque.** Era `7` e
+  // `5` depois do KAM-178; passa a `11` e `1` com o KAM-045, que ligou as
+  // quatro das reservas — e a troca que o criterio 6 do KAM-042 pede por cada
+  // `xfail strict` que desaparece esta paga pelo
+  // `ISO-01..08: as quatro reservas do KAM-045 passam o tenant do ctx`.
+  assert.equal(
+    IMPLEMENTADOS.size,
+    11,
+    "tres do KAM-043, quatro do KAM-178 e quatro do KAM-045",
+  );
+  assert.equal(
+    Object.keys(DONO).length,
+    1,
+    "so o createOrder, e o credor dele e uma decisao e nao um ticket",
+  );
   for (const metodo of METODOS_DA_PORTA) {
     assert.equal(
       IMPLEMENTADOS.has(metodo) !== (metodo in DONO),
@@ -388,10 +412,68 @@ test("ISO-01..08: as quatro operacoes do KAM-178 passam o tenant do ctx", async 
   );
 });
 
-test("criterio 3: as quatro ligadas continuam a falhar fechado sem ctx", async () => {
+test("ISO-01..08: as quatro reservas do KAM-045 passam o tenant do ctx", async () => {
+  // **Isto é o que substitui os quatro `xfail strict`**, e é o que o critério 6
+  // do KAM-042 pede em troca deles: «ctx do tenant A sobre um id do tenant B
+  // tem de dar `TENANT_MISMATCH` ou `NOT_FOUND`, nunca a linha de B».
+  //
+  // A asserção que importa é a última: o único `tenant_id` que chegou ao
+  // predicado é o de A. As quatro respondem `NOT_FOUND` porque a encomenda de B
+  // não existe na vista de A — e **nenhuma** devolve `ok`, que é a parte que o
+  // `commitReservation` e o `releaseReservation` só garantem por lerem a
+  // encomenda antes de mexer nas reservas (ver os comentários no adaptador).
+  const tenantsVistos: unknown[] = [];
+  const cliente: ClienteSql = {
+    async query(sql: string, parametros: readonly unknown[] = []) {
+      if (sql.includes("platform.tenants")) {
+        return {
+          rows: [{ medusa_merchant_id: "merch", medusa_sales_channel_id: null }],
+        };
+      }
+      tenantsVistos.push(parametros[0]);
+      return { rows: [] };
+    },
+  };
+  const porta = adaptadorMedusa(deps(cliente));
+
+  assert.deepEqual(
+    await porta.reserveStock(ctx(TENANT_A), ORDER_DE_B, 48 * 60 * 60 * 1000),
+    { tipo: "erro", erro: "NOT_FOUND" },
+  );
+  assert.deepEqual(
+    await porta.extendReservation(
+      ctx(TENANT_A),
+      ORDER_DE_B,
+      "2026-11-08T10:00:00.000Z",
+    ),
+    { tipo: "erro", erro: "NOT_FOUND" },
+  );
+  assert.deepEqual(
+    await porta.commitReservation(ctx(TENANT_A), ORDER_DE_B),
+    { tipo: "erro", erro: "NOT_FOUND" },
+    "e **não** `ok`: «não havia nada a consumir» e «isso não é teu» são duas " +
+      "coisas diferentes, e a segunda é NOT_FOUND",
+  );
+  assert.deepEqual(
+    await porta.releaseReservation(ctx(TENANT_A), ORDER_DE_B, "cancelada"),
+    { tipo: "erro", erro: "NOT_FOUND" },
+  );
+
+  assert.deepEqual(
+    [...new Set(tenantsVistos)],
+    [TENANT_A],
+    "uma consulta das reservas saiu com um tenant que nao e o do ctx",
+  );
+});
+
+test("criterio 3: as oito ligadas continuam a falhar fechado sem ctx", async () => {
   // O ISO-09 já as cobre no caso de cima, e este mede o que a ligação podia ter
   // partido: com o corpo do método a abrir transacção, o `exigirCtx` tem de
   // continuar a correr **antes** dela. O `CLIENTE_PROIBIDO` prova-o.
+  //
+  // **Oito e não quatro desde o KAM-045**: as quatro das reservas abrem
+  // transacção como as outras, pelo que correm o mesmo risco e pagam o mesmo
+  // ensaio.
   const porta = adaptadorMedusa(deps());
   const semTenant = { ...ctx(), tenantId: "" };
   for (const metodo of [
@@ -399,6 +481,10 @@ test("criterio 3: as quatro ligadas continuam a falhar fechado sem ctx", async (
     "transition",
     "getOrder",
     "listOrders",
+    "reserveStock",
+    "extendReservation",
+    "commitReservation",
+    "releaseReservation",
   ]) {
     await assert.rejects(
       () => chamar(porta, metodo, semTenant),
