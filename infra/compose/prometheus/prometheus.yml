@@ -11,7 +11,7 @@
 # nao existe produz um `up 0` permanente, e um painel cheio de alvos em baixo
 # ensina a equipa a ignorar o painel».
 #
-# Medido a 2026-11-05, antes deste ticket: das 109 metricas declaradas no
+# Medido a 2026-11-05, antes deste ticket: das 115 metricas declaradas no
 # codigo, **23** estavam expostas num `/metrics` de processo, e em `docker
 # compose` so **duas** superficies eram alcancaveis — `gwy:3010` e `com:3002`.
 # As 44 do AGR nao tinham rota nenhuma.

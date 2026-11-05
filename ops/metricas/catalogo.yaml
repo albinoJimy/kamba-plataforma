@@ -6,7 +6,7 @@
 # nenhuma etiqueta e um identificador (criterio 3) e que nenhuma regra de alerta
 # cita uma metrica que ninguem expoe (criterio 4).
 #
-# **Nao e o inventario das 109 metricas do repositorio.** Cobre as metricas que
+# **Nao e o inventario das 115 metricas do repositorio.** Cobre as metricas que
 # as regras de alerta e os paineis citam, mais as series que o criterio 2 nomeia
 # — que e o conjunto sobre o qual o *lint* tem alguma coisa a dizer. Um
 # inventario completo teria de ser gerado do codigo, e gerar do codigo exigia ler
@@ -15,7 +15,7 @@
 #
 # ## A medicao que mais importa neste ficheiro
 #
-# Das 109 metricas declaradas no codigo, **23 estavam expostas** num `/metrics`
+# Das 115 metricas declaradas no codigo, **23 estavam expostas** num `/metrics`
 # de processo antes deste ticket, e em `docker compose` so **duas** superficies
 # eram alcancaveis: `gwy:3010` e `com:3002`. As 44 do AGR nao tinham rota
 # nenhuma — e o proprio `docs/runbooks/degradacao-do-agr.md` o dizia por escrito.

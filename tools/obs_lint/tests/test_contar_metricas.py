@@ -125,29 +125,76 @@ class TestNomes(_ComArvore):
 
 
 class TestRepositorio(unittest.TestCase):
-    """Sobre a arvore real, e com a reconciliacao escrita."""
+    """Sobre a arvore real: **pisos e estrutura, nunca igualdades**.
 
-    def test_os_dezoito_modulos_e_o_piso_de_cento_e_sete(self) -> None:
-        """Os dois numeros que a documentacao cita, prendidos aqui.
+    ## Porque e que aqui nao ha um numero exacto, e houve
 
-        Se um modulo de metricas nascer ou morrer, este teste falha — e e isso
-        que se quer: a documentacao cita **109**, que e 107 mais os dois do COM,
-        e um numero que se mexe sem ninguem notar e pior do que nenhum.
-        """
+    A primeira versao desta classe prendia `len(modulos) == 18` e
+    `len(todos) == 107`, com a justificacao de que «um numero que se mexe sem
+    ninguem notar e pior do que nenhum». **Estava errada, e o CI mostrou-o na
+    mesma tarde:** o KAM-091 fundiu com um `provisioning/metricas.ts` (6
+    metricas) e o teste ficou vermelho com `19 != 18` — num *merge* que nao tinha
+    nada a ver com este ticket.
+
+    O defeito nao e o numero estar desactualizado. E que **uma igualdade aqui
+    faz o PR de outra pessoa falhar por acrescentar um modulo de metricas**, que
+    e precisamente o que se quer que ela faca. Um portao que castiga o
+    comportamento certo nao e um portao.
+
+    Onde a exactidao pertence e no `TestPredicado` e no `TestNomes`, que correm
+    sobre arvores sinteticas: ali o numero e exacto porque a arvore e escrita
+    pelo teste. Aqui o que se afirma e o que **nao pode** deixar de ser verdade:
+
+      * todo o modulo encontrado emite formato de exposicao (o predicado 1);
+      * o modulo do COM conta **zero**, porque importa os nomes — e a
+        reconciliacao que a documentacao explica;
+      * os totais **nao descem** sem que alguem o note.
+
+    O numero exacto do dia vive na documentacao, com a **data** e o **comando**
+    que o reproduz, que e onde um numero datado pertence.
+    """
+
+    #: Os pisos medidos a 2026-11-05, na base `8b6edc3`.
+    #:
+    #: Sao pisos e nao alvos: crescem com os tickets, e um ticket que
+    #: acrescente um modulo de metricas **nao** deve ficar vermelho por isso.
+    #: Descer, sim, e que precisa de explicacao — um modulo que desaparece ou
+    #: deixa de emitir `# TYPE` e uma metrica que ninguem passou a servir.
+    PISO_DE_MODULOS = 19
+    PISO_DE_NOMES = 113
+
+    def test_cada_modulo_encontrado_emite_formato_de_exposicao(self) -> None:
+        """O predicado 1, verificado na arvore real e nao so nas sinteticas."""
+        modulos = cm._modulos(RAIZ)
+        self.assertTrue(modulos, "zero modulos nao e um zero util")
+        for modulo in modulos:
+            with self.subTest(modulo=modulo.relative_to(RAIZ).as_posix()):
+                self.assertIn(
+                    cm.MARCA_DE_EXPOSICAO, modulo.read_text(encoding="utf-8")
+                )
+
+    def test_os_totais_nao_descem(self) -> None:
         modulos = cm._modulos(RAIZ)
         todos: set[str] = set()
         for modulo in modulos:
             todos |= cm._nomes(modulo)
-        self.assertEqual(len(modulos), 18, [p.name for p in modulos])
-        self.assertEqual(len(todos), 107)
+        self.assertGreaterEqual(
+            len(modulos),
+            self.PISO_DE_MODULOS,
+            [p.relative_to(RAIZ).as_posix() for p in modulos],
+        )
+        self.assertGreaterEqual(len(todos), self.PISO_DE_NOMES)
 
-    def test_o_com_conta_zero_e_e_a_reconciliacao_de_107_para_109(self) -> None:
-        """O módulo do COM declara 0 porque importa os nomes de `repo-base`.
+    def test_o_com_conta_zero_porque_importa_os_nomes_do_repo_base(self) -> None:
+        """A reconciliacao, que e estrutural e nao um numero.
 
-        É a diferença entre 107 e os 109 que a documentação cita, e está escrita
-        em `docs/observabilidade.md` §2.1.
+        O modulo que **expoe** as duas metricas do COM nao as **declara**: os
+        nomes vivem no `repo-base/index.ts` e sao importados. E a razao pela qual
+        a contagem por modulo da dois a menos do que a soma das metricas
+        servidas, e esta escrita em `docs/observabilidade.md` §2.1.
         """
         modulo = RAIZ / "services" / "com" / "src" / "metricas.ts"
+        self.assertIn(cm.MARCA_DE_EXPOSICAO, modulo.read_text(encoding="utf-8"))
         self.assertEqual(cm._nomes(modulo), set())
         repo_base = (RAIZ / "services/com/src/repo-base/index.ts").read_text(
             encoding="utf-8"
@@ -155,10 +202,20 @@ class TestRepositorio(unittest.TestCase):
         self.assertIn('"com_repo_filtro_em_falta_total"', repo_base)
         self.assertIn('"com_repo_consultas_total"', repo_base)
 
-    def test_o_agr_declara_quarenta_e_quatro(self) -> None:
-        """O número que o ticket cita como a lacuna que fechou."""
-        modulo = RAIZ / "services" / "agr" / "src" / "kamba_agr" / "metricas.py"
-        self.assertEqual(len(cm._nomes(modulo)), 44)
+    def test_o_agr_e_o_modulo_com_mais_metricas(self) -> None:
+        """A lacuna que este ticket fechou, afirmada por **ordem** e nao por numero.
+
+        O AGR servia **zero** das suas metricas antes do KAM-080, e e o modulo
+        que mais tem — o que e o que torna a lacuna a maior da arvore. Isso
+        continua verdade quando alguem lhe acrescentar uma metrica, e um
+        `== 44` nao continuava.
+        """
+        por_modulo = {m: len(cm._nomes(m)) for m in cm._modulos(RAIZ)}
+        agr = RAIZ / "services" / "agr" / "src" / "kamba_agr" / "metricas.py"
+        self.assertIn(agr, por_modulo)
+        maior = max(por_modulo, key=lambda m: por_modulo[m])
+        self.assertEqual(maior, agr, {k.name: v for k, v in por_modulo.items()})
+        self.assertGreaterEqual(por_modulo[agr], 44)
 
 
 class TestCli(unittest.TestCase):
