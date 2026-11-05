@@ -72,6 +72,8 @@ if str(RAIZ / "tools") not in sys.path:
 
 from kamba_yaml import load_file  # noqa: E402
 
+from .texto import sem_comentarios_ts  # noqa: E402
+
 #: Os quatro tipos de superficie que o criterio 2 nomeia.
 TIPOS = ("rota", "tool", "job", "consumidor")
 
@@ -171,15 +173,39 @@ class Item:
 
 
 def _sem_comentarios(fonte: str) -> str:
-    """Retira `/* … */` e `// …` de TypeScript, preservando as linhas."""
-    sem_bloco = re.sub(
-        r"/\*.*?\*/",
-        lambda achado: "\n" * achado.group(0).count("\n"),
-        fonte,
-        flags=re.DOTALL,
-    )
-    return re.sub(r"//[^\n]*", "", sem_bloco)
+    """Retira `/* … */` e `// …` de TypeScript, preservando as linhas.
 
+    **A implementacao esta em `texto.py` e nao aqui, e a razao esta medida la:**
+    a versao por expressao regular era cega as cadeias de caracteres, e o
+    `api.use("/internal/*", …)` que o KAM-178 acrescentou ao COM abriu um
+    comentario falso que engoliu o ciclo logo abaixo — as **sete** rotas
+    `POST /internal/...` ficaram invisiveis a esta funcao, nem como item nem
+    como `indeciso`.
+    """
+    return sem_comentarios_ts(fonte)
+
+
+#: `const <NOME> = [ "/a", "/b" ]` — uma **lista** de caminhos ao nivel do
+#: modulo, para o padrao que o KAM-178 trouxe: as sete rotas internas do COM
+#: registram-se num ciclo sobre a constante `ROTAS`, e nao uma a uma.
+#:
+#: Sem isto o ciclo dava **um** item indeciso em vez de sete itens com caminho,
+#: e o criterio 2 passava a contar 1 superficie onde ha 7 — e uma oitava entrada
+#: na lista nao mudava nada na enumeracao, que e exactamente o que este ticket
+#: existe para impedir.
+_LISTA_TS = re.compile(
+    r"\bconst\s+(?P<nome>[A-Z][A-Z0-9_$]*)\s*(?::[^=\n]+)?=\s*\[(?P<corpo>[^\]]*)\]",
+)
+
+#: Um literal de cadeia, para ler os elementos de uma `_LISTA_TS`.
+_LITERAL_TS = re.compile(r"\"[^\"]*\"|'[^']*'|`[^`]*`")
+
+#: `for (const <variavel> of <LISTA>)`. So a forma `const`: um `let` pode ser
+#: reatribuido dentro do ciclo e a resolucao deixava de valer.
+_CICLO_TS = re.compile(
+    r"\bfor\s*\(\s*const\s+(?P<variavel>[A-Za-z_$][\w$]*)\s+of\s+"
+    r"(?P<lista>[A-Za-z_$][\w$.]*)\s*\)",
+)
 
 #: `const <nome> = <expressao>` ao nivel de uma funcao, para seguir um local uma
 #: vez: `const fila = opcoes.fila ?? FILA_AGR`.
@@ -274,6 +300,64 @@ def _constantes_ts(raiz: Path) -> dict[str, set[str]]:
     return tabela
 
 
+def _listas_ts(raiz: Path) -> dict[str, set[tuple[str, ...]]]:
+    """`NOME -> {tuplos de valores}` das listas de cadeias do TypeScript lido.
+
+    Um conjunto de **tuplos**, pela razao de `_constantes_ts`: duas definicoes
+    do mesmo nome com listas diferentes tornam a resolucao indecisa, e um
+    indeciso e um achado. Uma tabela que escolhesse a primeira enumerava rotas
+    de outro servico sem o dizer.
+
+    So nomes em maiusculas (`_LISTA_TS`): uma lista de caminhos neste
+    repositorio e uma constante de modulo, e deixar passar `const partes = [...]`
+    de dentro de uma funcao trazia arrays que nao sao tabelas de rotas.
+    """
+    tabela: dict[str, set[tuple[str, ...]]] = {}
+    for padrao in ("services/*/src/**/*.ts", "packages/*/src/**/*.ts"):
+        for caminho in _ficheiros(raiz, padrao):
+            fonte = _sem_comentarios(caminho.read_text(encoding="utf-8"))
+            for achado in _LISTA_TS.finditer(fonte):
+                valores = tuple(
+                    _texto(literal.group(0))
+                    for literal in _LITERAL_TS.finditer(achado.group("corpo"))
+                )
+                if valores:
+                    tabela.setdefault(achado.group("nome"), set()).add(valores)
+    return tabela
+
+
+def _ciclos_ts(fonte: str) -> dict[str, str]:
+    """`variavel -> LISTA` de cada `for (const x of LISTA)` do ficheiro."""
+    return {
+        achado.group("variavel"): achado.group("lista").rsplit(".", 1)[-1]
+        for achado in _CICLO_TS.finditer(fonte)
+    }
+
+
+def _caminhos_do_ciclo(
+    alvo: str,
+    ciclos: dict[str, str],
+    listas: dict[str, set[tuple[str, ...]]],
+) -> tuple[str, ...] | None:
+    """Os caminhos de `app.<verbo>(<variavel de ciclo>)`, ou `None` se indeciso.
+
+    Uma so definicao da lista, todos os elementos com forma de caminho, e
+    nenhum com interpolacao: qualquer outra coisa devolve `None` e o sitio fica
+    **indeciso**, que e o lado seguro — um indeciso para o *gate* e um caminho
+    inventado nao.
+    """
+    nome = ciclos.get(alvo)
+    if nome is None:
+        return None
+    valores = listas.get(nome)
+    if valores is None or len(valores) != 1:
+        return None
+    caminhos = next(iter(valores))
+    if any("${" in caminho or not _PARECE_CAMINHO.match(caminho) for caminho in caminhos):
+        return None
+    return caminhos
+
+
 def _resolver_ts(alvo: str, constantes: dict[str, set[str]]) -> str | None:
     """O valor de um argumento de rota ou de fila, ou `None` se indeciso."""
     if _e_literal(alvo):
@@ -317,6 +401,7 @@ def _funcao_em(funcoes: list[tuple[int, str]], posicao: int) -> str:
 
 def _rotas_ts(raiz: Path) -> list[Item]:
     constantes = _constantes_ts(raiz)
+    listas = _listas_ts(raiz)
     itens: list[Item] = []
     for caminho in _ficheiros(raiz, "services/*/src/**/*.ts"):
         relativo = _relativo(raiz, caminho)
@@ -331,6 +416,7 @@ def _rotas_ts(raiz: Path) -> list[Item]:
         fonte = _sem_comentarios(caminho.read_text(encoding="utf-8"))
         apps = _apps_hono(fonte)
         funcoes = _funcoes_ts(fonte)
+        ciclos = _ciclos_ts(fonte)
         for achado in _ROTA_HONO.finditer(fonte):
             linha = fonte.count("\n", 0, achado.start()) + 1
             onde_monta = _funcao_em(funcoes, achado.start())
@@ -357,6 +443,23 @@ def _rotas_ts(raiz: Path) -> list[Item]:
                 )
                 continue
             if caminho_resolvido is None:
+                # **Um ciclo sobre uma lista de caminhos da um item por
+                # caminho.** E o padrao que o KAM-178 trouxe (`for (const rota
+                # of ROTAS) api.post(rota, …)`), e tratar o ciclo como um
+                # indeciso so contava 1 superficie onde ha 7.
+                do_ciclo = _caminhos_do_ciclo(alvo, ciclos, listas)
+                if do_ciclo is not None:
+                    for caminho_da_lista in do_ciclo:
+                        itens.append(
+                            Item(
+                                id=f"rota:{servico}:{modulo}:{onde_monta}:"
+                                f"{verbo}:{caminho_da_lista}",
+                                tipo="rota",
+                                camada=servico,
+                                onde=f"{relativo}:{linha}",
+                            )
+                        )
+                    continue
                 itens.append(
                     Item(
                         id=f"rota:{servico}:{modulo}:{onde_monta}:{verbo}:{relativo}#{alvo}",

@@ -112,6 +112,44 @@ class TestOsCanarios(ComArvore):
         )
         self.assertEqual(lints.verificar(self.raiz), [])
 
+    def test_num_ts_um_literal_com_barra_e_asterisco_nao_esconde_o_que_vem_depois(
+        self,
+    ) -> None:
+        """A outra metade do defeito que o KAM-178 mediu, deste lado.
+
+        O limpador de comentarios era uma expressao regular cega as cadeias, e
+        o `/*` dentro de um literal — `app.use("/internal/*", ...)` — abria um
+        comentario falso que o proximo `*/` fechava. Do lado da enumeracao isso
+        apagou sete rotas; deste lado apaga **codigo que o *lint* tinha de
+        varrer**, e o «0 achados» passa a medir menos do que diz. O mesmo vale
+        para o `//` de um `"https://..."`, que apagava o resto da linha.
+
+        O canario tem as duas formas e um `set_config(..., false)` depois de
+        cada uma.
+        """
+        ficheiro = self.raiz / "packages" / "core" / "src" / "guarda.ts"
+        # **A disposicao das linhas e que faz o canario morder**, e a primeira
+        # versao disto nao mordia: tinha o `*/` antes do `set_config` e o
+        # `https://` numa linha so sua, pelo que a versao cega apagava apenas
+        # ruido e os dois achados apareciam de qualquer maneira. Um canario
+        # que passa com a mutacao aplicada e um canario morto — a classe de
+        # defeito que este ticket existe para fechar. Medido, e redisposto
+        # para que o codigo a esconder fique **dentro** do bloco falso e
+        # **depois** do `//` na mesma linha.
+        ficheiro.write_text(
+            'const rota = "/internal/*";\n'
+            "export const SQL_A = `SELECT set_config('app.tenant_id', $1, false)`;\n"
+            "/* o fecho do bloco falso vem aqui, depois do SQL_A. */\n"
+            'const u = "https://exemplo/x"; '
+            "export const SQL_B = `SELECT set_config('app.tenant_id', $1, false)`;\n",
+            encoding="utf-8",
+        )
+        achados = lints.verificar(self.raiz)
+        self.assertEqual(len(achados), 2, achados)
+        for achado in achados:
+            with self.subTest(achado=achado):
+                self.assertIn("escrito a letra", achado)
+
 
 class TestAsExcepcoes(ComArvore):
     def escrever_excepcao(self, razao: str, sitio: str = "SQL_CONTEXTO") -> None:

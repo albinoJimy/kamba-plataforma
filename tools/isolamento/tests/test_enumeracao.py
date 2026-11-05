@@ -151,6 +151,112 @@ class TestNaoInventa(ComArvore):
             with self.subTest(fantasma=fantasma):
                 self.assertNotIn(fantasma, juntos)
 
+    def test_um_literal_com_barra_e_asterisco_nao_cega_o_resto(self) -> None:
+        """O defeito que a correccao da rota comentada abriu, e que o KAM-178 mediu.
+
+        O limpador de comentarios era uma expressao regular cega as cadeias:
+
+        ```python
+        re.sub(r"/\\*.*?\\*/", ..., fonte, flags=re.DOTALL)
+        ```
+
+        O `/*` **dentro** de `"/internal/*"` abre um comentario falso, e o
+        proximo `*/` do ficheiro fecha-o: tudo entre os dois desaparece. Medido
+        a 2026-11-05 no `services/com/src/api/interna.ts`, que o KAM-178
+        acrescentou — o `api.use("/internal/*", ...)` engoliu o ciclo logo
+        abaixo, e as **sete** rotas que ele registra ficaram invisiveis: nem
+        item, nem indeciso. O criterio 2 promete 100% das rotas e o portao dava
+        verde sobre 24 de 31.
+
+        A segunda metade do mesmo defeito e o `//`: um `"https://x"` apagava o
+        resto da linha, e uma rota registada depois dele na mesma linha
+        desaparecia pela mesma razao.
+        """
+        app = self.raiz / "services" / "svc" / "src" / "app.ts"
+        vivo = '  app.get("/healthz", (c) => c.json({}));'
+        com_literais = (
+            vivo
+            + CORTE
+            + '  app.use("/internal/*", async (c, next) => next());'
+            + CORTE
+            + '  app.get("/depois-do-asterisco", (c) => c.json({}));'
+            + CORTE
+            + '  /* um comentario a seguir, para fechar o falso bloco. */'
+            + CORTE
+            + '  const u = "https://exemplo/x"; app.get("/depois-da-barra", (c) => c.json({}));'
+        )
+        app.write_text(
+            app.read_text(encoding="utf-8").replace(vivo, com_literais),
+            encoding="utf-8",
+        )
+        ids = self.ids(enumeracao.rotas(self.raiz))
+        self.assertIn("rota:svc:app:createApp:GET:/healthz", ids)
+        for sobrevivente in ("/depois-do-asterisco", "/depois-da-barra"):
+            with self.subTest(rota=sobrevivente):
+                self.assertIn(f"rota:svc:app:createApp:GET:{sobrevivente}", ids)
+
+    def test_um_ciclo_sobre_uma_lista_da_um_item_por_caminho(self) -> None:
+        """Sete rotas num ciclo sao sete itens, e nao um indeciso.
+
+        E o padrao que o KAM-178 trouxe: `for (const rota of ROTAS)
+        api.post(rota, ...)`. Tratar o ciclo como um indeciso nao era falso —
+        um indeciso para o *gate* —, mas contava **1** superficie onde ha 7, e
+        uma oitava entrada na lista nao mudava nada na enumeracao. E
+        exactamente o que este ticket existe para impedir.
+        """
+        app = self.raiz / "services" / "svc" / "src" / "app.ts"
+        vivo = '  app.get("/healthz", (c) => c.json({}));'
+        com_ciclo = (
+            'export const ROTAS = ["/internal/um", "/internal/dois"] as const;'
+            + CORTE
+            + vivo
+            + CORTE
+            + "  for (const rota of ROTAS) {"
+            + CORTE
+            + "    app.post(rota, (c) => c.json({}));"
+            + CORTE
+            + "  }"
+        )
+        app.write_text(
+            app.read_text(encoding="utf-8").replace(vivo, com_ciclo), encoding="utf-8"
+        )
+        itens = enumeracao.rotas(self.raiz)
+        ids = self.ids(itens)
+        for caminho in ("/internal/um", "/internal/dois"):
+            with self.subTest(caminho=caminho):
+                self.assertIn(f"rota:svc:app:createApp:POST:{caminho}", ids)
+        self.assertEqual(
+            [item.id for item in itens if item.indeciso],
+            [],
+            "um ciclo resolvido nao deixa indeciso atras de si",
+        )
+
+    def test_um_ciclo_sobre_lista_com_interpolacao_fica_indeciso(self) -> None:
+        """O lado seguro quando a lista nao se resolve: indeciso, nao inventado.
+
+        Um elemento com `${...}` nao e um caminho conhecido, e devolver o texto
+        cru dava um `id` com forma de rota que nunca seria atacado por ninguem.
+        """
+        app = self.raiz / "services" / "svc" / "src" / "app.ts"
+        vivo = '  app.get("/healthz", (c) => c.json({}));'
+        com_ciclo = (
+            "export const ROTAS_CALCULADAS = [`/internal/${prefixo}`] as const;"
+            + CORTE
+            + vivo
+            + CORTE
+            + "  for (const rota of ROTAS_CALCULADAS) {"
+            + CORTE
+            + "    app.post(rota, (c) => c.json({}));"
+            + CORTE
+            + "  }"
+        )
+        app.write_text(
+            app.read_text(encoding="utf-8").replace(vivo, com_ciclo), encoding="utf-8"
+        )
+        indecisos = [item for item in enumeracao.rotas(self.raiz) if item.indeciso]
+        self.assertEqual(len(indecisos), 1, [item.id for item in indecisos])
+        self.assertNotIn("${", indecisos[0].id)
+
     def test_duas_superficies_na_mesma_chave_sao_erro_e_nao_uma(self) -> None:
         """Um `id` repetido nao se cala: uma das duas nunca seria atacada.
 

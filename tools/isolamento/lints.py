@@ -71,6 +71,8 @@ if str(RAIZ / "tools") not in sys.path:
 
 from kamba_yaml import exigir_chaves, load_file  # noqa: E402
 
+from .texto import sem_comentarios_ts  # noqa: E402
+
 #: A variavel do ADR-015. Uma so, e e por isso que este *lint* e estreito.
 VARIAVEL = "app.tenant_id"
 
@@ -259,14 +261,13 @@ def _sem_comentarios_ts(fonte: str) -> str:
 
     Preservar as linhas nao e cosmetico: o achado leva `ficheiro:linha`, e um
     numero errado manda quem o le para o sitio errado.
+
+    **A implementacao esta em `texto.py`**, partilhada com a enumeracao, e o
+    defeito que a motivou vale aqui pela mesma razao: um `set_config` escrito
+    depois de um literal com `/*` ou com `//` ficava fora da varredura, e o
+    *lint* dava «0 achados» sobre menos codigo do que dizia.
     """
-    sem_bloco = re.sub(
-        r"/\*.*?\*/",
-        lambda achado: "\n" * achado.group(0).count("\n"),
-        fonte,
-        flags=re.DOTALL,
-    )
-    return re.sub(r"//[^\n]*", "", sem_bloco)
+    return sem_comentarios_ts(fonte)
 
 
 def _funcao_que_contem(arvore: ast.Module, linha: int) -> str | None:

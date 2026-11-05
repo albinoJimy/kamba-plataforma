@@ -114,6 +114,7 @@ ISO_CASOS = "tools/isolamento/casos.py"
 ISO_LINTS = "tools/isolamento/lints.py"
 ISO_ORACULO = "tools/isolamento/oraculo.py"
 ISO_C01 = "tools/isolamento/baterias/c01_contacto.py"
+ISO_TEXTO = "tools/isolamento/texto.py"
 REV3 = "db/migrations/versions/0003_identidade_de_contacto.py"
 IDENTIDADE = "tests_identidade"
 ID_CHAVES = "packages/core-ts/src/identity/chaves.ts"
@@ -836,6 +837,36 @@ MUTACOES = [
     # O trinco que impede a valvula de virar porta: um credor inventado passa.
     ("isolamento: um credor fora do backlog passa", ISO_CASOS,
      "        if credor not in tickets:", "        if False:", ISOLAMENTO_UNIT),
+    # O limpador de comentarios volta a ser cego as cadeias de caracteres.
+    # **E a mutacao do defeito que a correccao de outro achado abriu:** o
+    # varrimento de comentarios entrou neste ticket pela revisao adversarial
+    # (uma rota comentada estava a ser contada), e a expressao regular que a
+    # fechou nao sabia o que era um literal — o `/*` dentro de
+    # `api.use("/internal/*", ...)` abria um comentario falso e o proximo `*/`
+    # do ficheiro fechava-o, apagando o codigo entre os dois. Medido a
+    # 2026-11-05 no `services/com/src/api/interna.ts` do KAM-178: as **sete**
+    # rotas `POST /internal/...` ficaram invisiveis a enumeracao, nem como item
+    # nem como indeciso, e o portao dava verde sobre 24 das 31 rotas.
+    #
+    # **Provada por execucao**: com esta mutacao aplicada a mao, morrem **tres**
+    # asercoes em 39 — as duas metades (`/*` e `//`) do
+    # `test_um_literal_com_barra_e_asterisco_nao_cega_o_resto` da enumeracao e o
+    # `test_num_ts_um_literal_com_barra_e_asterisco_nao_esconde_o_que_vem_depois`
+    # do *lint* —, e as restantes continuam verdes. O canario do *lint* teve de
+    # ser **redisposto** para morder: a primeira versao punha o `*/` antes do
+    # `set_config` e o achado aparecia de qualquer maneira. Fica dito porque um
+    # canario que passa com a mutacao aplicada e um canario morto.
+    ("isolamento: o limpador de comentarios volta a ser cego as cadeias",
+     ISO_TEXTO, "        if caracter in _FECHOS:", "        if False:",
+     ISOLAMENTO_UNIT),
+    # Um ciclo sobre uma lista de caminhos volta a dar **um** indeciso em vez de
+    # um item por caminho. Nao e falso — um indeciso tambem para o *gate* —, mas
+    # conta 1 superficie onde ha 7, e uma oitava entrada na lista deixa de mudar
+    # a enumeracao. E o criterio 2 a medir-se a si mesmo.
+    ("isolamento: um ciclo sobre uma lista de rotas volta a ser indeciso",
+     ISO_ENUM,
+     "                do_ciclo = _caminhos_do_ciclo(alvo, ciclos, listas)",
+     "                do_ciclo = None", ISOLAMENTO_UNIT),
     # O *lint* deixa de reconhecer o `false` escrito a letra.
     ("isolamento: o lint aceita set_config de sessao a letra", ISO_LINTS,
      "_FALSIDADE = (\"false\", \"'false'\", '\"false\"')",
@@ -869,8 +900,8 @@ MUTACOES = [
     # artefacto em vez de na maquina de quem o escreveu —, pelo Engenheiro de
     # Plataforma.
     ("isolamento: a leitura do contacto deixa de filtrar por contacto", ISO_C01,
-     '            f"SELECT {coluna} FROM {schema}.{tabela} WHERE contact_id = %s",',
-     '            f"SELECT {coluna} FROM {schema}.{tabela}",', ISOLAMENTO),
+     '            f"SELECT {coluna}::text FROM {schema}.{tabela} WHERE contact_id = %s",',
+     '            f"SELECT {coluna}::text FROM {schema}.{tabela}",', ISOLAMENTO),
     ("catalogo: a descoberta ignora o schema platform", CATALOGO,
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast")',
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast", "platform")',
