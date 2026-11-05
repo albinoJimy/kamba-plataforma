@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.62 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.63 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -3346,6 +3346,112 @@ o caminho é a `platform.manual_janela`.
 
 ---
 
+### 3.46 Reservas de stock: `stock_reservations`, a autoridade de quantidade e os prazos (KAM-045)
+
+O KAM-045 implementa a `platform.stock_reservations` do mesmo bloco SQL do
+`../docs/tecnica/03` §5.4 que a revisão `0030` deixou por criar com o credor
+escrito, e com ela **a autoridade de quantidade que faltava**: a `offer_terms`
+da `0028` tem `stock_modo` e não tem coluna de quantidade, e é essa ausência que
+o §3.43 registou como a razão pela qual o `OUT_OF_STOCK` do `createOrder` era um
+*hook* sem fonte. Revisão [`0033`](../db/migrations/versions/0033_reservas_de_stock.py).
+
+**A divergência que esta página resolve já estava escrita, e é sobre o nome do
+prazo.** Os *Detalhes Técnicos* do bloco KAM-045 e o DDL do §5.4 escrevem
+`expires_at`; a emenda **1.11** resolveu a divergência a favor de `expira_at` e
+a **1.12** registou a variante depois de medir que uma migração com a forma
+antiga falhava o *gate* 3b «sem explicação», nomeando esta tabela. A revisão
+usa **`expira_at`**, que é o nome que o `orders_mirror` já usa para a mesma
+ideia. Nada de novo se decide aqui: segue-se o que o dicionário já fixou, contra
+a letra do ticket, pela ordem das fontes (nível 4 contra nível 8).
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Reserva de stock | `platform.stock_reservations`, **quinze** colunas | — | *proposta* (emenda 1.63, KAM-045). `id`, `tenant_id`, `order_id`, `line_no`, `sku`, `qty`, `estado`, `motivo`, `expira_at`, `confirmada_at`, `consumida_at`, `libertada_at`, `version`, `criado_at`, `atualizado_at`. A unicidade do bloco é `UNIQUE (order_id, line_no)` e escreve-se **`(tenant_id, order_id, line_no)`**, com a razão na revisão: o `order_id` é um UUID e já é único por si, mas um índice que não principie pelo tenant não serve consulta nenhuma desta tabela. A FK da encomenda é **composta** (`(tenant_id, order_id)` → `orders_mirror (tenant_id, id)`), pela correcção de 2026-10-27 do §5.4 e pelo ISO-58 do spike KAM-041. O `sku` é **copiado e não referenciado**: a reserva é do instante da encomenda, como o `lines_snapshot`, e um SKU em *soft delete* não pode invalidar uma reserva activa |
+| Quantidade declarada de um SKU | `offer_terms.stock_quantidade` | — | *proposta* (emenda 1.63, KAM-045). `bigint` **anulável**, e nulo quer dizer «não declarada» e **não** zero: zero é a afirmação de que não há, e nulo é a ausência de afirmação — que é o estado de toda a Fase 0 para quem nunca declarou stock. **Exigida quando `stock_modo = 'garantido'` — e exigida no caminho da reserva, não na tabela**: o `SQL_RESERVAR` recusa reservar um `garantido` sem quantidade, e a `offer_terms` **não** leva restrição retroactiva. A primeira versão levava, e a revisão adversarial mediu o que custava: `tests_produtos` com `Ran 63 tests / FAILED (failures=1, errors=34)`, todos `23514`, e o `upsertProductDraft` de **outro ticket** — a `offer_terms` é do KAM-043 — a falhar **sempre**. O invariante não se perdeu, mudou de sítio: o que importa não é «linha nenhuma pode existir assim», é «não se reserva contra uma promessa sem número», que é propriedade da **reserva** e não da oferta |
+| Quantidade prometida a reservas activas | `offer_terms.stock_reservada` | — | *proposta* (emenda 1.63, KAM-045). `bigint NOT NULL DEFAULT 0`, e o `NOT NULL` é medido e não zelo: `NULL + 1` é `NULL`, e uma coluna anulável fazia o predicado aritmético do critério 1 devolver `NULL` — que num `WHERE` não é verdadeiro, pelo que **toda** a reserva era recusada, pelo lado silencioso e sobre a oferta errada |
+| Estado de uma reserva de stock | `stock_reservations.estado` ∈ {`ativa`, `consumida`, `libertada`} | — | *proposta* (emenda 1.63, KAM-045). Lista **fechada**, **três**. O `ativa` é o nome que os *Detalhes Técnicos* do bloco escrevem no índice parcial; o `consumida` sai do critério 5 e o `libertada` do critério 6. **Qualificado pela tabela** e não `estado` nu, pela regra da emenda 1.36 (§3.28): o `estado` é já coluna de `hmac_key_versions`, `events_dlq`, `evt_acoes`, `offer_terms` e `order_intents`, com domínios diferentes. Os dois últimos são **terminais** — o *trigger* `stock_reserva_transicao` recusa sair deles —, e é isso que faz de «execução dupla = 1 libertação» (critério 4) uma restrição e não uma convenção de módulo |
+| Motivo de libertação de uma reserva | `stock_reservations.motivo` ∈ {`expirada`, `cancelada`, `recusada_dono`} | — | *proposta* (emenda 1.63, KAM-045). Lista **fechada**, **três**, e são os do critério 6 à letra. Já existiam em código — o `MOTIVOS_DE_LIBERTACAO` de `../services/com/src/port/contrato.ts`, que o §3.39 declara — e **entram agora no dicionário**, que é onde deviam ter entrado antes de entrar num ticket. Exigidos em par com o estado: o `stock_reservations_libertada_exige_motivo_ck` é uma **equivalência** e não uma implicação — um motivo escrito num estado que não é `libertada` afirmava uma razão para uma coisa que não aconteceu |
+| TTL de uma reserva por tenant | `TTL_OMISSAO_MS` (48 h), em `[TTL_MINIMO_MS` (24 h)`, TTL_MAXIMO_MS` (72 h)`]` | — | ***proposta***, do critério 2, que os marca «valores *proposta*, calibrar com PAY». Vivem em `../services/com/src/reservations/contrato.ts` e **não** num `CHECK` de coluna, pela razão do `TTL_DO_HOLD_MS` (§3.3): um número no `CHECK` obrigava a uma revisão de base de dados para o calibrar. Dos três, só o tecto de 72 h tem apoio em evidência — a referência AppyPay tem 72 h por omissão, **CONFIRMADO** em `../docs/tecnica/evidencia/E2_Pagamentos_Angola.md` §1.3 —, e o que continua *proposta* é usá-lo como tecto de **todas** as vias: no ProxyPay o `end_datetime` é nosso. Calibração: **KAM-096** |
+| Folga sobre o fim da validade da cobrança | `FOLGA_MS` (15 min) | — | ***proposta***, do critério 2: `expira_at = fim_validade_cobranca + 15 min`. Existe porque a referência Multicaixa pode ser paga em ATM **até ao fim da sua validade** e o callback pode atrasar-se (E2 §1.2, §1.3): libertar no instante exacto era libertar stock de uma encomenda acabada de pagar. **Não substitui a consulta final ao PAY** do critério 5 — é a diferença entre reduzir a probabilidade e fechar o caso, e quem o fecha é o ADR-013 |
+| Reserva de uma cobrança *push* | `TTL_EXPRESS_MS` (30 min) | — | ***proposta***, do critério 2. O Express dura minutos — 30 min, expiração do OPG, **INDÍCIO** em E2 §1.2, e herda esse estado. **Abaixo do mínimo de 24 h de propósito**, pelo que a banda se verifica com a **via** e não sobre o número nu: os mesmos 30 min numa referência ATM são recusados |
+| Vida de uma reserva provisória | `PROVISORIA_MS` (2 min) | — | *proposta* (emenda 1.63, KAM-045), e é o critério 3 à letra: «sem `charge.issued` em 2 min a reserva provisória é libertada». Uma reserva é provisória quando `confirmada_at` é nulo — não é um quarto estado, porque as duas são `ativa` para todos os efeitos de stock; o que difere é o prazo. É o mesmo número que o `MINUTOS_PARA_RETOMAR` (§3.28) usa para outra coisa, e a coincidência **não é reuso**: são ciclos diferentes, e misturá-los punha o varrimento de um a olhar para o outro |
+| Intervalo do varrimento da expiração | `INTERVALO_DO_VARRIMENTO_MS` (60 s) | — | **Não é proposta**: o critério 4 escreve «*job* repetível (1 min)». O que é *proposta* é o `LOTE_DO_VARRIMENTO` (100), porque o critério não diz quantas reservas cabem numa volta |
+| Atraso da libertação de uma reserva | `reservation_release_lag` | — | *proposta* (emenda 1.63, KAM-045). A métrica do critério 4 («p99 ≤ 60 s»). Mede-se **sobre a base** (`libertada_at - expira_at`) e não no processo, e a diferença é o que o critério pede: o processo que libertou só sabe do segundo instante, pelo que um *job* que arrancasse atrasado media zero e dizia-se dentro do prazo |
+| SQLSTATE das barreiras da reserva | `KA008` (a `version` não subiu de um), `KA009` (estado terminal) | — | *proposta* (emenda 1.63, KAM-045). A seguir aos cinco da `0030` (`KA003`–`KA007`) e aos dois da `0007`. Códigos próprios e não `check_violation` para todos, pela razão da `0030`: a porta `CommerceRegistry` traduz cada recusa para um erro diferente, e com um código único não há como as distinguir sem ler texto |
+
+**A barreira do critério 1 é *duas*, e é a parte que não se lê no DDL.** «1.000
+tentativas paralelas sobre stock 10 produzem **0** reservas acima do stock e
+exactamente **10** bem-sucedidas» são duas afirmações, e cada uma tem a sua:
+
+```text
+exactamente 10 bem-sucedidas   o predicado aritmético dentro do próprio UPDATE
+0 reservas acima do stock      o CHECK offer_terms_stock_nao_sobrevende_ck
+```
+
+O predicado é o `UPDATE … SET stock_reservada = stock_reservada + :q WHERE
+stock_quantidade - stock_reservada >= :q` dos *Detalhes Técnicos*, e **não leva
+`FOR UPDATE`** — sob `READ COMMITTED` a segunda transacção espera na tranca da
+linha e **reavalia** o `WHERE` sobre o valor novo dela, que é a medição que o
+`test_concorrencia` do KAM-044 pagou para o predicado do estado e que vale letra
+por letra para a aritmética. O `FOR UPDATE SKIP LOCKED` que o bloco pede é do
+**varrimento**, que é outra consulta e reparte linhas em vez de disputar uma.
+
+O `CHECK` existe porque o predicado vive no módulo e o critério diz «0», não «0
+enquanto o módulo estiver certo». Com ele, sobrevender é impossível por
+construção, incluindo por um `UPDATE` à mão de quem tem o privilégio — a mesma
+escolha do `orders_mirror_paga_exige_via_ck` da `0030`.
+
+**E a sobrevenda, medida sem as duas barreiras, não aparece onde se esperava.**
+O ensaio `test_canario_sem_predicado_e_sem_check_a_sobrevenda_acontece` tira as
+duas e mede: o `stock_reservada` fica **exactamente em 10** e não acima, porque o
+defeito de ler-antes-de-escrever é um *lost update* — cada transacção escreve um
+valor absoluto lido antes, e a segunda passa por cima da primeira em vez de
+somar. A sobrevenda mede-se nas **promessas** (mais de dez tentativas recebem
+`ok`) e o contador fica **abaixo** delas, que é a metade pior: não registou o que
+foi prometido, pelo que nenhuma reconciliação o descobriria a partir dele.
+
+**O que esta emenda não decide, com credor em cada:**
+
+* **a metade «a encomenda segue para `paga`» do critério 5** — **KAM-055**, dono
+  do consumidor de `payment.confirmed`. O varrimento cumpre «não expira» e «a
+  reserva fica `consumida`», e **não pode** cumprir a terceira: levar uma
+  encomenda a `paga` exige, pela revisão `0030`, `actor_kind` `sistema` **e** um
+  `evento_id` que exista em `platform.events_consumed`, e um varrimento tem a
+  resposta de uma consulta HTTP e não um evento autenticado. O
+  `providerEventId` do `ProviderStatus` **não** é um `events_consumed`. Isto não
+  é limitação a contornar: se o varrimento conseguisse escrever `paga`, a caixa
+  «pagamento só por evento autenticado» da DoD era falsa, e seria esta a via;
+* **o `PaymentProvider.reconcile`** que o Contexto do bloco nomeia: **não
+  existe** no contrato do §3.39. O `PaymentProvider` do KAM-052 tem
+  `status(ref)`, que é o método da consulta final, e `cancelCharge?`, opcional,
+  que é o «PAY cancela a referência se suportado» dos *Detalhes Técnicos*. A
+  consulta usa o `status`; a divergência fica registada aqui e o nome do bloco
+  não se emenda neste ticket — é **texto do ticket** e quem o escreveu decide;
+* **a ligação do porto da fila a BullMQ** — **KAM-071**, dono do varrimento
+  agendado, como esta página já registou para o *job* da reconciliação (§3.43). O
+  `Filas` de `@kamba/core-ts/eventos/filas` é o porto do **publicador** e o
+  `Trabalho` dele não tem campo de atraso, pelo que um *delayed job* não se
+  expressa nele; alargá-lo era mexer no contrato partilhado do KAM-005 por uma
+  necessidade que só este ticket tem. Por isso há um porto estreito
+  (`FilaDeExpiracao`) e a política vive em funções puras. Fica **NÃO
+  VERIFICADO** o «p99 ≤ 60 s» em execução, que depende do agendador que não
+  existe; medido está o atraso por libertação e a aritmética do pior caso;
+* **a baixa do inventário ao consumir**: o `commitReservation` marca
+  `consumida` e **não** desce a `stock_quantidade`, que é do Registo (§5.4). Uma
+  oferta com stock 10 e dez encomendas pagas fica com `stock_quantidade = 10` e
+  `stock_reservada = 10`, e a décima primeira reserva é recusada — que é o
+  comportamento certo. O que falta é o inventário do Registo, **NÃO VERIFICADO**
+  por não haver Medusa em `../infra/compose/`;
+* **a `stock_quantidade` das linhas `garantido` que precedem a revisão**: a
+  `0033` **não lhes toca** — ficam nulas, e o *fail-closed* vem do
+  `SQL_RESERVAR`, cujo predicado só deixa passar o nulo quando o modo **não**
+  é `garantido`. Um SKU que promete exclusividade sem número declarado
+  deixa de ser reservável em vez de prometer stock que ninguém contou, e o
+  resultado é o mesmo que um preenchimento com zero daria — sem a revisão
+  deste ticket escrever nas linhas de outro. Quem avisa o dono é o **KAM-115**.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -3429,3 +3535,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.60 | Novembro 2026 | **Emenda (*proposta*), KAM-179: a cotação do dono é por contacto, e o §3.40 escrevia-a sem ele.** A assinatura do `getValidQuote` passa a `getValidQuote(ctx, contactId, sku, qty)`, e as duas formas que saem — a de **três** argumentos do §3.40 e a de **dois** com que os documentos a citavam — ficam na coluna «Substitui» **como literais e não como prosa**, que é o que a coluna é. Achado da revisão adversarial, que mediu o erro de contagem da primeira versão desta linha: dizia «a forma de quatro argumentos» para a forma que **entra**. **O que o literal aqui não compra, e fica dito para não se pagar outra vez:** a mesma revisão sustentava que declará-lo punha o `canon_lint` a caçar sozinho as ocorrências preteridas, e isso está **medido como falso** — o `tools/dict_export/exportar.py` descarta por escrito uma expressão de chamada («não é um nome que se possa proibir», porque proibir `getValidQuote` reprovava o próprio nome canónico), e o varrimento de documentos do `canon_lint` cobre só `docs/tecnica/**` e compara **nomes e valores**, não literais. Reintroduzidas as duas formas de propósito, uma vez no `EPIC-04` e uma vez no `tecnica/03`, o portão ficou **verde** nas duas. As três ocorrências do bloco KAM-043 foram corrigidas por leitura, e é por leitura que as próximas se apanham. **Decisão do fundador de 2026-11-04**, entregue com a medição de uma divergência entre quatro fontes: o §7.2 do [`../docs/tecnica/03_Core_Comercio_Medusa.md`](../docs/tecnica/03_Core_Comercio_Medusa.md) descreve a cotação como «um preço total para `(sku, qty)`» e não diz que é por cliente; o DDL do §5.4 escreve o `contact_id` sem comentário; esta página fixava a assinatura **sem** contacto; e o critério 6 do **KAM-066** exige que o contacto X não leia as `price_quotes` de Y. **A razão que decidiu está na própria tabela:** o `emitida_por` já é a coluna de quem a emitiu — o DDL da revisão `0028` diz-lhe «o actor dono que a emitiu» —, pelo que o `contact_id` ao lado dele é o cliente **para quem** o preço foi dado e não registo de quem o pediu; e a razão de existir a cotação, escrita em três sítios, é o desconto de quantidade e a negociação. **O que a ausência do predicado custava, medido por execução contra um PostgreSQL real:** dentro do **mesmo tenant** — onde a política `tenant_iso` deixa passar os dois contactos e as quatro bandeiras do critério 7 do KAM-043 ficam verdes — o contacto X que pedisse o mesmo `(sku, qty)` recebia o total negociado para Y, e recebia-o no caminho que **cobra**: o `resolverLinha` do `proposeCart`, onde a cotação ganha ao `offer_terms` com `origem_preco='cotacao_dono'` a dizer que o dono o prometeu. É o **RR-01** com o contacto no lugar do tenant. **E escalava de leitura para escrita:** a leitura devolve o `id` da cotação e o `UPDATE` que a aceita filtrava `tenant_id` e `id`, pelo que X punha a cotação de Y a `aceite`. **O contacto é argumento e não campo do `ctx`**, e isso não é gosto: o `Ctx` da porta leva `tenantId`, `actor` e `traceId`, e o contacto chega por chamada — como no `OrderIntent.contactId`, no `OrderFilter.contactId` e no `PedidoDeCotacao.contactId` —, pelo que pô-lo no `ctx` mudava a forma do contexto dos doze métodos do §3.39 para resolver um. **Nenhum nome novo entra, nenhuma coluna muda e não há revisão de base de dados:** a coluna e a FK composta existem desde a `0028`, e o que faltava era o predicado na consulta. O `price_quotes_vivas_idx` fica como está — `(tenant_id, sku, valida_ate DESC) WHERE estado = 'emitida'`, com o `contact_id` como filtro sobre o prefixo —, e o custo disso é **NÃO VERIFICADO**, a calibrar no Piloto. | Equipa KAMBÁ |
 | 1.61 | Novembro 2026 | **Emenda (*proposta*), KAM-054.** §3.45 nova: a confirmação humana auditada — as quatro tabelas da revisão `0032` (`payment_confirmers`, `manual_confirmations`, `refund_cases`, `fraud_signals`), as cinco fases, os cinco domínios de `CHECK`, as cinco funções de fase e a quinta aresta do §7.1 (`paga` + `confirmacao_manual_revertida` → `reembolso_pendente`), que a `0029` deixou escrita como dívida com este ticket nomeado. **E resolve um conflito de fontes a favor do dicionário:** o critério 5 do bloco escreve `authn_method='humano_auditado'`, valor que não existe no domínio de quatro da §3.4 e que o `payment_events_authn_method_ck` da `0029` **recusa** — e o lado errado é o bloco, porque o §4.2 M-6, que é a regra que o critério implementa, escreve `manual`. O `confirmacao_manual_revertida` sai da lista `EVENTOS_SEM_TRANSICAO`. **O que não decide, com credor:** os valores de `manual_daily_max_minor` e `manual_max_por_contacto_24h`, que o §4.2 M-3 nomeia e **não quantifica** (**KAM-096**, com os dados do Piloto), e a severidade das duas regras de `fraud_signals` (*proposta* `3`, **KAM-060**). | Equipa KAMBÁ |
 | 1.62 | Novembro 2026 | **Emenda (*proposta*), KAM-054, da revisão adversarial.** §3.45: a coluna `manual_confirmations.decisao`, com domínio fechado de quatro valores. **Não está no `../docs/tecnica/04` §6.3**, e entra porque três revisões independentes mediram o mesmo defeito: a fase `confirmacao` é escrita por **três** decisões — `confirma`, `retem` e `exige_segunda`, as três com `valor_bate` verdadeiro, porque as três passam o M-4 antes de se decidirem — e **quatro** leitores liam-na como aprovação. O G8 aceitava a fase de uma confirmação **retida para ops** como prova de que os limites foram cumpridos; a primeira assinatura do M-5 contava uma retenção, pelo que a dupla concluía com uma aprovação genuína; a `manual_janela` somava ao dia o dinheiro de cobranças que não foram pagas; e a idempotência devolvia `confirma` para tudo o que não fosse rejeição. Nenhum dos quatro se corrige por si: **o predicado que faltava é o mesmo nos quatro**, e é esta coluna. O registo passa a dizer o que aconteceu, que é o que o M-6 pede. A divergência com o §6.3 fica na dívida documental como adição e não como contradição. | Equipa KAMBÁ |
+| 1.63 | Novembro 2026 | **Emenda (*proposta*), KAM-045: a reserva de stock e a autoridade de quantidade que o §3.43 deixou com credor.** §3.46 nova: a `platform.stock_reservations` com as suas **quinze** colunas (revisão [`0033`](../db/migrations/versions/0033_reservas_de_stock.py)), as **duas** colunas de quantidade da `offer_terms` — `stock_quantidade` anulável («não declarada», não zero) e `stock_reservada` `NOT NULL DEFAULT 0` —, os **três** estados de uma reserva (dos quais **dois** são terminais), os **três** motivos de libertação, os **seis** valores de prazo do critério 2 e do critério 3, a métrica `reservation_release_lag` e os **dois** SQLSTATE `KA008`–`KA009`. **A divergência do nome do prazo não é nova e não se arbitra aqui:** o bloco e o DDL do `../docs/tecnica/03` §5.4 escrevem `expires_at`, a emenda **1.11** resolveu-a a favor de `expira_at` e a **1.12** registou a variante depois de medir que uma migração com a forma antiga falhava o *gate* 3b, nomeando esta tabela — pelo que a revisão segue o dicionário contra a letra do ticket, pela ordem das fontes. **Os três motivos de libertação entram agora no dicionário** e já existiam em código (`MOTIVOS_DE_LIBERTACAO` do §3.39): é a ordem invertida que a convenção proíbe, e fica corrigida. **A barreira do critério 1 é duas e não uma**, e é a parte que não se lê no DDL: o predicado aritmético dentro do próprio `UPDATE` dá «exactamente 10» e o `CHECK` `offer_terms_stock_nao_sobrevende_ck` dá «0 acima do stock» — contra toda a via de escrita, incluindo um `UPDATE` à mão de quem tem o privilégio. O predicado **não leva `FOR UPDATE`**, e isso é a medição do `test_concorrencia` do KAM-044 («o predicado do estado, sozinho, serializa») a valer para a aritmética; o `FOR UPDATE SKIP LOCKED` do bloco é do **varrimento**, que reparte linhas em vez de disputar uma. **E a sobrevenda, medida sem as duas barreiras, não aparece onde se esperava:** o contador fica exactamente em 10 e não acima, porque ler-antes-de-escrever é um *lost update* — a sobrevenda mede-se nas **promessas** (mais de dez tentativas recebem `ok`) e o contador fica **abaixo** delas, que é a metade pior, por não registar o que foi prometido. **Três decisões que saíram de escrever a revisão e não de a ler.** A primeira: o *trigger* exige a `version` **só na mudança de estado**, como o `order_transicao_valida` da `0030` — exigi-la em todo o `UPDATE` proibia um toque sem efeito (`SET expira_at = expira_at`), que é exactamente o que o `test_update_sem_where_so_toca_nas_linhas_de_a` do *gate* 6 corre sobre todas as tabelas com receita de semente, e a leitura fácil era «esta tabela não pode ter receita», que é falsa. A segunda: **um `UPDATE` de preenchimento numa tabela com `FORCE ROW LEVEL SECURITY` casa zero linhas e não dá erro** — a `0028` põe `FORCE` na `offer_terms`, o `FORCE` vincula também o dono, e o dono é o `kamba_migrator`, que é `NOBYPASSRLS`; sem contexto de tenant a revisão **não vê** as linhas que vai preencher, e o `ADD CONSTRAINT` seguinte falhava com o mesmo `23514` que o preenchimento existia para evitar. É a nota do `../db/rls.py` sobre `SECURITY DEFINER` a valer para uma revisão. **A medição fica e o código que ela motivou não**, e é a terceira decisão que apaga os dois: a revisão adversarial mostrou que o `CHECK` retroactivo que o preenchimento servia era uma barreira sobre a tabela de **outro ticket** — a `offer_terms` é do KAM-043 — sem o caminho de escrita que a satisfaz; medido, `tests_produtos` com `Ran 63 tests / FAILED (failures=1, errors=34)`, todos `23514`, e o `upsertProductDraft` com `garantido` a falhar **sempre**, pelo que este ticket inutilizava uma operação de outro. **As três caíram juntas** — a restrição, o preenchimento que a servia e o `NO FORCE` que servia o preenchimento — e o invariante mudou para o `SQL_RESERVAR`, que recusa reservar um `garantido` sem quantidade. A medição do `FORCE` fica escrita na revisão mesmo sem o código, porque vale para a próxima que precise de preencher — e porque uma medição que se apaga com o código que a motivou volta a pagar-se. **O que não decide, com credor em cada:** a metade «a encomenda segue para `paga`» do critério 5 (**KAM-055**) — o varrimento cumpre «não expira» e «a reserva fica `consumida`» e **não pode** cumprir a terceira, porque levar uma encomenda a `paga` exige um `evento_id` em `platform.events_consumed` e um varrimento tem uma resposta HTTP, não um evento autenticado; se conseguisse escrevê-la, a caixa «pagamento só por evento autenticado» da DoD era falsa e seria esta a via; o `PaymentProvider.reconcile` que o Contexto do bloco nomeia, que **não existe** (o contrato tem `status(ref)` e o `cancelCharge?` opcional); a ligação do porto da fila a BullMQ (**KAM-071**), porque o `Trabalho` do `Filas` do publicador não tem campo de atraso e alargá-lo era mexer no contrato do KAM-005 — pelo que o «p99 ≤ 60 s» do critério 4 fica **NÃO VERIFICADO** em execução e medido fica o atraso por libertação; e a baixa do inventário ao consumir, que é do Registo e **NÃO VERIFICADA** por não haver Medusa em `../infra/compose/`. | Equipa KAMBÁ |

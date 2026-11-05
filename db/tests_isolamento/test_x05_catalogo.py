@@ -278,6 +278,11 @@ class TestCatalogoReal(ComBase):
                 # `outbound_messages`.
                 ("platform", "price_quotes", "tenant_id"),
                 ("platform", "refund_cases", "tenant_id"),
+                # KAM-045: a reserva de stock, entre o caso de reembolso e o
+                # canal («ref» < «sto» < «ten»). A nota do KAM-044 mais abaixo
+                # vale outra vez: sao **tres** as listas deste ficheiro que
+                # precisaram desta tabela, e as tres estao feitas no mesmo PR.
+                ("platform", "stock_reservations", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
@@ -525,6 +530,11 @@ class TestCatalogoReal(ComBase):
                 # por politica, e so a suite contra a base o mostrou.
                 ("resources", "tenant_iso", "ALL", "{public}"),
                 ("services", "tenant_iso", "ALL", "{public}"),
+                # KAM-045: **uma** politica, a `tenant_iso`, como as outras
+                # tabelas de `platform` que nao sao lidas pelo resolvedor. Entre
+                # `services` e `tenant_channels` pela colacao `C` («ser» <
+                # «sto» < «ten»).
+                ("stock_reservations", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
@@ -647,6 +657,8 @@ class TestCatalogoReal(ComBase):
              # `outbound_messages`.
              "price_quotes",
              "refund_cases",
+             # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
+             "stock_reservations",
              "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).

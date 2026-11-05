@@ -891,10 +891,30 @@ class TestConfirmacaoDoDono(ComEncomendas):
 
         **Sem referencia:** a encomenda nao chega a `aguarda_pagamento`, que e o
         estado onde a referencia vive — a `version` fica em 1 e o
-        `order_state_log` dela esta vazio. **Sem reserva:** nao ha
-        `stock_reservations` nenhuma, e nao ha porque a tabela e do **KAM-045**
-        e nao existe nesta revisao. Isto afirma as duas: a ausencia da tabela
-        **e** a ausencia da transicao.
+        `order_state_log` dela esta vazio. **Sem reserva:** nao ha nenhuma linha
+        de `platform.stock_reservations` para esta encomenda.
+
+        ## A asercao da segunda metade mudou, e a mudanca estava escrita aqui
+
+        Ate a revisao `0033` (KAM-045) este caso afirmava «sem reserva» pela
+        **ausencia da tabela**, porque a tabela nao existia — e a propria
+        asercao levava a mensagem que mandava substitui-la quando existisse, com
+        o credor nomeado. A tabela existe desde o KAM-045, pelo que a asercao
+        passa a ser a que o criterio 7 do KAM-046 queria: **zero reservas para
+        esta encomenda**.
+
+        A diferenca nao e cosmetica. «A tabela nao existe» era verdadeira por
+        uma razao que nada tem a ver com o criterio — nenhuma encomenda teria
+        reserva, porque reserva nenhuma era possivel —, e deixaria de medir o
+        criterio no instante em que a tabela aparecesse: passaria a falhar, que
+        e o que a mensagem previa. «Esta encomenda tem zero reservas» mede o
+        que o criterio diz, e e **falsificavel**: um `confirmar_dono` que
+        reservasse stock antes da confirmacao do dono fa-la-ia subir a um.
+
+        E e o que os *Detalhes Tecnicos* do bloco KAM-045 escrevem do outro
+        lado: «itens `confirmar_dono` so reservam depois de
+        `confirmacao_dono='confirmada'`». Este caso e a metade do KAM-046 dessa
+        regra, agora medida contra a tabela que a sustenta.
         """
         self.semente.execute(
             "SELECT count(*) FROM platform.order_state_log "
@@ -903,15 +923,16 @@ class TestConfirmacaoDoDono(ComEncomendas):
         )
         self.assertEqual(int(self.semente.fetchone()[0]), 0)
         self.semente.execute(
-            "SELECT count(*) FROM information_schema.tables "
-            " WHERE table_schema = 'platform' AND table_name = 'stock_reservations'"
+            "SELECT count(*) FROM platform.stock_reservations "
+            " WHERE tenant_id = %s AND order_id = %s",
+            (self.tenant, self.encomenda),
         )
         self.assertEqual(
             int(self.semente.fetchone()[0]),
             0,
-            "a stock_reservations passou a existir: o critério 7 do KAM-046 "
-            "pode agora afirmar «sem reserva» contra a tabela, e este caso tem "
-            "de ser substituido por essa asercao (credor KAM-045)",
+            "um item `confirmar_dono` so reserva depois de a confirmacao do "
+            "dono ser `confirmada`: com ela `pendente`, a encomenda nao tem "
+            "reserva nenhuma",
         )
 
     def test_o_cas_do_subestado_passa_uma_vez_e_o_segundo_nao_encontra(self) -> None:
