@@ -73,11 +73,19 @@ SEM_TRANSICAO = (
 #: As arestas do diagrama do §7.1, lidas do documento uma a uma:
 #: `(estado, tipo_evento, decisao) -> estado`.
 #:
-#: Tres arestas do diagrama **nao** estao aqui, e nenhuma por esquecimento:
+#: **Tres** arestas do diagrama nao estao aqui, e nenhuma por esquecimento. A
+#: primeira muda de forma com o KAM-054 e **nao desaparece** — ver a nota ao
+#: lado do `("paga", "confirmacao_manual_revertida")` na tabela:
 #:
 #:     paga -> reembolso_pendente: «disputa»
-#:         nao ha tipo de evento para uma disputa nos dezassete do §6.2. Abrir um
-#:         caso e `refund_cases` (§6.3, KAM-054)
+#:         o KAM-054 deu a esta cobranca um caminho de `paga` para
+#:         `reembolso_pendente`, mas pelo `confirmacao_manual_revertida`, que e a
+#:         **reversao** do M-8 — engano ou fraude descoberta. A aresta que o
+#:         diagrama desenha e uma **disputa do cliente**, e para essa continua a
+#:         nao haver tipo de evento nos dezassete do §6.2. A condicao que a
+#:         `0029` escreveu — «sem evento, nao ha aresta» — continua verdadeira
+#:         para a disputa, e apagar esta nota deixava-a sem sitio onde estar
+#:         escrita (apanhado pela revisao adversarial do KAM-054)
 #:     pendente_confirmacao -> paga: «confirmacao humana auditada»
 #:         esta aqui, mas por `pagamento_confirmado` — «confirmacao humana
 #:         auditada» e um `authn_method` (`manual`, com `actor_id`) e nao um tipo
@@ -103,6 +111,18 @@ ARESTAS = {
     ("pendente_confirmacao", "confirmacao_manual_rejeitada"): "emitida",
     ("expirada", "pagamento_confirmado"): "paga",
     ("falhada", "pagamento_confirmado"): "paga",
+    # A quinta aresta, pela revisao `0032` (KAM-054). A `0029` deixou-a de fora
+    # e nomeou a condicao: «sem evento, nao ha aresta — e inventar um tipo era
+    # alargar o escopo.» Com a `refund_cases` a existir, o evento que faltava
+    # **ja estava** nos dezassete: e o `confirmacao_manual_revertida` do M-8. A
+    # condicao cumpriu-se sem se inventar tipo nenhum.
+    #
+    # **E nao e a aresta da «disputa» do diagrama**, que e outra coisa: esta e a
+    # reversao do M-8, por engano ou por fraude descoberta, e a do diagrama e
+    # uma disputa do cliente — para a qual continua a nao haver tipo de evento.
+    # A distincao esta na nota do `ARESTAS`, e saiu da revisao adversarial do
+    # KAM-054, que notou que a primeira versao desta linha a apagou.
+    ("paga", "confirmacao_manual_revertida"): "reembolso_pendente",
     ("reembolso_pendente", "reembolso_manual_registado"): "reembolsada",
 }
 

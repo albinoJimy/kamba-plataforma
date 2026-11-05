@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.61"
+versao_dicionario: "1.63"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11591,6 +11591,426 @@ entradas:
       - "UPSTREAM_TIMEOUT"
     variantes_literais: []
   - seccao: "3.45"
+    conceito: "Quem pode confirmar no ManualProvider"
+    canonico: "payment_confirmers(tenant_id, contact_id, papel, pode_segunda_aprovacao, ativo)"
+    literais:
+      - "payment_confirmers(tenant_id, contact_id, papel, pode_segunda_aprovacao, ativo)"
+    nomes:
+      - "ManualProvider"
+      - "payment_confirmers"
+      - "tenant_id"
+      - "contact_id"
+      - "papel"
+      - "pode_segunda_aprovacao"
+      - "ativo"
+    nomes_nota:
+      - "tenant_id"
+      - "contact_id"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Papel do confirmador"
+    canonico: "payment_confirmers.papel ∈ {dono, funcionario}"
+    literais:
+      - "payment_confirmers.papel"
+      - "dono"
+      - "funcionario"
+    nomes:
+      - "payment_confirmers.papel"
+      - "dono"
+      - "funcionario"
+    nomes_nota:
+      - "cliente"
+      - "manual_confirmar"
+      - "actor_contact_id"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Marca da segunda aprovação"
+    canonico: "payment_confirmers.pode_segunda_aprovacao boolean"
+    literais:
+      - "payment_confirmers.pode_segunda_aprovacao boolean"
+    nomes:
+      - "payment_confirmers.pode_segunda_aprovacao"
+      - "boolean"
+    nomes_nota:
+      - "false"
+      - "manual_dupla_acima_minor"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Confirmador activo"
+    canonico: "payment_confirmers.ativo boolean"
+    literais:
+      - "payment_confirmers.ativo boolean"
+    nomes:
+      - "payment_confirmers.ativo"
+      - "boolean"
+    nomes_nota:
+      - "true"
+      - "confirmacao_manual_rejeitada"
+      - "false"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Registo de cada fase da confirmação"
+    canonico: "manual_confirmations(id, tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, valor_declarado_minor, valor_bate, evidencia_ref, motivo, criado_at)"
+    literais:
+      - "manual_confirmations(id, tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, valor_declarado_minor, valor_bate, evidencia_ref, motivo, criado_at)"
+    nomes:
+      - "manual_confirmations"
+      - "id"
+      - "tenant_id"
+      - "charge_id"
+      - "fase"
+      - "actor_contact_id"
+      - "canal_msg_id"
+      - "valor_declarado_minor"
+      - "valor_bate"
+      - "evidencia_ref"
+      - "motivo"
+      - "criado_at"
+    nomes_nota:
+      - "canal_msg_id"
+      - "UPDATE"
+      - "DELETE"
+      - "reversao"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Fase da confirmação"
+    canonico: "manual_confirmations.fase ∈ {declaracao_cliente, confirmacao, segunda_aprovacao, rejeicao, reversao}"
+    literais:
+      - "manual_confirmations.fase"
+      - "declaracao_cliente"
+      - "confirmacao"
+      - "segunda_aprovacao"
+      - "rejeicao"
+      - "reversao"
+    nomes:
+      - "manual_confirmations.fase"
+      - "declaracao_cliente"
+      - "confirmacao"
+      - "segunda_aprovacao"
+      - "rejeicao"
+      - "reversao"
+    nomes_nota:
+      - "declaracao_cliente"
+      - "pendente_confirmacao"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Decisão da fase"
+    canonico: "manual_confirmations.decisao ∈ {confirma, exige_segunda, retem, rejeita}"
+    literais:
+      - "manual_confirmations.decisao"
+      - "confirma"
+      - "exige_segunda"
+      - "retem"
+      - "rejeita"
+    nomes:
+      - "manual_confirmations.decisao"
+      - "confirma"
+      - "exige_segunda"
+      - "retem"
+      - "rejeita"
+    nomes_nota:
+      - "confirmacao"
+      - "valor_bate"
+      - "manual_janela"
+      - "declaracao_cliente"
+      - "reversao"
+      - "manual_confirmations_decisao_da_fase"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Idempotência da confirmação"
+    canonico: "manual_confirmations UNIQUE (charge_id, canal_msg_id)"
+    literais:
+      - "manual_confirmations"
+      - "UNIQUE (charge_id, canal_msg_id)"
+    nomes:
+      - "manual_confirmations"
+      - "UNIQUE"
+      - "charge_id"
+      - "canal_msg_id"
+    nomes_nota:
+      - "repetida"
+      - "true"
+      - "charge_id"
+      - "canal_msg_id"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Montante declarado pelo dono"
+    canonico: "manual_confirmations.valor_declarado_minor bigint"
+    literais:
+      - "manual_confirmations.valor_declarado_minor bigint"
+    nomes:
+      - "manual_confirmations.valor_declarado_minor"
+      - "bigint"
+    nomes_nota:
+      - "declaracao_cliente"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Veredicto do desafio do valor"
+    canonico: "manual_confirmations.valor_bate boolean"
+    literais:
+      - "manual_confirmations.valor_bate boolean"
+    nomes:
+      - "manual_confirmations.valor_bate"
+      - "boolean"
+    nomes_nota:
+      - "valor_declarado_minor"
+      - "payment_charges.amount_minor"
+      - "amount_minor"
+      - "false"
+      - "emitida"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Anexo do cliente, e o que ele não é"
+    canonico: "manual_confirmations.evidencia_ref text, com rótulo nao_prova"
+    literais:
+      - "manual_confirmations.evidencia_ref text"
+      - "nao_prova"
+    nomes:
+      - "manual_confirmations.evidencia_ref"
+      - "text"
+      - "nao_prova"
+    nomes_nota:
+      - "CHECK"
+      - "evidencia_ref"
+      - "IS"
+      - "NULL"
+      - "OR"
+      - "LIKE"
+      - "nao_prova"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Caso de reembolso"
+    canonico: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    literais:
+      - "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    nomes:
+      - "refund_cases"
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "charge_id"
+      - "motivo"
+      - "valor_minor"
+      - "estado"
+      - "prova_ref"
+      - "criado_at"
+      - "fechado_at"
+    nomes_nota:
+      - "refund"
+      - "NOT_SUPPORTED"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Estado do caso de reembolso"
+    canonico: "refund_cases.estado ∈ {aberto, a_executar_pela_pme, concluido, recusado}"
+    literais:
+      - "refund_cases.estado"
+      - "aberto"
+      - "a_executar_pela_pme"
+      - "concluido"
+      - "recusado"
+    nomes:
+      - "refund_cases.estado"
+      - "aberto"
+      - "a_executar_pela_pme"
+      - "concluido"
+      - "recusado"
+    nomes_nota:
+      - "aberto"
+      - "a_executar_pela_pme"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Sinal de fraude"
+    canonico: "fraud_signals(id, tenant_id, contact_id, charge_id, regra, severidade, accao, detalhe, criado_at)"
+    literais:
+      - "fraud_signals(id, tenant_id, contact_id, charge_id, regra, severidade, accao, detalhe, criado_at)"
+    nomes:
+      - "fraud_signals"
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "charge_id"
+      - "regra"
+      - "severidade"
+      - "accao"
+      - "detalhe"
+      - "criado_at"
+    nomes_nota:
+      - "manual_limite_diario"
+      - "manual_limite_por_contacto_24h"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Acção do sinal"
+    canonico: "fraud_signals.accao ∈ {registar, reter_confirmacao, exigir_dupla, bloquear_contacto, suspender_manual}"
+    literais:
+      - "fraud_signals.accao"
+      - "registar"
+      - "reter_confirmacao"
+      - "exigir_dupla"
+      - "bloquear_contacto"
+      - "suspender_manual"
+    nomes:
+      - "fraud_signals.accao"
+      - "registar"
+      - "reter_confirmacao"
+      - "exigir_dupla"
+      - "bloquear_contacto"
+      - "suspender_manual"
+    nomes_nota:
+      - "reter_confirmacao"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Severidade do sinal"
+    canonico: "fraud_signals.severidade smallint ∈ 1…5"
+    literais:
+      - "fraud_signals.severidade smallint"
+    nomes:
+      - "fraud_signals.severidade"
+      - "smallint"
+    nomes_nota:
+      - "CHECK"
+      - "severidade"
+      - "BETWEEN"
+      - "AND"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "A declaração do cliente"
+    canonico: "platform.manual_declarar(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_evidencia_ref)"
+    literais:
+      - "platform.manual_declarar(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_evidencia_ref)"
+    nomes:
+      - "platform.manual_declarar"
+      - "p_charge_id"
+      - "p_actor_contact_id"
+      - "p_canal_msg_id"
+      - "p_evidencia_ref"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "declaracao_cliente"
+      - "confirmacao_manual_pedida"
+      - "pagamento_confirmado"
+      - "confirmar_exige_autenticacao"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "O acto humano"
+    canonico: "platform.manual_confirmar(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_valor_declarado_minor)"
+    literais:
+      - "platform.manual_confirmar(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_valor_declarado_minor)"
+    nomes:
+      - "platform.manual_confirmar"
+      - "p_charge_id"
+      - "p_actor_contact_id"
+      - "p_canal_msg_id"
+      - "p_valor_declarado_minor"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "avaliarConfirmacao"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "A omissão do dono"
+    canonico: "platform.manual_expirar_confirmacao(p_charge_id, p_janela_horas)"
+    literais:
+      - "platform.manual_expirar_confirmacao(p_charge_id, p_janela_horas)"
+    nomes:
+      - "platform.manual_expirar_confirmacao"
+      - "p_charge_id"
+      - "p_janela_horas"
+    nomes_nota:
+      - "pendente_confirmacao"
+      - "emitida"
+      - "confirmacao_manual_rejeitada"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "A reversão auditada"
+    canonico: "platform.manual_reverter(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_motivo)"
+    literais:
+      - "platform.manual_reverter(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_motivo)"
+    nomes:
+      - "platform.manual_reverter"
+      - "p_charge_id"
+      - "p_actor_contact_id"
+      - "p_canal_msg_id"
+      - "p_motivo"
+    nomes_nota:
+      - "reversao"
+      - "confirmacao_manual_revertida"
+      - "refund_cases"
+      - "paga"
+      - "reembolso_pendente"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "O agregado das duas janelas"
+    canonico: "platform.manual_janela(p_tenant_id, p_contact_id, p_agora)"
+    literais:
+      - "platform.manual_janela(p_tenant_id, p_contact_id, p_agora)"
+    nomes:
+      - "platform.manual_janela"
+      - "p_tenant_id"
+      - "p_contact_id"
+      - "p_agora"
+    nomes_nota:
+      - "ten_tecto"
+      - "platform.tenant_usage"
+      - "tenant_id"
+      - "chave_limite"
+      - "periodo"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Confirmação humana, no ledger"
+    canonico: "payment_events.authn_method = 'manual' com actor_id não nulo"
+    literais:
+      - "payment_events.authn_method = 'manual'"
+      - "actor_id"
+    nomes:
+      - "payment_events.authn_method"
+      - "manual"
+      - "actor_id"
+    nomes_nota:
+      - "humano_exige_actor"
+      - "actor_id"
+      - "actor_kind"
+    variantes_literais:
+      - "humano_auditado"
+  - seccao: "3.45"
+    conceito: "A quinta aresta da reversão"
+    canonico: "next_state('paga', 'confirmacao_manual_revertida', 'rejeitada') = reembolso_pendente"
+    literais:
+      - "next_state('paga', 'confirmacao_manual_revertida', 'rejeitada')"
+      - "reembolso_pendente"
+    nomes:
+      - "next_state"
+      - "paga"
+      - "confirmacao_manual_revertida"
+      - "rejeitada"
+      - "reembolso_pendente"
+    nomes_nota:
+      - "CREATE"
+      - "OR"
+      - "REPLACE"
+      - "paga"
+      - "reembolso_pendente"
+      - "disputa"
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "A janela de omissão"
+    canonico: "JANELA_DE_SILENCIO_HORAS (24)"
+    literais:
+      - "JANELA_DE_SILENCIO_HORAS"
+    nomes:
+      - "JANELA_DE_SILENCIO_HORAS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.45"
+    conceito: "Severidade das duas regras do M-3"
+    canonico: "3 em 1…5"
+    literais:
+      - "3"
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.46"
     conceito: "Reserva de stock"
     canonico: "platform.stock_reservations, quinze colunas"
     literais:
@@ -11617,7 +12037,7 @@ entradas:
       - "orders_mirror"
       - "lines_snapshot"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Quantidade declarada de um SKU"
     canonico: "offer_terms.stock_quantidade"
     literais:
@@ -11630,7 +12050,7 @@ entradas:
       - "garantido"
       - "offer_terms_stock_garantido_exige_quantidade_ck"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Quantidade prometida a reservas activas"
     canonico: "offer_terms.stock_reservada"
     literais:
@@ -11644,7 +12064,7 @@ entradas:
       - "DEFAULT"
       - "WHERE"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Estado de uma reserva de stock"
     canonico: "stock_reservations.estado ∈ {ativa, consumida, libertada}"
     literais:
@@ -11669,7 +12089,7 @@ entradas:
       - "order_intents"
       - "stock_reserva_transicao"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Motivo de libertação de uma reserva"
     canonico: "stock_reservations.motivo ∈ {expirada, cancelada, recusada_dono}"
     literais:
@@ -11687,7 +12107,7 @@ entradas:
       - "stock_reservations_libertada_exige_motivo_ck"
       - "libertada"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "TTL de uma reserva por tenant"
     canonico: "TTL_OMISSAO_MS (48 h), em [TTL_MINIMO_MS (24 h), TTL_MAXIMO_MS (72 h)]"
     literais:
@@ -11704,7 +12124,7 @@ entradas:
       - "TTL_DO_HOLD_MS"
       - "end_datetime"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Folga sobre o fim da validade da cobrança"
     canonico: "FOLGA_MS (15 min)"
     literais:
@@ -11716,7 +12136,7 @@ entradas:
       - "fim_validade_cobranca"
       - "min"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Reserva de uma cobrança push"
     canonico: "TTL_EXPRESS_MS (30 min)"
     literais:
@@ -11725,7 +12145,7 @@ entradas:
       - "TTL_EXPRESS_MS"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Vida de uma reserva provisória"
     canonico: "PROVISORIA_MS (2 min)"
     literais:
@@ -11738,7 +12158,7 @@ entradas:
       - "ativa"
       - "MINUTOS_PARA_RETOMAR"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Intervalo do varrimento da expiração"
     canonico: "INTERVALO_DO_VARRIMENTO_MS (60 s)"
     literais:
@@ -11748,7 +12168,7 @@ entradas:
     nomes_nota:
       - "LOTE_DO_VARRIMENTO"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "Atraso da libertação de uma reserva"
     canonico: "reservation_release_lag"
     literais:
@@ -11759,7 +12179,7 @@ entradas:
       - "libertada_at"
       - "expira_at"
     variantes_literais: []
-  - seccao: "3.45"
+  - seccao: "3.46"
     conceito: "SQLSTATE das barreiras da reserva"
     canonico: "KA008 (a version não subiu de um), KA009 (estado terminal)"
     literais:
@@ -12663,6 +13083,128 @@ tabelas:
     assinatura: "platform.order_numero_publico()"
     seccao: "3.43"
     conceito: "Gerador do número"
+  - nome: "payment_confirmers"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "contact_id"
+      - "papel"
+      - "pode_segunda_aprovacao"
+      - "ativo"
+    aberta: false
+    assinatura: "payment_confirmers(tenant_id, contact_id, papel, pode_segunda_aprovacao, ativo)"
+    seccao: "3.45"
+    conceito: "Quem pode confirmar no ManualProvider"
+  - nome: "manual_confirmations"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "charge_id"
+      - "fase"
+      - "actor_contact_id"
+      - "canal_msg_id"
+      - "valor_declarado_minor"
+      - "valor_bate"
+      - "evidencia_ref"
+      - "motivo"
+      - "criado_at"
+    aberta: false
+    assinatura: "manual_confirmations(id, tenant_id, charge_id, fase, actor_contact_id, canal_msg_id, valor_declarado_minor, valor_bate, evidencia_ref, motivo, criado_at)"
+    seccao: "3.45"
+    conceito: "Registo de cada fase da confirmação"
+  - nome: "refund_cases"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "charge_id"
+      - "motivo"
+      - "valor_minor"
+      - "estado"
+      - "prova_ref"
+      - "criado_at"
+      - "fechado_at"
+    aberta: false
+    assinatura: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    seccao: "3.45"
+    conceito: "Caso de reembolso"
+  - nome: "fraud_signals"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "charge_id"
+      - "regra"
+      - "severidade"
+      - "accao"
+      - "detalhe"
+      - "criado_at"
+    aberta: false
+    assinatura: "fraud_signals(id, tenant_id, contact_id, charge_id, regra, severidade, accao, detalhe, criado_at)"
+    seccao: "3.45"
+    conceito: "Sinal de fraude"
+  - nome: "manual_declarar"
+    esquema: "platform"
+    colunas:
+      - "p_charge_id"
+      - "p_actor_contact_id"
+      - "p_canal_msg_id"
+      - "p_evidencia_ref"
+    aberta: false
+    assinatura: "platform.manual_declarar(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_evidencia_ref)"
+    seccao: "3.45"
+    conceito: "A declaração do cliente"
+  - nome: "manual_confirmar"
+    esquema: "platform"
+    colunas:
+      - "p_charge_id"
+      - "p_actor_contact_id"
+      - "p_canal_msg_id"
+      - "p_valor_declarado_minor"
+    aberta: false
+    assinatura: "platform.manual_confirmar(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_valor_declarado_minor)"
+    seccao: "3.45"
+    conceito: "O acto humano"
+  - nome: "manual_expirar_confirmacao"
+    esquema: "platform"
+    colunas:
+      - "p_charge_id"
+      - "p_janela_horas"
+    aberta: false
+    assinatura: "platform.manual_expirar_confirmacao(p_charge_id, p_janela_horas)"
+    seccao: "3.45"
+    conceito: "A omissão do dono"
+  - nome: "manual_reverter"
+    esquema: "platform"
+    colunas:
+      - "p_charge_id"
+      - "p_actor_contact_id"
+      - "p_canal_msg_id"
+      - "p_motivo"
+    aberta: false
+    assinatura: "platform.manual_reverter(p_charge_id, p_actor_contact_id, p_canal_msg_id, p_motivo)"
+    seccao: "3.45"
+    conceito: "A reversão auditada"
+  - nome: "manual_janela"
+    esquema: "platform"
+    colunas:
+      - "p_tenant_id"
+      - "p_contact_id"
+      - "p_agora"
+    aberta: false
+    assinatura: "platform.manual_janela(p_tenant_id, p_contact_id, p_agora)"
+    seccao: "3.45"
+    conceito: "O agregado das duas janelas"
+  - nome: "next_state"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "next_state('paga', 'confirmacao_manual_revertida', 'rejeitada')"
+    seccao: "3.45"
+    conceito: "A quinta aresta da reversão"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -13603,12 +14145,57 @@ dominios:
     seccao: "3.44"
     conceito: "Origem do preço de uma linha"
     so_no_registo: false
+  - coluna: "payment_confirmers.papel"
+    valores:
+      - "dono"
+      - "funcionario"
+    seccao: "3.45"
+    conceito: "Papel do confirmador"
+    so_no_registo: false
+  - coluna: "manual_confirmations.fase"
+    valores:
+      - "declaracao_cliente"
+      - "confirmacao"
+      - "segunda_aprovacao"
+      - "rejeicao"
+      - "reversao"
+    seccao: "3.45"
+    conceito: "Fase da confirmação"
+    so_no_registo: false
+  - coluna: "manual_confirmations.decisao"
+    valores:
+      - "confirma"
+      - "exige_segunda"
+      - "retem"
+      - "rejeita"
+    seccao: "3.45"
+    conceito: "Decisão da fase"
+    so_no_registo: false
+  - coluna: "refund_cases.estado"
+    valores:
+      - "aberto"
+      - "a_executar_pela_pme"
+      - "concluido"
+      - "recusado"
+    seccao: "3.45"
+    conceito: "Estado do caso de reembolso"
+    so_no_registo: false
+  - coluna: "fraud_signals.accao"
+    valores:
+      - "registar"
+      - "reter_confirmacao"
+      - "exigir_dupla"
+      - "bloquear_contacto"
+      - "suspender_manual"
+    seccao: "3.45"
+    conceito: "Acção do sinal"
+    so_no_registo: false
   - coluna: "stock_reservations.estado"
     valores:
       - "ativa"
       - "consumida"
       - "libertada"
-    seccao: "3.45"
+    seccao: "3.46"
     conceito: "Estado de uma reserva de stock"
     so_no_registo: false
   - coluna: "stock_reservations.motivo"
@@ -13616,7 +14203,7 @@ dominios:
       - "expirada"
       - "cancelada"
       - "recusada_dono"
-    seccao: "3.45"
+    seccao: "3.46"
     conceito: "Motivo de libertação de uma reserva"
     so_no_registo: false
 

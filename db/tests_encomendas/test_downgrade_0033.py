@@ -74,12 +74,13 @@ from tests.base import alembic_ok, em_head, exigir_base_descartavel
 
 #: A revisao anterior. O `downgrade` desta volta aqui.
 #:
-#: **E a `0031` e nao a `0032`**: a `0032` esta tomada pelo KAM-054 (PR #128) e
-#: nao estava na `main` a data deste ticket, pelo que a cadeia e 0031 -> 0033. Se
-#: a `0032` fundir primeiro, esta constante e a `down_revision` da revisao
-#: passam a `0032` **na integracao** — senao o
-#: `test_ha_uma_so_cabeca` de `tests/test_migracao.py` ve duas cabecas.
-ANTERIOR = "0031"
+#: **E a `0032` — a renumeracao fez-se na integracao, como estava previsto.** A
+#: `0032` estava tomada pelo KAM-054 num PR aberto quando este ticket comecou, e
+#: a cadeia escrita era `0031 -> 0033`; o KAM-054 fundiu primeiro (`8f8ac19`,
+#: #128) e a cadeia passou a `0032 -> 0033`. Esta constante e a `down_revision`
+#: da revisao andam **juntas**: desencontradas, este ensaio desce uma revisao a
+#: mais ou a menos e afirma a ausencia de objectos que a outra revisao criou.
+ANTERIOR = "0032"
 
 #: A unica tabela que a revisao cria.
 TABELA = "stock_reservations"

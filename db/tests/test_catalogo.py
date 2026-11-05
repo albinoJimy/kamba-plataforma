@@ -183,6 +183,12 @@ class TestConvencoes(ComBase):
         por_identidade = {
             "events_outbox", "events_dlq", "audit_log", "tool_audit",
             "payment_callbacks_inbox", "payment_events",
+            # KAM-054, revisao `0032`. O `fraud_signals` e sequencial pela
+            # razao do `events_outbox`: nenhum papel sujeito a RLS lhe escreve
+            # (a `manual_confirmar` escreve-o como dono) e a leitura e de ops.
+            # Um `uuid` aleatorio tirava-lhe a ordem de chegada, que e o que um
+            # painel de sinais le primeiro.
+            "fraud_signals",
         }
         # **So tabelas de base**, e a restricao entrou no KAM-053 pela razao que
         # o `test_tenant_id_e_not_null_e_vem_primeiro_num_indice` ja escreve: o
@@ -319,6 +325,17 @@ class TestConvencoes(ComBase):
                 "orders_mirror",
                 "order_state_log",
                 "order_reconciliation_issues",
+                # KAM-054, revisao `0032`. Duas das quatro: a
+                # `manual_confirmations` e a `refund_cases` tem `id` uuid
+                # gerado. O `fraud_signals` esta no `por_identidade` (e
+                # sequencial, pela razao do `events_outbox`), e o
+                # `payment_confirmers` **nao** tem coluna `id` — a chave e
+                # natural, `(tenant_id, contact_id)`, que e a pergunta que a
+                # tabela responde: «este contacto deste tenant pode
+                # confirmar?». Uma chave sintetica tornava a resposta uma
+                # procura que pode devolver duas linhas em desacordo.
+                "manual_confirmations",
+                "refund_cases",
             }
             | por_identidade,
         )
@@ -373,6 +390,9 @@ class TestConvencoes(ComBase):
             # caracter — `payment_c` antes de `payment_e`.
             [("audit_log", "id", "a"), ("events_dlq", "id", "a"),
              ("events_outbox", "id", "a"),
+             # KAM-054: entra entre `events_outbox` e `payment_callbacks_inbox`
+             # («e» < «f» < «p»).
+             ("fraud_signals", "id", "a"),
              ("payment_callbacks_inbox", "id", "a"),
              ("payment_events", "id", "a"),
              ("tool_audit", "id", "a")],
@@ -498,6 +518,19 @@ class TestConvencoes(ComBase):
                 # um `ensureAccount` concorrente bate na chave. A do
                 # `provedor` vem primeiro nesta lista porque a consulta e
                 # `ORDER BY 1, 2`.
+                # KAM-054, revisao `0032`. As quatro da confirmacao humana,
+                # e cada uma com a forma que a sua pergunta pede. O
+                # `fraud_signals` e sequencial (`bigint` de identidade) pela
+                # razao do `events_outbox`; a `manual_confirmations` e a
+                # `refund_cases` levam `uuid` gerado; e o
+                # `payment_confirmers` tem chave **natural e composta**,
+                # `(tenant_id, contact_id)` — e e a segunda tabela do
+                # esquema com chave composta por `tenant_id` a frente,
+                # depois da `offer_terms` da `0028`. A posicao de cada uma e
+                # por `ORDER BY 1, 2`: `fr` antes de `ha`, `ma` depois de
+                # `lg`/`media`, `pa` para o par dos confirmadores e `re`
+                # depois de `price_quotes`.
+                ("fraud_signals", "id", "bigint", None),
                 ("handoff_accounts", "provedor", "text", None),
                 ("handoff_accounts", "tenant_id", "uuid", None),
                 # KAM-019: a chave da passagem e **texto e derivada** —
@@ -524,6 +557,7 @@ class TestConvencoes(ComBase):
                 # existe para outra coisa — e o que o criterio 5 poe em
                 # `media://{asset_id}`, e tem de ser estavel quando a chave do
                 # objecto mudar de molde.
+                ("manual_confirmations", "id", "uuid", "gen_random_uuid()"),
                 ("media_assets", "asset_id", "uuid", "gen_random_uuid()"),
                 # KAM-015: a chave do template e **natural e de texto**
                 # — `(tenant_id, name, lang)`, como o `docs/tecnica/01` §8.3 —
@@ -620,6 +654,8 @@ class TestConvencoes(ComBase):
                 # chave.
                 ("payment_callbacks_inbox", "id", "bigint", None),
                 ("payment_charges", "id", "uuid", "gen_random_uuid()"),
+                ("payment_confirmers", "contact_id", "uuid", None),
+                ("payment_confirmers", "tenant_id", "uuid", None),
                 ("payment_events", "id", "bigint", None),
                 ("payment_outbox_map", "authn_method", "text", None),
                 ("payment_outbox_map", "tipo_evento", "text", None),
@@ -627,6 +663,7 @@ class TestConvencoes(ComBase):
                 # posicao e por `ORDER BY 1, 2`: depois de `payment_accounts`
                 # ("pa" < "pr") e antes de `tenant_channels`.
                 ("price_quotes", "id", "uuid", "gen_random_uuid()"),
+                ("refund_cases", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -843,6 +880,22 @@ class TestConvencoes(ComBase):
              # sujeitos, e o `payment_events_charge_idx` serve a leitura da
              # cadeia, que e por cobranca e nao por tenant.
              "payment_charges", "payment_events",
+             # KAM-054. **As quatro da revisao `0032`**, e as quatro com
+             # `tenant_id NOT NULL` — nenhuma dispensa, nenhuma entrada em
+             # `ci/rls_exceptions.yaml`. O indice que serve a RLS e diferente em
+             # cada uma, e nenhuma escolha e livre: o `payment_confirmers`
+             # leva-o em **primeiro lugar na chave primaria** `(tenant_id,
+             # contact_id)`, que e o acesso «este contacto pode confirmar?»; a
+             # `manual_confirmations` tem `(tenant_id, fase, criado_at)`, que e
+             # a leitura da `manual_janela`; a `refund_cases` tem
+             # `(tenant_id, estado, criado_at)`, que e a fila de ops; e o
+             # `fraud_signals` tem `(tenant_id, criado_at)`, que e o painel de
+             # sinais. O `manual_confirmations_charge_idx` e o
+             # `manual_confirmations_msg_uq` **nao** comecam pelo `tenant_id`, e
+             # e decisao: os dois sao por cobranca, e a cobranca ja e de um
+             # tenant so.
+             "payment_confirmers", "manual_confirmations", "refund_cases",
+             "fraud_signals",
              # KAM-009. O `tenant_id` vem em primeiro lugar na chave primaria
              # das duas, que e o indice que a serve — nao foi preciso indice
              # proprio para esta regra. O `usage_ledger` tem alem disso
@@ -1087,6 +1140,20 @@ class TestConvencoes(ComBase):
         # `currency` explicita ao lado (`orders_mirror_currency_ck`, dominio de
         # um valor).
         ("orders_mirror", "total_minor"),
+        # KAM-054, revisao `0032`. O valor que **o dono escreveu** ao olhar para
+        # a app do banco dele (M-4). Nao e um saldo, e aqui a distincao e mais
+        # curta do que nas outras: nao e sequer um montante que a plataforma
+        # peca ou receba — e o conteudo de uma resposta humana, guardado para se
+        # poder auditar o desafio do valor. Anulavel: a declaracao do cliente
+        # nao tem valor declarado nenhum.
+        ("manual_confirmations", "valor_declarado_minor"),
+        # KAM-054, idem. O montante da cobranca que se reverteu. **Nao e um
+        # saldo**, e aqui a G-3 e a propria razao de a tabela existir: o
+        # reembolso e processo manual **fora** da plataforma (ADR-004, G-6), a
+        # KAMBA nao detem os fundos e o `refund()` do adaptador devolve
+        # `NOT_SUPPORTED`. Esta coluna registra quanto a PME tem de devolver da
+        # conta dela, e nao uma quantia que alguem aqui guarde.
+        ("refund_cases", "valor_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -1420,7 +1487,13 @@ class TestConvencoes(ComBase):
         # `tenant_id`, e o `de` e o `para` sao o dominio fechado dos doze
         # estados por `CHECK` — nao uma tabela de estados, que seria uma tabela
         # de cinco linhas a dizer o que um `CHECK` diz.
-        self.assertEqual(len(linhas), 57)
+        # Dez a mais com a `0032` (KAM-054): as quatro tabelas novas levam
+        # `tenant_id -> tenants`, duas delas `contact_id -> contacts` e tres
+        # `charge_id -> payment_charges`. A FK de `refund_cases.order_id` para
+        # a `orders_mirror` **nao** esta entre elas: fica no KAM-055 com a da
+        # `payment_charges`, pela razao escrita na `0029` — pôr a FK so num
+        # dos dois lados deixava o par incoerente.
+        self.assertEqual(len(linhas), 67)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

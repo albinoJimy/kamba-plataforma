@@ -57,7 +57,7 @@ caso só para o conflito de CAS e alargou o `ERROS` aos nove do
 de implementação que as quatro esperavam, e o que ele trouxe que faltava não foi
 só o código: foi a **autoridade de quantidade** — a `offer_terms` não tinha
 coluna de stock, e é por isso que o `OUT_OF_STOCK` do `createOrder` era um *hook*
-sem fonte (dicionário §3.45).
+sem fonte (dicionário §3.46).
 
 **O que resta é **um**, e o credor dele não é um ticket: é uma decisão.** O
 `createOrder` tem a *saga* implementada, medida e servida pela API interna — o

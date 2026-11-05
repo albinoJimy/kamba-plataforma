@@ -1,7 +1,7 @@
 /**
  * O vocabulário das reservas de stock: estados, motivos e os prazos (KAM-045).
  *
- * Os nomes são os do dicionário §3.45 e os do `../port/contrato.ts`, que já fixa
+ * Os nomes são os do dicionário §3.46 e os do `../port/contrato.ts`, que já fixa
  * o `Reservation`, o `MOTIVOS_DE_LIBERTACAO` e o `Duration` desde o KAM-178.
  * **Nada aqui inventa nome**: o que este ficheiro acrescenta são os três estados
  * de uma reserva e os prazos do critério 2, que são números e não nomes.

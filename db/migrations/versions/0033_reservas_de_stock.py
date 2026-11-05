@@ -114,7 +114,20 @@ from alembic import op
 import rls
 
 revision = "0033"
-down_revision = "0031"
+#: **Encaixa na `0032` e nao na `0031`, e isso decidiu-se na integracao.**
+#:
+#: Quando este ticket comecou, a `0031` era a ultima em `main` e a `0032` estava
+#: tomada pelo KAM-054 num PR aberto; a cadeia escrita era `0031 -> 0033`. O
+#: KAM-054 fundiu primeiro (`8f8ac19`, #128), pelo que a `0032` passou a existir
+#: em `main` — e deixar a `down_revision` na `0031` dava **duas cabecas**, que o
+#: `test_ha_uma_so_cabeca` de `db/tests/test_migracao.py` recusa por ser «um
+#: merge mal resolvido».
+#:
+#: Renumerar **na integracao** e nao antes e a regra da casa, e tem razao
+#: medida: um ramo verde nao pode reservar um numero para outro, pelo que
+#: apontar para uma revisao que ainda nao esta em `main` deixa a cadeia
+#: irresoluvel ate ela fundir.
+down_revision = "0032"
 branch_labels = None
 depends_on = None
 
@@ -427,7 +440,7 @@ def _stock_reservations() -> None:
         "prometido em offer_terms.stock_reservada; esta tabela diz quem "
         "prometeu o que a quem. O prazo chama-se expira_at, nome canonico do "
         "dicionario secao 3.3; a forma inglesa do docs/tecnica/03 secao 5.4 "
-        "esta preterida pela emenda 1.11. Dicionario 3.45.'"
+        "esta preterida pela emenda 1.11. Dicionario 3.46.'"
     )
     # O varrimento da expiracao procura por instante e nao por tenant: corre por
     # toda a base, como *job* com `BYPASSRLS`. **Parcial no `ativa`**, que e o

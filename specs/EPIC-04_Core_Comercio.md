@@ -807,13 +807,28 @@ python db/gate_bd.py --suite tests_encomendas   Ran 170 tests in 283.527s / OK
 python db/gate_bd.py --suite tests_isolamento   Ran  79 tests in 185.625s / OK
 gate 3b  dict_export --check, canon_lint check, canon_lint canario      3 × exit 0
 gate 3   lint_refs, lint_handoff, lint_contagens; gate 3c lint_backlog  4 × exit 0
+build + typecheck + test em contentor (node:24.21.0-alpine)             exit 0
+  services/com     pass 347  fail 0        packages/core-ts  pass 1891  fail 0
+  services/gwy     pass  84  fail 0        tools/meta-sim    pass  162  fail 0
+  worker-canal     pass  22  fail 0        onboarding-web    pass    5  fail 0
 ```
+
+**E as duas suites de base de dados correram outra vez depois da integração**, que
+é a parte que torna os números acima utilizáveis: o KAM-054 fundiu enquanto este
+ticket estava em revisão (`8f8ac19`, #128) e trouxe a revisão **`0032`**, pelo que
+a `down_revision` desta passou de `0031` para `0032` — **na integração e não
+antes**, porque um ramo verde não pode reservar um número para outro. Deixá-la na
+`0031` dava **duas cabeças**, que o `test_ha_uma_so_cabeca` recusa. A mesma
+integração renumerou a secção do dicionário (3.45 → **3.46**) e a emenda
+(1.61 → **1.63**), porque o KAM-054 tomou as três: quem funde em segundo
+renumera, **à mão e nas linhas que são suas** — um `sed` sobre «3.45» apagava a
+secção dele.
 
 **O *gate* 3b são três comandos e não um**, e correr só o `canon_lint` dava verde
 falso: o `canon/dicionario.yaml` é **gerado** do Markdown pelo `dict_export`, e
 até o regenerar o `canon_lint` não vê nomes novos nenhuns — as treze queixas de
 `[fora-do-dicionario]` desta revisão desapareceram todas com a regeneração, o que
-também confirma que o §3.45 está na forma que aquele exportador lê.
+também confirma que o §3.46 está na forma que aquele exportador lê.
 
 **E o código de saída é do comando e não de um `tail`.** A primeira corrida desta
 sessão foi lida por um `; echo $?` depois de um *pipe* e deu `0` sobre uma suite
