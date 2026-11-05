@@ -326,6 +326,31 @@ componentes:
       os `copyright` dos pacotes Debian de base, e um deles e GPL: por isso a
       fonte e o LICENSE do projecto na etiqueta, e nao a imagem.
 
+  - componente: alertmanager
+    versao: "0.28.1"
+    licenca: Apache-2.0
+    data_verificacao: "2026-11-05"
+    fonte: >-
+      `LICENSE` do projecto na etiqueta `v0.28.1`
+      (raw.githubusercontent.com/prometheus/alertmanager/v0.28.1/LICENSE), que
+      comeca por «Apache License / Version 2.0, January 2004»;
+      `alertmanager --version` dentro da imagem fixada deu `version 0.28.1`.
+      **A imagem nao traz `/LICENSE`** (medido a 2026-11-05), pelo que a fonte e
+      o projecto na etiqueta e nao a imagem — a mesma leitura, e pela mesma
+      razao, que este ficheiro ja usa para o Envoy.
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:alertmanager"
+    nota: >-
+      Entrou com o KAM-080, no orcamento de 256 MiB que o
+      `conjunto-reduzido.yaml` lhe tinha reservado desde o KAM-076. Encaminha os
+      alertas por severidade e **nao notifica**: os `receivers` nao tem
+      notificador porque o canal nao esta escolhido, e escolher um acrescenta um
+      subprocessador (KAM-069). O **Grafana** e o **Loki** continuam fora — sao
+      **AGPL-3.0**, que o `../licenses.yaml` nega por prefixo, e fechar essa
+      licenca e decisao com ADR, que nao e deste ticket nem o era do KAM-076.
+
   - componente: prometheus
     versao: "3.7.3"
     licenca: Apache-2.0

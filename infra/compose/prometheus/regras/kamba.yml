@@ -1,0 +1,238 @@
+# Regras de alerta da KAMBA — KAM-080, criterio 4.
+#
+# Validado por `make obs-promtool`, que corre **duas** coisas:
+# `promtool check rules` (sintaxe) e `promtool test rules` (**comportamento**,
+# em `testes/kamba_test.yml`).
+#
+# A segunda existe porque a primeira nao chega, e isso foi medido: a primeira
+# versao deste ficheiro passou o `check rules` com **tres** alertas que nunca
+# disparavam e **um** que nunca resolvia. Uma expressao PromQL sintacticamente
+# valida que nunca produz resultado e indistinguivel de uma que funciona, se so
+# se verificar a sintaxe.
+#
+# ## As anotacoes sao curtas de proposito
+#
+# O que esta numa anotacao vai para quem e acordado por ela. O porque de cada
+# escolha fica **em comentario**, aqui, onde serve quem edita a regra e nao
+# ocupa a mensagem de quem a recebe. A primeira versao deste ficheiro tinha
+# anotacoes de varios paragrafos: era documentacao no sitio errado.
+#
+# ## A aritmetica, porque e facil de errar e eu errei-a
+#
+#   4   linhas do doc 09 §9.2 cobertas — de **doze**: ingress parado (1), fila
+#       (2), latencia (3) e orcamento LLM (10)
+#   8   linhas do §9.2 **por escrever**, por nao haver metrica que um processo
+#       sirva. Nomeadas uma a uma, com credor, em
+#       `../../../../ops/metricas/catalogo.yaml`
+#   8   regras neste ficheiro: as 4 linhas acima dao **5** regras (a fila da
+#       duas, uma por servico), mais **3** que NAO sao do §9.2 e vao marcadas
+#       como tal (`alvo_em_baixo`, e os dois do KAM-037)
+#
+# Uma regra sobre uma serie que ninguem produz nunca dispara, e um alerta que
+# nunca dispara **parece cobertura** — e pior do que a sua ausencia, porque
+# ninguem volta a olhar. E a leitura com que o KAM-076 recusou um
+# `scrape_config` para um `/metrics` inexistente.
+#
+# ## As duas classes de defeito que este ficheiro aprendeu a evitar
+#
+# **«Serie ausente nao e serie a zero.»** Um `increase()` sobre uma serie que
+# desapareceu nao devolve zero, devolve **nada** — e uma expressao sem resultado
+# nao dispara. Mordeu o `ingress_parado`, que ficava calado precisamente quando
+# o ingress parava. Remedio: `absent()`.
+#
+# **«Serie que nasce a 1 nao e serie que subiu.»** O `exposicao()` do AGR nao
+# emite series a zero (`if not series: continue`), pelo que um contador **nasce
+# ja com o valor 1** no instante do primeiro acontecimento — e o Prometheus nao
+# atribui subida a primeira amostra de uma serie. Mordeu os tres
+# `increase(...) > 0`, que exigiam **duas** ocorrencias do que existem para
+# apanhar a primeira. Remedio: `or (c > 0 unless c offset <janela>)`, que
+# significa «existe agora e nao existia ha uma janela» — ou seja, nasceu.
+#
+# Medido nos dois sentidos em `testes/kamba_test.yml`: o caso que falha sem o
+# remedio, e o controlo que mostra que uma serie nascida a zero (os modulos
+# TypeScript, que emitem sempre) bastava com o `increase` sozinho.
+
+groups:
+  - name: kamba-caminho-de-venda
+    interval: 30s
+    rules:
+      # --------------------------------------------------------- §9.2 linha 1
+      #
+      # `for: 0m` e **nao** `for: 10m`: a janela de `[10m]` do `increase` **ja
+      # e** a duracao da condicao. Com `for: 10m` por cima as duas somavam-se e
+      # o alerta levava 20 min (15 no caso de morte, porque ha 5 min de
+      # obsolescencia antes de o `absent()` pegar, e o temporizador do `for`
+      # **reinicia** quando a serie que satisfaz a expressao muda de conjunto de
+      # etiquetas — de `{job,instance}` do `increase` para `{}` do `absent`). O
+      # criterio 5 pede «recebido em <= 11 min»: 20 nao cabe, 10 cabe.
+      #
+      # LIMITE: o `absent()` so e verdade quando **todas** as replicas
+      # desaparecem. Uma replica morta de duas e invisivel a esta regra — e o
+      # `alvo_em_baixo` que a apanha.
+      - alert: ingress_parado
+        expr: '(increase(gwy_requests_total[10m]) == 0 or absent(gwy_requests_total)) and on() ((hour() >= 6) and (hour() < 22))'
+        for: 0m
+        labels:
+          severity: P1
+          componente: gwy
+        annotations:
+          resumo: Zero webhooks recebidos ha mais de 10 min em horario comercial.
+          limite: Sem a sonda externa, que exige producao. Horario em UTC (06-22 = 07-23 WAT).
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-meta-em-baixo.md
+
+      # ------------------------------------------- NAO E DO §9.2 (acrescentada)
+      #
+      # Entra com a razao escrita. O §9.2 pede «sonda falha 2x ou 0 mensagens >
+      # 10 min», e a metade da sonda nao se pode entregar (nao ha producao). O
+      # `up` e o mais proximo que esta pilha permite da pergunta que a sonda
+      # responderia — «o processo parou?» — e e a unica serie que **nao depende
+      # de o processo ter contado algo**, o que importa porque o `exposicao()`
+      # do AGR serve corpo vazio no arranque.
+      #
+      # Apanha tres casos que nenhuma outra regra apanha: **uma** replica morta
+      # de duas, o COM em baixo, e o AGR em baixo.
+      #
+      # NAO substitui a sonda externa: uma sonda de dentro da pilha nao ve o que
+      # o cliente ve, e a caixa do criterio 5 continua vazia.
+      - alert: alvo_em_baixo
+        expr: 'up == 0'
+        for: 2m
+        labels:
+          severity: P1
+          componente: plataforma
+        annotations:
+          resumo: Um alvo de raspagem esta em baixo.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-meta-em-baixo.md
+
+      # --------------------------------------------------------- §9.2 linha 2
+      #
+      # **Duas regras para uma linha do §9.2, e a razao e a etiqueta.** A versao
+      # anterior era uma so, com `inbound_queue_depth > 0 or agr_queue_depth > 0`
+      # e `componente: gwy` fixo — pelo que uma fila do **AGR** disparava um
+      # alerta rotulado `gwy`. O `alertmanager.yml` agrupa por `componente`, logo
+      # o problema era arquivado, agrupado e (no dia em que houver notificador)
+      # encaminhado para o componente errado. Medido.
+      #
+      # LIMITE das duas: o §9.2 pede a **idade do mais antigo** acima de 2 min;
+      # isto mede a **profundidade** sustentada 2 min. Nao e o mesmo predicado —
+      # uma fila funda que escoa depressa dispara isto e nao dispararia aquele. A
+      # idade vive no `evt_outbox_lag_seconds`, servido pelo publicador, que nao
+      # esta em nenhum compose (credor KAM-005).
+      - alert: fila_de_entrada_a_crescer
+        expr: 'inbound_queue_depth > 0'
+        for: 2m
+        labels:
+          severity: P2
+          componente: gwy
+        annotations:
+          resumo: Trabalho parado na fila de entrada ha mais de 2 min.
+          limite: Mede profundidade, nao a idade do mais antigo.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+
+      - alert: fila_do_agente_a_crescer
+        expr: 'agr_queue_depth > 0'
+        for: 2m
+        labels:
+          severity: P2
+          componente: agr
+        annotations:
+          resumo: Turnos a espera na admissao do agente ha mais de 2 min.
+          limite: Mede profundidade, nao a idade do mais antigo.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+
+      # --------------------------------------------------------- §9.2 linha 3
+      #
+      # A guarda `and on(job, instance) increase(agr_turns_total[10m]) > 0` nao e
+      # enfeite: sem ela esta regra **nunca resolvia**. O `agr_turn_latency_ms` e
+      # um *gauge* do **ultimo** turno, e o processo serve-o em cada raspagem
+      # enquanto viver — um unico turno de 9 s seguido de silencio deixava o
+      # *gauge* em 9000 para sempre, o `> 8000` verdade em todas as avaliacoes, e
+      # o `for: 10m` passava a ser um atraso em vez de um filtro. Com a guarda, a
+      # regra so fala enquanto ha turnos a acontecer, que e quando a latencia
+      # quer dizer algo. Medido nos dois sentidos.
+      #
+      # LIMITE: o §9.2 pede o **p95** por 10 min; isto e o **ultimo valor** por
+      # 10 min com guarda de transito. O p95 **nao e computavel** — o AGR nao tem
+      # histogramas (ADR-018, escrito no proprio `metricas.py`) e um quantil
+      # exige `_bucket`. E nao se escreve que o `for: 10m` filtra um pico
+      # isolado, porque nao filtra: um *gauge* que fica alto satisfaz a condicao
+      # em todas as avaliacoes. (A anotacao anterior afirmava isso, e foi medida
+      # como falsa.)
+      - alert: latencia_de_resposta_alta
+        expr: 'agr_turn_latency_ms > 8000 and on(job, instance) increase(agr_turns_total[10m]) > 0'
+        for: 10m
+        labels:
+          severity: P2
+          componente: agr
+        annotations:
+          resumo: Turnos do agente a passar os 8 s, de forma sustentada.
+          limite: Ultimo valor com guarda de transito, nao um p95 — o AGR nao tem histogramas.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+
+  - name: kamba-agente
+    interval: 30s
+    rules:
+      # -------------------------------------------------------- §9.2 linha 10
+      #
+      # A segunda metade da expressao apanha a serie a **nascer**: o AGR nao
+      # emite series a zero, pelo que este contador aparece ja a 1 no instante
+      # do primeiro `budget_exhausted` e o `increase` nao ve subida nenhuma. Sem
+      # o `unless`, o alerta exigia **dois** esgotamentos para avisar do
+      # primeiro.
+      #
+      # LIMITE: o §9.2 pede **> 80% do budget diario**; isto dispara quando o
+      # orcamento **ja esgotou**. E mais tarde do que o pedido, e a diferenca
+      # importa: aos 80% ha tempo de agir, no esgotamento ja ha turnos em modo
+      # deterministico. O LiteLLM nao expoe para aqui a fraccao consumida; so o
+      # desfecho `budget_exhausted` chega ao AGR.
+      #
+      # Ver tambem o RB-K09 quando o consumo sobe sem que o volume de conversas
+      # o explique: o §13 separa «LLM em baixo» de «denial of wallet», e o sinal
+      # e o mesmo.
+      - alert: llm_sem_budget
+        expr: 'increase(agr_llm_erros_total{resultado="budget_exhausted"}[1h]) > 0 or (agr_llm_erros_total{resultado="budget_exhausted"} > 0 unless agr_llm_erros_total{resultado="budget_exhausted"} offset 1h)'
+        for: 0m
+        labels:
+          severity: P3
+          componente: agr
+        annotations:
+          resumo: Chamada ao LLM recusada por orcamento esgotado.
+          limite: Dispara no esgotamento, nao aos 80% do budget diario.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+
+      # ------------------------------------------- NAO SAO DO §9.2 (KAM-037)
+      #
+      # Os dois que o KAM-037 deixou escritos a espera de um sistema de alertas:
+      # o `agr_degraded_acima_do_limiar_total` nasceu com a nota «e o alerta do
+      # criterio 6, na forma que esta casa usa, porque **nao ha sistema de
+      # alertas** neste repositorio». Este ticket traz o sistema, logo da-lhes a
+      # regra.
+      #
+      # O `runbook_url` dos dois aponta para o runbook que **fala deles** — o
+      # `degradacao-do-agr.md`, que os reivindica por escrito — e nao para o
+      # RB-K03, que nao os menciona. Era o defeito da versao anterior: cinco dos
+      # seis alertas apontavam para o mesmo *stub*, e dois deles para uma pagina
+      # que nao fala do seu alerta.
+      - alert: degradacao_acima_do_limiar
+        expr: 'increase(agr_degraded_acima_do_limiar_total[15m]) > 0 or (agr_degraded_acima_do_limiar_total > 0 unless agr_degraded_acima_do_limiar_total offset 15m)'
+        for: 0m
+        labels:
+          severity: P2
+          componente: agr
+        annotations:
+          resumo: Proporcao de turnos degradados acima do limiar na janela de 15 min.
+          qual_tenant: Le-se do campo tenant_id do logger; a metrica nao leva etiqueta de tenant (OBS-I).
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/degradacao-do-agr.md
+
+      # NAO e a `degradacao_acima_do_limiar`: esta conta o modelo a ficar
+      # inalcancavel, aquela conta a proporcao a passar o limiar. O runbook
+      # separa-as por escrito («tres numeros, e nenhum substitui os outros»).
+      - alert: disjuntor_do_llm_aberto
+        expr: 'increase(agr_degraded_breaker_aberto_total[15m]) > 0 or (agr_degraded_breaker_aberto_total > 0 unless agr_degraded_breaker_aberto_total offset 15m)'
+        for: 0m
+        labels:
+          severity: P2
+          componente: agr
+        annotations:
+          resumo: O disjuntor do LLM abriu — o modelo ficou inalcancavel.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/degradacao-do-agr.md

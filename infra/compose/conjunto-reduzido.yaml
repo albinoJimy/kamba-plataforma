@@ -190,10 +190,18 @@ servicos:
       `policies`) ja sao verificadas por `tools/lint_arch/medusa.py`.
 
   - nome: alertmanager
-    estado: pendente
-    ticket: KAM-080
+    estado: presente
+    rede: ops
     memoria_mib: 256
-    razao: Encaminhamento dos 12 alertas do doc 09 §9.2. Apache-2.0.
+    razao: >-
+      Encaminhamento dos alertas do doc 09 §9.2, por severidade. **Apache-2.0**,
+      lido do `LICENSE` do projecto na etiqueta `v0.28.1` — a imagem **nao traz**
+      `/LICENSE` (medido no KAM-080, e e a armadilha que o Envoy ja tinha
+      pregado). Entrou com o KAM-080, no orcamento de 256 MiB que este ficheiro
+      lhe tinha reservado, pelo que a soma dos limites nao mudou ao passar de
+      `pendente` a `presente`. **Encaminha e nao notifica:** os `receivers` nao
+      tem notificador porque o canal de alertas nao esta escolhido, e escolher um
+      e acrescentar um subprocessador (KAM-069).
 
   - nome: grafana
     estado: pendente

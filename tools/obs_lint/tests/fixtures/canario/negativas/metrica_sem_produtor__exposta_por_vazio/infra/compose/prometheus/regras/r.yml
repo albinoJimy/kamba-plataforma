@@ -1,0 +1,11 @@
+# Fixture do canario do obs_lint. Gerada por script.
+groups:
+  - name: fixture
+    rules:
+      - alert: alerta_da_fixture
+        expr: 'increase(serie_que_ninguem_serve_total[10m]) > 0'
+        labels:
+          severity: P1
+        annotations:
+          resumo: Alerta da fixture.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-exemplo.md

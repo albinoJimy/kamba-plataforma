@@ -1,0 +1,10 @@
+# Fixture do canario do obs_lint. Gerada por script.
+version: 1
+metricas:
+  - nome: m_base_total
+    tipo: counter
+    ajuda: Metrica de base da fixture.
+    etiquetas:
+      - nome: tenant_id
+        dominio:
+          - "3f2a1c8e-5b7d-4e91-a0c2-6d4f8b1e9a37"

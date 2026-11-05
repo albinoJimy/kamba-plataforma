@@ -1,0 +1,26 @@
+{
+  "uid": "fixture",
+  "title": "Fixture",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Fixture",
+      "targets": [
+        {
+          "expr": "m_base_total",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "v",
+        "query": "m_base_total{contact_id!=\"\"}"
+      }
+    ]
+  }
+}

@@ -10,9 +10,14 @@
 
 A forma e a do `ten/metricas.py`, que e a do `tenant_guard.Contadores`: um
 dicionario de numeros, em memoria, com um trinco, sem dependencias. Esta
-biblioteca nao abre portas — quem expoe `/metrics` e o servico (e no AGR ainda
-nao expoe: o KAM-001 nao criou a rota e este ticket nao a reclama; a leitura
-faz-se por `METRICAS.exposicao()`, que e o que a *suite* le).
+biblioteca nao abre portas — quem expoe `/metrics` e o servico.
+
+**E desde o KAM-080 o AGR expoe.** Onde estas linhas diziam «no AGR ainda nao
+expoe: o KAM-001 nao criou a rota e este ticket nao a reclama», a rota existe:
+`app.py:metricas_endpoint`, na mesma aplicacao da `/healthz`, e o Prometheus
+raspa-a por `dns_sd_configs` na porta 8000 (duas replicas, uma serie por
+replica). A leitura por `METRICAS.exposicao()` continua a ser o que a *suite* le,
+e e a mesma funcao que a rota serve.
 
 ## O `tenant_id` nao entra em etiqueta nenhuma, e a regra e de gramatica
 

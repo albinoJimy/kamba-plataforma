@@ -72,6 +72,10 @@ ROTAS_INTERNAS_DO_AGR = (
 #: A sonda do AGR. Sem identificadores.
 SONDA_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/healthz",)
 
+#: As metricas do AGR (KAM-080). Sem identificadores a entrada; o que importa
+#: e a **saida**, que e tudo o que o processo contou.
+METRICAS_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/metrics",)
+
 #: As sondas e as metricas em TypeScript. Nenhuma recebe identificador.
 SONDAS_TS = (
     "rota:com:app:createApp:GET:/healthz",
@@ -183,6 +187,12 @@ def _conduzir_sonda_do_agr(ctx) -> list[str]:  # noqa: ANN001
     from ._agr import atacar_sonda  # noqa: PLC0415
 
     return atacar_sonda(ctx)
+
+
+def _conduzir_metricas_do_agr(ctx) -> list[str]:  # noqa: ANN001
+    from ._agr import atacar_metricas  # noqa: PLC0415
+
+    return atacar_metricas(ctx)
 
 
 # --------------------------------------------------------------- TypeScript
@@ -310,6 +320,16 @@ registar_caso(
     camada="rotas",
     enumeravel=SONDA_DO_AGR,
     fn=_conduzir_sonda_do_agr,
+    precisa="agr",
+    origens=("corpo", "cabecalhos"),
+)
+
+registar_caso(
+    id="X-01/agr/metricas",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=METRICAS_DO_AGR,
+    fn=_conduzir_metricas_do_agr,
     precisa="agr",
     origens=("corpo", "cabecalhos"),
 )
