@@ -1,13 +1,30 @@
 # Runbook — degradação do AGR e modo determinístico
 
 > **Esboço** (KAM-037, DoD «documentação do runbook de degradação actualizada»).
-> Não é procedimento ratificado, e três coisas que ele manda olhar ainda não
-> existem: **não há sistema de alertas** neste repositório (medido: não há
-> `ops/alertas*`, nem `PrometheusRule`, nem `alerting_rules`), a agregação
-> contínua das métricas é o **KAM-080**, e o AGR **não expõe `/metrics`** — a
-> leitura faz-se por `METRICAS.exposicao()`, que é o que a bateria lê. O que está
-> aqui é o que se consegue escrever hoje, com os passos que dependem de
-> infra-estrutura marcados.
+> Não é procedimento ratificado.
+>
+> **Actualizado pelo KAM-080, e as três faltas que este bloco nomeava já não são
+> as mesmas.** Onde dizia «não há sistema de alertas neste repositório», «a
+> agregação contínua das métricas é o KAM-080» e «o AGR **não expõe
+> `/metrics`**», hoje:
+>
+> - **há regras de alerta** — [`../../infra/compose/prometheus/regras/kamba.yml`](../../infra/compose/prometheus/regras/kamba.yml),
+>   validadas por `make obs-promtool` —, e **duas delas são deste runbook**: a
+>   `degradacao_acima_do_limiar` (P2) e o `disjuntor_do_llm_aberto` (P2), que são
+>   exactamente as métricas que o KAM-037 escreveu como «o alerta, na forma que
+>   esta casa usa, porque não há sistema de alertas». **O `runbook_url` das duas
+>   aponta para esta página**, e não para um `RB-K` — porque é esta que fala
+>   delas, e um alerta cujo runbook não menciona o alerta cumpre a regra do §9.2
+>   na forma e não no efeito;
+> - **o AGR expõe `/metrics`** na porta 8000, na mesma aplicação da `/healthz`,
+>   e o Prometheus raspa-o. A leitura por `METRICAS.exposicao()` continua a ser
+>   o que a bateria lê — é a mesma função que a rota serve;
+> - **o que continua a faltar** é o **destino**: o Alertmanager encaminha por
+>   severidade e **não notifica ninguém**, porque o canal não está escolhido
+>   (KAM-069). Logo um alerta destes, hoje, vê-se no Alertmanager e não chega a
+>   um telemóvel. Ver [`../observabilidade.md`](../observabilidade.md) §4.
+>
+> Os passos que dependem de infra-estrutura continuam marcados.
 
 | O que degrada | Detecção | O que o AGR faz |
 |---|---|---|

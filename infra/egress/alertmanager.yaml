@@ -1,0 +1,41 @@
+# Lista de saidas de `alertmanager` — KAM-067 criterio 9; servico do KAM-080.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; a aplicacao na rede e a allowlist de `proxy-saida.yaml`.
+#
+# ## A lista esta vazia, e nao e um ficheiro por acabar
+#
+# O `prometheus.yaml` ao lado deixou escrita, para este ticket, a nota de que «o
+# Alertmanager vai precisar de sair — enviar um alerta e uma saida —, e esse
+# destino entra aqui com aquele ticket, com o FQDN do canal escolhido».
+#
+# **O canal nao esta escolhido**, e por isso o destino nao entra:
+#
+#   * o `docs/tecnica/09` §16 fixa a rotacao de *on-call* e o escalamento
+#     (primario → secundario aos 15 min → arquitecto) e **nao nomeia
+#     transporte**: nao diz e-mail, nem SMS, nem Slack, nem fornecedor de
+#     *paging*;
+#   * qualquer um deles e um **subprocessador** novo, que entra no inventario do
+#     **KAM-069** — e o proprio bloco do KAM-080 o diz da sonda externa («o
+#     servico escolhido registra-se no inventario de subprocessadores»);
+#   * um FQDN escrito aqui por antecipacao **passava o gate** e mandava alertas
+#     para um sitio que ninguem decidiu. Uma lista vazia recusa-os; uma lista
+#     com um palpite entrega-os.
+#
+# O efeito esta dito tambem no `../compose/alertmanager/alertmanager.yml` e na
+# seccao de verificacao do bloco: os alertas avaliam, agrupam e ficam visiveis,
+# e **nenhum ser humano e notificado**. A caixa do criterio 4 que pede «chega ao
+# canal certo» fica **vazia** por isto, e nao se marca com a existencia do
+# encaminhamento.
+#
+# Quando o canal for escolhido, entram **dois** sitios e nao um: um destino aqui
+# **e** a mesma linha em `proxy-saida.yaml` (a regra `allowlist-em-falta` /
+# `allowlist-sem-dono` do `compose_prod` exige os dois), e o servico passa a
+# precisar da rede `app` e do `HTTPS_PROXY`, que hoje nao tem porque nao sai.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+
+version: 1
+servico: alertmanager
+por_omissao: negar
+destinos: []

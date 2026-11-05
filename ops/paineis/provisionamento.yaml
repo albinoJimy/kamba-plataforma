@@ -1,0 +1,32 @@
+# Provisionamento de paineis do Grafana — KAM-080, criterio 6.
+#
+# **O Grafana nao corre nesta pilha.** E AGPL-3.0, que o `../../ci/licenses.yaml`
+# nega por prefixo, e a propria evidencia do KAM-076 escreveu que «entrar exige
+# fechar a licenca com um ADR, e isso nao e deste ticket» — e nao e deste
+# tambem. Fica `pendente` no `../../infra/compose/conjunto-reduzido.yaml`, com
+# 512 MiB ja orcamentados.
+#
+# Este ficheiro existe porque o criterio pede «paineis como codigo (JSON
+# provisionado)», e a parte que e **nossa** — o JSON e a declaracao de como se
+# provisiona — nao depende de correr o programa. No dia em que a licenca for
+# fechada, isto monta-se em `/etc/grafana/provisioning/dashboards/` e os quatro
+# paineis aparecem sem ninguem os importar a mao.
+#
+# O `path` e o ponto de montagem **dentro** do contentor, nao o caminho no
+# repositorio: quem o montar aponta esta pasta para la, so de leitura.
+
+apiVersion: 1
+
+providers:
+  - name: kamba
+    orgId: 1
+    folder: KAMBA
+    type: file
+    disableDeletion: true
+    # Os paineis sao codigo: uma edicao na interface que nao volte ao
+    # repositorio perde-se na proxima leitura, e e isso que se quer.
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/provisioning/dashboards/kamba
+      foldersFromFilesStructure: false

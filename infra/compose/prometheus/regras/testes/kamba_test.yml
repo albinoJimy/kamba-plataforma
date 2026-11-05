@@ -1,0 +1,355 @@
+# Testes de comportamento das regras de alerta — KAM-080.
+#
+# `promtool test rules`, corrido por `make obs-promtool` de dentro da imagem
+# fixada do compose.
+#
+# ## PORQUE E QUE ESTE FICHEIRO EXISTE
+#
+# Porque o `promtool check rules` **nao chega**, e isso nao e teoria: a primeira
+# versao do `../kamba.yml` passou o `check rules` com **tres** alertas que nunca
+# disparavam e **um** que nunca resolvia. Uma expressao PromQL sintacticamente
+# valida que nunca produz resultado e indistinguivel de uma que funciona, se so
+# se verificar a sintaxe. O `obs_lint` tambem nao o apanha — ele verifica
+# etiquetas, severidades e runbooks, nao semantica temporal.
+#
+# Cada teste abaixo prende **um caso que falhou** ou o seu controlo. Os nomes
+# dizem qual.
+#
+# ## O que este ficheiro NAO e
+#
+# Nao e a «injeccao de falha em *staging*» que o criterio 4 pede. Isto corre no
+# motor de regras do Prometheus com series sinteticas; nao ha pilha, nao ha GWY
+# a morrer de verdade, nao ha Alertmanager a receber. A caixa do criterio 4
+# continua **parcial** por isso. O que isto fecha e a pergunta anterior, que
+# ninguem tinha feito: *dada a serie, a regra dispara?*
+#
+# ## Nota sobre o `hour()`
+#
+# O `eval_time` conta do epoch (1970-01-01 00:00 UTC), pelo que
+# `hour() = (eval_time / 1h) % 24`. Aos **400 min** da `hour() = 6`, que esta
+# dentro do horario comercial (06-22 UTC = 07-23 WAT); aos **100 min** da
+# `hour() = 1`, que esta fora. E assim que os dois casos de horario se escrevem
+# sem precisar de datas.
+
+rule_files:
+  - ../kamba.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ===================================================== ingress_parado
+  #
+  # Os dois cenarios de «ingress parado», e os dois tem de caber nos <= 11 min
+  # que o criterio 5 escreve. A versao com `for: 10m` levava 20 e 15.
+
+  - interval: 1m
+    name: "ingress: o GWY morre — dispara, e em menos de 11 min"
+    input_series:
+      - series: 'gwy_requests_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+10x400 _x40'
+    alert_rule_test:
+      # Aos 404 min a serie ainda esta presente e a janela ainda ve subida.
+      - eval_time: 404m
+        alertname: ingress_parado
+        exp_alerts: []
+      # Aos 408 min ja esta obsoleta (5 min sem amostra) e o `absent()` pega.
+      - eval_time: 408m
+        alertname: ingress_parado
+        exp_alerts:
+          - exp_labels:
+              severity: P1
+              componente: gwy
+            exp_annotations:
+              resumo: Zero webhooks recebidos ha mais de 10 min em horario comercial.
+              limite: Sem a sonda externa, que exige producao. Horario em UTC (06-22 = 07-23 WAT).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-meta-em-baixo.md
+
+  - interval: 1m
+    name: "ingress: o GWY vivo e sem transito — dispara, e em menos de 11 min"
+    input_series:
+      - series: 'gwy_requests_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+10x400 4000x40'
+    alert_rule_test:
+      - eval_time: 405m
+        alertname: ingress_parado
+        exp_alerts: []
+      - eval_time: 411m
+        alertname: ingress_parado
+        exp_alerts:
+          - exp_labels:
+              severity: P1
+              componente: gwy
+              job: gwy
+              instance: gwy-1:3010
+            exp_annotations:
+              resumo: Zero webhooks recebidos ha mais de 10 min em horario comercial.
+              limite: Sem a sonda externa, que exige producao. Horario em UTC (06-22 = 07-23 WAT).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-meta-em-baixo.md
+
+  - interval: 1m
+    name: "ingress: transito a correr — nao dispara"
+    input_series:
+      - series: 'gwy_requests_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+10x440'
+    alert_rule_test:
+      - eval_time: 400m
+        alertname: ingress_parado
+        exp_alerts: []
+
+  - interval: 1m
+    name: "ingress: fora do horario comercial — nao dispara, e e o ponto"
+    input_series:
+      - series: 'gwy_requests_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0x120'
+    alert_rule_test:
+      # hour() = 1. Zero mensagens de madrugada e o estado normal; um alerta que
+      # dispara todas as noites ensina a equipa a ignora-lo.
+      - eval_time: 100m
+        alertname: ingress_parado
+        exp_alerts: []
+
+  # ===================================================== alvo_em_baixo
+  #
+  # O caso que o `absent()` do `ingress_parado` **nao** apanha: uma replica
+  # morta de duas, e qualquer outro servico em baixo.
+
+  - interval: 1m
+    name: "alvo_em_baixo: uma replica de duas em baixo — dispara"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1x20'
+      - series: 'up{job="gwy",instance="gwy-2:3010"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: alvo_em_baixo
+        exp_alerts:
+          - exp_labels:
+              severity: P1
+              componente: plataforma
+              job: gwy
+              instance: gwy-2:3010
+            exp_annotations:
+              resumo: Um alvo de raspagem esta em baixo.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K01-meta-em-baixo.md
+
+  - interval: 1m
+    name: "alvo_em_baixo: tudo em pe — nao dispara"
+    input_series:
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alvo_em_baixo
+        exp_alerts: []
+
+  # ===================================================== as duas filas
+  #
+  # O defeito que isto prende: uma fila do AGR a disparar um alerta rotulado
+  # `componente: gwy`, que o Alertmanager agrupa e encaminha pelo componente.
+
+  - interval: 1m
+    name: "fila: so o AGR tem fila — o alerta e do AGR e NAO do GWY"
+    input_series:
+      - series: 'agr_queue_depth{job="agr",instance="agr-1:8000"}'
+        values: '5x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: fila_do_agente_a_crescer
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: agr
+              job: agr
+              instance: agr-1:8000
+            exp_annotations:
+              resumo: Turnos a espera na admissao do agente ha mais de 2 min.
+              limite: Mede profundidade, nao a idade do mais antigo.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+      # E a regra do GWY fica calada, que e a metade que importa.
+      - eval_time: 10m
+        alertname: fila_de_entrada_a_crescer
+        exp_alerts: []
+
+  - interval: 1m
+    name: "fila: so o GWY tem fila — o alerta e do GWY"
+    input_series:
+      - series: 'inbound_queue_depth{job="gwy",instance="gwy-1:3010"}'
+        values: '3x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: fila_de_entrada_a_crescer
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gwy
+              job: gwy
+              instance: gwy-1:3010
+            exp_annotations:
+              resumo: Trabalho parado na fila de entrada ha mais de 2 min.
+              limite: Mede profundidade, nao a idade do mais antigo.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+      - eval_time: 10m
+        alertname: fila_do_agente_a_crescer
+        exp_alerts: []
+
+  # ===================================================== latencia
+  #
+  # O defeito que isto prende: um *gauge* que fica alto satisfaz a condicao para
+  # sempre, pelo que um pico isolado disparava e **nunca resolvia**.
+
+  - interval: 1m
+    name: "latencia: pico isolado e depois silencio — NAO dispara (a guarda)"
+    input_series:
+      # Um turno de 9 s, e o gauge fica em 9000 para sempre.
+      - series: 'agr_turn_latency_ms{job="agr",instance="agr-1:8000"}'
+        values: '120x5 9000x60'
+      # E nao ha mais turnos: o contador nasce a 1 e fica plano.
+      - series: 'agr_turns_total{job="agr",instance="agr-1:8000",outcome="executado"}'
+        values: '_x5 1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: latencia_de_resposta_alta
+        exp_alerts: []
+
+  - interval: 1m
+    name: "latencia: alta e sustentada COM transito — dispara"
+    input_series:
+      - series: 'agr_turn_latency_ms{job="agr",instance="agr-1:8000"}'
+        values: '9000x60'
+      - series: 'agr_turns_total{job="agr",instance="agr-1:8000",outcome="executado"}'
+        values: '0+5x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: latencia_de_resposta_alta
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: agr
+              job: agr
+              instance: agr-1:8000
+            exp_annotations:
+              resumo: Turnos do agente a passar os 8 s, de forma sustentada.
+              limite: Ultimo valor com guarda de transito, nao um p95 — o AGR nao tem histogramas.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+
+  # ============================== os tres contadores que nascem a 1
+  #
+  # **Este e o defeito mais grave que a revisao adversarial encontrou.** O
+  # `exposicao()` do AGR nao emite series a zero, pelo que o contador nasce ja a
+  # 1 e o `increase()` nao ve subida — os tres alertas exigiam **duas**
+  # ocorrencias para avisar da primeira.
+
+  - interval: 1m
+    name: "disjuntor: abre UMA vez, serie nascida a 1 — TEM de disparar"
+    input_series:
+      - series: 'agr_degraded_breaker_aberto_total{job="agr",instance="agr-1:8000"}'
+        values: '_x20 1x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: disjuntor_do_llm_aberto
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: agr
+              job: agr
+              instance: agr-1:8000
+            exp_annotations:
+              resumo: O disjuntor do LLM abriu — o modelo ficou inalcancavel.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/degradacao-do-agr.md
+
+  - interval: 1m
+    name: "disjuntor: abriu uma vez e nao voltou — resolve passada a janela"
+    input_series:
+      - series: 'agr_degraded_breaker_aberto_total{job="agr",instance="agr-1:8000"}'
+        values: '_x20 1x120'
+    alert_rule_test:
+      # Um alerta que nunca resolve e tao inutil como um que nunca dispara.
+      - eval_time: 60m
+        alertname: disjuntor_do_llm_aberto
+        exp_alerts: []
+
+  - interval: 1m
+    name: "disjuntor: nunca abriu (serie plana a zero) — nao dispara"
+    input_series:
+      - series: 'agr_degraded_breaker_aberto_total{job="agr",instance="agr-1:8000"}'
+        values: '0x80'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: disjuntor_do_llm_aberto
+        exp_alerts: []
+
+  - interval: 1m
+    name: "degradacao: passa o limiar UMA vez, serie nascida a 1 — TEM de disparar"
+    input_series:
+      - series: 'agr_degraded_acima_do_limiar_total{job="agr",instance="agr-1:8000"}'
+        values: '_x20 1x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: degradacao_acima_do_limiar
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: agr
+              job: agr
+              instance: agr-1:8000
+            exp_annotations:
+              resumo: Proporcao de turnos degradados acima do limiar na janela de 15 min.
+              qual_tenant: Le-se do campo tenant_id do logger; a metrica nao leva etiqueta de tenant (OBS-I).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/degradacao-do-agr.md
+
+  - interval: 1m
+    name: "budget: UM esgotamento, serie nascida a 1 — TEM de disparar"
+    input_series:
+      - series: 'agr_llm_erros_total{job="agr",instance="agr-1:8000",resultado="budget_exhausted"}'
+        values: '_x20 1x200'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: llm_sem_budget
+        exp_alerts:
+          - exp_labels:
+              severity: P3
+              componente: agr
+              job: agr
+              instance: agr-1:8000
+              resultado: budget_exhausted
+            exp_annotations:
+              resumo: Chamada ao LLM recusada por orcamento esgotado.
+              limite: Dispara no esgotamento, nao aos 80% do budget diario.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/RB-K03-llm-em-baixo-ou-sem-budget.md
+
+  - interval: 1m
+    name: "budget: outro desfecho do LLM nao e esgotamento — nao dispara"
+    input_series:
+      # O `timeout` e um dos seis `RESULTADOS`, e nao e `budget_exhausted`.
+      - series: 'agr_llm_erros_total{job="agr",instance="agr-1:8000",resultado="timeout"}'
+        values: '_x20 1+1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: llm_sem_budget
+        exp_alerts: []
+
+  # ============================== o controlo que explica o remedio
+  #
+  # Com uma serie nascida a **zero** — que e o que os modulos TypeScript fazem,
+  # e com a razao escrita — o `increase` sozinho bastava. E a medicao que mostra
+  # que o `unless` nao e paranoia: e a consequencia de o AGR ter escolhido o
+  # contrario.
+
+  - interval: 1m
+    name: "controlo: serie nascida a ZERO dispara pelo increase sozinho"
+    input_series:
+      - series: 'agr_degraded_breaker_aberto_total{job="agr",instance="agr-1:8000"}'
+        values: '0x20 1x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: disjuntor_do_llm_aberto
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: agr
+              job: agr
+              instance: agr-1:8000
+            exp_annotations:
+              resumo: O disjuntor do LLM abriu — o modelo ficou inalcancavel.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/degradacao-do-agr.md

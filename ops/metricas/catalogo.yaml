@@ -1,0 +1,447 @@
+# Catalogo de metricas da KAMBA — KAM-080
+#
+# **O QUE ESTE FICHEIRO E, E O QUE NAO E.**
+#
+# E a superficie que o `tools/obs_lint` le para verificar duas coisas: que
+# nenhuma etiqueta e um identificador (criterio 3) e que nenhuma regra de alerta
+# cita uma metrica que ninguem expoe (criterio 4).
+#
+# **Nao e o inventario das 115 metricas do repositorio.** Cobre as metricas que
+# as regras de alerta e os paineis citam, mais as series que o criterio 2 nomeia
+# — que e o conjunto sobre o qual o *lint* tem alguma coisa a dizer. Um
+# inventario completo teria de ser gerado do codigo, e gerar do codigo exigia ler
+# TypeScript; porque e que isso nao se faz aqui esta na *docstring* do
+# `tools/obs_lint/lint.py`.
+#
+# ## A medicao que mais importa neste ficheiro
+#
+# Das 115 metricas declaradas no codigo, **23 estavam expostas** num `/metrics`
+# de processo antes deste ticket, e em `docker compose` so **duas** superficies
+# eram alcancaveis: `gwy:3010` e `com:3002`. As 44 do AGR nao tinham rota
+# nenhuma — e o proprio `docs/runbooks/degradacao-do-agr.md` o dizia por escrito.
+#
+# A razao de tantas estarem por expor **nao e esquecimento**: os modulos
+# `outbound`, `metering`, `hnd` e `qualidade` do `packages/core-ts` nao sao
+# importados por nenhum servico (medido: `grep -rn "core-ts/outbound" services`
+# da zero). Sao biblioteca a espera de quem as ligue. Expo-las hoje publicava
+# zeros permanentes, que e o defeito que o KAM-076 recusou ao nao acrescentar um
+# `scrape_config` para um `/metrics` que ainda nao existia.
+#
+# Por isso este ticket expoe **o AGR** (44 metricas, registo unico, servico que
+# corre no compose) e deixa as outras nomeadas aqui com o credor.
+
+version: 1
+
+# --------------------------------------------------------------- a politica
+#
+# Repetida aqui em prosa para quem le o catalogo; quem a impoe e o
+# `tools/obs_lint/lint.py`, e e la que ela esta em codigo.
+#
+# O `OBS-I` recusa **identificadores**, nao **dimensoes pequenas**. A frase e do
+# dicionario §3.16, na linha da `channel_quality{rating}`: uma etiqueta de tres
+# valores fechados passa onde uma de *tenant* nao passava.
+#
+# Duas regras, e a segunda e que torna a primeira honesta:
+#
+#   nome      `contact_id`, telefone e BSUID recusam-se pelo nome (criterio 3).
+#             O `tenant_id` **passa pelo nome**, que e o que o criterio escreve.
+#   dominio   toda a etiqueta declara lista fechada ou tecto. E aqui que o
+#             `tenant_id` cai, porque o conjunto dos *tenants* nao e fechado.
+#
+# **A decisao sobre o `tenant_id` nao e deste ticket e nao se reabre.** As
+# emendas 1.21 e 1.25 do dicionario ja a tomaram, contra criterios que pediam
+# `{tenant}` por extenso, e a saida que as duas escolheram foi a mesma: **o
+# por-tenant sai de consulta SQL**. O dicionario e fonte de nivel 4 e o bloco de
+# um ticket e de nivel 8; onde discordam, prevalece o dicionario.
+
+politica:
+  gramatica_da_etiqueta: "^[a-z][a-z0-9_]{1,62}$"
+  cardinalidade_maxima: 64
+
+# --------------------------------------------------------------- as metricas
+#
+# `exposta_por` e a lista de servicos cujo `/metrics` serve esta serie **depois
+# deste ticket**. Uma lista vazia quer dizer que a metrica existe em codigo e
+# nenhum processo a serve — e entao nenhuma regra de alerta a pode citar, que e
+# o que o *lint* verifica.
+
+metricas:
+  # ------------------------------------------------------------- GWY (3010)
+  - nome: gwy_requests_total
+    tipo: counter
+    fonte: packages/core-ts/src/entrada/metricas.ts
+    exposta_por:
+      - gwy
+    ajuda: Pedidos de webhook aceites pelo GWY.
+    etiquetas: []
+
+  - nome: gwy_sig_fail
+    tipo: counter
+    fonte: packages/core-ts/src/entrada/metricas.ts
+    exposta_por:
+      - gwy
+    ajuda: Webhooks recusados por assinatura invalida.
+    etiquetas: []
+
+  - nome: gwy_shed_total
+    tipo: counter
+    fonte: packages/core-ts/src/entrada/metricas.ts
+    exposta_por:
+      - gwy
+    ajuda: Pedidos descartados sob saturacao da fila.
+    etiquetas: []
+
+  - nome: gwy_enqueue_ms
+    tipo: gauge
+    fonte: packages/core-ts/src/entrada/metricas.ts
+    exposta_por:
+      - gwy
+    ajuda: Duracao do ultimo enfileiramento, em ms. E a latencia de ingress.
+    etiquetas: []
+
+  - nome: inbound_queue_depth
+    tipo: gauge
+    fonte: packages/core-ts/src/entrada/metricas.ts
+    exposta_por:
+      - gwy
+    ajuda: Profundidade da fila de entrada.
+    etiquetas: []
+
+  # -------------------------------------------------------------- COM (3002)
+  - nome: com_repo_consultas_total
+    tipo: counter
+    fonte: services/com/src/metricas.ts
+    exposta_por:
+      - com
+    ajuda: Consultas que passaram a barreira do repo-base, por filtro.
+    etiquetas:
+      - nome: filtro
+        dominio:
+          - tenant
+          - merchant
+
+  - nome: com_repo_filtro_em_falta_total
+    tipo: counter
+    fonte: services/com/src/metricas.ts
+    exposta_por:
+      - com
+    ajuda: Consultas recusadas por nao nomearem o filtro, por filtro.
+    etiquetas:
+      - nome: filtro
+        dominio:
+          - tenant
+          - merchant
+
+  # -------------------------------------------------------------- AGR (8000)
+  #
+  # Expostas por este ticket. O `services/agr` ja declarava as 44 e nao tinha
+  # rota; o `docs/runbooks/degradacao-do-agr.md` nomeava a falta.
+  - nome: agr_turns_total
+    tipo: counter
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Turnos do agente, por desfecho.
+    etiquetas:
+      - nome: outcome
+        cardinalidade_maxima: 16
+
+  - nome: agr_turn_latency_ms
+    tipo: gauge
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Duracao do ultimo turno, em ms.
+    etiquetas: []
+
+  - nome: agr_queue_depth
+    tipo: gauge
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Turnos a espera na admissao.
+    etiquetas: []
+
+  - nome: agr_llm_erros_total
+    tipo: counter
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: >-
+      Chamadas ao LLM por desfecho. O dominio e o `RESULTADOS` do
+      `llm/erros.py`, que e tambem o CHECK de `dat.llm_call_log.resultado` na
+      revisao 0023.
+    etiquetas:
+      - nome: resultado
+        dominio:
+          - ok
+          - ok_fallback
+          - budget_exhausted
+          - timeout
+          - erro_fornecedor
+          - destino_negado
+
+  - nome: agr_degraded_turns_total
+    tipo: counter
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Turnos em modo deterministico, por motivo.
+    etiquetas:
+      - nome: motivo
+        dominio:
+          - timeout
+          - http_429
+          - budget
+          - breaker
+          - backpressure
+          - destino_negado
+          - minimizacao
+
+  - nome: agr_degraded_acima_do_limiar_total
+    tipo: counter
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: >-
+      Vezes que a proporcao de turnos degradados passou o limiar na janela de 15
+      min. O KAM-037 escreveu-a como «o alerta do criterio 6, na forma que esta
+      casa usa», porque nao havia sistema de alertas. Este ticket da-lhe a regra.
+    etiquetas: []
+
+  - nome: agr_degraded_breaker_aberto_total
+    tipo: counter
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Vezes que o disjuntor do LLM abriu.
+    etiquetas: []
+
+  - nome: agr_handoff_total
+    tipo: counter
+    fonte: services/agr/src/kamba_agr/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Passagens a humano, por estado.
+    etiquetas:
+      - nome: estado
+        cardinalidade_maxima: 16
+
+  # ------------------------------------------- sinteticas do Prometheus
+  #
+  # Nao vem de codigo nosso: o Prometheus produz uma por alvo raspado. Estao no
+  # catalogo porque o painel de infra-estrutura as cita, e o *lint* exige que
+  # toda a metrica citada esteja aqui — e porque sao as duas series que
+  # distinguem «o processo nao arrancou» de «o processo nao contou nada», que no
+  # AGR e a unica distincao que ha (o `exposicao()` dele nao emite series a
+  # zero).
+  #
+  # O `job` e o exemplo-tipo do que o `OBS-I` permite: dimensao fechada e
+  # pequena, com um valor por `scrape_config` do `prometheus.yml`.
+  - nome: up
+    tipo: gauge
+    fonte: Prometheus (sintetica, uma por alvo)
+    exposta_por:
+      - prometheus
+    ajuda: 1 se a ultima raspagem do alvo teve sucesso, 0 se nao.
+    etiquetas:
+      - nome: job
+        dominio:
+          - prometheus
+          - gwy
+          - com
+          - agr
+
+  - nome: scrape_duration_seconds
+    tipo: gauge
+    fonte: Prometheus (sintetica, uma por alvo)
+    exposta_por:
+      - prometheus
+    ajuda: Duracao da ultima raspagem do alvo, em segundos.
+    etiquetas:
+      - nome: job
+        dominio:
+          - prometheus
+          - gwy
+          - com
+          - agr
+
+# ------------------------------------------ as series que o criterio 2 nomeia
+#
+# Doze series. O `estado` de cada uma e medido, e e esta tabela que sustenta a
+# caixa do criterio 2 na seccao de verificacao do bloco.
+#
+#   exposta                  ha metrica e ha processo que a serve
+#   declarada_nao_exposta    ha metrica em codigo; nenhum processo a serve
+#   inexistente              nao ha metrica, e o credor esta nomeado
+
+series_do_criterio_2:
+  - serie: mensagens recebidas
+    estado: exposta
+    metricas:
+      - gwy_requests_total
+    nota: >-
+      Sem etiqueta de tenant, pelas emendas 1.21 e 1.25. O por-tenant sai de
+      consulta SQL.
+
+  - serie: mensagens enviadas
+    estado: declarada_nao_exposta
+    metricas: []
+    nota: >-
+      `outbound_sent_total{kind}` existe em
+      `packages/core-ts/src/outbound/metricas.ts` e **nenhum servico importa o
+      modulo** (medido). Credor: o ticket que ligar o estagio de saida (KAM-015).
+
+  - serie: latencia de ingress
+    estado: exposta
+    metricas:
+      - gwy_enqueue_ms
+    nota: E um *gauge* do ultimo enfileiramento, nao um histograma.
+
+  - serie: latencia de resposta (p50/p95/p99)
+    estado: declarada_nao_exposta
+    metricas:
+      - agr_turn_latency_ms
+    nota: >-
+      **O p95 nao e computavel.** O AGR nao tem histogramas, por decisao do
+      ADR-018 escrita em `metricas.py`; o `agr_turn_latency_ms` e o valor do
+      ultimo turno. Um quantil exige `_bucket`, que so os modulos `avisos` e
+      `coexistencia` tem. Credor: KAM-082 (SLOs), que e quem precisa do quantil.
+
+  - serie: fila (profundidade e idade do mais antigo)
+    estado: exposta
+    metricas:
+      - inbound_queue_depth
+      - agr_queue_depth
+    nota: >-
+      **So a profundidade.** A idade do mais antigo — que e o predicado do §9.2 —
+      vive no `evt_outbox_lag_seconds`, servido pelo publicador, que **nao esta
+      em nenhum Dockerfile nem compose** (medido). Credor: KAM-005.
+
+  - serie: handoff
+    estado: exposta
+    metricas:
+      - agr_handoff_total
+    nota: >-
+      O lado do AGR. O `hnd_handoff_total` do modulo `hnd` continua sem servico
+      que o importe.
+
+  - serie: callbacks (ok/falhados/reconciliados)
+    estado: declarada_nao_exposta
+    metricas: []
+    nota: >-
+      `hnd_callback_rejeitado_total{motivo}` existe e o modulo `hnd` nao e
+      importado por nenhum servico. «Reconciliados» nao tem metrica nenhuma.
+
+  - serie: custo LLM
+    estado: declarada_nao_exposta
+    metricas: []
+    nota: >-
+      `meta_cost_usd_total` e `meta_cost_usd_estimate` existem; o modulo
+      `metering` nao e importado por nenhum servico. O custo por tenant sai do
+      `SQL_CUSTO_DO_TENANT`, por consulta, e **nao** de etiqueta.
+
+  - serie: erros Meta 130429 e 131049
+    estado: inexistente
+    metricas: []
+    nota: >-
+      Nao ha metrica indexada por codigo de erro da Meta. O que existe e o
+      `outbound_rate_limited_total{origem="meta"}`, que conta um `130429` que o
+      *backoff* repetiu — e nao cobre o `131049`, que nao repete. Uma metrica
+      `{codigo}` com dominio fechado nos tres codigos do `E1` seria admissivel
+      pelo `OBS-I`; escreve-la exige mexer no `outbound/adapter.ts` e uma emenda
+      ao dicionario, e nenhum dos dois cabe neste ticket.
+
+  - serie: quality_rating
+    estado: declarada_nao_exposta
+    metricas: []
+    nota: >-
+      `channel_quality{rating}` existe no modulo `qualidade`, com dominio fechado
+      em tres — e o exemplo que o dicionario usa para explicar o `OBS-I`. Sem
+      servico que importe o modulo.
+
+  - serie: idade do WAL
+    estado: inexistente
+    metricas: []
+    nota: >-
+      Nao ha pgBackRest nem *exporter*. Credor: **KAM-079**, que traz o
+      pgBackRest e o `archive_timeout`.
+
+  - serie: memoria e CPU por servico
+    estado: inexistente
+    metricas: []
+    nota: >-
+      Nao ha *exporter* de contentores (cAdvisor ou equivalente) em nenhum
+      compose. O Prometheus so expoe as suas proprias. Acrescentar um contentor
+      de *exporter* e um servico novo no conjunto reduzido, que e materia do
+      manifesto e nao deste ficheiro.
+
+# ------------------------------------------------- regras que faltam escrever
+#
+# Oito das doze regras do `docs/tecnica/09` §9.2 **nao se escrevem hoje**, e a
+# razao e sempre a mesma: nao ha metrica que o processo sirva.
+#
+# **Nao se escrevem como YAML inerte de proposito.** Uma regra sobre uma serie
+# que ninguem produz nunca dispara, e um alerta que nunca dispara parece
+# cobertura — e e pior do que a sua ausencia, porque ninguem volta a olhar. E a
+# mesma leitura com que o KAM-076 recusou um `scrape_config` para um `/metrics`
+# inexistente: «um alvo que raspa um `/metrics` que ainda nao existe produz um
+# `up 0` permanente, e um painel cheio de alvos em baixo ensina a equipa a
+# ignorar o painel».
+
+regras_por_escrever:
+  - alerta: callbacks (falhas HMAC > 3/h ou pagamento por reconhecer)
+    severidade: P1
+    runbook: RB-K02
+    falta: hnd_callback_rejeitado_total sem servico que a sirva
+    credor: o ticket que ligar o modulo hnd
+
+  - alerta: WAL (ultimo arquivo > 5 min)
+    severidade: P1
+    runbook: RB-K08
+    falta: nao ha metrica de idade do WAL
+    credor: KAM-079
+
+  - alerta: restauro mensal falhado
+    severidade: P2
+    runbook: RB-K08
+    falta: nao ha *job* de restauro nem metrica do seu desfecho
+    credor: KAM-079
+
+  - alerta: quality rating (amarelo P3, vermelho P1)
+    severidade: P1/P3
+    runbook: RB-K04
+    falta: channel_quality sem servico que a sirva
+    credor: o ticket que ligar o modulo qualidade
+
+  - alerta: free tier (80% P3, 100% P2)
+    severidade: P2/P3
+    runbook: RB-K05
+    falta: meta_free_tier_used_ratio sem servico que a sirva
+    credor: KAM-023
+
+  - alerta: account_update (PARTNER_REMOVED etc.)
+    severidade: P2
+    runbook: RB-K06
+    falta: channel_disconnected_total sem servico que a sirva
+    credor: o ticket que ligar o modulo coexistencia
+
+  - alerta: segredo a expirar (< 14 dias)
+    severidade: P3
+    runbook: RB-K07
+    falta: >-
+      o `ops/secrets-inventory.yaml` tem o `rotacao_dias` e nao ha nada que o
+      leia e publique a idade de cada segredo
+    credor: KAM-072
+
+  - alerta: memoria (> 80% sustentada)
+    severidade: P3
+    runbook: >-
+      **nenhum.** O §9.2 escreve «Escalar» nesta linha, e nao um RB-K. E a unica
+      das doze sem runbook, o que a poe em conflito com a regra «alerta sem
+      runbook e removido» do mesmo §9.2 e com o criterio 4 deste ticket, que
+      exige `runbook_url` em todas. Nao se resolve aqui: criar um RB-K11 excede
+      os dez *stubs* que o ticket manda criar, e reaproveitar um dos dez seria
+      apontar um alerta de capacidade para um runbook que nao fala dela.
+    falta: nao ha *exporter* de contentores
+    credor: a decisao do runbook e de quem governa o §9.2
