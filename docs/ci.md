@@ -847,6 +847,19 @@ Isto tem quatro consequências que ficam ditas em vez de serem descobertas:
   tem cópias inteiras do repositório; ficam fora por não estarem numa raiz, e
   uma pasta com ponto à cabeça **dentro** de uma raiz fica fora pela regra do
   ponto.
+- **Um andaime de ensaio em TypeScript entra no universo se o caminho dele cair
+  num padrão de estrato**, e os padrões do `critico` casam em qualquer sítio —
+  `tools/` incluído. Medido a 2026-11-05 no KAM-066:
+  `tools/isolamento/condutor/rotas.ts`, 1310 linhas de condutor corrido por
+  `node <ficheiro> <grupo> <saída>` a partir do Python, foi reclamado pelo
+  padrão `*/isolamento/*` e levou o `critico` de **94,23% a 88,07%** sozinho,
+  contra 90 de mínimo. A convenção desta casa para esta espécie de ficheiro é
+  `<pacote>/tests/`, onde o `**/tests/**` dos `excluidos` já o cobre — o
+  precedente é o `packages/core-ts/tests/x11_conduzir.ts`, condutor do X-11
+  corrido pelo `make x11`, que diz na própria *docstring* que vive em `tests/`
+  **por não ser um teste**. Mover o ficheiro é trabalho normal de um PR;
+  acrescentar-lhe uma linha nos `excluidos` é mudar o critério do portão, e
+  isso não é de quem escreve o ticket.
 - **O universo é o disco, não o índice do git.** Um ficheiro por versionar
   dentro de uma raiz conta; o número local pode portanto divergir do número do
   CI, que mede um *checkout* limpo. É a mesma propriedade do lado Python

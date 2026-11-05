@@ -10,7 +10,7 @@ aqui em vez de ficar implicito: sao verificacoes sobre o **contrato escrito**
 do corpo do *job* (que campo ele leva, e qual nao pode levar) e sobre a
 derivacao do nome de fila. O isolamento em execucao de cada consumidor e o
 caso `EVT/consumidores`, contra a base; o do turno e o X-01 da
-`/internal/turn`. Quatro dos 45 itens enumerados tem, portanto, casos que
+`/internal/turn`. Quatro dos 54 itens enumerados tem, portanto, casos que
 medem o contrato e nao a fuga — e e por isso que eles nao contam como X-01.
 
 Criterio 2 do KAM-066 nomeia os «*jobs* BullMQ» entre as quatro superficies
