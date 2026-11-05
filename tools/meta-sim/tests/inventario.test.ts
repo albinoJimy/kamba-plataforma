@@ -150,8 +150,30 @@ describe("o inventario deste repositorio", () => {
     // a mensagem a nomear o ficheiro e a contagem. E a quarta vez que a mesma
     // salvaguarda morde um ticket que nao a estava a pensar — o KAM-115, o
     // KAM-112, o KAM-053 e este.
-    assert.equal(totalDeclarado(), 101);
-    assert.equal(INVENTARIO.length, 28);
+    //
+    // **115 em 33 ficheiros desde o KAM-116**, e as catorze que entram sao as
+    // cinco suites do agregador de SMS: dez na do contrato (as tres grafias do
+    // indicativo que o modulo aceita, as que ele recusa, e o valor de ouro do
+    // HMAC do destino) e uma em cada das outras quatro. Todas casam **so** o
+    // `e164_entre_aspas`, porque o numero nacional comeca por `0` e o
+    // `telefone_ao` exige o `9` depois do indicativo.
+    //
+    // **E este e o caso em que o intervalo ficticio nao servia**, o que vale a
+    // pena registar porque e a primeira vez nesta lista: o modulo `sms/` so
+    // aceita o prefixo `+244` — a recusa de tudo o resto e um critetio de
+    // aceitacao dele —, pelo que um `999...` do intervalo reservado e recusado
+    // pelo `normalizarDestino` antes de chegar a qualquer ensaio. E a mesma
+    // forma de argumento que o `inventario.ts` faz para os redactores de PII,
+    // aplicada a um modulo que valida em vez de redigir.
+    //
+    // **E apanhou-o outra vez, e a mim**: o PR do KAM-116 abriu com os catorze
+    // por declarar e o gate 7 ficou vermelho na primeira corrida. E a **quinta**
+    // vez que a mesma salvaguarda morde um ticket que nao a estava a pensar — o
+    // KAM-115, o KAM-112, o KAM-053, o KAM-044 e este —, e a quinta em que o
+    // autor verificou os nove portoes que corre nesta maquina e nao podia ver
+    // este: o `ci-7-meta` corre por `pnpm`, que aqui nao existe.
+    assert.equal(totalDeclarado(), 115);
+    assert.equal(INVENTARIO.length, 33);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

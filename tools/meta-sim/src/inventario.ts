@@ -283,6 +283,80 @@ export const INVENTARIO: readonly Entrada[] = [
     ocorrencias: 5,
     razao: "o controlo positivo de telefonesReais e de exigirFicticios",
   },
+  // --- O agregador de SMS (KAM-116) ----------------------------------------
+  //
+  // Cinco ficheiros e catorze ocorrencias, todas do padrao `e164_entre_aspas`:
+  // sao destinos em cadeia, da forma `+244` seguido de nove algarismos, e
+  // **nenhuma** casa o `telefone_ao`, que exige o `9` depois do indicativo.
+  //
+  // (Os exemplos deste comentario vao **sem aspas** de proposito. Um `+244…`
+  // entre aspas casa o `e164_entre_aspas`, e este ficheiro passava a precisar
+  // de uma entrada para si mesmo — medido: a primeira versao desta nota deu
+  // exactamente isso. Uma entrada do inventario para a prosa do inventario e
+  // ruido, e o que vale a pena declarar sao as *fixtures*.)
+  //
+  // **Porque e que nao se usa o intervalo ficticio, que e a resposta normal.**
+  // O modulo `packages/core-ts/src/sms/` so aceita o prefixo `+244` — e a
+  // recusa de tudo o resto e o critetio 6 do ticket, nao uma conveniencia. Um
+  // `999…` do intervalo reservado e recusado pelo `normalizarDestino` antes de
+  // chegar a qualquer ensaio, pelo que uma suite escrita com numeros ficticios
+  // nao podia exercitar nem o caminho feliz nem a recusa. E a mesma forma de
+  // argumento que a nota do topo deste ficheiro faz para os redactores de PII:
+  // «um redactor testado so com numeros do 999 nunca prova que apanha um
+  // +244 9…».
+  //
+  // **E porque e que nao se escondem do varredor.** Compor `"+244" + NACIONAL`
+  // em vez de escrever a cadeia inteira tirava-os destas contagens sem tirar a
+  // forma do ficheiro — seria passar o portao em vez de o satisfazer, que e o
+  // que a nota do topo recusa quando fala de isentar `tests/`.
+  //
+  // **O que torna estes catorze seguros nao e a declaracao, e a forma deles:**
+  // o numero nacional comeca por `0`, e um E.164 nacional nunca comeca por
+  // zero. Nao podem colidir com o telefone de ninguem, e a revisao adversarial
+  // deste ticket confirmou-o levantando todas as formas `+244…`/`00244…`/`244…`
+  // dos ficheiros do ticket: **todas** tem essa forma, sem excepcao.
+  {
+    ficheiro: "packages/core-ts/tests/sms.contrato.test.ts",
+    ocorrencias: 10,
+    razao:
+      "as tres grafias do indicativo que o normalizarDestino aceita (+244, 244 " +
+      "e 00244, com e sem separadores) e as que ele recusa — outro pais, sem " +
+      "indicativo, e com mais e menos algarismos do que nove; mais o valor de " +
+      "ouro do HMAC do destino, que prende o separador de dominio. Sem numeros " +
+      "de forma real estes testes nao testavam nada: o modulo so aceita +244, " +
+      "e um numero ficticio e recusado antes de chegar ao caso",
+  },
+  {
+    ficheiro: "packages/core-ts/tests/sms.idempotencia.test.ts",
+    ocorrencias: 1,
+    razao:
+      "o destino unico da bateria de idempotencia: duas chamadas com a mesma " +
+      "chave tem de dar UM SMS, e o destino tem de ser cunhavel pelo modulo, " +
+      "que so aceita +244",
+  },
+  {
+    ficheiro: "packages/core-ts/tests/sms.privacidade.test.ts",
+    ocorrencias: 1,
+    razao:
+      "o controlo positivo da bateria X-11 do modulo: o varrimento tem de VER " +
+      "o telefone e o codigo do OTP quando eles la estao, senao o zero dos " +
+      "casos seguintes nao diz nada — e a licao escrita no alvo x11 do Makefile",
+  },
+  {
+    ficheiro: "packages/core-ts/tests/sms.governanca.test.ts",
+    ocorrencias: 1,
+    razao:
+      "o destino que o pepper lido do cofre cunha, que e o que liga o critetio 7 " +
+      "(segredos com anel) ao critetio 6 (HMAC nos registos) num ensaio so",
+  },
+  {
+    ficheiro: "packages/core-ts/tests/sms.revisao.test.ts",
+    ocorrencias: 1,
+    razao:
+      "o destino dos sete achados da revisao adversarial, entre eles o recibo " +
+      "forjado que a lista de IPs aceitava por uma barra final; um destino " +
+      "ficticio nao chegava a cunhar-se e o achado 1 nao se podia medir",
+  },
 ];
 
 /** O que o *scan* mediu num ficheiro. */
