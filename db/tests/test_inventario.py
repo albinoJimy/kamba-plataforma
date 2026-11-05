@@ -1253,6 +1253,27 @@ INVENTARIO = {
             "nao — categoria de produto, preenchida pelo *screening* (KAM-049). "
             "Nao nula bloqueia a publicacao",
         ),
+        # KAM-045: as duas colunas de quantidade, que e a autoridade de stock
+        # que faltava para o `OUT_OF_STOCK` do `createOrder` (dicionario 3.43).
+        "stock_quantidade": (
+            "bigint",
+            SIM,
+            None,
+            "nao — a quantidade declarada pelo dono. **Nulo e «nao declarada», "
+            "nao zero**: zero e a afirmacao de que nao ha, e nulo e a ausencia "
+            "de afirmacao. Nenhum caminho de escrita a escreve ainda, e isso e "
+            "divida com credor no KAM-043/KAM-049",
+        ),
+        "stock_reservada": (
+            "bigint",
+            NAO,
+            "0",
+            "nao — quanto da quantidade esta prometido a reservas `ativa`. "
+            "`NOT NULL` por medicao e nao por gosto: `NULL + 1` e `NULL`, e "
+            "uma coluna anulavel fazia o predicado aritmetico do criterio 1 "
+            "devolver `NULL` — que num `WHERE` nao e verdadeiro, pelo que "
+            "**toda** a reserva era recusada, em silencio",
+        ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "atualizado_at": (
             "timestamp with time zone",
@@ -1315,6 +1336,93 @@ INVENTARIO = {
     # registou que o `cliente_msisdn text NOT NULL` do documento 11 violava o
     # ADR-010 e a minimizacao da Lei 22/11. O `lines_snapshot` tem o `nome` do
     # **produto**, que e a mesma resposta do `offer_terms.nome`.
+    # A reserva de stock (KAM-045), do mesmo bloco SQL do `docs/tecnica/03`
+    # secao 5.4 que a `0030` deixou com o credor escrito. O prazo chama-se
+    # `expira_at` e nao a forma inglesa do DDL daquele documento: a emenda 1.11
+    # do dicionario resolveu a divergencia e a 1.12 registou a variante depois
+    # de medir que uma migracao com a forma antiga falhava o *gate* 3b,
+    # nomeando **esta** tabela.
+    "stock_reservations": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "order_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — a encomenda, por FK **composta** `(tenant_id, order_id)`, "
+            "que e a licao ISO-58 do spike KAM-041: uma FK simples deixava a "
+            "reserva de A apontar para a encomenda de B",
+        ),
+        "line_no": (
+            "integer",
+            NAO,
+            None,
+            "nao — o indice da linha no `lines_snapshot`, que e um `jsonb` sem "
+            "chaves proprias. E o que da identidade a linha reservada",
+        ),
+        "sku": (
+            "text",
+            NAO,
+            None,
+            "nao — **copiado e nao referenciado por FK**: a reserva e do "
+            "instante da encomenda, como o `lines_snapshot`, e um SKU em "
+            "*soft delete* nao pode invalidar uma reserva activa",
+        ),
+        "qty": ("integer", NAO, None, "nao"),
+        "estado": (
+            "text",
+            NAO,
+            "'ativa'::text",
+            "nao — `ativa`, `consumida` ou `libertada`. Os dois ultimos sao "
+            "**terminais** pelo *trigger*, e e isso que faz de «execucao dupla "
+            "= 1 libertacao» (criterio 4) uma restricao e nao uma convencao",
+        ),
+        "motivo": (
+            "text",
+            SIM,
+            None,
+            "nao — `expirada`, `cancelada` ou `recusada_dono` (criterio 6), e "
+            "**so** quando `libertada`: a exigencia e uma equivalencia e nao "
+            "uma implicacao, porque um motivo escrito noutro estado afirmava "
+            "uma razao para uma coisa que nao aconteceu",
+        ),
+        "expira_at": (
+            "timestamp with time zone",
+            NAO,
+            None,
+            "nao — o prazo. `NOT NULL` porque o varrimento tinha de tratar o "
+            "nulo como «nunca expira», e uma reserva provisoria cujo "
+            "`charge.issued` nunca chegasse ficava a prender stock para sempre",
+        ),
+        "confirmada_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — quando o `charge.issued` fixou o prazo (criterio 3). Nulo e "
+            "uma reserva **provisoria**; nao e um quarto estado porque as duas "
+            "sao `ativa` para todos os efeitos de stock — o que difere e o prazo",
+        ),
+        "consumida_at": ("timestamp with time zone", SIM, None, "nao"),
+        "libertada_at": ("timestamp with time zone", SIM, None, "nao"),
+        "version": (
+            "integer",
+            NAO,
+            "1",
+            "nao — concorrencia optimista. O *trigger* exige que suba de um em "
+            "cada **mudanca de estado**, como no `orders_mirror`: exigi-la em "
+            "todo o `UPDATE` proibia um toque sem efeito",
+        ),
+        "criado_at": (
+            "timestamp with time zone",
+            NAO,
+            "now()",
+            "nao — e e contra **este** instante que o tecto de 72 h do "
+            "criterio 7 se mede, e nao contra `now()`: dois prolongamentos de "
+            "36 h passavam a validacao um a um e somavam 72 h sobre uma "
+            "reserva que ja tinha 48",
+        ),
+        "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     "orders_mirror": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
         "tenant_id": ("uuid", NAO, None, "nao"),
@@ -2459,6 +2567,13 @@ class TestInventario(ComBase):
                         "order_state_log_encomenda_do_mesmo_tenant_fk",
                         "orders_mirror_contacto_do_mesmo_tenant_fk",
                         "orders_mirror_tenant_fk",
+                        # KAM-045 (0033): as duas da reserva de stock. A da
+                        # encomenda e **composta** `(tenant_id, order_id)`,
+                        # pela licao ISO-58 do spike KAM-041 — uma FK simples
+                        # deixava a reserva de A apontar para a encomenda de B.
+                        # Nenhuma apaga em cascata, como todas as outras.
+                        "stock_reservations_encomenda_do_mesmo_tenant_fk",
+                        "stock_reservations_tenant_fk",
                         # KAM-016: as duas da tentativa de onboarding. A do
                         # canal e **composta** com o `tenant_id`, pela razao que
                         # a `0009` fixou e as cinco revisoes seguintes
@@ -2740,6 +2855,13 @@ class TestInventario(ComBase):
             # nenhum — e dava duas entradas abertas sobre o mesmo evento, com o
             # alerta a contar o dobro.
             "events_dlq_aberta_uq": True,
+            # KAM-045: parcial e **nao** unico. E o indice do varrimento da
+            # expiracao, e so cobre `estado = 'ativa'`: uma reserva `consumida`
+            # ou `libertada` nunca volta a ser varrida, e deixa-las no indice
+            # fazia-o crescer para sempre sobre linhas que ninguem consulta. Nao
+            # impoe regra nenhuma — e so velocidade —, pelo que o `False` aqui e
+            # a afirmacao certa e nao uma omissao.
+            "stock_reservations_expira_idx": False,
             # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
             # unicos. O do contacto cobre so os enderecos utilizaveis
             # (verificados e nao invalidos), que e o conjunto que a entrega le;
@@ -2953,6 +3075,17 @@ class TestInventario(ComBase):
                     "offer_terms_preco_ck",
                     "offer_terms_preco_nao_negativo_ck",
                     "offer_terms_categoria_restrita_ck",
+                    # KAM-045 (0033): as **tres** que a reserva de stock
+                    # acrescenta a tabela do KAM-043. Eram quatro: o
+                    # `offer_terms_stock_garantido_exige_quantidade_ck` saiu
+                    # depois da revisao adversarial, porque era uma barreira
+                    # retroactiva sobre a tabela de outro ticket sem o caminho
+                    # de escrita que a satisfaz — media-se em 34 erros na suite
+                    # `tests_produtos`. O invariante passou para o predicado do
+                    # `SQL_RESERVAR`.
+                    "offer_terms_stock_quantidade_ck",
+                    "offer_terms_stock_reservada_ck",
+                    "offer_terms_stock_nao_sobrevende_ck",
                     "price_quotes_pkey",
                     "price_quotes_sku_ck",
                     "price_quotes_qty_ck",
@@ -3038,6 +3171,21 @@ class TestInventario(ComBase):
                     "orders_mirror_intent_key_ck",
                     "orders_mirror_intent_uq",
                     "orders_mirror_numero_uq",
+                    # KAM-045 (0033): as **doze** da reserva de stock — oito
+                    # `CHECK`, a chave primaria e a unicidade na tabela nova,
+                    # mais as duas FK que o teste das cascatas ja conta a
+                    # parte. As quatro da `offer_terms` estao mais abaixo, com
+                    # as da `0028`, porque e dela que a tabela e.
+                    "stock_reservations_pkey",
+                    "stock_reservations_linha_uq",
+                    "stock_reservations_estado_ck",
+                    "stock_reservations_motivo_ck",
+                    "stock_reservations_sku_ck",
+                    "stock_reservations_qty_ck",
+                    "stock_reservations_version_ck",
+                    "stock_reservations_line_no_ck",
+                    "stock_reservations_libertada_exige_motivo_ck",
+                    "stock_reservations_consumida_exige_instante_ck",
                     "order_intents_pkey",
                     "order_intents_intent_key_ck",
                     "order_intents_draft_hash_ck",

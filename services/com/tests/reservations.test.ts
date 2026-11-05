@@ -58,6 +58,7 @@ import {
   prazoDoEvento,
   prazoProvisorio,
   provisoria,
+  tectoComoIntervalo,
   releaseReservation,
   reserveStock,
   trabalhoDaReserva,
@@ -566,9 +567,15 @@ test("KAM-045 critério 6: consumir não devolve stock", async () => {
  */
 function varrimentoCom(estadoDoPay: "paga" | "pendente" | "desconhecida") {
   const feitas: string[] = [];
+  // **O que se pediu ao PAY**, e é por isso que isto existe: a primeira versão
+  // deste duplo era `async status() {...}` **sem parâmetros**, pelo que nenhum
+  // ensaio olhava para a pergunta. Era o que deixava passar o `as never` com um
+  // argumento que não é um `ProviderRef` (achado da revisão adversarial).
+  const consultadas: { orderId: string; reservationId: string }[] = [];
   let entregou = false;
   return {
     feitas,
+    consultadas,
     v: {
       async semTenant(sql: string) {
         feitas.push(sql);
@@ -593,17 +600,31 @@ function varrimentoCom(estadoDoPay: "paga" | "pendente" | "desconhecida") {
         }
         return [{}];
       },
-      provedor: {
-        id: "fake",
-        capabilities: {} as never,
-        async status() {
-          return { estado: estadoDoPay } as never;
-        },
-      } as never,
+      async consultar(vencida: Vencida) {
+        consultadas.push({
+          orderId: vencida.orderId,
+          reservationId: vencida.reservationId,
+        });
+        return estadoDoPay;
+      },
       agora: () => AGORA,
     },
   };
 }
+
+test("KAM-045 critério 5: a consulta final recebe a reserva vencida, não um ref vazio", async () => {
+  // **O ensaio que faltava, e sem ele o resto não media a pergunta.** O porto
+  // recebe a `Vencida` inteira, pelo que a implementação (do KAM-055, que tem a
+  // `payment_charges`) pode traduzir encomenda → referência de cobrança. Aqui
+  // mede-se que a reserva certa chega lá.
+  const { v, consultadas } = varrimentoCom("pendente");
+  await varrer(v);
+  assert.deepEqual(
+    consultadas,
+    [{ orderId: ENCOMENDA, reservationId: RESERVA }],
+    "consultou-se uma vez, e com a encomenda e a reserva da linha vencida",
+  );
+});
 
 test("KAM-045 critério 5: callback atrasado durante a varredura NÃO expira", async () => {
   // «Teste: callback atrasado durante a varredura.» O PAY confirma a meio do
@@ -611,7 +632,13 @@ test("KAM-045 critério 5: callback atrasado durante a varredura NÃO expira", a
   // stock nenhum.
   const { v, feitas } = varrimentoCom("paga");
   const resultado = await varrer(v);
-  assert.deepEqual(resultado, { vistas: 1, libertadas: 0, consumidas: 1, adiadas: 0 });
+  assert.deepEqual(resultado, {
+    vistas: 1,
+    libertadas: 0,
+    consumidas: 1,
+    adiadas: 0,
+    divergencias: 0,
+  });
   assert.equal(
     feitas.some((sql) => sql.includes("stock_reservada = stock_reservada - $3")),
     false,
@@ -626,7 +653,13 @@ test("KAM-045 critério 5: callback atrasado durante a varredura NÃO expira", a
 test("KAM-045 critério 5: o PAY em baixo ADIA, e não liberta nada", async () => {
   const { v, feitas } = varrimentoCom("desconhecida");
   const resultado = await varrer(v);
-  assert.deepEqual(resultado, { vistas: 1, libertadas: 0, consumidas: 0, adiadas: 1 });
+  assert.deepEqual(resultado, {
+    vistas: 1,
+    libertadas: 0,
+    consumidas: 0,
+    adiadas: 1,
+    divergencias: 0,
+  });
   assert.equal(
     feitas.some((sql) => sql.includes("estado = 'libertada'")),
     false,
@@ -638,7 +671,13 @@ test("KAM-045 critério 5: o PAY em baixo ADIA, e não liberta nada", async () =
 test("KAM-045 critério 4: com o PAY a dizer pendente, liberta e devolve stock", async () => {
   const { v, feitas } = varrimentoCom("pendente");
   const resultado = await varrer(v);
-  assert.deepEqual(resultado, { vistas: 1, libertadas: 1, consumidas: 0, adiadas: 0 });
+  assert.deepEqual(resultado, {
+    vistas: 1,
+    libertadas: 1,
+    consumidas: 0,
+    adiadas: 0,
+    divergencias: 0,
+  });
   assert.equal(
     feitas.some((sql) => sql.includes("stock_reservada = stock_reservada - $3")),
     true,
@@ -646,13 +685,19 @@ test("KAM-045 critério 4: com o PAY a dizer pendente, liberta e devolve stock",
   );
 });
 
-test("KAM-045 critério 5: sem provedor o varrimento adia em vez de libertar", async () => {
+test("KAM-045 critério 5: sem consulta final o varrimento adia em vez de libertar", async () => {
   // Um varrimento que libertasse sem consultar porque ninguém lhe deu com quem
   // consultar era precisamente o que o Contexto do bloco proíbe.
   const { v } = varrimentoCom("pendente");
-  const semProvedor = { semTenant: v.semTenant, agora: v.agora };
-  const resultado = await varrer(semProvedor);
-  assert.deepEqual(resultado, { vistas: 1, libertadas: 0, consumidas: 0, adiadas: 1 });
+  const semConsulta = { semTenant: v.semTenant, agora: v.agora };
+  const resultado = await varrer(semConsulta);
+  assert.deepEqual(resultado, {
+    vistas: 1,
+    libertadas: 0,
+    consumidas: 0,
+    adiadas: 1,
+    divergencias: 0,
+  });
 });
 
 // ------------------------------- os caminhos que faltavam ao estrato `restante`
@@ -669,7 +714,7 @@ test("KAM-045 critério 7: o extendReservation recusa um instante que não é da
   );
 });
 
-test("KAM-045 critério 7: o extendReservation passa o tecto em horas ao SQL", async () => {
+test("KAM-045 critério 7: o extendReservation passa o tecto COM a folga ao SQL", async () => {
   // As quatro condições do `SQL_ESTENDER` medem-se contra a base no *gate* 8; o
   // que se mede aqui é o que o módulo **envia**: o tecto como intervalo, em
   // horas, derivado do `TTL_MAXIMO_MS` e não escrito à mão.
@@ -703,7 +748,20 @@ test("KAM-045 critério 7: o extendReservation passa o tecto em horas ao SQL", a
     "2026-11-07T10:00:00.000Z",
   );
   assert.equal(resultado.tipo, "ok");
-  assert.deepEqual(movidas[0]?.[2], "72 hours", "o tecto vai em horas");
+  assert.deepEqual(
+    movidas[0]?.[2],
+    tectoComoIntervalo(),
+    "o tecto vai pelo `tectoComoIntervalo`, que é o **mesmo** que o " +
+      "`SQL_CONFIRMAR` recebe",
+  );
+  assert.equal(
+    tectoComoIntervalo(),
+    "4335 minutes",
+    "72 h + 15 min, e a folga entra porque o critério 2 a põe **por cima** do " +
+      "fim da validade. Era `72 hours` secas, e a revisão adversarial mostrou " +
+      "o que isso custava: uma reserva criada com TTL de 72 h tinha `expira_at` " +
+      "acima do próprio tecto e nunca se podia prolongar",
+  );
   if (resultado.tipo === "ok") {
     assert.equal(
       resultado.valor[0]?.confirmadaAt,

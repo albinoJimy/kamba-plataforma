@@ -338,7 +338,8 @@ TABELAS_0029 = (
 #: order_reconciliation_issues` (a ordem das FK: as tres ultimas referenciam a
 #: primeira).
 #:
-#: A `stock_reservations` do mesmo bloco SQL **nao** esta aqui: e do KAM-045.
+#: A `stock_reservations` do mesmo bloco SQL **nao** esta aqui: e do KAM-045, e
+#: entra no `TABELAS_0033` abaixo.
 #:
 #: **Uma delas nao tem `tenant_id`, e isso e desenho e nao lapso.** O
 #: `order_state_graph` e tabela de **referencia**, como a `evt_subscricoes` da
@@ -373,6 +374,15 @@ TABELAS_0032 = (
     "refund_cases",
 )
 
+#: O que a revisao 0033 (KAM-045) acrescenta: a reserva de stock.
+#:
+#: **Uma**, a `platform.stock_reservations` do mesmo bloco SQL do
+#: `docs/tecnica/03` secao 5.4 que a `0030` deixou com o credor escrito. As duas
+#: colunas de quantidade que a mesma revisao acrescenta vivem na `offer_terms`,
+#: que e da `0028` e ja esta na lista dela — o inventario coluna a coluna de
+#: `test_inventario.py` e que as conta.
+TABELAS_0033 = ("stock_reservations",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -381,15 +391,22 @@ TABELAS = tuple(
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
-        + TABELAS_0032
+        + TABELAS_0032 + TABELAS_0033
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0032`.
+#:
+#: O `downgrade` da `0033` leva a base para aqui.
+TABELAS_ATE_0032 = tuple(sorted(set(TABELAS) - set(TABELAS_0033)))
 
 #: O que existe em `platform` quando a base esta na revisao `0031`.
 #:
 #: A `0031` (KAM-176) alarga um *trigger* e nao cria tabela, pelo que o conjunto
 #: na `0031` e o da `0030`. O `downgrade` da `0032` leva a base para aqui.
-TABELAS_ATE_0031 = tuple(sorted(set(TABELAS) - set(TABELAS_0032)))
+TABELAS_ATE_0031 = tuple(
+    sorted(set(TABELAS) - set(TABELAS_0032) - set(TABELAS_0033))
+)
 
 #: O que existe em `platform` quando a base esta na revisao `0029`.
 #:

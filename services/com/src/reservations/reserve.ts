@@ -58,9 +58,9 @@ import type { RepoDoTenant } from "../orders/transition.ts";
 import {
   ATIVA,
   ESTADOS_TERMINAIS,
-  TTL_MAXIMO_MS,
   prazoDaReserva,
   prazoProvisorio,
+  tectoComoIntervalo,
   ttlAceitavel,
   type Duration,
   type EstadoDaReserva,
@@ -380,11 +380,16 @@ export async function extendReservation(
   const instante = new Date(until);
   if (Number.isNaN(instante.getTime())) return recusar("VALIDATION_ERROR");
 
-  const horas = Math.floor(TTL_MAXIMO_MS / (60 * 60 * 1000));
+  // **O tecto vem do `tectoComoIntervalo` e inclui a folga.** Era `72 hours`
+  // secas, e a revisão adversarial mostrou o que isso custava: sobre uma
+  // reserva criada com TTL de 72 h o `expira_at` dela é `criado_at + 72 h
+  // 15 min`, isto é, já acima do tecto — e então `$3 > expira_at` e
+  // `$3 <= criado_at + 72 h` não podem ser verdadeiros ao mesmo tempo, pelo que
+  // aquela reserva **nunca** se podia prolongar. Ver a nota daquela função.
   const mudadas = await r.repo.noTenant(SQL_ESTENDER, [
     orderId,
     instante.toISOString(),
-    `${horas} hours`,
+    tectoComoIntervalo(),
   ]);
   if (mudadas.length === 0) {
     // Zero linhas: ou não há reserva activa, ou ela é provisória (sem

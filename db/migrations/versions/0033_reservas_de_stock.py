@@ -66,14 +66,33 @@ que falhe o predicado falha **ruidosamente** em vez de prometer stock que nao
 existe. E a mesma escolha do `orders_mirror_paga_exige_via_ck` da `0030` — o
 criterio na coluna, e nao so na funcao.
 
-## Um `garantido` sem quantidade e recusado
+## Um `garantido` sem quantidade e recusado — **na reserva, nao na coluna**
 
-O `offer_terms_stock_garantido_exige_quantidade_ck` e o *fail-closed* da
-governacao: `stock_modo = 'garantido'` e uma promessa de exclusividade, e uma
-promessa sem numero nao se pode cumprir. O `indicativo` e o `confirmar_dono`
-continuam a aceitar `stock_quantidade` nula, que e o estado de toda a Fase 0
-para quem nao declarou stock — e o criterio 8 diz o que isso significa:
-«`stock_modo='indicativo'` reserva internamente sem promessa de exclusividade».
+`stock_modo = 'garantido'` e uma promessa de exclusividade, e uma promessa sem
+numero nao se pode cumprir. O `indicativo` e o `confirmar_dono` aceitam
+`stock_quantidade` nula, que e o estado de toda a Fase 0 para quem nao declarou
+stock — e o criterio 8 diz o que isso significa: «`stock_modo='indicativo'`
+reserva internamente sem promessa de exclusividade».
+
+**Onde esse *fail-closed* vive e uma correccao da revisao adversarial.** Esta
+revisao punha um `offer_terms_stock_garantido_exige_quantidade_ck` na coluna, e
+isso era uma barreira **retroactiva sobre a tabela de outro ticket** (a
+`offer_terms` e do KAM-043) **sem o caminho de escrita que a satisfaz**: nada no
+repositorio escreve `stock_quantidade`. Medido — `tests_produtos` com
+`Ran 63 tests / FAILED (failures=1, errors=34)`, todos `23514` naquele `CHECK`,
+e o `upsertProductDraft` com `garantido` a falhar **sempre**.
+
+O invariante passou para o predicado do `SQL_RESERVAR`:
+
+```sql
+stock_quantidade - stock_reservada >= :q
+  OR (stock_quantidade IS NULL AND stock_modo <> 'garantido')
+```
+
+A pergunta que importa nao e «a linha pode existir?», e «pode-se reservar contra
+ela?» — e essa e propriedade da **reserva**, nao da oferta. Nesta forma nao custa
+escrita nenhuma a quem ja escrevia na tabela, e o efeito para o cliente e o
+mesmo: `OUT_OF_STOCK`.
 
 ## Os tres estados, e porque os terminais sao terminais
 
@@ -151,9 +170,16 @@ ATIVA = "'ativa'"
 #: `MOTIVOS_DE_LIBERTACAO` de `services/com/src/port/contrato.ts` ja fixa.
 MOTIVOS_DE_LIBERTACAO = ("'expirada'", "'cancelada'", "'recusada_dono'")
 
-#: O modo de stock que promete exclusividade, e o unico que exige quantidade.
-#: O dominio dos tres esta no `offer_terms_stock_modo_ck` da `0028`.
-GARANTIDO = "'garantido'"
+#: **Nao ha constante para o `garantido` nesta revisao, e nao e esquecimento.**
+#:
+#: Ela existiu, para o `CHECK` retroactivo que a revisao adversarial mandou
+#: tirar (ver a nota do modulo). Com o invariante no predicado do
+#: `SQL_RESERVAR`, nenhuma instrucao desta revisao nomeia o modo — e uma
+#: constante de modulo que nenhuma instrucao usa e uma declaracao morta, que o
+#: *gate* 3b conta como nome declarado e nunca escrito.
+#:
+#: O dominio dos tres modos continua no `offer_terms_stock_modo_ck` da `0028`,
+#: que e de quem a coluna e.
 
 #: Os SQLSTATE proprios desta revisao, a seguir aos cinco da `0030` (`KA003` a
 #: `KA007`) e aos dois da `0007`. Codigos proprios e nao `check_violation` para
@@ -183,14 +209,27 @@ UPDATE_DA_APP_EM_RESERVAS = (
     "atualizado_at",
 )
 
-#: As duas colunas que esta revisao acrescenta a `offer_terms`, e que entram no
-#: `GRANT UPDATE` por coluna dela.
+#: A coluna que esta revisao acrescenta ao `GRANT UPDATE` por coluna da
+#: `offer_terms`. **Uma, e nao as duas que a revisao cria.**
 #:
 #: A `stock_reservada` esta aqui porque e o modulo que a move, e e **por isso**
-#: que o `CHECK` existe: um privilegio nao sabe exigir que o movimento passe
-#: pelo predicado aritmetico, e a restricao sabe. A `stock_quantidade` esta aqui
-#: porque e o dono que a declara, pelo `upsertProductDraft`.
-UPDATE_DA_APP_EM_OFERTAS_NOVAS = ("stock_quantidade", "stock_reservada")
+#: que o `offer_terms_stock_nao_sobrevende_ck` existe: um privilegio nao sabe
+#: exigir que o movimento passe pelo predicado aritmetico, e a restricao sabe.
+#:
+#: **A `stock_quantidade` nao esta, e a primeira versao desta revisao punha-a
+#: aqui com uma afirmacao falsa ao lado:** «e o dono que a declara, pelo
+#: `upsertProductDraft`». Nao e — o `upsertProductDraft` **nao tem** essa
+#: coluna, em nenhum dos seus dois caminhos de escrita, e nada no repositorio a
+#: escreve (`grep -rn stock_quantidade services/ packages/ tools/` da so o
+#: modulo das reservas, que a **le**). Achado da revisao adversarial.
+#:
+#: Conceder um privilegio que ninguem usa escreve no catalogo uma permissao que
+#: nao existe — e a mesma razao pela qual a `0030` nao deu `UPDATE` nem `DELETE`
+#: ao `kamba_batch` no `order_state_log`. Quem precisar dela acrescenta-a no
+#: ticket que escrever o caminho: alargar o `ProductDraft` com `stockQuantidade`
+#: e do **KAM-043/KAM-049**, e esta fora do escopo que o *handoff* deste bloco
+#: fixa. Ate la, um SKU `garantido` nao e reservavel, que e o lado seguro.
+UPDATE_DA_APP_EM_OFERTAS_NOVAS = ("stock_reservada",)
 
 
 def upgrade() -> None:
@@ -223,81 +262,31 @@ def _stock_na_oferta() -> None:
             ADD COLUMN stock_reservada bigint NOT NULL DEFAULT 0
         """
     )
-    # **O preenchimento vem antes das restricoes, e nao e opcional.**
+    # **Nao ha preenchimento, e nao ha porque nao ha restricao retroactiva.**
     #
-    # Medido, e foi o `alembic upgrade head` a dize-lo: `23514 check constraint
-    # "offer_terms_stock_garantido_exige_quantidade_ck" of relation
-    # "offer_terms" is violated by some row`. A `offer_terms` existe desde a
-    # `0028` e tem linhas `garantido` escritas **antes** de haver coluna de
-    # quantidade — pelo que o invariante novo e violado por dados que o
-    # precedem, e um `ADD CONSTRAINT` sobre tabela povoada falha.
+    # A primeira versao desta revisao punha um
+    # `offer_terms_stock_garantido_exige_quantidade_ck` nesta tabela e, para o
+    # poder acrescentar sobre linhas que o violavam, preenchia as `garantido`
+    # antigas com zero — e para o `UPDATE` ver essas linhas tinha de suspender o
+    # `FORCE ROW LEVEL SECURITY`, porque o `FORCE` vincula o dono e o dono e o
+    # `kamba_migrator`, que e `NOBYPASSRLS`.
     #
-    # ## Zero e nao `NOT VALID`, e a escolha e sobre qual o lado seguro do erro
+    # **As tres coisas cairam juntas**, porque a revisao adversarial mostrou que
+    # a primeira nao devia existir: era uma barreira retroactiva sobre a tabela
+    # de **outro ticket** (a `offer_terms` e do KAM-043) sem o caminho de
+    # escrita que a satisfaz. Medido: `tests_produtos` com
+    # `Ran 63 tests / FAILED (failures=1, errors=34)`, todos `23514` naquele
+    # `CHECK`, e o `upsertProductDraft` com `stock_modo` `garantido` a falhar
+    # **sempre** — este ticket inutilizava uma operacao de outro.
     #
-    # A saida habitual do PostgreSQL para isto e `ADD CONSTRAINT ... NOT VALID`,
-    # que impoe a regra as linhas novas e deixa as antigas como estao. **Aqui
-    # era a saida errada:** as linhas que a violam sao exactamente as que
-    # prometem exclusividade sem numero para a cumprir, e dispensa-las deixava o
-    # invariante sem efeito precisamente onde ele faz falta.
+    # O invariante nao se perdeu: mudou para o `SQL_RESERVAR`, que recusa
+    # reservar um `garantido` sem quantidade. Ver a nota desse modulo — o que
+    # importa nao e «a linha nao pode existir», e «nao se reserva contra uma
+    # promessa sem numero», que e propriedade da **reserva** e nao da oferta.
     #
-    # `stock_quantidade = 0` e o **fail-closed**: o predicado aritmetico do
-    # criterio 1 le `0 - 0 >= :q` como falso, pelo que um SKU `garantido` cuja
-    # quantidade ninguem declarou deixa de ser reservavel em vez de prometer
-    # stock que ninguem contou. Nao inventa um numero — zero e a afirmacao «nao
-    # ha», que e o que se sabe hoje sobre estas linhas — e desfaz-se com uma
-    # declaracao do dono pelo `upsertProductDraft`.
-    #
-    # **O que isto custa fica dito:** um SKU `garantido` que hoje saia em
-    # pesquisa deixa de poder ser encomendado ate o dono declarar stock. Nao ha
-    # producao nem *staging* (nada corre migracoes contra base nenhuma — o
-    # `db/migrations/README.md` registra-o), pelo que o universo afectado sao
-    # as linhas das fixtures e das suites; em producao, o credor de avisar o
-    # dono e o KAM-115.
-    #
-    # A alternativa de **demover** as linhas para `indicativo` foi recusada: o
-    # `stock_modo` e uma escolha comercial do dono, e uma migracao que a mudasse
-    # alterava o que o dono prometeu aos clientes dele sem ele saber.
-    # ## O `NO FORCE` em volta do preenchimento, e porque ele e obrigatorio
-    #
-    # **Um `UPDATE` de preenchimento numa tabela com `FORCE ROW LEVEL SECURITY`
-    # casa zero linhas, e nao da erro.** E o verde falso mais caro desta
-    # revisao: o preenchimento estava escrito e correcto, corria, dizia
-    # `UPDATE 0`, e o `ADD CONSTRAINT` a seguir falhava com o mesmo `23514` que
-    # ele existia para evitar.
-    #
-    # A razao esta no `db/rls.py`, que a escreve para as funcoes `SECURITY
-    # DEFINER` e vale letra por letra para uma revisao: a `0028` poe `FORCE` na
-    # `offer_terms`, o `FORCE` **vincula tambem o dono**, e o dono e o
-    # `kamba_migrator`, que e `NOBYPASSRLS`. Sem `app.tenant_id` definido, o
-    # predicado da politica `tenant_iso` reduz-se a `tenant_id = NULL` — que nao
-    # e verdadeiro para linha nenhuma. A revisao **nao ve** as linhas que vai
-    # preencher.
-    #
-    # Nao ha contexto de tenant que sirva: o preenchimento atravessa todos os
-    # tenants por desenho. E `SET ROLE` para o `kamba_batch` (o unico com
-    # `BYPASSRLS`) esta fechado — o `db/bootstrap.py` **revoga activamente** toda
-    # a pertenca entre papeis, e o `db/rls.py` registra que essa barreira nao se
-    # afrouxa.
-    #
-    # O que resta e o que esta aqui: suspender o `FORCE` para a duracao do
-    # preenchimento e repo-lo. **A politica fica no sitio** — o que se suspende e
-    # so o «vincula o dono», pelo que nenhum papel sujeito a RLS ganha visao
-    # nenhuma; e tudo corre dentro da transaccao da revisao
-    # (`transaction_per_migration=True`), pelo que nao ha instante confirmado em
-    # que a tabela esteja sem `FORCE`.
-    #
-    # O `test_em_head_os_objectos_existem` do `test_downgrade_0033.py` afirma o
-    # par `(ENABLE, FORCE)` em `(True, True)` depois do `upgrade`, que e o ensaio
-    # que impede este `NO FORCE` de ficar esquecido ligado.
-    op.execute(f"ALTER TABLE {OFERTA} NO FORCE ROW LEVEL SECURITY")
-    op.execute(
-        f"""
-        UPDATE {OFERTA}
-           SET stock_quantidade = 0
-         WHERE stock_modo = {GARANTIDO} AND stock_quantidade IS NULL
-        """
-    )
-    op.execute(f"ALTER TABLE {OFERTA} FORCE ROW LEVEL SECURITY")
+    # **A medicao do `NO FORCE` fica registada mesmo sem o codigo**, porque vale
+    # para a proxima revisao que precise de preencher: um `UPDATE` de
+    # preenchimento numa tabela com `FORCE` casa **zero linhas e nao da erro**.
     op.execute(
         f"""
         ALTER TABLE {OFERTA}
@@ -315,12 +304,7 @@ def _stock_na_oferta() -> None:
             -- promessa de exclusividade», que e a letra do criterio 8.
             ADD CONSTRAINT offer_terms_stock_nao_sobrevende_ck
                 CHECK (stock_quantidade IS NULL
-                       OR stock_reservada <= stock_quantidade),
-            -- *Fail-closed* da governacao: `garantido` e uma promessa de
-            -- exclusividade, e uma promessa sem numero nao se cumpre. Os outros
-            -- dois modos continuam a aceitar quantidade nula.
-            ADD CONSTRAINT offer_terms_stock_garantido_exige_quantidade_ck
-                CHECK (stock_modo <> {GARANTIDO} OR stock_quantidade IS NOT NULL)
+                       OR stock_reservada <= stock_quantidade)
         """
     )
     op.execute(

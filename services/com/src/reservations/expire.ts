@@ -68,10 +68,7 @@
  * da fila — que é do **KAM-080**, dono das métricas e alertas.
  */
 
-import type {
-  PaymentProvider,
-  ProviderStatus,
-} from "@kamba/core-ts/pagamentos";
+import type { ProviderStatus } from "@kamba/core-ts/pagamentos";
 
 import {
   SQL_ATRASO_DA_LIBERTACAO,
@@ -95,6 +92,43 @@ import type { MotivoDeLibertacao } from "./contrato.ts";
  * uma volta caiba bem dentro do minuto).
  */
 export const LOTE_DO_VARRIMENTO = 100;
+
+/**
+ * A consulta final ao PAY, **como porto estreito deste módulo**.
+ *
+ * ## Porque é que não é o `PaymentProvider` directamente
+ *
+ * **Achado da revisão adversarial, e era um defeito a sério.** A primeira versão
+ * chamava `v.provedor.status({ orderId: vencida.orderId } as never)` — e o
+ * `ProviderRef` do contrato é `{ providerId, providerChargeId?, referencia? }`.
+ * O objecto passado não tinha **nenhum** desses campos, e o `as never` apagava o
+ * erro de tipo. Contra um adaptador real a referência não resolveria: no melhor
+ * caso `desconhecida` para sempre (nada expira nunca), no pior uma excepção que
+ * o `catch` converte em `adiar` — em silêncio, e indistinguível do PAY em baixo.
+ *
+ * O `as never` era o sinal. Uma reserva **não conhece** um `ProviderRef`: ela
+ * conhece o `order_id`, e quem sabe traduzir encomenda → referência de cobrança
+ * é quem tem a `platform.payment_charges`, que é do **KAM-055**. Por isso o
+ * porto recebe o que a reserva tem e devolve o que a decisão precisa, e a
+ * **implementação** — que faz a tradução e chama o `PaymentProvider.status` —
+ * é de quem monta o varrimento.
+ *
+ * É a mesma escolha do `FilaDeExpiracao` do `./scheduler.ts`, e pela mesma
+ * razão: quando o contrato partilhado não responde à pergunta que este módulo
+ * tem, o porto é estreito e a divergência fica escrita em vez de ser calada por
+ * um `as never`.
+ *
+ * O tipo do resultado é o `ProviderStatus["estado"]` e não um domínio novo: os
+ * seis valores são os do contrato do KAM-052, e inventar outros seis era dar
+ * dois nomes à mesma coisa.
+ *
+ * **O `reconcile` que o Contexto do bloco nomeia não existe** no contrato — ele
+ * tem `status(ref)` e o `cancelCharge?` opcional. Divergência registada na
+ * emenda do dicionário deste ticket.
+ */
+export type ConsultaFinalAoPay = (
+  vencida: Vencida,
+) => Promise<ProviderStatus["estado"]>;
 
 /** Uma reserva vencida, como o varrimento a lê. */
 export interface Vencida {
@@ -181,18 +215,12 @@ export interface Varrimento {
   /**
    * A consulta final ao PAY. **Ausente é motivo para não libertar nada.**
    *
-   * O bloco diz «usar a interface ou um *fake* até existir», e o
-   * `PaymentProvider` do `@kamba/core-ts/pagamentos` existe desde o KAM-052 —
-   * com `status(ref)` e não `reconcile(...)`, que é o nome que o Contexto do
-   * bloco usa e que **não existe** no contrato (divergência registada na
-   * emenda do dicionário deste ticket).
-   *
-   * Sem provedor, o varrimento **adia tudo** em vez de libertar: é a mesma
-   * regra do `desconhecida`, e pela mesma razão. Um varrimento que libertasse
-   * sem consultar porque ninguém lhe deu com quem consultar era precisamente o
-   * que o Contexto do bloco proíbe.
+   * Sem ela, o varrimento **adia tudo** em vez de libertar: é a mesma regra do
+   * `desconhecida`, e pela mesma razão. Um varrimento que libertasse sem
+   * consultar porque ninguém lhe deu com quem consultar era precisamente o que
+   * o Contexto do bloco proíbe.
    */
-  readonly provedor?: PaymentProvider;
+  readonly consultar?: ConsultaFinalAoPay;
   /** O relógio. Injectável para o ensaio do critério 3 com relógio simulado. */
   readonly agora?: () => Date;
   readonly lote?: number;
@@ -204,6 +232,15 @@ export interface Resultado {
   readonly libertadas: number;
   readonly consumidas: number;
   readonly adiadas: number;
+  /**
+   * Libertações cujo stock **não** voltou: o `SQL_DEVOLVER_STOCK` casou zero
+   * linhas porque o `stock_reservada >= $3` recusou. Ver o laço do `varrer`.
+   *
+   * Conta-se à parte de `libertadas` de propósito: uma libertação cujo stock
+   * não voltou não é uma libertação completa, e somar as duas escondia
+   * exactamente a divergência que esta contagem existe para mostrar.
+   */
+  readonly divergencias: number;
 }
 
 function comoVencida(linha: Readonly<Record<string, unknown>>): Vencida {
@@ -253,20 +290,42 @@ export async function varrer(v: Varrimento): Promise<Resultado> {
   let libertadas = 0;
   let consumidas = 0;
   let adiadas = 0;
+  let divergencias = 0;
+
+  // **As encomendas já consumidas nesta volta, e isso é uma correcção.**
+  //
+  // O `SQL_CONSUMIR` opera por `order_id` e marca **todas** as activas da
+  // encomenda; o `SQL_VENCIDAS` tranca **linhas**. Duas linhas da mesma
+  // encomenda no mesmo lote faziam o `consumir` correr duas vezes — a segunda
+  // casava zero linhas e, pior, pagava outra consulta ao PAY e contava
+  // `consumidas += 1` outra vez, dando duas consumições para uma. Achado da
+  // revisão adversarial.
+  //
+  // O que isto **não** resolve, e fica dito: dois varredores que levem linhas
+  // **diferentes** da mesma encomenda continuam a escrever um sobre as linhas
+  // que o outro tranca, e o PostgreSQL resolve isso abortando uma das voltas.
+  // O `SKIP LOCKED` dá conjuntos disjuntos na **leitura** e esta escrita é por
+  // agregado, pelo que a disjunção não a cobre. Fechá-lo a sério é trancar por
+  // encomenda (`SELECT … FOR UPDATE` sobre o `orders_mirror`) ou varrer por
+  // encomenda em vez de por linha, e as duas mudam a forma do `SQL_VENCIDAS` —
+  // **NÃO VERIFICADO** se acontece com carga real, e é o que se mede antes de
+  // escolher.
+  const consumidasNestaVolta = new Set<string>();
 
   for (const vencida of vencidas) {
+    if (consumidasNestaVolta.has(vencida.orderId)) continue;
     const desfecho = await desfechoDe(v, vencida);
     if (desfecho.tipo === "adiar") {
       adiadas += 1;
       continue;
     }
     if (desfecho.tipo === "consumir") {
-      // Pelo `order_id`: o `SQL_CONSUMIR` marca **todas** as activas da
-      // encomenda. Uma encomenda paga consome as linhas todas, e tratá-las uma
-      // a uma deixava a encomenda meia consumida se o varrimento parasse no
-      // meio — e as outras linhas seriam libertadas na volta seguinte, sobre
-      // uma encomenda que o PAY já disse estar paga.
+      // Pelo `order_id`: uma encomenda paga consome as linhas todas, e
+      // tratá-las uma a uma deixava a encomenda meia consumida se o varrimento
+      // parasse no meio — e as outras linhas seriam libertadas na volta
+      // seguinte, sobre uma encomenda que o PAY já disse estar paga.
       await v.semTenant(SQL_CONSUMIR, [vencida.tenantId, vencida.orderId]);
+      consumidasNestaVolta.add(vencida.orderId);
       consumidas += 1;
       continue;
     }
@@ -283,15 +342,42 @@ export async function varrer(v: Varrimento): Promise<Resultado> {
       adiadas += 1;
       continue;
     }
-    await v.semTenant(SQL_DEVOLVER_STOCK, [
+    const devolvidas = await v.semTenant(SQL_DEVOLVER_STOCK, [
       vencida.tenantId,
       vencida.sku,
       vencida.qty,
     ]);
+    if (devolvidas.length === 0) {
+      // **O predicado `stock_reservada >= $3` recusou, e isto conta-se.**
+      //
+      // A primeira versão descartava o resultado e contava `libertadas += 1` —
+      // e o `releaseReservation` do `./reserve.ts`, para o mesmo caso, recusa a
+      // operação. A assimetria era o caminho pelo qual o contador divergia **em
+      // silêncio**, e no sítio em que isso é mais provável: o varrimento de
+      // plataforma. Achado da revisão adversarial.
+      //
+      // A reserva fica `libertada` (terminal, irreversível pelo `KA009`) e o
+      // `stock_reservada` não desceu: é o lado menos mau da divergência (menos
+      // stock à venda do que há), e é **reconstruível** pela reconciliação da
+      // regra 4 do §10.3 — mas só se alguém a registar. Conta-se à parte de
+      // `libertadas`, porque uma libertação cujo stock não voltou não é uma
+      // libertação completa.
+      //
+      // **Não se tenta emendar aqui**, pela razão que o `releaseReservation`
+      // escreve: o módulo não sabe qual dos dois lados está certo.
+      divergencias += 1;
+      continue;
+    }
     libertadas += 1;
   }
 
-  return { vistas: vencidas.length, libertadas, consumidas, adiadas };
+  return {
+    vistas: vencidas.length,
+    libertadas,
+    consumidas,
+    adiadas,
+    divergencias,
+  };
 }
 
 /**
@@ -307,19 +393,19 @@ async function desfechoDe(v: Varrimento, vencida: Vencida): Promise<Desfecho> {
     // motivo é `expirada`, que é o do prazo e não o de um cancelamento.
     return { tipo: "libertar", motivo: "expirada" };
   }
-  if (v.provedor === undefined) {
+  if (v.consultar === undefined) {
     return { tipo: "adiar", porque: "pay_nao_respondeu" };
   }
-  let estado: ProviderStatus;
+  let estado: ProviderStatus["estado"];
   try {
-    estado = await v.provedor.status({ orderId: vencida.orderId } as never);
+    estado = await v.consultar(vencida);
   } catch {
-    // Uma excepção do provedor é indistinguível de `desconhecida` para esta
+    // Uma excepção da consulta é indistinguível de `desconhecida` para esta
     // decisão, e trata-se igual: **adia**. Deixá-la subir abortava a
     // transacção e com ela as reservas que a volta já tratou.
     return { tipo: "adiar", porque: "pay_nao_respondeu" };
   }
-  return decidir(estado.estado);
+  return decidir(estado);
 }
 
 /**

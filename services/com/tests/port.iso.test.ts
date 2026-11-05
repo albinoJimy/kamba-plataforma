@@ -466,6 +466,170 @@ test("ISO-01..08: as quatro reservas do KAM-045 passam o tenant do ctx", async (
   );
 });
 
+/**
+ * Um cliente que **devolve uma encomenda**, para as reservas chegarem ao SQL.
+ *
+ * **Achado da revisão adversarial:** o caso de cima devolve `{rows: []}` para
+ * tudo, pelo que as quatro saem em `NOT_FOUND` no `lerEncomenda` e o SQL das
+ * reservas **nunca é emitido** — a asserção do tenant observava uma consulta só,
+ * a da encomenda. Com uma encomenda em mão, as quatro passam desse guarda e o
+ * filtro de tenant das consultas das reservas fica medido.
+ */
+function clienteComEncomenda(estado: string) {
+  const vistas: { sql: string; valores: readonly unknown[] }[] = [];
+  const cliente: ClienteSql = {
+    async query(sql: string, parametros: readonly unknown[] = []) {
+      if (sql.includes("platform.tenants")) {
+        return {
+          rows: [{ medusa_merchant_id: "merch", medusa_sales_channel_id: null }],
+        };
+      }
+      vistas.push({ sql, valores: parametros });
+      // A oferta responde ao predicado aritmético, senão o `reserveStock` sai
+      // em `OUT_OF_STOCK`/`NOT_FOUND` e **nunca chega a inserir** a reserva —
+      // e então o caso do prazo não media nada.
+      if (sql.includes("UPDATE platform.offer_terms")) {
+        return {
+          rows: [
+            {
+              sku: "sku-de-b",
+              stock_modo: "garantido",
+              stock_quantidade: 10,
+              stock_reservada: 1,
+            },
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO platform.stock_reservations")) {
+        return {
+          rows: [
+            {
+              id: "0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d",
+              order_id: ORDER_DE_B,
+              line_no: 0,
+              sku: "sku-de-b",
+              qty: 1,
+              estado: "ativa",
+              motivo: null,
+              expira_at: "2026-11-07T10:00:00.000Z",
+              confirmada_at: null,
+              version: 1,
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM platform.orders_mirror")) {
+        return {
+          rows: [
+            {
+              id: ORDER_DE_B,
+              numero_publico: "ABCD1234",
+              estado,
+              version: 1,
+              total_minor: "1000",
+              currency: "AOA",
+              contact_id: CONTACTO_DE_B,
+              origem: "pme",
+              entrega_modo: "levantamento",
+              expira_at: null,
+              paga_at: null,
+              paga_via: null,
+              entregue_at: null,
+              entrega_confirmada_por: null,
+              confirmacao_dono: "nao_aplicavel",
+              lines_snapshot: [{ sku: "sku-de-b", qty: 1 }],
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+  return { cliente, vistas };
+}
+
+test("ISO-01..08: as consultas das reservas levam o tenant do ctx, e correm", async () => {
+  // O par do caso de cima, e o que lhe faltava: aqui as quatro **chegam** ao
+  // SQL das reservas, pelo que o filtro de tenant delas é observado.
+  const { cliente, vistas } = clienteComEncomenda("aguarda_pagamento");
+  const porta = adaptadorMedusa(deps(cliente));
+
+  await porta.reserveStock(ctx(TENANT_A), ORDER_DE_B, 48 * 60 * 60 * 1000);
+  await porta.commitReservation(ctx(TENANT_A), ORDER_DE_B);
+  await porta.releaseReservation(ctx(TENANT_A), ORDER_DE_B, "cancelada");
+  await porta.extendReservation(
+    ctx(TENANT_A),
+    ORDER_DE_B,
+    "2026-11-08T10:00:00.000Z",
+  );
+
+  const dasReservas = vistas.filter(
+    (v) =>
+      v.sql.includes("platform.stock_reservations") ||
+      v.sql.includes("platform.offer_terms"),
+  );
+  assert.ok(
+    dasReservas.length > 0,
+    "as consultas das reservas têm de ter corrido: sem isto a asserção " +
+      "seguinte não mede nada, que era o defeito do caso anterior",
+  );
+  assert.deepEqual(
+    [...new Set(dasReservas.map((v) => v.valores[0]))],
+    [TENANT_A],
+    "uma consulta das reservas saiu com um tenant que nao e o do ctx",
+  );
+});
+
+test("KAM-045 critério 2: a reserva pela porta usa o ttl, e não dois minutos", async () => {
+  // **Achado 7 da revisão adversarial.** O módulo nasce provisório por omissão
+  // (dois minutos, à espera do `charge.issued`), e com a omissão o `ttl` que
+  // este método recebe era **silenciosamente descartado** — toda a reserva
+  // feita pela porta durava dois minutos e a fórmula do critério 2 nunca corria
+  // por aqui. Um argumento que a operação aceita e ignora é pior do que um que
+  // ela não tem.
+  const { cliente, vistas } = clienteComEncomenda("criada");
+  const porta = adaptadorMedusa(deps(cliente));
+  const antes = Date.now();
+  await porta.reserveStock(ctx(TENANT_A), ORDER_DE_B, 48 * 60 * 60 * 1000);
+
+  const insercao = vistas.find((v) =>
+    v.sql.includes("platform.stock_reservations"),
+  );
+  assert.ok(insercao, "a reserva chegou a ser inserida");
+  const prazo = insercao.valores
+    .map((valor) => (typeof valor === "string" ? Date.parse(valor) : NaN))
+    .find((instante) => !Number.isNaN(instante));
+  assert.ok(prazo !== undefined, "a inserção leva um `expira_at`");
+  // 48 h mais a folga de 15 min, não os 2 min da provisória. A margem é
+  // generosa de propósito: o que se mede é a ordem de grandeza certa, não o
+  // relógio.
+  assert.ok(
+    prazo - antes > 40 * 60 * 60 * 1000,
+    `o prazo veio do ttl e não da janela provisória (deu ${prazo - antes} ms)`,
+  );
+});
+
+test("KAM-045 critério 7: o extendReservation só passa em aguarda_pagamento", async () => {
+  // **A primeira das três condições do critério 7**, que vive no adaptador
+  // porque é ele que tem o estado da encomenda em mão. A revisão adversarial
+  // mostrou que não havia ensaio nenhum: apagar o bloco do adaptador deixava
+  // tudo verde, e a tabela de verificação citava um caso que sai em
+  // `NOT_FOUND` antes de ler o estado.
+  for (const estado of ["criada", "paga", "expirada", "cancelada"]) {
+    const { cliente } = clienteComEncomenda(estado);
+    const porta = adaptadorMedusa(deps(cliente));
+    assert.deepEqual(
+      await porta.extendReservation(
+        ctx(TENANT_A),
+        ORDER_DE_B,
+        "2026-11-08T10:00:00.000Z",
+      ),
+      { tipo: "erro", erro: "VALIDATION_ERROR" },
+      `uma encomenda em ${estado} não prolonga reserva nenhuma`,
+    );
+  }
+});
+
 test("criterio 3: as oito ligadas continuam a falhar fechado sem ctx", async () => {
   // O ISO-09 já as cobre no caso de cima, e este mede o que a ligação podia ter
   // partido: com o corpo do método a abrir transacção, o `exigirCtx` tem de

@@ -57,6 +57,7 @@ import {
   FOLGA_MS,
   TTL_MAXIMO_MS,
   fimDaValidade,
+  tectoComoIntervalo,
   type Duration,
   type Reserva,
 } from "./contrato.ts";
@@ -94,15 +95,26 @@ export interface ChargeIssued {
  * Três entradas e uma saída, e é a regra do critério inteira:
  *
  * ```text
- * validaAte presente   ->  validaAte + 15 min, limitado a criado + 72 h
+ * validaAte presente   ->  validaAte + 15 min, limitado a now + 72 h + 15 min
  * validaAte ausente    ->  min(now + ttl, now + 72 h) + 15 min
  * ```
  *
  * **O tecto aplica-se nos dois casos**, e é o critério 7 a valer também aqui:
  * uma referência que o facilitador emitisse com validade de uma semana não
- * autoriza uma reserva de uma semana. O limite é do nosso desenho e não do
- * facilitador — e é por isso que ele está nesta função e não só no
- * `SQL_ESTENDER`.
+ * autoriza uma reserva de uma semana.
+ *
+ * ## O tecto desta função é contra `now`, e **não** é o do critério
+ *
+ * A primeira versão desta nota dizia «limitado a **criado** + 72 h», e o código
+ * nunca fez isso — achado da revisão adversarial, e a afirmação estava escrita
+ * como facto. Esta função **não pode** medir o tecto do critério: o `criado_at`
+ * da reserva está na base e não no evento, e o único instante que ela tem é o
+ * do consumo.
+ *
+ * O que ela faz é limitar o que **propõe**; quem impõe é o
+ * `$4::interval` do `SQL_CONFIRMAR`, contra o `criado_at`. A distinção importa
+ * porque sem ela uma primeira entrega tardia (sem agendador, uma provisória
+ * fica `ativa` indefinidamente) dava 72 h a contar do consumo.
  */
 export function prazoDoEvento(
   agora: Date,
@@ -142,9 +154,16 @@ export async function fixarPrazo(
   if (evento.orderId.trim() === "") return erro("VALIDATION_ERROR" as Erro);
   const agora = (r.agora ?? (() => new Date()))();
   const prazo = prazoDoEvento(agora, evento, ttlMs);
+  // **O tecto vai para a base, e é lá que ele morde.** O `prazoDoEvento` acima
+  // ancora o dele em `agora`, porque é o único instante que este módulo tem; o
+  // que o critério 7 pede é o tecto contra o `criado_at` **da reserva**, e esse
+  // está na base. Sem este `$4` uma primeira entrega tardia de `charge.issued`
+  // dava 72 h a contar do consumo — vida total `T + 72 h + 15 min`. Achado da
+  // revisão adversarial.
   const mudadas = await r.repo.noTenant(SQL_CONFIRMAR, [
     evento.orderId,
     prazo.toISOString(),
+    tectoComoIntervalo(),
   ]);
   return ok(
     mudadas.map((linha) => ({

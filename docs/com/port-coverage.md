@@ -33,7 +33,7 @@ que o KAM-042 entrega e que **não** é adiado está no §3.
 o fluxo do dono, a primitiva de transição e as duas leituras). A forma do `xfail
 strict` do critério 6 continua a valer para esses cinco, e o KAM-043
 acrescentou-lhe a peça que faltava: uma **partição** afirmada num teste — os
-doze da porta são exactamente os sete implementados mais os cinco com ticket
+doze da porta são exactamente os **onze** implementados mais o que tem ticket
 dono, sem sobreposição. Sem ela, a lista dos implementados podia crescer e os
 casos de `xfail strict` desapareciam um a um em silêncio, que é o contrário do
 que «strict» quer dizer.
@@ -62,7 +62,7 @@ sem fonte (dicionário §3.46).
 **O que resta é **um**, e o credor dele não é um ticket: é uma decisão.** O
 `createOrder` tem a *saga* implementada, medida e servida pela API interna — o
 que não se consegue ligar é o **método**, pelo tipo do argumento. Ver a linha
-4. A partição do `xfail strict` mantém-se: sete implementados, cinco com ticket
+4. A partição do `xfail strict` mantém-se: **onze** implementados, **um** com ticket
 dono, sem sobreposição.
 
 | # | Método | Ticket dono | Estado | O que falta, ou o que passou a existir |
@@ -127,7 +127,7 @@ NOT_FOUND, nunca a linha de B. E actualiza docs/com/port-coverage.md.
 | Casos | Estado | Onde |
 |---|---|---|
 | ISO-09 (sem `tenantId`) | **verde**, nos doze métodos — e nos sete ligados o caso mede, com um cliente que explode se lhe falarem, que o `exigirCtx` continua a correr **antes** da transacção | `tests/port.iso.test.ts` |
-| ISO-01..08 (`ctx` de A sobre ids de B) | **medidos nos sete implementados.** Nos três do KAM-043: `ctx` de A sobre o `sku` de B devolve a oferta de A e nunca a de B, e um tenant sem a oferta devolve `NOT_FOUND` e não uma vista vazia. Nos quatro do KAM-178: a asserção é **o tenant que foi ao predicado** — com o `ctx` de A sobre ids de B, o único `tenant_id` que a base vê é o de A —, e o `getOrder` de uma encomenda de outro tenant dá `NOT_FOUND` e não `TENANT_MISMATCH`, porque distingui-los era um oráculo. Nos cinco que restam continuam **não medidos**, pela razão de sempre | `tests/port.iso.test.ts`, `tests/orders.listagem.test.ts`; `xfail strict` para os cinco |
+| ISO-01..08 (`ctx` de A sobre ids de B) | **medidos nos onze implementados.** Nos três do KAM-043: `ctx` de A sobre o `sku` de B devolve a oferta de A e nunca a de B, e um tenant sem a oferta devolve `NOT_FOUND` e não uma vista vazia. Nos quatro do KAM-178: a asserção é **o tenant que foi ao predicado** — com o `ctx` de A sobre ids de B, o único `tenant_id` que a base vê é o de A —, e o `getOrder` de uma encomenda de outro tenant dá `NOT_FOUND` e não `TENANT_MISMATCH`, porque distingui-los era um oráculo. Nos cinco que restam continuam **não medidos**, pela razão de sempre | `tests/port.iso.test.ts`, `tests/orders.listagem.test.ts`; `xfail strict` para os cinco |
 | ISO-10 (filtro vazio, cursor forjado, `OR`) | **medido, nos três casos** (KAM-178), e cada um com asserção própria: filtro vazio é `VALIDATION_ERROR` e não «lista tudo» (e um cursor sozinho não conta como filtro); cinco formas de cursor forjado são `VALIDATION_ERROR`, **incluindo um cursor legítimo de outro tenant**, que é o caso que o `tenant_id` dentro do HMAC existe para fechar; e quatro injecções de `OR`/`;` nos dois filtros são `VALIDATION_ERROR`. **E nenhuma das três chega à base:** o cliente de ensaio explode se lhe falarem, e há um caso que afirma que as três não emitiram consulta nenhuma com as linhas de outro tenant presentes | `tests/orders.listagem.test.ts`; `tests/port.iso.test.ts` |
 | ISO-11..32 (Store API, Admin API, *query graph*) | **medidos só no KAM-041**, e o **ISO-15 está vermelho lá**: a Store API serviu a encomenda de um tenant a uma chave publicável de outro. Exigem um Medusa a correr, e não há nenhum em `infra/compose/` | `spikes/medusa-d3/resultados/iso.json` |
 | ISO-33..38 (colisão de SKU entre tenants) | **medidos nas duas metades pelo KAM-043**: que o mesmo texto de `sku` em dois tenants são duas linhas independentes (a chave é `(tenant_id, sku)`), e que nenhum dos dois vê a do outro. A metade das **reservas** que a matriz do §4.4 define continua por medir, e é do **KAM-045** | `db/tests_produtos/test_isolamento.py`; `tests/port.iso.test.ts` |

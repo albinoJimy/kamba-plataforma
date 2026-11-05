@@ -640,17 +640,50 @@ export function adaptadorMedusa(
           orderId,
         );
         if (encomenda === null) return erro("NOT_FOUND");
-        const snapshot = encomenda["lines_snapshot"];
+        // **O `jsonb` pode chegar como cadeia, e o precedente é do próprio
+        // serviço:** o `comoCriada` do `../../orders/create_order.ts` escreve
+        // `typeof bruto === "string" ? JSON.parse(bruto) : (bruto ?? [])`. A
+        // primeira versão disto devolvia `VALIDATION_ERROR` nesse caso —
+        // divergência do precedente da casa, apanhada pela revisão
+        // adversarial: duas leituras do mesmo `lines_snapshot` no mesmo serviço
+        // não podem discordar sobre a forma em que ele chega.
+        const bruto = encomenda["lines_snapshot"];
+        const snapshot =
+          typeof bruto === "string" ? JSON.parse(bruto) : (bruto ?? []);
         if (!Array.isArray(snapshot)) return erro("VALIDATION_ERROR");
         const linhas = snapshot.map((linha, indice) => ({
           lineNo: indice,
           sku: String((linha as Record<string, unknown>)["sku"] ?? ""),
           qty: Number((linha as Record<string, unknown>)["qty"] ?? 0),
         }));
+        // **`provisoria: false`, e isso é o achado 7 da revisão adversarial.**
+        //
+        // A omissão do módulo é `true` — a reserva nasce com dois minutos à
+        // espera do `charge.issued` —, e isso é o certo para o caminho interno
+        // do checkout, que reserva **antes** de pedir a cobrança. Mas este
+        // método recebe um `ttl` do chamador, e com a omissão **o `ttl` era
+        // silenciosamente descartado**: toda a reserva feita pela porta durava
+        // dois minutos, e a fórmula do critério 2 (`fim_validade + 15 min`)
+        // nunca corria por aqui.
+        //
+        // Um argumento que a operação aceita e ignora é pior do que um
+        // argumento que ela não tem.
+        //
+        // **O `via` fica na omissão (`referencia`), e isso é um limite e não um
+        // descuido:** o `reserveStock(ctx, orderId, ttl)` do §3.2 não tem onde
+        // levar a via, pelo que uma reserva Express **não é alcançável pela
+        // porta** — `ttlAceitavel(30 min, "referencia")` é falso e a chamada
+        // devolve `VALIDATION_ERROR`. A saída tentadora era deduzir a via do
+        // próprio `ttl`, e não se faz: um `ttl` curto passaria a ser aceite como
+        // Express, o que anula a banda de 24–72 h que o critério 2 manda impor
+        // «sem corrigir». Quem reserva Express chama o módulo, que é quem sabe
+        // que a cobrança é *push*; alargar a assinatura é do ticket que mexer no
+        // §3.39, como o `createOrder`.
         const resultado = await reserveStockDoModulo({ repo: r.repo }, {
           orderId,
           linhas,
           ttlMs: ttl,
+          provisoria: false,
         });
         if (resultado.tipo === "erro") return erro(resultado.erro);
         return ok(

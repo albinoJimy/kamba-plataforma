@@ -12,9 +12,9 @@ O que esta classe mede e outra coisa: **que cada objecto que o `upgrade` cria
 deixa de existir, pelo nome, e volta a existir no `upgrade` seguinte.**
 
 ```text
-em head                     os quinze objectos existem        <- a SONDA POSITIVA
+em head                     os vinte e dois objectos existem   <- a SONDA POSITIVA
 depois do downgrade         nenhum existe
-depois de novo upgrade      os quinze voltam
+depois de novo upgrade      os vinte e dois voltam
 ```
 
 ## A sonda positiva nao e cerimonia: sem ela as outras ficam verdes a ler zero
@@ -37,7 +37,8 @@ medicao.** Um `UNIQUE` e uma `PRIMARY KEY` aparecem nos dois — a restricao no
 `pg_constraint` e o indice que a serve no `pg_indexes`, com o mesmo nome —, mas
 um `CHECK` e uma `FOREIGN KEY` aparecem **so** no `pg_constraint`. Esta revisao
 tem onze `CHECK` e duas `FOREIGN KEY` contra uma `UNIQUE` e uma `PRIMARY KEY`:
-perguntar pelo indice media quatro de quinze e dizia «as restricoes cairam».
+perguntar pelo indice media **duas** de quinze e dizia «as restricoes
+cairam» — e as duas sao a chave primaria e a unicidade.
 
 Os indices que **nao** servem restricao nenhuma — os tres do varrimento e das
 consultas — perguntam-se ao `pg_indexes`, que e o catalogo deles. As duas
@@ -131,8 +132,12 @@ RESTRICOES_DA_RESERVA = (
 #: que um `downgrade` que largasse as colunas e **nao** as restricoes nao e um
 #: estado possivel, e um que largasse as restricoes e nao as colunas deixava
 #: `offer_terms` sem a barreira da sobrevenda com a coluna ainda la.
+#: **Tres e nao quatro.** O `offer_terms_stock_garantido_exige_quantidade_ck`
+#: esteve aqui e saiu depois da revisao adversarial: era uma barreira
+#: retroactiva sobre a tabela de outro ticket sem o caminho de escrita que a
+#: satisfaz, e media-se em `Ran 63 / FAILED (failures=1, errors=34)` na suite
+#: `tests_produtos`. O invariante passou para o predicado do `SQL_RESERVAR`.
 RESTRICOES_DA_OFERTA = (
-    "offer_terms_stock_garantido_exige_quantidade_ck",
     "offer_terms_stock_nao_sobrevende_ck",
     "offer_terms_stock_quantidade_ck",
     "offer_terms_stock_reservada_ck",
@@ -310,7 +315,7 @@ class TestDowngradeDa0033(unittest.TestCase):
         self.assertEqual(self.politicas(), [], "a politica tenant_iso cai")
         self.assertIsNone(self.rls_da_reserva(), "e a tabela ja nao esta la")
 
-    def test_o_upgrade_seguinte_repoe_os_quinze(self) -> None:
+    def test_o_upgrade_seguinte_repoe_todos_os_objectos(self) -> None:
         """A volta: desce, sobe, e tudo volta a existir pelo nome.
 
         E o que distingue «o `downgrade` apaga» de «o `downgrade` apaga e a

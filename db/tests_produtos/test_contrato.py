@@ -310,6 +310,13 @@ class TestOsPrivilegios(ComOfertas):
                 "estado",
                 "atualizado_at",
                 "deleted_at",
+                # KAM-045: a revisao `0033` acrescenta `GRANT UPDATE` nesta e
+                # **so** nesta das duas colunas que cria. A `stock_quantidade`
+                # fica de fora de proposito: nada a escreve ainda, e conceder um
+                # privilegio que ninguem usa escreve no catalogo uma permissao
+                # que nao existe — a mesma razao pela qual a `0030` nao deu
+                # `UPDATE` ao `kamba_batch` no `order_state_log`.
+                "stock_reservada",
             },
         }
         todas = {
@@ -340,6 +347,10 @@ class TestOsPrivilegios(ComOfertas):
                 "stock_verificado_at",
                 "estado",
                 "categoria_restrita",
+                # KAM-045: as duas colunas de quantidade da revisao `0033`, que
+                # sao a autoridade de stock que o `OUT_OF_STOCK` esperava.
+                "stock_quantidade",
+                "stock_reservada",
                 "criado_at",
                 "atualizado_at",
                 "deleted_at",

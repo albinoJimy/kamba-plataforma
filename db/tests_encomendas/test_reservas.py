@@ -216,7 +216,7 @@ def _em_vagas(tenant: str, sku: str, tentar) -> list[tuple[str, object]]:
     """Corre `TENTATIVAS` tentativas em `LIGACOES` ligacoes, largadas juntas.
 
     Cada obreiro abre **uma** ligacao, espera na barreira, e so depois tenta a
-    sua parte. A barreira e o que faz as 64 chegarem ao `UPDATE` ao mesmo tempo:
+    sua parte. A barreira e o que faz as 32 chegarem ao `UPDATE` ao mesmo tempo:
     sem ela, a primeira ligacao a abrir reservava sozinha antes de a ultima
     sequer ligar, e o ensaio media mil tentativas **sequenciais** com o nome de
     paralelas — verde, e sobre nada.
@@ -459,25 +459,53 @@ class TestReservaSobConcorrencia(ComReservas):
                 f"       OR stock_reservada <= stock_quantidade)"
             )
 
-    def test_um_garantido_sem_quantidade_e_recusado_na_coluna(self) -> None:
-        """O *fail-closed* da `0033`: `garantido` exige quantidade.
+    def test_um_garantido_sem_quantidade_nao_se_reserva(self) -> None:
+        """O *fail-closed*: um `garantido` sem numero **nao se reserva**.
 
-        E o que impede o predicado aritmetico de ter de decidir sobre um nulo:
-        um `garantido` sem numero nunca chega a ser reservavel, porque nunca
-        chega a existir.
+        ## Este ensaio mudou de alvo, e a razao fica escrita
+
+        A primeira versao media isto na **coluna**: a revisao punha um
+        `offer_terms_stock_garantido_exige_quantidade_ck` na `offer_terms` e o
+        ensaio exigia `23514` ao inserir. A revisao adversarial mostrou que
+        aquela restricao nao devia existir — era uma barreira **retroactiva
+        sobre a tabela de outro ticket** (a `offer_terms` e do KAM-043) **sem o
+        caminho de escrita que a satisfaz**, e media-se em
+        `Ran 63 tests / FAILED (failures=1, errors=34)` na suite
+        `tests_produtos`, mais o `upsertProductDraft` com `garantido` a falhar
+        **sempre**.
+
+        O invariante nao se perdeu: mudou para o predicado do `SQL_RESERVAR`, e
+        este ensaio mudou com ele. A pergunta certa nao e «a linha pode
+        existir?» — e «pode-se reservar contra ela?», que e propriedade da
+        **reserva** e nao da oferta.
+
+        **E o ensaio ficou mais forte, nao mais fraco:** antes media que um
+        `INSERT` falhava; agora mede o que o criterio 1 realmente promete — que
+        nenhuma reserva sai sobre uma promessa sem numero. Com o `CHECK`, o caso
+        era inalcancavel e o ensaio provava a barreira do lado em que ela nunca
+        era testada.
         """
-        estado = self.tentar(
-            "INSERT INTO platform.offer_terms "
-            "       (tenant_id, sku, nome, preco_tipo, stock_modo, estado) "
-            "VALUES (%s, 'sem-numero', 'Sem numero', 'sob_consulta', "
-            "        'garantido', 'rascunho')",
-            (self.tenant,),
+        sku = self.criar_oferta(
+            self.tenant, "sem-numero", quantidade=None, modo="garantido"
         )
+        conexao = ligacao.ligar("app")
+        try:
+            resultado, _ = _reservar_noutra_ligacao(conexao, self.tenant, sku)
+        finally:
+            conexao.close()
+
         self.assertEqual(
-            estado,
-            VIOLACAO_DE_CHECK,
-            "offer_terms_stock_garantido_exige_quantidade_ck: uma promessa de "
-            "exclusividade sem numero nao se cumpre",
+            resultado,
+            "sem_stock",
+            "o predicado recusa: `stock_quantidade IS NULL AND stock_modo <> "
+            "'garantido'` nao e verdadeiro para um `garantido`",
+        )
+        quantidade, reservada = self.stock_de(self.tenant, sku)
+        self.assertEqual(
+            (quantidade, reservada),
+            (None, 0),
+            "e nao contou nada: uma promessa de exclusividade sem numero nao se "
+            "promete nem se conta",
         )
 
     def test_dois_tenants_no_mesmo_sku_tem_contagens_independentes(self) -> None:

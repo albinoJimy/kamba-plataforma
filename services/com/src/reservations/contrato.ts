@@ -171,11 +171,46 @@ export function prazoDaReserva(agora: Date, ttlMs: Duration): Date {
  */
 export function ttlAceitavel(ttlMs: Duration, via: ViaDeCobranca): boolean {
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) return false;
-  if (via === "express") return ttlMs <= TTL_EXPRESS_MS;
+  // **O Express tem banda e não só tecto**, e o piso é derivado e não
+  // inventado: uma reserva mais curta do que a janela provisória (2 min) não
+  // significa nada — ela expiraria antes de o `charge.issued` ter tempo de
+  // chegar, pelo que seria sempre libertada por silêncio.
+  //
+  // A primeira versão só impunha o tecto, e aceitava **1 ms** como Express
+  // válido enquanto o comentário ao lado afirmava que «a banda é imposta e não
+  // corrigida». Achado da revisão adversarial: do lado Express não havia banda
+  // nenhuma. O piso fica *proposta*, como os outros números do critério 2, e
+  // calibra-se no mesmo sítio (**KAM-096**).
+  if (via === "express") {
+    return ttlMs >= PROVISORIA_MS && ttlMs <= TTL_EXPRESS_MS;
+  }
   return ttlMs >= TTL_MINIMO_MS && ttlMs <= TTL_MAXIMO_MS;
 }
 
 /** O prazo provisório do critério 3: dois minutos a contar de agora. */
 export function prazoProvisorio(agora: Date): Date {
   return new Date(agora.getTime() + PROVISORIA_MS);
+}
+
+/**
+ * O tecto do critério 7 **com a folga do critério 2**, como intervalo de SQL.
+ *
+ * `72 h + 15 min`, e a folga entra porque o critério 2 a põe **por cima** do
+ * `fim_validade_cobranca`: `expira_at = min(now + ttl, now + 72 h) + 15 min`.
+ * Uma reserva criada com TTL de 72 h nasce portanto com
+ * `criado_at + 72 h 15 min`.
+ *
+ * **Os dois predicados que o usam têm de usar o mesmo, e a primeira versão não
+ * usava** — achado da revisão adversarial. O `SQL_ESTENDER` exigia
+ * `criado_at + '72 hours'` secas, pelo que sobre uma reserva de TTL 72 h o
+ * `expira_at` dela já estava **acima** do tecto e as duas condições do
+ * `extendReservation` (`$3 > expira_at` e `$3 <= tecto`) eram incompatíveis:
+ * aquela reserva nunca se podia prolongar. Com o tecto a incluir a folga, os
+ * dois lados falam do mesmo número.
+ *
+ * **Em minutos e numa unidade só**, e não `'72 hours 15 minutes'`: uma unidade
+ * não tem como ser lida por metades, e o `interval` do PostgreSQL aceita-a.
+ */
+export function tectoComoIntervalo(): string {
+  return `${Math.floor((TTL_MAXIMO_MS + FOLGA_MS) / 60_000)} minutes`;
 }

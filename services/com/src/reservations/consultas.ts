@@ -41,18 +41,53 @@
  * `offer_terms_stock_nao_sobrevende_ck` da revisão `0033` é que transforma essa
  * sobrevenda num erro ruidoso em vez de uma promessa falsa.
  *
- * ## O `IS NULL` do lado da quantidade é o critério 8, e não um descuido
+ * ## O nulo da quantidade decide-se pelo `stock_modo`, e é o *fail-closed*
  *
- * `stock_quantidade IS NULL OR stock_quantidade - stock_reservada >= $3`. Nulo
- * é «quantidade não declarada», que é o estado de toda a Fase 0 para quem nunca
- * declarou stock — e o critério 8 diz o que isso significa:
- * «`stock_modo='indicativo'` reserva internamente sem promessa de
- * exclusividade». A reserva é contada (o `stock_reservada` sobe) e não é
- * limitada, que é precisamente «sem promessa».
+ * ```sql
+ * stock_quantidade - stock_reservada >= $3
+ *   OR (stock_quantidade IS NULL AND stock_modo <> 'garantido')
+ * ```
  *
- * Um `garantido` **não** chega aqui sem quantidade: o
- * `offer_terms_stock_garantido_exige_quantidade_ck` da `0033` recusa-o na
- * coluna.
+ * Nulo é «quantidade não declarada», que é o estado de toda a Fase 0 para quem
+ * nunca declarou stock, e o que ele significa **depende do modo**:
+ *
+ * ```text
+ * indicativo / confirmar_dono + nulo   reserva e NÃO limita   (critério 8)
+ * garantido                   + nulo   RECUSA                 (fail-closed)
+ * ```
+ *
+ * O critério 8 manda o `indicativo` «reservar internamente sem promessa de
+ * exclusividade» — a reserva é contada (o `stock_reservada` sobe) e não é
+ * limitada, que é precisamente «sem promessa». Mas um `garantido` **promete**
+ * exclusividade, e prometê-la sobre um número que ninguém declarou era a
+ * promessa sem nada que a cumpra: recusa-se.
+ *
+ * ## Porque é que isto está aqui e não num `CHECK` da `offer_terms`
+ *
+ * **Esteve, e foi um defeito que a revisão adversarial mediu.** A primeira
+ * versão desta revisão punha um `offer_terms_stock_garantido_exige_quantidade_ck`
+ * na tabela: `stock_modo <> 'garantido' OR stock_quantidade IS NOT NULL`. Era
+ * uma barreira **retroactiva sobre a tabela de outro ticket** (a `offer_terms` é
+ * do KAM-043) **sem o caminho de escrita que a satisfaz** — nada no repositório
+ * escreve `stock_quantidade`, e o `upsertProductDraft` não a tem.
+ *
+ * O custo, medido: `python db/gate_bd.py --suite tests_produtos` →
+ * `Ran 63 tests / FAILED (failures=1, errors=34)`, todos `23514` naquele
+ * `CHECK`, porque o `criar_oferta` daquela suite nasce `garantido`. E, pior do
+ * que a suite: o `upsertProductDraft` com `stockModo: "garantido"` passava a
+ * falhar **sempre**, isto é, este ticket inutilizava uma operação de outro.
+ *
+ * O invariante não se perdeu — **mudou de sítio, para onde o risco está**. O que
+ * importa não é «a linha não pode existir»: é «não se reserva contra uma
+ * promessa sem número», e isso é uma propriedade da **reserva** e não da oferta.
+ * Aqui não custa escrita nenhuma a ninguém, e o efeito para o cliente é o mesmo:
+ * `OUT_OF_STOCK`.
+ *
+ * **O que fica em aberto, com credor:** não há caminho para o dono declarar a
+ * quantidade. O `upsertProductDraft` precisa de `stockQuantidade` no
+ * `ProductDraft`, e isso é alargar a operação do **KAM-043/KAM-049** — fora do
+ * escopo que o *handoff* deste bloco fixa. Até lá, um SKU `garantido` não é
+ * reservável, que é o lado seguro.
  */
 
 /**
@@ -82,8 +117,8 @@ export const SQL_RESERVAR = `
          atualizado_at = now()
    WHERE tenant_id = $1 AND sku = $2
      AND deleted_at IS NULL
-     AND (stock_quantidade IS NULL
-          OR stock_quantidade - stock_reservada >= $3)
+     AND (stock_quantidade - stock_reservada >= $3
+          OR (stock_quantidade IS NULL AND stock_modo <> 'garantido'))
   RETURNING sku, stock_modo, stock_quantidade, stock_reservada
 `;
 
@@ -190,6 +225,28 @@ export const SQL_LIBERTAR_UMA = `
  * fixa o prazo uma vez. Sem ele, a segunda entrega estendia o prazo outra vez,
  * e uma reserva de 48 h entregue três vezes durava 144 h — acima do tecto de
  * 72 h do critério 7, por um caminho que não passa pelo `extendReservation`.
+ *
+ * ## E o tecto está aqui também, porque o módulo não o pode medir
+ *
+ * **Achado da revisão adversarial, e era um buraco real.** O `confirmada_at IS
+ * NULL` fecha a entrega **repetida** e não fecha a **primeira entrega tardia**:
+ * sem agendador (KAM-071) uma reserva provisória fica `ativa` indefinidamente,
+ * e um `charge.issued` que chegue `T` horas depois dava-lhe 72 h **a contar de
+ * então** — vida total `T + 72 h + 15 min`.
+ *
+ * O `prazoDoEvento` do `./consumers.ts` não podia fechá-lo: ele ancora o tecto
+ * em `agora`, porque é o único instante que tem — **o `criado_at` da reserva
+ * está na base e não no evento**. Por isso o tecto é do predicado, como no
+ * `SQL_ESTENDER`: é aqui que `criado_at` existe. Um prazo acima dele casa zero
+ * linhas, e o módulo lê isso como recusa.
+ *
+ * O `$4` é o tecto como intervalo, e é o **mesmo** nos dois: `72 h + 15 min`.
+ * A folga entra no tecto porque o critério 2 a põe **por cima** do
+ * `fim_validade_cobranca` (`expira_at = min(now+ttl, now+72h) + 15 min`), pelo
+ * que uma reserva criada com TTL de 72 h nasce com `criado_at + 72 h 15 min`.
+ * Com o tecto em `72 h` secas — como a primeira versão escrevia — essa reserva
+ * tinha `expira_at` **acima** do próprio tecto, e o `SQL_ESTENDER` nunca podia
+ * suceder sobre ela: os dois predicados eram incompatíveis.
  */
 export const SQL_CONFIRMAR = `
   UPDATE platform.stock_reservations
@@ -199,7 +256,8 @@ export const SQL_CONFIRMAR = `
          atualizado_at = now()
    WHERE tenant_id = $1 AND order_id = $2 AND estado = 'ativa'
      AND confirmada_at IS NULL
-  RETURNING id, line_no, sku, qty, expira_at, version
+     AND $3::timestamptz <= criado_at + $4::interval
+  RETURNING id, line_no, sku, qty, expira_at, confirmada_at, version
 `;
 
 /**

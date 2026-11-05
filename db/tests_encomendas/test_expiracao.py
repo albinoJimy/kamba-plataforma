@@ -55,8 +55,18 @@ from tests_encomendas.test_reservas import (
     ComReservas,
 )
 
-#: O tecto do criterio 7, na forma que o `SQL_ESTENDER` recebe por `$4`.
-TECTO = "72 hours"
+#: O tecto do criterio 7 **com a folga do criterio 2**, na forma que o
+#: `SQL_ESTENDER` e o `SQL_CONFIRMAR` recebem por `$4`.
+#:
+#: E o **mesmo** nos dois, e e o que o `tectoComoIntervalo` do modulo produz:
+#: 72 h + 15 min = 4335 min. Eram numeros diferentes, e a revisao adversarial
+#: mediu o efeito: com `72 hours` secas no `SQL_ESTENDER`, uma reserva criada
+#: com TTL de 72 h tinha `expira_at = criado_at + 72 h 15 min`, isto e, **acima**
+#: do proprio tecto — e nunca se podia prolongar.
+#:
+#: **Em minutos e numa unidade so**, pela razao daquela funcao: uma unidade nao
+#: tem como ser lida por metades.
+TECTO = "4335 minutes"
 
 #: Quantos varredores disputam no ensaio do `SKIP LOCKED`.
 VARREDORES = 2
@@ -138,6 +148,20 @@ class ComUmaReserva(ComReservas):
         )
         return str(self.semente.fetchone()[0])
 
+    def instante_como_data(self, reserva: str, intervalo: str):
+        """O mesmo que o `instante_da_reserva`, como `datetime` e nao texto.
+
+        Serve as comparacoes com o que a base devolve: o `pg8000` devolve um
+        `datetime` e comparar com a forma textual dava falso por formatacao, nao
+        por valor.
+        """
+        self.semente.execute(
+            f"SELECT criado_at + interval '{intervalo}' "
+            "  FROM platform.stock_reservations WHERE id = %s",
+            (reserva,),
+        )
+        return self.semente.fetchone()[0]
+
     def estado_da_reserva(self, reserva: str) -> tuple[str, str | None, int]:
         self.semente.execute(
             "SELECT estado, motivo, version FROM platform.stock_reservations "
@@ -209,8 +233,13 @@ class TestOChargeIssuedFixaOPrazo(ComUmaReserva):
         )
         self.assertIsNone(self.semente.fetchone()[0], "nasce provisoria")
 
+        # **Relativo ao `criado_at` e nao uma data fixa.** Uma data fixa a ~72 h
+        # de distancia fica dentro ou fora do tecto conforme a hora a que a
+        # suite corre — e um ensaio que muda de resultado com o relogio da
+        # maquina nao mede nada de forma repetivel.
+        prazo_pedido = self.instante_da_reserva(reserva, "40 hours")
         linhas = self.no_app(
-            SQL_CONFIRMAR, self.tenant, self.encomenda, "2026-11-08T10:00:00+00:00"
+            SQL_CONFIRMAR, self.tenant, self.encomenda, prazo_pedido, TECTO
         )
         self.assertEqual(len(linhas), 1, "fixou o prazo de uma reserva")
 
@@ -221,7 +250,11 @@ class TestOChargeIssuedFixaOPrazo(ComUmaReserva):
         )
         confirmada, prazo = self.semente.fetchone()
         self.assertIsNotNone(confirmada, "deixou de ser provisoria")
-        self.assertEqual(prazo.isoformat(), "2026-11-08T10:00:00+00:00")
+        self.assertEqual(
+            prazo,
+            self.instante_como_data(reserva, "40 hours"),
+            "e o prazo e exactamente o que o evento pediu",
+        )
 
     def test_a_segunda_entrega_do_mesmo_evento_nao_estende_outra_vez(self) -> None:
         """A idempotencia do `confirmada_at IS NULL`, e porque ela importa.
@@ -232,18 +265,30 @@ class TestOChargeIssuedFixaOPrazo(ComUmaReserva):
         144 h, **acima do tecto de 72 h do criterio 7**, por um caminho que nao
         passa pelo `extendReservation`.
         """
-        self.criar_reserva(confirmada=False)
-        primeira = "2026-11-08T10:00:00+00:00"
-        segunda = "2026-11-30T10:00:00+00:00"
+        reserva = self.criar_reserva(confirmada=False)
+        # **As duas datas cabem no tecto, e isso e deliberado.** A primeira
+        # versao deste caso punha a segunda em `2026-11-30`, muito acima de
+        # `criado_at + 72 h 15 min` — e entao a segunda entrega era recusada por
+        # **duas** razoes (o `confirmada_at` e o tecto), pelo que o ensaio
+        # deixava de isolar a que diz medir. E a mesma armadilha que a revisao
+        # adversarial apanhou no CAS: uma asercao que passa por duas razoes nao
+        # prova nenhuma delas.
+        primeira = self.instante_da_reserva(reserva, "40 hours")
+        segunda = self.instante_da_reserva(reserva, "70 hours")
         self.assertEqual(
-            len(self.no_app(SQL_CONFIRMAR, self.tenant, self.encomenda, primeira)),
+            len(
+                self.no_app(
+                    SQL_CONFIRMAR, self.tenant, self.encomenda, primeira, TECTO
+                )
+            ),
             1,
         )
         self.assertEqual(
-            self.no_app(SQL_CONFIRMAR, self.tenant, self.encomenda, segunda),
+            self.no_app(SQL_CONFIRMAR, self.tenant, self.encomenda, segunda, TECTO),
             [],
-            "a segunda entrega casa zero linhas: o `confirmada_at IS NULL` ja "
-            "nao e verdadeiro",
+            "a segunda entrega casa zero linhas, e **so** pelo "
+            "`confirmada_at IS NULL`: as 70 h cabem no tecto, pelo que nao ha "
+            "outra condicao a recusa-la",
         )
         self.semente.execute(
             "SELECT expira_at FROM platform.stock_reservations "
@@ -251,9 +296,85 @@ class TestOChargeIssuedFixaOPrazo(ComUmaReserva):
             (self.tenant, self.encomenda),
         )
         self.assertEqual(
-            self.semente.fetchone()[0].isoformat(),
-            primeira,
+            self.semente.fetchone()[0],
+            self.instante_como_data(reserva, "40 hours"),
             "o prazo e o da primeira entrega, nao o da segunda",
+        )
+
+
+class TestOTectoDeSetentaEDuasHoras(ComUmaReserva):
+    """Criterio 7: o tecto nao se contorna, e os dois predicados concordam."""
+
+    def test_um_charge_issued_tardio_nao_da_setenta_e_duas_horas_novas(self) -> None:
+        """**O buraco que a revisao adversarial encontrou**, agora fechado.
+
+        O `confirmada_at IS NULL` fecha a entrega **repetida** e nao fecha a
+        **primeira entrega tardia**: sem agendador (KAM-071) uma reserva
+        provisoria fica `ativa` indefinidamente, e um `charge.issued` que
+        chegasse `T` horas depois dava-lhe 72 h **a contar de entao** — vida
+        total `T + 72 h + 15 min`.
+
+        O `prazoDoEvento` do modulo nao o podia fechar: ele ancora o tecto em
+        `agora`, porque o `criado_at` da reserva esta na base e nao no evento.
+        Por isso o tecto e do predicado, e e este ensaio que o mede: um prazo
+        acima de `criado_at + 72 h 15 min` casa **zero linhas**.
+        """
+        reserva = self.criar_reserva(vencida=True, confirmada=False)
+        fora = self.instante_da_reserva(reserva, "80 hours")
+        self.assertEqual(
+            self.no_app(SQL_CONFIRMAR, self.tenant, self.encomenda, fora, TECTO),
+            [],
+            "80 h a contar do `criado_at` nao cabe no tecto, e o `charge.issued` "
+            "tardio nao o contorna",
+        )
+        self.semente.execute(
+            "SELECT confirmada_at FROM platform.stock_reservations WHERE id = %s",
+            (reserva,),
+        )
+        self.assertIsNone(
+            self.semente.fetchone()[0],
+            "e nao marcou a confirmacao: um prazo recusado nao e meia "
+            "confirmacao",
+        )
+
+        dentro = self.instante_da_reserva(reserva, "70 hours")
+        self.assertEqual(
+            len(self.no_app(SQL_CONFIRMAR, self.tenant, self.encomenda, dentro, TECTO)),
+            1,
+            "70 h cabe, que e a prova no outro sentido",
+        )
+
+    def test_os_dois_tectos_concordam_na_folga_de_quinze_minutos(self) -> None:
+        """**Os dois predicados usavam numeros diferentes**, e isso tinha efeito.
+
+        O `SQL_ESTENDER` exigia `criado_at + '72 hours'` secas e o caminho de
+        criacao escreve `fim_validade + 15 min`, isto e, ate
+        `criado_at + 72 h 15 min`. Consequencia medida pela revisao adversarial:
+        uma reserva criada com TTL de 72 h tinha `expira_at` **acima** do
+        proprio tecto, pelo que `$3 > expira_at` e `$3 <= criado_at + 72 h`
+        eram incompativeis e ela **nunca** se podia prolongar.
+
+        Com o tecto a incluir a folga (o `tectoComoIntervalo` do modulo), os
+        dois lados falam do mesmo numero. Este ensaio mede o caso exacto em que
+        eles discordavam.
+        """
+        reserva = self.criar_reserva()
+        # O prazo que a criacao escreveria para um TTL de 72 h.
+        no_limite = self.instante_da_reserva(reserva, "72 hours 15 minutes")
+        self.semente.execute(
+            "UPDATE platform.stock_reservations "
+            "   SET expira_at = criado_at + interval '48 hours' WHERE id = %s",
+            (reserva,),
+        )
+        self.assertEqual(
+            len(
+                self.no_app(
+                    SQL_ESTENDER, self.tenant, self.encomenda, no_limite, TECTO
+                )
+            ),
+            1,
+            "o instante que a criacao escreveria para 72 h **cabe** no tecto do "
+            "prolongamento: com `72 hours` secas, nao cabia",
         )
 
 
@@ -378,6 +499,49 @@ class TestAIdempotenciaDaLibertacao(ComUmaReserva):
             "`ativa` **e** a versao ja nao e 1",
         )
         self.assertEqual(self.estado_da_reserva(reserva), ("libertada", "expirada", 2))
+
+    def test_o_cas_recusa_a_versao_velha_com_a_reserva_ainda_ativa(self) -> None:
+        """**O ensaio que isola o `AND version = $4`**, e faltava.
+
+        O caso de cima (`..._recusa_a_versao_velha`) liberta primeiro e repete
+        com a versao velha — mas ai o `estado = 'ativa'` do predicado ja chega
+        para recusar, pelo que o `version` nao e exercitado. A revisao
+        adversarial mediu-o: trocar `AND version = $4` por `AND version >= $4`
+        deixava a suite inteira verde.
+
+        O caso que **falsifica** e este: a reserva continua `ativa` e a `version`
+        ja subiu. Produz-se pelo caminho real — o `SQL_CONFIRMAR` sobe a versao
+        e **nao** muda o estado —, que e exactamente o que um *delayed job*
+        agendado antes da confirmacao encontra quando dispara.
+        """
+        reserva = self.criar_reserva(vencida=True, confirmada=False)
+        self.no_app(
+            SQL_CONFIRMAR,
+            self.tenant,
+            self.encomenda,
+            self.instante_da_reserva(reserva, "1 minute"),
+            TECTO,
+        )
+        estado, _, versao = self.estado_da_reserva(reserva)
+        self.assertEqual(
+            (estado, versao),
+            ("ativa", 2),
+            "pre-condicao: ainda `ativa` e ja na versao 2 — e o estado que so o "
+            "`version` distingue",
+        )
+
+        self.assertEqual(
+            self.no_app(SQL_LIBERTAR_UMA, self.tenant, reserva, "expirada", 1),
+            [],
+            "quem chega com a versao 1 e recusado **pelo `version`**: o "
+            "`estado = 'ativa'` esta verdadeiro, pelo que so o CAS o pode "
+            "recusar. E com `version >= $4` esta linha passava",
+        )
+        self.assertEqual(
+            len(self.no_app(SQL_LIBERTAR_UMA, self.tenant, reserva, "expirada", 2)),
+            1,
+            "e com a versao certa passa, que e a prova no outro sentido",
+        )
 
     def test_a_base_recusa_reanimar_uma_reserva_terminal(self) -> None:
         """`KA009`: `consumida` e `libertada` sao terminais.
