@@ -22,6 +22,7 @@ export {
   ORDER_STATES,
   PRECO_TIPOS,
   STOCK_MODOS,
+  conflito,
   eUuid,
   erro,
   exigirCtx,
@@ -33,6 +34,7 @@ export {
   type ClienteSql,
   type CommerceRegistry,
   type ComTenant,
+  type Conflito,
   type Ctx,
   type Duration,
   type Erro,
@@ -51,5 +53,6 @@ export {
   type ProductRef,
   type Reservation,
   type Resultado,
+  type ResultadoFinal,
   type StockModo,
 } from "./contrato.ts";

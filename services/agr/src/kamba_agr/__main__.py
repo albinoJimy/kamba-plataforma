@@ -53,7 +53,7 @@ from typing import Any
 
 import uvicorn
 from kamba_core import host, port
-from kamba_core.logger import instalar
+from kamba_core.logger import Logger, instalar
 from kamba_core.secrets import AMBIENTES, EnvSecretProvider, Secrets
 
 from . import egresso, eventos as evt, registo
@@ -87,6 +87,12 @@ from .llm import precos as llm_precos
 from .llm import registo as llm_registo
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
+from .tls.com import (
+    SEGREDO_DO_COM,
+    VARIAVEL_DA_BASE as VARIAVEL_DO_COM,
+    ClienteDoCom,
+    executores_do_com,
+)
 from .trancas import TrancaDeConversas
 from .turno import ExecutorDeTurnos, sem_grafos
 
@@ -97,6 +103,62 @@ from .turno import ExecutorDeTurnos, sem_grafos
 #: `litellm_virtual_key` do KAM-030, e nao a do `agr_internal_token` — que tem
 #: `instancias: nenhuma` e e um valor so para o servico.
 REF_SEGREDO_DO_BOT = "chatwoot_bot_secret"
+
+
+class CredencialDoCom:
+    """A credencial da API interna do COM, lida do cofre **quando for usada**.
+
+    ## Porque e que isto existe, em vez de uma cadeia
+
+    O catalogo da ToolLayer constroi-se **antes** do `Secrets.arrancar`, e nao
+    por descuido: ele e a fonte da validacao (1) do §5.2, que corre com o registo
+    — e o registo le-se primeiro de proposito, porque «nao ha nada a ganhar em
+    descobrir uma subscricao sem consumidor **depois** de abrir sete ligacoes».
+    Trocar a ordem mudava os codigos de saida que o dicionario §3.26 fixa.
+
+    Logo os executores do COM nascem sem a credencial, e esta classe e o fio que
+    a liga quando ela existir. Chamada antes disso, **levanta** — o que e um
+    defeito de montagem e nao uma recusa: nenhuma tool corre antes de o arranque
+    acabar, porque o `/internal/turn` responde 503 ate o grafo estar registado.
+
+    E a leitura e **a cada chamada**, como no `api_interna.py`: uma rotacao do
+    cofre chega sem reinicio.
+    """
+
+    __slots__ = ("_ler",)
+
+    def __init__(self) -> None:
+        self._ler: Callable[[], str] | None = None
+
+    def ligar(self, ler: Callable[[], str]) -> None:
+        self._ler = ler
+
+    def __call__(self) -> str:
+        if self._ler is None:
+            raise RuntimeError(
+                "a credencial do COM foi pedida antes de o arranque ler o cofre: "
+                "e defeito de montagem do __main__ e nao uma recusa (KAM-178)"
+            )
+        return self._ler()
+
+
+def _executores_do_comercio(
+    log: Logger, credencial: CredencialDoCom
+) -> dict[str, Any]:
+    """Os executores das tools de comercio, se houver COM com quem falar.
+
+    **Sem `KAMBA_COM_URL` nao se liga nada**, e isso nao e uma falha: as cinco
+    entradas do Vendedor ficam `declaradas` com o credor que ja tinham, e o
+    `log` de arranque di-lo na linha `toollayer_pronta` (`ligadas_N_de_11`). Um
+    endereco por omissao era um AGR a tentar falar com um COM que ninguem
+    configurou — e a falhar no primeiro turno de um cliente em vez de no
+    arranque.
+    """
+    base = os.environ.get(VARIAVEL_DO_COM, "").strip()
+    if not base:
+        log.warn(outcome="com_sem_endereco")
+        return {}
+    return executores_do_com(ClienteDoCom(base=base, credencial=credencial))
 
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
@@ -305,7 +367,12 @@ def main() -> int:
     # eram duas listas de tools a poder divergir, com a validacao a conferir uma
     # e o `invoke` a executar a outra.
     pasta = registo.directorio_do_registo()
-    catalogo = catalogo_do_piloto()
+    # A credencial do COM e lida do cofre mais abaixo e liga-se a este objecto
+    # quando o for: ver a `CredencialDoCom`.
+    credencial_do_com = CredencialDoCom()
+    catalogo = catalogo_do_piloto(
+        _executores_do_comercio(log, credencial_do_com)
+    )
     ambiente_do_registo = registo.AmbienteDoRegisto.do_repositorio(
         pasta.parent, catalogo=catalogo
     )
@@ -354,11 +421,14 @@ def main() -> int:
         segredos = Secrets.arrancar(
             servico=SERVICE,
             provider=EnvSecretProvider(ambiente),
-            obrigatorios=[SEGREDO_DA_API],
+            obrigatorios=[SEGREDO_DA_API, SEGREDO_DO_COM],
         )
     except Exception as exc:  # noqa: BLE001 — qualquer falha de cofre aborta
         log.excepcao(exc, "cofre_indisponivel")
         return 2
+    # A partir daqui os executores do COM tem credencial. Antes disto nenhum
+    # corre: o `/internal/turn` responde 503 ate o grafo estar registado.
+    credencial_do_com.ligar(lambda: segredos.get(SEGREDO_DO_COM))
 
     # **Sem checkpointer durável o AGR nao arranca** (KAM-026, criterio 3; o
     # `docs/tecnica/02` §11 regra 6 di-lo por extenso: «sem checkpointer

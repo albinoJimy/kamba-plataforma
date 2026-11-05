@@ -132,7 +132,7 @@ existe**: o dominio e o de quatro valores do dicionario §3.4 e do §6.2, e o
 `payment_events_authn_method_ck` desta base recusa-o — uma implementacao copiada
 a letra do criterio nao corria. E o lado errado e o bloco: o §4.2 M-6, que e a
 regra que o criterio 5 implementa, escreve `authn_method='manual'`. Fica
-`manual`, e a divergencia esta na emenda 1.59 do dicionario e na divida
+`manual`, e a divergencia esta na emenda 1.60 do dicionario e na divida
 documental.
 """
 
@@ -278,6 +278,24 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION platform.exigir_fase_manual()")
     _next_state_da_0029()
     op.execute("DROP FUNCTION platform.manual_janela(uuid, uuid, timestamptz)")
+    # **A RLS desliga-se pelo inverso exacto, e nao pelo efeito do `DROP
+    # TABLE`.** As politicas caiam de qualquer forma com as tabelas, pelo que
+    # estas quatro linhas nao mudam o estado final — mudam o que a revisao
+    # **diz**: o `downgrade` passa a ser o espelho do `upgrade`, linha a linha,
+    # e e a forma que a `0029` e a `0030` usam nas suas.
+    #
+    # E ha uma segunda razao, que foi o CI a encontrar e nao a leitura. O
+    # `canon_lint` segue o auxiliar `db/rls.py` por AST e atribui a cada achado
+    # **por onde** chegou; o `test_auxiliar_que_deixa_de_se_seguir` deriva por
+    # texto a lista das revisoes que o chamam e exige que todas, menos a `0006`,
+    # o alcancem **directamente**. Sem estas linhas, o unico caminho desta
+    # revisao ao auxiliar era o embrulho `_rls()`, como na `0006` — e a revisao
+    # caia do lado errado de uma afirmacao que nao e sobre ela: a de que uma
+    # chamada indirecta ao auxiliar e a excepcao de uma revisao so.
+    rls.disable_tenant_rls("fraud_signals")
+    rls.disable_tenant_rls("refund_cases")
+    rls.disable_tenant_rls("manual_confirmations")
+    rls.disable_tenant_rls("payment_confirmers")
     op.execute("DROP TABLE " + SINAIS)
     op.execute("DROP TABLE " + REEMBOLSOS)
     op.execute("DROP TABLE " + CONFIRMACOES)

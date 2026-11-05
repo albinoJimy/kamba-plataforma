@@ -83,20 +83,18 @@ export const METRICA_FILTRO_EM_FALTA = "com_repo_filtro_em_falta_total";
 export const METRICA_CONSULTAS = "com_repo_consultas_total";
 
 /*
- * **Os dois contadores não são servidos a ninguém, e isso é uma lacuna
- * nomeada.** O padrão da casa é um módulo com `exposicao()` em formato
- * Prometheus (`packages/core-ts/src/ten/metricas.ts`: «quem serve as métricas
- * de um processo serve-as todas do mesmo modo»), e o COM não serve métricas —
- * o `services/com/src/app.ts` tem o `/healthz` e nada mais. Hoje o que lê estes
- * contadores são os testes, e é isso que os torna úteis: a recusa é uma
- * asserção e não uma leitura do código. A exposição é do ticket que der ao COM
- * uma superfície de métricas; os dois nomes entram no dicionário §3.39 como
- * *proposta* para que nasça com eles e não com outros.
+ * **Os dois contadores são servidos desde o KAM-178**, e a lacuna que estava
+ * escrita aqui fechou. Ela dizia: «não são servidos a ninguém (…) a exposição é
+ * do ticket que der ao COM uma superfície de métricas», sem credor atribuído, e
+ * tinha um `shortcut:` ao lado. O credor é o **KAM-178**, o módulo de exposição
+ * é o `services/com/src/metricas.ts` — a forma do
+ * `packages/core-ts/src/ten/metricas.ts`, «quem serve as métricas de um processo
+ * serve-as todas do mesmo modo» — e quem os lê é o `GET /metrics` do
+ * `services/com/src/app.ts`, que não é um teste.
  *
- * shortcut: os contadores vivem em memória e nenhum endpoint os lê; revê-se no
- * ticket que der ao COM uma superfície de métricas (hoje sem credor atribuído,
- * e por isso a lacuna está escrita no dicionário §3.39 e na verificação do
- * bloco KAM-042 em vez de ficar só aqui).
+ * **Quem conta continua a ser este ficheiro**, e é de propósito: o módulo de
+ * exposição só lê. Dois sítios a contar a mesma coisa é a divergência que o
+ * dicionário nomeia noutro eixo.
  */
 
 /**

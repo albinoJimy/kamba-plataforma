@@ -382,3 +382,69 @@ export const SQL_ENCOMENDA_DA_CHAVE = `
     FROM platform.orders_mirror
    WHERE tenant_id = $1 AND intent_key = $2 AND deleted_at IS NULL
 `;
+
+// --------------------------------- KAM-178: as duas leituras da porta
+
+/**
+ * A `OrderView` do §3.2, para o método `getOrder` da porta.
+ *
+ * **Não é o `SQL_LER`**, e a diferença é uma coluna: o `criado_at`, que a
+ * `OrderView` tem e o `EstadoDaEncomenda` não. Acrescentá-la ao `SQL_LER` punha
+ * uma coluna a mais em todos os caminhos da transição — que lê para decidir, e
+ * não para apresentar — e mudava o texto que o *gate* 8 já confronta para a
+ * primitiva do KAM-044. São duas leituras com dois consumidores, e não uma com
+ * um campo opcional.
+ */
+export const SQL_VISTA = `
+  SELECT id, numero_publico, estado, version, total_minor, currency,
+         contact_id, lines_snapshot, criado_at
+    FROM platform.orders_mirror
+   WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+`;
+
+/**
+ * A página do `listOrders`, com os filtros do ISO-10 e o cursor de *keyset*.
+ *
+ * ## Cada `$n` aparece **uma só vez**, e é o que obriga aos `COALESCE`
+ *
+ * O `ConsultaDoTypeScript` da suite do *gate* 8 recusa um marcador repetido —
+ * não há equivalente posicional para o mesmo argumento usado duas vezes no
+ * `pg8000`, e é a razão que o `SQL_TRANSITAR` já escreve. Por isso um filtro
+ * ausente **não** é `($2 IS NULL OR estado = $2)`: é
+ * `estado = COALESCE($2::text, estado)`, que compara a coluna consigo mesma
+ * quando não há filtro.
+ *
+ * A mesma forma serve o cursor. Sem cursor, a posição de partida é
+ * `('infinity', o maior UUID)`: nenhuma linha tem `criado_at` infinito, pelo
+ * que a comparação de linhas é verdadeira para todas e a primeira página sai
+ * inteira. **Com um `OFFSET` isto não funcionava** — uma linha inserida entre
+ * duas páginas desloca todas as seguintes, e o cliente via a mesma encomenda
+ * duas vezes ou nenhuma.
+ *
+ * ## A ordem é `(criado_at DESC, id DESC)` e o `id` não é enfeite
+ *
+ * Duas encomendas podem nascer no mesmo microssegundo — a `criado_at` é
+ * `timestamptz` e o nascimento de duas sagas concorrentes cabe lá. Com a ordem
+ * só pelo instante, o cursor não sabia por qual delas continuar e saltava uma.
+ * O índice `orders_mirror_estado_idx` é `(tenant_id, estado, criado_at DESC)`, e
+ * o desempate pelo `id` lê-se da *heap* — é o preço de uma paginação que não
+ * perde linhas.
+ *
+ * O `tenant_id = $1` imediatamente depois do `WHERE` é o que o repo-base exige;
+ * sem ele a consulta não chega à base (`com_repo_filtro_em_falta_total`).
+ */
+export const SQL_LISTAR = `
+  SELECT id, numero_publico, estado, version, total_minor, currency,
+         contact_id, lines_snapshot, criado_at
+    FROM platform.orders_mirror
+   WHERE tenant_id = $1
+     AND deleted_at IS NULL
+     AND estado = COALESCE($2::text, estado)
+     AND contact_id = COALESCE($3::uuid, contact_id)
+     AND (criado_at, id) < (
+           COALESCE($4::timestamptz, 'infinity'::timestamptz),
+           COALESCE($5::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)
+         )
+   ORDER BY criado_at DESC, id DESC
+   LIMIT $6
+`;

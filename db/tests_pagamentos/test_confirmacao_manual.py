@@ -379,7 +379,7 @@ class TestDuplaAprovacao(ComConfirmacaoManual):
         existe no dominio de quatro do §6.2 — e o
         `payment_events_authn_method_ck` recusa-o. O lado errado e o criterio: o
         §4.2 M-6, que e a regra que ele implementa, escreve `manual`. Ver a
-        emenda 1.59 do dicionario.
+        emenda 1.60 do dicionario.
         """
         self.confirmar_manual(self.alta, self.dono, "c-1", TECTO_DA_DUPLA + 1)
         self.confirmar(self.cursor, self.tenant)
