@@ -1282,10 +1282,10 @@ Não expandas escopo: sem SOC/SIEM nem detecção automática. Entrega: document
 > existe. O mesmo vale para `../docs/seguranca/lacunas.md`, onde o bloco manda ler a lacuna L-20.
 
 São **sete** os ficheiros de `../docs/seguranca/` nessa condição, e a fronteira não é «segurança»:
-é **a lista do que ainda não está protegido** — ameaças, lacunas, riscos residuais, matriz, e os
-dois *scripts* que as leem — contra **procedimento**, que ficou público (resposta a incidentes,
-exercício de simulação, contactos, os três modelos de notificação). Saiu na fotografia pública do
-**KAM-156**.
+é **a lista do que ainda não está protegido** — ameaças, lacunas, riscos residuais, DPIA
+simplificada, matriz, e os dois *scripts* que as leem — contra **procedimento**, que ficou público
+(resposta a incidentes, exercício de simulação, contactos, os três modelos de notificação). Saiu
+na fotografia pública do **KAM-156**, cuja tabela de sete é a lista canónica.
 
 Medido a 2026-11-05, para quem pegar nisto não repetir o ciclo:
 
@@ -1301,9 +1301,18 @@ privado      len(KAM) = 150                 o assert prende 138  ->  ABORTA
 
 **O `assert` aborta nas duas árvores**, e é esse o facto que fecha a questão de desenho: o defeito
 é real onde o código mora, e não um enunciado desta linha aplicado a um ficheiro de outra. A
-correcção de classe — deixar de fixar a contagem — é a certa nos dois sítios, e o `180` acima é só
-a contagem desta árvore. **Em que repositório o ticket aterra é decisão do fundador, e está
-pendente**; até ela, nenhum critério deste bloco está satisfeito e nenhuma caixa está marcada.
+correcção de classe — deixar de fixar a contagem — é a certa nos dois sítios. Os dois valores da
+cerca acima são medições datadas e não contagens vivas: nenhum deles se corrige quando o *backlog*
+crescer, e é por isso que estão lá e não em prosa.
+
+**O ticket aterra no espelho privado — decisão do fundador, 2026-11-05.** É lá que o código e os
+artefactos vivem, e lá o defeito é real. Até a entrega acontecer, nenhum critério deste bloco está
+satisfeito e nenhuma caixa está marcada; esta nota é só a correcção do que o bloco dizia do seu
+próprio alvo.
+
+O bloco do KAM-149 existe nos **dois** repositórios, com o mesmo identificador e o mesmo título, e
+está aberto nos dois. Esta nota vive só nesta cópia, que é a que descrevia o alvo como se ele
+estivesse aqui.
 
 | Campo | Valor |
 |---|---|
@@ -1392,8 +1401,12 @@ Fazer o `validar.py` correr até ao fim e reportar os seus erros, sem depender d
 ANTES DE TUDO, E POUPA-TE O CICLO: o docs/seguranca/validar.py desta árvore é um esboço de 12
 linhas que sai com 2. Não tem a linha 43, não tem o assert, não tem as quatro verificações. O
 validador real tem 315 linhas e vive em albinoJimy/kamba (privado), no mesmo caminho — e o
-docs/seguranca/lacunas.md (L-20) está na mesma condição. Em que repositório este ticket aterra é
-decisão do fundador, e está pendente: confirma-a antes de escrever código.
+docs/seguranca/lacunas.md (L-20) está na mesma condição. O ticket ATERRA NO ESPELHO PRIVADO, por
+decisão do fundador de 2026-11-05: é lá que se corre o que se segue.
+- O passo REPRODUZ PRIMEIRO abaixo corre na árvore privada, e não nesta. O tuplo do AssertionError
+  tem a contagem VIVA no primeiro elemento, pelo que cresce a cada ticket novo: a saída registada
+  (143, 20, 13) é de quando foi medida, e na privada dá hoje (150, 20, 13). Mede-a, não a copies —
+  nesta árvore o comando não dá AssertionError nenhum, sai com 2.
 Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-149), docs/seguranca/validar.py (linha 43),
 docs/seguranca/lacunas.md (L-20) e docs/dividas-documentais.md (linha 6).
 Objectivo: o validador corre até ao fim e reporta, sem contagem do canon fixada no código.
