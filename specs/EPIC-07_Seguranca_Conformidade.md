@@ -1324,9 +1324,15 @@ mínimo de 6 operações) e **não** os literais que codificam achados (as séri
 matriz, os ADR que ela tem de cobrir, os termos que o STRIDE marca como não confiáveis, os nomes
 das operações da DPIA). Esses ficam devolvidos ao fundador na secção de verificação.
 
-**E é aí que a guarda nova faz o trabalho central**, em vez de ser uma rede: as famílias `matriz`,
+**E é aí que a guarda faz o trabalho central**, em vez de ser uma rede: as famílias `matriz`,
 `stride` e `dpia` não têm fonte nesta árvore, e o validador reporta-as como **erro de configuração
-a nomear o ficheiro que falta** — não como «0 erros». A família `docs` corre a sério.
+a nomear o ficheiro que falta**, e salta-as. A família `docs` corre a sério.
+
+Medido, e não é o que parecia: o que isto evita **não** é um «0 erros» mentiroso. Com o `assert`
+relaxado numa cópia, o validador anterior morria nesta árvore com `KeyError: 'id'` na família da
+matriz e imprimia **zero** linhas. O que a guarda das fontes entrega é **o relatório existir**; a
+guarda do canon entrega **diagnóstico** — nomear a causa antes das suas consequências, que no caso
+semeado são 50 erros de conteúdo e não zero.
 
 O bloco do KAM-149 existe nos **dois** repositórios, com o mesmo identificador e o mesmo título.
 Esta entrega é na linha activa; a cópia privada fica como está.
@@ -1425,7 +1431,7 @@ que credor.
 |---|---|---|
 | 1 — corre até ao fim, relatório, código 0 ou 1, nunca *traceback* | **satisfeito** | `python docs/seguranca/validar.py .` imprime `MATRIZ`, `STRIDE`, `DPIA` e `DOCS` e sai com **1**; sem excepção. O «antes» (`AssertionError: (180, 20, 13)`, **sem nenhuma família impressa**) e o «depois» integrais na evidência, §1 e §2 |
 | 2 — nenhuma contagem do canon fixada no código | **satisfeito** | `docs/seguranca/varrer_ast.py docs/seguranca` → **0** contagens fixadas em 4 ficheiros, lido por árvore sintáctica e não por texto. O mesmo instrumento dá **3** no validador de 315 linhas. `KAM`, `ADR` e `DEC` continuam lidos das fontes canónicas. Evidência §4 |
-| 3 — a guarda muda de forma: propriedade, erro de configuração com mensagem | **satisfeito** | A guarda é sobre **conjunto vazio ou abaixo de um piso manifestamente baixo**, reportada no bloco `ERROS DE CONFIGURACAO` com a fonte nomeada. Um piso é limite inferior monótono e não envelhece: `len(KAM) >= 10` continua verdadeiro enquanto o canon crescer. Evidência §3 |
+| 3 — a guarda muda de forma: propriedade, erro de configuração com mensagem | **satisfeito** | A guarda é sobre **conjunto vazio ou abaixo de um piso manifestamente baixo**, reportada no bloco `ERROS DE CONFIGURACAO` com a fonte nomeada. Um piso é limite inferior monótono e não envelhece: `len(KAM) >= 10` continua verdadeiro enquanto o canon crescer. **Com uma emenda à premissa do critério:** ele supõe que um conjunto vazio faria as verificações de existência «passar». Medido, não faz — elas têm a forma `if ident not in KAM: erro(...)`, pelo que o vazio faz **falhar** tudo (50 erros no caso semeado). O que a guarda entrega é **diagnóstico**, nomeando a causa antes das consequências, e não a prevenção de um falso verde. Evidência §2 e §3 |
 | 4 — a guarda demonstrada a morder | **satisfeito** | `docs/seguranca/provar_guarda.py`, quatro casos: fontes reais → **não dispara**; `INDICE.md` semeado a render 0 linhas → erro de configuração, sem *traceback*, sem «0 erros»; semeado a render 3 → dispara pelo piso, que um teste de «não vazio» deixaria passar; e o `assert` antigo → `AssertionError` sem família nenhuma impressa. **Nada é escrito no repositório**: as fontes semeadas vivem em pastas temporárias. Evidência §3 |
 | 5 — varrimento da mesma classe em `docs/seguranca/` | **satisfeito** | Dois instrumentos, e a diferença entre eles é o achado: o varrimento por expressão regular dá **3** no `validar.py` novo, mas os três estão na *docstring*, onde o `assert` antigo é **citado para ser explicado**; por AST dá **0**. O `gerar_matriz.py` de `origin/main` (384 linhas, não o esboço de 12) está **limpo**: o seu único `assert` é `len(r) == len(COLUNAS)`, propriedade. O `assert "\r" not in bruto` **mantém-se**, na linha 309. Evidência §4 |
 | 6 — a secção de verificação do KAM-065 volta a ser verdadeira | **satisfeito, registando o que ele diz agora** | A frase «OK: 0 erros» do bloco do KAM-065 ganhou a emenda deste ticket, em vez de ser forçada a valer: ela foi medida com os artefactos presentes, e o KAM-156 tirou-os desta cópia. O validador reporta hoje **1 erro de conteúdo** e **5 problemas de configuração**. Evidência §2 e §6 |

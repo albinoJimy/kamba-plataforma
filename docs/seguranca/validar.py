@@ -313,8 +313,7 @@ else:
         erro("matriz: as 11 primeiras colunas nao sao as do criterio: %s" % cab[:11])
     if not corpo:
         problema_de_configuracao(
-            "matriz: %s tem cabecalho e ZERO linhas de dados — nada a verificar, "
-            "e «0 erros» seria um limpo falso" % MATRIZ
+            "matriz: %s tem cabecalho e ZERO linhas de dados — nada a verificar" % MATRIZ
         )
     ids = []
     contagem = {}
@@ -501,8 +500,15 @@ for n in notas:
 # ----------------------------------------------------------------- o relatorio
 #
 # Os dois blocos sao separados e os dois fazem sair com 1. Um erro de
-# configuracao nao e um erro de conteudo, e dar «OK: 0 erros» com tres familias
-# sem fonte era o limpo falso que o KAM-149 existe para acabar.
+# configuracao nao e um erro de conteudo: juntar os dois fazia o relatorio dizer
+# «6 erros» quando o que ha e uma fonte em falta e cinco familias nao medidas.
+#
+# **O que a guarda das fontes evita nao e um «0 erros» falso — e a ausencia de
+# relatorio.** Medido: o validador anterior, corrido contra esta arvore com o
+# `assert` da linha 43 relaxado, morria com `KeyError: 'id'` na familia da
+# matriz (o esboco comeca por linhas de comentario, pelo que o cabecalho lido
+# nao tem a coluna `id`) e imprimia **zero** linhas. Nao havia limpo falso a
+# evitar: nao havia saida nenhuma. Ver `docs/evidencia/KAM-149.md` §2.
 if config:
     print("\nERROS DE CONFIGURACAO (%d) — verificacao incompleta:" % len(config))
     for c in config:
