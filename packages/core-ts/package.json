@@ -103,6 +103,10 @@
       "types": "./dist/pagamentos/index.d.ts",
       "default": "./dist/pagamentos/index.js"
     },
+    "./sms": {
+      "types": "./dist/sms/index.d.ts",
+      "default": "./dist/sms/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

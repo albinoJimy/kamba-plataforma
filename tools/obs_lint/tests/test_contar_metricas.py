@@ -199,6 +199,11 @@ class TestRepositorio(unittest.TestCase):
         # contagem reprovava o PR de quem acrescenta uma metrica.
         "packages/core-ts/src/provisioning/metricas.ts",
         "packages/core-ts/src/qualidade/metricas.ts",
+        # Nasceu com o KAM-116 (agregador de SMS) **depois de este ticket
+        # fundir**, e e o segundo exemplo da mesma coisa que o
+        # `provisioning` foi o primeiro: sete nomes que nenhum servico
+        # importa, porque quem vai ligar a porta e o KAM-086.
+        "packages/core-ts/src/sms/metricas.ts",
         "packages/core-ts/src/ten/metricas.ts",
         "services/agr/src/kamba_agr/metricas.py",
         # Conta **zero** nomes, e esta aqui por isso: e um modulo de exposicao
