@@ -389,10 +389,24 @@ Os quatro trechos de maior impacto do critério 4, relidos **em inglês** a
 
 **O método, e o seu limite.** A leitura foi feita por **extracção automática**
 do HTML de cada página (a mesma classe de método que E1 declara nas suas
-«Limitações», ponto (b)). Serve para confirmar número e título de cláusula,
-presença ou ausência de uma lista, e o enquadramento de uma restrição; **não
-substitui a leitura humana do texto integral antes de uso contratual**, que é o
-que a Q7 pede à Meta. Onde abaixo se diz CONFIRMADO, é com esta ressalva.
+«Limitações», ponto (b)). Serve para localizar uma cláusula pelo número e pelo
+título, para ver se uma lista existe ou não, e para apanhar o enquadramento de
+uma restrição; **não substitui a leitura humana do texto integral antes de uso
+contratual**, que é o que a Q7 pede à Meta.
+
+**A regra de estado que daí sai, e que vale em todo o §3:**
+
+| Quantas leituras independentes | Estado |
+|---|---|
+| **Uma** — só esta releitura, por extracção automática | **INDÍCIO** |
+| **Duas** — esta releitura **e** a de E1 (texto PT, Outubro de 2026) a dizerem o mesmo | **CONFIRMADO** |
+
+Uma leitura única por extracção automática é **INDÍCIO**, e isto não é modéstia
+de forma: o summarizador pode parafrasear e, sobretudo, **pode errar o âmbito de
+uma frase** — que é exactamente aquilo de que trata o achado do §3.1. Onde a
+releitura **corrobora** o que E1 já tinha lido em português, são duas leituras
+independentes em duas línguas a concordar, e aí o estado é CONFIRMADO. Cada
+subsecção abaixo diz qual dos dois casos é o seu, campo a campo.
 
 **O campo «Updated» das páginas de documentação não existe.** Nas três páginas
 de `developers.facebook.com` relidas, a procura do rótulo devolveu
@@ -411,7 +425,7 @@ desmentidas**.
 | Língua servida | **Inglês** (confirmado: o selector de língua indica «English (US)») |
 | Data da página | **September 23, 2026** («Last Modified») — **bate com E1** |
 | Data da leitura | 2026-11-05 |
-| Estado | **CONFIRMADO** quanto ao número, título e enquadramento da cláusula, com a ressalva de método acima |
+| Estado | **INDÍCIO — uma leitura.** O achado abaixo (o âmbito da restrição e a excepção) tem **uma única** leitura, por extracção automática, e ninguém o verificou de forma independente. É de âmbito que ele trata, e âmbito é o que esta classe de método erra primeiro: por isso **não** sobe a CONFIRMADO. Corroborado é só o que E1 já dizia: que a cláusula **4.7** existe e fala de dados da plataforma e de treino de ML |
 
 **O que a fonte diz** (resumo; o texto integral dos Termos **não** se reproduz
 aqui — é material de terceiros e este repositório é público): a secção **4.7**
@@ -444,6 +458,49 @@ excepção de uso exclusivo próprio é exactamente o que decide essa leitura.
 > confirmar por parecer)*. Corrigir E1 §4 e `10` §11.3 é trabalho de outro
 > ticket (§7).
 
+#### 3.1.1 O que o ticket da L1 precisa, e está todo aqui
+
+Esta subsecção existe para que o ticket que corrige os dois documentos **se abra
+sem ninguém reler os Termos**. Tudo o que ele precisa de citar está nas duas
+tabelas abaixo.
+
+**A leitura, com a sua procedência:**
+
+| Campo | Valor |
+|---|---|
+| Documento | Meta Terms for WhatsApp Business Platform |
+| URL | `https://www.facebook.com/legal/Meta-Terms-for-WhatsApp-Business-Platform?locale=en_US` |
+| *Locale* | `en_US` — e **confirmado na página servida**, não só pedido no URL: o selector de língua indica «English (US)» |
+| Cláusula | **4.7**, intitulada «AI Providers» |
+| Data da página | **September 23, 2026** («Last Modified») |
+| Data da leitura | **2026-11-05** |
+| Método | Extracção automática do HTML, uma leitura |
+| Estado | **INDÍCIO — uma leitura** |
+| A condicionante, em frase curta | A restrição é enunciada **para o caso de se contratar um *AI Provider* como *Solution Provider***, e não como regra geral aplicável a todo o cliente da plataforma |
+| O que a restrição proíbe, nesse caso | Deixar que dados da plataforma WhatsApp Business — **incluindo em forma anónima, agregada ou derivada** — sejam usados para criar, desenvolver, treinar ou melhorar sistemas de ML ou de IA, modelos de linguagem de grande escala incluídos |
+| A excepção | É permitido **afinar (*fine-tune*) um modelo de uso exclusivo próprio**, desde que esses dados não sejam depois usados para criar, desenvolver, treinar ou melhorar **qualquer outro** modelo |
+| Cláusula vizinha a não confundir | A **4.1**, que restringe usar dados da plataforma para seguir ou perfilar utilizadores individuais e para os partilhar com terceiros. É outra restrição, e **essa** não está condicionada ao cenário do *Solution Provider* |
+
+> Resumo, não transcrição: o texto dos Termos **não** se reproduz aqui. É
+> material de terceiros e este repositório é público.
+
+**As duas afirmações que divergem, com o que dizem hoje:**
+
+| Documento | O que diz hoje | O que a releitura indica |
+|---|---|---|
+| [`../E1_Meta_WhatsApp.md`](../E1_Meta_WhatsApp.md) §4, linha «Os Termos proíbem que dados da plataforma…» | «Os Termos proíbem que dados da plataforma WhatsApp Business sejam usados para criar, desenvolver, treinar ou melhorar sistemas de ML/IA (Termos §4.7, tradução da leitura automática).» Estado declarado: **CONFIRMADO (fonte primária)**, com a ressalva «verificar a cláusula exacta». Implicação que dele sai: «Não treinar/afinar modelos com conversas. Usar LLM só em inferência.» | A proibição é **condicionada** ao cenário do *Solution Provider* e **tem excepção** para modelo de uso exclusivo próprio. A frase «proíbem que (…) sejam usados» lê-se como geral e não o é |
+| [`../../10_Onboarding_Governanca.md`](../../10_Onboarding_Governanca.md) §11.3 | «Os Termos proíbem usar dados da plataforma para criar, desenvolver, treinar ou melhorar sistemas de ML/IA (E1; leitura automática do texto PT, **verificar a cláusula integral**). Usar conversas reais para *avaliar* pode ser lido como “melhorar”.» | A mesma condicionante. E a excepção de uso exclusivo próprio é **precisamente** o que decide a dúvida sobre *avaliar*, que esta secção levanta e não resolve |
+
+**O que o ticket da L1 faz, e o que não faz.** Corrige a **afirmação** nos dois
+documentos — «é geral» passa a «é condicionada ao cenário do *Solution
+Provider*, com excepção para modelo de uso exclusivo próprio; **INDÍCIO** de uma
+leitura» — e **não muda nenhuma decisão de desenho**. As barreiras que os dois
+documentos impõem ficam **todas de pé**: o registo de consentimento do
+`real_consentido` (ADR-018, três origens do KAM-040), o LLM só em inferência, e
+o `(a confirmar por parecer)`. Afrouxar qualquer uma delas sobre uma leitura
+única seria trocar uma posição conservadora barata por um risco que ninguém
+mediu.
+
 ### 3.2 Definição de *AI Provider*
 
 | Campo | Valor |
@@ -451,7 +508,7 @@ excepção de uso exclusivo próprio é exactamente o que decide essa leitura.
 | URL | `https://www.facebook.com/legal/Meta-Terms-for-WhatsApp-Business-Platform?locale=en_US` (secção 4.7) e `https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing/ai-providers` |
 | Data da página | Termos: **September 23, 2026**. Página de preços: **sem rótulo «Updated»**; traz um aviso datado de **October 15, 2026** (actualização relativa à Turquia) e ficheiros de tarifas marcados com a mesma data |
 | Data da leitura | 2026-11-05 |
-| Estado | **CONFIRMADO** quanto à definição e ao critério, com a ressalva de método |
+| Estado | **Dividido, pela regra acima.** **CONFIRMADO** no que a releitura **corrobora** em E1, por serem duas leituras em duas línguas a concordar: a definição de *AI Provider*, o «a seu exclusivo critério» e a distinção entre funcionalidade principal e não principal. **INDÍCIO — uma leitura** no que é novo: a forma inglesa exacta («incidental or ancillary»), a data de **16 Fev 2026** da política de preços, e a ausência de processo de pré-aprovação ou de recurso na página |
 
 **O que a fonte diz** (resumo): a secção 4.7 define o termo por referência a
 fornecedores e programadores de tecnologias de IA ou de aprendizagem automática
@@ -551,7 +608,9 @@ processo nem prazo** — o que mantém exactamente o estado que E1 lhe dá.
 fazer *onboarding* de cliente nenhum** enquanto a aplicação não tiver *advanced
 access* para cada permissão de que precisa. É uma condição **anterior** ao
 limite de 10, que E1 não regista nesta linha; não contradiz E1, aperta-a. Entra
-no **KAM-102** (App Review) e no **KAM-095** (lista de espera).
+no **KAM-102** (App Review) e no **KAM-095** (lista de espera) — e entra como
+**INDÍCIO, uma leitura**, pela regra do §3: é novo face a E1, logo ninguém o
+corroborou.
 
 **Por isso a Q9 mantém-se no lote 1**: é a única via para o detalhe, e sem ele o
 KAM-095 não sabe que fila está a gerir nem o KAM-102 sabe o que submete.
@@ -746,7 +805,7 @@ para depois».
 | 3 | **Aprovar o texto antes do envio** (DoD 3) | A aprovação do envio é do Responsável de Produto por DoD; o texto está redigido e sem dados pessoais | **Responsável de Produto** |
 | 4 | **Arquivar cada resposta** (critério 3) | Não há resposta nenhuma. O **modelo** está no §2.2 e a ficha nasce com a resposta | **Responsável de Produto** |
 | 5 | **Datas absolutas de seguimento** (critério 7) | «Dia 5» e «dia 10» contam-se do dia 0, que é o dia do envio e não existe. A **regra** está no §8; as datas põem-se ao enviar | **Responsável de Produto** |
-| 6 | **Corrigir E1 §4 e `10` §11.3** quanto ao âmbito da cláusula 4.7 (desvio 1, §3.1) | O critério 4 manda **registar** o desvio, não corrigir o E1; corrigir um documento de evidência fora do escopo deste ticket era alargar escopo em silêncio | **KAM-NNN a abrir** pela linha L1 (achado → ticket); o achado está no §3.1 e basta-se |
+| 6 | **Corrigir E1 §4 e `10` §11.3** quanto ao âmbito da cláusula 4.7 (desvio 1, §3.1) | O critério 4 manda **registar** o desvio, não corrigir o E1; corrigir um documento de evidência fora do escopo deste ticket era alargar escopo em silêncio | **KAM-NNN a abrir** pela linha L1 (achado → ticket). O achado está no §3.1 e o **§3.1.1** reúne tudo o que esse ticket precisa de citar — cláusula, *locale*, data, URL, a condicionante e a excepção em frase curta, e as duas afirmações divergentes com o que dizem hoje —, para que se abra **sem ninguém reler os Termos** |
 | 7 | **Decidir qual das duas leituras do critério 5 vale** (§4.1) | Mudar o sentido de um critério de aceitação é de quem o escreveu | **Responsável de Produto** |
 | 8 | **Fechar D10** | Fecho de decisão aberta é do fundador (Carta §4.2); aqui só se regista a provisória | **Fundador** |
 | 9 | **Validar com `validar_evidencia.py`** («Testes Requeridos») | O script **não existe** no repositório: é um artefacto que o KAM-100 ainda tem de escrever («escreve (…) `scripts/validar_evidencia.py`», EPIC-10 §KAM-100). Verificado a 2026-11-05: nenhum ficheiro com esse nome na árvore | **KAM-100** |
@@ -787,4 +846,4 @@ o escalamento tem como gatilho a aprovação e não uma data: marcá-lo para o d
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
-| 1.0 | Novembro de 2026 | Emissão inicial, KAM-101. As **15** perguntas de E1 com os nove campos do critério 1, em **EN** (redigido aqui) e **PT** (o de E1, sem alteração de sentido), repartidas nos três lotes do bloco — **8** no lote 1 do Piloto, **6** de Fluxo B e Clusters e a **Q15** de custo no lote 2. A folha de seguimento e o registo de respostas **nascem vazios**: 15 linhas em `por enviar`, 0 enviadas, 0 respondidas. Modelo de ficha de resposta com a regra de classificação pela **origem** — CONFIRMADO só da Meta por escrito, INDÍCIO para BSP, parceiro, fórum ou verbal, **verbal incluída mesmo vindo da Meta**. Releitura das quatro fontes primárias **em inglês** a 2026-11-05, por extracção automática e com esse limite declarado, que rendeu **quatro desvios** face a E1: o rótulo «Updated» não existe em nenhuma das três páginas de documentação (desvio 0); a restrição de treino de ML da cláusula **4.7** está **ligada ao caso de se contratar um *AI Provider* como *Solution Provider*** e tem **excepção** para afinar modelo de uso exclusivo próprio, onde E1 a dá como proibição geral (desvio 1); **15 Jan 2026** é a data dos **Termos** e não da política de preços, que vigora desde **16 Fev 2026** (desvio 2); o inglês diz **«incidental or ancillary»** e não «acidental ou complementar» (desvio 3); e o historial de países da coexistência **não se reproduz** — a entrada dos oito países é de 23 Out 2025 e não de 25 Nov 2025, e a de 15 Abr 2026 com Nigéria e África do Sul não existe na leitura (desvio 4), pelo que o historial baixa a **INDÍCIO** nas duas direcções. Nenhum desvio corrige o E1 neste ticket, e a conclusão de desenho não muda: as duas leituras concordam em que **não há lista oficial** e **Angola não aparece**. Regra de H4 como lista de verificação com as três saídas e a **ressalva escrita** de que a aprovação de Tech Provider sozinha não afasta o critério «exclusivo da Meta» — pelo que `confirmada` pela via B não fecha D2 nem levanta o diferimento do ADR-011. **D2** mantida **CONDICIONAL** com o estado de Q1, Q5 e Q6, e **D10** registada como **provisória** (canal do fundador no Piloto, risco assumido, `10` §11.1) com gatilho na resposta da Meta. Dez itens devolvidos no §7, cada um com credor nomeado, entre eles o `validar_evidencia.py` dos «Testes Requeridos», que **não existe** na árvore e é artefacto do KAM-100. | Equipa KAMBÁ |
+| 1.0 | Novembro de 2026 | Emissão inicial, KAM-101. As **15** perguntas de E1 com os nove campos do critério 1, em **EN** (redigido aqui) e **PT** (o de E1, sem alteração de sentido), repartidas nos três lotes do bloco — **8** no lote 1 do Piloto, **6** de Fluxo B e Clusters e a **Q15** de custo no lote 2. A folha de seguimento e o registo de respostas **nascem vazios**: 15 linhas em `por enviar`, 0 enviadas, 0 respondidas. Modelo de ficha de resposta com a regra de classificação pela **origem** — CONFIRMADO só da Meta por escrito, INDÍCIO para BSP, parceiro, fórum ou verbal, **verbal incluída mesmo vindo da Meta**. Releitura das quatro fontes primárias **em inglês** a 2026-11-05, por extracção automática e com esse limite declarado, que rendeu **quatro desvios** face a E1: o rótulo «Updated» não existe em nenhuma das três páginas de documentação (desvio 0); a restrição de treino de ML da cláusula **4.7** está **ligada ao caso de se contratar um *AI Provider* como *Solution Provider*** e tem **excepção** para afinar modelo de uso exclusivo próprio, onde E1 a dá como proibição geral (desvio 1) — e esse desvio fica **INDÍCIO de uma leitura**, não CONFIRMADO: é de **âmbito** que trata, e âmbito é o que uma extracção automática erra primeiro, pelo que a regra de estado do §3 lhe recusa a subida; o §3.1.1 reúne o que o ticket da L1 precisa de citar para o abrir sem reler os Termos; **15 Jan 2026** é a data dos **Termos** e não da política de preços, que vigora desde **16 Fev 2026** (desvio 2); o inglês diz **«incidental or ancillary»** e não «acidental ou complementar» (desvio 3); e o historial de países da coexistência **não se reproduz** — a entrada dos oito países é de 23 Out 2025 e não de 25 Nov 2025, e a de 15 Abr 2026 com Nigéria e África do Sul não existe na leitura (desvio 4), pelo que o historial baixa a **INDÍCIO** nas duas direcções. Nenhum desvio corrige o E1 neste ticket, e a conclusão de desenho não muda: as duas leituras concordam em que **não há lista oficial** e **Angola não aparece**. Regra de H4 como lista de verificação com as três saídas e a **ressalva escrita** de que a aprovação de Tech Provider sozinha não afasta o critério «exclusivo da Meta» — pelo que `confirmada` pela via B não fecha D2 nem levanta o diferimento do ADR-011. **D2** mantida **CONDICIONAL** com o estado de Q1, Q5 e Q6, e **D10** registada como **provisória** (canal do fundador no Piloto, risco assumido, `10` §11.1) com gatilho na resposta da Meta. Dez itens devolvidos no §7, cada um com credor nomeado, entre eles o `validar_evidencia.py` dos «Testes Requeridos», que **não existe** na árvore e é artefacto do KAM-100. | Equipa KAMBÁ |
