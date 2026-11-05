@@ -83,7 +83,7 @@ for que vivam. Entre as outras três, **um ficheiro que bata em duas classes
 levanta**: a ordem das linhas de um ficheiro de configuração não pode decidir se
 um ficheiro vai ao numerador.
 
-### As oito regras
+### As dez regras
 
 **Regra 1 — o caminho deriva-se, não se lista.** O conjunto partilhado obtém-se
 por **fecho de importação** a partir dos pontos de entrada declarados, seguindo
@@ -150,10 +150,42 @@ turno e não a vertical: nenhuma conversa atravessa os vinte e dois nós.
 existe é (i) texto de persona como configuração declarativa no bloco `persona:`
 de `registry/<vertical>.yaml`, e (ii) o `compose`, o `safe_reply` e o
 `ask_repeat`, que são **nós** e já contam como `especifico`. O `registry/` não
-entra: o critério (d) exclui-o por extenso, e oito linhas de YAML não são
+entra: o critério (d) exclui-o por extenso, e as 4 linhas do bloco `persona:` do `registry/servicos.yaml` (5 no do Vendedor) não são
 linhas de código no mesmo sentido. Fica dito porque **uma ausência silenciosa
 lê-se como zero**, e um `glob` que não encontra nada sem o dizer é a forma mais
 limpa de uma métrica mentir.
+
+**Regra 9 — o *backend* TypeScript das tools da vertical **não** entra, e isso
+declara-se.** O §5.4 põe «tools» no caminho, e a medida conta o
+`tls/servicos.py` (64 linhas) — que são os **modelos dos argumentos** das cinco
+tools de Serviços. A implementação delas é TypeScript e vive no COM, em
+`services/com/src/servicos/`: **1059 linhas de código**, que existem só porque
+esta vertical existe, e não estão em nenhuma parcela. O instrumento mede
+Python; medir TypeScript é trabalho de outro ticket.
+
+Contado simetricamente — o Serviços TS ao numerador (1059) e a infra-estrutura
+partilhada do COM ao denominador (`api`, `port`, `adapters`, `repo-base`: 1453;
+o `orders` e o `produtos`, 3549, seriam `outra_vertical`) — o reuso dá
+**83,77%**. Continua acima do limiar, e por isso a ausência não muda a
+conclusão; fica escrita porque **uma ausência silenciosa lê-se como zero**, que
+é a mesma razão da regra 8, e porque esta é a maior ausência da medida.
+
+**Regra 10 — a cadeia das migrações é posicional, e numa cadeia linear isso é
+uma data e não uma dependência.** A regra 6 deriva o conjunto partilhado dos
+`down_revision`. Nesta árvore a cadeia é **estritamente linear** (`0001` ←
+`0002` ← … ← `0032`), pelo que «antepassados da `0026`» é identicamente «todas
+as migrações escritas antes de Serviços aterrar». Se a `0025_servicos` tivesse
+sido numerada `0003`, o termo partilhado seria ~500 linhas em vez de 4866, com o
+mesmo esquema e o mesmo código.
+
+Das 4866, **2017 (41%)** são subsistemas que uma marcação nunca toca — saída de
+canal, media, consentimento, modos de conversa, onboarding de canal,
+coexistência, aviso ao dono, `llm_call_log`, `draft_decisions`. Sem elas o reuso
+dá **86,36%** (medido, e o número do revisor para as 2017 linhas bateu);
+sem migração nenhuma, 85,78%. **Nenhuma das variantes desce abaixo do
+limiar**, e é por isso que a regra 6 fica como está em vez de se trocar por uma
+heurística de esquema — mas quem citar o 88,26% tem de saber que **38%** do
+denominador entra por posição na cadeia. Achado da revisão adversarial.
 
 ## 4. A condição (d), e porque é que um `grep` não serve
 
@@ -190,9 +222,32 @@ O verificador classifica cada ocorrência em três:
 |---|---|
 | `prosa` | comentário ou *docstring* — **nunca** |
 | `conteudo` | literal numa tabela, ou identificador — configuração; conta-se e vai ao relatório |
-| `fluxo` | o nome **decide um ramo**: comparação, `match`, teste de `if`/`while`/`assert`, `startswith` — **é a excepção** |
+| `dominio` | o ramo verifica que a vertical é **conhecida** — uma pertença a uma lista fechada com o domínio inteiro, ou uma asserção. Não distingue entre verticais: **não é excepção** |
+| `fluxo` | o núcleo faz coisa **diferente** segundo **qual** vertical: igualdade, subconjunto próprio, `match`, mapa indexado pela vertical — **é a excepção** |
 
-**A condição (d) é `fluxo == 0`.** O `conteudo` conta-se e nomeia-se, e **não**
+**A classe `dominio` é a correcção do achado mais sério da revisão
+adversarial**, e sem ela a condição (d) era impossível de satisfazer. A primeira
+versão só marcava literais escritos **dentro** da expressão de decisão, e o
+idioma desta casa é a constante de módulo — pelo que o `contexto.py`, um
+ficheiro de núcleo, tinha isto a passar como `conteudo`:
+
+```python
+VERTICAIS: Final = ("vendedor", "servicos")      # linha 71: `conteudo`
+if valores["vertical"] not in VERTICAIS:         # linha 191: NADA
+    raise InvocacaoInvalidaError("campo_invalido_vertical")
+```
+
+O verificador passou a seguir constantes de módulo. Mas pôr aquilo a reprovar
+era errado por uma razão boa: uma lista **fechada** não distingue entre
+verticais, e o critério 5 do KAM-014 **exige-a** por escrito («`assistente` por
+igualdade não via `assistente_v2`»). O discriminante é mecânico — uma pertença
+a um conjunto com o domínio inteiro é `dominio`; uma igualdade, um subconjunto
+próprio, ou um **mapa** indexado pela vertical (onde os valores diferem por
+construção) é `fluxo`. E os dois lados de uma pertença não são a mesma coisa:
+em `if "vendedor" in texto` o nome está do lado da **agulha**, e isso é
+despacho.
+
+**A condição (d) é `fluxo == 0`, e hoje `fluxo = 1`.** O `conteudo` conta-se e nomeia-se, e **não**
 reprova a condição por si: onde passa a fronteira entre «tabela indexada pela
 vertical» e «excepção no núcleo» é decisão de quem assina o ADR-012 — não do
 instrumento, e não de quem o escreveu. O que o instrumento garante é que a
@@ -233,22 +288,45 @@ Medido em `183e2b0`, a 2026-11-05, com `make reuso`:
 
 | Medida | Valor |
 |---|---|
-| `reuso` da vertical Serviços | **87,58%** (limiar ≥ 70%) |
+| `reuso` da vertical Serviços | **88,26%** (limiar ≥ 70%) |
 | `LoC_específico` | 1705 linhas com código |
-| `LoC_partilhado` | 12 019 linhas com código |
-| `LoC_total` | 13 724 linhas com código |
-| Condição (d) — `fluxo` | **0** |
-| `conteudo` | 48 ocorrências, em 110 ficheiros de núcleo |
+| `LoC_partilhado` | 12 814 linhas com código |
+| `LoC_total` | 14 519 linhas com código |
+| Condição (d) — `fluxo` | **1** — e é uma excepção real; ver abaixo |
+| `dominio` | 1 (validação por lista fechada; não é excepção) |
+| `conteudo` | 48 ocorrências, em 5 de 110 ficheiros de núcleo |
 | `prosa` | 114 ocorrências |
 | Reprodutibilidade | duas execuções, `sha1` igual byte a byte |
 
+**A condição (d) não passa, e a excepção tem nome:** `eventos/handlers.py:272`,
+`dono_por = envelope.tipo if par in AO_DONO else None`. O `AO_DONO` é uma tabela
+de pares `(vertical, tipo)` com entradas **só do Vendedor**, pelo que o núcleo
+decide ali, pelo nome da vertical, se o dono da loja é avisado. Foi encontrada
+pela revisão adversarial deste ticket, que obrigou o verificador a seguir
+constantes de módulo — a primeira versão dava `fluxo = 0` porque só olhava para
+literais escritos dentro da expressão de decisão, e o idioma desta casa é a
+constante.
+
+**A folga do limiar, sob os cinco enquadramentos defensáveis.** Nenhum deles
+desce abaixo de 70%, e dizer os cinco vale mais do que defender um:
+
+| Enquadramento | `reuso` |
+|---|---|
+| O que as regras acima fixam | **88,26%** |
+| Sem o que entra por `import` dentro de função (regra 7) | 86,72% |
+| Sem migrações em nenhuma ponta | 85,78% |
+| Com o *backend* TypeScript das tools nas duas pontas (regra 9) | 83,77% |
+| Só as migrações da vertical no numerador (a versão **defeituosa**) | 82,34% |
+
+Os quatro primeiros saem das parcelas de `ci/reuso.json`; o do TypeScript sai da
+contagem da regra 9.
+
 As parcelas, entrada por entrada, estão no `ci/reuso.json` que o comando
-escreve. O número **não** está preso por teste: o que está preso é a
-propriedade (`fluxo == 0`, `reuso ≥ limiar`), em
-`tools/reuse_metric/tests/test_repositorio.py`. Um teste que pinasse 87,58
-parte-se em cada *commit* que toque uma linha do núcleo, e um teste que falha
-por razões que não tem nada a ver com o que afirma é um teste que alguém vai
-desligar.
+escreve, junto com a provenância (o *commit* e se a árvore estava suja) e a
+lista dos 16 módulos da regra 7. O número **não** está preso por teste: o que
+está preso é a propriedade (`reuso ≥ limiar`) e a **lista** das excepções do
+núcleo, em `tools/reuse_metric/tests/test_repositorio.py`. Um teste que pinasse
+88,26 parte-se em cada *commit* que toque uma linha do núcleo.
 
 ## 7. Como se corre
 
@@ -264,4 +342,4 @@ Códigos de saída: `0` passa, `1` achado, `2` declaração ou árvore malformad
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.0 | Novembro 2026 | Primeira versão (**KAM-039**). As regras de contagem da medida do ADR-012, a classificação da condição (d) em três classes, e o resultado medido em `183e2b0`. As oito regras nascem de três correcções feitas durante o ticket, e as três estão escritas com o número que as motivou: a unidade passou de linha bruta a linha com código (o `nos.py` de Serviços tem 1435 e 649); o caminho partilhado passou de lista à mão a fecho de importação (88,99% → 87,58%); e as migrações passaram de só-numerador a cadeia do Alembic nas duas pontas. | Equipa KAMBÁ |
+| 1.0 | Novembro 2026 | Primeira versao (**KAM-039**). As regras de contagem da medida do ADR-012, a classificacao da condicao (d) em **quatro** classes, e o resultado medido. **Dez regras, e cinco nascem de correccoes feitas durante o ticket — tres de auto-validacao e duas da revisao adversarial —, cada uma com o numero que a motivou:** a unidade passou de linha bruta a linha com codigo (o `nos.py` de Servicos tem 1435 e **649**); o caminho partilhado passou de lista a mao a fecho de importacao (**88,99% -> 87,58%**, porque a lista a mao era generosa); as migracoes passaram de so-numerador a cadeia do Alembic nas duas pontas (a versao assimetrica dava **82,34%**); a ToolLayer partilhada passou a estar declarada, simetrica ao catalogo da vertical que ja estava no numerador (**87,58% -> 88,26%** — a assimetria que o proprio ticket condenava nas migracoes, deixada no termo vizinho); e o majorante da regra 7 passou de afirmado a **nomeado** no artefacto (1677 linhas em 16 modulos). As regras **9** e **10** sao limites declarados e nao correccoes: o *backend* TypeScript das tools da vertical (1059 linhas) fica fora da medida, e a cadeia das migracoes e posicional. | Equipa KAMBA |

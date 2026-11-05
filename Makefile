@@ -478,10 +478,17 @@ log-lint:
 reuso:
 	@echo "==> regra de dois: metrica de reaproveitamento e criterio (d)"
 	@mkdir -p ci
-	@cd tools && $(ROOT)/$(PYTHON) -m reuse_metric --root $(ROOT) \
-	  --json $(ROOT)/ci/reuso.json medir
-	@cd tools && $(ROOT)/$(PYTHON) -m reuse_metric --root $(ROOT) \
-	  --json $(ROOT)/ci/nucleo.json nucleo
+	@# **As duas correm sempre, e o alvo falha no fim.** Em duas receitas
+	@# separadas, uma primeira vermelha fazia o `make` parar — e sair com **2**,
+	@# que e o codigo que esta casa reserva para «declaracao malformada». Quem o
+	@# lesse concluia a coisa errada, e nao via o segundo numero. Achado da
+	@# revisao adversarial deste ticket.
+	@falhou=0; \
+	  (cd tools && $(ROOT)/$(PYTHON) -m reuse_metric --root $(ROOT) \
+	    --json $(ROOT)/ci/reuso.json medir) || falhou=1; \
+	  (cd tools && $(ROOT)/$(PYTHON) -m reuse_metric --root $(ROOT) \
+	    --json $(ROOT)/ci/nucleo.json nucleo) || falhou=1; \
+	  exit $$falhou
 
 ## money-lint: nenhum montante por `number` nem por virgula flutuante (KAM-052)
 money-lint:

@@ -46,20 +46,52 @@ class TestADeclaracaoEstaNoSitio(unittest.TestCase):
 
 
 class TestCriterioD(unittest.TestCase):
-    """A condicao (d): nenhum ramo do nucleo decide por nome de vertical."""
+    """A condicao (d): nenhum ramo do nucleo **despacha** por vertical."""
+
+    #: As excepcoes que esta arvore tem hoje, por `(ficheiro, nome)`.
+    #:
+    #: **Pina-se a lista e nao o numero**, e a razao e a licao mais cara deste
+    #: ticket: o ensaio anterior afirmava `fluxo == 0` e dava verde porque o
+    #: verificador nao sabia seguir uma constante de modulo — media a forma
+    #: inline, que esta arvore nao usa. Com a lista, uma excepcao **nova** fica
+    #: vermelha nomeada, e esta fica registada em vez de esquecida.
+    #:
+    #: O que o `AO_DONO` e: uma tabela de pares `(vertical, tipo)` com entradas
+    #: **so do Vendedor**, lida num `if` do `accoes_de`. O nucleo decide ali,
+    #: pelo nome da vertical, se o dono da loja e avisado — e e isso que o §5.4
+    #: (d) chama uma excepcao no core.
+    CONHECIDAS = {("services/agr/src/kamba_agr/eventos/handlers.py", "ao_dono")}
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.bruto = load_file(DECLARACAO)
         cls.veredicto = verificar(RAIZ, cls.bruto)
 
-    def test_zero_ramos_decididos_por_nome_de_vertical(self) -> None:
-        culpados = [
-            f"{o.ficheiro}:{o.linha} ({o.forma}) {o.trecho}"
-            for o in self.veredicto.de_classe("fluxo")
-        ]
-        self.assertEqual(self.veredicto.fluxo, 0, "excepcoes no nucleo: " + "; ".join(culpados))
-        self.assertTrue(self.veredicto.passa)
+    def test_as_excepcoes_do_nucleo_sao_exactamente_as_conhecidas(self) -> None:
+        achadas = {(o.ficheiro, o.nome) for o in self.veredicto.de_classe("fluxo")}
+        novas = sorted(achadas - self.CONHECIDAS)
+        desaparecidas = sorted(self.CONHECIDAS - achadas)
+        self.assertEqual(novas, [], f"excepcao nova no nucleo: {novas}")
+        self.assertEqual(
+            desaparecidas,
+            [],
+            "uma excepcao conhecida desapareceu: se foi corrigida, apaga-a do "
+            f"`CONHECIDAS` no mesmo PR — {desaparecidas}",
+        )
+
+    def test_a_validacao_do_dominio_nao_conta_como_excepcao(self) -> None:
+        """O `contexto.py` valida a vertical contra uma lista **fechada**.
+
+        Isso nao distingue entre verticais — o criterio 5 do KAM-014 exige-o
+        por escrito — e por isso e `dominio` e nao `fluxo`. Mede-se que ele
+        **e** visto (nao e silencio) e que **nao** reprova.
+        """
+        dominios = {(o.ficheiro, o.forma) for o in self.veredicto.de_classe("dominio")}
+        self.assertIn(
+            ("services/agr/src/kamba_agr/contexto.py", "dominio_fechado"),
+            dominios,
+            "o verificador deixou de ver a validacao por lista fechada",
+        )
 
     def test_varreu_o_nucleo_e_nao_uma_pasta_vazia(self) -> None:
         """**O canario do varrimento.** Zero achados sobre zero ficheiros e zero.

@@ -108,8 +108,29 @@ class Resolvedor:
             f"{caminho} nao esta em nenhuma das raizes {sorted(self._pacotes)}"
         )
 
+    def importacoes_de_topo(self, caminho: Path) -> tuple[Importacao, ...]:
+        """So os `import` do corpo de topo do modulo.
+
+        Serve para **medir** o que entra no caminho apenas por um `import`
+        dentro de uma funcao, que e coisa diferente de ser atravessado por um
+        turno. O caso que isto nomeia e o `metricas.py`: ele tem **vinte** linhas
+        de `import` e so **cinco** ao nivel de topo — as outras estao dentro do
+        `_valores_derivados`, uma por metrica, para ler tuplos de etiquetas, e
+        uma delas arrasta o pacote `privacidade/` inteiro para o denominador.
+
+        **Nao e esta a lista que a medida usa**: o fecho continua a seguir os
+        dois (um `import` preguicoso neste repositorio e quase sempre a quebrar
+        um ciclo, e um modulo assim importado continua a ser estrutura do
+        caminho). O que esta funcao da e o **majorante quantificado** que a
+        regra 7 promete nomear.
+        """
+        return self._importacoes(caminho, so_topo=True)
+
     def importacoes(self, caminho: Path) -> tuple[Importacao, ...]:
         """Os `import` de um ficheiro, com os relativos ja resolvidos."""
+        return self._importacoes(caminho, so_topo=False)
+
+    def _importacoes(self, caminho: Path, *, so_topo: bool) -> tuple[Importacao, ...]:
         meu = self.modulo_de(caminho)
         # O **pacote** de onde um `import` relativo conta. Para um
         # `__init__.py` e o proprio modulo; para os outros e o pai. Enganar-se
@@ -119,7 +140,17 @@ class Resolvedor:
 
         encontradas: list[Importacao] = []
         arvore = ast.parse(caminho.read_text(encoding="utf-8"))
-        for no in ast.walk(arvore):
+        # Com `so_topo`, o `if TYPE_CHECKING:` conta como topo — e um `import`
+        # de topo escrito debaixo de uma guarda de tipos, nao um preguicoso.
+        if so_topo:
+            candidatos: list[ast.AST] = []
+            for instrucao in arvore.body:
+                candidatos.append(instrucao)
+                if isinstance(instrucao, ast.If):
+                    candidatos.extend(instrucao.body)
+        else:
+            candidatos = list(ast.walk(arvore))
+        for no in candidatos:
             if isinstance(no, ast.Import):
                 for apelido in no.names:
                     encontradas.append(
@@ -146,14 +177,38 @@ class Resolvedor:
         return ".".join([*base, *([no.module] if no.module else [])])
 
 
+def fecho_de_topo(resolvedor: Resolvedor, entradas: tuple[Path, ...]) -> frozenset[Path]:
+    """O fecho seguindo **so** `import` de topo. Ver `importacoes_de_topo`.
+
+    A diferenca para o `fecho` e o que a regra 7 tem de nomear: os modulos que
+    entram no denominador apenas por um `import` dentro de uma funcao.
+    """
+    return _travessia(resolvedor, entradas, so_topo=True)
+
+
 def fecho(resolvedor: Resolvedor, entradas: tuple[Path, ...]) -> frozenset[Path]:
     """Todos os ficheiros nossos alcancaveis por `import` desde as entradas.
 
-    Inclui as proprias entradas. A travessia e por largura com pilha e nao
-    recursiva, porque o grafo de importacao deste repositorio tem ciclos — o
-    `handoff/portas.py` e o `handoff/maquina.py`, por exemplo — e uma recursao
-    ingenua rebentava neles.
+    Inclui as proprias entradas.
     """
+    return _travessia(resolvedor, entradas, so_topo=False)
+
+
+def _travessia(
+    resolvedor: Resolvedor, entradas: tuple[Path, ...], *, so_topo: bool
+) -> frozenset[Path]:
+    """A travessia, iterativa e **em profundidade** (`pilha.pop()` e LIFO).
+
+    Iterativa e nao recursiva porque o grafo de importacao deste repositorio tem
+    ciclos — o `handoff/portas.py` e o `handoff/maquina.py`, por exemplo — e uma
+    recursao ingenua rebentava neles. A ordem da travessia nao afecta o
+    resultado, que e um conjunto; **a *docstring* anterior dizia «por largura» e
+    estava errada** (achado 10.2 da revisao adversarial), e uma afirmacao falsa
+    sobre o proprio algoritmo e a classe de defeito que este ticket persegue.
+    """
+    ler = (
+        resolvedor.importacoes_de_topo if so_topo else resolvedor.importacoes
+    )
     vistos: set[Path] = set()
     pilha = [e.resolve() for e in entradas]
     while pilha:
@@ -161,7 +216,7 @@ def fecho(resolvedor: Resolvedor, entradas: tuple[Path, ...]) -> frozenset[Path]
         if ficheiro in vistos:
             continue
         vistos.add(ficheiro)
-        for importacao in resolvedor.importacoes(ficheiro):
+        for importacao in ler(ficheiro):
             for candidato in _candidatos(importacao):
                 alvo = resolvedor.ficheiro_de(candidato)
                 if alvo is not None and alvo.resolve() not in vistos:

@@ -122,6 +122,100 @@ class TestConfiguracaoNaoEhFluxo(_ComArvore):
         self.assertEqual(veredicto.de_classe("conteudo")[0].forma, "identificador")
 
 
+class TestValidacaoDoDominioNaoEhExcepcao(_ComArvore):
+    """Verificar que a vertical e **conhecida** nao e trata-la de modo especial.
+
+    E a distincao que a revisao adversarial obrigou a fazer, e sem ela o
+    criterio (d) era impossivel de satisfazer: o `contexto.py` tem
+    `if valores["vertical"] not in VERTICAIS: raise`, e o criterio 5 do KAM-014
+    **exige** essa lista fechada por escrito («`assistente` por igualdade nao
+    via `assistente_v2`»). O que o criterio proibe e o nucleo fazer coisa
+    diferente segundo **qual** vertical.
+
+    As duas direccoes, como sempre: o dominio inteiro nao reprova, um
+    subconjunto proprio reprova (`TestMutacaoOFluxoMorde`).
+    """
+
+    def test_o_dominio_inteiro_num_literal_nao_reprova(self) -> None:
+        self.escrever_no_nucleo(
+            """
+            def correr(estado):
+                if estado["vertical"] not in ("nova", "velha"):
+                    raise ValueError("campo_invalido_vertical")
+                return estado
+            """
+        )
+        veredicto = self.veredicto()
+        self.assertTrue(veredicto.passa, "a validacao do dominio reprovou")
+        self.assertEqual(veredicto.fluxo, 0)
+        self.assertEqual(veredicto.dominio, 2)
+
+    def test_o_dominio_inteiro_numa_constante_nao_reprova(self) -> None:
+        """A forma que a arvore verdadeira usa, no `contexto.py`."""
+        self.escrever_no_nucleo(
+            """
+            VERTICAIS = ("nova", "velha")
+
+            def correr(estado):
+                if estado["vertical"] not in VERTICAIS:
+                    raise ValueError("campo_invalido_vertical")
+                return estado
+            """
+        )
+        veredicto = self.veredicto()
+        self.assertTrue(veredicto.passa)
+        self.assertEqual(veredicto.fluxo, 0)
+        # Uma pela referencia na decisao; as outras sao `conteudo` na linha da
+        # constante. O que importa e que a **decisao** foi vista e classificada.
+        self.assertGreaterEqual(veredicto.dominio, 1)
+        self.assertIn(
+            "dominio_fechado", {o.forma for o in veredicto.de_classe("dominio")}
+        )
+
+    def test_uma_assercao_nunca_despacha(self) -> None:
+        """Uma asserçao de completude sobre uma tabela e o contrario de excepcao."""
+        self.escrever_no_nucleo(
+            """
+            TEXTOS = {"nova": "a", "velha": "b"}
+
+            def conferir():
+                assert sorted(TEXTOS) == ["nova", "velha"]
+            """
+        )
+        self.assertTrue(self.veredicto().passa)
+
+    def test_a_agulha_de_uma_subcadeia_NAO_e_dominio(self) -> None:
+        """`if "nova" in texto` tem o nome do lado da agulha: e despacho.
+
+        O guarda que distingue os dois lados da pertenca existe por causa deste
+        caso: sem ele, procurar o nome de uma vertical dentro de um texto ficava
+        classificado como validacao de dominio e passava.
+        """
+        self.escrever_no_nucleo(
+            """
+            def correr(texto):
+                if "nova" in texto:
+                    return 1
+                return 0
+            """
+        )
+        self.assertFalse(self.veredicto().passa)
+
+    def test_um_literal_que_so_CONTEM_o_nome_nao_reprova(self) -> None:
+        """`servicos_de_terceiros` nao e uma vertical. Achado da revisao."""
+        self.escrever_no_nucleo(
+            """
+            def correr(tipo):
+                if tipo == "nova_de_terceiros":
+                    return 1
+                return 0
+            """
+        )
+        veredicto = self.veredicto()
+        self.assertTrue(veredicto.passa)
+        self.assertEqual(veredicto.fluxo, 0)
+
+
 class TestMutacaoOFluxoMorde(_ComArvore):
     """**Os canarios.** Cada forma de escrever a excepcao tem de dar vermelho.
 
@@ -151,16 +245,59 @@ class TestMutacaoOFluxoMorde(_ComArvore):
         )
         self._exige_vermelho("comparacao")
 
-    def test_pertenca_a_um_literal(self) -> None:
+    def test_pertenca_a_um_SUBCONJUNTO_proprio(self) -> None:
+        """Um subconjunto proprio e despacho: o nucleo trata umas e nao outras.
+
+        **Era `("nova", "velha")` — o dominio inteiro — e isso nao e excepcao**,
+        e e a correccao do achado mais serio da revisao adversarial. Ver
+        `TestValidacaoDoDominioNaoEhExcepcao`.
+        """
         self.escrever_no_nucleo(
             """
             def correr(estado):
-                if estado["vertical"] in ("nova", "velha"):
+                if estado["vertical"] in ("nova",):
                     return 1
                 return 0
             """
         )
         self._exige_vermelho("comparacao")
+
+    def test_pertenca_a_uma_CONSTANTE_com_um_subconjunto(self) -> None:
+        """**O idioma desta casa, e o que derrotava a primeira versao.**
+
+        No repositorio verdadeiro e o `AO_DONO` do `eventos/handlers.py`: uma
+        tabela de pares `(vertical, tipo)` com entradas **so do Vendedor**, lida
+        num `if`. Sem seguir a constante, o verificador nao via ocorrencia
+        nenhuma na linha da decisao.
+        """
+        self.escrever_no_nucleo(
+            """
+            SO_A_NOVA = (("nova", "pago"),)
+
+            def correr(estado, tipo):
+                return 1 if (estado["vertical"], tipo) in SO_A_NOVA else 0
+            """
+        )
+        self._exige_vermelho("comparacao_por_constante")
+
+    def test_um_mapa_indexado_pela_vertical_e_despacho(self) -> None:
+        """Um `dict` por vertical e despacho seja qual for a cardinalidade.
+
+        Os valores diferem por vertical **por construcao**, pelo que a regra da
+        cardinalidade que salva um conjunto nao o salva. Achado da revisao
+        adversarial.
+        """
+        self.escrever_no_nucleo(
+            """
+            EXCEPCOES = {"nova": True, "velha": False}
+
+            def correr(estado):
+                if EXCEPCOES[estado["vertical"]]:
+                    return 1
+                return 0
+            """
+        )
+        self._exige_vermelho("teste_por_constante")
 
     def test_match(self) -> None:
         self.escrever_no_nucleo(

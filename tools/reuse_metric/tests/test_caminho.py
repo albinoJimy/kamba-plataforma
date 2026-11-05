@@ -174,17 +174,42 @@ class TestMutacaoACopiaBaixaOReuso(_ComArvore):
 
 
 class TestClassificacao(_ComArvore):
-    def test_o_excluido_ganha_sem_ser_empate(self) -> None:
-        """Um `fakes.py` dentro da vertical bate nos dois, e a resposta e «fora».
+    def test_uma_sobreposicao_com_o_excluido_NAO_declarada_levanta(self) -> None:
+        """**O achado mais perigoso da revisao adversarial, fechado.**
 
-        No repositorio verdadeiro e o `verticais/servicos/fakes.py`: codigo de
-        ensaio que vive em `src/`. O §5.4 manda excluir testes seja onde for que
-        vivam.
+        O `excluido` era a **unica** classe isenta do guarda de ambiguidade, e a
+        **unica** que consegue retirar do numerador. Medido no repositorio
+        verdadeiro: uma linha `excluido: - "*/verticais/servicos/nos.py"` subia o
+        reuso de 87,58% para **91,75%** em silencio, enquanto a mesma linha em
+        `outra_vertical` levantava. Num portao, era o botao de o premir.
         """
         declaracao = Declaracao.de_mapa(self.declaracao, onde="teste")
-        classe, razao = classificar("pkg/verticais/nova/test_x.py", declaracao)
+        with self.assertRaises(DeclaracaoInvalidaError) as erro:
+            classificar("pkg/verticais/nova/test_x.py", declaracao)
+        self.assertIn("mais de uma classe", str(erro.exception))
+        self.assertIn("sobreposicoes", str(erro.exception))
+
+    def test_uma_sobreposicao_declarada_e_excluida_com_a_razao(self) -> None:
+        """E o par positivo: sem ele, o guarda tornava a declaracao inescrivel.
+
+        No repositorio verdadeiro a sobreposicao legitima e o
+        `verticais/servicos/fakes.py` — duplos de ensaio que vivem em `src/`, e
+        o §5.4 manda excluir testes seja onde for que vivam.
+        """
+        declaracao = Declaracao.de_mapa(self.declaracao, onde="teste")
+        classe, razao = classificar(
+            "pkg/verticais/nova/test_declarado.py", declaracao
+        )
         self.assertEqual(classe, "excluido")
-        self.assertIn("filtro", razao)
+        self.assertIn("sobreposicao declarada", razao)
+        self.assertIn("legitima", razao)
+
+    def test_uma_sobreposicao_sem_razao_levanta(self) -> None:
+        """Sem razao nao e dispensa, e um buraco — a regra do `backlog-allow`."""
+        bruto = self.declaracao
+        bruto["caminho"]["sobreposicoes"] = [{"caminho": "pkg/nucleo.py"}]
+        with self.assertRaises(DeclaracaoInvalidaError):
+            Declaracao.de_mapa(bruto, onde="teste")
 
     def test_dupla_classificacao_levanta(self) -> None:
         """A ordem das linhas nao pode decidir se um ficheiro vai ao numerador."""

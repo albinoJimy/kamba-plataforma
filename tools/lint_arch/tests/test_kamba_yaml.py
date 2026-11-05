@@ -754,7 +754,7 @@ if __name__ == "__main__":
 class TestExigirChaves(unittest.TestCase):
     """A recusa de chaves desconhecidas (KAM-134).
 
-    Vive aqui, com o leitor, porque e dele que os quinze leitores de
+    Vive aqui, com o leitor, porque e dele que os leitores de
     `ci/*.yaml` a passaram a importar. Os testes por leitor — que o conjunto
     declarado e o certo, e que uma gralha numa chave existente falha — ficam
     com cada leitor.
@@ -809,7 +809,7 @@ class TestExigirChaves(unittest.TestCase):
                 self.assertIn("tem de ser um mapa", str(capturado.exception))
 
 
-class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
+class TestOsLeitoresDeclaramOQueLeem(unittest.TestCase):
     """Nenhuma chave activa em `ci/*.yaml` fica sem leitor (KAM-134).
 
     E o inverso do teste de cima: la prova-se que a recusa funciona, aqui que

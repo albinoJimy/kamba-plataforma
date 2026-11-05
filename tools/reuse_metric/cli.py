@@ -118,8 +118,8 @@ def nucleo(raiz: Path, *, destino: Path | None) -> int:
 
     print(
         f"nucleo: {veredicto.ficheiros} ficheiros varridos; "
-        f"fluxo {veredicto.fluxo}, conteudo {veredicto.conteudo}, "
-        f"prosa {veredicto.prosa}"
+        f"fluxo {veredicto.fluxo}, dominio {veredicto.dominio}, "
+        f"conteudo {veredicto.conteudo}, prosa {veredicto.prosa}"
     )
     if destino is not None:
         print(f"    artefacto: {destino}")

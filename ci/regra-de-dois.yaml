@@ -109,6 +109,27 @@ caminho:
     # mentira.
     - "services/agr/src/kamba_agr/tls/servicos.py"
 
+  # `partilhado_declarado` — o outro lado da mesma moeda, e a correccao de uma
+  # ASSIMETRIA que a revisao adversarial apanhou.
+  #
+  # A linha acima declara a metade **da vertical** do termo «tools» do §5.4
+  # porque o fecho nao a alcanca. A metade **partilhada** — a ToolLayer, com os
+  # oito passos do `invoke`, a auditoria e a idempotencia — nao era alcancada
+  # pela mesma razao e **nao estava declarada**: 64 linhas entravam no
+  # numerador e 795 nao entravam no denominador. E palavra por palavra a
+  # assimetria que o `migracoes.py` deste ticket diagnostica e corrige para as
+  # migracoes, deixada por corrigir no termo vizinho — e o relatorio sustentava
+  # a prova do criterio (a) nos «oito passos do `invoke`», que viviam no
+  # ficheiro que a metrica nunca lia.
+  #
+  # Entra como `partilhado` e nao como entrada do fecho de proposito: por o
+  # `__main__.py` nas `entradas` arrastava o arranque inteiro do servico
+  # (+2,81 pontos), que nao e caminho de um turno.
+  partilhado_declarado:
+    - "services/agr/src/kamba_agr/tls/camada.py"
+    - "services/agr/src/kamba_agr/tls/auditoria.py"
+    - "services/agr/src/kamba_agr/tls/idempotency.py"
+
   # AS MIGRACOES TEM BLOCO PROPRIO, e nao linhas na lista de cima.
   #
   # Sao o unico termo do §5.4 sem grafo de importacao — ninguem importa uma
@@ -151,7 +172,6 @@ caminho:
   # Servicos escreveu o catalogo do Vendedor. Nenhuma das duas e verdade.
   outra_vertical:
     - "*/tls/vendedor.py"
-    - "*/tls/com.py"
     - "*/verticais/vendedor/degradado/*"
 
   # `misto` — ficheiros de que esta vertical importa ALGUNS simbolos e nao o
@@ -165,6 +185,14 @@ caminho:
     - "*/verticais/vendedor/nos.py"
     - "*/verticais/vendedor/encaminhadores.py"
     - "*/verticais/vendedor/arestas.py"
+    # O `tls/com.py` **era `outra_vertical` e e misto**, por achado da revisao
+    # adversarial. Ele tem duas metades: os executores do Vendedor, e o cliente
+    # generico do COM — cabecalhos, segredo, transporte e mapeamento de erros —
+    # que os executores de Servicos vao usar quando o KAM-047 os ligar. Posto
+    # inteiro em `outra_vertical`, retirava-se dos **dois** lados; como misto,
+    # conta o que esta vertical importar de la, que hoje e **nada** — e aparece
+    # no relatorio a dizer isso, que e informacao sobre o acoplamento.
+    - "*/tls/com.py"
 
   # `excluido` — fora da contagem em qualquer classe. O §5.4 manda excluir
   # testes e codigo gerado, e as duas listas sao concretas:
@@ -175,9 +203,34 @@ caminho:
   #                  denominador de codigo que ninguem escreveu
   excluido:
     - "*/tests/*"
+    # `tests_*` e nao so `tests`: a convencao desta arvore e `db/tests_agr/`,
+    # `db/tests_servicos/`, `db/tests_pagamentos/`. O padrao `*/tests/*` nao
+    # casa nenhuma delas, e so os `test_*.py` de dentro eram apanhados —
+    # achado da revisao adversarial. Fora do fecho hoje, logo nao move o
+    # numero; o que estava errado era o filtro nao cobrir a convencao.
+    - "*/tests_*/*"
     - "*/test_*.py"
     - "*/fakes.py"
     - "libs/py-core/src/kamba_core/eventos/contratos.py"
+
+  # As sobreposicoes **legitimas** entre o `excluido` e outra classe.
+  #
+  # Existem porque o `excluido` passou a estar debaixo do mesmo guarda de
+  # ambiguidade que as outras tres classes, e a razao e um achado da revisao
+  # adversarial: ele era a **unica** classe isenta do guarda e a **unica** que
+  # consegue retirar do numerador. Medido — uma linha
+  # `excluido: - "*/verticais/servicos/nos.py"` subia o reuso de 87,58% para
+  # **91,75%** em silencio, enquanto a mesma linha em `outra_vertical`
+  # levantava. Num portao, era o botao de o premir.
+  #
+  # Auto-limpante, como as dispensas de `ci/backlog-allow.yaml`: uma entrada
+  # que deixe de casar alguma coisa **tambem** levanta.
+  sobreposicoes:
+    - caminho: "services/agr/src/kamba_agr/verticais/servicos/fakes.py"
+      razao: >-
+        duplos de ensaio que vivem em `src/` e nao em `tests/`; nenhum codigo de
+        producao os importa (medido), e o §5.4 manda excluir testes seja onde
+        for que vivam
 
   # O limiar do ADR-012, para uma vertical nova. **Nao esta ligado a portao
   # nenhum neste ticket** — ver `docs/reuse-metric.md` §5 e a seccao de

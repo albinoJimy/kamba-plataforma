@@ -241,12 +241,15 @@ class TestCriterioAAsDuasNoMesmoRuntime(unittest.TestCase):
         contexto = nos_de_servicos.contexto_de_tool(estado_de_servicos(""))
         permitidas = nos_de_servicos.TOOLS_DE_SERVICOS
 
+        #: Os argumentos **validos** do `get_order_status` (`order_id`, e so).
+        #: Escritos a partir do modelo e nao de memoria: a primeira versao
+        #: passava `{"referencia": ...}` e a invocacao morria em
+        #: `VALIDATION_ERROR` — ver o par positivo abaixo.
+        argumentos = {"order_id": "01JD3Z8Q7K8N2P4R6S8T0V2W4X"}
+
         recusada = asyncio.run(
             self.r.tools.invoke(
-                contexto,
-                "get_order_status",
-                {"referencia": "ABC-123"},
-                allowed=permitidas,
+                contexto, "get_order_status", argumentos, allowed=permitidas
             )
         )
         self.assertFalse(recusada.ok, "a camada aceitou uma tool da outra vertical")
@@ -265,17 +268,38 @@ class TestCriterioAAsDuasNoMesmoRuntime(unittest.TestCase):
         )
         self.assertTrue(aceite.ok, aceite)
 
-        # E o Vendedor alcanca a **sua**: a recusa de cima e da lista, e nao de
-        # a tool nao estar no catalogo unico.
+        # **O par positivo da MESMA tool, pelo Vendedor**, que e o que prova
+        # que a recusa de cima vem da lista e nao de a tool ser inalcancavel.
+        #
+        # A primeira versao deste bloco media **nada**: passava
+        # `{"referencia": ...}`, que o modelo nao aceita, e afirmava
+        # `assertIsNotNone` — e o `invoke` devolve **sempre** um `ToolResult`.
+        # A invocacao falhava em `VALIDATION_ERROR` e a asserçao passava, com um
+        # comentario ao lado a afirmar o contrario do que acontecia. Achado da
+        # revisao adversarial, e a terceira vez que esta classe de defeito
+        # aparece neste ficheiro.
+        estado_do_vendedor = estado_de_vendedor("")
+        contexto_do_vendedor = nos_do_vendedor.contexto_de_tool(estado_do_vendedor)
+        # A encomenda tem de **existir** e ser do proprio contacto, senao o
+        # `get_order_status` responde `NOT_FOUND` — que e o §6.2 a funcionar, e
+        # nao a tool a ser alcancada. Semeia-se no *fake*, que e quem a guarda.
+        self.r.backend.encomendas[argumentos["order_id"]] = (
+            contexto_do_vendedor.contact_id,
+            "confirmada",
+        )
         do_vendedor = asyncio.run(
             self.r.tools.invoke(
-                nos_do_vendedor.contexto_de_tool(estado_de_vendedor("")),
+                contexto_do_vendedor,
                 "get_order_status",
-                {"referencia": "ABC-123"},
+                argumentos,
                 allowed=nos_do_vendedor.TOOLS_DO_VENDEDOR,
             )
         )
-        self.assertIsNotNone(do_vendedor)
+        self.assertTrue(
+            do_vendedor.ok,
+            f"o Vendedor nao alcanca a sua propria tool: {do_vendedor.error}",
+        )
+        self.assertEqual(do_vendedor.data["estado"], "confirmada")
 
     def test_as_Dependencias_sao_a_MESMA_classe(self) -> None:
         """Um tipo por vertical era a primeira divergencia (KAM-035).

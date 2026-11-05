@@ -66,7 +66,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-ClasseDeOcorrencia = Literal["prosa", "conteudo", "fluxo"]
+ClasseDeOcorrencia = Literal["prosa", "conteudo", "dominio", "fluxo"]
 
 
 class DeclaracaoDoNucleoInvalidaError(ValueError):
@@ -142,6 +142,11 @@ class Veredicto:
         return len(self.de_classe("fluxo"))
 
     @property
+    def dominio(self) -> int:
+        """Ramos que verificam que a vertical e **conhecida**. Nao sao excepcao."""
+        return len(self.de_classe("dominio"))
+
+    @property
     def conteudo(self) -> int:
         return len(self.de_classe("conteudo"))
 
@@ -151,7 +156,12 @@ class Veredicto:
 
     @property
     def passa(self) -> bool:
-        """A condicao (d): nenhum ramo do nucleo decide por nome de vertical."""
+        """A condicao (d): nenhum ramo do nucleo **despacha** por vertical.
+
+        `fluxo == 0`, e nao `fluxo + dominio == 0`: uma lista fechada de
+        verticais permitidas nao distingue entre elas, e o criterio 5 do KAM-014
+        exige-a por escrito. Ver `FORMAS_DE_DOMINIO`.
+        """
         return self.fluxo == 0
 
     def como_mapa(self) -> dict:
@@ -161,6 +171,7 @@ class Veredicto:
             ),
             "ficheiros_varridos": self.ficheiros,
             "fluxo": self.fluxo,
+            "dominio": self.dominio,
             "conteudo": self.conteudo,
             "prosa": self.prosa,
             "passa": self.passa,
@@ -263,19 +274,44 @@ def _ocorrencias_de(
         if (no.lineno, no.col_offset) in prosa:
             continue
         for achado in padrao.finditer(no.value):
-            em_decisao = (no.lineno, no.col_offset) in decisao
+            forma = decisao.get((no.lineno, no.col_offset))
             achados.append(
                 Ocorrencia(
                     ficheiro=relativo,
                     linha=no.lineno,
-                    classe="fluxo" if em_decisao else "conteudo",
+                    classe=_classe_de(forma),
                     nome=achado.group(0).lower(),
-                    forma=decisao.get((no.lineno, no.col_offset), "literal"),
+                    forma=forma or "literal",
                     trecho=trecho(no.lineno),
                 )
             )
 
-    # 3. Identificadores — sempre `conteudo`. Um nome de simbolo nao ramifica
+    # 3. **Referencias a uma constante de modulo que leva nomes de vertical.**
+    #    E a passagem que faltava, e sem ela o verificador nao via o idioma
+    #    desta casa: o `contexto.py:191` — `if valores["vertical"] not in
+    #    VERTICAIS: raise` — nao tem literal nenhum, e a constante da linha 71
+    #    nao esta num contexto de decisao. O identificador `VERTICAIS` tambem
+    #    nao casa com o padrao (nao contem «vendedor» nem «servicos»), pelo que
+    #    a linha 191 nao produzia **ocorrencia nenhuma**. Achado da revisao
+    #    adversarial, e o mais serio dela.
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Name):
+            continue
+        forma = decisao.get((no.lineno, no.col_offset))
+        if forma is None:
+            continue
+        achados.append(
+            Ocorrencia(
+                ficheiro=relativo,
+                linha=no.lineno,
+                classe=_classe_de(forma),
+                nome=no.id.lower(),
+                forma=forma,
+                trecho=trecho(no.lineno),
+            )
+        )
+
+    # 4. Identificadores — sempre `conteudo`. Um nome de simbolo nao ramifica
     #    nada por si: o que ele diz e que o nucleo **nomeia** a vertical, que e
     #    a leitura larga do criterio e nao a estrita.
     for no in ast.walk(arvore):
@@ -336,6 +372,88 @@ def _posicoes_de_prosa(arvore: ast.AST) -> frozenset[tuple[int, int]]:
     return frozenset(posicoes)
 
 
+#: As formas de `fluxo` que sao **validacao do dominio** e nao despacho: o
+#: nucleo verifica que a vertical e **conhecida**, e trata todas por igual.
+#:
+#: E a correccao do achado mais serio da revisao adversarial, e vale escrever
+#: porque o primeiro desenho errava nas duas direccoes. O verificador so marcava
+#: literais escritos **dentro** da expressao de decisao, e o idioma desta casa e
+#: a constante de modulo — pelo que o `contexto.py`, um ficheiro de nucleo,
+#: tinha isto a passar como `conteudo`:
+#:
+#: ```python
+#: VERTICAIS: Final = ("vendedor", "servicos")      # linha 71: `conteudo`
+#: if valores["vertical"] not in VERTICAIS:         # linha 191: NADA
+#:     raise InvocacaoInvalidaError(...)
+#: ```
+#:
+#: Isso e, a letra, «o nucleo decide um ramo por nome de vertical», e os seis
+#: canarios de mutacao mediam a forma inline que a arvore **nao** usa.
+#:
+#: Mas pô-lo a reprovar tornava o criterio (d) impossivel de satisfazer, e por
+#: uma razao boa: uma lista **fechada** de verticais permitidas nao distingue
+#: entre elas — e a validacao do dominio de um campo, e o criterio 5 do KAM-014
+#: exige-a por escrito («`assistente` por igualdade nao via `assistente_v2`»).
+#: Despacho e quando o nucleo faz coisa **diferente** segundo **qual** vertical.
+#:
+#: O discriminante e mecanico: uma pertenca (`in` / `not in`) a um conjunto com
+#: **dois ou mais** nomes de vertical e dominio; uma igualdade, um subconjunto
+#: proprio, ou um **mapa indexado** pela vertical — onde os valores diferem por
+#: construcao — e despacho.
+FORMAS_DE_DOMINIO: Final = frozenset({"dominio_fechado"})
+
+
+def _classe_de(forma: str | None) -> ClasseDeOcorrencia:
+    """A classe de uma ocorrencia, a partir da forma com que ela decide.
+
+    Fora de um contexto de decisao e `conteudo` — configuracao, que se conta e
+    se nomeia. Dentro, e `dominio` quando o nucleo so verifica que a vertical e
+    **conhecida**, e `fluxo` quando ele faz coisa diferente segundo **qual** —
+    que e a excepcao que o criterio (d) proibe.
+    """
+    if forma is None:
+        return "conteudo"
+    if forma in FORMAS_DE_DOMINIO:
+        return "dominio"
+    return "fluxo"
+
+
+def _constantes_com_verticais(
+    arvore: ast.Module, padrao: re.Pattern[str]
+) -> dict[str, tuple[str, int]]:
+    """`nome -> (forma, quantos nomes de vertical)` das constantes de topo.
+
+    Resolve a indirecção que derrotava o verificador. A `forma` e `mapa` quando
+    a constante e um `dict` — nesse caso os valores diferem por vertical por
+    construcao, e nenhuma aritmetica de cardinalidade a salva — e `membros`
+    quando e um conjunto, tuplo ou lista.
+    """
+    encontradas: dict[str, tuple[str, int]] = {}
+    for instrucao in arvore.body:
+        alvos: list[ast.expr] = []
+        if isinstance(instrucao, ast.Assign):
+            alvos = list(instrucao.targets)
+        elif isinstance(instrucao, ast.AnnAssign):
+            alvos = [instrucao.target]
+        if not alvos or instrucao.value is None:  # type: ignore[union-attr]
+            continue
+        valor = instrucao.value  # type: ignore[union-attr]
+        nomes = {
+            no.value.lower()
+            for no in ast.walk(valor)
+            if isinstance(no, ast.Constant)
+            and isinstance(no.value, str)
+            and padrao.fullmatch(no.value)
+        }
+        if not nomes:
+            continue
+        forma = "mapa" if isinstance(valor, ast.Dict) else "membros"
+        for alvo in alvos:
+            if isinstance(alvo, ast.Name):
+                encontradas[alvo.id] = (forma, len(nomes))
+    return encontradas
+
+
 def _posicoes_de_decisao(
     arvore: ast.AST, padrao: re.Pattern[str]
 ) -> dict[tuple[int, int], str]:
@@ -350,19 +468,95 @@ def _posicoes_de_decisao(
       `if "vendedor" in texto:`, que nao e um `Compare`;
     * o argumento de um `startswith`/`endswith` — e uma comparacao escrita como
       chamada, e deixa-la de fora era deixar a excepcao escrever-se assim.
+
+    **E a referencia a uma constante de modulo que leve nomes de vertical**, que
+    e o idioma desta casa e o que derrotava a primeira versao — ver o
+    `FORMAS_DE_DOMINIO`.
+
+    O nome compara-se por `fullmatch` e nao por subcadeia: um
+    `if tipo == "servicos_de_terceiros"` nao decide por vertical nenhuma, e a
+    primeira versao marcava-o (achado 4 da revisao adversarial). A subcadeia
+    continua a valer para o `conteudo` e para a `prosa`, onde a pergunta e se o
+    nucleo **nomeia** uma vertical, e nao se decide por ela.
     """
     marcadas: dict[tuple[int, int], str] = {}
+    constantes = (
+        _constantes_com_verticais(arvore, padrao)
+        if isinstance(arvore, ast.Module)
+        else {}
+    )
 
-    def marcar(subarvore: ast.AST | None, forma: str) -> None:
+    def nomes_em(subarvore: ast.AST | None) -> int:
+        """Quantos nomes de vertical distintos este lado da comparacao traz."""
+        if subarvore is None:
+            return 0
+        achados: set[str] = set()
+        for no in ast.walk(subarvore):
+            if (
+                isinstance(no, ast.Constant)
+                and isinstance(no.value, str)
+                and padrao.fullmatch(no.value)
+            ):
+                achados.add(no.value.lower())
+            elif isinstance(no, ast.Name) and no.id in constantes:
+                tipo, quantos = constantes[no.id]
+                if tipo == "membros":
+                    # Conta a cardinalidade da constante, que e o que decide se
+                    # o conjunto e o dominio inteiro ou um subconjunto proprio.
+                    achados.update(str(i) for i in range(quantos))
+        return len(achados)
+
+    def marcar(subarvore: ast.AST | None, forma: str, *, dominio: bool) -> None:
         if subarvore is None:
             return
         for no in ast.walk(subarvore):
             if (
                 isinstance(no, ast.Constant)
                 and isinstance(no.value, str)
-                and padrao.search(no.value)
+                and padrao.fullmatch(no.value)
             ):
-                marcadas.setdefault((no.lineno, no.col_offset), forma)
+                marcadas.setdefault(
+                    (no.lineno, no.col_offset),
+                    "dominio_fechado" if dominio else forma,
+                )
+            elif isinstance(no, ast.Name) and no.id in constantes:
+                tipo, quantos = constantes[no.id]
+                # **Um mapa indexado pela vertical e despacho seja qual for a
+                # cardinalidade**: os valores diferem por construcao, e nenhuma
+                # aritmetica de cardinalidade o salva. Um conjunto com dois ou
+                # mais nomes, no lado do contentor de uma pertenca, e dominio.
+                #
+                # **Menos num `assert`**, onde nem um mapa despacha: uma
+                # asserçao nao muda o que o codigo faz a nenhuma vertical, e
+                # uma asserçao de completude sobre a tabela — «ela tem as tres»
+                # — e o contrario de tratar uma delas de modo especial.
+                e_dominio = dominio and (
+                    forma == "assercao" or (tipo == "membros" and quantos >= 2)
+                )
+                marcadas.setdefault(
+                    (no.lineno, no.col_offset),
+                    "dominio_fechado" if e_dominio else f"{forma}_por_constante",
+                )
+
+    def marcar_comparacao(no: ast.Compare) -> None:
+        """Os dois lados de uma comparacao **nao** sao a mesma coisa.
+
+        Numa pertenca, o dominio esta no lado do **contentor**: um
+        `if vertical in VERTICAIS` valida o dominio, e um
+        `if "vendedor" in texto` procura uma subcadeia num texto — o nome esta
+        do lado da **agulha**, e e despacho. A primeira versao marcava os dois
+        lados com a mesma etiqueta e punha o segundo em `dominio`, o que o
+        deixava passar: achado da revisao adversarial pelo lado dos falsos
+        negativos, e do canario `test_subcadeia_num_teste` pelo outro.
+        """
+        pertenca = any(isinstance(op, (ast.In, ast.NotIn)) for op in no.ops)
+        if not pertenca:
+            marcar(no, "comparacao", dominio=False)
+            return
+        contentor_e_dominio = any(nomes_em(c) >= 2 for c in no.comparators)
+        marcar(no.left, "comparacao", dominio=False)
+        for comparador in no.comparators:
+            marcar(comparador, "comparacao", dominio=contentor_e_dominio)
 
     # **As passagens correm da forma mais especifica para a menos**, e o
     # `setdefault` faz o resto. Com uma passagem so, o `ast.walk` visitava o
@@ -370,19 +564,25 @@ def _posicoes_de_decisao(
     # etiquetada `teste` — o veredicto era o mesmo, mas o relatorio dizia menos
     # do que sabia, e e o relatorio que alguem vai ler para decidir.
     for no in ast.walk(arvore):
+        # **Um `assert` nunca despacha**: e uma auto-verificacao, e uma asserçao
+        # de completude sobre uma tabela de configuracao — «a tabela tem as tres
+        # verticais» — e o contrario de tratar uma delas de modo especial.
+        if isinstance(no, ast.Assert):
+            marcar(no.test, "assercao", dominio=True)
+    for no in ast.walk(arvore):
         if isinstance(no, ast.Compare):
-            marcar(no, "comparacao")
+            marcar_comparacao(no)
         elif isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute):
             if no.func.attr in ("startswith", "endswith"):
                 for argumento in no.args:
-                    marcar(argumento, "comparacao")
+                    marcar(argumento, "comparacao", dominio=False)
     for no in ast.walk(arvore):
         if isinstance(no, ast.match_case):
-            marcar(no.pattern, "match")
-            marcar(no.guard, "match")
+            marcar(no.pattern, "match", dominio=False)
+            marcar(no.guard, "match", dominio=False)
     for no in ast.walk(arvore):
-        if isinstance(no, (ast.If, ast.While, ast.IfExp, ast.Assert)):
-            marcar(no.test, "teste")
+        if isinstance(no, (ast.If, ast.While, ast.IfExp)):
+            marcar(no.test, "teste", dominio=False)
     return marcadas
 
 

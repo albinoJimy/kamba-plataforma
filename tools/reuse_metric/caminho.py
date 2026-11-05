@@ -26,17 +26,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Literal
 
-from .fecho import Importacao, Resolvedor, fecho
+from .fecho import Importacao, Resolvedor, fecho, fecho_de_topo
+from .fonte import FonteIndisponivelError, ficheiros_versionados, proveniencia
 from .migracoes import CadeiaInvalidaError, antepassados, ler_revisoes
 from .sloc import SimboloAusenteError, sloc_de_ficheiro, sloc_de_simbolo
 
 Classe = Literal["especifico", "partilhado", "misto", "outra_vertical", "excluido"]
 
-#: As classes que a declaracao pode nomear. O `partilhado` nao esta: e o
-#: **resto** — o que o fecho alcanca e nenhuma lista reclama. Escrever uma lista
-#: de partilhados era escrever a resposta: o denominador passava a ser uma
-#: escolha, e e precisamente o que a derivacao por fecho existe para evitar.
-CLASSES_DECLARAVEIS: Final = ("especifico", "misto", "outra_vertical", "excluido")
+#: As classes que a declaracao pode nomear, e a chave de cada uma no YAML.
+#:
+#: O `partilhado` e, por omissao, o **resto** — o que o fecho alcanca e nenhuma
+#: lista reclama —, porque escrever uma lista de partilhados era escrever a
+#: resposta: o denominador passava a ser uma escolha, e e isso que a derivacao
+#: por fecho existe para evitar.
+#:
+#: **Mas tem uma lista, e e simetria e nao conveniencia.** O `especifico` tem de
+#: poder declarar o que o fecho nao alcanca (o catalogo de tools da vertical,
+#: injectado pelo `__main__.py`); se so um dos lados o pudesse fazer, a
+#: declaracao ficava com um lado do termo «tools» no numerador e o outro fora do
+#: denominador — a assimetria que a revisao adversarial apanhou, e a mesma que o
+#: `migracoes.py` corrige para as migracoes. A chave e `partilhado_declarado`
+#: para que quem a le veja que e uma excepcao a derivacao, e nao a regra.
+CHAVES_DAS_CLASSES: Final = {
+    "especifico": "especifico",
+    "partilhado": "partilhado_declarado",
+    "misto": "misto",
+    "outra_vertical": "outra_vertical",
+    "excluido": "excluido",
+}
+CLASSES_DECLARAVEIS: Final = tuple(CHAVES_DAS_CLASSES)
+
+#: As classes cujos padroes se expandem contra os ficheiros versionados, e nao
+#: so contra o que o fecho trouxe: sao as duas que declaram o que o fecho **nao**
+#: alcanca. As outras tres sao filtros sobre o que ele trouxe.
+CLASSES_EXPANDIDAS: Final = ("especifico", "partilhado")
 
 
 class DeclaracaoInvalidaError(ValueError):
@@ -55,6 +78,9 @@ class Declaracao:
     #: A pasta das migracoes e as que sao da vertical. Ver `migracoes.py`.
     pasta_das_migracoes: str
     migracoes_proprias: tuple[str, ...]
+    #: `caminho relativo -> razao`. As sobreposicoes **legitimas** entre o
+    #: `excluido` e outra classe. Auto-limpante: uma que deixe de casar levanta.
+    sobreposicoes: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def de_mapa(cls, bruto: dict, *, onde: str) -> Declaracao:
@@ -86,17 +112,33 @@ class Declaracao:
             )
         if not migracoes.get("pasta"):
             raise DeclaracaoInvalidaError(f"{onde}: falta `caminho.migracoes.pasta`")
+        sobreposicoes: dict[str, str] = {}
+        for entrada in caminho.get("sobreposicoes", ()) or ():
+            if not isinstance(entrada, dict) or not entrada.get("caminho"):
+                raise DeclaracaoInvalidaError(
+                    f"{onde}: cada `caminho.sobreposicoes` leva `caminho` e `razao`"
+                )
+            razao = entrada.get("razao")
+            if not razao:
+                # **Sem razao nao e dispensa, e um buraco.** E a regra do
+                # `ci/backlog-allow.yaml`, e vale mais aqui: uma sobreposicao
+                # sem razao e a porta do A3 outra vez, com um passo a mais.
+                raise DeclaracaoInvalidaError(
+                    f"{onde}: a sobreposicao `{entrada['caminho']}` nao tem razao"
+                )
+            sobreposicoes[str(entrada["caminho"])] = str(razao)
         return cls(
             vertical=str(caminho["vertical"]),
             entradas=tuple(str(e) for e in entradas),
             pacotes={str(k): str(v) for k, v in pacotes.items()},
             padroes={
-                classe: tuple(str(p) for p in caminho.get(classe, ()) or ())
-                for classe in CLASSES_DECLARAVEIS
+                classe: tuple(str(p) for p in caminho.get(chave, ()) or ())
+                for classe, chave in CHAVES_DAS_CLASSES.items()
             },
             limiar=limiar,
             pasta_das_migracoes=str(migracoes["pasta"]),
             migracoes_proprias=tuple(str(m) for m in proprias),
+            sobreposicoes=sobreposicoes,
         )
 
 
@@ -133,6 +175,11 @@ class Medicao:
     partilhado: int
     entradas: tuple[Entrada, ...]
     fora: tuple[Entrada, ...] = field(default_factory=tuple)
+    #: Sobre que arvore a medida correu. Ver `fonte.py`.
+    proveniencia: object | None = None
+    #: Os modulos que entram no `partilhado` **so** por um `import` dentro de
+    #: uma funcao. E o majorante que a regra 7 promete nomear, quantificado.
+    so_por_import_de_funcao: tuple[Entrada, ...] = field(default_factory=tuple)
 
     @property
     def total(self) -> int:
@@ -148,19 +195,53 @@ class Medicao:
             )
         return 100.0 * (1.0 - self.especifico / self.total)
 
+    @property
+    def reuso_so_de_topo(self) -> float | None:
+        """A variante sem o que entra por `import` dentro de funcao.
+
+        **Nao e a medida**; e o majorante da regra 7, em numero. Vai ao lado do
+        resultado para que a folga do limiar se leia sem refazer a conta.
+        """
+        fora = sum(e.sloc for e in self.so_por_import_de_funcao)
+        restante = self.partilhado - fora
+        if self.especifico + restante == 0:
+            return None
+        return 100.0 * (1.0 - self.especifico / (self.especifico + restante))
+
     def como_mapa(self) -> dict:
         """O artefacto JSON. Leva a conta **e** as parcelas."""
-        return {
+        mapa = {
             "vertical": self.vertical,
             "formula": "reuso = 1 - LoC_especifico / LoC_total",
             "unidade": "linhas com codigo (SLOC); ver docs/reuse-metric.md",
+            "proveniencia": (
+                self.proveniencia.como_mapa()  # type: ignore[union-attr]
+                if self.proveniencia is not None
+                else None
+            ),
             "loc_especifico": self.especifico,
             "loc_partilhado": self.partilhado,
             "loc_total": self.total,
             "reuso_pct": round(self.reuso, 2),
-            "entradas": [e.como_mapa() for e in sorted(self.entradas, key=_ordem)],
-            "fora_da_conta": [e.como_mapa() for e in sorted(self.fora, key=_ordem)],
         }
+        topo = self.reuso_so_de_topo
+        mapa["majorante_regra_7"] = {
+            "nota": (
+                "o fecho de importacao e um majorante do caminho de execucao "
+                "(docs/reuse-metric.md regra 7). Estes modulos entram no "
+                "partilhado so por um `import` dentro de uma funcao; o "
+                "`reuso_so_de_topo` e a conta sem eles"
+            ),
+            "loc": sum(e.sloc for e in self.so_por_import_de_funcao),
+            "reuso_so_de_topo_pct": None if topo is None else round(topo, 2),
+            "modulos": [
+                e.como_mapa()
+                for e in sorted(self.so_por_import_de_funcao, key=_ordem)
+            ],
+        }
+        mapa["entradas"] = [e.como_mapa() for e in sorted(self.entradas, key=_ordem)]
+        mapa["fora_da_conta"] = [e.como_mapa() for e in sorted(self.fora, key=_ordem)]
+        return mapa
 
 
 def _ordem(entrada: Entrada) -> tuple:
@@ -170,37 +251,47 @@ def _ordem(entrada: Entrada) -> tuple:
 def classificar(relativo: str, declaracao: Declaracao) -> tuple[Classe, str]:
     """A classe de um ficheiro, e o padrao que a decidiu.
 
-    **O `excluido` decide-se primeiro, e nao e um empate.** Ele nao e uma
-    classe do caminho: e um filtro sobre o universo, como os `excluidos` de
-    `ci/thresholds.yaml`. Um `fakes.py` dentro de `verticais/servicos/` bate
-    nos dois — e a resposta certa e «fora da conta», nao «ambiguo»: ele e
-    codigo de ensaio, e o §5.4 manda excluir testes seja onde for que vivam.
+    **Uma dupla classificacao levanta — e o `excluido` nao e excepcao.** A
+    primeira versao deste codigo dava-lhe passagem livre: o laco do `excluido`
+    devolvia antes de a ambiguidade ser calculada, com a razao de que ele e um
+    filtro sobre o universo e nao uma classe. A razao e boa e a consequencia
+    era um defeito, que a revisao adversarial mediu: **a unica classe que
+    consegue retirar do numerador era a unica isenta do guarda**, pelo que uma
+    linha de YAML — `excluido: - "*/verticais/servicos/nos.py"` — subia o reuso
+    de 87,58% para **91,75%** em silencio, enquanto a mesma linha em
+    `outra_vertical` levantava. Num portao, era o botao de o premir.
 
-    **Entre as outras tres, uma dupla classificacao levanta.** O
-    `ci/thresholds.yaml` resolve o empate pela ordem das linhas; aqui isso
-    seria pior, porque a ordem decidia se um ficheiro vai ao numerador ou fica
-    fora dele — e a diferenca entre as duas e o resultado. Quem escreve a
-    declaracao e quem tem de desempatar.
+    Agora as quatro classes passam pelo mesmo guarda, e uma sobreposicao
+    **legitima** declara-se em `caminho.sobreposicoes` com a razao. E a forma
+    das dispensas desta casa (`ci/backlog-allow.yaml`): auto-limpante, porque
+    uma declaracao que deixe de casar alguma coisa **tambem** levanta.
     """
-    for padrao in declaracao.padroes["excluido"]:
-        if fnmatch.fnmatch(relativo, padrao):
-            return "excluido", f"excluido por `{padrao}` (filtro, nao classe)"
-
     batidas = [
         (classe, padrao)
         for classe in CLASSES_DECLARAVEIS
-        if classe != "excluido"
         for padrao in declaracao.padroes[classe]
-        if fnmatch.fnmatch(relativo, padrao)
+        if fnmatch.fnmatchcase(relativo, padrao)
     ]
     distintas = {classe for classe, _ in batidas}
+
     if len(distintas) > 1:
+        # Uma sobreposicao com o `excluido` pode estar declarada; entre as
+        # outras tres nao ha declaracao possivel, porque nenhuma delas e um
+        # filtro — as tres decidem **em que parcela** o ficheiro conta.
+        declarada = declaracao.sobreposicoes.get(relativo)
+        if declarada is not None and "excluido" in distintas:
+            return "excluido", f"sobreposicao declarada: {declarada}"
         detalhe = "; ".join(f"{c} por `{p}`" for c, p in batidas)
         raise DeclaracaoInvalidaError(
-            f"ci/regra-de-dois.yaml: `{relativo}` cai em mais de uma classe ({detalhe})"
+            f"ci/regra-de-dois.yaml: `{relativo}` cai em mais de uma classe "
+            f"({detalhe}). Se a sobreposicao for legitima, declara-a em "
+            "`caminho.sobreposicoes` com a razao; se nao for, corrige o padrao"
         )
+
     if batidas:
         classe, padrao = batidas[0]
+        if classe == "excluido":
+            return classe, f"excluido por `{padrao}` (filtro, nao classe)"
         return classe, f"padrao `{padrao}`"
     return "partilhado", "alcancado pelo fecho e nao reclamado por nenhum padrao"
 
@@ -290,6 +381,17 @@ def medir(raiz: Path, bruto: dict, *, onde: str = "ci/regra-de-dois.yaml") -> Me
     for entrada in _entradas_das_migracoes(raiz, declaracao):
         por_classe.setdefault(entrada.classe, []).append(entrada)
 
+    # O majorante da regra 7, quantificado: o que o fecho alcanca e o fecho de
+    # topo nao. **Nao sai da conta** — sai para uma seccao propria do artefacto,
+    # porque a regra 7 promete nomea-lo e a primeira versao nao o nomeava.
+    so_de_topo = fecho_de_topo(resolvedor, tuple(entradas_do_fecho))
+    preguicosos = tuple(
+        entrada
+        for entrada in por_classe.get("partilhado", ())
+        if entrada.simbolo is None
+        and (raiz / entrada.caminho).resolve() in (alcancados - so_de_topo)
+    )
+
     dentro = tuple(por_classe.get("especifico", ())) + tuple(
         por_classe.get("partilhado", ())
     )
@@ -304,6 +406,8 @@ def medir(raiz: Path, bruto: dict, *, onde: str = "ci/regra-de-dois.yaml") -> Me
         partilhado=sum(e.sloc for e in por_classe.get("partilhado", ())),
         entradas=dentro,
         fora=fora,
+        proveniencia=proveniencia(raiz),
+        so_por_import_de_funcao=preguicosos,
     )
 
 
@@ -341,24 +445,28 @@ def _entradas_das_migracoes(raiz: Path, declaracao: Declaracao) -> tuple[Entrada
 
 
 def _declarados_no_disco(raiz: Path, declaracao: Declaracao) -> frozenset[Path]:
-    """Os ficheiros que os padroes `especifico` nomeiam e existem no disco.
+    """Os ficheiros que os padroes `especifico` e `partilhado_declarado` nomeiam.
 
-    Alarga-se a `especifico` e so a ele de proposito: um padrao `excluido` ou
-    `outra_vertical` serve para **retirar** do que o fecho trouxe, e ir
-    procura-lo ao disco trazia ficheiros que nao estao no caminho nenhum.
+    Alarga-se as duas classes que declaram o que o fecho NAO alcanca, e so a
+    elas: um padrao `excluido`, `misto` ou `outra_vertical` serve para **retirar**
+    do que o fecho trouxe, e ir procura-lo trazia ficheiros fora do caminho.
     """
+    # **A lista vem do `git` e nao do disco**, e a razao esta por extenso no
+    # cabecalho de `fonte.py`: com `rglob`, a partir da raiz do *checkout*
+    # principal o `*/verticais/servicos/*` casava **70** ficheiros em vez de 7,
+    # porque casa as copias dentro dos worktrees irmaos de `.claude/worktrees/`
+    # — e o `make reuso` corre precisamente dali. Cada copia valia ~1254 linhas
+    # de numerador. Achado da revisao adversarial, reproduzido.
+    padroes = tuple(
+        padrao
+        for classe in CLASSES_EXPANDIDAS
+        for padrao in declaracao.padroes[classe]
+    )
     encontrados: set[Path] = set()
-    # **Uma passagem pelo disco, nao uma por padrao.** `rglob("*.py")` e nao
-    # `rglob("*")` porque a arvore tem `node_modules`; e o laco dos padroes esta
-    # por dentro porque, estando por fora, cada padrao declarado custava uma
-    # travessia inteira do repositorio.
-    padroes = declaracao.padroes["especifico"]
-    for ficheiro in raiz.rglob("*.py"):
-        if not ficheiro.is_file():
-            continue
+    for ficheiro in ficheiros_versionados(raiz):
         relativo = ficheiro.relative_to(raiz).as_posix()
-        if any(fnmatch.fnmatch(relativo, padrao) for padrao in padroes):
-            encontrados.add(ficheiro.resolve())
+        if any(fnmatch.fnmatchcase(relativo, padrao) for padrao in padroes):
+            encontrados.add(ficheiro)
     return frozenset(encontrados)
 
 
