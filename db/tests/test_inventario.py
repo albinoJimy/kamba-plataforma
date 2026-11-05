@@ -1423,6 +1423,98 @@ INVENTARIO = {
         ),
         "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # KAM-091 (0034): o estado da saga de provisioning de oito passos. **Dez
+    # colunas e nenhum `id` gerado**: a chave e natural e composta,
+    # `(onboarding_id, step)`, que e a `UNIQUE(onboarding_id, step)` que o
+    # contrato de `packages/core-ts/src/provisioning/contrato.ts` declara. Um
+    # `uuid` ao lado era um identificador que nenhuma porta cita — nenhuma das
+    # seis recebe um `id` de linha.
+    "provisioning_step": {
+        "onboarding_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — a chave do caso de onboarding, **sem FK**: a tabela "
+            "`onboarding_case` ainda nao existe (credor KAM-086/087). E uma "
+            "referencia opaca e nao um dado da pessoa",
+        ),
+        "tenant_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — **pre-alocado e sem FK para `platform.tenants`**: o passo 1 "
+            "da saga (`tenant_e_caso`) e que escreve a linha de `tenants`, "
+            "pelo que uma FK tornava o proprio passo 1 impossivel. E por esta "
+            "coluna que a RLS e o X-05 do *gate* 6 agarram a tabela",
+        ),
+        "step": (
+            "text",
+            NAO,
+            None,
+            "nao — um dos **oito** passos do dicionario secao 3.47, **pela "
+            "ordem**, que e a que a compensacao inverte. Os nomes sao os do "
+            "passo e nao os do fornecedor (`conta_atendimento` e nao "
+            "`chatwoot`), porque o fornecedor e decisao aberta",
+        ),
+        "status": (
+            "text",
+            NAO,
+            None,
+            "nao — um dos **cinco** do dicionario secao 3.47, **qualificado "
+            "pela tabela**: o `status` nu e o dominio {`ok`, `erro`} do secao "
+            "3.27, e a migracao sem o nome qualificado deu dois achados "
+            "`[regra]` do *gate* 3b. O `compensado` distingue «foi desfeito» "
+            "de «nunca correu», que e o que a reconciliacao nocturna le",
+        ),
+        "attempt": (
+            "integer",
+            NAO,
+            "0",
+            "nao — o `abrir` incrementa e devolve a linha **depois** do "
+            "incremento, e e esse valor que o tecto de tres tentativas do "
+            "criterio 5 le. O `marcarEspera` repoe a zero, porque uma espera "
+            "nao e falha: sem isso, tres passagens com o dono por agir "
+            "escalavam o caso",
+        ),
+        "external_id": (
+            "text",
+            SIM,
+            None,
+            "nao — a referencia do recurso criado la fora (uma conta de "
+            "atendimento, uma chave do LiteLLM). **Anulavel**, e o nulo nao e "
+            "lapso: dois dos oito passos nao produzem recurso externo nenhum, "
+            "e o `marcarConcluido` aceita-o na assinatura",
+        ),
+        "error_code": (
+            "text",
+            SIM,
+            None,
+            "nao, **e tem `CHECK` de forma para o garantir**: leva a classe do "
+            "erro ou um identificador curto em `snake_case` "
+            "(`^[A-Za-z][A-Za-z0-9_]{2,63}$`), nunca a mensagem. A revisao "
+            "adversarial do KAM-091 mediu que o `erro.name` e escrevivel por "
+            "quem lanca e punha a chave inteira do LiteLLM nesta coluna; o "
+            "codigo passou a devolver `erro_opaco` para o que nao casa, e "
+            "agora a coluna tambem o recusa",
+        ),
+        "status_de_espera": (
+            "text",
+            SIM,
+            None,
+            "nao — uma das **tres** esperas dos passos 6-8 (dicionario secao "
+            "3.47). Anulavel, e o nulo e o estado normal: um passo que nao "
+            "espera por ninguem. **Nao e o `onboarding_case.fase`** do secao "
+            "3.2, que tem seis valores e nao tem o `aguarda_teste`",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "atualizado_at": (
+            "timestamp with time zone",
+            NAO,
+            "now()",
+            "nao — escrito pelo modulo em cada `UPDATE`, nao por *trigger*, "
+            "como na `0028`, na `0030` e na `0033`",
+        ),
+    },
     "orders_mirror": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
         "tenant_id": ("uuid", NAO, None, "nao"),
@@ -3186,6 +3278,21 @@ class TestInventario(ComBase):
                     "stock_reservations_line_no_ck",
                     "stock_reservations_libertada_exige_motivo_ck",
                     "stock_reservations_consumida_exige_instante_ck",
+                    # KAM-091 (0034): as **nove** do estado da saga — oito
+                    # `CHECK` e a chave primaria, que **e** a unicidade
+                    # `(onboarding_id, step)` do contrato e por isso nao ha
+                    # `_uq` ao lado dela. **Nenhuma FK**: o passo 1 e que
+                    # escreve a linha de `tenants`, pelo que esta tabela nao
+                    # aparece no teste das cascatas.
+                    "provisioning_step_pkey",
+                    "provisioning_step_step_ck",
+                    "provisioning_step_status_ck",
+                    "provisioning_step_espera_ck",
+                    "provisioning_step_attempt_ck",
+                    "provisioning_step_error_code_ck",
+                    "provisioning_step_external_id_ck",
+                    "provisioning_step_falha_exige_codigo_ck",
+                    "provisioning_step_concluido_limpo_ck",
                     "order_intents_pkey",
                     "order_intents_intent_key_ck",
                     "order_intents_draft_hash_ck",

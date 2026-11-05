@@ -1176,6 +1176,54 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+ESPERADO_POR_TABELA.update(
+    {
+        # ------------------------------------------------- KAM-091 (0034)
+        #
+        # O estado da saga de provisioning. **Os nove papeis por extenso e nao
+        # um helper**: esta entrada declara-se depois da compreensao que injecta
+        # o `PAPEIS_SEM_NADA_EM_PLATFORM` e o
+        # `PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO`, pelo que nao herda os zeros
+        # deles — e o `_pagamentos` nao serve, porque e o helper das quatro
+        # tabelas da `0029` e usa-lo aqui dizia que esta era uma delas.
+        #
+        # **`SELECT, INSERT` para o `kamba_app`, e o `UPDATE` que ele tem e por
+        # coluna** — seis, no `GRANT UPDATE (...)` da revisao. Esta matriz le o
+        # `has_table_privilege(..., 'UPDATE')`, que devolve **false** para um
+        # privilegio so de coluna; a lista de colunas esta no
+        # `COLUNAS_POR_PAPEL`, e por isso a tabela entra tambem em
+        # `TABELAS_COM_MATRIZ_DE_COLUNA`. E exactamente como o `bookings` esta
+        # modelado, e pela mesma razao.
+        #
+        # **E a aplicacao escreve aqui, ao contrario das quatro da `0032`.** A
+        # razao esta nos *Testes Requeridos* do bloco: «a saga corre sob
+        # `app.tenant_id` do caso», logo e um papel sujeito a RLS que grava o
+        # estado dos passos — nao um *job* de plataforma.
+        #
+        # **Sem `DELETE` para o `kamba_app`**, e e o criterio 3 por construcao:
+        # um passo nao se apaga, compensa-se. Apagar a linha era perder a
+        # distincao entre «foi desfeito» e «nunca correu», que e a razao pela
+        # qual o `compensado` existe como estado proprio — e sem ela a
+        # reconciliacao nocturna classificava um recurso compensado como
+        # `externo_em_falta` e voltava a cria-lo.
+        #
+        # O `kamba_batch` tem os quatro: e ele que corre a reconciliacao, que
+        # atravessa tenants (`BYPASSRLS` por atributo), e que semeia as baterias
+        # de isolamento.
+        "provisioning_step": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
@@ -1506,6 +1554,23 @@ COLUNAS_POR_PAPEL = {
     # outro sem passar pela restricao de exclusao do novo, que e precisamente a
     # barreira do criterio 1. Nao inclui o `criado_at`, que e historico.
     ("kamba_app", "bookings", "UPDATE"): {"estado", "hold_expires_at", "version"},
+    # KAM-091: as **seis** colunas do `UPDATE_DA_APP` da revisao `0034`, e o que
+    # fica de fora e a afirmacao. Nao inclui o `onboarding_id` nem o `step`, que
+    # sao a chave primaria — mudar um deles era transformar o passo de um caso
+    # no passo de outro, e o `abrir` reabre o par que ja existe em vez de o
+    # mover. Nao inclui o `tenant_id`: ele e **pre-alocado** e nao tem FK para
+    # `tenants`, pelo que nada no catalogo apanharia uma linha movida para outro
+    # tenant — e com `WITH CHECK (tenant_id = app.tenant_id)` a `tenant_iso`
+    # recusa escrever para fora, mas nao recusa reescrever a coluna com o
+    # proprio valor de outro caso. Nao inclui o `criado_at`, que e historico.
+    ("kamba_app", "provisioning_step", "UPDATE"): {
+        "status",
+        "attempt",
+        "external_id",
+        "error_code",
+        "status_de_espera",
+        "atualizado_at",
+    },
     # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
     # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
     # — o `kamba_pay_hooks` marca o desfecho do que acabou de receber e o
@@ -1604,6 +1669,17 @@ def esquema_de(tabela: str) -> str:
 #: tem privilegios por coluna, ou onde um privilegio de coluna a mais seria
 #: invisivel na matriz de tabela.
 TABELAS_COM_MATRIZ_DE_COLUNA = (
+    # KAM-091 (0034): o estado da saga. Tem `UPDATE` **por coluna** para o
+    # `kamba_app` — seis —, e entra aqui porque uma coluna a mais naquele
+    # `GRANT` era **invisivel** na matriz de tabela: o
+    # `has_table_privilege(..., 'UPDATE')` devolve `false` com ou sem
+    # `GRANT UPDATE (coluna)`.
+    #
+    # E o que uma coluna a mais daria e exactamente o que a revisao recusa: um
+    # `GRANT UPDATE (tenant_id)` deixava a aplicacao mover a linha de um caso
+    # para o tenant de outro, e nada no catalogo o apanharia — esta tabela nao
+    # tem FK para `tenants`, porque e o passo 1 da saga que escreve essa linha.
+    "provisioning_step",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

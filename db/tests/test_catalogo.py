@@ -670,6 +670,26 @@ class TestConvencoes(ComBase):
                 # posicao e por `ORDER BY 1, 2`: depois de `payment_accounts`
                 # ("pa" < "pr") e antes de `tenant_channels`.
                 ("price_quotes", "id", "uuid", "gen_random_uuid()"),
+                # KAM-091: o estado da saga tem chave **natural e composta**, e
+                # nao um `uuid` gerado — e a `UNIQUE(onboarding_id, step)` que o
+                # contrato de `provisioning/contrato.ts` declara, promovida a
+                # chave. Pela razao da `payment_outbox_map` e das duas tabelas
+                # de uso: a identidade da linha **e** o par, e um `id` ao lado
+                # era um identificador que nenhuma consulta citaria.
+                #
+                # E ha uma razao a mais, que nao vale para aquelas: **nenhuma
+                # das seis portas do contrato recebe um `id` de linha**, e uma
+                # unicidade com o `tenant_id` a frente — a escolha da
+                # `stock_reservations` tres linhas abaixo — deixava o
+                # `ON CONFLICT (onboarding_id, step)` do `abrir` sem restricao
+                # que casasse, e nenhum dos cinco `marcar*` recebe um
+                # `tenant_id` para completar o terno.
+                #
+                # Duas linhas, que e o `ORDER BY 1, 2` sobre as duas colunas da
+                # chave — `onboarding_id` antes de `step`, e nao a ordem da
+                # chave, que e a mesma por coincidencia.
+                ("provisioning_step", "onboarding_id", "uuid", None),
+                ("provisioning_step", "step", "text", None),
                 ("refund_cases", "id", "uuid", "gen_random_uuid()"),
                 # KAM-045: a reserva de stock segue a regra geral, `uuid`
                 # gerado. A posicao e por `ORDER BY 1, 2`: depois de
@@ -1035,7 +1055,24 @@ class TestConvencoes(ComBase):
              # `orders_mirror_expira_idx` acima: o varrimento da expiracao
              # corre como `kamba_batch` sobre a base toda e procura por
              # instante, nao por tenant.
-             "stock_reservations"},
+             "stock_reservations",
+             # KAM-091. O estado da saga **nao** satisfaz a convencao de graca,
+             # e nao por acidente: a chave primaria e composta e comeca pelo
+             # `onboarding_id`, porque e esse o par que o contrato declara e o
+             # unico que as portas sabem enderecar. Levou indice proprio,
+             # `(tenant_id, status)`, e a segunda coluna e a pergunta do
+             # `EsperadoDoTenant` da reconciliacao — «as referencias externas
+             # que o `provisioning_step` tem como `concluido`» —, que e a unica
+             # leitura desta tabela que atravessa casos em vez de ir a um.
+             #
+             # **Nao e parcial no `concluido`**, e isso e decisao: a RLS
+             # acrescenta `tenant_id = ...` a **toda** a consulta, e um indice
+             # parcial nao servia as que nao sao da reconciliacao.
+             #
+             # O `tenant_id` e `NOT NULL` e **nao tem FK** para `tenants` — o
+             # passo 1 da saga e que escreve essa linha —, pelo que o que o
+             # isola e so a politica `tenant_iso`.
+             "provisioning_step"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

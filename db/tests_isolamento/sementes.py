@@ -289,6 +289,37 @@ def _reserva_de_stock(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _passo_da_saga(cursor, tenant_id: str, canario: str) -> None:
+    """Um passo da saga de provisioning (KAM-091, revisao `0034`).
+
+    O canario vai no `external_id`, que e texto livre e **nao entra em
+    unicidade nenhuma** — a chave primaria e `(onboarding_id, step)`. E por isso
+    esta receita semeia o mesmo canario nos dois tenants sem colidir, que e o
+    que o oraculo do X-03 precisa.
+
+    **Nao e o `error_code`, e nao por gosto:** aquela coluna tem `CHECK` de
+    forma (`^[A-Za-z][A-Za-z0-9_]{2,63}$`), e um canario e um identificador de
+    ensaio que nao casa a forma — a semente rebentava com `23514`. E nao e o
+    `status_de_espera`, que tem dominio fechado de tres valores.
+
+    O `onboarding_id` e um `gen_random_uuid()` por linha: **nao ha FK** para
+    `onboarding_case`, que e tabela que ainda nao existe (credor KAM-086/087), e
+    duas linhas com o mesmo `step` so colidem se partilharem o caso.
+
+    O `status` nasce `em_curso` e o `attempt` a zero pela omissao. O
+    `tenant_id` entra por parametro e **nao tem FK** para `tenants` — e o passo
+    1 da saga que escreve essa linha —, pelo que esta receita nao precisa de
+    nenhuma subconsulta e **semeia-se com o `batch`**, ao contrario da reserva
+    de stock: nada aqui depende de ver uma linha de outra tabela.
+    """
+    cursor.execute(
+        "INSERT INTO platform.provisioning_step "
+        "(onboarding_id, tenant_id, step, status, external_id) "
+        "VALUES (gen_random_uuid(), %s, 'tenant_e_caso', 'em_curso', %s)",
+        (tenant_id, canario),
+    )
+
+
 def _recibo_de_intencao(cursor, tenant_id: str, canario: str) -> None:
     """O recibo de idempotencia da criacao (KAM-044, revisao `0030`).
 
@@ -1323,6 +1354,16 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _reserva_de_stock, "sku", "expira_at", "2099-01-01T00:00:00+00:00",
         semeador="admin",
     ),
+    # KAM-091: o estado da saga. A coluna alteravel e o `atualizado_at`, que a
+    # revisao concede ao `kamba_app` no `GRANT UPDATE` por coluna e que **nao
+    # tem dominio fechado nem `CHECK` acoplado** — ao contrario do `status`, que
+    # tem os cinco valores e duas implicacoes ligadas ao `error_code` e ao
+    # `status_de_espera`: escrever um estado qualquer ali rebentava com `23514`
+    # por uma razao que nao e isolamento.
+    ("platform", "provisioning_step"): Receita(
+        _passo_da_saga, "external_id", "atualizado_at",
+        "2099-01-01T00:00:00+00:00",
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -1861,6 +1902,11 @@ ORDEM = (
     # escolhida e a dos numeros dos tickets.
     ("platform", "refund_cases"),
     ("platform", "fraud_signals"),
+    # KAM-091: **sem FK nenhuma** — nem para `tenants`, porque e o passo 1 da
+    # saga que escreve essa linha, nem para `onboarding_case`, que nao existe.
+    # Ninguem a aponta, pelo que a posicao e indiferente e a escolhida e a dos
+    # numeros dos tickets, como entre as duas acima.
+    ("platform", "provisioning_step"),
 )
 
 #: As identidades com que as receitas semeiam.

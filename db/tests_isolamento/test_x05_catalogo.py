@@ -277,6 +277,12 @@ class TestCatalogoReal(ComBase):
                 # («pay» < «pri»). A oferta esta acima, antes de
                 # `outbound_messages`.
                 ("platform", "price_quotes", "tenant_id"),
+                # KAM-091: o estado da saga, entre a cotacao e o caso de
+                # reembolso («pri» < «pro» < «ref»). A nota do KAM-045 abaixo
+                # vale outra vez, e e a terceira vez que vale: sao **tres** as
+                # listas deste ficheiro que precisam de uma tabela isolada nova,
+                # e as tres estao feitas no mesmo PR.
+                ("platform", "provisioning_step", "tenant_id"),
                 ("platform", "refund_cases", "tenant_id"),
                 # KAM-045: a reserva de stock, entre o caso de reembolso e o
                 # canal («ref» < «sto» < «ten»). A nota do KAM-044 mais abaixo
@@ -520,6 +526,10 @@ class TestCatalogoReal(ComBase):
                 ("payment_events", "tenant_iso", "ALL", "{public}"),
                 # KAM-043: a cotacao, depois das de pagamento.
                 ("price_quotes", "tenant_iso", "ALL", "{public}"),
+                # KAM-091: **uma** politica, a `tenant_iso`, como as outras
+                # tabelas de `platform` que nao sao lidas pelo resolvedor. Entre
+                # `price_quotes` e `refund_cases` pelo nome da tabela.
+                ("provisioning_step", "tenant_iso", "ALL", "{public}"),
                 ("refund_cases", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
@@ -656,6 +666,8 @@ class TestCatalogoReal(ComBase):
              # A oferta esta acima, entre `message_templates` e
              # `outbound_messages`.
              "price_quotes",
+             # KAM-091: o estado da saga, entre a cotacao e o caso de reembolso.
+             "provisioning_step",
              "refund_cases",
              # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
              "stock_reservations",

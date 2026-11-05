@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.63"
+versao_dicionario: "1.64"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -12199,6 +12199,170 @@ entradas:
       - "check_violation"
       - "CommerceRegistry"
     variantes_literais: []
+  - seccao: "3.47"
+    conceito: "Armazém do estado da saga"
+    canonico: "platform.provisioning_step, dez colunas"
+    literais:
+      - "platform.provisioning_step"
+    nomes:
+      - "platform.provisioning_step"
+    nomes_nota:
+      - "onboarding_id"
+      - "tenant_id"
+      - "step"
+      - "status"
+      - "attempt"
+      - "external_id"
+      - "error_code"
+      - "status_de_espera"
+      - "criado_at"
+      - "atualizado_at"
+      - "UNIQUE"
+      - "uuid"
+      - "payment_outbox_map"
+      - "id"
+      - "marcar"
+      - "ON"
+      - "CONFLICT"
+      - "abrir"
+    variantes_literais:
+      - "provisioning_step(case_id, …)"
+  - seccao: "3.47"
+    conceito: "Pré-alocação do tenant na saga"
+    canonico: "provisioning_step.tenant_id, sem FK para platform.tenants"
+    literais:
+      - "provisioning_step.tenant_id"
+      - "platform.tenants"
+    nomes:
+      - "provisioning_step.tenant_id"
+      - "platform.tenants"
+    nomes_nota:
+      - "NOT"
+      - "NULL"
+      - "tenant_e_caso"
+      - "tenants"
+      - "provisioning_step"
+      - "onboarding_case.tenant_id"
+      - "tenant_iso"
+      - "tenant_id"
+      - "status"
+      - "EsperadoDoTenant"
+    variantes_literais: []
+  - seccao: "3.47"
+    conceito: "Passo da saga de provisioning"
+    canonico: "provisioning_step.step ∈ {tenant_e_caso, chave_llm, canal_comercio, conta_atendimento, entitlements, espera_es, inbox_e_rota, teste_ponta_a_ponta}"
+    literais:
+      - "provisioning_step.step"
+      - "tenant_e_caso"
+      - "chave_llm"
+      - "canal_comercio"
+      - "conta_atendimento"
+      - "entitlements"
+      - "espera_es"
+      - "inbox_e_rota"
+      - "teste_ponta_a_ponta"
+    nomes:
+      - "provisioning_step.step"
+      - "tenant_e_caso"
+      - "chave_llm"
+      - "canal_comercio"
+      - "conta_atendimento"
+      - "entitlements"
+      - "espera_es"
+      - "inbox_e_rota"
+      - "teste_ponta_a_ponta"
+    nomes_nota:
+      - "conta_atendimento"
+      - "chatwoot"
+      - "canal_comercio"
+      - "medusa"
+    variantes_literais: []
+  - seccao: "3.47"
+    conceito: "Estado de um passo da saga"
+    canonico: "provisioning_step.status ∈ {em_curso, concluido, falhado, escalado, compensado}"
+    literais:
+      - "provisioning_step.status"
+      - "em_curso"
+      - "concluido"
+      - "falhado"
+      - "escalado"
+      - "compensado"
+    nomes:
+      - "provisioning_step.status"
+      - "em_curso"
+      - "concluido"
+      - "falhado"
+      - "escalado"
+      - "compensado"
+    nomes_nota:
+      - "status"
+      - "estado"
+      - "ok"
+      - "erro"
+      - "regra"
+      - "escalado"
+      - "compensado"
+      - "externo_em_falta"
+    variantes_literais: []
+  - seccao: "3.47"
+    conceito: "Espera de um passo da saga"
+    canonico: "provisioning_step.status_de_espera ∈ {aguarda_es, aguarda_catalogo, aguarda_teste}"
+    literais:
+      - "provisioning_step.status_de_espera"
+      - "aguarda_es"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+    nomes:
+      - "provisioning_step.status_de_espera"
+      - "aguarda_es"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+    nomes_nota:
+      - "onboarding_case.fase"
+      - "aguarda_teste"
+      - "abandonado"
+    variantes_literais: []
+  - seccao: "3.47"
+    conceito: "Tentativas de um passo"
+    canonico: "provisioning_step.attempt"
+    literais:
+      - "provisioning_step.attempt"
+    nomes:
+      - "provisioning_step.attempt"
+    nomes_nota:
+      - "integer"
+      - "NOT"
+      - "NULL"
+      - "DEFAULT"
+      - "CHECK"
+      - "attempt"
+      - "abrir"
+      - "marcarEspera"
+    variantes_literais: []
+  - seccao: "3.47"
+    conceito: "Forma do código de erro da saga"
+    canonico: "provisioning_step.error_code ~ '^[A-Za-z][A-Za-z0-9_]{2,63}$', senão erro_opaco"
+    literais:
+      - "provisioning_step.error_code ~ '^[A-Za-z][A-Za-z0-9_]{2,63}$'"
+      - "erro_opaco"
+    nomes:
+      - "provisioning_step.error_code"
+      - "A"
+      - "Za"
+      - "z"
+      - "z0"
+      - "_"
+      - "erro_opaco"
+    nomes_nota:
+      - "snake_case"
+      - "CHECK"
+      - "erro.name"
+      - "String"
+      - "e"
+      - "codigoDoErro"
+      - "erro_opaco"
+    variantes_literais:
+      - "String(e)"
 
 tabelas:
   - nome: "contacts"
@@ -14208,6 +14372,37 @@ dominios:
       - "recusada_dono"
     seccao: "3.46"
     conceito: "Motivo de libertação de uma reserva"
+    so_no_registo: false
+  - coluna: "provisioning_step.step"
+    valores:
+      - "tenant_e_caso"
+      - "chave_llm"
+      - "canal_comercio"
+      - "conta_atendimento"
+      - "entitlements"
+      - "espera_es"
+      - "inbox_e_rota"
+      - "teste_ponta_a_ponta"
+    seccao: "3.47"
+    conceito: "Passo da saga de provisioning"
+    so_no_registo: false
+  - coluna: "provisioning_step.status"
+    valores:
+      - "em_curso"
+      - "concluido"
+      - "falhado"
+      - "escalado"
+      - "compensado"
+    seccao: "3.47"
+    conceito: "Estado de um passo da saga"
+    so_no_registo: false
+  - coluna: "provisioning_step.status_de_espera"
+    valores:
+      - "aguarda_es"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+    seccao: "3.47"
+    conceito: "Espera de um passo da saga"
     so_no_registo: false
 
 variantes:
