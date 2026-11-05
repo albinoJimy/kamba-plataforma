@@ -95,6 +95,10 @@
       "types": "./dist/onboarding/index.d.ts",
       "default": "./dist/onboarding/index.js"
     },
+    "./provisioning": {
+      "types": "./dist/provisioning/index.d.ts",
+      "default": "./dist/provisioning/index.js"
+    },
     "./pagamentos": {
       "types": "./dist/pagamentos/index.d.ts",
       "default": "./dist/pagamentos/index.js"
