@@ -90,7 +90,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
-        log-lint money-lint env-lint x11 storage-contrato mermaid \
+        log-lint money-lint env-lint x11 storage-contrato mermaid reuso \
         compose-prod-lint compose-prod-egress \
         ordem-dos-ensaios
 
@@ -459,6 +459,29 @@ log-lint:
 # vermelho em sete PRs com o gate verde.
 #
 # So biblioteca padrao: corre com o Python do anfitriao, em segundos.
+
+# --- A regra de dois, medida (KAM-039) ----------------------------------------
+#
+# **NAO ESTA EM NENHUM GATE, e isso e o ponto.** O bloco do KAM-039 pede que o
+# CI falhe com `grep > 0` e abaixo de 70% de reuso, e as duas coisas sao
+# **regras de bloqueio**: mudam o que impede uma fusao. Nesta casa isso decide-o
+# quem as assina, e um *job* novo acrescenta um contexto exigido ao *ruleset* de
+# `main` — a mesma fronteira, pela mesma razao que o `log-lint` e o `money-lint`
+# escrevem acima. O que este alvo entrega e a **medicao**, correivel a mao e
+# pronta a entrar num gate que ja existe no dia em que isso for decidido.
+#
+# Os dois artefactos vao para `ci/`, que o `.gitignore` cobre: sao medicoes, e
+# uma medicao committada afirma um numero que deixa de ser verdade no commit
+# seguinte. As regras de contagem estao em `docs/reuse-metric.md`; as fronteiras
+# em `ci/regra-de-dois.yaml`.
+## reuso: regra de dois (ADR-012) — reaproveitamento >= 70% e nucleo sem excepcoes
+reuso:
+	@echo "==> regra de dois: metrica de reaproveitamento e criterio (d)"
+	@mkdir -p ci
+	@cd tools && $(ROOT)/$(PYTHON) -m reuse_metric --root $(ROOT) \
+	  --json $(ROOT)/ci/reuso.json medir
+	@cd tools && $(ROOT)/$(PYTHON) -m reuse_metric --root $(ROOT) \
+	  --json $(ROOT)/ci/nucleo.json nucleo
 
 ## money-lint: nenhum montante por `number` nem por virgula flutuante (KAM-052)
 money-lint:

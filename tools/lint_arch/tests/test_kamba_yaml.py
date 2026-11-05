@@ -825,6 +825,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from lint_contagens.cli import ler_declaracoes as _contagens
         from lint_handoff.cli import ler_excepcoes as _handoff
         from lint_refs.cli import Excepcoes
+        from reuse_metric.cli import ler_declaracao as _regra_de_dois
         from ruleset_check.config import ler as _ruleset
         from sbom.cli import ler_politica
         from scan_secrets.scanner import Permissoes
@@ -846,6 +847,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         ler_inventario(ROOT)
         ler_registo(ROOT)
         _ruleset(ROOT)
+        _regra_de_dois(ROOT)
 
     #: Para cada `ci/*.yaml`, o conjunto que o seu leitor declara. A chave e o
     #: caminho relativo a raiz, e e por **descoberta** que se verifica que esta
@@ -862,6 +864,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from lint_contagens import cli as contagens
         from lint_handoff import cli as handoff
         from lint_refs.cli import CHAVES as chaves_refs
+        from reuse_metric.cli import CHAVES as chaves_regra_de_dois
         from ruleset_check import config as ruleset_config
         from sbom.cli import CHAVES_DE_LICENCAS
         from scan_secrets import scanner
@@ -880,6 +883,9 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
             "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
             "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
             "ci/ruleset.yaml": ruleset_config.CHAVES,
+            # A regra de dois (KAM-039): as fronteiras do nucleo e a
+            # classificacao do caminho de execucao.
+            "ci/regra-de-dois.yaml": chaves_regra_de_dois,
             "ci/rls_exceptions.yaml": {"version", "excepcoes"},
             "ci/secdef_allowlist.yaml": {"version", "funcoes"},
             "ci/supply-chain/imagens.yaml": imagens._CHAVES_TOPO,
