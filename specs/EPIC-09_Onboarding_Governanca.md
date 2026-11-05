@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -500,7 +500,20 @@ Testes: unit, integração, BD (restrição), adversarial (versão antiga, clien
 
 ### Contexto
 
-A saga cria, por tenant, todos os recursos internos e externos, e tem de aguentar *crash* a meio, redelivery do evento e falha de terceiros sem duplicar nem deixar órfãos. É dirigida por eventos (`tenant.approved`, ADR-009) e cada passo é um *ensure* idempotente com chave natural derivada de `tenant_id`. Pontos de atenção (E4, `../docs/tecnica/10` §5.3): a criação de *inbox* WhatsApp pela Platform API do Chatwoot é **NÃO VERIFICADA** (a Platform API lista `accounts`, `users`, `account_users`, `agent_bots`; spike no KAM-019, que resolve a topologia I: GWY único endpoint, inbox de tipo API); a Platform API só opera sobre recursos criados pela mesma chave; o passo Medusa depende de D3 (`CommerceRegistry` esconde a alternativa, KAM-042). Os passos de ES e de teste são esperas externas, não falhas. Divergência documental: `../docs/tecnica/01` §13.2 põe o Chatwoot em `tenant.activated`; vale `../docs/tecnica/10` §5 (PA-GOV-1).
+A saga cria, por tenant, todos os recursos internos e externos, e tem de aguentar *crash* a meio, redelivery do evento e falha de terceiros sem duplicar nem deixar órfãos. É dirigida por eventos (`tenant.approved`, ADR-009) e cada passo é um *ensure* idempotente com chave natural derivada de `tenant_id`. Pontos de atenção (E4, `../docs/tecnica/10` §5.3): a criação de *inbox* WhatsApp pela Platform API do Chatwoot é **NÃO VERIFICADA** (a Platform API lista `accounts`, `users`, `account_users`, `agent_bots`; spike no KAM-019, que resolve a topologia I: GWY único endpoint, inbox de tipo API); a Platform API só opera sobre recursos criados pela mesma chave; o passo Medusa depende de D3 (`CommerceRegistry` esconde a alternativa, KAM-042). Os passos de ES e de teste são esperas externas, não falhas.
+
+**Divergência documental, remedida no KAM-091 — e esta frase dizia a divergência errada.** Dizia que «`../docs/tecnica/01` §13.2 põe o Chatwoot em `tenant.activated`». **Não põe**: o §13.2 escreve, no passo 9, «Chatwoot: conta, bot, inbox (`tenant.approved`)», e `../docs/tecnica/01` tem **zero** ocorrências de `tenant.activated` no documento inteiro. O gatilho é o **mesmo** nos dois documentos, e já era: a emenda KAM-111 pagou-o, e a linha 1.1 do controlo de versões daquele documento declara-o («§11 e §13.2, D-07 (gatilho `tenant.approved`)»).
+
+A divergência **real** é de **ordem** e de **granularidade**, e essa continua:
+
+| | `../docs/tecnica/10` §5.2 | `../docs/tecnica/01` §13.2 |
+|---|---|---|
+| nº de passos | 8 | 11 (com um `5′`) |
+| Chatwoot | passo **4** (conta + utilizadores), **antes** do ES | passo **9** (conta + bot + inbox), **depois** do ES (passo 2) e dos *templates* (passo 8) |
+| *inbox* | passo **7**, separado da conta, chave `phone_number_id` | dentro do passo 9, junto com a conta |
+| ES v4 | passo **6**, estado de espera | passo **2** |
+
+Isto é, os dois documentos **invertem a ordem relativa do Chatwoot e do ES** e **discordam se a conta e a *inbox* são um passo ou dois**. Vale `../docs/tecnica/10` §5 (PA-GOV-1), e é essa a ordem que a saga implementa: oito passos, Chatwoot ao 4, ES ao 6, *inbox* ao 7. O §13.2 passa a remeter para cá.
 
 ### Objectivo
 
@@ -517,6 +530,47 @@ Implementar a saga de 8 passos com estado em Postgres, execução por consumidor
 - [ ] A compensação nunca apaga o WABA nem o número do cliente (são dele; E1): só cancela a subscrição de webhooks e remove a rota; o canal Medusa é arquivado, e só apagado se vazio.
 - [ ] Reconciliação nocturna compara `tenants` ≠ `encerrado` com contas Chatwoot, chaves LiteLLM, canais Medusa e `tenant_channels`; classifica `orfao_externo` e `externo_em_falta`; compensa automaticamente só recursos de casos `cancelado` há > 24 h (*proposta*) e apenas os criados por esta saga (etiqueta).
 - [ ] Métricas: `saga_first_attempt_success_ratio`, duração por passo, falhas por passo e órfãos; alvo ≥ 95% à 1.ª tentativa.
+
+### Verificação dos Critérios de Aceitação
+
+São **nove** critérios e **seis** linhas de DoD — contados no bloco, não de memória.
+
+Medição de **2026-11-05**. As quatro *suites* são
+`packages/core-ts/tests/provisioning.{saga,crash,cliente,reconciliacao}.test.ts`:
+**81 ensaios, 81 verdes**. Reproduz-se com `node --test` sobre as quatro (não há
+`node` no anfitrião: corre no contentor do `.node-version`, fixado por digest,
+como o `db/tests_eventos/node.py` já faz).
+
+**Antes de qualquer caixa:** correram **19 mutações** contra o código que estes
+critérios guardam, e as **19 morreram**. Uma sobreviveu na primeira passagem e
+apanhou um defeito real — o «só os `done`» do critério 3 vivia no filtro do
+duplo, porque a porta chamava-se `passosConcluidos` e filtrava; passou a
+`passosDoCaso`, devolve tudo, e quem filtra é o `compensar`. Sem essa correcção,
+a caixa do critério 3 estaria marcada com evidência que media o duplo.
+
+**O que NÃO está a correr neste repositório, e por isso não se mede:** não há
+serviço `medusa` em compose nenhum — nem no `docker-compose.dev.yml`, nem no de
+produção do KAM-076 —, não há imagem publicada do Medusa e não há
+`services/medusa/Dockerfile` (o `infra/compose/conjunto-reduzido.yaml` di-lo por
+escrito); e o `CommerceRegistry` tem doze métodos, **nenhum** dos quais cria
+*sales channel* ou *merchant*. O Chatwoot e o LiteLLM **têm** compose
+(`docker-compose.chatwoot.yml`, `docker-compose.llm.yml`, e os dois no de
+produção), mas a *suite* de integração em contentores que o ticket pede não
+correu. **Nada aqui prova os três serviços**: prova a máquina de estados, e
+onde a evidência pedida é «contagem asseverada nos contentores» a caixa fica
+**vazia** com o credor nomeado.
+
+| ID | Resultado | O que se mediu, e com que ensaio |
+|---|---|---|
+| AC-1 | **parcial** | **Nos duplos: medido.** `provisioning.saga.test.ts`, suite «criterio 1»: duas passagens dão `criadas === 1` nos três inventários (chave LiteLLM, canal, *inbox*) e `handoff.chamadas === 1`; a terceira passagem também. Os duplos são `Map`s **burros** — `criar` cria sempre e soma ao contador —, pelo que o 1 só pode vir da procura-antes-de-criar, que está no nosso código. Caminho legítimo ao lado: um segundo tenant dá `criadas === 2`. Mutações: apagar o `procurar` de qualquer dos três passos põe a *suite* vermelha (3 de 3 mortas). **«Contagem asseverada nos contentores»: vazia** — credor D3/KAM-042 para o Medusa (não existe) e a *suite* de integração para o Chatwoot e o LiteLLM |
+| AC-2 | **parcial** | Os oito passos e a ordem estão medidos (`PASSOS` presa num ensaio literal; as escritas de `concluido` saem na ordem de `PASSOS`). As chaves naturais medidas: alias `tenant-<uuid>` (passo 2), `metadata.tenant_id` (passo 3), `tenant_id` (passo 4), `(tenant_id, modulo)` (passo 5), `phone_number_id` (passos 6 e 7, com `ON CONFLICT (phone_number_id)` afirmado no SQL), `onboarding_id` (passos 1 e 8). O `tenant_id` do passo 1 é o **pré-alocado** e não um gerado. **Vazio:** «canal+*merchant* Medusa via `CommerceRegistry`» — a porta não tem o método, e o `RegistoDeCanalDeComercio` deste módulo é a forma de que a saga precisa, não um adaptador. **E os limites iniciais de KAM-096** não estão medidos: esse ticket não aterrou |
+| AC-3 | **marcada** | `provisioning.saga.test.ts`, suite «criterio 3»: falha injectada no passo 4, e os `compensado:` saem **`canal_comercio`, `chave_llm`, `tenant_e_caso`** — por essa ordem. O armazém devolve as linhas **embaralhadas** de propósito, e o `ordemInversa` é medido à parte com as linhas fora de ordem à entrada. «Só os `done`»: o passo 4 ficou `escalado` e não é compensado, com a asserção a confirmar que o armazém **trouxe** a linha escalada (senão o filtro não era exercido). As portas certas: chave revogada, canal arquivado e apagado por estar vazio, caso marcado `cancelado`; um canal com encomendas arquiva-se e **não** se apaga. **A segunda metade — «a reconciliação nocturna seguinte reporta 0 órfãos» — está medida em `provisioning.reconciliacao.test.ts` sobre inventários em memória, não sobre uma noite real** |
+| AC-4 | **marcada** | `provisioning.crash.test.ts`. A falha cai **exactamente** na janela entre o *ensure* devolver e o `marcarConcluido` gravar, e levanta **uma vez**. Para cada um dos três passos com *ensure* nosso: `criadas === 1` depois da repetição; o `crash` **disparou de facto** (asserção sobre a ordem das escritas: a criação vem antes do `crash` e o `concluido` depois dele — sem isto, o ensaio passava por nunca ter medido a janela); o `external_id` não é de uma segunda criação; e, ao lado, o caminho sem *crash* conclui à primeira. O passo 4 delega no `HandoffProvider.ensureAccount` (KAM-019), que já procura antes de criar (`src/hnd/provedor.ts:210`) e tem *suite* própria — aqui mede-se que o *crash* o deixa retomável, e **não** se reimplementa nem se reprova a garantia dele. A metade do *write-ahead* não se aplica: as três portas suportam pesquisa por chave natural |
+| AC-5 | **marcada** | Duas metades, medidas à parte. Os números: `atrasoDaTentativa` dá 0, 1×, 2× e 4× a base — exponencial e não linear (a mutação para linear morre). O tecto: três falhas no passo 4 dão **exactamente três** chamadas ao *ensure*, estado `escalado`, e os atrasos pedidos são `[0, 1×, 2×]` e nada depois. **E uma segunda entrega do evento não reabre um passo escalado** — é aqui que o «sem retry infinito» se ganha, porque o `tenant.approved` entrega-se *at-least-once*. Caminho legítimo: uma falha que resolve à 2.ª conclui e marca `primeiraTentativa: false`. **Vazio:** «abre `review_case` tipo `saga` e alerta» — a tabela não existe (credor KAM-089, com bloco); grava-se o estado terminal no `provisioning_step` e conta-se a `saga_escalada_total`, que é o alerta |
+| AC-6 | **parcial** | As esperas estão medidas: sem número do ES o passo 6 fica `aguarda_es` e **não gasta tentativa** (`attempt` reposto a 0); três passagens em espera não escalam; quando o número chega, destrava e a saga conclui. O passo 8 distingue `null` (espera) de `false` (falha que gasta tentativa) — tratar as duas como espera deixava o caso pendurado para sempre. **Vazio:** «sem ES durante 14 dias ⇒ `abandonado` e compensação» — o prazo é um *job* de calendário e o `abandonado` é valor de `onboarding_case.estado`, que não existe (credor KAM-086); e «a espera na lista de espera (KAM-095) não conta» depende desse ticket |
+| AC-7 | **marcada** | `provisioning.cliente.test.ts`, e é a propriedade imposta **em execução**: a compensação declara `{tipo, recurso, ref}` e o guarda avalia antes de executar. Medido nas duas direcções e na mesma montagem: o **caminho legítimo** faz as duas acções (`cancelar_subscricao` no WABA, `remover_rota` no número) e os contadores `wabasApagados`/`numerosApagados` ficam a **0**; o **canário** — um `apagar` sobre o número ou o WABA — levanta `RecursoDoClienteError` e as portas destrutivas continuam a zero. A `CanalDoCliente` tem `apagarWaba` e `apagarNumero` **de propósito**, para que o erro seja escrevível. Mais: varredura exaustiva de todos os tipos × recursos do cliente; o predicado medido a negar por cada metade sozinha (só o recurso, só o tipo, ambos); a saga inteira compensada com os oito passos e `proibidas === []`; e o passo 1 emite `marcar_cancelado` e **nenhum** `apagar`. Quatro mutações ao guarda e ao predicado: as quatro morrem. O canal Medusa arquiva-se e só se apaga se vazio — medido no AC-3 |
+| AC-8 | **parcial** | `provisioning.reconciliacao.test.ts`. A classificação é pura e medida nos dois sentidos: órfão que ninguém reclama, recurso em falta, **e o caminho legítimo** (presente nos dois lados não é divergência). «Recurso não criado por nós é ignorado»: é visto, classificado e marcado `nosso: false`, e **não** é compensado. Um recurso de tenant **vivo** ainda sem linha `concluido` **não** é órfão — é a janela do AC-4 vista do outro lado, e sem isto a reconciliação apagava o que a saga acabou de criar. As três condições da compensação automática medidas **cada uma a negar sozinha** (classe, etiqueta, caso cancelado há > 24 h), mais o caso sem `tenant_id`. Órfão semeado é detectado e compensado; uma compensação que falha não esconde o segundo órfão. **Vazio:** a comparação é contra `InventarioExterno` em memória e **não** contra contas Chatwoot, chaves LiteLLM e canais Medusa reais — credores os mesmos do AC-1 |
+| AC-9 | **parcial** | As séries existem e nascem com o código: `saga_first_attempt_total{passou}` (medida: `sim` quando os oito passam à primeira, `nao` quando um precisou de 2.ª), `saga_step_failures_total{step}`, `saga_escalada_total{step}`, `saga_compensado_total{recurso}`, `saga_orfaos{classe}` (as duas séries escritas, **incluindo a que fica a zero**) e `saga_step_duration_ms{step}`. O nome do critério diz `saga_first_attempt_success_ratio`; **o que sai são dois contadores e não um rácio**, com a razão escrita no módulo: um rácio pré-calculado não se reagrega (a média de rácios de três instâncias não é o rácio do conjunto), e o alvo de ≥ 95% escreve-se na regra de alerta. Nenhuma métrica aceita etiqueta de tenant — a chamada **levanta**, e há ensaio. **Vazio:** o alvo «≥ 95% à 1.ª tentativa» é uma medição de produção, e não há produção |
 
 ### Detalhes Técnicos
 
@@ -550,6 +604,17 @@ async function rollback(c: Case) { for (const s of reverse(await db.doneSteps(c.
 - [ ] Chatwoot sem funcionalidades Enterprise; LiteLLM ≥ 1.83.0 por digest; Medusa Admin só da equipa (ADR-005, E4).
 - [ ] Métricas e alertas de órfãos nascem com o código (ADR-018); dois revisores (segredos e isolamento).
 - [ ] Documentação actualizada, incluindo a divergência `../docs/tecnica/01` §13.2 vs `../docs/tecnica/10` §5.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| CA satisfeitos; teste «repetir `tenant.approved` 2×» verde no CI | **vazia** | O teste **existe e está verde** (`provisioning.saga.test.ts`, suite «criterio 1»), e entra no *gate* 4 com as outras três *suites*. Mas a caixa pede os CA satisfeitos, e **seis dos nove são parciais** — cada um com a parte que falta nomeada acima. Os credores são o **D3/KAM-042** (não há Medusa), o **KAM-086** (`onboarding_case`), o **KAM-089** (`review_case`), o **KAM-095** (lista de espera), o **KAM-096** (limites iniciais) e a *suite* de integração em contentores |
+| Idempotência por passo e compensação testadas (ADR-009); migração reversível; sem retry infinito | **parcial** | A idempotência por passo e a compensação estão testadas, e as **19 mutações** mostram que os ensaios ficam vermelhos quando o código que elas guardam muda. «Sem retry infinito» medido nas duas metades, incluindo a segunda entrega do evento. **A migração é a parte vazia:** a `0034` do `provisioning_step` encadeia na `0033` do KAM-045, que ainda não fundiu — com a cadeia linear, abri-la agora punha o *gate* 8 vermelho até esse PR aterrar. A tabela e o seu `downgrade` entram quando a `0033` estiver em `main` |
+| Segredos só no cofre; nada de chaves em logs, *traces* ou `provisioning_step`; *scan* limpo | **marcada** | O `error_code` leva a **classe** do erro ou um identificador curto em `snake_case`, nunca a mensagem — o esboço do `../docs/tecnica/10` §5.2 escrevia `String(e)`, e um corpo de resposta do LiteLLM ou da Platform API pode trazer a chave. Medido com quatro ensaios, incluindo um erro cujo corpo é `{"error":"invalid key sk-…"}` a sair `erro_opaco`, e um a confirmar que o `error_code` **gravado** não contém `sk-`. As linhas de *log* levam só os campos da lista branca do `../docs/tecnica/08` §7.3 — imposta pelo `SoCampos` do *logger*, que recusou em compilação os campos `step`, `attempt`, `motivo` e `recurso` da primeira versão: o passo passou ao `outcome` e o `attempt` ficou na coluna. A chave do LiteLLM guarda-se **por referência** (`litellm_key_id`). *Scan*: o `scan_secrets` corre no `pre-commit` e no *gate* 9 |
+| Chatwoot sem funcionalidades Enterprise; LiteLLM ≥ 1.83.0 por digest; Medusa Admin só da equipa | **vazia** | Nada neste PR toca nas imagens nem nas *flags*: o Chatwoot vem `v4.18.0` por digest e o LiteLLM por digest do `docker-compose.prod.yml` do **KAM-076**, e é lá que esta caixa se mede. O **Medusa não existe** para ter Admin. Credores: KAM-076 (imagens), D3/KAM-042 (Medusa) |
+| Métricas e alertas de órfãos nascem com o código (ADR-018); dois revisores (segredos e isolamento) | **vazia** | **Duas metades, e a segunda é devolvida.** As métricas nascem com o código — as seis séries estão no `metricas.ts` e medidas. **Os «dois revisores» ficam devolvidos por decisão do fundador de 2026-11-05:** a segunda assinatura é um revisor humano que só ele nomeia, e na fase inicial as fusões seguem com CI verde sem esperar revisão humana. Não é bloqueio e não se marca |
+| Documentação actualizada, incluindo a divergência `../docs/tecnica/01` §13.2 vs `../docs/tecnica/10` §5 | **marcada** | A divergência está documentada no «Contexto» deste bloco — **e a frase que a descrevia estava errada**: dizia que o §13.2 põe o Chatwoot em `tenant.activated`, e aquele documento tem **zero** ocorrências desse nome (a emenda KAM-111 pagou-o, e a linha 1.1 do seu controlo de versões declara-o). Ficam escritas as duas coisas: o que o bloco afirmava e o que se mediu. A divergência **real** — ordem relativa Chatwoot/ES e granularidade conta-vs-*inbox* — está na tabela do Contexto, e o `../docs/tecnica/01` §13.2 passa a remeter para o `../docs/tecnica/10` §5. Fora de âmbito e registado em `../docs/dividas-documentais.md`: a nota do dicionário §3.5 que ainda manda actualizar quatro documentos que já não têm o nome errado |
 
 ### Handoff para Claude Code
 
@@ -1376,3 +1441,4 @@ Não expandas escopo: sem unit economics (KAM-081), sem encerramento (KAM-098). 
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 14 tickets (KAM-086 a KAM-099) do onboarding self-service automático e da governação da Fase 1; KAM-116 e KAM-117 acrescentados na consolidação. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-145: os **39** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | KAM-091: entram as duas secções de verificação do bloco da saga de provisioning — **nove** critérios e **seis** linhas de DoD, contados no bloco. Seis critérios ficam **parciais** e três caixas de DoD **vazias**, cada uma com o credor nomeado: **D3/KAM-042** (não há serviço `medusa` em compose nenhum, nem imagem publicada, nem método de canal no `CommerceRegistry`), **KAM-086** (`onboarding_case`), **KAM-089** (`review_case`), **KAM-095**, **KAM-096** e o **KAM-076** (imagens por digest). A caixa dos «dois revisores» fica devolvida por decisão do fundador de 2026-11-05. E **o Contexto deste bloco descrevia a divergência documental errada**: dizia que `../docs/tecnica/01` §13.2 põe o Chatwoot em `tenant.activated`, e aquele documento tem **zero** ocorrências desse nome — a emenda KAM-111 pagou-o. A divergência real é de **ordem** (Chatwoot ao 4 antes do ES, contra ao 9 depois dele) e de **granularidade** (conta e *inbox* em dois passos, contra um), e vale o `../docs/tecnica/10` §5 (PA-GOV-1). Ficam escritas as duas coisas: o que o bloco afirmava e o que se mediu. | Equipa KAMBÁ |
