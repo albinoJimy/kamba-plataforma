@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.59"
+versao_dicionario: "1.60"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -10027,19 +10027,35 @@ entradas:
     variantes_literais: []
   - seccao: "3.40"
     conceito: "Cotação válida"
-    canonico: "getValidQuote(ctx, sku, qty) → PriceQuote \| null"
+    canonico: "getValidQuote(ctx, contactId, sku, qty) → PriceQuote \| null"
     literais:
-      - "getValidQuote(ctx, sku, qty) → PriceQuote \| null"
+      - "getValidQuote(ctx, contactId, sku, qty) → PriceQuote \| null"
     nomes:
       - "getValidQuote"
       - "ctx"
+      - "contactId"
       - "sku"
       - "qty"
       - "PriceQuote"
       - "null"
     nomes_nota:
       - "createOrder"
-    variantes_literais: []
+      - "contactId"
+      - "sku"
+      - "qty"
+      - "resolverLinha"
+      - "proposeCart"
+      - "offer_terms"
+      - "ctx"
+      - "Ctx"
+      - "tenantId"
+      - "actor"
+      - "traceId"
+      - "OrderIntent.contactId"
+      - "OrderFilter.contactId"
+    variantes_literais:
+      - "getValidQuote(ctx, sku, qty)"
+      - "getValidQuote(sku, qty)"
   - seccao: "3.40"
     conceito: "Origem de um preço de linha"
     canonico: "origem_preco ∈ {offer_terms, cotacao_dono}"

@@ -397,10 +397,20 @@ def _price_quotes() -> None:
         "A FK do contacto e composta pela correccao de 2026-10-27 do secao 5.4. "
         "Dicionario 3.40.'"
     )
-    # O `getValidQuote(sku, qty)` procura a cotacao viva de um `(tenant, sku)`,
-    # a mais recente primeiro. Parcial em `emitida` porque uma cotacao aceite,
-    # expirada ou revogada nao se oferece — e a parcialidade mantem o indice do
-    # tamanho das que contam, nao do historico.
+    # O `getValidQuote` procura a cotacao viva de um `(tenant, contacto, sku,
+    # qty)`, a mais recente primeiro. Parcial em `emitida` porque uma cotacao
+    # aceite, expirada ou revogada nao se oferece — e a parcialidade mantem o
+    # indice do tamanho das que contam, nao do historico.
+    #
+    # **O `contact_id` nao entra na chave, e desde o KAM-179 isso e uma
+    # escolha e nao uma omissao.** A cotacao e por contacto por decisao do
+    # fundador de 2026-11-04, pelo que a consulta filtra `tenant_id`,
+    # `contact_id`, `sku` e `qty`; este indice serve-lhe o prefixo
+    # `(tenant_id, sku)` e o `contact_id` e o `qty` filtram sobre ele. O
+    # `valida_ate DESC` da chave nunca foi usado para ordenar — o
+    # `SQL_COTACAO_VALIDA` ordena por `criado_at DESC` —, pelo que o que este
+    # indice da e a reducao do conjunto. Se o volume por `(tenant, sku)`
+    # crescer, o sitio onde se mede e aqui: **NAO VERIFICADO** no Piloto.
     op.execute(
         f"CREATE INDEX price_quotes_vivas_idx ON {PRICE_QUOTES} "
         "(tenant_id, sku, valida_ate DESC) WHERE estado = 'emitida'"
