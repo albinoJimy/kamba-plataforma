@@ -1,0 +1,192 @@
+"""Os consumidores EVT — o que um consumidor de A ve do que e de B.
+
+Criterio 2 do KAM-066 nomeia os «consumidores EVT» entre as quatro superficies
+enumeradas, e a enumeracao encontra oito: um por `{tipo, versao}` de cada
+vertical, com `consumer = "agr_" + id` (KAM-038, criterio 1). Cada um precisa
+de caso, e este modulo escreve-o.
+
+## Qual e a propriedade de isolamento de um consumidor
+
+Um consumidor nao e uma rota: ninguem lhe faz um pedido com identificadores de
+outro tenant. O que ele faz e **ler um envelope e escrever uma marca**, e o
+`tenant_id` do contexto vem do envelope e nao da fila (`eventos/consumo.ts`: «o
+valor vem do envelope e nao da fila: a fila trouxe um ponteiro, e quem diz de
+quem e o evento e o arquivo»).
+
+Logo a pergunta certa e: com o contexto de A, o que e que o caminho de consumo
+ve das tres tabelas de A e de B?
+
+```text
+events_log       o arquivo de onde o envelope se le
+events_consumed  a marca de exactamente-uma-vez, com chave (consumer, event_id)
+events_dlq       a fila de mortos
+```
+
+As tres tem `tenant_id`, `ENABLE`, `FORCE` e a politica `tenant_iso`, e as tres
+tem receita de semente — pelo que A e B tem, cada um, uma linha com o seu
+canario em cada uma. O caso pergunta, **por consumidor**, se as linhas de B
+aparecem com o contexto de A, e se a marca de B aparece quando se procura pela
+chave `(consumer, event_id)` dele.
+
+## O que este caso nao prova, e fica dito
+
+Nao levanta Redis nem consome um *job* de verdade: a entrega e do KAM-038 e a
+suite dele (`db/tests_eventos_consumo/`) mede-a. O que esta bateria mede e o
+que o KAM-066 lhe pede — que nenhum canario de B atravesse pelo caminho do
+consumidor — e mede-o na camada onde o canario existe.
+
+**A chave de `events_consumed` nao tem `tenant_id`**, e e isso que torna este
+caso necessario em vez de redundante com o X-03: a chave e
+`(consumer, event_id)`, pelo que dois tenants que partilhem um `consumer` —
+que e exactamente o caso, porque o `consumer` e por vertical — distinguem-se
+**so** pela politica. Um `consumer` por vertical com a politica desligada
+punha a marca de A a dizer «duplicado» a um evento de B.
+"""
+
+from __future__ import annotations
+
+from ..casos import registar_caso
+
+#: Os oito consumidores que a enumeracao encontra. Literais de proposito.
+CONSUMIDORES = (
+    "consumidor:agr_vendedor:payment.confirmed@1",
+    "consumidor:agr_vendedor:payment.manual_confirmed@1",
+    "consumidor:agr_vendedor:order.expired@1",
+    "consumidor:agr_vendedor:stock.low@1",
+    "consumidor:agr_servicos:booking.created@1",
+    "consumidor:agr_servicos:booking.reminder_due@1",
+    "consumidor:agr_servicos:payment.confirmed@1",
+    "consumidor:agr_servicos:payment.manual_confirmed@1",
+)
+
+#: As tres tabelas do caminho de consumo.
+#:
+#: **A `events_dlq` nao se le com `kamba_app`**, e nao e esquecimento: a receita
+#: dela declara `leitura_do_papel=False` porque o papel nao tem `SELECT` na
+#: tabela, e uma leitura cruzada que rebenta com `42501` nao prova isolamento
+#: nenhum — prova o privilegio em falta, que e outra coisa (e mais forte). Por
+#: isso o caso **nao** a varre por SQL directo: filtra-a pelo que o `Contexto`
+#: diz ser legivel, e o que ha a provar nela esta no X-04 da suite da base.
+TABELAS = (
+    ("platform", "events_log"),
+    ("platform", "events_consumed"),
+    ("platform", "events_dlq"),
+)
+
+
+def _nomes_dos_consumidores() -> tuple[str, ...]:
+    """Os `consumer` distintos dos itens enumerados: `agr_vendedor`, `agr_servicos`."""
+    return tuple(
+        sorted({item.split(":")[1] for item in CONSUMIDORES})
+    )
+
+
+def _consumidores(ctx) -> list[str]:  # noqa: ANN001
+    if ctx.cursor_de is None:
+        return [
+            "EVT: o contexto nao traz cursores. Num gate, saltar e falhar."
+        ]
+    achados: list[str] = []
+    #: As que o papel **le**. O `Contexto` traz as tabelas ja filtradas por
+    #: `leitura_do_papel`, e e dai que se tira a lista — nao de uma segunda
+    #: lista literal, que divergiria no dia em que um privilegio mudasse.
+    legiveis = {
+        (schema, tabela)
+        for schema, tabela, _, _ in ctx.tabelas
+        if (schema, tabela) in TABELAS
+    }
+    if not legiveis:
+        return [
+            "EVT: nenhuma das tres tabelas do caminho de consumo e legivel pelo "
+            f"papel ({list(TABELAS)}). O caso nao mede o que diz medir."
+        ]
+
+    for schema, tabela in TABELAS:
+        if (schema, tabela) not in legiveis:
+            continue
+        cursor = ctx.cursor_de("app", ctx.a.id)
+        cursor.execute(f"SELECT * FROM {schema}.{tabela}")
+        linhas = [tuple(linha) for linha in cursor.fetchall()]
+        if not linhas:
+            achados.append(
+                f"EVT {schema}.{tabela}: com o contexto de A a tabela esta "
+                "vazia. A afirmacao de «nada de B» seria verde por ausencia."
+            )
+            continue
+        achados.extend(
+            f"EVT {schema}.{tabela}: {fuga}"
+            for fuga in ctx.oraculo.varrer("corpo", linhas)
+        )
+
+    # A pergunta que so esta bateria faz: a marca de B, procurada pela chave
+    # `(consumer, event_id)` **do consumidor**, com o contexto de A.
+    #
+    # **E a metade positiva leva o mesmo predicado `consumer`**, que e a
+    # correccao do achado 4 da revisao adversarial. Media-se antes com
+    # `WHERE tenant_id = A` e mais nada, e por isso nao distinguia «a politica
+    # separa» de «nao existe linha com este `consumer`» — e nao existia: a
+    # receita da suite da base escreve `consumer = 'ensaio-iso'`, pelo que a
+    # contagem para B dava zero com a RLS ligada, desligada, ou com a politica
+    # apagada. A afirmacao que justifica esta bateria passava por **ausencia**.
+    # As marcas com os `consumer` reais vem agora de
+    # `semente.semear_marcas_de_consumo`.
+    for consumer in _nomes_dos_consumidores():
+        cursor = ctx.cursor_de("app", ctx.a.id)
+        cursor.execute(
+            "SELECT count(*) FROM platform.events_consumed "
+            "WHERE consumer = %s AND tenant_id = %s",
+            (consumer, ctx.b.id),
+        )
+        quantas = cursor.fetchone()[0]
+        if quantas:
+            achados.append(
+                f"EVT consumidor {consumer}: com o contexto de A veem-se "
+                f"{quantas} marca(s) de B. A chave de `events_consumed` e "
+                "`(consumer, event_id)` e o `consumer` e por **vertical**, "
+                "partilhado pelos tenants: o que separa A de B nesta tabela e "
+                "so a politica, e ela deixou de separar."
+            )
+
+        cursor.execute(
+            "SELECT count(*) FROM platform.events_consumed "
+            "WHERE consumer = %s AND tenant_id = %s",
+            (consumer, ctx.a.id),
+        )
+        if cursor.fetchone()[0] == 0:
+            achados.append(
+                f"EVT consumidor {consumer}: o contexto de A nao ve marca "
+                f"nenhuma **deste** `consumer` em A. A contagem de zero para B "
+                "nao prova isolamento: prova que nao ha linha com este "
+                "`consumer`. E a semente que tem de a escrever "
+                "(`semente.semear_marcas_de_consumo`)."
+            )
+
+        # E o canario: a marca de B deste `consumer` **existe**, e e o
+        # administrador que o confirma. Sem isto, as duas contagens acima
+        # podiam estar as duas certas sobre uma tabela onde B nao tem nada.
+        if ctx.cursores is not None:
+            admin = ctx.cursores["admin"]
+            admin.execute(
+                "SELECT count(*) FROM platform.events_consumed "
+                "WHERE consumer = %s AND tenant_id = %s",
+                (consumer, ctx.b.id),
+            )
+            if admin.fetchone()[0] == 0:
+                achados.append(
+                    f"EVT consumidor {consumer}: nao existe marca de B com este "
+                    "`consumer`, lido pelo administrador. A contagem de zero com "
+                    "o contexto de A e verde por ausencia, que e exactamente o "
+                    "defeito que esta bateria tinha antes do achado 4."
+                )
+    return achados
+
+
+registar_caso(
+    id="EVT/consumidores",
+    bateria="X-03",
+    camada="rls",
+    enumeravel=CONSUMIDORES,
+    fn=_consumidores,
+    precisa="postgres",
+    origens=("corpo",),
+)

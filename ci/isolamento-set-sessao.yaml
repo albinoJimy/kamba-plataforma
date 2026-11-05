@@ -1,0 +1,85 @@
+# Excepcoes ao `SET LOCAL` do contexto de tenant (gate 6) — KAM-066, criterio 7
+#
+# O gate 6 falha se algum codigo que corre contra a base definir
+# `app.tenant_id` de forma que **sobreviva a transaccao** — um `SET` de sessao,
+# um `set_config(..., false)`, ou um `is_local` passado por parametro cujo
+# chamador passe algo que nao seja `true`.
+#
+# Porque e que isto e um portao e nao um conselho: um contexto de sessao
+# funciona em desenvolvimento e falha em producao da pior maneira. O valor
+# sobrevive a devolucao da ligacao ao *pool* e o pedido seguinte — de outro
+# tenant — herda-o. Nao da erro: da as linhas do tenant errado, com a RLS
+# ligada e a parecer que protege (`docs/tecnica/08` §3.3, ADR-015).
+#
+# Campos, todos obrigatorios (`tools/isolamento/lints.py` recusa o ficheiro
+# sem eles):
+#
+#   ficheiro  caminho relativo a raiz, como o achado o mostra
+#   sitio     o nome da constante de SQL (nunca um numero de linha: a entrada
+#             tem de sobreviver a quem acrescente um comentario acima)
+#   credor    `KAM-NNN` — o ticket que fecha a excepcao
+#   razao     porque e que o contexto pode sobreviver a transaccao **aqui**, e
+#             o que impede outra ligacao de o ver. 80 caracteres no minimo.
+#   ocorrencias  quantos sitios a entrada cobre (por omissao 1). Existe
+#             porque a chave sozinha era um alvara: um `is_local` falso novo
+#             na mesma constante e no mesmo ficheiro entrava debaixo da
+#             entrada em silencio. Com a contagem, um sitio novo faz a
+#             entrada deixar de bater e o gate diz qual e o numero novo.
+#
+# Uma entrada que ja nao corresponda a um `is_local` falso **falha o gate**:
+# uma excepcao morta e uma porta que ficou aberta sem ninguem a usar.
+#
+# Esta lista nao e uma dispensa de ficheiro. A chave e `(ficheiro, sitio)` **e**
+# a contagem: um segundo `set_config(..., false)` no mesmo sitio e achado novo,
+# porque o `ocorrencias` deixa de bater. Sem a contagem isto era uma promessa
+# que o codigo nao cumpria — medido pela revisao adversarial do KAM-066.
+
+version: 1
+
+excepcoes:
+  - ficheiro: packages/core-ts/src/eventos/trabalhador_bullmq.ts
+    sitio: SQL_DEFINIR_TENANT
+    credor: KAM-038
+    razao: >-
+      O `envelopeDoEvento` le o envelope do arquivo **fora de qualquer
+      transaccao**, antes de o `consumir()` abrir a sua. Com `is_local = true`
+      o contexto morre no fim da transaccao implicita da propria instrucao
+      `set_config` — que e uma instrucao solta, em autocommit — e o `SELECT`
+      seguinte corria **sem contexto**: a RLS `FORCE` do `events_log` devolvia
+      zero linhas e todo o evento ficava `EventoDesconhecidoError`. E o mesmo
+      efeito que o `kamba_core.tenant_guard` documenta («a instrucao e a sua
+      propria transaccao, e o `set_config(..., true)` expirava»).
+      O que limita o alcance: a ligacao e de **uma fila so**, com um *job* de
+      cada vez, e nao e devolvida a *pool* nenhuma entre *jobs* — nao ha outro
+      consumo a ver este contexto. Dentro da transaccao, o `consumir()` repoe o
+      contexto a partir do envelope, com `is_local = true`.
+      O que a torna uma excepcao e nao um desenho: a leitura **podia** correr
+      dentro de uma transaccao propria (`BEGIN`, `set_config` local, `SELECT`,
+      `COMMIT`) e entao o `false` desaparecia. E alteracao ao consumidor do EVT,
+      fora do alcance do KAM-066 e por isso atribuida ao KAM-038, que e o dono
+      do trabalhador. Enquanto ca estiver, e a unica forma de `app.tenant_id`
+      neste conjunto que atravessa uma fronteira de transaccao.
+
+  - ficheiro: db/auditoria.py
+    sitio: main
+    credor: KAM-012
+    ocorrencias: 1
+    razao: >-
+      O verificador da cadeia de auditoria e uma **ferramenta de linha de
+      comandos** (`python db/auditoria.py verificar --papel audit --tenant X`),
+      nao um servico: abre a sua propria ligacao, corre as consultas da
+      verificacao e morre com o processo. A ligacao **nunca e devolvida a pool
+      nenhuma**, pelo que nao ha pedido seguinte para herdar o contexto — que e
+      o dano que esta regra existe para impedir.
+      Porque e que nao e `true`: o `verificar()` corre varias instrucoes, e com
+      `is_local = true` fora de uma transaccao explicita o contexto morre no fim
+      da transaccao implicita do proprio `set_config` — a instrucao seguinte
+      corria sem contexto e o `kamba_audit`, que e `NOBYPASSRLS`, responderia
+      «cadeia intacta» sobre zero linhas. E o mesmo efeito medido no
+      `trabalhador_bullmq.ts` acima, e o mesmo que o `kamba_core.tenant_guard`
+      documenta.
+      Desaparece quando a verificacao correr dentro de uma transaccao propria
+      (`BEGIN`, `set_config` local, consultas, `COMMIT`). E alteracao ao
+      verificador da auditoria, do KAM-012, e nao do KAM-066 — que a encontrou:
+      este sitio esteve fora da varredura ate a revisao adversarial medir que o
+      corpus do *lint* levava quatro *globs* e nao a arvore.

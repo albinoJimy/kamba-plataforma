@@ -754,7 +754,7 @@ if __name__ == "__main__":
 class TestExigirChaves(unittest.TestCase):
     """A recusa de chaves desconhecidas (KAM-134).
 
-    Vive aqui, com o leitor, porque e dele que os quinze leitores de
+    Vive aqui, com o leitor, porque e dele que os leitores de
     `ci/*.yaml` a passaram a importar. Os testes por leitor — que o conjunto
     declarado e o certo, e que uma gralha numa chave existente falha — ficam
     com cada leitor.
@@ -809,7 +809,7 @@ class TestExigirChaves(unittest.TestCase):
                 self.assertIn("tem de ser um mapa", str(capturado.exception))
 
 
-class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
+class TestOsLeitoresDeclaramOQueLeem(unittest.TestCase):
     """Nenhuma chave activa em `ci/*.yaml` fica sem leitor (KAM-134).
 
     E o inverso do teste de cima: la prova-se que a recusa funciona, aqui que
@@ -825,6 +825,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from lint_contagens.cli import ler_declaracoes as _contagens
         from lint_handoff.cli import ler_excepcoes as _handoff
         from lint_refs.cli import Excepcoes
+        from reuse_metric.cli import ler_declaracao as _regra_de_dois
         from ruleset_check.config import ler as _ruleset
         from sbom.cli import ler_politica
         from scan_secrets.scanner import Permissoes
@@ -846,6 +847,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         ler_inventario(ROOT)
         ler_registo(ROOT)
         _ruleset(ROOT)
+        _regra_de_dois(ROOT)
 
     #: Para cada `ci/*.yaml`, o conjunto que o seu leitor declara. A chave e o
     #: caminho relativo a raiz, e e por **descoberta** que se verifica que esta
@@ -857,11 +859,14 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from canon_lint import documentos as canon_documentos
         from canon_lint.dicionario import CHAVES_DA_POLITICA
         from contract_diff import pii
+        from isolamento.casos import CHAVES as chaves_dispensas
+        from isolamento.lints import CHAVES as chaves_set_sessao
         from coverage_gate import CHAVES as chaves_thresholds
         from lint_backlog.cli import CHAVES as chaves_backlog
         from lint_contagens import cli as contagens
         from lint_handoff import cli as handoff
         from lint_refs.cli import CHAVES as chaves_refs
+        from reuse_metric.cli import CHAVES as chaves_regra_de_dois
         from ruleset_check import config as ruleset_config
         from sbom.cli import CHAVES_DE_LICENCAS
         from scan_secrets import scanner
@@ -880,8 +885,14 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
             "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
             "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
             "ci/ruleset.yaml": ruleset_config.CHAVES,
+            # A regra de dois (KAM-039): as fronteiras do nucleo e a
+            # classificacao do caminho de execucao.
+            "ci/regra-de-dois.yaml": chaves_regra_de_dois,
             "ci/rls_exceptions.yaml": {"version", "excepcoes"},
             "ci/secdef_allowlist.yaml": {"version", "funcoes"},
+            # KAM-066: as duas listas do *harness* de isolamento cruzado.
+            "ci/isolamento-dispensas.yaml": chaves_dispensas,
+            "ci/isolamento-set-sessao.yaml": chaves_set_sessao,
             "ci/supply-chain/imagens.yaml": imagens._CHAVES_TOPO,
             "ci/supply-chain/licencas.yaml": licencas._CHAVES_TOPO,
         }
