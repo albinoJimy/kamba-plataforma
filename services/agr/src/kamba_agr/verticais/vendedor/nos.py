@@ -69,6 +69,7 @@ from ...tls.erros import (
     UPSTREAM_TIMEOUT,
     VALIDATION_ERROR,
 )
+from ...tls.com import ENTREGA_DO_PILOTO
 from ...tls.vendedor import LIMITE_DA_QUERY
 from ...validador.render import BlocoInvalidoError, Oferta, renderizar
 from ...validador.veredicto import Policy, medir_validacao, validar
@@ -607,11 +608,16 @@ async def _invocar(
     *,
     confirmacao: Confirmation | None = None,
     chave: str | None = None,
+    rascunho: Mapping[str, Any] | None = None,
 ) -> Any:
     """Uma tool, pela ToolLayer, com o contexto deste turno.
 
     A lista de permitidos vai **sempre**: o passo 1 do `invoke` confronta o nome
     com ela, e omiti-la era pedir a camada que confiasse no chamador.
+
+    O `rascunho` e o do §6.3 (KAM-178) e vai **fora dos argumentos**: o esquema
+    que o modelo ve nao leva a identidade da intencao. Ver a nota do
+    `Pedido.rascunho`.
     """
     return await deps.tools.invoke(
         contexto_de_tool(estado),
@@ -620,6 +626,96 @@ async def _invocar(
         allowed=tuple(deps.tools_permitidas),
         confirmation=confirmacao,
         idempotency_key=chave,
+        rascunho=rascunho,
+    )
+
+
+def rascunho_do_turno(
+    estado: Mapping[str, Any], linhas: tuple[Mapping[str, Any], ...]
+) -> dict[str, Any]:
+    """O rascunho `{draft_id, draft_version, linhas, entrega}` do §6.3.
+
+    ## O `draft_id` nasce **uma vez por rascunho** e sobrevive ao *checkpoint*
+
+    E a letra do §6.3 do `docs/tecnica/03`: «`draft_id` e gerado uma vez, num no
+    anterior ao de confirmacao, e persiste no checkpoint; `draft_version`
+    incrementa em qualquer alteracao de linhas, quantidades, variantes ou
+    entrega». Daí vir do `cart` que ja esta no estado, e so se gerar quando nao
+    ha nenhum: um `draft_id` novo por turno dava **duas** encomendas a um duplo
+    toque, porque a confirmacao chega num turno depois do carrinho.
+
+    ## E morre quando a encomenda nasce, senao **bloqueia a recompra**
+
+    «Uma vez» e por **rascunho**, e um rascunho que ja virou encomenda esta
+    gasto: o §6.3 escreve, na mesma frase das propriedades, «recompra ⇒ novo
+    `draft_id` ⇒ nova encomenda». Sem isto, uma recompra **identica** na mesma
+    conversa reusava o `draft_id` **e** a `draft_version` — porque as linhas nao
+    mudaram —, derivava a mesma `intent_key`, e o COM devolvia o recibo da
+    primeira: o cliente confirmava e recebia o numero da encomenda anterior, sem
+    encomenda nova e sem recusa.
+
+    **Medido, e e defeito do caminho feliz de uma tool `money`:** «quero comprar
+    uma camisa azul» → `confirm:` → encomenda; a mesma frase outra vez →
+    `confirm:` → **nenhuma** encomenda nova, com duas chamadas ao backend e a
+    mesma identidade nas duas. Achado da revisao adversarial, e a reciproca que
+    este ticket tinha escrito nao o apanhava: ela mede um carrinho **editado** (a
+    quantidade muda, e a `draft_version` sobe), e o caso que fecha e o do
+    conteudo **igual**.
+
+    Por isso o `create_order` marca o carrinho como `draft_gasto` quando a
+    encomenda nasce, e esta funcao trata um rascunho gasto como **ausente**: o
+    `draft_id` novo sai do `turn_seq`, que e outro no turno da recompra. O que
+    **nao** muda e o duplo toque: ali o `create_order` nao corre segunda vez (o
+    `stage` barra-o) e, quando corre, e sobre o mesmo *checkpoint* — o carrinho
+    que ele le ainda nao esta gasto.
+
+    ## A forma e a canonica, e **nao se reescreve aqui**
+
+    `draft_id = sha256(thread_id:turn_seq)` (§3.34), e quem o deriva e o
+    `draft_id` do `concierge/maquina.py` — a mesma funcao que o KAM-114 usa, e
+    nao uma segunda com o mesmo resumo. Os dois valores vem do estado: o
+    `thread_id` e das dezanove chaves do §5.3 e o `turn_seq` sobe uma vez por
+    turno no `ingest`, que e o que o torna estavel entre re-execucoes do no.
+
+    A `draft_version` sobe quando as linhas mudam e **fica** quando nao mudam:
+    duas propostas do mesmo carrinho tem de dar a mesma `intent_key`, senao a
+    idempotencia do §6.3 nao e idempotencia nenhuma.
+    """
+    anterior = estado.get("cart") or {}
+    anteriores = tuple(anterior.get("linhas") or ())
+    gasto = bool(anterior.get("draft_gasto"))
+    if not gasto and isinstance(anterior.get("draft_id"), str) and anterior["draft_id"]:
+        draft_id = str(anterior["draft_id"])
+        versao = int(anterior.get("draft_version") or 1)
+        if _linhas_canonicas(anteriores) != _linhas_canonicas(linhas):
+            versao += 1
+    else:
+        draft_id = derivar_draft_id(
+            str(estado["thread_id"]), int(estado.get("turn_seq") or 0)
+        )
+        versao = 1
+    return {
+        "draft_id": draft_id,
+        "draft_version": versao,
+        "entrega_modo": ENTREGA_DO_PILOTO,
+        "linhas": linhas,
+    }
+
+
+def _linhas_canonicas(
+    linhas: tuple[Mapping[str, Any], ...],
+) -> tuple[tuple[str, int], ...]:
+    """As linhas por `(sku, qty)` e **ordenadas**, para as comparar.
+
+    Ordenadas porque a ordem em que o no as monta nao e conteudo: duas listas
+    com as mesmas linhas noutra ordem sao o mesmo carrinho, e tratar a ordem como
+    alteracao subia a `draft_version` sem o cliente ter mudado nada — isto e,
+    criava uma encomenda nova num segundo toque. E a mesma razao do
+    `linhasCanonicas` do `orders/intents.ts`, que e quem alimenta o `draft_hash`
+    do outro lado.
+    """
+    return tuple(
+        sorted((str(linha["sku"]), int(linha["qty"])) for linha in linhas)
     )
 
 
@@ -1208,8 +1304,18 @@ def cart_build(deps: Dependencias):
             return {"avisos": _avisos_com(estado, NOT_FOUND)}
         escolhido = candidatos[0]
         itens = ({"sku": escolhido["sku"], "qty": quantidade_pedida(texto)},)
+        # O rascunho do §6.3 **antes** da chamada, e nao depois: e dele que o COM
+        # deriva a `intent_key`, e o executor recebe-o pelo canal do
+        # `Pedido.rascunho` em vez de pelos argumentos. Ver o `rascunho_do_turno`.
+        rascunho = rascunho_do_turno(estado, itens)
         proposta = await _com_retry(
-            lambda: _invocar(deps, estado, "propose_cart", {"items": itens})
+            lambda: _invocar(
+                deps,
+                estado,
+                "propose_cart",
+                {"items": itens},
+                rascunho=rascunho,
+            )
         )
         if not proposta.ok:
             # Um `OUT_OF_STOCK` ou um `PRICE_CHANGED` **nao** e um carrinho: a
@@ -1233,7 +1339,16 @@ def cart_build(deps: Dependencias):
                 "cart_id": proposta.data["cart_id"],
                 "items": tuple(proposta.data.get("items") or ()),
                 "total_fact_id": total.fact_id,
+                # **O numero do backend, guardado, e nao um que o no some.** O
+                # `createOrder` do §6.3 precisa do total que o cliente
+                # confirmou para medir o `PRICE_CHANGED`, e o que o botao cita e
+                # este. Guardar o valor do *fact* nao e o modelo a somar (ADR-007):
+                # e o no a lembrar-se do que o backend devolveu.
+                "total_minor": int(total.value),
                 "expira_at": deps.relogio() + deps.ttl_do_carrinho_s,
+                # O rascunho do §6.3, para o `create_order` do turno seguinte o
+                # reenviar **igual**: mesma `intent_key`, uma encomenda.
+                **rascunho,
             },
             "stage": "awaiting_confirm",
         }
@@ -1287,6 +1402,19 @@ def create_order(deps: Dependencias):
             contact_id=estado["contact_id"],
             turn_id=estado["turn_id"],
         )
+        # **O mesmo rascunho do turno do carrinho, lido do *checkpoint*.** E isto
+        # que faz do duplo toque uma encomenda: o `draft_id` e a `draft_version`
+        # sao os que o `cart_build` guardou, pelo que a `intent_key` que o COM
+        # deriva e a mesma — e a segunda chamada encontra o recibo da primeira.
+        # Derivar aqui um rascunho novo era dar a cada re-execucao do no uma
+        # intencao nova, que e exactamente o defeito que o §6.3 fecha.
+        rascunho = {
+            "draft_id": carrinho.get("draft_id"),
+            "draft_version": carrinho.get("draft_version"),
+            "entrega_modo": carrinho.get("entrega_modo") or ENTREGA_DO_PILOTO,
+            "linhas": tuple(carrinho.get("linhas") or ()),
+            "total_esperado_minor": carrinho.get("total_minor"),
+        }
         resultado = await _com_retry(
             lambda: _invocar(
                 deps,
@@ -1295,6 +1423,7 @@ def create_order(deps: Dependencias):
                 {"cart_id": carrinho.get("cart_id", "")},
                 confirmacao=confirmacao,
                 chave=chave_do_turno(estado),
+                rascunho=rascunho,
             )
         )
         if not resultado.ok:
@@ -1307,7 +1436,19 @@ def create_order(deps: Dependencias):
         # O `stage` passa a `awaiting_payment` **e o carrinho fica**: o `compose`
         # precisa do `total_fact_id` para mostrar o valor, e um segundo toque e
         # barrado pelo estagio e nao pela ausencia do carrinho.
-        return {"stage": "awaiting_payment", "draft": {"dados": dict(resultado.data)}}
+        #
+        # **E o rascunho fica marcado como gasto**, que e o que faz a recompra
+        # funcionar: sem isto, a mesma frase outra vez na mesma conversa reusava
+        # o `draft_id` e a `draft_version` — as linhas nao mudaram — e o COM
+        # devolvia o recibo desta encomenda em vez de criar outra. Ver o
+        # `rascunho_do_turno` para a medicao. **O carrinho inteiro fica**, com o
+        # `cart_id` e o `total_fact_id`: o que se marca e o rascunho, nao o
+        # carrinho, e e por isso que o duplo toque continua barrado pelo `stage`.
+        return {
+            "stage": "awaiting_payment",
+            "cart": {**carrinho, "draft_gasto": True},
+            "draft": {"dados": dict(resultado.data)},
+        }
 
     return no
 

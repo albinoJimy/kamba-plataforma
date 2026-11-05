@@ -221,6 +221,17 @@ MARCADORES = {
     "KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic": "marcador",
     "KAMBA_SECRET_LLM_PROVIDER_KEY__openai": "marcador",
     "KAMBA_SECRET_LLM_PROVIDER_KEY__google": "marcador",
+    # KAM-178: o COM passou a exigir dois segredos e a cadeia de ligacao ao
+    # arranque, e o AGR passou a exigir a credencial do COM. As quatro entram
+    # aqui pela razao escrita acima — o guiao levanta **so** o `proxy-saida`,
+    # nenhum destes servicos arranca, e por isso nenhum segredo verdadeiro
+    # precisa de existir. Sem elas o `docker compose up proxy-saida` falha na
+    # **interpolacao**, antes de haver contentor nenhum (medido: gate 6 vermelho
+    # no PR #125, `required variable KAMBA_SECRET_COM_INTERNAL_TOKEN is missing a
+    # value`).
+    "KAMBA_SECRET_COM_INTERNAL_TOKEN": "marcador",
+    "KAMBA_SECRET_SEGREDO_INTENTS": "marcador",
+    "KAMBA_COM_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 
