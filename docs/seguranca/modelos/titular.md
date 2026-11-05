@@ -71,3 +71,11 @@ parecer — direitos do titular, KAM-070)*.
 
 *(a confirmar por parecer)* — todo o texto jurídico deste modelo, e a própria legitimidade de
 a KAMBÁ contactar o titular (Abertura B).
+
+---
+
+## Controlo de versões
+
+| Versão | Data | Alteração | Autor |
+|---|---|---|---|
+| 0.1 | Novembro 2026 | Emissão (KAM-113): modelo de aviso ao titular dos dados, com duas aberturas alternativas — pela PME ou pela KAMBÁ — e corpo comum. *Esboço*: a escolha do canal é decisão aberta ligada a D9 e este modelo não a toma; não enviar sem revisão do advogado, salvo a excepção do fundador ([`../resposta_incidentes.md`](../resposta_incidentes.md) §9.4) | Equipa KAMBÁ |
