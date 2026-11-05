@@ -385,10 +385,19 @@ class TestFurosDaRevisao(unittest.TestCase):
         self.assertIn('m_base_total{contact_id!=""}', expressoes)
 
     def test_uma_consulta_numa_anotacao_le_se(self) -> None:
-        painel = {"annotations": {"list": [{"expr": 'm_base_total{telefone="244900000000"}'}]}}
-        self.assertEqual(
-            lint._expressoes_do_painel(painel), ['m_base_total{telefone="244900000000"}']
-        )
+        # O valor e a palavra `redigido` e nao um numero de forma real, de
+        # proposito: o que este teste exercita e o **nome** da etiqueta, e o
+        # varredor do KAM-024 (gate 7) recusa qualquer sequencia com forma de
+        # telefone angolano que nao esteja no inventario.
+        #
+        # A primeira versao tinha aqui um `244` seguido de nove digitos e
+        # avermelhou o gate 7 — com razao. E a segunda versao deste comentario
+        # continuava a avermelha-lo, porque **escrevia o numero para explicar
+        # que nao se devia escrever**: o varredor nao le intencoes, e um numero
+        # de forma real num comentario e tao real como noutro sitio qualquer.
+        consulta = 'm_base_total{telefone="redigido"}'
+        painel = {"annotations": {"list": [{"expr": consulta}]}}
+        self.assertEqual(lint._expressoes_do_painel(painel), [consulta])
 
 
 class _ComCopia(unittest.TestCase):
