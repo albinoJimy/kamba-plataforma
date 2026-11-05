@@ -1,0 +1,240 @@
+# A regra de dois, declarada — KAM-039
+#
+# Duas coisas vivem aqui, e as duas sao FRONTEIRAS e nao algoritmos:
+#
+#   nucleo      o que conta como `core/` para o criterio (d) do §5.4
+#   caminho     o que entra na metrica de reaproveitamento, e com que classe
+#
+# Estao num ficheiro declarado, e nao no codigo, pela razao do
+# `ci/thresholds.yaml`: mover uma fronteira e uma decisao de quem assina as
+# regras de bloqueio, e uma fronteira escrita em Python obriga essa pessoa a
+# ler um `if`. O `tools/reuse_metric` **mede**; este ficheiro **decide**.
+#
+# A SEMANTICA DOS PADROES e a do `ci/thresholds.yaml`, e nao por copia: e o
+# mesmo `fnmatch` do `coverage_gate`, pelo que o `*` **atravessa barras** e o
+# `**/` exige um segmento pelo meio. `*/verticais/servicos/*` apanha
+# `services/agr/src/kamba_agr/verticais/servicos/nos.py`; um
+# `services/*/src/**/servicos/**` nao apanharia nada, que foi o defeito que o
+# estrato critico do gate 4 pagou. Os caminhos sao relativos a raiz do
+# repositorio, com `/` em qualquer sistema.
+#
+# A ORDEM NAO CONTA AQUI, ao contrario do `ci/thresholds.yaml`: as listas sao
+# conjuntos, e um ficheiro que bata em duas classes **levanta** em vez de a
+# primeira ganhar. Uma classificacao ambigua e um defeito de quem escreve este
+# ficheiro, e e melhor que falhe do que seja decidida pela ordem das linhas.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# O criterio (d): «`grep` por `vendedor|servicos|assistente` em `core/`
+# (excluindo `registry/` e testes) devolve 0».
+#
+# `core/` NAO EXISTE COMO DIRECTORIO NESTE REPOSITORIO, e a declaracao tem de
+# dizer o que o substitui. Sao dois sitios, e os dois sao `core` por razoes
+# diferentes:
+#
+#   libs/py-core/src/kamba_core/   o `core` literal: a biblioteca partilhada
+#   services/agr/src/kamba_agr/    o nucleo do AGR, **menos** `verticais/`
+#
+# O que sai, e porque:
+#
+#   verticais/                 e o oposto de core: e onde uma vertical vive
+#   tls/vendedor.py            o catalogo de tools de uma vertical (§5.4,
+#   tls/servicos.py            coluna «Catalogo de tools por vertical»)
+#   registry/                  o ticket exclui-o por extenso
+#   tests, fakes               o ticket exclui testes; os `fakes.py` sao
+#                              duplos de ensaio que vivem em `src/` e nenhum
+#                              codigo de producao os importa (medido)
+nucleo:
+  padroes:
+    - "libs/py-core/src/kamba_core/*"
+    - "services/agr/src/kamba_agr/*"
+  excluidos:
+    - "*/verticais/*"
+    - "*/tls/vendedor.py"
+    - "*/tls/servicos.py"
+    - "*/tests/*"
+    - "*/test_*.py"
+    - "*/fakes.py"
+  # Os tres nomes do criterio (d), a letra. A busca e por subcadeia e sem
+  # distinguir maiusculas, como um `grep -iE` faria: `SQL_SERVICOS` e
+  # `especificacoes_de_servicos` contam, e e isso que se quer — o criterio
+  # pergunta se o nucleo **nomeia** uma vertical, nao se a compara.
+  nomes:
+    - vendedor
+    - servicos
+    - assistente
+
+# ---------------------------------------------------------------------------
+# A metrica: `reuso = 1 - LoC_especifico / LoC_total` sobre o caminho de
+# execucao da vertical NOVA (Servicos), §5.4.
+#
+# O grosso do caminho NAO SE DECLARA AQUI: deriva-se por fecho de importacao a
+# partir dos pontos de entrada, porque uma lista de ficheiros escrita a mao e
+# a parte contestavel de qualquer metrica — quem a escreve escolhe o
+# resultado. O que fica aqui e so o que o fecho nao alcanca e as excepcoes
+# que ele nao sabe classificar.
+#
+# As regras de contagem inteiras, com o que cada classe quer dizer e o que a
+# metrica NAO mede, estao em `docs/reuse-metric.md`. Este ficheiro nao as
+# repete: repeti-las era ter duas a divergir.
+caminho:
+  vertical: servicos
+
+  # Os pontos de entrada do fecho. Sao dois porque um turno de Servicos entra
+  # por dois sitios e nenhum alcanca o outro: a mensagem do cliente entra pelo
+  # grafo, e um evento entra pelo consumidor (§6.3). Com so o grafo, o
+  # `handlers.py` — que e onde o criterio (b) vive — ficava fora do
+  # denominador.
+  entradas:
+    - "services/agr/src/kamba_agr/verticais/servicos/__init__.py"
+    - "services/agr/src/kamba_agr/eventos/consumo.py"
+
+  # As raizes de pacote que o fecho segue. Uma importacao fora destas e
+  # externa (`langgraph`, `pg8000`, a biblioteca padrao) e nao entra: o §5.4
+  # mede o que esta casa escreve, e uma dependencia de terceiros nao e reuso
+  # nosso nem codigo especifico nosso.
+  pacotes:
+    kamba_agr: "services/agr/src/kamba_agr"
+    kamba_core: "libs/py-core/src/kamba_core"
+
+  # `especifico` — codigo que existe **so** porque esta vertical existe.
+  especifico:
+    - "*/verticais/servicos/*"
+    # O catalogo de tools de Servicos. **Declarado e nao alcancado**: o grafo
+    # recebe a `ToolLayer` ja montada de quem o constroi (`__main__.py`), pelo
+    # que nenhum `import` leva daqui para la. Sem esta linha, as cinco tools
+    # da vertical ficavam de fora e o reuso subia por omissao — que e
+    # exactamente a forma de um numero mentir sem ninguem escrever uma
+    # mentira.
+    - "services/agr/src/kamba_agr/tls/servicos.py"
+
+  # `partilhado_declarado` — o outro lado da mesma moeda, e a correccao de uma
+  # ASSIMETRIA que a revisao adversarial apanhou.
+  #
+  # A linha acima declara a metade **da vertical** do termo «tools» do §5.4
+  # porque o fecho nao a alcanca. A metade **partilhada** — a ToolLayer, com os
+  # oito passos do `invoke`, a auditoria e a idempotencia — nao era alcancada
+  # pela mesma razao e **nao estava declarada**: 64 linhas entravam no
+  # numerador e 795 nao entravam no denominador. E palavra por palavra a
+  # assimetria que o `migracoes.py` deste ticket diagnostica e corrige para as
+  # migracoes, deixada por corrigir no termo vizinho — e o relatorio sustentava
+  # a prova do criterio (a) nos «oito passos do `invoke`», que viviam no
+  # ficheiro que a metrica nunca lia.
+  #
+  # Entra como `partilhado` e nao como entrada do fecho de proposito: por o
+  # `__main__.py` nas `entradas` arrastava o arranque inteiro do servico
+  # (+2,81 pontos), que nao e caminho de um turno.
+  partilhado_declarado:
+    - "services/agr/src/kamba_agr/tls/camada.py"
+    - "services/agr/src/kamba_agr/tls/auditoria.py"
+    - "services/agr/src/kamba_agr/tls/idempotency.py"
+
+  # AS MIGRACOES TEM BLOCO PROPRIO, e nao linhas na lista de cima.
+  #
+  # Sao o unico termo do §5.4 sem grafo de importacao — ninguem importa uma
+  # migracao —, pelo que o fecho nao as alcanca. Declaradas como `especifico`
+  # e mais nada, media-se mal: as 387 linhas do esquema `servicos` entravam no
+  # numerador e as ~1 000 linhas de `platform` sobre as quais elas correm nao
+  # entravam no denominador. O reuso descia por assimetria de contagem.
+  #
+  # A cadeia PARTILHADA deriva-se do `down_revision` do Alembic, que e a
+  # resposta que ja esta no disco (ver `tools/reuse_metric/migracoes.py`). O
+  # que se declara aqui e so quais sao **da vertical**, que e um juizo:
+  #
+  #   0025_servicos          cria o esquema `servicos` inteiro. Nao ha duvida
+  #   0026_codigos_de_agenda altera uma tabela PARTILHADA (`platform.tool_audit`)
+  #                          para lhe acrescentar dois codigos de erro da
+  #                          agenda. Pelo esquema que toca era partilhada; pela
+  #                          razao de existir e da vertical, e e assim que
+  #                          conta. Sao **19** linhas: a classificacao oposta
+  #                          move o reuso em menos de 0,2 pontos, e o numero
+  #                          esta aqui para que a fronteira se discuta com ele
+  #                          a vista
+  #
+  # O que fica fora por construcao: a `0027` a `0031` — contas de pagamento,
+  # cotacoes, o *ledger* e as encomendas. Nao sao antepassadas da `0026`, e uma
+  # marcacao nao corre sobre elas.
+  migracoes:
+    pasta: "db/migrations/versions"
+    proprias:
+      - "0025_servicos.py"
+      - "0026_codigos_de_agenda.py"
+
+  # `outra_vertical` — alcancado pelo fecho, e nem partilhado nem desta
+  # vertical. Nao entra no numerador nem no denominador, e o relatorio
+  # nomeia-o: e um ACOPLAMENTO, nao reuso.
+  #
+  # Porque e que aparece: o `tls/catalogo.py`, que e partilhado, agrega os
+  # catalogos das DUAS verticais, pelo que carregar o caminho de Servicos
+  # arrasta o do Vendedor. Contar isto como partilhado inflava o denominador
+  # com codigo que Servicos nunca executa; contar como especifico dizia que
+  # Servicos escreveu o catalogo do Vendedor. Nenhuma das duas e verdade.
+  outra_vertical:
+    - "*/tls/vendedor.py"
+    - "*/verticais/vendedor/degradado/*"
+
+  # `misto` — ficheiros de que esta vertical importa ALGUNS simbolos e nao o
+  # resto. Nestes conta-se o **simbolo importado** e nao o ficheiro, e a lista
+  # de simbolos nao se escreve aqui: deriva-se dos `import` reais dos
+  # ficheiros `especifico`. Copiar um no em vez de o importar faz o `import`
+  # desaparecer, o simbolo sair do partilhado e o ficheiro especifico crescer
+  # — e o numero desce nas duas pontas. E o que torna a metrica uma medida e
+  # nao uma afirmacao.
+  misto:
+    - "*/verticais/vendedor/nos.py"
+    - "*/verticais/vendedor/encaminhadores.py"
+    - "*/verticais/vendedor/arestas.py"
+    # O `tls/com.py` **era `outra_vertical` e e misto**, por achado da revisao
+    # adversarial. Ele tem duas metades: os executores do Vendedor, e o cliente
+    # generico do COM — cabecalhos, segredo, transporte e mapeamento de erros —
+    # que os executores de Servicos vao usar quando o KAM-047 os ligar. Posto
+    # inteiro em `outra_vertical`, retirava-se dos **dois** lados; como misto,
+    # conta o que esta vertical importar de la, que hoje e **nada** — e aparece
+    # no relatorio a dizer isso, que e informacao sobre o acoplamento.
+    - "*/tls/com.py"
+
+  # `excluido` — fora da contagem em qualquer classe. O §5.4 manda excluir
+  # testes e codigo gerado, e as duas listas sao concretas:
+  #
+  #   contratos.py   gerado por `python -m contract_diff gerar` a partir do
+  #                  catalogo de esquemas; e alcancado pelo fecho e tem
+  #                  centenas de linhas, pelo que deixa-lo dentro enchia o
+  #                  denominador de codigo que ninguem escreveu
+  excluido:
+    - "*/tests/*"
+    # `tests_*` e nao so `tests`: a convencao desta arvore e `db/tests_agr/`,
+    # `db/tests_servicos/`, `db/tests_pagamentos/`. O padrao `*/tests/*` nao
+    # casa nenhuma delas, e so os `test_*.py` de dentro eram apanhados —
+    # achado da revisao adversarial. Fora do fecho hoje, logo nao move o
+    # numero; o que estava errado era o filtro nao cobrir a convencao.
+    - "*/tests_*/*"
+    - "*/test_*.py"
+    - "*/fakes.py"
+    - "libs/py-core/src/kamba_core/eventos/contratos.py"
+
+  # As sobreposicoes **legitimas** entre o `excluido` e outra classe.
+  #
+  # Existem porque o `excluido` passou a estar debaixo do mesmo guarda de
+  # ambiguidade que as outras tres classes, e a razao e um achado da revisao
+  # adversarial: ele era a **unica** classe isenta do guarda e a **unica** que
+  # consegue retirar do numerador. Medido — uma linha
+  # `excluido: - "*/verticais/servicos/nos.py"` subia o reuso de 87,58% para
+  # **91,75%** em silencio, enquanto a mesma linha em `outra_vertical`
+  # levantava. Num portao, era o botao de o premir.
+  #
+  # Auto-limpante, como as dispensas de `ci/backlog-allow.yaml`: uma entrada
+  # que deixe de casar alguma coisa **tambem** levanta.
+  sobreposicoes:
+    - caminho: "services/agr/src/kamba_agr/verticais/servicos/fakes.py"
+      razao: >-
+        duplos de ensaio que vivem em `src/` e nao em `tests/`; nenhum codigo de
+        producao os importa (medido), e o §5.4 manda excluir testes seja onde
+        for que vivam
+
+  # O limiar do ADR-012, para uma vertical nova. **Nao esta ligado a portao
+  # nenhum neste ticket** — ver `docs/reuse-metric.md` §5 e a seccao de
+  # verificacao do bloco do KAM-039.
+  # Inteiro porque o `tools/kamba_yaml.py` so converte inteiros decimais; o
+  # `limiar` e uma percentagem e 70 e o numero do ADR-012.
+  limiar: 70

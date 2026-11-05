@@ -68,6 +68,14 @@ ci/x11/
 # ler corre a bateria; o que fica por escrito e a medicao **datada** no corpo do
 # PR, que e onde a evidencia de um ticket pertence.
 ci/pii/
+# Os dois artefactos da regra de dois (KAM-039), escritos pelo `make reuso`: o
+# `reuso.json` com as parcelas da metrica do ADR-012 e o `nucleo.json` com as
+# ocorrencias classificadas do criterio (d). Mesma regra do `ci/pii/`: sao
+# **medicoes**, e uma medicao committada fica a afirmar um numero que deixou de
+# ser verdade no commit seguinte. O numero datado vive em `docs/reuse-metric.md`
+# §6 e no corpo do PR.
+ci/reuso.json
+ci/nucleo.json
 
 # Dados brutos do `coverage.py`. Nasceram na raiz e em `tools/` ao correr os
 # alvos de cobertura e apareceram num `git add -A` — a mesma classe de defeito
