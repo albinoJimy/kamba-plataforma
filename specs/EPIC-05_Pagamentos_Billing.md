@@ -548,6 +548,16 @@ critérios eram afirmações sobre um caminho de código e não propriedades da 
   A letra de um critério é de quem o escreveu; o que este ticket entrega é a medição.
 - **A suite `tests` do *gate* 8 correu em subconjunto** (quatro módulos) e não inteira, pela
   razão escrita acima da tabela de comandos. O CI corre-a inteira.
+- **Uma ressalva de forma, e fica escrita em vez de corrigida.** O *commit* de *merge* que
+  integrou a `main` (o `8047a46`, do KAM-178) leva ao colo duas coisas que deviam ter tido
+  *commit* próprio: o `db/tests_pagamentos/test_downgrade_0032.py` e a passagem da
+  `downgrade` da revisão a chamar `rls.disable_tenant_rls`. **Não se reescreve**, e a
+  razão é a mesma que a dívida 170 dá para um caso próximo: reescrever a história custa
+  um *force-push* e um ciclo inteiro de CI para mudar a **forma** de uma coisa cujo
+  **conteúdo** está certo, e o *gate* 2 dispensa `^Merge ` por construção — pelo que
+  trocava um defeito de forma por um de história. Diz-se aqui porque um *commit* de
+  *merge* que traz código de produto é exactamente o que um revisor deve poder ver sem
+  ter de o descobrir.
 
 ### Handoff para Claude Code
 
