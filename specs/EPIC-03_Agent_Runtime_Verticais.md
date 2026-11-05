@@ -3825,6 +3825,186 @@ condição (d) deixou de passar**: o núcleo tem uma excepção, e ela tem nome.
 | Medir o *backend* TypeScript das tools da vertical (1059 linhas) | O instrumento mede Python; a ausência está **declarada** na regra 9, com o efeito medido (88,26% → 83,77%) | por nomear |
 | Mover o `Dependencias` para o núcleo e generalizar o `confirm_gate` | O `verticais/servicos/nos.py` nomeia **este** ticket como quem o faria «quando medir o reuso». Não está nos critérios de aceitação do KAM-039, e os critérios é que mandam; e o limiar passa sem as extracções | por nomear — fica em `../docs/dividas-documentais.md` 191 |
 
+### Revisão adversarial independente: dezanove achados, dezasseis verificados
+
+Correu **uma**, com dois instrumentos independentes sobre o ramo **empurrado** —
+um sobre a correcção do *diff*, outro a atacar a própria medição —, e nenhum
+deles viu o meu raciocínio: receberam o código, os comandos e a pergunta, não a
+conclusão. Os dois correram as baterias, correram mutações próprias, e os dois
+disseram **o que procuraram e não encontraram**, que é o que torna a ausência de
+achados informação em vez de silêncio.
+
+**Reprovou o ticket, e tinha razão no que importa: dois achados mudaram o
+resultado e não só o texto.** Com eles, a condição (d) deixou de passar.
+
+Dos dezanove, **dezasseis verifiquei contra o código** — correndo os comandos ou
+reproduzindo a mutação — e três não se confirmaram. Os grupos **A1** a **A10**
+abaixo são a minha arrumação por consequência, e não uma correspondência de um
+para um com o que cada instrumento escreveu: os dois sobrepuseram-se em parte, e
+o **A10** junta sete achados de contagem e de afirmação falsa que não vale
+separar. Ao fim ficam os dois que se **declaram** em vez de se corrigirem, e o
+que se **devolve** com o número corrigido.
+
+**A1 — o `fluxo = 0` era cegueira do instrumento, e a árvore já tinha a forma
+que o derrotava (alto).** O verificador marcava apenas literais escritos
+**dentro** da expressão de decisão, e o idioma desta casa é a constante de
+módulo. Em consequência, isto — num ficheiro de núcleo varrido pelo verificador
+— passava como `conteudo`:
+
+```python
+VERTICAIS: Final = ("vendedor", "servicos")      # contexto.py:71  -> `conteudo`
+if valores["vertical"] not in VERTICAIS:         # contexto.py:191 -> NADA
+    raise InvocacaoInvalidaError("campo_invalido_vertical")
+```
+
+A linha 191 não produzia ocorrência nenhuma: não tem literal, e o identificador
+`VERTICAIS` não contém o nome de vertical nenhuma. **Os seis canários de mutação
+mediam a forma *inline*, que esta árvore não usa** — e por isso davam verde com
+confiança. Fechado: o verificador segue constantes de módulo.
+
+E a correcção obrigou a uma distinção que o critério não faz, porque sem ela ele
+era **impossível de satisfazer**: validar que a vertical é **conhecida** não
+distingue entre verticais, e o critério 5 do KAM-014 exige essa lista fechada por
+escrito. Daí a classe `dominio`, com discriminante mecânico — uma pertença ao
+domínio inteiro é domínio; uma igualdade, um subconjunto próprio ou um **mapa**
+indexado pela vertical é despacho; e os dois lados de uma pertença não são a
+mesma coisa, porque em `if "vendedor" in texto` o nome está do lado da agulha.
+**O resultado: `fluxo = 1`**, e a excepção é o `AO_DONO` (ver a linha (d) da
+secção anterior).
+
+**A2 — a métrica contava os *worktrees* irmãos, e na raiz onde o `make reuso`
+corre o número caía abaixo do limiar (alto).** O `_declarados_no_disco` percorria
+`raiz.rglob("*.py")` e casava os padrões com `fnmatch`, onde o `*` atravessa
+barras. Este repositório é trabalhado em *worktrees* aninhados — o `.gitignore`
+tem `.claude/worktrees/` — pelo que o `*/verticais/servicos/*` casava cada
+cópia. Medido a partir do *checkout* principal: **70** ficheiros em vez de 7, com
+cada cópia a valer ~1254 linhas de numerador. E o `ROOT` do `Makefile` é
+precisamente essa raiz. Pior: o `test_repositorio.py` passava num clone limpo do
+CI e falhava na máquina de quem o lê, que é a pior combinação que um número pode
+ter. Fechado: a fonte dos ficheiros passou a ser o `git ls-files`, o que fecha
+três achados de uma vez — os ninhos desaparecem sem precisar de padrão de
+exclusão, um `.py` não versionado deixa de entrar no numerador, e o artefacto
+passou a levar **provenância** (o *commit*, e se a árvore estava suja), com o
+que a afirmação «medido em X» passou a ser verificável pelo instrumento em vez
+de ser uma frase de quem o correu.
+
+**A3 — o `excluido` era a única classe isenta do guarda de ambiguidade, e a
+única que retira do numerador (alto).** O laço do `excluido` devolvia antes de a
+ambiguidade ser calculada, com a razão — boa — de que é um filtro sobre o
+universo e não uma classe. A consequência era um botão: medido, uma linha
+`excluido: - "*/verticais/servicos/nos.py"` subia o reuso de 87,58% para
+**91,75%** em silêncio, enquanto a mesma linha em `outra_vertical` levantava.
+Enquanto nada está ligado a um portão é cosmético; no dia em que estiver, é o
+portão a ser premido por uma linha de configuração. Fechado: as quatro classes
+passam pelo mesmo guarda, e uma sobreposição legítima declara-se com razão em
+`caminho.sobreposicoes` — auto-limpante, como as dispensas de
+`ci/backlog-allow.yaml`, porque uma entrada que deixe de casar também levanta.
+
+**A4 — uma assimetria que este ticket diagnostica e corrige num termo, deixada
+no termo vizinho (médio).** O `tls/servicos.py` (64 linhas) estava declarado no
+numerador porque o fecho não o alcança — o grafo recebe a `ToolLayer` já montada.
+A metade **partilhada** da mesma linha do §5.4 — a `ToolLayer`, com os oito
+passos do `invoke`, a auditoria e a idempotência: **795** linhas — não estava
+declarada pela mesma razão, e por isso não entrava no denominador. É palavra por
+palavra o que o `migracoes.py` deste ticket diagnostica e corrige para as
+migrações. E havia uma segunda consequência: o relatório sustentava a prova do
+critério (a) nos «oito passos do `invoke`», que viviam no ficheiro que a métrica
+nunca lia. Fechado: declarados em `partilhado_declarado`, **87,58% → 88,26%**.
+
+**A5 — o meu próprio canário de recusa media o caso errado, pela terceira vez
+neste ficheiro (médio).** O ensaio da tool da outra vertical pedia o
+`criar_pedido` — uma entrada `declarada`, sem executor — com argumentos que o
+modelo não aceita, e afirmava `assertIsNotNone`, que o `invoke` satisfaz sempre.
+A invocação morria em `VALIDATION_ERROR` e a asserção passava, com um comentário
+ao lado a afirmar que o Vendedor alcançava a sua. Fechado: pede uma tool
+**ligada**, com os argumentos válidos do modelo e a encomenda semeada, exige o
+código `TOOL_NOT_ALLOWED` na recusa e `ok` no par positivo. Mutação confirmada
+nos dois casos.
+
+**A6 — a regra 7 promete nomear o que fica de fora, e não nomeava (médio).** O
+fecho de importação é um majorante do caminho de execução, e a regra 7 dizia
+isso «e por isso o relatório nomeia o que ficou de fora» — e o relatório nomeava
+as 8 entradas de `fora_da_conta` e mais nada. Medido: **1677** linhas em **16**
+módulos entram no denominador apenas por um `import` dentro de uma função, e o
+caso que os nomeia é o `metricas.py`, com vinte linhas de `import` e cinco ao
+nível de topo, uma por métrica. Fechado: o artefacto ganhou a secção
+`majorante_regra_7`, com os módulos um a um e a variante **86,72%**.
+
+**A7 — falsos positivos de `fluxo`: o verificador reprovava configuração
+legítima (médio).** Um `if tipo == "servicos_de_terceiros"` era marcado, porque a
+busca era por subcadeia; e uma asserção de completude sobre uma tabela de
+configuração — «a tabela tem as três verticais», que é o contrário de tratar uma
+delas de modo especial — dava três `fluxo` numa linha. Fechado: a decisão compara
+por `fullmatch`, e um `assert` nunca despacha. A subcadeia continua a valer para
+o `conteudo` e para a `prosa`, onde a pergunta é se o núcleo **nomeia** uma
+vertical e não se decide por ela.
+
+**A8 — dois sítios onde a declaração retirava dos dois lados (baixo).** O
+`tls/com.py` estava inteiro em `outra_vertical`, e tem duas metades: os
+executores do Vendedor, e o cliente genérico do COM — cabeçalhos, segredo,
+transporte, mapeamento de erros — que os executores de Serviços vão usar quando
+o KAM-047 os ligar. Fechado: passou a `misto`, onde conta o que esta vertical
+importar de lá (hoje nada, e o relatório di-lo, que é informação sobre o
+acoplamento). E o `*/tests/*` não cobria a convenção desta árvore
+(`db/tests_agr/`, `db/tests_servicos/`): fechado com `*/tests_*/*`.
+
+**A9 — o alvo saía com o código errado (baixo).** O `make reuso` corria duas
+receitas separadas; com a primeira vermelha, o GNU make parava e saía com **2**,
+que é o código que esta casa reserva para «declaração malformada» — quem o lesse
+concluía a coisa errada, e não via o segundo número. Fechado: as duas correm
+sempre e o alvo falha no fim.
+
+**A10 — afirmações falsas sobre o próprio código e contagens erradas (baixo, e
+são sete).** A *docstring* do `fecho` dizia «por largura» sobre uma travessia
+LIFO; a enumeração dos oito passos do `invoke` omitia o **passo 4** — o portão de
+confirmação de escrita e de dinheiro — e inventava um passo «contexto de tenant»
+que no código é parte do 6; «9 ensaios» eram 8; «as quatro caixas de DoD» tinham
+seis linhas; o `db/tests_isolamento/` não tem «e mais nada» (tem o
+`test_overhead.py` e o `test_resolver.py`); «oito linhas de YAML» do bloco
+`persona:` são 4 (5 no do Vendedor); e o `fnmatch` é insensível a maiúsculas em
+Windows e sensível em Linux, pelo que a classificação podia divergir entre a
+máquina de quem mede e o CI (`fnmatchcase`). Todas fechadas. Mais uma de fora do
+ticket, que o PR agrava e portanto corrige: o `TestOsQuinzeLeitores` do
+`lint_arch` já ia em dezassete entradas.
+
+**Dois limites ficam declarados em vez de corrigidos**, e não é adiamento: é o
+que as regras **9** e **10** de `../docs/reuse-metric.md` passaram a dizer.
+
+- **O *backend* TypeScript das cinco tools de Serviços — 1059 linhas — fica fora
+  da medida.** O §5.4 põe «tools» no caminho, e a medida conta o
+  `tls/servicos.py`, que são os **modelos dos argumentos**; a implementação vive
+  em `services/com/src/servicos/` e o instrumento mede Python. Contado
+  simetricamente, o reuso dá **83,77%** — acima do limiar, pelo que a ausência
+  não muda a conclusão. **Fica escrita porque uma ausência silenciosa lê-se como
+  zero**, que é a razão da regra 8, e porque é a maior ausência da medida.
+- **A cadeia das migrações é posicional.** Numa cadeia linear — e esta é —
+  «antepassados da `0026`» é identicamente «tudo o que foi escrito antes de
+  Serviços aterrar»: **38%** do denominador entra por posição, e **2017** dessas
+  linhas são subsistemas que uma marcação nunca toca. Sem elas, 86,36%. A regra
+  fica como está porque nenhuma variante desce abaixo do limiar e porque não há
+  dependência legível por máquina entre uma migração e um esquema.
+
+**Um achado foi devolvido com o número corrigido, e vale escrever porquê.** A
+revisão afirmava que o pacote `privacidade/` (877 linhas) entra no denominador
+por **uma** linha, o `metricas.py:510`. A premissa não se sustenta sozinha — o
+`llm/cliente.py:55` importa-o ao **nível de topo** —, mas o efeito confirma-se,
+porque o `llm/cliente.py` é ele próprio alcançado por `import` preguiçoso. O
+total são **1677** linhas em 16 módulos e não 2241: o número da revisão
+misturava os ficheiros `misto`. A direcção do achado estava certa; a conta não.
+
+**E o que as duas revisões procuraram e NÃO encontraram**, que é informação e
+não silêncio: formas de importação que o fecho perca (`importlib`, `__import__`,
+`TYPE_CHECKING` — zero ocorrências de carregamento dinâmico de módulos nossos);
+erro de arredondamento no `>=` do limiar (sete pares que dão exactamente 70,00%,
+todos passam); dependência da ordem dos testes ou estado partilhado entre eles
+(corridos isolados e por `discover`, verdes nas duas); não-determinismo no
+artefacto (nenhum `set` chega à saída por iterar; a terceira execução com
+`--root` absoluto dá o mesmo resultado); encolhimento silencioso do denominador
+por uma migração declarada que não exista (levanta); código específico de
+Serviços em `db/` fora das duas migrações declaradas (nada); e condições
+invertidas, *off-by-one*, `None` desreferenciado, excepção engolida, guarda
+retirada ou chamadores partidos no código novo (nenhum).
+
 ### Handoff para Claude Code
 
 ```text
@@ -4152,4 +4332,4 @@ X-03 com um `valor_alteravel` inaplicável (este **corrigiu-se**, por ser barato
 | 1.9 | Outubro 2026 | **KAM-114 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Seis critérios marcados** (1, 2, 3, 5, 7 e 8) e **dois parciais** (4 e 6), e nenhum fica vago: ao **4** falta o «≤ 5 s» do HND, que é latência do provedor, ***proposta*** no próprio critério, e mede-se em *staging* com o cliente HTTP do **KAM-019**; ao **6** falta o custo, e por duas razões **medidas antes de se escrever código** — a `dat.llm_call_log` não tem `turn_id` (tem `trace_id`, que é o do W3C, e o `turn_id` deste repositório é o `wamid`) e o `kamba_app` **não tem `SELECT`** nela, por decisão deliberada do KAM-030. Preencher a coluna exigia retirar aquela barreira de privilégio, pelo que as três saídas ficaram escritas e a decisão subiu em vez de ser tomada pelo executor — e **foi tomada: aceita-se a vista sem coluna de custo**. O critério fica `parcial` com a medição escrita, porque o custo não é entregue; quem o precisar (o **KAM-109**, para o H6) tem as outras duas saídas escritas. Três caixas do DoD marcadas; a de «todos os critérios» fica vazia pelos dois parciais, a dos **dois revisores** fica vazia como em toda esta linha (funde-se com o CI verde, e uma revisão adversarial é evidência e não um revisor), e a do **eval-gate** fica vazia porque **o gate 13 não existe** — medido antes de se escrever código: não há alvo `ci-13` no `Makefile` nem *job* no `.github/workflows/ci.yaml`, e quem o constrói é o **KAM-040**, aberto e bloqueado pelo KAM-035 e pelo KAM-033. Não se inventou um gate nem se declarou a caixa por espírito. **A decisão que deu forma ao ticket: o concierge não é um quinto modo.** O KAM-018 recusa transições fora da tabela do `../docs/tecnica/01` §10.2, pelo que ele é uma **política por tenant** sobre o modo `bot` — uma linha de `platform.entitlements` com `modulo = 'concierge'`, **sem migração** (a coluna tem `CHECK` de forma e o dicionário §3.7 já escreve que «um módulo novo entra por configuração»). As outras três superfícies foram medidas e nenhuma serve: o `registry/*.yaml` não se recarrega (o critério 8 falhava por construção), o `entitlements.limites` recusa um booleano na escrita (`additionalProperties: false`, dez chaves `bigint_nao_negativo`), e uma tabela de políticas não existe. **E a intercepção é no `send` e não à entrada de cada caminho**, porque são **cinco** as arestas que lá chegam e uma resposta estática é uma mensagem ao cliente tanto como uma composta: interceptar num sítio cobre as cinco, e a primeira esquecida era uma mensagem a sair sem aprovação. **A revisão adversarial reprovou-o com quinze achados — treze `CONFIRMADO` e dois `PLAUSÍVEL`, mais onze `MORTO` registados com a evidência que os matou —, e os treze estão corrigidos com teste** (`../docs/analises/ANALISE-38-KAM-114-concierge.md`). Sete mudaram desenho e não só código, e o primeiro é o que importa: **o `turn_seq` não podia viver no `estado_inicial`**, porque o `turno.py` passa essa função ao `ainvoke` em **cada** turno e toda a chave que nasça lá sobrescreve a do *checkpoint* — o `draft_id` era o **mesmo** em toda a conversa, o rascunho do 2.º turno era engolido pelo `ON CONFLICT`, o operador nunca o via, e a conversa ficava **muda a partir do segundo turno**, sem erro em sítio nenhum. Os outros seis: o **critério 5 não estava ligado** (a consulta existia, estava documentada e no `__all__`, e não tinha consumidor — o dono respondia e o bot falava por cima dele), o `golden-candidates` devolvia **zero linhas sempre e em silêncio** (corria como `kamba_audit`, que é `NOBYPASSRLS`, sem contexto de *tenant*), o `graph_version` era **texto livre e saía na exportação** (o que tornava falsa a afirmação em que a prova do critério 7 assenta — ganhou `CHECK` de SemVer e o canário do X-03 mudou-se para o `turn_id`), a falta de serviço **matava a conversa em definitivo** em vez de a 24 h (sem linha gravada a varredura nunca a encontrava e o CAS nunca a casava: o `interrupt` ficava pendente para sempre), o sinal do critério 4 **não chegava ao operador** (era gravado e morria no estado do grafo, isto é, a metade do critério que este ticket tinha de entregar agora), e dois comentários **invocavam um ciclo de importação que não existe** — e o comentário falso custava código, uma lista de seis motivos duplicada com um teste de paridade a sustentá-la. **E o teste mais caro da bateria era o que menos provava:** os 1.000 turnos do critério 1 corriam em 1.000 *threads* distintos sem aprovar nenhum, pelo que nunca chegavam ao 2.º turno de conversa nenhuma — onde estava o defeito. Passou a haver uma conversa com três turnos aprovados, e o canário mede que ela morde. **A bateria também custava 26 minutos e passou a 15 segundos**, por medição e não por corte: o `IsolatedAsyncioTestCase` custa **47×** mais neste perfil (100 turnos do grafo levam 27,8 s nele contra 0,59 s com `asyncio.run`), porque cada invocação do LangGraph cria dezenas de tarefas. **Um achado do próprio autor fica medido e não corrigido:** o `handoff_seq` tem o **mesmo** defeito do `turn_seq` e dois *handoffs* em dois turnos da mesma conversa derivam o mesmo `handoff_id` — o segundo é engolido pelo `ON CONFLICT` do HND e **ninguém é chamado**. Medido (duas passagens, um `handoff_id`, uma linha com contagem 2); é código fundido e fora de âmbito, e fica em `../docs/dividas-documentais.md` com o credor **KAM-031**/**KAM-034**. Revisão `0024`: a `platform.draft_decisions` com treze colunas e **nenhuma de texto livre**, a vista `platform.v_draft_metrics` com `security_invoker`, e o `downgrade` medido contra PostgreSQL 18 (a tabela e a vista saem e voltam, e a RLS volta com elas). Dicionário §3.34 (emenda **1.44**), que faz os três nomes sairem do §3.8 no mesmo *commit*; `../docs/concierge.md` escrito; **dezenove** mutações com prefixo `concierge:` (dezessete em Python, duas no SQL), e a bateria entrou no `MODULOS_DO_AGR_UNIT` — sem essa linha as dezessete sobreviviam todas com a suite verde, que é a quarta vez que esta nota se paga neste epic. | Equipa KAMBÁ |
 | 1.10 | Outubro 2026 | **KAM-035 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **seis critérios satisfeitos e dois parciais**, **tres caixas de DoD marcadas e tres vazias**. A tabela de arestas e **derivada** do diagrama de §8.1 e nao citada — 47 arestas em quatro fontes separadas (39 do diagrama, 3 da prosa ao lado, 1 do §6.2, 4 do ADR-L005) —, e a derivacao fechou **duas lacunas do diagrama**: a intencao `disponibilidade` sem destino e o portao de confirmacao do cancelamento, sem o qual **nenhum** cancelamento era possivel nesta vertical. Os dois parciais sao o **4** e o **6**, e nenhum por trabalho em falta: nao existe `kind` de indisponibilidade nem de duracao onde sustentar o que a letra pede, e as duas leituras sao entregues com as decisoes devolvidas (dividas **145** e **146**, hipoteses **H1** e **H2** da `../docs/analises/ANALISE-40-grafo-de-servicos.md`). **Duas chaves do `ConversaState` sairam do `estado_inicial`** — o `slots` e o `stage` —, e a segunda toca no Vendedor por necessidade tecnica medida: o botao de confirmacao chega sempre no turno seguinte, e com o `stage` inicializado por turno **toda** a confirmacao saia `STALE_CONFIRMATION`, nas duas verticais. A revisao adversarial deu **22 achados, 22 CONFIRMADO**, seis criticos, e cinco desses eram a mesma classe; sem eles os criterios 3, 5, 6, 7 e 8 eram inalcancaveis. A contagem de reuso desceu de catorze para **doze** nos, porque o `safe_reply` do Vendedor diz ao cliente de um salao que a loja so trata de «produtos, precos e pedidos». **Com migracao:** a revisao `0026` poe o `SLOT_TAKEN` e o `HOLD_EXPIRED` no `CHECK` da `tool_audit.error_code`, cumprindo o que o KAM-047 deixou escrito para este ticket. Dicionario na emenda **1.47** (§3.36 novo, §3.28 a treze codigos). | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-031 ganha o KAM-178.** Aquele bloco deferiu os executores das cinco tools do Vendedor «com o credor que liga o backend» e o credor não existia em ticket nenhum; o KAM-178, acrescentado ao EPIC-04, é esse credor e declara o KAM-031 como dependência. O `lint_backlog` exige a aresta nos dois lados, porque o §4 não tem coluna para ela. Nada mais deste epic muda: os modelos das tools, as especificações e o `invoke` ficam como estão. | Equipa KAMBÁ |
-| 1.12 | Novembro 2026 | **KAM-039 entregue, e NAO fecha: o nucleo tem uma excepcao e ela tem nome.** O bloco ganha a seccao «Verificacao dos Criterios de Aceitacao»: **dois criterios satisfeitos** ((a) e o 6.o), **dois parciais** ((b) e o 5.o), **um nao satisfeito** ((d)), **um vazio** ((c)) e o 7.o com a clausula «excepcao >= 1 reprova» a morder; **tres caixas de DoD marcadas e tres vazias**. O numero sai medido — `reuso = 88,26%` para a vertical Servicos contra um limiar de 70% — e as duas medidas tem **canario de mutacao sobre esta arvore**. **A revisao adversarial mudou o resultado e nao so o texto**: dois instrumentos deram 19 achados, 16 CONFIRMADOS, e dois atacavam a afirmacao central com razao. O verificador da condicao (d) nao via o idioma desta casa — uma constante de modulo —, pelo que o `fluxo` dava **0** por cegueira; a seguir constantes, aparece **1**: o `AO_DONO` do `eventos/handlers.py`, uma tabela de pares `(vertical, tipo)` **so do Vendedor** lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado. E a metrica lia os ficheiros do **disco** em vez do `git`, pelo que a partir da raiz do *checkout* principal contava as copias dos *worktrees* irmaos — 70 ficheiros em vez de 7, com o reuso a cair abaixo do limiar numa raiz onde o `make reuso` corre. **A correccao obrigou a uma distincao que o criterio nao faz**, e ela esta escrita: validar que a vertical e **conhecida** (o `contexto.py:191`, que o criterio 5 do KAM-014 exige) nao distingue entre verticais; fazer coisa diferente segundo **qual** e a excepcao. **Tres criterios param numa fronteira que nao e deste ticket**: «o CI falha se devolver > 0», «falha o *build* abaixo de 70%» e o que fazer com a excepcao sao regras de bloqueio. A caixa (c) fica vazia com o **KAM-066** — a suite cruzada esta no PR #126 e nao na base, medido —, a de observabilidade com o **KAM-080**, e o efeito do consumo cruzado com o **KAM-047** e tambem o **KAM-007**: os contratos de `payment.*` nao permitem `booking_id` no *payload*, logo o efeito *proposta* do bloco nao e implementavel como esta escrito. | Equipa KAMBA |
+| 1.12 | Novembro 2026 | **KAM-039 entregue, e NAO fecha: o nucleo tem uma excepcao e ela tem nome.** O bloco ganha a seccao «Verificacao dos Criterios de Aceitacao»: **dois criterios satisfeitos** ((a) e o 6.o), **dois parciais** ((b) e o 5.o), **um nao satisfeito** ((d)), **um vazio** ((c)) e o 7.o com a clausula «excepcao >= 1 reprova» a morder; **tres caixas de DoD marcadas e tres vazias**. O numero sai medido — `reuso = 88,26%` para a vertical Servicos contra um limiar de 70% — e as duas medidas tem **canario de mutacao sobre esta arvore**. **A revisao adversarial mudou o resultado e nao so o texto**: dois instrumentos deram 19 achados, 16 CONFIRMADOS, e dois atacavam a afirmacao central com razao. O verificador da condicao (d) nao via o idioma desta casa — uma constante de modulo —, pelo que o `fluxo` dava **0** por cegueira; a seguir constantes, aparece **1**: o `AO_DONO` do `eventos/handlers.py`, uma tabela de pares `(vertical, tipo)` **so do Vendedor** lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado. E a metrica lia os ficheiros do **disco** em vez do `git`, pelo que a partir da raiz do *checkout* principal contava as copias dos *worktrees* irmaos — 70 ficheiros em vez de 7, com o reuso a cair abaixo do limiar numa raiz onde o `make reuso` corre. **A correccao obrigou a uma distincao que o criterio nao faz**, e ela esta escrita: validar que a vertical e **conhecida** (o `contexto.py:191`, que o criterio 5 do KAM-014 exige) nao distingue entre verticais; fazer coisa diferente segundo **qual** e a excepcao. **Tres criterios param numa fronteira que nao e deste ticket**: «o CI falha se devolver > 0», «falha o *build* abaixo de 70%» e o que fazer com a excepcao sao regras de bloqueio. A caixa (c) fica vazia com o **KAM-066** — a suite cruzada esta no PR #126 e nao na base, medido —, a de observabilidade com o **KAM-080**, e o efeito do consumo cruzado com o **KAM-047** e tambem o **KAM-007**: os contratos de `payment.*` nao permitem `booking_id` no *payload*, logo o efeito *proposta* do bloco nao e implementavel como esta escrito. **E o bloco ganha a seccao «Revisao adversarial independente»**, com os dezanove achados arrumados em dez grupos, os dois limites que se declaram em vez de se corrigirem, o que se devolve com o numero corrigido, e o que os dois instrumentos **procuraram e nao encontraram** — que e o que torna a ausencia de achados informacao em vez de silencio. | Equipa KAMBA |
