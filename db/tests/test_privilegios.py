@@ -1074,9 +1074,96 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+ESPERADO_POR_TABELA.update(
+    {
+        # ------------------------------------------------- KAM-054 (0032)
+        #
+        # **A aplicacao le as quatro e nao escreve nenhuma.** E a mesma escolha
+        # da `payment_accounts` na `0027` — «quem provisiona nao e um turno de
+        # conversa» —, e aqui vale duas vezes, porque em duas delas o `INSERT`
+        # desfazia uma guarda e nao so uma convencao:
+        #
+        #   payment_confirmers    com `INSERT`, um tenant acrescentava-se a si
+        #     proprio a lista de quem pode confirmar: a guarda do M-1 era um
+        #     `INSERT`. O `WITH CHECK (tenant_id = app.tenant_id)` da
+        #     `tenant_iso` **nao** o impedia — a linha que ele criava era do
+        #     proprio tenant, que e precisamente o problema. E a mesma escalada
+        #     por outro verbo que a `0007` fechou nos `entitlements`
+        #   manual_confirmations com `INSERT`, escrevia-se uma
+        #     `declaracao_cliente` com o `actor_contact_id` a escolha — e a
+        #     `manual_confirmar` descobre quem e o cliente **lendo** essa fase.
+        #     Quem a pudesse escrever escolhia quem o cliente e, o que abre a
+        #     fraude mais obvia deste caminho: o cliente a confirmar o proprio
+        #     pagamento
+        #   refund_cases         com `INSERT`, abria-se um caso de reembolso sem
+        #     reversao e sem evento no ledger — a «abuso de reembolso» do secao 9
+        #   fraud_signals        com `INSERT`, quem e vigiado escrevia no registo
+        #     de vigilancia
+        #
+        # O que a aplicacao precisa de escrever, escreve pelas quatro funcoes
+        # `manual_*`, que sao `SECURITY DEFINER` e tem as regras dentro. **O que
+        # se prova nesta matriz, portanto, nao e que a politica recusa: e que o
+        # privilegio nem existe**, que e mais forte — nao depende de a politica
+        # estar certa.
+        #
+        # **O `kamba_batch` escreve duas e nao as quatro.** O ciclo de vida que
+        # corre fora de um turno e a lista de confirmadores (o onboarding de
+        # retaguarda, KAM-091) e o fecho de um caso de reembolso, que a PME
+        # executa fora da plataforma e alguem tem de registar. Nas outras duas
+        # nao tem `UPDATE` nenhum: sao **registos**, e um registo que se corrige
+        # nao e um registo.
+        #
+        # O `UPDATE` dos dois que o tem **nao esta nesta matriz**: e por coluna,
+        # e por isso as duas tabelas entram em `TABELAS_COM_MATRIZ_DE_COLUNA`.
+        #
+        # **O `kamba_audit` le as quatro**, e e a primeira familia em que ele
+        # tem tudo: quem confirmou, com que valor declarado, que limite retido e
+        # que caso aberto sao exactamente as perguntas de uma auditoria de
+        # dinheiro. **O `kamba_pay_hooks` nao tem nada**: um callback nao toca na
+        # via humana, e e esse o ponto do ADR-013.
+        "payment_confirmers": _pagamentos(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT", "INSERT", "DELETE"},
+            kamba_audit={"SELECT"},
+        ),
+        "manual_confirmations": _pagamentos(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+        "refund_cases": _pagamentos(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+        "fraud_signals": _pagamentos(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
+    # KAM-054: tres colunas em cada uma das duas, e sao o ciclo de vida.
+    #
+    # No `payment_confirmers`, as que ficam **fora** sao o `tenant_id` e o
+    # `contact_id` — a chave —, e isso e a propriedade: mover um confirmador
+    # de tenant ou de contacto e reatribuir quem pode confirmar, e nao um
+    # `UPDATE`. Retirar um funcionario e `ativo = false`.
+    #
+    # Na `refund_cases`, ficam fora o `tenant_id`, o `order_id`, o
+    # `charge_id`, o `motivo`, o `valor_minor` e o `criado_at`: o montante e
+    # a razao de um caso sao o que ele **e**, e a reescrita deles e a «abuso
+    # de reembolso» da tabela do secao 9.
+    ("kamba_batch", "payment_confirmers", "UPDATE"): {
+        "papel", "pode_segunda_aprovacao", "ativo",
+    },
+    ("kamba_batch", "refund_cases", "UPDATE"): {
+        "estado", "prova_ref", "fechado_at",
+    },
     ("kamba_app", "contacts", "SELECT"): {
         "contact_id", "tenant_id", "criado_at", "erased_at", "merged_into", "merged_at",
     },
@@ -1485,6 +1572,16 @@ def esquema_de(tabela: str) -> str:
 #: tem privilegios por coluna, ou onde um privilegio de coluna a mais seria
 #: invisivel na matriz de tabela.
 TABELAS_COM_MATRIZ_DE_COLUNA = (
+    # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
+    # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
+    # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas
+    # entram pela mesma razao das de eventos: um `GRANT UPDATE (coluna)` a mais
+    # seria **invisivel** na matriz de tabela, e numa delas isso e a diferenca
+    # entre um registo e um rascunho.
+    "payment_confirmers",
+    "manual_confirmations",
+    "refund_cases",
+    "fraud_signals",
     "contacts",
     "contact_deks",
     "contact_endpoints",

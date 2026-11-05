@@ -442,7 +442,7 @@ class TestTriggersSaoAlways(ComLedger):
     `ALWAYS` na revisao.
     """
 
-    def test_os_dois_triggers_do_ledger_sao_always(self) -> None:
+    def test_os_tres_triggers_do_ledger_sao_always(self) -> None:
         self.semente.execute(
             "SELECT t.tgname, t.tgenabled FROM pg_trigger t "
             "  JOIN pg_class c ON c.oid = t.tgrelid "
@@ -452,6 +452,19 @@ class TestTriggersSaoAlways(ComLedger):
         )
         self.assertEqual(
             [tuple(linha) for linha in self.semente.fetchall()],
-            [("payment_events_imutavel", "A"), ("payment_events_sem_truncate", "A")],
+            [
+                # O `payment_events_g8_humano` e da revisao `0032` (KAM-054) e
+                # entra nesta lista por ser o terceiro *trigger* da tabela: e o
+                # G8 do §5 — um `pagamento_confirmado` com
+                # `authn_method='manual'` exige uma fase de
+                # `manual_confirmations` com `valor_bate` e o mesmo actor. Tem
+                # `ENABLE ALWAYS` pela mesma razao que os outros dois, e aqui
+                # ela e **mais** forte: sem o `ALWAYS`, um superutilizador em
+                # `session_replication_role = replica` confirmava um pagamento
+                # por via humana sem fase nenhuma.
+                ("payment_events_g8_humano", "A"),
+                ("payment_events_imutavel", "A"),
+                ("payment_events_sem_truncate", "A"),
+            ],
             "'A' e ENABLE ALWAYS; 'O' seria a omissao, que o replica salta",
         )
