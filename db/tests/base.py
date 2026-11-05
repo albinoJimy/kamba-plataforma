@@ -753,8 +753,25 @@ class ConsultaDoTypeScript:
         self.sql = re.sub(r"\$\d+", "%s", self.fonte.replace("%", "%%"))
 
     def args(self, *valores: object) -> tuple[object, ...]:
-        """Os `valores` — na numeracao do documento — pela ordem do texto."""
-        if sorted(self.ordem) != list(range(1, len(valores) + 1)):
+        """Os `valores` — na numeracao do documento — pela ordem do texto.
+
+        **Um marcador pode repetir-se, e desde o KAM-045 repete-se.** A
+        comparacao e sobre o conjunto dos marcadores e nao sobre a lista: o
+        `SQL_RESERVAR` das reservas de stock escreve o `$3` duas vezes — uma no
+        `SET stock_reservada = stock_reservada + $3` e outra no predicado
+        `stock_quantidade - stock_reservada >= $3` —, e as duas tem de ser o
+        mesmo numero, senao a reserva promete uma quantidade e verifica outra.
+
+        O `return` desta funcao **ja** tratava o caso: mapeia por posicao, pelo
+        que um marcador repetido recebe o mesmo valor nas duas posicoes. Era so
+        a asercao que o proibia, e proibia SQL legitimo — passar a quantidade
+        como `$3` e `$4` para satisfazer o verificador era criar dois parametros
+        que tem de ser iguais, que e a forma de os deixar divergir.
+
+        O que a asercao continua a garantir e o que importa: os marcadores sao
+        **exactamente** `$1` a `$n`, sem buracos e sem numeros a mais.
+        """
+        if sorted(set(self.ordem)) != list(range(1, len(valores) + 1)):
             raise AssertionError(
                 f"{self.nome} tem os marcadores {self.ordem} e deram-se "
                 f"{len(valores)} argumentos"
