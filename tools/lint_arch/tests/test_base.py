@@ -80,6 +80,45 @@ def _codigo_executavel() -> str:
     return ast.unparse(arvore)
 
 
+def _este_worktree_e_mensuravel() -> tuple[bool, str]:
+    """Pode este repositorio responder a pergunta sobre **si mesmo**?
+
+    Sao duas condicoes, e **o CI nao satisfaz nenhuma das duas** — pelo que os
+    casos de `TestNoRepositorioReal` saltam la, e isso e correcto e nao uma
+    indulgencia: eles medem *o worktree de quem desenvolve*, que e exactamente o
+    que o CI nao e.
+
+    1. **Ha ramo actual.** O `actions/checkout` num evento `pull_request` deixa um
+       **`HEAD` solto** no *commit* de fusao, pelo que `rev-parse --abbrev-ref
+       HEAD` responde `HEAD` e nao ha ramo sobre o qual perguntar.
+    2. **A referencia resolve.** O `refs/remotes/publico/main` existe na maquina
+       de quem desenvolve, onde ha dois remotos; no CI o remoto e o `origin` e
+       aquela referencia nao existe — o `merge-base` sairia 128 e o veredicto
+       seria `DESCONHECIDO` por falta de referencia, nao por defeito nenhum.
+
+    **Salto nao e passagem**, e e por isso que isto e uma condicao e nao um
+    `assertIn` generoso: um caso que aceitasse `DESCONHECIDO` ficava verde com uma
+    implementacao que respondesse sempre «nao sei», e era o defeito que a revisao
+    adversarial apanhou aqui.
+    """
+    from lint_arch import base as _base
+
+    if _base.ramo_actual(RAIZ) is None:
+        return False, "HEAD solto (e o que o actions/checkout deixa num pull_request)"
+    resultado = subprocess.run(
+        ["git", "rev-parse", "--verify", _base.REFERENCIA_PADRAO],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+    )
+    if resultado.returncode != 0:
+        return False, f"{_base.REFERENCIA_PADRAO} nao existe aqui (o CI so tem origin)"
+    return True, ""
+
+
+MENSURAVEL, PORQUE_NAO = _este_worktree_e_mensuravel()
+
+
 def _git(raiz: Path, *argumentos: str) -> str:
     return subprocess.run(
         ["git", *argumentos],
@@ -819,11 +858,19 @@ class TestNoRepositorioReal(unittest.TestCase):
     arvore de git, pelo que estes nao tem o que medir. Ficam marcados com a
     condicao escrita — e nao excluidos por nome, que era como um caso que passasse
     a nao correr no repositorio passava calado.
+
+    **E saltam tambem no CI**, por duas razoes que `_este_worktree_e_mensuravel`
+    mede e escreve: o `actions/checkout` deixa um `HEAD` solto num evento
+    `pull_request`, e o `refs/remotes/publico/main` nao existe num *runner* que so
+    tem o `origin`. Medido: com a condicao a exigir `CONFORME` sem esta guarda, o
+    *gate* 4 ficou **vermelho no CI** — e nao por defeito do instrumento, mas por
+    lhe pedir uma resposta sobre um ramo que ali nao existe.
     """
 
     @unittest.skipUnless(
         (RAIZ / ".git").exists(), "sem arvore de git: a copia do arreio nao a leva"
     )
+    @unittest.skipUnless(MENSURAVEL, f"este repositorio nao se mede: {PORQUE_NAO}")
     def test_o_ramo_actual_deste_worktree_e_conforme(self) -> None:
         """A direccao positiva, medida no repositorio e nao numa *fixture*.
 
