@@ -354,6 +354,25 @@ TABELAS_0030 = (
     "orders_mirror",
 )
 
+#: O que a revisao 0032 (KAM-054) acrescenta: a confirmacao humana auditada.
+#:
+#: **Quatro, as do `docs/tecnica/04` secao 6.2-6.3 que faltavam.** Por ordem
+#: alfabetica, que e a do `pg_tables ORDER BY 1` desta lista — e nao a de
+#: criacao, que e `payment_confirmers -> manual_confirmations -> refund_cases
+#: -> fraud_signals` (a ordem das FK: as tres ultimas referenciam a
+#: `payment_charges` da `0029` e as duas primeiras a `contacts` da `0003`).
+#:
+#: **As quatro tem `tenant_id NOT NULL`**, RLS `FORCE` e politica `tenant_iso`,
+#: e entram no X-05 do *gate* 6 sem ninguem as declarar — ao contrario das duas
+#: da `0029` e da `order_state_graph` da `0030`, que nao tem a coluna. Nenhuma
+#: entra em `ci/rls_exceptions.yaml`, que esta vazio e deve continuar vazio.
+TABELAS_0032 = (
+    "fraud_signals",
+    "manual_confirmations",
+    "payment_confirmers",
+    "refund_cases",
+)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -362,14 +381,27 @@ TABELAS = tuple(
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
+        + TABELAS_0032
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0031`.
+#:
+#: A `0031` (KAM-176) alarga um *trigger* e nao cria tabela, pelo que o conjunto
+#: na `0031` e o da `0030`. O `downgrade` da `0032` leva a base para aqui.
+TABELAS_ATE_0031 = tuple(sorted(set(TABELAS) - set(TABELAS_0032)))
 
 #: O que existe em `platform` quando a base esta na revisao `0029`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0030` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0029 = tuple(sorted(set(TABELAS) - set(TABELAS_0030)))
+#:
+#: **Deriva do `TABELAS_ATE_0031` e nao do `TABELAS`**, e e a sexta vez que esta
+#: nota se escreve: derivar do conjunto inteiro punha as **quatro** tabelas da
+#: `0032` em todas as tuplas de revisoes anteriores, e os ensaios de
+#: `downgrade` de outros modulos ficavam vermelhos a espera delas na revisao a
+#: que descem.
+TABELAS_ATE_0029 = tuple(sorted(set(TABELAS_ATE_0031) - set(TABELAS_0030)))
 
 #: O que existe em `platform` quando a base esta na revisao `0028`.
 #:

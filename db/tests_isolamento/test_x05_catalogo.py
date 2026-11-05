@@ -198,11 +198,18 @@ class TestCatalogoReal(ComBase):
                 # primeiro (`_` e 0x5F, `s` e 0x73), a mesma armadilha do
                 # `tenant_usage`/`tenants` desta lista. A primeira versao pos
                 # as duas depois de `entitlements` e o teste recusou.
+                # KAM-054 (0032): as quatro, e as quatro por `tenant_id`.
+                # Entram na descoberta sem ninguem as declarar; esta lista
+                # e o contrario — declara o que a descoberta **tem de**
+                # encontrar, para que ela encolher nao passe calada. A
+                # posicao de cada uma e por ordem de nome.
+                ("platform", "fraud_signals", "tenant_id"),
                 ("platform", "handoff_accounts", "tenant_id"),
                 ("platform", "handoffs", "tenant_id"),
                 # KAM-020: a midia, e a posicao e entre `handoffs` e
                 # `message_templates` — «ha» < «me», e contra
                 # `message_templates` decide o terceiro caracter («d» < «s»).
+                ("platform", "manual_confirmations", "tenant_id"),
                 ("platform", "media_assets", "tenant_id"),
                 # KAM-015: as duas da saida de canal. A ordem e a do
                 # `sorted()`, que compara por ponto de codigo.
@@ -264,11 +271,13 @@ class TestCatalogoReal(ComBase):
                 # avaliada, e o X-04 ficava a medir a guarda G-1 em vez do
                 # `WITH CHECK`. As duas provam-se em `db/tests_pagamentos/`.
                 ("platform", "payment_charges", "tenant_id"),
+                ("platform", "payment_confirmers", "tenant_id"),
                 ("platform", "payment_events", "tenant_id"),
                 # KAM-043: a cotacao, depois das de pagamento
                 # («pay» < «pri»). A oferta esta acima, antes de
                 # `outbound_messages`.
                 ("platform", "price_quotes", "tenant_id"),
+                ("platform", "refund_cases", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
@@ -408,6 +417,10 @@ class TestCatalogoReal(ComBase):
                 ("evt_acoes", "tenant_iso", "ALL", "{public}"),
                 ("evt_agregado_seq", "tenant_iso", "ALL", "{public}"),
                 # KAM-019: as duas do handoff, pela ordem da coleccao `C`.
+                # KAM-054 (0032): as quatro, com a `tenant_iso` e **so**
+                # ela. Uma politica a mais soma-se por OU e abre o que esta
+                # fecha. A posicao e por nome de tabela.
+                ("fraud_signals", "tenant_iso", "ALL", "{public}"),
                 ("handoff_accounts", "tenant_iso", "ALL", "{public}"),
                 ("handoffs", "tenant_iso", "ALL", "{public}"),
                 # KAM-020: a midia, pela mesma ordem.
@@ -422,6 +435,7 @@ class TestCatalogoReal(ComBase):
                 # antes de `media_assets`.
                 ("llm_call_log", "tenant_iso", "ALL", "{public}"),
                 ("llm_call_log_default", "tenant_iso", "ALL", "{public}"),
+                ("manual_confirmations", "tenant_iso", "ALL", "{public}"),
                 ("media_assets", "tenant_iso", "ALL", "{public}"),
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),
@@ -497,9 +511,11 @@ class TestCatalogoReal(ComBase):
                 # de quem chamou, e nao escreve um evento de outro tenant
                 # **mesmo sendo `DEFINER`**.
                 ("payment_charges", "tenant_iso", "ALL", "{public}"),
+                ("payment_confirmers", "tenant_iso", "ALL", "{public}"),
                 ("payment_events", "tenant_iso", "ALL", "{public}"),
                 # KAM-043: a cotacao, depois das de pagamento.
                 ("price_quotes", "tenant_iso", "ALL", "{public}"),
+                ("refund_cases", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
                 # `resources` < `services` < `tenant_channels`. A `tenant_channels`
@@ -573,11 +589,15 @@ class TestCatalogoReal(ComBase):
              # precisar delas**, e as outras duas ja estavam feitas quando esta
              # falhou — a descoberta, as politicas por nome, e esta, que confere
              # o `USING` e o `WITH CHECK` de cada uma.
+             # KAM-054 (0032): as quatro, por ordem de nome — o
+             # `fraud_signals` antes de `handoff_accounts` ('f' < 'h').
+             "fraud_signals",
              "handoff_accounts", "handoffs",
              # KAM-020: a midia. **Quarta lista deste ficheiro a precisar de
              # uma tabela nova**, e a nota do KAM-019 ja avisava que eram tres:
              # a descoberta, as politicas por nome, e esta. Conta-se aqui para
              # que o proximo nao as descubra uma a uma.
+             "manual_confirmations",
              "media_assets",
              # KAM-015: as duas da saida de canal.
              # KAM-043: a oferta entra **entre as duas** — «me» < «of» < «ou» —,
@@ -620,11 +640,13 @@ class TestCatalogoReal(ComBase):
              # `DEFINER` — sem contexto, a porta nao encontra a cobranca e
              # recusa, em vez de escrever no tenant errado.
              "payment_charges",
+             "payment_confirmers",
              "payment_events",
              # KAM-043: a cotacao, depois das de pagamento («pay» < «pri»).
              # A oferta esta acima, entre `message_templates` e
              # `outbound_messages`.
              "price_quotes",
+             "refund_cases",
              "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
@@ -1014,6 +1036,38 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "p_ocorrido_at timestamp with time zone)"
     )
 
+    #: As quatro portas de escrita da `manual_confirmations` (KAM-054, revisao
+    #: `0032`). Pela mesma razao da `APPEND_NA_ALLOWLIST`: declara-se o que a
+    #: allowlist **tem de** conter, e nao o que ela tem hoje.
+    #:
+    #: **Sao quatro e nao uma, e a pergunta que o decide nao e de estilo:** onde
+    #: pode viver a regra M-1. Com as funcoes a `SECURITY INVOKER`, o
+    #: `kamba_app` precisava de `INSERT` na `manual_confirmations` — e com esse
+    #: privilegio escreve uma fase `declaracao_cliente` com o `actor_contact_id`
+    #: a escolha, o que desfaz a guarda que impede o cliente de confirmar o
+    #: proprio pagamento (a funcao descobre quem e o cliente **lendo** essa
+    #: fase). A excepcao nao desaparecia com `INVOKER`: mudava de sitio, e no
+    #: sitio novo era maior.
+    #:
+    #: A quinta funcao da revisao, a `manual_janela`, **nao** esta aqui: le e
+    #: nao escreve, e fica `STABLE SECURITY INVOKER`. Esta lista fechada e o que
+    #: impede que ela mude de ideias em silencio.
+    MANUAIS_NA_ALLOWLIST = frozenset(
+        {
+            "platform.manual_declarar("
+            "p_charge_id uuid, p_actor_contact_id uuid, p_canal_msg_id text, "
+            "p_evidencia_ref text)",
+            "platform.manual_confirmar("
+            "p_charge_id uuid, p_actor_contact_id uuid, p_canal_msg_id text, "
+            "p_valor_declarado_minor bigint)",
+            "platform.manual_expirar_confirmacao("
+            "p_charge_id uuid, p_janela_horas integer)",
+            "platform.manual_reverter("
+            "p_charge_id uuid, p_actor_contact_id uuid, p_canal_msg_id text, "
+            "p_motivo text)",
+        }
+    )
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1043,7 +1097,8 @@ class TestFicheirosDePolitica(unittest.TestCase):
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
         self.assertEqual(
             set(catalogo.funcoes_permitidas()),
-            {"platform.audit_encadear()", self.APPEND_NA_ALLOWLIST},
+            {"platform.audit_encadear()", self.APPEND_NA_ALLOWLIST}
+            | set(self.MANUAIS_NA_ALLOWLIST),
         )
 
 
