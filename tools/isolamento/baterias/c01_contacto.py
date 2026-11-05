@@ -209,7 +209,12 @@ def _consultas(ctx) -> list[str]:  # noqa: ANN001
         if leitura in SEM_PREDICADO_DE_CONTACTO:
             achados.extend(
                 _fixacao_das_cotacoes(
-                    ctx, leitura, texto_de_x, marca_de_x, marca_de_y
+                    ctx,
+                    leitura,
+                    texto_de_x,
+                    marca_de_x,
+                    marca_de_y,
+                    str(como_x.get("nota") or ""),
                 )
             )
             continue
@@ -241,6 +246,7 @@ def _fixacao_das_cotacoes(
     texto_de_x: str,
     marca_de_x: str,
     marca_de_y: str,
+    nota: str = "",
 ) -> list[str]:
     """Fixa o **comportamento medido** da leitura de cotacoes, nao o texto do SQL.
 
@@ -321,6 +327,7 @@ def _fixacao_das_cotacoes(
         "tem suporte."
         f" || esperava `{marca_de_x}` (X) ou `{marca_de_y}` (Y);"
         f" a leitura devolveu: {texto_de_x[:600]!r}"
+        f" || a `nota` do condutor: {nota[:400]!r}"
     ]
 
 

@@ -1170,7 +1170,18 @@ async function lerPorContacto(
     // validade sem depender da hora do *gate*.
     const agoraDaCotacao =
       validaAte === undefined ? new Date() : new Date(instante(validaAte).getTime() - 1_000);
-    await registar("cotacoes", quem, notaDaCotacao, () =>
+    // **Os tres argumentos resolvidos vao na `nota`.** O `getValidQuote` devolve
+    // `VALIDATION_ERROR` por uma unica razao — `qty` nao inteiro positivo — e
+    // quando isso apareceu no CI (verde na maquina de quem escreve, vermelho no
+    // *runner*) nao havia como saber de onde o `qty` tinha vindo. O tipo vai com
+    // o valor porque `Number("1")` e `Number(1)` dao o mesmo numero e nao o
+    // mesmo diagnostico.
+    const argumentosDaCotacao =
+      ` [argumentos: sku=${JSON.stringify(sku)}` +
+      ` qty=${JSON.stringify(qty)} (${typeof (daCotacao.valores?.["qty"])}` +
+      `=${JSON.stringify(daCotacao.valores?.["qty"] ?? null)})` +
+      ` agora=${agoraDaCotacao.toISOString()}]`;
+    await registar("cotacoes", quem, notaDaCotacao + argumentosDaCotacao, () =>
       getValidQuote(
         {
           repo,

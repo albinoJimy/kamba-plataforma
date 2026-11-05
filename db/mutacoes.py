@@ -6524,8 +6524,29 @@ def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
         destino / "libs" / "py-core" / "src",
         ignore=ignorar,
     )
+    # **Todo o `db/*.py`, e nao so este ficheiro.** O corpus do *lint* passou a
+    # ser `db/*.py` inteiro (achado 5 da revisao adversarial), e com ele vem a
+    # excepcao declarada de `db/auditoria.py#main` e o ensaio que exige o
+    # `db/auditoria.py` e o `db/ligacao.py` dentro do corpus. Com um ficheiro so
+    # na copia, a excepcao parecia **morta** e a linha de base ficava vermelha.
+    #
+    # Medido no *gate* 8 a 2026-11-05, pelo
+    # `test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia` — o
+    # portao desenhado para esta classe de atraso, «a receita esta atras do que
+    # a suite abre». Nao se ve nesta maquina: o `--aplicaveis` so confere texto
+    # e nunca constroi a copia.
+    #
+    # Nao e `copytree` de `db/`: as suites de `db/tests_*` nao entram aqui, e o
+    # `glob` de topo e exactamente o que o corpus nomeia.
     (destino / "db").mkdir(parents=True, exist_ok=True)
-    shutil.copy(RAIZ / "db" / "mutacoes.py", destino / "db" / "mutacoes.py")
+    for ficheiro in sorted(RAIZ.glob("db/*.py")):
+        shutil.copy(ficheiro, destino / "db" / ficheiro.name)
+    # E as revisoes, pelo segundo *glob* do corpus (`db/migrations/versions/*.py`).
+    (destino / "db" / "migrations" / "versions").mkdir(parents=True, exist_ok=True)
+    for ficheiro in sorted(RAIZ.glob("db/migrations/versions/*.py")):
+        shutil.copy(
+            ficheiro, destino / "db" / "migrations" / "versions" / ficheiro.name
+        )
 
 
 def _copiar_para_as_contagens(destino: Path, ignorar) -> None:
