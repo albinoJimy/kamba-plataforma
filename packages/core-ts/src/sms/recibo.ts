@@ -130,6 +130,23 @@ export class RedeInvalidaError extends Error {
   }
 }
 
+/**
+ * O prefixo de um CIDR, em forma canónica: 0 a 32, sem zeros à esquerda.
+ *
+ * **Lido por padrão e não por `Number`, e isto foi um defeito a sério.** O
+ * `Number("")` é `0`, e `0` passa qualquer verificação de gama: uma entrada com
+ * barra final — `196.216.0.1/`, que é o erro de dedo mais fácil de cometer numa
+ * lista de IPs — compilava para a máscara vazia e **autorizava todos os
+ * endereços IPv4**. Medido antes da correcção: `ipPermitido("1.2.3.4", …)` dava
+ * `true` e o `autenticado` aceitava um recibo de qualquer origem.
+ *
+ * Numa superfície que este ficheiro declara *fail-closed* duas vezes, isso era
+ * o oposto: um erro de dedo abria a porta inteira. E o `Number` aceitava mais —
+ * `24.0` e ` 24 ` liam-se como 24, calados, de modo que a lista não era a que
+ * quem a escreveu pensou.
+ */
+const PREFIXO_CIDR = /^(?:[0-9]|[12][0-9]|3[0-2])$/;
+
 /** Uma entrada compilada da lista de IPs. */
 export interface Rede {
   readonly base: number;
@@ -145,13 +162,19 @@ export interface Rede {
  */
 export function compilarRedes(entradas: readonly string[]): readonly Rede[] {
   return entradas.map((entrada) => {
-    const [endereco = "", bits] = entrada.trim().split("/");
+    const campos = entrada.trim().split("/");
+    // Mais de uma barra levanta: `a.b.c.d/24/8` lia-se como `/24` e o terceiro
+    // campo desaparecia em silencio, pelo que a lista nao era a que quem a
+    // escreveu pensou.
+    if (campos.length > 2) throw new RedeInvalidaError(entrada);
+    const [endereco = "", bits] = campos;
     const base = inteiroDeIpv4(endereco);
     if (base === null) throw new RedeInvalidaError(entrada);
+    // `bits` e `undefined` quando nao ha barra (um `/32` implicito) e `""`
+    // quando ha barra e nada depois — e **essas duas coisas nao sao a mesma**.
+    // Ver `PREFIXO_CIDR`.
+    if (bits !== undefined && !PREFIXO_CIDR.test(bits)) throw new RedeInvalidaError(entrada);
     const prefixo = bits === undefined ? 32 : Number(bits);
-    if (!Number.isInteger(prefixo) || prefixo < 0 || prefixo > 32) {
-      throw new RedeInvalidaError(entrada);
-    }
     // `>>> 0` porque um deslocamento de 32 em JavaScript e um deslocamento de
     // 0 (o operando e tomado modulo 32), e `/0` tem de dar a mascara vazia.
     const mascara = prefixo === 0 ? 0 : (0xffff_ffff << (32 - prefixo)) >>> 0;
@@ -276,4 +299,78 @@ export function normalizarRecibo(corpo: CorpoDeRecibo, agora: Date): Recibo | nu
     em,
     motivo,
   };
+}
+
+/** Interpreta os bytes do pedido no corpo que o agregador enviou. */
+export type Interpretar = (corpo: Uint8Array) => CorpoDeRecibo | null;
+
+/**
+ * Quem entrega o recibo já autenticado. É o `Envios.receber`.
+ *
+ * O nome leva o sufixo porque o `envio.ts` tem um `Entregar` que é outra coisa
+ * — a chamada ao agregador — e dois tipos com o mesmo nome no mesmo módulo é
+ * como se liga o errado sem dar por isso.
+ */
+export type EntregarRecibo = (recibo: Recibo, idDoEnvio?: string) => Promise<boolean>;
+
+/** Como se trata um pedido de recibo, de ponta a ponta. */
+export interface OpcoesDoPedido {
+  readonly autenticacao: Autenticacao;
+  readonly interpretar: Interpretar;
+  readonly entregar: EntregarRecibo;
+  readonly relogio?: () => Date;
+  /** Traduz o id do recibo no id do envio, quando o agregador usa dois. */
+  readonly idDoEnvio?: (recibo: Recibo) => string | undefined;
+}
+
+/**
+ * Autentica, interpreta, normaliza e entrega — **sobre os mesmos bytes**.
+ *
+ * ## Porque é que isto existe, e é a mesma razão do `Envios` do `envio.ts`
+ *
+ * Sem esta função, um adaptador tem de ligar o `autenticado`, o `interpretar`, o
+ * `normalizarRecibo` e o `Envios.receber` pela ordem certa — e **nada o impede
+ * de autenticar uns bytes e interpretar outros**. É exactamente a classe de
+ * defeito que o `envio.ts` invoca para justificar a própria existência: uma
+ * função correcta ligada ao sítio errado passa todos os ensaios dela. O ticket
+ * entregou essa barreira para o envio e tinha-a deixado de fora para o recibo,
+ * e foi um achado da revisão adversarial.
+ *
+ * Aqui os bytes entram uma vez, num parâmetro, e os quatro passos correm por
+ * esta ordem sem que quem chama a possa trocar. É também o que torna o
+ * `Veredicto` e os valores `corpo` e `repetido` de `RECUSAS` alcançáveis: antes
+ * desta função eram tipos que nenhuma função produzia.
+ *
+ * ## A ordem, e o que cada passo custa se correr trocado
+ *
+ *     1. autentica       sobre os bytes **recebidos**, antes de qualquer parse
+ *     2. interpreta       o adaptador sabe o formato; se não souber, `null`
+ *     3. normaliza        corta o `motivo`, fecha a operadora, lê a data
+ *     4. entrega          ao `Envios.receber`, que deduplica por id
+ *
+ * Autenticar **antes** de interpretar não é estética: um corpo malformado de um
+ * atacante não deve chegar ao interpretador do adaptador, e a assinatura é
+ * sobre os bytes e não sobre o objecto (é a lição do `../entrada/assinatura.ts`,
+ * onde `{"a":1}` e `{ "a": 1 }` têm o mesmo `JSON.parse` e assinaturas
+ * diferentes).
+ */
+export async function receberPedido(
+  pedido: Pedido,
+  opcoes: OpcoesDoPedido,
+): Promise<Veredicto> {
+  const recusa = autenticado(pedido, opcoes.autenticacao);
+  if (recusa !== null) return { aceite: false, recusa };
+
+  const corpo = opcoes.interpretar(pedido.corpo);
+  if (corpo === null) return { aceite: false, recusa: "corpo" };
+
+  const agora = (opcoes.relogio ?? ((): Date => new Date()))();
+  const recibo = normalizarRecibo(corpo, agora);
+  if (recibo === null) return { aceite: false, recusa: "corpo" };
+
+  const novo = await opcoes.entregar(recibo, opcoes.idDoEnvio?.(recibo));
+  // Um recibo repetido **não é erro** — os agregadores re-entregam, e é para
+  // isso que o registo de recibos existe. Devolve-se `repetido` para que o
+  // adaptador possa responder 200 e distinguir no registo as duas coisas.
+  return novo ? { aceite: true, recibo } : { aceite: false, recusa: "repetido" };
 }

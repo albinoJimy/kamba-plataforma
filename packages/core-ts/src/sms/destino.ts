@@ -194,8 +194,11 @@ export class Destino extends Opaco {
 /**
  * Cunha um destino, validando a forma e calculando o HMAC.
  *
- * `chave` vem do anel da `pepper_contact_hmac` (`../secrets/port.ts`,
- * `getRing`): a **actual**. A anterior serve para **reconhecer** um HMAC escrito
+ * `chave` vem do anel da `pepper_sms_destino` (`segredos.ts`, `anelDoPepper`):
+ * a **actual**. **Nao** a `pepper_contact_hmac` — a razao por que este modulo
+ * tem chave propria e o argumento central do cabecalho deste ficheiro, e uma
+ * nota que dissesse o contrario era o tipo de erro que faz um adaptador ligar
+ * a chave errada. A anterior serve para **reconhecer** um HMAC escrito
  * antes de uma rotação, e é o que `destinoCorresponde` faz.
  */
 export function cunharDestino(bruto: unknown, chave: Uint8Array): Destino {

@@ -144,9 +144,13 @@ export {
   ipPermitido,
   normalizarAssinatura,
   normalizarRecibo,
+  receberPedido,
   type Autenticacao,
   type CorpoDeRecibo,
   type Esquema,
+  type EntregarRecibo,
+  type Interpretar,
+  type OpcoesDoPedido,
   type Pedido,
   type Recusa,
   type Rede,
@@ -155,7 +159,7 @@ export {
 
 export { Envios, INSTANTES_GUARDADOS, type Entrega, type Entregar, type OpcoesDeEnvios } from "./envio.ts";
 
-export { FakeSmsProvider, type EnvioFalso, type OpcoesDoFake } from "./fake.ts";
+export { CORPOS_GUARDADOS, FakeSmsProvider, type EnvioFalso, type OpcoesDoFake } from "./fake.ts";
 
 export {
   AMBIENTE_BLOQUEANTE,
@@ -194,11 +198,15 @@ export {
   METRICA_ENTREGA,
   METRICA_ENVIADOS,
   METRICA_LATENCIA,
+  METRICA_PROBLEMA,
+  METRICA_SEM_RECIBO,
   MINIMO_DE_ENTREGA_CENTESIMOS,
   MINOR_POR_KZ,
   MetricasDeSms,
+  PROBLEMAS,
   RESULTADOS,
   kzDeMinor,
   razaoDeCentesimos,
+  type Problema,
   type Resultado,
 } from "./metricas.ts";

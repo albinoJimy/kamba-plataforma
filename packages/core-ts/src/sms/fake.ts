@@ -49,6 +49,14 @@ import type { Destino } from "./destino.ts";
 import { Envios, type Entrega, type OpcoesDeEnvios } from "./envio.ts";
 import type { NomeDeModelo, Parametros } from "./modelos.ts";
 
+/**
+ * Quantos corpos o `fake` guarda. Ver a nota do `#entregar`.
+ *
+ * Mil chega para qualquer ensaio desta casa — o maior varre 200 — e põe um
+ * tecto no que um `staging` acumula.
+ */
+export const CORPOS_GUARDADOS = 1_000;
+
 /** Um envio que o `fake` aceitou. */
 export interface EnvioFalso {
   readonly id: string;
@@ -109,18 +117,24 @@ export class FakeSmsProvider implements SmsProvider {
     destino: Destino,
     corpo: string,
     chave: string,
+    modelo: NomeDeModelo,
   ): Promise<Entrega> => {
     const erro = this.#errosEnfileirados.shift();
     if (erro !== undefined) throw new SmsError(erro, "enfileirado pelo FakeSmsProvider");
     const id = `fake-${this.#seguinte}`;
     this.#seguinte += 1;
-    this.#enviados.push({
-      id,
-      destinoHmac: destino.hmac,
-      modelo: "otp_posse_telefone",
-      corpo,
-      chave,
-    });
+    // **O tecto não é optimização.** O critério 8 põe o *fake* em `staging`, e
+    // um processo de `staging` que corra dias acumulava no *heap* **todos** os
+    // códigos de OTP que emitiu. Achado da revisão adversarial: a justificação
+    // escrita acima terminava em «nunca corre em `prod`», o que é verdade e
+    // insuficiente. Guardam-se os últimos, que é o que um ensaio precisa.
+    if (this.#enviados.length >= CORPOS_GUARDADOS) {
+      this.#enviados.splice(0, Math.trunc(CORPOS_GUARDADOS / 2));
+    }
+    // O `modelo` vem de quem enviou e **não é uma constante**: era-o, e no dia
+    // em que houvesse um segundo modelo o `enviados` do ensaio mentia sem nada
+    // acusar. Achado da revisão adversarial.
+    this.#enviados.push({ id, destinoHmac: destino.hmac, modelo, corpo, chave });
     return { id };
   };
 
@@ -154,6 +168,18 @@ export class FakeSmsProvider implements SmsProvider {
       motivo: opcoes.motivo ?? null,
     };
     return this.#envios.receber(recibo, id);
+  }
+
+  /**
+   * Entrega um `Recibo` já construído, como um adaptador real faria.
+   *
+   * O `entregar` acima constrói o recibo por conveniência dos ensaios; este é a
+   * ponta que o `receberPedido` do `recibo.ts` chama, e é o que permite exercer
+   * a cadeia inteira — autenticar, interpretar, normalizar, entregar — contra o
+   * *fake*.
+   */
+  async receberRecibo(recibo: Recibo, idDoEnvio?: string): Promise<boolean> {
+    return this.#envios.receber(recibo, idDoEnvio);
   }
 
   /** Os envios aceites, pela ordem em que saíram. */

@@ -35,7 +35,7 @@
  * o precisa. O que isto impede é a **saída acidental**.
  */
 
-/** O que qualquer conversão para texto devolve. A mesma do `../avisos/modelos.ts`. */
+/** O que qualquer conversao para texto devolve. A mesma do `../logger/politica.ts`. */
 export const MASCARA = "***";
 
 /** A chave que o `util.inspect` do Node consulta. */

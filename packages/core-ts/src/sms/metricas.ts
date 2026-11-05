@@ -1,5 +1,5 @@
 /**
- * As métricas do SMS (KAM-116, critério 8).
+ * As métricas do SMS (KAM-116, critério 9).
  *
  *     sms_sent_total              counter    envios, por fornecedor e resultado
  *     sms_delivery_ratio          gauge      entregues / recibos, por operadora
@@ -7,8 +7,9 @@
  *     sms_cost_kz_total           counter    custo acumulado, em Kz
  *     sms_delivery_below_minimum  gauge      1 quando a janela está abaixo do mínimo
  *
- * As quatro primeiras são as que o critério nomeia. A quinta entra porque o
- * critério pede «**alerta** se a entrega cair abaixo do mínimo em 20 envios», e
+ * As quatro primeiras são as que o critério 9 nomeia. A quinta e a sexta entram
+ * porque o critério pede «**alerta** se a entrega cair abaixo do mínimo em 20
+ * envios», e
  * uma condição de alerta que não é uma série não se alerta: a regra do
  * Prometheus precisa de ler um número, e calcular «os últimos 20» a partir de
  * um `ratio` acumulado não dá o mesmo resultado. A janela é deste módulo, que é
@@ -66,6 +67,54 @@ export const METRICA_LATENCIA = "sms_latency_s";
 export const METRICA_CUSTO = "sms_cost_kz_total";
 export const METRICA_ABAIXO = "sms_delivery_below_minimum";
 
+/**
+ * Envios aceites pelo agregador para os quais nunca chegou recibo.
+ *
+ * **A série que faltava, e o modo de falha que ela cobre é o que o alerta
+ * existe para apanhar.** A `sms_delivery_ratio` e a janela do alerta só se
+ * movem quando chega um recibo: medido antes desta série, 40 envios e **zero**
+ * recibos davam `abaixoDoMinimo` a `false` e a exposição **sem nenhuma linha**
+ * `sms_delivery_below_minimum` — e uma série ausente também não dispara uma
+ * regra `== 1`. Ou seja: o agregador parar de entregar era exactamente o caso
+ * invisível.
+ *
+ * Achado da revisão adversarial. A razão por que não se resolveu metendo os
+ * envios na janela da `sms_delivery_ratio`: **no momento do envio não se sabe a
+ * operadora** — ela vem do recibo, e derivá-la do número exigia o plano de
+ * numeração de Angola, que não tem fonte primária no conjunto. Esta série é por
+ * fornecedor e responde à pergunta sem inventar a etiqueta que falta.
+ */
+export const METRICA_SEM_RECIBO = "sms_sent_without_receipt";
+
+/**
+ * O que correu mal **à volta de um recibo**, por motivo.
+ *
+ * Família própria e **não um valor novo em `sms_sent_total`**, e a razão é a
+ * mesma que faz dessa métrica útil: a soma de `sms_sent_total` sobre as
+ * etiquetas tem de ser o número de SMS. Um ouvinte que levantou e um recibo
+ * sem envio correspondente não são envios, e metê-los lá fazia a soma deixar
+ * de querer dizer nada.
+ *
+ * Os dois motivos vêm da revisão adversarial, e os dois eram **silenciosos**:
+ *
+ *     ouvinte_falhou   um ouvinte levantou. Antes, consumia o recibo e saltava
+ *                      todos os ouvintes seguintes, sem erro e sem número.
+ *     sem_envio        o `id` do recibo não corresponde a envio nenhum deste
+ *                      processo. A latência nunca é observada e o `status(id)`
+ *                      fica `em_curso` para sempre — o caso normal depois de um
+ *                      reinício, e o caso de um adaptador que não traduziu o id
+ *                      do recibo no id do envio. **Esta é a única série que o
+ *                      distingue**, e sem ela o relatório de entrega do
+ *                      critério 2 saía com a coluna de latência vazia e o
+ *                      executante não sabia porquê.
+ */
+export const METRICA_PROBLEMA = "sms_receipt_problem_total";
+
+/** Os motivos da `sms_receipt_problem_total`. Lista fechada. */
+export const PROBLEMAS = ["ouvinte_falhou", "sem_envio"] as const;
+
+export type Problema = (typeof PROBLEMAS)[number];
+
 /** Unidade menor por Kz, como no `../pagamentos/dinheiro.ts`. */
 export const MINOR_POR_KZ = 100n;
 
@@ -95,7 +144,7 @@ export type Resultado = (typeof RESULTADOS)[number];
  */
 export const MINIMO_DE_ENTREGA_CENTESIMOS = 9_500n;
 
-/** Quantos recibos a janela do alerta considera. Do critério 8: «em 20 envios». */
+/** Quantos recibos a janela do alerta considera. Do critério 9: «em 20 envios». */
 export const JANELA_DO_ALERTA = 20;
 
 /**
@@ -115,16 +164,37 @@ const JUNTA = "|";
 /** Forma de um nome de fornecedor. A mesma do `../avisos/fornecedor.ts`. */
 const FORNECEDOR = /^[a-z][a-z0-9_-]{1,62}$/;
 
-/** Levantado quando uma etiqueta não está na lista fechada da sua métrica. */
+/**
+ * Levantado quando uma etiqueta não está na lista fechada da sua métrica.
+ *
+ * **A mensagem leva o nome e o comprimento, nunca o valor recusado**, e esta
+ * classe foi a única do módulo que fazia o contrário — um achado da revisão
+ * adversarial. O defeito era simétrico à sua própria razão de existir: a
+ * excepção que impede um identificador de entrar numa **métrica** publicava-o
+ * na **mensagem**, que é a superfície que mais acaba em ficheiro de *log*.
+ *
+ * O caminho não era teórico. O `Envios.receber` conta a `sms_delivery_ratio`
+ * com a `operadora` que **vem do agregador**, e o `recibo.ts` diz por escrito
+ * que alguns agregadores põem o número de destino no texto que escolhem; um
+ * adaptador que construa o `Recibo` sem passar pelo `normalizarRecibo` —
+ * possível, e é o que o `fake.ts` faz — entregava ali texto de terceiro.
+ * Medido antes da correcção: a mensagem saía com `+244…` e com o código do OTP
+ * por extenso.
+ */
 export class EtiquetaInvalidaError extends Error {
   override readonly name = "EtiquetaInvalidaError";
+  /** Quantas etiquetas vieram, e o comprimento de cada uma. Nunca o conteúdo. */
+  readonly comprimentos: readonly number[];
 
   constructor(metrica: string, etiquetas: readonly string[]) {
+    const comprimentos = etiquetas.map((e) => String(e).length);
     super(
-      `${metrica}: etiquetas ${JSON.stringify(etiquetas)} nao estao na lista fechada. ` +
-        "Identificadores (tenant_id, destino, HMAC de destino) nao entram em metricas " +
+      `${metrica}: ${etiquetas.length} etiqueta(s) fora da lista fechada ` +
+        `(comprimentos ${JSON.stringify(comprimentos)}). Identificadores ` +
+        "(tenant_id, telefone, HMAC de destino) nao entram em metricas " +
         "(docs/seguranca/ameacas_stride.md, OBS-I)",
     );
+    this.comprimentos = comprimentos;
   }
 }
 
@@ -147,7 +217,15 @@ const AJUDA: Readonly<Record<string, readonly [string, string]>> = {
   ],
   [METRICA_ABAIXO]: [
     "gauge",
-    "1 quando os ultimos 20 recibos de uma operadora estao abaixo do minimo proposto, 0 quando nao. A condicao do alerta do criterio 8.",
+    "1 quando os ultimos 20 recibos de uma operadora estao abaixo do minimo proposto, 0 quando nao. Metade da condicao do alerta do criterio 9; a outra metade e a sms_sent_without_receipt, porque esta serie nao se move sem recibos.",
+  ],
+  [METRICA_PROBLEMA]: [
+    "counter",
+    "O que correu mal a volta de um recibo, por motivo: um ouvinte que levantou, ou um recibo cujo id nao corresponde a envio nenhum. Perder sem contar e perder em silencio.",
+  ],
+  [METRICA_SEM_RECIBO]: [
+    "gauge",
+    "Envios aceites pelo agregador sem recibo, por fornecedor. A outra metade da condicao do alerta do criterio 9: sem ela, o agregador parar de entregar nao movia serie nenhuma.",
   ],
 };
 
@@ -203,6 +281,11 @@ export class MetricasDeSms {
   readonly #recibos = new Map<string, number>();
   /** Por `fornecedor|operadora`: os últimos `JANELA_DO_ALERTA` recibos. */
   readonly #janela = new Map<string, boolean[]>();
+  /** Por fornecedor: envios aceites, e recibos chegados. Ver `METRICA_SEM_RECIBO`. */
+  readonly #aceites = new Map<string, number>();
+  readonly #recibosDoFornecedor = new Map<string, number>();
+  /** Por `fornecedor|problema`: ver `METRICA_PROBLEMA`. */
+  readonly #problemas = new Map<string, number>();
 
   /** Conta um envio. */
   contarEnvio(fornecedor: string, resultado: Resultado): void {
@@ -210,11 +293,28 @@ export class MetricasDeSms {
     if (!(RESULTADOS as readonly string[]).includes(resultado)) {
       throw new EtiquetaInvalidaError(METRICA_ENVIADOS, [nome, resultado]);
     }
+    // Só o `aceite` entra no denominador de envios-sem-recibo: um `repetido`
+    // não é um SMS, e um erro tipado não chegou ao agregador (ou chegou e ele
+    // recusou). Contá-los fazia a série dizer que faltam recibos de envios que
+    // nunca houve.
+    if (resultado === "aceite") {
+      this.#aceites.set(nome, (this.#aceites.get(nome) ?? 0) + 1);
+    }
     // A chave leva o **nome da metrica** a cabeca, como as outras: sem ele, o
     // `ler()` devolvia `fake|aceite`, que nao diz de que serie e, e duas
     // metricas com as mesmas etiquetas colidiam no mesmo `Map`.
     const chave = `${METRICA_ENVIADOS}${JUNTA}${nome}${JUNTA}${resultado}`;
     this.#enviados.set(chave, (this.#enviados.get(chave) ?? 0) + 1);
+  }
+
+  /** Conta um problema a volta de um recibo. Ver `METRICA_PROBLEMA`. */
+  contarProblema(fornecedor: string, problema: Problema): void {
+    const nome = exigirFornecedor(fornecedor, METRICA_PROBLEMA);
+    if (!(PROBLEMAS as readonly string[]).includes(problema)) {
+      throw new EtiquetaInvalidaError(METRICA_PROBLEMA, [nome, problema]);
+    }
+    const chave = `${METRICA_PROBLEMA}${JUNTA}${nome}${JUNTA}${problema}`;
+    this.#problemas.set(chave, (this.#problemas.get(chave) ?? 0) + 1);
   }
 
   /**
@@ -266,6 +366,7 @@ export class MetricasDeSms {
     const op = exigirOperadora(operadora, METRICA_ENTREGA);
     const chave = `${nome}${JUNTA}${op}`;
     this.#recibos.set(chave, (this.#recibos.get(chave) ?? 0) + 1);
+    this.#recibosDoFornecedor.set(nome, (this.#recibosDoFornecedor.get(nome) ?? 0) + 1);
     if (entregue) this.#entregues.set(chave, (this.#entregues.get(chave) ?? 0) + 1);
     const janela = this.#janela.get(chave) ?? [];
     janela.push(entregue);
@@ -292,6 +393,19 @@ export class MetricasDeSms {
     return BigInt(entregues) * 10_000n < MINIMO_DE_ENTREGA_CENTESIMOS * BigInt(janela.length);
   }
 
+  /**
+   * Envios aceites sem recibo, por fornecedor.
+   *
+   * Nunca negativo: um recibo a mais do que os envios que este processo contou
+   * é o caso normal depois de um reinício — os envios ficaram no processo
+   * anterior e os recibos chegam a este. Um *gauge* negativo lia-se como um
+   * erro de contagem, e isto não é um erro.
+   */
+  semRecibo(fornecedor: string): number {
+    const nome = exigirFornecedor(fornecedor, METRICA_SEM_RECIBO);
+    return Math.max(0, (this.#aceites.get(nome) ?? 0) - (this.#recibosDoFornecedor.get(nome) ?? 0));
+  }
+
   /** A razão de entrega de uma série, em centésimos de ponto percentual. */
   entregaEmCentesimos(fornecedor: string, operadora: string): bigint | null {
     const chave = `${exigirFornecedor(fornecedor, METRICA_ENTREGA)}${JUNTA}${exigirOperadora(operadora, METRICA_ENTREGA)}`;
@@ -315,6 +429,10 @@ export class MetricasDeSms {
       saida[`${METRICA_LATENCIA}${JUNTA}${nome}_sum`] = soma;
       saida[`${METRICA_LATENCIA}${JUNTA}${nome}_count`] = this.#contagemDaLatencia.get(nome) ?? 0;
     }
+    for (const nome of this.#aceites.keys()) {
+      saida[`${METRICA_SEM_RECIBO}${JUNTA}${nome}`] = this.semRecibo(nome);
+    }
+    for (const [chave, quantos] of this.#problemas) saida[chave] = quantos;
     return saida;
   }
 
@@ -387,6 +505,32 @@ export class MetricasDeSms {
         linhas.push(
           `${METRICA_CUSTO}{fornecedor="${nome}"} ${kzDeMinor(this.#custoMinor.get(nome) ?? 0n)}`,
         );
+      }
+    }
+
+    // Esta sai por **fornecedor** e nao por operadora, e e por isso que ela e a
+    // metade que responde quando a outra se cala: um fornecedor com envios e
+    // zero recibos tem serie aqui e nao tem serie nenhuma na
+    // `sms_delivery_below_minimum`.
+    const problema = AJUDA[METRICA_PROBLEMA];
+    if (problema !== undefined) {
+      linhas.push(`# HELP ${METRICA_PROBLEMA} ${problema[1]}`);
+      linhas.push(`# TYPE ${METRICA_PROBLEMA} ${problema[0]}`);
+      for (const chave of [...this.#problemas.keys()].sort()) {
+        const [, nome = "", motivo = ""] = chave.split(JUNTA);
+        linhas.push(
+          `${METRICA_PROBLEMA}{fornecedor="${nome}",problema="${motivo}"} ` +
+            `${this.#problemas.get(chave) ?? 0}`,
+        );
+      }
+    }
+
+    const semRecibo = AJUDA[METRICA_SEM_RECIBO];
+    if (semRecibo !== undefined) {
+      linhas.push(`# HELP ${METRICA_SEM_RECIBO} ${semRecibo[1]}`);
+      linhas.push(`# TYPE ${METRICA_SEM_RECIBO} ${semRecibo[0]}`);
+      for (const nome of [...this.#aceites.keys()].sort()) {
+        linhas.push(`${METRICA_SEM_RECIBO}{fornecedor="${nome}"} ${this.semRecibo(nome)}`);
       }
     }
 
