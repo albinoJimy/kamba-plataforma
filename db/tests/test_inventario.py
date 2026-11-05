@@ -1428,7 +1428,7 @@ INVENTARIO = {
     # `(onboarding_id, step)`, que e a `UNIQUE(onboarding_id, step)` que o
     # contrato de `packages/core-ts/src/provisioning/contrato.ts` declara. Um
     # `uuid` ao lado era um identificador que nenhuma porta cita — nenhuma das
-    # seis recebe um `id` de linha.
+    # **oito** recebe um `id` de linha.
     "provisioning_step": {
         "onboarding_id": (
             "uuid",
@@ -1469,12 +1469,17 @@ INVENTARIO = {
         "attempt": (
             "integer",
             NAO,
-            "0",
-            "nao — o `abrir` incrementa e devolve a linha **depois** do "
+            None,
+            "nao, **e sem omissao de proposito** — o `abrir` incrementa e "
+            "devolve a linha **depois** do "
             "incremento, e e esse valor que o tecto de tres tentativas do "
-            "criterio 5 le. O `marcarEspera` repoe a zero, porque uma espera "
-            "nao e falha: sem isso, tres passagens com o dono por agir "
-            "escalavam o caso",
+            "criterio 5 le. Com `DEFAULT 0`, um `ON CONFLICT ... DO UPDATE` "
+            "que deixasse o `attempt` fora do `INSERT` devolvia zero a "
+            "primeira volta e deslocava as tres metades do criterio 5 em "
+            "silencio; sem omissao, leva `23502`. E o `CHECK` e `>= 0` e nao "
+            "`>= 1` porque o `marcarEspera` repoe a zero: uma espera nao e "
+            "falha, e sem isso tres passagens com o dono por agir escalavam o "
+            "caso",
         ),
         "external_id": (
             "text",

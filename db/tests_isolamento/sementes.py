@@ -306,7 +306,13 @@ def _passo_da_saga(cursor, tenant_id: str, canario: str) -> None:
     `onboarding_case`, que e tabela que ainda nao existe (credor KAM-086/087), e
     duas linhas com o mesmo `step` so colidem se partilharem o caso.
 
-    O `status` nasce `em_curso` e o `attempt` a zero pela omissao. O
+    **O `attempt` entra explicito, a `1`.** A coluna e `NOT NULL` **sem
+    omissao** de proposito (ver a nota da revisao: um `DEFAULT 0` convidava um
+    desvio de um no `abrir`), pelo que omiti-lo aqui dava `23502`. E `1` e nao
+    `0` porque e o valor que o primeiro `abrir` grava — semear zero era semear
+    um estado que, no caminho de escrita real, so uma espera produz.
+
+    O `status` nasce `em_curso`, escrito a letra. O
     `tenant_id` entra por parametro e **nao tem FK** para `tenants` — e o passo
     1 da saga que escreve essa linha —, pelo que esta receita nao precisa de
     nenhuma subconsulta e **semeia-se com o `batch`**, ao contrario da reserva
@@ -314,8 +320,8 @@ def _passo_da_saga(cursor, tenant_id: str, canario: str) -> None:
     """
     cursor.execute(
         "INSERT INTO platform.provisioning_step "
-        "(onboarding_id, tenant_id, step, status, external_id) "
-        "VALUES (gen_random_uuid(), %s, 'tenant_e_caso', 'em_curso', %s)",
+        "(onboarding_id, tenant_id, step, status, attempt, external_id) "
+        "VALUES (gen_random_uuid(), %s, 'tenant_e_caso', 'em_curso', 1, %s)",
         (tenant_id, canario),
     )
 

@@ -25,19 +25,28 @@ inconsistencia de canon que ninguem tinha medido.
 `PRIMARY KEY (onboarding_id, step)`. E a `UNIQUE(onboarding_id, step)` que a
 linha 377 do contrato declara, promovida a chave primaria em vez de ficar ao
 lado de um `uuid` aleatorio — como a `payment_outbox_map` da `0029` e as duas
-tabelas de uso da `0009`, e pela mesma razao que o inventario de
+tabelas de uso da `0007`, e pela mesma razao que o inventario de
 `db/tests/test_catalogo.py` escreve para aquelas: a identidade desta linha **e**
 o par, e um `id` gerado ao lado seria um identificador que nenhuma consulta
 citaria.
 
-E nao e so economia. **Nenhuma porta do contrato recebe um `id` de linha:** o
-`marcarConcluido`, o `marcarFalhado`, o `marcarEscalado`, o `marcarCompensado` e
-o `marcarEspera` recebem todos `(onboardingId, passo)`, e o `abrir` reabre o
-mesmo par. Uma unicidade que levasse o `tenant_id` a frente — a escolha que a
-`0033` fez para a reserva de stock, com a razao dela — tornava estas portas
+E nao e so economia. **Nenhuma das oito portas do contrato recebe um `id` de
+linha:** as seis de escrita (`abrir` e os cinco `marcar*`) e as duas de leitura
+(`passosDoCaso` e `passo`) chaveiam todas pelo `onboardingId`, so ou com o
+passo. Uma unicidade que levasse o `tenant_id` a frente — a escolha que a `0033`
+fez para a reserva de stock, com a razao dela — tornava as seis de escrita
 **impossiveis de implementar**: o `ON CONFLICT (onboarding_id, step)` que o
 `abrir` precisa nao casa uma restricao sobre o terno, e nenhum dos cinco
 `marcar*` recebe um `tenant_id` para o completar.
+
+**E a troca tem um preco, que se diz:** a chave primaria e imposta por indice
+unico, e um indice unico e avaliado **por baixo** da RLS. Dois tenants nao podem
+partilhar um `(onboarding_id, step)`, pelo que um `INSERT` sob o contexto de A
+com um `onboarding_id` que e de B leva `23505` em vez de passar — o conteudo da
+linha de B nao sai, mas a **existencia** dela sai. O risco e aceitavel porque o
+`onboarding_id` e um `uuid` gerado pelo caso e nao escolhido por quem chama,
+pelo que nenhum escritor de hoje aceita um de fora; quem escrever um que aceite
+le isto primeiro.
 
 ## Sem chave estrangeira para `tenants`, e isso e desenho
 
@@ -55,8 +64,11 @@ substitui como barreira e a politica `tenant_iso`.
 
 A chave primaria **nao** comeca pelo `tenant_id`, pelo que esta tabela e da
 classe das que nao satisfazem a convencao de graca e levam indice proprio — como
-a `handoffs`, a `channel_onboarding` e outras seis que `test_catalogo.py`
-enumera. O indice e `(tenant_id, status)`, e a segunda coluna nao e enfeite: e a
+a `handoffs`, a `channel_onboarding` e as outras dessa classe que o
+`test_catalogo.py` enumera uma a uma, com a razao de cada. **Sem numero aqui de
+proposito:** a contagem corrente esta naquele ficheiro e so la, porque escrita
+em dois sitios divergia no PR seguinte.
+O indice e `(tenant_id, status)`, e a segunda coluna nao e enfeite: e a
 pergunta do `EsperadoDoTenant` da reconciliacao («as referencias externas que o
 `provisioning_step` tem como `concluido`», `reconciliacao.ts` linha 57), que e a
 unica leitura desta tabela que atravessa casos em vez de ir a um.
@@ -104,22 +116,52 @@ forma ou `erro_opaco`, e os dois passam.
   ou uma espera contradiz-se — e e precisamente a linha que a reconciliacao le
   como «existe la fora».
 
+> **Obrigacao do adaptador SQL, e nao ha onde mais a escrever.** A segunda
+> implicacao exige que o `marcarConcluido` escreva `error_code = NULL` **e**
+> `status_de_espera = NULL`, e nenhuma das duas esta visivel de quem le so o
+> contrato: a `LinhaDePasso` tem sete campos e **nao** tem o `status_de_espera`,
+> e a assinatura `marcarConcluido(onboardingId, passo, externalId)` nao tem
+> parametro para nenhum dos dois. Quem escrever o repositorio contra PostgreSQL
+> — nao existe ainda — tem de as limpar na mesma instrucao que grava o estado.
+> Um `UPDATE ... SET status = 'concluido', external_id = $3` escrito a partir da
+> assinatura leva **`23514`** no caminho feliz dos tres passos de espera
+> (`espera_es`, `inbox_e_rota`, `teste_ponta_a_ponta`), que e o unico sitio onde
+> o `status_de_espera` chega a ser nao-nulo. O duplo em memoria limpa os dois
+> (`provisioning-falsos.ts`, no `marcarConcluido`), pelo que as *suites*
+> TypeScript nao apanham esta falta.
+
 **O que nao esta aqui, e nao e esquecimento:** `concluido` **nao** exige
 `external_id`. O `marcarConcluido(onboardingId, passo, externalId: string |
-null)` aceita o nulo na assinatura, e um passo que nao produz referencia externa
-(o `entitlements`, o `teste_ponta_a_ponta`) conclui sem ela. Um `CHECK` a
-exigi-la inutilizava cinco dos oito passos.
+null)` aceita o nulo na assinatura, e **dois** dos oito `ensure` devolvem `null`
+— o `tenant_e_caso` e o `entitlements`, medidos em `passos.ts`. Um `CHECK` a
+exigi-la inutilizava esses dois.
 
 E o `compensado` **nao** limpa nada: o `marcarCompensado` so muda o estado, de
 proposito — a referencia externa do recurso que foi desfeito e o que a
 reconciliacao precisa para o reconhecer. Logo nenhuma implicacao o nomeia.
 
-## O `attempt` nasce a zero e o `abrir` incrementa
+## O `attempt` e **`NOT NULL` sem omissao**, e isso e a correccao de um desvio de um
 
-`NOT NULL DEFAULT 0` com `CHECK (attempt >= 0)`. O `abrir` incrementa e devolve
-a linha **depois** do incremento — e esse valor que o tecto de tres tentativas
-do criterio 5 le —, e o `marcarEspera` **repoe a zero**, porque uma espera nao
-e uma falha e tres passagens com o dono por agir escalavam o caso.
+`CHECK (attempt >= 0)`, e **nenhum `DEFAULT`**. O contrato e 1-based: o `abrir`
+incrementa e devolve a linha **depois** do incremento, e e esse valor que o
+tecto de tres tentativas do criterio 5 le (`saga.ts` compara
+`linha.attempt === 1` para a primeira tentativa e `>= TENTATIVAS` para escalar).
+
+A primeira versao desta revisao escrevia `DEFAULT 0`, e a revisao adversarial
+mediu o que isso convidava: a implementacao natural da porta e
+`INSERT ... ON CONFLICT (onboarding_id, step) DO UPDATE SET attempt =
+provisioning_step.attempt + 1 ... RETURNING *` **com o `attempt` fora da lista
+do `INSERT`** — que e exactamente o que uma omissao convida. Nesse adaptador o
+primeiro `abrir` devolvia `0`, e as **tres** metades do criterio 5 deslocavam-se
+juntas e em silencio: a primeira tentativa nunca era reconhecida, o *backoff*
+dava zero em duas passagens seguidas, e a escalada acontecia ao **quarto**
+falhanco e nao ao terceiro. Sem omissao, esse `INSERT` leva **`23502`** em vez
+de gravar o valor errado.
+
+**E `>= 0` e nao `>= 1`**, que seria a leitura apressada do «1-based»: o
+`marcarEspera` **repoe a zero**, porque uma espera nao e uma falha e tres
+passagens com o dono por agir escalavam o caso. Zero e um estado legitimo
+depois de uma espera; o que nao e legitimo e nascer zero.
 
 ## O `downgrade` e o espelho do `upgrade`
 
@@ -241,12 +283,17 @@ def _provisioning_step() -> None:
             tenant_id        uuid        NOT NULL,
             step             text        NOT NULL,
             status           text        NOT NULL,
-            -- O `abrir` incrementa e devolve a linha **depois** do incremento;
-            -- e este valor que o tecto de tres tentativas do criterio 5 le. O
-            -- `marcarEspera` repoe a zero, porque uma espera nao e falha.
-            attempt          integer     NOT NULL DEFAULT 0,
+            -- **Sem omissao, de proposito.** O contrato e 1-based — o `abrir`
+            -- incrementa e devolve a linha depois do incremento, e e este
+            -- valor que o tecto de tres tentativas do criterio 5 le —, e um
+            -- `DEFAULT 0` convidava o `ON CONFLICT ... DO UPDATE` a deixar o
+            -- `attempt` fora do `INSERT` e a devolver zero a primeira volta.
+            -- Ver a nota do modulo: deslocava as tres metades do criterio 5
+            -- em silencio. O `marcarEspera` repoe a zero, e por isso o `CHECK`
+            -- e `>= 0` e nao `>= 1`.
+            attempt          integer     NOT NULL,
             -- A referencia do recurso criado la fora. Anulavel: dois dos oito
-            -- passos nao produzem recurso externo nenhum.
+            -- `ensure` devolvem `null` (o `tenant_e_caso` e o `entitlements`).
             external_id      text,
             -- A **classe** do erro ou um identificador curto, nunca a
             -- mensagem. A forma e imposta por `CHECK` e nao so pelo modulo —

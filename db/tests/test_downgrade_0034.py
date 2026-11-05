@@ -11,6 +11,16 @@ unica coisa que o ciclo compara e a lista de nomes de tabela.
 Este ficheiro afirma **cada objecto pelo nome**: a tabela, as dez colunas, os
 oito `CHECK`, a chave primaria, o indice e a politica.
 
+## E um nome nao e um predicado
+
+Este ficheiro compara **nomes** (`conname`, `indexname`, `policyname`), e isso
+mede que o objecto existe e nao o que ele recusa: tirem-se as ancoras ao
+`provisioning_step_error_code_ck` e tudo aqui continua verde. **Quem mede os
+predicados e o `TestProvisioningStep` de `db/tests/test_constraints.py`**, com um
+caso negativo por `CHECK` e os positivos. Os dois ficheiros sao necessarios e
+nenhum chega: aquele nao veria um `CHECK` que o `downgrade` deixasse atras, e
+este nao veria um `CHECK` que aceitasse o que devia recusar.
+
 ## A sonda positiva nao e cerimonia
 
 Cada familia de objectos verifica-se **duas** vezes: primeiro em `head` a exigir
@@ -38,9 +48,11 @@ ha um `_uq` ao lado dela a afirmar o mesmo par duas vezes.
 A revisao nao cria nenhum dos tres, pelo que nao ha ensaio para eles — e a
 ausencia e afirmada: o `test_em_head_a_revisao_nao_traz_funcao_trigger_nem_fk`
 mede-o contra o catalogo, porque «esta revisao nao cria X» e uma afirmacao sobre
-o mundo como qualquer outra. A FK em particular **nao pode** existir: o passo 1
-da saga (`tenant_e_caso`) e que escreve a linha de `platform.tenants`, e uma FK
-daqui para la tornava o proprio passo 1 impossivel.
+o mundo como qualquer outra, **com controlo positivo para cada uma das tres**
+(as mesmas consultas contra a `audit_log`, as funcoes `audit%` e a FK dos
+`entitlements`), pela razao da secao acima. A FK em particular **nao pode**
+existir: o passo 1 da saga (`tenant_e_caso`) e que escreve a linha de
+`platform.tenants`, e uma FK daqui para la tornava o proprio passo 1 impossivel.
 """
 
 from __future__ import annotations
@@ -181,32 +193,39 @@ class TestDowngradeDa0034(unittest.TestCase):
         linha = self.cursor.fetchone()
         return None if linha is None else (bool(linha[0]), bool(linha[1]))
 
-    def chaves_estrangeiras(self) -> list[str]:
+    # As tres a seguir levam o alvo por **parametro**, e nao fixo na consulta,
+    # para que a mesma consulta possa correr contra um alvo que se sabe existir.
+    # Ver o `test_em_head_a_revisao_nao_traz_funcao_trigger_nem_fk`: sem isso,
+    # as asercoes de ausencia nao tinham controlo positivo nenhum e um erro de
+    # escrita na consulta deixava-as verdes.
+
+    def chaves_estrangeiras(self, tabela: str) -> list[str]:
         return self._um(
             "SELECT c.conname::text FROM pg_constraint c "
             "  JOIN pg_class t ON t.oid = c.conrelid "
             "  JOIN pg_namespace n ON n.oid = t.relnamespace "
             " WHERE n.nspname = 'platform' AND t.relname = %s "
             "   AND c.contype = 'f'",
-            (TABELA,),
+            (tabela,),
         )
 
-    def funcoes_e_triggers(self) -> tuple[list[str], list[str]]:
-        funcoes = self._um(
+    def funcoes(self, prefixo: str) -> list[str]:
+        return self._um(
             "SELECT p.proname::text FROM pg_proc p "
             "  JOIN pg_namespace n ON n.oid = p.pronamespace "
             " WHERE n.nspname = 'platform' AND p.proname LIKE %s",
-            ("provisioning%",),
+            (f"{prefixo}%",),
         )
-        triggers = self._um(
+
+    def triggers(self, tabela: str) -> list[str]:
+        return self._um(
             "SELECT t.tgname::text FROM pg_trigger t "
             "  JOIN pg_class c ON c.oid = t.tgrelid "
             "  JOIN pg_namespace n ON n.oid = c.relnamespace "
             " WHERE n.nspname = 'platform' AND NOT t.tgisinternal "
             "   AND c.relname = %s",
-            (TABELA,),
+            (tabela,),
         )
-        return funcoes, triggers
 
     # ----------------------------------------------------------------- ensaios
 
@@ -236,12 +255,39 @@ class TestDowngradeDa0034(unittest.TestCase):
         uma FK daqui para la tornava o proprio passo 1 impossivel. Um ticket
         futuro que a acrescentasse por parecer que falta parte este ensaio, que
         e onde a razao esta escrita.
+
+        **As tres asercoes de ausencia levam controlo positivo**, pela norma que
+        a nota do modulo escreve e que a revisao adversarial mediu em falta
+        aqui: uma consulta de catalogo errada — `'platfrom'` por `'platform'`,
+        um `LIKE` que nunca casa, um `contype` trocado — devolve `[]` e deixava
+        as tres verdes sem medirem nada. Cada controlo corre **a mesma**
+        consulta contra um alvo que se sabe existir.
         """
-        funcoes, triggers = self.funcoes_e_triggers()
-        self.assertEqual(funcoes, [], "a revisao nao cria funcao nenhuma")
-        self.assertEqual(triggers, [], "nem *trigger*: o atualizado_at e do modulo")
+        # Os controlos primeiro: sem eles, o que vem a seguir nao se le.
+        self.assertNotEqual(
+            self.funcoes("audit"),
+            [],
+            "controlo: a consulta de funcoes tem de ver as da auditoria",
+        )
+        self.assertNotEqual(
+            self.triggers("audit_log"),
+            [],
+            "controlo: a consulta de *triggers* tem de ver os da audit_log",
+        )
+        self.assertNotEqual(
+            self.chaves_estrangeiras("entitlements"),
+            [],
+            "controlo: a consulta de FK tem de ver a dos entitlements",
+        )
+
         self.assertEqual(
-            self.chaves_estrangeiras(),
+            self.funcoes("provisioning"), [], "a revisao nao cria funcao nenhuma"
+        )
+        self.assertEqual(
+            self.triggers(TABELA), [], "nem *trigger*: o atualizado_at e do modulo"
+        )
+        self.assertEqual(
+            self.chaves_estrangeiras(TABELA),
             [],
             "sem FK para tenants: o passo 1 da saga e que escreve essa linha",
         )

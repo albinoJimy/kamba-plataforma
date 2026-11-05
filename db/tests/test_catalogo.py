@@ -678,7 +678,9 @@ class TestConvencoes(ComBase):
                 # era um identificador que nenhuma consulta citaria.
                 #
                 # E ha uma razao a mais, que nao vale para aquelas: **nenhuma
-                # das seis portas do contrato recebe um `id` de linha**, e uma
+                # das oito portas do contrato recebe um `id` de linha** — as
+                # seis de escrita e as duas de leitura chaveiam pelo
+                # `onboardingId`, so ou com o passo —, e uma
                 # unicidade com o `tenant_id` a frente — a escolha da
                 # `stock_reservations` tres linhas abaixo — deixava o
                 # `ON CONFLICT (onboarding_id, step)` do `abrir` sem restricao

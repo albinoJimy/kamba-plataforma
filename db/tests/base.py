@@ -392,7 +392,8 @@ TABELAS_0033 = ("stock_reservations",)
 #: **Tem `tenant_id NOT NULL`** — pre-alocado, e **sem FK** para `tenants`,
 #: porque e o passo 1 da saga que escreve essa linha —, RLS `FORCE` e politica
 #: `tenant_iso`, e entra no X-05 do *gate* 6 sem ninguem a declarar. Nao entra
-#: em `ci/rls_exceptions.yaml`, que esta vazio e deve continuar vazio.
+#: em `ci/rls_exceptions.yaml`, que tem **uma** excepcao (a `audit_heads`, pelo
+#: ADR-015) e deve continuar a ter so essa.
 TABELAS_0034 = ("provisioning_step",)
 
 TABELAS = tuple(
