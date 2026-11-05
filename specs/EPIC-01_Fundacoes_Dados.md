@@ -116,6 +116,8 @@ KAM-144.
 | [KAM-174](tickets/KAM-174.md) | Nenhum portão lê as mensagens dos *commits*, e o `commitlint` não corre em sítio nenhum | fix | S | P1 | KAM-002 |
 | [KAM-177](tickets/KAM-177.md) | O *gate* 2 recusa dois rodapés seguidos, que são a forma correcta de os escrever | fix | S | P1 | KAM-174 |
 | [KAM-180](tickets/KAM-180.md) | A base de um *worktree* novo não se vê sem instrumento, e três sessões em três nasceram na linha errada | fix | S | P1 | KAM-002 |
+| [KAM-181](tickets/KAM-181.md) | O duplo de ligação dos ensaios do AGR é partilhado por quatro vagas, e avermelha o *gate* 4 ao acaso | fix | S | P1 | KAM-002 |
+| [KAM-182](tickets/KAM-182.md) | O corredor do `ordem-dos-ensaios` falha sem conseguir nomear o teste vermelho, e diz que a culpa é dele | fix | S | P2 | KAM-173 |
 
 ---
 
