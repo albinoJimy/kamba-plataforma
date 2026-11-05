@@ -40,10 +40,12 @@ import {
   type RefExterna,
   type RegistoDeCanalDeComercio,
   type RegistoDoCaso,
+  type RotaDoCanal,
   type TesteDeCanal,
   Metricas,
 } from "../../src/provisioning/index.ts";
 import type { ContaDeAtendimento, HandoffProvider } from "../../src/hnd/contrato.ts";
+import { Logger } from "../../src/logger/index.ts";
 
 export const TENANT = "11111111-1111-4111-8111-111111111111";
 export const ONBOARDING = "99999999-9999-4999-8999-999999999999";
@@ -55,6 +57,9 @@ export const CASO: Caso = {
   tenantId: TENANT,
   plano: "piloto",
   vertical: "vendedor",
+  // Um nome de negócio inventado. **Nunca um nome de pessoa nem de uma loja
+  // real:** o repositório é público.
+  nomeDoNegocio: "Loja de Ensaio",
 };
 
 /** Uma linha mutável do armazém. */
@@ -169,23 +174,42 @@ export class ArmazemFalso implements ArmazemDePassos {
   }
 
   /**
-   * **Todas** as linhas, embaralhadas e em qualquer estado.
+   * **Todas** as linhas, em qualquer estado e por uma ordem que não é nem a de
+   * `PASSOS` nem a sua inversa.
    *
-   * Não filtra e não ordena, e as duas omissões são deliberadas:
+   * As três escolhas são deliberadas, e a terceira é a correcção de um defeito
+   * que a revisão adversarial apanhou:
    *
-   * - **não filtra** porque o «só os `done`» do critério 3 é do `saga.ts`. Um
-   *   duplo que filtrasse punha a propriedade aqui dentro, e mutar o código de
-   *   produção deixava o ensaio verde — foi o defeito que o ensaio de mutação
-   *   apanhou;
-   * - **não ordena** porque a ordem inversa também é do `saga.ts`. Um `SELECT`
-   *   sem `ORDER BY` não garante ordem nenhuma, e um duplo que devolvesse já
-   *   ordenado deixava o defeito passar.
+   * - **não filtra** porque o «só os `done`» do critério 3 é do `saga.ts`;
+   * - **não ordena pela ordem de execução**, porque um `SELECT` sem `ORDER BY`
+   *   não garante ordem nenhuma;
+   * - e **não devolve a ordem inversa já feita**. Devolvia: era
+   *   `linhas.reverse()` sobre a ordem de inserção, que é a de `PASSOS` — isto
+   *   é, o duplo entregava exactamente a ordem que a compensação devia
+   *   calcular. Com isso, apagar a chamada a `ordemInversa` do `compensar`
+   *   deixava as *suites* **verdes** (medido: `for (const linha of concluidos)`
+   *   → 81/81), e a asserção do critério 3 media o `.reverse()` do duplo. O
+   *   comentário que aqui estava avisava deste defeito exacto e o código tinha-o.
+   *
+   * Agora devolve-as na **ordem de inserção**, que é a ordem de **execução** —
+   * e essa é a mais hostil que existe para uma asserção sobre a ordem
+   * *inversa*: se o `compensar` não chamar o `ordemInversa`, a compensação sai
+   * exactamente ao contrário do que o critério 3 exige, e o ensaio fica
+   * vermelho.
+   *
+   * Ordenar por nome também não servia, e foi a segunda tentativa: para os três
+   * passos que o ensaio do critério 3 compensa (`tenant_e_caso`, `chave_llm`,
+   * `canal_comercio`), o alfabeto **coincide** com a ordem inversa — a mutação
+   * voltou a sobreviver. Duas vezes o mesmo defeito, por duas coincidências
+   * diferentes; a ordem de execução não pode coincidir com a sua inversa.
+   *
+   * A ordenação a partir de uma ordem arbitrária fica medida à parte, pelo
+   * ensaio puro do `ordemInversa`, que lhe dá as linhas embaralhadas.
    */
   async passosDoCaso(onboardingId: string): Promise<readonly LinhaDePasso[]> {
-    const linhas = [...this.#linhas.values()]
+    return [...this.#linhas.values()]
       .filter((l) => l.onboarding_id === onboardingId)
       .map((l) => ({ ...l }));
-    return linhas.reverse();
   }
 
   async passo(onboardingId: string, passo: Passo): Promise<LinhaDePasso | null> {
@@ -301,10 +325,6 @@ export class ComercioFalso implements RegistoDeCanalDeComercio {
     this.arquivados.push(id);
   }
 
-  async vazio(): Promise<boolean> {
-    return this.estaVazio;
-  }
-
   async apagarSeVazio(id: string): Promise<boolean> {
     if (!this.estaVazio) return false;
     this.apagados.push(id);
@@ -372,6 +392,36 @@ export class CanalDoClienteFalso implements CanalDoCliente {
   }
 }
 
+/**
+ * A rota do CHR: a linha de `platform.tenant_channels`.
+ *
+ * **Guarda o pedido inteiro**, para que um ensaio possa afirmar que o
+ * `wabaId` nunca chega vazio — era o defeito que a revisão adversarial apanhou
+ * no `INSERT` directo que aqui estava antes (`waba_id` é `NOT NULL`).
+ */
+export class RotaFalsa implements RotaDoCanal {
+  readonly garantidas: {
+    tenantId: string;
+    phoneNumberId: string;
+    wabaId: string;
+    vertical: string;
+  }[] = [];
+  readonly removidas: string[] = [];
+
+  async garantir(pedido: {
+    tenantId: string;
+    phoneNumberId: string;
+    wabaId: string;
+    vertical: string;
+  }): Promise<void> {
+    this.garantidas.push({ ...pedido });
+  }
+
+  async remover(phoneNumberId: string): Promise<void> {
+    this.removidas.push(phoneNumberId);
+  }
+}
+
 /** Os entitlements. Idempotente por `(tenant_id, modulo)` — como a porta promete. */
 export class EntitlementsFalsos implements Entitlements {
   readonly garantidos = new Map<string, number>();
@@ -434,13 +484,80 @@ export class RegistoDoCasoFalso implements RegistoDoCaso {
   }
 }
 
-/** Uma base que registra as consultas e não devolve nada. */
+/**
+ * Uma base que registra as consultas e **modela a RLS pela única coisa que
+ * importa aqui**: sem `app.tenant_id` definido, uma escrita devolve zero linhas.
+ *
+ * Devolvia sempre `{rows: []}` e registrava o texto — o que era pior do que
+ * inútil: as consultas nunca eram executadas e o `ensure` não olhava para o
+ * resultado, pelo que a saga marcava o passo `concluido` sobre uma base que não
+ * foi escrita. A revisão adversarial chamou-lhe «o modo de falha mais perigoso
+ * do ticket», e tinha razão: é silencioso e **declara sucesso**.
+ *
+ * Isto não substitui a *suite* de base de dados — contra um Postgres real há
+ * RLS a sério, políticas e papéis, e nada aqui o imita. O que isto torna
+ * medível é a propriedade do **nosso** código: que a escrita corre sob
+ * contexto, e que zero linhas é um erro em vez de um `concluido`.
+ */
 export class SqlFalso implements ClienteSql {
   readonly consultas: { texto: string; valores: readonly unknown[] }[] = [];
+  /** `false` simula a ligação sem contexto: as escritas filtram para zero linhas. */
+  honraOContexto = true;
+  #contexto: string | null = null;
+
   async query<T>(texto: string, valores: readonly unknown[] = []): Promise<{ rows: readonly T[] }> {
     this.consultas.push({ texto, valores });
-    return { rows: [] };
+    const t = texto.trim();
+    if (t === "BEGIN") {
+      this.#contexto = null;
+      return { rows: [] };
+    }
+    if (t === "COMMIT" || t === "ROLLBACK") {
+      this.#contexto = null;
+      return { rows: [] };
+    }
+    if (t.includes("set_config('app.tenant_id'")) {
+      this.#contexto = this.honraOContexto ? String(valores[0] ?? "") : null;
+      return { rows: [] };
+    }
+    // Uma escrita só «vê» a linha com o contexto do mesmo tenant — que é o que
+    // a política `tenant_iso` faz (`id = app.tenant_id`).
+    const doTenant = String(valores[0] ?? "");
+    if (this.#contexto === null || this.#contexto !== doTenant) return { rows: [] };
+    return { rows: [{ id: doTenant } as unknown as T] };
   }
+
+  /** As consultas que não são de transacção nem de contexto. Para as asserções. */
+  get escritas(): { texto: string; valores: readonly unknown[] }[] {
+    return this.consultas.filter(
+      (c) =>
+        !["BEGIN", "COMMIT", "ROLLBACK"].includes(c.texto.trim()) &&
+        !c.texto.includes("set_config('app.tenant_id'"),
+    );
+  }
+}
+
+/**
+ * Um `Logger` **em modo estrito**, com destino em memória.
+ *
+ * Modo estrito porque é o do CI: nele, `log.excepcao` com um campo fora da
+ * lista branca ou com um valor fora de forma **levanta** `CampoRejeitadoError`.
+ * As chamadas da saga estão dentro de `catch`, depois do `marcarEscalado` — uma
+ * rejeição fazia a excepção escapar e a escalada deixava de devolver
+ * `{estado: "escalada"}`. Sem um `Logger` injectado, nada disto era exercido:
+ * o `log?.excepcao` era um *no-op* nas quatro *suites*, e a metade «logs» da
+ * DoD não tinha medição executada. Encontrado pela revisão adversarial.
+ */
+export function loggerDeEnsaio(linhas: Record<string, unknown>[]): Logger {
+  return new Logger("provisioning", {
+    estrito: true,
+    destino: {
+      write(texto: string) {
+        linhas.push(JSON.parse(texto) as Record<string, unknown>);
+        return true;
+      },
+    },
+  });
 }
 
 /** Tudo montado, com os duplos acessíveis para as asserções. */
@@ -453,10 +570,13 @@ export interface Montagem {
   readonly entitlements: EntitlementsFalsos;
   readonly canalDoCliente: CanalDoClienteFalso;
   readonly inbox: InboxFalsa;
+  readonly rota: RotaFalsa;
   readonly teste: TesteDeCanalFalso;
   readonly registoDoCaso: RegistoDoCasoFalso;
   readonly contasApagadas: string[];
   readonly dormidas: number[];
+  /** As linhas que o `Logger` em modo estrito aceitou. */
+  readonly linhasDeLog: Record<string, unknown>[];
   /** Um registo por montagem: o `METRICAS` do processo é partilhado. */
   readonly metricas: Metricas;
 }
@@ -477,10 +597,16 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
   const entitlements = new EntitlementsFalsos();
   const canalDoCliente = new CanalDoClienteFalso();
   const inbox = new InboxFalsa();
+  const rota = new RotaFalsa();
   const teste = new TesteDeCanalFalso();
   const registoDoCaso = new RegistoDoCasoFalso();
   const contasApagadas: string[] = [];
   const dormidas: number[] = [];
+  // **Um relógio falso**, para a `saga_step_duration_ms` ser medível: com o
+  // `Date.now` real um passo rápido dava 0 e a asserção não distinguia
+  // «mediu zero» de «não mediu».
+  let relogio = 1_000;
+  const linhasDeLog: Record<string, unknown>[] = [];
   // **Um registo de métricas por montagem, e não o do processo.** O `METRICAS`
   // exportado é um singleton: com ele, cada ensaio somava aos contadores dos
   // anteriores e `saga_first_attempt_total{passou="sim"}` valia 13 em vez de 1.
@@ -491,7 +617,6 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
     armazem,
     sql,
     metricas,
-    caso: registoDoCaso,
     registoDoCaso,
     chaveDeLlm,
     comercio,
@@ -499,6 +624,7 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
     entitlements,
     canalDoCliente,
     inbox,
+    rota,
     teste,
     apagarContaDeAtendimento: async (id: string) => {
       contasApagadas.push(id);
@@ -508,6 +634,15 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
     dormir: async (ms: number) => {
       dormidas.push(ms);
     },
+    agora: () => {
+      relogio += 7;
+      return relogio;
+    },
+    // **Um `Logger` a sério, em modo estrito.** Nenhum dos ensaios injectava
+    // um, pelo que o `log?.excepcao` era um *no-op* e a metade «logs» da DoD
+    // não tinha medição executada — e, em modo estrito, um campo recusado
+    // **levanta**, o que fazia a escalada deixar de devolver `escalada`.
+    log: loggerDeEnsaio(linhasDeLog),
   };
 
   return {
@@ -519,11 +654,13 @@ export function montar(): Montagem & { dependencias: Record<string, unknown> } {
     entitlements,
     canalDoCliente,
     inbox,
+    rota,
     teste,
     registoDoCaso,
     contasApagadas,
     dormidas,
     metricas,
+    linhasDeLog,
     dependencias,
   };
 }

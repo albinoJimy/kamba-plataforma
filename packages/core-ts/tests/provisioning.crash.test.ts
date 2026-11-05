@@ -26,8 +26,8 @@
  * nosso código** (`src/provisioning/passos.ts`), não no duplo. Os inventários
  * dos duplos são burros: `criar` cria sempre e soma ao contador. Logo
  * `criadas === 1` depois de duas passagens só pode acontecer se a procura
- * existir — e o `provisioning.mutacao.test.ts` registra a mutação que o
- * confirma.
+ * existir — e a bateria de mutações registada no PR confirma que apagar a
+ * procura põe isto vermelho.
  */
 
 import assert from "node:assert/strict";

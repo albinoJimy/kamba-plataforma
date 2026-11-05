@@ -7,7 +7,9 @@
  *
  * const saga = new Saga({ armazem, sql, chaveDeLlm, comercio, handoff, ... });
  * const desfecho = await saga.correr(caso);          // oito passos, idempotente
- * if (desfecho.estado === "falhou") await saga.compensar(caso, "passo_4");
+ * // `escalada` e o estado que dispara a compensacao: ao 3.o falhanco o passo
+ * // fica terminal. `aguarda` **nao** compensa — o dono ainda pode agir.
+ * if (desfecho.estado === "escalada") await saga.compensar(caso, desfecho.passo ?? "");
  * ```
  *
  * O gatilho é o `tenant.approved` (ADR-009; o canon §3.5 fixa **este** nome
@@ -27,18 +29,20 @@
 
 export {
   CLASSES_DE_DIVERGENCIA,
+  ACCOES_POR_RECURSO,
   ESPERAS,
   ESPERA_DO_PASSO,
   ESTADOS_DE_PASSO,
   ETIQUETA_DA_SAGA,
   PASSOS,
+  PASSOS_DE_ESPERA,
   RECURSOS,
   RECURSOS_DO_CLIENTE,
   TIPOS_DESTRUTIVOS,
   TIPOS_DE_ACCAO,
   AguardaEntradaError,
   RecursoDoClienteError,
-  SagaEscaladaError,
+  AccaoIncoerenteError,
   type AccaoDeCompensacao,
   type ArmazemDePassos,
   type CanalDoCliente,
@@ -59,7 +63,9 @@ export {
   type RecursoInventariado,
   type RefExterna,
   type RegistoDeCanalDeComercio,
+  type PassoDeEspera,
   type RegistoDoCaso,
+  type RotaDoCanal,
   type RelatorioDeReconciliacao,
   type Recurso,
   type TesteDeCanal,
@@ -69,12 +75,12 @@ export {
 export {
   accoesDoCanalDoCliente,
   executarNoCanalDoCliente,
+  coerente,
   permitida,
   verificar,
 } from "./compensacao.ts";
 
 export {
-  SQL_GARANTIR_ROTA,
   SQL_GARANTIR_TENANT,
   SQL_GUARDAR_CANAL_COMERCIO,
   SQL_GUARDAR_CHAVE_LLM,

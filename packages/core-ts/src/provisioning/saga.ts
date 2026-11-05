@@ -27,7 +27,6 @@ import {
   ESPERA_DO_PASSO,
   PASSOS,
   AguardaEntradaError,
-  SagaEscaladaError,
   type AccaoDeCompensacao,
   type ArmazemDePassos,
   type CanalDoCliente,
@@ -44,6 +43,7 @@ import { executarNoCanalDoCliente, verificar } from "./compensacao.ts";
 import { montarPassos, type DefinicaoDePasso, type Dependencias as DependenciasDosPassos } from "./passos.ts";
 import {
   METRICA_COMPENSADO,
+  METRICA_DURACAO,
   METRICA_ESCALADO,
   METRICA_FALHAS,
   METRICA_PRIMEIRA_TENTATIVA,
@@ -59,7 +59,11 @@ export const TENTATIVAS = 3;
 export const BACKOFF_BASE_MS = 1_000;
 
 /**
- * O atraso antes da tentativa `n` (1-based). Exponencial, **com tecto**.
+ * O atraso antes da tentativa `n` (1-based). Exponencial, **sem tecto próprio**.
+ *
+ * O tecto é o das **tentativas** (`TENTATIVAS`), não o do atraso: a função
+ * cresce para sempre e nunca é chamada acima de `n = 3`. A nota dizia «com
+ * tecto» e não havia nenhum — `atrasoDaTentativa(10)` dá 256 s.
  *
  * `n = 1` dá zero: a primeira tentativa não espera. Depois é
  * `base * 2^(n-2)` — 1 s antes da 2.ª e 2 s antes da 3.ª.
@@ -77,11 +81,25 @@ export function atrasoDaTentativa(n: number): number {
 
 /** O que a saga devolve ao fim de uma passagem. */
 export interface Desfecho {
-  /** `concluida` quando os oito passos estão `concluido`. */
-  readonly estado: "concluida" | "aguarda" | "falhou" | "escalada";
+  /**
+   * `concluida`, `aguarda` ou `escalada`. **Não há `falhou`**, e havia.
+   *
+   * O `#correrPasso` não sai do ciclo por falha: repete até ao tecto e escala,
+   * pelo que nenhum caminho produzia `"falhou"` — e o exemplo de uso do
+   * `index.ts` disparava a compensação com `estado === "falhou"`, isto é, a
+   * forma documentada de compensar **nunca** disparava. Quem escrevesse o
+   * consumidor (KAM-092) a partir daquele exemplo não compensava nada.
+   * Encontrado pela revisão adversarial. Quem compensa olha para `escalada`.
+   */
+  readonly estado: "concluida" | "aguarda" | "escalada";
   /** O passo onde parou, ou `null` se terminou. */
   readonly passo: Passo | null;
-  /** Em quantas tentativas o passo que parou está. */
+  /**
+   * Em que tentativa o passo que parou (ou concluiu) está.
+   *
+   * No caminho de sucesso era **fixo em 1** mesmo quando o passo precisara de
+   * duas — um campo que mentia e que ninguém lia. Agora leva o número real.
+   */
   readonly tentativa: number;
   /** `true` quando os oito passos passaram **todos à primeira tentativa**. */
   readonly primeiraTentativa: boolean;
@@ -94,6 +112,24 @@ export interface Dependencias extends DependenciasDosPassos {
   readonly metricas?: Metricas;
   /** Injectável para os ensaios não esperarem segundos reais. */
   readonly dormir?: (ms: number) => Promise<void>;
+  /** O relógio da `saga_step_duration_ms`. Injectável para a duração ser medível. */
+  readonly agora?: () => number;
+  /**
+   * Os oito passos. Por omissão, `montarPassos(dependencias)`.
+   *
+   * **Existe para o guarda do critério 7 ser medível**, e isso é a correcção de
+   * um achado: o `verificar` do `#executar` era um **mutante sobrevivente**.
+   * Apagá-lo deixava as quatro *suites* verdes, porque o único ramo que podia
+   * executar uma acção proibida (`waba`/`phone_number`) volta a verificar
+   * dentro do `executarNoCanalDoCliente` — e nenhum ensaio injectava uma acção
+   * proibida na `compensar` de um passo, que é por onde um ticket futuro a
+   * escreveria.
+   *
+   * Com esta costura, o ensaio escreve o defeito onde ele nasceria e corre a
+   * saga. Um ponto de injecção que só os ensaios usam paga-se quando o que ele
+   * torna medível é uma propriedade de negócio sem segunda chance.
+   */
+  readonly passos?: ReadonlyMap<Passo, DefinicaoDePasso>;
 }
 
 /** A saga. */
@@ -102,12 +138,14 @@ export class Saga {
   readonly #passos: ReadonlyMap<Passo, DefinicaoDePasso>;
   readonly #m: Metricas;
   readonly #dormir: (ms: number) => Promise<void>;
+  readonly #agora: () => number;
 
   constructor(dependencias: Dependencias) {
     this.#d = dependencias;
-    this.#passos = montarPassos(dependencias);
+    this.#passos = dependencias.passos ?? montarPassos(dependencias);
     this.#m = dependencias.metricas ?? METRICAS;
     this.#dormir = dependencias.dormir ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.#agora = dependencias.agora ?? Date.now;
   }
 
   get metricas(): Metricas {
@@ -176,17 +214,38 @@ export class Saga {
     for (;;) {
       const linha = await this.#d.armazem.abrir(caso, nome);
       await this.#dormir(atrasoDaTentativa(linha.attempt));
+      const comecou = this.#agora();
       try {
         const externalId = await definicao.ensure(caso);
         await this.#d.armazem.marcarConcluido(caso.onboardingId, nome, externalId);
-        return { estado: "concluida", passo: nome, tentativa: linha.attempt, primeiraTentativa: true };
+        // **A duração por passo, que o critério 9 pede.** A série existia no
+        // `metricas.ts` e **ninguém a escrevia** — o `Metricas.medir` não era
+        // chamado em sítio nenhum, e a `exposicao()` de uma saga completa não
+        // tinha linha nenhuma de `saga_step_duration_ms`. Encontrado pela
+        // revisão adversarial. Mede o passo inteiro menos o `backoff`: o que
+        // interessa é quanto demorou o trabalho, não quanto se esperou.
+        this.#m.medir(METRICA_DURACAO, nome, this.#agora() - comecou);
+        return {
+          estado: "concluida",
+          passo: nome,
+          tentativa: linha.attempt,
+          primeiraTentativa: linha.attempt === 1,
+        };
       } catch (erro) {
         if (erro instanceof AguardaEntradaError) {
           // **A espera não gasta tentativa, e é o critério 6.** O `marcarEspera`
-          // põe o passo no estado de espera e **repõe o `attempt`**: sem isso,
-          // três noites de reconciliação com o dono por agir escalavam o caso
-          // para operações por uma coisa que ninguém podia ter feito. Ver a
-          // nota do `marcarEspera` no contrato.
+          // põe o passo no estado de espera e **repõe o `attempt`**.
+          //
+          // A razão escrita aqui era **falsa**, e a revisão adversarial mediu-o:
+          // dizia que «sem isso, três noites com o dono por agir escalavam o
+          // caso», e não escalavam — este `catch` do `AguardaEntradaError` corre
+          // **antes** do ramo da escalada, pelo que um passo em espera nunca
+          // chega ao `marcarEscalado`, com `attempt` 1 ou 30.
+          //
+          // A reposicao importa pelo caso misto, e nao pelo numero de esperas: um
+          // passo que **espera** e depois falha a serio (o passo 8 a passar de
+          // `null` para `false`) tem de ter as tres tentativas inteiras. Sem a
+          // reposicao, as esperas anteriores gastavam-lhe o tecto.
           await this.#d.armazem.marcarEspera(caso.onboardingId, nome, erro.espera);
           return {
             estado: "aguarda",
@@ -230,7 +289,7 @@ export class Saga {
    *
    * ## A lista vem da base, não de memória
    *
-   * `passosConcluidos` lê o `provisioning_step`. Um processo que caia a meio da
+   * `passosDoCaso` lê o `provisioning_step`. Um processo que caia a meio da
    * saga deixa a lista escrita, e quem retomar compensa o que ficou sem ter
    * estado presente — é o que faz desta compensação uma operação **retomável**
    * e não uma limpeza de variáveis locais. É a mesma escolha que o
@@ -332,7 +391,11 @@ export class Saga {
         await this.#d.inbox.desligar(accao.ref);
         return;
       case "rota_chr":
-        await this.#d.canalDoCliente.removerRota(accao.ref);
+        // Pela porta da rota, que é quem escreve a linha de
+        // `platform.tenant_channels` — e não pelo canal do cliente, que fala
+        // com a Meta. Eram duas portas a dizer «remover rota» e só uma delas
+        // mexe na nossa tabela.
+        await this.#d.rota.remover(accao.ref);
         return;
       case "waba":
       case "phone_number":
@@ -361,25 +424,75 @@ export function ordemInversa(linhas: readonly LinhaDePasso[]): readonly LinhaDeP
 }
 
 /**
- * O código de erro que vai para o `provisioning_step.error_code`.
+ * A forma fechada de um `error_code`: identificador, 3 a 64 caracteres.
  *
- * **A classe do erro, nunca a mensagem.** A mensagem de um erro de terceiros
- * pode trazer um corpo de resposta, e um corpo de resposta do LiteLLM ou da
- * Platform API do Chatwoot pode trazer a chave — e a DoD deste ticket diz
- * «nada de chaves em logs, *traces* ou `provisioning_step`, *scan* limpo». O
- * `String(e)` do esboço do `docs/tecnica/10` §5.2 fazia exactamente isso, e é
- * a razão de esta função existir em vez de se escrever o erro directamente.
+ * `[A-Za-z]` à cabeça para aceitar o nome de uma classe (`ProvedorIndisponivelError`)
+ * e o `snake_case` dos nossos `throw` (`teste_ponta_a_ponta_falhou`), e **nada
+ * mais**: sem espaços, sem pontuação, sem chaves, sem hífenes. Um valor com hifenes,
+ * um JWT, um corpo JSON e um número de telefone não casam.
  */
-export function codigoDoErro(erro: unknown): string {
-  if (erro instanceof Error && erro.name !== "" && erro.name !== "Error") return erro.name;
-  if (erro instanceof Error) {
-    // Um `Error` genérico não tem classe que diga nada. Aceita-se a mensagem
-    // **só** se ela for um identificador curto em `snake_case` — que é a forma
-    // que os nossos próprios `throw` usam (`teste_ponta_a_ponta_falhou`). Tudo
-    // o mais é opaco de propósito.
-    return /^[a-z][a-z0-9_]{2,63}$/.test(erro.message) ? erro.message : "erro_opaco";
+const FORMA_DO_CODIGO = /^[A-Za-z][A-Za-z0-9_]{2,63}$/;
+
+/**
+ * Lê o `name` de um erro sem confiar nele.
+ *
+ * O `name` é uma propriedade de instância **escrevível**, e pode ser um
+ * *getter* que levanta — um erro reempacotado por um SDK ou atrás de um
+ * `Proxy`. Com a leitura nua, `codigoDoErro` levantava **dentro do `catch`** do
+ * `#correrPasso`, antes do `marcarFalhado`: o passo ficava `em_curso` com o
+ * `attempt` já incrementado e sem estado terminal, a excepção subia, e o
+ * consumidor de fila repetia o *job* — isto é, a única saída do tecto de três
+ * tentativas que o critério 5 fecha. É a mesma defesa que o
+ * `logger/index.ts` põe em volta de cada leitura.
+ */
+function nomeDoErro(erro: Error): string {
+  try {
+    const nome: unknown = erro.name;
+    return typeof nome === "string" ? nome : "";
+  } catch {
+    return "";
   }
-  return "erro_nao_error";
 }
 
-export { SagaEscaladaError, ESPERA_DO_PASSO };
+function mensagemDoErro(erro: Error): string {
+  try {
+    const m: unknown = erro.message;
+    return typeof m === "string" ? m : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * O código de erro que vai para o `provisioning_step.error_code`.
+ *
+ * **Nada sai daqui sem casar a `FORMA_DO_CODIGO`**, e isso é a correcção de um
+ * defeito que a revisão adversarial mediu com valores concretos. A primeira
+ * versão devolvia `erro.name` **verbatim** quando não era `"Error"`:
+ *
+ *     const e = new Error("x");
+ *     e.name = "VALOR-HOSTIL-DE-ENSAIO-NAO-E-SEGREDO";
+ *     codigoDoErro(e)  // → a chave inteira
+ *
+ * E o `name` é escolhido por quem lança: um erro de SDK que lhe meta o corpo da
+ * resposta põe o corpo na coluna. O *logger* estava salvo — a sua política
+ * recusa um `error_code` fora de forma e retira-o da linha —, mas a coluna
+ * **não tem validador nenhum**, e a DoD deste ticket diz «nada de chaves em
+ * logs, *traces* ou `provisioning_step`». Era a terceira superfície, e era a
+ * que caía.
+ *
+ * Agora a classe e a mensagem passam as duas pelo mesmo filtro, e o que não
+ * casar é `erro_opaco`. Perde-se o detalhe de um erro com nome exótico; o
+ * detalhe de um erro não vale uma chave numa tabela.
+ */
+export function codigoDoErro(erro: unknown): string {
+  if (!(erro instanceof Error)) return "erro_nao_error";
+  const nome = nomeDoErro(erro);
+  if (nome !== "" && nome !== "Error" && FORMA_DO_CODIGO.test(nome)) return nome;
+  // A mensagem só passa na mesma forma fechada — é como os nossos próprios
+  // `throw` a escrevem (`teste_ponta_a_ponta_falhou`).
+  const mensagem = mensagemDoErro(erro);
+  return FORMA_DO_CODIGO.test(mensagem) ? mensagem : "erro_opaco";
+}
+
+export { ESPERA_DO_PASSO };

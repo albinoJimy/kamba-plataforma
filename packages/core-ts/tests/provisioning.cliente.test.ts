@@ -31,14 +31,19 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import {
+  ACCOES_POR_RECURSO,
+  AccaoIncoerenteError,
   PASSOS,
+  RECURSOS,
   RECURSOS_DO_CLIENTE,
   RecursoDoClienteError,
   Saga,
   TIPOS_DESTRUTIVOS,
   TIPOS_DE_ACCAO,
   accoesDoCanalDoCliente,
+  coerente,
   executarNoCanalDoCliente,
+  montarPassos,
   permitida,
   verificar,
   type AccaoDeCompensacao,
@@ -135,27 +140,117 @@ describe("o predicado, medido sozinho e nas duas direccoes", () => {
 
   it("`verificar` nao levanta no caminho legitimo", () => {
     verificar({ tipo: "cancelar_subscricao", recurso: "waba", ref: WABA }, "espera_es");
-    verificar({ tipo: "remover_rota", recurso: "phone_number", ref: NUMERO }, "espera_es");
+    // A rota e **nossa** (`rota_chr`), nao o numero. Ver a nota do
+    // `accoesDoCanalDoCliente`: declarar `remover_rota` sobre o `phone_number`
+    // removia a rota duas vezes, por dois nomes.
+    verificar({ tipo: "remover_rota", recurso: "rota_chr", ref: NUMERO }, "inbox_e_rota");
+  });
+
+  /**
+   * **Sobre o numero do cliente nao ha operacao legitima nenhuma.** E a forma
+   * mais forte de dizer o criterio 7: a lista de tipos do `phone_number` e
+   * vazia, logo qualquer accao sobre ele e incoerente.
+   */
+  it("nenhuma accao sobre o numero do cliente e permitida-e-coerente", () => {
+    for (const tipo of TIPOS_DE_ACCAO) {
+      assert.throws(
+        () => verificar({ tipo, recurso: "phone_number", ref: NUMERO }, "espera_es"),
+        `${tipo} sobre o numero do cliente passou`,
+      );
+    }
+  });
+});
+
+describe("a coerencia entre o tipo declarado e o recurso", () => {
+  /**
+   * **A declaração tem de ser a verdade sobre o que aconteceu**, e é a premissa
+   * do critério 7. Antes da revisão adversarial, o executor despachava pelo
+   * `recurso` e ignorava o `tipo` em seis dos nove casos: um
+   * `{tipo: "apagar", recurso: "inbox"}` passava o guarda (a *inbox* não é do
+   * cliente) e chamava `desligar`. A compensação fazia uma coisa e declarava
+   * outra, e a métrica, que conta pelo recurso, não distinguia as duas.
+   */
+  it("cada recurso aceita so os tipos que lhe pertencem", () => {
+    for (const recurso of RECURSOS) {
+      const permitidos = ACCOES_POR_RECURSO[recurso];
+      assert.ok(permitidos !== undefined, `${recurso} fora do mapa`);
+      // O `phone_number` e o unico com lista **vazia**, e e de proposito.
+      assert.equal(
+        permitidos.length === 0,
+        recurso === "phone_number",
+        `${recurso}: lista vazia inesperada`,
+      );
+      for (const tipo of TIPOS_DE_ACCAO) {
+        const accao: AccaoDeCompensacao = { tipo, recurso, ref: "x" };
+        assert.equal(
+          coerente(accao),
+          permitidos.includes(tipo),
+          `${tipo} sobre ${recurso}`,
+        );
+      }
+    }
+  });
+
+  it("um `apagar` sobre a inbox e incoerente, e levanta", () => {
+    assert.throws(
+      () => verificar({ tipo: "apagar", recurso: "inbox", ref: "i" }, "inbox_e_rota"),
+      AccaoIncoerenteError,
+    );
+  });
+
+  it("o `desactivar` da inbox e coerente, e nao levanta", () => {
+    verificar({ tipo: "desactivar", recurso: "inbox", ref: "i" }, "inbox_e_rota");
+  });
+
+  /**
+   * A ordem das duas perguntas importa para a razão que se lê: um
+   * `{apagar, phone_number}` é incoerente **e** é um recurso do cliente, e o que
+   * manda é a segunda.
+   */
+  it("sobre o numero, a razao que levanta e a do recurso do cliente", () => {
+    assert.throws(
+      () => verificar({ tipo: "apagar", recurso: "phone_number", ref: NUMERO }, "espera_es"),
+      RecursoDoClienteError,
+    );
   });
 });
 
 describe("as duas accoes do passo 6 — e so essas duas", () => {
-  it("sao `cancelar_subscricao` no WABA e `remover_rota` no numero", () => {
-    assert.deepEqual(accoesDoCanalDoCliente(WABA, NUMERO), [
+  it("e `cancelar_subscricao` no WABA, e e a unica sobre o que e do cliente", () => {
+    assert.deepEqual(accoesDoCanalDoCliente(WABA), [
       { tipo: "cancelar_subscricao", recurso: "waba", ref: WABA },
-      { tipo: "remover_rota", recurso: "phone_number", ref: NUMERO },
     ]);
   });
 
-  it("o caminho legitimo executa as duas, e nao apaga nada", async () => {
+  /**
+   * **E a produção chama-a.** Sem esta asserção o ensaio acima mede uma função
+   * morta — era o caso antes da revisão adversarial: o `accoesDoCanalDoCliente`
+   * existia, tinha este ensaio, e nenhum código de produção o invocava, pelo
+   * que acrescentar uma terceira acção à lista real do `passos.ts` deixava-o
+   * verde.
+   */
+  it("e a compensacao do passo 6 da saga devolve exactamente essa lista", async () => {
+    const m = montar();
+    const saga = sagaDe(m);
+    await saga.correr(CASO);
+    const executadas = await saga.compensar(CASO, "ensaio");
+    const doCanal = executadas.filter(
+      (a: AccaoDeCompensacao) => a.recurso === "waba" || a.recurso === "phone_number",
+    );
+    assert.deepEqual(doCanal, [...accoesDoCanalDoCliente(WABA)]);
+  });
+
+  it("o caminho legitimo cancela a subscricao e nao apaga nada", async () => {
     const canal = new CanalDoClienteFalso();
-    for (const accao of accoesDoCanalDoCliente(WABA, NUMERO)) {
+    for (const accao of accoesDoCanalDoCliente(WABA)) {
       await executarNoCanalDoCliente(canal, accao, "espera_es");
     }
     assert.deepEqual(canal.subscricoesCanceladas, [WABA]);
-    assert.deepEqual(canal.rotasRemovidas, [NUMERO]);
     assert.equal(canal.wabasApagados, 0);
     assert.equal(canal.numerosApagados, 0);
+    // **A Meta nunca e chamada para remover a rota**: a rota e a nossa linha de
+    // `tenant_channels`, e sai pela porta `RotaDoCanal`.
+    assert.deepEqual(canal.rotasRemovidas, []);
   });
 
   /**
@@ -230,10 +325,12 @@ describe("a saga inteira: a compensacao nunca toca no que e do cliente", () => {
       [WABA],
       "a compensacao do passo 6 nao cancelou a subscricao de webhooks",
     );
-    assert.ok(
-      m.canalDoCliente.rotasRemovidas.includes(NUMERO),
-      "a compensacao nao removeu a rota do numero",
-    );
+    // **A rota removida uma vez, e pela porta certa.** Antes era removida duas
+    // vezes — `phone_number` no passo 6 e `rota_chr` no passo 7, as duas a cair
+    // no `removerRota` da Meta —, e a `saga_compensado_total` contava-a a
+    // dobrar. O ensaio usava `includes`, que e verdade com uma ou com cinco.
+    assert.deepEqual(m.rota.removidas, [NUMERO]);
+    assert.deepEqual(m.canalDoCliente.rotasRemovidas, []);
     // E os oito passos ficaram `compensado`, ou sem acção a fazer.
     assert.equal(m.armazem.estadoDe("espera_es"), "compensado");
     assert.equal(m.armazem.estadoDe("inbox_e_rota"), "compensado");
@@ -252,28 +349,109 @@ describe("a saga inteira: a compensacao nunca toca no que e do cliente", () => {
    * ticket futuro. Se o `compensacao.ts` deixar de verificar, este ensaio fica
    * vermelho **e** o `numerosApagados` passa a 1.
    */
-  it("uma compensacao que pede `apagar` do numero e recusada pela saga", async () => {
+  /**
+   * **A recusa medida pela saga, com o defeito injectado num passo.**
+   *
+   * Este ensaio chamava `executarNoCanalDoCliente` directamente, apesar do
+   * título dizer «pela saga» — isto é, nunca tocava no `Saga.#executar`, e a
+   * revisão adversarial mostrou que o `verificar` que está lá era um **mutante
+   * sobrevivente**: apagá-lo deixava as quatro *suites* verdes, porque o único
+   * ramo que podia executar uma acção proibida volta a verificar dentro do
+   * `executarNoCanalDoCliente`.
+   *
+   * Agora injecta-se a acção proibida na `compensar` de um passo — que é por
+   * onde um ticket futuro a escreveria — e corre-se `saga.compensar`. Apagar o
+   * `verificar` do `#executar` põe isto vermelho: a acção chega ao
+   * `case "phone_number"` e o `numerosApagados` sobe.
+   */
+  it("uma accao proibida declarada por um passo e recusada dentro da saga", async () => {
     const saga = sagaDe(m);
     await saga.correr(CASO);
 
-    // O defeito, injectado na porta do canal do cliente através de uma acção
-    // destrutiva que chega ao mesmo caminho que a saga usa.
-    await assert.rejects(
-      () =>
-        executarNoCanalDoCliente(
-          m.canalDoCliente,
-          { tipo: "apagar", recurso: "phone_number", ref: NUMERO },
-          "espera_es",
-        ),
-      RecursoDoClienteError,
-    );
-    assert.equal(m.canalDoCliente.numerosApagados, 0);
+    // O defeito: o passo 6 passa a declarar o `apagar` do número do cliente.
+    const passos = montarPassos(m.dependencias as never);
+    const passo6 = passos.get("espera_es");
+    assert.ok(passo6 !== undefined);
+    const comDefeito = {
+      ...passo6,
+      compensar: async () => [
+        { tipo: "apagar", recurso: "phone_number", ref: NUMERO } as const,
+      ],
+    };
+    const sagaComDefeito = new Saga({
+      ...(m.dependencias as Record<string, unknown>),
+      passos: new Map([...passos, ["espera_es", comDefeito]]),
+    } as never);
 
-    // E a compensação legítima continua a funcionar depois da recusa: o guarda
-    // não deixou o canal num estado inutilizável.
+    const executadas = await sagaComDefeito.compensar(CASO, "ensaio");
+
+    // A compensação **para** no passo defeituoso e nunca chama a porta
+    // destrutiva. O que já tinha corrido (os passos 7 e 8, que vêm antes na
+    // ordem inversa) fica feito.
+    assert.equal(m.canalDoCliente.numerosApagados, 0, "a saga apagou o numero do cliente");
+    assert.deepEqual(
+      executadas.filter((a: AccaoDeCompensacao) => a.recurso === "phone_number"),
+      [],
+      "a accao proibida entrou na lista de executadas",
+    );
+    // E a linha de log diz que a compensação falhou nesse passo.
+    assert.ok(
+      m.linhasDeLog.some((l) => l.outcome === "compensacao_falhou"),
+      "a recusa nao foi registada",
+    );
+  });
+
+  /**
+   * **O `verificar` do `#executar` só se mede com um recurso sem segunda
+   * fechadura.**
+   *
+   * Uma acção proibida sobre `waba`/`phone_number` não o mede: esse ramo volta
+   * a verificar dentro do `executarNoCanalDoCliente`, pelo que apagar o
+   * `verificar` do `#executar` não muda nada — a mutação **sobreviveu** duas
+   * vezes por esta razão. O que o mede é um recurso cujo ramo **não** tem
+   * segunda fechadura: a `inbox`, que o `#executar` despacha directamente para
+   * `desligar`. Com o guarda, `{apagar, inbox}` é incoerente e levanta; sem
+   * ele, a *inbox* é desligada e o contador do duplo sobe.
+   */
+  it("uma accao incoerente sobre a inbox e recusada dentro da saga", async () => {
+    const saga = sagaDe(m);
+    await saga.correr(CASO);
+
+    const passos = montarPassos(m.dependencias as never);
+    const passo7 = passos.get("inbox_e_rota");
+    assert.ok(passo7 !== undefined);
+    const comDefeito = {
+      ...passo7,
+      compensar: async () => [{ tipo: "apagar", recurso: "inbox", ref: "inbox-7" } as const],
+    };
+    const sagaComDefeito = new Saga({
+      ...(m.dependencias as Record<string, unknown>),
+      passos: new Map([...passos, ["inbox_e_rota", comDefeito]]),
+    } as never);
+
+    await sagaComDefeito.compensar(CASO, "ensaio");
+
+    assert.deepEqual(
+      m.inbox.desligadas,
+      [],
+      "a saga desligou a inbox a partir de uma accao declarada `apagar`",
+    );
+  });
+
+  it("e a accao coerente sobre a inbox corre — o caminho legitimo ao lado", async () => {
+    const saga = sagaDe(m);
+    await saga.correr(CASO);
     await saga.compensar(CASO, "ensaio");
-    assert.deepEqual(m.canalDoCliente.subscricoesCanceladas, [WABA]);
+    assert.deepEqual(m.inbox.desligadas, ["inbox-1"]);
+  });
+
+  it("e sem o defeito a mesma compensacao corre inteira — o caminho legitimo", async () => {
+    const saga = sagaDe(m);
+    await saga.correr(CASO);
+    const executadas = await saga.compensar(CASO, "ensaio");
+    assert.ok(executadas.length >= 6, "a compensacao nao correu os passos todos");
     assert.equal(m.canalDoCliente.numerosApagados, 0);
+    assert.deepEqual(m.canalDoCliente.subscricoesCanceladas, [WABA]);
   });
 
   /**

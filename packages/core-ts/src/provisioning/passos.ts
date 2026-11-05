@@ -12,7 +12,8 @@
  * As portas externas são inventários de `procurar`/`criar` (ver a nota do
  * `contrato.ts`), e é **esta** camada que os combina. Apagar um `procurar`
  * daqui faz o contador de criações do inventário ir a 2, e há um ensaio a
- * afirmar que é 1 — é o `tests/provisioning.mutacao.test.ts`.
+ * afirmar que é 1, e a bateria de mutações (fora do repositório, registada no
+ * PR) confirma que apagá-lo o põe vermelho.
  *
  * A única excepção é o passo 4: o Chatwoot entra por
  * `HandoffProvider.ensureAccount` **como caixa preta**, porque é o que o
@@ -41,9 +42,11 @@ import {
   type InboxDeAtendimento,
   type Passo,
   type RegistoDeCanalDeComercio,
-  type RegistoDoCaso,
+  type RotaDoCanal,
   type TesteDeCanal,
 } from "./contrato.ts";
+import { accoesDoCanalDoCliente } from "./compensacao.ts";
+import { comTenant } from "../tenant_guard/index.ts";
 import type { HandoffProvider } from "../hnd/contrato.ts";
 
 /**
@@ -69,30 +72,55 @@ export const SQL_GARANTIR_TENANT = `
   LIMIT 1
 `;
 
-/** Guarda o `external_id` de um passo na coluna de `tenants` que lhe corresponde. */
+/**
+ * Guarda o `external_id` de um passo na coluna de `tenants` que lhe
+ * corresponde. **Com `RETURNING id`**, e isso não é cosmético.
+ *
+ * A base tem RLS `FORCE` em `platform.tenants` com a política `id =
+ * app.tenant_id` (revisão `0002`): **sem contexto de tenant, um `UPDATE`
+ * afecta zero linhas e não levanta**. A primeira versão destas três consultas
+ * não tinha `RETURNING` e o `ensure` não olhava para o resultado, pelo que a
+ * saga marcava o passo `concluido` sobre uma base que não foi escrita — o modo
+ * de falha mais perigoso do ticket, porque é silencioso e declara sucesso.
+ * Encontrado pela revisão adversarial.
+ *
+ * Com o `RETURNING id`, zero linhas é um erro que o `#escreverUma` levanta, e o
+ * passo falha em vez de mentir. É também a razão de todas as escritas correrem
+ * dentro de `comTenant` — ver a nota do `montarPassos`.
+ */
 export const SQL_GUARDAR_CHAVE_LLM = `
-  UPDATE platform.tenants SET litellm_key_id = $2 WHERE id = $1
+  UPDATE platform.tenants SET litellm_key_id = $2 WHERE id = $1 RETURNING id
 `;
 export const SQL_GUARDAR_CANAL_COMERCIO = `
-  UPDATE platform.tenants SET medusa_sales_channel_id = $2 WHERE id = $1
+  UPDATE platform.tenants SET medusa_sales_channel_id = $2 WHERE id = $1 RETURNING id
 `;
 export const SQL_GUARDAR_CONTA_ATENDIMENTO = `
-  UPDATE platform.tenants SET chatwoot_account_id = $2 WHERE id = $1
+  UPDATE platform.tenants SET chatwoot_account_id = $2 WHERE id = $1 RETURNING id
 `;
 
-/**
- * Grava a rota do CHR: `tenant_channels`, `phone_number_id` único.
- *
- * `ON CONFLICT (phone_number_id)` e não `(tenant_id, phone_number_id)`: o
- * critério 2 diz «`phone_number_id` único» sem qualificar por tenant, e com a
- * chave composta o mesmo número podia entrar por dois tenants — que é a
- * confusão de canais que o KAM-016 já pagou uma vez.
- */
-export const SQL_GARANTIR_ROTA = `
-  INSERT INTO platform.tenant_channels (tenant_id, phone_number_id, waba_id, vertical, estado)
-  VALUES ($1, $2, $3, $4, 'onboarding')
-  ON CONFLICT (phone_number_id) DO NOTHING
-`;
+/** Uma escrita que devia afectar uma linha afectou zero. Ver `SQL_GUARDAR_CHAVE_LLM`. */
+export class EscritaSemLinhasError extends Error {
+  readonly passo: string;
+
+  constructor(passo: string) {
+    super(
+      `a escrita do passo ${passo} nao devolveu linha: ou nao ha contexto de ` +
+        "tenant (`app.tenant_id`) e a RLS `FORCE` filtrou-a, ou a linha nao " +
+        "existe. Marcar o passo `concluido` aqui era declarar sucesso sobre uma " +
+        "base que nao foi escrita",
+    );
+    this.name = "EscritaSemLinhasError";
+    this.passo = passo;
+  }
+}
+
+// **Não há `SQL_GARANTIR_ROTA`, e havia.** A linha de
+// `platform.tenant_channels` escreve-se pela porta `RotaDoCanal` e não por
+// consulta deste módulo: o critério 2 diz «`tenant_channels` **(CHR)**», e o
+// `INSERT` que aqui estava violava três restrições da revisão `0001` —
+// `channel_mode` e `token_ref` são `NOT NULL` sem DEFAULT e estavam omitidas, e
+// o `estado` era escrito como `'onboarding'`, que não está no
+// `tenant_channels_estado_ck`. Ver a nota da porta no `contrato.ts`.
 
 /** O que um passo é. */
 export interface DefinicaoDePasso {
@@ -113,13 +141,14 @@ export interface DefinicaoDePasso {
 /** As portas de que os oito passos precisam. */
 export interface Dependencias {
   readonly sql: ClienteSql;
-  readonly caso: RegistoDoCaso;
   readonly chaveDeLlm: ChaveDeLlm;
   readonly comercio: RegistoDeCanalDeComercio;
   readonly handoff: HandoffProvider;
   readonly entitlements: Entitlements;
   readonly canalDoCliente: CanalDoCliente;
   readonly inbox: InboxDeAtendimento;
+  /** A linha de `tenant_channels`. Credores: KAM-014 (CHR) e KAM-016 (o *token*). */
+  readonly rota: RotaDoCanal;
   readonly teste: TesteDeCanal;
   /**
    * Apaga a conta de atendimento criada pela nossa chave da Platform API.
@@ -155,13 +184,47 @@ export function aliasDoTenant(tenantId: string): string {
  * divergir sem que nada o dissesse.
  */
 export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePasso> {
+  /**
+   * Corre uma escrita **sob `app.tenant_id`** e exige que ela afecte uma linha.
+   *
+   * As duas coisas juntas, e as duas eram defeitos. A base tem RLS `FORCE` nas
+   * tabelas com `tenant_id` e o `tenant_guard` da casa existe para isto
+   * (`comTenant`); nenhuma consulta deste módulo o usava, e nenhuma olhava para
+   * o resultado — pelo que, sem contexto, as escritas eram *no-op* silenciosas
+   * e o passo ficava `concluido`. Os outros módulos fazem-no (o `eventos`, o
+   * `hnd`, o `ten`); este não fazia.
+   */
+  const escreverUma = async (
+    passo: string,
+    tenantId: string,
+    texto: string,
+    valores: readonly unknown[],
+  ): Promise<void> => {
+    // O `ClienteSql` do `tenant_guard` devolve `Promise<unknown>` e não leva
+    // parâmetro de tipo — é o mínimo de que ele precisa. A consulta corre pelo
+    // **nosso** cliente (é o mesmo objecto que o `comTenant` recebe e devolve ao
+    // trabalho), que é tipado.
+    const rows = await comTenant(d.sql, tenantId, async () => {
+      const resultado = await d.sql.query<{ id: string }>(texto, valores);
+      return resultado.rows;
+    });
+    if (rows.length === 0) throw new EscritaSemLinhasError(passo);
+  };
+
   const passos: DefinicaoDePasso[] = [
     // ------------------------------------------------- 1. tenant e caso
     {
       nome: "tenant_e_caso",
       chaveDe: (caso) => caso.onboardingId,
       async ensure(caso) {
-        await d.sql.query(SQL_GARANTIR_TENANT, [caso.tenantId, caso.vertical, caso.plano]);
+        // O **nome do negócio**, não a vertical. A primeira versão passava
+        // `caso.vertical` para `tenants.nome` e o tenant ficava chamado
+        // «vendedor»: passava o CHECK `btrim(nome) <> ''` e nada acusava.
+        await escreverUma("tenant_e_caso", caso.tenantId, SQL_GARANTIR_TENANT, [
+          caso.tenantId,
+          caso.nomeDoNegocio,
+          caso.plano,
+        ]);
         return null;
       },
       // **Marca `cancelado`; não apaga histórico** (`docs/tecnica/10` §5.2,
@@ -190,7 +253,10 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
         // **Guarda-se o `litellm_key_id`, nunca a chave** (detalhes técnicos do
         // ticket, e a DoD sobre segredos). O `external_id` que vai para o
         // `provisioning_step` é o mesmo identificador por referência.
-        await d.sql.query(SQL_GUARDAR_CHAVE_LLM, [caso.tenantId, chave.id]);
+        await escreverUma("chave_llm", caso.tenantId, SQL_GUARDAR_CHAVE_LLM, [
+          caso.tenantId,
+          chave.id,
+        ]);
         return chave.id;
       },
       compensar: async (_caso, externalId) =>
@@ -204,7 +270,10 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
       async ensure(caso) {
         const existente = await d.comercio.procurar({ tenantId: caso.tenantId });
         const canal = existente ?? (await d.comercio.criar({ tenantId: caso.tenantId }));
-        await d.sql.query(SQL_GUARDAR_CANAL_COMERCIO, [caso.tenantId, canal.id]);
+        await escreverUma("canal_comercio", caso.tenantId, SQL_GUARDAR_CANAL_COMERCIO, [
+          caso.tenantId,
+          canal.id,
+        ]);
         return canal.id;
       },
       // **Arquiva; só apaga se vazio** (critério 7). As duas acções vão
@@ -229,7 +298,10 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
         // garantia é dele e tem *suite* própria (`tests/hnd.provedor.test.ts`).
         // O que aqui se mede é que é chamado **uma vez por passagem**.
         const conta = await d.handoff.ensureAccount(caso.tenantId);
-        await d.sql.query(SQL_GUARDAR_CONTA_ATENDIMENTO, [caso.tenantId, conta.accountId]);
+        await escreverUma("conta_atendimento", caso.tenantId, SQL_GUARDAR_CONTA_ATENDIMENTO, [
+          caso.tenantId,
+          conta.accountId,
+        ]);
         return String(conta.accountId);
       },
       // A conta do Chatwoot é **nossa** (criada pela nossa chave da Platform
@@ -262,16 +334,14 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
       async ensure(caso) {
         // **Isto é uma espera, não uma falha** (critério 6). O dono tem de se
         // autenticar na Meta e confirmar na app (E1); enquanto não o fizer, o
-        // passo fica `aguarda_es` e a saga **não** gasta tentativa nenhuma — se
-        // gastasse, três noites sem o dono mexer escalavam o caso para
-        // operações por uma coisa que ninguém podia ter feito.
+        // passo fica `aguarda_es` e a saga **não** gasta tentativa nenhuma.
         const numero = await d.canalDoCliente.numeroDoTenant(caso.tenantId);
         if (numero === null) {
-          throw new AguardaEntradaError("espera_es", ESPERA_DO_PASSO.espera_es ?? "aguarda_es");
+          throw new AguardaEntradaError("espera_es", ESPERA_DO_PASSO.espera_es);
         }
         const waba = await d.wabaDoTenant(caso.tenantId);
         if (waba === null) {
-          throw new AguardaEntradaError("espera_es", ESPERA_DO_PASSO.espera_es ?? "aguarda_es");
+          throw new AguardaEntradaError("espera_es", ESPERA_DO_PASSO.espera_es);
         }
         await d.canalDoCliente.subscreverWebhooks(waba);
         return numero;
@@ -280,15 +350,21 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
       // (nossa) e remover a rota (nossa). O WABA e o número são do cliente e
       // não se apagam — o `compensacao.ts` recusa-o em execução, e não é só
       // esta lista que o impede.
+      //
+      // A lista vem do `accoesDoCanalDoCliente` e **não** se monta aqui, e isso
+      // é a correcção de um defeito que a revisão adversarial apanhou: aquela
+      // função existia, tinha um ensaio a afirmar «são estas duas e mais
+      // nenhuma», e **nenhum código de produção a chamava** — acrescentar uma
+      // terceira acção a esta lista deixava esse ensaio verde. Agora o ensaio
+      // mede o que corre.
+      // A rota **não** se desfaz aqui: é do passo 7, como `rota_chr`. Desfazê-la
+      // nos dois removia-a duas vezes e contava-a a dobrar.
       async compensar(caso, externalId) {
         if (externalId === null) return [];
         const waba = await d.wabaDoTenant(caso.tenantId);
-        return [
-          ...(waba === null
-            ? []
-            : ([{ tipo: "cancelar_subscricao", recurso: "waba", ref: waba }] as const)),
-          { tipo: "remover_rota", recurso: "phone_number", ref: externalId },
-        ];
+        // Sem WABA não há subscrição para cancelar, e não há mais nada a fazer:
+        // o número é do cliente e a compensação não lhe toca.
+        return waba === null ? [] : accoesDoCanalDoCliente(waba);
       },
     },
 
@@ -298,22 +374,30 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
       chaveDe: (caso) => caso.tenantId,
       async ensure(caso) {
         const numero = await d.canalDoCliente.numeroDoTenant(caso.tenantId);
-        if (numero === null) {
-          throw new AguardaEntradaError(
-            "inbox_e_rota",
-            ESPERA_DO_PASSO.inbox_e_rota ?? "aguarda_catalogo",
-          );
+        const waba = await d.wabaDoTenant(caso.tenantId);
+        // **O WABA verifica-se aqui como o número**, e não se verificava: a
+        // primeira versão passava um `waba` possivelmente nulo para
+        // `tenant_channels.waba_id`, que é `NOT NULL` — com o passo 6 já
+        // `concluido` numa passagem anterior e o WABA entretanto ilegível, o
+        // passo levava `23502` em vez de ficar em espera.
+        if (numero === null || waba === null) {
+          throw new AguardaEntradaError("inbox_e_rota", ESPERA_DO_PASSO.inbox_e_rota);
         }
         const chave = { tenantId: caso.tenantId, phoneNumberId: numero };
         const existente = await d.inbox.procurar(chave);
         const inbox = existente ?? (await d.inbox.criar(chave));
-        const waba = await d.wabaDoTenant(caso.tenantId);
-        await d.sql.query(SQL_GARANTIR_ROTA, [caso.tenantId, numero, waba, caso.vertical]);
+        await d.rota.garantir({
+          tenantId: caso.tenantId,
+          phoneNumberId: numero,
+          wabaId: waba,
+          vertical: caso.vertical,
+        });
         return inbox.id;
       },
-      // A *inbox* é nossa (desliga-se) e a rota é nossa (remove-se). O número
-      // que a rota aponta continua do cliente, e é por isso que a acção é
-      // `remover_rota` e não `apagar`.
+      // A *inbox* é nossa (`desactivar`) e a rota é nossa (`remover_rota`). O
+      // número que a rota aponta continua do cliente, e é por isso que a acção
+      // é `remover_rota` e não `apagar` — e o `ACCOES_POR_RECURSO` recusa
+      // qualquer outro tipo sobre estes dois recursos.
       async compensar(caso, externalId) {
         const numero = await d.canalDoCliente.numeroDoTenant(caso.tenantId);
         return [
@@ -339,10 +423,7 @@ export function montarPassos(d: Dependencias): ReadonlyMap<Passo, DefinicaoDePas
         // deu errado é uma falha, e tratá-lo como espera deixava o caso
         // pendurado para sempre sem ninguém saber porquê.
         if (resultado === null) {
-          throw new AguardaEntradaError(
-            "teste_ponta_a_ponta",
-            ESPERA_DO_PASSO.teste_ponta_a_ponta ?? "aguarda_teste",
-          );
+          throw new AguardaEntradaError("teste_ponta_a_ponta", ESPERA_DO_PASSO.teste_ponta_a_ponta);
         }
         if (!resultado) throw new Error("teste_ponta_a_ponta_falhou");
         return caso.onboardingId;

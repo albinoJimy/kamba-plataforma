@@ -20,6 +20,8 @@ import { describe, it } from "node:test";
 
 import {
   HORAS_PARA_COMPENSAR,
+  RECURSOS,
+  RECURSOS_DO_CLIENTE,
   Metricas,
   classificar,
   compensavel,
@@ -167,6 +169,42 @@ describe("as tres condicoes da compensacao automatica, cada uma a negar sozinha"
   it("o limiar e 24 horas, e e *proposta*", () => {
     assert.equal(HORAS_PARA_COMPENSAR, 24);
   });
+
+  /**
+   * **O critério 7 vale também aqui, e não valia.** A reconciliação era um
+   * caminho até acções destrutivas sobre o WABA e o número do cliente que **não
+   * passava pelo guarda** do `compensacao.ts` — `verificar` não é sequer
+   * importado neste módulo. Um WABA órfão de um caso cancelado há 48 h
+   * satisfazia as três condições e ia a `compensarOrfao`, cuja implementação
+   * injectada este módulo não controla. Encontrado pela revisão adversarial.
+   */
+  it("um WABA orfao nunca se compensa automaticamente, mesmo com as tres condicoes", () => {
+    assert.equal(compensavel(orfao({ recurso: "waba", ref: "waba-x" }), cancelados), false);
+  });
+
+  it("nem o numero do cliente", () => {
+    assert.equal(
+      compensavel(orfao({ recurso: "phone_number", ref: "num-x" }), cancelados),
+      false,
+    );
+  });
+
+  /** E o caminho legítimo ao lado: um recurso **nosso** nas mesmas condições compensa-se. */
+  it("e um recurso nosso nas mesmas condicoes compensa-se", () => {
+    assert.equal(compensavel(orfao({ recurso: "chave_llm" }), cancelados), true);
+    assert.equal(compensavel(orfao({ recurso: "conta_atendimento" }), cancelados), true);
+  });
+
+  it("a recusa cobre todos os recursos do cliente, e so esses", () => {
+    for (const recurso of RECURSOS) {
+      const esperado = !RECURSOS_DO_CLIENTE.includes(recurso);
+      assert.equal(
+        compensavel(orfao({ recurso }), cancelados),
+        esperado,
+        `${recurso}: esperava compensavel=${esperado}`,
+      );
+    }
+  });
 });
 
 describe("a reconciliacao nocturna inteira", () => {
@@ -184,6 +222,7 @@ describe("a reconciliacao nocturna inteira", () => {
         tenantId,
         plano: "piloto",
         vertical: "vendedor",
+        nomeDoNegocio: "Loja de Ensaio",
       }),
     );
     return {

@@ -40,6 +40,8 @@
  */
 
 import {
+  ACCOES_POR_RECURSO,
+  AccaoIncoerenteError,
   RECURSOS_DO_CLIENTE,
   RecursoDoClienteError,
   TIPOS_DESTRUTIVOS,
@@ -63,29 +65,58 @@ export function permitida(accao: AccaoDeCompensacao): boolean {
 }
 
 /**
- * Avalia e levanta. O ponto por onde **toda** a compensação passa.
+ * A acção declara um tipo que pertence ao recurso? Pura.
  *
- * @throws {RecursoDoClienteError}
+ * Separada do `permitida` porque mede outra coisa: o `permitida` responde «esta
+ * acção é admissível?» e isto responde «esta acção é **coerente**?». Um
+ * `{tipo: "apagar", recurso: "inbox"}` é admissível (a *inbox* não é do
+ * cliente) e **incoerente** (o que se faz a uma *inbox* é desactivá-la), e sem
+ * esta pergunta o executor despachava pelo recurso e chamava `desligar`: a
+ * compensação fazia uma coisa e declarava outra.
  */
-export function verificar(accao: AccaoDeCompensacao, passo: Passo): void {
-  if (!permitida(accao)) throw new RecursoDoClienteError(accao, passo);
+export function coerente(accao: AccaoDeCompensacao): boolean {
+  return (ACCOES_POR_RECURSO[accao.recurso] ?? []).includes(accao.tipo);
 }
 
 /**
- * As duas acções legítimas da compensação do passo 6, pela ordem do critério 7.
+ * Avalia e levanta. O ponto por onde **toda** a compensação passa.
  *
- * Está aqui e não no `passos.ts` para que o ensaio do critério 7 possa afirmar
- * sobre a **lista** — «são estas duas e mais nenhuma» — sem montar a saga
- * inteira. Uma terceira acção acrescentada a esta lista tem de ser deliberada.
+ * As duas perguntas por esta ordem: primeiro a propriedade de negócio (o
+ * recurso é do cliente?), depois a coerência. A ordem importa para a mensagem
+ * de erro — um `{apagar, phone_number}` é as duas coisas, e o que se quer ler é
+ * «é um recurso do cliente», que é a razão que manda.
+ *
+ * @throws {RecursoDoClienteError} o recurso é do cliente e o tipo é destrutivo
+ * @throws {AccaoIncoerenteError} o tipo não pertence ao recurso
  */
-export function accoesDoCanalDoCliente(
-  wabaId: string,
-  phoneNumberId: string,
-): readonly AccaoDeCompensacao[] {
-  return [
-    { tipo: "cancelar_subscricao", recurso: "waba", ref: wabaId },
-    { tipo: "remover_rota", recurso: "phone_number", ref: phoneNumberId },
-  ];
+export function verificar(accao: AccaoDeCompensacao, passo: Passo): void {
+  if (!permitida(accao)) throw new RecursoDoClienteError(accao, passo);
+  if (!coerente(accao)) throw new AccaoIncoerenteError(accao, passo);
+}
+
+/**
+ * **A única acção que a compensação faz sobre um recurso do cliente**: cancelar
+ * a subscrição de webhooks do WABA.
+ *
+ * Eram duas, e a segunda estava errada. O critério 7 diz «só cancela a
+ * subscrição de webhooks **e remove a rota**», e a rota é **nossa** — é a linha
+ * de `platform.tenant_channels`, que o passo 7 desfaz como `rota_chr`. Declarar
+ * `remover_rota` sobre o `phone_number` no passo 6, como a primeira versão
+ * fazia, removia a rota **duas vezes** por dois nomes e contava-a a dobrar na
+ * métrica. Medido pela revisão adversarial: `rotasRemovidas` saía com o número
+ * repetido.
+ *
+ * Com uma só, o `phone_number` deixa de aparecer em acção nenhuma — e o
+ * `ACCOES_POR_RECURSO` dá-lhe lista vazia, pelo que qualquer acção sobre o
+ * número do cliente é incoerente **e** recusada. É a forma mais forte de dizer
+ * o critério 7: não há operação legítima sobre o número.
+ *
+ * Está aqui e não no `passos.ts` para que o ensaio possa afirmar sobre a lista
+ * sem montar a saga — e há um ensaio a confirmar que o passo 6 a **chama**, sem
+ * o qual esta função era código morto com um ensaio a medi-lo.
+ */
+export function accoesDoCanalDoCliente(wabaId: string): readonly AccaoDeCompensacao[] {
+  return [{ tipo: "cancelar_subscricao", recurso: "waba", ref: wabaId }];
 }
 
 /**

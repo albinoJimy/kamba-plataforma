@@ -19,8 +19,9 @@
  * si punha a propriedade no duplo: apagar a procura do nosso lado deixava o
  * teste verde, porque o duplo continuava a devolver o mesmo. Com a porta
  * partida em duas, apagar a procura faz o contador de criações do inventário ir
- * a 2 — e há um ensaio a afirmar que é 1. É a mesma lição que o
- * `tests/provisioning.mutacao.test.ts` registra por escrito.
+ * a 2 — e há um ensaio a afirmar que é 1. A bateria de mutações que o
+ * confirma corre fora do repositório — é um instrumento de medição, não um
+ * portão; o PR registra as mutações e o seu veredicto.
  *
  * A excepção é o passo 4: o Chatwoot entra por `HandoffProvider.ensureAccount`
  * (KAM-019) **como caixa preta**, porque é isso que o *handoff* deste ticket
@@ -134,8 +135,23 @@ export type EstadoDePasso = (typeof ESTADOS_DE_PASSO)[number];
 export const ESPERAS = ["aguarda_es", "aguarda_catalogo", "aguarda_teste"] as const;
 export type Espera = (typeof ESPERAS)[number];
 
-/** Qual espera corresponde a cada passo de espera. Os outros cinco não têm. */
-export const ESPERA_DO_PASSO: Readonly<Partial<Record<Passo, Espera>>> = {
+/** Os três passos que são estados de espera (critério 6). */
+export const PASSOS_DE_ESPERA = [
+  "espera_es",
+  "inbox_e_rota",
+  "teste_ponta_a_ponta",
+] as const;
+export type PassoDeEspera = (typeof PASSOS_DE_ESPERA)[number];
+
+/**
+ * Qual espera corresponde a cada passo de espera. Os outros cinco não têm.
+ *
+ * O tipo é `Record<PassoDeEspera, Espera>` e **não** `Partial<Record<Passo, …>>`:
+ * com o `Partial`, cada leitura devolvia `Espera | undefined` e os sítios que a
+ * leem traziam um `?? "aguarda_es"` que nunca podia correr — um ramo morto a
+ * fingir-se de defesa, e que escondia o facto de o mapa estar completo.
+ */
+export const ESPERA_DO_PASSO: Readonly<Record<PassoDeEspera, Espera>> = {
   espera_es: "aguarda_es",
   inbox_e_rota: "aguarda_catalogo",
   teste_ponta_a_ponta: "aguarda_teste",
@@ -145,20 +161,20 @@ export const ESPERA_DO_PASSO: Readonly<Partial<Record<Passo, Espera>>> = {
  * Os recursos que a saga toca, para a etiqueta da métrica e para a
  * classificação de propriedade.
  *
- * `waba` e `phone_number` estão aqui **e são do cliente** (E1). Estão na lista
- * porque a compensação do passo 6 fala com eles — cancela a subscrição de
- * webhooks — e o que não se pode nomear não se pode guardar.
+ * O `waba` está na lista porque a compensação do passo 6 fala com ele —
+ * cancela a subscrição de webhooks, que é **nossa**. O `phone_number` está na
+ * lista **e nenhuma acção o toca**: o `ACCOES_POR_RECURSO` dá-lhe lista vazia,
+ * pelo que qualquer acção sobre ele é incoerente. O que não se pode nomear não
+ * se pode guardar.
  */
 export const RECURSOS = [
   "tenant",
   "chave_llm",
   "canal_comercio",
-  "merchant_comercio",
   "conta_atendimento",
   "entitlement",
   "waba",
   "phone_number",
-  "subscricao_webhooks",
   "rota_chr",
   "inbox",
 ] as const;
@@ -202,6 +218,63 @@ export type TipoDeAccao = (typeof TIPOS_DE_ACCAO)[number];
  * apaga se estiver vazio.
  */
 export const TIPOS_DESTRUTIVOS: readonly TipoDeAccao[] = ["apagar", "revogar"];
+
+/**
+ * Que tipos de acção fazem sentido sobre cada recurso.
+ *
+ * Existe porque **a declaração tem de ser a verdade sobre o que aconteceu**, e
+ * é essa a premissa do critério 7. Sem esta tabela, o executor despachava pelo
+ * `recurso` e ignorava o `tipo` em seis dos nove casos: uma acção
+ * `{tipo: "apagar", recurso: "inbox"}` passava o guarda (a *inbox* não é do
+ * cliente) e chamava `desligar` — isto é, a compensação fazia uma coisa e
+ * declarava outra, e a métrica, que conta pelo recurso, não distinguia as
+ * duas. Um `tipo` decorativo tornava o critério 7 uma afirmação sobre um campo
+ * que ninguém lia.
+ *
+ * Com a tabela, um `tipo` que não pertence ao recurso **levanta** antes de
+ * qualquer efeito.
+ */
+export const ACCOES_POR_RECURSO: Readonly<Record<Recurso, readonly TipoDeAccao[]>> = {
+  tenant: ["marcar_cancelado"],
+  chave_llm: ["revogar"],
+  canal_comercio: ["arquivar", "apagar"],
+  conta_atendimento: ["apagar"],
+  entitlement: ["desactivar"],
+  // As duas únicas que o critério 7 permite sobre o que é do cliente. O
+  // `TIPOS_DESTRUTIVOS` já as recusa; esta linha di-lo uma segunda vez, do
+  // outro lado — e a segunda fechadura é deliberada numa propriedade que não
+  // tem segunda chance.
+  waba: ["cancelar_subscricao"],
+  // **Nenhuma.** O número é do cliente e a compensação não lhe faz nada: o que
+  // se remove é a **rota** (nossa, no `tenant_channels`), que é o `rota_chr`.
+  // A primeira versão punha aqui `remover_rota` e o passo 6 declarava-o sobre o
+  // número — a rota acabava removida **duas vezes**, por dois nomes
+  // (`phone_number` no passo 6 e `rota_chr` no passo 7), e a
+  // `saga_compensado_total` contava-a a dobrar. Encontrado pela revisão
+  // adversarial. Com a lista vazia, qualquer acção sobre o número é incoerente
+  // — que é a forma mais forte de dizer o critério 7.
+  phone_number: [],
+  rota_chr: ["remover_rota"],
+  inbox: ["desactivar"],
+};
+
+/** A acção declara um tipo que não pertence ao recurso. Ver `ACCOES_POR_RECURSO`. */
+export class AccaoIncoerenteError extends Error {
+  readonly accao: AccaoDeCompensacao;
+  readonly passo: Passo;
+
+  constructor(accao: AccaoDeCompensacao, passo: Passo) {
+    super(
+      `a compensacao do passo ${passo} declarou \`${accao.tipo}\` sobre ` +
+        `\`${accao.recurso}\`, e os tipos desse recurso sao ` +
+        `${(ACCOES_POR_RECURSO[accao.recurso] ?? []).join(", ")}: a declaracao ` +
+        "tem de ser a verdade sobre o que a compensacao faz",
+    );
+    this.name = "AccaoIncoerenteError";
+    this.accao = accao;
+    this.passo = passo;
+  }
+}
 
 /**
  * Uma acção de compensação, declarada antes de ser corrida.
@@ -250,15 +323,30 @@ export interface Caso {
   readonly tenantId: string;
   readonly plano: string;
   readonly vertical: string;
+  /**
+   * O nome do negócio da PME, para `tenants.nome`.
+   *
+   * Está aqui porque a primeira versão do passo 1 passava a `vertical` para
+   * aquela coluna: o tenant ficava com `nome = 'vendedor'`, passava o CHECK
+   * `btrim(nome) <> ''` e nada acusava — a linha ficava silenciosamente errada,
+   * e é a que o painel da PME mostra. É o `onboarding_case.nome_negocio` do
+   * bloco do KAM-086, que a porta do caso devolve.
+   */
+  readonly nomeDoNegocio: string;
 }
 
-/** Quem lê os casos. A porta que esconde a falta do `onboarding_case`. */
+/**
+ * Quem lê os casos. A porta que esconde a falta do `onboarding_case`.
+ *
+ * **Um método só, e é o que a reconciliação usa.** A primeira versão tinha
+ * também `porId` e `vivos`, e nenhum era chamado: quem implementasse a porta
+ * para produção escrevia três métodos para dois nunca serem invocados. O lado
+ * nosso da reconciliação entra pelo `esperado()` das suas dependências, que é
+ * quem sabe ler o `provisioning_step`.
+ */
 export interface LeitorDeCasos {
-  porId(onboardingId: string): Promise<Caso | null>;
   /** Os casos `cancelado` há mais de `horas`. Para a reconciliação (critério 8). */
   canceladosHaMaisDe(horas: number): Promise<readonly Caso[]>;
-  /** Os `tenants` com estado diferente de `encerrado`. O lado nosso da reconciliação. */
-  vivos(): Promise<readonly Caso[]>;
 }
 
 /**
@@ -366,7 +454,13 @@ export interface ChaveDeLlm extends Inventario<{ alias: string; orcamento: numbe
 export interface RegistoDeCanalDeComercio
   extends Inventario<{ tenantId: string }, RefExterna> {
   arquivar(id: string): Promise<void>;
-  vazio(id: string): Promise<boolean>;
+  /**
+   * Apaga **só se vazio**, e devolve se apagou.
+   *
+   * A pergunta é feita por dentro e não há `vazio()` separado: duas portas para
+   * a mesma decisão deixavam quem chama escolher entre perguntar e agir, e a
+   * resposta pode mudar entre as duas chamadas.
+   */
   apagarSeVazio(id: string): Promise<boolean>;
 }
 
@@ -399,10 +493,48 @@ export interface CanalDoCliente {
   apagarNumero(phoneNumberId: string): Promise<void>;
 }
 
-/** A *inbox* de tipo API e a rota do CHR (critério 2, passo 7). */
+/** A *inbox* de tipo API (critério 2, passo 7). */
 export interface InboxDeAtendimento
   extends Inventario<{ tenantId: string; phoneNumberId: string }, RefExterna> {
   desligar(id: string): Promise<void>;
+}
+
+/**
+ * A rota do CHR: a linha de `platform.tenant_channels`.
+ *
+ * **Isto era um `INSERT` neste módulo, e estava errado de três formas.** O
+ * critério 2 escreve «*inbox* de tipo API + `tenant_channels` **(CHR)**», e o
+ * «(CHR)» é quem a escreve — não a saga. A primeira versão fazia o `INSERT`
+ * aqui e falhava sempre contra o esquema real da revisão `0001`:
+ *
+ * - `channel_mode text NOT NULL` **sem DEFAULT**, omitida → `23502`;
+ * - `token_ref text NOT NULL` **sem DEFAULT**, omitida → `23502`;
+ * - `estado` escrito como `'onboarding'`, que **não está** no
+ *   `tenant_channels_estado_ck` (`pendente`, `ativo`, `restrito`, `desligado`,
+ *   `suspenso`, `encerrado`) → `23514`.
+ *
+ * Nenhuma das quatro *suites* o apanhava: o duplo da base registra o texto da
+ * consulta e devolve zero linhas, pelo que a consulta nunca é executada. Foi a
+ * revisão adversarial deste ticket que o mediu, lendo o DDL.
+ *
+ * E o `token_ref` diz porque é que a linha não pode ser da saga: é a referência
+ * do *token* do ES, que o **KAM-016** guarda no cofre. A saga não a tem para dar.
+ * Credores da implementação: **KAM-014** (CHR) e **KAM-016** (o *token*).
+ */
+export interface RotaDoCanal {
+  /**
+   * Garante a rota do tenant. Idempotente por `phone_number_id`, que é único na
+   * tabela inteira e não por tenant — o mesmo número por dois tenants é a
+   * confusão de canais que o KAM-016 já pagou uma vez.
+   */
+  garantir(pedido: {
+    readonly tenantId: string;
+    readonly phoneNumberId: string;
+    readonly wabaId: string;
+    readonly vertical: string;
+  }): Promise<void>;
+  /** Remove a rota. **Não** toca no número, que é do cliente. */
+  remover(phoneNumberId: string): Promise<void>;
 }
 
 /** O teste ponta a ponta do passo 8. Chave natural: o `onboarding_id`. */
@@ -459,31 +591,17 @@ export interface RelatorioDeReconciliacao {
 }
 
 /**
- * O *backoff* falhou três vezes e o caso foi escalado. Critério 5.
+ * Um passo de espera ainda não tem a entrada de que precisa. **Não é falha.**
  *
  * Os campos declaram-se e atribuem-se **à mão**, sem propriedade de parâmetro:
  * o `node --test` corre o TypeScript em `strip-only` e um `readonly` no
  * construtor é `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. É a mesma restrição em todo
  * o pacote — não há transpilação no caminho dos ensaios.
+ *
+ * **Não há `SagaEscaladaError`**, e houve: a escalada devolve um `Desfecho` com
+ * `estado: "escalada"` e nunca levanta, pelo que a classe estava na superfície
+ * pública do pacote para ninguém a poder apanhar num `catch`. Saiu.
  */
-export class SagaEscaladaError extends Error {
-  readonly onboardingId: string;
-  readonly passo: Passo;
-  readonly codigoDeErro: string;
-
-  constructor(onboardingId: string, passo: Passo, codigoDeErro: string) {
-    super(
-      `a saga do caso ${onboardingId} falhou tres vezes no passo ${passo} ` +
-        `(${codigoDeErro}) e foi escalada: nao ha quarta tentativa`,
-    );
-    this.name = "SagaEscaladaError";
-    this.onboardingId = onboardingId;
-    this.passo = passo;
-    this.codigoDeErro = codigoDeErro;
-  }
-}
-
-/** Um passo de espera ainda não tem a entrada de que precisa. **Não é falha.** */
 export class AguardaEntradaError extends Error {
   readonly passo: Passo;
   readonly espera: Espera;

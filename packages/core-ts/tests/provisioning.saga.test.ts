@@ -9,7 +9,7 @@
  *    as contas que ficam lá; os duplos aqui contam a chamada, que é o mesmo
  *    predicado e não precisa dos serviços a correr.
  * 2. **A ordem inversa da compensação** (critério 3), com as linhas devolvidas
- *    **embaralhadas** pelo armazém — ver a nota do `passosConcluidos`.
+ *    **embaralhadas** pelo armazém — ver a nota do `passosDoCaso`.
  * 3. **O *backoff* e o tecto de três tentativas** (critério 5), por números
  *    pedidos ao `dormir` e por contagem de chamadas ao *ensure*.
  * 4. **As esperas não gastam tentativa** (critério 6).
@@ -26,12 +26,14 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import {
+  AguardaEntradaError,
   BACKOFF_BASE_MS,
   PASSOS,
   Saga,
   TENTATIVAS,
   atrasoDaTentativa,
   codigoDoErro,
+  montarPassos,
   ordemInversa,
   type Desfecho,
   type LinhaDePasso,
@@ -372,8 +374,12 @@ describe("criterio 6 — os passos 6-8 sao esperas e nao falhas", () => {
     assert.equal(desfecho.estado, "aguarda");
     assert.equal(desfecho.passo, "espera_es");
     assert.equal(m.armazem.esperaDe("espera_es"), "aguarda_es");
-    // **Zero**: o `marcarEspera` repõe o `attempt`. Se ficasse, três noites com
-    // o dono por agir escalavam o caso para operações.
+    // **Zero**: o `marcarEspera` repõe o `attempt`. O que isso protege **não** é
+    // a escalada por esperas repetidas — essa nunca acontece, porque o
+    // `AguardaEntradaError` é apanhado antes do ramo da escalada (medido pela
+    // revisão adversarial, que achou a justificação falsa) — e sim o caso
+    // misto: um passo que espera e **depois** falha a sério precisa das três
+    // tentativas inteiras.
     assert.equal(m.armazem.tentativaDe("espera_es"), 0);
     assert.equal(m.armazem.estadoDe("espera_es"), "em_curso");
   });
@@ -397,6 +403,35 @@ describe("criterio 6 — os passos 6-8 sao esperas e nao falhas", () => {
     const depois = await saga.correr(CASO);
     assert.equal(depois.estado, "concluida");
     assert.deepEqual(m.canalDoCliente.subscritos, [WABA]);
+  });
+
+  /**
+   * **O caso misto, que é o que a reposição do `attempt` protege de facto.**
+   *
+   * Um passo que espera e **depois** falha a sério tem de ter as três
+   * tentativas inteiras. Sem a reposição, as esperas anteriores gastavam-lhe o
+   * tecto e o caso escalava à primeira falha real — e nada media isto: a
+   * asserção que existia media o número de esperas, que nunca escala.
+   */
+  it("um passo que espera e depois falha tem as tres tentativas inteiras", async () => {
+    const m = montar();
+    m.teste.valor = null;
+    const saga = sagaDe(m);
+    // Duas passagens em espera.
+    await saga.correr(CASO);
+    await saga.correr(CASO);
+    assert.equal(m.armazem.tentativaDe("teste_ponta_a_ponta"), 0);
+
+    // Agora o teste corre e dá vermelho: falha a sério.
+    m.teste.valor = false;
+    const desfecho = await saga.correr(CASO);
+
+    assert.equal(desfecho.estado, "escalada");
+    assert.equal(
+      m.armazem.tentativaDe("teste_ponta_a_ponta"),
+      3,
+      "as esperas anteriores gastaram tentativas ao passo",
+    );
   });
 
   it("o passo 8 com o teste por correr aguarda; com o teste vermelho, falha", async () => {
@@ -441,6 +476,54 @@ describe("o `error_code` nao leva segredos", () => {
     assert.equal(codigoDoErro(new Error("teste_ponta_a_ponta_falhou")), "teste_ponta_a_ponta_falhou");
   });
 
+  /**
+   * **Um `name` que levanta não pode fazer o `codigoDoErro` levantar.**
+   *
+   * O `name` pode ser um *getter* — um erro reempacotado por um SDK, ou atrás
+   * de um `Proxy`. Com a leitura nua, a função levantava **dentro do `catch`**
+   * do `#correrPasso`, antes do `marcarFalhado`: o passo ficava `em_curso` com
+   * o `attempt` já incrementado e **sem estado terminal**, a excepção subia, e
+   * o consumidor repetia o *job* — a única saída do tecto de três tentativas
+   * que o critério 5 fecha. Foi a revisão adversarial que o mediu.
+   */
+  it("um `name` que levanta nao faz o `codigoDoErro` levantar", () => {
+    const erro = new Error("x");
+    Object.defineProperty(erro, "name", {
+      get() {
+        throw new TypeError("sem nome");
+      },
+    });
+    assert.equal(codigoDoErro(erro), "erro_opaco");
+  });
+
+  it("e a saga nao perde o estado terminal com um erro desses", async () => {
+    const m = montar();
+    m.handoff.ensureAccount = async () => {
+      const erro = new Error("x");
+      Object.defineProperty(erro, "name", {
+        get() {
+          throw new TypeError("sem nome");
+        },
+      });
+      throw erro;
+    };
+    const desfecho = await sagaDe(m).correr(CASO);
+    assert.equal(desfecho.estado, "escalada", "a excepcao escapou e a saga nao escalou");
+    assert.equal(m.armazem.estadoDe("conta_atendimento"), "escalado");
+  });
+
+  /** O mesmo para a mensagem: um `message` que levanta também não derruba nada. */
+  it("uma `message` que levanta tambem nao derruba o `codigoDoErro`", () => {
+    const erro = new Error("x");
+    Object.defineProperty(erro, "name", { value: "um nome com espacos" });
+    Object.defineProperty(erro, "message", {
+      get() {
+        throw new TypeError("sem mensagem");
+      },
+    });
+    assert.equal(codigoDoErro(erro), "erro_opaco");
+  });
+
   it("o que nao e `Error` nao vira texto", () => {
     assert.equal(codigoDoErro({ chave: "sk-abcdef" }), "erro_nao_error");
     assert.equal(codigoDoErro("sk-abcdef0123456789"), "erro_nao_error");
@@ -459,6 +542,35 @@ describe("o `error_code` nao leva segredos", () => {
 });
 
 describe("as chaves naturais sao as do criterio 2", () => {
+  /**
+   * **As oito chaves do critério 2, afirmadas uma a uma.**
+   *
+   * O `chaveDe` de cada passo existia com a nota «só para registo e ensaio» e
+   * **não era usado por nenhum dos dois** — oito *closures* a declarar as
+   * chaves sem nada a verificá-las, como a revisão adversarial notou. Esta
+   * tabela é o ensaio que faltava: é ela que torna o critério 2 («passos e
+   * chaves») uma afirmação medida em vez de um comentário.
+   */
+  it("cada passo declara a chave natural que o criterio 2 lhe da", () => {
+    const m = montar();
+    const passos = montarPassos(m.dependencias as never);
+    const esperadas: Readonly<Record<string, string>> = {
+      tenant_e_caso: CASO.onboardingId,
+      chave_llm: `tenant-${TENANT}`,
+      canal_comercio: TENANT,
+      conta_atendimento: TENANT,
+      entitlements: `${TENANT}:modulo`,
+      espera_es: TENANT,
+      inbox_e_rota: TENANT,
+      teste_ponta_a_ponta: CASO.onboardingId,
+    };
+    for (const nome of PASSOS) {
+      const passo = passos.get(nome);
+      assert.ok(passo !== undefined, `${nome} sem definicao`);
+      assert.equal(passo.chaveDe(CASO), esperadas[nome], `a chave de ${nome}`);
+    }
+  });
+
   it("a chave da chave virtual e o alias `tenant-<uuid>`", async () => {
     const m = montar();
     await sagaDe(m).correr(CASO);
@@ -470,24 +582,240 @@ describe("as chaves naturais sao as do criterio 2", () => {
     assert.deepEqual(consulta.valores, [TENANT, "tenant-" + TENANT + "-1"]);
   });
 
-  it("a rota do CHR chaveia pelo `phone_number_id`", async () => {
+  /**
+   * A rota vai pela porta `RotaDoCanal` e **não** por consulta deste módulo.
+   *
+   * Este ensaio afirmava sobre o texto de um `INSERT` em
+   * `platform.tenant_channels` que a revisão adversarial mostrou estar errado de
+   * três formas contra a revisão `0001` — `channel_mode` e `token_ref` são
+   * `NOT NULL` sem DEFAULT e estavam omitidas, e o `estado` era `'onboarding'`,
+   * que não está no `tenant_channels_estado_ck`. O duplo da base só registra o
+   * texto, pelo que a consulta nunca era executada e nada o apanhava.
+   */
+  it("a rota do CHR vai pela porta, com os quatro campos que ela exige", async () => {
     const m = montar();
     await sagaDe(m).correr(CASO);
-    const rota = m.sql.consultas.find((c) => c.texto.includes("tenant_channels"));
-    assert.ok(rota !== undefined, "nao gravou a rota");
-    assert.deepEqual(rota.valores, [TENANT, NUMERO, WABA, CASO.vertical]);
-    assert.ok(
-      rota.texto.includes("ON CONFLICT (phone_number_id)"),
-      "o `ON CONFLICT` da rota nao e pelo `phone_number_id` sozinho",
+    assert.deepEqual(m.rota.garantidas, [
+      { tenantId: TENANT, phoneNumberId: NUMERO, wabaId: WABA, vertical: CASO.vertical },
+    ]);
+    assert.deepEqual(
+      m.sql.consultas.filter((c) => c.texto.includes("tenant_channels")),
+      [],
+      "a saga voltou a escrever `tenant_channels` por consulta propria",
     );
   });
 
-  it("o `tenant_id` do passo 1 e o pre-alocado, e nao um gerado", async () => {
+  /**
+   * **O `wabaId` nunca chega vazio à rota**, e é o segundo defeito que a revisão
+   * apanhou: `tenant_channels.waba_id` é `NOT NULL`, e o passo 7 verificava só o
+   * número. Com o passo 6 já `concluido` e o WABA entretanto ilegível, a rota
+   * recebia um nulo.
+   */
+  /**
+   * **O cenário tem de ser o do defeito, e a primeira versão deste ensaio não
+   * era.** Punha `waba = null` desde o início — e aí a saga pára no **passo 6**,
+   * que também verifica o WABA, pelo que o passo 7 nunca corria: a asserção
+   * «não gravou rota» passava por não ter chegado lá. Um ensaio de mutação
+   * mostrou-o: tirar a verificação do passo 7 deixava-o verde.
+   *
+   * O cenário real é o do achado: o passo 6 **já está `concluido`** de uma
+   * passagem anterior e o WABA deixa de se ler **depois** disso. Para o montar,
+   * a primeira passagem deixa o passo 7 em `falhado` (duas falhas, não três — à
+   * terceira escalava e ficava terminal), e só então o WABA desaparece.
+   */
+  /**
+   * **A guarda mede-se no passo, não pela saga.** A primeira versão deste
+   * ensaio punha `waba = null` e corria a saga inteira — mas aí ela pára no
+   * **passo 6**, que também verifica o WABA, pelo que o passo 7 nunca corria e
+   * a asserção «não gravou rota» passava por não ter chegado lá. Um ensaio de
+   * mutação mostrou-o: tirar a verificação ao passo 7 deixava-o verde.
+   *
+   * Pela saga, o cenário precisa de o WABA mudar **entre** o passo 6 e o 7, que
+   * é um facto do mundo exterior e não um estado que a saga saiba produzir. A
+   * granularidade certa de uma guarda é a função que a tem: chama-se o `ensure`
+   * do passo 7 directamente, com o WABA nulo.
+   */
+  it("o `ensure` do passo 7 aguarda quando o WABA nao se le", async () => {
+    const m = montar();
+    m.canalDoCliente.waba = null;
+    const passo = montarPassos(m.dependencias as never).get("inbox_e_rota");
+    assert.ok(passo !== undefined);
+
+    await assert.rejects(() => passo.ensure(CASO), AguardaEntradaError);
+    assert.deepEqual(m.rota.garantidas, [], "gravou uma rota com `waba_id` nulo");
+  });
+
+  it("e com o WABA legivel o mesmo `ensure` grava a rota — o caminho legitimo", async () => {
+    const m = montar();
+    const passo = montarPassos(m.dependencias as never).get("inbox_e_rota");
+    assert.ok(passo !== undefined);
+
+    await passo.ensure(CASO);
+    assert.deepEqual(m.rota.garantidas, [
+      { tenantId: TENANT, phoneNumberId: NUMERO, wabaId: WABA, vertical: CASO.vertical },
+    ]);
+  });
+
+  it("o `ensure` do passo 7 aguarda quando o numero nao se le", async () => {
+    const m = montar();
+    m.canalDoCliente.numero = null;
+    const passo = montarPassos(m.dependencias as never).get("inbox_e_rota");
+    assert.ok(passo !== undefined);
+    await assert.rejects(() => passo.ensure(CASO), AguardaEntradaError);
+  });
+
+  it("e com o WABA legivel o passo 7 grava a rota — o caminho legitimo ao lado", async () => {
+    const m = montar();
+    assert.equal((await sagaDe(m).correr(CASO)).estado, "concluida");
+    assert.equal(m.rota.garantidas.length, 1);
+    assert.equal(m.rota.garantidas[0]?.wabaId, WABA);
+  });
+
+  it("o `tenant_id` do passo 1 e o pre-alocado, e o `nome` e o do negocio", async () => {
     const m = montar();
     await sagaDe(m).correr(CASO);
     const tenant = m.sql.consultas.find((c) => c.texto.includes("platform.tenants"));
     assert.ok(tenant !== undefined);
     assert.equal(tenant.valores[0], TENANT);
+    // **O nome do negócio, não a vertical.** A primeira versão passava
+    // `caso.vertical` e o tenant ficava chamado «vendedor» — passava o CHECK
+    // `btrim(nome) <> ''` e nada acusava.
+    assert.equal(tenant.valores[1], CASO.nomeDoNegocio);
+    assert.notEqual(tenant.valores[1], CASO.vertical);
+  });
+});
+
+describe("as escritas correm sob `app.tenant_id` e exigem linha", () => {
+  /**
+   * **O modo de falha mais perigoso do ticket**, e era real: a base tem RLS
+   * `FORCE` nas tabelas com `tenant_id` e nenhuma consulta deste módulo punha
+   * o contexto, nem olhava para o resultado. Sem contexto, um `UPDATE` afecta
+   * zero linhas e **não levanta** — a saga marcava o passo `concluido` sobre
+   * uma base que não foi escrita. Encontrado pela revisão adversarial.
+   */
+  it("cada escrita vem precedida de `set_config('app.tenant_id')` na mesma transaccao", async () => {
+    const m = montar();
+    await sagaDe(m).correr(CASO);
+
+    const seq = m.sql.consultas.map((c) => c.texto.trim());
+    const escritas = seq
+      .map((texto, i) => ({ texto, i }))
+      .filter(
+        ({ texto }) =>
+          !["BEGIN", "COMMIT", "ROLLBACK"].includes(texto) &&
+          !texto.includes("set_config('app.tenant_id'"),
+      );
+    assert.equal(escritas.length, 4, "esperava quatro escritas (passos 1, 2, 3 e 4)");
+    for (const { i } of escritas) {
+      // Imediatamente antes: o `set_config`; e antes dele, o `BEGIN`.
+      assert.ok(
+        seq[i - 1]?.includes("set_config('app.tenant_id'"),
+        `a escrita ${i} nao corre sob contexto de tenant`,
+      );
+      assert.equal(seq[i - 2], "BEGIN", `a escrita ${i} nao esta numa transaccao`);
+    }
+  });
+
+  it("o contexto que se define e o `tenant_id` do caso", async () => {
+    const m = montar();
+    await sagaDe(m).correr(CASO);
+    const contextos = m.sql.consultas
+      .filter((c) => c.texto.includes("set_config('app.tenant_id'"))
+      .map((c) => c.valores[0]);
+    assert.ok(contextos.length >= 4);
+    assert.deepEqual([...new Set(contextos)], [TENANT]);
+  });
+
+  /**
+   * **Zero linhas é um erro, não um `concluido`.** É a asserção que distingue
+   * «escreveu» de «declarou que escreveu».
+   */
+  it("sem contexto honrado, a escrita nao da linha e o passo NAO fica `concluido`", async () => {
+    const m = montar();
+    m.sql.honraOContexto = false;
+    const desfecho = await sagaDe(m).correr(CASO);
+
+    assert.equal(desfecho.estado, "escalada");
+    assert.equal(desfecho.passo, "tenant_e_caso");
+    assert.notEqual(m.armazem.estadoDe("tenant_e_caso"), "concluido");
+    assert.equal(m.armazem.erroDe("tenant_e_caso"), "EscritaSemLinhasError");
+  });
+
+  it("e com o contexto honrado os oito passos concluem — o caminho legitimo", async () => {
+    const m = montar();
+    assert.equal((await sagaDe(m).correr(CASO)).estado, "concluida");
+  });
+});
+
+describe("o `Logger` em modo estrito aceita as linhas da saga", () => {
+  /**
+   * Nenhum ensaio injectava um `Logger`, pelo que o `log?.excepcao` era um
+   * *no-op* e a metade «logs» da DoD não tinha medição executada. Pior: em modo
+   * estrito — que é o do CI — um campo fora da lista branca ou um valor fora de
+   * forma **levanta**, e a chamada está dentro do `catch` do `#correrPasso`,
+   * **depois** do `marcarEscalado`: uma rejeição fazia a excepção escapar e a
+   * escalada deixava de devolver `{estado: "escalada"}`.
+   */
+  it("a escalada escreve uma linha aceite, e devolve `escalada`", async () => {
+    const m = montar();
+    m.handoff.ensureAccount = async () => {
+      throw new Error("chatwoot_indisponivel");
+    };
+    const desfecho = await sagaDe(m).correr(CASO);
+
+    assert.equal(desfecho.estado, "escalada", "o logger estrito fez a escalada levantar");
+    const linha = m.linhasDeLog.find((l) => String(l.outcome).startsWith("saga_escalada"));
+    assert.ok(linha !== undefined, "a escalada nao escreveu linha nenhuma");
+    assert.equal(linha.outcome, "saga_escalada_conta_atendimento");
+    assert.equal(linha.tenant_id, TENANT);
+    // O *logger* acrescenta a classe ao codigo: `<codigo>:<Classe>`. O que a
+    // **coluna** guarda e so o codigo, e e esse que o ensaio abaixo mede.
+    assert.equal(linha.error_code, "chatwoot_indisponivel:Error");
+    assert.equal(m.armazem.erroDe("conta_atendimento"), "chatwoot_indisponivel");
+  });
+
+  /**
+   * **E com um erro cujo `name` é hostil, a linha continua a ser aceite e a
+   * escalada continua a devolver `escalada`.** É a conjunção dos dois achados: o
+   * `error_code` passa a ser `erro_opaco` e o modo estrito não levanta.
+   */
+  it("um erro com `name` hostil nao rebenta o logger estrito nem vaza", async () => {
+    const m = montar();
+    m.handoff.ensureAccount = async () => {
+      const e = new Error("x");
+      e.name = "VALOR-HOSTIL-DE-ENSAIO-NAO-E-SEGREDO";
+      throw e;
+    };
+    const desfecho = await sagaDe(m).correr(CASO);
+
+    assert.equal(desfecho.estado, "escalada");
+    assert.equal(m.armazem.erroDe("conta_atendimento"), "erro_opaco");
+    const linha = m.linhasDeLog.find((l) => String(l.outcome).startsWith("saga_escalada"));
+    assert.equal(linha?.error_code, "erro_opaco:Error");
+    const tudo = JSON.stringify(m.linhasDeLog);
+    assert.ok(
+      !tudo.includes("VALOR-HOSTIL"),
+      "o valor hostil do `name` chegou a uma linha de log",
+    );
+  });
+
+  it("a compensacao que falha escreve uma linha aceite e devolve o que executou", async () => {
+    const m = montar();
+    const saga = sagaDe(m);
+    await saga.correr(CASO);
+    m.chaveDeLlm.revogar = async () => {
+      throw new Error("litellm_indisponivel");
+    };
+    const executadas = await saga.compensar(CASO, "ensaio");
+
+    const linha = m.linhasDeLog.find((l) => l.outcome === "compensacao_falhou");
+    assert.ok(linha !== undefined, "a compensacao falhada nao escreveu linha");
+    assert.ok(
+      String(linha.error_code).startsWith("compensacao_falhou_chave_llm"),
+      `error_code inesperado: ${String(linha.error_code)}`,
+    );
+    // O que já tinha corrido antes da falha não se perde.
+    assert.ok(executadas.length > 0);
   });
 });
 
@@ -513,6 +841,36 @@ describe("a metrica da primeira tentativa", () => {
     await saga.correr(CASO);
     assert.equal(saga.metricas.valor('saga_first_attempt_total{passou="nao"}'), 1);
     assert.equal(saga.metricas.valor('saga_first_attempt_total{passou="sim"}'), -1);
+  });
+
+  /**
+   * **A duração por passo, que o critério 9 pede por palavras.**
+   *
+   * A série existia no `metricas.ts` e **ninguém a escrevia**: o
+   * `Metricas.medir` não era chamado em sítio nenhum, e a `exposicao()` de uma
+   * saga completa não tinha linha nenhuma de `saga_step_duration_ms`. O
+   * critério estava satisfeito pelo nome da série e por mais nada — foi a
+   * revisão adversarial que o apanhou.
+   *
+   * O relógio do duplo avança 7 ms por leitura, pelo que a duração medida é
+   * determinística e distinguível de zero: «mediu zero» e «não mediu» são
+   * coisas diferentes, e é a razão de o `valor()` devolver `-1` para o que
+   * nunca foi escrito.
+   */
+  it("mede a duracao de cada um dos oito passos", async () => {
+    const m = montar();
+    const saga = sagaDe(m);
+    await saga.correr(CASO);
+
+    for (const passo of PASSOS) {
+      const valor = saga.metricas.valor(`saga_step_duration_ms{step="${passo}"}`);
+      assert.notEqual(valor, -1, `a duracao do passo ${passo} nao foi medida`);
+      assert.ok(valor > 0, `a duracao do passo ${passo} e ${valor}`);
+    }
+    assert.ok(
+      saga.metricas.exposicao().includes("saga_step_duration_ms{step=\"chave_llm\"}"),
+      "a serie nao sai na exposicao do Prometheus",
+    );
   });
 
   it("nenhuma metrica aceita uma etiqueta de tenant", async () => {

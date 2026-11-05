@@ -39,6 +39,7 @@
 
 import {
   ETIQUETA_DA_SAGA,
+  RECURSOS_DO_CLIENTE,
   type Caso,
   type ClasseDeDivergencia,
   type Divergencia,
@@ -65,7 +66,13 @@ export interface Dependencias {
   readonly inventario: InventarioExterno;
   /** O que os passos `concluido` dos tenants vivos dizem existir. */
   esperado(): Promise<readonly EsperadoDoTenant[]>;
-  /** Desfaz um recurso órfão. Recebe a acção já classificada e autorizada. */
+  /**
+   * Desfaz um recurso órfão.
+   *
+   * Recebe só recursos que o `compensavel` aprovou — e o `compensavel` recusa
+   * os do cliente, porque nesta fronteira não há `tipo` para avaliar. **Não**
+   * diz «já autorizada», e dizia: nada a autorizava.
+   */
   compensarOrfao(recurso: RecursoInventariado): Promise<void>;
   readonly log?: Logger;
   readonly metricas?: Metricas;
@@ -145,6 +152,25 @@ export function compensavel(
   divergencia: Divergencia,
   canceladosHaMais: ReadonlySet<string>,
 ): boolean {
+  // **O WABA e o número do cliente nunca se compensam automaticamente**, e esta
+  // linha é a correcção de um furo que a revisão adversarial encontrou: a
+  // reconciliação era um caminho até acções destrutivas sobre recursos do
+  // cliente que **não passava pelo guarda do critério 7**.
+  //
+  // O caminho era este: o `InventarioExterno` devolve
+  // `{recurso: "waba", tenantId: T, nosso: true}` → `classificar` emite
+  // `orfao_externo` → `compensavel` aprovava (classe ✓, nosso ✓, cancelado ✓)
+  // → `compensarOrfao` executava, e o `verificar` do `compensacao.ts` nem é
+  // importado neste ficheiro. O comentário do `compensarOrfao` dizia «recebe a
+  // acção já classificada **e autorizada**», e nada a autorizava.
+  //
+  // Nesta fronteira não há `tipo` — o `compensarOrfao` recebe um
+  // `RecursoInventariado` e não uma `AccaoDeCompensacao` —, pelo que o
+  // predicado «do cliente **e** destrutivo» é inexprimível aqui e o que a
+  // implementação injectada faria fica fora do nosso controlo. Logo recusa-se o
+  // recurso inteiro: um WABA órfão **reporta-se** e não se toca, que é o que o
+  // critério 7 manda e o que a E1 exige.
+  if (RECURSOS_DO_CLIENTE.includes(divergencia.recurso)) return false;
   if (divergencia.classe !== "orfao_externo") return false;
   if (!divergencia.nosso) return false;
   if (divergencia.tenantId === null) return false;

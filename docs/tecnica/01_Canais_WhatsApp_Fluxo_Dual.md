@@ -767,7 +767,8 @@ Rollback é uma **saga**: cada passo regista o recurso criado; a falha dispara a
 
 > **Esta tabela diverge da do `10` §5.2, e é essa que vale** (PA-GOV-1; medido no KAM-091). O gatilho é o mesmo nos dois documentos — `tenant.approved`, fixado pelo dicionário §3.5 e pago aqui pela emenda KAM-111 (linha 1.1 do §21). O que diverge é a **ordem** e a **granularidade**: esta tabela tem onze passos e põe o Chatwoot no **9**, depois do ES (passo 2), com conta, bot e *inbox* num passo só; o `10` §5.2 tem **oito**, põe a conta do Chatwoot no **4** — **antes** do ES, que é o 6 — e separa a *inbox* para o **7**, com chave `phone_number_id`. A saga implementada segue o `10` §5.2. Esta tabela continua a valer para o que é dela: os prazos e os limites da Meta das linhas 2 a 8, que o `10` não tem.
 
-> E a compensação da linha 9 diz «apagar recursos criados»: lê-se **só** sobre os recursos do Chatwoot, que são nossos. O WABA e o número são do cliente (`evidencia/E1`) e a compensação **nunca** os apaga — só cancela a subscrição de webhooks e remove a rota. É o critério 7 do KAM-091, e é imposto em execução, não por convenção.
+> E a compensação da linha 9 diz «apagar recursos criados»: lê-se **só** sobre os recursos do Chatwoot, que são nossos. O WABA e o número são do cliente (`evidencia/E1`) e a compensação **nunca** os apaga — só cancela a subscrição de webhooks (do WABA) e remove a rota (a nossa linha de `tenant_channels`). É o critério 7 do KAM-091, e é imposto em execução, não por convenção.
+
 Verificação do tempo de onboarding-alvo («+20 min», doc 13) está **NÃO VERIFICADA**: depende de Business Verification do cliente e templates.
 
 ---
