@@ -1,0 +1,50 @@
+{
+  "uid": "kamba-meta",
+  "title": "KAMBA — Meta (WhatsApp Cloud API)",
+  "tags": [
+    "kamba",
+    "kam-080",
+    "meta"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Webhooks da Meta aceites e recusados",
+      "targets": [
+        {
+          "expr": "rate(gwy_requests_total[5m])",
+          "legendFormat": "aceites",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(gwy_sig_fail[5m])",
+          "legendFormat": "assinatura invalida",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "id": 1
+    },
+    {
+      "type": "text",
+      "title": "O que este painel nao mostra, e e quase tudo o que o doc 09 §9.1 pede",
+      "options": {
+        "mode": "markdown",
+        "content": "### Series sem produtor\n\nEstas series existem em codigo e **nenhum processo as serve**, pelo que nao ha grafico para elas. Nao e uma lacuna deste painel: e a medicao do KAM-080, e cada uma tem credor escrito em `ops/metricas/catalogo.yaml`.\n\n- **`quality_rating`** (`channel_quality{rating}`) — o modulo `qualidade` nao e importado por nenhum servico.\n- **free tier** (`meta_free_tier_used_ratio`) — modulo `metering`, idem; credor KAM-023.\n- **custo** (`meta_cost_usd_total`) — idem. O custo **por tenant** nao sai de etiqueta nenhuma: sai do `SQL_CUSTO_DO_TENANT`, por consulta (emendas 1.21 e 1.25 do dicionario, `OBS-I`).\n- **erros 130429 e 131049** — nao ha metrica indexada por codigo de erro da Meta. O que existe e `outbound_rate_limited_total{origem=\"meta\"}`, que conta um `130429` repetido pelo *backoff* e nao cobre o `131049`.\n- **`account_update`** (`channel_disconnected_total`) — modulo `coexistencia`, idem.\n"
+      },
+      "id": 2
+    }
+  ]
+}

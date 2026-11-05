@@ -1,0 +1,27 @@
+{
+  "uid": "kamba-pagamentos",
+  "title": "KAMBA — pagamentos",
+  "tags": [
+    "kamba",
+    "kam-080",
+    "pagamentos"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "text",
+      "title": "Este painel nao tem series, e isso e a medicao",
+      "options": {
+        "mode": "markdown",
+        "content": "### Nenhuma metrica de pagamentos esta exposta\n\nO doc 09 §9.2 pede um alerta P1 de **callbacks** (falhas HMAC > 3/h, ou reconciliacao a encontrar pagamento por reconhecer). A metrica existe — `hnd_callback_rejeitado_total{motivo}` — e o modulo `hnd` **nao e importado por nenhum servico** (medido: `grep -rn \"core-ts/hnd\" services`). «Reconciliados» nao tem metrica nenhuma.\n\n**Nao se desenhou um grafico vazio nem se inventou uma serie.** Um painel de pagamentos com um grafico a zero e pior do que este texto: parece dizer que nao ha falhas de HMAC, quando o que diz e que ninguem esta a contar.\n\nO credor e o ticket que ligar o modulo `hnd`; a regra de alerta fica em `ops/metricas/catalogo.yaml`, em `regras_por_escrever`, para nascer no mesmo dia que a serie.\n\nO que **ja** existe, e nao e metrica: o ledger de pagamentos tem `pay_ledger_*` como desfechos de *logger*, e as revisoes `0029` e `0031` recusam `UPDATE`/`DELETE` sem linhas. A observabilidade do dinheiro, hoje, le-se da base e do registo — nao de um painel."
+      },
+      "id": 1
+    }
+  ]
+}

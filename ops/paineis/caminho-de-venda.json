@@ -1,0 +1,131 @@
+{
+  "uid": "kamba-caminho-de-venda",
+  "title": "KAMBA — caminho de venda",
+  "tags": [
+    "kamba",
+    "kam-080"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Webhooks recebidos (por replica)",
+      "targets": [
+        {
+          "expr": "rate(gwy_requests_total[5m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Assinaturas invalidas e descartes sob saturacao",
+      "targets": [
+        {
+          "expr": "rate(gwy_sig_fail[5m])",
+          "legendFormat": "assinatura invalida",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(gwy_shed_total[5m])",
+          "legendFormat": "descartado",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Fila de entrada e do agente",
+      "targets": [
+        {
+          "expr": "inbound_queue_depth",
+          "legendFormat": "entrada {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "agr_queue_depth",
+          "legendFormat": "agente {{instance}}",
+          "refId": "B"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia: ingress e ultimo turno",
+      "targets": [
+        {
+          "expr": "gwy_enqueue_ms",
+          "legendFormat": "ingress (enfileiramento)",
+          "refId": "A"
+        },
+        {
+          "expr": "agr_turn_latency_ms",
+          "legendFormat": "ultimo turno",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Turnos do agente, por desfecho",
+      "targets": [
+        {
+          "expr": "rate(agr_turns_total[5m])",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Passagens a humano",
+      "targets": [
+        {
+          "expr": "rate(agr_handoff_total[5m])",
+          "legendFormat": "{{estado}}",
+          "refId": "A"
+        }
+      ],
+      "id": 6
+    },
+    {
+      "type": "text",
+      "title": "O que este painel nao mostra",
+      "options": {
+        "mode": "markdown",
+        "content": "### Series sem produtor\n\nEstas series existem em codigo e **nenhum processo as serve**, pelo que nao ha grafico para elas. Nao e uma lacuna deste painel: e a medicao do KAM-080, e cada uma tem credor escrito em `ops/metricas/catalogo.yaml`.\n\n- **mensagens enviadas** (`outbound_sent_total`) — o estagio de saida nao esta ligado; credor KAM-015.\n- **p50/p95/p99 de resposta** — o AGR nao tem histogramas (ADR-018); o `agr_turn_latency_ms` e o **ultimo** valor, nao um quantil. Credor KAM-082.\n- **idade do mais antigo na fila** (`evt_outbox_lag_seconds`) — o publicador nao esta em nenhum compose; credor KAM-005. O que esta aqui e a **profundidade**.\n"
+      },
+      "id": 7
+    }
+  ]
+}

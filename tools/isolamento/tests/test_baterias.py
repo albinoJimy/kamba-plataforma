@@ -103,7 +103,13 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         self.itens = {item.id for item in enumeracao.enumerar(RAIZ)}
 
     def test_as_rotas_do_agr(self) -> None:
-        for item in x01_rotas.ROTAS_INTERNAS_DO_AGR + x01_rotas.SONDA_DO_AGR:
+        # O `METRICAS_DO_AGR` entrou com o KAM-080, que deu ao AGR a rota
+        # `/metrics` que ele nao tinha.
+        for item in (
+            x01_rotas.ROTAS_INTERNAS_DO_AGR
+            + x01_rotas.SONDA_DO_AGR
+            + x01_rotas.METRICAS_DO_AGR
+        ):
             with self.subTest(item=item):
                 self.assertIn(item, self.itens)
 
@@ -114,9 +120,17 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             + x01_rotas.CANAIS_DO_GWY
             + x01_rotas.ROTAS_DA_API_INTERNA_DO_COM
         )
-        enumeradas = {
-            item for item in self.itens if item.startswith("rota:")
-        } - set(x01_rotas.ROTAS_INTERNAS_DO_AGR) - set(x01_rotas.SONDA_DO_AGR)
+        # **As tres listas do AGR subtraem-se, e nao duas.** O conjunto de
+        # TypeScript deriva-se por subtraccao, pelo que uma lista nova do AGR
+        # que nao entre aqui aparece como uma rota de TypeScript que ninguem
+        # declarou — foi o que aconteceu ao acrescentar a `/metrics` do AGR, e
+        # a mensagem do teste apontava para o lado errado.
+        enumeradas = (
+            {item for item in self.itens if item.startswith("rota:")}
+            - set(x01_rotas.ROTAS_INTERNAS_DO_AGR)
+            - set(x01_rotas.SONDA_DO_AGR)
+            - set(x01_rotas.METRICAS_DO_AGR)
+        )
         self.assertEqual(set(declaradas), enumeradas)
 
     def test_as_nove_superficies_da_api_interna_do_com(self) -> None:

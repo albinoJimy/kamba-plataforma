@@ -1,0 +1,57 @@
+{
+  "uid": "kamba-infraestrutura",
+  "title": "KAMBA — infra-estrutura",
+  "tags": [
+    "kamba",
+    "kam-080",
+    "infra"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Alvos em pe (up)",
+      "targets": [
+        {
+          "expr": "up",
+          "legendFormat": "{{job}} {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Duracao da raspagem",
+      "targets": [
+        {
+          "expr": "scrape_duration_seconds",
+          "legendFormat": "{{job}} {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "id": 2
+    },
+    {
+      "type": "text",
+      "title": "O que este painel nao mostra",
+      "options": {
+        "mode": "markdown",
+        "content": "### Series sem produtor\n\nEstas series existem em codigo e **nenhum processo as serve**, pelo que nao ha grafico para elas. Nao e uma lacuna deste painel: e a medicao do KAM-080, e cada uma tem credor escrito em `ops/metricas/catalogo.yaml`.\n\n- **memoria e CPU por servico** — nao ha *exporter* de contentores (cAdvisor ou equivalente) em nenhum compose. O alerta P3 de «memoria > 80% sustentada» do §9.2 fica por escrever, e e tambem o unico dos doze **sem runbook**: aquela linha do §9.2 diz «Escalar» e nao um RB-K.\n- **idade do WAL** — nao ha pgBackRest; credor **KAM-079**.\n- **restauro mensal** — idem, KAM-079.\n- **segredo a expirar** — o `ops/secrets-inventory.yaml` tem o `rotacao_dias` e nada le isso para uma serie; credor KAM-072.\n\nO `up` e o `scrape_duration_seconds` sao **sinteticas do Prometheus**: ele produz uma por alvo raspado, e nao vem de codigo nosso. Sao o que distingue «o processo nao arrancou» de «o processo nao contou nada» — e no AGR essa distincao e a unica que ha, porque o `exposicao()` dele nao emite series a zero."
+      },
+      "id": 3
+    }
+  ]
+}

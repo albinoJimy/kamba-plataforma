@@ -238,6 +238,28 @@ imagens:
       leitura, sem root e sem rota de entrada do exterior. Em falta: SBOM por
       imagem e varrimento das camadas (KAM-078).
 
+  - nome: prom/alertmanager
+    etiqueta: v0.28.1
+    digest: "sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba"
+    lido_em: "2026-11-05"
+    lido_de: >-
+      `docker inspect --format '{{index .RepoDigests 0}}'` sobre a etiqueta
+      puxada; `alertmanager --version` dentro da imagem deu `version 0.28.1
+      (branch: HEAD, revision: b2099eaa2c9ebc25edb26517cb9c732738e93910)`. **A
+      licenca NAO se leu de dentro da imagem: nao ha `/LICENSE`** (medido) — e
+      a armadilha que o Envoy ja tinha pregado neste ficheiro, onde o unico
+      ficheiro de licenca da imagem era o `copyright` GPL de um pacote Debian de
+      base. A fonte da licenca e o `LICENSE` do projecto na etiqueta `v0.28.1`.
+    componentes:
+      - alertmanager
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto Prometheus publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado, o contentor corre so de
+      leitura, sem root, e **so na rede `ops`**, que e interna e sem rota de
+      saida (`../../infra/egress/alertmanager.yaml` e `destinos: []`). Em falta:
+      SBOM por imagem e varrimento das camadas (KAM-078).
+
   - nome: prom/prometheus
     etiqueta: v3.7.3
     digest: "sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038"

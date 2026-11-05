@@ -674,23 +674,44 @@ services:
     # Prometheus 3.7.3 (Apache-2.0). Verificado por execucao a 2026-11-03:
     # `prometheus --version` dentro desta imagem deu `version 3.7.3`.
     #
-    # **E o unico membro de `ops`, e esta aqui para que `ops` exista.** Uma rede
-    # declarada e sem membros nao e criada pelo Docker (medido, §2 da
-    # evidencia), e o criterio 3 pede quatro redes.
+    # **Foi o unico membro de `ops` ate ao KAM-080**, e estava aqui para que
+    # `ops` existisse: uma rede declarada e sem membros nao e criada pelo Docker
+    # (medido, §2 da evidencia do KAM-076), e o criterio 3 pede quatro redes.
+    # Hoje tem **dois** membros — este e o `alertmanager`, 100 linhas abaixo.
     #
-    # A configuracao so se raspa a si proprio. **As metricas da plataforma, os
-    # paineis, os logs e os 12 alertas do doc 09 §9.2 sao o KAM-080**, que
-    # depende deste ticket. Nao se afirma que ha observabilidade.
+    # **Actualizado pelo KAM-080.** Onde esta nota dizia «a configuracao so se
+    # raspa a si proprio» e «nao se afirma que ha observabilidade», hoje ha tres
+    # alvos (`gwy`, `com`, `agr`), oito regras de alerta e o Alertmanager ao
+    # lado. O que **continua** verdade, e nao se apaga por ser inconveniente:
     #
-    # O Alertmanager, o Grafana e o Loki ficam `pendente` em
-    # `conjunto-reduzido.yaml`: os dois ultimos sao **AGPL-3.0**, que o
-    # `ci/licenses.yaml` nega por prefixo, e fechar essa licenca e decisao com
-    # ADR — nao e deste ticket.
+    #   * os alvos sao tres e nao treze. Os modulos `outbound`, `metering`,
+    #     `hnd` e `qualidade` declaram metricas que nenhum servico importa, e
+    #     raspa-las publicava zeros permanentes — a razao esta no
+    #     `prometheus/prometheus.yml` e o credor de cada uma no
+    #     `../../ops/metricas/catalogo.yaml`;
+    #   * sao **oito** regras, que cobrem **4 das 12** linhas do doc 09 §9.2
+    #     (a fila da duas, uma por servico) mais tres que nao sao do §9.2. As
+    #     **8** linhas que faltam nao tem metrica que um processo sirva, e estao
+    #     nomeadas uma a uma;
+    #   * o Alertmanager **nao notifica ninguem**: os `receivers` nao tem
+    #     notificador porque o canal nao esta escolhido (KAM-069, subprocessador).
+    #
+    # O **Grafana** e o **Loki** continuam `pendente` em
+    # `conjunto-reduzido.yaml`, e nao por falta de tempo: sao **AGPL-3.0**, que
+    # o `../../ci/licenses.yaml` nega por prefixo, e a propria evidencia do
+    # KAM-076 escreveu que «entrar exige fechar a licenca com um ADR, e isso nao
+    # e deste ticket». **Tambem nao e deste.** Os paineis entregam-se como
+    # codigo versionado em `../../ops/paineis/`, que e o nosso artefacto e nao
+    # depende de correr o Grafana.
     image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
     <<: *endurecido
     user: "65534:65534"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # As regras, so de leitura. Pasta e nao ficheiro, porque o `rule_files` do
+      # Prometheus aceita um glob e um ficheiro novo nao deve obrigar a mexer no
+      # compose.
+      - ./prometheus/regras:/etc/prometheus/regras:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -714,6 +735,62 @@ services:
       timeout: 5s
       retries: 8
       start_period: 30s
+
+  alertmanager:
+    # Alertmanager 0.28.1 (Apache-2.0). Verificado a 2026-11-05:
+    # `alertmanager --version` dentro desta imagem deu `version 0.28.1`.
+    #
+    # **A licenca NAO se leu de dentro da imagem, porque ela nao a traz.**
+    # Medido: nao ha `/LICENSE`. E a mesma armadilha que o KAM-076 registou para
+    # o Envoy — onde o unico ficheiro de licenca dentro da imagem era o
+    # `copyright` **GPL** de um pacote Debian de base, que dar por licenca do
+    # Envoy marcava um componente Apache-2.0 como copyleft forte. A fonte aqui e
+    # o `LICENSE` do projecto na etiqueta `v0.28.1`, que comeca por «Apache
+    # License / Version 2.0, January 2004».
+    #
+    # Entra porque o `conjunto-reduzido.yaml` do KAM-076 ja o tinha `pendente`
+    # com `ticket: KAM-080` e **256 MiB orcamentados** — pelo que a soma dos
+    # limites nao muda ao passar a `presente`, e o teste que prende os 24 064 MiB
+    # continua verde. Nao e um servico a mais: e o servico que aquele ticket
+    # deixou reservado.
+    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+    <<: *endurecido
+    user: "65534:65534"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      # **Escuta em `0.0.0.0` e nao em `127.0.0.1`, ao contrario do Prometheus**,
+      # e a diferenca e de desenho e nao de rigor: o Prometheus so precisa de
+      # **sair** (raspar e enviar), e por isso pode fechar a sua interface no
+      # *loopback*; o Alertmanager precisa de **receber** os alertas que o
+      # Prometheus lhe manda, e numa rede de compose isso chega de outro
+      # contentor. Fechado no *loopback*, o `alerting:` do Prometheus batia numa
+      # porta recusada e os alertas morriam em silencio.
+      #
+      # O que o fecha nao e o endereco, e a rede: `ops` e `internal: true`, nao
+      # ha `ports:`, e nada fora da pilha lhe chega.
+      - "--web.listen-address=0.0.0.0:9093"
+    # So `ops`. Nao esta em `app` porque nao tem nada para raspar, e nao esta em
+    # `edge` porque **nao sai**: o `../egress/alertmanager.yaml` e
+    # `destinos: []` com `por_omissao: negar`, ate o canal ser escolhido.
+    networks:
+      - ops
+    mem_limit: 256m
+    cpus: 0.25
+    healthcheck:
+      # `wget` da BusyBox, confirmado dentro desta imagem (`wget --version` deu
+      # `BusyBox v1.36.1`). A sonda verifica-se contra a imagem e nao se copia:
+      # o KAM-076 mediu duas sondas erradas por a imagem do Envoy nao ter
+      # `curl` nem `wget`, e uma sonda que nao corre deixa o contentor
+      # `unhealthy` para sempre.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9093/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
 
 networks:
   # A unica rede com rota para fora. Dois membros: `proxy-tls` (entrada) e
@@ -747,3 +824,8 @@ volumes:
   queue-data:
   seaweedfs-data:
   prometheus-data:
+  # O Alertmanager precisa de disco: guarda os silencios e o estado das
+  # notificacoes, e com `read_only: true` nao escreve em mais sitio nenhum. Sem
+  # volume, um `restart` perdia os silencios — e um silencio perdido e um alerta
+  # que volta a acordar alguem a meio da noite.
+  alertmanager-data:

@@ -14,7 +14,10 @@
 | `compose/caddy/Caddyfile` | A borda: quem escuta e para onde encaminha. **Não** é o TLS — é o KAM-077 | KAM-076 |
 | `compose/envoy/envoy.yaml` | O proxy de saída. **Ficheiro gerado** de `egress/proxy-saida.yaml` por `python -m compose_prod gerar` | KAM-076 |
 | `compose/envoy/sonda.sh` | A sonda de saúde do proxy de saída (a imagem do Envoy não traz `curl` nem `wget`) | KAM-076 |
-| `compose/prometheus/prometheus.yml` | Configuração mínima, só para que a rede `ops` exista. **As métricas e os alertas são o KAM-080** | KAM-076 |
+| `compose/prometheus/prometheus.yml` | A recolha: três alvos (`gwy`, `com`, `agr`) por `dns_sd_configs`, `rule_files` e o Alertmanager | KAM-080 |
+| `compose/prometheus/regras/kamba.yml` | **8** regras com severidade e `runbook_url`, que cobrem **4 das 12** linhas do doc 09 §9.2 (a fila dá duas, uma por serviço) mais três que não são do §9.2. As **8** linhas que faltam não têm métrica que um processo sirva, e estão nomeadas em `../ops/metricas/catalogo.yaml` | KAM-080 |
+| `compose/prometheus/regras/testes/kamba_test.yml` | **17 casos de `promtool test rules`**: o que cada regra faz, contra o que devia fazer. Existe porque o `check rules` deixou passar três alertas que nunca disparavam | KAM-080 |
+| `compose/alertmanager/alertmanager.yml` | Encaminhamento por severidade (P1/P2/P3), com inibição. **Não notifica**: o canal não está escolhido (KAM-069) | KAM-080 |
 | `compose/postgres/initdb/` | Bases e extensões do arranque local (sem tabelas) | KAM-001 |
 | `egress/` | As saídas declaradas por serviço (`por_omissao: negar`) | KAM-067 |
 
@@ -29,8 +32,9 @@ A ferramenta está fixada em
 | O que falta | Ticket |
 |---|---|
 | Alojamento, TLS a sério, *edge* e WAF; *scan* externo de portas | KAM-077 |
-| Métricas, painéis, logs e os 12 alertas. O contentor do Prometheus já cá está, com configuração mínima; **o Grafana e o Loki não**, e a razão é de licença — são **AGPL-3.0**, que o `../ci/licenses.yaml` nega por prefixo | KAM-080 |
-| Alertmanager e sonda sintética externa | KAM-080 |
+| **Envio de logs para o Loki** e **painéis servidos**. Os logs JSON existem (KAM-068) e os painéis existem **como código** em `../ops/paineis/`; o que falta é o Loki e o Grafana, e a razão é de **licença** — são **AGPL-3.0**, que o `../ci/licenses.yaml` nega por prefixo, e entrar exige fechar a licença com um ADR. Medido e devolvido pelo KAM-080, que também não o podia decidir | **decisão de licença** (ver `../docs/observabilidade.md` §6) |
+| As **seis** regras de alerta do doc 09 §9.2 que ainda não têm métrica servida: callbacks, WAL, restauro mensal, *quality rating*, *free tier*, `account_update`, segredo a expirar e memória | cada uma com credor próprio em `../ops/metricas/catalogo.yaml` |
+| **Sonda sintética externa** (mensagem de teste a cada 5 min ao número de teste de produção, fora do *host* e do fornecedor). Não se escreveu: não há produção, não há número de teste de produção e não há *host* externo onde a pôr. O Alertmanager **já cá está** | KAM-080 mediu; depende da **D1**/KAM-105 |
 | O **Medusa**: não há imagem publicada e não há `services/medusa/Dockerfile`. Está `pendente` no conjunto reduzido, com a memória reservada na soma | KAM-042 |
 | `pgBackRest`, RPO/RTO, teste de restauro | KAM-079 |
 | SBOM por imagem, assinatura cosign e `release.lock` (as imagens já vêm por *digest*, e cada serviço declara as suas saídas em `infra/egress/` e `services/*/egress.yaml`: KAM-067, `../docs/supply-chain.md`) | KAM-078 |

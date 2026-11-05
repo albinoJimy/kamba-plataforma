@@ -53,11 +53,19 @@ class TestRepositorioReal(unittest.TestCase):
         #
         # O Envoy entrou no lugar do Squid **por licenca**: o Squid, o HAProxy e
         # o tinyproxy sao GPL-2.0, que o `ci/licenses.yaml` nega por prefixo.
-        self.assertEqual(resumo["imagens"], 11)
+        #
+        # **KAM-080: a decima segunda e o Alertmanager.** Apache-2.0,
+        # lido do `LICENSE` do projecto na etiqueta `v0.28.1` e **nao** da
+        # imagem, que nao traz `/LICENSE` (medido) — a mesma armadilha que
+        # o Envoy pregou neste ficheiro.
+        self.assertEqual(resumo["imagens"], 12)
         self.assertEqual(resumo["cosign"]["verificar"], 1)
         # As quatro novas entram todas `por_apurar`: ninguem verificou se os
         # projectos publicam assinatura, e `n/a` afirmaria que **nao** existe.
-        self.assertEqual(resumo["cosign"]["por_apurar"], 10)
+        # **KAM-080: de 10 para 11.** O Alertmanager entra `por_apurar`
+        # pela razao das outras: ninguem apurou se o projecto publica
+        # assinatura, e `n/a` afirmaria que **nao** existe.
+        self.assertEqual(resumo["cosign"]["por_apurar"], 11)
 
         _, resumo = runtime.verificar(ROOT)
         self.assertEqual(resumo["dockerfiles"], 5)
@@ -70,7 +78,13 @@ class TestRepositorioReal(unittest.TestCase):
         # Langfuse do perfil `staging-obs`). Os 29 correm todos `read_only`, com
         # utilizador nao-root, `mem_limit` e `cpus`; o que cada um precisa de
         # escrever esta em `volumes:` ou `tmpfs:`.
-        self.assertEqual(resumo["servicos"], 42)
+        #
+        # **KAM-080: de 42 para 44.** Sao **dois** e nao um: o
+        # `alertmanager` entra no compose de producao **e** no de
+        # *staging*, com o mesmo digest e o mesmo `mem_limit` — a regra
+        # `staging-com-outras-imagens` exige-o, porque *staging* existe
+        # para ensaiar o que vai correr.
+        self.assertEqual(resumo["servicos"], 44)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -89,7 +103,11 @@ class TestRepositorioReal(unittest.TestCase):
         # afirmacao — o Caddy recebe 443 e nao abre ligacao para fora, o
         # Prometheus raspa a pilha pela rede do compose, e o Langfuse tem a
         # telemetria propria desligada por `TELEMETRY_ENABLED: "false"`.
-        self.assertEqual(resumo["servicos"], 17)
+        # **KAM-080: de 17 para 18.** O decimo oitavo e o `alertmanager`,
+        # com `destinos: []` — e a lista vazia e a afirmacao: ele **nao
+        # notifica**, porque o canal de alertas nao esta escolhido e
+        # escolher um acrescenta um subprocessador (KAM-069).
+        self.assertEqual(resumo["servicos"], 18)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
