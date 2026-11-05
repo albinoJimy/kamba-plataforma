@@ -39,11 +39,14 @@
  * transição ainda faz sentido. Um laço de repetição aqui dentro era «forçar»
  * com outro nome.
  *
- * Os cinco erros da porta (§3.39) ficam intactos: o adaptador que ligar esta
- * função ao método `transition` da porta traduz `conflito` para o erro que
- * escolher, e essa escolha não é deste ticket — o `CommerceRegistry` não é
- * consumido por nada fora dos seus testes (o dicionário §3.5, emenda 1.50,
- * registou-o, e a API interna do COM continua a não existir).
+ * **E a porta passou a dizê-lo, pelo KAM-178.** Esta nota dizia que «o adaptador
+ * que ligar esta função ao método `transition` da porta traduz `conflito` para o
+ * erro que escolher, e essa escolha não é deste ticket». A escolha foi feita, e
+ * não foi traduzir: o `Resultado<T>` do §3.39 ganhou um terceiro caso **só para
+ * o conflito de CAS** (emenda L5 do orquestrador, 2026-11-04), pelo que o
+ * `comoResultadoDaPorta` abaixo leva a releitura intacta até quem chama. Os
+ * `ERROS` da porta passaram de cinco a **dez** no mesmo movimento, e nenhum
+ * deles é o conflito — ver o `../port/contrato.ts`.
  *
  * ## `paga` é verificada **duas vezes**, e as duas são necessárias
  *
@@ -56,7 +59,13 @@
 
 import { checkCeiling } from "@kamba/core-ts/ten";
 
-import { erro, ok, type Erro, type Resultado } from "../port/contrato.ts";
+import {
+  conflito,
+  erro,
+  ok,
+  type Erro,
+  type Resultado,
+} from "../port/contrato.ts";
 import {
   ACTOR_DO_PAGAMENTO,
   CAUSAS_QUE_PAGAM,
@@ -96,8 +105,18 @@ export interface RepoDoTenant {
   readonly tenantId: string;
 }
 
-/** A tabela do registo de transições. */
-export const TABELA_DO_REGISTO = "order_state_log";
+/**
+ * A tabela do registo de transições. **Qualificada pelo esquema**, e tem de ser.
+ *
+ * O `inserirNoTenant` do repo-base **constrói** o `INSERT` com este nome, e nada
+ * neste repositório põe o `search_path`: o `comTenant` só põe o `app.tenant_id`
+ * e o `db/bootstrap.py` registra que um `ALTER ROLE … SET search_path` é apagado
+ * pelo `RESET ALL`. Sem o `platform.`, este `INSERT` morre em `42P01` no dia em
+ * que alguém o chamar — e esse dia é o **KAM-178**, que liga o método
+ * `transition` da porta ao adaptador. O KAM-046 qualificou a sua
+ * (`platform.order_intents`) e relatou esta e as duas irmãs.
+ */
+export const TABELA_DO_REGISTO = "platform.order_state_log";
 
 /**
  * O que as operações deste módulo recebem.
@@ -381,11 +400,19 @@ async function emitirDoEstado(
   });
 }
 
-/** O `Resultado` da porta, para quem precisar dele. Um conflito não é um `ok`. */
+/**
+ * O `Resultado` da porta. **Os três casos atravessam-na um a um.**
+ *
+ * Era uma tradução com perda — o `conflito` saía como `VALIDATION_ERROR` — e
+ * deixou de ser pelo KAM-178: o `Resultado<T>` do §3.39 tem um terceiro caso
+ * para o conflito de CAS, e a releitura passa intacta. Dizer
+ * `VALIDATION_ERROR` a quem perdeu a corrida afirmava que o pedido dele não
+ * serve, quando o que ele tem de fazer é reler (§6.2: «nunca forçar»).
+ */
 export function comoResultadoDaPorta(
   r: ResultadoDaTransicao,
 ): Resultado<EstadoDaEncomenda> {
   if (r.tipo === "ok") return ok(r.estado);
   if (r.tipo === "erro") return erro(r.erro);
-  return erro("VALIDATION_ERROR");
+  return conflito(r.estado);
 }

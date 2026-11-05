@@ -74,12 +74,14 @@ export {
   SQL_FECHAR_DIVERGENCIA,
   SQL_GRAFO,
   SQL_LER,
+  SQL_LISTAR,
   SQL_ENCOMENDA_DA_CHAVE,
   SQL_LER_CONFIRMACAO,
   SQL_LER_INTENCAO,
   SQL_PEDIDO_POR_PAGAR,
   SQL_RETOMAR_INTENCAO,
   SQL_TRANSITAR,
+  SQL_VISTA,
 } from "./consultas.ts";
 
 export { destinosDe, lerGrafo, transicaoPermitida } from "./graph.ts";
@@ -193,6 +195,24 @@ export {
   type Recibo,
   type ResultadoDaCriacao,
 } from "./create_order.ts";
+
+// ------------------------------------------------- KAM-178: as duas leituras
+
+export {
+  DOMINIO_DO_CURSOR,
+  LIMITE_MAXIMO,
+  LIMITE_POR_OMISSAO,
+  LISTAGEM_SEM_FILTRO,
+  OCTETOS_DA_ASSINATURA,
+  cifrarCursor,
+  comoVista,
+  filtroLido,
+  getOrder,
+  lerCursor,
+  listOrders,
+  type FiltroLido,
+  type PosicaoDaPagina,
+} from "./listagem.ts";
 
 export {
   CAUSA_DA_RECUSA,

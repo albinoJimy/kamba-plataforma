@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.59"
+versao_dicionario: "1.60"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -9615,10 +9615,60 @@ entradas:
       - "NOT_IMPLEMENTED"
     nomes_nota:
       - "tool_audit.error_code"
-      - "NOT_FOUND"
-      - "TENANT_MISMATCH"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Os erros da porta"
+    canonico: "ERROS — dez: o NOT_IMPLEMENTED mais os nove do OrdersModule.erro (§3.44)"
+    literais:
+      - "ERROS"
+      - "NOT_IMPLEMENTED"
+      - "OrdersModule.erro"
+    nomes:
+      - "ERROS"
+      - "NOT_IMPLEMENTED"
+      - "OrdersModule.erro"
+    nomes_nota:
+      - "NOT_IMPLEMENTED"
+      - "tool_audit.error_code"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "O resultado de uma operação"
+    canonico: "Resultado<T> — três casos: {tipo: ok, valor}, {tipo: conflito, valor}, {tipo: erro, erro}"
+    literais:
+      - "Resultado<T>"
+      - "{tipo: ok, valor}"
+      - "{tipo: conflito, valor}"
+      - "{tipo: erro, erro}"
+    nomes:
+      - "Resultado"
+      - "T"
+      - "tipo"
+      - "ok"
+      - "valor"
+      - "conflito"
+      - "erro"
+    nomes_nota:
+      - "ERROS"
+      - "valor"
+      - "ResultadoFinal"
+      - "T"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Cursor opaco do listOrders"
+    canonico: "assinado com o anel do segredo_intents (§3.44) e a parte de domínio cursor à cabeça"
+    literais:
+      - "segredo_intents"
+      - "cursor"
+    nomes:
+      - "listOrders"
+      - "segredo_intents"
+      - "cursor"
+    nomes_nota:
+      - "cart_id"
+      - "tenant_id"
+      - "SecretRing"
       - "VALIDATION_ERROR"
-      - "UPSTREAM_DOWN"
+      - "OrderFilter"
     variantes_literais: []
   - seccao: "3.39"
     conceito: "Cabeçalho do tenant na API interna do COM"
@@ -9637,6 +9687,35 @@ entradas:
       - "bot"
       - "lint_arch"
       - "medusa"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Credencial da API interna do COM"
+    canonico: "com_internal_token"
+    literais:
+      - "com_internal_token"
+    nomes:
+      - "com_internal_token"
+    nomes_nota:
+      - "obrigatorio_em"
+      - "dev"
+      - "staging"
+      - "prod"
+      - "agr_internal_token"
+      - "money"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "As sete rotas da API interna do COM"
+    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "propose"
+      - "cart"
+      - "create"
+      - "order"
+      - "OrderIntent"
+      - "ctx"
+      - "NOT_IMPLEMENTED"
     variantes_literais: []
   - seccao: "3.39"
     conceito: "O filtro que o repositório base injecta"
@@ -9675,7 +9754,10 @@ entradas:
     nomes_nota:
       - "tenant"
       - "merchant"
-      - "exposicao"
+      - "repo"
+      - "base"
+      - "OBS"
+      - "I"
     variantes_literais: []
   - seccao: "3.40"
     conceito: "Termos comerciais de um SKU"

@@ -63,7 +63,7 @@ lados, e a de CI apanha-a antes de alguem a correr.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -144,6 +144,26 @@ class Pedido:
     timeout_ms: int
     ligacao: Any = None
     chave: str | None = None
+    #: O **rascunho** do §6.3 do `docs/tecnica/03`, quando a tool o exige.
+    #: Entrou pelo KAM-178, e a razao e da mesma familia da `chave` acima.
+    #:
+    #: Aquele documento escreve, por extenso, que «o grafo mantem no estado
+    #: (checkpoint Postgres) um rascunho `{draft_id, draft_version, linhas,
+    #: entrega}`; `draft_id` e gerado **uma vez**, num no anterior ao de
+    #: confirmacao, e persiste no checkpoint». A `intent_key` do COM deriva-se
+    #: dessas quatro partes — e o COM **recusa** uma chave do chamador —, pelo
+    #: que um executor que nao receba o rascunho nao consegue chamar o
+    #: `createOrder`: so tem o `cart_id`, que e derivado e nao guardado.
+    #:
+    #: **Nao vai nos `args`, e isso e a propriedade que importa.** O
+    #: `ArgumentosDeCriarPedido` do §6.2 tem `cart_id` e mais nada, com
+    #: `extra="forbid"`; por-lhe o `draft_id` punha a identidade da intencao no
+    #: esquema que o modelo ve, e um modelo que a possa inventar pode criar duas
+    #: encomendas de um toque. Vem por este campo, de quem constroi a invocacao
+    #: — o no do grafo, que le o estado —, exactamente como a `chave`.
+    #:
+    #: `None` numa tool que nao o use, que sao todas menos duas.
+    rascunho: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

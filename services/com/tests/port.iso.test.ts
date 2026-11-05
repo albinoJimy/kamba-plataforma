@@ -56,6 +56,7 @@ import {
 const TENANT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TENANT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ORDER_DE_B = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
+const CONTACTO_DE_B = "0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c";
 
 /**
  * Os três métodos que o **KAM-043** implementou, e que já não são
@@ -73,6 +74,12 @@ const IMPLEMENTADOS = new Set<string>([
   "upsertProductDraft",
   "publishProduct",
   "getOfferView",
+  // Os quatro que o KAM-178 ligou: o fluxo do dono, a primitiva de transição e
+  // as duas leituras. Ver o `docs/com/port-coverage.md` §2.
+  "requestOwnerConfirmation",
+  "transition",
+  "getOrder",
+  "listOrders",
 ]);
 
 /**
@@ -82,15 +89,18 @@ const IMPLEMENTADOS = new Set<string>([
  * lida.
  */
 const DONO: Readonly<Record<string, string>> = {
-  createOrder: "KAM-044",
-  requestOwnerConfirmation: "KAM-044",
+  // **O credor deste não é um ticket de implementação: é uma decisão.** A *saga*
+  // do §6.3 existe e serve-se pela API interna; o que não se consegue ligar é o
+  // método, porque o `OrderIntent` do §3.2 não tem `draftId`, `draftVersion` nem
+  // `totalEsperadoMinor` — e o terceiro contradiz a regra 4 do §3.2 («nenhuma
+  // operação aceita um preço do chamador»), escrita na nota do próprio tipo.
+  // Ligá-lo pede um **terceiro** movimento no §3.39, e a decisão de 2026-11-04
+  // autoriza dois. Ver a verificação do bloco KAM-178.
+  createOrder: "KAM-178",
   reserveStock: "KAM-045",
   extendReservation: "KAM-045",
   commitReservation: "KAM-045",
   releaseReservation: "KAM-045",
-  transition: "KAM-044",
-  getOrder: "KAM-044",
-  listOrders: "KAM-044",
 };
 
 /** Argumentos plausíveis por método, com **ids do tenant B** (ISO-01..08). */
@@ -128,9 +138,16 @@ const CLIENTE_PROIBIDO: ClienteSql = {
   },
 };
 
+/** O anel do `segredo_intents`, que o adaptador exige desde o KAM-178. */
+const ANEL: readonly [string, string | null] = [
+  `v1:${Buffer.alloc(32, 7).toString("base64")}`,
+  null,
+];
+
 function deps(cliente: ClienteSql = CLIENTE_PROIBIDO): Dependencias {
   return {
     comTenant: async (_tenantId, trabalho) => trabalho(cliente),
+    anel: ANEL,
   };
 }
 
@@ -264,8 +281,8 @@ test("a particao entre implementados e por implementar cobre os doze", () => {
   // `xfail strict` desapareciam um a um em silencio — que e o contrario do que
   // «strict» quer dizer. Os doze da porta sao exactamente os tres
   // implementados mais os nove com ticket dono, sem sobreposicao.
-  assert.equal(IMPLEMENTADOS.size, 3, "o KAM-043 implementou tres");
-  assert.equal(Object.keys(DONO).length, 9, "nove continuam por implementar");
+  assert.equal(IMPLEMENTADOS.size, 7, "tres do KAM-043 e quatro do KAM-178");
+  assert.equal(Object.keys(DONO).length, 5, "cinco continuam por implementar");
   for (const metodo of METODOS_DA_PORTA) {
     assert.equal(
       IMPLEMENTADOS.has(metodo) !== (metodo in DONO),
@@ -301,24 +318,92 @@ for (const metodo of METODOS_DA_PORTA.filter((m) => !IMPLEMENTADOS.has(m))) {
   });
 }
 
-test("ISO-10 (xfail strict): filtros vazios, cursor forjado e OR", async () => {
-  // Os três casos do ISO-10 contra o único método que recebe filtros. Enquanto
-  // o `listOrders` não estiver implementado, os três devolvem o mesmo
-  // `NOT_IMPLEMENTED`; quando estiver, cada um destes tem de passar a uma
-  // asserção própria — filtro vazio não lista tudo, cursor forjado é
-  // `VALIDATION_ERROR`, e um `OR` no filtro não alarga o conjunto.
+test("ISO-10: os tres casos, agora medidos pela porta (KAM-178)", async () => {
+  // **Era um caso de `xfail strict` e passou a três asserções**, que é
+  // exactamente o que o critério 6 do KAM-042 pede em troca: «substitui este
+  // caso pelo teste de isolamento a sério». Os três estão medidos um a um em
+  // `orders.listagem.test.ts`, com uma base de ensaio que explode se lhe
+  // falarem; aqui mede-se que **a porta** os devolve, que é a outra metade.
+  //
+  // O `CLIENTE_PROIBIDO` continua a ser o cliente: nenhum dos três chega à base.
   const porta = adaptadorMedusa(deps());
   for (const filtro of [
     {},
-    { cursor: "ZmFsc2lmaWNhZG8=" },
+    { estado: "criada", cursor: "ZmFsc2lmaWNhZG8=" },
     { contactId: "' OR 1=1 --" },
   ]) {
     const resultado = await porta.listOrders(ctx(), filtro as never);
     assert.deepEqual(
       resultado,
-      { tipo: "erro", erro: "NOT_IMPLEMENTED" },
-      "o listOrders foi implementado: parte este caso nos tres do ISO-10 " +
-        "(KAM-044, KAM-042 criterio 2)",
+      { tipo: "erro", erro: "VALIDATION_ERROR" },
+      JSON.stringify(filtro),
+    );
+  }
+});
+
+test("ISO-01..08: as quatro operacoes do KAM-178 passam o tenant do ctx", async () => {
+  // **A asserção que importa não é o resultado: é o tenant que foi ao
+  // predicado.** Com o `ctx` de A sobre ids de B, o único `tenant_id` que a base
+  // vê é o de A — e por isso a resposta nunca pode ser a linha de B.
+  const tenantsVistos: unknown[] = [];
+  const cliente: ClienteSql = {
+    async query(sql: string, parametros: readonly unknown[] = []) {
+      if (sql.includes("platform.tenants")) {
+        return {
+          rows: [{ medusa_merchant_id: "merch", medusa_sales_channel_id: null }],
+        };
+      }
+      tenantsVistos.push(parametros[0]);
+      return { rows: [] };
+    },
+  };
+  const porta = adaptadorMedusa(deps(cliente));
+
+  // As quatro, com ids do tenant B e o `ctx` de A. Nenhuma devolve uma linha —
+  // a base de A não tem nenhuma — e nenhuma pediu pelo tenant de B.
+  assert.deepEqual(await porta.getOrder(ctx(TENANT_A), ORDER_DE_B), {
+    tipo: "erro",
+    erro: "NOT_FOUND",
+  });
+  const pagina = await porta.listOrders(ctx(TENANT_A), { contactId: CONTACTO_DE_B });
+  assert.equal(pagina.tipo, "ok");
+  if (pagina.tipo === "ok") assert.deepEqual([...pagina.valor.itens], []);
+  assert.deepEqual(
+    await porta.requestOwnerConfirmation(ctx(TENANT_A), ORDER_DE_B),
+    { tipo: "erro", erro: "NOT_FOUND" },
+  );
+  const transitada = await porta.transition(
+    ctx(TENANT_A),
+    ORDER_DE_B,
+    "cancelada",
+    1,
+    { causa: "dono_recusa" },
+  );
+  assert.deepEqual(transitada, { tipo: "erro", erro: "NOT_FOUND" });
+
+  assert.deepEqual(
+    [...new Set(tenantsVistos)],
+    [TENANT_A],
+    "uma consulta saiu com um tenant que nao e o do ctx",
+  );
+});
+
+test("criterio 3: as quatro ligadas continuam a falhar fechado sem ctx", async () => {
+  // O ISO-09 já as cobre no caso de cima, e este mede o que a ligação podia ter
+  // partido: com o corpo do método a abrir transacção, o `exigirCtx` tem de
+  // continuar a correr **antes** dela. O `CLIENTE_PROIBIDO` prova-o.
+  const porta = adaptadorMedusa(deps());
+  const semTenant = { ...ctx(), tenantId: "" };
+  for (const metodo of [
+    "requestOwnerConfirmation",
+    "transition",
+    "getOrder",
+    "listOrders",
+  ]) {
+    await assert.rejects(
+      () => chamar(porta, metodo, semTenant),
+      CtxEmFaltaError,
+      metodo,
     );
   }
 });

@@ -78,7 +78,13 @@ import {
   SQL_COTACAO_VALIDA,
   SQL_TERMOS,
 } from "../produtos/consultas.ts";
-import { erro, eUuid, ok, type Resultado } from "../port/contrato.ts";
+import {
+  erro,
+  eUuid,
+  ok,
+  type Resultado,
+  type ResultadoFinal,
+} from "../port/contrato.ts";
 import type { ClienteSql, Ctx, LinhaDaEncomenda } from "./contrato.ts";
 import {
   cartId,
@@ -366,7 +372,11 @@ export async function proposeCart(
   anel: AnelDoSegredo,
   rascunho: RascunhoDoCarrinho,
   agora: Date,
-): Promise<Resultado<Proposta>> {
+  // **`ResultadoFinal` e nao `Resultado`**, pela emenda 1.59 do dicionario: o
+  // terceiro caso do `Resultado` e so para o conflito de CAS, e esta operacao
+  // nao tem CAS nenhum — le e nao escreve. Declarar o tipo largo dizia a quem
+  // chama que tem de tratar um caso que esta funcao nunca produz.
+): Promise<ResultadoFinal<Proposta>> {
   if (!Array.isArray(rascunho?.linhas) || rascunho.linhas.length === 0) {
     return erro("VALIDATION_ERROR");
   }
