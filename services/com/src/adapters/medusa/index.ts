@@ -102,6 +102,7 @@ import {
   createOrder as createOrderDaSaga,
   filtroLido,
   getOrder as getOrderDoModulo,
+  lerEncomenda as lerEncomendaDoModulo,
   listOrders as listOrdersDoModulo,
   proposeCart as proposeCartDoModulo,
   requestOwnerConfirmation as requestOwnerConfirmationDoModulo,
@@ -114,6 +115,16 @@ import {
   type RascunhoDoCarrinho,
   type ResultadoDaCriacao,
 } from "../../orders/index.ts";
+// As quatro primitivas de reserva (KAM-045), mais a autoridade de stock que
+// fecha o `OUT_OF_STOCK` do `createOrder`. Os nomes levam `DoModulo` como os do
+// `orders`, para que a chamada diga de onde vem.
+import {
+  autoridadeDeStock as autoridadeDeStockDoModulo,
+  commitReservation as commitReservationDoModulo,
+  extendReservation as extendReservationDoModulo,
+  releaseReservation as releaseReservationDoModulo,
+  reserveStock as reserveStockDoModulo,
+} from "../../reservations/index.ts";
 import {
   idsDoRegisto,
   repoBase,
@@ -600,46 +611,192 @@ export function adaptadorMedusa(
       });
     },
 
+    /**
+     * **Ligado** ao `reservations/reserve.ts` do KAM-045 (critérios 1 e 2).
+     *
+     * As linhas vêm do `lines_snapshot` da encomenda e **não** do chamador: o
+     * `reserveStock(ctx, orderId, ttl)` do §3.2 não leva linhas, e tem razão —
+     * as linhas de uma encomenda são as que ela tem, e aceitá-las do chamador
+     * deixava reservar stock de um SKU que a encomenda não pede.
+     *
+     * O `line_no` é o **índice** no `lines_snapshot`, que é o que lhe dá
+     * identidade: aquele `jsonb` é uma lista sem chaves próprias (§10.1), e a
+     * `stock_reservations_linha_uq` da revisão `0033` fixa o par
+     * `(order_id, line_no)`.
+     *
+     * **A atomicidade por encomenda é do `comTenant`**, que abre uma
+     * transacção: uma linha sem stock devolve `OUT_OF_STOCK` e o `rollback`
+     * desfaz as que já tinham passado. Ver a nota do módulo das reservas para a
+     * razão de não haver compensação em código.
+     */
     async reserveStock(
       ctx: Ctx,
       orderId: string,
       ttl: Duration,
     ): Promise<Resultado<readonly Reservation[]>> {
-      exigirCtx(ctx);
-      void orderId;
-      void ttl;
-      return naoImplementado();
+      return comRegisto(deps, ctx, async (r) => {
+        const encomenda = await lerEncomendaDoModulo(
+          encomendasDe(deps, r),
+          orderId,
+        );
+        if (encomenda === null) return erro("NOT_FOUND");
+        // **O `jsonb` pode chegar como cadeia, e o precedente é do próprio
+        // serviço:** o `comoCriada` do `../../orders/create_order.ts` escreve
+        // `typeof bruto === "string" ? JSON.parse(bruto) : (bruto ?? [])`. A
+        // primeira versão disto devolvia `VALIDATION_ERROR` nesse caso —
+        // divergência do precedente da casa, apanhada pela revisão
+        // adversarial: duas leituras do mesmo `lines_snapshot` no mesmo serviço
+        // não podem discordar sobre a forma em que ele chega.
+        const bruto = encomenda["lines_snapshot"];
+        const snapshot =
+          typeof bruto === "string" ? JSON.parse(bruto) : (bruto ?? []);
+        if (!Array.isArray(snapshot)) return erro("VALIDATION_ERROR");
+        const linhas = snapshot.map((linha, indice) => ({
+          lineNo: indice,
+          sku: String((linha as Record<string, unknown>)["sku"] ?? ""),
+          qty: Number((linha as Record<string, unknown>)["qty"] ?? 0),
+        }));
+        // **`provisoria: false`, e isso é o achado 7 da revisão adversarial.**
+        //
+        // A omissão do módulo é `true` — a reserva nasce com dois minutos à
+        // espera do `charge.issued` —, e isso é o certo para o caminho interno
+        // do checkout, que reserva **antes** de pedir a cobrança. Mas este
+        // método recebe um `ttl` do chamador, e com a omissão **o `ttl` era
+        // silenciosamente descartado**: toda a reserva feita pela porta durava
+        // dois minutos, e a fórmula do critério 2 (`fim_validade + 15 min`)
+        // nunca corria por aqui.
+        //
+        // Um argumento que a operação aceita e ignora é pior do que um
+        // argumento que ela não tem.
+        //
+        // **O `via` fica na omissão (`referencia`), e isso é um limite e não um
+        // descuido:** o `reserveStock(ctx, orderId, ttl)` do §3.2 não tem onde
+        // levar a via, pelo que uma reserva Express **não é alcançável pela
+        // porta** — `ttlAceitavel(30 min, "referencia")` é falso e a chamada
+        // devolve `VALIDATION_ERROR`. A saída tentadora era deduzir a via do
+        // próprio `ttl`, e não se faz: um `ttl` curto passaria a ser aceite como
+        // Express, o que anula a banda de 24–72 h que o critério 2 manda impor
+        // «sem corrigir». Quem reserva Express chama o módulo, que é quem sabe
+        // que a cobrança é *push*; alargar a assinatura é do ticket que mexer no
+        // §3.39, como o `createOrder`.
+        const resultado = await reserveStockDoModulo({ repo: r.repo }, {
+          orderId,
+          linhas,
+          ttlMs: ttl,
+          provisoria: false,
+        });
+        if (resultado.tipo === "erro") return erro(resultado.erro);
+        return ok(
+          resultado.valor.map((reserva) => ({
+            reservationId: reserva.reservationId,
+            sku: reserva.sku,
+            qty: reserva.qty,
+            expiraAt: reserva.expiraAt,
+          })),
+        );
+      });
     },
 
+    /**
+     * **Ligado** ao `reservations/reserve.ts` (critério 7).
+     *
+     * **A condição «só em `aguarda_pagamento`» é imposta aqui**, e é dito por
+     * escrito no módulo: ele não lê o `orders_mirror`, e esta é a camada que já
+     * tem o estado da encomenda em mão. As outras duas condições do critério —
+     * o tecto de 72 h e «exige cobrança com validade correspondente» — estão no
+     * `SQL_ESTENDER`, contra a base.
+     */
     async extendReservation(
       ctx: Ctx,
       orderId: string,
       until: string,
     ): Promise<Resultado<void>> {
-      exigirCtx(ctx);
-      void orderId;
-      void until;
-      return naoImplementado();
+      return comRegisto(deps, ctx, async (r) => {
+        const encomenda = await lerEncomendaDoModulo(
+          encomendasDe(deps, r),
+          orderId,
+        );
+        if (encomenda === null) return erro("NOT_FOUND");
+        if (String(encomenda["estado"]) !== "aguarda_pagamento") {
+          return erro("VALIDATION_ERROR");
+        }
+        const resultado = await extendReservationDoModulo(
+          { repo: r.repo },
+          orderId,
+          until,
+        );
+        if (resultado.tipo === "erro") return erro(resultado.erro);
+        return ok(undefined);
+      });
     },
 
+    /**
+     * **Ligado** ao `reservations/reserve.ts` (critério 6, lado `consumida`).
+     *
+     * Idempotente: a segunda chamada muda zero linhas e devolve `ok`, porque
+     * «já estava consumida» é o estado que quem chama queria. Ver a nota do
+     * `commitReservation` do módulo.
+     */
     async commitReservation(
       ctx: Ctx,
       orderId: string,
     ): Promise<Resultado<void>> {
-      exigirCtx(ctx);
-      void orderId;
-      return naoImplementado();
+      return comRegisto(deps, ctx, async (r) => {
+        // **A encomenda lê-se antes, e é o ISO-01..08 e não zelo.**
+        //
+        // O módulo devolve `ok` com zero reservas mudadas, e tem de o fazer: é
+        // a idempotência do critério 4 («já estava consumida» é o estado que
+        // quem chama queria). Mas `ok` para uma encomenda que **não é do
+        // chamador** confundia duas coisas diferentes — «não havia nada a
+        // consumir» e «isso não é teu» —, e o critério 6 do KAM-042 pede que a
+        // segunda seja `NOT_FOUND`.
+        //
+        // Com a leitura, as duas ficam distintas: a encomenda existe e é do
+        // tenant do `ctx`, pelo que zero linhas é mesmo idempotência. Custa
+        // uma leitura por chamada e é o que separa um caminho seguro de um
+        // caminho que **parece** seguro.
+        const encomenda = await lerEncomendaDoModulo(
+          encomendasDe(deps, r),
+          orderId,
+        );
+        if (encomenda === null) return erro("NOT_FOUND");
+        const resultado = await commitReservationDoModulo(
+          { repo: r.repo },
+          orderId,
+        );
+        if (resultado.tipo === "erro") return erro(resultado.erro);
+        return ok(undefined);
+      });
     },
 
+    /**
+     * **Ligado** ao `reservations/reserve.ts` (critério 6, lado `libertada`).
+     *
+     * O `motivo` atravessa intacto: o domínio dele é o `MOTIVOS_DE_LIBERTACAO`
+     * do `../../port/contrato.ts` e o `stock_reservations_motivo_ck` da revisão
+     * `0033`, e os dois têm os mesmos três nomes.
+     */
     async releaseReservation(
       ctx: Ctx,
       orderId: string,
       motivo: MotivoDeLibertacao,
     ): Promise<Resultado<void>> {
-      exigirCtx(ctx);
-      void orderId;
-      void motivo;
-      return naoImplementado();
+      return comRegisto(deps, ctx, async (r) => {
+        // A leitura primeiro, pela razão do `commitReservation` acima: separa
+        // «não havia nada a libertar» de «isso não é teu».
+        const encomenda = await lerEncomendaDoModulo(
+          encomendasDe(deps, r),
+          orderId,
+        );
+        if (encomenda === null) return erro("NOT_FOUND");
+        const resultado = await releaseReservationDoModulo(
+          { repo: r.repo },
+          orderId,
+          motivo,
+        );
+        if (resultado.tipo === "erro") return erro(resultado.erro);
+        return ok(undefined);
+      });
     },
 
     /**
@@ -815,9 +972,28 @@ export function operacoesDoCom(
           comRegisto(deps, ctx, (r) => trabalho(encomendasDe(deps, r))),
         anel: deps.anel,
         agora: () => agora(),
-        ...(deps.stockDisponivel === undefined
-          ? {}
-          : { stockDisponivel: deps.stockDisponivel }),
+        // **A fonte do `OUT_OF_STOCK`, e é a dívida que o KAM-045 vem pagar.**
+        //
+        // O `AutoridadeDeStock` do `../../orders/create_order.ts` é um *hook*
+        // desde o KAM-046 e a nota dele dizia «a **passagem** do código está
+        // implementada e medida … e a **fonte** falta. Credor: o **KAM-045**».
+        // Com a `offer_terms.stock_quantidade` da revisão `0033`, a fonte
+        // existe: o `autoridadeDeStock` lê quantidade menos reservada por SKU.
+        //
+        // O `deps.stockDisponivel` continua a ganhar quando vem dado, e isso
+        // não é indecisão: é o que deixa um ensaio injectar uma autoridade que
+        // recusa sem precisar de uma base com stock, e é o que deixará o
+        // inventário do Registo substituir esta leitura sem tocar aqui.
+        //
+        // **O que deixou de existir é o caso «sem autoridade nenhuma».** Era um
+        // *fail-open* consciente enquanto não havia fonte; com fonte, deixá-lo
+        // de pé era escolher não olhar para o número que agora temos.
+        stockDisponivel:
+          deps.stockDisponivel ??
+          ((linhas) =>
+            comRegisto(deps, ctx, (r) =>
+              autoridadeDeStockDoModulo({ repo: r.repo })(linhas),
+            )),
       };
       return createOrderDaSaga(montagem, pedido);
     },

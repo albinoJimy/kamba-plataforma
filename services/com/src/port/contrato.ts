@@ -195,9 +195,13 @@ export function conflito<T>(valor: T): Conflito<T> {
 }
 
 /**
- * Atalho para o `NOT_IMPLEMENTED`. Hoje é o que **cinco** métodos devolvem: os
- * quatro das reservas (KAM-045) e o `createOrder`, por uma razão de outra
- * natureza — ver o método, e o `docs/com/port-coverage.md` §2.
+ * Atalho para o `NOT_IMPLEMENTED`. Hoje é o que **um** método devolve.
+ *
+ * **Era cinco até ao KAM-045**, que ligou as quatro das reservas. O que resta é
+ * o `createOrder`, e o credor dele não é um ticket de implementação — é uma
+ * **decisão** sobre o tipo do argumento (`OrderIntent` não tem `draftId`,
+ * `draftVersion` nem `totalEsperadoMinor`, e o terceiro contradiz a regra 4 do
+ * §3.2). Ver o método, e o `docs/com/port-coverage.md` §2.
  */
 export function naoImplementado<T>(): ResultadoFinal<T> {
   return { tipo: "erro", erro: "NOT_IMPLEMENTED" };

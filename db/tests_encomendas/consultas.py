@@ -44,9 +44,27 @@ MODULO = (
 )
 
 
+#: O ficheiro das reservas (KAM-045). Modulo proprio e nao uma secao do
+#: `orders/consultas.ts`: as reservas sao do `reservations/`, como os
+#: *Detalhes Tecnicos* do bloco KAM-045 escrevem.
+MODULO_DAS_RESERVAS = (
+    Path(__file__).resolve().parents[2]
+    / "services"
+    / "com"
+    / "src"
+    / "reservations"
+    / "consultas.ts"
+)
+
+
 def exigir(nome: str) -> ConsultaDoTypeScript:
     """A constante do modulo, pronta para o `pg8000`. Falha se nao existir."""
     return ConsultaDoTypeScript(nome, ficheiro=MODULO)
+
+
+def exigir_das_reservas(nome: str) -> ConsultaDoTypeScript:
+    """O mesmo, do modulo `reservations` (KAM-045)."""
+    return ConsultaDoTypeScript(nome, ficheiro=MODULO_DAS_RESERVAS)
 
 
 SQL_LER = exigir("SQL_LER")
@@ -72,6 +90,39 @@ SQL_ENCOMENDA_DA_CHAVE = exigir("SQL_ENCOMENDA_DA_CHAVE")
 # uma igualdade e com comparacao de linhas, e nenhuma das duas se prova lendo.
 SQL_VISTA = exigir("SQL_VISTA")
 SQL_LISTAR = exigir("SQL_LISTAR")
+
+# As doze das reservas de stock (KAM-045), do modulo `reservations`. Corridas em
+# `test_reservas.py`, `test_expiracao.py` e `test_idempotencia_de_reservas.py`.
+SQL_LER_OFERTA = exigir_das_reservas("SQL_LER_OFERTA")
+SQL_RESERVAR = exigir_das_reservas("SQL_RESERVAR")
+SQL_DEVOLVER_STOCK = exigir_das_reservas("SQL_DEVOLVER_STOCK")
+SQL_LER_RESERVAS = exigir_das_reservas("SQL_LER_RESERVAS")
+SQL_CONSUMIR = exigir_das_reservas("SQL_CONSUMIR")
+SQL_LIBERTAR = exigir_das_reservas("SQL_LIBERTAR")
+SQL_LIBERTAR_UMA = exigir_das_reservas("SQL_LIBERTAR_UMA")
+SQL_CONFIRMAR = exigir_das_reservas("SQL_CONFIRMAR")
+SQL_ESTENDER = exigir_das_reservas("SQL_ESTENDER")
+SQL_VENCIDAS = exigir_das_reservas("SQL_VENCIDAS")
+SQL_ACTIVAS_POR_TENANT = exigir_das_reservas("SQL_ACTIVAS_POR_TENANT")
+SQL_ATRASO_DA_LIBERTACAO = exigir_das_reservas("SQL_ATRASO_DA_LIBERTACAO")
+
+#: As doze das reservas, para o ensaio de cobertura do contrato **nos dois
+#: sentidos**: o `CONSULTAS_DAS_RESERVAS` do TypeScript tem de ter exactamente
+#: estes nomes, e cada um tem de ser exercitado por alguma suite.
+EXERCITADAS_DAS_RESERVAS = (
+    "SQL_LER_OFERTA",
+    "SQL_RESERVAR",
+    "SQL_DEVOLVER_STOCK",
+    "SQL_LER_RESERVAS",
+    "SQL_CONSUMIR",
+    "SQL_LIBERTAR",
+    "SQL_LIBERTAR_UMA",
+    "SQL_CONFIRMAR",
+    "SQL_ESTENDER",
+    "SQL_VENCIDAS",
+    "SQL_ACTIVAS_POR_TENANT",
+    "SQL_ATRASO_DA_LIBERTACAO",
+)
 
 #: As que a suite exercita contra a base, para o teste de cobertura do contrato.
 #:

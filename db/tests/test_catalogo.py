@@ -325,6 +325,13 @@ class TestConvencoes(ComBase):
                 "orders_mirror",
                 "order_state_log",
                 "order_reconciliation_issues",
+                # KAM-045, revisao `0033`. `uuid` aleatorio e **nao**
+                # identidade, pela razao das tres acima e aqui directa: o
+                # `kamba_app` **le** esta tabela (precisa do `RETURNING id` do
+                # `INSERT` da reserva, e das leituras por encomenda), e com um
+                # `id` sequencial esse papel media quantas reservas tem a
+                # plataforma — isto e, quanto se vende nela.
+                "stock_reservations",
                 # KAM-054, revisao `0032`. Duas das quatro: a
                 # `manual_confirmations` e a `refund_cases` tem `id` uuid
                 # gerado. O `fraud_signals` esta no `por_identidade` (e
@@ -664,6 +671,10 @@ class TestConvencoes(ComBase):
                 # ("pa" < "pr") e antes de `tenant_channels`.
                 ("price_quotes", "id", "uuid", "gen_random_uuid()"),
                 ("refund_cases", "id", "uuid", "gen_random_uuid()"),
+                # KAM-045: a reserva de stock segue a regra geral, `uuid`
+                # gerado. A posicao e por `ORDER BY 1, 2`: depois de
+                # `refund_cases` ("re" < "st") e antes de `tenant_channels`.
+                ("stock_reservations", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -1008,7 +1019,23 @@ class TestConvencoes(ComBase):
              # colunas sao a metrica do bloco: «divergencias abertas > 5 min
              # = 0».
              "order_intents", "order_reconciliation_issues",
-             "order_state_log", "orders_mirror"},
+             "order_state_log", "orders_mirror",
+             # KAM-045. A reserva de stock satisfaz a convencao pela
+             # **unicidade** `(tenant_id, order_id, line_no)`, que nao esta la
+             # para indexar: e a restricao do bloco (`UNIQUE (order_id,
+             # line_no)`) com o `tenant_id` a frente, e a razao de ele vir a
+             # frente e esta — um indice que nao principie pelo tenant nao
+             # serve consulta nenhuma desta tabela. Levou tambem
+             # `(tenant_id, order_id)` e `(tenant_id, estado)`, que sao as duas
+             # perguntas da aplicacao: as reservas de uma encomenda e a
+             # contagem de activas por tenant.
+             #
+             # O `stock_reservations_expira_idx` **nao** comeca pelo
+             # `tenant_id`, e nao deve, pela mesma razao do
+             # `orders_mirror_expira_idx` acima: o varrimento da expiracao
+             # corre como `kamba_batch` sobre a base toda e procura por
+             # instante, nao por tenant.
+             "stock_reservations"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1493,7 +1520,12 @@ class TestConvencoes(ComBase):
         # a `orders_mirror` **nao** esta entre elas: fica no KAM-055 com a da
         # `payment_charges`, pela razao escrita na `0029` — pôr a FK so num
         # dos dois lados deixava o par incoerente.
-        self.assertEqual(len(linhas), 67)
+        # Duas a mais com a `0033` (KAM-045): a `stock_reservations` leva
+        # `tenant_id -> tenants` e a FK **composta**
+        # `(tenant_id, order_id) -> orders_mirror (tenant_id, id)`, que e a
+        # licao ISO-58 do spike KAM-041 — uma FK simples deixava a reserva de A
+        # apontar para a encomenda de B.
+        self.assertEqual(len(linhas), 69)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

@@ -785,6 +785,38 @@ ESPERADO_POR_TABELA.update(
             "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
             "public": set(),
         },
+        # KAM-045 (0033): a reserva de stock.
+        #
+        # **Sem `DELETE` para o `kamba_app`**, e e o criterio 6 por construcao:
+        # uma reserva nao se apaga, **liberta-se com motivo**. Apagar era perder
+        # a razao pela qual o stock voltou, que e o que a reconciliacao da regra
+        # 4 do §10.3 le. O `UPDATE` que ele tem e **por coluna** — oito, no
+        # `GRANT UPDATE (...)` da revisao —, e esta matriz ve o privilegio de
+        # tabela e nao a lista de colunas: a lista esta no `test_contrato` do
+        # `tests_produtos` para a oferta e no inventario para esta.
+        #
+        # O `kamba_batch` tem os quatro: e ele que varre (o *job* do criterio 4)
+        # e que semeia as baterias de isolamento, com `BYPASSRLS` por atributo.
+        "stock_reservations": {
+            # **Sem `UPDATE` aqui, e isso nao e uma omissao: e o que o `GRANT`
+            # por coluna significa nesta matriz.** A revisao concede
+            # `UPDATE (estado, motivo, expira_at, ...)` — oito colunas —, e o
+            # `has_table_privilege(..., 'UPDATE')` que esta matriz le devolve
+            # **false** para um privilegio so de coluna. E exactamente como o
+            # `orders_mirror` esta modelado, pela mesma razao: a `0030` tambem
+            # lhe da `UPDATE` por coluna e esta matriz diz `{SELECT, INSERT}`.
+            #
+            # Quem ve a lista de colunas e o inventario e o `test_contrato` do
+            # `tests_produtos`, que leem o `has_column_privilege`. Medido: pôr
+            # `UPDATE` aqui da `AssertionError: False != True`.
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
         # **`SELECT` e `INSERT` e mais nada, nos dois papeis**, e e o criterio 6
         # a letra («so `INSERT` para `kamba_app`»). O `kamba_batch` tambem nao
         # tem `UPDATE` nem `DELETE` aqui, ao contrario das outras quatro: o
