@@ -65,7 +65,7 @@ RAIZ = Path(__file__).resolve().parents[3]
 
 #: O guiao, relativo a raiz. E tambem o caminho que o `node` recebe, porque o
 #: `cwd` **e** a raiz (ver o `docstring` do modulo).
-GUIAO = "tools/isolamento/condutor/rotas.ts"
+GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 
 #: Os grupos que o condutor conhece. A lista esta aqui e nele, e as duas tem de
 #: concordar: um grupo que so exista num dos lados e um caso que nunca corre.

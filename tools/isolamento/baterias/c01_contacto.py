@@ -51,8 +51,13 @@ def _base(ctx) -> list[str]:  # noqa: ANN001
         cursor = ctx.cursor_de("app", ctx.x.tenant_id)
 
         # A leitura como o repositorio a faz: tenant **e** contacto.
+        #
+        # `::text` e nao a coluna crua: o `id` e `uuid`, e o `pg8000` devolve-o
+        # como objecto `UUID` — a comparacao com a marca, que e uma cadeia,
+        # falhava sempre e a sonda positiva acusava uma leitura que estava
+        # certa. Medido na execucao do *gate* 6.
         cursor.execute(
-            f"SELECT {coluna} FROM {schema}.{tabela} WHERE contact_id = %s",
+            f"SELECT {coluna}::text FROM {schema}.{tabela} WHERE contact_id = %s",
             (ctx.x.id,),
         )
         vistos = [linha[0] for linha in cursor.fetchall()]
@@ -74,7 +79,7 @@ def _base(ctx) -> list[str]:  # noqa: ANN001
         # filtro por contacto, a mesma ligacao e o mesmo contexto veem Y. Se
         # isto nao se verificar, a afirmacao de cima nao provou nada: nao havia
         # linha de Y para ver.
-        cursor.execute(f"SELECT {coluna} FROM {schema}.{tabela}")
+        cursor.execute(f"SELECT {coluna}::text FROM {schema}.{tabela}")
         sem_filtro = [linha[0] for linha in cursor.fetchall()]
         if canario_de_y not in sem_filtro:
             achados.append(

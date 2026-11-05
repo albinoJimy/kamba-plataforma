@@ -2,7 +2,7 @@
  * O condutor das rotas Hono: ataca-as **em processo** e escreve um relatorio
  * que o lado Python le (KAM-066, criterio 3 e criterio 6).
  *
- *     node tools/isolamento/condutor/rotas.ts <grupo> <ficheiro-de-saida.json>
+ *     node tools/isolamento/tests/condutor/rotas.ts <grupo> <ficheiro-de-saida.json>
  *
  * ## Porque e que isto e um guiao de `node` e nao um caso de Python
  *
@@ -62,8 +62,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
-/** A raiz do repositorio: `tools/isolamento/condutor/` esta tres niveis abaixo. */
-const RAIZ = resolve(AQUI, "..", "..", "..");
+/** A raiz do repositorio: `tools/isolamento/tests/condutor/` esta quatro niveis abaixo. */
+const RAIZ = resolve(AQUI, "..", "..", "..", "..");
 
 // ------------------------------------------------------------------- relatorio
 
@@ -1247,7 +1247,7 @@ async function main(): Promise<number> {
   const [grupo, saida] = process.argv.slice(2);
   if (grupo === undefined || saida === undefined) {
     diagnostico(
-      "uso: node tools/isolamento/condutor/rotas.ts <grupo> <saida.json>\n" +
+      "uso: node tools/isolamento/tests/condutor/rotas.ts <grupo> <saida.json>\n" +
         `grupos: ${Object.keys(GRUPOS).join(", ")}\n`,
     );
     return 1;

@@ -91,7 +91,7 @@ O `precisa` **escolhe onde o caso corre**, e nao a bateria:
 | `nada` | biblioteca padrao e a arvore | `make isolamento-a-seco`, e outra vez no *gate* 6 |
 | `agr` | `starlette`, `pydantic`, `yaml` | `db/tests_isolamento/test_casos_cruzados.py` |
 | `postgres` | a base descartavel do *gate* 6 | idem |
-| `node` | o condutor de `condutor/` | idem |
+| `node` | o condutor de `tests/condutor/` | idem |
 
 **Um modulo de `baterias/` tem de ser importavel sem nada disso.** E o que
 permite medir a cobertura a seco, antes de o contentor subir: o `import` de um
@@ -183,9 +183,22 @@ semente.py      o eixo do contacto: X e Y, no mesmo tenant
 lints.py        nenhum `SET app.tenant_id` sobrevive a transaccao
 cli.py          o passo a seco do gate 6 (`make isolamento-a-seco`)
 baterias/       os casos, um modulo por bateria
-condutor/       o condutor de TypeScript: ataca as apps Hono em processo
+condutor/       a ponte para o condutor: arranca o `node` e le o relatorio
 tests/          os canarios — cada verificacao tem de saber dizer «esta mal»
+tests/condutor/ o condutor de TypeScript: ataca as apps Hono em processo
 ```
+
+**O condutor de TypeScript esta em `tests/condutor/` e a ponte em `condutor/`,
+e a separacao nao e arrumacao.** O `ci/thresholds.yaml` classifica por caminho:
+`*/isolamento/*` e padrao do estrato `critico`, e um ficheiro `.ts` do universo
+que nenhum teste carrega entra com todas as suas linhas no denominador e zero no
+numerador. Medido: as 1310 linhas do condutor levaram o estrato de 94,23% a
+88,07% no *gate* 4, contra 90 de minimo. O `**/tests/**` dos `excluidos` ja
+existia e ja cobria o caso gemeo — o `packages/core-ts/tests/x11_conduzir.ts`,
+que o `make x11` conduz e que diz na propria *docstring* que vive em `tests/`
+por nao ser um teste. Um andaime de ensaio em TypeScript vai para `tests/`;
+**mexer no criterio do portao para o acomodar seria outra coisa, e nao e de
+quem escreve o ticket.**
 
 O eixo do **tenant** nao vive aqui: `db/tests_isolamento/sementes.py` semeia A e
 B com canarios em todas as tabelas com `tenant_id` (45 receitas, do KAM-004 e
