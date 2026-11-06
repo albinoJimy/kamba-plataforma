@@ -9,8 +9,12 @@
 # Este ficheiro existe porque o criterio pede «paineis como codigo (JSON
 # provisionado)», e a parte que e **nossa** — o JSON e a declaracao de como se
 # provisiona — nao depende de correr o programa. No dia em que a licenca for
-# fechada, isto monta-se em `/etc/grafana/provisioning/dashboards/` e os quatro
-# paineis aparecem sem ninguem os importar a mao.
+# fechada, isto monta-se em `/etc/grafana/provisioning/dashboards/` e os paineis
+# aparecem sem ninguem os importar a mao.
+#
+# **O provedor le a pasta inteira**, pelo que um painel novo nao mexe neste
+# ficheiro: o KAM-082 acrescentou o `orcamento-de-erro.json` e esta configuracao
+# ficou como estava.
 #
 # O `path` e o ponto de montagem **dentro** do contentor, nao o caminho no
 # repositorio: quem o montar aponta esta pasta para la, so de leitura.

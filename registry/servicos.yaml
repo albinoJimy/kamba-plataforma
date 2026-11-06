@@ -31,7 +31,10 @@ id: servicos
 # que o alvo **resolve**. Uma vertical cujo `graph` passa de nao resolvivel a
 # resolvivel e uma capacidade nova no tuplo, que e *minor*; nao e *major* porque
 # nenhum consumidor deste registo tem de mudar.
-version: 1.1.0
+#
+# **1.2.0, KAM-039**: o `notifica` das subscricoes e chave nova no tuplo, pela
+# razao escrita no `registry/vendedor.yaml`.
+version: 1.2.0
 phase: P
 persona:
   nome: "Rececionista"
@@ -50,11 +53,29 @@ entitlements:
   limites:
     - msgs_ai_mes
     - marcacoes_mes
+# O `notifica` diz a quem (KAM-039). A razao por extenso esta em
+# `registry/vendedor.yaml` e nao se repete; o que e proprio desta vertical e o
+# que vem a seguir.
+#
+# OS DOIS EVENTOS DE PAGAMENTO NAO LEVAM `notifica`, E ISSO NAO E ESQUECIMENTO.
+#
+# O tuplo vazio diz «esta vertical subscreve e nao avisa ninguem», que e o
+# estado verdadeiro: o `03` §12 e o dicionario §3.5 dizem o que ela tem de fazer
+# com eles — «confirma uma marcacao com sinal» —, e isso e o modulo `servicos`
+# (**KAM-047**) e o grafo dela (**KAM-035**), nenhum dos dois escrito. O credor
+# esta no `ACCOES_POR_LIGAR` do `eventos/handlers.py`, e e ele que deixa o
+# arranque aceitar estas duas: uma subscricao sem destinatario **e** sem credor
+# reprova o arranque (`exigir_handlers`). O desfecho do consumo e `sem_accao` —
+# contado, registado, e com dono.
 subscriptions:
   - tipo: booking.created
     versao: 1
+    notifica:
+      - cliente
   - tipo: booking.reminder_due
     versao: 1
+    notifica:
+      - cliente
   - tipo: payment.confirmed
     versao: 1
   - tipo: payment.manual_confirmed

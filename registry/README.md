@@ -47,6 +47,34 @@ que se esquece ligada.
   decidiu que quem não distingue os dois caminhos subscreve os dois, e o gate 3b
   impõe-no.
 
+## O `notifica`, e porque é que ele está aqui e não no AGR
+
+Cada entrada de `subscriptions[]` leva `notifica` — a quem o *handler* avisa,
+`cliente`, `dono`, os dois, ou ninguém. **Isto estava no núcleo até 2026-11-06**:
+uma tabela `AO_DONO` no `eventos/handlers.py`, pares `(vertical, tipo)` com
+entradas só do Vendedor, lida num `if`. O núcleo decidia ali, pelo nome da
+vertical, se o dono da loja era avisado — e é isso que a condição (d) de
+`../docs/tecnica/02` §5.4 chama uma excepção no core, a única que o KAM-039
+mediu (`fluxo = 1`). O fundador decidiu extrair, e o critério exclui `registry/`
+da busca **por extenso**, porque é aqui que a configuração por vertical pertence.
+
+Três coisas que valem saber antes de escrever a chave:
+
+1. **o domínio é fechado e está em duas superfícies** — o `Destinatario` do
+   `registo/esquema.py`, que corre no processo que serve clientes, e o
+   `DESTINATARIOS_DA_NOTIFICACAO` do `tools/canon_lint/registo.py`, no CI. Um
+   `notifica: [done]` recusa o ficheiro nas duas, e não se lê como «não avisa
+   ninguém»;
+2. **a omissão é a lista vazia e tem significado** — a subscrição existe, o
+   arranque continua a exigir consumidor para ela, e ela não avisa ninguém. É
+   legítimo exactamente quando a acção está por escrever e **tem credor** no
+   `ACCOES_POR_LIGAR` do AGR: é o caso dos dois pagamentos em `servicos.yaml`,
+   com o KAM-047. Sem destinatário **e** sem credor, o arranque falha;
+3. **declarar `cliente` exige texto** — o texto de cada notificação é persona, e
+   fica no `TEXTOS` do `eventos/handlers.py` (o §5.4 põe o texto na coluna do que
+   é próprio da vertical). Um `cliente` declarado sem entrada lá falha o
+   arranque, em vez de rebentar dentro da transacção de uma entrega.
+
 **Os valores dos planos são hipóteses.** Nenhum documento tem a tabela de
 planos — o `../docs/tecnica/10` pressupõe-a em quatro sítios e não a escreve, e
 a mensalidade por plano não está definida. Por isso cada entrada de

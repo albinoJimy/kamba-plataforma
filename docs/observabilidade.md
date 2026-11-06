@@ -6,7 +6,7 @@
 | Âmbito | Métricas, logs JSON, alertas, painéis e a sua verificação por máquina |
 | Fontes | [`tecnica/09_Topologia_Operacao_Escala.md`](tecnica/09_Topologia_Operacao_Escala.md) §9 e §13, [`tecnica/08_Seguranca_Conformidade.md`](tecnica/08_Seguranca_Conformidade.md) §7.3, ADR-010, ADR-018 |
 | Estado | **Parcial, e medido.** O que falta tem credor escrito em [`../ops/metricas/catalogo.yaml`](../ops/metricas/catalogo.yaml) |
-| Não cobre | SLOs e orçamento de erro (KAM-082), custo por tenant (KAM-081), runbooks executáveis (KAM-083) |
+| Não cobre | Custo por tenant (KAM-081), runbooks executáveis (KAM-083). Os **SLOs e o orçamento de erro** passaram a existir com o **KAM-082**, em [`../ops/slo.md`](../ops/slo.md) — e este documento continua a não ser a fonte sobre eles |
 
 ---
 
@@ -15,14 +15,15 @@
 | Camada | Onde | Estado |
 |---|---|---|
 | Logs JSON sem conteúdo | `packages/core-ts/src/logger/`, `libs/py-core/src/kamba_core/logger/` | **Activo desde o KAM-068.** Os cinco serviços instalam o *logger*; o gate 2 recusa quem escreva fora dele e o gate 6 corre o X-11 |
-| Métricas | 20 módulos, 122 nomes distintos | **Declaradas 122; alcançáveis em `compose` 51** — ver §2 |
+| Métricas | 21 módulos, 125 nomes distintos | **Declaradas 125; alcançáveis em `compose` 51** — ver §2 |
 | Exposição | `/metrics` no GWY (3010), no COM (3002) e no AGR (8000) | O AGR nasceu com este ticket |
 | Recolha | [`../infra/compose/prometheus/prometheus.yml`](../infra/compose/prometheus/prometheus.yml) | Três alvos, por `dns_sd_configs` |
 | Regras de alerta | [`../infra/compose/prometheus/regras/kamba.yml`](../infra/compose/prometheus/regras/kamba.yml) | **8 regras, que cobrem 4 das 12 linhas** do §9.2 — ver §3 |
 | Comportamento das regras | [`../infra/compose/prometheus/regras/testes/kamba_test.yml`](../infra/compose/prometheus/regras/testes/kamba_test.yml) | 17 casos, `promtool test rules` |
 | Encaminhamento | [`../infra/compose/alertmanager/alertmanager.yml`](../infra/compose/alertmanager/alertmanager.yml) | Por severidade. **Não notifica** — ver §4 |
 | Runbooks | `runbooks/RB-K01…RB-K10` | *Stubs*: título, gatilho, severidade. Os executáveis são o KAM-083 |
-| Painéis | [`../ops/paineis/`](../ops/paineis/) | Quatro, como código. **O Grafana não corre** — ver §6 |
+| Regras de SLO | [`../infra/compose/prometheus/regras/kamba-slo.yml`](../infra/compose/prometheus/regras/kamba-slo.yml) e `kamba-manutencao.yml` | **KAM-082.** 8 *recording rules* do orçamento de 216 min, 2 alertas de *burn rate*, e a bandeira das janelas de manutenção. Definição em [`../ops/slo.md`](../ops/slo.md) |
+| Painéis | [`../ops/paineis/`](../ops/paineis/) | **Cinco**, como código — o do orçamento de erro é do KAM-082. **O Grafana não corre** — ver §6 |
 | Verificação | `tools/obs_lint`, `make obs-lint`, `make obs-promtool` | **Não ligada a nenhum portão** — ver §7 |
 | Envio para Loki | — | **Não existe.** Loki é AGPL-3.0 — ver §6 |
 | Sonda externa | — | **Não existe.** Não há produção — ver §5 |
@@ -40,16 +41,22 @@ As contagens têm comando, e o comando está no repositório — `tools/obs_lint
 ```text
 $ python tools/obs_lint/contar_metricas.py --detalhe
 ...
-contar_metricas: 20 modulos de metricas, 120 nomes distintos (piso: ver o predicado 2 na docstring)
+contar_metricas: 21 modulos de metricas, 123 nomes distintos (piso: ver o predicado 2 na docstring)
 ```
+
+**Os números valem sobre uma ponta, e é esta: `765ea18`** — o ramo do KAM-048 com a `main` integrada. Não é zelo: há um PR aberto ao lado (KAM-055) que acrescenta um módulo ao mesmo inventário, pelo que quem fundir em segundo mede outros números e emenda-os na integração. Um número de contagem sem a ponta onde foi medido é a classe de erro que este documento existe para não repetir.
 
 **O predicado está escrito antes da contagem**, na *docstring* do próprio ficheiro, porque uma contagem feita antes de se definir o que conta produz números errados com a mesma firmeza com que produziria os certos. Um predicado mais largo dá outro número — e está certo para esse predicado.
 
-A reconciliação de 120 para **122**: o módulo `services/com/src/metricas.ts` conta **0** pelo predicado, porque os seus dois nomes são declarados em `services/com/src/repo-base/index.ts:80,83` e **importados** pelo módulo que os expõe. 120 + 2 = 122.
+A reconciliação de 123 para **125**: o módulo `services/com/src/metricas.ts` conta **0** pelo predicado, porque os seus dois nomes são declarados em `services/com/src/repo-base/index.ts:80,83` e **importados** pelo módulo que os expõe. 123 + 2 = 125.
 
 **O número de declaradas sobe com os tickets, e os outros dois não.** Entre a primeira medição deste ticket e esta, o KAM-091 fundiu com um `provisioning/metricas.ts` de **6** métricas que **nenhum serviço importa** — logo as declaradas passaram de 109 a 115 e as servidas ficaram nas mesmas. É a leitura central deste ticket, agora com um exemplo que não é meu: o problema não é faltarem métricas, é faltarem serviços que as importem.
 
 E **repetiu-se à letra, uma segunda vez e já depois deste ticket fundir**: o KAM-116 trouxe um `sms/metricas.ts` de **sete** nomes que nenhum serviço importa — quem vai ligar a porta `SmsProvider` é o KAM-086 —, e as declaradas passaram de 115 a **122** com as servidas e as alcançáveis **nas mesmas**. O inventário de módulos do `obs_lint` apanhou-o, que é exactamente o que ele existe para fazer.
+
+E **uma terceira vez, com uma diferença que vale nomear**: o KAM-048 trouxe um `services/com/src/servicos/reminders/metricas.ts` de **três** nomes, e as declaradas passaram de 122 a **125** com as servidas e as alcançáveis nas mesmas. A diferença é o **sítio**: os dois exemplos anteriores eram módulos de `packages/core-ts`, isto é, biblioteca à espera de quem a ligue; este vive **dentro de um serviço** que não o expõe — o `services/com/src/metricas.ts` serve a porta `/metrics` do COM e não importa estes três nomes, porque quem vai ligar o módulo dos lembretes é o KAM-071. Vale nomear porque desfaz uma leitura cómoda: «está dentro de um serviço» não quer dizer «é servido», e o inventário do `obs_lint` foi outra vez o que o apanhou.
+
+**E a propriedade é uma classe e não um caso**, o que se mediu em vez de se supor: o KAM-055 traz um `services/com/src/payments/metricas.ts` pelo mesmo caminho, e está num PR aberto ao lado deste. A primeira versão desta nota chamava ao módulo dos lembretes «o primeiro» dentro de um serviço — uma afirmação sobre a **ordem de fusão** e não sobre o código, que ficava falsa se o outro fundisse primeiro. O ordinal saiu; a propriedade fica.
 
 ### 2.2 Declaradas, servidas, alcançáveis — três números e não um
 
@@ -63,7 +70,7 @@ A diferença entre as duas últimas linhas são os processos `publicador`, `cons
 
 Este ticket acrescentou o AGR, com **44**.
 
-As restantes 55 não estão por esquecimento. Os **onze** módulos `outbound`, `metering`, `hnd`, `qualidade`, `coexistencia`, `avisos`, `consentimento`, `modos`, `onboarding`, `provisioning` e `sms` do `packages/core-ts` **não são importados por nenhum serviço** — medido com `grep -rn "core-ts/outbound" services`, que dá zero. São biblioteca à espera de quem as ligue, e expô-las publicava zeros permanentes. (Eram dez e 48 à data do KAM-080; o `sms` entrou com o KAM-116 e trouxe sete nomes.)
+As restantes 58 não estão por esquecimento. Os **onze** módulos `outbound`, `metering`, `hnd`, `qualidade`, `coexistencia`, `avisos`, `consentimento`, `modos`, `onboarding`, `provisioning` e `sms` do `packages/core-ts` **não são importados por nenhum serviço** — medido com `grep -rn "core-ts/outbound" services`, que dá zero. São biblioteca à espera de quem as ligue, e expô-las publicava zeros permanentes. (Eram dez e 48 à data do KAM-080; o `sms` entrou com o KAM-116 e trouxe sete nomes, e o `reminders` do COM com o KAM-048 e trouxe três — esse **não** é de `core-ts`: vive dentro de um serviço que não o expõe.)
 
 ### 2.3 A regra das etiquetas, e porque é que o `tenant_id` não serve
 
@@ -180,7 +187,7 @@ O [`../ci/licenses.yaml`](../ci/licenses.yaml) nega o prefixo `AGPL`, e a lista 
 
 O que se entregou em vez disso é a parte que **é nossa** e não depende de correr o programa:
 
-- os quatro painéis em JSON do esquema do Grafana, versionados em [`../ops/paineis/`](../ops/paineis/);
+- os painéis em JSON do esquema do Grafana, versionados em [`../ops/paineis/`](../ops/paineis/) — **quatro deste ticket**, e o do orçamento de erro acrescentado pelo KAM-082;
 - o [`../ops/paineis/provisionamento.yaml`](../ops/paineis/provisionamento.yaml), que os monta quando houver Grafana;
 - a verificação: o `obs_lint` lê os painéis como terceira superfície — **incluindo o `templating` e as `annotations`, que vivem fora de `panels`, e as subpastas, que o *file provider* do Grafana lê recursivamente**.
 
@@ -254,3 +261,5 @@ Há uma verificação que lê o **texto servido** em vez do código: `services/a
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-080**. Catálogo de métricas com o instrumento que o conta, **8** regras de alerta (4 das 12 linhas do §9.2) com **17 casos de `promtool test rules`**, dez *stubs* RB-K01–RB-K10, Alertmanager por severidade sem notificador, quatro painéis como código, e o `obs_lint` com dez regras em três superfícies e 16 negativas de canário. Mede e devolve: o canário em Loki, a injecção em *staging*, a sonda de produção, o consumo da pilha completa e a licença AGPL-3.0 do Grafana e do Loki. **A revisão adversarial encontrou 19 achados; os quatro mais graves eram alertas que não podiam disparar e cinco furos do *lint*, e estão corrigidos com caso de teste cada.** | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **KAM-116**: as contagens do §2.1 e do §2.2 passam a dizer o que o `tools/obs_lint/contar_metricas.py` mede hoje — **20 módulos, 120 nomes** (eram 19 e 113) e **122** declaradas pela reconciliação `+2` do `services/com` (eram 115) —, e os módulos não importados por nenhum serviço passam de **dez** para **onze** com o `sms`, com as restantes a subir de 48 para 55. O `sms/metricas.ts` traz **sete** nomes e **zero** servidas: é o segundo exemplo, depois do `provisioning` do KAM-091, da tese do §2.1 — o problema não é faltarem métricas, é faltarem serviços que as importem, e quem vai ligar esta porta é o KAM-086. Quem obrigou à emenda foi o inventário fechado de módulos do `obs_lint`, que é exactamente o que ele existe para fazer. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-082**: propagação do que deixou de ser verdade neste documento. Os painéis passam de quatro a **cinco** (o do orçamento de erro), a tabela do §1 ganha a linha das **regras de SLO** (`kamba-slo.yml` e `kamba-manutencao.yml`), e o «Não cobre» deixa de dizer que os SLOs não existem — existem, em [`../ops/slo.md`](../ops/slo.md), que é a fonte sobre eles e não este documento. As contagens do §3 e do §5 **não se tocaram**: dizem «as 8 regras do `kamba.yml`» e continuam exactas. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-048**: as contagens do §1 e do §2.1 passam a **21 módulos, 123 nomes** contados e **125** declaradas (eram 20, 120 e 122), e a aritmética das «restantes» do §2.2 de 55 para **58**. O módulo novo é o `services/com/src/servicos/reminders/metricas.ts`, e o §2.1 ganha o terceiro exemplo da mesma propagação que o `provisioning` e o `sms` pagaram. **Os números levam ao lado a ponta onde foram medidos** (`765ea18`), porque há um PR aberto ao lado (KAM-055) que acrescenta outro módulo ao mesmo inventário: quem fundir em segundo remede. E não levam ordinal — a primeira versão desta emenda chamava ao módulo «o primeiro» dentro de um serviço, que é uma afirmação sobre a ordem de fusão e não sobre o código. | Equipa KAMBÁ |

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.64"
+versao_dicionario: "1.65"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5832,6 +5832,26 @@ entradas:
     nomes_nota:
       - "tool"
       - "tools"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "A quem uma subscrição manda avisar"
+    canonico: "subscriptions[].notifica, cada entrada ∈ {cliente, dono}"
+    literais:
+      - "subscriptions[].notifica"
+      - "cliente"
+      - "dono"
+    nomes:
+      - "subscriptions"
+      - "notifica"
+      - "cliente"
+      - "dono"
+    nomes_nota:
+      - "Destinatario"
+      - "DESTINATARIOS_DA_NOTIFICACAO"
+      - "vertical"
+      - "tipo"
+      - "if"
+      - "accoes_de"
     variantes_literais: []
   - seccao: "3.26"
     conceito: "Tool de pesquisa no catálogo"
