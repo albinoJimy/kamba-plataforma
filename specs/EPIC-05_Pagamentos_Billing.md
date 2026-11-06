@@ -789,7 +789,7 @@ produtor como estava.
 
 #### Alterações fora dos critérios, declaradas
 
-1. **O passo (7) da `append_payment_event` é substituído.** É a nota do topo desta secção, e sem ela os critérios 1 e 3 não podiam ser verdadeiros ao mesmo tempo. O corpo da função escreve-se **uma vez** no `_porta(passo_sete)` e o que está duas vezes são os dois fragmentos do passo (7) — o que torna as duas versões idênticas **por construção** em tudo o resto, e nenhuma edição futura pode desviar uma da outra por descuido.
+1. **O passo (7) da `append_payment_event` é substituído.** É a nota do topo desta secção, e sem ela os critérios 1 e 3 não podiam ser verdadeiros ao mesmo tempo. O corpo da função escreve-se **uma vez** no `_porta(passo_sete)` e o que está duas vezes são os dois fragmentos do passo (7) — o que torna as duas versões idênticas **por construção** em tudo o resto, e nenhuma edição futura pode desviar uma da outra por descuido. **E a fidelidade da cópia mediu-se, não se afirmou:** renderizando as funções sem base de dados (um `alembic.op` que apanha o SQL) e diferenciando o corpo da `0035` **com o passo (7) da `0029`** contra o `_append()` da `0029`, o diff dá **três** linhas, e as três são o re-embrulho de **um comentário** — o que citava «o `jsonb_build_object` do passo (7)», que a versão nova não usa, porque o `motivo` passa a viajar como argumento da `payment_evt_payload`. Fora disso, e fora do `CREATE OR REPLACE`, o corpo é byte a byte o da `0029`. Era a afirmação de maior risco do ramo, e é a que menos se vê a olho em duzentas linhas de SQL.
 2. **A FK de `refund_cases.order_id`** não está no critério 8 e entra. O repositório nomeia este ticket como credor dela em **quatro** sítios independentes (a nota da `0032`, o comentário da `0029`, o `test_as_fk_nao_apagam_em_cascata` e o `test_nao_ha_fk_para_fora_de_platform`), todos com a mesma razão: pôr a FK de `order_id` só num dos lados deixava o par incoerente.
 3. **A porta passa a recusar um `pagamento_divergente` sem `motivo`.** Antes escrevia a linha. As três alternativas eram piores: inventar um motivo (dados falsos num ledger *append-only*), não emitir (perder um sinal Sev1 que o §6.4 manda levar ao HND), ou emitir um envelope que o esquema do `payment.failed` rejeita. Um ensaio existente escrevia-o nulo e passou a trazer `valor_divergente`.
 4. **O `estadoDe` da `MaquinaDeEstados` recebe a ligação por argumento.** A razão está na caixa 4 do DoD. Nenhum chamador de produção existia (a `MaquinaNaBase` nunca tinha sido construída), e os dois duplos de teste declaram `estadoDe()` sem parâmetros e continuam a satisfazer a interface.
@@ -833,6 +833,26 @@ encomenda (que exige um evento autenticado, **KAM-055**) ou um **agendador**
   escopo que nenhum critério pede, e fazê-lo em silêncio era exactamente o que
   esta casa não quer. **Credor: o fundador**, que decide se a atribuição da
   célula do KAM-045 vale como critério deste bloco ou se abre ticket próprio.
+
+#### O espelho em Python da biblioteca de eventos fica atrás, e fica dito
+
+O `../libs/py-core/src/kamba_core/eventos/` é o espelho em Python do
+`packages/core-ts/src/eventos/`, e a paridade entre os dois é medida por **97**
+ensaios — que continuam verdes com este ramo (medido:
+`python -m unittest discover -s libs/py-core/tests -t libs/py-core/tests -p "test_eventos_*.py"`
+→ `Ran 97 tests / OK`). Verdes porque **nenhum deles compara o conjunto de
+saídas** entre os dois idiomas: o espelho tem `Adiar` e `ForaDeOrdem`, não tem
+`EstadoIncompativel`, e o `estado_de(tipo, id)` dele continua sem o argumento da
+ligação.
+
+Não se mexe aqui, e a razão é de âmbito e não de custo: o critério 4 pede o
+consumidor **no COM**, que é TypeScript, e o consumidor Python serve as
+verticais do AGR — que, pelo `../docs/tecnica/06` §5, **avisam** e não transitam
+encomendas. A divergência não tem hoje caminho de dano. Mas é uma divergência
+numa classificação de segurança entre dois idiomas da mesma biblioteca, e essa é
+a classe de defeito que esta casa nomeia uma camada acima (dois documentos a
+dizer coisas diferentes). Fica escrita no `../docs/consumo.md`, emenda 1.2.
+Credor: **KAM-006**, que é quem é dono da paridade.
 
 #### Um achado que a FK desta revisão desbloqueia, e que não se faz aqui
 
