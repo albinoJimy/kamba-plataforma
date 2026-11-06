@@ -135,6 +135,7 @@ export {
   Adiar,
   ESCADA_DO_CONSUMIDOR,
   type Efeito,
+  EstadoIncompativel,
   ForaDeOrdem,
   type OpcoesDoConsumo,
   type ResultadoDoConsumo,
@@ -192,6 +193,7 @@ export {
 export {
   type ClienteDeLeitura,
   ESTADOS_DA_ENCOMENDA,
+  ESTADOS_INCOMPATIVEIS,
   ESTADO_PRETENDIDO,
   EstadoDesconhecidoError,
   type EstadoDaEncomenda,
@@ -199,6 +201,7 @@ export {
   MaquinaNaBase,
   TRANSICOES,
   eEstado,
+  estadoIncompativel,
   podeTransitar,
 } from "./estados.ts";
 

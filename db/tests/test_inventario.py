@@ -1755,9 +1755,11 @@ INVENTARIO = {
             "uuid",
             SIM,
             None,
-            "nao — **sem FK**: a `orders_mirror` e do KAM-044 e a FK do "
-            "KAM-055. Anulavel porque exactamente um dos dois sujeitos existe, "
-            "e o `payment_charges_um_sujeito` impoe-no",
+            "nao — FK composta `(tenant_id, order_id)` para a `orders_mirror` "
+            "desde a `0035` (KAM-055); a tabela e do KAM-044. Continua "
+            "anulavel porque exactamente um dos dois sujeitos existe, e o "
+            "`payment_charges_um_sujeito` impoe-no — o `MATCH SIMPLE` da FK e "
+            "o que deixa o nulo passar",
         ),
         "billing_cycle_id": (
             "uuid",
@@ -1909,7 +1911,9 @@ INVENTARIO = {
             None,
             "nao — copiado da cobranca pela funcao, nunca enviado pelo "
             "chamador: um evento nao aponta para um sujeito diferente do da "
-            "cobranca a que pertence. Sem FK, pela razao da `payment_charges`",
+            "cobranca a que pertence. FK composta desde a `0035` (KAM-055), "
+            "pela razao da `payment_charges` — e e esta que torna uma "
+            "encomenda com ledger impossivel de apagar",
         ),
         "billing_cycle_id": ("uuid", SIM, None, "nao — idem"),
         "provider": ("text", NAO, None, "nao"),
@@ -2121,9 +2125,9 @@ INVENTARIO = {
             "uuid",
             SIM,
             None,
-            "nao — **sem FK**: a FK para orders_mirror fica no KAM-055 com a da "
-            "payment_charges, porque pô-la so num dos dois lados deixava o par "
-            "incoerente",
+            "nao — FK composta para a orders_mirror desde a `0035` (KAM-055), "
+            "ao lado da da payment_charges: pô-la so num dos dois lados "
+            "deixava o par incoerente",
         ),
         "charge_id": ("uuid", SIM, None, "nao"),
         "motivo": ("text", NAO, None, "nao — razao escrita, obrigatoria (M-8)"),
@@ -2600,8 +2604,9 @@ class TestInventario(ComBase):
                         # `deleted_at` do dicionario §2 e que faz o *soft
                         # delete*.
                         #
-                        # A FK de `refund_cases.order_id` **nao** esta aqui: e
-                        # do KAM-055, com a da `payment_charges`.
+                        # A FK de `refund_cases.order_id` **nao** esta aqui: veio
+                        # com a `0035` (KAM-055), ao lado da da
+                        # `payment_charges` e pela razao dela.
                         "payment_confirmers_tenant_fk",
                         "payment_confirmers_contact_fk",
                         "manual_confirmations_tenant_fk",
@@ -2725,12 +2730,13 @@ class TestInventario(ComBase):
                         # uma venda, e isso e prova.
                         "payment_accounts_tenant_fk",
                         # KAM-053: as **seis** da revisao `0029`, e sao seis e
-                        # nao oito porque duas nao existem de proposito — a de
-                        # `order_id` para `orders_mirror` e do **KAM-055** e a
-                        # de `billing_cycle_id` para `billing_cycles` do
-                        # **KAM-059**, e as duas tabelas ainda nao existem (o
-                        # `CHECK` de exclusividade entre os dois sujeitos fica
-                        # na `0029`, porque nao depende de tabela nenhuma).
+                        # nao oito porque duas nao nascem com ela — a de
+                        # `order_id` para `orders_mirror` chegou com a `0035`
+                        # (KAM-055) e esta no bloco de baixo; a de
+                        # `billing_cycle_id` para `billing_cycles` e do
+                        # **KAM-059** e a tabela ainda nao existe (o `CHECK` de
+                        # exclusividade entre os dois sujeitos fica na `0029`,
+                        # porque nao depende de tabela nenhuma).
                         #
                         # **Nenhuma e composta com o `tenant_id`**, e nas
                         # tres que apontam para a `payment_accounts` isso nao e
@@ -2763,6 +2769,32 @@ class TestInventario(ComBase):
                         "payment_events_tenant_fk",
                         "payment_events_charge_fk",
                         "payment_events_account_fk",
+                        # KAM-055: as **tres** da revisao `0035`, e sao as que o
+                        # bloco acima e o da `0032` deixaram escritas com este
+                        # ticket por credor. Todas `(tenant_id, order_id) ->
+                        # orders_mirror (tenant_id, id)`, contra a
+                        # `orders_mirror_tenant_id_uq` — isto e, **compostas**,
+                        # ao contrario das seis de cima, e aqui isso e possivel
+                        # porque o `tenant_id` da `orders_mirror` e `NOT NULL`.
+                        #
+                        # `MATCH SIMPLE` (a omissao) e o que deixa a coluna
+                        # anulavel continuar a servir: uma cobranca de ciclo de
+                        # billing tem `order_id` nulo — o
+                        # `payment_charges_um_sujeito` exige exactamente um dos
+                        # dois sujeitos — e com um nulo no par a restricao esta
+                        # satisfeita. Com `MATCH FULL` a facturacao da propria
+                        # KAMBA do secao 11.2 ficava sem caminho de escrita.
+                        #
+                        # A da `payment_events` e a que custa: o ledger e
+                        # *append-only*, pelo que ela torna uma encomenda com
+                        # eventos impossivel de apagar. E o que se quer em
+                        # producao (uma encomenda marca-se, nao se apaga) e e o
+                        # que a limpeza de `db/tests_pagamentos/base.py` passa a
+                        # respeitar, pela forma que o KAM-044 ja usava para o
+                        # `order_state_log`.
+                        "payment_charges_encomenda_do_mesmo_tenant_fk",
+                        "payment_events_encomenda_do_mesmo_tenant_fk",
+                        "refund_cases_encomenda_do_mesmo_tenant_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",

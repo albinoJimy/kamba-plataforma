@@ -223,6 +223,8 @@ REV29 = "db/migrations/versions/0029_ledger_de_pagamentos.py"
 REV30 = "db/migrations/versions/0030_encomendas_e_estados.py"
 #: KAM-176: o *trigger* por instrucao do registo passa a cobrir o `UPDATE`.
 REV31 = "db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py"
+#: KAM-055: as FK de `order_id`, o mapa do *outbox* e o `payload` do contrato.
+REV35 = "db/migrations/versions/0035_payment_order_fks.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6061,6 +6063,54 @@ MUTACOES = [
     # A caixa de privacidade do DoD deixa de ser uma barreira e volta a ser uma
     # convencao. Num ledger *append-only* isso e pior do que noutra tabela: um
     # telefone que entre nao sai, nem com `UPDATE`.
+    # ------------------------------------- KAM-055, os eventos de pagamento
+    #
+    # Tres, e cada uma ataca **uma** barreira que a revisao `0035` traz. A
+    # escolha e a da lista acima: primeiro a que deixaria pagar a encomenda de
+    # outro tenant, depois a que deixaria emitir sem autenticacao, por fim a que
+    # deixaria publicar um envelope que o contrato recusa.
+    #
+    # **Nenhuma delas muta so a funcao: todas mutam a ligacao.** A primeira
+    # tira o `tenant_id` da FK — a funcao continua a existir e a referenciar a
+    # `orders_mirror`, e o que muda e **a que** linha ela liga. E a licao que o
+    # KAM-179 escreveu: uma funcao correcta ligada ao sitio errado passa todos
+    # os ensaios dela.
+    ('revisao 0035: a FK da cobranca deixa de levar o tenant_id', REV35,
+     f'''        f"ALTER TABLE {{COBRANCAS}} "
+        f"  ADD CONSTRAINT {{FK_DAS_COBRANCAS}} "
+        f"  FOREIGN KEY (tenant_id, order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (tenant_id, id)"''',
+     f'''        f"ALTER TABLE {{COBRANCAS}} "
+        f"  ADD CONSTRAINT {{FK_DAS_COBRANCAS}} "
+        f"  FOREIGN KEY (order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (id)"''',
+     "tests_pagamentos"),
+    # **A mutacao mais importante das tres**, e e a classe ISO-58: com a FK
+    # simples, a encomenda **existe** e a cobranca do tenant A aponta para a de
+    # B sem nada a impedir. O `test_uma_cobranca_para_encomenda_inexistente_e_
+    # recusada` **sobrevive** a isto de proposito (um `uuid` aleatorio continua
+    # a nao existir em lado nenhum); quem a tem de matar e o
+    # `test_uma_cobranca_para_encomenda_de_outro_tenant_e_recusada`, que e o
+    # unico com dois tenants. Sem ele, a lista ficava com uma mutacao viva.
+    ('revisao 0035: o payload deixa de exigir authn_ok', REV35,
+     '            IF p_authn_ok IS NOT TRUE THEN',
+     '            IF false THEN',
+     "tests_pagamentos"),
+    # «Nunca existe um emitido sem o `authn_ok=true` correspondente no ledger»
+    # (criterio 2) volta a ser convencao de quem enche o mapa. O
+    # `test_o_payload_recusa_um_confirmado_sem_autenticacao` tem de a matar, nos
+    # dois tipos.
+    ('revisao 0035: o evento volta a agregar pela cobranca', REV35,
+     "              v_evt_tipo, v_evt_versao, v_charge.tenant_id, 'order',",
+     "              v_evt_tipo, v_evt_versao, v_charge.tenant_id, 'payment_charge',",
+     "tests_pagamentos"),
+    # O defeito que a `0035` existe para fechar, reposto: um envelope com
+    # `agregado.tipo = 'payment_charge'` e um `const: "order"` no esquema do
+    # evento. **A mutacao e no argumento e nao no `payload`**, e isso e
+    # deliberado: o `payload` continua certo, pelo que so um ensaio que confronte
+    # o envelope **inteiro** com o ficheiro de contrato a apanha — e e o
+    # `test_o_envelope_da_porta_valida_contra_o_esquema`. Um ensaio que olhasse
+    # so para o `payload` sobrevivia a isto.
 ]
 
 

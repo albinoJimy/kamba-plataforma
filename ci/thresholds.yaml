@@ -289,6 +289,24 @@ excluidos:
   # bateria propria; o gate 7 exercita-o por inteiro, tres vezes, pelo alvo
   # `ci-7-meta`. Medi-lo por unidade dava-lhe 0% e nao dizia nada.
   - "tools/meta-sim/src/cli.ts"
+  # O processo do consumidor de pagamentos do COM (KAM-055). E a mesma situacao
+  # do `eventos/trabalhador_bullmq.ts`, do `chr/fila.ts` e do
+  # `agr/trabalhador.ts`, com a agravante de o estrato: o padrao
+  # `*/payments/*` do `critico` exige **90% por ficheiro**, e este ficheiro e
+  # casca — dois `Client` do `pg`, um `Worker` do BullMQ e um `serve` do Hono.
+  # Quem o exercita de verdade e uma fila real, que nao produz cobertura V8.
+  #
+  # **O que pode errar em silencio esta noutro ficheiro, e fica medido:** as
+  # duas verificacoes de arranque (a invariante global das subscricoes de
+  # `payment.%` e a subscricao deste consumidor), o `exigir`, o `porta` e o
+  # `criarApp` vivem em `services/com/src/payments/arranque.ts`, no estrato
+  # `critico`, com bateria propria em `services/com/tests/payments.arranque.test.ts`.
+  # O ficheiro foi partido em dois **por causa desta linha**: sem a separacao,
+  # excluir a casca excluia tambem as guardas.
+  #
+  # O efeito — que e onde o dinheiro se decide — e o
+  # `services/com/src/payments/efeito.ts`, e esse fica medido no `critico`.
+  - "services/com/src/payments/consumidor.ts"
 
 # Tolerancia zero: descer 1 ponto abaixo do limiar falha o gate. O ticket diz
 # "descer 1 ponto abaixo falha o gate", pelo que nao ha margem nem arredondamento

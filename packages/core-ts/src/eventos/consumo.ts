@@ -9,6 +9,7 @@
  *       se n == 0: COMMIT; duplicado — e não se faz mais nada
  *       se exige_ordem: ler o último seq e o estado do agregado
  *                       → Adiar (pré-condição por chegar)
+ *                       → EstadoIncompativel (estado terminal; KAM-055)
  *                       → ForaDeOrdem (seq atrasado E transição inválida)
  *       efeito(bd, envelope)  ← na MESMA transacção
  *     COMMIT
@@ -59,6 +60,7 @@ import type { Envelope } from './envelope.ts';
 import {
   ESTADO_PRETENDIDO,
   type MaquinaDeEstados,
+  estadoIncompativel,
   podeTransitar,
 } from './estados.ts';
 import {
@@ -152,6 +154,33 @@ export class ForaDeOrdem extends Error {
   constructor(detalhe: string) {
     super(`${ForaDeOrdem.CODIGO}: ${detalhe}`);
     this.name = 'ForaDeOrdem';
+    this.detalhe = detalhe;
+  }
+}
+
+/**
+ * O agregado está num estado terminal para este tipo de evento (KAM-055).
+ *
+ * Irmã da `ForaDeOrdem` e não da `Adiar`, e a escolha é o critério 7: um
+ * `payment.confirmed` sobre uma encomenda `expirada` ou `cancelada` não é um
+ * evento que chegou cedo — é um evento que chegou **tarde**, e nenhuma das seis
+ * tentativas o resolve. Adiá-lo gastava a escada inteira para acabar na DLQ com
+ * `adiado_sem_resolver`, que esconde a razão a quem a abre.
+ *
+ * Vai direita à DLQ, e é Sev1 sem nada de novo: o `PREFIXOS_SEV1` do `dlq.ts`
+ * já tem `payment.`.
+ */
+export class EstadoIncompativel extends Error {
+  /** O valor que vai para a coluna `erro` da DLQ, e que o critério 7 exige. */
+  static readonly CODIGO = 'estado_incompativel';
+
+  readonly estado: string;
+  readonly detalhe: string;
+
+  constructor(estado: string, detalhe: string) {
+    super(`${EstadoIncompativel.CODIGO}: ${detalhe}`);
+    this.name = 'EstadoIncompativel';
+    this.estado = estado;
     this.detalhe = detalhe;
   }
 }
@@ -282,13 +311,28 @@ export async function consumir(
             'manda que o paga só se alcance por evento autenticado',
         );
       }
-      const estado = await maquina.estadoDe(agregado.tipo, agregado.id);
+      // O `bd` **desta** transacção, e não um cliente que a máquina guardasse:
+      // o `SET LOCAL app.tenant_id` de cima vale só aqui, e uma leitura fora
+      // desta sessão devolvia `null` sempre sob RLS `FORCE`. Ver a nota do
+      // `estadoDe` em `estados.ts`.
+      const estado = await maquina.estadoDe(agregado.tipo, agregado.id, bd);
       if (estado === null) {
         // O agregado ainda não existe para este consumidor. Não é inválido:
         // é cedo. `null` nunca é «pode».
         throw new Adiar(
           ADIAMENTO_POR_OMISSAO,
           `${agregado.tipo} ${agregado.id} ainda não existe neste consumidor`,
+        );
+      }
+      // **Antes** do `podeTransitar`, e a ordem é o critério 7 do KAM-055: os
+      // dois estados terminais têm de sair por aqui, e um deles — `expirada` —
+      // é aceite pelo `podeTransitar` de propósito (pagamento tardio, KAM-050).
+      // Depois dele, esse caso nunca chegava a esta classificação.
+      if (estadoIncompativel(envelope.tipo, estado)) {
+        throw new EstadoIncompativel(
+          estado,
+          `${agregado.tipo} ${agregado.id} está ${estado} e ${envelope.tipo} não ` +
+            'a transita (o caso completo é o KAM-050)',
         );
       }
       if (!podeTransitar(estado, pretendido)) {

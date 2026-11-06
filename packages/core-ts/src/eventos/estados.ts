@@ -83,6 +83,35 @@ export const ESTADO_PRETENDIDO: Readonly<Record<string, EstadoDaEncomenda>> = {
   'payment.manual_confirmed': 'paga',
 };
 
+/**
+ * Os estados em que um `payment.*` **nunca** se resolve esperando (KAM-055).
+ *
+ * É uma lista diferente da `TRANSICOES`, e a diferença é o que o critério 7 do
+ * KAM-055 pede. Sem ela, os dois estados terminais caíam em sítios errados e
+ * nenhum dos dois dava o código que o critério nomeia:
+ *
+ * * `cancelada` não tem arestas de saída, pelo que `podeTransitar` diz «não» e
+ *   o consumidor **adia** — e adia seis vezes, para acabar na DLQ com
+ *   `adiado_sem_resolver`, gastando trinta minutos de fila a esperar por um
+ *   estado que nunca chega;
+ * * `expirada` está na `TRANSICOES` **com** `paga` de propósito (o pagamento
+ *   tardio do Multicaixa por referência é um caso real), pelo que
+ *   `podeTransitar` diz «pode» — e o efeito ia aplicar uma transição que o
+ *   grafo da base, onde o núcleo da revisão `0030` não tem essa aresta,
+ *   recusa com um erro técnico que nada diz a quem o lê na DLQ.
+ *
+ * As duas são então **terminais para este consumidor**: vão direitas à DLQ com
+ * `estado_incompativel`, que é Sev1 por `payment.` já estar em
+ * `PREFIXOS_SEV1`. O caso completo do pagamento tardio é o **KAM-050**, e é por
+ * isso que a aresta `expirada → paga` fica na `TRANSICOES` em vez de sair: o
+ * grafo do §6.1 continua a ser o do negócio, e o que esta lista diz é só que
+ * **este** ticket não a implementa.
+ */
+export const ESTADOS_INCOMPATIVEIS: Readonly<Record<string, readonly EstadoDaEncomenda[]>> = {
+  'payment.confirmed': ['expirada', 'cancelada'],
+  'payment.manual_confirmed': ['expirada', 'cancelada'],
+};
+
 /** O que o consumidor pergunta antes de aplicar um efeito de transição. */
 export interface MaquinaDeEstados {
   /**
@@ -91,8 +120,21 @@ export interface MaquinaDeEstados {
    * `null` **não** é «pode»: um `payment.confirmed` sobre uma encomenda que
    * ainda não existe na réplica do consumidor é exactamente o caso que o
    * critério 3 manda adiar.
+   *
+   * **O `bd` é o da transacção do consumo, e vem por argumento de propósito.**
+   * Tinha sido o cliente do construtor, e a primeira implementação real
+   * (KAM-055) mostrou que isso não funcionava: o `consumir` corre
+   * `SET LOCAL app.tenant_id` **dentro** da sua transacção, pelo que uma
+   * máquina ligada a outra sessão lia a `orders_mirror` sem contexto — e sob
+   * RLS `FORCE` isso não é «vê menos», é `null` **sempre**, que a pré-condição
+   * lê como «a encomenda ainda não existe» e adia até à DLQ. Recebendo o
+   * cliente, a leitura é estruturalmente a da transacção e não por combinação.
    */
-  estadoDe(agregadoTipo: string, agregadoId: string): Promise<EstadoDaEncomenda | null>;
+  estadoDe(
+    agregadoTipo: string,
+    agregadoId: string,
+    bd: ClienteDeLeitura,
+  ): Promise<EstadoDaEncomenda | null>;
 }
 
 export class EstadoDesconhecidoError extends Error {
@@ -124,13 +166,30 @@ export function podeTransitar(de: string, para: string): boolean {
 }
 
 /**
+ * O estado é incompatível com este tipo de evento, sem esperança de mudar?
+ *
+ * Um estado desconhecido **lança**, pela mesma razão que o `podeTransitar`: um
+ * `false` silencioso aqui lia-se como «compatível» e mandava o evento pelo
+ * caminho do adiamento, que é o oposto da decisão que o critério 7 do KAM-055
+ * quer. Ver a `ESTADOS_INCOMPATIVEIS`.
+ */
+export function estadoIncompativel(tipo: string, estado: string): boolean {
+  if (!eEstado(estado)) throw new EstadoDesconhecidoError(estado);
+  return (ESTADOS_INCOMPATIVEIS[tipo] ?? []).includes(estado);
+}
+
+/**
  * A máquina real, sobre a tabela de encomendas do consumidor.
  *
- * `COM` (o core de comércio) é o KAM-041 e ainda não existe; esta
- * implementação lê a coluna de estado da tabela que lhe for dada, para que o
- * consumidor não fique à espera dela. A consulta é parametrizada e o nome da
- * tabela é validado contra uma forma fechada — não se interpola um nome vindo
- * de fora numa consulta.
+ * Lê a coluna de estado da tabela que lhe for dada. A consulta é parametrizada
+ * e o nome da tabela é validado contra uma forma fechada — não se interpola um
+ * nome vindo de fora numa consulta.
+ *
+ * O primeiro uso real é o consumidor de pagamentos do COM (KAM-055), com
+ * `new MaquinaNaBase('orders_mirror')`. O nome da tabela continua a entrar por
+ * argumento e não fixo: a `orders` do dia em que isto se escreveu não existe, e
+ * amarrar a biblioteca ao nome de hoje era pedir uma edição dela no dia em que
+ * um segundo consumidor lesse outra réplica.
  */
 const NOME_DE_TABELA = /^[a-z][a-z0-9_]{1,62}$/;
 
@@ -139,29 +198,30 @@ export interface ClienteDeLeitura {
 }
 
 export class MaquinaNaBase implements MaquinaDeEstados {
-  readonly #bd: ClienteDeLeitura;
   readonly #tabela: string;
   readonly #colunaId: string;
   readonly #colunaEstado: string;
 
-  constructor(
-    bd: ClienteDeLeitura,
-    tabela = 'orders',
-    colunaId = 'id',
-    colunaEstado = 'estado',
-  ) {
+  /**
+   * **Sem cliente**, e a ausência é o desenho. Ver a nota do `estadoDe` da
+   * interface: a ligação é a da transacção do consumo e chega por argumento.
+   */
+  constructor(tabela = 'orders', colunaId = 'id', colunaEstado = 'estado') {
     for (const nome of [tabela, colunaId, colunaEstado]) {
       if (!NOME_DE_TABELA.test(nome)) throw new Error(`nome inválido: ${nome}`);
     }
-    this.#bd = bd;
     this.#tabela = tabela;
     this.#colunaId = colunaId;
     this.#colunaEstado = colunaEstado;
   }
 
-  async estadoDe(agregadoTipo: string, agregadoId: string): Promise<EstadoDaEncomenda | null> {
+  async estadoDe(
+    agregadoTipo: string,
+    agregadoId: string,
+    bd: ClienteDeLeitura,
+  ): Promise<EstadoDaEncomenda | null> {
     if (agregadoTipo !== 'order') return null;
-    const { rows } = await this.#bd.query(
+    const { rows } = await bd.query(
       `SELECT ${this.#colunaEstado} AS estado FROM platform.${this.#tabela} ` +
         `WHERE ${this.#colunaId} = $1`,
       [agregadoId],

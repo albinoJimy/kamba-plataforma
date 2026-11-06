@@ -25,9 +25,11 @@ import {
   Adiar,
   ESCADA_DO_CONSUMIDOR,
   ESTADOS_DA_ENCOMENDA,
+  ESTADOS_INCOMPATIVEIS,
   ESTADO_PRETENDIDO,
   type Envelope,
   EstadoDesconhecidoError,
+  EstadoIncompativel,
   ForaDeOrdem,
   METRICA_CONSUMIDOS,
   METRICA_RETENTATIVAS,
@@ -43,6 +45,7 @@ import {
   atrasoDaTentativaDoConsumidor,
   consumir,
   eEstado,
+  estadoIncompativel,
   lerEnvelope,
   podeTransitar,
 } from "../src/eventos/index.ts";
@@ -588,5 +591,151 @@ describe("processar(): a política das seis tentativas", () => {
       processar({ ...base({ tentativa: 0 }) }, async () => {}),
       RangeError,
     );
+  });
+});
+
+describe("o estado incompatível do KAM-055", () => {
+  it("são os dois terminais, e só para os dois eventos que pagam", () => {
+    assert.deepEqual(Object.keys(ESTADOS_INCOMPATIVEIS).sort(), [
+      "payment.confirmed",
+      "payment.manual_confirmed",
+    ]);
+    for (const tipo of Object.keys(ESTADOS_INCOMPATIVEIS)) {
+      assert.deepEqual([...(ESTADOS_INCOMPATIVEIS[tipo] ?? [])].sort(), [
+        "cancelada",
+        "expirada",
+      ]);
+    }
+    // E os dois são exactamente os do `ESTADO_PRETENDIDO`: uma lista a mais
+    // declarava um estado terminal para um evento que não transita nada.
+    assert.deepEqual(
+      Object.keys(ESTADOS_INCOMPATIVEIS).sort(),
+      Object.keys(ESTADO_PRETENDIDO).sort(),
+    );
+  });
+
+  it("diz sim aos dois terminais e não ao estado de onde se paga", () => {
+    assert.ok(estadoIncompativel("payment.confirmed", "expirada"));
+    assert.ok(estadoIncompativel("payment.confirmed", "cancelada"));
+    assert.ok(!estadoIncompativel("payment.confirmed", "aguarda_pagamento"));
+    assert.ok(!estadoIncompativel("payment.confirmed", "pendente_confirmacao"));
+  });
+
+  it("não é a mesma pergunta que o podeTransitar, e o expirada prova-o", () => {
+    // **O caso que obriga a verificação a vir antes.** A aresta
+    // `expirada → paga` está na TRANSICOES de propósito (pagamento tardio do
+    // Multicaixa), pelo que o `podeTransitar` diz «pode» — e se a
+    // classificação corresse depois dele, o efeito aplicava uma transição que o
+    // grafo da base recusa. O `cancelada` não tem arestas e diz «não», que é o
+    // caminho do adiamento: dois estados, dois sítios errados, um código certo.
+    assert.ok(TRANSICOES.expirada.includes("paga"));
+    assert.ok(podeTransitar("expirada", "paga"));
+    assert.ok(!podeTransitar("cancelada", "paga"));
+    assert.ok(estadoIncompativel("payment.confirmed", "expirada"));
+  });
+
+  it("um estado desconhecido lança, como no podeTransitar", () => {
+    assert.throws(
+      () => estadoIncompativel("payment.confirmed", "pago"),
+      EstadoDesconhecidoError,
+    );
+  });
+
+  it("um evento sem lista nunca é incompatível", () => {
+    assert.ok(!estadoIncompativel("order.created", "cancelada"));
+  });
+});
+
+describe("consumir() sobre um estado terminal", () => {
+  let bd: BdFalsa;
+  let metricas: Metricas;
+
+  beforeEach(() => {
+    bd = new BdFalsa();
+    metricas = new Metricas();
+  });
+
+  for (const estado of ["expirada", "cancelada"] as const) {
+    it(`recusa um payment.confirmed numa encomenda ${estado}, sem aplicar nada`, async () => {
+      const feitos: string[] = [];
+      await assert.rejects(
+        consumir(
+          {
+            bd,
+            consumer: CONSUMER,
+            envelope: envelope({ tipo: "payment.confirmed" }),
+            exigeOrdem: true,
+            maquina: new MaquinaFalsa(estado),
+            metricas,
+          },
+          async () => {
+            feitos.push("efeito");
+          },
+        ),
+        (erro: unknown) => {
+          assert.ok(erro instanceof EstadoIncompativel);
+          assert.equal(erro.estado, estado);
+          return true;
+        },
+      );
+      assert.deepEqual(feitos, [], "o efeito não corre");
+      assert.ok(bd.instrucoes.includes("ROLLBACK"), "e a marca desfaz-se");
+    });
+  }
+
+  it("o código é o que o critério 7 escreve, e não um nome parecido", () => {
+    assert.equal(EstadoIncompativel.CODIGO, "estado_incompativel");
+  });
+});
+
+describe("processar() sobre um estado terminal", () => {
+  let bd: BdFalsa;
+  let metricas: Metricas;
+
+  beforeEach(() => {
+    bd = new BdFalsa();
+    metricas = new Metricas();
+  });
+
+  it("vai à DLQ à primeira tentativa, e não depois das seis", async () => {
+    const resultado = await processar(
+      {
+        bd,
+        consumer: CONSUMER,
+        envelope: envelope({ tipo: "payment.confirmed" }),
+        exigeOrdem: true,
+        maquina: new MaquinaFalsa("expirada"),
+        metricas,
+        tentativa: 1,
+      },
+      async () => {},
+    );
+    assert.equal(resultado.desfecho, "dlq");
+    assert.equal(resultado.erro, EstadoIncompativel.CODIGO);
+    // **À primeira**, e isso é a diferença que se mede: pelo caminho do
+    // `Adiar` seriam seis tentativas e meia hora de fila para acabar em
+    // `adiado_sem_resolver`, que esconde a razão a quem abre a entrada.
+    assert.equal(
+      parametro(bd, "INSERT INTO platform.events_dlq", 6),
+      EstadoIncompativel.CODIGO,
+    );
+    assert.equal(parametro(bd, "INSERT INTO platform.events_dlq", 7), 1);
+  });
+
+  it("não conta retentativa: não há nada a retentar", async () => {
+    await processar(
+      {
+        bd,
+        consumer: CONSUMER,
+        envelope: envelope({ tipo: "payment.confirmed" }),
+        exigeOrdem: true,
+        maquina: new MaquinaFalsa("cancelada"),
+        metricas,
+        tentativa: 1,
+      },
+      async () => {},
+    );
+    assert.equal(metricas.ler()[`${METRICA_RETENTATIVAS}:adiado`], undefined);
+    assert.equal(metricas.ler()[`${METRICA_RETENTATIVAS}:erro`], undefined);
   });
 });
