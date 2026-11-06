@@ -547,7 +547,7 @@ emite é especulação.
 | `contact.merged` | CHR | AGR, COM, DAT | contact | P1 | P | `contact_id`, `merged_into` |
 | `conversation.mode_changed` | HND | AGR, Ops | conversa | P1 | P | `thread_id`, `channel_mode` |
 | `booking.created` | SRV | AGR, DAT | booking | P1 | P | `booking_id`, `contact_id`, `service_id`, `resource_id`?, `inicio_at`, `fim_at` |
-| `booking.reminder_due` | SRV | AGR | booking | P1 | P | `booking_id`, `inicio_at` |
+| `booking.reminder_due` | SRV | COM (`servicos/reminders`) | booking | P1 | P | `booking_id`, `inicio_at` |
 | `booking.cancelled` | SRV | AGR, DAT | booking | P1 | P | `booking_id`, `motivo` |
 
 **Nenhum payload leva dado pessoal.** O texto de uma review não entra no
@@ -586,3 +586,4 @@ fica o que o envelope não traz e mais nada.
 | 1.1 | Outubro 2026 | O atraso medido passa a ser o do CI: **p95 = 0,195 s** a 50 eventos/s em `ubuntu-latest` ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)), cinco vezes abaixo do limiar *proposto*. A explicação que o §6 dava para os 6–15 s medidos em Windows — «o período do lote» — fica corrigida: se fosse o lote, o Linux daria os mesmos 4 s. A ressalva 8 do §10 fecha. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | Duas correcções vindas do KAM-006, no lado do produtor: o *job* passa a pedir `backoff: { type: 'custom' }` (§4), sem o que a escada do §6.4 nunca era consultada; e os dados do *job* passam a levar `tenant_id` ao lado do envelope, porque o consumidor é `kamba_app` e precisa dele para pôr o contexto da RLS antes de ler o arquivo. O lado do consumidor está em `docs/consumo.md`. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-007.** O §10 passa a ter o catálogo tipo a tipo — produtor, consumidores, agregado, PII, fase e **payload** —, lido dos contratos de `contratos/eventos/` para não haver uma terceira cópia escrita à mão. As secções 10 e 11 antigas passam a 11 e 12. A decisão aberta 1 («nove ou treze campos de topo») fecha em **catorze**, pela emenda 1.11 do dicionário; a 6 (`order.paid` fora do dicionário) fecha com o catálogo. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | **KAM-048: o consumidor do `booking.reminder_due` é o COM e não o AGR.** O catálogo espelhava o §12 do `tecnica/03`, que atribuía o lembrete ao AGR; a decisão do fundador dá-o ao COM, pela razão escrita na nota sob aquela tabela — com a janela da Meta fechada o lembrete leva data e hora, e o texto do AGR não leva números por desenho. O AGR continua a subscrever o tipo; retirar-lhe a acção é do KAM-038 e fica devolvido ao fundador. | Equipa KAMBÁ |

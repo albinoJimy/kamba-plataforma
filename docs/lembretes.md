@@ -304,23 +304,67 @@ se o volume a tornar lenta, e a alternativa é a coluna que hoje se recusa.
 | A subscrição de `booking.created` no COM | O consumidor genérico com recibo em `platform.events_consumed` é do KAM-006, e nenhum processo do COM subscreve hoje. O que está entregue é a função que esse consumidor chama | **KAM-071** |
 | A ligação da porta `AvisarDono` ao painel | É a costura entre dois módulos que não se conhecem, e quem a liga é quem tem o painel — a mesma escolha que o `avisarPainel` do `hnd/resposta.ts` fez | **KAM-019** / **KAM-031** |
 
-## 12. Um conflito entre dois consumidores do mesmo evento
+## 12. Dois consumidores do mesmo evento, e a decisão do fundador
 
-**Dois caminhos falam com o cliente sobre o mesmo `booking.reminder_due`, com
-chaves de idempotência diferentes — logo duas mensagens e não uma.** Não é um
-defeito deste ticket e não se corrige aqui; fica registado com a medição.
+**O caminho canónico é o do COM. A decisão é do fundador, de 2026-11-06.**
 
-E tem uma causa documental, que é o que torna isto previsível em vez de
-acidental: **dois documentos dão o consumo ao AGR e o ticket dá os módulos ao
-COM.** O [`tecnica/03_Core_Comercio_Medusa.md`](tecnica/03_Core_Comercio_Medusa.md)
-§12 escreve, na linha de `booking.reminder_due`, «`AGR` (mensagem livre ou
-*template utility*)», e o [`eventos.md`](eventos.md) dá-lhe consumidor `AGR`; os
-Detalhes Técnicos do KAM-048 escrevem «Módulos
-`services/com/servicos/reminders/{schedule,deliver,template}`». O ticket
-prevalece — é o nível 8 da ordem de fontes e os dois documentos são o nível 9 —,
-e foi por isso que a entrega se fez no COM. Mas o §12 já tinha levado o KAM-038 a
-escrever texto para o par no AGR, e é daí que vêm os dois caminhos. A metade
-textual está na dívida **194**; a metade que é decisão é a desta secção.
+O que havia antes dela, medido:
+
+| Caminho | Chave de idempotência | O que envia |
+|---|---|---|
+| AGR, vertical Serviços (KAM-038) | `{consumer}:{event_id}:{accao}` — a forma do §6.3, fixada no §3.5 do dicionário | Texto fixo **sem números**: «Lembramos a sua marcação. Se precisar de mudar, diga-nos.» |
+| COM, este ticket | `booking_id:reminder:T-24h` — a forma do critério 2 | O lembrete com serviço, data e hora, livre ou por *template* |
+
+**As duas chaves são canónicas, cada uma no seu lado — e isso não é o problema.**
+O que não eram duas é o **caminho ao cliente**: dois serviços a falar sobre um
+evento são duas mensagens, porque nenhuma das chaves deduplica a outra. Vale
+separar as duas coisas, senão quem ler conclui que o canon se contradiz quando o
+que havia era código a contradizer o canon.
+
+**Porque é o COM.** O critério 3 pede que, com a janela da Meta fechada, o
+lembrete leve a data e a hora da marcação. O texto do AGR não leva números **por
+desenho** — o `eventos/handlers.py` escreve-o por extenso: «nenhum texto leva
+números, e isso é uma regra e não um estilo», porque um valor citado errado é
+pior do que um valor omitido. Um lembrete sem a hora da marcação não é um
+lembrete, pelo que só um dos dois caminhos pode cumprir o critério.
+
+**A causa, que é o que torna isto previsível em vez de acidental.** Dois
+documentos de nível 9 davam o consumo ao AGR —
+[`tecnica/03_Core_Comercio_Medusa.md`](tecnica/03_Core_Comercio_Medusa.md) §12
+escrevia «`AGR` (mensagem livre ou *template utility*)», isto é, atribuía-lhe o
+comportamento que este módulo implementa, e o [`eventos.md`](eventos.md)
+espelhava-o — enquanto os Detalhes Técnicos do KAM-048, nível 8, davam os módulos
+ao COM. Foi o §12 que levou o KAM-038 a escrever o texto do par. Os dois
+documentos **foram emendados** por este ticket.
+
+### O que fica por fazer, e é devolvido
+
+**Retirar a acção ao AGR não se fez aqui**, e as duas razões são de natureza
+diferente:
+
+1. **Âmbito.** O texto do par no `TEXTOS` é comportamento **entregue** do
+   KAM-038, que já fundiu. Corrigir o produto de outro ticket a coberto deste é
+   como um ticket deixa de ser revisível.
+2. **Colisão de escritores, medida.** O ramo `fix/KAM-039-ao-dono-no-registry`
+   tem o `eventos/handlers.py` modificado na árvore de trabalho **neste
+   momento** — confirmado com `git status` no *worktree* dele, e não lido de um
+   relatório —, e está a substituir o mecanismo: a tabela de destinatários sai do
+   ficheiro para o `registry/`, e o `exigir_handlers` muda de assinatura. Uma
+   implementação escrita contra a forma antiga seria refeita, e dois escritores no
+   mesmo ficheiro é o que o isolamento por *worktree* existe para impedir.
+
+**Credor: o fundador**, porque é dele a decisão sobre o comportamento entregue do
+KAM-038. E a boa notícia é que, no modelo que o KAM-039 está a montar, isto fica
+mais barato do que era: com o destinatário em configuração, a decisão expressa-se
+na subscrição de `registry/servicos.yaml` — sem notificação declarada — mais a
+remoção da entrada do `TEXTOS`.
+
+**Hoje não há mensagem duplicada**, e por uma razão que não é desenho: o caminho
+do AGR não está ligado. A porta `OutboundPorLigar` devolve `sem_template`, o
+`Notificador` levanta `NotificacaoNaoEntregue` e o evento vai à DLQ. Dito sem
+rodeios: **cada `booking.reminder_due` consumido pela vertical Serviços abre hoje
+entrada na DLQ**. O duplicado nasce no dia em que o Outbound do KAM-015 for ligado
+ao AGR, e é esse o dia que esta caixa tem de preceder.
 
 | Caminho | Chave | O que envia |
 |---|---|---|
@@ -414,3 +458,4 @@ com o critério 1 violado à letra.
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Primeira versão, KAM-048. O agendamento em `inicio − 24 h` com o `inicio_at` no `jobId`, os portões do disparo, a chave composta `booking_id:reminder:T-24h`, a escolha de canal pela janela, o portão do *template* ligado ao KAM-015, o *gate* de consentimento ligado ao KAM-022, as quatro vias que provam a proveniência dos parâmetros, e os três contadores. Sem revisão de base de dados. Registra o que já existia e não se reescreveu (§2), o que fica por ligar com credor (§11) e o conflito de dois consumidores do mesmo evento (§12), que vai ao fundador. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **Revisão adversarial: catorze achados, e dois faziam o módulo não enviar nada.** O §13 nasce porque faltava — a caixa da DoD que o invocava estava marcada com uma linha de evidência que apontava para secções que não diziam nem o corpo do *template* nem a política de antecedência; contado, zero ocorrências das três posições e do limiar de 2 h. O §5 passa a dizer a verdade inteira sobre a chave: ela é protegida das recusas **anteriores** à linha e não das posteriores, e um `repetido` lido como «enviado» era uma mensagem que nunca saiu contada como entregue. O §10 deixa de prometer um custo que a consulta inventava, e passa a ter duas consultas que não convertem categorias em dinheiro, as falhas a cobrir os dois estados terminais, e a limitação dita de que ninguém as executa. As correcções de código, os ensaios que entraram e o que a revisão deu por limpo estão no bloco do ticket em `../specs/EPIC-04_Core_Comercio.md`. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **Decisão do fundador: o caminho canónico é o do COM.** O §12 deixa de pôr a pergunta e passa a registar a resposta, com a razão (o critério 3, e o texto do AGR a não levar números por desenho), a distinção que faltava — as duas *chaves* são canónicas, o *caminho ao cliente* é que não eram dois — e a caixa devolvida: retirar a acção ao AGR é comportamento entregue do KAM-038, com o fundador por credor, e não se fez por âmbito **e** por uma colisão de escritores medida no *worktree* do `fix/KAM-039-ao-dono-no-registry`. Fica dito sem rodeios que, hoje, cada `booking.reminder_due` consumido pela vertical Serviços abre entrada na DLQ. | Equipa KAMBÁ |
