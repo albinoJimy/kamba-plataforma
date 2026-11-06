@@ -56,11 +56,23 @@ class TestCriterioD(unittest.TestCase):
     #: inline, que esta arvore nao usa. Com a lista, uma excepcao **nova** fica
     #: vermelha nomeada, e esta fica registada em vez de esquecida.
     #:
-    #: O que o `AO_DONO` e: uma tabela de pares `(vertical, tipo)` com entradas
-    #: **so do Vendedor**, lida num `if` do `accoes_de`. O nucleo decide ali,
-    #: pelo nome da vertical, se o dono da loja e avisado — e e isso que o §5.4
-    #: (d) chama uma excepcao no core.
-    CONHECIDAS = {("services/agr/src/kamba_agr/eventos/handlers.py", "ao_dono")}
+    #: **Esta vazia desde que o `AO_DONO` saiu do nucleo**, e e isso que faz a
+    #: condicao (d) passar. O que ele era: uma tabela de pares `(vertical, tipo)`
+    #: com entradas **so do Vendedor**, lida num `if` do `accoes_de` — o nucleo
+    #: decidia ali, pelo nome da vertical, se o dono da loja era avisado, que e
+    #: a letra do que o §5.4 (d) chama uma excepcao no core. Passou a
+    #: `subscriptions[].notifica` do `registry/`, que o criterio exclui da busca
+    #: por extenso.
+    #:
+    #: Medido a 2026-11-06: `python -m reuse_metric nucleo` → 110 ficheiros,
+    #: `fluxo 0, dominio 1, conteudo 45, prosa 119`, saida **0**.
+    #:
+    #: **Vazia nao e o mesmo que ausente**, e por isso a lista fica: um conjunto
+    #: vazio mantem o ensaio a dizer «nenhuma, e sei quais eram as que havia», e
+    #: uma excepcao nova continua a ficar vermelha **nomeada**. Quem acrescentar
+    #: uma a esta lista esta a registar uma excepcao no nucleo, nao a corrigir um
+    #: ensaio.
+    CONHECIDAS: set[tuple[str, str]] = set()
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -78,6 +90,20 @@ class TestCriterioD(unittest.TestCase):
             "uma excepcao conhecida desapareceu: se foi corrigida, apaga-a do "
             f"`CONHECIDAS` no mesmo PR — {desaparecidas}",
         )
+
+    def test_a_condicao_d_passa_nesta_arvore(self) -> None:
+        """A condicao (d) do §5.4, dita pelo veredicto e nao pela lista.
+
+        **Nao e o mesmo ensaio que o de cima.** Aquele compara conjuntos e
+        responde «nenhuma excepcao nova»; este le o predicado que o portao leria,
+        e ficaria vermelho se alguem mudasse o `passa` para
+        `fluxo + dominio == 0` — que e a leitura que o §5.4 **nao** tem, e que
+        tornava o criterio insatisfazivel por causa da lista fechada do
+        `contexto.py`.
+        """
+        self.assertTrue(self.veredicto.passa)
+        self.assertEqual(self.veredicto.fluxo, 0)
+        self.assertGreater(self.veredicto.dominio, 0)
 
     def test_a_validacao_do_dominio_nao_conta_como_excepcao(self) -> None:
         """O `contexto.py` valida a vertical contra uma lista **fechada**.

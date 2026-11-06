@@ -1,0 +1,220 @@
+{
+  "uid": "kamba-orcamento-de-erro",
+  "title": "KAMBA — orcamento de erro",
+  "tags": [
+    "kamba",
+    "kam-082",
+    "slo"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Orcamento restante (min, de 216)",
+      "description": "0,5% de 30 dias = 216 min. Negativo e o excesso sobre o orcamento, e e deliberado: um clamp esconderia o numero de que a politica dos 100% precisa.",
+      "targets": [
+        {
+          "expr": "slo_caminho_de_venda_orcamento_restante_minutos",
+          "legendFormat": "restante",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 108
+              },
+              {
+                "color": "green",
+                "value": 162
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Amostras na janela de 30 dias",
+      "description": "Quantas amostras a janela tem de facto. A 30 s por avaliacao, uma janela completa tem 86 400; muito menos do que isso quer dizer que o numero ao lado e um orcamento de 30 dias calculado sobre menos de 30 dias — o que acontece depois de um arranque do Prometheus ou de o volume prometheus-data ser recriado. Nao e erro, e nao da erro: e a mesma leitura que obrigou a subir a retencao do TSDB de 15d para 31d, vista do outro lado.",
+      "targets": [
+        {
+          "expr": "slo_caminho_de_venda_amostras_30d",
+          "legendFormat": "amostras",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 28800
+              },
+              {
+                "color": "green",
+                "value": 80000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "id": 7
+    },
+    {
+      "type": "gauge",
+      "title": "Orcamento consumido (fraccao)",
+      "description": "1,0 = orcamento esgotado. A politica do criterio 5 marca o estado congelado acima de 0,5 em 14 dias — e nao esta ligada a portao nenhum (ver o painel de texto).",
+      "targets": [
+        {
+          "expr": "slo_caminho_de_venda_orcamento_consumido",
+          "legendFormat": "consumido",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1.25,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.25
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Disponibilidade a 30 dias (SLO 99,5%)",
+      "description": "slo_caminho_de_venda_ratio_30d. Mede a raspabilidade do GWY e do AGR de dentro da pilha, nao o que o cliente ve.",
+      "targets": [
+        {
+          "expr": "slo_caminho_de_venda_ratio_30d",
+          "legendFormat": "disponibilidade 30d",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0.98,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn rate (fraccao do orcamento por janela)",
+      "description": "Limiares dos alertas: 0,02 na janela de 1 h (P2) e 0,05 na de 6 h (P3). Os dois sao proposta, a calibrar nos primeiros 30 dias.",
+      "targets": [
+        {
+          "expr": "slo_caminho_de_venda_burn_1h",
+          "legendFormat": "1 h (limiar 0,02)",
+          "refId": "A"
+        },
+        {
+          "expr": "slo_caminho_de_venda_burn_6h",
+          "legendFormat": "6 h (limiar 0,05)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "O caminho de venda, instante a instante",
+      "description": "O mau e o que conta para o orcamento. A sua amostra desaparece — nao vai a zero — num instante isento pela regra das janelas de manutencao, e e por isso que as duas series nem sempre somam 1.",
+      "targets": [
+        {
+          "expr": "slo_caminho_de_venda_bom",
+          "legendFormat": "bom",
+          "refId": "A"
+        },
+        {
+          "expr": "slo_caminho_de_venda_mau",
+          "legendFormat": "mau (conta para o orcamento)",
+          "refId": "B"
+        },
+        {
+          "expr": "slo_manutencao_anunciada",
+          "legendFormat": "janela anunciada",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "id": 5
+    },
+    {
+      "type": "text",
+      "title": "O que este painel nao mostra",
+      "options": {
+        "mode": "markdown",
+        "content": "### Sete dos oito SLI nao tem grafico\n\nO `docs/tecnica/09` §10 tem **oito** SLI. **Um** tem serie que um processo sirva e que o Prometheus raspe — a disponibilidade, por `up`. Os outros sete nao se operacionalizam hoje, e nao por esquecimento: a definicao de cada um, com o numerador, o denominador e o **credor**, esta em `ops/slo.md`.\n\n| SLI | O que falta |\n|---|---|\n| Ack do webhook < 500 ms em 99,9% | nao ha histograma de ingress; o `gwy_enqueue_ms` e um *gauge* do ultimo enfileiramento |\n| Perda de mensagens = 0 | o `inbound_events_total{desfecho}` e servido pelo `entrada.ts`, que **nao e** o que o compose corre |\n| p95 de resposta (texto 8 s, voz 12 s) | o AGR nao tem histogramas (ADR-018), e nao ha etiqueta de modalidade |\n| Callback -> notificado p95 <= 30 s | o modulo `hnd` nao e importado por nenhum servico |\n| Reconciliacao por reconhecer <= 15 min | nao ha metrica de reconciliacao |\n| Frescura do backup (WAL <= 5 min) | nao ha pgBackRest nem *exporter*; credor **KAM-079** |\n| 0 horas de numero em vermelho > 24 h | o `channel_quality{rating}` nao tem servico que o sirva |\n\nUm grafico a zero para qualquer um deles diria «nao ha falhas» quando o que ha a dizer e «ninguem esta a contar» — e um painel que ensina a equipa a ler zeros como boas noticias e pior do que a sua ausencia. E a mesma leitura com que o painel de pagamentos do KAM-080 ficou sem serie nenhuma.\n\n### E a politica de congelamento nao esta ligada a nada\n\nO critério 5 do KAM-082 pede que «> 50% do orcamento em 14 dias marque o estado `congelado`, e o *gate* 16 recuse *deploys* nao urgentes nesse estado». A **medicao** existe e esta neste painel; a **ligacao ao portao** nao se fez, porque e alteracao de regra de bloqueio. Credor: **o fundador**. O detalhe esta em `ops/slo.md`."
+      },
+      "id": 6
+    }
+  ]
+}

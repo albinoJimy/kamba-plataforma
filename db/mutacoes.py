@@ -5570,19 +5570,19 @@ MUTACOES = [
     # `evt_subscricoes_payment_exige_ordem` da revisao `0005`) **e** deixam de
     # ter prioridade sobre conversa (criterio 8, §15.2 regra 2).
     ('eventos_agr: um tipo subscrito sem handler deixa de reprovar', AG_EVT_HANDLERS,
-     "    if fora:\n        raise SemHandlerError(",
-     "    if False:\n        raise SemHandlerError(",
+     '    if problemas:\n        raise SemHandlerError("; ".join(problemas))',
+     '    if False:\n        raise SemHandlerError("; ".join(problemas))',
      AGR_UNIT),
     # A outra metade do criterio 1: um consumidor registado que marca o evento
     # como consumido e nao notifica ninguem.
     ('eventos_agr: o aviso ao dono passa a falar com o cliente', AG_EVT_HANDLERS,
-     "    if not fala_com_o_cliente(vertical, envelope.tipo):",
+     "    if not fala_com_o_cliente(subscricao):",
      "    if False:",
      AGR_UNIT),
     # O `03` §12 da o `stock.low` ao **dono**; com isto, o nivel de stock da loja
     # passa a ir para a conversa de um cliente.
     ('eventos_agr: o pagamento deixa de avisar o dono', AG_EVT_HANDLERS,
-     "    dono_por = envelope.tipo if par in AO_DONO else None",
+     "    dono_por = envelope.tipo if DESTINATARIO_DONO in subscricao.notifica else None",
      "    dono_por = None",
      AGR_UNIT),
     # O `03` §12 manda «notifica cliente **e** dono»: o dono deixa de saber que
@@ -5633,10 +5633,17 @@ MUTACOES = [
     # O `erro` e coluna **e** etiqueta de metrica: um valor novo escrito a
     # passagem da ao painel uma serie que ninguem declarou, e a chamada
     # levantaria `EtiquetaInvalida` dentro do consumo.
-    ('eventos_agr: o handler volta a ser por tipo e nao por vertical',
+    # **Substitui a mutacao `o handler volta a ser por tipo e nao por vertical`**
+    # (KAM-039). Aquela ancorava-se no `return (vertical, tipo) in AO_CLIENTE`, e
+    # a decisao de **quem** e notificado saiu do nucleo para o `notifica` da
+    # subscricao (`registry/<id>.yaml`). A propriedade que ela media continua a
+    # ser do nucleo e e a mesma: quem decide le a subscricao **desta** vertical,
+    # e nao uma tabela indexada so pelo tipo. Ignorar o `notifica` e a forma de
+    # reintroduzir o defeito hoje.
+    ('eventos_agr: o handler notifica o cliente em todas as subscricoes',
      AG_EVT_HANDLERS,
-     "    return (vertical, tipo) in AO_CLIENTE",
-     "    return any(t == tipo for _v, t in AO_CLIENTE)",
+     "    return DESTINATARIO_CLIENTE in subscricao.notifica",
+     "    return True",
      AGR_UNIT),
     # **E o defeito que a revisao adversarial encontrou, reposto.** Um *tenant*
     # com as duas verticais activas — o do *gate* da Fase 0 (ADR-012, KAM-108) —

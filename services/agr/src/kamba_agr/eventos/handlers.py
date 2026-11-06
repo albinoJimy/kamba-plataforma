@@ -8,6 +8,22 @@ Os Detalhes Tecnicos do bloco dao a lista: «Vendedor — `payment.confirmed` v1
 (notifica cliente **e** dono)», «`stock.changed` / `stock.low` ... AGR (aviso ao
 dono)», «`order.expired` ... AGR».
 
+## O destinatario deixou de se decidir aqui (KAM-039)
+
+Este modulo tinha uma tabela `AO_DONO` de pares `(vertical, tipo)` com entradas
+**so do Vendedor**, lida num `if` do `accoes_de`. O nucleo decidia ali, pelo
+nome da vertical, se o dono da loja era avisado — e e isso, a letra, que a
+condicao (d) do `docs/tecnica/02` §5.4 chama uma excepcao no core. Foi ela que
+reprovou o criterio (d) do KAM-039 (`python -m reuse_metric nucleo` →
+`fluxo 1`).
+
+**O destinatario e agora `subscriptions[].notifica` do `registry/<id>.yaml`**, e
+chega a cada *handler* pelo `Consumidor` que o `subscricoes.py` constroi do
+registo. O que fica aqui e o **texto** — que o §5.4 poe na coluna do que e
+proprio da vertical — e as duas guardas que o `exigir_handlers` corre no
+arranque. O nucleo passa a ler **a quem** avisar; o que ele nao faz, e e a
+condicao (d), e saber **qual** vertical e.
+
 ## Sao deterministicos, e nao e por economia
 
 Nao ha modelo no caminho de um *handler*: ele escolhe entre textos fixos. Duas
@@ -59,12 +75,31 @@ candidato para quem fechar a lacuna com uma emenda ao §4.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Final, Protocol
 
+from ..registo.esquema import DESTINATARIO_CLIENTE, DESTINATARIO_DONO, DESTINATARIOS
 from .envelope import Envelope
 from .notificacao import Notificacao
+
+
+class SubscricaoDeVertical(Protocol):
+    """Uma subscricao do registo, do ponto de vista de um *handler* (KAM-039).
+
+    E um `Protocol` e nao o `Consumidor` do `subscricoes.py` importado: o que um
+    *handler* precisa de saber de uma subscricao sao tres campos, e pedir o
+    objecto inteiro acoplava este modulo a tabela de despacho — que sabe de
+    tomadas, de ordem e de prioridade, nada disso assunto de quem escolhe um
+    texto. O `Consumidor` satisfaz isto por estrutura, sem o declarar.
+    """
+
+    #: O `id` da vertical que subscreve. Para o `TEXTOS`, que e por vertical.
+    vertical: str
+    #: O tipo do evento subscrito.
+    tipo: str
+    #: Quem avisar: um subconjunto de `DESTINATARIOS`, possivelmente vazio.
+    notifica: tuple[str, ...]
 
 
 class ContactoPorResolver(RuntimeError):
@@ -161,19 +196,16 @@ TEXTOS: Final[Mapping[tuple[str, str], str]] = {
     ),
 }
 
-#: Os pares que notificam o **dono**, alem do cliente ou em vez dele.
-#: `docs/tecnica/03` §12: `stock.low` e «AGR (aviso ao dono)» e os dois de
-#: pagamento sao «AGR (notifica cliente e dono)» — e quem fala com o dono de uma
-#: loja e a vertical que vende, nao a que marca.
-AO_DONO: Final = (
-    ("vendedor", "payment.confirmed"),
-    ("vendedor", "payment.manual_confirmed"),
-    ("vendedor", "stock.low"),
-)
-
 #: Os pares que notificam o **cliente**. Derivado do `TEXTOS` e nao escrito ao
 #: lado: um par com texto e sem entrada aqui — ou o contrario — era um *handler*
 #: que decide uma coisa e diz outra.
+#:
+#: **Depois do KAM-039 nao e isto que decide**, e a distincao e a do ticket:
+#: quem decide se o cliente e avisado e o `notifica` da subscricao, lido do
+#: `registry/`. Esta tabela e o **texto** — que o §5.4 poe na coluna do que e
+#: proprio da vertical, na linha «Persona / prompts» — e o que ela serve e a
+#: coerencia: um par que declare `cliente` sem texto levanta no arranque, em vez
+#: de rebentar com um `KeyError` dentro da transaccao do consumo.
 AO_CLIENTE: Final = tuple(TEXTOS)
 
 #: Os pares em que a vertical **subscreve** o tipo e a accao dela **nao esta
@@ -191,13 +223,30 @@ ACCOES_POR_LIGAR: Final[Mapping[tuple[str, str], str]] = {
     ("servicos", "payment.manual_confirmed"): "KAM-047",
 }
 
-#: Todos os pares com *handler*. **E esta a lista que o arranque confronta com
-#: as `subscriptions`** (criterio 1): uma subscricao sem entrada e um consumidor
-#: registado que nao faz nada e nao o diz.
-PARES_COM_HANDLER: Final = tuple(
-    sorted(set(AO_CLIENTE) | set(AO_DONO) | set(ACCOES_POR_LIGAR))
-)
-
+#: Os pares cuja accao esta por ligar, **sem o credor**. Derivado do
+#: `ACCOES_POR_LIGAR`, pela razao do `AO_CLIENTE` — e por uma segunda, que a
+#: medicao do KAM-039 ensinou e que vale escrever:
+#:
+#: escrito contra a tabela — `par not in ACCOES_POR_LIGAR` —, o `reuse_metric`
+#: classifica a linha como `fluxo`, e a primeira versao destas guardas pos a
+#: condicao (d) em `fluxo 3`. **E a razao nao e que a pergunta seja outra**: em
+#: Python, `par in d` sobre um `dict` **ja** testa as chaves, pelo que as duas
+#: formas sao o mesmo programa — medido, comportamento identico. A razao e que o
+#: `reuse_metric` classifica pela **forma da atribuicao da constante** e nao pela
+#: pergunta do sitio da leitura: o `_constantes_com_verticais` varre so o corpo
+#: do modulo e so registra constantes que **contenham** literais de vertical,
+#: pelo que um `dict` com `"vendedor"` dentro e `mapa` — sempre `fluxo` num teste
+#: — e uma constante derivada nao tem literais e e **invisivel**. O instrumento
+#: nao sabe distinguir uma pertenca as chaves de um despacho por valor.
+#:
+#: Fica assim escrito porque e a forma que satisfaz o criterio hoje, **e o limite
+#: fica nomeado**: `fluxo == 0` nao quer dizer «o nucleo nao ramifica por
+#: vertical» enquanto o verificador nao seguir constantes derivadas, locais,
+#: de classe e importadas. Apertar o instrumento muda o que o criterio (d) conta,
+#: que e regra de bloqueio — devolvido ao fundador, com o `fala_com_o_cliente`
+#: nomeado como o caso que existe hoje (`docs/evidencia/KAM-039.md` §5.0).
+#: Achado da revisao adversarial, verificado contra a arvore.
+POR_LIGAR: Final = tuple(ACCOES_POR_LIGAR)
 
 class SemHandlerError(RuntimeError):
     """Uma subscricao sem *handler*. O AGR sai com `8`.
@@ -209,14 +258,80 @@ class SemHandlerError(RuntimeError):
     """
 
 
-def exigir_handlers(pares: tuple[tuple[str, str], ...]) -> None:
-    """Levanta se alguma subscricao `(vertical, tipo)` nao tiver *handler*."""
-    fora = sorted(set(pares) - set(PARES_COM_HANDLER))
-    if fora:
-        raise SemHandlerError(
-            f"as subscricoes {fora} nao tem handler no AGR; os que ha sao "
-            f"{list(PARES_COM_HANDLER)} (`docs/tecnica/03` §12)"
+def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
+    """Levanta se alguma subscricao nao tiver *handler*.
+
+    **A confrontacao inverteu-se com o KAM-039, e a guarda continua a morder.**
+    Antes havia aqui um `PARES_COM_HANDLER` — a uniao de tres tabelas deste
+    modulo — e o arranque perguntava se cada subscricao estava nele. Com o
+    destinatario a vir do `registry/`, essa lista passaria a ser derivada das
+    proprias subscricoes, e uma pergunta de um conjunto a si mesmo responde
+    sempre «sim»: a guarda ficava verde e vazia. O que se pergunta agora e o que
+    sempre importou — **esta subscricao faz alguma coisa?** — e sao duas formas
+    de nao fazer nada:
+
+    * **sem destinatario e sem credor.** Um `notifica:` vazio diz «esta vertical
+      subscreve e nao avisa ninguem», o que e legitimo exactamente quando a
+      accao esta por escrever e tem dono: os dois eventos de pagamento em
+      Servicos, com o KAM-047 em `ACCOES_POR_LIGAR`. Sem destinatario **e** sem
+      credor, e um consumidor que marca o evento como consumido e nao faz nada —
+      e nao o diz, que e o pior dos dois mundos;
+    * **declara `cliente` e nao ha texto.** O `TEXTOS` e indexado por
+      `(vertical, tipo)` e lido **dentro** da transaccao do consumo: um par que
+      declare `cliente` sem entrada la rebentava com `KeyError` a meio de uma
+      entrega, com a marca de consumido ja inserida. Aqui falha o arranque, que
+      e onde um ficheiro de configuracao errado se descobre.
+
+    E uma terceira forma, que e de **dizer duas coisas**:
+
+    * **declara destinatario e tem credor de accao por ligar.** O
+      `ACCOES_POR_LIGAR` quer dizer «esta vertical subscreve e a accao dela nao
+      esta escrita»; um `notifica` nao vazio diz que esta. Com os dois, o
+      `_efeito` do `consumo.py` avisa quem o `notifica` manda **e** o `_consumir`
+      devolve `sem_accao`, porque o desfecho le o credor e nao o destinatario: o
+      dono era avisado e a metrica dizia que nao houve accao. **Era uma
+      invariante medida por ensaio** (`ACCOES_POR_LIGAR & (AO_CLIENTE | AO_DONO)
+      == set()`) e a metade do dono saiu para configuracao, pelo que o ensaio
+      deixou de a cobrir — achado da revisao adversarial. Passa a ser guarda, que
+      e onde ela pertence agora que o outro lado e um ficheiro editavel.
+
+    Junta **todos** os problemas e nao o primeiro, pela razao do
+    `SubscricoesInvalidasError`: seis linhas erradas num YAML nao sao seis
+    *deploys*.
+    """
+    sem_handler: list[tuple[str, str]] = []
+    sem_texto: list[tuple[str, str]] = []
+    diz_as_duas: list[tuple[str, str]] = []
+    for subscricao in subscricoes:
+        par = (subscricao.vertical, subscricao.tipo)
+        if not subscricao.notifica:
+            if par not in POR_LIGAR:
+                sem_handler.append(par)
+            continue
+        if DESTINATARIO_CLIENTE in subscricao.notifica and par not in AO_CLIENTE:
+            sem_texto.append(par)
+        if par in POR_LIGAR:
+            diz_as_duas.append(par)
+    problemas: list[str] = []
+    if sem_handler:
+        problemas.append(
+            f"as subscricoes {sorted(sem_handler)} nao notificam ninguem e nao tem "
+            f"credor em `ACCOES_POR_LIGAR`: declare `notifica` no `registry/` com um "
+            f"de {list(DESTINATARIOS)} (`docs/tecnica/03` §12)"
         )
+    if sem_texto:
+        problemas.append(
+            f"as subscricoes {sorted(sem_texto)} declaram `{DESTINATARIO_CLIENTE}` e nao "
+            "tem texto no `TEXTOS` do `eventos/handlers.py`"
+        )
+    if diz_as_duas:
+        problemas.append(
+            f"as subscricoes {sorted(diz_as_duas)} declaram `notifica` e tem credor em "
+            "`ACCOES_POR_LIGAR`: a accao ou esta escrita ou tem dono, nao as duas — o "
+            "desfecho do consumo seria `sem_accao` com uma notificacao enviada"
+        )
+    if problemas:
+        raise SemHandlerError("; ".join(problemas))
 
 
 def accao_por_ligar(vertical: str, tipo: str) -> str | None:
@@ -224,16 +339,22 @@ def accao_por_ligar(vertical: str, tipo: str) -> str | None:
     return ACCOES_POR_LIGAR.get((vertical, tipo))
 
 
-def fala_com_o_cliente(vertical: str, tipo: str) -> bool:
-    """Este par notifica o cliente? Decide se ha conversa, contacto e tranca.
+def fala_com_o_cliente(subscricao: SubscricaoDeVertical) -> bool:
+    """Esta subscricao notifica o cliente? Decide se ha conversa, contacto e tranca.
 
-    Levanta `SemHandlerError` para um par sem *handler*: uma subscricao sem
-    codigo nao e «nao faz nada» — e um consumidor que marca o evento como
-    consumido e nao notifica ninguem, que e o pior dos dois mundos.
+    **Le a subscricao e nao uma tabela deste modulo** (KAM-039): o que decide e
+    o `notifica` do `registry/`. Recebe a subscricao inteira em vez de
+    `(vertical, tipo, notifica)` de propósito — tres argumentos que vem sempre
+    do mesmo objecto sao tres oportunidades de os passar desemparelhados.
+
+    Levanta `SemHandlerError` para uma subscricao sem *handler*, pela razao
+    escrita no `exigir_handlers`: o arranque ja o devia ter apanhado, e se nao
+    apanhou e porque este consumidor nao veio do registo.
     """
-    if (vertical, tipo) not in PARES_COM_HANDLER:
-        raise SemHandlerError(f"sem handler para ({vertical}, {tipo})")
-    return (vertical, tipo) in AO_CLIENTE
+    par = (subscricao.vertical, subscricao.tipo)
+    if not subscricao.notifica and par not in POR_LIGAR:
+        raise SemHandlerError(f"sem handler para {par}")
+    return DESTINATARIO_CLIENTE in subscricao.notifica
 
 
 def contacto_do_evento(envelope: Envelope, contactos: PortaDeContacto) -> str:
@@ -257,20 +378,33 @@ def contacto_do_evento(envelope: Envelope, contactos: PortaDeContacto) -> str:
 def accoes_de(
     envelope: Envelope,
     *,
-    vertical: str,
+    subscricao: SubscricaoDeVertical,
     contact_id: str | None,
     conversation_id: str | None,
 ) -> AccoesDoEvento:
-    """O que **esta vertical** faz com este evento, com a conversa ja lida.
+    """O que **esta subscricao** faz com este evento, com a conversa ja lida.
 
     Recebe o `contact_id` e o `conversation_id` em vez de os ir buscar: quem os
     tem e o consumo, que ja abriu a ligacao e ja poe o contexto de *tenant* do
     envelope **validado** — deixar o *handler* ler a base por sua conta era
     abrir o caminho por onde um `tenant_id` do *payload* poderia entrar.
+
+    **O destinatario vem da subscricao e nao de uma tabela daqui** (KAM-039): o
+    `AO_DONO` que vivia neste modulo era a excepcao de vertical no nucleo que
+    reprovava a condicao (d) do §5.4, e esta no `registry/` desde essa correccao.
     """
-    par = (vertical, envelope.tipo)
-    dono_por = envelope.tipo if par in AO_DONO else None
-    if not fala_com_o_cliente(vertical, envelope.tipo):
+    if subscricao.tipo != envelope.tipo:
+        # O despacho escolhe os consumidores por `(tipo, versao)` do envelope,
+        # pelo que chegar aqui desemparelhado nao acontece por configuracao — e
+        # um chamador novo. Levanta, porque a alternativa e ler o `notifica` de
+        # uma subscricao e o texto de outra, e o sintoma disso e uma mensagem
+        # errada entregue a um cliente.
+        raise SemHandlerError(
+            f"a subscricao e de {subscricao.tipo!r} e o envelope de {envelope.tipo!r}"
+        )
+    par = (subscricao.vertical, envelope.tipo)
+    dono_por = envelope.tipo if DESTINATARIO_DONO in subscricao.notifica else None
+    if not fala_com_o_cliente(subscricao):
         return AccoesDoEvento(cliente=None, dono_por=dono_por)
     if not contact_id or not conversation_id:
         # **Nao se inventa uma conversa.** Chegar aqui sem conversa quer dizer
