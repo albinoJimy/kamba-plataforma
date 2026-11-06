@@ -82,6 +82,26 @@ FK_QUE_FICA = "payment_charges_tenant_fk"
 
 FUNCAO = "payment_evt_payload"
 
+#: A tabela e as colunas que as três FK apontam. **O alvo entra na forma
+#: medida**, e a razão é um falso verde que esta suite tinha: uma FK de duas
+#: colunas, `NO ACTION`, não diferida e `MATCH SIMPLE` para a tabela errada ou
+#: para as colunas erradas dá exactamente a mesma forma que a certa.
+ALVO = "platform.orders_mirror"
+COLUNAS = ["tenant_id", "order_id"]
+COLUNAS_DO_ALVO = ["tenant_id", "id"]
+
+#: A frase que o `COMMENT` da porta leva **a mais** em `head`, e que uma base em
+#: `0034` não pode ter: lá, o corpo agrega pela cobrança.
+CODA_DO_0035 = (
+    "O passo (7) agrega por encomenda e usa o payload do contrato desde o "
+    "KAM-055."
+)
+
+#: Em que o comentário da `0029` acaba. É o controlo positivo da ausência
+#: acima: sem ele, um `obj_description` que devolvesse `NULL` (ou uma consulta
+#: a olhar para a função errada) lia-se como «o `downgrade` repôs o texto».
+FIM_DO_COMENTARIO_DA_0029 = "que prende tambem o dono (FORCE)."
+
 #: O mapa que a revisão declara, repetido aqui **de propósito**.
 #:
 #: É a segunda superfície, e o `test_o_mapa_e_exactamente_o_declarado` cruza-a
@@ -109,6 +129,25 @@ def esquema(tipo: str, versao: int = 1) -> dict:
     """
     caminho = CONTRATOS / tipo / f"v{versao}.schema.json"
     return json.loads(caminho.read_text(encoding="utf-8"))
+
+
+def verificador():
+    """O `FormatChecker`, e o que ele **não** mede nesta máquina.
+
+    Sem ele, o `jsonschema.validate` ignora `format` por inteiro — e os cinco
+    contratos declaram `format: uuid` no `order_id` e `format: date-time` no
+    `expira_at`. Ligá-lo fecha o `uuid`.
+
+    **O `date-time` fica por medir, e diz-se:** o verificador dele só existe
+    com o `rfc3339-validator` instalado, e neste `.venv` não está — medido
+    (`sorted(jsonschema.FormatChecker().checkers)` traz `uuid` e não traz
+    `date-time`). Na prática o PostgreSQL serializa `timestamptz` em `jsonb`
+    como ISO-8601, pelo que o campo sai bem; o que não se pode dizer é que
+    **este** ensaio o prende.
+    """
+    import jsonschema
+
+    return jsonschema.FormatChecker()
 
 
 class TestFksEMapaDa0035(unittest.TestCase):
@@ -178,11 +217,48 @@ class TestFksEMapaDa0035(unittest.TestCase):
         )
         return str(self.cursor.fetchone()[0])
 
+    def comentario_da_porta(self) -> str:
+        """A descrição que o catálogo guarda da porta.
+
+        **Não vem no `pg_get_functiondef`**, e é por isso que precisa de
+        consulta própria: o `test_o_downgrade_repoe_o_passo_sete_da_0029` mede o
+        corpo e dava verde com o comentário a descrever a versão errada.
+        """
+        self.cursor.execute(
+            "SELECT obj_description(p.oid, 'pg_proc') FROM pg_proc p "
+            "  JOIN pg_namespace n ON n.oid = p.pronamespace "
+            " WHERE n.nspname = 'platform' AND p.proname = 'append_payment_event'"
+        )
+        linha = self.cursor.fetchone()
+        self.assertIsNotNone(linha, "a porta nao existe")
+        self.assertIsNotNone(linha[0], "a porta nao tem COMMENT nenhum")
+        return str(linha[0])
+
     def forma_da_fk(self, nome: str) -> tuple:
-        """`(colunas, apaga, actualiza, diferida, match)` de uma FK."""
+        """`(colunas, apaga, actualiza, diferida, match, alvo, de, para)`.
+
+        **O alvo e as colunas dos dois lados entram, e não por completude.** A
+        primeira versão devolvia só os cinco primeiros campos, e com eles
+        trocar `REFERENCES platform.orders_mirror (tenant_id, id)` por
+        `REFERENCES platform.payment_accounts (tenant_id, id)` — ou tirar o
+        `tenant_id` ao par — deixava esta asserção verde: a forma é a mesma.
+        Quem diz para onde a FK aponta é o `confrelid`, e quais as colunas são
+        o `conkey` e o `confkey`.
+        """
         self.cursor.execute(
             "SELECT array_length(c.conkey, 1), c.confdeltype, c.confupdtype, "
-            "       c.condeferrable, c.confmatchtype "
+            "       c.condeferrable, c.confmatchtype, "
+            "       (SELECT n2.nspname || '.' || cl.relname FROM pg_class cl "
+            "          JOIN pg_namespace n2 ON n2.oid = cl.relnamespace "
+            "         WHERE cl.oid = c.confrelid), "
+            "       (SELECT array_agg(a.attname::text ORDER BY k.ord) "
+            "          FROM unnest(c.conkey) WITH ORDINALITY AS k(att, ord) "
+            "          JOIN pg_attribute a ON a.attrelid = c.conrelid "
+            "           AND a.attnum = k.att), "
+            "       (SELECT array_agg(a.attname::text ORDER BY k.ord) "
+            "          FROM unnest(c.confkey) WITH ORDINALITY AS k(att, ord) "
+            "          JOIN pg_attribute a ON a.attrelid = c.confrelid "
+            "           AND a.attnum = k.att) "
             "  FROM pg_constraint c "
             "  JOIN pg_namespace n ON n.oid = c.connamespace "
             " WHERE n.nspname = 'platform' AND c.conname = %s",
@@ -196,6 +272,9 @@ class TestFksEMapaDa0035(unittest.TestCase):
             str(linha[2]),
             bool(linha[3]),
             str(linha[4]),
+            str(linha[5]),
+            [str(c) for c in linha[6]],
+            [str(c) for c in linha[7]],
         )
 
     # ------------------------------------------------------------- a presença
@@ -211,6 +290,11 @@ class TestFksEMapaDa0035(unittest.TestCase):
             "platform.payment_evt_payload(",
             self.corpo_da_porta(),
             "em head a porta chama a funcao do payload",
+        )
+        self.assertIn(
+            CODA_DO_0035,
+            self.comentario_da_porta(),
+            "em head o catalogo descreve a porta que esta la",
         )
 
     def test_o_mapa_e_exactamente_o_declarado(self) -> None:
@@ -239,11 +323,17 @@ class TestFksEMapaDa0035(unittest.TestCase):
         * **`s` de `MATCH SIMPLE`** — é o que deixa a cobrança de ciclo de
           billing (`order_id` nulo) passar. Com `f` (`MATCH FULL`) o §11.2
           ficava sem caminho de escrita, e isso não aparecia como erro de
-          migração: aparecia, meses depois, como uma facturação que não grava.
+          migração: aparecia, meses depois, como uma facturação que não grava;
+        * **o alvo e as colunas dos dois lados** — ver o `forma_da_fk`. Sem
+          eles, os quatro campos acima são os mesmos para uma FK que aponte
+          para a tabela errada, e a asserção media a forma em vez da ligação.
         """
         for _tabela, restricao in FKS:
             with self.subTest(fk=restricao):
-                self.assertEqual(self.forma_da_fk(restricao), (2, "a", "a", False, "s"))
+                self.assertEqual(
+                    self.forma_da_fk(restricao),
+                    (2, "a", "a", False, "s", ALVO, COLUNAS, COLUNAS_DO_ALVO),
+                )
 
     # -------------------------------------------------------------- a ausência
 
@@ -275,6 +365,32 @@ class TestFksEMapaDa0035(unittest.TestCase):
         self.assertIn("'payment_charge'", corpo, "volta a agregar pela cobranca")
         self.assertNotIn("platform.payment_evt_payload(", corpo)
         self.assertNotIn("v_charge.tenant_id, 'order'", corpo)
+
+    def test_o_downgrade_repoe_o_comentario_da_0029(self) -> None:
+        """O objecto que faltava à medição do `downgrade` por objecto.
+
+        O `_porta` emitia o `COMMENT` **sempre igual**, com a frase do KAM-055
+        no fim — também quando era o `downgrade` a chamá-lo. Depois de
+        `alembic downgrade 0034`, o corpo voltava a agregar pela cobrança e o
+        catálogo continuava a afirmar o contrário a quem o lesse.
+
+        **Nada ficava vermelho**, e é essa a parte que interessa: o
+        `pg_get_functiondef` não traz o `COMMENT`, e o ciclo `upgrade ->
+        downgrade -> upgrade` passa inteiro porque o `upgrade` seguinte
+        reescreve a frase certa.
+
+        **A presença primeiro, e depois a ausência**, como todas as asserções de
+        `downgrade` desta suite: sem a primeira linha, um `obj_description` nulo
+        passava o `assertNotIn`.
+        """
+        self.assertIn(CODA_DO_0035, self.comentario_da_porta())
+        alembic_ok("downgrade", ANTERIOR)
+        comentario = self.comentario_da_porta()
+        self.assertNotIn(CODA_DO_0035, comentario)
+        self.assertTrue(
+            comentario.endswith(FIM_DO_COMENTARIO_DA_0029),
+            f"o comentario da 0029 nao voltou inteiro: ...{comentario[-90:]}",
+        )
 
     def test_o_upgrade_seguinte_repoe_tudo(self) -> None:
         alembic_ok("downgrade", ANTERIOR)
@@ -396,6 +512,77 @@ class TestBarreirasDa0035(ComLedger):
         # **Sem `COMMIT`**: o `payment_events` é *append-only* e a limpeza não o
         # apaga, pelo que confirmar esta linha deixava-a na base para sempre —
         # e com ela a cobrança e o tenant. O `rollback` é o que a tira.
+        conexao.rollback()
+
+    def test_um_evento_para_encomenda_de_outro_tenant_e_recusado(self) -> None:
+        """A FK que o critério 8 nomeia, medida pelo que ela **recusa**.
+
+        A primeira versão desta suite media esta FK só pelo nome e pela forma,
+        mais o caso **positivo** do `MATCH SIMPLE` logo abaixo. Com isso, tirar
+        o `tenant_id` ao par (ou apontá-lo à tabela errada) deixava tudo verde
+        — e é esta a FK que o próprio módulo diz que «custa», porque torna a
+        encomenda com ledger impossível de apagar.
+
+        **Pelo superutilizador**, que é o único com `INSERT` nesta tabela, e
+        pela mesma via do caso positivo. A linha é recusada pela FK e não pelo
+        `um_sujeito`: o `order_id` vai preenchido e o `billing_cycle_id` nulo,
+        que é exactamente o par que aquele `CHECK` aceita.
+        """
+        outro = self.criar_tenant()
+        encomenda_do_outro = self.criar_encomenda(outro)
+        cobranca = self.criar_cobranca(self.tenant, self.conta)
+        conexao = self.ligar("admin")
+        cursor = conexao.cursor()
+        self.assertErroSql(
+            VIOLACAO_DE_FK,
+            cursor,
+            "INSERT INTO platform.payment_events "
+            "(tenant_id, charge_id, order_id, billing_cycle_id, provider, "
+            " account_id, referencia, tipo_evento, sequencia, valor_minor, "
+            " authn_method, authn_ok, decisao, actor_kind, payload_hash, "
+            " prev_hash, row_hash) "
+            "VALUES (%s, %s, %s, NULL, 'fakeprovider', %s, 'REF-alheia', "
+            "        'cobranca_criada', 78, %s, 'sistema', true, 'informativo', "
+            f"        'sistema', sha256('{{}}'::bytea), '\\x{'00' * 32}'::bytea, "
+            "        sha256('alheia'::bytea))",
+            (
+                self.tenant,
+                cobranca,
+                encomenda_do_outro,
+                self.conta,
+                VALOR,
+            ),
+        )
+        conexao.rollback()
+
+    def test_um_caso_de_reembolso_para_encomenda_de_outro_tenant_e_recusado(
+        self,
+    ) -> None:
+        """A terceira FK, que não está no critério 8 e não tinha caso nenhum.
+
+        É a que paga a dívida que o repositório nomeia em quatro sítios, e a
+        razão escrita é a coerência do par: pôr a FK de `order_id` só num dos
+        lados deixava o reembolso de A a apontar para a encomenda de B. Isso é
+        uma afirmação sobre o que a restrição **recusa**, e por isso mede-se
+        aqui e não no catálogo.
+
+        **Pelo superutilizador**, porque nenhum papel de aplicação tem `INSERT`
+        nesta tabela — quem a escreve é a `manual_reverter`, que é
+        `SECURITY DEFINER`. O `charge_id` fica nulo, que é o par que o
+        `refund_cases_um_sujeito` aceita com o `order_id` preenchido.
+        """
+        outro = self.criar_tenant()
+        encomenda_do_outro = self.criar_encomenda(outro)
+        conexao = self.ligar("admin")
+        cursor = conexao.cursor()
+        self.assertErroSql(
+            VIOLACAO_DE_FK,
+            cursor,
+            "INSERT INTO platform.refund_cases "
+            "(tenant_id, order_id, motivo, valor_minor, estado) "
+            "VALUES (%s, %s, 'encomenda alheia', %s, 'aberto')",
+            (self.tenant, encomenda_do_outro, VALOR),
+        )
         conexao.rollback()
 
     # ----------------------------------------------- as recusas do `payload`
@@ -550,7 +737,9 @@ class TestBarreirasDa0035(ComLedger):
             with self.subTest(evento=tipo):
                 payload = self._payload(cursor, tipo, **extra)
                 jsonschema.validate(
-                    payload, esquema(tipo)["properties"]["payload"]
+                    payload,
+                    esquema(tipo)["properties"]["payload"],
+                    format_checker=verificador(),
                 )
         self.confirmar(cursor, self.tenant)
 
@@ -608,7 +797,9 @@ class TestBarreirasDa0035(ComLedger):
                 self.assertEqual(envelope["tipo"], tipo)
                 self.assertEqual(envelope["agregado"]["tipo"], "order")
                 self.assertEqual(envelope["agregado"]["id"], encomenda)
-                jsonschema.validate(envelope, esquema(tipo))
+                jsonschema.validate(
+                    envelope, esquema(tipo), format_checker=verificador()
+                )
         self.confirmar(cursor, self.tenant)
 
     def test_o_payment_failed_sai_pela_receita_de_semente_e_valida(self) -> None:
@@ -649,7 +840,9 @@ class TestBarreirasDa0035(ComLedger):
             envelope = json.loads(envelope)
         self.assertEqual(envelope["agregado"]["tipo"], "order")
         self.assertEqual(envelope["payload"]["motivo"], "valor_divergente")
-        jsonschema.validate(envelope, esquema("payment.failed"))
+        jsonschema.validate(
+            envelope, esquema("payment.failed"), format_checker=verificador()
+        )
 
 
 if __name__ == "__main__":

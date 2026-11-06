@@ -236,6 +236,22 @@ const SONDAS: readonly Sonda[] = [
     fabrica: "createApp",
     caminho: "/healthz",
   },
+  // As duas do consumidor de pagamentos (KAM-055). A `criarApp` serve as duas
+  // da **mesma** instancia, como a `criarAppDeMetricas` do GWY — o `/metrics`
+  // concatena a exposicao do consumo (KAM-006) com o histograma do atraso
+  // deste ticket, e so uma app as tem as duas.
+  {
+    item: "rota:com:payments/arranque:criarApp:GET:/healthz",
+    modulo: "services/com/src/payments/arranque.ts",
+    fabrica: "criarApp",
+    caminho: "/healthz",
+  },
+  {
+    item: "rota:com:payments/arranque:criarApp:GET:/metrics",
+    modulo: "services/com/src/payments/arranque.ts",
+    fabrica: "criarApp",
+    caminho: "/metrics",
+  },
   {
     item: "rota:gwy:app:createApp:GET:/healthz",
     modulo: "services/gwy/src/app.ts",
@@ -325,7 +341,7 @@ const SONDAS: readonly Sonda[] = [
  * elas o webhook **nao e montado**. Passar-lhes duplos aqui montava rotas que
  * este grupo nao enumera, e o grupo `webhook` e o que as monta de proposito.
  *
- * As quatorze sondas nao recebem identificador nenhum, pelo que nao ha IDOR a
+ * As dezasseis sondas nao recebem identificador nenhum, pelo que nao ha IDOR a
  * fazer: o que se prova e que elas **respondem** — uma rota que nao responde nao
  * foi atacada — e que o que respondem atravessa o oraculo como qualquer outra.
  */

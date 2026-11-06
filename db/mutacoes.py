@@ -6111,6 +6111,55 @@ MUTACOES = [
     # o envelope **inteiro** com o ficheiro de contrato a apanha — e e o
     # `test_o_envelope_da_porta_valida_contra_o_esquema`. Um ensaio que olhasse
     # so para o `payload` sobrevivia a isto.
+    #
+    # ---------------------------------------------------------------------
+    # As tres que a revisao adversarial pediu: **uma por ensaio novo**.
+    #
+    # A lista acima mutava so a FK da `payment_charges`, pelo que tirar o
+    # `tenant_id` as outras duas ficava vivo — e era a mesma classe ISO-58 nas
+    # tres. As duas primeiras pagam isso; a terceira paga o objecto que faltava
+    # a medicao do `downgrade`.
+    #
+    # **O alvo da FK nao leva mutacao propria, e isso e deliberado:** apontar
+    # uma delas a outra tabela precisa de um `(tenant_id, id)` unico nessa
+    # tabela para o `ALTER` sequer passar, e uma mutacao que faca a migracao
+    # falhar mede o `alembic` e nao o ensaio. O que prende o alvo e o
+    # `test_as_fk_sao_compostas_sem_cascata_e_nao_diferidas`, que passou a
+    # afirmar o `confrelid` e as colunas dos dois lados pelo nome.
+    ('revisao 0035: a FK do ledger deixa de levar o tenant_id', REV35,
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_EVENTOS}} "
+        f"  FOREIGN KEY (tenant_id, order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (tenant_id, id)"''',
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_EVENTOS}} "
+        f"  FOREIGN KEY (order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (id)"''',
+     "tests_pagamentos"),
+    # A FK que o criterio 8 nomeia a par da da cobranca, e a que o modulo diz
+    # que «custa». Quem a mata e o
+    # `test_um_evento_para_encomenda_de_outro_tenant_e_recusado`; o caso
+    # positivo do `MATCH SIMPLE` que ja existia **sobrevive** a isto de
+    # proposito — um nulo continua a passar numa FK simples.
+    ('revisao 0035: a FK do reembolso deixa de levar o tenant_id', REV35,
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_REEMBOLSOS}} "
+        f"  FOREIGN KEY (tenant_id, order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (tenant_id, id)"''',
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_REEMBOLSOS}} "
+        f"  FOREIGN KEY (order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (id)"''',
+     "tests_pagamentos"),
+    # A terceira FK, que nao esta no criterio e que nao tinha ensaio nenhum
+    # antes desta revisao adversarial: o reembolso de A a apontar para a
+    # encomenda de B, que e a incoerencia do par que a divida nomeia.
+    ('revisao 0035: o downgrade deixa o comentario do KAM-055', REV35,
+     '    _porta(PASSO_SETE_DO_0029, CODA_DA_0029)',
+     '    _porta(PASSO_SETE_DO_0029, CODA_DO_0035)',
+     "tests_pagamentos"),
+    # O defeito que estava no ficheiro: o `_porta` emitia o `COMMENT` sempre
+    # igual, e uma base em `0034` ficava com o catalogo a descrever a porta da
+    # `0035`. **Nenhum ensaio ficava vermelho** — o `pg_get_functiondef` nao
+    # traz o `COMMENT` —, e e por isso que esta mutacao existe: ela repoe
+    # exactamente o defeito, e quem a tem de matar e o
+    # `test_o_downgrade_repoe_o_comentario_da_0029`.
 ]
 
 

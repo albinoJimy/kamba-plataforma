@@ -12412,14 +12412,13 @@ entradas:
       - "DEFINER"
     variantes_literais: []
   - seccao: "3.48"
-    conceito: "Agregado dos eventos payment. no outbox"
+    conceito: "Agregado dos cinco eventos de pagamento no outbox"
     canonico: "agregado.tipo = 'order', com agregado.id = payment_charges.order_id"
     literais:
       - "agregado.tipo = 'order'"
       - "agregado.id"
       - "payment_charges.order_id"
     nomes:
-      - "payment"
       - "agregado.tipo"
       - "order"
       - "agregado.id"
@@ -12471,7 +12470,6 @@ entradas:
       - "podeTransitar"
       - "paga"
       - "adiado_sem_resolver"
-      - "payment"
       - "PREFIXOS_SEV1"
     variantes_literais: []
   - seccao: "3.48"
@@ -12488,7 +12486,6 @@ entradas:
       - "agregado_id"
       - "consumer"
       - "sms_latency_s"
-      - "payment"
       - "evt_dlq_open"
     variantes_literais: []
   - seccao: "3.48"

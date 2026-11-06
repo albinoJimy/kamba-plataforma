@@ -134,6 +134,39 @@ export class ConflitoDeTransicaoError extends Error {
   }
 }
 
+/**
+ * O evento diz que a autenticação **não** correu bem, e o tipo diz que pagou.
+ *
+ * O `validarPayload` não a apanha: ele compara o conjunto de nomes de campo de
+ * topo contra o catálogo gerado, e `autenticacao` é um objecto encaixado — um
+ * `authn_ok: false` lá dentro tem o nome todo certo. O contrato publicado
+ * declara-o com `"const": true` nos dois tipos que pagam, pelo que esta classe
+ * é a leitura dessa cláusula do lado de quem **aplica** o dinheiro.
+ *
+ * **Hoje é profundidade e não furo aberto**, e vale dizê-lo: o único produtor
+ * é a porta do ledger, e a `payment_evt_payload` da `0035` recusa construir um
+ * `payment.confirmed` sem `authn_ok`. Mas a caixa 2 do DoD diz «sem atalho», e
+ * as três barreiras que ela enumera estão **todas** do lado do produtor ou da
+ * base: o `pagamentoAutenticado` olha para o `actor.kind` e para a causa, e o
+ * `order_estado_exige_log` exige o recibo de consumo, que este consumidor
+ * acabou de escrever. Nenhuma delas lê o `payload`.
+ *
+ * Vai para a DLQ pela escada normal, que é o destino certo: um pagamento
+ * confirmado sem autenticação é anomalia de dinheiro, e o `PREFIXOS_SEV1`
+ * trata `payment.` como Sev1.
+ */
+export class PagamentoNaoAutenticadoError extends Error {
+  override readonly name = "PagamentoNaoAutenticadoError";
+
+  constructor(tipo: string, orderId: string) {
+    super(
+      `o ${tipo} da encomenda ${orderId} traz authn_ok diferente de true: o ` +
+        "contrato declara const true, e uma encomenda nao se paga por um " +
+        "evento que diz que a autenticacao falhou (ADR-013)",
+    );
+  }
+}
+
 /** A transição ou o consumo das reservas foram recusados. */
 export class EfeitoRecusadoError extends Error {
   override readonly name = "EfeitoRecusadoError";
@@ -233,14 +266,38 @@ export function efeitoDePagamento(deps: DependenciasDoPagamento): Efeito {
       // evento que ninguém decidiu que paga.
       throw new EfeitoRecusadoError("despacho", `tipo inesperado ${tipo}`);
     }
-    // O contrato **antes** de tudo, e com a versão do envelope: um payload que
-    // o esquema recusa não transita encomenda nenhuma. É a mesma barreira que a
-    // linha de emissão do `../orders/eventos.ts` já usa, aplicada na entrada.
+    // A **forma** do payload antes de tudo, e com a versão do envelope. É a
+    // mesma barreira que a linha de emissão do `../orders/eventos.ts` já usa,
+    // aplicada na entrada — e o que ela mede é exactamente isto: o conjunto de
+    // nomes de campo **de topo** contra o catálogo gerado, mais o tipo e a
+    // versão. Não valida tipos, `enum`, `const`, `format`, nem desce aos
+    // objectos encaixados.
+    //
+    // **Dizer «o contrato antes de tudo» era dizer mais do que isto**, e foi o
+    // que esta linha dizia: a cláusula que mais importa aqui — o
+    // `autenticacao.authn_ok` com `"const": true` — está um nível abaixo do que
+    // o `validarPayload` lê. Daí a guarda própria logo a seguir.
     validarPayload(tipo, envelope.versao, envelope.payload);
 
     const orderId = String(envelope.payload["order_id"]);
     if (orderId !== envelope.agregado.id) {
       throw new PagamentoIncoerenteError(envelope, orderId);
+    }
+
+    // O `authn_ok` do contrato, lido do payload. Ver o
+    // `PagamentoNaoAutenticadoError` para a razão de ela existir com o
+    // produtor a recusar isto a montante.
+    //
+    // **`!== true` e não `=== false`**: ausente, nulo, `"true"` em cadeia ou
+    // `1` são todos «não me foi dito que correu bem», e num caminho de dinheiro
+    // isso é uma recusa e não uma coerção.
+    const autenticacao = envelope.payload["autenticacao"];
+    const autenticado =
+      typeof autenticacao === "object" &&
+      autenticacao !== null &&
+      (autenticacao as Record<string, unknown>)["authn_ok"] === true;
+    if (!autenticado) {
+      throw new PagamentoNaoAutenticadoError(tipo, orderId);
     }
 
     const ids = await idsDoRegisto(bd, envelope.tenant_id);
@@ -264,6 +321,14 @@ export function efeitoDePagamento(deps: DependenciasDoPagamento): Efeito {
     // arredonda **em silêncio**, e aqui o arredondamento decide entre pagar a
     // encomenda e emitir um `payment.failed`. É a mesma razão do `lerSeq` do
     // consumo, e vale a dobrar num caminho de dinheiro.
+    //
+    // **A exactidão que isto compra é do lado da base, e não do evento.** O
+    // `valor_minor` do envelope já é um `number` quando chega aqui — o envelope
+    // vem da fila por `JSON.parse` —, pelo que o `BigInt(String(...))` canoniza
+    // um valor que já passou por um `double`. O que o prende é o produtor: a
+    // coluna é `bigint` e o `jsonb` sai da base, pelo que nenhum valor real
+    // chega acima de 2^53. O lado que podia perder precisão por nossa conta é o
+    // `total_minor`, e esse vem como cadeia.
     const total = BigInt(String(antes["total_minor"]));
     const valor = BigInt(String(envelope.payload["valor_minor"]));
     if (valor !== total) {

@@ -47,6 +47,7 @@ import {
   MOTIVO_DE_VALOR,
   PROVIDER_MANUAL,
   PagamentoIncoerenteError,
+  PagamentoNaoAutenticadoError,
   efeitoDePagamento,
   lagEmSegundos,
   payloadDeFalha,
@@ -297,7 +298,25 @@ test("o caminho feliz transita, consome as reservas e emite um order.paid", asyn
 
   assert.equal(base.estado.estado, "paga");
   assert.equal(base.estado.version, 4);
-  assert.equal(base.reservasConsumidas, 1, "as reservas passam a consumida");
+  assert.equal(base.reservasConsumidas, 1, "o SQL_CONSUMIR correu uma vez");
+
+  // **O `paga_at`**, que é o `$6` do `SQL_TRANSITAR`. Entrou porque a célula do
+  // critério 5 o nomeava neste ensaio e ninguém o afirmava: o duplo registava o
+  // valor e nada o lia. Vem do relógio injectado, pelo que a igualdade é
+  // exacta — e isso é a propriedade, não a data: o `paga_at` sai do `agora` das
+  // dependências e não de um `now()` que cada chamada moveria.
+  //
+  // **E vai como cadeia ISO e não como `Date`**, que foi o que a primeira versão
+  // desta asserção não sabia: o parâmetro é `$6::timestamptz`, e comparar com o
+  // `Date` dava `'2026-…Z'` contra `2026-…Z` — o mesmo instante e tipos
+  // diferentes. Afirmar a cadeia prende as duas coisas, o valor e a forma em que
+  // ele chega ao condutor.
+  const transitado = base.vistas.find((v) => v.sql === SQL_TRANSITAR);
+  assert.equal(
+    transitado?.valores[5],
+    AGORA.toISOString(),
+    "o paga_at e o agora injectado, em ISO",
+  );
 
   const emitidos = emissoes(base.vistas);
   assert.deepEqual(
@@ -414,6 +433,75 @@ test("um payload que o contrato recusa nao escreve nada", async () => {
     efeito()(base.cliente, envelopeDe("payment.confirmed", semValor)),
   );
   assert.equal(base.vistas.length, 0, "o validarPayload corre antes do SQL");
+});
+
+test("um confirmado com authn_ok falso nao paga a encomenda", async () => {
+  // O furo que a revisão adversarial encontrou. O `validarPayload` compara o
+  // conjunto de nomes de campo **de topo**, e `autenticacao` é um objecto
+  // encaixado: um `authn_ok: false` lá dentro tem os nomes todos certos, bate o
+  // `order_id`, bate o valor — e, sem esta guarda, o efeito pagava a encomenda
+  // apesar de o contrato publicado declarar `authn_ok` com `"const": true`.
+  //
+  // **Nenhuma das três barreiras da caixa 2 do DoD o apanhava**, porque as três
+  // são do lado do produtor ou da base. O lado que aplica o dinheiro não lia o
+  // `payload`.
+  const base = baseFalsa({
+    estado: "aguarda_pagamento",
+    version: 1,
+    total_minor: String(VALOR),
+  });
+  const payload = {
+    ...payloadConfirmado(),
+    autenticacao: { authn_method: "hmac", authn_ok: false },
+  };
+  await assert.rejects(
+    () => efeito()(base.cliente, envelopeDe("payment.confirmed", payload)),
+    PagamentoNaoAutenticadoError,
+  );
+  assert.equal(base.estado.estado, "aguarda_pagamento", "nao transita");
+  assert.equal(base.estado.version, 1);
+  assert.equal(base.reservasConsumidas, 0);
+  assert.equal(
+    base.vistas.filter((v) => v.sql === SQL_TRANSITAR).length,
+    0,
+    "nem tenta o CAS",
+  );
+  assert.deepEqual(emissoes(base.vistas).map((e) => e.tipo), [], "e nao emite");
+});
+
+test("o authn_ok tem de ser true e nao so verdadeiro-ish", async () => {
+  // **`!== true` e não `=== false`.** Num caminho de dinheiro, «não me foi dito
+  // que correu bem» é uma recusa e não uma coerção — e cada uma destas formas
+  // passaria num `=== false`. O `manual_confirmed` entra na lista porque o
+  // contrato dele declara o mesmo `const: true`.
+  const formas: readonly unknown[] = [
+    { authn_method: "hmac" },
+    { authn_method: "hmac", authn_ok: null },
+    { authn_method: "hmac", authn_ok: "true" },
+    { authn_method: "hmac", authn_ok: 1 },
+    null,
+    "hmac",
+  ];
+  for (const autenticacao of formas) {
+    const base = baseFalsa({
+      estado: "aguarda_pagamento",
+      version: 1,
+      total_minor: String(VALOR),
+    });
+    await assert.rejects(
+      () =>
+        efeito()(
+          base.cliente,
+          envelopeDe("payment.confirmed", {
+            ...payloadConfirmado(),
+            autenticacao,
+          }),
+        ),
+      PagamentoNaoAutenticadoError,
+      `${JSON.stringify(autenticacao)} nao e authn_ok true`,
+    );
+    assert.equal(base.estado.estado, "aguarda_pagamento");
+  }
 });
 
 test("um tipo que nao paga e recusado em vez de transitar", async () => {

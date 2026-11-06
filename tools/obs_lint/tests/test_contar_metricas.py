@@ -209,6 +209,12 @@ class TestRepositorio(unittest.TestCase):
         # Conta **zero** nomes, e esta aqui por isso: e um modulo de exposicao
         # que importa os nomes do `repo-base`. Ver o teste da reconciliacao.
         "services/com/src/metricas.ts",
+        # Nasceu com o KAM-055 (eventos de pagamento). **Nao e um modulo de
+        # exposicao como o `services/com/src/metricas.ts` acima**: declara o
+        # seu proprio histograma — o atraso entre o evento de pagamento e a
+        # encomenda `paga` — porque o corte de 5 s e o criterio 9 daquele
+        # bloco, e um histograma com os cortes de outro dono nao o mede.
+        "services/com/src/payments/metricas.ts",
     )
 
     #: O que fazer quando este teste ficar vermelho. Vai na mensagem de erro,

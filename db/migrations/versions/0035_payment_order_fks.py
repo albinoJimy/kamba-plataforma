@@ -56,11 +56,22 @@ extenso punha quatrocentas linhas no ficheiro das quais uma duzia difere, e
 pedia a quem revisse que as diferenciasse a olho — que e exactamente o modo de
 falha que esta casa nomeia.
 
-Por isso o corpo esta no `_porta(passo_sete)`, e o que esta escrito duas vezes
-sao os dois fragmentos do passo (7): o novo e o da `0029`. A propriedade que
-isto da e util e nao cosmetica — as duas versoes da funcao sao **identicas por
-construcao** em tudo o que nao e o passo (7), e nenhuma edicao futura pode
-desviar uma da outra por descuido.
+Por isso o corpo esta no `_porta(passo_sete, coda)`, e o que esta escrito duas
+vezes sao os dois fragmentos do passo (7) — o novo e o da `0029` — mais a frase
+que o `COMMENT` leva a mais. A propriedade que isto da e util e nao cosmetica —
+as duas versoes da funcao sao **identicas por construcao** em tudo o que nao e o
+passo (7), e nenhuma edicao futura pode desviar uma da outra por descuido.
+
+**O `COMMENT` e o segundo argumento por uma razao medida, e nao por simetria.**
+A primeira versao deste ficheiro emitia-o sempre igual, com a frase do KAM-055
+no fim — tambem quando era o `downgrade` a chamar o `_porta`. Isto e: depois de
+`alembic downgrade 0034`, o corpo voltava a agregar pela cobranca e o catalogo
+continuava a afirmar que agrega pela encomenda. Nao havia como ver: o
+`pg_get_functiondef` nao traz o `COMMENT`, e o ciclo `upgrade -> downgrade ->
+upgrade` passava porque o `upgrade` seguinte reescrevia a frase certa. E a
+mesma classe que esta suite diz estar a fechar — medir o `downgrade` **por
+objecto** — a faltar um objecto: o `obj_description`, que o
+`test_o_downgrade_repoe_o_comentario_da_0029` passou a afirmar.
 
 O resto do corpo e copia literal da `0029` (`_append()`, linhas 1299-1522), e e
 a suite de pagamentos inteira que o prende: mais de cem ensaios chamam esta
@@ -153,10 +164,22 @@ Nenhum criterio do KAM-055 pede esta mudanca — ela e a consequencia de o
 `pagamento_divergente` passar a ter mapeamento para um contrato que exige o
 campo, e as tres alternativas eram piores: inventar um motivo (dados falsos no
 ledger), nao emitir (perder um sinal Sev1 que o §6.4 manda levar ao HND), ou
-emitir um envelope que o esquema do `payment.failed` rejeita. O produtor real
-do §5.1 traz sempre o motivo. **Um ensaio existente escrevia-o nulo** — o
-gerador das mil sequencias do `db/tests_pagamentos/test_maquina.py` — e passou
-a trazer `'valor'`, com a razao escrita na chamada.
+emitir um envelope que o esquema do `payment.failed` rejeita.
+
+**Nao ha hoje produtor nenhum a quebrar, e isso e uma ressalva e nao um
+argumento.** O §5.1 descreve o *worker* que traria o motivo; medido, o unico
+sitio do repositorio com esta chamada e a constante
+`SQL_APPEND_PAYMENT_EVENT` do `packages/core-ts/src/pagamentos/hooks.ts`, que
+nenhum servico usa. Isto e: a obrigacao de passar `motivo` fica registada na
+barreira (que e o sitio certo) e nesta prosa, e quem escrever o *worker*
+encontra-a como `23514` em ensaio e nao como decisao escrita. Credor da
+ligacao: **KAM-071**, dono do §5.1.
+
+**Um ensaio existente escrevia-o nulo** — o gerador das mil sequencias do
+`db/tests_pagamentos/test_maquina.py` — e passou a trazer `'valor_divergente'`,
+com a razao escrita na chamada. **A forma longa e nao a curta**: e a que o
+`payment_charges_motivo_falha_ck` fecha, pela divergencia de vocabulario que o
+paragrafo acima declara.
 
 ## A ordem dos quatro passos, e o que o `ADD CONSTRAINT` valida
 
@@ -264,6 +287,31 @@ FKS = (
     (EVENTOS, FK_DOS_EVENTOS),
     (REEMBOLSOS, FK_DOS_REEMBOLSOS),
 )
+
+#: **Uma ressalva do passo (7), registada como divida 199.** O passo tira da
+#: cobranca o `tenant_id`, o `provider`, a `referencia` e a `currency` — o que o
+#: passo (5) chama «da cobranca e nao do chamador» —, mas o `valor_minor` do
+#: `payload` vem do `p_valor_minor`, que a porta so confronta com o
+#: `amount_minor` no passo (3b) e **so para `pagamento_confirmado`**. Um
+#: `referencia_emitida` com o valor errado publica um `payment.reference_issued`
+#: que discorda da cobranca, e o contrato aceita-o. Fechar isso e uma decisao
+#: (confrontar nos sete pares, ou tirar o valor da cobranca como os outros
+#: quatro campos) e nao uma emenda: credor **KAM-071**, dono do §5.1.
+
+#: A frase que o `COMMENT` da porta leva **a mais** desde esta revisao.
+#:
+#: Literais, como os dois fragmentos do passo (7) e pela mesma razao: o texto
+#: comum do `COMMENT` escreve-se **uma vez** no `_porta`, pelo que a descricao
+#: que fica numa base em `0034` e identica a da `0029` **por construcao** — e
+#: nao por alguem ter copiado a frase certa para o `downgrade`.
+CODA_DO_0035 = (
+    " O passo (7) agrega por encomenda e usa o payload do contrato desde o "
+    "KAM-055."
+)
+
+#: E a da `0029` e vazia: o comentario dela acaba em `(FORCE).`, medido no
+#: `_append()` daquela revisao.
+CODA_DA_0029 = ""
 
 #: O conteudo da `payment_outbox_map`: `(tipo_evento, authn_method)` -> evento
 #: de dominio, na versao **1**.
@@ -383,7 +431,7 @@ PASSO_SETE_DO_0029 = """
 def upgrade() -> None:
     _fks()
     _payload()
-    _porta(PASSO_SETE_DO_0035)
+    _porta(PASSO_SETE_DO_0035, CODA_DO_0035)
     _mapa()
 
 
@@ -564,7 +612,7 @@ def _mapa() -> None:
         )
 
 
-def _porta(passo_sete: str) -> None:
+def _porta(passo_sete: str, coda: str) -> None:
     """`append_payment_event`, com o passo (7) que lhe derem.
 
     O corpo e copia literal da `0029` (`_append()`), e so o passo (7) e
@@ -778,8 +826,8 @@ def _porta(passo_sete: str) -> None:
         "sequencia sem lacunas, cadeia de hashes, projeccao do estado por "
         "next_state e evt_emitir na mesma transaccao. SECURITY DEFINER porque "
         "nenhum papel de aplicacao tem INSERT em payment_events; o isolamento "
-        "continua a ser da RLS, que prende tambem o dono (FORCE). O passo (7) "
-        "agrega por encomenda e usa o payload do contrato desde o KAM-055.'"
+        "continua a ser da RLS, que prende tambem o dono (FORCE)."
+        f"{coda}'"
     )
 
 
@@ -793,7 +841,7 @@ def downgrade() -> None:
     # Um corpo plpgsql nao e seguido pelo catalogo de dependencias — o `DROP`
     # passava com a porta ainda a cita-la —, e o que se ganha e que em nenhum
     # instante do `downgrade` existe uma porta que chame uma funcao ausente.
-    _porta(PASSO_SETE_DO_0029)
+    _porta(PASSO_SETE_DO_0029, CODA_DA_0029)
     op.execute(
         f"DROP FUNCTION platform.payment_evt_payload({ARGUMENTOS_DO_PAYLOAD})"
     )

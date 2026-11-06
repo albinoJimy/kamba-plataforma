@@ -291,10 +291,24 @@ excluidos:
   - "tools/meta-sim/src/cli.ts"
   # O processo do consumidor de pagamentos do COM (KAM-055). E a mesma situacao
   # do `eventos/trabalhador_bullmq.ts`, do `chr/fila.ts` e do
-  # `agr/trabalhador.ts`, com a agravante de o estrato: o padrao
-  # `*/payments/*` do `critico` exige **90% por ficheiro**, e este ficheiro e
-  # casca — dois `Client` do `pg`, um `Worker` do BullMQ e um `serve` do Hono.
-  # Quem o exercita de verdade e uma fila real, que nao produz cobertura V8.
+  # `agr/trabalhador.ts`: este ficheiro e casca — dois `Client` do `pg`, um
+  # `Worker` do BullMQ e um `serve` do Hono. Quem o exercita de verdade e uma
+  # fila real, que nao produz cobertura V8.
+  #
+  # **A agravante e o estrato, e nao um limiar por ficheiro.** O padrao
+  # `*/payments/*` cai no `critico`, e o limiar do `critico` e **agregado**,
+  # como o cabecalho deste ficheiro ja diz do `*/logger/*`: o
+  # `tools/coverage_gate.py` soma as linhas de todos os ficheiros do estrato e
+  # compara uma percentagem so. Isto e: um ficheiro de casca a 0% nao reprova
+  # por si — **dilui** os 90% que o `critico` partilha com `tenant_guard`,
+  # `identity`, `storage`, `logger` e `ten`. E o que o cabecalho descreve como
+  # o custo de um ficheiro medido e nao classificado, aplicado a um que o
+  # padrao classifica mas nenhum relatorio mede: ele entra a 0% das suas
+  # linhas.
+  #
+  # **Esta linha muda quem e medido, e isso pede dois revisores** — a regra
+  # esta escrita acima, no comentario do `*/logger/*`, e e a caixa 7 do DoD que
+  # este ticket devolve por cumprir: quem funde e o segundo leitor.
   #
   # **O que pode errar em silencio esta noutro ficheiro, e fica medido:** as
   # duas verificacoes de arranque (a invariante global das subscricoes de

@@ -171,13 +171,20 @@ def _caso_de_reembolso(cursor, tenant_id: str, canario: str) -> None:
     O `motivo` e `text NOT NULL` e e a razao escrita que o M-8 exige — a unica
     coluna de texto arbitrario desta tabela, e por isso o canario vai la.
 
-    **O `charge_id` fica nulo e o `order_id` leva um UUID solto**, e e o que o
-    `refund_cases_um_sujeito` aceita: exactamente um dos dois nao-nulo. O
-    `order_id` **nao tem FK** nesta revisao (a FK para `orders_mirror` e do
-    KAM-055, pela razao escrita na `0029`), pelo que um UUID solto nao prende
-    nada; o `charge_id` tem, e usa-lo obrigava a semear uma `payment_charges`,
+    **O `charge_id` fica nulo e o `order_id` leva a encomenda do tenant**, e e o
+    que o `refund_cases_um_sujeito` aceita: exactamente um dos dois nao-nulo. O
+    `charge_id` tambem tem FK, e usa-lo obrigava a semear uma `payment_charges`,
     que esta em `SEM_RECEITA_COM_RAZAO` por causa do *trigger*
     `assert_beneficiary`.
+
+    **A encomenda vai pelo `_UMA_ENCOMENDA`**, pela razao medida que esse
+    comentario escreve. Ate a `0035` esta receita escrevia `gen_random_uuid()`,
+    e era legitimo: o `order_id` **nao tinha FK**, e a `0029` dizia por escrito
+    que a FK era do KAM-055. Ela existe agora
+    (`refund_cases_encomenda_do_mesmo_tenant_fk (tenant_id, order_id)` para a
+    `orders_mirror (tenant_id, id)`), e com o par nao-nulo o `MATCH SIMPLE`
+    avalia-a — o UUID solto passou a dar `23503` e levava a bateria inteira
+    atras dele, numa tabela que nada tem a ver com pagamentos.
 
     Semeia o administrador: **nenhum papel de aplicacao tem `INSERT`** nesta
     tabela — quem a escreve e a `manual_reverter`, que e `SECURITY DEFINER`.
@@ -185,8 +192,8 @@ def _caso_de_reembolso(cursor, tenant_id: str, canario: str) -> None:
     cursor.execute(
         "INSERT INTO platform.refund_cases "
         "(tenant_id, order_id, motivo, valor_minor, estado) "
-        "VALUES (%s, gen_random_uuid(), %s, 1000, 'aberto')",
-        (tenant_id, canario),
+        f"VALUES (%s, {_UMA_ENCOMENDA}, %s, 1000, 'aberto')",
+        (tenant_id, tenant_id, canario),
     )
 
 
@@ -1902,8 +1909,11 @@ ORDEM = (
     # que a subconsulta da receita foi buscar — que e o que a FK sem `CASCADE`
     # exige. Ninguem a aponta, pelo que fica no fim.
     ("platform", "stock_reservations"),
-    # KAM-054: as duas so dependem de `tenants` e ninguem as aponta, pelo que
-    # ficam no fim, como as do KAM-009. **A ordem entre estas e a
+    # KAM-054: a `refund_cases` **depois da `orders_mirror`**, que ela
+    # referencia por FK composta desde a `0035` (KAM-055) — antes disso o
+    # `order_id` era um UUID solto e a posicao era indiferente. A
+    # `fraud_signals` so depende de `tenants`. Ninguem aponta para nenhuma das
+    # duas, pelo que ficam no fim, como as do KAM-009. **A ordem entre estas e a
     # `stock_reservations` e indiferente** — nenhuma aponta para outra —, e a
     # escolhida e a dos numeros dos tickets.
     ("platform", "refund_cases"),
