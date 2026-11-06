@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike H3 — ES v4 de coexistencia</title>
+<!--
+  A pagina minima de Embedded Signup v4 em modo de coexistencia (KAM-100).
+
+  Os tres parametros que fazem disto coexistencia e nao um onboarding normal
+  estao no `extras` abaixo, e sao CONFIRMADO em `E1` §2 e em
+  `docs/tecnica/01` §4.3:
+
+      extras.featureType = "whatsapp_business_app_onboarding"
+      extras.sessionInfoVersion = "3"
+      sessionInfoVersion = "3"        (fora do `extras`, ver a nota la)
+
+  Mais o *session logging*, que e o ouvinte de `message` no fim: sem ele nao ha
+  `waba_id` nem `phone_number_id`, e o requisito de `E1` §2 e literalmente «usar
+  Embedded Signup **com session logging**».
+
+  O ES v4 de coexistencia **nao registra o numero** (ja esta registado na app do
+  dono) e o evento final e `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`.
+
+  ## Nada aqui e segredo, e nada aqui e literal
+
+  O App ID e o Configuration ID chegam na *query string*
+  (`?app=...&config=...`) e **nao estao escritos no ficheiro**: o repositorio e
+  publico, e um identificador de configuracao colado aqui e um convite a que
+  alguem corra o nosso fluxo. O App Secret nao aparece em sitio nenhum — ele
+  nunca toca no navegador, so no receptor, e vem do cofre por ambiente.
+
+  ## O que esta pagina nao faz
+
+  Nao troca o `code` por um token: isso e uma chamada servidor-a-servidor que
+  precisa do App Secret, e fazer-la no navegador expunha-o. O `code` aparece no
+  ecra para o operador o copiar para o portatil. O onboarding real e o KAM-016.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 44rem; margin: 0 auto; padding: 1rem; line-height: 1.5;
+  }
+  button {
+    font: inherit; padding: .6rem 1rem; border-radius: .4rem;
+    border: 1px solid currentColor; background: transparent; cursor: pointer;
+  }
+  button[disabled] { opacity: .5; cursor: not-allowed; }
+  pre {
+    white-space: pre-wrap; word-break: break-all; padding: .75rem;
+    border: 1px solid; border-radius: .4rem; font-size: .85rem;
+  }
+  .aviso { border-left: .25rem solid; padding-left: .75rem; }
+</style>
+</head>
+<body>
+<h1>Spike H3 — coexistencia</h1>
+
+<p class="aviso">
+  Harness descartavel do ticket KAM-100. Nao e produto, nao e o onboarding real
+  (KAM-016) e nao guarda nada. O operador segue a folha
+  <code>protocolo_operador.md</code> e o dono do numero deu consentimento escrito
+  <strong>antes</strong> de esta pagina abrir.
+</p>
+
+<p>
+  Abrir com <code>?app=&lt;APP_ID&gt;&amp;config=&lt;CONFIGURATION_ID&gt;</code>.
+  Nenhum dos dois esta escrito no ficheiro.
+</p>
+
+<p>
+  <button id="arrancar" disabled>Iniciar ES v4 de coexistencia</button>
+</p>
+
+<h2>Registo da sessao</h2>
+<pre id="registo">(sem eventos)</pre>
+
+<script>
+(function () {
+  "use strict";
+
+  var parametros = new URLSearchParams(location.search);
+  var APP_ID = parametros.get("app") || "";
+  var CONFIG_ID = parametros.get("config") || "";
+
+  var registo = document.getElementById("registo");
+  var arrancar = document.getElementById("arrancar");
+  var linhas = [];
+
+  function anotar(texto) {
+    linhas.push(new Date().toISOString() + "  " + texto);
+    registo.textContent = linhas.join("\n");
+  }
+
+  if (!APP_ID || !CONFIG_ID) {
+    anotar("ERRO: faltam `app` e/ou `config` na query string. Ver o comentario "
+      + "no topo do ficheiro.");
+    return;
+  }
+
+  // O *session logging* de `E1` §2: a Meta publica o progresso do popup por
+  // `postMessage`. **A origem verifica-se** — sem isto, qualquer janela que
+  // tenha uma referencia a esta podia injectar um `waba_id`.
+  window.addEventListener("message", function (evento) {
+    if (evento.origin !== "https://www.facebook.com"
+        && evento.origin !== "https://web.facebook.com") {
+      return;
+    }
+    var dados;
+    try { dados = JSON.parse(evento.data); } catch (e) { return; }
+    if (!dados || dados.type !== "WA_EMBEDDED_SIGNUP") { return; }
+    // O `data` traz `phone_number_id`, `waba_id` e o `current_step`. O
+    // `phone_number_id` e um identificador de canal e nao um telefone; mesmo
+    // assim nada disto e gravado aqui — o operador copia o que precisa.
+    anotar("session: " + (dados.event || "?") + "  " + JSON.stringify(dados.data || {}));
+    if (dados.data && dados.data.current_step === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
+      anotar("FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING — o fluxo de coexistencia "
+        + "chegou ao fim. O prazo de 24 h para a sincronizacao comeca agora.");
+    }
+  });
+
+  window.fbAsyncInit = function () {
+    FB.init({ appId: APP_ID, cookie: true, xfbml: false, version: "v23.0" });
+    arrancar.disabled = false;
+    anotar("SDK pronto. App " + APP_ID + ", config " + CONFIG_ID + ".");
+  };
+
+  arrancar.addEventListener("click", function () {
+    anotar("a abrir o popup...");
+    FB.login(function (resposta) {
+      if (resposta.authResponse && resposta.authResponse.code) {
+        // **O `code` nao se troca aqui.** A troca precisa do App Secret e e
+        // servidor-a-servidor; o operador copia isto para o portatil.
+        anotar("code (copiar para o portatil, nao guardar nesta maquina): "
+          + resposta.authResponse.code);
+      } else {
+        anotar("sem `code`: " + (resposta.status || "cancelado pelo utilizador"));
+      }
+    }, {
+      config_id: CONFIG_ID,
+      response_type: "code",
+      override_default_response_type: true,
+      // `sessionInfoVersion` tambem fora do `extras`: a documentacao do ES
+      // mostra-o nos dois sitios e nao diz que um substitui o outro. Manter os
+      // dois e o que `docs/tecnica/01` §4.3 descreve, e um a mais nao faz mal;
+      // um a menos deixava o fluxo cair no onboarding normal, que **nao** e
+      // coexistencia e nao e o que ha para medir.
+      extras: {
+        setup: {},
+        featureType: "whatsapp_business_app_onboarding",
+        sessionInfoVersion: "3"
+      },
+      sessionInfoVersion: "3"
+    });
+  });
+}());
+</script>
+<script async defer crossorigin="anonymous"
+        src="https://connect.facebook.net/pt_PT/sdk.js"></script>
+</body>
+</html>
