@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Core de Comércio (COM): Medusa v2 sujeito a spike, modelo de dados `platform`, encomendas, reservas, Catálogo AI, reviews |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md` (âncora), `../exploracao/11-arquitetura-detalhada-engenharia.md` §2–§5, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -949,7 +949,30 @@ Envelope único versionado do documento 11 §3 (`id`, `tipo`, `versao`, `tenant_
 | `review.requested` / `review.created` | Reputação | AGR, IDX (C), DAT | `order_id`, `nota`, `peso_ranking` | P (ranking: C) |
 | `booking.created` | COM (`servicos`, ao confirmar um hold) | AGR (confirma ao cliente), *scheduler* de lembretes (KAM-048), DAT | `booking_id`, `contact_id`, `service_id`, `resource_id`, `inicio_at`, `fim_at` | P |
 | `booking.cancelled` | COM (`servicos`: cancelamento do cliente, ou `expirar_holds`) | AGR, DAT | `booking_id`, `motivo` (`hold_expirado`, …) | P |
-| `booking.reminder_due` | *scheduler* (KAM-048) | AGR (mensagem livre ou *template utility*) | `booking_id`, `inicio_at` | P (KAM-048) |
+| `booking.reminder_due` | *scheduler* (KAM-048) | **COM (`servicos/reminders`: mensagem livre ou *template utility*)**; AGR subscreve e não notifica — ver a nota abaixo | `booking_id`, `inicio_at` | P (KAM-048) |
+
+**O consumidor do `booking.reminder_due` passou do AGR para o COM a 2026-11-06,
+e a decisão é do fundador.** Esta linha dizia «AGR (mensagem livre ou *template
+utility*)» — isto é, atribuía ao AGR exactamente o comportamento que o KAM-048
+implementa no COM. Enquanto o lembrete não existia, a divergência não custava
+nada; ao implementá-lo, ela produziu **dois** caminhos com código para falar com
+o cliente sobre o mesmo evento, cada um com a sua chave de idempotência — a do
+§6.3 no AGR e a `booking_id:reminder:T-24h` do critério 2 no COM —, e nenhuma das
+duas deduplica a outra.
+
+A escolha é o COM, e a razão decisiva é o critério 3 do KAM-048: com a janela da
+Meta fechada o lembrete tem de levar a data e a hora da marcação, e o texto do
+AGR não leva números **por desenho** (`eventos/handlers.py`: «nenhum texto leva
+números, e isso é uma regra e não um estilo»). Um lembrete sem a hora da marcação
+não é um lembrete.
+
+**O AGR continua a subscrever o tipo**, e retirar-lhe a acção é alteração ao
+comportamento entregue do **KAM-038**: fica por fazer, com o fundador como
+credor, e está devolvida como caixa no bloco do KAM-048. Até lá, um
+`booking.reminder_due` consumido pela vertical Serviços pede uma notificação ao
+cliente, recebe `sem_template` da porta por ligar e abre entrada na DLQ — pelo
+que **hoje não há mensagem duplicada**, e o duplicado nasce no dia em que o
+Outbound do KAM-015 for ligado ao AGR.
 
 **O `order.reconciliation_issue` saiu desta tabela a 2026-11-04, e não é
 omissão.** A decisão é do **fundador**, e a proveniência fica escrita porque uma
@@ -1100,3 +1123,4 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | 1.4 | Outubro 2026 | **KAM-047: o módulo `servicos` deixa de ser lacuna.** §5.7 nasce com o DDL das quatro tabelas do esquema próprio, a restrição de exclusão GiST que torna a sobreposição impossível por construção, a tranca por recurso que a acompanha, o ciclo do hold, a RLS `FORCE` e a matriz de privilégios — fechando a lacuna que o `02` §8.3 registava («onde vive a agenda»). §12 ganha as **três** linhas de marcação (`booking.created`, `booking.cancelled`, `booking.reminder_due`), que o §3.5 do dicionário já tinha entre os trinta e oito tipos do Piloto e que este mapa não tinha. **Três números vêm de execução e não de leitura:** `btree_gist` 1.8 existe na imagem fixada e instala-se sem superutilizador (é `trusted`); 1.000 tentativas concorrentes no mesmo intervalo dão **uma** marcação em ~57 s com zero *deadlocks*, e **486** sem a tranca; e um `CHECK` com subconsulta para validar o fuso é recusado pelo motor (`0A000`), pelo que a validação é um *trigger*. **Duas divergências com o DDL *proposta* do bloco KAM-047, resolvidas a favor do dicionário** (emenda 1.45): `booking_id`/`inicio_at`/`fim_at` contra `id`/`inicio`/`fim`, e `preco_tipo` contra a forma que a emenda 1.12 do dicionário já substituía. **O que fica por decidir:** a cadência do varrimento, e com ela o `p99 ≤ 60 s` do critério 3 (KAM-071); a classe de PII dos três eventos, que o `06` §5 não dá; e a ratificação, que é do fundador. | Equipa KAMBÁ |
 | 1.5 | Novembro 2026 | **O `order.reconciliation_issue` sai da tabela do §12, por decisão do fundador a 2026-11-04.** A linha dava-lhe produtor (COM), consumidores (OBS, ops), *payload* (`order_id`, `tipo`) e fase (P), e o evento não existia em mais sítio nenhum: sem contrato publicado, fora dos trinta e oito tipos do §3.5 do dicionário e ausente do `06` §5. Era a **dívida documental 174**, aberta pelo KAM-044 — cujo critério 8 mandava emiti-lo —, que escreveu as duas saídas possíveis e ficou sem credor; a decisão é a saída de o tirar daqui, e a dívida fica riscada. Fica no lugar dele a linha de `platform.order_reconciliation_issues` da revisão `0030`, que é o que a métrica lê, e um ensaio que guarda a decisão. **A proveniência está escrita no corpo:** resposta directa do fundador a esta sessão (a do KAM-044) a 2026-11-04, à pergunta de qual das duas saídas que a dívida 174 escreveu seguir. **E o que a regra (2) do §10.3 perde está escrito no lugar da linha, com o credor medido** — o registo fica na tabela `order_reconciliation_issues`, o sinal é a métrica do §13, e ligar métrica a alerta é o **KAM-080** (SLO no **KAM-082**); até lá a regra não tem caminho de alerta, e isso é a **dívida 177**, aberta nesta emenda. **Nenhuma outra linha desta tabela é tocada**, e a dívida 37 — que descreve esta tabela como um segundo catálogo paralelo ao do `06` §5 — continua aberta: esta emenda tira um evento, não reconcilia os dois catálogos. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-179: o §7.2 passa a dizer de quem é a cotação.** A descrição da `price_quote` escrevia «um preço total para `(sku, qty)`» e **não** dizia que o âmbito inclui o contacto, enquanto o DDL do §5.4 escreve `contact_id NOT NULL` com FK composta e o critério 6 do **KAM-066** exige que o contacto X não leia as `price_quotes` de Y — três fontes, duas leituras. **Decisão do fundador de 2026-11-04: a cotação é por contacto**, e o parágrafo fica com a decisão, a razão que a sustenta (o `emitida_por` já é a coluna de quem a emitiu) e o que a ausência do predicado custava, medido contra um PostgreSQL real. Sem isto, o §7.2 continuava a ser a fonte de onde a leitura errada se re-derivava. O DDL do §5.4 **não** muda: a coluna e a FK já lá estão. | Equipa KAMBÁ |
+| 1.7 | Novembro 2026 | **KAM-048: o consumidor do `booking.reminder_due` passa do AGR para o COM, por decisão do fundador.** O §12 atribuía ao AGR «mensagem livre ou *template utility*» — o comportamento que o KAM-048 implementa em `services/com/src/servicos/reminders/`. Enquanto o lembrete não existia a divergência não custava nada; ao implementá-lo, ela produziu dois caminhos com código para falar com o cliente sobre o mesmo evento, com chaves de idempotência diferentes que não se deduplicam. A razão decisiva é o critério 3: com a janela fechada o lembrete leva data e hora, e o texto do AGR não leva números por desenho. A nota sob a tabela diz o que fica por fazer — retirar a acção ao AGR é alterar o comportamento entregue do KAM-038, devolvido ao fundador como caixa no bloco do KAM-048 — e porque é que **hoje** não há duplicado. | Equipa KAMBÁ |
