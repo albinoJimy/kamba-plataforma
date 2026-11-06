@@ -172,8 +172,46 @@ describe("o inventario deste repositorio", () => {
     // KAM-115, o KAM-112, o KAM-053, o KAM-044 e este —, e a quinta em que o
     // autor verificou os nove portoes que corre nesta maquina e nao podia ver
     // este: o `ci-7-meta` corre por `pnpm`, que aqui nao existe.
-    assert.equal(totalDeclarado(), 115);
-    assert.equal(INVENTARIO.length, 33);
+    //
+    // **120 em 34 ficheiros desde o KAM-100**, e as cinco que entram sao o
+    // canario do ensaio de privacidade do spike H3. Sao **quatro literais** e
+    // dao cinco ocorrencias, porque a forma com o `+244` junto ao movel casa os
+    // **dois** padroes — `telefone_ao` e, por estar entre aspas num literal de
+    // Python, `e164_entre_aspas`.
+    //
+    // O ticket pede «um teste de que o resultado nao contem texto de
+    // mensagens», e esse teste escrito ao pe da letra — comparar nomes de campo
+    // com uma lista — fica verde com uma mensagem inteira guardada num campo
+    // chamado `nota`. O ensaio mede por isso a **forma dos valores**, e para
+    // isso precisa de uma entrada com telefones de forma angolana: sem eles
+    // provava que o detector apanha numeros que nao se parecem com telefones,
+    // que e o contrario do que ele existe para fazer. E a mesma forma de
+    // argumento das entradas do `sms.privacidade.test.ts` e do
+    // `contract_diff/tests/test_pii.py`.
+    //
+    // **Esta e a primeira vez nesta lista em que o gate nao apanhou o autor**, e
+    // vale a pena registar porque e a licao que o paragrafo anterior deixou
+    // escrita: o `ci-7-meta` corre por `pnpm`, que nesta maquina nao existe,
+    // pelo que o autor do KAM-100 reimplementou os dois padroes de `numeros.ts`
+    // em Python, varreu a arvore e confrontou-a com o inventario antes de abrir
+    // o PR — **34 ficheiros, 120 ocorrencias, 0 divergencias** — e **leu este
+    // ensaio** em vez de o correr. Foi a leitura, e nao a medicao, que apanhou
+    // este par de numeros: uma arvore conforme com um total desactualizado aqui
+    // deixava o gate 7 vermelho na mesma.
+    //
+    // **E a leitura apanhou um segundo defeito, no proprio inventario**: a
+    // primeira versao da entrada do KAM-100 escrevia os quatro literais **dentro
+    // do comentario** que explica a contagem, o que lhes acrescentava cinco
+    // ocorrencias num ficheiro — o `inventario.ts` — que **nao tem entrada
+    // propria**. O comentario de `inventario.ts` descreve agora as formas sem as
+    // escrever, e a razao esta la: um comentario nao esta a testar nada, e
+    // declarar numeros que nao testam nada e o contrario do que esta lista e.
+    //
+    // **Esta entrada morre com o spike.** O `spikes/h3/` e descartavel e o
+    // `confrontar` recusa entrada morta, pelo que quem apagar a pasta apaga a
+    // entrada e baixa estes dois numeros no mesmo PR.
+    assert.equal(totalDeclarado(), 120);
+    assert.equal(INVENTARIO.length, 34);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

@@ -357,6 +357,61 @@ export const INVENTARIO: readonly Entrada[] = [
       "forjado que a lista de IPs aceitava por uma barra final; um destino " +
       "ficticio nao chegava a cunhar-se e o achado 1 nao se podia medir",
   },
+  // --- O canario do ensaio de privacidade do spike H3 (KAM-100) ------------
+  //
+  // **Cinco ocorrencias num ficheiro so, e o ficheiro e um ensaio de canario.**
+  // Medidas com os dois padroes de `numeros.ts` sobre o ficheiro, nao escritas
+  // a mao.
+  //
+  // O spike H3 grava JSON-lines de coexistencia e tem de provar que **nao** leva
+  // telefone nenhum. O criterio do ticket pede «um teste de que o resultado nao
+  // contem texto de mensagens», e esse teste escrito ao pe da letra — comparar
+  // nomes de campo com uma lista — fica verde com uma mensagem inteira num campo
+  // chamado `nota`. Por isso o ensaio mede a **forma dos valores**, e para isso
+  // precisa de um corpo de entrada com telefones de forma angolana: sem eles,
+  // provava que o detector apanha numeros que nao se parecem com telefones, que
+  // e o contrario do que ele existe para fazer. E a mesma razao da entrada do
+  // `sms.privacidade.test.ts` e do `contract_diff/tests/test_pii.py`.
+  //
+  // Sao **quatro literais** e dao cinco ocorrencias, porque o varrimento conta
+  // por padrao e um dos literais casa os dois. **As formas descrevem-se aqui e
+  // nao se escrevem**: um literal neste comentario acrescentava ocorrencias a
+  // este ficheiro, que nao tem entrada propria, e o inventario passava a
+  // declarar numeros que nao estao a testar nada. Foi medido ao escrever esta
+  // entrada — a primeira versao tinha-os, e dava `nao_declarado` com 5.
+  //
+  //   `+244` com espaco antes do movel     1 — so `telefone_ao`: o espaco
+  //                                        quebra a corrida de digitos de que o
+  //                                        `e164_entre_aspas` precisa
+  //   `+244` junto ao movel                2 — `telefone_ao` e
+  //                                        `e164_entre_aspas`, este por estar
+  //                                        entre aspas num literal de Python
+  //   `244` e `00244` sem o mais           1 cada — `telefone_ao`, nas duas
+  //                                        grafias que o `id_opaco` tem de
+  //                                        recusar
+  //
+  // O ensaio leva tambem a forma **local** (`9` mais oito digitos), que **nenhum**
+  // destes dois padroes apanha — um exige `244`, o outro um `+` — e que por isso
+  // nao conta aqui. Esta la de proposito: um telefone que entrasse assim num
+  // ficheiro de evidencia passava este gate e continuava a ser um dado pessoal,
+  // e o ensaio acrescenta um terceiro detector so para ele.
+  //
+  // Nenhum pertence a ninguem: sao sequenciais a partir do prefixo movel, como
+  // os das outras entradas desta lista.
+  //
+  // **Esta entrada morre com o spike.** O `spikes/h3/` e descartavel e o
+  // `confrontar` recusa entrada morta, pelo que quem apagar a pasta apaga esta
+  // entrada no mesmo PR — que e exactamente o comportamento que se quer.
+  {
+    ficheiro: "spikes/h3/tests/test_privacidade.py",
+    ocorrencias: 5,
+    razao:
+      "o canario do ensaio de privacidade do KAM-100: o detector tem de VER as " +
+      "formas de movel angolano na entrada, senao o zero medido na saida do " +
+      "registo nao diz nada — a licao do sms.privacidade.test.ts e do alvo x11. " +
+      "Tres literais, cinco ocorrencias porque o varrimento conta por padrao e " +
+      "a forma sem espaco casa os dois. Sequenciais a partir do prefixo movel",
+  },
 ];
 
 /** O que o *scan* mediu num ficheiro. */
