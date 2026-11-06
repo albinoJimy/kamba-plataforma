@@ -572,7 +572,7 @@ revê antes de qualquer assinatura:
 | # | O que a cláusula tem de estabelecer | Porquê |
 |---|---|---|
 | 1 | A liquidação é feita **directamente** na conta bancária da PME (ou na carteira da PME), pela EMIS ou pelo banco, **sem passar por conta da KAMBÁ** | É o desenho A de `../E2_Pagamentos_Angola.md` §3.3, o único CONFIRMADO como fora da necessidade de licença **(a confirmar por parecer)** |
-| 2 | A KAMBÁ actua como **prestador técnico** e **não** toma posse, em momento algum, de fundos de terceiros | Art. 4, alínea j) do Aviso 2/22, na leitura de `../E2_Pagamentos_Angola.md` §3.2 — **leitura a confirmar por parecer** |
+| 2 | A KAMBÁ actua como **prestador técnico** e **não** toma posse, em momento algum, de fundos de terceiros | Art. 4, alínea j) do Aviso 2/22, na leitura de `../E2_Pagamentos_Angola.md` §3.2 — a leitura **(a confirmar por parecer)** |
 | 3 | O contrato de serviços EMIS e o contrato com o facilitador são **da PME**, e a KAMBÁ **não** é parte nem mandatária para efeitos de recebimento | Senão a KAMBÁ passa a ser o comerciante de registo, que é o desenho B de `../E2_Pagamentos_Angola.md` §3.3 — «provável sub-adquirente», INDÍCIO **(a confirmar por parecer)** |
 | 4 | **Nenhuma** cláusula de retenção, caução, *escrow*, compensação ou dedução de comissão sobre fundos liquidados | Dedução sobre liquidação é posse momentânea. É também a razão por que a comissão está desligada (D8, ADR-017) |
 | 5 | **Nenhum** mandato de *payout* a terceiros em nome da PME | Desenho C de `../E2_Pagamentos_Angola.md` §3.3: execução de operações de pagamento, regulado — INDÍCIO **(a confirmar por parecer)** |
@@ -785,7 +785,7 @@ mesma frase, o que era uma inconsistência que a revisão adversarial levantou:
 | O que se afirma | Estado |
 |---|---|
 | A **reimplementação é fiel** aos dois padrões do `numeros.ts` | **CONFIRMADO**, por coincidência exacta, ficheiro a ficheiro, com as contagens do `INVENTARIO` — que o próprio `inventario.ts` declara terem saído do *scan* e não de escrita à mão |
-| **O *gate* 7 passa** nesta árvore | **INDÍCIO-forte.** O `ci-7-meta` não correu: precisa de `node` e `pnpm`, que esta máquina não tem. A medição que conta é a do *runner* |
+| **O *gate* 7 passa** nesta árvore | **CONFIRMADO pelo *runner*.** O `ci-7-meta` não corre nesta máquina — precisa de `node` e `pnpm` —, e por isso a medição local ficou INDÍCIO-forte até o CI falar. Falou: o **gate 7 — contratos de evento** passou em **31 s** sobre o commit `7888932` deste ramo, o que é a medição que conta. Re-corre em cada commit, e o que este PR muda depois disso não toca no varrimento |
 
 E o que a reimplementação mede é a árvore de hoje: vale para **estes** padrões e
 **esta** lista de exclusões, e muda no dia em que um deles mudar.
@@ -871,7 +871,7 @@ segunda seja mais forte do que a primeira**, e é essa a propriedade que importa
 | 13 | Replanear as linhas de KAM-056, KAM-057 e KAM-059 no backlog mestre, **se** H5 for `refutada` (§6) | Hoje H5 é `inconclusiva`; replanear sobre um dado que não existe era o defeito | **Responsável de Produto** |
 | 14 | Decidir o que a interface promete à PME se não houver cobrança integrada (§6) | É decisão de produto | **Responsável de Produto** |
 | 15 | Correr o `validar_evidencia.py` sobre estas fichas, como os «Testes Requeridos» do bloco pedem | **O ficheiro não existe na árvore.** É artefacto do KAM-100, e dá-lo por corrido era inventar evidência | **KAM-100** |
-| 16 | Correr o `ci-7-meta` com `node`/`pnpm` e confirmar o varrimento do §8.4 no *runner* | Nesta máquina não há `node` nem `pnpm`; a medição local é INDÍCIO-forte | **o CI** (*runner* do portão) |
+| 16 | ~~Correr o `ci-7-meta` com `node`/`pnpm` e confirmar o varrimento do §8.4 no *runner*~~ — **fechado** | **Fechado pelo CI**: o *gate* 7 passou em 31 s sobre o commit `7888932` deste ramo. Era a única caixa deste ticket que não dependia de um acto humano, e era por isso a única que podia fechar sem sair da sessão | — (fechado) |
 | 17 | Decidir se «NÃO VERIFICADO com razão escrita e pergunta nomeada» conta como **estado final** para a caixa 4 de DoD | A revisão adversarial objectou que um estado com gatilho de reavaliação é, por construção, não final — e que o critério 4 é dado por «não satisfeito» sobre itens que se sobrepõem. A caixa fica **marcada** pelo precedente explícito do **KAM-101** («mantido com razão é entrega», mesma redacção de critério), e a objecção fica escrita em vez de calada: «final» aqui quer dizer que o ticket não deixa nenhum item sem estado declarado, não que o item seja imutável — nenhum estado nesta casa o é | **Responsável de Produto** |
 | 18 | Medir a **regra b** de `../../04_Pagamentos_Liquidacao_AntiFraude.md` §8 — «só reconhecer pagamentos de cobranças nossas» | O ensaio 5 **não a mede**, e a correcção está no §8.2: a defesa é do nosso cliente (chave dedicada por PME, alerta de órfão em vez de `DELETE`), não do contrato do fornecedor. Pertence à suite de conformidade do adaptador | **KAM-056** |
 
