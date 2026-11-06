@@ -8,12 +8,20 @@ mesmo objecto**, pelo que as quatro vagas ficavam com a mesma ligacao; duas
 invocacoes concorrentes na mesma ligacao fazem o `tenant_guard` levantar
 `LigacaoEmUso` — **com razao**, porque uma segunda transaccao sobrepunha o
 contexto de tenant da primeira. O defeito era da fabrica do ensaio, nao do
-guarda, e o custo foi avermelhar o `gate` 4 em PRs que nao tocavam em
-`services/` nem em `libs/` (PR `#137`, medido a 2026-11-05).
+guarda.
+
+**O custo foi atribuir-se o vermelho ao ramo errado, e a prova fica aqui** —
+porque e ela que tem de sobreviver a fusao deste ticket. No PR `#137` (KAM-180,
+medido a 2026-11-05) o `gate 4` falhou em `ordem-dos-ensaios` com
+`kamba_core.tenant_guard.LigacaoEmUso`, e esse PR **nao toca no caminho**:
+`git diff --name-only publico/main...HEAD -- services/ libs/` dava **0
+ficheiros**, e um `gh run rerun --failed` sobre o **mesmo commit** passou. O
+vermelho nao era dele nem da `main` — era desta fabrica.
 
 **Porque e que este ficheiro nao conta repeticoes.** As taxas de vermelho sem
 carga sao 0 % a `pool=1`, ~0,8 % a `pool=2`, ~1,5 % a `pool=4` e ~3,8 % a
-`pool=16` (tabela do bloco do KAM-181), pelo que uma matriz de 4 x 30
+`pool=16` (tabela do §Contexto de `specs/tickets/KAM-181.md`), pelo que uma
+matriz de 4 x 30
 repeticoes fecha **verde numa arvore nao corrigida** entre um terco e metade das
 vezes: seria satisfeita sem correccao nenhuma. O que se mede aqui e a
 **identidade** das vagas e a **partilha** do estado — as duas metades, e as duas
