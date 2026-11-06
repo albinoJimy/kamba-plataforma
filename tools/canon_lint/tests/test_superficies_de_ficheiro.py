@@ -641,6 +641,32 @@ class TestRegisto(unittest.TestCase):
             [ILEGIVEL],
         )
 
+    def test_o_notifica_repetido_e_o_nulo_tambem_falham(self) -> None:
+        """As duas formas em que este portao era **mais fraco** do que o esquema.
+
+        Achado da revisao adversarial do KAM-039: a *docstring* deste modulo diz
+        que e a segunda barreira do mesmo defeito, e nestes dois casos o CI
+        passava e o AGR recusava o ficheiro no arranque. O `notifica:` nulo
+        passava porque um `item.get("notifica")` nao distingue a chave **ausente**
+        da chave **presente e nula**.
+        """
+        base = SERVICOS.replace(
+            "  - { tipo: booking.created,          versao: 1 }",
+            "  - tipo: booking.created\n    versao: 1\n    notifica:\n      - cliente\n",
+        )
+        repetido = base.replace(
+            "    notifica:\n      - cliente\n",
+            "    notifica:\n      - dono\n      - dono\n",
+        )
+        achados = self.achados(repetido)
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("repete", achados[0].mensagem)
+        nulo = base.replace("    notifica:\n      - cliente\n", "    notifica:\n")
+        self.assertEqual(self.classes(nulo), [ILEGIVEL])
+        # E a chave **ausente** continua a passar: a omissao e configuracao
+        # legitima, e sem este par positivo a correccao acima proibia-a.
+        self.assertEqual(self.classes(SERVICOS), [])
+
     def test_variante_numa_chave_e_dentro_de_um_texto(self) -> None:
         self.assertIn(VARIANTE, self.classes(SERVICOS + "guardrails: { sig_ok: true }\n"))
         self.assertIn(VARIANTE, self.classes(SERVICOS + 'golden: { nota: "le de consent_ledger por contacto" }\n'))
@@ -1131,7 +1157,12 @@ class TestYamlDoRegisto(unittest.TestCase):
         self.assertEqual(len(blocos), 2)
         lidos = [yamlreg.ler(b) for b in blocos]
         self.assertEqual([d["id"] for d in lidos], ["vendedor", "servicos"])
-        self.assertEqual(lidos[0]["subscriptions"][0], {"tipo": "payment.confirmed", "versao": 1})
+        # O `notifica` entra com o KAM-039: o exemplo do §5.1 declara-o, porque e
+        # onde a notificacao ao dono vive desde que saiu do nucleo.
+        self.assertEqual(
+            lidos[0]["subscriptions"][0],
+            {"tipo": "payment.confirmed", "versao": 1, "notifica": ["cliente", "dono"]},
+        )
         self.assertEqual(lidos[1]["entitlements"], {"modulo": "servicos", "limites": ["msgs_ai_mes", "marcacoes_mes"]})
         self.assertLessEqual(set(lidos[0]), registo.CHAVES_DE_TOPO, "a lista fechada cobre o exemplo do desenho")
         self.assertLessEqual(set(lidos[1]), registo.CHAVES_DE_TOPO)

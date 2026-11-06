@@ -199,10 +199,10 @@ partilhada) e `services/agr/src/kamba_agr/` **menos** `verticais/` e menos os
 dois catálogos de tools por vertical.
 
 Corrido à letra sobre esse núcleo, o `grep -iE 'vendedor|servicos|assistente'`
-devolve **163** ocorrências em 30 dos 110 ficheiros. Um portão sobre esse número
+devolve **164** ocorrências em 30 dos 110 ficheiros. Um portão sobre esse número
 seria um defeito, por duas razões independentes:
 
-1. **118 das 163 são prosa** — comentários e *docstrings* a explicar **porque**
+1. **119 das 164 são prosa** — comentários e *docstrings* a explicar **porque**
    é que o núcleo não depende de uma vertical. Um portão que as contasse
    obrigava a apagar a explicação para ficar verde;
 2. **um `grep` não distingue as duas coisas que importam.** Estas duas linhas
@@ -292,14 +292,14 @@ escrito a mao envelhece no *commit* seguinte.
 
 | Medida | Valor |
 |---|---|
-| `reuso` da vertical Serviços | **88,29%** (limiar ≥ 70%) |
+| `reuso` da vertical Serviços | **88,30%** (limiar ≥ 70%) |
 | `LoC_específico` | 1705 linhas com código |
-| `LoC_partilhado` | 12 859 linhas com código |
-| `LoC_total` | 14 564 linhas com código |
+| `LoC_partilhado` | 12 869 linhas com código |
+| `LoC_total` | 14 574 linhas com código |
 | Condição (d) — `fluxo` | **0** — era **1**, e a excepção era real; ver abaixo |
 | `dominio` | 1 (validação por lista fechada; não é excepção) |
 | `conteudo` | 45 ocorrências, em 5 de 110 ficheiros de núcleo |
-| `prosa` | 118 ocorrências |
+| `prosa` | 119 ocorrências |
 | Reprodutibilidade | duas execuções, `sha1` igual byte a byte |
 
 **A condição (d) passa desde 2026-11-06, e a excepção que a fazia falhar tinha
@@ -321,16 +321,37 @@ configuração por vertical pertence. Medido antes e depois, na mesma árvore
 **A extracção ensinou uma coisa sobre esta métrica, e é a razão 2 do §4 a
 morder em código novo:** as guardas de arranque escritas contra as tabelas —
 `par not in TEXTOS` — são elas próprias `fluxo`, porque um mapa indexado pela
-vertical lido num teste é despacho seja qual for a intenção. A forma que diz o
-que faz é ler o **conjunto de chaves** por um nome derivado. A primeira versão
-das guardas deu `fluxo 3`, e o verificador tinha razão.
+vertical lido num teste é despacho seja qual for a intenção. A primeira versão
+das guardas deu `fluxo 3`. A forma que passa é ler a tabela por um nome
+**derivado**.
+
+**E isso diz uma coisa sobre o instrumento, que pertence aqui porque é aqui que
+vive a doutrina da classificação.** `par not in TEXTOS` e
+`par not in tuple(TEXTOS)` são a **mesma pergunta** — `in` sobre um `dict` testa
+chaves — e o mesmo programa, medido com comportamento byte-idêntico. O que
+distingue as duas é só a **visibilidade**: a classificação olha para a forma da
+**atribuição** da constante e não para a pergunta do sítio da leitura, porque o
+`_constantes_com_verticais` varre só o corpo do módulo e só registra constantes
+que **contenham** literais de vertical. Uma constante derivada é invisível.
+
+> **`fluxo == 0` quer dizer «o núcleo não ramifica por vertical em nenhuma das
+> formas que este verificador segue»**, e não «o núcleo não ramifica por
+> vertical».
+
+As formas cegas conhecidas — constante derivada, local a função, de classe,
+importada, literal concatenado, símbolo construído por `getattr` — estão
+inventariadas em [`evidencia/KAM-039.md`](evidencia/KAM-039.md) §5.0, com as 25
+mutações que as mediram (**12** apanhadas, **13** não) e o único caso que existe
+hoje na árvore. São as mesmas na base: o verificador sempre foi cego a elas, e
+nenhuma foi aberta pela extracção. Apertá-lo muda o que a condição (d) conta, que
+é **regra de bloqueio** — devolvido ao fundador. Achado da revisão adversarial.
 
 **A folga do limiar, sob os cinco enquadramentos defensáveis.** Nenhum deles
 desce abaixo de 70%, e dizer os cinco vale mais do que defender um:
 
 | Enquadramento | `reuso` |
 |---|---|
-| O que as regras acima fixam | **88,29%** |
+| O que as regras acima fixam | **88,30%** |
 | Sem o que entra por `import` dentro de função (regra 7) | 86,72% |
 | Sem migrações em nenhuma ponta | 85,78% |
 | Com o *backend* TypeScript das tools nas duas pontas (regra 9) | 83,77% |
@@ -346,7 +367,7 @@ está preso é a propriedade (`reuso ≥ limiar`) e a **lista** das excepções 
 núcleo, em `tools/reuse_metric/tests/test_repositorio.py` — hoje **vazia**, e
 vazia não é o mesmo que ausente: um conjunto vazio mantém o ensaio a dizer
 «nenhuma», e uma excepção nova fica vermelha **nomeada**. Um teste que pinasse
-88,29 parte-se em cada *commit* que toque uma linha do núcleo.
+88,30 parte-se em cada *commit* que toque uma linha do núcleo.
 
 ## 7. Como se corre
 
@@ -363,4 +384,4 @@ Códigos de saída: `0` passa, `1` achado, `2` declaração ou árvore malformad
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Primeira versao (**KAM-039**). As regras de contagem da medida do ADR-012, a classificacao da condicao (d) em **quatro** classes, e o resultado medido. **Dez regras, e cinco nascem de correccoes feitas durante o ticket — tres de auto-validacao e duas da revisao adversarial —, cada uma com o numero que a motivou:** a unidade passou de linha bruta a linha com codigo (o `nos.py` de Servicos tem 1435 e **649**); o caminho partilhado passou de lista a mao a fecho de importacao (**88,99% -> 87,58%**, porque a lista a mao era generosa); as migracoes passaram de so-numerador a cadeia do Alembic nas duas pontas (a versao assimetrica dava **82,34%**); a ToolLayer partilhada passou a estar declarada, simetrica ao catalogo da vertical que ja estava no numerador (**87,58% -> 88,26%** — a assimetria que o proprio ticket condenava nas migracoes, deixada no termo vizinho); e o majorante da regra 7 passou de afirmado a **nomeado** no artefacto (1677 linhas em 16 modulos). As regras **9** e **10** sao limites declarados e nao correccoes: o *backend* TypeScript das tools da vertical (1059 linhas) fica fora da medida, e a cadeia das migracoes e posicional. | Equipa KAMBA |
-| 1.1 | Novembro 2026 | **A condicao (d) passa, e o §6 deixa de descrever uma arvore que nao existe (KAM-039, caixa devolvida).** O `AO_DONO` do `eventos/handlers.py` saiu do nucleo para `subscriptions[].notifica` do `registry/<id>.yaml`, por decisao do fundador a 2026-11-06, e com ele a unica ocorrencia de `fluxo`. Medido sobre `db0582d`: `fluxo 1 -> 0`, saida `1 -> 0`; `conteudo 48 -> 45` (as tres entradas da tabela saiem com ela), `prosa 114 -> 118`, `reuso 88,26% -> 88,29%`. O §4 ganha uma licao medida em codigo novo: uma guarda escrita contra a tabela (`par not in TEXTOS`) **e** `fluxo`, e a primeira versao das guardas de arranque deu `fluxo 3` — le-se o conjunto de chaves por um nome derivado. O que **nao** muda: as dez regras de contagem, o limiar, e a fronteira do `conteudo`, que continua devolvida ao fundador. | Equipa KAMBA |
+| 1.1 | Novembro 2026 | **A condicao (d) passa, e o §6 deixa de descrever uma arvore que nao existe (KAM-039, caixa devolvida).** O `AO_DONO` do `eventos/handlers.py` saiu do nucleo para `subscriptions[].notifica` do `registry/<id>.yaml`, por decisao do fundador a 2026-11-06, e com ele a unica ocorrencia de `fluxo`. Medido sobre `db0582d`: `fluxo 1 -> 0`, saida `1 -> 0`; `conteudo 48 -> 45` (as tres entradas da tabela saiem com ela), `prosa 114 -> 119`, `reuso 88,26% -> 88,30%`. O §4 ganha uma licao medida em codigo novo: uma guarda escrita contra a tabela (`par not in TEXTOS`) **e** `fluxo`, e a primeira versao das guardas de arranque deu `fluxo 3` — le-se o conjunto de chaves por um nome derivado. O que **nao** muda: as dez regras de contagem, o limiar, e a fronteira do `conteudo`, que continua devolvida ao fundador. | Equipa KAMBA |

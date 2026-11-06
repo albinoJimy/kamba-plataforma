@@ -321,6 +321,42 @@ class TestCriterio1Subscricoes(unittest.TestCase):
         aviso ao dono e nenhum texto ao cliente (`docs/tecnica/03` §12)."""
         handlers.exigir_handlers((subscricao_de("vendedor", "stock.low", "dono"),))
 
+    def test_declarar_destinatario_com_credor_de_accao_por_ligar_reprova(self) -> None:
+        """A invariante que a extraccao deixou sem quem a medisse.
+
+        **Achado da revisao adversarial.** Era um ensaio —
+        `ACCOES_POR_LIGAR & (AO_CLIENTE | AO_DONO) == set()` — e a metade do dono
+        saiu para o `registry/`, que e um ficheiro editavel: o ensaio deixou de
+        cobrir metade da invariante e nada no arranque a substituia. Em execucao,
+        um `notifica: [dono]` num par com credor fazia o `_efeito` avisar o dono
+        **e** o `_consumir` devolver `sem_accao`, porque o desfecho le o credor e
+        nao o destinatario.
+        """
+        with self.assertRaises(handlers.SemHandlerError) as erro:
+            handlers.exigir_handlers(
+                (subscricao_de("servicos", "payment.confirmed", "dono"),)
+            )
+        self.assertIn("ACCOES_POR_LIGAR", str(erro.exception))
+
+    def test_a_guarda_do_fala_com_o_cliente_morde_fora_do_registo(self) -> None:
+        """**A guarda que sobreviveu a uma mutacao, e por isso ganha ensaio.**
+
+        O `fala_com_o_cliente` levanta para uma subscricao sem destinatario e sem
+        credor. Em producao e inalcancavel por construcao — o `exigir_handlers`
+        recusa no arranque exactamente esse conjunto —, e foi assim que a revisao
+        adversarial a mutou para `if False:` e a suite inteira continuou verde.
+        Nao se apaga: e a barreira para um `Consumidor` que **nao** venha do
+        registo, que e o que esta chamada mede. Uma guarda fail-closed sem ensaio
+        e uma guarda que a proxima limpeza apaga por parecer morta.
+        """
+        with self.assertRaises(handlers.SemHandlerError) as erro:
+            handlers.fala_com_o_cliente(subscricao_de("vendedor", "tenant.approved"))
+        self.assertIn("tenant.approved", str(erro.exception))
+        # O par positivo: um par **com** credor nao levanta, e responde `False`.
+        self.assertFalse(
+            handlers.fala_com_o_cliente(subscricao_de("servicos", "payment.confirmed"))
+        )
+
     def test_o_mesmo_tipo_noutra_vertical_e_outro_handler(self) -> None:
         """**E a correccao do defeito que a revisao adversarial encontrou.**
 

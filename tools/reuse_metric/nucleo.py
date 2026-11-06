@@ -7,9 +7,9 @@ vertical em `core/` = 0)», e o bloco do KAM-039 repete-a com a exclusao de
 ## Um `grep` responde a pergunta errada, e mede-se que responde
 
 Corrido a letra sobre o nucleo deste repositorio, o `grep -iE
-'vendedor|servicos|assistente'` devolve **162** ocorrencias em 30 dos 110
-ficheiros de nucleo. Mas a convencao da casa e explicar por extenso: **114**
-dessas 162 sao prosa de comentario ou de *docstring* a dizer **porque** e que o
+'vendedor|servicos|assistente'` devolve **164** ocorrencias em 30 dos 110
+ficheiros de nucleo. Mas a convencao da casa e explicar por extenso: **119**
+dessas 164 sao prosa de comentario ou de *docstring* a dizer **porque** e que o
 nucleo nao depende de uma vertical — por exemplo, o `ligacao.py` a explicar que
 a tranca e por conversa e nao por vertical. Um portao que contasse essas linhas
 obrigava a apagar a explicacao para ficar verde, o que e o contrario do que o
@@ -55,7 +55,7 @@ nao ensina nada a quem passar aqui a seguir.
 
 Medido em `ab3e390` a 2026-11-06, depois de a notificacao ao dono sair do
 nucleo para `subscriptions[].notifica` do `registry/`: `fluxo = 0`,
-`dominio = 1`, `conteudo = 45`, `prosa = 118`, sobre 110 ficheiros de nucleo,
+`dominio = 1`, `conteudo = 45`, `prosa = 119`, sobre 110 ficheiros de nucleo,
 saida **0**. **O *commit* e o da arvore que se mediu e nao o desta linha**, que
 e a armadilha que a afirmacao anterior tinha: um numero citado com o *commit*
 que o escreve nao se pode reproduzir, e um citado com o *commit* que o produz

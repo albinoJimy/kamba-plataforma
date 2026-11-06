@@ -65,7 +65,7 @@ class TestCriterioD(unittest.TestCase):
     #: por extenso.
     #:
     #: Medido a 2026-11-06: `python -m reuse_metric nucleo` → 110 ficheiros,
-    #: `fluxo 0, dominio 1, conteudo 45, prosa 118`, saida **0**.
+    #: `fluxo 0, dominio 1, conteudo 45, prosa 119`, saida **0**.
     #:
     #: **Vazia nao e o mesmo que ausente**, e por isso a lista fica: um conjunto
     #: vazio mantem o ensaio a dizer «nenhuma, e sei quais eram as que havia», e

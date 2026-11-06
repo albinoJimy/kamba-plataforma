@@ -227,13 +227,25 @@ ACCOES_POR_LIGAR: Final[Mapping[tuple[str, str], str]] = {
 #: `ACCOES_POR_LIGAR`, pela razao do `AO_CLIENTE` — e por uma segunda, que a
 #: medicao do KAM-039 ensinou e que vale escrever:
 #:
-#: as guardas do `exigir_handlers` perguntam **«este par esta na tabela?»**, que
-#: e pertenca ao conjunto de chaves, e nao «o que e que a tabela diz para esta
-#: vertical?», que e despacho. Escrito contra a tabela — `par not in TEXTOS` —,
-#: o `reuse_metric` classifica a linha como `fluxo` e tem razao: um mapa
-#: indexado pela vertical, lido num teste, e a forma canonica da excepcao, e a
-#: primeira versao destas guardas pos a condicao (d) em `fluxo 3`. Contra o
-#: conjunto de chaves derivado, o codigo diz o que faz.
+#: escrito contra a tabela — `par not in ACCOES_POR_LIGAR` —, o `reuse_metric`
+#: classifica a linha como `fluxo`, e a primeira versao destas guardas pos a
+#: condicao (d) em `fluxo 3`. **E a razao nao e que a pergunta seja outra**: em
+#: Python, `par in d` sobre um `dict` **ja** testa as chaves, pelo que as duas
+#: formas sao o mesmo programa — medido, comportamento identico. A razao e que o
+#: `reuse_metric` classifica pela **forma da atribuicao da constante** e nao pela
+#: pergunta do sitio da leitura: o `_constantes_com_verticais` varre so o corpo
+#: do modulo e so registra constantes que **contenham** literais de vertical,
+#: pelo que um `dict` com `"vendedor"` dentro e `mapa` — sempre `fluxo` num teste
+#: — e uma constante derivada nao tem literais e e **invisivel**. O instrumento
+#: nao sabe distinguir uma pertenca as chaves de um despacho por valor.
+#:
+#: Fica assim escrito porque e a forma que satisfaz o criterio hoje, **e o limite
+#: fica nomeado**: `fluxo == 0` nao quer dizer «o nucleo nao ramifica por
+#: vertical» enquanto o verificador nao seguir constantes derivadas, locais,
+#: de classe e importadas. Apertar o instrumento muda o que o criterio (d) conta,
+#: que e regra de bloqueio — devolvido ao fundador, com o `fala_com_o_cliente`
+#: nomeado como o caso que existe hoje (`docs/evidencia/KAM-039.md` §5.0).
+#: Achado da revisao adversarial, verificado contra a arvore.
 POR_LIGAR: Final = tuple(ACCOES_POR_LIGAR)
 
 class SemHandlerError(RuntimeError):
@@ -270,19 +282,36 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
       entrega, com a marca de consumido ja inserida. Aqui falha o arranque, que
       e onde um ficheiro de configuracao errado se descobre.
 
+    E uma terceira forma, que e de **dizer duas coisas**:
+
+    * **declara destinatario e tem credor de accao por ligar.** O
+      `ACCOES_POR_LIGAR` quer dizer «esta vertical subscreve e a accao dela nao
+      esta escrita»; um `notifica` nao vazio diz que esta. Com os dois, o
+      `_efeito` do `consumo.py` avisa quem o `notifica` manda **e** o `_consumir`
+      devolve `sem_accao`, porque o desfecho le o credor e nao o destinatario: o
+      dono era avisado e a metrica dizia que nao houve accao. **Era uma
+      invariante medida por ensaio** (`ACCOES_POR_LIGAR & (AO_CLIENTE | AO_DONO)
+      == set()`) e a metade do dono saiu para configuracao, pelo que o ensaio
+      deixou de a cobrir — achado da revisao adversarial. Passa a ser guarda, que
+      e onde ela pertence agora que o outro lado e um ficheiro editavel.
+
     Junta **todos** os problemas e nao o primeiro, pela razao do
     `SubscricoesInvalidasError`: seis linhas erradas num YAML nao sao seis
     *deploys*.
     """
     sem_handler: list[tuple[str, str]] = []
     sem_texto: list[tuple[str, str]] = []
+    diz_as_duas: list[tuple[str, str]] = []
     for subscricao in subscricoes:
         par = (subscricao.vertical, subscricao.tipo)
         if not subscricao.notifica:
             if par not in POR_LIGAR:
                 sem_handler.append(par)
-        elif DESTINATARIO_CLIENTE in subscricao.notifica and par not in AO_CLIENTE:
+            continue
+        if DESTINATARIO_CLIENTE in subscricao.notifica and par not in AO_CLIENTE:
             sem_texto.append(par)
+        if par in POR_LIGAR:
+            diz_as_duas.append(par)
     problemas: list[str] = []
     if sem_handler:
         problemas.append(
@@ -294,6 +323,12 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
         problemas.append(
             f"as subscricoes {sorted(sem_texto)} declaram `{DESTINATARIO_CLIENTE}` e nao "
             "tem texto no `TEXTOS` do `eventos/handlers.py`"
+        )
+    if diz_as_duas:
+        problemas.append(
+            f"as subscricoes {sorted(diz_as_duas)} declaram `notifica` e tem credor em "
+            "`ACCOES_POR_LIGAR`: a accao ou esta escrita ou tem dono, nao as duas — o "
+            "desfecho do consumo seria `sem_accao` com uma notificacao enviada"
         )
     if problemas:
         raise SemHandlerError("; ".join(problemas))

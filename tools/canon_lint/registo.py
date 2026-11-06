@@ -300,8 +300,6 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
         de um pagamento por causa de uma gralha. Por isso o dominio e fechado nas
         **duas** superficies — aqui e no esquema Pydantic do AGR.
         """
-        if notifica is None:
-            return
         if not isinstance(notifica, list):
             achados.append(Achado(ficheiro, 0, ILEGIVEL, "`notifica` nao e uma lista"))
             return
@@ -315,6 +313,21 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                     REGRA,
                     f"`notifica: {destinatario!r}` nao e um destinatario; os dois sao "
                     f"{', '.join(DESTINATARIOS_DA_NOTIFICACAO)} "
+                    "(`docs/tecnica/02` §5.1, KAM-039)",
+                )
+            )
+        # **As repeticoes tambem**, pela razao do `_notifica_unico` do esquema:
+        # um `notifica: [dono, dono]` nao e ambiguo — avisa-se o dono uma vez — e
+        # e por isso que se recusa, porque o ficheiro diz duas coisas e o codigo
+        # faz uma. Estava so no Pydantic, e este portao afirmava duplica-lo.
+        repetidos = sorted({d for d in notifica if notifica.count(d) > 1}, key=str)
+        for destinatario in repetidos:
+            achados.append(
+                Achado(
+                    ficheiro,
+                    _linha_de(fonte, str(destinatario)),
+                    REGRA,
+                    f"`notifica` repete {destinatario!r}: cada destinatario conta uma vez "
                     "(`docs/tecnica/02` §5.1, KAM-039)",
                 )
             )
@@ -364,7 +377,13 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
         for item in subscricoes or []:
             if isinstance(item, dict):
                 chaves(item, CHAVES_DE_SUBSCRICAO, "numa subscricao")
-                destinatarios_de(item.get("notifica"))
+                # **A chave presente-e-nula nao e a chave ausente**, e um
+                # `item.get("notifica")` nao as distingue: um `notifica:` sem
+                # valor passava por omissao aqui e era recusado pelo Pydantic no
+                # arranque do AGR — um portao mais fraco do que a barreira que
+                # ele diz duplicar. Achado da revisao adversarial do KAM-039.
+                if "notifica" in item:
+                    destinatarios_de(item["notifica"])
             tipo = item.get("tipo") if isinstance(item, dict) else item
             if not isinstance(tipo, str):
                 achados.append(Achado(ficheiro, 0, ILEGIVEL, f"subscricao sem `tipo`: {item!r}"))
