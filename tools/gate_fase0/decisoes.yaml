@@ -1,0 +1,170 @@
+# As sete linhas de decisão externa do critério G0-7 (KAM-108)
+#
+# O critério pede «estado de H3 (KAM-100), H4 (KAM-101, KAM-102), D3 (KAM-041),
+# D4 (KAM-103), D5, D1 e parecer P0 (KAM-104/105), cada um `confirmada`,
+# `inconclusiva` com plano, ou `refutada` com pivô decidido».
+#
+# ESTE FICHEIRO NÃO DECIDE NADA. Cada linha diz três coisas e nenhuma delas é
+# um veredicto:
+#
+#   onde      o ficheiro e a secção onde o estado vive — a fonte, não uma cópia
+#   estado    o estado que essa fonte DECLARA, transcrito, com a data da leitura
+#   credor    quem tem de agir para o estado mudar
+#
+# `tools/gate_fase0/recolha.py` lê-o e verifica três coisas que uma tabela
+# escrita à mão não garante:
+#
+#   1. cada `onde` existe na árvore (um ponteiro quebrado é achado, não omissão);
+#   2. nenhuma linha diz `confirmada` sem `evidencia` preenchida — é a regra
+#      «nenhuma caixa marcada sem evidência nomeada», mecanizada;
+#   3. nenhuma linha fica sem `credor` — uma linha aberta sem credor é trabalho
+#      que ninguém reclama.
+#
+# A LEITURA É DE 2026-11-06, SOBRE `publico/main` EM `fe40048`. Os estados aqui
+# são os que as secções «Verificação dos Critérios de Aceitação» dos tickets
+# declaram nessa ponta, transcritos e não interpretados. «O ticket fundiu» não é
+# «a decisão está tomada»: os sete tickets de baixo estão fundidos e nenhuma das
+# sete linhas está `confirmada`.
+#
+# NOTA DE FORMA: lido pelo `tools/kamba_yaml.py`, que não aceita listas de fluxo
+# (`[a, b]`). As listas escrevem-se em bloco.
+
+version: 1
+
+lida_em: "2026-11-06"
+ponta: "fe40048"
+
+linhas:
+  - id: "H3"
+    assunto: "Coexistência funciona em +244 (3/3 números sem perda de histórico)"
+    tickets:
+      - "KAM-100"
+    onde: "docs/tecnica/evidencia/validacao/H3_Coexistencia_244.md"
+    seccao: "§3 e §6"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      O limiar está operacionalizado e escrito ANTES de medir (>= 95% em 20
+      conversas de controlo por número, janela de 6 meses, prazo de 24 h), e a
+      amostra é 0 de 3 números ligados. A regra de decisão das três saídas está
+      registada no §4 do ficheiro. O pivô de `refutada` é o do `14` §6.
+    evidencia: >-
+      Secção de verificação do KAM-100: 1 de 7 critérios e 1 de 5 de DoD; o
+      critério 3 declara «não satisfeito» com «0 de 3 números ligados».
+    credor: "fundador (três donos de número com consentimento escrito); e a Q3/Q9 de Meta_Perguntas.md, as duas em `por enviar`"
+
+  - id: "H4"
+    assunto: "A Meta aceita o caso de uso (resposta escrita ou aprovação)"
+    tickets:
+      - "KAM-101"
+      - "KAM-102"
+    onde: "docs/tecnica/evidencia/validacao/Meta_Perguntas.md"
+    seccao: "§4.4 (registo de H4) e §1.1 (folha de seguimento)"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      As três saídas estão escritas como listas de verificação (§4.1 a §4.3), com
+      a ressalva de que `confirmada` pela via da aprovação de Tech Provider NÃO
+      fecha D2 nem levanta o diferimento do ADR-011. Amostra n = 0: 15 perguntas,
+      15 em `por enviar`, 0 enviadas, 0 respondidas. Pelo lado do KAM-102, 0 de 9
+      critérios e 0 submissões em 6 passos.
+    evidencia: >-
+      Secção de verificação do KAM-101 (4 de 7 critérios, 2 de 5 de DoD) e do
+      KAM-102 (0 de 9 e 0 de 5), as duas a declarar que enviar, submeter, gravar
+      e aprovar são actos humanos.
+    credor: "fundador (envio em nome da empresa e submissões) e Responsável de Produto (registo)"
+
+  - id: "D3"
+    assunto: "Registo de comércio: Medusa puro / Mercur / registo próprio"
+    tickets:
+      - "KAM-041"
+    onde: "docs/spikes/KAM-041-medusa.md"
+    seccao: "§8"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      O spike está FEITO (2026-10-27) com recomendação fundamentada — opção B,
+      com a autoridade da reserva no `platform`. O que falta é a assinatura do
+      Arquitecto de Plataforma e do Responsável de Segurança, e a ratificação do
+      fundador. E dois bloqueantes do spike não se mediram (AC-5, AC-6) e um
+      passe indevido real ficou medido (AC-1, ISO-15 na API Store do Medusa),
+      pelo que a D3 não fecha sobre eles.
+    evidencia: >-
+      Secção de verificação do KAM-041: o harness sai `1`; AC-1 e AC-8
+      vermelhos, AC-5, AC-6, AC-9 e AC-10 não verificados, e as duas caixas de
+      Critérios de Aceitação vazias por não haver assinaturas.
+    credor: "Arquitecto de Plataforma e Responsável de Segurança (assinaturas); fundador (ratificação)"
+
+  - id: "D4"
+    assunto: "Facilitador (ProxyPay ou AppyPay) e onboarding bancário por PME"
+    tickets:
+      - "KAM-103"
+    onde: "docs/tecnica/evidencia/validacao/Pagamentos_Respostas.md"
+    seccao: "§5.4 (registo) e §5.2 (aplicação da regra)"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      D4 registada e NÃO decidida, com dono Responsável de Produto e o fundador
+      como quem fecha. Aplicada a regra ponderada, nenhum candidato adopta: o
+      melhor tem 32 de 100, e os dois melhores estão bloqueados por portões
+      diferentes. Saída escrita sem contrato à semana 6: o Piloto fica em
+      `ManualProvider`. H5 fica `inconclusiva` com amostra zero.
+    evidencia: >-
+      Secção de verificação do KAM-103: 3 de 8 critérios e 2 de 5 de DoD; zero
+      contrapartes contactadas, zero respostas arquivadas.
+    credor: "fundador (contactar bancos e facilitadores, pedir chaves) e Responsável de Produto (registo e fecho)"
+
+  - id: "D5"
+    assunto: "Tech Provider directo ou BSP"
+    tickets:
+      - "KAM-102"
+    onde: "docs/tecnica/evidencia/validacao/Tech_Provider_Dossie.md"
+    seccao: "§6.5"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      D5 fica ABERTA e explicitamente NÃO «provisória» — o KAM-102 escreve que o
+      critério 5 não autoriza esse caminho, ao contrário do que o critério 5 do
+      KAM-105 autorizou para D9. Faltam-lhe 2 cotações formais (0 pedidas, 0
+      recebidas) e o input de D9 sobre quem paga em USD. O pivô do `14` §6 (BSP
+      parceiro) tem o pré-requisito a ZERO: um pivô para uma opção sem cotação
+      formal é um pivô para o desconhecido.
+    evidencia: >-
+      Secção de verificação do KAM-102, critério 5: «não satisfeito», com a
+      matriz das três opções feita e a tabela das cotações a nascer vazia.
+    credor: "fundador (cotações e submissões), Responsável de Produto (registo e fecho), Arquitecto de Plataforma (redacção do ADR-001, se mudar)"
+
+  - id: "D1"
+    assunto: "Alojamento: Luanda desde o início ou JNB/CPT com procedimento APD"
+    tickets:
+      - "KAM-105"
+    onde: "docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md"
+    seccao: "§5 (regra do `docs/tecnica/09` §5.3) e §6 (recomendação de D6)"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      A regra do `docs/tecnica/09` §5.3 está em tabela e fiel à fonte (R1, R2,
+      R3), com o bloco de decisão a nascer vazio. O que falta é o resultado, e
+      lê-se das cotações: ZERO pedidas, contra um mínimo de 3 (>= 2 de Luanda,
+      >= 1 de JNB/CPT). A latência RTT fica `NÃO MEDIDO` pelo caminho que o
+      próprio critério 3 prevê. A decisão é do fundador (Carta §4.2).
+    evidencia: >-
+      Secção de verificação do KAM-105: 5 de 8 critérios e 0 de 5 de DoD; a
+      linha A1 do GoLive_Gate.md está `em branco`, e o critério 1 declara
+      «Vazia, estado `não satisfeito`», com «zero pedidas».
+    credor: "fundador (pedir cotações e decidir D1)"
+
+  - id: "P0"
+    assunto: "Parecer jurídico P0 (as onze perguntas P0 do pacote) e procedimento APD"
+    tickets:
+      - "KAM-104"
+      - "KAM-105"
+    onde: "docs/tecnica/evidencia/validacao/Seleccao_e_Registo_Juridico.md"
+    seccao: "§2 (selecção) e §3 (registo de respostas)"
+    estado: "inconclusiva"
+    plano_ou_pivo: >-
+      O pacote está completo e verificável — 40 perguntas com os oito campos, 11
+      delas P0, e o anexo de factos medido em 6 páginas por renderizador
+      nomeado. O registo de respostas nasce VAZIO e a selecção também: zero
+      propostas de honorários, nenhuma carta de compromisso assinada, pacote não
+      enviado. Pelo lado do KAM-105, zero submissões à APD em 14 destinos e zero
+      números de protocolo.
+    evidencia: >-
+      Secção de verificação do KAM-104 (4 de 7 critérios, 3 de 5 de DoD, com os
+      critérios 4, 5 e 6 declarados «não satisfeito» por serem actos humanos) e
+      do KAM-105 (critério 7 «Vazia, estado `não satisfeito`»).
+    credor: "fundador (enviar o pacote, pedir honorários, assinar e submeter); advogado (parecer)"
