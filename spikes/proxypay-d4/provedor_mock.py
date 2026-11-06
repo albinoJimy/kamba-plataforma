@@ -83,6 +83,8 @@ DEFEITOS = (
     "opg-codigo-de-recusa-errado",
     "idempotency-key-ignorada",
     "opg-sem-callback",
+    "valor-trocado",
+    "fee-nulo",
 )
 
 #: Os limites do `amount` do RPS v2, CONFIRMADOS no `E2` §1.2. Sao limites **do
@@ -342,9 +344,16 @@ class _Handler(BaseHTTPRequestHandler):
         if ref_id in estado.referencias and estado.tem("put-nao-idempotente"):
             estado.duplicadas[ref_id] = estado.duplicadas.get(ref_id, 0) + 1
 
+        # O defeito `valor-trocado` guarda um valor que nao e o pedido. Avermelha
+        # os ensaios 3 e 6, que e onde o valor atravessa o caminho inteiro — e
+        # nasceu da revisao adversarial, que mostrou os dez ensaios a ficarem
+        # verdes com uma cobranca de 1.500,00 Kz a virar 1,00 Kz. E o gate **G4
+        # «Valor exacto»** do `../../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md`
+        # §5, que e regra imutavel.
+        guardado = "1.00" if estado.tem("valor-trocado") else str(amount)
         estado.referencias[ref_id] = {
             "id": ref_id,
-            "amount": str(amount),
+            "amount": guardado,
             "end_datetime": corpo["end_datetime"],
             "custom_fields": campos,
         }
@@ -410,6 +419,11 @@ class _Handler(BaseHTTPRequestHandler):
         }
         if self.estado.tem("pagamento-sem-fee"):
             evento.pop("fee")
+        # O defeito `fee-nulo` **mantem a chave** e esvazia o valor, que e a
+        # forma mais provavel de a falha acontecer num fornecedor real — e a que
+        # um ensaio de presenca de chave nao ve. Tambem da revisao adversarial.
+        elif self.estado.tem("fee-nulo"):
+            evento["fee"] = None
         return evento
 
     def _reconhecer(self, pagamento_id: str) -> None:

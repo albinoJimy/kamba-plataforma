@@ -75,12 +75,13 @@ import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from provedor_mock import DEFEITOS, OPG_CODIGO_DESCONHECIDO, Provedor  # noqa: E402
+from provedor_mock import DEFEITOS, Provedor  # noqa: E402
 
 #: Que ensaio cada defeito tem de avermelhar. O canario le isto.
 CANARIO: dict[str, int] = {
@@ -98,6 +99,8 @@ CANARIO: dict[str, int] = {
     "opg-codigo-de-recusa-errado": 8,
     "idempotency-key-ignorada": 9,
     "opg-sem-callback": 10,
+    "valor-trocado": 3,
+    "fee-nulo": 4,
 }
 
 #: Os seis campos de conciliacao do evento de pagamento (`E2` §1.2).
@@ -119,9 +122,32 @@ OPG_ESPERADO: tuple[tuple[str, str, int | None], ...] = (
     ("900003000", "rejected", 3000),
 )
 
-#: Um movel que nao esta na lista de ensaio. Sequencial a partir do prefixo
-#: movel, como os outros, e nao pertence a ninguem.
-OPG_FORA_DA_LISTA = "923000001"
+#: O codigo do quarto desfecho: qualquer outro movel rejeita imediato com 2010
+#: (`E2` §1.2, CONF). **Literal aqui, e nao importado do mock**, pela mesma razao
+#: do `OPG_ESPERADO` acima — e a primeira versao **importava-o**, pelo que trocar
+#: a constante do alvo deixava o ensaio 8 verde a imprimir o valor errado como
+#: esperado. Achado da revisao adversarial, na unica constante onde o comentario
+#: ao lado dizia ter evitado a armadilha e nao a evitou.
+OPG_CODIGO_FORA_DA_LISTA = 2010
+
+#: Um movel que nao esta na lista de ensaio do fornecedor.
+#:
+#: **E do intervalo ficticio `999`**, que a UIT nao atribui a nenhum pais e que
+#: esta casa ja usa (`tools/meta-sim/src/numeros.ts`, `INDICATIVO_FICTICIO`).
+#: A primeira versao usava um `92x` de nove algarismos «sequencial, e nao
+#: pertence a ninguem» — e isso era uma afirmacao sem fonte sobre um numero bem
+#: formado da rede movel angolana, exactamente o que o `inventario.ts` diz que
+#: nenhuma expressao regular consegue decidir. O ensaio 8 so precisa de «um
+#: movel que nao esta na lista», e o intervalo reservado serve igual.
+OPG_FORA_DA_LISTA = "999100000001"
+
+
+#: O valor da cobranca do ensaio, em `decimal2` como o RPS o quer. Fica numa
+#: constante porque **atravessa quatro superficies** — o `PUT`, o pagamento, o
+#: evento da fila e o corpo do `callback` — e o que os ensaios 3 e 6 medem e que
+#: e **o mesmo** nas quatro. E o gate G4 «Valor exacto» do
+#: `../../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §5.
+VALOR = "1500.00"
 
 
 class Reprovado(Exception):
@@ -261,7 +287,7 @@ def ensaio_1_referencia(ctx: Contexto) -> str:
     ctx.referencia = str(corpo["id"])
 
     carga = {
-        "amount": "1500.00",
+        "amount": VALOR,
         "end_datetime": "2027-01-31T23:59:59Z",
         # Sem PII: o que vai nos `custom_fields` e o id da cobranca, nunca o
         # telefone nem o nome do cliente (`../../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §3.3).
@@ -337,7 +363,21 @@ def ensaio_3_pagamento_simulado(ctx: Contexto) -> str:
         (corpo.get("custom_fields") or {}).get("charge") == "SINTETICO-c1",
         f"os `custom_fields` do `PUT` nao foram copiados para o pagamento: {corpo.get('custom_fields')!r}",
     )
-    return f"pagamento {ctx.pagamento} criado, com os `custom_fields` da referencia copiados"
+    # **O valor tem de ser o valor pedido**, e isto foi o achado mais grave da
+    # revisao adversarial: sem esta asercao os dez ensaios ficavam verdes com um
+    # fornecedor que cobrasse 1,00 Kz por uma cobranca de 1.500,00 Kz. E o gate
+    # **G4 «Valor exacto»** do `../../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md`
+    # §5, que e **regra imutavel** desta casa, e o primeiro caso obrigatorio da
+    # suite de conformidade do §3.5. Compara-se contra a constante **do ensaio**,
+    # nunca contra o que o alvo devolveu no `PUT`.
+    exigir(
+        str(corpo.get("amount")) == VALOR,
+        f"o pagamento diz {corpo.get('amount')!r} e a cobranca pedida foi {VALOR!r}",
+    )
+    return (
+        f"pagamento {ctx.pagamento} criado, com os `custom_fields` da referencia "
+        f"copiados e `amount` = {VALOR}"
+    )
 
 
 def ensaio_4_campos_de_conciliacao(ctx: Contexto) -> str:
@@ -347,7 +387,23 @@ def ensaio_4_campos_de_conciliacao(ctx: Contexto) -> str:
     exigir(len(nosso) == 1, f"o pagamento {ctx.pagamento} nao esta na fila: {lista}")
     faltam = [c for c in CAMPOS_DE_CONCILIACAO if c not in nosso[0]]
     exigir(not faltam, f"o evento de pagamento nao traz {faltam}")
-    return f"os {len(CAMPOS_DE_CONCILIACAO)} campos presentes; `fee` = {nosso[0]['fee']}"
+    # **Presenca de chave nao mede o `fee`**, e foi um achado da revisao
+    # adversarial: um fornecedor que devolva `fee: null`, `fee: ""` ou `fee: 0`
+    # passava, e a saida imprimia `fee = None` sem avermelhar. O criterio 7 do
+    # KAM-056 pede o `fee` guardado «em 100% dos pagamentos do sandbox», e o
+    # §3.3 do relatorio faz deste campo o instrumento que fecha o segundo
+    # componente de custo — nenhuma das duas coisas se sustenta numa chave vazia.
+    bruto = nosso[0]["fee"]
+    exigir(
+        bruto is not None and str(bruto).strip() != "",
+        f"o `fee` vem presente e vazio: {bruto!r} — presenca de chave nao e valor",
+    )
+    try:
+        valor = Decimal(str(bruto))
+    except InvalidOperation as erro:
+        raise Reprovado(f"o `fee` nao e um decimal: {bruto!r}") from erro
+    exigir(valor >= 0, f"o `fee` e negativo: {bruto!r}")
+    return f"os {len(CAMPOS_DE_CONCILIACAO)} campos presentes; `fee` = {valor} (decimal, >= 0)"
 
 
 def ensaio_5_fila_de_seguranca(ctx: Contexto) -> str:
@@ -358,9 +414,19 @@ def ensaio_5_fila_de_seguranca(ctx: Contexto) -> str:
 
     exigir(ctx.pagamento in fila(), f"o pagamento {ctx.pagamento} devia estar na fila e nao esta")
 
-    # Um `DELETE` de um id que **nao e nosso** nao pode esvaziar a fila. E a
-    # regra b do `../../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §8:
-    # reconhecer um pagamento de outra integracao da PME rouba-lho.
+    # Um `DELETE` de um id **que nao existe** nao pode esvaziar a fila.
+    #
+    # **E isto, e so isto, que o ensaio mede** — e a precisao e uma correccao da
+    # revisao adversarial. A regra b do
+    # `../../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §8 e outra
+    # coisa: «so reconhecer pagamentos de cobrancas nossas», porque se a PME
+    # usar a mesma conta ProxyPay noutra integracao o nosso *job* roubar-lhe-ia
+    # pagamentos. Essa regra e uma propriedade **do nosso cliente** (uma chave
+    # dedicada por PME, e alerta de orfao em vez de `DELETE`), nao do contrato
+    # do fornecedor: a fila do RPS e por chave de API, e nenhuma rota distingue
+    # um pagamento «alheio». Um alvo que aceitasse um `DELETE` sobre um
+    # pagamento conhecido e de outra integracao passa este ensaio limpo, e isso
+    # esta na lista do que o *spike* nao mede, no `README.md`.
     _chamar(ctx.base, "DELETE", "/payments/pay_INEXISTENTE", None, ctx.rps)
     exigir(
         ctx.pagamento in fila(),
@@ -373,7 +439,10 @@ def ensaio_5_fila_de_seguranca(ctx: Contexto) -> str:
         ctx.pagamento not in fila(),
         f"o pagamento {ctx.pagamento} continua na fila depois do `DELETE`",
     )
-    return "o pagamento aparece na fila, sobrevive a um `DELETE` alheio, e sai com o seu"
+    return (
+        "o pagamento aparece na fila, sobrevive a um `DELETE` de id inexistente, "
+        "e sai com o seu (a regra b do `04` §8 e do cliente, e nao se mede aqui)"
+    )
 
 
 def ensaio_6_webhook_assinado(ctx: Contexto) -> str:
@@ -409,7 +478,18 @@ def ensaio_6_webhook_assinado(ctx: Contexto) -> str:
         pagamento.get("reference_id") == ctx.referencia,
         f"o callback notificou a referencia {pagamento.get('reference_id')!r} e nao {ctx.referencia!r}",
     )
-    return f"`X-Signature` = HMAC-SHA256(API key, corpo bruto) confere em {caminho}"
+    # Uma assinatura valida sobre o valor errado e pior do que nenhuma: a
+    # plataforma marcaria como paga uma cobranca por outro montante, e o G4
+    # «Valor exacto» existe precisamente para isso. A quarta superficie por onde
+    # o valor passa, e a ultima.
+    exigir(
+        str(pagamento.get("amount")) == VALOR,
+        f"o callback assinado traz `amount` {pagamento.get('amount')!r} e a cobranca foi {VALOR!r}",
+    )
+    return (
+        f"`X-Signature` = HMAC-SHA256(API key, corpo bruto) confere em {caminho}, "
+        f"e o corpo traz `amount` = {VALOR}"
+    )
 
 
 def ensaio_7_dois_esquemas_de_auth(ctx: Contexto) -> str:
@@ -433,7 +513,7 @@ def ensaio_8_opg_tres_numeros(ctx: Contexto) -> str:
             "type": "payment",
             "pos_id": "SINTETICO-POS",
             "mobile": movel,
-            "amount": "1500.00",
+            "amount": VALOR,
             "callback_url": ctx.receptor.url_opg,
         }
         codigo, corpo = _chamar(ctx.base, "POST", "/opg/v1/transactions", carga, ctx.opg)
@@ -457,11 +537,11 @@ def ensaio_8_opg_tres_numeros(ctx: Contexto) -> str:
     )
     exigir(codigo in (200, 201), f"o movel fora da lista devolveu {codigo}: {corpo}")
     exigir(
-        corpo.get("status") == "rejected" and corpo.get("code") == OPG_CODIGO_DESCONHECIDO,
-        f"um movel fora da lista de ensaio devia dar rejected/{OPG_CODIGO_DESCONHECIDO} "
+        corpo.get("status") == "rejected" and corpo.get("code") == OPG_CODIGO_FORA_DA_LISTA,
+        f"um movel fora da lista de ensaio devia dar rejected/{OPG_CODIGO_FORA_DA_LISTA} "
         f"e deu {corpo.get('status')}/{corpo.get('code')}",
     )
-    return "; ".join(vistos) + f"; fora da lista -> rejected/{OPG_CODIGO_DESCONHECIDO}"
+    return "; ".join(vistos) + f"; fora da lista -> rejected/{OPG_CODIGO_FORA_DA_LISTA}"
 
 
 def ensaio_9_idempotency_key(ctx: Contexto) -> str:
@@ -469,7 +549,7 @@ def ensaio_9_idempotency_key(ctx: Contexto) -> str:
         "type": "payment",
         "pos_id": "SINTETICO-POS",
         "mobile": "900000000",
-        "amount": "1500.00",
+        "amount": VALOR,
     }
     chave = {"Idempotency-Key": "SINTETICO-idem-1"}
     codigo, primeira = _chamar(ctx.base, "POST", "/opg/v1/transactions", carga, ctx.opg, chave)
