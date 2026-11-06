@@ -395,13 +395,13 @@ class TestDispensas(Base):
             "version: 1\n\ndispensas:\n  - bloco: KAM-001\n"
             "    razao: uma razao qualquer\n", encoding="utf-8")
         with self.assertRaises(lint.ConfiguracaoInvalida):
-            cli._dispensas(raiz)
+            cli.ler_dispensas(raiz)
 
     def test_sem_ficheiro_de_dispensas_nao_ha_defeito(self) -> None:
-        self.assertEqual(cli._dispensas(self.arvore(LIMPO)), frozenset())
+        self.assertEqual(cli.ler_dispensas(self.arvore(LIMPO)), frozenset())
 
     def test_as_dispensas_da_arvore_real_leem_se_e_tem_credor(self) -> None:
-        nomes = cli._dispensas(RAIZ)
+        nomes = cli.ler_dispensas(RAIZ)
         self.assertTrue(nomes)
         for nome in nomes:
             self.assertRegex(nome, r"^KAM-\d{3}$")
@@ -409,7 +409,7 @@ class TestDispensas(Base):
 
 class TestRepositorio(unittest.TestCase):
     def test_a_arvore_real_passa(self) -> None:
-        achados, _, numeros = lint.verificar(RAIZ, cli._dispensas(RAIZ))
+        achados, _, numeros = lint.verificar(RAIZ, cli.ler_dispensas(RAIZ))
         self.assertEqual([str(a) for a in achados], [])
         self.assertGreater(numeros["blocos"], 0)
         self.assertGreater(numeros["medidos"], 0)
@@ -427,7 +427,7 @@ class TestRepositorio(unittest.TestCase):
 
     def test_cada_dispensa_e_de_um_bloco_que_existe(self) -> None:
         ids = {b.id for b in modelo.ler_blocos(RAIZ)}
-        for nome in cli._dispensas(RAIZ):
+        for nome in cli.ler_dispensas(RAIZ):
             self.assertIn(nome, ids, f"{nome} nao e um bloco da arvore")
 
     def test_nenhuma_dispensa_a_mais(self) -> None:
@@ -443,7 +443,7 @@ class TestRepositorio(unittest.TestCase):
             return max(candidatos, key=lambda b: b.numero).id
 
         precisam = {qual(a.onde) for a in achados}
-        self.assertEqual(cli._dispensas(RAIZ) - precisam, frozenset())
+        self.assertEqual(cli.ler_dispensas(RAIZ) - precisam, frozenset())
 
 
 class TestCli(unittest.TestCase):

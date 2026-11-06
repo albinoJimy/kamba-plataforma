@@ -16,28 +16,51 @@ import argparse
 import sys
 from pathlib import Path
 
-import kamba_yaml
+from kamba_yaml import exigir_chaves, load_file
 
 from lint_bloco import canario, lint, modelo
 
 #: As dispensas: blocos que ja divergiam antes deste *lint* existir.
 DISPENSAS = "ci/bloco-allow.yaml"
 
+#: As chaves de topo que este leitor conhece.
+#:
+#: **O `version` esta aqui porque esta no ficheiro e ninguem o le.** Sem o
+#: declarar, o `exigir_chaves` recusava uma chave que toda a gente considera
+#: legitima e o portao ficava vermelho por ela — a armadilha que o
+#: `tools/lint_handoff/cli.py` ja registou em tres leitores desta casa.
+_CHAVES = {"version", "dispensas"}
 
-def _dispensas(raiz: Path) -> frozenset[str]:
+#: E as de cada entrada, que e o nivel de baixo. **Um conjunto por nivel**, como
+#: o `lint_handoff`: sem este, uma chave mal escrita numa entrada (`credorr`)
+#: passava por chave nova e a dispensa ficava sem o campo que ela exige.
+_CHAVES_DA_DISPENSA = {"bloco", "divergencias", "onde", "razao", "credor"}
+
+
+def ler_dispensas(raiz: Path) -> frozenset[str]:
     """Os `KAM-NNN` dispensados, do ficheiro declarado.
 
+    **Publico e com o nome da convencao** (`ler_*`), como o `ler_excepcoes` do
+    `lint_handoff` e o `ler_declaracoes` do `lint_backlog`: o
+    `test_todos_os_ficheiros_de_ci_sao_lidos_por_alguem` do `lint_arch` chama o
+    leitor de cada `ci/*.yaml` sobre o ficheiro real, e um leitor que ele nao
+    saiba chamar nao esta ligado ao mecanismo.
+
     A **ausencia** do ficheiro nao e defeito: um repositorio sem divergencias
-    herdadas nao precisa dele. O que e defeito e uma entrada sem razao ou sem
-    credor, e isso recusa-se aqui — uma dispensa sem credor e trabalho que
-    ninguem reclama, e era a forma de este ficheiro virar gaveta.
+    herdadas nao precisa dele. O que e defeito e uma chave que este leitor nao
+    conhece — em qualquer dos dois niveis — ou uma entrada sem razao ou sem
+    credor: uma dispensa sem credor e trabalho que ninguem reclama, e era a
+    forma de este ficheiro virar gaveta.
     """
     caminho = raiz / DISPENSAS
     if not caminho.is_file():
         return frozenset()
-    dados = kamba_yaml.load_file(caminho)
+    dados = load_file(caminho)
+    exigir_chaves(dados, _CHAVES, DISPENSAS, erro=lint.ConfiguracaoInvalida)
     nomes: list[str] = []
     for entrada in dados.get("dispensas") or []:
+        exigir_chaves(entrada, _CHAVES_DA_DISPENSA, f"{DISPENSAS}: dispensas",
+                      erro=lint.ConfiguracaoInvalida)
         for campo in ("bloco", "razao", "credor"):
             if not str(entrada.get(campo, "")).strip():
                 raise lint.ConfiguracaoInvalida(
@@ -61,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         return canario.correr()
 
     try:
-        dispensas = _dispensas(raiz)
+        dispensas = ler_dispensas(raiz)
         achados, nao_medidos, numeros = lint.verificar(raiz, dispensas)
     # **O `BlocoIlegivel` entra aqui, e faltava.** Um ensaio apanhou-o: sobre uma
     # arvore sem `specs/tickets/` o CLI **levantava** em vez de sair com 2, e um
