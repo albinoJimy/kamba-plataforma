@@ -18,6 +18,30 @@ medido a 2026-11-05) o `gate 4` falhou em `ordem-dos-ensaios` com
 ficheiros**, e um `gh run rerun --failed` sobre o **mesmo commit** passou. O
 vermelho nao era dele nem da `main` — era desta fabrica.
 
+**E ha uma segunda ocorrencia, no dia seguinte e noutro PR alheio**, que e o que
+mede a frequencia fora do controlo de quem a apanha: no PR `#147` (KAM-082,
+2026-11-06) o mesmo caso caiu com a mesma excepcao, e os dois caminhos
+independentes dizem que nao foi do *push*:
+
+```text
+diff entre a ultima ponta verde e a vermelha (545b2ef -> e23c862):
+  1 commit, 2 ficheiros .md, +15 -5, zero Python
+a MESMA ponta, duas tentativas do mesmo commit (run 42211232134):
+  tentativa 1  failure   passo `make ci-4`
+  tentativa 2  success   sem uma linha mudada
+log da tentativa 1:
+  ordem_dos_ensaios: services/agr — a(s) ordem(ns) normal NAO passaram
+  ERRO: test_cinquenta_confirmacoes_concorrentes_dao_um_pedido
+  kamba_core.tenant_guard.LigacaoEmUso: esta ligacao ja esta dentro de uma
+  transaccao de `tenant_guard`
+  make: *** [Makefile:885: ordem-dos-ensaios] Error 2
+```
+
+Duas ocorrencias em dois dias, em dois PRs que **nao tocam** neste ensaio, com
+corridas verdes do mesmo codigo pelo meio. Encaixa na ordem de grandeza da tabela
+de taxas (~1,5 % por corrida a `pool=4`). Medida pela sessao do KAM-082 e
+re-verificada aqui pelos dois caminhos, contra a API do GitHub.
+
 **Porque e que este ficheiro nao conta repeticoes.** As taxas de vermelho sem
 carga sao 0 % a `pool=1`, ~0,8 % a `pool=2`, ~1,5 % a `pool=4` e ~3,8 % a
 `pool=16` (tabela do §Contexto de `specs/tickets/KAM-181.md`), pelo que uma
