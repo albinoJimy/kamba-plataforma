@@ -679,7 +679,7 @@ O doc 00 §9 fixa 99,5% de disponibilidade do caminho de venda no Piloto (99,9% 
 Medir os 8 SLIs, mostrar o orçamento restante, alertar por consumo (*burn rate*) e ligar a política de orçamento e a rotação de *on-call* a regras verificáveis.
 
 ### Critérios de Aceitação
-- [ ] `ops/slo.md` define os 8 SLIs do doc 09 §10 (numerador, denominador, janela de 30 dias, fonte, SLO, orçamento): disponibilidade do caminho de venda 99,5% (216 min); ack < 500 ms em 99,9% dos pedidos; perda de mensagens = 0; p95 de resposta texto ≤ 8 s e voz ≤ 12 s; callback → cliente notificado p95 ≤ 30 s e p99 ≤ 2 min; reconciliação de pagamentos por reconhecer ≤ 15 min; frescura do backup (WAL ≤ 5 min, restauro mensal OK); 0 horas de número em vermelho > 24 h.
+- [x] `ops/slo.md` define os 8 SLIs do doc 09 §10 (numerador, denominador, janela de 30 dias, fonte, SLO, orçamento): disponibilidade do caminho de venda 99,5% (216 min); ack < 500 ms em 99,9% dos pedidos; perda de mensagens = 0; p95 de resposta texto ≤ 8 s e voz ≤ 12 s; callback → cliente notificado p95 ≤ 30 s e p99 ≤ 2 min; reconciliação de pagamentos por reconhecer ≤ 15 min; frescura do backup (WAL ≤ 5 min, restauro mensal OK); 0 horas de número em vermelho > 24 h.
 - [ ] *Recording rules* e painel mostram o orçamento restante; com 30 min de falha injectada do ingress em *staging* o orçamento desce 13,9% (30/216) e o alerta de *burn rate* dispara.
 - [ ] «Perda de mensagens» operacionalizada como: ids aceites no ingress sem desfecho (processado, duplicado ou DLQ) após 15 min = 0 (*proposta*); testada com uma mensagem retida artificialmente.
 - [ ] Alertas de *burn rate* rápido e lento activos (*proposta*: 2% do orçamento numa hora → P2; 5% em 6 h → P3), calibrados e documentados.
@@ -699,10 +699,10 @@ Medir os 8 SLIs, mostrar o orçamento restante, alertar por consumo (*burn rate*
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Métricas dos SLIs sem conteúdo nem PII; painéis versionados.
-- [ ] Cada alerta de SLO tem runbook; relatório mensal de SLO com modelo.
+- [x] Métricas dos SLIs sem conteúdo nem PII; painéis versionados.
+- [x] Cada alerta de SLO tem runbook; relatório mensal de SLO com modelo.
 - [ ] Rotação de *on-call* publicada com nomes e substitutos (prova do critério de ≥ 3 pessoas).
-- [ ] Documentação actualizada; alterações de SLO passam por registo.
+- [x] Documentação actualizada; alterações de SLO passam por registo.
 
 ### Handoff para Claude Code
 ```text
