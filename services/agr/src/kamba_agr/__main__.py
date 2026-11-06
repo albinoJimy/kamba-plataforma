@@ -395,7 +395,7 @@ def main() -> int:
     # subscricao sem consumidor **depois** de abrir sete ligacoes.
     try:
         subscricoes = evt.consumidores(verticais, ambiente_do_registo)
-        evt.exigir_handlers(tuple((c.vertical, c.tipo) for c in subscricoes))
+        evt.exigir_handlers(subscricoes)
     except (evt.SubscricoesInvalidasError, evt.SemHandlerError) as exc:
         log.excepcao(exc, "subscricoes_invalidas")
         return SAIDA_SEM_CONSUMIDORES

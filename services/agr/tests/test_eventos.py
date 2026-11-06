@@ -55,6 +55,25 @@ CONVERSA = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 EVENTO = "0192f1c4-7b1e-7d2a-9c3e-5a1f0b6e2d44"
 
 
+def subscricao_de(vertical: str, tipo: str, *notifica: str) -> subscricoes.Consumidor:
+    """Um `Consumidor` como o registo o produz (KAM-039).
+
+    E o `Consumidor` a serio e nao um duplo: e ele que o consumo passa aos
+    *handlers*, e um duplo com tres campos deixava de apanhar o dia em que o
+    `notifica` mudasse de nome ou de tipo.
+    """
+    return subscricoes.Consumidor(
+        nome=subscricoes.nome_do_consumidor(vertical),
+        vertical=vertical,
+        modulo=vertical,
+        tipo=tipo,
+        versao=1,
+        exige_ordem=subscricoes.e_de_pagamento(tipo),
+        prioritario=subscricoes.e_de_pagamento(tipo),
+        notifica=tuple(notifica),
+    )
+
+
 def envelope_cru(**mudancas) -> dict:
     """Um envelope v1 valido de `payment.confirmed`, com os catorze campos."""
     base = {
@@ -153,6 +172,42 @@ class TestCriterio1Subscricoes(unittest.TestCase):
         for consumidor in self.tabela:
             self.assertEqual(consumidor.nome, f"agr_{consumidor.vertical}")
 
+    def test_os_tres_pares_que_avisam_o_dono_sao_os_do_registo(self) -> None:
+        """**A extraccao do KAM-039 nao mudou o comportamento, e isto mede-o.**
+
+        Eram as tres entradas do `AO_DONO` do `eventos/handlers.py` — todas do
+        Vendedor, porque quem fala com o dono de uma loja e a vertical que vende.
+        Estao agora no `notifica` das subscricoes, e a lista e a mesma. Pina-se a
+        **lista** e nao a contagem: «tres» continuava verde se uma delas trocasse
+        de vertical.
+        """
+        avisam_o_dono = {
+            (c.vertical, c.tipo) for c in self.tabela if "dono" in c.notifica
+        }
+        self.assertEqual(
+            avisam_o_dono,
+            {
+                ("vendedor", "payment.confirmed"),
+                ("vendedor", "payment.manual_confirmed"),
+                ("vendedor", "stock.low"),
+            },
+        )
+
+    def test_nenhum_texto_do_nucleo_fica_sem_subscricao_que_o_declare(self) -> None:
+        """A direccao que o arranque **nao** guarda, e porque fica num ensaio.
+
+        O `exigir_handlers` recusa um `cliente` declarado sem texto, porque isso
+        rebentava dentro da transaccao do consumo. O contrario — um texto no
+        `TEXTOS` que nenhuma subscricao declare — nao parte nada em execucao: e
+        texto morto. Falhar o arranque por isso era desproporcionado; deixa-lo
+        sem sinal era o par com texto e sem entrada que o `AO_CLIENTE` derivado
+        existia para impedir. Fica aqui, que e onde se mede o conjunto inteiro.
+        """
+        declarados = {
+            (c.vertical, c.tipo) for c in self.tabela if "cliente" in c.notifica
+        }
+        self.assertEqual(set(handlers.TEXTOS) - declarados, set())
+
     def test_o_nome_do_consumidor_casa_a_gramatica_de_etiqueta(self) -> None:
         """E eixo de `agr_evt_lag_ms`: um nome que nao case levanta."""
         for nome in subscricoes.nomes(self.tabela):
@@ -221,14 +276,86 @@ class TestCriterio1Subscricoes(unittest.TestCase):
 
     def test_todas_as_subscricoes_do_registo_tem_handler(self) -> None:
         """A outra metade do criterio 1: contrato **e** codigo, por vertical."""
-        handlers.exigir_handlers(tuple((c.vertical, c.tipo) for c in self.tabela))
+        handlers.exigir_handlers(self.tabela)
 
-    def test_um_par_sem_handler_reprova_o_arranque(self) -> None:
+    def test_uma_subscricao_sem_destinatario_nem_credor_reprova_o_arranque(self) -> None:
+        """A guarda do criterio 1, depois de a fonte mudar para o `registry/`.
+
+        **E o ensaio que o KAM-039 obriga a escrever**: com o destinatario a vir
+        da subscricao, a guarda tinha de deixar de perguntar «este par esta na
+        minha tabela?» — pergunta que um conjunto faz a si mesmo e responde
+        sempre «sim» — e passar a perguntar «esta subscricao faz alguma coisa?».
+        Um `notifica:` vazio sem credor em `ACCOES_POR_LIGAR` nao faz nada e nao
+        o diz.
+        """
         with self.assertRaises(handlers.SemHandlerError) as erro:
             handlers.exigir_handlers(
-                (("vendedor", "payment.confirmed"), ("vendedor", "tenant.approved"))
+                (
+                    subscricao_de("vendedor", "payment.confirmed", "cliente", "dono"),
+                    subscricao_de("vendedor", "tenant.approved"),
+                )
             )
         self.assertIn("tenant.approved", str(erro.exception))
+
+    def test_um_destinatario_vazio_com_credor_nao_reprova(self) -> None:
+        """O par positivo do ensaio de cima, e nao e simetria: sem ele, uma
+        guarda que reprovasse **toda** a subscricao sem destinatario passava o
+        teste acima e punha o AGR a recusar o arranque com o registo verdadeiro,
+        onde os dois pagamentos de Servicos esperam pelo KAM-047."""
+        handlers.exigir_handlers((subscricao_de("servicos", "payment.confirmed"),))
+
+    def test_declarar_cliente_sem_texto_reprova_o_arranque(self) -> None:
+        """A segunda guarda: o `TEXTOS` e lido **dentro** da transaccao.
+
+        Um par que declare `cliente` sem entrada no `TEXTOS` rebentava com
+        `KeyError` a meio de uma entrega, com a marca de consumido ja inserida.
+        Aqui falha o arranque, que e onde um `registry/` errado se descobre.
+        """
+        with self.assertRaises(handlers.SemHandlerError) as erro:
+            handlers.exigir_handlers((subscricao_de("vendedor", "stock.low", "cliente"),))
+        self.assertIn("stock.low", str(erro.exception))
+        self.assertIn("cliente", str(erro.exception))
+
+    def test_declarar_so_o_dono_sem_texto_nao_reprova(self) -> None:
+        """O par positivo: o `stock.low` do Vendedor e exactamente este caso —
+        aviso ao dono e nenhum texto ao cliente (`docs/tecnica/03` §12)."""
+        handlers.exigir_handlers((subscricao_de("vendedor", "stock.low", "dono"),))
+
+    def test_declarar_destinatario_com_credor_de_accao_por_ligar_reprova(self) -> None:
+        """A invariante que a extraccao deixou sem quem a medisse.
+
+        **Achado da revisao adversarial.** Era um ensaio —
+        `ACCOES_POR_LIGAR & (AO_CLIENTE | AO_DONO) == set()` — e a metade do dono
+        saiu para o `registry/`, que e um ficheiro editavel: o ensaio deixou de
+        cobrir metade da invariante e nada no arranque a substituia. Em execucao,
+        um `notifica: [dono]` num par com credor fazia o `_efeito` avisar o dono
+        **e** o `_consumir` devolver `sem_accao`, porque o desfecho le o credor e
+        nao o destinatario.
+        """
+        with self.assertRaises(handlers.SemHandlerError) as erro:
+            handlers.exigir_handlers(
+                (subscricao_de("servicos", "payment.confirmed", "dono"),)
+            )
+        self.assertIn("ACCOES_POR_LIGAR", str(erro.exception))
+
+    def test_a_guarda_do_fala_com_o_cliente_morde_fora_do_registo(self) -> None:
+        """**A guarda que sobreviveu a uma mutacao, e por isso ganha ensaio.**
+
+        O `fala_com_o_cliente` levanta para uma subscricao sem destinatario e sem
+        credor. Em producao e inalcancavel por construcao — o `exigir_handlers`
+        recusa no arranque exactamente esse conjunto —, e foi assim que a revisao
+        adversarial a mutou para `if False:` e a suite inteira continuou verde.
+        Nao se apaga: e a barreira para um `Consumidor` que **nao** venha do
+        registo, que e o que esta chamada mede. Uma guarda fail-closed sem ensaio
+        e uma guarda que a proxima limpeza apaga por parecer morta.
+        """
+        with self.assertRaises(handlers.SemHandlerError) as erro:
+            handlers.fala_com_o_cliente(subscricao_de("vendedor", "tenant.approved"))
+        self.assertIn("tenant.approved", str(erro.exception))
+        # O par positivo: um par **com** credor nao levanta, e responde `False`.
+        self.assertFalse(
+            handlers.fala_com_o_cliente(subscricao_de("servicos", "payment.confirmed"))
+        )
 
     def test_o_mesmo_tipo_noutra_vertical_e_outro_handler(self) -> None:
         """**E a correccao do defeito que a revisao adversarial encontrou.**
@@ -236,8 +363,14 @@ class TestCriterio1Subscricoes(unittest.TestCase):
         Com a chave no tipo, um *tenant* com as duas verticais activas recebia a
         **mesma** mensagem duas vezes sobre o mesmo pagamento.
         """
-        self.assertTrue(handlers.fala_com_o_cliente("vendedor", "payment.confirmed"))
-        self.assertFalse(handlers.fala_com_o_cliente("servicos", "payment.confirmed"))
+        self.assertTrue(
+            handlers.fala_com_o_cliente(
+                subscricao_de("vendedor", "payment.confirmed", "cliente", "dono")
+            )
+        )
+        self.assertFalse(
+            handlers.fala_com_o_cliente(subscricao_de("servicos", "payment.confirmed"))
+        )
         self.assertEqual(
             handlers.accao_por_ligar("servicos", "payment.confirmed"), "KAM-047"
         )
@@ -1578,21 +1711,51 @@ class TestHandlers(unittest.TestCase):
     def test_todos_os_pares_com_texto_falam_com_o_cliente(self) -> None:
         self.assertEqual(set(handlers.AO_CLIENTE), set(handlers.TEXTOS))
 
-    def test_os_pares_com_handler_sao_a_uniao_dos_tres(self) -> None:
-        self.assertEqual(
-            set(handlers.PARES_COM_HANDLER),
-            set(handlers.AO_CLIENTE)
-            | set(handlers.AO_DONO)
-            | set(handlers.ACCOES_POR_LIGAR),
-        )
+    def test_os_pares_por_ligar_sao_as_chaves_das_accoes(self) -> None:
+        """Derivado e nao escrito ao lado, pela razao do `AO_CLIENTE`."""
+        self.assertEqual(set(handlers.POR_LIGAR), set(handlers.ACCOES_POR_LIGAR))
+
+    def test_o_nucleo_nao_tem_tabela_de_destinatarios(self) -> None:
+        """**O ensaio que fixa a extraccao do KAM-039.**
+
+        Nao basta medir `fluxo 0` com o `reuse_metric`: isso diz que nenhum ramo
+        do nucleo decide por nome de vertical **hoje**, e nao diz onde e que o
+        destinatario vive. Este mede o que foi decidido — que vive no
+        `registry/` —, e fica vermelho se alguem reescrever a tabela aqui com
+        outro nome.
+        """
+        fonte = Path(handlers.__file__).read_text(encoding="utf-8")
+        for nome, instrucao in (
+            ("AO_DONO", "AO_DONO: Final = ("),
+            ("PARES_COM_HANDLER", "PARES_COM_HANDLER: Final = "),
+        ):
+            self.assertNotIn(
+                instrucao,
+                fonte,
+                f"o `{nome}` voltou ao nucleo: o destinatario e "
+                "`subscriptions[].notifica` do `registry/`",
+            )
+        self.assertFalse(hasattr(handlers, "AO_DONO"))
 
     def test_nenhum_par_e_handler_e_accao_por_ligar_ao_mesmo_tempo(self) -> None:
         """Senao `fala_com_o_cliente` e `accao_por_ligar` diziam coisas opostas."""
         self.assertEqual(
-            set(handlers.ACCOES_POR_LIGAR)
-            & (set(handlers.AO_CLIENTE) | set(handlers.AO_DONO)),
+            set(handlers.ACCOES_POR_LIGAR) & set(handlers.AO_CLIENTE),
             set(),
         )
+
+    def test_a_subscricao_desemparelhada_do_envelope_levanta(self) -> None:
+        """Ler o `notifica` de uma subscricao e o texto de outra entregava a
+        mensagem errada a um cliente. Nao acontece por configuracao — o despacho
+        escolhe por `(tipo, versao)` —, pelo que o que isto guarda e um chamador
+        novo."""
+        with self.assertRaises(handlers.SemHandlerError):
+            handlers.accoes_de(
+                env.ler_envelope(envelope_cru()),
+                subscricao=subscricao_de("vendedor", "order.expired", "cliente"),
+                contact_id=CONTACTO,
+                conversation_id=CONVERSA,
+            )
 
     def test_o_contacto_do_payload_tem_precedencia(self) -> None:
         porta = ContactoFixo("outro")
@@ -1624,7 +1787,9 @@ class TestHandlers(unittest.TestCase):
         with self.assertRaises(handlers.ContactoPorResolver):
             handlers.accoes_de(
                 envelope,
-                vertical="vendedor",
+                subscricao=subscricao_de(
+                    "vendedor", "payment.confirmed", "cliente", "dono"
+                ),
                 contact_id=CONTACTO,
                 conversation_id=None,
             )
@@ -1632,18 +1797,35 @@ class TestHandlers(unittest.TestCase):
     def test_o_pagamento_leva_cliente_e_dono_no_vendedor(self) -> None:
         accoes = handlers.accoes_de(
             env.ler_envelope(envelope_cru()),
-            vertical="vendedor",
+            subscricao=subscricao_de("vendedor", "payment.confirmed", "cliente", "dono"),
             contact_id=CONTACTO,
             conversation_id=CONVERSA,
         )
         self.assertIsNotNone(accoes.cliente)
         self.assertEqual(accoes.dono_por, "payment.confirmed")
 
+    def test_sem_o_dono_declarado_o_pagamento_nao_avisa_o_dono(self) -> None:
+        """**O canario da extraccao, e e ele que a torna uma medicao.**
+
+        O ensaio de cima passava com um `dono_por` cravado no codigo. Este muda
+        **so** o `notifica` da subscricao — o mesmo envelope, a mesma vertical, o
+        mesmo tipo — e exige que o aviso ao dono desapareca. Se o destinatario
+        voltasse a sair de uma tabela do nucleo, este ficava vermelho.
+        """
+        accoes = handlers.accoes_de(
+            env.ler_envelope(envelope_cru()),
+            subscricao=subscricao_de("vendedor", "payment.confirmed", "cliente"),
+            contact_id=CONTACTO,
+            conversation_id=CONVERSA,
+        )
+        self.assertIsNotNone(accoes.cliente)
+        self.assertIsNone(accoes.dono_por)
+
     def test_o_mesmo_pagamento_nao_leva_nada_nos_servicos(self) -> None:
         """A accao dos Servicos para um pagamento e do KAM-047, e nao esta escrita."""
         accoes = handlers.accoes_de(
             env.ler_envelope(envelope_cru()),
-            vertical="servicos",
+            subscricao=subscricao_de("servicos", "payment.confirmed"),
             contact_id=CONTACTO,
             conversation_id=CONVERSA,
         )
@@ -1658,12 +1840,34 @@ class TestHandlers(unittest.TestCase):
                     payload={"order_id": CONTACTO, "expira_at": "x"},
                 )
             ),
-            vertical="vendedor",
+            subscricao=subscricao_de("vendedor", "order.expired", "cliente"),
             contact_id=CONTACTO,
             conversation_id=CONVERSA,
         )
         self.assertIsNotNone(accoes.cliente)
         self.assertIsNone(accoes.dono_por)
+
+    def test_o_stock_low_avisa_o_dono_e_nao_fala_ao_cliente(self) -> None:
+        """O terceiro par que estava no `AO_DONO`, agora pelo `registry/`.
+
+        Sem conversa nem contacto, de proposito: o `stock.low` nao fala com o
+        cliente, pelo que nao ha conversa a ler — e um `ContactoPorResolver` aqui
+        dizia que a extraccao mudou o caminho do aviso ao dono.
+        """
+        accoes = handlers.accoes_de(
+            env.ler_envelope(
+                envelope_cru(
+                    tipo="stock.low",
+                    payload={"sku": "SKU-1", "disponivel": 2, "limiar": 5},
+                    agregado={"tipo": "product", "id": CONTACTO, "seq": 1},
+                )
+            ),
+            subscricao=subscricao_de("vendedor", "stock.low", "dono"),
+            contact_id=None,
+            conversation_id=None,
+        )
+        self.assertIsNone(accoes.cliente)
+        self.assertEqual(accoes.dono_por, "stock.low")
 
 
 class TestCancelamento(unittest.IsolatedAsyncioTestCase):
