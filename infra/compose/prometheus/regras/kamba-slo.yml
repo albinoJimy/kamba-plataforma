@@ -1,0 +1,245 @@
+# SLO, orcamento de erro e *burn rate* — KAM-082, criterios 2, 4 e 6.
+#
+# Validado por `make obs-promtool`, que corre `promtool check rules` (sintaxe) e
+# `promtool test rules` (**comportamento**, em `testes/kamba_slo_test.yml`). A
+# razao de haver o segundo e a do `kamba.yml`: uma expressao PromQL
+# sintacticamente valida que nunca produz resultado e indistinguivel de uma que
+# funciona, se so se verificar a sintaxe.
+#
+# ## UM SLI, e nao oito — e a razao e medida
+#
+# O doc 09 §10 tem **oito** SLI. Deles, **um** tem serie que um processo sirva e
+# que o Prometheus raspe: a disponibilidade do caminho de venda, por `up`. Os
+# outros sete nao se operacionalizam hoje, e o estado de cada um esta em
+# `../../../../ops/slo.md` com o credor.
+#
+# **Nao se escrevem como YAML inerte de proposito.** Uma regra sobre uma serie
+# que ninguem produz nunca dispara, e um alerta que nunca dispara **parece
+# cobertura** — e pior do que a sua ausencia, porque ninguem volta a olhar. E a
+# mesma leitura com que o KAM-080 deixou oito das doze regras do §9.2 por
+# escrever, e com que o KAM-076 recusou um `scrape_config` para um `/metrics`
+# inexistente.
+#
+# ## O que o `up` mede, e o que nao mede
+#
+# **Mede** se o Prometheus conseguiu raspar cada replica do GWY e do AGR. E a
+# unica serie do caminho de venda que **nao depende de o processo ter contado
+# algo** — o `exposicao()` do AGR nao emite series a zero, pelo que um contador
+# a zero e indistinguivel de um processo morto.
+#
+# **Nao mede** o que o cliente ve. Uma sonda de dentro da pilha nao ve a
+# Internet, o DNS, o TLS nem a Meta; o criterio 5 do KAM-080 pede uma sonda
+# **externa** e ficou vazio, porque nao ha producao nem *host* externo onde a
+# por. Credor: **D1/KAM-105** (alojamento) e **KAM-069** (subprocessador).
+#
+# **E o `worker-canal` nao esta no numerador**, embora seja o «processar» do
+# caminho receber -> processar -> responder. O `CMD` do `services/worker-canal/
+# Dockerfile` corre o `server.ts`, que **devolve 404 em `/metrics`** por teste do
+# KAM-001; as quatro entradas que servem metricas (`entrada.ts` 3013,
+# `publicador.ts` 3011, `consumidor.ts` 3012 e o `agr_shim.ts`) nao sao o que o
+# compose corre, e o `prometheus.yml` nao tem alvo para elas. Medido. Credor: o
+# ticket que escolher qual processo do `worker-canal` o compose corre.
+#
+# ## As duas assimetrias do `or vector(0)`
+#
+# `min(up{...}) or vector(0)`: sem nenhum alvo descoberto, o caminho conta como
+# **mau**. E a resposta certa — um caminho de venda que o Prometheus nao ve nao
+# esta a servir ninguem — e tem duas consequencias que se dizem em vez de se
+# esconderem:
+#
+#   1. **Um arranque a frio gasta orcamento.** Enquanto o DNS do compose nao
+#      resolver `gwy` e `agr`, nao ha `up` e o caminho conta como mau. Nao e um
+#      defeito: 2% de 216 min sao **4,32 min**, e um arranque que leve mais do
+#      que isso numa hora gastou mesmo essa fatia do orcamento.
+#   2. **Uma paragem do proprio Prometheus NAO gasta orcamento.** Sem avaliacao
+#      nao ha amostra, e o `avg_over_time` ignora o intervalo em falta — pelo
+#      que a pior avaria possivel (o anfitriao todo em baixo) e a unica que este
+#      SLI **subconta**. E exactamente o furo que a sonda externa fecharia, e o
+#      credor e o mesmo do ponto anterior.
+#
+# ## A aritmetica, e como esta provada
+#
+#   43 200 min   30 dias
+#      216 min   0,5% de 43 200 — o orcamento de 99,5% (doc 00 §9, doc 09 §10)
+#
+#   fraccao_ma           = avg_over_time(mau[30d])
+#   consumido            = fraccao_ma / 0,005        (fraccao do orcamento)
+#   restante_minutos     = 216 * (1 - consumido)
+#
+# O criterio 2 da o numero que prova isto: **30 min de falha descem o orcamento
+# 13,9%** (30/216). Esta escrito como ensaio e nao como afirmacao — o caso
+# `orcamento: 30 min de falha injectada descem 13,9%` do
+# `testes/kamba_slo_test.yml` da 0,138888... e 186 min restantes.
+#
+# **A identidade nao depende da cadencia**, e e por isso que o ensaio corre a 30
+# min por amostra (1 440 amostras em 30 dias) enquanto a producao avalia a cada
+# 30 s (86 400 amostras): `avg_over_time` e uma media de amostras, logo a
+# fraccao de tempo mau e a mesma. O ensaio a 30 s levaria 86 400 avaliacoes do
+# grupo por cada caso. **E o `promtool` usa o `evaluation_interval` do ficheiro
+# de ensaio e ignora o `interval` do grupo** — medido: o mesmo ensaio corre em 3
+# s com e sem `interval: 30s` declarado aqui. O que o ensaio **nao** mede, por
+# consequencia, e o custo de avaliacao em producao.
+#
+# ## A janela de 30 dias exige 31 dias de retencao
+#
+# O `--storage.tsdb.retention.time` do `docker-compose.prod.yml` era **15d**, e
+# um `avg_over_time(...[30d])` sobre 15 dias de dados **nao da erro**: devolve a
+# media das amostras que existem. O efeito e o pior desta familia — um numero
+# errado com ar de certo, e enviesado para o lado optimista, porque uma avaria
+# de ha 20 dias cai fora da janela e o orcamento «sara» duas semanas antes do
+# devido. Este ticket poe a retencao em **31d** (um dia de folga sobre a janela).
+
+groups:
+  - name: kamba-slo-caminho-de-venda
+    interval: 30s
+    rules:
+      # O caminho de venda esta servivel neste instante? 1 ou 0.
+      #
+      # `min` sem `by`: **todas** as replicas de ambos os servicos tem de estar
+      # em pe. Uma replica morta de duas ja e perda de capacidade, e o
+      # `alvo_em_baixo` do `kamba.yml` ja a trata como P1 — o SLI nao podia ser
+      # mais tolerante do que o alerta.
+      - record: slo_caminho_de_venda_bom
+        expr: 'min(up{job=~"gwy|agr"}) or vector(0)'
+
+      # Houve mensagens afectadas **observadas** na ultima meia hora?
+      #
+      # **LIMITE, e e o limite da caixa do criterio 6. A consequencia esta
+      # escrita porque a revisao adversarial a tirou e eu nao a tinha tirado.**
+      #
+      # Isto ve os pedidos que **nos** descartamos estando em pe
+      # (`gwy_shed_total`, saturacao da fila). **Nao ve** os pedidos que nunca
+      # chegaram porque o ingress estava em baixo — e esse e precisamente o caso
+      # de uma janela de manutencao.
+      #
+      # A consequencia, dita sem rodeios: com o GWY em baixo **nao existe serie**
+      # `gwy_shed_total`, o `increase` sobre serie ausente devolve **nada**, o
+      # `or vector(0)` da **0**, e a janela e julgada «nao afectou mensagens».
+      # Ou seja: para uma janela que derrube o ingress — o caso normal — esta
+      # condicao responde **sempre** «nao», e o «**so** se afectarem mensagens»
+      # do criterio 6 e, na pratica, **incondicional**.
+      #
+      # **Porque e que fica assim e nao se «corrige».** A isencao e uma
+      # afirmacao de quem anunciou a janela, e esta pilha so a pode **refutar**,
+      # nunca confirmar: a prova de que mensagens se perderam com o ingress em
+      # baixo esta **fora** da pilha, e e o que a sonda externa responderia
+      # (credores **D1/KAM-105** e **KAM-069**). Inverter o omisso — contar
+      # sempre — tornava a regra do criterio 6 letra morta pelo outro lado. O que
+      # torna a afirmacao auditavel e o anuncio ser um **commit**, e o relatorio
+      # mensal ter uma coluna para ela (`../../../../ops/slo-relatorio-modelo.md`
+      # §4). A caixa do criterio 6 fica **parcial** por isto, e nao por engano.
+      #
+      # `max` sem `by` reduz as replicas a uma serie sem etiquetas, para o
+      # `unless on()` da regra seguinte casar.
+      - record: slo_mensagens_afectadas
+        expr: 'max(increase(gwy_shed_total[30m])) > bool 0 or vector(0)'
+
+      # O tempo mau que **conta** para o orcamento, depois da regra das janelas.
+      #
+      # A regra do criterio 6, nas tres condicoes que ela tem: uma janela
+      # **anunciada**, **fora** de 07:00-23:00 WAT (06:00-22:00 UTC, porque o
+      # `hour()` do Prometheus e UTC) e que **nao afectou mensagens** nao conta
+      # como indisponibilidade. Qualquer uma das tres a faltar, conta.
+      #
+      # A isencao faz-se por `unless`, logo a amostra **desaparece** em vez de
+      # valer 0: o tempo isento sai do numerador **e** do denominador, que e o
+      # tratamento convencional de uma janela acordada. Vale 0,07% no
+      # denominador para uma janela de 30 min em 30 dias — abaixo da resolucao
+      # com que o orcamento se le.
+      #
+      # O `slo_manutencao_anunciada` vem do `kamba-manutencao.yml`. Grupos
+      # diferentes nao tem ordem garantida dentro da mesma avaliacao, pelo que
+      # esta regra pode ler o valor do tique anterior: 30 s de atraso numa
+      # bandeira de manutencao nao muda nada.
+      - record: slo_caminho_de_venda_mau
+        expr: '(1 - slo_caminho_de_venda_bom) unless on() ((slo_manutencao_anunciada == 1) and on() (vector(1) unless on() ((hour() >= 6) and (hour() < 22))) and on() (slo_mensagens_afectadas == 0))'
+
+      # A disponibilidade a 30 dias. O SLO e 0,995 (99,9% fica documentado e
+      # inactivo, por ser da Escala — doc 09 §10 e Detalhes Tecnicos do ticket).
+      - record: slo_caminho_de_venda_ratio_30d
+        expr: '1 - avg_over_time(slo_caminho_de_venda_mau[30d])'
+
+      # A fraccao do orcamento de 216 min ja gasta. 1,0 = orcamento esgotado.
+      - record: slo_caminho_de_venda_orcamento_consumido
+        expr: 'avg_over_time(slo_caminho_de_venda_mau[30d]) / 0.005'
+
+      # Quantas amostras a janela de 30 dias tem **de facto**.
+      #
+      # **Isto existe porque a correccao da retencao fechou o tecto e deixou o
+      # chao aberto, e a revisao adversarial mediu-o.** O argumento que subiu a
+      # retencao de 15d para 31d — «um `avg_over_time(...[30d])` sobre 15 dias
+      # nao da erro, devolve a media das amostras que existem» — vale igual para
+      # um Prometheus que **arrancou ha tres dias**, ou para o volume
+      # `prometheus-data` recriado. Nesse caso o painel publica um «orcamento de
+      # 30 dias» calculado sobre 10% da janela, sem erro e sem indicador.
+      #
+      # Nao se corrige com uma guarda na regra: um orcamento sobre tres dias **e**
+      # a melhor estimativa que ha, e esconde-lo era pior. Corrige-se dizendo
+      # quantas amostras ele teve, ao lado do numero — que e o que o painel faz.
+      #
+      # **Nao se compara com um esperado aqui de proposito:** o esperado depende
+      # do `evaluation_interval` (86 400 amostras a 30 s), e uma constante aqui
+      # ficava a mentir no dia em que esse intervalo mudasse, sem nada a avisar.
+      # O valor esperado vive na descricao do painel, onde quem le o ve ao lado.
+      - record: slo_caminho_de_venda_amostras_30d
+        expr: 'count_over_time(slo_caminho_de_venda_mau[30d])'
+
+      # O que o painel mostra: minutos de orcamento que sobram, de 216.
+      #
+      # Fica **negativo** quando o orcamento estoura, e isso e deliberado: um
+      # `clamp_min(..., 0)` esconderia o quanto se passou do limite, que e o
+      # numero de que a politica de 100% precisa.
+      - record: slo_caminho_de_venda_orcamento_restante_minutos
+        expr: '216 * (1 - slo_caminho_de_venda_orcamento_consumido)'
+
+      # O *burn rate*, em **fraccao do orcamento total** por janela — a unidade
+      # em que o criterio 4 o escreve («2% do orcamento numa hora»), e nao o
+      # multiplo adimensional de 14,4x que a mesma coisa da noutra convencao.
+      # Escolheu-se a unidade do criterio para que o limiar do alerta seja o
+      # numero que o criterio diz, sem conversao pelo meio.
+      #
+      #   1h: 2% de 216 min = 4,32 min de tempo mau numa hora
+      #   6h: 5% de 216 min = 10,8 min de tempo mau em seis horas
+      - record: slo_caminho_de_venda_burn_1h
+        expr: 'avg_over_time(slo_caminho_de_venda_mau[1h]) * 60 / 216'
+
+      - record: slo_caminho_de_venda_burn_6h
+        expr: 'avg_over_time(slo_caminho_de_venda_mau[6h]) * 360 / 216'
+
+  - name: kamba-slo-orcamento
+    interval: 30s
+    rules:
+      # ------------------------------------------------- criterio 4: rapido
+      #
+      # `for: 0m` e **nao** `for: 1h`: a janela de `[1h]` do `avg_over_time`
+      # **ja e** a duracao da condicao, e um `for` por cima somava-se a ela. E a
+      # mesma correccao que o `ingress_parado` do `kamba.yml` levou.
+      #
+      # LIMITE: os 2% sao **proposta** do proprio ticket, a calibrar nos
+      # primeiros 30 dias. Um arranque a frio de mais de 4,32 min numa hora
+      # dispara isto, e correctamente — ver a assimetria 1 no cabecalho.
+      - alert: orcamento_de_erro_burn_rapido
+        expr: 'slo_caminho_de_venda_burn_1h > 0.02'
+        for: 0m
+        labels:
+          severity: P2
+          componente: plataforma
+        annotations:
+          resumo: Mais de 2% do orcamento de erro de 30 dias gasto na ultima hora.
+          limite: Limiar proposta (KAM-082), a calibrar nos primeiros 30 dias.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/orcamento-de-erro.md
+
+      # -------------------------------------------------- criterio 4: lento
+      #
+      # P3 e nao P2, como o criterio escreve: 5% em 6 h e uma deriva, nao um
+      # incidente. O `kamba.yml` usa P3 para o mesmo tipo de sinal.
+      - alert: orcamento_de_erro_burn_lento
+        expr: 'slo_caminho_de_venda_burn_6h > 0.05'
+        for: 0m
+        labels:
+          severity: P3
+          componente: plataforma
+        annotations:
+          resumo: Mais de 5% do orcamento de erro de 30 dias gasto nas ultimas 6 h.
+          limite: Limiar proposta (KAM-082), a calibrar nos primeiros 30 dias.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/orcamento-de-erro.md

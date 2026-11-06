@@ -94,6 +94,13 @@ class Consumidor:
     versao: int
     exige_ordem: bool
     prioritario: bool
+    #: Quem esta subscricao manda avisar — `cliente`, `dono`, os dois, ou
+    #: ninguem. Vem do `notifica` do `registry/<id>.yaml` (KAM-039) e **nao** se
+    #: deriva aqui, ao contrario do `exige_ordem` e do `prioritario`: aqueles
+    #: dois sao regra da casa sobre o **tipo** (§6.3, «os consumidores de
+    #: `payment.*` sao sempre com ordem»), e este e uma decisao da vertical
+    #: sobre a subscricao dela. Derivar era devolve-lo ao nucleo.
+    notifica: tuple[str, ...] = ()
 
 
 def nome_do_consumidor(vertical: str) -> str:
@@ -144,6 +151,7 @@ def consumidores(
                     versao=subscricao.versao,
                     exige_ordem=e_de_pagamento(subscricao.tipo),
                     prioritario=e_de_pagamento(subscricao.tipo),
+                    notifica=subscricao.notifica,
                 )
             )
     return tuple(tabela)
