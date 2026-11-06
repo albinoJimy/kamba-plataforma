@@ -41,7 +41,12 @@ export {
   type PortaDeSaida,
 } from "./contrato.ts";
 
-export { PADRAO_DE_LEMBRETE, SQL_DESTINO, SQL_LEMBRETES_DO_TENANT } from "./consultas.ts";
+export {
+  PADRAO_DE_LEMBRETE,
+  SQL_CUSTO_DOS_LEMBRETES,
+  SQL_DESTINO,
+  SQL_LEMBRETES_DO_TENANT,
+} from "./consultas.ts";
 
 export {
   BOOKING_CREATED,
@@ -81,8 +86,11 @@ export {
 
 export {
   RECUSAS_DE_TEMPLATE,
+  canalDoKind,
   chaveDoLembrete,
   entregarLembrete,
+  etiquetaDoMotivo,
+  repetidoSaiu,
   type Dependencias,
   type LeituraDoLembrete,
 } from "./deliver.ts";

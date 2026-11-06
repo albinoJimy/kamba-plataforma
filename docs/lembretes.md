@@ -117,6 +117,29 @@ antecedência for calibrada, a etiqueta muda com ela e as chaves antigas
 continuam a existir: uma mensagem já enviada não se reenvia por se ter mudado um
 número.
 
+### A chave é protegida das recusas anteriores à linha, e **só dessas**
+
+A primeira versão desta secção dizia que «um *template* recusado não gasta a
+chave» e parava aí. É verdade — e é meia verdade, que a revisão adversarial
+mediu:
+
+| Quando a recusa acontece | A linha em `outbound_messages` | A chave |
+|---|---|---|
+| **antes** da linha: `WINDOW_CLOSED`, `TEMPLATE_NOT_APPROVED`, `TEMPLATE_BLOCKED`, `MARKETING_NOT_ALLOWED`, `STATE_REFUSED`, forma inválida | não se escreve | livre — o lembrete sai no dia em que a causa desaparecer |
+| **depois** da linha: `SEND_FAILED`, `NO_RECIPIENT`, `RATE_LIMITED`, e a supressão do guarda do KAM-018 | fica escrita, em `failed` ou `suppressed_by_human` | **gasta** |
+
+E o que isso provocava: na entrega seguinte do mesmo evento, o `SQL_ENFILEIRAR`
+devolve vazio, o adapter lê a linha pelo `SQL_POR_CHAVE` — que **não filtra
+`state`** — e responde `{ok: true, repetido: true}`. Lido como «enviado», é uma
+mensagem que nunca saiu contada como entregue.
+
+A correcção: num `repetido`, o módulo lê o `state` da linha e decide contra os
+`TERMINAIS` do KAM-015. Um estado de progresso é um lembrete que já saiu; um
+estado terminal é `CHAVE_GASTA`, travado e contado. E uma repetição **não conta**
+no `booking_reminder_sent_total`, que é a decisão que o `adapter.ts` do KAM-015
+já tinha tomado para si: o contador mede mensagens, e cinco entregas do mesmo
+evento são uma mensagem.
+
 ## 6. A finalidade de consentimento é `transacao`, e isso é uma leitura
 
 O critério escreve «opt-in registado para a categoria *utility*», e as duas
@@ -220,11 +243,49 @@ recusam por gramática uma etiqueta que não case `^[a-z][a-z0-9_]{1,62}$` e um
 `seguranca/ameacas_stride.md` chama-lhe re-identificação. O por-*tenant* sai do
 `SQL_LEMBRETES_DO_TENANT`, por consulta.
 
-Essa consulta isola as linhas de lembrete pelo segmento `:reminder:` da chave —
-o mesmo mecanismo que o `SQL_AVISOS_ENVIADOS` do KAM-022 usa para contar avisos
-sem coluna nova, e pela mesma razão: a chave que impede o lembrete de sair duas
-vezes é a que diz quais linhas são lembretes. Uma coluna `origem` em
+São **duas** consultas, e isolam as linhas de lembrete pelo segmento `:reminder:`
+da chave — o mesmo mecanismo que o `SQL_AVISOS_ENVIADOS` do KAM-022 usa para
+contar avisos sem coluna nova, e pela mesma razão: a chave que impede o lembrete
+de sair duas vezes é a que diz quais linhas são lembretes. Uma coluna `origem` em
 `outbound_messages` era DDL para uma informação que a chave já carrega.
+
+```text
+SQL_LEMBRETES_DO_TENANT   tentativas e falhas por canal, no período de criação
+SQL_CUSTO_DOS_LEMBRETES   linhas facturadas por categoria, no período de entrega
+```
+
+**Era uma, e ela inventava dinheiro.** A revisão adversarial confrontou-a com o
+`SQL_CUSTO_DO_TENANT` do KAM-015 e com o `microUsdDe`, que escreve por extenso
+que «uma categoria que não conhecemos não se converte num número inventado»:
+
+- um `ELSE 4000` facturava a 0,004 USD qualquer categoria desconhecida — e a
+  Meta acrescenta categorias;
+- `WHEN NOT (pricing->>'billable')::boolean THEN 0` não excluía nada com o
+  `billable` **ausente**: a condição é `NULL`, o `CASE` seguia para o `ELSE` e a
+  linha era cobrada;
+- somava sobre `created_at` quando a cobrança é na **entrega** (`E1` §1,
+  CONFIRMADO), pelo que uma mensagem criada no dia 1 e entregue no dia 2 caía no
+  período errado;
+- e os literais das tarifas eram uma **terceira** cópia, não comparada com nada.
+  As duas que existem — `outbound/tarifas.ts` e `config/meta_rates.yaml` — são
+  confrontadas como texto pelo `TestTarifas` da suite de *gate* 8 do KAM-015.
+
+Hoje nenhuma das duas converte: contam-se linhas, e quem chama multiplica pelo
+`microUsdDe` — o único sítio desta casa onde uma categoria se torna um número, e
+o que recusa uma que não conhece.
+
+E as falhas cobrem os **dois** estados terminais, que entram por parâmetro a
+partir dos `TERMINAIS` do KAM-015. Contavam só `failed`, e uma linha
+`suppressed_by_human` entrava em «tentados», ficava fora de «falhados» e dava
+custo zero — isto é, lia-se como um lembrete entregue e grátis.
+
+**E ninguém executa estas cadeias.** A nota do módulo afirmava que a suite do
+*gate* 8 as corria, e era falso. O que há é as colunas e os tipos lidos contra o
+inventário de `db/tests/test_inventario.py` e um ficheiro de ensaio que prende
+por **texto** os perigos concretos que as mutações da revisão exploraram — uma
+asserção sobre o texto de uma consulta não apanha um erro de sintaxe, um tipo
+errado nem um plano mau, pelo que o estado disto quanto a execução é **NÃO
+VERIFICADO**. Credor na §11.
 
 **Uma limitação dita:** ao contrário do caso do KAM-022, este `LIKE` **não** se
 resolve pelo índice `outbound_messages_idempotency_uq`, porque o padrão começa
@@ -286,8 +347,70 @@ ticket por credor); ou este módulo deixa de enviar e passa a devolver a
 `Notificacao` ao AGR — o que troca a chave do critério 2 pela do §6.3 e obriga a
 emendar o critério.
 
+## 13. O corpo do *template* e a política de antecedência
+
+Esta secção existe porque faltava, e a falta foi medida: a caixa da DoD
+«documentação do *template* e da política de antecedência actualizada» estava
+marcada com uma linha de evidência que apontava para secções que não diziam
+nenhuma das duas coisas. A revisão adversarial contou — zero ocorrências do corpo
+do *template*, zero das posições `{{n}}`, zero do limiar de 2 h — e a caixa estava
+marcada. É o defeito que esta casa fecha: marcar por memória do trabalho feito.
+
+### O corpo
+
+**É *proposta*, e a aprovação pela Meta não é garantida.** A submissão do conjunto
+padrão por *tenant* é do EPIC-02 (KAM-091); o que este ticket define é o texto, e
+o que ele consome é o estado — pela porta do Outbound, que lê a
+`message_templates`.
+
+```text
+nome      lembrete_marcacao
+idioma    pt_PT        (pt_AO não existe como código — NÃO VERIFICADO, E1)
+categoria utility      (transaccional; a frequência de marketing é zero no Piloto)
+
+corpo     Lembrete: tem marcação de {{1}} no dia {{2}} às {{3}}.
+          Para remarcar ou cancelar, responda a esta mensagem.
+```
+
+As três posições, e de onde vem cada uma:
+
+| Posição | Valor | Facto de origem |
+|---|---|---|
+| `{{1}}` | o nome do serviço | `servicos.services.nome`, por `SQL_SERVICO` |
+| `{{2}}` | a data, no fuso de Luanda | `servicos.bookings.inicio_at`, por `SQL_MARCACAO` |
+| `{{3}}` | a hora, no mesmo fuso | o mesmo `inicio_at` |
+
+**Duas posições saem do mesmo facto**, e tinha de ser: um `timestamptz` não tem
+duas colunas, e a Meta numera por posição no corpo aprovado. É a `PROVENIENCIA`
+do `reminders/contrato.ts`, e é contra ela que a §7 mede.
+
+O mesmo corpo serve a **mensagem livre**, com as posições preenchidas — ver a §7
+para a razão de não haver um segundo texto.
+
+### A política de antecedência
+
+Os dois valores são ***proposta*** e estão em constantes com a unidade no nome,
+não no DDL: um número no `CHECK` de uma coluna obrigava a uma revisão de base de
+dados para o calibrar.
+
+| Valor | Constante | O que decide | Onde se calibra |
+|---|---|---|---|
+| **24 h** | `ANTECEDENCIA_MS` | o instante do lembrete é `inicio − 24 h` | com dados do Piloto; o critério 1 di-lo «por tenant», e o por-*tenant* não existe — ver a §11 |
+| **2 h** | `MINIMO_PARA_ENVIO_MS` | uma marcação criada com menos de 24 h de antecedência só leva lembrete **imediato** se o início estiver a **mais** de 2 h | com dados do Piloto |
+
+O limiar de 2 h protege custo e utilidade ao mesmo tempo: um lembrete que chega
+uma hora antes de uma marcação que o cliente acabou de fazer é um *template
+utility* **pago** para lhe dizer o que ele escreveu há cinco minutos. O limite é
+«mais de», logo exactamente 2 h **não** envia — a leitura conservadora.
+
+Os dois têm **asserção-âncora** no `servicos.reminders.schedule.test.ts`, e a do
+limiar de 2 h entrou por achado da revisão adversarial: sem ela, toda a fronteira
+era medida contra a própria constante, e pôr-lhe 4 h deixava os ensaios verdes
+com o critério 1 violado à letra.
+
 ## Controlo de versões
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Primeira versão, KAM-048. O agendamento em `inicio − 24 h` com o `inicio_at` no `jobId`, os portões do disparo, a chave composta `booking_id:reminder:T-24h`, a escolha de canal pela janela, o portão do *template* ligado ao KAM-015, o *gate* de consentimento ligado ao KAM-022, as quatro vias que provam a proveniência dos parâmetros, e os três contadores. Sem revisão de base de dados. Registra o que já existia e não se reescreveu (§2), o que fica por ligar com credor (§11) e o conflito de dois consumidores do mesmo evento (§12), que vai ao fundador. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **Revisão adversarial: catorze achados, e dois faziam o módulo não enviar nada.** O §13 nasce porque faltava — a caixa da DoD que o invocava estava marcada com uma linha de evidência que apontava para secções que não diziam nem o corpo do *template* nem a política de antecedência; contado, zero ocorrências das três posições e do limiar de 2 h. O §5 passa a dizer a verdade inteira sobre a chave: ela é protegida das recusas **anteriores** à linha e não das posteriores, e um `repetido` lido como «enviado» era uma mensagem que nunca saiu contada como entregue. O §10 deixa de prometer um custo que a consulta inventava, e passa a ter duas consultas que não convertem categorias em dinheiro, as falhas a cobrir os dois estados terminais, e a limitação dita de que ninguém as executa. As correcções de código, os ensaios que entraram e o que a revisão deu por limpo estão no bloco do ticket em `../specs/EPIC-04_Core_Comercio.md`. | Equipa KAMBÁ |

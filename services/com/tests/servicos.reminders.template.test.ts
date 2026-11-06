@@ -190,6 +190,39 @@ test("(4) o modulo do template nao alcanca nada que gere texto", () => {
   }
 });
 
+test("(5) cada parametro e EXACTAMENTE a formatacao do seu facto", () => {
+  // **A via que faltava, e a lacuna que ela fecha e a mais provavel de todas.**
+  // As vias (1) a (3) apanham um valor **inventado** — que nao le campo nenhum,
+  // ou que traz texto de outra origem. Nao apanham um valor **composto**: um
+  // parametro que concatene prosa a um facto le o campo declarado, muda com ele,
+  // nao contem o intruso da via (3) e nao acrescenta importacao nenhuma.
+  //
+  // A revisao adversarial mediu-o: pondo
+  // `factos.nomeDoServico + ", como combinamos ontem"`, os 52 ensaios ficavam
+  // **verdes** — e o `includes("Corte de cabelo")` do ensaio da entrega tambem
+  // passava, porque o facto continua la dentro. E a forma mais provavel de texto
+  // de modelo entrar num parametro: nao a substituir um facto, a envolve-lo.
+  //
+  // A asserção é de **igualdade** e não de inclusão, e é isso que a torna uma
+  // prova: cada parâmetro tem de ser o valor do facto, ou a formatação dele, e
+  // mais nada. Qualquer carácter a mais falha.
+  const instante = new Date(FACTOS.inicioAt);
+  const esperados: readonly string[] = [
+    FACTOS.nomeDoServico,
+    dataDeLuanda(instante),
+    horaDeLuanda(instante),
+  ];
+  assert.deepEqual([...parametrosDoLembrete(FACTOS)], [...esperados]);
+
+  // E as formatações são elas próprias funções do facto e de mais nada: o mesmo
+  // instante dá sempre a mesma cadeia, e dois instantes diferentes dão cadeias
+  // diferentes. Sem isto, uma «formatação» que devolvesse uma constante
+  // satisfazia a igualdade acima.
+  assert.equal(dataDeLuanda(instante), dataDeLuanda(new Date(FACTOS.inicioAt)));
+  assert.notEqual(dataDeLuanda(instante), dataDeLuanda(new Date("2026-12-24T16:45:00.000Z")));
+  assert.notEqual(horaDeLuanda(instante), horaDeLuanda(new Date("2026-12-24T16:45:00.000Z")));
+});
+
 test("o fuso e o de Luanda, e uma marcacao as 00:30 cai no dia certo", () => {
   // O ensaio de fuso do bloco. `Africa/Luanda` e UTC+1 sem horario de verao,
   // pelo que `23:30Z` de 5 de Novembro e `00:30` do dia **6**.

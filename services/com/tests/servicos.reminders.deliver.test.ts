@@ -30,9 +30,11 @@ import {
   SQL_ESTADO as SQL_ESTADO_DO_CONSENTIMENTO,
   SQL_TEXTO_VIGENTE,
 } from "@kamba/core-ts/consentimento";
+import { SQL_POR_CHAVE } from "@kamba/core-ts/outbound";
 
 import { SQL_MARCACAO, SQL_SERVICO } from "../src/servicos/consultas.ts";
 import {
+  FINALIDADE_DO_LEMBRETE,
   IDIOMA_DO_LEMBRETE,
   PARAMETROS_DO_LEMBRETE,
   SQL_DESTINO,
@@ -94,10 +96,23 @@ interface Opcoes {
   readonly consentimento?: { accepted: boolean; text_version: string } | null;
   /** O que o Outbound responde: `null` aceita, uma cadeia recusa com ela. */
   readonly recusa?: string | null;
+  /**
+   * A chave **já tem linha** em `outbound_messages`, com este `state`.
+   *
+   * É o caso que o duplo da primeira versão não modelava e que a revisão
+   * adversarial mediu com o `Saida` verdadeiro: uma falha **depois** da linha
+   * (`SEND_FAILED`, `NO_RECIPIENT`, `RATE_LIMITED`, ou a supressão do guarda)
+   * deixa a linha escrita, e o adapter responde `repetido: true` a quem repita.
+   */
+  readonly estadoDaChave?: string;
+  /** Recusa só a **primeira** chamada. Para a corrida da janela. */
+  readonly recusaPrimeira?: string;
 }
 
 interface Ensaio {
   readonly sqls: string[];
+  /** As consultas **com os parâmetros**. Ver o ensaio da finalidade. */
+  readonly chamadas: Array<readonly [string, readonly unknown[]]>;
   readonly enviadas: Array<Record<string, unknown>>;
   readonly avisos: AvisoDeTemplateBloqueado[];
   readonly metricas: MetricasDoLembrete;
@@ -113,10 +128,16 @@ interface Ensaio {
  */
 function ensaio(opcoes: Opcoes = {}): Ensaio {
   const sqls: string[] = [];
+  const chamadas: Array<readonly [string, readonly unknown[]]> = [];
   const enviadas: Array<Record<string, unknown>> = [];
   const avisos: AvisoDeTemplateBloqueado[] = [];
   const metricas = new MetricasDoLembrete();
-  const chavesUsadas = new Set<string>();
+  /** Chave de idempotência → `state` da linha, como em `outbound_messages`. */
+  const linhasPorChave = new Map<string, string>();
+  if (opcoes.estadoDaChave !== undefined) {
+    linhasPorChave.set(`${BOOKING}:reminder:T-24h`, opcoes.estadoDaChave);
+  }
+  let primeiraChamada = true;
 
   const marcacao =
     opcoes.marcacao === undefined ? linhaDaMarcacao() : opcoes.marcacao;
@@ -129,8 +150,22 @@ function ensaio(opcoes: Opcoes = {}): Ensaio {
   const temDestino = opcoes.destino ?? true;
 
   const cliente = {
-    async query(sql: string) {
+    async query(sql: string, parametros: readonly unknown[] = []) {
       sqls.push(sql);
+      chamadas.push([sql, parametros]);
+      if (sql === SQL_POR_CHAVE) {
+        // **O duplo guarda o `state` de cada chave que escreveu**, como a base
+        // faz: sem isso, uma repetição legítima (a linha existe em `sent`) era
+        // indistinguível de uma chave sem linha, e o `CHAVE_GASTA` disparava
+        // sobre um lembrete que tinha saído.
+        const estado = linhasPorChave.get(String(parametros[1]));
+        return {
+          rows:
+            estado === undefined
+              ? []
+              : [{ id: "linha-anterior", wamid: null, kind: "service", state: estado }],
+        };
+      }
       if (sql === SQL_MARCACAO) {
         return { rows: marcacao === null ? [] : [marcacao] };
       }
@@ -168,7 +203,19 @@ function ensaio(opcoes: Opcoes = {}): Ensaio {
 
   const saida: PortaDeSaida = {
     async enviar(pedido) {
-      const chave = `${pedido.tenantId}|${pedido.idempotencyKey}`;
+      const primeira = primeiraChamada;
+      primeiraChamada = false;
+      if (opcoes.recusaPrimeira !== undefined && primeira) {
+        // A corrida da janela: a primeira chamada (texto livre) é recusada com
+        // `WINDOW_CLOSED`, a segunda (template) passa. Como no adapter, uma
+        // recusa pré-linha **não gasta** a chave.
+        return { ok: false, motivo: opcoes.recusaPrimeira, codigo: null };
+      }
+      if (linhasPorChave.has(pedido.idempotencyKey)) {
+        // A chave já tem linha: o adapter responde `ok` com `repetido: true`
+        // **sem olhar ao `state`**, que é a propriedade que o achado nomeia.
+        return { ok: true, id: "linha-anterior", wamid: null, kind: "service", repetido: true };
+      }
       if (opcoes.recusa !== undefined && opcoes.recusa !== null) {
         // **A recusa nao gasta a chave**, e e a ordem do `adapter.ts` do
         // KAM-015: a decisao corre antes da linha em `outbound_messages`. Um
@@ -176,10 +223,8 @@ function ensaio(opcoes: Opcoes = {}): Ensaio {
         // lembrete recusado por template poder sair no dia da aprovacao.
         return { ok: false, motivo: opcoes.recusa, codigo: null };
       }
-      if (chavesUsadas.has(chave)) {
-        return { ok: true, id: "ja-existia", wamid: null, kind: "service", repetido: true };
-      }
-      chavesUsadas.add(chave);
+      // Um envio aceite deixa a linha em `sent`, como a base.
+      linhasPorChave.set(pedido.idempotencyKey, "sent");
       enviadas.push({ ...pedido });
       return {
         ok: true,
@@ -193,6 +238,7 @@ function ensaio(opcoes: Opcoes = {}): Ensaio {
 
   return {
     sqls,
+    chamadas,
     enviadas,
     avisos,
     metricas,
@@ -239,7 +285,144 @@ test("o mesmo evento entregue 5 vezes produz 1 mensagem", async () => {
   assert.equal(repetidos, 4);
   // E as cinco pediram **a mesma chave**, que e a propriedade deste modulo.
   assert.equal(e.enviadas[0]?.["idempotencyKey"], `${BOOKING}:reminder:T-24h`);
-  assert.equal(e.metricas.ler(METRICA_ENVIADOS, "service"), 5);
+  // **Uma mensagem, logo UM no contador.** A primeira versao deste ensaio
+  // exigia **cinco** — contava as repeticoes — e com isso prendia um defeito:
+  // o contador que o `docs/lembretes.md` apresenta como «quanto do trafego de
+  // lembretes e pago» dizia cinco quando se pagou uma. E a decisao do
+  // `adapter.ts` do KAM-015, que sai pelo ramo do `repetido` sem tocar na
+  // `METRICA_ENVIADAS`. Achado da revisao adversarial, que o mediu mutando o
+  // codigo e vendo **este** ensaio ficar vermelho.
+  assert.equal(e.metricas.ler(METRICA_ENVIADOS, "service"), 1);
+});
+
+test("o envio do bot leva turno, senao o guarda do KAM-018 suprime tudo", async () => {
+  // **O defeito mais caro desta entrega.** Sem `turnoIniciadoEm`, o
+  // `PreSendGuard` recusa um envio do bot com `sem_turno` **e escreve a linha de
+  // supressao com a nossa chave** (`modos/consultas.ts`, `SQL_SUPRIMIR_ENVIO`):
+  // zero lembretes em producao, em todos os ramos, e a chave gasta para sempre.
+  // Medido pela revisao adversarial com o `avaliar` verdadeiro contra uma
+  // conversa em `mode = 'bot'` sem actividade humana nenhuma.
+  const e = ensaio({ janelaExpiraEm: "2026-11-09T18:00:00.000Z" });
+  await entregarLembrete(e.deps, TENANT, EVENTO);
+
+  const pedido = e.enviadas[0] as Record<string, unknown>;
+  assert.equal(pedido["doBot"], true, "um lembrete e o bot a falar: a barreira do modo tem de valer");
+  assert.ok(
+    pedido["turnoIniciadoEm"] instanceof Date,
+    "sem turno o guarda suprime o envio e gasta a chave",
+  );
+  // E o instante e o do disparo: e o que o campo significa, e e o que torna a
+  // verificacao de corrida do §10.3 vacuamente verdadeira para uma mensagem
+  // composta agora.
+  assert.equal((pedido["turnoIniciadoEm"] as Date).getTime(), AGORA.getTime());
+});
+
+test("uma chave gasta por uma linha que nao saiu nao conta como enviada", async () => {
+  // O adapter responde `ok` com `repetido: true` para qualquer chave que ja
+  // tenha linha, **sem olhar ao `state`** (`SQL_POR_CHAVE` nao o filtra). Uma
+  // linha `failed` ou `suppressed_by_human` chegava aqui como «enviado»: uma
+  // mensagem que nunca saiu, contada como entregue.
+  for (const estado of ["failed", "suppressed_by_human"]) {
+    const e = ensaio({
+      janelaExpiraEm: "2026-11-09T18:00:00.000Z",
+      estadoDaChave: estado,
+    });
+    const desfecho = await entregarLembrete(e.deps, TENANT, EVENTO);
+
+    assert.equal(desfecho.enviado, false, `o estado ${estado} contou como enviado`);
+    assert.equal(desfecho.enviado === false ? desfecho.motivo : null, "CHAVE_GASTA");
+    assert.equal(e.metricas.ler(METRICA_ENVIADOS, "service"), 0);
+    assert.equal(e.metricas.ler(METRICA_TRAVADOS, "CHAVE_GASTA"), 1);
+    // E leu-se mesmo o estado da linha, em vez de se adivinhar.
+    assert.ok(e.sqls.includes(SQL_POR_CHAVE));
+  }
+});
+
+test("uma chave repetida com linha que saiu continua a contar como enviada", async () => {
+  // A outra direccao, sem a qual a correccao acima podia ser «devolve sempre
+  // CHAVE_GASTA» e o ensaio de cima ficava verde.
+  for (const estado of ["queued", "sent", "delivered", "read"]) {
+    const e = ensaio({
+      janelaExpiraEm: "2026-11-09T18:00:00.000Z",
+      estadoDaChave: estado,
+    });
+    const desfecho = await entregarLembrete(e.deps, TENANT, EVENTO);
+    assert.equal(desfecho.enviado, true, `o estado ${estado} deu por nao enviado`);
+    assert.equal(desfecho.enviado === true ? desfecho.repetido : null, true);
+    // **E nao conta**: uma repeticao nao e uma mensagem nova.
+    assert.equal(e.metricas.ler(METRICA_ENVIADOS, "service"), 0);
+  }
+});
+
+test("se a janela fechar na corrida, cai para o template em vez de se perder", async () => {
+  // A janela e lida duas vezes: pelo `SQL_DESTINO` com o nosso relogio e pelo
+  // `SQL_JANELA` dentro do adapter com o dele. Se fechar no intervalo, o corpo
+  // ja era texto livre e a recusa e `WINDOW_CLOSED` — e o criterio 3 manda que,
+  // com a janela fechada, va o *template utility*. Travar aqui perdia o
+  // lembrete, e nao ha hoje quem o reentregue. Achado da revisao adversarial.
+  const e = ensaio({
+    janelaExpiraEm: "2026-11-09T18:00:00.000Z",
+    recusaPrimeira: "WINDOW_CLOSED",
+  });
+  const desfecho = await entregarLembrete(e.deps, TENANT, EVENTO);
+
+  assert.equal(desfecho.enviado, true);
+  assert.equal(desfecho.enviado === true ? desfecho.canal : null, "utility");
+  assert.equal(e.enviadas.length, 1);
+  const corpo = e.enviadas[0]?.["corpo"] as { tipo: string; nome?: string };
+  assert.equal(corpo.tipo, "template");
+  assert.equal(corpo.nome, TEMPLATE_DO_LEMBRETE);
+});
+
+test("com a janela ja fechada um WINDOW_CLOSED nao volta a tentar", async () => {
+  // A queda e **uma vez so**, e nao em ciclo: com a janela ja fechada o corpo ja
+  // era o template, e repetir nao muda nada. Sem esta metade, a correccao de
+  // cima podia ser um ciclo.
+  const e = ensaio({ janelaExpiraEm: null, recusa: "WINDOW_CLOSED" });
+  const desfecho = await entregarLembrete(e.deps, TENANT, EVENTO);
+  assert.equal(desfecho.enviado, false);
+  assert.equal(desfecho.enviado === false ? desfecho.motivo : null, "WINDOW_CLOSED");
+  assert.equal(e.enviadas.length, 0);
+});
+
+test("um motivo fora da lista fechada trava, e nao levanta", async () => {
+  // A `PortaDeSaida` tipa o motivo como `string`, mais largo do que o
+  // `MotivoDeRecusa` do `Saida` verdadeiro. O `contar` levanta para uma etiqueta
+  // fora do dominio, pelo que um motivo inesperado transformava um bloqueio numa
+  // excepcao — isto e, um evento na DLQ por um defeito de quem implementou a
+  // porta. Achado PLAUSIVEL da revisao adversarial, fechado porque o remedio e
+  // mais barato do que a pergunta.
+  const e = ensaio({ janelaExpiraEm: null, recusa: "MOTIVO_QUE_NINGUEM_DECLAROU" });
+  const desfecho = await entregarLembrete(e.deps, TENANT, EVENTO);
+
+  assert.equal(desfecho.enviado, false);
+  // O motivo **real** vai no desfecho; so a etiqueta e que colapsa.
+  assert.equal(
+    desfecho.enviado === false ? desfecho.motivo : null,
+    "MOTIVO_QUE_NINGUEM_DECLAROU",
+  );
+  assert.equal(e.metricas.ler(METRICA_TRAVADOS, "MOTIVO_DESCONHECIDO"), 1);
+});
+
+test("a finalidade que vai ao gate de consentimento e transacao", async () => {
+  // **A proveniencia do valor, e nao o nome da constante.** O duplo da primeira
+  // versao despachava por identidade da cadeia SQL e **ignorava os parametros**,
+  // pelo que mudar a finalidade para `atendimento` deixava os 52 ensaios verdes
+  // — verificar o opt-in contra a finalidade errada e enviar com base num
+  // consentimento que o cliente deu para outra coisa. Achado da revisao, medido
+  // por mutacao.
+  const e = ensaio({ janelaExpiraEm: "2026-11-09T18:00:00.000Z" });
+  await entregarLembrete(e.deps, TENANT, EVENTO);
+
+  const texto = e.chamadas.find(([sql]) => sql === SQL_TEXTO_VIGENTE);
+  const estado = e.chamadas.find(([sql]) => sql === SQL_ESTADO_DO_CONSENTIMENTO);
+  assert.ok(texto !== undefined && estado !== undefined);
+  // `SQL_TEXTO_VIGENTE` quer `($1 finalidade, $2 instante)`.
+  assert.equal(texto[1][0], "transacao");
+  // `SQL_ESTADO` quer `($1 tenant, $2 contacto, $3 finalidade)`.
+  assert.deepEqual([...estado[1]], [TENANT, CONTACTO, "transacao"]);
+  // E e a constante do modulo, para que as duas nao divirjam.
+  assert.equal(FINALIDADE_DO_LEMBRETE, "transacao");
 });
 
 // --------------------------------------------------------------- critério 3

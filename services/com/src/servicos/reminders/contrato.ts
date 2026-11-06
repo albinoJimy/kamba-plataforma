@@ -213,6 +213,8 @@ export const PARAMETROS_DO_LEMBRETE = PROVENIENCIA.length;
  *     SEM_OPT_IN              não há consentimento válido para a finalidade
  *     SEM_TEXTO_VIGENTE       a `consent_texts` não tem versão a vigorar
  *     SEM_CONVERSA            o contacto não tem conversa, logo não há canal
+ *     CHAVE_GASTA             a chave já tem linha, e essa linha não saiu
+ *     MOTIVO_DESCONHECIDO     a porta devolveu um motivo fora das duas listas
  */
 export const MOTIVOS_DE_BLOQUEIO = [
   "MARCACAO_INEXISTENTE",
@@ -221,6 +223,35 @@ export const MOTIVOS_DE_BLOQUEIO = [
   "SEM_OPT_IN",
   "SEM_TEXTO_VIGENTE",
   "SEM_CONVERSA",
+  /**
+   * A chave já tem linha em `outbound_messages`, e essa linha **não saiu**.
+   *
+   * Achado da revisão adversarial, e é a correcção de uma afirmação que estava
+   * errada. A nota do `deliver.ts` dizia que «um *template* recusado não gasta
+   * a chave», o que é verdade para as recusas que o `decidir` toma **antes** da
+   * linha — e falso para tudo o que falhe **depois** dela: `SEND_FAILED`,
+   * `NO_RECIPIENT`, `RATE_LIMITED`, e a supressão do guarda do KAM-018, que
+   * escreve `state = 'suppressed_by_human'` com a nossa chave
+   * (`modos/consultas.ts`, `SQL_SUPRIMIR_ENVIO`).
+   *
+   * Sem este motivo, a entrega seguinte do mesmo evento encontrava a linha pelo
+   * `SQL_POR_CHAVE` — que **não filtra `state`** — e o adapter devolvia
+   * `{ok: true, repetido: true}`: uma mensagem que nunca saiu, contada como
+   * enviada. Medido pela revisão com o `Saida` verdadeiro e a Meta a responder
+   * `131049`.
+   */
+  "CHAVE_GASTA",
+  /**
+   * A `PortaDeSaida` devolveu um motivo que não está em nenhuma das duas listas.
+   *
+   * Existe porque o `contar` das métricas **levanta** para uma etiqueta fora do
+   * domínio fechado, e sem este valor um motivo inesperado transformava um
+   * bloqueio numa excepção — isto é, um evento na DLQ por um defeito de quem
+   * implementou a porta. Achado `PLAUSÍVEL` da revisão adversarial, fechado
+   * porque o remédio é mais barato do que a pergunta: o motivo verdadeiro vai
+   * no desfecho e no registo, e só a **etiqueta** é que colapsa.
+   */
+  "MOTIVO_DESCONHECIDO",
 ] as const;
 export type MotivoDeBloqueio = (typeof MOTIVOS_DE_BLOQUEIO)[number];
 
@@ -327,6 +358,16 @@ export interface PortaDeSaida {
           readonly parametros: readonly string[];
         };
     readonly doBot: boolean;
+    /**
+     * Quando começou o turno que produziu este envio. **KAM-018.**
+     *
+     * Vai sempre, e a ausência dele era o defeito mais caro desta entrega: o
+     * `PreSendGuard` do KAM-018 recusa um envio do bot que o não traga, com o
+     * motivo `sem_turno` — e **escreve a linha de supressão com a nossa chave**.
+     * Sem este campo, nenhum lembrete saía em produção e a chave de cada
+     * marcação ficava gasta para sempre. Ver a nota do `deliver.ts`.
+     */
+    readonly turnoIniciadoEm?: Date;
   }): Promise<
     | {
         readonly ok: true;

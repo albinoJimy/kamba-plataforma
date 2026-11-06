@@ -39,11 +39,59 @@
  * segunda fonte para o mesmo facto, e divergiam no primeiro segundo em que as
  * duas discordassem.
  *
- * **E a ordem do `Saida` protege a chave**, o que importa para o critério 2: lá
- * a decisão corre **antes** da linha em `outbound_messages` (passos 1–3 contra o
- * 4 da nota do `adapter.ts`), pelo que um *template* recusado **não gasta** a
- * chave de idempotência. Um lembrete que falhou por *template* por aprovar pode
- * sair no dia em que a Meta aprovar, com a mesma chave — que é o que se quer.
+ * **A ordem do `Saida` protege a chave — mas só metade dela**, e a primeira
+ * versão desta nota afirmava a metade boa como se fosse tudo. Lá a decisão corre
+ * **antes** da linha em `outbound_messages` (passos 1–3 contra o 4 da nota do
+ * `adapter.ts`), pelo que um *template* recusado **não gasta** a chave: um
+ * lembrete que falhou por *template* por aprovar sai no dia em que a Meta
+ * aprovar, com a mesma chave — que é o que se quer.
+ *
+ * O que ela não dizia é o que acontece a uma falha **depois** da linha —
+ * `SEND_FAILED`, `NO_RECIPIENT`, `RATE_LIMITED`, e a supressão do guarda. Essas
+ * deixam a linha escrita, e na entrega seguinte o `SQL_ENFILEIRAR` devolve vazio,
+ * o adapter lê a linha pelo `SQL_POR_CHAVE` — que **não filtra `state`** — e
+ * responde `{ok: true, repetido: true}`. Lido como «enviado», isso é uma
+ * mensagem que nunca saiu contada como entregue. Achado da revisão adversarial,
+ * medido com o `Saida` verdadeiro e a Meta a responder `131049`.
+ *
+ * Daí o `classificarRepetido`: num `repetido`, lê-se o `state` da linha e
+ * decide-se. Os estados de progresso são um lembrete que já saiu; os `TERMINAIS`
+ * do KAM-015 são a chave gasta por uma linha que não saiu, e dão `CHAVE_GASTA`.
+ *
+ * ## O envio é do bot, e **leva turno** — o defeito mais caro desta entrega
+ *
+ * `doBot: true`, porque um lembrete é o assistente a falar por iniciativa
+ * própria e é exactamente o que o `PreSendGuard` do KAM-018 existe para travar
+ * quando uma pessoa está a atender a conversa. Isso estava certo. O que estava
+ * errado era **não passar o `turnoIniciadoEm`**, com um comentário a declarar
+ * que a ausência era desenho.
+ *
+ * **Não era.** O guarda recusa um envio do bot sem ele (`modos/guarda.ts`, ramo
+ * `sem_turno`) e a supressão **escreve a linha** com a nossa chave
+ * (`modos/consultas.ts`, `SQL_SUPRIMIR_ENVIO`, `ON CONFLICT ... DO NOTHING`). O
+ * efeito em produção: **zero** lembretes enviados, em todos os ramos, e a chave
+ * de cada marcação gasta para sempre. O próprio repositório classifica isto como
+ * defeito de ligação e não como tráfego — o `modos/metricas.ts` escreve que o
+ * `sem_turno` «é um contador que **deve** ficar a zero». Achado `must fix` da
+ * revisão adversarial, medido com o `avaliar` verdadeiro contra uma conversa em
+ * `mode = 'bot'` **sem actividade humana nenhuma**, que é o caso mais favorável
+ * que existe.
+ *
+ * O valor que vai é o `agora` deste disparo, e é o que o campo significa — «o
+ * instante em que começou o turno que produziu este envio». Para um lembrete o
+ * turno é a própria entrega, e ela começou agora. O efeito no guarda é tornar a
+ * verificação de **corrida** vacuamente verdadeira, e é a leitura certa: a
+ * corrida do §10.3 é a de uma resposta composta antes de uma pessoa falar, e uma
+ * mensagem composta neste instante não tem passado onde ela caiba. A barreira
+ * que protege um lembrete é a outra, e fica **intacta** — o ramo `modo !== 'bot'`
+ * do guarda, que suprime um envio para uma conversa em modo dono ou humano.
+ *
+ * **O que isto não é: não é `doBot: false`.** O `hnd/resposta.ts` usa-o, e com
+ * razão — ali quem fala é a pessoa, e o guarda existe para a servir e não para a
+ * recusar. Pôr `doBot: false` num lembrete tirava-lhe a única barreira que ele
+ * precisa de ter, e um lembrete do assistente a cair numa conversa que um humano
+ * está a atender é precisamente o que o invariante do §10.2 proíbe. *Mínimo*
+ * nunca é retirar uma barreira.
  *
  * ## A idempotência não é deste ficheiro, e a chave é
  *
@@ -65,7 +113,9 @@ import {
   SQL_TEXTO_VIGENTE,
   estadoDoConsentimento,
 } from "@kamba/core-ts/consentimento";
-import { janelaAberta } from "@kamba/core-ts/outbound";
+import { WINDOW_CLOSED, janelaAberta } from "@kamba/core-ts/outbound";
+
+import { SQL_POR_CHAVE, TERMINAIS } from "@kamba/core-ts/outbound";
 
 import { SQL_MARCACAO, SQL_SERVICO } from "../consultas.ts";
 import type { ClienteSql, ComTenant, Estado, Marcacao } from "../contrato.ts";
@@ -73,6 +123,7 @@ import { SQL_DESTINO } from "./consultas.ts";
 import {
   ETIQUETA_DA_ORDEM,
   FINALIDADE_DO_LEMBRETE,
+  MOTIVOS_DE_BLOQUEIO,
   IDIOMA_DO_LEMBRETE,
   TEMPLATE_DO_LEMBRETE,
   type AvisarDono,
@@ -84,7 +135,12 @@ import {
   type PortaDeSaida,
 } from "./contrato.ts";
 import { ESTADO_QUE_LEMBRA } from "./schedule.ts";
-import { MetricasDoLembrete, METRICA_ENVIADOS, METRICA_TRAVADOS } from "./metricas.ts";
+import {
+  MetricasDoLembrete,
+  METRICA_ENVIADOS,
+  METRICA_TRAVADOS,
+  MOTIVOS_TRAVADOS,
+} from "./metricas.ts";
 import { parametrosDoLembrete, textoDoLembrete } from "./template.ts";
 
 /**
@@ -105,6 +161,80 @@ export const RECUSAS_DE_TEMPLATE: readonly string[] = [
   "TEMPLATE_BLOCKED",
   "MARKETING_NOT_ALLOWED",
 ];
+
+/**
+ * O estado de uma linha de `outbound_messages` que já tinha a nossa chave.
+ *
+ * `null` quando não se encontra a linha — o que não devia acontecer depois de um
+ * `repetido`, e por isso se trata como chave gasta: a alternativa era devolver
+ * «enviado» sobre uma linha que não se conseguiu ler.
+ */
+async function estadoDaChave(
+  cliente: ClienteSql,
+  tenantId: string,
+  chave: string,
+): Promise<string | null> {
+  const { rows } = await cliente.query(SQL_POR_CHAVE, [tenantId, chave]);
+  const estado = rows[0]?.["state"];
+  return estado === undefined || estado === null ? null : String(estado);
+}
+
+/**
+ * Um `repetido` saiu, ou é uma chave gasta por uma linha que não saiu?
+ *
+ * Os `TERMINAIS` do KAM-015 — `failed` e `suppressed_by_human` — são «não saiu
+ * mensagem»; os de progresso (`queued`, `sent`, `delivered`, `read`) são um
+ * lembrete que já saiu, e a repetição é o EVT a entregar outra vez. Ver a nota
+ * do módulo para o que isto corrige.
+ */
+export function repetidoSaiu(estado: string | null): boolean {
+  if (estado === null) return false;
+  return !(TERMINAIS as readonly string[]).includes(estado);
+}
+
+/**
+ * A etiqueta de métrica de um motivo, com o domínio fechado respeitado.
+ *
+ * Um motivo que não esteja em nenhuma das duas listas colapsa em
+ * `MOTIVO_DESCONHECIDO`. Sem isto, o `contar` **levantava** — e um bloqueio
+ * transformado em excepção é um evento na DLQ por um defeito de quem implementou
+ * a porta. Achado `PLAUSÍVEL` da revisão adversarial: a `PortaDeSaida` tipa o
+ * motivo como `string`, mais largo do que o `MotivoDeRecusa` que o `Saida`
+ * verdadeiro devolve. O motivo real continua a ir no desfecho e no registo.
+ */
+/**
+ * O `kind` do Outbound traduzido no canal do contador.
+ *
+ * O `kind` é uma `Categoria` de **quatro** valores e o canal tem dois — é o que
+ * o critério 8 pede, «por canal (livre/template)». A tradução é por isso de
+ * quatro para dois, e a primeira versão fazia-a com
+ * `kind === "service" ? "service" : "utility"`: um *template* que a Meta
+ * categorizasse como `authentication` saía contado como `utility`, em silêncio.
+ * Achado `nota` da revisão adversarial.
+ *
+ * **Não levanta**, e a escolha é deliberada: isto corre **depois** de a mensagem
+ * ter saído, e lançar aqui trocava uma etiqueta imprecisa por um evento na DLQ
+ * sobre um envio que teve sucesso. O que faz é registar — um `kind` inesperado
+ * aparece no `outcome` e deixa de ser invisível, que é a diferença que o achado
+ * nomeia. Hoje não acontece: o `marketing` é recusado pelo `decidir` e o
+ * `lembrete_marcacao` é `utility`.
+ */
+export function canalDoKind(
+  kind: string,
+  log?: Logger,
+): "service" | "utility" {
+  if (kind === "service") return "service";
+  if (kind !== "utility") {
+    log?.warn({ outcome: "lembrete_kind_inesperado" });
+  }
+  return "utility";
+}
+
+export function etiquetaDoMotivo(motivo: string): string {
+  return MOTIVOS_TRAVADOS.includes(motivo)
+    ? motivo
+    : ("MOTIVO_DESCONHECIDO" satisfies (typeof MOTIVOS_DE_BLOQUEIO)[number]);
+}
 
 /** O que o disparo precisa que lhe dêem. */
 export interface Dependencias {
@@ -281,8 +411,11 @@ export async function entregarLembrete(
     leitura: LeituraDoLembrete,
     donoAvisado = false,
   ): DesfechoDoLembrete & { readonly leitura: LeituraDoLembrete } => {
-    metricas.contar(METRICA_TRAVADOS, motivo);
-    deps.log?.info({ outcome: `lembrete_travado_${motivo.toLowerCase()}`, tenant_id: tenantId });
+    metricas.contar(METRICA_TRAVADOS, etiquetaDoMotivo(motivo));
+    deps.log?.info({
+      outcome: `lembrete_travado_${etiquetaDoMotivo(motivo).toLowerCase()}`,
+      tenant_id: tenantId,
+    });
     return { enviado: false, motivo, donoAvisado, leitura };
   };
 
@@ -363,46 +496,80 @@ export async function entregarLembrete(
   // Nos dois casos os valores saem dos **mesmos factos** e do mesmo corpo
   // aprovado: ver a nota do `textoDoLembrete`.
   const aberta = janelaAberta({ expiraEm: destino.janelaExpiraEm }, agora);
-  const corpo = aberta
-    ? ({ tipo: "texto" as const, texto: textoDoLembrete(factos) })
-    : ({
-        tipo: "template" as const,
-        nome: TEMPLATE_DO_LEMBRETE,
-        idioma: IDIOMA_DO_LEMBRETE,
-        parametros: parametrosDoLembrete(factos),
-      });
+  const chave = chaveDoLembrete(marcacao.bookingId);
+  const corpoLivre = { tipo: "texto" as const, texto: textoDoLembrete(factos) };
+  const corpoDeTemplate = {
+    tipo: "template" as const,
+    nome: TEMPLATE_DO_LEMBRETE,
+    idioma: IDIOMA_DO_LEMBRETE,
+    parametros: parametrosDoLembrete(factos),
+  };
 
   // ---------------------------------------------------------- 5. o Outbound
-  const resultado = await deps.saida.enviar({
-    tenantId,
-    channelId: destino.channelId,
-    contactId: marcacao.contactId,
-    conversationId: destino.conversationId,
-    phoneNumberId: destino.phoneNumberId,
-    idempotencyKey: chaveDoLembrete(marcacao.bookingId),
-    corpo,
-    // **`doBot: true`.** Um lembrete é o assistente a falar por iniciativa
-    // própria, e é exactamente o caso que o `PreSendGuard` do KAM-018 existe
-    // para travar: se uma pessoa está a atender esta conversa, o lembrete não a
-    // interrompe. O `turnoIniciadoEm` não vai porque não há turno — um lembrete
-    // dispara por evento —, e o guarda do KAM-018 recusa um envio do bot sem
-    // ele, com o motivo `sem_turno`. **Isso é o comportamento correcto e não
-    // uma lacuna:** quem decidir que um lembrete pode interromper uma pessoa
-    // está a mudar o critério 2 do KAM-018, que é dele e não deste ticket.
-    doBot: true,
-  });
+  const enviar = (corpo: typeof corpoLivre | typeof corpoDeTemplate) =>
+    deps.saida.enviar({
+      tenantId,
+      channelId: destino.channelId,
+      contactId: marcacao.contactId,
+      conversationId: destino.conversationId,
+      phoneNumberId: destino.phoneNumberId,
+      idempotencyKey: chave,
+      corpo,
+      // **`doBot: true` com `turnoIniciadoEm`.** As duas coisas, e a segunda era
+      // o defeito mais caro desta entrega. Ver a nota do módulo: sem ela o
+      // guarda do KAM-018 suprimia **todos** os lembretes e gastava a chave.
+      doBot: true,
+      turnoIniciadoEm: agora,
+    });
+
+  let resultado = await enviar(aberta ? corpoLivre : corpoDeTemplate);
+
+  // A janela pode ter fechado **entre** a leitura do `SQL_DESTINO` e a decisão
+  // do adapter, que lê a sua própria janela com o seu próprio relógio. Nesse
+  // caso o corpo já era texto livre e a recusa é `WINDOW_CLOSED` — e o critério
+  // 3 manda que, com a janela fechada, vá o *template utility*. Cair para o
+  // *template* é o que o critério pede; travar aqui perdia o lembrete, e não há
+  // hoje quem o reentregue. Achado da revisão adversarial.
+  //
+  // **Uma vez só, e não em ciclo:** a segunda recusa já não é uma corrida, é uma
+  // janela fechada com um *template* que também não pôde sair, e repetir não
+  // muda nada. A chave não foi gasta — o `WINDOW_CLOSED` é decidido **antes** da
+  // linha —, pelo que a segunda chamada enfileira com a mesma chave.
+  if (!resultado.ok && resultado.motivo === WINDOW_CLOSED && aberta) {
+    deps.log?.info({ outcome: "lembrete_janela_fechou_na_corrida", tenant_id: tenantId });
+    resultado = await enviar(corpoDeTemplate);
+  }
 
   if (resultado.ok) {
-    const canal = resultado.kind === "service" ? "service" : "utility";
+    // **Um `repetido` não é por si um envio.** O adapter responde `ok` para uma
+    // chave que já tem linha **sem olhar ao `state` dela**, pelo que uma linha
+    // `failed` ou `suppressed_by_human` chegava aqui como «enviado». Lê-se o
+    // estado e decide-se. Ver a nota do módulo.
+    if (resultado.repetido) {
+      const estado = await deps.comTenant(tenantId, (cliente) =>
+        estadoDaChave(cliente, tenantId, chave),
+      );
+      if (!repetidoSaiu(estado)) return travar("CHAVE_GASTA", leitura);
+      // **Não se conta.** É a decisão do `adapter.ts` do KAM-015, que sai pelo
+      // ramo do `repetido` sem tocar na `METRICA_ENVIADAS`: o contador mede
+      // mensagens, e uma repetição não é uma mensagem nova. A primeira versão
+      // contava, e cinco entregas davam **cinco** num contador que o
+      // `docs/lembretes.md` apresenta como «quanto do tráfego de lembretes é
+      // pago». Achado da revisão adversarial — e o ensaio dela **exigia** o
+      // número inflacionado, pelo que a correcção estava presa por um ensaio.
+      deps.log?.info({ outcome: "lembrete_repetido", tenant_id: tenantId });
+      return {
+        enviado: true,
+        canal: canalDoKind(resultado.kind, deps.log),
+        wamid: resultado.wamid,
+        repetido: true,
+        leitura,
+      };
+    }
+    const canal = canalDoKind(resultado.kind, deps.log);
     metricas.contar(METRICA_ENVIADOS, canal);
     deps.log?.info({ outcome: "lembrete_enviado", tenant_id: tenantId });
-    return {
-      enviado: true,
-      canal,
-      wamid: resultado.wamid,
-      repetido: resultado.repetido,
-      leitura,
-    };
+    return { enviado: true, canal, wamid: resultado.wamid, repetido: false, leitura };
   }
 
   // -------------------------------------------- 6. a recusa, e o critério 5

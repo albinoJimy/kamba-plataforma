@@ -3,9 +3,34 @@
  *
  * Em constantes e num módulo só, pela razão que o `../consultas.ts` do KAM-047,
  * o `outbound/consultas.ts` do KAM-015 e o `consentimento/consultas.ts` do
- * KAM-022 já escreveram: a *suite* do *gate* 8 corre **estas** cadeias e não
- * cópias delas, e foi assim que o KAM-009 descobriu um `coalesce` em falta que
- * uma cópia no teste escondia.
+ * KAM-022 já escreveram: quem as corra corre **estas** cadeias e não cópias
+ * delas, e foi assim que o KAM-009 descobriu um `coalesce` em falta que uma
+ * cópia no teste escondia.
+ *
+ * ## **Ninguém as executa hoje, e a primeira versão desta nota dizia o
+ * contrário**
+ *
+ * Dizia «a *suite* do *gate* 8 corre estas cadeias», e era falso — copiei a
+ * frase do idioma sem a merecer. Achado da revisão adversarial, que o mediu:
+ * não há suite de base de dados para este ticket, e o `SQL_LEMBRETES_DO_TENANT`
+ * não é referido por ficheiro nenhum fora deste módulo. Duas mutações provaram
+ * o que isso custa — `ELSE 4000` posto a `ELSE 999999` e o `NULLS LAST`
+ * removido ficaram as duas **verdes**.
+ *
+ * O que há, e é o que se pode afirmar: as colunas e os tipos estão lidos contra
+ * o inventário de `db/tests/test_inventario.py`, e `servicos.reminders.sql.test.ts`
+ * prende por texto os perigos concretos que aquelas duas mutações exploraram.
+ * **Uma asserção sobre o texto de uma consulta não é a consulta a correr** — não
+ * apanha um erro de sintaxe, um tipo errado nem um plano mau —, e por isso o
+ * estado disto é **NÃO VERIFICADO** quanto a execução.
+ *
+ * Executá-las pede uma suite de *gate* 8. A natural é a `tests_outbound`, que já
+ * levanta um PostgreSQL com estas tabelas — mas as listas dela são **fechadas**
+ * (`FICHEIROS`, `GRUPOS`, `TESTES_OBRIGATORIOS`, `FICHEIROS_DO_MODULO` em
+ * `db/tests_outbound/test_outbound.py`) e são do KAM-015, com limiar de
+ * cobertura próprio. Alargá-las é mexer na verificação de outro ticket, o que
+ * este não tem ordem para fazer. Credor: **KAM-071**, que já é o dono do
+ * *worker* que vai chamar isto, ou o ticket que alargar a `tests_outbound`.
  *
  * **São duas, e as outras quatro são de outros módulos.** O que este ticket
  * acrescenta de SQL é o mínimo: o destino de um lembrete e a contagem por
@@ -72,10 +97,28 @@ export const SQL_DESTINO = `
 `;
 
 /**
- * Os lembretes de um *tenant* num período: contagem por canal e custo
- * (critério 8).
+ * Os lembretes de um *tenant* num período: contagem por canal (critério 8).
  *
- * Parâmetros: `$1` o *tenant*, `$2` o início do período, `$3` o fim.
+ * Parâmetros: `$1` o *tenant*, `$2` o início do período, `$3` o fim, `$4` o
+ * padrão da chave, `$5` os estados terminais.
+ *
+ * ## Os estados terminais entram por parâmetro, e são **dois**
+ *
+ * A primeira versão contava `state = 'failed'` e mais nada. Os terminais são os
+ * `TERMINAIS` do `outbound/contrato.ts` — `failed` **e** `suppressed_by_human`
+ * —, e os dois querem dizer «não saiu mensagem». Uma linha
+ * `suppressed_by_human` entrava em `tentados`, ficava fora de `falhados` e dava
+ * custo zero: lia-se como um lembrete entregue e grátis.
+ *
+ * Achado da revisão adversarial, e o pior é que era **exactamente** o estado em
+ * que todas as linhas de lembrete iam ficar: com o `turnoIniciadoEm` em falta, o
+ * guarda do KAM-018 suprimia tudo, e o painel diria «N tentados, 0 falhados,
+ * 0 custo» com zero lembretes enviados. Os dois defeitos juntos produziam um
+ * painel verde sobre um sistema que não enviava nada.
+ *
+ * Passam por parâmetro e não escritos aqui para que o domínio tenha **um** dono:
+ * quem chama passa `[...TERMINAIS]` de `@kamba/core-ts/outbound`, e um estado
+ * terminal novo lá entra aqui sozinho.
  *
  * ## É uma consulta e **não** uma etiqueta de métrica, e a razão é do §3.14
  *
@@ -117,13 +160,7 @@ export const SQL_DESTINO = `
 export const SQL_LEMBRETES_DO_TENANT = `
   SELECT kind,
          count(*)::bigint AS tentados,
-         count(*) FILTER (WHERE state = 'failed')::bigint AS falhados,
-         COALESCE(SUM(CASE
-             WHEN pricing IS NULL THEN 0
-             WHEN NOT (pricing->>'billable')::boolean THEN 0
-             WHEN pricing->>'category' = 'marketing' THEN 22500
-             ELSE 4000
-         END), 0)::bigint AS micro_usd
+         count(*) FILTER (WHERE state = ANY($5))::bigint AS falhados
     FROM platform.outbound_messages
    WHERE tenant_id = $1
      AND created_at >= $2
@@ -131,6 +168,56 @@ export const SQL_LEMBRETES_DO_TENANT = `
      AND idempotency_key LIKE $4
    GROUP BY kind
    ORDER BY kind
+`;
+
+/**
+ * O que a Meta facturou nos lembretes de um *tenant*, por categoria.
+ *
+ * Parâmetros: `$1` o *tenant*, `$2` o início do período, `$3` o fim, `$4` o
+ * padrão da chave.
+ *
+ * ## **Não converte categorias em dinheiro, e a primeira versão convertia**
+ *
+ * Ela tinha um `CASE` com `22500` para `marketing` e **`ELSE 4000`** para todo o
+ * resto. Três defeitos, todos apanhados pela revisão adversarial ao confrontá-la
+ * com o `SQL_CUSTO_DO_TENANT` do KAM-015 e com o `microUsdDe` do
+ * `outbound/tarifas.ts`, que escreve por extenso «uma categoria que não
+ * conhecemos não se converte num número inventado»:
+ *
+ * * **`ELSE 4000`** facturava a 0,004 USD uma categoria desconhecida — e a Meta
+ *   acrescenta categorias. O KAM-015 usa `ELSE 0`;
+ * * **`WHEN NOT (pricing->>'billable')::boolean THEN 0`** não exclui nada quando
+ *   o `billable` está ausente: a condição é `NULL`, o `CASE` segue para o `ELSE`
+ *   e a linha era cobrada. O KAM-015 põe o predicado no `WHERE`, que exclui;
+ * * **somava sobre `created_at`** onde o KAM-015 soma sobre `delivered_at`, e o
+ *   `E1` §1 é CONFIRMADO em que a cobrança é na **entrega**: uma mensagem criada
+ *   no dia 1 e entregue no dia 2 caía no período errado, e os dois painéis
+ *   discordavam.
+ *
+ * E os literais `4000` e `22500` eram uma **terceira** cópia das tarifas. As
+ * duas que existem — `outbound/tarifas.ts` e `config/meta_rates.yaml` — são
+ * comparadas como texto pelo `TestTarifas` de
+ * `db/tests_outbound/test_outbound.py`; esta não era comparada com nada, pelo
+ * que divergiria em silêncio na primeira revisão de preços.
+ *
+ * A correcção é não converter: esta consulta **conta linhas por categoria**, e
+ * quem chama multiplica pelo `microUsdDe` do KAM-015 — o único sítio desta casa
+ * onde uma categoria se torna um número, e o que recusa uma categoria que não
+ * conhece. O `tentados` fica na consulta de cima, que conta tudo; aqui só entra
+ * o que a Meta facturou.
+ */
+export const SQL_CUSTO_DOS_LEMBRETES = `
+  SELECT pricing->>'category' AS categoria,
+         count(*)::bigint AS entregues
+    FROM platform.outbound_messages
+   WHERE tenant_id = $1
+     AND delivered_at >= $2
+     AND delivered_at < $3
+     AND idempotency_key LIKE $4
+     AND pricing IS NOT NULL
+     AND (pricing->>'billable')::boolean
+   GROUP BY 1
+   ORDER BY 1
 `;
 
 /**

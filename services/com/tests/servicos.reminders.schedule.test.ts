@@ -104,6 +104,16 @@ test("criada com menos de 24 h de antecedencia, o lembrete e imediato", () => {
   assert.equal(decisao.trabalho.atrasoMs, 0);
 });
 
+test("o limiar de antecedencia minima e de 2 h, e nao um valor qualquer", () => {
+  // **A ancora, e ela faltava.** O ensaio abaixo corre a fronteira toda relativa
+  // a `MINIMO_PARA_ENVIO_MS`, pelo que era verdadeiro para **qualquer** valor
+  // dela: a revisao adversarial poe-lhe 4 h e os 52 ensaios ficam verdes, com
+  // uma marcacao para daqui a tres horas a deixar de ser lembrada e o criterio 1
+  // violado a letra. A antecedencia de 24 h ja tinha a sua ancora; esta nao, e a
+  // diferenca entre as duas era exactamente esta linha.
+  assert.equal(MINIMO_PARA_ENVIO_MS, 2 * 60 * 60 * 1_000);
+});
+
 test("com o inicio a menos de 2 h, nao se agenda nada", () => {
   // A segunda metade: «so se o inicio estiver a mais de 2 h, caso contrario nao
   // envia». O limite e **estrito** no sentido de «mais de»: exactamente 2 h nao
