@@ -27,10 +27,12 @@
 > **separável** — distinguir o que falta medir do que já se mediu e falhou, e do
 > que não pode ficar verde sem trabalho que este ticket não faz.
 >
-> **Duas divergências medidas ficam devolvidas ao fundador** (§9). Nenhuma é
-> defeito deste ticket nem dos tickets que ele verifica: são o critério a pedir
-> coisas que a Fase 0 não tem, e alterar o critério de um gate não é acto de quem
-> o executa.
+> **Duas divergências medidas** (§9). Nenhuma é defeito deste ticket nem dos
+> tickets que ele verifica: são o critério a pedir coisas que a Fase 0 não tem, e
+> alterar o critério de um gate não é acto de quem o executa. A do **G0-5** está
+> **decidida** — o fundador decidiu a 2026-11-06 que o critério não muda e que
+> ela fica **registada** (§9.1); a do **G0-1** fica **devolvida**, porque pede
+> três decisões que ainda não foram tomadas (§9.2).
 
 ---
 
@@ -176,7 +178,7 @@ A tabela abaixo é a saída de `python -m gate_fase0 ci`, sobre a execução
 | 5.2 | **KAM-076 concluído** | **não** | Fundido e **não** concluído: **3 de 8 critérios** e nenhuma linha de DoD inteira. Os cinco abertos dependem da **D6**, da **D12**, da **D1** e da inversão **KAM-078 → KAM-076**. Credores: **fundador** (D6 e D12) e **KAM-078** | 2026-11-06 |
 | 5.3 | **KAM-080 concluído** | **não** | Fundido e **não** concluído: **3 marcadas** e nove vazias ou parciais, com quatro dos nove credores fora de quem executa — a licença **AGPL-3.0** do Grafana e do Loki, o portão do *lint* de cardinalidade, o canal de alertas, e a **ausência de *staging* e de produção**. Credor: **fundador** (a licença é decisão de canon) | 2026-11-06 |
 | 5.4 | **Compose reduzido a correr em *staging*** | **não** | **Duas metades, e só uma existe.** O conjunto reduzido está **definido e verificado**, e re-medido aqui em `fe40048` em vez de citado: `python -m compose_prod --root .. lint` → «15 serviços no compose de produção, 15 presentes e 4 PENDENTES no manifesto», **0 achados**; e `canario` → «**45 de 45** casos a morder, a exercitar 13 de 13 regras», com a *denylist* a ler o texto todo e não só os nomes de serviço. **Os PENDENTES imprimem-se em voz alta de propósito**: um verde sobre um conjunto a que faltam serviços não é o mesmo verde. **A correr em *staging*, não**: não há *host* de *staging* porque não há fornecedor, e isso é a **D1**. O que se mediu foi uma pilha local — 637 MiB em repouso com sete contentores `healthy` —, e uma pilha local não é *staging*. Credor: **fundador** (D1) | 2026-11-06 |
-| 5.5 | **Sonda externa activa** | **não — e é divergência de critério** | O `../../../observabilidade.md` §1 diz, na tabela do que existe: «Sonda externa — **Não existe. Não há produção**». Não é defeito do KAM-080: é o critério a pedir uma coisa que a Fase 0 deliberadamente não tem. **Devolvido ao fundador** — ver §9.1 | 2026-11-06 |
+| 5.5 | **Sonda externa activa** | **não — e é divergência registada** | O `../../../observabilidade.md` §1 (v1.3) diz, na tabela do que existe: «Sonda externa \| — \| **Não existe.** Não há produção — ver §5». Não é defeito do KAM-080: é o critério a pedir uma coisa que a Fase 0 deliberadamente não tem. **O fundador decidiu a 2026-11-06 que o critério não muda e a divergência fica registada** — ver §9.1 | 2026-11-06 |
 | 5.6 | **`prod` em `kamba_data_class=synthetic`** | **satisfeito** | `infra/envs/prod/env.yaml` tem `dados.classe: synthetic`, `decisao_d1: null` e `apd_refs: []`, com o *gate* 2 a recusar `real` sem as duas referências e com as **duas metades testadas em separado** (KAM-075, critério 4). A etiqueta `kamba_data_class` atravessa a costura e o *lint* exige que não minta sobre a classe | 2026-11-06 |
 
 ---
@@ -278,39 +280,47 @@ vazio.
 
 ---
 
-## 9. As duas divergências medidas, devolvidas ao fundador
+## 9. As duas divergências medidas
 
 Nenhuma é defeito deste ticket. As duas são do mesmo género: **o critério de um
 gate a pedir uma coisa que a árvore de hoje não pode dar**, e alterar o critério
-de um gate não é acto de quem o executa.
+de um gate não é acto de quem o executa. **O que as separa é o estado**: a
+primeira está **decidida e registada**, a segunda fica **devolvida** com três
+perguntas que ninguém tomou.
 
-### 9.1 O G0-5 pede uma sonda externa que a Fase 0 não tem
+### 9.1 O G0-5 pede uma sonda externa que a Fase 0 não tem — **divergência registada**
 
-As duas citações, lado a lado:
+**Estado: decidida.** O fundador decidiu a **2026-11-06** que **o critério não
+muda** e que esta divergência **fica registada**, com as duas citações lado a lado
+e a data da medição. A linha 5.5 fica, por isso, com o estado que a evidência
+sustenta — `não` — e **não** `não aplicável`: a causa está nomeada, e é isso que
+o G0-8 precisa para decidir entre AMARELO e VERMELHO em vez de olhar para uma
+linha aberta sem razão.
 
-| Fonte | O que diz |
+As duas citações, lido na árvore a 2026-11-06, ponta `fe40048`:
+
+| Fonte | O que diz, à letra |
 |---|---|
-| `specs/EPIC-10_Spikes_Validacao_Gates.md`, critério **G0-5** | «KAM-075, KAM-076 e KAM-080 concluídos; Compose reduzido a correr em *staging*; **sonda externa activa**; `prod` em `kamba_data_class=synthetic`» |
-| `../../../observabilidade.md` §1, tabela «O que existe» | «Sonda externa — **Não existe. Não há produção**» |
+| `../../../../specs/EPIC-10_Spikes_Validacao_Gates.md`, critério **G0-5** | «KAM-075, KAM-076 e KAM-080 concluídos; Compose reduzido a correr em *staging*; **sonda externa activa**; `prod` em `kamba_data_class=synthetic`» |
+| `../../../observabilidade.md` §1 (v1.3), tabela «O que existe» | «Sonda externa \| — \| **Não existe.** Não há produção — ver §5» |
 
 A segunda linha é do **KAM-080**, o ticket que o próprio G0-5 manda dar por
 concluído. E o mesmo vale para a metade «Compose reduzido a correr em *staging*»
 (linha 5.4): não há *host* de *staging* porque não há fornecedor, e isso é a
 **D1**, que é do fundador.
 
-**A pergunta, e não é retórica:** uma sonda externa contra o quê? Sem produção e
-sem *staging*, a condição não é «ainda não fizemos» — é **insatisfazível na Fase
-0 por desenho**. As leituras possíveis que encontrei, sem escolher nenhuma:
+**Sem produção e sem *staging*, a condição não é «ainda não fizemos»: é
+insatisfazível na Fase 0 por desenho** — uma sonda que corresse dentro da rede
+que observa não seria externa. Isto fica escrito como o que é, e **não se propôs
+nem se propõe emenda ao critério**: medir o que lá está e escrever o que se mediu
+é o que cabe a quem executa.
 
-- o critério quer dizer «activa **quando houver** ambiente», e então a linha é
-  `não aplicável` com gatilho na D1;
-- o critério quer dizer uma sonda contra a pilha local, e então muda de conteúdo
-  — uma sonda que corre dentro da rede que observa não é externa;
-- o critério está a pedir o que pedia antes de a Fase 0 ter sido escrita sem
-  produção, e emenda-se.
-
-**Devolvido ao fundador.** Nenhuma das três se toma aqui, e a linha 5.5 fica
-`não` com esta secção citada.
+**A metade do critério que a divergência não contamina.** O G0-5 nomeia quatro
+coisas, e só duas falham por esta razão: a **sonda externa** e o **Compose em
+*staging***. A linha `prod` em `kamba_data_class=synthetic` está **satisfeita e
+medida** (linha 5.6), e a conclusão dos três tickets falha por outras causas
+nomeadas (linhas 5.1 a 5.3). Juntá-las todas numa só divergência apagava quatro
+medições diferentes.
 
 ### 9.2 O G0-1 pede um consumo cuja acção não está escrita, e os credores nomeados já fundiram
 
