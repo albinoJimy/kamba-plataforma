@@ -586,7 +586,7 @@ class ConsumidorDeEventos:
         self, consumidor: Consumidor, envelope: Envelope, entrega: Entrega
     ) -> str:
         """Consome o evento para **um** consumidor, sob a tranca se houver conversa."""
-        if not handlers.fala_com_o_cliente(consumidor.vertical, envelope.tipo):
+        if not handlers.fala_com_o_cliente(consumidor):
             # Aviso ao dono, ou accao por ligar: nao ha conversa, nao ha
             # `thread_id`, e nao ha nada para serializar. Ver o `turnos.py`.
             return await self._consumir(consumidor, envelope, entrega, conversa=None)
@@ -720,8 +720,8 @@ class ConsumidorDeEventos:
             # None: return` —, e a prova por mutacao mediu que ela **nao mudava
             # nada**: o `accoes_de` ja devolve accoes vazias para um par de
             # `ACCOES_POR_LIGAR`, porque o `fala_com_o_cliente` responde `False`
-            # e o par nao esta em `AO_DONO`. A mutacao que a apagava sobreviveu,
-            # que e como se descobre codigo morto. O que decide o desfecho
+            # e o `notifica` da subscricao esta vazio. A mutacao que a apagava
+            # sobreviveu, que e como se descobre codigo morto. O que decide o desfecho
             # `sem_accao` e o `credor` do `_consumir`, e esse tem mutacao que o
             # mata.
             if do_humano:
@@ -737,7 +737,7 @@ class ConsumidorDeEventos:
                 return
             accoes = handlers.accoes_de(
                 envelope,
-                vertical=consumidor.vertical,
+                subscricao=consumidor,
                 contact_id=contact_id,
                 conversation_id=None if conversa is None else conversa.id,
             )

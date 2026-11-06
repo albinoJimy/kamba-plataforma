@@ -614,6 +614,33 @@ class TestRegisto(unittest.TestCase):
         self.assertIn("`valor_max_pedido_kz` →", achados[0].mensagem)
         self.assertIn("valor_max_pedido_minor", achados[0].mensagem)
 
+    def test_o_notifica_passa_e_um_destinatario_inventado_falha(self) -> None:
+        """`subscriptions[].notifica` — a segunda barreira do KAM-039.
+
+        A primeira e o `Destinatario` do `registo/esquema.py`, que corre no
+        processo que serve clientes; esta corre no CI. Duas de proposito, como as
+        chaves de topo — e aqui porque um `notifica: [done]` lido como «nao avisa
+        ninguem» era o dono da loja a deixar de ser avisado de um pagamento por
+        causa de uma gralha, sem sinal nenhum: o tuplo vazio e configuracao
+        legitima.
+        """
+        com_notifica = SERVICOS.replace(
+            "  - { tipo: booking.created,          versao: 1 }",
+            "  - tipo: booking.created\n    versao: 1\n    notifica:\n      - cliente\n",
+        )
+        self.assertEqual(self.classes(com_notifica), [])
+        for destinatario in ("done", "owner", "DONO", "dono_da_loja"):
+            with self.subTest(destinatario=destinatario):
+                achados = self.achados(
+                    com_notifica.replace("      - cliente", f"      - {destinatario}")
+                )
+                self.assertEqual([a.classe for a in achados], [REGRA])
+                self.assertIn("nao e um destinatario", achados[0].mensagem)
+        self.assertEqual(
+            self.classes(com_notifica.replace("    notifica:\n      - cliente\n", "    notifica: 1\n")),
+            [ILEGIVEL],
+        )
+
     def test_variante_numa_chave_e_dentro_de_um_texto(self) -> None:
         self.assertIn(VARIANTE, self.classes(SERVICOS + "guardrails: { sig_ok: true }\n"))
         self.assertIn(VARIANTE, self.classes(SERVICOS + 'golden: { nota: "le de consent_ledger por contacto" }\n'))

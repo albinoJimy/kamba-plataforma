@@ -35,6 +35,12 @@ havia como o escrever.
 
 * `id` — uma vertical do dicionario §3.2;
 * `subscriptions[].tipo` — um tipo de evento do dicionario;
+* `subscriptions[].notifica` — a quem a subscricao manda avisar, lista fechada
+  (`cliente`, `dono`). **E aqui que a notificacao ao dono vive desde o
+  KAM-039**, que a tirou de uma tabela do `eventos/handlers.py` lida num `if` —
+  a excepcao de vertical no nucleo que reprovava a condicao (d) do §5.4. Um
+  valor fora da lista falha: lido como «nao avisa ninguem», um `notifica:
+  [done]` era o dono a deixar de ser avisado de um pagamento por uma gralha;
 * `tools[]` e os seus parametros — tools do dicionario ou extensoes;
 * **os dois eventos de pagamento** (§3.4): quem subscreve um e nao o outro esta
   a tratar os dois caminhos como um so, salvo se a politica o declarar como
@@ -103,7 +109,16 @@ CHAVES_DE_TOPO = {
     "subscriptions", "models", "guardrails", "golden",
 }
 CHAVES_DE_ENTITLEMENTS = {"modulo", "limites"}
-CHAVES_DE_SUBSCRICAO = {"tipo", "versao"}
+CHAVES_DE_SUBSCRICAO = {"tipo", "versao", "notifica"}
+
+#: Os destinatarios de `subscriptions[].notifica` (KAM-039). Lista **fechada**,
+#: no codigo e nao na politica pela razao das `VALIDACOES_DO_ARRANQUE`: um
+#: destinatario novo e uma alteracao do `eventos/handlers.py`, com revisao — nao
+#: uma linha nova num ficheiro de configuracao. E a **segunda** barreira do
+#: mesmo defeito: a primeira e o `Destinatario` do
+#: `registo/esquema.py`, que corre no processo que serve clientes, e esta corre
+#: no CI. Duas de proposito, como as chaves de topo.
+DESTINATARIOS_DA_NOTIFICACAO = ("cliente", "dono")
 
 #: As chaves de topo que **declaram a forma**. Sao o discriminante, e e por
 #: isso que nao podem aparecer duas no mesmo ficheiro.
@@ -276,6 +291,34 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                      f"`{politica.limites['canonico']}`, dicionário §{politica.limites['seccao']}")
             )
 
+    def destinatarios_de(notifica) -> None:
+        """`subscriptions[].notifica` — lista fechada (KAM-039).
+
+        E aqui que a notificacao ao dono vive desde que saiu do nucleo, e um
+        valor fora da lista nao pode falhar em silencio: um `notifica: [done]`
+        lido como «nao avisa ninguem» era o dono da loja a deixar de ser avisado
+        de um pagamento por causa de uma gralha. Por isso o dominio e fechado nas
+        **duas** superficies — aqui e no esquema Pydantic do AGR.
+        """
+        if notifica is None:
+            return
+        if not isinstance(notifica, list):
+            achados.append(Achado(ficheiro, 0, ILEGIVEL, "`notifica` nao e uma lista"))
+            return
+        for destinatario in notifica:
+            if destinatario in DESTINATARIOS_DA_NOTIFICACAO:
+                continue
+            achados.append(
+                Achado(
+                    ficheiro,
+                    _linha_de(fonte, str(destinatario)),
+                    REGRA,
+                    f"`notifica: {destinatario!r}` nao e um destinatario; os dois sao "
+                    f"{', '.join(DESTINATARIOS_DA_NOTIFICACAO)} "
+                    "(`docs/tecnica/02` §5.1, KAM-039)",
+                )
+            )
+
     # --- primeira forma: uma vertical (`docs/tecnica/02` §5.1) ----------------------
 
     def forma_de_vertical() -> str:
@@ -321,6 +364,7 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
         for item in subscricoes or []:
             if isinstance(item, dict):
                 chaves(item, CHAVES_DE_SUBSCRICAO, "numa subscricao")
+                destinatarios_de(item.get("notifica"))
             tipo = item.get("tipo") if isinstance(item, dict) else item
             if not isinstance(tipo, str):
                 achados.append(Achado(ficheiro, 0, ILEGIVEL, f"subscricao sem `tipo`: {item!r}"))

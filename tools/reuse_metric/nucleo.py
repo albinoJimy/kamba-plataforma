@@ -41,8 +41,22 @@ no nucleo» e uma decisao de quem assina o ADR-012 — nao deste modulo, e nao d
 quem o escreveu. O que este modulo garante e que a decisao se toma sobre uma
 lista e nao sobre uma impressao.
 
-Medido em `183e2b0` a 2026-11-05: `fluxo = 0`, `conteudo = 48`, `prosa = 114`,
-sobre 110 ficheiros de nucleo. A lista das 48 esta em
+## O numero que esta linha afirmava estava errado, e vale dizer porque
+
+Ate 2026-11-06 lia-se aqui «medido em `183e2b0` a 2026-11-05: `fluxo = 0`,
+`conteudo = 48`, `prosa = 114`». **O `fluxo = 0` era falso.** O `183e2b0` e
+anterior ao afiar que o proprio KAM-039 fez a este modulo — a passagem que
+segue uma **constante de modulo** lida num teste (ver o `FORMAS_DE_DOMINIO`) —,
+e com ela a corrida passou a dar `fluxo = 1`: o `AO_DONO` do
+`eventos/handlers.py`. O numero ficou a afirmar o presente dentro do
+instrumento que o mede, que e a classe de defeito que esta casa paga mais
+vezes. Fica escrito em vez de apagado, porque uma linha corrigida em silencio
+nao ensina nada a quem passar aqui a seguir.
+
+Medido a 2026-11-06, depois de a notificacao ao dono sair do nucleo para
+`subscriptions[].notifica` do `registry/`: `fluxo = 0`, `dominio = 1`,
+`conteudo = 45`, `prosa = 118`, sobre 110 ficheiros de nucleo, saida **0**. A
+lista do `conteudo` e as duas saidas medidas estao em
 `docs/evidencia/KAM-039.md`.
 
 ## E morde nas duas direccoes

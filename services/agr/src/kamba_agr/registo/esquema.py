@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -108,11 +108,65 @@ class EntitlementsDaVertical(_Fechado):
     limites: tuple[Nome, ...] = ()
 
 
+#: Quem uma subscricao manda avisar. Lista **fechada**, no esquema e nao na
+#: configuracao: um `notifica: [done]` num YAML tem de recusar o ficheiro, e nao
+#: ficar a ser lido como uma subscricao que nao avisa ninguem.
+Destinatario = Literal["cliente", "dono"]
+
+#: Os dois destinatarios, **derivados** do `Literal` e nao escritos ao lado: era
+#: a mesma lista fechada em dois sitios, e um deles a divergir no dia em que
+#: entrasse um terceiro. O desempacotamento parte alto nesse dia, que e o que se
+#: quer — quem acrescentar um destinatario tem de passar por aqui.
+DESTINATARIOS: Final[tuple[str, ...]] = get_args(Destinatario)
+DESTINATARIO_CLIENTE, DESTINATARIO_DONO = DESTINATARIOS
+
+
 class Subscricao(_Fechado):
-    """`subscriptions[]` do §5.1: um tipo de evento e a versao do envelope."""
+    """`subscriptions[]` do §5.1: um tipo de evento, a versao do envelope, e
+    **quem a notificacao avisa**.
+
+    ## O `notifica` e onde a notificacao ao dono passou a viver (KAM-039)
+
+    A tabela `AO_DONO` do `eventos/handlers.py` era pares `(vertical, tipo)` com
+    entradas **so do Vendedor**, lida num `if`: o nucleo decidia ali, pelo nome
+    da vertical, se o dono da loja era avisado. E a letra do que a condicao (d)
+    do §5.4 chama uma excepcao no core, e foi ela que reprovou o criterio (d) do
+    KAM-039 (`fluxo = 1`).
+
+    O sitio certo e este, e nao por conveniencia: o criterio (d) exclui
+    `registry/` da busca **por extenso**, porque o `registry/` e onde a
+    configuracao por vertical pertence — e e isso que faz de «verticais como
+    configuracao» (ADR-012) uma abstraccao em vez de uma promessa. O nucleo
+    passa a ler **a quem** avisar de quem subscreveu; o que ele continua a nao
+    poder fazer e saber **qual** vertical e.
+
+    **Omissao e tuplo vazio, e isso tem significado**: a subscricao existe, o
+    consumidor e exigido (criterio 1 do KAM-038), e nao notifica ninguem — e o
+    caso dos dois eventos de pagamento em Servicos, cuja accao e do KAM-047. Um
+    par sem destinatario **e** sem credor em `ACCOES_POR_LIGAR` levanta no
+    arranque: ver o `exigir_handlers`.
+    """
 
     tipo: str
     versao: int = Field(ge=1)
+    notifica: tuple[Destinatario, ...] = ()
+
+    @field_validator("notifica")
+    @classmethod
+    def _notifica_unico(cls, valor: tuple[str, ...]) -> tuple[str, ...]:
+        """Sem repeticoes, pela razao do `_tools_unicas`.
+
+        Um `notifica: [dono, dono]` nao e ambiguo — quem o le avisa o dono uma
+        vez —, e e precisamente por isso que se recusa: o ficheiro diz duas
+        coisas e o codigo faz uma, pelo que o autor acreditava noutra coisa.
+        """
+        repetidos = sorted({d for d in valor if valor.count(d) > 1})
+        if repetidos:
+            raise ValueError(
+                f"`notifica` repete {repetidos}. Os destinatarios sao "
+                f"{list(DESTINATARIOS)} e cada um conta uma vez"
+            )
+        return valor
 
 
 class Modelos(_Fechado):

@@ -44,7 +44,11 @@
 # Copiar o desenho a letra punha o `gate` 7 vermelho, e punha.
 
 id: vendedor
-version: 1.0.0
+# **1.1.0 e nao 1.0.1** (KAM-039). O `notifica` acrescenta uma chave ao tuplo do
+# §5.1 — as subscricoes passam a dizer a quem avisam —, o que e capacidade nova
+# e logo *minor*; nao e *major* porque a omissao e o tuplo vazio e nenhum
+# consumidor deste registo tem de mudar. A mesma regra do `servicos.yaml`.
+version: 1.1.0
 phase: P
 persona:
   nome: "Vendedor"
@@ -68,15 +72,51 @@ entitlements:
   limites:
     - msgs_ai_mes
     - valor_max_pedido_minor
+# O `notifica` DIZ A QUEM, E ESTA AQUI PORQUE O NUCLEO NAO PODE SABER QUAL
+# VERTICAL E (KAM-039).
+#
+# Isto era uma tabela `AO_DONO` no `eventos/handlers.py` — pares
+# `(vertical, tipo)` com entradas so do Vendedor, lida num `if` —, e por isso o
+# criterio (d) do `docs/tecnica/02` §5.4 reprovava: o nucleo decidia ali, pelo
+# nome da vertical, se o dono da loja era avisado. O criterio exclui `registry/`
+# da busca POR EXTENSO, e nao por conveniencia: e aqui que a configuracao por
+# vertical pertence, e e isso que faz de «verticais como configuracao»
+# (ADR-012) uma abstraccao em vez de uma promessa.
+#
+# Quem decide o destinatario de cada tipo e o `docs/tecnica/03` §12, que o
+# escreve tipo a tipo: «`payment.confirmed` ... AGR (notifica cliente **e**
+# dono)», «`stock.changed` / `stock.low` ... AGR (aviso ao dono)»,
+# «`order.expired` ... AGR». Quem fala com o dono de uma loja e a vertical que
+# vende, nao a que marca — e e por isso que os tres pares de dono sao daqui.
+#
+# Lista FECHADA (`cliente`, `dono`), no esquema Pydantic e no *gate* 3b: um
+# `notifica: [done]` recusa o ficheiro em vez de ficar a ler-se como uma
+# subscricao que nao avisa ninguem. O texto de cada notificacao ao cliente
+# continua no `TEXTOS` do `eventos/handlers.py` — e persona, e o §5.4 poe-a na
+# coluna do que e proprio da vertical —, e o arranque recusa um `cliente`
+# declarado sem texto.
 subscriptions:
   - tipo: payment.confirmed
     versao: 1
+    notifica:
+      - cliente
+      - dono
   - tipo: payment.manual_confirmed
     versao: 1
+    notifica:
+      - cliente
+      - dono
   - tipo: order.expired
     versao: 1
+    notifica:
+      - cliente
+  # Sem `cliente`: o §12 da `stock.low` como «aviso ao dono» e mais nada, e um
+  # texto ao cliente sobre o stock baixo da loja era falar-lhe do negocio de
+  # outra pessoa.
   - tipo: stock.low
     versao: 1
+    notifica:
+      - dono
 models:
   router: kamba-router
   chat: kamba-chat

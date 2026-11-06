@@ -48,6 +48,7 @@ verticais, um processo.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import unittest
 from typing import Any
 
@@ -598,13 +599,23 @@ class TestCriterioBSemAlterarONucleo(_ComConsumidorDasDuas):
         que aqui se acrescenta e correr-lhe o registo inteiro em vez de o de uma
         vertical.
         """
-        pares = tuple((c.vertical, c.tipo) for c in self.tabela)
-        handlers.exigir_handlers(pares)  # nao levanta
+        handlers.exigir_handlers(self.tabela)  # nao levanta
 
-    def test_um_par_sem_handler_levanta(self) -> None:
-        """O canario do teste de cima: sem isto, ele passava por vazio."""
-        with self.assertRaises(handlers.SemHandlerError):
-            handlers.exigir_handlers((("vertical_inventada", "payment.confirmed"),))
+    def test_uma_subscricao_sem_handler_levanta(self) -> None:
+        """O canario do teste de cima: sem isto, ele passava por vazio.
+
+        **Com uma subscricao do YAML e nao com um par inventado** (KAM-039):
+        desde que o destinatario vem do `registry/`, o que a guarda pergunta e se
+        a subscricao faz alguma coisa, e a unica forma de a por a responder «nao»
+        e dar-lhe uma subscricao sem destinatario e sem credor — que e
+        exactamente o que um `notifica:` esquecido num YAML produz.
+        """
+        sem_notifica = dataclasses.replace(
+            self.tabela[0], tipo="tenant.approved", notifica=()
+        )
+        with self.assertRaises(handlers.SemHandlerError) as erro:
+            handlers.exigir_handlers((sem_notifica,))
+        self.assertIn("tenant.approved", str(erro.exception))
 
 
 if __name__ == "__main__":  # pragma: no cover
