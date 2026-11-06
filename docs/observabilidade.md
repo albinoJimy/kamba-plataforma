@@ -6,7 +6,7 @@
 | Âmbito | Métricas, logs JSON, alertas, painéis e a sua verificação por máquina |
 | Fontes | [`tecnica/09_Topologia_Operacao_Escala.md`](tecnica/09_Topologia_Operacao_Escala.md) §9 e §13, [`tecnica/08_Seguranca_Conformidade.md`](tecnica/08_Seguranca_Conformidade.md) §7.3, ADR-010, ADR-018 |
 | Estado | **Parcial, e medido.** O que falta tem credor escrito em [`../ops/metricas/catalogo.yaml`](../ops/metricas/catalogo.yaml) |
-| Não cobre | SLOs e orçamento de erro (KAM-082), custo por tenant (KAM-081), runbooks executáveis (KAM-083) |
+| Não cobre | Custo por tenant (KAM-081), runbooks executáveis (KAM-083). Os **SLOs e o orçamento de erro** passaram a existir com o **KAM-082**, em [`../ops/slo.md`](../ops/slo.md) — e este documento continua a não ser a fonte sobre eles |
 
 ---
 
@@ -22,7 +22,8 @@
 | Comportamento das regras | [`../infra/compose/prometheus/regras/testes/kamba_test.yml`](../infra/compose/prometheus/regras/testes/kamba_test.yml) | 17 casos, `promtool test rules` |
 | Encaminhamento | [`../infra/compose/alertmanager/alertmanager.yml`](../infra/compose/alertmanager/alertmanager.yml) | Por severidade. **Não notifica** — ver §4 |
 | Runbooks | `runbooks/RB-K01…RB-K10` | *Stubs*: título, gatilho, severidade. Os executáveis são o KAM-083 |
-| Painéis | [`../ops/paineis/`](../ops/paineis/) | Quatro, como código. **O Grafana não corre** — ver §6 |
+| Regras de SLO | [`../infra/compose/prometheus/regras/kamba-slo.yml`](../infra/compose/prometheus/regras/kamba-slo.yml) e `kamba-manutencao.yml` | **KAM-082.** 8 *recording rules* do orçamento de 216 min, 2 alertas de *burn rate*, e a bandeira das janelas de manutenção. Definição em [`../ops/slo.md`](../ops/slo.md) |
+| Painéis | [`../ops/paineis/`](../ops/paineis/) | **Cinco**, como código — o do orçamento de erro é do KAM-082. **O Grafana não corre** — ver §6 |
 | Verificação | `tools/obs_lint`, `make obs-lint`, `make obs-promtool` | **Não ligada a nenhum portão** — ver §7 |
 | Envio para Loki | — | **Não existe.** Loki é AGPL-3.0 — ver §6 |
 | Sonda externa | — | **Não existe.** Não há produção — ver §5 |
@@ -186,7 +187,7 @@ O [`../ci/licenses.yaml`](../ci/licenses.yaml) nega o prefixo `AGPL`, e a lista 
 
 O que se entregou em vez disso é a parte que **é nossa** e não depende de correr o programa:
 
-- os quatro painéis em JSON do esquema do Grafana, versionados em [`../ops/paineis/`](../ops/paineis/);
+- os painéis em JSON do esquema do Grafana, versionados em [`../ops/paineis/`](../ops/paineis/) — **quatro deste ticket**, e o do orçamento de erro acrescentado pelo KAM-082;
 - o [`../ops/paineis/provisionamento.yaml`](../ops/paineis/provisionamento.yaml), que os monta quando houver Grafana;
 - a verificação: o `obs_lint` lê os painéis como terceira superfície — **incluindo o `templating` e as `annotations`, que vivem fora de `panels`, e as subpastas, que o *file provider* do Grafana lê recursivamente**.
 
@@ -260,3 +261,4 @@ Há uma verificação que lê o **texto servido** em vez do código: `services/a
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-080**. Catálogo de métricas com o instrumento que o conta, **8** regras de alerta (4 das 12 linhas do §9.2) com **17 casos de `promtool test rules`**, dez *stubs* RB-K01–RB-K10, Alertmanager por severidade sem notificador, quatro painéis como código, e o `obs_lint` com dez regras em três superfícies e 16 negativas de canário. Mede e devolve: o canário em Loki, a injecção em *staging*, a sonda de produção, o consumo da pilha completa e a licença AGPL-3.0 do Grafana e do Loki. **A revisão adversarial encontrou 19 achados; os quatro mais graves eram alertas que não podiam disparar e cinco furos do *lint*, e estão corrigidos com caso de teste cada.** | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **KAM-116**: as contagens do §2.1 e do §2.2 passam a dizer o que o `tools/obs_lint/contar_metricas.py` mede hoje — **20 módulos, 120 nomes** (eram 19 e 113) e **122** declaradas pela reconciliação `+2` do `services/com` (eram 115) —, e os módulos não importados por nenhum serviço passam de **dez** para **onze** com o `sms`, com as restantes a subir de 48 para 55. O `sms/metricas.ts` traz **sete** nomes e **zero** servidas: é o segundo exemplo, depois do `provisioning` do KAM-091, da tese do §2.1 — o problema não é faltarem métricas, é faltarem serviços que as importem, e quem vai ligar esta porta é o KAM-086. Quem obrigou à emenda foi o inventário fechado de módulos do `obs_lint`, que é exactamente o que ele existe para fazer. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-082**: propagação do que deixou de ser verdade neste documento. Os painéis passam de quatro a **cinco** (o do orçamento de erro), a tabela do §1 ganha a linha das **regras de SLO** (`kamba-slo.yml` e `kamba-manutencao.yml`), e o «Não cobre» deixa de dizer que os SLOs não existem — existem, em [`../ops/slo.md`](../ops/slo.md), que é a fonte sobre eles e não este documento. As contagens do §3 e do §5 **não se tocaram**: dizem «as 8 regras do `kamba.yml`» e continuam exactas. | Equipa KAMBÁ |

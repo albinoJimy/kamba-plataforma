@@ -679,20 +679,36 @@ services:
     # (medido, §2 da evidencia do KAM-076), e o criterio 3 pede quatro redes.
     # Hoje tem **dois** membros — este e o `alertmanager`, 100 linhas abaixo.
     #
-    # **Actualizado pelo KAM-080.** Onde esta nota dizia «a configuracao so se
-    # raspa a si proprio» e «nao se afirma que ha observabilidade», hoje ha tres
-    # alvos (`gwy`, `com`, `agr`), oito regras de alerta e o Alertmanager ao
-    # lado. O que **continua** verdade, e nao se apaga por ser inconveniente:
+    # **Actualizado pelo KAM-080 e pelo KAM-082.** Onde esta nota dizia «a
+    # configuracao so se raspa a si proprio» e «nao se afirma que ha
+    # observabilidade», hoje ha tres alvos (`gwy`, `com`, `agr`), o Alertmanager
+    # ao lado e — medido pelo `obs_lint` e pelo `promtool check rules` —
+    # **20 regras em 3 ficheiros, das quais 10 sao alertas**.
+    #
+    # **A contagem e por contentor e nao por ficheiro, e e por isso que ela muda
+    # aqui.** O `rule_files` do `prometheus.yml` e `regras/*.yml`, logo este
+    # contentor carrega a **pasta inteira**: o `kamba.yml` (8 alertas, KAM-080),
+    # o `kamba-slo.yml` (9 *recording rules* do orcamento de erro e 2 alertas de
+    # *burn rate*, KAM-082) e o `kamba-manutencao.yml` (1 *recording rule*). Uma
+    # nota escopada ao `kamba.yml` continuaria exacta a falar de oito; esta nao,
+    # porque descreve o que o processo le.
+    #
+    # O que **continua** verdade, e nao se apaga por ser inconveniente:
     #
     #   * os alvos sao tres e nao treze. Os modulos `outbound`, `metering`,
     #     `hnd` e `qualidade` declaram metricas que nenhum servico importa, e
     #     raspa-las publicava zeros permanentes — a razao esta no
     #     `prometheus/prometheus.yml` e o credor de cada uma no
     #     `../../ops/metricas/catalogo.yaml`;
-    #   * sao **oito** regras, que cobrem **4 das 12** linhas do doc 09 §9.2
-    #     (a fila da duas, uma por servico) mais tres que nao sao do §9.2. As
-    #     **8** linhas que faltam nao tem metrica que um processo sirva, e estao
-    #     nomeadas uma a uma;
+    #   * dos 10 alertas, os **oito** do `kamba.yml` cobrem **4 das 12** linhas
+    #     do doc 09 §9.2 (a fila da duas, uma por servico) mais tres que nao sao
+    #     do §9.2. As **8** linhas que faltam nao tem metrica que um processo
+    #     sirva, e estao nomeadas uma a uma. Os dois do `kamba-slo.yml` nao sao
+    #     do §9.2: sao o *burn rate* do criterio 4 do KAM-082;
+    #   * e dos **8** SLI do doc 09 §10, **um** tem serie que algum processo
+    #     sirva e que isto raspe. Os outros sete estao definidos em
+    #     `../../ops/slo.md` §2.2, com o credor de cada um, e **nao** como
+    #     regras inertes: um alerta que nunca dispara parece cobertura;
     #   * o Alertmanager **nao notifica ninguem**: os `receivers` nao tem
     #     notificador porque o canal nao esta escolhido (KAM-069, subprocessador).
     #
@@ -716,7 +732,22 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=15d"
+      # **31d e nao 15d, e o KAM-082 mudou-o por necessidade e nao por gosto.**
+      # O SLO de 99,5% e definido numa janela de **30 dias** (doc 00 §9, doc 09
+      # §10), e as *recording rules* de `prometheus/regras/kamba-slo.yml` leem
+      # `avg_over_time(...[30d])`. Sobre 15 dias de dados isso **nao da erro**:
+      # devolve a media das amostras que existem. O efeito e o pior desta
+      # familia — um numero errado com ar de certo, e enviesado para o lado
+      # optimista, porque uma avaria de ha 20 dias cai fora da janela e o
+      # orcamento «sara» duas semanas antes do devido.
+      #
+      # O dia a mais e folga sobre a janela, para que ela esteja sempre coberta
+      # por inteiro. Nada mais muda: o `mem_limit` e o mesmo, pelo que a soma
+      # dos limites do `conjunto-reduzido.yaml` nao se move. O disco cresce com
+      # o periodo retido; com tres alvos e as series deste repositorio e
+      # irrelevante, mas e **INDICIO** e nao medicao — nao ha pilha a correr
+      # onde o medir, e o volume `prometheus-data` nao tem tecto declarado.
+      - "--storage.tsdb.retention.time=31d"
       # Sem interface de administracao e sem recarga por HTTP: um Prometheus
       # com `--web.enable-admin-api` apaga series por pedido HTTP.
       - "--web.listen-address=127.0.0.1:9090"
