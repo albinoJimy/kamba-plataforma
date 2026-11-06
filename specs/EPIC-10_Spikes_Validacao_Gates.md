@@ -912,7 +912,10 @@ acção do consumo na vertical Serviços, e decidir por onde vem o `booking_id` 
 emendar o contrato de evento ou o consumidor resolver a marcação por consulta —
 são **ticket novo**: o bloco diz «corrigir falhas encontradas é ticket novo», e
 alterar um contrato de evento publicado é canon de nível 4 e 8 e muda a
-compatibilidade que o *gate* 7 verifica. Alterar o critério G0-5 da sonda externa
+compatibilidade que o `contract_diff` verifica **dentro do *gate* 7** — o alvo
+`ci-7` corre as duas metades dele, o `contract_diff check` e o `ci-7-meta` do
+varrimento de números, e o §4 do `specs/01_Engineering_Standards_e_Handoff.md`
+dá-lhe as duas por escrito. Alterar o critério G0-5 da sonda externa
 é **regra de um gate**, logo do fundador. Ligar qualquer destes instrumentos a um
 *job* de CI acrescenta um contexto exigido ao *ruleset* da `main`, que é
 alteração de regra de bloqueio — o precedente está escrito no KAM-039 e no

@@ -347,7 +347,13 @@ fecharam e a acção continua por escrever**, pelo que a linha não tem credor v
 expandas escopo: corrigir falhas encontradas é ticket novo». Escrever a acção da
 vertical Serviços é implementação noutro componente; e admitir `booking_id` no
 *payload* é **alterar um contrato de evento publicado**, que é canon de nível 4 e
-8 e muda a compatibilidade que o *gate* 7 verifica.
+8 e muda a compatibilidade que o `contract_diff` verifica **dentro do *gate* 7**.
+O número do portão é mesmo o 7, e vale dizê-lo por extenso porque ele tem duas
+metades e confundi-las é fácil: o `specs/01_Engineering_Standards_e_Handoff.md`
+§4 dá ao 7 «webhooks Meta (simulador, KAM-024), callbacks do facilitador,
+schemas de eventos (**compatibilidade**, KAM-007)», e o alvo `ci-7` do
+`Makefile` corre as **duas** — `contract_diff check` **e** o `ci-7-meta`, que é
+o varrimento de números deste mesmo gate.
 
 **O que fica devolvido, em três perguntas separadas:**
 
