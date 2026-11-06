@@ -1,4 +1,4 @@
-# ANÁLISE-52 — Revisão adversarial do KAM-102 (Tech Provider, App Review, D5)
+# ANÁLISE-53 — Revisão adversarial do KAM-102 (Tech Provider, App Review, D5)
 
 | Campo | Valor |
 |---|---|
@@ -7,8 +7,9 @@
 | Revisão lançada sobre | `f740bc3`, **depois** de empurrar o ramo |
 | Método | Subagente independente, **sem** o raciocínio do executor; recebeu o diff, o bloco do ticket e as fontes que ele nomeia |
 | Alvo | [`../tecnica/evidencia/validacao/Tech_Provider_Dossie.md`](../tecnica/evidencia/validacao/Tech_Provider_Dossie.md) (novo) e o bloco KAM-102 de `../../specs/EPIC-10_Spikes_Validacao_Gates.md` |
-| Achados | **27** — **15 `CONFIRMADO`** e **12 `PLAUSÍVEL`**; **27 aplicados**, **0 `MORTO`** |
+| Achados | **27** — **15 `CONFIRMADO`** e **12 `PLAUSÍVEL`**; **27 aplicados**, **0 `MORTO`**. Mais **três** correcções que a **integração** trouxe depois (§4, numeradas 28 a 30), e que não são achados da revisão |
 | Data | 2026-11-06 |
+| Depois da revisão | A integração da `main` em `111de2d` (fusão do **KAM-100**) obrigou a **três** correcções que a revisão não podia ter visto, e estão no §5 |
 
 ---
 
@@ -105,7 +106,7 @@ A classificação é a do executor, depois de verificar cada achado contra a
 | 19 | «Escolher MPS ou BSP é substituir um ADR em vigor» endurece uma decisão que o canon registou **aberta** | **CONFIRMADO** — ver o §1, ponto 2 | Reescrito com as quatro fontes, e a versão anterior fica registada no próprio parágrafo para não voltar. Item **17** novo no §12: se a redacção do ADR-001 tem de mudar, decidem-no o Arquitecto de Plataforma e o fundador |
 | 20 | «Fecho de decisão aberta é do fundador (Carta §4.2)» — a linha de D5 na Carta §4.2 dá **dono Produto** e não nomeia assinatura do fundador; onde a Carta quer o fundador, di-lo (D1, D9) | **CONFIRMADO** | Reescrito em três sítios: a assinatura do fundador cobre o **pivô** e os actos em nome da entidade legal; o **registo e o fecho** de D5 são do dono que a Carta nomeia |
 | 21 | A linha do fuso dava **UTC** «para a data de registo, como todo o conjunto» — o dicionário canónico §2 fixa UTC para **armazenamento** e «apresentação em `Africa/Luanda`», e uma data numa célula é apresentação. É material: Luanda é UTC+1, pelo que uma submissão depois das 23:00 locais cai no dia UTC seguinte, e numa sexta-feira isso atravessa o fim de semana na contagem | **CONFIRMADO** | Mudado para `Africa/Luanda`, com a consequência escrita |
-| 2 | O bloco citava a `ANALISE-52` **antes de ela existir** — uma afirmação sobre o mundo escrita antes de acontecer, num ficheiro que declara evitar exactamente isso | **CONFIRMADO** | Este ficheiro. O precedente do KAM-101 escreveu a sua linha de versão **depois** da `ANALISE-51` existir |
+| 2 | O bloco citava a `ANALISE-53` **antes de ela existir** — uma afirmação sobre o mundo escrita antes de acontecer, num ficheiro que declara evitar exactamente isso | **CONFIRMADO** | Este ficheiro. O precedente do KAM-101 escreveu a sua linha de versão **depois** da `ANALISE-51` existir |
 | 7 | O inventário de prazos do §2.3 declarava-se completo e deixava fora **o único INDÍCIO que o conjunto tem** para o prazo da Business Verification: «dias a semanas», com um caso de fórum a «10 dias em revisão», em E5 §3 — uma fonte que o próprio dossiê cita noutros pontos | **CONFIRMADO** — não é promover nada, é **subcontar** a evidência existente, no ponto exacto do critério 1 | Acrescentado como quarta linha, com o estado **INDÍCIO**, o âmbito (Business Verification em geral, não a do WhatsApp) e a declaração de que não tem fonte oficial |
 | 26 | As durações-alvo do *storyboard* (60–90 s, 45–60 s) não têm fonte, num ficheiro cujo §7 insiste que nenhum número está inventado | **CONFIRMADO** | A coluna passou a dizer «**escolha nossa, sem fonte**» |
 
@@ -131,7 +132,27 @@ repetir.
 
 ---
 
-## 4. A lição, e onde ela entra
+## 4. O que a integração da `main` trouxe, depois da revisão
+
+A revisão correu sobre `f740bc3`, antes de o KAM-100 fundir. A integração da
+`main` em `111de2d` trouxe **três** correcções que nenhum revisor podia ter
+antecipado, e ficam aqui porque duas delas são colisões que se repetem:
+
+| # | O que a fusão mostrou | O que se fez |
+|---|---|---|
+| 28 | **Dois ficheiros `ANALISE-52`.** O KAM-100 criou a `ANALISE-52-KAM-100-spike-h3-coexistencia.md` e esta entrega criara a `ANALISE-52-KAM-102-…`. O `git` **não** dá conflito, porque os nomes diferem; nenhum *linter* conta ficheiros de análise | Esta análise passou a **`ANALISE-53`**, com as nove referências actualizadas. O número de uma análise reclama-se como um `KAM-NNN`: quem funde em segundo renumera |
+| 29 | **O `validar_evidencia.py` aterrou — e o dossiê falhava.** Os «Testes Requeridos» do KAM-102 nomeiam-no, e ele era artefacto do KAM-100 que não existia na árvore; estava **devolvido** ao KAM-100. Correu-o sobre o dossiê: **três achados** — faltavam `Estado`, `Fonte` e `Dono` na tabela de cabeçalho | Os três declarados, pela convenção que o próprio `H3_Coexistencia_244.md` do KAM-100 usa. O validador passa a **`conforme`**, código 0. **Um item devolvido cujo credor entrega fecha-se e verifica-se**: dar-lhe por fechado sem correr o instrumento era o defeito simétrico |
+| 30 | **Os outros onze ficheiros de `validacao/` não passam.** Corrido sobre a pasta: **30 achados em 12 ficheiros**. Onze são alheios a este ticket — escritos antes de o validador existir. E o `Meta_Perguntas.md` tem um achado de outra natureza: o validador lê **`MORTO`** da prosa do §3.5 como se fosse o `Estado` do documento, que é um falso positivo dele | **Não corrigido**: onze ficheiros alheios a coberto de um ticket de dossiê era alargar escopo em silêncio, e o validador **não está no CI** (nem no `Makefile` nem nos *workflows*), pelo que nada está vermelho. Fica medido para a linha **L1**, com o **fundador** como credor (item 15b do §12 do dossiê) |
+
+**A lição das três, que é uma só:** um ramo não reserva nada para si — nem a
+linha de versões, nem o número da análise, nem o estado «este artefacto não
+existe». As três afirmações eram verdadeiras quando foram escritas e falsas
+quando o vizinho fundiu, e **nenhum portão as apanha**. Quem funde em segundo
+mede-as outra vez.
+
+---
+
+## 5. A lição da revisão, e onde ela entra
 
 **Quatro dos 27 achados são citações de secção erradas que nenhum *linter*
 apanha** — os achados 9, 10, 12 e 22. O `lint_refs` resolve `§N` contra os
