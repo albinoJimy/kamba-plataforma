@@ -7,7 +7,7 @@ ensaio do OPG. O relatório, com as fichas por contraparte, a matriz
 banco × facilitador, a regra ponderada de D4 e o limiar H5, está em
 [`docs/tecnica/evidencia/validacao/Pagamentos_Respostas.md`](../../docs/tecnica/evidencia/validacao/Pagamentos_Respostas.md).
 
-**Isto não é código de produção, não é um portão, e é descartável.** Medido: `spikes/` não aparece em `ci/thresholds.yaml`, no `.github/workflows/ci.yaml` nem no `Makefile`. A **única** menção a `spikes/` em configuração de portão é uma **dispensa** em `ci/canon-lint.yaml` para o `.sql` de outro *spike* — ou seja, o *gate* 3b **alcança** `spikes/` por SQL, e este não tem nenhum. O adaptador
+**Isto não é código de produção, não é um portão, e é descartável** — mas **não é uma pasta isenta**, e a distinção importa. Medido: `spikes/` não aparece em `ci/thresholds.yaml`, no `.github/workflows/ci.yaml` nem no `Makefile`, pelo que **não acrescenta critério a portão nenhum**. O que **não** é verdade é que os portões não o vejam: o *gate* 3b **alcança** `spikes/` por SQL (daí a **dispensa** que o `ci/canon-lint.yaml` tem para o `.sql` de outro *spike*; este não tem nenhum), e o varrimento de telefones do *gate* 7 **lê** `spikes/` como lê o resto da árvore — o `spikes/h3/` do KAM-100 tem **duas entradas** no `INVENTARIO` a prová-lo. Os ficheiros deste *spike* passam por não terem número de forma apanhada, **não por isenção**. O adaptador
 ProxyPay é o **KAM-056**, e não entra código de pagamentos na `main` por causa
 deste *spike*. O que está aqui é o mínimo que torna **mensuráveis** os predicados
 do contrato que o
