@@ -363,7 +363,16 @@ o varrimento de números deste mesmo gate.
    do `ACCOES_POR_LIGAR`, que hoje aponta para um ticket fechado.
 2. **Decidir por onde vem o `booking_id`**: emendar o contrato (versão nova, com
    o custo de compatibilidade), ou o consumidor resolver a marcação por consulta
-   em vez de o evento a transportar. É desenho, e toca o ADR-009 e o KAM-007.
+   — pelo `order_id`, que os dois contratos **já levam** — em vez de o evento a
+   transportar. É desenho, e toca o ADR-009 e o KAM-007. **E o custo da primeira
+   opção não é teórico:** o `contract_diff` compara cada contrato com o que a
+   `main` já publicou, porque «um contrato não está errado em absoluto — está
+   errado **em relação ao que os consumidores já assinaram**»; e quando não
+   encontra o ramo base **recusa** em vez de saltar (`BaseIndisponivelError`),
+   para que a verificação não se desligue sozinha no dia em que alguém configure
+   mal o CI. Há uma saída explícita — `--sem-base` —, e ela tem de ser dita por
+   extenso e fica registada na saída, que é o contrário de um portão que se
+   cala.
 3. **O que fazer com o rótulo do G0-8** — e esta terceira **não é uma escolha de
    rótulo**, que é a precisão que falta ser dita. A regra do G0-8 escreve
    «AMARELO (**G0-1 e G0-2 passam**; …)», pelo que o AMARELO **exige** o G0-1;
