@@ -121,27 +121,112 @@ def _e_separador(linha: str) -> bool:
     return bool(celulas) and all(re.fullmatch(r":?-{2,}:?", c) for c in celulas)
 
 
+#: As duas celulas que marcam o cabecalho de um documento formal desta casa.
+#: `specs/01_Engineering_Standards_e_Handoff.md` manda a tabela de cabecalho em
+#: todos, e todos os ficheiros de `validacao/` a abrem assim.
+CABECALHO_DO_DOCUMENTO = ("Campo", "Valor")
+
+
+def _tabelas(texto: str) -> list[range]:
+    """Os blocos de linhas contiguas que comecam por `|`."""
+    linhas = texto.splitlines()
+    blocos: list[range] = []
+    inicio = None
+    for i, linha in enumerate(linhas):
+        if linha.strip().startswith("|"):
+            if inicio is None:
+                inicio = i
+        elif inicio is not None:
+            blocos.append(range(inicio, i))
+            inicio = None
+    if inicio is not None:
+        blocos.append(range(inicio, len(linhas)))
+    return blocos
+
+
+def tabela_de_cabecalho(texto: str) -> range:
+    """As linhas da tabela de cabecalho do documento.
+
+    Procura-se pelo **marcador** — a tabela cuja primeira linha e
+    `| Campo | Valor |` — e nao pela posicao. A primeira versao desta correccao
+    usava «a primeira tabela do ficheiro», e isso trocava um falso positivo por
+    outro: num ficheiro que abra com um glossario, a primeira tabela nao e o
+    cabecalho, e as quatro declaracoes deixavam de ser lidas.
+
+    Sem marcador, cai na primeira tabela — que e o melhor palpite disponivel — e
+    sem tabela nenhuma devolve um alcance vazio, com o que so a forma de prosa
+    conta.
+    """
+    blocos = _tabelas(texto)
+    linhas = texto.splitlines()
+    for bloco in blocos:
+        if tuple(_celulas(linhas[bloco.start])) == CABECALHO_DO_DOCUMENTO:
+            return bloco
+    return blocos[0] if blocos else range(0)
+
+
 def declaracoes(texto: str) -> dict[str, str]:
-    """As quatro declaracoes do ficheiro, onde quer que estejam.
+    """As quatro declaracoes do ficheiro.
 
     Aceitam-se **duas** formas, porque o conjunto usa as duas e recusar uma era
     recusar metade dos ficheiros:
 
-        | Estado | CONFIRMADO |        numa tabela de cabecalho
-        **Estado:** CONFIRMADO          numa linha de prosa
+        | Estado | CONFIRMADO |        na TABELA DE CABECALHO do documento
+        **Estado:** CONFIRMADO          numa linha de prosa, em qualquer sitio
+
+    **A forma de tabela le-se so na tabela de cabecalho, e isso e uma
+    correccao.** A primeira versao aceitava qualquer linha de duas celulas em
+    qualquer tabela, e o `setdefault` fixava a primeira que encontrasse: um
+    ficheiro que declarasse `| Estado | CONFIRMADO |` corectamente era
+    **recusado** por ter, mais abaixo, um glossario `| Estado | Significado |`, e
+    a mensagem acusava «um quarto estado» onde o problema era outro. Apanhado
+    pela revisao adversarial, que mostrou **quatro** falsos positivos em
+    ficheiros reais desta pasta — tres cabecalhos de glossario e uma linha de
+    dados de uma tabela por pergunta.
 
     Devolve so as que encontrou. Quem decide se falta algo e `verificar_ficheiro`.
     """
+    linhas = texto.splitlines()
+    cabecalho = tabela_de_cabecalho(texto)
     achadas: dict[str, str] = {}
-    for linha in texto.splitlines():
-        celulas = _celulas(linha)
-        if len(celulas) == 2 and celulas[0] in DECLARACOES:
-            achadas.setdefault(celulas[0], celulas[1])
-            continue
+    for i, linha in enumerate(linhas):
+        if i in cabecalho:
+            celulas = _celulas(linha)
+            if len(celulas) == 2 and celulas[0] in DECLARACOES:
+                achadas.setdefault(celulas[0], celulas[1])
+                continue
         m = re.match(r"\s*\*{0,2}(" + "|".join(DECLARACOES) + r")\*{0,2}\s*:\s*(.+)", linha)
         if m:
             achadas.setdefault(m.group(1), m.group(2).strip())
     return achadas
+
+
+def _estado_declarado(valor: str) -> str | None:
+    """O estado da escala que este valor **e**, ou `None`.
+
+    **Compara-se por igualdade e nao por subcadeia**, e isso e uma correccao: a
+    primeira versao fazia `any(e in valor.upper() ...)`, e `NÃO CONFIRMADO`
+    contem `CONFIRMADO`. Um quarto estado passava — exactamente o que a mensagem
+    de erro da linha de baixo diz que nao pode acontecer. Apanhado pela revisao
+    adversarial.
+
+    Tolera-se o que e **pontuacao e enfase** a volta — negrito, parenteses, um
+    ponto final, e uma cauda depois de um separador (`CONFIRMADO — fonte
+    primaria`), porque o conjunto escreve-o assim. O que nao se tolera e um
+    **qualificador antes**, que e o que muda o sentido.
+    """
+    # **O parentese nao se remove aqui**: e um dos separadores de baixo, e
+    # retira-lo antes fazia `CONFIRMADO (fonte primaria)` virar
+    # `CONFIRMADO FONTE PRIMARIA`, que nao casa nada. Apanhado pelo ensaio
+    # `test_enfase_e_cauda_depois_de_separador_toleram_se`.
+    nu = re.sub(r"[`*_]", "", valor).strip().upper()
+    # A cauda depois de um travessao, dois-pontos, virgula ou parenteses sai: o
+    # que decide e a cabeca.
+    cabeca = re.split(r"\s*[—–\-:,;(]", nu, maxsplit=1)[0].strip().rstrip(".")
+    for estado in ESTADOS:
+        if cabeca == estado.upper():
+            return estado
+    return None
 
 
 def verificar_ficheiro(caminho: Path) -> list[Achado]:
@@ -166,7 +251,7 @@ def verificar_ficheiro(caminho: Path) -> list[Achado]:
                 )
             )
     estado = achadas.get("Estado", "")
-    if estado and not any(e in estado.upper() for e in ("CONFIRMADO", "INDÍCIO", "NÃO VERIFICADO")):
+    if estado and _estado_declarado(estado) is None:
         achados.append(
             Achado(
                 nome,
@@ -278,31 +363,69 @@ def verificar_registo(caminho: Path, completo: bool) -> tuple[list[Achado], int,
 
     vazias = 0
     total = 0
-    for i, celulas in enumerate(corpo):
+    #: O indice da coluna `estado` no esquema, lido do esquema e nao fixado a
+    #: mao: um `6` escrito aqui mentia no dia em que a ordem mudasse.
+    indice_do_estado = COLUNAS_DO_REGISTO.index("estado")
+    for celulas in corpo:
         etiqueta = celulas[0] if celulas else "?"
-        for j, celula in enumerate(celulas):
+        # **O denominador e o esquema, e nao o que a linha trouxe.** A primeira
+        # versao contava `len(celulas)`, pelo que uma linha com 3 das 12 colunas
+        # dava «3 de 3 preenchidas» e o `--completo` saia verde sobre uma folha
+        # com nove campos a faltar — no modo que o criterio de saida do EPIC-10
+        # usa como prova de «9 de 9 linhas completas». Apanhado pela revisao
+        # adversarial.
+        if len(celulas) > len(COLUNAS_DO_REGISTO):
+            achados.append(
+                Achado(
+                    nome,
+                    f"linha {etiqueta}",
+                    f"{len(celulas)} celulas e o esquema tem "
+                    f"{len(COLUNAS_DO_REGISTO)}: a mais, "
+                    f"{celulas[len(COLUNAS_DO_REGISTO):]}",
+                )
+            )
+        for j, coluna in enumerate(COLUNAS_DO_REGISTO):
             total += 1
+            celula = celulas[j] if j < len(celulas) else ""
             if celula in ("", "—", "-"):
                 vazias += 1
                 if completo:
-                    coluna = (
-                        COLUNAS_DO_REGISTO[j]
-                        if j < len(COLUNAS_DO_REGISTO)
-                        else f"coluna {j + 1}"
+                    porque = (
+                        "celula vazia"
+                        if j < len(celulas)
+                        else "celula em falta: a linha tem menos colunas do que o esquema"
                     )
-                    achados.append(
-                        Achado(nome, f"{etiqueta}/{coluna}", "celula vazia")
-                    )
-        estado = celulas[6] if len(celulas) > 6 else ""
-        if estado and estado not in ("", "—", "-", POR_MEDIR):
-            if normal(estado) not in ESTADOS_DE_HIPOTESE:
+                    achados.append(Achado(nome, f"{etiqueta}/{coluna}", porque))
+        estado = celulas[indice_do_estado] if len(celulas) > indice_do_estado else ""
+        if estado in ("", "—", "-"):
+            continue
+        if normal(estado) in ESTADOS_DE_HIPOTESE:
+            continue
+        # **`NÃO MEDIDO` nao e uma decisao, e em `--completo` nao passa.** No
+        # `check` tolera-se, porque e uma anotacao legitima de uma folha a meio;
+        # no modo que fecha o epic, uma folha inteira em `NÃO MEDIDO` saia verde
+        # sem nenhuma hipotese decidida. O `resultado` continua a aceita-lo — a
+        # regra do §2 do registo manda escreve-lo quando a medicao nao produziu
+        # numero —, mas ai o `estado` tem de ser `inconclusiva`.
+        if estado == POR_MEDIR:
+            if completo:
                 achados.append(
                     Achado(
                         nome,
                         f"{etiqueta}/estado",
-                        f"{estado!r} nao e nenhum de {ESTADOS_DE_HIPOTESE}",
+                        f"{POR_MEDIR!r} nao e uma decisao. Uma hipotese que nao se "
+                        f"mediu fica `inconclusiva`, com o resultado a "
+                        f"{POR_MEDIR!r}",
                     )
                 )
+            continue
+        achados.append(
+            Achado(
+                nome,
+                f"{etiqueta}/estado",
+                f"{estado!r} nao e nenhum de {ESTADOS_DE_HIPOTESE}",
+            )
+        )
     return (achados, vazias, total)
 
 

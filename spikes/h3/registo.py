@@ -151,12 +151,33 @@ PERMITIDOS: Mapping[str, Forma] = {
     # `history` (`initial_sync`...), o `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`.
     "evento": Forma("evento", _texto(r"[A-Z_]{1,48}"), "enumeracao da Meta"),
     "razao": Forma("razao", _texto(r"[A-Z_]{1,48}"), "enumeracao da Meta"),
-    # A `phase` do `history` e do `state_sync`. Admite digitos porque a Meta
-    # manda-a como numero e o `extrair._fase` escreve `fase_0`, `fase_1`: a
-    # primeira versao desta forma era `[a-z_]{1,32}` e **recusava a saida do
-    # proprio extractor** — apanhado pelo ensaio do ficheiro escrito, nao por
-    # leitura.
-    "fase": Forma("fase", _texto(r"[a-z][a-z0-9_]{0,31}"), "fase da sincronizacao"),
+    # A `phase` do `history` e do `state_sync`. **Duas formas alternativas, e
+    # nenhuma delas admite uma corrida de digitos longa.**
+    #
+    # Esta forma mudou duas vezes, e as duas por defeito medido:
+    #
+    #   `[a-z_]{1,32}`        recusava a saida do proprio extractor (`fase_1`),
+    #                         porque nao admitia digito nenhum
+    #   `[a-z][a-z0-9_]{0,31}` admitia **um telefone**: 31 caracteres de
+    #                         `[a-z0-9_]` depois da primeira letra aceitam um
+    #                         `fase_` seguido de um movel angolano na forma
+    #                         local, e tambem de um E.164 sem o `+`. E o
+    #                         `extrair._fase` fabricava-os a partir de qualquer
+    #                         inteiro que a Meta mandasse no `metadata.phase`.
+    #                         Apanhado pela revisao adversarial, que o escreveu
+    #                         no disco em tres casos. **As formas descrevem-se
+    #                         aqui e nao se escrevem**: um literal num comentario
+    #                         custa uma entrada no inventario do gate 7 sem
+    #                         testar nada — ver os ensaios, que os tem.
+    #
+    # A forma de agora: ou `fase_` seguido de **no maximo dois** digitos — a
+    # Meta manda 0 e 1 (`tools/meta-sim/src/campos.ts`) —, ou um nome de fase em
+    # letras, **sem digitos**. Um telefone nao casa nenhuma das duas.
+    "fase": Forma(
+        "fase",
+        _texto(r"fase_[0-9]{1,2}|[a-z][a-z_]{0,31}"),
+        "fase_<0-99> ou um nome em letras",
+    ),
 }
 
 #: As chaves de um corpo da Meta cujo valor e um `wamid` — vao por `id_opaco`.
@@ -180,7 +201,12 @@ def opaco(valor: str) -> str:
     outra coisa enumeravel». A guarda esta aqui e nao no sitio de chamada porque
     uma guarda que se possa esquecer num sitio de chamada nao e uma guarda.
     """
-    if re.fullmatch(r"\+?\d{6,15}", valor.replace(" ", "")):
+    # **Retiram-se todos os separadores, e nao so o espaco.** A primeira versao
+    # fazia `valor.replace(" ", "")`, pelo que `244-923-456-789` e
+    # `(244) 923456789` eram **resumidos** em vez de descartados — a guarda
+    # conhecia uma grafia de quatro. Apanhado pela revisao adversarial.
+    nu = re.sub(r"[\s().\-/]", "", valor)
+    if re.fullmatch(r"\+?\d{6,15}", nu):
         raise ConteudoRecusado(
             "recusado: id_opaco sobre um valor que e so digitos. Um espaco "
             "pequeno inverte-se por enumeracao (ADR-010, docs/logs.md §2.1); um "

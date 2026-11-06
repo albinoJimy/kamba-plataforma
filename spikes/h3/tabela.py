@@ -49,13 +49,10 @@ from typing import Any, Iterable, Mapping
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
+from codigos import SEM_HISTORICO
+
 #: O evento final do ES v4 de coexistencia (`E1` §2, CONFIRMADO).
 FINISH = "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
-
-#: «O cliente nao partilhou historico» (`E1` §2, CONFIRMADO). Caso **normal**, e
-#: nao falha — mas so conta como exito de H3 se o dono recusou partilhar, o que
-#: e uma afirmacao da folha do operador e nao destes eventos.
-SEM_HISTORICO = 2593109
 
 #: O prazo duro da Meta: contactos e historico em 24 h apos o onboarding (`E1`
 #: §2, CONFIRMADO). Passado isso o cliente tem de ser offboarded e refazer o ES.
@@ -73,6 +70,18 @@ TIPOS_DE_SINCRONIZACAO = ("history", "smb_app_state_sync")
 
 #: Quantos envios o criterio pede para a mediana da latencia do eco.
 ENVIOS_PEDIDOS = 10
+
+#: As colunas que **nenhum webhook traz**: preenchem-se a mao, da folha do
+#: operador. Sao a fonte unica da conta — a prosa do §2 do ficheiro de resultado
+#: citava numeros que nao fechavam com a tabela, e agora o ensaio conta-os aqui.
+COLUNAS_DA_FOLHA = (
+    "operadora",
+    "tipo",
+    "versao_da_app",
+    "verificacao",
+    "sms",
+    "janela_de_24h",
+)
 
 
 class RegistoInvalido(ValueError):
@@ -172,6 +181,20 @@ def _sincronizacao(linhas: list[Mapping[str, Any]]) -> tuple[str, bool | None]:
     if not fins:
         return (NAO_MEDIDO + " (nenhum history nem state_sync)", None)
     segundos = (max(fins) - arranque).total_seconds()
+    # **Um negativo nao e um prazo cumprido.** A primeira versao nao tinha
+    # guarda de sinal, e `segundos <= 86400` da `True` para qualquer negativo: um
+    # `history` entregue **antes** do `account_update` com o `FINISH` — e a ordem
+    # entre campos de webhook diferentes nao e garantida (`E1` §5: «Nao ha ordem
+    # garantida») — imprimia `-1.0 h (< 24 h)`, um valor fisicamente impossivel
+    # com a marca de conformidade sobre o prazo duro da Meta. Apanhado pela
+    # revisao adversarial.
+    if segundos < 0:
+        return (
+            NAO_MEDIDO
+            + f" (sincronizacao {abs(segundos) / 3600:.1f} h ANTES do FINISH: "
+            "ordem de entrega invertida, e o prazo conta-se do onboarding)",
+            None,
+        )
     horas = segundos / 3600
     cumpre = segundos <= PRAZO_DE_SINCRONIZACAO_S
     marca = "< 24 h" if cumpre else "**> 24 h**"
@@ -204,8 +227,19 @@ def _latencia_do_eco(linhas: list[Mapping[str, Any]]) -> str:
 def _eco_da_api(linhas: list[Mapping[str, Any]]) -> str:
     """Se uma mensagem enviada pela API gera eco (`docs/tecnica/01` §10.3).
 
-    A unica coluna com prova de ausencia: se houve ecos e **nenhum** deles tem
-    `wamid` nosso, o `N` e medido. Sem ecos nenhuns, nao se mediu.
+    **Esta coluna nao escreve `N`, e a excepcao que a primeira versao abriu era
+    um defeito.** Dizia-se aqui que «houve ecos e nenhum e nosso» era prova de
+    ausencia. Nao e: so o seria se tivessemos enviado ≥ 1 mensagem pela API, e
+    **nada nos JSON-lines diz que enviamos**. Com o `nossos.txt` esquecido — ou
+    acrescentado depois do arranque do receptor, que o le uma vez — todos os ecos
+    saem com `enviada_por_nos: false` e a celula afirmava
+    «uma mensagem da API **nao** gera eco» sobre zero envios. Era a regra do zero
+    violada no unico sitio onde se lhe abriu excepcao, e no item que o DoD 5
+    declara ter passado a ter instrumento. Apanhado pela revisao adversarial.
+
+    Fica `S` quando se viu, e `NAO MEDIDO` no resto — com a contagem, para que a
+    folha do operador (§4.2) possa fechar o `N`: e ela que registra se houve
+    envio pela API, e o cruzamento das duas metades e que produz a ausencia.
     """
     ecos = [l for l in linhas if l.get("tipo") == "smb_message_echoes"]
     if not ecos:
@@ -216,7 +250,11 @@ def _eco_da_api(linhas: list[Mapping[str, Any]]) -> str:
     nossos = sum(1 for l in com_marca if l["enviada_por_nos"])
     if nossos:
         return f"S ({nossos} de {len(com_marca)})"
-    return f"N (0 de {len(com_marca)})"
+    return (
+        NAO_MEDIDO
+        + f" (0 de {len(com_marca)} eco(s) sao nossos; confirmar na folha §4.2 "
+        "se houve envio pela API)"
+    )
 
 
 def _historico(linhas: list[Mapping[str, Any]]) -> str:
@@ -254,21 +292,26 @@ def medir(linhas: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, str]]:
     for rotulo in ROTULOS:
         suas = grupos[rotulo]
         tempo, _ = _sincronizacao(suas)
-        saida[rotulo] = {
-            "operadora": NAO_MEDIDO + " (folha)",
-            "tipo": NAO_MEDIDO + " (folha)",
-            "versao_da_app": NAO_MEDIDO + " (folha)",
-            "finish": _sim_ou_nao_medido(_finish(suas) is not None),
-            "historico": _historico(suas),
-            "contactos": _contactos(suas),
-            "sincronizacao": tempo,
-            "latencia_do_eco": _latencia_do_eco(suas),
-            "eco_da_api": _eco_da_api(suas),
-            "janela_de_24h": NAO_MEDIDO + " (folha)",
-            "account_update": _account_update(suas),
-            "verificacao": NAO_MEDIDO + " (folha)",
-            "eventos": str(len(suas)),
-        }
+        # As da folha escrevem-se a partir de `COLUNAS_DA_FOLHA`, e nao uma a
+        # uma: uma coluna acrescentada ao esquema e esquecida aqui saia em
+        # branco, que foi como a **entrega do SMS** — exigida pelo criterio 4 e
+        # listada no §2 do ficheiro de resultado — nao chegou a existir no
+        # gerador. O operador perdia-a no momento em que regenerasse o §2 com
+        # este script, como o §2 manda. Apanhado pela revisao adversarial.
+        medicao: dict[str, str] = {c: NAO_MEDIDO + " (folha)" for c in COLUNAS_DA_FOLHA}
+        medicao.update(
+            {
+                "finish": _sim_ou_nao_medido(_finish(suas) is not None),
+                "historico": _historico(suas),
+                "contactos": _contactos(suas),
+                "sincronizacao": tempo,
+                "latencia_do_eco": _latencia_do_eco(suas),
+                "eco_da_api": _eco_da_api(suas),
+                "account_update": _account_update(suas),
+                "eventos": str(len(suas)),
+            }
+        )
+        saida[rotulo] = medicao
     return saida
 
 
@@ -280,11 +323,18 @@ def _contactos(linhas: list[Mapping[str, Any]]) -> str:
 
 
 #: O cabecalho da tabela, pela ordem do criterio 2 do ticket.
+#:
+#: **Sao catorze, e as cinco da folha mais as nove dos eventos fecham a conta.**
+#: A prosa do §2 do `H3_Coexistencia_244.md` dizia «sete das treze (…) cinco a
+#: mao» — 7+5 = 12 sobre uma tabela de 13 —, e faltava-lhe a coluna do SMS que
+#: o criterio 4 exige. As duas contas e a lista fecham-se agora no
+#: `tests/test_tabela.py::TestColunas`, que as conta em vez de as citar.
 COLUNAS = (
     ("operadora", "Operadora"),
     ("tipo", "Tipo"),
     ("versao_da_app", "Versao da app (>= 2.24.17)"),
     ("verificacao", "Verificacao"),
+    ("sms", "Entrega do SMS registada"),
     ("finish", "FINISH recebido"),
     ("historico", "`history` ou 2593109"),
     ("contactos", "Contactos em `smb_app_state_sync`"),

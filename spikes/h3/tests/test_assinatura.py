@@ -236,6 +236,46 @@ class TestSegredo(unittest.TestCase):
         self.assertEqual(CABECALHO, "X-Hub-Signature-256")
         self.assertEqual(PREFIXO, "sha256=")
 
+    def test_uma_chave_vazia_explicita_e_recusada(self) -> None:
+        """Regressao: `b""` nao e `None`, e saltava a guarda do segredo.
+
+        O docstring do modulo afirma que um segredo vazio aceita o que qualquer
+        pessoa assine com um segredo vazio. Era verdade para o caminho do
+        receptor — que passa `segredo()`, e esse levanta — e **falso** para a
+        funcao, que e a parte reutilizavel e a que os ensaios exercitam.
+        """
+        corpo = b'{"a":1}'
+        with self.assertRaises(SegredoEmFalta):
+            verificar(corpo, calcular(corpo, b""), b"")
+
+
+class TestCabecalhoNaoAscii(unittest.TestCase):
+    """Regressao: um byte > 0x7F no cabecalho derrubava a ligacao sem resposta.
+
+    O `http.server` descodifica os cabecalhos em latin-1, e o `compare_digest`
+    levanta `TypeError` sobre um `str` nao-ASCII — que **nao** e
+    `AssinaturaInvalida`, pelo que o `do_POST` nao o apanhava e a ligacao caia
+    sem o 4xx que `E1` §5 pede. Um HMAC em hexadecimal e ASCII por definicao.
+    """
+
+    def test_um_cabecalho_nao_ascii_e_assinatura_invalida(self) -> None:
+        corpo = b'{"a":1}'
+        for mau in (PREFIXO + "á" * 64, PREFIXO + "ÿ" + "0" * 63,
+                    PREFIXO + "€"):
+            with self.subTest(cabecalho=repr(mau[:12])):
+                with self.assertRaises(AssinaturaInvalida):
+                    verificar(corpo, mau, CHAVE)
+
+    def test_nao_levanta_type_error(self) -> None:
+        """O que importa e **qual** a excepcao: o receptor so apanha uma delas."""
+        corpo = b'{"a":1}'
+        try:
+            verificar(corpo, PREFIXO + "á" * 64, CHAVE)
+        except AssinaturaInvalida:
+            pass
+        except TypeError as e:  # pragma: no cover
+            self.fail(f"levantou TypeError, que o receptor nao apanha: {e}")
+
 
 if __name__ == "__main__":
     unittest.main()

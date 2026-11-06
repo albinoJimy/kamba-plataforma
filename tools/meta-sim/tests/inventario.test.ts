@@ -173,11 +173,12 @@ describe("o inventario deste repositorio", () => {
     // autor verificou os nove portoes que corre nesta maquina e nao podia ver
     // este: o `ci-7-meta` corre por `pnpm`, que aqui nao existe.
     //
-    // **120 em 34 ficheiros desde o KAM-100**, e as cinco que entram sao o
-    // canario do ensaio de privacidade do spike H3. Sao **quatro literais** e
-    // dao cinco ocorrencias, porque a forma com o `+244` junto ao movel casa os
-    // **dois** padroes — `telefone_ao` e, por estar entre aspas num literal de
-    // Python, `e164_entre_aspas`.
+    // **124 em 35 ficheiros desde o KAM-100**, e as nove que entram sao os
+    // canarios de dois ensaios do spike H3: **oito** no da privacidade e **uma**
+    // no do extractor. Sao as quatro grafias do canario — uma delas a contar
+    // duas vezes, porque a forma com o `244` junto ao movel casa os **dois**
+    // padroes —, mais as tres com separadores pelo meio que a guarda do
+    // `id_opaco` tem de descartar, mais o valor de ataque da chave `fase`.
     //
     // O ticket pede «um teste de que o resultado nao contem texto de
     // mensagens», e esse teste escrito ao pe da letra — comparar nomes de campo
@@ -199,19 +200,20 @@ describe("o inventario deste repositorio", () => {
     // este par de numeros: uma arvore conforme com um total desactualizado aqui
     // deixava o gate 7 vermelho na mesma.
     //
-    // **E a leitura apanhou um segundo defeito, no proprio inventario**: a
-    // primeira versao da entrada do KAM-100 escrevia os quatro literais **dentro
-    // do comentario** que explica a contagem, o que lhes acrescentava cinco
-    // ocorrencias num ficheiro — o `inventario.ts` — que **nao tem entrada
-    // propria**. O comentario de `inventario.ts` descreve agora as formas sem as
-    // escrever, e a razao esta la: um comentario nao esta a testar nada, e
-    // declarar numeros que nao testam nada e o contrario do que esta lista e.
+    // **E o mesmo defeito apareceu duas vezes no proprio ticket**: literais com
+    // forma de telefone escritos **dentro de prosa** — a primeira versao da
+    // entrada do KAM-100 tinha-os no comentario de `inventario.ts`, que **nao
+    // tem entrada propria**, e a `ANALISE-52` tinha-os no corpo do documento. As
+    // duas vezes apareceu ao **re-medir a arvore**, e nao a ler. Os dois sitios
+    // descrevem agora as formas sem as escrever, e a razao e a mesma: um
+    // comentario nao esta a testar nada, e declarar numeros que nao testam nada
+    // e o contrario do que esta lista e.
     //
-    // **Esta entrada morre com o spike.** O `spikes/h3/` e descartavel e o
-    // `confrontar` recusa entrada morta, pelo que quem apagar a pasta apaga a
-    // entrada e baixa estes dois numeros no mesmo PR.
-    assert.equal(totalDeclarado(), 120);
-    assert.equal(INVENTARIO.length, 34);
+    // **As duas entradas do spike morrem com ele.** O `spikes/h3/` e
+    // descartavel e o `confrontar` recusa entrada morta, pelo que quem apagar a
+    // pasta apaga as entradas e baixa estes dois numeros no mesmo PR.
+    assert.equal(totalDeclarado(), 124);
+    assert.equal(INVENTARIO.length, 35);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

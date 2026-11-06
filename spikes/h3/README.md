@@ -11,12 +11,13 @@ Embedded Signup em código é o KAM-016.
 | `receptor.py` | O receptor de *webhook*: valida a assinatura, extrai e grava |
 | `assinatura.py` | O `X-Hub-Signature-256` sobre o corpo **bruto** |
 | `extrair.py` | Do corpo da Meta para as linhas do registo; descarta o resto |
-| `registo.py` | A *allowlist* de 17 chaves com forma exacta por valor, e o JSON-lines |
+| `registo.py` | A *allowlist* de **18** chaves com forma exacta por valor, e o JSON-lines |
+| `codigos.py` | O 2593109, numa fonte so: o `extrair` e o `tabela` liam-no cada um da sua copia |
 | `tabela.py` | A tabela N1–N3 a partir dos JSON-lines |
 | `fixtures/gerar.py` | Gera `fixtures/n1_n3.jsonl`: N1 nominal, N2 com o erro 2593109, N3 com sincronização > 24 h |
 | `protocolo_operador.md` | A folha que o operador humano preenche, uma por número |
 | `smoke.py` | Ida e volta **real** contra o processo: levanta o receptor numa porta e faz pedidos HTTP |
-| `tests/` | 83 ensaios. **Nenhum portão os corre** — ver «Os ensaios», abaixo |
+| `tests/` | **106** ensaios. **Nenhum portão os corre** — ver «Os ensaios», abaixo |
 
 ---
 
@@ -105,8 +106,12 @@ tudo.
 
 «Não recebi o `FINISH`» e «não liguei o receptor a tempo» produzem os mesmos zero
 eventos e têm conclusões opostas. A tabela escreve `NAO MEDIDO` e **nunca `N`**,
-com uma só excepção — a coluna do *echo* da API, onde houve *echoes* e nenhum é
-nosso, o que é prova de ausência.
+**e não há excepção.** A primeira versão abria uma para a coluna do *echo* da
+API — «houve *echoes* e nenhum é nosso» — e isso não é prova de ausência: só o
+seria se tivéssemos enviado ≥ 1 mensagem pela API, e nada nos JSON-lines diz que
+enviámos. Com o `nossos.txt` esquecido, a célula afirmava «uma mensagem da API
+não gera *echo*» sobre zero envios. O `N` dessa coluna fecha-se cruzando com o
+passo 4.2 da folha do operador, que é quem registra o envio.
 
 ---
 
@@ -117,7 +122,7 @@ nosso, o que é prova de ausência.
 `tools/**`), não está no `SUITES_DE_TOOLS` do `Makefile`, que descobre suites por
 `tools/*/tests/test_*.py`, e não é nomeado em `.github/workflows/ci.yaml`.
 
-Logo os 83 ensaios são **evidência de um instante** — o que o PR do KAM-100
+Logo os 106 ensaios são **evidência de um instante** — o que o PR do KAM-100
 registar — e não uma guarda contínua. A alternativa era pô-los em
 `tools/<nome>/tests/`, onde o gate 4 os corria, e não se fez por duas razões:
 
@@ -128,7 +133,11 @@ registar — e não uma guarda contínua. A alternativa era pô-los em
    critério de um portão é decisão do fundador**. Entrega-se a medição; a ligação,
    se a quiser, é dele.
 
-Fica devolvido no §6 do
+O mesmo vale para `scripts/`, onde vive o `validar_evidencia.py` com os seus 27
+ensaios. **A diferença entre os dois pesa na decisão, e está escrita:** este
+*harness* é descartável, e o validador é **permanente** e citado nos «Testes
+Requeridos» de quatro tickets — pelo que o argumento do descartável não se lhe
+aplica. Os dois ficam devolvidos no §6 do
 `docs/tecnica/evidencia/validacao/H3_Coexistencia_244.md`, item 7.
 
 ---

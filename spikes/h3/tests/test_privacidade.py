@@ -369,12 +369,76 @@ class TestAllowlist(unittest.TestCase):
         self.assertEqual(validar(linha), linha)
 
 
+class TestFormaDaFase(unittest.TestCase):
+    """Regressao: `fase` era a unica chave que admitia digitos, e admitia-os todos.
+
+    A forma de entao (`[a-z][a-z0-9_]{0,31}`) aceitava `fase_923456789` e
+    `fase_244923456789` — um movel angolano em claro pela chave que a allowlist
+    declarava fechar o caminho. Mede-se aqui pela **forma**, e no
+    `test_extrair.py` pelo caminho que a produzia.
+    """
+
+    def test_um_telefone_na_fase_e_recusado(self) -> None:
+        for sufixo in (TELEFONE_LOCAL, "244923456789", "00244923456789", "923456788"):
+            with self.subTest(sufixo=sufixo[:8]):
+                with self.assertRaises(ConteudoRecusado):
+                    validar({"fase": f"fase_{sufixo}"})
+
+    def test_as_fases_da_meta_passam(self) -> None:
+        """O controlo: a Meta manda 0 e 1, e ha nomes de fase em letras."""
+        for boa in ("fase_0", "fase_1", "fase_99", "initial_sync", "a"):
+            with self.subTest(fase=boa):
+                self.assertEqual(validar({"fase": boa}), {"fase": boa})
+
+    def test_uma_corrida_de_digitos_longa_e_recusada(self) -> None:
+        for ma in ("fase_100", "fase_1234567890", "a1234567890", "fase_0_923456789"):
+            with self.subTest(fase=ma):
+                with self.assertRaises(ConteudoRecusado):
+                    validar({"fase": ma})
+
+
+class TestContagemDaAllowlist(unittest.TestCase):
+    """A contagem de chaves **conta-se**, e nao se cita.
+
+    Regressao: quatro sitios afirmavam «17 chaves» e a allowlist tinha 18 — a
+    contagem que sustenta a justificacao do criterio 6, num ticket cuja tese e
+    que as contagens se medem. A chave que faltava na conta era precisamente a
+    que tinha o defeito do `TestFormaDaFase`.
+    """
+
+    def test_sao_dezoito(self) -> None:
+        from registo import PERMITIDOS
+
+        self.assertEqual(len(PERMITIDOS), 18)
+
+    def test_toda_a_chave_tem_forma_e_descricao(self) -> None:
+        from registo import PERMITIDOS
+
+        for chave, forma in PERMITIDOS.items():
+            with self.subTest(chave=chave):
+                self.assertTrue(callable(forma.aceita))
+                self.assertTrue(forma.descricao.strip())
+
+
 class TestIdOpaco(unittest.TestCase):
     def test_recusa_um_valor_so_de_digitos(self) -> None:
         """`docs/logs.md` §2.1: um espaco pequeno inverte-se por enumeracao."""
         for valor in (TELEFONE_LOCAL, TELEFONE_SEM_ESPACO, TELEFONE_COM_ESPACO,
                       "244923456789", "00244923456789"):
             with self.subTest(valor=valor[:8]):
+                with self.assertRaises(ConteudoRecusado):
+                    opaco(valor)
+
+    def test_recusa_as_outras_grafias_de_separador(self) -> None:
+        """Regressao: a guarda retirava so o espaco, e conhecia uma de quatro.
+
+        `244-923-456-789` e `(244) 923456789` eram **resumidos** em vez de
+        descartados, e um resumo sem chave de um espaco de 10^8 inverte-se por
+        enumeracao — que e a razao de o ADR-010 mandar descartar.
+        """
+        for valor in ("244-923-456-789", "(244) 923456789", "244.923456789",
+                      "+244 923 456 789", "244/923456789", "244 923-456.789"):
+            with self.subTest(valor=valor[:10]):
                 with self.assertRaises(ConteudoRecusado):
                     opaco(valor)
 

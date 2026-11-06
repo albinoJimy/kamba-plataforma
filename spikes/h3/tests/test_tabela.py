@@ -24,6 +24,7 @@ from pathlib import Path
 
 from tabela import (
     COLUNAS,
+    COLUNAS_DA_FOLHA,
     FINISH,
     NAO_MEDIDO,
     PRAZO_DE_SINCRONIZACAO_S,
@@ -131,6 +132,25 @@ class TestN3ForaDoPrazo(unittest.TestCase):
     def test_o_prazo_e_o_da_meta(self) -> None:
         self.assertEqual(PRAZO_DE_SINCRONIZACAO_S, 24 * 60 * 60)
 
+    def test_sincronizacao_antes_do_finish_nao_se_le_como_cumprida(self) -> None:
+        """Regressao: um negativo passava por prazo cumprido.
+
+        Nao havia guarda de sinal, e `segundos <= 86400` da `True` para qualquer
+        negativo: um `history` entregue **antes** do `FINISH` — e `E1` §5 diz que
+        nao ha ordem garantida — imprimia `-1.0 h (< 24 h)`, um valor
+        fisicamente impossivel com a marca de conformidade.
+        """
+        linhas = [
+            {"tipo": "history", "numero": "N1",
+             "recebido_em": "2026-11-10T07:00:00.000Z", "threads": 1, "mensagens": 1},
+            {"tipo": "account_update", "numero": "N1",
+             "recebido_em": "2026-11-10T08:00:00.000Z", "evento": FINISH},
+        ]
+        celula = medir(linhas)["N1"]["sincronizacao"]
+        self.assertTrue(celula.startswith(NAO_MEDIDO), celula)
+        self.assertIn("ANTES do FINISH", celula)
+        self.assertNotIn("< 24 h", celula)
+
     def test_zero_ecos_e_nao_medido_e_nao_zero_segundos(self) -> None:
         """A regra do zero, no sitio onde um `0,0 s` parecia instantaneo."""
         self.assertTrue(self.medicao["latencia_do_eco"].startswith(NAO_MEDIDO))
@@ -166,21 +186,97 @@ class TestRegraDoZero(unittest.TestCase):
         self.assertTrue(celula.startswith(NAO_MEDIDO))
         self.assertIn("sem FINISH", celula)
 
-    def test_eco_da_api_da_n_quando_ha_ecos_e_nenhum_e_nosso(self) -> None:
-        """A unica coluna com prova de ausencia: `N` medido, e nao `NAO MEDIDO`."""
-        celula = medir(ler(FIXTURE))["N1"]["eco_da_api"]
-        self.assertTrue(celula.startswith("N "), celula)
-        self.assertIn("0 de 10", celula)
+    def test_nenhuma_coluna_escreve_n_sobre_zero_envios_nossos(self) -> None:
+        """Regressao: a excepcao a regra do zero era ela propria um defeito.
 
-    def test_as_cinco_colunas_da_folha_ficam_nao_medidas(self) -> None:
+        A primeira versao tratava «houve ecos e nenhum e nosso» como prova de
+        ausencia. Nao e: so o seria se tivessemos enviado ≥ 1 mensagem pela API,
+        e **nada nos JSON-lines diz que enviamos** — com o `nossos.txt` esquecido
+        todos os ecos saem `false` e a celula afirmava «uma mensagem da API nao
+        gera eco» sobre zero envios.
+        """
+        celula = medir(ler(FIXTURE))["N1"]["eco_da_api"]
+        self.assertTrue(celula.startswith(NAO_MEDIDO), celula)
+        self.assertIn("0 de 10", celula)
+        self.assertIn("folha", celula, "a celula tem de dizer onde se fecha o N")
+
+    def test_um_eco_nosso_da_s_medido(self) -> None:
+        """O controlo: o `S` continua a afirmar-se quando se viu."""
+        linhas = [
+            {"tipo": "smb_message_echoes", "numero": "N1",
+             "recebido_em": "2026-11-10T08:00:00.000Z", "carimbo": 1_794_643_200,
+             "id": "m_" + "a" * 32, "direccao": "echo", "enviada_por_nos": True}
+        ]
+        celula = medir(linhas)["N1"]["eco_da_api"]
+        self.assertTrue(celula.startswith("S "), celula)
+
+    def test_as_colunas_da_folha_ficam_nao_medidas(self) -> None:
         """O script nao inventa a operadora nem a versao da app."""
         medicao = medir(ler(FIXTURE))
         for rotulo in ROTULOS:
-            for chave in ("operadora", "tipo", "versao_da_app", "janela_de_24h",
-                          "verificacao"):
+            for chave in COLUNAS_DA_FOLHA:
                 with self.subTest(rotulo=rotulo, coluna=chave):
                     self.assertTrue(medicao[rotulo][chave].startswith(NAO_MEDIDO))
                     self.assertIn("folha", medicao[rotulo][chave])
+
+
+class TestColunas(unittest.TestCase):
+    """A conta das colunas **conta-se**, e nao se cita.
+
+    Regressao: a prosa do §2 do ficheiro de resultado dizia «sete das treze (…)
+    cinco a mao» — 7+5 = 12 sobre uma tabela de 13 — e faltava-lhe a coluna que
+    o criterio 4 exige, a entrega do SMS, que o gerador **nao tinha**. O operador
+    perdia-a no momento em que regenerasse o §2 com este script.
+    """
+
+    def test_a_entrega_do_sms_e_uma_coluna(self) -> None:
+        self.assertIn("sms", dict(COLUNAS))
+        self.assertIn("sms", COLUNAS_DA_FOLHA)
+
+    def test_as_duas_metades_fecham_o_total(self) -> None:
+        chaves = [c for c, _ in COLUNAS]
+        self.assertEqual(len(chaves), len(set(chaves)), "coluna repetida")
+        dos_eventos = [c for c in chaves if c not in COLUNAS_DA_FOLHA]
+        self.assertEqual(
+            len(COLUNAS_DA_FOLHA) + len(dos_eventos),
+            len(chaves),
+            "as da folha mais as dos eventos tem de fechar o total",
+        )
+        # Os numeros que a prosa do ficheiro de resultado cita, presos aqui.
+        self.assertEqual((len(dos_eventos), len(COLUNAS_DA_FOLHA), len(chaves)),
+                         (8, 6, 14))
+
+    def test_toda_a_coluna_da_folha_sai_medida_na_folha(self) -> None:
+        for chave in COLUNAS_DA_FOLHA:
+            with self.subTest(coluna=chave):
+                self.assertIn(chave, dict(COLUNAS), "coluna da folha fora do esquema")
+
+    def test_toda_a_coluna_do_esquema_e_produzida(self) -> None:
+        """Uma coluna no esquema que o `medir` nao escreva saia em branco."""
+        medicao = medir(ler(FIXTURE))
+        for chave, _ in COLUNAS:
+            with self.subTest(coluna=chave):
+                self.assertIn(chave, medicao["N1"])
+
+    def test_o_ficheiro_de_resultado_tem_as_mesmas_catorze_linhas(self) -> None:
+        """A tabela do §2 do ficheiro de evidencia nao pode divergir do gerador.
+
+        E a divergencia que custou a linha da **entrega do SMS**: o ficheiro
+        tinha-a, o gerador nao, e o §2 manda regenerar a tabela com o gerador —
+        pelo que o operador a perdia. Prende-se aqui, pelos titulos, porque
+        nenhum linter ve uma tabela de Markdown contra uma tupla de Python.
+        """
+        documento = (
+            RAIZ.parents[1]
+            / "docs/tecnica/evidencia/validacao/H3_Coexistencia_244.md"
+        ).read_text(encoding="utf-8")
+        for _, titulo in COLUNAS:
+            with self.subTest(coluna=titulo):
+                self.assertIn(
+                    f"| {titulo} |",
+                    documento,
+                    f"o §2 do ficheiro de resultado nao tem a linha {titulo!r}",
+                )
 
 
 class TestLeitura(unittest.TestCase):

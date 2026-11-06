@@ -78,26 +78,38 @@ Gera-se com o script, a partir dos JSON-lines do receptor:
 python spikes/h3/tabela.py eventos.jsonl
 ```
 
-Sete das treze propriedades saem dos eventos; **cinco preenchem-se à mão** a
-partir da folha do operador (`spikes/h3/protocolo_operador.md`), porque nenhum
-webhook as traz. O script escreve `NAO MEDIDO (folha)` nessas, e não um valor
-plausível.
+São **catorze** propriedades: **oito saem dos eventos** e **seis preenchem-se à
+mão** a partir da folha do operador (`spikes/h3/protocolo_operador.md`), porque
+nenhum webhook as traz. O script escreve `NAO MEDIDO (folha)` nessas, e não um
+valor plausível.
+
+> A conta e a lista são presas por um ensaio
+> (`spikes/h3/tests/test_tabela.py::TestColunas`), e não escritas aqui à mão.
+> Fazia falta: a primeira versão desta secção dizia «sete das treze… cinco à
+> mão» — 7 + 5 = 12 sobre uma tabela de 13 — e tinha a linha da **entrega do
+> SMS** que o gerador **não produzia**. O operador perdia-a no instante em que
+> regenerasse esta tabela com o comando acima, e é a linha que o critério 4
+> exige. Apanhado pela revisão adversarial.
+
+A ordem e os títulos são os do `COLUNAS` do gerador, para que regenerar não mexa
+na forma da tabela:
 
 | Propriedade | N1 | N2 | N3 |
 |---|---|---|---|
-| Operadora (Unitel, Africell ou fixo) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Tipo (móvel ou fixo) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Versão da app (≥ 2.24.17) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Método de verificação (SMS ou voz) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Entrega do SMS registada (S/N) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` recebido | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| `history` recebido ou erro 2593109 | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Operadora | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Tipo | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Versao da app (>= 2.24.17) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Verificacao | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Entrega do SMS registada | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| FINISH recebido | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| `history` ou 2593109 | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
 | Contactos em `smb_app_state_sync` | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Tempo de sincronização (< 24 h) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Latência do *echo* (mediana de 10 envios) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Mensagem enviada pela API gera *echo* (S/N) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Janela de 24 h aberta após resposta do cliente | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
-| Eventos `account_update` | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Tempo de sincronizacao | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Latencia do eco (mediana) | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Mensagem da API gera eco | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Janela de 24 h | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| `account_update` | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
+| Eventos no registo | NÃO MEDIDO | NÃO MEDIDO | NÃO MEDIDO |
 
 **Os números nunca entram neste ficheiro.** As colunas são `N1`, `N2` e `N3`, e
 a correspondência entre rótulo e número vive **fora do repositório**, na folha
@@ -111,10 +123,20 @@ ficheiro de evidência. O receptor nunca grava o telefone: grava o rótulo.
 têm conclusões opostas: a primeira refuta H3 para aquele número, a segunda não
 diz nada.
 
-A única excepção é a coluna do *echo* da API, que tem prova de ausência
-disponível: se houve *echoes* **e** nenhum deles corresponde a um `wamid` que
-enviámos, o `N` é medido. É o item NÃO VERIFICADO de
-`../../01_Canais_WhatsApp_Fluxo_Dual.md` §10.3.
+**E não há excepção.** A primeira versão abria uma, para a coluna do *echo* da
+API: dizia que «houve *echoes* e nenhum é nosso» era prova de ausência. Não é —
+só o seria se tivéssemos enviado ≥ 1 mensagem pela API, e **nada nos JSON-lines
+diz que enviámos**. Com o `nossos.txt` esquecido, ou acrescentado depois de o
+receptor arrancar, todos os *echoes* saem marcados como não-nossos e a célula
+afirmava «uma mensagem da API **não** gera *echo*» sobre zero envios — a regra do
+zero violada no único sítio onde se lhe tinha aberto excepção, e no item que o
+DoD 5 declara ter passado a ter instrumento. Apanhado pela revisão adversarial.
+
+A coluna escreve agora `S` quando se viu e `NÃO MEDIDO` no resto, com a contagem
+dos *echoes* examinados. O `N` fecha-se **cruzando** com o passo 4.2 da folha do
+operador, que é o que registra se houve envio pela API. É o item NÃO VERIFICADO
+de `../../01_Canais_WhatsApp_Fluxo_Dual.md` §10.3, e passa a ter instrumento com
+as duas metades — não com uma.
 
 ---
 
@@ -183,7 +205,7 @@ dois: só muda o §10.2.
 | Requisito do critério | Como se cumpre | Estado |
 |---|---|---|
 | Consentimento escrito de cada dono | Arquivado **fora do repositório**, pelo fundador | NÃO MEDIDO |
-| Nenhum conteúdo de mensagem armazenado | *Allowlist* de 17 chaves com **forma exacta** por valor, em `spikes/h3/registo.py`; medida por forma de valor em `spikes/h3/tests/test_privacidade.py` | **CONFIRMADO** (83 ensaios verdes, ver o PR) |
+| Nenhum conteúdo de mensagem armazenado | *Allowlist* de **18** chaves com **forma exacta** por valor, em `spikes/h3/registo.py`; medida por forma de valor em `spikes/h3/tests/test_privacidade.py`, e a contagem presa por ensaio em vez de escrita à mão | **CONFIRMADO** (105 ensaios verdes, ver o PR) |
 | Nenhum telefone em claro | Os telefones são **descartados**, não resumidos: um móvel de nove dígitos inverte-se por enumeração (ADR-010, `../../../logs.md` §2.1). No lugar fica o rótulo `N1`–`N3` | **CONFIRMADO** (idem) |
 | Registos apagados em ≤ 30 dias | Os JSON-lines, o `rotulos.json` e o `nossos.txt` vivem no portátil do operador e **nunca** entram no repositório | NÃO MEDIDO — o apagamento é acto do operador |
 | Sem segredos no repositório | App Secret e `hub.verify_token` entram por ambiente; o receptor **recusa arrancar** sem eles | **CONFIRMADO** |
@@ -201,8 +223,8 @@ dois: só muda o §10.2.
 | 4 | **A contagem das 20 conversas de controlo** por número | Conta-se na app do dono, conversa a conversa. O harness conta o que recebeu, não o que devia receber | **Fundador** |
 | 5 | **A decisão H3** e a linha correspondente no [`Registo_Hipoteses.md`](Registo_Hipoteses.md) | Nenhuma decisão é automática (EPIC-10 §1), e esta é do registo de decisões da Carta | **Fundador** |
 | 6 | **A nota de entrega a KAM-017 e KAM-018** com os factos medidos | Não há factos medidos para entregar. A nota nasce com o primeiro resultado | **KAM-017**, **KAM-018** |
-| 7 | **Ligar os ensaios do harness a um portão.** Medido: `spikes/` não entra em nenhum — não está nos padrões de `../../../../ci/thresholds.yaml`, nem no `SUITES_DE_TOOLS` do `Makefile`, nem no `ci.yaml` | Mudar o que o gate 4 passa a exigir é alteração de regra de bloqueio. Entrega-se a medição, não a implementação | **Fundador** |
-| 8 | **Nove dos onze ficheiros desta pasta não declaram `Estado`, `Fonte` ou `Dono`.** Medido com o validador que este ticket entrega, a 2026-11-06: **23 achados em 9 ficheiros** — 9 de `Estado`, 8 de `Fonte` e 6 de `Dono`. Só este ficheiro e o [`Registo_Hipoteses.md`](Registo_Hipoteses.md) os declaram | Porque são artefactos de outros tickets, e emendar o cabeçalho de um ficheiro alheio é alargar o escopo deste PR em silêncio — além de que `Estado` e `Dono` são afirmações sobre o conteúdo deles, que o executor do KAM-100 não tem base para fazer. A medição por ficheiro: **KAM-105** nos quatro (`Alojamento_Cotacoes`, `GoLive_Gate`, `Mapa_Tratamentos_v1`, `Seguimento_APD`), **KAM-104** nos três (`Anexo_Factos_do_Caso`, `Pacote_Parecer_Juridico`, `Seleccao_e_Registo_Juridico`), **KAM-126** num e **KAM-101** num | **KAM-104**, **KAM-105**, **KAM-101** e **KAM-126** |
+| 7 | **Ligar a um portão os ensaios do *harness* e os do validador.** Medido: **nem `spikes/` nem `scripts/`** entram em nenhum — não estão nos padrões de `../../../../ci/thresholds.yaml`, não estão no `SUITES_DE_TOOLS` do `Makefile`, que descobre suites por `tools/*/tests/test_*.py`, e não são nomeados no `ci.yaml` | Mudar o que o gate 4 passa a exigir é alteração de regra de bloqueio. Entrega-se a medição, não a implementação. **A diferença entre os dois, que pesa na decisão:** o `spikes/h3/` é descartável, e um artefacto cuja remoção avermelha o gate 4 de todos os PRs deixa de ser descartável; o `scripts/validar_evidencia.py` é **permanente** e é citado nos «Testes Requeridos» de quatro tickets, pelo que o argumento do descartável não se lhe aplica | **Fundador** |
+| 8 | **Nove dos onze ficheiros desta pasta não declaram `Estado`, `Fonte` nem `Dono`.** Medido com o validador que este ticket entrega, a 2026-11-06: **27 achados em 9 ficheiros**, exactamente **3 em cada** — `Estado`, `Fonte` e `Dono` em falta nos nove; o `Data` está presente em todos. Só este ficheiro e o [`Registo_Hipoteses.md`](Registo_Hipoteses.md) os declaram | Porque são artefactos de outros tickets, e emendar o cabeçalho de um ficheiro alheio é alargar o escopo deste PR em silêncio — além de que `Estado` e `Dono` são afirmações sobre o conteúdo deles, que o executor do KAM-100 não tem base para fazer. **A primeira medição disto deu 23, e estava errada por defeito do próprio validador:** ele aceitava uma linha de duas células de *qualquer* tabela, pelo que um glossário `\| Estado \| Significado \|` mais abaixo no ficheiro era lido como a declaração e tapava a ausência dela, trocando-a por um falso «quarto estado». Corrigido e re-medido; fica escrito porque um número devolvido a quatro tickets não se emenda em silêncio. Por ficheiro: **KAM-105** nos quatro (`Alojamento_Cotacoes`, `GoLive_Gate`, `Mapa_Tratamentos_v1`, `Seguimento_APD`), **KAM-104** nos três (`Anexo_Factos_do_Caso`, `Pacote_Parecer_Juridico`, `Seleccao_e_Registo_Juridico`), **KAM-126** num e **KAM-101** num | **KAM-104**, **KAM-105**, **KAM-101** e **KAM-126** |
 
 ---
 
@@ -220,4 +242,4 @@ dois: só muda o §10.2.
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
-| 1.0 | Novembro de 2026 | Emissão inicial, KAM-100. O ficheiro de resultado do spike H3, a nascer **sem medições**: nenhum dos três números foi ligado, porque correr o Embedded Signup com um dono de número é acto humano e o executor não o pode praticar. **O Passo 0 fica `NÃO VERIFICADO`**, com data e fonte, e não `Sim` nem `Não`: o requisito de ser Solution Partner ou Tech Provider é CONFIRMADO (`../E1_Meta_WhatsApp.md` §2), mas **nenhuma** das páginas registadas em E1 §2 ou §3 diz se o modo de desenvolvimento o satisfaz — nem para afirmar nem para negar. Em consequência, o §1.1 registra o estado em vez de um prazo: o spike está bloqueado por **uma pergunta sem resposta** e não por um `Não`, as duas vias de desbloqueio são a Q3/Q9 de [`Meta_Perguntas.md`](Meta_Perguntas.md) (em `por enviar`) e a aprovação do **KAM-102**, e o prazo novo é **NÃO VERIFICADO** porque depende de uma Business Verification cujo prazo a Meta não documenta — escrevê-lo em semanas era inventar o número de que depende o caminho crítico da Fase 0. A elegibilidade de Angola fica **NÃO VERIFICADA** e as fontes secundárias que dizem «global» ficam **INDÍCIO**, herdados de E1 e não promovidos. A tabela N1–N3 do §2 nasce toda em `NÃO MEDIDO` e o §2.1 fixa a **regra do zero**: zero eventos escreve-se `NÃO MEDIDO` e nunca `N`, com uma só excepção — o *echo* da API, que tem prova de ausência. **Os números nunca entram no ficheiro**: as colunas são rótulos `N1`–`N3` e a correspondência vive fora do repositório, que é público. O limiar do §3 está operacionalizado antes de medir, e diz o que o harness **não** mede: a contagem das 20 conversas de controlo faz-se na app do dono. **Oito itens devolvidos no §6**, cada um com credor nomeado — o fundador em cinco, o KAM-102, o KAM-017 e o KAM-018 nos outros, e o item 8 repartido por quatro tickets. O item 8 é uma medição feita **com o validador que este ticket entrega**, e não uma leitura: **23 achados em 9 dos 11 ficheiros** desta pasta, que não declaram `Estado`, `Fonte` ou `Dono`; não se emendaram, porque são artefactos de outros tickets e porque `Estado` e `Dono` são afirmações sobre o conteúdo deles. | Equipa KAMBÁ |
+| 1.0 | Novembro de 2026 | Emissão inicial, KAM-100. O ficheiro de resultado do spike H3, a nascer **sem medições**: nenhum dos três números foi ligado, porque correr o Embedded Signup com um dono de número é acto humano e o executor não o pode praticar. **O Passo 0 fica `NÃO VERIFICADO`**, com data e fonte, e não `Sim` nem `Não`: o requisito de ser Solution Partner ou Tech Provider é CONFIRMADO (`../E1_Meta_WhatsApp.md` §2), mas **nenhuma** das páginas registadas em E1 §2 ou §3 diz se o modo de desenvolvimento o satisfaz — nem para afirmar nem para negar. Em consequência, o §1.1 registra o estado em vez de um prazo: o spike está bloqueado por **uma pergunta sem resposta** e não por um `Não`, as duas vias de desbloqueio são a Q3/Q9 de [`Meta_Perguntas.md`](Meta_Perguntas.md) (em `por enviar`) e a aprovação do **KAM-102**, e o prazo novo é **NÃO VERIFICADO** porque depende de uma Business Verification cujo prazo a Meta não documenta — escrevê-lo em semanas era inventar o número de que depende o caminho crítico da Fase 0. A elegibilidade de Angola fica **NÃO VERIFICADA** e as fontes secundárias que dizem «global» ficam **INDÍCIO**, herdados de E1 e não promovidos. A tabela N1–N3 do §2 nasce toda em `NÃO MEDIDO` e o §2.1 fixa a **regra do zero**: zero eventos escreve-se `NÃO MEDIDO` e nunca `N`, com uma só excepção — o *echo* da API, que tem prova de ausência. **Os números nunca entram no ficheiro**: as colunas são rótulos `N1`–`N3` e a correspondência vive fora do repositório, que é público. O limiar do §3 está operacionalizado antes de medir, e diz o que o harness **não** mede: a contagem das 20 conversas de controlo faz-se na app do dono. **Oito itens devolvidos no §6**, cada um com credor nomeado — o fundador em cinco, o KAM-102, o KAM-017 e o KAM-018 nos outros, e o item 8 repartido por quatro tickets. O item 8 é uma medição feita **com o validador que este ticket entrega**, e não uma leitura: **27 achados em 9 dos 11 ficheiros** desta pasta, exactamente três em cada, por não declararem `Estado`, `Fonte` nem `Dono`; não se emendaram, porque são artefactos de outros tickets e porque `Estado` e `Dono` são afirmações sobre o conteúdo deles. **A revisão adversarial devolveu 16 achados, os 16 confirmados contra a árvore, e está na** [`ANALISE-52`](../../../analises/ANALISE-52-KAM-100-spike-h3-coexistencia.md). Dois mudaram o que este ficheiro afirma: a **excepção à regra do zero** do §2.1 foi **fechada** — «houve *echoes* e nenhum é nosso» não é prova de ausência sem se saber que houve envio pela API —, e a primeira medição do item 8 dava **23** por defeito do próprio validador, que lia um glossário como declaração e tapava a ausência dela. A tabela do §2 ganha a linha da **entrega do SMS**, que o critério 4 exige e que o gerador não produzia: o operador perdia-a ao regenerar. | Equipa KAMBÁ |

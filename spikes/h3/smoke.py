@@ -10,8 +10,9 @@ um segredo de ensaio para o processo filho.
 
     PYTHONPATH='spikes/h3;libs/py-core/src' python spikes/h3/smoke.py
 
-Sai 0 se os seis casos passarem, 1 se algum falhar. Nao e um portao — ver o
-README: `spikes/` nao entra em portao nenhum.
+Sai 0 se todos os casos passarem, 1 se algum falhar, e **conta-os em vez de os
+citar** — a primeira versao imprimia «6 de 6» com o numero a mao e corria sete.
+Nao e um portao — ver o README: `spikes/` nao entra em portao nenhum.
 """
 
 from __future__ import annotations
@@ -116,10 +117,17 @@ def main() -> int:
             stderr=subprocess.PIPE,
         )
         falhas: list[str] = []
+        # **A contagem conta-se, nao se escreve.** A primeira versao imprimia
+        # «6 de 6 casos» com o numero a mao, e corria sete verificacoes: a saida
+        # verde do unico ensaio de ida e volta reportava menos casos do que
+        # executou. Apanhado pela revisao adversarial.
+        corridos = 0
         try:
             esperar_pronto(processo)
 
             def verificar(nome: str, condicao: bool, detalhe: str = "") -> None:
+                nonlocal corridos
+                corridos += 1
                 print(f"  {'ok  ' if condicao else 'FALHA'}  {nome}{detalhe}")
                 if not condicao:
                     falhas.append(nome)
@@ -181,7 +189,63 @@ def main() -> int:
                 f" ({codigo})",
             )
 
-            # 6. Nenhuma das recusas gravou nada: continua a haver uma linha so.
+            # 6. **Um cabecalho nao-ASCII responde 401, e nao fecha a ligacao.**
+            # O `http.server` descodifica os cabecalhos em latin-1, e o
+            # `compare_digest` levanta `TypeError` sobre um `str` nao-ASCII — que
+            # nao e `AssinaturaInvalida`. O receptor fechava a ligacao sem
+            # responder, em vez do 4xx que `E1` §5 pede.
+            try:
+                codigo, _ = pedir(
+                    "/", bruto, {CABECALHO: "sha256=" + "á" * 64}
+                )
+            except OSError as e:
+                codigo = f"<ligacao fechada: {e.__class__.__name__}>"
+            verificar(
+                "cabecalho nao-ASCII da 401 e nao fecha a ligacao",
+                codigo == 401,
+                f" ({codigo})",
+            )
+
+            # 7. **Um corpo assinado com um valor fora da forma grava zero.**
+            # Antes, o `ConteudoRecusado` saltava do laco com as linhas
+            # anteriores ja gravadas e sem resposta, e cada reentrega da Meta
+            # voltava a acrescenta-las.
+            mau = json.dumps(
+                {
+                    "object": "whatsapp_business_account",
+                    "entry": [
+                        {
+                            "id": "1" * 15,
+                            "changes": [
+                                {
+                                    "field": "account_update",
+                                    "value": {
+                                        "metadata": {"phone_number_id": CANAL},
+                                        "event": "minusculas fora da forma",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            antes = destino.read_text(encoding="ascii")
+            try:
+                codigo, _ = pedir("/", mau, {CABECALHO: calcular(mau, SEGREDO.encode())})
+            except OSError as e:
+                codigo = f"<ligacao fechada: {e.__class__.__name__}>"
+            verificar(
+                "valor fora da forma responde 422 e nao fecha a ligacao",
+                codigo == 422,
+                f" ({codigo})",
+            )
+            verificar(
+                "e gravou zero linhas (nao ha escrita parcial)",
+                destino.read_text(encoding="ascii") == antes,
+            )
+
+            # 8. Nenhuma das recusas gravou nada: continua a haver uma linha so.
             linhas = destino.read_text(encoding="ascii").strip().splitlines()
             verificar(
                 "nenhuma recusa gravou: continua 1 linha",
@@ -196,9 +260,9 @@ def main() -> int:
                 processo.kill()
 
     if falhas:
-        print(f"\nsmoke H3: {len(falhas)} FALHA(S): {falhas}")
+        print(f"\nsmoke H3: {len(falhas)} de {corridos} FALHARAM: {falhas}")
         return 1
-    print("\nsmoke H3: 6 de 6 casos passaram")
+    print(f"\nsmoke H3: {corridos} de {corridos} casos passaram")
     return 0
 
 

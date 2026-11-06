@@ -31,6 +31,22 @@ ROTULOS = {CANAL: "N1"}
 WAMID = "wamid.SElUT1JJQ09ERU5TQUlPREVIMzEyMw=="
 OUTRO_WAMID = "wamid.T1VUUk9JREVOU0FJT0RFSDMxMjM0NQ=="
 
+# --- Os numeros deste ficheiro, e porque sao dois tipos ---------------------
+#
+# Todos sinteticos, sequenciais a partir do prefixo movel, e nenhum pertence a
+# ninguem.
+#
+# O valor de ataque da chave `fase` leva um E.164 sem o `+`, casa o padrao
+# `telefone_ao` do gate 7 e esta declarado no `INVENTARIO` de
+# `tools/meta-sim/src/inventario.ts` com contagem exacta — **1**.
+#
+# Os outros, nos ensaios do `state_sync`, estao na forma **local** (`9` mais
+# oito digitos), que **nenhum** dos dois padroes do gate 7 apanha: um exige
+# `244`, o outro um `+`. Nao exigem entrada no inventario e nao a tem — mas
+# ficam declarados aqui, porque o argumento deste ticket e que a forma local
+# continua a ser um dado pessoal mesmo passando aquele gate, e calar-los era
+# fazer o argumento e nao o cumprir.
+
 #: Os seis campos do §4.4 que este spike **nao** subscreve.
 NAO_SUBSCRITOS = (
     "phone_number_quality_update",
@@ -176,11 +192,79 @@ class TestHistory(unittest.TestCase):
         linhas = extrair_de("history", {"history": [{"metadata": {"phase": 0}}]})
         self.assertEqual(linhas[0]["fase"], "fase_0")
 
-    def test_um_history_sem_threads_produz_contagens_a_zero(self) -> None:
-        """Zero mensagens **medidas** e diferente de campo em falta."""
-        linhas = extrair_de("history", {"history": [{}]})
+    def test_um_history_sem_threads_nao_produz_contagem_nenhuma(self) -> None:
+        """Regressao: um zero de «nao reconhecemos a forma» nao e um zero medido.
+
+        A primeira versao escrevia `threads: 0, mensagens: 0` tambem quando a
+        chave nao existia, e a tabela imprimia `S — 0 mensagem(ns) em 0
+        conversa(s)` — a cadeia que o `test_tabela` nomeia como o que nao pode
+        aparecer, alcancada sem codigo de erro. A forma interna de `history` e
+        **INDICIO**, pelo que e aqui que o zero e suspeito.
+        """
+        for valor in ({}, {"threads": "nao e lista"}, {"conversations": [{}]}):
+            with self.subTest(valor=str(valor)[:28]):
+                linhas = extrair_de("history", {"history": [valor]})
+                self.assertNotIn("threads", linhas[0])
+                self.assertNotIn("mensagens", linhas[0])
+
+    def test_um_history_com_threads_vazio_produz_zero_medido(self) -> None:
+        """O controlo: uma lista **vazia** e uma medicao, e conta como zero."""
+        linhas = extrair_de("history", {"history": [{"threads": []}]})
         self.assertEqual(linhas[0]["threads"], 0)
         self.assertEqual(linhas[0]["mensagens"], 0)
+
+    def test_o_2593109_ganha_precedencia_sobre_os_outros_codigos(self) -> None:
+        """Regressao: o laco sobrescrevia, e so o **ultimo** erro sobrevivia.
+
+        Perder o 2593109 transforma «o dono recusou partilhar» em «nao houve
+        historico», e isso refuta H3 para aquele numero em vez de o deixar
+        passar.
+        """
+        for erros in (
+            [{"code": 2593109}, {"code": 131000}],
+            [{"code": 131000}, {"code": 2593109}],
+            [{"code": 131000}, {"code": 2593109}, {"code": 131026}],
+        ):
+            with self.subTest(erros=[e["code"] for e in erros]):
+                linhas = extrair_de("history", {"history": [{"errors": erros}]})
+                self.assertEqual(linhas[0]["error_code"], 2_593_109)
+
+    def test_sem_o_2593109_fica_o_primeiro_codigo(self) -> None:
+        linhas = extrair_de(
+            "history", {"history": [{"errors": [{"code": 131000}, {"code": 131026}]}]}
+        )
+        self.assertEqual(linhas[0]["error_code"], 131_000)
+
+    def test_uma_fase_grande_nao_entra_no_ficheiro(self) -> None:
+        """Regressao, e e o buraco de privacidade: `fase` admitia um telefone.
+
+        A forma de entao (`[a-z][a-z0-9_]{0,31}`) aceitava `fase_923456789`, e o
+        `_fase` fabricava-o a partir de **qualquer** inteiro que a Meta mandasse
+        no `metadata.phase`. Era a unica chave do registo que admitia digitos, e
+        a allowlist e declarada como a metade que fecha este caminho.
+        """
+        for phase in (923456789, 244923456789, 100, -1, 10**12):
+            with self.subTest(phase=phase):
+                linhas = extrair_de(
+                    "history", {"history": [{"metadata": {"phase": phase}}]}
+                )
+                self.assertNotIn("fase", linhas[0])
+                self.assertEqual(validar(linhas[0]), linhas[0])
+
+    def test_uma_fase_dentro_da_gama_entra(self) -> None:
+        """O controlo: a Meta manda 0 e 1, e esses tem de passar."""
+        for phase, esperado in ((0, "fase_0"), (1, "fase_1"), (99, "fase_99")):
+            with self.subTest(phase=phase):
+                linhas = extrair_de(
+                    "history", {"history": [{"metadata": {"phase": phase}}]}
+                )
+                self.assertEqual(linhas[0]["fase"], esperado)
+
+    def test_uma_fase_de_texto_livre_nao_entra(self) -> None:
+        linhas = extrair_de(
+            "history", {"history": [{"metadata": {"phase": "quanto_custa_a_entrega?"}}]}
+        )
+        self.assertNotIn("fase", linhas[0])
 
 
 class TestStateSync(unittest.TestCase):
@@ -205,6 +289,18 @@ class TestStateSync(unittest.TestCase):
             "smb_app_state_sync", {"state_sync": [{"type": "contact"}, {"contact": {}}]}
         )
         self.assertEqual(linhas[0]["contactos"], 1)
+
+    def test_nenhum_elemento_com_contact_nao_produz_contagem(self) -> None:
+        """Regressao, pela mesma razao do `history`: a forma e **INDICIO**.
+
+        Um `contactos: 0` escrito porque os contactos vinham sob outro nome
+        apresentava-se na tabela como `0` medido.
+        """
+        linhas = extrair_de(
+            "smb_app_state_sync",
+            {"state_sync": [{"type": "contact", "contacto": {"nome": "x"}}]},
+        )
+        self.assertNotIn("contactos", linhas[0])
 
 
 class TestFormaInesperada(unittest.TestCase):

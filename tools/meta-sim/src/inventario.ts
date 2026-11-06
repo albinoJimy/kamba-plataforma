@@ -373,12 +373,7 @@ export const INVENTARIO: readonly Entrada[] = [
   // e o contrario do que ele existe para fazer. E a mesma razao da entrada do
   // `sms.privacidade.test.ts` e do `contract_diff/tests/test_pii.py`.
   //
-  // Sao **quatro literais** e dao cinco ocorrencias, porque o varrimento conta
-  // por padrao e um dos literais casa os dois. **As formas descrevem-se aqui e
-  // nao se escrevem**: um literal neste comentario acrescentava ocorrencias a
-  // este ficheiro, que nao tem entrada propria, e o inventario passava a
-  // declarar numeros que nao estao a testar nada. Foi medido ao escrever esta
-  // entrada — a primeira versao tinha-os, e dava `nao_declarado` com 5.
+  // As grafias que os ensaios precisam de levar, e o que cada uma custa:
   //
   //   `+244` com espaco antes do movel     1 — so `telefone_ao`: o espaco
   //                                        quebra a corrida de digitos de que o
@@ -389,28 +384,55 @@ export const INVENTARIO: readonly Entrada[] = [
   //   `244` e `00244` sem o mais           1 cada — `telefone_ao`, nas duas
   //                                        grafias que o `id_opaco` tem de
   //                                        recusar
+  //   `244` com separadores pelo meio      1 cada — as grafias com hifen, ponto
+  //                                        e parentese que a guarda do
+  //                                        `id_opaco` tambem tem de descartar,
+  //                                        e que a primeira versao dela
+  //                                        **resumia** por so retirar espacos
+  //   `fase_` com um E.164 sem o mais      1 — o valor de ataque que prova que
+  //                                        a forma da chave `fase` ja nao
+  //                                        admite um telefone
   //
-  // O ensaio leva tambem a forma **local** (`9` mais oito digitos), que **nenhum**
-  // destes dois padroes apanha — um exige `244`, o outro um `+` — e que por isso
-  // nao conta aqui. Esta la de proposito: um telefone que entrasse assim num
-  // ficheiro de evidencia passava este gate e continuava a ser um dado pessoal,
-  // e o ensaio acrescenta um terceiro detector so para ele.
+  // **As formas descrevem-se aqui e nao se escrevem.** Um literal num
+  // comentario acrescenta ocorrencias ao ficheiro que o leva, e um comentario
+  // nao esta a testar nada: o inventario passava a declarar numeros inuteis. O
+  // erro foi cometido **duas vezes** neste ticket — a primeira versao desta
+  // entrada tinha-os aqui, e a `ANALISE-52` tinha-os na prosa —, e as duas vezes
+  // apareceu ao **re-medir a arvore**, nao a ler.
+  //
+  // Os ensaios levam tambem a forma **local** (`9` mais oito digitos), que
+  // **nenhum** destes dois padroes apanha — um exige `244`, o outro um `+` — e
+  // que por isso nao conta aqui. Esta la de proposito: um telefone que entrasse
+  // assim num ficheiro de evidencia passava este gate e continuava a ser um dado
+  // pessoal, e o ensaio acrescenta um terceiro detector so para ele.
   //
   // Nenhum pertence a ninguem: sao sequenciais a partir do prefixo movel, como
   // os das outras entradas desta lista.
   //
-  // **Esta entrada morre com o spike.** O `spikes/h3/` e descartavel e o
-  // `confrontar` recusa entrada morta, pelo que quem apagar a pasta apaga esta
-  // entrada no mesmo PR — que e exactamente o comportamento que se quer.
+  // **As duas entradas morrem com o spike.** O `spikes/h3/` e descartavel e o
+  // `confrontar` recusa entrada morta, pelo que quem apagar a pasta apaga estas
+  // entradas no mesmo PR — que e exactamente o comportamento que se quer.
   {
     ficheiro: "spikes/h3/tests/test_privacidade.py",
-    ocorrencias: 5,
+    ocorrencias: 8,
     razao:
       "o canario do ensaio de privacidade do KAM-100: o detector tem de VER as " +
       "formas de movel angolano na entrada, senao o zero medido na saida do " +
       "registo nao diz nada — a licao do sms.privacidade.test.ts e do alvo x11. " +
-      "Tres literais, cinco ocorrencias porque o varrimento conta por padrao e " +
-      "a forma sem espaco casa os dois. Sequenciais a partir do prefixo movel",
+      "Oito ocorrencias: as quatro grafias do canario (uma delas a contar duas " +
+      "vezes, por casar os dois padroes) mais as tres com separadores pelo meio " +
+      "que a guarda do id_opaco tem de descartar e que a primeira versao dela " +
+      "resumia. Sequenciais a partir do prefixo movel",
+  },
+  {
+    ficheiro: "spikes/h3/tests/test_extrair.py",
+    ocorrencias: 1,
+    razao:
+      "o valor de ataque do ensaio da chave `fase` do KAM-100: um E.164 sem o " +
+      "mais dentro de um `fase_`, que a forma antiga da chave aceitava e o " +
+      "extractor fabricava a partir de qualquer inteiro do metadata.phase. Sem " +
+      "o literal o ensaio provava que a forma recusa um valor que nao tem forma " +
+      "de telefone, que e o contrario do que ele existe para fazer. Sequencial",
   },
 ];
 

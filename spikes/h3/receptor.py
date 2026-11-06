@@ -56,7 +56,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 
 from assinatura import CABECALHO, AssinaturaInvalida, segredo, verificar
 from extrair import extrair
-from registo import escrever
+from registo import ConteudoRecusado, escrever, validar
 
 #: A variavel de ambiente com o `hub.verify_token`. Como o App Secret, nao vive
 #: no repositorio: um token de verificacao em texto claro deixa qualquer pessoa
@@ -198,12 +198,50 @@ class Receptor(BaseHTTPRequestHandler):
             return
 
         instante = agora()
-        escritas = 0
-        for linha in extrair(corpo, self.rotulos, self.nossos, instante):
+        # **Tudo ou nada, e isto e uma correccao.** A primeira versao escrevia
+        # dentro do laco: um `ConteudoRecusado` a meio — um valor que nao casa a
+        # forma, num corpo correctamente assinado — deixava as linhas anteriores
+        # gravadas, perdia as seguintes e **nao respondia nada**, porque o
+        # `except` so apanhava `AssinaturaInvalida`. A Meta re-entrega «ate 7
+        # dias com recuo exponencial» (`E1` §5), pelo que cada tentativa voltava
+        # a acrescentar as primeiras linhas e falhava no mesmo sitio: o ficheiro
+        # acumulava duplicados do mesmo evento, e o `tabela._historico` soma-os
+        # em bruto — a inflar a contagem de que depende o limiar «≥ 95% por
+        # contagem» do criterio 3. Apanhado pela revisao adversarial, com a
+        # reentrega medida.
+        #
+        # Valida-se o lote inteiro antes de escrever uma linha. Um lote recusado
+        # grava zero, e a reentrega volta a recusar zero.
+        try:
+            linhas = extrair(corpo, self.rotulos, self.nossos, instante)
+            for linha in linhas:
+                validar(linha)
+        except ConteudoRecusado as e:
+            self.anotar(f"POST assinado mas recusado pelo registo: {e}")
+            self.responder(422, b"corpo assinado com valor fora da forma")
+            return
+        for linha in linhas:
             escrever(self.destino, linha)
-            escritas += 1
-        self.anotar(f"POST aceite: {escritas} linha(s) gravada(s)")
+        self.anotar(f"POST aceite: {len(linhas)} linha(s) gravada(s)")
         self.responder(200, b"ok")
+
+    def handle_one_request(self) -> None:
+        """Responde **sempre**, mesmo a um erro que nao previmos.
+
+        O `BaseHTTPRequestHandler` deixa a ligacao cair quando o manipulador
+        levanta, e um pedido sem resposta e indistinguivel de um receptor em
+        baixo: a Meta re-entrega e ninguem sabe porque. Um 500 e informacao; o
+        silencio nao e. A mensagem **nao leva** o corpo nem a excepcao — vai para
+        o registo local, onde o operador a ve.
+        """
+        try:
+            super().handle_one_request()
+        except Exception as e:  # noqa: BLE001
+            self.anotar(f"ERRO nao previsto ({e.__class__.__name__}); respondo 500")
+            try:
+                self.responder(500, b"erro interno")
+            except OSError:
+                pass
 
 
 def main(argv: list[str] | None = None) -> int:

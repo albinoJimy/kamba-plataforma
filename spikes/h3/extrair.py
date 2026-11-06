@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from codigos import SEM_HISTORICO
 from registo import opaco
 
 #: O nome do array dentro de `smb_message_echoes`. **Proposta**, como
@@ -178,32 +179,75 @@ def _de_history(
             _com(linha, "fase", _fase(meta.get("phase")))
             _com(linha, "chunk_order", _inteiro(meta.get("chunk_order")))
             _com(linha, "progresso", _inteiro(meta.get("progress")))
-        threads = _dicionarios(pedaco.get("threads"))
-        linha["threads"] = len(threads)
-        linha["mensagens"] = sum(len(_dicionarios(t.get("messages"))) for t in threads)
-        for erro in _dicionarios(pedaco.get("errors")):
-            codigo = _inteiro(erro.get("code"))
-            if codigo is not None:
-                linha["error_code"] = codigo
-            subcodigo = _inteiro(erro.get("error_subcode"))
-            if subcodigo is not None:
-                linha["error_subcode"] = subcodigo
+        # **As contagens so entram se o `threads` estiver la como lista.** A
+        # primeira versao escrevia `threads: 0, mensagens: 0` tambem quando a
+        # chave nao existia, e a tabela imprimia `S — 0 mensagem(ns) em 0
+        # conversa(s)` — um zero de «nao reconhecemos a forma» apresentado como
+        # medido, na coluna de que depende o limiar de ≥ 95% por contagem. A
+        # forma interna de `history` e declarada **INDICIO** no topo deste
+        # modulo, pelo que e precisamente aqui que o zero e suspeito. Apanhado
+        # pela revisao adversarial.
+        if isinstance(pedaco.get("threads"), list):
+            threads = _dicionarios(pedaco.get("threads"))
+            linha["threads"] = len(threads)
+            linha["mensagens"] = sum(
+                len(_dicionarios(t.get("messages"))) for t in threads
+            )
+        # **O 2593109 ganha precedencia sobre os outros codigos.** O `errors` e
+        # um array, e a primeira versao escrevia `linha["error_code"]` a cada
+        # iteracao: num pedaco com mais de um erro so o **ultimo** sobrevivia, e
+        # perder o 2593109 transforma «o dono recusou partilhar» em «nao houve
+        # historico» — que refuta H3 para aquele numero em vez de o deixar
+        # passar. Apanhado pela revisao adversarial.
+        codigos = [
+            c
+            for erro in _dicionarios(pedaco.get("errors"))
+            if (c := _inteiro(erro.get("code"))) is not None
+        ]
+        if codigos:
+            linha["error_code"] = (
+                SEM_HISTORICO if SEM_HISTORICO in codigos else codigos[0]
+            )
+        subcodigos = [
+            s
+            for erro in _dicionarios(pedaco.get("errors"))
+            if (s := _inteiro(erro.get("error_subcode"))) is not None
+        ]
+        if subcodigos:
+            linha["error_subcode"] = subcodigos[0]
         saida.append(linha)
     return saida
+
+
+#: Qual o maior `metadata.phase` que se aceita. A Meta manda 0 e 1
+#: (`tools/meta-sim/src/campos.ts`); 99 e folga, nao previsao.
+FASE_MAXIMA = 99
 
 
 def _fase(valor: Any) -> str | None:
     """A `phase` do `history` como texto, que e a forma que o registo admite.
 
-    A Meta manda-a como numero (`campos.ts`: `phase: 0`). `fase` no registo e
-    `^[a-z_]{1,32}$`, pelo que um numero entrava como `0` e falhava a forma — e
-    falhar a forma e o comportamento certo. Converte-se aqui, no sitio que sabe
-    o que o numero quer dizer, e nao se relaxa a forma do registo.
+    A Meta manda-a como numero (`campos.ts`: `phase: 0`), e o registo exige
+    texto — converte-se aqui, no sitio que sabe o que o numero quer dizer, e nao
+    se relaxa a forma do registo.
+
+    **O numero e limitado, e isso e uma correccao.** A primeira versao escrevia
+    `fase_{numero}` para **qualquer** inteiro, e com a forma de entao
+    (`[a-z][a-z0-9_]{0,31}`) um `phase: 923456789` entrava no ficheiro como
+    `fase_923456789` — um movel angolano em claro, pela unica chave do registo
+    que admitia digitos. Apanhado pela revisao adversarial.
+
+    Um valor fora da gama devolve `None`, pelo que a linha sai **sem** `fase` em
+    vez de levar um valor que nao se percebe. A forma interna de `history` e
+    declarada INDICIO, pelo que vir outra coisa e um resultado possivel do
+    spike, nao um erro a levantar.
     """
     numero = _inteiro(valor)
     if numero is None:
         if type(valor) is str and valor.islower() and valor.replace("_", "").isalpha():
             return valor
+        return None
+    if not 0 <= numero <= FASE_MAXIMA:
         return None
     return f"fase_{numero}"
 
@@ -222,9 +266,14 @@ def _de_state_sync(
     if not elementos:
         return []
     linha = _base("smb_app_state_sync", recebido_em, numero)
-    linha["contactos"] = sum(
-        1 for e in elementos if isinstance(e.get("contact"), Mapping)
-    )
+    # **A contagem so entra se algum elemento tiver `contact`.** Pela mesma razao
+    # do `_de_history`: a forma interna de `smb_app_state_sync` e **INDICIO**, e
+    # um `contactos: 0` escrito porque os contactos vinham sob outro nome
+    # apresenta-se na tabela como `0` medido. Sem a chave, a linha sai sem a
+    # contagem e a tabela diz `NAO MEDIDO`. Apanhado pela revisao adversarial.
+    contactos = sum(1 for e in elementos if isinstance(e.get("contact"), Mapping))
+    if contactos:
+        linha["contactos"] = contactos
     for e in elementos:
         meta = e.get("metadata")
         if isinstance(meta, Mapping):

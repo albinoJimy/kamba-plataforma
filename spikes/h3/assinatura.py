@@ -116,10 +116,32 @@ def verificar(corpo: bytes, cabecalho: str | None, chave: bytes | None = None) -
         )
     if chave is None:
         chave = segredo()
+    # **Uma chave vazia explicita nao e `None` e saltava a guarda.** O docstring
+    # do modulo afirma que um segredo vazio aceita o que um atacante assine com
+    # um segredo vazio; era verdade para o caminho do receptor (que passa
+    # `segredo()`, e esse levanta) e falso para a funcao, que e a parte
+    # reutilizavel. Apanhado pela revisao adversarial.
+    if not chave:
+        raise SegredoEmFalta(
+            "verificar com uma chave vazia aceita o que qualquer pessoa assinar "
+            "com uma chave vazia"
+        )
     if not cabecalho:
         raise AssinaturaInvalida(f"pedido sem {CABECALHO}")
     if not cabecalho.startswith(PREFIXO):
         raise AssinaturaInvalida(f"{CABECALHO} sem o prefixo {PREFIXO!r}")
+    # **O cabecalho tem de ser ASCII, e isto e uma recusa e nao um acidente.**
+    # Um `sha256=` seguido de qualquer byte > 0x7F chega aqui como `str`
+    # descodificado em latin-1 pelo `http.server`, e o `compare_digest` levanta
+    # `TypeError` sobre um `str` nao-ASCII — que **nao** e `AssinaturaInvalida`,
+    # pelo que o receptor fechava a ligacao sem responder, em vez do 4xx que o
+    # `E1` §5 pede. Apanhado pela revisao adversarial, com um pedido em bruto por
+    # socket. Um HMAC em hexadecimal e ASCII por definicao: o que nao o for nao
+    # e uma assinatura.
+    if not cabecalho.isascii():
+        raise AssinaturaInvalida(
+            f"{CABECALHO} com byte nao-ASCII: um HMAC em hexadecimal e ASCII"
+        )
     esperado = calcular(corpo, chave)
     # `compare_digest` e nao `==`: a comparacao de cadeias sai no primeiro byte
     # diferente, e o tempo que leva diz quantos bytes acertaram. E1 §5 pede
