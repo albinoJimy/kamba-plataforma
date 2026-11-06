@@ -53,11 +53,14 @@ instrumento que o mede, que e a classe de defeito que esta casa paga mais
 vezes. Fica escrito em vez de apagado, porque uma linha corrigida em silencio
 nao ensina nada a quem passar aqui a seguir.
 
-Medido a 2026-11-06, depois de a notificacao ao dono sair do nucleo para
-`subscriptions[].notifica` do `registry/`: `fluxo = 0`, `dominio = 1`,
-`conteudo = 45`, `prosa = 118`, sobre 110 ficheiros de nucleo, saida **0**. A
-lista do `conteudo` e as duas saidas medidas estao em
-`docs/evidencia/KAM-039.md`.
+Medido em `ab3e390` a 2026-11-06, depois de a notificacao ao dono sair do
+nucleo para `subscriptions[].notifica` do `registry/`: `fluxo = 0`,
+`dominio = 1`, `conteudo = 45`, `prosa = 118`, sobre 110 ficheiros de nucleo,
+saida **0**. **O *commit* e o da arvore que se mediu e nao o desta linha**, que
+e a armadilha que a afirmacao anterior tinha: um numero citado com o *commit*
+que o escreve nao se pode reproduzir, e um citado com o *commit* que o produz
+corre com `git checkout ab3e390 && python -m reuse_metric nucleo`. A lista do
+`conteudo` e as duas saidas medidas estao em `docs/evidencia/KAM-039.md`.
 
 ## E morde nas duas direccoes
 
