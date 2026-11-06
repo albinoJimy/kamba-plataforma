@@ -215,6 +215,25 @@ class TestRepositorio(unittest.TestCase):
         # encomenda `paga` — porque o corte de 5 s e o criterio 9 daquele
         # bloco, e um histograma com os cortes de outro dono nao o mede.
         "services/com/src/payments/metricas.ts",
+        # Nasceu com o KAM-048 (lembretes de marcacao) **depois de este ticket
+        # fundir**, e e o terceiro exemplo do que o `provisioning` foi o primeiro
+        # e o `sms` o segundo. Dois pormenores que o distinguem dos outros vinte
+        # e um, e os dois sao o desenho e nao acidente:
+        #
+        # * vive **dentro de um servico** que nao o expoe, ao contrario dos dois
+        #   anteriores, que sao biblioteca em `packages/core-ts`. O
+        #   `services/com/src/metricas.ts` serve a porta `/metrics` e conta zero
+        #   nomes; este declara tres e nao serve nada — quem o expoe sera quem
+        #   ligar o modulo (KAM-071). **Sem ordinal de proposito:** a primeira
+        #   versao dizia «o primeiro», que e uma afirmacao sobre a ordem de
+        #   fusao e nao sobre o codigo, e o KAM-055 traz um `payments/metricas.ts`
+        #   pelo mesmo caminho num PR aberto ao lado;
+        # * **nao tem contador de custo**, e e a ausencia que vale a pena nomear:
+        #   o custo de um lembrete e o custo da mensagem que o Outbound enviou, e
+        #   quem o acumula e o `meta_cost_usd_total` dele. Um segundo acumulador
+        #   sobre os mesmos envios somava o mesmo dinheiro duas vezes num painel
+        #   que nao tinha como saber.
+        "services/com/src/servicos/reminders/metricas.ts",
     )
 
     #: O que fazer quando este teste ficar vermelho. Vai na mensagem de erro,

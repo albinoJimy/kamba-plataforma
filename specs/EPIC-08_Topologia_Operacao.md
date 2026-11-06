@@ -564,16 +564,31 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > `tools/obs_lint/contar_metricas.py`, e a prosa que o cita está em
 > `../docs/observabilidade.md` §2.1.
 >
-> **E um caso de outra natureza, que não é o destes dois:** o **KAM-055** trouxe um
-> `services/com/src/payments/metricas.ts` de **um** nome, e as declaradas
-> passaram de 122 a **123**. Esta é importada e **servida** — o consumidor de
-> pagamentos expõe-na no seu `/metrics` —, ao contrário das duas acima. O que
-> ela não é é **alcançável**: o `scrape_config` do `com` aponta para a 3002 e
-> aquele processo serve na 3013, e acrescentar um alvo para um processo que o
-> `compose` não levanta produz o `up 0` permanente que o critério 4 deste
-> ticket recusa. A caixa «Custo e métricas» daquele ticket fica devolvida por
-> isso, com credor **KAM-080** — isto é, com credor **este** ticket. Nenhuma
-> caixa deste epic muda.
+> **E uma terceira, com uma diferença de sítio:** o **KAM-048** trouxe um
+> `services/com/src/servicos/reminders/metricas.ts` de **três** nomes, e as
+> declaradas passaram de 122 a **125**, outra vez com as servidas e as
+> alcançáveis nas mesmas. Os dois anteriores eram biblioteca em
+> `packages/core-ts`; este vive **dentro de um serviço** que não o expõe —
+> quem vai ligar o módulo dos lembretes é o KAM-071. «Está dentro de um
+> serviço» não quer dizer «é servido», e o inventário do `obs_lint` foi outra
+> vez o que o apanhou.
+>
+> **Sem ordinal, de propósito.** A primeira versão desta nota dizia «o
+> primeiro» — uma afirmação sobre a ordem de fusão e não sobre o código, e o
+> KAM-055 trouxe um `services/com/src/payments/metricas.ts` pelo mesmo caminho,
+> e já está nesta árvore. A propriedade vale nas duas ordens; o ordinal não.
+>
+> **E o KAM-055 fundiu com o caso paralelo que a nota acima nomeia**, pelo que a
+> classe tem dois membros. **O degrau dele é outro:** o
+> `services/com/src/payments/metricas.ts` traz **um** nome que **é** importado e
+> servido — o processo do consumidor de pagamentos expõe-no no seu `/metrics` —, e
+> o que lhe falta é ser **alcançável**, porque o `scrape_config` do `com` aponta
+> para a 3002 e aquele processo serve na 3013. Acrescentar um alvo para um
+> processo que o `compose` não levanta produz o `up 0` permanente que o critério 4
+> do KAM-076 recusa, pelo que a caixa «Custo e métricas» daquele ticket fica
+> devolvida com credor **KAM-080** — isto é, com credor **este** ticket. Medido
+> neste ramo com a `main` em `fe40048`: **22 módulos, 124 nomes**, 126 declaradas.
+> Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara

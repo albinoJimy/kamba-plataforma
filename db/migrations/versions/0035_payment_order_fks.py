@@ -288,7 +288,7 @@ FKS = (
     (REEMBOLSOS, FK_DOS_REEMBOLSOS),
 )
 
-#: **Uma ressalva do passo (7), registada como divida 199.** O passo tira da
+#: **Uma ressalva do passo (7), registada como divida 200.** O passo tira da
 #: cobranca o `tenant_id`, o `provider`, a `referencia` e a `currency` — o que o
 #: passo (5) chama «da cobranca e nao do chamador» —, mas o `valor_minor` do
 #: `payload` vem do `p_valor_minor`, que a porta so confronta com o
