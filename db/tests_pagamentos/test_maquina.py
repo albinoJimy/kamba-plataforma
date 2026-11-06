@@ -303,6 +303,29 @@ class TestReconstrucao(ComLedger):
                         if tipo == "pagamento_recebido"
                         else None
                     ),
+                    # **O `pagamento_divergente` passa a trazer motivo**, desde
+                    # a revisao `0035` (KAM-055). Ele e um dos sete pares que o
+                    # mapa do *outbox* mapeia — para `payment.failed` —, e
+                    # aquele contrato exige o campo `motivo`; a
+                    # `payment_evt_payload` recusa um nulo em vez de publicar um
+                    # envelope que o esquema rejeita. O valor e um dos tres que
+                    # o secao 5 da a uma divergencia (`entidade`, `valor`,
+                    # `referencia`), e o gerador escrevia `None` — que e um
+                    # evento de falha sem razao, e isso o secao 5 nunca produz.
+                    #
+                    # **E o valor e `valor_divergente` e nao `valor`.** O
+                    # `p_motivo` viaja para o `motivo_falha` da cobranca no
+                    # passo (6b), e o `payment_charges_motivo_falha_ck` fecha
+                    # essa coluna nos **nove** `MOTIVOS_DE_FALHA` da `0029` —
+                    # que usam a forma longa. A forma curta do secao 5 da
+                    # `23514`, e foi assim que se mediu: o secao 5 e o DDL nao
+                    # escrevem o mesmo vocabulario, e quem manda na coluna e o
+                    # DDL.
+                    p_motivo=(
+                        "valor_divergente"
+                        if tipo == "pagamento_divergente"
+                        else None
+                    ),
                 )
                 estado = seguinte
             self.confirmar(cursor, self.tenant)
