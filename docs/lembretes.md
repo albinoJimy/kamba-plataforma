@@ -249,6 +249,18 @@ se o volume a tornar lenta, e a alternativa é a coluna que hoje se recusa.
 chaves de idempotência diferentes — logo duas mensagens e não uma.** Não é um
 defeito deste ticket e não se corrige aqui; fica registado com a medição.
 
+E tem uma causa documental, que é o que torna isto previsível em vez de
+acidental: **dois documentos dão o consumo ao AGR e o ticket dá os módulos ao
+COM.** O [`tecnica/03_Core_Comercio_Medusa.md`](tecnica/03_Core_Comercio_Medusa.md)
+§12 escreve, na linha de `booking.reminder_due`, «`AGR` (mensagem livre ou
+*template utility*)», e o [`eventos.md`](eventos.md) dá-lhe consumidor `AGR`; os
+Detalhes Técnicos do KAM-048 escrevem «Módulos
+`services/com/servicos/reminders/{schedule,deliver,template}`». O ticket
+prevalece — é o nível 8 da ordem de fontes e os dois documentos são o nível 9 —,
+e foi por isso que a entrega se fez no COM. Mas o §12 já tinha levado o KAM-038 a
+escrever texto para o par no AGR, e é daí que vêm os dois caminhos. A metade
+textual está na dívida **194**; a metade que é decisão é a desta secção.
+
 | Caminho | Chave | O que envia |
 |---|---|---|
 | AGR, vertical Serviços (KAM-038) | `{consumer}:{event_id}:{accao}` — a forma do §6.3, fixada no §3.5 do dicionário (`notificacao.py`, `chave_da_accao`) | Texto fixo **sem números**: «Lembramos a sua marcação. Se precisar de mudar, diga-nos.» (`handlers.py`, `TEXTOS`) |
