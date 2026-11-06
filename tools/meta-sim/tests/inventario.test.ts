@@ -172,8 +172,48 @@ describe("o inventario deste repositorio", () => {
     // KAM-115, o KAM-112, o KAM-053, o KAM-044 e este —, e a quinta em que o
     // autor verificou os nove portoes que corre nesta maquina e nao podia ver
     // este: o `ci-7-meta` corre por `pnpm`, que aqui nao existe.
-    assert.equal(totalDeclarado(), 115);
-    assert.equal(INVENTARIO.length, 33);
+    //
+    // **124 em 35 ficheiros desde o KAM-100**, e as nove que entram sao os
+    // canarios de dois ensaios do spike H3: **oito** no da privacidade e **uma**
+    // no do extractor. Sao as quatro grafias do canario — uma delas a contar
+    // duas vezes, porque a forma com o `244` junto ao movel casa os **dois**
+    // padroes —, mais as tres com separadores pelo meio que a guarda do
+    // `id_opaco` tem de descartar, mais o valor de ataque da chave `fase`.
+    //
+    // O ticket pede «um teste de que o resultado nao contem texto de
+    // mensagens», e esse teste escrito ao pe da letra — comparar nomes de campo
+    // com uma lista — fica verde com uma mensagem inteira guardada num campo
+    // chamado `nota`. O ensaio mede por isso a **forma dos valores**, e para
+    // isso precisa de uma entrada com telefones de forma angolana: sem eles
+    // provava que o detector apanha numeros que nao se parecem com telefones,
+    // que e o contrario do que ele existe para fazer. E a mesma forma de
+    // argumento das entradas do `sms.privacidade.test.ts` e do
+    // `contract_diff/tests/test_pii.py`.
+    //
+    // **Esta e a primeira vez nesta lista em que o gate nao apanhou o autor**, e
+    // vale a pena registar porque e a licao que o paragrafo anterior deixou
+    // escrita: o `ci-7-meta` corre por `pnpm`, que nesta maquina nao existe,
+    // pelo que o autor do KAM-100 reimplementou os dois padroes de `numeros.ts`
+    // em Python, varreu a arvore e confrontou-a com o inventario antes de abrir
+    // o PR — **34 ficheiros, 120 ocorrencias, 0 divergencias** — e **leu este
+    // ensaio** em vez de o correr. Foi a leitura, e nao a medicao, que apanhou
+    // este par de numeros: uma arvore conforme com um total desactualizado aqui
+    // deixava o gate 7 vermelho na mesma.
+    //
+    // **E o mesmo defeito apareceu duas vezes no proprio ticket**: literais com
+    // forma de telefone escritos **dentro de prosa** — a primeira versao da
+    // entrada do KAM-100 tinha-os no comentario de `inventario.ts`, que **nao
+    // tem entrada propria**, e a `ANALISE-52` tinha-os no corpo do documento. As
+    // duas vezes apareceu ao **re-medir a arvore**, e nao a ler. Os dois sitios
+    // descrevem agora as formas sem as escrever, e a razao e a mesma: um
+    // comentario nao esta a testar nada, e declarar numeros que nao testam nada
+    // e o contrario do que esta lista e.
+    //
+    // **As duas entradas do spike morrem com ele.** O `spikes/h3/` e
+    // descartavel e o `confrontar` recusa entrada morta, pelo que quem apagar a
+    // pasta apaga as entradas e baixa estes dois numeros no mesmo PR.
+    assert.equal(totalDeclarado(), 124);
+    assert.equal(INVENTARIO.length, 35);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {
