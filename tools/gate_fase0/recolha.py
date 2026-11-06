@@ -350,10 +350,15 @@ def tabela_de_decisoes(linhas: Sequence[LinhaDeDecisao], prefixo: str = "") -> s
     """A tabela do G0-7, gerada do manifesto.
 
     `prefixo` é o que se põe antes de cada caminho para a ligação resolver de
-    onde a tabela vai ser colada — `../../../` para um documento em
-    `docs/tecnica/evidencia/validacao/`. Existe para que a tabela do documento
-    seja **esta** tabela e não uma cópia com os caminhos corrigidos à mão: duas
-    cópias divergem, e a que alguém lê é a que não tem ensaio.
+    onde a tabela vai ser colada. Para um documento em
+    `docs/tecnica/evidencia/validacao/` são **quatro** níveis — `../../../../` —,
+    e não três: o *docstring* dizia três, o que resolveria para `docs/docs/…` e
+    dava uma ligação quebrada. Achado da revisão adversarial, e o ensaio que o
+    fixava estava a consagrar o valor errado.
+
+    Existe para que a tabela do documento seja **esta** tabela e não uma cópia
+    com os caminhos corrigidos à mão: duas cópias divergem, e a que alguém lê é a
+    que não tem ensaio.
     """
     saida = [
         "| # | Assunto | Tickets | Estado | Plano ou pivô | Evidência | Credor |",

@@ -57,8 +57,29 @@ def movel_de_forma_real() -> str:
     return "+244 " + "9" + "12345678"
 
 
+def movel_com_separadores() -> str:
+    """`923 456 789` — a grafia que **nenhum** dos três primeiros detectores apanha.
+
+    Foi a revisão adversarial a medi-la: um `tel 923 456 789` atravessava os
+    detectores inteiros, porque o `TELEFONE_AO` exige o indicativo, o
+    `E164_ENTRE_ASPAS` exige as aspas e o `+`, e o `MOVEL_LOCAL` exige os nove
+    dígitos juntos. Monta-se, como os outros, para não deixar literal na árvore.
+    """
+    return "9" + "23 " + "456 " + "789"
+
+
+def wamid_em_claro() -> str:
+    """Um `wamid`, que o `docs/logs.md` §2.1 recusa pelo nome.
+
+    O que está codificado inclui o número do interlocutor, e um varrimento por
+    `9\\d{8}` não o vê porque em base64 não há ali nove dígitos. Monta-se da mesma
+    forma: o valor existe durante o ensaio e nunca é escrito.
+    """
+    return "wamid." + "MjQ0OTIzNDU2Nzg5OkFCQ0RFRjAxMjM="
+
+
 def conteudo_de_conversa() -> str:
-    """Uma frase com espaços e acentos: o que o terceiro detector tem de apanhar."""
+    """Uma frase com espaços e acentos: o que o detector de alfabeto apanha."""
     return "bom dia, queria dois pães e uma água, pode ser?"
 
 
@@ -142,6 +163,48 @@ class TestOsDetectoresMordem(unittest.TestCase):
     def test_o_detector_nao_dispara_num_id_opaco(self) -> None:
         self.assertEqual(traco.detectar(MENSAGEM), [])
 
+    def test_o_detector_apanha_o_movel_com_separadores(self) -> None:
+        """A grafia que os três primeiros deixavam passar, medida em revisão.
+
+        O `TELEFONE_AO` exige o indicativo, o `E164_ENTRE_ASPAS` exige as aspas e
+        o `+`, e o `MOVEL_LOCAL` exige os nove dígitos juntos — pelo que
+        `923 456 789` atravessava os três.
+        """
+        self.assertIn(
+            "movel_com_separadores", traco.detectar(movel_com_separadores())
+        )
+
+    def test_o_detector_apanha_as_tres_grafias_de_separador(self) -> None:
+        for separador in (" ", ".", "-"):
+            with self.subTest(separador=separador):
+                nu = "9" + "23" + separador + "456" + separador + "789"
+                self.assertIn("movel_com_separadores", traco.detectar(nu))
+
+    def test_o_detector_apanha_o_wamid(self) -> None:
+        """O `docs/logs.md` §2.1 recusa-o pelo nome; aqui recusa-se pela forma."""
+        self.assertIn("wamid", traco.detectar(wamid_em_claro()))
+
+    def test_o_separador_nao_dispara_num_uuid(self) -> None:
+        """O par positivo do separador, e não é decoração: um UUID tem hífenes.
+
+        Um detector que disparasse sobre um UUID punha o traço a recusar a sua
+        própria saída, e o modo de falha era indistinguível de uma fuga.
+        """
+        self.assertEqual(traco.detectar(TENANT), [])
+        self.assertEqual(traco.detectar(PEDIDO), [])
+
+    def test_a_regra_dos_sete_digitos_conta_onde_eles_estejam(self) -> None:
+        """A regra do `docs/logs.md` §2, nas quatro arrumações que ele nomeia."""
+        for valor in ("923.456.789", "ok_923_456_789", "923456__789", "a923_b456_c789"):
+            with self.subTest(valor=valor):
+                self.assertEqual(traco.digitos_de_mais(valor), 9)
+
+    def test_a_regra_dos_sete_digitos_deixa_passar_um_identificador_normal(self) -> None:
+        """O par positivo: `http_404` e `v2` são identificadores, não telefones."""
+        for valor in ("agr_servicos", "http_404", "v2", "sha256", "paga"):
+            with self.subTest(valor=valor):
+                self.assertEqual(traco.digitos_de_mais(valor), 0)
+
     def test_o_intervalo_ficticio_dispara_e_e_dito(self) -> None:
         """Um `999…` **também** dispara, e isso é uma propriedade e não um bug.
 
@@ -160,13 +223,23 @@ class TestOControloNegativo(unittest.TestCase):
         self.raiz = Path(self.pasta.name)
         self.addCleanup(self.pasta.cleanup)
         self.sujas = cadeia_limpa()
-        # As quatro formas em que isto chega na vida real, uma por linha:
-        # um campo de texto livre, um telefone num campo que não existe na lista,
-        # o telefone dentro de uma estrutura, e um campo com nome inocente.
+        # As formas em que isto chega na vida real, uma por linha: um campo de
+        # texto livre, um telefone num campo fora da lista, o telefone dentro de
+        # uma estrutura, e um campo com nome inocente.
         self.sujas[0]["texto"] = conteudo_de_conversa()
         self.sujas[1]["telefone"] = movel_de_forma_real()
         self.sujas[2]["cliente"] = {"wa_id": movel_de_forma_real()}
         self.sujas[3]["nota"] = f"{conteudo_de_conversa()} {movel_de_forma_real()}"
+        # **E as quatro que a primeira versão deste controlo não tinha, e que a
+        # revisão adversarial mediu a passar:** o sujo no **nome da chave**, que
+        # é dado de entrada e saía em claro pelo `Descarte.chave`. As quatro
+        # nomeiam o que sai por ali — conteúdo, telefone com separadores (que
+        # nenhum dos três primeiros detectores apanha), `wamid` em claro, e um
+        # nome que casa a forma de identificador e leva nove dígitos.
+        self.sujas[0][conteudo_de_conversa()] = 1
+        self.sujas[1][f"tel {movel_com_separadores()}"] = 1
+        self.sujas[2][wamid_em_claro()] = 1
+        self.sujas[3]["tel_" + "9" + "23456789"] = 1
         self.entrada = _escrever(self.raiz, "sujo.jsonl", self.sujas)
 
     def test_a_entrada_tem_mesmo_conteudo_e_telefone(self) -> None:
@@ -194,8 +267,24 @@ class TestOControloNegativo(unittest.TestCase):
         saida = traco.como_texto(cadeias)
         self.assertEqual(traco.detectar(saida), [])
         self.assertNotIn(conteudo_de_conversa(), saida)
+        self.assertNotIn("456 789", saida)
+        self.assertNotIn("wamid", saida)
 
-    def test_as_quatro_chaves_sujas_ficam_descartadas_e_contadas(self) -> None:
+    def test_a_entrada_tem_as_quatro_grafias_que_o_controlo_precisa(self) -> None:
+        """O canário da entrada, agora sobre as quatro formas e não só uma.
+
+        Sem esta metade, o ensaio acima fica verde porque a entrada não tinha
+        nada para fugir — que é exactamente o que a revisão adversarial mediu na
+        primeira versão deste controlo.
+        """
+        bruto = self.entrada.read_text(encoding="utf-8")
+        disparados = set(traco.detectar(bruto))
+        self.assertIn("telefone_ao", disparados)
+        self.assertIn("movel_com_separadores", disparados)
+        self.assertIn("wamid", disparados)
+        self.assertIn(conteudo_de_conversa(), bruto)
+
+    def test_as_chaves_sujas_ficam_descartadas_e_contadas(self) -> None:
         """Descartadas **e contadas**: um descarte calado é uma fuga que ninguém vê.
 
         A contagem é o que diz ao operador que a entrada traz campos a mais — e
@@ -203,7 +292,38 @@ class TestOControloNegativo(unittest.TestCase):
         """
         _, descartes = traco.tracar([self.entrada])
         chaves = sorted(descarte.chave for descarte in descartes)
-        self.assertEqual(chaves, ["cliente", "nota", "telefone", "texto"])
+        limpas = [c for c in chaves if not c.startswith("(chave recusada")]
+        self.assertEqual(limpas, ["cliente", "nota", "telefone", "texto"])
+        self.assertEqual(len(chaves), 8, "as oito chaves sujas têm de ser contadas")
+
+    def test_o_nome_da_chave_suja_nao_sai_em_claro(self) -> None:
+        """**O achado da revisão adversarial, em forma de ensaio.**
+
+        A chave é dado de entrada, e a primeira versão punha o nome cru na saída:
+        saíam por ali uma frase de conversa, um telefone na grafia com espaços e
+        um `wamid` em claro. Agora fica o **comprimento** e mais nada — não se
+        apara nem se trunca, porque o `docs/logs.md` §1 ponto 3 proíbe a redacção
+        parcial.
+        """
+        _, descartes = traco.tracar([self.entrada])
+        recusadas = [d.chave for d in descartes if d.chave.startswith("(chave recusada")]
+        self.assertEqual(len(recusadas), 4, recusadas)
+        for chave in recusadas:
+            self.assertEqual(traco.detectar(chave), [])
+            self.assertNotIn("quero", chave)
+            self.assertNotIn("wamid", chave)
+            self.assertNotIn("456", chave)
+
+    def test_um_nome_de_chave_limpo_continua_a_sair(self) -> None:
+        """O par positivo: sem ele, redigir **tudo** passava este ensaio.
+
+        Um descarte cujo nome não se possa ler deixa de dizer ao operador que
+        campo é que a entrada trouxe a mais, e era essa a utilidade do descarte.
+        """
+        _, descartes = traco.tracar([self.entrada])
+        chaves = {d.chave for d in descartes}
+        self.assertIn("telefone", chaves)
+        self.assertIn("cliente", chaves)
 
     def test_a_razao_do_descarte_nao_leva_o_valor(self) -> None:
         """A razão vai para a saída; se levasse o valor, levava o telefone."""
@@ -262,6 +382,33 @@ class TestAGuardaDaForma(unittest.TestCase):
         self.assertEqual([d.chave for d in descartes], ["ts"])
         self.assertEqual(len(cadeias), 1)
 
+    def test_um_consumer_com_nove_digitos_e_descartado_pela_regra_do_logs(self) -> None:
+        """**O achado A1 da revisão adversarial, na segunda barreira.**
+
+        `tel_923456789` casa o `IDENTIFICADOR` — é palavras em minúsculas
+        separadas por `_` — e saía em claro. A regra dos sete dígitos do
+        `docs/logs.md` §2 é o que o recusa, e o módulo citava essa política como
+        fundamento sem a implementar.
+        """
+        linhas = [{"tenant_id": TENANT, "consumer": "tel_" + "9" + "23456789"}]
+        caminho = _escrever(self.raiz, "consumer.jsonl", linhas)
+        cadeias, descartes = traco.tracar([caminho])
+        self.assertEqual([d.chave for d in descartes], ["consumer"])
+        self.assertIn("9 dígitos", descartes[0].razao)
+        self.assertEqual(cadeias[0].consumidores, ())
+
+    def test_a_regra_dos_sete_digitos_nao_morde_as_formas_fechadas(self) -> None:
+        """O limite que o próprio §2 escreve, e sem o qual a cadeia não passava.
+
+        «Não vale para os campos de forma fechada — um UUID e um `m_…` são
+        hexadecimais, e têm os dígitos que tiverem.» Sem este par positivo, a
+        regra recusava todos os identificadores da cadeia.
+        """
+        caminho = _escrever(self.raiz, "fechadas.jsonl", cadeia_limpa())
+        cadeias, descartes = traco.tracar([caminho])
+        self.assertEqual(descartes, [])
+        self.assertTrue(cadeias[0].completa(), cadeias[0].em_falta)
+
     def test_um_tipo_de_evento_com_maiusculas_e_descartado(self) -> None:
         linhas = [{"tenant_id": TENANT, "tipo": "Payment.Confirmed"}]
         caminho = _escrever(self.raiz, "tipo.jsonl", linhas)
@@ -299,6 +446,49 @@ class TestAGuardaDaForma(unittest.TestCase):
 
 class TestAGuardaFinalDaSaida(unittest.TestCase):
     """A terceira barreira existe porque as duas primeiras são código editável."""
+
+    def test_o_caminho_de_texto_corre_a_mesma_guarda_que_o_json(self) -> None:
+        """**O achado mais grave da revisão adversarial, em forma de ensaio.**
+
+        A guarda vivia dentro do `como_json`, e o `como_texto` — que é o caminho
+        de **omissão** do `cli.py` e o comando que o guião do operador dá — não
+        corria guarda nenhuma. A mesma entrada dava duas respostas opostas.
+
+        Mede-se com a mutação: alarga-se a forma de uma chave que chega à saída, e
+        exige-se que **os dois** caminhos recusem. Antes da correcção, só o JSON
+        recusava.
+        """
+        for como, nome in ((traco.como_json, "como_json"), (traco.como_texto, "como_texto")):
+            with self.subTest(saida=nome):
+                self.assertRaises(
+                    traco.ConteudoRecusado,
+                    *self._mutado(movel_de_forma_real(), como),
+                )
+
+    def _mutado(self, valor: str, como):
+        """Devolve `(funcao, *args)` para o `assertRaises`, com a forma alargada.
+
+        Separado do `_com_o_order_id_largo` porque aquele devolve a mensagem e
+        este precisa de passar a chamada ao `assertRaises` — e porque a mutação
+        tem de estar **activa** no momento da chamada, não no momento em que se
+        monta o argumento.
+        """
+        original = dict(traco.PERMITIDOS)
+        larga = dict(original)
+        larga["order_id"] = traco.Forma(
+            "larga", lambda v: isinstance(v, str), "qualquer texto"
+        )
+        traco.PERMITIDOS = larga  # type: ignore[misc]
+        self.addCleanup(lambda: setattr(traco, "PERMITIDOS", original))
+        pasta = TemporaryDirectory()
+        self.addCleanup(pasta.cleanup)
+        caminho = _escrever(
+            Path(pasta.name), "largo.jsonl", [{"tenant_id": TENANT, "order_id": valor}]
+        )
+        cadeias, descartes = traco.tracar([caminho])
+        if como is traco.como_json:
+            return (como, cadeias, descartes)
+        return (como, cadeias)
 
     def _com_o_order_id_largo(self, valor: str):
         """Alarga a forma de uma chave que **chega à saída**, e devolve o traço.

@@ -51,9 +51,21 @@ class TestOsComandosQueSoImprimem(unittest.TestCase):
         self.assertIn("7 linha(s), 0 `confirmada`(s)", saida)
 
     def test_decisoes_com_prefixo_resolve_do_documento(self) -> None:
-        codigo, saida, _ = _correr(["decisoes", "--prefixo", "../../../"])
+        """E o prefixo é o **real**, com os quatro níveis, não um qualquer.
+
+        A primeira versão deste ensaio usava `../../../` — três — e consagrava o
+        valor errado do *docstring*: a partir de
+        `docs/tecnica/evidencia/validacao/`, três níveis dão `docs/`, pelo que a
+        ligação saía `docs/docs/tecnica/…` e estava quebrada. Achado da revisão
+        adversarial. Agora o ensaio **resolve o caminho** em vez de só procurar o
+        prefixo no texto.
+        """
+        codigo, saida, _ = _correr(["decisoes", "--prefixo", "../../../../"])
         self.assertEqual(codigo, cli.SAIDA_CONFORME)
-        self.assertIn("(../../../docs/", saida)
+        self.assertIn("(../../../../docs/", saida)
+        documento = cli._raiz_por_omissao() / "docs/tecnica/evidencia/validacao"
+        alvo = (documento / "../../../../docs/logs.md").resolve()
+        self.assertTrue(alvo.is_file(), f"o prefixo não resolve: {alvo}")
 
     def test_decisoes_com_manifesto_quebrado_sai_um(self) -> None:
         with TemporaryDirectory() as pasta:

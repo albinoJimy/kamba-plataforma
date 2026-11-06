@@ -287,10 +287,20 @@ class TestOManifestoDasDecisoes(unittest.TestCase):
                 recolha.ler_decisoes(RAIZ, caminho)
 
     def test_a_tabela_leva_o_prefixo_para_a_ligacao_resolver(self) -> None:
-        """A tabela do documento é **esta** tabela, não uma cópia corrigida à mão."""
+        """A tabela do documento é **esta** tabela, não uma cópia corrigida à mão.
+
+        E o prefixo verifica-se **a resolver o caminho**, não a procurar o texto:
+        a primeira versão usava três níveis e passava, apesar de três níveis a
+        partir de `docs/tecnica/evidencia/validacao/` darem uma ligação quebrada.
+        """
+        prefixo = "../../../../"
         linhas, _ = recolha.ler_decisoes(RAIZ)
-        tabela = recolha.tabela_de_decisoes(linhas, "../../../")
-        self.assertIn("(../../../docs/tecnica/evidencia/validacao/", tabela)
+        tabela = recolha.tabela_de_decisoes(linhas, prefixo)
+        self.assertIn(f"({prefixo}docs/tecnica/evidencia/validacao/", tabela)
+        documento = RAIZ / "docs/tecnica/evidencia/validacao"
+        for linha in linhas:
+            with self.subTest(linha=linha.id):
+                self.assertTrue((documento / (prefixo + linha.onde)).resolve().is_file())
 
     def test_a_tabela_sem_prefixo_e_relativa_a_raiz(self) -> None:
         linhas, _ = recolha.ler_decisoes(RAIZ)

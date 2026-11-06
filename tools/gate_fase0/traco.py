@@ -76,12 +76,49 @@ from contract_diff.pii import E164_ENTRE_ASPAS, TELEFONE_AO
 #: dígitos que tiverem (`docs/logs.md` §7, ponto 3).
 MOVEL_LOCAL = re.compile(r"(?<![0-9a-zA-Z])9[0-9]{8}(?![0-9a-zA-Z])")
 
-#: Os três detectores, pela ordem em que se corre.
+#: Um móvel com separadores — `923 456 789`, `923.456.789`, `923-456-789`.
+#:
+#: **Nenhum dos três de cima o apanha**, e foi a revisão adversarial a medi-lo:
+#: um `tel 923 456 789` atravessava os detectores inteiros. O `docs/logs.md` §2
+#: já tinha a resposta certa para esta classe — «sete ou mais dígitos no total
+#: recusam o valor, estejam onde estiverem» —, e é essa a regra que o
+#: `digitos_de_mais` implementa para os valores de forma aberta; este padrão é a
+#: mesma pergunta feita sobre um texto corrido, onde não há «valor» nenhum para
+#: contar dígitos.
+MOVEL_COM_SEPARADORES = re.compile(r"(?<![0-9a-zA-Z])9[0-9]{2}[ .\-][0-9]{3}[ .\-][0-9]{3}(?![0-9a-zA-Z])")
+
+#: Um `wamid` em claro.
+#:
+#: O `docs/logs.md` §2.1 recusa-o **pelo nome** porque o que está codificado
+#: inclui o número do interlocutor, e o varrimento X-11 «descodifica o que tiver
+#: cara de base64 e procura lá dentro». Aqui recusa-se pela forma do valor, que
+#: é a régua deste módulo — e recusa-se **antes** de descodificar, porque a
+#: decisão não depende do que esteja lá dentro: um `wamid` em claro não entra num
+#: ficheiro de evidência, tenha o que tiver.
+WAMID = re.compile(r"wamid\.[A-Za-z0-9+/=_-]{8,}")
+
+#: Os detectores, pela ordem em que se corre.
 DETECTORES: Sequence[tuple[str, re.Pattern[str]]] = (
     ("telefone_ao", TELEFONE_AO),
     ("e164_entre_aspas", E164_ENTRE_ASPAS),
     ("movel_local", MOVEL_LOCAL),
+    ("movel_com_separadores", MOVEL_COM_SEPARADORES),
+    ("wamid", WAMID),
 )
+
+#: Quantos dígitos, no total, recusam um valor de forma **aberta**.
+#:
+#: É a regra do `docs/logs.md` §2, à letra: «sete ou mais dígitos no total
+#: recusam o valor, estejam onde estiverem. Apanha o telefone, o NIF, o IBAN e a
+#: referência de pagamento em qualquer arrumação que caiba no alfabeto do campo
+#: (`923.456.789`, `ok_923_456_789`, `923456__789`, `a923_b456_c789`), sem ser
+#: preciso saber o formato de nenhum deles.»
+#:
+#: E o mesmo §2 escreve o limite que a torna aplicável: «**não vale para os
+#: campos de forma fechada** — um UUID e um `m_…` são hexadecimais, e têm os
+#: dígitos que tiverem». Daí a `Forma` ter de dizer se é fechada: sem essa
+#: distinção, a regra recusava todos os identificadores da cadeia.
+DIGITOS_DE_MAIS = 7
 
 #: O alfabeto de um valor **estrutural**: hexadecimais, dígitos, hífenes,
 #: sublinhados, pontos, dois-pontos, o `+` e as letras minúsculas e maiúsculas de
@@ -131,11 +168,21 @@ class EloEmFalta(LookupError):
 
 @dataclasses.dataclass(frozen=True)
 class Forma:
-    """A forma exacta que o valor de uma chave tem de ter."""
+    """A forma exacta que o valor de uma chave tem de ter.
+
+    `fechada` diz se a forma é **exacta** — um UUID, um `m_…`, um carimbo
+    ISO-8601 — ou **aberta**, isto é, se admite um conjunto de valores que não se
+    pode enumerar (um identificador, um nome de evento). A distinção não é
+    cosmética: é ela que decide se a regra dos sete dígitos do `docs/logs.md` §2
+    se aplica, e o próprio §2 diz que não vale «para os campos de forma fechada».
+    Sem ela a regra recusava todos os identificadores da cadeia, que são
+    hexadecimais e têm os dígitos que tiverem.
+    """
 
     nome: str
     aceita: Callable[[Any], bool]
     descricao: str
+    fechada: bool = True
 
 
 def _casa(padrao: re.Pattern[str]) -> Callable[[Any], bool]:
@@ -153,9 +200,14 @@ FORMA_UUID_OU_OPACO = Forma(
     lambda v: FORMA_UUID.aceita(v) or FORMA_ID_OPACO.aceita(v),
     "UUID canónico ou `m_` e 32 hexadecimais (`docs/logs.md` §2)",
 )
-FORMA_TIPO = Forma("tipo_de_evento", _casa(TIPO_DE_EVENTO), "`dominio.acontecimento`")
+FORMA_TIPO = Forma(
+    "tipo_de_evento", _casa(TIPO_DE_EVENTO), "`dominio.acontecimento`", fechada=False
+)
 FORMA_IDENTIFICADOR = Forma(
-    "identificador", _casa(IDENTIFICADOR), "palavras em minúsculas separadas por `_`"
+    "identificador",
+    _casa(IDENTIFICADOR),
+    "palavras em minúsculas separadas por `_`",
+    fechada=False,
 )
 FORMA_CARIMBO = Forma("carimbo", _casa(CARIMBO), "ISO-8601 em UTC com sufixo `Z`")
 FORMA_CONTAGEM = Forma("contagem", _inteiro_nao_negativo, "inteiro >= 0")
@@ -231,27 +283,85 @@ def detectar(texto: str) -> list[str]:
     return [nome for nome, padrao in DETECTORES if padrao.search(texto)]
 
 
+def digitos_de_mais(valor: str) -> int:
+    """Quantos dígitos tem o valor, se forem **sete ou mais**; senão, zero.
+
+    A regra do `docs/logs.md` §2, e só se aplica a valores de forma **aberta**
+    (ver `Forma.fechada`). Conta os dígitos onde eles estejam, pelo que apanha
+    `923.456.789`, `ok_923_456_789` e `a923_b456_c789` sem precisar de conhecer o
+    formato de nenhum deles — que é precisamente o argumento do §2.
+    """
+    quantos = sum(1 for caractere in valor if caractere.isdigit())
+    return quantos if quantos >= DIGITOS_DE_MAIS else 0
+
+
+#: O que fica no lugar do nome de uma chave que não tem forma de nome de chave.
+#:
+#: **A chave é dado de entrada, e isso escapou à primeira versão deste módulo** —
+#: achado da revisão adversarial, reproduzido: um `log` com a chave
+#: `"Ola quero duas pizzas ... o meu numero e 923 456 789"` punha a frase inteira
+#: na saída, pelo campo `Descarte.chave`, porque o nome nunca passava por forma
+#: nenhuma. Saíam por ali três coisas que este módulo existe para retirar:
+#: conteúdo de conversa, um telefone na grafia com espaços, e um `wamid` em claro.
+#:
+#: Não se apara nem se trunca — o `docs/logs.md` §1 ponto 3 proíbe a redacção
+#: parcial, e por boa razão: um telefone com asteriscos ainda é um telefone. Fica
+#: **o comprimento**, que é o que diz ao operador que havia ali uma chave sem
+#: dizer o que ela era.
+CHAVE_RECUSADA = "(chave recusada, {n} caracteres)"
+
+
+def chave_segura(chave: str) -> str:
+    """O nome da chave, se ele tiver forma de nome de chave; senão, o comprimento.
+
+    A forma exigida é a do `IDENTIFICADOR` mais a regra dos sete dígitos: um nome
+    de campo é uma palavra, e uma frase, um `wamid` ou um telefone não são.
+    """
+    if FORMA_IDENTIFICADOR.aceita(chave) and not digitos_de_mais(chave):
+        return chave
+    return CHAVE_RECUSADA.format(n=len(chave))
+
+
 def _reduzir(
     bruta: Mapping[str, Any], origem: str, numero: int, descartes: list[Descarte]
 ) -> Mapping[str, Any]:
     campos: dict[str, Any] = {}
     for chave, valor in bruta.items():
         forma = PERMITIDOS.get(chave)
+        # **A chave é dado de entrada e passa por forma**, como o valor. Ver o
+        # `chave_segura`: a primeira versão deste módulo punha o nome cru na
+        # saída, e por ali saíam conteúdo, telefone e `wamid`.
+        segura = chave_segura(chave)
         if forma is None:
             descartes.append(
-                Descarte(origem, numero, chave, "a chave não está na lista fechada")
+                Descarte(origem, numero, segura, "a chave não está na lista fechada")
             )
             continue
+        razao_digitos = ""
         if forma.aceita(valor):
-            campos[chave] = valor
-            continue
-        razao = (
+            # A regra dos sete dígitos do `docs/logs.md` §2, **só** nas formas
+            # abertas. Sem ela, um `consumer` com a forma `tel_923456789` casava
+            # o `IDENTIFICADOR` e saía em claro — medido em revisão adversarial.
+            quantos = (
+                digitos_de_mais(valor)
+                if not forma.fechada and isinstance(valor, str)
+                else 0
+            )
+            if not quantos:
+                campos[chave] = valor
+                continue
+            razao_digitos = (
+                f"o valor casa a forma `{forma.nome}` e tem {quantos} dígitos: a "
+                f"regra do `docs/logs.md` §2 recusa {DIGITOS_DE_MAIS} ou mais, "
+                "estejam onde estiverem"
+            )
+        razao = razao_digitos or (
             f"o valor não casa a forma `{forma.nome}` ({forma.descricao}); "
             f"comprimento {len(str(valor))}"
         )
         if chave in ELOS:
-            raise ConteudoRecusado(f"{origem}:{numero}: `{chave}`: {razao}")
-        descartes.append(Descarte(origem, numero, chave, razao))
+            raise ConteudoRecusado(f"{origem}:{numero}: `{segura}`: {razao}")
+        descartes.append(Descarte(origem, numero, segura, razao))
     return campos
 
 
@@ -414,6 +524,23 @@ def como_json(cadeias: Sequence[Cadeia], descartes: Sequence[Descarte]) -> str:
         },
     }
     texto = json.dumps(documento, ensure_ascii=False, indent=2, sort_keys=True)
+    return _exigir_saida_limpa(texto, cadeias)
+
+
+def _exigir_saida_limpa(texto: str, cadeias: Sequence[Cadeia]) -> str:
+    """A guarda da saída, e corre nos **dois** caminhos de saída.
+
+    **Era aqui o buraco, e o caminho furado era o de omissão.** A primeira versão
+    tinha esta guarda dentro do `como_json`, e o `como_texto` — que é o que o
+    `cli.py` usa **sem** `--json`, e é o comando que o guião do operador dá —
+    não corria guarda nenhuma. Achado da revisão adversarial, reproduzido: a
+    mesma entrada dava duas respostas opostas, com o telefone a sair em claro no
+    modo de texto e a saída a ser recusada no modo JSON.
+
+    A lição não é «faltava uma chamada»: é que **uma guarda que vive num dos dois
+    caminhos de saída não é uma guarda**, e a forma de o impedir é haver um só
+    funil. Daí esta função existir e as duas saídas passarem por ela.
+    """
     disparados = detectar(texto)
     if disparados:
         raise ConteudoRecusado(
@@ -461,7 +588,12 @@ def _identificadores(cadeia: Cadeia) -> Iterable[tuple[str, str]]:
 
 
 def como_texto(cadeias: Sequence[Cadeia]) -> str:
-    """O traço para a folha do operador: uma linha por elo, por identificadores."""
+    """O traço para a folha do operador: uma linha por elo, por identificadores.
+
+    **Passa pela mesma guarda que o `como_json`**, e a razão está escrita no
+    `_exigir_saida_limpa`: este é o caminho de **omissão** do `cli.py`, e era o
+    que estava sem guarda nenhuma.
+    """
     linhas: list[str] = []
     for cadeia in cadeias:
         linhas.append(f"tenant {cadeia.tenant_id}")
@@ -478,7 +610,7 @@ def como_texto(cadeias: Sequence[Cadeia]) -> str:
         linhas.append(f"  marcacao            {cadeia.booking_id or '— nao criada'}")
         if cadeia.em_falta:
             linhas.append(f"  ELOS EM FALTA: {', '.join(cadeia.em_falta)}")
-    return "\n".join(linhas)
+    return _exigir_saida_limpa("\n".join(linhas), cadeias)
 
 
 def tracar(caminhos: Sequence[Path]) -> tuple[list[Cadeia], list[Descarte]]:

@@ -160,10 +160,15 @@ entrada que não serve, que é um problema de quem corre e não um resultado da
 demonstração.
 
 O traço **não emite conteúdo nem telefone**, e isso está provado por controlo
-negativo e não por promessa: alimentado com um *log* que leva conteúdo e um
-telefone de forma real, a saída não leva nenhum dos dois, e os detectores correm
-**primeiro sobre a entrada** como canário. Ver o
-[`README`](../../../../tools/gate_fase0/README.md) do pacote.
+negativo e não por promessa: alimentado com um *log* que leva conteúdo, um
+telefone de forma real, um telefone na grafia `923 456 789` e um `wamid` — nos
+valores **e nos nomes das chaves** —, a saída não leva nenhum deles, e os
+detectores correm **primeiro sobre a entrada** como canário. **E a guarda corre
+nos dois caminhos de saída, o de texto e o de `--json`**: uma revisão adversarial
+mediu que ela vivia só no de JSON, pelo que o comando desta secção — que é o de
+omissão — não corria guarda nenhuma. Ver o
+[`README`](../../../../tools/gate_fase0/README.md) do pacote e o §9.3 da
+[`Gate_Fase0.md`](Gate_Fase0.md).
 
 ---
 

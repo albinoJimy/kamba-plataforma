@@ -58,12 +58,40 @@ cd tools && PYTHONPATH=. python -m gate_fase0 traco ../logs.jsonl ../base.jsonl
 Três barreiras impedem conteúdo e telefone de sair, e a terceira existe porque as
 duas primeiras são código que alguém pode alargar sem reparar:
 
-1. **lista fechada** — uma chave fora dela é descartada e **contada**;
+1. **lista fechada** — uma chave fora dela é descartada e **contada**; e **o nome
+   da chave também passa por forma**, porque a chave é dado de entrada: um nome
+   que não seja um identificador é substituído pelo seu **comprimento**;
 2. **forma do valor** — não o nome da chave: uma guarda por nome fica verde com
    uma mensagem inteira num campo chamado `nota`, `ref` ou `fase` (foi um achado
-   de revisão adversarial no KAM-100);
-3. **guarda da saída** — os três detectores de telefone sobre o texto todo, e o
-   alfabeto estrutural sobre os campos que vêm da entrada.
+   de revisão adversarial no KAM-100). Mais a regra do `docs/logs.md` §2 nas
+   formas **abertas**: **sete ou mais dígitos recusam o valor**, estejam onde
+   estiverem;
+3. **guarda da saída** — os cinco detectores sobre o texto todo e o alfabeto
+   estrutural sobre os campos que vêm da entrada, num **só funil** por onde
+   passam as **duas** saídas, a de texto e a de JSON.
+
+### As três fugas que uma revisão adversarial mediu, e o que elas ensinam
+
+As três estavam fechadas no caminho de JSON e abertas no resto. Ficam escritas
+porque a lição não é «faltava uma chamada»:
+
+- **a guarda vivia só no `como_json`**, e o `como_texto` — o caminho de
+  **omissão** do `cli.py`, e o comando que o guião do operador dá — não corria
+  guarda nenhuma. A mesma entrada dava duas respostas opostas. **Uma guarda que
+  vive num dos dois caminhos de saída não é uma guarda**, e a forma de o impedir
+  é haver um só funil;
+- **o nome da chave descartada saía em claro**, e por ali saíam uma frase de
+  conversa, um telefone na grafia `923 456 789` e um `wamid`. A chave era o único
+  dado de entrada que não passava por forma nenhuma;
+- **o `IDENTIFICADOR` admitia nove dígitos** (`tel_923456789`), pelo que a
+  segunda barreira era mais fraca do que a política que este módulo cita como
+  fundamento. A regra dos sete dígitos do `docs/logs.md` §2 estava citada e não
+  implementada.
+
+E o controlo negativo não as apanhava porque **o valor sujo nunca chegava à
+superfície que ele afirmava estar limpa**: as quatro chaves sujas tinham nomes
+limpos e estavam todas fora da lista fechada. Hoje são oito, e quatro delas sujam
+o **nome**.
 
 **Os carimbos não entram como inteiro**, e a razão é o telefone: nove dígitos são
 um carimbo Unix **e** um móvel angolano, pelo que um campo `int` aceitaria um
@@ -103,9 +131,18 @@ O `ci/canon-lint.yaml` tem uma **sentinela** para `*.sql` em qualquer sítio: um
 `.sql` tem de ser superfície de DDL do *gate* 3b ou estar declarado fora de
 âmbito. Estas consultas não são DDL — são leitura —, e declará-las fora de âmbito
 era pedir uma dispensa a um portão para um ficheiro que não é do género que ele
-verifica. Ficam como texto do `consulta.py`, com ensaio a exigir que nenhuma
-projecte uma coluna que leve conteúdo, telefone ou um resumo invertível, nos
-**dois** lados: a tupla declarada e o `SELECT` que corre.
+verifica. Ficam como texto do `consulta.py`, com ensaio a exigir que a projecção de cada
+consulta seja **exactamente** a tupla que ela declara — nos **dois** lados, a
+declaração e o `SELECT` que corre.
+
+**E é uma *allowlist*, não uma lista de proibidas.** Era uma lista de quinze
+nomes, e a revisão adversarial mediu o que ela deixava passar: um `SELECT *` — que
+traz o `envelope` com ele — e qualquer coluna de texto livre fora da lista
+(`motivo`, por exemplo). Era a forma de guarda que o `traco.py` argumenta contra
+por extenso, usada no módulo vizinho. A pergunta inverteu-se: em vez de «esta
+coluna é proibida?», **«esta coluna foi declarada?»**. A lista de proibidas fica
+como segunda barreira com mensagem própria, porque é ela que diz *porque* é que
+uma coluna não devia estar lá.
 
 ---
 

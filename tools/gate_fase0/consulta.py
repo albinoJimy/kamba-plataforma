@@ -170,25 +170,89 @@ class ProjeccaoProibida(AssertionError):
     """Uma consulta projecta uma coluna que leva conteúdo ou telefone."""
 
 
-def verificar() -> None:
-    """Nenhuma consulta projecta uma coluna proibida, nem no SQL nem nas colunas.
+#: A forma de um nome de coluna na lista de projecção.
+#:
+#: Minúsculas, dígitos e sublinhados, começando por letra. É o que exclui o `*`,
+#: o `tabela.*`, uma subconsulta e uma expressão — tudo o que não seja um nome de
+#: coluna que se possa confrontar com a tupla declarada.
+_NOME_DE_COLUNA = re.compile(r"^[a-z][a-z0-9_]*$")
 
-    Verificam-se **os dois** e não só a tupla `colunas`: a tupla é a declaração e
-    o SQL é o que corre, e uma coluna acrescentada ao `SELECT` sem entrar na
-    tupla é exactamente a divergência que uma declaração não apanha.
+
+def verificar() -> None:
+    """A projecção de cada consulta é **exactamente** a tupla que ela declara.
+
+    **Isto era uma *denylist* de quinze nomes, e a revisão adversarial mediu o
+    que ela deixava passar: um `SELECT *` e uma coluna de texto livre fora da
+    lista (`motivo`).** A forma errada era a do nome de campo — precisamente a
+    que o *docstring* do `traco.py` argumenta contra por extenso —, e a correcção
+    é inverter a pergunta: em vez de «esta coluna é proibida?», **«esta coluna foi
+    declarada?»**. Uma *allowlist* erra para o lado certo: uma coluna nova é
+    recusada por omissão, e o pior que acontece é alguém ter de a declarar.
+
+    Verificam-se **os dois lados**: a tupla é a declaração e o SQL é o que corre,
+    e qualquer divergência entre eles é achado. A lista `PROIBIDAS` **fica**, como
+    segunda barreira com mensagem própria: é ela que diz *porque* é que uma
+    coluna não devia estar lá, o que uma ausência da tupla não diz.
     """
     for consulta in CONSULTAS:
+        declaradas = set(consulta.colunas)
         for coluna in consulta.colunas:
             if coluna in PROIBIDAS:
                 raise ProjeccaoProibida(
                     f"a consulta `{consulta.nome}` declara `{coluna}`, que leva "
                     "conteúdo, telefone ou um resumo invertível"
                 )
+        projectadas = colunas_do_select(consulta.sql, consulta.nome)
+        a_mais = projectadas - declaradas
+        if a_mais:
+            raise ProjeccaoProibida(
+                f"o SQL da consulta `{consulta.nome}` projecta "
+                f"{sorted(a_mais)}, que não está na tupla `colunas`"
+            )
+        em_falta = declaradas - projectadas
+        if em_falta:
+            raise ProjeccaoProibida(
+                f"a consulta `{consulta.nome}` declara {sorted(em_falta)} e o "
+                "SQL não as projecta: a declaração e o que corre divergem"
+            )
         for proibida in sorted(PROIBIDAS):
             if _no_select(consulta.sql, proibida):
                 raise ProjeccaoProibida(
                     f"o SQL da consulta `{consulta.nome}` selecciona `{proibida}`"
                 )
+
+
+def colunas_do_select(sql: str, nome: str) -> set[str]:
+    """As colunas da lista de projecção, e **recusa** o que não for um nome.
+
+    Um `*`, um `tabela.*`, uma expressão ou uma subconsulta não se conseguem
+    confrontar com a tupla declarada — e um `SELECT *` traz todas as colunas da
+    tabela, `envelope` incluído. Recusam-se em vez de se ignorarem: um verificador
+    que salta o que não entende é um verificador que fica verde no caso que
+    importa.
+    """
+    inicio = sql.upper().find("SELECT")
+    fim = sql.upper().find("FROM")
+    if inicio < 0 or fim < 0:
+        raise ProjeccaoProibida(
+            f"a consulta `{nome}` não tem `SELECT … FROM`: não é uma leitura"
+        )
+    projeccao = sql[inicio + len("SELECT") : fim]
+    colunas: set[str] = set()
+    for pedaco in projeccao.split(","):
+        limpo = pedaco.strip()
+        if not limpo:
+            raise ProjeccaoProibida(
+                f"a consulta `{nome}` tem um elemento vazio na projecção"
+            )
+        if not _NOME_DE_COLUNA.match(limpo):
+            raise ProjeccaoProibida(
+                f"a consulta `{nome}` projecta `{limpo}`, que não é um nome de "
+                "coluna. Um `*` ou uma expressão não se confrontam com a tupla "
+                "declarada, e um `SELECT *` traz o `envelope` com ele"
+            )
+        colunas.add(limpo)
+    return colunas
 
 
 def _no_select(sql: str, coluna: str) -> bool:
