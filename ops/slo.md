@@ -189,11 +189,24 @@ com duas janelas, sobre a *fixture* `fixtures/janelas-de-exemplo.yml`.
 
 **Dois limites:**
 
-1. **«Afectou mensagens» mede um predicado mais fraco do que o pedido.** O sinal
-   é `increase(gwy_shed_total[30m]) > 0`: vê os pedidos que **nós** descartámos
-   estando em pé, não os que nunca chegaram porque o ingress estava em baixo — que
-   é precisamente o caso de uma janela. O predicado completo é o que a sonda
-   externa responderia (credores **D1/KAM-105** e **KAM-069**).
+1. **«Afectou mensagens» é, no caso comum, incondicional** — e a consequência
+   está escrita aqui porque a primeira versão deste documento dizia o limite e
+   não tirava dele a conclusão. O sinal é `increase(gwy_shed_total[30m]) > 0`:
+   vê os pedidos que **nós** descartámos estando em pé. Com o GWY em baixo **não
+   existe série** `gwy_shed_total`; o `increase` sobre série ausente devolve
+   **nada**, o `or vector(0)` dá **0**, e a janela é julgada «não afectou
+   mensagens». Para uma janela que derrube o ingress — o caso normal — esta
+   condição responde **sempre «não»**, e o «**só** se afectarem mensagens» do
+   §10 fica sem efeito prático.
+
+   **Fica assim e não se «corrige», por uma razão.** A isenção é uma afirmação de
+   quem anunciou a janela, e esta pilha só a pode **refutar**, nunca confirmar: a
+   prova de que mensagens se perderam com o ingress em baixo está **fora** da
+   pilha, e é o que a sonda externa responderia (credores **D1/KAM-105** e
+   **KAM-069**). Inverter o omisso — contar sempre — tornaria a regra do critério
+   6 letra morta pelo outro lado. O que torna a afirmação auditável é o anúncio
+   ser um **commit**, e o relatório mensal ter uma coluna para ela
+   ([`slo-relatorio-modelo.md`](slo-relatorio-modelo.md) §4).
 2. **A lista de janelas anunciadas está vazia**, em
    [`../infra/compose/prometheus/regras/kamba-manutencao.yml`](../infra/compose/prometheus/regras/kamba-manutencao.yml),
    porque nenhuma janela foi anunciada — não há produção nem *staging*. Anunciar

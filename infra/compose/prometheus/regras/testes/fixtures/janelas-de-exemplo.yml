@@ -13,16 +13,29 @@
 #
 # As duas janelas, em segundos do epoch UTC:
 #
-#   janela A   2 000 - 3 800     (1 800 s = 30 min)
-#   janela B   10 000 - 11 800   (1 800 s = 30 min)
+#   janela A   1 800 - 3 600     (1 800 s = 30 min)
+#   janela B   9 000 - 10 800    (1 800 s = 30 min)
 #
 # Nao se sobrepoem, pelo que a soma dos dois termos e 0 ou 1 e nunca 2 — que e a
 # invariante de que a regra de isencao do `kamba-slo.yml` depende (ela compara
 # `slo_manutencao_anunciada == 1`).
+#
+# ## PORQUE E QUE OS QUATRO INSTANTES SAO MULTIPLOS DE 30 S
+#
+# Para que as **fronteiras** se possam consultar. Uma *recording rule* so deixa
+# amostra nos instantes de avaliacao (aqui 30 s), pelo que uma fronteira que
+# caia no vao entre dois nunca e afirmada — e a primeira versao desta *fixture*
+# usava 2 000 e 3 800, que nao sao multiplos de 30: a varredura de mutacao
+# mostrou que trocar o `>=` por `>` no inicio **sobrevivia**, porque nenhum
+# ensaio consultava o instante exacto do inicio.
+#
+# Com as fronteiras na grelha, o `kamba_manutencao_test.yml` consulta-as:
+# 1 800 s tem de dar **1** (inicio **inclusive**) e 3 600 s tem de dar **0**
+# (fim **exclusivo**).
 
 groups:
   - name: janelas-de-exemplo
     interval: 30s
     rules:
       - record: slo_manutencao_anunciada
-        expr: 'vector(((time() >= bool 2000) * (time() < bool 3800)) + ((time() >= bool 10000) * (time() < bool 11800)))'
+        expr: 'vector(((time() >= bool 1800) * (time() < bool 3600)) + ((time() >= bool 9000) * (time() < bool 10800)))'

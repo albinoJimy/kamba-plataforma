@@ -587,10 +587,39 @@ class TestRepositorio(_ComCopia):
         )
         self.assertEqual(expressoes, ['m_base_total{contact_id="x"}'])
 
+    #: Os quatro que o criterio 6 do KAM-080 nomeia, e so esses.
+    PAINEIS_DO_CRITERIO_6 = {"caminho-de-venda", "meta", "pagamentos", "infraestrutura"}
+
+    #: Os que outros tickets acrescentaram, com o ticket ao lado. **A lista
+    #: continua fechada de proposito:** este teste e um inventario, e um painel
+    #: que apareca sem passar por aqui e um painel que ninguem reivindicou.
+    PAINEIS_DE_OUTROS_TICKETS = {
+        "orcamento-de-erro": "KAM-082",
+    }
+
     def test_os_quatro_paineis_do_criterio_6_existem(self) -> None:
         nomes = {p.stem for p in (RAIZ / lint.PAINEIS).glob("*.json")}
+        self.assertTrue(
+            self.PAINEIS_DO_CRITERIO_6 <= nomes,
+            f"faltam do criterio 6: {self.PAINEIS_DO_CRITERIO_6 - nomes}",
+        )
+
+    def test_nenhum_painel_sem_ticket_que_o_reivindique(self) -> None:
+        """O inventario fechado, agora em duas partes em vez de uma lista.
+
+        A versao anterior era um `assertEqual` com os quatro nomes do criterio 6,
+        e ficou **vermelha** quando o KAM-082 acrescentou um quinto painel — um
+        gate 4 vermelho por um painel legitimo. Partir em duas afirmacoes mantem
+        as duas coisas que o teste fazia: o criterio 6 continua a ser exigido
+        pelo nome, e um painel que apareca sem dono continua a falhar.
+        """
+        nomes = {p.stem for p in (RAIZ / lint.PAINEIS).glob("*.json")}
+        conhecidos = self.PAINEIS_DO_CRITERIO_6 | set(self.PAINEIS_DE_OUTROS_TICKETS)
         self.assertEqual(
-            nomes, {"caminho-de-venda", "meta", "pagamentos", "infraestrutura"}
+            nomes,
+            conhecidos,
+            "um painel novo entra na tabela `PAINEIS_DE_OUTROS_TICKETS` com o "
+            "ticket que o criou; um que desapareca sai de la",
         )
 
 

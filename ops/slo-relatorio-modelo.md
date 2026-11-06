@@ -45,12 +45,21 @@ Um *burn* sem causa raiz nomeada é um item em aberto, não uma linha preenchida
 
 ## 4. Janelas de manutenção
 
-| Janela | Início–fim (UTC) | Fora de 06:00–22:00 UTC? | Afectou mensagens? | Contou para o orçamento? |
-|---|---|---|---|---|
-| `<1>` | `<…>` | sim / não | sim / não | sim / não |
+| Janela | Início–fim (UTC) | Anunciada? | Fora de 06:00–22:00 UTC? | Afectou mensagens? | Contou para o orçamento? |
+|---|---|---|---|---|---|
+| `<1>` | `<…>` | sim / não | sim / não | sim / não | sim / não |
 
-As três colunas do meio são as três condições do critério 6. Qualquer «não» na
-primeira ou «sim» na segunda faz a última ser «sim».
+**As colunas 3, 4 e 5 são as três condições** do critério 6 — anunciada, fora do
+horário comercial, não afectou mensagens. A isenção exige as **três**: um «não»
+na 3 ou na 4, ou um «sim» na 5, faz a última coluna ser «sim». (A primeira versão
+desta tabela tinha quatro colunas e dizia «as três do meio são as três
+condições»: faltava a coluna **anunciada**, e «início–fim» não é condição.)
+
+**A coluna 5 é a que o relatório existe para preencher**, e preenche-se **à mão**.
+A plataforma só consegue *refutar* a isenção (`gwy_shed_total` a subir com o
+ingress em pé); com o ingress em baixo ela responde sempre «não» — ver
+[`slo.md`](slo.md) §5, limite 1. Quem anunciou a janela é quem responde aqui, e é
+esta linha que torna essa afirmação auditável.
 
 ## 5. Os sete SLI que não se mediram
 

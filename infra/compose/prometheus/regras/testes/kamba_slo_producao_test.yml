@@ -1,0 +1,83 @@
+# Os dois ficheiros de regras de PRODUCAO, juntos — KAM-082, criterio 6.
+#
+# ## PORQUE E QUE ESTE FICHEIRO EXISTE
+#
+# **Porque sem ele o `kamba-manutencao.yml` nao estava sob ensaio nenhum, e a
+# revisao adversarial mediu-o.** Os outros ficheiros de ensaio ou carregam a
+# *fixture* (`kamba_manutencao_test.yml`) ou **injectam**
+# `slo_manutencao_anunciada` como serie de entrada (`kamba_slo_burn_test.yml`) —
+# pelo que o valor do ficheiro que o Prometheus vai mesmo carregar nao era
+# afirmado em sitio nenhum.
+#
+# O que isso deixava passar, medido: trocar o `vector(0)` de producao por
+# `vector(1)` punha **toda** a indisponibilidade nocturna sem *shed* em isencao,
+# e os quatro ficheiros de ensaio continuavam verdes, com o `promtool check
+# rules` e o `obs_lint` a dizer SUCCESS. E o modo de falha pior desta familia:
+# um orcamento de erro que para de contar, sem um unico teste vermelho.
+#
+# E e um risco **vivo** e nao teorico, porque o procedimento documentado para
+# anunciar uma janela e **editar aquela expressao** (cabecalho do
+# `../kamba-manutencao.yml`): um termo sem o `(time() < bool FIM)`, ou uma janela
+# que ninguem retire, tem o mesmo efeito.
+#
+# ## O QUE ESTE FICHEIRO AFIRMA, E O QUE NAO
+#
+# Afirma a **composicao dos dois ficheiros de producao**: a bandeira vale 0, e
+# por isso nada e isento. Nao substitui o `kamba_slo_burn_test.yml`, que mede o
+# que a isencao **faz** quando a bandeira vale 1 — para isso ela tem de ser
+# injectada, e injecta-la exige nao carregar este `kamba-manutencao.yml`.
+#
+# Sao as duas metades da mesma pergunta, e nenhuma serve sem a outra.
+#
+# Nota sobre o `hour()`: o `eval_time` conta do epoch, logo
+# `hour() = (eval_time / 1h) % 24`. Aos **100 min** da `hour() = 1`, **fora** do
+# horario comercial (06-22 UTC = 07-23 WAT) — que e o cenario em que a isencao
+# teria efeito, se houvesse janela anunciada.
+
+rule_files:
+  - ../kamba-slo.yml
+  - ../kamba-manutencao.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: "producao: a lista de janelas anunciadas esta vazia — a bandeira vale 0"
+    input_series:
+      - series: 'up{job="prometheus",instance="127.0.0.1:9090"}'
+        values: '1+0x200'
+    promql_expr_test:
+      - expr: slo_manutencao_anunciada
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_manutencao_anunciada'
+            value: 0
+      # E a invariante de que a regra de isencao depende: nunca 1.
+      - expr: slo_manutencao_anunciada == 1
+        eval_time: 100m
+        exp_samples: []
+
+  - interval: 1m
+    name: "producao: de noite, com o ingress em baixo e sem janela anunciada, o tempo conta"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x80 0+0x40 1+0x40'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x170'
+      - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x170'
+    promql_expr_test:
+      # Hora 1 UTC, GWY em baixo, zero *shed*: as duas primeiras condicoes da
+      # isencao estao satisfeitas e a da **janela anunciada** nao esta. O tempo
+      # tem de contar — e e isto que fica vermelho se a bandeira de producao
+      # deixar de valer 0.
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+      - expr: slo_caminho_de_venda_bom
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_bom'
+            value: 0

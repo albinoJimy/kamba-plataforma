@@ -74,6 +74,17 @@ tests:
         exp_samples:
           - labels: 'slo_caminho_de_venda_ratio_30d'
             value: 0.9993055555555556
+      # A janela do contador de amostras, prendida pelo **valor**. Uma janela de
+      # alcance e aberta a esquerda — `(T-30d, T]` —, logo a 30 min por amostra
+      # da **1 440** e nao 1 441. Sem esta afirmacao, trocar o `[30d]` por `[15d]`
+      # no `count_over_time` sobrevivia a todos os ensaios (medido na varredura
+      # de mutacao), e e precisamente este contador que existe para avisar que a
+      # janela esta incompleta.
+      - expr: slo_caminho_de_venda_amostras_30d
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_amostras_30d'
+            value: 1440
 
   # ======================================================== o controlo
   #

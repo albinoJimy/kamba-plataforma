@@ -354,6 +354,17 @@ metricas:
       precisa.
     etiquetas: []
 
+  - nome: slo_caminho_de_venda_amostras_30d
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      Quantas amostras a janela de 30 dias tem de facto. A 30 s por avaliacao uma
+      janela completa tem 86 400; muito menos quer dizer que o orcamento foi
+      calculado sobre menos de 30 dias — sem erro e sem outro aviso.
+    etiquetas: []
+
   - nome: slo_caminho_de_venda_burn_1h
     tipo: gauge
     fonte: infra/compose/prometheus/regras/kamba-slo.yml
@@ -414,7 +425,14 @@ series_do_criterio_2:
       **O p95 nao e computavel.** O AGR nao tem histogramas, por decisao do
       ADR-018 escrita em `metricas.py`; o `agr_turn_latency_ms` e o valor do
       ultimo turno. Um quantil exige `_bucket`, que so os modulos `avisos` e
-      `coexistencia` tem. Credor: KAM-082 (SLOs), que e quem precisa do quantil.
+      `coexistencia` tem. **Credor: o fundador**, e nao o KAM-082 como esta linha
+      dizia ate 2026-11-06. O KAM-082 era o credor obvio — e quem precisa do
+      quantil — e mediu, ao operacionaliza-lo, que nao e trabalho de execucao:
+      dar histogramas ao AGR contraria o **ADR-018** («observabilidade leve»),
+      escrito no proprio `metricas.py`, e separar texto de voz exige uma etiqueta
+      de modalidade que nao existe, o que e emenda ao dicionario. Duas decisoes
+      de canon. A definicao do SLI, com numerador e denominador, fica em
+      `../slo.md` §2.2 linha 4 a espera dessa decisao.
 
   - serie: fila (profundidade e idade do mais antigo)
     estado: exposta

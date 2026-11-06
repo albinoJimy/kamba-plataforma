@@ -147,6 +147,137 @@ tests:
         alertname: orcamento_de_erro_burn_rapido
         exp_alerts: []
 
+  # ======================================= o `or vector(0)` do SLI de disponibilidade
+  #
+  # **O cabecalho do `kamba-slo.yml` dedica uma seccao a defender esta escolha e
+  # nenhum ensaio a exercitava** — medido pela revisao adversarial: trocar
+  # `or vector(0)` por `or vector(1)` deixava tudo verde. O mutante significa «um
+  # caminho de venda que o Prometheus nao ve conta como BOM», que e o
+  # enviesamento para o optimismo que o ticket diz ter evitado em tres sitios.
+  #
+  # Nenhuma serie `up` do GWY nem do AGR: so a do proprio Prometheus, que esta
+  # aqui para dar ao ensaio um intervalo de tempo.
+  - interval: 1m
+    name: "sem alvos do caminho de venda descobertos: conta como mau, nao como bom"
+    input_series:
+      - series: 'up{job="prometheus",instance="127.0.0.1:9090"}'
+        values: '1+0x100'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_bom
+        eval_time: 60m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_bom'
+            value: 0
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 60m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+
+  # ============================================= o AGR no numerador do SLI
+  #
+  # **Todos os outros casos derrubam o GWY**, pelo que uma gralha no *regex* que
+  # tirasse o AGR do SLI (`job=~"gwy|agr"` -> `job=~"gwy"`) nao era detectada: o
+  # «processar/responder» deixava de contar e nada ficava vermelho. Medido pela
+  # revisao adversarial. Aqui cai **so o AGR**.
+  - interval: 1m
+    name: "so o AGR em baixo: o caminho de venda conta como mau"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x30 0+0x30 1+0x40'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 45m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+      # O controlo, no mesmo caso: com os dois em pe, conta como bom.
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 20m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 0
+
+  # ============================== as janelas dos alertas, e nao so os limiares
+  #
+  # **O par 4 min / 5 min prende o limiar, nao a janela** — medido pela revisao
+  # adversarial: dobrar a janela (`[1h]` -> `[2h]`, `[6h]` -> `[12h]`) deixava os
+  # dois casos de fronteira a passar. E o argumento do `for: 0m` assenta em «a
+  # janela do `avg_over_time` **ja e** a duracao da condicao», o que exige
+  # prender a janela.
+  #
+  # A forma de a prender e uma falha **fora** da janela declarada e **dentro** da
+  # mutada, com silencio exigido.
+  - interval: 1m
+    name: "burn rapido: 12 min de falha ha mais de uma hora ficam fora da janela — calado"
+    input_series:
+      # Falha dos 95 aos 105 min. A janela de [1h] aos 180 min e [120, 180] e nao
+      # a ve. Uma de [2h] veria os 11 minutos maus: 11/216 = 0,0509 > 0,02.
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x94 0+0x10 1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x210'
+    alert_rule_test:
+      - eval_time: 180m
+        alertname: orcamento_de_erro_burn_rapido
+        exp_alerts: []
+
+  - interval: 1m
+    name: "burn lento: 105 min de falha ha mais de seis horas ficam fora da janela — calado"
+    input_series:
+      # Falha dos 100 aos 205 min. A janela de [6h] aos 720 min e [360, 720] e nao
+      # a ve. Uma de [12h] veria os 106 minutos maus: 106/216 = 0,49 > 0,05.
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x99 0+0x105 1+0x620'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x830'
+    alert_rule_test:
+      - eval_time: 720m
+        alertname: orcamento_de_erro_burn_lento
+        exp_alerts: []
+      - eval_time: 720m
+        alertname: orcamento_de_erro_burn_rapido
+        exp_alerts: []
+
+  # ================= a escala do *burn*, afirmada pelo valor e nao pelo alerta
+  #
+  # **Um alerta prende o par (limiar, escala) e nao cada um deles.** Medido pela
+  # revisao adversarial: trocar o divisor `216` por `200` deixava os casos de
+  # fronteira a passar, porque para a comparacao so a razao importa — qualquer
+  # divisor numa gama larga passava. Afirmar o **valor** da serie prende os tres
+  # numeros da escala (`60`, `360` e `216`) um a um.
+  #
+  # **E ao afirmar o valor aprendeu-se a identidade que o torna legivel**, que a
+  # primeira versao deste caso errou: uma janela de alcance do Prometheus e
+  # **aberta a esquerda** — `(T-1h, T]` —, logo tem 60 amostras a 1 min por
+  # amostra e nao 61. Com isso as duas contas colapsam na mesma:
+  #
+  #   burn_1h = (maus/60)  * 60/216  = maus / 216
+  #   burn_6h = (maus/360) * 360/216 = maus / 216
+  #
+  # Ou seja as duas series sao, as duas, **«minutos maus na janela a dividir por
+  # 216»** — que e exactamente a unidade que o criterio 4 escreve. Os 11 minutos
+  # maus deste caso cabem nas duas janelas, logo as duas valem 11/216.
+  - interval: 1m
+    name: "escala do burn: os valores das duas series, e nao so o lado do limiar"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x349 0+0x10 1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x460'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_burn_1h
+        eval_time: 360m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_burn_1h'
+            value: 0.05092592592592592
+      - expr: slo_caminho_de_venda_burn_6h
+        eval_time: 360m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_burn_6h'
+            value: 0.05092592592592592
   # ============================== criterio 6: janela 1 — isenta (as tres condicoes)
   #
   # Anunciada, fora do horario comercial (hora 1 UTC) e sem mensagens
@@ -220,6 +351,84 @@ tests:
     promql_expr_test:
       - expr: slo_caminho_de_venda_mau
         eval_time: 400m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+
+  # ============== criterio 6: as FRONTEIRAS do horario, nos dois sentidos
+  #
+  # **A conversao 07:00-23:00 WAT -> 06:00-22:00 UTC estava medida de um lado
+  # so** — medido pela revisao adversarial: havia dois instantes de consulta, a
+  # hora 1 (noite) e a hora 6 (fronteira inferior, por dentro), pelo que
+  # `>= 6`->`>= 5`, `< 22`->`< 23` e `< 22`->`< 21` **sobreviviam todas**. A
+  # fronteira das 22 UTC estava livre nos dois sentidos. Um erro de uma hora —
+  # tomar «23:00 WAT» por 23 UTC — isenta ou conta janelas inteiras, calado.
+  #
+  # Uma entrada so, tres instantes: o GWY em baixo o tempo todo, uma janela
+  # anunciada o tempo todo, zero *shed*. O que varia e a **hora**.
+  #
+  #   hora  5 (330 min)   fora do horario -> isenta  (mata `>= 6` -> `>= 5`)
+  #   hora 21 (1290 min)  dentro          -> conta   (mata `< 22`  -> `< 21`)
+  #   hora 22 (1350 min)  fora            -> isenta  (mata `< 22`  -> `< 23`)
+  #
+  # A hora 6, que mata `>= 6` -> `>= 7`, tem o caso proprio acima.
+  - interval: 1m
+    name: "fronteiras do horario: as horas 5 e 22 isentam, a 21 conta"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x1400'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x1400'
+      - series: 'slo_manutencao_anunciada'
+        values: '1+0x1400'
+      - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x1400'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 330m
+        exp_samples: []
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 1290m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 1350m
+        exp_samples: []
+
+  # ================ criterio 6: a JANELA de 30 min do sinal das mensagens
+  #
+  # **A janela do `increase(gwy_shed_total[30m])` nao estava prendida** — medido
+  # na varredura de mutacao: troca-la por `[5m]` sobrevivia a todos os ensaios.
+  # E uma calibracao com efeito: ela decide **quanto tempo depois** de um
+  # descarte a janela deixa de poder ser isenta.
+  #
+  # O caso poe o *shed* a subir **20 min antes** do instante consultado. A janela
+  # de `[30m]` ve-o, logo ha mensagens afectadas e a isencao cai; uma de `[5m]`
+  # nao o veria, e a janela era isenta.
+  - interval: 1m
+    name: "janela do shed: um descarte ha 20 min ainda conta como mensagens afectadas"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x60 0+0x60 1+0x60'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x190'
+      - series: 'slo_manutencao_anunciada'
+        values: '0+0x60 1+0x60 0+0x60'
+      # Sobe uma vez aos 80 min e fica. Aos 100 min o `increase` de [30m] ve a
+      # subida; o de [5m] nao.
+      - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x79 1+0x110'
+    promql_expr_test:
+      - expr: slo_mensagens_afectadas
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_mensagens_afectadas'
+            value: 1
+      # Hora 1 UTC e janela anunciada: as duas primeiras condicoes da isencao
+      # estao satisfeitas. O tempo conta por causa do descarte.
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 100m
         exp_samples:
           - labels: 'slo_caminho_de_venda_mau'
             value: 1

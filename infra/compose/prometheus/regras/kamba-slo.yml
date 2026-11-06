@@ -102,14 +102,32 @@ groups:
       - record: slo_caminho_de_venda_bom
         expr: 'min(up{job=~"gwy|agr"}) or vector(0)'
 
-      # Houve mensagens afectadas na ultima meia hora?
+      # Houve mensagens afectadas **observadas** na ultima meia hora?
       #
-      # **LIMITE, e e o limite da caixa do criterio 6.** Isto ve os pedidos que
-      # **nos** descartamos estando em pe (`gwy_shed_total`, saturacao da fila).
-      # **Nao ve** os pedidos que nunca chegaram porque o ingress estava em
-      # baixo — que e precisamente o caso de uma janela de manutencao. O
-      # predicado completo («a janela afectou mensagens?») e o que a sonda
-      # externa responderia, e ela nao existe: credor D1/KAM-105 e KAM-069.
+      # **LIMITE, e e o limite da caixa do criterio 6. A consequencia esta
+      # escrita porque a revisao adversarial a tirou e eu nao a tinha tirado.**
+      #
+      # Isto ve os pedidos que **nos** descartamos estando em pe
+      # (`gwy_shed_total`, saturacao da fila). **Nao ve** os pedidos que nunca
+      # chegaram porque o ingress estava em baixo — e esse e precisamente o caso
+      # de uma janela de manutencao.
+      #
+      # A consequencia, dita sem rodeios: com o GWY em baixo **nao existe serie**
+      # `gwy_shed_total`, o `increase` sobre serie ausente devolve **nada**, o
+      # `or vector(0)` da **0**, e a janela e julgada «nao afectou mensagens».
+      # Ou seja: para uma janela que derrube o ingress — o caso normal — esta
+      # condicao responde **sempre** «nao», e o «**so** se afectarem mensagens»
+      # do criterio 6 e, na pratica, **incondicional**.
+      #
+      # **Porque e que fica assim e nao se «corrige».** A isencao e uma
+      # afirmacao de quem anunciou a janela, e esta pilha so a pode **refutar**,
+      # nunca confirmar: a prova de que mensagens se perderam com o ingress em
+      # baixo esta **fora** da pilha, e e o que a sonda externa responderia
+      # (credores **D1/KAM-105** e **KAM-069**). Inverter o omisso — contar
+      # sempre — tornava a regra do criterio 6 letra morta pelo outro lado. O que
+      # torna a afirmacao auditavel e o anuncio ser um **commit**, e o relatorio
+      # mensal ter uma coluna para ela (`../../../../ops/slo-relatorio-modelo.md`
+      # §4). A caixa do criterio 6 fica **parcial** por isto, e nao por engano.
       #
       # `max` sem `by` reduz as replicas a uma serie sem etiquetas, para o
       # `unless on()` da regra seguinte casar.
@@ -144,6 +162,27 @@ groups:
       # A fraccao do orcamento de 216 min ja gasta. 1,0 = orcamento esgotado.
       - record: slo_caminho_de_venda_orcamento_consumido
         expr: 'avg_over_time(slo_caminho_de_venda_mau[30d]) / 0.005'
+
+      # Quantas amostras a janela de 30 dias tem **de facto**.
+      #
+      # **Isto existe porque a correccao da retencao fechou o tecto e deixou o
+      # chao aberto, e a revisao adversarial mediu-o.** O argumento que subiu a
+      # retencao de 15d para 31d — «um `avg_over_time(...[30d])` sobre 15 dias
+      # nao da erro, devolve a media das amostras que existem» — vale igual para
+      # um Prometheus que **arrancou ha tres dias**, ou para o volume
+      # `prometheus-data` recriado. Nesse caso o painel publica um «orcamento de
+      # 30 dias» calculado sobre 10% da janela, sem erro e sem indicador.
+      #
+      # Nao se corrige com uma guarda na regra: um orcamento sobre tres dias **e**
+      # a melhor estimativa que ha, e esconde-lo era pior. Corrige-se dizendo
+      # quantas amostras ele teve, ao lado do numero — que e o que o painel faz.
+      #
+      # **Nao se compara com um esperado aqui de proposito:** o esperado depende
+      # do `evaluation_interval` (86 400 amostras a 30 s), e uma constante aqui
+      # ficava a mentir no dia em que esse intervalo mudasse, sem nada a avisar.
+      # O valor esperado vive na descricao do painel, onde quem le o ve ao lado.
+      - record: slo_caminho_de_venda_amostras_30d
+        expr: 'count_over_time(slo_caminho_de_venda_mau[30d])'
 
       # O que o painel mostra: minutos de orcamento que sobram, de 216.
       #
