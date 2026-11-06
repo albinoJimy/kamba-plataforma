@@ -94,6 +94,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         log-lint money-lint env-lint x11 storage-contrato mermaid reuso \
         compose-prod-lint compose-prod-egress \
         obs-lint obs-promtool \
+        bloco-lint \
         ordem-dos-ensaios isolamento-a-seco
 
 ## help: lista os comandos disponiveis
@@ -592,6 +593,30 @@ compose-prod-lint:
 #     @$(MAKE) obs-lint
 #
 # Nada mais: o alvo ja corre o *lint* e o canario, pela ordem certa.
+
+## bloco-lint: coerencia interna de um bloco de ticket (KAM-183)
+#
+# **NAO esta ligado a portao nenhum, e e deliberado.** As duas superficies de um
+# bloco — a lista de caixas e a coluna `Estado` da tabela de verificacao — podem
+# discordar, e nenhum dos onze *jobs* de gate as compara. Este alvo compara-as.
+#
+# Ligar uma verificacao que trava fusoes e **alteracao de regra de bloqueio**,
+# pelos dois caminhos que esta casa ja conhece: um *job* novo acrescenta contexto
+# exigido ao *ruleset* de `main` e ao agregador «gates do KAM-002»; e uma linha
+# num alvo que **ja corre** muda o **criterio** de um portao que ja bloqueia — a
+# partir desse momento ele reprova arvores que antes aprovava. E a fronteira que
+# o KAM-080 respeitou ao entregar o `obs_lint` sem portao.
+#
+# Para ligar, quando essa decisao for tomada, e **uma linha** no `ci-3`:
+#
+#     @$(PYTHON) -m lint_bloco --root $(ROOT) check
+#
+# Nada mais: este alvo ja corre o *lint* e o canario, pela ordem certa. A razao,
+# a medicao e o credor estao em `docs/lint-bloco.md` §7.
+bloco-lint:
+	@echo "==> lint_bloco: as duas superficies de cada bloco de ticket"
+	@$(PYTHON) -m lint_bloco --root $(ROOT) check
+	@$(PYTHON) -m lint_bloco --root $(ROOT) canario
 
 ## obs-lint: cardinalidade de etiquetas e runbooks dos alertas (KAM-080)
 obs-lint:
