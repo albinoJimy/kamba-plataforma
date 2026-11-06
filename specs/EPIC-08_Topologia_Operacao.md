@@ -568,10 +568,15 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > `services/com/src/servicos/reminders/metricas.ts` de **três** nomes, e as
 > declaradas passaram de 122 a **125**, outra vez com as servidas e as
 > alcançáveis nas mesmas. Os dois anteriores eram biblioteca em
-> `packages/core-ts`; este é o primeiro módulo de métricas que vive **dentro
-> de um serviço** sem que esse serviço o exponha — quem vai ligar o módulo
-> dos lembretes é o KAM-071. «Está dentro de um serviço» não quer dizer «é
-> servido», e o inventário do `obs_lint` foi outra vez o que o apanhou.
+> `packages/core-ts`; este vive **dentro de um serviço** que não o expõe —
+> quem vai ligar o módulo dos lembretes é o KAM-071. «Está dentro de um
+> serviço» não quer dizer «é servido», e o inventário do `obs_lint` foi outra
+> vez o que o apanhou.
+>
+> **Sem ordinal, de propósito.** A primeira versão desta nota dizia «o
+> primeiro» — uma afirmação sobre a ordem de fusão e não sobre o código, e o
+> KAM-055 traz um `services/com/src/payments/metricas.ts` pelo mesmo caminho,
+> num PR aberto ao lado. A propriedade vale nas duas ordens; o ordinal não.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara

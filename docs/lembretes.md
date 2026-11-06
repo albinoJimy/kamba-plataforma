@@ -391,9 +391,20 @@ mesma regra); e o **comentário conta «os dois»** eventos de pagamento sem
 `notifica`, que passariam a três — o `lint_contagens` não lê comentários de YAML,
 pelo que nada apanha essa.
 
-**Ressalva de estado:** as edições (2) e (3) são escritas contra um mecanismo que
-**ainda não fundiu**. Se ele mudar de forma, as duas movem-se com ele; a (1) não.
-Quem executar confirma a forma contra a `main` do dia, e não contra esta lista.
+**As três são atómicas, e está medido.** O mecanismo do KAM-039 fundiu, e corri o
+`exigir_handlers` da `main` sobre o par nos quatro estados:
+
+| Estado do par | O arranque |
+|---|---|
+| como está hoje: `notifica: [cliente]`, no `TEXTOS`, sem credor | **aceita** |
+| só a (3): credor acrescentado, `notifica` a ficar | **recusa** (`diz_as_duas`) |
+| só as (1) e (2): fora do `TEXTOS`, sem `notifica`, sem credor | **recusa** (credor em falta) |
+| as **três** juntas | **aceita** |
+
+Logo a `main` de hoje é coerente — este PR não precisa de emenda nenhuma ao AGR, e
+uma entrada no `ACCOES_POR_LIGAR` sozinha seria um defeito e não precaução. E cada
+subconjunto próprio recusa por um motivo **diferente**: «andam juntas» é mais
+fraco do que o que se mede, e quem as prende é o arranque.
 
 **Hoje não há mensagem duplicada**, e por uma razão que não é desenho: o caminho
 do AGR não está ligado. A porta `OutboundPorLigar` devolve `sem_template`, o
@@ -496,3 +507,4 @@ com o critério 1 violado à letra.
 | 1.1 | Novembro 2026 | **Revisão adversarial: catorze achados, e dois faziam o módulo não enviar nada.** O §13 nasce porque faltava — a caixa da DoD que o invocava estava marcada com uma linha de evidência que apontava para secções que não diziam nem o corpo do *template* nem a política de antecedência; contado, zero ocorrências das três posições e do limiar de 2 h. O §5 passa a dizer a verdade inteira sobre a chave: ela é protegida das recusas **anteriores** à linha e não das posteriores, e um `repetido` lido como «enviado» era uma mensagem que nunca saiu contada como entregue. O §10 deixa de prometer um custo que a consulta inventava, e passa a ter duas consultas que não convertem categorias em dinheiro, as falhas a cobrir os dois estados terminais, e a limitação dita de que ninguém as executa. As correcções de código, os ensaios que entraram e o que a revisão deu por limpo estão no bloco do ticket em `../specs/EPIC-04_Core_Comercio.md`. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **Decisão do fundador: o caminho canónico é o do COM.** O §12 deixa de pôr a pergunta e passa a registar a resposta, com a razão (o critério 3, e o texto do AGR a não levar números por desenho), a distinção que faltava — as duas *chaves* são canónicas, o *caminho ao cliente* é que não eram dois — e a caixa devolvida: retirar a acção ao AGR é comportamento entregue do KAM-038, com o fundador por credor, e não se fez por âmbito **e** por uma colisão de escritores medida no *worktree* do `fix/KAM-039-ao-dono-no-registry`. Fica dito sem rodeios que, hoje, cada `booking.reminder_due` consumido pela vertical Serviços abre entrada na DLQ. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | **O §12 passa a levar a especificação executável da caixa devolvida.** Três edições, duas guardas de arranque, e duas consequências que a lista de três não cobria — o SemVer do registo e a contagem «os dois» no comentário do YAML. Com a ressalva de que duas das três são escritas contra um mecanismo que ainda não fundiu. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | **A ressalva do §12 passa a ser uma tabela de verdade.** O mecanismo do KAM-039 fundiu, e as quatro medições do `exigir_handlers` dizem que a `main` de hoje aceita, que as três edições juntas aceitam, e que **cada subconjunto próprio recusa** — por motivos diferentes. São atómicas, e não só «juntas». | Equipa KAMBÁ |

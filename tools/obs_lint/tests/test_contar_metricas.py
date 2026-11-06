@@ -214,10 +214,14 @@ class TestRepositorio(unittest.TestCase):
         # e o `sms` o segundo. Dois pormenores que o distinguem dos outros vinte
         # e um, e os dois sao o desenho e nao acidente:
         #
-        # * e o **primeiro modulo de metricas dentro de um servico** que nao e o
-        #   de exposicao dele. O `services/com/src/metricas.ts` serve a porta
-        #   `/metrics` e conta zero nomes; este declara tres e nao serve nada —
-        #   quem o expoe sera quem ligar o modulo (KAM-071);
+        # * vive **dentro de um servico** que nao o expoe, ao contrario dos dois
+        #   anteriores, que sao biblioteca em `packages/core-ts`. O
+        #   `services/com/src/metricas.ts` serve a porta `/metrics` e conta zero
+        #   nomes; este declara tres e nao serve nada — quem o expoe sera quem
+        #   ligar o modulo (KAM-071). **Sem ordinal de proposito:** a primeira
+        #   versao dizia «o primeiro», que e uma afirmacao sobre a ordem de
+        #   fusao e nao sobre o codigo, e o KAM-055 traz um `payments/metricas.ts`
+        #   pelo mesmo caminho num PR aberto ao lado;
         # * **nao tem contador de custo**, e e a ausencia que vale a pena nomear:
         #   o custo de um lembrete e o custo da mensagem que o Outbound enviou, e
         #   quem o acumula e o `meta_cost_usd_total` dele. Um segundo acumulador
