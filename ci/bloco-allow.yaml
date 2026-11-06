@@ -1,0 +1,114 @@
+# Blocos dispensados do `tools/lint_bloco` — KAM-183.
+#
+# **Isto e divida, nao conformidade.** E a mesma leitura que o
+# `ci/backlog-allow.yaml` escreve para si proprio: uma dispensa declarada e um
+# defeito que alguem reconheceu e deixou para depois, com o nome de quem o
+# reclama. Nao e uma excepcao a regra.
+#
+# ## PORQUE E QUE ESTAS SETE EXISTEM
+#
+# O *lint* nasce depois dos blocos. Medido sobre a `publico/main` em `74ddc23`:
+# **30 divergencias em 8 blocos**, de **81** emparelhados. Em **todas**, a caixa
+# esta por marcar e a tabela de verificacao daquele ticket diz `satisfeito` ou
+# `marcada` — a mesma forma exacta do escape que deu origem a este ticket.
+#
+# **Os numeros subiram de 29/7/53 depois da revisao adversarial**, e nao porque
+# a arvore mudasse: o *parser* passou a reconhecer o cabecalho `| CA | Estado |
+# Evidência |`, que **26** tabelas usam e que ele descartava. A cobertura passou
+# de 53 para 81 blocos emparelhados, e com ela apareceu o oitavo bloco.
+#
+# ## PORQUE E QUE NAO SE CORRIGEM AQUI
+#
+# Porque **a caixa segue a tabela, e a tabela e a evidencia daquele ticket e nao
+# deste**. Marcar as 29 caixas seria este ticket a decidir, por sete outros, que
+# a coluna de Estado deles esta certa — e a convencao que o manda fazer (o
+# KAM-080 e o KAM-082) nao esta ratificada: e o que o §5 do
+# `../docs/lint-bloco.md` devolve ao fundador, com a medicao das **52**
+# primeiras-palavras distintas que a coluna de Estado usa na arvore.
+#
+# Corrigir sem essa decisao seria propagar uma convencao por 29 caixas de sete
+# tickets alheios a pretexto de um *lint* novo.
+#
+# ## O QUE ACONTECE QUANDO UM BLOCO SAI DAQUI
+#
+# A dispensa e por **bloco** e nao por linha, de proposito: quem emendar um
+# destes blocos tira a linha daqui e o *lint* passa a cobri-lo por inteiro, sem
+# ficar a meio. Uma dispensa por linha convidava a emendar metade.
+#
+# E nenhuma leva prazo, ao contrario das do `backlog-allow.yaml`. Nao e
+# esquecimento: um prazo que ninguem pode cumprir sem a decisao do §5 e um prazo
+# que vence e se renova, e isso ensina a ignorar prazos. O gatilho e a decisao,
+# e esta nomeada.
+
+version: 1
+
+dispensas:
+  - bloco: KAM-031
+    divergencias: 6
+    onde: specs/EPIC-03_Agent_Runtime_Verticais.md
+    razao: >-
+      Seis criterios com a caixa por marcar e a tabela a dizer `satisfeito`
+      (quatro deles com prosa atras: «satisfeito, com a aritmetica corrigida»).
+      A tabela e a evidencia do KAM-031 e a decisao de marcar as caixas e de
+      quem governa a convencao, nao deste ticket.
+    credor: o fundador
+
+  - bloco: KAM-035
+    divergencias: 6
+    onde: specs/EPIC-03_Agent_Runtime_Verticais.md
+    razao: >-
+      Seis criterios com a caixa por marcar e a tabela a dizer `satisfeito`.
+    credor: o fundador
+
+  - bloco: KAM-037
+    divergencias: 4
+    onde: specs/EPIC-03_Agent_Runtime_Verticais.md
+    razao: >-
+      Quatro criterios com a caixa por marcar e a tabela a dizer `satisfeito`.
+    credor: o fundador
+
+  - bloco: KAM-042
+    divergencias: 1
+    onde: specs/EPIC-04_Core_Comercio.md
+    razao: >-
+      Um criterio com a caixa por marcar e a tabela a dizer `marcada` — e o unico
+      dos sete que usa a palavra `marcada` em vez de `satisfeito`, o que mostra
+      que a divergencia nao e de uma convencao so.
+    credor: o fundador
+
+  - bloco: KAM-075
+    divergencias: 4
+    onde: specs/EPIC-08_Topologia_Operacao.md
+    razao: >-
+      Quatro criterios com a caixa por marcar e a tabela a dizer `satisfeito`.
+      A tabela tem 7 linhas para 7 caixas, pelo que o emparelhamento e exacto e
+      a divergencia nao e do *parser*: verificada linha a linha.
+    credor: o fundador
+
+  - bloco: KAM-076
+    divergencias: 3
+    onde: specs/EPIC-08_Topologia_Operacao.md
+    razao: >-
+      Tres criterios com a caixa por marcar e a tabela a dizer `satisfeito`.
+    credor: o fundador
+
+  - bloco: KAM-143
+    divergencias: 1
+    onde: specs/tickets/KAM-143.md
+    razao: >-
+      Uma linha de DoD com a caixa por marcar e a tabela a dizer
+      `satisfeito (2026-10-26)`. **So apareceu depois da revisao adversarial**,
+      com o *parser* a reconhecer o cabecalho `| CA | Estado | Evidência |`: era
+      uma das 26 tabelas que ele descartava. O emparelhamento e exacto — 7 caixas
+      de criterios mais 4 de DoD contra 11 linhas — e a linha 9 do mesmo bloco
+      diz `não satisfeito` com a caixa por marcar, correctamente.
+    credor: o fundador
+
+  - bloco: KAM-171
+    divergencias: 5
+    onde: specs/tickets/KAM-171.md
+    razao: >-
+      Cinco criterios com a caixa por marcar e a tabela a dizer `satisfeito`. E
+      o bloco que escreveu «a cobertura do instrumento e o predicado: as duas
+      armadilhas de medicao», o que o torna o exemplo mais util da lista.
+    credor: o fundador

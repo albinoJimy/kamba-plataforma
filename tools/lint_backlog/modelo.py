@@ -266,6 +266,15 @@ def _fora_de_cerca(texto: str):
             yield numero, linha
 
 
+#: Publico desde o KAM-183, pela mesma razao do `blocos` do `lint_handoff/scan.py`
+#: (KAM-170): o `tools/lint_bloco` compara as caixas de um bloco com a sua
+#: tabela de verificacao, e tem de saltar as cercas — o bloco de *handoff* e
+#: cercado e tem linhas que parecem caixas e tabelas. **Duas gramaticas para «o
+#: que e uma cerca» era a forma garantida de os dois passos discordarem sobre o
+#: mesmo bloco.**
+fora_de_cerca = _fora_de_cerca
+
+
 def ler_indice(raiz: Path) -> tuple[dict[str, Linha], dict[str, list[str]],
                                     tuple[str, ...]]:
     """As linhas do §4, por ID, e a ordem dos epics."""

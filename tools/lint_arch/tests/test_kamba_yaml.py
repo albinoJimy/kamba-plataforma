@@ -822,6 +822,7 @@ class TestOsLeitoresDeclaramOQueLeem(unittest.TestCase):
         from contract_diff.pii import ler_allowlist
         from coverage_gate import ler_limiares
         from lint_backlog.cli import ler_declaracoes as _backlog
+        from lint_bloco.cli import ler_dispensas as _bloco
         from lint_contagens.cli import ler_declaracoes as _contagens
         from lint_handoff.cli import ler_excepcoes as _handoff
         from lint_refs.cli import Excepcoes
@@ -843,6 +844,7 @@ class TestOsLeitoresDeclaramOQueLeem(unittest.TestCase):
         _handoff(ROOT)
         _contagens(ROOT)
         _backlog(ROOT)
+        _bloco(ROOT)
         ler_allowlist(ROOT)
         ler_inventario(ROOT)
         ler_registo(ROOT)
@@ -863,6 +865,7 @@ class TestOsLeitoresDeclaramOQueLeem(unittest.TestCase):
         from isolamento.lints import CHAVES as chaves_set_sessao
         from coverage_gate import CHAVES as chaves_thresholds
         from lint_backlog.cli import CHAVES as chaves_backlog
+        from lint_bloco.cli import _CHAVES as chaves_bloco
         from lint_contagens import cli as contagens
         from lint_handoff import cli as handoff
         from lint_refs.cli import CHAVES as chaves_refs
@@ -881,6 +884,9 @@ class TestOsLeitoresDeclaramOQueLeem(unittest.TestCase):
             "ci/handoff-allow.yaml": handoff._CHAVES,
             "ci/contagens-allow.yaml": contagens._CHAVES,
             "ci/backlog-allow.yaml": chaves_backlog,
+            # KAM-183: as divergencias entre as duas superficies de um
+            # bloco que ja existiam antes do `tools/lint_bloco`.
+            "ci/bloco-allow.yaml": chaves_bloco,
             "ci/contratos-allow.yaml": pii._CHAVES,
             "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
             "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
