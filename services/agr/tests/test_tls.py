@@ -263,6 +263,39 @@ class _Ligacao:
     def cursor(self) -> _Cursor:
         return _Cursor(self)
 
+    # ------------------------------------------------------- uma vaga do pool
+    def nova_vaga(self) -> "_Ligacao":
+        """Outra **identidade**, o **mesmo** estado (KAM-181).
+
+        O *pool* da `ToolLayer` tem quatro vagas (`LIGACOES_POR_OMISSAO`,
+        `tls/camada.py`) e cada vaga vazia chama a fabrica. Uma fabrica
+        `lambda: ligacao` da as quatro vagas **o mesmo objecto**, e duas
+        invocacoes concorrentes fazem o `tenant_guard` levantar `LigacaoEmUso`
+        — com razao: a `_exclusiva` reserva a ligacao **pelo objecto**, para que
+        uma segunda transaccao nao sobreponha o contexto de tenant da primeira.
+        O defeito e da fabrica do ensaio, nao do guarda.
+
+        **Dar a cada vaga um `_Ligacao()` novo resolvia a identidade e partia o
+        estado**, e e por isso que isto existe em vez de `abrir_ligacao=_Ligacao`
+        nos sitios que medem idempotencia: a `idempotencia` **e** a
+        `platform.tool_idempotency`, e o `ON CONFLICT DO NOTHING` do
+        `_idem_reservar` so serializa quem olha para a **mesma** tabela. Uma
+        tabela por vaga deixa as cinquenta confirmacoes concorrentes sem nada
+        que as serialize — medido, da `AssertionError: N != 1` com `N` igual ao
+        tamanho do *pool*.
+
+        Daqui sai um objecto novo — logo uma entrada propria na `WeakSet` do
+        guarda, que indexa pelo **objecto** e nao pelo endereco (KAM-163), e
+        `_Ligacao` nao define `__eq__` nem `__hash__`, que e o que o varrimento
+        de `libs/py-core/tests/test_tenant_guard.py` exige — com o **mesmo**
+        `__dict__`: a `sql`, a `idempotencia`, as `respostas`, o `agora` e o
+        `commits` sao os mesmos objectos, e nao copias. E o que o ensaio
+        guarda na mao continua a ser a janela para o que todas as vagas fazem.
+        """
+        vaga = object.__new__(type(self))
+        vaga.__dict__ = self.__dict__
+        return vaga
+
     def commit(self) -> None:
         self.commits += 1
 
@@ -366,7 +399,9 @@ class _Base(unittest.TestCase):
                 passos.append(_espiao(passo.__name__, corridos))
         camada = ToolLayer(
             Catalogo(especificacoes),
-            abrir_ligacao=lambda: ligacao,
+            # KAM-181: uma identidade por vaga, o estado partilhado. Ver
+            # `_Ligacao.nova_vaga`.
+            abrir_ligacao=ligacao.nova_vaga,
             disjuntor=disjuntor,
             metricas=metricas,
             passos=passos,

@@ -130,7 +130,10 @@ class Runtime:
             )
         )
         #: **A unica.** As duas verticais invocam tools por aqui.
-        self.tools = ToolLayer(self.catalogo, abrir_ligacao=lambda: self.ligacao)
+        #:
+        #: KAM-181: uma identidade por vaga, o estado partilhado. Ver
+        #: `_Ligacao.nova_vaga` em `test_tls.py`.
+        self.tools = ToolLayer(self.catalogo, abrir_ligacao=self.ligacao.nova_vaga)
 
         self.deps_do_vendedor = DependenciasDoVendedor(
             tools=self.tools,
