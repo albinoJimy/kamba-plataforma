@@ -15,7 +15,7 @@
 | Camada | Onde | Estado |
 |---|---|---|
 | Logs JSON sem conteúdo | `packages/core-ts/src/logger/`, `libs/py-core/src/kamba_core/logger/` | **Activo desde o KAM-068.** Os cinco serviços instalam o *logger*; o gate 2 recusa quem escreva fora dele e o gate 6 corre o X-11 |
-| Métricas | 20 módulos, 122 nomes distintos | **Declaradas 122; alcançáveis em `compose` 51** — ver §2 |
+| Métricas | 21 módulos, 125 nomes distintos | **Declaradas 125; alcançáveis em `compose` 51** — ver §2 |
 | Exposição | `/metrics` no GWY (3010), no COM (3002) e no AGR (8000) | O AGR nasceu com este ticket |
 | Recolha | [`../infra/compose/prometheus/prometheus.yml`](../infra/compose/prometheus/prometheus.yml) | Três alvos, por `dns_sd_configs` |
 | Regras de alerta | [`../infra/compose/prometheus/regras/kamba.yml`](../infra/compose/prometheus/regras/kamba.yml) | **8 regras, que cobrem 4 das 12 linhas** do §9.2 — ver §3 |
@@ -40,16 +40,18 @@ As contagens têm comando, e o comando está no repositório — `tools/obs_lint
 ```text
 $ python tools/obs_lint/contar_metricas.py --detalhe
 ...
-contar_metricas: 20 modulos de metricas, 120 nomes distintos (piso: ver o predicado 2 na docstring)
+contar_metricas: 21 modulos de metricas, 123 nomes distintos (piso: ver o predicado 2 na docstring)
 ```
 
 **O predicado está escrito antes da contagem**, na *docstring* do próprio ficheiro, porque uma contagem feita antes de se definir o que conta produz números errados com a mesma firmeza com que produziria os certos. Um predicado mais largo dá outro número — e está certo para esse predicado.
 
-A reconciliação de 120 para **122**: o módulo `services/com/src/metricas.ts` conta **0** pelo predicado, porque os seus dois nomes são declarados em `services/com/src/repo-base/index.ts:80,83` e **importados** pelo módulo que os expõe. 120 + 2 = 122.
+A reconciliação de 123 para **125**: o módulo `services/com/src/metricas.ts` conta **0** pelo predicado, porque os seus dois nomes são declarados em `services/com/src/repo-base/index.ts:80,83` e **importados** pelo módulo que os expõe. 123 + 2 = 125.
 
 **O número de declaradas sobe com os tickets, e os outros dois não.** Entre a primeira medição deste ticket e esta, o KAM-091 fundiu com um `provisioning/metricas.ts` de **6** métricas que **nenhum serviço importa** — logo as declaradas passaram de 109 a 115 e as servidas ficaram nas mesmas. É a leitura central deste ticket, agora com um exemplo que não é meu: o problema não é faltarem métricas, é faltarem serviços que as importem.
 
 E **repetiu-se à letra, uma segunda vez e já depois deste ticket fundir**: o KAM-116 trouxe um `sms/metricas.ts` de **sete** nomes que nenhum serviço importa — quem vai ligar a porta `SmsProvider` é o KAM-086 —, e as declaradas passaram de 115 a **122** com as servidas e as alcançáveis **nas mesmas**. O inventário de módulos do `obs_lint` apanhou-o, que é exactamente o que ele existe para fazer.
+
+E **uma terceira vez, com uma diferença que vale nomear**: o KAM-048 trouxe um `services/com/src/servicos/reminders/metricas.ts` de **três** nomes, e as declaradas passaram de 122 a **125** com as servidas e as alcançáveis nas mesmas. A diferença é o **sítio**: os dois exemplos anteriores eram módulos de `packages/core-ts`, isto é, biblioteca à espera de quem a ligue; este é o primeiro que vive **dentro de um serviço** e que esse serviço não expõe — o `services/com/src/metricas.ts` serve a porta `/metrics` do COM e não importa estes três nomes, porque quem vai ligar o módulo dos lembretes é o KAM-071. Vale nomear porque desfaz uma leitura cómoda: «está dentro de um serviço» não quer dizer «é servido», e o inventário do `obs_lint` foi outra vez o que o apanhou.
 
 ### 2.2 Declaradas, servidas, alcançáveis — três números e não um
 
@@ -63,7 +65,7 @@ A diferença entre as duas últimas linhas são os processos `publicador`, `cons
 
 Este ticket acrescentou o AGR, com **44**.
 
-As restantes 55 não estão por esquecimento. Os **onze** módulos `outbound`, `metering`, `hnd`, `qualidade`, `coexistencia`, `avisos`, `consentimento`, `modos`, `onboarding`, `provisioning` e `sms` do `packages/core-ts` **não são importados por nenhum serviço** — medido com `grep -rn "core-ts/outbound" services`, que dá zero. São biblioteca à espera de quem as ligue, e expô-las publicava zeros permanentes. (Eram dez e 48 à data do KAM-080; o `sms` entrou com o KAM-116 e trouxe sete nomes.)
+As restantes 58 não estão por esquecimento. Os **onze** módulos `outbound`, `metering`, `hnd`, `qualidade`, `coexistencia`, `avisos`, `consentimento`, `modos`, `onboarding`, `provisioning` e `sms` do `packages/core-ts` **não são importados por nenhum serviço** — medido com `grep -rn "core-ts/outbound" services`, que dá zero. São biblioteca à espera de quem as ligue, e expô-las publicava zeros permanentes. (Eram dez e 48 à data do KAM-080; o `sms` entrou com o KAM-116 e trouxe sete nomes, e o `reminders` do COM com o KAM-048 e trouxe três — esse **não** é de `core-ts`, e é o primeiro que vive dentro de um serviço sem ser servido por ele.)
 
 ### 2.3 A regra das etiquetas, e porque é que o `tenant_id` não serve
 

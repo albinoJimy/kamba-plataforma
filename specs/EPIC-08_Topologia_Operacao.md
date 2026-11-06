@@ -564,6 +564,15 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > `tools/obs_lint/contar_metricas.py`, e a prosa que o cita está em
 > `../docs/observabilidade.md` §2.1.
 >
+> **E uma terceira, com uma diferença de sítio:** o **KAM-048** trouxe um
+> `services/com/src/servicos/reminders/metricas.ts` de **três** nomes, e as
+> declaradas passaram de 122 a **125**, outra vez com as servidas e as
+> alcançáveis nas mesmas. Os dois anteriores eram biblioteca em
+> `packages/core-ts`; este é o primeiro módulo de métricas que vive **dentro
+> de um serviço** sem que esse serviço o exponha — quem vai ligar o módulo
+> dos lembretes é o KAM-071. «Está dentro de um serviço» não quer dizer «é
+> servido», e o inventário do `obs_lint` foi outra vez o que o apanhou.
+>
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
 > **parece cobertura** — é pior do que a sua ausência, porque ninguém volta a
