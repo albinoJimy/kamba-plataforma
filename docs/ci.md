@@ -2749,7 +2749,7 @@ resposta seria pior do que nomeá-las:
     bloqueia. Para ligar é **uma linha** no `ci-3`, escrita em
     [`lint-bloco.md`](lint-bloco.md) §7. **E não cobre o escape que custou a
     fusão:** a comparação dos **números** dentro de uma caixa com os da prosa
-    alarma em **73%** dos pares com números (133 de 181, em 398 pares; o número sai de `python tools/lint_bloco/medir.py`, que está no repositório porque a primeira versão citava **25%** de um *script* que desapareceu), porque a caixa de um
+    alarma em **74%** dos pares com números (140 de 188, em 407 pares; o número sai de `python tools/lint_bloco/medir.py`, que está no repositório porque a primeira versão citava **25%** de um *script* que desapareceu), porque a caixa de um
     critério traz referências de secção e versões que a célula de evidência não
     repete — fica devolvida com a medição, e o que falta para a fazer é uma
     convenção declarada, que é canon. **Fechá-la é acto do fundador**, nas duas

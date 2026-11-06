@@ -79,7 +79,7 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: ou uma mudanca na forma do cabecalho das tabelas poem este *lint* a medir
 #: **zero** blocos e a dizer «0 achados» — que se le como «esta tudo bem» e e a
 #: falha que o `log_policy` e o `obs_lint` desta casa ja recusam. Medido a
-#: 2026-11-06: **79** blocos emparelhados, com este ticket dentro. (Eram 53
+#: 2026-11-06: **81** blocos emparelhados, com este ticket dentro. (Eram 53
 #: antes de a revisao adversarial mostrar que o cabecalho `| CA | Estado |
 #: Evidência |` — 26 tabelas — estava a ser descartado.) O piso fica
 #: abaixo com folga, para nao exigir emenda a cada bloco novo, e acima de zero

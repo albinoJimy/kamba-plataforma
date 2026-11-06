@@ -64,48 +64,54 @@ o contar, e esta secção **cita a saída dele** em vez de a parafrasear:
 $ python tools/lint_bloco/medir.py
 A POPULACAO  (predicados 1, 2 e 3)
   blocos                                        183
-  com seccao de verificacao                     120
-  com tabela de coluna `Estado`                 100
-  uniao dos dois                                126
+  com seccao de verificacao                     123
+  com tabela de coluna `Estado`                 103
+  uniao dos dois                                129
 
 O VOCABULARIO DA COLUNA `Estado`  (predicado 4)
-  celulas de estado                             1432
-  termos distintos                              77
+  celulas de estado                             1471
+  termos distintos                              76
   tabelas com coluna de assunto e sem `Estado`   41
   os dez termos mais frequentes:
-        681  'satisfeito'
-        172  'marcada'
-        120  'parcial'
-        112  'não satisfeito'
-         86  'vazia'
+        687  'satisfeito'
+        176  'marcada'
+        136  'parcial'
+        113  'não satisfeito'
+         90  'vazia'
          57  'não verificado'
          49  'confirmado'
-         12  'marcado'
+         21  'marcado'
          11  'indício'
           7  'vazio'
 
 A REGRA INGENUA, a que o pedido original descrevia  (predicado 5)
-  blocos da uniao                               126
-  que ela poria a vermelho                      107
+  blocos da uniao                               129
+  que ela poria a vermelho                      109
   ou seja                                       84%
 
 O QUE O *LINT* MEDE HOJE  (sem dispensas)
   blocos                                        183
-  emparelhados                                  79
+  emparelhados                                  81
   achados                                       30
   em quantos blocos                             8
-  nao medido ( 83)  sem tabela de verificacao com coluna `Estado`
+  nao medido ( 80)  sem tabela de verificacao com coluna `Estado`
   nao medido ( 16)  tabela sem correspondencia um-a-um com a lista
-  nao medido (  8)  o vocabulario nao classifica a celula de Estado
-  nao medido (  7)  tabela com coluna `Estado` e sem coluna de assunto conhecida
+  nao medido (  8)  tabela com coluna `Estado` e sem coluna de assunto conhecida
+  nao medido (  7)  o vocabulario nao classifica a celula de Estado
 
 A REGRA DOS NUMEROS, que NAO se entrega  (predicado 6)
-  pares comparaveis                             398
-  sem numeros na caixa                          217
+  pares comparaveis                             407
+  sem numeros na caixa                          219
   com numeros, a concordar                       48
-  com numeros, a divergir                       133
-  taxa de alarme sobre os pares com numeros     73%
+  com numeros, a divergir                       140
+  taxa de alarme sobre os pares com numeros     74%
 ```
+
+**E cita-se num sítio só, de propósito.** Integrar a `publico/main` a meio
+deste ticket mudou nove destes números — os emparelhados de 79 para 81, as
+células de estado de 1 432 para 1 471 — porque a base trouxe blocos novos. Um
+número restatado em cinco sítios fica velho em cinco sítios; o resto deste
+documento aponta para aqui em vez de repetir.
 
 Os seis predicados estão escritos na *docstring* do `medir.py`, **antes** de
 qualquer contagem — pela razão que o `tools/obs_lint/contar_metricas.py` já
@@ -115,10 +121,11 @@ errados com a mesma firmeza com que produziria os certos».
 ### 3.1 O que estes números dizem, e o que mudou no desenho por causa deles
 
 **A regra que o pedido descrevia — «o número de `- [x]` iguala o número de linhas
-`marcada`» — poria 107 dos 126 blocos a vermelho**, 84% deles. E não por estarem
-errados: a coluna de `Estado` usa **77 termos distintos**, e `marcada` são 172
-células contra **681** de `satisfeito`. Há **41** tabelas com coluna de assunto e
-**sem** coluna `Estado` — nessas o estado vive na prosa da evidência.
+`marcada`» — poria 84% dos blocos a vermelho** (o predicado 5 do §3). E não por
+estarem errados: a coluna de `Estado` usa dezenas de termos distintos, e
+`marcada` é minoria por quase quatro para um contra `satisfeito`. Há dezenas de
+tabelas com coluna de assunto e **sem** coluna `Estado` — nessas o estado vive na
+prosa da evidência. Os valores exactos estão na saída acima.
 
 Entregar a regra como pedida era entregar um *lint* que grita, e a seguir ninguém
 o lê.
@@ -141,9 +148,10 @@ o lê.
 Havia uma segunda regra candidata, melhor em teoria: *cada caixa tem uma linha na
 tabela, e cada linha tem uma caixa* — independente do vocabulário.
 
-**Não se sabe distinguir os seus achados de um terceiro formato.** Hoje são **16**
-blocos em que a tabela não casa com nenhuma das duas listas, com tabelas de 17 e
-18 linhas para listas de 10 e 8 caixas que podem estar a tabular sub-itens.
+**Não se sabe distinguir os seus achados de um terceiro formato.** São os blocos
+da categoria «tabela sem correspondência um-a-um com a lista» do §3, com tabelas
+de 17 e 18 linhas para listas de 10 e 8 caixas que podem estar a tabular
+sub-itens.
 
 Ficou **despromovida a «não medido»**, que é o que ela é: o *lint* diz que não
 conseguiu emparelhar aquele bloco, conta-o, e **não afirma que está errado**. Um
@@ -162,15 +170,15 @@ para o que sabe.
 
 ```text
 $ python -m lint_bloco --root . check
-lint_bloco: 183 bloco(s), 79 emparelhado(s), 0 achado(s), 114 nao medido(s),
-            24 tabela(s) sem assunto, 8 dispensa(s)
-lint_bloco:   nao medido (83): sem tabela de verificacao com coluna `Estado`
+lint_bloco: 183 bloco(s), 81 emparelhado(s), 0 achado(s), 111 nao medido(s),
+            26 tabela(s) sem assunto, 8 dispensa(s)
+lint_bloco:   nao medido (80): sem tabela de verificacao com coluna `Estado`
 lint_bloco:   nao medido (16): tabela sem correspondencia um-a-um com a lista
-lint_bloco:   nao medido (8): o vocabulario nao classifica a celula de Estado
-lint_bloco:   nao medido (7): tabela com coluna `Estado` e sem coluna de assunto conhecida
+lint_bloco:   nao medido (8): tabela com coluna `Estado` e sem coluna de assunto conhecida
+lint_bloco:   nao medido (7): o vocabulario nao classifica a celula de Estado
 ```
 
-**«0 achados» sobre 79 blocos de 183 não é «está tudo bem»: é «olhei para 79».**
+**«0 achados» sobre 81 blocos de 183 não é «está tudo bem»: é «olhei para 81».**
 Um *lint* que não diga o que não mediu ensina exactamente a leitura errada, e é a
 disciplina que o `log_policy` e o `obs_lint` desta casa já impõem — «passar sem
 ter lido nada não é passar».
@@ -188,7 +196,7 @@ Dois pisos: `MINIMO_DE_BLOCOS` (150) apanha um `glob` que deixe de casar;
 continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **2**.
 
 > **E o valor dos pisos passou a ter ensaio**, não só o mecanismo. A revisão
-> adversarial mediu que `MINIMO_DE_BLOCOS_MEDIDOS = 0` passava — porque `0 <= 79`
+> adversarial mediu que `MINIMO_DE_BLOCOS_MEDIDOS = 0` passava — porque `0 <= 81`
 > é verdade, e um piso a zero é o mesmo que não ter piso.
 
 ---
@@ -241,11 +249,11 @@ certa de uma célula composta.
 
 **A unificação.** Onze entradas para «cumprido» e dezanove para «por cumprir» não
 são trinta maneiras de pensar: são a mesma decisão escrita de maneiras diferentes
-por tickets diferentes, com **77 termos distintos** na árvore. Unificá-las é fixar
+por tickets diferentes, com dezenas de termos distintos na árvore (§3). Unificá-las é fixar
 o que a secção de verificação de um bloco tem de parecer, o que é **canon** e não
 implementação. Com uma convenção ratificada:
 
-- as **41** tabelas com coluna de assunto e sem `Estado` passam a poder tê-la;
+- as tabelas com coluna de assunto e sem `Estado` (§3) passam a poder tê-la;
 - a terceira lista pode encolher;
 - uma palavra nova deixa de ser «não medido» e passa a poder ser **achado**.
 
@@ -262,19 +270,13 @@ apanhado o escape de «1 erro de conteúdo» contra «3» — e **não se entreg
 O predicado 6 do `medir.py` mede-a: todos os inteiros do texto da caixa têm de
 aparecer na **célula de evidência** da sua linha.
 
-```text
-  pares comparaveis                             398
-  sem numeros na caixa                          217
-  com numeros, a concordar                       48
-  com numeros, a divergir                       133
-  taxa de alarme sobre os pares com numeros     73%
-```
+O número está na saída do §3, no predicado 6: hoje **74%** dos pares com números
+divergem.
 
-**Setenta e três por cento**, e a razão é a mesma que já se via com um número mais
+**Três em cada quatro**, e a razão é a mesma que já se via com um número mais
 pequeno: a caixa de um critério traz uma referência de secção, uma versão ou uma
 contagem de outra coisa, que a célula de evidência não tem razão nenhuma para
-repetir. Entregar isto era entregar um *lint* que grita em três de cada quatro
-pares.
+repetir. Entregar isto era entregar um *lint* que grita em três de cada quatro pares.
 
 > **A primeira versão desta secção dizia 25%**, medido contra a **linha** inteira
 > da tabela em vez da célula de evidência, e com outra extracção de inteiros. A
@@ -368,4 +370,4 @@ importações é mais longa do que parece.)
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-183**. O `tools/lint_bloco` com a regra `estado_contra_caixa` (par a par, não em contagem), canário com negativas e positivas, dois pisos de cobertura, e a cobertura na própria saída. **Entregue sem portão** (§7). Devolve com a medição: a regra do pedido tal como escrita, a regra estrutural e a regra dos números; e a unificação do vocabulário, que é canon. | Equipa KAMBÁ |
-| 1.1 | Novembro 2026 | **A revisão adversarial deu 17 achados e todos se confirmaram contra a árvore.** Esta versão é a resposta. **Defeitos de código:** a coluna de assunto casava por sub-cadeia e a tabela `## Riscos do Epic` era lida como tabela de critérios em quatro blocos; o `\|` escapado deslocava a coluna de `Estado`; o casamento por prefixo nu dava `verde-azulado` como cumprido; e faltava `por cumprir` na lista que tem esse nome. **Cobertura:** reconhecer `\| CA \| Estado \| Evidência \|` levou os emparelhados de **53 para 79**, e a categoria «sem tabela com coluna `Estado`» deixou de ser falsa para 35 blocos. **Provas:** metade das mutações sobrevivia — entre elas o salto de cercas, a ordem das listas e o **valor** dos dois pisos —, uma assertiva estava desactivada com `if False` a esconder um defeito real, e a positiva da cerca não podia morder porque as caixas cercadas estavam fora das duas listas. **Números:** dez não se reproduziam, e a resposta não foi reescrevê-los mas **embarcar o instrumento** — `medir.py`, com os seis predicados escritos antes das contagens, e este documento passa a citar a saída dele; o `mutacao.py` entra pela mesma razão, com controlo. **E a espécie `ambigua` saiu**, porque a justificação dela não se verificava na medição. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **A revisão adversarial deu 17 achados e todos se confirmaram contra a árvore.** Esta versão é a resposta. **Defeitos de código:** a coluna de assunto casava por sub-cadeia e a tabela `## Riscos do Epic` era lida como tabela de critérios em quatro blocos; o `\|` escapado deslocava a coluna de `Estado`; o casamento por prefixo nu dava `verde-azulado` como cumprido; e faltava `por cumprir` na lista que tem esse nome. **Cobertura:** reconhecer `\| CA \| Estado \| Evidência \|` levou os emparelhados de **53 para 81**, e a categoria «sem tabela com coluna `Estado`» deixou de ser falsa para 35 blocos. **Provas:** metade das mutações sobrevivia — entre elas o salto de cercas, a ordem das listas e o **valor** dos dois pisos —, uma assertiva estava desactivada com `if False` a esconder um defeito real, e a positiva da cerca não podia morder porque as caixas cercadas estavam fora das duas listas. **Números:** dez não se reproduziam, e a resposta não foi reescrevê-los mas **embarcar o instrumento** — `medir.py`, com os seis predicados escritos antes das contagens, e este documento passa a citar a saída dele; o `mutacao.py` entra pela mesma razão, com controlo. **E a espécie `ambigua` saiu**, porque a justificação dela não se verificava na medição. | Equipa KAMBÁ |

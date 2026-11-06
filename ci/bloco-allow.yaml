@@ -8,14 +8,14 @@
 # ## PORQUE E QUE ESTAS SETE EXISTEM
 #
 # O *lint* nasce depois dos blocos. Medido sobre a `publico/main` em `74ddc23`:
-# **30 divergencias em 8 blocos**, de **79** emparelhados. Em **todas**, a caixa
+# **30 divergencias em 8 blocos**, de **81** emparelhados. Em **todas**, a caixa
 # esta por marcar e a tabela de verificacao daquele ticket diz `satisfeito` ou
 # `marcada` — a mesma forma exacta do escape que deu origem a este ticket.
 #
 # **Os numeros subiram de 29/7/53 depois da revisao adversarial**, e nao porque
 # a arvore mudasse: o *parser* passou a reconhecer o cabecalho `| CA | Estado |
 # Evidência |`, que **26** tabelas usam e que ele descartava. A cobertura passou
-# de 53 para 79 blocos emparelhados, e com ela apareceu o oitavo bloco.
+# de 53 para 81 blocos emparelhados, e com ela apareceu o oitavo bloco.
 #
 # ## PORQUE E QUE NAO SE CORRIGEM AQUI
 #

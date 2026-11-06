@@ -21,14 +21,13 @@ declara o predicado de cada um **antes** de o contar. A primeira versao desta
 desapareceram, e a revisao adversarial montou vinte receitas sem reproduzir
 nenhum: a conclusao mantinha-se, os numeros nao.
 
-Medido: essa regra poria **107 dos 126** blocos a vermelho — 84% — e nao por
-estarem errados. Nao ha **uma** convencao:
+Medido: essa regra poria **84%** dos blocos com superficie de verificacao a
+vermelho, e nao por estarem errados. Nao ha **uma** convencao:
 
-* a coluna de estado usa **77 termos distintos** em 1 432 celulas. Os dois de
-  topo sao `satisfeito` (**681**) e `marcada` (**172**); `marcada` — a palavra
-  que a regra ia exigir — e minoria por quatro para um;
-* o cabecalho da tabela tem muitas formas, e **41 tabelas com coluna de assunto
-  nao tem coluna de `Estado`**: nessas o estado vive na prosa da evidencia;
+* a coluna de estado usa **dezenas de termos distintos**, e `marcada` — a palavra
+  que a regra ia exigir — e minoria por quase quatro para um contra `satisfeito`;
+* o cabecalho da tabela tem muitas formas, e ha dezenas de tabelas com coluna de
+  assunto e **sem** coluna de `Estado`: nessas o estado vive na prosa;
 * a seccao de verificacao **nao tem fronteira fiavel**: uns blocos poem-na antes
   dos «Detalhes Técnicos», outros depois do «Handoff», e no KAM-013 as tabelas
   vivem sob um titulo irmao (`### Os critérios, um a um`).
