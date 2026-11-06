@@ -354,10 +354,46 @@ diferente:
    mesmo ficheiro é o que o isolamento por *worktree* existe para impedir.
 
 **Credor: o fundador**, porque é dele a decisão sobre o comportamento entregue do
-KAM-038. E a boa notícia é que, no modelo que o KAM-039 está a montar, isto fica
-mais barato do que era: com o destinatário em configuração, a decisão expressa-se
-na subscrição de `registry/servicos.yaml` — sem notificação declarada — mais a
-remoção da entrada do `TEXTOS`.
+KAM-038.
+
+### O que a caixa manda fazer, por extenso
+
+A lista está aqui porque a sessão que monta o mecanismo novo abre o PR dela
+**sem** este trabalho, por decisão do fundador, e arquiva-se ao fundir: esta
+caixa passa a ser o único sítio que o reclama, e uma caixa que diz **quem** e
+**quando** sem dizer **o quê** não é executável.
+
+**Três edições.** A medição de que são três é da sessão do `registry`
+(`fix/KAM-039-ao-dono-no-registry`) — a versão com duas fazia o AGR sair com
+`8` —, e confirmei-as contra a árvore dela:
+
+1. **`eventos/handlers.py`** — sai a entrada `("servicos", "booking.reminder_due")`
+   do `TEXTOS`.
+2. **`registry/servicos.yaml`** — a subscrição **fica**, com o `notifica`
+   **omitido**. Omissão e não `notifica: []`: é o idioma que os dois eventos de
+   pagamento desta vertical já usam, e o comentário do ficheiro explica-o.
+3. **o mesmo `handlers.py`** — entra
+   `("servicos", "booking.reminder_due"): "KAM-048"` no **`ACCOES_POR_LIGAR`**.
+
+A (3) é o que distingue «não avisa ninguém» de «não avisa ninguém **e tem
+dono**». Sem ela o arranque recusa, e recusa bem: o `exigir_handlers` exige que
+uma subscrição sem destinatário tenha credor.
+
+**Duas guardas:** as edições (1) e (2) andam juntas ou nenhuma — há ensaio a
+cruzar o `TEXTOS` com as subscrições que declaram `cliente` —, e um par com
+`notifica` **e** credor reprova o arranque, pelo que o estado final é um dos dois
+e nunca os dois.
+
+**Duas consequências que a lista de três não cobre**, medidas ao verificá-la: o
+**SemVer do registo** tem de subir, porque o comentário daquele ficheiro fixa que
+a versão acompanha mudanças no tuplo das `subscricoes` (e é *minor*, por essa
+mesma regra); e o **comentário conta «os dois»** eventos de pagamento sem
+`notifica`, que passariam a três — o `lint_contagens` não lê comentários de YAML,
+pelo que nada apanha essa.
+
+**Ressalva de estado:** as edições (2) e (3) são escritas contra um mecanismo que
+**ainda não fundiu**. Se ele mudar de forma, as duas movem-se com ele; a (1) não.
+Quem executar confirma a forma contra a `main` do dia, e não contra esta lista.
 
 **Hoje não há mensagem duplicada**, e por uma razão que não é desenho: o caminho
 do AGR não está ligado. A porta `OutboundPorLigar` devolve `sem_template`, o
@@ -459,3 +495,4 @@ com o critério 1 violado à letra.
 | 1.0 | Novembro 2026 | Primeira versão, KAM-048. O agendamento em `inicio − 24 h` com o `inicio_at` no `jobId`, os portões do disparo, a chave composta `booking_id:reminder:T-24h`, a escolha de canal pela janela, o portão do *template* ligado ao KAM-015, o *gate* de consentimento ligado ao KAM-022, as quatro vias que provam a proveniência dos parâmetros, e os três contadores. Sem revisão de base de dados. Registra o que já existia e não se reescreveu (§2), o que fica por ligar com credor (§11) e o conflito de dois consumidores do mesmo evento (§12), que vai ao fundador. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **Revisão adversarial: catorze achados, e dois faziam o módulo não enviar nada.** O §13 nasce porque faltava — a caixa da DoD que o invocava estava marcada com uma linha de evidência que apontava para secções que não diziam nem o corpo do *template* nem a política de antecedência; contado, zero ocorrências das três posições e do limiar de 2 h. O §5 passa a dizer a verdade inteira sobre a chave: ela é protegida das recusas **anteriores** à linha e não das posteriores, e um `repetido` lido como «enviado» era uma mensagem que nunca saiu contada como entregue. O §10 deixa de prometer um custo que a consulta inventava, e passa a ter duas consultas que não convertem categorias em dinheiro, as falhas a cobrir os dois estados terminais, e a limitação dita de que ninguém as executa. As correcções de código, os ensaios que entraram e o que a revisão deu por limpo estão no bloco do ticket em `../specs/EPIC-04_Core_Comercio.md`. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **Decisão do fundador: o caminho canónico é o do COM.** O §12 deixa de pôr a pergunta e passa a registar a resposta, com a razão (o critério 3, e o texto do AGR a não levar números por desenho), a distinção que faltava — as duas *chaves* são canónicas, o *caminho ao cliente* é que não eram dois — e a caixa devolvida: retirar a acção ao AGR é comportamento entregue do KAM-038, com o fundador por credor, e não se fez por âmbito **e** por uma colisão de escritores medida no *worktree* do `fix/KAM-039-ao-dono-no-registry`. Fica dito sem rodeios que, hoje, cada `booking.reminder_due` consumido pela vertical Serviços abre entrada na DLQ. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **O §12 passa a levar a especificação executável da caixa devolvida.** Três edições, duas guardas de arranque, e duas consequências que a lista de três não cobria — o SemVer do registo e a contagem «os dois» no comentário do YAML. Com a ressalva de que duas das três são escritas contra um mecanismo que ainda não fundiu. | Equipa KAMBÁ |
