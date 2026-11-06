@@ -13,17 +13,22 @@ le-as; o `lint.py` compara-as.
 ## O QUE SE MEDIU ANTES DE ESCREVER ISTO, E PORQUE E QUE MUDOU O DESENHO
 
 A primeira versao deste *lint* ia impor «o numero de `- [x]` iguala o numero de
-linhas `**marcada**`». Medido sobre a arvore: **121 dos 125** blocos com seccao
-de verificacao ficavam vermelhos — e nao por estarem errados. Nao ha **uma**
-convencao:
+linhas `**marcada**`».
 
-* a coluna de estado usa **52 primeiras-palavras distintas**. As cinco de topo
-  sao `satisfeito` (646 celulas), `parcial` (110), `marcada` (110),
-  `não satisfeito` (103) e `vazia` (73); `marcada` — a palavra que a regra ia
-  exigir — e minoria;
-* o cabecalho da tabela tem mais de uma duzia de formas, e **19 tabelas nao tem
-  coluna de `Estado`** nenhuma: o seu cabecalho e `| # | Critério | Evidência |`
-  e o estado vive na prosa da celula de evidencia;
+**Os numeros que seguem sao do `medir.py`**, que vive ao lado deste ficheiro e
+declara o predicado de cada um **antes** de o contar. A primeira versao desta
+*docstring* citava-os de *scripts* que correram numa pasta temporaria e
+desapareceram, e a revisao adversarial montou vinte receitas sem reproduzir
+nenhum: a conclusao mantinha-se, os numeros nao.
+
+Medido: essa regra poria **107 dos 126** blocos a vermelho — 84% — e nao por
+estarem errados. Nao ha **uma** convencao:
+
+* a coluna de estado usa **77 termos distintos** em 1 432 celulas. Os dois de
+  topo sao `satisfeito` (**681**) e `marcada` (**172**); `marcada` — a palavra
+  que a regra ia exigir — e minoria por quatro para um;
+* o cabecalho da tabela tem muitas formas, e **41 tabelas com coluna de assunto
+  nao tem coluna de `Estado`**: nessas o estado vive na prosa da evidencia;
 * a seccao de verificacao **nao tem fronteira fiavel**: uns blocos poem-na antes
   dos «Detalhes Técnicos», outros depois do «Handoff», e no KAM-013 as tabelas
   vivem sob um titulo irmao (`### Os critérios, um a um`).
@@ -71,18 +76,34 @@ TITULO_DOS_CRITERIOS = "Critérios de Aceitação"
 TITULO_DA_DOD = "Definition of Done"
 
 #: O que faz de uma tabela a tabela dos **critérios**: o cabecalho tem uma
-#: coluna `Critério` **e** uma coluna `Estado`.
-COLUNAS_DE_ASSUNTO = ("critério", "criterio")
+#: coluna de assunto **e** uma coluna `Estado`.
+#:
+#: **Casam por igualdade e nao por sub-cadeia, e a diferenca era um defeito.** A
+#: primeira versao usava `p in coluna`, e a tabela `## Riscos do Epic` tem a
+#: coluna «Mitigacao **ou critério** de saida» — pelo que ela era lida como
+#: tabela de critérios de um bloco. Medido pela revisao adversarial em **quatro**
+#: blocos (KAM-064, KAM-117, KAM-127 e KAM-149), e a uma coincidencia de
+#: contagem de produzir achados falsos: se a tabela de riscos tivesse tantas
+#: linhas quantas as caixas do bloco, o *lint* comparava critérios de aceitacao
+#: contra estados de risco.
+#:
+#: A lista tem as formas que a arvore usa, e nao so a canonica: **26** tabelas
+#: escrevem `| CA | Estado | Evidência |`, e descarta-las custava 26 tabelas de
+#: cobertura **e** uma mensagem falsa — o bloco caia na categoria «sem tabela de
+#: verificacao com coluna `Estado`» tendo-a.
+COLUNAS_DE_ASSUNTO = ("critério", "criterio", "ca", "caixa", "linha")
 #: E o que faz dela a tabela da **DoD**.
 COLUNA_DA_DOD = ("dod",)
 
-#: `Item` nao serve para identificar nenhuma das duas, e isso e uma renuncia
-#: deliberada: seis tabelas da arvore tem o cabecalho `| # | Item | Estado | … |`
-#: e **nao se sabe daqui** se tabulam os critérios ou a DoD. Emparelha-las por
-#: palpite punha a tabela da DoD contra a lista dos critérios, e um achado desses
-#: e pior do que a ausencia de medicao — ensina a ignorar o *lint*. Ficam **nao
-#: medidas**, contadas e nomeadas na saida.
-COLUNAS_AMBIGUAS = ("item",)
+#: **Houve aqui uma terceira especie, `ambigua`, e saiu.** Ela separava as seis
+#: tabelas de cabecalho `| # | Item | Estado | … |` das restantes sem coluna de
+#: assunto, com a justificacao de que emparelha-las por palpite «punha a tabela
+#: da DoD contra a lista dos critérios». A revisao adversarial mediu essa
+#: justificacao e ela **nao se verifica**: tratar as `ambigua` como `criterios`
+#: deixa os numeros da arvore identicos, zero achados novos. Uma distincao que
+#: nao muda nenhum resultado e um conceito a mais para quem le o modulo, pelo que
+#: o `Item` cai agora em `sem_assunto` como as outras — e a saida continua a
+#: dizer, por bloco, que tem coluna `Estado` e um assunto que nao se sabe ler.
 #: A coluna que diz o estado. Sem ela, a tabela nao declara estados.
 COLUNA_DE_ESTADO = "estado"
 
@@ -121,7 +142,15 @@ ESTADOS_POR_FAZER = (
     "nao verificado",
     "não verificado",
     "por marcar",
+    "por cumprir",
     "morto",
+    # Formas compostas que a arvore usa e que nenhum prefixo das de cima casava.
+    # Medidas pela revisao adversarial: a lista chamava-se «por cumprir» e **nao
+    # continha** `por cumprir`, e o `KAM-068` escreve `não — caixa vazia`.
+    "nao — caixa vazia",
+    "não — caixa vazia",
+    "nao - caixa vazia",
+    "não - caixa vazia",
 )
 
 #: **As que nao se classificam, e e deliberado.** Nenhuma destas quer dizer
@@ -168,33 +197,98 @@ def limpo(celula: str) -> str:
     return re.sub(r"[*`_]", "", celula).strip().lower()
 
 
+#: Os separadores que abrem a **justificacao** de uma celula de estado. Exige-se
+#: o espaco depois, e e o que distingue `satisfeito, com a aritmetica corrigida`
+#: (justificacao) de `verde-azulado` (uma palavra que nao e o termo).
+_SEPARADORES = (", ", " — ", " - ", " (", ": ", "; ", " – ")
+
+
+def _termo_da_celula(texto: str) -> str:
+    """O termo de estado de uma celula, sem a justificacao que vier atras.
+
+    Corta no **primeiro** separador que apareca. Uma cadeia sem separador
+    devolve-se inteira, e e isso que a deixa cair em «nao medida» quando nao e
+    um termo.
+    """
+    corte = len(texto)
+    for separador in _SEPARADORES:
+        posicao = texto.find(separador)
+        if posicao != -1:
+            corte = min(corte, posicao)
+    return texto[:corte].strip()
+
+
 def classificar_estado(celula: str) -> bool | None:
     """`True` cumprido, `False` por cumprir, `None` **nao medido**.
 
-    **Os «por fazer» provam-se primeiro**, e a ordem nao e indiferente: as
-    celulas compostas comecam pelo estado da caixa (`vazia, satisfeito` quer
-    dizer «a caixa esta vazia e nao devia»), pelo que provar os «feito» antes
-    classificava-as ao contrario. Dentro de cada lista, o prefixo mais longo
-    primeiro — senao `nao satisfeito` casava `nao` e `satisfeito` casava
-    `satisfeito…` de `nao satisfeito` nunca era alcancado.
+    ## O CASAMENTO E POR IGUALDADE, E O PREFIXO ERA O MODELO ERRADO
+
+    **A primeira versao casava por prefixo nu, e a revisao adversarial mediu o
+    preco:** `verde` esta em `ESTADOS_FEITO`, logo `verde-azulado` dava
+    «cumprido»; e `cumprido parcialmente`, `marcadamente insuficiente` e
+    `confirmado / não verificado` — esta ultima uma forma **real** da arvore —
+    davam o mesmo. Era palpite por prefixo, no proprio sitio em que o ticket
+    afirma que nada se classifica por palpite. Uma fronteira de palavra nao
+    chega: o `-` de `verde-azulado` e o espaco de `cumprido parcialmente` sao
+    fronteiras.
+
+    O modelo e outro: **o estado e o termo, e o que vem depois de um separador e
+    justificacao.** Prova-se a celula inteira por igualdade; se nao casar,
+    corta-se no primeiro separador **seguido de espaco** (`, `, ` — `, ` (`,
+    `: `) e prova-se a cabeca. Uma celula sem separador que nao seja um termo
+    conhecido fica **nao medida**.
+
+    O preco esta declarado: celulas como `satisfeito pelo que o repositorio tem`
+    deixam de se classificar, porque nao ha separador e a cadeia inteira nao e um
+    termo. Perde-se cobertura e nao se ganha palpite — que e a troca que esta
+    casa faz em toda a parte («nao medido» conta-se e aparece na saida).
+
+    ## A ORDEM DAS TRES LISTAS E PRECAUCAO, NAO NECESSIDADE
+
+    A versao anterior afirmava que os «por fazer» tinham de ir primeiro «senao
+    `vazia, satisfeito` classificava-se ao contrario», e isso e **falso**: o
+    termo de `vazia, satisfeito` e `vazia`, e nenhuma ordem o muda. A revisao
+    provou-o — a mutacao que troca as listas **sobrevivia** aos ensaios. A ordem
+    fica por ser a leitura certa de uma celula composta, e nao porque hoje mude
+    um resultado; e ha um ensaio a dizer **isso** em vez de a dizer o contrario.
     """
     texto = limpo(celula)
     if not texto:
         return None
-    for prefixo in sorted(ESTADOS_SEM_CLASSE, key=len, reverse=True):
-        if texto.startswith(prefixo):
-            return None
-    for prefixo in sorted(ESTADOS_POR_FAZER, key=len, reverse=True):
-        if texto.startswith(prefixo):
-            return False
-    for prefixo in sorted(ESTADOS_FEITO, key=len, reverse=True):
-        if texto.startswith(prefixo):
-            return True
+    for lista, veredicto in ((ESTADOS_SEM_CLASSE, None),
+                             (ESTADOS_POR_FAZER, False),
+                             (ESTADOS_FEITO, True)):
+        if texto in lista:
+            return veredicto
+    termo = _termo_da_celula(texto)
+    if termo == texto:
+        # Sem justificacao a cortar: ja se provou a cadeia inteira.
+        return None
+    for lista, veredicto in ((ESTADOS_SEM_CLASSE, None),
+                             (ESTADOS_POR_FAZER, False),
+                             (ESTADOS_FEITO, True)):
+        if termo in lista:
+            return veredicto
     return None
 
 
+#: Um `|` que **nao** esta escapado, e portanto separa celulas.
+_SEPARADOR_DE_CELULA = re.compile(r"(?<!\\)\|")
+
+
 def celulas(linha: str) -> list[str]:
-    return [c.strip() for c in linha.split("|")[1:-1]]
+    """As celulas de uma linha de tabela, respeitando o `\\|` escapado.
+
+    **A primeira versao partia em `|` nu**, e uma celula com `\\|` dentro
+    deslocava todas as seguintes — o indice da coluna de `Estado`, que vem do
+    cabecalho, passava a apontar para outra celula. Medido pela revisao
+    adversarial: `KAM-039` tem `\\`grep\\` por \\`vendedor\\|servicos\\|...\\``
+    numa celula antes do `Estado`, e o *lint* lia `'servicos\\'` como estado.
+    Degradava para «nao medido» e nao para achado falso, mas a mensagem enganava
+    quem a lesse.
+    """
+    partes = _SEPARADOR_DE_CELULA.split(linha)[1:-1]
+    return [c.replace("\\|", "|").strip() for c in partes]
 
 
 @dataclass(frozen=True)
@@ -210,7 +304,7 @@ class Caixa:
 class Tabela:
     """Uma tabela de verificacao, com a coluna de estado localizada."""
 
-    #: `'criterios'` ou `'dod'`.
+    #: `'criterios'`, `'dod'` ou `'sem_assunto'`.
     especie: str
     cabecalho: tuple[str, ...]
     #: Uma entrada por linha de corpo: a celula de estado, como esta escrita.
@@ -251,17 +345,19 @@ class Bloco:
 
 
 def _especie_da_tabela(cabecalho: list[str]) -> str | None:
-    """`'criterios'`, `'dod'`, `'ambigua'`, ou `None` se nao declara estados."""
+    """`'criterios'`, `'dod'`, `'sem_assunto'`, ou `None` sem coluna `Estado`."""
     limpas = [limpo(c) for c in cabecalho]
     if COLUNA_DE_ESTADO not in limpas:
         return None
-    if any(any(p in c for p in COLUNA_DA_DOD) for c in limpas):
+    # **Igualdade, nao sub-cadeia** — ver o comentario de `COLUNAS_DE_ASSUNTO`.
+    if any(c in COLUNA_DA_DOD for c in limpas):
         return "dod"
-    if any(any(p in c for p in COLUNAS_DE_ASSUNTO) for c in limpas):
+    if any(c in COLUNAS_DE_ASSUNTO for c in limpas):
         return "criterios"
-    if any(any(p in c for p in COLUNAS_AMBIGUAS) for c in limpas):
-        return "ambigua"
-    return None
+    # Tem coluna `Estado` e nenhuma coluna de assunto que se reconheca. **Nao e
+    # «sem coluna de Estado»**, e a diferenca importa para a mensagem: o bloco
+    # tem a superficie e o *lint* nao sabe o que ela tabula.
+    return "sem_assunto"
 
 
 def _tabelas(linhas: list[tuple[int, str]]) -> list[Tabela]:

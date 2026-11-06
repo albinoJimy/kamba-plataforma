@@ -2741,7 +2741,7 @@ resposta seria pior do que nomeá-las:
     conteúdo» na caixa e «3» na prosa do mesmo bloco. O KAM-183 traz o
     `tools/lint_bloco` (alvo `make bloco-lint`), que as compara **par a par** —
     uma troca entre duas caixas deixa o total igual — e que dá **0 achados** na
-    árvore com as sete dispensas declaradas em
+    árvore com as oito dispensas declaradas em
     [`../ci/bloco-allow.yaml`](../ci/bloco-allow.yaml). **Não está em *job*
     nenhum**, pela razão da lacuna 29 e do `obs_lint` do KAM-080: um *job* novo
     acrescenta contexto exigido ao *ruleset* e ao agregador «gates do KAM-002»,
@@ -2749,7 +2749,7 @@ resposta seria pior do que nomeá-las:
     bloqueia. Para ligar é **uma linha** no `ci-3`, escrita em
     [`lint-bloco.md`](lint-bloco.md) §7. **E não cobre o escape que custou a
     fusão:** a comparação dos **números** dentro de uma caixa com os da prosa
-    alarma em **25%** dos pares com números (60 de 242), porque a caixa de um
+    alarma em **73%** dos pares com números (133 de 181, em 398 pares; o número sai de `python tools/lint_bloco/medir.py`, que está no repositório porque a primeira versão citava **25%** de um *script* que desapareceu), porque a caixa de um
     critério traz referências de secção e versões que a célula de evidência não
     repete — fica devolvida com a medição, e o que falta para a fazer é uma
     convenção declarada, que é canon. **Fechá-la é acto do fundador**, nas duas

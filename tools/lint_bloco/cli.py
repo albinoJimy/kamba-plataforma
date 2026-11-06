@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
           f"{numeros['medidos']} emparelhado(s), "
           f"{numeros['achados']} achado(s), "
           f"{numeros['nao_medidos']} nao medido(s), "
-          f"{numeros['tabelas_ambiguas']} tabela(s) ambigua(s), "
+          f"{numeros['tabelas_sem_assunto']} tabela(s) sem assunto, "
           f"{numeros['dispensas']} dispensa(s)")
     for razao, quantas in sorted(razoes.items(), key=lambda x: -x[1]):
         print(f"lint_bloco:   nao medido ({quantas}): {razao}")

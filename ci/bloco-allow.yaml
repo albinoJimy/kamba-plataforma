@@ -7,11 +7,15 @@
 #
 # ## PORQUE E QUE ESTAS SETE EXISTEM
 #
-# O *lint* nasce depois dos blocos. Medido sobre a `publico/main` em `74ddc23`,
-# antes de qualquer correccao: **29 divergencias em 7 blocos**, de 53
-# emparelhados. Em **todas**, a caixa esta por marcar e a tabela de verificacao
-# daquele ticket diz `satisfeito` ou `marcada` — a mesma forma exacta do escape
-# que deu origem a este ticket.
+# O *lint* nasce depois dos blocos. Medido sobre a `publico/main` em `74ddc23`:
+# **30 divergencias em 8 blocos**, de **79** emparelhados. Em **todas**, a caixa
+# esta por marcar e a tabela de verificacao daquele ticket diz `satisfeito` ou
+# `marcada` — a mesma forma exacta do escape que deu origem a este ticket.
+#
+# **Os numeros subiram de 29/7/53 depois da revisao adversarial**, e nao porque
+# a arvore mudasse: o *parser* passou a reconhecer o cabecalho `| CA | Estado |
+# Evidência |`, que **26** tabelas usam e que ele descartava. A cobertura passou
+# de 53 para 79 blocos emparelhados, e com ela apareceu o oitavo bloco.
 #
 # ## PORQUE E QUE NAO SE CORRIGEM AQUI
 #
@@ -86,6 +90,18 @@ dispensas:
     onde: specs/EPIC-08_Topologia_Operacao.md
     razao: >-
       Tres criterios com a caixa por marcar e a tabela a dizer `satisfeito`.
+    credor: o fundador
+
+  - bloco: KAM-143
+    divergencias: 1
+    onde: specs/tickets/KAM-143.md
+    razao: >-
+      Uma linha de DoD com a caixa por marcar e a tabela a dizer
+      `satisfeito (2026-10-26)`. **So apareceu depois da revisao adversarial**,
+      com o *parser* a reconhecer o cabecalho `| CA | Estado | Evidência |`: era
+      uma das 26 tabelas que ele descartava. O emparelhamento e exacto — 7 caixas
+      de criterios mais 4 de DoD contra 11 linhas — e a linha 9 do mesmo bloco
+      diz `não satisfeito` com a caixa por marcar, correctamente.
     credor: o fundador
 
   - bloco: KAM-171

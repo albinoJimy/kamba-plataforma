@@ -53,34 +53,140 @@ class TestVocabulario(unittest.TestCase):
         self.assertIs(modelo.classificar_estado(
             "**parcial** — falta a metade da sonda"), False)
 
-    def test_as_compostas_contam_pelo_estado_da_caixa(self) -> None:
+    def test_as_compostas_contam_pelo_termo_e_nao_pela_ordem_das_listas(self) -> None:
         """«vazia, `parcial`» quer dizer «a caixa esta vazia», nao «parcial».
 
-        **A ordem de prova importa**, e e por isso que ha um teste so para ela:
-        os «por fazer» provam-se antes dos «feito», senao `vazia, satisfeito`
-        classificava-se como cumprido — ao contrario do que a celula diz.
+        **E a ordem das listas nao e o que o garante**, ao contrario do que a
+        versao anterior deste ensaio afirmava. Ela dizia «os por fazer provam-se
+        antes dos feito, senao `vazia, satisfeito` classificava-se como
+        cumprido», e isso e falso: o **termo** de `vazia, satisfeito` e `vazia`,
+        e nenhuma ordem de listas o muda. A revisao adversarial provou-o — a
+        mutacao que troca as listas sobrevivia a este ensaio.
         """
         self.assertIs(modelo.classificar_estado("vazia, `satisfeito`"), False)
         self.assertIs(modelo.classificar_estado("**caixa vazia** — parcial"), False)
+        # O que **de facto** governa: o termo antes do separador.
+        self.assertEqual(modelo._termo_da_celula("vazia, satisfeito"), "vazia")
+        self.assertEqual(
+            modelo._termo_da_celula("satisfeito, com a aritmética corrigida"),
+            "satisfeito")
 
-    def test_o_prefixo_mais_longo_ganha(self) -> None:
+    def test_o_termo_mais_longo_ganha_dentro_da_lista(self) -> None:
         """`não satisfeito` nao se le como `satisfeito`."""
         self.assertIs(modelo.classificar_estado("**não satisfeito**"), False)
         self.assertIs(modelo.classificar_estado("**nao satisfeito**"), False)
+        self.assertIs(modelo.classificar_estado("**não satisfeita**"), False)
 
     def test_uma_palavra_nova_nao_se_adivinha(self) -> None:
+        """**Esta assertiva estava desactivada, e escondia um defeito real.**
+
+        A versao anterior escrevia
+        `assertIsNone(classificar_estado("**verde-azulado**") if False else None)`:
+        o `if False` fazia o argumento ser `None`, a funcao **nunca era chamada**
+        e a assertiva era tautologica. A revisao adversarial mediu o valor real —
+        `True`, porque `verde` casava por prefixo — e a assertiva, activada,
+        falhava. Hoje passa porque o casamento e por **termo** e nao por prefixo.
+        """
         self.assertIsNone(modelo.classificar_estado("**condicionado ao spike**"))
-        self.assertIsNone(modelo.classificar_estado("**verde-azulado**")
-                          if False else None)
+        self.assertIsNone(modelo.classificar_estado("**verde-azulado**"))
+
+    def test_o_prefixo_nu_sobre_casava_e_hoje_nao(self) -> None:
+        """Os quatro casos que a revisao adversarial mediu, um a um.
+
+        O ultimo e uma forma **real** da arvore, e e o que torna isto mais do
+        que um exercicio: uma celula que diz as duas coisas nao pode ser lida
+        como uma delas.
+        """
+        for celula in ("verde-azulado", "cumprido parcialmente",
+                       "marcadamente insuficiente",
+                       "confirmado / não verificado"):
+            with self.subTest(celula=celula):
+                self.assertIsNone(modelo.classificar_estado(celula))
+
+    def test_o_vocabulario_cobre_as_formas_que_lhe_dao_o_nome(self) -> None:
+        """A lista chamava-se «por cumprir» e nao continha `por cumprir`.
+
+        Medido pela revisao adversarial no `KAM-133`; e o `KAM-068` escreve
+        `não — caixa vazia`, que a *docstring* dizia estar coberta e nao estava.
+        """
+        self.assertIs(modelo.classificar_estado("**por cumprir**"), False)
+        self.assertIs(modelo.classificar_estado("**não — caixa vazia**"), False)
+
+
+class TestParser(unittest.TestCase):
+    """O que o *parser* le de um cabecalho e de uma linha de tabela."""
+
+    def test_a_tabela_de_riscos_de_um_epic_nao_e_de_criterios(self) -> None:
+        """**O defeito mais grave que a revisao adversarial encontrou.**
+
+        A coluna de assunto casava por **sub-cadeia**, e a tabela
+        `## Riscos do Epic` tem a coluna «Mitigacao **ou critério** de saida» —
+        pelo que ela era lida como tabela de critérios. Em quatro blocos reais
+        (KAM-064, KAM-117, KAM-127, KAM-149) era a **unica** tabela daquela
+        especie, e o *lint* emparelhava-a com a lista de critérios: a uma
+        coincidencia de contagem de comparar critérios de aceitacao contra
+        estados de risco.
+        """
+        riscos = ["Risco / item", "Estado", "Impacto",
+                  "Mitigação ou critério de saída", "Decisão"]
+        self.assertEqual(modelo._especie_da_tabela(riscos), "sem_assunto")
+
+    def test_as_formas_de_cabecalho_que_a_arvore_usa(self) -> None:
+        """Descartar o `| CA | Estado | … |` custava 26 tabelas de cobertura."""
+        self.assertEqual(
+            modelo._especie_da_tabela(["#", "Critério", "Estado", "Evidência"]),
+            "criterios")
+        self.assertEqual(
+            modelo._especie_da_tabela(["CA", "Estado", "Evidência"]), "criterios")
+        self.assertEqual(
+            modelo._especie_da_tabela(["#", "DoD", "Estado", "Evidência"]), "dod")
+        self.assertIsNone(
+            modelo._especie_da_tabela(["#", "Critério", "Evidência"]),
+            "sem coluna `Estado` nao declara estados")
+
+    def test_um_pipe_escapado_nao_separa_celulas(self) -> None:
+        """Medido no `KAM-039`: lia-se `'servicos\\'` como celula de estado."""
+        linha = r"| (d) | `grep` por `vendedor\|servicos` | **satisfeito** | m |"
+        self.assertEqual(
+            modelo.celulas(linha),
+            ["(d)", "`grep` por `vendedor|servicos`", "**satisfeito**", "m"])
+
+    def test_a_primeira_tabela_da_especie_e_que_conta(self) -> None:
+        """E **primeira** e nao ultima: um bloco pode ter duas da mesma forma.
+
+        Vivo na arvore — o KAM-115 tem duas tabelas de critérios — e a que
+        responde aos critérios e a que vem antes.
+        """
+        texto = """## KAM-001 — Duas tabelas da mesma especie
+
+### Critérios de Aceitação
+- [x] Um.
+
+### Definition of Done
+- [ ] Outro.
+
+### Verificação dos Critérios de Aceitação
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | Um | **satisfeito** | medido |
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | Outra coisa | **parcial** | medido |
+"""
+        blocos = modelo._blocos_do_texto(texto, "x.md")
+        tabela = blocos[0].tabela("criterios")
+        self.assertEqual(tabela.estados, ("**satisfeito**",))
 
 
 class TestEmparelhar(Base):
     def test_duas_tabelas_proprias_emparelham_cada_uma_com_a_sua(self) -> None:
         raiz = self.arvore(LIMPO)
         bloco = next(b for b in modelo.ler_blocos(raiz) if b.id == "KAM-001")
-        pares, achados, _ = lint.emparelhar(bloco)
+        pares, nao_medidos = lint.emparelhar(bloco)
         self.assertEqual([p.rotulo for p in pares], ["critérios", "DoD"])
-        self.assertEqual(achados, [])
+        self.assertEqual(nao_medidos, [])
         self.assertEqual(len(pares[0].caixas), 3)
         self.assertEqual(len(pares[1].caixas), 2)
 
@@ -93,9 +199,8 @@ class TestEmparelhar(Base):
         """
         raiz = self.arvore(canario._positivas()["tabela_combinada_criterios_e_dod"])
         bloco = next(b for b in modelo.ler_blocos(raiz) if b.id == "KAM-001")
-        pares, achados, nao_medidos = lint.emparelhar(bloco)
+        pares, nao_medidos = lint.emparelhar(bloco)
         self.assertEqual([p.rotulo for p in pares], ["critérios e DoD"])
-        self.assertEqual(achados, [])
         self.assertEqual(nao_medidos, [])
         self.assertEqual(len(pares[0].caixas), 3)
 
@@ -156,10 +261,60 @@ class TestRegras(Base):
         self.assertIn("DoD 1", achados[0].detalhe)
 
     def test_uma_caixa_dentro_de_cerca_nao_e_uma_caixa(self) -> None:
-        """O bloco de *handoff* e cercado e tem linhas que parecem caixas."""
-        achados, _, _ = self.correr(
+        """O bloco de *handoff* e cercado e tem linhas que parecem caixas.
+
+        **Afirma o que o *parser* leu, e nao so a ausencia de achados**, e a
+        diferenca foi medida: a mutacao que desliga o salto de cercas nao produz
+        achados — produz um bloco que **deixa de emparelhar**, o que cai em «nao
+        medido». Um ensaio que so olhasse para os achados sobrevivia-lhe.
+        """
+        raiz = self.arvore(
             canario._positivas()["caixa_dentro_de_cerca_nao_conta"])
+        bloco = next(b for b in modelo.ler_blocos(raiz) if b.id == "KAM-001")
+        self.assertEqual(len(bloco.criterios), 3,
+                         "as duas caixas cercadas nao sao caixas")
+        self.assertEqual([c.marcada for c in bloco.criterios],
+                         [True, False, True])
+        achados, nao_medidos, _ = lint.verificar(raiz, minimo_blocos=2,
+                                                 minimo_medidos=1)
         self.assertEqual(achados, [])
+        self.assertEqual(nao_medidos, [], "o bloco tem de emparelhar")
+
+    def test_um_titulo_de_nivel_4_nao_abre_seccao(self) -> None:
+        """O `#### Definition of Done` de dentro da verificacao e uma **tabela**.
+
+        Tomar o titulo dele por inicio da lista de caixas roubava as caixas a
+        lista verdadeira — e a mutacao que o permite nao tinha ensaio que a
+        mordesse (medido pela revisao adversarial).
+        """
+        texto = """## KAM-001 — Um nivel 4 dentro da verificacao
+
+### Critérios de Aceitação
+- [x] Um.
+
+### Definition of Done
+- [ ] Uma linha de DoD.
+
+### Verificação dos Critérios de Aceitação
+
+#### Definition of Done
+
+- [x] Uma linha que **nao** e da lista de DoD: e prosa da verificacao.
+
+| # | DoD | Estado | Evidência |
+|---|---|---|---|
+| 1 | A linha | **parcial** | medido |
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | Um | **satisfeito** | medido |
+"""
+        blocos = modelo._blocos_do_texto(texto, "x.md")
+        bloco = blocos[0]
+        self.assertEqual(len(bloco.criterios), 1)
+        self.assertEqual(len(bloco.dod), 1,
+                         "o `####` nao pode roubar a lista de DoD")
+        self.assertFalse(bloco.dod[0].marcada)
 
     def test_um_estado_sem_classe_nao_e_achado_mas_e_contado(self) -> None:
         achados, nao_medidos, _ = self.correr(
@@ -204,6 +359,23 @@ class TestCobertura(Base):
         _, _, numeros = lint.verificar(RAIZ)
         self.assertGreaterEqual(numeros["blocos"], lint.MINIMO_DE_BLOCOS)
         self.assertGreaterEqual(numeros["medidos"], lint.MINIMO_DE_BLOCOS_MEDIDOS)
+
+    def test_os_pisos_valem_alguma_coisa(self) -> None:
+        """**O ensaio de cima nao prende o valor, e a revisao mediu-o:**
+        `MINIMO_DE_BLOCOS_MEDIDOS = 0` passava, porque 0 <= 54 e verdade.
+
+        Um piso a zero e o mesmo que nao ter piso — e o piso existe precisamente
+        para o caso em que o emparelhamento cai para quase nada e a saida
+        continua a dizer «0 achados». Exige-se que ele cubra uma fraccao
+        substancial do que hoje se mede.
+        """
+        _, _, numeros = lint.verificar(RAIZ)
+        self.assertGreater(lint.MINIMO_DE_BLOCOS, 0)
+        self.assertGreater(lint.MINIMO_DE_BLOCOS_MEDIDOS, 0)
+        self.assertGreaterEqual(lint.MINIMO_DE_BLOCOS_MEDIDOS,
+                                numeros["medidos"] // 2,
+                                "um piso abaixo de metade do medido deixa o "
+                                "emparelhamento cair para metade sem nada dizer")
 
 
 class TestDispensas(Base):

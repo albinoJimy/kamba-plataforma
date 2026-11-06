@@ -129,17 +129,27 @@ def _positivas() -> dict[str, str]:
 | 2 | Outro | **vazia** | devolvido |
 | 3 | A DoD | **satisfeito** | medido |
 """,
-        # Uma caixa dentro de uma **cerca** nao e uma caixa: o bloco de
-        # *handoff* e cercado, e uma gramatica propria de cerca punha este lint
-        # a contar as linhas do prompt do executor.
-        "caixa_dentro_de_cerca_nao_conta": LIMPO + """
-### Handoff para Claude Code
+        # Uma caixa dentro de uma **cerca** nao e uma caixa.
+        #
+        # **A primeira versao desta positiva nao provava nada**, e a revisao
+        # adversarial mediu-o: as caixas cercadas estavam sob
+        # `### Handoff para Claude Code`, uma seccao que nao e nenhuma das duas
+        # listas — pelo que elas nunca entrariam na contagem, com cerca ou sem
+        # ela. A mutacao que **desliga** o salto de cercas sobrevivia.
+        #
+        # Agora a cerca esta **dentro** da lista de critérios, que e onde ela tem
+        # de morder: sem o salto, as duas linhas cercadas entram na lista, passam
+        # a ser 5 caixas contra 3 linhas de tabela, e o bloco deixa de emparelhar.
+        "caixa_dentro_de_cerca_nao_conta": LIMPO.replace(
+            "- [x] O terceiro, que esta.",
+            """- [x] O terceiro, que esta.
+
+Um exemplo do que o critério pede, em cerca:
+
 ```text
-Es o executor deste ticket.
 - [ ] Uma caixa que esta dentro da cerca e nao e uma caixa.
 - [x] Outra, idem.
-```
-""",
+```"""),
         # Um bloco **sem** tabela de verificacao nao e achado: e um ticket que
         # ainda nao foi entregue.
         "bloco_sem_tabela_de_verificacao": """## KAM-001 — Por entregar

@@ -1,14 +1,18 @@
 """As regras que comparam as duas superficies de um bloco, e a sua cobertura.
 
-Duas regras, e a segunda e a que apanha o escape que deu origem a este *lint*:
-
-    tabela_sem_par      a tabela de verificacao tem de ter **uma linha por
-                        caixa** da lista que ela tabula. Uma linha a menos e um
-                        item que saiu da verificacao sem que nada o diga.
+**Uma regra**, e e a que apanha o escape que deu origem a este *lint*:
 
     estado_contra_caixa a caixa `- [x]` e a celula de `Estado` tem de dizer o
                         mesmo, **par a par** e nao em contagem. Uma troca entre
                         duas linhas da a mesma contagem e e um defeito.
+
+**Esta *docstring* dizia «duas regras» e documentava uma `tabela_sem_par` que nao
+existe em codigo nenhum.** Ela existiu, foi despromovida a «nao medido» por
+gritar em blocos limpos (ver o §3.2 do `docs/lint-bloco.md`), e o topo deste
+modulo ficou a descrever a versao anterior — canon a mentir sobre codigo que uma
+revisao matou. Apanhou-o a revisao adversarial do proprio ticket, com um `grep`:
+a cadeia `tabela_sem_par` tinha **uma** ocorrencia em toda a arvore, e era esta
+linha.
 
 ## O ESCAPE QUE ISTO FECHA, MEDIDO E NAO SUPOSTO
 
@@ -75,8 +79,9 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: ou uma mudanca na forma do cabecalho das tabelas poem este *lint* a medir
 #: **zero** blocos e a dizer «0 achados» — que se le como «esta tudo bem» e e a
 #: falha que o `log_policy` e o `obs_lint` desta casa ja recusam. Medido a
-#: 2026-11-06: **53** blocos emparelhados na `publico/main` e **54** com este
-#: ticket dentro. O piso fica
+#: 2026-11-06: **79** blocos emparelhados, com este ticket dentro. (Eram 53
+#: antes de a revisao adversarial mostrar que o cabecalho `| CA | Estado |
+#: Evidência |` — 26 tabelas — estava a ser descartado.) O piso fica
 #: abaixo com folga, para nao exigir emenda a cada bloco novo, e acima de zero
 #: com muita.
 MINIMO_DE_BLOCOS_MEDIDOS = 40
@@ -129,24 +134,44 @@ class Par:
     onde_tabela: str
 
 
-def emparelhar(bloco: modelo.Bloco) -> tuple[list[Par], list[Achado],
-                                             list[NaoMedido]]:
+def emparelhar(bloco: modelo.Bloco) -> tuple[list[Par], list[NaoMedido]]:
     """Que lista de caixas cada tabela do bloco tabula.
 
     Ver a secao «O emparelhamento e guiado pelos dados» no topo do modulo.
+
+    **Nao devolve achados, e devolvia uma lista sempre vazia.** Ela sobrou da
+    regra `tabela_sem_par`, despromovida a «nao medido»; o `verificar` filtrava
+    essa lista por dispensas e somava-a, sobre nada. Encanamento morto que um
+    leitor tem de percorrer para descobrir que nao faz nada — apanhado pela
+    revisao adversarial do proprio ticket.
     """
     pares: list[Par] = []
-    achados: list[Achado] = []
     nao_medidos: list[NaoMedido] = []
 
     tab_ca = bloco.tabela("criterios")
     tab_dod = bloco.tabela("dod")
 
     if tab_ca is None and tab_dod is None:
-        nao_medidos.append(NaoMedido(
-            bloco.id, bloco.onde, "sem tabela de verificacao com coluna `Estado`",
-            "o bloco nao tem tabela de verificacao com coluna `Estado`"))
-        return pares, achados, nao_medidos
+        # **A mensagem distingue tres casos, e a primeira versao dava um so.**
+        # A revisao adversarial mediu que **35 dos 118** blocos daquela categoria
+        # tinham coluna `Estado` — a mensagem dizia que ela nao existia, tendo-a.
+        # Vinte e seis eram `| CA | Estado | Evidência |`, hoje reconhecidas; as
+        # que sobram tem a coluna e um assunto que este *lint* nao sabe ler, e e
+        # isso que a categoria passa a dizer.
+        sem_assunto = [t for t in bloco.tabelas if t.especie == "sem_assunto"]
+        if sem_assunto:
+            nao_medidos.append(NaoMedido(
+                bloco.id, f"{bloco.ficheiro}:{sem_assunto[0].numero}",
+                "tabela com coluna `Estado` e sem coluna de assunto conhecida",
+                "tem coluna `Estado` e o cabecalho "
+                f"{' | '.join(sem_assunto[0].cabecalho)!r} nao diz se tabula os "
+                "critérios ou a DoD"))
+        else:
+            nao_medidos.append(NaoMedido(
+                bloco.id, bloco.onde,
+                "sem tabela de verificacao com coluna `Estado`",
+                "o bloco nao tem tabela de verificacao com coluna `Estado`"))
+        return pares, nao_medidos
 
     def exigir(tabela: modelo.Tabela, caixas: list[modelo.Caixa],
                rotulo: str) -> None:
@@ -170,7 +195,7 @@ def emparelhar(bloco: modelo.Bloco) -> tuple[list[Par], list[Achado],
         if tab_ca is not None:
             exigir(tab_ca, bloco.criterios, "critérios")
         exigir(tab_dod, bloco.dod, "DoD")
-        return pares, achados, nao_medidos
+        return pares, nao_medidos
 
     # So a tabela de critérios: ela tabula os critérios, ou os critérios **e** a
     # DoD. Prova-se a primeira convencao e depois a segunda.
@@ -192,7 +217,7 @@ def emparelhar(bloco: modelo.Bloco) -> tuple[list[Par], list[Achado],
             f"a tabela tem {linhas} linha(s) e nao casa nem com as "
             f"{len(bloco.criterios)} caixa(s) de critérios nem com as "
             f"{len(bloco.criterios) + len(bloco.dod)} de critérios mais DoD"))
-    return pares, achados, nao_medidos
+    return pares, nao_medidos
 
 
 def _comparar(bloco: modelo.Bloco, par: Par, dispensas: frozenset[str]
@@ -241,11 +266,11 @@ def verificar(raiz: Path, dispensas: frozenset[str] = frozenset(),
     achados: list[Achado] = []
     nao_medidos: list[NaoMedido] = []
     medidos = 0
-    ambiguas = 0
+    sem_assunto = 0
     for bloco in blocos:
-        ambiguas += sum(1 for t in bloco.tabelas if t.especie == "ambigua")
-        pares, a, n = emparelhar(bloco)
-        achados += [x for x in a if bloco.id not in dispensas]
+        sem_assunto += sum(1 for t in bloco.tabelas
+                           if t.especie == "sem_assunto")
+        pares, n = emparelhar(bloco)
         nao_medidos += n
         for par in pares:
             a2, n2 = _comparar(bloco, par, dispensas)
@@ -265,7 +290,7 @@ def verificar(raiz: Path, dispensas: frozenset[str] = frozenset(),
         "medidos": medidos,
         "achados": len(achados),
         "nao_medidos": len(nao_medidos),
-        "tabelas_ambiguas": ambiguas,
+        "tabelas_sem_assunto": sem_assunto,
         "dispensas": len(dispensas),
     }
     return achados, nao_medidos, numeros
