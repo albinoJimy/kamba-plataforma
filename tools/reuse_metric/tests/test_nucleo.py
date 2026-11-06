@@ -265,10 +265,16 @@ class TestMutacaoOFluxoMorde(_ComArvore):
     def test_pertenca_a_uma_CONSTANTE_com_um_subconjunto(self) -> None:
         """**O idioma desta casa, e o que derrotava a primeira versao.**
 
-        No repositorio verdadeiro e o `AO_DONO` do `eventos/handlers.py`: uma
-        tabela de pares `(vertical, tipo)` com entradas **so do Vendedor**, lida
-        num `if`. Sem seguir a constante, o verificador nao via ocorrencia
-        nenhuma na linha da decisao.
+        Era o `AO_DONO` do `eventos/handlers.py`: uma tabela de pares
+        `(vertical, tipo)` com entradas **so do Vendedor**, lida num `if`. Sem
+        seguir a constante, o verificador nao via ocorrencia nenhuma na linha da
+        decisao — e foi ao passar a segui-la que a condicao (d) deixou de dar um
+        verde falso.
+
+        **O `AO_DONO` ja nao esta na arvore** (KAM-039: passou a
+        `subscriptions[].notifica` do `registry/`), e e por isso que esta forma
+        se mede aqui e nao la: o idioma continua a ser o desta casa, e um
+        verificador que o deixasse de ver voltava a dar `fluxo 0` por cegueira.
         """
         self.escrever_no_nucleo(
             """

@@ -175,6 +175,62 @@ class TestEsquema(unittest.TestCase):
             with self.subTest(alvo=alvo), self.assertRaises(esquema.FicheiroIlegivelError):
                 self.ler(VENDEDOR.replace("graph: kamba_agr.verticais.vendedor:build_graph", f"graph: {alvo}"))
 
+    def test_o_notifica_le_se_e_a_omissao_e_vazia(self) -> None:
+        """`subscriptions[].notifica` — onde a notificacao ao dono vive (KAM-039).
+
+        A omissao e o tuplo vazio, e isso tem significado: a subscricao existe e
+        nao avisa ninguem, que e o caso dos dois pagamentos em Servicos enquanto
+        o KAM-047 nao chegar.
+        """
+        self.assertEqual(self.ler(VENDEDOR).subscriptions[0].notifica, ())
+        com_dono = self.ler(
+            VENDEDOR.replace(
+                "  - { tipo: payment.confirmed, versao: 1 }",
+                "  - tipo: payment.confirmed\n    versao: 1\n"
+                "    notifica:\n      - cliente\n      - dono\n",
+            )
+        )
+        self.assertEqual(com_dono.subscriptions[0].notifica, ("cliente", "dono"))
+
+    def test_um_destinatario_fora_da_lista_fechada_recusa_o_ficheiro(self) -> None:
+        """**O caso negativo do campo novo**, sem o qual ele nao esta defendido.
+
+        Um `notifica: [done]` lido como «nao avisa ninguem» era o dono da loja a
+        deixar de ser avisado de um pagamento por causa de uma gralha — e nenhum
+        sinal, porque o tuplo vazio e uma configuracao legitima. O `dono_da_loja`
+        e o `DONO` estao aqui porque a gralha plausivel nao e so o ingles: e o
+        sinonimo e a maiuscula.
+        """
+        for destinatario in ("done", "dono_da_loja", "DONO", "owner", "ninguem", "1"):
+            with self.subTest(destinatario=destinatario):
+                with self.assertRaises(esquema.FicheiroIlegivelError):
+                    self.ler(
+                        VENDEDOR.replace(
+                            "  - { tipo: payment.confirmed, versao: 1 }",
+                            "  - tipo: payment.confirmed\n    versao: 1\n"
+                            f"    notifica:\n      - {destinatario}\n",
+                        )
+                    )
+
+    def test_um_destinatario_repetido_recusa_o_ficheiro(self) -> None:
+        """Nao e ambiguo — avisa-se o dono uma vez — e e por isso que se recusa:
+        o ficheiro diz duas coisas e o codigo faz uma, pelo que quem o escreveu
+        acreditava noutra."""
+        with self.assertRaises(esquema.FicheiroIlegivelError):
+            self.ler(
+                VENDEDOR.replace(
+                    "  - { tipo: payment.confirmed, versao: 1 }",
+                    "  - tipo: payment.confirmed\n    versao: 1\n"
+                    "    notifica:\n      - dono\n      - dono\n",
+                )
+            )
+
+    def test_os_destinatarios_derivam_do_literal(self) -> None:
+        """Uma lista fechada escrita duas vezes diverge; esta e derivada."""
+        self.assertEqual(esquema.DESTINATARIOS, ("cliente", "dono"))
+        self.assertEqual(esquema.DESTINATARIO_CLIENTE, "cliente")
+        self.assertEqual(esquema.DESTINATARIO_DONO, "dono")
+
     def test_tools_repetidas_falham(self) -> None:
         with self.assertRaises(esquema.FicheiroIlegivelError):
             self.ler(VENDEDOR.replace("[search_catalog, criar_pedido]", "[search_catalog, search_catalog]"))

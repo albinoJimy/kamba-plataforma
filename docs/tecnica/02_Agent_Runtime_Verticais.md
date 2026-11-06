@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Agent Runtime e Verticais |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E4_Stack_Licencas.md`, `evidencia/E1_Meta_WhatsApp.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §4, `../exploracao/12-diagramas-c4-fluxogramas.md` C4.1, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -149,10 +149,12 @@ entitlements:
   modulo: vendedor
   limites: [msgs_ai_mes, valor_max_pedido_minor]
 subscriptions:                    # eventos do EVT (envelope versionado, ADR-009)
-  - { tipo: payment.confirmed,        versao: 1 }
-  - { tipo: payment.manual_confirmed, versao: 1 }   # os dois: dicionario 3.4
-  - { tipo: order.expired,            versao: 1 }
-  - { tipo: stock.low,                versao: 1 }
+  # `notifica` ⊆ {cliente, dono}: a quem o handler avisa (KAM-039). A omissao e
+  # a lista vazia — subscreve e nao avisa ninguem, com credor no AGR.
+  - { tipo: payment.confirmed,        versao: 1, notifica: [cliente, dono] }
+  - { tipo: payment.manual_confirmed, versao: 1, notifica: [cliente, dono] }   # os dois: dicionario 3.4
+  - { tipo: order.expired,            versao: 1, notifica: [cliente] }
+  - { tipo: stock.low,                versao: 1, notifica: [dono] }
 models: { router: kamba-router, chat: kamba-chat }
 guardrails: { dominio: comercio_atendimento, handoff_triggers: [pedido_humano, reclamacao_grave, saude] }
 golden: { dataset: "golden/vendedor/v1", gate: "gates/vendedor.yaml" }
@@ -168,9 +170,9 @@ graph: kamba.verticals.servicos:build_graph
 tools: [list_services, get_availability, book_slot, cancel_booking, reschedule_booking, get_store_info]
 entitlements: { modulo: servicos, limites: [msgs_ai_mes, marcacoes_mes] }
 subscriptions:
-  - { tipo: booking.created,          versao: 1 }
-  - { tipo: booking.reminder_due,     versao: 1 }
-  - { tipo: payment.confirmed,        versao: 1 }   # sinal de marcacao, quando existir
+  - { tipo: booking.created,          versao: 1, notifica: [cliente] }
+  - { tipo: booking.reminder_due,     versao: 1, notifica: [cliente] }
+  - { tipo: payment.confirmed,        versao: 1 }   # sinal de marcacao, quando existir: sem `notifica`, credor KAM-047
   - { tipo: payment.manual_confirmed, versao: 1 }   # e o do ManualProvider: dicionario 3.5
 models: { router: kamba-router, chat: kamba-chat }
 golden: { dataset: "golden/servicos/v1", gate: "gates/servicos.yaml" }
@@ -248,12 +250,29 @@ como os `facts`.
 **Como é que isto se mede, e duas emendas que a medição obrigou (KAM-039).** As
 regras de contagem da medida — a unidade, o que entra em cada parcela, e o que
 ela **não** mede — estão em [`../reuse-metric.md`](../reuse-metric.md), e o
-instrumento é o `make reuso`. Medido: `reuso = 88,26%` para a vertical Serviços
-(limiar ≥ 70%), e **uma** excepção no núcleo — o `AO_DONO` do
-`eventos/handlers.py`, uma tabela de pares `(vertical, tipo)` com entradas só do
-Vendedor, lida num `if`, onde o núcleo decide pelo nome da vertical se o dono da
-loja é avisado. A condição (d) **não passa**, e as duas saídas estão medidas em
-[`../evidencia/KAM-039.md`](../evidencia/KAM-039.md) §5.0.
+instrumento é o `make reuso`. Medido: `reuso = 88,30%` para a vertical Serviços
+(limiar ≥ 70%), e **zero** excepções no núcleo — a condição (d) **passa**.
+
+**Passou a 2026-11-06, e o que a fazia falhar tinha nome.** A medição do KAM-039
+deu `fluxo = 1`: o `AO_DONO` do `eventos/handlers.py`, uma tabela de pares
+`(vertical, tipo)` com entradas só do Vendedor, lida num `if`, onde o núcleo
+decidia pelo nome da vertical se o dono da loja era avisado. O fundador decidiu
+a saída — **extrair a notificação ao dono para o `registry/`** —, e ela é agora
+`subscriptions[].notifica` de cada vertical (§5.1; dicionário §3.26, emenda
+1.65). O `registry/` é o sítio certo e não um contorno: a condição (d) exclui-o
+da busca **por extenso**, porque é onde a configuração por vertical pertence — e
+é isso que faz de «verticais como configuração» (ADR-012) uma abstracção em vez
+de uma promessa. O núcleo passa a ler **a quem** avisar; o que ele continua a
+não fazer, e é a condição, é saber **qual** vertical é. As duas saídas que
+estavam medidas, e a que se seguiu, estão em
+[`../evidencia/KAM-039.md`](../evidencia/KAM-039.md) §5.
+
+**O que fica em aberto é a fronteira do `conteudo`**, e não é esta linha:
+`python -m reuse_metric nucleo` conta e nomeia **45** ocorrências de tabelas e
+identificadores que *nomeiam* uma vertical no núcleo — o `TEXTOS` do
+`eventos/handlers.py` entre elas — e a condição (d) é `fluxo == 0`, não
+`fluxo + conteudo == 0`. Onde passa essa fronteira é decisão de quem assina o
+ADR-012, e está devolvida ao fundador.
 
 Três coisas desta secção não sobreviveram à medição:
 
@@ -1040,3 +1059,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.4 | Outubro 2026 | KAM-140: §5.1 — os dois manifestos de exemplo (`vendedor.yaml` e `servicos.yaml`) passam a subscrever os **dois** eventos de pagamento. O dicionário §3.4 diz que quem não distingue o caminho subscreve ambos, e o *gate* 3b já impõe essa regra em `registry/*.yaml` — o exemplo escapava-lhe só por viver num `.md`, e foi medido no KAM-139. §8.2 — a linha do sinal de marcação dizia que é o `payment.confirmed` que a confirma, quando o §3.5 nomeia o `payment.manual_confirmed` como o do *gate* da Fase 0 desta vertical; era o inverso. O `vendedor.yaml` não estava no ticket e tinha o mesmo defeito. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | KAM-031: §5.3 — o estado partilhado passa a declarar `ofertas`, `avisos`, `handoff_motivo` e `admissao` (emenda 1.40 do dicionario). Os tres aparecem ao escrever o grafo do Vendedor contra o §7.3 e nenhum era declaravel sem emenda: o `ofertas` e o quarto parametro do validador do KAM-032 (o nome de um produto vive no `ToolResult.data` do `05` §6.3 e nao num `Fact`, divida 105); o `avisos` e por onde os criterios 3 e 6 do bloco mandam `STALE_CONFIRMATION` e `OUT_OF_STOCK` chegar ao `compose` «como *facts*», o que um `Fact` nao pode ser — e um numero com proveniencia, de `kind` fechado nos quatro do §6.2; e o `handoff_motivo` ja era lido pelo codigo do §11 sem estar declarado. | Equipa KAMBA |
 | 1.6 | Novembro 2026 | **KAM-039** (prova da regra de dois): §5.4 ganha como se mede a medida de reaproveitamento — regras de contagem em [`../reuse-metric.md`](../reuse-metric.md), instrumento `make reuso` — e o resultado medido: **`reuso = 88,26%`** contra um limiar de 70%, e **uma** excepcao no nucleo. **A condicao (d) nao passa:** o `AO_DONO` do `eventos/handlers.py` e uma tabela de pares `(vertical, tipo)` com entradas **so do Vendedor**, lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado — e as duas saidas estao medidas em `../evidencia/KAM-039.md` §5.0. **Tres emendas que a medicao obrigou, nenhuma de estilo.** A primeira: a tabela desta seccao poe o `compose` na coluna «Partilhado (core)» sem a ressalva que a sua propria linha «Persona / prompts» faz — o `compose`, o `ask_repeat` e o `safe_reply` escrevem texto de persona e sao proprios da vertical (KAM-035, `ANALISE-40` achado 10), e o que e partilhado e a estrutura. A segunda: a condicao (d) esta escrita como um `grep` e **nao se pode cumprir como um `grep`** — a busca a letra devolve 162 ocorrencias no nucleo, 114 delas prosa a explicar porque e que o nucleo nao depende de vertical nenhuma. A terceira, que a revisao adversarial obrigou: **o criterio (d) precisa de distinguir validacao de despacho para ser satisfazivel** — o nucleo tem de validar o campo contra a lista fechada de verticais permitidas (criterio 5 do KAM-014, por escrito), e «nenhuma excepcao no core» quer dizer «o nucleo nao despacha por vertical» e nao «o nucleo nao conhece a lista». Dai as quatro classes: `prosa`, `conteudo`, `dominio` e `fluxo`. | Equipa KAMBA |
+| 1.7 | Novembro 2026 | **KAM-039, caixa devolvida: a condição (d) passa, e o §5.1 ganha o `notifica`.** A notificação ao dono sai do núcleo — era a tabela `AO_DONO` do `eventos/handlers.py`, pares `(vertical, tipo)` só do Vendedor lidos num `if`, e a única ocorrência de `fluxo` que a medição do KAM-039 encontrou — e passa a `subscriptions[].notifica`, domínio fechado `{cliente, dono}`, com a omissão a ser a lista vazia (dicionário §3.26, emenda 1.65). Decisão do fundador a 2026-11-06. **Medido sobre `db0582d`: `python -m reuse_metric nucleo` ia de `fluxo 1`, saída 1, para `fluxo 0`, saída 0**; a outra metade do G0-2 passa com 88,30% (limiar 70%) e não foi tocada. O §5.4 deixa de dizer que a condição não passa, e o exemplo do §5.1 ganha a chave nas duas verticais. **O que fica em aberto:** a fronteira do `conteudo` — as 45 ocorrências que a métrica conta e nomeia sem reprovar —, devolvida ao fundador. |

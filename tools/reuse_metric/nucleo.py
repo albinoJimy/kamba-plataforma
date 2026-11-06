@@ -7,9 +7,9 @@ vertical em `core/` = 0)», e o bloco do KAM-039 repete-a com a exclusao de
 ## Um `grep` responde a pergunta errada, e mede-se que responde
 
 Corrido a letra sobre o nucleo deste repositorio, o `grep -iE
-'vendedor|servicos|assistente'` devolve **162** ocorrencias em 30 dos 110
-ficheiros de nucleo. Mas a convencao da casa e explicar por extenso: **114**
-dessas 162 sao prosa de comentario ou de *docstring* a dizer **porque** e que o
+'vendedor|servicos|assistente'` devolve **164** ocorrencias em 30 dos 110
+ficheiros de nucleo. Mas a convencao da casa e explicar por extenso: **119**
+dessas 164 sao prosa de comentario ou de *docstring* a dizer **porque** e que o
 nucleo nao depende de uma vertical — por exemplo, o `ligacao.py` a explicar que
 a tranca e por conversa e nao por vertical. Um portao que contasse essas linhas
 obrigava a apagar a explicacao para ficar verde, o que e o contrario do que o
@@ -41,9 +41,26 @@ no nucleo» e uma decisao de quem assina o ADR-012 — nao deste modulo, e nao d
 quem o escreveu. O que este modulo garante e que a decisao se toma sobre uma
 lista e nao sobre uma impressao.
 
-Medido em `183e2b0` a 2026-11-05: `fluxo = 0`, `conteudo = 48`, `prosa = 114`,
-sobre 110 ficheiros de nucleo. A lista das 48 esta em
-`docs/evidencia/KAM-039.md`.
+## O numero que esta linha afirmava estava errado, e vale dizer porque
+
+Ate 2026-11-06 lia-se aqui «medido em `183e2b0` a 2026-11-05: `fluxo = 0`,
+`conteudo = 48`, `prosa = 114`». **O `fluxo = 0` era falso.** O `183e2b0` e
+anterior ao afiar que o proprio KAM-039 fez a este modulo — a passagem que
+segue uma **constante de modulo** lida num teste (ver o `FORMAS_DE_DOMINIO`) —,
+e com ela a corrida passou a dar `fluxo = 1`: o `AO_DONO` do
+`eventos/handlers.py`. O numero ficou a afirmar o presente dentro do
+instrumento que o mede, que e a classe de defeito que esta casa paga mais
+vezes. Fica escrito em vez de apagado, porque uma linha corrigida em silencio
+nao ensina nada a quem passar aqui a seguir.
+
+Medido em `ab3e390` a 2026-11-06, depois de a notificacao ao dono sair do
+nucleo para `subscriptions[].notifica` do `registry/`: `fluxo = 0`,
+`dominio = 1`, `conteudo = 45`, `prosa = 119`, sobre 110 ficheiros de nucleo,
+saida **0**. **O *commit* e o da arvore que se mediu e nao o desta linha**, que
+e a armadilha que a afirmacao anterior tinha: um numero citado com o *commit*
+que o escreve nao se pode reproduzir, e um citado com o *commit* que o produz
+corre com `git checkout ab3e390 && python -m reuse_metric nucleo`. A lista do
+`conteudo` e as duas saidas medidas estao em `docs/evidencia/KAM-039.md`.
 
 ## E morde nas duas direccoes
 
