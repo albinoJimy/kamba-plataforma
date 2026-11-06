@@ -1,0 +1,128 @@
+# A aritmetica do orcamento de erro a 30 dias — KAM-082, criterio 2.
+#
+# `promtool test rules`, corrido por `make obs-promtool` de dentro da imagem
+# fixada do compose.
+#
+# ## PORQUE E QUE ESTE FICHEIRO EXISTE
+#
+# Porque o criterio 2 da um numero — «30 min de falha injectada descem o
+# orcamento **13,9%** (30/216)» — e um numero e melhor provado por ensaio do que
+# afirmado em prosa. Uma recording rule com uma divisao trocada passa o
+# `promtool check rules` e o `obs_lint` sem uma queixa, e publica um orcamento
+# errado com ar de certo.
+#
+# ## O que este ficheiro NAO e
+#
+# **Nao e a injeccao de falha em *staging* que os criterios 2 e 3 pedem.** Isto
+# corre no motor de regras do Prometheus com series sinteticas: nao ha pilha, nao
+# ha GWY a morrer de verdade, nao ha Alertmanager a receber, e nao ha *staging* —
+# o Prometheus so existe no `docker-compose.prod.yml`, nao ha ambiente
+# implantado, e o `make up` (dev) nao levanta Prometheus nenhum. A caixa do
+# criterio 2 fica **parcial** por isso. O que isto fecha e a pergunta anterior:
+# *dada a serie, a conta esta certa?*
+#
+# ## A CADENCIA DO ENSAIO, E PORQUE E 30 MIN E NAO 30 S
+#
+# O `evaluation_interval` aqui e **30 min**, e a producao avalia a cada **30 s**.
+# A identidade medida nao depende da cadencia — `avg_over_time` e uma media de
+# amostras, logo a fraccao de tempo mau e a mesma —, e a 30 min cada amostra ma
+# vale exactamente **30 minutos**, que e a unidade em que o criterio 2 escreve a
+# falha. A 30 s o ensaio exigiria 86 400 avaliacoes do grupo por caso.
+#
+# **O `promtool` usa o `evaluation_interval` deste ficheiro e ignora o
+# `interval: 30s` do grupo** — medido nos dois sentidos: o mesmo ensaio corre em
+# ~3 s com e sem o `interval` declarado nas regras. O preco e explicito: este
+# ficheiro **nao** mede o custo de avaliacao em producao.
+#
+# **E so se consulta em multiplos de 30 min.** Uma recording rule so deixa
+# amostra nos instantes de avaliacao, e uma consulta a 1 010 min olha 5 min para
+# tras, nao encontra a avaliacao dos 990 e devolve `nil` — que se le como «a
+# regra esta errada» quando a regra esta certa. Medido, e custou um ensaio.
+
+rule_files:
+  - ../kamba-slo.yml
+
+evaluation_interval: 30m
+
+tests:
+  # ==================================================== criterio 2, a conta
+  #
+  # 1 440 amostras de 30 min = 30 dias. Uma amostra ma = 30 min de falha.
+  #
+  #   30 / 216 = 0,13888... -> 13,9% do orcamento
+  #   216 - 30 = 186 min restantes
+  - interval: 30m
+    name: "orcamento: 30 min de falha injectada descem 13,9% (30/216)"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x1438 0 1+0x10'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x1450'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_orcamento_consumido
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_orcamento_consumido'
+            value: 0.1388888888888889
+      - expr: slo_caminho_de_venda_orcamento_restante_minutos
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_orcamento_restante_minutos'
+            value: 186
+      - expr: slo_caminho_de_venda_ratio_30d
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_ratio_30d'
+            value: 0.9993055555555556
+
+  # ======================================================== o controlo
+  #
+  # Sem falha nenhuma o orcamento esta inteiro. Sem este caso, um erro de sinal
+  # na divisao podia dar 13,9% por acidente.
+  - interval: 30m
+    name: "orcamento: trinta dias sem falha deixam os 216 min inteiros"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x1450'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x1450'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_orcamento_consumido
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_orcamento_consumido'
+            value: 0
+      - expr: slo_caminho_de_venda_orcamento_restante_minutos
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_orcamento_restante_minutos'
+            value: 216
+      - expr: slo_caminho_de_venda_ratio_30d
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_ratio_30d'
+            value: 1
+
+  # ============================================ o orcamento estourado
+  #
+  # Oito amostras mas = **240 min**, 24 acima dos 216. O restante fica
+  # **negativo**, e e deliberado: um `clamp_min(..., 0)` esconderia o quanto se
+  # passou do limite, que e o numero de que a politica dos 100% precisa.
+  - interval: 30m
+    name: "orcamento: 240 min de falha deixam o restante negativo, nao zero"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x1430 0 0 0 0 0 0 0 0 1+0x10'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x1450'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_orcamento_consumido > 1
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_orcamento_consumido'
+            value: 1.1111111111111112
+      - expr: slo_caminho_de_venda_orcamento_restante_minutos < 0
+        eval_time: 43200m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_orcamento_restante_minutos'
+            value: -24.00000000000001

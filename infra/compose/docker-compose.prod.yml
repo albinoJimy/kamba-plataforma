@@ -716,7 +716,22 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=15d"
+      # **31d e nao 15d, e o KAM-082 mudou-o por necessidade e nao por gosto.**
+      # O SLO de 99,5% e definido numa janela de **30 dias** (doc 00 §9, doc 09
+      # §10), e as *recording rules* de `prometheus/regras/kamba-slo.yml` leem
+      # `avg_over_time(...[30d])`. Sobre 15 dias de dados isso **nao da erro**:
+      # devolve a media das amostras que existem. O efeito e o pior desta
+      # familia — um numero errado com ar de certo, e enviesado para o lado
+      # optimista, porque uma avaria de ha 20 dias cai fora da janela e o
+      # orcamento «sara» duas semanas antes do devido.
+      #
+      # O dia a mais e folga sobre a janela, para que ela esteja sempre coberta
+      # por inteiro. Nada mais muda: o `mem_limit` e o mesmo, pelo que a soma
+      # dos limites do `conjunto-reduzido.yaml` nao se move. O disco cresce com
+      # o periodo retido; com tres alvos e as series deste repositorio e
+      # irrelevante, mas e **INDICIO** e nao medicao — nao ha pilha a correr
+      # onde o medir, e o volume `prometheus-data` nao tem tecto declarado.
+      - "--storage.tsdb.retention.time=31d"
       # Sem interface de administracao e sem recarga por HTTP: um Prometheus
       # com `--web.enable-admin-api` apaga series por pedido HTTP.
       - "--web.listen-address=127.0.0.1:9090"

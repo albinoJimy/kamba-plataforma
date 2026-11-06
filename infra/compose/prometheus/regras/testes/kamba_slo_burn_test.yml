@@ -1,0 +1,225 @@
+# Os alertas de *burn rate* e a regra das janelas — KAM-082, criterios 4 e 6.
+#
+# `promtool test rules`, corrido por `make obs-promtool`.
+#
+# ## PORQUE E QUE E UM FICHEIRO SEPARADO DO `kamba_slo_test.yml`
+#
+# O `evaluation_interval` e **por ficheiro**, nao por caso. O ensaio da janela de
+# 30 dias precisa de uma cadencia grossa (30 min) para nao correr 86 400
+# avaliacoes; estes casos precisam de uma cadencia **fina**, porque o que eles
+# medem e a **fronteira** do limiar — 2% de 216 min sao 4,32 min, e a 30 min por
+# amostra a menor falha possivel ja sao 30. Dois requisitos incompativeis, dois
+# ficheiros.
+#
+# ## A FRONTEIRA, E PORQUE E ELA QUE SE MEDE
+#
+# Um ensaio que ponha o caminho de venda em baixo uma hora e veja o alerta
+# disparar nao prova nada: dispararia com qualquer limiar entre 0 e 100%. O que
+# prende a calibracao e o par de casos **em volta** do limiar.
+#
+#   janela de [1h] a 1 min por amostra = 61 amostras
+#   4 amostras mas -> 4/61 * 60/216 = 0,0182  (abaixo de 0,02: calado)
+#   5 amostras mas -> 5/61 * 60/216 = 0,0228  (acima  de 0,02: dispara)
+#
+#   janela de [6h] a 1 min por amostra = 361 amostras
+#   10 amostras mas -> 10/361 * 360/216 = 0,0462  (abaixo de 0,05: calado)
+#   11 amostras mas -> 11/361 * 360/216 = 0,0508  (acima  de 0,05: dispara)
+#
+# ## O CASO QUE PROVA QUE O ALERTA LENTO SERVE PARA ALGO
+#
+# As 11 amostras mas do caso lento estao **no inicio** das seis horas, pelo que a
+# ultima hora nao tem nenhuma: o alerta rapido fica calado e o lento dispara. Sem
+# este arranjo, os dois disparavam ao mesmo tempo e o lento era redundante.
+#
+# ## NOTA SOBRE O `hour()`
+#
+# O `eval_time` conta do epoch (1970-01-01 00:00 UTC), pelo que
+# `hour() = (eval_time / 1h) % 24`. Aos **100 min** da `hour() = 1`, **fora** do
+# horario comercial (06-22 UTC = 07-23 WAT); aos **400 min** da `hour() = 6`,
+# **dentro**. E a mesma convencao do `kamba_test.yml` do KAM-080.
+#
+# ## PORQUE E QUE O `slo_manutencao_anunciada` ENTRA COMO SERIE DE ENTRADA
+#
+# Em producao ele vem do `../kamba-manutencao.yml`, cuja lista esta **vazia** —
+# e uma lista vazia nao serve para testar a isencao. Este ficheiro carrega **so**
+# o `../kamba-slo.yml` e injecta a bandeira, que e o que permite medir a regra de
+# isencao com janelas que nao existem na arvore. O mecanismo do **anuncio** (a
+# aritmetica dos instantes) mede-se no `kamba_manutencao_test.yml`, que e outra
+# pergunta: aqui testa-se o que a bandeira **faz**, ali o que a **poe** a 1.
+
+rule_files:
+  - ../kamba-slo.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ================================================ criterio 4: burn rapido
+  - interval: 1m
+    name: "burn rapido: 4 min de falha numa hora ficam abaixo dos 2% — calado"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x60 0 0 0 0 1+0x60'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x130'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: orcamento_de_erro_burn_rapido
+        exp_alerts: []
+
+  - interval: 1m
+    name: "burn rapido: 5 min de falha numa hora passam os 2% — dispara"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x60 0 0 0 0 0 1+0x60'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x130'
+    alert_rule_test:
+      - eval_time: 66m
+        alertname: orcamento_de_erro_burn_rapido
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: plataforma
+            exp_annotations:
+              resumo: Mais de 2% do orcamento de erro de 30 dias gasto na ultima hora.
+              limite: Limiar proposta (KAM-082), a calibrar nos primeiros 30 dias.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/orcamento-de-erro.md
+
+  # ============== criterio 2, a segunda metade: «e o alerta de burn rate dispara»
+  #
+  # O criterio 2 pede duas coisas da falha de 30 min: que o orcamento desca
+  # 13,9% (medido no `kamba_slo_test.yml`, que e onde a janela de 30 dias cabe)
+  # **e** que o alerta dispare. Esta e a segunda metade, com a mesma falha de 30
+  # min — e nao se deduz da fronteira dos 5 min, escreve-se.
+  - interval: 1m
+    name: "criterio 2: 30 min de falha do ingress disparam o burn rapido"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x60 0+0x30 1+0x60'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x160'
+    alert_rule_test:
+      - eval_time: 91m
+        alertname: orcamento_de_erro_burn_rapido
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: plataforma
+            exp_annotations:
+              resumo: Mais de 2% do orcamento de erro de 30 dias gasto na ultima hora.
+              limite: Limiar proposta (KAM-082), a calibrar nos primeiros 30 dias.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/orcamento-de-erro.md
+
+  # ================================================= criterio 4: burn lento
+  - interval: 1m
+    name: "burn lento: 10 min de falha em seis horas ficam abaixo dos 5% — calado"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x10 0 0 0 0 0 0 0 0 0 0 1+0x360'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x400'
+    alert_rule_test:
+      - eval_time: 360m
+        alertname: orcamento_de_erro_burn_lento
+        exp_alerts: []
+
+  - interval: 1m
+    name: "burn lento: 11 min no inicio das seis horas disparam o lento e nao o rapido"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x10 0 0 0 0 0 0 0 0 0 0 0 1+0x360'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x400'
+    alert_rule_test:
+      - eval_time: 360m
+        alertname: orcamento_de_erro_burn_lento
+        exp_alerts:
+          - exp_labels:
+              severity: P3
+              componente: plataforma
+            exp_annotations:
+              resumo: Mais de 5% do orcamento de erro de 30 dias gasto nas ultimas 6 h.
+              limite: Limiar proposta (KAM-082), a calibrar nos primeiros 30 dias.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/orcamento-de-erro.md
+      # A mesma avaliacao, o alerta rapido calado: as 11 amostras mas estao fora
+      # da ultima hora. E o caso que mostra que o lento nao e redundante.
+      - eval_time: 360m
+        alertname: orcamento_de_erro_burn_rapido
+        exp_alerts: []
+
+  # ============================== criterio 6: janela 1 — isenta (as tres condicoes)
+  #
+  # Anunciada, fora do horario comercial (hora 1 UTC) e sem mensagens
+  # afectadas: a amostra de `mau` **desaparece**, e o tempo sai do numerador e
+  # do denominador.
+  - interval: 1m
+    name: "janela 1: anunciada, de noite e sem mensagens afectadas — nao conta"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x80 0+0x40 1+0x40'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x170'
+      - series: 'slo_manutencao_anunciada'
+        values: '0+0x80 1+0x40 0+0x40'
+      - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x170'
+    promql_expr_test:
+      # Dentro da janela: o caminho esta em baixo e nao conta.
+      - expr: slo_caminho_de_venda_bom
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_bom'
+            value: 0
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 100m
+        exp_samples: []
+
+  # ===================== criterio 6: janela 2 — conta, porque afectou mensagens
+  #
+  # A mesma janela, com `gwy_shed_total` a subir: pedidos descartados sao
+  # mensagens afectadas, logo a isencao cai e o tempo conta.
+  - interval: 1m
+    name: "janela 2: anunciada e de noite, mas com mensagens afectadas — conta"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x80 0+0x40 1+0x40'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x170'
+      - series: 'slo_manutencao_anunciada'
+        values: '0+0x80 1+0x40 0+0x40'
+      - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x80 0+1x40 40+0x40'
+    promql_expr_test:
+      - expr: slo_mensagens_afectadas
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_mensagens_afectadas'
+            value: 1
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 100m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+
+  # ============== criterio 6: a terceira condicao — dentro do horario comercial
+  #
+  # Uma janela anunciada **em horario comercial** conta sempre, mesmo sem
+  # mensagens afectadas. Sem este caso, a condicao do horario podia estar em
+  # falta na expressao e os dois casos de cima continuavam verdes.
+  - interval: 1m
+    name: "janela em horario comercial: anunciada e sem mensagens afectadas — conta"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x380 0+0x40 1+0x40'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x470'
+      - series: 'slo_manutencao_anunciada'
+        values: '0+0x380 1+0x40 0+0x40'
+      - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
+        values: '0+0x470'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 400m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
