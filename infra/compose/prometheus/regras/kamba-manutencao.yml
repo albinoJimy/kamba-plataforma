@@ -1,0 +1,45 @@
+# Janelas de manutencao anunciadas — KAM-082, criterio 6.
+#
+# **A lista esta vazia, e isso e um estado e nao uma lacuna.** Nenhuma janela de
+# manutencao foi anunciada: nao ha producao nem *staging* a correr onde uma
+# janela signifique algo. A serie existe e vale **0** permanentemente, que e a
+# resposta certa a pergunta «estamos dentro de uma janela anunciada?».
+#
+# A serie **tem** de existir, e nao se deixa por escrever: o
+# `slo_caminho_de_venda_mau` do `kamba-slo.yml` isenta-a por nome, e uma regra
+# que cita uma serie que ninguem produz **nunca dispara nem isenta nada** — e e
+# pior do que a sua ausencia, porque ninguem volta a olhar. E a mesma leitura com
+# que o KAM-076 recusou um `scrape_config` para um `/metrics` inexistente.
+#
+# ## Como se anuncia uma janela
+#
+# O anuncio **e o commit**: acrescenta-se um termo a expressao abaixo e recarrega-
+# se o Prometheus. O par de instantes esta em segundos do epoch UTC — o `time()`
+# do Prometheus devolve segundos UTC, e a conversao de 07:00-23:00 WAT para
+# 06:00-22:00 UTC e a mesma do `ingress_parado`.
+#
+#     expr: 'vector(((time() >= bool 1764547200) * (time() < bool 1764550800)))'
+#            #        ^ inicio, inclusive            ^ fim, exclusivo
+#
+# Com duas janelas somam-se os termos; eles nao se sobrepoem, pelo que a soma e
+# 0 ou 1 e nunca 2. **A forma esta medida** em
+# `testes/kamba_manutencao_test.yml`, que corre o mecanismo com duas janelas de
+# exemplo e verifica 1 dentro e 0 fora de cada uma — para que quem acrescentar a
+# primeira janela a serio nao esteja a estrear a expressao.
+#
+# **O limite desta forma, dito a cabeca:** anunciar uma janela e editar um
+# ficheiro de regras e recarregar o Prometheus, o que e operacao pobre para uma
+# equipa de 3-4 pessoas. Um produtor melhor — um `textfile` collector, ou uma
+# serie publicada por quem corre a manutencao — exige um *exporter* de
+# contentores, que **nenhum compose tem** (a mesma falta que deixa o alerta de
+# memoria do doc 09 §9.2 por escrever). Credor: **o fundador**, se a forma
+# mudar; e um *exporter* de contentores, que e materia do manifesto do conjunto
+# reduzido e nao deste ficheiro.
+
+groups:
+  - name: kamba-manutencao
+    interval: 30s
+    rules:
+      # Zero janelas anunciadas. Ver o cabecalho para a forma de acrescentar uma.
+      - record: slo_manutencao_anunciada
+        expr: 'vector(0)'

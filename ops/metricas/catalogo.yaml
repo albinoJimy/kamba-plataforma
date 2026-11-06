@@ -266,6 +266,125 @@ metricas:
           - com
           - agr
 
+# ------------------------------------ derivadas por recording rule (KAM-082)
+#
+# **Nao vem de codigo nosso nem de um `/metrics`:** o Prometheus calcula-as a
+# partir das series de cima e grava-as como series novas. Estao no catalogo pela
+# mesma razao que as sinteticas: o *lint* exige que toda a metrica citada por
+# uma regra ou por um painel esteja aqui, e o painel do orcamento cita-as.
+#
+# **Porque e que os nomes levam `_` e nao `:`.** A convencao do Prometheus para
+# uma recording rule e `nivel:metrica:operacao`, com dois-pontos, precisamente
+# para a distinguir de uma metrica instrumentada. Aqui usam-se `_`: o
+# `_metricas_citadas` do `tools/obs_lint` varre identificadores com
+# `\b[a-z_][a-z0-9_]*\b`, pelo que `slo:venda:ratio` seria lido como **tres**
+# nomes em falta no catalogo. O que distingue uma derivada de uma instrumentada
+# e, entao, este bloco e o campo `fonte` — e nao a pontuacao do nome. Quem
+# alargar o *lint* aos dois-pontos pode renomea-las; e a condicao para o fazer.
+#
+# O `exposta_por: [prometheus]` le-se «ha um processo que serve esta serie»: e o
+# proprio Prometheus, depois de avaliar a regra. Sem isto o *lint* diria
+# `metrica_sem_produtor`, e teria razao.
+
+  - nome: slo_caminho_de_venda_bom
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      1 se todas as replicas do GWY e do AGR estavam raspaveis neste instante, 0
+      se nao. E o SLI de disponibilidade do caminho de venda, e nao ve o que o
+      cliente ve — isso pedia a sonda externa (credor D1/KAM-105).
+    etiquetas: []
+
+  - nome: slo_mensagens_afectadas
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      1 se houve pedidos descartados na ultima meia hora. Ve o que nos
+      descartamos estando em pe, nao o que nunca chegou.
+    etiquetas: []
+
+  - nome: slo_manutencao_anunciada
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-manutencao.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      1 dentro de uma janela de manutencao anunciada. A lista esta vazia: nenhuma
+      janela foi anunciada.
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_mau
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      1 se este instante conta como indisponibilidade para o orcamento. A amostra
+      **desaparece** num instante isento pela regra das janelas (criterio 6).
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_ratio_30d
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: Disponibilidade do caminho de venda na janela de 30 dias. O SLO e 0,995.
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_orcamento_consumido
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: Fraccao do orcamento de 216 min ja gasta na janela de 30 dias. 1,0 = esgotado.
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_orcamento_restante_minutos
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      Minutos de orcamento que sobram, de 216. Fica negativo quando o orcamento
+      estoura, de proposito: o excesso e o numero de que a politica dos 100%
+      precisa.
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_amostras_30d
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      Quantas amostras a janela de 30 dias tem de facto. A 30 s por avaliacao uma
+      janela completa tem 86 400; muito menos quer dizer que o orcamento foi
+      calculado sobre menos de 30 dias — sem erro e sem outro aviso.
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_burn_1h
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      Fraccao do orcamento de 30 dias gasta na ultima hora. O limiar do alerta
+      rapido e 0,02 (proposta).
+    etiquetas: []
+
+  - nome: slo_caminho_de_venda_burn_6h
+    tipo: gauge
+    fonte: infra/compose/prometheus/regras/kamba-slo.yml
+    exposta_por:
+      - prometheus
+    ajuda: >-
+      Fraccao do orcamento de 30 dias gasta nas ultimas 6 h. O limiar do alerta
+      lento e 0,05 (proposta).
+    etiquetas: []
+
 # ------------------------------------------ as series que o criterio 2 nomeia
 #
 # Doze series. O `estado` de cada uma e medido, e e esta tabela que sustenta a
@@ -306,7 +425,14 @@ series_do_criterio_2:
       **O p95 nao e computavel.** O AGR nao tem histogramas, por decisao do
       ADR-018 escrita em `metricas.py`; o `agr_turn_latency_ms` e o valor do
       ultimo turno. Um quantil exige `_bucket`, que so os modulos `avisos` e
-      `coexistencia` tem. Credor: KAM-082 (SLOs), que e quem precisa do quantil.
+      `coexistencia` tem. **Credor: o fundador**, e nao o KAM-082 como esta linha
+      dizia ate 2026-11-06. O KAM-082 era o credor obvio — e quem precisa do
+      quantil — e mediu, ao operacionaliza-lo, que nao e trabalho de execucao:
+      dar histogramas ao AGR contraria o **ADR-018** («observabilidade leve»),
+      escrito no proprio `metricas.py`, e separar texto de voz exige uma etiqueta
+      de modalidade que nao existe, o que e emenda ao dicionario. Duas decisoes
+      de canon. A definicao do SLI, com numerador e denominador, fica em
+      `../slo.md` §2.2 linha 4 a espera dessa decisao.
 
   - serie: fila (profundidade e idade do mais antigo)
     estado: exposta
