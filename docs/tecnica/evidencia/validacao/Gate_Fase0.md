@@ -335,6 +335,7 @@ ficar verde correndo a demonstração**.
 | A acção **não está escrita** | `services/agr/src/kamba_agr/eventos/handlers.py:221` | os dois pares estão em `ACCOES_POR_LIGAR`, que o comentário define como «esta vertical subscreve e a acção dela **não está escrita**»; o desfecho do consumo é `sem_accao` — contado, registado, e com credor |
 | O credor nomeado no código | idem | **KAM-047** para os dois pares |
 | O contrato **não admite o efeito** | `contratos/eventos/payment.manual_confirmed/v1.schema.json` e `v2.schema.json` | o `payload` tem `additionalProperties: false` e quatro propriedades (`order_id`, `valor_minor`, `currency`, `autenticacao`); **`booking_id` não é uma delas**, pelo que um evento que o leve vai para a DLQ |
+| **Nem o outro evento o admite** | `contratos/eventos/payment.confirmed/v1.schema.json` e `v2.schema.json` | `additionalProperties: false` e seis propriedades (`order_id`, `provider`, `referencia`, `valor_minor`, `currency`, `autenticacao`); **`booking_id` também não é uma delas**. A lacuna é dos **dois** eventos nas **duas** versões de cada, o que fecha a saída de «usa o outro evento» |
 
 **E os dois credores nomeados já fundiram.** O **KAM-047** (módulo `servicos`) tem
 secção de «Verificação dos Critérios de Aceitação» no `EPIC-04` — 6 de 8
@@ -363,10 +364,14 @@ o varrimento de números deste mesmo gate.
 2. **Decidir por onde vem o `booking_id`**: emendar o contrato (versão nova, com
    o custo de compatibilidade), ou o consumidor resolver a marcação por consulta
    em vez de o evento a transportar. É desenho, e toca o ADR-009 e o KAM-007.
-3. **Decidir o que a linha 1.6 faz ao veredicto** do G0-8. Lida à letra, o G0-1
-   não passa, e «G0-1 falha» é VERMELHO — que significa «não arranca trabalho de
+3. **O que fazer com o rótulo do G0-8** — e esta terceira **não é uma escolha de
+   rótulo**, que é a precisão que falta ser dita. A regra do G0-8 escreve
+   «AMARELO (**G0-1 e G0-2 passam**; …)», pelo que o AMARELO **exige** o G0-1;
+   com o G0-1 a falhar não há discricionariedade nenhuma e o veredicto é
+   **VERMELHO**, que traz a consequência já escrita — «não arranca trabalho de
    funcionalidade da Fase 1 e corrige-se a abstracção antes de haver terceira
-   vertical». Isto **não se decide aqui**.
+   vertical». **O que é decisão do fundador não é o rótulo: é o que fazer com
+   ele.** Isto não se decide aqui, e o `Gate_Fase0_Decisao.md` continua vazio.
 
 ---
 

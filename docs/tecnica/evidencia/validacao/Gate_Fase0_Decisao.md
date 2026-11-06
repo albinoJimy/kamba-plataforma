@@ -73,7 +73,9 @@ haver pressão para as negociar:
 - **O G0-1 tem hoje uma linha `não` medida** (linha 1.6 da
   [`Gate_Fase0.md`](Gate_Fase0.md), e o §9.2 do mesmo ficheiro): a acção do
   consumo na vertical Serviços **não está escrita**. Lido à letra, o G0-1 não
-  passa. **Essa leitura é do fundador e não está tomada neste ficheiro.**
+  passa — e, como o **AMARELO exige o G0-1**, o rótulo que sobra é **VERMELHO**,
+  sem discricionariedade nenhuma. **O que é decisão do fundador não é o rótulo: é
+  o que fazer com ele** — e nada disso está tomado neste ficheiro.
 
 ---
 
