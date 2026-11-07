@@ -77,8 +77,17 @@ SONDA_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/healthz",)
 METRICAS_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/metrics",)
 
 #: As sondas e as metricas em TypeScript. Nenhuma recebe identificador.
+#:
+#: **As duas do `payments/arranque` sao do KAM-055**, e entram aqui com **caso
+#: real e nao dispensa**, pelo precedente do KAM-178: a dispensa e para o que
+#: nao se pode cobrir, e um `/healthz` e um `/metrics` sao exactamente onde a
+#: pergunta «e se o contexto de tenant nao estiver posto?» tem resposta. A
+#: `criarApp` daquele ficheiro constroi-se **sem argumentos**, como as outras
+#: catorze, pelo que o condutor a levanta sem fila e sem segredos.
 SONDAS_TS = (
     "rota:com:app:createApp:GET:/healthz",
+    "rota:com:payments/arranque:criarApp:GET:/healthz",
+    "rota:com:payments/arranque:criarApp:GET:/metrics",
     "rota:gwy:app:createApp:GET:/healthz",
     "rota:gwy:app:criarAppDeMetricas:GET:/healthz",
     "rota:gwy:app:criarAppDeMetricas:GET:/metrics",

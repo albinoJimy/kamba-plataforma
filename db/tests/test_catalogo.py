@@ -1556,15 +1556,21 @@ class TestConvencoes(ComBase):
         # Dez a mais com a `0032` (KAM-054): as quatro tabelas novas levam
         # `tenant_id -> tenants`, duas delas `contact_id -> contacts` e tres
         # `charge_id -> payment_charges`. A FK de `refund_cases.order_id` para
-        # a `orders_mirror` **nao** esta entre elas: fica no KAM-055 com a da
-        # `payment_charges`, pela razao escrita na `0029` — pôr a FK so num
-        # dos dois lados deixava o par incoerente.
+        # a `orders_mirror` **nao** esta entre elas: chegou com a `0035`
+        # (KAM-055), ao lado da da `payment_charges` e pela razao escrita na
+        # `0029` — pôr a FK so num dos dois lados deixava o par incoerente.
         # Duas a mais com a `0033` (KAM-045): a `stock_reservations` leva
         # `tenant_id -> tenants` e a FK **composta**
         # `(tenant_id, order_id) -> orders_mirror (tenant_id, id)`, que e a
         # licao ISO-58 do spike KAM-041 — uma FK simples deixava a reserva de A
         # apontar para a encomenda de B.
-        self.assertEqual(len(linhas), 69)
+        # **72 e nao 69** desde a `0035` (KAM-055): as tres FK de `order_id`
+        # para a `orders_mirror` que a `0029` e a `0032` deixaram escritas com
+        # este ticket por credor — `payment_charges`, `payment_events` e
+        # `refund_cases`. As tres **compostas** com o `tenant_id`, pela licao da
+        # `0033` acima, e `MATCH SIMPLE`, que e o que deixa a cobranca de ciclo
+        # de billing (`order_id` nulo) continuar a passar.
+        self.assertEqual(len(linhas), 72)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

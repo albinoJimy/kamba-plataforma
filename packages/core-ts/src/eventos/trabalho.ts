@@ -22,7 +22,7 @@
  * fila já conta, e é a única que conta bem.
  */
 
-import { Adiar, ForaDeOrdem, TENTATIVAS, consumir } from './consumo.ts';
+import { Adiar, EstadoIncompativel, ForaDeOrdem, TENTATIVAS, consumir } from './consumo.ts';
 import type { Efeito, OpcoesDoConsumo } from './consumo.ts';
 import { paraDlq } from './dlq.ts';
 import { METRICA_RETENTATIVAS, type Metricas } from './metricas.ts';
@@ -85,6 +85,20 @@ export async function processar(
       // critério 4 exige.
       await paraDlq({ ...paraDlqBase, erro: ForaDeOrdem.CODIGO, tentativas: tentativa });
       return { desfecho: 'dlq', erro: ForaDeOrdem.CODIGO };
+    }
+
+    if (erro instanceof EstadoIncompativel) {
+      // Também não há tentativa que resolva, e por isso está aqui e não no
+      // `Adiar`: a encomenda está `expirada` ou `cancelada`, e nenhum dos seis
+      // degraus da escada a traz de volta. O código é o que o critério 7 do
+      // KAM-055 nomeia, e a entrada é Sev1 por `payment.` estar nos
+      // `PREFIXOS_SEV1`.
+      await paraDlq({
+        ...paraDlqBase,
+        erro: EstadoIncompativel.CODIGO,
+        tentativas: tentativa,
+      });
+      return { desfecho: 'dlq', erro: EstadoIncompativel.CODIGO };
     }
 
     if (erro instanceof Adiar) {
