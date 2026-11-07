@@ -124,6 +124,9 @@ abaixo de 1.83.0 — em manifestos, em imagens, e (desde o KAM-030) num
   `OpenBaoFakeProvider` e o Doppler no Piloto; o OpenBao a sério ainda não está
   implantado, e o estado do Doppler é **NÃO VERIFICADO** (não há conta).
 - **A autorização da transferência.** Rodar uma chave não autoriza nada: em
-  `KAMBA_ENV=prod` o *gate* de destino recusa **todos** os fornecedores enquanto
-  o `tenant_destinations` do KAM-069 não existir (ADR-008). Uma chave nova não
-  abre essa porta.
+  `KAMBA_ENV=prod` o *gate* de destino recusa **todos** os fornecedores
+  enquanto nenhuma linha de `platform.tenant_destinations` estiver
+  `autorizado` com `apd_ref` (ADR-008). A tabela **existe** desde o KAM-069
+  e nenhuma das onze linhas do inventário está autorizada — o `ext:KAM-105`
+  fechou com **0 de 14** destinos com `apd_ref`. Uma chave nova não abre
+  essa porta, e quem a abre é a APD.

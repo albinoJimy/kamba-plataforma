@@ -53,7 +53,7 @@ O critério 9 do KAM-069 pede que **alterar uma linha altere a versão**, e um n
 | doppler | Doppler | Cofre de segredos | nenhum | `segredos` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 | email_sms | Correio ou SMS transaccional | Notificações ao dono | endereço de correio e telefone do dono da PME | `otp_e_avisos_de_servico` | por decidir | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 
-**11 de 11 destinos estão `pendente`.** Enquanto um destino não estiver `autorizado` com `apd_ref`, o *gate* de transferência (`libs/py-core/src/kamba_core/destinos/`) nega-o: nenhum dado pessoal de produção sai para lá (ADR-008).
+**11 de 11 destinos não estão `autorizado`.** Enquanto um destino não estiver `autorizado` com `apd_ref`, o *gate* de transferência (`libs/py-core/src/kamba_core/destinos/`) nega-o: nenhum dado pessoal de produção sai para lá (ADR-008).
 
 ## 4. O que este mapa não decide, e a quem fica
 

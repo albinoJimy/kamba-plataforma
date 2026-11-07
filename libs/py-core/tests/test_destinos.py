@@ -185,7 +185,7 @@ class TestAvaliarDestino(unittest.TestCase):
     def test_autorizado_sem_apd_ref_nega(self) -> None:
         """Defesa em profundidade: a base ja o recusa, e isto tambem.
 
-        O `tenant_destinations_autorizado_com_apd_ref_ck` da `0035` torna esta
+        O `tenant_destinations_autorizado_com_apd_ref_ck` da `0036` torna esta
         linha impossivel **atraves desta base**. O ramo fica porque o criterio 1
         e sobre a propriedade e nao sobre o sitio onde ela se impoe.
         """
@@ -234,7 +234,7 @@ class TestPortaSobreDestinos(unittest.TestCase):
         """Passo 1, e a contagem e que o prova.
 
         Uma finalidade fora do dominio **nao tem linha onde caiba** — o `CHECK`
-        da `0035` e fechado —, pelo que a consulta devolveria sempre vazio e o
+        da `0036` e fechado —, pelo que a consulta devolveria sempre vazio e o
         erro do chamador lia-se como «destino nao registado».
         """
         leitor = LeitorFalso([AUTORIZADA])
@@ -326,22 +326,67 @@ class TestCacheDeDestinos(unittest.TestCase):
             cache.ler(TENANT, "openai", "conversa", agora=TTL_POR_OMISSAO_MS)
         )
 
-    def test_depois_de_expirar_a_porta_volta_a_base_e_ve_a_revogacao(self) -> None:
+    def test_a_porta_so_volta_a_base_depois_de_o_ttl_passar(self) -> None:
         """A outra metade do criterio 3, e e esta que fecha o ciclo.
 
-        A de cima prova que a entrada expira; esta prova que a porta, depois de
-        ela expirar, **volta a ler** e passa a negar. Sem as duas, uma *cache*
-        que expirasse e uma porta que nunca reconsultasse davam o mesmo verde.
+        **Esta versao mede o TTL; a primeira nao media.** Ela chamava
+        `cache.repor()` — e `repor()` esvazia o dicionario, que **nao e o que o
+        TTL faz**. A revisao adversarial provou-o: mutando a `ler` da *cache*
+        para ignorar a expiracao no caminho da porta, os 44 ensaios ficavam
+        verdes — isto e, uma porta que guardasse uma autorizacao revogada **para
+        sempre** era indistinguivel desta.
+
+        O que fechou o buraco foi a costura de relogio no construtor da porta.
+        Com ela, o ensaio mede as tres coisas que o criterio 3 pede:
+
+        1. **antes** do TTL a porta nao volta a base (uma leitura, e a decisao
+           velha);
+        2. **no** instante do TTL volta (duas leituras);
+        3. e o que ela le entao e a revogacao, pelo que passa a negar.
         """
+        agora = [1_000.0]
         leitor = LeitorFalso([AUTORIZADA])
-        cache = CacheDeDestinos()
-        porta = PortaSobreDestinos(leitor, cache)
+        porta = PortaSobreDestinos(leitor, CacheDeDestinos(), relogio=lambda: agora[0])
+        porta.autorizar(TENANT, "openai", "conversa")
+        self.assertEqual(len(leitor.leituras), 1)
+
+        # Revogado na base. A *cache* ainda nao sabe, e ate ao TTL nao volta la.
+        leitor.linhas = [linha(status="revogado", tem_apd_ref=True)]
+        agora[0] += TTL_POR_OMISSAO_MS - 1
+        porta.autorizar(TENANT, "openai", "conversa")
+        self.assertEqual(len(leitor.leituras), 1, "foi a base antes do TTL")
+
+        # No instante do TTL — `<=` e nao `<` — a entrada deixa de valer.
+        agora[0] += 1
+        with self.assertRaises(TransferenciaNegada) as apanhado:
+            porta.autorizar(TENANT, "openai", "conversa")
+        self.assertEqual(len(leitor.leituras), 2, "nao voltou a base depois do TTL")
+        self.assertIn("`revogado`", str(apanhado.exception))
+
+    def test_uma_cache_que_nunca_expirasse_reprovava_este_ensaio(self) -> None:
+        """O canario do ensaio de cima, e e ele que o torna uma medicao.
+
+        Constroi-se **a mutacao que a revisao adversarial usou** — uma *cache*
+        cuja `ler` ignora a expiracao — e exige-se que a propriedade se perca.
+        Sem isto, o ensaio de cima podia estar a medir o relogio em vez do TTL.
+        """
+
+        class CacheQueNuncaExpira(CacheDeDestinos):
+            def ler(self, tenant, fornecedor, finalidade, agora=None):
+                return super().ler(tenant, fornecedor, finalidade, agora=0.0)
+
+        agora = [1_000.0]
+        leitor = LeitorFalso([AUTORIZADA])
+        porta = PortaSobreDestinos(
+            leitor, CacheQueNuncaExpira(), relogio=lambda: agora[0]
+        )
         porta.autorizar(TENANT, "openai", "conversa")
         leitor.linhas = [linha(status="revogado", tem_apd_ref=True)]
-        cache.repor()  # o que o TTL faz, sem esperar por ele
-        with self.assertRaises(TransferenciaNegada):
-            porta.autorizar(TENANT, "openai", "conversa")
-        self.assertEqual(len(leitor.leituras), 2)
+        agora[0] += TTL_POR_OMISSAO_MS * 10
+        # Com a mutacao, a autorizacao revogada sobrevive — e e exactamente isto
+        # que o ensaio de cima tem de recusar.
+        porta.autorizar(TENANT, "openai", "conversa")
+        self.assertEqual(len(leitor.leituras), 1)
 
     def test_invalidar_apaga_so_as_do_tenant(self) -> None:
         cache = CacheDeDestinos()
@@ -502,7 +547,7 @@ class TestConfiguracaoSintetica(unittest.TestCase):
 
 class TestDominios(unittest.TestCase):
     def test_sao_treze_finalidades_e_estao_ordenadas(self) -> None:
-        """O numero e o do dicionario §3.48, e a ordem e a da revisao `0035`.
+        """O numero e o do dicionario §3.49, e a ordem e a da revisao `0036`.
 
         **Fixo no codigo e nao derivado**, que e a diferenca entre um teste e um
         espelho: `len(FINALIDADES)` contra `len(FINALIDADES)` passa sempre.

@@ -644,6 +644,104 @@ class TestVistaDeAuditoriaDeTransferencias(ComBase):
                 finally:
                     self.fornecedor = guardado
 
+    def test_a_linha_do_tenant_tapa_a_global_tambem_na_vista(self) -> None:
+        """Achado 1 da revisao adversarial: a precedencia do `porta.py`.
+
+        Uma linha **do tenant** a dizer `negado` tapa a global `autorizado` — e
+        a porta nega (`aplicaveis = especificas or globais`). A primeira versao
+        da vista era um anti-*join* e dizia **conforme**, porque a global
+        satisfazia a juncao: uma segunda medicao mais frouxa do que a primeira
+        nao mede nada de novo.
+        """
+        _inserir(
+            self.cursor,
+            None,
+            provider=self.fornecedor,
+            status="autorizado",
+            apd_ref=APD_REF,
+            contrato_ref=CONTRATO_REF,
+            retencao_zero=True,
+            sem_treino=True,
+            autorizado_em="2026-01-01T00:00:00+00:00",
+        )
+        _inserir(
+            self.cursor, self.tenant, provider=self.fornecedor, status="negado"
+        )
+        self._chamada("2026-06-01T12:00:00+00:00")
+        self.assertEqual(self._violacoes(), 1)
+
+    def test_uma_aplicavel_que_nao_autoriza_e_violacao_na_vista(self) -> None:
+        """Achado 1, segunda metade: a conjuncao do passo 4 do `porta.py`.
+
+        O mesmo fornecedor e a mesma finalidade em **dois paises** — `ZA`
+        autorizado e `US` `pendente`. A chamada nao escolhe o pais, pelo que a
+        porta falha fechada sobre a **uniao**; a primeira versao da vista
+        bastava-lhe uma linha que casasse e dizia conforme.
+        """
+        _inserir(
+            self.cursor,
+            self.tenant,
+            provider=self.fornecedor,
+            country="ZA",
+            status="autorizado",
+            apd_ref=APD_REF,
+            contrato_ref=CONTRATO_REF,
+            retencao_zero=True,
+            sem_treino=True,
+            autorizado_em="2026-01-01T00:00:00+00:00",
+        )
+        _inserir(
+            self.cursor, self.tenant, provider=self.fornecedor, country="US"
+        )
+        self._chamada("2026-06-01T12:00:00+00:00")
+        self.assertEqual(self._violacoes(), 1)
+
+    def test_duas_aplicaveis_autorizadas_nao_sao_violacao(self) -> None:
+        """O canario dos dois testes acima.
+
+        Sem ele, uma vista que declarasse **tudo** violacao passava os dois — e
+        a correccao do achado 1 podia ter sido escrita a mais, o que torna o
+        alvo zero do criterio 7 inalcancavel e a vista inutil pelo outro lado.
+        """
+        for pais in ("ZA", "US"):
+            _inserir(
+                self.cursor,
+                self.tenant,
+                provider=self.fornecedor,
+                country=pais,
+                status="autorizado",
+                apd_ref=APD_REF,
+                contrato_ref=CONTRATO_REF,
+                retencao_zero=True,
+                sem_treino=True,
+                autorizado_em="2026-01-01T00:00:00+00:00",
+            )
+        self._chamada("2026-06-01T12:00:00+00:00")
+        self.assertEqual(self._violacoes(), 0)
+
+    def test_uma_global_que_nao_autoriza_tambem_e_violacao(self) -> None:
+        """A conjuncao vale igual no ambito global, e isso prova-se.
+
+        Sem este caso, uma correccao que aplicasse a conjuncao **so** as linhas
+        do tenant passava o teste de cima e deixava as globais — que sao as da
+        infra-estrutura, e as que mais tenants partilham — com a regra frouxa.
+        """
+        _inserir(
+            self.cursor,
+            None,
+            provider=self.fornecedor,
+            country="ZA",
+            status="autorizado",
+            apd_ref=APD_REF,
+            contrato_ref=CONTRATO_REF,
+            retencao_zero=True,
+            sem_treino=True,
+            autorizado_em="2026-01-01T00:00:00+00:00",
+        )
+        _inserir(self.cursor, None, provider=self.fornecedor, country="US")
+        self._chamada("2026-06-01T12:00:00+00:00")
+        self.assertEqual(self._violacoes(), 1)
+
     def test_um_destino_de_outro_tenant_nao_cobre_a_chamada(self) -> None:
         """O canario do caso acima: a juncao nao e sobre o fornecedor sozinho."""
         outro = factories.tenant(self.cursor)

@@ -120,7 +120,7 @@ class TestTraducaoDoErro(unittest.TestCase):
 
 class TestFinalidades(unittest.TestCase):
     def test_as_tres_deste_servico_sao_tres_das_treze_do_nucleo(self) -> None:
-        """O dominio e da coluna e nao do servico (dicionario §3.48).
+        """O dominio e da coluna e nao do servico (dicionario §3.49).
 
         Deste lado interessam tres; a coluna tem treze, porque o *gate* corre em
         sete pontos e so um e o *gateway* de modelos. **Subconjunto proprio**, e

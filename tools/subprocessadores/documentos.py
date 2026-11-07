@@ -69,7 +69,9 @@ def _linha_publica(s: Subprocessador) -> str:
 
 def lista_publica(inventario: Inventario, versao: str) -> str:
     """A lista publica de subprocessadores (requisito 4 de `E3`)."""
-    autorizados = len(inventario.subprocessadores) - len(inventario.pendentes)
+    autorizados = len(inventario.subprocessadores) - len(
+        inventario.nao_autorizados
+    )
     linhas = [
         "# Subprocessadores — KAMBÁ",
         "",
@@ -158,7 +160,7 @@ def mapa_de_tratamentos(
     omitisse metade da fonte sem o dizer divergia em silencio — que e
     exactamente o defeito que a frase do §8.6 existe para impedir.
     """
-    pendentes = inventario.pendentes
+    nao_autorizados = inventario.nao_autorizados
     linhas = [
         "# Mapa de tratamentos — KAMBÁ (gerado)",
         "",
@@ -238,8 +240,8 @@ def mapa_de_tratamentos(
     linhas += [_linha_do_mapa(s) for s in inventario.subprocessadores]
     linhas += [
         "",
-        f"**{len(pendentes)} de {len(inventario.subprocessadores)} destinos "
-        "estão `pendente`.** Enquanto um destino não estiver `autorizado` com "
+        f"**{len(nao_autorizados)} de {len(inventario.subprocessadores)} "
+        "destinos não estão `autorizado`.** Enquanto um destino não estiver `autorizado` com "
         "`apd_ref`, o *gate* de transferência "
         "(`libs/py-core/src/kamba_core/destinos/`) nega-o: nenhum dado pessoal "
         "de produção sai para lá (ADR-008).",

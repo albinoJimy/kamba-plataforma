@@ -80,6 +80,10 @@ class TestInventarioDoRepositorio(unittest.TestCase):
         que a primeira autorizacao chegar, que e o dia em que alguem tem de
         reler o bloco do KAM-069.
         """
+        # As duas contagens, e hoje dao o mesmo numero: as onze estao
+        # `pendente` **pelo estado** e nao por exclusao. O achado 8 da revisao
+        # adversarial era o nome a mentir quando elas divergirem.
+        self.assertEqual(len(self.inventario.nao_autorizados), LINHAS_ESPERADAS)
         self.assertEqual(len(self.inventario.pendentes), LINHAS_ESPERADAS)
         for s in self.inventario.subprocessadores:
             with self.subTest(nome=s.nome):
@@ -213,7 +217,7 @@ class TestValidacao(unittest.TestCase):
         self.assertIn("repetido", str(apanhado.exception))
 
     def test_autorizado_sem_checklist_e_recusado(self) -> None:
-        """Criterio 6, e **a mesma regra que o `CHECK` da revisao `0035` impoe**.
+        """Criterio 6, e **a mesma regra que o `CHECK` da revisao `0036` impoe**.
 
         As duas superficies tem de aceitar exactamente o mesmo conjunto de
         linhas, ou uma autoriza o que a outra recusa.

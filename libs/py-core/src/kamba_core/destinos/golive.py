@@ -75,6 +75,24 @@ from .porta import TransferenciaNegada, estado_bloqueia
 #: modulos a chamar `prod` ao mesmo ambiente, e um quarto a chamar-lhe outra
 #: coisa era a divergencia mais barata de evitar deste ficheiro.
 AMBIENTE_PROD: Final = "prod"
+AMBIENTE_STAGING: Final = "staging"
+AMBIENTE_DEV: Final = "dev"
+
+#: Os ambientes conhecidos. **Um valor fora desta lista e tratado como `prod`**,
+#: pela escolha do `arrancar` do `llm/destinos.py` e pela razao que o
+#: `chaves.ts` do KAM-008 escreveu por extenso: um `KAMBA_ENV=producao` escrito
+#: por engano nao pode servir a politica de `dev`. Aqui o engano custava a
+#: activacao de um tenant com dados reais.
+#:
+#: Escrita uma vez e nao em cada funcao: a primeira versao tinha os tres
+#: literais em duas assinaturas diferentes, e duas listas do mesmo dominio
+#: divergem no dia em que uma delas ganhar um ambiente.
+AMBIENTES: Final = (AMBIENTE_PROD, AMBIENTE_STAGING, AMBIENTE_DEV)
+
+
+def _efectivo(ambiente: str) -> str:
+    """O ambiente que conta. Um valor desconhecido **e** `prod`."""
+    return ambiente if ambiente in AMBIENTES else AMBIENTE_PROD
 
 #: A variavel que aponta para o ficheiro dos ambientes sinteticos.
 #:
@@ -84,7 +102,7 @@ VARIAVEL_SINTETICOS: Final = "KAMBA_GOLIVE_SINTETICO"
 
 #: A forma da referencia do mapa de tratamentos: `<major>.<n>+<12 hex>`.
 #:
-#: E a que o gerador produz (dicionario §3.48), e exige-se a forma e nao so a
+#: E a que o gerador produz (dicionario §3.49), e exige-se a forma e nao so a
 #: presenca porque uma referencia como `v1` ou `ultimo` nao identifica conteudo
 #: nenhum — e o criterio 9 pede que «alterar uma linha altere a versao».
 FORMA_DO_MAPA: Final = re.compile(r"^[0-9]+\.[0-9]+\+[0-9a-f]{12}$")
@@ -167,9 +185,7 @@ def exigir_ambiente(ambiente: str, env: Mapping[str, str | None]) -> None:
     nao pode servir a politica de `dev`, e aqui o engano custava a activacao de
     um tenant com dados reais.
     """
-    conhecido = ambiente in (AMBIENTE_PROD, "staging", "dev")
-    efectivo = ambiente if conhecido else AMBIENTE_PROD
-    if efectivo != AMBIENTE_PROD:
+    if _efectivo(ambiente) != AMBIENTE_PROD:
         return
     declarado = (env.get(VARIAVEL_SINTETICOS) or "").strip()
     if declarado:
@@ -322,8 +338,7 @@ def exigir_go_live(
     faltas = avaliar_go_live(destinos, dpa_aceite, mapa_ref, mapa_esperado)
     if not faltas:
         return ()
-    conhecido = ambiente in (AMBIENTE_PROD, "staging", "dev")
-    if not conhecido or ambiente == AMBIENTE_PROD:
+    if _efectivo(ambiente) == AMBIENTE_PROD:
         raise GoLiveNegado(tenant_id, faltas)
     return tuple(
         f"go-live do tenant {tenant_id} com {falta}; fora de "

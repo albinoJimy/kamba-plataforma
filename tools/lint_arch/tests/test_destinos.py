@@ -100,20 +100,55 @@ class TestRepositorio(unittest.TestCase):
 
         for caminho, cliente in destinos.CLIENTES_DE_SAIDA.items():
             with self.subTest(caminho=caminho):
-                self.assertIn(cliente.finalidade, FINALIDADES)
+                self.assertTrue(cliente.finalidades, "uma entrada sem finalidade")
+                for finalidade in cliente.finalidades:
+                    self.assertIn(finalidade, FINALIDADES)
         for finalidade in destinos.FINALIDADES_SEM_CLIENTE:
             with self.subTest(finalidade=finalidade):
                 self.assertIn(finalidade, FINALIDADES)
 
-    def test_as_finalidades_sem_cliente_nao_tem_mesmo_cliente(self) -> None:
-        """Nos dois sentidos: a lista das que faltam nao pode mentir.
+    def test_as_finalidades_sem_cliente_sao_as_treze_menos_as_declaradas(self) -> None:
+        """Nos dois sentidos, e e o achado 6 da revisao adversarial.
 
-        Uma finalidade declarada «sem cliente» que passasse a ter um era uma
-        conta desactualizada a dizer que o *gate* cobre menos do que cobre — e e
-        exactamente a direccao em que esta casa nao aceita numeros velhos.
+        A versao anterior comparava so a interseccao — «nenhuma das sem cliente
+        tem cliente» — e isso passava com a lista a **esquecer** quatro: ela
+        dizia `embeddings` (que o cliente de LLM cobre pelo `papel: embed`) e
+        nao dizia `canal`, `pagamentos`, `facturacao` nem `segredos`. A conta do
+        criterio 4 fechava por acidente.
+
+        Agora exige-se a **igualdade** com as treze menos as declaradas: uma
+        entrada nova que cubra uma finalidade da lista reprova aqui, e uma
+        finalidade que deixe de ser coberta tambem.
         """
-        declaradas = {c.finalidade for c in destinos.CLIENTES_DE_SAIDA.values()}
-        self.assertEqual(declaradas & set(destinos.FINALIDADES_SEM_CLIENTE), set())
+        from subprocessadores.inventario import FINALIDADES
+
+        declaradas = {
+            finalidade
+            for cliente in destinos.CLIENTES_DE_SAIDA.values()
+            for finalidade in cliente.finalidades
+        }
+        self.assertEqual(
+            set(destinos.FINALIDADES_SEM_CLIENTE),
+            set(FINALIDADES) - declaradas,
+            "a lista escrita a mao e a derivada divergem",
+        )
+        for finalidade, credor in destinos.FINALIDADES_SEM_CLIENTE.items():
+            with self.subTest(finalidade=finalidade):
+                self.assertRegex(credor, r"^(KAM-[0-9]{3}|D[0-9]{1,2})$")
+
+    def test_o_cliente_de_llm_cobre_as_tres_finalidades_de_modelo(self) -> None:
+        """Achado 6: o mapa `papel` -> `finalidade` do AGR tem quatro papeis.
+
+        `router` e `chat` dao `conversa`, `embed` da `embeddings` e `vision` da
+        `visao` — e os quatro passam pelo mesmo `.autorizar(` do `cliente.py`.
+        Declarar so `conversa` dizia que o *gate* cobre menos do que cobre.
+        """
+        cliente = destinos.CLIENTES_DE_SAIDA[
+            "services/agr/src/kamba_agr/llm/cliente.py"
+        ]
+        self.assertEqual(
+            set(cliente.finalidades), {"conversa", "embeddings", "visao"}
+        )
 
 
 class TestCanario(unittest.TestCase):

@@ -76,7 +76,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol
 
@@ -168,7 +168,7 @@ class LeitorDeDestinos(Protocol):
 class TransferenciaNegada(RuntimeError):
     """A porta nao autoriza. **Nao e o `DestinoNegado` do *gateway*.**
 
-    Sao camadas diferentes, e o dicionario §3.48 escreve-o: o `DestinoNegado` e
+    Sao camadas diferentes, e o dicionario §3.49 escreve-o: o `DestinoNegado` e
     um `ErroDeLlm` — o contrato entre o grafo e o **modelo**, que degrada com
     motivo `destino_negado` e nao conta no disjuntor — e este e a recusa da
     porta, que nao sabe que existe um modelo do outro lado. Quem traduz um no
@@ -454,6 +454,11 @@ class PortaSobreDestinos:
     finalidade)`, que **levanta** em vez de devolver — e nao uma nossa: trocar a
     implementacao nao muda nada no chamador, que e o que o `destinos.py` do AGR
     prometeu por escrito.
+
+    **O `relogio` e uma costura de ensaio e nao uma opcao de configuracao.** A
+    omissao e o `agora_ms`, monotonico, e nenhum chamador de producao o passa; o
+    que ele torna possivel e medir a expiracao da *cache* **atraves da porta**,
+    que e a segunda metade do criterio 3. Ver a nota do `decidir`.
     """
 
     #: Para a mensagem de arranque e para o registo. Nunca um segredo.
@@ -463,9 +468,11 @@ class PortaSobreDestinos:
         self,
         ler: LeitorDeDestinos,
         cache: CacheDeDestinos | None = None,
+        relogio: Callable[[], float] = agora_ms,
     ) -> None:
         self._ler = ler
         self._cache = cache if cache is not None else CacheDeDestinos()
+        self._relogio = relogio
 
     @property
     def cache(self) -> CacheDeDestinos:
@@ -489,7 +496,20 @@ class PortaSobreDestinos:
                 "pode ler como «destino nao registado» (KAM-069)"
             )
         tenant = _tenant_ou_nega(tenant_id)
-        guardada = self._cache.ler(tenant, fornecedor, finalidade)
+        # **O instante le-se uma vez e passa para a *cache*.** Sem esta costura
+        # nao havia como medir a expiracao **atraves da porta**: a `ler` e a
+        # `guardar` usavam cada uma o seu `agora_ms()`, e um ensaio que a
+        # quisesse exercitar so podia chamar `repor()` — que esvazia o
+        # dicionario e **nao e o que o TTL faz**. A revisao adversarial mediu-o:
+        # mutando a `ler` para ignorar a expiracao no caminho da porta, os 44
+        # ensaios ficavam **verdes**, isto e, uma porta que guardasse uma
+        # autorizacao revogada para sempre era indistinguivel desta.
+        #
+        # Le-se **uma** vez por decisao, e nao duas: com duas leituras, uma
+        # entrada guardada podia expirar entre a leitura e a escrita e o TTL
+        # efectivo deixava de ser o declarado.
+        instante = self._relogio()
+        guardada = self._cache.ler(tenant, fornecedor, finalidade, agora=instante)
         if guardada is not None:
             return guardada
         try:
@@ -510,7 +530,7 @@ class PortaSobreDestinos:
                 "autoriza a transferencia (falha fechada, ADR-008, KAM-069)"
             ) from erro
         decisao = avaliar_destino(linhas, fornecedor, finalidade)
-        self._cache.guardar(tenant, fornecedor, finalidade, decisao)
+        self._cache.guardar(tenant, fornecedor, finalidade, decisao, agora=instante)
         return decisao
 
     def autorizar(self, tenant_id: str, fornecedor: str, finalidade: str) -> None:

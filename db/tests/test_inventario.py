@@ -1756,7 +1756,7 @@ INVENTARIO = {
             SIM,
             None,
             "nao — FK composta `(tenant_id, order_id)` para a `orders_mirror` "
-            "desde a `0036` (KAM-055); a tabela e do KAM-044. Continua "
+            "desde a `0035` (KAM-055); a tabela e do KAM-044. Continua "
             "anulavel porque exactamente um dos dois sujeitos existe, e o "
             "`payment_charges_um_sujeito` impoe-no — o `MATCH SIMPLE` da FK e "
             "o que deixa o nulo passar",
@@ -1911,7 +1911,7 @@ INVENTARIO = {
             None,
             "nao — copiado da cobranca pela funcao, nunca enviado pelo "
             "chamador: um evento nao aponta para um sujeito diferente do da "
-            "cobranca a que pertence. FK composta desde a `0036` (KAM-055), "
+            "cobranca a que pertence. FK composta desde a `0035` (KAM-055), "
             "pela razao da `payment_charges` — e e esta que torna uma "
             "encomenda com ledger impossivel de apagar",
         ),
@@ -2125,7 +2125,7 @@ INVENTARIO = {
             "uuid",
             SIM,
             None,
-            "nao — FK composta para a orders_mirror desde a `0036` (KAM-055), "
+            "nao — FK composta para a orders_mirror desde a `0035` (KAM-055), "
             "ao lado da da payment_charges: pô-la so num dos dois lados "
             "deixava o par incoerente",
         ),
@@ -2675,7 +2675,7 @@ class TestInventario(ComBase):
                         # delete*.
                         #
                         # A FK de `refund_cases.order_id` **nao** esta aqui: veio
-                        # com a `0036` (KAM-055), ao lado da da
+                        # com a `0035` (KAM-055), ao lado da da
                         # `payment_charges` e pela razao dela.
                         "payment_confirmers_tenant_fk",
                         "payment_confirmers_contact_fk",
@@ -2801,7 +2801,7 @@ class TestInventario(ComBase):
                         "payment_accounts_tenant_fk",
                         # KAM-053: as **seis** da revisao `0029`, e sao seis e
                         # nao oito porque duas nao nascem com ela — a de
-                        # `order_id` para `orders_mirror` chegou com a `0036`
+                        # `order_id` para `orders_mirror` chegou com a `0035`
                         # (KAM-055) e esta no bloco de baixo; a de
                         # `billing_cycle_id` para `billing_cycles` e do
                         # **KAM-059** e a tabela ainda nao existe (o `CHECK` de
@@ -2839,7 +2839,7 @@ class TestInventario(ComBase):
                         "payment_events_tenant_fk",
                         "payment_events_charge_fk",
                         "payment_events_account_fk",
-                        # KAM-055: as **tres** da revisao `0036`, e sao as que o
+                        # KAM-055: as **tres** da revisao `0035`, e sao as que o
                         # bloco acima e o da `0032` deixaram escritas com este
                         # ticket por credor. Todas `(tenant_id, order_id) ->
                         # orders_mirror (tenant_id, id)`, contra a
@@ -3094,6 +3094,27 @@ class TestInventario(ComBase):
             # tenant expiram no mesmo instante sempre que a mesma cobranca
             # define a validade das duas.
             "orders_mirror_expira_idx": False,
+            # KAM-069 (0036): as linhas **globais** dos destinos de
+            # transferencia, que sao as da infra-estrutura — o `tenant_id` nulo.
+            #
+            # **Parcial de proposito, e e o segundo acesso da tabela.** A
+            # unicidade `(tenant_id, provider, country, purpose)` serve o
+            # primeiro (as linhas de um tenant) porque principia pelo
+            # `tenant_id`; as globais nao, porque um `IS NULL` sobre a primeira
+            # coluna de um indice de quatro varre-o todo. A porta le as globais
+            # em **todas** as consultas, pela precedencia do `porta.py`.
+            #
+            # **Nao comeca pelo `tenant_id`, e nao pode**: o predicado e
+            # `tenant_id IS NULL`, pelo que a coluna nao discrimina nada dentro
+            # do indice. O que o X-05 exige — `tenant_id` a cabeca de **algum**
+            # indice — e satisfeito pela unicidade.
+            #
+            # Nao unico, e seria errado se o fosse: a unicidade das globais e a
+            # restricao `UNIQUE NULLS NOT DISTINCT`, que leva o `country`; este
+            # indice nao o leva, e unico recusaria dois paises para o mesmo
+            # fornecedor e finalidade — que e exactamente a configuracao que o
+            # passo 4 da porta existe para tratar.
+            "tenant_destinations_globais_idx": False,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -3117,6 +3138,28 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # --------------------------------------- KAM-069 (0036)
+                    #
+                    # **Catorze**: a chave primaria, a unicidade e os doze
+                    # `CHECK`. Os quatro primeiros sao de forma (dominio
+                    # fechado, dominio fechado, ISO 3166-1, identificador), o
+                    # quinto e o sexto recusam o vazio, e os seis ultimos ligam
+                    # colunas — e sao eles que fazem a tabela nao poder
+                    # contradizer-se.
+                    "tenant_destinations_pkey",
+                    "tenant_destinations_destino_uk",
+                    "tenant_destinations_status_ck",
+                    "tenant_destinations_purpose_ck",
+                    "tenant_destinations_country_ck",
+                    "tenant_destinations_provider_ck",
+                    "tenant_destinations_apd_ref_ck",
+                    "tenant_destinations_contrato_ref_ck",
+                    "tenant_destinations_autorizado_com_apd_ref_ck",
+                    "tenant_destinations_autorizado_com_checklist_ck",
+                    "tenant_destinations_autorizado_com_janela_ck",
+                    "tenant_destinations_revogado_com_janela_ck",
+                    "tenant_destinations_janela_ordenada_ck",
+                    "tenant_destinations_sem_janela_ck",
                     # ------------------------------------- KAM-054 (0032)
                     #
                     # **Quinze**: quatro do `payment_confirmers` (a chave

@@ -135,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(
         f"subprocessadores: conforme — {len(inventario.subprocessadores)} "
-        f"subprocessadores, {len(inventario.pendentes)} pendente(s), "
+        f"subprocessadores, {len(inventario.nao_autorizados)} nao "
+        f"autorizado(s), "
         f"versao {versao}"
     )
     return 0

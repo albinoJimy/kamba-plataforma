@@ -11,9 +11,24 @@ lista publica que dele sai e um compromisso com os titulares dos dados.
 (*checklist* do requisito 8); um destino `autorizado` sem *checklist* completo e
 rejeitado.» E isso que o `validar` impoe, e e a **mesma** regra que o
 `tenant_destinations_autorizado_com_checklist_ck` da revisao `0036` impoe na
-base — de proposito: o inventario e o documento e a tabela e a configuracao, e as
-duas tem de aceitar exactamente o mesmo conjunto de linhas, ou uma autoriza o
-que a outra recusa.
+base — de proposito: o inventario e o documento e a tabela e a configuracao, e
+uma a aceitar o que a outra recusa punha o documento a descrever uma
+configuracao impossivel.
+
+**O que as duas superficies tem em comum e a *checklist*, e nao mais do que
+isso**, e a revisao adversarial mostrou que a frase anterior afirmava a
+equivalencia inteira. Nao e verdade, e as duas diferencas dizem-se:
+
+* a base exige tambem a **janela** de uma linha `autorizado`
+  (`autorizado_em IS NOT NULL AND revogado_em IS NULL`), e o inventario nao tem
+  campo de janela — ele descreve o subprocessador, nao a configuracao por
+  tenant;
+* o `pais_hipotese` e **texto livre** aqui («EUA ou UE», «por decidir») e o
+  `country` da tabela e `^[A-Z]{2}$`. E deliberado: o §8.3.2 chama-lhes
+  hipoteses e uma hipotese nao cabe num codigo ISO.
+
+O que se afirma, e que se verifica, e mais estreito: **uma linha `autorizado`
+sem a *checklist* completa e recusada nas duas**.
 
 **O que a validacao nao faz: nao julga a escolha.** Nenhuma regra aqui diz que
 pais e aceitavel, nem que fornecedor e preferivel. O codigo nunca infere
@@ -176,8 +191,22 @@ class Inventario:
     subprocessadores: tuple[Subprocessador, ...]
 
     @property
-    def pendentes(self) -> tuple[Subprocessador, ...]:
+    def nao_autorizados(self) -> tuple[Subprocessador, ...]:
+        """Os que **nao** estao `autorizado` — e nao «os pendentes».
+
+        **Chamava-se `pendentes` e o nome mentia**, como a revisao adversarial
+        mediu: o predicado e `not autorizado`, pelo que um destino `revogado` ou
+        `negado` entrava na conta e a saida do *gate* reportava-o como pendente.
+        Hoje as onze linhas estao mesmo `pendente` e os dois nomes davam o mesmo
+        numero; o dia em que uma ficasse `negado`, o numero continuava certo e a
+        palavra errada.
+        """
         return tuple(s for s in self.subprocessadores if not s.autorizado)
+
+    @property
+    def pendentes(self) -> tuple[Subprocessador, ...]:
+        """Os que estao `pendente`, pelo estado e nao por exclusao."""
+        return tuple(s for s in self.subprocessadores if s.estado == "pendente")
 
     def versao_do_mapa(self, destinos: tuple[dict, ...] = ()) -> str:
         """`<versao>+<12 hex>`, sobre o inventario **e** os destinos.

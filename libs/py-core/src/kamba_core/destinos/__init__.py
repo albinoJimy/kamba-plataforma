@@ -25,7 +25,10 @@ A barreira esta entregue; a autorizacao para ela deixar passar nao existe.
 """
 
 from .golive import (
+    AMBIENTES,
+    AMBIENTE_DEV,
     AMBIENTE_PROD,
+    AMBIENTE_STAGING,
     FORMA_DO_MAPA,
     VARIAVEL_SINTETICOS,
     ConfiguracaoDeProdInvalida,
@@ -73,7 +76,10 @@ from .porta import (
 )
 
 __all__ = [
+    "AMBIENTES",
+    "AMBIENTE_DEV",
     "AMBIENTE_PROD",
+    "AMBIENTE_STAGING",
     "ESTADOS",
     "ESTADO_AUTORIZADO",
     "ESTADO_NEGADO",

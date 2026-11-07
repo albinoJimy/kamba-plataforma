@@ -27,14 +27,14 @@ subir por ali escapava ao `except`, nao contava a metrica
 pelo que a propriedade de seguranca mantinha-se; o que se perdia era tudo o que
 o criterio 5 do KAM-030 fecha.
 
-O `PortaDoNucleo` traduz, e e a unica coisa que faz. O dicionario §3.48 escreve
+O `PortaDoNucleo` traduz, e e a unica coisa que faz. O dicionario §3.49 escreve
 porque sao dois erros e nao um: o `DestinoNegado` e o contrato entre o grafo e o
 **modelo**, e a `TransferenciaNegada` e a recusa de uma porta que nao sabe que
 existe um modelo do outro lado.
 
 ## As tres finalidades deste servico, e as treze da coluna
 
-A coluna `tenant_destinations.purpose` tem **treze** valores (dicionario §3.48),
+A coluna `tenant_destinations.purpose` tem **treze** valores (dicionario §3.49),
 porque o *gate* corre em sete pontos e so um e o *gateway* de modelos. Deste
 lado interessam **tres**, e os literais vem do nucleo: duas copias das mesmas
 cadeias divergiam no dia em que uma delas mudasse, e foi para evitar isso que o
@@ -63,7 +63,7 @@ AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
 #: As finalidades que **este servico** usa: tres das treze de
-#: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.48).
+#: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.49).
 #:
 #: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
 #: nota do modulo. Lista **fechada** deste lado: uma finalidade nova no AGR e um

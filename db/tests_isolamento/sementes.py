@@ -178,7 +178,7 @@ def _caso_de_reembolso(cursor, tenant_id: str, canario: str) -> None:
     `assert_beneficiary`.
 
     **A encomenda vai pelo `_UMA_ENCOMENDA`**, pela razao medida que esse
-    comentario escreve. Ate a `0036` esta receita escrevia `gen_random_uuid()`,
+    comentario escreve. Ate a `0035` esta receita escrevia `gen_random_uuid()`,
     e era legitimo: o `order_id` **nao tinha FK**, e a `0029` dizia por escrito
     que a FK era do KAM-055. Ela existe agora
     (`refund_cases_encomenda_do_mesmo_tenant_fk (tenant_id, order_id)` para a
@@ -1954,7 +1954,7 @@ ORDEM = (
     # exige. Ninguem a aponta, pelo que fica no fim.
     ("platform", "stock_reservations"),
     # KAM-054: a `refund_cases` **depois da `orders_mirror`**, que ela
-    # referencia por FK composta desde a `0036` (KAM-055) — antes disso o
+    # referencia por FK composta desde a `0035` (KAM-055) — antes disso o
     # `order_id` era um UUID solto e a posicao era indiferente. A
     # `fraud_signals` so depende de `tenants`. Ninguem aponta para nenhuma das
     # duas, pelo que ficam no fim, como as do KAM-009. **A ordem entre estas e a

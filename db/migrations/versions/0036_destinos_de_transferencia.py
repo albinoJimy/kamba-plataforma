@@ -403,12 +403,62 @@ def _vista_de_auditoria() -> None:
     `kamba_batch`, que tem `BYPASSRLS`. As duas leituras sao legitimas e medem
     coisas diferentes; confundi-las dava um zero que so dizia «nao vi nada».
 
-    **Um `LEFT JOIN` e nao um `NOT EXISTS`**, e a diferenca nao e de gosto: o
-    criterio escreve «junta `llm_call_log` a `tenant_destinations`», e um
-    anti-*join* por `LEFT JOIN ... IS NULL` **e** a juncao que ele pede, com a
-    condicao de autorizacao escrita no `ON` onde se pode ler. A forma com
-    subconsulta escondia a condicao dentro de um `EXISTS` e dava a mesma
-    resposta sem mostrar contra o que foi comparada.
+    ## A vista tem de ser **tao estrita como a porta**, e a primeira versao nao era
+
+    E o achado 1 da revisao adversarial, e o defeito mais serio que ela
+    encontrou. A primeira versao era um `LEFT JOIN ... WHERE d.id IS NULL`: um
+    anti-*join* que pergunta «**existe alguma** linha que autorize?». A porta
+    pergunta outra coisa, e a diferenca nao e de estilo:
+
+      precedencia   uma linha **do tenant** tapa as globais
+                    (`aplicaveis = especificas or globais`, no `porta.py`)
+      conjuncao     **todas** as aplicaveis tem de autorizar, nao alguma —
+                    porque a chamada nao escolhe o pais, e um fornecedor com
+                    `ZA autorizado` e `US pendente` pode servir de qualquer um
+
+    Com o anti-*join*, as duas regras caiam: uma linha global `autorizado`
+    satisfazia a juncao mesmo com a linha **do tenant** a dizer `negado`, e uma
+    linha `autorizado` entre varias `pendente` bastava. Nos dois casos a porta
+    nega e a vista dizia conforme.
+
+    **E isso inutilizava a vista como medicao independente.** O argumento «a
+    porta nega, logo nao ha chamada, logo nao ha linha» e verdadeiro **se a
+    porta estiver certa** — e a vista existe precisamente para o caso em que ela
+    nao esteja: um defeito no *gate*, uma escrita em `llm_call_log` por fora
+    dele, ou a *cache* de 60 s a servir uma decisao velha. Uma segunda medicao
+    com uma regra mais frouxa do que a primeira nao mede nada de novo.
+
+    ## Deixou de ser um `LEFT JOIN`, e o texto repete-se duas vezes de proposito
+
+    A precedencia e a conjuncao **nao se exprimem num `ON`**: a primeira precisa
+    de saber se existe *outra* linha (a especifica) e a segunda e uma
+    quantificacao universal, que num `LEFT JOIN` nao ha como escrever. Fica a
+    forma que as exprime — «nao ha aplicaveis **ou** ha uma aplicavel que nao
+    autorizava» —, e continua a ser a juncao que o criterio pede: um semi-*join*
+    escrito duas vezes, com a condicao a vista nas duas.
+
+    **O conjunto das aplicaveis esta escrito duas vezes, e nao se fatoriza.** Uma
+    CTE nao pode ser correlacionada com a linha de fora, que e exactamente o que
+    isto precisa; e construir o texto numa variavel local tornava a instrucao
+    **ilegivel para o *gate* 3b** — ele le o AST da revisao sem a executar e
+    resolve `f"..."` sobre constantes de **modulo**, nao sobre locais. E a licao
+    que a `0023` pagou com nove `op.execute` lidos como `[ilegivel]`.
+
+    ## O que a vista mede e o que a porta mede sao instantes diferentes, e isso fica
+
+    A porta responde «**esta** autorizado agora» — le o `status`. A vista
+    responde «**estava** autorizado no instante da chamada» — le a janela. Uma
+    linha `revogado` com `revogado_em` no **futuro** e o caso que as separa: a
+    porta nega ja, e a vista continua a ler as chamadas anteriores ao
+    `revogado_em` como conformes. **Nao e uma divergencia a corrigir: e a
+    pergunta do criterio 7.** Uma revogacao agendada nao torna ilegais as
+    chamadas que sairam antes dela, e uma vista que o fizesse apagava historia.
+
+    O que **nao** existe e historico da propria configuracao: a precedencia («o
+    tenant tem linha propria?») avalia-se sobre as linhas de **hoje** e nao
+    sobre as de `ts`. Fica declarado, com o mesmo credor da janela — quem
+    precisar do historico escreve a tabela que o guarda, e hoje nao ha destino
+    autorizado nenhum para historiar.
     """
     op.execute(
         f"""
@@ -417,33 +467,64 @@ def _vista_de_auditoria() -> None:
           SELECT c.id, c.ts, c.tenant_id, c.fornecedor, c.modelo, c.papel,
                  c.resultado
             FROM {REGISTO} c
-            LEFT JOIN {DESTINOS} d
-              ON (d.tenant_id = c.tenant_id OR d.tenant_id IS NULL)
-             AND d.provider = c.fornecedor
-             AND d.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
-             AND d.apd_ref IS NOT NULL
-             AND d.autorizado_em IS NOT NULL
-             AND d.autorizado_em <= c.ts
-             AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
            WHERE c.resultado <> '{RESULTADO_RECUSADO}'
-             AND d.id IS NULL
+             AND (
+               NOT EXISTS (
+                 SELECT 1
+                   FROM {DESTINOS} d
+                  WHERE d.provider = c.fornecedor
+                    AND d.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+                    AND (d.tenant_id = c.tenant_id
+                         OR (d.tenant_id IS NULL
+                             AND NOT EXISTS (
+                               SELECT 1
+                                 FROM {DESTINOS} e
+                                WHERE e.tenant_id = c.tenant_id
+                                  AND e.provider = c.fornecedor
+                                  AND e.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+                             )))
+               )
+               OR EXISTS (
+                 SELECT 1
+                   FROM {DESTINOS} d
+                  WHERE d.provider = c.fornecedor
+                    AND d.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+                    AND (d.tenant_id = c.tenant_id
+                         OR (d.tenant_id IS NULL
+                             AND NOT EXISTS (
+                               SELECT 1
+                                 FROM {DESTINOS} e
+                                WHERE e.tenant_id = c.tenant_id
+                                  AND e.provider = c.fornecedor
+                                  AND e.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+                             )))
+                    AND NOT (
+                      d.apd_ref IS NOT NULL
+                      AND d.autorizado_em IS NOT NULL
+                      AND d.autorizado_em <= c.ts
+                      AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
+                    )
+               )
+             )
         """
     )
     op.execute(
         f"COMMENT ON VIEW {VISTA} IS "
         "'As chamadas a modelos que sairam sem destino autorizado com apd_ref "
         "no instante em que sairam (KAM-069 criterio 7, ADR-008). O alvo e zero "
-        "linhas. Exige que o destino seja autorizado numa finalidade de modelo "
-        "(conversa, embeddings, visao): sem isso, um destino autorizado so para "
-        "segredos cobria uma chamada ao modelo e a vista dizia conforme o que o "
-        "gate recusou. Nao discrimina qual das tres, porque o mapa papel -> "
-        "finalidade vive no AGR e reescreve-lo aqui dava duas copias da mesma "
-        "regra; quem discrimina e o gate, antes de o pedido sair. "
-        "Exclui o resultado destino_negado, que e uma chamada que nao "
-        "aconteceu: o gate corre antes de haver pedido e o CHECK "
-        "llm_call_log_negado_sem_consumo da revisao 0023 recusa-a se levar "
-        "tokens ou custo. Com security_invoker, o kamba_audit ve o tenant do seu "
-        "contexto e a pergunta sobre a plataforma toda responde-se como "
+        "linhas. **Aplica a mesma regra que a porta de destinos**, e nao uma "
+        "mais frouxa: a precedencia (uma linha do tenant tapa as globais), a "
+        "conjuncao (todas as aplicaveis tem de autorizar, nao alguma) e o filtro "
+        "de finalidade de modelo (conversa, embeddings, visao). Uma segunda "
+        "medicao com regra mais frouxa do que a primeira nao mede nada de novo, "
+        "e a vista existe para o caso em que a porta esteja errada. Exclui o "
+        "resultado destino_negado, que e uma chamada que nao aconteceu: o gate "
+        "corre antes de haver pedido e o CHECK llm_call_log_negado_sem_consumo "
+        "da revisao 0023 recusa-a se levar tokens ou custo. A porta le o status "
+        "e responde agora; esta vista le a janela e responde no instante da "
+        "chamada, e uma revogacao agendada nao torna ilegais as chamadas "
+        "anteriores a ela. Com security_invoker, o kamba_audit ve o tenant do "
+        "seu contexto e a pergunta sobre a plataforma toda responde-se como "
         "kamba_batch.'"
     )
 

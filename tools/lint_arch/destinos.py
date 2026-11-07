@@ -111,8 +111,19 @@ IMPORTA_O_GATE = re.compile(
 class ClienteDeSaida:
     """Um caminho de saida para um subprocessador, declarado."""
 
-    #: A finalidade de `platform.tenant_destinations.purpose` (revisao `0036`).
-    finalidade: str
+    #: As finalidades de `platform.tenant_destinations.purpose` (revisao `0036`)
+    #: que este caminho de saida serve.
+    #:
+    #: **Plural, e era singular.** A revisao adversarial mediu o que isso
+    #: custava: com **uma** cadeia, o cliente de LLM — que e o unico que consulta
+    #: o *gate* — so podia declarar `conversa`, e a `embeddings` e a `visao`
+    #: apareciam como nao cobertas. A `embeddings` estava mesmo em
+    #: `FINALIDADES_SEM_CLIENTE`, com credor KAM-063, quando o
+    #: `finalidade_de(papel)` do AGR ja a mapeia (`embed` -> `embeddings`) e a
+    #: chamada passa pelo mesmo `.autorizar(`. Era **um numero velho num
+    #: inventario fechado**, e na direccao que esta casa nao aceita: a dizer que
+    #: o *gate* cobre menos do que cobre.
+    finalidades: tuple[str, ...]
     #: `True` quando o ficheiro consulta o *gate* antes de sair.
     consulta_o_gate: bool
     #: `KAM-NNN` quando nao consulta. Vazio quando consulta.
@@ -128,7 +139,7 @@ class ClienteDeSaida:
 #: vez de viver numa frase de um bloco.
 CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
     "services/agr/src/kamba_agr/llm/cliente.py": ClienteDeSaida(
-        finalidade="conversa",
+        finalidades=("conversa", "embeddings", "visao"),
         consulta_o_gate=True,
         credor="",
         razao=(
@@ -140,7 +151,7 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         ),
     ),
     "packages/core-ts/src/outbound/cliente.ts": ClienteDeSaida(
-        finalidade="canal",
+        finalidades=("canal",),
         consulta_o_gate=False,
         credor="KAM-015",
         razao=(
@@ -153,7 +164,7 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         ),
     ),
     "packages/core-ts/src/onboarding/graph.ts": ClienteDeSaida(
-        finalidade="canal",
+        finalidades=("canal",),
         consulta_o_gate=False,
         credor="KAM-016",
         razao=(
@@ -164,7 +175,7 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         ),
     ),
     "packages/core-ts/src/storage/s3.ts": ClienteDeSaida(
-        finalidade="alojamento",
+        finalidades=("alojamento", "copias_de_seguranca"),
         consulta_o_gate=False,
         credor="KAM-011",
         razao=(
@@ -177,7 +188,7 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         ),
     ),
     "libs/py-core/src/kamba_core/storage/s3.py": ClienteDeSaida(
-        finalidade="alojamento",
+        finalidades=("alojamento", "copias_de_seguranca"),
         consulta_o_gate=False,
         credor="KAM-011",
         razao=(
@@ -186,7 +197,7 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         ),
     ),
     "packages/core-ts/src/avisos/fornecedor.ts": ClienteDeSaida(
-        finalidade="otp_e_avisos_de_servico",
+        finalidades=("otp_e_avisos_de_servico",),
         consulta_o_gate=False,
         credor="KAM-115",
         razao=(
@@ -198,7 +209,7 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
         ),
     ),
     "packages/core-ts/src/sms/fornecedor.ts": ClienteDeSaida(
-        finalidade="otp_e_avisos_de_servico",
+        finalidades=("otp_e_avisos_de_servico",),
         consulta_o_gate=False,
         credor="KAM-116",
         razao=(
@@ -209,15 +220,27 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
     ),
 }
 
-#: As finalidades do criterio 4 que **nenhuma** entrada declara, com o ticket
-#: que as vai trazer. Nao e uma dispensa: e a conta que a caixa do criterio 4
-#: leva, escrita onde um `grep` a encontra.
+#: As finalidades que **nenhuma** entrada do inventario serve, com o ticket ou a
+#: decisao que as vai trazer. Nao e uma dispensa: e a conta que a caixa do
+#: criterio 4 leva, escrita onde um `grep` a encontra.
+#:
+#: **Sao seis, e eram cinco e erradas.** A revisao adversarial mostrou que a
+#: lista anterior punha a `embeddings` aqui — quando o cliente de LLM ja a cobre
+#: pelo `papel: embed` — e deixava de fora quatro que nenhuma entrada serve. A
+#: causa era o `ClienteDeSaida.finalidade` ser **uma** cadeia: uma entrada que
+#: serve tres finalidades so podia declarar uma, e a conta fechava por acidente.
+#:
+#: Deriva-se das treze menos as declaradas, e o
+#: `test_as_finalidades_sem_cliente_sao_as_treze_menos_as_declaradas` confronta
+#: as duas **nos dois sentidos**. A lista escrita a mao fica porque leva o
+#: **credor**, que nao se deriva de nada.
 FINALIDADES_SEM_CLIENTE = {
-    "transcricao": "KAM-036",
-    "embeddings": "KAM-063",
-    "observabilidade": "KAM-080",
     "entrega_de_conteudo": "D12",
-    "copias_de_seguranca": "KAM-079",
+    "facturacao": "D7",
+    "observabilidade": "KAM-080",
+    "pagamentos": "D4",
+    "segredos": "KAM-104",
+    "transcricao": "KAM-036",
 }
 
 
@@ -307,6 +330,16 @@ def _do_git(root: Path) -> list[str]:
         text=True,
         check=False,
     )
+    # **Falha fechada, e nao lista vazia.** A primeira versao devolvia `[]` se o
+    # `git` nao respondesse, e isso punha a metade da descoberta a varrer zero
+    # ficheiros e a reportar conforme — a classe «uma superficie com zero
+    # ficheiros passa sempre» que a nota deste modulo recusa. Apanhado pela
+    # revisao adversarial. E a mesma escolha do `ficheiros_do_git` do
+    # `codeowners.py`, que levanta `OSError` em vez de recorrer ao `os.walk`.
     if saida.returncode != 0:
-        return []
+        raise OSError(
+            f"`git ls-files` saiu com {saida.returncode} em {root}: sem a arvore "
+            "seguida pelo git nao ha como descobrir um cliente de saida novo, e "
+            "varrer zero ficheiros reportava conforme (KAM-069, criterio 4)"
+        )
     return [linha for linha in saida.stdout.splitlines() if linha]

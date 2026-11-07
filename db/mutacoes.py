@@ -6210,30 +6210,70 @@ MUTACOES = [
     # juncao olha para a janela e nao para o `status`. As duas leitoras da
     # tabela passam a discordar, e a que decide a transferencia e a mais
     # permissiva. O `test_a_janela_nao_se_contradiz` tem de a matar.
+    # ------------------------------- KAM-069, a vista contra a porta (achado 1)
+    #
+    # Quatro mutacoes sobre a `v_transfer_audit`, e cada uma ataca **uma** das
+    # quatro propriedades que a fazem ser tao estrita como a porta. A revisao
+    # adversarial encontrou tres delas em falta na primeira versao.
     ('revisao 0036: a vista perde a janela e le o estado de hoje', REV36,
-     """             AND d.autorizado_em IS NOT NULL
-             AND d.autorizado_em <= c.ts
-             AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
+     """                      AND d.autorizado_em IS NOT NULL
+                      AND d.autorizado_em <= c.ts
+                      AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
 """,
-     "             AND d.status = 'autorizado'\n"),
-    ('revisao 0036: a vista deixa de exigir uma finalidade de modelo', REV36,
-     """             AND d.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
-""",
-     ""),
-    # A vista passa a ser **mais permissiva do que o *gate* que audita**: um
-    # destino autorizado so para `segredos` — o cofre, que por regra nao recebe
-    # dado pessoal nenhum — cobre uma chamada a um modelo, e a vista diz
-    # conforme uma transferencia que o *gate* recusou. O
+     "                      AND d.autorizado_em IS NOT NULL\n"),
+    # O criterio 7 pede «no momento da chamada» e isto responde «desde sempre»:
+    # as chamadas de antes da autorizacao deixam de ser violacao — **autorizar
+    # um destino apaga as violacoes anteriores** —, e as de depois de uma
+    # revogacao passam a ser conformes. E um registo de conformidade a
+    # limpar-se a si proprio. O `test_a_janela_decide_e_nao_o_estado_de_hoje`
+    # tem de a matar.
+    # **Muta a constante e nao o texto do SQL**, e a razao e mecanica: com a
+    # reescrita da vista o filtro de finalidade aparece **quatro** vezes no
+    # texto (duas em cada metade do semi-*join*), e uma mutacao tem de casar
+    # exactamente uma. Alargar a lista para as treze finalidades de
+    # transferencia reproduz o defeito **nos quatro sitios ao mesmo tempo**, e e
+    # o defeito exacto: um destino autorizado so para `segredos` passa a cobrir
+    # uma chamada ao modelo.
+    ('revisao 0036: a vista aceita qualquer finalidade de transferencia', REV36,
+     'FINALIDADES_DE_MODELO = ("\'conversa\'", "\'embeddings\'", "\'visao\'")',
+     "FINALIDADES_DE_MODELO = FINALIDADES_DE_TRANSFERENCIA"),
+    # Um destino autorizado so para `segredos` — o cofre, que por regra nao
+    # recebe dado pessoal nenhum — passa a cobrir uma chamada ao modelo, e a
+    # vista diz conforme uma transferencia que o *gate* recusou. O
     # `test_um_destino_de_outra_finalidade_nao_cobre_a_chamada` tem de a matar,
     # e o `test_as_tres_finalidades_de_modelo_cobrem` e o canario que impede a
-    # correccao oposta (exigir `conversa` sozinha deixava `embed` e `vision`
-    # eternamente em violacao).
-    # O criterio 7 pede «no momento da chamada» e isto responde «hoje»: as
-    # chamadas de antes da autorizacao deixam de ser violacao — **autorizar um
-    # destino apaga as violacoes anteriores** —, e as de depois de uma revogacao
-    # passam a ser, embora estivessem autorizadas quando sairam. E um registo de
-    # conformidade a limpar-se a si proprio. O
-    # `test_a_janela_decide_e_nao_o_estado_de_hoje` tem de a matar.
+    # correccao oposta.
+    ('revisao 0036: a vista perde a precedencia da linha do tenant', REV36,
+     """                    AND (d.tenant_id = c.tenant_id
+                         OR (d.tenant_id IS NULL
+                             AND NOT EXISTS (
+                               SELECT 1
+                                 FROM {DESTINOS} e
+                                WHERE e.tenant_id = c.tenant_id
+                                  AND e.provider = c.fornecedor
+                                  AND e.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+                             )))
+                    AND NOT (""",
+     """                    AND (d.tenant_id = c.tenant_id OR d.tenant_id IS NULL)
+                    AND NOT (""",
+     "tests"),
+    # **A forma que a primeira versao tinha**, e o achado 1 da revisao
+    # adversarial: uma linha global `autorizado` passa a cobrir a chamada mesmo
+    # quando o tenant tem a sua propria linha `negado` para o mesmo par. A porta
+    # nega (`aplicaveis = especificas or globais`) e a vista dizia conforme. O
+    # `test_a_linha_do_tenant_tapa_a_global_tambem_na_vista` tem de a matar.
+    #
+    # **Troca so a segunda ocorrencia** — a do `EXISTS` —, que e a que decide se
+    # uma aplicavel reprova; a primeira (a do `NOT EXISTS`) decide se **ha**
+    # aplicaveis, e trocar as duas media duas coisas ao mesmo tempo.
+    ('revisao 0036: a vista volta a bastar-lhe uma linha autorizada', REV36,
+     """               OR EXISTS (""",
+     """               OR NOT EXISTS (""",
+     "tests"),
+    # A conjuncao do passo 4 vira disjuncao: **uma** linha autorizada basta, e um
+    # fornecedor com `ZA autorizado` e `US pendente` passa a ser conforme — a
+    # chamada nao escolhe o pais, e a porta falha fechada sobre a **uniao**. O
+    # `test_uma_aplicavel_que_nao_autoriza_e_violacao_na_vista` tem de a matar.
 ]
 
 

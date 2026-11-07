@@ -27,6 +27,15 @@ e sem ela não há configuração de destinos a ler. Para não ficar sem a metad
 sistema, este mapa gerou-se de **três fontes**, e a terceira é a que o torna
 verificável:
 
+> **Lido depois de 2026-11-08, este parágrafo descreve o passado.** O KAM-069
+> entregou a `platform.tenant_destinations` (revisão `0036`) e com ela um mapa
+> **gerado** — [`docs/seguranca/mapa_tratamentos.md`](../../../seguranca/mapa_tratamentos.md),
+> versionado por `sha256` do conteúdo. O que o §0 conta é como **este**
+> documento foi gerado, à mão e de três fontes, quando a tabela não existia; e
+> fica como está, porque é o que foi emitido. A substância não mudou: a tabela
+> tem zero linhas, porque configurar um destino exige um `apd_ref` e não há
+> nenhum (**0 de 14**, [`Seguimento_APD.md`](Seguimento_APD.md) §1).
+
 | Fonte | O que dá | Estado |
 |---|---|---|
 | `../../08` §7.1 | As classes de dados pessoais e onde vivem | Desenho |
@@ -197,7 +206,7 @@ fornecedor um ponto de falha do produto.
 | **Se a Meta exige notificação separada** | Pergunta A-11 do pacote |
 | **Se o CDN que termina TLS é subprocessador** | Pergunta E-04; e nenhuma das duas opções do `../../08` §8.3.2 está decidida |
 | **Prazo de conservação fiscal** | NÃO VERIFICADO. É o parâmetro de retenção **de maior impacto** sem valor fixado, e não o único: o prazo de prova dos consentimentos e da prova de contrato também está «a confirmar» no `../../08` §11 (pergunta C-05) |
-| **O estado real de `tenant_destinations`** | A tabela não existe (KAM-069). Até existir, este mapa é a única configuração de destinos que há, e é um documento — não um mecanismo |
+| **O estado real de `tenant_destinations`** | **A tabela existe desde 2026-11-08** (KAM-069, revisão `0036`), e com ela um mapa **gerado** — `../../../seguranca/mapa_tratamentos.md`, versionado por `sha256` do conteúdo. Este documento, que é o que foi emitido, **não é substituído nem apagado**: fica como a versão 1.0 que foi escrita à mão antes de haver tabela. **O que não mudou é a substância:** a tabela tem zero linhas, porque configurar um destino exige um `apd_ref` e não há nenhum (0 de 14, §1 do `Seguimento_APD.md`), pelo que o mapa gerado descreve o que a plataforma trataria e não o que ela trata |
 
 ---
 
@@ -217,3 +226,4 @@ fornecedor um ponto de falha do produto.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Emissão inicial, KAM-105. Mapa por destino gerado de **três** fontes — as classes do `../../08` §7.1, o inventário do §8.3.2 e, o que o torna verificável, as listas de saída reais da pilha (`infra/egress/litellm.yaml` e os cinco `services/*/egress.yaml`). Catorze destinos, nenhum com `apd_ref`. A reconciliação das três listas encontrou cinco divergências, entre elas dois destinos sem linha no inventário: a sonda sintética externa e o fornecedor de imagem. Registada a consequência verificável em código: as saídas que levariam dados pessoais de produção **não estão declaradas**, e as três declaradas falham fechadas sem `apd_ref`. D9 fica provisória e a entidade que paga os custos em USD fica em aberto, por ser decisão do fundador. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **KAM-069: a tabela que o §0 dizia não existir existe**, e com ela um mapa **gerado** e versionado por `sha256` (`../../../seguranca/mapa_tratamentos.md`). **Este documento não é substituído nem apagado:** é o que foi emitido, e fica como a versão escrita à mão antes de haver tabela — o mapa gerado nomeia-o nos «Relacionados». Só a linha do §5 sobre «o estado real de `tenant_destinations`» é emendada, e a substância não muda: a tabela tem zero linhas, porque configurar um destino exige um `apd_ref` e não há nenhum. |
