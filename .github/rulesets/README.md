@@ -1,8 +1,10 @@
 # *Rulesets* de `main` — o que o GitHub aplica, em ficheiro
 
 O `main.json` é a exportação do *ruleset* `main: gates fail-closed do KAM-002`,
-que é a peça de que toda a propriedade *fail-closed* depende: sem ele, os seis
-*gates* correm e reportam, e nada impede o *merge*.
+que é a peça de que toda a propriedade *fail-closed* depende: sem ele, os
+**onze** *gates* correm e reportam, e nada impede o *merge*. (Onze a bloquear,
+sete contextos exigidos — a diferença está no §«Contexto exigido não é o que
+bloqueia» abaixo, e não é contabilidade.)
 
 **Porque está aqui.** O *ruleset* é configuração, não código: vive na API do
 GitHub, altera-se sem PR, e nada no repositório o descrevia. Quem quisesse saber
@@ -15,7 +17,7 @@ alteração feita na interface aparece como divergência face a este ficheiro.
 | Repositório | O quê | *Ruleset* |
 |---|---|---|
 | `albinoJimy/kamba` | privado, a origem | existe, `id` **24879081** |
-| `albinoJimy/kamba-plataforma` | **público, e é onde os PR são abertos e o CI corre** | existe, `id` **25359475** — criado a 2026-10-18, cópia do privado |
+| `albinoJimy/kamba-plataforma` | **público, e é onde os PR são abertos e o CI corre** | existe, `id` **25359475** — criado a 2026-10-18 como cópia do privado, e **diverge num parâmetro** (ver abaixo) |
 
 **Isto não é um detalhe de arrumação: foi um defeito a sério.** A primeira
 versão da verificação nomeava um repositório só — o privado. O `main.json`
@@ -32,8 +34,11 @@ e o `make ruleset` corre sobre todos. **Verde só quando todos estão conformes.
 **O *ruleset* do público existe desde 2026-10-18, e o `id` ficou escrito a
 2026-11-07.** Até lá o alvo dava `repositorio-sem-ruleset`, vermelho de
 propósito. Hoje dá vermelho por outra razão, e é uma razão melhor: a
-verificação passou a comparar política em vez de a dar por ausente — e
-encontrou uma divergência que ninguém encenou.
+verificação passou a comparar política em vez de a dar por ausente — e há uma
+divergência que ninguém encenou. **O achado é da revisão adversarial do
+KAM-164**, que o mediu a 2026-11-03 e o registou na dívida 171 de
+[`docs/dividas-documentais.md`](../../docs/dividas-documentais.md); o KAM-137
+confirmou-o por execução e pagou os três passos que a dívida pedia.
 
 > **A divergência medida a 2026-11-07, e fechá-la é acto do fundador.**
 > `rules.pull_request.require_extra_approval_for_unattributed_changes` está a
@@ -168,19 +173,39 @@ gh api repos/albinoJimy/kamba/rulesets/24879081 \
   > .github/rulesets/main.json
 ```
 
-E para o `albinoJimy/kamba-plataforma`, cujo `id` é **25359475** desde
-2026-10-18:
+> ### ⚠ O espelho regenera-se do `albinoJimy/kamba`, e hoje **não** do público
+>
+> As receitas desta secção escrevem em `main.json`. **Enquanto a divergência
+> medida a 2026-11-07 estiver aberta, regenerar o espelho a partir do
+> `albinoJimy/kamba-plataforma` escreve lá
+> `require_extra_approval_for_unattributed_changes: false`** — isto é, baixa o
+> espelho para calar o vermelho, que é precisamente o que o §«Quando a
+> verificação dá vermelho» proíbe fazer sem decisão escrita.
+>
+> O comando do público abaixo é para **ler** o *ruleset* dele, não para
+> regenerar o espelho. Só depois de o fundador decidir — e se a decisão for que
+> o `false` é deliberado — é que o espelho se actualiza, e então o PR explica
+> porquê.
+
+Para **ler** o `albinoJimy/kamba-plataforma`, cujo `id` é **25359475** desde
+2026-10-18 (sem redirecção, de propósito):
 
 ```bash
 gh api repos/albinoJimy/kamba-plataforma/rulesets/25359475 --jq '{name,target,enforcement,conditions,rules,bypass_actors}'
 ```
 
-Os dois `id` estão em [`ci/ruleset.yaml`](../../ci/ruleset.yaml), e o teste
-`test_cada_id_declarado_esta_no_readme_do_ruleset` exige que os conjuntos
-**coincidam**: um `id` escrito só num dos dois sítios põe o *gate* 4 vermelho.
+Os dois `id` estão em [`ci/ruleset.yaml`](../../ci/ruleset.yaml), e **três**
+testes prendem-nos ao que este ficheiro diz: `test_cada_id_declarado_esta_no_readme_do_ruleset`
+(os comandos de exportação, forma `/rulesets/NNN`),
+`test_cada_alvo_declara_o_seu_id_na_tabela_do_readme` (a tabela de cabeçalho) e
+`test_cada_ligacao_de_reposicao_aponta_um_id_declarado` (as ligações
+`/rules/NNN` do §«Quando a verificação dá vermelho»). **Um `id` errado em
+qualquer das três superfícies põe o *gate* 4 vermelho** — e as duas últimas
+existem porque a revisão adversarial deste ticket mediu que a tabela e as
+ligações podiam mentir com o *gate* verde.
 
-A mesma coisa, sem decorar o `id` nem a reformatação, e é a forma a usar quando
-se quer o espelho de um alvo sem o ir procurar:
+A mesma coisa, sem decorar o `id` nem a reformatação, **e é a forma a usar para
+regenerar o espelho a partir do alvo de referência**:
 
 ```bash
 python -m ruleset_check mostrar --root . --repositorio albinoJimy/kamba \

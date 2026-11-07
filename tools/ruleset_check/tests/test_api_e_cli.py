@@ -401,20 +401,48 @@ class TestSaidaDoCheck(unittest.TestCase):
         self.assertIn("4242", erros)
         self.assertIn(config.CAMINHO, erros)
 
-    def test_o_id_de_cada_alvo_sai_da_configuracao_e_nao_de_uma_copia(self) -> None:
-        """A regressao que o KAM-137 pagou a 2026-11-07, prendida.
+    def test_cada_alvo_declara_o_seu_id_na_tabela_do_readme(self) -> None:
+        """A **tabela** do `README.md`, que e a superficie mais lida de todas.
 
-        As fixtures tinham o `id` do publico escrito a mao (`99`). Quando a
-        configuracao passou a declarar o verdadeiro, `tudo_conforme()` deixou de
-        ser «tudo conforme»: o numero inventado valia como recriacao do ruleset.
-        Isto exige que as duas superficies continuem a concordar.
+        **Medido pela revisao adversarial do KAM-137:** o
+        `test_cada_id_declarado_esta_no_readme_do_ruleset` casa so
+        `/rulesets/(\\d+)`, que sao os comandos de exportacao — pelo que o `id`
+        da tabela de cabecalho podia dizer `99999999` com o gate 4 verde. A
+        tabela e o que alguem le para saber qual e o ruleset de cada
+        repositorio, e nao estava presa a nada.
+
+        A linha procura-se pela **primeira celula** e nao por `in`, porque
+        `albinoJimy/kamba` e prefixo de `albinoJimy/kamba-plataforma`: um `in`
+        dava a linha errada por boa e o teste passava sozinho.
         """
-        declarados = {alvo.repositorio: alvo.ruleset_id
-                      for alvo in config.ler(ROOT) if alvo.ruleset_id is not None}
-        for repositorio, (listagem, _) in tudo_conforme().items():
-            if repositorio in declarados:
-                with self.subTest(repositorio=repositorio):
-                    self.assertEqual(listagem[0]["id"], declarados[repositorio])
+        readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
+        for alvo in config.ler(ROOT):
+            if alvo.ruleset_id is None:
+                continue
+            with self.subTest(repositorio=alvo.repositorio):
+                padrao = re.compile(
+                    r"^\|\s*`" + re.escape(alvo.repositorio) + r"`\s*\|.*$", re.M
+                )
+                linhas = padrao.findall(readme)
+                self.assertEqual(
+                    len(linhas), 1,
+                    f"esperava uma linha de tabela para {alvo.repositorio}")
+                self.assertIn(
+                    str(alvo.ruleset_id), linhas[0],
+                    f"a tabela do README nao diz o `id` declarado de {alvo.repositorio}")
+
+    def test_cada_ligacao_de_reposicao_aponta_um_id_declarado(self) -> None:
+        """As ligacoes `…/rules/NNN` do §«Quando a verificacao da vermelho».
+
+        Sao o que o fundador abre para repor um campo. Um `id` errado ali manda-o
+        a pagina de outro ruleset — ou a nenhuma —, e a forma `/rules/` nao casa
+        com o `/rulesets/` do teste ao lado.
+        """
+        readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
+        declarados = {str(a.ruleset_id) for a in config.ler(ROOT) if a.ruleset_id}
+        ligacoes = set(re.findall(r"/rules/(\d+)", readme))
+        self.assertTrue(ligacoes, "o README deixou de ter ligacoes de reposicao")
+        self.assertEqual(ligacoes, declarados)
 
     def test_divergente_aponta_o_procedimento(self) -> None:
         mapa = tudo_conforme()
