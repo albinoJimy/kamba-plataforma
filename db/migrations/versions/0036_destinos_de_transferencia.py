@@ -197,6 +197,25 @@ FINALIDADES_DE_TRANSFERENCIA = (
     "'visao'",
 )
 
+#: As **tres** finalidades que uma chamada a um modelo pode ter.
+#:
+#: Sao as que o `FINALIDADES` do `services/agr/src/kamba_agr/llm/destinos.py`
+#: declara — `conversa`, `embeddings`, `visao` —, e a vista **exige-as**: sem
+#: isto, um destino autorizado so para `segredos` ou para `alojamento` cobria uma
+#: chamada a um modelo, e a vista dizia conforme uma transferencia que o *gate*
+#: tinha recusado. Uma superficie de auditoria mais permissiva do que a barreira
+#: que audita e pior do que nao a ter.
+#:
+#: **O que isto nao faz, e diz-se:** nao discrimina **qual** das tres. O mapa
+#: `papel` -> `finalidade` vive no AGR (`FINALIDADE_DO_PAPEL`) e reescreve-lo num
+#: `CASE` do SQL dava duas copias da mesma regra, que e o defeito que esta casa
+#: paga mais vezes. O que a vista mede e «havia destino autorizado para este
+#: fornecedor, numa finalidade de modelo, no instante da chamada»; **quem
+#: discrimina a finalidade e o *gate***, que corre antes de o pedido sair.
+#: Credor da versao exacta: o ticket que trouxer o `papel` para o canon do lado
+#: da base — hoje nenhum o reclama.
+FINALIDADES_DE_MODELO = ("'conversa'", "'embeddings'", "'visao'")
+
 #: O desfecho de uma chamada que **nao** saiu: o *gate* recusou antes de haver
 #: pedido. Ver a nota do modulo — a vista exclui-o, e e a decisao mais
 #: consequente deste ficheiro. O valor e o do dominio de `llm_call_log.resultado`
@@ -401,6 +420,7 @@ def _vista_de_auditoria() -> None:
             LEFT JOIN {DESTINOS} d
               ON (d.tenant_id = c.tenant_id OR d.tenant_id IS NULL)
              AND d.provider = c.fornecedor
+             AND d.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
              AND d.apd_ref IS NOT NULL
              AND d.autorizado_em IS NOT NULL
              AND d.autorizado_em <= c.ts
@@ -413,7 +433,13 @@ def _vista_de_auditoria() -> None:
         f"COMMENT ON VIEW {VISTA} IS "
         "'As chamadas a modelos que sairam sem destino autorizado com apd_ref "
         "no instante em que sairam (KAM-069 criterio 7, ADR-008). O alvo e zero "
-        "linhas. Exclui o resultado destino_negado, que e uma chamada que nao "
+        "linhas. Exige que o destino seja autorizado numa finalidade de modelo "
+        "(conversa, embeddings, visao): sem isso, um destino autorizado so para "
+        "segredos cobria uma chamada ao modelo e a vista dizia conforme o que o "
+        "gate recusou. Nao discrimina qual das tres, porque o mapa papel -> "
+        "finalidade vive no AGR e reescreve-lo aqui dava duas copias da mesma "
+        "regra; quem discrimina e o gate, antes de o pedido sair. "
+        "Exclui o resultado destino_negado, que e uma chamada que nao "
         "aconteceu: o gate corre antes de haver pedido e o CHECK "
         "llm_call_log_negado_sem_consumo da revisao 0023 recusa-a se levar "
         "tokens ou custo. Com security_invoker, o kamba_audit ve o tenant do seu "

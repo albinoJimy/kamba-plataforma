@@ -583,6 +583,67 @@ class TestVistaDeAuditoriaDeTransferencias(ComBase):
         self._chamada("2026-06-01T12:00:00+00:00")
         self.assertEqual(self._violacoes(), 0)
 
+    def test_um_destino_de_outra_finalidade_nao_cobre_a_chamada(self) -> None:
+        """A vista nao pode ser mais permissiva do que o *gate* que audita.
+
+        Um destino autorizado **so para `segredos`** — o Doppler, por exemplo —
+        nao cobre uma chamada a um modelo. Sem o `d.purpose IN (...)` na juncao,
+        a vista dizia conforme uma transferencia que o *gate* teria recusado, e
+        uma superficie de auditoria mais frouxa do que a barreira e pior do que
+        nenhuma.
+        """
+        _inserir(
+            self.cursor,
+            self.tenant,
+            provider=self.fornecedor,
+            purpose="segredos",
+            status="autorizado",
+            apd_ref=APD_REF,
+            contrato_ref=CONTRATO_REF,
+            retencao_zero=True,
+            sem_treino=True,
+            autorizado_em="2026-01-01T00:00:00+00:00",
+        )
+        self._chamada("2026-06-01T12:00:00+00:00")
+        self.assertEqual(self._violacoes(), 1)
+
+    def test_as_tres_finalidades_de_modelo_cobrem(self) -> None:
+        """O canario do teste acima, e nas **tres**.
+
+        Uma juncao que exigisse `conversa` sozinha passava o caso negativo e
+        deixava uma chamada de `embed` ou de `vision` eternamente em violacao —
+        o inverso do defeito, e igualmente errado. As tres sao as do
+        `FINALIDADES` do AGR, e a asercao de que sao essas tres esta em
+        `services/agr/tests/test_llm_destinos.py`.
+        """
+        from kamba_core.destinos import (
+            FINALIDADE_CONVERSA,
+            FINALIDADE_EMBEDDINGS,
+            FINALIDADE_VISAO,
+        )
+
+        for finalidade in (FINALIDADE_CONVERSA, FINALIDADE_EMBEDDINGS, FINALIDADE_VISAO):
+            with self.subTest(finalidade=finalidade):
+                fornecedor = f"forn_{uuid.uuid4().hex[:8]}"
+                _inserir(
+                    self.cursor,
+                    self.tenant,
+                    provider=fornecedor,
+                    purpose=finalidade,
+                    status="autorizado",
+                    apd_ref=APD_REF,
+                    contrato_ref=CONTRATO_REF,
+                    retencao_zero=True,
+                    sem_treino=True,
+                    autorizado_em="2026-01-01T00:00:00+00:00",
+                )
+                guardado, self.fornecedor = self.fornecedor, fornecedor
+                try:
+                    self._chamada("2026-06-01T12:00:00+00:00")
+                    self.assertEqual(self._violacoes(), 0)
+                finally:
+                    self.fornecedor = guardado
+
     def test_um_destino_de_outro_tenant_nao_cobre_a_chamada(self) -> None:
         """O canario do caso acima: a juncao nao e sobre o fornecedor sozinho."""
         outro = factories.tenant(self.cursor)

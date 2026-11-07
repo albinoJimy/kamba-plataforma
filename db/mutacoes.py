@@ -6216,6 +6216,18 @@ MUTACOES = [
              AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
 """,
      "             AND d.status = 'autorizado'\n"),
+    ('revisao 0036: a vista deixa de exigir uma finalidade de modelo', REV36,
+     """             AND d.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+""",
+     ""),
+    # A vista passa a ser **mais permissiva do que o *gate* que audita**: um
+    # destino autorizado so para `segredos` — o cofre, que por regra nao recebe
+    # dado pessoal nenhum — cobre uma chamada a um modelo, e a vista diz
+    # conforme uma transferencia que o *gate* recusou. O
+    # `test_um_destino_de_outra_finalidade_nao_cobre_a_chamada` tem de a matar,
+    # e o `test_as_tres_finalidades_de_modelo_cobrem` e o canario que impede a
+    # correccao oposta (exigir `conversa` sozinha deixava `embed` e `vision`
+    # eternamente em violacao).
     # O criterio 7 pede «no momento da chamada» e isto responde «hoje»: as
     # chamadas de antes da autorizacao deixam de ser violacao — **autorizar um
     # destino apaga as violacoes anteriores** —, e as de depois de uma revogacao
