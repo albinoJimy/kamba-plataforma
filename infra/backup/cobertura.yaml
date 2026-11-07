@@ -1,0 +1,284 @@
+# Cobertura de backup da KAMBA — KAM-079
+#
+# **O QUE ESTE FICHEIRO E.** E a fonte unica dos numeros e dos predicados de
+# backup: o ciclo, os alvos, os alertas, o que esta coberto e para onde pode
+# sair. O `tools/backup_lint` le-o e confronta-o com o
+# `pgbackrest.conf` e o `postgres-arquivo.conf` ao lado — os tres tem de
+# concordar, e quando discordam o *lint* diz **qual** discorda de qual.
+#
+# A razao de existir e a mesma do `infra/compose/conjunto-reduzido.yaml`: um
+# verificador que so leia o `pgbackrest.conf` sabe o que **esta** la e nao sabe
+# o que **devia** estar. Este ficheiro e o outro lado da comparacao.
+#
+# **NAO HA VALORES DE SEGREDO NESTE FICHEIRO, e nunca havera.** A passphrase da
+# cifra e as credenciais do repositorio vivem no cofre e entram pelo mecanismo
+# do `docs/adr/ADR-L002-injeccao-de-segredos.md`; os dois segredos estao
+# registados em `ops/secrets-inventory.yaml`. O *lint* tem uma regra
+# (`segredo-em-claro`) que falha se alguem escrever um valor aqui ou no `.conf`.
+#
+# ## O ESTADO DA ENTREGA, dito antes dos numeros
+#
+# **Nao ha producao** (`docs/observabilidade.md` §1: «Sonda externa — Nao
+# existe. Nao ha producao»; `prod` corre em `kamba_data_class=synthetic`), **nao
+# ha agendador** no repositorio (medido: nem `cron`, nem `repeat:`, nem
+# `delay:`; nasce com o KAM-071/KAM-078) e **nao ha destino decidido** para o
+# `repo1` (a D1/KAM-105 nao escolheu jurisdicao nem fornecedor).
+#
+# Por isso o que este ticket entrega e a **configuracao em git** (que os
+# «Detalhes Tecnicos» do bloco pedem por escrito) e **um predicado por funcao**,
+# testavel hoje e chamavel depois, com o **relogio por parametro** — nunca um
+# `now()` por dentro, que nao se consegue acelerar num ensaio. O que falta tem
+# credor nomeado, por linha, e nao se marca como feito.
+
+version: 1
+ticket: KAM-079
+estado: proposta
+fonte: "docs/tecnica/09_Topologia_Operacao_Escala.md §8"
+actualizado_em: "2026-11-07"
+
+# ------------------------------------------------------------------- o ciclo
+#
+# Cada numero aqui tem de aparecer no `pgbackrest.conf` (ou no
+# `postgres-arquivo.conf`) com o mesmo valor, e e o *lint* que o confronta. Os
+# valores sao os do `docs/tecnica/09` §8.1, verbatim.
+#
+# `retencao_completos` e a traducao de «retencao 35 dias» para a unidade que o
+# pgBackRest conta, que e **numero de backups completos** e nao dias: com um
+# completo por semana, 5 completos cobrem 35 dias. A traducao fica escrita
+# porque e ela, e nao os 35, que vai para o ficheiro de configuracao — e um
+# leitor que compare «35» com «5» sem esta linha conclui que um dos dois esta
+# errado.
+
+ciclo:
+  completo: semanal
+  diferencial: diario
+  archive_timeout_segundos: 60
+  pitr_dias: 7
+  retencao_dias: 35
+  retencao_completos: 5
+  cifra: aes-256-cbc
+
+# -------------------------------------------------------------- os alvos
+#
+# RPO e RTO do `docs/tecnica/00` §9, repetidos no §8.2 do doc 09. O orcamento de
+# restauro e a linha «BD <= 20 GB ~ 30 min em 100 Mbps» do mesmo §8.2, que o
+# proprio documento marca **ESTIMATIVA** — e e por isso que ha uma
+# `divergencia_maxima_pct`: o criterio 4 do bloco manda corrigir o orcamento se
+# a medicao divergir mais de 20%.
+
+alvos:
+  rpo_segundos: 300
+  rto_segundos: 7200
+  orcamento_bases_gb: 20
+  orcamento_restauro_segundos: 1800
+  orcamento_debito_mbps: 100
+  divergencia_maxima_pct: 20
+
+# ------------------------------------------------------------- os dois alertas
+#
+# **Nenhum dos dois esta escrito como regra do Prometheus, de proposito.** O
+# `ops/metricas/catalogo.yaml` diz, por escrito, que «uma regra sobre uma serie
+# que ninguem produz nunca dispara, e um alerta que nunca dispara parece
+# cobertura — e e pior do que a sua ausencia»; e o `tools/obs_lint` impoe-o com
+# a regra `metrica_sem_produtor`. As duas metricas abaixo estao **declaradas**
+# em `libs/py-core/src/kamba_core/backup/metricas.py` e **nenhum processo as
+# serve**, porque servi-las exige o pgBackRest a correr, que exige o `repo1`,
+# que exige a D1.
+#
+# O que este ficheiro faz em vez de escrever a regra: fixa o **limite**, a
+# **severidade** e o **runbook** em dado, e o *lint* confronta-os com as tres
+# outras superficies que dizem o mesmo (o `catalogo.yaml`, o stub RB-K08 e o
+# `docs/tecnica/09` §9.2). Uma divergencia entre elas nao da erro em sitio
+# nenhum hoje — e e a contar, e nao a ler, que ela aparece.
+
+alerta_do_wal:
+  metrica: backup_wal_idade_segundos
+  limite_segundos: 300
+  severidade: P1
+  runbook: RB-K08
+  razao: >-
+    O §9.2 do doc 09 escreve «WAL (ultimo arquivo > 5 min)» e o stub RB-K08
+    escreve «o ultimo arquivo tem mais de 5 minutos (P1)». 300 s e a mesma
+    frase em segundos, e o RPO de 300 s do `alvos` e o mesmo numero: o alerta
+    dispara exactamente quando o RPO deixa de estar garantido.
+
+alerta_do_restauro:
+  metrica: backup_restauro_desfecho_total
+  severidade: P2
+  runbook: RB-K08
+  razao: >-
+    «Falha gera alerta P2» (criterio 5 do bloco) e «restauro mensal — o *job*
+    de restauro do mes falhou (P2)» no stub RB-K08. A severidade e mais baixa
+    do que a do WAL e a ordem nao e arbitraria: o WAL parado e perda de dados a
+    acontecer agora; o restauro falhado e a descoberta de que a rede de
+    seguranca pode nao estar la.
+
+# -------------------------------------------------- o periodo do restauro
+#
+# «Restauro mensal automatico». 30 dias e a traducao de «mensal» que o predicado
+# usa, e esta aqui em vez de estar no codigo para que mudar a cadencia seja
+# mudar um dado. O **automatico** falta e tem credor: nao ha agendador.
+
+restauro:
+  periodo_dias: 30
+  agendador: ausente
+  credor_do_agendador: "KAM-071/KAM-078"
+  razao: >-
+    Medido nesta arvore: nao ha `cron`, `repeat:` nem `delay:` em sitio nenhum
+    do repositorio. O predicado `restauro_devido` existe, recebe o relogio por
+    parametro e e chamavel pelo agendador no dia em que ele nascer; chamar-lhe
+    «automatico» hoje era dar por cumprida a metade que falta.
+
+# ------------------------------------------------------------- a cobertura
+#
+# Tres estados, e a distincao e o que torna isto verificavel sem mentir:
+#
+#   coberto     o mecanismo existe na configuracao em git **e** o *lint*
+#               verifica-o.
+#   configurado o mecanismo esta escrito e **nao** se executou nunca, porque o
+#               que falta nao e codigo (e o `repo1`, ou o agendador). Conta-se
+#               em voz alta em cada execucao, porque um verde sobre itens que
+#               nunca correram nao e o mesmo verde.
+#   por_cobrir  nao esta coberto, com o credor e a razao.
+#
+# Um item sem credor no estado `por_cobrir` falha o *lint*: uma linha vazia sem
+# credor e trabalho que ninguem reclama.
+
+cobertura:
+  - item: base platform
+    estado: configurado
+    mecanismo: "pgBackRest, stanza `kamba`"
+    credor: "KAM-105 (D1): o `repo1` nao tem destino"
+    razao: >-
+      A base existe no compose de producao (`postgres`, `initdb/01`) e a stanza
+      cobre o cluster inteiro — o pgBackRest faz backup por **cluster** e nao
+      por base, pelo que uma stanza cobre as tres. Nunca correu: o
+      `archive_command` precisa de um `repo1` alcancavel.
+
+  - item: base medusa
+    estado: configurado
+    mecanismo: "pgBackRest, stanza `kamba` (mesmo cluster)"
+    credor: "KAM-105 (D1): o `repo1` nao tem destino"
+    razao: >-
+      Criada pelo `initdb/01-bases-e-extensoes.sql` no mesmo cluster que a
+      `platform`. O Medusa em si nao esta no compose (`pendente`, KAM-042), e a
+      base esta.
+
+  - item: base chatwoot
+    estado: configurado
+    mecanismo: "pgBackRest, stanza `kamba` (mesmo cluster)"
+    credor: "KAM-105 (D1): o `repo1` nao tem destino"
+    razao: >-
+      Idem. O Chatwoot corre num compose proprio
+      (`docker-compose.chatwoot.yml`) e aponta para este cluster.
+
+  - item: objectos do STO
+    estado: por_cobrir
+    mecanismo: "replicacao do bucket para o repositorio"
+    credor: "o fundador (D6)"
+    razao: >-
+      «Replicacao do bucket para o repositorio» pressupoe saber **que**
+      armazenamento e. A D6 esta aberta e o `seaweedfs` esta atras do perfil
+      `sto-proprio` no compose de producao (KAM-076, criterio 7, **nao
+      satisfeito**); o S3 gerido nao tem fornecedor escolhido. Escrever uma
+      regra de replicacao para um dos dois era escolher a D6 aqui.
+
+  - item: configuracao em git
+    estado: coberto
+    mecanismo: "`infra/backup/` versionado"
+    credor: "—"
+    razao: >-
+      Os tres ficheiros desta pasta estao em git e o *lint* le-os. E a unica
+      linha da cobertura que fecha neste ramo sem depender de nada, porque e a
+      unica cujo mecanismo e **ser um ficheiro**.
+
+  - item: exportacao cifrada do cofre
+    estado: por_cobrir
+    mecanismo: "exportacao semanal cifrada"
+    credor: "KAM-072"
+    razao: >-
+      Ja ha um runbook de exportacao do cofre (`ops/runbooks/secrets-export.md`)
+      e o que lhe falta e o mesmo que falta aqui: periodicidade automatica. O
+      destino da exportacao e o `repo1`, que nao existe. A rotacao e o ciclo de
+      vida dos segredos sao o KAM-072.
+
+  - item: ancora diaria do audit_log
+    estado: configurado
+    mecanismo: "ultimo `row_hash` por tenant, exportado para o repositorio"
+    credor: "KAM-105 (D1): o destino da ancora e o `repo1`"
+    razao: >-
+      O `docs/tecnica/08` §6 pede «ancora diaria do ultimo `row_hash`
+      exportada para o *repo* de backup fora do host». A consulta que a produz
+      esta no `politica.py` (`SQL_ANCORA_DO_AUDIT_LOG`) e a verificacao da
+      cadeia sobre um restauro tem fixture; o que falta e o sitio onde a por.
+
+# --------------------------------------------------------------- os destinos
+#
+# **A lista esta vazia de destinos com FQDN, e nao e um ficheiro por acabar.**
+#
+# E a mesma leitura do `infra/egress/alertmanager.yaml`, que tambem tem a lista
+# vazia porque o canal de notificacao nao esta escolhido: «um FQDN escrito aqui
+# por antecipacao **passava o gate** e mandava [dados] para um sitio que ninguem
+# decidiu. Uma lista vazia recusa-os; uma lista com um palpite entrega-os».
+#
+# Aqui o palpite custaria mais: o `repo1` recebe **copias de bases de dados
+# inteiras**. Um destino inventado na allowlist do `proxy-saida` e uma
+# transferencia de dados pessoais sem `apd_ref` (ADR-008, `docs/tecnica/08` §13
+# N2) para uma jurisdicao que a D1 ainda nao escolheu.
+#
+# O predicado `pode_enviar` do `politica.py` e o **gate** do criterio 7, e nao
+# depende desta lista estar preenchida: com `apd_ref` nulo, recusa `real` e
+# admite `synthetic`. Esta hoje a recusar **tudo** o que seja real, porque nao
+# ha destino nenhum — e e isso que ele tem de fazer.
+#
+# Cada destino, quando entrar: `nome`, `fqdn`, `jurisdicao`, `apd_ref`,
+# `dominio_de_falha`, `credor` e `ticket`.
+
+destinos: []
+
+destinos_por_decidir:
+  - nome: repo1
+    credor: "KAM-105 (D1)"
+    exigencias:
+      - "noutro dominio de falha, fora do *host* primario (criterio 7)"
+      - "na jurisdicao decidida em KAM-105"
+      - "no inventario de subprocessadores (KAM-069)"
+      - "`apd_ref` antes de qualquer dado real (ADR-008)"
+    razao: >-
+      O `docs/tecnica/09` §5.3 da a regra de trabalho (Luanda se a cotacao for
+      <= 2x JNB, com SLA e 2.º local angolano; senao JNB/CPT com procedimento
+      concluido) e **nao da o fornecedor**. Sem fornecedor nao ha FQDN, e sem
+      FQDN nao ha linha na allowlist do `proxy-saida` nem entrada no inventario.
+
+  - nome: repo2
+    credor: "o fundador"
+    exigencias:
+      - "offline, mensal (`docs/tecnica/09` §8.1: «`repo2` opcional offline mensal»)"
+    razao: >-
+      O proprio desenho o marca **opcional**. Um `repo2` offline e um
+      procedimento humano com midia fisica, nao uma configuracao — e e a
+      resposta do §8.3 ao cenario «perda da conta/fornecedor», que o mesmo §8.3
+      aceita em «horas a dias» no Piloto.
+
+# -------------------------------------------- defesa contra *ransomware*
+#
+# O bloco pede «restauro com credenciais distintas e sem escrita a partir de
+# producao», e marca a viabilidade do *object lock* **NAO VERIFICADO** para
+# SeaweedFS e S3 gerido, com a alternativa de um *host* que **puxa**.
+#
+# O que se pode fixar hoje e a **forma**: a configuracao declara dois perfis de
+# credencial (escrita de producao, leitura do restauro) e o *lint* falha se o
+# perfil de restauro aparecer com permissao de escrita. O que **nao** se pode
+# fixar e o *object lock*: o `docs/evidencia/KAM-011-seaweedfs.md` §3.3 mediu-o
+# e e **INDICIO** — a sonda nao prova que a retencao sobreviva a um reinicio
+# (os dados estavam em `tmpfs`), nem que nao se contorne fora da API S3.
+
+anti_ransomware:
+  object_lock: nao_verificado
+  alternativa: "host de backup que puxa (*pull*)"
+  credor: "o fundador (D6) e o KAM-085 (o simulacro cronometrado)"
+  razao: >-
+    O *object lock* esta medido como INDICIO no KAM-011 §3.3 e promove-lo a
+    CONFIRMADO exigia atacar o *filer* e os volumes, que nao se fez. O *pull*
+    e a alternativa que o bloco nomeia e exige um segundo *host*, que depende
+    da D1. O que fica em codigo e a separacao de perfis de credencial.

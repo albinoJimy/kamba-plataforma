@@ -1,0 +1,68 @@
+# Fixture do *erasure ledger* — KAM-079, criterio 8
+#
+# «Reaplicacao do *erasure ledger* apos restauro: com um sujeito apagado e um
+# backup anterior ao apagamento, o *script* de reaplicacao remove o sujeito
+# (fixture).» Esta e a fixture.
+#
+# O contrato da tabela — `erasure_ledger(subject_ref, erased_at)` — e propriedade
+# do **KAM-070**. Aqui ha o *hook* e esta fixture, que e o que os «Detalhes
+# Tecnicos» do bloco escrevem por extenso. O `DELETE` em si pertence ao ticket
+# que criar a tabela: um apagamento escrito contra uma tabela que nao existe nao
+# se consegue ensaiar, e seria codigo a dizer que faz o que ninguem mediu.
+#
+# ## OS SUJEITOS SAO BSUID/HMAC E NAO TELEFONES
+#
+# O repositorio e publico, e um numero angolano real aqui era um dado pessoal
+# versionado. O `subject_ref` e uma cadeia opaca — nenhuma funcao do
+# `politica.py` a interpreta —, e estes valores sao marcadores legiveis
+# (`bsuid-...`) e nao HMAC a serio: um HMAC de 32 octetos em hexadecimal nao
+# ajudava a ler o ensaio e nao acrescentava garantia nenhuma.
+#
+# ## O INSTANTE DE QUE O BACKUP E COPIA
+#
+# `restaurado_de` e o T do predicado. A relacao que importa:
+#
+#   apagado em T' > T   -> **volta** com o restauro (em T ainda estava la), e
+#                          tem de ser reaplicado
+#   apagado em T' <= T  -> nao esta no backup, e reaplicar e trabalho inutil
+#
+# O caso da **fronteira exacta** (`T' == T`) esta aqui de proposito: e o unico em
+# que a escolha entre `>` e `>=` muda a resposta, e a resposta certa e «nao
+# reaplicar» — uma linha apagada no instante do backup nao esta na copia.
+
+version: 1
+ticket: KAM-079
+
+# O instante de que o backup e copia.
+restaurado_de: "2026-11-01T12:00:00Z"
+
+sujeitos:
+  - subject_ref: bsuid-apagado-antes-do-backup
+    erased_at: "2026-10-27T12:00:00Z"
+    reaplicar: false
+    razao: >-
+      Apagado cinco dias antes do backup: a linha nao esta na copia, e um
+      `DELETE` sobre ela e trabalho inutil. Num ledger grande, reaplica-lo
+      inteiro e o que transforma um restauro de 30 minutos num de horas.
+
+  - subject_ref: bsuid-apagado-na-fronteira
+    erased_at: "2026-11-01T12:00:00Z"
+    reaplicar: false
+    razao: >-
+      Apagado **no** instante do backup. E o unico caso em que a escolha entre
+      `>` e `>=` muda a resposta, e por isso esta aqui.
+
+  - subject_ref: bsuid-apagado-duas-horas-depois
+    erased_at: "2026-11-01T14:00:00Z"
+    reaplicar: true
+    razao: >-
+      Apagado depois do backup: em T ainda estava la, logo **volta** com o
+      restauro. E o caso que o criterio 8 nomeia.
+
+  - subject_ref: bsuid-apagado-um-dia-depois
+    erased_at: "2026-11-02T12:00:00Z"
+    reaplicar: true
+    razao: >-
+      Idem, e esta aqui para que a ordem cronologica da reaplicacao tenha mais
+      do que um elemento para ordenar — reaplicar por ordem e o que mantem o
+      `audit_log` do restauro a contar a mesma historia que o original.

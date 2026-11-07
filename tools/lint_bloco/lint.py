@@ -84,7 +84,15 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: Evidência |` — 26 tabelas — estava a ser descartado.) O piso fica
 #: abaixo com folga, para nao exigir emenda a cada bloco novo, e acima de zero
 #: com muita.
-MINIMO_DE_BLOCOS_MEDIDOS = 40
+#:
+#: **Subiu de 40 para 41 com o KAM-079**, e nao por decisao de desenho: a
+#: seccao de verificacao daquele bloco levou o `medidos` de 81 para **82**, e o
+#: `test_os_pisos_valem_alguma_coisa` exige `>= medidos // 2`, que passou a 41.
+#: Sobe-se para o valor **medido** e nao para um com folga: um piso em
+#: antecipacao e um piso que nao mede nada. Quem acrescentar a 84.ª tabela paga
+#: a mesma linha, e e de proposito — e ela que impede o emparelhamento de cair
+#: para metade com a saida a continuar a dizer «0 achados».
+MINIMO_DE_BLOCOS_MEDIDOS = 41
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

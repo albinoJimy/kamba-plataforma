@@ -22,7 +22,7 @@ O que este *stub* existe para fazer sao duas coisas, e so duas:
 | ID | **RB-K08** |
 | Cenario | WAL parado, *host* perdido, erro de integridade, ou restauro mensal falhado |
 | Severidade | **P1** (WAL parado), **P2** (restauro mensal falhado) |
-| Alertas que apontam para aqui | **Nenhum, hoje.** O WAL e o restauro mensal estao **por escrever**: nao ha pgBackRest nem metrica de idade do WAL (credor **KAM-079**). O `ingress_parado` aponta para o RB-K01 |
+| Alertas que apontam para aqui | **Nenhum, hoje — e o que falta mudou com o KAM-079.** As duas metricas existem (`backup_wal_idade_segundos` e `backup_restauro_desfecho_total`, em `libs/py-core/src/kamba_core/backup/metricas.py`) e **nenhum processo as serve**: servi-las exige o pgBackRest a correr, que exige um `repo1` alcancavel, que exige a **D1/KAM-105**. Uma regra de alerta sobre elas poria o `tools/obs_lint` vermelho (`metrica_sem_produtor`), e e essa regra que cumpre a promessa escrita no `ops/metricas/catalogo.yaml`. O gatilho, a severidade e este runbook estao fixados em dado no `../../infra/backup/cobertura.yaml`, e o `tools/backup_lint` confronta-os com esta pagina e com o catalogo. O `ingress_parado` aponta para o RB-K01 |
 | Linha canonica | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha **RB-K08** |
 | Estado | **Esboco.** Gatilho e severidade fixados; procedimento por escrever (KAM-083) |
 
@@ -39,7 +39,16 @@ O WAL e P1 e o restauro falhado e P2, e a ordem nao e arbitraria: o WAL parado e
 
 ## 2. Sinal
 
-`pgbackrest check`, estado do disco (`docs/tecnica/09` §13, linha RB-K08). O desenho de backups e DR e o §8 do mesmo documento; o pgBackRest e o **KAM-079**.
+`pgbackrest check`, estado do disco (`docs/tecnica/09` §13, linha RB-K08). O desenho de backups e DR e o §8 do mesmo documento.
+
+A configuracao do pgBackRest entrou com o **KAM-079** e esta em
+[`../../infra/backup/`](../../infra/backup/) — **e nao esta montada por nenhum
+compose**, com a razao escrita no `pgbackrest.conf`: `archive_mode = on` com um
+`repo1` inalcancavel enche o `pg_wal` ate o cluster deixar de aceitar escritas.
+Logo, hoje, **nem o `pgbackrest check` nem o `pgbackrest info` tem onde correr**,
+e quem cair aqui num incidente nao tem backup para restaurar. Isso nao e uma
+lacuna deste runbook: e o estado do sistema, e esta dito na seccao de
+verificacao do bloco KAM-079 com o credor (**D1/KAM-105**, o destino do `repo1`).
 
 ## 3. O que este *stub* nao e
 

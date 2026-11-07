@@ -148,8 +148,11 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # ------------------------------------------------------- os dois pisos
     ("o piso de blocos a zero", "lint.py",
      "MINIMO_DE_BLOCOS = 150", "MINIMO_DE_BLOCOS = 0"),
+    # O literal segue o valor do piso: a mutacao exige encontrar o texto que
+    # troca, pelo que um `40` aqui depois de o piso subir a 41 nao se aplicava —
+    # e uma mutacao que nao se aplica e uma prova que deixou de existir.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 40", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 41", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
