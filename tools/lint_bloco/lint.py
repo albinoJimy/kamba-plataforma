@@ -103,7 +103,7 @@ MINIMO_DE_BLOCOS_MEDIDOS = 41
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
-#: ser atingido por acidente. Medido: 182.
+#: ser atingido por acidente. Medido: 184 (KAM-184).
 MINIMO_DE_BLOCOS = 150
 
 
