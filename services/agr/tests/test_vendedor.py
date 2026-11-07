@@ -163,7 +163,9 @@ def montar(
             ),
         )
     )
-    camada = ToolLayer(catalogo, abrir_ligacao=lambda: ligacao)
+    # KAM-181: uma identidade por vaga, o estado partilhado. Ver
+    # `_Ligacao.nova_vaga` em `test_tls.py`.
+    camada = ToolLayer(catalogo, abrir_ligacao=ligacao.nova_vaga)
     deps = Dependencias(
         tools=camada,
         saida=saida,

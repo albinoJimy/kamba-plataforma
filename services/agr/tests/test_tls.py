@@ -105,9 +105,33 @@ def contexto(**troca: Any) -> ToolContext:
 # protocolo; o que vai a base a serio esta em `db/tests_agr/test_idempotencia.py`.
 def _idem_reservar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
     chave, _tenant, _tool, args_hash = p
-    if chave in ligacao.idempotencia:
+    linha = ["em_curso", bytes(args_hash), None, ligacao.agora]
+    # **`setdefault`, e nao um `in` seguido de atribuicao** (KAM-181). O
+    # `ON CONFLICT DO NOTHING` a serio e **atomico**; ler e depois escrever nao
+    # e, e a janela entre os dois passou a estar aberta: desde que cada vaga do
+    # *pool* tem a sua identidade, as N invocacoes entram no `tx` **ao mesmo
+    # tempo** — antes, o `tenant_guard` serializava-as por acidente, levantando
+    # `LigacaoEmUso` na segunda. Dois donos da mesma chave sao dois
+    # `criar_pedido`, logo o `AssertionError: N != 1` de novo, mas **silencioso
+    # e raro** em vez de alto.
+    #
+    # Medido com 16 fios numa `threading.Barrier`, dentro do `tx`, com
+    # `sys.setswitchinterval(1e-6)`: a forma `in`+escrita da **103 rondas em
+    # 600** com dois donos (e 0 em 600 com o objecto partilhado, porque ali o
+    # guarda mordia); o `setdefault` da **0 em 600**. Ao intervalo de troca por
+    # omissao nao se reproduz em nenhuma das formas — o que fechava a janela era
+    # o escalonador do CPython, e nao o codigo.
+    #
+    # **Fica por fazer, e tem credor:** o `_idem_retomar`, o
+    # `_idem_retomar_abandonada`, o `_idem_fechar` e o `commit()` sao a mesma
+    # classe (ler-modificar-escrever sem atomicidade), e hoje nenhum ensaio os
+    # afirma sob concorrencia — so a reserva corre com N vagas ao mesmo tempo.
+    # Torna-los atomicos pede um trinco no duplo, que e mais do que este ticket
+    # pediu: **e do dono do gate 4 (Engenheiro de Plataforma)**, e abre-se como
+    # ticket proprio no dia em que um ensaio passe a afirmar a retoma ou o fecho
+    # em concorrencia.
+    if ligacao.idempotencia.setdefault(chave, linha) is not linha:
         return []
-    ligacao.idempotencia[chave] = ["em_curso", bytes(args_hash), None, ligacao.agora]
     return [(chave,)]
 
 
@@ -263,6 +287,50 @@ class _Ligacao:
     def cursor(self) -> _Cursor:
         return _Cursor(self)
 
+    # ------------------------------------------------------- uma vaga do pool
+    def nova_vaga(self) -> "_Ligacao":
+        """Outra **identidade**, o **mesmo** estado (KAM-181).
+
+        O *pool* da `ToolLayer` tem quatro vagas (`LIGACOES_POR_OMISSAO`,
+        `tls/camada.py`) e cada vaga vazia chama a fabrica. Uma fabrica
+        `lambda: ligacao` da as quatro vagas **o mesmo objecto**, e duas
+        invocacoes concorrentes fazem o `tenant_guard` levantar `LigacaoEmUso`
+        — com razao: a `_exclusiva` reserva a ligacao **pelo objecto**, para que
+        uma segunda transaccao nao sobreponha o contexto de tenant da primeira.
+        O defeito e da fabrica do ensaio, nao do guarda.
+
+        **Dar a cada vaga um `_Ligacao()` novo resolvia a identidade e partia o
+        estado**, e e por isso que isto existe em vez de `abrir_ligacao=_Ligacao`
+        nos sitios que medem idempotencia: a `idempotencia` **e** a
+        `platform.tool_idempotency`, e o `ON CONFLICT DO NOTHING` do
+        `_idem_reservar` so serializa quem olha para a **mesma** tabela. Uma
+        tabela por vaga deixa as cinquenta confirmacoes concorrentes sem nada
+        que as serialize — medido, da `AssertionError: N != 1` com `N` igual ao
+        tamanho do *pool*.
+
+        Daqui sai um objecto novo — logo uma entrada propria na `WeakSet` do
+        guarda, que indexa pelo **objecto** e nao pelo endereco (KAM-163), e
+        `_Ligacao` nao define `__eq__` nem `__hash__`, que e o que o varrimento
+        de `libs/py-core/tests/test_tenant_guard.py` exige — com o **mesmo**
+        `__dict__`: a `sql`, a `idempotencia`, as `respostas`, o `agora` e o
+        `commits` sao os mesmos objectos, e nao copias. E o que o ensaio
+        guarda na mao continua a ser a janela para o que todas as vagas fazem.
+
+        **E o `__dict__` partilha-se inteiro, nao so os contentores.** A
+        variante «mais fiel» — `vaga.__dict__ = dict(self.__dict__)`, com as
+        bandeiras por vaga e os contentores partilhados — foi medida e fica
+        vermelha: `test_uma_auditoria_que_falha_levanta_e_nao_devolve_ok` le
+        `ligacao.fechada` **na janela** depois de a camada ter fechado uma
+        **vaga**, e da `AssertionError: False is not true`. O `fechada`, o
+        `autocommit`, o `commits` e o `levantar_em` serem comuns nao e descuido:
+        e exigido por uma asserçao que ja estava no ficheiro, e e tambem o que
+        reproduz exactamente o comportamento observavel de antes desta
+        correccao. Achado da revisao adversarial.
+        """
+        vaga = object.__new__(type(self))
+        vaga.__dict__ = self.__dict__
+        return vaga
+
     def commit(self) -> None:
         self.commits += 1
 
@@ -366,7 +434,9 @@ class _Base(unittest.TestCase):
                 passos.append(_espiao(passo.__name__, corridos))
         camada = ToolLayer(
             Catalogo(especificacoes),
-            abrir_ligacao=lambda: ligacao,
+            # KAM-181: uma identidade por vaga, o estado partilhado. Ver
+            # `_Ligacao.nova_vaga`.
+            abrir_ligacao=ligacao.nova_vaga,
             disjuntor=disjuntor,
             metricas=metricas,
             passos=passos,
