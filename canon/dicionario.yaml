@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.66"
+versao_dicionario: "1.67"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -12396,6 +12396,162 @@ entradas:
     variantes_literais:
       - "String(e)"
   - seccao: "3.48"
+    conceito: "payload do evento de domínio de pagamento"
+    canonico: "platform.payment_evt_payload(p_evt_tipo, p_order_id, p_provider, p_referencia, p_valor_minor, p_currency, p_authn_method, p_authn_ok, p_provider_event_id, p_motivo, p_expira_at)"
+    literais:
+      - "platform.payment_evt_payload(p_evt_tipo, p_order_id, p_provider, p_referencia, p_valor_minor, p_currency, p_authn_method, p_authn_ok, p_provider_event_id, p_motivo, p_expira_at)"
+    nomes:
+      - "payload"
+      - "platform.payment_evt_payload"
+      - "p_evt_tipo"
+      - "p_order_id"
+      - "p_provider"
+      - "p_referencia"
+      - "p_valor_minor"
+      - "p_currency"
+      - "p_authn_method"
+      - "p_authn_ok"
+      - "p_provider_event_id"
+      - "p_motivo"
+      - "p_expira_at"
+    nomes_nota:
+      - "STABLE"
+      - "SECURITY"
+      - "INVOKER"
+      - "append_payment_event"
+      - "IMMUTABLE"
+      - "expira_at"
+      - "timestamptz"
+      - "TimeZone"
+      - "authn_ok"
+      - "payment.confirmed"
+      - "payment.manual_confirmed"
+      - "motivo"
+      - "payment.failed"
+      - "evt_tipo"
+      - "payload"
+      - "EXECUTE"
+      - "kamba_app"
+      - "DEFINER"
+    variantes_literais: []
+  - seccao: "3.48"
+    conceito: "Agregado dos cinco eventos de pagamento no outbox"
+    canonico: "agregado.tipo = 'order', com agregado.id = payment_charges.order_id"
+    literais:
+      - "agregado.tipo = 'order'"
+      - "agregado.id"
+      - "payment_charges.order_id"
+    nomes:
+      - "agregado.tipo"
+      - "order"
+      - "agregado.id"
+      - "payment_charges.order_id"
+    nomes_nota:
+      - "action"
+      - "actor_kind"
+      - "payment_charge"
+      - "charge_id"
+      - "downgrade"
+      - "variante"
+      - "order"
+      - "const"
+      - "ESTADO_PRETENDIDO"
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.48"
+    conceito: "Referência que o evento de pagamento leva"
+    canonico: "coalesce(payment_charges.referencia, id \|\| '#' \|\| tentativa)"
+    literais:
+      - "coalesce(payment_charges.referencia, id \|\| '#' \|\| tentativa)"
+    nomes:
+      - "coalesce"
+      - "payment_charges.referencia"
+      - "id"
+      - "tentativa"
+    nomes_nota:
+      - "append_payment_event"
+      - "referencia"
+      - "express_push"
+    variantes_literais: []
+  - seccao: "3.48"
+    conceito: "Motivo de uma entrada aberta na DLQ pelo consumidor de pagamentos do COM"
+    canonico: "estado_incompativel, fora_de_ordem, adiado_sem_resolver: <porque>"
+    literais:
+      - "estado_incompativel"
+      - "fora_de_ordem"
+      - "adiado_sem_resolver: <porque>"
+    nomes:
+      - "estado_incompativel"
+      - "fora_de_ordem"
+      - "adiado_sem_resolver"
+      - "porque"
+    nomes_nota:
+      - "events_dlq.erro"
+      - "estado_incompativel"
+      - "expirada"
+      - "cancelada"
+      - "podeTransitar"
+      - "paga"
+      - "adiado_sem_resolver"
+      - "PREFIXOS_SEV1"
+    variantes_literais: []
+  - seccao: "3.48"
+    conceito: "Atraso entre o evento de pagamento e o order.paid"
+    canonico: "com_payment_to_paid_seconds"
+    literais:
+      - "com_payment_to_paid_seconds"
+    nomes:
+      - "order.paid"
+      - "com_payment_to_paid_seconds"
+    nomes_nota:
+      - "tenant_id"
+      - "event_id"
+      - "agregado_id"
+      - "consumer"
+      - "sms_latency_s"
+      - "evt_dlq_open"
+    variantes_literais: []
+  - seccao: "3.48"
+    conceito: "Consumidor de pagamentos do COM"
+    canonico: "com_pagamentos"
+    literais:
+      - "com_pagamentos"
+    nomes:
+      - "com_pagamentos"
+    nomes_nota:
+      - "consumer"
+      - "events_consumed"
+      - "events_dlq"
+      - "filasDe"
+      - "evt_subscricoes"
+      - "evt_subscricoes_payment_exige_ordem"
+    variantes_literais: []
+  - seccao: "3.48"
+    conceito: "FK de order_id para a orders_mirror"
+    canonico: "payment_charges_encomenda_do_mesmo_tenant_fk, payment_events_encomenda_do_mesmo_tenant_fk e refund_cases_encomenda_do_mesmo_tenant_fk"
+    literais:
+      - "payment_charges_encomenda_do_mesmo_tenant_fk"
+      - "payment_events_encomenda_do_mesmo_tenant_fk"
+      - "refund_cases_encomenda_do_mesmo_tenant_fk"
+    nomes:
+      - "order_id"
+      - "orders_mirror"
+      - "payment_charges_encomenda_do_mesmo_tenant_fk"
+      - "payment_events_encomenda_do_mesmo_tenant_fk"
+      - "refund_cases_encomenda_do_mesmo_tenant_fk"
+    nomes_nota:
+      - "tenant_id"
+      - "order_id"
+      - "orders_mirror"
+      - "id"
+      - "orders_mirror_tenant_id_uq"
+      - "MATCH"
+      - "SIMPLE"
+      - "payment_charges_um_sujeito"
+      - "payment_events"
+      - "deleted_at"
+    variantes_literais: []
+  - seccao: "3.49"
     conceito: "Configuração por tenant e destino"
     canonico: "platform.tenant_destinations, catorze colunas"
     literais:
@@ -12428,7 +12584,7 @@ entradas:
       - "onboarding"
       - "ativo"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Destino global de infra-estrutura"
     canonico: "tenant_destinations.tenant_id nulo"
     literais:
@@ -12443,7 +12599,7 @@ entradas:
       - "SELECT"
       - "ALL"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Política das linhas globais"
     canonico: "destinos_globais"
     literais:
@@ -12456,7 +12612,7 @@ entradas:
       - "FORCE"
       - "audit_heads"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Estado de um destino"
     canonico: "tenant_destinations.status ∈ {pendente, autorizado, revogado, negado}"
     literais:
@@ -12483,7 +12639,7 @@ entradas:
       - "regra"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
     canonico: "tenant_destinations.purpose ∈ {alojamento, canal, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
@@ -12524,7 +12680,7 @@ entradas:
       - "finalidade"
       - "platform.contact_endpoints"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Janela de validade de um destino"
     canonico: "tenant_destinations.autorizado_em e tenant_destinations.revogado_em"
     literais:
@@ -12541,7 +12697,7 @@ entradas:
       - "pendente"
       - "negado"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Checklist do requisito 8 por destino"
     canonico: "tenant_destinations.contrato_ref, tenant_destinations.retencao_zero, tenant_destinations.sem_treino"
     literais:
@@ -12566,7 +12722,7 @@ entradas:
       - "sku"
       - "external_id"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Vista de auditoria de transferências"
     canonico: "v_transfer_audit"
     literais:
@@ -12592,7 +12748,7 @@ entradas:
       - "llm_call_log_negado_sem_consumo"
       - "prod"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Porta de destinos sobre a tabela"
     canonico: "PortaSobreDestinos"
     literais:
@@ -12607,7 +12763,7 @@ entradas:
       - "autorizado"
       - "apd_ref"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Recusa da porta de destinos"
     canonico: "TransferenciaNegada"
     literais:
@@ -12622,7 +12778,7 @@ entradas:
       - "TransferenciaNegada"
       - "TransferDenied"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Gate de go-live de um tenant"
     canonico: "exigir_go_live(tenant_id, destinos_activos, dpa, mapa_ref)"
     literais:
@@ -12640,7 +12796,7 @@ entradas:
       - "tenants"
       - "E3"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Inventário de subprocessadores"
     canonico: "gov/subprocessadores.yaml"
     literais: []
@@ -12657,7 +12813,7 @@ entradas:
       - "subprocessadores"
       - "E3"
     variantes_literais: []
-  - seccao: "3.48"
+  - seccao: "3.49"
     conceito: "Versão do mapa de tratamentos"
     canonico: "mapa_tratamentos.versao, derivada por sha256 das linhas normalizadas"
     literais:
@@ -13684,6 +13840,33 @@ tabelas:
     assinatura: "next_state('paga', 'confirmacao_manual_revertida', 'rejeitada')"
     seccao: "3.45"
     conceito: "A quinta aresta da reversão"
+  - nome: "payment_evt_payload"
+    esquema: "platform"
+    colunas:
+      - "p_evt_tipo"
+      - "p_order_id"
+      - "p_provider"
+      - "p_referencia"
+      - "p_valor_minor"
+      - "p_currency"
+      - "p_authn_method"
+      - "p_authn_ok"
+      - "p_provider_event_id"
+      - "p_motivo"
+      - "p_expira_at"
+    aberta: false
+    assinatura: "platform.payment_evt_payload(p_evt_tipo, p_order_id, p_provider, p_referencia, p_valor_minor, p_currency, p_authn_method, p_authn_ok, p_provider_event_id, p_motivo, p_expira_at)"
+    seccao: "3.48"
+    conceito: "payload do evento de domínio de pagamento"
+  - nome: "coalesce"
+    esquema: ""
+    colunas:
+      - "payment_charges.referencia"
+      - "id"
+    aberta: false
+    assinatura: "coalesce(payment_charges.referencia, id \|\| '#' \|\| tentativa)"
+    seccao: "3.48"
+    conceito: "Referência que o evento de pagamento leva"
   - nome: "exigir_go_live"
     esquema: ""
     colunas:
@@ -13693,7 +13876,7 @@ tabelas:
       - "mapa_ref"
     aberta: false
     assinatura: "exigir_go_live(tenant_id, destinos_activos, dpa, mapa_ref)"
-    seccao: "3.48"
+    seccao: "3.49"
     conceito: "Gate de go-live de um tenant"
 
 dominios:
@@ -14733,7 +14916,7 @@ dominios:
       - "autorizado"
       - "revogado"
       - "negado"
-    seccao: "3.48"
+    seccao: "3.49"
     conceito: "Estado de um destino"
     so_no_registo: false
   - coluna: "tenant_destinations.purpose"
@@ -14751,7 +14934,7 @@ dominios:
       - "segredos"
       - "transcricao"
       - "visao"
-    seccao: "3.48"
+    seccao: "3.49"
     conceito: "Finalidade de uma transferência"
     so_no_registo: false
 

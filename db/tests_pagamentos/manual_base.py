@@ -68,8 +68,18 @@ class ComConfirmacaoManual(ComLedger):
         super().setUp()
         self.tenant = self.criar_tenant()
         self.conta = self.criar_conta(self.tenant, provider="manual")
+        # A encomenda **explicita**, desde a revisao `0035` (KAM-055): o
+        # `inserir_evento_humano` escreve um `payment_events` directo, e a
+        # `payment_events_encomenda_do_mesmo_tenant_fk` recusa um `order_id` que
+        # nao exista. E tem de ser **a da cobranca**: um evento nao aponta para
+        # um sujeito diferente do da cobranca a que pertence.
+        self.encomenda = self.criar_encomenda(self.tenant)
         self.cobranca = self.criar_cobranca(
-            self.tenant, self.conta, provider="manual", metodo="manual"
+            self.tenant,
+            self.conta,
+            provider="manual",
+            metodo="manual",
+            order_id=self.encomenda,
         )
         self.dar_limites(self.tenant)
         self.cliente = self.criar_contacto(self.tenant)
@@ -120,11 +130,28 @@ class ComConfirmacaoManual(ComLedger):
                 "refund_cases",
                 "payment_confirmers",
                 "manual_confirmations",
-                "contacts",
             ):
                 self.semente.execute(
                     f"DELETE FROM platform.{tabela} WHERE tenant_id = %s", (tenant,)
                 )
+            # Os contactos **que a encomenda nao prende**.
+            #
+            # O `DELETE` era sem condicao, e deixou de poder ser: desde a
+            # revisao `0035` (KAM-055) o `criar_cobranca` semeia uma encomenda,
+            # e a `orders_mirror_contacto_do_mesmo_tenant_fk` recusa apagar o
+            # contacto dela. A encomenda, por sua vez, fica quando o ledger a
+            # referencia — e a `base.py` deste directorio explica porque.
+            #
+            # E a condicao e **so** a da encomenda: as outras quatro tabelas
+            # que referenciam `contacts` saem no laco de cima, pelo que quando
+            # esta linha corre ja nenhuma as prende.
+            self.semente.execute(
+                "DELETE FROM platform.contacts WHERE tenant_id = %s "
+                "  AND contact_id NOT IN (SELECT contact_id "
+                "                           FROM platform.orders_mirror "
+                "                          WHERE tenant_id = %s)",
+                (tenant, tenant),
+            )
 
     # --------------------------------------------------------------- sementes
 
@@ -316,7 +343,7 @@ class ComConfirmacaoManual(ComLedger):
             (
                 self.tenant,
                 cobranca,
-                str(uuid.uuid4()),
+                self.encomenda,
                 self.conta,
                 f"REF{uuid.uuid4().hex[:12]}",
                 VALOR,

@@ -121,14 +121,14 @@ from alembic import op
 
 import rls
 
-revision = "0035"
-#: A `0034` (KAM-091) e a cabeca da cadeia na **base** e nao neste worktree: a
+revision = "0036"
+#: A `0035` (KAM-055) e a cabeca da cadeia na **base** e nao neste worktree: a
 #: cadeia Alembic e linear e de escritor unico, e uma `down_revision` que
 #: aponte para uma revisao que ainda nao fundiu deixa a cadeia irresoluvel ate
 #: ela fundir — e ocupar uma `down_revision` que outra revisao ja ocupa da
 #: **duas cabecas**, que o `test_ha_uma_so_cabeca` de `db/tests/test_migracao.py`
 #: recusa. Lido de `refs/remotes/publico/main`.
-down_revision = "0034"
+down_revision = "0035"
 branch_labels = None
 depends_on = None
 

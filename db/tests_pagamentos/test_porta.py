@@ -826,7 +826,13 @@ class TestOutboxNaMesmaTransaccao(ComLedger):
         super().setUp()
         self.tenant = self.criar_tenant()
         self.conta = self.criar_conta(self.tenant)
-        self.cobranca = self.criar_cobranca(self.tenant, self.conta)
+        # A encomenda **explicita**, para que as asercoes a possam nomear: desde
+        # a `0035` o agregado do evento de dominio e ela, e um ensaio que a
+        # fosse buscar a `payment_charges` lia do mesmo sitio que mede.
+        self.encomenda = self.criar_encomenda(self.tenant)
+        self.cobranca = self.criar_cobranca(
+            self.tenant, self.conta, order_id=self.encomenda
+        )
         self.mapear_outbox()
 
     def test_com_mapeamento_o_outbox_recebe_na_mesma_transaccao(self) -> None:
@@ -845,10 +851,97 @@ class TestOutboxNaMesmaTransaccao(ComLedger):
             " WHERE event_id = %s",
             (linha[4],),
         )
+        # **O agregado e a encomenda e nao a cobranca, desde a `0035`**
+        # (KAM-055). Esta asercao dizia `("payment.confirmed",
+        # "payment_charge", self.cobranca)`, e o que ela prendia era um envelope
+        # que o contrato publicado recusa: o
+        # `contratos/eventos/payment.confirmed/v1.schema.json` declara
+        # `agregado.tipo` com `const: "order"`. Ver a nota da revisao.
         self.assertEqual(
             tuple(str(campo) for campo in cursor.fetchone()),
-            ("payment.confirmed", "payment_charge", self.cobranca),
+            ("payment.confirmed", "order", self.encomenda),
         )
+        self.confirmar(cursor, self.tenant)
+
+    def test_o_payload_do_outbox_e_o_do_contrato_publicado(self) -> None:
+        """O criterio 2: o `payload` que sai e o que o esquema v1 exige.
+
+        Separado do caso de cima de proposito: aquele mede **que** ha evento e
+        por que agregado, e este mede **o que** vai dentro dele. Juntos num so,
+        um `payload` errado com o agregado certo ficava verde na metade que o
+        ensaio lia.
+
+        Afirma o conjunto **exacto** das chaves e nao a presenca de algumas: o
+        esquema tem `additionalProperties: false`, pelo que uma chave a mais e
+        tao invalida como uma a menos — e era a chave a mais que a `0029`
+        produzia (`charge_id`, `tipo_evento`, `sequencia`, `estado`, `decisao`).
+        """
+        cursor = self.cursor_papel("app", self.tenant)
+        self.appendar(
+            cursor, self.cobranca, self.conta, "pagamento_recebido",
+            p_decisao="informativo",
+        )
+        linha = self.appendar(
+            cursor, self.cobranca, self.conta, "pagamento_confirmado",
+            p_provider_event_id="evt-do-facilitador",
+        )
+        cursor.execute(
+            "SELECT envelope -> 'payload' FROM platform.events_outbox "
+            " WHERE event_id = %s",
+            (linha[4],),
+        )
+        payload = cursor.fetchone()[0]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        self.assertEqual(
+            sorted(payload),
+            [
+                "autenticacao",
+                "currency",
+                "order_id",
+                "provider",
+                "referencia",
+                "valor_minor",
+            ],
+        )
+        self.assertEqual(payload["order_id"], self.encomenda)
+        self.assertEqual(payload["valor_minor"], VALOR)
+        self.assertEqual(payload["currency"], "AOA")
+        self.assertEqual(
+            payload["autenticacao"],
+            {
+                "authn_method": "hmac",
+                "authn_ok": True,
+                "provider_event_id": "evt-do-facilitador",
+            },
+        )
+        self.confirmar(cursor, self.tenant)
+
+    def test_sem_provider_event_id_a_chave_opcional_nao_vai_nula(self) -> None:
+        """O `provider_event_id` e opcional, e um nulo nao e um `string`.
+
+        O caso negativo do `jsonb_strip_nulls` da `payment_evt_payload`: sem
+        ele, o `jsonb_build_object` escrevia `"provider_event_id": null`, que o
+        `{"type": "string"}` do esquema recusa. Um ensaio que so visse o caminho
+        **com** o identificador nunca media isto.
+        """
+        cursor = self.cursor_papel("app", self.tenant)
+        self.appendar(
+            cursor, self.cobranca, self.conta, "pagamento_recebido",
+            p_decisao="informativo",
+        )
+        linha = self.appendar(
+            cursor, self.cobranca, self.conta, "pagamento_confirmado"
+        )
+        cursor.execute(
+            "SELECT envelope -> 'payload' -> 'autenticacao' "
+            "  FROM platform.events_outbox WHERE event_id = %s",
+            (linha[4],),
+        )
+        autenticacao = cursor.fetchone()[0]
+        if isinstance(autenticacao, str):
+            autenticacao = json.loads(autenticacao)
+        self.assertEqual(autenticacao, {"authn_method": "hmac", "authn_ok": True})
         self.confirmar(cursor, self.tenant)
 
     def test_sem_mapeamento_nao_ha_evento_de_dominio_e_o_ledger_grava(self) -> None:
@@ -857,8 +950,24 @@ class TestOutboxNaMesmaTransaccao(ComLedger):
         Um `tipo_evento` sem linha no mapa nao produz evento de dominio **e nao
         falha**. Sem isto, a revisao exigia o mapeamento definitivo — que e do
         KAM-055 — para o ledger funcionar.
+
+        **Com o mapa definitivo em vez de um mapa vazio, desde a `0035`.** A
+        primeira versao comecava por `DELETE FROM payment_outbox_map` e media a
+        propriedade contra uma tabela vazia; agora mede-a contra o mapa que
+        producao tem, o que e o caso que interessa — o `pagamento_recebido` e um
+        dos catorze tipos que a `0035` deixa **de fora de proposito** (o §5.1
+        escreve-o antes da decisao, e nao ha evento de dominio a publicar
+        sobre ele).
         """
-        self.semente.execute("DELETE FROM platform.payment_outbox_map")
+        self.semente.execute(
+            "SELECT count(*) FROM platform.payment_outbox_map "
+            " WHERE tipo_evento = 'pagamento_recebido'"
+        )
+        self.assertEqual(
+            int(self.semente.fetchone()[0]),
+            0,
+            "pre-condicao: o pagamento_recebido nao esta mapeado",
+        )
         cursor = self.cursor_papel("app", self.tenant)
         linha = self.appendar(
             cursor, self.cobranca, self.conta, "pagamento_recebido",
@@ -1037,7 +1146,14 @@ class TestOsCheckMordemSozinhos(ComLedger):
         super().setUp()
         self.tenant = self.criar_tenant()
         self.conta = self.criar_conta(self.tenant)
-        self.cobranca = self.criar_cobranca(self.tenant, self.conta)
+        # A encomenda **explicita e a mesma** da cobranca: desde a `0035`
+        # (KAM-055) a `payment_events_encomenda_do_mesmo_tenant_fk` recusa um
+        # `order_id` que nao exista, e um evento nao aponta para um sujeito
+        # diferente do da cobranca a que pertence.
+        self.encomenda = self.criar_encomenda(self.tenant)
+        self.cobranca = self.criar_cobranca(
+            self.tenant, self.conta, order_id=self.encomenda
+        )
         self.conexao = self.ligar("admin")
         self.cursor = self.conexao.cursor()
 
@@ -1046,7 +1162,7 @@ class TestOsCheckMordemSozinhos(ComLedger):
         valores = {
             "tenant_id": self.tenant,
             "charge_id": self.cobranca,
-            "order_id": str(uuid.uuid4()),
+            "order_id": self.encomenda,
             "provider": "fakeprovider",
             "account_id": self.conta,
             "referencia": "REF1",

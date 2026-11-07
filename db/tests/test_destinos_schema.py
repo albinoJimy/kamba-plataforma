@@ -1,4 +1,4 @@
-"""A revisao 0035 contra a base: os destinos de transferencia (KAM-069).
+"""A revisao 0036 contra a base: os destinos de transferencia (KAM-069).
 
 Seis coisas, e cinco delas sao criterios do bloco pela letra:
 
@@ -66,7 +66,7 @@ import ligacao
 from tests import factories
 from tests.base import (
     TABELAS,
-    TABELAS_ATE_0034,
+    TABELAS_ATE_0036,
     VIOLACAO_DE_CHECK,
     VIOLACAO_DE_UNICIDADE,
     ComBase,
@@ -78,10 +78,10 @@ from tests.base import (
 DESTINOS = "platform.tenant_destinations"
 VISTA = "platform.v_transfer_audit"
 
-#: Os **quatro** estados do dominio da `0035`.
+#: Os **quatro** estados do dominio da `0036`.
 ESTADOS = ("pendente", "autorizado", "revogado", "negado")
 
-#: As **treze** finalidades do dominio da `0035`.
+#: As **treze** finalidades do dominio da `0036`.
 FINALIDADES = (
     "alojamento",
     "canal",
@@ -126,7 +126,7 @@ def _inserir(cursor, tenant_id, **campos) -> None:
 
 
 class TestDestinosDeTransferencia(ComBase):
-    """O que o DDL da `0035` promete.
+    """O que o DDL da `0036` promete.
 
     `ComBase` da uma ligacao que **nunca confirma**: cada teste desfaz o que
     escreveu, e e por isso que o tenant se semeia em cada um.
@@ -601,7 +601,7 @@ class TestVistaDeAuditoriaDeTransferencias(ComBase):
         self.assertEqual(self._violacoes(), 1)
 
 
-class TestDowngradeDa0035(unittest.TestCase):
+class TestDowngradeDa0036(unittest.TestCase):
     """«Migracao reversivel»: desce com linhas e volta a subir.
 
     Nao herda de `ComBase`: controla a revisao da base, pelo que nao pode
@@ -642,8 +642,8 @@ class TestDowngradeDa0035(unittest.TestCase):
         finally:
             conexao.close()
 
-        alembic_ok("downgrade", "0034")
-        self.assertEqual(self._tabelas(), TABELAS_ATE_0034)
+        alembic_ok("downgrade", "0036")
+        self.assertEqual(self._tabelas(), TABELAS_ATE_0036)
         # A vista cai antes da tabela, e o `downgrade` nao leva `CASCADE`: se
         # ficasse pendurada, o `DROP TABLE` falhava com `2BP01`.
         conexao = ligacao.ligar("admin")

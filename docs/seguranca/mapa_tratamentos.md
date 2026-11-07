@@ -7,7 +7,7 @@
 | Versão | 1.0+eefc80107ba1 |
 | Classificação | Documento de Referência — Interno; base da submissão à APD |
 | Ticket | KAM-069 (EPIC-07) |
-| Documento-fonte | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); `platform.tenant_destinations` (revisão [`0035`](../../db/migrations/versions/0035_destinos_de_transferencia.py)); `../tecnica/08_Seguranca_Conformidade.md` §7.1, §8.3, §8.6 |
+| Documento-fonte | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); `platform.tenant_destinations` (revisão [`0036`](../../db/migrations/versions/0036_destinos_de_transferencia.py)); `../tecnica/08_Seguranca_Conformidade.md` §7.1, §8.3, §8.6 |
 | Relacionados | [`Mapa_Tratamentos_v1.md`](../tecnica/evidencia/validacao/Mapa_Tratamentos_v1.md) (o de KAM-105, escrito à mão antes de esta tabela existir); [`GoLive_Gate.md`](../tecnica/evidencia/validacao/GoLive_Gate.md) |
 
 > **Este documento é gerado e não é aconselhamento jurídico.** Sai de
@@ -31,9 +31,9 @@ O critério 9 do KAM-069 pede que **alterar uma linha altere a versão**, e um n
 | Fonte | O que dá | Lido |
 |---|---|---|
 | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml) | os subprocessadores, a função, os dados e a *checklist* | **11** linhas |
-| `platform.tenant_destinations` (revisão `0035`) | a configuração por tenant e destino, com o `apd_ref` e a janela de validade | **0** linhas |
+| `platform.tenant_destinations` (revisão `0036`) | a configuração por tenant e destino, com o `apd_ref` e a janela de validade | **0** linhas |
 
-> **Zero linhas de `platform.tenant_destinations`, e isto diz-se em vez de se omitir.** A tabela existe desde a revisão `0035` e **não tem linha nenhuma**: configurar um destino exige um `apd_ref`, e o `ext:KAM-105` fechou com **0 de 14** destinos com `apd_ref` (`../tecnica/evidencia/validacao/Seguimento_APD.md` §1 — zero submetidos, zero com número de protocolo).
+> **Zero linhas de `platform.tenant_destinations`, e isto diz-se em vez de se omitir.** A tabela existe desde a revisão `0036` e **não tem linha nenhuma**: configurar um destino exige um `apd_ref`, e o `ext:KAM-105` fechou com **0 de 14** destinos com `apd_ref` (`../tecnica/evidencia/validacao/Seguimento_APD.md` §1 — zero submetidos, zero com número de protocolo).
 >
 > Logo este mapa descreve **o que a plataforma trataria**, pelo inventário, e não **o que ela trata**, que hoje é nada em produção. A segunda metade enche-se quando houver uma autorização; até lá, a ausência é o facto, e o `../tecnica/08` §8.6 pede que o mapa não divirja do sistema real — não que pareça completo.
 

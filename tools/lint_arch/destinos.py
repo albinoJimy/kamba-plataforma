@@ -111,7 +111,7 @@ IMPORTA_O_GATE = re.compile(
 class ClienteDeSaida:
     """Um caminho de saida para um subprocessador, declarado."""
 
-    #: A finalidade de `platform.tenant_destinations.purpose` (revisao `0035`).
+    #: A finalidade de `platform.tenant_destinations.purpose` (revisao `0036`).
     finalidade: str
     #: `True` quando o ficheiro consulta o *gate* antes de sair.
     consulta_o_gate: bool

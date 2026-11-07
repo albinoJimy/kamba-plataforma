@@ -42,7 +42,7 @@
 # Formato: subconjunto estrito de YAML, lido por `tools/kamba_yaml.py`.
 #
 #   nome              identificador, `^[a-z][a-z0-9_-]{1,62}$` — e o `provider`
-#                     de `platform.tenant_destinations` (revisao `0035`)
+#                     de `platform.tenant_destinations` (revisao `0036`)
 #   designacao        o nome como o §8.3.2 o escreve
 #   funcao            a coluna «Funcao» do §8.3.2
 #   dados_pessoais    as classes que saem; `nenhum` quando nao saem

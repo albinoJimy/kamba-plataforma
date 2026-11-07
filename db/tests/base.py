@@ -226,7 +226,7 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: biblioteca nao tem histogramas — um p50 nao e exprimivel nela. A
 #: desagregacao faz-se nas colunas e le-se aqui.
 #:
-#: A `v_transfer_audit` e do KAM-069 (revisao `0035`) e e a quinta: junta
+#: A `v_transfer_audit` e do KAM-069 (revisao `0036`) e e a quinta: junta
 #: `dat.llm_call_log` a `platform.tenant_destinations` e enumera **violacoes** —
 #: as chamadas que sairam sem destino autorizado com `apd_ref` no instante em
 #: que sairam. O alvo do criterio 7 e zero linhas, e e por isso que lista o que
@@ -407,7 +407,7 @@ TABELAS_0033 = ("stock_reservations",)
 #: ADR-015) e deve continuar a ter so essa.
 TABELAS_0034 = ("provisioning_step",)
 
-#: O que a revisao 0035 (KAM-069) acrescenta: os destinos de transferencia.
+#: O que a revisao 0036 (KAM-069) acrescenta: os destinos de transferencia.
 #:
 #: **Uma tabela, a `platform.tenant_destinations`**, e a vista
 #: `v_transfer_audit` entra no `VISTAS` e nao aqui — o `pg_tables` nao lista
@@ -420,7 +420,7 @@ TABELAS_0034 = ("provisioning_step",)
 #: `destinos_globais`, `FOR SELECT`, que acrescenta as linhas globais sem tocar
 #: na primeira. Nao entra em `ci/rls_exceptions.yaml`, que continua com **uma**
 #: excepcao (a `audit_heads`, pelo ADR-015).
-TABELAS_0035 = ("tenant_destinations",)
+TABELAS_0036 = ("tenant_destinations",)
 
 TABELAS = tuple(
     sorted(
@@ -430,24 +430,26 @@ TABELAS = tuple(
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
-        + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0035
+        + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
     )
 )
 
-#: O que existe em `platform` quando a base esta na revisao `0034`.
+#: O que existe em `platform` quando a base esta na revisao `0035`.
 #:
-#: O `downgrade` da `0035` leva a base para aqui.
-TABELAS_ATE_0034 = tuple(sorted(set(TABELAS) - set(TABELAS_0035)))
+#: O `downgrade` da `0036` leva a base para aqui. A `0035` (KAM-055) nao
+#: cria tabela nenhuma — so FK —, pelo que esta lista descreve tambem o que
+#: existe na `0034`.
+TABELAS_ATE_0035 = tuple(sorted(set(TABELAS) - set(TABELAS_0036)))
 
 #: O que existe em `platform` quando a base esta na revisao `0033`.
 #:
 #: O `downgrade` da `0034` leva a base para aqui.
 #:
-#: **Deriva do `TABELAS_ATE_0034` e nao do `TABELAS`**, e e a setima vez que
+#: **Deriva do `TABELAS_ATE_0035` e nao do `TABELAS`**, e e a setima vez que
 #: esta nota se escreve: derivar do `TABELAS` deixava a tabela da revisao mais
 #: nova dentro de uma lista que descreve uma base **anterior** a ela, e o
 #: sintoma aparecia na suite de outro ticket.
-TABELAS_ATE_0033 = tuple(sorted(set(TABELAS_ATE_0034) - set(TABELAS_0034)))
+TABELAS_ATE_0033 = tuple(sorted(set(TABELAS_ATE_0035) - set(TABELAS_0034)))
 
 #: O que existe em `platform` quando a base esta na revisao `0032`.
 #:

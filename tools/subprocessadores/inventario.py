@@ -10,7 +10,7 @@ lista publica que dele sai e um compromisso com os titulares dos dados.
 «Por destino ficam arquivados contrato, retencao zero, nao-treino e `apd_ref`
 (*checklist* do requisito 8); um destino `autorizado` sem *checklist* completo e
 rejeitado.» E isso que o `validar` impoe, e e a **mesma** regra que o
-`tenant_destinations_autorizado_com_checklist_ck` da revisao `0035` impoe na
+`tenant_destinations_autorizado_com_checklist_ck` da revisao `0036` impoe na
 base — de proposito: o inventario e o documento e a tabela e a configuracao, e as
 duas tem de aceitar exactamente o mesmo conjunto de linhas, ou uma autoriza o
 que a outra recusa.
@@ -55,7 +55,7 @@ CAMINHO = "gov/subprocessadores.yaml"
 #: mantem as duas superficies a dizer o mesmo.
 LINHAS_ESPERADAS = 11
 
-#: As finalidades de `platform.tenant_destinations.purpose` (revisao `0035`).
+#: As finalidades de `platform.tenant_destinations.purpose` (revisao `0036`).
 #:
 #: **Treze, e a lista nao se importa de `kamba_core`**: as ferramentas correm
 #: antes de qualquer instalacao (ver `kamba_yaml`), e `tools/` nao depende de
@@ -82,10 +82,10 @@ FINALIDADES = (
 ESTADOS = ("pendente", "autorizado", "revogado", "negado")
 ESTADO_AUTORIZADO = "autorizado"
 
-#: A forma do `nome`: e o `provider` da `0035`, e tem o `CHECK` dela.
+#: A forma do `nome`: e o `provider` da `0036`, e tem o `CHECK` dela.
 FORMA_DO_NOME = re.compile(r"^[a-z][a-z0-9_-]{1,62}$")
 
-#: A forma do `apd_ref`, tambem da `0035`.
+#: A forma do `apd_ref`, tambem da `0036`.
 FORMA_DO_APD_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$")
 
 #: A forma do `credor`: um ticket `KAM-NNN` ou uma decisao aberta `DN`.
@@ -302,7 +302,7 @@ def validar(inventario: Inventario) -> None:
     2. **Nomes unicos.** Dois `openai` davam duas verdades sobre o mesmo
        destino, e a lista publica nomeava-o duas vezes.
     3. **`autorizado` exige a *checklist* completa**, que e o criterio 6 e a
-       mesma regra do `CHECK` da revisao `0035`.
+       mesma regra do `CHECK` da revisao `0036`.
     """
     quantas = len(inventario.subprocessadores)
     _exigir(

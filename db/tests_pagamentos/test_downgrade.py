@@ -28,7 +28,11 @@ bem ou mal.
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
+import uuid
+from pathlib import Path
 
 import bootstrap
 import ligacao
@@ -73,6 +77,10 @@ INDICES = (
 #: A revisao anterior. O `downgrade` desta volta aqui.
 ANTERIOR = "0028"
 
+#: A variavel que autoriza a perda de encomendas no `downgrade` da `0030`.
+#: Ver o `_descer`.
+VARIAVEL_DA_COPIA = "KAMBA_DOWNGRADE_0030_COPIA"
+
 
 class TestDowngradeDa0029(unittest.TestCase):
     @classmethod
@@ -89,12 +97,36 @@ class TestDowngradeDa0029(unittest.TestCase):
 
     def tearDown(self) -> None:
         try:
+            os.environ.pop(VARIAVEL_DA_COPIA, None)
             # Cada processo do Alembic custa segundos: so quando a base nao
             # esta em `head`.
             if not em_head():
                 alembic_ok("upgrade", "head")
         finally:
             self.conexao.close()
+
+    def _descer(self) -> None:
+        """`downgrade` ate a `0028`, com a copia logica da `0030` autorizada.
+
+        **A autorizacao e nova, e a razao e a revisao `0035`** (KAM-055). Esta
+        classe desce de `head` ate a `0028`, pelo que atravessa o `downgrade` da
+        `0030` — e esse recusa-se quando a `orders_mirror` tem linhas, a menos
+        que o `KAMBA_DOWNGRADE_0030_COPIA` aponte para um ficheiro novo onde a
+        copia logica fique.
+
+        Antes da `0035` a tabela estava **vazia** nesta suite e a recusa nunca
+        disparava; agora o `criar_cobranca` semeia uma encomenda por cobranca
+        (a FK composta exige-a) e as que o ledger referencia **ficam**, porque o
+        `payment_events` nao se apaga. Medido: 145 encomendas, e o `downgrade`
+        a recusar com a mensagem que a propria `0030` escreveu.
+        """
+        os.environ[VARIAVEL_DA_COPIA] = str(
+            Path(tempfile.gettempdir()) / f"kamba-0030-{uuid.uuid4().hex}.jsonl"
+        )
+        try:
+            alembic_ok("downgrade", ANTERIOR)
+        finally:
+            os.environ.pop(VARIAVEL_DA_COPIA, None)
 
     # -------------------------------------------------------------- leituras
 
@@ -176,7 +208,7 @@ class TestDowngradeDa0029(unittest.TestCase):
         self.assertTrue(self.tem_papel())
 
     def test_o_downgrade_leva_tabelas_vistas_funcoes_indices_e_politicas(self) -> None:
-        alembic_ok("downgrade", ANTERIOR)
+        self._descer()
         self.assertEqual(self.tabelas_existentes(), [])
         self.assertEqual(self.vistas_existentes(), [])
         self.assertEqual(self.funcoes_existentes(), [])
@@ -191,7 +223,7 @@ class TestDowngradeDa0029(unittest.TestCase):
         `DROP TABLE` sem `CASCADE` e encontra uma politica que nao criou. Isto
         e, a revisao que fica estragada e a **anterior**.
         """
-        alembic_ok("downgrade", ANTERIOR)
+        self._descer()
         self.assertEqual(
             self.politicas("payment_accounts"),
             ["tenant_iso"],
@@ -209,7 +241,7 @@ class TestDowngradeDa0029(unittest.TestCase):
         servico `pay` tem deixava de servir, por causa de um `downgrade` de
         base de dados.
         """
-        alembic_ok("downgrade", ANTERIOR)
+        self._descer()
         self.assertTrue(self.tem_papel())
 
     def test_o_downgrade_nao_apaga_a_funcao_da_0027(self) -> None:
@@ -219,7 +251,7 @@ class TestDowngradeDa0029(unittest.TestCase):
         era apagar um objecto de outra revisao — e a `0027`, ao descer, faria
         `DROP FUNCTION` sobre o que ja nao existe.
         """
-        alembic_ok("downgrade", ANTERIOR)
+        self._descer()
         self.cursor.execute(
             "SELECT count(*) FROM pg_proc p "
             "  JOIN pg_namespace n ON n.oid = p.pronamespace "
@@ -234,7 +266,7 @@ class TestDowngradeDa0029(unittest.TestCase):
         **estes** objectos, para que a falha diga qual deles nao voltou em vez de
         «a cadeia nao reaplica».
         """
-        alembic_ok("downgrade", ANTERIOR)
+        self._descer()
         self.assertEqual(self.tabelas_existentes(), [])
         alembic_ok("upgrade", "head")
         self.assertEqual(self.tabelas_existentes(), sorted(TABELAS))
@@ -301,7 +333,7 @@ class TestDowngradeDa0029(unittest.TestCase):
         `deny_mutation` nao dispara. O que **nao** se perde e o que vive noutras
         revisoes, e e a ordem certa das duas perdas.
         """
-        alembic_ok("downgrade", ANTERIOR)
+        self._descer()
         for tabela in ("audit_log", "events_outbox", "payment_accounts"):
             with self.subTest(tabela=tabela):
                 self.cursor.execute(

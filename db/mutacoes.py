@@ -223,7 +223,13 @@ REV29 = "db/migrations/versions/0029_ledger_de_pagamentos.py"
 REV30 = "db/migrations/versions/0030_encomendas_e_estados.py"
 #: KAM-176: o *trigger* por instrucao do registo passa a cobrir o `UPDATE`.
 REV31 = "db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py"
-REV35 = "db/migrations/versions/0035_destinos_de_transferencia.py"
+#: KAM-055: as FK de `order_id`, o mapa do *outbox* e o `payload` do contrato.
+REV35 = "db/migrations/versions/0035_payment_order_fks.py"
+#: KAM-069: os destinos de transferencia e a vista de auditoria. **Era a `0035`
+#: neste ramo**; o KAM-055 fundiu primeiro e a renumeracao fez-se na
+#: integracao, que e a regra — um ramo nao reserva a linha de revisoes para
+#: outro, e renumerar em antecipacao cria o defeito que evita.
+REV36 = "db/migrations/versions/0036_destinos_de_transferencia.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6069,10 +6075,107 @@ MUTACOES = [
     # A caixa de privacidade do DoD deixa de ser uma barreira e volta a ser uma
     # convencao. Num ledger *append-only* isso e pior do que noutra tabela: um
     # telefone que entre nao sai, nem com `UPDATE`.
-    # KAM-069 (revisao `0035`): o *gate* de transferencia do ADR-008. Quatro
+    # ------------------------------------- KAM-055, os eventos de pagamento
+    #
+    # Tres, e cada uma ataca **uma** barreira que a revisao `0035` traz. A
+    # escolha e a da lista acima: primeiro a que deixaria pagar a encomenda de
+    # outro tenant, depois a que deixaria emitir sem autenticacao, por fim a que
+    # deixaria publicar um envelope que o contrato recusa.
+    #
+    # **Nenhuma delas muta so a funcao: todas mutam a ligacao.** A primeira
+    # tira o `tenant_id` da FK — a funcao continua a existir e a referenciar a
+    # `orders_mirror`, e o que muda e **a que** linha ela liga. E a licao que o
+    # KAM-179 escreveu: uma funcao correcta ligada ao sitio errado passa todos
+    # os ensaios dela.
+    ('revisao 0035: a FK da cobranca deixa de levar o tenant_id', REV35,
+     f'''        f"ALTER TABLE {{COBRANCAS}} "
+        f"  ADD CONSTRAINT {{FK_DAS_COBRANCAS}} "
+        f"  FOREIGN KEY (tenant_id, order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (tenant_id, id)"''',
+     f'''        f"ALTER TABLE {{COBRANCAS}} "
+        f"  ADD CONSTRAINT {{FK_DAS_COBRANCAS}} "
+        f"  FOREIGN KEY (order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (id)"''',
+     "tests_pagamentos"),
+    # **A mutacao mais importante das tres**, e e a classe ISO-58: com a FK
+    # simples, a encomenda **existe** e a cobranca do tenant A aponta para a de
+    # B sem nada a impedir. O `test_uma_cobranca_para_encomenda_inexistente_e_
+    # recusada` **sobrevive** a isto de proposito (um `uuid` aleatorio continua
+    # a nao existir em lado nenhum); quem a tem de matar e o
+    # `test_uma_cobranca_para_encomenda_de_outro_tenant_e_recusada`, que e o
+    # unico com dois tenants. Sem ele, a lista ficava com uma mutacao viva.
+    ('revisao 0035: o payload deixa de exigir authn_ok', REV35,
+     '            IF p_authn_ok IS NOT TRUE THEN',
+     '            IF false THEN',
+     "tests_pagamentos"),
+    # «Nunca existe um emitido sem o `authn_ok=true` correspondente no ledger»
+    # (criterio 2) volta a ser convencao de quem enche o mapa. O
+    # `test_o_payload_recusa_um_confirmado_sem_autenticacao` tem de a matar, nos
+    # dois tipos.
+    ('revisao 0035: o evento volta a agregar pela cobranca', REV35,
+     "              v_evt_tipo, v_evt_versao, v_charge.tenant_id, 'order',",
+     "              v_evt_tipo, v_evt_versao, v_charge.tenant_id, 'payment_charge',",
+     "tests_pagamentos"),
+    # O defeito que a `0035` existe para fechar, reposto: um envelope com
+    # `agregado.tipo = 'payment_charge'` e um `const: "order"` no esquema do
+    # evento. **A mutacao e no argumento e nao no `payload`**, e isso e
+    # deliberado: o `payload` continua certo, pelo que so um ensaio que confronte
+    # o envelope **inteiro** com o ficheiro de contrato a apanha — e e o
+    # `test_o_envelope_da_porta_valida_contra_o_esquema`. Um ensaio que olhasse
+    # so para o `payload` sobrevivia a isto.
+    #
+    # ---------------------------------------------------------------------
+    # As tres que a revisao adversarial pediu: **uma por ensaio novo**.
+    #
+    # A lista acima mutava so a FK da `payment_charges`, pelo que tirar o
+    # `tenant_id` as outras duas ficava vivo — e era a mesma classe ISO-58 nas
+    # tres. As duas primeiras pagam isso; a terceira paga o objecto que faltava
+    # a medicao do `downgrade`.
+    #
+    # **O alvo da FK nao leva mutacao propria, e isso e deliberado:** apontar
+    # uma delas a outra tabela precisa de um `(tenant_id, id)` unico nessa
+    # tabela para o `ALTER` sequer passar, e uma mutacao que faca a migracao
+    # falhar mede o `alembic` e nao o ensaio. O que prende o alvo e o
+    # `test_as_fk_sao_compostas_sem_cascata_e_nao_diferidas`, que passou a
+    # afirmar o `confrelid` e as colunas dos dois lados pelo nome.
+    ('revisao 0035: a FK do ledger deixa de levar o tenant_id', REV35,
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_EVENTOS}} "
+        f"  FOREIGN KEY (tenant_id, order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (tenant_id, id)"''',
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_EVENTOS}} "
+        f"  FOREIGN KEY (order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (id)"''',
+     "tests_pagamentos"),
+    # A FK que o criterio 8 nomeia a par da da cobranca, e a que o modulo diz
+    # que «custa». Quem a mata e o
+    # `test_um_evento_para_encomenda_de_outro_tenant_e_recusado`; o caso
+    # positivo do `MATCH SIMPLE` que ja existia **sobrevive** a isto de
+    # proposito — um nulo continua a passar numa FK simples.
+    ('revisao 0035: a FK do reembolso deixa de levar o tenant_id', REV35,
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_REEMBOLSOS}} "
+        f"  FOREIGN KEY (tenant_id, order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (tenant_id, id)"''',
+     f'''        f"  ADD CONSTRAINT {{FK_DOS_REEMBOLSOS}} "
+        f"  FOREIGN KEY (order_id) "
+        f"  REFERENCES {{ENCOMENDAS}} (id)"''',
+     "tests_pagamentos"),
+    # A terceira FK, que nao esta no criterio e que nao tinha ensaio nenhum
+    # antes desta revisao adversarial: o reembolso de A a apontar para a
+    # encomenda de B, que e a incoerencia do par que a divida nomeia.
+    ('revisao 0035: o downgrade deixa o comentario do KAM-055', REV35,
+     '    _porta(PASSO_SETE_DO_0029, CODA_DA_0029)',
+     '    _porta(PASSO_SETE_DO_0029, CODA_DO_0035)',
+     "tests_pagamentos"),
+    # O defeito que estava no ficheiro: o `_porta` emitia o `COMMENT` sempre
+    # igual, e uma base em `0034` ficava com o catalogo a descrever a porta da
+    # `0035`. **Nenhum ensaio ficava vermelho** — o `pg_get_functiondef` nao
+    # traz o `COMMENT` —, e e por isso que esta mutacao existe: ela repoe
+    # exactamente o defeito, e quem a tem de matar e o
+    # `test_o_downgrade_repoe_o_comentario_da_0029`.
+    # KAM-069 (revisao `0036`): o *gate* de transferencia do ADR-008. Quatro
     # mutacoes, uma por propriedade que a revisao existe para ter, e as quatro
     # morrem em `db/tests/test_destinos_schema.py`.
-    ('revisao 0035: a unicidade volta a tratar os nulos como distintos', REV35,
+    ('revisao 0036: a unicidade volta a tratar os nulos como distintos', REV36,
      "UNIQUE NULLS NOT DISTINCT (tenant_id, provider, country, purpose)",
      "UNIQUE (tenant_id, provider, country, purpose)"),
     # **A forma que parece correcta e nao restringe nada.** Em PostgreSQL um
@@ -6082,7 +6185,7 @@ MUTACOES = [
     # O `test_a_unicidade_trata_os_nulos_como_iguais` tem de a matar, e o
     # `test_o_mesmo_trio_passa_em_tenants_diferentes` e o canario que impede a
     # correccao oposta (uma unicidade sem o tenant).
-    ('revisao 0035: o autorizado deixa de exigir a checklist', REV35,
+    ('revisao 0036: o autorizado deixa de exigir a checklist', REV36,
      """            CONSTRAINT tenant_destinations_autorizado_com_checklist_ck
                 CHECK (status <> 'autorizado'
                        OR (contrato_ref IS NOT NULL
@@ -6096,7 +6199,7 @@ MUTACOES = [
     # `test_autorizado_sem_checklist_completa_e_recusado` tem de a matar, e
     # repare-se que o `CHECK` do criterio 1 **continua la**: e por isso que
     # aquele teste poe o `apd_ref` presente.
-    ('revisao 0035: o pendente passa a poder ter janela de validade', REV35,
+    ('revisao 0036: o pendente passa a poder ter janela de validade', REV36,
      """            CONSTRAINT tenant_destinations_sem_janela_ck
                 CHECK (status IN ('autorizado', 'revogado')
                        OR (autorizado_em IS NULL AND revogado_em IS NULL))
@@ -6107,7 +6210,7 @@ MUTACOES = [
     # juncao olha para a janela e nao para o `status`. As duas leitoras da
     # tabela passam a discordar, e a que decide a transferencia e a mais
     # permissiva. O `test_a_janela_nao_se_contradiz` tem de a matar.
-    ('revisao 0035: a vista perde a janela e le o estado de hoje', REV35,
+    ('revisao 0036: a vista perde a janela e le o estado de hoje', REV36,
      """             AND d.autorizado_em IS NOT NULL
              AND d.autorizado_em <= c.ts
              AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)

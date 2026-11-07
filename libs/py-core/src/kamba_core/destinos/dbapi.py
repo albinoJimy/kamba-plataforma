@@ -19,7 +19,7 @@ finalidade) por minuto.
 
 ## O contexto de RLS nao e opcional, e e por isso que estes leitores existem
 
-A `0035` tem **duas** politicas permissivas: a `tenant_iso`, que exige
+A `0036` tem **duas** politicas permissivas: a `tenant_iso`, que exige
 `app.tenant_id`, e a `destinos_globais`, que nao. Uma leitura **sem** contexto
 devolve as linhas globais e nenhuma das especificas — e a porta, que da
 precedencia as especificas, concluiria que o tenant nao tem decisao propria. Um

@@ -1224,7 +1224,7 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
-#: KAM-069 (revisao `0035`): os destinos de transferencia.
+#: KAM-069 (revisao `0036`): os destinos de transferencia.
 #:
 #: **O `kamba_app` le e nao escreve, e e a diferenca que importa nesta tabela.**
 #: Autorizar um destino e um acto humano com papelada arquivada — contrato,

@@ -17,7 +17,7 @@ duas leituras da mesma tabela que discordam no dia em que uma delas mudar.
 Para um pedido `(tenant, fornecedor, finalidade)`:
 
 1. **Se a finalidade nao esta no dominio, nega.** Nao e zelo: a coluna `purpose`
-   da `0035` tem `CHECK` fechado com treze valores, pelo que uma finalidade fora
+   da `0036` tem `CHECK` fechado com treze valores, pelo que uma finalidade fora
    deles **nao tem linha onde caiba** — a consulta devolveria sempre vazio, e um
    erro do chamador lia-se como «destino nao registado».
 2. **Se o tenant tem linha propria para esse par, so as dele contam.** As
@@ -64,7 +64,7 @@ Duas consequencias que quem usa isto tem de saber:
 ## O que este modulo nao faz
 
 Nao escreve. Autorizar um destino e um acto humano com papelada arquivada —
-contrato, retencao zero, nao-treino, numero de procedimento da APD — e a `0035`
+contrato, retencao zero, nao-treino, numero de procedimento da APD — e a `0036`
 nao da `INSERT` ao `kamba_app` por isso mesmo. Nao decide quem e subprocessador:
 isso e o `gov/subprocessadores.yaml`, e escolher um em codigo e exactamente o
 que o ADR-008 existe para impedir. E nao sabe que existe um modelo do outro
@@ -85,7 +85,7 @@ from ..tenant_guard import normalizar_tenant
 #: As **treze** finalidades de transferencia, por ordem alfabetica.
 #:
 #: **E o dominio de `platform.tenant_destinations.purpose`**, e a lista vive
-#: aqui e no `CHECK` da revisao `0035`; o `test_dominio_de_purpose_bate_com_o_codigo`
+#: aqui e no `CHECK` da revisao `0036`; o `test_dominio_de_purpose_bate_com_o_codigo`
 #: de `db/tests/test_destinos_schema.py` confronta as duas contra a base real.
 #: Lista fechada: uma finalidade nova e uma revisao de base de dados, nao uma
 #: constante — pela licao que a `0022` pagou.
@@ -124,7 +124,7 @@ FINALIDADES: Final = (
     FINALIDADE_VISAO,
 )
 
-#: Os **quatro** estados de um destino, da revisao `0035`. Mesma confrontacao
+#: Os **quatro** estados de um destino, da revisao `0036`. Mesma confrontacao
 #: contra a base que as finalidades.
 ESTADO_PENDENTE: Final = "pendente"
 ESTADO_AUTORIZADO: Final = "autorizado"
@@ -147,7 +147,7 @@ class LeitorDeDestinos(Protocol):
 
     **Nao e um `ClienteSql` com `executar(sql, parametros)`**, e a diferenca e
     de desenho e nao de gosto. Esta consulta corre **sob o contexto de RLS do
-    tenant** — sem ele a politica `tenant_iso` da `0035` nao devolve as linhas
+    tenant** — sem ele a politica `tenant_iso` da `0036` nao devolve as linhas
     especificas e so as globais aparecem, pelo que um tenant com decisao propria
     caia em silencio na configuracao global, que e exactamente a precedencia que
     o passo 2 existe para impor. Um protocolo de SQL generico nao tem onde
@@ -182,7 +182,7 @@ class TransferenciaNegada(RuntimeError):
 
 
 class FinalidadeDesconhecida(TransferenciaNegada):
-    """Uma finalidade fora do dominio da `0035`.
+    """Uma finalidade fora do dominio da `0036`.
 
     **Subclasse de `TransferenciaNegada` e nao um `ValueError`**, e isso e
     decisao: e um erro do chamador, mas o efeito tem de ser o mesmo — nao sair
@@ -224,7 +224,7 @@ class CacheDeDestinos:
     pelo `normalizar_tenant`, que so aceita a forma canonica — duas escritas do
     mesmo tenant seriam duas chaves, e uma escrita estranha podia ser construida
     para colidir com outra. O separador e `\\0`, que nem um UUID, nem um
-    fornecedor (`^[a-z][a-z0-9_-]{1,62}$` na `0035`) nem uma finalidade do
+    fornecedor (`^[a-z][a-z0-9_-]{1,62}$` na `0036`) nem uma finalidade do
     dominio podem conter.
     """
 
@@ -351,7 +351,7 @@ def estado_bloqueia(status: str) -> bool:
     """`True` para tudo o que nao seja `autorizado`, **incluindo o desconhecido**.
 
     Nao e `status in (PENDENTE, REVOGADO, NEGADO)`, e a diferenca e a que conta:
-    um valor que o `CHECK` da `0035` ainda nao conheca — porque uma revisao
+    um valor que o `CHECK` da `0036` ainda nao conheca — porque uma revisao
     futura o acrescentou e esta versao do codigo nao o sabe — cairia fora dessa
     lista e **autorizava**. A pergunta e «e `autorizado`?», e a resposta a
     qualquer outra coisa e nao.
@@ -421,7 +421,7 @@ def avaliar_destino(
     # Passo 4: **todas**, nao alguma. Ver a nota do modulo.
     #
     # O ramo «`autorizado` sem `apd_ref`» e inalcancavel **atraves desta base**:
-    # o `tenant_destinations_autorizado_com_apd_ref_ck` da `0035` recusa a linha.
+    # o `tenant_destinations_autorizado_com_apd_ref_ck` da `0036` recusa a linha.
     # Fica, e nao e codigo morto: o criterio 2 pede que a porta negue «quando o
     # estado e `pendente`, `revogado` ou `negado`» e o criterio 1 que o
     # `apd_ref` seja exigido — se a barreira da base caisse numa revisao futura,
@@ -484,7 +484,7 @@ class PortaSobreDestinos:
         if finalidade not in FINALIDADES:
             raise FinalidadeDesconhecida(
                 f"finalidade `{finalidade}` fora do dominio de "
-                f"`tenant_destinations.purpose` (revisao `0035`, treze valores): "
+                f"`tenant_destinations.purpose` (revisao `0036`, treze valores): "
                 "nao ha linha onde ela caiba, e um erro de quem chama nao se "
                 "pode ler como «destino nao registado» (KAM-069)"
             )

@@ -1,7 +1,7 @@
 """O *gate* de transferencia do ADR-008 (KAM-069).
 
 Duas barreiras sobre a mesma tabela — `platform.tenant_destinations`, revisao
-[`0035`](../../../../../db/migrations/versions/0035_destinos_de_transferencia.py) —
+[`0036`](../../../../../db/migrations/versions/0036_destinos_de_transferencia.py) —
 e uma regra:
 
     porta     `PortaSobreDestinos.autorizar(tenant_id, fornecedor, finalidade)`

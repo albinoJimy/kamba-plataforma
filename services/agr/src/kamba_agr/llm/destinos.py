@@ -10,7 +10,7 @@ antes de cada chamada — e **duas** portas que o satisfazem:
                         passa a autorizar, passa a negar.
     PortaDoNucleo       a porta real: a `PortaSobreDestinos` do
                         `kamba_core.destinos` sobre `platform.tenant_destinations`
-                        (revisao `0035`), com a *cache* de 60 s do criterio 3 do
+                        (revisao `0036`), com a *cache* de 60 s do criterio 3 do
                         KAM-069.
 
 O que o `arrancar` devolve depende de haver ou nao quem abra ligacao, e nada no
@@ -63,7 +63,7 @@ AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
 #: As finalidades que **este servico** usa: tres das treze de
-#: `tenant_destinations.purpose` (revisao `0035`, dicionario §3.48).
+#: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.48).
 #:
 #: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
 #: nota do modulo. Lista **fechada** deste lado: uma finalidade nova no AGR e um

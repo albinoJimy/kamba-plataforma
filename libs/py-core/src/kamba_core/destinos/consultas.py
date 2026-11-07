@@ -1,4 +1,4 @@
-"""O SQL do *gate* de transferencia, num sitio so (KAM-069, revisao `0035`).
+"""O SQL do *gate* de transferencia, num sitio so (KAM-069, revisao `0036`).
 
 **Uma consulta por decisao, e e so esta.** O resto do modulo nao vai a base:
 a *cache* responde pelo que ja sabe e nada mais se le.
@@ -32,7 +32,7 @@ from __future__ import annotations
 #:
 #: **Zero linhas tambem e uma decisao: nega.** Nao ha linha quando o destino
 #: nunca foi registado, e — o caso que importa — quando o contexto de RLS e de
-#: **outro** tenant: a politica `tenant_iso` da `0035` e
+#: **outro** tenant: a politica `tenant_iso` da `0036` e
 #: `tenant_id = app.tenant_id` e um contexto trocado devolve vazio em vez de
 #: erro. As linhas globais continuam a aparecer, pela segunda politica
 #: (`destinos_globais`), e e por isso que a precedencia se avalia em Python: um

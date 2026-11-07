@@ -175,7 +175,7 @@ def mapa_de_tratamentos(
         "| Documento-fonte | "
         "[`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); "
         "`platform.tenant_destinations` (revisão "
-        "[`0035`](../../db/migrations/versions/0035_destinos_de_transferencia.py)); "
+        "[`0036`](../../db/migrations/versions/0036_destinos_de_transferencia.py)); "
         "`../tecnica/08_Seguranca_Conformidade.md` §7.1, §8.3, §8.6 |",
         "| Relacionados | "
         "[`Mapa_Tratamentos_v1.md`](../tecnica/evidencia/validacao/Mapa_Tratamentos_v1.md) "
@@ -205,7 +205,7 @@ def mapa_de_tratamentos(
         f"| [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml) | "
         f"os subprocessadores, a função, os dados e a *checklist* | "
         f"**{len(inventario.subprocessadores)}** linhas |",
-        f"| `platform.tenant_destinations` (revisão `0035`) | a configuração "
+        f"| `platform.tenant_destinations` (revisão `0036`) | a configuração "
         f"por tenant e destino, com o `apd_ref` e a janela de validade | "
         f"**{len(destinos)}** linhas |",
         "",
@@ -213,7 +213,7 @@ def mapa_de_tratamentos(
     if not destinos:
         linhas += [
             "> **Zero linhas de `platform.tenant_destinations`, e isto diz-se "
-            "em vez de se omitir.** A tabela existe desde a revisão `0035` e "
+            "em vez de se omitir.** A tabela existe desde a revisão `0036` e "
             "**não tem linha nenhuma**: configurar um destino exige um "
             "`apd_ref`, e o `ext:KAM-105` fechou com **0 de 14** destinos com "
             "`apd_ref` (`../tecnica/evidencia/validacao/Seguimento_APD.md` §1 "
