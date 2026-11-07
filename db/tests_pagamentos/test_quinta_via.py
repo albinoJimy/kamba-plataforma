@@ -57,11 +57,16 @@ class TestAQuintaVia(ComLedger):
         super().setUp()
         self.tenant = self.criar_tenant()
         self.conta = self.criar_conta(self.tenant)
+        # **Uma encomenda que existe**, desde a revisao `0035` (KAM-055): a
+        # `payment_charges_encomenda_do_mesmo_tenant_fk` e composta com o
+        # `tenant_id`, pelo que o `uuid` aleatorio que estava no `sql()` passou
+        # a dar `23503` — e este ficheiro ataca o `estado`, nao a FK.
+        self.encomenda = self.criar_encomenda(self.tenant)
 
     def sql(self, **campos):
         valores = {
             "tenant_id": self.tenant,
-            "order_id": str(uuid.uuid4()),
+            "order_id": self.encomenda,
             "account_id": self.conta,
             "provider": "fakeprovider",
             "metodo": "referencia",

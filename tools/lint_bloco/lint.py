@@ -85,14 +85,36 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: abaixo com folga, para nao exigir emenda a cada bloco novo, e acima de zero
 #: com muita.
 #:
-#: **Subiu de 40 para 41 com o KAM-079**, e nao por decisao de desenho: a
-#: seccao de verificacao daquele bloco levou o `medidos` de 81 para **82**, e o
-#: `test_os_pisos_valem_alguma_coisa` exige `>= medidos // 2`, que passou a 41.
-#: Sobe-se para o valor **medido** e nao para um com folga: um piso em
-#: antecipacao e um piso que nao mede nada. Quem acrescentar a 84.ª tabela paga
-#: a mesma linha, e e de proposito — e ela que impede o emparelhamento de cair
-#: para metade com a saida a continuar a dizer «0 achados».
-MINIMO_DE_BLOCOS_MEDIDOS = 41
+#: **Subiu de 40 para 41 com o KAM-108**, e a razao e mecanica e nao de
+#: desenho: a seccao de verificacao que aquele ticket acrescentou ao seu bloco
+#: fez o emparelhamento passar de **81 para 82**, e o
+#: `test_os_pisos_valem_alguma_coisa` exige `piso >= medidos // 2` — `82 // 2`
+#: sao 41. Medido nas duas pontas: a `main` em `52d8000a` da 81 e o ensaio
+#: passa; com o bloco do KAM-108 da 82 e o ensaio falha com `40 not greater
+#: than or equal to 41`.
+#:
+#: **Subir o piso torna este *lint* mais estrito e nao menos**, que e o que
+#: distingue esta emenda de um esvaziamento: o piso e um **minimo** de blocos
+#: medidos, e o ensaio existe precisamente para forcar a emenda quando o corpus
+#: cresce. O que fica dito, porque e limite do desenho e nao deste ticket: com o
+#: piso em metade do medido, a **folga sao dois blocos** — ao 84.º volta a pedir
+#: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
+#:
+#: **E chegou ao 84.º, exactamente como a nota de cima previa — subiu de 41
+#: para 42 com o KAM-079.** O corpus cresceu **tres** blocos desde os 81: a
+#: seccao do KAM-108, a do KAM-055 e a do KAM-079, pelo que `medidos` passou a
+#: **84** e `84 // 2` sao 42. Medido nesta arvore, com a `publico/main`
+#: integrada: com o piso em 41 o ensaio falha com `41 not greater than or equal
+#: to 42`. Sobe-se para o valor **medido** e nao para um com folga — um piso em
+#: antecipacao e um piso que nao mede nada —, e a folga volta a ser de dois
+#: blocos, pelo que ao 86.º se volta a pedir emenda.
+#:
+#: **Tres tickets a pagar a mesma linha em dois dias e um dado sobre o desenho,
+#: e nao sobre nenhum deles.** O limite nao e a regra — o piso e que a torna
+#: util —, e sim a **cadencia**: cada dois blocos de verificacao novos exigem
+#: uma emenda a uma constante que vive no ticket de outra pessoa. Fica
+#: registado para o KAM-183, que e quem governa esta regra.
+MINIMO_DE_BLOCOS_MEDIDOS = 42
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

@@ -87,6 +87,12 @@ class ComLedger(ComBase):
         self.semente = self._admin.cursor()
         self._tenants: list[str] = []
         self._contas: list[str] = []
+        #: As encomendas que as sementes escreveram. Desde a revisao `0035`
+        #: (KAM-055) uma cobranca de encomenda **tem** de apontar para uma
+        #: linha da `orders_mirror`: a `payment_charges_encomenda_do_mesmo_
+        #: tenant_fk` e composta com o `tenant_id`, e um `order_id` aleatorio —
+        #: que era o que esta semente punha — passa a ser um `23503`.
+        self._encomendas: list[str] = []
         self._papeis: dict[str, object] = {}
         #: Quantos eventos a semente deixou em cada cobranca. Uma cobranca que
         #: nasce `iniciada` e chega a `emitida` **pela porta** leva um
@@ -94,11 +100,42 @@ class ComLedger(ComBase):
         #: contagem exacta querem dizer «zero/N **meus**», e e o
         #: `eventos_do_ensaio` que lhes da isso.
         self._semeados: dict[str, int] = {}
+        #: O mapa do *outbox* como a revisao `0035` o deixou, lido **antes** de
+        #: qualquer ensaio o tocar.
+        #:
+        #: A limpeza fazia `DELETE FROM payment_outbox_map` sem condicao, o que
+        #: era o inverso exacto do `upgrade` enquanto a tabela nascia vazia. Com
+        #: a `0035` a tabela nasce com sete linhas, e esvazia-la deixava **os
+        #: ensaios seguintes** a correr contra um mapa vazio — um verde que
+        #: dependia da ordem de execucao, que e o que o alvo `ordem-dos-ensaios`
+        #: do *gate* 4 existe para apanhar.
+        #:
+        #: Guarda-se o que esta lá em vez de o declarar outra vez: uma segunda
+        #: lista do conteudo canonico divergia da revisao no dia em que uma
+        #: delas mudasse. Quem confronta as duas superficies e o
+        #: `test_fks_e_mapa.py`, de proposito e num sitio so.
+        self._mapa_inicial = self._ler_mapa()
         self.addCleanup(self._limpar)
+
+    def _ler_mapa(self) -> list[tuple]:
+        self.semente.execute(
+            "SELECT tipo_evento, authn_method, evt_tipo, evt_versao "
+            "  FROM platform.payment_outbox_map ORDER BY 1, 2"
+        )
+        return [tuple(linha) for linha in self.semente.fetchall()]
 
     def _limpar(self) -> None:
         try:
+            # Repoe o mapa como a revisao o deixou, em vez de o esvaziar. Ver a
+            # nota do `_mapa_inicial`.
             self.semente.execute("DELETE FROM platform.payment_outbox_map")
+            for linha in self._mapa_inicial:
+                self.semente.execute(
+                    "INSERT INTO platform.payment_outbox_map "
+                    "(tipo_evento, authn_method, evt_tipo, evt_versao) "
+                    "VALUES (%s, %s, %s, %s)",
+                    linha,
+                )
             for tenant in self._tenants:
                 # Pela ordem inversa das FK. Nenhuma apaga em cascata, de
                 # proposito.
@@ -136,9 +173,46 @@ class ComLedger(ComBase):
                     "  AND id NOT IN (SELECT account_id FROM platform.payment_charges)",
                     (tenant,),
                 )
+                # As encomendas, depois das cobrancas e **so as livres**.
+                #
+                # Desde a `0035` o ledger aponta para ca, e o ledger nao se
+                # apaga: uma encomenda com um `payment_events` fica, para
+                # sempre, e isso e a FK a fazer o que se lhe pediu. E a mesma
+                # forma que a `db/tests_encomendas/base.py` usa desde o KAM-044
+                # por causa do `order_state_log` — «nao acumula lixo que conte:
+                # a base e descartavel e cada teste tem o seu tenant».
+                #
+                # **As duas condicoes, e nao uma**: uma cobranca sem eventos foi
+                # apagada acima, mas uma cobranca **com** eventos ficou, e a FK
+                # dela tambem prende a encomenda.
+                self.semente.execute(
+                    "DELETE FROM platform.orders_mirror WHERE tenant_id = %s "
+                    "  AND id NOT IN (SELECT order_id FROM platform.payment_events "
+                    "                  WHERE order_id IS NOT NULL) "
+                    "  AND id NOT IN (SELECT order_id FROM platform.payment_charges "
+                    "                  WHERE order_id IS NOT NULL)",
+                    (tenant,),
+                )
+                # **Os contactos nao se apagam aqui, e isso e desenho.**
+                #
+                # A primeira versao desta alteracao apagava os que a
+                # `orders_mirror` nao referenciasse, e levou `23503` da
+                # `manual_confirmations_actor_fk`: ha **quatro** tabelas desta
+                # suite a referenciar `contacts` (a encomenda, as confirmacoes,
+                # os confirmadores e os casos de reembolso), e enumera-las aqui
+                # era manter uma lista que cresce com cada revisao — e
+                # descobrir cada entrada em falta por um erro na limpeza de um
+                # ensaio que nada tem a ver com ela.
+                #
+                # Ficam, e com eles fica o tenant. E o que a
+                # `db/tests_encomendas/base.py` ja faz desde o KAM-044, com a
+                # razao dela: «nao acumula lixo que conte: a base e descartavel
+                # e cada teste tem o seu tenant».
                 self.semente.execute(
                     "DELETE FROM platform.tenants WHERE id = %s "
-                    "  AND id NOT IN (SELECT tenant_id FROM platform.payment_charges)",
+                    "  AND id NOT IN (SELECT tenant_id FROM platform.payment_charges) "
+                    "  AND id NOT IN (SELECT tenant_id FROM platform.orders_mirror) "
+                    "  AND id NOT IN (SELECT tenant_id FROM platform.contacts)",
                     (tenant,),
                 )
         finally:
@@ -153,6 +227,39 @@ class ComLedger(ComBase):
         tenant = factories.tenant(self.semente)
         self._tenants.append(tenant)
         return tenant
+
+    def criar_encomenda(self, tenant: str, total_minor: int = VALOR) -> str:
+        """Uma `orders_mirror` em `criada`. Devolve o `id`.
+
+        Existe por causa da revisao `0035` (KAM-055): a FK
+        `payment_charges_encomenda_do_mesmo_tenant_fk` e composta com o
+        `tenant_id`, e o `order_id` aleatorio que o `criar_cobranca` punha passa
+        a ser um `23503`. Esta semente e o **caminho de escrita** que a
+        restricao nova exige — sem ele, a FK inutilizava a semente de toda a
+        suite.
+
+        A forma e a da receita `_encomenda` de `db/tests_isolamento/sementes.py`:
+        o contacto vem primeiro, porque a
+        `orders_mirror_contacto_do_mesmo_tenant_fk` tambem e composta (correccao
+        de 2026-10-27 do `docs/tecnica/03` §5.4). O `estado` **nao** se passa: a
+        encomenda nasce `criada` e o *trigger* `order_nasce_criada` recusa
+        qualquer outro; o `numero_publico` tem `DEFAULT`.
+
+        O `total_minor` e o `VALOR` da cobranca por omissao, para que a semente
+        seja coerente — uma cobranca de 12 500 Kz sobre uma encomenda de zero
+        era um caso do criterio 6 a aparecer em ensaios que nao o medem. Quem
+        quiser medir a divergencia passa outro valor.
+        """
+        contacto = factories.contacto(self.semente, tenant)
+        self.semente.execute(
+            "INSERT INTO platform.orders_mirror "
+            "(tenant_id, contact_id, intent_key, total_minor, lines_snapshot) "
+            "VALUES (%s, %s, %s, %s, '[]'::jsonb) RETURNING id",
+            (tenant, contacto, f"intent-{uuid.uuid4().hex[:12]}", total_minor),
+        )
+        encomenda = str(self.semente.fetchone()[0])
+        self._encomendas.append(encomenda)
+        return encomenda
 
     def criar_conta(self, tenant: str, **campos) -> str:
         """Uma `payment_account` de PME activa. Devolve o `id`.
@@ -221,7 +328,6 @@ class ComLedger(ComBase):
         valores = {
             "id": str(uuid.uuid4()),
             "tenant_id": tenant,
-            "order_id": str(uuid.uuid4()),
             "account_id": conta,
             "provider": PROVIDER,
             "metodo": "referencia",
@@ -232,6 +338,18 @@ class ComLedger(ComBase):
             "valid_until": datetime.datetime.now(datetime.timezone.utc)
             + datetime.timedelta(hours=24),
         }
+        # **Uma encomenda que existe**, desde a `0035` (KAM-055): a
+        # `payment_charges_encomenda_do_mesmo_tenant_fk` e composta com o
+        # `tenant_id`, e o `order_id` aleatorio que estava aqui passou a ser um
+        # `23503`. Ver o `criar_encomenda`.
+        #
+        # **Semeia-se so quando o chamador nao decide o sujeito.** Um ensaio que
+        # passe `order_id` traz a sua encomenda; um que passe `billing_cycle_id`
+        # nao tem nenhuma, e o `payment_charges_um_sujeito` exige exactamente
+        # um dos dois. Semear antes do `update` deixava uma encomenda orfa em
+        # cada um desses casos.
+        if "order_id" not in campos and "billing_cycle_id" not in campos:
+            valores["order_id"] = self.criar_encomenda(tenant)
         valores.update(campos)
         # O estado pedido, se houver: a cobranca nasce sempre `iniciada` e
         # chega ao resto **pela porta**.
@@ -305,6 +423,23 @@ class ComLedger(ComBase):
             self.appendar(
                 cursor, cobranca, conta, tipo,
                 p_decisao=decisao, p_authn_method=metodo,
+                # **O `pagamento_divergente` traz motivo**, desde a revisao
+                # `0035` (KAM-055): ele e um dos sete pares do mapa do
+                # *outbox* — para `payment.failed` —, e a
+                # `payment_evt_payload` recusa um nulo porque aquele contrato
+                # exige o campo.
+                #
+                # Sem isto, o caminho `CAMINHOS["falhada"]` ficava
+                # **inutilizavel**: nenhum ensaio o usa hoje, pelo que a suite
+                # ficava verde com uma receita de semente partida a espera de
+                # quem a chamasse. A forma e a longa (`valor_divergente`), que
+                # e o dominio que o `payment_charges_motivo_falha_ck` fecha —
+                # a curta do secao 5 da `23514`.
+                p_motivo=(
+                    "valor_divergente"
+                    if tipo == "pagamento_divergente"
+                    else None
+                ),
             )
         self.confirmar(cursor, tenant)
         return len(caminho)
@@ -315,10 +450,23 @@ class ComLedger(ComBase):
         authn_method: str = "hmac",
         evt_tipo: str = EVT_DO_CONFIRMADO,
     ) -> None:
-        """O mapeamento de ensaio. O definitivo e do KAM-055."""
+        """Garante uma linha no mapa, sobrepondo-se a da revisao se houver.
+
+        **Era um `INSERT` nu, e deixou de poder ser.** A `0035` (KAM-055) enche
+        a `payment_outbox_map` com as sete linhas definitivas, e
+        `(pagamento_confirmado, hmac)` — a omissao deste auxiliar — e uma delas:
+        um `INSERT` sem `ON CONFLICT` passou a dar `23505` em todo o `setUp` que
+        chame isto, e sao os do `test_porta.py`.
+
+        O `DO UPDATE` e deliberado e nao conveniencia: um ensaio que queira
+        medir um `evt_tipo` diferente do canonico continua a poder pedi-lo, e a
+        limpeza repoe o canonico depois (ver o `_mapa_inicial`).
+        """
         self.semente.execute(
             "INSERT INTO platform.payment_outbox_map "
-            "(tipo_evento, authn_method, evt_tipo) VALUES (%s, %s, %s)",
+            "(tipo_evento, authn_method, evt_tipo) VALUES (%s, %s, %s) "
+            "ON CONFLICT (tipo_evento, authn_method) "
+            "  DO UPDATE SET evt_tipo = EXCLUDED.evt_tipo",
             (tipo_evento, authn_method, evt_tipo),
         )
 
