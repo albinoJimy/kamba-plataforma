@@ -343,6 +343,18 @@ class TestConvencoes(ComBase):
                 # procura que pode devolver duas linhas em desacordo.
                 "manual_confirmations",
                 "refund_cases",
+                # KAM-069, revisao `0036`. `uuid` aleatorio, e **nao** uma chave
+                # natural como as linhas acima que a dispensam: a unicidade de
+                # negocio e `(tenant_id, provider, country, purpose)` e o
+                # `tenant_id` e **anulavel** — o nulo e o destino global de
+                # infra-estrutura —, pelo que ela nao pode ser chave primaria.
+                #
+                # E nao e de identidade, pela razao geral: o `kamba_app` **le**
+                # esta tabela (e a unica coisa que ele pode fazer nela), e com um
+                # `id` sequencial esse papel media quantos destinos a plataforma
+                # inteira tem registados — isto e, quantos subprocessadores e
+                # quantos tenants com configuracao propria.
+                "tenant_destinations",
             }
             | por_identidade,
         )

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Lista pública de subprocessadores (requisito 4 de `E3`) |
-| Versão | 1.0+eefc80107ba1 |
+| Versão | 1.0+3a1ad9e07f3f |
 | Classificação | **Público** |
 | Ticket | KAM-069 (EPIC-07) |
 | Documento-fonte | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); `../tecnica/08_Seguranca_Conformidade.md` §8.3.2 |
@@ -27,17 +27,17 @@ Cada PME que usa a KAMBÁ é a responsável pelos dados dos seus clientes, e a K
 
 | Subprocessador | Função | Dados pessoais tratados | Destino (hipótese) | Estado do procedimento |
 |---|---|---|---|---|
-| Meta (WhatsApp Cloud API) | Canal | conteudo das mensagens, telefone e BSUID | EUA ou UE | pendente |
-| OpenAI | LLM e transcricao | texto minimizado, audio | EUA | pendente |
+| Meta (WhatsApp Cloud API) | Canal | conteúdo das mensagens, telefone e BSUID | EUA ou UE | pendente |
+| OpenAI | LLM e transcrição | texto minimizado, áudio | EUA | pendente |
 | Google (Gemini) | LLM | texto minimizado | EUA ou UE | pendente |
 | Anthropic | LLM | texto minimizado | EUA | pendente |
-| Groq | Transcricao | audio | EUA | pendente |
-| Alojamento (Luanda ou JNB/CPT) | Computacao, base de dados e copias de seguranca | todas as classes do docs/tecnica/08 §7.1 | Angola ou Africa do Sul | pendente |
-| CDN e firewall aplicacional (Cloudflare) | Termina TLS e ve trafego em claro | conteudo em transito | global | pendente |
-| Facilitador de pagamentos (ProxyPay ou AppyPay) | Pagamentos | valor, referencia e contacto de Express | AO | pendente |
-| Software de facturacao certificado pela AGT (Vero ou Cacimbo) | Facturas | dados do cliente na factura | AO | pendente |
+| Groq | Transcrição | áudio | EUA | pendente |
+| Alojamento (Luanda ou JNB/CPT) | Computação, base de dados e cópias de segurança | todas as classes do docs/tecnica/08 §7.1 | Angola ou África do Sul | pendente |
+| CDN e firewall aplicacional (Cloudflare) | Termina TLS e vê tráfego em claro | conteúdo em trânsito | global | pendente |
+| Facilitador de pagamentos (ProxyPay ou AppyPay) | Pagamentos | valor, referência e contacto de Express | AO | pendente |
+| Software de facturação certificado pela AGT (Vero ou Cacimbo) | Facturas | dados do cliente na factura | AO | pendente |
 | Doppler | Cofre de segredos | nenhum | EUA | pendente |
-| Correio ou SMS transaccional | Notificacoes ao dono | endereco de correio e telefone do dono da PME | por decidir | pendente |
+| Correio ou SMS transaccional | Notificações ao dono | endereço de correio e telefone do dono da PME | por decidir | pendente |
 
 ## 2. O que «estado do procedimento» quer dizer
 

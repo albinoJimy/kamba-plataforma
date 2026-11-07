@@ -64,7 +64,7 @@ subprocessadores:
   - nome: meta
     designacao: Meta (WhatsApp Cloud API)
     funcao: Canal
-    dados_pessoais: conteudo das mensagens, telefone e BSUID
+    dados_pessoais: conteúdo das mensagens, telefone e BSUID
     pais_hipotese: EUA ou UE
     pais_verificado: false
     estado: pendente
@@ -84,8 +84,8 @@ subprocessadores:
 
   - nome: openai
     designacao: OpenAI
-    funcao: LLM e transcricao
-    dados_pessoais: texto minimizado, audio
+    funcao: LLM e transcrição
+    dados_pessoais: texto minimizado, áudio
     pais_hipotese: EUA
     pais_verificado: false
     estado: pendente
@@ -144,8 +144,8 @@ subprocessadores:
 
   - nome: groq
     designacao: Groq
-    funcao: Transcricao
-    dados_pessoais: audio
+    funcao: Transcrição
+    dados_pessoais: áudio
     pais_hipotese: EUA
     pais_verificado: false
     estado: pendente
@@ -163,9 +163,9 @@ subprocessadores:
 
   - nome: alojamento
     designacao: Alojamento (Luanda ou JNB/CPT)
-    funcao: Computacao, base de dados e copias de seguranca
+    funcao: Computação, base de dados e cópias de segurança
     dados_pessoais: todas as classes do docs/tecnica/08 §7.1
-    pais_hipotese: Angola ou Africa do Sul
+    pais_hipotese: Angola ou África do Sul
     pais_verificado: false
     estado: pendente
     finalidades:
@@ -185,8 +185,8 @@ subprocessadores:
 
   - nome: cdn_waf
     designacao: CDN e firewall aplicacional (Cloudflare)
-    funcao: Termina TLS e ve trafego em claro
-    dados_pessoais: conteudo em transito
+    funcao: Termina TLS e vê tráfego em claro
+    dados_pessoais: conteúdo em trânsito
     pais_hipotese: global
     pais_verificado: false
     estado: pendente
@@ -207,7 +207,7 @@ subprocessadores:
   - nome: facilitador_de_pagamentos
     designacao: Facilitador de pagamentos (ProxyPay ou AppyPay)
     funcao: Pagamentos
-    dados_pessoais: valor, referencia e contacto de Express
+    dados_pessoais: valor, referência e contacto de Express
     pais_hipotese: AO
     pais_verificado: false
     estado: pendente
@@ -225,7 +225,7 @@ subprocessadores:
       e o parecer e nao nos.
 
   - nome: facturacao_agt
-    designacao: Software de facturacao certificado pela AGT (Vero ou Cacimbo)
+    designacao: Software de facturação certificado pela AGT (Vero ou Cacimbo)
     funcao: Facturas
     dados_pessoais: dados do cliente na factura
     pais_hipotese: AO
@@ -265,8 +265,8 @@ subprocessadores:
 
   - nome: email_sms
     designacao: Correio ou SMS transaccional
-    funcao: Notificacoes ao dono
-    dados_pessoais: endereco de correio e telefone do dono da PME
+    funcao: Notificações ao dono
+    dados_pessoais: endereço de correio e telefone do dono da PME
     pais_hipotese: por decidir
     pais_verificado: false
     estado: pendente

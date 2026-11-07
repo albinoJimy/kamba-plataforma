@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Mapa de tratamentos por destino, **gerado** do inventário e de `platform.tenant_destinations` |
-| Versão | 1.0+eefc80107ba1 |
+| Versão | 1.0+3a1ad9e07f3f |
 | Classificação | Documento de Referência — Interno; base da submissão à APD |
 | Ticket | KAM-069 (EPIC-07) |
 | Documento-fonte | [`gov/subprocessadores.yaml`](../../gov/subprocessadores.yaml); `platform.tenant_destinations` (revisão [`0036`](../../db/migrations/versions/0036_destinos_de_transferencia.py)); `../tecnica/08_Seguranca_Conformidade.md` §7.1, §8.3, §8.6 |
@@ -22,7 +22,7 @@
 
 ## 1. A versão, e porque é que ela é um `sha256`
 
-`1.0+eefc80107ba1` — a versão declarada do inventário, mais os doze primeiros dígitos do `sha256` das linhas que decidem (sem as `nota`, pela razão que o `ci/llm-aliases.lock` do KAM-030 já escreve: o que se *hasheia* é o conteúdo que decide, não o texto que o descreve).
+`1.0+3a1ad9e07f3f` — a versão declarada do inventário, mais os doze primeiros dígitos do `sha256` das linhas que decidem (sem as `nota`, pela razão que o `ci/llm-aliases.lock` do KAM-030 já escreve: o que se *hasheia* é o conteúdo que decide, não o texto que o descreve).
 
 O critério 9 do KAM-069 pede que **alterar uma linha altere a versão**, e um número escrito à mão não tem essa propriedade: esquece-se. Mudar um país, um estado, uma finalidade ou a *checklist* de qualquer linha muda estes doze dígitos; reescrever uma nota não.
 
@@ -41,17 +41,17 @@ O critério 9 do KAM-069 pede que **alterar uma linha altere a versão**, e um n
 
 | Destino | Designação | Função | Dados pessoais | Finalidades | País (hipótese) | País verificado | Estado | Contrato | Retenção zero | Não-treino | `apd_ref` | Credor |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| meta | Meta (WhatsApp Cloud API) | Canal | conteudo das mensagens, telefone e BSUID | `canal` | EUA ou UE | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
-| openai | OpenAI | LLM e transcricao | texto minimizado, audio | `conversa`, `transcricao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
+| meta | Meta (WhatsApp Cloud API) | Canal | conteúdo das mensagens, telefone e BSUID | `canal` | EUA ou UE | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
+| openai | OpenAI | LLM e transcrição | texto minimizado, áudio | `conversa`, `transcricao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 | google | Google (Gemini) | LLM | texto minimizado | `conversa`, `visao` | EUA ou UE | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 | anthropic | Anthropic | LLM | texto minimizado | `conversa`, `visao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
-| groq | Groq | Transcricao | audio | `transcricao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-036 |
-| alojamento | Alojamento (Luanda ou JNB/CPT) | Computacao, base de dados e copias de seguranca | todas as classes do docs/tecnica/08 §7.1 | `alojamento`, `copias_de_seguranca` | Angola ou Africa do Sul | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D1 |
-| cdn_waf | CDN e firewall aplicacional (Cloudflare) | Termina TLS e ve trafego em claro | conteudo em transito | `entrega_de_conteudo` | global | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D12 |
-| facilitador_de_pagamentos | Facilitador de pagamentos (ProxyPay ou AppyPay) | Pagamentos | valor, referencia e contacto de Express | `pagamentos` | AO | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D4 |
-| facturacao_agt | Software de facturacao certificado pela AGT (Vero ou Cacimbo) | Facturas | dados do cliente na factura | `facturacao` | AO | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D7 |
+| groq | Groq | Transcrição | áudio | `transcricao` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-036 |
+| alojamento | Alojamento (Luanda ou JNB/CPT) | Computação, base de dados e cópias de segurança | todas as classes do docs/tecnica/08 §7.1 | `alojamento`, `copias_de_seguranca` | Angola ou África do Sul | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D1 |
+| cdn_waf | CDN e firewall aplicacional (Cloudflare) | Termina TLS e vê tráfego em claro | conteúdo em trânsito | `entrega_de_conteudo` | global | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D12 |
+| facilitador_de_pagamentos | Facilitador de pagamentos (ProxyPay ou AppyPay) | Pagamentos | valor, referência e contacto de Express | `pagamentos` | AO | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D4 |
+| facturacao_agt | Software de facturação certificado pela AGT (Vero ou Cacimbo) | Facturas | dados do cliente na factura | `facturacao` | AO | **não** | `pendente` | **não há** | **não** | **não** | **não há** | D7 |
 | doppler | Doppler | Cofre de segredos | nenhum | `segredos` | EUA | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
-| email_sms | Correio ou SMS transaccional | Notificacoes ao dono | endereco de correio e telefone do dono da PME | `otp_e_avisos_de_servico` | por decidir | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
+| email_sms | Correio ou SMS transaccional | Notificações ao dono | endereço de correio e telefone do dono da PME | `otp_e_avisos_de_servico` | por decidir | **não** | `pendente` | **não há** | **não** | **não** | **não há** | KAM-104 |
 
 **11 de 11 destinos estão `pendente`.** Enquanto um destino não estiver `autorizado` com `apd_ref`, o *gate* de transferência (`libs/py-core/src/kamba_core/destinos/`) nega-o: nenhum dado pessoal de produção sai para lá (ADR-008).
 
