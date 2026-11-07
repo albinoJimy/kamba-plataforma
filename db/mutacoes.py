@@ -223,6 +223,7 @@ REV29 = "db/migrations/versions/0029_ledger_de_pagamentos.py"
 REV30 = "db/migrations/versions/0030_encomendas_e_estados.py"
 #: KAM-176: o *trigger* por instrucao do registo passa a cobrir o `UPDATE`.
 REV31 = "db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py"
+REV35 = "db/migrations/versions/0035_destinos_de_transferencia.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6068,6 +6069,56 @@ MUTACOES = [
     # A caixa de privacidade do DoD deixa de ser uma barreira e volta a ser uma
     # convencao. Num ledger *append-only* isso e pior do que noutra tabela: um
     # telefone que entre nao sai, nem com `UPDATE`.
+    # KAM-069 (revisao `0035`): o *gate* de transferencia do ADR-008. Quatro
+    # mutacoes, uma por propriedade que a revisao existe para ter, e as quatro
+    # morrem em `db/tests/test_destinos_schema.py`.
+    ('revisao 0035: a unicidade volta a tratar os nulos como distintos', REV35,
+     "UNIQUE NULLS NOT DISTINCT (tenant_id, provider, country, purpose)",
+     "UNIQUE (tenant_id, provider, country, purpose)"),
+    # **A forma que parece correcta e nao restringe nada.** Em PostgreSQL um
+    # nulo e distinto de outro nulo numa `UNIQUE`, pelo que dois destinos
+    # **globais** para o mesmo `(provider, country, purpose)` passam os dois —
+    # um `pendente` e um `autorizado` — e a porta le o que lhe calhar primeiro.
+    # O `test_a_unicidade_trata_os_nulos_como_iguais` tem de a matar, e o
+    # `test_o_mesmo_trio_passa_em_tenants_diferentes` e o canario que impede a
+    # correccao oposta (uma unicidade sem o tenant).
+    ('revisao 0035: o autorizado deixa de exigir a checklist', REV35,
+     """            CONSTRAINT tenant_destinations_autorizado_com_checklist_ck
+                CHECK (status <> 'autorizado'
+                       OR (contrato_ref IS NOT NULL
+                           AND retencao_zero
+                           AND sem_treino)),
+""",
+     ""),
+    # O criterio 6 deixa de ter barreira: um destino passa a `autorizado` com
+    # `apd_ref` e **sem** contrato arquivado, sem retencao zero e sem
+    # nao-treino — uma autorizacao que ninguem consegue mostrar a APD. O
+    # `test_autorizado_sem_checklist_completa_e_recusado` tem de a matar, e
+    # repare-se que o `CHECK` do criterio 1 **continua la**: e por isso que
+    # aquele teste poe o `apd_ref` presente.
+    ('revisao 0035: o pendente passa a poder ter janela de validade', REV35,
+     """            CONSTRAINT tenant_destinations_sem_janela_ck
+                CHECK (status IN ('autorizado', 'revogado')
+                       OR (autorizado_em IS NULL AND revogado_em IS NULL))
+""",
+     "            CONSTRAINT tenant_destinations_sem_janela_ck CHECK (true)\n"),
+    # Uma linha `pendente` com `autorizado_em` preenchido passa a ser legal, e a
+    # vista do criterio 7 **le as chamadas dela como conformes** — porque a
+    # juncao olha para a janela e nao para o `status`. As duas leitoras da
+    # tabela passam a discordar, e a que decide a transferencia e a mais
+    # permissiva. O `test_a_janela_nao_se_contradiz` tem de a matar.
+    ('revisao 0035: a vista perde a janela e le o estado de hoje', REV35,
+     """             AND d.autorizado_em IS NOT NULL
+             AND d.autorizado_em <= c.ts
+             AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
+""",
+     "             AND d.status = 'autorizado'\n"),
+    # O criterio 7 pede «no momento da chamada» e isto responde «hoje»: as
+    # chamadas de antes da autorizacao deixam de ser violacao — **autorizar um
+    # destino apaga as violacoes anteriores** —, e as de depois de uma revogacao
+    # passam a ser, embora estivessem autorizadas quando sairam. E um registo de
+    # conformidade a limpar-se a si proprio. O
+    # `test_a_janela_decide_e_nao_o_estado_de_hoje` tem de a matar.
 ]
 
 

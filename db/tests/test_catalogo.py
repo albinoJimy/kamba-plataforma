@@ -698,6 +698,19 @@ class TestConvencoes(ComBase):
                 # `refund_cases` ("re" < "st") e antes de `tenant_channels`.
                 ("stock_reservations", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
+                # KAM-069: os destinos de transferencia seguem a regra geral,
+                # `uuid` gerado — e **nao** a chave natural das linhas acima,
+                # por uma razao que nao e de gosto: a unicidade de negocio e
+                # `(tenant_id, provider, country, purpose)` e o `tenant_id` e
+                # **anulavel** (o nulo e o destino global de infra-estrutura,
+                # criterio 1), pelo que nao pode ser chave primaria — uma chave
+                # primaria nao aceita nulos. A unicidade fica ao lado, com
+                # `NULLS NOT DISTINCT`, sem o qual dois destinos globais para o
+                # mesmo trio passavam os dois.
+                #
+                # A posicao e por `ORDER BY 1, 2`: depois de `tenant_channels`
+                # ("tenant_ch" < "tenant_de") e antes de `tenant_usage`.
+                ("tenant_destinations", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
                 # `tenant_usage` e o que torna «um contador por tenant, chave
@@ -798,7 +811,36 @@ class TestConvencoes(ComBase):
     #: devolvida como barreira que o desenho do ticket contrariava. A
     #: alternativa medida era um UUID sentinela com `NOT NULL`, que nenhum
     #: documento nomeia.
-    ANULAVEIS = frozenset({"audit_log", "audit_heads", "payment_accounts"})
+    #: **E a `tenant_destinations` (KAM-069), que e a quarta e tem razao
+    #: propria.** O `tenant_id` nulo nao e uma frouxidao nem uma sentinela: e um
+    #: valor com significado escrito no criterio 1 do bloco — «`tenant_id` nulo
+    #: significa destino global (infra)» — e corresponde aos destinos que sao da
+    #: plataforma e nao de um tenant: o alojamento, as copias de seguranca, o
+    #: CDN e a observabilidade.
+    #:
+    #: **A alternativa medida era pior.** Uma linha por tenant para o mesmo CDN
+    #: era a mesma autorizacao repetida tantas vezes quantos os tenants, e a
+    #: primeira que divergisse era um destino autorizado para uns e negado para
+    #: outros sem ninguem decidir isso. Um UUID sentinela — a alternativa que a
+    #: `payment_accounts` recusou — tinha o mesmo defeito que la: nenhum
+    #: documento o nomeia.
+    #:
+    #: **Ao contrario da `payment_accounts`, a nulidade aqui nao e
+    #: condicional**, e isso diz-se em vez de se parecer com ela: la o
+    #: `payment_accounts_beneficiario_ck` faz «e de uma PME» e «tem tenant»
+    #: serem o mesmo facto; aqui qualquer linha pode ser global. O que a protege
+    #: e outra coisa — a politica `destinos_globais` e **`FOR SELECT`**, pelo que
+    #: nenhum tenant **escreve** uma linha global, e o `kamba_app` nao tem
+    #: `INSERT` nenhum nesta tabela.
+    #:
+    #: Consequencia, e fica dita: as linhas globais sao legiveis por **todos** os
+    #: tenants, de proposito — e a segunda metade do criterio 1 («RLS `FORCE`
+    #: com linhas globais legiveis»). Elas nao guardam dado de tenant nenhum:
+    #: guardam quem e subprocessador da plataforma, que e informacao que a
+    #: propria lista publica de subprocessadores torna publica.
+    ANULAVEIS = frozenset(
+        {"audit_log", "audit_heads", "payment_accounts", "tenant_destinations"}
+    )
 
     def test_tenant_id_e_not_null_e_vem_primeiro_num_indice(self) -> None:
         """DoD: `tenant_id` presente e indexado, pronto para a RLS do KAM-004.
@@ -1074,7 +1116,23 @@ class TestConvencoes(ComBase):
              # O `tenant_id` e `NOT NULL` e **nao tem FK** para `tenants` — o
              # passo 1 da saga e que escreve essa linha —, pelo que o que o
              # isola e so a politica `tenant_iso`.
-             "provisioning_step"},
+             "provisioning_step",
+             # KAM-069. Satisfaz a convencao **pela unicidade**, como a
+             # `conversations` e a `stock_reservations`: a
+             # `UNIQUE NULLS NOT DISTINCT (tenant_id, provider, country,
+             # purpose)` principia pelo `tenant_id`, e nao esta la para indexar
+             # — e a restricao do criterio 1.
+             #
+             # O indice proprio que a tabela tem (`(provider, purpose)
+             # WHERE tenant_id IS NULL`) **nao** comeca pelo `tenant_id`, e nao
+             # deve: serve o **outro** acesso, as linhas globais, que a porta le
+             # em todas as consultas e que um indice com o nulo a cabeca nao
+             # serve (um `IS NULL` sobre a primeira coluna de um indice de
+             # quatro varre-o todo).
+             #
+             # **E a unica desta lista cujo `tenant_id` e anulavel**, pela razao
+             # escrita em `ANULAVEIS`.
+             "tenant_destinations"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

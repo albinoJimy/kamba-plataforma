@@ -18,6 +18,10 @@
 /db/                        @kamba/plataforma
 /canon/                     @kamba/plataforma
 /registry/                  @kamba/produto-ia @kamba/plataforma
+# KAM-069: o inventario de subprocessadores e a fonte da lista publica e do
+# mapa de tratamentos. Quem o altera decide quem trata dados pessoais em nome
+# das PMEs, e isso passa por Seguranca.
+/gov/                       @kamba/plataforma @kamba/seguranca
 /packages/contracts/        @kamba/plataforma @kamba/produto-ia
 
 /services/gwy/              @kamba/plataforma

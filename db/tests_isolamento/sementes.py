@@ -326,6 +326,43 @@ def _passo_da_saga(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _destino_de_transferencia(cursor, tenant_id: str, canario: str) -> None:
+    """Um destino de transferencia com o canario no `provider` (KAM-069, `0035`).
+
+    **O canario vai no `provider`**, que e `text` e e a segunda coluna da
+    unicidade `(tenant_id, provider, country, purpose)` — pelo que dois tenants
+    podem semear o mesmo canario, que e o que o X-03 precisa. E o `canario()`
+    produz `canario_<rotulo>_<hex>`, que casa a gramatica
+    `^[a-z][a-z0-9_-]{1,62}$` do `tenant_destinations_provider_ck`: minusculas,
+    sublinhados e digitos, 49 caracteres com o rotulo desta bateria.
+
+    **Semeia-se com o `batch` e o `papel` nao escreve nada**, e isso nao e uma
+    limitacao da bateria: e a propriedade da tabela. O `kamba_app` tem `SELECT`
+    e mais nada, porque autorizar um destino e um acto humano com papelada
+    arquivada — e nao uma escrita de um processo que serve conversas. Logo a
+    `coluna_alteravel` e `None` e o `escrita_do_papel` e `False`: o que se prova
+    e que o privilegio **nem existe**, que e mais forte do que provar que a
+    politica recusa.
+
+    A linha nasce `pendente`, que e a omissao do inventario e o estado das onze
+    linhas de `gov/subprocessadores.yaml`. **Sem `autorizado_em` nem
+    `revogado_em`**: o `tenant_destinations_sem_janela_ck` recusa um `pendente`
+    com janela, e semear uma era semear uma linha que a vista
+    `v_transfer_audit` leria como autorizacao.
+
+    Os dois booleanos da *checklist* entram explicitos, a `false`: sao
+    `NOT NULL` **sem omissao** de proposito (ver a nota da revisao), pelo que
+    omiti-los dava `23502`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.tenant_destinations "
+        "(tenant_id, provider, country, purpose, status, "
+        " retencao_zero, sem_treino) "
+        "VALUES (%s, %s, 'US', 'conversa', 'pendente', false, false)",
+        (tenant_id, canario),
+    )
+
+
 def _recibo_de_intencao(cursor, tenant_id: str, canario: str) -> None:
     """O recibo de idempotencia da criacao (KAM-044, revisao `0030`).
 
@@ -1370,6 +1407,13 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _passo_da_saga, "external_id", "atualizado_at",
         "2099-01-01T00:00:00+00:00",
     ),
+    # KAM-069: os destinos de transferencia. **Nenhuma coluna alteravel**, e e a
+    # propriedade da tabela e nao uma lacuna da bateria: o `kamba_app` tem
+    # `SELECT` e mais nada. Ver a nota da receita.
+    ("platform", "tenant_destinations"): Receita(
+        _destino_de_transferencia, "provider", None, None,
+        escrita_do_papel=False,
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -1913,6 +1957,11 @@ ORDEM = (
     # Ninguem a aponta, pelo que a posicao e indiferente e a escolhida e a dos
     # numeros dos tickets, como entre as duas acima.
     ("platform", "provisioning_step"),
+    # KAM-069: **sem FK nenhuma**, nem para `tenants` — um destino registra-se
+    # antes de o tenant activar, e e o *gate* de go-live do criterio 8 que corre
+    # na transicao. Ninguem a aponta, pelo que a posicao e indiferente e a
+    # escolhida e a dos numeros dos tickets, como entre as de cima.
+    ("platform", "tenant_destinations"),
 )
 
 #: As identidades com que as receitas semeiam.

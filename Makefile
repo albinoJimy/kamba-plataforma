@@ -95,6 +95,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         compose-prod-lint compose-prod-egress \
         obs-lint obs-promtool \
         bloco-lint \
+        subprocessadores \
         ordem-dos-ensaios isolamento-a-seco
 
 ## help: lista os comandos disponiveis
@@ -411,6 +412,7 @@ ci-2:
 	@$(MAKE) money-lint
 	@$(MAKE) env-lint
 	@$(MAKE) compose-prod-lint
+	@$(MAKE) subprocessadores
 	@# Nao ha linter de estilo: os gates de lint sao deste ticket, mas a escolha do
 	@# ESLint ficou declarada fora de ambito no KAM-001 (ADR-L001 §8) e nao se
 	@# decide aqui por conveniencia. `make ci-2` cobre tipos e arquitectura.
@@ -617,6 +619,22 @@ bloco-lint:
 	@echo "==> lint_bloco: as duas superficies de cada bloco de ticket"
 	@$(PYTHON) -m lint_bloco --root $(ROOT) check
 	@$(PYTHON) -m lint_bloco --root $(ROOT) canario
+
+## subprocessadores: o inventario e os dois documentos gerados dele (KAM-069)
+#
+# Entra no gate 2 e **nao num job novo**, pela decisao que o `log-lint` do
+# KAM-068 e o `bloco-lint` do KAM-183 ja escreveram: um job novo acrescenta um
+# contexto exigido ao *ruleset* de `main`, e isso e alteracao de regra de
+# bloqueio, que e decisao do fundador.
+#
+# O `--check` nao escreve: falha se a lista publica de subprocessadores ou o
+# mapa de tratamentos divergirem de `gov/subprocessadores.yaml`. E o mesmo
+# desenho do `dict_export --check` do gate 3b, e pela mesma razao — dois
+# documentos gerados que alguem edite a mao passam a descrever um sistema que
+# nao existe, e a lista publica e um compromisso com titulares de dados.
+subprocessadores:
+	@echo "==> subprocessadores: inventario, lista publica e mapa de tratamentos"
+	@$(PYTHON) -m subprocessadores --root $(ROOT) --check
 
 ## obs-lint: cardinalidade de etiquetas e runbooks dos alertas (KAM-080)
 obs-lint:

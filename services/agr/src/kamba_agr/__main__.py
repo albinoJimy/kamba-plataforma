@@ -544,14 +544,28 @@ def main() -> int:
         log.excepcao(exc, "llm_call_log_indisponivel")
         return SAIDA_SEM_GATEWAY_LLM
 
-    destinos = llm_destinos.arrancar(ambiente)
-    # **O aviso em `staging` nao e enfeite.** O criterio 8 diz «ate KAM-069
-    # existir, so dados sinteticos em `staging`», e nenhum codigo consegue
-    # verificar que os dados sao sinteticos. Um aviso por arranque torna a
-    # condicao visivel; o silencio lia-se como garantia. Em `prod` a porta nega
-    # tudo, e tambem se diz.
+    # **A porta real, sobre `platform.tenant_destinations` (KAM-069).** A
+    # ligacao e a mesma do registo de chamadas — uma por chamada, aberta dentro
+    # de `tenant_guard.tx` e fechada —, e a *cache* de 60 s da porta faz com que
+    # so se abra quando a decisao nao esta la.
+    #
+    # O `confirmar` acima ja provou que esta ligacao responde; se nao
+    # respondesse, o arranque tinha abortado com `SAIDA_SEM_GATEWAY_LLM`. Sem
+    # ligacao a porta devolvida seria a `NegaTudoAteKam069`, que e a **mais**
+    # restritiva — a ausencia de base nunca afrouxa o *gate*.
+    destinos = llm_destinos.arrancar(ambiente, ligar_para_llm)
+    # **O aviso em `staging` nao e enfeite.** O criterio 8 do KAM-030 diz «so
+    # dados sinteticos em `staging`», e nenhum codigo consegue verificar que os
+    # dados sao sinteticos. Um aviso por arranque torna a condicao visivel; o
+    # silencio lia-se como garantia.
+    #
+    # **Em `prod` o que se diz mudou com o KAM-069**, e e a diferenca que
+    # importa: ja nao e «nega tudo», e «nega o que nao esta autorizado». Hoje
+    # isso e tudo na pratica — o `ext:KAM-105` fechou com 0 de 14 destinos com
+    # `apd_ref` —, mas por falta de autorizacao e nao por falta de barreira, e
+    # as duas coisas resolvem-se de maneiras diferentes.
     if ambiente == llm_destinos.AMBIENTE_PROD:
-        log.warn(outcome="llm_destinos", error_code="nega_tudo_ate_kam069")
+        log.warn(outcome="llm_destinos", error_code="so_destino_autorizado")
     else:
         log.warn(outcome="llm_destinos", error_code="so_dados_sinteticos")
     cliente_de_llm = ClienteDeLlm(
