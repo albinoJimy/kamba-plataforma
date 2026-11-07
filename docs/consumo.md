@@ -145,7 +145,7 @@ dezasseis sessões).
 Nenhuma suite de execução vê isto com um evento de cada vez, e é por isso que o
 acoplamento está fixado por texto em `db/tests/test_consumo_contrato.py`.
 
-## 4. Três saídas, e a diferença entre elas
+## 4. Quatro saídas, e a diferença entre elas
 
 A decisão não está no `consumir()` — está no `processar()` de
 `packages/core-ts/src/eventos/trabalho.ts`, que se testa **sem fila e sem
@@ -154,8 +154,39 @@ BullMQ**, com um cliente SQL falso.
 | Saída | Quando | O que acontece |
 |---|---|---|
 | `Adiar(5 s)` | A pré-condição ainda não se verifica (`payment.confirmed` antes de `aguarda_pagamento`) | Tenta-se outra vez. Esgotadas as tentativas: DLQ com `adiado_sem_resolver:` — **nunca** a transição aplicada à força |
+| `EstadoIncompativel` | O agregado está num estado **terminal** para aquele tipo (`expirada` ou `cancelada`, para os dois eventos que pagam) | DLQ à primeira, com `erro = 'estado_incompativel'`. Não há tentativa que resolva um estado que não volta atrás |
 | `ForaDeOrdem` | O evento vem atrasado **e** a transição não é válida | DLQ à primeira, com `erro = 'fora_de_ordem'`. Não há tentativa que resolva um atraso |
 | qualquer outro erro | Falha técnica | Recua pela escada; na sexta, DLQ com a mensagem do erro |
+
+**A quarta saída é do KAM-055, e a ordem em que se verifica é o que a torna
+útil.** Os dois estados terminais caíam, sem ela, em sítios diferentes e
+errados: o `cancelada` não tem arestas de saída, pelo que o `podeTransitar` diz
+«não» e o consumidor **adiava** — seis tentativas e meia hora de fila para
+acabar em `adiado_sem_resolver`, que esconde a razão a quem abre a entrada; e o
+`expirada` **está** na `TRANSICOES` com `paga` de propósito (o pagamento tardio
+do Multicaixa por referência é um caso real, e é o KAM-050 que o implementa),
+pelo que o `podeTransitar` diz «pode» e o efeito ia aplicar uma transição que o
+grafo da base recusa com um erro técnico. Por isso a classificação corre
+**antes** do `podeTransitar`, e a lista (`ESTADOS_INCOMPATIVEIS`) é distinta da
+`TRANSICOES`: o grafo do §6.1 continua a ser o do negócio, e o que a lista diz é
+só que **este** consumidor não implementa aquela aresta.
+
+**O `estadoDe` recebe a ligação da transacção por argumento**, e não um cliente
+guardado no construtor da máquina. A razão foi medida ao ligar o primeiro
+consumidor real (KAM-055): o `consumir` corre `SET LOCAL app.tenant_id` **dentro**
+da sua transacção, pelo que uma máquina ligada a outra sessão lê a réplica sem
+contexto — e sob RLS `FORCE` isso não é «vê menos», é `null` **sempre**, que a
+pré-condição lê como «o agregado ainda não existe» e adia até à DLQ.
+
+> **O espelho em Python não acompanha estas duas, e isso fica dito.** O
+> `libs/py-core/src/kamba_core/eventos/` tem `Adiar`, `ForaDeOrdem` e o
+> `estado_de(tipo, id)` sem ligação — não tem `EstadoIncompativel` nem o
+> argumento novo. Os 97 ensaios de paridade continuam verdes (medido), porque
+> nenhum deles compara o conjunto de saídas entre os dois idiomas. O consumidor
+> Python serve as verticais do AGR, que **avisam** e não transitam encomendas,
+> pelo que a divergência não tem hoje caminho de dano; mas é uma divergência
+> numa classificação de segurança entre dois idiomas da mesma biblioteca, e
+> fecha-se com quem é dono da paridade. Credor: **KAM-006**.
 
 A pré-condição de estado é verificada **fora** do `exige_ordem`, e isto foi uma
 correcção: com ela dentro, uma subscrição com `exige_ordem = false` sobre um tipo
@@ -370,3 +401,4 @@ em `test_o_job_pede_a_escada_do_consumidor`. O que a *suite* com fila mede é a
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-006): revisão `0005`, *wrapper* de consumo nos dois idiomas, DLQ com Sev1 por tipo e descarte a dois aprovadores, `once()`, reconciliador com *lock* próprio, e a *suite* `tests_eventos_consumo` no gate 8. Registo de três defeitos que só a base e a fila reais mostraram: o consumo precisa do contexto de tenant na transacção, cada fila precisa da sua ligação, e o *job* tinha de pedir a escada do consumidor para ela ser consultada. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Três correcções da revisão adversarial (ANALISE-23): o `once()` passa a **recusar-se** a correr dentro da transacção do consumo, onde o seu `COMMIT` confirmava a marca de consumo sem o efeito (§8, ponto 3); a leitura do envelope passa a ter política própria, sem a qual um evento ilegível ficava num ciclo de reposição silencioso (§4); e a unicidade da DLQ passa a ser **parcial**, para que um ciclo novo depois de uma resolução abra a sua entrada sem precisar de dar `UPDATE` a quem consome (§5). | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-055: a quarta saida, e o `estadoDe` a receber a ligacao.** O §4 passa de tres saidas a quatro — entra o `EstadoIncompativel`, com `erro = 'estado_incompativel'` **a primeira tentativa** —, e fica escrito porque a classificacao corre **antes** do `podeTransitar`: sem ela, o `cancelada` adiava seis vezes para acabar em `adiado_sem_resolver` e o `expirada`, que esta na `TRANSICOES` de proposito (pagamento tardio, KAM-050), deixava o efeito tentar uma transicao que o grafo da base recusa. E o `estadoDe` da `MaquinaDeEstados` passa a receber o `bd` por argumento: com o cliente no construtor, a maquina lia a replica sem o `app.tenant_id` da transaccao do consumo e, sob RLS `FORCE`, devolvia `null` **sempre** — isto e, adiava todos os eventos ate a DLQ. Medido ao ligar o primeiro consumidor real; a `MaquinaNaBase` nunca tinha sido construida em producao. **E declara-se o que o espelho em Python nao acompanha** (as duas, com os 97 ensaios de paridade verdes porque nenhum compara o conjunto de saidas entre os idiomas), com credor KAM-006. | Equipa KAMBA |
