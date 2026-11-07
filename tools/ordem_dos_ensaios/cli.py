@@ -144,7 +144,106 @@ def _correr_fora(
         corridos=dados['corridos'],
         sucesso=dados['sucesso'],
         relato=dados['relato'],
+        # Por chave e nao por `.get`: um filho de outra versao tem de dar erro
+        # e nao degradar em silencio para «nao acusa ninguem», que e
+        # exactamente a saida que o KAM-182 veio tirar.
+        acusados=tuple(dados['acusados']),
+        sem_caso=tuple(dados['sem_caso']),
     )
+
+
+def _atribuir(resultado: Resultado) -> tuple[list[str], list[str]]:
+    """`(conjuntos, hipoteses)` de uma ordem que o `wasSuccessful()` reprovou.
+
+    O KAM-182 fechou-se nisto: ate ele, o portao dizia «o instrumento perdeu
+    informacao» quando a informacao estava no processo — o `relato` impresso a
+    seguir **tinha** o nome e o *traceback*. Aqui poem-se os dois lados lado a
+    lado — o que o `TestResult` acusa e o que o `Registo` classificou — e e a
+    **diferenca** entre eles que nomeia a hipotese, em vez de quem le ter de a
+    adivinhar a partir do *traceback* em bruto.
+
+    As tres hipoteses distinguem-se por medicao e nao por preferencia:
+
+        `corridos` > `classificados`     duas classificacoes colapsaram: dois
+                                         casos com o mesmo `id()`, e a ultima
+                                         escrita (verde) apagou o vermelho
+        acusado que o `estado` nao tem   um sinal do `unittest` que o `Registo`
+                                         nao derruba: entrou no `TestResult`
+                                         por um caminho que o observador nao
+                                         cobre
+        acusado que o `estado` da verde  um erro atribuido a um caso que o
+                                         `Registo` ja fechou — um `tearDown`,
+                                         um `done_callback`, uma *thread* que
+                                         ainda corria
+
+    Mais do que uma pode valer ao mesmo tempo, e devolvem-se todas: no
+    exemplar do `id()` repetido valem a primeira e a terceira, porque o colapso
+    **e** o mecanismo pelo qual o acusado aparece verde. Nenhuma delas relaxa
+    nada — quem decide o codigo de saida e o `_check`, e continua a ser 2.
+    """
+    vermelhos = resultado.vermelhos()
+    acusados = list(resultado.acusados)
+    nunca_vistos = [i for i in acusados if i not in resultado.estado]
+    dados_por_verdes = [
+        i for i in acusados if resultado.estado.get(i) in VERDE
+    ]
+    colapsados = resultado.corridos - len(resultado.estado)
+
+    conjuntos = [
+        f'TestResult acusa ({len(acusados)}): {acusados[:20]}',
+        f'Registo classificou vermelho ({len(vermelhos)}): {vermelhos[:20]}',
+        f'acusados que o Registo nao viu comecar: {nunca_vistos[:20]}',
+        f'acusados que o Registo deu por verdes: {dados_por_verdes[:20]}',
+        f'entradas sem id() de teste: {list(resultado.sem_caso)[:20]}',
+    ]
+
+    hipoteses: list[str] = []
+    if colapsados > 0:
+        hipoteses.append(
+            f'id() repetido: o testsRun conta {resultado.corridos} e o estado '
+            f'tem {len(resultado.estado)} chave(s), logo {colapsados} '
+            'classificacao(oes) colapsaram — o verde do ultimo caso a escrever '
+            'apagou o vermelho de quem partilha o id().'
+        )
+    if nunca_vistos:
+        hipoteses.append(
+            'sinal do unittest que o Registo nao derruba: '
+            f'{nunca_vistos[:20]} entrou(entraram) no TestResult sem nunca '
+            'passar pelo startTest. E a classe do addSubTest, que foi o falso '
+            'verde que o KAM-173 mediu; o hook novo e que esta por derrubar.'
+        )
+    if dados_por_verdes:
+        hipoteses.append(
+            'erro atribuido a um caso que o Registo ja fechou como verde: '
+            f'{dados_por_verdes[:20]}. E o que um tearDown, um done_callback '
+            'do laco ou uma thread ainda a correr produzem — o caso terminou, '
+            'e o erro chegou depois.'
+        )
+    if vermelhos and not nunca_vistos and not dados_por_verdes:
+        hipoteses.append(
+            f'nenhuma das tres: o Registo nomeou {vermelhos[:20]} nesta '
+            'ordem, e as comparacoes entre as duas ordens nao os cobrem — sao '
+            'verdes na outra. Um teste vermelho **so** na ordem de omissao e '
+            'dependencia de ordem tanto como o inverso, e o remedio e o mesmo: '
+            'quem suja o estado de processo repoe-no.'
+        )
+    if not hipoteses and resultado.sem_caso:
+        hipoteses.append(
+            'nenhum id() de teste a nomear: as entradas acusadas nao sao casos '
+            f'({list(resultado.sem_caso)[:20]}). Um erro de setUpClass, '
+            'tearDownClass, setUpModule ou tearDownModule vem num _ErrorHolder '
+            'cujo id() e uma frase, e trata-la como um id() de teste era '
+            'inventar um caso que nao existe. A falha e real e esta no relato '
+            'abaixo; o que o portao nao consegue e atribui-la a um caso.'
+        )
+    if not hipoteses:
+        hipoteses.append(
+            'nenhuma das tres, e o TestResult tambem nao acusa ninguem. E o '
+            'unico caso em que o instrumento perdeu mesmo a informacao, e '
+            'nao ha nada aqui que a reconstrua: ha um sinal do unittest que '
+            'nem o Registo nem o failures/errors/unexpectedSuccesses levam.'
+        )
+    return conjuntos, hipoteses
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -265,23 +364,34 @@ def _check(args: argparse.Namespace) -> int:
         if not resultado.sucesso
     ]
     if discordam:
+        # **Nomear, e nao deixar passar** (KAM-182). Ate aqui esta mensagem
+        # dizia que o instrumento perdeu a informacao — e a informacao estava
+        # no processo: o `relato` impresso logo a seguir tinha o nome e o
+        # *traceback*. Agora os dois lados saem lado a lado e a diferenca entre
+        # eles nomeia a hipotese. O que **nao** muda e o veredicto: o codigo de
+        # saida e 2 nos dois casos, com nome e sem nome, porque um corredor que
+        # nomeie melhor mas de verde quando nao sabe e pior do que o de antes.
         print(
             f'ordem_dos_ensaios: {nome} — o unittest diz que a(s) ordem(ns) '
-            f'{", ".join(discordam)} NAO passaram, e a classificacao por teste '
-            'nao nomeia um unico vermelho. O instrumento perdeu informacao: '
-            'ha um sinal do unittest que o Registo nao derruba, ou dois testes '
-            'com o mesmo id(). Isto e falha do portao, nao da suite, e '
-            'corrige-se no corredor:',
+            f'{", ".join(discordam)} NAO passaram, e as comparacoes entre as '
+            'duas ordens nao apanharam nenhum vermelho. O veredicto vem do '
+            'wasSuccessful() do TestResult e nao do dicionario do Registo, '
+            'pelo que isto NAO e verde da suite. Os dois lados, lado a lado:',
             file=sys.stderr,
         )
         for ordem in discordam:
             resultado = resultados[ordem]
+            conjuntos, hipoteses = _atribuir(resultado)
             print(
                 f'  - {ordem}: corridos={resultado.corridos}, '
                 f'classificados={len(resultado.estado)}, '
                 f'sucesso={resultado.sucesso}',
                 file=sys.stderr,
             )
+            for linha in conjuntos:
+                print(f'      {linha}', file=sys.stderr)
+            for hipotese in hipoteses:
+                print(f'      hipotese: {hipotese}', file=sys.stderr)
             if resultado.relato:
                 print(resultado.relato[:4000], file=sys.stderr)
         return 2
@@ -336,6 +446,8 @@ def _corredor(args: argparse.Namespace) -> int:
                 'corridos': resultado.corridos,
                 'sucesso': resultado.sucesso,
                 'relato': resultado.relato[:20000],
+                'acusados': list(resultado.acusados),
+                'sem_caso': list(resultado.sem_caso),
             },
             indent=0,
             sort_keys=True,

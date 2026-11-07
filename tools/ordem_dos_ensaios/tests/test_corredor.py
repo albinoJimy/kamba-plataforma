@@ -190,6 +190,98 @@ class TestRegisto(unittest.TestCase):
         self.assertEqual(resultado.vermelhos(), ['a'])
 
 
+class TestAcusacoes(unittest.TestCase):
+    """O lado do `TestResult`, que o dicionario nao perde (KAM-182).
+
+    Sao os ensaios da metade que faltava a rede: quando o `wasSuccessful()` e o
+    `estado` discordam, e daqui que sai o nome. Correm pelo caminho real — por
+    `correr` sobre as *fixtures* — e nao por um `TestResult` montado a mao, pela
+    mesma razao que levou a *fixture* `sinais/` a existir: um `hook` em falta
+    nao da erro num duplo, da um teste classificado `ok` que falhou.
+    """
+
+    def correr(self, pasta: str, ordem: str = 'normal') -> corredor.Resultado:
+        caminho = str(FIXTURES / pasta)
+        return corredor.correr(caminho, caminho, canario.PADRAO, ordem)
+
+    def test_com_os_sinais_todos_derrubados_os_dois_lados_concordam(
+        self,
+    ) -> None:
+        """A condicao de base: sem buraco, `acusados` e `vermelhos()` sao iguais.
+
+        E o caso que da sentido a diferenca. Se eles divergissem numa suite
+        saudavel, qualquer divergencia deixava de nomear hipotese nenhuma — e a
+        saida do ramo da discordancia passava a apontar sempre para a hipotese
+        1, que e um diagnostico constante e portanto nenhum.
+        """
+        resultado = self.correr('sinais')
+        self.assertEqual(list(resultado.acusados), resultado.vermelhos())
+        self.assertEqual(resultado.sem_caso, ())
+
+    def test_um_subtest_vermelho_dobra_no_caso_pai(self) -> None:
+        """O `id()` do sub-caso nunca passa pelo `startTest`.
+
+        Sem a dobra, um `subTest` vermelho aparecia como um `id()` que o
+        `Registo` nunca viu — a hipotese 1 — quando o `addSubTest` esta
+        derrubado e classificou o pai. Era um diagnostico falso sobre os 332
+        usos de `subTest` que o KAM-173 contou.
+        """
+        acusados = self.correr('sinais').acusados
+        self.assertIn(
+            'caso_todos_os_sinais.TestSubTest.test_falha_dentro_de_subtest',
+            acusados,
+        )
+        self.assertEqual([i for i in acusados if '[' in i], [])
+
+    def test_um_sucesso_inesperado_e_acusado(self) -> None:
+        """O `wasSuccessful()` conta-o, logo tem de poder ser nomeado."""
+        self.assertIn(
+            'caso_todos_os_sinais.TestSucessoInesperado.'
+            'test_sucesso_inesperado',
+            self.correr('sinais').acusados,
+        )
+
+    def test_um_erro_de_teardown_de_modulo_nao_e_um_id_de_teste(self) -> None:
+        """O `_ErrorHolder` sai pelo `sem_caso`, e **nao** pelo `estado`.
+
+        Ate ao KAM-182 a frase `tearDownModule (modulo)` entrava no `estado`
+        como se fosse um teste vermelho: o portao dava-a por «vermelho nas duas
+        ordens» e mandava procurar no `coverage-python` um caso que nao existe.
+        O erro nao se perde — esta no `wasSuccessful()`, no `relato` e aqui.
+        """
+        resultado = self.correr('sem_caso')
+        self.assertFalse(resultado.sucesso)
+        self.assertEqual(resultado.vermelhos(), [])
+        self.assertEqual(resultado.acusados, ())
+        self.assertEqual(resultado.sem_caso, ('tearDownModule (caso_sem_caso)',))
+        self.assertIn('tearDownModule vermelho de proposito', resultado.relato)
+
+    def test_um_sinal_por_derrubar_fica_fora_do_estado_e_dentro_do_acusa(
+        self,
+    ) -> None:
+        """A hipotese 1, medida nos dois lados ao mesmo tempo."""
+        resultado = self.correr('sem_derrubar')
+        self.assertFalse(resultado.sucesso)
+        self.assertEqual(resultado.vermelhos(), [])
+        self.assertEqual(len(resultado.acusados), 1)
+        self.assertNotIn(resultado.acusados[0], resultado.estado)
+
+    def test_o_id_repetido_colapsa_o_estado_e_nao_o_testsRun(self) -> None:
+        """A hipotese 2 e a diferenca entre os dois numeros, e so ela.
+
+        No exemplar de 2026-11-05 eles eram 1402 e 1402, e e assim que esta
+        hipotese fica excluida la sem ser por preferencia.
+        """
+        resultado = self.correr('id_repetido')
+        self.assertEqual(resultado.corridos, 3)
+        self.assertEqual(len(resultado.estado), 1)
+        self.assertEqual(resultado.vermelhos(), [])
+        self.assertEqual(
+            resultado.acusados,
+            ('caso_id_repetido.TestColapso.test_o_mesmo_id',),
+        )
+
+
 class TestAsFixturesNaoEntramNaSuiteDeTools(unittest.TestCase):
     """O padrao `test*.py` do `coverage-python` nao pode apanhar as *fixtures*.
 

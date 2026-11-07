@@ -41,6 +41,30 @@ proprio `TestResult`, e o `cli` **cruza-os** com o dicionario: um `sucesso`
 falso sem nenhum vermelho nomeado e falha do instrumento, nao verde da suite.
 E a rede que fecha qualquer sinal que o `unittest` acrescente no futuro, e nao
 so os tres que foram encontrados.
+
+## E quando a rede morde, o `TestResult` ainda sabe de quem (KAM-182)
+
+A rede ficou a dizer «perdi a informacao» quando a informacao **estava no
+processo**: medido a 2026-11-05 no *gate* 4 do PR #137, `corridos=1402,
+classificados=1402, sucesso=False` — a contagem fecha, nenhum vermelho e
+nomeado — e o `relato` impresso logo a seguir tinha o nome e o *traceback*. O
+que faltava nao era medir mais: era **ler o que o `unittest` ja devolveu**.
+
+Por isso o `Resultado` leva tambem o que o proprio `TestResult` acusa, pelos
+seus `failures`, `errors` e `unexpectedSuccesses`, separado em duas listas:
+
+    acusados   os `id()` de **casos** (ver `acusacoes`)
+    sem_caso   as entradas que nao sao casos, pela etiqueta com que aparecem
+
+A separacao e o ponto. Um erro de `setUpClass`, `tearDownClass`, `setUpModule`
+ou `tearDownModule` entra num `unittest.suite._ErrorHolder`, cujo `id()` e uma
+frase (`tearDownModule (modulo)`) e nao um identificador de caso: tratar essa
+frase como um `id()` de teste era inventar um caso que nao existe — e era o que
+este modulo fazia, com a frase a entrar no `estado` como se fosse um teste
+vermelho. O `cli` usa a diferenca entre os `acusados` e os vermelhos do
+dicionario para **nomear** a hipotese; o `sem_caso` e o que mantem a recusa
+necessaria, porque com ele nao ha caso nenhum para nomear e o portao continua a
+sair com codigo nao-zero.
 """
 
 from __future__ import annotations
@@ -72,6 +96,14 @@ class Resultado(NamedTuple):
     #: As falhas e os erros formatados, para quem ler o *gate* vermelho saber o
     #: que rebentou. Vazio quando `sucesso`.
     relato: str
+    #: Os `id()` de **casos** que o proprio `TestResult` acusa (KAM-182). Nao
+    #: sai do `estado`: sai do `failures`, do `errors` e dos
+    #: `unexpectedSuccesses`, que e o lado que o dicionario nao perde.
+    acusados: tuple[str, ...] = ()
+    #: As entradas acusadas que **nao** sao casos — o `_ErrorHolder` dos erros
+    #: de `setUpClass`/`tearDownModule` e companhia —, pela etiqueta com que o
+    #: `unittest` as apresenta. Nao sao `id()` de teste e nao se usam como tal.
+    sem_caso: tuple[str, ...] = ()
 
     def vermelhos(self) -> list[str]:
         return sorted(i for i, e in self.estado.items() if e not in VERDE)
@@ -121,7 +153,16 @@ class Registo(unittest.TestResult):
 
     def addError(self, test: unittest.TestCase, err: object) -> None:
         super().addError(test, err)  # type: ignore[arg-type]
-        self.estado[test.id()] = 'error'
+        # E o unico sinal que recebe algo que nao e um caso: os erros de
+        # `setUpClass`, `tearDownClass`, `setUpModule` e `tearDownModule` vem
+        # num `unittest.suite._ErrorHolder`, cujo `id()` e uma frase. Ate ao
+        # KAM-182 essa frase entrava aqui como se fosse um teste vermelho —
+        # inventava um caso que nao existe, e o `cli` comparava-a entre as duas
+        # ordens como se fosse inventario. O erro **nao** se perde: esta no
+        # `errors` do `TestResult`, logo no `wasSuccessful()`, no `relato` e no
+        # `sem_caso` das `acusacoes`, e e a rede do `cli` que o apanha.
+        if isinstance(test, unittest.TestCase):
+            self.estado[test.id()] = 'error'
 
     def addFailure(self, test: unittest.TestCase, err: object) -> None:
         super().addFailure(test, err)  # type: ignore[arg-type]
@@ -163,6 +204,54 @@ class Registo(unittest.TestResult):
         self.estado[test.id()] = 'unexpected-success'
 
 
+def _etiqueta(entrada: object) -> tuple[str | None, str]:
+    """`(id() de caso, etiqueta)` de uma entrada do `failures`/`errors`.
+
+    O `id()` de caso e `None` quando a entrada **nao** e um caso, que e o do
+    `unittest.suite._ErrorHolder`: ele nao deriva de `TestCase` e o seu `id()`
+    devolve uma frase. A discriminacao e por tipo e nao pela forma da cadeia de
+    proposito — distinguir `tearDownModule (modulo)` de um `id()` de teste por
+    conter um espaco funcionava ate alguem ter um `subTest` com espacos.
+
+    Um `unittest.case._SubTest` **e** um caso, e dobra-se para o `id()` do
+    caso-pai pelo seu `test_case`: o `id()` do sub-caso (`...test_x [valor=2]`)
+    nunca passa pelo `startTest`, pelo que sem a dobra um `subTest` vermelho
+    aparecia como um `id()` que o `Registo` nunca viu — a hipotese 1 do
+    KAM-182 — quando o `addSubTest` esta derrubado e classificou o pai.
+    """
+    pai = getattr(entrada, 'test_case', None)
+    if isinstance(pai, unittest.TestCase):
+        entrada = pai
+    identificador = getattr(entrada, 'id', None)
+    etiqueta = identificador() if callable(identificador) else str(entrada)
+    if isinstance(entrada, unittest.TestCase):
+        return etiqueta, etiqueta
+    return None, etiqueta
+
+
+def acusacoes(registo: unittest.TestResult) -> tuple[tuple[str, ...], ...]:
+    """`(acusados, sem_caso)`: o que o `TestResult` acusa, pelo seu lado.
+
+    E a metade que faltava a rede (KAM-182). O `estado` do `Registo` e com
+    perdas; o `failures`/`errors`/`unexpectedSuccesses` do `TestResult` nao e, e
+    e dele que vem o `wasSuccessful()` que a rede cruza. Quando os dois
+    discordam, e aqui que esta o nome.
+
+    Os `unexpectedSuccesses` entram porque o `wasSuccessful()` os conta: um
+    `expectedFailure` que passa deixa o portao vermelho, e tem de poder ser
+    nomeado pela mesma via.
+    """
+    casos: set[str] = set()
+    sem_caso: set[str] = set()
+    entradas: list[object] = [teste for teste, _ in registo.failures]
+    entradas += [teste for teste, _ in registo.errors]
+    entradas += list(getattr(registo, 'unexpectedSuccesses', ()))
+    for entrada in entradas:
+        identificador, etiqueta = _etiqueta(entrada)
+        (casos if identificador is not None else sem_caso).add(etiqueta)
+    return tuple(sorted(casos)), tuple(sorted(sem_caso))
+
+
 def _relatar(registo: Registo) -> str:
     """As falhas e os erros, com o *traceback*.
 
@@ -198,10 +287,13 @@ def correr(
 
     registo = Registo()
     unittest.TestSuite(testes).run(registo)
+    acusados, sem_caso = acusacoes(registo)
 
     return Resultado(
         estado=registo.estado,
         corridos=registo.testsRun,
         sucesso=registo.wasSuccessful(),
         relato=_relatar(registo),
+        acusados=acusados,
+        sem_caso=sem_caso,
     )

@@ -105,9 +105,22 @@ Resultado.estado     o diagnostico por teste — com perdas, e agora cruzado
 
 **A rede que não se tira:** se o `wasSuccessful()` disser que a ordem não passou
 e a classificação por teste não nomear um único vermelho, o portão sai com
-**2** e diz que o instrumento perdeu informação. Fecha A-1 e A-3, e fecha
-qualquer sinal que o `unittest` acrescente no futuro — que é o que distingue
-corrigir o defeito de corrigir os três sintomas.
+**2** e recusa o verde. Fecha A-1 e A-3, e fecha qualquer sinal que o
+`unittest` acrescente no futuro — que é o que distingue corrigir o defeito de
+corrigir os três sintomas.
+
+> **E desde o KAM-182 a rede diz *quem*.** A primeira versão desta frase dizia
+> que o portão «diz que o instrumento perdeu informação» — e dizia-o quando a
+> informação **estava no processo**: medido a 2026-11-05 no *gate* 4 do PR
+> `#137`, `corridos=1402, classificados=1402, sucesso=False`, com o `relato`
+> impresso logo a seguir a levar o nome e o *traceback* do vermelho. O código
+> de saída não mudou e a recusa não se negociou; o que mudou é que o
+> `Resultado` passou a levar também o que o próprio `TestResult` acusa, e a
+> **diferença** entre os dois conjuntos nomeia qual das três causas se
+> verificou — `id()` repetido, sinal não derrubado, ou erro atribuído a um caso
+> já fechado como verde. Quando não há `id()` de teste para nomear — o
+> `_ErrorHolder` de um `tearDownModule`, cujo `id()` é uma frase — a saída
+> continua a ser **2**. Ver `specs/tickets/KAM-182.md`.
 
 Os achados dão quatro mensagens distintas, porque o remédio de cada um é outro
 e um relatório que os misture manda corrigir a coisa errada:
@@ -117,7 +130,7 @@ e um relatório que os misture manda corrigir a coisa errada:
 | verde na omissão, vermelho na inversa | 1 | o estado de processo que o teste suja |
 | inventário diferente entre as ordens | 1 | o `SkipTest` de módulo ou de classe |
 | vermelho nas duas ordens | 1 | o `coverage-python`; não é ordem |
-| o `TestResult` discorda da classificação | 2 | o `corredor`; é falha do portão |
+| o `TestResult` discorda da classificação | 2 | o `corredor`; é falha do portão — e desde o KAM-182 a saída nomeia o caso e a causa |
 
 ## 4. Porque é que a suite do módulo não apanhou nada disto
 
@@ -213,3 +226,4 @@ qualquer modo porque o remédio era uma linha.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Emissão inicial (KAM-173): as duas revisões adversariais do PR `#109`, com 21 `CONFIRMADO` corrigidos. O defeito que bloqueava era um só — o veredicto derivado de um `dict` com perdas em vez do `TestResult` — com três sintomas reproduzidos, o pior a cobrir 332 usos de `subTest` em 55 ficheiros. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **KAM-182: a rede passa a nomear, e não só a recusar.** A frase da «rede que não se tira» dizia que o portão declara ter perdido a informação; era falsa, porque a informação estava no processo — medido a 2026-11-05 no *gate* 4 do PR `#137` (`corridos=1402, classificados=1402, sucesso=False`, com o nome e o *traceback* no `relato` logo abaixo). O código de saída continua **2** e a recusa não se negociou; o `Resultado` ganhou o que o próprio `TestResult` acusa, e a diferença entre os dois conjuntos nomeia qual das três causas se verificou. Sem `id()` de teste para nomear (o `_ErrorHolder` de um `tearDownModule`), continua **2**. | Equipa KAMBÁ |
