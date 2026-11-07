@@ -381,12 +381,40 @@ class TestSaidaDoCheck(unittest.TestCase):
         self.assertIn("porque esta na lista:", erros)
 
     def test_um_id_resolvido_e_nao_declarado_sai_para_ser_escrito(self) -> None:
-        mapa = tudo_conforme()
-        mapa[PUBLICO] = ([entrada_da_listagem(ruleset_id=4242)],
-                         {4242: resposta_da_api(enforcement="evaluate")})
-        _, _, erros = correr(CHECK, mapa)
+        """Um alvo sem `ruleset_id` imprime o que resolveu, para ser escrito.
+
+        **O alvo vem de uma configuracao de teste e nao do ficheiro real**, e a
+        razao foi medida: na arvore real deixou de haver alvo sem `id` — o do
+        publico ganhou o seu a 2026-11-07 —, pelo que este teste passava apenas
+        por causa de uma configuracao que mudou. O caminho continua a existir
+        para o alvo seguinte que alguem acrescente sem `id`, e e esse que se
+        exercita aqui.
+        """
+        alvo = config.Alvo(repositorio=PUBLICO,
+                           espelho=".github/rulesets/main.json",
+                           ruleset_id=None,
+                           razao="alvo de teste, declarado sem `id`")
+        mapa = {PUBLICO: ([entrada_da_listagem(ruleset_id=4242)],
+                          {4242: resposta_da_api(enforcement="evaluate")})}
+        with mock.patch.object(config, "ler", return_value=[alvo]):
+            _, _, erros = correr(CHECK, mapa)
         self.assertIn("4242", erros)
         self.assertIn(config.CAMINHO, erros)
+
+    def test_o_id_de_cada_alvo_sai_da_configuracao_e_nao_de_uma_copia(self) -> None:
+        """A regressao que o KAM-137 pagou a 2026-11-07, prendida.
+
+        As fixtures tinham o `id` do publico escrito a mao (`99`). Quando a
+        configuracao passou a declarar o verdadeiro, `tudo_conforme()` deixou de
+        ser «tudo conforme»: o numero inventado valia como recriacao do ruleset.
+        Isto exige que as duas superficies continuem a concordar.
+        """
+        declarados = {alvo.repositorio: alvo.ruleset_id
+                      for alvo in config.ler(ROOT) if alvo.ruleset_id is not None}
+        for repositorio, (listagem, _) in tudo_conforme().items():
+            if repositorio in declarados:
+                with self.subTest(repositorio=repositorio):
+                    self.assertEqual(listagem[0]["id"], declarados[repositorio])
 
     def test_divergente_aponta_o_procedimento(self) -> None:
         mapa = tudo_conforme()
