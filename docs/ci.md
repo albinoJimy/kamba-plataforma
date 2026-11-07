@@ -122,6 +122,34 @@ rota a recusar.
 no KAM-001 ([ADR-L001](adr/ADR-L001-toolchain.md) §8) e não se decide aqui por
 conveniência de ter a coluna preenchida.
 
+**Desde o KAM-069 o *gate* 2 tem duas verificações a mais, e nenhuma é um *job*
+novo.** As duas são do *gate* de transferência do ADR-008:
+
+* **o inventário de clientes de saída**, dentro do `structure.check` que o
+  `lint-arch` já corria: um ficheiro de `services/*/src`, `packages/*/src` ou
+  `libs/*/src` que escreva o FQDN de um subprocessador, ou importe um SDK de
+  fornecedor, e não esteja declarado em
+  [`tools/lint_arch/destinos.py`](../tools/lint_arch/destinos.py) reprova — e
+  uma entrada que **declare** consultar o *gate* e cujo ficheiro perca a chamada
+  também. É a segunda direcção que tem valor hoje: a primeira passaria por vazio,
+  porque não há **nenhum** SDK de fornecedor no repositório;
+* **`make subprocessadores`**, que corre `python -m subprocessadores --check`: a
+  lista pública de subprocessadores e o mapa de tratamentos são **gerados** de
+  [`gov/subprocessadores.yaml`](../gov/subprocessadores.yaml), e o passo recusa se
+  o que está versionado divergir da fonte. É o desenho do `dict_export --check`
+  do *gate* 3b, e pela mesma razão: dois documentos gerados que alguém edite à
+  mão passam a descrever um sistema que não existe, e a lista pública é um
+  compromisso com titulares de dados.
+
+Entraram **neste *gate*** pelo caminho do `log-lint`, do `money-lint` e do
+`env-lint`: um *job* novo acrescenta um contexto exigido ao *ruleset* de `main`,
+e isso é alteração de regra de bloqueio. O `esperados` do resumo continua em
+**11** e os `needs:` do agregador não mudam. O do inventário traz o seu canário —
+13 ensaios em
+[`tools/lint_arch/tests/test_destinos.py`](../tools/lint_arch/tests/test_destinos.py),
+com as duas direcções e um canário do canário (`litellm_virtual_key` é o nome de
+um segredo e não um SDK).
+
 **Desde o KAM-068 há um terceiro passo: `make log-lint`.** Nenhum ficheiro de
 `services/*`, `packages/*` ou `libs/*` (fora das pastas `tests`) usa `console`,
 `print`, `logging`, `traceback`, o `stdout` ou o `stderr`, nem sai com texto —
@@ -2913,3 +2941,4 @@ sobrevivem ao PR.
 | 1.67 | Novembro 2026 | **KAM-174, revisão adversarial: um assunto que começa por `#` passava o portão, e o *gate* 2 passa a recusá-lo.** Era o achado BLOQUEADOR A1, medido: `check_commit_message` descartava **todas** as linhas que começam por `#` antes de escolher o cabeçalho — certo para o *hook*, cuja entrada é o `COMMIT_EDITMSG` **antes** do *cleanup*; errado para uma mensagem **já guardada**, que passou pelo *cleanup* e onde um `#` sobrevivente é conteúdo. Com `-m` o *cleanup* é `whitespace`, que não tira comentários, pelo que `git commit -m '#123 arrumacoes' -m 'fix(KAM-174): …'` guarda `#123 arrumacoes` como `%s` e o portão dava **0 achados** — num PR de um só *commit*, esse assunto ia para o `main`. `check_commit_message` ganha `tirar_comentarios`, que distingue as duas **entradas** e não duas regras (a forma continua a vir toda de [`../tools/conventions.json`](../tools/conventions.json)), e o portão passa `False`. O que o *hook* continua a aceitar está escrito no §3. **Mais seis achados fechados por teste:** a metade do intervalo do canário era esvaziável sem nada ficar vermelho (A2); o `exigir_commits` era removível do `cli.py` (A3); o `specs/01` §5 contradizia-se na bala seguinte à corrigida (A4); a lista de dívidas foi alterada sem linha de versão (A5, agora 1.89); o comentário do [`../.github/workflows/titulo-do-pr.yaml`](../.github/workflows/titulo-do-pr.yaml) afirmava no presente o que deixou de ser verdade (A6); e um *merge ref* com mais de dois pais dava um intervalo parcial em silêncio, que passa a ser vermelho (A7). **Dois declarados e não corrigidos:** um ramo sem antepassado comum (A8), não alcançável por `pull_request`, escrito no «o que não cobre»; e a redundância da passagem sem isenções (A9), que a própria revisão mediu como redundância e não cobertura. Sete mutações aos achados, todas vermelhas. | Equipa KAMBÁ |
 | 1.68 | Novembro 2026 | **KAM-174, seguimento: o *gate* 2 deixa de recusar dois rodapés seguidos.** O `_check_body_and_footer` exigia linha em branco antes de **cada** linha que batesse num *token* de rodapé, em vez de antes do **primeiro** do bloco — pelo que `Co-authored-by` duas vezes, ou `Refs:` seguido de `Signed-off-by:`, eram recusados. É a forma normal de os escrever e é a que o GitHub compõe no *squash*. **O defeito é anterior** (vem do KAM-164) **e o KAM-174 tornou-o bloqueante**: até ele nenhum portão lia mensagens de *commit*, pelo que só mordia a quem tivesse o *hook* instalado; desde a fusão do `c75d5234`, qualquer PR com dois co-autores ficava vermelho sobre uma mensagem correcta. **Era também divergência face ao `commitlint`** — o `footer-leading-blank` dele verifica a **secção** de rodapé, não cada linha —, que é a classe que o [`../tools/conventions.json`](../tools/conventions.json) existe para impedir. Encontrado a passar a mensagem do próprio *merge* do KAM-174 pelo portão que ele acabara de ligar. Quatro ensaios novos e dois positivos no canário, para ficar provado **no portão**; e duas mutações — voltar ao comportamento antigo e desligar a regra por inteiro — ficam **as duas** vermelhas, que é o que impede a correcção de ser «deixar de verificar». | Equipa KAMBÁ |
 | 1.69 | Novembro 2026 | **KAM-183**: **lacuna 31** — a coerência interna de um bloco de ticket passa a ter instrumento (`tools/lint_bloco`, alvo `make bloco-lint`, 33 testes, canário de 4 negativas e 4 positivas) e **não** a ter *gate*, pela razão do `obs_lint` do KAM-080. A regra compara a caixa com a coluna `Estado` **par a par** e não em contagem. **A medição decidiu a forma:** a regra tal como pedida punha **121 dos 125** blocos a vermelho, porque a coluna de `Estado` usa **52** primeiras-palavras distintas e **19** tabelas não a têm. Devolvem-se três regras com a taxa de alarme de cada uma — a estrutural (23% dos blocos emparelhados) e a dos números (**25%** dos pares com números), que é a que teria apanhado o escape que custou uma fusão. | Equipa KAMBÁ |
+| 1.70 | Novembro 2026 | **KAM-069**: o *gate* 2 ganha **duas** verificações do *gate* de transferência do ADR-008, e **nenhuma é um *job* novo** — o inventário de clientes de saída, dentro do `structure.check` que o `lint-arch` já corria, e `make subprocessadores`, que recusa se a lista pública de subprocessadores ou o mapa de tratamentos divergirem de `../gov/subprocessadores.yaml`. **A leitura literal do critério 4 do ticket seria um portão que passa por vazio, e isso foi medido:** não há **nenhum** SDK de fornecedor no repositório, pelo que um *lint* que só recusasse esse *import* nascia verde e ficava verde — o que se entrega é um inventário fechado, nas duas direcções, e a que tem valor hoje é a que apanha a chamada **retirada** (sete entradas, **uma** a consultar o *gate*). O `esperados` continua em **11** e os `needs:` não mudam. O *gate* 8 ganha `db/tests/test_destinos_schema.py` (19 ensaios) na suite `tests` que já corria, e o `db/mutacoes.py` ganha **quatro** mutações da revisão `0036`. | Equipa KAMBÁ |

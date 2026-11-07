@@ -690,7 +690,7 @@ Implementar o inventário de subprocessadores, a tabela `tenant_destinations` e 
 
 **9 critérios; 5 marcados, 4 vazios. 6 caixas de DoD; 2 marcadas, 4 vazias.**
 Medido no ramo `feature/KAM-069-inventario-de-subprocessadores`, sobre a árvore de
-`publico/main` em `52d8000a`. Nesta máquina não há `make`, `node` nem `pnpm` fora de
+`publico/main` em `06b8aba2` — **o `publico/main` andou a meio deste ramo**, e o que está medido é depois da integração: o KAM-055 fundiu primeiro e levou a revisão `0035`, a secção 3.48 do dicionário e a emenda 1.66, pelo que este ticket renumerou para `0036`, §3.49 e 1.67 **na integração**. Nesta máquina não há `make`, `node` nem `pnpm` fora de
 Docker: os linters correram directamente (`python -m <lint> --root . <comando>`), as
 suites Python com o `.venv` do *worktree*, e o *gate* 8 contra o PostgreSQL 18.6
 descartável que o `db/gate_bd.py` levanta em Docker.
@@ -741,16 +741,17 @@ execução. Cada um com o credor escrito.
 | Comando | Resultado |
 |---|---|
 | `python -c "… dict_export … ['--root','.','--check']"` | conforme — `canon/dicionario.yaml` corresponde ao `specs/02` |
-| `python -c "… canon_lint … ['--root','.','check']"` | conforme — dicionário v1.66, 727 entradas; **35** ficheiros de migração, 70 tabelas, 663 colunas, 559 valores de `CHECK` |
+| `python -c "… canon_lint … ['--root','.','check']"` | conforme — dicionário v1.67, 734 entradas; **36** ficheiros de migração, 70 tabelas, 663 colunas, 559 valores de `CHECK` |
 | `python -c "… canon_lint … ['--root','.','canario']"` | conforme — o *lint* morde |
 | `python -m lint_arch --root . all` | conforme — a lista de bloqueio, a estrutura (com o inventário de clientes de saída), os esquemas de *tool*, os *aliases* e o Registo de comércio |
 | `python -m subprocessadores --root . --check` | conforme — 11 subprocessadores, 11 pendentes, versão `1.0+…` |
 | `python -m unittest discover -s libs/py-core/tests` | **44** ensaios novos em `test_destinos.py`, verdes |
+| `python -m lint_bloco --root . check` | 183 blocos, **84** emparelhados, 0 achados. O piso `MINIMO_DE_BLOCOS_MEDIDOS` sobe de **41 para 42**, que é o mínimo que o `test_os_pisos_valem_alguma_coisa` exige (`84 // 2`): a secção de verificação deste bloco tornou-o medível e o `medidos` passou de 83 para 84. Medido **depois** de integrar a `main`, nunca em antecipação. E o texto da mutação do piso em `tools/lint_bloco/mutacao.py` passa a acompanhar o valor — tinha ficado em `= 40` na subida anterior, e uma mutação que não encontra o seu texto sobrevive calada |
 | `python -m unittest discover -s services/agr/tests -p test_llm_destinos.py` | **9** ensaios, verdes |
-| `python -m unittest discover -s tools/subprocessadores/tests -t tools` | **19** ensaios, verdes |
+| `python -m unittest discover -s tools/subprocessadores/tests -t tools` | **27** ensaios, verdes (19 do inventario e da versao, 8 da linha de comandos — os tres codigos de saida e o caso do documento editado a mao) |
 | `python -m unittest discover -s tools/lint_arch/tests -p test_destinos.py -t tools` | **13** ensaios, verdes |
-| `python db/mutacoes.py --aplicaveis` | **970** mutações conferidas, 0 não aplicáveis (eram 966; as **quatro** novas são da `0036`) |
-| `python db/gate_bd.py --suite tests` | os **19** ensaios de `test_destinos_schema.py` verdes. **A suite inteira não cabe nos 900 s desta máquina** e o corredor aborta por tempo — é custo de ambiente e não deste ticket (a mesma prova corre no *runner*, onde o *gate* 8 é um *job* próprio) |
+| `python db/mutacoes.py --aplicaveis` | **976** mutações conferidas, 0 não aplicáveis; as **quatro** da `0036` são deste ticket (as outras três que entraram no mesmo intervalo são do KAM-055) |
+| `python -m unittest tests.test_destinos_schema` contra o PostgreSQL 18.6 do `gate_bd` | os **19** ensaios verdes, incluindo o `downgrade` com linhas e os quatro casos da janela. **A suite `tests` inteira não cabe nos 900 s desta máquina** — o corredor aborta por tempo e a primeira passagem chegou a 342 ensaios antes de o fazer —, pelo que a medição deste módulo fez-se com o mesmo contentor e o mesmo ambiente do `gate_bd` e um `unittest` sobre um módulo só. É custo de ambiente e não deste ticket: no *runner* o *gate* 8 é um *job* próprio. **Quatro defeitos dos ensaios saíram desta medição**, e nenhum era do produto: um `CHECK` é avaliado **antes** do índice único (o ensaio da unicidade media `23514`), duas releituras usavam uma ligação nova e a do `ComBase` nunca confirma, e uma recusa de destino não leva *tokens* nem custo (o `llm_call_log_negado_sem_consumo` da `0023` exige os quatro nulos) |
 
 ### Handoff para Claude Code
 

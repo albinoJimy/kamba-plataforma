@@ -66,7 +66,7 @@ import ligacao
 from tests import factories
 from tests.base import (
     TABELAS,
-    TABELAS_ATE_0036,
+    TABELAS_ATE_0035,
     VIOLACAO_DE_CHECK,
     VIOLACAO_DE_UNICIDADE,
     ComBase,
@@ -642,8 +642,8 @@ class TestDowngradeDa0036(unittest.TestCase):
         finally:
             conexao.close()
 
-        alembic_ok("downgrade", "0036")
-        self.assertEqual(self._tabelas(), TABELAS_ATE_0036)
+        alembic_ok("downgrade", "0035")
+        self.assertEqual(self._tabelas(), TABELAS_ATE_0035)
         # A vista cai antes da tabela, e o `downgrade` nao leva `CASCADE`: se
         # ficasse pendurada, o `DROP TABLE` falhava com `2BP01`.
         conexao = ligacao.ligar("admin")
