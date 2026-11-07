@@ -142,9 +142,20 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         ensaio que fica vermelho e nomeia o sitio.
         """
         do_com = {item for item in self.itens if item.startswith("rota:com:")}
-        # A sonda do COM pertence ao caso das sondas, nao a este.
+        # As sondas do COM pertencem ao caso das sondas, nao a este. Sao **tres**
+        # desde o KAM-055: o processo do consumidor de pagamentos serve o seu
+        # proprio `/healthz` e `/metrics`, numa `criarApp` de
+        # `payments/arranque.ts`.
+        #
+        # **Literais e nao filtradas do `SONDAS_TS`**, pela doutrina que aquele
+        # ficheiro escreve: derivar esta lista da outra fazia uma sonda nova do
+        # COM nascer coberta aqui. Quem apanha a divergencia entre a enumeracao
+        # e a lista declarada e o `test_as_rotas_de_typescript`; o que este
+        # ensaio prende e as **nove** rotas da API interna.
         esperadas = set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM) | {
-            "rota:com:app:createApp:GET:/healthz"
+            "rota:com:app:createApp:GET:/healthz",
+            "rota:com:payments/arranque:criarApp:GET:/healthz",
+            "rota:com:payments/arranque:criarApp:GET:/metrics",
         }
         self.assertEqual(do_com, esperadas)
         self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 9)
