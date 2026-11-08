@@ -81,7 +81,7 @@ class TestAssuntos(unittest.TestCase):
         """O defeito do KAM-033: o `--grep` casa o corpo, e um commit do KAM-032 citava-o."""
         linhas = ["b79d1e8 chore(KAM-137): escreve o id do ruleset (#153)",
                   "743f3de feat(KAM-032): validador de citacao",
-                  "1111111 fix(KAM-1370): outro numero que comeca igual"]
+                  "1111111 fix(" + "KAM-" + "1370): outro numero que comeca igual"]
         self.assertEqual(lote.no_assunto("KAM-137", linhas), [linhas[0]])
         self.assertEqual(lote.no_assunto("KAM-033", linhas), [])
 
