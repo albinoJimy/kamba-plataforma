@@ -154,7 +154,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # mudado o codigo. Achado da revisao adversarial do KAM-182, que a subiu
     # para 42 e emendou isto no mesmo passo. Quem mexer no piso mexe aqui.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 42", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 43", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

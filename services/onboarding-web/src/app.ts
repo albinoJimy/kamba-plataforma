@@ -1,11 +1,21 @@
 /**
- * onboarding-web — aplicacao web do onboarding self-service; esqueleto
+ * onboarding-web — aplicacao web do onboarding self-service
  *
  * Substitui a vitrine Next.js no Piloto (ADR-019). O registo, o OTP e o
- * Embedded Signup v4 sao o KAM-086 e o KAM-016; aqui so a sonda.
+ * anti-abuso são o KAM-086 e vivem em `./rotas.ts`; o Embedded Signup v4 é o
+ * KAM-016 e não está aqui.
  *
  * Hono 4.13.x por decisão de `docs/tecnica/09` §3.1: o 5.0.0-rc.0 saiu a 2026-10-08 e
  * um *release candidate* não entra em produção (E4 §2.13).
+ *
+ * ## As rotas do registo são opcionais, e a razão não é conveniência
+ *
+ * O `createApp()` sem `inscricao` serve **só** a sonda. É o que permite ao
+ * `/healthz` ser exercitado sem montar cofre, porta de SMS e repositório — e é
+ * também o que mantém honesto o arranque: o `./server.ts` **falha** se as
+ * chaves não existirem, em vez de subir um serviço que responde `200` no
+ * `/healthz` e `503` em tudo o que é registo. Um serviço meio montado que
+ * responde à sonda é um serviço que um balanceador manda tráfego para.
  */
 
 import { Hono } from "hono";
@@ -13,8 +23,9 @@ import { healthz } from "@kamba/core-ts";
 import type { Logger } from "@kamba/core-ts/logger";
 
 import { SERVICE, VERSION } from "./meta.ts";
+import { rotasDeInscricao, type OpcoesDasRotas } from "./rotas.ts";
 
-export function createApp(log?: Logger): Hono {
+export function createApp(log?: Logger, inscricao?: OpcoesDasRotas): Hono {
   const app = new Hono();
 
   // Sem isto, o tratador de erro por omissão do Hono faz `console.error(err)`:
@@ -27,6 +38,8 @@ export function createApp(log?: Logger): Hono {
   });
 
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
+
+  if (inscricao !== undefined) app.route("/", rotasDeInscricao({ ...inscricao, log }));
 
   return app;
 }

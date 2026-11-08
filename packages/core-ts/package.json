@@ -107,6 +107,10 @@
       "types": "./dist/sms/index.d.ts",
       "default": "./dist/sms/index.js"
     },
+    "./inscricao": {
+      "types": "./dist/inscricao/index.d.ts",
+      "default": "./dist/inscricao/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"
