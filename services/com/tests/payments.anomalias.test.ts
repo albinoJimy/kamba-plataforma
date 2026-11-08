@@ -78,8 +78,12 @@ function ligacao(respostas: {
   readonly ajustes?: Record<string, unknown>[];
 }) {
   const chamadas: { sql: string; parametros: readonly unknown[] }[] = [];
+  const escritos: readonly unknown[][] = [];
+  const contextos: string[] = [];
   return {
     chamadas,
+    escritos,
+    contextos,
     async query(sql: string, parametros: readonly unknown[] = []) {
       chamadas.push({ sql, parametros });
       if (/FROM platform\.payment_events/.test(sql)) {
@@ -115,6 +119,28 @@ function ligacao(respostas: {
       if (/FROM platform\.payment_confirmers/.test(sql)) {
         assert.match(sql, /\$1/, "a casa le-se por tenant");
         return { rows: respostas.casa ?? [] };
+      }
+      if (/set_config\('app\.tenant_id'/.test(sql)) {
+        // **O contexto é obrigatório antes de escrever**, e o duplo guarda-o
+        // para o ensaio o poder afirmar: a `fraud_signals` tem
+        // `FORCE ROW LEVEL SECURITY` e o `SECURITY DEFINER` da porta dá
+        // privilégio e não dá isolamento (revisão `0032`), pelo que sem
+        // `app.tenant_id` o `INSERT` leva `42501` da política.
+        assert.match(sql, /, true\)/, "o contexto é SET LOCAL e morre com a transacção");
+        contextos.push(String(parametros[0]));
+        return { rows: [] };
+      }
+      if (/registar_sinal_de_anomalia/.test(sql)) {
+        // **O duplo honra o predicado**, como o do `payments.efeito.test.ts`: a
+        // propriedade que importa aqui é que a escrita vá **pela função** e não
+        // por um `INSERT`, porque nenhum papel tem `INSERT` na tabela. Um duplo
+        // que respondesse a qualquer SQL deixava passar a troca.
+        assert.ok(
+          !/INSERT\s+INTO/i.test(sql),
+          "a escrita de sinais vai pela porta SECURITY DEFINER e nunca por INSERT",
+        );
+        (escritos as unknown[][]).push([...parametros]);
+        return { rows: [{ id: String(escritos.length) }] };
       }
       throw new Error(`consulta nao reconhecida pelo duplo: ${sql}`);
     },
@@ -186,6 +212,7 @@ test("o mapeamento de colunas põe cada valor na sua propriedade", async () => {
         metodo: "cod",
         amount_minor: "250000",
         referencia: "REF001",
+        criado_at: haMinutos(20),
         payer_hmac: "deadbeef",
         contact_id: CONTACTO,
       },
@@ -224,6 +251,13 @@ test("o mapeamento de colunas põe cada valor na sua propriedade", async () => {
     amountMinor: 250_000n,
     payerHmac: "deadbeef",
     contactId: CONTACTO,
+    // **A `referencia` era lida pelo SQL e descartada pelo mapeamento**, e sem
+    // ela a reconciliação não tinha produtor para o `referenciaPorCobranca`. O
+    // `criadoEm` é o instante que a R-05 e a R-07 não tinham onde medir, pelo
+    // que a janela delas era decoração. Os dois são achados da revisão
+    // adversarial, e é este `deepEqual` que os prende.
+    referencia: "REF001",
+    criadoEm: haMinutos(20),
   });
   assert.deepEqual(foto.confirmacoes[0], {
     chargeId: COBRANCA,
@@ -251,6 +285,7 @@ test("um NULL vira null e não a cadeia 'null'", async () => {
         metodo: "manual",
         amount_minor: "1",
         referencia: null,
+        criado_at: haMinutos(20),
         payer_hmac: null,
         contact_id: null,
       },
@@ -302,7 +337,15 @@ test("LIGAÇÃO — a corrida conta cada sinal no contador deste serviço", asyn
   const bd = ligacao({
     eventos: [divergencia("1", 50), divergencia("2", 30), divergencia("3", 10)],
   });
-  const antes = new Sinais();
+  const { SINAIS: contador } = await import("../src/payments/metricas.ts");
+  const antes = contador.total("pagamento_divergente_repetido");
+  // **Mede-se o delta e nao um absoluto.** A primeira versão afirmava
+  // `SINAIS.total(regra) >= 1` e comparava uma instância **nova** de `Sinais`
+  // com zero — o que não discrimina nada, porque uma instância nova devolve
+  // sempre zero. Pior: sendo absoluto sobre o *singleton* do processo, bastava
+  // um ensaio futuro deste ficheiro contar a mesma regra antes deste para o
+  // canário ficar verde com a ligação desfeita. Achado da revisão adversarial.
+  const { SINAIS } = await import("../src/payments/metricas.ts");
   const relatorio = await correrMotorDeAnomalias({
     bd,
     tenantId: TENANT,
@@ -310,11 +353,80 @@ test("LIGAÇÃO — a corrida conta cada sinal no contador deste serviço", asyn
   });
   assert.equal(relatorio.sinais.length, 1);
   const regra = relatorio.sinais[0]?.regra as string;
-  // O contador do processo é um singleton e outros ensaios podem tê-lo tocado:
-  // o que se afirma é que **subiu**, contra uma instância virgem que não subiu.
-  assert.equal(antes.total(regra), 0);
-  const { SINAIS } = await import("../src/payments/metricas.ts");
-  assert.ok(SINAIS.total(regra) >= 1, "o contador do processo nao subiu");
+  assert.equal(
+    SINAIS.total(regra),
+    antes + 1,
+    "o contador do processo tem de subir exactamente um",
+  );
+});
+
+test("LIGAÇÃO — a corrida persiste os sinais pela porta, e não por INSERT", async () => {
+  // **A terceira ligação**, e a que o ramo não tinha: sem ela o motor calculava
+  // sinais e levantava o `ALERTA_DE_ESCRITA` a dizer que não tinha onde os pôr.
+  // O duplo recusa-se a responder a um `INSERT`, pelo que trocar a porta por
+  // escrita directa mata este ensaio — e é a propriedade que importa, porque
+  // nenhum papel tem `INSERT` em `platform.fraud_signals`.
+  const divergencia = (id: string, minutos: number) => ({
+    id,
+    tenant_id: TENANT,
+    charge_id: COBRANCA,
+    account_id: CONTA,
+    tipo_evento: "pagamento_divergente",
+    sequencia: 1,
+    valor_minor: "1000",
+    instante: haMinutos(minutos),
+  });
+  const bd = ligacao({
+    eventos: [divergencia("1", 50), divergencia("2", 30), divergencia("3", 10)],
+  });
+  const alertas: string[] = [];
+  const relatorio = await correrMotorDeAnomalias({
+    bd,
+    tenantId: TENANT,
+    agora: AGORA,
+    alertar: (alerta) => alertas.push(alerta),
+  });
+  assert.equal(relatorio.sinais.length, 1);
+  assert.equal(relatorio.persistidos, 1);
+  assert.equal(bd.escritos.length, 1);
+  // Os oito parâmetros da porta, pela ordem dela.
+  assert.equal(bd.escritos[0]?.length, 8);
+  assert.equal(bd.escritos[0]?.[0], TENANT);
+  // E o contexto foi definido **antes** da escrita, com o tenant da corrida.
+  assert.deepEqual(bd.contextos, [TENANT]);
+  assert.equal(bd.escritos[0]?.[1], relatorio.sinais[0]?.regra);
+  // **E o alerta de escrita não sai**, que é o par: ele existe para denunciar o
+  // estado em que os sinais não têm onde ficar.
+  assert.ok(!alertas.includes(ALERTAS_DO_MOTOR[2]), alertas.join(", "));
+});
+
+test("sem escrita, a corrida denuncia que os sinais não ficaram", async () => {
+  // O par do ensaio de cima. `persistidos: null` distingue «não escreveu» de
+  // «escreveu zero», e o alerta diz a ops que a detecção correu sem registo.
+  const divergencia = (id: string, minutos: number) => ({
+    id,
+    tenant_id: TENANT,
+    charge_id: COBRANCA,
+    account_id: CONTA,
+    tipo_evento: "pagamento_divergente",
+    sequencia: 1,
+    valor_minor: "1000",
+    instante: haMinutos(minutos),
+  });
+  const bd = ligacao({
+    eventos: [divergencia("1", 50), divergencia("2", 30), divergencia("3", 10)],
+  });
+  const alertas: string[] = [];
+  const relatorio = await correrMotorDeAnomalias({
+    bd,
+    tenantId: TENANT,
+    agora: AGORA,
+    semEscrita: true,
+    alertar: (alerta) => alertas.push(alerta),
+  });
+  assert.equal(relatorio.persistidos, null);
+  assert.equal(bd.escritos.length, 0);
+  assert.ok(alertas.includes(ALERTAS_DO_MOTOR[2]), alertas.join(", "));
 });
 
 test("a corrida encaminha os alertas que recebe", async () => {
@@ -403,6 +515,8 @@ test("a reconciliação lê os ajustes já feitos antes de propor", async () => 
     amountMinor: 100_000n,
     payerHmac: null,
     contactId: CONTACTO,
+    referencia: "REF001",
+    criadoEm: haMinutos(10),
   } as const;
   const csv = "referencia;valor_minor;data\nREF001;90000;2026-11-07\n";
   const primeira = await reconciliarExtracto({

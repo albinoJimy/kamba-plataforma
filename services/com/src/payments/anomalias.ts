@@ -34,6 +34,7 @@ import {
   SQL_ANOMALIAS_CONFIRMACOES,
   SQL_ANOMALIAS_EVENTOS,
   SQL_ANOMALIAS_RECUSAS,
+  SQL_REGISTAR_SINAL,
   detectarAnomalias,
   lerExtracto,
   reconciliar,
@@ -42,6 +43,7 @@ import {
 import type {
   AjusteProposto,
   CobrancaObservada,
+  EscritaDeSinais,
   ConfirmacaoObservada,
   ContactoDaCasa,
   EventoObservado,
@@ -170,6 +172,14 @@ function _cobranca(linha: Record<string, unknown>): CobrancaObservada {
     amountMinor: BigInt(String(linha["amount_minor"])),
     payerHmac: _ouNulo(linha["payer_hmac"]),
     contactId: _ouNulo(linha["contact_id"]),
+    // **A `referencia` era lida e descartada**, e isso tornava a reconciliação
+    // impossível de ligar: o `SQL_ANOMALIAS_COBRANCAS` selecciona-a desde o
+    // início e este mapeamento não a punha no objecto, pelo que o
+    // `referenciaPorCobranca` do `reconciliar` não tinha produtor nenhum. Achado
+    // da revisão adversarial, e é a classe de defeito que só se vê a cruzar o
+    // SQL com o mapeamento — nenhum ensaio do motor o podia ver.
+    referencia: _ouNulo(linha["referencia"]),
+    criadoEm: _instante(linha["criado_at"]),
   };
 }
 
@@ -234,6 +244,16 @@ export type DependenciasDaCorrida = {
    * `logger`: quem chama decide, e o consumidor passa-lhe só o `outcome`.
    */
   alertar?(alerta: string, detalhe: Record<string, unknown>): void;
+  /**
+   * `true` corre o motor **sem** persistir, e e para quem so quer medir.
+   *
+   * A omissao e persistir: um *job* que calcula sinais e nao os escreve e o
+   * estado que o `ALERTA_DE_ESCRITA` existe para denunciar, e nao se faz dele a
+   * omissao de ninguem.
+   */
+  readonly semEscrita?: boolean | undefined;
+  /** A janela de deduplicacao da porta. Ver o `JANELA_DA_ESCRITA_HORAS`. */
+  readonly janelaHoras?: number | undefined;
 };
 
 /**
@@ -257,9 +277,112 @@ export async function correrMotorDeAnomalias(
 ): Promise<RelatorioDeAnomalias> {
   return detectarAnomalias({
     leitura: leituraSobre(deps.bd, deps.tenantId, deps.agora, deps.horas),
+    // **A escrita e a segunda ligacao desta raiz**, e e a que fecha o caminho:
+    // sem ela o motor calculava sinais e levantava o `ALERTA_DE_ESCRITA` a dizer
+    // que nao tinha onde os por. Passa-se `undefined` quando quem chama nao a
+    // quer — e o que o ensaio da corrida sem escrita mede.
+    ...(deps.semEscrita === true
+      ? {}
+      : { escrita: escritaSobre(deps.bd, deps.tenantId, deps.janelaHoras) }),
     contar: (regra) => SINAIS.contar(regra),
     ...(deps.alertar === undefined ? {} : { alertar: deps.alertar }),
   });
+}
+
+/**
+ * A janela de deduplicação que a porta aplica, em horas.
+ *
+ * É a janela da **linha** e não a da regra: duas anomalias iguais dentro dela
+ * dão uma linha e o `id` repetido. Uma hora é a cadência de um *job* periódico —
+ * quem o correr de dez em dez minutos passa uma janela maior, e quem quiser uma
+ * linha por corrida passa `0`.
+ */
+export const JANELA_DA_ESCRITA_HORAS = 1;
+
+/**
+ * O motor trouxe um sinal de um tenant que não é o desta corrida.
+ *
+ * Não é defensividade solta: o `correrMotorDeAnomalias` corre **por tenant**, e
+ * a fotografia dele filtra por tenant só onde o tenant é dado — as leituras de
+ * eventos, cobranças, confirmações e recusas correm sob a RLS da ligação. Um
+ * sinal de outro tenant aqui significa que a ligação não tinha o contexto que se
+ * supôs, e nesse caso escrever era pior do que recusar.
+ */
+export class SinalDeOutroTenant extends Error {
+  override readonly name = "SinalDeOutroTenant";
+
+  constructor(daCorrida: string, doSinal: string) {
+    super(
+      `a corrida é do tenant ${daCorrida} e o sinal é do ${doSinal}: a ` +
+        "platform.fraud_signals tem FORCE ROW LEVEL SECURITY e a política " +
+        "recusaria com 42501, porque o SECURITY DEFINER da porta dá privilégio " +
+        "e não dá isolamento (revisão 0032)",
+    );
+  }
+}
+
+/**
+ * A implementação da `EscritaDeSinais`, sobre a `platform.registar_sinal_de_anomalia`.
+ *
+ * **Uma chamada por sinal e não um `INSERT` em lote**, e a razão é a porta: ela é
+ * `SECURITY DEFINER` e valida cada sinal — a regra contra a lista fechada, o
+ * `detalhe` sem PII, e a janela — e um lote passava-lhe um conjunto que ela teria
+ * de validar linha a linha de qualquer forma. O que se perde em ida e volta
+ * ganha-se em a recusa dizer **qual** sinal foi recusado.
+ *
+ * Conta os sinais que ficaram em linha nova. Um `id` que já existia não conta:
+ * ver o `persistidos` do `RelatorioDeAnomalias`.
+ */
+export function escritaSobre(
+  bd: ClienteDeLeitura,
+  tenantId: string,
+  janelaHoras: number = JANELA_DA_ESCRITA_HORAS,
+): EscritaDeSinais {
+  return {
+    async persistir(sinais: readonly Sinal[]): Promise<number> {
+      // **Sem sinais nao se fala com a base.** O `detectarAnomalias` chama esta
+      // porta sempre que ela existe, e o caso comum de um *job* periodico e
+      // «zero anomalias»: sem esta saida, cada corrida limpa gastava uma ida e
+      // volta a definir um contexto que ninguem ia usar.
+      if (sinais.length === 0) return 0;
+      // **O contexto do tenant define-se aqui, e sem ele a porta leva `42501`.**
+      //
+      // A `0032` põe `FORCE ROW LEVEL SECURITY` na `fraud_signals` e escreve
+      // porquê: o `SECURITY DEFINER` «dá privilégio e não dá isolamento» —
+      // a função corre como o dono, que é `NOBYPASSRLS`, e o `FORCE` vincula
+      // também o dono. O `app.tenant_id` de quem chama é o que a política
+      // avalia, e o `BYPASSRLS` do `kamba_batch` não ajuda porque a função não
+      // corre como ele.
+      //
+      // `true` no terceiro argumento é `SET LOCAL`: morre com a transacção, que
+      // é a disciplina desta casa — um contexto que sobrevivesse ao `COMMIT`
+      // deixava a ligação seguinte a escrever no tenant anterior.
+      await bd.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+      const vistos = new Set<string>();
+      for (const sinal of sinais) {
+        // **Fail-closed antes da base.** A RLS recusaria igual, e com `42501`;
+        // recusar aqui dá a quem lê o registo a razão em vez do SQLSTATE, e
+        // impede que uma fotografia de outro tenant entre por engano num `job`
+        // que corre tenant a tenant.
+        if (sinal.tenantId !== tenantId) {
+          throw new SinalDeOutroTenant(tenantId, sinal.tenantId);
+        }
+        const { rows } = await bd.query(SQL_REGISTAR_SINAL, [
+          sinal.tenantId,
+          sinal.regra,
+          sinal.severidade,
+          sinal.accao,
+          sinal.contactId,
+          sinal.chargeId,
+          JSON.stringify(sinal.detalhe),
+          `${janelaHoras} hours`,
+        ]);
+        const id = rows[0]?.["id"];
+        if (id !== undefined && id !== null) vistos.add(String(id));
+      }
+      return vistos.size;
+    },
+  };
 }
 
 // --------------------------------------------- a reconciliação diária (R-08)

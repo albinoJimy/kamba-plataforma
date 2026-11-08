@@ -59,6 +59,32 @@ Tres barreiras dentro da funcao, e cada uma fecha um caminho que um
               anomalia uma vez por corrida, e um registo de vigilancia com mil
               copias do mesmo facto e um registo que ninguem le.
 
+## O `DEFINER` da privilegio e NAO da isolamento, e isso mediu-se a doer
+
+A `0032` poe `FORCE ROW LEVEL SECURITY` nas quatro tabelas e escreve a razao:
+«o `FORCE` e o que faz as quatro funcoes `SECURITY DEFINER` **nao** contornarem
+o isolamento: elas correm como o `kamba_migrator`, que e `NOBYPASSRLS`, e o
+`FORCE` vincula tambem o dono da tabela. O `app.tenant_id` de quem chamou
+continua a ser o que a politica avalia — dao privilegio e nao dao isolamento».
+
+Vale igual para esta. **Consequencia pratica para quem a chamar:** a transaccao
+tem de ter `app.tenant_id` **definido e igual ao `p_tenant_id`**, senao o
+`INSERT` leva `42501` da *politica* — e nem o `BYPASSRLS` do `kamba_batch` o
+salva, porque a funcao corre como o dono e nao como ele.
+
+Nao se contorna isso de dentro da funcao (um `set_config` no corpo dela punha a
+porta a furar a barreira que a `0032` desenhou). Quem define o contexto e quem
+chama, e o `escritaSobre` de `../../../services/com/src/payments/anomalias.ts`
+fa-lo por tenant — que e o que o motor ja faz para **ler**.
+
+**E a propriedade ganhou ensaio em vez de nota:** o
+`test_a_porta_nao_escreve_um_sinal_para_outro_tenant` pede, no contexto de A, um
+sinal para B e exige `42501`; o `test_sem_contexto_de_tenant_a_porta_nao_escreve`
+mede a falha fechada. Descobriu-se a doer — a primeira versao da suite chamava a
+porta sem contexto e os nove ensaios que escrevem levaram
+`new row violates row-level security policy`. Lido como obstaculo, era a
+barreira a funcionar.
+
 ## O que esta revisao NAO faz, e e deliberado
 
 **Nao da `INSERT` a ninguem.** O `../tests/test_privilegios.py` afirma que a

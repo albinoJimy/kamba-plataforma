@@ -274,8 +274,24 @@ export const JANELAS_PROPOSTAS: Readonly<Record<IdDeRegra, number>> =
     "R-01": 1,
     /** «acima de N/hora por conta» — criterio 2, F-05. */
     "R-02": 1,
-    "R-03": 24,
-    "R-04": 24,
+    /**
+     * **720 e nao 24, e a diferenca e o criterio 3.**
+     *
+     * Ligar a janela a R-03 pos a nu uma escolha errada de valor: com 24 h, um
+     * orfao **com mais de 24 horas** caia fora da janela e deixava de produzir
+     * sinal — e e exactamente esse que o criterio 3 manda alertar («a metrica
+     * "orfaos abertos > 24 h" … dispara alerta se > 0»). A janela que apanha o
+     * caso que importa e o horizonte da fotografia.
+     *
+     * **E a repeticao nao e problema do motor.** Um orfao que continua aberto
+     * continua a ser uma anomalia, e o motor existe para o dizer todas as vezes
+     * que o vê; quem nao repete a **linha** e a `registar_sinal_de_anomalia`,
+     * com a guarda de janela dela. Por a desduplicacao no motor era po-la no
+     * sitio onde ela esconde o facto em vez de o registar uma vez.
+     */
+    "R-03": 720,
+    /** 720 pela mesma razao da R-03: a persistencia e que e a anomalia. */
+    "R-04": 720,
     "R-05": 24,
     /** «por semana» — criterio 6. */
     "R-06": 168,
@@ -304,8 +320,11 @@ export const PLANO_DE_CALIBRACAO: Readonly<Record<IdDeRegra, string>> =
     "R-04": "nao se calibra: um duplicado e sempre um duplicado (G6)",
     "R-05": "nao se calibra: a coincidencia de HMAC e binaria",
     "R-06":
-      "mediana semanal de confirmacoes manuais por tenant depois de doze " +
-      "semanas; com menos, a mediana de um tenant novo e zero e o k nao decide",
+      "mediana semanal de confirmacoes manuais por contacto, por tenant, " +
+      "depois de doze semanas; e so vale com **tres ou mais** contactos " +
+      "activos na semana — com um ou dois, a algebra do _r06 torna o disparo " +
+      "impossivel para qualquer k >= 2, e isso e limite do desenho e nao " +
+      "calibracao",
     "R-07":
       "proporcao de cobrancas cod terminadas sem pagamento, por contacto, " +
       "contra a taxa de entrega real do Piloto",
@@ -358,6 +377,24 @@ export type CobrancaObservada = {
   readonly payerHmac: string | null;
   /** O contacto do cliente da cobranca, quando se conhece. */
   readonly contactId: Uuid | null;
+  /**
+   * A referencia Multicaixa, quando existe. **Unica com a conta e nao sozinha.**
+   *
+   * A `0029` escreve-o por extenso: «o par `(account_id, referencia)` e unico —
+   * **com** a conta, porque uma referencia Multicaixa e Entidade + Referencia e
+   * duas PMEs podem ter o mesmo numero». A reconciliacao indexava por referencia
+   * sozinha e perdia uma das duas cobrancas; achado da revisao adversarial.
+   */
+  readonly referencia: string | null;
+  /**
+   * `criado_at`, para as regras que tem janela e nao tinham onde a medir.
+   *
+   * A R-05 e a R-07 declaravam janela no `JANELAS_PROPOSTAS` e **nao a
+   * aplicavam**, porque este tipo nao tinha instante nenhum — isto e, a janela
+   * delas era decoracao. Achado da revisao adversarial (a R-03 e a R-04 tinham
+   * o mesmo defeito pelo lado do limiar).
+   */
+  readonly criadoEm: Instant;
 };
 
 /** Uma linha de `manual_confirmations`, no que importa a R-05 e a R-06. */
@@ -464,6 +501,15 @@ export const CHAVES_PROIBIDAS_NO_DETALHE = [
   "name",
   "email",
   "bsuid",
+  // **As cinco de baixo entraram pela revisao adversarial**, e a razao e que a
+  // lista anterior tinha `texto` e `mensagem` e nao tinha os nomes que alguem
+  // usa de facto para escrever texto livre. Medido: `{observacao: "o <nome>
+  // reclamou do pagamento"}` passava a guarda inteira.
+  "observacao",
+  "nota",
+  "descricao",
+  "comentario",
+  "razao",
 ] as const;
 
 /**
@@ -476,7 +522,35 @@ export const CHAVES_PROIBIDAS_NO_DETALHE = [
  * de um movel angolano; o `+244` leva a treze.
  */
 const _SEPARADORES = /[\s.\-/()]/g;
-const _FORMA_DE_TELEFONE = /(?:\+?244)?9\d{8}/;
+
+/**
+ * **`[29]` e nao `9`**, e a diferenca mediu-se: o padrao anterior exigia um `9`
+ * a cabeca e so apanhava **moveis**. Um fixo de Luanda (`222 123 456`) tem os
+ * mesmos nove digitos e passava a guarda inteira — e o *docstring* dizia «nove
+ * digitos e o comprimento de um movel angolano», o que era verdade e nao era
+ * suficiente. Achado da revisao adversarial.
+ *
+ * **E os dois `lookaround` nao sao enfeite: sem eles, alargar o `9` para `[29]`
+ * criou um falso positivo imediato.** Medido ao correr a suite: um `account_id`
+ * como `22222222-2222-4222-8222-222222222222`, depois de a normalizacao lhe
+ * tirar os tracos, e um corrido de trinta e dois digitos — e nove digitos
+ * **dentro** de trinta e dois casavam o padrao, pelo que a guarda passou a
+ * recusar todo o sinal que leve uma conta no `detalhe`. Um telefone sao nove
+ * digitos **inteiros**, nao nove digitos dentro de um numero maior.
+ */
+const _FORMA_DE_TELEFONE = /(?<!\d)(?:\+?244)?[29]\d{8}(?!\d)/;
+
+/**
+ * A forma de um UUID, para a guarda o deixar passar antes de contar digitos.
+ *
+ * Cinta e peito a mais do que os `lookaround`, e de proposito: um `contact_id`,
+ * um `charge_id` e um `account_id` sao o que o criterio 8 **manda** por no
+ * sinal, e eles sao a unica familia de valores longos que a guarda ve. Dizer
+ * «um UUID nao e um telefone» por extenso e mais legivel do que confiar que a
+ * aritmetica dos digitos nunca volte a colidir.
+ */
+const _FORMA_DE_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * `null` quando o `detalhe` esta limpo, ou a razao da recusa.
@@ -488,21 +562,49 @@ const _FORMA_DE_TELEFONE = /(?:\+?244)?9\d{8}/;
 export function semPii(
   detalhe: Readonly<Record<string, unknown>>,
 ): string | null {
-  for (const chave of Object.keys(detalhe)) {
+  for (const [chave, valor] of Object.entries(detalhe)) {
     const minuscula = chave.toLowerCase();
     for (const proibida of CHAVES_PROIBIDAS_NO_DETALHE) {
-      if (minuscula === proibida || minuscula.includes(proibida)) {
+      if (minuscula.includes(proibida)) {
         return `a chave '${chave}' nao entra num sinal (criterio 8)`;
       }
     }
-  }
-  for (const [chave, valor] of Object.entries(detalhe)) {
-    if (typeof valor !== "string") continue;
-    if (_FORMA_DE_TELEFONE.test(valor.replace(_SEPARADORES, ""))) {
+    // **Desce aos objectos em vez de os saltar.** O tipo do `Sinal.detalhe` e
+    // plano, pelo que daqui nao vem nenhum — mas esta funcao e tambem o oraculo
+    // de quem chamar a porta por outro caminho, e um `continue` sobre um
+    // objecto era um buraco com o tamanho de toda uma sub-arvore.
+    if (valor !== null && typeof valor === "object") {
+      const dentro = semPii(valor as Record<string, unknown>);
+      if (dentro !== null) return `em '${chave}': ${dentro}`;
+      continue;
+    }
+    // **`String(valor)` e nao `typeof valor !== "string") continue`**, e foi um
+    // achado da revisao adversarial: o tipo do `detalhe` admite `number`, e um
+    // movel angolano sao nove digitos — `{identificador: 923456789}` passava.
+    if (valor === null || valor === undefined) continue;
+    const texto = String(valor);
+    if (_FORMA_DE_UUID.test(texto)) continue;
+    if (_FORMA_DE_TELEFONE.test(texto.replace(_SEPARADORES, ""))) {
       return `o valor de '${chave}' tem forma de telefone (criterio 8)`;
     }
   }
   return null;
+}
+
+/**
+ * Levanta se algum sinal levar PII. **Corre em todos os caminhos de saida.**
+ *
+ * Existe porque a primeira versao tinha o laco **dentro** do `avaliar`, e o
+ * `avaliar` corre a R-01 ate a R-07: os sinais da R-08, que saem pelo
+ * `sinaisDaReconciliacao`, nao passavam por guarda nenhuma — e eram precisamente
+ * os que levavam texto do CSV do dono. Achado da revisao adversarial, e o unico
+ * que bloqueava a fusao.
+ */
+function _exigirSemPii(sinais: readonly Sinal[]): void {
+  for (const sinal of sinais) {
+    const razao = semPii(sinal.detalhe);
+    if (razao !== null) throw new SinalComPii(sinal.regra, razao);
+  }
 }
 
 /** Um `detalhe` com PII chegou ao motor. Fail-closed: nao se publica. */
@@ -540,16 +642,13 @@ export function avaliar(
   const sinais = [
     ..._r01(foto, cfg),
     ..._r02(foto, cfg),
-    ..._r03(foto),
-    ..._r04(foto),
+    ..._r03(foto, cfg),
+    ..._r04(foto, cfg),
     ..._r05(foto, cfg),
     ..._r06(foto, cfg),
     ..._r07(foto, cfg),
   ];
-  for (const sinal of sinais) {
-    const razao = semPii(sinal.detalhe);
-    if (razao !== null) throw new SinalComPii(sinal.regra, razao);
-  }
+  _exigirSemPii(sinais);
   return _ordenar(sinais);
 }
 
@@ -559,8 +658,37 @@ function _ordenar(sinais: readonly Sinal[]): readonly Sinal[] {
     (a, b) =>
       a.regra.localeCompare(b.regra) ||
       (a.chargeId ?? "").localeCompare(b.chargeId ?? "") ||
-      (a.contactId ?? "").localeCompare(b.contactId ?? ""),
+      (a.contactId ?? "").localeCompare(b.contactId ?? "") ||
+      // **O quarto termo e o que torna a ordem total**, e sem ele a R-02 saia na
+      // ordem da entrada. Achado da revisao adversarial: a R-02 e a unica regra
+      // cujo sinal tem `chargeId` **e** `contactId` nulos — ela conta por conta,
+      // e a conta vive no `detalhe` —, pelo que os tres primeiros termos davam
+      // chave **identica** a todos os sinais dela. Com o `sort` estavel, a saida
+      // seguia a ordem de iteracao do `Map`, que segue a de aparicao em
+      // `foto.recusas`: duas contas trocadas na entrada davam duas saidas
+      // diferentes, e o ensaio do determinismo nao o via porque usava **uma**
+      // conta so.
+      //
+      // Serializa-se o `detalhe` inteiro e nao so o `account_id`: o que se quer
+      // e uma ordem **total** sobre o que o sinal e, e um campo escolhido a mao
+      // deixava o proximo empate para o proximo revisor.
+      _chaveDoDetalhe(a).localeCompare(_chaveDoDetalhe(b)),
   );
+}
+
+/**
+ * Uma chave estavel do `detalhe`, para o desempate total do `_ordenar`.
+ *
+ * As chaves ordenam-se antes de serializar: a ordem de insercao de um objecto
+ * JavaScript e a de escrita, e dois sinais iguais escritos por caminhos
+ * diferentes dariam cadeias diferentes — o que punha a ordem a depender da
+ * ordem de escrita, que e o defeito que esta funcao existe para fechar.
+ */
+function _chaveDoDetalhe(sinal: Sinal): string {
+  return Object.keys(sinal.detalhe)
+    .sort()
+    .map((k) => `${k}=${String(sinal.detalhe[k])}`)
+    .join("|");
 }
 
 function _sinal(
@@ -675,10 +803,33 @@ function _r02(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
   return saida;
 }
 
-/** R-03: orfao — um sinal por evento, porque o criterio 3 pede «imediato». */
-function _r03(foto: Fotografia): readonly Sinal[] {
-  return foto.eventos
-    .filter((e) => e.tipoEvento === "pagamento_orfao")
+/**
+ * R-03: orfao — um sinal por evento, porque o criterio 3 pede «imediato».
+ *
+ * **A janela e o limiar aplicam-se, e nao se aplicavam.** A primeira versao
+ * desta funcao nao recebia `Configuracao` nenhuma: o `JANELAS_PROPOSTAS["R-03"]`
+ * e o `LIMIARES_PROPOSTOS["R-03"]` existiam no mapa e nao decidiam nada, pelo
+ * que o criterio 1 («limiar **configuravel**») era falso para ela. Achado da
+ * revisao adversarial, e a consequencia operacional era a pior parte: com o
+ * `HORAS_DA_FOTOGRAFIA` em 720, cada corrida do *job* re-emitia os orfaos dos
+ * ultimos trinta dias e o `fraud_signals_total` subia o atraso inteiro de cada
+ * vez.
+ *
+ * O limiar e por **conta**, como na R-01: «um orfao basta» e `limiar = 1`, e
+ * quem o subir pede «so a partir de N orfaos na mesma conta».
+ */
+function _r03(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
+  const naJanela = foto.eventos.filter(
+    (e) =>
+      e.tipoEvento === "pagamento_orfao" &&
+      _naJanela(e.instante, foto.agora, cfg.janelas["R-03"]),
+  );
+  const porConta = new Map<string, number>();
+  for (const e of naJanela) {
+    porConta.set(e.accountId, (porConta.get(e.accountId) ?? 0) + 1);
+  }
+  return naJanela
+    .filter((e) => (porConta.get(e.accountId) ?? 0) >= cfg.limiares["R-03"])
     .map((e) =>
       _sinal("R-03", {
         tenantId: e.tenantId,
@@ -697,10 +848,24 @@ function _r03(foto: Fotografia): readonly Sinal[] {
     );
 }
 
-/** R-04: duplicado — e o segundo pagamento nunca confirma (G6). */
-function _r04(foto: Fotografia): readonly Sinal[] {
-  return foto.eventos
-    .filter((e) => e.tipoEvento === "pagamento_duplicado")
+/**
+ * R-04: duplicado — e o segundo pagamento nunca confirma (G6).
+ *
+ * A janela e o limiar aplicam-se, pela razao escrita no `_r03`: os dois eram
+ * decoracao nesta funcao tambem.
+ */
+function _r04(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
+  const naJanela = foto.eventos.filter(
+    (e) =>
+      e.tipoEvento === "pagamento_duplicado" &&
+      _naJanela(e.instante, foto.agora, cfg.janelas["R-04"]),
+  );
+  const porConta = new Map<string, number>();
+  for (const e of naJanela) {
+    porConta.set(e.accountId, (porConta.get(e.accountId) ?? 0) + 1);
+  }
+  return naJanela
+    .filter((e) => (porConta.get(e.accountId) ?? 0) >= cfg.limiares["R-04"])
     .map((e) =>
       _sinal("R-04", {
         tenantId: e.tenantId,
@@ -739,6 +904,9 @@ function _r05(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
   const contactosDaCasa = new Set(foto.casa.map((c) => c.contactId));
   const saida: Sinal[] = [];
   for (const cobranca of foto.cobrancas) {
+    // **A janela aplica-se, e nao se aplicava.** Ver o `_r03`: sem ela, cada
+    // corrida do *job* re-emitia as auto-compras dos ultimos trinta dias.
+    if (!_naJanela(cobranca.criadoEm, foto.agora, cfg.janelas["R-05"])) continue;
     const porHmac =
       cobranca.payerHmac !== null
         ? hmacsDaCasa.get(cobranca.payerHmac)
@@ -786,14 +954,24 @@ function _r05(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
  * Logo: conta-se por contacto dentro da janela, tira-se a mediana dessas
  * contagens, e marca-se quem esta acima de `k x mediana`.
  *
- * ## Uma mediana de zero nao produz sinal, e tem de ser dito
+ * ## A regra precisa de TRES ou mais contactos activos, e isso e algebra
  *
- * Com um ou dois contactos activos a mediana pode ser 1, e `k x 1` com k = 3 da
- * 3 — o que e razoavel. Mas num tenant com um contacto so, a mediana e a propria
- * contagem dele e nada dispara nunca. **E o comportamento certo**: uma regra de
- * desvio precisa de populacao para ter desvio, e inventar um piso fixo era
- * trocar a regra do criterio por outra. O `PLANO_DE_CALIBRACAO` di-lo: com menos
- * de doze semanas a mediana de um tenant novo nao decide.
+ * **Esta nota dizia «um ou dois contactos» como se o dois funcionasse, e nao
+ * funciona.** Com duas contagens `a <= x`, a mediana e `(a + x) / 2` e o corte e
+ * `k (a + x) / 2`; disparar exige `x > k (a + x) / 2`, isto e
+ * `x (2 - k) > k a`. Para **qualquer `k >= 2`** o lado esquerdo e `<= 0` e o
+ * direito `>= 1`: a desigualdade e impossivel, por grande que seja o desvio —
+ * `[1, 1000]` da mediana 500,5 e corte 1501,5. Com o `k = 3` proposto, um tenant
+ * com **dois** contactos activos na semana tem esta regra estruturalmente
+ * desligada.
+ *
+ * Com um contacto so, a mediana e a propria contagem dele e nada dispara
+ * tambem. **Os dois casos sao o comportamento certo e nao um defeito**: uma
+ * regra de desvio precisa de populacao para ter desvio, e inventar um piso fixo
+ * era trocar a regra do criterio por outra. O que era defeito era esta nota
+ * dizer o contrario — achado da revisao adversarial, que fez a algebra em vez de
+ * reler a frase. O `PLANO_DE_CALIBRACAO` di-lo agora com o numero: **tres**
+ * contactos activos, e doze semanas antes de a mediana decidir.
  */
 function _r06(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
   const porTenant = new Map<string, Map<string, number>>();
@@ -838,6 +1016,8 @@ function _r07(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
     if (c.metodo !== "cod") continue;
     if (c.contactId === null) continue;
     if (!TERMINAIS_SEM_PAGAMENTO.includes(c.estado)) continue;
+    // A janela, pela razao do `_r03`. Esta tambem era decoracao.
+    if (!_naJanela(c.criadoEm, foto.agora, cfg.janelas["R-07"])) continue;
     const chave = `${c.tenantId}:${c.contactId}`;
     const actual = porContacto.get(chave);
     if (actual === undefined) {
@@ -1025,9 +1205,25 @@ export type AjusteProposto = {
   readonly tenantId: Uuid | null;
   /** A referencia, que e a chave natural da linha do extracto. */
   readonly referencia: string;
+  /** A conta da cobranca, quando ha cobranca. A chave e `(conta, referencia)`. */
+  readonly accountId: Uuid | null;
   /** O que o extracto diz menos o que a cobranca paga diz. Pode ser negativo. */
   readonly diferencaMinor: Minor;
-  readonly motivo: "sem_cobranca_paga" | "valor_diferente" | "paga_sem_extracto";
+  readonly motivo:
+    | "sem_cobranca_paga"
+    | "valor_diferente"
+    | "paga_sem_extracto"
+    /**
+     * Uma cobranca `paga` de metodo `referencia` **sem** referencia.
+     *
+     * Era invisivel: o `porReferencia` so indexava as que tinham referencia, e
+     * uma `paga` sem ela nunca produzia diferenca nenhuma — nem ajuste, nem
+     * caso para ops, contra a letra do criterio 7. Achado da revisao
+     * adversarial. Para o `cod` e para o `express_push` a ausencia e correcta (a
+     * `0029` escreve que o `express_push` nao tem referencia), e por isso o
+     * motivo e so para o metodo `referencia`.
+     */
+    | "paga_sem_referencia";
   /**
    * O `provider_event_id` do evento compensatorio, deterministico.
    *
@@ -1086,23 +1282,47 @@ export function reconciliar(entrada: {
   const lote = digestDoLote(entrada.linhas);
   const feitos = new Set(entrada.jaAjustados);
   const pagas = entrada.cobrancas.filter((c) => c.estado === "paga");
-  const porReferencia = new Map<string, CobrancaObservada>();
+
+  // **A chave e `(conta, referencia)` e nao a referencia sozinha.** A `0029`
+  // escreve-o: duas PMEs podem ter legitimamente a mesma referencia Multicaixa,
+  // porque ela e Entidade + Referencia. Com a referencia sozinha, o `Map`
+  // guardava **a ultima** e a outra cobranca desaparecia da reconciliacao — e
+  // uma linha de extracto que batia exactamente com a primeira produzia um
+  // ajuste falso atribuido ao tenant da segunda. Medido pela revisao
+  // adversarial: um ajuste de 200 000 no tenant errado.
+  const porChave = new Map<string, CobrancaObservada>();
+  const semReferencia: CobrancaObservada[] = [];
   for (const c of pagas) {
-    const referencia = entrada.referenciaPorCobranca[c.chargeId];
-    if (referencia !== undefined) porReferencia.set(referencia, c);
+    const referencia = entrada.referenciaPorCobranca[c.chargeId] ?? c.referencia;
+    if (referencia === null || referencia === undefined || referencia === "") {
+      // Ver o motivo `paga_sem_referencia`: so o metodo `referencia` e que a
+      // devia ter.
+      if (c.metodo === "referencia") semReferencia.push(c);
+      continue;
+    }
+    porChave.set(_chave(c.accountId, referencia), c);
   }
 
   const propostos: AjusteProposto[] = [];
   const vistas = new Set<string>();
   for (const linha of entrada.linhas) {
-    vistas.add(linha.referencia);
-    const cobranca = porReferencia.get(linha.referencia);
-    if (cobranca === undefined) {
+    // **O extracto nao diz a conta**, e e por isso que a busca e por referencia
+    // e depois se confirma a chave: um extracto e de uma conta bancaria, e as
+    // cobrancas que ele reconcilia sao as da conta de pagamento dessa PME. Com
+    // mais do que uma cobranca `paga` a mesma referencia em contas diferentes, a
+    // linha e **ambigua** e nao se adivinha — produz-se `sem_cobranca_paga`, que
+    // e o que manda a diferenca para ops em vez de a atribuir ao palpite.
+    const candidatas = [...porChave].filter(
+      ([chave]) => chave.endsWith(`|${linha.referencia}`),
+    );
+    if (candidatas.length !== 1) {
       propostos.push(
         _ajuste(lote, linha.referencia, "sem_cobranca_paga", linha.valorMinor, null),
       );
       continue;
     }
+    const [chave, cobranca] = candidatas[0] as [string, CobrancaObservada];
+    vistas.add(chave);
     const diferenca = linha.valorMinor - cobranca.amountMinor;
     if (diferenca !== 0n) {
       propostos.push(
@@ -1110,25 +1330,39 @@ export function reconciliar(entrada: {
       );
     }
   }
-  for (const [referencia, cobranca] of porReferencia) {
-    if (vistas.has(referencia)) continue;
+  for (const [chave, cobranca] of porChave) {
+    if (vistas.has(chave)) continue;
+    const referencia = chave.slice(chave.indexOf("|") + 1);
     propostos.push(
-      _ajuste(
-        lote,
-        referencia,
-        "paga_sem_extracto",
-        -cobranca.amountMinor,
-        cobranca,
-      ),
+      _ajuste(lote, referencia, "paga_sem_extracto", -cobranca.amountMinor, cobranca),
     );
   }
-  return propostos
-    .filter((a) => !feitos.has(a.providerEventId))
-    .sort(
-      (a, b) =>
-        a.referencia.localeCompare(b.referencia) ||
-        a.motivo.localeCompare(b.motivo),
+  for (const cobranca of semReferencia) {
+    propostos.push(
+      _ajuste(lote, "", "paga_sem_referencia", -cobranca.amountMinor, cobranca),
     );
+  }
+
+  // **Desduplica dentro do lote, e nao so contra o que ja esta no ledger.** O
+  // `jaAjustados` so olha para tras: duas linhas com a mesma referencia no
+  // **mesmo** CSV produziam dois ajustes com o mesmo `provider_event_id` e
+  // montantes diferentes, escritos os dois num *ledger* que nao se corrige — e
+  // na passagem seguinte o `jaAjustados` calava os dois, pelo que o «um CSV
+  // repetido nao duplica» ficava verdadeiro por acidente depois de a primeira
+  // corrida ja ter duplicado. Achado da revisao adversarial.
+  const porId = new Map<string, AjusteProposto>();
+  for (const a of propostos) {
+    if (feitos.has(a.providerEventId) || porId.has(a.providerEventId)) continue;
+    porId.set(a.providerEventId, a);
+  }
+  return [...porId.values()].sort((a, b) =>
+    a.providerEventId.localeCompare(b.providerEventId),
+  );
+}
+
+/** A chave de reconciliacao: `conta|referencia`. Ver o `reconciliar`. */
+function _chave(accountId: Uuid, referencia: string): string {
+  return `${accountId}|${referencia}`;
 }
 
 /** O prefixo do `provider_event_id` de um ajuste. Identifica a origem. */
@@ -1144,20 +1378,51 @@ function _ajuste(
   return {
     chargeId: cobranca?.chargeId ?? null,
     tenantId: cobranca?.tenantId ?? null,
+    accountId: cobranca?.accountId ?? null,
     referencia,
     diferencaMinor,
     motivo,
-    // O lote **e** o digest e nao a data: dois extractos carregados no mesmo
-    // dia sao dois lotes, e o mesmo extracto carregado em dois dias e um.
-    providerEventId: `${PREFIXO_DO_AJUSTE}:${lote.slice(0, 16)}:${referencia}:${motivo}`,
+    // **O id leva um `digest` da chave e nao a referencia em claro**, e sao tres
+    // defeitos fechados de uma vez, os tres achados da revisao adversarial:
+    //
+    //   1. a referencia e **texto que o dono escreveu no CSV**, e este id viaja
+    //      para o `detalhe` do sinal — isto e, era a via por onde um telefone ou
+    //      um nome entrava num `fraud_signals`, contra o criterio 8;
+    //   2. o id era concatenacao por `:` com o campo do meio livre, pelo que uma
+    //      referencia com `:` o tornava ambiguo e irreversivel;
+    //   3. nao levava a conta, pelo que duas contas com a mesma referencia
+    //      colidiam na chave de deduplicacao.
+    //
+    // O lote **e** o digest e nao a data: dois extractos carregados no mesmo dia
+    // sao dois lotes, e o mesmo extracto carregado em dois dias e um.
+    providerEventId:
+      `${PREFIXO_DO_AJUSTE}:${lote.slice(0, 16)}` +
+      `:${_digestDaChave(cobranca?.accountId ?? "", referencia)}:${motivo}`,
   };
+}
+
+/**
+ * O digest da chave de reconciliacao, para o `provider_event_id`.
+ *
+ * Doze hexadecimais (48 bits) sobre `conta|referencia`. Nao e segredo nem
+ * assinatura: e **opacidade** — o que se quer e que o id nao carregue o texto do
+ * dono e nao tenha separador ambiguo. A reversibilidade nao faz falta porque
+ * quem precisa de encontrar a linha tem o `chargeId` no ajuste, e para a linha
+ * orfa o caso de ops leva a `referencia` no `AjusteProposto`, que **nao** vai
+ * para o sinal.
+ */
+function _digestDaChave(accountId: string, referencia: string): string {
+  return createHash("sha256")
+    .update(`${accountId}\u0000${referencia}`, "utf8")
+    .digest("hex")
+    .slice(0, 12);
 }
 
 /** Os sinais da R-08, derivados dos ajustes. Um por diferenca. */
 export function sinaisDaReconciliacao(
   ajustes: readonly AjusteProposto[],
 ): readonly Sinal[] {
-  return _ordenar(
+  const sinais = _ordenar(
     ajustes
       // Sem tenant nao se escreve sinal: a coluna e `NOT NULL` com FK. Uma
       // linha de extracto que nao casa cobranca nenhuma nao tem tenant, e o
@@ -1169,13 +1434,22 @@ export function sinaisDaReconciliacao(
           tenantId: a.tenantId as Uuid,
           chargeId: a.chargeId,
           detalhe: {
+            // **A `referencia` nao entra aqui**, e o `provider_event_id` leva o
+            // digest dela e nao o texto: ver o `_ajuste`. O que ops precisa para
+            // encontrar a linha e o `charge_id`, que esta na coluna.
             motivo: a.motivo,
             diferenca_minor: String(a.diferencaMinor),
             provider_event_id: a.providerEventId,
+            account_id: a.accountId,
           },
         }),
       ),
   );
+  // **A mesma guarda que o `avaliar` corre**, e e a correccao do unico achado
+  // que bloqueava a fusao: estes sinais saiam por aqui e nao passavam por
+  // guarda nenhuma, com o texto do CSV do dono dentro.
+  _exigirSemPii(sinais);
+  return sinais;
 }
 
 // ---------------------------------------------------------------- as accoes
@@ -1237,28 +1511,78 @@ export function respeitarAccao(
   accao: Accao,
 ): VeredictoDoManual {
   if (veredicto.decisao === "rejeita") return veredicto;
-  const endurecida = _endurecer(veredicto.decisao, accao);
+  const endurecida = _endurecer(veredicto, accao);
   if (endurecida === veredicto.decisao) return veredicto;
   return {
     ...veredicto,
     decisao: endurecida,
-    // A regra do sinal passa a ser a da anomalia, e nao a do M-3: quem le a
-    // linha de `manual_confirmations` tem de saber **qual** regra reteve.
-    sinal: _regraDaAccao(accao) ?? veredicto.sinal,
+    // **O `motivo` e a `regra` passam a ser os da anomalia**, e nao e arrumacao:
+    // a primeira versao preservava os do veredicto de origem com o `...`, e a
+    // revisao adversarial mediu o que isso produzia — um `retem` com
+    // `regra: "M-5"` e `motivo: null`, quando o M-5 e a dupla verificacao e
+    // **nunca** retem. Quem le a linha de `manual_confirmations` lia que a
+    // retencao veio de uma regra que nao retem.
+    //
+    // O `motivo` fica `null` de proposito: os `MotivoManual` sao um dominio
+    // fechado do M-1 ao M-5 e nenhum deles descreve «foi uma anomalia», e
+    // inventar um valor novo era alargar aquele tipo a partir daqui. Quem diz o
+    // que aconteceu e o `sinal`, que leva a regra — e e por isso que ele deixa
+    // de poder ser `null` quando a decisao mudou.
+    motivo: null,
+    regra: null,
+    sinal: _regraDaAccao(accao),
   };
 }
 
-function _endurecer(decisao: DecisaoDoManual, accao: Accao): DecisaoDoManual {
-  if (accao === "reter_confirmacao" || accao === "suspender_manual") {
+/**
+ * A decisao endurecida, ou a mesma.
+ *
+ * **Recebe o veredicto inteiro e nao so a decisao**, e a razao e a `fase`: um
+ * `exigir_dupla` sobre um `confirma` que ja esta em `segunda_aprovacao` pedia
+ * uma segunda assinatura que **ja foi dada** — isto e, a cobranca nunca se
+ * confirmava enquanto o sinal da R-06 estivesse na janela, e a `fase` ficava a
+ * dizer `segunda_aprovacao` ao lado de uma decisao a pedir a segunda. Era um
+ * impasse num caminho de dinheiro, e foi achado da revisao adversarial.
+ *
+ * A `fase` e o marcador porque o veredicto nao leva o `primeiraAprovacaoDe`: o
+ * `avaliarConfirmacao` poe `fase: "segunda_aprovacao"` exactamente quando a
+ * primeira ja existe.
+ */
+function _endurecer(veredicto: VeredictoDoManual, accao: Accao): DecisaoDoManual {
+  const decisao = veredicto.decisao;
+  if (
+    accao === "reter_confirmacao" ||
+    accao === "suspender_manual" ||
+    accao === "bloquear_contacto"
+  ) {
     return "retem";
   }
-  if (accao === "bloquear_contacto") return "retem";
-  if (accao === "exigir_dupla" && decisao === "confirma") return "exige_segunda";
+  if (
+    accao === "exigir_dupla" &&
+    decisao === "confirma" &&
+    veredicto.fase !== "segunda_aprovacao"
+  ) {
+    return "exige_segunda";
+  }
   return decisao;
 }
 
-function _regraDaAccao(accao: Accao): string | null {
-  return REGRAS.find((r) => r.accao === accao)?.regra ?? null;
+/**
+ * A regra que justifica a accao, para a coluna `fraud_signals.regra`.
+ *
+ * **O `ACCAO_SEM_REGRA_DESTE_TICKET` nao e enchimento.** O `REGRAS` deste ticket
+ * nao tem nenhuma regra com `bloquear_contacto` nem com `suspender_manual` —
+ * essas acções sao produzidas pelo KAM-097 —, pelo que a busca devolvia
+ * `undefined` e o veredicto saia com `sinal: null` a dizer `retem`. O tipo
+ * documenta o contrario («a regra de `fraud_signals`, quando a decisao e
+ * `retem`»), e um `retem` anonimo e exactamente o que ops nao consegue atender.
+ * Hoje e inalcancavel; no dia em que o KAM-097 produzir aquelas acções, deixa de
+ * o ser — e e para esse dia que o `FORCA_DA_ACCAO` ja as inclui.
+ */
+export const ACCAO_SEM_REGRA_DESTE_TICKET = "accao_de_sancao_kam_097";
+
+function _regraDaAccao(accao: Accao): string {
+  return REGRAS.find((r) => r.accao === accao)?.regra ?? ACCAO_SEM_REGRA_DESTE_TICKET;
 }
 
 /**
@@ -1307,7 +1631,7 @@ export const SQL_ANOMALIAS_EVENTOS = `
  */
 export const SQL_ANOMALIAS_COBRANCAS = `
   SELECT c.id, c.tenant_id, c.account_id, c.order_id, c.estado, c.metodo,
-         c.amount_minor, c.referencia,
+         c.amount_minor, c.referencia, c.criado_at,
          encode(c.payer_hmac, 'hex') AS payer_hmac,
          o.contact_id
     FROM platform.payment_charges c
@@ -1357,6 +1681,33 @@ export const SQL_ANOMALIAS_CASA = `
    ORDER BY f.contact_id
 `;
 
+/**
+ * A chamada a porta de escrita dos sinais.
+ *
+ * **E a unica cadeia deste ficheiro que escreve**, e escreve **por funcao**: a
+ * `platform.fraud_signals` nao tem `INSERT` para papel nenhum, por decisao da
+ * revisao `0032` («quem e vigiado escrevia no registo de vigilancia»). Quem a
+ * concede e a revisao do escritor, e so ao `kamba_batch` — o motor corre em
+ * lote, nao num turno de conversa.
+ *
+ * Devolve o `id`, que pode ser o de um sinal **que ja existia**: a guarda de
+ * janela da funcao nao repete a mesma anomalia a cada corrida do *job*.
+ *
+ * Nao entra no `CADEIAS_DAS_ANOMALIAS` porque aquela lista e das **leituras**
+ * da fotografia, e o ensaio que a varre exige que cada uma comece por `SELECT` —
+ * ela e que impoe a caixa do DoD «o motor nunca escreve `paga`». Esta cadeia tem
+ * a sua propria lista, com o seu proprio varrimento.
+ */
+export const SQL_REGISTAR_SINAL = `
+  SELECT platform.registar_sinal_de_anomalia(
+    p_tenant_id => $1, p_regra => $2, p_severidade => $3, p_accao => $4,
+    p_contact_id => $5, p_charge_id => $6, p_detalhe => $7::jsonb,
+    p_janela => $8::interval) AS id
+`;
+
+/** As cadeias de **escrita** deste modulo. Uma, e e uma chamada de funcao. */
+export const CADEIAS_DE_ESCRITA = ["SQL_REGISTAR_SINAL"] as const;
+
 /** Os `provider_event_id` dos ajustes ja escritos (criterio 7). */
 export const SQL_ANOMALIAS_AJUSTES_FEITOS = `
   SELECT provider_event_id
@@ -1388,6 +1739,14 @@ export const ALERTA_DE_SINAL = "pay_fraude_sinal_severo";
 export const ALERTA_DE_ORFAO = "pay_fraude_orfao_aberto";
 export const ALERTA_DE_ESCRITA = "pay_fraude_sinal_nao_persistido";
 
+/**
+ * A contagem de um sinal falhou. **E diferente dos outros tres**, e a diferenca
+ * e quem fica sem saber: eles dizem «ha uma anomalia», e este diz «a anomalia
+ * esta la e a serie do painel nao a tem». Confundi-los era o pior dos dois
+ * mundos — uma deteccao que correu a parecer uma que nao correu.
+ */
+export const ALERTA_DE_CONTAGEM = "pay_fraude_contagem_falhou";
+
 /** A severidade a partir da qual ops e alertado. O criterio 2 pede >= 3. */
 export const SEVERIDADE_QUE_ALERTA: Severidade = 3;
 
@@ -1402,12 +1761,17 @@ export type LeituraDeAnomalias = {
 /**
  * A porta que persiste os sinais.
  *
- * **Nenhuma implementacao desta porta existe nesta arvore**, e o cabecalho diz
- * porque: `fraud_signals` e SELECT-only para os tres papeis. Ela existe aqui
- * para que o motor nao tenha de mudar no dia em que o escritor existir, e para
- * que o `detectarAnomalias` possa dizer, no relatorio, que os sinais foram
- * calculados e **nao** persistidos — que e informacao, ao contrario de um
- * silencio.
+ * A implementacao vive em `services/com/src/payments/anomalias.ts` e chama a
+ * `platform.registar_sinal_de_anomalia` pelo `SQL_REGISTAR_SINAL`. Fica atras de
+ * uma porta e nao em linha para que o motor continue a correr sem ligacao
+ * nenhuma — e para que o `detectarAnomalias` possa dizer, no relatorio, que os
+ * sinais foram calculados e **nao** persistidos, que e informacao ao contrario
+ * de um silencio.
+ *
+ * **O `persistidos` pode ser menor do que os sinais, e nao e erro:** a guarda de
+ * janela da funcao devolve o `id` de um sinal que ja existia em vez de escrever
+ * linha nova, pelo que uma corrida sobre uma anomalia que continua aberta
+ * escreve zero linhas e esta correcta.
  *
  * **O metodo chama-se `persistir` e nao `registar`**, e nao e gosto: a regra
  * `registar_directo` do `tools/log_policy` recusa qualquer `.registar(…)` em
@@ -1460,7 +1824,24 @@ export async function detectarAnomalias(
   const foto = await deps.leitura.fotografar();
   const sinais = avaliar(foto, deps.configuracao ?? CONFIGURACAO_PROPOSTA);
 
-  for (const sinal of sinais) deps.contar?.(sinal.regra);
+  // **A contagem nao mata a deteccao**, e a guarda e deliberada. O `contar` do
+  // `services/com` levanta `RegraDesconhecida` por desenho — para nao abrir a
+  // cardinalidade da etiqueta —, e sem este `try` uma regra fora do inventario
+  // abortava a corrida **antes** dos alertas. A ordem deste ficheiro foi escrita
+  // para o contrario («alertar vem antes de persistir … deixa-lo depender dela
+  // fazia uma anomalia de dinheiro desaparecer»), e uma falha de
+  // **observabilidade** a matar a **deteccao** inverte-a. Achado da revisao
+  // adversarial, inalcancavel hoje e inalcancavel por acidente amanha.
+  for (const sinal of sinais) {
+    try {
+      deps.contar?.(sinal.regra);
+    } catch (erro) {
+      deps.alertar?.(ALERTA_DE_CONTAGEM, {
+        regra: sinal.regra,
+        erro: erro instanceof Error ? erro.message : String(erro),
+      });
+    }
+  }
 
   const severos = sinais.filter((s) => s.severidade >= SEVERIDADE_QUE_ALERTA);
   if (severos.length > 0) {

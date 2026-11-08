@@ -20,6 +20,30 @@
                  `SECURITY DEFINER` — isto e, a prova de que o `DEFINER` nao
                  contorna o `FORCE`
 
+## Tres convencoes desta suite que a primeira versao deste ficheiro ignorou
+
+A primeira versao levou **onze** ensaios em erro contra um PostgreSQL real, e as
+tres causas sao convencoes que esta pasta ja tinha escritas. Ficam aqui porque
+sao a diferenca entre uma suite que mede e uma que grita:
+
+1. **Estende o `ComConfirmacaoManual` e nao o `ComLedger`.** O `_limpar` daquele
+   apaga `fraud_signals`, `refund_cases`, `payment_confirmers` e
+   `manual_confirmations` por tenant; o deste nao. Sem isso, cada ensaio deixa
+   sinais que prendem o tenant por FK, e a limpeza leva `23503` — que o
+   `unittest` reporta como **erro do ensaio**, longe da causa.
+2. **Um caso negativo e `assertErroSql` e nao `assertRaises`.** No PostgreSQL um
+   erro aborta a transaccao inteira, e o `cursor_papel` **deixa-a aberta** e
+   reutiliza a ligacao entre ensaios da mesma classe (o `_papeis`). Com
+   `assertRaises`, o primeiro caso negativo deixa a transaccao abortada e todos
+   os seguintes erram com «current transaction is aborted». O `assertErroSql`
+   corre dentro de um `SAVEPOINT`, e e para isso que ele existe.
+3. **Quem escreve e quem le tem de ser a mesma ligacao, ou confirma-se.** O
+   `self.semente` e uma ligacao de administrador em `autocommit`, e a escrita
+   pela porta corre numa transaccao **aberta** do `kamba_batch`: ler pelo
+   `semente` dava zero linhas, com a porta a funcionar. Por isso as leituras da
+   janela usam o `linhas_em(cursor, …)`, e o ensaio de RLS — que tem de ler por
+   **outra** ligacao, porque e disso que ele e — confirma primeiro.
+
 ## As duas listas de regras sao confrontadas contra a funcao INSTALADA
 
 A funcao corre antes de qualquer TypeScript existir, pelo que nao pode importar
@@ -53,15 +77,15 @@ import re
 import uuid
 from pathlib import Path
 
-from tests_pagamentos.base import ComLedger
+from tests_pagamentos.manual_base import ComConfirmacaoManual
 
 RAIZ = Path(__file__).resolve().parents[2]
 
 #: O modulo do motor, para o confronto das duas listas de regras.
 MOTOR = RAIZ / "packages" / "core-ts" / "src" / "pagamentos" / "anomalias.ts"
 
-#: O nome da porta. **Sem a assinatura**: ela le-se da base, no
-#: `TestAsDuasListasDeRegras`, e prende-la aqui era uma quarta copia.
+#: O nome da porta. **Sem a assinatura**: ela le-se da base, e prende-la aqui
+#: era uma quarta copia.
 PORTA = "platform.registar_sinal_de_anomalia"
 
 CHAMADA = f"""
@@ -70,6 +94,12 @@ CHAMADA = f"""
     p_contact_id => %s, p_charge_id => %s, p_detalhe => %s::jsonb,
     p_janela => %s::interval)
 """
+
+#: `invalid_parameter_value`, o `ERRCODE` que as tres barreiras levantam.
+RECUSA = "22023"
+
+#: `insufficient_privilege`.
+SEM_PRIVILEGIO = "42501"
 
 
 def _regras_do_motor() -> set[str]:
@@ -86,12 +116,11 @@ def _regras_do_motor() -> set[str]:
     return set(re.findall(r'^\s*regra: "([a-z_]+)",', bloco, re.M))
 
 
-class ComSinais(ComLedger):
-    """Um tenant com cobranca, e as ferramentas para chamar a porta."""
+class ComSinais(ComConfirmacaoManual):
+    """As ferramentas para chamar a porta. A limpeza vem da base — ver o topo."""
 
-    def registar(
+    def argumentos(
         self,
-        cursor,
         tenant: str,
         regra: str = "pagamento_orfao",
         severidade: int = 3,
@@ -100,32 +129,42 @@ class ComSinais(ComLedger):
         cobranca: str | None = None,
         detalhe: dict | None = None,
         janela: str = "1 hour",
-    ):
-        cursor.execute(
-            CHAMADA,
-            (
-                tenant,
-                regra,
-                severidade,
-                accao,
-                contacto,
-                cobranca,
-                json.dumps(detalhe or {}),
-                janela,
-            ),
+    ) -> tuple:
+        """Os parametros da chamada. Separados para o `assertErroSql` os levar."""
+        return (
+            tenant,
+            regra,
+            severidade,
+            accao,
+            contacto,
+            cobranca,
+            json.dumps(detalhe or {}),
+            janela,
         )
+
+    def registar(self, cursor, tenant: str, **campos):
+        cursor.execute(CHAMADA, self.argumentos(tenant, **campos))
         return cursor.fetchone()[0]
 
-    def linhas(self, tenant: str) -> list[tuple]:
-        self.semente.execute(
+    def linhas_em(self, cursor, tenant: str) -> list[tuple]:
+        """Os sinais do tenant, lidos **pela ligacao que os escreveu**.
+
+        Ver a convencao 3 do topo: o `self.semente` nao ve uma transaccao que
+        nao confirmou.
+        """
+        cursor.execute(
             "SELECT id, regra, severidade, accao, contact_id, charge_id "
             "  FROM platform.fraud_signals WHERE tenant_id = %s ORDER BY id",
             (tenant,),
         )
-        return [tuple(linha) for linha in self.semente.fetchall()]
+        return [tuple(linha) for linha in cursor.fetchall()]
 
     def corpo_da_porta(self) -> str:
-        """O `pg_get_functiondef` da funcao instalada. A terceira fonte."""
+        """O `pg_get_functiondef` da funcao instalada. A terceira fonte.
+
+        Pelo `semente` e nao por um cursor de papel, e pode: o catalogo esta
+        confirmado desde a migracao, e nenhuma transaccao deste ensaio o toca.
+        """
         self.semente.execute(
             "SELECT pg_get_functiondef(p.oid) FROM pg_proc p "
             "  JOIN pg_namespace n ON n.oid = p.pronamespace "
@@ -133,7 +172,9 @@ class ComSinais(ComLedger):
             (PORTA.split(".")[1],),
         )
         linhas = self.semente.fetchall()
-        self.assertEqual(len(linhas), 1, f"{PORTA} nao esta instalada, ou esta duas vezes")
+        self.assertEqual(
+            len(linhas), 1, f"{PORTA} nao esta instalada, ou esta mais do que uma vez"
+        )
         return str(linhas[0][0])
 
 
@@ -146,7 +187,6 @@ class TestAsDuasListasDeRegras(ComSinais):
         motor = _regras_do_motor()
         self.assertEqual(len(motor), 8, motor)
         corpo = self.corpo_da_porta()
-        # As regras aparecem no `NOT IN (…)` da guarda, entre apostrofos.
         guarda = re.search(r"NOT IN \(([^)]*)\)", corpo)
         self.assertIsNotNone(guarda, corpo[:400])
         instaladas = set(re.findall(r"'([a-z_]+)'", guarda.group(1)))
@@ -161,11 +201,14 @@ class TestAsDuasListasDeRegras(ComSinais):
         frente.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         for regra in ("manual_limite_diario", "manual_limite_por_contacto_24h"):
-            with self.assertRaises(Exception) as erro:
-                self.registar(lote, tenant, regra=regra, accao="reter_confirmacao")
-            self.assertIn("22023", str(erro.exception.args), regra)
+            self.assertErroSql(
+                RECUSA,
+                lote,
+                CHAMADA,
+                self.argumentos(tenant, regra=regra, accao="reter_confirmacao"),
+            )
 
 
 class TestPrivilegio(ComSinais):
@@ -184,58 +227,56 @@ class TestPrivilegio(ComSinais):
         mais passos.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         self.assertIsNotNone(self.registar(lote, tenant))
 
         app = self.cursor_papel("app", tenant)
-        with self.assertRaises(Exception) as erro:
-            self.registar(app, tenant)
-        self.assertIn("42501", str(erro.exception.args))
+        self.assertErroSql(SEM_PRIVILEGIO, app, CHAMADA, self.argumentos(tenant))
 
     def test_o_execute_nao_se_tornou_um_insert(self) -> None:
         """Depois desta revisao, continua a nao haver `INSERT` para papel nenhum.
 
-        E a afirmacao do `db/tests/test_privilegios.py` que esta revisao nao
-        pode contradizer. Mede-se nos **dois** papeis: se um `GRANT INSERT`
+        E a afirmacao do `../tests/test_privilegios.py` que esta revisao nao pode
+        contradizer. Mede-se nos **dois** papeis: se um `GRANT INSERT`
         aparecesse por engano num deles, a excepcao estreita virava a larga.
         """
         tenant = self.criar_tenant()
+        sql = (
+            "INSERT INTO platform.fraud_signals "
+            "(tenant_id, regra, severidade, accao) "
+            "VALUES (%s, 'auto_compra', 4, 'reter_confirmacao')"
+        )
         for identidade in ("app", "batch"):
             cursor = self.cursor_papel(identidade, tenant)
-            with self.assertRaises(Exception) as erro:
-                cursor.execute(
-                    "INSERT INTO platform.fraud_signals "
-                    "(tenant_id, regra, severidade, accao) "
-                    "VALUES (%s, 'auto_compra', 4, 'reter_confirmacao')",
-                    (tenant,),
-                )
-            self.assertIn("42501", str(erro.exception.args), identidade)
+            self.assertErroSql(SEM_PRIVILEGIO, cursor, sql, (tenant,))
 
 
 class TestARegraFechaNaFuncao(ComSinais):
     def test_uma_regra_de_fora_da_lista_e_recusada(self) -> None:
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
-        with self.assertRaises(Exception) as erro:
-            self.registar(lote, tenant, regra="inventada")
-        self.assertIn("22023", str(erro.exception.args))
+        lote = self.cursor_papel("batch", tenant)
+        self.assertErroSql(
+            RECUSA, lote, CHAMADA, self.argumentos(tenant, regra="inventada")
+        )
 
     def test_as_oito_regras_passam(self) -> None:
         """A sonda positiva, e sem ela a de cima ficava verde com a porta fechada.
 
         Uma funcao que recusasse **tudo** passava o ensaio de recusa com a mesma
         firmeza com que passaria a certa.
+
+        Uma cobranca por regra: a guarda da janela colapsaria as oito num sinal
+        so se a chave natural fosse a mesma.
         """
         tenant = self.criar_tenant()
         conta = self.criar_conta(tenant)
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         for regra in sorted(_regras_do_motor()):
-            # Uma cobranca por regra: a guarda da janela colapsaria as oito num
-            # sinal so se a chave natural fosse a mesma.
             cobranca = self.criar_cobranca(tenant, conta)
             self.assertIsNotNone(
                 self.registar(lote, tenant, regra=regra, cobranca=cobranca), regra
             )
+        self.assertEqual(len(self.linhas_em(lote, tenant)), 8)
 
     def test_a_coluna_nao_tem_check_e_e_por_isso_que_a_funcao_tem(self) -> None:
         """**O canario da barreira**, e e o que prova que ela mora na funcao.
@@ -259,18 +300,21 @@ class TestARegraFechaNaFuncao(ComSinais):
 class TestPii(ComSinais):
     def test_uma_chave_de_pii_no_topo_e_recusada(self) -> None:
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
-        with self.assertRaises(Exception) as erro:
-            self.registar(lote, tenant, detalhe={"telefone": "o que for"})
-        self.assertIn("22023", str(erro.exception.args))
+        lote = self.cursor_papel("batch", tenant)
+        self.assertErroSql(
+            RECUSA,
+            lote,
+            CHAMADA,
+            self.argumentos(tenant, detalhe={"telefone": "o que for"}),
+        )
 
     def test_uma_chave_de_pii_aninhada_tambem(self) -> None:
         """**O caso que a primeira versao da funcao deixava passar.**
 
-        O `jsonb_each_text` le **so o topo**, e um `{"interno": {"telefone": …}}`
-        passava-o — com o comentario da funcao a dizer «todos os niveis», que e
-        canon a mentir sobre o codigo ao lado. O `jsonb_path_query` com `$.**`
-        desce a arvore inteira.
+        O `jsonb_each_text` le **so o topo**, e um detalhe com um objecto
+        aninhado passava-o — com o comentario da funcao a dizer «todos os
+        niveis», que e canon a mentir sobre o codigo ao lado. O
+        `jsonb_path_query` com `$.**` desce a arvore inteira.
 
         **E o `detalhe` do motor e plano por tipo** (o `Sinal.detalhe` e
         `Record<string, string | number | boolean | null>`), pelo que este caso
@@ -278,17 +322,23 @@ class TestPii(ComSinais):
         exactamente quem uma barreira na base existe para apanhar.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
-        with self.assertRaises(Exception) as erro:
-            self.registar(lote, tenant, detalhe={"interno": {"telefone": "x"}})
-        self.assertIn("22023", str(erro.exception.args))
+        lote = self.cursor_papel("batch", tenant)
+        self.assertErroSql(
+            RECUSA,
+            lote,
+            CHAMADA,
+            self.argumentos(tenant, detalhe={"interno": {"telefone": "x"}}),
+        )
 
     def test_uma_chave_que_contem_a_palavra_proibida_e_recusada(self) -> None:
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
-        with self.assertRaises(Exception) as erro:
-            self.registar(lote, tenant, detalhe={"telefone_do_pagador": "x"})
-        self.assertIn("22023", str(erro.exception.args))
+        lote = self.cursor_papel("batch", tenant)
+        self.assertErroSql(
+            RECUSA,
+            lote,
+            CHAMADA,
+            self.argumentos(tenant, detalhe={"telefone_do_pagador": "x"}),
+        )
 
     def test_o_detalhe_que_o_motor_produz_passa(self) -> None:
         """A sonda positiva: a guarda nao pode recusar o que o motor escreve.
@@ -298,7 +348,7 @@ class TestPii(ComSinais):
         Sem este par, uma guarda que recusasse tudo passava os tres de cima.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         self.assertIsNotNone(
             self.registar(
                 lote,
@@ -323,11 +373,11 @@ class TestJanela(ComSinais):
         ninguem le.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         primeiro = self.registar(lote, tenant)
         segundo = self.registar(lote, tenant)
         self.assertEqual(primeiro, segundo)
-        self.assertEqual(len(self.linhas(tenant)), 1)
+        self.assertEqual(len(self.linhas_em(lote, tenant)), 1)
 
     def test_a_janela_a_zero_escreve_outra_vez(self) -> None:
         """O par: a guarda e da **janela** e nao «um sinal por regra para sempre».
@@ -338,11 +388,11 @@ class TestJanela(ComSinais):
         anomalia que voltasse a acontecer tres meses depois ficava invisivel.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         primeiro = self.registar(lote, tenant)
         segundo = self.registar(lote, tenant, janela="0")
         self.assertNotEqual(primeiro, segundo)
-        self.assertEqual(len(self.linhas(tenant)), 2)
+        self.assertEqual(len(self.linhas_em(lote, tenant)), 2)
 
     def test_dois_sinais_sem_cobranca_e_sem_contacto_nao_se_confundem(self) -> None:
         """**`IS NOT DISTINCT FROM` e nao `=`**, e e este ensaio que o prende.
@@ -353,40 +403,96 @@ class TestJanela(ComSinais):
         cobranca e sem contacto: tem de dar uma linha.
         """
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         self.registar(lote, tenant, regra="hmac_invalido_em_massa", severidade=4)
         self.registar(lote, tenant, regra="hmac_invalido_em_massa", severidade=4)
-        self.assertEqual(len(self.linhas(tenant)), 1)
+        self.assertEqual(len(self.linhas_em(lote, tenant)), 1)
 
     def test_regras_diferentes_nao_se_colapsam(self) -> None:
         tenant = self.criar_tenant()
-        lote = self.cursor_papel("batch")
+        lote = self.cursor_papel("batch", tenant)
         self.registar(lote, tenant, regra="pagamento_orfao")
         self.registar(
-            lote, tenant, regra="auto_compra", severidade=4,
+            lote,
+            tenant,
+            regra="auto_compra",
+            severidade=4,
             accao="reter_confirmacao",
         )
-        self.assertEqual(len(self.linhas(tenant)), 2)
+        self.assertEqual(len(self.linhas_em(lote, tenant)), 2)
 
     def test_tenants_diferentes_nao_se_colapsam(self) -> None:
+        """**Um cursor por tenant, e nao e comodidade: e a RLS.**
+
+        A guarda da janela e por `(tenant, regra, cobranca, contacto)`, e o que
+        este ensaio mede e que ela nao junta dois tenants. Escrever os dois pelo
+        mesmo cursor era impossivel — ver o `TestRls`.
+        """
         a, b = self.criar_tenant(), self.criar_tenant()
-        lote = self.cursor_papel("batch")
-        self.registar(lote, a)
-        self.registar(lote, b)
-        self.assertEqual(len(self.linhas(a)), 1)
-        self.assertEqual(len(self.linhas(b)), 1)
+        de_a = self.cursor_papel("batch", a)
+        de_b = self.cursor_papel("batch", b)
+        self.registar(de_a, a)
+        self.registar(de_b, b)
+        self.assertEqual(len(self.linhas_em(de_a, a)), 1)
+        self.assertEqual(len(self.linhas_em(de_b, b)), 1)
 
 
 class TestRls(ComSinais):
+    def test_a_porta_nao_escreve_um_sinal_para_outro_tenant(self) -> None:
+        """**A propriedade que o `SECURITY DEFINER` NAO leva consigo.**
+
+        A `0032` escreve-o por extenso, e este ensaio e a prova dela nesta
+        funcao nova: «o `FORCE` e o que faz as quatro funcoes `SECURITY DEFINER`
+        **nao** contornarem o isolamento: elas correm como o `kamba_migrator`,
+        que e `NOBYPASSRLS`, e o `FORCE` vincula tambem o dono da tabela. O
+        `app.tenant_id` de quem chamou continua a ser o que a politica avalia —
+        dao privilegio e nao dao isolamento».
+
+        Logo um lote no contexto de A que peca um sinal para B leva `42501` da
+        **politica** e nao do privilegio, e nem o `BYPASSRLS` do `kamba_batch` o
+        salva: a funcao corre como o dono, nao como ele.
+
+        **Foi assim que isto se descobriu, e vale escreve-lo:** a primeira
+        versao desta suite chamava a porta sem contexto nenhum
+        (`cursor_papel("batch")`), e os nove ensaios que escrevem levaram
+        `new row violates row-level security policy`. Lido como obstaculo, era a
+        barreira a funcionar.
+        """
+        a, b = self.criar_tenant(), self.criar_tenant()
+        de_a = self.cursor_papel("batch", a)
+        self.assertErroSql(SEM_PRIVILEGIO, de_a, CHAMADA, self.argumentos(b))
+        # A sonda positiva, com o mesmo cursor: o de A escreve para A.
+        self.assertIsNotNone(self.registar(de_a, a))
+
+    def test_sem_contexto_de_tenant_a_porta_nao_escreve(self) -> None:
+        """Falha fechada: sem `app.tenant_id`, a politica esconde tudo.
+
+        E o par do de cima pelo outro lado, e e o caso que um *job* mal escrito
+        produz — correr o motor sem `SET LOCAL app.tenant_id` na transaccao.
+        Melhor levar `42501` do que escrever um sinal que ninguem consegue ler.
+        """
+        tenant = self.criar_tenant()
+        sem_contexto = self.cursor_papel("batch")
+        self.assertErroSql(
+            SEM_PRIVILEGIO, sem_contexto, CHAMADA, self.argumentos(tenant)
+        )
+
     def test_o_sinal_de_a_e_invisivel_no_contexto_de_b(self) -> None:
         """A prova de que o `DEFINER` **nao** contorna o `FORCE`.
 
         E a mesma propriedade que o KAM-054 mediu para as funcoes dele, e
         mede-se outra vez porque e uma funcao nova: a escrita corre como o dono
         e a **leitura** da aplicacao continua sujeita a politica do tenant.
+
+        **Confirma-se a escrita antes de ler**, e aqui e obrigatorio e nao
+        conveniencia: o que este ensaio mede e a leitura por **outra** ligacao,
+        e uma transaccao aberta e invisivel para ela — sem o `confirmar`, os dois
+        lados dariam zero e o ensaio passava sem medir nada.
         """
         a, b = self.criar_tenant(), self.criar_tenant()
-        self.registar(self.cursor_papel("batch"), a)
+        lote = self.cursor_papel("batch", a)
+        self.registar(lote, a)
+        self.confirmar(lote, a)
 
         de_a = self.cursor_papel("app", a)
         de_a.execute("SELECT count(*) FROM platform.fraud_signals")
@@ -422,7 +528,7 @@ class TestAPortaEstaNaAllowlist(ComSinais):
     def test_a_assinatura_instalada_e_a_que_o_gate_6_aprovou(self) -> None:
         """O `ci/secdef_allowlist.yaml` e fechado **nos dois sentidos**.
 
-        O X-05 do *gate* 6 (`db/tests_isolamento/catalogo.py`) falha com «e
+        O X-05 do *gate* 6 (`../tests_isolamento/catalogo.py`) falha com «e
         SECURITY DEFINER e nao esta na lista» **e** com «esta na lista e nao
         existe». A comparacao dele e textual sobre o
         `pg_get_function_identity_arguments`, que inclui os **nomes** dos

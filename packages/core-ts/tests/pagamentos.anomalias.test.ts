@@ -39,11 +39,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  ACCAO_SEM_REGRA_DESTE_TICKET,
   ACCOES,
+  ALERTA_DE_CONTAGEM,
   ALERTA_DE_ESCRITA,
   ALERTA_DE_ORFAO,
   ALERTA_DE_SINAL,
   CADEIAS_DAS_ANOMALIAS,
+  CADEIAS_DE_ESCRITA,
   CHAVES_PROIBIDAS_NO_DETALHE,
   COLUNAS_DO_EXTRACTO,
   CONFIGURACAO_PROPOSTA,
@@ -63,6 +66,7 @@ import {
   SQL_ANOMALIAS_CONFIRMACOES,
   SQL_ANOMALIAS_EVENTOS,
   SQL_ANOMALIAS_RECUSAS,
+  SQL_REGISTAR_SINAL,
   SinalComPii,
   TERMINAIS_SEM_PAGAMENTO,
   VERSAO_DAS_REGRAS,
@@ -110,6 +114,10 @@ function cobranca(campos: Partial<CobrancaObservada> = {}): CobrancaObservada {
     amountMinor: 100_000n,
     payerHmac: null,
     contactId: CONTACTO,
+    referencia: "REF001",
+    // Dentro de todas as janelas por omissao, para que quem mede a janela
+    // passe um instante proprio e os outros nao paguem por ela.
+    criadoEm: haMinutos(10),
     ...campos,
   };
 }
@@ -830,11 +838,18 @@ describe("R-08 — a reconciliacao (criterio 7)", () => {
   });
 
   it("extracto sem cobranca paga: propoe o valor inteiro, sem tenant", () => {
-    const [ajuste] = ajustes([
+    // **Pelo motivo e nao pela posicao.** A ordem da saida e por
+    // `providerEventId` (um digest), pelo que indexar `[0]` media o que o
+    // digest calhasse ordenar primeiro — e a mesma linha de extracto produz
+    // agora dois ajustes: o `sem_cobranca_paga` dela e o `paga_sem_extracto` da
+    // cobranca que o extracto nao mencionou.
+    const propostos = ajustes([
       { referencia: "DESCONHECIDA", valorMinor: 50_000n, data: "2026-11-07" },
     ]);
-    assert.equal(ajuste?.motivo, "sem_cobranca_paga");
+    const ajuste = propostos.find((a) => a.motivo === "sem_cobranca_paga");
+    assert.ok(ajuste, JSON.stringify(propostos.map((a) => a.motivo)));
     assert.equal(ajuste?.tenantId, null);
+    assert.equal(ajuste?.diferencaMinor, 50_000n);
   });
 
   it("paga sem linha no extracto: propoe o negativo", () => {
@@ -868,12 +883,21 @@ describe("R-08 — a reconciliacao (criterio 7)", () => {
     assert.deepEqual(segunda, []);
   });
 
-  it("o provider_event_id do ajuste identifica a origem e o lote", () => {
-    const [ajuste] = ajustes([
+  it("o provider_event_id identifica a origem e **nao** leva a referencia", () => {
+    // A asserção era `/REF001/`, e era o defeito: a `referencia` e texto que o
+    // dono escreveu no CSV, e este id viaja para o `detalhe` do sinal. Agora
+    // leva o **digest** da chave `(conta, referencia)` — ver o `_ajuste`.
+    const propostos = ajustes([
       { referencia: "REF001", valorMinor: 90_000n, data: "2026-11-07" },
     ]);
+    const ajuste = propostos.find((a) => a.motivo === "valor_diferente");
+    assert.ok(ajuste);
     assert.ok(String(ajuste?.providerEventId).startsWith(`${PREFIXO_DO_AJUSTE}:`));
-    assert.match(String(ajuste?.providerEventId), /REF001/);
+    assert.ok(
+      !String(ajuste?.providerEventId).includes("REF001"),
+      "a referencia do CSV nao entra no id",
+    );
+    assert.match(String(ajuste?.providerEventId), /valor_diferente$/);
   });
 
   it("dois extractos diferentes dao ajustes diferentes para a mesma linha", () => {
@@ -1209,6 +1233,284 @@ describe("o job (criterios 2 e 3)", () => {
   });
 });
 
+describe("os catorze achados da revisao adversarial", () => {
+  // Um ensaio por achado, com o caso que o revisor mediu. Ficam juntos e
+  // nomeados pelo numero de proposito: um achado fechado sem ensaio volta na
+  // auditoria seguinte e paga-se outra vez.
+
+  it("A1 — os sinais da R-08 passam pela guarda de PII", () => {
+    // O laco do `semPii` vivia **dentro** do `avaliar`, que corre a R-01 ate a
+    // R-07; os da R-08 saem pelo `sinaisDaReconciliacao` e nao passavam por
+    // guarda nenhuma. E levavam a `referencia` do CSV em claro no
+    // `provider_event_id` — isto e, era a via por onde um telefone entrava num
+    // `fraud_signals`. O proprio `semPii` do ramo recusava o sinal que o ramo
+    // emitia.
+    const paga = cobranca({ chargeId: "c-1", estado: "paga", referencia: "923456789" });
+    const ajustes = reconciliar({
+      linhas: [{ referencia: "923456789", valorMinor: 90_000n, data: "2026-11-07" }],
+      cobrancas: [paga],
+      referenciaPorCobranca: { "c-1": "923456789" },
+      jaAjustados: [],
+    });
+    const sinais = sinaisDaReconciliacao(ajustes);
+    assert.equal(sinais.length, 1);
+    assert.equal(semPii(sinais[0]!.detalhe), null);
+    // E a razao de passar: o id leva o digest da chave e nao o texto.
+    assert.ok(!JSON.stringify(sinais[0]!.detalhe).includes("923456789"));
+  });
+
+  it("A2 — duas contas com a mesma referencia nao se calam uma a outra", () => {
+    // A `0029` escreve que o par unico e `(account_id, referencia)`, **com** a
+    // conta. Com a referencia sozinha o `Map` guardava a ultima, e uma linha
+    // que batia exactamente com a primeira dava um ajuste falso no tenant da
+    // segunda — 200 000 no tenant errado, medido pelo revisor.
+    const a = cobranca({
+      chargeId: "c-1", accountId: "a-1", tenantId: "t-1",
+      amountMinor: 100_000n, referencia: "REF001",
+    });
+    const b = cobranca({
+      chargeId: "c-2", accountId: "a-2", tenantId: "t-2",
+      amountMinor: 300_000n, referencia: "REF001",
+    });
+    const semExtracto = reconciliar({
+      linhas: [],
+      cobrancas: [a, b],
+      referenciaPorCobranca: { "c-1": "REF001", "c-2": "REF001" },
+      jaAjustados: [],
+    });
+    assert.equal(semExtracto.length, 2, "as duas pagas tem de aparecer");
+    assert.deepEqual(
+      [...semExtracto.map((x) => x.chargeId)].sort(),
+      ["c-1", "c-2"],
+    );
+  });
+
+  it("A2b — uma linha ambigua vai para ops em vez de ser atribuida ao palpite", () => {
+    // O par do de cima: com duas cobrancas `paga` a mesma referencia em contas
+    // diferentes, o extracto **nao diz a conta** e a linha nao se adivinha.
+    const a = cobranca({ chargeId: "c-1", accountId: "a-1", tenantId: "t-1", amountMinor: 100_000n });
+    const b = cobranca({ chargeId: "c-2", accountId: "a-2", tenantId: "t-2", amountMinor: 300_000n });
+    const ajustes = reconciliar({
+      linhas: [{ referencia: "REF001", valorMinor: 100_000n, data: "2026-11-07" }],
+      cobrancas: [a, b],
+      referenciaPorCobranca: { "c-1": "REF001", "c-2": "REF001" },
+      jaAjustados: [],
+    });
+    // Nenhum ajuste de `valor_diferente` sobre a cobranca errada.
+    assert.equal(
+      ajustes.filter((x) => x.motivo === "valor_diferente").length,
+      0,
+      // **Sem `JSON.stringify` sobre o ajuste:** o `diferencaMinor` e `bigint` e
+      // o `stringify` rebenta nele, o que troca a falha medida por um
+      // `TypeError` e esconde o que o ensaio queria dizer.
+      ajustes.map((x) => x.motivo).join(", "),
+    );
+    assert.ok(ajustes.some((x) => x.motivo === "sem_cobranca_paga"));
+  });
+
+  it("A3 — a mesma referencia duas vezes no mesmo CSV nao duplica", () => {
+    // O `jaAjustados` so olha para tras: duas linhas iguais no **mesmo** lote
+    // davam dois ajustes com o mesmo `provider_event_id` e montantes
+    // diferentes, escritos os dois num ledger que nao se corrige.
+    const ajustes = reconciliar({
+      linhas: [
+        { referencia: "REF001", valorMinor: 50_000n, data: "2026-11-07" },
+        { referencia: "REF001", valorMinor: 70_000n, data: "2026-11-07" },
+      ],
+      cobrancas: [],
+      referenciaPorCobranca: {},
+      jaAjustados: [],
+    });
+    assert.equal(new Set(ajustes.map((x) => x.providerEventId)).size, ajustes.length);
+  });
+
+  it("A4 — a janela e o limiar da R-03 e da R-04 decidem", () => {
+    // As duas funcoes nao recebiam `Configuracao` nenhuma: os mapas existiam e
+    // nao decidiam nada, pelo que o criterio 1 («limiar configuravel») era
+    // falso para elas. E com a fotografia de 720 h, cada corrida do job
+    // re-emitia trinta dias de orfaos.
+    const antigos = foto({
+      eventos: [
+        evento({ eventId: 1n, tipoEvento: "pagamento_orfao", instante: haMinutos(60 * 700) }),
+        evento({ eventId: 2n, tipoEvento: "pagamento_duplicado", instante: haMinutos(60 * 700) }),
+      ],
+    });
+    const apertada = {
+      limiares: { ...LIMIARES_PROPOSTOS, "R-03": 99, "R-04": 99 },
+      janelas: { ...JANELAS_PROPOSTAS, "R-03": 1, "R-04": 1 },
+    };
+    assert.deepEqual(avaliar(antigos, apertada), []);
+    // A sonda positiva: com as propostas, os dois disparam **dentro** da janela.
+    const recentes = foto({
+      eventos: [
+        evento({ eventId: 1n, tipoEvento: "pagamento_orfao", instante: haMinutos(30) }),
+        evento({ eventId: 2n, tipoEvento: "pagamento_duplicado", instante: haMinutos(30) }),
+      ],
+    });
+    assert.equal(avaliar(recentes).length, 2);
+  });
+
+  it("A4b — a janela da R-05 e da R-07 decide", () => {
+    const velha = cobranca({ payerHmac: "deadbeef", criadoEm: haMinutos(60 * 700) });
+    assert.deepEqual(
+      daRegra(
+        avaliar(foto({ cobrancas: [velha], casa: [{ contactId: DONO, phoneHmac: "deadbeef" }] })),
+        "R-05",
+      ),
+      [],
+    );
+    const nova = cobranca({ payerHmac: "deadbeef", criadoEm: haMinutos(30) });
+    assert.equal(
+      daRegra(
+        avaliar(foto({ cobrancas: [nova], casa: [{ contactId: DONO, phoneHmac: "deadbeef" }] })),
+        "R-05",
+      ).length,
+      1,
+    );
+  });
+
+  it("A5 — um retem da anomalia nao leva a regra de uma que nao retem", () => {
+    // O `...veredicto` preservava `regra` e `motivo` do veredicto de origem: um
+    // `retem` saia com `regra: "M-5"`, que e a dupla verificacao e nunca retem.
+    const veredicto = {
+      decisao: "exige_segunda" as const,
+      motivo: null,
+      regra: "M-5" as const,
+      valorBate: true,
+      fase: "confirmacao" as const,
+      sinal: null,
+    };
+    const retido = respeitarAccao(veredicto, "reter_confirmacao");
+    assert.equal(retido.decisao, "retem");
+    assert.equal(retido.regra, null);
+    assert.equal(retido.motivo, null);
+    assert.equal(retido.sinal, REGRA_POR_ID["R-05"].regra);
+  });
+
+  it("A5b — um exigir_dupla nao volta a pedir a segunda que ja foi dada", () => {
+    // **Era um impasse num caminho de dinheiro:** com a `fase` em
+    // `segunda_aprovacao`, a dupla ja existe, e pedi-la outra vez fazia a
+    // cobranca nunca confirmar enquanto o sinal da R-06 estivesse na janela.
+    const jaComDupla = {
+      decisao: "confirma" as const,
+      motivo: null,
+      regra: null,
+      valorBate: true,
+      fase: "segunda_aprovacao" as const,
+      sinal: null,
+    };
+    assert.equal(respeitarAccao(jaComDupla, "exigir_dupla").decisao, "confirma");
+  });
+
+  it("A5c — um bloquear_contacto nao produz um retem anonimo", () => {
+    // Nenhuma regra **deste** ticket tem `bloquear_contacto` nem
+    // `suspender_manual` — sao do KAM-097 —, pelo que a busca devolvia
+    // `undefined` e o `?? veredicto.sinal` deixava `null`. Um `retem` sem regra
+    // e um caso que ops nao consegue atender.
+    const limpo = {
+      decisao: "confirma" as const,
+      motivo: null,
+      regra: null,
+      valorBate: true,
+      fase: "confirmacao" as const,
+      sinal: null,
+    };
+    for (const accao of ["bloquear_contacto", "suspender_manual"] as const) {
+      const r = respeitarAccao(limpo, accao);
+      assert.equal(r.decisao, "retem");
+      assert.equal(r.sinal, ACCAO_SEM_REGRA_DESTE_TICKET, accao);
+    }
+  });
+
+  it("A6 — com dois contactos activos a R-06 nao dispara, e e algebra", () => {
+    // `x (2 - k) > k a` e impossivel para `k >= 2`. O ensaio existe porque a
+    // nota do `_r06` dizia que o caso de dois funcionava.
+    const confirmacoes = [
+      confirmacao({ contactId: "aaaaaaaa-0000-4000-8000-000000000001" }),
+      ...Array.from({ length: 1000 }, () => confirmacao({ contactId: CONTACTO })),
+    ];
+    assert.deepEqual(daRegra(avaliar(foto({ confirmacoes })), "R-06"), []);
+  });
+
+  it("A7 — a ordem da saida nao depende da ordem das recusas da R-02", () => {
+    // A R-02 e a unica regra cujo sinal tem `chargeId` **e** `contactId` nulos,
+    // pelo que os tres primeiros termos do `_ordenar` davam chave identica a
+    // todos os sinais dela e a saida seguia a ordem da entrada. O ensaio do
+    // determinismo nao o via porque usava **uma** conta so.
+    const recusasDe = (conta: string) =>
+      Array.from({ length: 10 }, () => ({ accountId: conta, instante: haMinutos(5) }));
+    const cobrancas = [
+      cobranca({ chargeId: "c-A", accountId: "conta-A", tenantId: TENANT }),
+      cobranca({ chargeId: "c-B", accountId: "conta-B", tenantId: TENANT }),
+    ];
+    const normal = avaliar(
+      foto({ cobrancas, recusas: [...recusasDe("conta-A"), ...recusasDe("conta-B")] }),
+    );
+    const trocada = avaliar(
+      foto({ cobrancas, recusas: [...recusasDe("conta-B"), ...recusasDe("conta-A")] }),
+    );
+    assert.equal(daRegra(normal, "R-02").length, 2);
+    assert.deepEqual(normal, trocada);
+  });
+
+  it("A8 — o semPii apanha um numero, um fixo, e um objecto aninhado", () => {
+    // Tres buracos medidos: o `typeof valor !== "string") continue` saltava os
+    // `number` (e o tipo do detalhe admite-os), o padrao exigia `9` a cabeca e
+    // nao apanhava um fixo de Luanda, e o mesmo `continue` saltava objectos.
+    assert.ok(semPii({ identificador: 923_456_789 }) !== null);
+    assert.ok(semPii({ contacto_alternativo: "222123456" }) !== null);
+    assert.ok(semPii({ dados: { telefone: "923456789" } }) !== null);
+    assert.ok(semPii({ observacao: "o cliente reclamou" }) !== null);
+    // E as sondas positivas: o que o motor escreve continua a passar.
+    assert.equal(semPii({ ocorrencias: 3, limiar: 3, janela_horas: 1 }), null);
+    assert.equal(semPii({ account_id: CONTA, charge_id: "c-1" }), null);
+  });
+
+  it("A10 — uma contagem que levanta nao mata a deteccao", async () => {
+    // A ordem do `detectarAnomalias` foi escrita para que o alerta nao dependa
+    // da escrita; uma falha de observabilidade a abortar a corrida invertia-a.
+    const alertas: string[] = [];
+    const relatorio = await detectarAnomalias({
+      leitura: { fotografar: async () => foto({ eventos: tresDivergencias() }) },
+      alertar: (alerta) => alertas.push(alerta),
+      contar: () => {
+        throw new Error("regra desconhecida");
+      },
+    });
+    assert.equal(relatorio.sinais.length, 1);
+    assert.ok(alertas.includes(ALERTA_DE_CONTAGEM));
+    assert.ok(alertas.includes(ALERTA_DE_SINAL), "o alerta de ops tem de sair");
+  });
+
+  it("A13 — uma paga de metodo referencia sem referencia e uma diferenca", () => {
+    // Era invisivel: nem ajuste, nem caso para ops, contra a letra do criterio
+    // 7. Para o `cod` e para o `express_push` a ausencia e correcta.
+    const semRef = cobranca({
+      chargeId: "c-1",
+      estado: "paga",
+      // **O metodo tem de ser `referencia`**, e a fabrica poe `manual`: o
+      // motivo `paga_sem_referencia` e so para o metodo que a devia ter. Sem
+      // isto o ensaio media o caminho do `cod`, onde a ausencia e correcta.
+      metodo: "referencia",
+      referencia: null,
+    });
+    const ajustes = reconciliar({
+      linhas: [],
+      cobrancas: [semRef],
+      referenciaPorCobranca: {},
+      jaAjustados: [],
+    });
+    assert.equal(ajustes.length, 1);
+    assert.equal(ajustes[0]?.motivo, "paga_sem_referencia");
+
+    const cod = cobranca({ chargeId: "c-2", estado: "paga", metodo: "cod", referencia: null });
+    assert.deepEqual(
+      reconciliar({ linhas: [], cobrancas: [cod], referenciaPorCobranca: {}, jaAjustados: [] }),
+      [],
+    );
+  });
+});
+
 describe("as cadeias de SQL", () => {
   it("as seis cadeias estao nomeadas, para a suite de base de dados as ler", () => {
     assert.equal(CADEIAS_DAS_ANOMALIAS.length, 6);
@@ -1224,6 +1526,20 @@ describe("as cadeias de SQL", () => {
       assert.ok(sql !== undefined, `${nome} nao esta no mapa deste ensaio`);
       assert.ok(!proibidas.test(sql), `${nome} escreve na base`);
       assert.match(sql, /^\s*SELECT/i, `${nome} nao e um SELECT`);
+    }
+  });
+
+  it("a unica cadeia de escrita vai pela porta e nao por INSERT", () => {
+    // **O par do varrimento de cima.** Aquele prova que as leituras nao
+    // escrevem; este prova que a escrita **existe** e que vai pela funcao
+    // `SECURITY DEFINER` — nenhum papel tem `INSERT` na `platform.fraud_signals`
+    // (revisao `0032`), pelo que um `INSERT` aqui era codigo que nunca correria.
+    assert.equal(CADEIAS_DE_ESCRITA.length, 1);
+    assert.match(SQL_REGISTAR_SINAL, /platform\.registar_sinal_de_anomalia\(/);
+    assert.ok(!/\bINSERT\b/i.test(SQL_REGISTAR_SINAL));
+    // Os oito parametros da porta, pela ordem dela.
+    for (let i = 1; i <= 8; i += 1) {
+      assert.ok(SQL_REGISTAR_SINAL.includes(`$${i}`), `falta o $${i}`);
     }
   });
 
