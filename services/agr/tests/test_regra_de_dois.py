@@ -370,7 +370,11 @@ class _ComConsumidorDasDuas(unittest.TestCase):
     def setUp(self) -> None:
         from kamba_agr import metricas as m
 
+        from base_de_eventos import AgendaDeEnsaio
+
         from test_eventos import (
+            CONTACTO,
+            MARCACAO,
             HndEspiao,
             OutboundEspiao,
             com_conversa,
@@ -383,10 +387,18 @@ class _ComConsumidorDasDuas(unittest.TestCase):
         self.outbound = OutboundEspiao()
         self.hnd = HndEspiao()
         self.tabela = tabela_do_registo()
+        # A agenda atras da `PortaDeMarcacao` (KAM-184), semeada com a marcacao
+        # da encomenda que o envelope de ensaio paga. **Sem ela a accao de
+        # Servicos nao se consegue aplicar** — a porta por omissao levanta —, e o
+        # criterio (b) deixava de ter o consumo cruzado para medir.
+        self.agenda = AgendaDeEnsaio().com_marcacao(
+            booking_id=MARCACAO, order_id=CONTACTO
+        )
         self.consumidor = monta(
             self.servidor,
             outbound=self.outbound,
             hnd=self.hnd,
+            marcacoes=self.agenda,
             tabela=self.tabela,
         )
 
@@ -428,7 +440,14 @@ class TestCriterioBOsDoisEventosDePagamento(_ComConsumidorDasDuas):
         return bruto
 
     def test_os_dois_tipos_chegam_as_duas_verticais(self) -> None:
-        from test_eventos import corpo
+        """**E as duas fazem coisas diferentes com eles**, que e o ADR-012.
+
+        Ate ao KAM-184 a vertical Servicos dava `sem_accao` aqui, com o credor
+        nomeado. Com a accao escrita os dois desfechos sao `aplicado` e o que os
+        distingue e o efeito: o Vendedor fala com o cliente, os Servicos
+        confirmam a marcacao com sinal.
+        """
+        from test_eventos import MARCACAO, corpo
 
         for tipo in self.TIPOS:
             with self.subTest(tipo=tipo):
@@ -436,8 +455,10 @@ class TestCriterioBOsDoisEventosDePagamento(_ComConsumidorDasDuas):
                 desfecho = self.entregar(corpo(self.envelope_de(tipo)))
                 self.assertEqual(
                     sorted(desfecho.por_consumidor),
-                    [("agr_servicos", "sem_accao"), ("agr_vendedor", "aplicado")],
+                    [("agr_servicos", "aplicado"), ("agr_vendedor", "aplicado")],
                 )
+                self.assertEqual(len(self.outbound.chamadas), 1)
+                self.assertEqual(self.agenda.estado_de(MARCACAO), "confirmada")
 
     def test_os_dois_tipos_estao_subscritos_pelas_duas_verticais(self) -> None:
         """Pelo registo, e nao por codigo: e a forma do ADR-012."""
@@ -472,6 +493,7 @@ class TestCriterioBOsDoisEventosDePagamento(_ComConsumidorDasDuas):
         self.assertEqual(len(self.servidor.consumidos), 2, "uma linha por vertical")
         self.assertEqual(len(self.outbound.chamadas), 1, "uma mensagem ao cliente")
         self.assertEqual(len(self.hnd.chamadas), 1, "um aviso ao dono")
+        self.assertEqual(len(self.agenda.pedidos), 1, "uma confirmacao de marcacao")
         # A primeira entrega aplica; as quatro seguintes dizem `duplicado`.
         primeiro = dict(desfechos[0].por_consumidor)
         self.assertEqual(primeiro["agr_vendedor"], "aplicado")
@@ -526,7 +548,7 @@ class TestCriterioBOsDoisEventosDePagamento(_ComConsumidorDasDuas):
         passou = self.entregar(corpo(self.envelope_de("payment.confirmed")))
         self.assertEqual(
             sorted(passou.por_consumidor),
-            [("agr_servicos", "sem_accao"), ("agr_vendedor", "aplicado")],
+            [("agr_servicos", "aplicado"), ("agr_vendedor", "aplicado")],
         )
 
 
@@ -572,27 +594,32 @@ class TestCriterioBSemAlterarONucleo(_ComConsumidorDasDuas):
         desfecho = self.entregar(corpo())
         self.assertEqual(dict(desfecho.por_consumidor)["agr_vendedor"], "aplicado")
 
-    def test_a_accao_de_servicos_tem_credor_nomeado_e_e_o_KAM_047(self) -> None:
-        """**O teste que pina a divida**, e o unico desta bateria que quer ficar
-        vermelho um dia.
+    def test_a_accao_de_servicos_esta_escrita_e_nao_tem_credor(self) -> None:
+        """**O teste que pinava a divida, e a divida foi paga** (KAM-184).
 
-        A segunda metade do criterio (b) — «confirma a marcacao com sinal e
-        agenda o lembrete» — **nao esta escrita**, e o credor esta no codigo:
-        o `ACCOES_POR_LIGAR` do `eventos/handlers.py` nomeia o KAM-047 para os
-        dois eventos de pagamento em Servicos. Quando o KAM-047 ligar a accao,
-        esta linha fica vermelha e obriga a actualizar esta bateria — que e o
-        contrario de uma divida que apodrece em silencio.
+        Ate aqui esta linha exigia `accao_por_ligar("servicos", <pagamento>) ==
+        "KAM-047"` e dizia-se «o unico desta bateria que quer ficar vermelho um
+        dia». Foi esse dia: a segunda metade do criterio (b) — «confirma a
+        marcacao com sinal e agenda o lembrete» — **esta escrita**, e os dois
+        pares passaram do `ACCOES_POR_LIGAR` para o `ACCOES_DE_MARCACAO`.
+
+        O que se mede agora e o estado novo nos **dois** sentidos, e nao so o que
+        mudou: os dois pares tem accao e **nao** tem credor. Sem a segunda
+        metade, uma tabela que nomeasse um credor **e** escrevesse a accao
+        passava — e e precisamente esse o estado que a terceira guarda do
+        `exigir_handlers` recusa no arranque.
         """
         for tipo in ("payment.confirmed", "payment.manual_confirmed"):
-            self.assertEqual(
-                handlers.accao_por_ligar("servicos", tipo),
-                "KAM-047",
+            self.assertTrue(
+                handlers.tem_accao_de_marcacao("servicos", tipo),
                 f"a accao de Servicos para {tipo} mudou de estado",
             )
-        # E o Vendedor **tem** accao escrita para os dois: sem este par
-        # positivo, um `accao_por_ligar` que devolvesse sempre um credor
-        # passava o teste de cima.
+            self.assertIsNone(handlers.accao_por_ligar("servicos", tipo))
+        # E o Vendedor **nao** tem esta accao: sem este par negativo, uma tabela
+        # que respondesse `True` a tudo passava o teste de cima. O que ele faz
+        # com o mesmo evento e falar com o cliente, que e o ADR-012.
         for tipo in ("payment.confirmed", "payment.manual_confirmed"):
+            self.assertFalse(handlers.tem_accao_de_marcacao("vendedor", tipo))
             self.assertIsNone(handlers.accao_por_ligar("vendedor", tipo))
 
     def test_toda_a_subscricao_das_duas_verticais_tem_handler(self) -> None:

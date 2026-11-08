@@ -1609,9 +1609,44 @@ KAM-108: o Vendedor produz e os Serviços consomem), e aí há **dois**
 consumidores por desenho. O que impede os dois de mandarem a **mesma** mensagem
 é o *handler* ser por `(vertical, tipo)`: o `payment.confirmed` fala com o
 cliente pelo Vendedor, e nos Serviços a acção é outra — «confirma uma marcação
-com sinal» (`03` §12) — que o KAM-047 ainda não escreveu, e que o desfecho
-`sem_accao` nomeia com o credor. Com a chave no tipo, o cliente recebia duas
-mensagens idênticas sobre o mesmo pagamento. Achado da revisão adversarial.
+com sinal» (`03` §12), escrita pelo **KAM-184** e descrita abaixo. Até ali, os
+dois pares estavam em `ACCOES_POR_LIGAR` e o desfecho era `sem_accao`, com o
+credor nomeado. Com a chave no tipo, o cliente recebia duas mensagens idênticas
+sobre o mesmo pagamento. Achado da revisão adversarial.
+
+### A acção dos dois pagamentos em Serviços, e de onde não vem o `booking_id`
+
+O que a vertical Serviços faz com um `payment.confirmed` ou um
+`payment.manual_confirmed` é **confirmar a marcação com sinal** — e é a
+confirmação que a torna visível à leitura do lembrete (o índice
+`bookings_contacto_idx` da revisão `0025` existe para ela; o lembrete é o
+KAM-048). Não notifica ninguém: o `notifica` dos dois pares continua vazio no
+`registry/servicos.yaml`, e o artefacto fica na agenda.
+
+**O `booking_id` não vem do evento, e isso é medido.** Os quatro esquemas
+publicados dos dois tipos têm `additionalProperties: false` e não admitem
+`booking_id`; um evento que o levasse é recusado e vai para a DLQ. A acção
+identifica a encomenda pelo `order_id`, que os quatro levam como campo
+obrigatório, e **quem sabe que marcação é a desta encomenda é a agenda**, atrás
+da `PortaDeMarcacao`. As duas rotas para fechar a lacuna — uma versão nova do
+contrato, ou o consumidor resolver a marcação por consulta — estão **devolvidas
+ao fundador** no critério 1 do KAM-184, com o custo de cada uma medido; nenhuma
+está aplicada.
+
+A porta distingue três respostas, e as três são precisas:
+
+| A agenda diz | O consumo faz | Porquê |
+|---|---|---|
+| a marcação confirmada | consome: `aplicado` | o artefacto existe |
+| `None` — esta encomenda **não tem** marcação | consome: `aplicado` | uma encomenda de produtos num *tenant* que também tem Serviços activa; não é falha |
+| levanta `MarcacaoPorResolver` | recua pela escada do §6.4 e abre a DLQ | não se sabe, e um `aplicado` aqui afirmava uma confirmação que não houve |
+
+A implementação por omissão é a terceira, e é a de produção: o caminho entre o
+AGR e o módulo `servicos` (TypeScript, no COM) **não existe** — está escrito no
+`tls/servicos.py`, e o ticket que o liga também não existe. É a mesma situação
+em que o `payment.confirmed` do Vendedor já estava pelo contacto por resolver,
+pelo que o que mudou em produção não é o resultado: é o desfecho deixar de dizer
+«ninguém escreveu isto» e passar a dizer o que se passa.
 
 ### O turno por evento não invoca o grafo, e isso está decidido
 
@@ -1648,6 +1683,7 @@ volta dava chave nova, e com ela uma mensagem nova.
 | Outbound (janela/*template*) | devolve `sem_template`: não envia, alerta, e **a entrega vai para a DLQ** | KAM-015, e o catálogo de *templates* é KAM-024 |
 | HND (dono e agente) | não faz nada; a decisão de canal é o que este ticket entrega | KAM-019, KAM-115 |
 | `(agregado) -> contact_id` | **levanta** | KAM-041 (`order`), KAM-047 (`booking`) |
+| `order_id -> marcação confirmada` (`PortaDeMarcacao`, KAM-184) | **levanta** | o caminho entre o AGR e o módulo `servicos`, que **não tem ticket** — ver o `tls/servicos.py`, onde a mesma lacuna está escrita para os executores das cinco *tools* |
 
 A terceira é a que se nota em produção, e vale dizê-lo por extenso: **dos seis
 tipos subscritos, só o `booking.created` traz `contact_id` no contrato**
@@ -1994,3 +2030,4 @@ referência é uma cadeia opaca com dígitos e nenhum dos cinco blocos do §9.1 
 | 1.14 | 2026-10-29 | KAM-037 | **Revisão adversarial** (`analises/ANALISE-39`): **29 achados, 12 `CONFIRMADO`** — dois deles pagos durante a revisão, pela própria entrega documental. A classe que ela nomeia é nova nesta série: **o estado do mundo fora do turno**. Três dos achados graves são a mesma forma — o botão fica no ecrã do WhatsApp e o `degradado` é um campo do turno (C1); o disjuntor era global e o orçamento é da chave do *tenant* (C3); o `buttons` de quatro ids é válido aqui e recusado pelo Outbound (C6) —, isto é, **peças corretas medidas contra o seu próprio contexto e não contra o do consumidor**. E dois achados são de confiança e não de produto: um ensaio chamado «…cita por fact» que não olhava para nenhum *fact*, e outro que passava com o comportamento oposto ao nome. O §6 e o §7-I ficam reescritos onde a correcção mudou o que estava escrito |
 | 1.13 | 2026-10-29 | KAM-037 | §7-I: o modo determinístico — o sub-grafo **do** grafo e não um segundo compilado (e porque é o *checkpointer* que decide isso), os cinco motivos e o `429` que teve de virar `http_429` pela gramática de etiqueta, o disjuntor do LLM com os limiares **medidos** na configuração do proxy em vez de copiados do bloco, a barreira que não se simplifica (Postgres em baixo **não** é degradação, imposta por tipo e medida a correr), o `turn_id` que impede o denominador do alerta de inflacionar com turnos em voo, e a interacção com o `concierge` que nenhum dos dois blocos previa — devolvida ao fundador com a leitura implementada. O §6 fica corrigido: o `agr_degraded_turns_total` **passou a existir**, e a frase que dizia o contrário era verdadeira até este ticket |
 | 1.16 | 2026-11-08 | KAM-069 | §7-D, nota do `destino_negado`: a frase dizia «em `prod` a porta nega tudo **até ao KAM-069**», e esse ticket entregou a tabela e a porta. Passa a dizer o que passou a ser verdade — nega tudo enquanto nenhum destino tiver `apd_ref`. O `arrancar` do `llm/destinos.py` devolve a `PortaDoNucleo` quando há ligação à base e a `NegaTudoAteKam069` quando não há, que é a mais restritiva das duas; o motivo `destino_negado` e a mecânica da degradação **não mudam**. |
+| 1.17 | 2026-11-08 | KAM-184 | §7-H: **a acção dos dois pagamentos na vertical Serviços passa a estar escrita** — confirma a marcação com sinal, e o desfecho do consumo deixa de ser `sem_accao` para os dois pares. A secção ganha a tabela das três respostas da `PortaDeMarcacao` (a marcação confirmada, `None` para uma encomenda sem marcação, e levantar quando não se sabe), e a tabela do que ainda não existe ganha a quarta porta, cujo credor **não é um ticket**: o caminho entre o AGR e o módulo `servicos` não está em linha nenhuma do §4 do `specs/INDICE.md`, e a mesma lacuna já estava escrita no `tls/servicos.py`. **A origem do `booking_id` fica devolvida ao fundador** com as duas rotas medidas: ele não vem no evento — os quatro esquemas dos dois tipos têm `additionalProperties: false` e não o admitem — e a acção identifica a encomenda pelo `order_id`. O que muda em produção não é o resultado (nem o `contactos` nem o `marcacoes` são ligados no `__main__.py`, pelo que o `payment.confirmed` do Vendedor já ia para a DLQ pelo contacto por resolver): é o desfecho deixar de dizer «ninguém escreveu isto». | Equipa KAMBÁ |

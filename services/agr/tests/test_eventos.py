@@ -18,6 +18,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from kamba_agr import metricas as m
 from kamba_agr.eventos import (
@@ -36,6 +37,7 @@ from kamba_agr.registo.validar import AmbienteDoRegisto
 from kamba_core.eventos import TENTATIVAS
 
 from base_de_eventos import (
+    AgendaDeEnsaio,
     ContactoFixo,
     HndEspiao,
     LinhaDaConversa,
@@ -53,6 +55,12 @@ OUTRO_TENANT = "11111111-2222-4333-8444-555555555555"
 CONTACTO = "9b2f6c1a-7e3d-4c80-b5a1-2d9e8f7a6b50"
 CONVERSA = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 EVENTO = "0192f1c4-7b1e-7d2a-9c3e-5a1f0b6e2d44"
+#: O `booking_id` da marcacao que a `AgendaDeEnsaio` semeia (KAM-184). **Nao vem
+#: do envelope**, e e esse o ponto: os quatro esquemas dos dois eventos de
+#: pagamento nao admitem `booking_id` no *payload*.
+MARCACAO = "7c4a1f20-9e6b-4d31-8a05-3f2e1d0c9b88"
+#: Outra encomenda, para o caso «esta encomenda nao tem marcacao».
+OUTRA_ENCOMENDA = "5d8b3e14-2c7a-4f69-91b8-0e4d6a3c7f21"
 
 
 def subscricao_de(vertical: str, tipo: str, *notifica: str) -> subscricoes.Consumidor:
@@ -297,12 +305,28 @@ class TestCriterio1Subscricoes(unittest.TestCase):
             )
         self.assertIn("tenant.approved", str(erro.exception))
 
-    def test_um_destinatario_vazio_com_credor_nao_reprova(self) -> None:
+    def test_um_destinatario_vazio_com_accao_escrita_nao_reprova(self) -> None:
         """O par positivo do ensaio de cima, e nao e simetria: sem ele, uma
         guarda que reprovasse **toda** a subscricao sem destinatario passava o
         teste acima e punha o AGR a recusar o arranque com o registo verdadeiro,
-        onde os dois pagamentos de Servicos esperam pelo KAM-047."""
+        onde os dois pagamentos de Servicos nao avisam ninguem — a accao deles e
+        confirmar a marcacao com sinal (KAM-184)."""
         handlers.exigir_handlers((subscricao_de("servicos", "payment.confirmed"),))
+
+    def test_um_destinatario_vazio_com_credor_nao_reprova(self) -> None:
+        """O outro par positivo: a accao **por escrever** com dono continua a
+        passar o arranque.
+
+        **Com um par sintetico, e por uma razao medida:** desde o KAM-184 o
+        `ACCOES_POR_LIGAR` esta **vazio** — os dois unicos pares que lá viviam
+        tem accao escrita —, pelo que o registo verdadeiro ja nao exercita este
+        ramo. Deixa-lo sem ensaio era deixar a proxima vertical descobrir em
+        producao que a declaracao «subscrevo isto e ainda nao escrevi a accao»
+        deixou de ser aceita.
+        """
+        par = ("vendedor", "tenant.approved")
+        with mock.patch.object(handlers, "POR_LIGAR", (par,)):
+            handlers.exigir_handlers((subscricao_de(*par),))
 
     def test_declarar_cliente_sem_texto_reprova_o_arranque(self) -> None:
         """A segunda guarda: o `TEXTOS` e lido **dentro** da transaccao.
@@ -331,12 +355,31 @@ class TestCriterio1Subscricoes(unittest.TestCase):
         um `notifica: [dono]` num par com credor fazia o `_efeito` avisar o dono
         **e** o `_consumir` devolver `sem_accao`, porque o desfecho le o credor e
         nao o destinatario.
+
+        **Par sintetico pela razao do ensaio de cima**: o `ACCOES_POR_LIGAR` esta
+        vazio desde o KAM-184.
         """
-        with self.assertRaises(handlers.SemHandlerError) as erro:
-            handlers.exigir_handlers(
-                (subscricao_de("servicos", "payment.confirmed", "dono"),)
-            )
+        par = ("vendedor", "stock.low")
+        with mock.patch.object(handlers, "POR_LIGAR", (par,)):
+            with self.assertRaises(handlers.SemHandlerError) as erro:
+                handlers.exigir_handlers((subscricao_de(*par, "dono"),))
         self.assertIn("ACCOES_POR_LIGAR", str(erro.exception))
+
+    def test_ter_credor_e_accao_escrita_ao_mesmo_tempo_reprova(self) -> None:
+        """A outra metade da terceira guarda, e e a que o KAM-184 acrescenta.
+
+        Um par em `ACCOES_POR_LIGAR` **e** em `ACCOES_DE_MARCACAO` diz as duas
+        coisas sem precisar de `notifica` nenhum: o `_efeito` confirmava a
+        marcacao e o `_consumir` devolvia `sem_accao`, porque o desfecho le o
+        credor e nao o efeito. As duas tabelas estao a dez linhas uma da outra no
+        mesmo modulo, que e precisamente como uma emenda futura poe um par nas
+        duas.
+        """
+        par = ("servicos", "payment.confirmed")
+        with mock.patch.object(handlers, "POR_LIGAR", (par,)):
+            with self.assertRaises(handlers.SemHandlerError) as erro:
+                handlers.exigir_handlers((subscricao_de(*par),))
+        self.assertIn("ACCOES_DE_MARCACAO", str(erro.exception))
 
     def test_a_guarda_do_fala_com_o_cliente_morde_fora_do_registo(self) -> None:
         """**A guarda que sobreviveu a uma mutacao, e por isso ganha ensaio.**
@@ -371,10 +414,12 @@ class TestCriterio1Subscricoes(unittest.TestCase):
         self.assertFalse(
             handlers.fala_com_o_cliente(subscricao_de("servicos", "payment.confirmed"))
         )
-        self.assertEqual(
-            handlers.accao_por_ligar("servicos", "payment.confirmed"), "KAM-047"
-        )
-        self.assertIsNone(handlers.accao_por_ligar("vendedor", "payment.confirmed"))
+        # E o que os Servicos fazem com o mesmo tipo e a accao de marcacao, que
+        # o Vendedor nao tem: sem este par negativo, uma tabela que respondesse
+        # `True` a tudo passava o ensaio.
+        self.assertTrue(handlers.tem_accao_de_marcacao("servicos", "payment.confirmed"))
+        self.assertFalse(handlers.tem_accao_de_marcacao("vendedor", "payment.confirmed"))
+        self.assertIsNone(handlers.accao_por_ligar("servicos", "payment.confirmed"))
 
     def test_uma_vertical_sem_subscricoes_nao_e_problema(self) -> None:
         ambiente = ambiente_do_registo()
@@ -503,6 +548,7 @@ def monta(
     hnd: HndEspiao | None = None,
     tranca: TrancaFalsa | None = None,
     contactos=None,
+    marcacoes=None,
     tabela: tuple[subscricoes.Consumidor, ...] | None = None,
     relogio=None,
     aviso_da_dlq=None,
@@ -530,6 +576,11 @@ def monta(
         ),
         ler_entitlement=_entitlement(servidor),
         contactos=contactos or ContactoFixo(CONTACTO),
+        # **A porta por omissao fica a de producao**, que levanta: quem precisa
+        # da agenda passa-a, e quem nao a passa mede o que acontece hoje em
+        # producao — a escada do §6.4 e a DLQ. Dar aqui uma agenda por omissao
+        # punha toda esta bateria a medir um sistema que nao existe.
+        marcacoes=marcacoes,
         metricas=m.METRICAS,
         relogio=relogio or (lambda: 1_793_000_000.0),
     )
@@ -1577,30 +1628,281 @@ class TestRoteamentoPorEntitlement(unittest.TestCase):
         (ADR-012, KAM-108) — tem dois consumidores, e isso esta certo. O que
         estava errado era os dois mandarem a **mesma** mensagem: com o *handler*
         por `(vertical, tipo)`, o pagamento fala com o cliente pelo Vendedor e
-        nos Servicos da `sem_accao`, com o credor nomeado.
+        nos Servicos **confirma a marcacao com sinal** (KAM-184) — uma mensagem
+        e um aviso ao dono, e nao dois de cada.
         """
         servidor = com_conversa()
         outbound, hnd = OutboundEspiao(), HndEspiao()
+        agenda = AgendaDeEnsaio().com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
         desfecho = asyncio.run(
             monta(
-                servidor, outbound=outbound, hnd=hnd, tabela=tabela_do_registo()
+                servidor,
+                outbound=outbound,
+                hnd=hnd,
+                marcacoes=agenda,
+                tabela=tabela_do_registo(),
             ).entregar(corpo())
         )
         self.assertEqual(
             sorted(desfecho.por_consumidor),
-            [("agr_servicos", "sem_accao"), ("agr_vendedor", "aplicado")],
+            [("agr_servicos", "aplicado"), ("agr_vendedor", "aplicado")],
         )
         self.assertEqual(len(outbound.chamadas), 1)
         self.assertEqual(len(hnd.chamadas), 1)
         self.assertEqual(len(servidor.consumidos), 2)
+        # E a accao de Servicos nao fala com o cliente: o que ela produz esta na
+        # agenda, e so la.
+        self.assertEqual(agenda.estado_de(MARCACAO), "confirmada")
 
-    def test_o_agregado_de_duas_verticais_manda_olhar(self) -> None:
-        """`sem_accao` e mais grave do que `aplicado`: e o que o painel tem de ver."""
+    def test_o_agregado_de_duas_verticais_e_o_pior_dos_dois(self) -> None:
+        """O agregado e o **pior** desfecho, e nao o primeiro.
+
+        Com a agenda ligada os dois aplicam, e o agregado e `aplicado`. **O par
+        que mede a ordem de gravidade** — `sem_accao` acima de `aplicado` — e o
+        `TestAgregacaoDeDesfechos`, que a mede sem depender de o registo ter ou
+        nao uma accao por ligar: era o que este ensaio fazia antes do KAM-184, e
+        passou a medi-lo com a tabela do registo verdadeira.
+        """
         servidor = com_conversa()
+        agenda = AgendaDeEnsaio().com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
         desfecho = asyncio.run(
-            monta(servidor, tabela=tabela_do_registo()).entregar(corpo())
+            monta(servidor, marcacoes=agenda, tabela=tabela_do_registo()).entregar(
+                corpo()
+            )
         )
-        self.assertEqual(desfecho.desfecho, "sem_accao")
+        self.assertEqual(desfecho.desfecho, "aplicado")
+
+
+class TestAccaoDeMarcacaoDosServicos(unittest.TestCase):
+    """A accao dos dois pagamentos na vertical Servicos (KAM-184).
+
+    Os ensaios desta classe medem **o artefacto** — uma marcacao que passa de
+    `hold` a `confirmada` na agenda — e nao «a porta foi chamada». A distincao e
+    o que os faz morrer quando a **ligacao** se desfaz e nao so quando a funcao
+    se estraga: apagar a chamada do `_efeito` deixa o desfecho em `aplicado`
+    (nao ha credor a ler), pelo que um ensaio que so olhasse ao desfecho ficava
+    verde com a accao desligada.
+    """
+
+    TIPOS = ("payment.confirmed", "payment.manual_confirmed")
+
+    def setUp(self) -> None:
+        m.METRICAS.repor()
+        self.servidor = com_conversa()
+        self.outbound = OutboundEspiao()
+        self.agenda = AgendaDeEnsaio()
+
+    def envelope_de(self, tipo: str) -> dict:
+        """Um envelope valido **para este tipo**: o manual nao leva provedor."""
+        bruto = envelope_cru(tipo=tipo)
+        if tipo == "payment.manual_confirmed":
+            bruto["payload"] = {
+                chave: valor
+                for chave, valor in bruto["payload"].items()
+                if chave not in ("provider", "referencia")
+            }
+        return bruto
+
+    def so_servicos(self) -> tuple[subscricoes.Consumidor, ...]:
+        """A tabela com **so** o consumidor de Servicos.
+
+        De proposito sem o Vendedor: o que se mede aqui e a accao de Servicos, e
+        com os dois um `aplicado` do Vendedor podia mascarar o de Servicos no
+        agregado. O caso das duas verticais juntas esta no
+        `TestRoteamentoPorEntitlement` e no `test_regra_de_dois.py`.
+        """
+        return tuple(c for c in tabela_do_registo() if c.vertical == "servicos")
+
+    def entregar(self, tipo: str, *, tentativas: int = 1, marcacoes=None):
+        consumidor = monta(
+            self.servidor,
+            outbound=self.outbound,
+            marcacoes=self.agenda if marcacoes is None else marcacoes,
+            tabela=self.so_servicos(),
+        )
+        return asyncio.run(
+            consumidor.entregar(corpo(self.envelope_de(tipo), tentativas=tentativas))
+        )
+
+    # ------------------------------------------------- criterio 2: o desfecho
+
+    def test_o_desfecho_dos_dois_pares_deixa_de_ser_sem_accao(self) -> None:
+        """**A primeira direccao do criterio 2**, nos dois tipos.
+
+        Com a accao ligada o desfecho e o da accao — `aplicado` — e nao
+        `sem_accao`. E mede-se nos **dois** tipos porque sao dois pares no
+        registo e nada garante que uma tabela os trate aos dois.
+        """
+        for tipo in self.TIPOS:
+            with self.subTest(tipo=tipo):
+                self.setUp()
+                self.agenda.com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
+                desfecho = self.entregar(tipo)
+                self.assertEqual(
+                    desfecho.por_consumidor, (("agr_servicos", "aplicado"),)
+                )
+                self.assertEqual(self.agenda.estado_de(MARCACAO), "confirmada")
+
+    def test_com_a_accao_desligada_o_desfecho_volta_a_sem_accao(self) -> None:
+        """**A segunda direccao do criterio 2**, e e ela que mede a ligacao.
+
+        Desfaz-se a ligacao como ela estava antes deste ticket — o par fora do
+        `ACCOES_DE_MARCACAO` e de volta ao `ACCOES_POR_LIGAR` com credor — e
+        exige-se que o desfecho volte a `sem_accao` **e** que a agenda fique
+        intacta. Um ensaio que so medisse o caminho feliz passava com a accao
+        ligada ao sitio errado: o desfecho `aplicado` aparece com ou sem ela.
+        """
+        for tipo in self.TIPOS:
+            with self.subTest(tipo=tipo):
+                self.setUp()
+                self.agenda.com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
+                par = ("servicos", tipo)
+                with (
+                    mock.patch.object(
+                        handlers, "COM_ACCAO_DE_MARCACAO", frozenset()
+                    ),
+                    mock.patch.object(handlers, "POR_LIGAR", (par,)),
+                    # O credor que lá estava mesmo, e nao um `KAM-NNN`
+                    # inventado: o `lint_refs` varre as baterias e um numero
+                    # que nao exista no §4 do `specs/INDICE.md` e um achado do
+                    # *gate* 3.
+                    mock.patch.object(
+                        handlers, "ACCOES_POR_LIGAR", {par: "KAM-047"}
+                    ),
+                ):
+                    desfecho = self.entregar(tipo)
+                self.assertEqual(
+                    desfecho.por_consumidor, (("agr_servicos", "sem_accao"),)
+                )
+                self.assertEqual(self.agenda.estado_de(MARCACAO), "hold")
+                self.assertEqual(self.agenda.pedidos, [])
+
+    # -------------------------------------------- criterio 5: o artefacto
+
+    def test_o_cenario_do_G0_1_produz_a_marcacao_confirmada(self) -> None:
+        """O criterio 5, ponta a ponta e sem demonstracao humana.
+
+        O predicado e o do bloco: dado um `payment.manual_confirmed` valido para
+        uma encomenda **com marcacao**, a vertical Servicos produz o
+        lembrete/agenda. O que se mede e o artefacto — a marcacao passa de
+        `hold` a `confirmada`, que e o que a torna visivel a leitura do lembrete
+        (indice `bookings_contacto_idx`, revisao `0025`, KAM-048) — e nao o
+        desfecho do consumo, que e o criterio 2.
+
+        **E o `payment.manual_confirmed` e nao o outro**: o `ManualProvider` e o
+        unico caminho de pagamento que existe hoje, e e o evento que o dicionario
+        §3.5 nomeia como «Evento do *gate* da Fase 0».
+        """
+        self.agenda.com_marcacao(
+            booking_id=MARCACAO,
+            order_id=CONTACTO,
+            inicio_at="2026-11-16T09:30:00+00:00",
+        )
+        self.entregar("payment.manual_confirmed")
+
+        self.assertEqual(self.agenda.estado_de(MARCACAO), "confirmada")
+        self.assertEqual(self.agenda.pedidos, [(TENANT, CONTACTO, EVENTO)])
+        # E ninguem foi notificado por esta vertical: o artefacto e a agenda.
+        self.assertEqual(self.outbound.chamadas, [])
+
+    def test_a_encomenda_sem_marcacao_consome_se_sem_confirmar_nada(self) -> None:
+        """Uma encomenda de produtos num *tenant* que tambem tem Servicos.
+
+        A agenda responde «esta encomenda nao tem marcacao» e isso **nao e uma
+        falha**: o evento consome-se. Sem este caso, uma porta que levantasse
+        para tudo o que nao encontrasse punha na DLQ todos os pagamentos de
+        produto de um *tenant* com as duas verticais.
+        """
+        self.agenda.com_marcacao(booking_id=MARCACAO, order_id=OUTRA_ENCOMENDA)
+        desfecho = self.entregar("payment.confirmed")
+
+        self.assertEqual(desfecho.por_consumidor, (("agr_servicos", "aplicado"),))
+        self.assertEqual(self.agenda.estado_de(MARCACAO), "hold")
+        self.assertEqual(len(self.agenda.pedidos), 1)
+
+    def test_a_re_entrega_nao_confirma_uma_segunda_marcacao(self) -> None:
+        """A segunda entrega e `duplicado` e **nao chega a pedir** a agenda.
+
+        E a propriedade do criterio 2 do KAM-038 vista do lado deste efeito: a
+        marca e o efeito estao na mesma transaccao, pelo que um evento repetido
+        nao volta a confirmar nada. O `len(pedidos) == 1` e o que o mede — a
+        igualdade de estados passava com dois pedidos.
+        """
+        self.agenda.com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
+        primeiro = self.entregar("payment.confirmed")
+        segundo = self.entregar("payment.confirmed")
+
+        self.assertEqual(primeiro.por_consumidor, (("agr_servicos", "aplicado"),))
+        self.assertEqual(segundo.por_consumidor, (("agr_servicos", "duplicado"),))
+        self.assertEqual(len(self.agenda.pedidos), 1)
+        self.assertEqual(len(self.servidor.consumidos), 1)
+
+    # ------------------------------------- a porta por omissao, e o que ela faz
+
+    def test_a_porta_por_omissao_levanta(self) -> None:
+        """`MarcacaoPorLigar` e a de producao, e nao devolve `None`.
+
+        A diferenca e a que a *docstring* do `MarcacaoPorResolver` escreve:
+        devolver `None` dizia «esta encomenda nao tem marcacao» e consumia o
+        evento com um `aplicado` sobre uma confirmacao que nao houve.
+        """
+        with self.assertRaises(handlers.MarcacaoPorResolver):
+            handlers.MarcacaoPorLigar().confirmar_com_sinal(
+                tenant_id=TENANT, order_id=CONTACTO, event_id=EVENTO
+            )
+
+    def test_sem_agenda_ligada_o_pagamento_recua_pela_escada(self) -> None:
+        """Com a porta por omissao, a entrega **volta** em vez de se consumir.
+
+        E o estado de producao hoje — nem o `contactos` nem o `marcacoes` sao
+        ligados no `__main__.py` —, e e o mesmo que o `payment.confirmed` do
+        Vendedor ja tem pelo contacto por resolver. O desfecho deixa de ser
+        `sem_accao`, que dizia «ninguem escreveu isto», e passa a dizer o que se
+        passa: o AGR nao consegue confirmar a marcacao.
+        """
+        with self.assertRaises(EntregaPorRepetir) as erro:
+            self.entregar("payment.confirmed", marcacoes=handlers.MarcacaoPorLigar())
+        self.assertEqual(erro.exception.codigo, "falhou")
+        # **Nao ha marca sem efeito**: a accao levantou dentro da transaccao, o
+        # `ROLLBACK` levou a marca com ela, e a re-entrega volta a tentar.
+        self.assertEqual(len(self.servidor.consumidos), 0)
+        self.assertEqual(self.servidor.dlq, [])
+
+    def test_esgotada_a_escada_abre_entrada_na_DLQ(self) -> None:
+        """E a sexta tentativa nao recua mais: abre a DLQ, com o envelope.
+
+        A entrada e **reprocessavel** no dia em que a agenda existir, que e o
+        que distingue este caminho de um envelope invalido — e Sev1 pelo §6.4,
+        com a classificacao certa: «cliente que pagou e a marcacao nao ficou
+        confirmada».
+        """
+        desfecho = self.entregar(
+            "payment.confirmed",
+            tentativas=TENTATIVAS,
+            marcacoes=handlers.MarcacaoPorLigar(),
+        )
+        self.assertEqual(desfecho.por_consumidor, (("agr_servicos", "para_dlq"),))
+        self.assertEqual(len(self.servidor.dlq), 1)
+
+    def test_um_envelope_sem_order_id_nao_pede_nada_a_agenda(self) -> None:
+        """A guarda do `confirmar_marcacao_com_sinal`, e porque nao se apaga.
+
+        E inalcancavel pelo consumo — o `order_id` e obrigatorio nos quatro
+        esquemas e o `validar_payload` corre antes —, pelo que o que ela guarda e
+        um chamador novo. Sem ensaio, a proxima limpeza apaga-a por parecer
+        morta; e a licao que o `fala_com_o_cliente` deste modulo ja pagou.
+        """
+        bruto = self.envelope_de("payment.confirmed")
+        bruto["payload"] = {
+            chave: valor
+            for chave, valor in bruto["payload"].items()
+            if chave != "order_id"
+        }
+        with self.assertRaises(handlers.MarcacaoPorResolver):
+            handlers.confirmar_marcacao_com_sinal(
+                env.ler_envelope(bruto), self.agenda
+            )
+        self.assertEqual(self.agenda.pedidos, [])
 
 
 class TestMetricas(unittest.TestCase):
@@ -1714,6 +2016,21 @@ class TestHandlers(unittest.TestCase):
     def test_os_pares_por_ligar_sao_as_chaves_das_accoes(self) -> None:
         """Derivado e nao escrito ao lado, pela razao do `AO_CLIENTE`."""
         self.assertEqual(set(handlers.POR_LIGAR), set(handlers.ACCOES_POR_LIGAR))
+        self.assertEqual(
+            handlers.COM_ACCAO_DE_MARCACAO, frozenset(handlers.ACCOES_DE_MARCACAO)
+        )
+
+    def test_nenhum_par_tem_accao_escrita_e_credor(self) -> None:
+        """As duas tabelas sao disjuntas, e a guarda do arranque diz o mesmo.
+
+        Aqui mede-se o estado das tabelas; o `exigir_handlers` mede o que
+        acontece a quem as ponha a dizer as duas coisas. As duas medicoes sao
+        precisas: um par nas duas tabelas que **ninguem subscreva** nunca chega
+        a guarda.
+        """
+        self.assertEqual(
+            set(handlers.ACCOES_POR_LIGAR) & handlers.COM_ACCAO_DE_MARCACAO, set()
+        )
 
     def test_o_nucleo_nao_tem_tabela_de_destinatarios(self) -> None:
         """**O ensaio que fixa a extraccao do KAM-039.**
@@ -1821,8 +2138,14 @@ class TestHandlers(unittest.TestCase):
         self.assertIsNotNone(accoes.cliente)
         self.assertIsNone(accoes.dono_por)
 
-    def test_o_mesmo_pagamento_nao_leva_nada_nos_servicos(self) -> None:
-        """A accao dos Servicos para um pagamento e do KAM-047, e nao esta escrita."""
+    def test_o_mesmo_pagamento_nao_notifica_ninguem_nos_servicos(self) -> None:
+        """A accao dos Servicos para um pagamento **nao e uma notificacao**.
+
+        Ela existe desde o KAM-184 — confirma a marcacao com sinal — e o
+        `accoes_de` continua a devolver os dois campos vazios, porque este e o
+        caminho de quem se avisa. Quem mede a accao e o
+        `TestAccaoDeMarcacaoDosServicos`.
+        """
         accoes = handlers.accoes_de(
             env.ler_envelope(envelope_cru()),
             subscricao=subscricao_de("servicos", "payment.confirmed"),

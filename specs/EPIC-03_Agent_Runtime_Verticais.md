@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.14 |
+| Versão | 1.15 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -3787,7 +3787,7 @@ a linha (d) e a 7.ª da tabela, e o §5.0 do relatório.
 | # | Critério | Estado | O que se mediu, com que comando, e que número saiu |
 |---|---|---|---|
 | (a) | Vendedor e Serviços no mesmo AGR/TLS/EVT/TEN, uma conversa de cada, 0 *flags* de vertical | **satisfeito** | `services/agr/tests/test_regra_de_dois.py::TestCriterioAAsDuasNoMesmoRuntime`, **8** ensaios. **Uma** `ToolLayer` com as **11** tools do §6.2 e **dois** grafos; o *tenant* tem as duas verticais activas, que é o do *gate* da Fase 0. `test_uma_conversa_de_cada_vertical_corre_no_mesmo_processo`: duas respostas pelo mesmo Outbound, uma por `get_store_info` e outra por `list_services`. A identidade da camada mede-se por `is` **e** conta-se que as duas invocaram por ela — um `is` sobre uma camada que nenhuma usou não provava nada. `test_as_Dependencias_sao_a_MESMA_classe`. Mutação `Servicos ganha get_order_status na lista de permitidas` → **apanhada** (dois ensaios vermelhos). **E o canário da recusa foi corrigido pela revisão adversarial**: ele pedia o `criar_pedido` com argumentos que o modelo não aceita e afirmava `assertIsNotNone`, pelo que a invocação morria em `VALIDATION_ERROR` e a asserção passava — com um comentário ao lado a afirmar o contrário. Agora pede uma tool **ligada**, com argumentos válidos e a encomenda semeada, exige o código `TOOL_NOT_ALLOWED` na recusa e `ok` no par positivo |
-| (b) | Evento de pagamento do Vendedor consumido pelo *handler* de Serviços sem alterar o bus, o envelope nem o `core/`; consumo idempotente; e, com marcação com sinal, confirma e agenda o lembrete | **parcial** | **A primeira metade está satisfeita e medida**: `TestCriterioBOsDoisEventosDePagamento`, com os **dois** tipos (a bateria do KAM-038 media só o `payment.confirmed`) → `[("agr_servicos", "sem_accao"), ("agr_vendedor", "aplicado")]` para os dois, com uma linha de `events_consumed` por vertical e **sem** uma linha nova de código no bus. **A segunda metade não está escrita**, e tem **dois** credores e não um: o **KAM-047** para a acção (o `ACCOES_POR_LIGAR` do `eventos/handlers.py` nomeia-o, e há ensaio a pinar esse credor) e o **KAM-007** para o esquema — medido: os contratos publicados de `payment.confirmed` e `payment.manual_confirmed` **não permitem `booking_id`** no *payload*, a lista é fechada, e um campo a mais manda o evento para a DLQ (`test_o_contrato_v1_NAO_permite_booking_id_no_payload`, com o par positivo ao lado). Logo o efeito *proposta* dos Detalhes Técnicos **não é implementável como está escrito** |
+| (b) | Evento de pagamento do Vendedor consumido pelo *handler* de Serviços sem alterar o bus, o envelope nem o `core/`; consumo idempotente; e, com marcação com sinal, confirma e agenda o lembrete | **parcial** | **A primeira metade está satisfeita e medida**: `TestCriterioBOsDoisEventosDePagamento`, com os **dois** tipos (a bateria do KAM-038 media só o `payment.confirmed`) → `[("agr_servicos", "sem_accao"), ("agr_vendedor", "aplicado")]` para os dois, com uma linha de `events_consumed` por vertical e **sem** uma linha nova de código no bus. **A segunda metade não estava escrita** quando isto se mediu, e tinha **dois** credores e não um: o **KAM-047** para a acção (o `ACCOES_POR_LIGAR` do `eventos/handlers.py` nomeava-o, e havia ensaio a pinar esse credor — **o KAM-184 escreveu a acção**, pelo que os dois pares passaram para o `ACCOES_DE_MARCACAO` e aquele ensaio passou a pinar o estado novo) e o **KAM-007** para o esquema — medido: os contratos publicados de `payment.confirmed` e `payment.manual_confirmed` **não permitem `booking_id`** no *payload*, a lista é fechada, e um campo a mais manda o evento para a DLQ (`test_o_contrato_v1_NAO_permite_booking_id_no_payload`, com o par positivo ao lado). Logo o efeito *proposta* dos Detalhes Técnicos **não é implementável como está escrito** |
 | (c) | A suite cruzada de isolamento (X-02, X-09) passa para as duas verticais | **vazia — credor KAM-066** | **Não está na base.** Medido: `grep -rln 'X-02\|X-09' db/tests_isolamento/` devolve **zero**; a pasta tem o X-03, o X-04 e o X-05 (camada SQL) mais o `test_overhead.py` e o `test_resolver.py` do KAM-004. A suite ponta a ponta é o **KAM-066** (PR #126, por fundir), e reimplementá-la aqui era refazer trabalho que está num PR aberto. **O que existe são as metades por vertical, e essas correm e passam:** `test_servicos.TestIsolamento` (4) e `test_vendedor.TestIsolamentoX09` (4), **8 verdes**. Não substituem a suite cruzada: cobrem uma vertical cada, com os seus próprios canários |
 | (d) | `grep` por `vendedor\|servicos\|assistente` em `core/` devolve **0**; o CI falha se devolver > 0 | **parcial — são duas metades, e só uma está paga** | **São duas cláusulas e marcam-se em separado, porque uma caixa com meia prova é uma caixa não marcada.** **Metade 1, «devolve 0»: satisfeita e medida.** `python -m reuse_metric nucleo` → `110 ficheiros varridos; fluxo 0, dominio 1, conteudo 45, prosa 119`, saída **0** (2026-11-06; na `main` em `db0582d` dava `fluxo 1`, saída 1). A excepção era o `AO_DONO` do `eventos/handlers.py:272` — `dono_por = envelope.tipo if par in AO_DONO else None`, uma tabela de pares `(vertical, tipo)` com entradas **só do Vendedor** — e saiu para `subscriptions[].notifica` do `registry/<id>.yaml` por **decisão do fundador a 2026-11-06**. O `registry/` é o sítio que o critério nomeia: ele exclui-o da busca **por extenso**, porque é onde a configuração por vertical pertence, e é isso que faz de «verticais como configuração» uma abstracção em vez de uma promessa. **A alternativa que teria sido um esvaziamento — alargar a definição de `fluxo` até ela não apanhar o `AO_DONO` — não se tomou, e fica nomeada para que ninguém a confunda com esta.** O canário morde nas duas direcções sobre esta árvore: injectado `if estado["vertical"] == "servicos"` no `turno.py` → `fluxo 1`, saída **1**; revertido → `fluxo 0`, saída **0** — e o veredicto passou a distinguir as duas corridas, que antes davam `1` as duas. **Metade 2, «o CI falha se devolver > 0»: não paga.** É **regra de bloqueio** — um *job* novo acrescenta um contexto exigido ao *ruleset* da `main` —, o alvo `make reuso` corre e falha, e ligá-lo é de quem assina as regras de bloqueio. Credor: **fundador**. **E o que a metade 1 prova tem limite escrito**, por achado da revisão adversarial: `fluxo == 0` quer dizer «em nenhuma das formas que este verificador segue» — ver a linha do que fica devolvido |
 | 5.º | `reuso` por *script* determinístico, artefacto JSON do CI, falha abaixo de **70%** | **parcial — e a mesma fronteira** | **O número está medido: 88,26%** (específico 1705, partilhado 12 814, total 14 519 linhas com código), com o artefacto JSON a levar as parcelas entrada a entrada, a **provenância** (o *commit* e se a árvore estava suja) e os 16 módulos do majorante da regra 7. **E morde nas duas direcções, sobre esta árvore**: copiado **um** nó reaproveitado em vez de o importar → o específico sobe 18 e o partilhado desce 19; acrescentadas 40 linhas de comentário ao ficheiro específico → **não move uma casa decimal**. Os casos limite que os *Testes Requeridos* pedem medem-se sobre ficheiros a sério: **70,00% passa** e **69,90% falha**, com um ficheiro de 1000 linhas e uma linha de diferença entre os dois. **A folga do limiar não é de 18 pontos — é de 13**, e os cinco enquadramentos defensáveis estão na tabela de `../docs/reuse-metric.md` §6: 88,26% como as regras o fixam, 86,72% sem o que entra por `import` dentro de função, 86,36% sem as migrações alheias, 85,78% sem migração nenhuma, e **83,77%** com o *backend* TypeScript das tools nas duas pontas. Nenhum desce abaixo de 70% |
@@ -4380,7 +4380,7 @@ com um credor vivo ou sem a entrada, conforme o resultado.
 
 ### Critérios de Aceitação
 
-- [ ] 1. **As duas rotas do `booking_id` estão medidas, e as duas ficam
+- [x] 1. **As duas rotas do `booking_id` estão medidas, e as duas ficam
   devolvidas.** São as que o §9.2 do `Gate_Fase0.md` enumera: **(a)** emendar o
   contrato numa **versão nova** — `v3` e não um campo acrescentado ao `v1`/`v2`,
   porque o `tools/contract_diff/cli.py` escreve que «uma diferença quebrante no
@@ -4407,16 +4407,16 @@ com um credor vivo ou sem a entrada, conforme o resultado.
   adversarial deste próprio ticket: a primeira versão deste critério mandava medir
   pelo `ci-7` e citava a guarda do `origin/main` ausente — que é verdadeira no
   *runner* e falsa aqui, onde o `origin/main` existe e é o espelho.)
-- [ ] 2. **O desfecho do consumo deixa de ser `sem_accao` para os dois pares**, e
+- [x] 2. **O desfecho do consumo deixa de ser `sem_accao` para os dois pares**, e
   há ensaio que o mede **nas duas direcções**: com a acção ligada o desfecho é o
   da acção, e com a acção removida volta a `sem_accao` — um ensaio que só meça o
   caminho feliz passa com a ligação ao sítio errado.
-- [ ] 3. **O `ACCOES_POR_LIGAR` fica coerente com o que passou a existir.** A
+- [x] 3. **O `ACCOES_POR_LIGAR` fica coerente com o que passou a existir.** A
   entrada do par sai, ou fica com um credor **vivo**; e a invariante que o
   `exigir_handlers` impõe continua a morder — um par com `notifica` **e** credor
   reprova o arranque, pelo que o estado final é um dos dois e nunca os dois.
   Medido com o arranque do AGR, não por leitura.
-- [ ] 4. **O arranque do AGR continua a exigir consumidor para cada subscrição.**
+- [x] 4. **O arranque do AGR continua a exigir consumidor para cada subscrição.**
   O critério 1 do KAM-039 não se enfraquece: a guarda `exigir_handlers` junta
   **todos** os problemas e não o primeiro, e nenhuma das três formas de «não
   fazer nada» passa a ser aceite em silêncio.
@@ -4457,11 +4457,11 @@ que mais interessa aqui.
 
 - [ ] Critérios de aceitação satisfeitos e demonstráveis, com as caixas abertas a
   nomear o credor.
-- [ ] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
+- [x] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
   cada caixa e a ponta onde foi medida.
-- [ ] Se a rota (a) for a escolhida, a decisão de alterar o contrato está
+- [x] Se a rota (a) for a escolhida, a decisão de alterar o contrato está
   **devolvida e não aplicada**.
-- [ ] Nenhum número novo em prosa sem a árvore onde foi medido.
+- [x] Nenhum número novo em prosa sem a árvore onde foi medido.
 
 ### Handoff para Claude Code
 
@@ -4478,6 +4478,120 @@ Objectivo: escrever a accao do consumo em Servicos e deixar o ACCOES_POR_LIGAR c
 - O KAM-055 emite os eventos e esta noutro PR; nao e este ticket.
 Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o template da §7.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+**5 critérios: 4 satisfeitos, 1 parcial. 4 caixas de DoD: 3 marcadas, 1 vazia.**
+A bateria do AGR tem **1 447** testes verdes, **12** deles novos deste ticket
+(`../services/agr/tests/test_eventos.py`), medidos no ramo
+`feature/KAM-184-servicos-eventos-pagamento` sobre a base `b974dda4`:
+
+```text
+PYTHONPATH="tools;libs/py-core/src;services/agr/src" \
+  python -m unittest discover -s services/agr/tests -t services/agr/tests
+  -> Ran 1447 tests ... OK
+```
+
+**O que este ticket entrega, numa frase:** a acção dos dois pagamentos na
+vertical Serviços — confirmar a marcação com sinal — está escrita e ligada, os
+dois pares saíram do `ACCOES_POR_LIGAR`, e **de onde vem a identificação da
+marcação continua a ser decisão do fundador**, com as duas rotas medidas abaixo
+e nenhuma aplicada.
+
+**A decisão de desenho que isto obrigou a tomar, e porque não é nenhuma das duas
+rotas.** O critério 1 manda devolver as duas e não aplicar nenhuma, e o critério
+5 manda produzir o artefacto: as duas coisas só são compatíveis se a acção for
+escrita contra uma **porta**. É a `PortaDeMarcacao` (`order_id` → a marcação
+confirmada), com a implementação por omissão a **levantar**, exactamente como a
+`PortaDeContacto` que o KAM-038 deixou para o `contact_id`. A porta não prejulga
+a rota: com a rota (a) quem a implementar lê o `booking_id` do *payload*, com a
+(b) resolve-o por consulta, e nos dois casos o chamador é o mesmo. **Não há ramo
+a ler o `booking_id` do *payload***, de propósito — nenhum contrato publicado o
+pode satisfazer, logo era código morto, e este módulo já pagou uma vez para
+aprender que código morto sobrevive às mutações.
+
+**E quem implementa a porta não é um ticket.** O caminho entre o AGR (Python) e
+o módulo `servicos` (TypeScript, no COM) **não está em linha nenhuma do §4 do
+`specs/INDICE.md`** — a mesma lacuna que o `../services/agr/src/kamba_agr/tls/servicos.py`
+já tem escrita para os executores das cinco *tools* daquela vertical, e pela qual
+o `CREDOR_DE_SERVICOS` do catálogo aponta para o próprio KAM-035. Abrir esse
+ticket é alterar o backlog mestre, que é L1 e não cabe neste PR; fica **devolvido
+ao fundador** com os outros dois.
+
+**O que muda em produção não é o resultado, é a honestidade do desfecho.**
+Medido: o `../services/agr/src/kamba_agr/__main__.py` não liga o `contactos` nem
+o `marcacoes`, pelo que **hoje já** um `payment.confirmed` esgota a escada do
+§6.4 e abre entrada na DLQ pelo lado do Vendedor (contacto por resolver). A
+vertical Serviços passa do `sem_accao` — que dizia «ninguém escreveu isto» —
+para o mesmo caminho, que diz «o AGR não consegue confirmar a marcação». A
+entrada é Sev1 e **reprocessável** no dia em que a agenda existir.
+
+**Uma consequência medida, e fica escrita por não ser óbvia:** numa montagem em
+que o contacto se resolva e a agenda não — que não é a de produção hoje —, o
+consumidor de Serviços corre **antes** do do Vendedor (a tabela vem ordenada por
+vertical) e o `EntregaPorRepetir` dele interrompe a entrega, pelo que a mensagem
+ao cliente só sai na sexta tentativa, ~756 s depois (a escada do §6.4). Não se
+corrige aqui: a ordem dos consumidores e o efeito de uma falha sobre os
+restantes são desenho do KAM-038, e mexer neles era alargar o escopo em
+silêncio. O ensaio
+`TestAccaoDeMarcacaoDosServicos::test_sem_agenda_ligada_o_pagamento_recua_pela_escada`
+mede o recuo; o `test_esgotada_a_escada_abre_entrada_na_DLQ` mede o fim.
+
+**Sem migração, sem métrica nova e sem desfecho novo.** A cadeia fica na `0035`,
+o `DESFECHOS_DO_EVENTO` continua com sete valores, e o painel **não** distingue
+«confirmou» de «esta encomenda não tinha marcação» — fazê-lo é uma etiqueta nova
+numa métrica, e está escrito no `consumo.py` com o credor **KAM-060**.
+
+**A regra de dois não regrediu:** `python -m reuse_metric nucleo` dá `fluxo 0,
+dominio 1, conteudo 45, prosa 131` (115 ficheiros varridos), e o `conteudo`
+**não subiu** porque os dois literais de vertical mudaram de tabela em vez de se
+somarem — a razão de haver duas constantes (`ACCOES_DE_MARCACAO` e a derivada
+`COM_ACCAO_DE_MARCACAO`) está escrita no módulo. O `reuse_metric medir` dá
+**88,34%** para a vertical Serviços, contra um limiar de 70%.
+
+| # | Critério | Estado | Prova |
+|---|---|---|---|
+| 1 | As duas rotas do `booking_id` medidas, e as duas devolvidas | **satisfeito** | As três medições estão abaixo, na tabela «As duas rotas, medidas». A base é nomeada em todas: `--base refs/remotes/publico/main`, e a corrida por omissão está lá **a mostrar o verde vazio** que o critério manda não aceitar. **Nenhuma das duas está aplicada**: não há `v3` em `contratos/eventos/` (os dois que a medição criou foram apagados — `git status` limpo no fim do *script*) e não há consulta nenhuma a resolver marcações no AGR |
+| 2 | O desfecho deixa de ser `sem_accao` nos dois pares, medido nas **duas** direcções | **satisfeito** | `TestAccaoDeMarcacaoDosServicos::test_o_desfecho_dos_dois_pares_deixa_de_ser_sem_accao` — com a acção ligada, `(("agr_servicos", "aplicado"),)` nos **dois** tipos, e a marcação em `confirmada`. A outra direcção é o `test_com_a_accao_desligada_o_desfecho_volta_a_sem_accao`, que desfaz a **ligação** (par fora do `ACCOES_DE_MARCACAO`, de volta ao `ACCOES_POR_LIGAR` com credor) e exige `sem_accao` **e** a agenda intacta. **A assimetria é deliberada e é o que mede a ligação:** apagar a chamada do `_efeito` deixa o desfecho em `aplicado` — não há credor a ler —, pelo que o que fica vermelho é a asserção sobre o **artefacto**, e não a do desfecho. No consumo cruzado, o `test_regra_de_dois.py::TestCriterioBOsDoisEventosDePagamento` passa a medir `[("agr_servicos", "aplicado"), ("agr_vendedor", "aplicado")]` com **uma** mensagem ao cliente e **uma** confirmação de marcação |
+| 3 | O `ACCOES_POR_LIGAR` coerente, e a invariante do `exigir_handlers` continua a morder | **satisfeito** | **A entrada sai**: os dois pares deixam a tabela, que fica **vazia** — e fica, com o mecanismo inteiro vivo (a guarda, o desfecho `sem_accao` e o `accao_por_ligar`), medido sobre um par sintético em `test_um_destinatario_vazio_com_credor_nao_reprova`, porque o registo verdadeiro já não exercita esse ramo. A invariante morde nas **duas** formas: `test_declarar_destinatario_com_credor_de_accao_por_ligar_reprova` (credor + `notifica`) e `test_ter_credor_e_accao_escrita_ao_mesmo_tempo_reprova` (credor + acção escrita), esta última acrescentada por este ticket. **Medido com o arranque e não por leitura:** o `test_arranque.py::TestRegistoNoArranque::test_o_registo_do_repositorio_deixa_o_agr_arrancar` corre o `main()` contra o `registry/` real e passa |
+| 4 | O arranque continua a exigir consumidor para cada subscrição | **satisfeito** | A guarda passou a ter **três** condições na primeira pergunta — notifica, acção escrita, ou credor — e nenhuma das formas de «não fazer nada» é aceite: `test_uma_subscricao_sem_destinatario_nem_credor_reprova_o_arranque` (negativa) contra os dois pares positivos (`..._com_accao_escrita_nao_reprova` e `..._com_credor_nao_reprova`), e `test_declarar_cliente_sem_texto_reprova_o_arranque` contra `test_declarar_so_o_dono_sem_texto_nao_reprova`. Junta **todos** os problemas e não o primeiro, e a lista do `fala_com_o_cliente` é a **mesma** da guarda — uma guarda que aceitasse o par e um `fala_com_o_cliente` que o recusasse punha o AGR a arrancar e a rebentar na primeira entrega. O critério 1 do KAM-039 não se enfraqueceu: `test_a_guarda_do_fala_com_o_cliente_morde_fora_do_registo` continua a medi-la |
+| 5 | O cenário do G0-1 ponta a ponta num ensaio, medindo o **artefacto** | **parcial** | **A metade medível está satisfeita e é o `test_o_cenario_do_G0_1_produz_a_marcacao_confirmada`**: dado um `payment.manual_confirmed` válido — o evento que o dicionário §3.5 nomeia como «Evento do *gate* da Fase 0» — para uma encomenda **com** marcação, a marcação passa de `hold` a `confirmada`, e é a confirmação que a torna visível à leitura do lembrete (índice `bookings_contacto_idx`, revisão `0025`, credor KAM-048). O ensaio mede o **estado da agenda** e não a chamada, e verifica que esta vertical não notifica ninguém. **O que falta é a agenda a sério:** o artefacto é produzido contra a `AgendaDeEnsaio`, porque a implementação da `PortaDeMarcacao` não existe e o ticket que a escreve também não (ver acima). Credor: **o ticket que liga o AGR ao módulo `servicos`**, a abrir pelo fundador. **Esta caixa não se fecha reescrevendo a razão da linha 1.6 do `../docs/tecnica/evidencia/validacao/Gate_Fase0.md`** — ela não é tocada por este ticket, e quem a mede é o KAM-108 com a demonstração humana |
+
+**As duas rotas, medidas.** A base vai nomeada em todas as linhas, e a primeira
+está aqui **como contra-exemplo**:
+
+| Corrida | Saída | Leitura |
+|---|---|---|
+| `contract_diff --root . diff` (base por omissão) | `76 contrato(s), 0 em origin/main; 76 novo(s), 0 apagado(s), 0 quebrante(s)`, saída **0** | **INÚTIL.** O `origin` desta máquina é o espelho privado congelado e não tem `contratos/`, pelo que a comparação dá zero quebrantes faça-se o que se fizer ao esquema. Um critério satisfeito por aqui era verde por construção |
+| `contract_diff --root . diff --base refs/remotes/publico/main` | `76 contrato(s), 76 em refs/remotes/publico/main; 0 novo(s), 0 apagado(s), 0 quebrante(s)`, saída **0** | A árvore deste ramo **não toca em contrato nenhum** |
+| **Rota (a)**, com dois `v3` escritos e apagados pelo *script* da medição | `78 contrato(s), 76 em refs/remotes/publico/main; 2 novo(s), 0 quebrante(s)`; mas o `check` sai **2** | O custo **não** é a compatibilidade: uma versão nova é compatível por construção. É o `contract_diff gerados`, que recusa por extenso — «a `v3` tem um *payload* diferente da `v1`, e este gerador guarda **uma** forma de *payload* por tipo. Passe a entrada do catálogo a ter a forma por versão antes de publicar esta versão» —, mais dois exemplos em falta no `exemplos`. Logo (a) custa **o catálogo de tipos gerados**, e não só dois ficheiros de esquema |
+| **Rota (b)**, o consumidor resolver pelo `order_id` | medição por leitura das revisões, não por comando | **Não é «uma leitura por evento», e o §9.2 do `Gate_Fase0.md` é optimista por uma migração.** Nenhuma superfície liga hoje uma encomenda a uma marcação: a `servicos.bookings` da revisão `0025` **não tem** coluna de encomenda (as duas ocorrências de `order` naquele ficheiro são um `ORDER BY` e uma palavra de comentário), a `platform.orders_mirror` da `0030` não tem `booking_id`, e a cadeia `booking` não aparece em migração nenhuma além da `0025` e de um comentário da `0027`. (b) custa **uma migração** antes da leitura — e a vaga de migração deste lote não é deste ticket |
+
+**O que fica devolvido ao fundador**, em três perguntas separadas, que são as do
+§9.2 com o custo agora medido:
+
+1. **Por onde vem a identificação da marcação** — rota (a), com o custo do
+   catálogo de tipos gerados, ou rota (b), com o custo de uma migração que ligue
+   encomenda a marcação. Toca o ADR-009 e o KAM-007.
+2. **Abrir o ticket que liga o AGR ao módulo `servicos`**, que é quem implementa
+   a `PortaDeMarcacao` e quem fecha a mesma lacuna já escrita no
+   `tls/servicos.py` para os executores das cinco *tools*.
+3. **O piso do `lint_bloco`**, que esta secção obriga a subir — ver abaixo.
+
+**O piso do `lint_bloco` sobe de 42 para 43**, e é medição e não escolha: esta
+secção põe os blocos medidos em **86** (eram 85 na `main`) e o *gate* 4 exige
+`medidos // 2 <= MINIMO_DE_BLOCOS_MEDIDOS <= medidos`. Correm cinco sessões neste
+lote e quem fundir depois renumera; o valor foi medido nesta árvore com o
+comando do próprio ficheiro.
+
+### Definition of Done — verificação
+
+| # | Caixa | Estado | Prova |
+|---|---|---|---|
+| 1 | Critérios satisfeitos e demonstráveis, com as caixas abertas a nomear o credor | **parcial** | Quatro dos cinco satisfeitos; o 5.º é parcial e **nomeia o credor** (o ticket que liga o AGR ao módulo `servicos`, a abrir pelo fundador). A caixa fica vazia por causa dele |
+| 2 | Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de cada caixa e a ponta onde foi medida | **satisfeito** | Esta secção. A ponta é `feature/KAM-184-servicos-eventos-pagamento` sobre `b974dda4`, e vai escrita em cada número |
+| 3 | Se a rota (a) for a escolhida, a decisão está **devolvida e não aplicada** | **satisfeito** | Nenhuma das duas rotas foi escolhida nem aplicada: não há `v3` em `contratos/eventos/` e não há consulta a resolver marcações. As duas vão devolvidas com o custo medido |
+| 4 | Nenhum número novo em prosa sem a árvore onde foi medido | **satisfeito** | Os cinco números desta secção — 1 447 testes, 12 novos, 86 blocos medidos, `conteudo 45`, 88,34% — levam o comando e a ponta. O `756 s` é derivado da `ESCADA_DO_CONSUMIDOR` do `kamba_core` e não medido em relógio, e está dito como derivação |
 
 ---
 
@@ -4531,3 +4645,4 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 | 1.12 | Novembro 2026 | **KAM-039 entregue, e NAO fecha: o nucleo tem uma excepcao e ela tem nome.** O bloco ganha a seccao «Verificacao dos Criterios de Aceitacao»: **dois criterios satisfeitos** ((a) e o 6.o), **dois parciais** ((b) e o 5.o), **um nao satisfeito** ((d)), **um vazio** ((c)) e o 7.o com a clausula «excepcao >= 1 reprova» a morder; **tres caixas de DoD marcadas e tres vazias**. O numero sai medido — `reuso = 88,26%` para a vertical Servicos contra um limiar de 70% — e as duas medidas tem **canario de mutacao sobre esta arvore**. **A revisao adversarial mudou o resultado e nao so o texto**: dois instrumentos deram 19 achados, 16 CONFIRMADOS, e dois atacavam a afirmacao central com razao. O verificador da condicao (d) nao via o idioma desta casa — uma constante de modulo —, pelo que o `fluxo` dava **0** por cegueira; a seguir constantes, aparece **1**: o `AO_DONO` do `eventos/handlers.py`, uma tabela de pares `(vertical, tipo)` **so do Vendedor** lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado. E a metrica lia os ficheiros do **disco** em vez do `git`, pelo que a partir da raiz do *checkout* principal contava as copias dos *worktrees* irmaos — 70 ficheiros em vez de 7, com o reuso a cair abaixo do limiar numa raiz onde o `make reuso` corre. **A correccao obrigou a uma distincao que o criterio nao faz**, e ela esta escrita: validar que a vertical e **conhecida** (o `contexto.py:191`, que o criterio 5 do KAM-014 exige) nao distingue entre verticais; fazer coisa diferente segundo **qual** e a excepcao. **Tres criterios param numa fronteira que nao e deste ticket**: «o CI falha se devolver > 0», «falha o *build* abaixo de 70%» e o que fazer com a excepcao sao regras de bloqueio. A caixa (c) fica vazia com o **KAM-066** — a suite cruzada esta no PR #126 e nao na base, medido —, a de observabilidade com o **KAM-080**, e o efeito do consumo cruzado com o **KAM-047** e tambem o **KAM-007**: os contratos de `payment.*` nao permitem `booking_id` no *payload*, logo o efeito *proposta* do bloco nao e implementavel como esta escrito. **E o bloco ganha a seccao «Revisao adversarial independente»**, com os dezanove achados arrumados em dez grupos, os dois limites que se declaram em vez de se corrigirem, o que se devolve com o numero corrigido, e o que os dois instrumentos **procuraram e nao encontraram** — que e o que torna a ausencia de achados informacao em vez de silencio. | Equipa KAMBA |
 | 1.13 | Novembro 2026 | **KAM-039, caixa devolvida: a excepcao do nucleo foi extraida, e a condicao (d) mede 0.** Decisao do fundador a 2026-11-06, executada: a tabela `AO_DONO` do `eventos/handlers.py` — pares `(vertical, tipo)` so do Vendedor, lidos num `if`, onde o nucleo decidia pelo nome da vertical se o dono da loja era avisado — sai para `subscriptions[].notifica` do `registry/<id>.yaml`, dominio fechado `{cliente, dono}`. **Medido sobre `db0582d`: `python -m reuse_metric nucleo` ia de `fluxo 1, conteudo 48, prosa 114`, saida 1, para `fluxo 0, dominio 1, conteudo 45, prosa 119`, saida 0**; a outra metade do G0-2 passa com **88,30%** (limiar 70%) e nao foi tocada. **Duas caixas mudam de estado:** a linha (d) passa de `nao satisfeito` a **parcial** (a metade medivel esta satisfeita; «o CI falha se devolver > 0» continua regra de bloqueio, credor fundador) e a 7.a passa a **satisfeita**, porque a clausula «excepcao >= 1 reprova» deixou de morder. A guarda do criterio 1 mudou de forma e continua a morder: o `exigir_handlers` pergunta «esta subscricao faz alguma coisa?» em vez de «esta na minha tabela?», com ensaio das duas formas de nao fazer nada e o par positivo de cada uma. **O que fica devolvido:** onde passa a fronteira do `conteudo` (as 45 ocorrencias), e a ligacao do verificador a um portao do CI. |
 | 1.14 | Novembro 2026 | **KAM-184 aberto: a vertical Serviços subscreve os dois eventos de pagamento e não faz nada com eles.** Achado do KAM-108 ao preparar o *gate* da Fase 0, verificado de forma independente em `fe40048` e reconfirmado em `ca5cac5`: os dois pares estão em `ACCOES_POR_LIGAR` — «a acção dela não está escrita», desfecho `sem_accao` — e **nenhum dos dois eventos leva `booking_id`**, nas **duas** versões de cada, pelo que a lacuna não se contorna com o outro evento. Os credores estão fechados, **dois no código** (KAM-047 no `ACCOES_POR_LIGAR`, e KAM-047 e KAM-035 no comentário do `registry/servicos.yaml`) **e um no esquema** (KAM-007, que nenhum ficheiro de `contratos/eventos/` nomeia — quem o nomeia é a secção de verificação do KAM-039). A atribuição dos três **ao código** é um erro que o §9.2 do `Gate_Fase0.md` já tinha corrigido e que a primeira versão deste PR reintroduziu. É independente do KAM-055 e não se resolve quando aquele fundir. O bloco deixa a rota do `booking_id` como critério 1 com as **duas** saídas medidas, e a que altera contrato publicado fica **devolvida** e não aplicada. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | **KAM-184 entregue: a acção está escrita e a origem da marcação continua devolvida.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1 a 4) e **um parcial** (5), **três caixas de DoD marcadas e uma vazia**. Os dois pares de pagamento saem do `ACCOES_POR_LIGAR` — que fica **vazio, e fica** — para um `ACCOES_DE_MARCACAO` novo, e o desfecho do consumo deixa de ser `sem_accao`. **A decisão que deu forma ao ticket foi obrigada pelos próprios critérios:** o 1 manda devolver as duas rotas do `booking_id` sem aplicar nenhuma e o 5 manda produzir o artefacto, e as duas coisas só são compatíveis se a acção for escrita contra uma **porta** — a `PortaDeMarcacao`, que não prejulga a rota e cuja implementação por omissão **levanta**, como a `PortaDeContacto` do KAM-038. **E as duas rotas custam mais do que o §9.2 do `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` escreve, nas duas direcções:** a (a) não custa compatibilidade — uma versão nova é compatível por construção, **0 quebrantes** contra `refs/remotes/publico/main` — mas o *gate* 7 sai **2** no `contract_diff gerados`, porque o gerador de tipos guarda **uma** forma de *payload* por tipo; e a (b) **não é «uma leitura por evento»**, porque superfície nenhuma liga hoje uma encomenda a uma marcação — a `servicos.bookings` da revisão `0025` não tem coluna de encomenda, a `platform.orders_mirror` da `0030` não tem `booking_id` —, pelo que custa **uma migração** antes da leitura. **A medição por omissão do `contract_diff` está lá como contra-exemplo e não como prova:** `76 contratos, 0 em origin/main, 0 quebrantes` com saída 0, porque o `origin` desta máquina é o espelho privado sem `contratos/`. **O credor que fica a descoberto não é um ticket:** quem implementa a porta é o caminho entre o AGR e o módulo `servicos`, que **não está em linha nenhuma do §4 do `specs/INDICE.md`** — a mesma lacuna que o `../services/agr/src/kamba_agr/tls/servicos.py` já tinha escrita para os executores das cinco *tools* — e abri-lo é L1. É por ele que o critério 5 é parcial: o artefacto do G0-1 é produzido num ensaio contra um duplo da agenda, e a linha 1.6 daquela checklist **não é tocada** por este ticket. A guarda do arranque ganha a terceira condição na primeira pergunta (notifica, acção escrita, ou credor) e a terceira guarda ganha a outra metade — credor **e** acção escrita reprovam —, e as duas mordem com ensaio; o `fala_com_o_cliente` leva a **mesma** lista, porque uma guarda que aceitasse o par e um `fala_com_o_cliente` que o recusasse punha o AGR a arrancar e a rebentar na primeira entrega. **Sem migração, sem métrica nova e sem desfecho novo** (a distinção «confirmou» / «não havia marcação» é uma etiqueta e fica com o credor **KAM-060**), e a regra de dois não regride: `fluxo 0, dominio 1, conteudo 45` — o `conteudo` não sobe porque os dois literais mudaram de tabela — e **88,34%** contra o limiar de 70%. O `MINIMO_DE_BLOCOS_MEDIDOS` do `lint_bloco` sobe de 42 para 43, medido nesta árvore: 86 blocos medidos contra 85 na `main`. | Equipa KAMBÁ |

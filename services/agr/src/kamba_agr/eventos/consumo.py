@@ -326,6 +326,7 @@ class ConsumidorDeEventos:
         notificador: Notificador,
         ler_entitlement: Callable[[str, str], _Entitlement],
         contactos: handlers.PortaDeContacto | None = None,
+        marcacoes: handlers.PortaDeMarcacao | None = None,
         metricas: MetricasDoAgr | None = None,
         aviso: Callable[[str, str], None] | None = None,
         relogio: Callable[[], float] = time.time,
@@ -341,6 +342,9 @@ class ConsumidorDeEventos:
         self._ler_entitlement = ler_entitlement
         self._contactos = (
             handlers.ContactoPorLigar() if contactos is None else contactos
+        )
+        self._marcacoes = (
+            handlers.MarcacaoPorLigar() if marcacoes is None else marcacoes
         )
         self._metricas = metricas
         self._aviso = aviso
@@ -707,11 +711,13 @@ class ConsumidorDeEventos:
     ):
         """O efeito que corre **dentro** da transaccao do consumo.
 
-        Ignora o cliente SQL que recebe, e isso e deliberado: o efeito deste
-        ticket nao escreve na base — escreve numa fila, pelo Outbound ou pelo
-        HND. O argumento fica na assinatura porque e o contrato do `Efeito` do
-        KAM-006, e mudar o contrato para um consumidor era pedir ao nucleo que
-        se adaptasse a um chamador.
+        Ignora o cliente SQL que recebe, e isso e deliberado: nenhum dos efeitos
+        que correm aqui escreve na base **do AGR**. Dois enfileiram — pelo
+        Outbound ou pelo HND — e o terceiro, a confirmacao da marcacao com sinal
+        (KAM-184), atravessa uma porta para a agenda, que vive no modulo
+        `servicos` do outro lado da fronteira do ADR-009. O argumento fica na
+        assinatura porque e o contrato do `Efeito` do KAM-006, e mudar o contrato
+        para um consumidor era pedir ao nucleo que se adaptasse a um chamador.
         """
 
         def aplicar(_bd, _envelope) -> None:
@@ -735,6 +741,18 @@ class ConsumidorDeEventos:
                     motivo=envelope.tipo,
                 )
                 return
+            if handlers.tem_accao_de_marcacao(consumidor.vertical, envelope.tipo):
+                # **A accao do KAM-184**, e e por ela que o desfecho destes dois
+                # pares deixou de ser `sem_accao`. Nao se liga ao `accoes_de`: o
+                # `AccoesDoEvento` e quem **se avisa** (cliente, dono), e uma
+                # confirmacao de marcacao nao avisa ninguem — meter um terceiro
+                # campo la dentro obrigava toda a notificacao a saber de agendas.
+                #
+                # O valor devolvido nao se liga a nada, e isso e deliberado: o
+                # artefacto fica na agenda, e distinguir no painel «confirmou» de
+                # «esta encomenda nao tinha marcacao» e uma etiqueta nova numa
+                # metrica — credor **KAM-060**, e nao se inventa aqui.
+                handlers.confirmar_marcacao_com_sinal(envelope, self._marcacoes)
             accoes = handlers.accoes_de(
                 envelope,
                 subscricao=consumidor,

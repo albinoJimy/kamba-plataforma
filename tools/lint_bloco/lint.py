@@ -111,7 +111,19 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
 #: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
 #: sem defeito nenhum.
-MINIMO_DE_BLOCOS_MEDIDOS = 42
+#:
+#: **E o 86.º chegou: sobe de 42 para 43 com o KAM-184**, a segunda vez que a
+#: nota acima se cumpre. Medido nas duas pontas: com a `main` em `b974dda4` sao
+#: **85** medidos e 42 bastava; com a seccao de verificacao do KAM-184 sao **86**
+#: e `86 // 2` sao 43. Correm cinco sessoes neste lote e cada seccao de
+#: verificacao que funda sobe o medido, pelo que quem fundir depois **renumera
+#: na integracao** — o numero nao se copia de outro ramo, mede-se na arvore:
+#:
+#:     python -c "import sys,pathlib; sys.path.insert(0,'tools')
+#:     from lint_bloco import lint
+#:     _,_,n = lint.verificar(pathlib.Path('.'))
+#:     print(n['medidos'], n['medidos'] // 2, lint.MINIMO_DE_BLOCOS_MEDIDOS)"
+MINIMO_DE_BLOCOS_MEDIDOS = 43
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
