@@ -195,7 +195,8 @@ ler-se sem interpolar entre dois cortes.
 
 O critério 8 pede que o fornecedor «conste do inventário de subprocessadores
 (KAM-069) com `apd_ref`, ou fique `pendente` e **bloqueie `prod`**». O inventário
-não existe — nasce com o KAM-069 —, e inventá-lo aqui era construir por outro
+não existia quando este módulo foi escrito — nasceu com o KAM-069 —, e
+inventá-lo aqui era construir por outro
 ticket. O que está entregue é a alternativa que o próprio critério escreve: o
 `fornecedor.ts` lê a declaração do ambiente e, em `prod`, com o fornecedor fora
 de Angola ou por escolher e sem `apd_ref`, **o serviço não arranca**.
@@ -203,7 +204,8 @@ de Angola ou por escolher e sem `apd_ref`, **o serviço não arranca**.
 É a forma do `storage/config.ts` do KAM-011, e de propósito: os três campos têm os
 nomes de `tenant_destinations(provider, country, apd_ref)` do
 [`tecnica/08`](tecnica/08_Seguranca_Conformidade.md) §8.3.1, porque é essa a
-tabela que o KAM-069 vai confrontar com isto. Um segundo vocabulário para a mesma
+tabela que o KAM-069 entregou, e que confronta um vocabulário só com isto.
+Um segundo vocabulário para a mesma
 ideia dava duas tabelas a reconciliar no dia em que o inventário existisse.
 
 **Qual é o fornecedor não se decide aqui**, e não é omissão: escolher um
@@ -322,3 +324,4 @@ pessoa desfaz.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Primeira versão, KAM-115. A revisão `0019` (duas tabelas), o `AvisoAoDono` com os cinco gatilhos, a idempotência e os lembretes na mesma unicidade, a lista branca de modelos, o *gate* de `prod` do subprocessador e as cinco métricas. Fecha a lacuna R16 e o EPIC-02. Uma caixa fica por marcar — o alvo de ≥ 95%, que é medição sobre *tenants* reais. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **KAM-069**: o inventário de subprocessadores deixou de ser uma coisa que «não existe» — é [`gov/subprocessadores.yaml`](../gov/subprocessadores.yaml), com as onze linhas do `tecnica/08` §8.3.2 —, e as duas frases deste documento que o diziam passam a dizer isso. O `avisos/fornecedor.ts` **não muda**: o fornecedor de e-mail continua `pendente`, continua a bloquear `prod` sem `apd_ref`, e os três campos continuam com os nomes de `tenant_destinations(provider, country, apd_ref)` — que é agora uma tabela e não uma promessa. |

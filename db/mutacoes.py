@@ -225,6 +225,11 @@ REV30 = "db/migrations/versions/0030_encomendas_e_estados.py"
 REV31 = "db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py"
 #: KAM-055: as FK de `order_id`, o mapa do *outbox* e o `payload` do contrato.
 REV35 = "db/migrations/versions/0035_payment_order_fks.py"
+#: KAM-069: os destinos de transferencia e a vista de auditoria. **Era a `0035`
+#: neste ramo**; o KAM-055 fundiu primeiro e a renumeracao fez-se na
+#: integracao, que e a regra — um ramo nao reserva a linha de revisoes para
+#: outro, e renumerar em antecipacao cria o defeito que evita.
+REV36 = "db/migrations/versions/0036_destinos_de_transferencia.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6167,6 +6172,108 @@ MUTACOES = [
     # traz o `COMMENT` —, e e por isso que esta mutacao existe: ela repoe
     # exactamente o defeito, e quem a tem de matar e o
     # `test_o_downgrade_repoe_o_comentario_da_0029`.
+    # KAM-069 (revisao `0036`): o *gate* de transferencia do ADR-008. Quatro
+    # mutacoes, uma por propriedade que a revisao existe para ter, e as quatro
+    # morrem em `db/tests/test_destinos_schema.py`.
+    ('revisao 0036: a unicidade volta a tratar os nulos como distintos', REV36,
+     "UNIQUE NULLS NOT DISTINCT (tenant_id, provider, country, purpose)",
+     "UNIQUE (tenant_id, provider, country, purpose)"),
+    # **A forma que parece correcta e nao restringe nada.** Em PostgreSQL um
+    # nulo e distinto de outro nulo numa `UNIQUE`, pelo que dois destinos
+    # **globais** para o mesmo `(provider, country, purpose)` passam os dois —
+    # um `pendente` e um `autorizado` — e a porta le o que lhe calhar primeiro.
+    # O `test_a_unicidade_trata_os_nulos_como_iguais` tem de a matar, e o
+    # `test_o_mesmo_trio_passa_em_tenants_diferentes` e o canario que impede a
+    # correccao oposta (uma unicidade sem o tenant).
+    ('revisao 0036: o autorizado deixa de exigir a checklist', REV36,
+     """            CONSTRAINT tenant_destinations_autorizado_com_checklist_ck
+                CHECK (status <> 'autorizado'
+                       OR (contrato_ref IS NOT NULL
+                           AND retencao_zero
+                           AND sem_treino)),
+""",
+     ""),
+    # O criterio 6 deixa de ter barreira: um destino passa a `autorizado` com
+    # `apd_ref` e **sem** contrato arquivado, sem retencao zero e sem
+    # nao-treino — uma autorizacao que ninguem consegue mostrar a APD. O
+    # `test_autorizado_sem_checklist_completa_e_recusado` tem de a matar, e
+    # repare-se que o `CHECK` do criterio 1 **continua la**: e por isso que
+    # aquele teste poe o `apd_ref` presente.
+    ('revisao 0036: o pendente passa a poder ter janela de validade', REV36,
+     """            CONSTRAINT tenant_destinations_sem_janela_ck
+                CHECK (status IN ('autorizado', 'revogado')
+                       OR (autorizado_em IS NULL AND revogado_em IS NULL))
+""",
+     "            CONSTRAINT tenant_destinations_sem_janela_ck CHECK (true)\n"),
+    # Uma linha `pendente` com `autorizado_em` preenchido passa a ser legal, e a
+    # vista do criterio 7 **le as chamadas dela como conformes** — porque a
+    # juncao olha para a janela e nao para o `status`. As duas leitoras da
+    # tabela passam a discordar, e a que decide a transferencia e a mais
+    # permissiva. O `test_a_janela_nao_se_contradiz` tem de a matar.
+    # ------------------------------- KAM-069, a vista contra a porta (achado 1)
+    #
+    # Quatro mutacoes sobre a `v_transfer_audit`, e cada uma ataca **uma** das
+    # quatro propriedades que a fazem ser tao estrita como a porta. A revisao
+    # adversarial encontrou tres delas em falta na primeira versao.
+    ('revisao 0036: a vista perde a janela e le o estado de hoje', REV36,
+     """                      AND d.autorizado_em IS NOT NULL
+                      AND d.autorizado_em <= c.ts
+                      AND (d.revogado_em IS NULL OR d.revogado_em > c.ts)
+""",
+     "                      AND d.autorizado_em IS NOT NULL\n"),
+    # O criterio 7 pede «no momento da chamada» e isto responde «desde sempre»:
+    # as chamadas de antes da autorizacao deixam de ser violacao — **autorizar
+    # um destino apaga as violacoes anteriores** —, e as de depois de uma
+    # revogacao passam a ser conformes. E um registo de conformidade a
+    # limpar-se a si proprio. O `test_a_janela_decide_e_nao_o_estado_de_hoje`
+    # tem de a matar.
+    # **Muta a constante e nao o texto do SQL**, e a razao e mecanica: com a
+    # reescrita da vista o filtro de finalidade aparece **quatro** vezes no
+    # texto (duas em cada metade do semi-*join*), e uma mutacao tem de casar
+    # exactamente uma. Alargar a lista para as treze finalidades de
+    # transferencia reproduz o defeito **nos quatro sitios ao mesmo tempo**, e e
+    # o defeito exacto: um destino autorizado so para `segredos` passa a cobrir
+    # uma chamada ao modelo.
+    ('revisao 0036: a vista aceita qualquer finalidade de transferencia', REV36,
+     'FINALIDADES_DE_MODELO = ("\'conversa\'", "\'embeddings\'", "\'visao\'")',
+     "FINALIDADES_DE_MODELO = FINALIDADES_DE_TRANSFERENCIA"),
+    # Um destino autorizado so para `segredos` — o cofre, que por regra nao
+    # recebe dado pessoal nenhum — passa a cobrir uma chamada ao modelo, e a
+    # vista diz conforme uma transferencia que o *gate* recusou. O
+    # `test_um_destino_de_outra_finalidade_nao_cobre_a_chamada` tem de a matar,
+    # e o `test_as_tres_finalidades_de_modelo_cobrem` e o canario que impede a
+    # correccao oposta.
+    ('revisao 0036: a vista perde a precedencia da linha do tenant', REV36,
+     """                    AND (d.tenant_id = c.tenant_id
+                         OR (d.tenant_id IS NULL
+                             AND NOT EXISTS (
+                               SELECT 1
+                                 FROM {DESTINOS} e
+                                WHERE e.tenant_id = c.tenant_id
+                                  AND e.provider = c.fornecedor
+                                  AND e.purpose IN ({", ".join(FINALIDADES_DE_MODELO)})
+                             )))
+                    AND NOT (""",
+     """                    AND (d.tenant_id = c.tenant_id OR d.tenant_id IS NULL)
+                    AND NOT (""",
+     "tests"),
+    # **A forma que a primeira versao tinha**, e o achado 1 da revisao
+    # adversarial: uma linha global `autorizado` passa a cobrir a chamada mesmo
+    # quando o tenant tem a sua propria linha `negado` para o mesmo par. A porta
+    # nega (`aplicaveis = especificas or globais`) e a vista dizia conforme. O
+    # `test_a_linha_do_tenant_tapa_a_global_tambem_na_vista` tem de a matar.
+    #
+    # **Troca so a segunda ocorrencia** — a do `EXISTS` —, que e a que decide se
+    # uma aplicavel reprova; a primeira (a do `NOT EXISTS`) decide se **ha**
+    # aplicaveis, e trocar as duas media duas coisas ao mesmo tempo.
+    ('revisao 0036: a vista volta a bastar-lhe uma linha autorizada', REV36,
+     """               OR EXISTS (""",
+     """               OR NOT EXISTS (""",
+     "tests"),
+    # A conjuncao do passo 4 vira disjuncao: **uma** linha autorizada basta, e um
+    # fornecedor com `ZA autorizado` e `US pendente` passa a ser conforme — a
+    # chamada nao escolhe o pais, e a porta falha fechada sobre a **uniao**. O
+    # `test_uma_aplicavel_que_nao_autoriza_e_violacao_na_vista` tem de a matar.
 ]
 
 

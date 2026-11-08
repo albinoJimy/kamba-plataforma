@@ -306,10 +306,19 @@ class TestRepositorio(unittest.TestCase):
         self.assertEqual(codeowners.ficheiros_do_git(ROOT), esperado)
 
     @NO_REPOSITORIO
-    def test_as_dezoito_regras_continuam_dezoito(self) -> None:
-        """Uma regra nova ou removida e uma alteracao visivel, nao silenciosa."""
+    def test_as_dezanove_regras_continuam_dezanove(self) -> None:
+        """Uma regra nova ou removida e uma alteracao visivel, nao silenciosa.
+
+        **Eram dezoito e sao dezanove desde o KAM-069**, e a regra nova e a
+        `/gov/`: o inventario de subprocessadores decide quem trata dados
+        pessoais em nome das PMEs, e a lista publica que sai dele e um
+        compromisso com os titulares — pelo que a area passa por Seguranca e
+        nao so pela Plataforma. O numero fica aqui, e e por isso que a subida e
+        visivel: um `*` na raiz ja dava dono a pasta, e sem esta linha a
+        alteracao de responsabilidade nao se lia em sitio nenhum.
+        """
         texto = (ROOT / "CODEOWNERS").read_text(encoding="utf-8")
-        self.assertEqual(len(codeowners.regras(texto)), 18)
+        self.assertEqual(len(codeowners.regras(texto)), 19)
 
     def test_sem_git_o_gate_falha_em_vez_de_medir_o_disco(self) -> None:
         """Fail-closed: nao ha recurso a `os.walk` quando o git nao responde."""

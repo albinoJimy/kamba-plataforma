@@ -91,13 +91,15 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: `test_os_pisos_valem_alguma_coisa` exige `piso >= medidos // 2` — `82 // 2`
 #: sao 41. Medido nas duas pontas: a `main` em `52d8000a` da 81 e o ensaio
 #: passa; com o bloco do KAM-108 da 82 e o ensaio falha com `40 not greater
-#: than or equal to 41`.
+#: than or equal to 41`. (O `42` que esta linha dizia era o piso **deste**
+#: ticket e nao o da ponta que o KAM-108 mediu; apanhado pela revisao
+#: adversarial do KAM-069, que o mediu em vez de o ler.)
 #:
 #: **Subir o piso torna este *lint* mais estrito e nao menos**, que e o que
 #: distingue esta emenda de um esvaziamento: o piso e um **minimo** de blocos
 #: medidos, e o ensaio existe precisamente para forcar a emenda quando o corpus
 #: cresce. O que fica dito, porque e limite do desenho e nao deste ticket: com o
-#: piso em metade do medido, a **folga sao dois blocos** — ao 84.º volta a pedir
+#: piso em metade do medido, a **folga sao dois blocos** — ao 86.º volta a pedir
 #: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
 #:
 #: **E ao 84.º chegou, exactamente como a nota acima previa.** O piso esta em

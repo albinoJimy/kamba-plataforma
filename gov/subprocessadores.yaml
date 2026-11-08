@@ -1,0 +1,287 @@
+# Inventario de subprocessadores — KAMBÁ (KAM-069, criterios 5 e 6)
+#
+# As **onze** linhas do `docs/tecnica/08_Seguranca_Conformidade.md` §8.3.2, com
+# funcao, dados pessoais, destino (hipotese) e estado do procedimento. Deste
+# ficheiro geram-se dois documentos, por `python -m subprocessadores`:
+#
+#   docs/publico/subprocessadores.md     a lista publica (requisito 4 de E3)
+#   docs/seguranca/mapa_tratamentos.md   o mapa de tratamentos (requisito 9)
+#
+# E o mesmo desenho do `canon/dicionario.yaml`, que e gerado de `specs/02` e
+# tambem entra no repositorio: duas fontes a mao punham a lista publica a nomear
+# um subprocessador que o inventario nao tem.
+#
+# ## ESTE FICHEIRO NAO ESCOLHE NENHUM FORNECEDOR
+#
+# **Nenhuma destas linhas e uma decisao de contratacao.** O §8.3.2 chama-lhes
+# hipoteses e o cabecalho dele diz «paises a confirmar contratualmente»; as onze
+# estao `pendente`, nenhuma tem `apd_ref`, e escolher um subprocessador num
+# ficheiro de codigo e exactamente o que o ADR-008 existe para impedir. A
+# escolha e do fundador, com o parecer do KAM-104.
+#
+# ## PORQUE E QUE AS ONZE ESTAO `pendente`, E NAO E CAUTELA
+#
+# Medido: o `ext:KAM-105` fechou com a folha de seguimento a APD
+# (`docs/tecnica/evidencia/validacao/Seguimento_APD.md` §1) a declarar **0 de
+# 14** destinos com `apd_ref` — zero submetidos, zero com numero de protocolo —
+# e o `GoLive_Gate.md` do mesmo ticket a marcar a linha B2 como «**nao**». Nao
+# ha autorizacao nenhuma para registar.
+#
+# **Onze aqui e catorze la, e a diferenca nao e erro de nenhum dos dois:** o
+# §8.3.2 agrupa o alojamento e as copias de seguranca numa linha so, e nao tem a
+# sonda sintetica externa nem o melhoramento de imagem, que nasceram depois
+# dele. Fica registado; reconciliar as duas contagens e do **KAM-105**.
+#
+# ## SEM DADOS PESSOAIS AQUI, E ISSO E UMA CAIXA DA DoD
+#
+# A coluna `dados_pessoais` diz **que classes** de dados vao para cada destino,
+# nunca um valor: nenhum telefone, nenhum NIF, nenhum endereco, nenhum nome de
+# pessoa singular. As `designacao` sao nomes de empresas, que nao sao dados
+# pessoais.
+#
+# Formato: subconjunto estrito de YAML, lido por `tools/kamba_yaml.py`.
+#
+#   nome              identificador, `^[a-z][a-z0-9_-]{1,62}$` — e o `provider`
+#                     de `platform.tenant_destinations` (revisao `0036`)
+#   designacao        o nome como o §8.3.2 o escreve
+#   funcao            a coluna «Funcao» do §8.3.2
+#   dados_pessoais    as classes que saem; `nenhum` quando nao saem
+#   pais_hipotese     o destino **como hipotese**; nunca uma afirmacao
+#   pais_verificado   `false` enquanto o contrato nao o fixar
+#   estado            `pendente`, `autorizado`, `revogado` ou `negado`
+#   finalidades       as de `tenant_destinations.purpose` (treze no dominio)
+#   contrato_ref      referencia do contrato arquivado; `null` se nao ha
+#   retencao_zero     o fornecedor confirmou retencao zero por escrito
+#   sem_treino        o fornecedor confirmou nao-treino por escrito
+#   apd_ref           referencia do procedimento na APD; `null` se nao ha
+#   credor            quem fecha a pendencia: ticket `KAM-NNN` ou decisao `DN`
+#   nota              uma frase que sobreviva a sair o autor
+
+version: 1
+versao: "1.0"
+
+subprocessadores:
+  - nome: meta
+    designacao: Meta (WhatsApp Cloud API)
+    funcao: Canal
+    dados_pessoais: conteúdo das mensagens, telefone e BSUID
+    pais_hipotese: EUA ou UE
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - canal
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-104
+    nota: >-
+      O canal e o produto: sem a Meta nao ha plataforma, e e por isso que esta
+      linha nao tem alternativa tecnica. Falta saber se exige notificacao
+      separada, que e a pergunta Q20 do E3. O nao-treino e exigencia da propria
+      Meta na direccao inversa (E1 §4: proibe usar dados da plataforma para
+      treinar ML), o que nao diz nada sobre o que ela faz com os dela.
+
+  - nome: openai
+    designacao: OpenAI
+    funcao: LLM e transcrição
+    dados_pessoais: texto minimizado, áudio
+    pais_hipotese: EUA
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - conversa
+      - transcricao
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-104
+    nota: >-
+      Um dos tres fornecedores aprovados do dicionario §3.29. A retencao zero
+      esta por confirmar por escrito, e o requisito 8 de E3 exige a evidencia
+      arquivada e nao a pagina de termos.
+
+  - nome: google
+    designacao: Google (Gemini)
+    funcao: LLM
+    dados_pessoais: texto minimizado
+    pais_hipotese: EUA ou UE
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - conversa
+      - visao
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-104
+    nota: >-
+      O nome do subprocessador e `google` e o prefixo da biblioteca e `gemini`:
+      sao espacos de nomes separados (dicionario §3.29, medido no KAM-030), e e
+      este nome que a APD le.
+
+  - nome: anthropic
+    designacao: Anthropic
+    funcao: LLM
+    dados_pessoais: texto minimizado
+    pais_hipotese: EUA
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - conversa
+      - visao
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-104
+    nota: >-
+      A lista de saidas `infra/egress/litellm.yaml` declara `api.anthropic.com`
+      com a razao escrita: destino de transferencia `pendente` ate o KAM-069 lhe
+      dar `apd_ref`. Esta linha e o outro lado dessa frase.
+
+  - nome: groq
+    designacao: Groq
+    funcao: Transcrição
+    dados_pessoais: áudio
+    pais_hipotese: EUA
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - transcricao
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-036
+    nota: >-
+      O audio nao se mascara antes do STT (docs/tecnica/08 §7.5): a minimizacao
+      ali e nao enviar metadado nenhum com o blob. O §8.3.2 diz «preferir
+      transcrever em destino ja autorizado», e hoje nao ha nenhum.
+
+  - nome: alojamento
+    designacao: Alojamento (Luanda ou JNB/CPT)
+    funcao: Computação, base de dados e cópias de segurança
+    dados_pessoais: todas as classes do docs/tecnica/08 §7.1
+    pais_hipotese: Angola ou África do Sul
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - alojamento
+      - copias_de_seguranca
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: D1
+    nota: >-
+      **Alojar em Luanda nao dispensa o procedimento APD**, porque o LLM, o STT
+      e a propria Meta ja sao transferencias (E3 §7); e alojar em Joanesburgo ou
+      na Cidade do Cabo tambem e transferencia (INDICIO). A decisao e D1, e
+      depende de tres cotacoes que nao foram pedidas
+      (docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md).
+
+  - nome: cdn_waf
+    designacao: CDN e firewall aplicacional (Cloudflare)
+    funcao: Termina TLS e vê tráfego em claro
+    dados_pessoais: conteúdo em trânsito
+    pais_hipotese: global
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - entrega_de_conteudo
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: D12
+    nota: >-
+      O proxy termina TLS e ve o corpo dos webhooks, pelo que e subprocessador
+      com acesso a conteudo. **Ha um caminho que dispensa a decisao**, e o
+      §8.3.2 escreve-o: nao por o caminho dos webhooks atras do proxy — a
+      assinatura da Meta ja autentica — e proteger a origem com limite de
+      pedidos. A escolha e do fundador, com o parecer (pergunta N1).
+
+  - nome: facilitador_de_pagamentos
+    designacao: Facilitador de pagamentos (ProxyPay ou AppyPay)
+    funcao: Pagamentos
+    dados_pessoais: valor, referência e contacto de Express
+    pais_hipotese: AO
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - pagamentos
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: D4
+    nota: >-
+      Destino nacional, pelo que a leitura da KAMBÁ e que nao ha transferencia
+      internacional a notificar — e a folha de seguimento do KAM-105 escreve
+      essa leitura com interrogacao («nenhuma?»), de proposito: quem a confirma
+      e o parecer e nao nos.
+
+  - nome: facturacao_agt
+    designacao: Software de facturação certificado pela AGT (Vero ou Cacimbo)
+    funcao: Facturas
+    dados_pessoais: dados do cliente na factura
+    pais_hipotese: AO
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - facturacao
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: D7
+    nota: >-
+      A plataforma nao emite facturas (requisito 19 de E3): adapta-se a software
+      certificado. O pais e «Angola a confirmar» no §8.3.2, e a confirmacao e
+      contratual.
+
+  - nome: doppler
+    designacao: Doppler
+    funcao: Cofre de segredos
+    dados_pessoais: nenhum
+    pais_hipotese: EUA
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - segredos
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-104
+    nota: >-
+      **Nenhum dado pessoal, por regra** — e a regra e o `ops/secrets-inventory.yaml`,
+      nao uma promessa deste ficheiro. Fica no inventario com a linha a dizer
+      `nenhum` em vez de ficar de fora: um subprocessador ausente do inventario
+      nao se distingue de um esquecido, e o §8.3.2 inclui-o.
+
+  - nome: email_sms
+    designacao: Correio ou SMS transaccional
+    funcao: Notificações ao dono
+    dados_pessoais: endereço de correio e telefone do dono da PME
+    pais_hipotese: por decidir
+    pais_verificado: false
+    estado: pendente
+    finalidades:
+      - otp_e_avisos_de_servico
+    contrato_ref: null
+    retencao_zero: false
+    sem_treino: false
+    apd_ref: null
+    credor: KAM-104
+    nota: >-
+      **Esta linha e a que dois tickets ja escreveram no ambiente a espera
+      dela.** O `packages/core-ts/src/avisos/fornecedor.ts` (KAM-115) e o
+      `packages/core-ts/src/sms/fornecedor.ts` (KAM-116) declaram cada um o seu
+      fornecedor com `pendente` por omissao e recusam arrancar em `prod` sem
+      `apd_ref` — a alternativa que o criterio 8 de cada um escreve, porque este
+      inventario nao existia. Agora existe, e continua `pendente`: o que falta e
+      a escolha e a autorizacao, nao a superficie.

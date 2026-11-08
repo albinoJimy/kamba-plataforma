@@ -1224,6 +1224,44 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: KAM-069 (revisao `0036`): os destinos de transferencia.
+#:
+#: **O `kamba_app` le e nao escreve, e e a diferenca que importa nesta tabela.**
+#: Autorizar um destino e um acto humano com papelada arquivada — contrato,
+#: retencao zero, nao-treino, numero de procedimento da APD — e nao uma escrita
+#: de um processo que serve conversas. Sem `INSERT` nem `UPDATE`, a *porta* de
+#: destinos nao consegue autorizar-se a si propria: um defeito no servico que
+#: serve o turno nao pode abrir um destino.
+#:
+#: E ao contrario do `provisioning_step` logo acima, aqui **nao** ha matriz por
+#: coluna: nao se conceder `UPDATE` nenhum e mais forte do que conceder seis
+#: colunas, pelo que esta tabela nao entra em `TABELAS_COM_MATRIZ_DE_COLUNA` —
+#: nao ha `GRANT UPDATE (coluna)` onde uma coluna a mais se pudesse esconder.
+#:
+#: **O `kamba_audit` le**, e entra porque «para onde foram os dados deste
+#: tenant» e uma pergunta de auditoria: e ele que le a vista `v_transfer_audit`,
+#: que com `security_invoker` exige privilegio nas duas tabelas por baixo. Nao o
+#: poe acima da RLS — o `kamba_audit` **nao** tem `BYPASSRLS` (so o
+#: `kamba_batch` tem), pelo que ve o tenant do seu contexto e as linhas globais.
+#:
+#: O `kamba_batch` tem os quatro: e ele que escreve um destino autorizado quando
+#: a APD responder, e que semeia as baterias de isolamento.
+ESPERADO_POR_TABELA.update(
+    {
+        "tenant_destinations": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {

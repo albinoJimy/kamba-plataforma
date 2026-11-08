@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import codeowners
+from . import codeowners, destinos
 
 #: Servicos do Piloto (`docs/tecnica/09` §3.1). `com` e o anfitriao do Medusa 2.21.x;
 #: a vitrine Next.js fica para Clusters e por isso nao esta aqui (ADR-019).
@@ -124,6 +124,14 @@ def check(root: Path, caminhos: list[str] | None = None) -> list[str]:
     # uma verificacao estatica da fonte que nao executa nada, pela mesma razao
     # que poe la o `log-lint` do KAM-068.
     problems.extend(codeowners.check(root, caminhos=caminhos))
+
+    # O inventario de clientes de saida para subprocessadores (KAM-069,
+    # criterio 4). **Cresce aqui pela mesma razao que o `CODEOWNERS`**: um
+    # comando novo no `lint_arch` nao custa um contexto exigido, mas um *job*
+    # novo custava — e isso e alteracao de regra de bloqueio, que pede o
+    # fundador. O gate 2 e onde uma verificacao estatica da fonte pertence, como
+    # o `log-lint` do KAM-068.
+    problems.extend(destinos.check(root, caminhos=caminhos))
 
     for service in SERVICES:
         base = root / "services" / service

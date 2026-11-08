@@ -2210,6 +2210,76 @@ EXCLUIDAS_DA_VISTA_DO_LEDGER = (
     "row_hash",
 )
 
+#: Os destinos de transferencia (KAM-069, revisao `0036`). **Catorze colunas**,
+#: e a resposta a «guarda dados pessoais?» e `nao` em todas — incluindo a
+#: `dados_pessoais` do inventario, que **nao e coluna desta tabela**: o
+#: inventario de subprocessadores e um ficheiro (`gov/subprocessadores.yaml`) e
+#: declara **classes** de dados, nunca valores.
+#:
+#: O que esta tabela guarda e configuracao de conformidade: quem, para que, para
+#: onde, com que numero de procedimento. Um `apd_ref` e uma referencia emitida
+#: por um orgao publico sobre a **KAMBÁ**, nao sobre um titular; um
+#: `contrato_ref` aponta para um contrato arquivado fora daqui.
+#:
+#: **O `tenant_id` e a primeira coluna `tenant_id` ANULAVEL deste esquema**, e o
+#: nulo e o destino global de infra-estrutura (criterio 1). Ver a nota do
+#: `TABELAS_0036` em `base.py`.
+INVENTARIO["tenant_destinations"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", SIM, None, "nao — e o nulo e o destino global"),
+    "provider": ("text", NAO, None, "nao — nome de empresa, nao de pessoa"),
+    "country": ("text", NAO, None, "nao"),
+    "purpose": ("text", NAO, None, "nao"),
+    "apd_ref": (
+        "text",
+        SIM,
+        None,
+        "nao — e a referencia de um procedimento da APD sobre a KAMBÁ, nao "
+        "sobre um titular",
+    ),
+    "status": ("text", NAO, None, "nao"),
+    "contrato_ref": (
+        "text",
+        SIM,
+        None,
+        "nao — aponta para um contrato arquivado fora desta base",
+    ),
+    "retencao_zero": ("boolean", NAO, None, "nao"),
+    "sem_treino": ("boolean", NAO, None, "nao"),
+    "autorizado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "revogado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: **A quinta vista do esquema** (KAM-069, revisao `0036`), e a primeira que
+#: atravessa esquemas: le `dat.llm_call_log` e `platform.tenant_destinations`.
+#:
+#: Escreve-se **a mao** e nao derivada, e a razao nao e a da
+#: `v_payment_ledger_heads` (que tem um `AS`): aqui a tabela de que as colunas
+#: vem — a `dat.llm_call_log` — **nao esta neste inventario**, que filtra
+#: `table_schema = 'platform'`. Derivar exigia um segundo inventario para o
+#: `dat`, e um inventario de um esquema que nenhum teste confronta nao e um
+#: inventario.
+#:
+#: As sete colunas sao as da chamada, e o que **nao** esta aqui e o que uma
+#: pergunta de conformidade nao precisa: os quatro contadores de *tokens*, o
+#: custo, a latencia, o `trace_id`, a `vertical`, o `no_grafo` e o
+#: `graph_version`. Quem audita transferencias pergunta «quem, quando, para que
+#: fornecedor, com que desfecho» — e nao «quanto custou».
+#:
+#: Como nas outras quatro, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao.
+INVENTARIO["v_transfer_audit"] = {
+    "id": ("bigint", SIM, None, "nao"),
+    "ts": ("timestamp with time zone", SIM, None, "nao"),
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "fornecedor": ("text", SIM, None, "nao — nome de empresa, nao de pessoa"),
+    "modelo": ("text", SIM, None, "nao"),
+    "papel": ("text", SIM, None, "nao"),
+    "resultado": ("text", SIM, None, "nao"),
+}
+
 INVENTARIO["v_payment_events_audit"] = {
     coluna: (tipo, SIM, None, pessoal)
     for coluna, (tipo, _, _, pessoal) in INVENTARIO["payment_events"].items()
@@ -3024,6 +3094,27 @@ class TestInventario(ComBase):
             # tenant expiram no mesmo instante sempre que a mesma cobranca
             # define a validade das duas.
             "orders_mirror_expira_idx": False,
+            # KAM-069 (0036): as linhas **globais** dos destinos de
+            # transferencia, que sao as da infra-estrutura — o `tenant_id` nulo.
+            #
+            # **Parcial de proposito, e e o segundo acesso da tabela.** A
+            # unicidade `(tenant_id, provider, country, purpose)` serve o
+            # primeiro (as linhas de um tenant) porque principia pelo
+            # `tenant_id`; as globais nao, porque um `IS NULL` sobre a primeira
+            # coluna de um indice de quatro varre-o todo. A porta le as globais
+            # em **todas** as consultas, pela precedencia do `porta.py`.
+            #
+            # **Nao comeca pelo `tenant_id`, e nao pode**: o predicado e
+            # `tenant_id IS NULL`, pelo que a coluna nao discrimina nada dentro
+            # do indice. O que o X-05 exige — `tenant_id` a cabeca de **algum**
+            # indice — e satisfeito pela unicidade.
+            #
+            # Nao unico, e seria errado se o fosse: a unicidade das globais e a
+            # restricao `UNIQUE NULLS NOT DISTINCT`, que leva o `country`; este
+            # indice nao o leva, e unico recusaria dois paises para o mesmo
+            # fornecedor e finalidade — que e exactamente a configuracao que o
+            # passo 4 da porta existe para tratar.
+            "tenant_destinations_globais_idx": False,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -3047,6 +3138,28 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # --------------------------------------- KAM-069 (0036)
+                    #
+                    # **Catorze**: a chave primaria, a unicidade e os doze
+                    # `CHECK`. Os quatro primeiros sao de forma (dominio
+                    # fechado, dominio fechado, ISO 3166-1, identificador), o
+                    # quinto e o sexto recusam o vazio, e os seis ultimos ligam
+                    # colunas — e sao eles que fazem a tabela nao poder
+                    # contradizer-se.
+                    "tenant_destinations_pkey",
+                    "tenant_destinations_destino_uk",
+                    "tenant_destinations_status_ck",
+                    "tenant_destinations_purpose_ck",
+                    "tenant_destinations_country_ck",
+                    "tenant_destinations_provider_ck",
+                    "tenant_destinations_apd_ref_ck",
+                    "tenant_destinations_contrato_ref_ck",
+                    "tenant_destinations_autorizado_com_apd_ref_ck",
+                    "tenant_destinations_autorizado_com_checklist_ck",
+                    "tenant_destinations_autorizado_com_janela_ck",
+                    "tenant_destinations_revogado_com_janela_ck",
+                    "tenant_destinations_janela_ordenada_ck",
+                    "tenant_destinations_sem_janela_ck",
                     # ------------------------------------- KAM-054 (0032)
                     #
                     # **Quinze**: quatro do `payment_confirmers` (a chave

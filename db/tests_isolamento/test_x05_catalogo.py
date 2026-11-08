@@ -290,6 +290,19 @@ class TestCatalogoReal(ComBase):
                 # precisaram desta tabela, e as tres estao feitas no mesmo PR.
                 ("platform", "stock_reservations", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
+                # KAM-069: os destinos de transferencia, entre o canal e o
+                # contador de uso («tenant_ch» < «tenant_de» < «tenant_us»). A
+                # nota do KAM-091 acima vale outra vez, e e a quarta vez: sao
+                # **tres** as listas deste ficheiro que precisam de uma tabela
+                # isolada nova, e as tres estao feitas no mesmo PR.
+                #
+                # **E a primeira desta lista com `tenant_id` ANULAVEL.** A
+                # descoberta do X-05 pergunta pela **coluna** e nao pela
+                # nulidade dela, pelo que a tabela entra como as outras; o que
+                # o nulo significa — um destino global de infra-estrutura, o
+                # criterio 1 do KAM-069 — esta em `db/tests/test_catalogo.py`,
+                # no `ANULAVEIS`, com a razao escrita.
+                ("platform", "tenant_destinations", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
                 ("platform", "tenants", "id"),
@@ -547,6 +560,31 @@ class TestCatalogoReal(ComBase):
                 ("stock_reservations", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
+                # KAM-069: **duas** politicas, e e a primeira tabela deste
+                # repositorio com duas que nao sao «a `tenant_iso` mais uma de
+                # leitura por papel». As duas sao permissivas e o PostgreSQL
+                # une-as por `OR`:
+                #
+                #   destinos_globais  `FOR SELECT USING (tenant_id IS NULL)`, e
+                #                     **sem `TO`** — e `{public}`, ao contrario
+                #                     da `resolver_leitura` acima. Acrescenta as
+                #                     linhas globais ao que a `tenant_iso` ja
+                #                     deixa ver, que e a segunda metade do
+                #                     criterio 1 («RLS `FORCE` com linhas
+                #                     globais legiveis»).
+                #   tenant_iso        a do `db/rls.py`, intacta.
+                #
+                # **`FOR SELECT` e nao `ALL`, e e ai que a barreira vive:** com
+                # `ALL`, um tenant **escrevia** uma linha global, que e autorizar
+                # um destino de infra-estrutura para a plataforma toda a partir
+                # do contexto de um tenant.
+                #
+                # A ordem e por `ORDER BY 1, 2` — tabela e depois politica —,
+                # pelo que a `destinos_globais` vem antes da `tenant_iso`
+                # («des» < «ten»), como a `pay_hooks_token` vem antes da
+                # `tenant_iso` da `payment_accounts`.
+                ("tenant_destinations", "destinos_globais", "SELECT", "{public}"),
+                ("tenant_destinations", "tenant_iso", "ALL", "{public}"),
                 # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
                 # `pg_policies.tablename` e do tipo `name`, que tem colacao
                 # `C`, e o `::text` do `SELECT` herda-a. Por isso
@@ -672,6 +710,17 @@ class TestCatalogoReal(ComBase):
              # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
              "stock_reservations",
              "tenant_channels",
+             # KAM-069: os destinos de transferencia. **Terceira lista deste
+             # ficheiro a precisar da tabela nova**, e as duas de cima ja
+             # estavam feitas quando esta falhou — a licao que seis tickets
+             # antes deste escreveram, outra vez medida.
+             #
+             # Entra aqui por **uma** politica e nao por duas: esta consulta
+             # filtra `policyname = 'tenant_iso'`, e a `destinos_globais` nao
+             # tem `WITH CHECK` nenhum (e `FOR SELECT`) — pelo que falharia a
+             # asercao do `NULLIF` sobre um `with_check` nulo. As duas aparecem
+             # na lista de politicas exactas, acima.
+             "tenant_destinations",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
              "tenant_usage", "tenants",

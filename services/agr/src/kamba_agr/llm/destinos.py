@@ -1,55 +1,59 @@
 """O *gate* de destino: nada sai de Angola sem autorizacao (ADR-008, KAM-030).
 
-**Esta e a decisao que este ticket teve de tomar, e esta tomada em voz alta.**
+**Este modulo nasceu com a porta por implementar, e o KAM-069 implementou-a.**
+O que aqui fica e o contrato — a `PortaDeDestinos` que o `cliente.py` consulta
+antes de cada chamada — e **duas** portas que o satisfazem:
 
-O DoR do KAM-030 nomeia o **KAM-069** — «Inventario de subprocessadores e gate de
-transferencia com `apd_ref`» — como dependencia, e o KAM-069 **nao esta
-entregue**: nao existe a tabela `tenant_destinations`, nao existe
-`assertDestinationAllowed`, e nao existe linha nenhuma com `apd_ref`. Medido
-antes de se escrever codigo: zero caixas marcadas no bloco dele, e nenhum
-ficheiro de inventario ou de *gate* no repositorio.
+    NegaTudoAteKam069   a porta de um processo **sem ligacao a base**. Nega tudo
+                        em `prod`. Nao desapareceu com o KAM-069, e isso e
+                        decisao: um processo que nao consegue abrir ligacao nao
+                        passa a autorizar, passa a negar.
+    PortaDoNucleo       a porta real: a `PortaSobreDestinos` do
+                        `kamba_core.destinos` sobre `platform.tenant_destinations`
+                        (revisao `0036`), com a *cache* de 60 s do criterio 3 do
+                        KAM-069.
 
-As duas leituras defensaveis eram entregar o *gateway* com o destino a falhar
-**fechado** e o KAM-069 nomeado como credor, ou parar e devolver a decisao. **Fica
-a primeira**, e a razao tem tres partes:
+O que o `arrancar` devolve depende de haver ou nao quem abra ligacao, e nada no
+`cliente.py` muda com a troca — que e o que a versao anterior deste ficheiro
+prometeu por escrito («troca-se o que o arranque constroi»).
 
-1. **E o que o proprio criterio 8 manda.** Ele escreve, por extenso, «ate
-   KAM-069 existir, so dados sinteticos em `staging`» — quem redigiu o critero
-   previu esta situacao e disse o que fazer nela. Parar seria recusar uma
-   instrucao escrita.
-2. **E o padrao desta linha de tickets.** O KAM-028 deixou o passo 5 do pipeline
-   vazio para o KAM-029; o KAM-029 deixou o `stage` do `confirm_gate` para o
-   KAM-031. Uma costura nomeada, com o credor escrito, e como este epic avanca.
-3. **Falhar fechado em `prod` nao e um compromisso: e mais restritivo do que o
-   KAM-069 sera.** Com o KAM-069 feito, um destino `autorizado` com `apd_ref`
-   passa; aqui, em `prod`, **nao passa nenhum**. Nao ha janela para fechar
-   depois — ha uma porta que so o KAM-069 pode abrir.
+## Porque e que a traducao de erro existe, e nao se dispensa
 
-**O que isto custa, dito sem rodeios:** o `/internal/turn` com `KAMBA_ENV=prod`
-nao consegue chamar um modelo. O AGR em producao continua sem responder — mas ja
-nao estava a responder (o `ExecutorDeTurnos` recebe `sem_grafos` e os grafos sao
-o KAM-031 e o KAM-035). O que este ticket entrega e o caminho inteiro provado em
-`staging` com dados sinteticos, e a porta de `prod` fechada por desenho em vez de
-aberta por omissao.
+A `PortaSobreDestinos` levanta `TransferenciaNegada`, que **nao** e um
+`ErroDeLlm`. O `cliente.py` apanha `ErroDeLlm` e so: uma `TransferenciaNegada` a
+subir por ali escapava ao `except`, nao contava a metrica
+`agr_llm_destino_negado_total`, nao gravava a linha `destino_negado` em
+`dat.llm_call_log` e nao degradava — o turno rebentava. Nada sairia de Angola,
+pelo que a propriedade de seguranca mantinha-se; o que se perdia era tudo o que
+o criterio 5 do KAM-030 fecha.
 
-**E por isso a caixa do criterio 8 fica `parcial` e nenhuma caixa que dependa do
-que o KAM-069 entrega vai marcada** — nem o critero 8 por inteiro, nem a linha de
-privacidade do DoD que pede «nenhum dado pessoal sai de Angola fora de destino
-registado com `apd_ref`»: o `apd_ref` nao existe para se registar.
+O `PortaDoNucleo` traduz, e e a unica coisa que faz. O dicionario §3.49 escreve
+porque sao dois erros e nao um: o `DestinoNegado` e o contrato entre o grafo e o
+**modelo**, e a `TransferenciaNegada` e a recusa de uma porta que nao sabe que
+existe um modelo do outro lado.
 
-## A interface e a que o KAM-069 vai implementar, nao uma nossa
+## As tres finalidades deste servico, e as treze da coluna
 
-A `PortaDeDestinos` tem a assinatura que o bloco do KAM-069 anuncia —
-`assertDestinationAllowed(tenant, provider, purpose)` — com os nomes em
-portugues do resto do codigo. Quando o KAM-069 chegar, implementa a porta sobre
-`tenant_destinations` e **nada neste modulo muda**: troca-se o que o arranque
-constroi. A *cache* com TTL de 60 s que o criterio 3 do KAM-069 pede e **dele** e
-nao daqui — esta implementacao nao tem o que *cachear*.
+A coluna `tenant_destinations.purpose` tem **treze** valores (dicionario §3.49),
+porque o *gate* corre em sete pontos e so um e o *gateway* de modelos. Deste
+lado interessam **tres**, e os literais vem do nucleo: duas copias das mesmas
+cadeias divergiam no dia em que uma delas mudasse, e foi para evitar isso que o
+dominio saiu daqui para a revisao que cria a coluna.
 """
 
 from __future__ import annotations
 
-from typing import Final, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
+
+from kamba_core.destinos import (
+    FINALIDADE_CONVERSA,
+    FINALIDADE_EMBEDDINGS,
+    FINALIDADE_VISAO,
+    CacheDeDestinos,
+    PortaSobreDestinos,
+    TransferenciaNegada,
+)
+from kamba_core.destinos import dbapi as destinos_dbapi
 
 from .erros import DestinoNegado
 
@@ -58,12 +62,13 @@ AMBIENTE_PROD: Final = "prod"
 AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
-#: A finalidade de uma chamada, no vocabulario do `docs/tecnica/08` §8.3.1 (a
-#: coluna `purpose` de `tenant_destinations`). Lista **fechada**: uma finalidade
-#: nova e uma linha nova no inventario de subprocessadores, nao uma constante.
-FINALIDADE_CONVERSA: Final = "conversa"
-FINALIDADE_EMBEDDINGS: Final = "embeddings"
-FINALIDADE_VISAO: Final = "visao"
+#: As finalidades que **este servico** usa: tres das treze de
+#: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.49).
+#:
+#: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
+#: nota do modulo. Lista **fechada** deste lado: uma finalidade nova no AGR e um
+#: papel novo em `llm/aliases.yaml`, e uma finalidade nova na coluna e uma
+#: revisao de base de dados.
 FINALIDADES: Final = (FINALIDADE_CONVERSA, FINALIDADE_EMBEDDINGS, FINALIDADE_VISAO)
 
 #: Papel -> finalidade. O `router` e o `chat` tratam conteudo de conversa; o
@@ -125,7 +130,42 @@ class NegaTudoAteKam069:
         )
 
 
-def arrancar(ambiente: str) -> PortaDeDestinos:
+class PortaDoNucleo:
+    """A `PortaSobreDestinos` do nucleo, com o erro traduzido.
+
+    **Faz uma coisa so.** Nao decide nada, nao cacheia nada, nao toca na base:
+    delega e traduz. Toda a regra — a precedencia das linhas do tenant, a
+    conjuncao sobre todas as aplicaveis, a falha fechada, o TTL de 60 s — vive em
+    `kamba_core.destinos.porta`, que e onde ela se prova sem base nenhuma.
+
+    A traducao e `TransferenciaNegada` -> `DestinoNegado`, e a nota do modulo diz
+    porque nao se dispensa.
+    """
+
+    nome = "tenant-destinations"
+
+    def __init__(self, porta: PortaSobreDestinos) -> None:
+        self._porta = porta
+
+    @property
+    def cache(self) -> CacheDeDestinos:
+        """Para quem revoga e nao quer esperar pelo TTL (criterio 3)."""
+        return self._porta.cache
+
+    def autorizar(self, tenant_id: str, fornecedor: str, finalidade: str) -> None:
+        try:
+            self._porta.autorizar(tenant_id, fornecedor, finalidade)
+        except TransferenciaNegada as erro:
+            # **A mensagem passa inteira.** Ela nomeia o fornecedor, o pais e o
+            # estado, e e isso que torna um `destino_negado` diagnosticavel: as
+            # cinco maneiras de negar dao textos diferentes. Nenhuma leva o
+            # `apd_ref` — a consulta nao o traz da base, so o booleano.
+            raise DestinoNegado(str(erro)) from erro
+
+
+def arrancar(
+    ambiente: str, abrir_ligacao: Any | None = None
+) -> PortaDeDestinos:
     """A porta deste processo. Um ambiente desconhecido **nega**, nao cai em dev.
 
     E a mesma escolha do `_ambiente` do `__main__.py`, e pela mesma razao que o
@@ -133,9 +173,21 @@ def arrancar(ambiente: str) -> PortaDeDestinos:
     por engano nao pode servir a politica de `dev`. Aqui o engano custa mais —
     custava uma transferencia — e por isso um valor desconhecido e tratado como
     `prod`.
+
+    **Com `abrir_ligacao`, a porta e a real; sem ele, nega tudo em `prod`.** O
+    argumento e opcional e nao obrigatorio por uma razao que se diz: os testes
+    deste servico, e o `arrancar` de quem ainda nao tem base, continuam a
+    receber uma porta valida em vez de um `None` que o `cliente.py` teria de
+    verificar. E a ausencia de ligacao nao afrouxa nada — a porta que se recebe
+    sem ela e a **mais** restritiva das duas.
     """
     conhecido = ambiente in (AMBIENTE_PROD, AMBIENTE_STAGING, AMBIENTE_DEV)
-    return NegaTudoAteKam069(ambiente if conhecido else AMBIENTE_PROD)
+    efectivo = ambiente if conhecido else AMBIENTE_PROD
+    if abrir_ligacao is None:
+        return NegaTudoAteKam069(efectivo)
+    return PortaDoNucleo(
+        PortaSobreDestinos(destinos_dbapi.leitor(abrir_ligacao), CacheDeDestinos())
+    )
 
 
 def finalidade_de(papel: str) -> str:

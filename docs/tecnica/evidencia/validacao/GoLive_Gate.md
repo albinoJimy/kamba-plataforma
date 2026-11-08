@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — checklist de entrada de dados reais em produção |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno; **regra de bloqueio operacional** |
 | Ticket | KAM-105 (EPIC-10) |
@@ -81,7 +81,7 @@ são os únicos que a equipa fecha sozinha.
 
 | # | Condição | Fonte | Obrigatória | Estado | Evidência | Data |
 |---|---|---|---|---|---|---|
-| D1t | **`tenant_destinations` existe e o *gate* falha fechado** sem linha `autorizado` | `../../08` §8.3.1; KAM-069 | Sim | **não** | **A tabela não existe** (KAM-069). A barreira que existe hoje é outra: o *gate* de destino do cliente de modelos recusa os três fornecedores em `KAMBA_ENV=prod` | |
+| D1t | **`tenant_destinations` existe e o *gate* falha fechado** sem linha `autorizado` | `../../08` §8.3.1; KAM-069 | Sim | **satisfeito** | KAM-069: a tabela é a revisão `0036` e a porta que a lê é `libs/py-core/src/kamba_core/destinos/`, negada por omissão e com falha fechada em cinco caminhos (sem linha, estado que bloqueia, `apd_ref` nulo, finalidade fora do domínio, erro da base — e o erro da base **não** fica em *cache*). O `arrancar` do AGR devolve essa porta, e a vista `platform.v_transfer_audit` mede o mesmo pelo outro lado, com a regra da porta. **Esta linha afirma a barreira e não a autorização**: a B2 continua `não`, com 0 de 14 destinos com `apd_ref`, e é ela que bloqueia os dados reais | 2026-11-08 |
 | D2t | **Listas de saída declaradas e aplicadas na rede** | `infra/egress/`, `services/*/egress.yaml`; KAM-076 | Sim | **não** | Os contratos existem — treze listas, `por_omissao: negar`, três FQDN em `infra/egress/litellm.yaml` e `destinos: []` nas outras doze —, mas **a aplicação na rede é o KAM-076 e não está feita**, e o Medusa e a pilha de observação não têm lista nenhuma. Enquanto não houver aplicação, uma lista é um contrato e não uma barreira | |
 | D3t | **Checklist de segurança do `../../08` §8.5 #11**: TLS, cifra em repouso, segregação entre PMEs, MFA, auditoria de acessos — com **pentest antes do go-live** | `../../08` §8.5 #11 | Sim | **em branco** | Dono: Responsável de Segurança. O pentest não está agendado | |
 | D4t | **Isolamento entre PMEs verificado** — zero leituras cruzadas | `../../08` §3, §14 | Sim | **satisfeito** | Suite de testes cruzados entre PMEs que corre em cada alteração e **faz falhar a construção**; alvo medido **zero** leituras cruzadas | 2026-11-02 |
@@ -210,3 +210,4 @@ propósito — datar uma condição não cumprida era datar o quê.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Novembro de 2026 | Emissão inicial, KAM-105. **22** condições obrigatórias em quatro blocos — decisões, procedimento junto da APD, contratos e textos, controlos técnicos —, cada uma com fonte, estado, evidência e data. Ao dia de hoje **4 de 22** satisfeitas, todas do bloco técnico; nenhuma dos blocos A, B e C, porque o pacote de perguntas ao advogado ainda não saiu. Registadas três notas que mudam o que o gate exige: Luanda não dispensa o procedimento, a linha do CDN tem um caminho executável que dispensa a decisão, e os dados reais de teste dos spikes são uma **excepção** ao gate e não uma passagem por ele. | Equipa KAMBÁ |
+| 1.1 | Novembro de 2026 | **KAM-069: a linha D1t passa a `satisfeito`**, com a evidência nomeada que esta folha exige — a revisão `0036` e a porta de `libs/py-core/src/kamba_core/destinos/`, negada por omissão e com falha fechada em cinco caminhos. **É a primeira linha obrigatória desta checklist a sair de `não`, e não aproxima os dados reais:** a B2 continua `não` com **0 de 14** destinos com `apd_ref`, e é ela que bloqueia. O resto da folha não é tocado. |
