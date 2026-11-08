@@ -357,6 +357,91 @@ export const INVENTARIO: readonly Entrada[] = [
       "forjado que a lista de IPs aceitava por uma barra final; um destino " +
       "ficticio nao chegava a cunhar-se e o achado 1 nao se podia medir",
   },
+  // --- A inscricao self-service (KAM-086) ----------------------------------
+  //
+  // Cinco ficheiros e vinte e sete ocorrencias, **medidas com `meta-sim
+  // varrer` e nao escritas a mao** — e e a unica maneira de a contagem
+  // continuar a querer dizer algo.
+  //
+  // **Porque e que nao se usa o intervalo ficticio**, que e a resposta normal: o
+  // registo e o OTP deste ticket correm sobre o `packages/core-ts/src/sms/`, que
+  // so aceita o prefixo `+244` — e a recusa de tudo o resto e o criterio 6 do
+  // KAM-116 e o criterio 6 deste bloco, nao uma conveniencia. Um `999...` do
+  // intervalo reservado e recusado pelo `normalizarTelefone` antes de chegar a
+  // qualquer ensaio, pelo que uma bateria escrita com numeros ficticios nao
+  // podia exercitar nem o caminho feliz nem a recusa. E a mesma forma de
+  // argumento da entrada do KAM-116, duas acima.
+  //
+  // **E porque e que nao se esconde do varredor.** Compor `"+244" + NACIONAL` em
+  // vez de escrever a cadeia inteira tirava-os destas contagens sem tirar a
+  // forma do ficheiro — seria passar o portao em vez de o satisfazer.
+  //
+  // **O que torna estes vinte e sete seguros nao e a declaracao, e a forma
+  // deles:** o numero nacional comeca por `0`, e um E.164 nacional nunca comeca
+  // por zero — o zero e prefixo de chamada nacional e nao entra no numero
+  // internacional. Nao podem colidir com o telefone de ninguem. A excepcao sao
+  // as grafias **estrangeiras** do ensaio de *SMS pumping*, que existem para
+  // serem RECUSADAS e que por isso nunca chegam a ser um destino: sao as tres do
+  // `adversarial.test.ts`, e estao la porque um ensaio que so recusasse numeros
+  // impossiveis nao provava que o modulo recusa um numero de outro pais.
+  {
+    ficheiro: "packages/core-ts/tests/inscricao.identificadores.test.ts",
+    ocorrencias: 7,
+    razao:
+      "as doze grafias do mesmo telefone que o criterio 4 do KAM-086 enumera: " +
+      "seis levam separador pelo meio, que e precisamente a forma que o " +
+      "telefone_ao deste ficheiro NAO apanha — a corrida de digitos quebra no " +
+      "espaco. Sem numeros de forma real a bateria provava que a normalizacao " +
+      "junta grafias de um numero que o modulo recusa antes de as ver",
+  },
+  {
+    ficheiro: "packages/core-ts/tests/inscricao.otp.test.ts",
+    ocorrencias: 11,
+    razao:
+      "os destinos das baterias de frequencia, intervalo e orcamento do " +
+      "criterio 5: o limite e POR TELEFONE, pelo que medi-lo exige telefones " +
+      "distintos e cunhaveis pelo modulo — que so aceita +244. Um numero " +
+      "ficticio era recusado antes de chegar ao caso que se quer medir",
+  },
+  {
+    ficheiro: "packages/core-ts/tests/inscricao.registo.test.ts",
+    ocorrencias: 5,
+    razao:
+      "o telefone do caso base e o segundo telefone dos ensaios de duplicado do " +
+      "criterio 8: o telefone repetido com NIF diferente e a recuperacao de " +
+      "sessao, onde se compara o destino do SMS da recuperacao com o do registo " +
+      "original para provar que ele vai ao numero REGISTADO e nao ao submetido",
+  },
+  {
+    ficheiro: "services/onboarding-web/tests/registo.test.ts",
+    ocorrencias: 2,
+    razao:
+      "o telefone que o formulario submete pela rota HTTP, e um segundo para o " +
+      "ensaio de isolamento entre dois casos. A bateria do servico existe para " +
+      "medir que as barreiras estao LIGADAS ao pedido, e um pedido com um " +
+      "telefone que o modulo recusa nunca chega a exercitar a ligacao",
+  },
+  {
+    ficheiro: "tools/isolamento/tests/condutor/rotas.ts",
+    ocorrencias: 2,
+    razao:
+      "os dois destinos do grupo `inscricao` do condutor de isolamento (gate 6, " +
+      "KAM-066): o do caso de B, que e o atacado, e o de quem ataca. O modulo da " +
+      "inscricao so aceita +244, pelo que um numero ficticio era recusado antes " +
+      "de o caso de B existir — e sem caso de B os dez ataques nao atacam nada. " +
+      "Nacionais a comecar por zero, como os das outras entradas desta lista",
+  },
+  {
+    ficheiro: "services/onboarding-web/tests/adversarial.test.ts",
+    ocorrencias: 3,
+    razao:
+      "as grafias ESTRANGEIRAS do ensaio adversarial (d) de SMS pumping, que " +
+      "existem para ser recusadas: um ensaio escrito so com numeros impossiveis " +
+      "nao provava que o modulo recusa um numero de outro pais, que e o ataque " +
+      "real — usar o nosso agregador como rele para destinos que pagam mais " +
+      "caro. As restantes grafias deste ficheiro sao compostas por indice e nao " +
+      "contam aqui",
+  },
   // --- O canario do ensaio de privacidade do spike H3 (KAM-100) ------------
   //
   // **Cinco ocorrencias num ficheiro so, e o ficheiro e um ensaio de canario.**

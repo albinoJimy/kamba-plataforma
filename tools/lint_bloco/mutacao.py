@@ -167,7 +167,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # que e, por si, o argumento para a comparar por codigo em vez de a ler.
 
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 44", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 45", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
