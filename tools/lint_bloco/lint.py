@@ -102,27 +102,45 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: piso em metade do medido, a **folga sao dois blocos** — ao 86.º volta a pedir
 #: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
 #:
-#: **E ao 84.º chegou: subiu de 41 para 42 com o KAM-182**, exactamente como a
-#: nota acima previu. Duas seccoes de verificacao fundiram entre o corte do ramo
-#: e a medicao — a do KAM-055 (PR #146) e a do KAM-182 —, e `84 // 2` sao 42.
-#: Medido nas duas pontas: com a `main` em `ca5cac55` sao 83 medidos e 41
-#: bastava; com a `main` em `06b8aba2` e o bloco do KAM-182 sao **84** e o
-#: ensaio falha com `41 not greater than or equal to 42`. **E a folga volta a
-#: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
-#: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
-#: sem defeito nenhum.
+#: **E ao 84.º chegou, exactamente como a nota acima previa.** O piso ficou em
+#: **42** e quem o pos la foi o **KAM-182**, que fundiu primeiro; o KAM-079 tinha
+#: medido o mesmo valor no seu ramo e chegaria ao mesmo numero. **Qual dos dois
+#: o subiu e um dado sobre a ordem de fusao e nao sobre o corpus**, pelo que nao
+#: vale a pena escreve-lo de outra forma: o que vale e o numero e como se mede.
 #:
-#: **E o 86.º chegou: sobe de 42 para 43 com o KAM-184**, a segunda vez que a
-#: nota acima se cumpre. Medido nas duas pontas: com a `main` em `b974dda4` sao
-#: **85** medidos e 42 bastava; com a seccao de verificacao do KAM-184 sao **86**
-#: e `86 // 2` sao 43. Correm cinco sessoes neste lote e cada seccao de
-#: verificacao que funda sobe o medido, pelo que quem fundir depois **renumera
-#: na integracao** — o numero nao se copia de outro ramo, mede-se na arvore:
+#: As duas restricoes que o `test_os_pisos_valem_alguma_coisa` e o
+#: `test_os_pisos_da_arvore_real_ficam_abaixo_do_medido` impoem juntas:
 #:
-#:     python -c "import sys,pathlib; sys.path.insert(0,'tools')
-#:     from lint_bloco import lint
-#:     _,_,n = lint.verificar(pathlib.Path('.'))
-#:     print(n['medidos'], n['medidos'] // 2, lint.MINIMO_DE_BLOCOS_MEDIDOS)"
+#:     medidos // 2  <=  MINIMO_DE_BLOCOS_MEDIDOS  <=  medidos
+#:
+#: Medido na arvore desta fusao — a `publico/main` em `b974dda4` com o bloco do
+#: KAM-079 dentro: **86 medidos**, e `86 // 2` sao 43, pelo que o piso **sobe
+#: para 43**.
+#:
+#: Uma versao anterior desta nota dizia «85 medidos, e o piso fica em 42», e era
+#: verdadeira enquanto a `main` estava em `b79d1e8c`. Deixou de o ser sem
+#: ninguem tocar numa linha deste ficheiro: o **KAM-069** (#156) fundiu primeiro
+#: e trouxe o 86.º bloco. **A emenda e de quem funde em segundo e faz-se na
+#: integracao**, nunca em antecipacao — um piso acima do medido avermelha o
+#: portao sem defeito nenhum, e um piso copiado de outra ponta nao mede a arvore
+#: em que esta.
+#:
+#: **Dizer «folga» aqui nao chega, porque as duas leituras dao numeros
+#: diferentes e as duas estao certas:** `piso - exigido` e **zero** (o piso fica
+#: colado ao minimo), e **faltam dois blocos** para a proxima emenda — o 43
+#: serve ate aos **87** medidos, e ao 88.º `88 // 2` sao 44. A integracao deste
+#: ticket viu a mesma palavra usada nos dois sentidos na mesma conversa, uma vez
+#: por cada leitura, pelo que o que fica escrito e a **conta**. Nao se nomeia
+#: aqui quem pagara essa emenda — ha ramos abertos com seccoes de verificacao
+#: por fundir, e qual deles aterra em segundo decide-se na fusao e nao aqui.
+#:
+#: **Cinco blocos a pagar esta linha e um dado sobre o desenho, e nao sobre
+#: nenhum dos tickets.** Desde os 81: a seccao do KAM-108, a do KAM-055, a do
+#: KAM-182, a do KAM-069 e a do KAM-079. O limite nao e a regra — o piso e que a
+#: torna util —, e sim a **cadencia**: cada dois blocos de verificacao novos
+#: exigem uma emenda a uma constante que vive no ticket de outra pessoa, e a
+#: emenda e sempre uma medicao na arvore de quem funde. Fica registado para o
+#: **KAM-183**, que e quem governa esta regra.
 MINIMO_DE_BLOCOS_MEDIDOS = 43
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:

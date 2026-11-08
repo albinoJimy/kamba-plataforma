@@ -151,11 +151,21 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # **O literal tem de acompanhar o `lint.py`, e esteve dois valores atras.**
     # Ficou em `40` quando o KAM-108 subiu o piso para 41: a mutacao deixou de
     # casar, e uma mutacao que nao casa nao mede nada — fica verde por nao ter
-    # mudado o codigo. Achado da revisao adversarial do KAM-182, que a subiu
-    # para 42 e emendou isto no mesmo passo. Quem mexer no piso mexe aqui.
-    # **E voltou a mexer:** 42 -> 43 com o KAM-184, que acrescentou a 86.a seccao
-    # de verificacao. Sao tres sitios, e o `docs/lint-bloco.md` §4 enumera-os:
-    # o `lint.py`, esta linha, e aquela.
+    # mudado o codigo. Quem mexer no piso mexe aqui.
+    #
+    # **Duas revisoes adversariais independentes encontraram este mesmo defeito**
+    # — a do KAM-182 e a do KAM-079 —, cada uma a medir a sua arvore e sem ver a
+    # outra, e as duas escreveram `42`. Vale a pena guardar porque e a melhor
+    # prova que este inventario podia ter: o defeito nao era visivel a ler, era
+    # visivel a **correr** o `mutacao.py` e ver «NAO APLICOU», e nenhum portao
+    # compara um literal de mutacao com a constante que ele cita. Duas edicoes,
+    # e a segunda so se ve a correr.
+    #
+    # **E ja nao e `42`.** O KAM-069 (#156) fundiu primeiro, levou o corpus a 86
+    # medidos e o piso a 43, pelo que este literal subiu com ele na integracao do
+    # KAM-079. Terceira vez que esta linha se move por o corpus ter crescido — o
+    # que e, por si, o argumento para a comparar por codigo em vez de a ler.
+
     ("o piso de emparelhados a zero", "lint.py",
      "MINIMO_DE_BLOCOS_MEDIDOS = 43", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )

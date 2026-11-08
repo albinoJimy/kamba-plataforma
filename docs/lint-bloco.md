@@ -200,14 +200,23 @@ continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **
 > é verdade, e um piso a zero é o mesmo que não ter piso.
 
 > **O piso de emparelhados sobe quando o corpus cresce, e já subiu três vezes.**
-> O ensaio exige `piso >= medidos // 2`, pelo que a folga são sempre dois
-> blocos: 40 → **41** com o KAM-108, 41 → **42** com o KAM-182, e 42 → **43**
-> com o KAM-184, cada um a acrescentar a sua secção de verificação — o último
-> medido em `86` blocos emparelhados contra `85` na `main`. **Este número estava desactualizado
-> aqui desde o KAM-108** — dizia 40 quando o código dizia 41 —, e com ele o
-> literal do `mutacao.py`, pelo que a mutação do piso não casava e passava por
-> medida sem o ser. As duas pontas ficaram emendadas no KAM-182. Quem subir o
-> piso mexe em **três** sítios: o `lint.py`, o `mutacao.py` e esta linha.
+> O ensaio exige `piso >= medidos // 2`, pelo que cada **dois** blocos de
+> verificação novos pedem uma emenda: 40 → **41**, 41 → **42** e 42 → **43**,
+> cada uma medida na árvore de quem fundiu em segundo. **Quem a paga é um dado
+> sobre a ordem de fusão e não sobre o corpus**, e é por isso que o `lint.py` não
+> nomeia tickets na conta — o que vale é o número e como se mede.
+>
+> **Este número esteve desactualizado aqui duas vezes, e a segunda foi pior.** A
+> primeira: dizia 40 quando o código dizia 41, desde o KAM-108, e com ele o
+> literal do `mutacao.py` — a mutação do piso não casava e passava por medida sem
+> o ser. As duas pontas ficaram emendadas no KAM-182. A segunda: o 42 → 43 mexeu
+> o `lint.py` e o `mutacao.py` e **deixou esta linha atrás**, pelo que o documento
+> que manda mexer em três sítios ficou a ser o sítio esquecido. Apanhou-o a
+> integração do **KAM-184**, que mediu **87** emparelhados contra 86 na `main` —
+> `87 // 2` são 43, pelo que o piso **não** se move com ele e o que faltava era
+> só esta linha. Quem subir o piso mexe em **três** sítios: o `lint.py`, o
+> `mutacao.py` e esta linha; e quem **não** o sobe confirma que os três dizem o
+> mesmo, que é o que a terceira vez ensinou.
 
 ---
 
@@ -382,4 +391,4 @@ importações é mais longa do que parece.)
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-183**. O `tools/lint_bloco` com a regra `estado_contra_caixa` (par a par, não em contagem), canário com negativas e positivas, dois pisos de cobertura, e a cobertura na própria saída. **Entregue sem portão** (§7). Devolve com a medição: a regra do pedido tal como escrita, a regra estrutural e a regra dos números; e a unificação do vocabulário, que é canon. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **A revisão adversarial deu 17 achados e todos se confirmaram contra a árvore.** Esta versão é a resposta. **Defeitos de código:** a coluna de assunto casava por sub-cadeia e a tabela `## Riscos do Epic` era lida como tabela de critérios em quatro blocos; o `\|` escapado deslocava a coluna de `Estado`; o casamento por prefixo nu dava `verde-azulado` como cumprido; e faltava `por cumprir` na lista que tem esse nome. **Cobertura:** reconhecer `\| CA \| Estado \| Evidência \|` levou os emparelhados de **53 para 81**, e a categoria «sem tabela com coluna `Estado`» deixou de ser falsa para 35 blocos. **Provas:** metade das mutações sobrevivia — entre elas o salto de cercas, a ordem das listas e o **valor** dos dois pisos —, uma assertiva estava desactivada com `if False` a esconder um defeito real, e a positiva da cerca não podia morder porque as caixas cercadas estavam fora das duas listas. **Números:** dez não se reproduziam, e a resposta não foi reescrevê-los mas **embarcar o instrumento** — `medir.py`, com os seis predicados escritos antes das contagens, e este documento passa a citar a saída dele; o `mutacao.py` entra pela mesma razão, com controlo. **E a espécie `ambigua` saiu**, porque a justificação dela não se verificava na medição. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-182: o piso de emparelhados sobe de 41 para 42, e as três superfícies dele passam a dizer o mesmo.** O ensaio `test_os_pisos_valem_alguma_coisa` exige `piso >= medidos // 2`; duas secções de verificação fundiram entre o corte do ramo do KAM-182 e a medição dele — a do KAM-055 (PR `#146`) e a dele —, o `medidos` passou a **84** e `84 // 2` são 42. Medido nas duas pontas: com a `main` em `ca5cac55` são 83 e 41 bastava; com a `main` em `06b8aba2` são 84 e o ensaio falha com `41 not greater than or equal to 42`. **E emenda duas superfícies que estavam atrasadas desde o KAM-108:** este documento dizia `40` e o literal do `mutacao.py` também, pelo que a mutação do piso **não casava** e ficava verde por não ter mudado nada. Achado da revisão adversarial do KAM-182. O número não se sobe em antecipação — um piso acima do medido avermelha o portão sem defeito nenhum —, pelo que a folga volta a ser dois blocos. | Equipa KAMBÁ |
-| 1.3 | Novembro 2026 | **KAM-184: o piso de emparelhados sobe de 42 para 43, e as três superfícies outra vez.** A secção de verificação daquele bloco é a **86.ª** medida — eram 85 na `main` em `b974dda4` —, e `86 // 2` são 43. É a terceira subida (40 → 41 no KAM-108, 41 → 42 no KAM-182), e a nota do §4.2 pagou-se como estava escrita: mexeram-se os **três** sítios no mesmo *commit* — o `MINIMO_DE_BLOCOS_MEDIDOS` do `lint.py`, o literal da mutação `o piso de emparelhados a zero` do `mutacao.py` (que, se ficasse em 42, deixava de casar e passava por medida sem o ser) e a linha do §4. Medido na árvore e não copiado de outro ramo: correm cinco sessões neste lote e cada secção de verificação que funda sobe o medido, pelo que quem fundir depois **renumera na integração**. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-184: o piso não sobe, e a terceira superfície dele estava atrás.** O 42 → 43 foi pago na integração do KAM-079, que mexeu o `lint.py` e o `mutacao.py` e deixou o §4 deste documento em **42** — o documento que manda mexer em três sítios ficou a ser o sítio esquecido, e é a segunda vez que esta linha fica atrás do código (a primeira esteve em 40 desde o KAM-108). Medido na árvore desta integração, com a `main` em `0e3541d3` e a secção de verificação do KAM-184 dentro: **87** emparelhados contra 86 na `main`, e `87 // 2` são 43 — pelo que o piso **fica** em 43 e o que faltava era só a prosa. O §4 passa a contar as três subidas **sem nomear quem as pagou**, como o `lint.py` já faz: quem paga a emenda é um dado sobre a ordem de fusão e não sobre o corpus. | Equipa KAMBÁ |
