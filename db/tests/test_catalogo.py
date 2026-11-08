@@ -1290,6 +1290,27 @@ class TestConvencoes(ComBase):
         # `NOT_SUPPORTED`. Esta coluna registra quanto a PME tem de devolver da
         # conta dela, e nao uma quantia que alguem aqui guarde.
         ("refund_cases", "valor_minor"),
+        # KAM-051, revisao `0037`. **A segunda vista desta lista**, e esta aqui
+        # pela razao escrita na entrada da `v_payment_events_audit`: o
+        # `information_schema.columns` lista as colunas das vistas, e uma vista
+        # nova que exponha uma coluna de dinheiro tem de responder a esta
+        # pergunta como uma tabela.
+        #
+        # **E a entrada e o preco de a vista nascer no `platform`.** Esta
+        # asercao filtra `table_schema = 'platform'`: a `v_oferta_viva` podia ter
+        # nascido num esquema proprio e ficado **invisivel** a verificacao de
+        # dinheiro, sem custar entrada nenhuma. Nasceu aqui de proposito — ser
+        # vista pelo portao e a funcionalidade e nao o custo —, e a porta que
+        # torna isto uma declaracao e nao uma dispensa e a que o KAM-172
+        # ratificou.
+        #
+        # **Nao e um saldo**, e e a mesma coluna da `offer_terms` pela mesma
+        # razao: um numero que o dono publica para o agente citar, e a plataforma
+        # nao detem nada por causa dele. Vista por quem pesquisa, em vez de por
+        # quem edita o catalogo. O que a vista acrescenta a tabela e que o valor
+        # sai acompanhado de um `preco_tipo` que pode ter degradado de `fixo`
+        # para `a_partir_de` — o numero e o mesmo, o que muda e como se cita.
+        ("v_oferta_viva", "preco_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:

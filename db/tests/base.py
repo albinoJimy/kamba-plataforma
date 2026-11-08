@@ -243,10 +243,20 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: `v_payment_ledger_heads` e a cabeca da cadeia de *hashes* por cobranca, que
 #: o *job* diario exporta para STO como ancora externa.
 #:
+#: A `v_oferta_viva` e do KAM-051 (revisao `0037`) e e a sexta: e o contrato de
+#: leitura da oferta viva que a tool `search_products` junta aos candidatos do
+#: indice (`docs/tecnica/05` secao 6.3). Sao **nove** colunas: seis projectadas
+#: da `offer_terms` e tres que sao decisao — o `product_ref` (que **e** o `sku`,
+#: com o *join* a cair no `offer_terms_pkey`), o `publicado` (predicado exposto e
+#: nao aplicado) e o `lido_em`. A conta das dezesseis colunas da tabela de origem
+#: esta no comentario do `INVENTARIO["v_oferta_viva"]`. **Sem coluna de nivel de
+#: stock:** o criterio 7 esta bloqueado pelo D3 e pelo KAM-045.
+#:
 #: **Por ordem alfabetica**, que e a que o `_vistas` devolve.
 VISTAS = (
     "consent_actual",
     "v_draft_metrics",
+    "v_oferta_viva",
     "v_payment_events_audit",
     "v_payment_ledger_heads",
     "v_transfer_audit",

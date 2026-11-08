@@ -131,13 +131,20 @@ class ComOfertas(ComBase):
         categoria_restrita: str | None = None,
         preco_valido_ate: object = None,
         stock_verificado_at: object = None,
+        deleted_at: object = None,
     ) -> str:
-        """Insere uma oferta e devolve o `sku`. Confirmada, por `autocommit`."""
+        """Insere uma oferta e devolve o `sku`. Confirmada, por `autocommit`.
+
+        O `deleted_at` entrou com o KAM-051: o criterio 2 da `v_oferta_viva`
+        exige que um produto **apagado** nao chegue ao indice, e o *soft delete*
+        do secao 5.6 e a unica das tres condicoes do `publicado` que nao se
+        alcanca pelos outros parametros.
+        """
         self.semente.execute(
             "INSERT INTO platform.offer_terms "
             "(tenant_id, sku, nome, preco_tipo, preco_minor, stock_modo, estado, "
-            " categoria_restrita, preco_valido_ate, stock_verificado_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            " categoria_restrita, preco_valido_ate, stock_verificado_at, deleted_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 tenant,
                 sku,
@@ -149,6 +156,7 @@ class ComOfertas(ComBase):
                 categoria_restrita,
                 preco_valido_ate,
                 stock_verificado_at,
+                deleted_at,
             ),
         )
         return sku
