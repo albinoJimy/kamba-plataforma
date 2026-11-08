@@ -1,6 +1,6 @@
 """Os contadores por contacto (criterio 5): injeccao por hora e abuso por dia.
 
-    registar(contadores, veredicto, agora) -> (novos, accao)
+    contar_veredicto(contadores, veredicto, agora) -> (novos, accao)
 
 `accao` e `None`, `"handoff"` (a terceira tentativa de injeccao na hora) ou
 `"pausar"` (a N-esima ocorrencia de abuso, que poe o contador a zero). Funcoes puras sobre um `dict`: o
@@ -77,7 +77,7 @@ def em_cooldown(contadores: Mapping[str, Any], agora: float) -> bool:
     return float(contadores.get("cooldown_ate") or 0.0) > agora
 
 
-def registar(
+def contar_veredicto(
     contadores: Mapping[str, Any], veredicto: str, agora: float
 ) -> tuple[dict[str, Any], str | None]:
     """Conta o veredicto deste turno e diz se e preciso agir.

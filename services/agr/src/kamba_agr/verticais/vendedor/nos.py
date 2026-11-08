@@ -1072,7 +1072,7 @@ def guard_in(deps: Dependencias):
                 veredicto = _classificar_a_guarda(deps, estado, texto)
                 origem = "classificador" if veredicto is not None else "omissao"
                 veredicto = veredicto or "ok"
-            novos, accao = contadores_mod.registar(contadores, veredicto, agora)
+            novos, accao = contadores_mod.contar_veredicto(contadores, veredicto, agora)
             if deps.metricas is not None:
                 deps.metricas.contar(metricas_mod.METRICA_GUARD_IN, veredicto)
 

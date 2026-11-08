@@ -424,7 +424,7 @@ class TestContadores(unittest.TestCase):
         c = contadores.ler({})
         accoes = []
         for minuto in range(5):
-            c, accao = contadores.registar(c, "injection", 1_000.0 + minuto * 60)
+            c, accao = contadores.contar_veredicto(c, "injection", 1_000.0 + minuto * 60)
             accoes.append(accao)
         self.assertEqual(accoes, [None, None, "handoff", None, None])
         self.assertTrue(contadores.em_cooldown(c, 1_000.0 + 4 * 60))
@@ -433,20 +433,20 @@ class TestContadores(unittest.TestCase):
     def test_tentativas_espacadas_nao_somam(self) -> None:
         c = contadores.ler({})
         for hora in range(5):
-            c, accao = contadores.registar(c, "injection", hora * 3_601.0)
+            c, accao = contadores.contar_veredicto(c, "injection", hora * 3_601.0)
             self.assertIsNone(accao)
 
     def test_a_lista_e_limitada_pelo_limiar(self) -> None:
         c = contadores.ler({})
         for segundo in range(50):
-            c, _ = contadores.registar(c, "injection", float(segundo))
+            c, _ = contadores.contar_veredicto(c, "injection", float(segundo))
         self.assertEqual(len(c["injection"]), politica.TENTATIVAS_DE_INJECCAO)
 
     def test_o_enesimo_abuso_pede_pausa_e_recomeca(self) -> None:
         c = contadores.ler({})
         accoes = []
         for _ in range(politica.OCORRENCIAS_DE_ABUSO * 2):
-            c, accao = contadores.registar(c, "abuse", 0.0)
+            c, accao = contadores.contar_veredicto(c, "abuse", 0.0)
             accoes.append(accao)
         n = politica.OCORRENCIAS_DE_ABUSO
         self.assertEqual(accoes, ([None] * (n - 1) + ["pausar"]) * 2)
@@ -455,13 +455,13 @@ class TestContadores(unittest.TestCase):
         """Achado 10: dois insultos hoje e um daqui a dois dias nao pausam."""
         c = contadores.ler({})
         for agora in (0.0, 60.0, 2 * politica.JANELA_DE_ABUSO_S):
-            c, accao = contadores.registar(c, "abuse", agora)
+            c, accao = contadores.contar_veredicto(c, "abuse", agora)
             self.assertIsNone(accao)
 
     def test_os_outros_veredictos_nao_contam(self) -> None:
         c = contadores.ler({})
         for veredicto in ("ok", "out_of_domain", "card_data", "sensitive"):
-            c, accao = contadores.registar(c, veredicto, 0.0)
+            c, accao = contadores.contar_veredicto(c, veredicto, 0.0)
             self.assertIsNone(accao)
         self.assertEqual(c, contadores.ler({}))
 
