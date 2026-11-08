@@ -91,6 +91,58 @@ async function capturarAsync(promessa: Promise<unknown>): Promise<Error> {
   throw new assert.AssertionError({ message: "a promessa nao rejeitou" });
 }
 
+/**
+ * Uma solucao que **nao** serve para este desafio — procurada, nao adivinhada.
+ *
+ * **Isto foi um ensaio intermitente**, e o modo de falha vale mais do que a
+ * correccao: a 4 bits (a dificuldade destes ensaios) uma solucao escolhida a
+ * mao satisfaz o alvo **uma vez em dezasseis**, pelo que o `"0"` que aqui
+ * estava escrito passava a prova por acaso e a `verificar` nao rejeitava. O
+ * vermelho aparecia uma vez em cada oito corridas, longe de quem lhe tinha
+ * tocado, e numa delas apareceu no CI de um ramo que so mexia em prosa.
+ *
+ * A mesma armadilha ja tinha sido fechada no
+ * `services/onboarding-web/tests/registo.test.ts`, e **nao** aqui: fechar uma
+ * ocorrencia de um padrao e deixar as irmas e o defeito. A procura e sobre a
+ * propria funcao de resumo, pelo que o ensaio continua a morrer se a
+ * `verificar` deixar de contar bits.
+ */
+function solucaoErrada(desafio: string, dificuldade: number, tecto = 1024): string {
+  for (let tentativa = 0; tentativa < tecto; tentativa += 1) {
+    const candidata = `errada-${tentativa}`;
+    if (zerosACabeca(resumoDaProva(desafio, candidata)) < dificuldade) return candidata;
+  }
+  throw new assert.AssertionError({
+    message: `nao encontrei solucao errada a ${dificuldade} bits em ${tecto} tentativas`,
+  });
+}
+
+/**
+ * Uma solucao **valida para `outro`** que **nao** serve para `um`.
+ *
+ * O `resolverDesafio(outro, …)` sozinho nao servia aqui pela mesma razao de
+ * cima: a solucao do desafio ao lado tem uma chance em dezasseis de tambem
+ * resolver este, e entao o ensaio pedia uma recusa que nao era devida. As duas
+ * condicoes exigem-se **juntas**, senao a afirmacao «uma do desafio ao lado
+ * tambem e recusada» nao esta medida.
+ */
+function solucaoDoDesafioAoLado(
+  outro: string,
+  um: string,
+  dificuldade: number,
+  tecto = 1 << 20,
+): string {
+  for (let tentativa = 0; tentativa < tecto; tentativa += 1) {
+    const candidata = String(tentativa);
+    if (zerosACabeca(resumoDaProva(outro, candidata)) < dificuldade) continue;
+    if (zerosACabeca(resumoDaProva(um, candidata)) >= dificuldade) continue;
+    return candidata;
+  }
+  throw new assert.AssertionError({
+    message: `nao encontrei solucao de ${outro} que falhe em ${um}`,
+  });
+}
+
 describe("inscricao: a prova de trabalho (criterio 7)", () => {
   it("os limiares por omissao sao os do modulo, e sao propostas", () => {
     assert.equal(DIFICULDADE_BASE, 12);
@@ -183,8 +235,13 @@ describe("inscricao: a prova de trabalho (criterio 7)", () => {
     const um = await m.antiabuso.emitir(REDE);
     const outro = await m.antiabuso.emitir(REDE);
     m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
-    const solucaoDoOutro = resolverDesafio(outro.desafio, outro.dificuldade);
-    for (const solucao of ["0", "x".repeat(65), solucaoDoOutro]) {
+    const solucaoDoOutro = solucaoDoDesafioAoLado(
+      outro.desafio,
+      um.desafio,
+      um.dificuldade,
+    );
+    const errada = solucaoErrada(um.desafio, um.dificuldade);
+    for (const solucao of [errada, "x".repeat(65), solucaoDoOutro]) {
       const erro = await capturarAsync(
         m.antiabuso.verificar({
           desafio: um.desafio,
@@ -311,7 +368,11 @@ describe("inscricao: o honeypot (criterio 7)", () => {
     const erro = await capturarAsync(
       m.antiabuso.verificar({
         desafio: emitido.desafio,
-        solucao: "",
+        // Errada **de proposito e por calculo**: se o *honeypot* deixar de
+        // morder, a recusa que se espera passa a ser `prova_invalida`, e uma
+        // solucao vazia que resolvesse o desafio por acaso — uma vez em
+        // dezasseis — deixava essa mutacao sobreviver.
+        solucao: solucaoErrada(emitido.desafio, emitido.dificuldade),
         honeypot: "Loja do bairro",
         redeHmac: REDE,
         dispositivoHmac: null,
