@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.69"
+versao_dicionario: "1.70"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -8033,7 +8033,23 @@ entradas:
     nomes:
       - "ACCOES_POR_LIGAR"
     nomes_nota:
+      - "ACCOES_DE_MARCACAO"
       - "sem_accao"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Acção de uma vertical escrita"
+    canonico: "ACCOES_DE_MARCACAO"
+    literais:
+      - "ACCOES_DE_MARCACAO"
+    nomes:
+      - "ACCOES_DE_MARCACAO"
+    nomes_nota:
+      - "sem_accao"
+      - "additionalProperties"
+      - "false"
+      - "booking_id"
+      - "PortaDeMarcacao"
+      - "order_id"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Notificação ao dono"
