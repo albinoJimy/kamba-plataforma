@@ -379,6 +379,22 @@ METRICA_MINIMISE_LATENCIA: Final = "agr_minimise_latency_ms"
 #: le e o ultimo dos dois e nao o de nenhum. O eixo e o `consumer`, cujos
 #: valores sao **derivados** das verticais (`agr_<id>`) pela razao das tres da
 #: ToolLayer — uma lista literal transformava uma invariante num numero.
+#: As duas dos guardrails (KAM-033). **O veredicto e a etiqueta, e nunca o
+#: texto** — e o «sem conteudo em logs» do *Handoff* do bloco.
+#:
+#: O `agr_guard_in_total{veredicto="out_of_domain"}` e a metrica agregada que os
+#: Detalhes Tecnicos chamam `out_of_domain_total`: a **prova de ambito** que a
+#: Meta pede (CONFIRMADO, E1 §4) — quantas vezes o assistente recusou ser um
+#: assistente universal. Uma serie de uma metrica com eixo e nao uma metrica
+#: propria, porque o denominador (os turnos guardados) tem de ser o mesmo: uma
+#: proporcao entre duas metricas contadas em sitios diferentes era uma
+#: proporcao entre duas coisas diferentes.
+#:
+#: O `agr_guard_out_total{veredicto="fuga"}` e o «alerta de seguranca» do §8.4.
+#: Os valores dos dois eixos derivam-se do `guardas` e nao se escrevem aqui.
+METRICA_GUARD_IN: Final = "agr_guard_in_total"
+METRICA_GUARD_OUT: Final = "agr_guard_out_total"
+
 METRICA_EVT_CONSUMIDOS: Final = "agr_evt_consumidos_total"
 #: Entradas abertas na DLQ, por motivo. **E o «alerta» do criterio 3**: uma
 #: versao desconhecida conta aqui e escreve linha de registo, em vez de passar
@@ -557,6 +573,17 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .eventos.subscricoes import nome_do_consumidor
 
         return tuple(sorted(nome_do_consumidor(v) for v in VERTICAIS))
+    # As duas dos guardrails (KAM-033). Derivadas pela razao de sempre, e
+    # tambem por necessidade: o `guardas` importa o `privacidade`, que importa
+    # **este** modulo.
+    if metrica == METRICA_GUARD_IN:
+        from .guardas.regras import VEREDICTOS
+
+        return tuple(sorted(VEREDICTOS))
+    if metrica == METRICA_GUARD_OUT:
+        from .guardas.saida import VEREDICTOS_DE_SAIDA
+
+        return tuple(sorted(VEREDICTOS_DE_SAIDA))
     raise EtiquetaInvalida(f"{metrica}: nao tem valores derivados")
 
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
@@ -587,6 +614,8 @@ _DERIVADAS: Final = (
     METRICA_DRAFT_ESTADO,
     METRICA_DEGRADADOS,
     METRICA_PII_MASCARADA,
+    METRICA_GUARD_IN,
+    METRICA_GUARD_OUT,
 )
 
 #: As **medidas** com etiqueta (KAM-038). Fora do `_DERIVADAS` de proposito:
@@ -774,6 +803,14 @@ _AJUDA: Final = {
         "gauge",
         "Duracao da ultima minimizacao de PII, em milissegundos.",
     ),
+    METRICA_GUARD_IN: (
+        "counter",
+        "Turnos pela guarda de entrada, por veredicto. O out_of_domain e a prova de ambito.",
+    ),
+    METRICA_GUARD_OUT: (
+        "counter",
+        "Respostas pela guarda de saida, por veredicto. A fuga e alerta de seguranca.",
+    ),
 }
 
 
@@ -940,6 +977,11 @@ _NOME_DO_EIXO: Final = {
     # dizia que houve uma chamada que nao houve. O `agr_draft_decisao_total`
     # fica em `outcome` por omissao, e ai o nome esta certo.
     METRICA_DRAFT_ESTADO: "estado",
+    # KAM-033. O eixo das duas da guarda e o **veredicto**, que e o nome do
+    # `state.guard.veredicto` do dicionario §3.31: `out_of_domain` nao e um
+    # desfecho de chamada nenhuma, e a classificacao de uma mensagem.
+    METRICA_GUARD_IN: "veredicto",
+    METRICA_GUARD_OUT: "veredicto",
 }
 
 
