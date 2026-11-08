@@ -96,6 +96,15 @@ class Resultado(NamedTuple):
     #: As falhas e os erros formatados, para quem ler o *gate* vermelho saber o
     #: que rebentou. Vazio quando `sucesso`.
     relato: str
+    #: Quantos `id()` **distintos** passaram pelo `startTest`. Nao e
+    #: `len(estado)`, e a diferenca e o que torna a hipotese do `id()` repetido
+    #: mensuravel: o `estado` leva tambem as frases do `_ErrorHolder`, pelo que
+    #: `corridos - len(estado)` podia dar zero com `id()` repetidos — duas
+    #: frases a encher a conta que dois casos colapsados tinham esvaziado.
+    #: Medido pela revisao adversarial do KAM-182, com um `setUpModule` a
+    #: levantar `SkipTest` a silenciar a hipotese 2. Este numero so conta
+    #: casos, porque o `startTest` so recebe casos.
+    corridos_distintos: int = 0
     #: Os `id()` de **casos** que o proprio `TestResult` acusa (KAM-182). Nao
     #: sai do `estado`: sai do `failures`, do `errors` e dos
     #: `unexpectedSuccesses`, que e o lado que o dicionario nao perde.
@@ -143,6 +152,11 @@ class Registo(unittest.TestResult):
     def __init__(self) -> None:
         super().__init__()
         self.estado: dict[str, str] = {}
+        #: Os `id()` que passaram pelo `startTest`, que e o unico sinal que so
+        #: recebe casos. E a fonte de `corridos_distintos`: o `estado` nao
+        #: serve para contar, porque leva tambem as frases do `_ErrorHolder`
+        #: (ver `corridos_distintos` no `Resultado`).
+        self.iniciados: set[str] = set()
         #: `(id do pai, sub-caso, traceback)` por falha de `subTest`. O
         #: `TestResult` nao as guarda em lado nenhum legivel.
         self.subfalhas: list[tuple[str, str, str]] = []
@@ -150,19 +164,28 @@ class Registo(unittest.TestResult):
     def startTest(self, test: unittest.TestCase) -> None:
         super().startTest(test)
         self.estado[test.id()] = 'ok'
+        self.iniciados.add(test.id())
 
     def addError(self, test: unittest.TestCase, err: object) -> None:
         super().addError(test, err)  # type: ignore[arg-type]
-        # E o unico sinal que recebe algo que nao e um caso: os erros de
-        # `setUpClass`, `tearDownClass`, `setUpModule` e `tearDownModule` vem
-        # num `unittest.suite._ErrorHolder`, cujo `id()` e uma frase. Ate ao
-        # KAM-182 essa frase entrava aqui como se fosse um teste vermelho —
-        # inventava um caso que nao existe, e o `cli` comparava-a entre as duas
-        # ordens como se fosse inventario. O erro **nao** se perde: esta no
-        # `errors` do `TestResult`, logo no `wasSuccessful()`, no `relato` e no
-        # `sem_caso` das `acusacoes`, e e a rede do `cli` que o apanha.
-        if isinstance(test, unittest.TestCase):
-            self.estado[test.id()] = 'error'
+        # **Nao se discrimina aqui, e a razao esta medida.** E o unico sinal que
+        # recebe algo que nao e um caso: os erros de `setUpClass`,
+        # `tearDownClass`, `setUpModule` e `tearDownModule` vem num
+        # `unittest.suite._ErrorHolder`, cujo `id()` e uma frase e nao um
+        # identificador. Tirar a frase do `estado` parece a limpeza certa — e o
+        # KAM-182 tirou-a, por uma versao —, mas **cega o canario**: o
+        # `canario.verificar` le o `vermelhos()` e nunca o `sucesso`, pelo que
+        # uma *fixture* do canario que rebente num `setUpClass` passava a dar
+        # verde em vez de `precondicao`. Era verde onde antes havia recusa, no
+        # unico sitio que prova que este portao morde, e desfazia em silencio a
+        # igualdade que a revisao do KAM-173 pos no `canario`. Medido pela
+        # revisao adversarial do KAM-182.
+        #
+        # Fica portanto como estava, e o preco esta nomeado no bloco: a frase
+        # entra no `estado` e no inventario que o `cli` compara entre as duas
+        # ordens. Quem a quiser tirar tem de tratar primeiro o consumidor —
+        # e isso e mexer no que o portao recusa, que e do fundador.
+        self.estado[test.id()] = 'error'
 
     def addFailure(self, test: unittest.TestCase, err: object) -> None:
         super().addFailure(test, err)  # type: ignore[arg-type]
@@ -294,6 +317,7 @@ def correr(
         corridos=registo.testsRun,
         sucesso=registo.wasSuccessful(),
         relato=_relatar(registo),
+        corridos_distintos=len(registo.iniciados),
         acusados=acusados,
         sem_caso=sem_caso,
     )

@@ -191,13 +191,22 @@ ela não existia, tendo-a. Vinte e seis eram `| CA | Estado | Evidência |`, que
 79**, e fez aparecer um oitavo bloco com divergência.
 
 Dois pisos: `MINIMO_DE_BLOCOS` (150) apanha um `glob` que deixe de casar;
-`MINIMO_DE_BLOCOS_MEDIDOS` (40) apanha o modo de falha mais perigoso deste
+`MINIMO_DE_BLOCOS_MEDIDOS` (**42**) apanha o modo de falha mais perigoso deste
 *lint* — uma mudança na forma do cabeçalho põe o emparelhamento a zero e a saída
 continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **2**.
 
 > **E o valor dos pisos passou a ter ensaio**, não só o mecanismo. A revisão
 > adversarial mediu que `MINIMO_DE_BLOCOS_MEDIDOS = 0` passava — porque `0 <= 81`
 > é verdade, e um piso a zero é o mesmo que não ter piso.
+
+> **O piso de emparelhados sobe quando o corpus cresce, e já subiu duas vezes.**
+> O ensaio exige `piso >= medidos // 2`, pelo que a folga são sempre dois
+> blocos: 40 → **41** com o KAM-108, e 41 → **42** com o KAM-182, cada um a
+> acrescentar a sua secção de verificação. **Este número estava desactualizado
+> aqui desde o KAM-108** — dizia 40 quando o código dizia 41 —, e com ele o
+> literal do `mutacao.py`, pelo que a mutação do piso não casava e passava por
+> medida sem o ser. As duas pontas ficaram emendadas no KAM-182. Quem subir o
+> piso mexe em **três** sítios: o `lint.py`, o `mutacao.py` e esta linha.
 
 ---
 
@@ -371,3 +380,4 @@ importações é mais longa do que parece.)
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-183**. O `tools/lint_bloco` com a regra `estado_contra_caixa` (par a par, não em contagem), canário com negativas e positivas, dois pisos de cobertura, e a cobertura na própria saída. **Entregue sem portão** (§7). Devolve com a medição: a regra do pedido tal como escrita, a regra estrutural e a regra dos números; e a unificação do vocabulário, que é canon. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **A revisão adversarial deu 17 achados e todos se confirmaram contra a árvore.** Esta versão é a resposta. **Defeitos de código:** a coluna de assunto casava por sub-cadeia e a tabela `## Riscos do Epic` era lida como tabela de critérios em quatro blocos; o `\|` escapado deslocava a coluna de `Estado`; o casamento por prefixo nu dava `verde-azulado` como cumprido; e faltava `por cumprir` na lista que tem esse nome. **Cobertura:** reconhecer `\| CA \| Estado \| Evidência \|` levou os emparelhados de **53 para 81**, e a categoria «sem tabela com coluna `Estado`» deixou de ser falsa para 35 blocos. **Provas:** metade das mutações sobrevivia — entre elas o salto de cercas, a ordem das listas e o **valor** dos dois pisos —, uma assertiva estava desactivada com `if False` a esconder um defeito real, e a positiva da cerca não podia morder porque as caixas cercadas estavam fora das duas listas. **Números:** dez não se reproduziam, e a resposta não foi reescrevê-los mas **embarcar o instrumento** — `medir.py`, com os seis predicados escritos antes das contagens, e este documento passa a citar a saída dele; o `mutacao.py` entra pela mesma razão, com controlo. **E a espécie `ambigua` saiu**, porque a justificação dela não se verificava na medição. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-182: o piso de emparelhados sobe de 41 para 42, e as três superfícies dele passam a dizer o mesmo.** O ensaio `test_os_pisos_valem_alguma_coisa` exige `piso >= medidos // 2`; duas secções de verificação fundiram entre o corte do ramo do KAM-182 e a medição dele — a do KAM-055 (PR `#146`) e a dele —, o `medidos` passou a **84** e `84 // 2` são 42. Medido nas duas pontas: com a `main` em `ca5cac55` são 83 e 41 bastava; com a `main` em `06b8aba2` são 84 e o ensaio falha com `41 not greater than or equal to 42`. **E emenda duas superfícies que estavam atrasadas desde o KAM-108:** este documento dizia `40` e o literal do `mutacao.py` também, pelo que a mutação do piso **não casava** e ficava verde por não ter mudado nada. Achado da revisão adversarial do KAM-182. O número não se sobe em antecipação — um piso acima do medido avermelha o portão sem defeito nenhum —, pelo que a folga volta a ser dois blocos. | Equipa KAMBÁ |

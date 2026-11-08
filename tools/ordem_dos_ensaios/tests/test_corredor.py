@@ -241,20 +241,62 @@ class TestAcusacoes(unittest.TestCase):
             self.correr('sinais').acusados,
         )
 
-    def test_um_erro_de_teardown_de_modulo_nao_e_um_id_de_teste(self) -> None:
-        """O `_ErrorHolder` sai pelo `sem_caso`, e **nao** pelo `estado`.
+    def test_um_erro_de_teardown_de_modulo_sai_pelos_dois_lados(self) -> None:
+        """O `_ErrorHolder` entra no `sem_caso` **e** continua no `estado`.
 
-        Ate ao KAM-182 a frase `tearDownModule (modulo)` entrava no `estado`
-        como se fosse um teste vermelho: o portao dava-a por «vermelho nas duas
-        ordens» e mandava procurar no `coverage-python` um caso que nao existe.
-        O erro nao se perde — esta no `wasSuccessful()`, no `relato` e aqui.
+        As `acusacoes` discriminam o que e caso do que nao e; o `Registo` nao,
+        e isso e deliberado. A frase `tearDownModule (modulo)` continua no
+        `estado` como se fosse um teste vermelho — com o preco de o portao
+        mandar procurar no `coverage-python` um caso que nao existe — porque
+        tira-la cegava o `canario`, que le o `vermelhos()` e nunca o `sucesso`.
+        Esta escrito no `addError` do `corredor`, e medido pela revisao
+        adversarial do KAM-182.
         """
         resultado = self.correr('sem_caso')
         self.assertFalse(resultado.sucesso)
-        self.assertEqual(resultado.vermelhos(), [])
         self.assertEqual(resultado.acusados, ())
         self.assertEqual(resultado.sem_caso, ('tearDownModule (caso_sem_caso)',))
+        self.assertEqual(
+            resultado.vermelhos(), ['tearDownModule (caso_sem_caso)']
+        )
         self.assertIn('tearDownModule vermelho de proposito', resultado.relato)
+
+    def test_uma_entrada_sem_caso_que_nao_passa_pelo_addError_nao_e_nomeada(
+        self,
+    ) -> None:
+        """O caso do critério 2: nada para nomear, e o veredicto e falso."""
+        resultado = self.correr('sem_nome')
+        self.assertFalse(resultado.sucesso)
+        self.assertEqual(resultado.acusados, ())
+        self.assertEqual(resultado.vermelhos(), [])
+        self.assertEqual(resultado.sem_caso, ('tearDownModule (caso_sem_nome)',))
+
+    def test_o_corridos_distintos_conta_casos_e_nao_entradas(self) -> None:
+        """A medida da hipotese 2, e o `len(estado)` nao serve para ela.
+
+        A *fixture* tem tres metodos com um `id()` so e dois modulos cujo
+        `setUpModule` salta: o `estado` fica com tres entradas — uma do caso e
+        duas frases — e `corridos - len(estado)` dava **zero**. O `startTest`
+        so recebe casos, e viu **um**. Achado da revisao adversarial.
+        """
+        resultado = self.correr('colapso_mascarado')
+        self.assertEqual(resultado.corridos, 3)
+        self.assertEqual(resultado.corridos_distintos, 1)
+        self.assertEqual(len(resultado.estado), 3)
+        self.assertEqual(resultado.corridos - len(resultado.estado), 0)
+
+    def test_um_skip_de_limpeza_sobrescreve_um_vermelho(self) -> None:
+        """A forma real da hipotese 3, e o `addSkip` nao protege o vermelho.
+
+        O `addSubTest` tem guarda (`if self.estado.get(...) in (None, 'ok')`) e
+        o `addSkip` nao. Fica **medido** aqui e nao corrigido de passagem:
+        mudar o que o `Registo` classifica e mudar o que o portao recusa.
+        """
+        resultado = self.correr('skip_tardio')
+        self.assertFalse(resultado.sucesso)
+        self.assertEqual(set(resultado.estado.values()), {'skip'})
+        self.assertEqual(resultado.vermelhos(), [])
+        self.assertEqual(len(resultado.acusados), 1)
 
     def test_um_sinal_por_derrubar_fica_fora_do_estado_e_dentro_do_acusa(
         self,
