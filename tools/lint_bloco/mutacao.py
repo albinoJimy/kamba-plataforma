@@ -172,7 +172,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # cita: quem o apanha e correr o `--aplicaveis`.
 
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 45", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 46", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
