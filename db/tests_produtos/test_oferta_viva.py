@@ -49,8 +49,12 @@ from __future__ import annotations
 
 import datetime
 import re
+import unittest
 from pathlib import Path
 
+import bootstrap
+import ligacao
+from tests.base import alembic_ok, em_head, exigir_base_descartavel
 from tests_produtos.base import PRECO, SKU_PARTILHADO, ComOfertas, daqui_a
 
 #: As nove colunas do criterio 1, **pela ordem em que a vista as projecta**.
@@ -104,6 +108,27 @@ def _leitura(candidatos: tuple[tuple[str, float], ...]) -> str:
     """A consulta da secao 6.3 com um conjunto de candidatos dado."""
     linhas = ", ".join(f"('{ref}'::text, {score}::float8)" for ref, score in candidatos)
     return LEITURA_DO_INDICE.format(candidatos=linhas)
+
+
+#: As cinco formas de uma oferta **nao** ser publicavel, uma por condicao da
+#: conjuncao do criterio 2 — e o `estado` entra com **dois** dos seus quatro
+#: valores, nao com um.
+#:
+#: **O `rascunho` e o que faltava, e era o que mais faltava.** A primeira versao
+#: desta lista tinha `pausado`, `arquivado`, restrito e apagado, e a revisao
+#: adversarial mediu o que isso deixava passar: o `rascunho` e a **omissao** do
+#: `offer_terms.estado` (`DEFAULT 'rascunho'`, revisao `0028`), isto e, o estado
+#: de toda a oferta que o dono comecou e nunca publicou. Com ele de fora, trocar
+#: o predicado para `o.estado IN ('publicado','rascunho')` — ou para
+#: `o.estado <> 'pausado'` — deixava **as 25 asercoes verdes** e punha o agente a
+#: oferecer rascunhos com preco.
+CASOS_NAO_PUBLICAVEIS = (
+    ("rascunho", {"estado": "rascunho"}),
+    ("pausado", {"estado": "pausado"}),
+    ("arquivado", {"estado": "arquivado"}),
+    ("restrito", {"categoria_restrita": "farmacia"}),
+    ("apagado", {"deleted_at": daqui_a(horas=-1)}),
+)
 
 
 class TestContratoDaVista(ComOfertas):
@@ -337,13 +362,7 @@ class TestPublicado(ComOfertas):
         distinguia qual delas morde.
         """
         tenant = self.criar_tenant()
-        casos = (
-            ("pausado", {"estado": "pausado"}),
-            ("arquivado", {"estado": "arquivado"}),
-            ("restrito", {"categoria_restrita": "farmacia"}),
-            ("apagado", {"deleted_at": daqui_a(horas=-1)}),
-        )
-        for nome, mudanca in casos:
+        for nome, mudanca in CASOS_NAO_PUBLICAVEIS:
             with self.subTest(caso=nome):
                 sku = self.criar_oferta(tenant, sku=f"sku-{nome}", **mudanca)
                 self.assertEqual(
@@ -365,13 +384,7 @@ class TestPublicado(ComOfertas):
         tirar o filtro da consulta **ou** a condicao do predicado.
         """
         tenant = self.criar_tenant()
-        casos = (
-            ("pausado", {"estado": "pausado"}),
-            ("arquivado", {"estado": "arquivado"}),
-            ("restrito", {"categoria_restrita": "farmacia"}),
-            ("apagado", {"deleted_at": daqui_a(horas=-1)}),
-        )
-        for nome, mudanca in casos:
+        for nome, mudanca in CASOS_NAO_PUBLICAVEIS:
             with self.subTest(caso=nome):
                 sku = self.criar_oferta(tenant, sku=f"ind-{nome}", **mudanca)
                 self.assertEqual(
@@ -513,26 +526,54 @@ class TestLeituraDoIndice(ComOfertas):
         )
         self.assertNotIn("disponivel", colunas)
 
+        # **O dominio escrito ao lado do `preco_tipo`, que o `split(" ")` acima
+        # deixa cair** — e e exactamente onde o vocabulario preterido
+        # reentraria. A revisao adversarial mediu: se o §6.3 passasse a escrever
+        # o mapeamento que o criterio 1 proibe, o caso ficava **verde**, porque
+        # os nomes dos campos nao mudavam. Aqui afirma-se a cadeia do dominio.
+        dominio = re.search(r"preco_tipo \(([^)]*)\)", achado.group(1))
+        self.assertIsNotNone(dominio, "o §6.3 deixou de escrever o dominio inline")
+        assert dominio is not None  # para o verificador de tipos
+        valores = {v.strip().strip("'") for v in dominio.group(1).split("|")}
+        self.assertEqual(valores, {"fixo", "a_partir_de", "sob_consulta"})
+
     def test_o_lido_em_e_o_instante_da_leitura_e_e_estavel(self) -> None:
         """O `lido_em` do contrato: a hora a que a oferta **foi lida**.
 
-        Estavel dentro da transaccao — duas linhas da mesma leitura com
-        instantes diferentes diziam que a oferta foi lida duas vezes —, e
-        proximo do agora, que e o que distingue um `now()` de uma coluna
-        guardada.
+        Tres asercoes, e a revisao adversarial mostrou que a primeira versao so
+        fazia a primeira — corria **uma** instrucao, e isso media «um valor por
+        instrucao», que um `statement_timestamp()` tambem satisfaz:
+
+        1. **igual nas linhas da mesma leitura** — duas linhas com instantes
+           diferentes diziam que a oferta foi lida duas vezes;
+        2. **igual em duas instrucoes da mesma transaccao**, que e o que
+           distingue o `now()` (instante da transaccao) de um
+           `statement_timestamp()` ou de um `clock_timestamp()`;
+        3. **proximo do agora**, com tolerancia curta — a de 300 s da primeira
+           versao deixava sobreviver um `now() - interval '2 minutes'`.
         """
         tenant = self.criar_tenant()
         self.criar_oferta(tenant, sku="um")
         self.criar_oferta(tenant, sku="dois")
+        # `ComBase.ligar` nunca confirma, pelo que as duas instrucoes abaixo
+        # correm na **mesma** transaccao — que e a premissa da asercao 2.
         cursor = self.ligar("admin").cursor()
-        cursor.execute(
-            "SELECT lido_em FROM platform.v_oferta_viva WHERE tenant_id = %s",
-            (tenant,),
+        sql = "SELECT lido_em FROM platform.v_oferta_viva WHERE tenant_id = %s"
+
+        cursor.execute(sql, (tenant,))
+        primeira = {linha[0] for linha in cursor.fetchall()}
+        self.assertEqual(len(primeira), 1, "duas linhas da mesma leitura divergem")
+
+        cursor.execute(sql, (tenant,))
+        segunda = {linha[0] for linha in cursor.fetchall()}
+        self.assertEqual(
+            primeira,
+            segunda,
+            "o lido_em mudou entre duas instrucoes da mesma transaccao: nao e now()",
         )
-        instantes = {linha[0] for linha in cursor.fetchall()}
-        self.assertEqual(len(instantes), 1)
+
         agora = datetime.datetime.now(datetime.timezone.utc)
-        self.assertLess(abs((instantes.pop() - agora).total_seconds()), 300)
+        self.assertLess(abs((primeira.pop() - agora).total_seconds()), 30)
 
 
 class TestIsolamentoDaVista(ComOfertas):
@@ -601,6 +642,85 @@ class TestIsolamentoDaVista(ComOfertas):
         nomes = [str(linha[3]) for linha in cursor.fetchall()]
         self.assertEqual(nomes, ["arroz de B"])
 
+    def test_so_o_kamba_app_le_a_vista_e_so_por_cima_do_privilegio(self) -> None:
+        """**O unico oraculo que distingue o `security_invoker` por execucao.**
+
+        Os ensaios cruzados de tenant **nao** o distinguem, e a revisao
+        adversarial mediu-o: sem a opcao a vista corre como o dono
+        `kamba_migrator`, que e `NOBYPASSRLS` e que o `FORCE` da `offer_terms`
+        vincula, e o predicado da `tenant_iso` le a **GUC da sessao** — a mesma
+        nos dois casos. Zero linhas com a opcao e sem ela.
+
+        O que muda e o **privilegio**: com `security_invoker` a leitura da vista
+        exige `SELECT` na tabela a **quem consulta**; sem ela, bastava o do dono.
+        Por isso o caso retira o `SELECT` na `offer_terms` ao `kamba_app` e exige
+        que a leitura da vista passe a falhar com `42501` — o que **nao**
+        aconteceria se a opcao caisse.
+
+        E afirma a outra metade do criterio: os quatro papeis que a `0028` deixou
+        de fora da oferta continuam de fora, e o `kamba_batch` tambem — ele e o
+        unico com `BYPASSRLS`, logo o unico leitor para quem esta vista nao
+        compra isolamento, e a primeira versao desta revisao dava-lhe `SELECT`
+        com uma razao que nao se sustentava.
+
+        **A ordem das instrucoes nao e estilo.** O `REVOKE` e DDL e pede um
+        trinco que colide com uma transaccao aberta que tenha lido a tabela: sem
+        o `rollback()` antes dele, o ensaio **bloqueia** em vez de falhar, que e
+        o modo de falha que o proprio arreio do *gate* 8 nomeia. E o `GRANT`
+        volta num `finally`, porque a ligacao de semente e `autocommit` e um
+        privilegio retirado sobreviveria ao ensaio.
+        """
+        cursor = self.cursor_app(self.tenant_a)
+        cursor.execute("SELECT count(*) FROM platform.v_oferta_viva")
+        self.assertEqual(int(cursor.fetchone()[0]), 1, "a sonda positiva nao le")
+        # Liberta o trinco de leitura antes do DDL.
+        cursor.connection.rollback()
+
+        self.semente.execute("REVOKE SELECT ON platform.offer_terms FROM kamba_app")
+        try:
+            cursor = self.cursor_app(self.tenant_a)
+            self.assertErroSql(
+                "42501", cursor, "SELECT count(*) FROM platform.v_oferta_viva"
+            )
+            cursor.connection.rollback()
+        finally:
+            self.semente.execute("GRANT SELECT ON platform.offer_terms TO kamba_app")
+
+        # E a vista volta a ler-se, que e o que prova que o `finally` reparou.
+        cursor = self.cursor_app(self.tenant_a)
+        cursor.execute("SELECT count(*) FROM platform.v_oferta_viva")
+        self.assertEqual(int(cursor.fetchone()[0]), 1)
+
+    def test_os_papeis_sem_oferta_continuam_sem_a_vista(self) -> None:
+        """A fronteira que a `0028` escreveu, afirmada sobre a vista.
+
+        **Nos dois sentidos**, que e o que distingue uma lista viva de uma
+        declaracao morta: o `kamba_app` tem `SELECT` e os outros **nao**. Sem a
+        segunda metade, retirar o unico `GRANT` desta revisao era uma mutacao que
+        nenhum ensaio matava.
+
+        O `kamba_batch` esta entre os que nao tem, e e deliberado — ver a nota do
+        `PAPEL_DA_APP` na revisao `0037`.
+        """
+        concedidos = {
+            str(linha[0])
+            for linha in self.consultar(
+                "SELECT grantee FROM information_schema.role_table_grants "
+                " WHERE table_schema = 'platform' AND table_name = 'v_oferta_viva' "
+                "   AND privilege_type = 'SELECT'"
+            )
+        }
+        self.assertIn("kamba_app", concedidos)
+        for papel in (
+            "kamba_batch",
+            "kamba_resolver",
+            "kamba_identity",
+            "kamba_audit",
+            "kamba_agr",
+        ):
+            with self.subTest(papel=papel):
+                self.assertNotIn(papel, concedidos)
+
 
 class TestPlanoDeExecucao(ComOfertas):
     """Criterio 6: o *join* usa o indice da chave primaria."""
@@ -628,15 +748,130 @@ class TestPlanoDeExecucao(ComOfertas):
             (tenant, self.SKUS),
         )
         self.semente.execute("ANALYZE platform.offer_terms")
-        plano = "\n".join(
-            str(linha[0])
-            for linha in self.consultar(
-                "EXPLAIN " + _leitura((("sku-7777", 0.9),)), (tenant,)
-            )
-        )
+        # **Como `kamba_app` e nao como administrador**, e a revisao adversarial
+        # tem razao em exigi-lo: o plano que o superutilizador recebe nao leva a
+        # *qual* da RLS, pelo que os criterios 4 e 6 nunca eram verdadeiros na
+        # mesma sessao — media-se o indice num plano que o leitor real nao
+        # recebe. Aqui o plano leva por cima o predicado da `tenant_iso`, e a
+        # asercao continua a ser a mesma: a condicao da juncao e `text = text`,
+        # *leakproof*, pelo que a barreira de seguranca nao trava o indice.
+        cursor = self.cursor_app(tenant)
+        cursor.execute("EXPLAIN " + _leitura((("sku-7777", 0.9),)), (tenant,))
+        plano = "\n".join(str(linha[0]) for linha in cursor.fetchall())
+        # **A ordem das duas asercoes nao e indiferente.** O `assertIn` do
+        # `offer_terms_pkey` vem a seguir porque e ele que impede o verde vazio:
+        # um `assertNotIn` sozinho passava se o plano viesse em branco, se a
+        # consulta mudasse de forma ou se o *join* desaparecesse — o que nao
+        # contem «Seq Scan» por nao conter nada.
         self.assertNotIn(
             "Seq Scan on offer_terms",
             plano,
             f"o join por (tenant_id, product_ref) nao cai no indice:\n{plano}",
         )
         self.assertIn("offer_terms_pkey", plano, f"plano sem a chave primaria:\n{plano}")
+
+
+class TestDowngradeDa0037(unittest.TestCase):
+    """Criterio 8: «Migracao com `downgrade` testado».
+
+    O ciclo `upgrade -> downgrade -> upgrade` do *gate* 8
+    (`tests/test_migracao.TestCiclo`) desce a cadeia inteira e nao nomeia nada:
+    uma falha dele diz «a cadeia nao reaplica» e nao **qual** objecto nao
+    voltou. O que esta classe acrescenta e a afirmacao sobre **este** objecto, e
+    uma propriedade que o ciclo e cego para ela: o `downgrade` nao leva
+    `CASCADE`, pelo que uma vista deixada pendurada faria o `DROP TABLE` de uma
+    revisao **abaixo** falhar com `2BP01` — e o sintoma aparecia a revisoes de
+    distancia da causa.
+
+    **A vista nao e uma tabela, e isso e metade do que se mede aqui.** O
+    `pg_tables` nao a lista, pelo que a revisao nao acrescenta nada ao `TABELAS`
+    do `db/tests/base.py` e os ensaios de `downgrade` das outras revisoes nao a
+    vem. Quem a ve e o `VISTAS`, e e contra o `pg_views` que se pergunta.
+
+    Nao herda de `ComOfertas`: controla ela propria a revisao em que a base
+    esta, como o `TestDowngradeDa0028` ao lado. Repoe `head` no fim, corra bem
+    ou mal.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        exigir_base_descartavel()
+        bootstrap.aplicar()
+        if not em_head():
+            alembic_ok("upgrade", "head")
+
+    def setUp(self) -> None:
+        self.conexao = ligacao.ligar("admin")
+        self.conexao.autocommit = True
+        self.cursor = self.conexao.cursor()
+
+    def tearDown(self) -> None:
+        try:
+            if not em_head():
+                alembic_ok("upgrade", "head")
+        finally:
+            self.conexao.close()
+
+    def vista_existe(self) -> int:
+        self.cursor.execute(
+            "SELECT count(*) FROM pg_views "
+            " WHERE schemaname = 'platform' AND viewname = 'v_oferta_viva'"
+        )
+        return int(self.cursor.fetchone()[0])
+
+    def test_desce_para_a_0036_e_a_vista_cai(self) -> None:
+        """E a `offer_terms` **fica**: a vista nao e dona de nada.
+
+        A segunda metade importa tanto como a primeira. Um `downgrade` que
+        levasse a tabela com a vista destruia o catalogo de todos os tenants
+        para desfazer um contrato de leitura, e o `upgrade` seguinte deixava a
+        base «certa em `head`» com os dados apagados por baixo.
+        """
+        self.assertEqual(self.vista_existe(), 1)
+
+        alembic_ok("downgrade", "0036")
+        self.assertEqual(self.vista_existe(), 0, "o downgrade deixou a vista para tras")
+        self.cursor.execute(
+            "SELECT count(*) FROM pg_tables "
+            " WHERE schemaname = 'platform' AND tablename = 'offer_terms'"
+        )
+        self.assertEqual(
+            int(self.cursor.fetchone()[0]), 1, "o downgrade levou a tabela de origem"
+        )
+
+        alembic_ok("upgrade", "head")
+        self.assertEqual(self.vista_existe(), 1)
+
+    def test_depois_de_descer_e_subir_a_vista_volta_com_security_invoker(self) -> None:
+        """**A propriedade que um `DROP`/`CREATE` perde em silencio.**
+
+        Uma vista que voltasse sem `security_invoker` passava a correr com os
+        privilegios do dono: o criterio 4 caia e a RLS deixava de valer para
+        quem a le, com a base a parecer certa em `head` e o *gate* 6 a ser o
+        unico a notar. Aqui afirma-se no ciclo, que e onde se perderia.
+        """
+        alembic_ok("downgrade", "0036")
+        alembic_ok("upgrade", "head")
+        self.cursor.execute(
+            "SELECT COALESCE(reloptions, '{}') FROM pg_class "
+            " WHERE oid = 'platform.v_oferta_viva'::regclass"
+        )
+        opcoes = [str(o).replace(" ", "").lower() for o in self.cursor.fetchone()[0]]
+        self.assertIn("security_invoker=true", opcoes)
+
+    def test_as_nove_colunas_voltam_na_mesma_ordem(self) -> None:
+        """O contrato e a **ordem**, e um `CREATE VIEW` reescrito reordena-a.
+
+        Quem consome `SELECT v.*` le por posicao. Esta e a asercao que distingue
+        «a vista voltou» de «a vista voltou igual».
+        """
+        alembic_ok("downgrade", "0036")
+        alembic_ok("upgrade", "head")
+        self.cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            " WHERE table_schema = 'platform' AND table_name = 'v_oferta_viva' "
+            " ORDER BY ordinal_position"
+        )
+        self.assertEqual(
+            tuple(str(linha[0]) for linha in self.cursor.fetchall()), COLUNAS
+        )

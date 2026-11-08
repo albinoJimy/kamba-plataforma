@@ -2268,8 +2268,11 @@ INVENTARIO["tenant_destinations"] = {
 #: `graph_version`. Quem audita transferencias pergunta «quem, quando, para que
 #: fornecedor, com que desfecho» — e nao «quanto custou».
 #:
-#: Como nas outras quatro, `SIM` e `None` em todas: numa vista o PostgreSQL nao
-#: prova `NOT NULL` nem guarda omissao.
+#: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao. (Eram quatro ate a `v_oferta_viva` do
+#: KAM-051 entrar; uma contagem em prosa que a sexta vista tornou falsa, e que
+#: nenhum linter le — os `.md` tem o `lint_contagens` e os comentarios `.py` nao
+#: tem nada.)
 INVENTARIO["v_transfer_audit"] = {
     "id": ("bigint", SIM, None, "nao"),
     "ts": ("timestamp with time zone", SIM, None, "nao"),
@@ -2290,11 +2293,22 @@ INVENTARIO["v_transfer_audit"] = {
 #: e o `lido_em` e o `now()` da leitura —, e derivar dava os nomes errados.
 #:
 #: **O que nao esta aqui e metade da resposta ao criterio 6** («a vista nao
-#: contem PII nem texto de descricao»): das dezesseis colunas da `offer_terms`
-#: projectam-se quatro, e ficam de fora o `medusa_variant_id`, a
-#: `categoria_restrita`, a moeda, os quatro instantes de auditoria e de validade
-#: e o `deleted_at`. **E nao ha coluna de stock nenhuma:** o criterio 7 esta
-#: bloqueado pelo D3 e pelo KAM-045, logo nao existe `stock_disp`.
+#: contem PII nem texto de descricao»). A aritmetica das dezesseis colunas da
+#: `offer_terms`, que a primeira versao deste comentario dava errada em tres
+#: sitios (dizia «quatro»), medida coluna a coluna:
+#:
+#:   * **seis** saem projectadas — `tenant_id`, `sku`, `nome`, `preco_minor`,
+#:     `preco_tipo`, `stock_modo` (o `sku` sai duas vezes, tambem como
+#:     `product_ref`);
+#:   * **quatro** sao lidas **so dentro de expressao** e nao aparecem: o
+#:     `preco_valido_ate` no `CASE` do `preco_tipo`, e o `estado`, o
+#:     `deleted_at` e a `categoria_restrita` no predicado do `publicado`;
+#:   * **seis** nunca sao lidas: `medusa_variant_id`, `currency`,
+#:     `preco_atualizado_at`, `stock_verificado_at`, `criado_at`,
+#:     `atualizado_at`.
+#:
+#: **E nao ha coluna de nivel de stock nenhuma:** o criterio 7 esta bloqueado
+#: pelo D3 e pelo KAM-045.
 #:
 #: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
 #: prova `NOT NULL` nem guarda omissao.

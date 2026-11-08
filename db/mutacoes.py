@@ -6307,12 +6307,23 @@ MUTACOES = [
     ('revisao 0037: a vista deixa de correr como quem a consulta', REV37,
      "          WITH (security_invoker = true) AS",
      "          AS", PRODUTOS),
-    # A vista volta a correr com os privilegios do **dono**, que so esta sujeito
-    # a RLS por causa do `FORCE`: o criterio 4 cai e a oferta de um tenant passa
-    # a ler-se no contexto de outro. O `test_a_vista_tem_security_invoker` tem de
-    # a matar pela opcao, e o `test_a_leitura_do_indice_nao_atravessa_tenants`
-    # pelo comportamento — os dois, porque a opcao sem o comportamento era uma
-    # asercao sobre `reloptions` e nao sobre isolamento.
+    # A vista volta a correr com os privilegios do **dono**. Matam-na o
+    # `test_a_vista_tem_security_invoker` (pela opcao) e o
+    # `test_so_o_kamba_app_le_a_vista_e_so_por_cima_do_privilegio` (pelo
+    # comportamento), mais o `verificar_vistas` do *gate* 6, que exige a opcao em
+    # todas as vistas sem lista de excepcoes.
+    #
+    # **E o que a nao mata e o ensaio cruzado de tenants, ao contrario do que
+    # este comentario dizia na primeira versao.** A revisao adversarial mediu o
+    # argumento e tem razao: sem a opcao a vista corre como o dono
+    # `kamba_migrator`, que e `NOBYPASSRLS` (`db/bootstrap.py`) e que o
+    # `FORCE ROW LEVEL SECURITY` da `offer_terms` vincula; e o predicado da
+    # `tenant_iso` (`db/rls.py`) le a **GUC da sessao**, que e a mesma nos dois
+    # casos. Logo a leitura de A no contexto de B da zero linhas com a opcao e
+    # sem ela, e um ensaio cruzado nao distingue nada — o que distingue e o
+    # **privilegio**: so com `security_invoker` e que a leitura da vista exige
+    # `SELECT` na tabela a quem a consulta. E a mesma forma que a `0015` usa, que
+    # nomeia o `verificar_vistas` em vez de inventar um comportamento.
     ('revisao 0037: o sob_consulta tambem degrada para a_partir_de', REV37,
      """                   WHEN o.preco_tipo = {PRECO_FIXO}
                         AND o.preco_valido_ate IS NOT NULL
@@ -6334,6 +6345,24 @@ MUTACOES = [
     # **dois** casos para morrer — o `test_um_fixo_fora_de_validade_sai_como_a_partir_de`
     # e o `test_um_fixo_dentro_da_validade_sai_fixo` —, e e por isso que o
     # controlo positivo nao e decorativo.
+    ('revisao 0037: o rascunho passa a publicado', REV37,
+     "                 (o.estado = {ESTADO_PUBLICADO}",
+     "                 (o.estado <> 'pausado'", PRODUTOS),
+    # **A mutacao que a primeira versao desta lista nao tinha, e que a revisao
+    # adversarial mediu.** O `rascunho` e a **omissao** do `offer_terms.estado`
+    # (`DEFAULT 'rascunho'`, revisao `0028`): e o estado de toda a oferta que o
+    # dono comecou e nunca publicou. Com esta troca, todas elas passam a
+    # `publicado = true` e chegam ao indice — o agente oferece rascunhos, com
+    # preco, de produtos que ninguem decidiu vender. E o `arquivado` entra com
+    # elas.
+    #
+    # Antes de o `rascunho` entrar no `CASOS_NAO_PUBLICAVEIS`, esta mutacao
+    # sobrevivia a **todas** as asercoes da suite: os quatro casos que havia
+    # (`pausado`, `arquivado`, restrito, apagado) deixavam-na viva pelo
+    # `pausado`, que a forma mutada continua a recusar. O
+    # `test_cada_condicao_sozinha_tira_o_publicado` tem de a matar no valor da
+    # coluna, e o `test_a_leitura_do_indice_devolve_zero_linhas_para_cada_uma` na
+    # leitura composta.
     ('revisao 0037: o publicado deixa de olhar para o soft delete', REV37,
      "                  AND o.deleted_at IS NULL\n",
      "", PRODUTOS),

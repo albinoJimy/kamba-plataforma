@@ -94,10 +94,14 @@ divisao, que e onde um preco se perde por um factor de cem. Decisao do fundador
 de Novembro de 2026, registada no bloco do ticket.
 
 **Nenhuma PII e nenhum texto de descricao** (criterio 6). Das dezesseis colunas
-da `offer_terms` esta vista projecta quatro, e o `medusa_variant_id`, os
-instantes de auditoria e a `categoria_restrita` ficam de fora. O `nome` e nome
-comercial de produto e nunca de pessoa singular, que e a mesma resposta que o
-`offer_terms.nome` da no inventario.
+da `offer_terms`, **seis** saem projectadas, **quatro** sao lidas so dentro de
+expressao (o `preco_valido_ate` no `CASE`, e o `estado`, o `deleted_at` e a
+`categoria_restrita` no predicado do `publicado`) e **seis** nunca sao lidas —
+`medusa_variant_id`, `currency`, `preco_atualizado_at`, `stock_verificado_at`,
+`criado_at`, `atualizado_at`. O `nome` e nome comercial de produto e nunca de
+pessoa singular, que e a mesma resposta que o `offer_terms.nome` da no
+inventario. A conta coluna a coluna esta no comentario do
+`INVENTARIO["v_oferta_viva"]`.
 
 ## SemVer do contrato
 
@@ -128,12 +132,22 @@ depends_on = None
 OFERTA = "platform.offer_terms"
 VISTA = "platform.v_oferta_viva"
 
-#: O papel que corre a tool `search_products`. Le a vista, como le a tabela.
+#: O papel que corre a tool `search_products`. Le a vista, como le a tabela, e e
+#: o **unico** com `GRANT` nela.
+#:
+#: **Nao ha `GRANT` para o `kamba_batch`, e a primeira versao desta revisao
+#: tinha-o com uma razao falsa** — dizia que era ele que semeava os 10 000 SKUs
+#: do ensaio de plano do criterio 6. Nao e: a sementeira e o `EXPLAIN` desse
+#: ensaio correm pela ligacao de administrador. E o `kamba_batch` e o **unico**
+#: papel com `BYPASSRLS` (`db/bootstrap.py`), isto e, o unico leitor para quem o
+#: `security_invoker` desta vista nao compra isolamento nenhum: dar-lhe `SELECT`
+#: numa vista que existe para ser lida sob RLS era alargar a superficie sem
+#: nenhum leitor a pedi-la. Apanhado pela revisao adversarial.
+#:
+#: Tambem nao ha para o `kamba_resolver`, o `kamba_identity`, o `kamba_audit`
+#: nem o `kamba_agr`: nenhum deles le a oferta, e a `0028` escreveu essa
+#: fronteira. O `test_so_o_kamba_app_le_a_vista` afirma as duas metades.
 PAPEL_DA_APP = "kamba_app"
-#: O papel da retencao e **o semeador das baterias de carga** (nota dos
-#: privilegios da `0028`): e ele que semeia os 10 000 SKUs do ensaio de plano do
-#: criterio 6, e sem `SELECT` na vista esse ensaio nao podia correr o `EXPLAIN`.
-PAPEL_DE_LOTE = "kamba_batch"
 
 #: O estado que publica, e os tres modos de preco. Do dicionario secao 3.3 e do
 #: `offer_terms_estado_ck` da revisao `0028`.
@@ -192,12 +206,10 @@ def upgrade() -> None:
         "RLS FORCE da offer_terms continua a valer para quem le a vista.'"
     )
     # A vista corre como quem a consulta, logo quem a le precisa de `SELECT` na
-    # vista **e** na tabela — que os dois papeis ja tem na `offer_terms` desde a
-    # `0028`. Nao ha `GRANT` para `kamba_resolver`, `kamba_identity`,
-    # `kamba_audit` nem `kamba_agr`: nenhum deles le a oferta, e a `0028`
-    # escreveu essa fronteira.
+    # vista **e** na tabela — que o `kamba_app` ja tem na `offer_terms` desde a
+    # `0028`. Um so `GRANT`, e a razao de nao haver mais esta na nota do
+    # `PAPEL_DA_APP`.
     op.execute(f"GRANT SELECT ON {VISTA} TO {PAPEL_DA_APP}")
-    op.execute(f"GRANT SELECT ON {VISTA} TO {PAPEL_DE_LOTE}")
 
 
 def downgrade() -> None:
