@@ -200,6 +200,15 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: se tivesse fundido ao contrario, o 45 continuava a servir, que era a razao de
 #: o escrever.
 #:
+#: **E o KAM-060 mediu-o tres vezes no mesmo ramo, com tres resultados** — 86 na
+#: base de corte (onde escreveu a emenda para 43), 89 com a `77a579bd` dentro
+#: (onde o 44 servia e **reverteu** a emenda) e 90 com a `5941a11f` (onde ela se
+#: paga). A seccao dele nao pagou e pagou sem uma linha dela mudar, e e a mesma
+#: licao do paragrafo de cima vista do outro lado: a de cima diz que o **valor**
+#: nao depende da ordem de fusao se se escolher o que vale nas duas arvores, e
+#: esta diz que a **divida** depende dela sempre. As duas juntas fecham a regra:
+#: mede-se na arvore da fusao, e escreve-se o valor que sobrevive a ordem.
+#:
 #: Quem acrescentar o **92.o** paga a emenda seguinte: o 45 serve ate aos 91.
 MINIMO_DE_BLOCOS_MEDIDOS = 45
 

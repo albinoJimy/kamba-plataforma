@@ -165,6 +165,11 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # medidos e o piso a 43, pelo que este literal subiu com ele na integracao do
     # KAM-079. Terceira vez que esta linha se move por o corpus ter crescido — o
     # que e, por si, o argumento para a comparar por codigo em vez de a ler.
+    #
+    # **Quarta vez: 44 -> 45, com o KAM-060.** O corpus foi a 90 medidos quando o
+    # KAM-184 fundiu, e quem integrou em segundo pagou. Quatro movimentos em
+    # quatro epics, e nenhum portao compara este literal com a constante que ele
+    # cita: quem o apanha e correr o `--aplicaveis`.
 
     ("o piso de emparelhados a zero", "lint.py",
      "MINIMO_DE_BLOCOS_MEDIDOS = 45", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),

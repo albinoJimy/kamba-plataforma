@@ -1184,6 +1184,40 @@ class TestFicheirosDePolitica(unittest.TestCase):
         }
     )
 
+    #: A porta de escrita dos sinais de anomalia (KAM-060, revisao `0039`). Pela
+    #: mesma razao das duas de cima: declara-se o que a allowlist **tem de**
+    #: conter, e nao o que ela tem hoje.
+    #:
+    #: **E a quarta familia desta lista, e entra pela mesma pergunta que decidiu
+    #: as outras tres: onde pode viver a regra.** A
+    #: `platform.fraud_signals` nao tem `INSERT` para papel nenhum por decisao
+    #: da revisao `0032`, com a razao escrita nela: «`fraud_signals` com
+    #: `INSERT`, quem e vigiado escrevia no registo de vigilancia». Com a funcao
+    #: a `SECURITY INVOKER` a excepcao nao desaparecia — mudava de sitio e
+    #: ficava maior: era preciso conceder `INSERT` ao `kamba_batch`, e com esse
+    #: privilegio escreve-se um sinal com a `regra`, a `severidade` e a `accao` a
+    #: escolha, sem passar pelas tres barreiras da porta.
+    #:
+    #: **O grantee e o que distingue esta entrada de um furo**, e vale guardar:
+    #: ela e `EXECUTE` do **`kamba_batch`** e nao do `kamba_app`. Quem a `0032`
+    #: protegeu de escrever foi o vigiado — o `kamba_app`, que serve turnos de
+    #: conversa —, e o motor de anomalias corre em lote. Se o grantee passar ao
+    #: `kamba_app`, esta revisao deixa de completar o KAM-054 e passa a desfaze-
+    #: lo; quem o apanha e o `test_o_lote_escreve_e_a_aplicacao_nao` de
+    #: `../tests_pagamentos/test_anomalias.py`, que afirma as duas metades.
+    #:
+    #: **E ela da privilegio e nao da isolamento**, como a `append_payment_event`
+    #: e as quatro do manual: o `FORCE` prende tambem o dono, pelo que a
+    #: transaccao que a chama tem de ter `app.tenant_id` igual ao `p_tenant_id`.
+    #: Dois ensaios daquele ficheiro medem-no — um sinal para outro tenant leva
+    #: `42501` da **politica**, e sem contexto a porta falha fechada.
+    SINAIS_NA_ALLOWLIST = (
+        "platform.registar_sinal_de_anomalia("
+        "p_tenant_id uuid, p_regra text, p_severidade smallint, "
+        "p_accao text, p_contact_id uuid, p_charge_id uuid, "
+        "p_detalhe jsonb, p_janela interval)"
+    )
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1207,13 +1241,25 @@ class TestFicheirosDePolitica(unittest.TestCase):
         `resolve_webhook_token` fica `SECURITY INVOKER`. Esta lista fechada e o
         que impede que ela mude de ideias em silencio.
 
+        **A setima e do KAM-060**, e e a `registar_sinal_de_anomalia`: a porta
+        de escrita da `platform.fraud_signals`, que nao tem `INSERT` para papel
+        nenhum por decisao da `0032`. Ver o `SINAIS_NA_ALLOWLIST` para o que a
+        distingue das outras seis — o grantee e o `kamba_batch` e nao o
+        `kamba_app`, e e isso que a faz completar o KAM-054 em vez de o desfazer.
+
         Ver `APPEND_NA_ALLOWLIST` acima para a forma exacta da chave, que nao e
-        a que o comentario do ficheiro parece prometer.
+        a que o comentario do ficheiro parece prometer. **A forma com os nomes
+        dos parametros custou seis falhas ao KAM-053 e zero ao KAM-060**, e a
+        diferenca foi ler este comentario antes de escrever a entrada.
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
         self.assertEqual(
             set(catalogo.funcoes_permitidas()),
-            {"platform.audit_encadear()", self.APPEND_NA_ALLOWLIST}
+            {
+                "platform.audit_encadear()",
+                self.APPEND_NA_ALLOWLIST,
+                self.SINAIS_NA_ALLOWLIST,
+            }
             | set(self.MANUAIS_NA_ALLOWLIST),
         )
 

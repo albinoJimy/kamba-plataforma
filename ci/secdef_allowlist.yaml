@@ -139,3 +139,35 @@ funcoes:
       o da **cobranca** e nao um argumento, e nada se apaga — o
       `payment_events` recusa `UPDATE` e `DELETE` por *trigger*, incluindo ao
       superutilizador e incluindo quando nao casam linha nenhuma (KAM-175).
+
+  - funcao: platform.registar_sinal_de_anomalia(p_tenant_id uuid, p_regra text, p_severidade smallint, p_accao text, p_contact_id uuid, p_charge_id uuid, p_detalhe jsonb, p_janela interval)
+    adr: ADR-013
+    razao: >-
+      E a unica porta de escrita dos sinais de anomalia (KAM-060). A
+      `platform.fraud_signals` nao tem `INSERT` para papel nenhum por decisao da
+      revisao `0032`, e a razao escrita nela e quem decide a forma desta
+      excepcao: «`fraud_signals` com `INSERT`, quem e vigiado escrevia no
+      registo de vigilancia». Quem a `0032` protegeu de escrever foi o
+      **`kamba_app`**, que serve turnos de conversa e corre com o contacto do
+      outro lado da linha a decidir o que acontece a seguir.
+      Esta funcao e concedida ao **`kamba_batch` e nao ao `kamba_app`**, e e
+      isso que a faz preservar aquela decisao em vez de a desfazer: o motor de
+      anomalias corre em lote, nao num turno, pelo que nenhum caminho de
+      conversa ganha forma de escrever no registo que o vigia. Com
+      `SECURITY INVOKER` a excepcao nao desaparecia — mudava de sitio: era
+      preciso conceder `INSERT` ao `kamba_batch`, e com esse privilegio escreve-
+      se um sinal com a `regra`, a `severidade` e a `accao` a escolha, sem
+      passar pelas barreiras abaixo.
+      A excepcao e **estreita, e nao cega**. Tres barreiras, e cada uma fecha um
+      caminho que o `INSERT` deixava aberto: a `regra` contra lista fechada das
+      oito regras de anomalia — e **e aqui que ela mora**, porque a coluna
+      `regra` da `0032` e `text NOT NULL` sem `CHECK`, medido —, com as duas
+      regras do M-3 recusadas (escreve-as a `manual_confirmar`, dentro da
+      transaccao da confirmacao); o `detalhe` sem chave de PII a qualquer
+      profundidade (criterio 8 do bloco); e a janela, que devolve o `id` do
+      sinal igual em vez de escrever linha nova, sem a qual o *job* periodico
+      escrevia a mesma anomalia uma vez por corrida.
+      Nao da `INSERT` a ninguem e nao contorna o `FORCE`: a leitura da aplicacao
+      continua sujeita a politica do tenant, e `db/tests_pagamentos/test_anomalias.py`
+      mede as duas coisas, mais o par que quebra se o grantee passar a
+      `kamba_app`.

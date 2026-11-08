@@ -251,6 +251,13 @@ PRODUTOS = "tests_produtos"
 #: faltavam estao nomeadas no bloco —, e uma mutacao que nenhuma delas apanhe e
 #: uma lista por propagar.
 REV38 = "db/migrations/versions/0038_direitos_do_titular.py"
+#: KAM-060: a porta de escrita dos sinais de anomalia. A `0039` **medida e nao
+#: reservada**: a cabeca da cadeia na `publico/main` (`77a579bd`) e a `0038`, e o
+#: numero veio do fundador depois de o #158 fundir. Tinha sido escrita como
+#: `0037_escritor_de_sinais_PROVISORIO.py` enquanto havia duas `0037` abertas —
+#: renumerar foi tres linhas e esta constante, e o `--aplicaveis` apanha quem se
+#: esqueca dela: uma mutacao cujo alvo nao existe nao mede nada.
+REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6533,6 +6540,88 @@ MUTACOES = [
     # que confronta os **tres** sitios onde o dominio esta escrito (a tupla da
     # bateria, os literais da revisao e o catalogo), e o
     # `test_as_sete_accoes_passam`, que o insere.
+    # ---------------------------------------------------------------- KAM-060
+    #
+    # A porta de escrita dos sinais de anomalia. **As duas primeiras mutam a
+    # LIGACAO e nao o predicado**, e sao as que importam: uma funcao com as tres
+    # barreiras certas, concedida ao papel errado, passa todos os ensaios das
+    # barreiras. A ordem e a do que custa mais se nao morder.
+    ('revisao do escritor: o EXECUTE passa para a aplicacao', REV_SINAIS,
+     'op.execute(f"GRANT EXECUTE ON FUNCTION {ASSINATURA} TO {PAPEL_DE_LOTE}")',
+     'op.execute(f"GRANT EXECUTE ON FUNCTION {ASSINATURA} TO kamba_app")',
+     "tests_pagamentos"),
+    # **A mutacao mais importante desta familia**, e e a ligacao e nao a funcao:
+    # o corpo fica intacto, as tres barreiras continuam a morder, e o que muda e
+    # *quem* pode chamar. Com o `kamba_app` a conseguir, esta revisao deixa de
+    # preservar a decisao da `0032` — «quem e vigiado escrevia no registo de
+    # vigilancia» — e passa a desfaze-la, que e exactamente o que ela nao pode
+    # fazer. O `test_o_lote_escreve_e_a_aplicacao_nao` tem de a matar pela
+    # segunda metade: a primeira continua verde.
+    ('revisao do escritor: o REVOKE de PUBLIC desaparece', REV_SINAIS,
+     'op.execute(f"REVOKE ALL ON FUNCTION {ASSINATURA} FROM PUBLIC")\n    ',
+     '',
+     "tests_pagamentos"),
+    # A outra metade da ligacao, e a mais silenciosa das duas: uma funcao nasce
+    # com `EXECUTE` para `PUBLIC`, pelo que sem o `REVOKE` **todos** os papeis a
+    # chamam e o `GRANT` da linha seguinte nao acrescenta nada. E a razao que a
+    # `0029` e a `0032` escrevem, e o mesmo ensaio a mata — o que prova que ele
+    # mede a propriedade e nao a instrucao.
+    ('revisao do escritor: a regra do M-3 entra na lista fechada', REV_SINAIS,
+     '    "\'pagamento_divergente_repetido\'",\n',
+     '    "\'pagamento_divergente_repetido\'",\n    "\'manual_limite_diario\'",\n',
+     "tests_pagamentos"),
+    # Com ela na lista, um lote forja uma retencao que o M-3 nao decidiu — isto
+    # e, abre pela porta de servico a decisao que o KAM-054 fechou pela da
+    # frente. **Dois ensaios a matam, e e de proposito:** o
+    # `test_as_duas_regras_do_m3_sao_recusadas_pela_porta`, a correr, e o
+    # `test_as_regras_da_funcao_instalada_sao_as_do_motor`, que compara o texto
+    # do modulo TypeScript com o `pg_get_functiondef` — nove regras na base
+    # contra oito no motor.
+    ('revisao do escritor: a janela da cobranca volta ao igual', REV_SINAIS,
+     'AND charge_id IS NOT DISTINCT FROM p_charge_id',
+     'AND charge_id = p_charge_id',
+     "tests_pagamentos"),
+    # Um `charge_id = NULL` nunca e verdadeiro, pelo que a guarda deixa de casar
+    # os sinais **sem** cobranca — a R-02 e a R-06 — e cada corrida do *job*
+    # escreve linha nova. O
+    # `test_dois_sinais_sem_cobranca_e_sem_contacto_nao_se_confundem` tem de a
+    # matar; os sinais **com** cobranca continuam a deduplicar, pelo que o
+    # `test_o_mesmo_sinal_duas_vezes_da_uma_linha` fica verde.
+    ('revisao do escritor: a guarda de PII volta a ler so o topo', REV_SINAIS,
+     "FROM jsonb_path_query(p_detalhe, '$.**') AS n(no),",
+     "FROM jsonb_path_query(p_detalhe, '$') AS n(no),",
+     "tests_pagamentos"),
+    # `$` em vez de `$.**` desce zero niveis: a varredura volta a ver so o topo e
+    # um detalhe com um objecto aninhado passa. E o defeito que a primeira versao
+    # da funcao tinha, com o comentario a dizer «todos os niveis». O
+    # `test_uma_chave_de_pii_aninhada_tambem` tem de a matar, e o
+    # `test_uma_chave_de_pii_no_topo_e_recusada` tem de ficar verde — senao a
+    # mutacao mediu a guarda inteira e nao a profundidade dela.
+    ('revisao do escritor: a chave de PII passa a casar exacto', REV_SINAIS,
+     'IF position(v_proibida IN lower(v_chave)) > 0 THEN',
+     'IF lower(v_chave) = v_proibida THEN',
+     "tests_pagamentos"),
+    # Com a igualdade, `telefone_do_pagador` passa e `telefone` nao — isto e, a
+    # guarda deixa de apanhar a forma que alguem escreve sem pensar. O
+    # `test_uma_chave_que_contem_a_palavra_proibida_e_recusada` tem de a matar.
+    ('revisao do escritor: a janela deduplica para sempre', REV_SINAIS,
+     'AND criado_at > now() - p_janela',
+     "AND criado_at > now() - interval '100 years'",
+     "tests_pagamentos"),
+    # A guarda deixa de ser da **janela** e passa a ser «um sinal por chave para
+    # sempre»: uma anomalia que volte a acontecer tres meses depois fica
+    # invisivel. O `test_a_janela_a_zero_escreve_outra_vez` tem de a matar, e e
+    # a razao de aquele ensaio existir — sem ele, esta mutacao sobrevivia com o
+    # `test_o_mesmo_sinal_duas_vezes_da_uma_linha` verde.
+    ('revisao do escritor: o indice perde a regra', REV_SINAIS,
+     '(tenant_id, regra, criado_at)',
+     '(tenant_id, criado_at)',
+     "tests_pagamentos"),
+    # O indice passa a ser o mesmo que o `fraud_signals_tenant_idx` da `0032` —
+    # isto e, a revisao acrescenta um indice redundante e a guarda da janela
+    # volta a varrer todos os sinais do periodo para comparar a regra. O
+    # `test_o_indice_da_janela_existe_e_o_do_painel_fica` tem de a matar pelo
+    # `assertRegex` das colunas.
 ]
 
 

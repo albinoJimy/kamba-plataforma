@@ -148,6 +148,29 @@ class TestEscolha(unittest.TestCase):
         self.assertEqual(len(nomes), len(set(nomes)))
 
 
+def fatia_vazia() -> str:
+    """Uma fatia que **nao pode** ter mutacoes, derivada do inventario.
+
+    `--fatia n/n` com `n` acima do numero de mutacoes: a reparticao e alternada,
+    pelo que a ultima de `n` fatias leva os indices `n-1`, `2n-1`, … e com
+    `n > len(MUTACOES)` nao leva nenhum.
+
+    **Era o literal `999/999`, e deixou de ser verdade.** O KAM-060 levou a lista
+    a **1005** mutacoes, pelo que a fatia 999 de 999 passou a ter trabalho e o
+    `main` passou a devolver 0 — isto e, o ensaio que afirma «uma fatia vazia sai
+    com 2» deixou de ter uma fatia vazia para medir. Levou um `ERROR` e um `FAIL`
+    no *gate* 8.
+
+    **E a emenda nao e subir o literal.** Um `9999/9999` adia o mesmo defeito
+    para quem passar a fasquia seguinte, e o que o ensaio quer dizer e «acima do
+    numero de mutacoes» e nao «novecentos e noventa e nove». Deriva-se da lista,
+    e assim nao volta a envelhecer — **que e a mesma familia do inventario do
+    `tests_isolamento/test_x05_catalogo.py`**: um tamanho fixo escondido num
+    literal, longe da coisa que o decide.
+    """
+    return f"{len(mutacoes.MUTACOES) + 1}/{len(mutacoes.MUTACOES) + 1}"
+
+
 class TestFatiar(unittest.TestCase):
     """`--fatia i/n` reparte a lista pelos *runners* da tarefa nocturna.
 
@@ -192,7 +215,7 @@ class TestFatiar(unittest.TestCase):
 
     def test_uma_fatia_vazia_sai_com_dois(self) -> None:
         """Sem isto, mais fatias do que mutacoes davam uma fatia «limpa»."""
-        self.assertEqual(mutacoes.main(["python", "", "--fatia", "999/999"]), 2)
+        self.assertEqual(mutacoes.main(["python", "", "--fatia", fatia_vazia()]), 2)
 
     def test_a_opcao_aceita_as_duas_formas_e_exige_valor(self) -> None:
         self.assertEqual(
@@ -269,7 +292,7 @@ class TestCodigoDeSaida(unittest.TestCase):
         casos = {
             "fatia malformada": ["python", "", "--fatia", "0/6"],
             "fatia sem valor": ["python", "", "--fatia"],
-            "fatia vazia": ["python", "", "--fatia", "999/999"],
+            "fatia vazia": ["python", "", "--fatia", fatia_vazia()],
             "filtro sem correspondencia": ["python", "nao-existe-nenhuma-assim"],
             "filtro com cara de opcao": ["python", "--aplicaveis", "--fatia", "1/6"],
             "opcao desconhecida como filtro": ["python", "--vai-correr-tudo"],
