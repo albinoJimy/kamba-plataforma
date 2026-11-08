@@ -1,8 +1,10 @@
 # *Rulesets* de `main` — o que o GitHub aplica, em ficheiro
 
 O `main.json` é a exportação do *ruleset* `main: gates fail-closed do KAM-002`,
-que é a peça de que toda a propriedade *fail-closed* depende: sem ele, os seis
-*gates* correm e reportam, e nada impede o *merge*.
+que é a peça de que toda a propriedade *fail-closed* depende: sem ele, os
+**onze** *gates* correm e reportam, e nada impede o *merge*. (Onze a bloquear,
+sete contextos exigidos — a diferença está no §«Contexto exigido não é o que
+bloqueia» abaixo, e não é contabilidade.)
 
 **Porque está aqui.** O *ruleset* é configuração, não código: vive na API do
 GitHub, altera-se sem PR, e nada no repositório o descrevia. Quem quisesse saber
@@ -15,7 +17,7 @@ alteração feita na interface aparece como divergência face a este ficheiro.
 | Repositório | O quê | *Ruleset* |
 |---|---|---|
 | `albinoJimy/kamba` | privado, a origem | existe, `id` **24879081** |
-| `albinoJimy/kamba-plataforma` | **público, e é onde os PR são abertos e o CI corre** | **por criar** — decisão do fundador de 2026-10-18, cópia do privado |
+| `albinoJimy/kamba-plataforma` | **público, e é onde os PR são abertos e o CI corre** | existe, `id` **25359475** — criado a 2026-10-18 como cópia do privado, e **diverge num parâmetro** (ver abaixo) |
 
 **Isto não é um detalhe de arrumação: foi um defeito a sério.** A primeira
 versão da verificação nomeava um repositório só — o privado. O `main.json`
@@ -28,9 +30,38 @@ máquina a dizer que está certo.
 
 Por isso [`ci/ruleset.yaml`](../../ci/ruleset.yaml) tem uma **lista de alvos**,
 e o `make ruleset` corre sobre todos. **Verde só quando todos estão conformes.**
-Enquanto o *ruleset* do `albinoJimy/kamba-plataforma` não existir, a
-verificação é **vermelha de propósito**, com `repositorio-sem-ruleset` — e essa
-é a única forma honesta de o dizer.
+
+**O *ruleset* do público existe desde 2026-10-18, e o `id` ficou escrito a
+2026-11-07.** Até lá o alvo dava `repositorio-sem-ruleset`, vermelho de
+propósito. Hoje dá vermelho por outra razão, e é uma razão melhor: a
+verificação passou a comparar política em vez de a dar por ausente — e há uma
+divergência que ninguém encenou. **O achado é da revisão adversarial do
+KAM-164**, que o mediu a 2026-11-03 e o registou na dívida 171 de
+[`docs/dividas-documentais.md`](../../docs/dividas-documentais.md); o KAM-137
+confirmou-o por execução e pagou os três passos que a dívida pedia.
+
+> **A divergência medida a 2026-11-07, e fechá-la é acto do fundador.**
+> `rules.pull_request.require_extra_approval_for_unattributed_changes` está a
+> `true` no espelho e no `albinoJimy/kamba` (`id` 24879081), e a **`false`** no
+> `albinoJimy/kamba-plataforma` (`id` 25359475). **Os dois *rulesets* são iguais
+> em tudo o resto**, parâmetro a parâmetro: os sete contextos, `bypass_actors`
+> vazio, `enforcement: active`, `conditions`, `name`, `target` e as quatro
+> regras.
+>
+> **O lado fraco está no repositório que importa** — o público é onde os PR são
+> abertos e onde o CI corre. E `required_approving_review_count` está a **0** nos
+> dois (ver a nota no fim deste ficheiro), pelo que este é hoje o único
+> parâmetro do bloco `pull_request` em que os dois alvos não dizem o mesmo.
+> *O efeito exacto deste campo com a contagem a 0 não foi medido por execução;
+> o que está medido é o valor nos três sítios.*
+>
+> Resolve-se por **um** dos dois caminhos do §«Quando a verificação dá vermelho»,
+> e **os dois são acto do fundador**: repor o GitHub, pondo o público a `true`
+> (caso 2), ou — se o `false` foi deliberado — actualizar o espelho e escrever
+> porquê no PR (caso 1). **O que não se faz é baixar o espelho para calar o
+> vermelho**, pela mesma razão que vale para `bypass_actors`: o ficheiro não é
+> autoridade para enfraquecer política. Quem executou o KAM-137 está impedido
+> dos dois.
 
 **O que a volta fechada faz, e o que continua a não fazer.** O ficheiro continua
 a ser um espelho e não a fonte: editá-lo **não** altera o GitHub, e alterar o
@@ -100,7 +131,9 @@ Que *ruleset* se verifica e contra que ficheiro está em
    escreve-se o resultado em `main.json`, e o PR que o leva explica porquê.
 2. **A alteração no GitHub não foi deliberada** — e inclui-se aqui, sempre,
    qualquer entrada em `bypass_actors`. Então **repõe-se o GitHub e não o
-   ficheiro**: `https://github.com/albinoJimy/kamba/rules/24879081`, repor o
+   ficheiro**. A página é a do alvo que a saída nomeia — hoje há duas:
+   `https://github.com/albinoJimy/kamba/rules/24879081` e
+   `https://github.com/albinoJimy/kamba-plataforma/rules/25359475`. Repor o
    campo que a saída nomeia, e correr `make ruleset` outra vez até sair 0.
    Quem repõe é quem tem administração do repositório; hoje, o fundador.
 3. **`repositorio-sem-ruleset` ou `ruleset-ausente`** — não é nenhum dos dois
@@ -109,6 +142,11 @@ Que *ruleset* se verifica e contra que ficheiro está em
    imprime em [`ci/ruleset.yaml`](../../ci/ruleset.yaml). **Nunca se tira o
    alvo da lista para calar o vermelho** — tirá-lo é decidir que aquele
    repositório não precisa de protecção, e isso é governação, não manutenção.
+   **Este caso correu, do princípio ao fim:** o `albinoJimy/kamba-plataforma`
+   deu `repositorio-sem-ruleset` desde 2026-10-18, o *ruleset* foi criado nesse
+   dia, e o `id` ficou escrito a 2026-11-07. Escrever o `id` não é arrumação: sem
+   ele, um `delete`+`create` deste *ruleset* é invisível, porque o nome fica
+   igual e só o `id` muda.
 
 Um `bypass_actors` não vazio nunca se resolve actualizando o ficheiro: o
 ficheiro não é autoridade para conceder *bypass*, e a verificação continua
@@ -135,8 +173,39 @@ gh api repos/albinoJimy/kamba/rulesets/24879081 \
   > .github/rulesets/main.json
 ```
 
-A mesma coisa, sem decorar o `id` nem a reformatação — e é esta a forma a usar
-quando o alvo é o `albinoJimy/kamba-plataforma`, cujo `id` ainda não existe:
+> ### ⚠ O espelho regenera-se do `albinoJimy/kamba`, e hoje **não** do público
+>
+> As receitas desta secção escrevem em `main.json`. **Enquanto a divergência
+> medida a 2026-11-07 estiver aberta, regenerar o espelho a partir do
+> `albinoJimy/kamba-plataforma` escreve lá
+> `require_extra_approval_for_unattributed_changes: false`** — isto é, baixa o
+> espelho para calar o vermelho, que é precisamente o que o §«Quando a
+> verificação dá vermelho» proíbe fazer sem decisão escrita.
+>
+> O comando do público abaixo é para **ler** o *ruleset* dele, não para
+> regenerar o espelho. Só depois de o fundador decidir — e se a decisão for que
+> o `false` é deliberado — é que o espelho se actualiza, e então o PR explica
+> porquê.
+
+Para **ler** o `albinoJimy/kamba-plataforma`, cujo `id` é **25359475** desde
+2026-10-18 (sem redirecção, de propósito):
+
+```bash
+gh api repos/albinoJimy/kamba-plataforma/rulesets/25359475 --jq '{name,target,enforcement,conditions,rules,bypass_actors}'
+```
+
+Os dois `id` estão em [`ci/ruleset.yaml`](../../ci/ruleset.yaml), e **três**
+testes prendem-nos ao que este ficheiro diz: `test_cada_id_declarado_esta_no_readme_do_ruleset`
+(os comandos de exportação, forma `/rulesets/NNN`),
+`test_cada_alvo_declara_o_seu_id_na_tabela_do_readme` (a tabela de cabeçalho) e
+`test_cada_ligacao_de_reposicao_aponta_um_id_declarado` (as ligações
+`/rules/NNN` do §«Quando a verificação dá vermelho»). **Um `id` errado em
+qualquer das três superfícies põe o *gate* 4 vermelho** — e as duas últimas
+existem porque a revisão adversarial deste ticket mediu que a tabela e as
+ligações podiam mentir com o *gate* verde.
+
+A mesma coisa, sem decorar o `id` nem a reformatação, **e é a forma a usar para
+regenerar o espelho a partir do alvo de referência**:
 
 ```bash
 python -m ruleset_check mostrar --root . --repositorio albinoJimy/kamba \
@@ -151,10 +220,42 @@ exacto do ficheiro**; há um teste que confronta a sua saída, byte a byte, com 
 
 | Regra | Efeito |
 |---|---|
-| `required_status_checks` | Os seis *gates* activos **e** o `gates do KAM-002` |
+| `required_status_checks` | **Sete** contextos: seis *gates* por nome próprio **e** o `gates do KAM-002` |
 | `pull_request` | Sem *merge* directo: tudo entra por PR. **Aprovações exigidas: 0** — ver a nota abaixo |
 | `deletion` | `main` não se apaga |
 | `non_fast_forward` | `main` não se reescreve |
+
+### «Contexto exigido» não é «o que bloqueia», e confundir os dois já custou
+
+**São sete contextos exigidos e onze *gates* a bloquear**, e a diferença não é
+um detalhe de contabilidade. Medido a 2026-11-07:
+
+| | Quantos | Quais | O que o guarda |
+|---|---|---|---|
+| **Contextos exigidos** pelo *ruleset* | **7** | *gates* 1, 2, 3, 4, 9, 11 — e o `gates do KAM-002` | o `make ruleset` deste ficheiro, que **não é *gate*** (lacuna 28) |
+| ***Gates* que bloqueiam** | **11** | os seis acima, mais **3b, 3c, 6, 7 e 8** | `esperados=11` no *job* agregador, em execução, **e** `TestSemJobNovo` em [`tools/lint_arch/tests/test_ci_gate2.py`](../../tools/lint_arch/tests/test_ci_gate2.py), no *gate* 4 |
+
+Os cinco do meio — 3b, 3c, 6, 7 e 8 — **bloqueiam transitivamente**: estão nos
+`needs:` do `gates-em-ambito` (cujo `name:` é `gates do KAM-002`), que é
+*required check*. É por isso que um *gate* novo entra nos `needs:` do agregador
+e **não** nesta lista: escrever no espelho um contexto que o *ruleset* não tem
+torna o espelho falso, e acrescentá-lo no GitHub é alteração de regra de
+bloqueio — acto do fundador. A razão está na lacuna 17 de
+[`docs/ci.md`](../../docs/ci.md) §7.
+
+**O que isto quer dizer para quem lê esta verificação:** o `make ruleset`
+compara **a lista**, e é só isso que ele promete. Quem garante **a barreira** é
+o *gate* 4, pela lista dos onze `needs:` escrita à mão, e o próprio agregador,
+que conta os resultados e falha se não forem onze. Tirar um *gate* dos `needs:`
+é vermelho no *gate* 4; tirar um contexto do *ruleset* é vermelho no
+`make ruleset`; e **tirar o `gates do KAM-002` da lista de contextos** —
+que é o que faria os cinco deixarem de bloquear de uma vez — é vermelho no
+`make ruleset` também, porque ele é um dos sete.
+
+Fora dos `needs:` do agregador há dois *jobs* que falham **por desenho** e não
+bloqueiam nada: o `gate 5 — reservado (nao bloqueia)`, até o KAM-003 o ligar, e
+a `vigia — prova nocturna (nao bloqueia)`. Um *job* vermelho que não impede
+fusão nenhuma é o que a lacuna 30 descreve.
 
 O `gates do KAM-002` entrou depois dos seis: é o *job* que recusa um *gate*
 `skipped`, e enquanto não era *required check* não podia bloquear nada — o

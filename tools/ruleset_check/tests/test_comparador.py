@@ -136,6 +136,69 @@ class TestCampoDePoliticaAusente(unittest.TestCase):
         )
 
 
+class TestValorDeCadaParametroDePullRequest(unittest.TestCase):
+    """O **valor** de cada parametro de `pull_request`, por lista escrita a mao.
+
+    **O buraco que isto fecha foi medido pela revisao adversarial do KAM-137**, e
+    nao era teorico: uma isencao dirigida a UM parametro no `_parametros` do
+    comparador —
+
+        if parametro in ja_reportado or parametro == "require_extra_approval_...":
+
+    — passava as 130 provas do modulo. O
+    `test_um_parametro_de_politica_ausente_e_apanhado` ao lado prova a
+    **ausencia** e itera sobre `PARAMETROS_DE_POLITICA`, que e o proprio alvo:
+    oraculo importado do alvo nao e oraculo, e nenhuma prova prendia o valor.
+
+    Isso importava mais do que de costume porque, a data desta bateria, o
+    `require_extra_approval_for_unattributed_changes` era o unico parametro a
+    manter o alvo publico vermelho. Isenta-lo era uma terceira saida para o
+    verde, que a prosa nao nomeia e que nada proibia.
+
+    A lista abaixo e **escrita a mao de proposito**, como o `esperados=11` do
+    agregador: um parametro novo no espelho faz o primeiro teste falhar, e quem o
+    acrescentou vem ler porque.
+    """
+
+    #: Por parametro, um valor que **difere** do que o espelho declara. Escrito a
+    #: mao: nada aqui deriva de `PARAMETROS_DE_POLITICA` nem do espelho.
+    OUTRO_VALOR = {
+        "allowed_merge_methods": ["merge"],
+        "dismiss_stale_reviews_on_push": False,
+        "require_code_owner_review": True,
+        "require_extra_approval_for_unattributed_changes": False,
+        "require_last_push_approval": True,
+        "required_approving_review_count": 1,
+        "required_review_thread_resolution": True,
+        "required_reviewers": [{"actor_id": 7, "actor_type": "Team"}],
+    }
+
+    def test_a_lista_escrita_a_mao_cobre_o_espelho_inteiro(self) -> None:
+        """Um parametro novo no espelho tem de entrar nesta bateria."""
+        self.assertEqual(
+            set(self.OUTRO_VALOR),
+            set(regra(espelho(), "pull_request")["parameters"]),
+            "o espelho tem parametros de `pull_request` que esta bateria nao mede",
+        )
+
+    def test_cada_valor_divergente_e_apanhado(self) -> None:
+        for parametro, outro in self.OUTRO_VALOR.items():
+            with self.subTest(parametro=parametro):
+                local = espelho()
+                self.assertNotEqual(
+                    regra(local, "pull_request")["parameters"][parametro],
+                    outro,
+                    "o valor de controlo tem de diferir do espelho, senao nao ha o que apanhar",
+                )
+                bruto = resposta_da_api()
+                regra(bruto, "pull_request")["parameters"][parametro] = outro
+                divergencias = comparador.comparar(local, bruto)
+                self.assertIn("parametro-divergente", regras_de(divergencias))
+                self.assertIn(
+                    f"rules.pull_request.{parametro}", [d.onde for d in divergencias]
+                )
+
+
 class TestBypassActors(unittest.TestCase):
     """(c) do criterio 3, e o criterio 4: a lista tem de estar vazia."""
 
