@@ -230,6 +230,16 @@ REV35 = "db/migrations/versions/0035_payment_order_fks.py"
 #: integracao, que e a regra — um ramo nao reserva a linha de revisoes para
 #: outro, e renumerar em antecipacao cria o defeito que evita.
 REV36 = "db/migrations/versions/0036_destinos_de_transferencia.py"
+#: KAM-051: o contrato de leitura da oferta viva. **Era a `0037` neste ramo** e
+#: pode ter de renumerar na integracao, pela regra que a nota da `0036` escreve:
+#: um ramo nao reserva a linha de revisoes para outro.
+REV37 = "db/migrations/versions/0037_oferta_viva.py"
+#: A suite do preco opaco (KAM-043), que e onde a `v_oferta_viva` se prova: e a
+#: mais **estreita** que ja tem a `offer_terms` semeada e confirmada, as
+#: ligacoes de `kamba_app` por tenant e o `cursor_app` sem contexto. Uma suite
+#: propria custava relogio por cada mutacao e uma segunda linha no `correr_suite`
+#: e no `Makefile` — e uma suite fora dessa lista nunca corre no CI, em silencio.
+PRODUTOS = "tests_produtos"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6274,6 +6284,68 @@ MUTACOES = [
     # fornecedor com `ZA autorizado` e `US pendente` passa a ser conforme — a
     # chamada nao escolhe o pais, e a porta falha fechada sobre a **uniao**. O
     # `test_uma_aplicavel_que_nao_autoriza_e_violacao_na_vista` tem de a matar.
+    # ------------------------------ KAM-051, a oferta viva e a sua ligacao
+    #
+    # Cinco mutacoes sobre a `v_oferta_viva`, e a **primeira e a da ligacao**:
+    # uma vista correcta ligada ao sitio errado passa todos os ensaios dela, e e
+    # por isso que ela vem antes das outras quatro, que atacam predicados.
+    ('revisao 0037: o product_ref passa a ser o id do Registo', REV37,
+     "                 o.sku     AS product_ref,",
+     "                 o.medusa_variant_id AS product_ref,", PRODUTOS),
+    # **A mutacao que mede a ligacao e nao a funcao.** A coluna continua a
+    # existir, continua a chamar-se `product_ref`, continua a ser `text` e
+    # continua a ler-se sem erro — e um ensaio que fizesse
+    # `SELECT product_ref FROM v_oferta_viva` ficava **verde**. O que morre e o
+    # *join* do indice: o `medusa_variant_id` e nulo em toda a Fase 0 (nao ha
+    # Medusa em `infra/compose/`), pelo que nenhum candidato casa e a tool
+    # devolve sempre vazio — a pesquisa deixa de encontrar qualquer produto, em
+    # silencio. E leva o criterio 6 com ela: por aquela coluna nao ha indice de
+    # chave primaria que cubra o *join*. O
+    # `test_o_join_e_por_product_ref_e_nao_pelo_id_do_registo` tem de a matar,
+    # e ele semeia o `medusa_variant_id` **preenchido e diferente do `sku`**,
+    # que e a unica forma de a distinguir do caso em que os dois sao nulos.
+    ('revisao 0037: a vista deixa de correr como quem a consulta', REV37,
+     "          WITH (security_invoker = true) AS",
+     "          AS", PRODUTOS),
+    # A vista volta a correr com os privilegios do **dono**, que so esta sujeito
+    # a RLS por causa do `FORCE`: o criterio 4 cai e a oferta de um tenant passa
+    # a ler-se no contexto de outro. O `test_a_vista_tem_security_invoker` tem de
+    # a matar pela opcao, e o `test_a_leitura_do_indice_nao_atravessa_tenants`
+    # pelo comportamento — os dois, porque a opcao sem o comportamento era uma
+    # asercao sobre `reloptions` e nao sobre isolamento.
+    ('revisao 0037: o sob_consulta tambem degrada para a_partir_de', REV37,
+     """                   WHEN o.preco_tipo = {PRECO_FIXO}
+                        AND o.preco_valido_ate IS NOT NULL
+""",
+     "                   WHEN o.preco_valido_ate IS NOT NULL\n", PRODUTOS),
+    # Sem a guarda do modo, um `sob_consulta` fora de validade sai como
+    # `a_partir_de` — e afirma um **minimo que ninguem cotou**, sobre um
+    # `preco_minor` que o `offer_terms_preco_ck` garante **nulo**. E o mesmo
+    # defeito que aquele `CHECK` recusa do outro lado, e o validador de citacao
+    # do KAM-032 passava a ler um modo com numero onde nao ha numero. O
+    # `test_um_sob_consulta_caducado_nao_passa_a_a_partir_de` tem de a matar.
+    ('revisao 0037: a validade do preco le-se ao contrario', REV37,
+     "                        AND o.preco_valido_ate < now()",
+     "                        AND o.preco_valido_ate > now()", PRODUTOS),
+    # A regra 2 do `docs/tecnica/03` secao 7.1 inverte-se: um preco **dentro** da
+    # validade passa a ler-se como `a_partir_de` e um **caducado** continua
+    # `fixo`. E a forma mais caro de errar isto, porque o agente cita como preco
+    # firme exactamente o preco em que o dono ja nao se compromete. Precisa dos
+    # **dois** casos para morrer — o `test_um_fixo_fora_de_validade_sai_como_a_partir_de`
+    # e o `test_um_fixo_dentro_da_validade_sai_fixo` —, e e por isso que o
+    # controlo positivo nao e decorativo.
+    ('revisao 0037: o publicado deixa de olhar para o soft delete', REV37,
+     "                  AND o.deleted_at IS NULL\n",
+     "", PRODUTOS),
+    # Um produto **apagado** volta a `publicado = true` e chega ao indice: o
+    # *soft delete* do secao 5.6 deixa de ter efeito na leitura, e em
+    # `offer_terms` apagar **e** escrever o `deleted_at` — nao ha `DELETE` para o
+    # `kamba_app`. O agente passa a oferecer o que o dono retirou. A conjuncao do
+    # criterio 2 tem tres condicoes e esta e a que nenhum dos outros parametros
+    # alcanca, e e por isso que o `criar_oferta` da suite teve de a ganhar. O
+    # `test_cada_condicao_sozinha_tira_o_publicado` tem de a matar no valor da
+    # coluna, e o `test_a_leitura_do_indice_devolve_zero_linhas_para_cada_uma` na
+    # leitura composta.
 ]
 
 

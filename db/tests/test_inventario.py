@@ -2280,6 +2280,80 @@ INVENTARIO["v_transfer_audit"] = {
     "resultado": ("text", SIM, None, "nao"),
 }
 
+#: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
+#: da oferta viva, que a tool `search_products` junta aos candidatos do indice
+#: (`docs/tecnica/05` secao 6.3).
+#:
+#: Escreve-se **a mao** e nao derivada da `offer_terms`, pela razao da
+#: `v_payment_ledger_heads`: tres das nove colunas nao sao colunas daquela
+#: tabela — o `product_ref` e um `AS` sobre o `sku`, o `publicado` e um predicado
+#: e o `lido_em` e o `now()` da leitura —, e derivar dava os nomes errados.
+#:
+#: **O que nao esta aqui e metade da resposta ao criterio 6** («a vista nao
+#: contem PII nem texto de descricao»): das dezesseis colunas da `offer_terms`
+#: projectam-se quatro, e ficam de fora o `medusa_variant_id`, a
+#: `categoria_restrita`, a moeda, os quatro instantes de auditoria e de validade
+#: e o `deleted_at`. **E nao ha coluna de stock nenhuma:** o criterio 7 esta
+#: bloqueado pelo D3 e pelo KAM-045, logo nao existe `stock_disp`.
+#:
+#: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao.
+INVENTARIO["v_oferta_viva"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "product_ref": (
+        "text",
+        SIM,
+        None,
+        "nao — a referencia opaca por que o indice trata o produto, e **e** o "
+        "`sku`: o criterio 6 exige que o *join* por `(tenant_id, product_ref)` "
+        "caia no `offer_terms_pkey`, que e `(tenant_id, sku)`. Nao e o "
+        "`medusa_variant_id`, que e nulo em toda a Fase 0 e seria o modelo "
+        "interno do Registo, que o bloco manda nao expor",
+    ),
+    "sku": ("text", SIM, None, "nao — a mesma resposta do `offer_terms.sku`"),
+    "nome": (
+        "text",
+        SIM,
+        None,
+        "nao — nome comercial do produto, nunca de pessoa singular. A mesma "
+        "resposta do `offer_terms.nome`, e aqui com uma razao a mais: esta "
+        "vista nao projecta texto de descricao nenhum (criterio 6)",
+    ),
+    "preco_minor": (
+        "bigint",
+        SIM,
+        None,
+        "nao — preco de catalogo em unidade menor. Declarado no "
+        "`EM_UNIDADE_MENOR` de `db/tests/test_catalogo.py`, que e o que pagar a "
+        "vista no `platform` compra",
+    ),
+    "preco_tipo": (
+        "text",
+        SIM,
+        None,
+        "nao — e **nao** e sempre o valor guardado: passado o "
+        "`preco_valido_ate`, um `fixo` sai como `a_partir_de` (regra 2 do "
+        "`docs/tecnica/03` secao 7.1). So o `fixo` degrada",
+    ),
+    "stock_modo": (
+        "text",
+        SIM,
+        None,
+        "nao — o modo canonico em tres valores, e **nao** uma coluna "
+        "`disponibilidade`: esse nome e, desde o KAM-043, o texto de "
+        "apresentacao derivado deste",
+    ),
+    "publicado": (
+        "boolean",
+        SIM,
+        None,
+        "nao — predicado do criterio 2 (`estado='publicado'`, `deleted_at` nulo "
+        "e `categoria_restrita` nula), exposto e nao aplicado: quem filtra e o "
+        "`WHERE v.publicado` da secao 6.3",
+    ),
+    "lido_em": ("timestamp with time zone", SIM, None, "nao"),
+}
+
 INVENTARIO["v_payment_events_audit"] = {
     coluna: (tipo, SIM, None, pessoal)
     for coluna, (tipo, _, _, pessoal) in INVENTARIO["payment_events"].items()
