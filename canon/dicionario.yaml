@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.66"
+versao_dicionario: "1.67"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7187,7 +7187,10 @@ entradas:
       - "assertDestinationAllowed"
       - "dict_export"
       - "tenant_destinations"
+      - "PortaSobreDestinos"
       - "NegaTudoAteKam069"
+      - "arrancar"
+      - "ambiente"
       - "prod"
     variantes_literais: []
   - seccao: "3.29"
@@ -12548,6 +12551,295 @@ entradas:
       - "payment_events"
       - "deleted_at"
     variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Configuração por tenant e destino"
+    canonico: "platform.tenant_destinations, catorze colunas"
+    literais:
+      - "platform.tenant_destinations"
+    nomes:
+      - "platform.tenant_destinations"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "provider"
+      - "country"
+      - "purpose"
+      - "apd_ref"
+      - "status"
+      - "contrato_ref"
+      - "retencao_zero"
+      - "sem_treino"
+      - "autorizado_em"
+      - "revogado_em"
+      - "criado_at"
+      - "atualizado_at"
+      - "uuid"
+      - "UNIQUE"
+      - "NULLS"
+      - "NOT"
+      - "DISTINCT"
+      - "pendente"
+      - "autorizado"
+      - "platform.tenants"
+      - "onboarding"
+      - "ativo"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Destino global de infra-estrutura"
+    canonico: "tenant_destinations.tenant_id nulo"
+    literais:
+      - "tenant_destinations.tenant_id"
+    nomes:
+      - "tenant_destinations.tenant_id"
+    nomes_nota:
+      - "OR"
+      - "tenant_iso"
+      - "destinos_globais"
+      - "FOR"
+      - "SELECT"
+      - "ALL"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Política das linhas globais"
+    canonico: "destinos_globais"
+    literais:
+      - "destinos_globais"
+    nomes:
+      - "destinos_globais"
+    nomes_nota:
+      - "tenant_iso"
+      - "ENABLE"
+      - "FORCE"
+      - "audit_heads"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Estado de um destino"
+    canonico: "tenant_destinations.status ∈ {pendente, autorizado, revogado, negado}"
+    literais:
+      - "tenant_destinations.status"
+      - "pendente"
+      - "autorizado"
+      - "revogado"
+      - "negado"
+    nomes:
+      - "tenant_destinations.status"
+      - "pendente"
+      - "autorizado"
+      - "revogado"
+      - "negado"
+    nomes_nota:
+      - "autorizado"
+      - "pendente"
+      - "revogado"
+      - "negado"
+      - "status"
+      - "estado"
+      - "ok"
+      - "erro"
+      - "regra"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Finalidade de uma transferência"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    literais:
+      - "tenant_destinations.purpose"
+      - "alojamento"
+      - "canal"
+      - "conversa"
+      - "copias_de_seguranca"
+      - "embeddings"
+      - "entrega_de_conteudo"
+      - "facturacao"
+      - "observabilidade"
+      - "otp_e_avisos_de_servico"
+      - "pagamentos"
+      - "segredos"
+      - "transcricao"
+      - "visao"
+    nomes:
+      - "tenant_destinations.purpose"
+      - "alojamento"
+      - "canal"
+      - "conversa"
+      - "copias_de_seguranca"
+      - "embeddings"
+      - "entrega_de_conteudo"
+      - "facturacao"
+      - "observabilidade"
+      - "otp_e_avisos_de_servico"
+      - "pagamentos"
+      - "segredos"
+      - "transcricao"
+      - "visao"
+    nomes_nota:
+      - "FINALIDADES"
+      - "otp_e_avisos_de_servico"
+      - "FINALIDADE"
+      - "main"
+      - "finalidade"
+      - "platform.contact_endpoints"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Janela de validade de um destino"
+    canonico: "tenant_destinations.autorizado_em e tenant_destinations.revogado_em"
+    literais:
+      - "tenant_destinations.autorizado_em"
+      - "tenant_destinations.revogado_em"
+    nomes:
+      - "tenant_destinations.autorizado_em"
+      - "tenant_destinations.revogado_em"
+    nomes_nota:
+      - "CHECK"
+      - "status"
+      - "autorizado"
+      - "revogado"
+      - "pendente"
+      - "negado"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Checklist do requisito 8 por destino"
+    canonico: "tenant_destinations.contrato_ref, tenant_destinations.retencao_zero, tenant_destinations.sem_treino"
+    literais:
+      - "tenant_destinations.contrato_ref"
+      - "tenant_destinations.retencao_zero"
+      - "tenant_destinations.sem_treino"
+    nomes:
+      - "tenant_destinations.contrato_ref"
+      - "tenant_destinations.retencao_zero"
+      - "tenant_destinations.sem_treino"
+    nomes_nota:
+      - "apd_ref"
+      - "autorizado"
+      - "NOT"
+      - "NULL"
+      - "attempt"
+      - "false"
+      - "DEFAULT"
+      - "contrato_ref"
+      - "CHECK"
+      - "btrim"
+      - "sku"
+      - "external_id"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Vista de auditoria de transferências"
+    canonico: "v_transfer_audit"
+    literais:
+      - "v_transfer_audit"
+    nomes:
+      - "v_transfer_audit"
+    nomes_nota:
+      - "platform"
+      - "security_invoker"
+      - "true"
+      - "LEFT"
+      - "JOIN"
+      - "dat.llm_call_log"
+      - "d.id"
+      - "IS"
+      - "NULL"
+      - "NOT"
+      - "EXISTS"
+      - "ON"
+      - "conversa"
+      - "embeddings"
+      - "visao"
+      - "FINALIDADES"
+      - "segredos"
+      - "papel"
+      - "finalidade"
+      - "FINALIDADE_DO_PAPEL"
+      - "CASE"
+      - "resultado"
+      - "destino_negado"
+      - "CHECK"
+      - "llm_call_log_negado_sem_consumo"
+      - "prod"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Porta de destinos sobre a tabela"
+    canonico: "PortaSobreDestinos"
+    literais:
+      - "PortaSobreDestinos"
+    nomes:
+      - "PortaSobreDestinos"
+    nomes_nota:
+      - "PortaDeDestinos"
+      - "tenant_destinations"
+      - "CacheDeEntitlements"
+      - "destino"
+      - "autorizado"
+      - "apd_ref"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Recusa da porta de destinos"
+    canonico: "TransferenciaNegada"
+    literais:
+      - "TransferenciaNegada"
+    nomes:
+      - "TransferenciaNegada"
+    nomes_nota:
+      - "DestinoNegado"
+      - "assertDestinationAllowed"
+      - "ErroDeLlm"
+      - "destino_negado"
+      - "TransferenciaNegada"
+      - "TransferDenied"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Gate de go-live de um tenant"
+    canonico: "exigir_go_live(tenant_id, destinos_activos, dpa, mapa_ref)"
+    literais:
+      - "exigir_go_live(tenant_id, destinos_activos, dpa, mapa_ref)"
+    nomes:
+      - "exigir_go_live"
+      - "tenant_id"
+      - "destinos_activos"
+      - "dpa"
+      - "mapa_ref"
+    nomes_nota:
+      - "onboarding"
+      - "ativo"
+      - "prod"
+      - "tenants"
+      - "E3"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Inventário de subprocessadores"
+    canonico: "gov/subprocessadores.yaml"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "nome"
+      - "funcao"
+      - "dados_pessoais"
+      - "pais"
+      - "estado"
+      - "versao"
+      - "python"
+      - "m"
+      - "subprocessadores"
+      - "E3"
+    variantes_literais: []
+  - seccao: "3.49"
+    conceito: "Versão do mapa de tratamentos"
+    canonico: "mapa_tratamentos.versao, derivada por sha256 das linhas normalizadas"
+    literais:
+      - "mapa_tratamentos.versao"
+      - "sha256"
+    nomes:
+      - "mapa_tratamentos.versao"
+      - "sha256"
+    nomes_nota:
+      - "major"
+      - "n"
+      - "primeiros"
+      - "d"
+      - "gitos"
+      - "do"
+      - "sha256"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -13584,6 +13876,17 @@ tabelas:
     assinatura: "coalesce(payment_charges.referencia, id \|\| '#' \|\| tentativa)"
     seccao: "3.48"
     conceito: "Referência que o evento de pagamento leva"
+  - nome: "exigir_go_live"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "destinos_activos"
+      - "dpa"
+      - "mapa_ref"
+    aberta: false
+    assinatura: "exigir_go_live(tenant_id, destinos_activos, dpa, mapa_ref)"
+    seccao: "3.49"
+    conceito: "Gate de go-live de um tenant"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -14615,6 +14918,33 @@ dominios:
       - "aguarda_teste"
     seccao: "3.47"
     conceito: "Espera de um passo da saga"
+    so_no_registo: false
+  - coluna: "tenant_destinations.status"
+    valores:
+      - "pendente"
+      - "autorizado"
+      - "revogado"
+      - "negado"
+    seccao: "3.49"
+    conceito: "Estado de um destino"
+    so_no_registo: false
+  - coluna: "tenant_destinations.purpose"
+    valores:
+      - "alojamento"
+      - "canal"
+      - "conversa"
+      - "copias_de_seguranca"
+      - "embeddings"
+      - "entrega_de_conteudo"
+      - "facturacao"
+      - "observabilidade"
+      - "otp_e_avisos_de_servico"
+      - "pagamentos"
+      - "segredos"
+      - "transcricao"
+      - "visao"
+    seccao: "3.49"
+    conceito: "Finalidade de uma transferência"
     so_no_registo: false
 
 variantes:

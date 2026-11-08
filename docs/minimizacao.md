@@ -26,9 +26,11 @@ pessoais. O `tecnica/08` §7.4 e o bloco do KAM-112 dizem o mesmo e vale repeti-
 aqui: «nomes próprios dentro de texto livre e referências a locais escapam a
 *regex*; a minimização **reduz** exposição mas não prova que deixou de haver
 transferência» — *(a confirmar por parecer; `E3` requisito 6)*. O gate de destino
-(`tenant_destinations`) é o **KAM-069** e não existe; em `prod`, hoje, **todas**
-as chamadas são negadas pela porta de destino e contadas em
-`agr_llm_destino_negado_total`.
+(`tenant_destinations`) **existe desde o KAM-069**, e em `prod` continua a negar
+**todas** as chamadas — já não por falta de tabela, mas por falta de
+autorização: o `ext:KAM-105` fechou com **0 de 14** destinos com `apd_ref`.
+As recusas contam-se em `agr_llm_destino_negado_total`, e a diferença
+importa porque as duas situações resolvem-se de maneiras diferentes.
 
 As limitações concretas estão **medidas e nomeadas**, não descritas: são os
 **nove** casos de `corpus_pii.LIMITES`, e há um teste que falha no dia em que
@@ -317,3 +319,4 @@ perguntadas:
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial, KAM-112. O pipeline, as quatro barreiras, as medições do corpus de 342 casos e dos 214 casos adversariais, o NIF sem padrão, a porta de catálogo e o que fica parcial. **Proposta.** | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **KAM-112, revisão adversarial: catorze achados, todos reproduzidos antes de gerar trabalho.** Oito eram furos em critérios e estão corrigidos: o `sku` reclamava a parte local de um e-mail com dígitos e o endereço saía em claro (**critério 2 e 3**); um total de nove dígitos **sem** marcador de moeda era mascarado como telefone, e o corpus não tinha o caso (**critério 4**); o selo do `MinimisedText` forjava-se de quatro maneiras (**critério 1**); a política AST recusava a forma correcta e aceitava as evasões (**critério 1**); um nome de catálogo com mais do que uma palavra não protegia nada, que é precisamente a forma de um `servicos.resources.nome` (**critério 5**); e o recall de morada, pessoa e NIF era medido sobre o dicionário do próprio detector. O corpus passa a 376 casos de PII e 277 adversariais, com e-mails com dígitos, topónimos fora do dicionário, nomes fora da lista e totais sem moeda. Três limites novos declarados (IBAN, telefone com barras, BI). Duas afirmações falsas corrigidas no sítio: o tecto de tempo **não** interrompe nada, e a falha fechada cobria só a chamada ao detector. O p95 subiu de 5,0 para 21,5 ms, contra um alvo *proposto* de 30. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-069**: o *gate* de destino existe, e a frase que dizia o contrário passa a separar as duas razões por que `prod` continua a negar tudo — já não por falta de tabela, mas por falta de `apd_ref` (**0 de 14** destinos, `ext:KAM-105`). As duas resolvem-se de maneiras diferentes, e confundi-las fazia parecer que o remédio era código. Sem alteração ao pipeline de minimização. |

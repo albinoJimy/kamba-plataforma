@@ -226,6 +226,16 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: biblioteca nao tem histogramas — um p50 nao e exprimivel nela. A
 #: desagregacao faz-se nas colunas e le-se aqui.
 #:
+#: A `v_transfer_audit` e do KAM-069 (revisao `0036`) e e a quinta: junta
+#: `dat.llm_call_log` a `platform.tenant_destinations` e enumera **violacoes** —
+#: as chamadas que sairam sem destino autorizado com `apd_ref` no instante em
+#: que sairam. O alvo do criterio 7 e zero linhas, e e por isso que lista o que
+#: esta mal e nao o que esta bem: uma vista que listasse conformidades nunca se
+#: lia. **E a primeira que atravessa esquemas**, o que com `security_invoker`
+#: tem uma consequencia: quem a le precisa de privilegio nas duas tabelas, e o
+#: `kamba_audit` — que nao tem `BYPASSRLS` — ve o tenant do seu contexto e nao
+#: a plataforma toda.
+#:
 #: As duas do KAM-053 (revisao `0029`) sao a terceira e a quarta, e nascem com
 #: `security_invoker = true` como as outras — para vistas nao ha lista de
 #: excepcoes. A `v_payment_events_audit` expoe o predicado de HMAC do
@@ -239,6 +249,7 @@ VISTAS = (
     "v_draft_metrics",
     "v_payment_events_audit",
     "v_payment_ledger_heads",
+    "v_transfer_audit",
 )
 
 #: KAM-028: o registo de invocacoes da ToolLayer (revisao `0021`).
@@ -396,6 +407,21 @@ TABELAS_0033 = ("stock_reservations",)
 #: ADR-015) e deve continuar a ter so essa.
 TABELAS_0034 = ("provisioning_step",)
 
+#: O que a revisao 0036 (KAM-069) acrescenta: os destinos de transferencia.
+#:
+#: **Uma tabela, a `platform.tenant_destinations`**, e a vista
+#: `v_transfer_audit` entra no `VISTAS` e nao aqui — o `pg_tables` nao lista
+#: vistas.
+#:
+#: **Tem `tenant_id` ANULAVEL**, e e a primeira tabela deste repositorio com
+#: `tenant_id` anulavel a entrar no X-05 — o nulo e o destino global de
+#: infra-estrutura (criterio 1 do KAM-069). Leva RLS `FORCE` e **duas**
+#: politicas permissivas: a `tenant_iso` do `db/rls.py`, intacta, e a
+#: `destinos_globais`, `FOR SELECT`, que acrescenta as linhas globais sem tocar
+#: na primeira. Nao entra em `ci/rls_exceptions.yaml`, que continua com **uma**
+#: excepcao (a `audit_heads`, pelo ADR-015).
+TABELAS_0036 = ("tenant_destinations",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -404,41 +430,57 @@ TABELAS = tuple(
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
-        + TABELAS_0032 + TABELAS_0033 + TABELAS_0034
+        + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0035`.
+#:
+#: O `downgrade` da `0036` leva a base para aqui. A `0035` (KAM-055) nao
+#: cria tabela nenhuma — so FK —, pelo que esta lista descreve tambem o que
+#: existe na `0034`.
+TABELAS_ATE_0035 = tuple(sorted(set(TABELAS) - set(TABELAS_0036)))
 
 #: O que existe em `platform` quando a base esta na revisao `0033`.
 #:
 #: O `downgrade` da `0034` leva a base para aqui.
-TABELAS_ATE_0033 = tuple(sorted(set(TABELAS) - set(TABELAS_0034)))
+#:
+#: **Deriva do `TABELAS_ATE_0035` e nao do `TABELAS`**, e e a setima vez que
+#: esta nota se escreve: derivar do `TABELAS` deixava a tabela da revisao mais
+#: nova dentro de uma lista que descreve uma base **anterior** a ela, e o
+#: sintoma aparecia na suite de outro ticket.
+TABELAS_ATE_0033 = tuple(sorted(set(TABELAS_ATE_0035) - set(TABELAS_0034)))
 
 #: O que existe em `platform` quando a base esta na revisao `0032`.
 #:
 #: O `downgrade` da `0033` leva a base para aqui.
 #:
-#: **Subtrai tambem o `TABELAS_0034`**, e esquece-lo era o defeito que a nota do
-#: `TABELAS_ATE_0023` descreve visto do outro lado: esta tupla e a `ATE_0031`
-#: derivam de `TABELAS` e nao da `ATE_*` imediatamente acima — as duas unicas
-#: que o fazem —, pelo que uma tabela nova no topo da cadeia entra nelas sozinha
-#: e avermelha os ensaios de `downgrade` de **outras** revisoes. O sintoma
-#: aparece a revisoes de distancia da causa.
-TABELAS_ATE_0032 = tuple(
-    sorted(set(TABELAS) - set(TABELAS_0033) - set(TABELAS_0034))
-)
+#: **Deriva do `TABELAS_ATE_0033` e nao do `TABELAS`**, e com o KAM-069 passou a
+#: derivar: esta tupla e a `ATE_0031` eram **as duas unicas** que derivavam de
+#: `TABELAS` e subtraiam a mao cada revisao do topo, e a nota que aqui estava
+#: avisava que «uma tabela nova no topo da cadeia entra nelas sozinha e avermelha
+#: os ensaios de `downgrade` de **outras** revisoes — o sintoma aparece a
+#: revisoes de distancia da causa».
+#:
+#: **O aviso estava escrito e falhou-se mesmo assim**, e isso mediu-se: a
+#: `0036` entrou e o *gate* 8 deu **17** vermelhos, todos em ensaios de
+#: `downgrade` das revisoes `0009` a `0019` — nenhum nesta linha nem na tabela
+#: nova. Ler o aviso nao bastou; o que basta e nao haver excepcao para ler.
+#:
+#: Agora encadeia como as outras treze, e a propriedade e a mesma por
+#: construcao: `ATE_0033` ja subtraiu tudo o que esta acima da `0033`, pelo que
+#: aqui so falta a `0033`. Quem acrescentar uma tabela mexe **uma** linha — o
+#: `TABELAS_ATE_<anterior>` da sua revisao — e mais nada.
+TABELAS_ATE_0032 = tuple(sorted(set(TABELAS_ATE_0033) - set(TABELAS_0033)))
 
 #: O que existe em `platform` quando a base esta na revisao `0031`.
 #:
 #: A `0031` (KAM-176) alarga um *trigger* e nao cria tabela, pelo que o conjunto
 #: na `0031` e o da `0030`. O `downgrade` da `0032` leva a base para aqui.
 #:
-#: Subtrai o `TABELAS_0034` pela razao que a nota do `TABELAS_ATE_0032` escreve.
-TABELAS_ATE_0031 = tuple(
-    sorted(
-        set(TABELAS) - set(TABELAS_0032) - set(TABELAS_0033)
-        - set(TABELAS_0034)
-    )
-)
+#: **Deriva do `TABELAS_ATE_0032`** pela razao que a nota dele escreve: era a
+#: segunda e ultima que derivava de `TABELAS`, e deixou de o fazer com o KAM-069.
+TABELAS_ATE_0031 = tuple(sorted(set(TABELAS_ATE_0032) - set(TABELAS_0032)))
 
 #: O que existe em `platform` quando a base esta na revisao `0029`.
 #:

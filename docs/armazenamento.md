@@ -186,8 +186,15 @@ do país. E o país é **declarado**, não verificado: o módulo confia em quem
 configura — `AO` com um endpoint noutro continente arranca. A `apd_ref` também
 é só uma cadeia com forma: que exista na APD ninguém aqui confere. E não se
 exige `https` em `prod`: TLS até ao servidor está por verificar (§7) e por
-decidir com o alojamento. O *gate* de transferência por tenant (`tenant_destinations`) é do
-KAM-069, que ainda não existe; quando existir, lê `config.destino`.
+decidir com o alojamento. O *gate* de transferência por tenant (`tenant_destinations`) **existe desde
+o KAM-069** (revisão
+[`0036`](../db/migrations/versions/0036_destinos_de_transferencia.py)), e
+**não lê o `config.destino`**: a configuração de destino do armazenamento
+continua a ser esta, e quem a confronta com a tabela é o ticket que ligar
+a porta a esta porta de armazenamento — o `storage/s3.ts` está declarado
+no inventário de clientes de saída do `tools/lint_arch/destinos.py` como
+**não** consultando o *gate*, com credor KAM-011. O que barra `prod` aqui
+continua a ser o `DestinoSemApdRefError` deste módulo.
 
 **As credenciais não são configuração.** Vêm do `SecretProvider` (KAM-010),
 pelas referências `storage_access_key_id` e `storage_secret_access_key` de
@@ -269,7 +276,11 @@ python infra/storage/mutacoes.py                # todas, em cópia fora do repos
    forma não tem (dicionário §3.11).
 4. **O registo do X-08 na suite do KAM-066**, que existe desde esse ticket:
    o caso escreve-se em `tools/isolamento/baterias/` com o `registar_caso`.
-5. **O consumo de `config.destino` pelo KAM-069**, quando ele existir.
+5. **O consumo de `config.destino` pela porta de destinos.** O KAM-069
+   entregou a tabela e a porta, e **não** os ligou a este módulo: o
+   `storage/s3.ts` consta do inventário de clientes de saída com credor
+   KAM-011 e a nota de que o que o barra em `prod` é o
+   `DestinoSemApdRefError` daqui.
 6. **Um endereço público para as URLs assinadas.** Há um só `endpoint`: a URL
    assinada aponta para onde o serviço fala com o servidor. Um consumidor fora
    dessa rede precisa de um segundo endereço — e isso depende do alojamento.
@@ -282,3 +293,4 @@ python infra/storage/mutacoes.py                # todas, em cópia fora do repos
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-011): porta, guarda de isolamento, motor S3 e *fake*; configuração com destino; prova contra SeaweedFS 4.48. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Depois da revisão adversarial ([`ANALISE-09`](analises/ANALISE-09-KAM-011-storage-provider.md)): ambiente fora do domínio recusado (§5); o que o país e a `apd_ref` **não** garantem (§5); memória do envio em partes dita como foi medida (§6). | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-069**: as duas frases que diziam que o *gate* de transferência «ainda não existe» passam a dizer o que existe e o que falta. A tabela `platform.tenant_destinations` e a porta que a lê existem (revisão `0036`), e **não** estão ligadas a este módulo: o `storage/s3.ts` consta do inventário de clientes de saída do `../tools/lint_arch/destinos.py` como **não** consultando o *gate*, com credor KAM-011, e o que barra `prod` aqui continua a ser o `DestinoSemApdRefError`. Sem alteração ao comportamento. |
