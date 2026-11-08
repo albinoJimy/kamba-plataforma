@@ -2252,6 +2252,60 @@ INVENTARIO["tenant_destinations"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: Os pedidos do titular (KAM-070, revisao `0038`). **Dez colunas**, e a unica
+#: que toca no titular e o `contact_id` — uma referencia opaca a `contacts`, por
+#: FK composta com o `tenant_id`.
+#:
+#: **Nenhuma coluna de texto livre**, e e desenho: o `tipo`, o `estado` e o
+#: `papel_kamba` sao dominios fechados por `CHECK`. Um pedido do titular nao
+#: guarda o que ele escreveu — guarda o que a plataforma tem de fazer com ele.
+#:
+#: **O `papel_kamba` e `NOT NULL` sem omissao**, ao contrario de tudo o que ao
+#: lado tem `DEFAULT`: a D9 — quem executa o pedido, a PME responsavel ou a
+#: KAMBA subcontratada — esta aberta, e um `DEFAULT` na DDL fazia-a parecer
+#: decidida a quem le o esquema. Ver a nota da revisao.
+#:
+#: **O `prazo_dias` e coluna e nao constante enterrada na aritmetica**: os 30
+#: dias sao o interno do requisito 13 de E3 e os 60 dias uteis da Lei 22/11 sao
+#: INDICIO. O que nao esta na base e a soma `recebido_at + prazo_dias` — um
+#: `CHECK` sobre ela le o `TimeZone` da sessao (`timestamptz + interval` e
+#: `STABLE` e nao `IMMUTABLE`), e uma restricao que depende de um GUC nao
+#: restringe. O que fica e a ordenacao, no `dsar_requests_prazo_ordenado_ck`.
+INVENTARIO["dsar_requests"] = {
+    "dsar_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "contact_id": ("uuid", NAO, None, "referencia opaca ao contacto"),
+    "tipo": ("text", NAO, None, "nao"),
+    "estado": ("text", NAO, None, "nao"),
+    "papel_kamba": ("text", NAO, None, "nao"),
+    "recebido_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "prazo_dias": ("smallint", NAO, None, "nao"),
+    "prazo_interno_at": ("timestamp with time zone", NAO, None, "nao"),
+    "concluido_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
+#: O ledger de apagamentos (KAM-070, revisao `0038`). **Seis colunas**, uma
+#: linha por escopo que aplicou — e nao o registo do pedido outra vez.
+#:
+#: Quem conta os seis consumidores do `privacy.erasure_requested` e esta tabela,
+#: pela unicidade `(tenant_id, dsar_id, escopo)`, e nao o barramento: o contrato
+#: publicado do `privacy.erasure_applied` tem **um** campo de `payload`, o
+#: `contact_id`, e **nao diz quem aplicou** — fechar o pedido a contar eventos
+#: fechava-o ao sexto, viesse ele de seis componentes ou seis vezes do mesmo.
+#:
+#: **A chave e o `contact_id` e nao o `sujeito_ref` do dicionario §3**: esse e um
+#: HMAC de chave **mensal**, pelo que o mesmo contacto tem refs diferentes em
+#: meses diferentes e um ledger que lhe sobrevive meses nao se reaplica por ele.
+#: E a razao esta no `COMMENT` da coluna, na propria base.
+INVENTARIO["erasure_ledger"] = {
+    "erasure_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "dsar_id": ("uuid", NAO, None, "nao"),
+    "contact_id": ("uuid", NAO, None, "referencia opaca ao contacto"),
+    "escopo": ("text", NAO, None, "nao"),
+    "aplicado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: **A quinta vista do esquema** (KAM-069, revisao `0036`), e a primeira que
 #: atravessa esquemas: le `dat.llm_call_log` e `platform.tenant_destinations`.
 #:
@@ -2268,8 +2322,11 @@ INVENTARIO["tenant_destinations"] = {
 #: `graph_version`. Quem audita transferencias pergunta «quem, quando, para que
 #: fornecedor, com que desfecho» — e nao «quanto custou».
 #:
-#: Como nas outras quatro, `SIM` e `None` em todas: numa vista o PostgreSQL nao
-#: prova `NOT NULL` nem guarda omissao.
+#: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao. (Eram quatro ate a `v_oferta_viva` do
+#: KAM-051 entrar; uma contagem em prosa que a sexta vista tornou falsa, e que
+#: nenhum linter le — os `.md` tem o `lint_contagens` e os comentarios `.py` nao
+#: tem nada.)
 INVENTARIO["v_transfer_audit"] = {
     "id": ("bigint", SIM, None, "nao"),
     "ts": ("timestamp with time zone", SIM, None, "nao"),
@@ -2278,6 +2335,91 @@ INVENTARIO["v_transfer_audit"] = {
     "modelo": ("text", SIM, None, "nao"),
     "papel": ("text", SIM, None, "nao"),
     "resultado": ("text", SIM, None, "nao"),
+}
+
+#: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
+#: da oferta viva, que a tool `search_products` junta aos candidatos do indice
+#: (`docs/tecnica/05` secao 6.3).
+#:
+#: Escreve-se **a mao** e nao derivada da `offer_terms`, pela razao da
+#: `v_payment_ledger_heads`: tres das nove colunas nao sao colunas daquela
+#: tabela — o `product_ref` e um `AS` sobre o `sku`, o `publicado` e um predicado
+#: e o `lido_em` e o `now()` da leitura —, e derivar dava os nomes errados.
+#:
+#: **O que nao esta aqui e metade da resposta ao criterio 6** («a vista nao
+#: contem PII nem texto de descricao»). A aritmetica das dezesseis colunas da
+#: `offer_terms`, que a primeira versao deste comentario dava errada em tres
+#: sitios (dizia «quatro»), medida coluna a coluna:
+#:
+#:   * **seis** saem projectadas — `tenant_id`, `sku`, `nome`, `preco_minor`,
+#:     `preco_tipo`, `stock_modo` (o `sku` sai duas vezes, tambem como
+#:     `product_ref`);
+#:   * **quatro** sao lidas **so dentro de expressao** e nao aparecem: o
+#:     `preco_valido_ate` no `CASE` do `preco_tipo`, e o `estado`, o
+#:     `deleted_at` e a `categoria_restrita` no predicado do `publicado`;
+#:   * **seis** nunca sao lidas: `medusa_variant_id`, `currency`,
+#:     `preco_atualizado_at`, `stock_verificado_at`, `criado_at`,
+#:     `atualizado_at`.
+#:
+#: **E nao ha coluna de nivel de stock nenhuma:** o criterio 7 esta bloqueado
+#: pelo D3 e pelo KAM-045.
+#:
+#: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao.
+INVENTARIO["v_oferta_viva"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "product_ref": (
+        "text",
+        SIM,
+        None,
+        "nao — a referencia opaca por que o indice trata o produto, e **e** o "
+        "`sku`: o criterio 6 exige que o *join* por `(tenant_id, product_ref)` "
+        "caia no `offer_terms_pkey`, que e `(tenant_id, sku)`. Nao e o "
+        "`medusa_variant_id`, que e nulo em toda a Fase 0 e seria o modelo "
+        "interno do Registo, que o bloco manda nao expor",
+    ),
+    "sku": ("text", SIM, None, "nao — a mesma resposta do `offer_terms.sku`"),
+    "nome": (
+        "text",
+        SIM,
+        None,
+        "nao — nome comercial do produto, nunca de pessoa singular. A mesma "
+        "resposta do `offer_terms.nome`, e aqui com uma razao a mais: esta "
+        "vista nao projecta texto de descricao nenhum (criterio 6)",
+    ),
+    "preco_minor": (
+        "bigint",
+        SIM,
+        None,
+        "nao — preco de catalogo em unidade menor. Declarado no "
+        "`EM_UNIDADE_MENOR` de `db/tests/test_catalogo.py`, que e o que pagar a "
+        "vista no `platform` compra",
+    ),
+    "preco_tipo": (
+        "text",
+        SIM,
+        None,
+        "nao — e **nao** e sempre o valor guardado: passado o "
+        "`preco_valido_ate`, um `fixo` sai como `a_partir_de` (regra 2 do "
+        "`docs/tecnica/03` secao 7.1). So o `fixo` degrada",
+    ),
+    "stock_modo": (
+        "text",
+        SIM,
+        None,
+        "nao — o modo canonico em tres valores, e **nao** uma coluna "
+        "`disponibilidade`: esse nome e, desde o KAM-043, o texto de "
+        "apresentacao derivado deste",
+    ),
+    "publicado": (
+        "boolean",
+        SIM,
+        None,
+        "nao — predicado do criterio 2 (`estado='publicado'`, `deleted_at` nulo "
+        "e `categoria_restrita` nula), exposto e nao aplicado: quem filtra e o "
+        "`WHERE v.publicado` da secao 6.3",
+    ),
+    "lido_em": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 INVENTARIO["v_payment_events_audit"] = {
@@ -2667,6 +2809,36 @@ class TestInventario(ComBase):
                 (nome, "a", "a")
                 for nome in sorted(
                     [
+                        # KAM-070 (0038): **cinco**, duas do pedido e tres do
+                        # ledger, e nenhuma apaga em cascata — pela razao geral
+                        # e por uma que e deste ticket: apagar um tenant ou um
+                        # contacto nao pode apagar a prova de que o apagamento
+                        # dele foi pedido e aplicado. E a razao do direito ao
+                        # apagamento ao contrario: o que o criterio 6 precisa,
+                        # depois de um restauro, e saber **quem** foi apagado.
+                        #
+                        # As duas que levam o `tenant_id` a frente sao
+                        # **compostas**, pela razao das da saida e da midia: um
+                        # pedido nao aponta para o contacto de outro tenant, e
+                        # uma linha do ledger nao aponta para o pedido de outro.
+                        # A `erasure_ledger_dsar_fk` e a que sustenta a
+                        # contagem do criterio 3 — sem ela, um escopo aplicava-se
+                        # a um `dsar_id` que nao existe e o pedido fechava com
+                        # linhas de ninguem.
+                        #
+                        # **A `tenant_destinations` da `0036` nao deixou nenhuma
+                        # nesta lista**, e e a razao por que esta lista nao
+                        # aparece na propagacao escrita para aquele ticket: um
+                        # destino registra-se antes de o tenant activar e por
+                        # isso nao tem FK para `tenants`. Um pedido do titular
+                        # tem — nasce no canal de um tenant ja activo —, pelo
+                        # que quem seguir a `0036` como modelo nao encontra esta
+                        # lista e deixa-a a faltar.
+                        "dsar_requests_tenant_fk",
+                        "dsar_requests_contact_fk",
+                        "erasure_ledger_tenant_fk",
+                        "erasure_ledger_dsar_fk",
+                        "erasure_ledger_contact_fk",
                         # KAM-054 (0032): **dez**, e todas com nome da casa em
                         # vez do `_fkey` que o PostgreSQL geraria. Nenhuma apaga
                         # em cascata, pela razao geral: apagar um tenant nao
@@ -3115,6 +3287,32 @@ class TestInventario(ComBase):
             # fornecedor e finalidade — que e exactamente a configuracao que o
             # passo 4 da porta existe para tratar.
             "tenant_destinations_globais_idx": False,
+            # KAM-070 (0038): os **dois** da `dsar_requests`, e um e unico e o
+            # outro nao. O `erasure_ledger_contacto_idx` nao esta nesta lista
+            # porque nao e parcial: o ledger nao tem estado a excluir — uma
+            # linha dele e um apagamento que aconteceu, e nenhuma sai do
+            # conjunto que se le.
+            #
+            # `dsar_requests_aberto_uq`: a idempotencia do criterio 8, e **o
+            # predicado e a regra**. Dois pedidos do mesmo tipo pelo mesmo
+            # titular sao legitimos ao longo do tempo — um apagamento em Marco
+            # e outro em Setembro, depois de o BSUID voltar a escrever; o que
+            # nao e legitimo e **dois ao mesmo tempo**, que e o que duplica
+            # *jobs*. Perder o `UNIQUE` daqui nao muda plano de consulta nenhum
+            # e deixava dois pedidos abertos a correr para o mesmo titular, com
+            # dois apagamentos a aplicar os mesmos seis escopos; perder o
+            # **predicado** fazia o contrario — recusava o pedido legitimo de
+            # Setembro porque o de Marco existiu. E por isso que esta lista diz
+            # as duas coisas de cada indice.
+            #
+            # `dsar_requests_prazo_idx`: o varrimento do prazo (criterio 8, o
+            # alerta aos 20 dias) le os abertos ordenados pelo prazo. Parcial
+            # pela ideia do `events_outbox_pendentes` — um pedido concluido nao
+            # tem prazo a vencer — e **nao** unico, e seria errado se o fosse:
+            # dois pedidos do mesmo tenant vencem no mesmo instante sempre que
+            # chegaram no mesmo.
+            "dsar_requests_aberto_uq": True,
+            "dsar_requests_prazo_idx": False,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -3138,6 +3336,55 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # --------------------------------------- KAM-070 (0038)
+                    #
+                    # **Doze: nove do pedido e tres do ledger.** No pedido sao a
+                    # chave primaria, a unicidade composta e sete `CHECK` — tres
+                    # de dominio fechado (`tipo`, `estado`, `papel_kamba`), um de
+                    # intervalo (`prazo_dias`) e tres que **ligam colunas**, que
+                    # sao os que fazem a tabela nao poder contradizer-se:
+                    #
+                    #   dsar_requests_prazo_ordenado_ck  o prazo interno e
+                    #     **depois** da recepcao. E o que fica na base do
+                    #     `prazo_interno_at = recebido_at + 30 d` do criterio 1:
+                    #     a soma nao e verificavel aqui (`timestamptz +
+                    #     interval` e `STABLE`, le o `TimeZone` da sessao), a
+                    #     ordenacao e. Sem ele, um prazo **anterior** a recepcao
+                    #     passa, e o varrimento do criterio 8 alerta sobre um
+                    #     pedido que acabou de chegar
+                    #   dsar_requests_concluido_par_ck  a equivalencia nos
+                    #     **dois** sentidos entre `estado = 'concluido'` e o
+                    #     `concluido_at` escrito, como o `refund_cases_fechado`
+                    #     abaixo. Um `AND` onde esta o `=` aceitava um pedido
+                    #     `concluido` sem data — e o criterio 3 conta pedidos
+                    #     fechados pela data
+                    #   dsar_requests_concluido_ordenado_ck  nao se conclui
+                    #     antes de receber
+                    #
+                    # No ledger sao a chave primaria, o dominio dos seis escopos
+                    # e a unicidade `(tenant_id, dsar_id, escopo)` — e esta
+                    # ultima **e o criterio 3**: e ela que faz «o pedido so
+                    # fecha quando todos aplicaram» contavel, porque o contrato
+                    # do `privacy.erasure_applied` nao diz quem aplicou. Sem
+                    # ela, seis eventos do mesmo componente fechavam o pedido.
+                    #
+                    # O `dsar_requests_aberto_uq` **nao** esta aqui, e nao e
+                    # esquecimento: e um indice unico **parcial** e nao uma
+                    # restricao, pelo que nao aparece no `pg_constraint`. Quem o
+                    # confere e o `test_os_indices_unicos_parciais_sao_os_esperados`
+                    # acima, que diz tambem que ele e unico.
+                    "dsar_requests_pkey",
+                    "dsar_requests_tenant_dsar_uq",
+                    "dsar_requests_tipo_ck",
+                    "dsar_requests_estado_ck",
+                    "dsar_requests_papel_kamba_ck",
+                    "dsar_requests_prazo_dias_ck",
+                    "dsar_requests_prazo_ordenado_ck",
+                    "dsar_requests_concluido_par_ck",
+                    "dsar_requests_concluido_ordenado_ck",
+                    "erasure_ledger_pkey",
+                    "erasure_ledger_escopo_ck",
+                    "erasure_ledger_escopo_uq",
                     # --------------------------------------- KAM-069 (0036)
                     #
                     # **Catorze**: a chave primaria, a unicidade e os doze

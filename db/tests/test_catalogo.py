@@ -513,8 +513,39 @@ class TestConvencoes(ComBase):
                 # `CHECK` de forma hexadecimal. Chave primaria e nao indice
                 # unico, porque a idempotencia do `draft_prepare` e da base.
                 ("draft_decisions", "draft_id", "text", None),
+                # KAM-070, revisao `0038`: o pedido do titular segue a regra
+                # geral, `uuid` gerado — e a chave **nao se chama `id`**, o que
+                # a tira do conjunto fechado do
+                # `test_as_chaves_primarias_sao_uuid_com_omissao_gerada`, que
+                # pergunta pela coluna `id`. O nome e o do dominio: um
+                # `dsar_id`, que e o que o criterio 3 cita e o que o ledger
+                # referencia por FK composta.
+                #
+                # **A chave de negocio nao e esta e nao e unica no tempo**: dois
+                # pedidos do mesmo tipo pelo mesmo titular sao legitimos em
+                # meses diferentes, pelo que a unicidade do criterio 8 e um
+                # indice **parcial** sobre os estados abertos e nao uma chave. A
+                # `dsar_requests_tenant_dsar_uq` ao lado nao e chave de negocio
+                # nenhuma: existe para o ledger poder apontar para o par
+                # `(tenant_id, dsar_id)`.
+                #
+                # A posicao e por `ORDER BY 1, 2`: depois de `draft_decisions`
+                # («dra» < «dsa») e antes de `entitlements`.
+                ("dsar_requests", "dsar_id", "uuid", "gen_random_uuid()"),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
+                # KAM-070, idem, e a mesma razao para o nome: um `erasure_id`, e
+                # nao um `id`. A chave de negocio e a unicidade
+                # `(tenant_id, dsar_id, escopo)` ao lado — e **ela** e que conta
+                # os seis escopos do criterio 3 —, e nao pode ser a chave
+                # primaria por uma razao de forma: as tres colunas sao duas FK e
+                # um dominio fechado, e a linha que falta identificar numa
+                # reaplicacao depois de um restauro (criterio 6) e a que o
+                # `tenant_id, contact_id, aplicado_at` encontra.
+                #
+                # A posicao e por `ORDER BY 1, 2`: depois de `entitlements`
+                # («ent» < «era») e antes de `events_consumed`.
+                ("erasure_ledger", "erasure_id", "uuid", "gen_random_uuid()"),
                 ("events_consumed", "consumer", "text", None),
                 ("events_consumed", "event_id", "uuid", None),
                 ("events_dlq", "id", "bigint", None),
@@ -1144,7 +1175,31 @@ class TestConvencoes(ComBase):
              #
              # **E a unica desta lista cujo `tenant_id` e anulavel**, pela razao
              # escrita em `ANULAVEIS`.
-             "tenant_destinations"},
+             "tenant_destinations",
+             # KAM-070. As duas da `0038`, e as duas satisfazem a convencao
+             # **pela unicidade**, como a `conversations`, a
+             # `stock_reservations` e a `tenant_destinations`: a
+             # `dsar_requests_tenant_dsar_uq` e a `erasure_ledger_escopo_uq`
+             # principiam pelo `tenant_id`, e nenhuma das duas esta la para
+             # indexar — a primeira existe para o ledger poder apontar para o
+             # par `(tenant_id, dsar_id)`, e a segunda e a contagem do
+             # criterio 3.
+             #
+             # **Nos pedidos ha mais tres indices e os tres comecam pelo
+             # `tenant_id`**: os dois parciais dos estados abertos (a
+             # idempotencia do criterio 8 e o varrimento do prazo) e, no ledger,
+             # o `(tenant_id, contact_id, aplicado_at)` da reaplicacao depois de
+             # um restauro. Aqui nao ha o caso da `tenant_destinations` nem o do
+             # `orders_mirror`, em que um indice **nao** comeca pelo tenant de
+             # proposito: todas as leituras destas duas tabelas sao de um
+             # tenant, incluindo a do restauro — quem a corre e o `kamba_batch`,
+             # que tem contexto de tenant como os outros.
+             #
+             # **O `tenant_id` e `NOT NULL` nas duas**, pelo que nenhuma entra
+             # em `ANULAVEIS`: um pedido do titular e sempre de um tenant, e nao
+             # ha aqui o nulo com significado que o criterio 1 do KAM-069 deu
+             # aos destinos globais de infra-estrutura.
+             "dsar_requests", "erasure_ledger"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1290,6 +1345,27 @@ class TestConvencoes(ComBase):
         # `NOT_SUPPORTED`. Esta coluna registra quanto a PME tem de devolver da
         # conta dela, e nao uma quantia que alguem aqui guarde.
         ("refund_cases", "valor_minor"),
+        # KAM-051, revisao `0037`. **A segunda vista desta lista**, e esta aqui
+        # pela razao escrita na entrada da `v_payment_events_audit`: o
+        # `information_schema.columns` lista as colunas das vistas, e uma vista
+        # nova que exponha uma coluna de dinheiro tem de responder a esta
+        # pergunta como uma tabela.
+        #
+        # **E a entrada e o preco de a vista nascer no `platform`.** Esta
+        # asercao filtra `table_schema = 'platform'`: a `v_oferta_viva` podia ter
+        # nascido num esquema proprio e ficado **invisivel** a verificacao de
+        # dinheiro, sem custar entrada nenhuma. Nasceu aqui de proposito — ser
+        # vista pelo portao e a funcionalidade e nao o custo —, e a porta que
+        # torna isto uma declaracao e nao uma dispensa e a que o KAM-172
+        # ratificou.
+        #
+        # **Nao e um saldo**, e e a mesma coluna da `offer_terms` pela mesma
+        # razao: um numero que o dono publica para o agente citar, e a plataforma
+        # nao detem nada por causa dele. Vista por quem pesquisa, em vez de por
+        # quem edita o catalogo. O que a vista acrescenta a tabela e que o valor
+        # sai acompanhado de um `preco_tipo` que pode ter degradado de `fixo`
+        # para `a_partir_de` — o numero e o mesmo, o que muda e como se cita.
+        ("v_oferta_viva", "preco_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -1640,7 +1716,23 @@ class TestConvencoes(ComBase):
         # `refund_cases`. As tres **compostas** com o `tenant_id`, pela licao da
         # `0033` acima, e `MATCH SIMPLE`, que e o que deixa a cobranca de ciclo
         # de billing (`order_id` nulo) continuar a passar.
-        self.assertEqual(len(linhas), 72)
+        #
+        # **77 e nao 72** desde a `0038` (KAM-070): as **cinco** dos direitos do
+        # titular — duas na `dsar_requests` (`tenant_fk` simples para `tenants`,
+        # `contact_fk` **composta** `(tenant_id, contact_id)` para `contacts`) e
+        # tres na `erasure_ledger` (`tenant_fk`, `dsar_fk` composta para os
+        # pedidos e `contact_fk` composta para os contactos). As compostas pela
+        # licao que a `0003` fixou e a `0009` repetiu: sem o `tenant_id`, o
+        # pedido do titular A podia apontar para o contacto de B, e nem o
+        # *gate* 6 nem o 3b o veriam.
+        #
+        # **Esta contagem e a terceira lista fechada que uma tabela nova custa e
+        # que nao se encontra a seguir o modelo do KAM-069**: a
+        # `tenant_destinations` **nao tem FK nenhuma** — um destino registra-se
+        # antes de o tenant activar —, pelo que quem a tome como modelo nao passa
+        # por aqui. A outra, logo acima, e o
+        # `test_as_fk_nao_apagam_em_cascata`.
+        self.assertEqual(len(linhas), 77)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

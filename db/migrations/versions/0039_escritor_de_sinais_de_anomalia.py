@@ -1,12 +1,19 @@
 """Escritor de sinais de anomalia: `platform.registar_sinal_de_anomalia` (KAM-060).
 
-**O NUMERO DESTA REVISAO E PROVISORIO E O FICHEIRO NAO VAI EMPURRADO ASSIM.**
-Ha duas `0037` abertas ao mesmo tempo (o PR #159 do KAM-051 e o #158 do
-KAM-070), e quem funde em segundo renumera. O `0037` daqui existe por uma razao
-mecanica e nao por reserva: o `down_revision` tem de nomear uma revisao que
-exista **nesta** arvore, cuja cabeca e a `0036`, senao o *alembic* nao corre e o
-*gate* 8 nao se consegue medir de todo. O numero final vem do fundador antes de
-se empurrar, e renumerar isto sao tres linhas.
+**O numero foi medido e nao reservado.** Esta revisao escreveu-se como
+`0037_escritor_de_sinais_PROVISORIO.py` enquanto havia **duas** `0037` abertas
+(o PR #159 do KAM-051 e o #158 do KAM-070), e o `0037` provisorio existia por
+uma razao mecanica e nao por reserva: o `down_revision` tem de nomear uma
+revisao que exista na arvore, senao o *alembic* nao corre e o *gate* 8 nao se
+consegue medir de todo. Os dois fundiram — a `0037` e a oferta viva, a `0038`
+sao os direitos do titular —, a cabeca da cadeia na `publico/main` (`77a579bd`)
+passou a ser a `0038`, e o numero veio depois disso.
+
+**Renumerar foram tres linhas mais a constante `REV_SINAIS` do
+`../../mutacoes.py`**, e e essa quarta que se esquece: uma mutacao cujo alvo nao
+existe **nao mede nada** e fica verde por nao ter mudado o codigo. Quem a apanha
+e o `python db/mutacoes.py --aplicaveis`, que se corre sempre, mesmo quando se
+filtra.
 
 ---
 
@@ -122,9 +129,8 @@ from __future__ import annotations
 
 from alembic import op
 
-# PROVISORIO — ver o cabecalho. O numero final vem do fundador.
-revision = "0037"
-down_revision = "0036"
+revision = "0039"
+down_revision = "0038"
 branch_labels = None
 depends_on = None
 

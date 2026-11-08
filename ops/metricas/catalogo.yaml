@@ -227,6 +227,61 @@ metricas:
       - nome: estado
         cardinalidade_maxima: 16
 
+  # ------------------------------------------------- backup (KAM-079)
+  #
+  # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A
+  # promessa escrita no topo deste ficheiro — «nenhuma regra de alerta pode
+  # citar uma metrica que ninguem expoe» — e imposta pela regra
+  # `metrica_sem_produtor` do `tools/obs_lint`, e e ela que faz destas quatro
+  # linhas uma declaracao verificada e nao prosa: escrever a regra de alerta do
+  # WAL hoje poe o *lint* vermelho.
+  #
+  # Estao aqui, e nao so no modulo, porque este ficheiro e onde se le o que
+  # existe e quem o serve. Entram no `exposta_por` com o processo que as
+  # produzir, que depende do `repo1` (D1/KAM-105).
+  #
+  # Nenhuma leva etiqueta de `tenant` nem de destino: um backup e do **cluster**
+  # e nao de um tenant, e o nome do `repo1` e um FQDN — a localizacao do
+  # repositorio de backup num painel que muita gente le.
+  - nome: backup_wal_idade_segundos
+    tipo: gauge
+    fonte: libs/py-core/src/kamba_core/backup/metricas.py
+    exposta_por: []
+    ajuda: Idade do ultimo segmento de WAL arquivado, em segundos.
+    etiquetas: []
+
+  - nome: backup_restauro_desfecho_total
+    tipo: counter
+    fonte: libs/py-core/src/kamba_core/backup/metricas.py
+    exposta_por: []
+    ajuda: Restauros mensais por desfecho.
+    etiquetas:
+      # Dominio fechado em tres, que e o que o `OBS-I` permite. O
+      # `inconclusivo` existe pela razao que o bloco do KAM-078 escreve para o
+      # *smoke* da Meta: um restauro que nao correu porque o *host* descartavel
+      # nao arrancou nao e um restauro falhado nem um bem-sucedido, e juntar os
+      # dois casos apagava a diferenca entre «a rede de seguranca esta rota» e
+      # «nao a conseguimos testar».
+      - nome: desfecho
+        dominio:
+          - ok
+          - falhado
+          - inconclusivo
+
+  - nome: backup_restauro_duracao_segundos
+    tipo: gauge
+    fonte: libs/py-core/src/kamba_core/backup/metricas.py
+    exposta_por: []
+    ajuda: Duracao do ultimo restauro completo medido, em segundos.
+    etiquetas: []
+
+  - nome: backup_restauro_debito_mbps
+    tipo: gauge
+    fonte: libs/py-core/src/kamba_core/backup/metricas.py
+    exposta_por: []
+    ajuda: Debito efectivo do ultimo restauro, em megabits por segundo.
+    etiquetas: []
+
   # ------------------------------------------- sinteticas do Prometheus
   #
   # Nao vem de codigo nosso: o Prometheus produz uma por alvo raspado. Estao no
@@ -530,11 +585,17 @@ series_do_criterio_2:
       servico que importe o modulo.
 
   - serie: idade do WAL
-    estado: inexistente
-    metricas: []
+    estado: declarada_nao_exposta
+    metricas:
+      - backup_wal_idade_segundos
     nota: >-
-      Nao ha pgBackRest nem *exporter*. Credor: **KAM-079**, que traz o
-      pgBackRest e o `archive_timeout`.
+      **Mudou de `inexistente` com o KAM-079, e o que falta mudou com ela.** A
+      metrica existe em `libs/py-core/src/kamba_core/backup/metricas.py`, com o
+      limite de 300 s, a severidade P1 e o RB-K08 fixados em dado no
+      `infra/backup/cobertura.yaml`. **Nenhum processo a serve**, e a razao e a
+      mesma por tres niveis: servi-la exige o pgBackRest a correr, que exige um
+      `repo1` alcancavel, que exige a **D1/KAM-105** decidida. Nao se escreve a
+      regra de alerta por isso — ver `regras_por_escrever`.
 
   - serie: memoria e CPU por servico
     estado: inexistente
@@ -585,10 +646,15 @@ regras_por_escrever:
       **alcancavel**: o `scrape_config` do `com` aponta para a 3002 (medido em
       `infra/compose/prometheus/prometheus.yml`) e aquele processo serve na
       3013. E a mesma lacuna que o `com_payment_to_paid_seconds` do KAM-055 tem,
-      e esta registada no `specs/EPIC-08` com credor KAM-080. Escrever a regra
-      hoje produzia um alerta sobre uma serie que ninguem raspa, isto e, um
-      alerta que **nunca dispara** — que este ficheiro trata por pior do que a
-      ausencia dele. O alerta nasce no dia em que houver alvo.
+      e esta registada no `specs/EPIC-08` com credor KAM-080.
+      **E ha uma segunda falta, e e a que vem primeiro:** nenhum processo corre o
+      motor. As quatro camadas estao medidas — o motor, a porta de escrita, o
+      contador servido e a raiz de composicao — e falta o condutor, um *job* que
+      chame o `correrMotorDeAnomalias` por tenant. Isto e, as oito series saem a
+      zero hoje por falta de **produtor** e nao de alcance, e corrigir o alvo
+      sozinho nao as enche. Escrever a regra agora produzia um alerta sobre uma
+      serie que ninguem raspa **e** que ninguem alimenta — que este ficheiro
+      trata por pior do que a ausencia dele. Nasce no dia em que houver os dois.
     credor: KAM-080
 
   - alerta: orfao de pagamento aberto ha mais de 24 h
@@ -604,17 +670,30 @@ regras_por_escrever:
       publicador fecha esta regra e o painel de orfaos ao mesmo tempo.
     credor: KAM-080
 
+  # As duas do backup mudaram com o KAM-079, e o que mudou foi **o que falta**.
+  # Antes faltava a metrica; hoje ela existe e falta o processo que a sirva.
+  # Nao e uma distincao de forma: a metrica era trabalho deste repositorio, e o
+  # processo que a serve depende de uma decisao que nao e de engenharia.
   - alerta: WAL (ultimo arquivo > 5 min)
     severidade: P1
     runbook: RB-K08
-    falta: nao ha metrica de idade do WAL
+    falta: >-
+      ha `backup_wal_idade_segundos` declarada (KAM-079) e **nenhum processo a
+      serve**: servi-la exige o pgBackRest a correr, que exige um `repo1`
+      alcancavel. O limite (300 s), a severidade e o runbook estao fixados em
+      `infra/backup/cobertura.yaml` e o `tools/backup_lint` confronta-os com
+      esta entrada
     credor: KAM-079
 
   - alerta: restauro mensal falhado
     severidade: P2
     runbook: RB-K08
-    falta: nao ha *job* de restauro nem metrica do seu desfecho
-    credor: KAM-079
+    falta: >-
+      ha `backup_restauro_desfecho_total{desfecho}` declarada (KAM-079) e
+      nenhum processo a serve; e **nao ha agendador** no repositorio (medido:
+      sem `cron`, `repeat:` nem `delay:`), pelo que nao ha *job* mensal que
+      produza o desfecho. O predicado `restauro_devido` existe e e chamavel
+    credor: KAM-079 (a metrica e o predicado); KAM-071/KAM-078 (o agendador)
 
   - alerta: quality rating (amarelo P3, vermelho P1)
     severidade: P1/P3

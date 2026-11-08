@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.67"
+versao_dicionario: "1.69"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -703,7 +703,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado}"
     literais:
       - "action"
       - "price.update"
@@ -713,6 +713,8 @@ entradas:
       - "batch.run"
       - "breakglass.open"
       - "audit.read"
+      - "privacy.dsar_recusado"
+      - "privacy.dsar_rectificado"
     nomes:
       - "action"
       - "price.update"
@@ -722,6 +724,8 @@ entradas:
       - "batch.run"
       - "breakglass.open"
       - "audit.read"
+      - "privacy.dsar_recusado"
+      - "privacy.dsar_rectificado"
     nomes_nota:
       - "audit.read"
     variantes_literais: []
@@ -10134,6 +10138,40 @@ entradas:
     nomes_nota:
       - "TTL_DO_HOLD_MS"
     variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Contrato de leitura da oferta viva"
+    canonico: "platform.v_oferta_viva(tenant_id, product_ref, sku, nome, preco_minor, preco_tipo, stock_modo, publicado, lido_em)"
+    literais:
+      - "platform.v_oferta_viva(tenant_id, product_ref, sku, nome, preco_minor, preco_tipo, stock_modo, publicado, lido_em)"
+    nomes:
+      - "platform.v_oferta_viva"
+      - "tenant_id"
+      - "product_ref"
+      - "sku"
+      - "nome"
+      - "preco_minor"
+      - "preco_tipo"
+      - "stock_modo"
+      - "publicado"
+      - "lido_em"
+    nomes_nota:
+      - "security_invoker"
+      - "platform"
+      - "preco_minor"
+      - "product_ref"
+      - "sku"
+      - "medusa_variant_id"
+      - "tenant_id"
+      - "offer_terms"
+      - "publicado"
+      - "preco_tipo"
+      - "preco_valido_ate"
+      - "fixo"
+      - "a_partir_de"
+      - "sob_consulta"
+      - "disponibilidade"
+      - "stock_modo"
+    variantes_literais: []
   - seccao: "3.41"
     conceito: "Ambiente"
     canonico: "ambiente ∈ {dev, staging, prod}"
@@ -12840,6 +12878,227 @@ entradas:
       - "do"
       - "sha256"
     variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Pedido do titular"
+    canonico: "platform.dsar_requests, dez colunas"
+    literais:
+      - "platform.dsar_requests"
+    nomes:
+      - "platform.dsar_requests"
+    nomes_nota:
+      - "dsar_id"
+      - "tenant_id"
+      - "contact_id"
+      - "tipo"
+      - "estado"
+      - "papel_kamba"
+      - "recebido_at"
+      - "prazo_dias"
+      - "prazo_interno_at"
+      - "concluido_at"
+      - "uuid"
+      - "id"
+      - "dek_id"
+      - "erasure_ledger"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Tipo de pedido"
+    canonico: "dsar_requests.tipo ∈ {exportacao, rectificacao, eliminacao, oposicao}"
+    literais:
+      - "dsar_requests.tipo"
+      - "exportacao"
+      - "rectificacao"
+      - "eliminacao"
+      - "oposicao"
+    nomes:
+      - "dsar_requests.tipo"
+      - "exportacao"
+      - "rectificacao"
+      - "eliminacao"
+      - "oposicao"
+    nomes_nota:
+      - "exportacao"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Estado de um pedido"
+    canonico: "dsar_requests.estado ∈ {recebido, em_curso, concluido}"
+    literais:
+      - "dsar_requests.estado"
+      - "recebido"
+      - "em_curso"
+      - "concluido"
+    nomes:
+      - "dsar_requests.estado"
+      - "recebido"
+      - "em_curso"
+      - "concluido"
+    nomes_nota:
+      - "recusado"
+      - "contact_id"
+      - "audit_log"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Papel da KAMBÁ num pedido"
+    canonico: "dsar_requests.papel_kamba ∈ {subcontratada, responsavel}"
+    literais:
+      - "dsar_requests.papel_kamba"
+      - "subcontratada"
+      - "responsavel"
+    nomes:
+      - "dsar_requests.papel_kamba"
+      - "subcontratada"
+      - "responsavel"
+    nomes_nota:
+      - "subcontratada"
+      - "NOT"
+      - "NULL"
+      - "DEFAULT"
+      - "PAPEL_POR_OMISSAO"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Prazo interno de um pedido"
+    canonico: "dsar_requests.prazo_dias e dsar_requests.prazo_interno_at"
+    literais:
+      - "dsar_requests.prazo_dias"
+      - "dsar_requests.prazo_interno_at"
+    nomes:
+      - "dsar_requests.prazo_dias"
+      - "dsar_requests.prazo_interno_at"
+    nomes_nota:
+      - "prazo_interno_at"
+      - "recebido_at"
+      - "d"
+      - "CHECK"
+      - "timestamptz"
+      - "interval"
+      - "STABLE"
+      - "IMMUTABLE"
+      - "TimeZone"
+      - "prazo_dias"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Pedido aberto, um por tipo e titular"
+    canonico: "índice dsar_requests_aberto_uq, parcial em estado <> 'concluido'"
+    literais:
+      - "dsar_requests_aberto_uq"
+      - "estado <> 'concluido'"
+    nomes:
+      - "dsar_requests_aberto_uq"
+      - "estado"
+      - "concluido"
+    nomes_nota:
+      - "PedidoEmCurso"
+      - "pgcode"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Ledger de apagamento"
+    canonico: "platform.erasure_ledger, seis colunas"
+    literais:
+      - "platform.erasure_ledger"
+    nomes:
+      - "platform.erasure_ledger"
+    nomes_nota:
+      - "erasure_id"
+      - "tenant_id"
+      - "dsar_id"
+      - "contact_id"
+      - "escopo"
+      - "aplicado_at"
+      - "privacy.erasure_applied"
+      - "payload"
+      - "v3"
+      - "contract_diff"
+      - "append"
+      - "only"
+      - "UPDATE"
+      - "DELETE"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Escopo de um apagamento"
+    canonico: "erasure_ledger.escopo ∈ {cofre, agr, sto, dat, idx, chatwoot}"
+    literais:
+      - "erasure_ledger.escopo"
+      - "cofre"
+      - "agr"
+      - "sto"
+      - "dat"
+      - "idx"
+      - "chatwoot"
+    nomes:
+      - "erasure_ledger.escopo"
+      - "cofre"
+      - "agr"
+      - "sto"
+      - "dat"
+      - "idx"
+      - "chatwoot"
+    nomes_nota:
+      - "privacy.erasure_requested"
+      - "concluido"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Chave do ledger para o restauro"
+    canonico: "erasure_ledger.contact_id, com min(aplicado_at) por contacto"
+    literais:
+      - "erasure_ledger.contact_id"
+      - "min(aplicado_at)"
+    nomes:
+      - "erasure_ledger.contact_id"
+      - "min"
+      - "aplicado_at"
+    nomes_nota:
+      - "erasure_ledger"
+      - "subject_ref"
+      - "erased_at"
+      - "sujeito_ref"
+      - "HMAC"
+      - "chave_mensal"
+      - "contact_id"
+      - "max"
+      - "EPIC"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Acções de DSAR no registo de auditoria"
+    canonico: "privacy.dsar_recusado e privacy.dsar_rectificado"
+    literais:
+      - "privacy.dsar_recusado"
+      - "privacy.dsar_rectificado"
+    nomes:
+      - "privacy.dsar_recusado"
+      - "privacy.dsar_rectificado"
+    nomes_nota:
+      - "audit_log.action"
+      - "audit_log"
+      - "dsar_requests"
+      - "concluido_at"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Direitos do titular, o módulo"
+    canonico: "../libs/py-core/src/kamba_core/direitos/"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "PortaSobreDestinos"
+      - "import"
+      - "Relogio"
+      - "Auditoria"
+      - "Assinador"
+    variantes_literais: []
+  - seccao: "3.50"
+    conceito: "Tecto do TTL da exportação"
+    canonico: "TTL_MAXIMO_S do kamba_core.storage"
+    literais:
+      - "TTL_MAXIMO_S"
+      - "kamba_core.storage"
+    nomes:
+      - "TTL_MAXIMO_S"
+      - "kamba_core.storage"
+    nomes_nota:
+      - "storage"
+      - "TTL_MAXIMO_S"
+      - "sign_url"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -13455,6 +13714,22 @@ tabelas:
     assinatura: "price_quotes(id, tenant_id, contact_id, sku, qty, preco_total_minor, currency, valida_ate, estado, emitida_por, criado_at)"
     seccao: "3.40"
     conceito: "Cotação do dono"
+  - nome: "v_oferta_viva"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "product_ref"
+      - "sku"
+      - "nome"
+      - "preco_minor"
+      - "preco_tipo"
+      - "stock_modo"
+      - "publicado"
+      - "lido_em"
+    aberta: false
+    assinatura: "platform.v_oferta_viva(tenant_id, product_ref, sku, nome, preco_minor, preco_tipo, stock_modo, publicado, lido_em)"
+    seccao: "3.40"
+    conceito: "Contrato de leitura da oferta viva"
   - nome: "payment_charges"
     esquema: ""
     colunas:
@@ -13887,6 +14162,14 @@ tabelas:
     assinatura: "exigir_go_live(tenant_id, destinos_activos, dpa, mapa_ref)"
     seccao: "3.49"
     conceito: "Gate de go-live de um tenant"
+  - nome: "min"
+    esquema: ""
+    colunas:
+      - "aplicado_at"
+    aberta: false
+    assinatura: "min(aplicado_at)"
+    seccao: "3.50"
+    conceito: "Chave do ledger para o restauro"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -13957,6 +14240,8 @@ dominios:
       - "batch.run"
       - "breakglass.open"
       - "audit.read"
+      - "privacy.dsar_recusado"
+      - "privacy.dsar_rectificado"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -14945,6 +15230,41 @@ dominios:
       - "visao"
     seccao: "3.49"
     conceito: "Finalidade de uma transferência"
+    so_no_registo: false
+  - coluna: "dsar_requests.tipo"
+    valores:
+      - "exportacao"
+      - "rectificacao"
+      - "eliminacao"
+      - "oposicao"
+    seccao: "3.50"
+    conceito: "Tipo de pedido"
+    so_no_registo: false
+  - coluna: "dsar_requests.estado"
+    valores:
+      - "recebido"
+      - "em_curso"
+      - "concluido"
+    seccao: "3.50"
+    conceito: "Estado de um pedido"
+    so_no_registo: false
+  - coluna: "dsar_requests.papel_kamba"
+    valores:
+      - "subcontratada"
+      - "responsavel"
+    seccao: "3.50"
+    conceito: "Papel da KAMBÁ num pedido"
+    so_no_registo: false
+  - coluna: "erasure_ledger.escopo"
+    valores:
+      - "cofre"
+      - "agr"
+      - "sto"
+      - "dat"
+      - "idx"
+      - "chatwoot"
+    seccao: "3.50"
+    conceito: "Escopo de um apagamento"
     so_no_registo: false
 
 variantes:
