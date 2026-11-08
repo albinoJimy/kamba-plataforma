@@ -258,7 +258,7 @@ ARESTAS: Final = (
     Aresta(7, "stt", "handoff_prepare", "human", "confianca baixa, idioma ou duracao"),
     Aresta(8, "guard_in", "classify", "ok", "veredicto ok"),
     Aresta(9, "guard_in", "safe_reply", "safe", "injection, abuse, out_of_domain, card_data"),
-    Aresta(10, "guard_in", "handoff_prepare", "human", "sensitive"),
+    Aresta(10, "guard_in", "handoff_prepare", "human", "sensitive, ou a 3.a injeccao na hora (KAM-033)"),
     Aresta(11, "classify", "retrieve", "search", "produto, preco_stock"),
     Aresta(12, "classify", "cart_build", "buy", "comprar"),
     Aresta(13, "classify", "confirm_gate", "confirm", "confirmar (botao confirm:*)"),

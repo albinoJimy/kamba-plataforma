@@ -104,8 +104,12 @@ class TestEstadoInicial(unittest.TestCase):
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
         self.assertEqual(sorted(estado), sorted(CHAVES_DO_521))
 
-    def test_quatro_chaves_do_estado_nao_nascem_no_estado_inicial(self) -> None:
+    def test_cinco_chaves_do_estado_nao_nascem_no_estado_inicial(self) -> None:
         """E o que as deixa atravessar turnos. Ver as notas no `estado.py`.
+
+        O `guard_contadores` (KAM-033) e a quinta, e pela mesma razao: um
+        contador de tentativas que nascesse no `estado_inicial` voltava a zero a
+        cada turno, e a terceira injeccao da hora nunca chegava a ser contada.
 
         O `turn_seq` (KAM-114), o `slots` e o `stage` (KAM-035) e o `pii_map`
         (KAM-112) sao chaves do `ConversaState` e **nao** da tabela do
@@ -120,11 +124,11 @@ class TestEstadoInicial(unittest.TestCase):
         a resposta ao cliente perdia o telefone que ele proprio tinha dado.
         """
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
-        fora = {"turn_seq", "slots", "stage", "pii_map"}
+        fora = {"turn_seq", "slots", "stage", "pii_map", "guard_contadores"}
         for chave in fora:
             self.assertNotIn(chave, estado, chave)
             self.assertIn(chave, ConversaState.__annotations__, chave)
-        # E o resto do `ConversaState` **esta** todo: a ausencia e das tres e de
+        # E o resto do `ConversaState` **esta** todo: a ausencia e destas e de
         # mais nenhuma.
         self.assertEqual(
             set(ConversaState.__annotations__) - set(estado), fora

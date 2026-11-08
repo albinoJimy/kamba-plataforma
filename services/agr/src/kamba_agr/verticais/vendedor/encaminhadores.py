@@ -123,6 +123,11 @@ def r_guard(estado: dict[str, Any]) -> str:
         # do `fail-closed` do §8.4, e o unico caminho que nao arrisca nada e o
         # texto estatico.
         return "safe"
+    if veredicto == "injection" and guarda.get("escalada") == "handoff":
+        # KAM-033, criterio 5: a terceira injeccao na hora vai a *handoff* pela
+        # **mesma** aresta do `sensitive` (linha 10), e nao por uma nova — o
+        # grafo continua com as quarenta e duas arestas do §7.3.
+        return "human"
     return CHAVE_DO_VEREDICTO[veredicto]
 
 

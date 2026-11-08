@@ -50,12 +50,16 @@ from typing import Any, Final, Protocol
 
 from langgraph.types import interrupt
 
+from ... import guardas
 from ... import metricas as metricas_mod
 from ...estado import ESTAGIO_INICIAL, ESTAGIOS, reiniciar, versao_lida
 from ...concierge.maquina import DECISOES_QUE_ENVIAM, MOTIVOS
 from ...concierge.maquina import draft_id as derivar_draft_id
 from ...concierge.politica import SemPolitica
 from ...degradacao import MOTIVO_BREAKER, SemDegradacao
+from ...guardas import contadores as contadores_mod
+from ...guardas.classificador import VEREDICTOS_DO_CLASSIFICADOR
+from ...guardas.entrada import substituicao_na_janela
 from ...llm.erros import ErroDeLlm
 from ...concierge.portas import ConciergeSemServicoError
 from ...handoff.portas import HandoffIndisponivel
@@ -71,7 +75,7 @@ from ...tls.erros import (
 )
 from ...tls.com import ENTREGA_DO_PILOTO
 from ...tls.vendedor import LIMITE_DA_QUERY
-from ...validador.render import BlocoInvalidoError, Oferta, renderizar
+from ...validador.render import BlocoInvalidoError, NomeComPrecoError, Oferta, renderizar
 from ...validador.veredicto import Policy, medir_validacao, validar
 from .arestas import (
     AVISOS,
@@ -172,6 +176,22 @@ MSG_CARTAO: Final = (
     "Por seguranca, nao envie dados de cartao ou de conta por aqui. A loja "
     "nunca os pede nesta conversa."
 )
+#: KAM-033. O texto do `abuse` (§8.4, quinta linha): neutro, sem repetir o que
+#: o cliente escreveu, e com a saida para uma pessoa.
+MSG_ABUSO: Final = (
+    "Vamos manter a conversa com respeito. Posso ajudar com os produtos, os "
+    "precos e os pedidos desta loja, ou passar a um colega."
+)
+#: KAM-033, criterio 5: a conversa pausada por abuso repetido.
+MSG_PAUSADA: Final = (
+    "A conversa ficou em pausa. Um colega da loja responde-lhe aqui."
+)
+#: KAM-033, criterio 6: uma resposta que o `guard_out` bloqueou. **Nao diz
+#: porque**: explicar que se bloqueou um telefone ou uma promessa era ensinar a
+#: contornar a regra, e a resposta segura e a mesma para as tres violacoes.
+MSG_SAIDA_BLOQUEADA: Final = (
+    "Nao consigo responder a isso por aqui. Prefere falar com um colega da loja?"
+)
 MSG_PEDIDO_REGISTADO: Final = (
     "O seu pedido ficou registado. A loja confirma o pagamento e avisa-o aqui."
 )
@@ -204,96 +224,10 @@ BOTAO_CANCELAR: Final = "cancelar"
 BOTAO_HUMANO: Final = "falar_com_humano"
 
 # ------------------------------------------------------------------ guardrails
-
-#: Padroes de injeccao (§8.4, primeira linha). Minimos e nomeados: o conjunto
-#: completo e o KAM-033, e um conjunto grande aqui dava a ilusao de cobertura.
-_INJECCAO: Final = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bignora (?:as )?(?:tuas |suas )?instru",
-        r"\besquece (?:tudo|as instru)",
-        r"\brevela (?:o teu|o seu|as tuas|as suas) (?:prompt|instru|sistema)",
-        r"\bage como\b",
-        r"\bfinge (?:que|ser)\b",
-        r"\bsystem prompt\b",
-    )
-)
-
-#: Pedidos que atravessam a fronteira do tenant ou do contacto. **E a metade do
-#: X-09 que vive na guarda**: a outra esta na tool, que so ve encomendas do
-#: proprio contacto, e a terceira na RLS. Tres barreiras, e nenhuma sozinha.
-_FRONTEIRA: Final = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\b(?:pedidos|encomendas|clientes|vendas)\b.{0,20}\b(?:da|de|do)\s+(?:loja|empresa|tenant)\b",
-        r"\boutros? (?:clientes?|contactos?|lojas?)\b",
-        r"\btodos os (?:pedidos|clientes|contactos)\b",
-    )
-)
-
-#: O que **absolve** um padrao de fronteira: o cliente a falar dos pedidos dele.
-#:
-#: A revisao adversarial mediu o custo de nao ter isto (achado 6): «as minhas
-#: encomendas da loja ja sairam?» e «pode ver todos os pedidos que fiz?» saiam
-#: como `injection` — a mesma classe de «ignora as tuas instrucoes» —, com o
-#: contador de abuso por contacto a somar e uma resposta que se contradiz («so
-#: posso ajudar com … os pedidos desta loja»). **O que o X-09 procura e a
-#: travessia, e um possessivo de primeira pessoa e o contrario dela.** A
-#: barreira que protege de facto continua a ser a tool (so ve encomendas do
-#: proprio contacto) e a RLS; esta regra nao acrescentava seguranca,
-#: acrescentava recusa.
-_PRIMEIRA_PESSOA: Final = re.compile(
-    r"\b(?:meu|meus|minha|minhas|que fiz|que encomendei|que comprei)\b", re.IGNORECASE
-)
-
-#: Assunto sensivel (§8.4, quarta linha). Vai a **handoff** e nao a
-#: `safe_reply`, porque o §7.3 linha 10 o manda — e porque uma loja pode
-#: legitimamente vender alguns destes, e quem decide e uma pessoa.
-#:
-#: **O alcool da lista do §8.4 nao esta aqui, e e escolha com credor.** Essa
-#: linha nomeia «Classificador + **categorias da loja**», e as categorias da
-#: loja nao existem em sitio nenhum deste repositorio — o
-#: `registry/vendedor.yaml` nao as traz. Sem elas, um padrao de bebidas mandava
-#: a *handoff* toda a pergunta sobre cerveja, vinho ou whisky **de uma loja que
-#: os vende legitimamente**, que e o segundo custo de uma guarda e o mais
-#: provavel aqui. Credor **KAM-033**, que traz o classificador e as categorias.
-#: Apanhado pela revisao adversarial (achado 7), que notou — com razao — que um
-#: comentario a enumerar canon e a implementar menos e pior do que a lacuna.
-_SENSIVEL: Final = tuple(
-    re.compile(rf"\b{p}\b", re.IGNORECASE)
-    for p in (
-        "medicament\\w*", "remedi\\w*", "receita medica", "doenca", "sintoma",
-        "arma\\w*", "munic\\w*", "aposta\\w*", "emprestimo\\w*",
-        # **O `credito` nao conta depois de `cartao`**, e a revisao adversarial
-        # mediu porque (achado 8): o §8.4 fala de credito como **produto**, e
-        # «aceitam cartao de credito?» e uma das perguntas mais frequentes de
-        # uma loja angolana — ia a *handoff* por causa de um meio de pagamento.
-        "(?<!cartao de )(?<!cartao )credito\\w*",
-    )
-)
-
-#: Frases vetadas na saida (§8.4, «Promessas proibidas»). Minimas: a lista
-#: completa e do KAM-033, e a emenda 1.39 ja o escreveu.
-_PROMESSAS: Final = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bo mais barato\b", r"\bmais barato (?:da|do|que)\b",
-        r"\bchega amanha\b", r"\bentrega(?:mos)? amanha\b",
-        r"\bem promo[cç]ao\b", r"\btemos sempre\b",
-        r"\bja (?:esta )?(?:pago|confirmado)\b",
-    )
-)
-
-#: Um numero de telefone angolano em claro na saida (§8.4, «Fuga de PII»). O
-#: padrao e o do `docs/logs.md` §2.1 reduzido ao essencial: nove digitos a
-#: comecar por 9, com ou sem indicativo.
-_TELEFONE: Final = re.compile(r"(?:\+?244[\s-]?)?9\d{2}[\s-]?\d{3}[\s-]?\d{3}")
-
-#: Um PAN candidato: treze a dezanove digitos, com espacos ou tracos.
-_PAN: Final = re.compile(r"(?:\d[ -]?){13,19}")
-
-#: Um IBAN angolano ou generico.
-_IBAN: Final = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
+#
+# **Os padroes sairam daqui para o `guardas/` (KAM-033)**, com a versao SemVer e
+# a impressao que a bateria cobra. O que fica neste modulo sao os nos que os
+# usam e as duas funcoes publicas que a bateria do KAM-031 ja media pelo nome.
 
 # -------------------------------------------------------------------- portas
 
@@ -388,6 +322,19 @@ class Dependencias:
     hnd: PortaDeHandoff | None = None
     #: O `kamba-router` do §15.1, chamado **so** se as regras nao decidirem.
     classificador: Callable[[str], str] | None = None
+    #: KAM-033. O `kamba-router` como classificador **de guarda** (§8.4), so
+    #: quando as regras de entrada nao decidem: `guardas.ClassificadorDeGuarda`.
+    #: `None` enquanto ninguem o liga, e nesse caso o indeciso segue como `ok`
+    #: para o `classify` — que e o comportamento do KAM-031.
+    classificador_de_guarda: Callable[[str, Mapping[str, Any]], str | None] | None = None
+    #: KAM-033, criterio 5. A `PortaDeModos` do KAM-034, para pausar a conversa
+    #: ao N-esimo abuso. O credor da ligacao em producao e o KAM-018 (ver a
+    #: *docstring* da porta).
+    modos: Any | None = None
+    #: KAM-033, criterio 6. Os dominios que uma resposta pode citar (a loja, o
+    #: facilitador). Vazio por omissao, que e o certo: hoje nenhum bloco do
+    #: §9.1 leva um URL, e o primeiro que levar traz o dominio com ele.
+    dominios_permitidos: Sequence[str] = ()
     metricas: Any | None = None
     admitir: Callable[[Mapping[str, Any]], str | None] = _admite_sempre
     #: Segundos desde a epoca. `time.time` e nao `monotonic`: o `expira_at` de um
@@ -549,13 +496,22 @@ MOTIVO_RECLAMACAO: Final = "reclamacao_grave"
 MOTIVO_SENSIVEL: Final = "saude"
 MOTIVO_CITACAO: Final = "citacao"
 MOTIVO_UPSTREAM: Final = "upstream"
+#: KAM-033, criterio 5: a terceira tentativa de injeccao na hora. **E motivo de
+#: guardrail e nao `handoff_trigger` da vertical**: vale nas duas, porque o
+#: `guard_in` e partilhado (ADR-012).
+MOTIVO_INJECCAO: Final = "injeccao_repetida"
 MOTIVOS_DE_HANDOFF: Final = (
     MOTIVO_PEDIDO,
     MOTIVO_RECLAMACAO,
     MOTIVO_SENSIVEL,
     MOTIVO_CITACAO,
     MOTIVO_UPSTREAM,
+    MOTIVO_INJECCAO,
 )
+
+#: O motivo com que o `guard_in` pausa a conversa ao N-esimo abuso (criterio 5).
+#: Vai a `PortaDeModos.pausar`, como o `MOTIVO_DA_PAUSA` do `handoff/servico.py`.
+MOTIVO_DA_PAUSA_POR_ABUSO: Final = "abuso"
 
 #: O aviso que corresponde a cada codigo de erro do §6.5. Os que nao estao aqui
 #: — as tres violacoes — **nao** viram aviso: o §6.5 manda bloquear e alertar, e
@@ -722,71 +678,33 @@ def _linhas_canonicas(
 # ---------------------------------------------------------------- guardrails
 
 
-def _luhn(digitos: str) -> bool:
-    """O algoritmo de Luhn (§8.4, «PAN com Luhn»).
-
-    **Com Luhn e nao so pelo comprimento**: um `order_id` de dezasseis digitos
-    ou um NIF colado a um codigo postal tem o comprimento de um PAN, e redigir a
-    mensagem de um cliente que pediu o estado de uma encomenda era recusar o
-    turno por nada. Luhn nao prova que e um cartao; prova que **pode** ser, e e
-    o que o §8.4 pede.
-    """
-    soma = 0
-    for posicao, caractere in enumerate(reversed(digitos)):
-        valor = int(caractere)
-        if posicao % 2 == 1:
-            valor *= 2
-            if valor > 9:
-                valor -= 9
-        soma += valor
-    return soma % 10 == 0
-
-
 def veredicto_de_entrada(texto: str) -> str:
-    """O veredicto da guarda de entrada, por regras (§8.4).
+    """O veredicto da guarda de entrada **so por regras**, com `ok` se indeciso.
 
-    **A ordem nao e arbitraria.** Dados de cartao vem primeiro porque uma
-    mensagem com um PAN e um pedido de credito ao mesmo tempo tem de ser tratada
-    como cartao — o §8.4 manda nao guardar —, e o sensivel vem antes da injeccao
-    porque uma pergunta sobre medicamentos escrita com «finge que» continua a
-    ser uma pergunta sobre medicamentos, e quem decide sobre ela e uma pessoa.
-
-    Publica (sem `_`) porque a bateria a mede caso a caso e porque o KAM-033 a
-    substitui: um nome privado obrigava-o a mexer no no.
+    E a funcao que o KAM-031 publicou e que a bateria mede caso a caso; desde o
+    KAM-033 delega no `guardas.regras`. O `guard_in` nao a usa: ele chama o
+    classificador quando as regras nao decidem, e esta funcao responde como se
+    nao houvesse classificador — que e o que acontece sem `kamba-router` ligado.
     """
-    for candidato in _PAN.findall(texto):
-        digitos = re.sub(r"\D", "", candidato)
-        if 13 <= len(digitos) <= 19 and _luhn(digitos):
-            return "card_data"
-    if _IBAN.search(texto):
-        return "card_data"
-    if any(padrao.search(texto) for padrao in _SENSIVEL):
-        return "sensitive"
-    if any(padrao.search(texto) for padrao in _INJECCAO):
-        return "injection"
-    if any(padrao.search(texto) for padrao in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(
-        texto
-    ):
-        # **Atravessar a fronteira do tenant e `injection`**, nao
-        # `out_of_domain`. Os dois vao ao `safe_reply` pela linha 9, mas e o
-        # `injection` que nomeia o que isto e: o X-09 do `docs/tecnica/08` §3.7.
-        return "injection"
-    return "ok"
+    return guardas.veredicto_por_regras(texto) or "ok"
 
 
-def violacao_de_saida(texto: str) -> str | None:
-    """O que a guarda de saida recusa (§8.4, linhas de saida).
+def violacao_de_saida(
+    texto: str,
+    *,
+    estado_da_tool: str | None = None,
+    dominios_permitidos: Sequence[str] = (),
+) -> str | None:
+    """O que a guarda de saida recusa (§8.4), ou `None` se o texto pode sair.
 
-    Devolve o nome da violacao ou `None`. **Nao devolve `bool`**: o caminho e o
-    mesmo, mas um painel que conte violacoes sem saber de que tipo manda olhar
-    para o sitio errado — a licao que o `get_store_info.py` escreveu ao separar
-    o `UPSTREAM_TIMEOUT` do `UPSTREAM_DOWN`.
+    Devolve o nome da violacao e nao `bool`: o caminho e o mesmo, mas um painel
+    que conte violacoes sem saber de que tipo manda olhar para o sitio errado.
+    Os nomes sao os tres nao-`ok` do `guardas.VEREDICTOS_DE_SAIDA`.
     """
-    if any(padrao.search(texto) for padrao in _PROMESSAS):
-        return "promessa"
-    if _TELEFONE.search(texto):
-        return "pii"
-    return None
+    veredicto = guardas.veredicto_de_saida(
+        texto, estado_da_tool=estado_da_tool, dominios_permitidos=dominios_permitidos
+    )
+    return None if veredicto == "ok" else veredicto
 
 
 # --------------------------------------------------------------- classificacao
@@ -1061,16 +979,109 @@ def stt(deps: Dependencias):
 
 
 def guard_in(deps: Dependencias):
-    """Linhas 8 a 10: a guarda de entrada, deterministica minima (KAM-033)."""
+    """Linhas 8 a 10: a guarda de entrada do §8.4 (KAM-033).
+
+    A ordem e a do §8.4: **regras primeiro** (`guardas.regras`, custo zero), o
+    **classificador** so se elas nao decidirem, e depois os **contadores** por
+    contacto do criterio 5. O que sai no estado:
+
+    * `guard.veredicto` — um dos seis, que o `r_guard` le;
+    * `guard.origem` — quem decidiu: `regras`, `classificador`, `omissao` (as
+      regras nao decidiram e nao ha classificador, ou ele nao respondeu) ou
+      `cooldown`;
+    * `guard.escalada` — `handoff` na terceira injeccao da hora, `pausa` ao
+      N-esimo abuso com a porta de modos ligada, `pausa_por_ligar` sem ela.
+
+    E a mensagem do cliente **substitui-se na janela** quando chega crua com um
+    PAN, um IBAN ou um assunto sensivel — ver o `guardas/entrada.py`, que diz
+    porque e que esta e a **segunda** barreira e nao a primeira.
+    """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        veredicto = veredicto_de_entrada(_texto_do_cliente(estado))
-        delta: dict[str, Any] = {"guard": {"veredicto": veredicto}}
+        texto = _texto_do_cliente(estado)
+        agora = deps.relogio()
+        contadores = contadores_mod.ler(estado)
+        if contadores_mod.em_cooldown(contadores, agora):
+            # **No *cool-down* nao se pergunta a ninguem**: nem regras, nem
+            # classificador, nem tools. E o «cool-down» do `docs/tecnica/08`
+            # §4.3 (L5), e o que ele poupa e precisamente a chamada ao modelo
+            # que um atacante estaria a pagar com o dinheiro da loja.
+            veredicto, origem = "injection", "cooldown"
+            novos, accao = contadores, None
+        else:
+            veredicto = guardas.veredicto_por_regras(texto)
+            origem = "regras"
+            if veredicto is None:
+                veredicto = _classificar_a_guarda(deps, estado, texto)
+                origem = "classificador" if veredicto is not None else "omissao"
+                veredicto = veredicto or "ok"
+            novos, accao = contadores_mod.registar(contadores, veredicto, agora)
+            if deps.metricas is not None:
+                deps.metricas.contar(metricas_mod.METRICA_GUARD_IN, veredicto)
+
+        guarda: dict[str, Any] = {"veredicto": veredicto, "origem": origem}
+        delta: dict[str, Any] = {"guard": guarda, contadores_mod.CHAVE: novos}
+        substituicao = substituicao_na_janela(estado)
+        if substituicao:
+            delta["messages"] = substituicao
         if veredicto == "sensitive":
             delta["handoff_motivo"] = MOTIVO_SENSIVEL
+        if accao == contadores_mod.ACCAO_HANDOFF:
+            guarda["escalada"] = "handoff"
+            delta["handoff_motivo"] = MOTIVO_INJECCAO
+        elif accao == contadores_mod.ACCAO_PAUSAR:
+            if deps.modos is None:
+                # **Sem porta nao se diz ao cliente que a conversa parou**: era
+                # afirmar uma transicao que nao aconteceu. Fica escrito no
+                # estado, e a porta e do KAM-018 (ver a *docstring* dela).
+                guarda["escalada"] = "pausa_por_ligar"
+            else:
+                deps.modos.pausar(
+                    tenant_id=estado["tenant_id"],
+                    conversation_id=estado["conversation_id"],
+                    motivo=MOTIVO_DA_PAUSA_POR_ABUSO,
+                )
+                guarda["escalada"] = "pausa"
         return delta
 
     return no
+
+
+def _classificar_a_guarda(
+    deps: Dependencias, estado: Mapping[str, Any], texto: str
+) -> str | None:
+    """O classificador de guarda, com o protocolo do disjuntor do `classify`.
+
+    Devolve o veredicto ou `None`. **Um erro do modelo nao falha o turno nem o
+    recusa**: devolve `None` e o turno segue como `ok` para o `classify`, que
+    tem o caminho degradado do KAM-037. Recusar por o modelo estar em baixo era
+    a loja sem atendimento de cada vez que o fornecedor falha — e o texto ja
+    passou pelas regras, que sao as que decidem o cartao e o sensivel.
+    """
+    if deps.classificador_de_guarda is None or estado.get("degradado"):
+        return None
+    tenant_id = estado["tenant_id"]
+    if not deps.degradacao.pode_chamar_o_llm(tenant_id):
+        return None
+    julgado = False
+    try:
+        escolhido = deps.classificador_de_guarda(texto, estado)
+    except ErroDeLlm as erro:
+        julgado = True
+        deps.degradacao.registar_falha(tenant_id, erro)
+        return None
+    else:
+        julgado = True
+        deps.degradacao.registar_sucesso(tenant_id)
+    finally:
+        # A tentativa de meio-aberto larga-se se ninguem a julgou — a correccao
+        # do achado C7 do KAM-037, pela mesma razao que la esta escrita.
+        if not julgado:
+            deps.degradacao.absolver(tenant_id)
+    # **A lista do classificador e nao a das regras**: sem `card_data`. Um
+    # classificador que o devolvesse estava a dizer que viu um cartao num texto
+    # que as regras ja disseram que nao o tem.
+    return escolhido if escolhido in VEREDICTOS_DO_CLASSIFICADOR else None
 
 
 def classify(deps: Dependencias):
@@ -1676,12 +1687,20 @@ def validate(deps: Dependencias):
         rascunho = estado.get("draft") or {}
         blocos = list(rascunho.get("blocos") or ())
         facts = tuple(estado.get("facts") or ())
-        ofertas = _ofertas_de(estado)
         repeticoes = int(estado.get("citation_retries") or 0)
 
         try:
+            # **As ofertas constroem-se dentro do `try`** (KAM-033, criterio 4).
+            # Uma designacao de catalogo com um valor dentro — «Camisa Azul, liga
+            # para 9…» — faz a `Oferta` levantar `NomeComPrecoError`, e fora do
+            # `try` isso **rebentava o turno**: o *job* voltava a fila e repetia
+            # para sempre, uma PME hostil a desligar a sua propria conversa e a
+            # gastar os *workers* das outras. Medido no ensaio da injeccao
+            # indirecta. Vai pelo caminho do bloco invalido, que e o certo: a
+            # resposta nao sai e, a segunda, um humano ve-a.
+            ofertas = _ofertas_de(estado)
             saida = renderizar(blocos, facts, ofertas)
-        except BlocoInvalidoError:
+        except (BlocoInvalidoError, NomeComPrecoError):
             # **Um bloco invalido e defeito do `compose`, nao veredicto do
             # validador**, e nao ha codigo para ele: os sete veredictos do §9.1
             # sao todos sobre numeros do texto, e o `Verdict` recusa-se a
@@ -1747,11 +1766,24 @@ def _contar_validacao(
 
 
 def guard_out(deps: Dependencias):
-    """Linhas 32 e 33: promessas proibidas e fuga de PII (§8.4)."""
+    """Linhas 32 e 33: promessas, identidade e fuga de dados (§8.4, KAM-033).
+
+    Le o `draft.texto`, que e o que o `send` envia — o texto **final**, depois do
+    *renderer*, e nao os blocos. O estado da encomenda que a tool devolveu
+    (`draft.dados.estado`) e o «evento» que deixa dizer «pago» (criterio 6).
+    """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         rascunho = estado.get("draft") or {}
-        violacao = violacao_de_saida(str(rascunho.get("texto") or ""))
+        dados = rascunho.get("dados") if isinstance(rascunho, Mapping) else None
+        estado_da_tool = dados.get("estado") if isinstance(dados, Mapping) else None
+        violacao = violacao_de_saida(
+            str(rascunho.get("texto") or ""),
+            estado_da_tool=estado_da_tool if isinstance(estado_da_tool, str) else None,
+            dominios_permitidos=deps.dominios_permitidos,
+        )
+        if deps.metricas is not None:
+            deps.metricas.contar(metricas_mod.METRICA_GUARD_OUT, violacao or "ok")
         if violacao is None:
             return {}
         return {"draft": dict(rascunho, violacao=violacao)}
@@ -1787,17 +1819,36 @@ def ask_repeat(deps: Dependencias):
     return no
 
 
+def texto_seguro_da_guarda(estado: Mapping[str, Any], fora_de_ambito: str) -> str:
+    """O texto do `safe_reply`, pelo que o levou la. Partilhado pelas verticais.
+
+    `fora_de_ambito` e o texto proprio da vertical (o do Vendedor fala de
+    produtos e pedidos, o da Rececionista de marcacoes). Os outros sao da
+    plataforma e iguais nas duas.
+
+    A ordem: uma **saida bloqueada** primeiro (a guarda de entrada deixou passar,
+    e o que se recusa e a resposta), depois o veredicto de entrada.
+    """
+    rascunho = estado.get("draft")
+    if isinstance(rascunho, Mapping) and rascunho.get("violacao"):
+        return MSG_SAIDA_BLOQUEADA
+    guarda = estado.get("guard")
+    guarda = guarda if isinstance(guarda, Mapping) else {}
+    veredicto = guarda.get("veredicto")
+    if veredicto == "card_data":
+        # O §8.4 manda **avisar o cliente** e nao guardar: a mensagem e outra, e
+        # diz-lhe o que fazer.
+        return MSG_CARTAO
+    if veredicto == "abuse":
+        return MSG_PAUSADA if guarda.get("escalada") == "pausa" else MSG_ABUSO
+    return fora_de_ambito
+
+
 def safe_reply(deps: Dependencias):
-    """Linhas 9, 17 e 33 -> 34: o texto seguro, escolhido pelo veredicto."""
+    """Linhas 9, 17 e 33 -> 34: o texto seguro, escolhido pelo que o trouxe."""
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        guarda = estado.get("guard")
-        veredicto = guarda.get("veredicto") if isinstance(guarda, Mapping) else None
-        if veredicto == "card_data":
-            # O §8.4 manda **avisar o cliente** e nao guardar: a mensagem e
-            # outra, e e a unica das tres que diz ao cliente o que fazer.
-            return _resposta_estatica(MSG_CARTAO)
-        return _resposta_estatica(MSG_FORA_DE_AMBITO)
+        return _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
 
     return no
 

@@ -2019,6 +2019,78 @@ referência é uma cadeia opaca com dígitos e nenhum dos cinco blocos do §9.1 
 
 ---
 
+## 7-J. Os guardrails: regras primeiro, o modelo só se elas não decidirem (KAM-033)
+
+O pacote é `services/agr/src/kamba_agr/guardas/` e os nós que o usam são o
+`guard_in`, o `guard_out` e o `safe_reply` do grafo do Vendedor, que a
+Rececionista importa (ADR-012). Os nomes estão no dicionário §3.51.
+
+### A política é um ficheiro com versão, e a versão cobra-se
+
+`guardas/politica.py` tem os padrões, os limiares e — por `impressao()` — o
+*system prompt* do classificador. `VERSAO_DA_POLITICA` é SemVer e a bateria fixa
+o SHA-256 de cada versão: **mudar um padrão sem subir a versão falha o *gate*
+4** (`test_guardas.py::TestPolitica`). Quem muda a política sobe a versão e
+acrescenta a linha da impressão nova; nunca troca a de uma versão publicada.
+
+### A entrada: seis veredictos, e quem os decide
+
+| Ordem | Veredicto | Mecanismo | Para onde vai |
+|---|---|---|---|
+| 1 | `card_data` | PAN com Luhn, IBAN com *mod 97*, ou a marca da redacção | `safe_reply` com o aviso; **nunca** ao modelo |
+| 2 | `sensitive` | saúde, medicamentos, armas, álcool, apostas, crédito (como produto), e os dados do Art. 5.º c) | `handoff_prepare`; **nunca** ao modelo nem às tools |
+| 3 | `injection` | instruções ao sistema, troca de papel, delimitadores falsos, e a travessia do X-09 | `safe_reply`; à 3.ª na hora, `handoff_prepare` e *cool-down* |
+| 4 | `abuse` | insultos e ameaças | `safe_reply`; ao N-ésimo, a `PortaDeModos` pausa a conversa |
+| 5 | `out_of_domain` | o «assistente universal» | `safe_reply` com o âmbito da loja; conta em `agr_guard_in_total{veredicto="out_of_domain"}` — a prova de âmbito da Meta |
+| 6 | `ok` | o léxico do comércio | `classify` |
+
+O que nenhuma regra decide vai ao **classificador** (`ClassificadorDeGuarda`,
+papel `router`), minimizado pelo KAM-112 e delimitado como dado
+(`prompt.como_dados`). Um erro do modelo **não** falha nem recusa o turno: segue
+como `ok` para o `classify`, que tem o caminho degradado do KAM-037. O
+classificador **não** pode devolver `card_data`.
+
+**Sem classificador ligado** — e hoje a `Dependencias.classificador_de_guarda`
+nasce `None`, como a `classificador` do KAM-031 —, o indeciso segue como `ok`,
+que é o comportamento de antes deste ticket.
+
+### A mensagem do cliente entra na janela por uma via só
+
+`guardas.mensagem_do_cliente(texto)` redige o PAN e o IBAN e troca uma mensagem
+sensível inteira por uma marca **antes** de ela entrar na janela `messages`.
+**Tem de ser antes do `ainvoke`**, e mediu-se porquê: o LangGraph grava a entrada
+num *checkpoint* antes do primeiro nó, pelo que um PAN cru fica em `lg.*` mesmo
+que o `guard_in` o redija a seguir. O `guard_in` substitui a mensagem crua na
+janela (segunda barreira, que protege os *checkpoints* depois dele), e o
+`TestUmaSoVia` recusa, pela AST, uma mensagem `user` construída em `src/` fora do
+`guardas/entrada.py`. **Quem ligar a porta `grafos` do `turno.py` e encher a
+janela usa esta função**: é a convenção que o cabeçalho do `nos.py` do Vendedor
+já escreve para o texto do cliente, agora com a barreira posta.
+
+### A saída: quatro veredictos sobre o texto final
+
+`ok`, `promessa` (desconto, prazo, «pago/confirmado» sem o estado da encomenda
+vir da tool, comparação), `identidade` (eco do *system prompt*, pretender ser
+humano) e `fuga` (telefone, e-mail e BSUID pelo detector do KAM-112, NIF por
+contexto, nove dígitos seguidos fora de um número de negócio, URL fora de
+`Dependencias.dominios_permitidos`, imagem *markdown*, pedir dados de cartão).
+Corre sobre o `draft.texto`, depois do *renderer*: uma designação de catálogo com
+uma instrução embutida que chegue ao texto é recusada pela mesma regra.
+
+### O que fica por ligar ou por medir
+
+- **O classificador em produção** e a **`PortaDeModos`** (credor **KAM-018**):
+  as duas portas existem e estão medidas com duplos.
+- **A qualidade do classificador e os limiares**: *golden* (**KAM-040**) e
+  *red-team* (**KAM-073**).
+- **As categorias da loja** para o álcool (**KAM-088**).
+- **O telefone em `lg.*`**: um telefone que o **cliente** escreve fica na janela
+  e no `pii_map` do KAM-112, por decisão daquele ticket. O «telefone = 0» dos
+  *Testes Requeridos* do bloco não se cumpre por desenho — está escrito na
+  secção de verificação.
+
+---
+
 ## 9. Controlo de versões
 
 | Versão | Data | Autor | Alterações |
@@ -2041,3 +2113,4 @@ referência é uma cadeia opaca com dígitos e nenhum dos cinco blocos do §9.1 
 | 1.13 | 2026-10-29 | KAM-037 | §7-I: o modo determinístico — o sub-grafo **do** grafo e não um segundo compilado (e porque é o *checkpointer* que decide isso), os cinco motivos e o `429` que teve de virar `http_429` pela gramática de etiqueta, o disjuntor do LLM com os limiares **medidos** na configuração do proxy em vez de copiados do bloco, a barreira que não se simplifica (Postgres em baixo **não** é degradação, imposta por tipo e medida a correr), o `turn_id` que impede o denominador do alerta de inflacionar com turnos em voo, e a interacção com o `concierge` que nenhum dos dois blocos previa — devolvida ao fundador com a leitura implementada. O §6 fica corrigido: o `agr_degraded_turns_total` **passou a existir**, e a frase que dizia o contrário era verdadeira até este ticket |
 | 1.16 | 2026-11-08 | KAM-069 | §7-D, nota do `destino_negado`: a frase dizia «em `prod` a porta nega tudo **até ao KAM-069**», e esse ticket entregou a tabela e a porta. Passa a dizer o que passou a ser verdade — nega tudo enquanto nenhum destino tiver `apd_ref`. O `arrancar` do `llm/destinos.py` devolve a `PortaDoNucleo` quando há ligação à base e a `NegaTudoAteKam069` quando não há, que é a mais restritiva das duas; o motivo `destino_negado` e a mecânica da degradação **não mudam**. |
 | 1.17 | 2026-11-08 | KAM-184 | §7-H: **a acção dos dois pagamentos na vertical Serviços passa a estar escrita** — confirma a marcação com sinal, e o desfecho do consumo deixa de ser `sem_accao` para os dois pares. A secção ganha a tabela das três respostas da `PortaDeMarcacao` (a marcação confirmada, `None` para uma encomenda sem marcação, e levantar quando não se sabe), e a tabela do que ainda não existe ganha a quarta porta, cujo credor **não é um ticket**: o caminho entre o AGR e o módulo `servicos` não está em linha nenhuma do §4 do `specs/INDICE.md`, e a mesma lacuna já estava escrita no `tls/servicos.py`. **A origem do `booking_id` fica devolvida ao fundador** com as duas rotas medidas: ele não vem no evento — os quatro esquemas dos dois tipos têm `additionalProperties: false` e não o admitem — e a acção identifica a encomenda pelo `order_id`. O que muda em produção não é o resultado (nem o `contactos` nem o `marcacoes` são ligados no `__main__.py`, pelo que o `payment.confirmed` do Vendedor já ia para a DLQ pelo contacto por resolver): é o desfecho deixar de dizer «ninguém escreveu isto». | Equipa KAMBÁ |
+| 1.18 | 2026-11-08 | KAM-033 | §7-J: os guardrails — a política com versão e impressão, os seis veredictos de entrada por ordem e o classificador só quando as regras não decidem, a via única para a janela (e a medição que a obriga: o *checkpoint* de entrada), os quatro veredictos de saída, e o que fica por ligar. |

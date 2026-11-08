@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Agent Runtime e Verticais |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E4_Stack_Licencas.md`, `evidencia/E1_Meta_WhatsApp.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §4, `../exploracao/12-diagramas-c4-fluxogramas.md` C4.1, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -493,7 +493,7 @@ stateDiagram-v2
 | 7 | `stt` → `handoff_prepare` | confiança baixa, idioma não suportado, duração > limite |
 | 8 | `guard_in` → `classify` | veredicto `ok` |
 | 9 | `guard_in` → `safe_reply` | `injection`, `abuse`, `out_of_domain`, `card_data` |
-| 10 | `guard_in` → `handoff_prepare` | `sensitive` (saúde, reclamação grave) |
+| 10 | `guard_in` → `handoff_prepare` | `sensitive` (saúde, reclamação grave), ou a 3.ª `injection` na hora no mesmo contacto (§8.4) |
 | 11 | `classify` → `retrieve` | intenção `produto`, `preco_stock` |
 | 12 | `classify` → `cart_build` | `comprar` |
 | 13 | `classify` → `confirm_gate` | `confirmar` (resposta a botão `confirm:*`) |
@@ -633,11 +633,11 @@ O doc 00 §4 define COM como «produtos, encomendas, stock, reservas 24–72 h»
 
 | Camada | Verificação | Mecanismo | Acção |
 |---|---|---|---|
-| Entrada | Injecção de prompt, pedidos de revelar instruções | Regras (padrões) + classificador barato (`kamba-router`) | `safe_reply`; contador por contacto |
+| Entrada | Injecção de prompt, pedidos de revelar instruções | Regras (padrões) + classificador barato (`kamba-router`) | `safe_reply`; contador por contacto. À 3.ª tentativa na hora, `handoff_prepare` (linha 10 do §7.3) e *cool-down* (`../08` §4.3, L5; limiares *proposta*, dicionário §3.51) |
 | Entrada | **Fora de domínio** (perguntas gerais, «assistente universal») | Classificador + lista de intenções do domínio | `safe_reply` redireccionando ao âmbito da loja. **Requisito de política:** a Meta proíbe «AI Provider» de uso geral como funcionalidade principal (CONFIRMADO, E1 §4); o âmbito comercial é prova a guardar em logs agregados |
 | Entrada | Dados de cartão/conta/BI enviados pelo cliente | Regex (PAN com Luhn, IBAN) | Redigir, não guardar, avisar o cliente; **nunca** pedir tais dados (Meta Commerce Policy) |
 | Entrada | Saúde, medicamentos, armas, álcool, apostas, crédito | Classificador + categorias da loja | `sensitive` → handoff ou recusa. Categorias proibidas na Meta (CONFIRMADO); «saúde» é dado sensível na Lei 22/11 Art. 5.º c) (CONFIRMADO, E3); autorização APD (a confirmar por parecer) |
-| Entrada | Conteúdo ofensivo/abuso | Regras + classificador | `safe_reply`; após N ocorrências, `pausada` |
+| Entrada | Conteúdo ofensivo/abuso | Regras + classificador | `safe_reply`; após N ocorrências (N *proposta*), `pausada` pela `PortaDeModos` do KAM-034 |
 | Dados não fiáveis | Texto de catálogo escrito pela PME e mensagens de clientes | **Tratados como dados, nunca como instruções**: delimitados no prompt; sem dígitos copiáveis (§9); tools não aceitam argumentos vindos de descrições | Mitiga injecção indirecta |
 | Saída | Citação de números e `sku` | Validador (§9) | retry → handoff |
 | Saída | Promessas proibidas: descontos, prazos de entrega, «pago/confirmado» sem evento, comparações («o mais barato») | Regras + facts exigidos | `safe_reply` |
@@ -1060,3 +1060,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.5 | Outubro 2026 | KAM-031: §5.3 — o estado partilhado passa a declarar `ofertas`, `avisos`, `handoff_motivo` e `admissao` (emenda 1.40 do dicionario). Os tres aparecem ao escrever o grafo do Vendedor contra o §7.3 e nenhum era declaravel sem emenda: o `ofertas` e o quarto parametro do validador do KAM-032 (o nome de um produto vive no `ToolResult.data` do `05` §6.3 e nao num `Fact`, divida 105); o `avisos` e por onde os criterios 3 e 6 do bloco mandam `STALE_CONFIRMATION` e `OUT_OF_STOCK` chegar ao `compose` «como *facts*», o que um `Fact` nao pode ser — e um numero com proveniencia, de `kind` fechado nos quatro do §6.2; e o `handoff_motivo` ja era lido pelo codigo do §11 sem estar declarado. | Equipa KAMBA |
 | 1.6 | Novembro 2026 | **KAM-039** (prova da regra de dois): §5.4 ganha como se mede a medida de reaproveitamento — regras de contagem em [`../reuse-metric.md`](../reuse-metric.md), instrumento `make reuso` — e o resultado medido: **`reuso = 88,26%`** contra um limiar de 70%, e **uma** excepcao no nucleo. **A condicao (d) nao passa:** o `AO_DONO` do `eventos/handlers.py` e uma tabela de pares `(vertical, tipo)` com entradas **so do Vendedor**, lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado — e as duas saidas estao medidas em `../evidencia/KAM-039.md` §5.0. **Tres emendas que a medicao obrigou, nenhuma de estilo.** A primeira: a tabela desta seccao poe o `compose` na coluna «Partilhado (core)» sem a ressalva que a sua propria linha «Persona / prompts» faz — o `compose`, o `ask_repeat` e o `safe_reply` escrevem texto de persona e sao proprios da vertical (KAM-035, `ANALISE-40` achado 10), e o que e partilhado e a estrutura. A segunda: a condicao (d) esta escrita como um `grep` e **nao se pode cumprir como um `grep`** — a busca a letra devolve 162 ocorrencias no nucleo, 114 delas prosa a explicar porque e que o nucleo nao depende de vertical nenhuma. A terceira, que a revisao adversarial obrigou: **o criterio (d) precisa de distinguir validacao de despacho para ser satisfazivel** — o nucleo tem de validar o campo contra a lista fechada de verticais permitidas (criterio 5 do KAM-014, por escrito), e «nenhuma excepcao no core» quer dizer «o nucleo nao despacha por vertical» e nao «o nucleo nao conhece a lista». Dai as quatro classes: `prosa`, `conteudo`, `dominio` e `fluxo`. | Equipa KAMBA |
 | 1.7 | Novembro 2026 | **KAM-039, caixa devolvida: a condição (d) passa, e o §5.1 ganha o `notifica`.** A notificação ao dono sai do núcleo — era a tabela `AO_DONO` do `eventos/handlers.py`, pares `(vertical, tipo)` só do Vendedor lidos num `if`, e a única ocorrência de `fluxo` que a medição do KAM-039 encontrou — e passa a `subscriptions[].notifica`, domínio fechado `{cliente, dono}`, com a omissão a ser a lista vazia (dicionário §3.26, emenda 1.65). Decisão do fundador a 2026-11-06. **Medido sobre `db0582d`: `python -m reuse_metric nucleo` ia de `fluxo 1`, saída 1, para `fluxo 0`, saída 0**; a outra metade do G0-2 passa com 88,30% (limiar 70%) e não foi tocada. O §5.4 deixa de dizer que a condição não passa, e o exemplo do §5.1 ganha a chave nas duas verticais. **O que fica em aberto:** a fronteira do `conteudo` — as 45 ocorrências que a métrica conta e nomeia sem reprovar —, devolvida ao fundador. |
+| 1.8 | Novembro 2026 | **KAM-033** (guardrails): a linha 10 do §7.3 passa a levar também a 3.ª `injection` na hora no mesmo contacto — é a L5 do `../08` §4.3 («3 tentativas/h por contacto → handoff e *cool-down*»), e vai pela **mesma** aresta do `sensitive`, pelo que o grafo continua com as quarenta e duas arestas. O §8.4 diz isso na linha da injecção e dá à do abuso a porta que pausa. Os nomes e os limiares estão no dicionário §3.51 (emenda 1.71). | Equipa KAMBÁ |
