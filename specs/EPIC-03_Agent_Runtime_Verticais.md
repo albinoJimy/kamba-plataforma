@@ -4617,6 +4617,34 @@ defeito e não o valor; achado da revisão adversarial. Medido depois das emenda
 `python tools/lint_bloco/mutacao.py` → `18 mortas, 0 sobreviventes inesperadas,
 2 esperadas, 0 invalidas`, com a `M20 o piso de emparelhados a zero` **morta**.
 
+**A prova por mutação deste ticket: cinco mutações, cinco apanhadas, e a que
+importa é a da ligação.** Uma substitui a que deixou de se aplicar — ancorava-se
+na linha do `ACCOES_POR_LIGAR` que saiu, e um `--aplicaveis` a dizer «NAO
+APLICAVEL» é o *gate* 8 vermelho — e quatro são novas. Correram na suite
+`agr_unit`, em série e com a linha de base verde em cada uma, **sobre a árvore
+que vai fundir** (`8511b225`, já com a `main` em `0e3541d3` dentro):
+
+| Mutação | Veredicto |
+|---|---|
+| `o consumo deixa de chamar a accao de marcacao` (`if False:` na ligação do `_efeito`) | **apanhada**, 9 ensaios vermelhos |
+| `a accao de marcacao deixa de existir` (o par sai do `ACCOES_DE_MARCACAO`) | **apanhada**, 14 |
+| `a accao de marcacao passa a valer para todas as verticais` (`tem_accao_de_marcacao` → `True`) | **apanhada**, 37 |
+| `a porta de marcacao por omissao passa a dizer que nao ha nada` (levantar → `None`) | **apanhada**, 3 |
+| `a guarda do arranque deixa de ver a accao escrita` (a metade nova da 3.ª guarda) | **apanhada**, 1 |
+
+**A primeira é a que o lote pediu por extenso, e é a única que o desfecho não
+apanha:** com a chamada apagada, o desfecho fica `aplicado` — não há credor a
+ler —, pelo que o que fica vermelho são as asserções sobre o **artefacto**. As
+cinco tinham morrido antes na árvore de `ff1b311`; **re-correram-se depois da
+fusão** porque um veredicto medido numa árvore que mudou não mede nada, e a
+ordem de grandeza mudou numa delas (a da porta, de 4 para 3), o que é a razão
+de não se citar a medição antiga.
+
+**E o `--aplicaveis` corre em segundos e corre sempre:** `983 mutações
+conferidas, 0 não aplicáveis` na árvore fundida — é ele que apanha uma mutação
+antiga que deixou de casar com o código que cita, que é exactamente o que este
+ticket lhe fez a uma.
+
 ### Revisão adversarial independente
 
 Uma passagem, com o diff e os critérios e **sem** o raciocínio do autor. Deu
