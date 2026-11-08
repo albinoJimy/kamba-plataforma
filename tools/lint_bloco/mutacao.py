@@ -148,8 +148,13 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # ------------------------------------------------------- os dois pisos
     ("o piso de blocos a zero", "lint.py",
      "MINIMO_DE_BLOCOS = 150", "MINIMO_DE_BLOCOS = 0"),
+    # **O literal tem de acompanhar o `lint.py`, e esteve dois valores atras.**
+    # Ficou em `40` quando o KAM-108 subiu o piso para 41: a mutacao deixou de
+    # casar, e uma mutacao que nao casa nao mede nada — fica verde por nao ter
+    # mudado o codigo. Achado da revisao adversarial do KAM-182, que a subiu
+    # para 42 e emendou isto no mesmo passo. Quem mexer no piso mexe aqui.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 40", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 42", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

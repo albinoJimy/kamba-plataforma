@@ -99,7 +99,17 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: cresce. O que fica dito, porque e limite do desenho e nao deste ticket: com o
 #: piso em metade do medido, a **folga sao dois blocos** — ao 84.º volta a pedir
 #: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
-MINIMO_DE_BLOCOS_MEDIDOS = 41
+#:
+#: **E ao 84.º chegou: subiu de 41 para 42 com o KAM-182**, exactamente como a
+#: nota acima previu. Duas seccoes de verificacao fundiram entre o corte do ramo
+#: e a medicao — a do KAM-055 (PR #146) e a do KAM-182 —, e `84 // 2` sao 42.
+#: Medido nas duas pontas: com a `main` em `ca5cac55` sao 83 medidos e 41
+#: bastava; com a `main` em `06b8aba2` e o bloco do KAM-182 sao **84** e o
+#: ensaio falha com `41 not greater than or equal to 42`. **E a folga volta a
+#: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
+#: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
+#: sem defeito nenhum.
+MINIMO_DE_BLOCOS_MEDIDOS = 42
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
