@@ -22,9 +22,24 @@ le no terminal e `--json` para quem a consome num *job*. A guarda do criterio 7
 
 Isto nao e arrumacao. Uma protecao de privacidade que vive dentro do caminho de
 JSON deixa o caminho de texto — que e o de **omissao** — sem guarda nenhuma, e
-foi medido neste repositorio noutro ticket. O ensaio
-`test_o_funil_e_um_so` prende-o estruturalmente: conta as chamadas a
-`pode_enviar` no modulo e exige que haja **uma**.
+foi medido neste repositorio noutro ticket.
+
+**Quem prende a propriedade e o comportamento**, em
+`tests/test_cli.py::TestOFunilEUmSo`: o
+`test_os_dois_formatos_dizem_a_mesma_coisa_sobre_o_envio` exige que os dois
+formatos recusem o mesmo pedido com o mesmo codigo de saida, e o
+`test_os_comandos_com_guarda_sao_exactamente_os_que_escrevem` exige que o
+conjunto dos comandos com `--classe` seja **igual** ao dos que chamam o
+`_imprimir` — pelo que um comando novo que escreva resultado sem guarda reprova
+sem ninguem se lembrar dele.
+
+Os ensaios de arvore sintactica ao lado deles sao verificacao **secundaria da
+forma**: dizem que a guarda tem um nome e um sitio. **Nao dizem que nao ha
+outra**, e isso esta medido — a revisao adversarial acrescentou um segundo funil
+por referencia indirecta (`getattr`), contornou o gate por inteiro, e os tres
+passaram. (A primeira versao desta seccao citava um ensaio chamado
+`test_o_funil_e_um_so`, que nunca existiu, e dizia «prende-o
+estruturalmente».)
 
 ================================================================================
 NAO ESTA LIGADO A NENHUM PORTAO, E ISSO E DELIBERADO
@@ -265,7 +280,16 @@ def _acrescentar_guarda(analisador: argparse.ArgumentParser) -> None:
     analisador.add_argument("--json", action="store_true")
 
 
-def main(argv: list[str] | None = None) -> int:
+def construir_analisador() -> argparse.ArgumentParser:
+    """O analisador, numa funcao, **para que os ensaios o possam interrogar.**
+
+    Estava embutido no `main`, e a revisao adversarial mostrou o que isso
+    custava: o ensaio que verificava o funil percorria uma lista de dois nomes
+    escrita a mao (`_comando_restauro`, `_comando_debito`), pelo que um comando
+    novo que escrevesse resultado sem guarda nao era visto por ninguem. Com o
+    analisador acessivel, o ensaio **descobre** quais os comandos que escrevem e
+    exige que o conjunto deles seja exactamente o conjunto dos que tem guarda.
+    """
     analisador = argparse.ArgumentParser(prog="backup_lint", description=__doc__)
     analisador.add_argument("--root", type=Path, default=None)
     sub = analisador.add_subparsers(dest="comando", required=True)
@@ -282,7 +306,11 @@ def main(argv: list[str] | None = None) -> int:
     debito.add_argument("--bytes", type=int, required=True)
     debito.add_argument("--segundos", type=float, required=True)
     _acrescentar_guarda(debito)
+    return analisador
 
+
+def main(argv: list[str] | None = None) -> int:
+    analisador = construir_analisador()
     argumentos = analisador.parse_args(argv)
     if argumentos.comando == "lint":
         return _comando_lint(argumentos)

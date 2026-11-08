@@ -69,6 +69,25 @@ class TestContador(unittest.TestCase):
         estado = self.metricas.ler()
         self.assertEqual(estado["desfechos"], {"ok": 2, "falhado": 1})
 
+    def test_o_quanto_soma_o_que_lhe_dao_e_nao_um(self) -> None:
+        """Achado da revisao adversarial: o parametro nunca foi exercitado.
+
+        Trocar `+ quanto` por `+ 1` deixava as 22 provas deste modulo verdes, e
+        um `job` que recuperasse varios desfechos de uma vez — a forma como um
+        agendador relata o que correu enquanto esteve em baixo — contaria um.
+        """
+        self.metricas.contar_desfecho("ok", quanto=3)
+        self.metricas.contar_desfecho("ok")
+        self.metricas.contar_desfecho("falhado", quanto=2)
+        self.assertEqual(
+            self.metricas.ler()["desfechos"], {"ok": 4, "falhado": 2}
+        )
+
+    def test_o_quanto_tem_omissao_de_um(self) -> None:
+        """A omissao e a chamada corrente, e fica prendida a parte do `quanto`."""
+        self.metricas.contar_desfecho("ok")
+        self.assertEqual(self.metricas.ler()["desfechos"], {"ok": 1})
+
     def test_um_desfecho_fora_dos_tres_recusa_se(self) -> None:
         """A lista e fechada porque e o vocabulario do criterio 5 e nao um campo
         livre: um `desfecho="talvez"` num painel nao se distingue de um erro de

@@ -266,12 +266,27 @@ destinos_por_decidir:
 # producao», e marca a viabilidade do *object lock* **NAO VERIFICADO** para
 # SeaweedFS e S3 gerido, com a alternativa de um *host* que **puxa**.
 #
-# O que se pode fixar hoje e a **forma**: a configuracao declara dois perfis de
-# credencial (escrita de producao, leitura do restauro) e o *lint* falha se o
-# perfil de restauro aparecer com permissao de escrita. O que **nao** se pode
-# fixar e o *object lock*: o `docs/evidencia/KAM-011-seaweedfs.md` §3.3 mediu-o
-# e e **INDICIO** — a sonda nao prova que a retencao sobreviva a um reinicio
-# (os dados estavam em `tmpfs`), nem que nao se contorne fora da API S3.
+# **O que se fixa hoje e menos do que a primeira versao deste comentario
+# dizia, e a diferenca e um achado da revisao adversarial.** Dizia: «a
+# configuracao declara dois perfis de credencial (escrita de producao, leitura
+# do restauro) e o *lint* falha se o perfil de restauro aparecer com permissao
+# de escrita». **Esse *lint* nao existe**, e nao existiam os dados que ele leria:
+# o `anti_ransomware` abaixo tem quatro chaves e nenhum perfil, e nenhuma das
+# dez regras do `tools/backup_lint` o le. Era uma verificacao inventada sobre
+# dados inventados, escrita num ficheiro que e a fonte unica dos numeros deste
+# ticket — a pior combinacao possivel.
+#
+# O que existe, medido: a separacao de perfis esta declarada no
+# `ops/secrets-inventory.yaml`, na entrada `backup_repo_credenciais`, que tem
+# **duas instancias** (`/escrita` e `/leitura`). E uma declaracao de inventario
+# e nao uma permissao aplicada: nada no repositorio verifica que o perfil de
+# leitura seja de facto so de leitura, porque para isso era preciso um `repo1`
+# onde as permissoes existissem. Credor: **D1 (KAM-105)**.
+#
+# O que **nao** se pode fixar e o *object lock*: o
+# `docs/evidencia/KAM-011-seaweedfs.md` §3.3 mediu-o e e **INDICIO** — a sonda
+# nao prova que a retencao sobreviva a um reinicio (os dados estavam em
+# `tmpfs`), nem que nao se contorne fora da API S3.
 
 anti_ransomware:
   object_lock: nao_verificado

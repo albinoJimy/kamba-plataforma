@@ -22,13 +22,19 @@ alcancavel, que exige a D1/KAM-105 decidida. Por isso as duas entradas do
 `regras_por_escrever` do catalogo continuam la, com o que falta **actualizado**:
 ja nao e «nao ha metrica de idade do WAL» — e o processo que a sirva.
 
-A propriedade que distingue este modulo dos outros de `libs/py-core`: e o unico
-cuja fonte de valores **nao esta no processo que o importa**. O
-`ten/metricas.py` conta recusas que o proprio processo decidiu; estes quatro
-numeros lem-se do `pgbackrest info` de **fora**. Nao e um ordinal — nada aqui
-depende de que PR funde primeiro —, e explica porque tres das quatro sao
-*gauges* com `definir` (os valores entram de uma leitura) e so o desfecho do
-restauro e um contador que se incrementa.
+A propriedade deste modulo, dita sem contar quantos outros a tem: a fonte dos
+seus valores **nao esta no processo que o importa**. O `ten/metricas.py` conta
+recusas que o proprio processo decidiu; estes quatro numeros lem-se do
+`pgbackrest info` de **fora**, por um processo que ainda nao existe. E isso que
+explica porque tres das quatro sao *gauges* com `definir` (os valores entram de
+uma leitura) e so o desfecho do restauro e um contador que se incrementa.
+
+A primeira versao deste paragrafo escrevia «e o unico cuja fonte de valores nao
+esta no processo que o importa» e, quatro linhas abaixo, «nao e um ordinal».
+Eram incompativeis, e a revisao adversarial apanhou-o: «e o unico» e uma
+afirmacao sobre o **resto da arvore** e nao sobre este ficheiro, e fica falsa no
+dia em que nascer outro modulo assim — sem ninguem tocar aqui. A propriedade
+descreve-se; a unicidade conta-se, e contar nao e deste sitio.
 
 ================================================================================
 A ETIQUETA, E PORQUE SO HA UMA

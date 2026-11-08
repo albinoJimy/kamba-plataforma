@@ -124,6 +124,8 @@ class Caso:
 _DESTINO_COMPLETO = """destinos:
   - nome: repo1
     fqdn: backup.exemplo.invalid
+    host: backup.exemplo.invalid
+    caminho: /var/lib/pgbackrest
     jurisdicao: angola
     dominio_de_falha: outro-dc
     apd_ref: APD/2026/0001
@@ -174,34 +176,45 @@ CASOS: tuple[Caso, ...] = (
     Caso(
         "segredo-em-claro",
         frozenset({"segredo-em-claro"}),
-        "a passphrase da cifra passa a literal num repositorio publico",
-        lambda c: c.trocar(
-            lint.PGBACKREST,
-            r"^repo1-cipher-pass=\$\{KAMBA_BACKUP_REPO_CIFRA_PASSPHRASE:\?[^}]*\}$",
-            "repo1-cipher-pass=umaFraseQualquer",
+        "a passphrase da cifra entra no ficheiro com valor",
+        # A regra inverteu-se depois de a revisao adversarial medir que o
+        # pgBackRest **nao expande** `${...}` dentro do ficheiro: a chave tem de
+        # estar **ausente** e vir do `PGBACKREST_REPO1_CIPHER_PASS`. A mutacao
+        # e, por isso, acrescentar a chave e nao estragar-lhe o valor.
+        lambda c: c.acrescentar(
+            lint.PGBACKREST, "repo1-cipher-pass=umaFraseQualquer\n"
         ),
     ),
     Caso(
-        "omissao-silenciosa",
-        frozenset({"segredo-em-claro"}),
-        "o destino do `repo1` ganha omissao — arranca contra um palpite",
-        # `${NOME:-valor}` nao e `${NOME:?razao}`: com omissao, a configuracao
-        # **funciona** sem destino decidido, que e o atalho que este ticket
-        # recusa por escrito.
-        lambda c: c.trocar(
-            lint.PGBACKREST,
-            r"^repo1-host=\$\{KAMBA_BACKUP_REPO1_HOST:\?[^}]*\}$",
-            "repo1-host=${KAMBA_BACKUP_REPO1_HOST:-backup.local}",
+        "valor-de-implantacao",
+        frozenset({"valor-de-implantacao"}),
+        "o destino do `repo1` entra escrito no ficheiro, que a D1 nao decidiu",
+        # Nao e segredo, e por isso tem codigo proprio: um FQDN escrito aqui nao
+        # vaza nada, mas parece uma decisao que ninguem tomou — e o pgBackRest
+        # le-o literalmente, pelo que passaria a ser o destino real.
+        lambda c: c.acrescentar(
+            lint.PGBACKREST, "repo1-host=backup.exemplo.invalid\n"
+        ),
+    ),
+    Caso(
+        "ambiente-nao-documentado",
+        frozenset({"ambiente-nao-documentado"}),
+        "o cabecalho deixa de nomear o `PGBACKREST_*` de uma chave ausente",
+        # A metade que impede a outra de ser inutil: uma chave ausente sem nada
+        # que diga de onde vem le-se como uma chave esquecida, e quem implanta
+        # nao tem como saber que lhe falta dar o caminho.
+        lambda c: c.trocar_todas(
+            lint.PGBACKREST, r"PGBACKREST_REPO1_PATH", "PGBACKREST_REPO1_CAMINHO"
         ),
     ),
     Caso(
         "chave-em-falta",
-        frozenset({"chave-em-falta", "repo-no-host-primario"}),
-        "o `repo1-host` desaparece: o repositorio volta para a propria maquina",
-        # As duas sao verdade e sao a mesma coisa vista de dois lados: falta a
-        # chave, e a consequencia e o repositorio no *host* primario — que e o
-        # defeito do doc 11 que o §8.1 existe para corrigir.
-        lambda c: c.apagar_linha(lint.PGBACKREST, r"^repo1-host="),
+        frozenset({"chave-em-falta"}),
+        "o `repo1-retention-archive` desaparece: a janela de PITR passa a efeito",
+        # Sem a chave, a expiracao do arquivo cai no `repo1-retention-diff`, e a
+        # janela de PITR deixa de ser um numero declarado para ser o efeito de
+        # outra chave — medido na ajuda do binario.
+        lambda c: c.apagar_linha(lint.PGBACKREST, r"^repo1-retention-archive="),
     ),
     Caso(
         "segredo-fora-do-inventario",
@@ -237,13 +250,29 @@ CASOS: tuple[Caso, ...] = (
         ),
     ),
     Caso(
-        "pitr-preso-ao-diferencial",
-        frozenset({"pitr-preso-ao-diferencial"}),
-        "o WAL passa a expirar contado do diferencial, nao do completo",
+        "pitr-preso-ao-completo",
+        frozenset({"pitr-preso-ao-completo"}),
+        "o WAL passa a ser retido por completos: 35 dias de WAL e nao 7",
+        # **Este caso prova a correccao de um defeito que o canario nao apanhou
+        # na primeira versao**, e vale dizer porque: a mutacao era esta ao
+        # contrario — o `full` era o esperado e o `diff` o achado. O canario
+        # mordia, o lint tinha 0 achados, e a configuracao retinha WAL 35 dias
+        # contra a politica do `docs/tecnica/08` §11. Uma regra invertida tem
+        # canario verde: o canario prova que a regra morde, nao que esta certa.
         lambda c: c.trocar(
             lint.PGBACKREST,
-            r"^repo1-retention-archive-type=full$",
-            "repo1-retention-archive-type=diff",
+            r"^repo1-retention-archive-type=diff$",
+            "repo1-retention-archive-type=full",
+        ),
+    ),
+    Caso(
+        "pitr-sem-traducao",
+        frozenset({"pitr-sem-traducao"}),
+        "o diferencial deixa de ser diario e «7 backups = 7 dias» morre",
+        # A traducao e que vale, e e ela que se muta: 7 nao e um numero errado,
+        # e um numero que **deixa de significar 7 dias** sem ninguem tocar nele.
+        lambda c: c.trocar(
+            lint.COBERTURA, r"^  diferencial: diario$", "  diferencial: semanal"
         ),
     ),
     Caso(
@@ -276,15 +305,69 @@ CASOS: tuple[Caso, ...] = (
     # ------------------------------------------------------- o repositorio
     Caso(
         "repo-no-pgdata",
-        frozenset({"repo-no-pgdata", "segredo-em-claro"}),
-        "o `repo1-path` aponta para dentro do volume de dados do Postgres",
-        # A segunda e inevitavel e e a razao de o caso existir: para apontar
-        # para o `PGDATA` tem de se escrever um caminho literal, e um caminho
-        # literal e uma omissao silenciosa. As duas descrevem o mesmo atalho.
+        frozenset({"repo-no-pgdata"}),
+        "o destino declarado aponta para dentro do volume de dados do Postgres",
+        # A regra mudou de superficie com o `repo1-path`: o caminho saiu do
+        # `.conf` para o ambiente, e um valor que nao vive no repositorio nao
+        # pode ser verificado por nada que viva nele. Verifica-se onde o destino
+        # e **declarado como dado**, que e a lista `destinos`.
         lambda c: c.trocar(
-            lint.PGBACKREST,
-            r"^repo1-path=\$\{KAMBA_BACKUP_REPO1_PATH:\?[^}]*\}$",
-            "repo1-path=/var/lib/postgresql/backup",
+            lint.COBERTURA,
+            r"^destinos: \[\]$",
+            _DESTINO_COMPLETO.replace(
+                "    caminho: /var/lib/pgbackrest\n",
+                "    caminho: /var/lib/postgresql/backup\n",
+            ),
+        ),
+    ),
+    Caso(
+        "repo-no-host-primario",
+        frozenset({"repo-no-host-primario"}),
+        "o destino declarado perde o `host` e passa a ser a propria maquina",
+        lambda c: c.trocar(
+            lint.COBERTURA,
+            r"^destinos: \[\]$",
+            _DESTINO_COMPLETO.replace("    host: backup.exemplo.invalid\n", ""),
+        ),
+    ),
+    # --------------------------------------------- o comando do arquivo
+    #
+    # A linha que ninguem lia. Os tres casos abaixo existem por causa de um
+    # defeito medido com o binario: `archive-push --async` da «invalid option»,
+    # o `archive_command` nunca devolve 0, e o arquivo nunca funciona.
+    Caso(
+        "arquivo-com-opcao-inexistente",
+        frozenset({"arquivo-com-opcao-inexistente"}),
+        "volta o `--async`, que o pgBackRest recusa: o arquivo nunca funciona",
+        lambda c: c.trocar(
+            lint.ARQUIVO,
+            r"archive-push %p'$",
+            "archive-push --async %p'",
+        ),
+    ),
+    Caso(
+        "arquivo-sem-pgbackrest",
+        frozenset({"arquivo-sem-pgbackrest", "arquivo-sem-archive-push",
+                   "arquivo-sem-stanza"}),
+        "o `archive_command` passa a um `cp`: sem cifra e sem retencao",
+        # As tres sao a mesma mudanca vista de tres lados, e e por isso que o
+        # caso as declara todas: um `cp` nao e o pgBackRest, nao chama
+        # `archive-push` e nao tem stanza. Declarar uma so era aceitar ser
+        # apanhado por sorte.
+        lambda c: c.trocar(
+            lint.ARQUIVO,
+            r"^archive_command = .*$",
+            "archive_command = 'cp %p /mnt/backup/%f'",
+        ),
+    ),
+    Caso(
+        "arquivo-sem-caminho",
+        frozenset({"arquivo-sem-caminho"}),
+        "o `%p` desaparece: o comando nao sabe que segmento empurrar",
+        lambda c: c.trocar(
+            lint.ARQUIVO,
+            r"archive-push %p'$",
+            "archive-push'",
         ),
     ),
     # ------------------------------------------------------- a cobertura
@@ -454,16 +537,29 @@ CASOS: tuple[Caso, ...] = (
 #: falha o canario, em vez de ficar em silencio a espera de que alguem repare.
 MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
     "r_cifra": frozenset({"cifra-fraca", "cifra-divergente"}),
-    "r_segredo_em_claro": frozenset({"segredo-em-claro", "chave-em-falta"}),
+    "r_segredo_em_claro": frozenset(
+        {"segredo-em-claro", "valor-de-implantacao", "ambiente-nao-documentado"}
+    ),
     "r_numeros_do_ciclo": frozenset(
         {
             "ciclo-divergente",
             "arquivo-desligado",
+            "chave-em-falta",
             "pitr-divergente",
-            "pitr-preso-ao-diferencial",
+            "pitr-preso-ao-completo",
+            "pitr-sem-traducao",
             "retencao-divergente",
             "retencao-nao-reconcilia",
             "numero-ilegivel",
+        }
+    ),
+    "r_comando_do_arquivo": frozenset(
+        {
+            "arquivo-sem-pgbackrest",
+            "arquivo-sem-archive-push",
+            "arquivo-sem-caminho",
+            "arquivo-com-opcao-inexistente",
+            "arquivo-sem-stanza",
         }
     ),
     "r_repo_fora_do_host": frozenset({"repo-no-host-primario", "repo-no-pgdata"}),

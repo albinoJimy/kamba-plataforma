@@ -148,10 +148,17 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # ------------------------------------------------------- os dois pisos
     ("o piso de blocos a zero", "lint.py",
      "MINIMO_DE_BLOCOS = 150", "MINIMO_DE_BLOCOS = 0"),
-    # O literal segue o valor do piso: a mutacao exige encontrar o texto que
-    # troca, pelo que um numero velho aqui nao se aplicava — e uma mutacao que
-    # nao se aplica e uma prova que deixou de existir. Ja subiu de 40 a 41
-    # (KAM-108) e de 41 a 42 (KAM-079); e a cadencia, nao a excepcao.
+    # O literal tem de seguir o valor do piso: a mutacao exige encontrar o texto
+    # que troca, pelo que um numero velho aqui nao se aplica — e uma mutacao que
+    # nao se aplica e uma prova que deixou de existir.
+    #
+    # **E nao tem seguido, medido.** Em `06b8aba2` a constante do `lint.py` era
+    # ja **41** e este literal dizia **40**: o KAM-108 subiu o piso e deixou o
+    # literal atras, pelo que esta mutacao estava a sair «NAO APLICOU» na `main`
+    # e a prova do piso de emparelhados nao existia. O KAM-079 poe os dois em
+    # **42**. A licao e a razao de este comentario estar aqui: duas edicoes, e a
+    # segunda so se ve a correr o `mutacao.py`, porque nenhum portao compara um
+    # literal de mutacao com a constante que ele cita.
     ("o piso de emparelhados a zero", "lint.py",
      "MINIMO_DE_BLOCOS_MEDIDOS = 42", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )

@@ -23,10 +23,17 @@ cadencia e mudar um dado.
 ## O FUNIL
 
 O `pode_enviar` e o **unico** sitio onde se decide se um dado pode sair para um
-destino de backup. Nao ha um segundo caminho, nem um «modo rapido» que o salte,
-e ha um ensaio estrutural que o prende (`test_o_funil_e_um_so`): a guarda que
-vive num dos dois caminhos de saida nao e uma guarda. Qualquer superficie que
-escreva, imprima ou envie passa por aqui primeiro.
+destino de backup. Nao ha um segundo caminho, nem um «modo rapido» que o salte:
+a guarda que vive num dos dois caminhos de saida nao e uma guarda, e qualquer
+superficie que escreva, imprima ou envie passa por aqui primeiro.
+
+**Quem o prende e a classe `TestOFunilEUmSo` do `tests/test_cli.py`, e prende-o
+pelo comportamento**: dois ensaios exigem que os dois formatos de saida recusem
+o mesmo pedido com o mesmo codigo, e que o conjunto dos comandos com guarda seja
+igual ao dos que escrevem. Os ensaios de arvore sintactica ao lado deles sao
+secundarios — um «modo rapido» acrescentado por `getattr` passou pelos tres,
+medido. (Nao ha, nem nunca houve, um ensaio chamado `test_o_funil_e_um_so`; a
+primeira versao desta linha citava-o.)
 """
 
 from __future__ import annotations

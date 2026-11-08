@@ -62,13 +62,43 @@ class TestOFunil(unittest.TestCase):
 
     def test_os_marcadores_nao_abrem_o_gate(self) -> None:
         """**O caso que importa mais.** Um `apd_ref: pendente` num ficheiro de
-        configuracao parece uma referencia e abriria o gate inteiro."""
-        for marcador in ("TODO", "pendente", "n/a", "none", "-", "  ", "", "por_decidir"):
-            with self.subTest(marcador=marcador):
-                veredicto = politica.pode_enviar(
-                    classe_de_dados="real", apd_ref=marcador, destino="repo1"
+        configuracao parece uma referencia e abriria o gate inteiro.
+
+        **Itera a lista inteira e nao uma amostra**, e a razao e um achado da
+        revisao adversarial: a primeira versao escrevia oito cadeias a mao, duas
+        das quais (`""` e `"  "`) nao sao marcadores — saem pelo `strip()` antes
+        de a lista ser consultada. Dos dezasseis marcadores, **seis** estavam
+        exercitados, e apagar os outros dez deixava a suite verde. Uma amostra
+        escrita a mao prova os itens de que alguem se lembrou.
+        """
+        self.assertGreaterEqual(len(politica._NAO_SAO_REFERENCIA), 16)
+        for marcador in sorted(politica._NAO_SAO_REFERENCIA):
+            for forma in (marcador, marcador.upper(), f"  {marcador}  "):
+                with self.subTest(marcador=forma):
+                    self.assertIsNone(
+                        politica.normalizar_apd_ref(forma),
+                        f"`{forma}` passou por referencia",
+                    )
+                    veredicto = politica.pode_enviar(
+                        classe_de_dados="real", apd_ref=forma, destino="repo1"
+                    )
+                    self.assertFalse(veredicto.permitido, forma)
+
+    def test_o_vazio_nao_e_marcador_e_tambem_nao_abre_o_gate(self) -> None:
+        """A outra metade do achado: `""` e `"  "` nao chegam a lista.
+
+        Ficam num ensaio proprio porque o caminho e outro — o `strip()` recusa-os
+        antes — e juntar os dois casos no mesmo ensaio foi o que fez a amostra
+        parecer maior do que era.
+        """
+        for vazio in ("", "  ", "\t", None):
+            with self.subTest(vazio=vazio):
+                self.assertIsNone(politica.normalizar_apd_ref(vazio))
+                self.assertFalse(
+                    politica.pode_enviar(
+                        classe_de_dados="real", apd_ref=vazio, destino="repo1"
+                    ).permitido
                 )
-                self.assertFalse(veredicto.permitido, marcador)
 
     def test_uma_classe_desconhecida_nega_por_omissao(self) -> None:
         """`kamba_data_klass=rael` nao e `synthetic`, e nao se trata como tal."""
@@ -242,6 +272,42 @@ class TestDebito(unittest.TestCase):
         with self.assertRaises(ValueError):
             politica.divergencia_do_orcamento_pct(medido=1.0, orcamentado=0.0)
 
+    def test_a_percentagem_publicada_e_esta_e_o_denominador_e_o_orcamento(self) -> None:
+        """Os **-11,11%** que o criterio 4 e a linha de versoes publicam.
+
+        Achado da revisao adversarial: trocar o denominador de `orcamentado`
+        para `medido` deixava a suite inteira verde, porque nenhum ensaio
+        afirmava uma percentagem — so booleanos, e os tres casos de
+        `orcamento_a_corrigir` dao o mesmo booleano com os dois denominadores.
+        Com a troca, o numero publicado passava de **-11,11%** para **-12,5%** e
+        a fronteira dos 20% mudava de 2160 s para 2250 s sem nenhum vermelho.
+
+        A divergencia e contra o **orcamento**, que e o que se quer saber: «o
+        medido desvia-se X% do que estava planeado». Contra o medido responderia
+        a outra pergunta, e o criterio 4 escreve a primeira.
+        """
+        self.assertAlmostEqual(
+            politica.divergencia_do_orcamento_pct(medido=1600.0, orcamentado=1800.0),
+            -11.111,
+            places=3,
+        )
+        # A fronteira estrita dos 20%, que e o que o denominador decide.
+        self.assertAlmostEqual(
+            politica.divergencia_do_orcamento_pct(medido=2160.0, orcamentado=1800.0),
+            20.0,
+        )
+        self.assertFalse(
+            politica.orcamento_a_corrigir(
+                medido=2160.0, orcamentado=1800.0, divergencia_maxima_pct=20.0
+            ),
+            "20% exactos nao corrigem: a fronteira e estrita",
+        )
+        self.assertTrue(
+            politica.orcamento_a_corrigir(
+                medido=2161.0, orcamentado=1800.0, divergencia_maxima_pct=20.0
+            )
+        )
+
 
 class TestErasureLedger(unittest.TestCase):
     """O criterio 8: «com um sujeito apagado e um backup anterior ao apagamento,
@@ -375,6 +441,74 @@ class TestAncoraDoAuditLog(unittest.TestCase):
         `0006` do `audit_log` (`docs/tecnica/08` §6)."""
         self.assertIn("criado_at", politica.SQL_ANCORA_DO_AUDIT_LOG)
         self.assertNotIn("created_at", politica.SQL_ANCORA_DO_AUDIT_LOG)
+
+    # -----------------------------------------------------------------
+    # As quatro propriedades que faltavam, e porque estao prendidas assim
+    # -----------------------------------------------------------------
+    #
+    # A revisao adversarial mutou esta consulta em quatro pontos e **os quatro
+    # sobreviveram**: os ensaios acima sao greps de subcadeia («nao tem
+    # `now()`», «e por tenant», «le `criado_at`») e nenhum media a propriedade
+    # que o `docs/tecnica/08` §6 pede — a ancora e o **ultimo** `row_hash` da
+    # janela, por tenant, numa janela meio-aberta.
+    #
+    # A propriedade foi medida contra um PostgreSQL 18 real, com cinco linhas de
+    # fixture (tres elos no dia 1 para um tenant, com o primeiro a ter o hash
+    # alfabeticamente **menor** de proposito, mais um elo exactamente na
+    # fronteira `$2` e um segundo tenant). A consulta do ramo devolve `ccc`, que
+    # e o ultimo elo do dia; cada mutacao devolve outra coisa:
+    #
+    #   consulta do ramo         -> ccc @ 23:00     (o ultimo elo)
+    #   ORDER BY ... ASC, id ASC -> aaa             (o primeiro elo)
+    #   min(row_hash)            -> aaa             (o menor, nao o ultimo)
+    #   criado_at <= $2          -> zzz @ 00:00     (a linha do dia seguinte)
+    #   min(criado_at)           -> 01:00           (o inicio, nao o fim)
+    #
+    # O comando e a saida estao em `docs/evidencia/KAM-079.md` §3.5.
+    #
+    # **Porque e que os ensaios sao textuais e nao executam a consulta:** o
+    # gate 4 nao tem base de dados, e um ensaio que precise de contentor nao
+    # corre nele. O que estes ensaios fazem e prender **o texto exacto que cada
+    # mutacao medida tem de quebrar** — e isso e menos do que executar o
+    # predicado, dito em voz alta. O ensaio que o executa pertence ao gate 8,
+    # que tem Postgres, e a quem for dono do escritor da tabela (**KAM-070**).
+
+    def test_a_ancora_e_o_ultimo_elo_e_nao_o_primeiro(self) -> None:
+        """A mutacao `ASC, id ASC` devolve `aaa` em vez de `ccc` — medido."""
+        self.assertIn(
+            "ORDER BY criado_at DESC, id DESC", politica.SQL_ANCORA_DO_AUDIT_LOG
+        )
+        self.assertNotIn("criado_at ASC", politica.SQL_ANCORA_DO_AUDIT_LOG)
+
+    def test_a_ancora_escolhe_pela_ordem_e_nao_pelo_valor_do_hash(self) -> None:
+        """A mutacao `min(row_hash)` devolve `aaa`: o menor nao e o ultimo.
+
+        Um `row_hash` e opaco, pelo que `min`/`max` sobre ele nao significam
+        nada — e e exactamente por serem plausiveis a ler que precisam de
+        ensaio.
+        """
+        sql = politica.SQL_ANCORA_DO_AUDIT_LOG
+        self.assertIn("(array_agg(row_hash ORDER BY", sql)
+        self.assertIn("))[1] AS row_hash", sql)
+        self.assertNotIn("min(row_hash)", sql)
+        self.assertNotIn("max(row_hash)", sql)
+
+    def test_a_janela_e_meio_aberta(self) -> None:
+        """A mutacao `<=` apanha a linha das 00:00 do dia seguinte — medido.
+
+        Com os dois lados fechados, duas ancoras diarias consecutivas partilham
+        uma linha, e a cadeia de uma delas fica a apontar para a outra.
+        """
+        sql = politica.SQL_ANCORA_DO_AUDIT_LOG
+        self.assertIn("criado_at >= $1", sql)
+        self.assertIn("criado_at <  $2", sql)
+        self.assertNotIn("criado_at <= $2", sql)
+
+    def test_o_instante_ancorado_e_o_fim_da_janela_e_nao_o_inicio(self) -> None:
+        """A mutacao `min(criado_at)` devolve as 01:00 em vez das 23:00."""
+        sql = politica.SQL_ANCORA_DO_AUDIT_LOG
+        self.assertIn("max(criado_at) AS ancorado_at", sql)
+        self.assertNotIn("min(criado_at)", sql)
 
 
 class TestLerInstante(unittest.TestCase):

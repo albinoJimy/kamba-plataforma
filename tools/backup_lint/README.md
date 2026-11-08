@@ -67,8 +67,17 @@ caminhos pelo **mesmo** ponto: `_decidir` é a única função que chama
 Isto não é arrumação. Uma guarda que vive num dos dois caminhos de saída não é
 uma guarda, e foi medido neste repositório noutro ticket: uma protecção de
 privacidade estava dentro do caminho de JSON, e o caminho de texto — que era o de
-**omissão** — não corria guarda nenhuma. O ensaio `test_o_funil_e_um_so` conta,
-na árvore sintáctica do `cli.py`, as chamadas a `pode_enviar` e exige **uma**.
+**omissão** — não corria guarda nenhuma.
+
+Quem o prende é a classe `TestOFunilEUmSo`, **pelo comportamento**: os dois
+formatos têm de recusar o mesmo pedido com o mesmo código de saída, e o conjunto
+dos comandos que levam `--classe` tem de ser **igual** ao dos que chamam o
+`_imprimir` — um comando novo que escreva resultado sem guarda reprova sem
+ninguém se lembrar dele. Há também três ensaios que leem a árvore sintáctica do
+`cli.py` e contam as chamadas a `pode_enviar`, e esses são **secundários**: a
+revisão adversarial acrescentou um segundo funil por `getattr`, contornou o gate
+por inteiro, e os três passaram. (A primeira versão deste parágrafo citava um
+ensaio `test_o_funil_e_um_so`, que não existe.)
 
 A omissão de `--classe` é `synthetic`, que é a do compose de produção
 (`KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}`): a omissão de um comando de

@@ -197,16 +197,98 @@ class TestReconciliacao(unittest.TestCase):
     def test_o_rto_do_doc_00_sao_duas_horas(self) -> None:
         self.assertEqual(self.dados.cobertura["alvos"]["rto_segundos"], 7200)
 
-    def test_nenhuma_chave_sensivel_tem_valor_literal(self) -> None:
+    def test_nenhuma_chave_sensivel_esta_no_ficheiro(self) -> None:
         """O repositorio e publico. Isto repete a regra `segredo-em-claro` de
-        proposito: a regra pode ser desligada do `REGRAS`, e este ensaio nao."""
-        for chave in lint.CHAVES_DE_SEGREDO:
+        proposito: a regra pode ser desligada do `REGRAS`, e este ensaio nao.
+
+        **O predicado inverteu-se, e a razao esta medida no `lint.py`:** o
+        pgBackRest nao expande `${...}` dentro do ficheiro, pelo que uma
+        referencia escrita aqui seria lida como valor. A chave tem de estar
+        **ausente**.
+        """
+        for chave in lint.CHAVES_DO_AMBIENTE:
             with self.subTest(chave=chave):
-                valor = self.dados.pgbackrest[chave]
-                self.assertTrue(
-                    valor.startswith("${") and ":?" in valor,
-                    f"{chave}={valor!r} nao e uma referencia de ambiente exigente",
+                self.assertNotIn(
+                    chave,
+                    self.dados.pgbackrest,
+                    f"`{chave}` esta no ficheiro: o pgBackRest le o valor "
+                    f"literalmente. Tem de vir do `{lint.nome_no_ambiente(chave)}`",
                 )
+
+    def test_o_cabecalho_nomeia_o_ambiente_de_cada_chave_ausente(self) -> None:
+        """A metade que impede a outra de ser uma chave esquecida."""
+        texto = (self.dados.raiz / lint.PGBACKREST).read_text(encoding="utf-8")
+        for chave in lint.CHAVES_DO_AMBIENTE:
+            with self.subTest(chave=chave):
+                self.assertIn(lint.nome_no_ambiente(chave), texto)
+
+    def test_o_nome_no_ambiente_segue_a_regra_do_pgbackrest(self) -> None:
+        """Derivado e nao tabelado: maiusculas e `-` para `_`, com prefixo.
+
+        Os tres casos sao os que o binario aceitou (pgBackRest 2.45): o
+        `PGBACKREST_REPO1_PATH` e o `PGBACKREST_REPO1_CIPHER_PASS` foram medidos
+        a funcionar, e o terceiro prova que a derivacao atravessa dois hifenes.
+        """
+        self.assertEqual(
+            lint.nome_no_ambiente("repo1-path"), "PGBACKREST_REPO1_PATH"
+        )
+        self.assertEqual(
+            lint.nome_no_ambiente("repo1-cipher-pass"),
+            "PGBACKREST_REPO1_CIPHER_PASS",
+        )
+        self.assertEqual(
+            lint.nome_no_ambiente("repo1-host-user"), "PGBACKREST_REPO1_HOST_USER"
+        )
+
+    def test_so_a_passphrase_e_tratada_como_segredo(self) -> None:
+        """Um FQDN, um utilizador, dois caminhos e um nome de base nao o sao.
+
+        Tratar tudo como segredo faz o inventario deixar de dizer o que protege,
+        e foi um achado da revisao adversarial: o `pg1-database` estava na lista
+        de «chaves de segredo».
+        """
+        self.assertEqual(lint.CHAVES_QUE_SAO_SEGREDO, ("repo1-cipher-pass",))
+        for chave in lint.CHAVES_QUE_SAO_SEGREDO:
+            self.assertIn(chave, lint.CHAVES_DO_AMBIENTE)
+
+    def test_o_comando_do_arquivo_nao_leva_opcao_que_nao_existe(self) -> None:
+        """Medido com o binario: `--async` da «invalid option» e o arquivo morre.
+
+            $ pgbackrest --stanza=k archive-push --async /tmp/x
+            ERROR: [031]: invalid option '--async'
+            $ pgbackrest --stanza=k archive-push --archive-async /tmp/x
+            ERROR: [037]: ... requires option 'pg1-path'   # a opcao e valida
+
+        O ensaio esta aqui e nao so na regra porque esta linha atravessou cinco
+        superficies sem que nenhuma olhasse para ela.
+        """
+        comando = self.dados.arquivo["archive_command"]
+        self.assertNotIn("--async", comando)
+        self.assertIn("archive-push", comando)
+        self.assertIn("%p", comando)
+        self.assertIn("--stanza=kamba", comando)
+
+    def test_a_retencao_do_arquivo_e_por_diferencial_e_nao_por_completo(self) -> None:
+        """A ajuda do binario, textual, e porque isto nao e uma preferencia.
+
+        «If set to full pgBackRest will keep archive logs for the number of full
+        backups defined by repo-retention-archive. If set to diff ... for the
+        number of full and differential backups» — pgBackRest 2.45,
+        `pgbackrest help expire repo-retention-archive-type`.
+
+        Com `full` e `repo1-retention-archive=7` acima dos 5 completos retidos,
+        retem-se o WAL de **todos** eles: 35 dias de WAL contra os «WAL 7 dias»
+        do `docs/tecnica/08` §11. E sobre-retencao de dados pessoais.
+        """
+        self.assertEqual(
+            self.dados.pgbackrest["repo1-retention-archive-type"], "diff"
+        )
+        self.assertEqual(self.dados.cobertura["ciclo"]["diferencial"], "diario")
+        self.assertEqual(
+            int(self.dados.pgbackrest["repo1-retention-archive"]),
+            self.dados.cobertura["ciclo"]["pitr_dias"],
+            "com um diferencial diario, N diferenciais sao N dias",
+        )
 
     def test_as_tres_bases_do_criterio_estao_na_cobertura(self) -> None:
         itens = {str(l["item"]) for l in self.dados.cobertura["cobertura"]}

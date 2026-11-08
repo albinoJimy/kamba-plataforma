@@ -36,9 +36,23 @@ class TestOFunilEUmSo(unittest.TestCase):
 
     Aqui ha dois comandos que escrevem (`restauro` e `debito`) e dois formatos
     (texto e `--json`). Sao quatro caminhos, e a guarda tem de ser a mesma nos
-    quatro. Prende-se **estruturalmente**: conta-se, na arvore sintactica do
-    `cli.py`, quantas chamadas existem a `politica.pode_enviar` e exige-se
-    **uma**.
+    quatro.
+
+    **Quem prende a propriedade e o comportamento, e nao a arvore sintactica.**
+    A primeira versao desta docstring dizia «prende-se estruturalmente», e a
+    revisao adversarial mediu que isso sobrevendia o que os ensaios de `ast`
+    dao: acrescentou um segundo funil chamado por referencia indirecta
+    (`getattr(politica, "pode_" + "enviar")`), contornou o gate por inteiro —
+    `--classe real --destino repo1` passou a sair com **0** em vez de 1 — e os
+    **tres** ensaios de arvore sintactica passaram todos, porque contam
+    `ast.Call` com `func.attr == "pode_enviar"` e um `getattr` nao e um
+    `ast.Attribute` com aquele nome.
+
+    O unico ensaio que apanhou a fuga foi o de comportamento
+    (`test_os_dois_formatos_dizem_a_mesma_coisa_sobre_o_envio`), e e por isso
+    que e ele a garantia. Os ensaios de `ast` ficam como verificacao **barata e
+    secundaria** da forma: dizem que a guarda tem um nome e um sitio, o que faz
+    a proxima pessoa escrever no sitio certo. Nao dizem que nao ha outra.
     """
 
     def _arvore(self) -> ast.Module:
@@ -75,15 +89,82 @@ class TestOFunilEUmSo(unittest.TestCase):
                 return
         self.fail("`_decidir` desapareceu: o funil deixou de ter nome")
 
+    def _comandos_que_escrevem(self) -> set[str]:
+        """Os `_comando_*` que chamam o `_imprimir`, **descobertos** na arvore.
+
+        Descoberto e nao escrito a mao: a lista a mao era `("_comando_restauro",
+        "_comando_debito")`, e um comando novo que escrevesse resultado ficava
+        fora de todos os ensaios desta classe.
+        """
+        nomes = set()
+        for no in ast.walk(self._arvore()):
+            if not isinstance(no, ast.FunctionDef):
+                continue
+            if not no.name.startswith("_comando_"):
+                continue
+            for sub in ast.walk(no):
+                if (
+                    isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Name)
+                    and sub.func.id == "_imprimir"
+                ):
+                    nomes.add(no.name)
+                    break
+        return nomes
+
+    def test_os_comandos_com_guarda_sao_exactamente_os_que_escrevem(self) -> None:
+        """**A emenda do furo que a revisao nomeou**, e e por igualdade.
+
+        De um lado, os comandos que o analisador equipa com `--classe` (a
+        guarda); do outro, os `_comando_*` que chamam o `_imprimir` (os que
+        escrevem resultado). Os dois conjuntos tem de ser o **mesmo**: um
+        comando que escreva sem guarda reprova aqui, e uma guarda num comando
+        que nao escreve tambem — porque significa que alguem a pos no sitio
+        errado.
+        """
+        analisador = cli.construir_analisador()
+        com_guarda = set()
+        for accao in analisador._subparsers._group_actions:  # noqa: SLF001
+            for nome, sub in accao.choices.items():
+                if any("--classe" in a.option_strings for a in sub._actions):  # noqa: SLF001
+                    com_guarda.add(f"_comando_{nome}")
+        self.assertEqual(
+            com_guarda,
+            self._comandos_que_escrevem(),
+            "um comando que escreve resultado sem guarda, ou ao contrario",
+        )
+        self.assertTrue(com_guarda, "zero comandos nao e um zero util")
+
+    def test_todo_o_comando_que_escreve_passa_pelo_decidir(self) -> None:
+        """Nenhum escreve sem ter decidido, e decide pelo nome do funil."""
+        for nome in sorted(self._comandos_que_escrevem()):
+            with self.subTest(funcao=nome):
+                for no in ast.walk(self._arvore()):
+                    if isinstance(no, ast.FunctionDef) and no.name == nome:
+                        decisoes = {
+                            sub.func.id
+                            for sub in ast.walk(no)
+                            if isinstance(sub, ast.Call)
+                            and isinstance(sub.func, ast.Name)
+                            and sub.func.id.startswith("_decidir")
+                        }
+                        self.assertEqual(
+                            decisoes,
+                            {"_decidir"},
+                            f"{nome} decide por outra funcao que nao o funil",
+                        )
+                        break
+
     def test_ha_exactamente_uma_funcao_que_escreve(self) -> None:
         """O `print` vive no `_imprimir` e nos resumos dos dois *lints*.
 
-        Os comandos que **decidem** (`restauro` e `debito`) nao imprimem por si:
-        com duas funcoes de impressao, uma mensagem acrescentada a um formato
-        faltaria no outro — e e assim que uma guarda fica a faltar num dos
-        caminhos.
+        Os comandos que **decidem** nao imprimem por si: com duas funcoes de
+        impressao, uma mensagem acrescentada a um formato faltaria no outro — e
+        e assim que uma guarda fica a faltar num dos caminhos.
+
+        A lista de nomes vem do `_comandos_que_escrevem`, descoberta na arvore.
         """
-        for nome in ("_comando_restauro", "_comando_debito"):
+        for nome in sorted(self._comandos_que_escrevem()):
             with self.subTest(funcao=nome):
                 for no in ast.walk(self._arvore()):
                     if isinstance(no, ast.FunctionDef) and no.name == nome:

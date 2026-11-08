@@ -89,16 +89,26 @@ SEVERIDADES = ("P1", "P2", "P3")
 #: protege contra a forma.
 PREFIXO_DA_CIFRA = "aes-256-"
 
-#: Uma referencia de ambiente sem valor por omissao: `${NOME:?razao}`. E o
-#: padrao que o compose de producao usa para segredos, e o que faz uma
-#: configuracao **recusar-se a arrancar** sem o valor em vez de arrancar com um
-#: vazio.
-_REFERENCIA_EXIGENTE = re.compile(r"^\$\{[A-Z][A-Z0-9_]*:\?[^}]*\}$")
-
-#: Chaves do `pgbackrest.conf` cujo valor **nao pode ser um literal**: ou e uma
-#: referencia de ambiente exigente, ou e um segredo em claro num repositorio
-#: publico.
-CHAVES_DE_SEGREDO = (
+#: Chaves que **nao podem aparecer** no `pgbackrest.conf`, em forma nenhuma —
+#: nem com valor, nem com marcador.
+#:
+#: A primeira versao desta regra exigia o oposto: que cada uma destas chaves
+#: estivesse presente **com** uma referencia `${NOME:?razao}`, na crenca de que
+#: isso fazia a configuracao recusar-se a arrancar sem destino. A revisao
+#: adversarial mediu que era falso, e o binario confirmou-o (pgBackRest 2.45):
+#:
+#:   ERROR: [032]: '${KAMBA_X:?razao}' must begin with / for 'repo1-path' option
+#:
+#: O pgBackRest nao expande variaveis dentro do ficheiro. O que ele tem e
+#: `PGBACKREST_<OPCAO>` no ambiente, medido a funcionar na mesma versao. Pelo
+#: que a regra passou a ser **ausencia**: a chave fora do ficheiro faz o
+#: pgBackRest parar com «missing required option» se o ambiente tambem nao a
+#: der, e essa recusa e dele e nao de uma convencao que ninguem implementa.
+#:
+#: A lista e fechada e literal, pela razao do inventario do `obs_lint`: um
+#: filtro (por exemplo «toda a chave que acabe em `-pass`») deixava passar o
+#: `repo1-host`, que nao e segredo mas e o destino que a D1 nao decidiu.
+CHAVES_DO_AMBIENTE = (
     "repo1-cipher-pass",
     "repo1-host",
     "repo1-host-user",
@@ -106,6 +116,21 @@ CHAVES_DE_SEGREDO = (
     "pg1-path",
     "pg1-database",
 )
+
+#: Das seis acima, as que sao **segredo** e por isso tem de estar no inventario.
+#: As outras quatro sao valores de implantacao — um FQDN, um utilizador, dois
+#: caminhos e um nome de base nao sao segredos, e tratar tudo como segredo faz o
+#: inventario deixar de dizer o que protege.
+CHAVES_QUE_SAO_SEGREDO = ("repo1-cipher-pass",)
+
+
+def nome_no_ambiente(chave: str) -> str:
+    """O `PGBACKREST_*` que corresponde a uma opcao, pela regra do pgBackRest.
+
+    Derivado e nao tabelado de proposito: uma tabela escrita a mao divergia da
+    chave no dia em que alguem renomeasse uma, e a divergencia nao daria erro.
+    """
+    return "PGBACKREST_" + chave.upper().replace("-", "_")
 
 #: Os dois segredos que este ticket introduz, e que tem de estar no inventario.
 SEGREDOS_DO_TICKET = ("backup_repo_cifra_passphrase", "backup_repo_credenciais")
@@ -178,6 +203,16 @@ def _ler_conf(caminho: Path, onde: str) -> dict[str, str]:
     if not pares:
         raise ConfiguracaoInvalida(f"{onde}: zero chaves — isso nao e um zero util")
     return pares
+
+
+def secoes_do_conf(caminho: Path) -> tuple[str, ...]:
+    """Os nomes entre `[...]`. O `_ler_conf` ignora-os; a stanza vive num deles."""
+    nomes = []
+    for linha in caminho.read_text(encoding="utf-8").splitlines():
+        texto = linha.strip()
+        if texto.startswith("[") and texto.endswith("]"):
+            nomes.append(texto[1:-1])
+    return tuple(nomes)
 
 
 def ler(raiz: Path) -> Dados:
@@ -261,29 +296,43 @@ def r_cifra(dados: Dados) -> list[Achado]:
 
 
 def r_segredo_em_claro(dados: Dados) -> list[Achado]:
-    """Nenhuma chave sensivel com valor literal. O repositorio e publico."""
+    """As seis chaves do ambiente **ausentes** do ficheiro, e documentadas.
+
+    Duas verificacoes, e a segunda e a que impede a primeira de ser inutil: uma
+    chave ausente sem nada que diga de onde vem nao e uma configuracao segura, e
+    um ficheiro onde ninguem sabe o que falta.
+    """
     achados: list[Achado] = []
-    for chave in CHAVES_DE_SEGREDO:
+    texto = (dados.raiz / PGBACKREST).read_text(encoding="utf-8")
+    for chave in CHAVES_DO_AMBIENTE:
         valor = dados.pgbackrest.get(chave)
-        if valor is None:
+        if valor is not None:
+            e_segredo = chave in CHAVES_QUE_SAO_SEGREDO
             achados.append(
                 Achado(
-                    "chave-em-falta",
+                    "segredo-em-claro" if e_segredo else "valor-de-implantacao",
                     PGBACKREST,
-                    f"falta `{chave}`: sem ela a configuracao arranca com a "
-                    "omissao do pgBackRest, que nao e a que este ticket declara",
+                    f"`{chave}` esta no ficheiro com o valor `{valor}`. Tem de "
+                    f"estar **ausente** e vir do `{nome_no_ambiente(chave)}`: o "
+                    "pgBackRest nao expande `${...}` dentro do ficheiro (medido, "
+                    "«must begin with / for 'repo1-path' option»), pelo que um "
+                    "marcador aqui e lido como valor"
+                    + (
+                        ". E o repositorio e publico"
+                        if e_segredo
+                        else ". Nao e segredo, mas e um valor que a D1 nao "
+                        "decidiu, e um palpite escrito parece uma decisao"
+                    ),
                 )
             )
-            continue
-        if not _REFERENCIA_EXIGENTE.match(valor):
+        if nome_no_ambiente(chave) not in texto:
             achados.append(
                 Achado(
-                    "segredo-em-claro",
+                    "ambiente-nao-documentado",
                     PGBACKREST,
-                    f"`{chave}` tem o valor literal `{valor}`. Tem de ser uma "
-                    "referencia de ambiente **sem omissao** (`${NOME:?razao}`): "
-                    "o repositorio e publico, e uma omissao faz a configuracao "
-                    "arrancar contra um destino que ninguem decidiu",
+                    f"`{chave}` nao esta no ficheiro e o cabecalho nao nomeia o "
+                    f"`{nome_no_ambiente(chave)}`. Uma chave que falta sem dizer "
+                    "de onde vem le-se como uma chave esquecida",
                 )
             )
     return achados
@@ -335,36 +384,58 @@ def r_numeros_do_ciclo(dados: Dados) -> list[Achado]:
             )
         )
 
+    # O PITR. **A chave nao conta dias**: a documentacao do pgBackRest escreve
+    # «Number of backups worth of continuous WAL to retain». A traducao para
+    # dias so existe por causa do tipo e da cadencia, e e por isso que as tres
+    # verificacoes abaixo sao uma so coisa partida em tres mensagens.
     pitr = ciclo.get("pitr_dias")
+    tipo = dados.pgbackrest.get("repo1-retention-archive-type")
     arquivo_retido = _inteiro(dados.pgbackrest.get("repo1-retention-archive"))
     if arquivo_retido is None:
         achados.append(
             Achado(
                 "chave-em-falta",
                 PGBACKREST,
-                "falta `repo1-retention-archive`: sem ela o pgBackRest retem WAL "
-                "**indefinidamente**, o que nao e o PITR de 7 dias e enche o "
-                "repositorio",
+                "falta `repo1-retention-archive`: sem ela o pgBackRest faz a "
+                "expiracao do arquivo cair no `repo1-retention-diff`/`-full` "
+                "correspondente ao tipo, o que torna a janela de PITR um "
+                "**efeito** de outra chave em vez de um numero declarado",
             )
         )
-    elif arquivo_retido != pitr:
+
+    if tipo != "diff":
+        achados.append(
+            Achado(
+                "pitr-preso-ao-completo",
+                PGBACKREST,
+                f"`repo1-retention-archive-type={tipo}`: com `full`, o WAL e "
+                "retido para os ultimos N backups **completos**, e com "
+                "`repo1-retention-archive` acima do numero de completos retidos "
+                "isso retem o WAL de todos eles — 35 dias de WAL e nao 7, que e "
+                "**sobre-retencao contra o `docs/tecnica/08` §11**. Com `diff` e "
+                "um diferencial diario, N diferenciais sao N dias",
+            )
+        )
+    elif ciclo.get("diferencial") != "diario":
+        # A traducao «7 backups = 7 dias» morre aqui, e nao no numero.
+        achados.append(
+            Achado(
+                "pitr-sem-traducao",
+                COBERTURA,
+                f"`repo1-retention-archive={arquivo_retido}` conta "
+                "**diferenciais**, e `ciclo.diferencial` nao e `diario`: sem a "
+                f"cadencia diaria, {arquivo_retido} diferenciais nao sao "
+                f"{pitr} dias e `pitr_dias` deixa de ser verificavel",
+            )
+        )
+    elif arquivo_retido is not None and arquivo_retido != pitr:
         achados.append(
             Achado(
                 "pitr-divergente",
                 PGBACKREST,
-                f"`repo1-retention-archive={arquivo_retido}` e `{COBERTURA}` "
-                f"pede PITR de {pitr} dias",
-            )
-        )
-
-    if dados.pgbackrest.get("repo1-retention-archive-type") != "full":
-        achados.append(
-            Achado(
-                "pitr-preso-ao-diferencial",
-                PGBACKREST,
-                "`repo1-retention-archive-type` nao e `full`: preso ao "
-                "diferencial, o WAL expira 7 dias depois do **ultimo "
-                "diferencial**, que e menos do que 7 dias de PITR",
+                f"`repo1-retention-archive={arquivo_retido}` diferenciais, um "
+                f"por dia, cobrem {arquivo_retido} dias, e `{COBERTURA}` pede "
+                f"PITR de {pitr} dias",
             )
         )
 
@@ -402,37 +473,161 @@ def r_numeros_do_ciclo(dados: Dados) -> list[Achado]:
     return achados
 
 
+def r_comando_do_arquivo(dados: Dados) -> list[Achado]:
+    """A **unica linha que invoca o pgBackRest**, e que ninguem lia.
+
+    A revisao adversarial mediu aqui o defeito mais caro do ticket: o
+    `archive_command` levava `--async`, que **nao e uma opcao do pgBackRest**, e
+    as cinco superficies confrontavam o `archive_mode` e o `archive_timeout` sem
+    nunca olhar para esta linha. Medido com o binario (pgBackRest 2.45):
+
+        $ pgbackrest --stanza=k archive-push --async /tmp/x
+        ERROR: [031]: invalid option '--async'
+
+    O `archive_command` nunca devolveria 0, o Postgres nunca reciclaria WAL, e o
+    sintoma chegaria como «o disco do Postgres encheu» — a falha de
+    disponibilidade que este ficheiro existe para evitar.
+
+    **A defesa e pela forma e nao por uma lista de nomes maus:** uma lista de
+    opcoes proibidas protege contra `--async`, de que alguem se lembrou; uma
+    lista de opcoes **permitidas** protege contra a proxima abreviatura que
+    parece plausivel. O pgBackRest nao aceita abreviaturas.
+    """
+    #: As opcoes reais que esta linha pode levar. Fechada de proposito.
+    permitidas = frozenset({"--stanza", "--config", "--archive-async"})
+    achados: list[Achado] = []
+    comando = dados.arquivo.get("archive_command")
+    if comando is None:
+        achados.append(
+            Achado(
+                "chave-em-falta",
+                ARQUIVO,
+                "falta `archive_command`: com `archive_mode = on` e sem comando, "
+                "o Postgres nao recicla WAL e o `pg_wal` cresce ate o disco "
+                "encher",
+            )
+        )
+        return achados
+
+    nu = comando.strip().strip("'\"")
+    palavras = nu.split()
+    if not palavras or "pgbackrest" not in palavras[0]:
+        achados.append(
+            Achado(
+                "arquivo-sem-pgbackrest",
+                ARQUIVO,
+                f"`archive_command` nao invoca o pgBackRest: `{nu}`. O repo e "
+                "cifrado e com retencao geridas por ele; um `cp` nao as tem",
+            )
+        )
+    if "archive-push" not in palavras:
+        achados.append(
+            Achado(
+                "arquivo-sem-archive-push",
+                ARQUIVO,
+                f"`archive_command` nao chama `archive-push`: `{nu}`",
+            )
+        )
+    if "%p" not in palavras:
+        achados.append(
+            Achado(
+                "arquivo-sem-caminho",
+                ARQUIVO,
+                "`archive_command` nao passa `%p`: sem o caminho que o Postgres "
+                "da, o comando nao sabe que segmento empurrar",
+            )
+        )
+
+    for palavra in palavras:
+        if not palavra.startswith("--"):
+            continue
+        nome = palavra.split("=", 1)[0]
+        if nome not in permitidas:
+            achados.append(
+                Achado(
+                    "arquivo-com-opcao-inexistente",
+                    ARQUIVO,
+                    f"`archive_command` leva `{nome}`, que nao esta entre as "
+                    f"opcoes reais desta linha ({', '.join(sorted(permitidas))}). "
+                    "O pgBackRest recusa opcoes que nao conhece e **nao aceita "
+                    "abreviaturas**: medido, `--async` da «invalid option» e o "
+                    "arquivo nunca funciona. O modo assincrono liga-se com "
+                    "`archive-async=y` no `pgbackrest.conf`, nao aqui",
+                )
+            )
+
+    stanza = None
+    for palavra in palavras:
+        if palavra.startswith("--stanza="):
+            stanza = palavra.split("=", 1)[1]
+    if stanza is None:
+        achados.append(
+            Achado(
+                "arquivo-sem-stanza",
+                ARQUIVO,
+                "`archive_command` nao diz `--stanza=`: sem ela o pgBackRest nao "
+                "sabe para que repositorio empurrar",
+            )
+        )
+    elif stanza not in secoes_do_conf(dados.raiz / PGBACKREST):
+        achados.append(
+            Achado(
+                "arquivo-com-stanza-desconhecida",
+                ARQUIVO,
+                f"`archive_command` empurra para a stanza `{stanza}` e o "
+                f"`{PGBACKREST}` nao a declara. Uma stanza que nao existe falha "
+                "em funcionamento e nao ao arrancar",
+            )
+        )
+    return achados
+
+
 def r_repo_fora_do_host(dados: Dados) -> list[Achado]:
     """Criterio 7: «`repo1` noutro dominio de falha, fora do *host* primario».
 
-    O que se pode verificar em configuracao e a **forma**: um `repo1-host`
-    declarado (e nao um caminho local) e um `repo1-type` que nao e o
-    armazenamento do proprio *host*. Que o *host* seja de facto outro dominio de
-    falha decide-se na D1 e mede-se no KAM-085; isto apanha o atalho de apontar
-    o repositorio para um caminho da propria maquina.
+    **Esta regra mudou de superficie, e a razao vale mais do que a regra.** A
+    primeira versao lia o `repo1-host` e o `repo1-path` do `pgbackrest.conf`.
+    Esses dois valores sairam do ficheiro para o ambiente
+    (`PGBACKREST_REPO1_HOST`, `PGBACKREST_REPO1_PATH`), porque o pgBackRest nao
+    expande marcadores — medido. Um valor que nao esta no repositorio **nao pode
+    ser verificado por nada que viva no repositorio**, e finge-lo era pior do
+    que admiti-lo.
+
+    Logo a forma verifica-se onde o destino e **declarado como dado**: a lista
+    `destinos` do `cobertura.yaml`. Hoje ela esta vazia (a D1 nao decidiu), pelo
+    que esta regra nao morde em nada — e isso e o estado honesto, nao um verde.
+    Morde no dia em que alguem escrever o primeiro destino, que e o dia em que
+    o atalho «aponta para um caminho da propria maquina» se torna possivel.
     """
     achados: list[Achado] = []
-    if "repo1-host" not in dados.pgbackrest:
-        achados.append(
-            Achado(
-                "repo-no-host-primario",
-                PGBACKREST,
-                "sem `repo1-host`, o `repo1-path` e um caminho **da propria "
-                "maquina**: perder o host perde a base e os backups, que e "
-                "exactamente o defeito que o `docs/tecnica/09` §8.1 corrige",
+    destinos = dados.cobertura.get("destinos") or []
+    for destino in destinos:
+        if not isinstance(destino, dict):
+            continue
+        nome = str(destino.get("nome", "?"))
+        caminho = str(destino.get("caminho", ""))
+        host = str(destino.get("host", ""))
+        if not host:
+            achados.append(
+                Achado(
+                    "repo-no-host-primario",
+                    COBERTURA,
+                    f"o destino `{nome}` nao declara `host`: um `caminho` sem "
+                    "`host` e um caminho **da propria maquina**, e perder o host "
+                    "perde a base e os backups — o defeito que o "
+                    "`docs/tecnica/09` §8.1 corrige",
+                )
             )
-        )
-    caminho = dados.pgbackrest.get("repo1-path", "")
-    if caminho.startswith("/var/lib/postgresql") or caminho.startswith("/pgdata"):
-        achados.append(
-            Achado(
-                "repo-no-pgdata",
-                PGBACKREST,
-                f"`repo1-path={caminho}` esta dentro do `PGDATA`: um repositorio "
-                "no proprio volume de dados nao sobrevive ao que se esta a "
-                "proteger",
+        if caminho.startswith("/var/lib/postgresql") or caminho.startswith("/pgdata"):
+            achados.append(
+                Achado(
+                    "repo-no-pgdata",
+                    COBERTURA,
+                    f"o destino `{nome}` tem `caminho={caminho}`, dentro do "
+                    "`PGDATA`: um repositorio no proprio volume de dados nao "
+                    "sobrevive ao que se esta a proteger",
+                )
             )
-        )
     return achados
 
 
@@ -742,6 +937,7 @@ REGRAS = (
     r_cifra,
     r_segredo_em_claro,
     r_numeros_do_ciclo,
+    r_comando_do_arquivo,
     r_repo_fora_do_host,
     r_cobertura,
     r_destinos,
