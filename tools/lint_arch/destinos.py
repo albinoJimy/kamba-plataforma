@@ -290,7 +290,28 @@ def check(root: Path, caminhos: list[str] | None = None) -> list[str]:
             )
 
     # --- descoberta: nenhum cliente novo fora do inventario -----------------
+    #
+    # **Fora de um repositorio, a descoberta nao corre e isso e um achado**, nao
+    # um silencio. A primeira versao desta metade levantava `OSError` sempre que
+    # o `git` nao respondesse, e isso quebrou sete ensaios do `test_structure.py`
+    # que chamam o `structure.check` sobre arvores temporarias — arvores que nao
+    # sao repositorios, e onde nao ha «arvore seguida pelo git» para varrer.
+    #
+    # A distincao que ficou e a que importa: **nao ser um repositorio** nao e
+    # falha do `git`, e nesse caso diz-se que a descoberta nao correu; **falhar
+    # dentro de um** e, e ai levanta-se, pela razao do achado 9 — varrer zero
+    # ficheiros e reportar conforme e a classe «uma superficie com zero
+    # ficheiros passa sempre» que a nota deste modulo recusa.
     if caminhos is None:
+        if not _e_repositorio(root):
+            problemas.append(
+                f"{root}: nao e uma arvore seguida pelo git, pelo que a "
+                "descoberta de clientes de saida **nao correu**. A metade da "
+                "declaracao correu; a da descoberta precisa do `git ls-files`, e "
+                "varrer o disco em vez dele punha `node_modules/` e `dist/` na "
+                "varredura (KAM-069, criterio 4)"
+            )
+            return problemas
         caminhos = _do_git(root)
     for relativo in _ficheiros(root, caminhos):
         if relativo in CLIENTES_DE_SAIDA:
@@ -311,6 +332,27 @@ def check(root: Path, caminhos: list[str] | None = None) -> list[str]:
                 "transferencia — o credor que o vai ligar (ADR-008, criterio 4)"
             )
     return problemas
+
+
+def _e_repositorio(root: Path) -> bool:
+    """`True` se o `root` esta dentro de uma arvore de trabalho do git.
+
+    Separado do `_do_git` de proposito: as duas perguntas tem respostas
+    diferentes e consequencias diferentes. «Nao e um repositorio» e um facto
+    sobre o sitio — as arvores temporarias dos ensaios do `structure.py` sao
+    assim —, e «o `git` falhou num repositorio» e uma avaria que nao pode passar
+    por vazio.
+    """
+    import subprocess
+
+    saida = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return saida.returncode == 0 and saida.stdout.strip() == "true"
 
 
 def _do_git(root: Path) -> list[str]:

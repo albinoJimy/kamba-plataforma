@@ -249,6 +249,52 @@ class TestCanario(unittest.TestCase):
         ) as nome:
             self.assertEqual(destinos.check(Path(nome), caminhos=[relativo]), [])
 
+    def test_fora_de_um_repositorio_a_descoberta_diz_que_nao_correu(self) -> None:
+        """Achado 9, e a regressao que a primeira correccao dele causou.
+
+        **Levantar sempre era errado:** sete ensaios do `test_structure.py`
+        chamam o `structure.check` sobre arvores temporarias, que nao sao
+        repositorios — e ali nao ha «arvore seguida pelo git» para varrer. Mas
+        **devolver `[]` em silencio era o defeito original**: a descoberta
+        varria zero ficheiros e reportava conforme.
+
+        O que fica e a distincao: fora de um repositorio diz-se que a descoberta
+        **nao correu**, e a metade da declaracao corre como sempre.
+        """
+        with _arvore({"packages/p/src/x.ts": "api.openai.com\n"}) as nome:
+            achados = destinos.check(Path(nome))
+        self.assertTrue(achados)
+        self.assertIn("nao correu", achados[-1])
+        # E **nao** acusa o cliente novo, porque nao o viu: a asercao e a de que
+        # o silencio foi dito em voz alta, nao a de que nada escapou.
+        self.assertNotIn(
+            "fora do inventario", "\n".join(achados[:-1]) or "", "a descoberta correu"
+        )
+
+    def test_dentro_de_um_repositorio_uma_falha_do_git_levanta(self) -> None:
+        """A outra metade do achado 9: aqui o silencio nao se aceita.
+
+        Simula-se o que a mensagem descreve — o `root` **e** uma arvore de
+        trabalho e o `git ls-files` falha — trocando o `subprocess.run` que o
+        `_do_git` usa. Sem isto, a correccao do achado 9 ficava afirmada e nao
+        medida: a arvore real nunca tem o `git` avariado.
+        """
+        import subprocess
+
+        original = subprocess.run
+
+        def falha(argumentos, *resto, **palavras):
+            if argumentos[:2] == ["git", "ls-files"]:
+                return subprocess.CompletedProcess(argumentos, 128, "", "fatal")
+            return original(argumentos, *resto, **palavras)
+
+        subprocess.run = falha
+        try:
+            with self.assertRaises(OSError):
+                destinos.check(RAIZ)
+        finally:
+            subprocess.run = original
+
     def test_uma_entrada_morta_e_apanhada(self) -> None:
         """Um inventario com entradas mortas descreve uma arvore que nao existe.
 
