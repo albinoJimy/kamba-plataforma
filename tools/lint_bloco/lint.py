@@ -164,15 +164,30 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: Quem acrescentar o **90.o** paga a emenda seguinte: o 44 serve ate aos 89.
 #:
 #: **E o 89.o chegou com o KAM-060, e o 44 serviu — a previsao da linha de cima
-#: acertou.** Medido na arvore da integracao, com a `publico/main` em
-#: `77a579bd` dentro: `medidos 89 | exigido 44 | piso 44`. E a **segunda** vez
-#: que uma seccao de verificacao nova entra sem pagar emenda (a primeira foi a
-#: do KAM-051, na linha do meio da tabela acima), e as duas juntas sao o
-#: argumento desta nota: a conta le-se da arvore e nao da contagem de seccoes.
-#: Um ramo que subisse o piso «porque acrescentou um bloco» punha o portao
-#: vermelho sem defeito nenhum — e esta sessao esteve a um passo de o fazer, com
-#: o 43 medido na sua arvore antes de integrar.
-MINIMO_DE_BLOCOS_MEDIDOS = 44
+#: acertou.** Medido com a `publico/main` em `77a579bd` dentro:
+#: `medidos 89 | exigido 44 | piso 44`. Foi a **segunda** vez que uma seccao de
+#: verificacao nova entrou sem pagar emenda (a primeira foi a do KAM-051, na
+#: linha do meio da tabela acima), e as duas juntas sao o argumento desta nota:
+#: a conta le-se da arvore e nao da contagem de seccoes. Um ramo que subisse o
+#: piso «porque acrescentou um bloco» punha o portao vermelho sem defeito
+#: nenhum — e esta sessao esteve a um passo de o fazer, com o 43 medido na sua
+#: arvore antes de integrar.
+#:
+#: **E depois o 90.o chegou e o KAM-060 paga: sobe para 45.** O KAM-184 (#157)
+#: fundiu entretanto e trouxe o 90.o, pelo que a mesma sessao que no paragrafo
+#: de cima nao pagou emenda **paga-a agora** — e isso e o retrato da regra
+#: inteira: a divida nao e do ticket, e da **ordem de fusao**. Medido na arvore
+#: desta integracao, com a `publico/main` em `5941a11f` dentro:
+#: `medidos 90 | exigido 45 | piso 44` antes desta linha subir, e o
+#: `test_os_pisos_valem_alguma_coisa` falha com
+#: `44 not greater than or equal to 45`.
+#:
+#: **Mediu-se tres vezes neste ramo, e os tres numeros foram diferentes** — 86
+#: na base de corte, 89 com a `77a579bd`, 90 com a `5941a11f` —, o que e a
+#: melhor ilustracao possivel de porque este numero nao se cita de outro ramo.
+#:
+#: Quem acrescentar o **92.o** paga a emenda seguinte: o 45 serve ate aos 91.
+MINIMO_DE_BLOCOS_MEDIDOS = 45
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
