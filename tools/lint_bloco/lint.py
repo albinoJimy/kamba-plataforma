@@ -162,7 +162,38 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: `43 not greater than or equal to 44`.
 #:
 #: Quem acrescentar o **90.o** paga a emenda seguinte: o 44 serve ate aos 89.
-MINIMO_DE_BLOCOS_MEDIDOS = 44
+#: **E o 89.o bloco e o do KAM-086 — mas o piso que ele escreve e 45, e nao 44.**
+#: Esta e a primeira vez que a emenda nao sai da arvore de quem a escreve, e vale
+#: a pena dizer porque, que e a razao de a casa ter a regra «mede na arvore da
+#: fusao»:
+#:
+#:     esta arvore                       89 medidos   exigido 44   (o 44 da main
+#:                                                                  ainda servia)
+#:     esta arvore + o bloco do #157     90 medidos   exigido 45
+#:
+#: As duas linhas sao **medidas**, e a segunda mediu-se trocando o
+#: `specs/EPIC-03_Agent_Runtime_Verticais.md` desta arvore pela versao da ponta
+#: do #157 (KAM-184) e voltando a correr o `check`. O #157 esta na fila a frente
+#: e nao toca neste ficheiro, pelo que **a ordem de fusao decidia o valor**: com
+#: o KAM-086 primeiro, 44 chegava; com o #157 primeiro, 44 avermelhava o portao
+#: num ramo onde ninguem mexeu numa linha.
+#:
+#: O 45 e o unico valor que as duas restricoes aceitam nas **duas** arvores —
+#: `44 <= 45 <= 89` e `45 <= 45 <= 90` — pelo que escrever 45 e o que torna o
+#: piso independente da ordem de fusao. **Nao e antecipacao:** um piso acima do
+#: medido avermelha o portao, e 45 nao esta acima de 89. A regra que a nota do
+#: KAM-079 fixou («a emenda e de quem funde em segundo») fica intacta; o que esta
+#: nota acrescenta e que, quando a emenda **depende de quem funde primeiro**, o
+#: valor a escrever e o que vale para os dois, e nao o que vale para o caso que
+#: der mais sorte.
+#:
+#: Sao **oito** blocos desde os 81: KAM-108, KAM-055, KAM-182, KAM-069, KAM-079,
+#: KAM-051, KAM-070 e este. E **mexer neste piso sao duas edicoes**: o par fixado
+#: do `mutacao.py` cita o literal, e um par que nao casa deixa a prova por
+#: mutacao a medir nada.
+#:
+#: Quem acrescentar o **92.o** paga a emenda seguinte: o 45 serve ate aos 91.
+MINIMO_DE_BLOCOS_MEDIDOS = 45
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
