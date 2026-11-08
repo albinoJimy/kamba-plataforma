@@ -162,29 +162,52 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: `43 not greater than or equal to 44`.
 #:
 #: Quem acrescentar o **90.o** paga a emenda seguinte: o 44 serve ate aos 89.
+#: **E o 89.o bloco e o do KAM-086 — mas o piso que ele escreve e 45, e nao 44.**
+#: Esta e a primeira vez que a emenda nao sai da arvore de quem a escreve, e vale
+#: a pena dizer porque, que e a razao de a casa ter a regra «mede na arvore da
+#: fusao»:
 #:
-#: **E o 89.o chegou com o KAM-060, e o 44 serviu — a previsao da linha de cima
-#: acertou.** Medido com a `publico/main` em `77a579bd` dentro:
-#: `medidos 89 | exigido 44 | piso 44`. Foi a **segunda** vez que uma seccao de
-#: verificacao nova entrou sem pagar emenda (a primeira foi a do KAM-051, na
-#: linha do meio da tabela acima), e as duas juntas sao o argumento desta nota:
-#: a conta le-se da arvore e nao da contagem de seccoes. Um ramo que subisse o
-#: piso «porque acrescentou um bloco» punha o portao vermelho sem defeito
-#: nenhum — e esta sessao esteve a um passo de o fazer, com o 43 medido na sua
-#: arvore antes de integrar.
+#:     esta arvore                       89 medidos   exigido 44   (o 44 da main
+#:                                                                  ainda servia)
+#:     esta arvore + o bloco do #157     90 medidos   exigido 45
 #:
-#: **E depois o 90.o chegou e o KAM-060 paga: sobe para 45.** O KAM-184 (#157)
-#: fundiu entretanto e trouxe o 90.o, pelo que a mesma sessao que no paragrafo
-#: de cima nao pagou emenda **paga-a agora** — e isso e o retrato da regra
-#: inteira: a divida nao e do ticket, e da **ordem de fusao**. Medido na arvore
-#: desta integracao, com a `publico/main` em `5941a11f` dentro:
-#: `medidos 90 | exigido 45 | piso 44` antes desta linha subir, e o
-#: `test_os_pisos_valem_alguma_coisa` falha com
-#: `44 not greater than or equal to 45`.
+#: As duas linhas sao **medidas**, e a segunda mediu-se trocando o
+#: `specs/EPIC-03_Agent_Runtime_Verticais.md` desta arvore pela versao da ponta
+#: do #157 (KAM-184) e voltando a correr o `check`. O #157 esta na fila a frente
+#: e nao toca neste ficheiro, pelo que **a ordem de fusao decidia o valor**: com
+#: o KAM-086 primeiro, 44 chegava; com o #157 primeiro, 44 avermelhava o portao
+#: num ramo onde ninguem mexeu numa linha.
 #:
-#: **Mediu-se tres vezes neste ramo, e os tres numeros foram diferentes** — 86
-#: na base de corte, 89 com a `77a579bd`, 90 com a `5941a11f` —, o que e a
-#: melhor ilustracao possivel de porque este numero nao se cita de outro ramo.
+#: O 45 e o unico valor que as duas restricoes aceitam nas **duas** arvores —
+#: `44 <= 45 <= 89` e `45 <= 45 <= 90` — pelo que escrever 45 e o que torna o
+#: piso independente da ordem de fusao. **Nao e antecipacao:** um piso acima do
+#: medido avermelha o portao, e 45 nao esta acima de 89. A regra que a nota do
+#: KAM-079 fixou («a emenda e de quem funde em segundo») fica intacta; o que esta
+#: nota acrescenta e que, quando a emenda **depende de quem funde primeiro**, o
+#: valor a escrever e o que vale para os dois, e nao o que vale para o caso que
+#: der mais sorte.
+#:
+#: Sao **oito** blocos desde os 81: KAM-108, KAM-055, KAM-182, KAM-069, KAM-079,
+#: KAM-051, KAM-070 e este. E **mexer neste piso sao duas edicoes**: o par fixado
+#: do `mutacao.py` cita o literal, e um par que nao casa deixa a prova por
+#: mutacao a medir nada.
+#:
+#: **E o #157 fundiu, pelo que as duas linhas acima deixaram de ser uma
+#: simulacao e a de baixo passou a ser a arvore.** Medido depois de integrar a
+#: `publico/main` em `5941a11f`: **90 medidos, exigido 45**, e o 45 que este
+#: ficheiro ja tinha e agora o valor que a conta pede e nao um que a antecipa.
+#: Fica registado que a ordem de fusao confirmou a medicao e nao a contrariou —
+#: se tivesse fundido ao contrario, o 45 continuava a servir, que era a razao de
+#: o escrever.
+#:
+#: **E o KAM-060 mediu-o tres vezes no mesmo ramo, com tres resultados** — 86 na
+#: base de corte (onde escreveu a emenda para 43), 89 com a `77a579bd` dentro
+#: (onde o 44 servia e **reverteu** a emenda) e 90 com a `5941a11f` (onde ela se
+#: paga). A seccao dele nao pagou e pagou sem uma linha dela mudar, e e a mesma
+#: licao do paragrafo de cima vista do outro lado: a de cima diz que o **valor**
+#: nao depende da ordem de fusao se se escolher o que vale nas duas arvores, e
+#: esta diz que a **divida** depende dela sempre. As duas juntas fecham a regra:
+#: mede-se na arvore da fusao, e escreve-se o valor que sobrevive a ordem.
 #:
 #: Quem acrescentar o **92.o** paga a emenda seguinte: o 45 serve ate aos 91.
 MINIMO_DE_BLOCOS_MEDIDOS = 45

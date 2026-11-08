@@ -1933,6 +1933,333 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
   }
 }
 
+// --------------------------------------------------------------- a inscricao
+//
+// As cinco rotas do `onboarding-web` (KAM-086). A lista e **literal** e a ordem
+// e a do caso em `baterias/x01_rotas.py`, pela razao escrita nas sondas: um
+// filtro fazia uma rota nova nascer coberta.
+//
+// ## O que se ataca aqui NAO e um `tenant_id`, e isso muda o ataque
+//
+// Estas rotas correm **antes de existir tenant**: o que elas isolam e o
+// `onboarding_id` de um caso, e o `tenant_id` dele e pre-alocado e nunca sai
+// numa resposta. Por isso o papel de «B» e um **caso** e nao um tenant, e o
+// canario de B vai no nome do negocio do caso de B — que e o campo que uma fuga
+// faria aparecer numa resposta.
+//
+// ## As cinco atacam-se de maneiras diferentes, e duas delas merecem nota
+//
+//   POST /api/registo       ataca-se com o **NIF de B** e com um NIF que nao
+//                           existe, e exige-se o MESMO estado. E o criterio 9
+//                           do bloco posto na bateria: um 200 num e um 409 no
+//                           outro era a enumeracao de NIF que o criterio proibe.
+//                           O oraculo e que verifica que nada de B sai no corpo
+//   POST /api/actividade    ataca-se com a sessao de A a levar o `onboarding_id`
+//                           de B — a troca que o teste cruzado do DoD nomeia.
+//                           A referencia e um HMAC sobre o id, pelo que a troca
+//                           quebra a assinatura e nao ha parametro ao lado que
+//                           a possa dizer
+//
+// As outras tres recusam um bilhete forjado e um id nu, e o que se exige e que
+// recusem **igual**.
+
+const ITENS_DA_INSCRICAO = [
+  "rota:onboarding-web:rotas:ligacao:GET:/entrar",
+  "rota:onboarding-web:rotas:ligacao:POST:/api/registo",
+  "rota:onboarding-web:rotas:ligacao:POST:/api/otp/reenviar",
+  "rota:onboarding-web:rotas:ligacao:POST:/api/otp/verificar",
+  "rota:onboarding-web:rotas:ligacao:POST:/api/actividade",
+] as const;
+
+/**
+ * As chaves dos duplos. Baixa entropia e nomes que **nao** significam segredo,
+ * pela razao escrita ao lado das do webhook: um valor com forma de segredo
+ * atribuido a um nome que significa segredo dispara o *gate* 9, e tem razao.
+ */
+const OCTETO_DE_A = 0x5a;
+const OCTETO_DE_ASSINATURA = 0x3c;
+const OCTETO_DO_DESTINO = 0x71;
+
+/** O NIF de B, e um que nao existe. Nenhum e um NIF real: ver o `destino.ts`. */
+const NIF_DE_B = "5410000123AB";
+const NIF_INEXISTENTE = "5410000999CD";
+const TELEFONE_DE_B = "+244000000001";
+const TELEFONE_DE_A = "+244000000002";
+
+/**
+ * Monta o `onboarding-web` com duplos, cria o caso de B com o canario dentro, e
+ * ataca as cinco rotas.
+ *
+ * **Os modulos vem do `dist` e nao do `src`**, e isso nao e detalhe: o
+ * `services/onboarding-web/src/rotas.ts` importa `@kamba/core-ts/inscricao`, que
+ * resolve para `packages/core-ts/dist/inscricao/index.js`. Construir o `Registo`
+ * a partir do `src` dava **duas** instancias do mesmo modulo, e o
+ * `erro instanceof RegistoRecusado` da rota passava a comparar classes
+ * diferentes: toda a recusa saia 500 em vez de 400, e a bateria media um defeito
+ * que nao existe.
+ */
+async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
+  const falhar = (nota: string): void => {
+    for (const item of ITENS_DA_INSCRICAO) {
+      relatorio.rotas.push({
+        item,
+        metodo: item.includes("GET") ? "GET" : "POST",
+        caminho: item.split(":").slice(-1)[0] ?? "",
+        estado: 0,
+        corpo: "",
+        cabecalhos: {},
+        executado: false,
+        nota,
+      });
+    }
+  };
+
+  let insc: Record<string, unknown>;
+  let sms: Record<string, unknown>;
+  let appModulo: Record<string, unknown>;
+  try {
+    insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
+    sms = await importarDoRepo("packages/core-ts/dist/sms/index.js");
+    appModulo = await importarDoRepo("services/onboarding-web/src/app.ts");
+  } catch (erro) {
+    falhar(`nao se conseguiu importar o onboarding-web: ${razao(erro)}`);
+    return;
+  }
+
+  type Construtor = new (...argumentos: never[]) => unknown;
+  const obter = <T>(modulo: Record<string, unknown>, nome: string): T => {
+    const valor = modulo[nome];
+    if (valor === undefined) throw new Error(`o modulo nao exporta ${nome}`);
+    return valor as T;
+  };
+
+  try {
+    const Casos = obter<Construtor>(insc, "CasosEmMemoria");
+    const Contadores = obter<Construtor>(insc, "ContadoresEmMemoria");
+    const OtpMem = obter<Construtor>(insc, "OtpEmMemoria");
+    const Otp = obter<Construtor>(insc, "Otp");
+    const SmsLocal = obter<Construtor>(insc, "OtpPorSmsLocal");
+    const AntiAbuso = obter<Construtor>(insc, "AntiAbuso");
+    const Registo = obter<Construtor>(insc, "Registo");
+    const Actividade = obter<Construtor>(insc, "Actividade");
+    const Fake = obter<Construtor>(sms, "FakeSmsProvider");
+    const cunharToken = obter<(...a: never[]) => string>(insc, "cunharToken");
+    const cunharReferencia = obter<(...a: never[]) => string>(insc, "cunharReferencia");
+    const resolverDesafio = obter<(...a: never[]) => string>(insc, "resolverDesafio");
+    const SEGUNDOS = obter<number>(insc, "SEGUNDOS_MINIMOS");
+    const criarApp = obter<(...a: never[]) => AppHono>(appModulo, "createApp");
+
+    const pepper = Buffer.alloc(32, OCTETO_DE_A);
+    const assinatura = Buffer.alloc(32, OCTETO_DE_ASSINATURA);
+    const destino = Buffer.alloc(32, OCTETO_DO_DESTINO);
+
+    // Um relogio proprio: o tempo minimo de preenchimento sao tres segundos, e
+    // uma bateria que os esperasse de verdade levava tres segundos por ataque.
+    let agora = Date.parse("2026-11-08T10:00:00.000Z");
+    const relogio = (): Date => new Date(agora);
+
+    const casos = new (Casos as new (r: () => Date) => unknown)(relogio) as {
+      todos: readonly { id: string; nomeNegocio: string }[];
+    };
+    const contadores = new (Contadores as new () => unknown)() as object;
+    const antiabuso = new (AntiAbuso as new (o: unknown) => unknown)({
+      contadores,
+      chave: pepper,
+      relogio,
+      dificuldadeBase: 4,
+    }) as object;
+    const otp = new (Otp as new (o: unknown) => unknown)({
+      repositorio: new (OtpMem as new () => unknown)(),
+      contadores,
+      provedor: new (SmsLocal as new (o: unknown) => unknown)({
+        sms: new (Fake as new (o: unknown) => unknown)({ relogio }),
+        pepperDoDestino: destino,
+      }),
+      chave: pepper,
+      relogio,
+    }) as object;
+    const registo = new (Registo as new (o: unknown) => unknown)({
+      repositorio: casos,
+      antiabuso,
+      otp,
+      anelDoPepper: [pepper, null],
+      anelDoToken: [assinatura, null],
+      anelDaSessao: [assinatura, null],
+      relogio,
+    }) as { desafioPara(ip: unknown): Promise<{ desafio: string; dificuldade: number }> };
+    const actividade = new (Actividade as new (o: unknown) => unknown)({
+      repositorio: casos,
+      contadores,
+      relogio,
+    }) as object;
+
+    const app = criarApp(undefined, {
+      registo,
+      otp,
+      actividade,
+      antiabuso,
+      anelDaAssinatura: [assinatura, null],
+      anelDoToken: [assinatura, null],
+      relogio,
+      proxiesDeConfianca: 0,
+    } as never);
+
+    const convite = cunharToken(
+      "convite" as never,
+      new Date(agora + 86_400_000) as never,
+      assinatura as never,
+      relogio as never,
+    );
+
+    /** Submete um registo valido, resolvendo a prova de trabalho. */
+    const submeter = async (
+      nif: string,
+      telefone: string,
+      nome: string,
+      chave: string,
+    ): Promise<Response> => {
+      const emitido = await registo.desafioPara(null);
+      agora += SEGUNDOS * 1000;
+      return app.request("/api/registo", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": chave },
+        body: JSON.stringify({
+          token: convite,
+          nome_negocio: nome,
+          categoria: "mercearia",
+          nif,
+          telefone,
+          desafio: emitido.desafio,
+          solucao: resolverDesafio(emitido.desafio as never, emitido.dificuldade as never),
+        }),
+      });
+    };
+
+    // **O caso de B nasce com o canario no nome do negocio.** Sem ele, o zero do
+    // oraculo nao dizia nada: provava que o varrimento nao encontra o que nunca
+    // la esteve. E a licao do `sms.privacidade.test.ts` e do alvo `x11`.
+    const canario = canarioOuSubstituto();
+    const criadoB = await submeter(NIF_DE_B, TELEFONE_DE_B, canario, "chave-x01-de-b-001");
+    const corpoB = (await criadoB.json().catch(() => ({}))) as Record<string, unknown>;
+    const idDeB = casos.todos[0]?.id ?? "";
+    const temCanario = casos.todos[0]?.nomeNegocio === canario;
+
+    // Uma hora, para o intervalo de 60 s e os tres envios por hora nao
+    // mascararem o que se esta a medir nos ataques.
+    agora += 3_600_001;
+
+    // ---- GET /entrar: dois convites forjados, e exige-se o mesmo estado.
+    const forjado = cunharToken(
+      "convite" as never,
+      new Date(agora + 86_400_000) as never,
+      Buffer.alloc(32, 0x11) as never,
+      relogio as never,
+    );
+    for (const c of [forjado, "lixo-de-ensaio"]) {
+      relatorio.rotas.push({
+        ...(await medir(
+          ITENS_DA_INSCRICAO[0],
+          "GET",
+          `/entrar?c=${encodeURIComponent(c)}`,
+          app,
+        )),
+        nota: temCanario ? "canario-no-caso-de-b" : "sem-canario-no-caso-de-b",
+      });
+    }
+
+    // ---- POST /api/registo: o NIF de B contra um NIF que nao existe.
+    for (const [i, nif] of [NIF_DE_B, NIF_INEXISTENTE].entries()) {
+      const emitido = await registo.desafioPara(null);
+      agora += SEGUNDOS * 1000;
+      relatorio.rotas.push({
+        ...(await medir(ITENS_DA_INSCRICAO[1], "POST", "/api/registo", app, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": `chave-x01-ataque-${i}`,
+          },
+          body: JSON.stringify({
+            token: convite,
+            nome_negocio: "Loja de quem ataca",
+            categoria: "mercearia",
+            nif,
+            telefone: TELEFONE_DE_A,
+            desafio: emitido.desafio,
+            solucao: resolverDesafio(emitido.desafio as never, emitido.dificuldade as never),
+          }),
+        })),
+        nota: `ataque-com-nif-${i === 0 ? "de-b" : "inexistente"}`,
+      });
+      agora += 3_600_001;
+    }
+
+    // ---- As duas rotas de OTP: bilhete forjado, e o id de B nu.
+    const bilheteForjado = cunharReferencia(
+      "ticket" as never,
+      idDeB as never,
+      Buffer.alloc(32, 0x11) as never,
+      relogio as never,
+    );
+    const ataquesDeOtp: readonly (readonly [string, Record<string, unknown>])[] = [
+      ["bilhete-forjado", { referencia: bilheteForjado }],
+      ["id-de-b-nu", { referencia: idDeB }],
+    ];
+    for (const [caminho, item] of [
+      ["/api/otp/reenviar", ITENS_DA_INSCRICAO[2]],
+      ["/api/otp/verificar", ITENS_DA_INSCRICAO[3]],
+    ] as const) {
+      for (const [rotulo, corpo] of ataquesDeOtp) {
+        relatorio.rotas.push({
+          ...(await medir(item, "POST", caminho, app, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ...corpo, codigo: "000000" }),
+          })),
+          nota: rotulo,
+        });
+      }
+    }
+
+    // ---- POST /api/actividade: a sessao de A a levar o id de B.
+    const sessaoDeA = cunharReferencia(
+      "sessao" as never,
+      // Um id que nao e o de B: o caso de A, se existir, ou um inventado.
+      (casos.todos[1]?.id ?? "00000000-0000-4000-8000-000000000099") as never,
+      assinatura as never,
+      relogio as never,
+    );
+    const partesDaSessao = sessaoDeA.split(".");
+    const trocada = `${idDeB}.${partesDaSessao[1] ?? ""}.${partesDaSessao[2] ?? ""}`;
+    for (const [rotulo, cookie, corpo] of [
+      ["sessao-de-a-com-id-de-b", `kamba_onboarding=${trocada}`, {}],
+      ["sessao-forjada", `kamba_onboarding=${bilheteForjado}`, {}],
+    ] as const) {
+      relatorio.rotas.push({
+        ...(await medir(ITENS_DA_INSCRICAO[4], "POST", "/api/actividade", app, {
+          method: "POST",
+          headers: cookie === ""
+            ? { "content-type": "application/json" }
+            : { "content-type": "application/json", cookie },
+          body: JSON.stringify(corpo),
+        })),
+        nota: rotulo,
+      });
+    }
+
+    // O corpo do registo de B **nao** entra no relatorio como entrada de rota —
+    // ele e a montagem e nao um ataque —, mas o seu estado diz se a montagem
+    // valeu: sem caso de B nao houve ataque nenhum. Vai na nota do primeiro item.
+    if (criadoB.status !== 200 || idDeB === "" || !("referencia" in corpoB)) {
+      falhar(
+        `a montagem nao criou o caso de B (estado ${criadoB.status}); ` +
+          "sem caso de B os ataques nao atacam nada",
+      );
+    }
+  } catch (erro) {
+    falhar(`a montagem do onboarding-web levantou: ${razao(erro)}`);
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -1943,6 +2270,7 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   // O nome tem de ser o mesmo do `GRUPOS` do `condutor/ponte.py`: um grupo que
   // so exista num dos lados e um caso que nunca corre.
   "com-interna": grupoDaApiInternaDoCom,
+  inscricao: grupoDaInscricao,
 };
 
 async function main(): Promise<number> {
