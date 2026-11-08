@@ -72,6 +72,7 @@ from ...tls.erros import (
 # copiar** — ver o cabecalho.
 from ..vendedor.nos import (
     MSG_CARTAO,
+    botoes_seguros_da_guarda,
     texto_seguro_da_guarda,
     Dependencias,
     draft_prepare,
@@ -1189,7 +1190,9 @@ def safe_reply(deps: Dependencias):
         # KAM-033: o texto escolhe-se pela funcao partilhada, com o fora de
         # ambito **desta** vertical. Os outros (cartao, abuso, pausa, saida
         # bloqueada) sao da plataforma e iguais nas duas.
-        return _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
+        resposta = _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
+        resposta["draft"]["botoes"] = botoes_seguros_da_guarda(estado)
+        return resposta
 
     return no
 

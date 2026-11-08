@@ -46,23 +46,29 @@ def mensagem_do_cliente(texto: str) -> dict[str, str]:
 
 
 def substituicao_na_janela(estado: Mapping[str, Any]) -> list[Any]:
-    """A mensagem do cliente deste turno, redigida, se chegou crua a janela.
+    """As mensagens do cliente deste turno, redigidas, se chegaram cruas a janela.
+
+    **Todas as que vem depois da ultima resposta do assistente**, e nao so a
+    ultima: um lote coalescido traz varias, e a revisao adversarial mediu que um
+    PAN na penultima ficava em todos os *checkpoints* seguintes (achado 16).
 
     Devolve a lista para o delta do no (o redutor substitui pelo `id`), ou uma
-    lista vazia se a mensagem ja estava segura ou nao tem `id`.
+    lista vazia se ja estavam seguras ou nao tem `id`.
     """
     from langchain_core.messages import HumanMessage
 
+    trocas: list[Any] = []
     for item in reversed(list(estado.get("messages") or ())):
         papel = item.get("role") if isinstance(item, Mapping) else getattr(item, "type", None)
+        if papel in ("assistant", "ai"):
+            break
         if papel not in ("user", "human"):
             continue
         conteudo = item.get("content") if isinstance(item, Mapping) else getattr(item, "content", "")
         identificador = item.get("id") if isinstance(item, Mapping) else getattr(item, "id", None)
         if not isinstance(conteudo, str) or not identificador:
-            return []
+            continue
         seguro = texto_seguro(conteudo)
-        if seguro == conteudo:
-            return []
-        return [HumanMessage(content=seguro, id=identificador)]
-    return []
+        if seguro != conteudo:
+            trocas.append(HumanMessage(content=seguro, id=identificador))
+    return list(reversed(trocas))

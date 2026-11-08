@@ -5035,7 +5035,7 @@ MUTACOES = [
     # pergunta sobre o horario da loja. Achado 12.
     # ---------------------------------------------------------------- KAM-033
     #
-    # Os guardrails. **Vinte, e nenhuma e de sintaxe**: cada uma deixa as
+    # Os guardrails. **Vinte e seis, e nenhuma e de sintaxe**: cada uma deixa as
     # regras a correr e o grafo a responder, e quebra uma propriedade que um
     # criterio do bloco nomeia. Os padroes da `politica.py` nao tem mutacao
     # propria: qualquer mudanca neles muda a impressao, e o
@@ -5072,8 +5072,8 @@ MUTACOES = [
     # O classificador do §8.4 deixa de ser chamado, para sempre: «so quando as
     # regras nao decidem» passa a «nunca».
     ('guardas: a redaccao deixa de trocar o IBAN', AG_GUA_REGRAS,
-     '    for procurar, marca in ((_pans, MARCA_CARTAO), (_ibans, MARCA_CONTA)):',
-     '    for procurar, marca in ((_pans, MARCA_CARTAO),):',
+     '        (_ibans, MARCA_CONTA),\n',
+     '',
      AGR_UNIT),
     # O IBAN fica em claro na janela e no *checkpoint* (criterio 2).
     ('guardas: a negacao deixa de absolver o aviso do cartao', AG_GUA_SAIDA,
@@ -5116,13 +5116,13 @@ MUTACOES = [
     # Um *handoff* por tentativa: o atacante a escolher quantas vezes se chama
     # uma pessoa.
     ('guardas: o abuso deixa de voltar a zero', AG_GUA_CONTADORES,
-     '            novos["abuse"] = 0\n            return novos, ACCAO_PAUSAR',
+     '            novos["abuse"] = []\n            return novos, ACCAO_PAUSAR',
      '            return novos, ACCAO_PAUSAR',
      AGR_UNIT),
     # Cada abuso depois do N-esimo volta a pedir pausa, conversa a conversa.
     ('guardas: o cool-down deixa de fechar a porta', AG_VEN_NOS,
-     '        if contadores_mod.em_cooldown(contadores, agora):',
-     '        if False:',
+     '        elif contadores_mod.em_cooldown(contadores, agora):',
+     '        elif False:',
      AGR_UNIT),
     # Depois do *handoff*, o atacante volta a ter regras, classificador e tools.
     ('guardas: o guard_in deixa de substituir a mensagem crua', AG_VEN_NOS,
@@ -5154,6 +5154,40 @@ MUTACOES = [
      AGR_UNIT),
     # Uma designacao de catalogo hostil volta a falhar o turno e a pô-lo a
     # repetir na fila (criterio 4).
+    # As seis da revisao adversarial (`ANALISE` no bloco), uma por correccao.
+    ('guardas: o botao volta a passar pelas regras', AG_VEN_NOS,
+     '        if estado.get("input_kind") == "interactive":',
+     '        if False:',
+     AGR_UNIT),
+    # O `confirm:{hold_id}` com UUID volta a ser `injection`: nenhuma marcacao
+    # dos Servicos se confirma (achado 1).
+    ('guardas: os grupos curtos voltam a juntar-se num cartao', AG_GUA_REGRAS,
+     '                if j > i and min(len(g[2]) for g in grupos[i : j + 1]) < _GRUPO_MINIMO:',
+     '                if False:',
+     AGR_UNIT),
+    # «quero 4 1 1 1 camisas…» volta a poder dar um cartao com o resto da frase.
+    ('guardas: a negacao volta a absolver de longe', AG_GUA_SAIDA,
+     '_NEGACAO: Final = re.compile(r"\\b(?:nao|nunca|jamais)\\s+(?:(?:nos|me|lhe|lhes|o|a)\\s+)?$")',
+     '_NEGACAO: Final = re.compile(r"\\b(?:nao|nunca|jamais)\\s+(?:\\w+\\s+){0,2}$")',
+     AGR_UNIT),
+    # «Nao demore, envie o cvv» volta a sair (achado 11).
+    ('guardas: o cartao deixa de ser avisado no cool-down', AG_VEN_NOS,
+     '            if guardas.regras.tem_dados_de_cartao(texto):',
+     '            if False:',
+     AGR_UNIT),
+    # O §8.4 manda avisar; no *cool-down* o cliente deixava de o ser (achado 6).
+    ('guardas: o abuso deixa de decair', AG_GUA_CONTADORES,
+     '        janela = [t for t in novos["abuse"] if agora - t < politica.JANELA_DE_ABUSO_S]',
+     '        janela = list(novos["abuse"])',
+     AGR_UNIT),
+    # Dois insultos num canal e um meses depois noutro pausam a conversa
+    # (achado 10).
+    ('guardas: o sku do catalogo deixa de sair antes da fuga', AG_GUA_SAIDA,
+     '    sem_skus = _sem(texto, skus, "SKU")',
+     '    sem_skus = texto',
+     AGR_UNIT),
+    # Um `sku` de codigo de barras bloqueia toda a resposta de produto daquela
+    # loja (achado 12).
     # ---------------------------------------------------------------- KAM-034
     #
     # O *handoff* idempotente e a retoma por *compare-and-set*. **Vinte, e
@@ -7507,7 +7541,7 @@ MODULOS_DO_AGR_UNIT = (
     # A bateria le a revisao `0024` (confronta os dominios do codigo com os do
     # `CHECK`) e o `nos.py`, e os dois ja vao na copia.
     "test_concierge",
-    # KAM-033, pela mesma razao de sempre. **Sem esta linha as vinte mutacoes
+    # KAM-033, pela mesma razao de sempre. **Sem esta linha as vinte e seis mutacoes
     # `guardas:` sobreviviam todas**, com a suite verde. A bateria importa o
     # `test_vendedor` (os *fakes*) e o `test_llm_cliente` (o transporte), que ja
     # correm aqui. O `test_estado` **nao** entra, e mediu-se porque: le o

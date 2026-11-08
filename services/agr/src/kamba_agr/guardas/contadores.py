@@ -1,4 +1,4 @@
-"""Os contadores por contacto (criterio 5): injeccao por hora e abuso por conversa.
+"""Os contadores por contacto (criterio 5): injeccao por hora e abuso por dia.
 
     registar(contadores, veredicto, agora) -> (novos, accao)
 
@@ -45,7 +45,7 @@ ACCAO_PAUSAR: Final = "pausar"
 
 
 def _vazio() -> dict[str, Any]:
-    return {"injection": [], "abuse": 0, "cooldown_ate": 0.0}
+    return {"injection": [], "abuse": [], "cooldown_ate": 0.0}
 
 
 def ler(estado: Mapping[str, Any]) -> dict[str, Any]:
@@ -60,12 +60,12 @@ def ler(estado: Mapping[str, Any]) -> dict[str, Any]:
     novo = _vazio()
     if not isinstance(cru, Mapping):
         return novo
-    tentativas = cru.get("injection")
-    if isinstance(tentativas, (list, tuple)):
-        novo["injection"] = [float(t) for t in tentativas if isinstance(t, (int, float))]
-    abuso = cru.get("abuse")
-    if isinstance(abuso, int) and abuso >= 0:
-        novo["abuse"] = abuso
+    for chave in ("injection", "abuse"):
+        tempos = cru.get(chave)
+        if isinstance(tempos, (list, tuple)):
+            novo[chave] = [
+                float(t) for t in tempos if isinstance(t, (int, float)) and not isinstance(t, bool)
+            ]
     ate = cru.get("cooldown_ate")
     if isinstance(ate, (int, float)):
         novo["cooldown_ate"] = float(ate)
@@ -89,7 +89,7 @@ def registar(
     """
     novos = {
         "injection": list(contadores.get("injection") or ()),
-        "abuse": int(contadores.get("abuse") or 0),
+        "abuse": list(contadores.get("abuse") or ()),
         "cooldown_ate": float(contadores.get("cooldown_ate") or 0.0),
     }
     if veredicto == "injection":
@@ -103,13 +103,19 @@ def registar(
             novos["cooldown_ate"] = agora + politica.COOLDOWN_S
             return novos, ACCAO_HANDOFF
     elif veredicto == "abuse":
-        novos["abuse"] += 1
-        if novos["abuse"] >= politica.OCORRENCIAS_DE_ABUSO:
+        # **Decai**, pela janela, e a revisao adversarial mediu porque (achado
+        # 10): o *thread* e por contacto e atravessa canais, pelo que um contador
+        # sem janela juntava dois insultos num canal a um de meses depois noutro
+        # e pausava a segunda conversa.
+        janela = [t for t in novos["abuse"] if agora - t < politica.JANELA_DE_ABUSO_S]
+        janela.append(agora)
+        novos["abuse"] = janela[-politica.OCORRENCIAS_DE_ABUSO :]
+        if len(janela) >= politica.OCORRENCIAS_DE_ABUSO:
             # **O contador volta a zero, e nao fica uma marca de «pausada» no
             # estado.** Quem diz se a conversa esta pausada e o modo
             # (`conversations.mode`, KAM-018), e com ela pausada o grafo nem
             # corre (`turno.py`). Uma marca aqui sobrevivia ao dono voltar a
             # pôr a conversa em `bot` e deixava o bot a recusar para sempre.
-            novos["abuse"] = 0
+            novos["abuse"] = []
             return novos, ACCAO_PAUSAR
     return novos, None

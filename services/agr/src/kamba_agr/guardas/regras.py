@@ -45,24 +45,51 @@ VEREDICTOS: Final = ("ok", "injection", "abuse", "out_of_domain", "card_data", "
 #: depois de o texto ter sido redigido a entrada (`entrada.py`).
 MARCA_CARTAO: Final = "[cartao removido]"
 MARCA_CONTA: Final = "[conta removida]"
+MARCA_DOCUMENTO: Final = "[documento removido]"
 #: O que substitui uma mensagem inteira de assunto sensivel (criterio 7: «o
 #: conteudo sensivel **nao** e persistido»).
 MARCA_SENSIVEL: Final = "[assunto sensivel removido]"
 
 #: Caracteres de largura zero e de controlo de direccao: escondem palavras
-#: («ig​nora») sem mudarem o que o cliente ve (`docs/tecnica/08` §4.3, L1).
+#: («ig\u200bnora») sem mudarem o que o cliente ve (`docs/tecnica/08` §4.3, L1).
 _INVISIVEIS: Final = re.compile(
-    "[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f­​-‏‪-‮⁠-⁤﻿]"
+    "[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]"
 )
 _ESPACOS: Final = re.compile(r"\s+")
 
-#: Uma sequencia de digitos com espacos ou tracos simples pelo meio. O PAN
-#: procura-se **dentro** dela, por grupos (ver o `_pans`).
-_SEQUENCIA: Final = re.compile(r"(?<![0-9])[0-9]+(?:[ -][0-9]+)*(?![0-9])")
+#: Os separadores que um cliente poe entre os grupos de um cartao: espaco,
+#: ponto, barra, hifen e os tracos tipograficos, ate tres seguidos («4111 - 1111»).
+#: **A primeira versao so aceitava um espaco ou um hifen**, e a revisao
+#: adversarial mediu o que passava: «4111.1111.1111.1111», o espaco duplo, a
+#: barra e o traco largo saiam com veredicto `None` e iam crus ao classificador.
+_SEPARADOR: Final = "[ \t./\\-\u2010-\u2015\u2212]{1,3}"
+#: Uma sequencia de digitos com separadores pelo meio. O PAN procura-se
+#: **dentro** dela, por grupos (ver o `_pans`).
+_SEQUENCIA: Final = re.compile(rf"(?<![0-9])[0-9]+(?:{_SEPARADOR}[0-9]+)*(?![0-9])")
 _GRUPO: Final = re.compile(r"[0-9]+")
+#: O tamanho minimo de um grupo quando o PAN vem partido. Os cartoes partem-se
+#: em quatro (Visa, Mastercard) ou 4-6-5 (Amex): um grupo de um ou dois digitos
+#: e o «2 camisas», e junta-lo era inventar um cartao com o resto da frase.
+_GRUPO_MINIMO: Final = 3
 #: Um IBAN candidato: duas letras, dois digitos de controlo, e o BBAN, com ou
-#: sem espacos de quatro em quatro. Corre sobre o texto em maiusculas.
-_IBAN: Final = re.compile(r"\b[A-Z]{2}[0-9]{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b")
+#: sem espaco, ponto ou hifen de quatro em quatro. Corre sobre o texto em
+#: maiusculas.
+_IBAN: Final = re.compile(r"\b[A-Z]{2}[0-9]{2}(?:[ .\-]?[A-Z0-9]{4}){2,7}(?:[ .\-]?[A-Z0-9]{1,4})?\b")
+_BI: Final = re.compile(politica.BI)
+_CONTA: Final = re.compile(politica.CONTA_BANCARIA)
+
+#: O que decide fora da `politica.py` e entra na impressao dela.
+ASSINATURA: Final = (
+    "regras",
+    _SEPARADOR,
+    _GRUPO_MINIMO,
+    _IBAN.pattern,
+    MARCA_CARTAO,
+    MARCA_CONTA,
+    MARCA_DOCUMENTO,
+    MARCA_SENSIVEL,
+    "card_data>sensitive>injection>abuse>out_of_domain>ok>None",
+)
 
 
 def _compilar(padroes: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
@@ -104,7 +131,7 @@ def luhn(digitos: str) -> bool:
 
 def iban_valido(candidato: str) -> bool:
     """O *mod 97* da ISO 13616: o resto tem de ser 1."""
-    compacto = candidato.replace(" ", "").upper()
+    compacto = re.sub(r"[ .\-]", "", candidato).upper()
     if not 15 <= len(compacto) <= 34:
         return False
     rodado = compacto[4:] + compacto[:4]
@@ -135,6 +162,8 @@ def _pans(texto: str) -> list[tuple[int, int]]:
         for i in range(len(grupos)):
             digitos = ""
             for j in range(i, len(grupos)):
+                if j > i and min(len(g[2]) for g in grupos[i : j + 1]) < _GRUPO_MINIMO:
+                    break
                 digitos += grupos[j][2]
                 if len(digitos) > 19:
                     break
@@ -158,11 +187,26 @@ def _ibans(texto: str) -> list[tuple[int, int]]:
     return [a.span() for a in _IBAN.finditer(maiusculas) if iban_valido(a.group(0))]
 
 
+def _documentos(texto: str) -> list[tuple[int, int]]:
+    """O BI e a conta bancaria local (§8.4: «Dados de cartao/conta/BI»).
+
+    Sobre o texto **dobrado**, que tem o comprimento do original: os
+    intervalos valem nele. Da conta troca-se so o numero, e nao a palavra.
+    """
+    dobrado = dobrar(texto)
+    intervalos = [a.span() for a in _BI.finditer(dobrado)]
+    intervalos += [a.span(1) for a in _CONTA.finditer(dobrado)]
+    return intervalos
+
+
 def tem_dados_de_cartao(texto: str) -> bool:
-    """Se o texto leva um PAN valido por Luhn, um IBAN valido, ou ja a marca."""
-    digitos = unicodedata.normalize("NFKC", _INVISIVEIS.sub("", texto))
+    """Se o texto leva um PAN, um IBAN, um BI, uma conta, ou ja uma das marcas."""
+    limpo = unicodedata.normalize("NFKC", _INVISIVEIS.sub("", texto))
     return bool(
-        _pans(digitos) or _ibans(digitos) or MARCA_CARTAO in texto or MARCA_CONTA in texto
+        _pans(limpo)
+        or _ibans(limpo)
+        or _documentos(limpo)
+        or any(marca in texto for marca in (MARCA_CARTAO, MARCA_CONTA, MARCA_DOCUMENTO))
     )
 
 
@@ -177,7 +221,11 @@ def redigir_cartao(texto: str) -> str:
     # **Um passo de cada vez, e os intervalos recalculam-se**: trocar os PAN
     # muda as posicoes, e intervalos de IBAN medidos antes da troca cortavam o
     # sitio errado.
-    for procurar, marca in ((_pans, MARCA_CARTAO), (_ibans, MARCA_CONTA)):
+    for procurar, marca in (
+        (_pans, MARCA_CARTAO),
+        (_ibans, MARCA_CONTA),
+        (_documentos, MARCA_DOCUMENTO),
+    ):
         for inicio, fim in sorted(procurar(limpo), reverse=True):
             limpo = limpo[:inicio] + marca + limpo[fim:]
     return limpo

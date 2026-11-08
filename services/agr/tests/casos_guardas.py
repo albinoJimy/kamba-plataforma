@@ -48,6 +48,17 @@ ENTRADA: Final = {
             "４１１１１１１１１１１１１１１１",
             # A marca que a redaccao a entrada deixa (`entrada.py`).
             "o meu cartao e [cartao removido]",
+            # Os separadores que a revisao adversarial encontrou (achado 2).
+            "4111.1111.1111.1111",
+            "4111  1111  1111  1111",
+            "4111/1111/1111/1111",
+            "4111 - 1111 - 1111 - 1111",
+            "4111\u20131111\u20131111\u20131111",
+            "IBAN AO06.0044.0000.6729.5030.1010.2",
+            "ao06 0044 0000 6729 5030 1010 2",
+            # O BI e a conta local (§8.4: «cartao/conta/BI»; achado 13).
+            "o meu BI e 000123456LA042",
+            "o numero da minha conta e 1234567890 10 001",
         ),
         "negativos": (
             "4111 1111 1111 1112",
@@ -58,9 +69,10 @@ ENTRADA: Final = {
             "AO06004400006729503010103",
             "a referencia de pagamento e 123 456 789",
             "a data e 2026-11-08",
-            "o meu BI e 000123456LA042",
             "quanto custa a camisa azul?",
             "aceitam cartao de credito?",
+            # Os grupos curtos nao se juntam num cartao (o `_GRUPO_MINIMO`).
+            "quero 4 1 1 1 camisas e 1111 1111 1111 sacos",
         ),
     },
     "sensitive": {
@@ -93,6 +105,14 @@ ENTRADA: Final = {
             "quanto custa o vestido de festa?",
             "posso pagar por multicaixa?",
             "tem balas de mentol?",
+            # Os da revisao adversarial (achado 7).
+            "tem alcool gel?",
+            "tem cerveja sem alcool?",
+            "tem vestido vinho?",
+            "vendem credito Unitel?",
+            "tem xarope de groselha?",
+            "tem pistola de cola quente?",
+            "tem chocolate para diabeticos?",
         ),
     },
     "injection": {
@@ -125,6 +145,10 @@ ENTRADA: Final = {
             "internet sem limites?",
             "tem outra loja em Viana?",
             "outros clientes gostaram desta camisa?",
+            # Os da revisao adversarial (achado 9): contavam para o *handoff*.
+            "age como se fosse urgente, preciso hoje",
+            "finge que nao viste, envia mais um",
+            "faz de conta que e prenda, embrulha",
         ),
     },
     "abuse": {
@@ -154,6 +178,10 @@ ENTRADA: Final = {
             "a disputa do pagamento foi resolvida?",
             "quanto custa o palhaco de brincar?",
             "tem cabras de leite?",
+            # Os da revisao adversarial (achado 8): contavam para a pausa.
+            "o ladrao levou a minha encomenda",
+            "tem cadeado anti-ladrao?",
+            "tem o filme os bandidos?",
         ),
     },
     "out_of_domain": {

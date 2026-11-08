@@ -2042,7 +2042,19 @@ acrescenta a linha da impressão nova; nunca troca a de uma versão publicada.
 | 3 | `injection` | instruções ao sistema, troca de papel, delimitadores falsos, e a travessia do X-09 | `safe_reply`; à 3.ª na hora, `handoff_prepare` e *cool-down* |
 | 4 | `abuse` | insultos e ameaças | `safe_reply`; ao N-ésimo, a `PortaDeModos` pausa a conversa |
 | 5 | `out_of_domain` | o «assistente universal» | `safe_reply` com o âmbito da loja; conta em `agr_guard_in_total{veredicto="out_of_domain"}` — a prova de âmbito da Meta |
-| 6 | `ok` | o léxico do comércio | `classify` |
+| 6 | `ok` | o léxico do **comércio** — e não as palavras que estão em tudo (`ola`, `quero`, `tem`) | `classify` |
+
+**Um botão não passa por aqui.** Uma entrada `interactive` traz o `id` que nós
+pusemos no botão, e sai `ok` com `origem = botao`: o `confirm:{hold_id}` dos
+Serviços leva um UUID, que a regra de fronteira recusa, e o `falar_com_humano`
+tem de passar também no *cool-down*. No *cool-down*, o resto não vai a regras nem
+ao modelo, salvo o cartão (para o aviso do §8.4), e a resposta leva o botão de
+humano. A guarda lê **todas** as mensagens do cliente desde a última resposta, e
+não só a última: um lote coalescido é um turno.
+
+O `card_data` cobre o PAN (grupos de três ou mais dígitos, com espaço, ponto,
+barra ou hífen), o IBAN, o BI (forma INDÍCIO: nove dígitos, duas letras, três) e
+o número de conta **com a palavra que o nomeia**.
 
 O que nenhuma regra decide vai ao **classificador** (`ClassificadorDeGuarda`,
 papel `router`), minimizado pelo KAM-112 e delimitado como dado
@@ -2073,9 +2085,15 @@ já escreve para o texto do cliente, agora com a barreira posta.
 vir da tool, comparação), `identidade` (eco do *system prompt*, pretender ser
 humano) e `fuga` (telefone, e-mail e BSUID pelo detector do KAM-112, NIF por
 contexto, nove dígitos seguidos fora de um número de negócio, URL fora de
-`Dependencias.dominios_permitidos`, imagem *markdown*, pedir dados de cartão).
-Corre sobre o `draft.texto`, depois do *renderer*: uma designação de catálogo com
-uma instrução embutida que chegue ao texto é recusada pela mesma regra.
+`Dependencias.dominios_permitidos`, imagem *markdown*, pedir dados de cartão,
+e um número partido em grupos com nove ou mais dígitos fora de um número de
+negócio — o fixo e o NIF com espaços). Corre sobre o `draft.texto`, depois do
+*renderer*. **Os `sku` e as designações das ofertas do turno são dados**: um
+`sku` de código de barras sai antes da fuga e uma «Promoção de Verão» antes da
+promessa e da identidade; um telefone, um URL ou um pedido de cartão num nome de
+produto continuam a não sair. O `agr_guard_out_total{veredicto="fuga"}` é a série
+que o alerta de segurança do §8.4 há-de ler — **a regra de alerta não existe**, e
+escrevê-la é do catálogo de alertas (`ops/metricas/`).
 
 ### O que fica por ligar ou por medir
 

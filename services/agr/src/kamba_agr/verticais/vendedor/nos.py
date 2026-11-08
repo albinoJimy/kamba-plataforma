@@ -13,9 +13,10 @@ no no que as sofre:
 
 * o `stt` **nao transcreve**: encaminha, e sem porta de STT o veredicto e
   `ask_repeat` — a linha que o §14 escreve para «STT indisponivel»;
-* o `guard_in` e o `guard_out` sao **deterministicos minimos**: o PAN com Luhn, o
-  IBAN, um punhado de padroes de injeccao e as frases vetadas sem numero. O
-  classificador barato e a cobertura completa sao o KAM-033;
+* o `guard_in` e o `guard_out` eram **deterministicos minimos** e deixaram de
+  ser: o KAM-033 trouxe o pacote `guardas/` (as regras, o classificador barato
+  so quando elas nao decidem, os contadores por contacto e a saida), e estes
+  dois nos chamam-no;
 * o `handoff_prepare`/`handoff_wait`/`handoff_close` delegam numa porta
   `HandoffService`, com os efeitos idempotentes por `handoff_id` do §11. A
   implementacao idempotente do lado do HND e o KAM-034.
@@ -191,6 +192,12 @@ MSG_PAUSADA: Final = (
 #: contornar a regra, e a resposta segura e a mesma para as tres violacoes.
 MSG_SAIDA_BLOQUEADA: Final = (
     "Nao consigo responder a isso por aqui. Prefere falar com um colega da loja?"
+)
+#: KAM-033: o texto do *cool-down*. Leva o botao de humano ao lado
+#: (`botoes_seguros_da_guarda`), porque a revisao adversarial mediu que sem ele
+#: o cliente nao chegava a uma pessoa durante uma hora (achado 6).
+MSG_COOLDOWN: Final = (
+    "Um colega da loja vai responder-lhe aqui. Se preferir, toque em falar com humano."
 )
 MSG_PEDIDO_REGISTADO: Final = (
     "O seu pedido ficou registado. A loja confirma o pagamento e avisa-o aqui."
@@ -398,6 +405,34 @@ def _texto_do_cliente(estado: Mapping[str, Any]) -> str:
             )
             return conteudo if isinstance(conteudo, str) else ""
     return ""
+
+
+def textos_do_turno(estado: Mapping[str, Any]) -> str:
+    """O texto de **todas** as mensagens do cliente deste turno, juntas.
+
+    As que vem depois da ultima resposta do assistente. A guarda le-as todas e nao
+    so a ultima, e a revisao adversarial disse porque (achado 16): com uma janela
+    cheia por um lote coalescido, «4111 1111 1111 1111» seguido de «obrigado» era
+    julgado pelo «obrigado».
+    """
+    textos: list[str] = []
+    for mensagem in reversed(list(estado.get("messages") or ())):
+        papel = (
+            mensagem.get("role")
+            if isinstance(mensagem, Mapping)
+            else getattr(mensagem, "type", None)
+        )
+        if papel in ("assistant", "ai"):
+            break
+        if papel in ("user", "human"):
+            conteudo = (
+                mensagem.get("content")
+                if isinstance(mensagem, Mapping)
+                else getattr(mensagem, "content", "")
+            )
+            if isinstance(conteudo, str):
+                textos.append(conteudo)
+    return "\n".join(reversed(textos))
 
 
 def _botao_do_turno(estado: Mapping[str, Any]) -> str:
@@ -694,6 +729,8 @@ def violacao_de_saida(
     *,
     estado_da_tool: str | None = None,
     dominios_permitidos: Sequence[str] = (),
+    skus: Sequence[str] = (),
+    designacoes: Sequence[str] = (),
 ) -> str | None:
     """O que a guarda de saida recusa (§8.4), ou `None` se o texto pode sair.
 
@@ -702,7 +739,11 @@ def violacao_de_saida(
     Os nomes sao os tres nao-`ok` do `guardas.VEREDICTOS_DE_SAIDA`.
     """
     veredicto = guardas.veredicto_de_saida(
-        texto, estado_da_tool=estado_da_tool, dominios_permitidos=dominios_permitidos
+        texto,
+        estado_da_tool=estado_da_tool,
+        dominios_permitidos=dominios_permitidos,
+        skus=skus,
+        designacoes=designacoes,
     )
     return None if veredicto == "ok" else veredicto
 
@@ -998,15 +1039,31 @@ def guard_in(deps: Dependencias):
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        texto = _texto_do_cliente(estado)
+        texto = textos_do_turno(estado)
         agora = deps.relogio()
         contadores = contadores_mod.ler(estado)
-        if contadores_mod.em_cooldown(contadores, agora):
-            # **No *cool-down* nao se pergunta a ninguem**: nem regras, nem
-            # classificador, nem tools. E o «cool-down» do `docs/tecnica/08`
-            # §4.3 (L5), e o que ele poupa e precisamente a chamada ao modelo
-            # que um atacante estaria a pagar com o dinheiro da loja.
-            veredicto, origem = "injection", "cooldown"
+        if estado.get("input_kind") == "interactive":
+            # **Um botao e um identificador que nos emitimos**, e nao texto do
+            # cliente: o WhatsApp devolve o `id` que a resposta anterior pos no
+            # botao. A revisao adversarial mediu o custo de o guardar como texto
+            # (achado 1): o `confirm:{hold_id}` dos Servicos leva um UUID — a
+            # forma que a regra de fronteira recusa —, e nenhuma marcacao se
+            # confirmava; tres toques abriam um *handoff* por injeccao. E o
+            # `falar_com_humano` tem de passar **tambem** no *cool-down* (achado
+            # 6): «falar com humano presente em toda a conversa».
+            veredicto, origem = "ok", "botao"
+            novos, accao = contadores, None
+        elif contadores_mod.em_cooldown(contadores, agora):
+            # **No *cool-down* nao se pergunta a ninguem**: nem classificador,
+            # nem tools. E o «cool-down» do `docs/tecnica/08` §4.3 (L5), e o que
+            # ele poupa e precisamente a chamada ao modelo que um atacante
+            # estaria a pagar com o dinheiro da loja. **O cartao continua a ser
+            # visto**, porque o §8.4 manda avisar o cliente e o aviso e outro.
+            if guardas.regras.tem_dados_de_cartao(texto):
+                veredicto = "card_data"
+            else:
+                veredicto = "injection"
+            origem = "cooldown"
             novos, accao = contadores, None
         else:
             veredicto = guardas.veredicto_por_regras(texto)
@@ -1019,7 +1076,14 @@ def guard_in(deps: Dependencias):
             if deps.metricas is not None:
                 deps.metricas.contar(metricas_mod.METRICA_GUARD_IN, veredicto)
 
-        guarda: dict[str, Any] = {"veredicto": veredicto, "origem": origem}
+        # A versao da politica vai no estado, e daqui para o resumo do turno e
+        # para o *golden*: dois turnos com a mesma `graph_version` e politicas
+        # diferentes tem de se poder distinguir (achado da revisao adversarial).
+        guarda: dict[str, Any] = {
+            "veredicto": veredicto,
+            "origem": origem,
+            "politica": guardas.VERSAO_DA_POLITICA,
+        }
         delta: dict[str, Any] = {"guard": guarda, contadores_mod.CHAVE: novos}
         substituicao = substituicao_na_janela(estado)
         if substituicao:
@@ -1777,10 +1841,13 @@ def guard_out(deps: Dependencias):
         rascunho = estado.get("draft") or {}
         dados = rascunho.get("dados") if isinstance(rascunho, Mapping) else None
         estado_da_tool = dados.get("estado") if isinstance(dados, Mapping) else None
+        ofertas = [o for o in (estado.get("ofertas") or ()) if isinstance(o, Mapping)]
         violacao = violacao_de_saida(
             str(rascunho.get("texto") or ""),
             estado_da_tool=estado_da_tool if isinstance(estado_da_tool, str) else None,
             dominios_permitidos=deps.dominios_permitidos,
+            skus=[str(o.get("sku") or "") for o in ofertas],
+            designacoes=[str(o.get("nome") or "") for o in ofertas],
         )
         if deps.metricas is not None:
             deps.metricas.contar(metricas_mod.METRICA_GUARD_OUT, violacao or "ok")
@@ -1841,14 +1908,26 @@ def texto_seguro_da_guarda(estado: Mapping[str, Any], fora_de_ambito: str) -> st
         return MSG_CARTAO
     if veredicto == "abuse":
         return MSG_PAUSADA if guarda.get("escalada") == "pausa" else MSG_ABUSO
+    if guarda.get("origem") == "cooldown":
+        return MSG_COOLDOWN
     return fora_de_ambito
+
+
+def botoes_seguros_da_guarda(estado: Mapping[str, Any]) -> tuple[str, ...]:
+    """O botao de humano no *cool-down*: «falar com humano presente em toda a conversa»."""
+    guarda = estado.get("guard")
+    if isinstance(guarda, Mapping) and guarda.get("origem") == "cooldown":
+        return (BOTAO_HUMANO,)
+    return ()
 
 
 def safe_reply(deps: Dependencias):
     """Linhas 9, 17 e 33 -> 34: o texto seguro, escolhido pelo que o trouxe."""
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        return _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
+        resposta = _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
+        resposta["draft"]["botoes"] = botoes_seguros_da_guarda(estado)
+        return resposta
 
     return no
 

@@ -62,8 +62,28 @@ _URL: Final = _compilar(politica.URL)
 #: dicionario (morada e pessoa) nao: o nome e a zona da loja saem em resposta, e
 #: o detector, que e escrito para o texto do cliente, ve-los-ia como PII.
 _TIPOS_QUE_FOGEM: Final = (detector_mod.TELEFONE, detector_mod.EMAIL, detector_mod.BSUID)
-_NEGACAO: Final = re.compile(r"\b(?:nao|nunca|jamais)\s+(?:\w+\s+){0,2}$")
+#: A negacao que absolve um pedido de dados: **imediatamente antes** do verbo,
+#: com um pronome no maximo. A primeira versao aceitava duas palavras pelo meio,
+#: e a revisao adversarial mediu o que isso deixava passar: «Nao demore, envie o
+#: cvv» era absolvido pelo `nao` de outro verbo.
+_NEGACAO: Final = re.compile(r"\b(?:nao|nunca|jamais)\s+(?:(?:nos|me|lhe|lhes|o|a)\s+)?$")
 _HOSPEDEIRO: Final = re.compile(r"^(?:https?://)?(?:www\.)?([a-z0-9.-]+)")
+#: Um numero partido em grupos (`222 123 456`, `541 712 3456`, `+244 222 123
+#: 456`). Com nove ou mais digitos e **fora** de um numero de negocio, e a forma
+#: de um telefone fixo ou de um NIF com espacos — que o detector do KAM-112, so
+#: de moveis, nao ve.
+_NUMERO_PARTIDO: Final = re.compile(r"(?<![0-9])[0-9]{2,}(?:[ .\-][0-9]{2,})+(?![0-9])")
+
+#: O que decide fora da `politica.py` e entra na impressao dela.
+ASSINATURA: Final = (
+    "saida",
+    ESTADOS_PAGOS,
+    _NEGACAO.pattern,
+    _HOSPEDEIRO.pattern,
+    _NUMERO_PARTIDO.pattern,
+    _TIPOS_QUE_FOGEM,
+    "fuga>identidade>promessa>ok",
+)
 
 
 def _hospedeiro(url: str) -> str:
@@ -92,6 +112,13 @@ def _pede_dados(normal: str) -> bool:
     return False
 
 
+def _sem(texto: str, trechos: Iterable[str], troca: str) -> str:
+    """O texto sem os trechos dados, do maior para o menor."""
+    for trecho in sorted({t for t in trechos if t}, key=len, reverse=True):
+        texto = texto.replace(trecho, troca)
+    return texto
+
+
 def _identificador_em_claro(texto: str) -> bool:
     """Um telefone, e-mail, BSUID ou numero longo que nao seja de negocio.
 
@@ -113,9 +140,16 @@ def _identificador_em_claro(texto: str) -> bool:
         return True
     if any(achado.tipo in _TIPOS_QUE_FOGEM for achado in achados):
         return True
-    return any(
+    dobrado = dobrar(texto)
+    if any(
         not negocio.reclamado(reclamados, *achado.span())
-        for achado in _DIGITOS.finditer(dobrar(texto))
+        for achado in _DIGITOS.finditer(dobrado)
+    ):
+        return True
+    return any(
+        len(re.sub(r"[^0-9]", "", achado.group(0))) >= 9
+        and not negocio.reclamado(reclamados, *achado.span())
+        for achado in _NUMERO_PARTIDO.finditer(dobrado)
     )
 
 
@@ -124,17 +158,28 @@ def veredicto_de_saida(
     *,
     estado_da_tool: str | None = None,
     dominios_permitidos: Iterable[str] = (),
+    skus: Iterable[str] = (),
+    designacoes: Iterable[str] = (),
 ) -> str:
     """O veredicto da guarda de saida sobre o texto que vai sair.
 
     A ordem e a da gravidade para quem le o painel: a **fuga** primeiro (e a que
     e alerta de seguranca, §8.4), depois a **identidade**, depois a **promessa**.
     O caminho e o mesmo — `safe_reply` —, mas a etiqueta da metrica e outra.
+
+    `skus` e `designacoes` sao os do **catalogo deste turno** (`state.ofertas`),
+    e a revisao adversarial mediu porque contam: um `sku` de codigo de barras
+    («5601234567890») e treze digitos seguidos, e uma «Promocao de Verao» e o
+    nome de um artigo e nao uma promessa — as duas bloqueavam toda a resposta de
+    produto daquela loja. O `sku` sai antes da fuga; a designacao sai antes da
+    identidade e da promessa, e **nao** antes da fuga: um telefone, um URL ou um
+    pedido de cartao num nome de produto continuam a nao sair (criterio 4).
     """
-    normal = normalizar(texto)
+    sem_skus = _sem(texto, skus, "SKU")
+    normal = normalizar(sem_skus)
 
     # -- fuga
-    if _identificador_em_claro(texto):
+    if _identificador_em_claro(sem_skus):
         return "fuga"
     if any(p.search(normal) for p in _FUGA) or _pede_dados(normal):
         return "fuga"
@@ -146,6 +191,7 @@ def veredicto_de_saida(
 
     # -- identidade. O eco do *system prompt* do classificador procura-se pela
     # frase dele, e nao so pelas formas gerais: e o unico *prompt* do AGR hoje.
+    normal = normalizar(_sem(sem_skus, designacoes, "artigo"))
     if FRASE_DO_SISTEMA in normal or any(p.search(normal) for p in _IDENTIDADE):
         return "identidade"
 
