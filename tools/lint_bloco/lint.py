@@ -210,7 +210,16 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: mede-se na arvore da fusao, e escreve-se o valor que sobrevive a ordem.
 #:
 #: Quem acrescentar o **92.o** paga a emenda seguinte: o 45 serve ate aos 91.
-MINIMO_DE_BLOCOS_MEDIDOS = 45
+#:
+#: **O 92.o e o do KAM-185, e a emenda veio dada por um instrumento.** O
+#: `.claude/skills/software-factory/scripts/fila.py` mede o piso na arvore do
+#: `merge-tree` de cada PR aberto com a `main` e da a cada um o valor que lhe
+#: cabe pela ordem da fila. Com o #162 (KAM-060) na cabeca, disse a este PR
+#: «92 medidos -> sobe para 46, e o literal par em `tools/lint_bloco/mutacao.py`»
+#: antes de ele integrar a `35111c35`; medido depois: **92 medidos, exigido 46**.
+#:
+#: Quem acrescentar o **94.o** paga a emenda seguinte: o 46 serve ate aos 93.
+MINIMO_DE_BLOCOS_MEDIDOS = 46
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
