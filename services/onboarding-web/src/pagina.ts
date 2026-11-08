@@ -113,7 +113,12 @@ function escapar(texto: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    // O apóstrofo também, e não é teórico: hoje todos os atributos levam aspas
+    // duplas e todos os valores interpolados têm alfabeto fechado, pelo que a
+    // segurança não depende desta linha — depende dos valores. A revisão
+    // adversarial notou-o como dependência implícita, e uma linha remove-a.
+    .replace(/'/g, "&#39;");
 }
 
 /**
@@ -150,6 +155,39 @@ async function resolver(desafio, dificuldade) {
   throw new Error("sem solucao");
 }
 
+// Um device_hash grosseiro, dos Dados do bloco.
+//
+// SEM ISTO o limite de tres casos por 24 h e por dispositivo nao se aplicava a
+// ninguem: o servidor tem a maquinaria toda e o corpo que esta pagina submetia
+// nao levava o campo, pelo que o device_hash era sempre nulo. Achado da revisao
+// adversarial.
+//
+// E grosseiro de proposito E escolhido pelo cliente, e as duas coisas tem de ser
+// ditas: um bot randomiza-o, pelo que isto e um SINAL e nao uma barreira — e e o
+// que o criterio 8 pede dele, porque a consequencia de o limite bater e uma
+// MARCA (duplicado_ambiguo, que manda o caso a fila) e nao uma recusa. Nada aqui
+// identifica a pessoa: nao ha canvas, nao ha fontes, nao ha armazenamento. Sao
+// tracos do navegador que milhares de aparelhos partilham, e o servidor so
+// guarda o HMAC deles.
+//
+// (Os comentarios deste guiao nao levam crases nem interpolacao: ele vive dentro
+// de um template literal, e uma crase fecha-o. A primeira versao desta nota
+// tinha-as, e o ficheiro deixou de ser TypeScript valido.)
+function dispositivo() {
+  const t = [
+    navigator.userAgent,
+    navigator.language,
+    String(screen.width) + "x" + String(screen.height),
+    String(new Date().getTimezoneOffset()),
+  ].join("|");
+  let h = 2166136261;
+  for (let i = 0; i < t.length; i += 1) {
+    h ^= t.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return "d" + (h >>> 0).toString(16);
+}
+
 let referencia = null;
 
 f.addEventListener("submit", async (ev) => {
@@ -167,6 +205,7 @@ f.addEventListener("submit", async (ev) => {
   const dados = new FormData(f);
   const corpo = {
     token: f.dataset.token,
+    dispositivo: dispositivo(),
     nome_negocio: dados.get("nome_negocio"),
     categoria: dados.get("categoria"),
     nif: dados.get("nif"),
@@ -189,7 +228,6 @@ f.addEventListener("submit", async (ev) => {
   referencia = json.referencia;
   estado.textContent = "Enviamos um codigo por SMS para o telefone indicado.";
   document.getElementById("passo-otp").hidden = false;
-  baterCoracao();
 });
 
 const g = document.getElementById("otp");
@@ -201,18 +239,25 @@ g.addEventListener("submit", async (ev) => {
     body: JSON.stringify({ referencia: referencia, codigo: new FormData(g).get("codigo") }),
   });
   const json = await resposta.json().catch(() => ({}));
-  estado.textContent = json.veredicto === "acertou"
-    ? "Telefone confirmado. Vamos pedir-lhe os documentos."
-    : "O codigo nao confere. Tente outra vez.";
+  if (json.veredicto === "acertou") {
+    estado.textContent = "Telefone confirmado. Vamos pedir-lhe os documentos.";
+    // A batida comeca DEPOIS do OTP, e nao antes: a rota de actividade so
+    // aceita a sessao, pela razao escrita no rotas.ts.
+    baterCoracao();
+    return;
+  }
+  estado.textContent = "O codigo nao confere. Tente outra vez.";
 });
 
 function baterCoracao() {
   setInterval(() => {
-    if (referencia === null) return;
+    // Sem corpo: a rota le o onboarding_id DE DENTRO do cookie de sessao, e um
+    // corpo com campos a mais nao e lido. E o criterio 10: nao ha por onde
+    // mandar teclas nem conteudo.
     void fetch("/api/actividade", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ referencia: referencia }),
+      body: "{}",
     });
   }, 30_000);
 }

@@ -45,19 +45,13 @@ import type {
   RepositorioDeOtp,
   Relogio,
 } from "./contrato.ts";
-import { faseViva } from "./contrato.ts";
+import { CasoDuplicadoError, ChaveReutilizadaError, faseViva } from "./contrato.ts";
+
+// Reexportados porque este módulo era o dono deles até a revisão adversarial
+// mostrar que o adaptador SQL também os tem de lançar: a classe é contrato, e
+// não implementação. Ver `./contrato.ts`.
+export { CasoDuplicadoError, ChaveReutilizadaError };
 import type { Telefone } from "./identificadores.ts";
-
-/** Levantado quando o duplo recusa por unicidade. É o `23505` do adaptador. */
-export class CasoDuplicadoError extends Error {
-  override readonly name = "CasoDuplicadoError";
-
-  constructor() {
-    // Sem o `nif_hmac` na mensagem: um HMAC não é o NIF, mas é um
-    // pseudónimo estável dele, e uma mensagem de erro acaba em ficheiro de log.
-    super("ja existe um caso vivo com este nif_hmac");
-  }
-}
 
 /** Os casos, num `Map`. */
 export class CasosEmMemoria implements RepositorioDeCasos {
@@ -106,7 +100,11 @@ export class CasosEmMemoria implements RepositorioDeCasos {
     chave: string,
   ): Promise<{ readonly caso: Caso; readonly repetido: boolean }> {
     const jaCriado = await this.porChave(chave);
-    if (jaCriado !== null) return { caso: jaCriado, repetido: true };
+    if (jaCriado !== null) {
+      // **A chave prende-se ao corpo.** Ver `ChaveReutilizadaError`.
+      if (jaCriado.nifHmac !== novo.nif.hmac) throw new ChaveReutilizadaError();
+      return { caso: jaCriado, repetido: true };
+    }
     const vivo = await this.porNifHmac(novo.nif.hmac);
     if (vivo !== null) throw new CasoDuplicadoError();
 
@@ -237,10 +235,21 @@ export class ContadoresEmMemoria implements Contadores {
     return instantes.length;
   }
 
+  /**
+   * Quantas há na janela. **Não escreve nada**, e a primeira versão escrevia.
+   *
+   * Ela guardava de volta a lista podada pela janela de quem perguntou, e o
+   * `./contrato.ts` promete ao lado que «a mesma chave pode ser perguntada em
+   * duas janelas». As duas coisas juntas eram um defeito: um `contar` com a
+   * janela de 60 s apagava a **hora** inteira de envios daquele telefone, e
+   * apagava o `ultimo` com ela. Nada no *commit* fazia essa sequência, pelo que
+   * nenhum ensaio ficava vermelho — e o adaptador SQL, que faz um
+   * `COUNT(*) WHERE em > now() - janela`, nunca a reproduziria. É a pior ordem
+   * possível para descobrir um defeito, e é a que o cabeçalho deste ficheiro
+   * nomeia. Achado da revisão adversarial.
+   */
   async contar(chave: string, em: Date, janelaMs: number): Promise<number> {
-    const instantes = this.#limpos(chave, em, janelaMs);
-    this.#porChave.set(chave, instantes);
-    return instantes.length;
+    return this.#limpos(chave, em, janelaMs).length;
   }
 
   async ultimo(chave: string): Promise<Date | null> {
@@ -252,13 +261,39 @@ export class ContadoresEmMemoria implements Contadores {
     return new Date(Math.max(...instantes));
   }
 
+  /**
+   * Troca o último instante por `em` e devolve o anterior, **de uma vez**.
+   *
+   * Aqui é atómico porque o corpo é síncrono entre os dois `await` que não
+   * existem — e isso é a propriedade, não um acidente: a razão por que esta
+   * operação está na porta em vez de ser `ultimo` + `anotar` está escrita no
+   * `./contrato.ts`.
+   */
+  async trocarUltimo(chave: string, em: Date): Promise<Date | null> {
+    const instantes = this.#porChave.get(chave) ?? [];
+    const anterior = instantes.length === 0 ? null : new Date(Math.max(...instantes));
+    this.#porChave.set(chave, [em.getTime()]);
+    return anterior;
+  }
+
   /** Quantas chaves existem. Para a bateria medir o tecto de memória. */
   get chaves(): number {
     return this.#porChave.size;
   }
 
+  /**
+   * Os instantes dentro da janela, e **apaga a chave quando não sobra nenhum**.
+   *
+   * O apagar não é limpeza cosmética: sem ele o `Map` crescia monotonamente com
+   * o número de prefixos de rede, telefones e NIF que o processo chegou a ver —
+   * o `INSTANTES_POR_CHAVE` limita a **lista** de cada chave e não o número de
+   * chaves. Era amplificável por quem escolhesse a chave. Achado da revisão
+   * adversarial.
+   */
   #limpos(chave: string, em: Date, janelaMs: number): number[] {
     const corte = em.getTime() - janelaMs;
-    return (this.#porChave.get(chave) ?? []).filter((t) => t > corte);
+    const vivos = (this.#porChave.get(chave) ?? []).filter((t) => t > corte);
+    if (vivos.length === 0) this.#porChave.delete(chave);
+    return vivos;
   }
 }

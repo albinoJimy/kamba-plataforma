@@ -70,8 +70,18 @@ export const DIFICULDADE_MAXIMA = 20;
 /** Segundos mínimos de preenchimento. *Proposta* do critério 7. */
 export const SEGUNDOS_MINIMOS = 3;
 
-/** Validade de um desafio, em segundos. *Proposta*: um formulário abandonado morre. */
-export const VALIDADE_DO_DESAFIO_S = 1_800;
+/**
+ * Validade de um desafio, em segundos. ***Proposta***: dez minutos.
+ *
+ * **Eram trinta, e os trinta eram o segundo metade de um achado.** O desafio é
+ * reutilizável — não há registo de `nonce` gasto, e pô-lo exigia estado que um
+ * atacante consegue encher —, pelo que a sua validade é exactamente a janela
+ * em que uma prova de trabalho resolvida compra submissões ilimitadas. Trinta
+ * minutos tornavam a escada de dificuldade decorativa; dez continuam a dar
+ * folga a um dono que preenche o formulário com calma, e cortam a janela a um
+ * terço. A outra metade do achado é a prisão à rede — ver `DOMINIO_DO_DESAFIO`.
+ */
+export const VALIDADE_DO_DESAFIO_S = 600;
 
 /** Casos por hora e por prefixo de IP. *Proposta* do ensaio adversarial (a). */
 export const CASOS_POR_REDE = 5;
@@ -94,6 +104,7 @@ export const CHAVES = {
 /** Porque é que uma submissão foi recusada. Lista fechada; nenhum valor é um dado. */
 export const RECUSAS = [
   "desafio_invalido",
+  "desafio_de_outra_rede",
   "desafio_expirado",
   "prova_invalida",
   "depressa",
@@ -130,11 +141,17 @@ export interface DesafioEmitido {
  * Parece um campo a sério de propósito: um bot que preencha «todos os campos de
  * texto» preenche-o, e um bot que ignore campos chamados `honeypot` não o
  * preenche. O campo é escondido por CSS e não por `type="hidden"` — um
- * `hidden` é trivial de reconhecer —, e a página não o rotula para que um leitor
- * de ecrã não o anuncie a um dono que usa tecnologia de apoio. **Essa é a razão
- * de ele ser um campo só e não três**: cada *honeypot* é uma armadilha a mais
- * para uma pessoa com leitor de ecrã, e a barreira que trava bots a sério é a
- * prova de trabalho.
+ * `hidden` é trivial de reconhecer. **O campo é rotulado** — um campo sem
+ * rótulo chama a atenção de um bot —, e o que o esconde de um leitor de ecrã é
+ * o `aria-hidden="true"` da caixa que o envolve, mais o `tabindex="-1"`. (A
+ * primeira versão desta nota dizia que «a página não o rotula», e a página
+ * rotula-o: a propriedade mantém-se, a razão escrita estava errada, e é ela que
+ * um *refactor* lê ao decidir se pode mexer no `aria-hidden`. Achado da revisão
+ * adversarial.)
+ *
+ * **E é um campo só e não três** por essa mesma razão: cada *honeypot* é uma
+ * armadilha a mais para uma pessoa com leitor de ecrã, e a barreira que trava
+ * bots a sério é a prova de trabalho.
  */
 export const NOME_DO_HONEYPOT = "empresa_alternativa";
 
@@ -168,8 +185,26 @@ interface DesafioLido {
   readonly dificuldade: number;
 }
 
-function partesDoDesafio(nonce: string, segundos: number, dificuldade: number): string {
-  return `${nonce}.${segundos}.${dificuldade}`;
+/**
+ * O texto assinado de um desafio. **Leva a rede**, e não levava.
+ *
+ * Sem o `redeHmac` dentro, um desafio emitido para uma rede limpa — ou para uma
+ * rede que não se percebe, onde a dificuldade é a base — servia em **qualquer**
+ * rede durante a validade inteira. A escada de dificuldade do critério 7 ficava
+ * decorativa: um SHA-256 de 2¹² tentativas comprava meia hora de submissões em
+ * qualquer prefixo, mesmo nos que já tinham subido para 20 bits. Achado da
+ * revisão adversarial.
+ *
+ * `-` é o `redeHmac` ausente, e é um valor e não uma omissão: um desafio emitido
+ * sem rede reconhecível só serve onde a rede também não se reconhece.
+ */
+function partesDoDesafio(
+  nonce: string,
+  segundos: number,
+  dificuldade: number,
+  redeHmac: string | null,
+): string {
+  return `${nonce}.${segundos}.${dificuldade}.${redeHmac ?? "-"}`;
 }
 
 function assinar(chave: Uint8Array, dominio: string, texto: string): Buffer {
@@ -272,7 +307,7 @@ export class AntiAbuso {
     const dificuldade = await this.dificuldadePara(redeHmac);
     const nonce = randomBytes(8).toString("base64url");
     const segundos = Math.floor(this.#relogio().getTime() / 1000);
-    const texto = partesDoDesafio(nonce, segundos, dificuldade);
+    const texto = partesDoDesafio(nonce, segundos, dificuldade, redeHmac);
     const assinatura = assinar(this.#chave, DOMINIO_DO_DESAFIO, texto).toString("base64url");
     return { desafio: `${texto}.${assinatura}`, dificuldade, honeypot: NOME_DO_HONEYPOT };
   }
@@ -295,7 +330,7 @@ export class AntiAbuso {
     if (typeof submissao.honeypot === "string" && submissao.honeypot.trim() !== "") {
       throw new AbusoError("honeypot");
     }
-    const lido = this.#lerDesafio(submissao.desafio);
+    const lido = this.#lerDesafio(submissao.desafio, submissao.redeHmac);
     const agora = this.#relogio();
     const decorridoMs = agora.getTime() - lido.emitidoEm.getTime();
     if (decorridoMs > VALIDADE_DO_DESAFIO_S * 1000) throw new AbusoError("desafio_expirado");
@@ -348,28 +383,40 @@ export class AntiAbuso {
   }
 
   /** Lê e autentica um desafio, ou lança. */
-  #lerDesafio(bruto: unknown): DesafioLido {
+  /**
+   * Lê e autentica um desafio, ou lança.
+   *
+   * `redeHmac` é a rede **do pedido**: o desafio só vale na rede para que foi
+   * emitido, e é isso que torna a escada de dificuldade real. Ver
+   * `partesDoDesafio`.
+   */
+  #lerDesafio(bruto: unknown, redeHmac: string | null): DesafioLido {
     if (typeof bruto !== "string" || bruto.length === 0 || bruto.length > 256) {
       throw new AbusoError("desafio_invalido");
     }
     const campos = bruto.split(".");
-    if (campos.length !== 4) throw new AbusoError("desafio_invalido");
-    const [nonce, segundos, dificuldade, assinatura] = campos as [string, string, string, string];
+    if (campos.length !== 5) throw new AbusoError("desafio_invalido");
+    const [nonce, segundos, dificuldade, rede, assinatura] = campos as [
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
     if (!/^[0-9]{1,15}$/.test(segundos) || !/^[0-9]{1,2}$/.test(dificuldade)) {
       throw new AbusoError("desafio_invalido");
     }
+    if (rede !== (redeHmac ?? "-")) throw new AbusoError("desafio_de_outra_rede");
     const recebida = Buffer.from(assinatura, "base64url");
     if (recebida.length !== OCTETOS_DE_HMAC) throw new AbusoError("desafio_invalido");
     const esperada = assinar(
       this.#chave,
       DOMINIO_DO_DESAFIO,
-      partesDoDesafio(nonce, Number(segundos), Number(dificuldade)),
+      partesDoDesafio(nonce, Number(segundos), Number(dificuldade), redeHmac),
     );
     if (!timingSafeEqual(esperada, recebida)) throw new AbusoError("desafio_invalido");
-    return {
-      nonce,
-      emitidoEm: new Date(Number(segundos) * 1000),
-      dificuldade: Number(dificuldade),
-    };
+    const instante = Number(segundos) * 1000;
+    if (!Number.isSafeInteger(instante)) throw new AbusoError("desafio_invalido");
+    return { nonce, emitidoEm: new Date(instante), dificuldade: Number(dificuldade) };
   }
 }

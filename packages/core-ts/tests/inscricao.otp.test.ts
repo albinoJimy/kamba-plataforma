@@ -60,11 +60,16 @@ const OUTRO_CASO = idSequencial(2);
 
 /** Um relógio que só anda quando o ensaio o manda andar. */
 function relogioFalso(inicio = "2026-11-08T10:00:00.000Z") {
-  let agora = new Date(inicio).getTime();
+  const base = new Date(inicio).getTime();
+  let agora = base;
   return {
     agora: (): Date => new Date(agora),
     avancar: (ms: number): void => {
       agora += ms;
+    },
+    /** Poe o relogio em `base + ms`, para medir uma janela a contar do inicio. */
+    poisar: (ms: number): void => {
+      agora = base + ms;
     },
   };
 }
@@ -85,6 +90,10 @@ function montar(opcoes: { readonly orcamentoDiario?: number } = {}): Montagem {
   const repositorio = new OtpEmMemoria();
   const contadores = new ContadoresEmMemoria();
   const alertas: MotivoDeAlerta[] = [];
+  // **Limitacao dita:** a idempotencia do alerta e «uma vez por janela» medida
+  // num processo so. A razao escrita no `otp.ts` e que ela vive numa chave do
+  // contador e por isso sobrevive ao reinicio; isso nao e mensuravel aqui, e um
+  // campo privado dava o mesmo resultado neste ensaio. Achado da revisao.
   const otp = new Otp({
     repositorio,
     contadores,
@@ -361,18 +370,80 @@ describe("inscricao: o disjuntor do orcamento de SMS (criterio 6)", () => {
     assert.ok((await m.otp.enviar(OUTRO_CASO, new Telefone("+244000000002", CHAVE))).enviado);
   });
 
-  it("o orcamento consome-se ANTES do envio, e e o que faz dele um tecto", async () => {
-    // Com o consumo depois, um `await` entre a decisao e a resposta deixava
-    // passar tantos envios quantos pedidos concorrentes houvesse. Mede-se
-    // lancando-os todos de uma vez.
-    const m = montar({ orcamentoDiario: 3 });
-    const resultados = await Promise.all(
+  it("um envio RECUSADO nao estende a pausa, e estendia-a para sempre", async () => {
+    // **O achado mais grave deste ficheiro.** A primeira versao anotava no
+    // contador do orcamento e SO DEPOIS comparava, pelo que cada pedido
+    // recusado deixava um instante na janela — e a janela e deslizante. Com
+    // trafego continuo depois de esgotar o tecto, cada recusa estendia a pausa
+    // 24 h a contar DELA, e o disjuntor nunca reabria; o custo do atacante era
+    // zero, porque nenhum SMS saia.
+    const m = montar({ orcamentoDiario: 1 });
+    assert.ok((await m.otp.enviar(CASO, m.telefone)).enviado, "o primeiro sai");
+    // Vinte recusas espalhadas pelo dia, cada uma com o seu telefone para nao
+    // bater nos limites por destino.
+    for (let i = 0; i < 20; i += 1) {
+      m.relogio.avancar(3_600_000);
+      const r = await m.otp.enviar(idSequencial(60 + i), new Telefone(`+2440000000${10 + i}`, CHAVE));
+      assert.deepEqual(r, { enviado: false, recusa: "orcamento" }, `recusa ${i}`);
+    }
+    // Vinte e quatro horas depois do UNICO envio, a pausa acabou.
+    m.relogio.poisar(86_400_001);
+    assert.equal(await m.otp.disjuntorAberto(), false, "o disjuntor reabriu");
+    assert.ok((await m.otp.enviar(idSequencial(99), new Telefone("+244000000099", CHAVE))).enviado);
+  });
+
+  it("o tecto vale para envios sequenciais, e o excesso concorrente e limitado e dito", async () => {
+    // O preco da ordem `contar`-e-depois-`anotar`: entre os dois ha um `await`,
+    // pelo que N pedidos concorrentes podem passar do tecto em ate N. O que se
+    // mede aqui e as duas metades — que sequencialmente o tecto e exacto, e que
+    // o excesso concorrente nao passa do numero de pedidos em voo.
+    const sequencial = montar({ orcamentoDiario: 3 });
+    for (let i = 1; i <= 6; i += 1) {
+      await sequencial.otp.enviar(idSequencial(70 + i), new Telefone(`+24400000000${i}`, CHAVE));
+    }
+    assert.equal(sequencial.sms.quantosSairam, 3, "sequencialmente, o tecto e exacto");
+
+    const concorrente = montar({ orcamentoDiario: 3 });
+    await Promise.all(
       [1, 2, 3, 4, 5, 6].map((i) =>
-        m.otp.enviar(idSequencial(50 + i), new Telefone(`+24400000000${i}`, CHAVE)),
+        concorrente.otp.enviar(idSequencial(80 + i), new Telefone(`+24400000000${i}`, CHAVE)),
       ),
     );
-    assert.equal(resultados.filter((r) => r.enviado).length, 3);
-    assert.equal(m.sms.quantosSairam, 3);
+    assert.ok(concorrente.sms.quantosSairam >= 3);
+    assert.ok(concorrente.sms.quantosSairam <= 6, `sairam ${concorrente.sms.quantosSairam}`);
+  });
+
+  it("um erro do agregador APAGA o desafio, e nao o apagava", async () => {
+    // Nao o apagar era um defeito: ele ficava guardado cinco minutos, e a
+    // repeticao do pedido encontrava-o vivo e respondia «enviamos um codigo»
+    // sem SMS nenhum ter saido. E o modo de falha que o proprio `enviar` diz
+    // evitar — o dono com um codigo que nunca lhe foi mandado.
+    const m = montar();
+    m.sms.enfileirarErro("PROVIDER_DOWN");
+    await assert.rejects(() => m.otp.enviar(CASO, m.telefone));
+    assert.equal(await m.repositorio.actual(CASO), null, "o desafio nao ficou");
+    assert.equal(await m.otp.validade(CASO), null);
+    // E a quota do telefone FICA gasta, de proposito: ela mede tentativas de
+    // envio e nao entregas. Compensa-la dava a quem fizesse o agregador falhar
+    // uma maneira de pedir SMS sem limite.
+    m.relogio.avancar(INTERVALO_SEGUNDOS * 1000);
+    assert.ok((await m.otp.enviar(CASO, m.telefone)).enviado);
+    m.relogio.avancar(INTERVALO_SEGUNDOS * 1000);
+    assert.ok((await m.otp.enviar(CASO, m.telefone)).enviado);
+    m.relogio.avancar(INTERVALO_SEGUNDOS * 1000);
+    assert.deepEqual(await m.otp.enviar(CASO, m.telefone), { enviado: false, recusa: "frequencia" });
+  });
+
+  it("um HMAC guardado com outra forma nao rebenta a comparacao", async () => {
+    // O `timingSafeEqual` LEVANTA com dois buffers de comprimentos diferentes,
+    // pelo que um adaptador que guardasse outra coisa na coluna fazia uma
+    // verificacao de codigo sair 500 em vez de um veredicto.
+    const m = montar();
+    await m.otp.enviar(CASO, m.telefone);
+    const guardado = await m.repositorio.actual(CASO);
+    assert.ok(guardado !== null);
+    await m.repositorio.guardar({ ...guardado, codigoHmac: "abc" });
+    assert.equal(await m.otp.verificar(CASO, "123456"), "sem_desafio");
   });
 });
 

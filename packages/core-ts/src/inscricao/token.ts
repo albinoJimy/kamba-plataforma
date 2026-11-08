@@ -185,7 +185,14 @@ export function verificarToken(
   if (campos.length !== 3) throw new TokenInvalidoError("forma");
   const [origem, segundos, nonce] = campos as [string, string, string];
   if (nonce === "" || !/^[0-9]{1,15}$/.test(segundos)) throw new TokenInvalidoError("forma");
-  const expiraEm = new Date(Number(segundos) * 1000);
+  // `isSafeInteger` antes da comparação: quinze algarismos dão um instante que
+  // o `Date` não representa, e `NaN <= agora` é **falso** — um *token* com data
+  // impossível passava por não expirado. Hoje é inalcançável, porque o
+  // `cunharToken` recusa cunhá-lo e só quem tem a chave assina; fecha-se porque
+  // o ramo existe e um segundo emissor tornava-o alcançável. Achado da revisão.
+  const instante = Number(segundos) * 1000;
+  if (!Number.isSafeInteger(instante)) throw new TokenInvalidoError("forma");
+  const expiraEm = new Date(instante);
   if (expiraEm.getTime() <= agora().getTime()) throw new TokenInvalidoError("expirado");
   if (!ORIGENS.includes(origem as Origem)) throw new TokenInvalidoError("origem");
   return { origem: origem as Origem, expiraEm };

@@ -50,7 +50,6 @@ import {
   cookieDoCabecalho,
   cunharReferencia,
   lerReferencia,
-  prefixoDeIp,
   ReferenciaInvalidaError,
   TokenInvalidoError,
   verificarToken,
@@ -78,6 +77,17 @@ export interface OpcoesDasRotas {
    * nota do módulo.
    */
   readonly proxiesDeConfianca?: number | undefined;
+  /**
+   * O relógio. **Injectável, e tem de o ser desde que as referências têm
+   * validade.**
+   *
+   * O `cunharReferencia` e o `lerReferencia` comparam instantes, e um serviço
+   * que lesse o relógio do sistema enquanto o `Registo` usa outro cunhava
+   * bilhetes que ele próprio recusava. Em produção é `new Date()`; numa
+   * bateria é o mesmo relógio falso de todas as outras peças, o que é também a
+   * única maneira de medir a validade sem esperar trinta minutos.
+   */
+  readonly relogio?: (() => Date) | undefined;
   readonly log?: Logger | undefined;
 }
 
@@ -124,6 +134,7 @@ async function corpoJson(pedido: Request): Promise<Corpo> {
 export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
   const app = new Hono();
   const proxies = opcoes.proxiesDeConfianca ?? 0;
+  const relogio = opcoes.relogio ?? ((): Date => new Date());
   const log = opcoes.log;
 
   const ipDe = (c: {
@@ -139,7 +150,7 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
   app.get("/entrar", async (c) => {
     const n = nonce();
     try {
-      verificarToken(c.req.query("c"), opcoes.anelDoToken);
+      verificarToken(c.req.query("c"), opcoes.anelDoToken, relogio);
     } catch (erro) {
       if (!(erro instanceof TokenInvalidoError)) throw erro;
       // O `outcome` e o `error_code` são campos da *allowlist* do KAM-068; o
@@ -148,7 +159,16 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
       log?.info({ outcome: "entrar_recusado", error_code: erro.recusa });
       return c.html(paginaDeRecusa(), 403, cabecalhos(n));
     }
-    const desafio = await opcoes.antiabuso.emitir(prefixoDeIpOuNulo(ipDe(c)));
+    // **Pelo `registo` e não pelo `antiabuso` directamente**, e a diferença era
+    // o defeito mais grave deste ficheiro: o `emitir` quer um `redeHmac`, e esta
+    // linha passava-lhe o **prefixo de IP em claro**. Os dois lados usavam
+    // espaços de chave disjuntos — quem consome a quota é o `Registo`, que faz o
+    // HMAC —, pelo que a dificuldade servida era **sempre** a base, por muitos
+    // casos que a rede tivesse aberto: a «prova de trabalho adaptativa» do
+    // critério 7 era constante. E punha um identificador em claro numa chave de
+    // contador, contra a regra do módulo. O `desafioPara` do `Registo`, que faz
+    // a coisa certa, era **código morto**. Achado da revisão adversarial.
+    const desafio = await opcoes.registo.desafioPara(ipDe(c));
     return c.html(
       paginaDeRegisto({
         desafio: desafio.desafio,
@@ -189,7 +209,7 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
       return c.json(
         {
           referencia: aceite.referencia,
-          expira_em: aceite.expiraEm.toISOString(),
+          validade_segundos: aceite.validadeSegundos,
           digitos: aceite.digitos,
         },
         200,
@@ -203,7 +223,7 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
 
   app.post("/api/otp/reenviar", async (c) => {
     const corpo = await corpoJson(c.req.raw);
-    const id = idDaReferencia(corpo.referencia, opcoes.anelDaAssinatura);
+    const id = idDaReferencia(corpo.referencia, opcoes.anelDaAssinatura, relogio);
     if (id === null) return c.json({ erro: "token" }, 403);
     const telefone = await opcoes.registo.telefoneDoCaso(id);
     if (telefone === null) return c.json({ erro: "indisponivel" }, 503);
@@ -212,12 +232,15 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
       log?.info({ outcome: "otp_recusado", error_code: resultado.recusa });
       return c.json({ erro: "limite" }, 429);
     }
-    return c.json({ expira_em: resultado.expiraEm.toISOString() }, 200);
+    // O instante não sai, pela razão do `validadeSegundos` do `Aceite`: aqui ele
+    // não é oráculo nenhum (quem chama já tem bilhete), mas duas superfícies a
+    // dizer a mesma coisa de duas maneiras divergem na primeira alteração.
+    return c.json({ validade_segundos: opcoes.otp.ttlMinutos * 60 }, 200);
   });
 
   app.post("/api/otp/verificar", async (c) => {
     const corpo = await corpoJson(c.req.raw);
-    const id = idDaReferencia(corpo.referencia, opcoes.anelDaAssinatura);
+    const id = idDaReferencia(corpo.referencia, opcoes.anelDaAssinatura, relogio);
     if (id === null) return c.json({ erro: "token" }, 403);
     const veredicto: Veredicto = await opcoes.otp.verificar(id, corpo.codigo);
     log?.info({ outcome: `otp_${veredicto}`, error_code: veredicto });
@@ -228,19 +251,25 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
     // **A sessão é cunhada aqui e só aqui.** O bilhete que o cliente trouxe tem
     // outro separador de domínio e não serve de cookie — ver o `sessao.ts` do
     // pacote. É esta linha que faz a posse do telefone ser condição de entrada.
-    c.header("Set-Cookie", cabecalhoDoCookie(cunharReferencia("sessao", id, chave)));
+    c.header("Set-Cookie", cabecalhoDoCookie(cunharReferencia("sessao", id, chave, relogio)));
     return c.json({ veredicto }, 200);
   });
 
   app.post("/api/actividade", async (c) => {
     const corpo = await corpoJson(c.req.raw);
-    // O cookie primeiro, o bilhete depois: depois do OTP é a sessão que manda, e
-    // antes dele o bilhete é a única referência que existe. Os dois saem de um
-    // HMAC nosso, e **o id sai de dentro deles** — nunca de um parâmetro ao
-    // lado, que é o que faz o 404 do teste de isolamento ser inevitável.
-    const daSessao = idDaSessao(c.req.header("cookie"), opcoes.anelDaAssinatura);
-    const id = daSessao ?? idDaReferencia(corpo.referencia, opcoes.anelDaAssinatura);
+    // **Só a sessão, e aceitava também o bilhete.** O bilhete «não autentica
+    // ninguém» por desenho, e no caminho de recuperação do critério 8 ele está
+    // nas mãos de quem submeteu o formulário — que pode não ser o dono: com ele
+    // aceite aqui, essa pessoa **escrevia** no `owner_active_seconds` do caso de
+    // outra. Uma escrita autorizada por uma referência que não autentica é uma
+    // contradição, e a resposta certa é recusá-la. Achado da revisão adversarial.
+    //
+    // O preço, dito: o tempo **antes** do OTP deixa de ser medido, porque antes
+    // dele não há dono provado. É a parte do critério 10 que fica por medir, e
+    // está nomeada na secção de verificação do bloco.
+    const id = idDaSessao(c.req.header("cookie"), opcoes.anelDaAssinatura, relogio);
     if (id === null) return c.json({ erro: "token" }, 403);
+    void corpo;
     const batida = await opcoes.actividade.bater(id);
     if (batida === null) return c.json({ erro: "token" }, 404);
     return c.json({ somados: batida.somados, total: batida.total }, 200);
@@ -249,13 +278,13 @@ export function rotasDeInscricao(opcoes: OpcoesDasRotas): Hono {
   return app;
 }
 
-function prefixoDeIpOuNulo(ip: string | null): string | null {
-  return ip === null ? null : prefixoDeIp(ip);
-}
-
-function idDaReferencia(bruto: unknown, anel: readonly (Uint8Array | null)[]): string | null {
+function idDaReferencia(
+  bruto: unknown,
+  anel: readonly (Uint8Array | null)[],
+  relogio: () => Date,
+): string | null {
   try {
-    return lerReferencia("ticket", bruto, anel);
+    return lerReferencia("ticket", bruto, anel, relogio);
   } catch (erro) {
     if (erro instanceof ReferenciaInvalidaError) return null;
     throw erro;
@@ -265,11 +294,12 @@ function idDaReferencia(bruto: unknown, anel: readonly (Uint8Array | null)[]): s
 function idDaSessao(
   cabecalho: string | undefined,
   anel: readonly (Uint8Array | null)[],
+  relogio: () => Date,
 ): string | null {
   const valor = cookieDoCabecalho(cabecalho);
   if (valor === null) return null;
   try {
-    return lerReferencia("sessao", valor, anel);
+    return lerReferencia("sessao", valor, anel, relogio);
   } catch (erro) {
     if (erro instanceof ReferenciaInvalidaError) return null;
     throw erro;

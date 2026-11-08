@@ -36,6 +36,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import type { Relogio } from "./contrato.ts";
 import { OCTETOS_DE_HMAC } from "./identificadores.ts";
 
 /** Os dois fins de uma referência. Lista fechada — ver a nota do módulo. */
@@ -51,6 +52,47 @@ export const DOMINIOS_DE_REFERENCIA: Readonly<Record<Fim, string>> = {
 
 /** Nome do cookie de sessão. */
 export const NOME_DO_COOKIE = "kamba_onboarding";
+
+/**
+ * Validade de um bilhete, em segundos. ***Proposta***: 30 minutos.
+ *
+ * **Um bilhete sem validade era eterno, e isso era um achado.** Ele é entregue a
+ * quem submeteu o formulário — que no caminho de recuperação do critério 8 pode
+ * não ser o dono do número — e o `/api/otp/reenviar` aceita-o. Sem validade,
+ * quem conhecesse o NIF de um negócio guardava o bilhete **para sempre** e
+ * mandava SMS ao dono dele até ao tecto de três por hora, indefinidamente,
+ * destruindo de cada vez o desafio vivo da vítima. O tecto de três por hora
+ * continua a ser o limite real do volume; o que esta validade fecha é a
+ * **conveniência** de o fazer sem voltar a passar pelo formulário e pela prova
+ * de trabalho. Achado da revisão adversarial.
+ *
+ * Trinta minutos é o que um dono precisa para receber um SMS, procurá-lo e
+ * escrevê-lo, com folga para um reenvio. O TTL do código são cinco minutos.
+ */
+export const VALIDADE_DO_BILHETE_S = 1_800;
+
+/**
+ * Validade de uma sessão, em segundos. ***Proposta***: 24 horas.
+ *
+ * **Também ela era eterna, e também isso foi um achado.** O cookie não leva
+ * `Max-Age`, pelo que a *instância* no navegador morre com ele — mas o
+ * **valor** era válido para sempre, e um valor que escape (um registo, um
+ * histórico, uma máquina partilhada) autenticava o caso indefinidamente, sem
+ * forma de o invalidar a não ser rodar a chave e expulsar todos. Vinte e
+ * quatro horas é mais do que um registo inteiro leva, e é a janela em que um
+ * valor fugido ainda vale algo.
+ */
+export const VALIDADE_DA_SESSAO_S = 86_400;
+
+/**
+ * Validade por fim, em segundos. `0` quer dizer **sem validade**, e hoje
+ * **nenhum fim o usa**: a forma da referência admite-o, e dizê-lo é mais
+ * honesto do que fingir que não é representável.
+ */
+export const VALIDADES: Readonly<Record<Fim, number>> = {
+  ticket: VALIDADE_DO_BILHETE_S,
+  sessao: VALIDADE_DA_SESSAO_S,
+};
 
 /**
  * Os atributos do cookie, pela ordem em que saem.
@@ -79,20 +121,35 @@ export class ReferenciaInvalidaError extends Error {
   }
 }
 
-function assinar(chave: Uint8Array, fim: Fim, id: string): Buffer {
+function assinar(chave: Uint8Array, fim: Fim, texto: string): Buffer {
   return createHmac("sha256", chave)
     .update(`${DOMINIOS_DE_REFERENCIA[fim]}\0`, "utf8")
-    .update(id, "utf8")
+    .update(texto, "utf8")
     .digest();
 }
 
-/** Cunha uma referência a um caso, para este fim. `chave` é a **actual** do anel. */
-export function cunharReferencia(fim: Fim, onboardingId: string, chave: Uint8Array): string {
+/**
+ * Cunha uma referência a um caso, para este fim. `chave` é a **actual** do anel.
+ *
+ * A forma é `<uuid>.<segundos>.<hmac>`, e os `<segundos>` são o fim da validade.
+ * **Estão dentro do texto assinado**, pelo que o cliente pode repetir a
+ * referência e não pode prolongá-la — é o mesmo argumento do `emitidoEm` do
+ * `./antiabuso.ts`.
+ */
+export function cunharReferencia(
+  fim: Fim,
+  onboardingId: string,
+  chave: Uint8Array,
+  agora: Relogio = () => new Date(),
+): string {
   if (!UUID.test(onboardingId)) throw new ReferenciaInvalidaError(fim);
   if (!(chave instanceof Uint8Array) || chave.length !== OCTETOS_DE_HMAC) {
     throw new ReferenciaInvalidaError(fim);
   }
-  return `${onboardingId}.${assinar(chave, fim, onboardingId).toString("base64url")}`;
+  const validade = VALIDADES[fim];
+  const expira = validade === 0 ? 0 : Math.floor(agora().getTime() / 1000) + validade;
+  const texto = `${onboardingId}.${expira}`;
+  return `${texto}.${assinar(chave, fim, texto).toString("base64url")}`;
 }
 
 /**
@@ -106,24 +163,35 @@ export function lerReferencia(
   fim: Fim,
   bruto: unknown,
   anel: readonly (Uint8Array | null)[],
+  agora: Relogio = () => new Date(),
 ): string {
-  if (typeof bruto !== "string" || bruto.length === 0 || bruto.length > 128) {
+  if (typeof bruto !== "string" || bruto.length === 0 || bruto.length > 160) {
     throw new ReferenciaInvalidaError(fim);
   }
   const partes = bruto.split(".");
-  if (partes.length !== 2) throw new ReferenciaInvalidaError(fim);
-  const [id, assinatura] = partes as [string, string];
-  if (!UUID.test(id) || !/^[A-Za-z0-9_-]+$/.test(assinatura)) {
+  if (partes.length !== 3) throw new ReferenciaInvalidaError(fim);
+  const [id, segundos, assinatura] = partes as [string, string, string];
+  if (!UUID.test(id) || !/^[0-9]{1,15}$/.test(segundos) || !/^[A-Za-z0-9_-]+$/.test(assinatura)) {
     throw new ReferenciaInvalidaError(fim);
   }
   const recebida = Buffer.from(assinatura, "base64url");
   if (recebida.length !== OCTETOS_DE_HMAC) throw new ReferenciaInvalidaError(fim);
+  // **A assinatura primeiro, a validade depois**, pela razão do `./token.ts`:
+  // pela ordem inversa o tempo de resposta distinguia uma referência expirada —
+  // que é prova de que a chave esteve certa algum dia — de uma forjada.
   let acertos = 0;
   for (const chave of anel) {
     if (!(chave instanceof Uint8Array) || chave.length !== OCTETOS_DE_HMAC) continue;
-    acertos |= timingSafeEqual(assinar(chave, fim, id), recebida) ? 1 : 0;
+    acertos |= timingSafeEqual(assinar(chave, fim, `${id}.${segundos}`), recebida) ? 1 : 0;
   }
   if (acertos !== 1) throw new ReferenciaInvalidaError(fim);
+  const expira = Number(segundos);
+  // `isSafeInteger` e não só a comparação: quinze algarismos dão um instante
+  // que o `Date` não representa, e `NaN <= agora` é **falso** — isto é, uma
+  // referência com data impossível passava por não expirada. O mesmo ramo
+  // existe no `./token.ts` e fecha-se da mesma maneira. Achado da revisão.
+  if (!Number.isSafeInteger(expira) || expira < 0) throw new ReferenciaInvalidaError(fim);
+  if (expira !== 0 && expira * 1000 <= agora().getTime()) throw new ReferenciaInvalidaError(fim);
   return id;
 }
 
@@ -152,7 +220,12 @@ export function cookieDoCabecalho(cabecalho: unknown): string | null {
     if (corte < 0) continue;
     if (par.slice(0, corte).trim() !== NOME_DO_COOKIE) continue;
     const valor = par.slice(corte + 1).trim();
-    return valor === "" ? null : valor;
+    // **Um homónimo vazio não encerra a procura**, e a primeira versão
+    // encerrava-a: um `kamba_onboarding=; kamba_onboarding=<sessao>` devolvia
+    // `null`, pelo que quem conseguisse plantar um cookie homónimo vazio — de
+    // um subdomínio, ou com outro `Path` — desautenticava quem lá estava.
+    // Achado da revisão adversarial.
+    if (valor !== "") return valor;
   }
   return null;
 }

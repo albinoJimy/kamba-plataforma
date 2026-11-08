@@ -54,7 +54,7 @@
  *
  * **O HMAC do destino de um SMS não é nenhum destes.** Esse é o
  * `pepper_sms_destino` e é cunhado pelo `../sms/destino.ts`, como o KAM-116
- * escreveu; o `./sms_local.ts` é que os liga. Os dois existem e não são
+ * escreveu; o `./provedores.ts` é que os liga. Os dois existem e não são
  * redundantes: um identifica a **pessoa** dentro do onboarding, o outro
  * identifica o **endereço** dentro do agregador.
  *
@@ -208,19 +208,43 @@ function exigirChave(chave: Uint8Array): void {
 /**
  * Dobra os algarismos decimais Unicode para ASCII, ou lança.
  *
- * Duas passagens, e a segunda é a que importa:
+ * Três passagens, e a **primeira** é a barreira — a ordem é o que a faz valer:
  *
- * 1. O NFKC resolve a largura inteira, o `＋` e as formas de compatibilidade —
+ * 1. **Sobre o texto bruto**, recusa qualquer caractere de categoria `\p{N}`
+ *    que não seja `[0-9]` nem pertença a um bloco de `ZEROS_DE_BLOCO`.
+ * 2. O NFKC resolve a largura inteira, o `＋` e as formas de compatibilidade —
  *    é uma normalização da norma e não uma tabela nossa.
- * 2. Os blocos de `ZEROS_DE_BLOCO` dobram-se por aritmética dentro do bloco.
- * 3. **O que sobrar e for `\p{Nd}` sem ser `[0-9]` é recusado.** É o passo que
- *    faz deste uma barreira em vez de uma conveniência: sem ele, um algarismo
- *    de um bloco que a lista não cobre passava intacto, dava outro HMAC, e o
- *    segundo registo do mesmo dono **não** era visto como duplicado. Falhar em
- *    voz alta é a única resposta certa, porque a alternativa é um duplicado que
- *    entra.
+ * 3. Os blocos de `ZEROS_DE_BLOCO` dobram-se por aritmética dentro do bloco.
+ *
+ * ## Porque é que a barreira tem de correr **antes** do NFKC, e sobre `\p{N}`
+ *
+ * A primeira versão desta função corria a barreira **depois** do NFKC e só
+ * sobre `\p{Nd}`, e as duas escolhas juntas abriam um buraco medido: o NFKC
+ * fabrica algarismos ASCII a partir de categorias que **não** são `Nd` —
+ * `No` (o `²` sobrescrito, o `㊱` circundado) e `Nl` (os numerais romanos) —, e
+ * depois dele já não há nada de estranho para a barreira ver.
+ *
+ * O caso que dói é o telefone: oito algarismos mais um `²` davam
+ * `923456782`, **nove** algarismos, que o `NACIONAL` aceita. O dono escreveu um
+ * número e o sistema aceitou **outro**, em silêncio, e o OTP ia para o telefone
+ * de outra pessoa. Achado da revisão adversarial, e a regra que o módulo já
+ * escrevia — «o que não se dobra é recusado; falhar em voz alta é a única
+ * resposta certa» — passou a cobrir a superfície toda em vez de metade dela.
+ *
+ * O que fica de fora, dito: um caractere que o NFKC transforme num algarismo e
+ * que **não** seja `\p{N}` nenhum. Não encontrei nenhum, e a varredura dos
+ * 0x110000 pontos de código que a revisão fez também não — mas a afirmação é
+ * sobre a tabela Unicode de hoje e por isso é **INDÍCIO**, não CONFIRMADO.
  */
 export function dobrarAlgarismos(bruto: string, campo: string): string {
+  for (const caractere of bruto) {
+    if (/^[0-9]$/.test(caractere)) continue;
+    const ponto = caractere.codePointAt(0) ?? 0;
+    if (ZEROS_DE_BLOCO.some((zero) => ponto >= zero && ponto <= zero + 9)) continue;
+    if (/\p{N}/u.test(caractere)) {
+      throw new IdentificadorInvalidoError(campo, bruto.length, "algarismos_unicode");
+    }
+  }
   const normalizado = bruto.normalize("NFKC");
   let saida = "";
   for (const caractere of normalizado) {
@@ -228,6 +252,8 @@ export function dobrarAlgarismos(bruto: string, campo: string): string {
     const zero = ZEROS_DE_BLOCO.find((z) => ponto >= z && ponto <= z + 9);
     saida += zero === undefined ? caractere : String.fromCharCode(0x30 + ponto - zero);
   }
+  // A rede de segurança da terceira passagem: um `\p{Nd}` que sobreviva a
+  // tudo isto não pode passar por caractere comum.
   if (/\p{Nd}/u.test(saida.replace(/[0-9]/g, ""))) {
     throw new IdentificadorInvalidoError(campo, bruto.length, "algarismos_unicode");
   }
@@ -324,9 +350,16 @@ export function hmacDe(chave: Uint8Array, dominio: Dominio | string, valor: stri
  * Um valor opaco com o HMAC ao lado. A forma do `Destino` do `../sms/`.
  *
  * O valor em claro sai por `revelar()`, e esse é o único caminho — ver
- * `../sms/opaco.ts`. No módulo há **dois** sítios legítimos de chamada: o
- * `./sms_local.ts`, que entrega o número ao `cunharDestino` da porta de SMS, e
- * o adaptador SQL, que o cifra. Um terceiro é um achado de revisão.
+ * `../sms/opaco.ts`.
+ *
+ * **Há DOIS sítios de chamada do `revelar()` em todo o módulo, e são estes:**
+ * o `./provedores.ts`, que entrega o número ao `cunharDestino` da porta de
+ * SMS, e o `./otp.ts`, que entrega o código ao HMAC que fica guardado. Um
+ * terceiro é um achado de revisão — e a primeira versão desta nota nomeava um
+ * ficheiro que **não existe** (`sms_local.ts`) e um que ainda não existe (o
+ * adaptador SQL), omitindo os dois reais. Apanhou-o a revisão adversarial, com
+ * um `grep`. Quando o adaptador SQL existir, ele é o terceiro, e esta conta
+ * muda com ele.
  */
 abstract class ComHmac extends Opaco {
   /**
@@ -395,6 +428,42 @@ export class Email extends Opaco {
 }
 
 /**
+ * Os oito grupos de um IPv6, expandidos e normalizados, ou `null`.
+ *
+ * **Expandir antes de cortar é a correcção de um defeito medido**, e a primeira
+ * versão deste ficheiro tinha-o: ela devolvia o endereço inteiro como prefixo
+ * quando ele levava `::`, com a justificação de que cortar ao terceiro grupo de
+ * um `::` dava prefixos diferentes para o mesmo bloco. A justificação estava
+ * certa e o remédio estava errado — `2001:db8::1` e `2001:db8::2` davam **dois**
+ * baldes para o mesmo `/48`, e quem tivesse um `/64` (uma alocação residencial
+ * normal, ou uma máquina de nuvem) trocava de endereço a cada pedido e pagava
+ * cinco casos por hora **em cada um**. Achado da revisão adversarial.
+ *
+ * A normalização a quatro hexadecimais é o que faz `2001:db8::1` e
+ * `2001:0db8:0000:0000:0000:0000:0000:0001` dar o mesmo prefixo.
+ */
+function gruposDeIpv6(texto: string): readonly string[] | null {
+  if (!/^[0-9a-f:]{2,45}$/.test(texto) || !texto.includes(":")) return null;
+  const partes = texto.split("::");
+  if (partes.length > 2) return null;
+  const antes = partes[0] === "" ? [] : (partes[0] ?? "").split(":");
+  const resto = partes[1];
+  const depois = resto === undefined || resto === "" ? [] : resto.split(":");
+  if (partes.length === 1) {
+    if (antes.length !== 8) return null;
+  } else if (antes.length + depois.length >= 8) {
+    // Um `::` tem de representar **pelo menos** um grupo a zero; oito grupos
+    // escritos mais um `::` é um endereço que não existe.
+    return null;
+  }
+  const faltam = partes.length === 1 ? 0 : 8 - antes.length - depois.length;
+  const todos = [...antes, ...Array.from({ length: faltam }, () => "0"), ...depois];
+  if (todos.length !== 8) return null;
+  if (todos.some((grupo) => !/^[0-9a-f]{1,4}$/.test(grupo))) return null;
+  return todos.map((grupo) => grupo.padStart(4, "0"));
+}
+
+/**
  * O prefixo grosseiro de um endereço IP, antes de ir a HMAC.
  *
  * `/24` em IPv4 e `/48` em IPv6 — **proposta**, e é o que torna o limite do
@@ -402,28 +471,44 @@ export class Email extends Opaco {
  * limite por endereço exacto não trava nada atrás de NAT, que é como a maior
  * parte de Luanda sai para a Internet, e um limite mais largo travava um bairro.
  *
+ * ## Um IPv4 mapeado é um IPv4, e esquecê-lo desligava o limite inteiro
+ *
+ * Um processo Node a escutar em `::` recebe um cliente IPv4 como
+ * `::ffff:192.0.2.33`. A primeira versão desta função devolvia `null` para essa
+ * forma — a expressão de IPv4 não casa com o prefixo e a de IPv6 recusa os
+ * pontos —, e `null` quer dizer «sem rede»: o limite de cinco casos por hora e
+ * por prefixo **não se aplicava a ninguém** na configuração em que o serviço
+ * corre, porque é esse o endereço que o `remoteAddress` dá. Achado da revisão
+ * adversarial, e é a diferença entre o caminho medido e o caminho que corre.
+ *
  * Um endereço que não se percebe devolve `null`, e quem chama trata o `null`
  * como «sem rede» em vez de inventar uma chave: um prefixo inventado punha
  * clientes distintos no mesmo balde.
  */
 export function prefixoDeIp(bruto: unknown): string | null {
   if (typeof bruto !== "string") return null;
-  const texto = bruto.trim().toLowerCase();
+  let texto = bruto.trim().toLowerCase();
+  // As duas formas de um IPv4 mapeado em IPv6. A segunda — `::ffff:c000:0233` —
+  // já é hexadecimal e cai no caminho de IPv6, onde dá o prefixo `0000:0000:0000`
+  // para **todos** os IPv4 mapeados; por isso ela traduz-se aqui também.
+  const comPontos = /^(?:::ffff:|::)((?:[0-9]{1,3}\.){3}[0-9]{1,3})$/.exec(texto);
+  if (comPontos !== null) texto = comPontos[1] ?? texto;
+  const emHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(texto);
+  if (emHex !== null) {
+    const alto = Number.parseInt(emHex[1] ?? "", 16);
+    const baixo = Number.parseInt(emHex[2] ?? "", 16);
+    texto = `${alto >> 8}.${alto & 0xff}.${baixo >> 8}.${baixo & 0xff}`;
+  }
+
   const v4 = /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.[0-9]{1,3}$/.exec(texto);
   if (v4 !== null) {
     const octetos = [v4[1], v4[2], v4[3]].map((o) => Number(o));
     if (octetos.some((o) => !Number.isInteger(o) || o > 255)) return null;
     return `${octetos[0]}.${octetos[1]}.${octetos[2]}.0/24`;
   }
-  if (!/^[0-9a-f:]{2,45}$/.test(texto) || !texto.includes(":")) return null;
-  // Três grupos hexadecimais são os 48 bits. O `::` abreviado pode dar menos de
-  // três, e nesse caso o endereço **é** o prefixo: `2001:db8::1` tem os 48 bits
-  // nos dois primeiros grupos, e cortar ao terceiro grupo de um `::` dava
-  // prefixos diferentes para o mesmo bloco.
-  const grupos = texto.split(":");
-  if (grupos.slice(0, 3).some((g) => g !== "" && !/^[0-9a-f]{1,4}$/.test(g))) return null;
-  if (texto.includes("::")) return `${texto}/48`;
-  if (grupos.length < 3) return null;
+
+  const grupos = gruposDeIpv6(texto);
+  if (grupos === null) return null;
   return `${grupos.slice(0, 3).join(":")}::/48`;
 }
 

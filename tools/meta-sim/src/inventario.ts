@@ -396,7 +396,7 @@ export const INVENTARIO: readonly Entrada[] = [
   },
   {
     ficheiro: "packages/core-ts/tests/inscricao.otp.test.ts",
-    ocorrencias: 10,
+    ocorrencias: 11,
     razao:
       "os destinos das baterias de frequencia, intervalo e orcamento do " +
       "criterio 5: o limite e POR TELEFONE, pelo que medi-lo exige telefones " +
@@ -420,6 +420,16 @@ export const INVENTARIO: readonly Entrada[] = [
       "ensaio de isolamento entre dois casos. A bateria do servico existe para " +
       "medir que as barreiras estao LIGADAS ao pedido, e um pedido com um " +
       "telefone que o modulo recusa nunca chega a exercitar a ligacao",
+  },
+  {
+    ficheiro: "tools/isolamento/tests/condutor/rotas.ts",
+    ocorrencias: 2,
+    razao:
+      "os dois destinos do grupo `inscricao` do condutor de isolamento (gate 6, " +
+      "KAM-066): o do caso de B, que e o atacado, e o de quem ataca. O modulo da " +
+      "inscricao so aceita +244, pelo que um numero ficticio era recusado antes " +
+      "de o caso de B existir — e sem caso de B os dez ataques nao atacam nada. " +
+      "Nacionais a comecar por zero, como os das outras entradas desta lista",
   },
   {
     ficheiro: "services/onboarding-web/tests/adversarial.test.ts",

@@ -211,39 +211,92 @@ export class Otp {
    * tantos envios quantos pedidos concorrentes houvesse. Com o consumo à
    * frente, o tecto é um tecto.
    */
+  /**
+   * As duas barreiras por destino — o intervalo e a frequência — **sem as
+   * consumir**.
+   *
+   * Existe por causa do critério 9, e a razão está no cabeçalho do
+   * `./registo.ts`: as duas barreiras são por **telefone de destino**, e o
+   * destino difere entre o caminho de criação e o de recuperação. Perguntá-las
+   * **antes** de se saber o caminho, sobre o telefone que o cliente submeteu,
+   * é o que faz as duas respostas serem a mesma.
+   */
+  async podeEnviar(telefone: Telefone): Promise<RecusaDeEnvio | null> {
+    const agora = this.#relogio();
+    const chave = CHAVES.envios(telefone.hmac);
+    const ultimo = await this.#contadores.ultimo(chave);
+    if (ultimo !== null && agora.getTime() - ultimo.getTime() < this.intervaloSegundos * 1000) {
+      return "intervalo";
+    }
+    const naJanela = await this.#contadores.contar(chave, agora, JANELA_DE_ENVIOS_MS);
+    return naJanela >= this.enviosPorJanela ? "frequencia" : null;
+  }
+
   async enviar(onboardingId: string, telefone: Telefone): Promise<ResultadoDeEnvio> {
     const agora = this.#relogio();
     const chaveDoTelefone = CHAVES.envios(telefone.hmac);
 
-    const ultimo = await this.#contadores.ultimo(chaveDoTelefone);
-    if (ultimo !== null && agora.getTime() - ultimo.getTime() < this.intervaloSegundos * 1000) {
-      return { enviado: false, recusa: "intervalo" };
-    }
+    const recusa = await this.podeEnviar(telefone);
+    if (recusa !== null) return { enviado: false, recusa };
 
-    const naJanela = await this.#contadores.contar(chaveDoTelefone, agora, JANELA_DE_ENVIOS_MS);
-    if (naJanela >= this.enviosPorJanela) return { enviado: false, recusa: "frequencia" };
-
-    const gastos = await this.#contadores.anotar(CHAVES.orcamento, agora, JANELA_DO_ORCAMENTO_MS);
-    if (gastos > this.orcamentoDiario) {
+    // **Conta-se antes de anotar, e a ordem inversa era um defeito grave.** A
+    // primeira versão anotava e só depois comparava, pelo que cada pedido
+    // **recusado** deixava um instante na janela — e a janela é deslizante.
+    // Com tráfego contínuo depois de esgotar o tecto, cada recusa estendia a
+    // pausa 24 h a contar **dela**, e o disjuntor nunca reabria; o custo do
+    // atacante era zero, porque nenhum SMS saía. Achado da revisão adversarial.
+    //
+    // O preço desta ordem, dito: entre o `contar` e o `anotar` há um `await`,
+    // pelo que N pedidos concorrentes podem passar do tecto em até N. É um
+    // excesso **limitado pela concorrência**, contra um disjuntor que não
+    // fechava — e o segundo é estritamente pior.
+    const gastos = await this.#contadores.contar(
+      CHAVES.orcamento,
+      agora,
+      JANELA_DO_ORCAMENTO_MS,
+    );
+    if (gastos >= this.orcamentoDiario) {
       await this.#alertarUmaVez(agora, onboardingId);
       return { enviado: false, recusa: "orcamento" };
     }
+    await this.#contadores.anotar(CHAVES.orcamento, agora, JANELA_DO_ORCAMENTO_MS);
 
     const codigo = this.#gerar();
     const expiraEm = new Date(agora.getTime() + this.ttlMinutos * 60_000);
     await this.#repositorio.guardar({
       onboardingId,
-      // O `revelar()` do codigo e chamado **duas** vezes em todo este modulo, e
-      // as duas estao aqui a vista: uma para o HMAC que fica guardado, outra
-      // para o `CodigoOtp` que vai para a porta — e essa segunda nao e um
-      // `revelar()`, e o proprio objecto opaco. Um terceiro sitio de chamada e
-      // um achado de revisao, como o `../sms/codigo.ts` escreve.
+      // **O `revelar()` do código é chamado UMA vez neste módulo, e é aqui**:
+      // para o HMAC que fica guardado. O que vai para a porta é o `CodigoOtp`
+      // inteiro, que é opaco, e não o seu valor. Um segundo sítio de chamada é
+      // um achado de revisão, como o `../sms/codigo.ts` escreve. (A primeira
+      // versão deste comentário dizia «duas vezes» e desdizia-se na linha
+      // seguinte; apanhou-o a revisão adversarial, a contar.)
       codigoHmac: hmacDoCodigo(this.#chave, onboardingId, codigo.revelar()),
       expiraEm,
       tentativas: 0,
     });
     await this.#contadores.anotar(chaveDoTelefone, agora, JANELA_DE_ENVIOS_MS);
-    await this.#provedor.enviar(telefone, codigo, this.ttlMinutos, chaveDoEnvio(onboardingId, expiraEm));
+    try {
+      await this.#provedor.enviar(
+        telefone,
+        codigo,
+        this.ttlMinutos,
+        chaveDoEnvio(onboardingId, expiraEm),
+      );
+    } catch (erro) {
+      // **O desafio apaga-se quando o envio falha**, e não apagá-lo era um
+      // defeito: ele ficava guardado cinco minutos, e a repetição do pedido
+      // encontrava-o vivo e respondia «enviámos um código» sem SMS nenhum ter
+      // saído. É o modo de falha que o parágrafo acima diz evitar — o dono com
+      // um código que nunca lhe foi mandado — e a primeira versão tinha-o do
+      // outro lado. Achado da revisão adversarial.
+      //
+      // A quota do telefone **fica** gasta, e isso é deliberado: ela mede
+      // tentativas de envio, não entregas, e compensá-la dava a quem fizesse o
+      // agregador falhar uma maneira de pedir SMS sem limite.
+      await this.#repositorio.apagar(onboardingId);
+      throw erro;
+    }
     return { enviado: true, expiraEm };
   }
 
@@ -272,6 +325,14 @@ export class Otp {
     if (tentativas === null) return "sem_desafio";
 
     const texto = typeof codigo === "string" ? codigo : "";
+    // A forma do HMAC **guardado** verifica-se antes de o comparar: o
+    // `timingSafeEqual` **levanta** com dois buffers de comprimentos
+    // diferentes, pelo que um adaptador que guardasse outra coisa na coluna
+    // fazia uma verificação de código sair 500 em vez de um veredicto.
+    if (!/^[0-9a-f]{64}$/.test(desafio.codigoHmac)) {
+      await this.#repositorio.apagar(onboardingId);
+      return "sem_desafio";
+    }
     const esperado = Buffer.from(desafio.codigoHmac, "hex");
     const recebido = hmacDe(this.#chave, DOMINIOS.otp, `${onboardingId}\u0000${texto}`);
     const acertou = timingSafeEqual(esperado, recebido);

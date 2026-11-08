@@ -23,6 +23,20 @@
  * que mandasse «mais trinta segundos» a cada pedido inflacionava o número à
  * vontade, e o número deixava de servir para decidir nada.
  *
+ * ## E essa propriedade exige uma troca **atómica**, que custou um defeito
+ *
+ * A primeira versão lia o instante anterior (`ultimo`) e só depois o escrevia
+ * (`anotar`), com um `await` de permeio. Mil batidas **concorrentes** — e o
+ * cliente escolhe a concorrência — liam **todas** o mesmo instante anterior, e
+ * cada uma somava o intervalo inteiro: mil batidas num segundo somavam oito
+ * horas, e o parágrafo acima afirmava literalmente o contrário. Achado da
+ * revisão adversarial, e é o pior tipo — um cabeçalho a vender uma propriedade
+ * que o código ao lado não tinha.
+ *
+ * A correcção é o `trocarUltimo` do `./contrato.ts`, que lê e escreve de uma
+ * vez. Com ele, de N batidas concorrentes **uma** vê o instante anterior e as
+ * outras N-1 vêem o que a primeira acabou de pôr, pelo que somam zero.
+ *
  * ## O intervalo máximo é o que distingue «a pensar» de «foi almoçar»
  *
  * Uma pausa de dois minutos é o dono a procurar o NIF numa gaveta, e conta. Uma
@@ -93,12 +107,12 @@ export class Actividade {
 
     const agora = this.#relogio();
     const chave = CHAVES.batida(onboardingId);
-    const anterior = await this.#contadores.ultimo(chave);
-    // A janela do `registar` é o intervalo máximo: a porta só precisa de guardar
-    // a batida anterior, e guardar o histórico de um dia de batidas de 30 s era
-    // dez mil instantes por caso em memória, para responder a uma pergunta que
-    // só olha para o último.
-    await this.#contadores.anotar(chave, agora, this.intervaloMaximoSegundos * 1000);
+    // **Uma operação e não duas.** Ver a nota do módulo: `ultimo` seguido de
+    // `anotar` deixava N batidas concorrentes a somar todas o mesmo intervalo. A
+    // porta só guarda a batida anterior — guardar o histórico de um dia de
+    // batidas de 30 s eram dez mil instantes por caso, para responder a uma
+    // pergunta que só olha para o último.
+    const anterior = await this.#contadores.trocarUltimo(chave, agora);
 
     const decorridoS =
       anterior === null ? 0 : Math.floor((agora.getTime() - anterior.getTime()) / 1000);

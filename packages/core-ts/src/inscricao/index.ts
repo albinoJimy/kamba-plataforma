@@ -17,10 +17,10 @@
  *
  * * **A tabela `platform.onboarding_case`.** O DDL está no bloco e a migração
  *   **não** está escrita. Duas razões, as duas medidas: a vaga de revisão de
- *   base de dados deste lote é do KAM-070, e a `onboarding_case.fase` do
- *   dicionário §3.2 tem **seis** valores onde o bloco escreve **catorze** — a
- *   emenda 1.64 do dicionário já nomeia o KAM-086/087 como credor dessa
- *   divergência. O que está entregue é a fronteira que o adaptador vai
+ *   base de dados deste lote é **de outro ticket** (o bloco não nomeia qual), e
+ *   a `onboarding_case.fase` do dicionário §3.2 diverge do bloco em **nove
+ *   valores e num nome** — contados no `./contrato.ts`, ao lado das `FASES`. A
+ *   emenda 1.64 do dicionário já nomeia o KAM-086/087 como credor. O que está entregue é a fronteira que o adaptador vai
  *   preencher: o `RepositorioDeCasos` do `./contrato.ts`, com o
  *   `./memoria.ts` como duplo. O precedente é do ticket ao lado — o KAM-091
  *   fundiu os domínios da saga «que viviam só no contrato em TypeScript», e a
@@ -80,6 +80,8 @@ export {
   CANAIS_ACTIVOS,
   CANAIS_DE_OTP,
   CanalDesactivadoError,
+  CasoDuplicadoError,
+  ChaveReutilizadaError,
   FASES,
   FASES_MORTAS,
   FLAGS,
@@ -130,7 +132,6 @@ export {
 } from "./identificadores.ts";
 
 export {
-  CasoDuplicadoError,
   CasosEmMemoria,
   ContadoresEmMemoria,
   INSTANTES_POR_CHAVE,
@@ -164,10 +165,8 @@ export { OtpPorSmsLocal, OtpPorWhatsApp, type OpcoesDeSmsLocal } from "./provedo
 export { REFERENCIAS, REF_ASSINATURA, REF_PEPPER } from "./refs.ts";
 
 export {
-  CHAVES as CHAVES_DE_REGISTO,
   CODIGOS,
   ESTADO_HTTP,
-  JANELA_DA_RECUPERACAO_MS,
   Registo,
   RegistoRecusado,
   type Aceite,
@@ -189,6 +188,9 @@ export {
   DOMINIOS_DE_REFERENCIA,
   FINS,
   NOME_DO_COOKIE,
+  VALIDADES,
+  VALIDADE_DA_SESSAO_S,
+  VALIDADE_DO_BILHETE_S,
   ReferenciaInvalidaError,
   cabecalhoDoCookie,
   cabecalhoQueApaga,

@@ -25,6 +25,9 @@ import {
   ORIGENS,
   ReferenciaInvalidaError,
   TokenInvalidoError,
+  VALIDADES,
+  VALIDADE_DA_SESSAO_S,
+  VALIDADE_DO_BILHETE_S,
   VALIDADE_MAXIMA_DIAS,
   cabecalhoDoCookie,
   cabecalhoQueApaga,
@@ -180,40 +183,86 @@ describe("inscricao: o bilhete e a sessao (modulo sessao)", () => {
 
   it("um BILHETE nao serve de SESSAO, e uma sessao nao serve de bilhete", () => {
     // O ensaio mais importante deste ficheiro. Ver a nota do modulo.
-    const bilhete = cunharReferencia("ticket", CASO, CHAVE);
-    const sessao = cunharReferencia("sessao", CASO, CHAVE);
+    const bilhete = cunharReferencia("ticket", CASO, CHAVE, AGORA);
+    const sessao = cunharReferencia("sessao", CASO, CHAVE, AGORA);
     assert.notEqual(bilhete, sessao);
-    assert.equal(lerReferencia("ticket", bilhete, [CHAVE, null]), CASO);
-    assert.equal(lerReferencia("sessao", sessao, [CHAVE, null]), CASO);
-    assert.throws(() => lerReferencia("sessao", bilhete, [CHAVE, null]), ReferenciaInvalidaError);
-    assert.throws(() => lerReferencia("ticket", sessao, [CHAVE, null]), ReferenciaInvalidaError);
+    assert.equal(lerReferencia("ticket", bilhete, [CHAVE, null], AGORA), CASO);
+    assert.equal(lerReferencia("sessao", sessao, [CHAVE, null], AGORA), CASO);
+    assert.throws(() => lerReferencia("sessao", bilhete, [CHAVE, null], AGORA), ReferenciaInvalidaError);
+    assert.throws(() => lerReferencia("ticket", sessao, [CHAVE, null], AGORA), ReferenciaInvalidaError);
   });
 
   it("o id sai DE DENTRO da referencia: nao da para pedir o caso ao lado", () => {
     // E a linha que faz o 404 do teste de isolamento ser inevitavel: trocar o
     // UUID quebra o HMAC, e nao ha parametro ao lado que o possa dizer.
-    const minha = cunharReferencia("sessao", CASO, CHAVE);
-    const trocada = `${OUTRO_CASO}.${(minha.split(".") as [string, string])[1]}`;
-    assert.throws(() => lerReferencia("sessao", trocada, [CHAVE, null]), ReferenciaInvalidaError);
-    assert.equal(lerReferencia("sessao", cunharReferencia("sessao", OUTRO_CASO, CHAVE), [CHAVE, null]), OUTRO_CASO);
+    const minha = cunharReferencia("sessao", CASO, CHAVE, AGORA);
+    const campos = minha.split(".") as [string, string, string];
+    const trocada = `${OUTRO_CASO}.${campos[1]}.${campos[2]}`;
+    assert.throws(() => lerReferencia("sessao", trocada, [CHAVE, null], AGORA), ReferenciaInvalidaError);
+    assert.equal(
+      lerReferencia("sessao", cunharReferencia("sessao", OUTRO_CASO, CHAVE, AGORA), [CHAVE, null], AGORA),
+      OUTRO_CASO,
+    );
+  });
+
+  it("a validade esta DENTRO do texto assinado: da para repetir, nao da para prolongar", () => {
+    // **Os dois fins eram eternos, e os dois eram achados.** O bilhete e
+    // entregue a quem submeteu o formulario — que no caminho de recuperacao do
+    // criterio 8 pode nao ser o dono do numero —, e sem validade ele guardava-o
+    // para sempre e mandava SMS ao dono indefinidamente. A sessao tinha o mesmo
+    // problema: o cookie morre com o navegador, o VALOR nao morria.
+    assert.equal(VALIDADE_DO_BILHETE_S, 1_800);
+    assert.equal(VALIDADE_DA_SESSAO_S, 86_400);
+    assert.deepEqual(VALIDADES, { ticket: 1_800, sessao: 86_400 });
+
+    for (const fim of FINS) {
+      const referencia = cunharReferencia(fim, CASO, CHAVE, AGORA);
+      const campos = referencia.split(".") as [string, string, string];
+      const expira = Number(campos[1]);
+      assert.equal(expira, Math.floor(AGORA().getTime() / 1000) + VALIDADES[fim]);
+      // Antes de expirar le-se; um segundo depois, nao.
+      const antes = (): Date => new Date(expira * 1000 - 1000);
+      const depois = (): Date => new Date(expira * 1000);
+      assert.equal(lerReferencia(fim, referencia, [CHAVE, null], antes), CASO);
+      assert.throws(
+        () => lerReferencia(fim, referencia, [CHAVE, null], depois),
+        ReferenciaInvalidaError,
+        fim,
+      );
+      // E prolongar quebra a assinatura.
+      const esticada = `${campos[0]}.${expira + 86_400}.${campos[2]}`;
+      assert.throws(() => lerReferencia(fim, esticada, [CHAVE, null], antes), ReferenciaInvalidaError);
+    }
+  });
+
+  it("uma validade impossivel nao passa por nao expirada", () => {
+    // `NaN <= agora` e **falso**: quinze algarismos davam um instante que o
+    // `Date` nao representa, e a referencia passava a verificacao de validade.
+    const boa = cunharReferencia("sessao", CASO, CHAVE, AGORA);
+    const campos = boa.split(".") as [string, string, string];
+    const impossivel = `${campos[0]}.999999999999999.${campos[2]}`;
+    assert.throws(() => lerReferencia("sessao", impossivel, [CHAVE, null], AGORA), ReferenciaInvalidaError);
   });
 
   it("recusa o que esta deformado e o que vem de outra chave", () => {
-    const boa = cunharReferencia("sessao", CASO, CHAVE);
+    const boa = cunharReferencia("sessao", CASO, CHAVE, AGORA);
+    const campos = boa.split(".") as [string, string, string];
     const maus = [
       "",
       CASO,
       `${CASO}.`,
-      `nao-uuid.${(boa.split(".") as [string, string])[1]}`,
-      `${CASO}.${Buffer.alloc(16).toString("base64url")}`,
-      cunharReferencia("sessao", CASO, OUTRA_CHAVE),
+      `${CASO}.${campos[2]}`,
+      `nao-uuid.${campos[1]}.${campos[2]}`,
+      `${CASO}.${campos[1]}.${Buffer.alloc(16).toString("base64url")}`,
+      `${CASO}.nao-numero.${campos[2]}`,
+      cunharReferencia("sessao", CASO, OUTRA_CHAVE, AGORA),
       "x".repeat(200),
       42,
       null,
     ];
     for (const mau of maus) {
       assert.throws(
-        () => lerReferencia("sessao", mau, [CHAVE, null]),
+        () => lerReferencia("sessao", mau, [CHAVE, null], AGORA),
         ReferenciaInvalidaError,
         JSON.stringify(mau),
       );
@@ -221,17 +270,17 @@ describe("inscricao: o bilhete e a sessao (modulo sessao)", () => {
   });
 
   it("o anel reconhece uma referencia de antes de uma rotacao", () => {
-    const antiga = cunharReferencia("sessao", CASO, OUTRA_CHAVE);
-    assert.equal(lerReferencia("sessao", antiga, [CHAVE, OUTRA_CHAVE]), CASO);
+    const antiga = cunharReferencia("sessao", CASO, OUTRA_CHAVE, AGORA);
+    assert.equal(lerReferencia("sessao", antiga, [CHAVE, OUTRA_CHAVE], AGORA), CASO);
   });
 
   it("recusa cunhar sobre um id que nao e UUID, ou com chave curta", () => {
-    assert.throws(() => cunharReferencia("sessao", "nao-uuid", CHAVE), ReferenciaInvalidaError);
-    assert.throws(() => cunharReferencia("sessao", CASO, Buffer.alloc(16)), ReferenciaInvalidaError);
+    assert.throws(() => cunharReferencia("sessao", "nao-uuid", CHAVE, AGORA), ReferenciaInvalidaError);
+    assert.throws(() => cunharReferencia("sessao", CASO, Buffer.alloc(16), AGORA), ReferenciaInvalidaError);
   });
 
   it("o cookie e httpOnly, Secure, SameSite=Lax e sem Max-Age", () => {
-    const cabecalho = cabecalhoDoCookie(cunharReferencia("sessao", CASO, CHAVE));
+    const cabecalho = cabecalhoDoCookie(cunharReferencia("sessao", CASO, CHAVE, AGORA));
     assert.ok(cabecalho.startsWith(`${NOME_DO_COOKIE}=`));
     assert.equal(ATRIBUTOS_DO_COOKIE, "HttpOnly; Secure; SameSite=Lax; Path=/");
     for (const atributo of ["HttpOnly", "Secure", "SameSite=Lax", "Path=/"]) {
@@ -242,8 +291,13 @@ describe("inscricao: o bilhete e a sessao (modulo sessao)", () => {
   });
 
   it("le o cookie certo de um cabecalho com varios", () => {
-    const valor = cunharReferencia("sessao", CASO, CHAVE);
+    const valor = cunharReferencia("sessao", CASO, CHAVE, AGORA);
     assert.equal(cookieDoCabecalho(`outro=1; ${NOME_DO_COOKIE}=${valor}; terceiro=2`), valor);
+    // **Um homonimo VAZIO antes do verdadeiro nao encerra a procura**, e
+    // encerrava-a: quem conseguisse plantar um cookie homonimo vazio — de um
+    // subdominio, ou com outro `Path` — desautenticava quem la estava.
+    assert.equal(cookieDoCabecalho(`${NOME_DO_COOKIE}=; ${NOME_DO_COOKIE}=${valor}`), valor);
+    assert.equal(cookieDoCabecalho(`${NOME_DO_COOKIE}=  ; ${NOME_DO_COOKIE}=${valor}`), valor);
     assert.equal(cookieDoCabecalho(`${NOME_DO_COOKIE}=${valor}`), valor);
     for (const mau of ["", "outro=1", `${NOME_DO_COOKIE}=`, `${NOME_DO_COOKIE}`, undefined, 42]) {
       assert.equal(cookieDoCabecalho(mau), null, JSON.stringify(mau));

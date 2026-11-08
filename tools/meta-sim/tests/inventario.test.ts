@@ -212,8 +212,31 @@ describe("o inventario deste repositorio", () => {
     // **As duas entradas do spike morrem com ele.** O `spikes/h3/` e
     // descartavel e o `confrontar` recusa entrada morta, pelo que quem apagar a
     // pasta apaga as entradas e baixa estes dois numeros no mesmo PR.
-    assert.equal(totalDeclarado(), 124);
-    assert.equal(INVENTARIO.length, 35);
+    // **154 em 41 ficheiros desde o KAM-086**, e as trinta que entram sao as seis
+    // superficies da inscricao: cinco baterias (sete nos identificadores, onze no
+    // OTP, cinco no registo, dois na rota e tres no adversarial) mais dois no
+    // condutor do grupo `inscricao` do gate 6. Todas casam **so** o
+    // `e164_entre_aspas`, porque o numero nacional comeca por `0` e o
+    // `telefone_ao` exige o `9` depois do indicativo — com a excepcao declarada
+    // das tres **estrangeiras** do ensaio de *SMS pumping*, que existem para ser
+    // RECUSADAS: um ensaio escrito so com numeros impossiveis nao provava que o
+    // modulo recusa um numero de outro pais, que e o ataque real.
+    //
+    // **E o intervalo ficticio nao servia aqui pela mesma razao do KAM-116**: o
+    // modulo da inscricao corre sobre a porta de SMS, que so aceita `+244`, pelo
+    // que um `999...` do intervalo reservado e recusado antes de chegar ao caso.
+    //
+    // **E este gate apanhou o autor duas vezes no mesmo ticket**, e as duas
+    // vezes ao **re-medir** e nao a ler: a primeira ao abrir o PR, com as 27
+    // ocorrencias das baterias por declarar; e a segunda **depois da revisao
+    // adversarial**, porque fechar os achados reescreveu as baterias e a conta
+    // mudou — o OTP ganhou um destino (dez para onze) e o condutor do gate 6
+    // nasceu com dois. A licao e a da entrada do KAM-100, do outro lado: a
+    // contagem nao se cita de uma medicao anterior, re-mede-se depois da ultima
+    // edicao. E a sexta vez que esta salvaguarda morde um ticket que nao a
+    // estava a pensar.
+    assert.equal(totalDeclarado(), 154);
+    assert.equal(INVENTARIO.length, 41);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

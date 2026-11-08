@@ -1,5 +1,10 @@
 /**
- * A bateria do anti-abuso e do *token* de `/entrar` (KAM-086, critérios 1 e 7).
+ * A bateria do anti-abuso (KAM-086, critério 7).
+ *
+ * **Não mede o critério 1**, e o cabeçalho dizia que media: o *token* de
+ * `/entrar` vive inteiramente no `./inscricao.token.test.ts`, e este ficheiro
+ * não tem uma única chamada ao `cunharToken`. Achado da revisão adversarial, a
+ * contar com um `grep`.
  *
  * ## O que esta bateria mede, e o que **não** consegue medir
  *
@@ -93,6 +98,52 @@ describe("inscricao: a prova de trabalho (criterio 7)", () => {
     assert.equal(SEGUNDOS_MINIMOS, 3);
     assert.equal(CASOS_POR_REDE, 5);
     assert.equal(CASOS_POR_DISPOSITIVO, 3);
+    // Dez minutos e nao trinta, e a razao esta no modulo: a validade de um
+    // desafio reutilizavel e a janela em que uma prova resolvida compra
+    // submissoes ilimitadas naquela rede.
+    assert.equal(VALIDADE_DO_DESAFIO_S, 600);
+  });
+
+  it("um desafio de OUTRA rede e recusado, e a escada de dificuldade depende disso", async () => {
+    // **O achado que tornava a dificuldade adaptativa decorativa.** O texto
+    // assinado nao levava o `redeHmac`, pelo que um desafio emitido para uma
+    // rede limpa — ou para uma que nao se percebe, onde a dificuldade e a base —
+    // servia em QUALQUER rede durante a validade inteira, mesmo nas que ja
+    // tinham subido para 20 bits.
+    const m = montar();
+    const daRede = await m.antiabuso.emitir(REDE);
+    const semRede = await m.antiabuso.emitir(null);
+    m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
+
+    for (const [desafio, rede] of [
+      [daRede, OUTRA_REDE],
+      [daRede, null],
+      [semRede, REDE],
+    ] as const) {
+      const erro = await capturarAsync(
+        m.antiabuso.verificar({
+          desafio: desafio.desafio,
+          solucao: resolverDesafio(desafio.desafio, desafio.dificuldade),
+          redeHmac: rede,
+          dispositivoHmac: null,
+        }),
+      );
+      assert.ok(erro instanceof AbusoError);
+      assert.equal(erro.recusa, "desafio_de_outra_rede");
+    }
+    // E na rede certa passa, nos dois casos.
+    await m.antiabuso.verificar({
+      desafio: daRede.desafio,
+      solucao: resolverDesafio(daRede.desafio, daRede.dificuldade),
+      redeHmac: REDE,
+      dispositivoHmac: null,
+    });
+    await m.antiabuso.verificar({
+      desafio: semRede.desafio,
+      solucao: resolverDesafio(semRede.desafio, semRede.dificuldade),
+      redeHmac: null,
+      dispositivoHmac: null,
+    });
   });
 
   it("os dois dominios sao diferentes, e nao e cosmetico", () => {

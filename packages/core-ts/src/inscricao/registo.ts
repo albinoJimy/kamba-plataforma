@@ -33,10 +33,50 @@
  *    escrita cada. Sem ele, o caminho sem criação era mensuravelmente mais
  *    rápido — e um caminho mais rápido é a enumeração que o critério proíbe.
  *
- * **O que isto não garante, e fica dito:** a igualdade de tempo é medida contra
- * o `./memoria.ts`. Contra o adaptador SQL, que não existe (ver
- * `./contrato.ts`), um `INSERT` e um `SELECT` não custam o mesmo, e a diferença
- * sob RLS `FORCE` é **NÃO VERIFICADA**. Quem escrever o adaptador mede-a.
+ * ## O oráculo que o critério 9 tinha, e o que fechou — e o que NÃO fecha
+ *
+ * A primeira versão deste ficheiro tinha um oráculo de enumeração de NIF que
+ * se lia num **estado HTTP**, e a revisão adversarial mediu-o passo a passo. As
+ * duas barreiras por destino — o intervalo de 60 s e os três envios por hora —
+ * são por **telefone de destino**, e o destino difere entre os dois caminhos: o
+ * de criação manda ao telefone **submetido**, o de recuperação ao **registado**.
+ * Bastava esgotar os três envios do **seu próprio** telefone e depois submeter
+ * sempre esse telefone: um NIF novo dava 429 (o envio era para o telefone
+ * esgotado) e um NIF registado dava 200 (o envio era para outro). Um pedido por
+ * candidato, sem receber SMS nenhum, sem esperar.
+ *
+ * **Fecha-se fazendo o `POST /api/registo` nunca falhar por causa do ritmo dos
+ * SMS.** O `#garantirDesafio` engole o `intervalo` e a `frequencia` nos **dois**
+ * caminhos: não há código novo, e o cliente não o sabe — que é a resposta certa,
+ * porque o dono já tem um código vivo ou acabou de receber três. O orçamento
+ * diário continua visível, e pode: ele é **global**, pelo que recusa os dois
+ * caminhos ao mesmo tempo e não distingue nada.
+ *
+ * **A primeira correcção foi outra e estava errada**, e vale a pena ficar
+ * escrito porque é o tipo de engano que volta: perguntar as duas barreiras
+ * **antes** do ramo, sobre o telefone submetido. Fechava o oráculo e partia o
+ * critério 2 — a segunda chamada com a mesma chave de idempotência caía no
+ * intervalo de 60 s do primeiro envio e devolvia 429 em vez do mesmo
+ * `onboarding_id`. O que a bateria do critério 2 apanhou, e o `Otp.podeEnviar`
+ * ficou como a barreira interna do `enviar` que sempre foi.
+ *
+ * O preço do silêncio, dito: um dono que esgote os três envios por hora recebe
+ * um 200 sem código novo. A honestidade mora no `POST /api/otp/reenviar`, que
+ * **devolve 429** — e pode, porque exige um bilhete, e quem tem o bilhete já
+ * sabe de que caso ele é.
+ *
+ * **O que NÃO fecha, e fica dito em vez de disfarçado:** o critério 8 manda o
+ * código ao telefone **registado**, logo quem submete o seu próprio telefone
+ * sabe, por o SMS chegar ou não chegar, se o NIF já estava registado. Esse
+ * oráculo é **inerente ao critério 8** e vive fora da resposta; nenhuma linha
+ * deste ficheiro o pode fechar sem desfazer a recuperação. O critério 9, como
+ * está escrito, vale sobre a **resposta** — corpo, estado e tempo — e é isso
+ * que está medido.
+ *
+ * E a igualdade de **tempo** é medida contra o `./memoria.ts`. Contra o
+ * adaptador SQL, que não existe (ver `./contrato.ts`), um `INSERT` e um
+ * `SELECT` não custam o mesmo, e a diferença sob RLS `FORCE` é **NÃO
+ * VERIFICADA**. Quem escrever o adaptador mede-a.
  *
  * ## Sem NIF não há caso, e o ecrã é a outra metade do critério 3
  *
@@ -51,15 +91,8 @@ import { randomUUID } from "node:crypto";
 
 import { SmsError, validarChave } from "../sms/contrato.ts";
 
-import type {
-  Alerta,
-  Caso,
-  Contadores,
-  Flag,
-  Origem,
-  RepositorioDeCasos,
-  Relogio,
-} from "./contrato.ts";
+import type { Alerta, Caso, Flag, Origem, RepositorioDeCasos, Relogio } from "./contrato.ts";
+import { CasoDuplicadoError, ChaveReutilizadaError } from "./contrato.ts";
 import { AbusoError, AntiAbuso, JANELA_DO_DISPOSITIVO_MS, type DesafioEmitido } from "./antiabuso.ts";
 import {
   DOMINIOS,
@@ -75,13 +108,16 @@ import type { Otp } from "./otp.ts";
 import { cunharReferencia } from "./sessao.ts";
 import { TokenInvalidoError, verificarToken } from "./token.ts";
 
-/** A janela em que as tentativas de recuperação do mesmo NIF se contam. */
-export const JANELA_DA_RECUPERACAO_MS = 86_400_000;
-
-/** As chaves de contagem deste caso de uso. */
-export const CHAVES = {
-  recuperacao: (nifHmac: string): string => `registo:recuperacao:${nifHmac}`,
-} as const;
+// **Este caso de uso não tem chaves de contagem próprias, e tinha uma.**
+//
+// Era a `registo:recuperacao:<nifHmac>`, com a justificação de que «é o número
+// que a fila de revisão precisa para ver um NIF a ser sondado». A revisão
+// adversarial procurou o leitor e não há nenhum, em todo o repositório: era
+// maquinaria sem consumidor, que é desenho especulativo pela regra desta casa.
+// E o segundo papel que ela tinha — igualar as escritas dos dois caminhos, para
+// o critério 9 — passou a ser do `AntiAbuso.consumir`, que a recuperação agora
+// também chama (ver `#recuperar`). Quando o KAM-089 escrever a fila, é ele que
+// decide o que ela precisa de contar.
 
 /**
  * Porque é que um registo foi recusado, e com que estado HTTP.
@@ -152,14 +188,24 @@ export interface PedidoDeRegisto {
 export interface Aceite {
   /** O bilhete para submeter o código. Opaco. Ver `./sessao.ts`. */
   readonly referencia: string;
-  readonly expiraEm: Date;
+  /**
+   * Quantos segundos o código vale. **A constante do módulo, não um instante.**
+   *
+   * Era um `expiraEm`, e o `expiraEm` era um oráculo: no caminho de criação ele
+   * é sempre `agora + TTL`, e no de recuperação, quando a vítima já tem um
+   * desafio vivo, é **menos** do que isso — pelo que um `expira_em` abaixo de
+   * `agora + 300 s` dizia «este NIF já está registado e com OTP em curso».
+   * Achado da revisão adversarial. O cliente precisa de saber quanto tempo o
+   * código dura, não o instante exacto em que morre, e a duração é a mesma nos
+   * dois caminhos porque é uma constante.
+   */
+  readonly validadeSegundos: number;
   readonly digitos: number;
 }
 
 /** Opções do registo. */
 export interface OpcoesDeRegisto {
   readonly repositorio: RepositorioDeCasos;
-  readonly contadores: Contadores;
   readonly antiabuso: AntiAbuso;
   readonly otp: Otp;
   /**
@@ -182,7 +228,6 @@ export interface OpcoesDeRegisto {
 /** O registo. */
 export class Registo {
   readonly #repositorio: RepositorioDeCasos;
-  readonly #contadores: Contadores;
   readonly #antiabuso: AntiAbuso;
   readonly #otp: Otp;
   readonly #anelDoPepper: readonly (Uint8Array | null)[];
@@ -193,7 +238,6 @@ export class Registo {
 
   constructor(opcoes: OpcoesDeRegisto) {
     this.#repositorio = opcoes.repositorio;
-    this.#contadores = opcoes.contadores;
     this.#antiabuso = opcoes.antiabuso;
     this.#otp = opcoes.otp;
     this.#anelDoPepper = opcoes.anelDoPepper;
@@ -273,7 +317,7 @@ export class Registo {
     const existente = await this.#casoComEsteNif(campos.nif);
     return existente === null
       ? this.#criar(origem, campos, redeHmac, dispositivoHmac)
-      : this.#recuperar(existente, campos);
+      : this.#recuperar(existente, campos.chave, redeHmac, dispositivoHmac);
   }
 
   /** O caminho de NIF novo. */
@@ -306,7 +350,9 @@ export class Registo {
       }
     }
 
-    const { caso, repetido } = await this.#repositorio.criar(
+    let criado: { readonly caso: Caso; readonly repetido: boolean };
+    try {
+      criado = await this.#repositorio.criar(
       {
         // O `tenant_id` é **pré-alocado** aqui e a linha de `platform.tenants`
         // **não** é criada: ela é do passo 1 da saga do KAM-091. A razão é o
@@ -322,8 +368,26 @@ export class Registo {
         redeHmac,
         flags,
       },
-      campos.chave,
-    );
+        campos.chave,
+      );
+    } catch (erro) {
+      // Uma chave de idempotência com **outro** corpo não é uma repetição: é um
+      // conflito. Ver `ChaveReutilizadaError` no `./memoria.ts`.
+      if (erro instanceof ChaveReutilizadaError) {
+        throw new RegistoRecusado("campo", "chave_reutilizada");
+      }
+      // **A corrida de dois pedidos com o mesmo NIF novo.** Os dois passam pelo
+      // `#casoComEsteNif` antes de qualquer escrita, e o segundo bate na
+      // unicidade. A primeira versão deixava este erro subir até ao `onError` do
+      // Hono — um **500**, e um terceiro estado HTTP que dizia «este NIF está a
+      // ser registado agora mesmo». Achado da revisão adversarial. A resposta
+      // certa é a mesma que o caso já registado teria: recuperar.
+      if (!(erro instanceof CasoDuplicadoError)) throw erro;
+      const entretanto = await this.#casoComEsteNif(campos.nif);
+      if (entretanto === null) throw erro;
+      return this.#recuperar(entretanto, campos.chave, redeHmac, dispositivoHmac);
+    }
+    const { caso, repetido } = criado;
 
     // A quota consome-se **uma vez por caso** e não por pedido: com a mesma
     // chave de idempotência, o segundo pedido não criou caso nenhum e não pode
@@ -331,18 +395,60 @@ export class Registo {
     // dois dos cinco casos por hora de um bairro.
     if (!repetido) await this.#antiabuso.consumir(redeHmac, dispositivoHmac);
 
-    const expiraEm = await this.#garantirDesafio(caso.id, campos.telefone);
+    // **O destino é o do CASO e não o do pedido**, e a diferença era um defeito.
+    // Com a mesma chave de idempotência e outro telefone, a primeira versão
+    // mandava o código para o telefone **novo** enquanto o caso guardava o
+    // `phone_hmac` do primeiro: a posse provada era de um número que o caso não
+    // tinha, e isso esvazia a garantia do critério 5. Achado da revisão
+    // adversarial. (O `ChaveReutilizadaError` acima já recusa o caso em que o
+    // NIF difere; este fecha o caso em que só o telefone difere.)
+    const destino = repetido
+      ? ((await this.#repositorio.telefoneDe(caso.id)) ?? campos.telefone)
+      : campos.telefone;
+
+    try {
+      await this.#garantirDesafio(caso.id, destino);
+    } catch (erro) {
+      // **Um caso que não consegue receber código é abandonado**, e não o ser era
+      // um sequestro de NIF: a linha ficava viva, prendia o `nif_hmac`, e quando o
+      // dono real se registasse caía na recuperação — com o código a ir para o
+      // telefone de quem queimou o NIF. Achado da revisão adversarial.
+      //
+      // O `abandonado` está fora do índice único do bloco, pelo que o NIF fica
+      // livre de imediato e uma segunda tentativa cria um caso novo. **E isto não
+      // contradiz o «sem perder casos já abertos» do critério 6:** um caso criado
+      // no pedido que não conseguiu mandar o código não é um caso já aberto.
+      if (!repetido) await this.#repositorio.marcarFase(caso.id, "abandonado");
+      throw erro;
+    }
     if (caso.fase === "registo") await this.#repositorio.marcarFase(caso.id, "otp_pendente");
-    return this.#aceite(caso.id, expiraEm);
+    return this.#aceite(caso.id);
   }
 
-  /** O caminho de NIF já registado. Ver as três notas do módulo. */
-  async #recuperar(existente: Caso, campos: Campos): Promise<Aceite> {
-    await this.#contadores.anotar(
-      CHAVES.recuperacao(campos.nif.hmac),
-      this.#relogio(),
-      JANELA_DA_RECUPERACAO_MS,
-    );
+  /** O caminho de NIF já registado. Ver as notas do módulo. */
+  async #recuperar(
+    existente: Caso,
+    chave: string,
+    redeHmac: string | null,
+    dispositivoHmac: string | null,
+  ): Promise<Aceite> {
+    // **A recuperação também consome a quota da rede e do dispositivo**, e não
+    // consumir era um achado: o limite de cinco casos por hora e por prefixo é
+    // verificado antes do ramo mas só era **escrito** pelo caminho de criação,
+    // pelo que quem conhecesse NIF vivos gerava SMS para os donos deles sem
+    // nunca gastar a quota do seu prefixo. Achado da revisão adversarial.
+    //
+    // E é também o que iguala as escritas dos dois caminhos, que é o papel que a
+    // chave de recuperação tinha e não devia ter tido (ver a nota no topo).
+    //
+    // **Mas uma vez por chave de idempotência, e não uma vez por pedido.** A
+    // regra é a mesma do `#criar`, e a primeira versão desta linha não a tinha:
+    // depois do primeiro registo o NIF passa a estar vivo, pelo que a segunda
+    // chamada com a **mesma** chave cai aqui e não no `repetido` do `#criar` — e
+    // gastava uma segunda vaga das cinco por hora de um bairro. Apanhou-o a
+    // bateria do critério 2, ao medir a contagem em vez da dificuldade.
+    const repetido = (await this.#repositorio.porChave(chave))?.id === existente.id;
+    if (!repetido) await this.#antiabuso.consumir(redeHmac, dispositivoHmac);
     const registado = await this.#repositorio.telefoneDe(existente.id);
     if (registado === null) {
       // O caso existe e o telefone não se consegue ler: um `phone_enc` que não
@@ -351,8 +457,8 @@ export class Registo {
       // submeteu um formulário correcto manda-o corrigir o que está certo.
       throw new RegistoRecusado("indisponivel", "telefone_ilegivel");
     }
-    const expiraEm = await this.#garantirDesafio(existente.id, registado);
-    return this.#aceite(existente.id, expiraEm);
+    await this.#garantirDesafio(existente.id, registado);
+    return this.#aceite(existente.id);
   }
 
   /**
@@ -362,10 +468,13 @@ export class Registo {
    * `POST` com a mesma chave de idempotência não cria caso **e não pede um
    * segundo SMS**, que o intervalo de 60 s recusaria — e uma recusa ali fazia o
    * segundo pedido devolver erro em vez do mesmo `onboarding_id`.
+   *
+   * **Não devolve nada**, e devolvia o instante de expiração: ver o campo
+   * `validadeSegundos` do `Aceite`.
    */
-  async #garantirDesafio(id: string, destino: Telefone): Promise<Date> {
+  async #garantirDesafio(id: string, destino: Telefone): Promise<void> {
     const vivo = await this.#otp.validade(id);
-    if (vivo !== null) return vivo;
+    if (vivo !== null) return;
     let resultado;
     try {
       resultado = await this.#otp.enviar(id, destino);
@@ -380,16 +489,28 @@ export class Registo {
         ? new RegistoRecusado("campo", "telefone_recusado")
         : new RegistoRecusado("indisponivel", erro.codigo.toLowerCase());
     }
-    if (!resultado.enviado) throw new RegistoRecusado("limite", resultado.recusa);
-    return resultado.expiraEm;
+    if (resultado.enviado) return;
+    // **Só o orçamento sobe ao cliente.** O `intervalo` e a `frequencia` são do
+    // telefone de destino, e o destino difere entre os dois caminhos: devolvê-los
+    // era o oráculo de enumeração do critério 9, pela porta do lado. Eles já
+    // foram perguntados **antes** do ramo, sobre o telefone que o cliente
+    // submeteu (`Otp.podeEnviar`); o que chega aqui é do telefone registado, isto
+    // é, de outra pessoa. Sem código novo, e o cliente não o sabe — o que é a
+    // resposta certa, porque o dono já tem um código ou acabou de receber três.
+    //
+    // O orçamento **pode** subir: ele é global e recusa os dois caminhos ao mesmo
+    // tempo, pelo que não distingue nada.
+    if (resultado.recusa === "orcamento") {
+      throw new RegistoRecusado("limite", resultado.recusa);
+    }
   }
 
-  #aceite(id: string, expiraEm: Date): Aceite {
+  #aceite(id: string): Aceite {
     const chave = this.#anelDaSessao[0];
     if (!(chave instanceof Uint8Array)) throw new RegistoRecusado("indisponivel", "sem_chave");
     return {
-      referencia: cunharReferencia("ticket", id, chave),
-      expiraEm,
+      referencia: cunharReferencia("ticket", id, chave, this.#relogio),
+      validadeSegundos: this.#otp.ttlMinutos * 60,
       digitos: this.#otp.digitos,
     };
   }

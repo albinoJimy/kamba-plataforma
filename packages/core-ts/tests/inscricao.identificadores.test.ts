@@ -261,6 +261,28 @@ describe("inscricao: algarismos Unicode (criterio 4)", () => {
     assert.equal(normalizarTelefone("＋244000000001"), TELEFONE);
   });
 
+  it("RECUSA um caractere que o NFKC transformaria em algarismo", () => {
+    // **O pior achado deste ficheiro, e sobrevivia a barreira antiga.** O NFKC
+    // fabrica algarismos ASCII a partir de categorias que NAO sao `Nd` — o `²`
+    // sobrescrito e `No`, os numerais romanos sao `Nl` —, e a barreira corria
+    // DEPOIS dele e so sobre `Nd`: oito algarismos mais um `²` davam
+    // `923456782`, nove algarismos, que o `NACIONAL` aceita. O dono escrevia um
+    // numero e o sistema aceitava OUTRO, em silencio, e o OTP ia para o
+    // telefone de outra pessoa.
+    for (const mau of [
+      "92345678\u00b2",
+      "\u00b9\u00b2\u00b3\u00b4\u00b5\u00b6\u00b7\u00b8",
+      "\u32b1\u32b1\u32b1\u32b1",
+      "\u2168\u2168\u2168\u2168",
+    ]) {
+      const erro = capturar(() => dobrarAlgarismos(mau, "nif"));
+      assert.ok(erro instanceof IdentificadorInvalidoError, JSON.stringify(mau));
+      assert.equal(erro.motivo, "algarismos_unicode", JSON.stringify(mau));
+    }
+    // E o controlo: o telefone que o `²` fabricava nao e aceite por essa via.
+    assert.throws(() => normalizarTelefone("92345678\u00b2"), IdentificadorInvalidoError);
+  });
+
   it("RECUSA um algarismo decimal Unicode que a tabela nao cobre", () => {
     // E o passo que faz desta uma barreira em vez de uma conveniencia: sem ele,
     // um algarismo de um bloco nao coberto passava intacto, dava outro HMAC, e
@@ -289,17 +311,40 @@ describe("inscricao: prefixo de IP e hmac de rede", () => {
   it("corta IPv4 em /24 e IPv6 em /48", () => {
     assert.equal(prefixoDeIp("192.0.2.33"), "192.0.2.0/24");
     assert.equal(prefixoDeIp("192.0.2.1"), prefixoDeIp("192.0.2.254"));
-    assert.equal(prefixoDeIp("2001:db8:1:2:3:4:5:6"), "2001:db8:1::/48");
+    assert.equal(prefixoDeIp("2001:db8:1:2:3:4:5:6"), "2001:0db8:0001::/48");
   });
 
-  it("um endereco abreviado e o proprio prefixo", () => {
-    // Cortar ao terceiro grupo de um `::` dava prefixos diferentes para o mesmo
-    // bloco, porque o `::` esconde quantos grupos ha.
-    assert.equal(prefixoDeIp("2001:db8::1"), "2001:db8::1/48");
+  it("um IPv4 MAPEADO em IPv6 e lido como IPv4", () => {
+    // **O defeito que isto fecha desligava o limite inteiro.** Um processo Node
+    // a escutar em `::` recebe um cliente IPv4 como `::ffff:192.0.2.33`, e a
+    // primeira versao devolvia `null` — a expressao de IPv4 nao casa com o
+    // prefixo e a de IPv6 recusa os pontos. `null` quer dizer «sem rede», pelo
+    // que o limite de cinco casos por hora e por prefixo nao se aplicava a
+    // ninguem na configuracao em que o servico corre.
+    assert.equal(prefixoDeIp("::ffff:192.0.2.33"), "192.0.2.0/24");
+    assert.equal(prefixoDeIp("::ffff:192.0.2.99"), prefixoDeIp("192.0.2.33"));
+    // A forma hexadecimal do mesmo endereco: `c000:0233` sao os quatro octetos.
+    assert.equal(prefixoDeIp("::ffff:c000:0233"), "192.0.2.0/24");
+  });
+
+  it("dois enderecos do MESMO /48 dao o MESMO prefixo, abreviados ou nao", () => {
+    // **O segundo defeito do mesmo sitio.** A primeira versao devolvia o
+    // endereco inteiro como prefixo quando ele levava `::`, pelo que
+    // `2001:db8::1` e `2001:db8::2` davam DOIS baldes para o mesmo /48 — e quem
+    // tivesse um /64 (uma alocacao residencial normal, ou uma maquina de nuvem)
+    // trocava de endereco a cada pedido e pagava cinco casos por hora em cada
+    // um. 2^64 baldes de graca.
+    assert.equal(prefixoDeIp("2001:db8::1"), prefixoDeIp("2001:db8::2"));
+    assert.equal(prefixoDeIp("2001:db8::1"), prefixoDeIp("2001:0db8:0000::9"));
+    assert.equal(prefixoDeIp("2001:db8::1"), prefixoDeIp("2001:db8:0:0:0:0:0:1"));
+    // E um /48 diferente continua a ser outro balde.
+    assert.notEqual(prefixoDeIp("2001:db8::1"), prefixoDeIp("2001:db8:1::1"));
   });
 
   it("o que nao se percebe da null, e nao um balde inventado", () => {
-    for (const mau of ["", "   ", "nao-e-ip", "999.1.1.1", "192.0.2", 42, null, undefined]) {
+    // `2001:db8::1::2` tem dois `::` e nao e um endereco; `12345` nao tem `:`.
+    const maus = ["", "   ", "nao-e-ip", "999.1.1.1", "192.0.2", "2001:db8::1::2", 42, null, undefined];
+    for (const mau of maus) {
       assert.equal(prefixoDeIp(mau), null, JSON.stringify(mau));
     }
   });

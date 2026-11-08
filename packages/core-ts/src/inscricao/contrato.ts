@@ -24,10 +24,11 @@
  *
  * O bloco do KAM-086 traz o DDL de `platform.onboarding_case`. **Esta entrega
  * não escreve a migração**, e não é omissão: a vaga de revisão de base de dados
- * deste lote é do KAM-070, e a `onboarding_case.fase` do dicionário §3.2 tem
- * **seis** valores onde o bloco escreve **catorze** — a emenda 1.64 do
- * dicionário já nomeia o KAM-086/087 como credor dessa divergência. Escrever a
- * tabela era decidir essa emenda de passagem.
+ * deste lote é **de outro ticket** — o bloco não nomeia qual, e nomear um em
+ * código era pôr um credor que o canon não escreve —, e a `onboarding_case.fase`
+ * do dicionário §3.2 diverge do bloco em **nove valores e num nome**, contados
+ * ao lado das `FASES`. A emenda 1.64 do dicionário já nomeia o KAM-086/087 como
+ * credor dessa divergência. Escrever a tabela era decidir a emenda de passagem.
  *
  * O que está entregue é o **`RepositorioDeCasos`**, e o precedente é do ticket
  * ao lado: o KAM-091 fundiu os três domínios fechados da saga «que viviam só no
@@ -56,10 +57,20 @@ import type { Email, Nif, Telefone } from "./identificadores.ts";
  * As fases de um caso.
  *
  * **Catorze, como o bloco do KAM-086 escreve**, e não as seis do dicionário
- * §3.2 — a diferença está medida e tem credor escrito na emenda 1.64: faltam lá
- * o `aguarda_teste` e o `abandonado`, que o critério 6 do KAM-091 nomeia.
- * Entregar seis era implementar uma máquina de estados que o próprio bloco
- * contradiz; entregar catorze e dizê-lo é o que deixa a emenda decidível.
+ * §3.2. A divergência está **contada** e tem credor na emenda 1.64, e a
+ * primeira versão desta nota contava-a mal — dizia «faltam lá o `aguarda_teste`
+ * e o `abandonado`», e falta mais do que isso. Medido contra o §3.2:
+ *
+ *     5 partilhados   kyc_pendente, aprovado, provisionando, aguarda_es,
+ *                     aguarda_catalogo
+ *     9 só aqui       registo, otp_pendente, em_revisao, lista_espera,
+ *                     aguarda_teste, activo, rejeitado, abandonado, cancelado
+ *     1 só no canon   `pronto`, que aqui é o `activo`
+ *
+ * O último é o que mais importa, porque não é uma ausência: é um valor
+ * **renomeado**, e a emenda tem de decidir qual dos dois nomes fica. Entregar
+ * seis era implementar uma máquina de estados que o próprio bloco contradiz;
+ * entregar catorze e contar a divergência é o que deixa a emenda decidível.
  *
  * Deste ticket só se alcançam as **duas primeiras** (`registo` e
  * `otp_pendente`) e a terceira por conclusão do OTP (`kyc_pendente`). As outras
@@ -228,6 +239,47 @@ export interface RepositorioDeCasos {
   acumularActivo(id: string, segundos: number): Promise<number>;
 }
 
+/**
+ * Levantado quando já existe um caso **vivo** com este `nif_hmac`.
+ *
+ * Vive no contrato e não na implementação, e isso não é arrumação: o adaptador
+ * SQL recebe o `23505` do índice único do bloco e **tem** de o traduzir para
+ * esta classe, senão o `./registo.ts` deixa de reconhecer a corrida de dois
+ * pedidos com o mesmo NIF novo — e a resposta a essa corrida é recuperar, não
+ * um 500. É a obrigação do adaptador escrita no sítio onde ele a lê.
+ */
+export class CasoDuplicadoError extends Error {
+  override readonly name = "CasoDuplicadoError";
+
+  constructor() {
+    // Sem o `nif_hmac` na mensagem: um HMAC não é o NIF, mas é um pseudónimo
+    // estável dele, e uma mensagem de erro acaba em ficheiro de log.
+    super("ja existe um caso vivo com este nif_hmac");
+  }
+}
+
+/**
+ * Levantado quando uma chave de idempotência volta com **outro** corpo.
+ *
+ * **Era o defeito mais grave da primeira versão do `./memoria.ts`.** O `criar`
+ * devolvia o caso que a chave já tinha criado **sem olhar para o `novo`**, e a
+ * página submete sempre a mesma chave por carregamento: um dono que corrigisse o
+ * NIF e voltasse a submeter recebia o caso antigo, com o NIF **errado**
+ * guardado — e o `./registo.ts` mandava-lhe o OTP para o telefone **novo**, pelo
+ * que a posse provada era de um número que o caso não tinha. Achado da revisão
+ * adversarial.
+ *
+ * A idempotência de HTTP é «a mesma chave com o mesmo pedido»; com outro pedido
+ * é um conflito e não uma repetição. A mensagem não leva nenhum dos dois HMAC.
+ */
+export class ChaveReutilizadaError extends Error {
+  override readonly name = "ChaveReutilizadaError";
+
+  constructor() {
+    super("a chave de idempotencia ja criou um caso com outro nif_hmac");
+  }
+}
+
 /** Um desafio de OTP, como ele fica guardado. */
 export interface DesafioGuardado {
   readonly onboardingId: string;
@@ -280,6 +332,22 @@ export interface Contadores {
   contar(chave: string, em: Date, janelaMs: number): Promise<number>;
   /** O instante da ocorrência mais recente desta chave, ou `null`. */
   ultimo(chave: string): Promise<Date | null>;
+  /**
+   * Troca o último instante desta chave por `em`, **atomicamente**, e devolve o
+   * que lá estava.
+   *
+   * Existe porque `ultimo` seguido de `anotar` **não é atómico**, e a diferença
+   * era um defeito medido: o `./actividade.ts` lia o instante anterior, cedia o
+   * turno no `await`, e N batidas concorrentes liam **todas** o mesmo instante
+   * anterior e somavam **todas** o mesmo intervalo. Mil batidas no mesmo
+   * segundo somavam oito horas, e o cabeçalho daquele ficheiro afirmava
+   * exactamente o contrário. Achado da revisão adversarial.
+   *
+   * Num adaptador SQL isto é um `INSERT … ON CONFLICT … DO UPDATE … RETURNING`
+   * do valor antigo, ou um `UPDATE … WHERE ultimo = $anterior`; a atomicidade é
+   * **obrigação do adaptador** e esta assinatura é onde ela fica escrita.
+   */
+  trocarUltimo(chave: string, em: Date): Promise<Date | null>;
 }
 
 /**
@@ -306,7 +374,7 @@ export const CANAIS_ACTIVOS: Readonly<Record<CanalDeOtp, boolean>> = {
  *
  * Recebe o `Telefone` **opaco** e não uma cadeia: o único sítio deste módulo
  * onde o número volta a texto é dentro de uma implementação desta porta, para
- * o entregar ao transporte. Ver `./sms_local.ts`.
+ * o entregar ao transporte. Ver `./provedores.ts`.
  */
 export interface OtpProvider {
   readonly canal: CanalDeOtp;
@@ -341,8 +409,18 @@ export class CanalDesactivadoError extends Error {
  */
 export type Alerta = (motivo: MotivoDeAlerta, campos: { readonly tenantId?: string }) => void;
 
-/** Os motivos de alerta deste módulo. Lista fechada, forma de `outcome`. */
-export const MOTIVOS_DE_ALERTA = ["orcamento_de_sms_esgotado", "disjuntor_de_sms_reaberto"] as const;
+/**
+ * Os motivos de alerta deste módulo. Lista fechada, forma de `outcome`.
+ *
+ * **Um só, e a lista tinha dois.** O segundo era um `disjuntor_de_sms_reaberto`
+ * que **nenhuma linha emitia** — uma reabertura não é um evento neste desenho:
+ * a janela do orçamento desliza, e não há instante em que alguém a observe a
+ * fechar-se. Um valor declarado sem emissor é canon a mentir sobre o código ao
+ * lado, e foi um achado da revisão adversarial. Quem quiser ver o estado do
+ * disjuntor chama o `disjuntorAberto()` do `./otp.ts`, que é uma sonda e não um
+ * alerta.
+ */
+export const MOTIVOS_DE_ALERTA = ["orcamento_de_sms_esgotado"] as const;
 
 export type MotivoDeAlerta = (typeof MOTIVOS_DE_ALERTA)[number];
 

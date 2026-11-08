@@ -2067,7 +2067,7 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
       chave: pepper,
       relogio,
       dificuldadeBase: 4,
-    }) as { emitir(h: string | null): Promise<{ desafio: string; dificuldade: number }> };
+    }) as object;
     const otp = new (Otp as new (o: unknown) => unknown)({
       repositorio: new (OtpMem as new () => unknown)(),
       contadores,
@@ -2080,14 +2080,13 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
     }) as object;
     const registo = new (Registo as new (o: unknown) => unknown)({
       repositorio: casos,
-      contadores,
       antiabuso,
       otp,
       anelDoPepper: [pepper, null],
       anelDoToken: [assinatura, null],
       anelDaSessao: [assinatura, null],
       relogio,
-    }) as object;
+    }) as { desafioPara(ip: unknown): Promise<{ desafio: string; dificuldade: number }> };
     const actividade = new (Actividade as new (o: unknown) => unknown)({
       repositorio: casos,
       contadores,
@@ -2101,6 +2100,7 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
       antiabuso,
       anelDaAssinatura: [assinatura, null],
       anelDoToken: [assinatura, null],
+      relogio,
       proxiesDeConfianca: 0,
     } as never);
 
@@ -2118,7 +2118,7 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
       nome: string,
       chave: string,
     ): Promise<Response> => {
-      const emitido = await antiabuso.emitir(null);
+      const emitido = await registo.desafioPara(null);
       agora += SEGUNDOS * 1000;
       return app.request("/api/registo", {
         method: "POST",
@@ -2169,7 +2169,7 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
 
     // ---- POST /api/registo: o NIF de B contra um NIF que nao existe.
     for (const [i, nif] of [NIF_DE_B, NIF_INEXISTENTE].entries()) {
-      const emitido = await antiabuso.emitir(null);
+      const emitido = await registo.desafioPara(null);
       agora += SEGUNDOS * 1000;
       relatorio.rotas.push({
         ...(await medir(ITENS_DA_INSCRICAO[1], "POST", "/api/registo", app, {
@@ -2198,6 +2198,7 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
       "ticket" as never,
       idDeB as never,
       Buffer.alloc(32, 0x11) as never,
+      relogio as never,
     );
     const ataquesDeOtp: readonly (readonly [string, Record<string, unknown>])[] = [
       ["bilhete-forjado", { referencia: bilheteForjado }],
@@ -2225,11 +2226,13 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
       // Um id que nao e o de B: o caso de A, se existir, ou um inventado.
       (casos.todos[1]?.id ?? "00000000-0000-4000-8000-000000000099") as never,
       assinatura as never,
+      relogio as never,
     );
-    const trocada = `${idDeB}.${sessaoDeA.split(".")[1] ?? ""}`;
+    const partesDaSessao = sessaoDeA.split(".");
+    const trocada = `${idDeB}.${partesDaSessao[1] ?? ""}.${partesDaSessao[2] ?? ""}`;
     for (const [rotulo, cookie, corpo] of [
       ["sessao-de-a-com-id-de-b", `kamba_onboarding=${trocada}`, {}],
-      ["bilhete-forjado-no-corpo", "", { referencia: bilheteForjado }],
+      ["sessao-forjada", `kamba_onboarding=${bilheteForjado}`, {}],
     ] as const) {
       relatorio.rotas.push({
         ...(await medir(ITENS_DA_INSCRICAO[4], "POST", "/api/actividade", app, {

@@ -49,6 +49,7 @@ import {
   TENTATIVAS_MAXIMAS,
   Telefone,
   cunharToken,
+  lerReferencia,
   resolverDesafio,
   type Caso,
 } from "@kamba/core-ts/inscricao";
@@ -102,7 +103,6 @@ function montar(proxies = 1) {
   });
   const registo = new Registo({
     repositorio: casos,
-    contadores,
     antiabuso,
     otp,
     anelDoPepper: [PEPPER, null],
@@ -118,9 +118,10 @@ function montar(proxies = 1) {
     antiabuso,
     anelDaAssinatura: [ASSINATURA, null],
     anelDoToken: [ASSINATURA, null],
+    relogio: relogio.agora,
     proxiesDeConfianca: proxies,
   });
-  return { app, casos, sms, relogio, antiabuso, otp };
+  return { app, casos, sms, relogio, antiabuso, otp, registo };
 }
 
 type Montagem = ReturnType<typeof montar>;
@@ -158,7 +159,12 @@ describe("KAM-086 adversarial (a): mil registos de 50 prefixos em 60 s", () => {
     const prontos: { readonly indice: number; readonly ip: string; readonly corpo: string }[] = [];
     for (let i = 0; i < PEDIDOS; i += 1) {
       const ip = `198.51.${Math.floor(i % PREFIXOS)}.9`;
-      const emitido = await m.antiabuso.emitir(null);
+      // **Um desafio por prefixo, e nao um desafio sem rede.** O desafio esta
+      // preso a rede que o emitiu desde o achado da revisao adversarial, pelo
+      // que um emitido com `null` nao serve num pedido com IP. Emitir todos
+      // primeiro continua a ser o que um bot faz, e e o que torna este ensaio a
+      // versao mais forte: o que o trava e o limite por prefixo.
+      const emitido = await m.registo.desafioPara(ip);
       const { nif, telefone } = identidade(i);
       prontos.push({
         indice: i,
@@ -244,7 +250,7 @@ describe("KAM-086 adversarial (b): a matriz de doze duplicados", () => {
       // Uma hora entre pedidos, para o intervalo de 60 s e os tres envios por
       // hora nao mascararem o que se esta a medir.
       m.relogio.avancar(3_600_001);
-      const emitido = await m.antiabuso.emitir(null);
+      const emitido = await m.registo.desafioPara(null);
       m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
       const resposta = await m.app.request("/api/registo", {
         method: "POST",
@@ -265,13 +271,28 @@ describe("KAM-086 adversarial (b): a matriz de doze duplicados", () => {
         }),
       });
       assert.equal(resposta.status, 200, `grafia ${i}`);
-      referencias.push(String((await json(resposta)).referencia));
+      // **O id le-se AQUI e nao no fim.** O bilhete vale trinta minutos, e este
+      // ensaio avanca uma hora entre grafias para nao bater nos limites por
+      // telefone: lido no fim, o primeiro bilhete esta expirado ha onze horas.
+      referencias.push(
+        lerReferencia(
+          "ticket",
+          String((await json(resposta)).referencia),
+          [ASSINATURA, null],
+          m.relogio.agora,
+        ),
+      );
     }
 
     // **UM** caso para doze grafias.
     assert.equal(m.casos.quantos, 1);
-    // E as doze respostas apontam para o mesmo caso: a referencia e igual.
+    // E as doze respostas apontam para o **mesmo caso**. Compara-se o id que sai
+    // de dentro da referencia e nao a referencia: ela leva a validade dentro do
+    // texto assinado desde o achado da revisao adversarial, pelo que duas
+    // referencias do mesmo caso emitidas em instantes diferentes **sao** cadeias
+    // diferentes. Comparar as cadeias media o relogio, nao o caso.
     assert.equal(new Set(referencias).size, 1);
+    assert.equal(referencias[0], (m.casos.todos[0] as Caso).id);
   });
 
   it("um NIF que difere num algarismo cria caso novo, e e o controlo", async () => {
@@ -281,7 +302,7 @@ describe("KAM-086 adversarial (b): a matriz de doze duplicados", () => {
     const convite = token(m);
     for (const [i, nif] of ["5410000123AB", "5410000124AB"].entries()) {
       m.relogio.avancar(3_600_001);
-      const emitido = await m.antiabuso.emitir(null);
+      const emitido = await m.registo.desafioPara(null);
       m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
       await m.app.request("/api/registo", {
         method: "POST",
@@ -307,7 +328,7 @@ describe("KAM-086 adversarial (b): a matriz de doze duplicados", () => {
 describe("KAM-086 adversarial (c): forca bruta do OTP", () => {
   it("bloqueia na quinta tentativa, e as seguintes nao tem o que atacar", async () => {
     const m = montar(0);
-    const emitido = await m.antiabuso.emitir(null);
+    const emitido = await m.registo.desafioPara(null);
     m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
     const aceite = await json(
       await m.app.request("/api/registo", {
@@ -378,7 +399,7 @@ describe("KAM-086 adversarial (d): SMS pumping", () => {
     ];
     for (const [i, telefone] of estrangeiros.entries()) {
       m.relogio.avancar(3_600_001);
-      const emitido = await m.antiabuso.emitir(null);
+      const emitido = await m.registo.desafioPara(null);
       m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
       const resposta = await m.app.request("/api/registo", {
         method: "POST",
@@ -432,7 +453,7 @@ describe("KAM-086 adversarial (e): o token de convite", () => {
         m.relogio.agora,
       );
       assert.equal((await m.app.request(`/entrar?c=${encodeURIComponent(forjado)}`)).status, 403);
-      const emitido = await m.antiabuso.emitir(null);
+      const emitido = await m.registo.desafioPara(null);
       m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
       const resposta = await m.app.request("/api/registo", {
         method: "POST",
@@ -462,7 +483,9 @@ describe("KAM-086 adversarial (e): o token de convite", () => {
     const ip = "203.0.113.5";
     let aceites = 0;
     for (let i = 0; i < 20; i += 1) {
-      const emitido = await m.antiabuso.emitir(null);
+      // Para a rede do pedido: o desafio esta preso a ela, e com `proxies: 1` a
+      // rota le o `x-forwarded-for`.
+      const emitido = await m.registo.desafioPara(ip);
       m.relogio.avancar(SEGUNDOS_MINIMOS * 1000 + 61_000);
       const { nif, telefone } = identidade(600 + i);
       const resposta = await m.app.request("/api/registo", {
@@ -516,7 +539,7 @@ describe("KAM-086 adversarial (f): enumeracao por tempo de resposta", () => {
         // isso. A hora serve para o intervalo de 60 s e os tres envios por hora
         // nao mascararem o que se esta a medir.
         m.relogio.avancar(3_600_001);
-        const emitido = await m.antiabuso.emitir(null);
+        const emitido = await m.registo.desafioPara(null);
         m.relogio.avancar(SEGUNDOS_MINIMOS * 1000);
         const corpo = JSON.stringify({
           token: convite,
@@ -560,7 +583,7 @@ describe("KAM-086 adversarial (f): enumeracao por tempo de resposta", () => {
       Record<string, unknown>,
     ];
     assert.deepEqual(Object.keys(a).sort(), Object.keys(b).sort());
-    assert.deepEqual(Object.keys(a).sort(), ["digitos", "expira_em", "referencia"]);
+    assert.deepEqual(Object.keys(a).sort(), ["digitos", "referencia", "validade_segundos"]);
     assert.equal(String(a.referencia).length, String(b.referencia).length);
     assert.equal(a.digitos, b.digitos);
 
