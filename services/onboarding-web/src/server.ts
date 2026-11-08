@@ -162,7 +162,10 @@ const otp = new Otp({
 });
 const registo = new Registo({
   repositorio: casos,
-  contadores,
+  // **Sem `contadores`**: o `Registo` nao os toca. As duas quotas que ele
+  // consome — rede e dispositivo — passam pelo `AntiAbuso`, e as do OTP pelo
+  // `Otp`; cada um deles ja recebeu os seus acima. Passar o mapa aqui era uma
+  // terceira via para o mesmo estado, e o `OpcoesDeRegisto` recusa-a.
   antiabuso,
   otp,
   // O anel inteiro: a actual escreve, as duas procuram. Ver `hmacsDoAnel`.
