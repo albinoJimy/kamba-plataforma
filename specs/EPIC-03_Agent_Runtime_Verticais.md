@@ -4584,32 +4584,37 @@ do §9.2 com o custo agora medido:
 
 **E o piso do `lint_bloco` não é uma terceira pergunta, nem sobe por causa deste
 ticket — e as duas coisas foram escritas ao contrário antes de serem medidas.**
-Esta secção põe os blocos medidos em **87** e o *gate* 4 exige
-`medidos // 2 <= MINIMO_DE_BLOCOS_MEDIDOS <= medidos`: `87 // 2` são **43**, que
+Esta secção põe os blocos medidos em **89** e o *gate* 4 exige
+`medidos // 2 <= MINIMO_DE_BLOCOS_MEDIDOS <= medidos`: `89 // 2` são **44**, que
 é o valor que a `main` já tem, pelo que o piso **fica** onde está. Medido na
-árvore desta integração, com a `main` em `0e3541d3`:
+árvore desta integração, com a `main` em `77a579bd`:
 
 ```text
 python -c "... from lint_bloco import lint; lint.verificar(Path('.'))"
-  -> medidos 87 | exigido 43 | piso 43
+  -> medidos 89 | exigido 44 | piso 44
 ```
 
 **A história, porque ela é o próprio limite do desenho.** Quando este ramo abriu,
 a `main` estava em `b974dda4` com **85** medidos e o piso em 42, e esta secção
 levava-o a 86 — `86 // 2` são 43, logo a subida era devida. Entre o corte e a
-integração fundiram o **KAM-069** (#156) e o **KAM-079** (#155), cada um com a
-sua secção, e o segundo pagou a emenda: a `main` chegou a 86 medidos com o piso
-já em 43. **Quem paga a subida é um dado sobre a ordem de fusão e não sobre o
+integração fundiram **quatro**: o KAM-069 (#156), o KAM-079 (#155), o KAM-051
+(#159) e o KAM-070 (#158), cada um com a sua secção. O KAM-079 pagou o 42 → 43
+e o KAM-070 pagou o 43 → 44, pelo que a `main` chegou a **88** medidos com o
+piso já em 44 — e a subida que este ramo mediu na abertura foi paga **duas
+vezes** por outros antes de ele aterrar. **Quem paga a subida é um dado sobre a ordem de fusão e não sobre o
 corpus** — é o que o `tools/lint_bloco/lint.py` escreve por extenso, e é por
 isso que esta integração resolveu o conflito **a favor da `main`** nos dois
 ficheiros de código em vez de reescrever a nota com o seu próprio número.
 
 **O que sobrou para este ticket foi a terceira superfície**, e é um achado seu:
-o 42 → 43 mexeu o `lint.py` e o `mutacao.py` e deixou o `../docs/lint-bloco.md`
-§4 em **42** — o documento que manda mexer em três sítios ficou a ser o sítio
-esquecido, e é a segunda vez que aquela linha fica atrás do código. Fica
-emendada, com a história sem nomes e com a conta: o 43 serve até aos 87 medidos,
-e ao 88.º pede 44.
+o 42 → 43 **e** o 43 → 44 mexeram os dois o `lint.py` e o `mutacao.py` e
+deixaram o `../docs/lint-bloco.md` §4 em **42** nas duas vezes — o documento que
+manda mexer em três sítios ficou a ser o sítio esquecido, em duas integrações
+seguidas, e ficou **dois valores** atrás. Fica emendado, com a história sem nomes
+e com a conta: o 44 serve até aos 89 medidos, e ao 90.º pede 45. **E fica escrito
+porque é que ele volta a ficar atrás:** nenhum portão compara aquele número com
+a constante que ele cita, e ligar essa comparação é do **KAM-183**, que governa a
+regra — vai registado lá e não se implementa aqui.
 
 **E a primeira versão desta secção listava o piso como pergunta devolvida **e**
 aplicava-o**, que é dizer as duas coisas sobre a mesma coisa. A contradição era o
@@ -4621,8 +4626,8 @@ defeito e não o valor; achado da revisão adversarial. Medido depois das emenda
 importa é a da ligação.** Uma substitui a que deixou de se aplicar — ancorava-se
 na linha do `ACCOES_POR_LIGAR` que saiu, e um `--aplicaveis` a dizer «NAO
 APLICAVEL» é o *gate* 8 vermelho — e quatro são novas. Correram na suite
-`agr_unit`, em série e com a linha de base verde em cada uma, **sobre a árvore
-que vai fundir** (`8511b225`, já com a `main` em `0e3541d3` dentro):
+`agr_unit`, em série e com a linha de base verde em cada uma, sobre `8511b225`
+— a árvore depois da revisão adversarial e da primeira integração:
 
 | Mutação | Veredicto |
 |---|---|
@@ -4640,10 +4645,32 @@ fusão** porque um veredicto medido numa árvore que mudou não mede nada, e a
 ordem de grandeza mudou numa delas (a da porta, de 4 para 3), o que é a razão
 de não se citar a medição antiga.
 
-**E o `--aplicaveis` corre em segundos e corre sempre:** `983 mutações
-conferidas, 0 não aplicáveis` na árvore fundida — é ele que apanha uma mutação
-antiga que deixou de casar com o código que cita, que é exactamente o que este
-ticket lhe fez a uma.
+**E não se repetiram na segunda integração, com a razão medida.** Entre aquela
+ponta e a que vai fundir entraram o KAM-051 e o KAM-070, e a resolução foi na
+emenda do dicionário, no `canon/dicionario.yaml` (**gerado**, logo regenerado) e
+em prosa. Medido:
+
+```text
+git diff 8511b225 --name-only | grep -c "^services/agr/"
+  -> 0
+python db/mutacoes.py --aplicaveis
+  -> 997 mutacao(oes) conferida(s), 0 nao aplicavel(is)
+```
+
+**Nenhum ficheiro de `services/agr/` mudou** — nem os dois que as cinco mutações
+citam (`eventos/handlers.py` e `eventos/consumo.py`), nem a bateria que as mata
+—, e as cinco continuam a casar o seu texto, pelo que os veredictos valem para
+esta árvore. O que a fusão trouxe foi o `db/mutacoes.py` com catorze mutações do
+KAM-070 (daí o total passar de 983 a 997, com as cinco deste ticket intactas) e
+o pacote `kamba_core.direitos`, que a suite `agr_unit` não importa.
+
+**E a primeira versão deste parágrafo mediu a árvore errada:** corria
+`git diff 8511b225 HEAD`, e o `HEAD` era ainda o *commit* **anterior** à fusão
+— a comparação não via nada do que ela trouxe e respondia «nenhum ficheiro»
+pela razão errada. O comando certo compara contra a árvore de trabalho. **É o
+`--aplicaveis` que fecha a pergunta de qualquer forma, e corre sempre:** é ele
+que apanha uma mutação que deixou de casar com o código que cita, que é
+exactamente o que este ticket lhe fez a uma.
 
 ### Revisão adversarial independente
 
@@ -4691,7 +4718,7 @@ forma independente.
 | 1 | Critérios satisfeitos e demonstráveis, com as caixas abertas a nomear o credor | **parcial** | Quatro dos cinco satisfeitos; o 5.º é parcial e **nomeia o credor** (o ticket que liga o AGR ao módulo `servicos`, a abrir pelo fundador). A caixa fica vazia por causa dele |
 | 2 | Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de cada caixa e a ponta onde foi medida | **satisfeito** | Esta secção. A ponta é `feature/KAM-184-servicos-eventos-pagamento` sobre `b974dda4`, e vai escrita em cada número |
 | 3 | Se a rota (a) for a escolhida, a decisão está **devolvida e não aplicada** | **satisfeito** | Nenhuma das duas rotas foi escolhida nem aplicada: não há `v3` em `contratos/eventos/` e não há consulta a resolver marcações. As duas vão devolvidas com o custo medido |
-| 4 | Nenhum número novo em prosa sem a árvore onde foi medido | **satisfeito** | Os números desta secção — 1 449 testes, 18 ensaios escritos e 4 substituídos, 87 blocos medidos, `conteudo 45`, 88,34%, 983 mutações conferidas, 18 mortas na varredura do `lint_bloco` — levam o comando e a ponta. O `756 s` é **derivado** da `ESCADA_DO_CONSUMIDOR` do `kamba_core` e não medido em relógio, e está dito como derivação |
+| 4 | Nenhum número novo em prosa sem a árvore onde foi medido | **satisfeito** | Os números desta secção — 1 449 testes, 18 ensaios escritos e 4 substituídos, 89 blocos medidos, `conteudo 45`, 88,34%, 983 mutações conferidas, 18 mortas na varredura do `lint_bloco` — levam o comando e a ponta. O `756 s` é **derivado** da `ESCADA_DO_CONSUMIDOR` do `kamba_core` e não medido em relógio, e está dito como derivação |
 
 ---
 
@@ -4745,4 +4772,4 @@ forma independente.
 | 1.12 | Novembro 2026 | **KAM-039 entregue, e NAO fecha: o nucleo tem uma excepcao e ela tem nome.** O bloco ganha a seccao «Verificacao dos Criterios de Aceitacao»: **dois criterios satisfeitos** ((a) e o 6.o), **dois parciais** ((b) e o 5.o), **um nao satisfeito** ((d)), **um vazio** ((c)) e o 7.o com a clausula «excepcao >= 1 reprova» a morder; **tres caixas de DoD marcadas e tres vazias**. O numero sai medido — `reuso = 88,26%` para a vertical Servicos contra um limiar de 70% — e as duas medidas tem **canario de mutacao sobre esta arvore**. **A revisao adversarial mudou o resultado e nao so o texto**: dois instrumentos deram 19 achados, 16 CONFIRMADOS, e dois atacavam a afirmacao central com razao. O verificador da condicao (d) nao via o idioma desta casa — uma constante de modulo —, pelo que o `fluxo` dava **0** por cegueira; a seguir constantes, aparece **1**: o `AO_DONO` do `eventos/handlers.py`, uma tabela de pares `(vertical, tipo)` **so do Vendedor** lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado. E a metrica lia os ficheiros do **disco** em vez do `git`, pelo que a partir da raiz do *checkout* principal contava as copias dos *worktrees* irmaos — 70 ficheiros em vez de 7, com o reuso a cair abaixo do limiar numa raiz onde o `make reuso` corre. **A correccao obrigou a uma distincao que o criterio nao faz**, e ela esta escrita: validar que a vertical e **conhecida** (o `contexto.py:191`, que o criterio 5 do KAM-014 exige) nao distingue entre verticais; fazer coisa diferente segundo **qual** e a excepcao. **Tres criterios param numa fronteira que nao e deste ticket**: «o CI falha se devolver > 0», «falha o *build* abaixo de 70%» e o que fazer com a excepcao sao regras de bloqueio. A caixa (c) fica vazia com o **KAM-066** — a suite cruzada esta no PR #126 e nao na base, medido —, a de observabilidade com o **KAM-080**, e o efeito do consumo cruzado com o **KAM-047** e tambem o **KAM-007**: os contratos de `payment.*` nao permitem `booking_id` no *payload*, logo o efeito *proposta* do bloco nao e implementavel como esta escrito. **E o bloco ganha a seccao «Revisao adversarial independente»**, com os dezanove achados arrumados em dez grupos, os dois limites que se declaram em vez de se corrigirem, o que se devolve com o numero corrigido, e o que os dois instrumentos **procuraram e nao encontraram** — que e o que torna a ausencia de achados informacao em vez de silencio. | Equipa KAMBA |
 | 1.13 | Novembro 2026 | **KAM-039, caixa devolvida: a excepcao do nucleo foi extraida, e a condicao (d) mede 0.** Decisao do fundador a 2026-11-06, executada: a tabela `AO_DONO` do `eventos/handlers.py` — pares `(vertical, tipo)` so do Vendedor, lidos num `if`, onde o nucleo decidia pelo nome da vertical se o dono da loja era avisado — sai para `subscriptions[].notifica` do `registry/<id>.yaml`, dominio fechado `{cliente, dono}`. **Medido sobre `db0582d`: `python -m reuse_metric nucleo` ia de `fluxo 1, conteudo 48, prosa 114`, saida 1, para `fluxo 0, dominio 1, conteudo 45, prosa 119`, saida 0**; a outra metade do G0-2 passa com **88,30%** (limiar 70%) e nao foi tocada. **Duas caixas mudam de estado:** a linha (d) passa de `nao satisfeito` a **parcial** (a metade medivel esta satisfeita; «o CI falha se devolver > 0» continua regra de bloqueio, credor fundador) e a 7.a passa a **satisfeita**, porque a clausula «excepcao >= 1 reprova» deixou de morder. A guarda do criterio 1 mudou de forma e continua a morder: o `exigir_handlers` pergunta «esta subscricao faz alguma coisa?» em vez de «esta na minha tabela?», com ensaio das duas formas de nao fazer nada e o par positivo de cada uma. **O que fica devolvido:** onde passa a fronteira do `conteudo` (as 45 ocorrencias), e a ligacao do verificador a um portao do CI. |
 | 1.14 | Novembro 2026 | **KAM-184 aberto: a vertical Serviços subscreve os dois eventos de pagamento e não faz nada com eles.** Achado do KAM-108 ao preparar o *gate* da Fase 0, verificado de forma independente em `fe40048` e reconfirmado em `ca5cac5`: os dois pares estão em `ACCOES_POR_LIGAR` — «a acção dela não está escrita», desfecho `sem_accao` — e **nenhum dos dois eventos leva `booking_id`**, nas **duas** versões de cada, pelo que a lacuna não se contorna com o outro evento. Os credores estão fechados, **dois no código** (KAM-047 no `ACCOES_POR_LIGAR`, e KAM-047 e KAM-035 no comentário do `registry/servicos.yaml`) **e um no esquema** (KAM-007, que nenhum ficheiro de `contratos/eventos/` nomeia — quem o nomeia é a secção de verificação do KAM-039). A atribuição dos três **ao código** é um erro que o §9.2 do `Gate_Fase0.md` já tinha corrigido e que a primeira versão deste PR reintroduziu. É independente do KAM-055 e não se resolve quando aquele fundir. O bloco deixa a rota do `booking_id` como critério 1 com as **duas** saídas medidas, e a que altera contrato publicado fica **devolvida** e não aplicada. | Equipa KAMBÁ |
-| 1.15 | Novembro 2026 | **KAM-184 entregue: a acção está escrita e a origem da marcação continua devolvida.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1 a 4) e **um parcial** (5), **três caixas de DoD marcadas e uma vazia**. Os dois pares de pagamento saem do `ACCOES_POR_LIGAR` — que fica **vazio, e fica** — para um `ACCOES_DE_MARCACAO` novo, e o desfecho do consumo deixa de ser `sem_accao`. **A decisão que deu forma ao ticket foi obrigada pelos próprios critérios:** o 1 manda devolver as duas rotas do `booking_id` sem aplicar nenhuma e o 5 manda produzir o artefacto, e as duas coisas só são compatíveis se a acção for escrita contra uma **porta** — a `PortaDeMarcacao`, que não prejulga a rota e cuja implementação por omissão **levanta**, como a `PortaDeContacto` do KAM-038. **E as duas rotas custam mais do que o §9.2 do `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` escreve, nas duas direcções:** a (a) não custa compatibilidade — uma versão nova é compatível por construção, **0 quebrantes** contra `refs/remotes/publico/main` — mas o *gate* 7 sai **2** no `contract_diff gerados`, porque o gerador de tipos guarda **uma** forma de *payload* por tipo; e a (b) **não é «uma leitura por evento»**, porque superfície nenhuma liga hoje uma encomenda a uma marcação — a `servicos.bookings` da revisão `0025` não tem coluna de encomenda, a `platform.orders_mirror` da `0030` não tem `booking_id` —, pelo que custa **uma migração** antes da leitura. **A medição por omissão do `contract_diff` está lá como contra-exemplo e não como prova:** `76 contratos, 0 em origin/main, 0 quebrantes` com saída 0, porque o `origin` desta máquina é o espelho privado sem `contratos/`. **O credor que fica a descoberto não é um ticket:** quem implementa a porta é o caminho entre o AGR e o módulo `servicos`, que **não está em linha nenhuma do §4 do `specs/INDICE.md`** — a mesma lacuna que o `../services/agr/src/kamba_agr/tls/servicos.py` já tinha escrita para os executores das cinco *tools* — e abri-lo é L1. É por ele que o critério 5 é parcial: o artefacto do G0-1 é produzido num ensaio contra um duplo da agenda, e a linha 1.6 daquela checklist **não é tocada** por este ticket. A guarda do arranque ganha a terceira condição na primeira pergunta (notifica, acção escrita, ou credor) e a terceira guarda ganha a outra metade — credor **e** acção escrita reprovam —, e as duas mordem com ensaio; o `fala_com_o_cliente` leva a **mesma** lista, porque uma guarda que aceitasse o par e um `fala_com_o_cliente` que o recusasse punha o AGR a arrancar e a rebentar na primeira entrega. **Sem migração, sem métrica nova e sem desfecho novo** (a distinção «confirmou» / «não havia marcação» é uma etiqueta e fica com o credor **KAM-080**, que é quem tem as métricas — a primeira versão escrevia KAM-060, que é a detecção de anomalias de pagamento, e foi um achado da revisão adversarial), e a regra de dois não regride: `fluxo 0, dominio 1, conteudo 45` — o `conteudo` não sobe porque os dois literais mudaram de tabela — e **88,34%** contra o limiar de 70%. O `MINIMO_DE_BLOCOS_MEDIDOS` do `lint_bloco` **não sobe com este ticket**, e isso é medição e não escolha: a secção leva os blocos medidos a **87** e `87 // 2` são 43, que é o valor que a `main` em `0e3541d3` já tem — o 42 → 43 foi pago na integração do KAM-079, que fundiu no meio deste ramo. O que sobrou foi a **terceira** superfície, que aquelas fusões deixaram atrás: o §4 do `../docs/lint-bloco.md`, em 42 num documento que manda mexer em três sítios. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | **KAM-184 entregue: a acção está escrita e a origem da marcação continua devolvida.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1 a 4) e **um parcial** (5), **três caixas de DoD marcadas e uma vazia**. Os dois pares de pagamento saem do `ACCOES_POR_LIGAR` — que fica **vazio, e fica** — para um `ACCOES_DE_MARCACAO` novo, e o desfecho do consumo deixa de ser `sem_accao`. **A decisão que deu forma ao ticket foi obrigada pelos próprios critérios:** o 1 manda devolver as duas rotas do `booking_id` sem aplicar nenhuma e o 5 manda produzir o artefacto, e as duas coisas só são compatíveis se a acção for escrita contra uma **porta** — a `PortaDeMarcacao`, que não prejulga a rota e cuja implementação por omissão **levanta**, como a `PortaDeContacto` do KAM-038. **E as duas rotas custam mais do que o §9.2 do `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` escreve, nas duas direcções:** a (a) não custa compatibilidade — uma versão nova é compatível por construção, **0 quebrantes** contra `refs/remotes/publico/main` — mas o *gate* 7 sai **2** no `contract_diff gerados`, porque o gerador de tipos guarda **uma** forma de *payload* por tipo; e a (b) **não é «uma leitura por evento»**, porque superfície nenhuma liga hoje uma encomenda a uma marcação — a `servicos.bookings` da revisão `0025` não tem coluna de encomenda, a `platform.orders_mirror` da `0030` não tem `booking_id` —, pelo que custa **uma migração** antes da leitura. **A medição por omissão do `contract_diff` está lá como contra-exemplo e não como prova:** `76 contratos, 0 em origin/main, 0 quebrantes` com saída 0, porque o `origin` desta máquina é o espelho privado sem `contratos/`. **O credor que fica a descoberto não é um ticket:** quem implementa a porta é o caminho entre o AGR e o módulo `servicos`, que **não está em linha nenhuma do §4 do `specs/INDICE.md`** — a mesma lacuna que o `../services/agr/src/kamba_agr/tls/servicos.py` já tinha escrita para os executores das cinco *tools* — e abri-lo é L1. É por ele que o critério 5 é parcial: o artefacto do G0-1 é produzido num ensaio contra um duplo da agenda, e a linha 1.6 daquela checklist **não é tocada** por este ticket. A guarda do arranque ganha a terceira condição na primeira pergunta (notifica, acção escrita, ou credor) e a terceira guarda ganha a outra metade — credor **e** acção escrita reprovam —, e as duas mordem com ensaio; o `fala_com_o_cliente` leva a **mesma** lista, porque uma guarda que aceitasse o par e um `fala_com_o_cliente` que o recusasse punha o AGR a arrancar e a rebentar na primeira entrega. **Sem migração, sem métrica nova e sem desfecho novo** (a distinção «confirmou» / «não havia marcação» é uma etiqueta e fica com o credor **KAM-080**, que é quem tem as métricas — a primeira versão escrevia KAM-060, que é a detecção de anomalias de pagamento, e foi um achado da revisão adversarial), e a regra de dois não regride: `fluxo 0, dominio 1, conteudo 45` — o `conteudo` não sobe porque os dois literais mudaram de tabela — e **88,34%** contra o limiar de 70%. O `MINIMO_DE_BLOCOS_MEDIDOS` do `lint_bloco` **não sobe com este ticket**, e isso é medição e não escolha: a secção leva os blocos medidos a **89** e `89 // 2` são 44, que é o valor que a `main` em `77a579bd` já tem — o 42 → 43 e o 43 → 44 foram pagos nas integrações do KAM-079 e do KAM-070, que fundiram no meio deste ramo. O que sobrou foi a **terceira** superfície, que as duas deixaram atrás: o §4 do `../docs/lint-bloco.md`, em 42 num documento que manda mexer em três sítios — dois valores atrás do código. | Equipa KAMBÁ |

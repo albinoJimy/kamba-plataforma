@@ -1774,14 +1774,14 @@ Publicar a vista `v_oferta_viva` (`security_invoker`) com o contrato de colunas 
 
 ### Critérios de Aceitação
 
-- [ ] A vista expõe, no mínimo, `tenant_id`, `product_ref`, `sku`, `nome`, `preco_minor`, `preco_tipo`, `stock_modo`, `publicado`, `lido_em`, nos nomes canónicos do §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md`. **Sem `preco_kz` e sem o mapeamento `fixo→exato`** — os dois estão na coluna «Substitui» desse §, e uma coluna terminada em `_kz` é recusada pelo *gate* 8 sem excepção (ver a emenda no Contexto). Quem apresenta em Kz divide por cem onde apresenta; a vista não transporta a divisão, que é onde um preço se perde por um factor de cem. O `stock_disp` sai do critério até existir a projecção de stock (critério 7).
-- [ ] `publicado` é verdadeiro só para `offer_terms.estado='publicado'`, `deleted_at IS NULL` e `categoria_restrita IS NULL`; produto `pausado`, `arquivado`, restrito ou apagado devolve 0 linhas.
+- [x] A vista expõe, no mínimo, `tenant_id`, `product_ref`, `sku`, `nome`, `preco_minor`, `preco_tipo`, `stock_modo`, `publicado`, `lido_em`, nos nomes canónicos do §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md`. **Sem `preco_kz` e sem o mapeamento `fixo→exato`** — os dois estão na coluna «Substitui» desse §, e uma coluna terminada em `_kz` é recusada pelo *gate* 8 sem excepção (ver a emenda no Contexto). Quem apresenta em Kz divide por cem onde apresenta; a vista não transporta a divisão, que é onde um preço se perde por um factor de cem. O `stock_disp` sai do critério até existir a projecção de stock (critério 7).
+- [x] `publicado` é verdadeiro só para `offer_terms.estado='publicado'`, `deleted_at IS NULL` e `categoria_restrita IS NULL`; produto `pausado`, `arquivado`, restrito ou apagado devolve 0 linhas.
 - [ ] A vista expõe o `stock_modo` canónico (`garantido`, `indicativo`, `confirmar_dono`) e **não** uma coluna chamada `disponibilidade`: esse nome é, desde o KAM-043, o texto de apresentação derivado do modo (emenda 1.52 do dicionário e `DISPONIBILIDADE` de `services/com/src/produtos/formato.ts`), e duplicar o mapeamento em SQL dava duas respostas para a mesma pergunta. **Isto não toca o `disponivel` do contrato da tool**, que é outro nome, outro tipo e outra camada, e fica como o §6.3 o escreve. **A parte do stock deste critério fica bloqueada com o critério 7:** os quatro valores de máquina que ele pedia incluíam `sem_stock`, só produzível quando houver nível de stock — e não há. Enquanto não houver, o filtro `v.stock_disp > 0` do §6.3 não tem coluna contra que correr e o `disponivel=false` que o KAM-061 pede não tem como ser calculado; as duas coisas resolvem-se com o KAM-045, não aqui. O `sob_consulta` continua a não desaparecer por filtro de stock: é modo de preço e não de stock.
-- [ ] A vista tem `security_invoker = true` e RLS herdada: com `app.tenant_id` de A, linhas de B = 0; sem `app.tenant_id` = 0 linhas (X-04); X-05 verifica a vista.
+- [x] A vista tem `security_invoker = true` e RLS herdada: com `app.tenant_id` de A, linhas de B = 0; sem `app.tenant_id` = 0 linhas (X-04); X-05 verifica a vista.
 - [ ] O contrato de saída da tool é o que o §6.3 do `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` já declara — `[{sku, product_ref, nome, preco_minor, preco_tipo, disponivel, fonte:'registo', lido_em}]` —, **que está em nomes canónicos e não se emenda aqui**: o `preco_kz` que este critério escrevia era desta página e não daquela. O `disponivel` depende do nível de stock e fica bloqueado com o critério 7. Coberto por teste de contrato com o consumidor (`search_products` de KAM-061, com *fake* até existir).
-- [ ] A vista não contém PII nem texto de descrição; o *join* por `(tenant_id, product_ref)` usa o índice de chave primária (teste de plano com 10.000 SKUs de um tenant: sem *seq scan* em `offer_terms`).
+- [x] A vista não contém PII nem texto de descrição; o *join* por `(tenant_id, product_ref)` usa o índice de chave primária (teste de plano com 10.000 SKUs de um tenant: sem *seq scan* em `offer_terms`).
 - [ ] **Bloqueado por decisão aberta, e por isso esta caixa não se marca neste ticket.** O stock lido vem do Registo decidido em D3 através de uma tabela/projecção com RLS do esquema `platform`; a vista nunca lê o esquema `medusa` directamente. O D3 não está ratificado e a projecção não existe (ver a emenda no Contexto), pelo que, até o D3 ser assinado e o KAM-045 entregar as reservas, a vista publica-se **sem stock** e o `stock_disp` não entra no contrato.
-- [ ] Migração com `downgrade` testado; qualquer alteração de colunas segue *expand → migrate → contract* com SemVer do contrato.
+- [x] Migração com `downgrade` testado; qualquer alteração de colunas segue *expand → migrate → contract* com SemVer do contrato.
 
 ### Detalhes Técnicos
 
@@ -1804,11 +1804,107 @@ Publicar a vista `v_oferta_viva` (`security_invoker`) com o contrato de colunas 
 ### Definition of Done
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Isolamento de tenant:** vista `security_invoker`; RLS herdada; teste cruzado cobre o caminho (ADR-015).
+- [x] **Isolamento de tenant:** vista `security_invoker`; RLS herdada; teste cruzado cobre o caminho (ADR-015).
 - [ ] **Números só de tools:** preço e stock chegam ao agente só por esta vista via tool, nunca por embeddings (ADR-007).
-- [ ] **Privacidade:** vista sem PII; sem telefone nem texto de utilizador.
-- [ ] **Migrações reversíveis:** `downgrade` testado; contrato versionado em SemVer.
+- [x] **Privacidade:** vista sem PII; sem telefone nem texto de utilizador.
+- [x] **Migrações reversíveis:** `downgrade` testado; contrato versionado em SemVer.
 - [ ] Divergências com `../docs/tecnica/05` (nomenclatura, filtro de stock) registadas para correcção documental; revisão por um revisor adicional do IDX.
+
+### Verificação dos Critérios de Aceitação
+
+**Cinco caixas marcadas de oito, e três de seis na Definition of Done.** As que
+ficam vazias estão nomeadas com a razão e com o credor, e **nenhuma é trabalho
+que este ticket possa fazer**: duas esperam o nível de stock, que não existe, e
+uma espera um consumidor que é de outro epic.
+
+**A revisão adversarial mudou seis ficheiros e uma caixa**, e vale a pena dizer
+o que mudou, porque é a diferença entre esta secção e a que eu teria escrito
+sozinho. Correu contra o commit `c53ae2ef` e levantou doze achados: **sete
+CONFIRMADOS**, todos corrigidos, e cinco `PLAUSÍVEL`, três deles corrigidos à
+mesma. Os que mudaram o resultado:
+
+| O que ela encontrou | O que mudou |
+|---|---|
+| **A emenda 1.68 alargava o *gate* 3b.** Os identificadores entre crases da coluna «Notas» do §3 entram em `nomes_nota`, que o `canon_lint` funde em `conhecidos` — o conjunto que decide se um nome novo numa migração passa. A minha prosa legitimou **seis**: `exato` e `stock_disp` (os dois que este ticket existe para proibir), `historicas`, `expira_em`, `table_schema`, e `vida`, porque o extractor perde o acento de `dívida`. Agravante: o `discard` que retira um nome de `conhecidos` só corre para variantes de tipo `nome`, e o `exato` é variante de **valor** — nunca sairia | A mecânica saiu das crases e os nomes proibidos saíram da célula (o §3.3 já os tem, e um domínio fechado tem **um** sítio). Medido com o leitor do próprio repositório: `conhecidos` **1624 → 1628**, e os quatro novos são exactamente os que o ticket introduz — `v_oferta_viva`, `platform.v_oferta_viva`, `product_ref`, `lido_em`; `exato` e `stock_disp` não são conhecidos em nenhuma das duas árvores, e nada se perdeu. É o defeito que a emenda **1.66** nomeou por escrito, reproduzido |
+| **O `rascunho` não tinha oráculo**, e é a **omissão** do `offer_terms.estado`: o estado de toda a oferta que o dono começou e nunca publicou. Com ele de fora, trocar o predicado para `o.estado <> 'pausado'` deixava as asserções **todas verdes** e punha o agente a oferecer rascunhos com preço | Entrou no `CASOS_NAO_PUBLICAVEIS`, que passou a ter **cinco** formas de não ser publicável (o `estado` entra com dois dos seus quatro valores), e ganhou a **sexta** mutação, que é a que sobrevivia a tudo antes dele |
+| **O ensaio cruzado de tenants não mata a mutação do `security_invoker`**, ao contrário do que o comentário dela dizia. Sem a opção a vista corre como o dono `kamba_migrator`, que é `NOBYPASSRLS` e que o `FORCE` da `offer_terms` vincula, e o predicado da `tenant_iso` lê a **GUC da sessão** — a mesma nos dois casos. Zero linhas com a opção e sem ela; o que a matava era só uma asserção sobre `reloptions` | O comentário passou a nomear o matador real, e entrou o oráculo que **distingue por execução**: o privilégio. O `test_so_o_kamba_app_le_a_vista_e_so_por_cima_do_privilegio` retira o `SELECT` na `offer_terms` ao `kamba_app` e exige `42501` na leitura da vista — o que não aconteceria se a opção caísse. Com `rollback()` antes do DDL, porque um `REVOKE` contra uma transacção aberta que leu a tabela **bloqueia** em vez de falhar |
+| **A razão escrita do `GRANT` ao `kamba_batch` era falsa** — dizia que era ele que semeava os 10 000 SKUs do ensaio de plano, e a sementeira e o `EXPLAIN` correm os dois pela ligação de administrador. E o `kamba_batch` é o **único** papel com `BYPASSRLS`, isto é, o único leitor para quem esta vista não compra isolamento | O `GRANT` saiu, e a razão com ele. Entrou o `test_os_papeis_sem_oferta_continuam_sem_a_vista`, que afirma os privilégios **nos dois sentidos** — sem a segunda metade, retirar o único `GRANT` que resta era uma mutação que nenhum ensaio matava |
+| **O plano de execução era medido numa sessão que o leitor real não tem**: o `EXPLAIN` corria como superutilizador, para quem a RLS não se aplica, pelo que os critérios 4 e 6 nunca eram verdadeiros na mesma sessão | Passou a correr em `cursor_app(tenant)`, com a *qual* da `tenant_iso` por cima. Continua sem `Seq Scan` e com o `offer_terms_pkey` no plano: a condição da junção é `text = text`, *leakproof*, pelo que a barreira de segurança não trava o índice |
+| **O oráculo do `lido_em` afirmava menos do que a docstring**: corria **uma** instrução, o que um `statement_timestamp()` também satisfaz, e a tolerância de 300 s deixava sobreviver um `now() - interval '2 minutes'` | Passou a **duas** instruções na mesma transacção, com igualdade entre elas — que é o que distingue o `now()` —, e a tolerância desceu a 30 s |
+| **O ensaio que lê o contrato do documento deixava cair o domínio**, que é precisamente onde o vocabulário preterido reentraria: se o §6.3 passasse a escrever o mapeamento que o critério 1 proíbe, o caso ficava **verde** | Afirma a cadeia do domínio: `{fixo, a_partir_de, sob_consulta}`, lida do próprio documento |
+| **Aritmética errada em três sítios** («projecta quatro») e uma contagem em prosa que a sexta vista tornou falsa («como nas outras quatro») | Das dezesseis colunas da `offer_terms`, **seis** saem projectadas, **quatro** são lidas só dentro de expressão e **seis** nunca são lidas. E «outras cinco». Nenhum *linter* lê comentários `.py` |
+
+E um achado que ela **matou** com evidência, que fica registado para não voltar:
+o `assertNotIn("Seq Scan on offer_terms", plano)` **não** passa com plano vazio,
+porque o `assertIn("offer_terms_pkey", plano)` a seguir o impede e um `consultar`
+que falhasse levantava excepção.
+
+**E uma medição dela que não se confirma:** diz «as 8 caixas de Critérios e as
+**5** da DoD». A DoD deste bloco tem **seis** caixas, e a diferença não é
+cosmética — o `lint_bloco` exige correspondência **um-a-um** entre a tabela e a
+lista, e uma tabela de cinco linhas contra seis caixas fazia o bloco contar como
+**não medido** tendo a tabela.
+
+#### Critérios de Aceitação
+
+| CA | Estado | Evidência |
+|---|---|---|
+| 1 | satisfeito | As nove colunas, pela ordem do contrato: `test_as_nove_colunas_estao_na_ordem_do_contrato`, pelo `information_schema` e não por um `SELECT *`, que dava a ordem e não provava a ausência de uma décima. Sem vocabulário preterido: `test_nao_ha_coluna_de_dinheiro_em_kwanzas` (nenhuma coluna acaba em `_kz`) e o `test_nao_ha_colunas_de_dinheiro_nem_saldos` do *gate* 8, que varre o esquema e cuja lista `EM_UNIDADE_MENOR` ganhou a entrada desta vista com a razão escrita. A ausência de coluna de nível de stock é afirmada pelo `test_a_vista_nao_tem_coluna_de_stock`, que exige que a única coluna com `stock` no nome seja o `stock_modo` |
+| 2 | satisfeito | O controlo positivo primeiro (`test_uma_oferta_publicada_e_limpa_sai_publicada`), porque cinco falsos contra uma vista vazia não provam predicado nenhum. Depois as **cinco** formas de não ser publicável, **uma a uma com as outras satisfeitas** (`test_cada_condicao_sozinha_tira_o_publicado`): `rascunho`, `pausado`, `arquivado`, `categoria_restrita` não nula e `deleted_at` escrito. A segunda metade do critério — «devolve **0 linhas**» — é verdadeira na leitura composta e não na vista, e é lá que se mede: `test_a_leitura_do_indice_devolve_zero_linhas_para_cada_uma`, com o controlo positivo em `test_a_leitura_do_indice_devolve_a_oferta_limpa`. **A coluna é exposta e não aplicada** — a razão está nos Detalhes Técnicos e no comentário da revisão `0037` |
+| 3 | parcial | **A metade entregue:** a vista expõe o `stock_modo` canónico nos três valores, um a um (`test_o_dominio_do_stock_modo_e_o_canonico_em_tres_valores`, que mata um `CASE` indevido no caminho do modo), e **não** tem coluna `disponibilidade` (`test_a_vista_nao_tem_coluna_disponibilidade`) — esse nome é, desde o KAM-043, o texto de apresentação derivado do modo. **A metade bloqueada, e é o próprio critério que a declara:** os quatro valores de máquina que ele pedia incluíam um que só é produzível com nível de stock, e não há. O `sob_consulta` continua a não desaparecer por filtro de stock (`test_o_sob_consulta_ordena_no_fim_e_nao_desaparece`): é modo de preço e não de stock. Credores **KAM-045** e **D3** |
+| 4 | satisfeito | A opção, pelo catálogo: `test_a_vista_tem_security_invoker`. O X-05 verifica-a sem ninguém a inscrever — o `verificar_vistas` de `db/tests_isolamento/catalogo.py` varre `relkind IN ('v','m')` em todos os esquemas não-sistema e exige a opção **sem lista de excepções**; medido verde no *gate* 6 (`test_nao_ha_vistas_sem_security_invoker ... ok`). O X-04 nas duas metades: contexto de A não vê a linha de B com o **mesmo** `sku` (`test_x04_o_contexto_de_a_nao_ve_a_oferta_de_b` — «qual linha», não «quantas»), e sessão sem `app.tenant_id` dá zero (`test_x04_sem_contexto_nenhum_da_zero_linhas`). E o isolamento **na leitura composta**, que é o que a tool corre: `test_a_leitura_do_indice_nao_atravessa_tenants`, com a sonda positiva ao lado. **O oráculo que distingue a opção por execução é o do privilégio** (`test_so_o_kamba_app_le_a_vista_e_so_por_cima_do_privilegio`), e a razão pela qual um ensaio cruzado **não** a distingue está na tabela da revisão adversarial acima |
+| 5 | parcial | **A metade entregue:** o contrato de saída é o que o §6.3 declara, **lido do próprio documento** e não copiado (`test_o_contrato_da_secao_6_3_e_o_que_a_vista_entrega`) — os oito campos, mais a cadeia do domínio do `preco_tipo`; sete saem desta vista, o `fonte` é constante do contrato. Não se emendou o `../docs/tecnica/05` nem o `03`. O consumidor é exercitado com *fake*, como o critério manda: o `_leitura` reproduz a consulta do §6.3 com um `VALUES` no lugar do `idx.candidatos`, que é do **KAM-061** e não existe; o `o_score` antes do preço (`test_o_score_do_indice_manda_antes_do_preco`) e o `NULLS LAST` estão medidos. **A metade bloqueada:** o `disponivel` depende do nível de stock, e o ensaio **nomeia-o** em vez de o ignorar, para que o desbloqueio o encontre. Credores **KAM-045** e **D3** |
+| 6 | satisfeito | **Sem PII e sem texto de descrição:** a entrada no `INVENTARIO` de `db/tests/test_inventario.py` responde «guarda dados pessoais?» coluna a coluna, e o `test_o_catalogo_e_exactamente_o_inventario` compara-a com o `information_schema` por **igualdade exacta**, pelo que uma coluna nova não entra sem resposta. Das dezesseis colunas da origem, seis saem projectadas, quatro são lidas só em expressão e seis nunca são lidas — nenhuma delas é descrição, telefone ou texto de utilizador. **O plano:** `test_o_join_por_product_ref_nao_faz_seq_scan_na_offer_terms`, com 10 000 SKUs de um tenant, `ANALYZE` antes (sem ele o planeador trabalha sobre estatísticas de tabela vazia e o ensaio falhava por não ter medido) e **como `kamba_app`**, com a *qual* da RLS por cima: sem `Seq Scan on offer_terms` e com o `offer_terms_pkey` no plano, que é a asserção que impede o verde vazio |
+| 7 | não satisfeito | **Bloqueado por decisão aberta, e o próprio critério diz que esta caixa não se marca.** O stock lido viria do Registo decidido em **D3**, e o D3 não está ratificado: o `../docs/tecnica/00` §13.3 registra o *spike* como feito (KAM-041) com recomendação pela opção B e a faltar a assinatura do Arquitecto de Plataforma, a do Responsável de Segurança e a ratificação do fundador. A projecção que a opção B pressupõe também não existe — a `offer_terms` da revisão `0028` tem `stock_modo` e `stock_verificado_at` e **nenhuma quantidade** —, e quem produz as reservas é o **KAM-045**, que depende do KAM-044 e do KAM-052. A vista publica-se **sem stock**, e a ausência é afirmada por ensaio (`test_a_vista_nao_tem_coluna_de_stock`) para que a projecção não entre com um nome que ninguém decidiu. A vista **nunca** lê o esquema `medusa`: lê uma só tabela do `platform`, com RLS |
+| 8 | satisfeito | `TestDowngradeDa0037`, três casos, e **nasceu da self-validation**: o critério pede «`downgrade` testado» e a primeira versão deste ramo não tinha nenhum. O `test_desce_para_a_0036_e_a_vista_cai` afirma as duas metades — a vista cai **e a `offer_terms` fica**, porque um `downgrade` que levasse a tabela destruía o catálogo de todos os tenants para desfazer um contrato de leitura. O `test_depois_de_descer_e_subir_a_vista_volta_com_security_invoker` mede a propriedade que um `DROP`/`CREATE` perde em silêncio, e o `test_as_nove_colunas_voltam_na_mesma_ordem` distingue «a vista voltou» de «a vista voltou igual». O ciclo do *gate* 8 corre por cima: 14 ensaios de `downgrade` verdes, incluindo o `test_desce_com_linhas_e_sobe_outra_vez`, que desce à `0014` **através da `0037`** e exige que o esquema fique sem vista nenhuma. Sem `CASCADE`, como todas as revisões desde a `0001`. Contrato em SemVer **1.0.0**, com a regra *expand → migrate → contract* escrita no módulo |
+
+#### Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| 1 | não satisfeito | É a soma das outras: os critérios 3, 5 e 7 não estão satisfeitos, e nenhum deles é trabalho deste ticket |
+| 2 | satisfeito | Ver o critério 4: `security_invoker` pelo catálogo e pelo privilégio, RLS herdada da `offer_terms` (que leva `FORCE` desde a `0028`), X-04 nas duas metades e o teste cruzado a cobrir o caminho **na leitura composta**, que é o que a tool corre (ADR-015). O *gate* 6 mediu o `verificar_vistas` verde |
+| 3 | parcial | **O que se demonstra:** preço e modo de stock chegam ao agente por esta vista, via tool, e a vista é a única superfície que os expõe — não há coluna de dinheiro fora do `EM_UNIDADE_MENOR` declarado, e o preço não é transportado em Kz nem convertido aqui. **O que não se demonstra, e é por construção:** «nunca por embeddings» é uma afirmação sobre o `idx`, que é do **KAM-061** e **não existe** — não há esquema `idx`, não há `search_doc` e não há `search_products`. Nada no conjunto a contradiz hoje; prová-la é de quem criar o índice (ADR-007) |
+| 4 | satisfeito | Ver o critério 6. A entrada no `INVENTARIO` responde coluna a coluna e o `test_o_catalogo_e_exactamente_o_inventario` fecha o catálogo por igualdade exacta; sem telefone, sem morada, sem texto de utilizador e sem descrição. O `nome` é nome comercial de produto e nunca de pessoa singular, que é a mesma resposta que o `offer_terms.nome` já dava |
+| 5 | satisfeito | Ver o critério 8: `TestDowngradeDa0037` com três casos, mais os 14 ensaios de `downgrade` do *gate* 8 que passam através desta revisão. Contrato versionado em SemVer **1.0.0** |
+| 6 | parcial | **As divergências estão registadas**, e por máquina onde isso é possível: a linha **201** de `../docs/dividas-documentais.md` nomeia as duas — o prefixo de esquema com que o §6.3 cita a vista, e o filtro de stock que ela não tem — com credor **KAM-061**, e o §4 do dicionário nomeia o stock com credores **KAM-045** e **D3**. A linha 201 mede ainda **porque é que nem a coluna «Substitui» do dicionário nem o `ci/canon-allow.yaml` servem** de registo mecânico: a primeira torna as duas citações do §6.3 em achados de nível 1 do *gate* 3b, e o segundo recusa-as como históricas (a linha do SQL não cita a variante para dizer que foi substituída) e, como dívida, nasce com prazo máximo de 30 dias, o que deixava a `main` vermelha numa data futura por uma correcção de outro ticket. **O que falta é a outra metade da caixa:** «revisão por um revisor adicional do IDX». Houve uma revisão adversarial independente, com os achados fechados neste ramo, mas **não** de um revisor do IDX — esse componente não tem dono atribuído, e o §6.3 é contrato do KAM-061 |
+
+**Um limite declarado, que a revisão adversarial levantou e que não é meu para
+fechar.** A vista expõe `publicado` e não filtra, pelo que quem produz «0 linhas»
+é a cláusula `WHERE v.publicado` do §6.3 — e essa cláusula vive hoje **num
+documento e num auxiliar de ensaio**, não em código de produção, porque a tool
+`search_products` é do KAM-061 e não existe. Enquanto não existir, uma sessão
+`kamba_app` que leia a vista directamente vê, **dentro do seu próprio tenant**,
+linhas em `rascunho`, `pausado`, `arquivado`, apagadas e com `categoria_restrita`
+não nula. Não é fuga entre tenants — a RLS fecha isso, e está medido —, e o
+desenho alternativo era pior: uma vista que filtrasse tornava a coluna `publicado`
+uma constante verdadeira e deixava o critério 1, que a exige entre os nove nomes,
+vazio de conteúdo. **Mas não há mutação possível de «o consumidor perde o
+filtro»**, e é isso que fica em aberto. A pergunta — se algum leitor de
+`services/com` vai ser apontado a esta vista antes de o KAM-061 aterrar — é do
+fundador ou do dono do KAM-061, e fica aqui em vez de ser respondida por mim.
+
+**O piso do `lint_bloco` não é tocado por este ticket.** Medido na árvore deste
+ramo, com a `main` em `b974dda4`: **85 medidos, piso 42**. Esta secção leva os
+medidos a 86, e `86 // 2 = 43 > 42`, pelo que o *gate* 4 fica **vermelho neste
+ramo** até o PR #155 fundir — ele leva o piso a 43 medido sobre 86, e então esta
+secção leva a 87, com `87 // 2 = 43 <= 43`. **O piso não sobe por causa deste
+ticket**, e a emenda, se for preciso, é de quem integra. A revisão `0037`, a
+emenda 1.68 e a linha 201 podem ter de renumerar na integração: cinco ramos
+correram em paralelo neste lote, e um ramo não reserva a linha de revisões para
+outro.
+
+**O que não foi medido nesta máquina, e por que razão.** O *gate* 6 tem uma falha
+que não é deste ramo: o `test_os_casos_que_precisam_de_node`, com 31 achados que
+dizem todos «o condutor marcou-a como não executada», por `Cannot find module
+'pg'` e `Cannot find package 'hono'` — não há `node_modules` nesta máquina, e o
+diff deste ticket não toca um único ficheiro em `packages/` ou `services/`. E a
+suite `tests` do *gate* 8 completou uma vez (`Ran 705 tests in 621.999s`) com uma
+falha ambiental — o `scan_secrets` dentro da cópia de mutação, que corre `Ran 41
+tests` / **OK** isolado — e bateu no limite de 900 s do arreio nas outras
+tentativas, sempre com outro contentor a competir. O que esta revisão precisava
+dessa suite está medido por ensaio nomeado: o `INVENTARIO`, o `VISTAS`, o
+`EM_UNIDADE_MENOR` e a descida à `0014` através da `0037`, os quatro verdes.
 
 ### Handoff para Claude Code
 
