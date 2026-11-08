@@ -160,9 +160,14 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # visivel a **correr** o `mutacao.py` e ver «NAO APLICOU», e nenhum portao
     # compara um literal de mutacao com a constante que ele cita. Duas edicoes,
     # e a segunda so se ve a correr.
+    #
+    # **E ja nao e `42`.** O KAM-069 (#156) fundiu primeiro, levou o corpus a 86
+    # medidos e o piso a 43, pelo que este literal subiu com ele na integracao do
+    # KAM-079. Terceira vez que esta linha se move por o corpus ter crescido — o
+    # que e, por si, o argumento para a comparar por codigo em vez de a ler.
 
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 42", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 43", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
