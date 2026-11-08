@@ -111,7 +111,21 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
 #: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
 #: sem defeito nenhum.
-MINIMO_DE_BLOCOS_MEDIDOS = 42
+#:
+#: **E o 86.º chegou: sobe de 42 para 43 com o KAM-060**, que e a terceira vez
+#: que esta nota preve o dia seguinte e acerta. Medido nas duas pontas, na
+#: arvore do ramo: com a `publico/main` em `b974dda4` sao **85** medidos e 42
+#: basta (`85 // 2` sao 42, com folga zero); com a seccao de verificacao do
+#: KAM-060 sao **86** e o `test_os_pisos_valem_alguma_coisa` falha com
+#: `42 not greater than or equal to 43`. **A folga volta a ser dois blocos**, e
+#: o 88.º pede a emenda seguinte.
+#:
+#: **Correm cinco sessoes neste lote, e isso muda uma coisa: o numero.** Quem
+#: fundir depois do KAM-060 mede outro `medidos` — cada seccao de verificacao
+#: que funda entretanto soma um — e renumera na integracao. O critico e o que
+#: nao muda: o criterio e `medidos // 2 <= piso <= medidos`, e so o piso se
+#: move.
+MINIMO_DE_BLOCOS_MEDIDOS = 43
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

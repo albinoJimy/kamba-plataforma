@@ -279,6 +279,36 @@ metricas:
     ajuda: Atraso entre o ocorrido_em do evento de pagamento e o order.paid.
     etiquetas: []
 
+  # KAM-060. **Esta tem eixo e a de cima nao**, e a diferenca nao e descuido: o
+  # `OBS-I` recusa **identificadores**, nao **dimensoes pequenas** — e a `regra`
+  # e uma lista de oito valores fixos no codigo (o `REGRAS` do
+  # `packages/core-ts/src/pagamentos/anomalias.ts`), ao contrario do `tenant_id`
+  # e do `charge_id`, que ficam de fora dela. E a mesma leitura da
+  # `channel_quality{rating}` que a politica deste ficheiro escreve.
+  #
+  # O dominio esta escrito **por extenso** e nao derivado: este ficheiro e lido
+  # pelo `obs_lint` antes de qualquer instalacao, e o `REGRAS` e TypeScript. Um
+  # nome novo entra aqui no mesmo PR que o acrescenta la, e o
+  # `services/com/tests/payments.anomalias.test.ts` prende as duas listas a
+  # mesma fonte do lado do codigo.
+  - nome: fraud_signals_total
+    tipo: counter
+    fonte: services/com/src/payments/metricas.ts
+    exposta_por:
+      - com
+    ajuda: Sinais do motor de anomalias de pagamento, por regra.
+    etiquetas:
+      - nome: regra
+        dominio:
+          - pagamento_divergente_repetido
+          - hmac_invalido_em_massa
+          - pagamento_orfao
+          - pagamento_duplicado
+          - auto_compra
+          - desvio_de_confirmacoes_manuais
+          - cod_sem_pagamento_repetido
+          - extracto_divergente
+
 # ------------------------------------ derivadas por recording rule (KAM-082)
 #
 # **Nao vem de codigo nosso nem de um `/metrics`:** o Prometheus calcula-as a
@@ -545,6 +575,34 @@ regras_por_escrever:
     runbook: RB-K02
     falta: hnd_callback_rejeitado_total sem servico que a sirva
     credor: o ticket que ligar o modulo hnd
+
+  - alerta: sinal de anomalia de pagamento com severidade >= 3
+    severidade: P1
+    runbook: RB-K02
+    falta: >-
+      a serie existe e e **servida** — o `fraud_signals_total{regra}` sai no
+      `/metrics` do processo de pagamentos do COM —, e o que lhe falta e ser
+      **alcancavel**: o `scrape_config` do `com` aponta para a 3002 (medido em
+      `infra/compose/prometheus/prometheus.yml`) e aquele processo serve na
+      3013. E a mesma lacuna que o `com_payment_to_paid_seconds` do KAM-055 tem,
+      e esta registada no `specs/EPIC-08` com credor KAM-080. Escrever a regra
+      hoje produzia um alerta sobre uma serie que ninguem raspa, isto e, um
+      alerta que **nunca dispara** — que este ficheiro trata por pior do que a
+      ausencia dele. O alerta nasce no dia em que houver alvo.
+    credor: KAM-080
+
+  - alerta: orfao de pagamento aberto ha mais de 24 h
+    severidade: P1
+    runbook: RB-K02
+    falta: >-
+      o criterio 3 do KAM-060 pede a metrica «orfaos abertos > 24 h» e o motor
+      ja a calcula — o `orfaosAbertos` do `RelatorioDeAnomalias`, com a idade de
+      cada orfao no `detalhe` do sinal —, mas ela nao e uma **serie**: o
+      `fraud_signals_total` conta sinais e nao mede idades, e um *gauge* de
+      idade precisa de um processo que o publique periodicamente. O motor corre
+      em lote (`kamba_batch`) e nao tem `/metrics` proprio; quem o ligar a um
+      publicador fecha esta regra e o painel de orfaos ao mesmo tempo.
+    credor: KAM-080
 
   - alerta: WAL (ultimo arquivo > 5 min)
     severidade: P1

@@ -39,7 +39,7 @@ import { METRICAS, SQL_PAYMENT_SEM_ORDEM } from "@kamba/core-ts/eventos";
 import { Hono } from "hono";
 
 import { SERVICE, VERSION } from "../meta.ts";
-import { LAG, TIPO_DE_CONTEUDO } from "./metricas.ts";
+import { LAG, SINAIS, TIPO_DE_CONTEUDO } from "./metricas.ts";
 
 /** A porta do `/metrics` deste processo. A do servidor do COM é a 3002. */
 export const PORTA_POR_OMISSAO = 3013;
@@ -209,18 +209,27 @@ export async function exigirSubscricaoComOrdem(
 /**
  * O `/healthz` e o `/metrics` deste processo.
  *
- * O `/metrics` serve **duas** exposições concatenadas: as do consumo, que a
- * biblioteca conta (`evt_consumed_total`, `evt_retry_total`), e o histograma do
- * atraso deste ticket. Não se funde num objecto só porque são de dois donos: a
- * primeira é do KAM-006 e muda com ele.
+ * O `/metrics` serve **três** exposições concatenadas: as do consumo, que a
+ * biblioteca conta (`evt_consumed_total`, `evt_retry_total`), o histograma do
+ * atraso do KAM-055, e a contagem de sinais de anomalia do KAM-060. Não se funde
+ * num objecto só porque são de três donos: a primeira é do KAM-006 e muda com
+ * ele.
+ *
+ * **E a terceira é ligação e não decoração.** Um contador que ninguém serve é
+ * uma métrica declarada e não exposta — a classe que o `ops/metricas/catalogo.yaml`
+ * conta às dezenas e que o KAM-080 mediu («as 44 do AGR não tinham rota
+ * nenhuma»). O `exposicao` do `Sinais` passa o seu próprio ensaio com esta linha
+ * apagada; quem morre sem ela é o ensaio que lê o corpo desta rota.
  */
 export function criarApp(): Hono {
   const app = new Hono();
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   app.get("/metrics", (c) =>
-    c.text(`${METRICAS.exposicao()}${LAG.exposicao()}`, 200, {
-      "content-type": TIPO_DE_CONTEUDO,
-    }),
+    c.text(
+      `${METRICAS.exposicao()}${LAG.exposicao()}${SINAIS.exposicao()}`,
+      200,
+      { "content-type": TIPO_DE_CONTEUDO },
+    ),
   );
   return app;
 }
