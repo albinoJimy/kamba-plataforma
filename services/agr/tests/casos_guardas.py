@@ -71,8 +71,11 @@ ENTRADA: Final = {
             "a data e 2026-11-08",
             "quanto custa a camisa azul?",
             "aceitam cartao de credito?",
-            # Os grupos curtos nao se juntam num cartao (o `_GRUPO_MINIMO`).
-            "quero 4 1 1 1 camisas e 1111 1111 1111 sacos",
+            # Os grupos curtos nao se juntam num cartao (o `_GRUPO_MINIMO`):
+            # juntos, estes nove dao treze digitos que **passam** o Luhn. A
+            # primeira versao deste caso nao passava, e a mutacao que tira o
+            # minimo sobrevivia.
+            "quantidades: 12 5 30 4 2 10 6 3 14",
         ),
     },
     "sensitive": {
