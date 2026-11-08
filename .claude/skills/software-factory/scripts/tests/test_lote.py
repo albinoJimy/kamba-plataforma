@@ -17,7 +17,7 @@ def dados(prioridade: str = "P1", fase: str = "0", estimativa: str = "M") -> dic
 
 
 def bloco(texto: str, verificacao: str = "") -> str:
-    return f"## KAM-999 — x\n\n### Contexto\n\n{texto}\n\n### Verificação dos Critérios de Aceitação\n\n{verificacao}\n"
+    return f"## KAM-NNN — x\n\n### Contexto\n\n{texto}\n\n### Verificação dos Critérios de Aceitação\n\n{verificacao}\n"
 
 
 class TestPrever(unittest.TestCase):

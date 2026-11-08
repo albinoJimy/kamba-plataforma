@@ -181,7 +181,27 @@ class TestCatalogoReal(ComBase):
                 ("platform", "conversations", "tenant_id"),
                 # KAM-114: as decisoes do modo concierge.
                 ("platform", "draft_decisions", "tenant_id"),
+                # KAM-070: o pedido do titular, entre as decisoes e os
+                # entitlements («dra» < «dsa» < «ent»). A nota do KAM-069 mais
+                # abaixo vale outra vez, e e a quinta vez: sao **tres** as
+                # listas deste ficheiro que precisam de uma tabela isolada nova,
+                # e as tres estao feitas no mesmo PR.
+                #
+                # **O `tenant_id` e `NOT NULL`**, ao contrario da
+                # `tenant_destinations`: a descoberta pergunta pela coluna e nao
+                # pela nulidade dela, mas aqui nao ha excepcao nenhuma a
+                # declarar em `ANULAVEIS` — um pedido do titular e sempre de um
+                # tenant.
+                ("platform", "dsar_requests", "tenant_id"),
                 ("platform", "entitlements", "tenant_id"),
+                # KAM-070: o ledger de apagamentos, entre os entitlements e as
+                # tres do consumo («ent» < «era» < «eve»). **Sem receita de
+                # sementes**, e a razao esta em `sementes.SEM_RECEITA_COM_RAZAO`
+                # — e nao e a da `tool_audit` mais abaixo: aqui nao ha *trigger*
+                # nenhum, e o que a tira da bateria e o que ela e. Entra nesta
+                # lista pela coluna, como as outras: o que a descoberta ve e o
+                # `tenant_id` e a politica.
+                ("platform", "erasure_ledger", "tenant_id"),
                 # KAM-006: as tres do consumo. A `evt_dlq_aprovacoes` **nao**
                 # esta aqui, e nao e esquecimento: nao tem `tenant_id`, porque
                 # o isolamento do que se aprova vem da linha da DLQ que ela
@@ -432,7 +452,20 @@ class TestCatalogoReal(ComBase):
                 ("conversations", "tenant_iso", "ALL", "{public}"),
                 # KAM-114.
                 ("draft_decisions", "tenant_iso", "ALL", "{public}"),
+                # KAM-070: as duas da `0038`, e cada uma aparece **uma** vez —
+                # ao contrario da `tenant_destinations` mais abaixo, que tem
+                # duas politicas. Levam a `tenant_iso` do `db/rls.py` e nada
+                # mais: uma politica permissiva ao lado so se acrescenta quando
+                # ha linhas que nao sao de tenant nenhum, e nem um pedido do
+                # titular nem a linha que diz que um escopo o aplicou o sao.
+                #
+                # A ordem e por `ORDER BY 1, 2` — tabela e depois politica —, e
+                # as duas entram em sitios diferentes desta lista: «dsa» entre
+                # `draft_decisions` e `entitlements`, «era» entre
+                # `entitlements` e `events_consumed`.
+                ("dsar_requests", "tenant_iso", "ALL", "{public}"),
                 ("entitlements", "tenant_iso", "ALL", "{public}"),
+                ("erasure_ledger", "tenant_iso", "ALL", "{public}"),
                 ("events_consumed", "tenant_iso", "ALL", "{public}"),
                 ("events_dlq", "tenant_iso", "ALL", "{public}"),
                 ("events_log", "tenant_iso", "ALL", "{public}"),
@@ -638,7 +671,17 @@ class TestCatalogoReal(ComBase):
              "contact_deks", "contact_endpoints", "contacts",
              # KAM-014: a conversa.
              # KAM-114: as decisoes do modo concierge.
-             "conversations", "draft_decisions", "entitlements",
+             "conversations", "draft_decisions",
+             # KAM-070: as duas da `0038`, e entram as duas por **uma**
+             # politica — esta consulta filtra `policyname = 'tenant_iso'` e e
+             # a unica que cada uma tem, pelo que aqui nao ha a ressalva que a
+             # `tenant_destinations` precisa de fazer mais abaixo. O `USING` e o
+             # `WITH CHECK` sao os do `db/rls.py`, com o `NULLIF`: e ele que faz
+             # um contexto **vazio** nao casar com linha nenhuma em vez de
+             # rebentar — e num registo de apagamentos isso vale uma frase, pois
+             # a leitura sem contexto e a forma de perguntar «quem foi apagado»
+             # sobre a plataforma toda.
+             "dsar_requests", "entitlements", "erasure_ledger",
              # KAM-006: as tres do consumo com `tenant_id`.
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",

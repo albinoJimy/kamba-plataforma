@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.23 |
+| Versão | 1.24 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -858,7 +858,7 @@ A Lei 22/11 reconhece informação (Art. 25.º), acesso (26.º), oposição (27.
 Implementar o fluxo de pedido do titular pelo mesmo canal (identificação por BSUID/HMAC, prazo interno de 30 dias), as quatro operações (exportação, rectificação, eliminação, oposição) e a orquestração do apagamento por eventos em todas as lojas de dados.
 
 ### Critérios de Aceitação
-- [ ] Um pedido do titular é aceite só do mesmo BSUID do contacto; um pedido de outro BSUID sobre os dados de Y devolve 0 dados e fica registado; cada pedido cria `dsar_requests` (proposta de tabela) com tipo, estado, `recebido_at`, `prazo_interno_at = recebido_at + 30 d` e `papel_kamba` lido da configuração de D9 (omissão `subcontratada`, a confirmar por parecer).
+- [x] Um pedido do titular é aceite só do mesmo BSUID do contacto; um pedido de outro BSUID sobre os dados de Y devolve 0 dados e fica registado; cada pedido cria `dsar_requests` (proposta de tabela) com tipo, estado, `recebido_at`, `prazo_interno_at = recebido_at + 30 d` e `papel_kamba` lido da configuração de D9 (omissão `subcontratada`, a confirmar por parecer).
 - [ ] Exportação: devolve JSON portátil com contacto, conversas, encomendas e consentimentos do titular, entregue por URL assinada com TTL ≤ 5 min; o canário do contacto está presente e nenhum dado de outro contacto ou tenant aparece.
 - [ ] Eliminação: `privacy.erasure_requested` é consumido por cofre de contactos, AGR (conversas e *checkpoints*), STO (media e transcrições), DAT (linhas por `sujeito_ref` nas épocas retidas), IDX (texto de reviews) e Chatwoot; cada um emite `privacy.erasure_applied`; o pedido só passa a `concluido` quando todos aplicaram.
 - [ ] Após a eliminação: `contact_endpoints` do contacto = 0 linhas, `contacts.erased_at` preenchido e `bsuid_hmac` substituído por valor aleatório (um novo contacto é criado se o BSUID voltar a escrever); onde existir `dek_id` (`../docs/tecnica/06` §7.6), a chave de dados é destruída e a tentativa de decifrar o conteúdo falha.
@@ -883,11 +883,336 @@ Implementar o fluxo de pedido do titular pelo mesmo canal (identificação por B
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Privacidade: nenhum dado pessoal em eventos, logs ou `dsar_requests`; só `contact_id`.
+- [x] Privacidade: nenhum dado pessoal em eventos, logs ou `dsar_requests`; só `contact_id`.
 - [ ] Isolamento de tenant e de contacto: RLS e caso na suite cruzada; exportação só do titular.
-- [ ] Idempotência: pedido e eventos de apagamento com chave e teste de repetição.
+- [x] Idempotência: pedido e eventos de apagamento com chave e teste de repetição.
 - [ ] Observabilidade: SLA por pedido, métricas de pedidos abertos e em atraso.
 - [ ] Migrações reversíveis; dois revisores (P0 de dados pessoais); itens D9 e prazo CGT com critério de saída.
+
+### Verificação dos Critérios de Aceitação
+
+**9 critérios; 1 marcado, 6 parciais, 2 vazios. 6 caixas de DoD; 2 marcadas, 4
+por satisfazer.** Era «2 marcados» antes da revisão adversarial: o critério 7 voltou
+a **parcial**, porque a rectificação que ele pede não podia correr — ver o achado 2
+mais abaixo. Medido no ramo `feature/KAM-070-direitos-do-titular`, sobre a
+árvore de `publico/main` em `b974dda4` — a revisão `0036` do KAM-069 fundiu
+minutos antes deste ramo começar, e é contra ela que tudo isto está medido.
+Nesta máquina não há `make`, `node` nem `pnpm`: os *linters* correram
+directamente (`python -m <lint> --root .. check`) e a suite de `libs/py-core`
+com o Python do anfitrião. **A suite `tests` do *gate* 8 inteira não cabe nos
+900 s desta máquina**, como o KAM-069 mediu — mas o módulo novo correu: 19
+ensaios de `db/tests/test_direitos_schema.py` contra o **PostgreSQL 18.6**
+descartável que o `db/gate_bd.py` levanta em Docker, com a mesma imagem fixada
+por digest e o mesmo contentor em `tmpfs`, **verdes em 29 s**. O que o resto do
+*gate* 8 mede — as dezassete listas fechadas e as oito mutações que as prendem —
+está dito critério a critério, e fica para o CI.
+
+**O que este ticket entrega, numa frase:** o pedido do titular com o prazo
+interno em coluna, as quatro operações ligadas ao pedido e não a um
+`contact_id`, e o fecho do apagamento pelo *ledger* e não por contagem de
+eventos. **O que ele não entrega, e é a maior parte do critério 3:** os seis
+consumidores que apagam em cada loja — cinco são de componentes que não são
+deste ticket, e o sexto já existe desde o KAM-008 e falta-lhe o chamador.
+
+**Uma decisão de desenho atravessa os nove critérios, e é ela que faz o critério
+1 valer nos quatro caminhos em vez de só no primeiro:** todas as operações
+recebem o `Pedido` e nunca um `contact_id`. O único `contact_id` que um `Pedido`
+carrega é o de um requerente que a porta aceitou. Com um `contact_id` solto no
+argumento, exportar ou apagar os dados de outra pessoa era uma chamada **bem
+formada** — passava os tipos e passava a RLS, porque o contacto é do mesmo
+tenant — e o ensaio que a apanha não mede a função, mede a **assinatura** dela.
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Pedido só do mesmo BSUID; outro BSUID devolve 0 dados e fica registado; cada pedido cria `dsar_requests` com tipo, estado, `recebido_at`, `prazo_interno_at = recebido_at + 30 d` e `papel_kamba` de D9 | **satisfeito** | A revisão [`0038`](../db/migrations/versions/0038_direitos_do_titular.py) cria a `platform.dsar_requests` com as dez colunas, e `PortaDeDireitos.receber` é o único caminho que escreve lá. **O `alvo` tem omissão e a omissão é o próprio requerente** — quem chamar sem pensar no assunto obtém o caso certo, e o parâmetro existe para que o caso errado se possa **recusar**, não para que se possa pedir. Sete ensaios nomeados em `../libs/py-core/tests/test_direitos.py`: `test_o_alvo_por_omissao_e_o_proprio_requerente`, `test_um_pedido_sobre_outro_titular_devolve_zero_dados` (que exige `cursor.executadas == []` — a recusa não escreveu linha nenhuma), `test_a_recusa_fica_registada_e_antes_de_levantar`, `test_a_mensagem_da_recusa_nao_nomeia_contacto_nenhum`, `test_o_prazo_interno_e_recebido_mais_trinta_dias`, `test_o_relogio_le_se_uma_vez_por_pedido` e `test_o_papel_da_kamba_tem_omissao_e_vai_na_linha`. **A comparação é de `contact_id` e não de BSUID, e isso é a fronteira do ADR-010 e não um atalho:** o que sai do cofre para o resto da plataforma é o `contact_id` e mais nada, e comparar dois `contact_id` **é** comparar os dois BSUID que os produziram, porque o índice `contact_endpoints_bsuid_uq` é `UNIQUE (tenant_id, hmac_kid, bsuid_hmac)`. Fazer a comparação neste módulo exigia o segredo do HMAC de pesquisa num processo que não tem razão para o ter. **O `papel_kamba` é `NOT NULL` sem `DEFAULT`**, e a omissão vive no módulo: um `DEFAULT` na DDL fazia a D9 — que está **aberta** — parecer decidida a quem lê o esquema | — |
+| 2 | Exportação: JSON portátil com contacto, conversas, encomendas e consentimentos, por URL assinada com TTL ≤ 5 min; canário presente e nenhum dado de outro contacto ou tenant | **parcial** | **A metade que protege titulares está satisfeita e medida de duas formas que não são a mesma.** As quatro colecções do critério estão (`test_as_quatro_coleccoes_do_criterio_estao_na_saida`), e o filtro do contacto é medido (a) **estruturalmente**, iterando o mapa `EXPORTACAO` e exigindo o predicado no texto de cada consulta — uma consulta nova entra no mapa, senão a exportação não a chama, e é medida sem ninguém se lembrar dela —, e (b) **por comportamento**, com um duplo que decide pelo **texto da instrução** e não pelos argumentos: guarda a linha do titular e a de um canário de outro contacto, e **filtra só se o texto tiver o filtro**. Essa distinção é a lição que esta casa pagou — um duplo que decidisse pelo argumento ficava verde com o `AND contact_id = %s` **apagado** da consulta, porque continuava a receber o `contact_id` na tupla. E há **canário do próprio duplo** (`test_canario_a_base_falsa_morde`), que apaga o predicado de uma cópia e exige que a fuga aconteça: sem ele, um duplo que filtrasse sempre deixava o ensaio verde para sempre. O TTL **não é verificado neste módulo**: o tecto de 300 s já existia no `kamba_core.storage` e `entregar` **chama** quem o tem, com `test_o_tecto_e_o_do_storage_e_nao_um_segundo` a exigir `is` entre as duas referências — é o ensaio que morre se alguém voltar a declarar o tecto aqui. **O que falta:** o canário num contacto sintético real é o critério 9 (*staging*); e **o telefone e o BSUID não entram na exportação**, porque vivem cifrados no `contact_endpoints`, que só o `kamba_identity` lê, e decifrá-los exige a DEK — a exportação corre com o papel da aplicação, e é bom que corra | **KAM-105** (*staging*, critério 9) e o fundador (se a exportação deve incluir os endpoints decifrados, que é uma decisão de privacidade e não de código) |
+| 3 | `privacy.erasure_requested` consumido por cofre, AGR, STO, DAT, IDX e Chatwoot; cada um emite `privacy.erasure_applied`; o pedido só passa a `concluido` quando todos aplicaram | **parcial** | **A segunda metade — a que o critério existe para garantir — está satisfeita e é a parte que não se pode refazer depois.** O evento sai por `platform.evt_emitir` na **mesma transacção** da linha que o motivou (o *outbox* transaccional do ADR-009: com transacções separadas havia um instante em que seis componentes apagam dados por um pedido que não existe), e o fecho lê o `erasure_ledger` pela unicidade `(tenant_id, dsar_id, escopo)`. **E não foi escolha:** o contrato publicado do `privacy.erasure_applied` tem **um** campo de `payload`, o `contact_id`, e **não diz quem aplicou** — fechar o pedido a contar eventos fechava-o ao sexto evento, viesse ele de seis componentes ou seis vezes do mesmo, e o segundo caso é o normal porque uma reentrega de fila acontece. O ensaio que prende isto é `test_seis_entregas_do_mesmo_escopo_nao_fecham_o_pedido`, e **é o que morre se alguém trocar a leitura do *ledger* por uma contagem**. Mais: `test_com_cinco_escopos_o_pedido_nao_fecha`, `test_com_os_seis_o_pedido_fecha`, `test_o_que_falta_vem_nomeado_e_nao_contado` (a mensagem nomeia os escopos — «faltam dois» manda procurar, «faltam `sto` e `idx`» manda agir) e `test_os_escopos_em_falta_vem_pela_ordem_do_criterio`. **O que falta são os seis consumidores**, e nenhum é deste ticket: o `cofre` é o `Identidade.apagar` do `../packages/core-ts/src/identity/`, que **já existe** desde o KAM-008 e faz o que o critério 4 pede, e o que lhe falta é o chamador ligado ao evento; os outros cinco são o AGR, o STO, o DAT, o IDX e o Chatwoot. **Escrever aqui um segundo apagamento de cofre era a segunda versão da mesma coisa**, que é a lição mais caras do KAM-069 | **KAM-008/KAM-110** (ligar o `Identidade.apagar` ao evento) e os tickets de AGR, STO, DAT, IDX e Chatwoot pelos outros cinco escopos |
+| 4 | Após a eliminação: `contact_endpoints` = 0, `contacts.erased_at` preenchido, `bsuid_hmac` substituído por valor aleatório; onde existir `dek_id`, a chave é destruída e decifrar falha | **vazio** | **A função existe e está provada; o que falta é o chamador — e o critério tem uma frase que o esquema recusa.** O **`Identidade.eraseContact`** (KAM-008) devolve `ResultadoDoApagamento` com `endpointsApagados` e `deksDestruidas`, apaga por `APAGAR_ENDPOINTS`, destrói por `DESTRUIR_DEKS` e marca por `MARCAR_APAGADO` — e **o nome é uma correcção da revisão adversarial**: três ficheiros deste ramo citavam um `Identidade.apagar` que não existe, e citar um método pelo nome errado é a classe de defeito que esta casa chama «prosa que descreve código que não existe». Cobre **três** dos quatro itens do critério, não os quatro; o *crypto-shredding* é imposto pelo `CHECK contact_deks_destruida_ck` da `0003` (`(wrapped_dek IS NULL) = (destroyed_at IS NOT NULL)`). Nada disso é deste ramo, e sem o consumidor ligado **não há «após a eliminação» que se possa medir**. **E a medição que vale mais do que a caixa:** «`bsuid_hmac` substituído por valor aleatório» é **impossível como está escrito**. O `bsuid_hmac` vive no `contact_endpoints`, e a primeira metade do mesmo critério manda essas linhas a **zero** — não sobra linha onde substituir nada. No `contacts`, o par (`phone_hmac`, `hmac_kid`) tem de ficar **nulo**, porque o `CHECK contacts_inactivo_sem_phone_ck` da `0003` é `(erased_at IS NULL AND merged_into IS NULL) OR phone_hmac IS NULL`: preencher o `erased_at` com um HMAC aleatório na coluna **viola a restrição**. O efeito que o critério quer — «um novo contacto é criado se o BSUID voltar a escrever» — **acontece com o nulo**, porque o índice `contacts_phone_hmac_uq` é parcial em `phone_hmac IS NOT NULL` e deixa de casar. Escreve-se a leitura e devolve-se a decisão a quem escreveu o critério, em vez de marcar a caixa | **KAM-008/KAM-110** (o chamador) e o **fundador** (a frase «substituído por valor aleatório», que o `CHECK` da `0003` recusa) |
+| 5 | Encomendas e `payment_events` mantêm-se; a cadeia de *hashes* continua a verificar-se após o apagamento (0 quebras) | **parcial** | **Medido por leitura e por ausência, e a ausência é verificável:** nenhuma das quatro operações deste ramo escreve em `platform.orders_mirror`, `platform.payment_events`, `platform.payment_charges` ou `platform.payment_ledger` — a exportação **lê** as encomendas (`SQL_EXPORTAR_ENCOMENDAS`) e o `deleted_at` entra na saída em vez de filtrar a linha, porque uma encomenda anulada é um facto da relação com o titular e esconde-la dava ao titular uma cópia que não é a que a plataforma tem. `python -m canon_lint --root .. check` → **conforme** sobre as 37 revisões, o que inclui a ausência de DDL sobre essas tabelas na `0038`. **O que falta é a execução:** «0 quebras» é uma medição contra um PostgreSQL com linhas apagadas, e o verificador que a faz (`db/auditoria.py`) corre no *gate* 8, que não cabe nesta máquina. O prazo do CGT continua **NÃO VERIFICADO**, como o bloco escreve | **KAM-104** (prazo do CGT) e o CI (a medição das 0 quebras, no *gate* 8) |
+| 6 | Backups não são reescritos; um *erasure ledger* (sem dado pessoal) é reaplicado após restauro; restauro de cópia anterior ao pedido seguido da reaplicação deixa o canário ilegível | **parcial** | **A tabela e o predicado estão, com a fronteira; o `DELETE` que remove não.** O `erasure_ledger` é a tabela que o `specs/EPIC-08_Topologia_Operacao.md` declara ser deste ticket, e `sujeitos_apagados` devolve o par que o *hook* de reaplicação lê — `(contact_id, min(aplicado_at))`, uma linha por contacto. **O `min` é o predicado do restauro e não elegância:** uma cópia tirada **antes** do primeiro apagamento tem o sujeito de certeza, uma tirada depois pode já não o ter; com o `max`, as cópias tiradas no meio de um apagamento — as que ficam com metade do titular dentro — saíam de fora. O `sujeitos_a_reaplicar` é puro e idempotente, e a fronteira (`T' == T` → **não** reaplicar) é a **mesma** que a *fixture* do KAM-079 declara para o caso `apagado-na-fronteira`. Cinco ensaios: `test_so_os_apagados_depois_da_copia_se_reaplicam`, `test_a_fronteira_nao_se_reaplica`, `test_nao_devolve_o_ledger_inteiro`, `test_a_ordem_e_cronologica`, `test_e_idempotente`. **Sem dado pessoal:** a chave é o `contact_id`, que a DoD autoriza por escrito, e **não** o `sujeito_ref` do dicionário — esse é HMAC de chave **mensal**, pelo que o mesmo contacto tem refs diferentes em meses diferentes e um *ledger* que atravessa meses não se reaplica por ele. **O que falta:** o `DELETE` por loja, que é o critério 3 (cada loja apaga pelo seu consumidor), e o ensaio de restauro, que precisa do `repo1` do KAM-079. **E uma divergência de nomes que fica registada e não corrigida:** o `EPIC-08` escreve o contrato como `erasure_ledger(subject_ref, erased_at)` e esta tabela tem `contact_id`/`aplicado_at`; o `subject_ref` não é canónico, e o `EPIC-08` não se toca neste ramo — a razão deixou de ser «tem PR aberto» quando o #155 fundiu, e a durável é que reconciliar os dois nomes é de quem governa aquele contrato | **KAM-079** (o `repo1` e o ensaio de restauro; e a reconciliação dos dois nomes) e os cinco tickets de loja do critério 3 |
+| 7 | Rectificação actualiza o `contact_endpoints` ou o perfil e escreve no `audit_log`; oposição registra `consent.withdrawn` e inclui o contacto na lista de supressão de marketing («PARAR») | **parcial** | **As duas metades estão, e a da oposição não cria lista nova — entra na que existe.** A lista de supressão do KAM-022 **é** `purpose = 'marketing'` com `accepted = false` no `platform.consent_event` — é o que o `parar.ts` grava quando alguém escreve «PARAR» —, pelo que escrever isso **é** entrar nessa lista. Uma tabela de supressão própria era uma segunda lista que teria de concordar com a primeira, e a primeira que divergisse deixava alguém a receber marketing depois de se ter oposto, com as duas superfícies a dizer que estava suprimido. Quatro ensaios: `test_entra_na_lista_do_kam_022_e_nao_numa_nova` (que exige o literal `false` **no texto** do SQL, porque um `accepted` parametrizável fazia desta consulta uma que também **concede** o que o titular acabou de recusar), `test_anuncia_o_consent_withdrawn` (payload `{contact_id, finalidade}`, que é o que o esquema v2 declara), `test_opor_se_duas_vezes_pelo_mesmo_pedido_escreve_uma` e `test_o_anuncio_sai_mesmo_quando_a_linha_ja_existia`. A rectificação é `rectificar_telefone`, que corre com o papel do **cofre** porque o `kamba_app` não tem `UPDATE` em `contact_endpoints` (`0003`), e escreve `privacy.dsar_rectificado` no `audit_log` — uma das **duas** acções que a `0038` acrescenta ao domínio fechado da `0006`, que passa de sete a nove. **E a metade da rectificação é que esta caixa deixou de estar marcada, por achado da revisão adversarial.** A primeira versão fazia o `UPDATE` no cofre e a escrita no `audit_log` **no mesmo cursor**, e isso é impossível: o `UPDATE` em `contact_endpoints` é só do `kamba_identity` (`0003`) e o `EXECUTE` em `platform.audit_append` é só do `kamba_app` e do `kamba_batch` (`0006`) — os dois conjuntos são **disjuntos**, pelo que levantava `42501` em qualquer das duas ligações. E a ausência desse privilégio **não é omissão**: o `0006` escreve que o `REVOKE ALL ... FROM PUBLIC` existe precisamente para que o `kamba_identity` não possa chamar a função, e que isso foi apanhado por uma revisão adversarial **daquele** ticket — conceder-lho aqui era afrouxar o critério do KAM-012 a partir deste, a mesma decisão que o `kamba_agr` não obteve. A operação passou a **dois passos em duas ligações** (`rectificar_telefone` no cursor do cofre, `auditar_rectificacao` no da aplicação), com nove ensaios e um duplo que **levanta** se vir um `audit_append` no cursor do cofre — que é o que o PostgreSQL faz. **Não é atómico, e diz-se:** entre os dois há um instante em que o telefone está rectificado e o `audit_log` não o diz; a ordem é a segura, porque um registo que afirma o que não se deu é pior do que um que chega tarde. **O limite, dito:** a rectificação do «perfil do contacto» não existe porque `platform.contacts` não tem colunas de perfil — tem identidade e lápides. A caixa fecha quando a condução dos dois passos tiver chamador | **o fundador** (se o `kamba_identity` deve passar a poder auditar, que é alterar o critério 4 do KAM-012) |
+| 8 | Pedido repetido idempotente (1 execução); pedido em curso não duplica *jobs*; falha de um consumidor vai para DLQ; o prazo interno gera alerta aos 20 dias | **parcial** | **Três chaves de idempotência, cada uma com ensaio de repetição, e nenhuma é um `ON CONFLICT` a tapar um descuido.** (a) O pedido: índice **parcial** `dsar_requests_aberto_uq` em `estado <> 'concluido'` — e é parcial de propósito, porque dois pedidos do mesmo tipo pelo mesmo titular são legítimos ao longo do tempo (um apagamento em Março e outro em Setembro) e o que não é legítimo é dois ao mesmo tempo. A colisão traduz-se para `PedidoEmCurso` **com o pedido que já existe**, e a tradução exige o `pgcode` **e** o nome do índice: com só o `23505`, um defeito do gerador de UUID voltava como «já há um pedido aberto» e quem o lesse procurava o pedido que não existe. (b) O *ledger*: `UNIQUE (tenant_id, dsar_id, escopo)`, com `test_a_repeticao_do_mesmo_escopo_e_idempotente`. (c) A oposição: `evidence_hash` **determinista** sobre o par (`dsar_id`, finalidade), pelo que a chave `UNIQUE (tenant_id, contact_id, purpose, evidence_hash)` que a `0015` **já tinha** faz a segunda escrita não acontecer. **O alerta aos 20 dias: o predicado está, o alerta não.** `Pedido.alerta_devido` conta desde `recebido_at` (que é o que o critério escreve) e **devolve `true` também depois do prazo** — um alerta que se calasse ao passar os 30 dias calava-se exactamente quando mais faz falta —, com quatro ensaios incluindo `test_um_pedido_concluido_nunca_esta_em_atraso`. **A métrica e a regra de Prometheus não se escrevem neste ramo, e é decisão de lote:** o inventário do `obs_lint` é fechado e a propagação de uma métrica nova vai a quatro superfícies de prosa; a vaga é do KAM-060. **A DLQ também não:** é do consumidor, e não há consumidor neste ramo — o laço que a usa (`kamba_core.eventos.consumo.consumir`) já existe | **KAM-060** (a métrica e o alerta) e os tickets de loja do critério 3 (a DLQ, que é do consumidor) |
+| 9 | E2E em *staging* com contacto sintético com dados em Postgres, Chatwoot, STO, DAT e IDX termina com o canário a 0 em todos e em ≤ 30 dias de relógio simulado | **vazio** | **Não há *staging* com as cinco lojas**, e o relógio simulado existe mas não tem o que medir: o `Relogio` é injectado em toda a porta e lê-se **uma vez por decisão** (`test_o_relogio_le_se_uma_vez_por_pedido`), que é precisamente o que permite um E2E de 30 dias correr em milissegundos — a lição do KAM-069, onde uma *cache* com relógio injectável continuava a chamar `agora()` por dentro e o ensaio não media nada. O que falta são os cinco consumidores (critério 3) e o ambiente | **KAM-105** (*staging*) e os tickets de loja do critério 3 |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **não satisfeito** | **1 de 9** satisfeito (o 1), **6 parciais** (2, 3, 5, 6, 7, 8) e **2 vazios** (4 e 9). **Era «2 de 9» antes da revisão adversarial**: o critério 7 voltou a parcial porque a rectificação que ele pede não podia correr. Os números desta célula foram **contados na coluna «Estado»** da tabela acima e não lidos de memória. Nenhum dos oito se resolve neste ramo: cinco esperam consumidores de outros componentes, um espera *staging*, um espera o chamador dos dois passos da rectificação e um espera uma decisão do fundador sobre a letra do critério 4 | os credores dos critérios 2 a 9 |
+| 2 | Privacidade: nenhum dado pessoal em eventos, logs ou `dsar_requests`; só `contact_id` | **satisfeito** | **As três superfícies, cada uma com o mecanismo que a prende.** Eventos: o `payload` dos três que este módulo publica tem só o `contact_id` (e a `finalidade` no `consent.withdrawn`), e não é disciplina — os esquemas publicados têm `additionalProperties: false`, pelo que um campo a mais faz o envelope **violar o contrato do próprio evento** e o consumidor recusá-lo; `test_o_pedido_de_apagamento_anuncia_o_evento_do_contrato` exige a igualdade do `payload`. Além disso o `platform.evt_emitir` da `0004` levanta `check_violation` num *payload* que case um telefone. `dsar_requests`: dez colunas, nenhuma de dado pessoal, e o `INVENTARIO` do `db/tests/test_inventario.py` declara a razão de PII coluna a coluna. Logs: o `audit_log` **não tem coluna de texto livre** (`0006` §7.1) e o `AuditoriaNaBase` põe o detalhe no `payload_hash`, com o `sha256` calculado **na base** e não no Python — um *hash* do lado do cliente era um segundo sítio onde a cadeia se canonicaliza de outra maneira. E a mensagem do `PedidoDeOutroTitular` **não nomeia contacto nenhum** (`test_a_mensagem_da_recusa_nao_nomeia_contacto_nenhum`), porque uma excepção chega a *logs* comuns, que não têm a autorização que o `audit_log` tem | — |
+| 3 | Isolamento de tenant e de contacto: RLS e caso na suite cruzada; exportação só do titular | **parcial** | **O isolamento de contacto está satisfeito e é o que este ticket acrescenta** — ver o critério 2: duas medições diferentes mais o canário do duplo. O de tenant: as duas tabelas levam `ENABLE` + `FORCE` + política `tenant_iso` pelo `db/rls.py` (uma só política cada, ao contrário da `tenant_destinations`, que tem duas), e a `dsar_requests` tem receita em `db/tests_isolamento/sementes.py` e entra nas três listas do X-05 e nas baterias X-03/X-04 **sem ninguém declarar nada** — não entra em `ci/rls_exceptions.yaml`, que continua com **uma** excepção (a `audit_heads`, pelo ADR-015). **O que falta, e é a parte honesta:** a `erasure_ledger` fica em `SEM_RECEITA_COM_RAZAO`, porque é *append-only* **por privilégio** e uma receita de sementes fazia desta bateria o único sítio do repositório onde uma linha do *ledger* é apagada. Consequência: **a política dessa tabela não é medida por bateria nenhuma**. Uma bateria própria do módulo é a forma certa, e não se escreve aqui: o `cobertura` do `tools/isolamento` exige que o `enumeravel` de um caso seja um item **já enumerado**, e inventar um reprovava a regra 2 dele | **KAM-070 ou o KAM-066** (a bateria própria da `erasure_ledger`), e o CI pelo *gate* 6 |
+| 4 | Idempotência: pedido e eventos de apagamento com chave e teste de repetição | **satisfeito** | Três chaves, três ensaios de repetição, detalhadas no critério 8. A do pedido é da base (índice parcial), a do *ledger* é da base (unicidade), e a da oposição é a que a `0015` **já tinha** — o que este ticket acrescenta é um `evidence_hash` determinista que a torna utilizável sem chave nova. E os eventos têm a chave global do *outbox* (`events_outbox.event_id`, `UNIQUE`), que é o `jobId` da fila: o anúncio da oposição **sai mesmo quando a linha já existia**, de propósito, porque calar o anúncio deixava um consumidor que falhou na primeira entrega sem nunca mais o ouvir | — |
+| 5 | Observabilidade: SLA por pedido, métricas de pedidos abertos e em atraso | **vazio** | **O predicado está entregue e medido; a métrica não se escreve neste ramo, e é decisão de lote e não esquecimento.** `Pedido.em_atraso(agora)` e `Pedido.alerta_devido(agora)` são puros, com o relógio por parâmetro, e `PortaDeDireitos.em_atraso` e `.com_alerta_devido` devolvem as listas — quatro ensaios, incluindo o caso que importa (um pedido **concluído** nunca está em atraso, mesmo que tenha concluído depois do prazo: o que se alerta é o incumprimento vivo). **O que não se escreve:** o inventário do `obs_lint` é fechado, uma métrica nova obriga a entrada no `ops/metricas/catalogo.yaml` com `exposta_por` não vazio, regra em `infra/compose/prometheus/regras/*.yml` e *runbook*, e a propagação dos números vai a quatro superfícies de prosa. A vaga é do **KAM-060** neste lote. Não há hoje nenhum alerta de prazo de processo neste repositório (medido: `grep -rn "prazo\|sla" infra/compose/prometheus/regras/*.yml` → zero) | **KAM-060** |
+| 6 | Migrações reversíveis; dois revisores (P0 de dados pessoais); itens D9 e prazo CGT com critério de saída | **parcial** | **Reversível, e com uma recusa que é a parte que vale.** O `downgrade` da `0038` é o inverso exacto do `upgrade`, sem `CASCADE` e pela ordem inversa das FK (o *ledger* primeiro, que referencia o pedido). E repõe o domínio de sete do `audit_log` — mas **recusa-se** se houver linhas `privacy.dsar_*` escritas, com a contagem na mensagem, porque o `audit_log` é *append-only* e nenhum papel tem `DELETE`: não há forma de satisfazer o `CHECK` antigo, e deixar o `ADD CONSTRAINT` falhar com um texto que não diz o que fazer era pior. **E o `NO FORCE` à volta dos dois `ADD CONSTRAINT` não é cosmética:** é a armadilha que a `0003` mediu contra o PostgreSQL 18.6 — o PostgreSQL valida as linhas existentes com uma consulta feita pelo **dono da tabela**, e com `FORCE ROW LEVEL SECURITY` o dono, sem contexto de tenant, vê **zero linhas**; a validação passava sem ter olhado para nada, e é no `downgrade` (onde o domínio **encolhe**) que isso deixava linhas debaixo de um `CHECK` que diz que elas não existem. **D9 e CGT têm critério de saída:** o parecer do KAM-104 (perguntas A-12 e C-05 do pacote jurídico), e até lá o papel é **coluna** e não constante e o prazo do CGT não está em código nenhum. **O que falta: o segundo revisor humano**, que é do fundador e não de quem executa — uma revisão adversarial correu sobre este ramo e os achados estão no corpo do PR | o **fundador** (segunda revisão humana) e **KAM-104** (D9 e CGT) |
+
+#### A revisão adversarial: treze achados, e três deles eram trabalho
+
+Um agente a quem não se disse nada do raciocínio do ramo, com o diff e os
+critérios. **Onze `CONFIRMADO` e dois `PLAUSÍVEL`**, e nenhum foi morto com razão
+escrita porque nenhum estava errado. Um deles — o primeiro — invalidava o
+critério 3 por inteiro. Os treze estão incorporados ou registados; o que segue
+são os que mudam o que alguém faz a seguir.
+
+**1. O critério 3 não tinha impositor, e a prosa nomeava um que não existia.** O
+`PortaDeDireitos.concluir` escrevia `estado = 'concluido'` em **qualquer**
+pedido, e a *docstring* dele dizia que quem verificava os seis escopos era «o
+`eliminacao.concluir_apagamento`, que é o único caminho que fecha um pedido de
+eliminação» — uma função que `grep` encontrava **uma** vez: nessa própria frase.
+O `exigir_apagamento_completo` não tinha chamador nenhum. Cenário: um pedido de
+eliminação com o `erasure_ledger` **vazio** fechava, e o titular era informado de
+que o apagamento estava feito. **E nenhum ensaio o podia apanhar** — é isso que
+faz disto uma classe de defeito e não um lapso: os cinco ensaios sobre
+`apagamento_completo` e `escopos_em_falta` ficavam verdes qualquer que fosse o
+comportamento do fecho, porque **não havia ligação para mutar**. Hoje há duas: o
+`concluir` **recusa** um pedido de eliminação (`FechoSemLedger`) e recebe o
+`Pedido` em vez do `dsar_id` — com o identificador solto não tinha como saber o
+tipo, e a recusa era impossível de escrever —, e o `concluir_apagamento` existe e
+lê o *ledger* **antes** de escrever. Seis ensaios novos, incluindo um que exige
+que o único escritor do fecho (`_fechar`) seja privado: publicá-lo era reabrir o
+buraco.
+
+**2. O critério 7 era impossível de cumprir** — está na célula dele, acima. Em
+duas linhas: os privilégios de `contact_endpoints` (`UPDATE`, só
+`kamba_identity`) e de `audit_append` (`EXECUTE`, só `kamba_app` e
+`kamba_batch`) são **disjuntos**, e a primeira versão fazia as duas coisas no
+mesmo cursor.
+
+**3. Dois dos seis escopos não podiam emitir `privacy.erasure_applied`.** A
+`0004` concede `EXECUTE` em `platform.evt_emitir` **só ao `kamba_app`**. O
+consumidor do `cofre` (`kamba_identity`) e o do `dat` (`kamba_batch`) escrevem a
+linha do *ledger* com êxito — a `0038` dá-lhes `INSERT` — e levantavam `42501` ao
+anunciar. A leitura que isto obriga ficou escrita nos dois sítios: **os dois
+passos de um escopo têm papéis diferentes e não se juntam numa transacção** — a
+linha do *ledger* no papel do escopo, o anúncio na ligação da aplicação. E a
+ordem é a certa e não um remédio: a linha é o facto, o evento é a notícia, e
+quem fecha lê a tabela.
+
+**4. A prova da oposição divergia da única composição canónica do repositório.**
+O `packages/core-ts/src/consentimento/prova.ts` compõe
+`sha256(textoMostrado ∥ contactId ∥ wamid ∥ hora)` com separador `chr(0)`, sai do
+módulo de propósito, e o `index.ts` dele escreve a razão: «o `evidence_hash` tem
+de ser reprodutível por quem audita». A primeira versão deste módulo compunha
+`sha256(dsar_id ∥ finalidade)` com o separador `chr(31)` **do `audit_log`** — não
+cobria o `contact_id` nem hora nenhuma, e a unicidade
+`(tenant_id, contact_id, purpose, evidence_hash)` da `0015` só é suficiente
+**por causa** da composição canónica. **E a ironia é que a nota do próprio
+separador avisava disto**: «duas canonicalizações produzem *hashes* diferentes
+para o mesmo facto». Hoje são quatro partes com o separador do `prova.ts` — a
+marca de origem, o `contact_id`, o `dsar_id` e a hora do pedido —, e a divergência
+que resta está declarada: **uma oposição por DSAR não tem `wamid`**, porque não
+vem de uma mensagem da Meta. Continua reprodutível por quem audita, de **duas
+linhas que existem**. Cinco ensaios, incluindo um que morre se o `contact_id`
+sair da composição.
+
+**5. O oráculo dos domínios casava no sítio errado, e o revisor mediu-o.** O
+ensaio afirmava `assertIn(f"'{accao}'", revisao)` sobre o texto **inteiro** da
+revisão, e os dois literais aparecem em **dois** sítios: na constante que o
+`CHECK` lê e na consulta de contagem do `downgrade`. Apagar a linha da constante
+numa cópia e correr a asserção dá **verde** — isto é, o `upgrade` podia repor o
+domínio de **sete** da `0006` com o ensaio a dizer que estava tudo bem, e a
+recusa do critério 1 levantava `23514` em produção. Hoje o oráculo lê **só a
+atribuição** do `LITERAIS_DE_ACCAO_0038`, há o ensaio simétrico para o domínio do
+`downgrade`, e há canário que mede as duas coisas que o achado separou: o literal
+continua no texto (por isso o antigo ficava verde) e sai do domínio (por isso o
+novo reprova). **E o canário não chama o outro ensaio**, porque dentro de um
+`subTest` uma falha é **registada** em vez de levantada e um `assertRaises` à
+volta nunca a via — medido ao escrevê-lo.
+
+**6. O protocolo `Assinador` declarava um método que ninguém tem.** Declarava
+`assinar(chave, *, ttl_s)`; as três implementações do `storage` têm `sign_url`,
+em duas formas diferentes, e o `entregar` chamava a da guarda. **E nenhum portão
+o veria:** não há verificador de tipos de Python nesta árvore — nem `mypy` nem
+`pyright` no `pyproject.toml` ou no `Makefile` — e o *gate* 2 corre o `typecheck`
+de TypeScript. Passar um duplo com a forma errada dava `TypeError` **em
+execução**. O protocolo passou a seguir a implementação.
+
+**7. Três ficheiros citavam código que não existe.** O
+`eliminacao.concluir_apagamento` (achado 1), o `db/tests/test_direitos_schema.py`
+— que foi escrito e corre 19/19 — e o **`Identidade.apagar`**, que se chama
+`Identidade.eraseContact`. O terceiro é o mais consequente: o critério 4 repousa
+inteiro nessa alegação, e ela estava com o nome errado **e** incompleta — cobre
+três dos quatro itens, não os quatro.
+
+**8. Metade da porta de pedidos nunca corria, e o *gate* 4 passava.** O revisor
+mediu a cobertura: `pedidos.py` a **51%**, `dbapi.py` a **52%**, e o total de
+`libs/py-core` a **96%** — o limiar de `ci/thresholds.yaml` para este estrato é
+**75% agregado**, pelo que passava. Nunca executados: o `concluir`, a
+rectificação, as quatro leituras, o escritor do `audit_log`, o relógio do sistema
+e o `dbapi` inteiro. **Duas consequências concretas**, e as duas eram mutantes
+sobreviventes: a tradução da colisão do critério 8 não tinha ensaio nenhum —
+trocar `UNICIDADE_VIOLADA` para `"23514"` ou o nome do índice para qualquer
+cadeia deixava a suite verde, e a colisão passava a sair como excepção crua do
+*driver*; e o «fica registado» do critério 1 só estava provado contra um duplo,
+porque o único escritor real do `audit_log` nunca corria. Vinte e nove ensaios
+novos fecham os dois: as suites de `libs/py-core` passaram de **644 para 675**, e
+as do `test_direitos.py` de 46 para **80**.
+
+**9. «Sete mutações» eram oito**, em duas frases de `db/mutacoes.py` — e o
+comentário da oitava chama-se a si mesma «a oitava lista fechada desta revisão».
+Nenhum portão conta números em comentários de código: o `lint_contagens` conta
+tickets, ADRs e epics.
+
+**E os dois `PLAUSÍVEL`, que ficam registados e não resolvidos.**
+
+- **O critério 1 só compara no caminho que ninguém usa.** Com o `alvo` omitido —
+  a omissão documentada, e o que sete dos oito ensaios exercitam — a comparação
+  é `requerente != requerente`, sempre falsa. A guarda só dispara quando um
+  chamador passa voluntariamente a identidade autenticada **e** um alvo
+  diferente, e não há chamador no repositório. O argumento do módulo (a fronteira
+  do ADR-010; trazer o segredo do HMAC para cá era mais um sítio de onde fugir) é
+  defensável, e o efeito é que o critério fica satisfeito por uma convenção que
+  **código nenhum impõe**. Para decidir falta o chamador do lado do canal e a
+  leitura de quem escreveu o critério. **Credor: KAM-110** (o chamador) e o
+  fundador.
+- **O `pedir_apagamento` não é idempotente.** Duas chamadas com o mesmo `Pedido`
+  emitem dois `privacy.erasure_requested`: o índice parcial impede a segunda
+  **linha**, não o segundo **evento**. Para seis consumidores, isso é o trabalho
+  feito duas vezes. O *ledger* torna idempotente a **escrita no ledger**, não o
+  apagamento. Para decidir falta saber se os consumidores desduplicam por
+  `event_id` — e eles não existem. **Credor: os tickets de loja do critério 3.**
+
+**O que o revisor confirmou que está bem, e vale registar porque é o que se
+preserva:** não encontrou **nenhum** caminho por onde os dados de um contacto
+cheguem a quem não é esse contacto (leu todas as funções públicas do módulo);
+verificou que o predicado do contacto está nas quatro consultas e **estragou o
+código de propósito** para confirmar que o canário morde; verificou que as
+colunas pedidas pelas quatro consultas existem e que o `kamba_app` tem `SELECT`
+nelas, coluna a coluna, por não haver ensaio de base na altura; confirmou que o
+`downgrade` é o inverso exacto, que o `LITERAIS_DE_ACCAO_0006` é **byte a byte**
+igual ao da `0006` e que nenhuma revisão intermédia tocou o domínio; e mediu que
+**nenhuma das oito mutações sobrevive**. Contou também, uma a uma, as contagens em
+prosa deste bloco e do dicionário — dez colunas, seis, doze restrições, sete
+`CHECK`, cinco FK, doze entradas do §3.50, nove acções — e a única errada era a
+do achado 9.
+
+#### E dois defeitos que a leitura própria e a propagação apanharam, antes da revisão
+
+**Os dois da classe «duas leitoras da mesma pergunta», que é a que o KAM-069
+nomeou e que nenhum portão deste repositório vê.** Não vêm da revisão
+adversarial — vêm de ler o diff e de medir as listas fechadas —, e distinguir a
+proveniência importa: a revisão encontrou **mais** da mesma classe (os achados 4
+e 6 acima), o que diz que ler o próprio diff apanha alguns e não substitui um
+revisor.
+
+1. **O tecto do TTL estava declarado duas vezes.** A primeira versão do módulo
+   tinha um `TTL_MAXIMO_S = 300` próprio e um `exigir_ttl` que o verificava — e
+   o `kamba_core.storage` já o tinha, com o mesmo valor, e já levantava
+   `TtlInvalidoError`. Nenhum *linter* compara duas constantes com o mesmo
+   significado em módulos diferentes: no dia em que uma subisse, a outra
+   continuava a dizer que o critério 2 estava cumprido. Hoje importa-se, e o
+   `test_o_tecto_e_o_do_storage_e_nao_um_segundo` exige **`is`** entre as duas
+   referências — é o ensaio que morre se alguém voltar a declarar o tecto.
+2. **A revisão dava privilégios ao `kamba_agr`, e isso afrouxava o critério de
+   outro ticket.** O `PAPEIS_SEM_NADA_EM_PLATFORM = ("kamba_agr",)` de
+   `db/tests/test_privilegios.py` afirma «este papel **não alcança** o
+   `platform`, em nenhuma tabela», e a nota dessa linha diz por extenso que isso
+   **é** o critério 4 do KAM-026. A primeira versão da `0038` dava-lhe `SELECT`
+   nos pedidos e `SELECT, INSERT` no *ledger*, porque o AGR é um dos seis
+   escopos. **Saiu.** Afrouxar o critério de um ticket a partir de outro não é
+   decisão de quem implementa o segundo, e o escopo `agr` não fica sem
+   aplicador: o consumidor do AGR escreve a sua linha pela ligação de
+   **aplicação**, que tem `SELECT, INSERT` nas duas tabelas. Aplicar um
+   apagamento no `platform` não é trabalho de *checkpointer*.
+
+**E duas armadilhas de ferramenta que custaram tempo e valem para o próximo.**
+
+3. **O *gate* 3b não lê um `CHECK` construído com `", ".join(...)`.** A primeira
+   versão da revisão tinha um `_literais(TIPOS)` dentro das *f-strings* do DDL, e
+   o `canon_lint` respondeu `[ilegivel]`: ele lê a revisão **sem a correr** e só
+   resolve cadeias, constantes de módulo e *f-strings* sobre elas. Um `CHECK` que
+   ele não consegue ler é um domínio que ele **não verifica** — isto é, um
+   domínio que pode divergir do dicionário sem ninguém notar. A `0006` já tinha
+   escrito a razão; os quatro domínios da `0038` passaram a ter a tupla **e** a
+   cadeia por extenso, e `TestOsDominiosNaoDivergemDaRevisao` (sete ensaios,
+   **sem PostgreSQL**) compara as duas lendo a revisão como texto, com canário.
+4. **E recusa também um `for papel in ...` quando há dois no mesmo ficheiro** —
+   «`papel` é atribuído mais de uma vez, ou sombreado», e depois «`papel` não é
+   uma constante de módulo». Os cinco `GRANT` que estavam em ciclo passaram a
+   estar por extenso, e a mutação de `db/mutacoes.py` que apontava para a linha
+   do ciclo foi reapontada: **uma mutação cujo texto não casa não muta nada e
+   sobrevive calada** (`python mutacoes.py --aplicaveis` → 987 conferidas, 0 não
+   aplicáveis).
+
+#### O que uma tabela nova custou, medido
+
+**Dezassete listas fechadas**, e o KAM-069 tinha contado onze. As **seis** que
+ele não viu, e a razão de cada uma lhe escapar:
+
+1. **`test_as_fk_nao_apagam_em_cascata`** (`test_inventario.py`), a lista de FK
+   por nome — e **`test_nao_ha_fk_para_fora_de_platform`** (`test_catalogo.py`),
+   que tem o **total** de FK do `platform`, 72 → **77**. As duas escapam pela
+   mesma razão: a `tenant_destinations` **não tem FK nenhuma**, porque um destino
+   registra-se antes de o tenant activar, pelo que quem a tome como modelo passa
+   ao lado das duas. A segunda só apareceu no CI.
+2. **`TABELAS_COM_MATRIZ_DE_COLUNA`** (`test_privilegios.py`): a
+   `tenant_destinations` não tem `GRANT` por coluna e por isso não entra lá.
+3. **`ACCOES`** (`db/tests/test_auditoria.py`), numa bateria do **KAM-012**: só
+   se abre se a revisão alargar um domínio fechado de **outra** revisão.
+4. **O tuplo de concessões do `kamba_identity`** em
+   `test_identidade_schema.py`, numa bateria do **KAM-008**: 9 → **12**, porque
+   o escopo `cofre` precisa de ler o pedido e escrever no *ledger*. Também só
+   apareceu no CI. A generalização vale mais do que o caso: **dar um privilégio
+   a um papel que já tem privilégios declarados noutro sítio mexe na contagem
+   desse sítio.**
+5. **`TABELAS_ATE_0037`**, nova, no **topo** da cadeia de `db/tests/base.py` —
+   que é a única da cadeia a derivar de `TABELAS`, e quem acrescentar uma revisão
+   a seguir põe a sua aqui e faz **esta** derivar da dela.
+
+**Oito mutações novas** prendem a revisão, e foram escolhidas para morrer cada
+uma numa lista **diferente** — restrições por nome, índices parciais, matriz de
+privilégios, matriz por coluna, `ANULAVEIS` e o `ACCOES` da auditoria. Duas
+candidatas **não** se escreveram porque nada neste ramo as mata: «o `aberto_uq`
+parcial pelo predicado errado» e «a FK composta do *ledger* perde o `tenant_id`»
+— as duas precisam de uma bateria de esquema contra PostgreSQL, que é o que
+falta e fica dito.
+
+#### O que a corrida contra PostgreSQL apanhou, e as listas não
+
+A bateria `db/tests/test_direitos_schema.py` existe porque as listas fechadas
+afirmam que a revisão **declarou** o que devia, e isso não é o mesmo que o
+declarado **morder**. Correu contra o PostgreSQL 18.6 descartável do
+`db/gate_bd.py`, e **as duas primeiras corridas foram vermelhas por defeitos do
+próprio ensaio** — que é informação, não ruído:
+
+1. **A primeira: 14 de 19, e os cinco vermelhos eram todos uma causa.** O ensaio
+   que mede a recusa do `downgrade` **confirma** uma linha de `audit_log` com
+   acção `privacy.dsar_*` — tem de confirmar, porque o `alembic` corre noutro
+   processo —, e o `audit_log` é *append-only* de **duas** formas: nenhum papel
+   leva `DELETE` **e** o *trigger* `audit_log_sem_update_nem_delete` recusa-o ao
+   dono também. A linha ficava na base para sempre, e os outros três ensaios de
+   `downgrade` já não conseguiam descer. **E as alternativas não servem:**
+   ordenar os ensaios para este ser o último reprova o alvo
+   `ordem-dos-ensaios` do *gate* 4, que corre as suites pela ordem inversa de
+   propósito (KAM-173). A correcção desliga o *trigger* num `finally`, apaga a
+   linha e a cabeça da cadeia daquele tenant, e volta a ligar — numa base que o
+   `exigir_base_descartavel` confirma ser descartável.
+2. **A segunda: 17 de 19.** `self.ligar("kamba_app")` levanta
+   `ValueError: identidade desconhecida` — o `db/ligacao.py` indexa o `PAPEIS`
+   pela **identidade** (`"app"`) e não pelo nome do papel no PostgreSQL. É um
+   erro que se lê como defeito do ensaio e não da base, e custou uma corrida.
+3. **A terceira: 19 de 19, em 29 s.** E o que ela prova, que nenhuma lista
+   fechada prova: o segundo pedido **aberto** do mesmo tipo dá `23505` e o
+   segundo pedido **depois de concluir** o primeiro passa — as duas metades, que
+   é o que distingue um índice parcial de uma unicidade, e **nenhuma lista
+   fechada as distingue** (as duas formas aparecem na lista de índices parciais
+   como um booleano que alguém escreveu); o `UPDATE` e o `DELETE` no *ledger*
+   dão `42501` ao papel que o escreve, que é «*append-only* por privilégio»
+   medido pelo **efeito** e não pela matriz; e o `downgrade` recusa-se com uma
+   linha de DSAR escrita, que é a única metade da revisão onde um `NO FORCE`
+   esquecido **não dava erro nenhum** — com `FORCE`, o dono veria zero linhas e
+   validaria o vazio.
+
+**O que não correu nesta máquina:** a suite `tests` inteira do *gate* 8, o
+*gate* 6 e o `make smoke`. O que correu, com o resultado: `canon_lint` →
+**conforme** (dicionário v1.68, 746 entradas, 37 revisões), `dict_export
+--check` → corresponde, `canon_lint canario` → **10 negativas vermelhas e 10
+positivas verdes**, `lint_refs`/`lint_backlog`/`lint_handoff`/`lint_contagens` →
+**conformes** (33 408 referências em 2087 ficheiros), `lint_bloco check` → **0
+achados** com 86 emparelhados e o piso em 43, `lint_bloco canario` → **4
+negativas e 4 positivas, todas mordem**, as **644** suites de
+`libs/py-core/tests` → **OK** (48 delas do `test_direitos.py`),
+`db/tests/test_direitos_schema.py` → **19/19 contra PostgreSQL 18.6**, e
+`mutacoes.py --aplicaveis` → **987 conferidas, 0 não aplicáveis**.
 
 ### Handoff para Claude Code
 
@@ -1717,4 +2042,5 @@ Abre PR com o template do §7.
 | 1.20 | Novembro 2026 | **O bloco do KAM-149 deixa de declarar aberta uma dívida que já está paga, e os dois números dele passam a bater.** O `fix/KAM-113` deu aos três modelos de `../docs/seguranca/modelos/` a secção «Controlo de versões» que lhes faltava desde o `dc01fce`, por decisão do fundador de 2026-11-05: o validador passou de **3** erros de conteúdo a **0**, e os três documentos de 91, 74 e 73 linhas para **99, 82 e 81**. O CA 6 dizia «1 erro de conteúdo» e a prosa do mesmo bloco dizia «3» — **as duas superfícies discordavam já na `c792cc4`**, e a medição dava 3; agora dizem 0 as duas. Nada disto é lido por portão nenhum, e quem o apanhou foi a revisão adversarial do ramo que pagou a dívida, a quem não se disse o que procurar. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Contagem viva do *backlog*, de 183 para 184, com a abertura do KAM-184 noutro epic.** O `lint_contagens` lê esta contagem da fonte e não de outro documento, pelo que abrir um ticket **obriga** a emenda aqui — a frase é presente («o *backlog* tem N») e a que lhe segue descreve uma captura de época, que fica intacta. Nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | KAM-069 (inventário de subprocessadores e *gate* de transferência com `apd_ref`): **cinco** das nove caixas de critérios e **duas** das seis de DoD marcadas, com a secção «Verificação dos Critérios de Aceitação». Os critérios 4, 6, 8 e 9 ficam vazios por quatro razões diferentes e com credor em cada — o *gate* corre num dos sete pontos de invocação (os seis tickets nomeados), não há contrato nenhum para arquivar (o fundador, com KAM-104), **ninguém escreve a transição `onboarding` → `ativo`** (KAM-110, medido) e não há processo de plataforma que gere o mapa em execução (KAM-071). Entregues: a revisão [`0036`](../db/migrations/versions/0036_destinos_de_transferencia.py) com a `platform.tenant_destinations` (catorze colunas, `UNIQUE NULLS NOT DISTINCT` e **duas** políticas permissivas) e a vista `v_transfer_audit`, que lê a janela de validade e exige uma finalidade de modelo; o módulo `libs/py-core/src/kamba_core/destinos/` com a porta, a *cache* de 60 s e o *gate* de go-live; o inventário `gov/subprocessadores.yaml` com as onze linhas do `../docs/tecnica/08` §8.3.2 e os **dois** documentos gerados dele; e o inventário de clientes de saída no `lint_arch`, que entra no *gate* 2 e não num *job* novo. **A emenda 1.67 do dicionário paga a dívida que a 1.38 deixou escrita**: as três finalidades de transferência que viviam só no código do AGR passam a ser o domínio de treze valores de `tenant_destinations.purpose`. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
-| 1.23 | Novembro 2026 | Contagem viva do *backlog* actualizada de 184 para **185** tickets (**KAM-185** acrescentado ao EPIC-01). A frase é presente e a que lhe segue descreve uma captura de época, que fica intacta. Nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | KAM-070 (direitos do titular: acesso, correcção, eliminação e exportação): **dois** dos nove critérios marcados — o 1 e o 7 —, **cinco** parciais e **dois** vazios, e **duas** das seis caixas de DoD, com a secção «Verificação dos Critérios de Aceitação». Entregues: a revisão [`0038`](../db/migrations/versions/0038_direitos_do_titular.py) com a `platform.dsar_requests` (dez colunas, prazo interno em **coluna** e não em `CHECK`) e a `platform.erasure_ledger` (seis, *append-only* por privilégio), mais o **alargamento do domínio fechado de `audit_log.action` de sete para nove** — a primeira vez que esta base alarga o domínio de uma revisão anterior por este caminho, com as duas entradas em `dominios_historicos` que o KAM-029 inaugurou; e o módulo `../libs/py-core/src/kamba_core/direitos/` com as quatro operações, 46 ensaios. **A decisão de desenho que atravessa os nove critérios:** todas as operações recebem o `Pedido` e nunca um `contact_id`, porque com um `contact_id` solto no argumento exportar ou apagar os dados de outra pessoa era uma chamada **bem formada** — passava os tipos e passava a RLS. **O fecho do apagamento lê o *ledger* e não conta eventos**, e não foi escolha: o contrato publicado do `privacy.erasure_applied` não diz quem aplicou, pelo que uma contagem fechava o pedido à sexta reentrega do mesmo consumidor. Os sete critérios que não fecham têm credor cada um: cinco esperam os consumidores de AGR, STO, DAT, IDX e Chatwoot (critério 3), o 9 espera *staging* (KAM-105), o 5 de DoD espera a vaga da métrica (KAM-060) e o **critério 4 tem uma frase que o esquema recusa** — «`bsuid_hmac` substituído por valor aleatório» é impossível com o `CHECK contacts_inactivo_sem_phone_ck` da `0003`, que exige o nulo, e o efeito que o critério quer acontece **com** o nulo; a leitura fica escrita e a decisão devolvida ao fundador. **Dois achados da revisão do lote estão incorporados, os dois da classe «duas leitoras da mesma pergunta»:** o tecto do TTL da exportação passou a importar-se do `kamba_core.storage` em vez de se declarar outra vez, e os privilégios que a primeira versão da revisão dava ao `kamba_agr` **saíram**, porque `PAPEIS_SEM_NADA_EM_PLATFORM` afirma que esse papel não alcança o `platform` e essa frase **é** o critério 4 do KAM-026. Uma tabela nova custou **dezassete** listas fechadas (o KAM-069 tinha contado onze) e oito mutações novas. **A revisão foi renumerada de `0037` para `0038`**, porque o KAM-051 (#159) ficou `MERGEABLE` primeiro com esse número e a cadeia do Alembic é estritamente sequencial — **só pode haver uma revisão não fundida de cada vez** num lote de ramos paralelos. **Consequência medida e dita:** enquanto a `0037` não estiver na `main`, a cadeia parte-se neste ramo (`ScriptDirectory` → `KeyError: '0037'`) e o *gate* 8 fica vermelho num buraco; fecha-se integrando a `main` depois de o #159 fundir. **A emenda do dicionário fica em 1.68 e não acompanha**, e a assimetria é medida e não descuido: renumerá-la já abre um buraco no 1.68 que o `lint_backlog` recusa (uma divergência, medida) e avermelha o *gate* 3c e o 4 **neste instante**, enquanto o número de uma revisão vive num nome de ficheiro e em 85 ocorrências — renumerá-lo depois é a operação caríssima que a memória desta casa manda não fazer por `sed`. Uma renumera-se já, a outra na integração, pelo mesmo critério: o custo. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
+| 1.24 | Novembro 2026 | Contagem viva do *backlog* actualizada de 184 para **185** tickets (**KAM-185** acrescentado ao EPIC-01). A frase é presente e a que lhe segue descreve uma captura de época, que fica intacta. Nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
