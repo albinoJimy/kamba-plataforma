@@ -111,7 +111,22 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
 #: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
 #: sem defeito nenhum.
-MINIMO_DE_BLOCOS_MEDIDOS = 42
+#:
+#: **E ao 86.º chegou: sobe de 42 para 43 com o KAM-070**, pela terceira vez
+#: exactamente como a nota previu. A seccao de verificacao do bloco do KAM-070
+#: leva os `medidos` de 85 para **86**, e `86 // 2` sao 43. Medido na arvore do
+#: ramo `feature/KAM-070-direitos-do-titular` **depois** de integrar a
+#: `publico/main` em `b974dda4`, e nao copiado de ramo nenhum: com o piso em 42,
+#: o `test_os_pisos_valem_alguma_coisa` falha com
+#: `42 not greater than or equal to 43`.
+#:
+#: **A folga volta a ser dois blocos**, e o 88.º pede a emenda seguinte. Neste
+#: lote correm cinco sessoes ao mesmo tempo, uma por ficheiro de epic: quem
+#: fundir depois **remede na sua arvore** em vez de somar a este numero — duas
+#: seccoes a mais sobem o exigido para 44, e um piso em 43 sobre 88 medidos
+#: avermelha o portao sem defeito nenhum, do mesmo lado que subi-lo em
+#: antecipacao.
+MINIMO_DE_BLOCOS_MEDIDOS = 43
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

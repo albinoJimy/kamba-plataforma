@@ -230,6 +230,16 @@ REV35 = "db/migrations/versions/0035_payment_order_fks.py"
 #: integracao, que e a regra — um ramo nao reserva a linha de revisoes para
 #: outro, e renumerar em antecipacao cria o defeito que evita.
 REV36 = "db/migrations/versions/0036_destinos_de_transferencia.py"
+#: KAM-070: os direitos do titular — o pedido e o ledger de apagamentos.
+#:
+#: **As sete mutacoes desta revisao morrem todas em `tests`**, e nao numa suite
+#: de esquema propria como as da `0036`: o que elas atacam sao as listas
+#: fechadas do *gate* 8 — o inventario de colunas, a lista de restricoes por
+#: nome, a dos indices parciais, a matriz de privilegios e a matriz por coluna.
+#: E deliberado, e e a propria licao do ticket: uma tabela nova custa onze
+#: listas fechadas, e uma mutacao que nenhuma delas apanhe e uma lista por
+#: propagar.
+REV37 = "db/migrations/versions/0037_direitos_do_titular.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6274,6 +6284,111 @@ MUTACOES = [
     # fornecedor com `ZA autorizado` e `US pendente` passa a ser conforme — a
     # chamada nao escolhe o pais, e a porta falha fechada sobre a **uniao**. O
     # `test_uma_aplicavel_que_nao_autoriza_e_violacao_na_vista` tem de a matar.
+    # ------------------------------------------- KAM-070 (revisao `0037`)
+    #
+    # Sete mutacoes, e cada uma ataca **uma** lista fechada do *gate* 8 — a que
+    # a propagacao desta revisao teve de ir preencher. Sao a prova de que a
+    # lista esta la a fazer trabalho: uma tabela nova custa onze listas, e o
+    # sintoma de uma que falte aparece longe da causa.
+    ('revisao 0037: o prazo interno pode ser anterior a recepcao', REV37,
+     """          CONSTRAINT dsar_requests_prazo_ordenado_ck
+            CHECK (prazo_interno_at > recebido_at),
+""",
+     ""),
+    # O que fica na base do `prazo_interno_at = recebido_at + 30 d` do criterio
+    # 1 e **a ordenacao**, porque a soma nao e verificavel (`timestamptz +
+    # interval` e `STABLE`: le o `TimeZone` da sessao). Sem este `CHECK` um
+    # pedido nasce com o prazo **antes** da recepcao, e o varrimento do criterio
+    # 8 alerta — ou dispara os 20 dias — sobre um pedido que acabou de chegar.
+    # Quem a mata e o `test_as_restricoes_sao_as_esperadas` do
+    # `db/tests/test_inventario.py`, pela lista fechada de `CHECK` por nome.
+    ('revisao 0037: a unicidade do pedido aberto deixa de ser parcial', REV37,
+     """          ON {PEDIDOS} (tenant_id, contact_id, tipo)
+          WHERE estado <> 'concluido'
+""",
+     """          ON {PEDIDOS} (tenant_id, contact_id, tipo)
+"""),
+    # **O predicado e metade da regra, e esta mutacao tira a metade que nao se
+    # ve.** Com o indice total, dois pedidos do mesmo tipo pelo mesmo titular
+    # deixam de poder existir **ao longo do tempo**: um apagamento em Marco
+    # recusa o de Setembro, depois de o BSUID voltar a escrever e criar contacto
+    # novo. O direito ao apagamento passa a gastar-se uma vez. Quem a mata e o
+    # `test_os_indices_unicos_parciais_sao_os_esperados`, que compara a lista
+    # com o que o `pg_indexes` traz de `indexdef LIKE '%WHERE%'` — sem
+    # predicado, o indice sai da consulta e a lista deixa de casar.
+    ('revisao 0037: o ledger perde a unicidade do escopo', REV37,
+     """,
+          CONSTRAINT erasure_ledger_escopo_uq UNIQUE (tenant_id, dsar_id, escopo)
+""",
+     """
+"""),
+    # **E o criterio 3 que cai, e nao uma restricao de forma.** O contrato
+    # publicado do `privacy.erasure_applied` tem um campo de `payload`, o
+    # `contact_id`, e **nao diz quem aplicou**: quem conta os seis consumidores
+    # e esta unicidade. Sem ela, seis eventos do **mesmo** componente escrevem
+    # seis linhas e o pedido fecha com cinco escopos por aplicar — titulares que
+    # a plataforma diz ter apagado e nao apagou. Quem a mata e o
+    # `test_as_restricoes_sao_as_esperadas`, pela lista fechada de `UNIQUE` por
+    # nome.
+    ('revisao 0037: o ledger deixa de ser append-only para quem escreve', REV37,
+     '    op.execute(f"GRANT SELECT, INSERT ON {LEDGER} TO {PAPEL_DA_APP}")',
+     '    op.execute(f"GRANT SELECT, INSERT, DELETE ON {LEDGER} TO {PAPEL_DA_APP}")'),
+    # O ledger e *append-only* **por privilegio** e nao por *trigger*: nao ha
+    # `deny_mutation` por baixo, pelo que a ausencia de `DELETE` e a unica coisa
+    # que o faz ser o que e. Com `DELETE` nos quatro escritores, quem aplicou um
+    # escopo apaga a linha que diz que o aplicou — e o registo que o criterio 6
+    # le depois de um restauro passa a poder ser esvaziado por quem tem
+    # interesse em que esteja vazio. Quem a mata e o
+    # `test_privilegios_de_tabela` do `db/tests/test_privilegios.py`, pela
+    # matriz `ESPERADO_POR_TABELA`.
+    ('revisao 0037: o ledger ganha UPDATE por coluna para o lote', REV37,
+     '    op.execute(f"GRANT SELECT ON {LEDGER} TO {PAPEL_DE_AUDITORIA}")',
+     '    op.execute(f"GRANT SELECT ON {LEDGER} TO {PAPEL_DE_AUDITORIA}")\n'
+     '    op.execute(f"GRANT UPDATE (aplicado_at) ON {LEDGER} TO {PAPEL_DE_LOTE}")'),
+    # **Esta e a que a matriz de tabela nao pode ver**, e e a razao medida do
+    # KAM-015 com outro nome: o `has_table_privilege(..., 'UPDATE')` devolve
+    # `false` com ou sem um `GRANT UPDATE (coluna)`. Com ela, a linha que diz «o
+    # STO apagou em T» reescreve-se para outro instante, e uma reaplicacao
+    # depois de um restauro le o ledger por `(contact_id, aplicado_at)` — isto
+    # e, a mutacao nao apaga a prova, desloca-a. Quem a mata e o
+    # `test_privilegios_por_coluna_nas_tabelas_com_matriz`, e **so** ele: e por
+    # isso que a `erasure_ledger` esta em `TABELAS_COM_MATRIZ_DE_COLUNA` sem ter
+    # privilegio de coluna nenhum, como a `payment_events`.
+    ('revisao 0037: o pedido aceita tenant_id nulo', REV37,
+     """          tenant_id         uuid NOT NULL
+""",
+     """          tenant_id         uuid
+"""),
+    # Um pedido do titular e **sempre** de um tenant: aqui o nulo nao tem o
+    # significado que o criterio 1 do KAM-069 deu aos destinos globais de
+    # infra-estrutura. Com a coluna anulavel, a `tenant_iso` com o `NULLIF` do
+    # `db/rls.py` deixa de casar a linha — um pedido que nenhum contexto de
+    # tenant ve e um pedido que ninguem trata, e o prazo corre. Morre duas
+    # vezes, de proposito: no `test_catalogo` (o `tenant_id` anulavel que nao
+    # esta em `ANULAVEIS`) e no inventario de colunas, que afirma a nulidade de
+    # cada uma.
+    ('revisao 0037: o UPDATE do pedido passa a poder empurrar o prazo', REV37,
+     'UPDATE_DO_PEDIDO = ("estado", "concluido_at")',
+     'UPDATE_DO_PEDIDO = ("estado", "concluido_at", "prazo_interno_at")'),
+    # **Um `GRANT` de uma palavra, e e o prazo legal que cai.** Quem corre o
+    # varrimento do criterio 8 passa a poder adiar o prazo do pedido em vez de o
+    # cumprir, e o alerta dos 20 dias nunca dispara — nao ha vencimento porque o
+    # prazo foge. Nenhuma matriz de tabela ve a coluna a mais; quem a mata e o
+    # `test_privilegios_por_coluna_nas_tabelas_com_matriz`, contra a lista
+    # exacta de `COLUNAS_POR_PAPEL`.
+    ('revisao 0037: o dominio da accao fica sem a rectificacao', REV37,
+     "    \"'privacy.dsar_recusado', 'privacy.dsar_rectificado'\"",
+     "    \"'privacy.dsar_recusado'\""),
+    # **A oitava lista fechada desta revisao, e vive noutra bateria.** A `0037`
+    # alarga o dominio de `audit_log.action` de sete para nove, e o `CHECK`
+    # alargado a oito recusa o `privacy.dsar_rectificado`: a rectificacao do
+    # criterio 7 deixa de poder escrever no registo — e o que o criterio manda
+    # (**«escreve no `audit_log`»**) passa a ser impossivel, com a excepcao a
+    # chegar em producao e nao aqui. Quem a mata e o
+    # `test_o_dominio_do_check_e_o_desta_bateria` do `db/tests/test_auditoria.py`,
+    # que confronta os **tres** sitios onde o dominio esta escrito (a tupla da
+    # bateria, os literais da revisao e o catalogo), e o
+    # `test_as_sete_accoes_passam`, que o insere.
 ]
 
 

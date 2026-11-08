@@ -34,9 +34,44 @@ GENESE = bytes(32)
 #: A chave da cadeia de plataforma, para as accoes sem tenant.
 CHAVE_DA_PLATAFORMA = "00000000-0000-0000-0000-000000000000"
 
-#: O dominio de `action` (dicionario §3.2, emenda 1.14). Sao **sete**: o
-#: `audit.read` entra porque o criterio 8 do ticket exige que a leitura do
-#: registo seja ela propria registada, e chama-lhe assim.
+#: O dominio de `action` (dicionario §3.2, emenda 1.14). **Sao nove**: as sete
+#: da revisao `0006` — onde o `audit.read` entra porque o criterio 8 daquele
+#: ticket exige que a leitura do registo seja ela propria registada, e chama-lhe
+#: assim — mais as duas que a revisao `0037` (KAM-070) acrescenta.
+#:
+#: **As duas novas sao exigidas por criterio e pelo nome**, e nao por simetria:
+#:
+#:   privacy.dsar_recusado     criterio 1 — «um pedido de outro BSUID sobre os
+#:                             dados de Y devolve 0 dados e **fica
+#:                             registado**». O registo e aqui e nao em
+#:                             `dsar_requests`: uma linha la com o `contact_id`
+#:                             de Y punha no registo de pedidos do titular um
+#:                             pedido que o titular nao fez, e tomava a chave de
+#:                             unicidade do criterio 8
+#:   privacy.dsar_rectificado  criterio 7 — «rectificacao ... escreve no
+#:                             `audit_log`»
+#:
+#: A **aceitacao** e a **conclusao** de um pedido nao levam accao nova: a linha
+#: de `dsar_requests` e o registo da primeira e o `concluido_at` da mesma linha e
+#: o da segunda, e auditar o que uma tabela ja registra era escrever o mesmo
+#: facto em dois sitios que podem divergir.
+#:
+#: As duas sao **de tenant** e nao de plataforma, ao contrario do `batch.run` e
+#: do `breakglass.open`: um pedido do titular chega pelo canal de um tenant, e a
+#: linha vai para a cadeia dele.
+#:
+#: O dicionario autoriza a extensao por escrito — a linha do dominio de `action`
+#: diz «Estende-se por migracao» —, e e por isso que a `0037` alarga o `CHECK`
+#: em vez de alguem emendar a `0006`. O `downgrade` dela **recusa** se houver
+#: linhas `privacy.dsar_*` escritas: o `audit_log` e *append-only* e ninguem tem
+#: `DELETE`, pelo que nao ha forma de satisfazer o dominio antigo.
+#:
+#: **O nome do `test_as_sete_accoes_passam` continua a dizer sete e a lista tem
+#: nove**, e nao se renomeia aqui: o teste e do KAM-012, ele conta por
+#: `len(ACCOES)` e por isso nao mente no que mede — renomear o teste de outro
+#: ticket a meio deste e ruido no diff, pela razao que o
+#: `test_x05_catalogo.py` escreve no caso das «vinte e uma». Fica para
+#: `docs/dividas-documentais.md`.
 ACCOES = (
     "price.update",
     "stock.adjust",
@@ -45,6 +80,8 @@ ACCOES = (
     "batch.run",
     "breakglass.open",
     "audit.read",
+    "privacy.dsar_recusado",
+    "privacy.dsar_rectificado",
 )
 
 #: O dominio de `actor_type`.

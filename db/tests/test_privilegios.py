@@ -874,6 +874,19 @@ ESPERADO_POR_TABELA.update(
 #:
 #: O que o `lg` lhe concede esta na revisao `0020` e prova-se na bateria do
 #: KAM-026, nao aqui: esta matriz e de `platform`.
+#:
+#: **A revisao `0037` (KAM-070) nao e excepcao a esta linha, e por decisao.** Uma
+#: primeira versao dela dava ao `kamba_agr` `SELECT` na `dsar_requests` e
+#: `SELECT, INSERT` na `erasure_ledger`, porque o criterio 3 daquele bloco nomeia
+#: o AGR como um dos seis consumidores do `privacy.erasure_requested`. **Saiu.**
+#: Afrouxar o criterio de outro ticket a partir de um terceiro nao e decisao de
+#: quem implementa o terceiro, e «o dia em que ele ganhar privilegio em alguma»
+#: e um dia que o KAM-026 decide, nao este.
+#:
+#: O consumidor do AGR escreve a linha do ledger pela ligacao de **aplicacao**,
+#: que tem `SELECT, INSERT` nas duas tabelas. A fronteira continua a ser a que
+#: esta linha afirma: o `kamba_agr` alcanca o `lg` e mais nada, e aplicar um
+#: apagamento no `platform` nao e trabalho de *checkpointer*.
 PAPEIS_SEM_NADA_EM_PLATFORM = ("kamba_agr",)
 
 #: O `kamba_pay_hooks` (KAM-053) nao tem privilegio nenhum em **nenhuma** das
@@ -1262,9 +1275,72 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: KAM-070 (revisao `0037`): os direitos do titular.
+#:
+#: **Os nove papeis por extenso nas duas, pela razao do `provisioning_step`**:
+#: estas entradas declaram-se depois da compreensao que injecta o
+#: `PAPEIS_SEM_NADA_EM_PLATFORM` e o `PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO`, pelo
+#: que nao herdam os zeros deles — e aqui isso nao e so forma, e o ponto
+#: seguinte.
+#:
+#: **O `kamba_agr` continua com zero nas duas**, e e a emenda que a revisao do
+#: lote obrigou. A nota do `PAPEIS_SEM_NADA_EM_PLATFORM` acima afirma «em nenhuma
+#: tabela», e essa frase **e** o criterio 4 do KAM-026: dar-lhe aqui `SELECT` e
+#: `INSERT` tornava-a falsa a partir desta revisao, e quem decide afrouxar o
+#: criterio de um ticket nao e quem implementa outro.
+#:
+#: O escopo `agr` do criterio 3 do KAM-070 nao fica sem aplicador por isso: o
+#: consumidor do AGR escreve a sua linha pela ligacao de **aplicacao**, que tem
+#: `SELECT, INSERT` nas duas. O que ele nao faz e alcancar o `platform` pelo
+#: papel do *checkpointer*.
+ESPERADO_POR_TABELA.update(
+    {
+        "dsar_requests": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": {"SELECT"},
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "erasure_ledger": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": {"SELECT", "INSERT"},
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
+    # KAM-070: **duas** colunas, e os dois papeis que as tem concedidas tem a
+    # mesma lista — o `kamba_app` fecha o pedido que recebeu, e o `kamba_batch`
+    # varre prazos e aplica o escopo `dat`.
+    #
+    # O que fica **fora** e o que define o pedido, e cada uma por uma razao:
+    # mudar o `tipo` de um pedido em curso e um pedido novo, mudar o
+    # `contact_id` e dar os dados de um titular a outro, e o `prazo_interno_at`
+    # tambem nao entra — um prazo legal que se pode empurrar nao e um prazo. O
+    # `recebido_at` e quando chegou.
+    #
+    # E o que uma coluna a mais daria e a razao medida do KAM-015 com outro
+    # nome: um `GRANT UPDATE (prazo_interno_at)` deixava quem corre o
+    # varrimento adiar o prazo do pedido em vez de o cumprir, e o alerta dos 20
+    # dias do criterio 8 nunca disparava. Nenhuma matriz de tabela ve isso — o
+    # `has_table_privilege(..., 'UPDATE')` devolve `false` com ou sem o `GRANT`
+    # por coluna.
+    ("kamba_app", "dsar_requests", "UPDATE"): {"estado", "concluido_at"},
+    ("kamba_batch", "dsar_requests", "UPDATE"): {"estado", "concluido_at"},
     # KAM-054: tres colunas em cada uma das duas, e sao o ciclo de vida.
     #
     # No `payment_confirmers`, as que ficam **fora** sao o `tenant_id` e o
@@ -1707,6 +1783,26 @@ def esquema_de(tabela: str) -> str:
 #: tem privilegios por coluna, ou onde um privilegio de coluna a mais seria
 #: invisivel na matriz de tabela.
 TABELAS_COM_MATRIZ_DE_COLUNA = (
+    # KAM-070 (0037): as duas, e cada uma pela razao oposta da outra.
+    #
+    # A `dsar_requests` tem `UPDATE` **por coluna** para dois papeis — duas
+    # colunas, em `COLUNAS_POR_PAPEL` — e entra pela razao do
+    # `provisioning_step`: a matriz de tabela nao ve um privilegio de coluna, e
+    # uma coluna a mais naquele `GRANT` era invisivel nela. O que uma coluna a
+    # mais daria esta escrito na entrada: com o `prazo_interno_at` concedido, o
+    # prazo do criterio 1 passa a poder ser empurrado por quem o devia cumprir.
+    #
+    # A `erasure_ledger` entra **sem ter privilegio de coluna nenhum**, pela
+    # razao da `payment_events` e com a mesma forca: o que se prende e a
+    # **ausencia**. Ninguem tem `UPDATE` nem `DELETE` nesta tabela, e e so isso
+    # que a faz *append-only* — nao ha *trigger* `deny_mutation` por baixo. Um
+    # `GRANT UPDATE (aplicado_at) ON erasure_ledger TO kamba_batch` nao aparece
+    # no `has_table_privilege`, e com ele a linha que diz «o STO apagou em T»
+    # passa a poder ser reescrita para outro instante: o registo de apagamentos
+    # que o criterio 6 le depois de um restauro deixa de ser prova de nada, e
+    # nenhuma matriz de tabela diz uma palavra.
+    "dsar_requests",
+    "erasure_ledger",
     # KAM-091 (0034): o estado da saga. Tem `UPDATE` **por coluna** para o
     # `kamba_app` — seis —, e entra aqui porque uma coluna a mais naquele
     # `GRANT` era **invisivel** na matriz de tabela: o

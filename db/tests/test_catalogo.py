@@ -513,8 +513,39 @@ class TestConvencoes(ComBase):
                 # `CHECK` de forma hexadecimal. Chave primaria e nao indice
                 # unico, porque a idempotencia do `draft_prepare` e da base.
                 ("draft_decisions", "draft_id", "text", None),
+                # KAM-070, revisao `0037`: o pedido do titular segue a regra
+                # geral, `uuid` gerado — e a chave **nao se chama `id`**, o que
+                # a tira do conjunto fechado do
+                # `test_as_chaves_primarias_sao_uuid_com_omissao_gerada`, que
+                # pergunta pela coluna `id`. O nome e o do dominio: um
+                # `dsar_id`, que e o que o criterio 3 cita e o que o ledger
+                # referencia por FK composta.
+                #
+                # **A chave de negocio nao e esta e nao e unica no tempo**: dois
+                # pedidos do mesmo tipo pelo mesmo titular sao legitimos em
+                # meses diferentes, pelo que a unicidade do criterio 8 e um
+                # indice **parcial** sobre os estados abertos e nao uma chave. A
+                # `dsar_requests_tenant_dsar_uq` ao lado nao e chave de negocio
+                # nenhuma: existe para o ledger poder apontar para o par
+                # `(tenant_id, dsar_id)`.
+                #
+                # A posicao e por `ORDER BY 1, 2`: depois de `draft_decisions`
+                # («dra» < «dsa») e antes de `entitlements`.
+                ("dsar_requests", "dsar_id", "uuid", "gen_random_uuid()"),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
+                # KAM-070, idem, e a mesma razao para o nome: um `erasure_id`, e
+                # nao um `id`. A chave de negocio e a unicidade
+                # `(tenant_id, dsar_id, escopo)` ao lado — e **ela** e que conta
+                # os seis escopos do criterio 3 —, e nao pode ser a chave
+                # primaria por uma razao de forma: as tres colunas sao duas FK e
+                # um dominio fechado, e a linha que falta identificar numa
+                # reaplicacao depois de um restauro (criterio 6) e a que o
+                # `tenant_id, contact_id, aplicado_at` encontra.
+                #
+                # A posicao e por `ORDER BY 1, 2`: depois de `entitlements`
+                # («ent» < «era») e antes de `events_consumed`.
+                ("erasure_ledger", "erasure_id", "uuid", "gen_random_uuid()"),
                 ("events_consumed", "consumer", "text", None),
                 ("events_consumed", "event_id", "uuid", None),
                 ("events_dlq", "id", "bigint", None),
@@ -1144,7 +1175,31 @@ class TestConvencoes(ComBase):
              #
              # **E a unica desta lista cujo `tenant_id` e anulavel**, pela razao
              # escrita em `ANULAVEIS`.
-             "tenant_destinations"},
+             "tenant_destinations",
+             # KAM-070. As duas da `0037`, e as duas satisfazem a convencao
+             # **pela unicidade**, como a `conversations`, a
+             # `stock_reservations` e a `tenant_destinations`: a
+             # `dsar_requests_tenant_dsar_uq` e a `erasure_ledger_escopo_uq`
+             # principiam pelo `tenant_id`, e nenhuma das duas esta la para
+             # indexar — a primeira existe para o ledger poder apontar para o
+             # par `(tenant_id, dsar_id)`, e a segunda e a contagem do
+             # criterio 3.
+             #
+             # **Nos pedidos ha mais tres indices e os tres comecam pelo
+             # `tenant_id`**: os dois parciais dos estados abertos (a
+             # idempotencia do criterio 8 e o varrimento do prazo) e, no ledger,
+             # o `(tenant_id, contact_id, aplicado_at)` da reaplicacao depois de
+             # um restauro. Aqui nao ha o caso da `tenant_destinations` nem o do
+             # `orders_mirror`, em que um indice **nao** comeca pelo tenant de
+             # proposito: todas as leituras destas duas tabelas sao de um
+             # tenant, incluindo a do restauro — quem a corre e o `kamba_batch`,
+             # que tem contexto de tenant como os outros.
+             #
+             # **O `tenant_id` e `NOT NULL` nas duas**, pelo que nenhuma entra
+             # em `ANULAVEIS`: um pedido do titular e sempre de um tenant, e nao
+             # ha aqui o nulo com significado que o criterio 1 do KAM-069 deu
+             # aos destinos globais de infra-estrutura.
+             "dsar_requests", "erasure_ledger"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

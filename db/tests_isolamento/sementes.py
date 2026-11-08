@@ -370,6 +370,59 @@ def _destino_de_transferencia(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _pedido_do_titular(cursor, tenant_id: str, canario: str) -> None:
+    """Um pedido do titular (KAM-070, revisao `0037`). O canario vai no `dsar_id`.
+
+    **Sem coluna de texto livre**, como a `conversations` do KAM-014 e a
+    `order_reconciliation_issues` do KAM-044: das dez colunas, tres sao dominios
+    fechados (`tipo`, `estado`, `papel_kamba`), duas sao UUID de referencia, uma
+    e um inteiro de prazo e tres sao instantes. O canario vai na chave primaria,
+    que e a unica que aceita um valor arbitrario — e continua unico por tenant e
+    por tabela, que e o que o oraculo precisa. E por isso que esta receita leva
+    `guardado=_uuid`.
+
+    **O contacto vai pelo `_UM_CONTACTO`**, pela razao medida que o `_cotacao`
+    escreve: a FK e composta (`dsar_requests_contact_fk`), e num
+    `INSERT ... SELECT` o ataque — inserir a linha de B com o contexto de A —
+    nao encontrava o contacto de B, o `SELECT` devolvia zero linhas, e um
+    `INSERT` de zero linhas **nao da erro**.
+
+    **Semeia o administrador da instancia, e aqui ha duas razoes e nao uma.** A
+    primeira e a da `price_quotes`: a receita vai buscar o contacto por
+    subconsulta e o semeador tem de o ver independentemente de contexto. A
+    segunda e desta tabela e vale por si — **nenhum papel tem `DELETE`** nela,
+    nem o `kamba_batch`, pelo que o `apagar_tenant` so pode limpar como
+    administrador. Ao contrario da `erasure_ledger` ao lado, aqui isso basta:
+    nao ha *trigger* `ENABLE ALWAYS` que recuse o `DELETE` tambem ao
+    administrador, que e o que tira a `tool_audit` e o `order_state_log` desta
+    bateria.
+
+    A coluna alteravel e o `estado`, que e uma das **duas** do `GRANT UPDATE`
+    por coluna da revisao (a outra e o `concluido_at`) — uma coluna fora dele
+    fazia os testes de escrita cruzada falharem por privilegio onde devem
+    falhar por politica. E aqui o `estado` serve de coluna alteravel, ao
+    contrario do que o comentario da `stock_reservations` mede: o
+    `test_update_sem_where_so_toca_nas_linhas_de_a` corre `SET estado = estado`,
+    e nao ha *trigger* de transicao nenhum nesta tabela — o `CHECK` acoplado que
+    existe (`dsar_requests_concluido_par_ck`) continua satisfeito, porque nem o
+    `estado` nem o `concluido_at` mudam de valor.
+
+    O `prazo_interno_at` entra por expressao e **nao** pela aritmetica do
+    criterio 1: o que esta tabela impoe e a ordenacao
+    (`dsar_requests_prazo_ordenado_ck`), e os 30 dias sao o parametro que a
+    coluna `prazo_dias` guarda. O `concluido_at` fica nulo, que e o unico valor
+    que o par aceita fora de `concluido`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.dsar_requests "
+        "(dsar_id, tenant_id, contact_id, tipo, estado, papel_kamba, "
+        " prazo_dias, prazo_interno_at) "
+        f"VALUES (%s, %s, {_UM_CONTACTO}, 'eliminacao', 'recebido', "
+        "        'subcontratada', 30, now() + interval '30 days')",
+        (_uuid(canario), tenant_id, tenant_id),
+    )
+
+
 def _recibo_de_intencao(cursor, tenant_id: str, canario: str) -> None:
     """O recibo de idempotencia da criacao (KAM-044, revisao `0030`).
 
@@ -1421,6 +1474,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _destino_de_transferencia, "provider", None, None,
         escrita_do_papel=False,
     ),
+    # KAM-070: o pedido do titular. O canario vai na chave primaria (ver
+    # `_uuid`), a coluna alteravel e o `estado` — uma das duas do `GRANT UPDATE`
+    # por coluna da `0037` — e o semeador e o administrador, por duas razoes que
+    # a receita escreve: a subconsulta do contacto e o `DELETE` que papel
+    # nenhum tem.
+    #
+    # **A `erasure_ledger` da mesma revisao nao tem receita**, e esta em
+    # `SEM_RECEITA_COM_RAZAO` com a razao por extenso.
+    ("platform", "dsar_requests"): Receita(
+        _pedido_do_titular, "dsar_id", "estado", "em_curso",
+        semeador="admin", guardado=_uuid,
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -1702,6 +1767,36 @@ SEM_RECEITA_COM_RAZAO = {
     ("platform", "audit_heads"),
     ("platform", "audit_log"),
     ("platform", "tool_audit"),
+    # KAM-070: o ledger de apagamentos, e **a razao nao e nenhuma das tres de
+    # cima, nem a da `payment_events`**. Diz-se por extenso, porque uma entrada
+    # desta lista lida pelo padrao errado e uma porta aberta com a aparencia de
+    # excepcao fundada.
+    #
+    # Nao e a da `tool_audit`: esta tabela e *append-only* **por privilegio** e
+    # nao por *trigger* — nenhum papel tem `UPDATE` nem `DELETE`, e nao ha
+    # `ENABLE ALWAYS` nenhum. O administrador da instancia **consegue** limpa-la,
+    # como limpa a `conversations`, pelo que «esta bateria nao a sabe limpar»
+    # seria falso. E nao e a da `payment_events`: ha quem possa inserir — quatro
+    # papeis, um por escopo que aplica —, pelo que ha receita possivel.
+    #
+    # Fica de fora por decisao e nao por barreira, e o preco esta medido nos
+    # dois sentidos. A unica coisa que torna esta tabela *append-only* e a
+    # ausencia dos privilegios: nao ha segunda camada por baixo. Uma receita
+    # aqui fazia desta bateria o **unico** sitio do repositorio onde uma linha
+    # do ledger e apagada, e por uma identidade que esta fora do modelo de
+    # privilegios — e o que o criterio 6 le depois de um restauro e exactamente
+    # «as linhas que ninguem apagou». O que se perde em troca e a medicao da
+    # politica desta tabela por esta bateria, que **nao** esta feita noutro
+    # sitio: a caixa fica com credor no bloco do KAM-070, para a bateria propria
+    # do modulo. Nao se escreve aqui que esta provada em lado nenhum, porque nao
+    # esta.
+    #
+    # A `dsar_requests` da mesma revisao **tem** receita, e a diferenca e so o
+    # *trigger* que nenhuma das duas tem: la o `DELETE` do administrador tambem
+    # e a unica forma de limpar, mas la nao e a falta de `DELETE` que faz a
+    # tabela ser o que e — um pedido do titular e mutavel por desenho, tem
+    # `UPDATE` de duas colunas, e e isso que a bateria mede.
+    ("platform", "erasure_ledger"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo
@@ -1972,6 +2067,16 @@ ORDEM = (
     # na transicao. Ninguem a aponta, pelo que a posicao e indiferente e a
     # escolhida e a dos numeros dos tickets, como entre as de cima.
     ("platform", "tenant_destinations"),
+    # KAM-070: o pedido do titular **depois de `contacts`**, que ele referencia
+    # por FK composta — e por isso fica aqui e nao antes: na ordem inversa,
+    # apaga-se antes do contacto que a subconsulta da receita foi buscar. A FK
+    # para `tenants` tambem o punha depois da primeira entrada desta tupla.
+    #
+    # **Quem o aponta nao entra aqui**: a `erasure_ledger` referencia-o por FK
+    # composta `(tenant_id, dsar_id)` e esta em `SEM_RECEITA_COM_RAZAO`, pelo
+    # que esta bateria nunca lhe escreve linha nenhuma — e um pedido sem linhas
+    # de ledger apaga-se sem a FK dizer nada.
+    ("platform", "dsar_requests"),
 )
 
 #: As identidades com que as receitas semeiam.

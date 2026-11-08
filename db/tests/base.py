@@ -422,6 +422,22 @@ TABELAS_0034 = ("provisioning_step",)
 #: excepcao (a `audit_heads`, pelo ADR-015).
 TABELAS_0036 = ("tenant_destinations",)
 
+#: O que a revisao 0037 (KAM-070) acrescenta: os direitos do titular.
+#:
+#: **Duas tabelas**, e sao a primeira vez que uma revisao deste repositorio
+#: acrescenta duas de uma vez ao topo da cadeia. As duas tem `tenant_id NOT
+#: NULL`, pelo que **nenhuma** entra no `ANULAVEIS` do `test_catalogo.py` — ao
+#: contrario da `tenant_destinations` ao lado — e as duas levam RLS `FORCE` com
+#: a `tenant_iso` do `db/rls.py` e **nada mais**: uma politica permissiva so se
+#: acrescenta quando ha linhas que nao sao de tenant nenhum, e um pedido do
+#: titular e sempre de um tenant.
+#:
+#: A `erasure_ledger` e **append-only por privilegio** e nao por *trigger*:
+#: nenhum papel leva `UPDATE` nem `DELETE`, o que a poe no grupo da
+#: `tool_audit` e **fora** do grupo da `tool_idempotency` — e por isso nao tem
+#: receita de `DELETE` nas sementes do X-05.
+TABELAS_0037 = ("dsar_requests", "erasure_ledger")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -431,15 +447,24 @@ TABELAS = tuple(
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
+        + TABELAS_0037
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0036`.
+#:
+#: O `downgrade` da `0037` leva a base para aqui. **Deriva do `TABELAS`**, e e
+#: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
+#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela — a nota do
+#: `TABELAS_ATE_0032` explica por extenso o que custa esquecer-se disso.
+TABELAS_ATE_0036 = tuple(sorted(set(TABELAS) - set(TABELAS_0037)))
 
 #: O que existe em `platform` quando a base esta na revisao `0035`.
 #:
 #: O `downgrade` da `0036` leva a base para aqui. A `0035` (KAM-055) nao
 #: cria tabela nenhuma — so FK —, pelo que esta lista descreve tambem o que
 #: existe na `0034`.
-TABELAS_ATE_0035 = tuple(sorted(set(TABELAS) - set(TABELAS_0036)))
+TABELAS_ATE_0035 = tuple(sorted(set(TABELAS_ATE_0036) - set(TABELAS_0036)))
 
 #: O que existe em `platform` quando a base esta na revisao `0033`.
 #:
