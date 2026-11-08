@@ -1648,6 +1648,16 @@ em que o `payment.confirmed` do Vendedor já estava pelo contacto por resolver,
 pelo que o que mudou em produção não é o resultado: é o desfecho deixar de dizer
 «ninguém escreveu isto» e passar a dizer o que se passa.
 
+**A confirmação corre antes do ramo do `do_humano`, e a ordem é a correcção que
+a revisão adversarial obrigou.** Escrita depois dele, era saltada por um `return`
+quando a conversa estivesse entregue a um humano: o evento consumia-se com
+`entregue_ao_hnd` e a marcação de quem pagou ficava em `hold` até expirar — marca
+sem efeito. Um humano com a palavra decide **a quem se fala** (o HND em vez do
+cliente) e não se o negócio acontece. O caminho é hoje inalcançável para estes
+dois pares — sem `notifica` não se lê conversa nenhuma —, mas bastava uma linha
+de `notifica` no `registry/` para o alcançar, e o arranque aceita-a: a terceira
+guarda recusa credor **com** efeito, não efeito com destinatário.
+
 ### O turno por evento não invoca o grafo, e isso está decidido
 
 O critério 5 pede três propriedades — `turn_id = event_id`, sob a tranca da

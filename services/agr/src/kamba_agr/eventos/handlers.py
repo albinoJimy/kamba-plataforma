@@ -189,35 +189,32 @@ class MarcacaoPorResolver(RuntimeError):
     """
 
 
-@dataclass(frozen=True, slots=True)
-class MarcacaoConfirmada:
-    """A marcacao que a agenda confirmou. E o artefacto do consumo.
-
-    `inicio_at` e o instante da marcacao em ISO-8601 UTC, e esta aqui por ser o
-    que o `booking.reminder_due` leva no *payload* (KAM-007): quem vier a ligar o
-    lembrete precisa dele e nao de uma segunda leitura.
-    """
-
-    booking_id: str
-    inicio_at: str
-
-
 class PortaDeMarcacao(Protocol):
-    """`order_id -> a marcacao confirmada`. Credor: o caminho AGR -> `servicos`.
+    """`order_id` -> o `booking_id` confirmado. Credor: o caminho AGR -> `servicos`.
 
     **Nao e um repositorio e nao le a base.** Quem tem a agenda e o modulo
     `servicos` (KAM-047), do outro lado da fronteira do ADR-009; o AGR pede-lhe
     que confirme, e a idempotencia e a dele — o `confirmBooking` daquele modulo e
-    idempotente por `(contact_id, slot_id)`, no indice
-    `bookings_contacto_slot_uq` da revisao `0025` e nao em codigo.
+    idempotente por `(contact_id, slot_id)`, no indice **parcial**
+    `bookings_contacto_slot_uq` da revisao `0025` (so nos estados `hold` e
+    `confirmada`) e nao em codigo.
 
-    Devolve `None` quando a encomenda **nao tem** marcacao, e levanta
-    `MarcacaoPorResolver` quando nao se sabe. Ver a nota do modulo.
+    Devolve o `booking_id` da marcacao que ficou confirmada, `None` quando a
+    encomenda **nao tem** marcacao, e **levanta** `MarcacaoPorResolver` quando
+    nao se sabe. Ver a nota do modulo.
+
+    **Devolve um identificador e nao um objecto, e isso e uma correccao.** A
+    primeira versao devolvia um `MarcacaoConfirmada(booking_id, inicio_at)`, e o
+    `inicio_at` estava la por um argumento sobre o futuro — «quem vier a ligar o
+    lembrete precisa dele». Nenhum codigo de producao o lia, e e a mesma
+    especulacao que a nota do modulo recusa por escrito para o ramo do
+    `booking_id`. Achado da revisao adversarial. Quem precisar de mais do que o
+    identificador acrescenta-o quando tiver quem o leia.
     """
 
     def confirmar_com_sinal(
         self, *, tenant_id: str, order_id: str, event_id: str
-    ) -> MarcacaoConfirmada | None: ...
+    ) -> str | None: ...
 
 
 class MarcacaoPorLigar:
@@ -232,7 +229,7 @@ class MarcacaoPorLigar:
 
     def confirmar_com_sinal(
         self, *, tenant_id: str, order_id: str, event_id: str
-    ) -> MarcacaoConfirmada | None:
+    ) -> str | None:
         raise MarcacaoPorResolver("agenda_por_ligar")
 
 
@@ -489,7 +486,7 @@ def tem_accao_de_marcacao(vertical: str, tipo: str) -> bool:
 
 def confirmar_marcacao_com_sinal(
     envelope: Envelope, marcacoes: PortaDeMarcacao
-) -> MarcacaoConfirmada | None:
+) -> str | None:
     """A accao dos dois pagamentos em Servicos: confirma a marcacao com sinal.
 
     **Identifica a encomenda pelo `order_id`** e nunca por um `booking_id` do
@@ -497,10 +494,10 @@ def confirmar_marcacao_com_sinal(
     modulo, e a medicao das duas rotas na seccao de verificacao do bloco
     KAM-184.
 
-    Devolve a marcacao confirmada, ou `None` se esta encomenda nao tiver
-    marcacao. **Levanta** `MarcacaoPorResolver` se nao se souber: e a porta por
-    omissao, e enquanto o caminho AGR -> modulo `servicos` nao existir e isso que
-    acontece em producao.
+    Devolve o `booking_id` da marcacao confirmada, ou `None` se esta encomenda
+    nao tiver marcacao. **Levanta** `MarcacaoPorResolver` se nao se souber: e a
+    porta por omissao, e enquanto o caminho AGR -> modulo `servicos` nao existir
+    e isso que acontece em producao.
 
     **Corre dentro da transaccao do consumo**, como a notificacao e pela mesma
     simetria do `consumo.py`: se a confirmacao falhar, o `ROLLBACK` leva a marca

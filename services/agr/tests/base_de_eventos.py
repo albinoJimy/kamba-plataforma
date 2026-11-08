@@ -356,7 +356,10 @@ class AgendaDeEnsaio:
     """
 
     def __init__(self) -> None:
-        #: `booking_id` -> `{order_id, estado, inicio_at}`.
+        #: `booking_id` -> `{order_id, estado}`. **Sem `inicio_at`**: a porta
+        #: devolve um identificador e nao um objecto, e uma coluna que nenhum
+        #: ensaio le era a mesma especulacao que a revisao adversarial tirou do
+        #: `MarcacaoConfirmada`.
         self.marcacoes: dict[str, dict[str, str]] = {}
         #: Os pedidos que a porta recebeu, por ordem. Para o par negativo: sem
         #: isto nao se distingue «nao confirmou» de «nem chegou a pedir».
@@ -366,26 +369,19 @@ class AgendaDeEnsaio:
         self.nao_sei = False
 
     def com_marcacao(
-        self,
-        *,
-        booking_id: str,
-        order_id: str,
-        inicio_at: str = "2026-11-16T09:30:00+00:00",
-        estado: str = "hold",
+        self, *, booking_id: str, order_id: str, estado: str = "hold"
     ) -> AgendaDeEnsaio:
         """Semeia uma marcacao. Devolve-se para encadear na montagem."""
-        self.marcacoes[booking_id] = {
-            "order_id": order_id,
-            "estado": estado,
-            "inicio_at": inicio_at,
-        }
+        self.marcacoes[booking_id] = {"order_id": order_id, "estado": estado}
         return self
 
     def estado_de(self, booking_id: str) -> str:
         return self.marcacoes[booking_id]["estado"]
 
-    def confirmar_com_sinal(self, *, tenant_id: str, order_id: str, event_id: str):
-        from kamba_agr.eventos.handlers import MarcacaoConfirmada, MarcacaoPorResolver
+    def confirmar_com_sinal(
+        self, *, tenant_id: str, order_id: str, event_id: str
+    ) -> str | None:
+        from kamba_agr.eventos.handlers import MarcacaoPorResolver
 
         self.pedidos.append((tenant_id, order_id, event_id))
         if self.nao_sei:
@@ -399,9 +395,7 @@ class AgendaDeEnsaio:
             # confirmacao da mesma marcacao devolve a que ja existe e nao cria
             # nada. E o que faz a re-entrega de um evento ser inofensiva.
             marcacao["estado"] = "confirmada"
-            return MarcacaoConfirmada(
-                booking_id=booking_id, inicio_at=marcacao["inicio_at"]
-            )
+            return booking_id
         # Esta encomenda nao tem marcacao: uma encomenda de produtos num
         # *tenant* que tambem tem Servicos activa. Nao e uma falha.
         return None

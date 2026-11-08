@@ -142,9 +142,12 @@ class Subscricao(_Fechado):
 
     **Omissao e tuplo vazio, e isso tem significado**: a subscricao existe, o
     consumidor e exigido (criterio 1 do KAM-038), e nao notifica ninguem — e o
-    caso dos dois eventos de pagamento em Servicos, cuja accao e do KAM-047. Um
-    par sem destinatario **e** sem credor em `ACCOES_POR_LIGAR` levanta no
-    arranque: ver o `exigir_handlers`.
+    caso dos dois eventos de pagamento em Servicos, cuja accao e confirmar a
+    marcacao com sinal (`ACCOES_DE_MARCACAO`, KAM-184) e nao avisar alguem. Um
+    par sem destinatario, **sem accao escrita e** sem credor em
+    `ACCOES_POR_LIGAR` levanta no arranque: ver o `exigir_handlers`, que pergunta
+    as tres coisas. Ate ao KAM-184 eram duas, e a accao daqueles dois pares era
+    do KAM-047.
     """
 
     tipo: str

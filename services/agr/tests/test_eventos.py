@@ -1777,6 +1777,78 @@ class TestAccaoDeMarcacaoDosServicos(unittest.TestCase):
                 self.assertEqual(self.agenda.estado_de(MARCACAO), "hold")
                 self.assertEqual(self.agenda.pedidos, [])
 
+    def test_so_a_accao_removida_deixa_de_ser_uma_configuracao_valida(self) -> None:
+        """**A leitura do critério 2, medida em vez de arredondada.**
+
+        A letra do critério diz «com a acção removida volta a `sem_accao`», e a
+        revisao adversarial reparou que, sozinha, ela nao se verifica: quem decide
+        aquele desfecho e o `credor` que o `_consumir` le, e nao o efeito. O que
+        se mede aqui e **porque** e que o ensaio da outra direccao tem de repor as
+        duas coisas: removida so a accao, o par deixa de notificar, de ter efeito
+        e de ter dono — e isso **nao e um desfecho**, e uma configuracao que nem a
+        guarda do arranque nem o `fala_com_o_cliente` aceitam.
+
+        Ou seja: «a accao removida» so existe como estado se o credor voltar, que
+        e exactamente o estado de antes deste ticket. Nao e uma folga do criterio;
+        e a primeira guarda a morder.
+        """
+        par = ("servicos", "payment.confirmed")
+        self.agenda.com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
+        with mock.patch.object(handlers, "COM_ACCAO_DE_MARCACAO", frozenset()):
+            with self.assertRaises(handlers.SemHandlerError):
+                handlers.exigir_handlers((subscricao_de(*par),))
+            with self.assertRaises(handlers.SemHandlerError):
+                self.entregar("payment.confirmed")
+        # E nada foi pedido a agenda: nao ha meio caminho.
+        self.assertEqual(self.agenda.estado_de(MARCACAO), "hold")
+        self.assertEqual(self.agenda.pedidos, [])
+
+    def test_um_humano_com_a_palavra_nao_salta_a_confirmacao(self) -> None:
+        """**O defeito que a revisão adversarial encontrou, medido.**
+
+        A accao estava escrita **depois** do ramo do `do_humano`, que devolve: com
+        a conversa entregue a um humano, a confirmacao era saltada e o evento
+        consumia-se com `entregue_ao_hnd`, uma linha em `events_consumed`, zero
+        na DLQ, e a marcacao de quem pagou ficava em `hold` ate expirar — a
+        «marca sem efeito» que o `consumo.py` existe para nao ter.
+
+        **E a configuracao que o alcanca passa o arranque**: a terceira guarda
+        recusa credor **com** efeito, nao efeito com destinatario. Sao as duas
+        linhas que isto semeia — `notifica: [cliente]` no `registry/` e a entrada
+        no `TEXTOS` que ela obriga —, e o ensaio comeca por medir que o arranque
+        as aceita, senao media um estado impossivel.
+
+        Um humano com a palavra decide **a quem se fala** (o HND em vez do
+        cliente) e nao se o negocio acontece.
+        """
+        par = ("servicos", "payment.confirmed")
+        textos = dict(handlers.TEXTOS)
+        textos[par] = "A sua marcacao esta confirmada."
+        self.agenda.com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
+        hnd = HndEspiao()
+        with (
+            mock.patch.object(handlers, "TEXTOS", textos),
+            mock.patch.object(handlers, "AO_CLIENTE", tuple(textos)),
+        ):
+            subscricao = subscricao_de(*par, "cliente")
+            # O arranque **aceita** este par: e o que torna o caminho alcancavel.
+            handlers.exigir_handlers((subscricao,))
+            consumidor = monta(
+                com_conversa(modo="pausada"),
+                outbound=self.outbound,
+                hnd=hnd,
+                marcacoes=self.agenda,
+                tabela=(subscricao,),
+            )
+            desfecho = asyncio.run(consumidor.entregar(corpo()))
+
+        self.assertEqual(desfecho.por_consumidor, (("agr_servicos", "entregue_ao_hnd"),))
+        # Quem foi avisado e o HND e nao o cliente — isso nao mudou...
+        self.assertEqual(len(hnd.chamadas), 1)
+        self.assertEqual(self.outbound.chamadas, [])
+        # ... e a marcacao **ficou confirmada**, que e o que mudou.
+        self.assertEqual(self.agenda.estado_de(MARCACAO), "confirmada")
+
     # -------------------------------------------- criterio 5: o artefacto
 
     def test_o_cenario_do_G0_1_produz_a_marcacao_confirmada(self) -> None:
@@ -1793,11 +1865,7 @@ class TestAccaoDeMarcacaoDosServicos(unittest.TestCase):
         unico caminho de pagamento que existe hoje, e e o evento que o dicionario
         §3.5 nomeia como «Evento do *gate* da Fase 0».
         """
-        self.agenda.com_marcacao(
-            booking_id=MARCACAO,
-            order_id=CONTACTO,
-            inicio_at="2026-11-16T09:30:00+00:00",
-        )
+        self.agenda.com_marcacao(booking_id=MARCACAO, order_id=CONTACTO)
         self.entregar("payment.manual_confirmed")
 
         self.assertEqual(self.agenda.estado_de(MARCACAO), "confirmada")
