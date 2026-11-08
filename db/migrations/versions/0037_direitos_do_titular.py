@@ -77,7 +77,7 @@ que lhe sobrevive meses nao se consegue reaplicar por ele. A chave e o
 `contact_id`, que e o que a DoD do bloco autoriza por escrito («so
 `contact_id`»). A reconciliacao dos dois nomes faz-se por funcao nomeada do
 modulo, com ensaio, e a divergencia de prosa fica registada no bloco com credor
-— o `EPIC-08` tem PR aberto e nao se toca.
+— o `EPIC-08` nao se toca neste ramo.
 """
 
 from __future__ import annotations

@@ -291,7 +291,8 @@ def sujeitos_apagados(cursor: Any) -> tuple[SujeitoApagado, ...]:
     porque a chave roda ao mes e o mesmo contacto tem refs diferentes em meses
     diferentes. A chave e o `contact_id`, que e o que a DoD do bloco autoriza
     por escrito. A divergencia fica registada no bloco com credor; o `EPIC-08`
-    tem PR aberto e nao se toca.
+    nao se toca neste ramo: a reconciliacao dos dois nomes e de quem governa
+    aquele contrato.
     """
     cursor.execute(SQL_SUJEITOS_APAGADOS)
     return tuple(

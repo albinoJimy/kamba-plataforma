@@ -167,7 +167,9 @@ class TestRepositorio(unittest.TestCase):
         a maior da arvore.
     """
 
-    #: O inventario nomeado dos modulos de metricas, a 2026-11-05 (`8b6edc3`).
+    #: O inventario nomeado dos modulos de metricas, a 2026-11-08. A lista nao
+    #: se consulta para saber o estado da arvore: o teste abaixo e que o diz, e
+    #: a data serve so para datar a ultima vez que alguem a leu por inteiro.
     #:
     #: **E uma lista literal e nao uma contagem**, e a escolha e do repositorio e
     #: nao minha: o `tools/isolamento/baterias/x01_rotas.py` escreve a razao —
@@ -180,6 +182,16 @@ class TestRepositorio(unittest.TestCase):
     #: o numero mudou. A diferenca e a mensagem de erro, e e a mensagem que paga
     #: o minuto de quem a le.
     MODULOS = (
+        # Nasceu com o KAM-079 (backups pgBackRest e PITR). A propriedade que o
+        # distingue: **a fonte dos valores nao esta no processo que o importa** —
+        # a idade do WAL e o desfecho de um restauro sao medidos por um `job`
+        # que ainda nao existe (agendador: KAM-071/KAM-078), pelo que o modulo
+        # declara quatro nomes com `exposta_por: []` no catalogo e nenhum
+        # processo os serve. E tambem o modulo que mostrou que esta lista e a
+        # **quinta** superficie da propagacao: o ticket levou os numeros novos
+        # as quatro de prosa que o RECADO nomeia e deixou o inventario atras,
+        # pelo que o gate 4 reprovou o PR com o lint a dar zero achados.
+        "libs/py-core/src/kamba_core/backup/metricas.py",
         "libs/py-core/src/kamba_core/ten/metricas.py",
         "packages/core-ts/src/agr/metricas.ts",
         "packages/core-ts/src/avisos/metricas.ts",
@@ -218,7 +230,7 @@ class TestRepositorio(unittest.TestCase):
         # Nasceu com o KAM-048 (lembretes de marcacao) **depois de este ticket
         # fundir**, e e o terceiro exemplo do que o `provisioning` foi o primeiro
         # e o `sms` o segundo. Dois pormenores que o distinguem dos outros vinte
-        # e um, e os dois sao o desenho e nao acidente:
+        # e dois, e os dois sao o desenho e nao acidente:
         #
         # * vive **dentro de um servico** que nao o expoe, ao contrario dos dois
         #   anteriores, que sao biblioteca em `packages/core-ts`. O

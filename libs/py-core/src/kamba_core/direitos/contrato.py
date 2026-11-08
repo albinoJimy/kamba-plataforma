@@ -399,7 +399,8 @@ class SujeitoApagado:
       deixava de fora as copias tiradas no meio de um apagamento.
 
     A divergencia de nomes fica registada no bloco do KAM-070 com credor; o
-    `EPIC-08` tem PR aberto e nao se toca.
+    `EPIC-08` nao se toca neste ramo: a reconciliacao dos dois nomes e de quem
+    governa aquele contrato, nao de quem implementa este.
     """
 
     contact_id: str
