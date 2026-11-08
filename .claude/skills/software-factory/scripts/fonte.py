@@ -4,7 +4,11 @@ O `vagas.py` le o disco, e o disco e o teu ramo — um ID livre ou um ticket abe
 no teu checkout pode ja estar fundido na `main` (medido no KAM-165, e outra vez a
 2026-11-08 com o KAM-137). Os dois guioes do KAM-185 leem tudo de uma *ref* e de
 objectos do `git`, pelo que medem a mesma arvore seja qual for o directorio de onde
-os corres.
+os corres — **e o `git` corre sempre a partir da raiz do repositorio**: o `ls-tree`
+e o `archive` resolvem os caminhos pelo directorio corrente, e a partir de `specs/`
+o `ls-tree ... db/migrations/versions/` dava 0 linhas com codigo 0 (achado da
+revisao adversarial). Os caminhos saem sem aspas (`core.quotepath=off`), para que
+um nome com acento continue a acabar em `.md`.
 
 **Os codigos de saida leem-se sempre.** O `merge-base` entre as duas linhas sem
 antepassado comum (`origin` e `publico`) sai com 1 e sem saida, e quem so captura a
@@ -43,18 +47,33 @@ class FalhaDoGit(RuntimeError):
     pass
 
 
-def correr(*args: str, aceitar: tuple[int, ...] = (0,), entrada: str | None = None) -> tuple[int, str]:
+def correr(*args: str, aceitar: tuple[int, ...] = (0,), cwd: str | None = None) -> tuple[int, str]:
     """Corre um comando e devolve `(codigo, stdout)`. Levanta fora de `aceitar`."""
     feito = subprocess.run(list(args), capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", input=entrada)
+                           errors="replace", cwd=cwd)
     if feito.returncode not in aceitar:
         raise FalhaDoGit(f"{' '.join(args[:4])}... saiu com {feito.returncode}: "
                          f"{feito.stderr.strip()[:300]}")
     return feito.returncode, feito.stdout
 
 
+_RAIZES: dict[str, str] = {}
+
+
+def raiz() -> str:
+    """A raiz do repositorio do directorio corrente, guardada por directorio."""
+    aqui = os.getcwd()
+    if aqui not in _RAIZES:
+        _RAIZES[aqui] = correr("git", "rev-parse", "--show-toplevel")[1].strip()
+    return _RAIZES[aqui]
+
+
+def git_com_codigo(*args: str, aceitar: tuple[int, ...] = (0,)) -> tuple[int, str]:
+    return correr("git", "-c", "core.quotepath=off", *args, aceitar=aceitar, cwd=raiz())
+
+
 def git(*args: str, aceitar: tuple[int, ...] = (0,)) -> str:
-    return correr("git", *args, aceitar=aceitar)[1]
+    return git_com_codigo(*args, aceitar=aceitar)[1]
 
 
 def actualizar_base() -> str:
@@ -70,7 +89,7 @@ class Arvore:
     ref: str
 
     def ler(self, caminho: str) -> str | None:
-        codigo, saida = correr("git", "show", f"{self.ref}:{caminho}", aceitar=(0, 128))
+        codigo, saida = git_com_codigo("show", f"{self.ref}:{caminho}", aceitar=(0, 128))
         return saida if codigo == 0 else None
 
     def listar(self, pasta: str) -> list[str]:
@@ -84,8 +103,8 @@ def fundir(base: str, ponta: str) -> tuple[str, list[str]]:
     Com conflitos o `git` escreve na mesma uma arvore (com marcadores) e sai com 1;
     quem a medir tem de saber que ela nao e a arvore que vai fundir.
     """
-    codigo, saida = correr("git", "merge-tree", "--write-tree", "--name-only",
-                           base, ponta, aceitar=(0, 1))
+    codigo, saida = git_com_codigo("merge-tree", "--write-tree", "--name-only",
+                                   base, ponta, aceitar=(0, 1))
     linhas = saida.splitlines()
     arvore = linhas[0].strip()
     conflitos: list[str] = []
@@ -99,8 +118,22 @@ def fundir(base: str, ponta: str) -> tuple[str, list[str]]:
 
 def base_comum(a: str, b: str) -> str | None:
     """O `merge-base`, com o 1 lido como «sem antepassado comum» e nao como vazio."""
-    codigo, saida = correr("git", "merge-base", a, b, aceitar=(0, 1))
+    codigo, saida = git_com_codigo("merge-base", a, b, aceitar=(0, 1))
     return saida.strip() if codigo == 0 else None
+
+
+def mudados(antes: str, depois: str) -> list[tuple[str, str]]:
+    """`(estado, caminho)` entre duas arvores, sem renomeacoes."""
+    saida = git("diff", "--name-status", "--no-renames", antes, depois)
+    return [tuple(linha.split("\t", 1)) for linha in saida.splitlines() if "\t" in linha]  # type: ignore[misc]
+
+
+def piso_declarado(ref: str) -> int | None:
+    """A constante `MINIMO_DE_BLOCOS_MEDIDOS` escrita numa arvore, sem a materializar."""
+    import superficies
+    texto = Arvore(ref).ler("tools/lint_bloco/lint.py")
+    achado = superficies.PISO.search(texto or "")
+    return int(achado.group(1)) if achado else None
 
 
 _PISOS: dict[str, tuple[int, int]] = {}
@@ -118,7 +151,7 @@ def medir_piso(ref: str) -> tuple[int, int]:
         return _PISOS[chave]
     pasta = Path(tempfile.mkdtemp(prefix="kam185-"))
     try:
-        _, dados = correr_bytes("git", "archive", "--format=tar", chave, *PARA_O_PISO)
+        _, dados = correr_bytes("git", "archive", "--format=tar", chave, *PARA_O_PISO, cwd=raiz())
         with tarfile.open(fileobj=io.BytesIO(dados)) as tar:
             tar.extractall(pasta, filter="data")
         programa = ("import sys,pathlib; sys.path.insert(0,'tools')\n"
@@ -138,8 +171,8 @@ def medir_piso(ref: str) -> tuple[int, int]:
     return medidos, piso
 
 
-def correr_bytes(*args: str) -> tuple[int, bytes]:
-    feito = subprocess.run(list(args), capture_output=True)
+def correr_bytes(*args: str, cwd: str | None = None) -> tuple[int, bytes]:
+    feito = subprocess.run(list(args), capture_output=True, cwd=cwd)
     if feito.returncode != 0:
         raise FalhaDoGit(f"{' '.join(args[:3])}... saiu com {feito.returncode}: "
                          f"{feito.stderr.decode('utf-8', 'replace').strip()[:300]}")

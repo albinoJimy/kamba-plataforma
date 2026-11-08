@@ -11,12 +11,25 @@ piso do lint_bloco       cada seccao de verificacao sobe-o, de duas em duas
 
 Aqui so ha funcoes sobre texto, sem `git` nem disco, para que os ensaios as possam
 medir com o defeito plantado. Quem le as arvores e o `fonte.py`.
+
+**As tabelas de versoes leem-se com o parser do gate 3c**, e nao com um meu: a
+primeira versao deste modulo tinha regras proprias e enganou-se em duas — nao lia o
+cabecalho `**Versao do conjunto:** N.M` do `specs/INDICE.md`, e nao media buracos —,
+pelo que dava PRONTO a uma arvore que o `lint_backlog` recusava (achado da revisao
+adversarial). O que a fila tem de prever e o veredicto **daquele** portao.
 """
 
 from __future__ import annotations
 
 import re
-from collections import Counter
+import sys
+from pathlib import Path
+
+_TOOLS = Path(__file__).resolve().parents[4] / "tools"
+if str(_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS))
+
+from lint_backlog import versoes as _gate  # noqa: E402
 
 #: Uma revisao do alembic. O numero e o nome do ficheiro; o `revision = "..."`
 #: de dentro e o que o alembic le — os dois tem de concordar, e medem-se os dois.
@@ -24,15 +37,8 @@ FICHEIRO_DE_REVISAO = re.compile(r"^db/migrations/versions/(\d{4})_[^/]+\.py$")
 REVISAO = re.compile(r'^revision\s*(?::\s*str\s*)?=\s*"([^"]+)"', re.MULTILINE)
 PAI = re.compile(r'^down_revision\s*(?::[^=]+)?=\s*(None|"([^"]+)")', re.MULTILINE)
 
-#: A tabela de «Controlo de versoes» comeca nesta linha; o cabecalho do documento
-#: e a linha `| Versao | N.M ...` que aparece antes dela.
-INICIO_DA_TABELA = re.compile(r"^\| Versão \| Data \|")
-LINHA_DA_TABELA = re.compile(r"^\| (\d+\.\d+) \|")
-CABECALHO = re.compile(r"^\| Versão \| (\d+\.\d+)\b")
-
-#: O dicionario e o unico documento cujo cabecalho um ensaio exige igual a ultima
-#: emenda (`dict_export`, `test_a_versao_do_cabecalho_e_a_da_ultima_emenda`). Nos
-#: outros a divergencia e INDICIO e nao vermelho.
+#: O unico documento cujo cabecalho tambem um ensaio de outra suite exige igual a
+#: ultima emenda (`dict_export`, `test_a_versao_do_cabecalho_e_a_da_ultima_emenda`).
 DICIONARIO = "specs/02_Dicionario_de_Dados_Canonico.md"
 
 
@@ -104,37 +110,43 @@ def cabeca(revisoes: dict[str, str]) -> str | None:
 
 # --- tabelas de versoes -----------------------------------------------------
 
-def versoes(texto: str) -> list[str]:
-    """Os numeros da coluna «Versao» de todas as tabelas de controlo, por ordem.
+def medido_pelo_gate(caminho: str) -> bool:
+    """O que o `lint_backlog` varre: `specs/**/*.md`, `docs/**/*.md` e o README,
+    menos as pastas de registo datado. Uma declaracao em `ci/backlog-allow.yaml`
+    pode ainda dispensar um documento, e isso este modulo nao le."""
+    if caminho.startswith(_gate.PASTAS_DE_REGISTO):
+        return False
+    return caminho == "README.md" or (caminho.startswith(("specs/", "docs/"))
+                                      and caminho.endswith(".md"))
 
-    So conta linhas **dentro** de uma tabela que comece em `| Versao | Data |`: um
-    `| 1.6 |` solto noutro sitio (a linha 1.6 da *checklist* do `Gate_Fase0.md`, por
-    exemplo) nao e uma emenda.
-    """
-    resultado: list[str] = []
-    dentro = False
-    for linha in texto.splitlines():
-        if INICIO_DA_TABELA.match(linha):
-            dentro = True
-            continue
-        if dentro:
-            if not linha.startswith("|"):
-                dentro = False
-                continue
-            achado = LINHA_DA_TABELA.match(linha)
-            if achado:
-                resultado.append(achado.group(1))
-    return resultado
+
+def controlo(caminho: str, texto: str) -> _gate.Controlo | None:
+    """O `Controlo` que o gate 3c faria deste texto: **a primeira** tabela de
+    controlo, as duas formas de cabecalho, `buracos`, `repetidas` e `atrasado`."""
+    achado = _gate.CABECALHO_DE_TABELA.search(texto)
+    if achado is None:
+        return None
+    corpo = _gate._corpo_da_tabela(texto, achado.start())
+    lidas = tuple((int(a), int(b)) for a, b in _gate.LINHA_DE_VERSAO.findall(corpo))
+    if not lidas:
+        return None
+    em_tabela = _gate.CAMPO_EM_TABELA.search(texto)
+    em_texto = _gate.CAMPO_EM_TEXTO.search(texto)
+    campo = em_tabela or em_texto
+    return _gate.Controlo(ficheiro=caminho, versoes=lidas,
+                          cabecalho=campo.group(1) if campo else None,
+                          forma="tabela" if em_tabela else "texto" if em_texto else None)
+
+
+def versoes(texto: str) -> list[str]:
+    """Os numeros da coluna «Versao» da tabela de controlo, pela ordem de leitura."""
+    lido = controlo("", texto)
+    return [f"{a}.{b}" for a, b in lido.versoes] if lido else []
 
 
 def cabecalho(texto: str) -> str | None:
-    for linha in texto.splitlines():
-        if INICIO_DA_TABELA.match(linha):
-            return None
-        achado = CABECALHO.match(linha)
-        if achado:
-            return achado.group(1)
-    return None
+    lido = controlo("", texto)
+    return lido.cabecalho if lido else None
 
 
 def maximo(numeros: list[str]) -> str | None:
@@ -147,27 +159,30 @@ def maximo(numeros: list[str]) -> str | None:
 
 
 def problemas_de_versoes(caminho: str, texto: str) -> list[str]:
-    """Duplicados na coluna, e o cabecalho atras do maximo."""
-    problemas: list[str] = []
-    numeros = versoes(texto)
-    for numero, vezes in sorted(Counter(numeros).items(), key=lambda par: chave(par[0])):
-        if vezes > 1:
-            problemas.append(f"{caminho}: a versao {numero} aparece {vezes} vezes na tabela")
-    topo = maximo(numeros)
-    topo_do_cabecalho = cabecalho(texto)
-    if topo and topo_do_cabecalho and topo_do_cabecalho != topo:
-        grau = "VERMELHO no dict_export" if caminho == DICIONARIO else "INDICIO"
-        problemas.append(f"{caminho}: cabecalho {topo_do_cabecalho} e a emenda mais alta e "
-                         f"{topo} ({grau})")
+    """O que o gate 3c recusa: repetidas, buracos e o cabecalho atras da emenda."""
+    lido = controlo(caminho, texto)
+    if lido is None:
+        return []
+    grau = "VERMELHO no gate 3c" if medido_pelo_gate(caminho) else "fora do gate 3c"
+    problemas = [f"{caminho}: a versao {v} aparece mais de uma vez ({grau})"
+                 for v in lido.repetidas]
+    problemas += [f"{caminho}: falta a versao {v} na sequencia ({grau})"
+                  for v in lido.buracos]
+    if lido.atrasado:
+        extra = ", e no dict_export" if caminho == DICIONARIO else ""
+        problemas.append(f"{caminho}: cabecalho {lido.cabecalho} e a emenda mais alta e "
+                         f"{lido.ultima} ({grau}{extra})")
     return problemas
 
 
 def acrescentadas(antes: str | None, depois: str | None) -> list[str]:
     """As versoes que `depois` tem e `antes` nao — as emendas que um ramo escreveu."""
-    ja = Counter(versoes(antes or ""))
+    ja: dict[str, int] = {}
+    for numero in versoes(antes or ""):
+        ja[numero] = ja.get(numero, 0) + 1
     novas: list[str] = []
     for numero in versoes(depois or ""):
-        if ja[numero] > 0:
+        if ja.get(numero, 0) > 0:
             ja[numero] -= 1
         else:
             novas.append(numero)
@@ -175,6 +190,13 @@ def acrescentadas(antes: str | None, depois: str | None) -> list[str]:
 
 
 # --- piso do lint_bloco -----------------------------------------------------
+
+#: A constante, e o literal par dela no arreio de mutacao do `lint_bloco`: subir uma
+#: sem a outra deixa a mutacao inaplicavel em silencio (KAM-060: quatro vezes em
+#: quatro epics, e so o `--aplicaveis` o apanha).
+PISO = re.compile(r"^MINIMO_DE_BLOCOS_MEDIDOS\s*=\s*(\d+)", re.MULTILINE)
+PAR_DO_PISO = "tools/lint_bloco/mutacao.py"
+
 
 def piso_exigido(medidos: int) -> int:
     """O que os dois ensaios do `lint_bloco` exigem: `medidos // 2 <= piso <= medidos`."""

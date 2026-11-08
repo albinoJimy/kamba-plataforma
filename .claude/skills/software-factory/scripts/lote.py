@@ -25,6 +25,19 @@ uma em quatro, e por isso a regra do *briefing* continua — «se precisares de 
 novo, para e diz-me» — e o `fila.py` apanha o resto na fusao. O dicionario **nao**
 entra no limite: o mesmo texto so previa 9 das 19 emendas fora da amostra, e as
 colisoes dele custam uma renumeracao, que o `fila.py` da.
+
+**E o DDL escrito no bloco tambem conta**, desde a primeira escolha a serio: o KAM-087
+tem `CREATE TABLE platform.kyc_check` no bloco, nao fala de RLS nem de *trigger*, e
+saiu no lote como «sem migracao» — so a leitura do bloco o apanhou. No historico, o
+DDL nao acrescenta nenhuma migracao apanhada (re-medido em 2026-11-08: 9 de 10
+dentro da amostra, 6 de 8 fora) e custa dois alarmes falsos fora dela (11 → 13 em
+50); fica porque um bloco que escreve o `CREATE TABLE` diz o que vai fazer.
+
+**O limite de componentes e quase inerte neste backlog**: os blocos nomeiam os
+componentes por codigo (`AGR`, `PAY`, `OBS`) e quase nunca por caminho, e o
+`componentes_de` le caminhos. Medido nos 22 prontos de 2026-11-08: zero componentes
+lidos em todos os blocos olhados. A sobreposicao real desse dia (o KAM-083 e o KAM-084
+a escreverem os mesmos *runbooks*) viu-se a ler, nao a contar.
 """
 
 from __future__ import annotations
@@ -42,7 +55,7 @@ import fonte  # noqa: E402
 import superficies as sup  # noqa: E402
 import vagas  # noqa: E402
 
-PREVE_MIGRACAO = re.compile(r"\bRLS\b|\btrigger")
+PREVE_MIGRACAO = re.compile(r"\bRLS\b|\btrigger|CREATE (TABLE|VIEW|FUNCTION)|ALTER TABLE")
 ORDEM_DE_PRIORIDADE = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 ORDEM_DE_ESTIMATIVA = {"XS": 0, "S": 1, "M": 2, "L": 3, "XL": 4}
 
@@ -117,7 +130,7 @@ def escolher(candidatos: list[Candidato], n: int, migracoes_abertas: int) -> tup
 def reclamados() -> tuple[set[str], int, list[str]]:
     """`(tickets com PR ou ramo, PRs abertos com revisao nova, linhas para o relatorio)`."""
     _, saida = fonte.correr("gh", "pr", "list", "--repo", fonte.REPO, "--state", "open",
-                            "--json", "number,title,files")
+                            "--limit", "200", "--json", "number,title,files")
     tickets: set[str] = set()
     migracoes = 0
     linhas: list[str] = []
@@ -140,9 +153,14 @@ def assuntos(ticket: str) -> list[str]:
     """
     saida = fonte.git("log", fonte.BASE, "-E", f"--grep={ticket}([^0-9]|$)",
                       "--format=%h %s")
-    no_assunto = re.compile(rf"\b{ticket}\b")
-    return [linha for linha in saida.splitlines()
-            if linha and no_assunto.search(linha.split(" ", 1)[1])]
+    return no_assunto(ticket, saida.splitlines())
+
+
+def no_assunto(ticket: str, linhas: list[str]) -> list[str]:
+    """Das linhas `<sha> <assunto>`, as que tem o ID no assunto, e nao noutro numero."""
+    padrao = re.compile(rf"\b{ticket}\b")
+    return [linha for linha in linhas
+            if " " in linha and padrao.search(linha.split(" ", 1)[1])]
 
 
 def main(argv: list[str] | None = None) -> int:

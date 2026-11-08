@@ -108,7 +108,10 @@ def blocos(leitor: Leitor) -> dict[str, str]:
     resultado: dict[str, str] = {}
     for fonte in fontes_de_blocos(leitor):
         texto = leitor.ler(fonte) or ""
-        for achado in re.finditer(r"^## (KAM-[0-9]{3}) .*?(?=^## KAM-|\Z)", texto, re.M | re.S):
+        # Acaba no proximo `## `, e nao no proximo `## KAM-`: o ultimo ticket de
+        # cada epic engolia as seccoes do epic que vem a seguir («Riscos do Epic»),
+        # e o KAM-085 ganhava sete componentes que o bloco dele nao nomeia.
+        for achado in re.finditer(r"^## (KAM-[0-9]{3}) .*?(?=^## |\Z)", texto, re.M | re.S):
             resultado[achado.group(1)] = achado.group(0)
     return resultado
 

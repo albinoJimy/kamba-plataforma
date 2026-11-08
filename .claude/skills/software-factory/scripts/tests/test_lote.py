@@ -25,6 +25,11 @@ class TestPrever(unittest.TestCase):
         self.assertTrue(lote.prever("KAM-1", dados(), bloco("a politica de RLS da tabela")).migracao)
         self.assertTrue(lote.prever("KAM-1", dados(), bloco("um trigger recusa o UPDATE")).migracao)
 
+    def test_o_ddl_escrito_no_bloco_preve_migracao(self) -> None:
+        """O KAM-087: `CREATE TABLE platform.kyc_check`, sem RLS nem trigger no texto."""
+        self.assertTrue(lote.prever("KAM-1", dados(), bloco("CREATE TABLE platform.kyc_check (")).migracao)
+        self.assertTrue(lote.prever("KAM-1", dados(), bloco("ALTER TABLE x ADD COLUMN y")).migracao)
+
     def test_sem_vocabulario_de_esquema_nao_preve(self) -> None:
         self.assertFalse(lote.prever("KAM-1", dados(), bloco("um runbook operacional")).migracao)
 
@@ -69,6 +74,37 @@ class TestEscolher(unittest.TestCase):
               self.candidato("KAM-003", prioridade="P1")]
         escolhidos, _ = lote.escolher(cs, 2, 0)
         self.assertEqual([c.ticket for c in escolhidos], ["KAM-002", "KAM-003"])
+
+
+class TestAssuntos(unittest.TestCase):
+    def test_o_id_tem_de_estar_no_assunto_e_nao_noutro_numero(self) -> None:
+        """O defeito do KAM-033: o `--grep` casa o corpo, e um commit do KAM-032 citava-o."""
+        linhas = ["b79d1e8 chore(KAM-137): escreve o id do ruleset (#153)",
+                  "743f3de feat(KAM-032): validador de citacao",
+                  "1111111 fix(KAM-1370): outro numero que comeca igual"]
+        self.assertEqual(lote.no_assunto("KAM-137", linhas), [linhas[0]])
+        self.assertEqual(lote.no_assunto("KAM-033", linhas), [])
+
+
+class TestBlocos(unittest.TestCase):
+    def test_o_ultimo_bloco_do_epic_nao_engole_as_seccoes_do_epic(self) -> None:
+        """Achado 9: o KAM-085 ganhava sete componentes da «Riscos do Epic» a seguir."""
+        import vagas
+
+        epic = ("## KAM-001 — um\n\ntexto do um\n\n## KAM-002 — dois\n\ntexto do dois\n\n"
+                "## Riscos do Epic\n\nservices/com e libs/py-core\n")
+
+        class Leitor:
+            def ler(self, caminho: str) -> str | None:
+                return epic if caminho == "specs/EPIC-99_X.md" else None
+
+            def listar(self, pasta: str) -> list[str]:
+                return ["specs/EPIC-99_X.md"] if pasta == "specs" else []
+
+        blocos = vagas.blocos(Leitor())
+        self.assertEqual(sorted(blocos), ["KAM-001", "KAM-002"])
+        self.assertNotIn("Riscos", blocos["KAM-002"])
+        self.assertIn("texto do um", blocos["KAM-001"])
 
 
 if __name__ == "__main__":
