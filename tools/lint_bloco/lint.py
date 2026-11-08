@@ -100,25 +100,40 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: piso em metade do medido, a **folga sao dois blocos** — ao 84.º volta a pedir
 #: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
 #:
-#: **E chegou ao 84.º, exactamente como a nota de cima previa — subiu de 41
-#: para 42 com o KAM-079.** O corpus cresceu **tres** blocos desde os 81: a
-#: seccao do KAM-108, a do KAM-055 e a do KAM-079, pelo que `medidos` passou a
-#: **84** e `84 // 2` sao 42. Medido nesta arvore, com a `publico/main`
-#: integrada: com o piso em 41 o ensaio falha com `41 not greater than or equal
-#: to 42`. Sobe-se para o valor **medido** e nao para um com folga — um piso em
-#: antecipacao e um piso que nao mede nada —, e a folga volta a ser de dois
-#: blocos, pelo que ao 86.º se volta a pedir emenda.
+#: **E ao 84.º chegou, exactamente como a nota acima previa.** O piso esta em
+#: **42** e quem o pos la foi o **KAM-182**, que fundiu primeiro; o KAM-079 tinha
+#: medido o mesmo valor no seu ramo e chegaria ao mesmo numero. **Qual dos dois
+#: o subiu e um dado sobre a ordem de fusao e nao sobre o corpus**, pelo que nao
+#: vale a pena escreve-lo de outra forma: o que vale e o numero e como se mede.
 #:
-#: **Tres tickets a pagar a mesma linha em dois dias e um dado sobre o desenho,
-#: e nao sobre nenhum deles.** O limite nao e a regra — o piso e que a torna
-#: util —, e sim a **cadencia**: cada dois blocos de verificacao novos exigem
-#: uma emenda a uma constante que vive no ticket de outra pessoa. Fica
-#: registado para o KAM-183, que e quem governa esta regra.
+#: As duas restricoes que o `test_os_pisos_valem_alguma_coisa` e o
+#: `test_os_pisos_da_arvore_real_ficam_abaixo_do_medido` impoem juntas:
+#:
+#:     medidos // 2  <=  MINIMO_DE_BLOCOS_MEDIDOS  <=  medidos
+#:
+#: Medido na arvore desta fusao — a `publico/main` em `b79d1e8c` com o bloco do
+#: KAM-079 dentro: **85 medidos**, e `85 // 2` sao 42, pelo que o piso **fica**
+#: em 42 e nao sobe. Nao se sobe em antecipacao: um piso acima do medido
+#: avermelha o portao sem defeito nenhum, e um piso copiado de outra ponta nao
+#: mede a arvore em que esta.
+#:
+#: **A folga e de um bloco.** Ao 86.º bloco medido, `86 // 2` sao 43 e esta
+#: constante pede emenda outra vez. Nao se nomeia aqui quem a vai pagar: ha
+#: ramos abertos com seccoes de verificacao por fundir, e qual deles aterra em
+#: segundo decide-se na fusao e nao aqui.
+#:
+#: **Quatro blocos a pagar esta linha em tres dias e um dado sobre o desenho, e
+#: nao sobre nenhum dos tickets.** Desde os 81: a seccao do KAM-108, a do
+#: KAM-055, a do KAM-182 e a do KAM-079. O limite nao e a regra — o piso e que a
+#: torna util —, e sim a **cadencia**: cada dois blocos de verificacao novos
+#: exigem uma emenda a uma constante que vive no ticket de outra pessoa, e a
+#: emenda e sempre uma medicao na arvore de quem funde. Fica registado para o
+#: **KAM-183**, que e quem governa esta regra.
 MINIMO_DE_BLOCOS_MEDIDOS = 42
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
-#: ser atingido por acidente. Medido: 182.
+#: ser atingido por acidente. Medido: 184 (KAM-184).
 MINIMO_DE_BLOCOS = 150
 
 

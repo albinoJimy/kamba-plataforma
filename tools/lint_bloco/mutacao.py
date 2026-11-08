@@ -148,17 +148,19 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # ------------------------------------------------------- os dois pisos
     ("o piso de blocos a zero", "lint.py",
      "MINIMO_DE_BLOCOS = 150", "MINIMO_DE_BLOCOS = 0"),
-    # O literal tem de seguir o valor do piso: a mutacao exige encontrar o texto
-    # que troca, pelo que um numero velho aqui nao se aplica — e uma mutacao que
-    # nao se aplica e uma prova que deixou de existir.
+    # **O literal tem de acompanhar o `lint.py`, e esteve dois valores atras.**
+    # Ficou em `40` quando o KAM-108 subiu o piso para 41: a mutacao deixou de
+    # casar, e uma mutacao que nao casa nao mede nada — fica verde por nao ter
+    # mudado o codigo. Quem mexer no piso mexe aqui.
     #
-    # **E nao tem seguido, medido.** Em `06b8aba2` a constante do `lint.py` era
-    # ja **41** e este literal dizia **40**: o KAM-108 subiu o piso e deixou o
-    # literal atras, pelo que esta mutacao estava a sair «NAO APLICOU» na `main`
-    # e a prova do piso de emparelhados nao existia. O KAM-079 poe os dois em
-    # **42**. A licao e a razao de este comentario estar aqui: duas edicoes, e a
-    # segunda so se ve a correr o `mutacao.py`, porque nenhum portao compara um
-    # literal de mutacao com a constante que ele cita.
+    # **Duas revisoes adversariais independentes encontraram este mesmo defeito**
+    # — a do KAM-182 e a do KAM-079 —, cada uma a medir a sua arvore e sem ver a
+    # outra, e as duas escreveram `42`. Vale a pena guardar porque e a melhor
+    # prova que este inventario podia ter: o defeito nao era visivel a ler, era
+    # visivel a **correr** o `mutacao.py` e ver «NAO APLICOU», e nenhum portao
+    # compara um literal de mutacao com a constante que ele cita. Duas edicoes,
+    # e a segunda so se ve a correr.
+
     ("o piso de emparelhados a zero", "lint.py",
      "MINIMO_DE_BLOCOS_MEDIDOS = 42", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.20 |
+| Versão | 1.21 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1365,7 +1365,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 183 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 184 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -1580,3 +1580,4 @@ Abre PR com o template do §7.
 | 1.18 | Novembro 2026 | KAM-066, seguimento: os números da secção de verificação passam de 45/22/16/98 para **54 itens, 31 rotas, 17 casos e 115 baterias de unidade**, e a CA-8 de 962 para 965 mutações. O que os subiu foi o KAM-178 a fundir em `8047a46` com nove superfícies novas no COM — sete rotas `POST /internal/*`, o `GET /metrics` e o `ALL /internal/*` —, que levam caso real e não dispensa. Secção nova «o que o KAM-178 encontrou dentro deste ticket»: o limpador de comentários da enumeração era cego às cadeias de caracteres e escondia sete rotas, pelo que o portão dava verde sobre 24 das 31. **As caixas não mudam**: continuam quatro das nove marcadas, e o CA-6 continua com o credor que ja tinha — o predicado de contacto na leitura de cotacoes esta em revisao noutro ramo, e a entrada do dicionario SEM_PREDICADO_DE_CONTACTO so sai depois de ele fundir, senao o caso fica vermelho contra uma main onde o predicado nao existe. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | KAM-066, seguimento: **o CA-6 passa a verde e a contagem a cinco marcadas e quatro vazias** (CA-1, CA-3, CA-8 e CA-9). O que o fechou não foi este PR: foi o **KAM-179**, por decisão do fundador de 2026-11-04 («a cotação é por contacto»), que pôs o predicado na leitura, na aceitação e no caminho que cobra. Este PR troca a **fixação da ausência** pela **afirmação da propriedade** — o `SEM_PREDICADO_DE_CONTACTO` fica vazio, e fica — e acrescenta a mutação `cotacoes: a leitura perde o predicado do contacto`, que é a primeira metade do critério 8 **ao pé da letra**: tirar o predicado de uma função de repositório torna a bateria vermelha, e no eixo do contacto nenhuma política o tapa. A CA-8 passa de 965 para 966 mutações. **A causa de o `gate` 6 ter estado vermelho três voltas fica registada**, porque é uma classe de erro e não um acidente: o `as` do TypeScript no condutor afirmava quatro argumentos para um `getValidQuote` que o KAM-179 pôs em cinco, e o `runner` testa o PR **fundido com a `main`** enquanto a máquina de quem escreve testa o ramo sozinho. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **O bloco do KAM-149 deixa de declarar aberta uma dívida que já está paga, e os dois números dele passam a bater.** O `fix/KAM-113` deu aos três modelos de `../docs/seguranca/modelos/` a secção «Controlo de versões» que lhes faltava desde o `dc01fce`, por decisão do fundador de 2026-11-05: o validador passou de **3** erros de conteúdo a **0**, e os três documentos de 91, 74 e 73 linhas para **99, 82 e 81**. O CA 6 dizia «1 erro de conteúdo» e a prosa do mesmo bloco dizia «3» — **as duas superfícies discordavam já na `c792cc4`**, e a medição dava 3; agora dizem 0 as duas. Nada disto é lido por portão nenhum, e quem o apanhou foi a revisão adversarial do ramo que pagou a dívida, a quem não se disse o que procurar. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
+| 1.21 | Novembro 2026 | **Contagem viva do *backlog*, de 183 para 184, com a abertura do KAM-184 noutro epic.** O `lint_contagens` lê esta contagem da fonte e não de outro documento, pelo que abrir um ticket **obriga** a emenda aqui — a frase é presente («o *backlog* tem N») e a que lhe segue descreve uma captura de época, que fica intacta. Nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |

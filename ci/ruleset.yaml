@@ -49,10 +49,18 @@ alvos:
 
   - repositorio: albinoJimy/kamba-plataforma
     espelho: .github/rulesets/main.json
+    ruleset_id: 25359475
     razao: >-
       O repositorio publico, onde os PR sao abertos e onde o CI corre. O mesmo
-      espelho, porque a politica e a mesma: o fundador decidiu a 2026-10-18
-      criar aqui uma copia do ruleset do privado. Sem `ruleset_id` porque ele
-      ainda nao existe — ate existir, a verificacao deste alvo e VERMELHA, de
-      proposito, e e essa a unica forma honesta de o dizer. Quando for criado,
-      a saida imprime o `id` para ser escrito aqui.
+      espelho, porque a politica e a mesma. O fundador criou aqui a copia do
+      ruleset do privado a 2026-10-18 (`created_at` 22:51, `updated_at`
+      2026-10-19 09:27), e o `id` ficou escrito a 2026-11-07 — que era o passo
+      que faltava: sem ele, um `delete`+`create` deste ruleset era invisivel,
+      porque o nome fica igual e so o `id` muda.
+      Medido a 2026-11-07 com o KAM-137 a correr: os sete contextos exigidos,
+      `bypass_actors` vazio, `enforcement` activo, `conditions`, `name`,
+      `target` e as quatro regras sao exactamente os do espelho. Diverge num
+      parametro so — `require_extra_approval_for_unattributed_changes`, que o
+      espelho tem a `true` e este alvo tem a `false`. Resolve-se num dos dois
+      sentidos do `.github/rulesets/README.md`, e os dois sao acto do
+      fundador: nao se baixa o espelho para calar o vermelho.

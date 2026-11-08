@@ -51,8 +51,27 @@ def resposta_da_api(**alteracoes) -> dict:
 PRIVADO = "albinoJimy/kamba"
 PUBLICO = "albinoJimy/kamba-plataforma"
 
+#: Os `id` que a configuracao declara, **lidos do ficheiro real** e nao
+#: copiados para aqui. A razao foi medida: o alvo do publico passou a declarar
+#: o seu `id` (25359475, criado a 2026-10-18 e escrito a 2026-11-07), e os
+#: numeros inventados que estavam nestas fixtures passaram a valer como
+#: `id-do-ruleset-divergente`. Um `id` copiado para os testes e uma segunda
+#: copia do mesmo numero — exactamente o que o `README.md` do ruleset tem um
+#: teste para impedir.
+def _ids_declarados() -> dict[str, int]:
+    from ruleset_check import config
+
+    return {alvo.repositorio: alvo.ruleset_id
+            for alvo in config.ler(ROOT) if alvo.ruleset_id is not None}
+
+
+IDS_DECLARADOS = _ids_declarados()
+
 #: O `id` do ruleset do privado, como a configuracao o declara.
-ID_DO_PRIVADO = 24879081
+ID_DO_PRIVADO = IDS_DECLARADOS[PRIVADO]
+
+#: E o do publico, que existe desde 2026-10-18.
+ID_DO_PUBLICO = IDS_DECLARADOS[PUBLICO]
 
 
 def entrada_da_listagem(ruleset_id: int = ID_DO_PRIVADO, nome: str | None = None) -> dict:
@@ -94,10 +113,15 @@ def api_falsa(por_repositorio: dict[str, tuple[list, dict]]):
 
 
 def tudo_conforme() -> dict[str, tuple[list, dict]]:
-    """Os dois alvos com o ruleset aplicado e igual ao espelho."""
+    """Os dois alvos com o ruleset aplicado e igual ao espelho.
+
+    O `id` de cada alvo e o que a configuracao declara: um numero diferente
+    aqui seria uma divergencia a mais, e este e o estado «tudo conforme».
+    """
     return {
         PRIVADO: ([entrada_da_listagem()], {ID_DO_PRIVADO: resposta_da_api()}),
-        PUBLICO: ([entrada_da_listagem(ruleset_id=99)], {99: resposta_da_api()}),
+        PUBLICO: ([entrada_da_listagem(ruleset_id=ID_DO_PUBLICO)],
+                  {ID_DO_PUBLICO: resposta_da_api()}),
     }
 
 
