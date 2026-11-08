@@ -61,12 +61,24 @@ entitlements:
 #
 # O tuplo vazio diz «esta vertical subscreve e nao avisa ninguem», que e o
 # estado verdadeiro: o `03` §12 e o dicionario §3.5 dizem o que ela tem de fazer
-# com eles — «confirma uma marcacao com sinal» —, e isso e o modulo `servicos`
-# (**KAM-047**) e o grafo dela (**KAM-035**), nenhum dos dois escrito. O credor
-# esta no `ACCOES_POR_LIGAR` do `eventos/handlers.py`, e e ele que deixa o
-# arranque aceitar estas duas: uma subscricao sem destinatario **e** sem credor
-# reprova o arranque (`exigir_handlers`). O desfecho do consumo e `sem_accao` —
-# contado, registado, e com dono.
+# com eles — «confirma uma marcacao com sinal» —, e isso **nao e uma
+# notificacao**. A accao esta escrita desde o **KAM-184**, no
+# `ACCOES_DE_MARCACAO` do `eventos/handlers.py`, e e ela que deixa o arranque
+# aceitar estas duas: uma subscricao sem destinatario, sem accao escrita **e**
+# sem credor reprova o arranque (`exigir_handlers`). O desfecho do consumo e o
+# da accao e nao `sem_accao`; o que ele era — e o credor `KAM-047` que o
+# acompanhava — esta na seccao de verificacao daquele bloco.
+#
+# **A marcacao nao vem no evento, e nao e por omissao dos esquemas**: os quatro
+# contratos dos dois tipos tem `additionalProperties: false` e nao admitem
+# `booking_id`. Quem resolve a encomenda para uma marcacao e a agenda, atras da
+# `PortaDeMarcacao`, e as duas rotas para la chegar estao **devolvidas ao
+# fundador** no criterio 1 do KAM-184.
+#
+# **O numero destas subscricoes nao mudou**, e e por isso que a `version` acima
+# tambem nao: o tuplo das `subscriptions` e o mesmo, com os mesmos quatro pares
+# e os mesmos `notifica`. O que mudou foi o que o AGR faz com dois deles, que nao
+# e chave deste ficheiro.
 subscriptions:
   - tipo: booking.created
     versao: 1

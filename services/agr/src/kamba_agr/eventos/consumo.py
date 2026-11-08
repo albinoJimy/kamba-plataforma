@@ -326,6 +326,7 @@ class ConsumidorDeEventos:
         notificador: Notificador,
         ler_entitlement: Callable[[str, str], _Entitlement],
         contactos: handlers.PortaDeContacto | None = None,
+        marcacoes: handlers.PortaDeMarcacao | None = None,
         metricas: MetricasDoAgr | None = None,
         aviso: Callable[[str, str], None] | None = None,
         relogio: Callable[[], float] = time.time,
@@ -341,6 +342,9 @@ class ConsumidorDeEventos:
         self._ler_entitlement = ler_entitlement
         self._contactos = (
             handlers.ContactoPorLigar() if contactos is None else contactos
+        )
+        self._marcacoes = (
+            handlers.MarcacaoPorLigar() if marcacoes is None else marcacoes
         )
         self._metricas = metricas
         self._aviso = aviso
@@ -495,9 +499,12 @@ class ConsumidorDeEventos:
         consumidores, e o que impede os dois de mandarem a **mesma** mensagem e
         o *handler* ser por `(vertical, tipo)` e nao por tipo: o
         `payment.confirmed` fala com o cliente pelo Vendedor, e nos Servicos a
-        accao e outra — «confirma uma marcacao com sinal» —, que o KAM-047 ainda
-        nao escreveu e que o desfecho `sem_accao` nomeia. Achado da revisao
-        adversarial.
+        accao e outra — «confirma uma marcacao com sinal», escrita pelo KAM-184 e
+        atras da `PortaDeMarcacao`. Achado da revisao adversarial.
+
+        Ate aquele ticket esta nota dizia «que o KAM-047 ainda nao escreveu e que
+        o desfecho `sem_accao` nomeia»: era verdade, e deixou de ser nas duas
+        metades.
         """
         return tuple(
             consumidor
@@ -707,11 +714,13 @@ class ConsumidorDeEventos:
     ):
         """O efeito que corre **dentro** da transaccao do consumo.
 
-        Ignora o cliente SQL que recebe, e isso e deliberado: o efeito deste
-        ticket nao escreve na base — escreve numa fila, pelo Outbound ou pelo
-        HND. O argumento fica na assinatura porque e o contrato do `Efeito` do
-        KAM-006, e mudar o contrato para um consumidor era pedir ao nucleo que
-        se adaptasse a um chamador.
+        Ignora o cliente SQL que recebe, e isso e deliberado: nenhum dos efeitos
+        que correm aqui escreve na base **do AGR**. Dois enfileiram — pelo
+        Outbound ou pelo HND — e o terceiro, a confirmacao da marcacao com sinal
+        (KAM-184), atravessa uma porta para a agenda, que vive no modulo
+        `servicos` do outro lado da fronteira do ADR-009. O argumento fica na
+        assinatura porque e o contrato do `Efeito` do KAM-006, e mudar o contrato
+        para um consumidor era pedir ao nucleo que se adaptasse a um chamador.
         """
 
         def aplicar(_bd, _envelope) -> None:
@@ -724,6 +733,35 @@ class ConsumidorDeEventos:
             # sobreviveu, que e como se descobre codigo morto. O que decide o desfecho
             # `sem_accao` e o `credor` do `_consumir`, e esse tem mutacao que o
             # mata.
+            if handlers.tem_accao_de_marcacao(consumidor.vertical, envelope.tipo):
+                # **A accao do KAM-184**, e e por ela que o desfecho destes dois
+                # pares deixou de ser `sem_accao`. Nao se liga ao `accoes_de`: o
+                # `AccoesDoEvento` e quem **se avisa** (cliente, dono), e uma
+                # confirmacao de marcacao nao avisa ninguem — meter um terceiro
+                # campo la dentro obrigava toda a notificacao a saber de agendas.
+                #
+                # **Corre ANTES do ramo do `do_humano`, e a ordem e uma
+                # correccao da revisao adversarial.** Escrita depois dele, a
+                # confirmacao era saltada por um `return` quando a conversa
+                # estivesse com um humano: o evento consumia-se com
+                # `entregue_ao_hnd`, uma linha em `events_consumed`, **zero** na
+                # DLQ, e a marcacao de quem pagou ficava em `hold` ate expirar —
+                # a «marca sem efeito» que este modulo existe para nao ter. E
+                # nao e so a ordem que estava errada: um humano com a palavra
+                # decide **a quem se fala** (o HND em vez do cliente), e nao se
+                # o negocio acontece. Hoje o ramo e inalcancavel para estes dois
+                # pares — sem `notifica` nao se le conversa nenhuma, logo
+                # `do_humano` e sempre falso —, mas bastava uma linha de
+                # `notifica` no `registry/` para o alcancar, e o arranque
+                # aceita-a: a terceira guarda do `exigir_handlers` recusa
+                # credor **com** efeito, nao efeito com destinatario.
+                #
+                # O valor devolvido nao se liga a nada, e isso e deliberado: o
+                # artefacto fica na agenda, e distinguir no painel «confirmou» de
+                # «esta encomenda nao tinha marcacao» e uma etiqueta nova numa
+                # metrica — credor **KAM-080**, que e quem tem as metricas e os
+                # alertas, e nao se inventa aqui.
+                handlers.confirmar_marcacao_com_sinal(envelope, self._marcacoes)
             if do_humano:
                 # Criterio 5: a conversa esta com um humano. **Notifica-se o
                 # HND** e nao o cliente — e o evento consome-se, porque repetir

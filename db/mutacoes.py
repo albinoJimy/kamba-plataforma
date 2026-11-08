@@ -5683,14 +5683,56 @@ MUTACOES = [
     # passa a receber a **mesma** mensagem duas vezes sobre o mesmo pagamento:
     # dois consumidores, duas chaves de idempotencia, e a `UNIQUE (tenant_id,
     # idempotency_key)` de `outbound_messages` sem nada para deduplicar.
-    ('eventos_agr: a accao por ligar deixa de existir', AG_EVT_HANDLERS,
-     '    ("servicos", "payment.confirmed"): "KAM-047",',
+    ('eventos_agr: a accao de marcacao deixa de existir', AG_EVT_HANDLERS,
+     '    ("servicos", "payment.confirmed"),',
      "",
      AGR_UNIT),
-    # O par deixa de ter handler, e com ele deixa de haver o `sem_accao` que
-    # nomeia o credor: o arranque reprova — que e o lado certo de errar — mas a
-    # alternativa que isto apaga era a unica que distingue «ninguem escreveu
-    # isto» de «isto nao existe».
+    # O par deixa de ter handler: nao avisa ninguem, nao tem accao escrita e nao
+    # tem credor, pelo que o arranque reprova — que e o lado certo de errar — e a
+    # accao deixa de correr. **Esta mutacao substitui a `a accao por ligar deixa
+    # de existir`** (KAM-184): aquela ancorava-se no
+    # `("servicos", "payment.confirmed"): "KAM-047"` do `ACCOES_POR_LIGAR`, e o
+    # ticket escreveu a accao — os dois pares passaram para o
+    # `ACCOES_DE_MARCACAO` e aquela tabela ficou vazia. A propriedade medida e a
+    # mesma: a declaracao do par e o que distingue «esta vertical faz isto» de
+    # «ninguem escreveu isto».
+    ('eventos_agr: o consumo deixa de chamar a accao de marcacao', AG_EVT_CONSUMO,
+     "            if handlers.tem_accao_de_marcacao("
+     "consumidor.vertical, envelope.tipo):",
+     "            if False:",
+     AGR_UNIT),
+    # **A mutacao da ligacao, e nao da funcao** (KAM-184): a accao continua
+    # escrita e correcta, e deixa de ser chamada. O desfecho **nao** muda — fica
+    # `aplicado`, porque nao ha credor a ler —, pelo que o que a mata e a
+    # asercao sobre o artefacto: a marcacao fica em `hold`. Uma bateria que so
+    # olhasse ao desfecho ficava verde com a accao desligada.
+    ('eventos_agr: a accao de marcacao passa a valer para todas as verticais',
+     AG_EVT_HANDLERS,
+     "    return (vertical, tipo) in COM_ACCAO_DE_MARCACAO",
+     "    return True",
+     AGR_UNIT),
+    # O Vendedor passa a confirmar a marcacao do mesmo pagamento: duas
+    # confirmacoes por evento num *tenant* com as duas verticais activas — que e
+    # o do *gate* da Fase 0 —, e e a forma de reintroduzir, do lado do efeito de
+    # negocio, o defeito que o *handler* por `(vertical, tipo)` fechou do lado da
+    # mensagem.
+    ('eventos_agr: a porta de marcacao por omissao passa a dizer que nao ha nada',
+     AG_EVT_HANDLERS,
+     '        raise MarcacaoPorResolver("agenda_por_ligar")',
+     "        return None",
+     AGR_UNIT),
+    # **A diferenca entre «nao sei» e «nao ha marcacao»**, apagada. Com isto, um
+    # pagamento num *tenant* com Servicos activa consome-se com `aplicado` sobre
+    # uma confirmacao que nunca houve: o painel diz que o evento foi tratado, e a
+    # marcacao do cliente continua em `hold` ate expirar.
+    ('eventos_agr: a guarda do arranque deixa de ver a accao escrita',
+     AG_EVT_HANDLERS,
+     "        if tem_credor and (subscricao.notifica or tem_accao):",
+     "        if tem_credor and subscricao.notifica:",
+     AGR_UNIT),
+    # A terceira guarda perde a metade que o KAM-184 lhe acrescentou: um par com
+    # credor **e** accao escrita passa a arrancar, e em execucao o efeito corre e
+    # o desfecho diz `sem_accao`, porque ele le o credor e nao o efeito.
     ('eventos_agr: a accao por ligar passa a dar-se por aplicada',
      AG_EVT_CONSUMO,
      "            if credor is not None:\n"
