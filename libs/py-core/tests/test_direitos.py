@@ -229,7 +229,7 @@ class BaseQueLeAInstrucao:
     def _registar(self, params: tuple) -> list[tuple]:
         tenant, dsar_id, contacto, escopo, aplicado = params
         if (dsar_id, escopo) in self.ledger:
-            # E a unicidade `(tenant_id, dsar_id, escopo)` da revisao `0037`,
+            # E a unicidade `(tenant_id, dsar_id, escopo)` da revisao `0038`,
             # imitada: `ON CONFLICT DO NOTHING` nao devolve linha.
             return []
         self.ledger.append((dsar_id, escopo))
@@ -754,7 +754,7 @@ class TestAReaplicacaoAposRestauro(unittest.TestCase):
 class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
     """Os dominios estao escritos em **tres** sitios, e nenhum portao os compara.
 
-    A revisao `0037` escreve cada dominio duas vezes — a tupla e a cadeia de
+    A revisao `0038` escreve cada dominio duas vezes — a tupla e a cadeia de
     literais do `CHECK` —, porque o *gate* 3b le a revisao sem a correr e um
     `", ".join(...)` deixa o SQL ilegivel para ele (e a razao que a `0006` ja
     escreveu). E este modulo escreve-os uma terceira vez, porque um modulo que
@@ -780,7 +780,7 @@ class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
 
         raiz = pathlib.Path(__file__).resolve().parents[3]
         cls.revisao = (
-            raiz / "db" / "migrations" / "versions" / "0037_direitos_do_titular.py"
+            raiz / "db" / "migrations" / "versions" / "0038_direitos_do_titular.py"
         ).read_text(encoding="utf-8")
 
     def exigir(self, constante: str, valores: tuple[str, ...]) -> None:
@@ -788,7 +788,7 @@ class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
         self.assertIn(
             f'{constante} = "{esperado}"',
             self.revisao,
-            f"o {constante} da revisao 0037 divergiu deste modulo",
+            f"o {constante} da revisao 0038 divergiu deste modulo",
         )
 
     def test_os_tipos_sao_os_mesmos(self) -> None:
@@ -810,7 +810,7 @@ class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
         self.exigir("LITERAIS_DE_PAPEL", PAPEIS_DA_KAMBA)
 
     def dominio_da_accao(self) -> str:
-        """O texto **da atribuicao** do `LITERAIS_DE_ACCAO_0037`, e so dele.
+        """O texto **da atribuicao** do `LITERAIS_DE_ACCAO_0038`, e so dele.
 
         **E a correccao de um achado medido da revisao adversarial.** A primeira
         versao deste ensaio afirmava `assertIn(f"'{accao}'", self.revisao)`
@@ -821,7 +821,7 @@ class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
         podia repor o dominio de **sete** da `0006` com este ensaio a dizer que
         estava tudo bem, e a recusa do criterio 1 levantava `23514` em producao.
         """
-        marca = "LITERAIS_DE_ACCAO_0037 = ("
+        marca = "LITERAIS_DE_ACCAO_0038 = ("
         inicio = self.revisao.index(marca) + len(marca)
         return self.revisao[inicio : self.revisao.index(")", inicio)]
 
@@ -869,7 +869,7 @@ class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
         """
         from kamba_core.direitos import ACCOES_DE_DSAR
 
-        marca = "LITERAIS_DE_ACCAO_0037 = ("
+        marca = "LITERAIS_DE_ACCAO_0038 = ("
         inicio = self.revisao.index(marca) + len(marca)
         fim = self.revisao.index(")", inicio)
         dominio_sem_as_novas = self.revisao[inicio:fim].replace(

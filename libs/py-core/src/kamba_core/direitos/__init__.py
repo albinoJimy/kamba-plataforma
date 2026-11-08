@@ -1,7 +1,7 @@
 """Os direitos do titular: acesso, rectificacao, eliminacao e oposicao (KAM-070).
 
 Quatro operacoes sobre duas tabelas da revisao
-[`0037`](../../../../../db/migrations/versions/0037_direitos_do_titular.py), e
+[`0038`](../../../../../db/migrations/versions/0038_direitos_do_titular.py), e
 uma regra que atravessa as quatro:
 
     pedido      `PortaDeDireitos.receber(...)` aceita **so do proprio

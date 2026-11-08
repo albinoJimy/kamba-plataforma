@@ -875,7 +875,7 @@ ESPERADO_POR_TABELA.update(
 #: O que o `lg` lhe concede esta na revisao `0020` e prova-se na bateria do
 #: KAM-026, nao aqui: esta matriz e de `platform`.
 #:
-#: **A revisao `0037` (KAM-070) nao e excepcao a esta linha, e por decisao.** Uma
+#: **A revisao `0038` (KAM-070) nao e excepcao a esta linha, e por decisao.** Uma
 #: primeira versao dela dava ao `kamba_agr` `SELECT` na `dsar_requests` e
 #: `SELECT, INSERT` na `erasure_ledger`, porque o criterio 3 daquele bloco nomeia
 #: o AGR como um dos seis consumidores do `privacy.erasure_requested`. **Saiu.**
@@ -1275,7 +1275,7 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
-#: KAM-070 (revisao `0037`): os direitos do titular.
+#: KAM-070 (revisao `0038`): os direitos do titular.
 #:
 #: **Os nove papeis por extenso nas duas, pela razao do `provisioning_step`**:
 #: estas entradas declaram-se depois da compreensao que injecta o
@@ -1783,7 +1783,7 @@ def esquema_de(tabela: str) -> str:
 #: tem privilegios por coluna, ou onde um privilegio de coluna a mais seria
 #: invisivel na matriz de tabela.
 TABELAS_COM_MATRIZ_DE_COLUNA = (
-    # KAM-070 (0037): as duas, e cada uma pela razao oposta da outra.
+    # KAM-070 (0038): as duas, e cada uma pela razao oposta da outra.
     #
     # A `dsar_requests` tem `UPDATE` **por coluna** para dois papeis — duas
     # colunas, em `COLUNAS_POR_PAPEL` — e entra pela razao do

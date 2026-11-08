@@ -371,7 +371,7 @@ def _destino_de_transferencia(cursor, tenant_id: str, canario: str) -> None:
 
 
 def _pedido_do_titular(cursor, tenant_id: str, canario: str) -> None:
-    """Um pedido do titular (KAM-070, revisao `0037`). O canario vai no `dsar_id`.
+    """Um pedido do titular (KAM-070, revisao `0038`). O canario vai no `dsar_id`.
 
     **Sem coluna de texto livre**, como a `conversations` do KAM-014 e a
     `order_reconciliation_issues` do KAM-044: das dez colunas, tres sao dominios
@@ -1476,7 +1476,7 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ),
     # KAM-070: o pedido do titular. O canario vai na chave primaria (ver
     # `_uuid`), a coluna alteravel e o `estado` — uma das duas do `GRANT UPDATE`
-    # por coluna da `0037` — e o semeador e o administrador, por duas razoes que
+    # por coluna da `0038` — e o semeador e o administrador, por duas razoes que
     # a receita escreve: a subconsulta do contacto e o `DELETE` que papel
     # nenhum tem.
     #

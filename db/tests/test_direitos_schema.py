@@ -1,4 +1,4 @@
-"""A revisao 0037 contra a base: os direitos do titular (KAM-070).
+"""A revisao 0038 contra a base: os direitos do titular (KAM-070).
 
 As listas fechadas do *gate* 8 — o inventario, as restricoes por nome, os
 indices parciais, as FK, a matriz de privilegios — afirmam que a revisao
@@ -61,7 +61,7 @@ if _NUCLEO not in sys.path:
 from tests import factories
 from tests.base import (
     TABELAS,
-    TABELAS_ATE_0036,
+    TABELAS_ATE_0037,
     VIOLACAO_DE_CHECK,
     VIOLACAO_DE_UNICIDADE,
     ComBase,
@@ -352,7 +352,7 @@ class TestODominioDaAccaoDeAuditoria(ComBase):
         )
 
 
-class TestDowngradeDa0037(ComBase):
+class TestDowngradeDa0038(ComBase):
     """O `downgrade` leva a base para a `0036` e recusa-se quando nao pode.
 
     Herda do `ComBase` para garantir papeis e `head`, e **repoe o `head` no
@@ -375,7 +375,7 @@ class TestDowngradeDa0037(ComBase):
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'platform'"
             )
         }
-        self.assertEqual(presentes, set(TABELAS_ATE_0036))
+        self.assertEqual(presentes, set(TABELAS_ATE_0037))
         self.assertNotIn("dsar_requests", presentes)
         self.assertNotIn("erasure_ledger", presentes)
 

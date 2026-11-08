@@ -513,7 +513,7 @@ class TestConvencoes(ComBase):
                 # `CHECK` de forma hexadecimal. Chave primaria e nao indice
                 # unico, porque a idempotencia do `draft_prepare` e da base.
                 ("draft_decisions", "draft_id", "text", None),
-                # KAM-070, revisao `0037`: o pedido do titular segue a regra
+                # KAM-070, revisao `0038`: o pedido do titular segue a regra
                 # geral, `uuid` gerado — e a chave **nao se chama `id`**, o que
                 # a tira do conjunto fechado do
                 # `test_as_chaves_primarias_sao_uuid_com_omissao_gerada`, que
@@ -1176,7 +1176,7 @@ class TestConvencoes(ComBase):
              # **E a unica desta lista cujo `tenant_id` e anulavel**, pela razao
              # escrita em `ANULAVEIS`.
              "tenant_destinations",
-             # KAM-070. As duas da `0037`, e as duas satisfazem a convencao
+             # KAM-070. As duas da `0038`, e as duas satisfazem a convencao
              # **pela unicidade**, como a `conversations`, a
              # `stock_reservations` e a `tenant_destinations`: a
              # `dsar_requests_tenant_dsar_uq` e a `erasure_ledger_escopo_uq`
@@ -1696,7 +1696,7 @@ class TestConvencoes(ComBase):
         # `0033` acima, e `MATCH SIMPLE`, que e o que deixa a cobranca de ciclo
         # de billing (`order_id` nulo) continuar a passar.
         #
-        # **77 e nao 72** desde a `0037` (KAM-070): as **cinco** dos direitos do
+        # **77 e nao 72** desde a `0038` (KAM-070): as **cinco** dos direitos do
         # titular — duas na `dsar_requests` (`tenant_fk` simples para `tenants`,
         # `contact_fk` **composta** `(tenant_id, contact_id)` para `contacts`) e
         # tres na `erasure_ledger` (`tenant_fk`, `dsar_fk` composta para os

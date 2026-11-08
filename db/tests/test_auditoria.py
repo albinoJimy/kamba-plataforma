@@ -37,7 +37,7 @@ CHAVE_DA_PLATAFORMA = "00000000-0000-0000-0000-000000000000"
 #: O dominio de `action` (dicionario §3.2, emenda 1.14). **Sao nove**: as sete
 #: da revisao `0006` — onde o `audit.read` entra porque o criterio 8 daquele
 #: ticket exige que a leitura do registo seja ela propria registada, e chama-lhe
-#: assim — mais as duas que a revisao `0037` (KAM-070) acrescenta.
+#: assim — mais as duas que a revisao `0038` (KAM-070) acrescenta.
 #:
 #: **As duas novas sao exigidas por criterio e pelo nome**, e nao por simetria:
 #:
@@ -61,7 +61,7 @@ CHAVE_DA_PLATAFORMA = "00000000-0000-0000-0000-000000000000"
 #: linha vai para a cadeia dele.
 #:
 #: O dicionario autoriza a extensao por escrito — a linha do dominio de `action`
-#: diz «Estende-se por migracao» —, e e por isso que a `0037` alarga o `CHECK`
+#: diz «Estende-se por migracao» —, e e por isso que a `0038` alarga o `CHECK`
 #: em vez de alguem emendar a `0006`. O `downgrade` dela **recusa** se houver
 #: linhas `privacy.dsar_*` escritas: o `audit_log` e *append-only* e ninguem tem
 #: `DELETE`, pelo que nao ha forma de satisfazer o dominio antigo.

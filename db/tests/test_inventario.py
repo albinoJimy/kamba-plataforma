@@ -2252,7 +2252,7 @@ INVENTARIO["tenant_destinations"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
-#: Os pedidos do titular (KAM-070, revisao `0037`). **Dez colunas**, e a unica
+#: Os pedidos do titular (KAM-070, revisao `0038`). **Dez colunas**, e a unica
 #: que toca no titular e o `contact_id` — uma referencia opaca a `contacts`, por
 #: FK composta com o `tenant_id`.
 #:
@@ -2284,7 +2284,7 @@ INVENTARIO["dsar_requests"] = {
     "concluido_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
-#: O ledger de apagamentos (KAM-070, revisao `0037`). **Seis colunas**, uma
+#: O ledger de apagamentos (KAM-070, revisao `0038`). **Seis colunas**, uma
 #: linha por escopo que aplicou — e nao o registo do pedido outra vez.
 #:
 #: Quem conta os seis consumidores do `privacy.erasure_requested` e esta tabela,
@@ -2721,7 +2721,7 @@ class TestInventario(ComBase):
                 (nome, "a", "a")
                 for nome in sorted(
                     [
-                        # KAM-070 (0037): **cinco**, duas do pedido e tres do
+                        # KAM-070 (0038): **cinco**, duas do pedido e tres do
                         # ledger, e nenhuma apaga em cascata — pela razao geral
                         # e por uma que e deste ticket: apagar um tenant ou um
                         # contacto nao pode apagar a prova de que o apagamento
@@ -3199,7 +3199,7 @@ class TestInventario(ComBase):
             # fornecedor e finalidade — que e exactamente a configuracao que o
             # passo 4 da porta existe para tratar.
             "tenant_destinations_globais_idx": False,
-            # KAM-070 (0037): os **dois** da `dsar_requests`, e um e unico e o
+            # KAM-070 (0038): os **dois** da `dsar_requests`, e um e unico e o
             # outro nao. O `erasure_ledger_contacto_idx` nao esta nesta lista
             # porque nao e parcial: o ledger nao tem estado a excluir — uma
             # linha dele e um apagamento que aconteceu, e nenhuma sai do
@@ -3248,7 +3248,7 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
-                    # --------------------------------------- KAM-070 (0037)
+                    # --------------------------------------- KAM-070 (0038)
                     #
                     # **Doze: nove do pedido e tres do ledger.** No pedido sao a
                     # chave primaria, a unicidade composta e sete `CHECK` — tres

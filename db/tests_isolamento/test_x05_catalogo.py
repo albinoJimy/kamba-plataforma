@@ -452,7 +452,7 @@ class TestCatalogoReal(ComBase):
                 ("conversations", "tenant_iso", "ALL", "{public}"),
                 # KAM-114.
                 ("draft_decisions", "tenant_iso", "ALL", "{public}"),
-                # KAM-070: as duas da `0037`, e cada uma aparece **uma** vez —
+                # KAM-070: as duas da `0038`, e cada uma aparece **uma** vez —
                 # ao contrario da `tenant_destinations` mais abaixo, que tem
                 # duas politicas. Levam a `tenant_iso` do `db/rls.py` e nada
                 # mais: uma politica permissiva ao lado so se acrescenta quando
@@ -672,7 +672,7 @@ class TestCatalogoReal(ComBase):
              # KAM-014: a conversa.
              # KAM-114: as decisoes do modo concierge.
              "conversations", "draft_decisions",
-             # KAM-070: as duas da `0037`, e entram as duas por **uma**
+             # KAM-070: as duas da `0038`, e entram as duas por **uma**
              # politica — esta consulta filtra `policyname = 'tenant_iso'` e e
              # a unica que cada uma tem, pelo que aqui nao ha a ressalva que a
              # `tenant_destinations` precisa de fazer mais abaixo. O `USING` e o

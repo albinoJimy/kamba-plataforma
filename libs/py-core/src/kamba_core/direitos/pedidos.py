@@ -69,7 +69,7 @@ from .contrato import (
 #: noutro ticket desta casa a olhar para o `23514` em vez do `23505`.
 UNICIDADE_VIOLADA = "23505"
 
-#: O nome do indice que recusa o segundo pedido aberto (revisao `0037`).
+#: O nome do indice que recusa o segundo pedido aberto (revisao `0038`).
 #:
 #: Esta aqui para **distinguir a colisao certa das outras**: a tabela tem mais
 #: unicidades (a chave primaria, o par `(tenant_id, dsar_id)`), e traduzir

@@ -175,7 +175,7 @@ SEPARADOR_DA_PROVA = chr(0)
 #: a `0015` ja tinha: opor-se duas vezes pelo mesmo pedido da o mesmo resumo.
 FORMA_DA_PROVA_DA_OPOSICAO = ("marca", "contact_id", "dsar_id", "recebido_at")
 
-#: As duas accoes que a revisao `0037` acrescenta ao dominio fechado de
+#: As duas accoes que a revisao `0038` acrescenta ao dominio fechado de
 #: `audit_log.action`. Cada uma e exigida por um criterio **pelo nome**: a
 #: recusa pelo 1 («fica registado»), a rectificacao pelo 7 («escreve no
 #: `audit_log`»).
@@ -507,7 +507,7 @@ def exigir_papel(papel: str) -> str:
 def prazo_interno(recebido_at: datetime, prazo_dias: int = PRAZO_INTERNO_DIAS) -> datetime:
     """`recebido_at + prazo_dias`, que e a aritmetica do criterio 1.
 
-    **Vive aqui e nao num `CHECK` da base**, e a razao esta na revisao `0037`
+    **Vive aqui e nao num `CHECK` da base**, e a razao esta na revisao `0038`
     por extenso: `timestamptz + interval` e `STABLE` e nao `IMMUTABLE` em
     PostgreSQL — somar dias le o `TimeZone` da sessao —, pelo que um `CHECK`
     assim e satisfeito por quem insere e pode deixar de o ser para quem le

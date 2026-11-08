@@ -239,7 +239,7 @@ REV36 = "db/migrations/versions/0036_destinos_de_transferencia.py"
 #: E deliberado, e e a propria licao do ticket: uma tabela nova custa onze
 #: listas fechadas, e uma mutacao que nenhuma delas apanhe e uma lista por
 #: propagar.
-REV37 = "db/migrations/versions/0037_direitos_do_titular.py"
+REV38 = "db/migrations/versions/0038_direitos_do_titular.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6284,13 +6284,13 @@ MUTACOES = [
     # fornecedor com `ZA autorizado` e `US pendente` passa a ser conforme — a
     # chamada nao escolhe o pais, e a porta falha fechada sobre a **uniao**. O
     # `test_uma_aplicavel_que_nao_autoriza_e_violacao_na_vista` tem de a matar.
-    # ------------------------------------------- KAM-070 (revisao `0037`)
+    # ------------------------------------------- KAM-070 (revisao `0038`)
     #
     # Sete mutacoes, e cada uma ataca **uma** lista fechada do *gate* 8 — a que
     # a propagacao desta revisao teve de ir preencher. Sao a prova de que a
     # lista esta la a fazer trabalho: uma tabela nova custa onze listas, e o
     # sintoma de uma que falte aparece longe da causa.
-    ('revisao 0037: o prazo interno pode ser anterior a recepcao', REV37,
+    ('revisao 0038: o prazo interno pode ser anterior a recepcao', REV38,
      """          CONSTRAINT dsar_requests_prazo_ordenado_ck
             CHECK (prazo_interno_at > recebido_at),
 """,
@@ -6302,7 +6302,7 @@ MUTACOES = [
     # 8 alerta — ou dispara os 20 dias — sobre um pedido que acabou de chegar.
     # Quem a mata e o `test_as_restricoes_sao_as_esperadas` do
     # `db/tests/test_inventario.py`, pela lista fechada de `CHECK` por nome.
-    ('revisao 0037: a unicidade do pedido aberto deixa de ser parcial', REV37,
+    ('revisao 0038: a unicidade do pedido aberto deixa de ser parcial', REV38,
      """          ON {PEDIDOS} (tenant_id, contact_id, tipo)
           WHERE estado <> 'concluido'
 """,
@@ -6316,7 +6316,7 @@ MUTACOES = [
     # `test_os_indices_unicos_parciais_sao_os_esperados`, que compara a lista
     # com o que o `pg_indexes` traz de `indexdef LIKE '%WHERE%'` — sem
     # predicado, o indice sai da consulta e a lista deixa de casar.
-    ('revisao 0037: o ledger perde a unicidade do escopo', REV37,
+    ('revisao 0038: o ledger perde a unicidade do escopo', REV38,
      """,
           CONSTRAINT erasure_ledger_escopo_uq UNIQUE (tenant_id, dsar_id, escopo)
 """,
@@ -6330,7 +6330,7 @@ MUTACOES = [
     # a plataforma diz ter apagado e nao apagou. Quem a mata e o
     # `test_as_restricoes_sao_as_esperadas`, pela lista fechada de `UNIQUE` por
     # nome.
-    ('revisao 0037: o ledger deixa de ser append-only para quem escreve', REV37,
+    ('revisao 0038: o ledger deixa de ser append-only para quem escreve', REV38,
      '    op.execute(f"GRANT SELECT, INSERT ON {LEDGER} TO {PAPEL_DA_APP}")',
      '    op.execute(f"GRANT SELECT, INSERT, DELETE ON {LEDGER} TO {PAPEL_DA_APP}")'),
     # O ledger e *append-only* **por privilegio** e nao por *trigger*: nao ha
@@ -6341,7 +6341,7 @@ MUTACOES = [
     # interesse em que esteja vazio. Quem a mata e o
     # `test_privilegios_de_tabela` do `db/tests/test_privilegios.py`, pela
     # matriz `ESPERADO_POR_TABELA`.
-    ('revisao 0037: o ledger ganha UPDATE por coluna para o lote', REV37,
+    ('revisao 0038: o ledger ganha UPDATE por coluna para o lote', REV38,
      '    op.execute(f"GRANT SELECT ON {LEDGER} TO {PAPEL_DE_AUDITORIA}")',
      '    op.execute(f"GRANT SELECT ON {LEDGER} TO {PAPEL_DE_AUDITORIA}")\n'
      '    op.execute(f"GRANT UPDATE (aplicado_at) ON {LEDGER} TO {PAPEL_DE_LOTE}")'),
@@ -6354,7 +6354,7 @@ MUTACOES = [
     # `test_privilegios_por_coluna_nas_tabelas_com_matriz`, e **so** ele: e por
     # isso que a `erasure_ledger` esta em `TABELAS_COM_MATRIZ_DE_COLUNA` sem ter
     # privilegio de coluna nenhum, como a `payment_events`.
-    ('revisao 0037: o pedido aceita tenant_id nulo', REV37,
+    ('revisao 0038: o pedido aceita tenant_id nulo', REV38,
      """          tenant_id         uuid NOT NULL
 """,
      """          tenant_id         uuid
@@ -6367,7 +6367,7 @@ MUTACOES = [
     # vezes, de proposito: no `test_catalogo` (o `tenant_id` anulavel que nao
     # esta em `ANULAVEIS`) e no inventario de colunas, que afirma a nulidade de
     # cada uma.
-    ('revisao 0037: o UPDATE do pedido passa a poder empurrar o prazo', REV37,
+    ('revisao 0038: o UPDATE do pedido passa a poder empurrar o prazo', REV38,
      'UPDATE_DO_PEDIDO = ("estado", "concluido_at")',
      'UPDATE_DO_PEDIDO = ("estado", "concluido_at", "prazo_interno_at")'),
     # **Um `GRANT` de uma palavra, e e o prazo legal que cai.** Quem corre o
@@ -6376,10 +6376,10 @@ MUTACOES = [
     # prazo foge. Nenhuma matriz de tabela ve a coluna a mais; quem a mata e o
     # `test_privilegios_por_coluna_nas_tabelas_com_matriz`, contra a lista
     # exacta de `COLUNAS_POR_PAPEL`.
-    ('revisao 0037: o dominio da accao fica sem a rectificacao', REV37,
+    ('revisao 0038: o dominio da accao fica sem a rectificacao', REV38,
      "    \"'privacy.dsar_recusado', 'privacy.dsar_rectificado'\"",
      "    \"'privacy.dsar_recusado'\""),
-    # **A oitava lista fechada desta revisao, e vive noutra bateria.** A `0037`
+    # **A oitava lista fechada desta revisao, e vive noutra bateria.** A `0038`
     # alarga o dominio de `audit_log.action` de sete para nove, e o `CHECK`
     # alargado a oito recusa o `privacy.dsar_rectificado`: a rectificacao do
     # criterio 7 deixa de poder escrever no registo — e o que o criterio manda

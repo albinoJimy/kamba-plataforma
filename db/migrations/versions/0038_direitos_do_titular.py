@@ -86,8 +86,17 @@ from alembic import op
 
 import rls
 
-revision = "0037"
-down_revision = "0036"
+revision = "0038"
+#: A `0037` e a `v_oferta_viva` do KAM-051 (PR #159), e o encaixe aqui nao e
+#: escolha: a cadeia do Alembic e estritamente sequencial, pelo que **so pode
+#: haver uma revisao nao fundida de cada vez** num lote de ramos paralelos — e o
+#: numero vai a quem chega primeiro ao ponto de o usar.
+#:
+#: Este ramo escreveu `0037` e renumerou para `0038` na integracao, porque o
+#: #159 ficou `MERGEABLE` primeiro. **Quem funde em segundo renumera**, e
+#: faz-se **na integracao e nunca em antecipacao**: um ramo nao reserva a linha
+#: de revisoes para outro.
+down_revision = "0037"
 branch_labels = None
 depends_on = None
 
@@ -178,7 +187,7 @@ LITERAIS_DE_PAPEL = "'subcontratada', 'responsavel'"
 #: repositorio e o `test_as_accoes_de_auditoria_entram_no_dominio_da_revisao`,
 #: do `libs/py-core/tests/test_direitos.py`, e a bateria `ACCOES` do
 #: `db/tests/test_auditoria.py`.
-LITERAIS_DE_ACCAO_0037 = (
+LITERAIS_DE_ACCAO_0038 = (
     "'price.update', 'stock.adjust', 'payment.manual_confirm', "
     "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read', "
     "'privacy.dsar_recusado', 'privacy.dsar_rectificado'"
@@ -450,7 +459,7 @@ def _alargar_o_dominio_da_accao() -> None:
         f"""
         ALTER TABLE {AUDIT_LOG}
           ADD CONSTRAINT {RESTRICAO_DA_ACCAO}
-          CHECK (action IN ({LITERAIS_DE_ACCAO_0037}))
+          CHECK (action IN ({LITERAIS_DE_ACCAO_0038}))
         """
     )
     op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
@@ -478,7 +487,7 @@ def _encolher_o_dominio_da_accao() -> None:
     )
     if linhas:
         raise RuntimeError(
-            f"downgrade da 0037 recusado: ha {linhas} linha(s) de audit_log com "
+            f"downgrade da 0038 recusado: ha {linhas} linha(s) de audit_log com "
             "accao privacy.dsar_* e o dominio da 0006 nao as aceita. O audit_log "
             "e append-only e nenhum papel tem DELETE, pelo que nao ha forma de as "
             "retirar: exporte a cadeia e decida o que fazer a essas linhas antes "

@@ -1,4 +1,4 @@
-"""O SQL dos direitos do titular, num sitio so (KAM-070, revisao `0037`).
+"""O SQL dos direitos do titular, num sitio so (KAM-070, revisao `0038`).
 
 `%s` e nao `$n`, que e o que a DB-API le, como em `kamba_core.ten.consultas` e
 `kamba_core.destinos.consultas`.
@@ -54,7 +54,7 @@ COLUNAS_DO_PEDIDO = (
 #: Cria o pedido (criterio 1).
 #:
 #: O `prazo_interno_at` entra como parametro e **nao** se calcula aqui: a
-#: aritmetica e do `contrato.prazo_interno`, pela razao que a revisao `0037`
+#: aritmetica e do `contrato.prazo_interno`, pela razao que a revisao `0038`
 #: escreve (`timestamptz + interval` le o `TimeZone` da sessao, pelo que um
 #: calculo na base dava respostas diferentes a sessoes diferentes). O que a base
 #: garante e a ordenacao.

@@ -411,13 +411,13 @@ dominios_historicos:
     razao: >-
       A 0006 (KAM-012) criou o dominio com as sete accoes auditadas do
       docs/tecnica/08 §6 mais a audit.read que o criterio 9 desse bloco nomeia.
-      A 0037 (KAM-070) acrescenta-lhe duas, privacy.dsar_recusado e
+      A 0038 (KAM-070) acrescenta-lhe duas, privacy.dsar_recusado e
       privacy.dsar_rectificado, por DROP CONSTRAINT mais ADD CONSTRAINT com o
       mesmo nome, e o dicionario §3.2 passou a declarar as nove (emenda 1.68).
       A declaracao da 0006 fica a dizer sete, e e o que a base tinha naquela
       revisao. A linha do dominio no §3.2 ja autorizava a extensao por escrito:
       "Estende-se por migracao".
-  - revisao: "db/migrations/versions/0037_direitos_do_titular.py"
+  - revisao: "db/migrations/versions/0038_direitos_do_titular.py"
     tabela: "audit_log"
     coluna: "action"
     ticket: "KAM-070"

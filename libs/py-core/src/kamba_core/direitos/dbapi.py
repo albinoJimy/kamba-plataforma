@@ -53,7 +53,7 @@ ligacao guardada era uma ligacao disputada — e uma ligacao guardada no arranqu
 era tambem uma que o servidor pode ter fechado entretanto.
 
 **O contexto de RLS nao e opcional.** Sem `app.tenant_id`, a politica
-`tenant_iso` das duas tabelas da `0037` devolve **zero linhas** em vez de erro:
+`tenant_iso` das duas tabelas da `0038` devolve **zero linhas** em vez de erro:
 um pedido do titular lia-se como inexistente, o varrimento do prazo via a lista
 vazia e o fecho do criterio 3 concluia que faltavam os seis escopos. Nao se
 chama `SET LOCAL` a mao aqui — ha um sitio onde isso se escreve e e aquele.
