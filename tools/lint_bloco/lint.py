@@ -102,18 +102,20 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: piso em metade do medido, a **folga sao dois blocos** — ao 86.º volta a pedir
 #: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
 #:
-#: **A folga chegou ao fim ao 84.º, e o KAM-069 pagou-a.** A seccao de
-#: «Verificacao dos Criterios de Aceitacao» do bloco dele tornou-o **medivel**, o
-#: `medidos` passou de 83 para 84 e `84 // 2` e 42 — pelo que o piso sobe de 41
-#: para 42, que e o minimo que o ensaio exige e nao mais. Sobe-se **depois** de
-#: integrar a `main` e com a medicao na mao, nunca em antecipacao: o numero
-#: depende de quantos blocos medidos existem no momento da fusao, e dois ramos a
-#: subi-lo ao mesmo tempo escreviam numeros que nenhum dos dois mediu.
+#: **E ao 84.º chegou: subiu de 41 para 42 com o KAM-182**, exactamente como a
+#: nota acima previu. Duas seccoes de verificacao fundiram entre o corte do ramo
+#: e a medicao — a do KAM-055 (PR #146) e a do KAM-182 —, e `84 // 2` sao 42.
+#: Medido nas duas pontas: com a `main` em `ca5cac55` sao 83 medidos e 41
+#: bastava; com a `main` em `06b8aba2` e o bloco do KAM-182 sao **84** e o
+#: ensaio falha com `41 not greater than or equal to 42`. **E a folga volta a
+#: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
+#: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
+#: sem defeito nenhum.
 MINIMO_DE_BLOCOS_MEDIDOS = 42
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
-#: ser atingido por acidente. Medido: 182.
+#: ser atingido por acidente. Medido: 184 (KAM-184).
 MINIMO_DE_BLOCOS = 150
 
 

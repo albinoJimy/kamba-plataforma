@@ -148,13 +148,11 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # ------------------------------------------------------- os dois pisos
     ("o piso de blocos a zero", "lint.py",
      "MINIMO_DE_BLOCOS = 150", "MINIMO_DE_BLOCOS = 0"),
-    # **O texto desta mutacao tem de acompanhar o valor**, e nao acompanhou: a
-    # subida de 40 para 41 deixou-a a procurar `= 40`, que ja nao existe —
-    # uma mutacao que nao encontra o seu texto nao muta nada e sobrevive
-    # calada. Nenhum alvo do `Makefile` corre esta varredura (o `bloco-lint`
-    # corre `check` e `canario`), pelo que nada o apanhou. Corrige-se aqui
-    # porque e a **segunda** subida do mesmo valor; a lacuna de nao haver
-    # portao que a conferisse fica para o KAM-183, que escreveu a varredura.
+    # **O literal tem de acompanhar o `lint.py`, e esteve dois valores atras.**
+    # Ficou em `40` quando o KAM-108 subiu o piso para 41: a mutacao deixou de
+    # casar, e uma mutacao que nao casa nao mede nada — fica verde por nao ter
+    # mudado o codigo. Achado da revisao adversarial do KAM-182, que a subiu
+    # para 42 e emendou isto no mesmo passo. Quem mexer no piso mexe aqui.
     ("o piso de emparelhados a zero", "lint.py",
      "MINIMO_DE_BLOCOS_MEDIDOS = 42", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
