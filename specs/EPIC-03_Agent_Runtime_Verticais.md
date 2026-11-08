@@ -4486,15 +4486,32 @@ A bateria do AGR tem **1 449** testes verdes, **14** mais do que a `main` — **
 ensaios escritos, dos quais **4** substituem os que mediam o estado antigo (o
 credor `KAM-047` e o desfecho `sem_accao`), contados no diff com
 `git diff refs/remotes/publico/main...HEAD -U0 | grep -cE '^[+-]    def test_'`.
-**Os dois ultimos sao da revisao adversarial** — o do humano com a palavra e o da
-configuracao que deixa de ser valida.
-Medidos no ramo `feature/KAM-184-servicos-eventos-pagamento` sobre a base
-`b974dda4`:
+**Os dois últimos são da revisão adversarial** — o do humano com a palavra e o da
+configuração que deixa de ser válida.
+
+**Os números são da árvore integrada**, com a `main` em `77a579bd` dentro do ramo
+`feature/KAM-184-servicos-eventos-pagamento` — e não da base em que ele abriu:
 
 ```text
 PYTHONPATH="tools;libs/py-core/src;services/agr/src" \
   python -m unittest discover -s services/agr/tests -t services/agr/tests
-  -> Ran 1447 tests ... OK
+  -> Ran 1449 tests ... OK
+```
+
+**E os portões do eixo que este ticket toca, na mesma árvore.** O *gate* 3b são **três** comandos e não um — correr só o `canon_lint check` dá verde falso, porque o `canon/dicionario.yaml` é **gerado** e quem o confronta com o `.md` é o `dict_export`, e porque sem o canário ninguém prova que o *lint* morde:
+
+```text
+dict_export --check   canon/dicionario.yaml corresponde ao .md          exit 0
+canon_lint check      dicionario v1.70: 748 entradas, 21 variantes      exit 0
+canon_lint canario    10 negativas vermelhas com a mensagem esperada,
+                      10 positivas verdes                                exit 0
+lint_backlog check    184 linhas no §4, 184 blocos, 184 do §3           exit 0
+lint_refs check       33 922 referencias em 2 109 ficheiros              exit 0
+lint_handoff check    828 caminhos em 184 blocos                         exit 0
+lint_contagens check  14 contagens vivas em 10 ficheiros                 exit 0
+lint_bloco check      184 bloco(s), 89 emparelhado(s), 0 achado(s)       exit 0
+contract_diff check   76 contrato(s), 0 tocado(s) pelo ramo              exit 0
+mutacoes --aplicaveis 997 conferidas, 0 nao aplicaveis                   exit 0
 ```
 
 **O que este ticket entrega, numa frase:** a acção dos dois pagamentos na
