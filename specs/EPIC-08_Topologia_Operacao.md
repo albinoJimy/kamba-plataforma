@@ -463,9 +463,11 @@ Não expandas escopo: o simulacro cronometrado completo é KAM-085. Testes: inje
 
 ### Verificação dos Critérios de Aceitação
 
-Treze caixas — 8 critérios e 5 linhas de DoD —, **1 marcada (critério 8) e 12
-vazias ou parciais**. Nenhuma fica sem razão escrita, e **cada uma das doze
-nomeia o seu credor** na última coluna. Os comandos e os números estão em
+Treze caixas — 8 critérios e 5 linhas de DoD —, **nenhuma marcada e 13 vazias
+ou parciais**. Nenhuma fica sem razão escrita, e **cada uma das treze nomeia o
+seu credor** na última coluna. (O critério 8 esteve marcado e voltou a vazio: o
+critério pede que o *script* **remove** o sujeito, e o que está entregue é um
+filtro. A razão está na célula dele.) Os comandos e os números estão em
 [`../docs/evidencia/KAM-079.md`](../docs/evidencia/KAM-079.md).
 
 > **A cadeia que bloqueia este ticket, dita de uma vez, porque é ela que
@@ -502,9 +504,13 @@ nomeia o seu credor** na última coluna. Os comandos e os números estão em
 > a cada 60 s até o disco encher, e um cluster com o disco cheio deixa de
 > aceitar escritas. Um ticket de backups que derrubasse a base de dados para
 > parecer entregue seria o pior resultado possível. Por isso a configuração está
-> em `infra/backup/`, com as referências de ambiente **sem omissão**
-> (`${...:?}`), que fazem a configuração recusar-se a funcionar sem destino em
-> vez de funcionar contra um palpite.
+> em `infra/backup/` e não montada, com as seis chaves de destino e de segredo
+> **ausentes do ficheiro**, a vir do ambiente pelo `PGBACKREST_<OPÇÃO>` — sem
+> elas o pgBackRest para com «missing required option», que é a recusa que se
+> queria. **A primeira versão escrevia-as como `${...:?}` e afirmava que isso
+> fazia a configuração recusar-se a funcionar:** o binário mostra que não, porque
+> o pgBackRest não expande variáveis dentro do ficheiro, e nada neste
+> repositório o renderizava (§1.5 da evidência).
 >
 > E há um custo medido do lado do KAM-076 que vale nomear:
 > `tools/compose_prod/tests/test_lint.py:58` prende a soma do manifesto do
