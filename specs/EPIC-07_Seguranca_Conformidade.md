@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.22 |
+| Versão | 1.23 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1500,7 +1500,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 184 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 185 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -1717,3 +1717,4 @@ Abre PR com o template do §7.
 | 1.20 | Novembro 2026 | **O bloco do KAM-149 deixa de declarar aberta uma dívida que já está paga, e os dois números dele passam a bater.** O `fix/KAM-113` deu aos três modelos de `../docs/seguranca/modelos/` a secção «Controlo de versões» que lhes faltava desde o `dc01fce`, por decisão do fundador de 2026-11-05: o validador passou de **3** erros de conteúdo a **0**, e os três documentos de 91, 74 e 73 linhas para **99, 82 e 81**. O CA 6 dizia «1 erro de conteúdo» e a prosa do mesmo bloco dizia «3» — **as duas superfícies discordavam já na `c792cc4`**, e a medição dava 3; agora dizem 0 as duas. Nada disto é lido por portão nenhum, e quem o apanhou foi a revisão adversarial do ramo que pagou a dívida, a quem não se disse o que procurar. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Contagem viva do *backlog*, de 183 para 184, com a abertura do KAM-184 noutro epic.** O `lint_contagens` lê esta contagem da fonte e não de outro documento, pelo que abrir um ticket **obriga** a emenda aqui — a frase é presente («o *backlog* tem N») e a que lhe segue descreve uma captura de época, que fica intacta. Nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | KAM-069 (inventário de subprocessadores e *gate* de transferência com `apd_ref`): **cinco** das nove caixas de critérios e **duas** das seis de DoD marcadas, com a secção «Verificação dos Critérios de Aceitação». Os critérios 4, 6, 8 e 9 ficam vazios por quatro razões diferentes e com credor em cada — o *gate* corre num dos sete pontos de invocação (os seis tickets nomeados), não há contrato nenhum para arquivar (o fundador, com KAM-104), **ninguém escreve a transição `onboarding` → `ativo`** (KAM-110, medido) e não há processo de plataforma que gere o mapa em execução (KAM-071). Entregues: a revisão [`0036`](../db/migrations/versions/0036_destinos_de_transferencia.py) com a `platform.tenant_destinations` (catorze colunas, `UNIQUE NULLS NOT DISTINCT` e **duas** políticas permissivas) e a vista `v_transfer_audit`, que lê a janela de validade e exige uma finalidade de modelo; o módulo `libs/py-core/src/kamba_core/destinos/` com a porta, a *cache* de 60 s e o *gate* de go-live; o inventário `gov/subprocessadores.yaml` com as onze linhas do `../docs/tecnica/08` §8.3.2 e os **dois** documentos gerados dele; e o inventário de clientes de saída no `lint_arch`, que entra no *gate* 2 e não num *job* novo. **A emenda 1.67 do dicionário paga a dívida que a 1.38 deixou escrita**: as três finalidades de transferência que viviam só no código do AGR passam a ser o domínio de treze valores de `tenant_destinations.purpose`. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | Contagem viva do *backlog* actualizada de 184 para **185** tickets (**KAM-185** acrescentado ao EPIC-01). A frase é presente e a que lhe segue descreve uma captura de época, que fica intacta. Nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |

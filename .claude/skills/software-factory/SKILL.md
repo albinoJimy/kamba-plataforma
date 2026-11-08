@@ -91,17 +91,32 @@ Sem a lista — noutra máquina, ou fora desta app — **não há instrumento**,
 descobre-se a olho ou ao abrir o PR. A receita manual, e o que ela não cobre, estão em
 [`references/isolamento.md`](references/isolamento.md).
 
-Os candidatos a arrancar agora leem-se do backlog, não da memória:
+Os candidatos a arrancar agora leem-se do backlog, não da memória — e **o lote escolhe-se por
+comando**, não à mão:
 
 ```bash
-python .claude/skills/software-factory/scripts/vagas.py
+python .claude/skills/software-factory/scripts/vagas.py                       # a vaga inteira
+python .claude/skills/software-factory/scripts/lote.py -n 5 --ocupados KAM-NNN,KAM-MMM
 ```
 
-Devolve os tickets cujas dependências já estão fechadas. É uma lista de **candidatos**: a lista
-de paralelismo da estação 1.3 aplica-se depois dela, não antes.
+O `vagas.py` devolve os tickets cujas dependências já estão fechadas. O `lote.py` parte dessa
+vaga e faz o resto do que esta secção pede (KAM-185): tira os reclamados (título de PR aberto,
+ramo empurrado, e o `--ocupados`, que é onde entram as sessões a correr — o guião não vê a lista
+de sessões), põe **à parte, para ler**, os que já têm *commit* na `main` com o ID no assunto, e
+aplica o limite da estação 1.3 — **uma migração prevista por lote, e zero se já houver PR
+aberto com revisão nova**. A previsão é INDÍCIO e está medida no próprio guião: fora da amostra
+em que foi escolhida, apanhou 6 das 8 migrações. Por isso o *briefing* continua a dizer «se
+precisares de esquema novo e não levas a vaga, pára e diz-me», e a fila de fecho (§1.7) apanha
+o resto.
 
-> **E o backlog que ele lê é o teu, não o da base.** O `main` funde por *squash* várias vezes
-> ao dia, e um ID livre no teu checkout pode já estar fundido. **Medido:** o ticket que fechou
+> **«Um ticket por epic» não é critério de paralelismo.** Medido a 2026-11-08: cinco tickets
+> em cinco epics colidiram nas três superfícies que atravessam os epics — duas `0037` em dois
+> PRs, três PRs a escrever a 1.68 do dicionário, e o piso do `lint_bloco` a subir de dois em
+> dois — e fundiram um de cada vez, cada fusão a obrigar os outros a integrar outra vez.
+
+> **Os dois guiões leem a `publico/main`, e não o teu checkout** (o `vagas.py` desde o
+> KAM-185; `--disco` mede o teu ramo antes de o empurrares). O `main` funde por *squash* várias
+> vezes ao dia, e um ID livre ou um ticket aberto no teu checkout pode já estar fundido. **Medido:** o ticket que fechou
 > as dispensas do *gate* 3c abriu como KAM-163, passou a KAM-164 e ficou **KAM-165** — os dois
 > primeiros foram tomados enquanto se escrevia, e a alteração mecânica fez-se **três vezes**.
 >
@@ -477,7 +492,10 @@ primeira task, não uma limpeza posterior.
 
 Os ficheiros de registo (`Makefile`, `.github/workflows/ci.yaml`, `docs/ci.md`,
 `specs/INDICE.md`, tabelas de versões) são a **excepção consentida** à primeira caixa: colidem
-sempre, as colisões são mecânicas, e resolve-as quem integra. Quando houver mais do que um
+sempre, as colisões são mecânicas, e resolve-as quem integra — **com os números que a fila de
+fecho dá** (§1.7), e não com o «seguinte» de cabeça: a 2026-11-08 dois PRs foram mandados para
+a «versão seguinte» do dicionário, e a seguinte de um era a do outro. A cadeia do alembic **não**
+é desta excepção: uma revisão nova por fundir de cada vez, que é o limite que o `lote.py` aplica. Quando houver mais do que um
 agente a **escrever**, lê [`references/isolamento.md`](references/isolamento.md) antes de os
 lançar — worktree por escritor, e os recursos que são partilhados sem o parecerem.
 
@@ -675,6 +693,31 @@ superfície HTTP, composição do `infra/compose/` — **é a única evidência 
 portões que a tabela de eixos dá para TypeScript (`ci-1`, `ci-2`, `ci-4`) não a substituem:
 compilam e cobrem o código, e nenhum deles levanta nada. Num worktree, confirma antes que não
 estás a medir a pilha de outra sessão ([`references/isolamento.md`](references/isolamento.md)).
+
+#### A fila de fecho — quem funde agora, e o que os outros têm de tomar
+
+Com mais do que um PR aberto, **a ordem e os números leem-se de um comando**, antes de cada
+fusão e outra vez depois dela:
+
+```bash
+python .claude/skills/software-factory/scripts/fila.py            # mede e diz
+python .claude/skills/software-factory/scripts/fila.py --fundir   # e funde a cabeça, se PRONTO
+```
+
+**O `MERGEABLE` do GitHub não diz que a `main` fica verde depois de fundir**, porque as três
+superfícies que serializam um lote são restrições **semânticas**: duas `0037` fundem-se sem
+conflito de texto e partem a cadeia; um piso certo no ramo fica errado na árvore da fusão; um
+cabeçalho de dicionário pode ficar atrás da própria emenda. A fila mede cada PR aberto **na
+árvore do `merge-tree` com a `main` de agora** — conflitos, cadeia do alembic, tabelas de
+versões que o PR toca, e o piso do `lint_bloco` *daquela árvore* — e dá, pela ordem da fila,
+o número de revisão, as versões e o piso que cada um tem de tomar **contando com os que fundem
+antes dele**. Os prontos vão à frente; quem funde depois renumera.
+
+O `--fundir` funde **só a cabeça**, e só se ela estiver `PRONTO` — cada fusão muda a `main`, e
+a fila seguinte mede-se outra vez. Não liga o *auto-merge*. As instruções de cada PR são o
+texto a mandar à sessão que o tem: o guião não fala com sessões, e o orquestrador não as dita
+de cabeça. Um conflito num ficheiro gerado (`canon/dicionario.yaml`) sai anotado: resolve-se a
+fonte e regenera-se.
 
 > **E depois de fundir, não perguntes ao `git` se fundiu.** A `main` funde por *squash* e há
 > dois remotos sem antepassado comum (`origin` privado, `publico` activo): o
