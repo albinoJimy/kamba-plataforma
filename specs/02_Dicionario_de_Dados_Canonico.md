@@ -3653,10 +3653,10 @@ uma chamada **bem formada**: passava os tipos e passava a RLS, porque o contacto
 é do mesmo tenant.
 
 **E o apagamento do cofre não entra aqui, porque já existe.** O
-`Identidade.apagar` do `../packages/core-ts/src/identity/` faz desde o KAM-008 o
+`Identidade.eraseContact` do `../packages/core-ts/src/identity/` faz desde o KAM-008 o
 que o critério 4 pede — `contact_endpoints` a zero, `erased_at` preenchido, DEK
 destruída —, e escrever uma segunda versão disso era a segunda leitora da mesma
-pergunta, que é a lição mais caras do KAM-069. O que este ticket acrescenta é o
+pergunta, que é a lição mais cara do KAM-069. O que este ticket acrescenta é o
 pedido, o evento, o registo e o fecho.
 
 | Conceito | Nome canónico | Substitui | Notas |

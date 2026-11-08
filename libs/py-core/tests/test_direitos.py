@@ -44,6 +44,7 @@ from kamba_core.direitos import (
     ALERTA_AOS_DIAS,
     ESCOPOS,
     ESTADO_CONCLUIDO,
+    ESTADO_EM_CURSO,
     ESTADO_RECEBIDO,
     EVENTO_CONSENT_WITHDRAWN,
     EVENTO_ERASURE_APPLIED,
@@ -57,11 +58,19 @@ from kamba_core.direitos import (
     TIPO_RECTIFICACAO,
     TTL_DA_EXPORTACAO_S,
     ApagamentoIncompleto,
+    AuditoriaNaBase,
+    FechoSemLedger,
     Pedido,
     PedidoDeOutroTitular,
+    PedidoEmCurso,
     PortaDeDireitos,
+    RelogioDoSistema,
+    SEPARADOR,
+    SEPARADOR_DA_PROVA,
+    TEXTO_DA_OPOSICAO,
     SujeitoApagado,
     apagamento_completo,
+    concluir_apagamento,
     escopos_em_falta,
     exigir_apagamento_completo,
     exportar,
@@ -107,7 +116,7 @@ class AuditoriaFalsa:
     def __init__(self) -> None:
         self.registos: list[dict[str, object]] = []
 
-    def registar(self, *, tenant_id, accao, contact_id, detalhe) -> None:
+    def escrever(self, *, tenant_id, accao, contact_id, detalhe) -> None:
         self.registos.append(
             {
                 "tenant_id": tenant_id,
@@ -139,6 +148,7 @@ class BaseQueLeAInstrucao:
         self.ledger: list[tuple[str, str]] = []
         self.eventos: list[tuple[str, dict]] = []
         self.oposicoes: list[tuple] = []
+        self.fechados: set[str] = set()
         self.description: tuple | None = None
         self._resultado: list[tuple] = []
         self._contador = 0
@@ -183,6 +193,8 @@ class BaseQueLeAInstrucao:
             return self._escopos(params)
         if "INSERT INTO platform.consent_event" in sql:
             return self._opor(sql, params)
+        if "UPDATE platform.dsar_requests" in sql:
+            return self._fechar(sql, params)
         raise AssertionError(f"instrucao nao prevista pelo duplo: {sql[:80]!r}")
 
     def _exportar(self, sql: str, params: tuple) -> list[tuple]:
@@ -230,6 +242,31 @@ class BaseQueLeAInstrucao:
             (escopo,)
             for dsar, escopo in sorted(self.ledger)
             if dsar == dsar_id
+        ]
+
+    def _fechar(self, sql: str, params: tuple) -> list[tuple]:
+        """O fecho, com a idempotencia do `WHERE estado <> 'concluido'`.
+
+        **Imita o predicado e nao so a escrita:** o duplo guarda o `dsar_id`
+        fechado e o segundo fecho devolve zero linhas, que e o que a base faz.
+        Sem isso, o ensaio da idempotencia do fecho media uma coisa que o duplo
+        nao tinha.
+        """
+        if "estado <> 'concluido'" not in sql:
+            raise AssertionError(
+                "o fecho tem de levar o predicado da idempotencia: sem ele, "
+                "fechar duas vezes reescreve o concluido_at"
+            )
+        concluido_at, dsar_id = params
+        if dsar_id in self.fechados:
+            return []
+        self.fechados.add(dsar_id)
+        return [
+            (
+                dsar_id, TENANT, TITULAR, "eliminacao", ESTADO_CONCLUIDO,
+                PAPEL_POR_OMISSAO, RECEBIDO, PRAZO_INTERNO_DIAS,
+                prazo_interno(RECEBIDO), concluido_at,
+            )
         ]
 
     def _opor(self, sql: str, params: tuple) -> list[tuple]:
@@ -772,22 +809,86 @@ class TestOsDominiosNaoDivergemDaRevisao(unittest.TestCase):
 
         self.exigir("LITERAIS_DE_PAPEL", PAPEIS_DA_KAMBA)
 
+    def dominio_da_accao(self) -> str:
+        """O texto **da atribuicao** do `LITERAIS_DE_ACCAO_0037`, e so dele.
+
+        **E a correccao de um achado medido da revisao adversarial.** A primeira
+        versao deste ensaio afirmava `assertIn(f"'{accao}'", self.revisao)`
+        sobre o texto **inteiro** da revisao — e os dois literais aparecem em
+        **dois** sitios: na constante que o `CHECK` le, e na consulta de
+        contagem do `_encolher_o_dominio_da_accao`. O revisor apagou a linha da
+        constante numa copia e correu a assercao: **verde**. Isto e, o `upgrade`
+        podia repor o dominio de **sete** da `0006` com este ensaio a dizer que
+        estava tudo bem, e a recusa do criterio 1 levantava `23514` em producao.
+        """
+        marca = "LITERAIS_DE_ACCAO_0037 = ("
+        inicio = self.revisao.index(marca) + len(marca)
+        return self.revisao[inicio : self.revisao.index(")", inicio)]
+
     def test_as_accoes_de_auditoria_entram_no_dominio_da_revisao(self) -> None:
-        """As duas accoes novas tem de estar no `CHECK` que a revisao repoe.
+        """As duas accoes novas tem de estar no `CHECK` que o `upgrade` escreve.
 
         Sem isto, escrever a recusa do criterio 1 levantava `23514` **em
         producao** e em nenhum ensaio sem PostgreSQL.
         """
         from kamba_core.direitos import ACCOES_DE_DSAR
 
+        dominio = self.dominio_da_accao()
         for accao in ACCOES_DE_DSAR:
             with self.subTest(accao=accao):
-                self.assertIn(f"'{accao}'", self.revisao)
+                self.assertIn(f"'{accao}'", dominio)
 
-    def test_canario_um_dominio_alterado_reprova(self) -> None:
-        """A prova de que a comparacao morde, e nao so de que corre."""
-        with self.assertRaises(AssertionError):
-            self.exigir("LITERAIS_DE_ESCOPO", ESCOPOS + ("inventado",))
+    def test_o_dominio_do_downgrade_nao_tem_as_accoes_novas(self) -> None:
+        """E o outro lado: a `0006` nao as conhece, e o `downgrade` repoe-a.
+
+        Escrever as nove no `downgrade` deixava, numa base descida para a
+        `0036`, um `CHECK` a aceitar accoes que nenhuma revisao dessa altura
+        conhece.
+        """
+        from kamba_core.direitos import ACCOES_DE_DSAR
+
+        marca = "LITERAIS_DE_ACCAO_0006 = ("
+        inicio = self.revisao.index(marca) + len(marca)
+        antigo = self.revisao[inicio : self.revisao.index(")", inicio)]
+        for accao in ACCOES_DE_DSAR:
+            with self.subTest(accao=accao):
+                self.assertNotIn(f"'{accao}'", antigo)
+
+    def test_canario_a_accao_fora_da_constante_reprova(self) -> None:
+        """A prova de que o oraculo passou a casar no sitio certo.
+
+        Apaga as duas accoes **da constante que o `CHECK` le** e mede as duas
+        coisas que o achado da revisao separou: o literal **continua** no texto
+        da revisao (e por isso que o oraculo antigo ficava verde) e **sai** do
+        dominio (e por isso que o novo reprova).
+
+        **Nao chama o outro ensaio**, e nao e detalhe: aquele usa `subTest`, e
+        dentro de um `subTest` uma falha e **registada** em vez de levantada —
+        pelo que um `assertRaises` a volta dele nunca a via e o canario reprovava
+        a si proprio. Foi medido ao escreve-lo.
+        """
+        from kamba_core.direitos import ACCOES_DE_DSAR
+
+        marca = "LITERAIS_DE_ACCAO_0037 = ("
+        inicio = self.revisao.index(marca) + len(marca)
+        fim = self.revisao.index(")", inicio)
+        dominio_sem_as_novas = self.revisao[inicio:fim].replace(
+            "'privacy.dsar_recusado', 'privacy.dsar_rectificado'", ""
+        )
+        for accao in ACCOES_DE_DSAR:
+            with self.subTest(accao=accao):
+                self.assertIn(
+                    f"'{accao}'",
+                    self.revisao,
+                    "o literal continua no texto da revisao — e por isso que o "
+                    "oraculo antigo, que lia o texto inteiro, ficava verde",
+                )
+                self.assertNotIn(
+                    f"'{accao}'",
+                    dominio_sem_as_novas,
+                    "o oraculo novo le so a constante, pelo que tem de reprovar",
+                )
+        self.assertIn("'audit.read'", dominio_sem_as_novas)
 
 
 class TestAsFontesDaExportacao(unittest.TestCase):
@@ -806,6 +907,510 @@ class TestAsFontesDaExportacao(unittest.TestCase):
                     ),
                     "a consulta le uma tabela que o duplo nao conhece",
                 )
+
+
+class TestOFechoExigeOLedger(unittest.TestCase):
+    """**Os ensaios do achado mais serio da revisao adversarial.**
+
+    O critério 3 nao tinha impositor: o `concluir` fechava qualquer pedido e a
+    prosa nomeava um `concluir_apagamento` que **nao existia**. Os cinco ensaios
+    do `TestOFechoLeOLedger` ficavam verdes qualquer que fosse o comportamento
+    do fecho, porque **nao havia ligacao para mutar**. Agora ha duas, e estes
+    sao os ensaios que morrem se alguma delas se desfizer.
+    """
+
+    def setUp(self) -> None:
+        self.cursor = BaseQueLeAInstrucao()
+        self.relogio = RelogioParado()
+        self.porta = PortaDeDireitos(
+            relogio=self.relogio, auditoria=AuditoriaFalsa()
+        )
+
+    def aplicar(self, p, *escopos: str) -> None:
+        for escopo in escopos:
+            registar_aplicacao(
+                self.cursor, pedido=p, escopo=escopo, relogio=self.relogio
+            )
+
+    def test_o_concluir_recusa_um_pedido_de_eliminacao(self) -> None:
+        """A ligacao 1: nao ha caminho que feche uma eliminacao sem o ledger."""
+        with self.assertRaises(FechoSemLedger):
+            self.porta.concluir(self.cursor, pedido(TIPO_ELIMINACAO))
+        self.assertEqual(
+            self.cursor.executadas,
+            [],
+            "a recusa nao pode ter escrito o fecho",
+        )
+
+    def test_o_concluir_fecha_os_outros_tres_tipos(self) -> None:
+        """A recusa e **so** da eliminacao: um pedido de exportacao nao tem escopos."""
+        for tipo in (TIPO_EXPORTACAO, TIPO_RECTIFICACAO, TIPO_OPOSICAO):
+            with self.subTest(tipo=tipo):
+                cursor = BaseQueLeAInstrucao()
+                fechado = self.porta.concluir(cursor, pedido(tipo))
+                self.assertIsNotNone(fechado)
+                self.assertEqual(fechado.estado, ESTADO_CONCLUIDO)
+
+    def test_concluir_apagamento_com_cinco_escopos_levanta_e_nao_fecha(self) -> None:
+        """A ligacao 2: o `exigir` corre **antes** da escrita.
+
+        A ordem nao e negociavel: com o fecho primeiro, um
+        `ApagamentoIncompleto` levantado depois deixava a linha `concluido`
+        escrita nesta transaccao.
+        """
+        p = pedido(TIPO_ELIMINACAO)
+        self.aplicar(p, *ESCOPOS[:5])
+        with self.assertRaises(ApagamentoIncompleto):
+            concluir_apagamento(self.cursor, self.porta, p)
+        self.assertNotIn(
+            "UPDATE platform.dsar_requests",
+            " ".join(sql for sql, _ in self.cursor.executadas),
+            "levantou depois de escrever o fecho: a ordem esta invertida",
+        )
+
+    def test_concluir_apagamento_com_os_seis_fecha(self) -> None:
+        p = pedido(TIPO_ELIMINACAO)
+        self.aplicar(p, *ESCOPOS)
+        fechado = concluir_apagamento(self.cursor, self.porta, p)
+        self.assertIsNotNone(fechado)
+        self.assertEqual(fechado.estado, ESTADO_CONCLUIDO)
+
+    def test_fechar_duas_vezes_nao_reescreve_a_data(self) -> None:
+        """A idempotencia e do `WHERE estado <> 'concluido'` do `SQL_CONCLUIR`.
+
+        A data de conclusao de um pedido do titular e um facto com prazo legal
+        atras dele, nao um campo que se actualiza.
+        """
+        p = pedido(TIPO_ELIMINACAO)
+        self.aplicar(p, *ESCOPOS)
+        self.assertIsNotNone(concluir_apagamento(self.cursor, self.porta, p))
+        self.assertIsNone(concluir_apagamento(self.cursor, self.porta, p))
+
+    def test_concluir_apagamento_recusa_os_outros_tipos(self) -> None:
+        with self.assertRaises(ValueError):
+            concluir_apagamento(
+                self.cursor, self.porta, pedido(TIPO_EXPORTACAO)
+            )
+
+    def test_o_unico_escritor_do_fecho_e_privado(self) -> None:
+        """Publicar o `_fechar` era reabrir o buraco que a recusa fecha.
+
+        Nao e um ensaio de estilo: mede que a superficie publica da porta nao
+        tem **nenhum** caminho para `estado = 'concluido'` que nao passe pela
+        guarda ou pelo `concluir_apagamento`.
+        """
+        publicos = [
+            nome
+            for nome in dir(self.porta)
+            if not nome.startswith("_") and callable(getattr(self.porta, nome))
+        ]
+        self.assertNotIn("_fechar", publicos)
+        self.assertIn("concluir", publicos)
+
+
+class TestATraducaoDaColisao(unittest.TestCase):
+    """Criterio 8, a metade que a revisao mediu como **sem ensaio nenhum**.
+
+    O `_e_pedido_ja_aberto` exige o `pgcode` **e** o nome do indice, e as duas
+    condicoes tinham mutantes sobreviventes: trocar `UNICIDADE_VIOLADA` para
+    `"23514"` ou o `INDICE_DO_PEDIDO_ABERTO` para qualquer outra cadeia deixava
+    a suite verde, e a colisao passava a sair como excepcao crua do *driver* em
+    vez de `PedidoEmCurso`.
+    """
+
+    class ErroDeUnicidade(Exception):
+        """Imita a excepcao do pg8000: `pgcode` e `diag.constraint_name`."""
+
+        class Diag:
+            def __init__(self, restricao: str) -> None:
+                self.constraint_name = restricao
+
+        def __init__(self, pgcode: str, restricao: str) -> None:
+            super().__init__(f"{pgcode}: {restricao}")
+            self.pgcode = pgcode
+            self.diag = self.Diag(restricao)
+
+    class CursorQueColide:
+        """Levanta na insercao e devolve o pedido aberto na releitura."""
+
+        def __init__(self, erro: Exception, aberto: bool = True) -> None:
+            self._erro = erro
+            self._aberto = aberto
+            self._resultado: list = []
+
+        def execute(self, sql: str, params: tuple = ()) -> None:
+            if "INSERT INTO platform.dsar_requests" in sql:
+                raise self._erro
+            self._resultado = (
+                [("d-ja-aberto",) + ("x",) * 9] if self._aberto else []
+            )
+
+        def fetchone(self):
+            return self._resultado[0] if self._resultado else None
+
+        def fetchall(self):
+            return list(self._resultado)
+
+    def porta(self):
+        return PortaDeDireitos(relogio=RelogioParado(), auditoria=AuditoriaFalsa())
+
+    def receber(self, cursor):
+        return self.porta().receber(
+            cursor, tenant_id=TENANT, requerente=TITULAR, tipo=TIPO_ELIMINACAO
+        )
+
+    def test_a_colisao_do_indice_do_pedido_aberto_vira_pedido_em_curso(self) -> None:
+        erro = self.ErroDeUnicidade("23505", "dsar_requests_aberto_uq")
+        with self.assertRaises(PedidoEmCurso) as apanhado:
+            self.receber(self.CursorQueColide(erro))
+        self.assertEqual(apanhado.exception.dsar_id, "d-ja-aberto")
+
+    def test_um_23505_de_outra_restricao_nao_e_traduzido(self) -> None:
+        """**O ensaio que morre se alguem tirar o nome do indice da condicao.**
+
+        Um `23505` da chave primaria e um defeito do gerador de UUID. Traduzi-lo
+        para «ja ha um pedido aberto» mandava quem o lesse procurar um pedido
+        que nao existe.
+        """
+        erro = self.ErroDeUnicidade("23505", "dsar_requests_pkey")
+        with self.assertRaises(self.ErroDeUnicidade):
+            self.receber(self.CursorQueColide(erro))
+
+    def test_outro_sqlstate_nao_e_traduzido(self) -> None:
+        """E o que morre se alguem trocar o `UNICIDADE_VIOLADA` por `23514`."""
+        erro = self.ErroDeUnicidade("23514", "dsar_requests_aberto_uq")
+        with self.assertRaises(self.ErroDeUnicidade):
+            self.receber(self.CursorQueColide(erro))
+
+    def test_sem_o_pedido_aberto_na_releitura_diz_desconhecido(self) -> None:
+        """A transaccao pode estar abortada: diz-se a verdade, nao se levanta outro erro."""
+        erro = self.ErroDeUnicidade("23505", "dsar_requests_aberto_uq")
+        with self.assertRaises(PedidoEmCurso) as apanhado:
+            self.receber(self.CursorQueColide(erro, aberto=False))
+        self.assertEqual(apanhado.exception.dsar_id, "desconhecido")
+
+
+class TestAProvaDaOposicao(unittest.TestCase):
+    """Achado da revisao: a composicao divergia da unica canonica do repositorio.
+
+    O `packages/core-ts/src/consentimento/prova.ts` compoe
+    `(textoMostrado, contactId, wamid, hora)` com `chr(0)`, e sai do modulo de
+    proposito porque «o `evidence_hash` tem de ser reprodutivel por quem
+    audita». A primeira versao deste modulo compunha
+    `sha256(dsar_id ∥ finalidade)` com o separador do `audit_log` — nao cobria o
+    `contact_id` nem hora nenhuma.
+    """
+
+    def prova(self, cursor):
+        return next(p for s, p in cursor.executadas if "consent_event" in s)[5]
+
+    def test_a_prova_usa_o_separador_do_prova_ts(self) -> None:
+        self.assertEqual(SEPARADOR_DA_PROVA, chr(0))
+        self.assertNotEqual(
+            SEPARADOR_DA_PROVA,
+            SEPARADOR,
+            "o separador da prova nao e o do payload_hash do audit_log: sao "
+            "colunas diferentes com escritores diferentes",
+        )
+
+    def test_a_prova_se_reproduz_das_duas_linhas_que_existem(self) -> None:
+        """A propriedade que a `0015` exige: quem audita recalcula-a.
+
+        Os quatro campos leem-se de duas linhas: a de `consent_event` da o
+        `contact_id` e o `ocorrido_em`, a de `dsar_requests` da o `dsar_id`.
+        """
+        import hashlib
+
+        cursor = BaseQueLeAInstrucao()
+        p = pedido(TIPO_OPOSICAO)
+        opor(cursor, p)
+        esperado = hashlib.sha256(
+            SEPARADOR_DA_PROVA.join(
+                (
+                    TEXTO_DA_OPOSICAO,
+                    p.contact_id,
+                    p.dsar_id,
+                    p.recebido_at.isoformat(),
+                )
+            ).encode("utf-8")
+        ).digest()
+        self.assertEqual(self.prova(cursor), esperado)
+
+    def test_a_prova_cobre_o_contacto(self) -> None:
+        """**O ensaio que morre se o `contact_id` sair da composicao.**
+
+        Sem ele, duas oposicoes de titulares diferentes pelo mesmo `dsar_id`
+        davam a mesma prova — e a unicidade da `0015`, que inclui o
+        `contact_id`, deixava de ser suficiente pela razao que ela escreve.
+        """
+        um = BaseQueLeAInstrucao()
+        outro = BaseQueLeAInstrucao()
+        opor(um, pedido(TIPO_OPOSICAO, contacto=TITULAR))
+        opor(outro, pedido(TIPO_OPOSICAO, contacto=OUTRO))
+        self.assertNotEqual(self.prova(um), self.prova(outro))
+
+    def test_a_prova_cobre_a_hora_do_pedido(self) -> None:
+        import dataclasses
+
+        um = BaseQueLeAInstrucao()
+        outro = BaseQueLeAInstrucao()
+        base = pedido(TIPO_OPOSICAO)
+        opor(um, base)
+        opor(
+            outro,
+            dataclasses.replace(base, recebido_at=base.recebido_at + timedelta(days=1)),
+        )
+        self.assertNotEqual(self.prova(um), self.prova(outro))
+
+    def test_a_prova_tem_trinta_e_dois_bytes(self) -> None:
+        """O `CHECK octet_length(evidence_hash) = 32` da `0015`."""
+        cursor = BaseQueLeAInstrucao()
+        opor(cursor, pedido(TIPO_OPOSICAO))
+        self.assertEqual(len(self.prova(cursor)), 32)
+
+
+class TestARectificacaoEmDoisPassos(unittest.TestCase):
+    """Achado da revisao: o critério 7 era **impossivel** numa transaccao.
+
+    O `UPDATE` em `contact_endpoints` e so do `kamba_identity` (`0003`) e o
+    `EXECUTE` em `audit_append` e so do `kamba_app` e do `kamba_batch` (`0006`).
+    Os dois conjuntos sao **disjuntos**, pelo que a primeira versao — que fazia
+    as duas no mesmo cursor — levantava `42501` em qualquer das duas ligacoes.
+    """
+
+    class CursorDoCofre:
+        def __init__(self, linhas: int = 1) -> None:
+            self.executadas: list = []
+            self._linhas = linhas
+
+        def execute(self, sql: str, params: tuple = ()) -> None:
+            if "platform.audit_append" in sql:
+                raise AssertionError(
+                    "o cursor do cofre nao chama audit_append: o kamba_identity "
+                    "nao tem EXECUTE nessa funcao (0006)"
+                )
+            self.executadas.append((sql, params))
+
+        def fetchall(self):
+            return [("id-{}".format(n),) for n in range(self._linhas)]
+
+        def fetchone(self):
+            return self.fetchall()[0] if self._linhas else None
+
+    def setUp(self) -> None:
+        self.auditoria = AuditoriaFalsa()
+        self.porta = PortaDeDireitos(
+            relogio=RelogioParado(), auditoria=self.auditoria
+        )
+
+    def test_o_passo_do_cofre_nao_toca_no_audit_log(self) -> None:
+        """**O duplo recusa a instrucao que o privilegio recusa.**
+
+        Nao mede uma convencao: o `CursorDoCofre` levanta se vir um
+        `audit_append`, que e exactamente o que o PostgreSQL faz com `42501`.
+        """
+        cursor = self.CursorDoCofre()
+        linhas = self.porta.rectificar_telefone(
+            cursor, pedido=pedido(TIPO_RECTIFICACAO), finalidade="entrega",
+            phone_enc=b"cifrado",
+        )
+        self.assertEqual(linhas, 1)
+        self.assertEqual(self.auditoria.registos, [])
+
+    def test_o_passo_da_auditoria_escreve_a_accao_nova(self) -> None:
+        self.porta.auditar_rectificacao(
+            pedido=pedido(TIPO_RECTIFICACAO), finalidade="entrega", linhas=1
+        )
+        self.assertEqual(len(self.auditoria.registos), 1)
+        self.assertEqual(
+            self.auditoria.registos[0]["accao"], "privacy.dsar_rectificado"
+        )
+
+    def test_auditar_zero_linhas_tambem_se_registra(self) -> None:
+        """Nao auditar quando nao houve linha escondia um pedido que falhou."""
+        self.porta.auditar_rectificacao(
+            pedido=pedido(TIPO_RECTIFICACAO), finalidade="entrega", linhas=0
+        )
+        self.assertEqual(self.auditoria.registos[0]["detalhe"]["linhas"], 0)
+
+    def test_o_tipo_do_pedido_autoriza_os_dois_passos(self) -> None:
+        for chamada in (
+            lambda: self.porta.rectificar_telefone(
+                self.CursorDoCofre(), pedido=pedido(TIPO_EXPORTACAO),
+                finalidade="entrega", phone_enc=b"x",
+            ),
+            lambda: self.porta.auditar_rectificacao(
+                pedido=pedido(TIPO_EXPORTACAO), finalidade="entrega", linhas=1
+            ),
+        ):
+            with self.subTest(), self.assertRaises(ValueError):
+                chamada()
+
+
+class TestOEscritorDoAuditLog(unittest.TestCase):
+    """O `AuditoriaNaBase`, que a revisao mediu como **nunca executado**."""
+
+    class CursorDeAuditoria:
+        def __init__(self) -> None:
+            self.executadas: list = []
+
+        def execute(self, sql: str, params: tuple = ()) -> None:
+            self.executadas.append((sql, params))
+
+    def test_o_sha256_e_da_base_e_nao_do_python(self) -> None:
+        """Um *hash* do lado do cliente era uma segunda canonicalizacao."""
+        cursor = self.CursorDeAuditoria()
+        AuditoriaNaBase(cursor).escrever(
+            tenant_id=TENANT, accao="privacy.dsar_recusado",
+            contact_id=TITULAR, detalhe={"tipo": "exportacao"},
+        )
+        sql, params = cursor.executadas[0]
+        self.assertIn("sha256(%s::bytea)", sql)
+        self.assertIn("platform.audit_append", sql)
+        self.assertEqual(len(params), 8)
+
+    def test_o_detalhe_vai_no_hash_e_nao_numa_coluna(self) -> None:
+        """O `audit_log` nao tem coluna de texto livre (`0006` §7.1)."""
+        cursor = self.CursorDeAuditoria()
+        AuditoriaNaBase(cursor).escrever(
+            tenant_id=TENANT, accao="privacy.dsar_recusado",
+            contact_id=TITULAR, detalhe={"alvo": OUTRO},
+        )
+        _sql, params = cursor.executadas[0]
+        texto = params[-1].decode("utf-8")
+        self.assertIn(OUTRO, texto)
+        self.assertEqual(
+            [p for p in params[:-1] if isinstance(p, str) and OUTRO in p],
+            [],
+            "o detalhe nao pode ir numa coluna: vai no payload_hash",
+        )
+
+    def test_o_actor_e_o_contacto_e_nao_um_funcionario(self) -> None:
+        cursor = self.CursorDeAuditoria()
+        AuditoriaNaBase(cursor).escrever(
+            tenant_id=TENANT, accao="privacy.dsar_recusado",
+            contact_id=TITULAR, detalhe={},
+        )
+        _sql, params = cursor.executadas[0]
+        self.assertEqual(params[1], "contact")
+
+    def test_o_relogio_do_sistema_devolve_utc(self) -> None:
+        """A convencao do conjunto: datas em UTC."""
+        agora = RelogioDoSistema().agora()
+        self.assertIsNotNone(agora.tzinfo)
+        self.assertEqual(agora.utcoffset(), timedelta(0))
+
+
+class TestAsLeiturasDoPedido(unittest.TestCase):
+    """Os caminhos que a revisao mediu como nunca executados."""
+
+    class CursorDeLeitura:
+        def __init__(self, linhas: list) -> None:
+            self._linhas = linhas
+            self.executadas: list = []
+
+        def execute(self, sql: str, params: tuple = ()) -> None:
+            self.executadas.append((sql, params))
+
+        def fetchone(self):
+            return self._linhas[0] if self._linhas else None
+
+        def fetchall(self):
+            return list(self._linhas)
+
+    def linha(self, dsar_id="d-1", estado=ESTADO_RECEBIDO, recebido=RECEBIDO):
+        return (
+            dsar_id, TENANT, TITULAR, TIPO_ELIMINACAO, estado, PAPEL_POR_OMISSAO,
+            recebido, PRAZO_INTERNO_DIAS, prazo_interno(recebido), None,
+        )
+
+    def porta(self, agora=RECEBIDO):
+        return PortaDeDireitos(
+            relogio=RelogioParado(agora), auditoria=AuditoriaFalsa()
+        )
+
+    def test_ler_devolve_o_pedido_ou_none(self) -> None:
+        self.assertIsNotNone(
+            self.porta().ler(self.CursorDeLeitura([self.linha()]), "d-1")
+        )
+        self.assertIsNone(self.porta().ler(self.CursorDeLeitura([]), "d-1"))
+
+    def test_em_curso_so_morde_no_recebido(self) -> None:
+        marcado = self.porta().em_curso(
+            self.CursorDeLeitura([self.linha(estado=ESTADO_EM_CURSO)]), "d-1"
+        )
+        self.assertEqual(marcado.estado, ESTADO_EM_CURSO)
+        self.assertIsNone(
+            self.porta().em_curso(self.CursorDeLeitura([]), "d-1")
+        )
+
+    def test_abertos_devolve_todos_e_o_filtro_e_do_pedido(self) -> None:
+        """A aritmetica do prazo e do `Pedido`, nao de um `WHERE now()`."""
+        antigo = RECEBIDO - timedelta(days=25)
+        cursor = self.CursorDeLeitura(
+            [self.linha("d-novo"), self.linha("d-antigo", recebido=antigo)]
+        )
+        porta = self.porta()
+        self.assertEqual(len(porta.abertos(cursor)), 2)
+
+    def test_em_atraso_e_alerta_devido_filtram_pelo_relogio(self) -> None:
+        antigo = RECEBIDO - timedelta(days=40)
+        porta = self.porta()
+        cursor = self.CursorDeLeitura(
+            [self.linha("d-novo"), self.linha("d-antigo", recebido=antigo)]
+        )
+        self.assertEqual(
+            [p.dsar_id for p in porta.em_atraso(cursor)], ["d-antigo"]
+        )
+        cursor = self.CursorDeLeitura(
+            [self.linha("d-novo"), self.linha("d-antigo", recebido=antigo)]
+        )
+        self.assertEqual(
+            [p.dsar_id for p in porta.com_alerta_devido(cursor)], ["d-antigo"]
+        )
+
+
+class TestADisciplinaDeLigacao(unittest.TestCase):
+    """O `dbapi.py`, que a revisao mediu como **nunca executado**."""
+
+    class LigacaoFalsa:
+        def __init__(self) -> None:
+            self.fechada = False
+
+        def close(self) -> None:
+            self.fechada = True
+
+    def test_com_tenant_fecha_a_ligacao_mesmo_quando_levanta(self) -> None:
+        """Uma ligacao que nao se fecha num erro e uma ligacao disputada."""
+        from kamba_core.direitos import dbapi
+
+        ligacao = self.LigacaoFalsa()
+        import contextlib
+
+        @contextlib.contextmanager
+        def tx(_conexao, _tenant):
+            yield "cursor"
+
+        original = dbapi.tenant_guard.tx
+        dbapi.tenant_guard.tx = tx
+        try:
+            with self.assertRaises(RuntimeError):
+                dbapi.com_tenant(
+                    lambda: ligacao, TENANT, lambda _c: (_ for _ in ()).throw(
+                        RuntimeError("boom")
+                    )
+                )
+        finally:
+            dbapi.tenant_guard.tx = original
+        self.assertTrue(ligacao.fechada)
+
+    def test_os_dois_jobs_tem_nome(self) -> None:
+        """O `tenant_guard` recusa um `kamba_batch` sem nome de job."""
+        from kamba_core.direitos import JOB_DO_RESTAURO, JOB_DO_VARRIMENTO
+
+        for job in (JOB_DO_VARRIMENTO, JOB_DO_RESTAURO):
+            with self.subTest(job=job):
+                self.assertRegex(job, r"^[a-z][a-z0-9_]{2,62}$")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,29 @@ levava `insufficient_privilege` — e e bom que leve: o dia em que o `kamba_app`
 tiver `UPDATE` no cofre, a fronteira do ADR-010 deixou de existir e nenhum
 portao deste repositorio o diz.
 
+## E duas funcoes de outras revisoes **so** correm na ligacao da aplicacao
+
+Foi achado da revisao adversarial deste ramo, e e a mesma fronteira a olhar para
+o outro lado:
+
+    platform.evt_emitir    `EXECUTE` so ao `kamba_app` (`0004`)
+    platform.audit_append  `EXECUTE` so ao `kamba_app` e ao `kamba_batch`
+                           (`0006`)
+
+A segunda **nao e omissao**: o `0006` escreve que o `REVOKE ALL ... FROM PUBLIC`
+existe precisamente para que o `kamba_resolver` e o `kamba_identity` nao a
+possam chamar, e que isso foi apanhado por uma revisao adversarial **daquele**
+ticket.
+
+Consequencia pratica, e e por isso que duas operacoes deste modulo tem **dois
+passos**: a rectificacao do criterio 7 escreve no cofre com uma ligacao e audita
+com a outra (`rectificar_telefone` + `auditar_rectificacao`), e um escopo de
+apagamento escreve a sua linha do *ledger* com o seu papel e anuncia com a
+ligacao da aplicacao (`registar_aplicacao` + `anunciar_aplicacao`). **Nenhuma
+das duas e atomica**, e as duas dizem a ordem segura na sua propria
+*docstring*. Conceder os privilegios que faltam era afrouxar o criterio de
+outro ticket a partir deste.
+
 ## Uma ligacao por chamada, dentro do `tenant_guard`
 
 E a mesma disciplina do `destinos/dbapi.py` e do registo do AGR, e vale aqui

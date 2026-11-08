@@ -127,14 +127,53 @@ ALERTA_AOS_DIAS = 20
 TTL_DA_EXPORTACAO_S = TTL_MAXIMO_S
 
 
-#: O separador da canonicalizacao, `chr(31)` (`US`, *unit separator*).
+#: O separador da canonicalizacao do `payload_hash` do `audit_log`, `chr(31)`.
 #:
-#: E o mesmo do `CONCATENACAO_DO_ROW_HASH` da `0006` e do escritor do COM, e nao
+#: E o mesmo do `CONCATENACAO_DO_ROW_HASH` da `0006` e do escritor do COM. Nao
 #: e gosto: um separador diferente em cada escritor e uma canonicalizacao por
 #: escritor, e duas canonicalizacoes produzem *hashes* diferentes para o mesmo
 #: facto. Escolhe-se um carater de controlo porque nenhum identificador o
 #: contem — com uma virgula, `("a,b", "c")` e `("a", "b,c")` tem o mesmo texto.
+#:
+#: **E so para o `audit_log`.** O `evidence_hash` do `consent_event` tem
+#: separador proprio e diferente — ver o `SEPARADOR_DA_PROVA`.
 SEPARADOR = chr(31)
+
+#: O separador da prova de consentimento, `chr(0)`.
+#:
+#: **Nao e o `SEPARADOR` acima, e distingui-los e emenda de um achado da revisao
+#: adversarial.** A primeira versao deste modulo compunha o `evidence_hash` com
+#: `chr(31)` e justificava-o com a nota da `0006` — que e a coluna **errada**: o
+#: `row_hash` do `audit_log` e uma coisa, o `evidence_hash` do `consent_event` e
+#: outra, e esta ultima **ja tem um escritor canonico** em
+#: `packages/core-ts/src/consentimento/prova.ts`, que usa `chr(0)` e sai do
+#: modulo de proposito — o `index.ts` dele escreve a razao: «o `evidence_hash`
+#: tem de ser reprodutivel por quem audita».
+#:
+#: A ironia que a revisao apanhou vale escrever: a nota do `SEPARADOR` avisa que
+#: «duas canonicalizacoes produzem *hashes* diferentes para o mesmo facto» — e a
+#: primeira versao cometia exactamente isso, na coluna onde a unicidade
+#: `(tenant_id, contact_id, purpose, evidence_hash)` da `0015` **so e suficiente
+#: por causa** da composicao canonica.
+SEPARADOR_DA_PROVA = chr(0)
+
+#: As quatro partes da prova de uma oposicao por pedido do titular.
+#:
+#: O `prova.ts` compoe `(textoMostrado, contactId, wamid, hora)`. Uma oposicao
+#: por DSAR **nao tem `wamid`**: nao vem de uma mensagem da Meta, vem de um
+#: pedido. A divergencia e inevitavel e declara-se em vez de se esconder — o que
+#: nao se divergiu foi o resto: o separador e o mesmo, o `contact_id` entra, uma
+#: marca de origem entra no lugar do texto mostrado, e a hora e a do pedido.
+#:
+#: **E continua reproduzivel por quem audita**, que e a propriedade que a `0015`
+#: exige («uma prova que nao se sabe reproduzir nao e prova»): os quatro campos
+#: leem-se de **duas linhas que existem** — a de `consent_event` da o
+#: `contact_id` e o `ocorrido_em`, a de `dsar_requests` da o `dsar_id`, e a
+#: marca e esta constante.
+#:
+#: E e **determinista**, que e o que torna a oposicao idempotente pela chave que
+#: a `0015` ja tinha: opor-se duas vezes pelo mesmo pedido da o mesmo resumo.
+FORMA_DA_PROVA_DA_OPOSICAO = ("marca", "contact_id", "dsar_id", "recebido_at")
 
 #: As duas accoes que a revisao `0037` acrescenta ao dominio fechado de
 #: `audit_log.action`. Cada uma e exigida por um criterio **pelo nome**: a
@@ -239,6 +278,36 @@ class PedidoEmCurso(DireitoNegado):
         super().__init__(f"pedido {tipo} ja aberto: {dsar_id}")
         self.dsar_id = dsar_id
         self.tipo = tipo
+
+
+class FechoSemLedger(DireitoNegado):
+    """Tentou-se fechar um pedido de eliminacao pelo caminho que nao verifica.
+
+    **E a correccao do achado mais serio da revisao adversarial deste ramo.** O
+    `PortaDeDireitos.concluir` escrevia `estado = 'concluido'` em qualquer
+    pedido, e a prosa dele dizia que quem verificava os seis escopos era «o
+    `eliminacao.concluir_apagamento`, que e o unico caminho que fecha um pedido
+    de eliminacao» — uma funcao que **nao existia**. O critero 3 ficava
+    satisfeito por convencao: o titular era informado de que o apagamento estava
+    feito, e os seis escopos nunca tinham aplicado.
+
+    **Nenhum ensaio o podia apanhar**, e e por isso que isto e uma classe de
+    defeito e nao um lapso: os cinco ensaios sobre `apagamento_completo` e
+    `escopos_em_falta` ficavam verdes qualquer que fosse o comportamento do
+    `concluir`, porque **nao havia ligacao nenhuma para mutar**.
+
+    Hoje a ligacao existe e e esta excepcao: o `concluir` **recusa** um pedido
+    de eliminacao, e o unico caminho que o fecha e o `concluir_apagamento`, que
+    le o *ledger* antes.
+    """
+
+    def __init__(self, dsar_id: str) -> None:
+        super().__init__(
+            f"o pedido de eliminacao {dsar_id} nao se fecha pelo `concluir`: "
+            "use o `eliminacao.concluir_apagamento`, que exige os seis escopos "
+            "no erasure_ledger (criterio 3)"
+        )
+        self.dsar_id = dsar_id
 
 
 class ApagamentoIncompleto(DireitoNegado):
@@ -366,13 +435,22 @@ class Relogio(Protocol):
 class Auditoria(Protocol):
     """Quem escreve no `platform.audit_log`, **sem conteudo**.
 
+    **O metodo chama-se `escrever` e nao `registar`, e e um portao que o
+    decidiu.** O `tools/log_policy` recusa qualquer `.registar(...)` em codigo
+    de servico — «e a porta sem tipos do logger; usam-se `info`, `error`,
+    `excepcao`» — e a primeira versao deste protocolo chamava-lhe `registar`,
+    o que deu **dois** achados no *gate* 2. O nome e de um portao e nao de
+    gosto: um `.registar(` em qualquer sitio le-se como a porta sem tipos do
+    logger, e um registo de auditoria que se parece com um *log* convida a
+    escrever conteudo nele.
+
     A DoD do bloco: «nenhum dado pessoal em eventos, logs ou `dsar_requests`; so
     `contact_id`». Por isso a assinatura nao tem campo de texto livre: tem a
     accao, o alvo e um mapa de detalhe que o chamador preenche com
     identificadores e com mais nada.
     """
 
-    def registar(
+    def escrever(
         self,
         *,
         tenant_id: str,
@@ -385,12 +463,26 @@ class Auditoria(Protocol):
 class Assinador(Protocol):
     """Quem produz um URL com expiracao para um objecto do STO.
 
-    O tecto do TTL **nao esta aqui**: esta no `TTL_MAXIMO_S` deste modulo. Um
-    assinador generico assina o que lhe pedirem, e o criterio 2 nao e sobre o
-    assinador — e sobre esta exportacao.
+    **A assinatura e a do `ArmazenamentoPorTenant.sign_url`**, e nao uma forma
+    inventada. E emenda de um achado da revisao adversarial: a primeira versao
+    declarava `assinar(chave, *, ttl_s)` — um metodo que **nenhuma das tres
+    implementacoes do `storage` tem** (a guarda tem `sign_url(ctx, ref, *,
+    ttl_seconds)`, os motores tem `sign_url(chave, ttl_segundos)` posicional) e
+    que o `entregar` nao chamava. Tres formas para a mesma operacao, e o
+    protocolo nao casava com nenhuma.
+
+    **E nenhum portao deste repositorio o veria:** nao ha verificador de tipos
+    de Python nesta arvore (nem `mypy` nem `pyright` em `pyproject.toml` ou no
+    `Makefile`), e o *gate* 2 corre o `typecheck` de TypeScript. Passar um duplo
+    com a forma errada dava `TypeError` **em execucao**, nao no CI. Por isso o
+    protocolo segue a implementacao, e nao o contrario.
+
+    O tecto do TTL nao esta aqui nem na implementacao deste modulo: esta no
+    `TTL_MAXIMO_S` do `kamba_core.storage`, que e quem valida. Ver a nota do
+    `TTL_DA_EXPORTACAO_S`.
     """
 
-    def assinar(self, chave: str, *, ttl_s: int) -> str: ...
+    def sign_url(self, ctx: object, ref: object, *, ttl_seconds: int) -> str: ...
 
 
 def exigir_tipo(tipo: str) -> str:

@@ -26,14 +26,14 @@ tabela ja tem.
 barata: o criterio 6 pede um «*erasure ledger* (sem dado pessoal) reaplicado
 apos restauro», e o `specs/EPIC-08_Topologia_Operacao.md` ja escreve o *hook*
 que o le. Contar pelos eventos deixava duas estruturas a responder a mesma
-pergunta — e a licao mais caras do KAM-069 e que duas leitoras da mesma coisa
+pergunta — e a licao mais cara do KAM-069 e que duas leitoras da mesma coisa
 divergem e nenhum portao o ve.
 
 ## O que este modulo **nao** faz, e o credor de cada coisa
 
 Nao apaga nada. Cada escopo e apagado pelo processo que detem a loja:
 
-* `cofre` — o `Identidade.apagar` do `packages/core-ts/src/identity/`, que ja
+* `cofre` — o `Identidade.eraseContact` do `packages/core-ts/src/identity/`, que ja
   existe desde o KAM-008 e ja faz o que o criterio 4 pede (`contact_endpoints` a
   zero, `erased_at` preenchido, DEK destruida). Este modulo **nao** escreve uma
   segunda versao disso: liga-se a ela;
@@ -98,7 +98,33 @@ def anunciar_aplicacao(cursor: Any, pedido: Pedido) -> str:
     """Poe o `privacy.erasure_applied` no *outbox*. Devolve o `event_id`.
 
     E o anuncio do criterio 3, e **nao e o que fecha o pedido** — ver a nota do
-    modulo. Quem fecha e o ledger.
+    modulo. Quem fecha e o *ledger*.
+
+    ## Corre no cursor da **aplicacao**, e nao no do escopo que aplicou
+
+    A `0004` concede `EXECUTE` em `platform.evt_emitir` **so ao `kamba_app`** —
+    nem ao `kamba_batch` nem ao `kamba_identity`. Logo o consumidor do `cofre`,
+    que corre como `kamba_identity`, e o do `dat`, que corre como
+    `kamba_batch`, **nao podem emitir**: levantam `42501`.
+
+    Foi achado da revisao adversarial deste ramo, e a leitura que ele obriga e
+    esta: os dois passos de um escopo tem papeis diferentes e nao se juntam numa
+    transaccao.
+
+        registar_aplicacao   no papel do escopo (`kamba_identity`,
+                             `kamba_batch` ou `kamba_app`) — e a linha do
+                             *ledger*, que e **o que conta** para o criterio 3
+        anunciar_aplicacao   no papel da aplicacao — e o anuncio, que e o que o
+                             criterio 3 pede a seguir
+
+    **E essa ordem e a certa, nao um remedio.** A linha do *ledger* e o facto; o
+    evento e a noticia. Anunciar primeiro deixava um `erasure_applied` publicado
+    sobre um escopo que ainda nao aplicou, e o pedido continuava a nao fechar —
+    o inverso nao perde nada, porque quem fecha le a tabela.
+
+    Conceder `EXECUTE` aos outros dois papeis era **afrouxar o criterio de outro
+    ticket** a partir deste, como no caso do `kamba_agr`, e nao e decisao de
+    quem implementa os direitos do titular.
     """
     return _emitir(cursor, EVENTO_ERASURE_APPLIED, pedido)
 
@@ -210,6 +236,43 @@ def exigir_apagamento_completo(cursor: Any, dsar_id: str) -> None:
         raise ApagamentoIncompleto(faltam)
 
 
+def concluir_apagamento(cursor: Any, porta: Any, pedido: Pedido) -> Pedido | None:
+    """Fecha o pedido de eliminacao **depois** de exigir os seis escopos.
+
+    **E o impositor do criterio 3, e a primeira versao deste ramo nao o tinha.**
+    A *docstring* do `PortaDeDireitos.concluir` dizia que esta funcao existia e
+    era o unico caminho que fechava uma eliminacao; `grep` dava **uma**
+    ocorrencia — a propria frase. O `concluir` fechava qualquer pedido, o
+    `exigir_apagamento_completo` nao tinha chamador nenhum, e o criterio 3
+    estava satisfeito por convencao: o titular era informado de que o
+    apagamento estava feito com o `erasure_ledger` vazio. Foi o achado mais
+    serio da revisao adversarial.
+
+    **E nenhum ensaio o podia apanhar**, que e o que faz disto uma classe de
+    defeito: os cinco ensaios sobre `apagamento_completo` e `escopos_em_falta`
+    ficavam verdes qualquer que fosse o comportamento do `concluir`, porque
+    **nao havia ligacao para mutar**. Hoje ha duas, e as duas tem ensaio: esta
+    funcao le o *ledger* antes de escrever, e o `concluir` **recusa** um pedido
+    de eliminacao (`FechoSemLedger`).
+
+    A ordem nao e negociavel e e a razao de o `exigir` vir primeiro: com o fecho
+    primeiro, um `ApagamentoIncompleto` levantado depois deixava a linha
+    `concluido` escrita nesta transaccao — e se quem chama apanhasse a excepcao
+    sem reverter, ficava fechada.
+
+    Devolve `None` quando o pedido ja estava fechado, como o `concluir`: o
+    segundo fecho nao e erro, e a idempotencia e do `WHERE estado <>
+    'concluido'` do `SQL_CONCLUIR`.
+    """
+    if pedido.tipo != TIPO_ELIMINACAO:
+        raise ValueError(
+            f"concluir_apagamento sobre um pedido de {pedido.tipo}: os outros "
+            "tres tipos fecham pelo `PortaDeDireitos.concluir`"
+        )
+    exigir_apagamento_completo(cursor, pedido.dsar_id)
+    return porta._fechar(cursor, pedido.dsar_id)
+
+
 def sujeitos_apagados(cursor: Any) -> tuple[SujeitoApagado, ...]:
     """O par `(contact_id, erased_at)` por contacto apagado (criterio 6).
 
@@ -265,6 +328,7 @@ def sujeitos_a_reaplicar(
 
 __all__ = [
     "anunciar_aplicacao",
+    "concluir_apagamento",
     "apagamento_completo",
     "escopos_aplicados",
     "escopos_em_falta",

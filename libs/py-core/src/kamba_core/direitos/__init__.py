@@ -31,7 +31,7 @@ tipos e passava a RLS, porque o contacto e do mesmo tenant.
 ## O que este modulo nao faz, e porque
 
 Nao apaga nada. O apagamento do cofre **ja existe** desde o KAM-008 — o
-`Identidade.apagar` do `packages/core-ts/src/identity/`, que poe
+`Identidade.eraseContact` do `packages/core-ts/src/identity/`, que poe
 `contact_endpoints` a zero, preenche o `erased_at` e destroi a DEK, que e
 exactamente o criterio 4 — e os outros cinco escopos sao dos processos que
 detem cada loja. O que este modulo entrega e o pedido, o evento, o registo e o
@@ -68,7 +68,9 @@ from .contrato import (
     PAPEL_RESPONSAVEL,
     PAPEL_SUBCONTRATADA,
     PRAZO_INTERNO_DIAS,
+    FORMA_DA_PROVA_DA_OPOSICAO,
     SEPARADOR,
+    SEPARADOR_DA_PROVA,
     TEXTO_DA_OPOSICAO,
     TIPO_ELIMINACAO,
     TIPO_EXPORTACAO,
@@ -84,6 +86,7 @@ from .contrato import (
     Auditoria,
     DireitoNegado,
     EscopoDesconhecido,
+    FechoSemLedger,
     PapelDesconhecido,
     Pedido,
     PedidoDeOutroTitular,
@@ -105,6 +108,7 @@ from .dbapi import (
 )
 from .eliminacao import (
     anunciar_aplicacao,
+    concluir_apagamento,
     apagamento_completo,
     escopos_aplicados,
     escopos_em_falta,
@@ -160,6 +164,7 @@ __all__ = [
     "EVENTO_ERASURE_REQUESTED",
     "FINALIDADES_DO_EVENTO",
     "FINALIDADE_DA_OPOSICAO",
+    "FORMA_DA_PROVA_DA_OPOSICAO",
     "INDICE_DO_PEDIDO_ABERTO",
     "JOB_DO_RESTAURO",
     "JOB_DO_VARRIMENTO",
@@ -170,6 +175,7 @@ __all__ = [
     "PAPEL_SUBCONTRATADA",
     "PRAZO_INTERNO_DIAS",
     "SEPARADOR",
+    "SEPARADOR_DA_PROVA",
     "TEXTO_DA_OPOSICAO",
     "TIPOS",
     "TIPO_ELIMINACAO",
@@ -189,6 +195,7 @@ __all__ = [
     "AuditoriaNaBase",
     "DireitoNegado",
     "EscopoDesconhecido",
+    "FechoSemLedger",
     "PapelDesconhecido",
     "Pedido",
     "PedidoDeOutroTitular",
@@ -202,6 +209,7 @@ __all__ = [
     "apagamento_completo",
     "com_tenant",
     "como_lote",
+    "concluir_apagamento",
     "documento",
     "entregar",
     "escopos_aplicados",

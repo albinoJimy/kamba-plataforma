@@ -37,7 +37,7 @@ from .contrato import (
     EVENTO_CONSENT_WITHDRAWN,
     FINALIDADE_DA_OPOSICAO,
     FINALIDADES_DO_EVENTO,
-    SEPARADOR,
+    SEPARADOR_DA_PROVA,
     TEXTO_DA_OPOSICAO,
     TIPO_EXPORTACAO,
     TIPO_OPOSICAO,
@@ -204,8 +204,20 @@ def opor(cursor: Any, pedido: Pedido) -> tuple[bool, str]:
             f"opor sobre um pedido de {pedido.tipo}: o tipo do pedido e que "
             "autoriza a operacao"
         )
+    # A prova, com o separador e a forma do `prova.ts` — ver o
+    # `FORMA_DA_PROVA_DA_OPOSICAO`. Quatro partes e nao duas: a primeira versao
+    # deste modulo compunha `sha256(dsar_id ∥ finalidade)` com o separador do
+    # `audit_log`, o que nao cobria o `contact_id` nem hora nenhuma e nao se
+    # reproduzia a partir dos campos que quem audita tem.
     prova = hashlib.sha256(
-        SEPARADOR.join((pedido.dsar_id, FINALIDADE_DA_OPOSICAO)).encode("utf-8")
+        SEPARADOR_DA_PROVA.join(
+            (
+                TEXTO_DA_OPOSICAO,
+                pedido.contact_id,
+                pedido.dsar_id,
+                pedido.recebido_at.isoformat(),
+            )
+        ).encode("utf-8")
     ).digest()
     cursor.execute(
         SQL_REGISTAR_OPOSICAO,

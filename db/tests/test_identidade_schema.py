@@ -874,7 +874,20 @@ class TestDowngradeDa0003(unittest.TestCase):
         # da identidade. E para o gancho de fusao reapontar conversas **dentro**
         # da transacao da fusao, que e a unica forma de a atomicidade do KAM-008
         # continuar verdadeira (`docs/chr.md` §5).
-        self.assertEqual(em_head["identidade"], (True, 9, 24, 6))
+        #
+        # **12 e nao 9 desde o KAM-070.** A revisao `0037` da ao
+        # `kamba_identity` `SELECT` na `dsar_requests` e `SELECT, INSERT` na
+        # `erasure_ledger` — tres concessoes de tabela —, porque o cofre e um
+        # dos **seis** escopos do criterio 3 daquele bloco: ele le o pedido que
+        # esta a aplicar e escreve a linha que diz que o aplicou. Nao cria o
+        # pedido (um pedido do titular nasce no canal) e nao tem `UPDATE` nem
+        # `DELETE` em nenhuma das duas — a `erasure_ledger` e *append-only* por
+        # privilegio.
+        #
+        # **A contagem e de concessoes de tabela e nao de colunas**, pelo que o
+        # terceiro numero (24) nao muda: a `0037` nao da privilegio por coluna
+        # nenhum ao `kamba_identity`.
+        self.assertEqual(em_head["identidade"], (True, 12, 24, 6))
         self.assertEqual(
             em_head["politicas"],
             [

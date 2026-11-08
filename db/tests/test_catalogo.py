@@ -1695,7 +1695,23 @@ class TestConvencoes(ComBase):
         # `refund_cases`. As tres **compostas** com o `tenant_id`, pela licao da
         # `0033` acima, e `MATCH SIMPLE`, que e o que deixa a cobranca de ciclo
         # de billing (`order_id` nulo) continuar a passar.
-        self.assertEqual(len(linhas), 72)
+        #
+        # **77 e nao 72** desde a `0037` (KAM-070): as **cinco** dos direitos do
+        # titular — duas na `dsar_requests` (`tenant_fk` simples para `tenants`,
+        # `contact_fk` **composta** `(tenant_id, contact_id)` para `contacts`) e
+        # tres na `erasure_ledger` (`tenant_fk`, `dsar_fk` composta para os
+        # pedidos e `contact_fk` composta para os contactos). As compostas pela
+        # licao que a `0003` fixou e a `0009` repetiu: sem o `tenant_id`, o
+        # pedido do titular A podia apontar para o contacto de B, e nem o
+        # *gate* 6 nem o 3b o veriam.
+        #
+        # **Esta contagem e a terceira lista fechada que uma tabela nova custa e
+        # que nao se encontra a seguir o modelo do KAM-069**: a
+        # `tenant_destinations` **nao tem FK nenhuma** — um destino registra-se
+        # antes de o tenant activar —, pelo que quem a tome como modelo nao passa
+        # por aqui. A outra, logo acima, e o
+        # `test_as_fk_nao_apagam_em_cascata`.
+        self.assertEqual(len(linhas), 77)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

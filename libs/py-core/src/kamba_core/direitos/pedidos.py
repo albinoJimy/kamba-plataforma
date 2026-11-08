@@ -47,9 +47,11 @@ from .contrato import (
     PAPEL_POR_OMISSAO,
     PRAZO_INTERNO_DIAS,
     SEPARADOR,
+    TIPO_ELIMINACAO,
     TIPO_OPOSICAO,
     TIPO_RECTIFICACAO,
     Auditoria,
+    FechoSemLedger,
     Pedido,
     PedidoDeOutroTitular,
     PedidoEmCurso,
@@ -176,7 +178,7 @@ class PortaDeDireitos:
         """Aceita um pedido do titular, ou recusa-o (criterios 1 e 8).
 
         O `alvo` **tem omissao e a omissao e o proprio requerente**, e isso e a
-        parte do desenho que faz o criterio 1 difícil de violar por descuido:
+        parte do desenho que faz o criterio 1 dificil de violar por descuido:
         quem chama sem pensar no assunto obtem o caso certo. O parametro existe
         para que o caso errado se possa **recusar**, e nao para que se possa
         pedir.
@@ -193,7 +195,7 @@ class PortaDeDireitos:
             # primeiro, a escrita no `audit_log` ficava num `finally` ou perdia-se
             # — e um registo que depende de quem apanha a excepcao nao e um
             # registo.
-            self._auditoria.registar(
+            self._auditoria.escrever(
                 tenant_id=tenant_id,
                 accao=ACCAO_RECUSADO,
                 contact_id=requerente,
@@ -264,14 +266,37 @@ class PortaDeDireitos:
         linha = cursor.fetchone()
         return _pedido(linha) if linha else None
 
-    def concluir(self, cursor: Any, dsar_id: str) -> Pedido | None:
+    def concluir(self, cursor: Any, pedido: Pedido) -> Pedido | None:
         """Fecha o pedido. `None` se ja estava fechado — ver o `SQL_CONCLUIR`.
 
-        **Nao verifica o ledger**, de proposito: quem o verifica e o
-        `eliminacao.concluir_apagamento`, que e o unico caminho que fecha um
-        pedido de eliminacao. Poer a verificacao aqui dava **duas** leitoras do
-        criterio 3 — e a de um pedido de exportacao, que nao tem escopos
-        nenhuns, teria de a contornar.
+        **Recusa um pedido de eliminacao**, e e a correccao do achado mais serio
+        da revisao adversarial deste ramo. A primeira versao recebia um
+        `dsar_id` solto, fechava qualquer pedido, e dizia na *docstring* que
+        quem verificava os seis escopos era uma funcao que **nao existia** — o
+        criterio 3 ficava satisfeito por convencao, e o titular era informado de
+        que o apagamento estava feito com o *ledger* vazio.
+
+        **Recebe o `Pedido` e nao o `dsar_id`** por isso mesmo: com o
+        identificador solto, esta funcao nao tinha como saber de que tipo era o
+        pedido que estava a fechar, e a recusa era impossivel de escrever. E a
+        mesma razao pela qual as quatro operacoes recebem o pedido.
+
+        A verificacao do *ledger* fica no `eliminacao.concluir_apagamento` e nao
+        aqui, e isso continua certo: um pedido de exportacao nao tem escopos
+        nenhuns e teria de contornar a verificacao. O que mudou e que agora **nao
+        ha caminho** que feche uma eliminacao sem passar por lá.
+        """
+        if pedido.tipo == TIPO_ELIMINACAO:
+            raise FechoSemLedger(pedido.dsar_id)
+        return self._fechar(cursor, pedido.dsar_id)
+
+    def _fechar(self, cursor: Any, dsar_id: str) -> Pedido | None:
+        """A escrita do fecho, sem guarda nenhuma.
+
+        **Privada, e o sublinhado nao e decoracao:** e o unico sitio onde
+        `estado = 'concluido'` se escreve, e o `concluir_apagamento` chama-a
+        **depois** de exigir os seis escopos. Publica-la era reabrir o buraco
+        que a recusa do `concluir` fecha.
         """
         cursor.execute(SQL_CONCLUIR, (self._relogio.agora(), dsar_id))
         linha = cursor.fetchone()
@@ -294,13 +319,13 @@ class PortaDeDireitos:
 
     def rectificar_telefone(
         self,
-        cursor: Any,
+        cursor_do_cofre: Any,
         *,
         pedido: Pedido,
         finalidade: str,
         phone_enc: bytes,
     ) -> int:
-        """Rectifica o telefone cifrado do titular e audita (criterio 7).
+        """Rectifica o telefone cifrado do titular (criterio 7, primeira metade).
 
         **Recebe o `Pedido` e nao um `contact_id`**, e e a ligacao que faz o
         criterio 1 valer tambem aqui: o `contact_id` que esta funcao usa so pode
@@ -308,30 +333,72 @@ class PortaDeDireitos:
         requerente. Com um `contact_id` solto no argumento, rectificar os dados
         de outra pessoa era uma chamada bem formada.
 
-        Corre com o papel do **cofre**: o `kamba_app` nao tem `UPDATE` em
-        `contact_endpoints` (`0003`). Ver o `dbapi.py`.
+        ## Porque e que isto **nao** escreve no `audit_log`, e e emenda
+
+        O criterio 7 diz «rectificacao ... **e escreve no `audit_log`**», e a
+        primeira versao fazia as duas no mesmo cursor. **Nao pode**, e a razao e
+        um `GRANT` de outra revisao:
+
+            `contact_endpoints` (UPDATE)   so `kamba_identity` (`0003`)
+            `audit_append` (EXECUTE)       so `kamba_app` e `kamba_batch` (`0006`)
+
+        Os dois conjuntos sao **disjuntos**. Na ligacao do cofre o `audit_append`
+        levantava `42501` e a transaccao revertia — a rectificacao nunca
+        acontecia; na ligacao da aplicacao o `UPDATE` levantava `42501`
+        primeiro. Foi achado da revisao adversarial, e a primeira versao deste
+        modulo entregava um criterio **impossivel de cumprir**.
+
+        **E a ausencia desse privilegio e deliberada e nao um esquecimento:** o
+        `0006` escreve que o `REVOKE ALL ... FROM PUBLIC` existe precisamente
+        para que o `kamba_resolver` e o `kamba_identity` nao possam chamar a
+        funcao, e que isso foi **apanhado por uma revisao adversarial** daquele
+        ticket. Logo conceder-lho aqui era afrouxar o criterio do KAM-012 a
+        partir deste — a mesma decisao que o `kamba_agr` nao obteve.
+
+        Por isso a operacao tem **dois passos em duas ligacoes**, e quem a
+        conduz chama os dois: este, no cursor do cofre, e o
+        `auditar_rectificacao`, no cursor da aplicacao. **Nao e atomico**, e
+        diz-se: entre os dois ha um instante em que o telefone esta rectificado e
+        o `audit_log` nao o diz. O lado seguro e esta ordem — auditar primeiro
+        deixava o registo a afirmar uma rectificacao que pode nao ter
+        acontecido, e um registo de auditoria que afirma o que nao se deu e pior
+        do que um que chega tarde.
         """
         if pedido.tipo != TIPO_RECTIFICACAO:
             raise ValueError(
                 f"rectificar sobre um pedido de {pedido.tipo}: o tipo do pedido e "
                 "que autoriza a operacao"
             )
-        cursor.execute(
+        cursor_do_cofre.execute(
             SQL_RECTIFICAR_TELEFONE,
             (phone_enc, self._relogio.agora(), pedido.contact_id, finalidade),
         )
-        linhas = cursor.fetchall()
-        self._auditoria.registar(
+        return len(cursor_do_cofre.fetchall())
+
+    def auditar_rectificacao(
+        self, *, pedido: Pedido, finalidade: str, linhas: int
+    ) -> None:
+        """Escreve a rectificacao no `audit_log` (criterio 7, segunda metade).
+
+        Corre na ligacao da **aplicacao**, pela razao do `rectificar_telefone`.
+        O `linhas` vem de la: auditar «rectifiquei zero linhas» e informacao, e
+        nao auditar nada quando nao houve linha escondia um pedido que nao
+        encontrou o endpoint que o titular queria corrigir.
+        """
+        if pedido.tipo != TIPO_RECTIFICACAO:
+            raise ValueError(
+                f"auditar rectificacao sobre um pedido de {pedido.tipo}"
+            )
+        self._auditoria.escrever(
             tenant_id=pedido.tenant_id,
             accao=ACCAO_RECTIFICADO,
             contact_id=pedido.contact_id,
             detalhe={
                 "dsar_id": pedido.dsar_id,
                 "finalidade": finalidade,
-                "linhas": len(linhas),
+                "linhas": linhas,
             },
         )
-        return len(linhas)
 
 
 class AuditoriaNaBase:
@@ -351,7 +418,7 @@ class AuditoriaNaBase:
     def __init__(self, cursor: Any) -> None:
         self._cursor = cursor
 
-    def registar(
+    def escrever(
         self,
         *,
         tenant_id: str,

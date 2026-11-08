@@ -232,7 +232,7 @@ REV35 = "db/migrations/versions/0035_payment_order_fks.py"
 REV36 = "db/migrations/versions/0036_destinos_de_transferencia.py"
 #: KAM-070: os direitos do titular — o pedido e o ledger de apagamentos.
 #:
-#: **As sete mutacoes desta revisao morrem todas em `tests`**, e nao numa suite
+#: **As oito mutacoes desta revisao morrem todas em `tests`**, e nao numa suite
 #: de esquema propria como as da `0036`: o que elas atacam sao as listas
 #: fechadas do *gate* 8 — o inventario de colunas, a lista de restricoes por
 #: nome, a dos indices parciais, a matriz de privilegios e a matriz por coluna.
