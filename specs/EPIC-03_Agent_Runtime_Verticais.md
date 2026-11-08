@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.13 |
+| Versão | 1.14 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Agent Runtime (AGR)** é o serviço que transforma uma mensagem já resolvid
 
 O epic existe porque é onde as quatro fundações não-negociáveis do produto se tornam verificáveis por teste: mediação total pelo runtime, números só de tools, dinheiro só por evento, e verticais como configuração validadas pela **regra de dois** (Vendedor + Serviços, ADR-012). Dá corpo aos dois grafos do Piloto (tabela de arestas de `../docs/tecnica/02` §7.3 para o Vendedor; diagrama de §8.1 para os Serviços), ao padrão de dois nós para `interrupt()` idempotente (handoff), à voz com fallback a humano, ao modo determinístico sem LLM e ao dataset *golden* PT-AO como gate de deploy. Piloto = **só Fluxo A**: a persona `assistente` (Fluxo B) não é registada em produção (ADR-011).
 
-Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **17 tickets**: 11 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039) e 5 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
+Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-015, com adjacência a ADR-008 (chamadas a LLM/STT no estrangeiro são transferências até parecer em contrário) e ADR-018 (golden sintético, custo por tenant). São **18 tickets**: 12 na **Fase 0** (esqueleto andante: KAM-025 a KAM-032, KAM-035, KAM-038, KAM-039, KAM-184) e 6 na **Fase 1** (KAM-033, KAM-034, KAM-036, KAM-037, KAM-040, KAM-114). Qualidade em português de Angola, latência real dos modelos e WER dos STT são **NÃO VERIFICADOS** (`../docs/tecnica/02` §19, L1–L3): medem-se no golden e no staging, não se assumem.
 
 ---
 
@@ -58,6 +58,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-039 | Prova da regra de dois: teste de contrato e métrica de reaproveitamento | feature | M | P0 | KAM-031, KAM-035, KAM-038, KAM-046 |
 | KAM-040 | Dataset golden PT-AO sintético e eval harness como gate | feature | L | P0 | KAM-031, KAM-035, KAM-033, KAM-034 |
 | KAM-114 | Modo concierge: a IA rascunha e o humano aprova | feature | M | P0 | KAM-018, KAM-031, KAM-034 |
+| KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | KAM-035, KAM-047 |
 
 ---
 
@@ -2475,7 +2476,7 @@ nenhum**.
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-027, KAM-028, KAM-047 |
-| Bloqueia | KAM-039, KAM-040 |
+| Bloqueia | KAM-039, KAM-040, KAM-184 |
 | Responsável sugerido | Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§8.1, §8.2, §5.4, §6.2), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§7), ADR-007, ADR-012, ADR-013 |
 
@@ -4293,6 +4294,193 @@ X-03 com um `valor_alteravel` inaplicável (este **corrigiu-se**, por ser barato
 
 ---
 
+## KAM-184 — Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-03 — Agent Runtime e Verticais |
+| Fase | 0 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | M |
+| Dependências | KAM-035, KAM-047 |
+| Bloqueia | KAM-108 |
+| Responsável sugerido | Engenheiro de Runtime/IA |
+| Documentos de referência | `../services/agr/src/kamba_agr/eventos/handlers.py`, `../registry/servicos.yaml`, `../contratos/eventos/payment.manual_confirmed/`, `../contratos/eventos/payment.confirmed/`, `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` (§9.2 e a linha 1.6), `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `KAM-035` no EPIC-03, `KAM-047` no EPIC-04 |
+
+### Contexto
+
+**O *gate* da Fase 0 não pode ficar verde, e a causa não é um portão: é uma acção
+que ninguém escreveu.** O critério **G0-1** do KAM-108 exige que, com o pagamento
+confirmado, «a vertical Serviços crie o lembrete/agenda». A linha **1.6** da
+checklist em `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` está em **`não`**,
+medida, com o achado no §9.2 daquele ficheiro. O credor registado naquela linha é o **fundador**, e este ticket **não a altera**: entrega o trabalho de que ela precisa para poder ser medida.
+
+Medido na `main` em `fe40048` e reconfirmado em `ca5cac5`, em quatro pontos:
+
+```text
+registry/servicos.yaml      a vertical Servicos SUBSCREVE payment.confirmed
+                            e payment.manual_confirmed
+handlers.py:221             os dois pares estao em ACCOES_POR_LIGAR, que o
+                            comentario do proprio modulo define como «esta
+                            vertical subscreve e a accao dela NAO esta escrita»;
+                            o desfecho do consumo e `sem_accao`
+manual_confirmed v1 e v2    payload com `additionalProperties: false` e quatro
+                            propriedades — autenticacao, currency, order_id,
+                            valor_minor — e **sem `booking_id`**
+payment.confirmed v1 e v2   o mesmo, com `provider` e `referencia` a mais e
+                            **tambem sem `booking_id`**
+```
+
+**A lacuna é dos dois eventos nas duas versões de cada**, o que mata a saída de
+«usa o outro evento».
+
+**E os credores estão fechados — dois no código e um no esquema, e a distinção
+importa porque a casa já a pagou uma vez.** No **código**: o `ACCOES_POR_LIGAR`
+aponta para o **KAM-047**, e o comentário do `registry/servicos.yaml` nomeia
+«o módulo `servicos` (**KAM-047**) e o grafo dela (**KAM-035**), nenhum dos dois
+escrito». No **esquema**: o **KAM-007**, que **nenhum ficheiro de
+`contratos/eventos/` nomeia** — quem o nomeia é a secção de verificação do
+KAM-039. Os três têm secção de «Verificação dos Critérios de Aceitação» e *merge*
+na `main`.
+
+**O que este ticket é, e o que não é.** As duas superfícies que registam o credor
+da linha 1.6 — `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` e o bloco do
+KAM-108 — nomeiam o **fundador** e o **KAM-055**, e **este ticket não as altera**.
+Logo não é verdade que ele «corrige o credor»: o que ele faz é dar à linha 1.6 o
+trabalho que ela precisa para poder ser medida, e deixar o credor do
+`ACCOES_POR_LIGAR` coerente com o que passar a existir (critério 3). Quem fechar
+a linha 1.6 é o KAM-108 com a demonstração humana.
+
+**Quem autorizou abrir isto.** O §9.2 do `Gate_Fase0.md` devolveu três perguntas
+ao fundador, e a primeira era «abrir o ticket que escreve a acção do consumo, e
+actualizar o credor do `ACCOES_POR_LIGAR`». **Decisão do fundador a 2026-11-07:
+abrir.** A segunda metade daquela pergunta — o credor do `ACCOES_POR_LIGAR` — é o
+critério 3 deste ticket e fica por executar, não por decidir.
+
+**O KAM-055 e porque não é dependência declarada.** O KAM-055 **emite** os
+eventos por encomenda e transita a encomenda, e está no PR #146. A acção do
+consumo escreve-se sem ele — o AGR já subscreve os dois pares —, e quem precisa
+dele é a **demonstração** do G0-1, que é do KAM-108 e já o declara como
+dependência. Declarar aqui a aresta obrigava a emendar o `specs/EPIC-05`, que é o
+ficheiro daquele PR aberto, e a reciprocidade do `lint_backlog` fá-la custar uma
+colisão por nada. **A razão é esta e não «é independente»:** a primeira versão
+deste bloco escrevia «independente — medido» sem nomear instrumento, e as duas
+razões não são a mesma. Achado da revisão adversarial deste ticket.
+
+**Se a rota (a) do critério 1 for a escolhida**, o KAM-007 passa a ser dependência
+e a aresta tem de ser declarada dos dois lados — não se antecipa aqui porque a
+rota (b) não a cria.
+
+### Objectivo
+
+Escrever a acção do consumo dos dois eventos de pagamento na vertical Serviços,
+de forma que o desfecho deixe de ser `sem_accao`, e deixar o `ACCOES_POR_LIGAR`
+com um credor vivo ou sem a entrada, conforme o resultado.
+
+### Critérios de Aceitação
+
+- [ ] 1. **As duas rotas do `booking_id` estão medidas, e as duas ficam
+  devolvidas.** São as que o §9.2 do `Gate_Fase0.md` enumera: **(a)** emendar o
+  contrato numa **versão nova** — `v3` e não um campo acrescentado ao `v1`/`v2`,
+  porque o `tools/contract_diff/cli.py` escreve que «uma diferença quebrante no
+  mesmo `v<N>` não passa; quem quer quebrar escreve `v<N+1>` e deixa o `v<N>`
+  como estava»; **(b)** o consumidor resolve a marcação a partir do `order_id`,
+  que os dois eventos já levam, ao custo de uma leitura por evento — e **isto
+  também é desenho**, toca o **ADR-009** e o **KAM-007**, pelo que não é a saída
+  «barata» que se decide sozinha. **As duas devolvem-se ao fundador com a medição;
+  nenhuma se aplica aqui.**
+
+  **A medição do custo de (a) tem de nomear a base, e nesta máquina é obrigatório:**
+
+  ```text
+  contract_diff --root . diff            -> 76 contratos, 0 em origin/main,
+                                            0 quebrantes          (INUTIL)
+  ```
+
+  O `tools/contract_diff/base.py` tem `BASE_POR_OMISSAO = "origin/main"`, e aqui
+  o `origin` é o **espelho privado congelado** em `f344990`, que **não tem
+  `contratos/eventos/`** — medido. Logo a comparação por omissão dá **zero
+  quebrantes faça-se o que se fizer ao esquema**, e um critério satisfeito por ela
+  seria um verde por construção. **Mede com
+  `--base refs/remotes/publico/main`**, e cola a saída. (Achado da revisão
+  adversarial deste próprio ticket: a primeira versão deste critério mandava medir
+  pelo `ci-7` e citava a guarda do `origin/main` ausente — que é verdadeira no
+  *runner* e falsa aqui, onde o `origin/main` existe e é o espelho.)
+- [ ] 2. **O desfecho do consumo deixa de ser `sem_accao` para os dois pares**, e
+  há ensaio que o mede **nas duas direcções**: com a acção ligada o desfecho é o
+  da acção, e com a acção removida volta a `sem_accao` — um ensaio que só meça o
+  caminho feliz passa com a ligação ao sítio errado.
+- [ ] 3. **O `ACCOES_POR_LIGAR` fica coerente com o que passou a existir.** A
+  entrada do par sai, ou fica com um credor **vivo**; e a invariante que o
+  `exigir_handlers` impõe continua a morder — um par com `notifica` **e** credor
+  reprova o arranque, pelo que o estado final é um dos dois e nunca os dois.
+  Medido com o arranque do AGR, não por leitura.
+- [ ] 4. **O arranque do AGR continua a exigir consumidor para cada subscrição.**
+  O critério 1 do KAM-039 não se enfraquece: a guarda `exigir_handlers` junta
+  **todos** os problemas e não o primeiro, e nenhuma das três formas de «não
+  fazer nada» passa a ser aceite em silêncio.
+- [ ] 5. **O cenário do G0-1 corre ponta a ponta num ensaio, sem a demonstração
+  humana.** O predicado é este e não uma frase: dado um `payment.confirmed` ou
+  `payment.manual_confirmed` válido para uma encomenda com marcação, a vertical
+  Serviços **produz o lembrete/agenda** — e o ensaio mede o **artefacto**
+  produzido, não o desfecho do consumo (esse é o critério 2). Marcar a linha 1.6
+  do `Gate_Fase0.md` é do KAM-108 e da demonstração humana, e **este critério não
+  se satisfaz reescrevendo a razão daquela linha**: a primeira versão dizia «ou
+  fica em `não` com a razão actualizada», que qualquer entrega satisfazia,
+  incluindo não escrever código nenhum. Achado da revisão adversarial deste
+  ticket.
+
+### Detalhes Técnicos
+
+- **Componentes:** AGR (`eventos/handlers.py`, `eventos/consumo.py`), a vertical
+  Serviços e o seu grafo (KAM-035), o módulo `servicos` (KAM-047), e o
+  `registry/servicos.yaml`. O `TEXTOS` é indexado por `(vertical, tipo)` e é
+  lido **dentro** da transacção do consumo: um par que declare destinatário sem
+  entrada lá rebentava com `KeyError` a meio de uma entrega com a marca de
+  consumido já inserida — e é por isso que a guarda está no arranque.
+- **O `registry/servicos.yaml` sobe de SemVer** se o tuplo das `subscricoes`
+  mudar, pela regra escrita em comentário no próprio ficheiro, e é *minor*.
+- **O comentário daquele ficheiro conta «os dois»** eventos de pagamento sem
+  `notifica`. Se este ticket mudar esse número, o comentário mente — e o
+  `lint_contagens` **não lê comentários de YAML**, pelo que nada o apanha.
+
+### Testes Requeridos
+
+Ensaio do desfecho nas duas direcções (critério 2); arranque do AGR com o par nos
+estados que o critério 3 enumera, incluindo os que **devem** reprovar; e, se a
+rota escolhida for a (b), ensaio de que a resolução por `order_id` não encontra a
+marcação e **falha de forma nomeada** em vez de criar uma — o caminho de erro é o
+que mais interessa aqui.
+
+### Definition of Done
+
+- [ ] Critérios de aceitação satisfeitos e demonstráveis, com as caixas abertas a
+  nomear o credor.
+- [ ] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
+  cada caixa e a ponta onde foi medida.
+- [ ] Se a rota (a) for a escolhida, a decisão de alterar o contrato está
+  **devolvida e não aplicada**.
+- [ ] Nenhum número novo em prosa sem a árvore onde foi medido.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-184 da KAMBÁ.
+Le specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-184), o
+services/agr/src/kamba_agr/eventos/handlers.py inteiro (incluindo os docstrings do
+exigir_handlers, que explicam as tres formas de «nao fazer nada»), o
+registry/servicos.yaml e os quatro esquemas dos dois eventos de pagamento.
+Objectivo: escrever a accao do consumo em Servicos e deixar o ACCOES_POR_LIGAR coerente.
+- Comeca pelo criterio 1: mede as duas rotas do booking_id antes de escrever codigo.
+- Nao alteres contrato publicado sem devolver a decisao.
+- Nao enfraquecas o exigir_handlers: ele tem tres guardas e as tres mordem.
+- O KAM-055 emite os eventos e esta noutro PR; nao e este ticket.
+Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o template da §7.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -4342,3 +4530,4 @@ X-03 com um `valor_alteravel` inaplicável (este **corrigiu-se**, por ser barato
 | 1.11 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-031 ganha o KAM-178.** Aquele bloco deferiu os executores das cinco tools do Vendedor «com o credor que liga o backend» e o credor não existia em ticket nenhum; o KAM-178, acrescentado ao EPIC-04, é esse credor e declara o KAM-031 como dependência. O `lint_backlog` exige a aresta nos dois lados, porque o §4 não tem coluna para ela. Nada mais deste epic muda: os modelos das tools, as especificações e o `invoke` ficam como estão. | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | **KAM-039 entregue, e NAO fecha: o nucleo tem uma excepcao e ela tem nome.** O bloco ganha a seccao «Verificacao dos Criterios de Aceitacao»: **dois criterios satisfeitos** ((a) e o 6.o), **dois parciais** ((b) e o 5.o), **um nao satisfeito** ((d)), **um vazio** ((c)) e o 7.o com a clausula «excepcao >= 1 reprova» a morder; **tres caixas de DoD marcadas e tres vazias**. O numero sai medido — `reuso = 88,26%` para a vertical Servicos contra um limiar de 70% — e as duas medidas tem **canario de mutacao sobre esta arvore**. **A revisao adversarial mudou o resultado e nao so o texto**: dois instrumentos deram 19 achados, 16 CONFIRMADOS, e dois atacavam a afirmacao central com razao. O verificador da condicao (d) nao via o idioma desta casa — uma constante de modulo —, pelo que o `fluxo` dava **0** por cegueira; a seguir constantes, aparece **1**: o `AO_DONO` do `eventos/handlers.py`, uma tabela de pares `(vertical, tipo)` **so do Vendedor** lida num `if`, onde o nucleo decide pelo nome da vertical se o dono da loja e avisado. E a metrica lia os ficheiros do **disco** em vez do `git`, pelo que a partir da raiz do *checkout* principal contava as copias dos *worktrees* irmaos — 70 ficheiros em vez de 7, com o reuso a cair abaixo do limiar numa raiz onde o `make reuso` corre. **A correccao obrigou a uma distincao que o criterio nao faz**, e ela esta escrita: validar que a vertical e **conhecida** (o `contexto.py:191`, que o criterio 5 do KAM-014 exige) nao distingue entre verticais; fazer coisa diferente segundo **qual** e a excepcao. **Tres criterios param numa fronteira que nao e deste ticket**: «o CI falha se devolver > 0», «falha o *build* abaixo de 70%» e o que fazer com a excepcao sao regras de bloqueio. A caixa (c) fica vazia com o **KAM-066** — a suite cruzada esta no PR #126 e nao na base, medido —, a de observabilidade com o **KAM-080**, e o efeito do consumo cruzado com o **KAM-047** e tambem o **KAM-007**: os contratos de `payment.*` nao permitem `booking_id` no *payload*, logo o efeito *proposta* do bloco nao e implementavel como esta escrito. **E o bloco ganha a seccao «Revisao adversarial independente»**, com os dezanove achados arrumados em dez grupos, os dois limites que se declaram em vez de se corrigirem, o que se devolve com o numero corrigido, e o que os dois instrumentos **procuraram e nao encontraram** — que e o que torna a ausencia de achados informacao em vez de silencio. | Equipa KAMBA |
 | 1.13 | Novembro 2026 | **KAM-039, caixa devolvida: a excepcao do nucleo foi extraida, e a condicao (d) mede 0.** Decisao do fundador a 2026-11-06, executada: a tabela `AO_DONO` do `eventos/handlers.py` — pares `(vertical, tipo)` so do Vendedor, lidos num `if`, onde o nucleo decidia pelo nome da vertical se o dono da loja era avisado — sai para `subscriptions[].notifica` do `registry/<id>.yaml`, dominio fechado `{cliente, dono}`. **Medido sobre `db0582d`: `python -m reuse_metric nucleo` ia de `fluxo 1, conteudo 48, prosa 114`, saida 1, para `fluxo 0, dominio 1, conteudo 45, prosa 119`, saida 0**; a outra metade do G0-2 passa com **88,30%** (limiar 70%) e nao foi tocada. **Duas caixas mudam de estado:** a linha (d) passa de `nao satisfeito` a **parcial** (a metade medivel esta satisfeita; «o CI falha se devolver > 0» continua regra de bloqueio, credor fundador) e a 7.a passa a **satisfeita**, porque a clausula «excepcao >= 1 reprova» deixou de morder. A guarda do criterio 1 mudou de forma e continua a morder: o `exigir_handlers` pergunta «esta subscricao faz alguma coisa?» em vez de «esta na minha tabela?», com ensaio das duas formas de nao fazer nada e o par positivo de cada uma. **O que fica devolvido:** onde passa a fronteira do `conteudo` (as 45 ocorrencias), e a ligacao do verificador a um portao do CI. |
+| 1.14 | Novembro 2026 | **KAM-184 aberto: a vertical Serviços subscreve os dois eventos de pagamento e não faz nada com eles.** Achado do KAM-108 ao preparar o *gate* da Fase 0, verificado de forma independente em `fe40048` e reconfirmado em `ca5cac5`: os dois pares estão em `ACCOES_POR_LIGAR` — «a acção dela não está escrita», desfecho `sem_accao` — e **nenhum dos dois eventos leva `booking_id`**, nas **duas** versões de cada, pelo que a lacuna não se contorna com o outro evento. Os credores estão fechados, **dois no código** (KAM-047 no `ACCOES_POR_LIGAR`, e KAM-047 e KAM-035 no comentário do `registry/servicos.yaml`) **e um no esquema** (KAM-007, que nenhum ficheiro de `contratos/eventos/` nomeia — quem o nomeia é a secção de verificação do KAM-039). A atribuição dos três **ao código** é um erro que o §9.2 do `Gate_Fase0.md` já tinha corrigido e que a primeira versão deste PR reintroduziu. É independente do KAM-055 e não se resolve quando aquele fundir. O bloco deixa a rota do `booking_id` como critério 1 com as **duas** saídas medidas, e a que altera contrato publicado fica **devolvida** e não aplicada. | Equipa KAMBÁ |
