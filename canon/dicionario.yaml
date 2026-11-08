@@ -13138,23 +13138,40 @@ entradas:
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Quem decidiu o veredicto de entrada"
-    canonico: "state.guard.origem ∈ {regras, classificador, omissao, cooldown}"
+    canonico: "state.guard.origem ∈ {regras, classificador, omissao, cooldown, botao}"
     literais:
       - "state.guard.origem"
       - "regras"
       - "classificador"
       - "omissao"
       - "cooldown"
+      - "botao"
     nomes:
       - "state.guard.origem"
       - "regras"
       - "classificador"
       - "omissao"
       - "cooldown"
+      - "botao"
     nomes_nota:
       - "omissao"
       - "ok"
       - "cooldown"
+      - "botao"
+      - "interactive"
+      - "confirm"
+      - "hold_id"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Versão da política no estado"
+    canonico: "state.guard.politica"
+    literais:
+      - "state.guard.politica"
+    nomes:
+      - "state.guard.politica"
+    nomes_nota:
+      - "VERSAO_DA_POLITICA"
+      - "graph_version"
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Escalada da guarda"
@@ -13197,7 +13214,6 @@ entradas:
       - "thread_id"
       - "tenant_id"
       - "contact_id"
-      - "injection"
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Motivo do handoff por injecção repetida"
@@ -13235,16 +13251,18 @@ entradas:
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Marcas de redacção"
-    canonico: "[cartao removido], [conta removida], [assunto sensivel removido]"
+    canonico: "[cartao removido], [conta removida], [documento removido], [assunto sensivel removido]"
     literais:
       - "[cartao removido]"
       - "[conta removida]"
+      - "[documento removido]"
       - "[assunto sensivel removido]"
     nomes:
       - "cartao"
       - "removido"
       - "conta"
       - "removida"
+      - "documento"
       - "assunto"
       - "sensivel"
     nomes_nota:
@@ -13283,7 +13301,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Limiares"
-    canonico: "3 tentativas de injecção em 3 600 s; cool-down de 3 600 s; 3 ocorrências de abuso; 1 000 caracteres para o classificador"
+    canonico: "3 tentativas de injecção em 3 600 s; cool-down de 3 600 s; 3 ocorrências de abuso em 86 400 s; 1 000 caracteres para o classificador"
     literais: []
     nomes: []
     nomes_nota: []
@@ -15469,6 +15487,7 @@ dominios:
       - "classificador"
       - "omissao"
       - "cooldown"
+      - "botao"
     seccao: "3.51"
     conceito: "Quem decidiu o veredicto de entrada"
     so_no_registo: false
