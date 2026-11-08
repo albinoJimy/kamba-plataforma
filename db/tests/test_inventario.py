@@ -2322,8 +2322,11 @@ INVENTARIO["erasure_ledger"] = {
 #: `graph_version`. Quem audita transferencias pergunta «quem, quando, para que
 #: fornecedor, com que desfecho» — e nao «quanto custou».
 #:
-#: Como nas outras quatro, `SIM` e `None` em todas: numa vista o PostgreSQL nao
-#: prova `NOT NULL` nem guarda omissao.
+#: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao. (Eram quatro ate a `v_oferta_viva` do
+#: KAM-051 entrar; uma contagem em prosa que a sexta vista tornou falsa, e que
+#: nenhum linter le — os `.md` tem o `lint_contagens` e os comentarios `.py` nao
+#: tem nada.)
 INVENTARIO["v_transfer_audit"] = {
     "id": ("bigint", SIM, None, "nao"),
     "ts": ("timestamp with time zone", SIM, None, "nao"),
@@ -2332,6 +2335,91 @@ INVENTARIO["v_transfer_audit"] = {
     "modelo": ("text", SIM, None, "nao"),
     "papel": ("text", SIM, None, "nao"),
     "resultado": ("text", SIM, None, "nao"),
+}
+
+#: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
+#: da oferta viva, que a tool `search_products` junta aos candidatos do indice
+#: (`docs/tecnica/05` secao 6.3).
+#:
+#: Escreve-se **a mao** e nao derivada da `offer_terms`, pela razao da
+#: `v_payment_ledger_heads`: tres das nove colunas nao sao colunas daquela
+#: tabela — o `product_ref` e um `AS` sobre o `sku`, o `publicado` e um predicado
+#: e o `lido_em` e o `now()` da leitura —, e derivar dava os nomes errados.
+#:
+#: **O que nao esta aqui e metade da resposta ao criterio 6** («a vista nao
+#: contem PII nem texto de descricao»). A aritmetica das dezesseis colunas da
+#: `offer_terms`, que a primeira versao deste comentario dava errada em tres
+#: sitios (dizia «quatro»), medida coluna a coluna:
+#:
+#:   * **seis** saem projectadas — `tenant_id`, `sku`, `nome`, `preco_minor`,
+#:     `preco_tipo`, `stock_modo` (o `sku` sai duas vezes, tambem como
+#:     `product_ref`);
+#:   * **quatro** sao lidas **so dentro de expressao** e nao aparecem: o
+#:     `preco_valido_ate` no `CASE` do `preco_tipo`, e o `estado`, o
+#:     `deleted_at` e a `categoria_restrita` no predicado do `publicado`;
+#:   * **seis** nunca sao lidas: `medusa_variant_id`, `currency`,
+#:     `preco_atualizado_at`, `stock_verificado_at`, `criado_at`,
+#:     `atualizado_at`.
+#:
+#: **E nao ha coluna de nivel de stock nenhuma:** o criterio 7 esta bloqueado
+#: pelo D3 e pelo KAM-045.
+#:
+#: Como nas outras cinco, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao.
+INVENTARIO["v_oferta_viva"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "product_ref": (
+        "text",
+        SIM,
+        None,
+        "nao — a referencia opaca por que o indice trata o produto, e **e** o "
+        "`sku`: o criterio 6 exige que o *join* por `(tenant_id, product_ref)` "
+        "caia no `offer_terms_pkey`, que e `(tenant_id, sku)`. Nao e o "
+        "`medusa_variant_id`, que e nulo em toda a Fase 0 e seria o modelo "
+        "interno do Registo, que o bloco manda nao expor",
+    ),
+    "sku": ("text", SIM, None, "nao — a mesma resposta do `offer_terms.sku`"),
+    "nome": (
+        "text",
+        SIM,
+        None,
+        "nao — nome comercial do produto, nunca de pessoa singular. A mesma "
+        "resposta do `offer_terms.nome`, e aqui com uma razao a mais: esta "
+        "vista nao projecta texto de descricao nenhum (criterio 6)",
+    ),
+    "preco_minor": (
+        "bigint",
+        SIM,
+        None,
+        "nao — preco de catalogo em unidade menor. Declarado no "
+        "`EM_UNIDADE_MENOR` de `db/tests/test_catalogo.py`, que e o que pagar a "
+        "vista no `platform` compra",
+    ),
+    "preco_tipo": (
+        "text",
+        SIM,
+        None,
+        "nao — e **nao** e sempre o valor guardado: passado o "
+        "`preco_valido_ate`, um `fixo` sai como `a_partir_de` (regra 2 do "
+        "`docs/tecnica/03` secao 7.1). So o `fixo` degrada",
+    ),
+    "stock_modo": (
+        "text",
+        SIM,
+        None,
+        "nao — o modo canonico em tres valores, e **nao** uma coluna "
+        "`disponibilidade`: esse nome e, desde o KAM-043, o texto de "
+        "apresentacao derivado deste",
+    ),
+    "publicado": (
+        "boolean",
+        SIM,
+        None,
+        "nao — predicado do criterio 2 (`estado='publicado'`, `deleted_at` nulo "
+        "e `categoria_restrita` nula), exposto e nao aplicado: quem filtra e o "
+        "`WHERE v.publicado` da secao 6.3",
+    ),
+    "lido_em": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 INVENTARIO["v_payment_events_audit"] = {
