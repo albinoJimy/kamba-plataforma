@@ -403,6 +403,34 @@ dominios_historicos:
       sao os do ServicosModule.erro (§3.3) que nao se importavam de lado
       nenhum, e o contrato do modulo servicos deixou por escrito que entravam
       com este ticket.
+  - revisao: "db/migrations/versions/0006_audit_log.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-070"
+    data: "2026-11-08"
+    razao: >-
+      A 0006 (KAM-012) criou o dominio com as sete accoes auditadas do
+      docs/tecnica/08 §6 mais a audit.read que o criterio 9 desse bloco nomeia.
+      A 0038 (KAM-070) acrescenta-lhe duas, privacy.dsar_recusado e
+      privacy.dsar_rectificado, por DROP CONSTRAINT mais ADD CONSTRAINT com o
+      mesmo nome, e o dicionario §3.2 passou a declarar as nove (emenda 1.68).
+      A declaracao da 0006 fica a dizer sete, e e o que a base tinha naquela
+      revisao. A linha do dominio no §3.2 ja autorizava a extensao por escrito:
+      "Estende-se por migracao".
+  - revisao: "db/migrations/versions/0038_direitos_do_titular.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-070"
+    data: "2026-11-08"
+    razao: >-
+      A mesma revisao declara o dominio duas vezes, e sao duas afirmacoes
+      diferentes: o upgrade escreve as nove, que e o que o dicionario declara, e
+      o downgrade repoe as sete da 0006, que e o que a base passa a ter quando se
+      desce. A segunda e a que esta entrada cobre. Nao se resolve escrevendo nove
+      no downgrade: isso deixava, numa base descida para a 0036, um CHECK a
+      aceitar accoes que nenhuma revisao dessa altura conhece. O passo de descida
+      recusa-se se houver linhas privacy.dsar_* escritas, porque o audit_log e
+      append-only e nenhum papel tem DELETE.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

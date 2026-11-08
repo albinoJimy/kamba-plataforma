@@ -141,7 +141,28 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: exigem uma emenda a uma constante que vive no ticket de outra pessoa, e a
 #: emenda e sempre uma medicao na arvore de quem funde. Fica registado para o
 #: **KAM-183**, que e quem governa esta regra.
-MINIMO_DE_BLOCOS_MEDIDOS = 43
+#:
+#: **E o 87.o bloco chegou com o KAM-051, e o 88.o com o KAM-070: o piso sobe
+#: para 44.** Vale a pena guardar a sequencia porque ela mostra a cadencia a
+#: funcionar, e **as duas fusoes mediram-se na arvore de quem integrou**:
+#:
+#:     main 0e3541d3   86 medidos   piso 43   (o KAM-079 subiu-o de 42)
+#:     main 2669c6f8   87 medidos   piso 43   (o KAM-051 entrou, e **nao** pagou
+#:                                             emenda: o 43 servia ate aos 87)
+#:     esta arvore     88 medidos   piso 44   (o KAM-070 entrou e paga)
+#:
+#: A linha do meio e a que vale mais: **uma seccao nova nem sempre custa uma
+#: emenda**, e a nota do KAM-079 previa-o («o 43 serve ate aos 87») sem ter visto
+#: acontecer. Logo nao se sobe por haver seccao nova — sobe-se por a conta o
+#: pedir, e a conta le-se da arvore.
+#:
+#: Medido na arvore desta integracao, com a `publico/main` em `2669c6f8` dentro:
+#: `medidos 88 | exigido 44 | piso 43` antes desta linha subir. Com o piso em 43,
+#: o `test_os_pisos_valem_alguma_coisa` falha com
+#: `43 not greater than or equal to 44`.
+#:
+#: Quem acrescentar o **90.o** paga a emenda seguinte: o 44 serve ate aos 89.
+MINIMO_DE_BLOCOS_MEDIDOS = 44
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
