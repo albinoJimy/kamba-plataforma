@@ -102,25 +102,55 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: piso em metade do medido, a **folga sao dois blocos** — ao 86.º volta a pedir
 #: emenda. Mexer nisso e do KAM-183, que escreveu a regra.
 #:
-#: **E ao 86.º chegou: subiu de 42 para 43 com o KAM-086**, exactamente como a
-#: nota abaixo previu — e e a terceira vez que a previsao se cumpre. A seccao de
-#: verificacao do bloco KAM-086 fez o emparelhamento passar de **85 para 86**, e
-#: `86 // 2` sao 43. Medido nas duas pontas, na arvore do ticket: com a `main` em
-#: `b974dda4` sao 85 medidos e 42 bastava; com a seccao do KAM-086 sao **86** e o
-#: ensaio falha com `42 not greater than or equal to 43`. **A folga volta a ser
-#: dois blocos**, pelo que o 88.º pede a emenda seguinte. E o numero mede-se na
-#: arvore de quem funde: se outra seccao de verificacao fundir primeiro, este 43
-#: fica curto e re-mede-se na integracao.
+#: **E ao 84.º chegou, exactamente como a nota acima previa.** O piso ficou em
+#: **42** e quem o pos la foi o **KAM-182**, que fundiu primeiro; o KAM-079 tinha
+#: medido o mesmo valor no seu ramo e chegaria ao mesmo numero. **Qual dos dois
+#: o subiu e um dado sobre a ordem de fusao e nao sobre o corpus**, pelo que nao
+#: vale a pena escreve-lo de outra forma: o que vale e o numero e como se mede.
 #:
-#: **E ao 84.º chegou: subiu de 41 para 42 com o KAM-182**, exactamente como a
-#: nota acima previu. Duas seccoes de verificacao fundiram entre o corte do ramo
-#: e a medicao — a do KAM-055 (PR #146) e a do KAM-182 —, e `84 // 2` sao 42.
-#: Medido nas duas pontas: com a `main` em `ca5cac55` sao 83 medidos e 41
-#: bastava; com a `main` em `06b8aba2` e o bloco do KAM-182 sao **84** e o
-#: ensaio falha com `41 not greater than or equal to 42`. **E a folga volta a
-#: ser dois blocos**, pelo que o 86.º bloco medido pede a emenda seguinte: nao
-#: se sobe em antecipacao, porque um piso acima do medido avermelha o portao
-#: sem defeito nenhum.
+#: As duas restricoes que o `test_os_pisos_valem_alguma_coisa` e o
+#: `test_os_pisos_da_arvore_real_ficam_abaixo_do_medido` impoem juntas:
+#:
+#:     medidos // 2  <=  MINIMO_DE_BLOCOS_MEDIDOS  <=  medidos
+#:
+#: Medido na arvore desta fusao — a `publico/main` em `b974dda4` com o bloco do
+#: KAM-079 dentro: **86 medidos**, e `86 // 2` sao 43, pelo que o piso **sobe
+#: para 43**.
+#:
+#: Uma versao anterior desta nota dizia «85 medidos, e o piso fica em 42», e era
+#: verdadeira enquanto a `main` estava em `b79d1e8c`. Deixou de o ser sem
+#: ninguem tocar numa linha deste ficheiro: o **KAM-069** (#156) fundiu primeiro
+#: e trouxe o 86.º bloco. **A emenda e de quem funde em segundo e faz-se na
+#: integracao**, nunca em antecipacao — um piso acima do medido avermelha o
+#: portao sem defeito nenhum, e um piso copiado de outra ponta nao mede a arvore
+#: em que esta.
+#:
+#: **Dizer «folga» aqui nao chega, porque as duas leituras dao numeros
+#: diferentes e as duas estao certas:** `piso - exigido` e **zero** (o piso fica
+#: colado ao minimo), e **faltam dois blocos** para a proxima emenda — o 43
+#: serve ate aos **87** medidos, e ao 88.º `88 // 2` sao 44. A integracao deste
+#: ticket viu a mesma palavra usada nos dois sentidos na mesma conversa, uma vez
+#: por cada leitura, pelo que o que fica escrito e a **conta**. Nao se nomeia
+#: aqui quem pagara essa emenda — ha ramos abertos com seccoes de verificacao
+#: por fundir, e qual deles aterra em segundo decide-se na fusao e nao aqui.
+#:
+#: **Cinco blocos a pagar esta linha e um dado sobre o desenho, e nao sobre
+#: nenhum dos tickets.** Desde os 81: a seccao do KAM-108, a do KAM-055, a do
+#: KAM-182, a do KAM-069 e a do KAM-079. O limite nao e a regra — o piso e que a
+#: torna util —, e sim a **cadencia**: cada dois blocos de verificacao novos
+#: exigem uma emenda a uma constante que vive no ticket de outra pessoa, e a
+#: emenda e sempre uma medicao na arvore de quem funde. Fica registado para o
+#: **KAM-183**, que e quem governa esta regra.
+#:
+#: **E ao 87.º chegou, sem emenda: o KAM-086.** A seccao de verificacao do bloco
+#: `## KAM-086` faz o emparelhamento passar de **86 para 87**, e `87 // 2` sao
+#: **43** — o piso que a nota acima mediu **continua a servir**, exactamente como
+#: ela previa («o 43 serve ate aos 87 medidos, e ao 88.º `88 // 2` sao 44»).
+#: Medido na arvore desta fusao, depois de integrar a `publico/main` em
+#: `0e3541d3`: 87 medidos, exigido 43, piso 43. **A folga passou a zero**, pelo
+#: que o 88.º bloco de verificacao paga a emenda seguinte — e quem a paga
+#: decide-se na fusao, nao aqui. Sao **seis** blocos desde os 81: KAM-108,
+#: KAM-055, KAM-182, KAM-069, KAM-079 e este.
 MINIMO_DE_BLOCOS_MEDIDOS = 43
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
