@@ -11,6 +11,7 @@
     python db/gate_bd.py --suite tests_avisos        # gate 8, o aviso ao dono (KAM-115)
     python db/gate_bd.py --suite tests_agr           # gate 8, o AGR (KAM-025)
     python db/gate_bd.py --suite tests_pagamentos    # gate 8, o ledger (KAM-053)
+    python db/gate_bd.py --suite tests_dimensionamento  # ensaio de carga (KAM-084), fora do CI
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -275,6 +276,12 @@ SUITES = (
     # emissao reverte **as duas** escritas, porque o `evt_emitir` corre na
     # transaccao de quem chama.
     "tests_encomendas",
+    # KAM-084: o ensaio de carga do segmento de entrada (S1, S2, rajada e
+    # rampa), com duas replicas do GWY e o *worker* de entrada de producao.
+    # **Nao corre no CI**: nao esta no `ci-8` do `Makefile`, e de proposito — e
+    # meia hora de relogio e uma medicao de dimensionamento, nao um portao. Por-la
+    # num gate e decisao do fundador.
+    "tests_dimensionamento",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
@@ -283,7 +290,13 @@ SUITES_COM_FILA = (
     "tests_eventos_carga",
     "tests_entrada",
     "tests_entrada_carga",
+    "tests_dimensionamento",
 )
+
+#: KAM-084: os cinco cenarios do ensaio de carga levam ~30 min com a drenagem.
+#: Tempo do **criterio** (300 s por cenario, a rajada de uma hora a 20x), e nao
+#: folga.
+TEMPO_MAXIMO_DA_CARGA = 3600
 
 
 def _docker(*argumentos: str, ambiente=None) -> subprocess.CompletedProcess:
@@ -349,7 +362,11 @@ def _correr_suite(ambiente: dict[str, str], suite: str) -> int:
     # quando todos os testes sao saltados, e o trinco da suite salta. Num gate,
     # saltar e falhar.
     limite = (
-        TEMPO_MAXIMO_DOS_EVENTOS if suite in SUITES_COM_FILA else TEMPO_MAXIMO_DA_SUITE
+        TEMPO_MAXIMO_DA_CARGA
+        if suite == "tests_dimensionamento"
+        else TEMPO_MAXIMO_DOS_EVENTOS
+        if suite in SUITES_COM_FILA
+        else TEMPO_MAXIMO_DA_SUITE
     )
     try:
         return subprocess.run(

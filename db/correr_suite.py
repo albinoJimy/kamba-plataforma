@@ -65,6 +65,8 @@ def main() -> int:
         # KAM-044: as encomendas — o grafo, o CAS por versao, o registo
         # append-only e a autenticidade de `paga`.
         "tests_encomendas",
+        # KAM-084: o ensaio de carga do segmento de entrada. Fora do CI.
+        "tests_dimensionamento",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2
