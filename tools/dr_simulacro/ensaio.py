@@ -471,6 +471,15 @@ INSERT INTO carga SELECT g, gen_random_bytes(1024) || gen_random_bytes({BYTES_PO
         # o escrever no WAL; a tabela fica *logged* como qualquer outra, e e
         # assim que o backup base e o restauro a veem.
         self.psql(host, "ALTER TABLE carga SET LOGGED;", base=BASE_DA_CARGA)
+        # **E congela-se, antes do backup base.** Uma tabela acabada de carregar
+        # nunca foi lida: a primeira leitura de cada pagina grava *hint bits* e
+        # poda-a, e com `wal_level=replica` isso e WAL. Medido na primeira
+        # preparacao de 20 GiB: o `count(*)` de antes da falha escreveu 70 GB
+        # em disco em 16 min, e esse WAL ia ser arquivado e repetido no
+        # restauro — o *replay* medido seria o de um artefacto da carga e nao
+        # o de uma base em producao, cujas paginas estao lidas ha muito. O
+        # `VACUUM (FREEZE)` deixa-as como as de uma tabela envelhecida.
+        self.psql(host, "VACUUM (FREEZE, ANALYZE) carga;", base=BASE_DA_CARGA)
         self.psql(host, "CHECKPOINT;")
         return {"linhas": proximo - 1, "segundos": time.monotonic() - inicio,
                 "bytes": self.tamanho_das_bases(host)}
