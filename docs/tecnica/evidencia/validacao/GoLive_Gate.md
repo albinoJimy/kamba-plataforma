@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — checklist de entrada de dados reais em produção |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno; **regra de bloqueio operacional** |
 | Ticket | KAM-105 (EPIC-10) |

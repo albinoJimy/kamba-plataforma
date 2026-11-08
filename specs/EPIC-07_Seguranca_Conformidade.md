@@ -762,6 +762,48 @@ teria sido apanhado por portão nenhum: o `canon_lint`, o `lint_arch` e o
 nenhum deles compara duas leitoras da mesma tabela. O que o apanhou foi ler os
 dois predicados lado a lado.
 
+### O que o CI apanhou e esta máquina não, e porquê
+
+A primeira corrida do PR deu **9 portões verdes e 6 vermelhos**. Dois são os que
+não bloqueiam — o `gate 5 — reservado`, que falha por desenho até o KAM-003 o
+ligar, e a `vigia — prova nocturna` —, e um é o agregador, que falha porque os
+seus `needs` falharam. **Os três reais tinham duas causas, e as duas são de
+ordem de medição e não de desenho.**
+
+**Causa 1 — as nove linhas de «Controlo de versões» entraram depois da última
+corrida do `lint_backlog`.** O *gate* 3c deu três divergências, e o *gate* 4
+caiu pelo mesmo ensaio (`lint_backlog.tests.test_cli.TestSobreOConjuntoReal`),
+que corre o `check` sobre o conjunto real:
+
+| Divergência | Causa |
+|---|---|
+| `docs/agr.md` com **duas** linhas 1.14 | A tabela daquele documento **não está por ordem**: vai de 1.0 a 1.12 e depois o KAM-037 pôs 1.15, 1.14, 1.13. O meu `tail -1` leu **1.13** e concluiu que 1.14 estava livre; o maior em uso era **1.15**. A minha passa a **1.16**, e a ordem da tabela fica como está — não é deste ticket |
+| `GoLive_Gate.md` e `Mapa_Tratamentos_v1.md` com o cabeçalho em 1.0 e a última linha em 1.1 | Acrescentei a linha de versão e não subi o campo do cabeçalho. É a fronteira «conteúdo contra metadado» do KAM-167 vista do outro lado: aqui o conteúdo mudou, pelo que o metadado tem de acompanhar |
+
+**O que isto ensina, e é mecânico:** reexecutei o `canon_lint` e o `lint_bloco`
+depois de mexer na prosa, e **não** o `lint_backlog`. Uma linha de versão é
+exactamente o que ele mede. E um `tail -1` só dá o maior número se a tabela
+estiver ordenada — ler a última linha não é ler o maior.
+
+**Causa 2 — as duas `TABELAS_ATE` que derivavam de `TABELAS`.** O *gate* 8 deu
+**17** vermelhos, e **nenhum** na tabela nova nem nos ensaios deste ticket:
+todos em `downgrade` das revisões `0009` a `0019`. O `TABELAS_ATE_0032` e o
+`TABELAS_ATE_0031` eram as duas únicas tuplas que derivavam de `TABELAS` e
+subtraíam à mão cada revisão do topo, pelo que a `0036` entrou nelas sozinha.
+
+**E a nota do `TABELAS_ATE_0032` avisa deste exacto defeito** — «uma tabela nova
+no topo da cadeia entra nelas sozinha e avermelha os ensaios de `downgrade` de
+**outras** revisões; o sintoma aparece a revisões de distância da causa». Eu li-a
+e falhei-a. **Por isso a correcção não foi acrescentar a subtracção: foi tirar a
+excepção.** As duas passam a encadear como as outras treze, e quem acrescentar
+uma tabela mexe **uma** linha. Ler o aviso não bastou; o que basta é não haver
+excepção para ler.
+
+**As três suites locais que mediriam isto não cabiam na janela desta máquina.**
+O `lint_backlog` cabia e eu não o corri; o *gate* 8 inteiro não cabe nos 900 s, e
+foi por isso que medi módulo a módulo — e os módulos que escolhi foram os que eu
+tinha tocado, que é precisamente o viés que a causa 2 explora.
+
 ### Os portões, com o resultado lido
 
 | Comando | Resultado |

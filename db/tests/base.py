@@ -455,28 +455,32 @@ TABELAS_ATE_0033 = tuple(sorted(set(TABELAS_ATE_0035) - set(TABELAS_0034)))
 #:
 #: O `downgrade` da `0033` leva a base para aqui.
 #:
-#: **Subtrai tambem o `TABELAS_0034`**, e esquece-lo era o defeito que a nota do
-#: `TABELAS_ATE_0023` descreve visto do outro lado: esta tupla e a `ATE_0031`
-#: derivam de `TABELAS` e nao da `ATE_*` imediatamente acima — as duas unicas
-#: que o fazem —, pelo que uma tabela nova no topo da cadeia entra nelas sozinha
-#: e avermelha os ensaios de `downgrade` de **outras** revisoes. O sintoma
-#: aparece a revisoes de distancia da causa.
-TABELAS_ATE_0032 = tuple(
-    sorted(set(TABELAS) - set(TABELAS_0033) - set(TABELAS_0034))
-)
+#: **Deriva do `TABELAS_ATE_0033` e nao do `TABELAS`**, e com o KAM-069 passou a
+#: derivar: esta tupla e a `ATE_0031` eram **as duas unicas** que derivavam de
+#: `TABELAS` e subtraiam a mao cada revisao do topo, e a nota que aqui estava
+#: avisava que «uma tabela nova no topo da cadeia entra nelas sozinha e avermelha
+#: os ensaios de `downgrade` de **outras** revisoes — o sintoma aparece a
+#: revisoes de distancia da causa».
+#:
+#: **O aviso estava escrito e falhou-se mesmo assim**, e isso mediu-se: a
+#: `0036` entrou e o *gate* 8 deu **17** vermelhos, todos em ensaios de
+#: `downgrade` das revisoes `0009` a `0019` — nenhum nesta linha nem na tabela
+#: nova. Ler o aviso nao bastou; o que basta e nao haver excepcao para ler.
+#:
+#: Agora encadeia como as outras treze, e a propriedade e a mesma por
+#: construcao: `ATE_0033` ja subtraiu tudo o que esta acima da `0033`, pelo que
+#: aqui so falta a `0033`. Quem acrescentar uma tabela mexe **uma** linha — o
+#: `TABELAS_ATE_<anterior>` da sua revisao — e mais nada.
+TABELAS_ATE_0032 = tuple(sorted(set(TABELAS_ATE_0033) - set(TABELAS_0033)))
 
 #: O que existe em `platform` quando a base esta na revisao `0031`.
 #:
 #: A `0031` (KAM-176) alarga um *trigger* e nao cria tabela, pelo que o conjunto
 #: na `0031` e o da `0030`. O `downgrade` da `0032` leva a base para aqui.
 #:
-#: Subtrai o `TABELAS_0034` pela razao que a nota do `TABELAS_ATE_0032` escreve.
-TABELAS_ATE_0031 = tuple(
-    sorted(
-        set(TABELAS) - set(TABELAS_0032) - set(TABELAS_0033)
-        - set(TABELAS_0034)
-    )
-)
+#: **Deriva do `TABELAS_ATE_0032`** pela razao que a nota dele escreve: era a
+#: segunda e ultima que derivava de `TABELAS`, e deixou de o fazer com o KAM-069.
+TABELAS_ATE_0031 = tuple(sorted(set(TABELAS_ATE_0032) - set(TABELAS_0032)))
 
 #: O que existe em `platform` quando a base esta na revisao `0029`.
 #:
