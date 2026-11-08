@@ -321,18 +321,37 @@ class TestCli(unittest.TestCase):
 
     def test_extrapolar_e_a_regra_da_replica(self):
         codigo, saida, _ = _cli(["extrapolar", "--bytes", str(20 * 10 ** 9), "--segundos", "600",
-                                 "--para-gb", "50", "--rto-composto-min", "60", "--json"])
+                                 "--para-gb", "50", "--rto-sem-restauro-min", "50", "--json"])
         carga = json.loads(saida)
         self.assertEqual(carga["restauro_extrapolado_min"], 25)
         self.assertEqual(carga["rto_extrapolado_min"], 75)
         self.assertEqual(carga["replica_de_espera"], "por_decidir")
         self.assertEqual(codigo, 0)
         codigo, saida, _ = _cli(["extrapolar", "--bytes", str(20 * 10 ** 9), "--segundos", "600",
-                                 "--rto-composto-min", "60", "--bd-prevista-gb", "45"])
+                                 "--rto-sem-restauro-min", "50", "--bd-prevista-gb", "45"])
         self.assertEqual(codigo, 1)
         self.assertIn("necessaria", saida)
         codigo, _, _ = _cli(["extrapolar", "--bytes", "1", "--segundos", "0"])
         self.assertEqual(codigo, 2)
+
+    def test_a_rede_manda_quando_e_mais_lenta_do_que_o_disco(self):
+        # 20 GB restaurados em 10 min no disco; o repositorio ocupa 18 GB. A 50 GB
+        # e 100 Mbps a rede pede 45 GB x 8 / 100 Mbps = 3600 s, e o disco 25 min.
+        codigo, saida, _ = _cli(["extrapolar", "--bytes", str(20 * 10 ** 9), "--segundos", "600",
+                                 "--para-gb", "50", "--rede-mbps", "100",
+                                 "--bytes-repositorio", str(18 * 10 ** 9),
+                                 "--rto-sem-restauro-min", "65", "--json"])
+        carga = json.loads(saida)
+        self.assertEqual(carga["restauro_local_extrapolado_min"], 25)
+        self.assertEqual(carga["restauro_rede_extrapolado_min"], 60)
+        self.assertEqual(carga["restauro_extrapolado_min"], 60)
+        self.assertEqual(carga["rto_extrapolado_min"], 125)
+        self.assertEqual(carga["replica_de_espera"], "necessaria")
+        self.assertEqual(codigo, 1)
+        codigo, _, erro = _cli(["extrapolar", "--bytes", "1", "--segundos", "1",
+                                "--rede-mbps", "100"])
+        self.assertEqual(codigo, 2)
+        self.assertIn("--bytes-repositorio", erro)
 
 
 if __name__ == "__main__":

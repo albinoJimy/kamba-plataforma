@@ -543,10 +543,12 @@ PRIMARIO_B = f"{PREFIXO}-primario-b"
 def passo_iac(ensaio: Ensaio, f: folha.Folha, novo: str, repo: str, com_cifra: bool) -> dict:
     ensaio.matar(novo)  # um ensaio repetido parte de um host que nao existe
     contencao = {"antes": ensaio.contencao()}
-    f.inicio("iac", "emulado: contentor novo no mesmo motor e volume novo; nao e IaC (KAM-075/D1)")
+    f.nao_medido("iac", "nao ha fornecedor nem modulo de IaC (KAM-075/D1); o host do ensaio "
+                        "e um contentor, cronometrado a parte em iac_emulado e fora do RTO")
+    f.inicio("iac_emulado", "contentor novo no mesmo motor e volume novo")
     ensaio.host_vazio(novo, repo, com_cifra=com_cifra, repo_so_leitura=True,
                       offline=ensaio.saida / "offline")
-    f.fim("iac")
+    f.fim("iac_emulado")
     return contencao
 
 

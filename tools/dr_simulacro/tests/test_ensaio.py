@@ -73,7 +73,12 @@ class TestCenarioA(unittest.TestCase):
             e, falso = _ensaio(Path(pasta))
             r = ensaio.cenario_a(e, segundos_de_escrita=0)
         self.assertEqual([p["passo"] for p in r["passos"]],
-                         ["deteccao", "decisao", "iac", "restauro", "replay", "verificacao", "dns"])
+                         ["deteccao", "decisao", "iac", "restauro", "replay", "verificacao", "dns",
+                          "iac_emulado"])
+        # O contentor do ensaio cronometra-se e fica fora do RTO: o `iac` e
+        # orcamento (30 min) no composto, nunca os segundos da emulacao.
+        self.assertIsNone(r["passos"][2]["segundos"])
+        self.assertGreaterEqual(r["rto_composto_min"] - r["rto_medido_min"], 10 + 10 + 30)
         self.assertEqual(r["rpo"]["perdidos"], 6)
         self.assertEqual(r["rpo"]["segundos"], 6)
         self.assertEqual(r["contagens_divergentes"], {})
@@ -127,7 +132,7 @@ class TestCenarioC(unittest.TestCase):
             (pasta / "preparar.json").write_text(json.dumps(
                 {"exportacao": {"ficheiro": "x.json.gpg", "segredos": 9}}), encoding="utf-8")
             r = ensaio.cenario_c(e)
-        self.assertEqual([p["passo"] for p in r["passos"]][-1], "cofre")
+        self.assertIn("cofre", [p["passo"] for p in r["passos"]])
         run = falso.chamadas[falso.indice(lambda a: a[0] == "run" and "kam085-restauro-c" in a)]
         self.assertNotIn("PGBACKREST_REPO1_CIPHER_PASS", run)
         cofre = falso.indice(lambda a: "gpg" in " ".join(a) and "kam085-restauro-c" in a)

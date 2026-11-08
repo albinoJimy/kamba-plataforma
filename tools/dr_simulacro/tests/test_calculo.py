@@ -151,6 +151,16 @@ class TestRto(unittest.TestCase):
     def test_o_orcamento_soma_os_105_min_do_paragrafo_8_2(self):
         self.assertEqual(sum(v for k, v in folha.ORCAMENTO_MIN.items() if k != "cofre"), 105)
 
+    def test_o_host_emulado_fica_fora_das_duas_somas(self):
+        carimbos = ([c for c in _folha_a() if c.passo != "iac"] + _nao("iac")
+                    + _medido("iac_emulado", 0, 2))
+        lista = calculo.duracoes(carimbos, "A")
+        rto = calculo.rto(lista)
+        sem = calculo.rto([d for d in lista if d.passo != "iac_emulado"])
+        self.assertEqual(rto.medido_segundos, sem.medido_segundos)
+        self.assertEqual(rto.composto_segundos, sem.composto_segundos)
+        self.assertIn("iac: 30.0 min", " ".join(rto.orcamento_no_composto))
+
     def test_o_cofre_e_rto_adicional_sem_orcamento(self):
         carimbos = _folha_a() + _medido("cofre", 0, 30)
         lista = calculo.duracoes(carimbos, "A")

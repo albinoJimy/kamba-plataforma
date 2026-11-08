@@ -34,7 +34,7 @@ from datetime import datetime
 
 from backup_lint import politica
 
-from .folha import ORCAMENTO_MIN, PASSOS, PASSOS_OPCIONAIS, Carimbo, FolhaInvalida
+from .folha import FORA_DO_RTO, ORCAMENTO_MIN, PASSOS, PASSOS_OPCIONAIS, Carimbo, FolhaInvalida
 
 #: O alvo do `docs/tecnica/00` §9 e do `infra/backup/cobertura.yaml`.
 RTO_ALVO_SEGUNDOS = 7200
@@ -147,7 +147,7 @@ def rto(lista: list[Duracao], orcamento: dict[str, float] | None = None) -> Rto:
     a verificacao duas vezes.
     """
     orcamento = ORCAMENTO_MIN if orcamento is None else orcamento
-    medido = sum(d.segundos for d in lista if d.medido)
+    medido = sum(d.segundos for d in lista if d.medido and d.rubrica != FORA_DO_RTO)
     composto = medido
     rubricas = []
     no_composto = []

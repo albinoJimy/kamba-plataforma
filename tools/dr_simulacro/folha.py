@@ -47,7 +47,16 @@ PASSOS: tuple[tuple[str, str], ...] = (
 #: exportacao offline quando o cofre nao responde. O §8.2 nao o orca — e por
 #: isso a rubrica tem orcamento **zero**, e todo o tempo dele e o «RTO
 #: adicional» que o criterio 4 manda registar.
-PASSOS_OPCIONAIS: tuple[tuple[str, str], ...] = (("cofre", "cofre"),)
+PASSOS_OPCIONAIS: tuple[tuple[str, str], ...] = (
+    ("cofre", "cofre"),
+    ("iac_emulado", "fora_do_rto"),
+)
+
+#: A rubrica do que se cronometra **e nao entra no RTO**. O `iac_emulado` e o
+#: contentor novo do ensaio local: medi-lo diz quanto custa a emulacao, e
+#: soma-lo ao RTO no lugar dos 30 min do IaC era trocar o orcamento de um passo
+#: que nao existe por um numero que nao e dele. O `iac` fica `nao_medido`.
+FORA_DO_RTO = "fora_do_rto"
 
 #: O orcamento do `docs/tecnica/09` §8.2, em minutos, por rubrica. ESTIMATIVA
 #: no proprio documento; e o termo de comparacao, nao um valor medido.
@@ -60,6 +69,7 @@ ORCAMENTO_MIN: dict[str, float] = {
     "replay": 10,
     "verificacao_e_dns": 15,
     "cofre": 0,
+    "fora_do_rto": 0,
 }
 
 #: O restauro orcado para 50 GB, na mesma linha do §8.2.

@@ -1,0 +1,4 @@
+155:2026-11-08 22:59:27.381 UTC [1] LOG:  untracked child process (PID 145) exited with exit code 103
+159:2026-11-08 22:59:27.506 UTC [1] LOG:  all server processes terminated; reinitializing
+168:2026-11-08 22:59:40.354 UTC [1] LOG:  untracked child process (PID 194) exited with exit code 103
+172:2026-11-08 22:59:40.446 UTC [1] LOG:  all server processes terminated; reinitializing

@@ -1,0 +1,13 @@
+{"cenario": "C", "passo": "deteccao", "evento": "nao_medido", "nota": "nao se aplica: o C reaproveita a falha do A e o mesmo repositorio"}
+{"cenario": "C", "passo": "decisao", "evento": "nao_medido", "nota": "humano: declarar o cofre indisponivel e ir buscar a exportacao"}
+{"cenario": "C", "passo": "iac", "evento": "inicio", "em": "2026-11-08T22:48:30.095774Z", "nota": "emulado: contentor novo no mesmo motor e volume novo; nao e IaC (KAM-075/D1)"}
+{"cenario": "C", "passo": "iac", "evento": "fim", "em": "2026-11-08T22:48:31.186918Z"}
+{"cenario": "C", "passo": "cofre", "evento": "inicio", "em": "2026-11-08T22:48:31.546586Z", "nota": "sem cofre: decifrar a exportacao offline, conferir a contagem, e por a passphrase num conf.d 0600 que o restore_command tambem le"}
+{"cenario": "C", "passo": "cofre", "evento": "fim", "em": "2026-11-08T22:48:32.048790Z"}
+{"cenario": "C", "passo": "restauro", "evento": "inicio", "em": "2026-11-08T22:48:32.050393Z", "nota": "pgbackrest restore com a passphrase da exportacao offline"}
+{"cenario": "C", "passo": "restauro", "evento": "fim", "em": "2026-11-08T22:53:06.816049Z"}
+{"cenario": "C", "passo": "replay", "evento": "inicio", "em": "2026-11-08T22:53:09.291839Z", "nota": "arranque com o recovery.signal do pgBackRest ate pg_is_in_recovery() = f"}
+{"cenario": "C", "passo": "replay", "evento": "fim", "em": "2026-11-08T22:53:11.695884Z"}
+{"cenario": "C", "passo": "verificacao", "evento": "inicio", "em": "2026-11-08T22:53:11.697276Z", "nota": "contagens por tabela nas quatro bases, cadeia do audit_log, marcadores"}
+{"cenario": "C", "passo": "verificacao", "evento": "fim", "em": "2026-11-08T22:53:59.780592Z"}
+{"cenario": "C", "passo": "dns", "evento": "nao_medido", "nota": "nao ha DNS nem TTL configurados (KAM-075/D1)"}

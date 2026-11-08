@@ -5,7 +5,8 @@
     python -m dr_simulacro calcular --folha F --cenario A \
         [--confirmados C.csv --restaurados R.csv] [--json]
     python -m dr_simulacro extrapolar --bytes N --segundos S --para-gb 50 \
-        [--rto-composto-min M] [--bd-prevista-gb G] [--json]
+        [--rto-sem-restauro-min M] [--rede-mbps 100 --bytes-repositorio R] \
+        [--bd-prevista-gb G] [--json]
     python -m dr_simulacro ensaio preparar|a|c|preparar-b|b1|b2|pid1|limpar --saida D
 
 `carimbar` e o relogio comum do simulacro humano: quem executa carimba o
@@ -81,15 +82,32 @@ def _comando_carimbar(argumentos) -> int:
 
 
 def _comando_extrapolar(argumentos) -> int:
+    """O restauro a outro tamanho: o maior entre o que o ensaio mediu e o que a rede impoe.
+
+    O ensaio local le o repositorio do mesmo disco, e o debito que mede e de
+    disco e CPU. Com `--rede-mbps` e `--bytes-repositorio`, acrescenta-se o
+    termo de rede (os bytes do repositorio na mesma proporcao do tamanho), e o
+    restauro e o **maior** dos dois — e isso, e nao o local, que o §8.2 orca.
+    """
+    alvo = int(argumentos.para_gb * GB)
     e = calculo.extrapolar(bytes_medidos=argumentos.bytes, segundos_medidos=argumentos.segundos,
-                           bytes_alvo=int(argumentos.para_gb * GB))
-    carga = {"debito_mbps": round(e.debito_mbps, 1),
-             "restauro_extrapolado_min": round(e.segundos_extrapolados / 60, 2),
-             "extrapolacao": "linear no tamanho, com o debito medido"}
+                           bytes_alvo=alvo)
+    restauro = e.segundos_extrapolados
+    carga = {"debito_local_mbps": round(e.debito_mbps, 1),
+             "restauro_local_extrapolado_min": round(restauro / 60, 2),
+             "extrapolacao": "linear no tamanho"}
+    if argumentos.rede_mbps is not None:
+        if argumentos.bytes_repositorio is None:
+            raise ValueError("--rede-mbps precisa de --bytes-repositorio")
+        rede = calculo.restauro_em_rede_segundos(
+            bytes_no_repositorio=int(argumentos.bytes_repositorio * alvo / argumentos.bytes),
+            mbps=argumentos.rede_mbps)
+        carga["restauro_rede_extrapolado_min"] = round(rede / 60, 2)
+        restauro = max(restauro, rede)
+    carga["restauro_extrapolado_min"] = round(restauro / 60, 2)
     necessaria = False
-    if argumentos.rto_composto_min is not None:
-        rto_extrapolado = (argumentos.rto_composto_min * 60 - argumentos.segundos
-                           + e.segundos_extrapolados)
+    if argumentos.rto_sem_restauro_min is not None:
+        rto_extrapolado = argumentos.rto_sem_restauro_min * 60 + restauro
         decisao = calculo.decisao_replica(rto_extrapolado_segundos=rto_extrapolado,
                                           bd_prevista_gb=argumentos.bd_prevista_gb)
         carga.update({"rto_extrapolado_min": round(rto_extrapolado / 60, 2),
@@ -145,7 +163,11 @@ def construir_analisador() -> argparse.ArgumentParser:
     x.add_argument("--bytes", type=int, required=True)
     x.add_argument("--segundos", type=float, required=True)
     x.add_argument("--para-gb", type=float, default=50)
-    x.add_argument("--rto-composto-min", type=float)
+    x.add_argument("--rto-sem-restauro-min", type=float,
+                   help="o RTO composto sem a rubrica do restauro")
+    x.add_argument("--rede-mbps", type=float)
+    x.add_argument("--bytes-repositorio", type=int,
+                   help="o que o repositorio ocupa para o tamanho medido")
     x.add_argument("--bd-prevista-gb", type=float)
     x.add_argument("--json", action="store_true")
 

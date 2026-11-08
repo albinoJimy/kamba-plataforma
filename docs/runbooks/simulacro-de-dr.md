@@ -46,6 +46,11 @@ Os sete passos são os do orçamento do `../tecnica/09_Topologia_Operacao_Escala
 | `verificacao` | verificacao_e_dns | 15 min, **com o DNS** | contagens, cadeia, marcadores, *smoke* | todos verdes |
 | `dns` | verificacao_e_dns | (idem) | mudança do registo | resolução nova vista de fora |
 | `cofre` (só C) | cofre | **0** — o §8.2 não o orça | decifrar a exportação | a passphrase entregue ao restauro |
+| `iac_emulado` (só ensaio) | fora do RTO | — | contentor novo | contentor pronto |
+
+O `iac_emulado` existe porque o ensaio local não tem IaC: o contentor que faz de *host*
+cronometra-se, para se saber quanto custa a emulação, e **não** entra no RTO — o `iac` fica
+`nao_medido` e o composto leva os 30 min do orçamento.
 
 **Um passo que não se cronometrou escreve-se `nao_medido`, com a razão — nunca com o número
 do orçamento.** O cálculo soma-o ao RTO **composto** e di-lo por extenso; nunca ao **medido**.
@@ -73,8 +78,14 @@ COPY (SELECT seq, to_char(escrito_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:S
 python -m dr_simulacro calcular --folha ../folha-A.jsonl --cenario A \
     --confirmados confirmados.csv --restaurados restaurados.csv --json
 python -m dr_simulacro extrapolar --bytes <restaurados> --segundos <restauro> --para-gb 50 \
-    --rto-composto-min <composto> --bd-prevista-gb <previsão>
+    --rto-sem-restauro-min <composto sem a rubrica do restauro> \
+    --rede-mbps <débito medido até ao repo1> --bytes-repositorio <tamanho do backup no repo1> \
+    --bd-prevista-gb <previsão>
 ```
+
+O restauro extrapolado é o **maior** de dois: o que o disco e a CPU do *host* novo mediram, e
+o que a rede impõe aos bytes do repositório. O §8.2 orça o segundo; um ensaio que leia o
+repositório do mesmo disco só mede o primeiro.
 
 Código de saída 1 é falha de objectivo, e **falha de objectivo é incidente P2** (critério 8):
 RTO composto > 2 h, RPO > 5 min, um buraco nos marcadores, ou réplica de espera necessária.
