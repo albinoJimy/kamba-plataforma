@@ -29,7 +29,7 @@ O Piloto confirma pagamentos com o `ManualProvider` até haver contrato com um f
 porque tem *webhook* com HMAC e fila de reconciliação, ambos CONFIRMADOS — e não tem preço público
 nem confirmação escrita da liquidação directa (`../tecnica/evidencia/validacao/Pagamentos_Respostas.md`
 §5.2). A AppyPay cobre num só contrato Express, referência, débito directo **e Unitel Money**, tem
-preço público, e declara não intervir no fluxo financeiro.
+preço público, e declara não intervir no fluxo financeiro. (O débito directo vem marcado `[ALPHA]` na documentação dela, e o eTPA `[BETA]`.)
 
 A pergunta que este ADR responde: **escreve-se um adaptador AppyPay, agora, como segundo
 facilitador?**
@@ -63,7 +63,7 @@ em dezanove critérios. Os quatro que decidem:
 | Opção | O que significa | Contra | A favor |
 |---|---|---|---|
 | **A. Adoptar agora** | Escrever o adaptador AppyPay já, atrás de *flag* | D4 aberta, sem contrato, sem credenciais, sem suite possível; o prazo e o custo bancário são NV; o portão do ADR-013 só passa por uma leitura que é do fundador (§5) | Unitel Money e preço público; a consulta de estado documentada daria um caminho autenticado |
-| **B. Adiar, com gatilhos escritos** | Não escrever adaptador; fixar o que tem de chegar para reabrir, e o rascunho de `ProviderCapabilities` que o adaptador teria | Deixa o Unitel Money sem cobertura integrada no Piloto | Não decide sobre nenhum NV; não contradiz ADR-004 nem ADR-013; nada do que se escreveu hoje se perde |
+| **B. Adiar, com gatilhos escritos** | Não escrever adaptador; fixar o que tem de chegar para reabrir, e o rascunho de `ProviderCapabilities` que o adaptador teria | Deixa o Unitel Money sem cobertura integrada no Piloto, **se** a ProxyPay de facto não o oferecer — o que é INDÍCIO de ausência, por confirmar na resposta à pergunta 7 | Não decide sobre nenhum NV; não contradiz ADR-004 nem ADR-013; nada do que se escreveu hoje se perde |
 | **C. Rejeitar** | Retirar a AppyPay dos candidatos | Nenhum critério a desqualifica: os dois portões de canon passam ou estão por decidir, e nenhum falha | — |
 
 ## 4. Decisão (proposta)
@@ -86,7 +86,7 @@ o que adoptar, e também não há razão para rejeitar.
 | # | Gatilho | Quem o produz | Leva a |
 |---|---|---|---|
 | 1 | D4 fechada com um primeiro facilitador escolhido, **ou** com a AppyPay como primeiro | o fundador | reabrir; sem ele, «segundo» não tem sentido |
-| 2 | Resposta escrita à **pergunta 12** (assinatura, *retries*, consulta) **ou** ratificação da leitura do §5.1 | o fundador | o portão do ADR-013 passa |
+| 2 | Resposta escrita à **pergunta 12** que confirme **o *webhook* assinado** ou **a consulta de estado como confirmação válida de uma referência paga depois**, **ou** ratificação da leitura 1 do §5. Uma resposta que negue as duas cai no §4.3 | o fundador | o portão do ADR-013 passa |
 | 3 | Credenciais de testes (**pergunta 11**) e a suite §3.5 verde, incluindo «`status()` concorda com o *callback*» e uma referência paga depois de emitida | o fundador pede as credenciais; o executor do adaptador corre a suite | o adaptador é activável |
 | 4 | Respostas às perguntas **11-a**, **1** e **2** (prazo e componente bancário) | o fundador | a pontuação da regra de D4 do KAM-103 pode passar o mínimo |
 
@@ -112,25 +112,29 @@ o que adoptar, e também não há razão para rejeitar.
 
 ## 6. Rascunho de `ProviderCapabilities` da AppyPay
 
-Os campos são os que `../tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §3.1 enumera. **É um
-rascunho**: não é código de produção, não se importa de lado nenhum, e cada valor leva o estado da
-matriz. Os ids `S*` são as fontes da matriz §1.2.
+Os campos são os do tipo **já implementado** pelo KAM-052 em
+`packages/core-ts/src/pagamentos/tipos.ts` — os onze que o
+`../tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §3.1 enumera, mais `humanOnly` e `pspLicenciado`.
+**É um rascunho**: não é código de produção, não se importa de lado nenhum, e cada valor leva o
+estado da matriz. Os ids `S*` são as fontes da matriz §1.2.
 
 ```ts
 // RASCUNHO (KAM-057) — o que o adaptador AppyPay declararia. Não é código de produção.
+// `NAO_VERIFICADO` não existe de propósito: enquanto um campo o usar, o rascunho não compila.
 const appypay: ProviderCapabilities = {
-  // CONFIRMADO (S8): GPO e REF. UMM e SDD também existem, mas o tipo `Metodo` do §3.1 não os
-  // tem; acrescentá-los é emenda à interface, e não deste rascunho.
+  // CONFIRMADO (S8): GPO e REF. UMM e SDD também existem (o SDD em ALPHA), mas o tipo `Metodo`
+  // não os tem; acrescentá-los é emenda à interface, e não deste rascunho.
   metodos: ['referencia', 'express_push'],
 
   // NÃO VERIFICADO (S1 não documenta assinatura). Fica 'desconhecido', como o OPG no KAM-056,
   // até resposta à pergunta 12. Com statusQuery=true o callback é dica (doc 04 §5).
   callbackAuth: 'desconhecido',
 
-  // CONFIRMADO como documentação (S3, S4). O comportamento mede-se na suite §3.5 antes de activar.
+  // CONFIRMADO como documentação (S3, S4). O comportamento mede-se na suite §3.5 antes de
+  // activar, com o mapeamento dos cinco estados de S9 (Cancelled e Expired incluídos).
   statusQuery: true,
 
-  // Não há fila de não-reconhecidos (S4 é uma listagem por datas, sem reconhecimento).
+  // Nenhuma fila de não-reconhecidos documentada (S4 é uma listagem por datas, sem reconhecimento).
   reconciliationQueue: false,
 
   // O GPO suporta reembolso total ou parcial (S11), mas o reembolso automático está desligado
@@ -140,33 +144,38 @@ const appypay: ProviderCapabilities = {
   // ADR-004, guarda G-2. O FTBAI existe (S10) e não se usa.
   payout: false,
 
-  // CONFIRMADO (S8): referência expira por omissão às 72 h, com data configurável; mínimo e máximo
-  // NÃO VERIFICADOS. Aprovação do GPO: 60 s em S8 contra 90 s em S5 e na FAQ — divergência do
-  // próprio fornecedor; configura-se com o maior.
-  chargeTtl: { min: 'NÃO VERIFICADO', max: 'NÃO VERIFICADO' },
+  // Em segundos. A referência expira por omissão às 72 h (S8) — omissão, não mínimo nem máximo.
+  // Mínimo e máximo: NÃO VERIFICADOS.
+  chargeTtl: { min: NAO_VERIFICADO, max: NAO_VERIFICADO },
 
-  // NÃO VERIFICADO: nenhum cabeçalho de idempotência documentado; o 409 do POST /charges não está
-  // descrito (S5). Pergunta 12-a.
-  idempotencyWindow: 'desconhecido',
+  // Em segundos. NÃO VERIFICADO: nenhum cabeçalho de idempotência documentado; o duplicado é
+  // recusado (código 726 de S9), o que não é uma janela. Pergunta 12-a.
+  idempotencyWindow: NAO_VERIFICADO,
 
-  // CONFIRMADO (S5): `amount` é number<double>, separador '.', exemplo 225.7 — um número JSON e não
-  // uma cadeia. A conversão de `Minor` faz-se no adaptador e nunca por aritmética de vírgula
-  // flutuante sobre o valor.
+  // `amount` é number<double> (S5, exemplo 100.2), com separador '.' (S1, exemplo 225.7): um número
+  // JSON e não uma cadeia. «Duas casas» NÃO está documentado — 'decimal2' é o valor mais próximo
+  // do tipo, não uma leitura. A conversão de `Minor` faz-se no adaptador e nunca por aritmética de
+  // vírgula flutuante sobre o valor.
   amountFormat: 'decimal2',
 
   // CONFIRMADO (S1, S5): `merchantTransactionId` de 1 a 15, `^[a-zA-Z0-9]+$`.
   refMaxLen: 15,
 
-  // CONFIRMADO (S13, E2): Express no fecho do TPA virtual (08:00–08:30 GMT+1); referências às
-  // 20:00 GMT+1; UMM em carteira. D+ por banco: NÃO VERIFICADO.
+  // CONFIRMADO (S13, E2). D+ por banco: NÃO VERIFICADO.
   settlement: 'directa à PME pela EMIS; Express no fecho do TPA virtual, referências às 20:00',
+
+  // A confirmação é por consulta autenticada, não humana.
+  humanOnly: false,
+
+  // A AppyPay declara não intervir no fluxo financeiro (S12, cl. 1.5) e não figura como PSP (E2 §1.6).
+  pspLicenciado: false,
 };
 ```
 
-**`'desconhecido'` em `idempotencyWindow` e `'NÃO VERIFICADO'` em `chargeTtl` não são valores que o
-tipo do §3.1 aceite hoje** — o §3.1 enumera os campos e não lhes dá tipo. Ficam escritos assim para
-que o rascunho não esconda o que falta; quem escrever o adaptador fixa o tipo e o PAY recusa
-activar com eles por preencher.
+**O `activar()` de `packages/core-ts/src/pagamentos/registo.ts` não verifica os campos que este
+rascunho deixa por preencher** — verifica `humanOnly`, `callbackAuth`, `statusQuery` e a
+conformidade. Por isso a guarda contra activar com valores inventados é o rascunho **não compilar**
+enquanto houver um `NAO_VERIFICADO`, e não uma recusa do PAY.
 
 ## 7. Consequências
 
@@ -174,16 +183,21 @@ activar com eles por preencher.
 Os gatilhos são escritos, e cada um tem quem o produz. O rascunho de capacidades fica pronto para o
 dia em que os gatilhos 1 a 3 chegarem.
 
-**Negativas.** O Unitel Money fica sem via integrada no Piloto — a ProxyPay não o oferece (matriz
-§3, linha 9). A PME que só receba por carteira fica em `ManualProvider`.
+**Negativas.** O Unitel Money fica sem via integrada no Piloto se a ProxyPay não o oferecer — o que
+é INDÍCIO de ausência (matriz §3, linha 9), a confirmar na resposta à pergunta 7. Nesse caso, a PME
+que só receba por carteira fica em `ManualProvider`.
 
 **Uma consequência de desenho que fica para o adaptador, e não se resolve aqui.** O
 `../tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §3.4 usa o `numero_publico` da encomenda como
 `merchantTransactionId`. Uma encomenda pode ter **mais do que uma cobrança** — expira e volta a
-cobrar-se —, e se a AppyPay exigir unicidade por cobrança, a segunda cobrança da mesma encomenda é
-recusada. **Proposta** para quando a pergunta 12-a responder que sim: `numero_publico` seguido de
-um sufixo de tentativa no mesmo alfabeto, até aos 15 caracteres. Fica como **HIPÓTESE**: evidência,
-o 409 sem descrição em S5; estado NÃO VERIFICADO; valida-se pela pergunta 12-a ou na suite.
+cobrar-se —, e a documentação da AppyPay **recusa o identificador repetido** (código 726 de S9,
+CONFIRMADO como documentação): a segunda cobrança da mesma encomenda seria recusada. O que fica
+**NÃO VERIFICADO** é se a unicidade deixa de valer depois de a primeira cobrança expirar, e se o 726
+é mesmo o do `merchantTransactionId` (o texto inglês diz «reference number», o português
+«referência do comerciante»). **Proposta**, a confirmar pela pergunta 12-a ou na suite:
+`numero_publico` seguido de um sufixo de tentativa no mesmo alfabeto, até aos 15 caracteres.
+
+---
 
 ## 8. Verificação contra o canon
 

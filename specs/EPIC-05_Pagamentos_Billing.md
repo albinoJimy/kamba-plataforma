@@ -1022,10 +1022,10 @@ que o ticket foi escrito.
 | 1 | Perguntas 11–15 enviadas por escrito, com registo de envio e respostas datadas | **não satisfeito** | As perguntas estão **redigidas**, com data de redacção 2026-11-08, em `../docs/pagamentos/perguntas_appypay.md` §2: as cinco do E2, a 11-a do KAM-103 e quatro acréscimos declarados (11-b, 11-c, 12-a, 12-b). O registo de envio (§3) nasce vazio. **Enviar é contactar uma contraparte, e isso é do fundador.** Credor: **o fundador** |
 | 2 | Matriz com ≥ 12 critérios, cada um com estado e fonte | **satisfeito** | `../docs/pagamentos/matriz_facilitadores.md` §3: **dezanove** linhas, as doze que o critério enumera pela ordem dele mais sete; cada linha com estado e fonte nas duas metades (AppyPay e ProxyPay), e as fontes datadas e com URL no §1.2 |
 | 3 | Nenhum NV tratado como facto na decisão; cada um com pergunta ou critério de saída | **satisfeito** | A última coluna da matriz §3 dá pergunta ou saída a cada linha com NV; o ADR-L011 §2 ponto 5 e §4 decidem **adiar** precisamente por não decidir sobre NV, e o §6 escreve `'desconhecido'` e `'NÃO VERIFICADO'` nos campos do rascunho em vez de os preencher |
-| 4 | Rascunho de `ProviderCapabilities` e a regra do ADR-013 na decisão | **satisfeito** | ADR-L011 §6 (os onze campos do `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §3.1, cada um com o estado da matriz) e §4.1 (a regra, com as palavras do critério) |
+| 4 | Rascunho de `ProviderCapabilities` e a regra do ADR-013 na decisão | **satisfeito** | ADR-L011 §6 — os treze campos do tipo `ProviderCapabilities` que o KAM-052 já implementou em `../packages/core-ts/src/pagamentos/tipos.ts` (os onze do `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §3.1 mais `humanOnly` e `pspLicenciado`), cada um com o estado da matriz, e os dois que não se sabem (`chargeTtl`, `idempotencyWindow`) escritos de forma a **não compilar**; e §4.1 (a regra, com as palavras do critério). A primeira versão escrevia onze campos com cadeias em campos numéricos: apanhou-o a revisão adversarial |
 | 5 | Custo em dois componentes com intervalos e impacto no preço da PME; prazo de *onboarding* e pessoa singular sem NIF como NV | **satisfeito** | Matriz §4: o componente da AppyPay CONFIRMADO (anexo dos termos, lido directamente), o da ProxyPay NV, o bancário como intervalo marcado INDÍCIO, a soma por valor de encomenda e o impacto na margem da PME; prazo e pessoa singular nas linhas 11 e 17 da matriz §3, os dois **NV** |
 | 6 | MADR com numeração após ADR-019, estado «proposto», revisto por Arquitecto e Responsável de Produto | **parcial** | MADR e «proposto»: `../docs/adr/ADR-L011-segundo-facilitador-appypay.md`. **Numeração:** `ADR-L011`, pela regra do `../docs/adr/README.md` e pelo precedente do KAM-010 — leitura **devolvida ao fundador** no ADR-L011 §5, com a divergência escrita (os «Detalhes Técnicos» deste bloco pedem `docs/decisoes/`). **A revisão por Arquitecto e Responsável de Produto não foi feita**, e a tabela de aprovação da matriz está vazia. Credor: **o fundador** |
-| 7 | Tempo-limite de 2 dias úteis; o não verificado vai para o relatório | **satisfeito** | Ramo criado e PR aberto no mesmo dia, 2026-11-08. O relatório é a matriz §6, à parte da decisão |
+| 7 | Tempo-limite de 2 dias úteis; o não verificado vai para o relatório | **satisfeito** | Ramo criado e PR #164 aberto no mesmo dia, 2026-11-08. O relatório é a matriz §6, à parte da decisão |
 
 #### Definition of Done
 
@@ -1041,6 +1041,21 @@ que o ticket foi escrito.
 verificação é a revisão adversarial deste PR. A verificação contra o ADR-004 e o ADR-013 está no
 ADR-L011 §8. **A chamada de teste ao *sandbox*, que o bloco dá como opcional, não se fez**: exige
 credenciais, as credenciais exigem conta, e pedir uma ou abrir a outra é contacto com contraparte.
+
+**A revisão adversarial: treze achados, verificados antes de mexer — doze entraram e um morreu.** Releu
+as fontes da AppyPay renderizadas e as da ProxyPay. Os que mudaram texto: **(1)** a página de
+erros da AppyPay documenta a recusa do identificador repetido (código 726), que a primeira versão
+dava como inferência sobre um 409 — verificado na página, e a linha 4 da matriz e a hipótese do
+ADR-L011 §7 subiram; **(2)** os estados de cobrança são cinco numa página e quatro noutra;
+**(3)** a divergência 60/90 s estava atribuída à página errada; **(5)** o «RPS sem *timestamp*»
+era silêncio promovido a CONFIRMADO, contra o próprio `04` §5; **(7)** «a ProxyPay não oferece
+Unitel Money» era INDÍCIO usado como facto numa consequência do ADR; **(8)** três NV da ProxyPay
+estavam sem pergunta nem saída, contra a frase da matriz que dizia que todos tinham; **(9)** a
+pontuação de D4 da AppyPay no KAM-103 **muda** (24 para 33) e a matriz dizia que não;
+**(10)** o rascunho de `ProviderCapabilities` ignorava o tipo que o KAM-052 já implementou;
+**(11)** o gatilho 2 aceitava qualquer resposta e citava uma secção inexistente; **(12)** três
+alíneas da pergunta 12 eram acréscimos não declarados. Os menores (4, 6) entraram também. O
+**(13)** — o critério 7 a citar um PR que ainda não existia — morreu ao abrir o PR #164.
 
 ### Handoff para Claude Code
 

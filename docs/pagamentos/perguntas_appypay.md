@@ -30,11 +30,11 @@ como acréscimo, porque um acréscimo calado é alteração de sentido a passar 
 
 | # | Origem | Porque existe |
 |---|---|---|
-| 11, 12, 13, 14, 15 | E2 §9 | As cinco que o critério 1 do ticket nomeia |
+| 11, 12, 13, 14, 15 | E2 §9 | As cinco que o critério 1 do ticket nomeia. **Na 12, as alíneas b), d) e e) são acréscimos deste ticket** e declaram-se aqui: o E2 pergunta pela assinatura, pelos *retries* e pela idempotência (as alíneas a e c); o *timestamp* assinado (b), o significado do `sourceDetails.attempt` (d) e a consulta de estado como confirmação (e) saíram da leitura da documentação a 2026-11-08 |
 | 11-a | KAM-103 (`../tecnica/evidencia/validacao/Pagamentos_Respostas.md` §2.5) | Prazo de *onboarding*: é H5 pela via AppyPay |
 | **11-b** | **Acréscimo deste ticket** | O anexo de preços dos termos cobre GPO, REF e SDD e **não** o Unitel Money ([`matriz_facilitadores.md`](matriz_facilitadores.md) §3, linha 9) |
 | **11-c** | **Acréscimo deste ticket** | A documentação só mostra o *endpoint* de *token* de um *tenant* de desenvolvimento (§3, linha 6) |
-| **12-a** | **Acréscimo deste ticket** | O `POST /charges` lista um 409 que nenhuma página descreve, e o âmbito da unicidade do `merchantTransactionId` decide se o `numero_publico` chega (§3, linhas 4 e 7) |
+| **12-a** | **Acréscimo deste ticket** | A documentação recusa o identificador repetido (código 726) sem dizer a que campo se refere, com que código HTTP sai, nem o âmbito da unicidade — e é o âmbito que decide se o `numero_publico` chega (§3, linhas 4 e 7) |
 | **12-b** | **Acréscimo deste ticket** | Nenhuma página dá *rate limit* nem lista de IPs de origem do *webhook* (§3, linha 15) |
 
 As perguntas 12-a e 12-b separam-se da 12 de propósito: a 12 decide o portão do ADR-013 e tem de
@@ -92,10 +92,12 @@ sustenta quando exista.
        quando o webhook falha?
 
 12-a. Unicidade e idempotência (acréscimo)
-    a) Qual é o âmbito da unicidade do merchantTransactionId — por comerciante, por aplicação ou
-       global? Pode repetir-se depois de uma cobrança expirar ou falhar?
-    b) O que significa a resposta HTTP 409 do POST /charges? Repetir o mesmo pedido com o mesmo
-       merchantTransactionId depois de uma resposta perdida devolve a cobrança original, ou recusa?
+    a) A documentação lista o código 726 ("A referência do comerciante [XXXX] solicitado já
+       existe"). Refere-se ao merchantTransactionId? Sai com o HTTP 409 que o POST /charges lista?
+    b) Qual é o âmbito dessa unicidade — por comerciante, por aplicação ou global? O mesmo
+       merchantTransactionId pode voltar a usar-se depois de uma cobrança expirar ou falhar?
+    c) Depois de uma resposta perdida, qual a forma recomendada de saber se a cobrança foi criada:
+       o GET /charges?merchantTransactionId=...?
 
 12-b. Limites e origem (acréscimo)
     Existe limite de pedidos por minuto (e com que resposta HTTP)? Publicam a lista de endereços
