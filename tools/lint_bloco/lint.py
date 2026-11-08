@@ -192,6 +192,14 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: do `mutacao.py` cita o literal, e um par que nao casa deixa a prova por
 #: mutacao a medir nada.
 #:
+#: **E o #157 fundiu, pelo que as duas linhas acima deixaram de ser uma
+#: simulacao e a de baixo passou a ser a arvore.** Medido depois de integrar a
+#: `publico/main` em `5941a11f`: **90 medidos, exigido 45**, e o 45 que este
+#: ficheiro ja tinha e agora o valor que a conta pede e nao um que a antecipa.
+#: Fica registado que a ordem de fusao confirmou a medicao e nao a contrariou —
+#: se tivesse fundido ao contrario, o 45 continuava a servir, que era a razao de
+#: o escrever.
+#:
 #: Quem acrescentar o **92.o** paga a emenda seguinte: o 45 serve ate aos 91.
 MINIMO_DE_BLOCOS_MEDIDOS = 45
 
