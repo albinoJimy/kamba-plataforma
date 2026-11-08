@@ -4482,10 +4482,12 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 ### Verificação dos Critérios de Aceitação
 
 **5 critérios: 4 satisfeitos, 1 parcial. 4 caixas de DoD: 3 marcadas, 1 vazia.**
-A bateria do AGR tem **1 447** testes verdes, **12** mais do que a `main` — **16**
+A bateria do AGR tem **1 449** testes verdes, **14** mais do que a `main` — **18**
 ensaios escritos, dos quais **4** substituem os que mediam o estado antigo (o
 credor `KAM-047` e o desfecho `sem_accao`), contados no diff com
 `git diff refs/remotes/publico/main...HEAD -U0 | grep -cE '^[+-]    def test_'`.
+**Os dois ultimos sao da revisao adversarial** — o do humano com a palavra e o da
+configuracao que deixa de ser valida.
 Medidos no ramo `feature/KAM-184-servicos-eventos-pagamento` sobre a base
 `b974dda4`:
 
@@ -4643,7 +4645,7 @@ forma independente.
 | 1 | Critérios satisfeitos e demonstráveis, com as caixas abertas a nomear o credor | **parcial** | Quatro dos cinco satisfeitos; o 5.º é parcial e **nomeia o credor** (o ticket que liga o AGR ao módulo `servicos`, a abrir pelo fundador). A caixa fica vazia por causa dele |
 | 2 | Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de cada caixa e a ponta onde foi medida | **satisfeito** | Esta secção. A ponta é `feature/KAM-184-servicos-eventos-pagamento` sobre `b974dda4`, e vai escrita em cada número |
 | 3 | Se a rota (a) for a escolhida, a decisão está **devolvida e não aplicada** | **satisfeito** | Nenhuma das duas rotas foi escolhida nem aplicada: não há `v3` em `contratos/eventos/` e não há consulta a resolver marcações. As duas vão devolvidas com o custo medido |
-| 4 | Nenhum número novo em prosa sem a árvore onde foi medido | **satisfeito** | Os números desta secção — 1 447 testes, 16 ensaios escritos e 4 substituídos, 86 blocos medidos, `conteudo 45`, 88,34%, 983 mutações conferidas — levam o comando e a ponta. O `756 s` é **derivado** da `ESCADA_DO_CONSUMIDOR` do `kamba_core` e não medido em relógio, e está dito como derivação |
+| 4 | Nenhum número novo em prosa sem a árvore onde foi medido | **satisfeito** | Os números desta secção — 1 449 testes, 18 ensaios escritos e 4 substituídos, 86 blocos medidos, `conteudo 45`, 88,34%, 983 mutações conferidas, 18 mortas na varredura do `lint_bloco` — levam o comando e a ponta. O `756 s` é **derivado** da `ESCADA_DO_CONSUMIDOR` do `kamba_core` e não medido em relógio, e está dito como derivação |
 
 ---
 
