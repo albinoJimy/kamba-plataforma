@@ -51,7 +51,9 @@ from .envelope import CAMPOS_DO_ENVELOPE, Envelope, EnvelopeInvalidoError, ler_e
 from .entitlement import LeitorDeEntitlements
 from .handlers import (
     ContactoPorResolver,
+    MarcacaoPorResolver,
     PortaDeContacto,
+    PortaDeMarcacao,
     SemHandlerError,
     exigir_handlers,
 )
@@ -89,6 +91,8 @@ __all__ = [
     "FilaDeMortos",
     "LeitorDeConversas",
     "LeitorDeEntitlements",
+    "MarcacaoPorResolver",
+    "PortaDeMarcacao",
     "SemHandlerError",
     "nomes_dos_consumidores",
     "Notificacao",

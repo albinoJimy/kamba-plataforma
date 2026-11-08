@@ -4,6 +4,7 @@
   "tags": [
     "kamba",
     "kam-080",
+    "kam-060",
     "pagamentos"
   ],
   "schemaVersion": 39,
@@ -16,10 +17,10 @@
   "panels": [
     {
       "type": "text",
-      "title": "Este painel nao tem series, e isso e a medicao",
+      "title": "Este painel nao tem series, e isso continua a ser a medicao",
       "options": {
         "mode": "markdown",
-        "content": "### Nenhuma metrica de pagamentos esta exposta\n\nO doc 09 §9.2 pede um alerta P1 de **callbacks** (falhas HMAC > 3/h, ou reconciliacao a encontrar pagamento por reconhecer). A metrica existe — `hnd_callback_rejeitado_total{motivo}` — e o modulo `hnd` **nao e importado por nenhum servico** (medido: `grep -rn \"core-ts/hnd\" services`). «Reconciliados» nao tem metrica nenhuma.\n\n**Nao se desenhou um grafico vazio nem se inventou uma serie.** Um painel de pagamentos com um grafico a zero e pior do que este texto: parece dizer que nao ha falhas de HMAC, quando o que diz e que ninguem esta a contar.\n\nO credor e o ticket que ligar o modulo `hnd`; a regra de alerta fica em `ops/metricas/catalogo.yaml`, em `regras_por_escrever`, para nascer no mesmo dia que a serie.\n\nO que **ja** existe, e nao e metrica: o ledger de pagamentos tem `pay_ledger_*` como desfechos de *logger*, e as revisoes `0029` e `0031` recusam `UPDATE`/`DELETE` sem linhas. A observabilidade do dinheiro, hoje, le-se da base e do registo — nao de um painel."
+        "content": "### Duas metricas de pagamentos sao servidas, e nenhuma e raspada\n\nO que mudou desde o KAM-080: ha agora **duas** series de pagamentos num `/metrics` de processo — o histograma `com_payment_to_paid_seconds` (KAM-055) e o contador `fraud_signals_total{regra}` (KAM-060), as duas do `services/com/src/payments/metricas.ts`, servidas pelo processo do consumidor de pagamentos.\n\n**O que lhes falta nao e dono, e alcance.** Medido em `infra/compose/prometheus/prometheus.yml`: o `scrape_config` do `com` aponta para a **3002** e aquele processo serve na **3013**. Isto e, as series existem, sao expostas, e o Prometheus nunca as ve. Acrescentar aqui um alvo para um processo que o `compose` nao levanta produz o `up 0` permanente que o criterio 4 do KAM-076 recusa, pelo que a lacuna fica registada com credor **KAM-080** — como ja estava no `specs/EPIC-08`.\n\n**Por isso nao se desenharam os dois graficos que a DoD do KAM-060 pede** — «painel de orfaos e de retencoes». A regra deste painel e a mesma desde o KAM-080 e vale a dobrar aqui: um grafico a zero sobre uma serie que ninguem raspa *parece* dizer «nao ha orfaos» quando o que diz e «ninguem esta a contar», e num painel de fraude essa confusao ensina ops a ignorar o painel. As duas regras de alerta correspondentes estao em `ops/metricas/catalogo.yaml`, em `regras_por_escrever`, para nascerem no mesmo dia que o alvo.\n\nO painel de orfaos tem ainda uma segunda falta, e e de serie e nao de alvo: o `fraud_signals_total` **conta sinais** e nao mede idades. A idade de cada orfao esta no `detalhe` do sinal e o total de «abertos > 24 h» esta no `RelatorioDeAnomalias` do motor, mas um *gauge* de idade precisa de um processo que o publique periodicamente — e o motor corre em lote, sem `/metrics` proprio.\n\nO que **ja** existe, e nao e metrica: o ledger de pagamentos tem `pay_ledger_*` como desfechos de *logger*, o motor de anomalias tem `pay_fraude_*` pela mesma via, e as revisoes `0029` e `0031` recusam `UPDATE`/`DELETE` sem linhas. A observabilidade do dinheiro, hoje, le-se da base e do registo — nao de um painel."
       },
       "id": 1
     }

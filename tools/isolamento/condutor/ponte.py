@@ -73,7 +73,11 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 #: O `com-interna` sao as nove superficies que o KAM-178 acrescentou ao COM, e e
 #: o unico grupo de rotas que **nao** precisa de base: os duplos substituem a
 #: porta, pelo que corre com `KAMBA_X01_PG` ausente.
-GRUPOS = ("sondas", "webhook", "canais", "contacto", "com-interna")
+#: O `inscricao` sao as cinco rotas do `onboarding-web` (KAM-086), e e o
+#: segundo grupo que corre **sem base**: as rotas da inscricao correm antes de
+#: existir tenant, e o repositorio de casos e o duplo em memoria. O que elas
+#: isolam e o `onboarding_id` e nao o `tenant_id`.
+GRUPOS = ("sondas", "webhook", "canais", "contacto", "com-interna", "inscricao")
 
 #: A imagem usada quando nao ha `node` no `PATH`. A mesma versao de
 #: `.node-version`, fixada pelo digest que `ci/supply-chain/imagens.yaml`

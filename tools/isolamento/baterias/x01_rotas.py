@@ -51,6 +51,7 @@ forte desta bateria.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 
 from ..casos import registar_caso
@@ -60,6 +61,28 @@ from ..casos import registar_caso
 # As listas sao **literais de proposito**. Um filtro — «todas as rotas» — fazia
 # a cobertura passar para sempre e uma rota nova nascia coberta, que e o «sem
 # teste silencioso» que o criterio 2 existe para fechar.
+
+#: As cinco rotas da inscricao (KAM-086). **O que elas isolam e o
+#: `onboarding_id` e nao o `tenant_id`**: correm antes de existir tenant, e o
+#: `tenant_id` do caso e pre-alocado e nunca sai numa resposta. O papel de «B» e
+#: um **caso** e o canario de B vai no nome do negocio dele.
+ROTAS_DA_INSCRICAO = (
+    "rota:onboarding-web:rotas:ligacao:GET:/entrar",
+    "rota:onboarding-web:rotas:ligacao:POST:/api/registo",
+    "rota:onboarding-web:rotas:ligacao:POST:/api/otp/reenviar",
+    "rota:onboarding-web:rotas:ligacao:POST:/api/otp/verificar",
+    "rota:onboarding-web:rotas:ligacao:POST:/api/actividade",
+)
+
+#: O `POST /api/registo` responde **200** aos dois ataques, e isso nao e uma
+#: falha: e o criterio 9 do bloco KAM-086. Um NIF que existe e um que nao existe
+#: tem de dar o mesmo estado e o mesmo corpo, senao a diferenca e a enumeracao de
+#: NIF que o criterio proibe. Quem verifica que nada de B sai e o **oraculo**, e
+#: quem verifica que os dois estados sao iguais e o `_uniformidade`; alargar o
+#: `RECUSAS_ACEITAVEIS` global para acomodar o 200 enfraquecia os outros casos.
+ACEITAVEIS_DA_INSCRICAO = {
+    "rota:onboarding-web:rotas:ligacao:POST:/api/registo": (200,),
+}
 
 #: As quatro rotas internas do AGR. Levam identificadores no corpo.
 ROTAS_INTERNAS_DO_AGR = (
@@ -632,6 +655,56 @@ def _afirmacoes_da_api_interna_do_com(item: str, entradas: list[dict]) -> list[s
         ),
     ]
 
+
+def _afirmacoes_da_inscricao(item: str, entradas: list[dict]) -> list[str]:
+    """As duas medicoes que o oraculo nao ve, e vem na `nota` de cada entrada."""
+    achados: list[str] = []
+    notas = [str(e.get("nota", "")) for e in entradas]
+    if item.endswith("GET:/entrar"):
+        # **Sem canario no caso de B, o zero do oraculo nao diz nada**: provava
+        # que o varrimento nao encontra o que nunca la esteve. E a licao do alvo
+        # `x11` e da bateria de privacidade do KAM-116.
+        if not any(nota == "canario-no-caso-de-b" for nota in notas):
+            achados.append(
+                f"{item}: o caso de B nao ficou com o canario no nome do "
+                "negocio. O zero do oraculo nas outras rotas nao prova nada."
+            )
+    if item.endswith("POST:/api/registo"):
+        esperadas = {"ataque-com-nif-de-b", "ataque-com-nif-inexistente"}
+        if set(notas) != esperadas:
+            achados.append(
+                f"{item}: os dois ataques deviam ser {sorted(esperadas)} e foram "
+                f"{sorted(set(notas))}. O criterio 9 compara um NIF que existe "
+                "com um que nao existe; sem os dois nao ha comparacao."
+            )
+        corpos = {str(e.get("corpo", "")) for e in entradas}
+        chaves = {
+            tuple(sorted(json.loads(corpo))) if corpo.startswith("{") else ("?",)
+            for corpo in corpos
+        }
+        if len(chaves) > 1:
+            achados.append(
+                f"{item}: os dois corpos tem conjuntos de campos diferentes "
+                f"({sorted(chaves)}). O criterio 9 pede corpos indistinguiveis."
+            )
+    return achados
+
+
+registar_caso(
+    id="X-01/ts/inscricao",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DA_INSCRICAO,
+    fn=_caso_ts(
+        "inscricao",
+        ROTAS_DA_INSCRICAO,
+        com_idor=True,
+        aceitaveis_por_item=ACEITAVEIS_DA_INSCRICAO,
+        afirmacoes=_afirmacoes_da_inscricao,
+    ),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)
 
 registar_caso(
     id="X-01/ts/com-interna",

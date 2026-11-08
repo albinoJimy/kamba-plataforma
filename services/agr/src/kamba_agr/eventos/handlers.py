@@ -71,6 +71,42 @@ desfecho `aplicado` sobre uma notificacao que ninguem recebeu.
 ninguem: usa-lo era arriscar notificar a conversa errada, que num aviso de
 pagamento e falar do pagamento de uma pessoa a outra. Fica registado como o
 candidato para quem fechar a lacuna com uma emenda ao §4.
+
+## A accao dos dois pagamentos em Servicos, e de onde NAO vem o `booking_id`
+
+O KAM-184 escreve a accao que o `ACCOES_POR_LIGAR` declarava em falta: os dois
+eventos de pagamento na vertical Servicos **confirmam a marcacao com sinal**, que
+e o que o `docs/tecnica/03` §12 e o dicionario §3.5 mandam, e a confirmacao e
+que torna a marcacao visivel ao lembrete (KAM-048; o indice
+`bookings_contacto_idx` da revisao `0025` existe para essa leitura).
+
+**O `booking_id` nao vem do evento, e isso e medido e nao assumido.** Os quatro
+esquemas dos dois tipos — `contratos/eventos/payment.confirmed/{v1,v2}` e
+`contratos/eventos/payment.manual_confirmed/{v1,v2}` — tem
+`additionalProperties: false` e **nao** tem `booking_id`: um evento que o levasse
+e recusado e vai para a DLQ. O §9.2 do `docs/tecnica/evidencia/validacao/Gate_Fase0.md`
+enumera as duas rotas para o obter — (a) uma versao nova do contrato, (b) o
+consumidor resolver a marcacao pelo `order_id` — e as **duas estao devolvidas ao
+fundador** com a medicao, na seccao de verificacao do bloco KAM-184. **Nenhuma
+esta aplicada aqui**, pelo que:
+
+* a accao identifica a encomenda pelo `order_id`, que os quatro esquemas levam
+  como campo **obrigatorio**, e nunca por um `booking_id` que nao existe no
+  *payload*. Nao ha ramo a ler o *payload* a procura dele: um ramo que nenhum
+  contrato publicado pode satisfazer e codigo morto, e a prova por mutacao deste
+  modulo ja mostrou uma vez que codigo morto sobrevive as mutacoes;
+* **quem sabe que marcacao e a desta encomenda e a agenda**, que vive no modulo
+  `servicos` (KAM-047, TypeScript no COM). O caminho entre o AGR e aquele modulo
+  **nao existe** — esta escrito no `tls/servicos.py`, e o ticket que o liga
+  tambem nao existe —, pelo que o que se escreve aqui e a **porta**
+  (`PortaDeMarcacao`) e a implementacao por omissao **levanta**.
+
+E levantar e a resposta certa, pela razao do `ContactoPorLigar` acima: enquanto
+ninguem ligar a agenda, um `payment.confirmed` de um *tenant* com Servicos activa
+esgota a escada do §6.4 e abre entrada na DLQ — Sev1, reprocessavel, e com a
+classificacao certa, porque «cliente que pagou e a marcacao nao ficou
+confirmada» e exactamente o que acontece. O desfecho deixa de ser `sem_accao`,
+que dizia «ninguem escreveu isto», e passa a dizer o que se passa de verdade.
 """
 
 from __future__ import annotations
@@ -135,6 +171,66 @@ class ContactoPorLigar:
 
     def contacto_de(self, agregado_tipo: str, agregado_id: str) -> str:
         raise ContactoPorResolver(f"contacto_por_resolver_{agregado_tipo}")
+
+
+class MarcacaoPorResolver(RuntimeError):
+    """Nao se consegue saber que marcacao e a desta encomenda.
+
+    **Sobe, e a entrega e tentada outra vez**, pela razao do
+    `ContactoPorResolver`: uma marcacao que hoje nao se resolve passa a
+    resolver-se no dia em que o caminho AGR -> modulo `servicos` existir, pelo
+    que a escada do §6.4 e a semantica certa e o que fica na DLQ e reprocessavel.
+
+    **Nao se confunde com «esta encomenda nao tem marcacao»**, que e a resposta
+    `None` da porta e e um desfecho legitimo: uma encomenda de produtos pagos num
+    *tenant* que tambem tem Servicos activa nao tem marcacao nenhuma para
+    confirmar. Tratar as duas como a mesma coisa dava um alarme por cada
+    pagamento de produto, ou um `aplicado` sobre uma confirmacao que nao houve.
+    """
+
+
+class PortaDeMarcacao(Protocol):
+    """`order_id` -> o `booking_id` confirmado. Credor: o caminho AGR -> `servicos`.
+
+    **Nao e um repositorio e nao le a base.** Quem tem a agenda e o modulo
+    `servicos` (KAM-047), do outro lado da fronteira do ADR-009; o AGR pede-lhe
+    que confirme, e a idempotencia e a dele — o `confirmBooking` daquele modulo e
+    idempotente por `(contact_id, slot_id)`, no indice **parcial**
+    `bookings_contacto_slot_uq` da revisao `0025` (so nos estados `hold` e
+    `confirmada`) e nao em codigo.
+
+    Devolve o `booking_id` da marcacao que ficou confirmada, `None` quando a
+    encomenda **nao tem** marcacao, e **levanta** `MarcacaoPorResolver` quando
+    nao se sabe. Ver a nota do modulo.
+
+    **Devolve um identificador e nao um objecto, e isso e uma correccao.** A
+    primeira versao devolvia um `MarcacaoConfirmada(booking_id, inicio_at)`, e o
+    `inicio_at` estava la por um argumento sobre o futuro — «quem vier a ligar o
+    lembrete precisa dele». Nenhum codigo de producao o lia, e e a mesma
+    especulacao que a nota do modulo recusa por escrito para o ramo do
+    `booking_id`. Achado da revisao adversarial. Quem precisar de mais do que o
+    identificador acrescenta-o quando tiver quem o leia.
+    """
+
+    def confirmar_com_sinal(
+        self, *, tenant_id: str, order_id: str, event_id: str
+    ) -> str | None: ...
+
+
+class MarcacaoPorLigar:
+    """A porta por omissao: levanta `MarcacaoPorResolver`.
+
+    E a omissao de proposito, pela razao do `ContactoPorLigar`: uma porta
+    obrigatoria fazia quem monta o consumidor escrever um duplo so para o poder
+    construir, e um duplo escrito a pressa e um duplo que mente.
+    """
+
+    __slots__ = ()
+
+    def confirmar_com_sinal(
+        self, *, tenant_id: str, order_id: str, event_id: str
+    ) -> str | None:
+        raise MarcacaoPorResolver("agenda_por_ligar")
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,17 +307,21 @@ AO_CLIENTE: Final = tuple(TEXTOS)
 #: Os pares em que a vertical **subscreve** o tipo e a accao dela **nao esta
 #: escrita**. Lista fechada, com o credor na linha.
 #:
-#: Sao os dois eventos de pagamento na vertical Servicos. O `03` §12 e o §3.5 do
-#: dicionario dizem o que ela tem de fazer com eles — «confirma uma marcacao com
-#: sinal» —, e isso e o modulo `servicos` (**KAM-047**, §8.3) e o grafo dela
-#: (**KAM-035**), nenhum dos dois escrito. Declara-los aqui, em vez de os deixar
-#: fora, e o que distingue «ninguem escreveu isto» de «isto nao existe»: o
-#: arranque continua a exigir consumidor para **cada** subscricao (criterio 1), e
-#: o desfecho do consumo e `sem_accao` — contado, registado, e com credor.
-ACCOES_POR_LIGAR: Final[Mapping[tuple[str, str], str]] = {
-    ("servicos", "payment.confirmed"): "KAM-047",
-    ("servicos", "payment.manual_confirmed"): "KAM-047",
-}
+#: **Hoje esta vazia, e a tabela fica** (KAM-184). Os dois eventos de pagamento
+#: em Servicos viviam aqui com o credor `KAM-047`; a accao deles esta escrita
+#: desde este ticket e os dois pares estao em `ACCOES_DE_MARCACAO`. O que a
+#: tabela vazia diz e que **nenhuma** subscricao do registo esta hoje nestas
+#: condicoes — e nao que a condicao deixou de existir: a guarda do
+#: `exigir_handlers`, o desfecho `sem_accao` e o `accao_por_ligar` continuam a
+#: morder, com ensaio sobre um par sintetico, porque e assim que a proxima
+#: vertical declara «subscrevo isto e ainda nao escrevi a accao» em vez de
+#: consumir em silencio.
+#:
+#: Declarar um par aqui, em vez de o deixar fora, e o que distingue «ninguem
+#: escreveu isto» de «isto nao existe»: o arranque continua a exigir consumidor
+#: para **cada** subscricao (criterio 1), e o desfecho do consumo e `sem_accao` —
+#: contado, registado, e com credor.
+ACCOES_POR_LIGAR: Final[Mapping[tuple[str, str], str]] = {}
 
 #: Os pares cuja accao esta por ligar, **sem o credor**. Derivado do
 #: `ACCOES_POR_LIGAR`, pela razao do `AO_CLIENTE` — e por uma segunda, que a
@@ -248,6 +348,30 @@ ACCOES_POR_LIGAR: Final[Mapping[tuple[str, str], str]] = {
 #: Achado da revisao adversarial, verificado contra a arvore.
 POR_LIGAR: Final = tuple(ACCOES_POR_LIGAR)
 
+#: Os pares cuja accao e **confirmar a marcacao com sinal** (KAM-184). Lista
+#: fechada: sao os dois eventos de pagamento na vertical Servicos, e o que eles
+#: fazem e o que o `03` §12 e o dicionario §3.5 mandam. Ver a nota do modulo.
+#:
+#: **Nao e o oposto do `ACCOES_POR_LIGAR` e nao se deriva dele.** Um par fora das
+#: duas tabelas e uma subscricao que nao faz nada e nao o diz, que e o que a
+#: primeira guarda do `exigir_handlers` recusa; um par nas duas ao mesmo tempo
+#: diria «a accao esta escrita» e «a accao tem dono», e e a terceira guarda que o
+#: recusa. Derivar uma da outra fazia a pergunta ao proprio conjunto, que e o
+#: defeito que o KAM-039 corrigiu nesta mesma funcao.
+ACCOES_DE_MARCACAO: Final = (
+    ("servicos", "payment.confirmed"),
+    ("servicos", "payment.manual_confirmed"),
+)
+
+#: Os pares de `ACCOES_DE_MARCACAO`, para a pergunta de pertenca. **Sao duas
+#: constantes e nao uma**, pela razao escrita no `POR_LIGAR`: o `reuse_metric`
+#: classifica pela forma da atribuicao e nao pela pergunta do sitio da leitura,
+#: pelo que uma constante **com** literais de vertical lida num `if` conta como
+#: `fluxo` — e `fluxo > 0` e a condicao (d) do §5.4 a reprovar. Quem decide le
+#: esta, que nao tem literais e e invisivel ao verificador.
+COM_ACCAO_DE_MARCACAO: Final = frozenset(ACCOES_DE_MARCACAO)
+
+
 class SemHandlerError(RuntimeError):
     """Uma subscricao sem *handler*. O AGR sai com `8`.
 
@@ -270,12 +394,16 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
     sempre importou — **esta subscricao faz alguma coisa?** — e sao duas formas
     de nao fazer nada:
 
-    * **sem destinatario e sem credor.** Um `notifica:` vazio diz «esta vertical
-      subscreve e nao avisa ninguem», o que e legitimo exactamente quando a
-      accao esta por escrever e tem dono: os dois eventos de pagamento em
-      Servicos, com o KAM-047 em `ACCOES_POR_LIGAR`. Sem destinatario **e** sem
-      credor, e um consumidor que marca o evento como consumido e nao faz nada —
-      e nao o diz, que e o pior dos dois mundos;
+    * **sem destinatario, sem accao escrita e sem credor.** Um `notifica:` vazio
+      diz «esta vertical subscreve e nao avisa ninguem», o que e legitimo em dois
+      casos: a accao esta **escrita** e nao e uma notificacao — os dois eventos
+      de pagamento em Servicos, que confirmam a marcacao com sinal
+      (`ACCOES_DE_MARCACAO`, KAM-184) —, ou esta por escrever e tem **dono**
+      (`ACCOES_POR_LIGAR`). Sem nenhum dos tres, e um consumidor que marca o
+      evento como consumido e nao faz nada — e nao o diz, que e o pior dos dois
+      mundos. **A terceira condicao entrou com o KAM-184 e nao enfraquece a
+      guarda**: sem ela, escrever a accao dos dois pares e tirar o credor
+      reprovava o arranque com o registo verdadeiro;
     * **declara `cliente` e nao ha texto.** O `TEXTOS` e indexado por
       `(vertical, tipo)` e lido **dentro** da transaccao do consumo: um par que
       declare `cliente` sem entrada la rebentava com `KeyError` a meio de uma
@@ -284,16 +412,20 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
 
     E uma terceira forma, que e de **dizer duas coisas**:
 
-    * **declara destinatario e tem credor de accao por ligar.** O
+    * **tem credor de accao por ligar e, ao mesmo tempo, faz alguma coisa.** O
       `ACCOES_POR_LIGAR` quer dizer «esta vertical subscreve e a accao dela nao
-      esta escrita»; um `notifica` nao vazio diz que esta. Com os dois, o
-      `_efeito` do `consumo.py` avisa quem o `notifica` manda **e** o `_consumir`
-      devolve `sem_accao`, porque o desfecho le o credor e nao o destinatario: o
-      dono era avisado e a metrica dizia que nao houve accao. **Era uma
+      esta escrita»; um `notifica` nao vazio diz que esta, e um par em
+      `ACCOES_DE_MARCACAO` diz que esta por extenso. Com os dois, o `_efeito` do
+      `consumo.py` corre o efeito **e** o `_consumir` devolve `sem_accao`, porque
+      o desfecho le o credor e nao o efeito: alguem era avisado — ou uma marcacao
+      ficava confirmada — e a metrica dizia que nao houve accao. **Era uma
       invariante medida por ensaio** (`ACCOES_POR_LIGAR & (AO_CLIENTE | AO_DONO)
       == set()`) e a metade do dono saiu para configuracao, pelo que o ensaio
       deixou de a cobrir — achado da revisao adversarial. Passa a ser guarda, que
-      e onde ela pertence agora que o outro lado e um ficheiro editavel.
+      e onde ela pertence agora que um dos lados e um ficheiro editavel. **A
+      metade do `ACCOES_DE_MARCACAO` entrou com o KAM-184**: as duas tabelas sao
+      literais deste modulo, mas estao a dez linhas uma da outra e e precisamente
+      assim que uma emenda futura poe um par nas duas.
 
     Junta **todos** os problemas e nao o primeiro, pela razao do
     `SubscricoesInvalidasError`: seis linhas erradas num YAML nao sao seis
@@ -304,20 +436,23 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
     diz_as_duas: list[tuple[str, str]] = []
     for subscricao in subscricoes:
         par = (subscricao.vertical, subscricao.tipo)
+        tem_credor = par in POR_LIGAR
+        tem_accao = par in COM_ACCAO_DE_MARCACAO
+        if tem_credor and (subscricao.notifica or tem_accao):
+            diz_as_duas.append(par)
         if not subscricao.notifica:
-            if par not in POR_LIGAR:
+            if not tem_credor and not tem_accao:
                 sem_handler.append(par)
             continue
         if DESTINATARIO_CLIENTE in subscricao.notifica and par not in AO_CLIENTE:
             sem_texto.append(par)
-        if par in POR_LIGAR:
-            diz_as_duas.append(par)
     problemas: list[str] = []
     if sem_handler:
         problemas.append(
-            f"as subscricoes {sorted(sem_handler)} nao notificam ninguem e nao tem "
-            f"credor em `ACCOES_POR_LIGAR`: declare `notifica` no `registry/` com um "
-            f"de {list(DESTINATARIOS)} (`docs/tecnica/03` §12)"
+            f"as subscricoes {sorted(sem_handler)} nao notificam ninguem, nao tem accao "
+            f"escrita em `ACCOES_DE_MARCACAO` e nao tem credor em `ACCOES_POR_LIGAR`: "
+            f"declare `notifica` no `registry/` com um de {list(DESTINATARIOS)} "
+            f"(`docs/tecnica/03` §12)"
         )
     if sem_texto:
         problemas.append(
@@ -326,9 +461,10 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
         )
     if diz_as_duas:
         problemas.append(
-            f"as subscricoes {sorted(diz_as_duas)} declaram `notifica` e tem credor em "
-            "`ACCOES_POR_LIGAR`: a accao ou esta escrita ou tem dono, nao as duas — o "
-            "desfecho do consumo seria `sem_accao` com uma notificacao enviada"
+            f"as subscricoes {sorted(diz_as_duas)} tem credor em `ACCOES_POR_LIGAR` e "
+            "fazem alguma coisa — `notifica` no `registry/`, ou accao escrita em "
+            "`ACCOES_DE_MARCACAO`: a accao ou esta escrita ou tem dono, nao as duas — o "
+            "desfecho do consumo seria `sem_accao` com o efeito aplicado"
         )
     if problemas:
         raise SemHandlerError("; ".join(problemas))
@@ -337,6 +473,56 @@ def exigir_handlers(subscricoes: Iterable[SubscricaoDeVertical]) -> None:
 def accao_por_ligar(vertical: str, tipo: str) -> str | None:
     """O credor da accao que falta, ou `None` se ela estiver escrita."""
     return ACCOES_POR_LIGAR.get((vertical, tipo))
+
+
+def tem_accao_de_marcacao(vertical: str, tipo: str) -> bool:
+    """Esta subscricao confirma a marcacao com sinal? (KAM-184.)
+
+    E a pergunta que o `_efeito` do `consumo.py` faz antes de chamar a accao, e
+    le a constante **derivada** pela razao escrita no `COM_ACCAO_DE_MARCACAO`.
+    """
+    return (vertical, tipo) in COM_ACCAO_DE_MARCACAO
+
+
+def confirmar_marcacao_com_sinal(
+    envelope: Envelope, marcacoes: PortaDeMarcacao
+) -> str | None:
+    """A accao dos dois pagamentos em Servicos: confirma a marcacao com sinal.
+
+    **Identifica a encomenda pelo `order_id`** e nunca por um `booking_id` do
+    *payload*, que os quatro esquemas publicados nao admitem — ver a nota do
+    modulo, e a medicao das duas rotas na seccao de verificacao do bloco
+    KAM-184.
+
+    Devolve o `booking_id` da marcacao confirmada, ou `None` se esta encomenda
+    nao tiver marcacao. **Levanta** `MarcacaoPorResolver` se nao se souber: e a
+    porta por omissao, e enquanto o caminho AGR -> modulo `servicos` nao existir
+    e isso que acontece em producao.
+
+    **Corre dentro da transaccao do consumo**, como a notificacao e pela mesma
+    simetria do `consumo.py`: se a confirmacao falhar, o `ROLLBACK` leva a marca
+    com ela e a re-entrega volta a tentar — nao ha marca sem efeito; e se o
+    `COMMIT` falhar depois de ela passar, a re-entrega repete-a e a idempotencia
+    do `confirmBooking` (indice `bookings_contacto_slot_uq`, revisao `0025`)
+    devolve a marcacao que ja existe em vez de criar uma segunda.
+    """
+    order_id = envelope.payload.get("order_id")
+    if not isinstance(order_id, str) or not order_id:
+        # **Inalcancavel por configuracao e por contrato**: o `order_id` e campo
+        # obrigatorio nos quatro esquemas e o `validar_payload` corre antes. Fica
+        # pela razao da guarda do `fala_com_o_cliente`: e a barreira para um
+        # chamador que nao venha do consumo, e sem ela um envelope sem
+        # `order_id` pedia a agenda que confirmasse a marcacao de `None` — que e
+        # uma pergunta que a agenda nao pode responder com seguranca.
+        raise MarcacaoPorResolver("sem_order_id")
+    return marcacoes.confirmar_com_sinal(
+        tenant_id=envelope.tenant_id,
+        order_id=order_id,
+        # O `event_id` vai como chave do pedido e nao como identidade da
+        # marcacao: e o que permite a quem implementar a porta deduplicar uma
+        # re-entrega sem depender do nosso relogio.
+        event_id=envelope.id,
+    )
 
 
 def fala_com_o_cliente(subscricao: SubscricaoDeVertical) -> bool:
@@ -349,10 +535,18 @@ def fala_com_o_cliente(subscricao: SubscricaoDeVertical) -> bool:
 
     Levanta `SemHandlerError` para uma subscricao sem *handler*, pela razao
     escrita no `exigir_handlers`: o arranque ja o devia ter apanhado, e se nao
-    apanhou e porque este consumidor nao veio do registo.
+    apanhou e porque este consumidor nao veio do registo. **As tres formas de
+    fazer alguma coisa sao as mesmas da guarda** — notificar, ter accao escrita,
+    ou ter credor —, e a lista tem de ser a mesma nos dois sitios: uma guarda
+    que aceitasse o par e um `fala_com_o_cliente` que o recusasse punha o AGR a
+    arrancar e a rebentar na primeira entrega.
     """
     par = (subscricao.vertical, subscricao.tipo)
-    if not subscricao.notifica and par not in POR_LIGAR:
+    if (
+        not subscricao.notifica
+        and par not in POR_LIGAR
+        and par not in COM_ACCAO_DE_MARCACAO
+    ):
         raise SemHandlerError(f"sem handler para {par}")
     return DESTINATARIO_CLIENTE in subscricao.notifica
 

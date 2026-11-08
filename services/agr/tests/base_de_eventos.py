@@ -335,3 +335,67 @@ class ContactoFixo:
     def contacto_de(self, agregado_tipo: str, agregado_id: str) -> str:
         self.pedidos.append((agregado_tipo, agregado_id))
         return self.contact_id
+
+
+class AgendaDeEnsaio:
+    """A agenda atras da `PortaDeMarcacao` (KAM-184), com estado observavel.
+
+    **Guarda marcacoes e nao chamadas**, e e isso que a torna o instrumento do
+    criterio 5: o que se mede e o **artefacto** — uma marcacao que estava em
+    `hold` e passou a `confirmada` —, e nao «a porta foi chamada». Um duplo que
+    so contasse chamadas ficava verde com uma accao que chamasse a agenda e
+    ignorasse a resposta.
+
+    Os quatro estados e a transicao sao os da revisao `0025` (`servicos.bookings`,
+    dicionario §3.3). O que **nao** e de la e a coluna `order_id`: nenhuma
+    superficie liga hoje uma encomenda a uma marcacao — nem a `servicos.bookings`,
+    nem a `platform.orders_mirror` da revisao `0030` —, e e precisamente essa a
+    rota (b) do criterio 1 do KAM-184, **devolvida ao fundador**. Aqui ela esta
+    porque quem implementar a porta tera de a ter de alguma forma; este duplo
+    **nao** decide qual.
+    """
+
+    def __init__(self) -> None:
+        #: `booking_id` -> `{order_id, estado}`. **Sem `inicio_at`**: a porta
+        #: devolve um identificador e nao um objecto, e uma coluna que nenhum
+        #: ensaio le era a mesma especulacao que a revisao adversarial tirou do
+        #: `MarcacaoConfirmada`.
+        self.marcacoes: dict[str, dict[str, str]] = {}
+        #: Os pedidos que a porta recebeu, por ordem. Para o par negativo: sem
+        #: isto nao se distingue «nao confirmou» de «nem chegou a pedir».
+        self.pedidos: list[tuple[str, str, str]] = []
+        #: Posto a `True`, a porta levanta `MarcacaoPorResolver` — que e o que a
+        #: implementacao por omissao faz em producao.
+        self.nao_sei = False
+
+    def com_marcacao(
+        self, *, booking_id: str, order_id: str, estado: str = "hold"
+    ) -> AgendaDeEnsaio:
+        """Semeia uma marcacao. Devolve-se para encadear na montagem."""
+        self.marcacoes[booking_id] = {"order_id": order_id, "estado": estado}
+        return self
+
+    def estado_de(self, booking_id: str) -> str:
+        return self.marcacoes[booking_id]["estado"]
+
+    def confirmar_com_sinal(
+        self, *, tenant_id: str, order_id: str, event_id: str
+    ) -> str | None:
+        from kamba_agr.eventos.handlers import MarcacaoPorResolver
+
+        self.pedidos.append((tenant_id, order_id, event_id))
+        if self.nao_sei:
+            raise MarcacaoPorResolver("agenda_por_ligar")
+        for booking_id, marcacao in self.marcacoes.items():
+            if marcacao["order_id"] != order_id:
+                continue
+            if marcacao["estado"] in ("cancelada", "expirada"):
+                continue
+            # **Idempotente**, como o `confirmBooking` do KAM-047: uma segunda
+            # confirmacao da mesma marcacao devolve a que ja existe e nao cria
+            # nada. E o que faz a re-entrega de um evento ser inofensiva.
+            marcacao["estado"] = "confirmada"
+            return booking_id
+        # Esta encomenda nao tem marcacao: uma encomenda de produtos num
+        # *tenant* que tambem tem Servicos activa. Nao e uma falha.
+        return None

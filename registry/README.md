@@ -67,9 +67,12 @@ Três coisas que valem saber antes de escrever a chave:
    ninguém»;
 2. **a omissão é a lista vazia e tem significado** — a subscrição existe, o
    arranque continua a exigir consumidor para ela, e ela não avisa ninguém. É
-   legítimo exactamente quando a acção está por escrever e **tem credor** no
-   `ACCOES_POR_LIGAR` do AGR: é o caso dos dois pagamentos em `servicos.yaml`,
-   com o KAM-047. Sem destinatário **e** sem credor, o arranque falha;
+   legítimo em dois casos, e são **três** as condições que a guarda pergunta
+   (KAM-184): a acção está **escrita e não é uma notificação** — o
+   `ACCOES_DE_MARCACAO` do AGR, que é o caso dos dois pagamentos em
+   `servicos.yaml`, onde a acção é confirmar a marcação com sinal —, ou está por
+   escrever e **tem credor** no `ACCOES_POR_LIGAR` (hoje vazio). Sem
+   destinatário, sem acção escrita **e** sem credor, o arranque falha;
 3. **declarar `cliente` exige texto** — o texto de cada notificação é persona, e
    fica no `TEXTOS` do `eventos/handlers.py` (o §5.4 põe o texto na coluna do que
    é próprio da vertical). Um `cliente` declarado sem entrada lá falha o
