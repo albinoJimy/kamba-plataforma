@@ -335,10 +335,20 @@ SQL_REGISTAR_OPOSICAO = """
 #: O `agregado.tipo` e `'contact'`, que e o que os dois contratos publicados
 #: declaram com `const`.
 #:
+#: **O `correlacao_id` leva o `dsar_id`**, e e o nono argumento posicional da
+#: funcao. Nao e enfeite: o `payload` dos tres contratos publicados tem
+#: `additionalProperties: false` e so o `contact_id` dentro, pelo que **nao ha
+#: sitio no `payload` para dizer de que pedido se trata** — e um consumidor que
+#: tivesse de o descobrir ia procurar o pedido aberto daquele contacto, que e
+#: unico pelo indice `dsar_requests_aberto_uq` mas obriga a uma leitura e a uma
+#: suposicao. O `correlacao_id` e o campo do **envelope** para isto, declarado
+#: `format: uuid` nos tres esquemas, e um `dsar_id` e um `uuid`.
+#:
 #: Parametros: tipo, versao, tenant, agregado_id, payload, classe_pii,
-#: finalidades.
+#: finalidades, correlacao (o `dsar_id`).
 SQL_EMITIR = """
   SELECT platform.evt_emitir(
-           %s, %s::smallint, %s::uuid, 'contact', %s, %s::jsonb, %s, %s::text[]
+           %s, %s::smallint, %s::uuid, 'contact', %s, %s::jsonb, %s, %s::text[],
+           %s::uuid
          )
 """

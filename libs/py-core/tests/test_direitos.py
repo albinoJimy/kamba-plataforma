@@ -200,8 +200,17 @@ class BaseQueLeAInstrucao:
         return [linha for linha in linhas if linha[0] == params[0]]
 
     def _emitir(self, sql: str, params: tuple) -> list[tuple]:
-        tipo, _versao, _tenant, _agregado, payload, _classe, _finalidades = params
-        self.eventos.append((tipo, json.loads(payload)))
+        (
+            tipo,
+            _versao,
+            _tenant,
+            _agregado,
+            payload,
+            _classe,
+            _finalidades,
+            correlacao,
+        ) = params
+        self.eventos.append((tipo, json.loads(payload), correlacao))
         self._contador += 1
         return [(f"evento-{self._contador}",)]
 
@@ -479,7 +488,7 @@ class TestOsEventos(unittest.TestCase):
         cursor = BaseQueLeAInstrucao()
         pedir_apagamento(cursor, pedido(TIPO_ELIMINACAO))
         self.assertEqual(len(cursor.eventos), 1)
-        tipo, payload = cursor.eventos[0]
+        tipo, payload, _ = cursor.eventos[0]
         self.assertEqual(tipo, EVENTO_ERASURE_REQUESTED)
         self.assertEqual(
             payload,
@@ -487,6 +496,33 @@ class TestOsEventos(unittest.TestCase):
             "o esquema publicado tem additionalProperties: false — um campo a "
             "mais faz o envelope violar o contrato do proprio evento",
         )
+
+    def test_o_evento_leva_o_dsar_id_no_correlacao_id(self) -> None:
+        """O ensaio que morre se o `correlacao_id` se desligar do pedido.
+
+        O `payload` dos tres contratos tem `additionalProperties: false` e so o
+        `contact_id` dentro, pelo que **nao ha sitio no `payload`** para dizer
+        de que pedido se trata. Sem o `correlacao_id`, o consumidor que apaga
+        tinha de procurar o pedido aberto daquele contacto — unico pelo indice,
+        mas uma suposicao em vez de um dado. Este ensaio nao mede o `evt_emitir`:
+        mede que o `dsar_id` **chega** ao envelope.
+        """
+        cursor = BaseQueLeAInstrucao()
+        p = pedido(TIPO_ELIMINACAO, dsar_id="d-correlacao")
+        pedir_apagamento(cursor, p)
+        _tipo, _payload, correlacao = cursor.eventos[0]
+        self.assertEqual(correlacao, "d-correlacao")
+        self.assertNotIn(
+            "dsar_id",
+            _payload,
+            "o dsar_id vai no envelope e nao no payload: o esquema publicado "
+            "tem additionalProperties: false",
+        )
+
+    def test_a_oposicao_tambem_correlaciona_pelo_pedido(self) -> None:
+        cursor = BaseQueLeAInstrucao()
+        opor(cursor, pedido(TIPO_OPOSICAO, dsar_id="d-oposicao"))
+        self.assertEqual(cursor.eventos[0][2], "d-oposicao")
 
     def test_o_tipo_do_pedido_e_que_autoriza_o_apagamento(self) -> None:
         """Um pedido de exportacao nao autoriza um evento de apagamento."""
@@ -523,7 +559,7 @@ class TestAOposicao(unittest.TestCase):
     def test_anuncia_o_consent_withdrawn(self) -> None:
         cursor = BaseQueLeAInstrucao()
         opor(cursor, pedido(TIPO_OPOSICAO))
-        tipo, payload = cursor.eventos[0]
+        tipo, payload, _ = cursor.eventos[0]
         self.assertEqual(tipo, EVENTO_CONSENT_WITHDRAWN)
         self.assertEqual(
             payload, {"contact_id": TITULAR, "finalidade": FINALIDADE_DA_OPOSICAO}

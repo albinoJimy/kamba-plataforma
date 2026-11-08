@@ -897,10 +897,13 @@ por satisfazer.** Medido no ramo `feature/KAM-070-direitos-do-titular`, sobre a
 minutos antes deste ramo começar, e é contra ela que tudo isto está medido.
 Nesta máquina não há `make`, `node` nem `pnpm`: os *linters* correram
 directamente (`python -m <lint> --root .. check`) e a suite de `libs/py-core`
-com o Python do anfitrião. **O *gate* 8 não correu localmente** — a suite não
-cabe nos 900 s desta máquina, como o KAM-069 mediu — e o que o substitui aqui
-está dito critério a critério: as listas fechadas, as mutações que as prendem, e
-a leitura.
+com o Python do anfitrião. **A suite `tests` do *gate* 8 inteira não cabe nos
+900 s desta máquina**, como o KAM-069 mediu — mas o módulo novo correu: 19
+ensaios de `db/tests/test_direitos_schema.py` contra o **PostgreSQL 18.6**
+descartável que o `db/gate_bd.py` levanta em Docker, com a mesma imagem fixada
+por digest e o mesmo contentor em `tmpfs`, **verdes em 29 s**. O que o resto do
+*gate* 8 mede — as quinze listas fechadas e as oito mutações que as prendem —
+está dito critério a critério, e fica para o CI.
 
 **O que este ticket entrega, numa frase:** o pedido do titular com o prazo
 interno em coluna, as quatro operações ligadas ao pedido e não a um
@@ -1004,11 +1007,52 @@ parcial pelo predicado errado» e «a FK composta do *ledger* perde o `tenant_id
 — as duas precisam de uma bateria de esquema contra PostgreSQL, que é o que
 falta e fica dito.
 
-**O que não correu nesta máquina:** o *gate* 8 (a suite não cabe nos 900 s, como
-o KAM-069 mediu), o *gate* 6 e o `make smoke`. O que correu, com o resultado:
-`canon_lint` → **conforme** (dicionário v1.68, 746 entradas, 37 revisões),
-`dict_export` → `canon/dicionario.yaml` regenerado, as 642 suites de
-`libs/py-core/tests` → **OK** (46 delas do `test_direitos.py`), e
+#### O que a corrida contra PostgreSQL apanhou, e as listas não
+
+A bateria `db/tests/test_direitos_schema.py` existe porque as listas fechadas
+afirmam que a revisão **declarou** o que devia, e isso não é o mesmo que o
+declarado **morder**. Correu contra o PostgreSQL 18.6 descartável do
+`db/gate_bd.py`, e **as duas primeiras corridas foram vermelhas por defeitos do
+próprio ensaio** — que é informação, não ruído:
+
+1. **A primeira: 14 de 19, e os cinco vermelhos eram todos uma causa.** O ensaio
+   que mede a recusa do `downgrade` **confirma** uma linha de `audit_log` com
+   acção `privacy.dsar_*` — tem de confirmar, porque o `alembic` corre noutro
+   processo —, e o `audit_log` é *append-only* de **duas** formas: nenhum papel
+   leva `DELETE` **e** o *trigger* `audit_log_sem_update_nem_delete` recusa-o ao
+   dono também. A linha ficava na base para sempre, e os outros três ensaios de
+   `downgrade` já não conseguiam descer. **E as alternativas não servem:**
+   ordenar os ensaios para este ser o último reprova o alvo
+   `ordem-dos-ensaios` do *gate* 4, que corre as suites pela ordem inversa de
+   propósito (KAM-173). A correcção desliga o *trigger* num `finally`, apaga a
+   linha e a cabeça da cadeia daquele tenant, e volta a ligar — numa base que o
+   `exigir_base_descartavel` confirma ser descartável.
+2. **A segunda: 17 de 19.** `self.ligar("kamba_app")` levanta
+   `ValueError: identidade desconhecida` — o `db/ligacao.py` indexa o `PAPEIS`
+   pela **identidade** (`"app"`) e não pelo nome do papel no PostgreSQL. É um
+   erro que se lê como defeito do ensaio e não da base, e custou uma corrida.
+3. **A terceira: 19 de 19, em 29 s.** E o que ela prova, que nenhuma lista
+   fechada prova: o segundo pedido **aberto** do mesmo tipo dá `23505` e o
+   segundo pedido **depois de concluir** o primeiro passa — as duas metades, que
+   é o que distingue um índice parcial de uma unicidade, e **nenhuma lista
+   fechada as distingue** (as duas formas aparecem na lista de índices parciais
+   como um booleano que alguém escreveu); o `UPDATE` e o `DELETE` no *ledger*
+   dão `42501` ao papel que o escreve, que é «*append-only* por privilégio»
+   medido pelo **efeito** e não pela matriz; e o `downgrade` recusa-se com uma
+   linha de DSAR escrita, que é a única metade da revisão onde um `NO FORCE`
+   esquecido **não dava erro nenhum** — com `FORCE`, o dono veria zero linhas e
+   validaria o vazio.
+
+**O que não correu nesta máquina:** a suite `tests` inteira do *gate* 8, o
+*gate* 6 e o `make smoke`. O que correu, com o resultado: `canon_lint` →
+**conforme** (dicionário v1.68, 746 entradas, 37 revisões), `dict_export
+--check` → corresponde, `canon_lint canario` → **10 negativas vermelhas e 10
+positivas verdes**, `lint_refs`/`lint_backlog`/`lint_handoff`/`lint_contagens` →
+**conformes** (33 408 referências em 2087 ficheiros), `lint_bloco check` → **0
+achados** com 86 emparelhados e o piso em 43, `lint_bloco canario` → **4
+negativas e 4 positivas, todas mordem**, as **644** suites de
+`libs/py-core/tests` → **OK** (48 delas do `test_direitos.py`),
+`db/tests/test_direitos_schema.py` → **19/19 contra PostgreSQL 18.6**, e
 `mutacoes.py --aplicaveis` → **987 conferidas, 0 não aplicáveis**.
 
 ### Handoff para Claude Code

@@ -65,10 +65,16 @@ VERSAO_DO_FORMATO = 1
 #: o que permite ao STO lhe dar retencao e politica propria.
 CLASSE_DA_EXPORTACAO = "dsar"
 
-#: A ordem das coleccoes no documento. **Determinista**, e e o que torna o
-#: `sha256` do documento reproduzivel: um `dict` em ordem de insercao e
-#: determinista em Python, mas a ordem de insercao vinha do `EXPORTACAO`, e um
-#: mapa reordenado mudava o *hash* de um documento com o mesmo conteudo.
+#: A ordem por que as quatro consultas correm, e os nomes do criterio 2.
+#:
+#: **Nao e o que torna o `sha256` reproduzivel** — isso e o `sort_keys=True` do
+#: `documento()`, e esta linha dizia o contrario antes desta emenda. O que esta
+#: tupla faz e duas coisas mais pequenas e verdadeiras: fixa a **ordem de
+#: execucao** (quatro consultas na mesma transaccao, sempre na mesma ordem, o
+#: que torna um `log` de consultas lento comparavel entre corridas) e e a lista
+#: que o `exportar` itera em vez de iterar o `EXPORTACAO` — pelo que uma
+#: coleccao nova tem de entrar **aqui** para sair no documento, e o ensaio
+#: `test_as_quatro_coleccoes_do_criterio_estao_na_saida` conta-as.
 ORDEM_DAS_COLECCOES = ("contacto", "conversas", "encomendas", "consentimentos")
 
 
@@ -229,6 +235,7 @@ def opor(cursor: Any, pedido: Pedido) -> tuple[bool, str]:
             ),
             CLASSE_PII,
             list(FINALIDADES_DO_EVENTO),
+            pedido.dsar_id,
         ),
     )
     return escreveu, str(cursor.fetchone()[0])

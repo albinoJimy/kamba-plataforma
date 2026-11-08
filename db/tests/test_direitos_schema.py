@@ -298,14 +298,18 @@ class TestOLedgerDeApagamento(ComBase):
         `GRANT DELETE` e a **unica** coisa que a faz ser o que e. A matriz de
         privilegios afirma o `GRANT`; isto afirma que ele morde.
         """
-        conexao = self.ligar("kamba_app")
+        # `"app"` e nao `"kamba_app"`: o `db/ligacao.py` indexa o `PAPEIS` pela
+        # **identidade** e nao pelo nome do papel no PostgreSQL, e passar o nome
+        # do papel levanta `ValueError: identidade desconhecida` — um erro que se
+        # le como defeito do ensaio e nao da base. Custou uma corrida de Docker.
+        conexao = self.ligar("app")
         cursor = conexao.cursor()
         self.assertErroSql(
             PRIVILEGIO_INSUFICIENTE, cursor, f"DELETE FROM {LEDGER}"
         )
 
     def test_quem_escreve_no_ledger_nao_o_consegue_emendar(self) -> None:
-        conexao = self.ligar("kamba_app")
+        conexao = self.ligar("app")
         cursor = conexao.cursor()
         self.assertErroSql(
             PRIVILEGIO_INSUFICIENTE,
@@ -406,6 +410,32 @@ class TestDowngradeDa0037(ComBase):
         tambem zero — duas medicoes vacuas a concordar, e uma linha
         `privacy.dsar_*` ficava debaixo de um `CHECK` que diz que ela nao
         existe. E a armadilha que a `0003` mediu contra o PostgreSQL 18.6.
+
+        ## Porque e que este ensaio desliga um *trigger*, e porque e que a
+        ## alternativa era pior
+
+        A linha tem de ser **confirmada** — o `alembic` corre noutro processo e
+        nao veria uma escrita por confirmar — e o `audit_log` e append-only de
+        **duas** formas: nenhum papel leva `DELETE` **e** o *trigger*
+        `audit_log_sem_update_nem_delete` recusa `UPDATE` e `DELETE` ao dono
+        tambem. Logo a linha fica na base para sempre, e **a primeira versao
+        deste ensaio envenenava os outros tres**: medido contra PostgreSQL
+        18.6, 14 dos 19 ensaios passaram e os cinco que falharam eram todos
+        esta causa — tres `downgrade` que ja nao conseguiam descer, mais dois
+        `tearDown`.
+
+        As alternativas que nao servem, e porque: **ordenar os ensaios** para
+        este ser o ultimo reprova o alvo `ordem-dos-ensaios` do *gate* 4, que
+        corre as suites pela ordem inversa de propósito (KAM-173); e **tirar o
+        ensaio da suite** deixava a unica medicao da recusa a ser uma corrida a
+        mao, fora do CI.
+
+        Por isso o passo desliga o *trigger*, apaga a linha e a cabeca da
+        cadeia desse tenant, e volta a ligar — numa base **descartavel**, que o
+        `exigir_base_descartavel` confirma. O que isto nao e: uma via para
+        apagar auditoria em producao. Nenhum papel da aplicacao consegue
+        `ALTER TABLE`, e a prova disso e o
+        `test_kamba_app_nao_altera_nem_apaga_tabelas` do `test_catalogo.py`.
         """
         exigir_base_descartavel()
         conexao = self.ligar("admin")
@@ -420,11 +450,42 @@ class TestDowngradeDa0037(ComBase):
             (tenant,),
         )
         conexao.commit()
-        resultado = alembic("downgrade", "0036")
-        self.assertNotEqual(
-            resultado.returncode,
-            0,
-            "o downgrade tem de recusar: o audit_log e append-only e nao ha "
-            "forma de retirar a linha",
+        try:
+            resultado = alembic("downgrade", "0036")
+            self.assertNotEqual(
+                resultado.returncode,
+                0,
+                "o downgrade tem de recusar: o audit_log e append-only e nao ha "
+                "forma de retirar a linha",
+            )
+            self.assertIn("append-only", resultado.stderr + resultado.stdout)
+        finally:
+            self._limpar_a_linha_de_auditoria(tenant)
+
+    def _limpar_a_linha_de_auditoria(self, tenant: str) -> None:
+        """Apaga a linha e a cabeca da cadeia, com o *trigger* desligado.
+
+        Num `finally`, e confirmado: se o ensaio falhar a meio, a linha sai de
+        qualquer maneira — senao a falha de um ensaio fazia falhar os tres
+        seguintes, que e precisamente o defeito que este metodo corrige.
+        """
+        conexao = self.ligar("admin")
+        cursor = conexao.cursor()
+        factories.contexto(cursor, tenant)
+        cursor.execute(
+            "ALTER TABLE platform.audit_log "
+            "DISABLE TRIGGER audit_log_sem_update_nem_delete"
         )
-        self.assertIn("append-only", resultado.stderr + resultado.stdout)
+        try:
+            cursor.execute(
+                "DELETE FROM platform.audit_log WHERE tenant_id = %s", (tenant,)
+            )
+            cursor.execute(
+                "DELETE FROM platform.audit_heads WHERE tenant_id = %s", (tenant,)
+            )
+        finally:
+            cursor.execute(
+                "ALTER TABLE platform.audit_log "
+                "ENABLE TRIGGER audit_log_sem_update_nem_delete"
+            )
+        conexao.commit()

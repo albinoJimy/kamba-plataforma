@@ -115,12 +115,14 @@ def _emitir(cursor: Any, tipo: str, pedido: Pedido) -> str:
     **O `payload` leva so o `contact_id`.** Nao e minimalismo: e o que os
     esquemas publicados declaram com `additionalProperties: false`, pelo que um
     `dsar_id` dentro dele fazia o envelope violar o contrato do proprio evento —
-    e o consumidor recusava-o. O `dsar_id` chega ao consumidor pelo
-    `correlacao_id`, que e o campo do envelope para isso... e **nao vai nesta
-    chamada**, porque a assinatura do `evt_emitir` toma-o em posicao que esta
-    consulta nao preenche. Fica dito no bloco, com credor: hoje um consumidor
-    descobre o pedido pela leitura do pedido aberto daquele contacto, que e
-    unico pelo indice `dsar_requests_aberto_uq`.
+    e o consumidor recusava-o.
+
+    **O `dsar_id` vai no `correlacao_id`**, que e o campo do **envelope** para
+    isso e nao do `payload`. Sem ele, um consumidor que recebesse o evento tinha
+    de procurar o pedido aberto daquele contacto — unico pelo indice
+    `dsar_requests_aberto_uq`, mas uma leitura e uma suposicao em vez de um
+    dado. Com ele, o escopo que acabou de apagar sabe exactamente em que linha
+    do `erasure_ledger` escrever.
     """
     cursor.execute(
         SQL_EMITIR,
@@ -132,6 +134,7 @@ def _emitir(cursor: Any, tipo: str, pedido: Pedido) -> str:
             json.dumps({"contact_id": pedido.contact_id}),
             CLASSE_PII,
             list(FINALIDADES_DO_EVENTO),
+            pedido.dsar_id,
         ),
     )
     return str(cursor.fetchone()[0])
