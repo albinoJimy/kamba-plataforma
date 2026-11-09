@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.70"
+versao_dicionario: "1.71"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13115,6 +13115,197 @@ entradas:
       - "TTL_MAXIMO_S"
       - "sign_url"
     variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Veredicto da guarda de saída"
+    canonico: "draft.violacao ∈ {promessa, identidade, fuga}; ok quando não há violação"
+    literais:
+      - "draft.violacao"
+      - "promessa"
+      - "identidade"
+      - "fuga"
+      - "ok"
+    nomes:
+      - "draft.violacao"
+      - "promessa"
+      - "identidade"
+      - "fuga"
+      - "ok"
+    nomes_nota:
+      - "ok"
+      - "guardas.VEREDICTOS_DE_SAIDA"
+      - "pii"
+      - "fuga"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Quem decidiu o veredicto de entrada"
+    canonico: "state.guard.origem ∈ {regras, classificador, omissao, cooldown, botao}"
+    literais:
+      - "state.guard.origem"
+      - "regras"
+      - "classificador"
+      - "omissao"
+      - "cooldown"
+      - "botao"
+    nomes:
+      - "state.guard.origem"
+      - "regras"
+      - "classificador"
+      - "omissao"
+      - "cooldown"
+      - "botao"
+    nomes_nota:
+      - "omissao"
+      - "ok"
+      - "cooldown"
+      - "botao"
+      - "interactive"
+      - "confirm"
+      - "hold_id"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Versão da política no estado"
+    canonico: "state.guard.politica"
+    literais:
+      - "state.guard.politica"
+    nomes:
+      - "state.guard.politica"
+    nomes_nota:
+      - "VERSAO_DA_POLITICA"
+      - "graph_version"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Escalada da guarda"
+    canonico: "state.guard.escalada ∈ {handoff, pausa, pausa_por_ligar}"
+    literais:
+      - "state.guard.escalada"
+      - "handoff"
+      - "pausa"
+      - "pausa_por_ligar"
+    nomes:
+      - "state.guard.escalada"
+      - "handoff"
+      - "pausa"
+      - "pausa_por_ligar"
+    nomes_nota:
+      - "handoff"
+      - "sensitive"
+      - "pausa"
+      - "PortaDeModos"
+      - "pausa_por_ligar"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Contadores da guarda por contacto"
+    canonico: "state.guard_contadores = {injection, abuse, cooldown_ate}"
+    literais:
+      - "state.guard_contadores"
+      - "injection"
+      - "abuse"
+      - "cooldown_ate"
+    nomes:
+      - "state.guard_contadores"
+      - "injection"
+      - "abuse"
+      - "cooldown_ate"
+    nomes_nota:
+      - "CAMPOS_DO_TURNO"
+      - "estado_inicial"
+      - "pii_map"
+      - "turn_seq"
+      - "thread_id"
+      - "tenant_id"
+      - "contact_id"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Motivo do handoff por injecção repetida"
+    canonico: "injeccao_repetida"
+    literais:
+      - "injeccao_repetida"
+    nomes:
+      - "injeccao_repetida"
+    nomes_nota:
+      - "state.handoff_motivo"
+      - "handoff_trigger"
+      - "guard_in"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Motivo da pausa por abuso"
+    canonico: "abuso"
+    literais:
+      - "abuso"
+    nomes:
+      - "abuso"
+    nomes_nota:
+      - "motivo"
+      - "PortaDeModos.pausar"
+      - "MOTIVO_DA_PAUSA"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Versão da política"
+    canonico: "VERSAO_DA_POLITICA, SemVer, 1.0.0"
+    literais:
+      - "VERSAO_DA_POLITICA"
+    nomes:
+      - "VERSAO_DA_POLITICA"
+    nomes_nota:
+      - "graph_version"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Marcas de redacção"
+    canonico: "[cartao removido], [conta removida], [documento removido], [assunto sensivel removido]"
+    literais:
+      - "[cartao removido]"
+      - "[conta removida]"
+      - "[documento removido]"
+      - "[assunto sensivel removido]"
+    nomes:
+      - "cartao"
+      - "removido"
+      - "conta"
+      - "removida"
+      - "documento"
+      - "assunto"
+      - "sensivel"
+    nomes_nota:
+      - "guardas.mensagem_do_cliente"
+      - "guard_in"
+      - "card_data"
+      - "sensitive"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Turnos pela guarda de entrada"
+    canonico: "agr_guard_in_total{veredicto}"
+    literais:
+      - "agr_guard_in_total{veredicto}"
+    nomes:
+      - "agr_guard_in_total"
+      - "veredicto"
+    nomes_nota:
+      - "guardas.regras.VEREDICTOS"
+      - "out_of_domain_total"
+      - "agr_guard_in_total"
+      - "veredicto"
+      - "out_of_domain"
+      - "agr_"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Respostas pela guarda de saída"
+    canonico: "agr_guard_out_total{veredicto}"
+    literais:
+      - "agr_guard_out_total{veredicto}"
+    nomes:
+      - "agr_guard_out_total"
+      - "veredicto"
+    nomes_nota:
+      - "VEREDICTOS_DE_SAIDA"
+      - "fuga"
+    variantes_literais: []
+  - seccao: "3.51"
+    conceito: "Limiares"
+    canonico: "3 tentativas de injecção em 3 600 s; cool-down de 3 600 s; 3 ocorrências de abuso em 86 400 s; 1 000 caracteres para o classificador"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -15281,6 +15472,32 @@ dominios:
       - "chatwoot"
     seccao: "3.50"
     conceito: "Escopo de um apagamento"
+    so_no_registo: false
+  - coluna: "draft.violacao"
+    valores:
+      - "promessa"
+      - "identidade"
+      - "fuga"
+    seccao: "3.51"
+    conceito: "Veredicto da guarda de saída"
+    so_no_registo: false
+  - coluna: "state.guard.origem"
+    valores:
+      - "regras"
+      - "classificador"
+      - "omissao"
+      - "cooldown"
+      - "botao"
+    seccao: "3.51"
+    conceito: "Quem decidiu o veredicto de entrada"
+    so_no_registo: false
+  - coluna: "state.guard.escalada"
+    valores:
+      - "handoff"
+      - "pausa"
+      - "pausa_por_ligar"
+    seccao: "3.51"
+    conceito: "Escalada da guarda"
     so_no_registo: false
 
 variantes:

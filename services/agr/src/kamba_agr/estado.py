@@ -413,3 +413,15 @@ class ConversaState(TypedDict, total=False):
     #: O `total=False` trata a ausencia no primeiro turno, e quem le faz
     #: `estado.get("pii_map") or {}` — nunca `estado["pii_map"]`.
     pii_map: dict[str, str] | None
+    #: KAM-033, criterio 5. Os contadores da guarda **por contacto**: as
+    #: tentativas de injeccao da ultima hora, as ocorrencias de abuso e o fim do
+    #: *cool-down*. O `thread_id` e `{tenant_id}:{contact_id}`, pelo que o estado
+    #: de um *thread* **e** o de um contacto.
+    #:
+    #: **Persiste entre turnos**, e por isso fica fora das mesmas duas tabelas
+    #: que o `pii_map` e o `turn_seq`: fora do `CAMPOS_DO_TURNO` e fora do
+    #: `estado_inicial`. Nasceria e morreria em cada turno, e o contador nunca
+    #: passava de um. **Sem texto nenhum**: tempos e contagens. A forma e a
+    #: razao estao em `guardas/contadores.py`, que e quem o le (`ler`, que trata
+    #: a ausencia e um valor corrompido).
+    guard_contadores: dict[str, Any] | None
