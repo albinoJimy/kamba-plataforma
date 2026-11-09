@@ -177,6 +177,11 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
+                # KAM-090: a prova de aceite contratual. `tenant_id NOT NULL` e
+                # **sem FK** (o aceite e anterior a linha do tenant); a
+                # `contract_document` nao entra, pela razao da `consent_texts`:
+                # e texto de plataforma e nao tem `tenant_id`.
+                ("platform", "contract_acceptance", "tenant_id"),
                 # KAM-014: a conversa.
                 ("platform", "conversations", "tenant_id"),
                 # KAM-114: as decisoes do modo concierge.
@@ -447,6 +452,8 @@ class TestCatalogoReal(ComBase):
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
+                # KAM-090: so a `tenant_iso`, como as do KAM-070.
+                ("contract_acceptance", "tenant_iso", "ALL", "{public}"),
                 # KAM-014: a primeira tabela do caminho do webhook com
                 # `tenant_id`, e por isso a primeira com politica.
                 ("conversations", "tenant_iso", "ALL", "{public}"),
@@ -669,6 +676,8 @@ class TestCatalogoReal(ComBase):
              # KAM-022: a prova de consentimento.
              "consent_event",
              "contact_deks", "contact_endpoints", "contacts",
+             # KAM-090: a prova de aceite, com a `tenant_iso` do `db/rls.py`.
+             "contract_acceptance",
              # KAM-014: a conversa.
              # KAM-114: as decisoes do modo concierge.
              "conversations", "draft_decisions",

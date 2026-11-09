@@ -133,6 +133,46 @@ export async function criarTenant(admin: pg.Client, rotulo: string): Promise<str
 }
 
 /**
+ * Põe um tenant de ensaio em `ativo` (como administrador), com o aceite que o
+ * gate da revisão `0040` exige (KAM-090).
+ *
+ * Desde essa revisão, `tenants.estado = 'ativo'` falha por restrição de BD sem
+ * o aceite das versões vigentes dos quatro documentos — «tenant sem DPA aceite
+ * não activa». O aceite passa pelo *trigger* da base como qualquer outro: a
+ * hora, a evidência e a exigência da versão vigente são as dela. Se não houver
+ * versão vigente de um tipo, publica-se a de ensaio (`0.0.1`, vigente desde
+ * 2000), e uma versão que um ensaio publique a seguir fica mais recente. É o
+ * gémeo do `aceitar_contratos_vigentes` de `db/tests/factories.py`.
+ */
+export async function activarTenant(admin: pg.Client, tenant: string): Promise<void> {
+  for (const tipo of ["dpa", "privacidade", "subprocessadores", "tos"]) {
+    const conteudo = `Documento de ensaio (${tipo}). [A CONFIRMAR POR PARECER]\n`;
+    await admin.query(
+      "INSERT INTO platform.contract_document " +
+        "(tipo, versao, sha256, conteudo, vigente_desde, publicado_em) " +
+        "SELECT $1, '0.0.1', sha256(convert_to($2, 'UTF8')), $2, " +
+        "'2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z' " +
+        "WHERE NOT EXISTS (SELECT 1 FROM platform.contract_document " +
+        "WHERE tipo = $1 AND vigente_desde <= now()) " +
+        "ON CONFLICT DO NOTHING",
+      [tipo, conteudo],
+    );
+  }
+  await admin.query(
+    "INSERT INTO platform.contract_acceptance " +
+      "(onboarding_id, tenant_id, document_id, versao, doc_sha256, signatario_ref, " +
+      "otp_challenge_id, evidence_hash) " +
+      "SELECT $1, $1, v.document_id, v.versao, v.sha256, $2, $3, ''::bytea " +
+      "FROM (SELECT DISTINCT ON (tipo) document_id, versao, sha256 " +
+      "FROM platform.contract_document WHERE vigente_desde <= now() " +
+      "ORDER BY tipo, vigente_desde DESC) AS v " +
+      "ON CONFLICT ON CONSTRAINT contract_acceptance_aceite_uq DO NOTHING",
+    [tenant, randomUUID(), randomUUID()],
+  );
+  await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [tenant]);
+}
+
+/**
  * Cria um canal de ensaio e devolve o `id` e o `phone_number_id` (KAM-014).
  *
  * O `phone_number_id` e unico em toda a plataforma

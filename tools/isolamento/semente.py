@@ -107,7 +107,39 @@ def activar_tenant(cursor: Any, tenant_id: str) -> None:
 
     Nao ha reposicao: o tenant e desta classe de ensaio e o `apagar_tenant` da
     suite da base apaga-o inteiro no fim.
+
+    **Desde a revisao `0040` (KAM-090), `ativo` exige o aceite das versoes
+    vigentes dos quatro documentos**, e o *trigger* `tenants_exige_aceite`
+    recusa o `UPDATE` sem ele. Por isso o aceite grava-se primeiro, pela base:
+    publica a versao de ensaio de cada tipo que nao tenha vigente, e o *trigger*
+    do aceite escreve a hora e a evidencia. E o gemeo do
+    `aceitar_contratos_vigentes` de `db/tests/factories.py`, escrito aqui porque
+    `tools/` nao importa os ensaios de `db/`.
     """
+    for tipo in ("dpa", "privacidade", "subprocessadores", "tos"):
+        conteudo = f"Documento de ensaio ({tipo}). [A CONFIRMAR POR PARECER]\n"
+        cursor.execute(
+            "INSERT INTO platform.contract_document "
+            "(tipo, versao, sha256, conteudo, vigente_desde, publicado_em) "
+            "SELECT %s, '0.0.1', sha256(convert_to(%s, 'UTF8')), %s, "
+            "'2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z' "
+            "WHERE NOT EXISTS (SELECT 1 FROM platform.contract_document "
+            "WHERE tipo = %s AND vigente_desde <= now()) "
+            "ON CONFLICT DO NOTHING",
+            (tipo, conteudo, conteudo, tipo),
+        )
+    cursor.execute(
+        "INSERT INTO platform.contract_acceptance "
+        "(onboarding_id, tenant_id, document_id, versao, doc_sha256, "
+        " signatario_ref, otp_challenge_id, evidence_hash) "
+        "SELECT %s, %s, v.document_id, v.versao, v.sha256, "
+        "gen_random_uuid(), gen_random_uuid(), ''::bytea "
+        "FROM (SELECT DISTINCT ON (tipo) document_id, versao, sha256 "
+        "FROM platform.contract_document WHERE vigente_desde <= now() "
+        "ORDER BY tipo, vigente_desde DESC) AS v "
+        "ON CONFLICT ON CONSTRAINT contract_acceptance_aceite_uq DO NOTHING",
+        (tenant_id, tenant_id),
+    )
     cursor.execute(
         "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant_id,)
     )

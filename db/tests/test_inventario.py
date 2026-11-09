@@ -48,6 +48,9 @@ INVENTARIO = {
         "verificado_at": ("timestamp with time zone", SIM, None, "nao"),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "deleted_at": ("timestamp with time zone", SIM, None, "nao"),
+        # KAM-090 (0040): a primeira entrada em `ativo`, que so o *trigger* do
+        # gate escreve. E o que distingue uma activacao nova de uma reactivacao.
+        "primeira_activacao_at": ("timestamp with time zone", SIM, None, "nao"),
     },
     "tenant_channels": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
@@ -2306,6 +2309,39 @@ INVENTARIO["erasure_ledger"] = {
     "aplicado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
+#: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
+#: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
+#: **nao** e dado pessoal — e o mesmo para todos os tenants.
+INVENTARIO["contract_document"] = {
+    "document_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tipo": ("text", NAO, None, "nao"),
+    "versao": ("text", NAO, None, "nao"),
+    "sha256": ("bytea", NAO, None, "nao"),
+    "conteudo": ("text", NAO, None, "nao: texto juridico de plataforma"),
+    "vigente_desde": ("timestamp with time zone", NAO, None, "nao"),
+    "publicado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A prova de um aceite (KAM-090, revisao `0040`). **Onze colunas**, as do
+#: criterio 3 e do DDL do bloco. Sem dado pessoal, que e a caixa 4 da DoD: o
+#: signatario e uma **referencia** ao titular do caso, e o IP so entra como
+#: `sha256` do prefixo (ADR-010). O `aceite_em` e o `evidence_hash` escreve-os o
+#: *trigger* `contract_acceptance_preparar`, por cima do que o chamador mandou.
+INVENTARIO["contract_acceptance"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "document_id": ("uuid", NAO, None, "nao"),
+    "versao": ("text", NAO, None, "nao"),
+    "doc_sha256": ("bytea", NAO, None, "nao"),
+    "signatario_ref": ("uuid", NAO, None, "referencia opaca ao titular do caso"),
+    "otp_challenge_id": ("uuid", NAO, None, "nao"),
+    "ip_prefix_hash": ("bytea", SIM, None, "hash do prefixo; nunca o endereco"),
+    "aceite_em": ("timestamp with time zone", NAO, "now()", "nao"),
+    "evidence_hash": ("bytea", NAO, None, "nao"),
+}
+
 #: **A quinta vista do esquema** (KAM-069, revisao `0036`), e a primeira que
 #: atravessa esquemas: le `dat.llm_call_log` e `platform.tenant_destinations`.
 #:
@@ -2834,6 +2870,11 @@ class TestInventario(ComBase):
                         # tem — nasce no canal de um tenant ja activo —, pelo
                         # que quem seguir a `0036` como modelo nao encontra esta
                         # lista e deixa-a a faltar.
+                        # KAM-090 (0040): **uma**, e sem cascata pela razao
+                        # inversa da do tenant: uma versao ja aceite nao se
+                        # apaga, e e esta FK que o garante tambem ao dono da
+                        # tabela, que tem `DELETE` implicito.
+                        "contract_acceptance_documento_fk",
                         "dsar_requests_tenant_fk",
                         "dsar_requests_contact_fk",
                         "erasure_ledger_tenant_fk",
@@ -3336,6 +3377,29 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # --------------------------------------- KAM-090 (0040)
+                    #
+                    # **Treze: nove da versao publicada e quatro da prova.** Na
+                    # versao, o `sha256_ck` e o `canonico_ck` sao os que fazem o
+                    # criterio 1 ser da base («`sha256` do conteudo canonico»),
+                    # o `sem_retroactivo_ck` impede uma versao de ter vigorado
+                    # antes de existir, e o `citavel_uq` existe para a FK
+                    # composta da prova. Na prova, o `evidencia_ck` prende a
+                    # formula do criterio 3 a quem escreva sem o *trigger*. O
+                    # `EXCLUDE` do OTP nao entra: e `contype = 'x'`.
+                    "contract_acceptance_aceite_uq",
+                    "contract_acceptance_evidencia_ck",
+                    "contract_acceptance_ip_prefix_hash_ck",
+                    "contract_acceptance_pkey",
+                    "contract_document_canonico_ck",
+                    "contract_document_citavel_uq",
+                    "contract_document_pkey",
+                    "contract_document_sem_retroactivo_ck",
+                    "contract_document_sha256_ck",
+                    "contract_document_tipo_ck",
+                    "contract_document_versao_ck",
+                    "contract_document_versao_uq",
+                    "contract_document_vigencia_uq",
                     # --------------------------------------- KAM-070 (0038)
                     #
                     # **Doze: nove do pedido e tres do ledger.** No pedido sao a
