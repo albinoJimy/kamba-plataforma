@@ -70,7 +70,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 ```
 
 `verificado` contra uma base com as migrações do repositório aplicadas (ver
-[`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §4); `não verificado` contra
+[`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §2); `não verificado` contra
 produção. Hoje as tabelas ficam por preencher, pela razão do §0.
 
 **Depois, a causa** — no Business Manager da PME, com ela:
@@ -95,12 +95,20 @@ produção. Hoje as tabelas ficam por preencher, pela razão do §0.
 5. **Se persistir** (proposta: vermelho mais de 7 dias, ou reincidência no mês):
    *tenant* → `suspenso`. É **decisão do Responsável de Produto**, registada, e
    executa-se com o papel `kamba_batch` — não há ferramenta (§0):
-   ```sql
-   UPDATE platform.tenants SET estado = 'suspenso' WHERE id = '<tenant_id>' AND estado = 'ativo';
+   ```bash
+   docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+     sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "
+       BEGIN; SET ROLE kamba_batch;
+       UPDATE platform.tenants SET estado = '\''suspenso'\''
+        WHERE id = '\''<tenant_id>'\'' AND estado = '\''ativo'\'';
+       COMMIT;"'
    ```
-   `não verificado`: o papel e o `GRANT` são os da revisão 0001/0007; nenhum caminho de
+   `verificado` contra uma base com as migrações até à 0039 (com `ROLLBACK` no lugar do
+   `COMMIT`; [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §2): o papel
+   `kamba_batch` tem o `UPDATE`. Confirmar que devolve `UPDATE 1`. Nenhum caminho de
    código faz esta transição, e por isso não há evento `tenant.*` emitido nem registo no
-   `audit_log` — **regista-se na linha temporal**.
+   `audit_log` — **regista-se na linha temporal**. Repor: o mesmo comando com
+   `'ativo'` e `estado = 'suspenso'`.
 
 ## 4. Critério de recuperação
 

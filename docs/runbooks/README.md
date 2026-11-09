@@ -32,11 +32,11 @@
 | RB-K09 | [`RB-K09-flood-e-denial-of-wallet.md`](RB-K09-flood-e-denial-of-wallet.md) | Pico de um contacto ou IP; custo de LLM anómalo | P3 → P1 | `llm_sem_budget` (via RB-K03); manual | N2 |
 | RB-K10 | [`RB-K10-incidente-de-seguranca.md`](RB-K10-incidente-de-seguranca.md) | Incidente de segurança | P1 | **manual**, por desenho | — |
 
-Há três runbooks que não pertencem à lista fechada do §13 e que alertas reais
-apontam: [`degradacao-do-agr.md`](degradacao-do-agr.md) (KAM-037),
-[`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082) e os dois procedimentos
-sem alerta [`rotacao-de-chaves-de-llm.md`](rotacao-de-chaves-de-llm.md) e
-[`simulacro-de-dr.md`](simulacro-de-dr.md), mais o
+Fora da lista fechada do §13 há mais cinco: dois que alertas reais apontam,
+[`degradacao-do-agr.md`](degradacao-do-agr.md) (KAM-037) e
+[`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082), e três procedimentos sem
+alerta, [`rotacao-de-chaves-de-llm.md`](rotacao-de-chaves-de-llm.md) (KAM-030),
+[`simulacro-de-dr.md`](simulacro-de-dr.md) (KAM-085) e
 [`../../ops/runbooks/secrets-export.md`](../../ops/runbooks/secrets-export.md)
 (KAM-010). **Não foram reescritos aqui:** o bloco do KAM-083 pede os dez do §13, e
 estes têm dono próprio. Entram nas duas listas do §5 porque a regra do §9.2 vale
@@ -166,17 +166,20 @@ linha.
 E **dois encaminhamentos que estão certos na forma e tortos no efeito**, na
 tabela 5.1: o `alvo_em_baixo` e o `fila_de_entrada_a_crescer` apontam para
 runbooks cujo cenário não é o seu caso mais provável. Os dois runbooks encaminham
-por escrito; corrigir o `runbook_url` é editar a regra, e fica com o fundador.
+por escrito; corrigir o `runbook_url` é editar a regra, e fica com o fundador. **E
+um caso sem destino nenhum:** o `alvo_em_baixo` com `job="com"` (o COM em baixo) não
+é coberto por runbook nenhum — o RB-K01 §1 diz o que fazer entretanto e regista a
+falta. Credor: o fundador (um runbook novo fora do §13, ou o COM dentro de um dos dez).
 
 ### 5.3 Lista B — runbooks sem alerta
 
-Sete dos dez RB-K não têm regra nenhuma a apontar para eles. Cada um declara o
-**gatilho manual** no cabeçalho, que é o que o critério 3 aceita como
-alternativa.
+**Oito dos dez RB-K** não têm regra nenhuma a apontar para eles — os sete da tabela
+e o RB-K09 (abaixo). Cada um declara o **gatilho manual** no cabeçalho, que é o que
+o critério 3 aceita como alternativa.
 
 | Runbook | Porque não tem alerta | Regra que falta, e credor |
 |---|---|---|
-| RB-K02 | As séries existem e ninguém as serve ou as raspa | quatro: DLQ de `payment.*`, callbacks (HMAC > 3/h ou pagamento por reconhecer), anomalia de pagamento ≥ 3, órfão > 24 h — credores KAM-080 e o ticket que ligar o módulo `hnd` |
+| RB-K02 | As séries existem e ninguém as serve ou as raspa | quatro: DLQ de `payment.*`, callbacks (HMAC > 3/h ou pagamento por reconhecer), anomalia de pagamento ≥ 3, órfão > 24 h — credores KAM-080 e o ticket que ligar o módulo `hnd`. **E a de *callbacks* nomeia a métrica errada:** o `hnd_callback_rejeitado_total` conta os *callbacks* do **Chatwoot** (`packages/core-ts/src/hnd/assinatura.ts`), não os do facilitador; o sinal de HMAC de pagamento é o `fraud_signals_total{regra="hmac_invalido_em_massa"}`. Corrigir a entrada é editar o catálogo do KAM-080 — fica com o fundador |
 | RB-K04 | `channel_quality` sem serviço que a sirva | *quality rating* — o ticket que ligar o módulo `qualidade` |
 | RB-K05 | `meta_free_tier_used_ratio` sem serviço | *free tier* — KAM-023 |
 | RB-K06 | `channel_disconnected_total` sem serviço | `account_update` — o ticket que ligar o módulo `coexistencia` |
@@ -190,7 +193,9 @@ caminhos (a partir do RB-K03, e manual).
 
 E fora da lista do §13, três procedimentos sem alerta e sem pretensão de o ter:
 `rotacao-de-chaves-de-llm.md`, `simulacro-de-dr.md` e
-`../../ops/runbooks/secrets-export.md` — são calendário, não incidente.
+`../../ops/runbooks/secrets-export.md` — são calendário, não incidente. **Não
+declaram gatilho manual** no formato deste modelo (medido), porque não o seguem;
+não se reescreveram aqui (§1).
 
 ### 5.4 A verificação em CI que o critério 3 pede
 
@@ -216,6 +221,8 @@ procedimento.
 | **O AGR responde 503 a todos os turnos** (a porta `grafos` não está ligada) | Todo o turno do Vendedor falha e repete até `failed`. Não é o LLM | `specs/EPIC-03` bloco KAM-186 |
 | **Não há escala de *on-call*** com pessoas | «Escalar ao secundário» não tem destinatário | `ops/on-call.md`, credor o fundador |
 | **Não há sonda sintética externa** | A metade «sonda falha 2×» do `ingress_parado` não existe | `docs/observabilidade.md`, D1/KAM-105 |
+| **O GWY do compose não arranca tal como está escrito**: exige `KAMBA_QUEUE_URL`, `KAMBA_AMBIENTE` e os dois segredos da Meta, e nenhum compose lhos passa | Numa pilha levantada assim, o `ingress_parado` dispara e a causa é nossa | `services/gwy/src/server.ts`; [RB-K01](RB-K01-meta-em-baixo.md) §0 |
+| **O LiteLLM do compose não tem base de dados**: sem chaves virtuais nem orçamentos por *tenant* (medido: `/key/*` respondem 500 «DB not connected») | O «subir o limite» e o «`max_budget: 0`» não têm onde se aplicar | [RB-K03](RB-K03-llm-em-baixo-ou-sem-budget.md) §0 |
 
 ---
 

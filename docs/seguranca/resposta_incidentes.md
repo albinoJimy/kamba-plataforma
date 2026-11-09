@@ -4,7 +4,7 @@
 |---|---|
 | Ticket | KAM-113 — Resposta a incidentes e notificação de violação de dados |
 | Fonte normativa | [`docs/tecnica/08_Seguranca_Conformidade.md`](../tecnica/08_Seguranca_Conformidade.md) §10 (o fluxo e as classes), §7.1 (a retenção de logs), §8.5 requisitos 12 e 25; [`docs/tecnica/evidencia/E3_Regulatorio_Dados.md`](../tecnica/evidencia/E3_Regulatorio_Dados.md) requisitos 12 e 25, pergunta 7 |
-| Runbook operacional | **RB-K10** de [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13 — este documento é o seu conteúdo. O KAM-083 manda criar `ops/runbooks/RB-K10.md` no modelo comum dos runbooks (ainda não existe); esse ficheiro deve **remeter para aqui** e não duplicar, e se o KAM-083 preferir o contrário a decisão é dele |
+| Runbook operacional | **RB-K10** de [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13 — este documento é o seu conteúdo. O ficheiro do runbook no modelo comum é [`../runbooks/RB-K10-incidente-de-seguranca.md`](../runbooks/RB-K10-incidente-de-seguranca.md) (KAM-083), e **remete para aqui** em vez de duplicar |
 | Acompanham | [`modelos/`](modelos/) (APD, PME afectada, titular), [`contactos_incidentes.md`](contactos_incidentes.md), [`exercicio_simulacao.md`](exercicio_simulacao.md) |
 | Estado | **Esboço / proposta.** Nada aqui está ratificado, e nenhuma parte foi vista por advogado |
 
@@ -519,3 +519,4 @@ exigida: ≥ 90% (*proposta*; 9 em 10 coincidem entre os dois e com a árvore).
 |---|---|---|---|
 | 0.1 | Novembro 2026 | Emissão (KAM-113): fluxo, prazos com marca, árvore P1 a P4, contenção, preservação de evidência, notificação, revisão sem culpa, questões para o parecer e dez cenários. *Esboço*: sem revisão de SEG, PRIV nem ADV | Equipa KAMBÁ |
 | 0.2 | Novembro 2026 | **KAM-069**: a acção de contenção «suspender um destino de transferência» deixa de ser uma intenção e passa a ter mecanismo — pôr a linha de `platform.tenant_destinations` em `revogado` com `revogado_em`, e a chamada seguinte falha em **≤ 60 s** (o TTL da *cache* da porta), ou de imediato com `invalidar`. Escreve o `kamba_batch`. Era uma das três acções que a nota do critério 1 marcava como dependentes do que ainda não existia; as outras duas continuam (KAM-072, KAM-079). |
+| 0.3 | Novembro 2026 | **KAM-083**: propagação. O campo «Runbook operacional» dizia que o RB-K10 no modelo comum ainda não existia; passa a apontá-lo, em `docs/runbooks/` (onde os alertas e os *linters* os procuram) e não em `ops/runbooks/` | KAM-083 |
