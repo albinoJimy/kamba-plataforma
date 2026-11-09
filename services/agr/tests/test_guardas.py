@@ -54,6 +54,8 @@ from test_vendedor import Handoff, Relogio, correr, estado_de, montar
 #: linha**; nunca se troca a impressao de uma versao ja publicada.
 IMPRESSOES = {
     "1.0.0": "367b785a8f964edf9bfa3a8730e099873b3ee5c112b2748a15a12ac44edfa928",
+    # KAM-073: as tres formas de saida que o red-team encontrou (RT-01 a RT-03).
+    "1.1.0": "568c26c2f02a80236564d7663aac0628bf301a8da4934645341c1c94db910dc2",
 }
 
 #: Um PAN de teste publico (Visa). Nunca um cartao real.

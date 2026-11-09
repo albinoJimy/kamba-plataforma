@@ -34,7 +34,7 @@ from ..privacidade import detector as detector_mod
 from ..privacidade import negocio
 from ..privacidade.dicionarios import dobrar
 from . import politica
-from .prompt import FRASE_DO_SISTEMA
+from .prompt import FRASE_DO_SISTEMA, SISTEMA_DO_CLASSIFICADOR
 from .regras import normalizar
 
 #: Os quatro veredictos de saida. Lista fechada (dicionario, emenda deste
@@ -74,9 +74,30 @@ _HOSPEDEIRO: Final = re.compile(r"^(?:https?://)?(?:www\.)?([a-z0-9.-]+)")
 #: de moveis, nao ve.
 _NUMERO_PARTIDO: Final = re.compile(r"(?<![0-9])[0-9]{2,}(?:[ .\-][0-9]{2,})+(?![0-9])")
 
+#: Quantas palavras seguidas do *system prompt* do classificador fazem um eco.
+#: **Qualquer trecho, e nao so a primeira frase**, e o red-team mediu porque
+#: (KAM-073, RT-03): a `FRASE_DO_SISTEMA` so apanhava a abertura, e a segunda
+#: ou a ultima frase do *prompt* saiam inteiras. Seis e o menor numero em que
+#: nenhum texto estatico das duas verticais partilha um trecho com o *prompt*
+#: (`test_os_textos_estaticos_das_duas_verticais_passam`).
+PALAVRAS_DO_ECO: Final = 6
+_PALAVRA: Final = re.compile(r"[a-z0-9]+")
+
+
+def _trechos(normal: str) -> set[str]:
+    """As sequencias de `PALAVRAS_DO_ECO` palavras de um texto ja normalizado."""
+    palavras = _PALAVRA.findall(normal)
+    n = PALAVRAS_DO_ECO
+    return {" ".join(palavras[i : i + n]) for i in range(len(palavras) - n + 1)}
+
+
+_TRECHOS_DO_SISTEMA: Final = frozenset(_trechos(normalizar(SISTEMA_DO_CLASSIFICADOR)))
+
 #: O que decide fora da `politica.py` e entra na impressao dela.
 ASSINATURA: Final = (
     "saida",
+    PALAVRAS_DO_ECO,
+    _PALAVRA.pattern,
     ESTADOS_PAGOS,
     _NEGACAO.pattern,
     _HOSPEDEIRO.pattern,
@@ -192,7 +213,11 @@ def veredicto_de_saida(
     # -- identidade. O eco do *system prompt* do classificador procura-se pela
     # frase dele, e nao so pelas formas gerais: e o unico *prompt* do AGR hoje.
     normal = normalizar(_sem(sem_skus, designacoes, "artigo"))
-    if FRASE_DO_SISTEMA in normal or any(p.search(normal) for p in _IDENTIDADE):
+    if (
+        FRASE_DO_SISTEMA in normal
+        or _trechos(normal) & _TRECHOS_DO_SISTEMA
+        or any(p.search(normal) for p in _IDENTIDADE)
+    ):
         return "identidade"
 
     # -- promessa
