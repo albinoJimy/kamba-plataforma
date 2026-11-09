@@ -1126,22 +1126,26 @@ class TestGates(unittest.TestCase):
         «as adiadas sao tres». A `tools` saiu porque o catalogo da ToolLayer
         existe e a validacao (1) passou a `bloqueio` — e fechar um `aviso` e
         **apagar a linha**, que e o que este ficheiro descreve.
+
+        **E passaram a uma com o KAM-186**: o `__main__` compila os dois grafos
+        no arranque e passa o `construir_grafo` ao `load_all`, pelo que a (3)
+        `grafo` corre em `bloqueio` e as duas linhas dela sairam.
         """
         from .base import ROOT
 
         documento = yamlreg.ler((ROOT / "registry/gates.yaml").read_text(encoding="utf-8"))
         self.assertEqual(sorted(documento["gates"]), ["servicos", "vendedor"])
-        for vertical, grafo in (("vendedor", "KAM-031"), ("servicos", "KAM-035")):
+        for vertical in ("vendedor", "servicos"):
             validacoes = documento["gates"][vertical]["validacoes"]
-            self.assertEqual(sorted(validacoes), ["golden", "grafo"])
+            self.assertEqual(sorted(validacoes), ["golden"])
             self.assertEqual({v["modo"] for v in validacoes.values()}, {"aviso"})
-            self.assertNotIn(
-                "tools",
-                validacoes,
-                "a validacao (1) fechou com o KAM-028; um `aviso` que sobreviva "
-                "ao credor e erro de arranque",
-            )
-            self.assertEqual(validacoes["grafo"]["credor"], grafo)
+            for fechada, credor in (("tools", "KAM-028"), ("grafo", "KAM-186")):
+                self.assertNotIn(
+                    fechada,
+                    validacoes,
+                    f"a validacao `{fechada}` fechou com o {credor}; um `aviso` que "
+                    "sobreviva ao credor e erro de arranque",
+                )
             self.assertEqual(validacoes["golden"]["credor"], "KAM-040")
 
 
