@@ -20,6 +20,17 @@ nem degradacao N1/N2, nem *handoff* por *flood*. Os *jobs* do AGR acumulam-se na
 `agr-inbound` sem consumidor — e o ensaio **conta-os**, o que prova que o CHR os
 entregou sem duplicar, mas a memoria do Valkey inclui esse acumulado.
 
+## Os contentores correm com os limites do compose de producao
+
+Os quatro servicos medidos levam o `mem_limit` e o `cpus` que o
+`infra/compose/docker-compose.prod.yml` lhes da (`docker update` depois do
+arranque): `gwy` nas duas replicas, `worker-canal` no *worker* de entrada,
+`postgres` e `queue`. **Sem isto, a primeira versao deste ensaio media processos
+sem tecto** — o *worker* chegou a 0,89 nucleo, e o compose da-lhe 0,5 —, e a
+fronteira da rampa saia mais alta do que a de producao. Achado da revisao
+adversarial. Os valores leem-se do compose, e nao de uma copia aqui: se o
+compose mudar, o ensaio segue-o.
+
 ## A escala e a de uma estacao de trabalho, e diz-se
 
 O relatorio JSON leva os recursos do Docker em que correu (`docker info`) e os
@@ -114,6 +125,38 @@ INTERVALO_DA_AMOSTRA_S = 2.0
 FILA_ENTRADA = "wa-inbound"
 FILA_AGR = "agr-inbound"
 
+#: O compose de producao, de onde se leem os limites de cada contentor medido.
+COMPOSE_DE_PRODUCAO = Path(__file__).resolve().parents[2] / "infra" / "compose" / "docker-compose.prod.yml"
+#: rotulo do contentor no ensaio -> servico do compose cujos limites leva.
+SERVICO_DO_COMPOSE = {
+    "gwy_a": "gwy",
+    "gwy_b": "gwy",
+    "worker_entrada": "worker-canal",
+    "postgres": "postgres",
+    "valkey": "queue",
+}
+
+
+def limites_do_compose(texto: str, servico: str) -> tuple[str, str]:
+    """`(mem_limit, cpus)` de um servico, lidos do bloco dele no compose.
+
+    Por expressao regular e nao pelo `tools/kamba_yaml.py`, que recusa ancoras
+    (`&node`) e o compose de producao usa-as. O bloco de um servico e o que esta
+    entre `  <servico>:` e o proximo nome com dois espacos de indentacao; as
+    duas chaves estao sempre la por regra do `tools/compose_prod`.
+    """
+    import re
+
+    achado = re.search(rf"(?m)^  {re.escape(servico)}:\n(.*?)(?=^  \S|\Z)", texto, re.S)
+    if achado is None:
+        raise AssertionError(f"servico {servico} nao esta no compose de producao")
+    bloco = achado.group(1)
+    memoria = re.search(r"(?m)^    mem_limit:\s*(\S+)", bloco)
+    cpus = re.search(r"(?m)^    cpus:\s*(\S+)", bloco)
+    if memoria is None or cpus is None:
+        raise AssertionError(f"o servico {servico} nao tem mem_limit e cpus no compose")
+    return memoria.group(1), cpus.group(1)
+
 
 def _cenarios_escolhidos() -> set[str] | None:
     bruto = os.environ.get("KAMBA_CARGA_CENARIOS", "").strip()
@@ -139,7 +182,6 @@ class TestDimensionamento(ComEntrada):
         cls.processos = []
         cls.gwy_a = cls._lancar_gwy()
         cls.gwy_b = cls._lancar_gwy()
-        cls.gwy = cls.gwy_a
         cls.worker = cls._lancar_worker()
 
     @classmethod
@@ -161,14 +203,55 @@ class TestDimensionamento(ComEntrada):
             "inicio_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "maquina": medicao.recursos_do_docker(),
             "contentores": {r: n for r, n in cls.contentores.items()},
+            "limites": cls._aplicar_limites(),
             "cenarios": {},
         }
 
     @classmethod
-    def tearDownClass(cls) -> None:
-        destino = os.environ.get("KAMBA_CARGA_RELATORIO") or str(
-            Path(tempfile.gettempdir()) / f"kamba-carga-{time.strftime('%Y%m%dT%H%M%S')}.json"
+    def _aplicar_limites(cls) -> dict:
+        """Poe em cada contentor o `mem_limit` e o `cpus` do servico no compose."""
+        import subprocess
+
+        texto = COMPOSE_DE_PRODUCAO.read_text(encoding="utf-8")
+        aplicados = {}
+        for rotulo, servico in SERVICO_DO_COMPOSE.items():
+            nome = cls.contentores.get(rotulo)
+            memoria, cpus = limites_do_compose(texto, servico)
+            if not nome:
+                aplicados[rotulo] = "sem contentor (node no PATH): limites por aplicar"
+                continue
+            feito = subprocess.run(
+                ["docker", "update", "--cpus", cpus, "--memory", memoria,
+                 "--memory-swap", memoria, nome],
+                capture_output=True, text=True,
+            )
+            if feito.returncode != 0:
+                raise AssertionError(f"limites de {rotulo}: {feito.stderr.strip()[:300]}")
+            aplicados[rotulo] = {"servico": servico, "mem_limit": memoria, "cpus": cpus}
+        return aplicados
+
+    def _guardar(self) -> None:
+        """Escreve o relatorio **depois de cada cenario**.
+
+        Um `TimeoutExpired` no `gate_bd.py` mata a suite de fora e salta o
+        `tearDownClass` — e e quando o sistema falha que o relatorio faz falta.
+        """
+        self.relatorio["fim_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        Path(self._destino()).write_text(
+            json.dumps(self.relatorio, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n"
         )
+
+    @classmethod
+    def _destino(cls) -> str:
+        if not getattr(cls, "_caminho", None):
+            cls._caminho = os.environ.get("KAMBA_CARGA_RELATORIO") or str(
+                Path(tempfile.gettempdir()) / f"kamba-carga-{time.strftime('%Y%m%dT%H%M%S')}.json"
+            )
+        return cls._caminho
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        destino = cls._destino()
         relatorio = getattr(cls, "relatorio", None)
         if relatorio is not None:
             relatorio["fim_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -293,8 +376,9 @@ class TestDimensionamento(ComEntrada):
         nome: str,
         planos: list[tuple[str, list[gerador.Pedido]]],
         *,
-        repetidas: int = 0,
+        repetidas: dict | None = None,
         parar_se=None,
+        extra: dict | None = None,
     ) -> dict:
         """Dispara os planos em sequencia (sem drenar entre eles), drena e mede."""
         desvio = self._desvio_do_relogio()
@@ -311,19 +395,27 @@ class TestDimensionamento(ComEntrada):
 
         linhas_antes = len(self.worker.linhas())
         enviados: dict[tuple[str, str], float] = {}
+        jobs_esperados: set[str] = set()
         degraus = []
+        janelas: list[tuple[float, float]] = []
         inicio_monotonico = time.monotonic()
         for rotulo, plano in planos:
             antes = time.monotonic()
+            linhas_gwy = (len(self.gwy_a.linhas()), len(self.gwy_b.linhas()))
             resultados = gerador.disparar(
                 plano, [self.gwy_a.porta, self.gwy_b.porta], paralelismo=PARALELISMO_FORCADO
             )
-            duracao = time.monotonic() - antes
+            depois = time.monotonic()
             for pedido, resultado in zip(plano, resultados):
                 enviados.setdefault(pedido.chave, resultado.enviado_epoch)
-            degraus.append(self._resumo_do_disparo(rotulo, plano, resultados, duracao, profundidades))
-            if parar_se is not None and parar_se(degraus[-1]):
-                degraus[-1]["parou_aqui"] = True
+                if pedido.chave[0] == "message":
+                    jobs_esperados.add(gerador.job_do_agr(pedido.tenant_id, pedido.chave[1]))
+            degrau = self._resumo_do_disparo(rotulo, plano, resultados, depois - antes, profundidades)
+            degrau["ack_no_servidor_ms"] = self._latencia_no_servidor(linhas_gwy)
+            degraus.append(degrau)
+            janelas.append((antes, depois))
+            if parar_se is not None and parar_se(degrau):
+                degrau["parou_aqui"] = True
                 break
         fim_do_envio = time.monotonic()
 
@@ -339,6 +431,19 @@ class TestDimensionamento(ComEntrada):
         parar.set()
         vigia.join(timeout=10)
         recursos = amostrador.parar()
+        # Os recursos **por degrau**: a CPU e a memoria de cada contentor nas
+        # amostras do intervalo de envio desse degrau. Sem isto, a rampa so tinha
+        # o resumo do cenario inteiro, e nada isolava o que satura em cada degrau.
+        for degrau, (antes, depois) in zip(degraus, janelas):
+            degrau["recursos"] = {
+                r: serie.entre(antes, depois).resumo() for r, serie in amostrador.series.items()
+            }
+            degrau["anfitriao"] = amostrador.anfitriao.entre(antes, depois).resumo()
+        outros = sorted(
+            set(outros)
+            | set(medicao.outros_contentores({n for n in self.contentores.values() if n}))
+        )
+        jobs_na_fila = self._lrange(f"bull:{FILA_AGR}:wait")
 
         registadas = self._registadas()
         diagnostico = self._diagnostico(linhas_antes)
@@ -350,33 +455,65 @@ class TestDimensionamento(ComEntrada):
                 idades.append(recebido - (envio + desvio))
         mensagens_unicas = sum(1 for k, _ in enviados if k == "message")
         bloco = {
-            "duracao_pedida_s": DURACAO_S,
+            **(extra or {}),
             "paralelismo_forcado": PARALELISMO_FORCADO,
             "degraus": degraus,
             "drenou": drenou,
             "drenagem_s": round(drenagem_s, 1),
             "duracao_total_s": round(fim_do_envio - inicio_monotonico, 1),
-            "repetidas_enviadas": repetidas,
+            "repetidas_enviadas": repetidas or {},
             "reconciliacao": reconciliacao.__dict__,
             "mensagens_unicas": mensagens_unicas,
             # Lido agora, depois de drenar, e nao da ultima amostra da vigia.
-            "jobs_agr_inbound_no_fim": self._llen(f"bull:{FILA_AGR}:wait"),
+            "jobs_agr_inbound_no_fim": len(jobs_na_fila),
+            # **Por identidade e nao por contagem**: o conjunto de `jobId` na
+            # fila contra o que o plano da (`sha256(tenant:wamid)`). Uma troca —
+            # o job de uma mensagem em falta e o de outra em dobro — passava na
+            # contagem. Achado da revisao adversarial.
+            "jobs_agr_em_falta": len(jobs_esperados - set(jobs_na_fila)),
+            "jobs_agr_a_mais": len(set(jobs_na_fila) - jobs_esperados)
+            + (len(jobs_na_fila) - len(set(jobs_na_fila))),
             "fila_entrada_max": max((p[1] for p in profundidades), default=None),
             "idade_na_fila_s": self._estatisticas(idades),
             "desvio_do_relogio_s": round(desvio, 4),
             "erro_do_desvio_s": round(self._erro_do_desvio_s, 4),
             "debito_de_consumo_por_s": self._debito([t for _, _, t in registadas]),
             "recursos": recursos,
-            "soma_ws_mib_p95": medicao.soma_por_instante(recursos, "ws_mib_p95"),
-            "soma_nucleos_p95": medicao.soma_por_instante(recursos, "nucleos_p95"),
+            "soma_ws_mib_p95": medicao.soma_dos_p95(recursos, "ws_mib_p95"),
+            "soma_nucleos_p95": medicao.soma_dos_p95(recursos, "nucleos_p95"),
             # A VM inteira: o ensaio **e** o que mais la estiver (ver `medicao.py`).
             "anfitriao": amostrador.resumo_do_anfitriao(),
             "outros_contentores": outros,
             "destino": diagnostico,
         }
         self.relatorio["cenarios"][nome] = bloco
+        self._guardar()
         print(f"\n--- {nome} ---\n{json.dumps(bloco, indent=2, ensure_ascii=False)}")
         return bloco
+
+    def _latencia_no_servidor(self, linhas_antes: tuple[int, int]) -> dict | None:
+        """A latencia que o **GWY** mediu (`latency_ms` do `webhook_enfileirado`).
+
+        E o que separa o servidor do resto: a latencia do cliente soma-lhe a fila
+        do gerador e o encaminhamento de portas do Docker Desktop.
+        """
+        valores = []
+        for processo, antes in zip((self.gwy_a, self.gwy_b), linhas_antes):
+            for linha in processo.linhas()[antes:]:
+                if linha.get("outcome") == "webhook_enfileirado" and "latency_ms" in linha:
+                    valores.append(float(linha["latency_ms"]))
+        return self._estatisticas(valores)
+
+    @staticmethod
+    def _lrange(chave: str) -> list[str]:
+        from tests_eventos import fila as fila_mod
+
+        fila = fila_mod.Fila()
+        fila.ligar()
+        try:
+            return [str(x) for x in (fila.comando("LRANGE", chave, "0", "-1") or [])]
+        finally:
+            fila.fechar()
 
     def _diagnostico(self, linhas_antes: int) -> dict:
         """Para onde foram as mensagens: o que o CHR fez com elas.
@@ -455,6 +592,10 @@ class TestDimensionamento(ComEntrada):
             "ack_fraccao_abaixo_500ms": round(medicao.fraccao_abaixo(latencias, ACK_LIMIAR_MS), 5),
             "atraso_do_gerador_ms_p99": round(medicao.percentil(atrasos, 99), 1),
             "reconexoes": sum(1 for r in resultados if r.reconectou),
+            "reconexoes_por_erro": {
+                erro: sum(1 for r in resultados if r.erro == erro)
+                for erro in sorted({r.erro for r in resultados if r.erro})
+            },
             "fila_entrada_no_fim": profundidades[-1][1] if profundidades else None,
         }
 
@@ -463,10 +604,12 @@ class TestDimensionamento(ComEntrada):
         self.assertTrue(bloco["drenou"], f"a fila nao drenou em {DRENAGEM_S}s")
         self.assertEqual(rec["em_falta"], 0, "ha eventos aceites que a base nao tem")
         self.assertEqual(rec["a_mais"], 0, "ha eventos na base que nao foram enviados, ou repetidos")
-        # **E a jusante, pela igualdade e nao por `<=`.** Cada mensagem unica e
-        # um *job* na `agr-inbound`, e nenhuma repetida o e. Com `<=`, zero
-        # *jobs* passava — e passou, na primeira corrida, com o CHR a falhar
-        # todas as mensagens.
+        # **E a jusante, por identidade e nao por `<=`.** Cada mensagem unica e
+        # o seu *job* na `agr-inbound`, e nenhuma repetida da outro. Com `<=`,
+        # zero *jobs* passava — e passou, na primeira corrida, com o CHR a falhar
+        # todas as mensagens; e com `==` sobre a contagem, uma troca passava.
+        self.assertEqual(bloco["jobs_agr_em_falta"], 0, bloco["destino"])
+        self.assertEqual(bloco["jobs_agr_a_mais"], 0, bloco["destino"])
         self.assertEqual(
             bloco["jobs_agr_inbound_no_fim"], bloco["mensagens_unicas"], bloco["destino"]
         )
@@ -501,13 +644,13 @@ class TestDimensionamento(ComEntrada):
 
     def test_2_s1(self) -> None:
         plano = self.fabrica.plano(TAXA_S1, DURACAO_S, canais=self.canais[:CANAIS_S1])
-        bloco = self._correr("s1", [("s1", plano)])
+        bloco = self._correr("s1", [("s1", plano)], extra={"duracao_pedida_s": DURACAO_S})
         self._afirmar_sem_perdas(bloco)
         self._afirmar_criterio_2(bloco)
 
     def test_3_s2(self) -> None:
         plano = self.fabrica.plano(TAXA_S2, DURACAO_S, canais=self.canais[:CANAIS_S2])
-        bloco = self._correr("s2", [("s2", plano)])
+        bloco = self._correr("s2", [("s2", plano)], extra={"duracao_pedida_s": DURACAO_S})
         # «Se S2 falhar, regista-se o limite como fronteira do perfil P0»: o
         # criterio 2 regista-se e nao se afirma. A perda afirma-se sempre.
         self._afirmar_sem_perdas(bloco)
@@ -517,16 +660,38 @@ class TestDimensionamento(ComEntrada):
         taxa = TAXA_S1 * FACTOR_DA_RAJADA
         plano = self.fabrica.plano(taxa, unicos / taxa, canais=self.canais[:CANAIS_S1])
         passo = int(round(1 / FRACCAO_REPETIDA))
-        repetidas = [
-            gerador.Pedido(p.alvo + ATRASO_DA_REPETICAO_S, p.corpo, p.assinatura, p.chave)
-            for p in plano[::passo]
+        # **Duas formas de repeticao, metade cada**, porque sao dois niveis de
+        # deduplicacao diferentes, e a primeira versao so media o primeiro:
+        # - os **mesmos bytes**, que o GWY reconhece pelo `jobId = sha256(corpo)`
+        #   enquanto o *job* estiver na retencao da fila (10 000 concluidos);
+        # - o **mesmo JSON com outros bytes**, que passa o GWY, chega ao *worker*
+        #   e so a `UNIQUE (kind, event_key)` de `inbound_events` apanha — e e o
+        #   caminho de uma reentrega da Meta depois de a retencao a ter esquecido.
+        escolhidos = plano[::passo]
+        iguais = [
+            gerador.Pedido(p.alvo + ATRASO_DA_REPETICAO_S, p.corpo, p.assinatura, p.chave, p.tenant_id)
+            for p in escolhidos[0::2]
         ]
-        completo = sorted(plano + repetidas, key=lambda p: p.alvo)
-        bloco = self._correr("rajada", [("rajada", completo)], repetidas=len(repetidas))
-        # Sem duplicados **a jusante** tambem: cada mensagem unica deu um *job*
-        # do AGR e as 10% repetidas nenhum — e o `_afirmar_sem_perdas` que o
-        # exige, por igualdade.
+        outros_bytes = [
+            gerador.reserializado(
+                gerador.Pedido(p.alvo + ATRASO_DA_REPETICAO_S, p.corpo, p.assinatura, p.chave, p.tenant_id),
+                APP_SECRET_ACTUAL,
+            )
+            for p in escolhidos[1::2]
+        ]
+        completo = sorted(plano + iguais + outros_bytes, key=lambda p: p.alvo)
+        bloco = self._correr(
+            "rajada",
+            [("rajada", completo)],
+            repetidas={"mesmos_bytes": len(iguais), "outros_bytes": len(outros_bytes)},
+        )
         self._afirmar_sem_perdas(bloco)
+        # O segundo nivel **mordeu**: cada repetida com outros bytes chegou ao
+        # *worker* e foi reconhecida como duplicada pela base. Sem esta asercao,
+        # um GWY que deduplicasse por conteudo (ou uma fila que as perdesse)
+        # passava a rajada sem que a `UNIQUE` fosse alguma vez exercida.
+        duplicados = bloco["destino"]["desfechos_do_worker"].get("entrada_duplicado|", 0)
+        self.assertEqual(duplicados, len(outros_bytes), bloco["destino"])
 
     def test_5_rampa(self) -> None:
         # Os planos tem alvos relativos ao seu proprio inicio: cada `disparar`

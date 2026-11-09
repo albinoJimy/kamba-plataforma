@@ -23,7 +23,13 @@ reservado»): com a conta aqui, a definicao esta num sitio que um teste le
 ## A CPU e em nucleos, e a percentagem e sobre os nucleos do anfitriao
 
 `cpu.stat` da `usage_usec` acumulado. Dois instantes dao nucleos usados no
-intervalo: `delta(usage_usec) / delta(t_usec)`. A percentagem do criterio
+intervalo: `delta(usage_usec) / delta(t_usec)`. **O instante e o `/proc/uptime`
+da VM, lido no mesmo `cat`**, e nao o relogio de quem chama o `docker exec`: o
+`exec` leva de 100 ms a segundos, e com o relogio do lado de fora o divisor
+ficava errado pela diferenca entre dois `exec`. Foi um achado da revisao
+adversarial, e a assinatura estava na corrida 2: quatro contentores com o
+**mesmo** maximo de ~6,6 nucleos no mesmo cenario, incluindo dois processos de
+um so fio. A percentagem do criterio
 («CPU <= 60%») e a soma dos nucleos dos contentores medidos sobre os nucleos
 do anfitriao. **Mede so os contentores do ensaio**: o que mais corre na mesma
 maquina nao entra na soma, e o relatorio diz quem mais estava a correr.
@@ -38,8 +44,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-#: Os tres ficheiros, lidos num so `docker exec` por amostra.
+#: Os ficheiros, lidos num so `docker exec` por amostra. O `/proc/uptime` vem
+#: primeiro e e o relogio da amostra (ver a docstring do modulo).
 FICHEIROS_DO_CGROUP = (
+    "/proc/uptime",
     "/sys/fs/cgroup/memory.current",
     "/sys/fs/cgroup/memory.stat",
     "/sys/fs/cgroup/cpu.stat",
@@ -54,12 +62,18 @@ class CgroupIlegivel(ValueError):
 
 @dataclass(frozen=True)
 class Leitura:
-    """Uma amostra de um contentor."""
+    """Uma amostra de um contentor.
+
+    `instante` e o `/proc/uptime` da VM no momento do `cat` (o que divide a
+    CPU); `local` e o `time.monotonic()` de quem chamou (o que situa a amostra
+    num degrau da rampa).
+    """
 
     instante: float
     memory_current: int
     inactive_file: int
     usage_usec: int
+    local: float = 0.0
 
     @property
     def working_set(self) -> int:
@@ -73,7 +87,7 @@ def working_set(memory_current: int, inactive_file: int) -> int:
     return max(0, memory_current - inactive_file)
 
 
-def ler_cgroup(texto: str, instante: float) -> Leitura:
+def ler_cgroup(texto: str, instante: float, local: float = 0.0) -> Leitura:
     """Interpreta a concatenacao de `memory.current`, `memory.stat` e `cpu.stat`.
 
     O `memory.current` e uma linha com um inteiro; os outros dois sao pares
@@ -96,6 +110,7 @@ def ler_cgroup(texto: str, instante: float) -> Leitura:
         memory_current=int(linhas[0]),
         inactive_file=pares["inactive_file"],
         usage_usec=pares["usage_usec"],
+        local=local,
     )
 
 
@@ -141,10 +156,6 @@ class Reconciliacao:
     registadas: int
     em_falta: int
     a_mais: int
-
-    @property
-    def perdidas(self) -> int:
-        return self.em_falta
 
 
 def reconciliar(enviadas: set[str], registadas: list[str]) -> Reconciliacao:
@@ -219,9 +230,19 @@ def utilizacao(antes: LeituraDoAnfitriao, depois: LeituraDoAnfitriao) -> float:
     return max(0.0, min(1.0, (depois.ocupado - antes.ocupado) / total))
 
 
+def separar_uptime(texto: str) -> tuple[float, str]:
+    """`(segundos desde o arranque da VM, o resto)`. A primeira linha e o `/proc/uptime`."""
+    primeira, _, resto = texto.partition("\n")
+    partes = primeira.split()
+    try:
+        return float(partes[0]), resto
+    except (IndexError, ValueError) as erro:
+        raise CgroupIlegivel("a primeira linha nao e o /proc/uptime") from erro
+
+
 def ler_contentor(nome: str) -> Leitura:
-    """Um `docker exec` que le os tres ficheiros. Levanta se o contentor nao responder."""
-    instante = time.monotonic()
+    """Um `docker exec` que le os ficheiros. Levanta se o contentor nao responder."""
+    local = time.monotonic()
     resultado = subprocess.run(
         ["docker", "exec", nome, "cat", *FICHEIROS_DO_CGROUP],
         capture_output=True,
@@ -230,7 +251,8 @@ def ler_contentor(nome: str) -> Leitura:
     )
     if resultado.returncode != 0:
         raise CgroupIlegivel(f"docker exec {nome}: {resultado.stderr.strip()[:200]}")
-    return ler_cgroup(resultado.stdout, instante)
+    instante, resto = separar_uptime(resultado.stdout)
+    return ler_cgroup(resto, instante, local)
 
 
 @dataclass
@@ -249,6 +271,10 @@ class Serie:
             for a, b in zip(self.leituras, self.leituras[1:])
             if b.instante > a.instante
         ]
+
+    def entre(self, inicio: float, fim: float) -> "Serie":
+        """As leituras com `local` em `[inicio, fim]` — um degrau da rampa."""
+        return Serie([l for l in self.leituras if inicio <= l.local <= fim], 0)
 
     def resumo(self) -> dict:
         ws = self.working_sets_mib()
@@ -284,6 +310,10 @@ def ler_anfitriao_por(nome: str) -> LeituraDoAnfitriao:
 class SerieDoAnfitriao:
     leituras: list[LeituraDoAnfitriao] = field(default_factory=list)
     falhas: int = 0
+
+    def entre(self, inicio: float, fim: float) -> "SerieDoAnfitriao":
+        """As leituras com `instante` em `[inicio, fim]` (relogio de quem chama)."""
+        return SerieDoAnfitriao([l for l in self.leituras if inicio <= l.instante <= fim], 0)
 
     def resumo(self) -> dict:
         if len(self.leituras) < 2:
@@ -366,7 +396,7 @@ class Amostrador:
         return self.anfitriao.resumo()
 
 
-def soma_por_instante(resumos: dict[str, dict], chave: str) -> float:
+def soma_dos_p95(resumos: dict[str, dict], chave: str) -> float:
     """Soma de uma estatistica por contentor. **E um majorante**, e diz-se.
 
     Somar o p95 de cada contentor da um numero maior ou igual ao p95 da soma,

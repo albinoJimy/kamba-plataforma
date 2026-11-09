@@ -55,6 +55,25 @@ class TestWorkingSet(unittest.TestCase):
         with self.assertRaises(medicao.CgroupIlegivel):
             medicao.ler_cgroup("max\n", 1.0)
 
+    def test_o_instante_e_o_uptime_da_vm(self) -> None:
+        # O divisor da CPU e o relogio da VM no momento do `cat`, e nao o de
+        # quem chamou o `docker exec`: um `exec` lento deslocava o divisor.
+        instante, resto = medicao.separar_uptime("812.47 6400.10\n" + CGROUP)
+        self.assertEqual(instante, 812.47)
+        leitura = medicao.ler_cgroup(resto, instante, local=3.0)
+        self.assertEqual((leitura.instante, leitura.local), (812.47, 3.0))
+        self.assertEqual(leitura.working_set, 115_343_360)
+
+    def test_sem_uptime_levanta(self) -> None:
+        with self.assertRaises(medicao.CgroupIlegivel):
+            medicao.separar_uptime(CGROUP.replace("157286400\n", "", 1).replace("anon", "x y", 1))
+
+    def test_a_janela_de_um_degrau_filtra_pelo_relogio_local(self) -> None:
+        serie = medicao.Serie(
+            [medicao.Leitura(float(t), 0, 0, t * 1_000_000, local=float(t)) for t in range(10)]
+        )
+        self.assertEqual(len(serie.entre(2.0, 5.0).leituras), 4)
+
     def test_nucleos_sao_microssegundos_sobre_o_intervalo(self) -> None:
         antes = medicao.Leitura(10.0, 0, 0, 1_000_000)
         depois = medicao.Leitura(12.0, 0, 0, 4_000_000)
@@ -88,6 +107,27 @@ class TestAnfitriao(unittest.TestCase):
     def test_sem_linha_cpu_levanta(self) -> None:
         with self.assertRaises(medicao.CgroupIlegivel):
             medicao.ler_anfitriao("MemTotal: 1 kB\nMemAvailable: 1 kB\n", 1.0)
+
+
+class TestLimitesDoCompose(unittest.TestCase):
+    """Os limites que o ensaio aplica sao os do compose de producao, lidos dele."""
+
+    def test_os_quatro_servicos_medidos(self) -> None:
+        from tests_dimensionamento.test_cenarios import COMPOSE_DE_PRODUCAO, limites_do_compose
+
+        texto = COMPOSE_DE_PRODUCAO.read_text(encoding="utf-8")
+        self.assertEqual(limites_do_compose(texto, "gwy"), ("256m", "1.0"))
+        self.assertEqual(limites_do_compose(texto, "worker-canal"), ("256m", "0.5"))
+        self.assertEqual(limites_do_compose(texto, "postgres"), ("5120m", "2.0"))
+        self.assertEqual(limites_do_compose(texto, "queue"), ("768m", "1.0"))
+
+    def test_o_bloco_e_o_do_servico_e_nao_o_seguinte(self) -> None:
+        from tests_dimensionamento.test_cenarios import limites_do_compose
+
+        texto = "services:\n  a:\n    image: x\n  b:\n    mem_limit: 1m\n    cpus: 2.0\n"
+        with self.assertRaises(AssertionError):
+            limites_do_compose(texto, "a")
+        self.assertEqual(limites_do_compose(texto, "b"), ("1m", "2.0"))
 
 
 class TestPercentil(unittest.TestCase):
@@ -168,6 +208,28 @@ class TestPlano(unittest.TestCase):
         self.assertLess(gerador.paralelismo_para(5.0) / 5.0, 5.0)
         self.assertEqual(gerador.paralelismo_para(400.0), 50)
         self.assertEqual(gerador.paralelismo_para(5000.0), 64)
+
+    def test_cada_pedido_leva_o_tenant_do_canal(self) -> None:
+        tenants = {c.tenant_id for c in self.canais}
+        self.assertTrue(all(p.tenant_id in tenants for p in self.fabrica.plano(10.0, 2.0)))
+
+    def test_o_job_do_agr_e_o_do_chr(self) -> None:
+        # `jobIdDe` de `packages/core-ts/src/chr/invocacao.ts`. O valor esperado
+        # foi calculado **pelo Node** (`createHash("sha256").update("t1:wamid.X")`)
+        # e escrito aqui por extenso: recalcula-lo com o `hashlib` era a mesma
+        # conta dos dois lados.
+        self.assertEqual(
+            gerador.job_do_agr("t1", "wamid.X"),
+            "674bd4729afae4b297f84d323e45a391866ef1eda48d570adf29c9ffde1f8ef2",
+        )
+
+    def test_reserializado_e_o_mesmo_json_com_outros_bytes(self) -> None:
+        original = self.fabrica.plano(1.0, 1.0)[0]
+        outro = gerador.reserializado(original, "ensaio-x")
+        self.assertNotEqual(outro.corpo, original.corpo)
+        self.assertEqual(json.loads(outro.corpo), json.loads(original.corpo))
+        self.assertEqual(outro.assinatura, gerador.assinar(outro.corpo, "ensaio-x"))
+        self.assertEqual((outro.chave, outro.tenant_id), (original.chave, original.tenant_id))
 
     def test_dois_planos_nao_repetem_wamid(self) -> None:
         a = {p.chave for p in self.fabrica.plano(10.0, 2.0)}

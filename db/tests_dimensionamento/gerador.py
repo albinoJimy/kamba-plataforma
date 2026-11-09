@@ -29,7 +29,15 @@ contra 4 ms a 100/s.) O que se media era o encaminhamento de portas do Docker
 Desktop, e nao o GWY — que em producao fala com o `proxy-tls`, e nao com a Meta.
 Por isso `paralelismo` por omissao e `taxa / 8`, entre 8 e 64 (cada ligacao
 fica parada no maximo ~1,6 s), e cada pedido que teve de reabrir a ligacao
-**conta** (`reconectou`), para que o efeito fique a vista em vez de escondido.
+**conta** (`reconectou`, com a classe da excepcao), para que o efeito fique a
+vista em vez de escondido.
+
+**O que isto nao prova**, e a revisao adversarial apontou-o: as corridas de
+desenvolvimento correram com o KAM-085 na mesma VM, e uma segunda corrida curta
+com 8 *threads* deu 0 reconexoes e p50 de **24,8 ms** — pelo que as reconexoes
+nao explicam o p50 sozinhas. O que fica provado e a contagem. E a **latencia de
+um pedido que reconectou conta desde a primeira tentativa**: a tentativa que
+falhou e tempo que o pedido esperou, e uma primeira versao deitava-o fora.
 
 ## Os corpos sao sinteticos, e a forma e a do `E1` §5
 
@@ -78,6 +86,8 @@ class Pedido:
     assinatura: str
     #: `(kind, event_key)` que o *worker* de entrada escreve em `inbound_events`.
     chave: tuple[str, str]
+    #: O tenant do canal. E o que, com o `wamid`, da o `jobId` do AGR.
+    tenant_id: str = ""
 
 
 def assinar(corpo: bytes, segredo: str) -> str:
@@ -178,7 +188,15 @@ class Fabrica:
         resposta = self._proximo("B")
         pedidos = []
         corpo = corpo_de_mensagem(canal, contacto, entrada, 1_793_000_000 + self._contador)
-        pedidos.append(Pedido(alvo_base, corpo, assinar(corpo, self.segredo), ("message", entrada)))
+        pedidos.append(
+            Pedido(
+                alvo_base,
+                corpo,
+                assinar(corpo, self.segredo),
+                ("message", entrada),
+                canal.tenant_id,
+            )
+        )
         for i, estado in enumerate(ESTADOS, start=1):
             corpo = corpo_de_estado(canal, contacto, resposta, estado)
             pedidos.append(
@@ -187,19 +205,20 @@ class Fabrica:
                     corpo,
                     assinar(corpo, self.segredo),
                     ("statuses", f"{resposta}:{estado}"),
+                    canal.tenant_id,
                 )
             )
         return pedidos
 
-    def plano(self, taxa: float, segundos: float, inicio: float = 0.0, canais: list[Canal] | None = None) -> list[Pedido]:
-        """`taxa` pedidos por segundo durante `segundos`, a partir de `inicio`."""
+    def plano(self, taxa: float, segundos: float, canais: list[Canal] | None = None) -> list[Pedido]:
+        """`taxa` pedidos por segundo durante `segundos`, a partir do instante 0."""
         if taxa <= 0 or segundos <= 0:
             raise ValueError("taxa e duracao tem de ser positivas")
         total = int(round(taxa * segundos))
         intervalo = 1.0 / taxa
         pedidos: list[Pedido] = []
         while len(pedidos) < total:
-            pedidos.extend(self.bloco(inicio + len(pedidos) * intervalo, intervalo, canais))
+            pedidos.extend(self.bloco(len(pedidos) * intervalo, intervalo, canais))
         return pedidos[:total]
 
 
@@ -215,19 +234,24 @@ class Resultado:
     enviado_epoch: float
     #: A ligacao persistente estava fechada e abriu-se outra.
     reconectou: bool = False
+    #: A classe da excepcao da primeira tentativa, quando reconectou.
+    erro: str = ""
 
 
 def _enviar(
     ligacoes: dict[int, http.client.HTTPConnection], porta: int, pedido: Pedido
-) -> tuple[int, float, bool]:
-    """`(codigo, latencia_ms, reconectou)`. A latencia e a da tentativa que contou."""
-    reconectou = False
+) -> tuple[int, float, str]:
+    """`(codigo, latencia_ms, erro)`. A latencia conta desde a **primeira** tentativa.
+
+    `erro` e a classe da excepcao que obrigou a reabrir a ligacao, ou `""`.
+    """
+    erro = ""
+    inicio = time.perf_counter()
     for tentativa in (1, 2):
         ligacao = ligacoes.get(porta)
         if ligacao is None:
             ligacao = http.client.HTTPConnection("127.0.0.1", porta, timeout=30)
             ligacoes[porta] = ligacao
-        inicio = time.perf_counter()
         try:
             ligacao.request(
                 "POST",
@@ -240,16 +264,34 @@ def _enviar(
             )
             resposta = ligacao.getresponse()
             resposta.read()
-            return resposta.status, (time.perf_counter() - inicio) * 1000.0, reconectou
-        except (http.client.HTTPException, OSError):
+            return resposta.status, (time.perf_counter() - inicio) * 1000.0, erro
+        except (http.client.HTTPException, OSError) as excepcao:
             # Uma ligacao persistente que o servidor fechou: reabre-se uma vez.
             # A segunda falha e um 0 — ligacao recusada —, e conta.
             ligacao.close()
             ligacoes.pop(porta, None)
-            reconectou = True
+            erro = erro or type(excepcao).__name__
             if tentativa == 2:
-                return 0, (time.perf_counter() - inicio) * 1000.0, reconectou
-    return 0, 0.0, reconectou
+                return 0, (time.perf_counter() - inicio) * 1000.0, erro
+    return 0, (time.perf_counter() - inicio) * 1000.0, erro
+
+
+def reserializado(pedido: Pedido, segredo: str) -> Pedido:
+    """O mesmo JSON com **outros bytes**, assinado outra vez.
+
+    E a reentrega que o GWY nao reconhece: o `jobId` dele e o SHA-256 do corpo,
+    e um corpo com outra indentacao e outro *job*. Quem a apanha e o segundo
+    nivel — o `UNIQUE (kind, event_key)` de `inbound_events`, no *worker* — e o
+    CHR, que so encaminha o que a base registou como novo. A rajada usa as duas
+    formas de repeticao, para medir os dois niveis e nao so o primeiro.
+    """
+    corpo = json.dumps(json.loads(pedido.corpo), indent=1, ensure_ascii=False).encode("utf-8")
+    return Pedido(pedido.alvo, corpo, assinar(corpo, segredo), pedido.chave, pedido.tenant_id)
+
+
+def job_do_agr(tenant_id: str, wamid: str) -> str:
+    """O `jobId` que o CHR da a uma mensagem (`chr/invocacao.ts`, `jobIdDe`)."""
+    return hashlib.sha256(f"{tenant_id}:{wamid}".encode("utf-8")).hexdigest()
 
 
 def paralelismo_para(taxa: float) -> int:
@@ -289,14 +331,15 @@ def disparar(
                 if espera > 0:
                     time.sleep(espera)
                 saida = time.perf_counter()
-                codigo, ms, reconectou = _enviar(ligacoes, portas[indice % len(portas)], pedido)
+                codigo, ms, erro = _enviar(ligacoes, portas[indice % len(portas)], pedido)
                 resultados[indice] = Resultado(
                     alvo=pedido.alvo,
                     atraso_ms=(saida - inicio - pedido.alvo) * 1000.0,
                     latencia_ms=ms,
                     codigo=codigo,
                     enviado_epoch=inicio_epoch + (saida - inicio),
-                    reconectou=reconectou,
+                    reconectou=bool(erro),
+                    erro=erro,
                 )
         finally:
             for ligacao in ligacoes.values():
