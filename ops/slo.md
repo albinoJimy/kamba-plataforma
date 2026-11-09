@@ -33,8 +33,10 @@ do dobro do orçamento mensal — e é por isso que a sonda externa e a rotaçã
 ## 2. Os oito SLI, e o estado medido de cada um
 
 O doc 09 §10 define oito. A coluna **Estado** não é uma opinião: mede se existe
-uma série que *algum processo sirva* e que o `prometheus.yml` *raspe*. Os três
-alvos raspados são `gwy:3010`, `com:3002` e `agr:8000`.
+uma série que *algum processo sirva* e que o `prometheus.yml` *raspe*. Os sete
+alvos raspados são `gwy:3010`, `com:3002` e `agr:8000` e, desde o **KAM-187**, os
+quatro processos do `worker-canal` (`entrada` 3013, `agr_shim` 3025, `publicador`
+3011, `consumidor` 3012).
 
 > **Porque é que isto se mede antes de operacionalizar.** Das **120** métricas
 > declaradas em código (medido: `python tools/obs_lint/contar_metricas.py`; 122
@@ -51,10 +53,10 @@ alvos raspados são `gwy:3010`, `com:3002` e `agr:8000`.
 | Campo | Valor |
 |---|---|
 | Predicado | Receber → processar → responder está servível |
-| Numerador | Instantes de avaliação em que **todas** as réplicas do GWY e do AGR estavam raspáveis, menos os instantes isentos pela regra das janelas (§5) |
+| Numerador | Instantes de avaliação em que **todas** as réplicas do GWY, do AGR, do `entrada.ts` e do `agr_shim.ts` estavam raspáveis, menos os instantes isentos pela regra das janelas (§5) |
 | Denominador | Instantes de avaliação da janela, menos os isentos |
 | Janela | 30 dias corridos (deslizante) |
-| Fonte | `up{job=~"gwy\|agr"}`, sintética do Prometheus, uma série por réplica |
+| Fonte | `up{job=~"gwy\|agr\|entrada\|agr_shim"}`, sintética do Prometheus, uma série por réplica (os dois últimos desde o KAM-187, versão 1.2) |
 | SLO | **99,5%** (Piloto); 99,9% documentado e inactivo (Escala) |
 | Orçamento | **216 min** por 30 dias |
 | Séries | `slo_caminho_de_venda_bom`, `slo_caminho_de_venda_mau`, `slo_caminho_de_venda_ratio_30d` |
@@ -66,13 +68,23 @@ alvos raspados são `gwy:3010`, `com:3002` e `agr:8000`.
    externa é o critério 5 do KAM-080, que ficou **vazio** por não haver produção
    nem *host* externo onde a pôr — credores **D1/KAM-105** (alojamento) e
    **KAM-069** (subprocessador).
-2. **O `worker-canal` não está no numerador**, embora seja o «processar». O `CMD`
-   do `services/worker-canal/Dockerfile` corre `src/server.ts`, que devolve
-   **404** em `/metrics` por teste do KAM-001; as quatro entradas que servem
-   métricas (`entrada.ts` 3013, `publicador.ts` 3011, `consumidor.ts` 3012 e
-   `agr_shim.ts`) **não são o que o compose corre**, e o `prometheus.yml` não tem
-   alvo para elas. Medido. Credor: o ticket que decidir qual processo do
-   `worker-canal` o compose corre — o **KAM-187**.
+2. **O `worker-canal` entra no numerador pelos dois processos do caminho da
+   mensagem, e não pelos quatro** (KAM-187, versão 1.2). Até lá não entrava: o
+   compose corria o `src/server.ts`, que devolve **404** em `/metrics`, e nenhum
+   dos quatro processos tinha alvo. Hoje o compose de produção e o de *staging*
+   correm os quatro, e o `prometheus.yml` raspa-os; o numerador lê o
+   `entrada.ts` (`job="entrada"`) e o `agr_shim.ts` (`job="agr_shim"`), que são o
+   «processar» de receber → processar → responder. O `publicador.ts` e o
+   `consumidor.ts` **ficam de fora**: são o barramento de eventos, e uma falha
+   deles não para a mensagem do cliente. Os três casos do
+   `infra/compose/prometheus/regras/testes/kamba_slo_burn_test.yml` prendem-no —
+   uma falha só do `entrada` desce o SLI, uma só do `agr_shim` também, e o
+   publicador e o consumidor em baixo não. **O que este limite deixa:** em
+   `prod`, o `entrada.ts` **não arranca** — o `Identidade.arrancar` do KAM-008
+   recusa o provedor de chaves de ambiente com `KAMBA_ENV=prod` e não há
+   provedor de cofre (`../docs/identidade.md` §8, linha 2). Com o processo em
+   ciclo de reinício, o `up` dele é 0 e o SLI conta o caminho como mau, que é a
+   resposta certa: uma mensagem que ninguém consome não está a ser servida.
 3. **Uma paragem do próprio Prometheus subconta o orçamento.** Sem avaliação não
    há amostra, e `avg_over_time` ignora o intervalo em falta — pelo que a pior
    avaria possível, o anfitrião todo em baixo, é a única que este SLI não vê. O
@@ -92,7 +104,7 @@ não a série que o mediria — essa é o que falta, e está na última coluna.
 | # | SLI | Numerador / denominador | SLO | Orçamento | Fonte (§10) | O que falta, e o credor |
 |---|---|---|---|---|---|---|
 | 2 | Ack do webhook < 500 ms | pedidos com ack < 500 ms / pedidos aceites | 99,9% | 0,1% | `E1`, doc 00 | **Não há histograma de ingress.** O `gwy_enqueue_ms` é um *gauge* do **último** enfileiramento; um percentil exige `_bucket`, e uma fracção de amostras do último valor é uma amostragem enviesada e não o predicado. Credor: o ticket que der histogramas ao módulo `entrada` |
-| 3 | Perda de mensagens | ids aceites sem desfecho após 15 min / ids aceites | **0** | 0 | — | **Duas faltas.** O `inbound_events_total{desfecho}` (`registado`, `duplicado`, `recuperado`) existe e é servido pelo `entrada.ts`, que **não é** o que o compose corre (ver §2.1, limite 2); e a correlação *por id* entre aceite e desfecho não é expressável em métricas agregadas — sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (dicionário, emendas 1.21 e 1.25). Credor: o ticket que decidir o processo do `worker-canal` (o **KAM-187**), e o KAM-110 para a consulta |
+| 3 | Perda de mensagens | ids aceites sem desfecho após 15 min / ids aceites | **0** | 0 | — | **Uma falta, de duas que eram.** O `inbound_events_total{desfecho}` (`registado`, `duplicado`, `recuperado`) é servido pelo `entrada.ts`, que o compose de produção e o de *staging* correm desde o **KAM-187**, e é raspado (`job="entrada"`) — paga a metade (a), com a ressalva de que em `prod` o processo ainda não arranca (§2.1, limite 2); a que fica é a correlação *por id* entre aceite e desfecho não é expressável em métricas agregadas — sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (dicionário, emendas 1.21 e 1.25). Credor: o KAM-110, para a consulta |
 | 4 | Latência de resposta p95 | turnos ≤ alvo / turnos | texto ≤ **8 s**; voz ≤ **12 s** | 5% acima do alvo | doc 00 §9 | **O p95 não é computável e a modalidade não é distinguível.** O AGR não tem histogramas, por **ADR-018** («observabilidade leve»), escrito no próprio `metricas.py`; o `agr_turn_latency_ms` é o valor do último turno. E não há etiqueta de modalidade que separe texto de voz — criá-la é uma emenda ao dicionário. O KAM-080 nomeou o KAM-082 credor do quantil; **este ticket mede-o e devolve-o**, porque dar histogramas ao AGR é contrariar um ADR em vigor, e isso é do **fundador** |
 | 5 | Callback → cliente notificado | notificações ≤ alvo / callbacks aceites | p95 ≤ **30 s**; p99 ≤ **2 min** | 1% | `04` | O módulo `hnd` não é importado por nenhum serviço, e «reconciliados» não tem métrica nenhuma. Credor: o ticket que ligar o módulo `hnd` |
 | 6 | Reconciliação por reconhecer | idade do mais antigo por reconciliar | ≤ **15 min** | — | `E2` (*polling*) | Não há métrica de reconciliação de pagamentos. Credor: o ticket que ligar o módulo `hnd` |
@@ -304,3 +316,4 @@ modelo e não um relatório: não há 30 dias de operação para relatar.
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-082**. Os 8 SLI do doc 09 §10 definidos com numerador, denominador, janela, fonte, SLO e orçamento; **um** operacional e sete com credor medido. *Recording rules* do orçamento de 216 min, painel do restante, alertas de *burn rate* rápido (P2) e lento (P3), regra das janelas de manutenção nas suas três condições, e retenção do TSDB de 15d para 31d. **Devolve com credor:** a ligação do estado `congelado` ao *gate* 16 (o fundador) e a rotação de *on-call* (o fundador, e KAM-069 para o canal). | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | §2.1, limite 2, e §2.2, linha 3: o credor «o ticket que decidir qual processo do `worker-canal` o compose corre» ganha o número — o **KAM-187**. Nenhum SLI, SLO nem orçamento muda. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-187. Muda a definição do SLI-1:** o numerador passa de `up{job=~"gwy\|agr"}` a `up{job=~"gwy\|agr\|entrada\|agr_shim"}` — os dois processos do `worker-canal` no caminho da mensagem, que o compose passou a correr e o Prometheus a raspar; o publicador e o consumidor ficam de fora, por serem o barramento de eventos. Presa por três casos de `promtool test rules`. §2: sete alvos e não três. §2.1, limite 2, reescrito (e o que deixa: em `prod` o `entrada.ts` não arranca, `../docs/identidade.md` §8, linha 2). §2.2, linha 3: a metade (a) paga, o KAM-110 fica credor da (b). O SLO e o orçamento não mudam. | Equipa KAMBÁ |

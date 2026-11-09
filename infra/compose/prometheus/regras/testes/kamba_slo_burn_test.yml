@@ -200,6 +200,86 @@ tests:
           - labels: 'slo_caminho_de_venda_mau'
             value: 0
 
+  # ==================================== o worker no numerador do SLI (KAM-187)
+  #
+  # O «processar» do caminho receber -> processar -> responder. Ate ao KAM-187
+  # o `worker-canal` nao estava no numerador, porque o compose corria o
+  # `server.ts` e nenhum processo dele era raspado. Hoje o `entrada.ts` (job
+  # `entrada`) e o `agr_shim.ts` (job `agr_shim`) sao, e **uma falha so do
+  # worker desce o SLI**: o GWY aceita e enfileira, e a mensagem fica na fila.
+  #
+  # Um caso por processo, pela mesma razao do caso do AGR acima: com um so,
+  # tirar o outro do *regex* sobrevivia. O `publicador` e o `consumidor` **nao**
+  # entram, e o terceiro caso prende-o: sao o barramento de eventos, e nao o
+  # caminho da mensagem do cliente.
+  - interval: 1m
+    name: "so o worker de entrada em baixo: o caminho de venda conta como mau"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x100'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x30 0+0x30 1+0x40'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x100'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 45m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 20m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 0
+
+  - interval: 1m
+    name: "so o shim do AGR em baixo: o caminho de venda conta como mau"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x100'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x100'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x30 0+0x30 1+0x40'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 45m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 20m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 0
+
+  - interval: 1m
+    name: "o publicador e o consumidor em baixo nao descem o SLI do caminho de venda"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x100'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x100'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x100'
+      - series: 'up{job="publicador",instance="worker-canal-publicador-1:3011"}'
+        values: '0+0x100'
+      - series: 'up{job="consumidor",instance="worker-canal-consumidor-1:3012"}'
+        values: '0+0x100'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 45m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 0
+
   # ============================== as janelas dos alertas, e nao so os limiares
   #
   # **O par 4 min / 5 min prende o limiar, nao a janela** — medido pela revisao

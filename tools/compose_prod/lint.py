@@ -73,6 +73,26 @@ SO_EM_DATA = frozenset({"postgres", "queue", "seaweedfs"})
 #: Criterio 5: duas replicas e `/healthz`. O bloco diz «GWY e *workers* AGR».
 DUAS_REPLICAS = frozenset({"gwy", "agr"})
 
+#: KAM-187: a imagem do `worker-canal`, e os quatro processos que o compose de
+#: producao e o de *staging* **tem** de correr com ela.
+#:
+#: NASCEU DE UM VERDE SOBRE UMA FILA PARADA. O manifesto declarava o
+#: `worker-canal` `presente` com a razao «Consumidor da fila de entrada», e este
+#: lint passava, porque conferia o **nome** do servico e nao o que ele corre: o
+#: servico nao tinha `command:`, corria o `CMD` da imagem — o `server.ts`, que
+#: so serve `/healthz` — e ninguem consumia a `wa-inbound`. A regra confere o
+#: `command:` de cada servico construido com esta imagem.
+IMAGEM_DO_WORKER = "services/worker-canal/Dockerfile"
+CONSUMIDORES = (
+    "services/worker-canal/src/entrada.ts",
+    "services/worker-canal/src/agr_shim.ts",
+    "services/worker-canal/src/publicador.ts",
+    "services/worker-canal/src/consumidor.ts",
+)
+#: O `CMD` da imagem. Nao consome nada; um servico que o corra e uma sonda verde
+#: sobre trabalho que ninguem faz.
+SONDA_DO_WORKER = "services/worker-canal/src/server.ts"
+
 #: O unico servico que publica porta, e a unica porta. O WireGuard corre no
 #: *host* (KAM-075) e nao em contentor.
 QUEM_PUBLICA = {"proxy-tls": {"443"}}
@@ -1181,6 +1201,76 @@ def r_staging(dados: Dados) -> list[Achado]:
     return achados
 
 
+def _comando(ficheiro: compose_mod.Compose, chaves: dict) -> list[str]:
+    """O `command:` de um servico, em qualquer das duas formas do compose."""
+    if "command" not in chaves:
+        return []
+    itens = _lista(ficheiro, chaves, "command")
+    if itens:
+        return itens
+    return (_valor(ficheiro, chaves, "command") or "").split()
+
+
+def r_consumidores(dados: Dados) -> list[Achado]:
+    """KAM-187, criterio 1: os quatro processos do `worker-canal` correm.
+
+    Nos dois sentidos, em producao **e** em *staging*:
+
+    * **`consumidor-em-falta`** — um dos quatro nao e o `command:` de nenhum
+      servico construido com a imagem do `worker-canal` (ou so o e atras de um
+      `profiles:`, que um arranque sem `--profile` nao levanta). Ninguem consome
+      a fila dele.
+    * **`consumidor-com-server-ts`** — um servico desta imagem corre o
+      `server.ts`, por extenso ou por nao ter `command:` (e entao corre o `CMD`
+      da imagem, que e o `server.ts`). E o defeito que o KAM-187 fechou.
+
+    O `docker compose config` nao entra aqui de proposito: esta regra le o
+    ficheiro como o resto do lint. Que o `config` lista cada servico com o seu
+    comando, e que a pilha levantada consome, mede-se no anexo do KAM-187.
+    """
+    achados: list[Achado] = []
+    ficheiros = [dados.prod] + ([dados.staging] if dados.staging is not None else [])
+    for ficheiro in ficheiros:
+        corridos: set[str] = set()
+        for nome, (no, chaves) in sorted(ficheiro.servicos.items()):
+            build = _submapa(ficheiro, chaves, "build")
+            dockerfile = (
+                ficheiro.documento.resolver(build["dockerfile"]).texto()
+                if "dockerfile" in build else ""
+            )
+            if dockerfile != IMAGEM_DO_WORKER:
+                continue
+            comando = _comando(ficheiro, chaves)
+            if not comando or any(p.endswith(SONDA_DO_WORKER) for p in comando):
+                porque = (
+                    "nao tem `command:`, e corre o `CMD` da imagem, que e o `server.ts`"
+                    if not comando else "corre o `server.ts`"
+                )
+                achados.append(
+                    Achado(
+                        "consumidor-com-server-ts", ficheiro.ficheiro, no.linha,
+                        f"o servico `{nome}` {porque}. O `server.ts` so serve "
+                        "`/healthz`: e um contentor verde sobre uma fila que ninguem "
+                        "consome (KAM-187).",
+                    )
+                )
+                continue
+            if _lista(ficheiro, chaves, "profiles"):
+                continue
+            corridos |= {p for p in CONSUMIDORES if any(c.endswith(p) for c in comando)}
+        for processo in CONSUMIDORES:
+            if processo not in corridos:
+                achados.append(
+                    Achado(
+                        "consumidor-em-falta", ficheiro.ficheiro, 0,
+                        f"nenhum servico construido com `{IMAGEM_DO_WORKER}` corre "
+                        f"`{processo}` sem perfil. A fila dele fica sem consumidor, e "
+                        "nada mais fica vermelho: o GWY aceita e enfileira na mesma "
+                        "(KAM-187).",
+                    )
+                )
+    return achados
+
 
 REGRAS = (
     r_conjunto,
@@ -1196,6 +1286,7 @@ REGRAS = (
     r_meta_so_no_gwy,
     r_flags_de_licenca,
     r_staging,
+    r_consumidores,
 )
 
 

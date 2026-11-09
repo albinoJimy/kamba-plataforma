@@ -148,7 +148,7 @@ que o runner descobre depois.
 
 ### 5. A pilha do `make up`
 
-Um só `docker compose` por máquina, com portas fixas (`gwy=3000`, `worker-canal=3001`,
+Um só `docker compose` por máquina, com portas fixas (`gwy=3000`, `worker-canal=3025`,
 `com=3002`, `onboarding-web=3003`, `agr=8000`). Dois worktrees a levantar a pilha disputam as
 portas, e o `make smoke` do segundo mede os contentores do primeiro. **Um smoke verde sobre a
 pilha de outra sessão é pior do que smoke nenhum**, porque produz evidência com o nome do teu

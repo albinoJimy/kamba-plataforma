@@ -55,19 +55,44 @@ class TestArvoreReal(unittest.TestCase):
             lint.REDES, {"edge": False, "app": True, "data": True, "ops": True}
         )
 
-    def test_a_soma_dos_limites_reconcilia_com_os_23_5_gb_do_bloco(self) -> None:
-        """O bloco propoe limites que somam ~23,5 GB. Esta e a reconciliacao.
+    def test_a_soma_dos_limites_reconcilia_com_o_bloco_e_com_o_kam_187(self) -> None:
+        """O bloco propoe limites que somam ~23,5 GB; o KAM-187 soma-lhes 1 088 MiB.
 
         Nao e um numero inventado aqui: e a soma das onze linhas de limites
         propostos do bloco KAM-076, repartida pelos servicos que o compose tem
         de facto (o Chatwoot em dois contentores, o COM a sair do orcamento do
-        Medusa, o `worker-canal` da linha «SO e proxies»). Se a reparticao
-        deixar de fechar, um dos dois numeros esta errado e vale saber qual.
+        Medusa), **mais** o que o KAM-187 acrescentou com a razao escrita.
+
+        **Era `soma == 24064` (23,5 GiB), e mudou com uma razao, nao para o
+        ensaio passar.** Os 256 MiB do `worker-canal` saiam da linha «SO e
+        proxies», que fechava exacta — e eram de um processo, o `server.ts`, que
+        nao consumia nada. O KAM-187 trocou-o pelos quatro processos que fazem
+        o trabalho, e a memoria deles **nao sai de nenhuma linha** do bloco: o
+        doc 09 §4.2 nao tem linha para o *worker* (o KAM-084 §6.2 chama-lhe
+        «linha em falta»). Os quatro somam 1 344 MiB e substituem os 256:
+
+            24 064 - 256 + (2x256 + 2x192 + 2x128 + 192) = 25 152 MiB
+
+        Se a reparticao deixar de fechar, um dos numeros esta errado e vale
+        saber qual.
         """
         dados = lint.ler(RAIZ)
         soma = sum(s.memoria_mib for s in dados.manifesto.values())
-        self.assertEqual(soma, 24064, "23,5 GiB em MiB")
-        self.assertAlmostEqual(soma / 1024, 23.5, places=2)
+        do_bloco = 24064
+        do_worker_antes = 256
+        do_worker_agora = sum(
+            dados.manifesto[nome].memoria_mib
+            for nome in (
+                "worker-canal-entrada",
+                "worker-canal-agr-shim",
+                "worker-canal-publicador",
+                "worker-canal-consumidor",
+            )
+        )
+        self.assertEqual(do_worker_agora, 1344, "2x256 + 2x192 + 2x128 + 192")
+        self.assertNotIn("worker-canal", dados.manifesto, "o `server.ts` saiu")
+        self.assertEqual(soma, do_bloco - do_worker_antes + do_worker_agora)
+        self.assertEqual(soma, 25152)
 
     def test_a_soma_cabe_nos_80_por_cento_da_ram_do_host(self) -> None:
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
@@ -126,8 +151,15 @@ class TestArvoreReal(unittest.TestCase):
         # 24 064 MiB que o teste seguinte prende, porque o manifesto ja contava
         # os pendentes. E a distincao que estes dois numeros existem para
         # mostrar.
-        self.assertEqual(do_compose, 20992, "a reserva real dos 15 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 20992)
+        #
+        # **KAM-187: de 15 para 18 presentes, e de 20 992 para 22 080 MiB.** O
+        # `worker-canal` (256 MiB, o `server.ts`) saiu e entraram os quatro
+        # processos (1 344 MiB). Aqui o total do manifesto **muda** — ao
+        # contrario do que o KAM-080 fez —, porque nenhum dos quatro estava
+        # orcamentado como `pendente`.
+        self.assertEqual(do_compose, 22080, "a reserva real dos 18 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 22080)
+        self.assertEqual(len(presentes), 18)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_o_gwy_e_o_agr_tem_duas_replicas_no_manifesto(self) -> None:

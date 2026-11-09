@@ -130,6 +130,78 @@ def _servico(nome: str, extra: str = "") -> str:
 {extra}"""
 
 
+def _casos_dos_consumidores() -> tuple[Caso, ...]:
+    """KAM-187: um caso por processo e por defeito, mais os dois de *staging*.
+
+    Por processo, as duas formas do defeito que o critério 1 nomeia:
+
+    * **falta** — o `command:` do serviço passa a correr **outro** dos quatro.
+      Nenhum serviço desaparece, nenhuma rede muda e o `conjunto` continua
+      certo: só a regra nova vê que ninguém corre aquele processo;
+    * **`server.ts`** — o `command:` passa a correr a sonda. Dispara as duas
+      metades: o serviço corre o `server.ts`, e o processo dele ficou sem quem o
+      corra.
+
+    O de *staging* tira o `command:` por inteiro: é a forma exacta do defeito
+    original, um serviço desta imagem a correr o `CMD`.
+    """
+    casos: list[Caso] = []
+    for processo in lint.CONSUMIDORES:
+        curto = processo.rsplit("/", 1)[1].removesuffix(".ts")
+        outro = next(p for p in lint.CONSUMIDORES if p != processo)
+        padrao = rf'"{re.escape(processo)}"'
+        casos.append(
+            Caso(
+                f"consumidor-em-falta-{curto}",
+                frozenset({"consumidor-em-falta"}),
+                f"o servico de `{curto}` passa a correr outro processo, e ninguem "
+                "corre o seu",
+                lambda c, padrao=padrao, outro=outro: c.trocar(
+                    lint.PROD, padrao, f'"{outro}"'
+                ),
+            )
+        )
+        casos.append(
+            Caso(
+                f"consumidor-com-server-ts-{curto}",
+                frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
+                f"o servico de `{curto}` passa a correr o `server.ts`",
+                lambda c, padrao=padrao: c.trocar(
+                    lint.PROD, padrao, f'"{lint.SONDA_DO_WORKER}"'
+                ),
+            )
+        )
+    casos.append(
+        Caso(
+            "consumidor-sem-comando-em-staging",
+            frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
+            "em *staging*, o servico do `entrada.ts` perde o `command:` e corre o "
+            "`CMD` da imagem",
+            lambda c: c.trocar(
+                lint.STAGING,
+                r'^    command: \["node", "services/worker-canal/src/entrada\.ts"\]\n',
+                "",
+            ),
+        )
+    )
+    casos.append(
+        Caso(
+            "consumidor-atras-de-perfil",
+            frozenset({"consumidor-em-falta"}),
+            "o servico do `consumidor.ts` passa para tras de um perfil, e um "
+            "arranque sem `--profile` nao o levanta",
+            # Sem retro-referencia: o `trocar` escapa as barras do texto novo.
+            lambda c: c.trocar(
+                lint.PROD,
+                r'^    command: \["node", "services/worker-canal/src/consumidor\.ts"\]$',
+                '    profiles: ["consumidores"]\n'
+                '    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        )
+    )
+    return tuple(casos)
+
+
 CASOS: tuple[Caso, ...] = (
     # ------------------------------------------------- criterio 1: conjunto
     Caso(
@@ -544,6 +616,8 @@ CASOS: tuple[Caso, ...] = (
             "      KAMBA_DATA_CLASS: real",
         ),
     ),
+    # ------------------------------- KAM-187: os quatro processos do worker
+    *_casos_dos_consumidores(),
 )
 
 #: Toda a regra tem de ter canario. Um `lint.REGRAS` novo sem caso aqui falha o
@@ -598,6 +672,7 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
             "langfuse-sem-perfil",
         }
     ),
+    "r_consumidores": frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
 }
 
 #: O que se copia: so o que o `varrer` le. Copiar a arvore toda levava segundos

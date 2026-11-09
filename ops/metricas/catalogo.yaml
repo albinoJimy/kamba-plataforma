@@ -306,6 +306,11 @@ metricas:
           - gwy
           - com
           - agr
+          # KAM-187: os quatro processos do `worker-canal`, um `job` cada.
+          - entrada
+          - agr_shim
+          - publicador
+          - consumidor
 
   - nome: scrape_duration_seconds
     tipo: gauge
@@ -320,6 +325,11 @@ metricas:
           - gwy
           - com
           - agr
+          # KAM-187: os quatro processos do `worker-canal`, um `job` cada.
+          - entrada
+          - agr_shim
+          - publicador
+          - consumidor
 
   # ------------------------------------------ COM / pagamentos (3013)
   #

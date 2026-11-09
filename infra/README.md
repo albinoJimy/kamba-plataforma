@@ -14,7 +14,7 @@
 | `compose/caddy/Caddyfile` | A borda: quem escuta e para onde encaminha. **Não** é o TLS — é o KAM-077 | KAM-076 |
 | `compose/envoy/envoy.yaml` | O proxy de saída. **Ficheiro gerado** de `egress/proxy-saida.yaml` por `python -m compose_prod gerar` | KAM-076 |
 | `compose/envoy/sonda.sh` | A sonda de saúde do proxy de saída (a imagem do Envoy não traz `curl` nem `wget`) | KAM-076 |
-| `compose/prometheus/prometheus.yml` | A recolha: três alvos (`gwy`, `com`, `agr`) por `dns_sd_configs`, `rule_files` e o Alertmanager | KAM-080 |
+| `compose/prometheus/prometheus.yml` | A recolha: sete alvos (`gwy`, `com`, `agr` e os quatro processos do `worker-canal`, KAM-187) por `dns_sd_configs`, `rule_files` e o Alertmanager | KAM-080, KAM-187 |
 | `compose/prometheus/regras/kamba.yml` | **8** regras com severidade e `runbook_url`, que cobrem **4 das 12** linhas do doc 09 §9.2 (a fila dá duas, uma por serviço) mais três que não são do §9.2. As **8** linhas que faltam não têm métrica que um processo sirva, e estão nomeadas em `../ops/metricas/catalogo.yaml` | KAM-080 |
 | `compose/prometheus/regras/testes/kamba_test.yml` | **17 casos de `promtool test rules`**: o que cada regra faz, contra o que devia fazer. Existe porque o `check rules` deixou passar três alertas que nunca disparavam | KAM-080 |
 | `compose/alertmanager/alertmanager.yml` | Encaminhamento por severidade (P1/P2/P3), com inibição. **Não notifica**: o canal não está escolhido (KAM-069) | KAM-080 |
