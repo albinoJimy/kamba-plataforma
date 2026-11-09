@@ -1,0 +1,30 @@
+{
+  "_nota": "Versoes publicaveis dos quatro documentos do aceite (KAM-090). O ensaio packages/core-ts/tests/contratos.manifesto.test.ts compara o texto de cada ficheiro com a ULTIMA entrada do seu tipo: mudar o texto sem tocar no manifesto fica vermelho. O que ele NAO apanha e reescrever o sha256 de uma entrada ja publicada - o historico aqui e prosa, e quem o prende e a base (a versao publicada e imutavel) e o historico do git. Mudar o texto e acrescentar uma entrada com versao nova. O sha256 e o do conteudo canonico (NFC, LF, um LF final).",
+  "version": 1,
+  "documentos": [
+    {
+      "tipo": "dpa",
+      "versao": "0.1.0",
+      "ficheiro": "gov/contratos/dpa.md",
+      "sha256": "7b05d97950d89f9a317a369e78bb84067bb410db1327cc02ed4a831c4ab1552c"
+    },
+    {
+      "tipo": "privacidade",
+      "versao": "0.1.0",
+      "ficheiro": "gov/contratos/privacidade.md",
+      "sha256": "7aa18f1208b4a4f9b833a7edd3b1cddd017c2d4d3f3c4ede01d7a8566c0396fb"
+    },
+    {
+      "tipo": "subprocessadores",
+      "versao": "0.1.0",
+      "ficheiro": "docs/publico/subprocessadores.md",
+      "sha256": "e6f0fa65bd2c00caf4c8856b557cc85159f9ea2359a93563ac75e16478d63d4c"
+    },
+    {
+      "tipo": "tos",
+      "versao": "0.1.0",
+      "ficheiro": "gov/contratos/tos.md",
+      "sha256": "827bb0342c327e919ec591f3093edf80c349b1a1a1bc3f81a58aa68519ed0c45"
+    }
+  ]
+}

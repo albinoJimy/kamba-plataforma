@@ -938,7 +938,20 @@ class TestDowngradeDa0003(unittest.TestCase):
         # inteira; e o que as linhas abaixo verificam.
         self.assertEqual(_estado_da_0003(self.cursor)["tabelas"], TABELAS_ATE_0003)
         self.assertEqual(len(_estado_da_0003(self.cursor)["politicas"]), 3)
-        self.assertEqual({tabela: self.linhas(tabela) for tabela in contagens}, antes)
+        # As linhas comparam-se **pelas colunas que existem na `0003`**: as
+        # revisoes acima dela descem e confirmam antes de esta recusar (a nota
+        # acima), e a `0040` (KAM-090) tira a `tenants.primeira_activacao_at`
+        # ao descer. Os valores das colunas que ficam e que nao podem mudar.
+        depois = {tabela: self.linhas(tabela) for tabela in contagens}
+        recortado = {
+            tabela: [
+                {coluna: valor for coluna, valor in linha.items()
+                 if not depois[tabela] or coluna in depois[tabela][0]}
+                for linha in linhas
+            ]
+            for tabela, linhas in antes.items()
+        }
+        self.assertEqual(depois, recortado)
 
     def test_basta_uma_linha_em_qualquer_das_tres_tabelas(self) -> None:
         """Um contacto sem endpoints tambem e identidade que o passo apagaria."""

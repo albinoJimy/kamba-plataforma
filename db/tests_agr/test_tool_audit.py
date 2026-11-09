@@ -159,6 +159,9 @@ class _ComTls(ComAgr):
         tenant. Registada **depois** do `super().setUp()`, pelo que corre
         **antes** daquele — o `addCleanup` e LIFO.
         """
+        # Desde a revisao 0040 (KAM-090) o gate de activacao exige o aceite
+        # das versoes vigentes dos quatro documentos.
+        factories.aceitar_contratos_vigentes(self.semente, conversa.tenant_id)
         self.semente.execute(
             "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s",
             (conversa.tenant_id,),
@@ -329,6 +332,9 @@ class TestPipelineReal(_ComTls):
         outra = self.criar_conversa()
         # Sem entitlement nenhum: o tenant fica em `ativo` para que o que nega
         # seja a **ausencia de linha** e nao o estado do tenant.
+        # Desde a revisao 0040 (KAM-090) o gate de activacao exige o aceite
+        # das versoes vigentes dos quatro documentos.
+        factories.aceitar_contratos_vigentes(self.semente, outra.tenant_id)
         self.semente.execute(
             "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s",
             (outra.tenant_id,),

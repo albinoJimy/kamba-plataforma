@@ -181,3 +181,72 @@ def endpoint_telefone(cursor, tenant_id: str, contact_id: str, dek_id: str, **ca
     }
     valores.update(campos)
     return _inserir(cursor, "contact_endpoints", valores, devolver="id")
+
+
+#: As versoes de ensaio dos quatro documentos do KAM-090. **Publicadas so se
+#: nao houver versao vigente desse tipo**, e com uma `vigente_desde` no ano 2000:
+#: qualquer versao que um ensaio publique a seguir fica mais recente e passa a
+#: ser a vigente — que e o que os ensaios de versao nova precisam.
+VERSAO_DE_ENSAIO = "0.0.1"
+VIGENCIA_DE_ENSAIO = "2000-01-01T00:00:00+00:00"
+
+
+def aceitar_contratos_vigentes(cursor, tenant_id: str) -> None:
+    """Grava o aceite das versoes vigentes dos quatro documentos (KAM-090).
+
+    Desde a revisao `0040`, `tenants.estado = 'ativo'` falha por restricao de
+    BD sem esse aceite — «tenant sem DPA aceite nao activa». Um ensaio de outro
+    ticket que precise de um tenant `ativo` chama isto antes do `UPDATE`.
+
+    Corre como **administrador**: publica (o que so o `kamba_batch` faz) e
+    aceita (o que so o `kamba_app` faz) na mesma transaccao. Passa pelo
+    *trigger* do aceite como qualquer outro `INSERT` — a hora, a evidencia e a
+    exigencia da versao vigente sao as da base, e nao deste auxiliar. O
+    `onboarding_id` e o proprio `tenant_id`: um caso por tenant.
+
+    As duas metades estao separadas (`publicar_versoes_de_ensaio` e
+    `aceitar_vigentes`) para quem crie o tenant pela ligacao da **aplicacao**:
+    ela aceita mas nao publica, pelo que as versoes se publicam antes por uma
+    ligacao de administrador que confirme.
+    """
+    publicar_versoes_de_ensaio(cursor)
+    aceitar_vigentes(cursor, tenant_id)
+
+
+def publicar_versoes_de_ensaio(cursor) -> None:
+    """Publica a versao de ensaio de cada tipo que nao tenha versao vigente."""
+    for tipo in ("dpa", "privacidade", "subprocessadores", "tos"):
+        conteudo = f"Documento de ensaio ({tipo}). [A CONFIRMAR POR PARECER]\n"
+        cursor.execute(
+            """
+            INSERT INTO platform.contract_document
+                   (tipo, versao, sha256, conteudo, vigente_desde, publicado_em)
+            SELECT %s, %s, sha256(convert_to(%s, 'UTF8')), %s, %s, %s
+             WHERE NOT EXISTS (
+                     SELECT 1 FROM platform.contract_document
+                      WHERE tipo = %s AND vigente_desde <= now())
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                tipo, VERSAO_DE_ENSAIO, conteudo, conteudo,
+                VIGENCIA_DE_ENSAIO, VIGENCIA_DE_ENSAIO, tipo,
+            ),
+        )
+
+
+def aceitar_vigentes(cursor, tenant_id: str) -> None:
+    """Grava o aceite das versoes vigentes, pelo papel do `cursor`."""
+    cursor.execute(
+        """
+        INSERT INTO platform.contract_acceptance
+               (onboarding_id, tenant_id, document_id, versao, doc_sha256,
+                signatario_ref, otp_challenge_id, evidence_hash)
+        SELECT %s, %s, v.document_id, v.versao, v.sha256, %s, %s, ''::bytea
+          FROM (SELECT DISTINCT ON (tipo) document_id, versao, sha256
+                  FROM platform.contract_document
+                 WHERE vigente_desde <= now()
+                 ORDER BY tipo, vigente_desde DESC) AS v
+        ON CONFLICT ON CONSTRAINT contract_acceptance_aceite_uq DO NOTHING
+        """,
+        (tenant_id, tenant_id, str(uuid.uuid4()), str(uuid.uuid4())),
+    )

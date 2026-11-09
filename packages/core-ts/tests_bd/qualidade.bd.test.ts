@@ -56,6 +56,7 @@ import {
 } from "../src/qualidade/index.ts";
 import {
   BASE_DESCARTAVEL,
+  activarTenant,
   apagarTenant,
   criarCanal,
   criarTenant,
@@ -1014,9 +1015,7 @@ describe("a gestao de canal contra a base", () => {
       // Escrito pelo **administrador** de propósito: o `kamba_app` não tem
       // `UPDATE (estado)` em `platform.tenants` — a revisão `0007` retirou-lho,
       // e é essa mesma retirada que deixa a caixa do critério 3 vazia.
-      await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [
-        tenantA,
-      ]);
+      await activarTenant(admin, tenantA);
     });
 
     it("**com o tenant e o canal ativos, o template sai**: o controlo", async () => {

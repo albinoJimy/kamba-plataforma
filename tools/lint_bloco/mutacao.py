@@ -174,7 +174,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # **Quinta vez: 47 -> 48, com o KAM-083** (96 medidos).
 
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 48", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 50", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
