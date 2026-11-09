@@ -72,7 +72,7 @@ alvos raspados são `gwy:3010`, `com:3002` e `agr:8000`.
    métricas (`entrada.ts` 3013, `publicador.ts` 3011, `consumidor.ts` 3012 e
    `agr_shim.ts`) **não são o que o compose corre**, e o `prometheus.yml` não tem
    alvo para elas. Medido. Credor: o ticket que decidir qual processo do
-   `worker-canal` o compose corre.
+   `worker-canal` o compose corre — o **KAM-187**.
 3. **Uma paragem do próprio Prometheus subconta o orçamento.** Sem avaliação não
    há amostra, e `avg_over_time` ignora o intervalo em falta — pelo que a pior
    avaria possível, o anfitrião todo em baixo, é a única que este SLI não vê. O
@@ -92,7 +92,7 @@ não a série que o mediria — essa é o que falta, e está na última coluna.
 | # | SLI | Numerador / denominador | SLO | Orçamento | Fonte (§10) | O que falta, e o credor |
 |---|---|---|---|---|---|---|
 | 2 | Ack do webhook < 500 ms | pedidos com ack < 500 ms / pedidos aceites | 99,9% | 0,1% | `E1`, doc 00 | **Não há histograma de ingress.** O `gwy_enqueue_ms` é um *gauge* do **último** enfileiramento; um percentil exige `_bucket`, e uma fracção de amostras do último valor é uma amostragem enviesada e não o predicado. Credor: o ticket que der histogramas ao módulo `entrada` |
-| 3 | Perda de mensagens | ids aceites sem desfecho após 15 min / ids aceites | **0** | 0 | — | **Duas faltas.** O `inbound_events_total{desfecho}` (`registado`, `duplicado`, `recuperado`) existe e é servido pelo `entrada.ts`, que **não é** o que o compose corre (ver §2.1, limite 2); e a correlação *por id* entre aceite e desfecho não é expressável em métricas agregadas — sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (dicionário, emendas 1.21 e 1.25). Credor: o ticket que decidir o processo do `worker-canal`, e o KAM-110 para a consulta |
+| 3 | Perda de mensagens | ids aceites sem desfecho após 15 min / ids aceites | **0** | 0 | — | **Duas faltas.** O `inbound_events_total{desfecho}` (`registado`, `duplicado`, `recuperado`) existe e é servido pelo `entrada.ts`, que **não é** o que o compose corre (ver §2.1, limite 2); e a correlação *por id* entre aceite e desfecho não é expressável em métricas agregadas — sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (dicionário, emendas 1.21 e 1.25). Credor: o ticket que decidir o processo do `worker-canal` (o **KAM-187**), e o KAM-110 para a consulta |
 | 4 | Latência de resposta p95 | turnos ≤ alvo / turnos | texto ≤ **8 s**; voz ≤ **12 s** | 5% acima do alvo | doc 00 §9 | **O p95 não é computável e a modalidade não é distinguível.** O AGR não tem histogramas, por **ADR-018** («observabilidade leve»), escrito no próprio `metricas.py`; o `agr_turn_latency_ms` é o valor do último turno. E não há etiqueta de modalidade que separe texto de voz — criá-la é uma emenda ao dicionário. O KAM-080 nomeou o KAM-082 credor do quantil; **este ticket mede-o e devolve-o**, porque dar histogramas ao AGR é contrariar um ADR em vigor, e isso é do **fundador** |
 | 5 | Callback → cliente notificado | notificações ≤ alvo / callbacks aceites | p95 ≤ **30 s**; p99 ≤ **2 min** | 1% | `04` | O módulo `hnd` não é importado por nenhum serviço, e «reconciliados» não tem métrica nenhuma. Credor: o ticket que ligar o módulo `hnd` |
 | 6 | Reconciliação por reconhecer | idade do mais antigo por reconciliar | ≤ **15 min** | — | `E2` (*polling*) | Não há métrica de reconciliação de pagamentos. Credor: o ticket que ligar o módulo `hnd` |
@@ -303,3 +303,4 @@ modelo e não um relatório: não há 30 dias de operação para relatar.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-082**. Os 8 SLI do doc 09 §10 definidos com numerador, denominador, janela, fonte, SLO e orçamento; **um** operacional e sete com credor medido. *Recording rules* do orçamento de 216 min, painel do restante, alertas de *burn rate* rápido (P2) e lento (P3), regra das janelas de manutenção nas suas três condições, e retenção do TSDB de 15d para 31d. **Devolve com credor:** a ligação do estado `congelado` ao *gate* 16 (o fundador) e a rotação de *on-call* (o fundador, e KAM-069 para o canal). | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | §2.1, limite 2, e §2.2, linha 3: o credor «o ticket que decidir qual processo do `worker-canal` o compose corre» ganha o número — o **KAM-187**. Nenhum SLI, SLO nem orçamento muda. | Equipa KAMBÁ |

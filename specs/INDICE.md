@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.54
+**Versão do conjunto:** 1.55
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **185 tickets atómicos (KAM-001 a KAM-185)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **188 tickets atómicos (KAM-001 a KAM-188)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -51,16 +51,16 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 |------|-------|-------------|------|
 | EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185 | 65 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
-| EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184 | 18 | 0–1 |
+| EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186 | 19 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179 | 14 | 0–1 |
 | EPIC-05 Pagamentos e Billing | KAM-052 – KAM-060, KAM-175 | 10 | 0–1 |
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064 | 4 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149 | 13 | 0–1 |
-| EPIC-08 Topologia e Operação | KAM-075 – KAM-085 | 11 | 0–1 |
+| EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-185** | **185** | — |
+| **TOTAL** | **KAM-001 – KAM-188** | **188** | — |
 
 ### 3.2 Fases
 
@@ -189,6 +189,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-040 | Dataset golden PT-AO sintético e eval harness como gate | feature | L | P0 | 1 | KAM-031, KAM-035, KAM-033, KAM-034 |
 | KAM-114 | Modo concierge: a IA rascunha e o humano aprova | feature | M | P0 | 1 | KAM-018, KAM-031, KAM-034 |
 | KAM-184 | Consumo dos eventos de pagamento na vertical Serviços: a acção, a origem do `booking_id` e o credor do `ACCOES_POR_LIGAR` | feature | M | P0 | 0 | KAM-035, KAM-047 |
+| KAM-186 | O processo do AGR liga a porta `grafos` e serve turnos | feature | L | P0 | 0 | KAM-027, KAM-031, KAM-035, KAM-178 |
 
 ### EPIC-04 — Core de Comércio
 
@@ -266,6 +267,8 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-083 | Runbooks operacionais (Meta, facilitador, LLM, rating, free tier, tokens, segredos) | chore | M | P0 | 1 | KAM-080, KAM-021, KAM-023, KAM-017, KAM-079 |
 | KAM-084 | Teste de carga e validação do dimensionamento | chore | M | P1 | 1 | KAM-076, KAM-013, KAM-015, KAM-025, KAM-031, KAM-024 |
 | KAM-085 | Simulacro de recuperação (DR drill) com RTO medido | chore | M | P0 | 1 | KAM-079 |
+| KAM-187 | O compose de produção corre os consumidores do `worker-canal` | feature | L | P0 | 0 | KAM-076, KAM-080, KAM-013, KAM-025 |
+| KAM-188 | O teste de carga repete-se no *host* P0 | chore | M | P1 | 1 | KAM-084, KAM-077, KAM-186, KAM-187 |
 
 ### EPIC-09 — Onboarding e Governação
 
@@ -300,7 +303,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-105 | Decisão de alojamento D1 e procedimento APD | chore | M | P0 | 0 | KAM-104 |
 | KAM-106 | Canais de acesso a PMEs e 30 entrevistas (H1, H2) | chore | L | P0 | 0 | — |
 | KAM-107 | Spike de voz PT-AO: WER e latência de dois STT com áudio real | spike | M | P1 | 1 | KAM-030 |
-| KAM-108 | Gate da Fase 0: demonstração do esqueleto andante | chore | M | P0 | 0 | KAM-039, KAM-055, KAM-046, KAM-041, KAM-100, KAM-101, KAM-102, KAM-184 |
+| KAM-108 | Gate da Fase 0: demonstração do esqueleto andante | chore | M | P0 | 0 | KAM-039, KAM-055, KAM-046, KAM-041, KAM-100, KAM-101, KAM-102, KAM-184, KAM-186, KAM-187 |
 | KAM-109 | Piloto concierge e medição de H1, H6, H8 e H9 | chore | L | P0 | 1 | KAM-094, KAM-108, KAM-069, KAM-074, KAM-022, KAM-018, KAM-112, KAM-114, KAM-113 |
 | KAM-110 | Gate do Piloto: decisão continuar, pivô ou parar | chore | S | P0 | 1 | KAM-109, KAM-074, KAM-085, KAM-040, KAM-082, KAM-083, KAM-105, KAM-069, KAM-103, KAM-106, KAM-113 |
 
@@ -411,3 +414,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.52 | Novembro 2026 | **KAM-183** acrescentado ao **EPIC-01**, e **entregue no mesmo PR** — como o KAM-173 e o KAM-179, e ao contrário do KAM-180. **Nasce de um escape medido duas vezes numa semana:** um bloco de ticket diz se um critério está cumprido na lista de caixas **e** na coluna `Estado` da tabela de verificação, as duas podem discordar, e nenhum dos onze *jobs* de gate as compara. O KAM-082 abriu com quatro linhas `marcada` e **zero** `- [x]` em doze; antes dele, um bloco fundiu com «1 erro de conteúdo» na caixa e «3» na prosa do mesmo bloco. **E a medição mudou o desenho antes da primeira linha:** a regra óbvia punha **121 dos 125** blocos com secção de verificação a vermelho, porque não há uma convenção — a coluna de `Estado` usa **52 primeiras-palavras distintas**, `marcada` é minoria (110 células contra 646 de `satisfeito`), o cabeçalho tem mais de uma dúzia de formas e **19 tabelas não têm coluna de `Estado`**. Entrega-se a comparação **par a par** (uma troca entre duas caixas deixa o total igual e é apanhada), com o vocabulário em três listas — a terceira, **sem classe**, é a que recusa julgar o que o canon não decidiu — e com a **cobertura na própria saída**: 53 blocos emparelhados de 182, e os não medidos agrupados por categoria. **Devolvem-se três regras com a taxa de alarme de cada uma**: a do pedido original tal como escrita (121/125), a estrutural (23% dos emparelhados) e a dos números dentro de uma caixa (**25%** dos pares com números), que é a que teria apanhado o escape de ontem — dito sem rodeios no §6 do `../docs/lint-bloco.md`. Mais a unificação do vocabulário, que é canon. As **29** divergências medidas em 7 blocos ficam em `../ci/bloco-allow.yaml` com credor, e **não se corrigem**: a caixa segue a tabela, e a tabela é a evidência daquele ticket e não deste. O *lint* fica **sem portão**. | Equipa KAMBÁ |
 | 1.53 | Novembro 2026 | **KAM-184** acrescentado ao **EPIC-03**, e **não entregue no mesmo PR**: o que se entrega é o ticket. Vem do achado do KAM-108 ao preparar o *gate* da Fase 0 — a linha **1.6** da checklist está em `não` e **não tem credor vivo**: dois no código (KAM-047, KAM-035) e um no esquema (KAM-007, nomeado pela secção de verificação do KAM-039 e por nenhum ficheiro de `contratos/`), todos com *merge* na `main`. Verificado de forma independente em `fe40048` e reconfirmado em `ca5cac5`, incluindo que **nenhum dos dois eventos de pagamento leva `booking_id`** nas **duas** versões de cada. É independente do KAM-055. | Equipa KAMBÁ |
 | 1.54 | Novembro 2026 | **KAM-185** acrescentado ao **EPIC-01**, e **entregue no mesmo PR**, como os outros tickets da *skill* (KAM-162, KAM-165, KAM-168, KAM-171). **Nasce do lote de 2026-11-08:** cinco tickets em cinco epics colidiram nas três superfícies que atravessam os epics — duas `0037` em dois PRs, três PRs na 1.68 do dicionário, o piso do `lint_bloco` — e fundiram um de cada vez. Entrega dois guiões na *skill*, sem portão e com `.github/` intocado. | Equipa KAMBÁ |
+| 1.55 | Novembro 2026 | **KAM-186**, **KAM-187** e **KAM-188** acrescentados — o primeiro ao **EPIC-03**, os outros dois ao **EPIC-08** — e **não entregues no mesmo PR**: o que se entrega são os tickets, como no KAM-178 e no KAM-184. **Nascem de três credores sem número**, medidos na `main` em `e20e4953`. O AGR responde 503 a todo o turno que chega ao grafo (`services/agr/src/kamba_agr/__main__.py:715` passa `grafos=sem_grafos`), e «quem ligar a porta `grafos`» é credor em blocos fechados do EPIC-03 (KAM-031, KAM-033, KAM-034, KAM-037), no `docs/agr.md`, no `docs/concierge.md` — onde apontava para o KAM-027, fechado — e no `ADR-L005`. Nenhum compose corre os consumidores do `worker-canal`, porque o `CMD` da imagem é o `server.ts`: credor sem número do critério 3 do KAM-082 e do `ops/slo.md`. E o ramo do KAM-084 (`feature/KAM-084-teste-de-carga`, por fundir) mede numa estação de trabalho de 8 vCPU e 7,6 GiB, sem o *host* P0 que o critério 2 dele nomeia e sem turnos. **Superfícies:** as três linhas do §4, o §3.1 — o EPIC-03 com **19**, o EPIC-08 com **13** e o TOTAL a `KAM-001 – KAM-188` com **188** — e o §1. **Arestas recíprocas:** o `Dependências` do **KAM-108** ganha o KAM-186 e o KAM-187, porque o G0-1 corre com a Meta real e precisa de um AGR que sirva turnos e de uma pilha que consuma a fila — a mesma aresta que o KAM-184 declarou; o `Bloqueia` do KAM-027, do KAM-031, do KAM-035 e do KAM-178 ganha o KAM-186, o do KAM-013, do KAM-025, do KAM-076 e do KAM-080 o KAM-187, e o do KAM-077 e do KAM-084 o KAM-188. **O KAM-186 não declara o KAM-033, o KAM-034, o KAM-037 nem o KAM-114**, cujas portas consome: são de Fase 1, a aresta seria uma inversão de fase, e os quatro já fundiram. Total: 188 tickets em 11 epics. | Equipa KAMBÁ |
