@@ -1,0 +1,12 @@
+{"cenario": "B2", "passo": "deteccao", "evento": "nao_medido", "nota": "humano: quem nota o total a zero (no ensaio, 60 s depois do erro)"}
+{"cenario": "B2", "passo": "decisao", "evento": "nao_medido", "nota": "humano: escolher o instante T a partir do registo da migracao"}
+{"cenario": "B2", "passo": "iac", "evento": "nao_medido", "nota": "nao ha fornecedor nem modulo de IaC (KAM-075/D1); o host do ensaio e um contentor, cronometrado a parte em iac_emulado e fora do RTO"}
+{"cenario": "B2", "passo": "iac_emulado", "evento": "inicio", "em": "2026-11-08T22:58:52.295671Z", "nota": "contentor novo no mesmo motor e volume novo"}
+{"cenario": "B2", "passo": "iac_emulado", "evento": "fim", "em": "2026-11-08T22:58:54.412198Z"}
+{"cenario": "B2", "passo": "restauro", "evento": "inicio", "em": "2026-11-08T22:58:54.415131Z", "nota": "PITR para T = 2026-11-08 22:57:05.789020+00 (instante lido na base antes da migracao)"}
+{"cenario": "B2", "passo": "restauro", "evento": "fim", "em": "2026-11-08T22:59:00.094173Z"}
+{"cenario": "B2", "passo": "replay", "evento": "inicio", "em": "2026-11-08T22:59:02.167345Z", "nota": "arranque com o recovery.signal do pgBackRest ate pg_is_in_recovery() = f"}
+{"cenario": "B2", "passo": "replay", "evento": "fim", "em": "2026-11-08T22:59:04.320381Z"}
+{"cenario": "B2", "passo": "verificacao", "evento": "inicio", "em": "2026-11-08T22:59:04.321857Z", "nota": "contagens por tabela nas quatro bases, cadeia do audit_log, marcadores"}
+{"cenario": "B2", "passo": "verificacao", "evento": "fim", "em": "2026-11-08T22:59:07.076805Z"}
+{"cenario": "B2", "passo": "dns", "evento": "nao_medido", "nota": "nao ha DNS nem TTL configurados (KAM-075/D1)"}

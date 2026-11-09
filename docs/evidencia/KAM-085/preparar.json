@@ -1,0 +1,109 @@
+{
+  "carga": {
+    "linhas": 10800000,
+    "segundos": 2690.614152599999,
+    "bytes": 22185517353
+  },
+  "backup_completo_segundos": 484.28473390004365,
+  "contencao_no_backup": [
+    {
+      "nome": "kamba-fila-9363a226",
+      "cpu": "0.33%",
+      "memoria": "9.477MiB / 7.601GiB"
+    },
+    {
+      "nome": "kamba-gate8-9363a226",
+      "cpu": "0.00%",
+      "memoria": "65.84MiB / 7.601GiB"
+    }
+  ],
+  "info": [
+    {
+      "archive": [
+        {
+          "database": {
+            "id": 1,
+            "repo-key": 1
+          },
+          "id": "18-1",
+          "max": "0000000100000004000000F7",
+          "min": "0000000100000004000000F2"
+        }
+      ],
+      "backup": [
+        {
+          "archive": {
+            "start": "0000000100000004000000F3",
+            "stop": "0000000100000004000000F7"
+          },
+          "backrest": {
+            "format": 5,
+            "version": "2.60.0"
+          },
+          "database": {
+            "id": 1,
+            "repo-key": 1
+          },
+          "error": false,
+          "info": {
+            "delta": 22185579103,
+            "repository": {
+              "delta": 19861006512,
+              "size": 19861006512
+            },
+            "size": 22185579103
+          },
+          "label": "20261108-222809F",
+          "lsn": {
+            "start": "4/F3000028",
+            "stop": "4/F7000050"
+          },
+          "prior": null,
+          "reference": null,
+          "timestamp": {
+            "start": 1794176889,
+            "stop": 1794177373
+          },
+          "type": "full"
+        }
+      ],
+      "cipher": "aes-256-cbc",
+      "db": [
+        {
+          "id": 1,
+          "repo-key": 1,
+          "system-id": 7705919282714615858,
+          "version": "18"
+        }
+      ],
+      "name": "kamba",
+      "repo": [
+        {
+          "cipher": "aes-256-cbc",
+          "key": 1,
+          "status": {
+            "code": 0,
+            "message": "ok"
+          }
+        }
+      ],
+      "status": {
+        "code": 0,
+        "lock": {
+          "backup": {
+            "held": false
+          },
+          "restore": {
+            "held": false
+          }
+        },
+        "message": "ok"
+      }
+    }
+  ],
+  "exportacao": {
+    "ficheiro": "kamba-simulacro-20261108T223614Z.json.gpg",
+    "segredos": 9
+  },
+  "repositorio_bytes": 19865305520
+}

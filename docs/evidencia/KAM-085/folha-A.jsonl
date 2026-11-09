@@ -1,0 +1,11 @@
+{"cenario": "A", "passo": "deteccao", "evento": "nao_medido", "nota": "humano; e o alerta do WAL nao e servido por nenhum processo (KAM-079, criterio 2): no ensaio a falha e conhecida por construcao"}
+{"cenario": "A", "passo": "decisao", "evento": "nao_medido", "nota": "humano: declarar o incidente e escolher o restauro (RB-K08)"}
+{"cenario": "A", "passo": "iac", "evento": "inicio", "em": "2026-11-08T22:42:01.641608Z", "nota": "emulado: contentor novo no mesmo motor e volume novo; nao e IaC (KAM-075/D1)"}
+{"cenario": "A", "passo": "iac", "evento": "fim", "em": "2026-11-08T22:42:03.686529Z"}
+{"cenario": "A", "passo": "restauro", "evento": "inicio", "em": "2026-11-08T22:42:03.735005Z", "nota": "pgbackrest restore ate ao fim do WAL arquivado; repositorio so de leitura"}
+{"cenario": "A", "passo": "restauro", "evento": "fim", "em": "2026-11-08T22:47:05.942236Z"}
+{"cenario": "A", "passo": "replay", "evento": "inicio", "em": "2026-11-08T22:47:08.744376Z", "nota": "arranque com o recovery.signal do pgBackRest ate pg_is_in_recovery() = f"}
+{"cenario": "A", "passo": "replay", "evento": "fim", "em": "2026-11-08T22:47:11.772017Z"}
+{"cenario": "A", "passo": "verificacao", "evento": "inicio", "em": "2026-11-08T22:47:11.773581Z", "nota": "contagens por tabela nas quatro bases, cadeia do audit_log, marcadores"}
+{"cenario": "A", "passo": "verificacao", "evento": "fim", "em": "2026-11-08T22:48:00.885142Z"}
+{"cenario": "A", "passo": "dns", "evento": "nao_medido", "nota": "nao ha DNS nem TTL configurados (KAM-075/D1)"}

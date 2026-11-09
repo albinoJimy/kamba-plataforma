@@ -1,0 +1,287 @@
+{
+  "cenario": "A",
+  "passos": [
+    {
+      "passo": "deteccao",
+      "segundos": null,
+      "razao": "humano; e o alerta do WAL nao e servido por nenhum processo (KAM-079, criterio 2): no ensaio a falha e conhecida por construcao"
+    },
+    {
+      "passo": "decisao",
+      "segundos": null,
+      "razao": "humano: declarar o incidente e escolher o restauro (RB-K08)"
+    },
+    {
+      "passo": "iac",
+      "segundos": 2.044921,
+      "razao": ""
+    },
+    {
+      "passo": "restauro",
+      "segundos": 302.207231,
+      "razao": ""
+    },
+    {
+      "passo": "replay",
+      "segundos": 3.027641,
+      "razao": ""
+    },
+    {
+      "passo": "verificacao",
+      "segundos": 49.111561,
+      "razao": ""
+    },
+    {
+      "passo": "dns",
+      "segundos": null,
+      "razao": "nao ha DNS nem TTL configurados (KAM-075/D1)"
+    }
+  ],
+  "rubricas": [
+    {
+      "rubrica": "deteccao",
+      "orcado_min": 10.0,
+      "medido_min": null,
+      "por_medir": [
+        "deteccao"
+      ],
+      "divergencia_pct": null
+    },
+    {
+      "rubrica": "decisao",
+      "orcado_min": 10.0,
+      "medido_min": null,
+      "por_medir": [
+        "decisao"
+      ],
+      "divergencia_pct": null
+    },
+    {
+      "rubrica": "iac",
+      "orcado_min": 30.0,
+      "medido_min": 0.034082016666666666,
+      "por_medir": [],
+      "divergencia_pct": -99.88639327777778
+    },
+    {
+      "rubrica": "restauro",
+      "orcado_min": 30.0,
+      "medido_min": 5.036787183333333,
+      "por_medir": [],
+      "divergencia_pct": -83.21070938888889
+    },
+    {
+      "rubrica": "replay",
+      "orcado_min": 10.0,
+      "medido_min": 0.05046068333333333,
+      "por_medir": [],
+      "divergencia_pct": -99.49539316666667
+    },
+    {
+      "rubrica": "verificacao_e_dns",
+      "orcado_min": 15.0,
+      "medido_min": 0.8185260166666667,
+      "por_medir": [
+        "dns"
+      ],
+      "divergencia_pct": null
+    }
+  ],
+  "rto_medido_min": 5.9398558999999995,
+  "rto_composto_min": 40.12132988333333,
+  "orcamento_no_composto": [
+    "deteccao: 10.0 min de orcamento (deteccao)",
+    "decisao: 10.0 min de orcamento (decisao)",
+    "verificacao_e_dns: 14.2 min de orcamento (dns)"
+  ],
+  "repetir_cenario_a": false,
+  "rpo": {
+    "segundos": 29.996069,
+    "perdidos": 30,
+    "sem_confirmacao": 0,
+    "buracos": [],
+    "ultimo_confirmado": [
+      323,
+      "2026-11-08 22:41:44.189056+00:00"
+    ],
+    "ultimo_restaurado": [
+      293,
+      "2026-11-08 22:41:14.192987+00:00"
+    ],
+    "confirmados": 323,
+    "restaurados": 293
+  },
+  "falha_em": "2026-11-08 22:41:44.241555+00:00",
+  "pgdata_bytes": 22185730797,
+  "contencao": {
+    "antes": [
+      {
+        "nome": "kamba-fila-9363a226",
+        "cpu": "0.20%",
+        "memoria": "9.25MiB / 7.601GiB"
+      },
+      {
+        "nome": "kamba-gate8-9363a226",
+        "cpu": "0.00%",
+        "memoria": "65.26MiB / 7.601GiB"
+      }
+    ],
+    "depois_do_restauro": [
+      {
+        "nome": "kamba-fila-9363a226",
+        "cpu": "0.22%",
+        "memoria": "9.812MiB / 7.601GiB"
+      },
+      {
+        "nome": "kamba-gate8-9363a226",
+        "cpu": "0.00%",
+        "memoria": "65.78MiB / 7.601GiB"
+      }
+    ]
+  },
+  "sossego": {
+    "sossegado": true,
+    "amostras": [
+      0.3,
+      0.2,
+      0.3
+    ]
+  },
+  "antes": {
+    "kamba_platform:dr_simulacro.efeito": 0,
+    "kamba_platform:dr_simulacro.encomenda": 0,
+    "kamba_platform:dr_simulacro.marcador": 267,
+    "kamba_platform:platform.audit_heads": 2,
+    "kamba_platform:platform.audit_log": 1202,
+    "kamba_platform:platform.channel_coexistence": 0,
+    "kamba_platform:platform.channel_onboarding": 0,
+    "kamba_platform:platform.channel_quality_log": 0,
+    "kamba_platform:platform.consent_event": 0,
+    "kamba_platform:platform.consent_texts": 0,
+    "kamba_platform:platform.contact_deks": 0,
+    "kamba_platform:platform.contact_endpoints": 0,
+    "kamba_platform:platform.contacts": 0,
+    "kamba_platform:platform.conversations": 0,
+    "kamba_platform:platform.draft_decisions": 0,
+    "kamba_platform:platform.dsar_requests": 0,
+    "kamba_platform:platform.entitlements": 0,
+    "kamba_platform:platform.erasure_ledger": 0,
+    "kamba_platform:platform.events_consumed": 0,
+    "kamba_platform:platform.events_dlq": 0,
+    "kamba_platform:platform.events_log": 0,
+    "kamba_platform:platform.events_log_default": 0,
+    "kamba_platform:platform.events_outbox": 0,
+    "kamba_platform:platform.evt_acoes": 0,
+    "kamba_platform:platform.evt_agregado_seq": 0,
+    "kamba_platform:platform.evt_dlq_aprovacoes": 0,
+    "kamba_platform:platform.evt_subscricoes": 0,
+    "kamba_platform:platform.fraud_signals": 0,
+    "kamba_platform:platform.handoff_accounts": 0,
+    "kamba_platform:platform.handoffs": 0,
+    "kamba_platform:platform.hmac_key_versions": 0,
+    "kamba_platform:platform.inbound_events": 0,
+    "kamba_platform:platform.manual_confirmations": 0,
+    "kamba_platform:platform.media_assets": 0,
+    "kamba_platform:platform.message_templates": 0,
+    "kamba_platform:platform.offer_terms": 0,
+    "kamba_platform:platform.order_intents": 0,
+    "kamba_platform:platform.order_reconciliation_issues": 0,
+    "kamba_platform:platform.order_state_graph": 12,
+    "kamba_platform:platform.order_state_log": 0,
+    "kamba_platform:platform.orders_mirror": 0,
+    "kamba_platform:platform.outbound_messages": 0,
+    "kamba_platform:platform.owner_contacts": 0,
+    "kamba_platform:platform.owner_notices": 0,
+    "kamba_platform:platform.payment_accounts": 0,
+    "kamba_platform:platform.payment_callbacks_inbox": 0,
+    "kamba_platform:platform.payment_charges": 0,
+    "kamba_platform:platform.payment_confirmers": 0,
+    "kamba_platform:platform.payment_events": 0,
+    "kamba_platform:platform.payment_outbox_map": 7,
+    "kamba_platform:platform.price_quotes": 0,
+    "kamba_platform:platform.provisioning_step": 0,
+    "kamba_platform:platform.refund_cases": 0,
+    "kamba_platform:platform.stock_reservations": 0,
+    "kamba_platform:platform.tenant_channels": 0,
+    "kamba_platform:platform.tenant_destinations": 0,
+    "kamba_platform:platform.tenant_usage": 0,
+    "kamba_platform:platform.tenants": 1,
+    "kamba_platform:platform.tool_audit": 0,
+    "kamba_platform:platform.tool_idempotency": 0,
+    "kamba_platform:platform.unrouted_events": 0,
+    "kamba_platform:platform.usage_ledger": 0,
+    "kamba_platform:public.alembic_version": 1,
+    "kamba_simulacro_carga:public.carga": 10800000
+  },
+  "contagens": {
+    "kamba_platform:dr_simulacro.efeito": 0,
+    "kamba_platform:dr_simulacro.encomenda": 0,
+    "kamba_platform:dr_simulacro.marcador": 293,
+    "kamba_platform:platform.audit_heads": 2,
+    "kamba_platform:platform.audit_log": 1202,
+    "kamba_platform:platform.channel_coexistence": 0,
+    "kamba_platform:platform.channel_onboarding": 0,
+    "kamba_platform:platform.channel_quality_log": 0,
+    "kamba_platform:platform.consent_event": 0,
+    "kamba_platform:platform.consent_texts": 0,
+    "kamba_platform:platform.contact_deks": 0,
+    "kamba_platform:platform.contact_endpoints": 0,
+    "kamba_platform:platform.contacts": 0,
+    "kamba_platform:platform.conversations": 0,
+    "kamba_platform:platform.draft_decisions": 0,
+    "kamba_platform:platform.dsar_requests": 0,
+    "kamba_platform:platform.entitlements": 0,
+    "kamba_platform:platform.erasure_ledger": 0,
+    "kamba_platform:platform.events_consumed": 0,
+    "kamba_platform:platform.events_dlq": 0,
+    "kamba_platform:platform.events_log": 0,
+    "kamba_platform:platform.events_log_default": 0,
+    "kamba_platform:platform.events_outbox": 0,
+    "kamba_platform:platform.evt_acoes": 0,
+    "kamba_platform:platform.evt_agregado_seq": 0,
+    "kamba_platform:platform.evt_dlq_aprovacoes": 0,
+    "kamba_platform:platform.evt_subscricoes": 0,
+    "kamba_platform:platform.fraud_signals": 0,
+    "kamba_platform:platform.handoff_accounts": 0,
+    "kamba_platform:platform.handoffs": 0,
+    "kamba_platform:platform.hmac_key_versions": 0,
+    "kamba_platform:platform.inbound_events": 0,
+    "kamba_platform:platform.manual_confirmations": 0,
+    "kamba_platform:platform.media_assets": 0,
+    "kamba_platform:platform.message_templates": 0,
+    "kamba_platform:platform.offer_terms": 0,
+    "kamba_platform:platform.order_intents": 0,
+    "kamba_platform:platform.order_reconciliation_issues": 0,
+    "kamba_platform:platform.order_state_graph": 12,
+    "kamba_platform:platform.order_state_log": 0,
+    "kamba_platform:platform.orders_mirror": 0,
+    "kamba_platform:platform.outbound_messages": 0,
+    "kamba_platform:platform.owner_contacts": 0,
+    "kamba_platform:platform.owner_notices": 0,
+    "kamba_platform:platform.payment_accounts": 0,
+    "kamba_platform:platform.payment_callbacks_inbox": 0,
+    "kamba_platform:platform.payment_charges": 0,
+    "kamba_platform:platform.payment_confirmers": 0,
+    "kamba_platform:platform.payment_events": 0,
+    "kamba_platform:platform.payment_outbox_map": 7,
+    "kamba_platform:platform.price_quotes": 0,
+    "kamba_platform:platform.provisioning_step": 0,
+    "kamba_platform:platform.refund_cases": 0,
+    "kamba_platform:platform.stock_reservations": 0,
+    "kamba_platform:platform.tenant_channels": 0,
+    "kamba_platform:platform.tenant_destinations": 0,
+    "kamba_platform:platform.tenant_usage": 0,
+    "kamba_platform:platform.tenants": 1,
+    "kamba_platform:platform.tool_audit": 0,
+    "kamba_platform:platform.tool_idempotency": 0,
+    "kamba_platform:platform.unrouted_events": 0,
+    "kamba_platform:platform.usage_ledger": 0,
+    "kamba_platform:public.alembic_version": 1,
+    "kamba_simulacro_carga:public.carga": 10800000
+  },
+  "contagens_divergentes": {},
+  "cadeia": {
+    "codigo": 0,
+    "saida": "auditoria: cadeia intacta"
+  }
+}

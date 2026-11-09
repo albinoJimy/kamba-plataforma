@@ -1,0 +1,381 @@
+{
+  "cenario": "B1",
+  "passos": [
+    {
+      "passo": "deteccao",
+      "segundos": null,
+      "razao": "humano: quem nota o total a zero (no ensaio, 60 s depois do erro)"
+    },
+    {
+      "passo": "decisao",
+      "segundos": null,
+      "razao": "humano: escolher o instante T a partir do registo da migracao"
+    },
+    {
+      "passo": "iac",
+      "segundos": null,
+      "razao": "nao ha fornecedor nem modulo de IaC (KAM-075/D1); o host do ensaio e um contentor, cronometrado a parte em iac_emulado e fora do RTO"
+    },
+    {
+      "passo": "restauro",
+      "segundos": 6.467632,
+      "razao": ""
+    },
+    {
+      "passo": "replay",
+      "segundos": 2.187997,
+      "razao": ""
+    },
+    {
+      "passo": "verificacao",
+      "segundos": 2.395821,
+      "razao": ""
+    },
+    {
+      "passo": "dns",
+      "segundos": null,
+      "razao": "nao ha DNS nem TTL configurados (KAM-075/D1)"
+    },
+    {
+      "passo": "iac_emulado",
+      "segundos": 1.10676,
+      "razao": ""
+    }
+  ],
+  "rubricas": [
+    {
+      "rubrica": "deteccao",
+      "orcado_min": 10.0,
+      "medido_min": null,
+      "por_medir": [
+        "deteccao"
+      ],
+      "divergencia_pct": null
+    },
+    {
+      "rubrica": "decisao",
+      "orcado_min": 10.0,
+      "medido_min": null,
+      "por_medir": [
+        "decisao"
+      ],
+      "divergencia_pct": null
+    },
+    {
+      "rubrica": "iac",
+      "orcado_min": 30.0,
+      "medido_min": null,
+      "por_medir": [
+        "iac"
+      ],
+      "divergencia_pct": null
+    },
+    {
+      "rubrica": "restauro",
+      "orcado_min": 30.0,
+      "medido_min": 0.10779386666666667,
+      "por_medir": [],
+      "divergencia_pct": -99.6406871111111
+    },
+    {
+      "rubrica": "replay",
+      "orcado_min": 10.0,
+      "medido_min": 0.03646661666666667,
+      "por_medir": [],
+      "divergencia_pct": -99.63533383333333
+    },
+    {
+      "rubrica": "verificacao_e_dns",
+      "orcado_min": 15.0,
+      "medido_min": 0.03993035,
+      "por_medir": [
+        "dns"
+      ],
+      "divergencia_pct": null
+    },
+    {
+      "rubrica": "fora_do_rto",
+      "orcado_min": 0.0,
+      "medido_min": 0.018446,
+      "por_medir": [],
+      "divergencia_pct": null
+    }
+  ],
+  "rto_medido_min": 0.18419083333333336,
+  "rto_composto_min": 65.14426048333333,
+  "orcamento_no_composto": [
+    "deteccao: 10.0 min de orcamento (deteccao)",
+    "decisao: 10.0 min de orcamento (decisao)",
+    "iac: 30.0 min de orcamento (iac)",
+    "verificacao_e_dns: 15.0 min de orcamento (dns)"
+  ],
+  "repetir_cenario_a": false,
+  "rpo": {
+    "segundos": 63.992123,
+    "perdidos": 64,
+    "sem_confirmacao": 0,
+    "buracos": [],
+    "ultimo_confirmado": [
+      158,
+      "2026-11-08 22:58:09.767058+00:00"
+    ],
+    "ultimo_restaurado": [
+      94,
+      "2026-11-08 22:57:05.774935+00:00"
+    ],
+    "confirmados": 158,
+    "restaurados": 94
+  },
+  "alvo": "2026-11-08T22:57:05.789020Z",
+  "pgdata_bytes": 52842806,
+  "contencao": {
+    "antes": [
+      {
+        "nome": "kamba-fila-9363a226",
+        "cpu": "0.22%",
+        "memoria": "8.195MiB / 7.601GiB"
+      },
+      {
+        "nome": "kamba-gate8-9363a226",
+        "cpu": "0.00%",
+        "memoria": "65.36MiB / 7.601GiB"
+      }
+    ],
+    "depois_do_restauro": [
+      {
+        "nome": "kamba-fila-9363a226",
+        "cpu": "0.21%",
+        "memoria": "8.926MiB / 7.601GiB"
+      },
+      {
+        "nome": "kamba-gate8-9363a226",
+        "cpu": "0.57%",
+        "memoria": "65.42MiB / 7.601GiB"
+      }
+    ]
+  },
+  "reimportados": null,
+  "efeitos_internos": 90,
+  "duplicados_internos": {},
+  "efeitos_externos": 153,
+  "duplicados_externos": {},
+  "orfaos_externos": [
+    "01a1bd61-3237-75ad-843f-8cbe3c373baf",
+    "01a1bd61-3633-7591-bca4-935c9daa1a26",
+    "01a1bd61-3a2c-703d-a3be-cc355dfe82d1",
+    "01a1bd61-3e2d-7afc-b240-95f6d0351b5c",
+    "01a1bd61-4226-7ee6-b0d4-5f5133caaf3f",
+    "01a1bd61-4627-7d26-9acf-5504d6c685b6",
+    "01a1bd61-4a20-7a1a-b9b6-0f7801e063a2",
+    "01a1bd61-4e1f-7bbf-af13-1f43e314c343",
+    "01a1bd61-5223-7baf-b92c-84b9ea831db8",
+    "01a1bd61-5627-7b77-8bea-688710955df2",
+    "01a1bd61-5a21-7539-91e1-3b222439cea3",
+    "01a1bd61-5e1a-78d6-a32a-fd7fd4dedea5",
+    "01a1bd61-621c-7631-80e6-80be41c96358",
+    "01a1bd61-6625-73c0-858f-76b339c62244",
+    "01a1bd61-6a23-7152-b227-8cb587f1264a",
+    "01a1bd61-6e1a-7ef1-a9d4-e54c2c493a13",
+    "01a1bd61-7219-7dab-a8c2-4feccae238f4",
+    "01a1bd61-7612-79cb-b1be-3ed6463a572c",
+    "01a1bd61-7a0e-799a-9ae2-aa7f739922c3",
+    "01a1bd61-7e0c-735b-8b8b-b9bd8475dc14",
+    "01a1bd61-8217-71ab-800f-845cab3e83f0",
+    "01a1bd61-860f-7fcb-8725-4df00ae983bb",
+    "01a1bd61-8a0a-7d21-bcca-f432c90d106f",
+    "01a1bd61-8e02-7126-91fd-de3685e2cb45",
+    "01a1bd61-9201-7a79-9bcf-8493d708687d",
+    "01a1bd61-9620-730b-95e4-7cb6daf4bb16",
+    "01a1bd61-9a1a-77b2-872a-2baadf12aec4",
+    "01a1bd61-9e12-7c08-826a-197f777ed830",
+    "01a1bd61-a213-76e3-b12b-594af9c6bfe5",
+    "01a1bd61-a611-79e4-93d9-546cc555502e",
+    "01a1bd61-aa0b-7071-a17b-c93dabd58150",
+    "01a1bd61-ae04-750f-8b02-97d01a54a50d",
+    "01a1bd61-b1fe-7b58-be75-7548a8c1cec9",
+    "01a1bd61-b5f6-7ba8-b733-111236d463a6",
+    "01a1bd61-b9ee-7660-ba41-898d52850c25",
+    "01a1bd61-bde6-77c9-a638-fd638356e6d0",
+    "01a1bd61-c1e0-7fc3-a3f6-60cb6d8a7524",
+    "01a1bd61-c5da-78aa-b40a-b5cd8aa4513d",
+    "01a1bd61-c9d4-73b2-8a6c-769b0b5cd4d6",
+    "01a1bd61-cdcf-78fa-8986-8b266e74c8e1",
+    "01a1bd61-d1ca-7dc2-ac9a-69ff91017564",
+    "01a1bd61-d5c4-777b-b231-739d5578e6a5",
+    "01a1bd61-d9bf-71e2-a23d-cb6f1896418c",
+    "01a1bd61-ddc1-7339-bcfc-caf8d065d6a9",
+    "01a1bd61-e1cd-75a5-8023-7eee133f40cc",
+    "01a1bd61-e5c7-7e04-a6e1-981e0626fe56",
+    "01a1bd61-e9cc-7485-a3c4-2fa1b3060199",
+    "01a1bd61-edf8-783a-bb14-d48f14c68278",
+    "01a1bd61-f1f4-7f47-9e74-7ee007af34e5",
+    "01a1bd61-f5f5-7588-90e5-b4e23f56e6c6",
+    "01a1bd61-f9ee-7923-b347-786c26d878da",
+    "01a1bd61-fde7-7f66-9971-3fbd559f4daa",
+    "01a1bd62-01e0-7c8e-9548-7f12098291a3",
+    "01a1bd62-05da-74cb-b2a5-889053640d67",
+    "01a1bd62-09d2-7e42-8311-177d1f259bba",
+    "01a1bd62-0dce-73c1-9ca2-c7ed27ca9eb3",
+    "01a1bd62-11c9-75d5-80d7-155323ea1418",
+    "01a1bd62-15c3-7166-92f5-8ee4ea82e79d",
+    "01a1bd62-19bc-78dc-94ee-ddc0fbdf9bfe",
+    "01a1bd62-1dbe-7753-bf9a-101b01f3d579",
+    "01a1bd62-221d-7fc0-b277-b5ed5b7563cb",
+    "01a1bd62-2774-72ef-89c0-4c499df6c2f2",
+    "01a1bd62-2c7d-7d0c-9b71-24dc4147c674"
+  ],
+  "eventos_exportados": 63,
+  "eventos_perdidos": [
+    "01a1bd61-3237-75ad-843f-8cbe3c373baf",
+    "01a1bd61-3633-7591-bca4-935c9daa1a26",
+    "01a1bd61-3a2c-703d-a3be-cc355dfe82d1",
+    "01a1bd61-3e2d-7afc-b240-95f6d0351b5c",
+    "01a1bd61-4226-7ee6-b0d4-5f5133caaf3f",
+    "01a1bd61-4627-7d26-9acf-5504d6c685b6",
+    "01a1bd61-4a20-7a1a-b9b6-0f7801e063a2",
+    "01a1bd61-4e1f-7bbf-af13-1f43e314c343",
+    "01a1bd61-5223-7baf-b92c-84b9ea831db8",
+    "01a1bd61-5627-7b77-8bea-688710955df2",
+    "01a1bd61-5a21-7539-91e1-3b222439cea3",
+    "01a1bd61-5e1a-78d6-a32a-fd7fd4dedea5",
+    "01a1bd61-621c-7631-80e6-80be41c96358",
+    "01a1bd61-6625-73c0-858f-76b339c62244",
+    "01a1bd61-6a23-7152-b227-8cb587f1264a",
+    "01a1bd61-6e1a-7ef1-a9d4-e54c2c493a13",
+    "01a1bd61-7219-7dab-a8c2-4feccae238f4",
+    "01a1bd61-7612-79cb-b1be-3ed6463a572c",
+    "01a1bd61-7a0e-799a-9ae2-aa7f739922c3",
+    "01a1bd61-7e0c-735b-8b8b-b9bd8475dc14",
+    "01a1bd61-8217-71ab-800f-845cab3e83f0",
+    "01a1bd61-860f-7fcb-8725-4df00ae983bb",
+    "01a1bd61-8a0a-7d21-bcca-f432c90d106f",
+    "01a1bd61-8e02-7126-91fd-de3685e2cb45",
+    "01a1bd61-9201-7a79-9bcf-8493d708687d",
+    "01a1bd61-9620-730b-95e4-7cb6daf4bb16",
+    "01a1bd61-9a1a-77b2-872a-2baadf12aec4",
+    "01a1bd61-9e12-7c08-826a-197f777ed830",
+    "01a1bd61-a213-76e3-b12b-594af9c6bfe5",
+    "01a1bd61-a611-79e4-93d9-546cc555502e",
+    "01a1bd61-aa0b-7071-a17b-c93dabd58150",
+    "01a1bd61-ae04-750f-8b02-97d01a54a50d",
+    "01a1bd61-b1fe-7b58-be75-7548a8c1cec9",
+    "01a1bd61-b5f6-7ba8-b733-111236d463a6",
+    "01a1bd61-b9ee-7660-ba41-898d52850c25",
+    "01a1bd61-bde6-77c9-a638-fd638356e6d0",
+    "01a1bd61-c1e0-7fc3-a3f6-60cb6d8a7524",
+    "01a1bd61-c5da-78aa-b40a-b5cd8aa4513d",
+    "01a1bd61-c9d4-73b2-8a6c-769b0b5cd4d6",
+    "01a1bd61-cdcf-78fa-8986-8b266e74c8e1",
+    "01a1bd61-d1ca-7dc2-ac9a-69ff91017564",
+    "01a1bd61-d5c4-777b-b231-739d5578e6a5",
+    "01a1bd61-d9bf-71e2-a23d-cb6f1896418c",
+    "01a1bd61-ddc1-7339-bcfc-caf8d065d6a9",
+    "01a1bd61-e1cd-75a5-8023-7eee133f40cc",
+    "01a1bd61-e5c7-7e04-a6e1-981e0626fe56",
+    "01a1bd61-e9cc-7485-a3c4-2fa1b3060199",
+    "01a1bd61-edf8-783a-bb14-d48f14c68278",
+    "01a1bd61-f1f4-7f47-9e74-7ee007af34e5",
+    "01a1bd61-f5f5-7588-90e5-b4e23f56e6c6",
+    "01a1bd61-f9ee-7923-b347-786c26d878da",
+    "01a1bd61-fde7-7f66-9971-3fbd559f4daa",
+    "01a1bd62-01e0-7c8e-9548-7f12098291a3",
+    "01a1bd62-05da-74cb-b2a5-889053640d67",
+    "01a1bd62-09d2-7e42-8311-177d1f259bba",
+    "01a1bd62-0dce-73c1-9ca2-c7ed27ca9eb3",
+    "01a1bd62-11c9-75d5-80d7-155323ea1418",
+    "01a1bd62-15c3-7166-92f5-8ee4ea82e79d",
+    "01a1bd62-19bc-78dc-94ee-ddc0fbdf9bfe",
+    "01a1bd62-1dbe-7753-bf9a-101b01f3d579",
+    "01a1bd62-221d-7fc0-b277-b5ed5b7563cb",
+    "01a1bd62-2774-72ef-89c0-4c499df6c2f2",
+    "01a1bd62-2c7d-7d0c-9b71-24dc4147c674"
+  ],
+  "encomendas_restauradas": "90|0",
+  "encomendas_no_primario_corrompido": "153|90",
+  "pitr": {
+    "provado": true,
+    "anteriores_em_falta": [],
+    "posteriores_presentes": [],
+    "na_fronteira": []
+  },
+  "ancoras": {
+    "antes_de_T": {
+      "codigo": 0,
+      "saida": "auditoria: cadeia intacta"
+    },
+    "depois_de_T": {
+      "codigo": 2,
+      "saida": "SEV1 auditoria: 2 achado(s) na cadeia de auditoria. A cadeia e prova; um achado aqui e um incidente, nao um aviso.\n  (plataforma): o row_hash ancorado em 2026-11-08 (f07f61c0793f606e…) ja nao existe na cadeia\n  00000000-0000-4000-8000-000000000085: o row_hash ancorado em 2026-11-08 (f126b580b9897449…) ja nao existe na cadeia"
+    }
+  },
+  "contagens": {
+    "kamba_platform:dr_simulacro.efeito": 90,
+    "kamba_platform:dr_simulacro.encomenda": 90,
+    "kamba_platform:dr_simulacro.marcador": 94,
+    "kamba_platform:platform.audit_heads": 2,
+    "kamba_platform:platform.audit_log": 402,
+    "kamba_platform:platform.channel_coexistence": 0,
+    "kamba_platform:platform.channel_onboarding": 0,
+    "kamba_platform:platform.channel_quality_log": 0,
+    "kamba_platform:platform.consent_event": 0,
+    "kamba_platform:platform.consent_texts": 0,
+    "kamba_platform:platform.contact_deks": 0,
+    "kamba_platform:platform.contact_endpoints": 0,
+    "kamba_platform:platform.contacts": 0,
+    "kamba_platform:platform.conversations": 0,
+    "kamba_platform:platform.draft_decisions": 0,
+    "kamba_platform:platform.dsar_requests": 0,
+    "kamba_platform:platform.entitlements": 0,
+    "kamba_platform:platform.erasure_ledger": 0,
+    "kamba_platform:platform.events_consumed": 180,
+    "kamba_platform:platform.events_dlq": 0,
+    "kamba_platform:platform.events_log": 0,
+    "kamba_platform:platform.events_log_default": 0,
+    "kamba_platform:platform.events_outbox": 90,
+    "kamba_platform:platform.evt_acoes": 0,
+    "kamba_platform:platform.evt_agregado_seq": 90,
+    "kamba_platform:platform.evt_dlq_aprovacoes": 0,
+    "kamba_platform:platform.evt_subscricoes": 0,
+    "kamba_platform:platform.fraud_signals": 0,
+    "kamba_platform:platform.handoff_accounts": 0,
+    "kamba_platform:platform.handoffs": 0,
+    "kamba_platform:platform.hmac_key_versions": 0,
+    "kamba_platform:platform.inbound_events": 0,
+    "kamba_platform:platform.manual_confirmations": 0,
+    "kamba_platform:platform.media_assets": 0,
+    "kamba_platform:platform.message_templates": 0,
+    "kamba_platform:platform.offer_terms": 0,
+    "kamba_platform:platform.order_intents": 0,
+    "kamba_platform:platform.order_reconciliation_issues": 0,
+    "kamba_platform:platform.order_state_graph": 12,
+    "kamba_platform:platform.order_state_log": 0,
+    "kamba_platform:platform.orders_mirror": 0,
+    "kamba_platform:platform.outbound_messages": 0,
+    "kamba_platform:platform.owner_contacts": 0,
+    "kamba_platform:platform.owner_notices": 0,
+    "kamba_platform:platform.payment_accounts": 0,
+    "kamba_platform:platform.payment_callbacks_inbox": 0,
+    "kamba_platform:platform.payment_charges": 0,
+    "kamba_platform:platform.payment_confirmers": 0,
+    "kamba_platform:platform.payment_events": 0,
+    "kamba_platform:platform.payment_outbox_map": 7,
+    "kamba_platform:platform.price_quotes": 0,
+    "kamba_platform:platform.provisioning_step": 0,
+    "kamba_platform:platform.refund_cases": 0,
+    "kamba_platform:platform.stock_reservations": 0,
+    "kamba_platform:platform.tenant_channels": 0,
+    "kamba_platform:platform.tenant_destinations": 0,
+    "kamba_platform:platform.tenant_usage": 0,
+    "kamba_platform:platform.tenants": 1,
+    "kamba_platform:platform.tool_audit": 0,
+    "kamba_platform:platform.tool_idempotency": 0,
+    "kamba_platform:platform.unrouted_events": 0,
+    "kamba_platform:platform.usage_ledger": 0,
+    "kamba_platform:public.alembic_version": 1
+  },
+  "contagens_divergentes": {},
+  "cadeia": {
+    "codigo": 0,
+    "saida": "auditoria: cadeia intacta"
+  }
+}

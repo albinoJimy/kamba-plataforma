@@ -1,0 +1,14 @@
+{
+  "segundos": 180,
+  "intervalo": 15,
+  "sem_init": {
+    "reinicios_do_cluster": 13,
+    "filhos_nao_seguidos": 13,
+    "archive_falhado": 6
+  },
+  "com_init": {
+    "reinicios_do_cluster": 0,
+    "filhos_nao_seguidos": 0,
+    "archive_falhado": 45
+  }
+}
