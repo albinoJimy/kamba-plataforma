@@ -111,6 +111,10 @@
       "types": "./dist/inscricao/index.d.ts",
       "default": "./dist/inscricao/index.js"
     },
+    "./contratos": {
+      "types": "./dist/contratos/index.d.ts",
+      "default": "./dist/contratos/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

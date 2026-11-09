@@ -72,9 +72,27 @@ class TestEstadoDoTenant(_ComApp):
     """CA 2: `tenants.estado` aceita exactamente cinco valores."""
 
     def test_aceita_cada_um_dos_cinco(self) -> None:
+        # Desde a revisao `0040` (KAM-090), nascer `ativo` exige o aceite das
+        # versoes vigentes dos quatro documentos. A aplicacao aceita mas nao
+        # publica, e nao ve o que uma ligacao que nunca confirma publique: as
+        # versoes de ensaio publicam-se por uma ligacao de administrador em
+        # `autocommit`, e ficam na base de ensaio (vigentes desde 2000, pelo que
+        # qualquer versao que outro ensaio publique as tapa).
+        import ligacao
+
+        publicador = ligacao.ligar("admin")
+        publicador.autocommit = True
+        try:
+            factories.publicar_versoes_de_ensaio(publicador.cursor())
+        finally:
+            publicador.close()
         for estado in sorted(ESTADOS_DO_TENANT):
             with self.subTest(estado=estado):
-                factories.tenant(self.cursor, estado=estado)
+                identificador = str(uuid.uuid4())
+                factories.contexto(self.cursor, identificador)
+                if estado == "ativo":
+                    factories.aceitar_vigentes(self.cursor, identificador)
+                factories.tenant(self.cursor, id=identificador, estado=estado)
 
     def test_o_catalogo_tem_exactamente_os_cinco(self) -> None:
         self.assertEqual(self.dominio_no_catalogo("tenants_estado_ck"), ESTADOS_DO_TENANT)
