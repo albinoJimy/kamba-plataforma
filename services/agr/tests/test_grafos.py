@@ -464,6 +464,47 @@ class TestPortaDaThread(unittest.TestCase):
         self.assertEqual(aberturas, [])
 
 
+    def test_uma_passagem_em_waiting_retoma_o_grafo_pela_porta_do_processo(self) -> None:
+        """Ponta a ponta: um turno real para em `handoff_wait`, e o `Retomador`
+        com a porta do processo vence o CAS e retoma-o — o `next` fica vazio."""
+        from kamba_agr.handoff.retoma import Retomador
+        from test_handoff import BaseFalsa
+        from test_vendedor import Handoff
+
+        porta, compilados, _ = _porta(hnd=Handoff())
+        invocacao = _invocacao()
+        grafo = asyncio.run(porta.do_turno(invocacao))
+        asyncio.run(
+            grafo.ainvoke(
+                _estado_com_texto(invocacao, "quero falar com um humano"), _config(invocacao)
+            )
+        )
+        vendedor = compilados["vendedor"]
+        self.assertEqual(asyncio.run(vendedor.aget_state(_config(invocacao))).next, ("handoff_wait",))
+        base = BaseFalsa(
+            {"h1": {"tenant": invocacao.tenant_id, "status": "waiting"}},
+            {"h1": invocacao.contact_id},
+        )
+        retomador = Retomador(abrir_ligacao=lambda: base, grafos=porta.da_thread)
+        self.assertEqual(
+            asyncio.run(retomador.retomar(invocacao.thread_id, "h1", "resolved")), "retomado"
+        )
+        self.assertEqual(asyncio.run(vendedor.aget_state(_config(invocacao))).next, ())
+
+    def test_a_decisao_de_rascunho_sem_grafo_nao_abre_a_base(self) -> None:
+        from kamba_agr.concierge.servico import Decisor
+        from kamba_agr.turno import GrafoNaoRegistadoError
+
+        porta, _, _ = _porta()
+        aberturas: list[int] = []
+        decisor = Decisor(abrir_ligacao=lambda: aberturas.append(1), grafos=porta.da_thread)
+        with self.assertRaises(GrafoNaoRegistadoError):
+            asyncio.run(
+                decisor.decidir_pelo_sistema(_invocacao().thread_id, "d1", "expirado")
+            )
+        self.assertEqual(aberturas, [])
+
+
 # ------------------------------------------------------------- a admissao
 
 
@@ -502,6 +543,21 @@ class TestAdmissao(unittest.TestCase):
         self._correr(porta, invocacao)
         self._correr(porta, invocacao)
         self.assertEqual(len(saida.enviadas), 2)
+
+    def test_o_mesmo_turn_id_de_um_turno_que_parou_a_meio_nao_e_repetido(self) -> None:
+        """Criterio 4 do KAM-025: um turno que nao acabou repete-se desde o
+        inicio, e a chave `turn_id:seq` e que o torna seguro. Chamar-lhe
+        repetido perdia a resposta. Aqui o turno para no `handoff_wait`, com o
+        `next` por correr e o mesmo `turn_id` no *checkpoint*."""
+        from test_vendedor import Handoff
+
+        porta, compilados, _ = _porta(hnd=Handoff())
+        invocacao = _invocacao()
+        self._correr(porta, invocacao, "quero falar com um humano")
+        foto = asyncio.run(compilados["vendedor"].aget_state(_config(invocacao)))
+        self.assertEqual(foto.next, ("handoff_wait",))
+        self.assertEqual(foto.values["turn_id"], invocacao.turn_id)
+        self.assertIsNone(asyncio.run(porta._admissao(invocacao, compilados["vendedor"])))
 
     def test_um_turno_novo_na_mesma_thread_corre(self) -> None:
         porta, _, saida = _porta()

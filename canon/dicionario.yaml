@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.71"
+versao_dicionario: "1.72"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5455,21 +5455,25 @@ entradas:
     variantes_literais: []
   - seccao: "3.24"
     conceito: "Desfecho de um turno (etiqueta outcome)"
-    canonico: "executado, entregue_ao_hnd, sem_conversa, falhou"
+    canonico: "executado, entregue_ao_hnd, sem_conversa, falhou, servico_indisponivel (proposta, emenda 1.72)"
     literais:
       - "executado"
       - "entregue_ao_hnd"
       - "sem_conversa"
       - "falhou"
+      - "servico_indisponivel"
     nomes:
       - "outcome"
       - "executado"
       - "entregue_ao_hnd"
       - "sem_conversa"
       - "falhou"
+      - "servico_indisponivel"
     nomes_nota:
       - "wa_type"
       - "sem_conversa"
+      - "servico_indisponivel"
+      - "AgentRegistry.resolve"
     variantes_literais: []
   - seccao: "3.24"
     conceito: "Razão de uma recusa na admissão (etiqueta motivo)"
@@ -5490,7 +5494,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.24"
     conceito: "Métricas do shim da fila"
-    canonico: "agr_shim_total{outcome} — com outcome de nove valores, os oito que o AGR responde (executado, entregue_ao_hnd, sem_conversa, descartado, tecto_do_tenant, grafo_nao_registado, invocacao_invalida, nao_autorizado) mais desconhecido para uma resposta que não é nenhuma delas — e agr_shim_failed_total"
+    canonico: "agr_shim_total{outcome} — com outcome de dez valores, os nove que o AGR responde (executado, entregue_ao_hnd, sem_conversa, descartado, tecto_do_tenant, grafo_nao_registado, servico_indisponivel, invocacao_invalida, nao_autorizado) mais desconhecido para uma resposta que não é nenhuma delas — e agr_shim_failed_total"
     literais:
       - "agr_shim_total{outcome}"
       - "outcome"
@@ -5500,6 +5504,7 @@ entradas:
       - "descartado"
       - "tecto_do_tenant"
       - "grafo_nao_registado"
+      - "servico_indisponivel"
       - "invocacao_invalida"
       - "nao_autorizado"
       - "desconhecido"
@@ -5513,6 +5518,7 @@ entradas:
       - "descartado"
       - "tecto_do_tenant"
       - "grafo_nao_registado"
+      - "servico_indisponivel"
       - "invocacao_invalida"
       - "nao_autorizado"
       - "desconhecido"
