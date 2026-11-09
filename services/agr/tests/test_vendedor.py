@@ -965,9 +965,11 @@ class TestGuardaDeSaida(unittest.TestCase):
             with self.subTest(texto=texto):
                 self.assertEqual(nos_mod.violacao_de_saida(texto), "promessa")
 
-    def test_um_telefone_na_saida_e_fuga_de_pii(self) -> None:
-        self.assertEqual(nos_mod.violacao_de_saida("ligue para 923456789"), "pii")
-        self.assertEqual(nos_mod.violacao_de_saida("ligue para +244 923 456 789"), "pii")
+    def test_um_telefone_na_saida_e_fuga_de_dados(self) -> None:
+        # KAM-033: a violacao chama-se `fuga` e nao `pii` — e uma das quatro do
+        # `guardas.VEREDICTOS_DE_SAIDA`, e cobre tambem o NIF, o e-mail e os URL.
+        self.assertEqual(nos_mod.violacao_de_saida("ligue para 923456789"), "fuga")
+        self.assertEqual(nos_mod.violacao_de_saida("ligue para +244 923 456 789"), "fuga")
 
     def test_uma_resposta_normal_passa(self) -> None:
         for texto in (

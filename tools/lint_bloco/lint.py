@@ -219,7 +219,12 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: antes de ele integrar a `35111c35`; medido depois: **92 medidos, exigido 46**.
 #:
 #: Quem acrescentar o **94.o** paga a emenda seguinte: o 46 serve ate aos 93.
-MINIMO_DE_BLOCOS_MEDIDOS = 46
+#:
+#: **O 94.o e o do KAM-033**, e o valor veio da fila outra vez: medido na arvore
+#: integrada com a `publico/main` em `fc6d91bd` (o KAM-137 e o KAM-057 dentro),
+#: **94 medidos, exigido 47**. Quem acrescentar o **96.o** paga a seguinte: o 47
+#: serve ate aos 95.
+MINIMO_DE_BLOCOS_MEDIDOS = 47
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

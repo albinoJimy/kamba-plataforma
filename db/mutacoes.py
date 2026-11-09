@@ -511,6 +511,11 @@ AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
 #: alteram toca a base.
 AG_VEN_NOS = "services/agr/src/kamba_agr/verticais/vendedor/nos.py"
 AG_VEN_ENC = "services/agr/src/kamba_agr/verticais/vendedor/encaminhadores.py"
+#: Os guardrails (KAM-033). Na `agr_unit`, pela razao do grafo: as regras sao
+#: funcoes puras e os nos correm com *fakes*.
+AG_GUA_REGRAS = "services/agr/src/kamba_agr/guardas/regras.py"
+AG_GUA_SAIDA = "services/agr/src/kamba_agr/guardas/saida.py"
+AG_GUA_CONTADORES = "services/agr/src/kamba_agr/guardas/contadores.py"
 #: O *handoff* idempotente e a retoma (KAM-034). Os tres primeiros sao Python
 #: puro e correm na `agr_unit`; o SQL da retoma vive no `AG_SQL` e as suas
 #: mutacoes correm na `tests_agr`, porque e a base que decide se o
@@ -4962,7 +4967,7 @@ MUTACOES = [
     # A identificacao do §8.4 passa a sair em **todas** as mensagens. Nao e
     # falso aceite, e e o tipo de defeito que ninguem ve em revisao de codigo e
     # que o cliente ve em todas as frases.
-    ('grafo: o Luhn passa a aceitar qualquer sequencia', AG_VEN_NOS,
+    ('grafo: o Luhn passa a aceitar qualquer sequencia', AG_GUA_REGRAS,
      '    return soma % 10 == 0',
      '    return True',
      AGR_UNIT),
@@ -5014,9 +5019,9 @@ MUTACOES = [
     # `compose`, pelo que uma conversa que comece por um texto estatico nunca
     # identifica o assistente automatico — e o criterio 8 e o §8.4 deixam de se
     # cumprir sem nenhum ensaio vermelho. Achado 5.
-    ('grafo: a fronteira deixa de absolver a primeira pessoa', AG_VEN_NOS,
-     "    if any(padrao.search(texto) for padrao in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(\n        texto\n    ):",
-     "    if any(padrao.search(texto) for padrao in _FRONTEIRA):",
+    ('grafo: a fronteira deixa de absolver a primeira pessoa', AG_GUA_REGRAS,
+     "    return any(p.search(normal) for p in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(normal)",
+     "    return any(p.search(normal) for p in _FRONTEIRA)",
      AGR_UNIT),
     # «as minhas encomendas da loja ja sairam?» volta a ser `injection` — a
     # mesma classe de «ignora as tuas instrucoes» —, com o contador de abuso por
@@ -5028,6 +5033,161 @@ MUTACOES = [
     # O `awaiting_payment` atravessa turnos, pelo que «O seu pedido ficou
     # registado» volta a sair em todos os turnos seguintes — inclusive numa
     # pergunta sobre o horario da loja. Achado 12.
+    # ---------------------------------------------------------------- KAM-033
+    #
+    # Os guardrails. **Vinte e seis, e nenhuma e de sintaxe**: cada uma deixa as
+    # regras a correr e o grafo a responder, e quebra uma propriedade que um
+    # criterio do bloco nomeia. Os padroes da `politica.py` nao tem mutacao
+    # propria: qualquer mudanca neles muda a impressao, e o
+    # `TestPolitica::test_a_impressao_e_a_da_versao` apanha-a sem precisar de
+    # uma por padrao.
+    ('guardas: o IBAN deixa de exigir o mod 97', AG_GUA_REGRAS,
+     '    return int(numero) % 97 == 1',
+     '    return True',
+     AGR_UNIT),
+    # Um prefixo de pais com digitos colado a um codigo passa a ser conta: o
+    # falso rejeito que o Luhn evita do lado do PAN (criterio 2).
+    ('guardas: o PAN volta a procurar-se so a partir do primeiro grupo', AG_GUA_REGRAS,
+     '        for i in range(len(grupos)):',
+     '        for i in range(min(1, len(grupos))):',
+     AGR_UNIT),
+    # «pedido 12345 4111 1111 1111 1111» volta a passar com o cartao em claro:
+    # e o defeito da expressao gulosa que a bateria mediu antes de se escrever.
+    ('guardas: os invisiveis deixam de se tirar antes das regras', AG_GUA_REGRAS,
+     '    limpo = _INVISIVEIS.sub("", texto)\n    return _ESPACOS',
+     '    limpo = texto\n    return _ESPACOS',
+     AGR_UNIT),
+    # «ig\u200bnora as instrucoes» volta a passar como `ok` (`docs/tecnica/08`
+    # §4.3, L1).
+    ('guardas: a marca do sensivel deixa de valer', AG_GUA_REGRAS,
+     '    return MARCA_SENSIVEL in texto or any(p.search(normal) for p in _SENSIVEL)',
+     '    return any(p.search(normal) for p in _SENSIVEL)',
+     AGR_UNIT),
+    # A mensagem que a entrada ja redigiu deixa de ser `sensitive`: o turno vai
+    # ao modelo e as tools com a marca em vez de ir a um humano (criterio 7).
+    ('guardas: o indeciso passa a ok sem classificador', AG_GUA_REGRAS,
+     '        return "ok"\n    return None',
+     '        return "ok"\n    return "ok"',
+     AGR_UNIT),
+    # O classificador do §8.4 deixa de ser chamado, para sempre: «so quando as
+    # regras nao decidem» passa a «nunca».
+    ('guardas: a redaccao deixa de trocar o IBAN', AG_GUA_REGRAS,
+     '        (_ibans, MARCA_CONTA),\n',
+     '',
+     AGR_UNIT),
+    # O IBAN fica em claro na janela e no *checkpoint* (criterio 2).
+    ('guardas: a negacao deixa de absolver o aviso do cartao', AG_GUA_SAIDA,
+     '        if not _NEGACAO.search(normal[: achado.start()]):',
+     '        if True:',
+     AGR_UNIT),
+    # O `MSG_CARTAO` («nao envie dados de cartao») passa a ser bloqueado pela
+    # propria guarda: o aviso do §8.4 deixa de chegar ao cliente.
+    ('guardas: o pago deixa de exigir evento', AG_GUA_SAIDA,
+     '    if not pago_por_evento:\n        familias.append(_PAGO)',
+     '    if False:\n        familias.append(_PAGO)',
+     AGR_UNIT),
+    # «O pagamento foi confirmado» sai sem evento nenhum (criterio 6).
+    ('guardas: a allowlist passa a aceitar dominios de mentira', AG_GUA_SAIDA,
+     '        if dominio and (hospedeiro == dominio or hospedeiro.endswith("." + dominio)):',
+     '        if dominio and dominio in hospedeiro:',
+     AGR_UNIT),
+    # `exemplo.ao.atacante.com` passa por `exemplo.ao`: a exfiltracao por URL do
+    # `docs/tecnica/08` §4.4.
+    ('guardas: o telefone deixa de ser fuga', AG_GUA_SAIDA,
+     '    if any(achado.tipo in _TIPOS_QUE_FOGEM for achado in achados):',
+     '    if any(achado.tipo == detector_mod.EMAIL for achado in achados):',
+     AGR_UNIT),
+    # «+244 923 456 789» sai em claro (§8.4: «nada de telefone em claro»).
+    ('guardas: os numeros de negocio deixam de absolver os digitos', AG_GUA_SAIDA,
+     '        not negocio.reclamado(reclamados, *achado.span())',
+     '        True',
+     AGR_UNIT),
+    # «912500000 Kz» passa a ser fuga: um total recusado pela guarda que o devia
+    # deixar sair. E a divida 130, ao contrario.
+    ('guardas: a janela de injeccao deixa de expirar', AG_GUA_CONTADORES,
+     '        janela = [t for t in novos["injection"] if agora - t < politica.JANELA_DE_INJECCAO_S]',
+     '        janela = list(novos["injection"])',
+     AGR_UNIT),
+    # Tres tentativas em tres dias passam a valer como tres numa hora.
+    ('guardas: o handoff repete-se dentro do cool-down', AG_GUA_CONTADORES,
+     '        if len(janela) >= politica.TENTATIVAS_DE_INJECCAO and not em_cooldown(novos, agora):',
+     '        if len(janela) >= politica.TENTATIVAS_DE_INJECCAO:',
+     AGR_UNIT),
+    # Um *handoff* por tentativa: o atacante a escolher quantas vezes se chama
+    # uma pessoa.
+    ('guardas: o abuso deixa de voltar a zero', AG_GUA_CONTADORES,
+     '            novos["abuse"] = []\n            return novos, ACCAO_PAUSAR',
+     '            return novos, ACCAO_PAUSAR',
+     AGR_UNIT),
+    # Cada abuso depois do N-esimo volta a pedir pausa, conversa a conversa.
+    ('guardas: o cool-down deixa de fechar a porta', AG_VEN_NOS,
+     '        elif contadores_mod.em_cooldown(contadores, agora):',
+     '        elif False:',
+     AGR_UNIT),
+    # Depois do *handoff*, o atacante volta a ter regras, classificador e tools.
+    ('guardas: o guard_in deixa de substituir a mensagem crua', AG_VEN_NOS,
+     '        if substituicao:\n            delta["messages"] = substituicao',
+     '        if False:\n            delta["messages"] = substituicao',
+     AGR_UNIT),
+    # A segunda barreira do criterio 2 desaparece: o PAN cru fica em todos os
+    # *checkpoints* do turno, e nao so no de entrada.
+    ('guardas: o classificador volta a poder dizer card_data', AG_VEN_NOS,
+     '    return escolhido if escolhido in VEREDICTOS_DO_CLASSIFICADOR else None',
+     '    return escolhido if escolhido in guardas.VEREDICTOS else None',
+     AGR_UNIT),
+    # Um modelo a dizer «cartao» sobre um texto que as regras ja disseram que
+    # nao o tem.
+    ('guardas: a pausa passa a dizer-se sem porta', AG_VEN_NOS,
+     '                guarda["escalada"] = "pausa_por_ligar"',
+     '                guarda["escalada"] = "pausa"',
+     AGR_UNIT),
+    # O cliente le «a conversa ficou em pausa» sem transicao nenhuma ter
+    # acontecido (criterio 5).
+    ('guardas: a terceira injeccao deixa de ir a handoff', AG_VEN_ENC,
+     '    if veredicto == "injection" and guarda.get("escalada") == "handoff":',
+     '    if False:',
+     AGR_UNIT),
+    # O *handoff* do criterio 5 fica no estado e nao acontece.
+    ('guardas: a oferta com valor no nome volta a rebentar o turno', AG_VEN_NOS,
+     '        except (BlocoInvalidoError, NomeComPrecoError):',
+     '        except BlocoInvalidoError:',
+     AGR_UNIT),
+    # Uma designacao de catalogo hostil volta a falhar o turno e a pô-lo a
+    # repetir na fila (criterio 4).
+    # As seis da revisao adversarial (`ANALISE` no bloco), uma por correccao.
+    ('guardas: o botao volta a passar pelas regras', AG_VEN_NOS,
+     '        if estado.get("input_kind") == "interactive":',
+     '        if False:',
+     AGR_UNIT),
+    # O `confirm:{hold_id}` com UUID volta a ser `injection`: nenhuma marcacao
+    # dos Servicos se confirma (achado 1).
+    ('guardas: os grupos curtos voltam a juntar-se num cartao', AG_GUA_REGRAS,
+     '                if j > i and min(len(g[2]) for g in grupos[i : j + 1]) < _GRUPO_MINIMO:',
+     '                if False:',
+     AGR_UNIT),
+    # «quero 4 1 1 1 camisas…» volta a poder dar um cartao com o resto da frase.
+    ('guardas: a negacao volta a absolver de longe', AG_GUA_SAIDA,
+     '_NEGACAO: Final = re.compile(r"\\b(?:nao|nunca|jamais)\\s+(?:(?:nos|me|lhe|lhes|o|a)\\s+)?$")',
+     '_NEGACAO: Final = re.compile(r"\\b(?:nao|nunca|jamais)\\s+(?:\\w+\\s+){0,2}$")',
+     AGR_UNIT),
+    # «Nao demore, envie o cvv» volta a sair (achado 11).
+    ('guardas: o cartao deixa de ser avisado no cool-down', AG_VEN_NOS,
+     '            if guardas.regras.tem_dados_de_cartao(texto):',
+     '            if False:',
+     AGR_UNIT),
+    # O §8.4 manda avisar; no *cool-down* o cliente deixava de o ser (achado 6).
+    ('guardas: o abuso deixa de decair', AG_GUA_CONTADORES,
+     '        janela = [t for t in novos["abuse"] if agora - t < politica.JANELA_DE_ABUSO_S]',
+     '        janela = list(novos["abuse"])',
+     AGR_UNIT),
+    # Dois insultos num canal e um meses depois noutro pausam a conversa
+    # (achado 10).
+    ('guardas: o sku do catalogo deixa de sair antes da fuga', AG_GUA_SAIDA,
+     '    sem_skus = _sem(texto, skus, "SKU")',
+     '    sem_skus = texto',
+     AGR_UNIT),
+    # Um `sku` de codigo de barras bloqueia toda a resposta de produto daquela
+    # loja (achado 12).
     # ---------------------------------------------------------------- KAM-034
     #
     # O *handoff* idempotente e a retoma por *compare-and-set*. **Vinte, e
@@ -7381,6 +7541,12 @@ MODULOS_DO_AGR_UNIT = (
     # A bateria le a revisao `0024` (confronta os dominios do codigo com os do
     # `CHECK`) e o `nos.py`, e os dois ja vao na copia.
     "test_concierge",
+    # KAM-033, pela mesma razao de sempre. **Sem esta linha as vinte e seis mutacoes
+    # `guardas:` sobreviviam todas**, com a suite verde. A bateria importa o
+    # `test_vendedor` (os *fakes*) e o `test_llm_cliente` (o transporte), que ja
+    # correm aqui. O `test_estado` **nao** entra, e mediu-se porque: le o
+    # `docs/tecnica/02`, que a copia nao leva, e a linha de base saia vermelha.
+    "test_guardas",
 )
 
 

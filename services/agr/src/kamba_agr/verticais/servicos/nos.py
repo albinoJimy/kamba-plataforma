@@ -72,6 +72,8 @@ from ...tls.erros import (
 # copiar** — ver o cabecalho.
 from ..vendedor.nos import (
     MSG_CARTAO,
+    botoes_seguros_da_guarda,
+    texto_seguro_da_guarda,
     Dependencias,
     draft_prepare,
     draft_wait,
@@ -1185,11 +1187,12 @@ def safe_reply(deps: Dependencias):
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        guarda = estado.get("guard")
-        veredicto = guarda.get("veredicto") if isinstance(guarda, Mapping) else None
-        if veredicto == "card_data":
-            return _resposta_estatica(MSG_CARTAO)
-        return _resposta_estatica(MSG_FORA_DE_AMBITO)
+        # KAM-033: o texto escolhe-se pela funcao partilhada, com o fora de
+        # ambito **desta** vertical. Os outros (cartao, abuso, pausa, saida
+        # bloqueada) sao da plataforma e iguais nas duas.
+        resposta = _resposta_estatica(texto_seguro_da_guarda(estado, MSG_FORA_DE_AMBITO))
+        resposta["draft"]["botoes"] = botoes_seguros_da_guarda(estado)
+        return resposta
 
     return no
 
