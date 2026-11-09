@@ -19,7 +19,7 @@ um *runbook* que nasce com o alerta e não com a lista.
 | Alertas que apontam para aqui | `orcamento_de_erro_burn_rapido` (P2) e `orcamento_de_erro_burn_lento` (P3), em [`../../infra/compose/prometheus/regras/kamba-slo.yml`](../../infra/compose/prometheus/regras/kamba-slo.yml) |
 | Linha canónica | [`docs/tecnica/09`](../tecnica/09_Topologia_Operacao_Escala.md) §10 (SLO e orçamento) e §17 (alvos mensuráveis) |
 | Definição dos SLI | [`../../ops/slo.md`](../../ops/slo.md) |
-| Estado | **Esboço.** Gatilho, severidade e leitura dos números fixados; procedimento por escrever (KAM-083) |
+| Estado | **Esboço.** Gatilho, severidade e leitura dos números fixados; procedimento por escrever. **Não é um dos dez RB-K do KAM-083**, que o deixou como estava ([`README.md`](README.md) §1); credor: o fundador, que governa a lista do §13 |
 
 ---
 
