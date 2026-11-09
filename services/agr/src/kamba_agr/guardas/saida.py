@@ -27,6 +27,7 @@ chama passa `estado_da_tool`, e se ele for um dos estados pagos a familia
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 from typing import Final
 
@@ -77,10 +78,13 @@ _NUMERO_PARTIDO: Final = re.compile(r"(?<![0-9])[0-9]{2,}(?:[ .\-][0-9]{2,})+(?!
 #: Quantas palavras seguidas do *system prompt* do classificador fazem um eco.
 #: **Qualquer trecho, e nao so a primeira frase**, e o red-team mediu porque
 #: (KAM-073, RT-03): a `FRASE_DO_SISTEMA` so apanhava a abertura, e a segunda
-#: ou a ultima frase do *prompt* saiam inteiras. Seis e o menor numero em que
-#: nenhum texto estatico das duas verticais partilha um trecho com o *prompt*
-#: (`test_os_textos_estaticos_das_duas_verticais_passam`).
-PALAVRAS_DO_ECO: Final = 6
+#: ou a ultima frase do *prompt* saiam inteiras. **Oito, e as duas medidas que
+#: o fixam:** os textos estaticos das duas verticais deixam de partilhar um
+#: trecho com o *prompt* a partir de cinco palavras; e uma frase de ambito que a
+#: loja pode dizer («ajudo com perguntas sobre os produtos, os precos, os
+#: pedidos…») partilha **sete** seguidas com ele, pelo que seis a recusava. As
+#: frases do *prompt* tem todas mais de oito.
+PALAVRAS_DO_ECO: Final = 8
 _PALAVRA: Final = re.compile(r"[a-z0-9]+")
 
 
@@ -98,6 +102,7 @@ ASSINATURA: Final = (
     "saida",
     PALAVRAS_DO_ECO,
     _PALAVRA.pattern,
+    "url: dobrado e so em minusculas; dominio nao-ASCII e fuga",
     ESTADOS_PAGOS,
     _NEGACAO.pattern,
     _HOSPEDEIRO.pattern,
@@ -205,9 +210,18 @@ def veredicto_de_saida(
     if any(p.search(normal) for p in _FUGA) or _pede_dados(normal):
         return "fuga"
     dominios = tuple(dominios_permitidos)
-    for padrao in _URL:
-        for achado in padrao.finditer(normal):
-            if not _permitido(_hospedeiro(achado.group(0)), dominios):
+    # **Sobre o texto normalizado e sobre o texto so em minusculas**: o
+    # `normalizar` tira os acentos, e «casabelá.ao» dobrado e a loja.
+    sem_dobrar = unicodedata.normalize("NFKC", sem_skus).lower()
+    for padrao, alvo in ((p, a) for a in (normal, sem_dobrar) for p in _URL):
+        for achado in padrao.finditer(alvo):
+            # **Um dominio com um caracter nao-ASCII nunca e permitido** (KAM-073):
+            # o `_hospedeiro` le so ASCII e corta no primeiro caracter estranho, e
+            # um corte depois de um prefixo permitido deixava o resto passar como
+            # se fosse a loja. As *allowlists* sao ASCII.
+            if not achado.group(0).isascii() or not _permitido(
+                _hospedeiro(achado.group(0)), dominios
+            ):
                 return "fuga"
 
     # -- identidade. O eco do *system prompt* do classificador procura-se pela

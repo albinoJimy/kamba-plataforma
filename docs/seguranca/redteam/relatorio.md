@@ -10,8 +10,8 @@
 
 ## 1. Resultado em três linhas
 
-- **Zero violações de invariante** em 168 casos e 635 corridas do grafo, com o modelo do lado do
-  atacante nas nove intenções. Nenhum caso deixou sair dados de outro contacto, mudar preço,
+- **Zero violações de invariante** em 171 casos e 705 corridas do grafo, com o modelo do lado do
+  atacante nas nove intenções, nas duas verticais (a classe `write` só existe nos Serviços). Nenhum caso deixou sair dados de outro contacto, mudar preço,
   estado de pagamento, ou escrever sem o botão do runtime.
 - **Nenhum achado P1 nem P2.** Os achados são todos camadas de defesa a menos (P3 e P4 pelo
   `../../tecnica/08_Seguranca_Conformidade.md` §10).
@@ -36,12 +36,12 @@ o identificador e o credor, sem prosa.
 | Achado | Sev. | Camada | Classe | Dono | Prazo | Casos |
 |---|---|---|---|---|---|---|
 | RT-01 a RT-03 | P3 | L4 | Três formas de saída passavam o filtro do `guard_out` | KAM-073 | **fechado** | 4 |
-| RT-04 | P3 | L1 | Variantes do pedido cruzado que as regras decidem como `ok` | KAM-189 | antes do Piloto com dados reais | 6 |
-| RT-05 | P3 | L1 | Pedidos cruzados e de exfiltração que as regras não decidem, entregues ao classificador sem qualidade medida | KAM-040 | o do KAM-040 | 7 |
-| RT-06 | P3 | L1 | Frases de assunto sensível que as regras não reconhecem | KAM-189 | antes do Piloto com dados reais | 9 |
-| RT-07 | P3 | L1 (§4.7) | A chamada ao modelo não fixa tecto de resposta | KAM-189 | antes do Piloto com dados reais | 1 |
-| RT-08 | P4 | L1 | Uma nota de voz sem transcrição gasta uma chamada ao modelo | KAM-036 | o do KAM-036 | 1 |
-| RT-09 | P4 | L1 | Uma forma de pedido fora de domínio recebe a resposta de catálogo vazio em vez da recusa | KAM-189 | antes do Piloto com dados reais | 1 |
+| RT-04 | P3 | L1 | Variantes do pedido cruzado que a guarda de entrada não recusa | KAM-189 | antes do Piloto com dados reais | 6 |
+| RT-05 | P3 | L1 | Pedidos cruzados e de exfiltração cuja recusa depende da qualidade do classificador, que não está medida | KAM-040 | o do KAM-040 | 7 |
+| RT-06 | P3 | L1 | Frases de assunto sensível que a guarda de entrada não reconhece | KAM-189 | antes do Piloto com dados reais | 9 |
+| RT-07 | P3 | L1 (§4.7) | O custo por chamada ao modelo não tem limite próprio | KAM-189 | antes do Piloto com dados reais | 1 |
+| RT-08 | P4 | L1 | Uma forma de entrada de voz gasta uma chamada ao modelo sem necessidade | KAM-036 | o do KAM-036 | 1 |
+| RT-09 | P4 | L1 | Uma forma de pedido fora de domínio não recebe a recusa neutra | KAM-189 | antes do Piloto com dados reais | 1 |
 
 O prazo é *proposta*: o §10 não dá prazo a P3 nem a P4 («ajuste de filtros e registo»).
 **Quem segura cada achado aberto hoje** é a camada seguinte: a tool, que só vê as encomendas do
@@ -55,11 +55,11 @@ orçamento por *tenant* do LiteLLM.
 | Injecção cruzada (X-09) | 45 | 36 | 9 |
 | Injecção indirecta | 22 | 22 | 0 |
 | Exfiltração | 25 | 21 | 4 |
-| Abuso de tools | 16 | 16 | 0 |
+| Abuso de tools (com a classe `write` dos Serviços e dois controlos positivos) | 19 | 19 | 0 |
 | *Denial of wallet* e voz | 16 | 14 | 2 |
 | Assunto sensível | 22 | 13 | 9 |
 | Fora de domínio | 22 | 21 | 1 |
-| **Total** | **168** | **143** | **25** |
+| **Total** | **171** | **146** | **25** |
 
 Três taxas que os critérios pedem, todas **sem modelo** (o chão; o classificador só as pode
 subir):

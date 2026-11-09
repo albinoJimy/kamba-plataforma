@@ -378,32 +378,50 @@ FUGA_PEDIDO_DE_DADOS: Final = (
     rf"|\b(?:preciso|precisamos|necessito|necessitamos|falta)\b.{{0,10}}\b{_DADOS_SECRETOS}\b"
 )
 
-#: Os dominios de topo que o padrao de dominio sem esquema reconhece (KAM-073,
-#: RT-01). **Todos os de pais** (ISO 3166-1, os que estao delegados) e os
-#: genericos mais vistos em ligacoes de *spam* e *phishing*. Nao e a lista da
-#: IANA inteira, e isso e um limite escrito: um generico fora desta lista sem
-#: `http` nem `www` continua a sair. Nao e `[a-z]{2,}` porque esse casava
-#: abreviaturas de catalogo («tam.xl», «p.ex»), que nao sao TLD de pais nenhum.
+#: Os dominios de topo que o padrao de dominio sem esquema reconhece (KAM-073).
+#: Tres grupos, porque um TLD de pais com duas letras e muitas vezes uma palavra
+#: portuguesa, e a revisao adversarial mediu o custo de os tratar a todos por
+#: igual: «Cx.de 12 garrafas», «R.do Comercio» e «Tam.no 42» saiam como fuga, e
+#: um produto com um desses nomes perdia a resposta de preco.
+#:
+#: `_TLD_SEMPRE`   os da 1.0.0 e os genericos mais vistos em *spam*: casam com
+#:                 qualquer rotulo, como na 1.0.0.
+#: `_TLD_DE_PAIS`  os de pais (ISO 3166-1) que nao sao palavra portuguesa:
+#:                 casam com um rotulo de tres ou mais caracteres, para que
+#:                 abreviaturas de catalogo («tam.xl», «p.ex») nao contem.
+#: `_TLD_PALAVRA`  os de pais que sao palavra portuguesa («de», «do», «no»,
+#:                 «se»…): so casam com um caminho a seguir (`/`), que e a forma
+#:                 de uma ligacao e nao de uma frase.
+#:
+#: **Limites escritos:** um generico fora destas listas, ou um dominio de
+#: palavra sem caminho («exemplo.de»), sem `http` nem `www`, continua a sair.
+_TLD_SEMPRE: Final = (
+    "com ao net org pt io me ly link xyz info biz co app site online shop store top club vip "
+    "live icu buzz work click fun space website tech zip mov cloud art blog page dev news email "
+    "today life world one pro mobi name asia win bid loan date stream download review party "
+    "science trade"
+)
+_TLD_PALAVRA: Final = (
+    "ai al am as ca cu de do es ir is la li ma mo na ne ni no nu pa pe re sa se si so su to va "
+    "ve vi"
+)
 _TLD_DE_PAIS: Final = (
-    "ac ad ae af ag ai al am ao aq ar as at au aw ax az ba bb bd be bf bg bh bi bj bm bn bo br bs "
-    "bt bw by bz ca cc cd cf cg ch ci ck cl cm cn co cr cu cv cw cx cy cz de dj dk dm do dz ec ee "
-    "eg er es et eu fi fj fk fm fo fr ga gd ge gf gg gh gi gl gm gn gp gq gr gs gt gu gw gy hk hm "
-    "hn hr ht hu id ie il im in io iq ir is it je jm jo jp ke kg kh ki km kn kp kr kw ky kz la lb "
-    "lc li lk lr ls lt lu lv ly ma mc md me mg mh mk ml mm mn mo mp mq mr ms mt mu mv mw mx my mz "
-    "na nc ne nf ng ni nl no np nr nu nz om pa pe pf pg ph pk pl pm pn pr ps pt pw py qa re ro rs "
-    "ru rw sa sb sc sd se sg sh si sk sl sm sn so sr ss st su sv sx sy sz tc td tf tg th tj tk tl "
-    "tm tn to tr tt tv tw tz ua ug uk us uy uz va vc ve vg vi vn vu wf ws ye yt za zm zw"
+    "ac ad ae af ag aq ar at au aw ax az ba bb bd be bf bg bh bi bj bm bn bo br bs bt bw by bz "
+    "cc cd cf cg ch ci ck cl cm cn cr cv cw cx cy cz dj dk dm dz ec ee eg er et eu fi fj fk fm "
+    "fo fr ga gd ge gf gg gh gi gl gm gn gp gq gr gs gt gu gw gy hk hm hn hr ht hu id ie il im "
+    "in iq it je jm jo jp ke kg kh ki km kn kp kr kw ky kz lb lc lk lr ls lt lu lv mc md mg mh "
+    "mk ml mm mn mp mq mr ms mt mu mv mw mx my mz nc nf ng nl np nr nz om pf pg ph pk pl pm pn "
+    "pr ps pw py qa ro rs ru rw sb sc sd sg sh sk sl sm sn sr ss st sv sx sy sz tc td tf tg th "
+    "tj tk tl tm tn tr tt tv tw tz ua ug uk us uy uz vc vg vn vu wf ws ye yt za zm zw"
 )
-_TLD_GENERICO: Final = (
-    "com net org info biz xyz app site online shop store link me top club vip live icu buzz work "
-    "click fun space website tech zip mov cloud art blog page dev news email today life world one "
-    "pro mobi name asia win bid loan date stream download review party science trade"
-)
-#: Ordenados do mais comprido para o mais curto, para que a alternancia nao
-#: pare no prefixo («co» antes de «com»).
-TLD: Final = "|".join(
-    sorted(set((_TLD_DE_PAIS + " " + _TLD_GENERICO).split()), key=lambda t: (-len(t), t))
-)
+
+
+def _alternancia(lista: str) -> str:
+    return "|".join(sorted(set(lista.split()), key=lambda t: (-len(t), t)))
+
+
+#: O que pode seguir um dominio: o caminho, ate ao primeiro espaco.
+_CAMINHO: Final = r"""[^\s<>()"']*"""
 
 #: Um URL ou um dominio. O hospedeiro compara-se com a *allowlist* do grafo.
 URL: Final = (
@@ -413,13 +431,12 @@ URL: Final = (
     r"\bhxxps?\s*:\s*/\s*/|\bhttps?\s+:\s*/\s*/|\bhttps?:\s*/\s+/",
     r"\[\s*(?:\.|dot|ponto)\s*\]|\(\s*(?:\.|dot|ponto)\s*\)",
     r"\b[a-z0-9-]+ \. (?:com|ao|net|org|pt|io)\b",
-    # Um dominio sem esquema. **Os rotulos sao `\w` e nao `[a-z0-9]`**, e o
-    # red-team mediu porque (KAM-073, RT-02): um homoglifo nao-ASCII no nome
-    # da loja nao casava nada e o dominio saia. Com `\w` casa, o `_hospedeiro`
-    # do `saida.py` (que e ASCII) corta-o no caracter estranho, e o que sobra
-    # nao esta na *allowlist*. E o TLD e o `TLD` abaixo, e nao a lista curta da
-    # 1.0.0, que deixava sair um dominio de pais (RT-01).
-    rf"\b[^\W_][\w-]*(?:\.[\w-]+)*\.(?:{TLD})\b(?:/[^\s<>()\"']*)?",
+    # Os dominios sem esquema, pelos tres grupos acima. **Os rotulos sao `\w` e
+    # nao `[a-z0-9]`**: um caracter nao-ASCII no nome casa, e o `saida.py` recusa
+    # qualquer dominio que o leve (KAM-073).
+    rf"\b[^\W_][\w-]*(?:\.[\w-]+)*\.(?:{_alternancia(_TLD_SEMPRE)})\b(?:/{_CAMINHO})?",
+    rf"\b[^\W_][\w-]{{2,}}(?:\.[\w-]+)*\.(?:{_alternancia(_TLD_DE_PAIS)})\b(?:/{_CAMINHO})?",
+    rf"\b[^\W_][\w-]{{2,}}(?:\.[\w-]+)*\.(?:{_alternancia(_TLD_PALAVRA)})/{_CAMINHO}",
 )
 
 
