@@ -170,9 +170,11 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # KAM-184 fundiu, e quem integrou em segundo pagou. Quatro movimentos em
     # quatro epics, e nenhum portao compara este literal com a constante que ele
     # cita: quem o apanha e correr o `--aplicaveis`.
+    #
+    # **Quinta vez: 47 -> 48, com o KAM-083** (96 medidos).
 
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 47", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 48", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
