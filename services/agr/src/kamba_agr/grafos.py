@@ -56,7 +56,12 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Final
 
 from .contexto import InvocacaoDoAgente
-from .turno import Grafo, GrafoNaoRegistadoError, VerticalRecusadaError
+from .turno import (
+    Grafo,
+    GrafoNaoRegistadoError,
+    SaidaPorLigarError,
+    VerticalRecusadaError,
+)
 
 #: As duas recusas que a admissao do turno decide aqui. A terceira do dominio
 #: (`ritmo`, dicionario §3.30) e da `api_interna.py`, antes da tranca.
@@ -67,6 +72,13 @@ CONTACTO_BLOQUEADO: Final = "contacto_bloqueado"
 #: «admite» — e o que a porta devolve a quem compile um grafo sem a resolucao.
 _ADMISSAO: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "kamba_agr_admissao_do_turno", default=None
+)
+
+#: A politica de concierge deste turno, lida antes do `ainvoke`: `(tenant, activa)`.
+#: `None` fora de um turno — na retoma e na decisao de rascunho, que nao passam
+#: pela resolucao do turno — e a `PoliticaDoTurno` le-a entao directamente.
+_CONCIERGE: contextvars.ContextVar[tuple[str, bool] | None] = contextvars.ContextVar(
+    "kamba_agr_concierge_do_turno", default=None
 )
 
 
@@ -93,11 +105,40 @@ def admitir(_estado: Mapping[str, Any]) -> str | None:
     return _ADMISSAO.get()
 
 
+class PoliticaDoTurno:
+    """A `PoliticaDeConcierge`, lida **fora** da *event loop* e uma vez por turno.
+
+    O no `send` e `async` e pergunta `activa(tenant)` sem `await`; a
+    `PoliticaDeConcierge` responde com uma leitura sincrona a base. Ligada
+    directamente, essa leitura corria na *event loop* em cada turno que envia, e
+    dois turnos de *threads* diferentes serializavam — medido pela revisao
+    adversarial do KAM-186: 1,43 s contra 0,33 s com um leitor de 0,5 s.
+
+    A leitura passa para a resolucao do turno, num *executor*, e o resultado
+    chega ao `send` por um `ContextVar`, como a admissao. **Continua a ser uma
+    leitura por turno e sem *cache*** — o criterio 8 do KAM-114. Fora de um turno
+    (a retoma e a decisao, que tambem chegam ao `send`) le directamente.
+    """
+
+    __slots__ = ("politica",)
+
+    def __init__(self, politica: Any) -> None:
+        self.politica = politica
+
+    def activa(self, tenant_id: str) -> bool:
+        lida = _CONCIERGE.get()
+        if lida is not None and lida[0] == tenant_id:
+            return lida[1]
+        return bool(self.politica.activa(tenant_id))
+
+
 def exigir_portas_coerentes(portas: Mapping[str, Any]) -> None:
     """Criterio 8: a politica de concierge sem `ServicoDeRascunho` recusa."""
     from .concierge.politica import SemPolitica
 
     concierge = portas.get("concierge")
+    if isinstance(concierge, PoliticaDoTurno):
+        concierge = concierge.politica
     if concierge is not None and not isinstance(concierge, SemPolitica):
         if portas.get("rascunho") is None:
             raise PortasIncoerentesError("concierge_sem_servico_de_rascunho")
@@ -144,26 +185,34 @@ def para_validar(vertical: Any) -> Grafo:
 
 
 class _GrafoDoTurno:
-    """O grafo da vertical, com o veredicto da admissao deste turno."""
+    """O grafo da vertical, com o que se leu antes do turno: admissao e politica."""
 
-    __slots__ = ("_grafo", "_admissao")
+    __slots__ = ("_grafo", "_admissao", "_concierge")
 
-    def __init__(self, grafo: Grafo, admissao: str | None) -> None:
+    def __init__(
+        self,
+        grafo: Grafo,
+        admissao: str | None,
+        concierge: tuple[str, bool] | None = None,
+    ) -> None:
         self._grafo = grafo
         self._admissao = admissao
+        self._concierge = concierge
 
     async def ainvoke(self, estado: dict[str, Any], config: dict[str, Any]) -> Any:
         marca = _ADMISSAO.set(self._admissao)
+        marca_da_politica = _CONCIERGE.set(self._concierge)
         try:
             return await self._grafo.ainvoke(estado, config)
         finally:
+            _CONCIERGE.reset(marca_da_politica)
             _ADMISSAO.reset(marca)
 
 
 class PortaDeGrafos:
     """As tres portas `grafos`: a do turno e as duas por `thread_id`."""
 
-    __slots__ = ("_registo", "_grafos", "_checkpointer", "_bloqueado")
+    __slots__ = ("_registo", "_grafos", "_checkpointer", "_bloqueado", "_politica")
 
     def __init__(
         self,
@@ -172,11 +221,13 @@ class PortaDeGrafos:
         grafos: Mapping[str, Grafo],
         checkpointer: Any,
         contacto_bloqueado: Callable[[InvocacaoDoAgente], Awaitable[bool]],
+        politica: PoliticaDoTurno | None = None,
     ) -> None:
         self._registo = registo
         self._grafos = dict(grafos)
         self._checkpointer = checkpointer
         self._bloqueado = contacto_bloqueado
+        self._politica = politica
 
     def _grafo(self, vertical: object) -> Grafo:
         grafo = self._grafos.get(vertical) if isinstance(vertical, str) else None
@@ -195,7 +246,14 @@ class PortaDeGrafos:
         if resolucao.vertical is None:
             raise VerticalRecusadaError(str(resolucao.motivo))
         grafo = self._grafo(resolucao.vertical.id)
-        return _GrafoDoTurno(grafo, await self._admissao(invocacao, grafo))
+        admissao = await self._admissao(invocacao, grafo)
+        concierge = None
+        if self._politica is not None:
+            activa = await asyncio.to_thread(
+                self._politica.politica.activa, invocacao.tenant_id
+            )
+            concierge = (invocacao.tenant_id, bool(activa))
+        return _GrafoDoTurno(grafo, admissao, concierge)
 
     async def _admissao(self, invocacao: InvocacaoDoAgente, grafo: Any) -> str | None:
         if await self._bloqueado(invocacao):
@@ -234,11 +292,15 @@ class SaidaPorLigar:
     Python, e nao ha fila nem rota entre os dois. A linha que aqui fica nao e
     deste ticket nem de nenhum aberto: e um achado com credor por abrir.
 
-    **Nao levanta, e nao e silenciosa.** Levantar devolvia o *job* a fila seis
-    vezes por uma mensagem que nenhuma tentativa consegue entregar — o defeito
-    que o 503 de hoje ja tem. O que faz e avisar em cada envio, com o
-    `outcome` `saida_por_ligar` no registo, para que um turno `executado` sem
-    mensagem ao cliente nao se confunda com um que falou.
+    **Avisa e levanta `SaidaPorLigarError`**, que a rota traduz em 503
+    `saida_por_ligar` com `Retry-After`. A primeira versao nao levantava, e a
+    revisao adversarial mediu o que isso custava: o turno acabava `executado`, o
+    *job* completava, a resposta ia para lado nenhum — e a desduplicacao por
+    `turn_id` marcava qualquer reentrega como `turno_repetido`, pelo que a
+    mensagem ficava **irrecuperavel**. Levantando, o turno nao acaba (o
+    *checkpoint* fica com o `send` por correr), o *job* esgota a escada e fica em
+    `failed`, e reprocessa-se quando a ponte existir. Nenhuma resposta se perde,
+    e o `executado` nao conta turnos que nao falaram.
     """
 
     __slots__ = ("_aviso",)
@@ -251,11 +313,13 @@ class SaidaPorLigar:
     ) -> None:
         if self._aviso is not None:
             self._aviso("saida_por_ligar")
+        raise SaidaPorLigarError("saida_por_ligar")
 
 
 __all__ = [
     "CONTACTO_BLOQUEADO",
     "PortaDeGrafos",
+    "PoliticaDoTurno",
     "PortasIncoerentesError",
     "SaidaPorLigar",
     "TURNO_REPETIDO",

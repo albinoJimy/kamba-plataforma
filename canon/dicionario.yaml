@@ -5494,7 +5494,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.24"
     conceito: "Métricas do shim da fila"
-    canonico: "agr_shim_total{outcome} — com outcome de dez valores, os nove que o AGR responde (executado, entregue_ao_hnd, sem_conversa, descartado, tecto_do_tenant, grafo_nao_registado, servico_indisponivel, invocacao_invalida, nao_autorizado) mais desconhecido para uma resposta que não é nenhuma delas — e agr_shim_failed_total"
+    canonico: "agr_shim_total{outcome} — com outcome de onze valores, os dez que o AGR responde (executado, entregue_ao_hnd, sem_conversa, descartado, tecto_do_tenant, grafo_nao_registado, servico_indisponivel, saida_por_ligar, invocacao_invalida, nao_autorizado) mais desconhecido para uma resposta que não é nenhuma delas — e agr_shim_failed_total"
     literais:
       - "agr_shim_total{outcome}"
       - "outcome"
@@ -5505,6 +5505,7 @@ entradas:
       - "tecto_do_tenant"
       - "grafo_nao_registado"
       - "servico_indisponivel"
+      - "saida_por_ligar"
       - "invocacao_invalida"
       - "nao_autorizado"
       - "desconhecido"
@@ -5519,6 +5520,7 @@ entradas:
       - "tecto_do_tenant"
       - "grafo_nao_registado"
       - "servico_indisponivel"
+      - "saida_por_ligar"
       - "invocacao_invalida"
       - "nao_autorizado"
       - "desconhecido"

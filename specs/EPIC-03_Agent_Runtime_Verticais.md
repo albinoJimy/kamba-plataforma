@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.17 |
+| Versão | 1.18 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -4900,7 +4900,7 @@ texto do cliente um caminho até à janela que passe pela via única do KAM-033.
 
 ### Critérios de Aceitação
 
-- [ ] 1. **A rota do texto do cliente até ao grafo está medida, e a decisão fica
+- [x] 1. **A rota do texto do cliente até ao grafo está medida, e a decisão fica
   devolvida antes de código.** O `agent_invocation` (§3.13) tem nove campos
   fechados e nenhum é o corpo; o *job* da `agr-inbound` leva só a invocação
   (`packages/core-ts/src/chr/fila.ts:97`); e o corpo vive no *job* da
@@ -4913,7 +4913,7 @@ texto do cliente um caminho até à janela que passe pela via única do KAM-033.
   ou coluna nova. As duas mudam o canon: **devolvem-se ao fundador com a medição,
   e nenhuma se aplica aqui.** A decisão inclui a redacção do corpo do *job* da
   `wa-inbound` que os critérios 2 e 7 do KAM-033 deixaram a este credor.
-- [ ] 2. **A porta do turno resolve a vertical pelo registo, e as duas verticais
+- [x] 2. **A porta do turno resolve a vertical pelo registo, e as duas verticais
   correm.** Com uma invocação válida em modo `bot`, `/internal/turn` responde 200
   com desfecho `executado` e **não** 503 `grafo_nao_registado`. O ensaio mede as
   **duas direcções** — com a resolução substituída pelo `sem_grafos`, o mesmo
@@ -4939,7 +4939,7 @@ texto do cliente um caminho até à janela que passe pela via única do KAM-033.
   passagem em `waiting` retoma o grafo; com a resolução removida responde 503 e
   **não escreve nada**, porque o grafo continua a resolver-se **antes** do CAS. O
   mesmo para `/internal/draft-decision`.
-- [ ] 5. **Cada porta que os blocos fechados deixaram por ligar chega ao
+- [x] 5. **Cada porta que os blocos fechados deixaram por ligar chega ao
   `Dependencias`, e cada uma tem ensaio que falha se voltar à omissão.** A
   `PoliticaDeConcierge` (KAM-114; a linha `concierge_por_ligar` deixa de sair no
   arranque), o `DetectorDeDegradacao` (KAM-037), o `ServicoDeHandoff` (KAM-034), os
@@ -4968,7 +4968,7 @@ texto do cliente um caminho até à janela que passe pela via única do KAM-033.
   medido contra o `CheckpointerDoAgr` em PostgreSQL, e não só contra o
   `InMemorySaver`. Se o critério 1 não tiver decisão, esta caixa fica aberta com o
   credor **fundador**, e não se escreve a rota por conta própria.
-- [ ] 8. **A guarda do par «concierge activo, `ServicoDeRascunho` por ligar»**
+- [x] 8. **A guarda do par «concierge activo, `ServicoDeRascunho` por ligar»**
   (`P3` da `ANALISE-39`, `ADR-L005`). Hoje o turno levanta
   `ConciergeSemServicoError`, e o *job* gasta as seis tentativas e acaba em
   `failed`. Ou o arranque recusa, ou o turno termina com desfecho nomeado e o
@@ -4980,7 +4980,7 @@ texto do cliente um caminho até à janela que passe pela via única do KAM-033.
   turno de pesquisa de produto acaba em `safe_reply` ou *handoff* — nunca numa
   excepção que devolva o *job* à fila. Sem `KAMBA_COM_URL`, o mesmo ensaio mostra
   as cinco entradas do Vendedor `declaradas`.
-- [ ] 10. **O que dizia que a porta está por ligar deixa de o dizer**, sítio a
+- [x] 10. **O que dizia que a porta está por ligar deixa de o dizer**, sítio a
   sítio e não por padrão: um `grep` apanha as linhas de versão e as citações, que
   são história. No código: `turno.py:133-160`, `api_interna.py:269-271`,
   `__main__.py:594-602`, `:635-670`, `:710-715`, `:785-799`,
@@ -5029,14 +5029,85 @@ apanhado.
 
 - [ ] Critérios de aceitação satisfeitos e demonstráveis, com as caixas abertas a
   nomear o credor.
-- [ ] A decisão do critério 1 está **devolvida e não aplicada**, com a medição das
+- [x] A decisão do critério 1 está **devolvida e não aplicada**, com a medição das
   duas rotas.
-- [ ] Nenhuma porta com omissão silenciosa no `__main__.py` sem ensaio que a
+- [x] Nenhuma porta com omissão silenciosa no `__main__.py` sem ensaio que a
   apanhe; nenhum nome novo fora do dicionário.
-- [ ] `../docs/agr.md`, `../docs/concierge.md` e o `ADR-L005` actualizados, com
+- [x] `../docs/agr.md`, `../docs/concierge.md` e o `ADR-L005` actualizados, com
   linha de versão.
-- [ ] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
+- [x] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
   cada caixa e a ponta onde foi medida.
+
+### Verificação dos Critérios de Aceitação
+
+Medido no ramo `feature/KAM-186-porta-grafos`, sobre a `publico/main` em
+`6583930f`. As baterias correm sem base de dados (`services/agr/tests`, *gate*
+4); **nada aqui foi medido contra PostgreSQL**, e isso pesa em três caixas. A
+bateria nova é o `services/agr/tests/test_grafos.py`, que corre o `main()` real
+para medir a **ligação** de cada porta e não só a função.
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | A rota do texto do cliente medida, e a decisão devolvida antes de código | **satisfeito — decisão devolvida ao fundador, não aplicada** | Medido nas três fontes que o critério nomeia: o `agent_invocation` tem nove campos fechados e nenhum é o corpo (§3.13); o `publicar` de `packages/core-ts/src/chr/fila.ts` põe na `agr-inbound` **só** a invocação (`fila.add(JOB_AGR, invocacao, …)`); e o docstring da revisão `0008` diz que «o *payload* de conversa vive no *job*» da `wa-inbound` e não em `inbound_events`. **As duas saídas, e o que cada uma custa:** **(a)** o corpo atravessa a `agr-inbound` — emenda ao §3.13 (campo novo num contrato fechado), texto do cliente numa **segunda** persistência antes do AGR (o Redis da `agr-inbound`, que guarda *jobs* completos e falhados), e redacção **do lado do CHR**, em TypeScript: uma segunda implementação do `guardas.mensagem_do_cliente` a divergir da primeira, ou o PAN cru no Redis; **(b)** o AGR lê o corpo de uma fonte persistida por identificador — que hoje **não existe** (a `inbound_events` não guarda corpo por desenho da `0008`), logo tabela ou coluna nova, e migração. As duas mudam o canon; **nenhuma se aplicou**, e o código não toca no §3.13 nem cria esquema. A redacção do corpo do *job* da `wa-inbound` (critérios 2 e 7 do KAM-033) vai com a mesma decisão: com (a) é do CHR, com (b) é de quem escrever a fonte |
+| 2 | A porta do turno resolve pelo registo, e as duas verticais correm | **satisfeito** | `TestPortaDoTurno::test_um_turno_valido_responde_200_executado_e_nao_503` — `/internal/turn` com uma invocação `bot` válida e uma porta de saída que entrega dá **200 `executado`**; `test_com_o_sem_grafos_o_mesmo_pedido_volta_a_503` — o mesmo pedido com o `sem_grafos` dá **503 `grafo_nao_registado`**; `test_uma_invocacao_de_servicos_corre_o_grafo_de_servicos` — `servicos` 1 invocação, `vendedor` 0. **E a vertical pelo conteúdo, no processo:** `TestLigacaoDoArranque::test_a_porta_do_turno_resolve_cada_vertical_no_seu_grafo` corre o `main()` real e confere que o grafo devolvido para cada vertical tem **os nós do alvo dela**, compilado à parte — a primeira versão comparava só a identidade contra o que o `compilar` devolvia, e a revisão adversarial mostrou que passava com o `compilar` a construir o Vendedor para as duas. **Em produção o turno dá 503 `saida_por_ligar`**, e não 200: a porta de saída do processo não tem Outbound (ver «Achado»). O 200 também não desbloqueia o KAM-108, pelas razões que o critério antecipa: a janela chega vazia (critério 7) |
+| 3 | Uma vertical que não resolve tem a resposta do KAM-027, e não volta à fila | **parcial** | **A metade da fila está satisfeita**: `test_sem_entitlement_e_servico_indisponivel_com_200_e_uma_tentativa` — **200 `servico_indisponivel`**, zero invocações de grafo, e `agr_registry_denied_total{motivo="sem_entitlement"} 1` no `MetricasDoAgr` real; o *shim* decide pelo estado HTTP e um 2xx completa o *job* — **uma** tentativa. **Pelo `main()`**: `test_o_entitlement_do_turno_e_o_do_registo_do_processo` — sem o módulo no leitor do processo, a porta recusa com `sem_entitlement`. `test_uma_vertical_desconhecida_e_recusada_pelo_resolve` — `vertical_desconhecida`. O desfecho entrou no dicionário como *proposta* (emenda **1.72**) e nas duas listas fechadas (`metricas.py`, `agr/contrato.ts`). **O que falta é «o cliente recebe essa resposta estática», e são duas peças**: o **texto** não existe (o critério 6 do KAM-027 diz que vive no `compose` do KAM-033, que fechou sem o escrever, e nenhum caminho de código o tenta enviar), e a **ponte** AGR → Outbound também não (ver «Achado»). Credor: fundador, para o texto, e o achado, para a ponte |
+| 4 | As duas portas por `thread_id` ligam-se, e continuam a ser duas | **parcial** | `TestLigacaoDoArranque::test_as_duas_portas_por_thread_sao_a_mesma_resolucao_e_nao_a_do_turno` — o `Retomador` e o `Decisor` recebem `PortaDeGrafos.da_thread` e o executor `do_turno`, da **mesma** porta; `test_a_porta_por_thread_le_a_vertical_do_checkpoint`. **A retoma, nas duas direcções**: `TestPortaDaThread::test_uma_passagem_em_waiting_retoma_o_grafo_pela_porta_do_processo` — um turno real pára em `handoff_wait`, o `Retomador` com a porta do processo dá `retomado` e o `next` do *checkpoint* fica vazio; `test_a_retoma_sem_grafo_nao_abre_a_base` — sem *checkpoint*, `GrafoNaoRegistadoError` e **zero** ligações abertas (a rota traduz essa excepção em 503, ensaio do KAM-034). **A decisão de rascunho só numa direcção**: `test_a_decisao_de_rascunho_sem_grafo_nao_abre_a_base`. **O que falta**: o `Decisor` a retomar um grafo parado em `draft_wait` pela porta do processo não se mediu, e as duas rotas mediram-se pelos objectos que elas chamam e não pela API; tudo contra o `InMemorySaver`, e não contra o `CheckpointerDoAgr` |
+| 5 | Cada porta por ligar chega ao `Dependencias`, e cada uma tem ensaio que falha na omissão | **satisfeito** | `TestLigacaoDoArranque::test_cada_porta_do_dependencias_sai_da_omissao`, sobre o `main()` real, pela **ligação** e não só pela classe: `PoliticaDoTurno` sobre uma `PoliticaDeConcierge` que lê o leitor do processo (`test_a_politica_de_concierge_le_o_leitor_do_processo` — muda com o entitlement `concierge`), `DetectorDeDegradacao` com a `Admissao` do processo, `ServicoDeHandoff`, `ServicoDeRascunho` com a ligação `ligar_para_concierge`, a **mesma** `ToolLayer` que o arranque conta e fecha, o `METRICAS` do processo, `grafos.admitir` e não `_admite_sempre`, e o **mesmo** checkpointer no `compile` e na porta por *thread*. Os executores do COM: `TestToolsNoArranque::test_com_o_com_ligam_se_cinco_de_onze`. A `persona` e as `tools_permitidas` de cada vertical: `TestCompilar`. A linha `concierge_por_ligar` deixou de sair. **Prova por mutação** na linha «Mutações», abaixo. Os clientes HTTP do HND ligam-se com o provedor que existe — o `ProvedorPorLigar` do handoff e um `ProvedorDeRascunhoPorLigar` novo, que **levantam**: a degradação do `01` §11.5 |
+| 6 | A porta `admitir` lê `contacts` e desduplica por `turn_id` | **parcial** | **A ligação e as duas direcções estão medidas**: `TestAdmissao::test_contacto_bloqueado_acaba_sem_envio_e_sem_tools` (`admissao="contacto_bloqueado"`, zero envios, **zero** chamadas ao *backend*) e `…_com_a_porta_na_omissao_envia`; `test_o_mesmo_turn_id_depois_de_acabar_nao_envia_outra_vez` e `…_com_a_porta_na_omissao_envia_outra_vez`; `test_o_mesmo_turn_id_de_um_turno_que_parou_a_meio_nao_e_repetido` — o critério 4 do KAM-025 continua a valer. **No processo**: `test_o_contacto_le_se_pela_ligacao_de_leitura_e_decide_a_admissao`. O `aceita_o_ritmo` **não** é chamado. **Três coisas fazem disto parcial.** A `platform.contacts` **não tem estado de bloqueio** (revisão `0003`): a leitura adoptada é «apagado ou fundido» (`erased_at`, `merged_into`), e zero linhas é bloqueado — e o `merged_into` é discutível, porque uma mensagem com o `contact_id` antigo durante uma fusão é de um contacto real; um bloqueio pedido pela PME precisa de esquema. **Devolvido ao fundador.** O `SQL_CONTACTO_BLOQUEADO` **não correu contra PostgreSQL** (*gate* 8). E dois limites: um duplicado que chegue depois de outro turno da mesma *thread* não se vê, e num lote coalescido só o `turn_id` da primeira mensagem fica no *checkpoint* |
+| 7 | O texto entra na janela só por `guardas.mensagem_do_cliente` | **não satisfeito — caixa vazia, credor fundador** | É o que o próprio critério manda: sem decisão do critério 1, a caixa fica aberta e a rota não se escreve. O `TestUmaSoVia` continua verde sem excepção nova (nenhuma mensagem `user` é construída em `src/`). O PAN no *checkpoint* de entrada contra o `CheckpointerDoAgr` em PostgreSQL não se mediu: não há texto que lá chegue |
+| 8 | A guarda do par «concierge activo, `ServicoDeRascunho` por ligar» | **satisfeito** | **O arranque recusa.** `TestParDoConcierge::test_o_arranque_com_a_politica_e_sem_servico_sai_com_2` — o `main()` real com o `ServicoDeRascunho` a faltar sai com **2** (configuração inválida), sem chegar ao `uvicorn.run`, e regista `portas_incoerentes`; `test_a_politica_sem_servico_recusa` e as duas direcções positivas. Em produção o par deixou de ser montável: o `__main__` passa sempre os dois juntos |
+| 9 | As tools ficam ditas pelo arranque | **parcial** | **Com `KAMBA_COM_URL`: `ligadas_5_de_11`** (`TestToolsNoArranque::test_com_o_com_ligam_se_cinco_de_onze` — o `get_store_info` e os quatro do KAM-178); **sem ele: `ligadas_1_de_11`** (`test_sem_o_com_so_a_da_plataforma`), e `TestPesquisaSemExecutor` confere que as cinco do Vendedor que falam com o COM ficam fora das ligadas. O `search_catalog` continua `declarado`, credor **KAM-061**. **O que diverge da letra**: o turno de pesquisa acaba **sem excepção** e com uma mensagem, mas a mensagem é a do `unknown_reply` (`MSG_NAO_ENTENDI`, que oferece um colega) e não o `safe_reply` nem um *handoff*. A leitura é que o predicado do critério («nunca numa excepção que devolva o *job* à fila») está cumprido e o nó nomeado não. Devolvido a quem escreveu o critério |
+| 10 | O que dizia que a porta está por ligar deixa de o dizer | **satisfeito** | Sítio a sítio, no código: `turno.py` (`GrafoNaoRegistadoError` passa a «*thread* sem *checkpoint* ou vertical sem grafo»; `sem_grafos` passa a «não é a do processo»), `api_interna.py` (a tabela ganha `servico_indisponivel` e `saida_por_ligar`, e o comentário do 503 deixa de dizer «enquanto o KAM-027 não registar grafos»), `__main__.py` (o bloco das portas; o `_grafo_da_thread` **saiu**; a `CredencialDoCom` e os dois «até lá nada a chama»), `registo/__init__.py` («O que ele NÃO liga» passa a «quem chama o `resolve`»), `verticais/vendedor/nos.py` (o cabeçalho diz que a janela chega vazia e porquê; o `_admite_sempre` passa a «a omissão das baterias»), `registry/vendedor.yaml` («o `graph` RESOLVE, E O PROCESSO SERVE-O»), `registry/servicos.yaml` e `handoff/retoma.py`. Na prosa: o «Estado» e o §1 de `../docs/agr.md` (deixa de dizer «não vai a produção antes do KAM-031»), o §7-B, o §7-F, a linha da tabela do §7-G (paga) e o §7-J, mais o §7-K novo; o `../docs/concierge.md` §7 (a linha «A ligação das portas ao grafo» passa a paga); e o `ADR-L005` (a guarda do `P3` passa a paga). Confirmado por `git grep -n "porta .grafos" -- specs docs services registry`: o que sobra fora de `docs/analises/` são linhas de versão e o EPIC-08 (o KAM-188, que mede) |
+| 11 | O ritmo excedido tem um só comportamento | **não satisfeito — caixa vazia, devolvido ao fundador** | Medido: o `api_interna.py` responde **200 `descartado`** acima de vinte mensagens por minuto por contacto e conta `agr_admitted_rejected_total{motivo="ritmo"}` — é o critério 5 do KAM-025, e o dicionário §3.24 escreve «descarte silencioso». O `../docs/tecnica/09` §13, linha RB-K09, escreve «Bloqueio e handoff», e o critério 7 do KAM-084 (no ramo `feature/KAM-084-teste-de-carga`, em `c067aac4`) pede «redireccionado a *handoff*» e dá a divergência a este ticket. **Não se decide aqui** por duas razões: as duas fontes são canon e um critério fechado do KAM-025, e a alternativa (*handoff*) passa pelo `reencaminhar`, que hoje é o `_hnd_por_ligar` do KAM-019 e não reencaminha nada — trocar o descarte por ele seria trocar um silêncio contado por um silêncio que diz ter entregue. O ensaio de *flood* do KAM-188 mede o que o fundador decidir |
+
+**Mutações.** Dezanove com prefixo `grafos:` na `agr_unit` (`db/mutacoes.py`),
+e o `test_grafos` entrou no `MODULOS_DO_AGR_UNIT`. Dez no `__main__`: o
+`sem_grafos` de volta ao turno, à retoma e à decisão; `SemPolitica`,
+`SemDegradacao`, `hnd=None`, `_admite_sempre` e `checkpointer=None`; o registo a
+admitir qualquer *tenant*; e o contacto pela ligação da tranca. Oito na porta:
+a recusa ignorada, o contacto por ler, o turno parado a meio contado como
+repetido, a *thread* a resolver sempre o Vendedor, as duas verticais a
+compilar o grafo do Vendedor, a `persona` vazia, a saída que deixa de levantar
+e o `resolve` na *event loop*. E uma no turno: a recusa a voltar à fila.
+Resultado, medido com `python db/mutacoes.py <python> "grafos:"` sobre esta árvore: **19 corridas, 0 não apanhadas**, com a linha de base da `agr_unit` verde; e a suite inteira do AGR, **1567 ensaios, OK**.
+
+**Revisão adversarial**, por um agente sem o raciocínio do autor, que mutou a
+**ligação** em cópias da árvore: as treze mutações da primeira versão morreram
+todas, e **doze mutações dele sobreviveram**: o grafo do Vendedor nas duas
+verticais, o leitor de entitlements a admitir tudo, a política sempre
+desligada, o contacto «nunca bloqueado» e pela ligação errada, a `persona` e as
+`tools_permitidas` do Vendedor nas duas, a `ToolLayer` sem executores, o
+`METRICAS` ausente, a ligação do rascunho, a saída muda e o `resolve` na
+*event loop*. Corrigido nesta entrega: as doze passaram a ter ensaio que as
+apanha, e seis são agora mutações da lista; a leitura da política de concierge saiu da
+*event loop* (dois turnos de *threads* diferentes serializavam: 1,43 s contra
+0,33 s com um leitor de 0,5 s); e a `SaidaPorLigar` deixou de devolver 200 —
+com 200, a resposta perdia-se e a desduplicação recusava a reentrega. **Ficam
+escritos e não corrigidos**: o `ServicoDeRascunho.abrir`, síncrono num nó
+`async`, para *tenants* em concierge (restrição já escrita pelo KAM-114); o
+`merged_into` como bloqueio e o `turn_id` só da primeira mensagem de um lote
+(critério 6); e a *thread* sem *checkpoint*, que repete 503 na retoma (é o
+comportamento que o critério 4 pede).
+
+**Achado, com credor por abrir: o AGR não tem por onde falar com o cliente.** O
+`Dependencias` exige uma `PortaDeSaida`, e **nenhuma implementação existe**: o
+Outbound é o `Saida` de `packages/core-ts/src/outbound/` (KAM-015), uma
+biblioteca TypeScript que **nenhum serviço instancia** (`grep -rn "new Saida"
+services packages` só encontra comentários), e o AGR é Python, sem fila nem rota
+para lá. O processo liga a `SaidaPorLigar`, que avisa (`outcome=saida`,
+`error_code=saida_por_ligar`) e levanta: a rota responde **503
+`saida_por_ligar`**, o *job* volta à fila e nenhuma resposta se perde. Nenhuma
+linha do §4 do `INDICE.md` é a ponte AGR → Outbound; abri-la é L1.
+
+**DoD.** «Critérios satisfeitos» fica **vazia** (o 3, o 4, o 6 e o 9 são
+parciais e o 7 e o 11 estão devolvidos); «decisão do critério 1 devolvida e não
+aplicada» **marcada**; «nenhuma porta com omissão silenciosa sem ensaio» e
+«nenhum nome novo fora do dicionário» **marcada** — as que ficam por ligar
+(`classificador`, `classificador_de_guarda`, `modos`, `stt`, `saida`) dizem-se no
+arranque, uma linha `grafo_porta_por_ligar` por porta, com ensaio, e o
+`servico_indisponivel` e o `saida_por_ligar` entraram pela emenda 1.72;
+`../docs/agr.md`, o `../docs/concierge.md` e o `ADR-L005` **actualizados**, com
+linha de versão (1.20, 1.3 e 1.2); e esta secção.
 
 ### Handoff para Claude Code
 
@@ -5111,3 +5182,4 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 | 1.15 | Novembro 2026 | **KAM-184 entregue: a acção está escrita e a origem da marcação continua devolvida.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1 a 4) e **um parcial** (5), **três caixas de DoD marcadas e uma vazia**. Os dois pares de pagamento saem do `ACCOES_POR_LIGAR` — que fica **vazio, e fica** — para um `ACCOES_DE_MARCACAO` novo, e o desfecho do consumo deixa de ser `sem_accao`. **A decisão que deu forma ao ticket foi obrigada pelos próprios critérios:** o 1 manda devolver as duas rotas do `booking_id` sem aplicar nenhuma e o 5 manda produzir o artefacto, e as duas coisas só são compatíveis se a acção for escrita contra uma **porta** — a `PortaDeMarcacao`, que não prejulga a rota e cuja implementação por omissão **levanta**, como a `PortaDeContacto` do KAM-038. **E as duas rotas custam mais do que o §9.2 do `../docs/tecnica/evidencia/validacao/Gate_Fase0.md` escreve, nas duas direcções:** a (a) não custa compatibilidade — uma versão nova é compatível por construção, **0 quebrantes** contra `refs/remotes/publico/main` — mas o *gate* 7 sai **2** no `contract_diff gerados`, porque o gerador de tipos guarda **uma** forma de *payload* por tipo; e a (b) **não é «uma leitura por evento»**, porque superfície nenhuma liga hoje uma encomenda a uma marcação — a `servicos.bookings` da revisão `0025` não tem coluna de encomenda, a `platform.orders_mirror` da `0030` não tem `booking_id` —, pelo que custa **uma migração** antes da leitura. **A medição por omissão do `contract_diff` está lá como contra-exemplo e não como prova:** `76 contratos, 0 em origin/main, 0 quebrantes` com saída 0, porque o `origin` desta máquina é o espelho privado sem `contratos/`. **O credor que fica a descoberto não é um ticket:** quem implementa a porta é o caminho entre o AGR e o módulo `servicos`, que **não está em linha nenhuma do §4 do `specs/INDICE.md`** — a mesma lacuna que o `../services/agr/src/kamba_agr/tls/servicos.py` já tinha escrita para os executores das cinco *tools* — e abri-lo é L1. É por ele que o critério 5 é parcial: o artefacto do G0-1 é produzido num ensaio contra um duplo da agenda, e a linha 1.6 daquela checklist **não é tocada** por este ticket. A guarda do arranque ganha a terceira condição na primeira pergunta (notifica, acção escrita, ou credor) e a terceira guarda ganha a outra metade — credor **e** acção escrita reprovam —, e as duas mordem com ensaio; o `fala_com_o_cliente` leva a **mesma** lista, porque uma guarda que aceitasse o par e um `fala_com_o_cliente` que o recusasse punha o AGR a arrancar e a rebentar na primeira entrega. **Sem migração, sem métrica nova e sem desfecho novo** (a distinção «confirmou» / «não havia marcação» é uma etiqueta e fica com o credor **KAM-080**, que é quem tem as métricas — a primeira versão escrevia KAM-060, que é a detecção de anomalias de pagamento, e foi um achado da revisão adversarial), e a regra de dois não regride: `fluxo 0, dominio 1, conteudo 45` — o `conteudo` não sobe porque os dois literais mudaram de tabela — e **88,34%** contra o limiar de 70%. O `MINIMO_DE_BLOCOS_MEDIDOS` do `lint_bloco` **não sobe com este ticket**, e isso é medição e não escolha: a secção leva os blocos medidos a **89** e `89 // 2` são 44, que é o valor que a `main` em `77a579bd` já tem — o 42 → 43 e o 43 → 44 foram pagos nas integrações do KAM-079 e do KAM-070, que fundiram no meio deste ramo. O que sobrou foi a **terceira** superfície, que as duas deixaram atrás: o §4 do `../docs/lint-bloco.md`, em 42 num documento que manda mexer em três sítios — dois valores atrás do código. | Equipa KAMBÁ |
 | 1.16 | Novembro 2026 | **KAM-033 entregue: os guardrails de entrada e saída.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1, 3, 4 e 6) e **quatro parciais** (2, 5, 7 e 8), cada um com credor — o *job* da fila leva o corpo da mensagem antes do AGR (quem ligar a porta `grafos`), a transição `→ pausada` é do KAM-018 e o formato do NIF continua por definir. **Duas caixas do DoD marcadas** (isolamento e números só de *tools*) e quatro vazias. A medição que mais pesou no desenho: o LangGraph grava a entrada num *checkpoint* antes do primeiro nó, pelo que a redacção tem de acontecer **antes** do `ainvoke` — daí a via única `mensagem_do_cliente`, imposta pela AST. Um defeito de outro ticket apanhado pelo critério 4: uma designação de catálogo com um valor dentro rebentava o turno no `validate`. Pagas as dívidas **128** (quanto ao álcool) e **130**; nova a **205**. Dicionário §3.51 (emenda **1.71**), `../docs/tecnica/02` 1.8, `../docs/agr.md` §7-J, vinte e seis mutações `guardas:`. **A revisão adversarial deu 17 achados, 15 `CONFIRMADO`**, e os três *must fix* (o botão com UUID, os separadores do PAN, o fixo e o NIF com espaços) estão corrigidos com teste. | Equipa KAMBÁ |
 | 1.17 | Novembro 2026 | **KAM-186** acrescentado, e **não entregue no mesmo PR**: o que se entrega é o ticket. Bloco novo, linha na «Tabela Resumo» e a contagem do §1 (**19** tickets, **13** na Fase 0). O `Bloqueia` do KAM-027, do KAM-031 e do KAM-035 ganha o KAM-186, e o do KAM-025 ganha o **KAM-187** do EPIC-08, que põe o `agr_shim.ts` a correr no compose. **Os credores sem número passam a número, sem se reescrever o que estava:** «quem ligar a porta `grafos`» ganha o **KAM-186** no critério 7 do KAM-031 e nas duas notas do bloco dele, no critério 2 e no DoD do KAM-033 (a nota do KAM-031 apontava para KAM-043/044/046/061 ou KAM-037, que fundiram sem a ligar), no KAM-034, no `P3` e no «O que ficou fora» do KAM-037, e no critério 6 do KAM-027 («quem o chama é o ticket que tiver um grafo (KAM-031)», que fundiu sem chamar o `resolve`). Nenhum critério, estimativa nem caixa dos blocos fechados muda. | Equipa KAMBÁ |
+| 1.18 | Novembro 2026 | **KAM-186 entregue: a porta `grafos` está ligada, e o AGR serve turnos sem ainda conversar.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **cinco critérios satisfeitos** (1, 2, 5, 8 e 10), **quatro parciais** (3, 4, 6 e 9) e **dois devolvidos ao fundador** (7 e 11); **quatro caixas de DoD marcadas e uma vazia**. As três portas — a do turno, por `InvocacaoDoAgente` e `AgentRegistry.resolve`, e as duas por `thread_id`, pelo *checkpoint* — ligam-se ao registo em `kamba_agr/grafos.py`, e o `Dependencias` de cada vertical sai das omissões que não fazem nada. **A decisão que deu forma ao ticket foi devolvida e não tomada**: a rota do texto do cliente até à janela muda o canon nas duas saídas medidas, pelo que a janela chega vazia. **E um achado sem ticket**: a `PortaDeSaida` do grafo não tem implementação — o `Saida` do KAM-015 é uma biblioteca TypeScript que nenhum serviço instancia —, pelo que a resposta não sai do processo — e o turno que quer responder dá 503 `saida_por_ligar` e volta à fila, para que nenhuma resposta se perca. Dicionário: emenda **1.72** (o desfecho `servico_indisponivel`, sem nome novo, e o `saida_por_ligar` do *shim*). A revisão adversarial encontrou **doze** mutações da ligação vivas contra a primeira bateria, e as doze passaram a ser apanhadas. `../docs/agr.md` 1.20 (§7-K novo), `../docs/concierge.md` 1.3, `ADR-L005` 1.2. **Sem migração.** | Equipa KAMBÁ |

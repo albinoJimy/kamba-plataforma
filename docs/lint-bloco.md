@@ -191,7 +191,7 @@ ela não existia, tendo-a. Vinte e seis eram `| CA | Estado | Evidência |`, que
 79**, e fez aparecer um oitavo bloco com divergência.
 
 Dois pisos: `MINIMO_DE_BLOCOS` (150) apanha um `glob` que deixe de casar;
-`MINIMO_DE_BLOCOS_MEDIDOS` (**44**) apanha o modo de falha mais perigoso deste
+`MINIMO_DE_BLOCOS_MEDIDOS` (**48**) apanha o modo de falha mais perigoso deste
 *lint* — uma mudança na forma do cabeçalho põe o emparelhamento a zero e a saída
 continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **2**.
 
@@ -201,8 +201,9 @@ continua a dizer «0 achados». Abaixo de qualquer um deles o comando sai com **
 
 > **O piso de emparelhados sobe quando o corpus cresce, e já subiu quatro
 > vezes.** O ensaio exige `piso >= medidos // 2`, pelo que cada **dois** blocos
-> de verificação novos pedem uma emenda: 40 → **41**, 41 → **42**, 42 → **43** e
-> 43 → **44**, cada uma medida na árvore de quem fundiu em segundo. **Quem a paga
+> de verificação novos pedem uma emenda: 40 → **41**, 41 → **42**, 42 → **43**,
+> 43 → **44** e, daí, até **48** (o KAM-186, com 96 medidos), cada uma medida na
+> árvore de quem fundiu em segundo. **Quem a paga
 > é um dado sobre a ordem de fusão e não sobre o corpus**, e é por isso que o
 > `lint.py` não nomeia tickets na conta — o que vale é o número e como se mede.
 >
@@ -397,3 +398,4 @@ importações é mais longa do que parece.)
 | 1.1 | Novembro 2026 | **A revisão adversarial deu 17 achados e todos se confirmaram contra a árvore.** Esta versão é a resposta. **Defeitos de código:** a coluna de assunto casava por sub-cadeia e a tabela `## Riscos do Epic` era lida como tabela de critérios em quatro blocos; o `\|` escapado deslocava a coluna de `Estado`; o casamento por prefixo nu dava `verde-azulado` como cumprido; e faltava `por cumprir` na lista que tem esse nome. **Cobertura:** reconhecer `\| CA \| Estado \| Evidência \|` levou os emparelhados de **53 para 81**, e a categoria «sem tabela com coluna `Estado`» deixou de ser falsa para 35 blocos. **Provas:** metade das mutações sobrevivia — entre elas o salto de cercas, a ordem das listas e o **valor** dos dois pisos —, uma assertiva estava desactivada com `if False` a esconder um defeito real, e a positiva da cerca não podia morder porque as caixas cercadas estavam fora das duas listas. **Números:** dez não se reproduziam, e a resposta não foi reescrevê-los mas **embarcar o instrumento** — `medir.py`, com os seis predicados escritos antes das contagens, e este documento passa a citar a saída dele; o `mutacao.py` entra pela mesma razão, com controlo. **E a espécie `ambigua` saiu**, porque a justificação dela não se verificava na medição. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-182: o piso de emparelhados sobe de 41 para 42, e as três superfícies dele passam a dizer o mesmo.** O ensaio `test_os_pisos_valem_alguma_coisa` exige `piso >= medidos // 2`; duas secções de verificação fundiram entre o corte do ramo do KAM-182 e a medição dele — a do KAM-055 (PR `#146`) e a dele —, o `medidos` passou a **84** e `84 // 2` são 42. Medido nas duas pontas: com a `main` em `ca5cac55` são 83 e 41 bastava; com a `main` em `06b8aba2` são 84 e o ensaio falha com `41 not greater than or equal to 42`. **E emenda duas superfícies que estavam atrasadas desde o KAM-108:** este documento dizia `40` e o literal do `mutacao.py` também, pelo que a mutação do piso **não casava** e ficava verde por não ter mudado nada. Achado da revisão adversarial do KAM-182. O número não se sobe em antecipação — um piso acima do medido avermelha o portão sem defeito nenhum —, pelo que a folga volta a ser dois blocos. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | **KAM-184: o piso não sobe, e a terceira superfície dele ficou atrás duas vezes seguidas.** O 42 → 43 e o 43 → 44 foram pagos nas integrações do KAM-079 e do KAM-070, e **as duas** mexeram o `lint.py` e o `mutacao.py` e deixaram o §4 deste documento em **42** — o documento que manda mexer em três sítios ficou a ser o sítio esquecido, e a terceira vez que esta linha fica atrás do código (a primeira esteve em 40 desde o KAM-108). Medido na árvore desta integração, com a `main` em `77a579bd` e a secção de verificação do KAM-184 dentro: **89** emparelhados contra 88 na `main`, e `89 // 2` são 44 — pelo que o piso **fica** em 44 e o que faltava era só a prosa, dois valores atrás. O §4 passa a contar as quatro subidas **sem nomear quem as pagou**, como o `lint.py` já faz: quem paga a emenda é um dado sobre a ordem de fusão e não sobre o corpus. **E fica escrito porque é que ela volta a ficar atrás:** nenhum portão compara este número com a constante que ele cita, e ligar essa comparação é do KAM-183. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | **KAM-186: o piso sobe para 48, e esta linha volta a dizer o que o código diz.** A secção de verificação do KAM-186 leva os blocos medidos a **96**, e `96 // 2` são 48 — medido no ramo sobre a `publico/main` em `6583930f`. O §4 estava em **44** com o código em **47**: a terceira superfície ficou atrás outra vez, e passa a 48 com as outras duas no mesmo *commit*. | Equipa KAMBÁ |

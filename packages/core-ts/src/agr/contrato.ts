@@ -113,12 +113,15 @@ export const DESFECHOS_DO_AGR = [
   // desconhecida). Vem com 200 e o *job* completa — é configuração, e nenhuma
   // das seis tentativas a muda.
   "servico_indisponivel",
+  // KAM-186: o grafo quis responder e não há Outbound a que o AGR fale. Vem
+  // com 503 e o *job* volta à fila — a resposta não se perde.
+  "saida_por_ligar",
   "invocacao_invalida",
   "nao_autorizado",
 ] as const;
 export type DesfechoDoAgr = (typeof DESFECHOS_DO_AGR)[number];
 
-/** O desfecho de uma resposta do AGR, ou `desconhecido` se não for um dos nove. */
+/** O desfecho de uma resposta do AGR, ou `desconhecido` se não for um dos dez. */
 export function desfechoDe(corpo: unknown): DesfechoDoAgr | "desconhecido" {
   if (typeof corpo !== "object" || corpo === null) return "desconhecido";
   const valor = (corpo as Record<string, unknown>).outcome;

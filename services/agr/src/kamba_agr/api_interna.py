@@ -45,6 +45,7 @@ resposta decide se o *job* se repete:
 | tecto do *tenant* cheio | 503 + `Retry-After` | devolve o *job* a fila com atraso |
 | a vertical recusada pelo registo — sem entitlement, ou desconhecida (KAM-186) | **200** `servico_indisponivel` | completa o *job* — e configuracao, e nenhuma tentativa a muda |
 | nao ha grafo registado para a vertical | 503 + `Retry-After` | devolve o *job* a fila com atraso |
+| o grafo quis responder e nao ha Outbound (KAM-186) | 503 `saida_por_ligar` + `Retry-After` | devolve o *job* a fila: a resposta nao se perde |
 | o turno levantou | 500 | devolve o *job* a fila |
 
 E a `/internal/resume` tem a sua, com o chamador a ser o HND (KAM-034):
@@ -94,7 +95,7 @@ from .metricas import (
     METRICA_RETOMA_NAO_AUTORIZADA,
     METRICAS,
 )
-from .turno import GrafoNaoRegistadoError
+from .turno import GrafoNaoRegistadoError, SaidaPorLigarError
 
 #: O cabecalho que leva a credencial interna. Dicionario §3.24.
 CABECALHO: Final = "x-kamba-interno"
@@ -263,6 +264,15 @@ def rotas(
         except TectoDoTenantCheioError:
             return JSONResponse(
                 {"outcome": "tecto_do_tenant"},
+                status_code=503,
+                headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
+            )
+        except SaidaPorLigarError:
+            # KAM-186. O grafo correu e quis responder, e nao ha Outbound a que
+            # falar. 503 e nao 200: com 200 o *job* completava e a resposta
+            # perdia-se, e a desduplicacao por `turn_id` recusava a reentrega.
+            return JSONResponse(
+                {"outcome": "saida_por_ligar"},
                 status_code=503,
                 headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
             )

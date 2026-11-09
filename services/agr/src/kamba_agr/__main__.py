@@ -69,6 +69,7 @@ from .concierge.rascunho import ServicoDeRascunho
 from .concierge.servico import Decisor
 from .degradacao import DetectorDeDegradacao
 from .grafos import (
+    PoliticaDoTurno,
     PortaDeGrafos,
     PortasIncoerentesError,
     SaidaPorLigar,
@@ -645,7 +646,9 @@ def main() -> int:
     # KAM-114); o leitor e o do KAM-038, que corre em `tenant_guard.tx` com o
     # *tenant* de quem chama e **falha fechado**. O `ServicoDeRascunho` vai com
     # ela, sempre: a politica sem servico e o `P3` do `ADR-L005`, e o
-    # `compilar` recusa o par (criterio 8).
+    # `compilar` recusa o par (criterio 8). Vai embrulhada na `PoliticaDoTurno`,
+    # que a le **fora** da *event loop*, na resolucao do turno: o `send` e
+    # `async` e a leitura e sincrona (ver `grafos.py`).
     portas_do_grafo = {
         "tools": tools,
         "saida": SaidaPorLigar(
@@ -655,8 +658,8 @@ def main() -> int:
         "metricas": METRICAS,
         "admitir": admitir,
         "checkpointer": checkpointer,
-        "concierge": PoliticaDeConcierge(
-            evt.LeitorDeEntitlements(ligar_para_eventos).ler
+        "concierge": PoliticaDoTurno(
+            PoliticaDeConcierge(evt.LeitorDeEntitlements(ligar_para_eventos).ler)
         ),
         "rascunho": ServicoDeRascunho(
             abrir_ligacao=ligar_para_concierge,
@@ -675,11 +678,12 @@ def main() -> int:
         grafos=grafos_do_processo,
         checkpointer=checkpointer,
         contacto_bloqueado=leitor_de_contacto(ligar_para_leitura),
+        politica=portas_do_grafo["concierge"],
     )
     log.info(outcome="grafos_ligados", error_code=f"verticais_{len(grafos_do_processo)}")
     # **O que fica por ligar diz-se, porta a porta.** Nenhuma destas finge: a
-    # `saida` avisa em cada envio (nao ha Outbound a que o AGR fale, e o achado
-    # esta no `grafos.py`), o `stt` sem porta da `ask_repeat` (KAM-036), os
+    # `saida` avisa e levanta em cada envio, e a rota responde 503 (nao ha
+    # Outbound a que o AGR fale, e o achado esta no `grafos.py`), o `stt` sem porta da `ask_repeat` (KAM-036), os
     # dois classificadores sem porta deixam decidir as regras, e os `modos` sao
     # o KAM-018. Uma porta por ligar que nao aparece no registo de arranque e
     # uma omissao silenciosa, que e o que o DoD do KAM-186 proibe.

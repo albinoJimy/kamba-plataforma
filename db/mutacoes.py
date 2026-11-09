@@ -5195,7 +5195,7 @@ MUTACOES = [
     # loja (achado 12).
     # ---------------------------------------------------------------- KAM-186
     #
-    # A porta `grafos` do processo. **Treze**, e oito sao no `__main__`, porque
+    # A porta `grafos` do processo. **Dezanove**, e dez sao no `__main__`, porque
     # o defeito do ticket era de ligacao: todas as funcoes estavam certas e o
     # `__main__` passava `sem_grafos`. Cada uma destas devolve uma porta a
     # omissao que nao faz nada, e o `test_grafos` corre o `main()` real para as
@@ -5217,10 +5217,39 @@ MUTACOES = [
         grafos=lambda _t: __import__("kamba_agr.turno").turno.sem_grafos(None),''',
      AGR_UNIT),
     ('grafos: a politica de concierge volta a SemPolitica', AG_MAIN,
-     '''        "concierge": PoliticaDeConcierge(
-            evt.LeitorDeEntitlements(ligar_para_eventos).ler
+     '''        "concierge": PoliticaDoTurno(
+            PoliticaDeConcierge(evt.LeitorDeEntitlements(ligar_para_eventos).ler)
         ),''',
      '''        "concierge": __import__("kamba_agr.concierge.politica").concierge.politica.SemPolitica(),''',
+     AGR_UNIT),
+    # As seis seguintes sao as que **sobreviveram** a revisao adversarial do
+    # KAM-186 contra a primeira versao da bateria, que media a existencia de
+    # cada objecto e nao a ligacao dele: o registo a admitir tudo, o contacto
+    # pela ligacao errada, o grafo do Vendedor para as duas verticais, a
+    # persona vazia, a saida muda e o `resolve` na *event loop*.
+    ('grafos: o registo do processo admite qualquer tenant', AG_MAIN,
+     '        evt.LeitorDeEntitlements(ligar_para_eventos).ler, metricas=METRICAS',
+     '        lambda _t, _m: __import__("types").SimpleNamespace(permitido=True), metricas=METRICAS',
+     AGR_UNIT),
+    ('grafos: o contacto le-se pela ligacao da tranca', AG_MAIN,
+     '        contacto_bloqueado=leitor_de_contacto(ligar_para_leitura),',
+     '        contacto_bloqueado=leitor_de_contacto(ligar_para_tranca),',
+     AGR_UNIT),
+    ('grafos: as duas verticais compilam o grafo do Vendedor', AG_GRAFOS,
+     '        grafos[identificador] = importar_build_graph(vertical.graph)(deps)',
+     '        grafos[identificador] = importar_build_graph("kamba_agr.verticais.vendedor:build_graph")(deps)',
+     AGR_UNIT),
+    ('grafos: a persona da vertical nao chega ao grafo', AG_GRAFOS,
+     '            persona=vertical.persona.model_dump(exclude_none=True),',
+     '            persona={},',
+     AGR_UNIT),
+    ('grafos: a saida por ligar deixa de levantar', AG_GRAFOS,
+     '        raise SaidaPorLigarError("saida_por_ligar")',
+     '        return None',
+     AGR_UNIT),
+    ('grafos: o resolve volta a correr na event loop', AG_GRAFOS,
+     '        resolucao = await asyncio.to_thread(self._registo.resolve, invocacao)',
+     '        resolucao = self._registo.resolve(invocacao)',
      AGR_UNIT),
     ('grafos: o detector de degradacao volta a SemDegradacao', AG_MAIN,
      '        "degradacao": DetectorDeDegradacao(admissao=admissao, metricas=METRICAS),',
@@ -7622,9 +7651,11 @@ MODULOS_DO_AGR_UNIT = (
     # correm aqui. O `test_estado` **nao** entra, e mediu-se porque: le o
     # `docs/tecnica/02`, que a copia nao leva, e a linha de base saia vermelha.
     "test_guardas",
-    # KAM-186, pela mesma razao de sempre: **sem esta linha as treze mutacoes
+    # KAM-186, pela mesma razao de sempre: **sem esta linha as dezanove mutacoes
     # `grafos:` sobreviviam todas**, e as oito do `__main__` sao o defeito do
     # ticket — uma porta ligada ao sitio errado com todas as funcoes certas.
+    # As seis ultimas entraram depois da revisao adversarial, que as encontrou
+    # vivas contra a primeira versao desta bateria.
     "test_grafos",
 )
 

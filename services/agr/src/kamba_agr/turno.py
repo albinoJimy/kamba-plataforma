@@ -160,6 +160,16 @@ class VerticalRecusadaError(RuntimeError):
         self.motivo = motivo
 
 
+class SaidaPorLigarError(RuntimeError):
+    """O grafo quis responder e nao ha Outbound a que o AGR fale (KAM-186).
+
+    A rota responde 503 `saida_por_ligar` com `Retry-After`: o turno nao
+    acabou, o *checkpoint* fica com o `send` por correr, e o *job* volta a fila
+    em vez de completar com a resposta perdida. Ver o `SaidaPorLigar` de
+    `grafos.py`.
+    """
+
+
 #: O desfecho de um turno cuja vertical o registo recusou. E o identificador da
 #: resposta estatica do criterio 6 do KAM-027, e nao um segundo nome para ela.
 DESFECHO_SERVICO_INDISPONIVEL = "servico_indisponivel"
