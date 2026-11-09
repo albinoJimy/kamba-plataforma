@@ -162,6 +162,22 @@ class TestArvoreReal(unittest.TestCase):
         self.assertEqual(len(presentes), 18)
         self.assertLessEqual(do_compose, 26214.4)
 
+    def test_cada_variavel_obrigatoria_tem_marcador(self) -> None:
+        """O `egress-dez` levanta o compose de producao, e a interpolacao e do ficheiro.
+
+        Um `${X:?}` novo sem marcador em `egress_dez.MARCADORES` faz o
+        `docker compose up proxy-saida` falhar antes de haver contentor — e o
+        gate 6 fica vermelho por um servico que nem arranca. Aconteceu duas
+        vezes: no PR #125 (KAM-178) e no do KAM-187.
+        """
+        import re
+
+        texto = (RAIZ / lint.PROD).read_text(encoding="utf-8")
+        exigidas = set(re.findall(r"\$\{([A-Za-z0-9_]+):\?", texto))
+        from compose_prod import egress_dez
+
+        self.assertEqual(sorted(exigidas - set(egress_dez.MARCADORES)), [])
+
     def test_o_gwy_e_o_agr_tem_duas_replicas_no_manifesto(self) -> None:
         dados = lint.ler(RAIZ)
         for nome in sorted(lint.DUAS_REPLICAS):
