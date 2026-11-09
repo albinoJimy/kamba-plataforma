@@ -1797,6 +1797,16 @@ SEM_RECEITA_COM_RAZAO = {
     # tabela ser o que e — um pedido do titular e mutavel por desenho, tem
     # `UPDATE` de duas colunas, e e isso que a bateria mede.
     ("platform", "erasure_ledger"),
+    # KAM-090: a prova de aceite contratual, pela razao da `erasure_ledger`: e
+    # *append-only* por privilegio, nenhum papel tem `UPDATE` (as receitas
+    # precisam de uma coluna alteravel) nem `DELETE`, e uma receita fazia desta
+    # bateria o unico sitio onde uma prova de aceite se apaga. **Ao contrario
+    # da `erasure_ledger`, a politica desta mede-se noutro sitio**: o
+    # `test_a_aplicacao_escreve_no_seu_tenant_e_nao_ve_o_dos_outros` do
+    # `db/tests/test_contratos_schema.py` le com o contexto de B a linha de A
+    # (zero) e escreve com o contexto de B uma linha de A (`42501`), pela
+    # ligacao da aplicacao.
+    ("platform", "contract_acceptance"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo

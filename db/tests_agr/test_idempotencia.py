@@ -194,6 +194,9 @@ class _ComIdempotencia(ComAgr):
         passo 2 que nunca chegava ao passo 5, que e o «satisfeito pela razao
         errada» do lado contrario.
         """
+        # Desde a revisao 0040 (KAM-090) o gate de activacao exige o aceite
+        # das versoes vigentes dos quatro documentos.
+        factories.aceitar_contratos_vigentes(self.semente, conversa.tenant_id)
         self.semente.execute(
             "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s",
             (conversa.tenant_id,),

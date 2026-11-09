@@ -229,6 +229,9 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: `6583930f`: **96 medidos, exigido 48**. Se outro ramo do mesmo lote fundir
 #: antes com um bloco medido, o numero re-mede-se na integracao, e nao se soma de
 #: cabeca. Quem acrescentar o **98.o** paga a seguinte: o 48 serve ate aos 97.
+#:
+#: **O 97.o e o do KAM-090**, medido na arvore integrada com a `publico/main` em
+#: `c1c45644`: **97 medidos, exigido 48** — nao custou emenda.
 MINIMO_DE_BLOCOS_MEDIDOS = 48
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:

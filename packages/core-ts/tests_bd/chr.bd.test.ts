@@ -59,6 +59,7 @@ import type { Identidade } from "../src/identity/index.ts";
 import { comTenant as comTenantReal } from "../src/tenant_guard/index.ts";
 import {
   ChavesDeTeste,
+  activarTenant,
   apagarTenant,
   bsuidDeEnsaio,
   conversasDe,
@@ -187,7 +188,7 @@ function mensagem(
  */
 async function tenantComChave(rotulo: string): Promise<string> {
   const id = await criarTenant(admin, rotulo);
-  await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [id]);
+  await activarTenant(admin, id);
   await identidade.iniciarRotacao(identityBd, KID).catch(() => {});
   return id;
 }
