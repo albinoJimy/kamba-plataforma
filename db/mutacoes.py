@@ -258,6 +258,8 @@ REV38 = "db/migrations/versions/0038_direitos_do_titular.py"
 #: renumerar foi tres linhas e esta constante, e o `--aplicaveis` apanha quem se
 #: esqueca dela: uma mutacao cujo alvo nao existe nao mede nada.
 REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
+#: KAM-090: o aceite contratual versionado e o gate de activacao.
+REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6782,6 +6784,50 @@ MUTACOES = [
     # volta a varrer todos os sinais do periodo para comparar a regra. O
     # `test_o_indice_da_janela_existe_e_o_do_painel_fica` tem de a matar pelo
     # `assertRegex` das colunas.
+    # --------------------------------------------------- KAM-090 (0040)
+    ('revisao 0040: o gate deixa de olhar para quem nasce ativo', REV40,
+     'BEFORE INSERT OR UPDATE OF estado ON platform.tenants',
+     'BEFORE UPDATE OF estado ON platform.tenants',
+     "tests"),
+    # **A ligacao, e nao a funcao**: o corpo do gate fica intacto e o que muda e
+    # quando ele corre. Um `INSERT` com `estado = 'ativo'` passa a criar um
+    # tenant activo sem aceite nenhum. O
+    # `test_nascer_ativo_tambem_passa_pelo_gate` tem de a matar.
+    ('revisao 0040: o gate aceita qualquer versao a quem vem do onboarding', REV40,
+     "NEW.id, TG_OP = 'INSERT' OR OLD.estado = 'onboarding');",
+     "NEW.id, false);",
+     "tests"),
+    # Um aceite de uma versao que deixou de vigorar passa a activar. O
+    # `test_um_aceite_de_versao_que_deixou_de_vigorar_nao_satisfaz` tem de a
+    # matar; o `test_uma_versao_nova_nao_bloqueia_a_reactivacao...` fica verde,
+    # e e isso que prova que a mutacao mediu a metade das vigentes.
+    ('revisao 0040: o aceite deixa de exigir a versao vigente', REV40,
+     'IF v_vigente IS DISTINCT FROM NEW.document_id THEN',
+     'IF false THEN',
+     "tests"),
+    # O caso adversarial «aceite de versao antiga». O
+    # `test_aceite_de_versao_antiga_e_recusado` tem de a matar.
+    ('revisao 0040: o OTP de um caso passa a servir noutro', REV40,
+     'onboarding_id servicos.gist_uuid_ops WITH <>)',
+     'onboarding_id servicos.gist_uuid_ops WITH =)',
+     "tests"),
+    # Com `=` a exclusao passa a recusar o que e legitimo — quatro documentos do
+    # mesmo caso com o mesmo OTP — e a aceitar o que nao e. O
+    # `test_o_otp_de_um_caso_nao_serve_noutro_caso` tem de a matar.
+    ('revisao 0040: a hora do aceite passa a ser a do chamador', REV40,
+     'NEW.aceite_em := now();',
+     'NEW.aceite_em := NEW.aceite_em;',
+     "tests"),
+    # O ensaio manda `2001-01-01` no `aceite_em`; com esta mutacao, a prova fica
+    # datada pelo cliente. O
+    # `test_a_base_escreve_a_hora_e_a_evidencia_e_ignora_as_do_chamador` tem de
+    # a matar.
+    ('revisao 0040: a aplicacao passa a publicar texto juridico', REV40,
+     'op.execute(f"GRANT SELECT ON {DOCUMENTOS} TO {PAPEL_DA_APP}")',
+     'op.execute(f"GRANT SELECT, INSERT ON {DOCUMENTOS} TO {PAPEL_DA_APP}")',
+     "tests"),
+    # O `test_a_aplicacao_nao_publica_e_ninguem_apaga` e a matriz do
+    # `test_privilegios` tem de a matar.
 ]
 
 

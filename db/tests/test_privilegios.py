@@ -1320,6 +1320,43 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O aceite contratual (KAM-090, revisao `0040`). **Ninguem tem `UPDATE` nem
+#: `DELETE` em nenhuma das duas**, e e o que as faz *append-only*.
+#:
+#: A versao publicada **publica-se pelo lote** e le-se por todos os que a
+#: servem ou auditam: dar `INSERT` a aplicacao deixava o caminho que serve
+#: clientes publicar um texto juridico — a razao da `consent_texts`. A prova
+#: **escreve-se pela aplicacao**, que serve o ecra de aceite, e passa pelo
+#: *trigger* que exige a versao vigente; o lote **le-a** porque e ele que muda
+#: `tenants.estado`, e o gate corre com os olhos de quem invoca. O `kamba_agr`
+#: nao entra, pela razao do `PAPEIS_SEM_NADA_EM_PLATFORM`.
+ESPERADO_POR_TABELA.update(
+    {
+        "contract_document": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "contract_acceptance": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
@@ -1803,6 +1840,14 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # nenhuma matriz de tabela diz uma palavra.
     "dsar_requests",
     "erasure_ledger",
+    # KAM-090 (0040): as duas **sem privilegio de coluna nenhum**, pela razao
+    # da `erasure_ledger`: o que se prende e a **ausencia**. Um
+    # `GRANT UPDATE (conteudo) ON contract_document` nao aparece no
+    # `has_table_privilege` — o *trigger* recusava-o mesmo assim, mas o
+    # `GRANT UPDATE (aceite_em) ON contract_acceptance` nao tem *trigger* por
+    # baixo, e reescrevia a hora de uma prova.
+    "contract_acceptance",
+    "contract_document",
     # KAM-091 (0034): o estado da saga. Tem `UPDATE` **por coluna** para o
     # `kamba_app` — seis —, e entra aqui porque uma coluna a mais naquele
     # `GRANT` era **invisivel** na matriz de tabela: o

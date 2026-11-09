@@ -221,6 +221,11 @@ class TestConvencoes(ComBase):
                 # papel media o volume de webhooks de toda a plataforma.
                 "inbound_events",
                 "unrouted_events",
+                # KAM-090: a prova de aceite. `uuid` aleatorio e **nao** o
+                # `bigserial` dos Detalhes Tecnicos do bloco, pela razao destas
+                # duas: o `kamba_app` le-a, e um `id` sequencial dizia-lhe
+                # quantos aceites a plataforma tem.
+                "contract_acceptance",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.

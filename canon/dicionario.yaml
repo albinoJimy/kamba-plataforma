@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.71"
+versao_dicionario: "1.72"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13306,6 +13306,280 @@ entradas:
     nomes: []
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Versão publicada de um documento"
+    canonico: "platform.contract_document, sete colunas"
+    literais:
+      - "platform.contract_document"
+    nomes:
+      - "platform.contract_document"
+    nomes_nota:
+      - "document_id"
+      - "tipo"
+      - "versao"
+      - "sha256"
+      - "conteudo"
+      - "vigente_desde"
+      - "publicado_em"
+      - "tenant_id"
+      - "consent_texts"
+      - "contract_document_imutavel"
+      - "UPDATE"
+      - "DELETE"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Tipo de documento"
+    canonico: "contract_document.tipo ∈ {dpa, privacidade, subprocessadores, tos}"
+    literais:
+      - "contract_document.tipo"
+      - "dpa"
+      - "privacidade"
+      - "subprocessadores"
+      - "tos"
+    nomes:
+      - "contract_document.tipo"
+      - "dpa"
+      - "privacidade"
+      - "subprocessadores"
+      - "tos"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Versão de um documento"
+    canonico: "contract_document.versao, SemVer sem sufixos"
+    literais:
+      - "contract_document.versao"
+    nomes:
+      - "contract_document.versao"
+    nomes_nota:
+      - "CHECK"
+      - "UNIQUE"
+      - "tipo"
+      - "versao"
+      - "rc1"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Resumo do texto publicado"
+    canonico: "contract_document.sha256 = sha256(convert_to(conteudo, 'UTF8'))"
+    literais:
+      - "contract_document.sha256"
+      - "sha256(convert_to(conteudo, 'UTF8'))"
+    nomes:
+      - "contract_document.sha256"
+      - "sha256"
+      - "convert_to"
+      - "conteudo"
+      - "UTF8"
+    nomes_nota:
+      - "contract_document_sha256_ck"
+      - "contract_document_canonico_ck"
+      - "canonizar"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Início de vigência"
+    canonico: "contract_document.vigente_desde, com UNIQUE (tipo, vigente_desde) e vigente_desde >= publicado_em"
+    literais:
+      - "contract_document.vigente_desde"
+      - "UNIQUE (tipo, vigente_desde)"
+      - "vigente_desde >= publicado_em"
+    nomes:
+      - "contract_document.vigente_desde"
+      - "UNIQUE"
+      - "tipo"
+      - "vigente_desde"
+      - "publicado_em"
+    nomes_nota:
+      - "vigente_desde"
+      - "contract_document_sem_retroactivo_ck"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Prova de aceite"
+    canonico: "platform.contract_acceptance, onze colunas"
+    literais:
+      - "platform.contract_acceptance"
+    nomes:
+      - "platform.contract_acceptance"
+    nomes_nota:
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "document_id"
+      - "versao"
+      - "doc_sha256"
+      - "signatario_ref"
+      - "otp_challenge_id"
+      - "ip_prefix_hash"
+      - "aceite_em"
+      - "evidence_hash"
+      - "uuid"
+      - "bigserial"
+      - "consent_event"
+      - "kamba_app"
+      - "tenants"
+      - "provisioning_step"
+      - "onboarding_case"
+      - "FORCE"
+      - "tenant_iso"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Chave do aceite repetido"
+    canonico: "contract_acceptance_aceite_uq (onboarding_id, document_id, versao)"
+    literais:
+      - "contract_acceptance_aceite_uq (onboarding_id, document_id, versao)"
+    nomes:
+      - "contract_acceptance_aceite_uq"
+      - "onboarding_id"
+      - "document_id"
+      - "versao"
+    nomes_nota:
+      - "ON"
+      - "CONFLICT"
+      - "CONSTRAINT"
+      - "DO"
+      - "NOTHING"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Texto que o aceite cita"
+    canonico: "contract_acceptance_documento_fk (document_id, versao, doc_sha256)"
+    literais:
+      - "contract_acceptance_documento_fk (document_id, versao, doc_sha256)"
+    nomes:
+      - "contract_acceptance_documento_fk"
+      - "document_id"
+      - "versao"
+      - "doc_sha256"
+    nomes_nota:
+      - "contract_document_citavel_uq"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Um OTP, um caso"
+    canonico: "contract_acceptance_otp_de_um_caso_ex, EXCLUDE (otp_challenge_id =, onboarding_id <>)"
+    literais:
+      - "contract_acceptance_otp_de_um_caso_ex"
+      - "EXCLUDE (otp_challenge_id =, onboarding_id <>)"
+    nomes:
+      - "contract_acceptance_otp_de_um_caso_ex"
+      - "EXCLUDE"
+      - "otp_challenge_id"
+      - "onboarding_id"
+    nomes_nota:
+      - "btree_gist"
+      - "servicos"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Evidência do aceite"
+    canonico: "contract_acceptance.evidence_hash = platform.contrato_evidencia(doc_sha256, signatario_ref, aceite_em, otp_challenge_id)"
+    literais:
+      - "contract_acceptance.evidence_hash"
+      - "platform.contrato_evidencia(doc_sha256, signatario_ref, aceite_em, otp_challenge_id)"
+    nomes:
+      - "contract_acceptance.evidence_hash"
+      - "platform.contrato_evidencia"
+      - "doc_sha256"
+      - "signatario_ref"
+      - "aceite_em"
+      - "otp_challenge_id"
+    nomes_nota:
+      - "sha256"
+      - "uuid"
+      - "CHECK"
+      - "contract_acceptance_evidencia_ck"
+      - "hashlib"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Prefixo do IP"
+    canonico: "contract_acceptance.ip_prefix_hash, 32 octetos, anulável"
+    literais:
+      - "contract_acceptance.ip_prefix_hash"
+    nomes:
+      - "contract_acceptance.ip_prefix_hash"
+    nomes_nota:
+      - "sha256"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Signatário"
+    canonico: "contract_acceptance.signatario_ref"
+    literais:
+      - "contract_acceptance.signatario_ref"
+    nomes:
+      - "contract_acceptance.signatario_ref"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Gate de activação"
+    canonico: "trigger tenants_exige_aceite sobre platform.tenants, e a mensagem tenant sem DPA aceite nao activa"
+    literais:
+      - "tenants_exige_aceite"
+      - "platform.tenants"
+      - "tenant sem DPA aceite nao activa"
+    nomes:
+      - "tenants_exige_aceite"
+      - "platform.tenants"
+      - "tenant"
+      - "sem"
+      - "DPA"
+      - "aceite"
+      - "nao"
+      - "activa"
+    nomes_nota:
+      - "DETAIL"
+      - "ativo"
+      - "onboarding"
+      - "restrito"
+      - "suspenso"
+      - "kamba_batch"
+      - "BYPASSRLS"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Tipos a que falta aceite"
+    canonico: "platform.contrato_em_falta(tenant, so_vigentes)"
+    literais:
+      - "platform.contrato_em_falta(tenant, so_vigentes)"
+    nomes:
+      - "platform.contrato_em_falta"
+      - "tenant"
+      - "so_vigentes"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Verificação diária"
+    canonico: "platform.dpa_em_falta()"
+    literais:
+      - "platform.dpa_em_falta()"
+    nomes:
+      - "platform.dpa_em_falta"
+    nomes_nota:
+      - "ativo"
+      - "EXECUTE"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Recibo de abertura"
+    canonico: "HMAC de (onboarding_id, document_id, sha256), domínio kamba/contratos/abertura/v1"
+    literais:
+      - "(onboarding_id, document_id, sha256)"
+    nomes:
+      - "onboarding_id"
+      - "document_id"
+      - "sha256"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "O módulo"
+    canonico: "../packages/core-ts/src/contratos/"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Manifesto das versões publicáveis"
+    canonico: "../gov/contratos/versoes.json"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "sha256"
+      - "contratos.manifesto.test.ts"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -14377,6 +14651,41 @@ tabelas:
     assinatura: "min(aplicado_at)"
     seccao: "3.50"
     conceito: "Chave do ledger para o restauro"
+  - nome: "sha256"
+    esquema: ""
+    colunas:
+      - "convert_to"
+    aberta: false
+    assinatura: "sha256(convert_to(conteudo, 'UTF8'))"
+    seccao: "3.52"
+    conceito: "Resumo do texto publicado"
+  - nome: "contrato_evidencia"
+    esquema: "platform"
+    colunas:
+      - "doc_sha256"
+      - "signatario_ref"
+      - "aceite_em"
+      - "otp_challenge_id"
+    aberta: false
+    assinatura: "platform.contrato_evidencia(doc_sha256, signatario_ref, aceite_em, otp_challenge_id)"
+    seccao: "3.52"
+    conceito: "Evidência do aceite"
+  - nome: "contrato_em_falta"
+    esquema: "platform"
+    colunas:
+      - "tenant"
+      - "so_vigentes"
+    aberta: false
+    assinatura: "platform.contrato_em_falta(tenant, so_vigentes)"
+    seccao: "3.52"
+    conceito: "Tipos a que falta aceite"
+  - nome: "dpa_em_falta"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.dpa_em_falta()"
+    seccao: "3.52"
+    conceito: "Verificação diária"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -15498,6 +15807,15 @@ dominios:
       - "pausa_por_ligar"
     seccao: "3.51"
     conceito: "Escalada da guarda"
+    so_no_registo: false
+  - coluna: "contract_document.tipo"
+    valores:
+      - "dpa"
+      - "privacidade"
+      - "subprocessadores"
+      - "tos"
+    seccao: "3.52"
+    conceito: "Tipo de documento"
     so_no_registo: false
 
 variantes:

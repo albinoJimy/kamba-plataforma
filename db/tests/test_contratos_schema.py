@@ -52,6 +52,9 @@ TIPOS = ("dpa", "privacidade", "subprocessadores", "tos")
 
 _EPOCA = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
+#: O mesmo vetor de `packages/core-ts/tests/contratos.test.ts`.
+VETOR_DA_EVIDENCIA = "4936cf07cef2053dda27d129a3540eaa22f4bf4907e349ddd3464ec373b9646c"
+
 
 def evidencia_esperada(doc_sha256: bytes, signatario: str, aceite_em: datetime,
                        otp: str) -> bytes:
@@ -173,6 +176,29 @@ class TestOTextoPublicado(ComBase):
                 self.assertErroSql(
                     PRIVILEGIO_INSUFICIENTE, cursor, f"DELETE FROM {DOCUMENTOS}"
                 )
+
+
+class TestAEvidenciaInstalada(ComBase):
+    """A funcao da base contra o vetor fixo que o TypeScript tambem confronta."""
+
+    def test_o_vetor_fixo(self) -> None:
+        signatario = "11111111-2222-4333-8444-555555555555"
+        otp = "66666666-7777-4888-9999-aaaaaaaaaaaa"
+        cursor = self.ligar("admin").cursor()
+        cursor.execute(
+            "SELECT platform.contrato_evidencia(%s, %s, "
+            "to_timestamp(1762689600) + interval '123456 microseconds', %s)",
+            (bytes(range(32)), signatario, otp),
+        )
+        obtido = bytes(cursor.fetchone()[0]).hex()
+        self.assertEqual(obtido, VETOR_DA_EVIDENCIA)
+        self.assertEqual(
+            obtido,
+            evidencia_esperada(
+                bytes(range(32)), signatario,
+                datetime(2025, 11, 9, 12, 0, 0, 123456, tzinfo=timezone.utc), otp,
+            ).hex(),
+        )
 
 
 class TestOAceite(ComBase):
