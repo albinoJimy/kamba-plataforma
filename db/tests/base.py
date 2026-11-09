@@ -448,6 +448,21 @@ TABELAS_0036 = ("tenant_destinations",)
 #: receita de `DELETE` nas sementes do X-05.
 TABELAS_0038 = ("dsar_requests", "erasure_ledger")
 
+#: O que a revisao 0040 (KAM-090) acrescenta: o aceite contratual versionado.
+#:
+#: **Duas tabelas, e so uma tem `tenant_id`.** A `contract_document` e texto de
+#: plataforma — uma versao de ToS, DPA, aviso de privacidade ou lista de
+#: subprocessadores — e nao tem tenant, como a `consent_texts` da `0015`: fica
+#: fora do X-05 e do `ci/rls_exceptions.yaml`. A `contract_acceptance` tem
+#: `tenant_id NOT NULL` **sem FK** (pre-alocado no registo, como o
+#: `provisioning_step` da `0034`) e leva RLS `FORCE` com a `tenant_iso` e mais
+#: nada.
+#:
+#: As duas sao **append-only por privilegio**: ninguem tem `UPDATE` nem
+#: `DELETE`. A `contract_document` tem, alem disso, um *trigger* que recusa o
+#: `UPDATE` ao dono — a imutabilidade do texto publicado e criterio do bloco.
+TABELAS_0040 = ("contract_acceptance", "contract_document")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -457,22 +472,30 @@ TABELAS = tuple(
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
-        + TABELAS_0038
+        + TABELAS_0038 + TABELAS_0040
     )
 )
 
+#: O que existe em `platform` quando a base esta na revisao `0039`.
+#:
+#: O `downgrade` da `0040` leva a base para aqui. **Deriva do `TABELAS`**, e e
+#: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
+#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. **E descreve
+#: tambem a `0038`**: a `0039` (KAM-060) cria uma funcao e um indice, e nenhuma
+#: tabela.
+TABELAS_ATE_0039 = tuple(sorted(set(TABELAS) - set(TABELAS_0040)))
+
 #: O que existe em `platform` quando a base esta na revisao `0037`.
 #:
-#: O `downgrade` da `0038` leva a base para aqui. **Deriva do `TABELAS`**, e e
-#: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
-#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela — a nota do
+#: O `downgrade` da `0038` leva a base para aqui. Deriva do `TABELAS_ATE_0039`
+#: desde o KAM-090, que pos a sua revisao no topo — a nota do
 #: `TABELAS_ATE_0032` explica por extenso o que custa esquecer-se disso.
 #:
 #: **E descreve tambem o que existe na `0036`**, pela mesma razao que o
 #: `TABELAS_ATE_0035` descreve a `0034`: a `0037` (KAM-051) **nao cria tabela
 #: nenhuma** — cria a vista `v_oferta_viva`, e o `pg_tables` nao lista vistas.
 #: Medido no diff do PR #159 antes de se escrever esta linha, e nao assumido.
-TABELAS_ATE_0037 = tuple(sorted(set(TABELAS) - set(TABELAS_0038)))
+TABELAS_ATE_0037 = tuple(sorted(set(TABELAS_ATE_0039) - set(TABELAS_0038)))
 
 #: O que existe em `platform` quando a base esta na revisao `0035`.
 #:

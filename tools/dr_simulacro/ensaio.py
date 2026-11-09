@@ -441,7 +441,24 @@ COPY (SELECT seq, to_char(escrito_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:S
         self.condutor("python", "bootstrap.py", host=host)
         self.condutor("python", "-m", "alembic", "-c", "migrations/alembic.ini",
                       "upgrade", "head", host=host)
+        # Desde a revisao 0040 (KAM-090), um tenant so nasce `ativo` com o
+        # aceite das versoes vigentes dos quatro documentos: o *trigger* do
+        # gate recusa-o sem isso. As versoes sao sinteticas e o aceite passa
+        # pelo *trigger* da base, que escreve a hora e a evidencia.
         self.psql(host, marcadores.SQL_TABELA + _sql_eventos() + f"""
+INSERT INTO platform.contract_document
+       (tipo, versao, sha256, conteudo, vigente_desde, publicado_em)
+SELECT t, '0.0.1',
+       sha256(convert_to('Documento sintetico do simulacro (' || t || ').' || chr(10), 'UTF8')),
+       'Documento sintetico do simulacro (' || t || ').' || chr(10),
+       '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z'
+  FROM unnest(ARRAY['dpa', 'privacidade', 'subprocessadores', 'tos']) AS t;
+INSERT INTO platform.contract_acceptance
+       (onboarding_id, tenant_id, document_id, versao, doc_sha256, signatario_ref,
+        otp_challenge_id, evidence_hash)
+SELECT '{tenant}', '{tenant}', document_id, versao, sha256, gen_random_uuid(),
+       gen_random_uuid(), ''::bytea
+  FROM platform.contract_document;
 INSERT INTO platform.tenants (id, tipo, nome, estado)
 VALUES ('{tenant}', 'pme', 'Tenant sintetico do simulacro', 'ativo');
 """)

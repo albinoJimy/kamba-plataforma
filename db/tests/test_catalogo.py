@@ -501,6 +501,16 @@ class TestConvencoes(ComBase):
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
+                # KAM-090, revisao `0040`: as duas seguem a regra geral, `uuid`
+                # gerado. A da prova chama-se `id` e **nao** e o `bigserial`
+                # dos Detalhes Tecnicos do bloco, pela razao da `consent_event`
+                # (emenda 1.28): o `kamba_app` le-a, e uma chave sequencial dizia
+                # quantos aceites a plataforma tem. A chave de negocio de cada
+                # uma esta ao lado: `(onboarding_id, document_id, versao)` na
+                # prova, `(tipo, versao)` na versao publicada. A posicao e por
+                # `ORDER BY 1, 2`: «contr» depois de «conta» e antes de «conv».
+                ("contract_acceptance", "id", "uuid", "gen_random_uuid()"),
+                ("contract_document", "document_id", "uuid", "gen_random_uuid()"),
                 # KAM-014: a chave da conversa e um `uuid` gerado, e a
                 # unicidade de negocio — uma conversa por (tenant, contacto,
                 # canal) — e uma `UNIQUE` ao lado. A chave composta era a
@@ -1199,7 +1209,15 @@ class TestConvencoes(ComBase):
              # em `ANULAVEIS`: um pedido do titular e sempre de um tenant, e nao
              # ha aqui o nulo com significado que o criterio 1 do KAM-069 deu
              # aos destinos globais de infra-estrutura.
-             "dsar_requests", "erasure_ledger"},
+             "dsar_requests", "erasure_ledger",
+             # KAM-090. A prova de aceite satisfaz a convencao pelo indice
+             # proprio, `(tenant_id, document_id)`, que e a pergunta do gate
+             # de activacao. A unicidade `(onboarding_id, document_id, versao)`
+             # **nao** comeca pelo tenant, e nao deve: e a chave do POST
+             # repetido, e o caso e que a identifica. A `contract_document`
+             # nao esta aqui pela razao da `consent_texts`: e texto de
+             # plataforma e nao tem `tenant_id`.
+             "contract_acceptance"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1732,7 +1750,15 @@ class TestConvencoes(ComBase):
         # antes de o tenant activar —, pelo que quem a tome como modelo nao passa
         # por aqui. A outra, logo acima, e o
         # `test_as_fk_nao_apagam_em_cascata`.
-        self.assertEqual(len(linhas), 77)
+        #
+        # **78 e nao 77** desde a `0040` (KAM-090): **uma**, a
+        # `contract_acceptance_documento_fk`, composta
+        # `(document_id, versao, doc_sha256)` — e composta por outra razao que
+        # as do tenant: e ela que faz «um aceite cita exactamente o texto
+        # publicado» ser propriedade da base. A prova **nao** tem FK para
+        # `tenants` (o aceite e anterior a linha do tenant, que so nasce no
+        # passo 1 da saga) e a versao publicada nao tem FK nenhuma.
+        self.assertEqual(len(linhas), 78)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
@@ -1882,8 +1908,14 @@ class TestPapeis(ComBase):
         cursor = self.ligar("batch").cursor()
         tenant = factories.tenant(cursor)
         factories.entitlement(cursor, tenant, limites={"msgs_ai_mes": 10})
+        # `suspenso` e nao `ativo` desde a revisao 0040 (KAM-090): o que este
+        # ensaio afirma e que o lote muda o `estado`, e `ativo` passou a exigir
+        # o aceite dos quatro documentos, que o lote nao pode gravar (nao tem
+        # `INSERT` em `contract_acceptance`) e que uma ligacao que nunca
+        # confirma nao lhe consegue mostrar. O gate tem ensaio proprio, com
+        # este mesmo papel, em `test_contratos_schema.py`.
         cursor.execute(
-            "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,)
+            "UPDATE platform.tenants SET estado = 'suspenso' WHERE id = %s", (tenant,)
         )
         cursor.execute(
             "SELECT count(*) FROM platform.entitlements WHERE tenant_id = %s", (tenant,)

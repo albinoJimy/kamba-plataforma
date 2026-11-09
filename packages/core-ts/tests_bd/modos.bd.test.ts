@@ -76,6 +76,7 @@ import type { Pedido } from "../src/outbound/index.ts";
 import { comTenant as comTenantReal } from "../src/tenant_guard/index.ts";
 import {
   BASE_DESCARTAVEL,
+  activarTenant,
   apagarTenant,
   criarCanal,
   criarTenant,
@@ -233,9 +234,7 @@ describe("os modos da conversa contra a base", () => {
     // `encaminhado`, e o controlo positivo do critério 5 era o único teste que o
     // apanhava.
     for (const tenant of [tenantA, tenantB]) {
-      await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [
-        tenant,
-      ]);
+      await activarTenant(admin, tenant);
     }
     const a = await criarCanal(admin, tenantA);
     const b = await criarCanal(admin, tenantB);

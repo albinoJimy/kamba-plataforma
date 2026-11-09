@@ -51,7 +51,7 @@ import { after, before, describe, it } from "node:test";
 
 import type pg from "pg";
 
-import { apagarTenant, criarTenant, ligar } from "./apoio.ts";
+import { activarTenant, apagarTenant, criarTenant, ligar } from "./apoio.ts";
 import {
   AvisoAoDono,
   chaveDoEpisodio,
@@ -150,9 +150,7 @@ describe("o aviso ao dono contra a base", () => {
     // contacto devolvia zero e os testes passavam **pela razão errada** — é a
     // mesma armadilha que o KAM-021 pagou no grupo do critério 9.
     for (const tenant of [tenantA, tenantB]) {
-      await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [
-        tenant,
-      ]);
+      await activarTenant(admin, tenant);
     }
     await admin.query(
       "INSERT INTO platform.owner_contacts " +
@@ -363,9 +361,7 @@ describe("o aviso ao dono contra a base", () => {
     // `ativo` cujo contacto existe mas **não serve**: ele tem de aparecer.
     const quarto = await criarTenant(admin, "aviso-sem-prova");
     try {
-      await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [
-        quarto,
-      ]);
+      await activarTenant(admin, quarto);
       // Não verificado: existe linha, e não conta.
       await admin.query(
         "INSERT INTO platform.owner_contacts (tenant_id, canal, endereco_enc) " +
