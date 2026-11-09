@@ -31,8 +31,10 @@ relatorio e extrapolacao, escrita como tal.
 
 Cada cenario escreve o seu bloco num JSON. O caminho e `KAMBA_CARGA_RELATORIO`,
 ou um ficheiro novo na pasta temporaria; imprime-se no fim. **Os numeros que o
-relatorio do ticket cita saem daqui**, e o ficheiro guarda-se no anexo de
-evidencia (`docs/tecnica/evidencia/Carga_Dimensionamento.md`).
+relatorio do ticket cita saem daqui**: o anexo de evidencia
+(`docs/tecnica/evidencia/Carga_Dimensionamento.md`) transcreve-os, com a corrida
+e a hora UTC de cada uma. O JSON nao se versiona — tem os nomes efemeros dos
+contentores e nada que o anexo nao diga.
 
 ## Escolher cenarios
 
