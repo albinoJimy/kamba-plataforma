@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.12 |
+| Versão | 1.13 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -1097,11 +1097,11 @@ Medir consumo, latência, ack e comportamento sob carga, falha de LLM e rajada n
 - [ ] Relatório `../docs/tecnica/evidencia/Carga_Dimensionamento.md` com uma linha por serviço do §4.2: memória estimada, medida (p50/p95 em carga), veredicto («confirmado ±20%» ou «corrigido para X») e proposta de novo `mem_limit`.
 - [ ] Cenário S1 (pico do Piloto, 10 PMEs) e S2 (×10): memória ≤ 65% (≤ 20,8 GB em 32 GB) e CPU ≤ 60%; ack do webhook < 500 ms em ≥ 99,9%; idade da fila < 2 min; 0 mensagens perdidas por reconciliação de ids. Se S2 falhar, regista-se o limite como fronteira do perfil P0.
 - [ ] Cenário de rampa até saturação: identifica-se o primeiro recurso saturado (AGR, Postgres, Chatwoot, BullMQ ou LiteLLM) e a carga a que ocorre; o ponto «~50 conversas simultâneas por processo AGR» e «~10k jobs/min» ficam medidos ou continuam marcados NÃO VERIFICADO com o motivo.
-- [ ] Cenário de rajada: reentrega de 1 h de backlog a 20× o ritmo normal (reentrega Meta até 7 dias); sem perda, sem duplicados, fila drenada num tempo registado.
+- [x] Cenário de rajada: reentrega de 1 h de backlog a 20× o ritmo normal (reentrega Meta até 7 dias); sem perda, sem duplicados, fila drenada num tempo registado.
 - [ ] Cenário de degradação: LiteLLM com latência de 20 s e 5xx injectados activa N1/N2 (fluxo determinístico com menus ≤ 10 linhas e botões ≤ 3, estado do pedido e *handoff*) e o utilizador recebe resposta em ≤ 10 s; recuperação automática ao normalizar.
 - [ ] Cenário de limites Meta: o *rate limiter* por número respeita 20 mps (coexistência) e 80 mps (Cloud API) com o simulador; erro 130429 simulado leva a *backoff* sem martelar.
 - [ ] Cenário *flood*: um contacto a 100 mensagens/min é limitado e redireccionado a *handoff* sem afectar os outros tenants (RB-K09); custo LLM do contacto limitado pelo *budget*.
-- [ ] Custo do ensaio e do *host* temporário registados; o relatório lista os itens do doc 09 que mudam (§4.2, §14.4).
+- [x] Custo do ensaio e do *host* temporário registados; o relatório lista os itens do doc 09 que mudam (§4.2, §14.4).
 
 ### Detalhes Técnicos
 - **Componentes:** GWY, EVT, AGR, LLM (com *stub* de latência configurável e uma amostra com LLM real), HND, Postgres, OBS. Ferramenta de carga a escolher (*proposta*: k6 ou Locust; licença registada no SBOM de ferramentas).
@@ -1115,7 +1115,7 @@ Medir consumo, latência, ack e comportamento sob carga, falha de LLM e rajada n
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Nenhum dado real usado; tráfego e dados sintéticos; sem segredos em *scripts*.
+- [x] Nenhum dado real usado; tráfego e dados sintéticos; sem segredos em *scripts*.
 - [ ] Resultados e desvios registados; itens do doc 09 a corrigir abertos como tickets `fix`/docs.
 - [ ] Métricas do ensaio disponíveis nos painéis de KAM-080; custo do ensaio registado.
 - [ ] Scripts e relatório versionados; documentação actualizada.
@@ -1132,6 +1132,64 @@ Objectivo: validar ou corrigir as estimativas de dimensionamento com 7 cenários
 - Se um serviço necessário (GWY, AGR, Vendedor) não existir, pára e di-lo.
 Não expandas escopo: ajustar limites no Compose é um PR de seguimento. PR com o template da §7.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+Treze caixas — 8 critérios e 5 linhas de DoD —, **3 marcadas (critérios 4 e 8 e
+DoD 2) e 10 vazias**, cada uma com a razão e o credor. O relatório é
+[`../docs/tecnica/evidencia/Carga_Dimensionamento.md`](../docs/tecnica/evidencia/Carga_Dimensionamento.md),
+e o instrumento é [`../db/tests_dimensionamento/`](../db/tests_dimensionamento/test_cenarios.py)
+(`python db/carga.py`, um ponto de entrada próprio e fora do CI por desenho: não está no `SUITES` do `db/gate_bd.py`, que é a lista do que o CI corre).
+
+**A condição de paragem do *handoff* disparou, e diz-se à cabeça.** «Se um serviço
+necessário (GWY, AGR, Vendedor) não existir, pára e di-lo»: o Vendedor existe como
+código e **não como processo** — o `services/agr/src/kamba_agr/__main__.py` passa
+`grafos=sem_grafos` ao `ExecutorDeTurnos`, e o `/internal/turn` responde 503 a todos
+os turnos. Disse-se ao orquestrador antes de escrever, e a decisão foi entregar o
+medível e **não** montar o grafo num arnês fora do processo. As caixas que precisam
+de turnos ficam com o **KAM-186**, que liga a porta, e o **KAM-188**, que mede no
+*host* P0.
+
+**A escala é a de uma estação de trabalho**: 8 vCPU e **7,6 GiB** na VM do Docker
+Desktop, e não 8 vCPU / 32 GB; o que passar disso no relatório está escrito como
+extrapolação. **Os números abaixo são da corrida 5** (relatório §4.1): VM sem outros
+contentores nos cinco cenários, **com os limites do compose de produção** nos cinco
+contentores medidos, e a ponta `1c1b1c04` com a `publico/main` `6583930f` integrada.
+Das outras cinco corridas, a 1 mediu o caminho da falha do CHR, a 2 e a 6 tiveram
+outro ticket na mesma VM, a 3 correu sem os limites, e a rajada da 4 apanhou duas
+horas de espera do Windows.
+
+**A revisão adversarial levantou quinze achados, e a verificação das correcções
+mais sete**; os confirmados mudaram este bloco: o critério 6 e a DoD 5 deixaram de estar marcados, a rajada passou a medir
+os dois níveis de deduplicação (só media o primeiro, e o texto atribuía-a ao
+segundo), os *jobs* do AGR passaram a comparar-se por identidade, o ensaio passou a
+correr com os limites do compose (sem eles, «não é CPU» era falso para produção), e
+a CPU por contentor ganhou um relógio certo. O excesso de duplicados está preso à
+causa medida, com as mutações de controlo no relatório §4.2. Na verificação: as
+repetidas da rajada escolhiam-se por posição e saíam todas mensagens num grupo e
+todas estados no outro (N1) — hoje escolhem-se por tipo, e a correcção mediu-se outra
+vez na corrida 8 —, os duplicados passaram a conferir-se por identidade (N2), e a
+morte do *worker* na corrida 5 revelou-se um artefacto do ensaio, porque o
+`mem_limit` entrava depois do arranque do V8 (N3).
+
+| # | Critério | Estado | Evidência / credor |
+|---|---|---|---|
+| 1 | Relatório com uma linha por serviço do §4.2: estimada, medida (p50/p95 em carga), veredicto e proposta de `mem_limit` | **vazia** | O relatório tem **uma linha por serviço do §4.2** (§5 dele), mais a do `worker-canal`, que falta no doc 09. **Só o GWY tem veredicto**: **corrigido para ~0,13 GB no pico do Piloto** (p95 de 131 MiB nas duas réplicas no S1, −66%), com os 0,4 GB confirmados como tecto a partir de 50/s. O *worker* de entrada tem medição e **não** tem proposta de `mem_limit` provada: a morte a 251,7 de 256 MiB da corrida 5 é um artefacto do ensaio (relatório §6.6). As outras ficam «não medido» ou «não comparável», com a razão. Credores: **KAM-186** (a porta `grafos`) e **KAM-188** (o *host* P0) |
+| 2 | S1 e S2: memória ≤ 65% e CPU ≤ 60%; ack < 500 ms em ≥ 99,9%; idade da fila < 2 min; 0 mensagens perdidas por reconciliação de ids | **vazia** | **À escala desta máquina, os cinco números cumprem-se** (relatório §4.2 e §4.3): ack < 500 ms em **100%** nos dois (p99 no GWY de 4 ms), idade na fila no máximo **0,04 e 0,06 s**, **0 perdidas** (1 500 de 1 500 e 15 000 de 15 000, com 375 e 3 750 *jobs* do AGR iguais às mensagens únicas por identidade), CPU da VM no p95 a **6,1% e 12,9%** e memória usada a **14,7% e 20,1%**. A corrida 4 deu o mesmo. **A caixa fica vazia porque a letra é outra**: o critério mede memória e CPU no *host* de 32 GB com o conjunto inteiro, e aqui correram cinco dos catorze serviços numa VM de 7,6 GiB. Credor: **KAM-188** |
+| 3 | Rampa até saturação: o primeiro recurso saturado e a carga a que ocorre; «~50 conversas por processo AGR» e «~10k jobs/min» medidos ou NÃO VERIFICADO com o motivo | **vazia** | **No segmento de entrada está medido** (relatório §4.4): o primeiro recurso saturado é o ***worker* de entrada, por CPU, no tecto de 0,5 núcleo** que o compose lhe dá, **entre 100 e 400 eventos/s, conforme a corrida** (a 200/s drenou na corrida 5 e acumulou na 4; 100/s ficou folgado nas três com limites). O GWY e o BullMQ responderam a tudo até **1 200/s**, com o GWY a 0,78 núcleo e o Valkey a 0,99 no máximo — os dois perto do tecto deles. **«~10k jobs/min» medido**: o BullMQ aceitou ~71 400 *jobs*/min durante 45 s, e o limite é o consumidor. **A fila da rampa não drenou** porque o *worker* deixou de responder, e isso é **artefacto do ensaio**: o `mem_limit` entrou depois do arranque, com o V8 dimensionado para 2 240 MiB e não para 256 (medido). **«~50 conversas por processo AGR» continua NÃO VERIFICADO, com o motivo**: o AGR não corre turnos. A caixa fica vazia porque o critério pede o primeiro recurso saturado **de entre** AGR, PostgreSQL, Chatwoot, BullMQ e LiteLLM, e três deles não estão no ensaio. Credores: **KAM-186** (a porta `grafos`) e **KAM-188** (o *host* P0) |
+| 4 | Rajada: reentrega de 1 h de *backlog* a 20× o ritmo normal; sem perda, sem duplicados, fila drenada num tempo registado | **marcada** | **Sem perda e sem duplicados, na corrida 8** (relatório §4.2): 18 000 *webhooks* únicos (1 h do S1) a 100/s, **mais 1 800 repetidos 30 s depois**, cada grupo com metade mensagens e metade estados — 900 com os mesmos bytes, que o GWY reconhece pelo `jobId = sha256(corpo)`, e 900 com o mesmo JSON e outros bytes, que passam o GWY e só a `UNIQUE (kind, event_key)` da base apanha, o caminho de uma reentrega da Meta fora da retenção. **0 em falta, 0 a mais**; os 900 com outros bytes vistos como `entrada_duplicado` **pelo seu `msg_id`**, **450 deles mensagens**, nenhum dos iguais a passar o GWY, excesso 0; e **4 500 *jobs* do AGR para 4 500 mensagens únicas, por identidade** — **nenhum *job* a mais**. **Fila drenada num tempo registado, na corrida 5**, sem contenção: nunca passou de **6** *jobs* e estava vazia **0,0 s** depois do último envio. A corrida 8 teve contenção, e os tempos dela não se citam; a correcção vale com contenção. A corrida 5 tinha as repetidas mal escolhidas (todas as mensagens num grupo, achado N1), e por isso a sua correcção já não se cita |
+| 5 | Degradação: LiteLLM a 20 s e 5xx activa N1/N2 e o utilizador tem resposta em ≤ 10 s; recuperação automática | **vazia** | **Não medido.** O detector de degradação existe (`degradacao.py`, KAM-037) e não está ligado: o `__main__.py` não constrói `Dependencias`, e sem turno nenhum o LLM não é chamado. Credores: **KAM-186** (a porta `grafos`) e **KAM-188** (o *host* P0) |
+| 6 | Limites Meta: o *rate limiter* por número respeita 20 mps (coexistência) e 80 mps (Cloud API) com o simulador; `130429` simulado leva a *backoff* sem martelar | **vazia** | **A regra está provada, e não com o simulador.** O `tests_outbound` repetido nesta árvore passa (`Ran 10 tests … OK`), e os dois ensaios da regra — «100 envios … nunca passam de 15 em nenhuma janela de 1 s» e «tres 130429 e depois um 200: 1 entregue, 0 duplicados» — correm com relógio por parâmetro e com uma `MetaFalsa` em processo; o único ensaio que usa o `GraphFalso` não tem cenário de ritmo nem de `130429`. E «sem martelar» só está provado por mensagem. **A revisão adversarial apontou-o, e a caixa desmarcou-se** (relatório §4.6). Credor: **KAM-188**, com o processo de saída a correr |
+| 7 | *Flood*: um contacto a 100 msg/min é limitado e redireccionado a *handoff* sem afectar os outros tenants (RB-K09); custo LLM limitado pelo *budget* | **vazia** | **Não medido**, e com uma divergência de texto: o tecto de ritmo do `admissao.py` (20 msgs/min por contacto) faz «**descarte silencioso**», e o critério pede **redirecção a *handoff*** (relatório §6.3). A divergência paga-a o critério 11 do KAM-186. Credores: **KAM-186** (a porta `grafos`) e **KAM-188** (o *host* P0) |
+| 8 | Custo do ensaio e do *host* temporário registados; o relatório lista os itens do doc 09 que mudam (§4.2, §14.4) | **marcada** | Relatório §7: **0 USD** — não houve *host* temporário (o ensaio correu numa estação de trabalho existente), nem chamada a LLM real, nem serviço pago (o Graph falso responde pela Meta). Os itens do doc 09: §4.2 (GWY corrigido para o pico do Piloto; falta a linha do `worker-canal`), §11 (o BullMQ aceita ~71 400 *jobs*/min e não é o limite deste caminho; o AGR continua NÃO VERIFICADO), §12 (não medido) e §14.4 (**sem alteração**). Se o KAM-188 correr num clone, o custo dele junta-se aqui (critério 7 dele) |
+
+| # | DoD | Estado | Evidência / credor |
+|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | **2 dos 8.** A razão de cada um está na tabela acima |
+| 2 | Nenhum dado real usado; tráfego e dados sintéticos; sem segredos em *scripts* | **marcada** | Telefones com o indicativo `999`, que a UIT não atribui (`gerador.Canal.telefone`, com o teste `test_telefone_sem_pais`); tenants e canais sintéticos; os segredos do GWY e as chaves de identidade nascem em cada corrida (`db/tests_entrada`) e passam pelo ambiente. `python -m scan_secrets staged` → «limpo» em cada *commit* |
+| 3 | Resultados e desvios registados; itens do doc 09 a corrigir abertos como tickets `fix`/docs | **vazia** | **Registados**: relatório §4 a §7, com sete achados. **Três têm ticket**: o compose sem consumidores e a linha do `worker-canal` no KAM-187, e o ritmo que descarta no critério 11 do KAM-186. **O doc 09 não tem ticket que o corrija** (a linha do GWY, a do `worker-canal` e o §11), e o *worker* com um *backlog* grande e o `mem_limit` no arranque está por medir. Credores: **KAM-187** e **KAM-188** |
+| 4 | Métricas do ensaio disponíveis nos painéis de KAM-080; custo do ensaio registado | **vazia** | O custo está registado (critério 8). **As métricas não estão nos painéis**: o ensaio não levanta o Prometheus, e o compose de produção não corre o processo que serve as métricas de entrada (relatório §6.1). Credor: **KAM-188** |
+| 5 | Scripts e relatório versionados; documentação actualizada | **vazia** | **Versionados**: os cinco cenários com sujeito em `db/tests_dimensionamento/test_cenarios.py`, a medição em `medicao.py`, o gerador em `gerador.py`, e **42 ensaios** sem base que fixam as definições — o *working set* é `memory.current − inactive_file` e não o reservado (o «Testes Requeridos» à letra), o percentil é um valor observado, os limites são os do compose, o `jobId` do AGR e o `msg_id` do *logger* são os do código (com os valores calculados pelo Node), as repetidas escolhem-se por tipo, e os duplicados conferem-se por identidade com as mutações de controlo a ficar vermelhas. **Não está tudo**: dos 7 cenários do «Testes Requeridos», 4 têm *script*, e o doc 09 continua a dizer «~10k jobs/min NÃO VERIFICADO» e sem a linha do `worker-canal`. A revisão adversarial apontou-o e a caixa desmarcou-se. Credores: **KAM-186** (a porta `grafos`) e **KAM-188** (o *host* P0) |
 
 ---
 
@@ -1664,3 +1722,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.10 | Novembro 2026 | **KAM-187** e **KAM-188** acrescentados, e **não entregues no mesmo PR**: o que se entrega são os tickets. O KAM-188 lê as caixas que o ramo do KAM-084 (`feature/KAM-084-teste-de-carga`, por fundir) deixa ao «ticket que repete o teste de carga no *host* P0» e a medição das que deixa ao «ticket que liga a porta `grafos`». Dois blocos, duas linhas na «Tabela Resumo» e a fase de cada um no §1. Arestas recíprocas nos cabeçalhos: o `Bloqueia` do KAM-076 e do KAM-080 ganha o KAM-187, e o do KAM-077 e do KAM-084 ganha o KAM-188. **O credor do critério 3 do KAM-082** — «o ticket que decidir qual processo do `worker-canal` o compose corre» — ganha o número **KAM-187**, e a caixa continua `parcial`. Nenhuma outra caixa muda. | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | **KAM-085 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 1 marcada (DoD 2) e 12 vazias ou parciais**, cada uma com a razão e **com o credor nomeado**. Entregue: `tools/dr_simulacro/` (folha de passos com carimbos, linhas-marcador a 1/s, cálculo de RPO e RTO por passo, extrapolação e a regra da réplica, e o ensaio local em Docker, **64 testes**) e `docs/runbooks/simulacro-de-dr.md` (papéis, folha, cálculo, cartão da mesa-redonda e modelo de *post-mortem*). **Medido num ensaio local** com o PostgreSQL 18.6 do compose, o pgBackRest real, a configuração de `infra/backup/` tal como está em git, o esquema real e **22,19 GB** sintéticos: perda do *host* — restauro **302,2 s**, *replay* 3,0 s, verificação 49,1 s, **RPO 30,0 s** sem buracos; RTO composto **101,5 min** com o termo de rede a 100 Mbps sobre os 19,86 GB medidos do repositório e o *replay* orçado, dos quais 74,2 min são orçamento — na faixa que manda repetir o A, e a repetição útil é a humana; extrapolado a 50 GB, **134,7 min**, com o ponto de viragem em ≈ 37,7 GB, abaixo dos 40 GB do §8.2 — a regra da réplica de espera dispara com os 100 Mbps orçados, e a decisão fica com o fundador. Corrupção lógica — PITR provado pelos marcadores e **0 duplicados** (vazio no B1, com o publicador síncrono), mas **63 efeitos externos órfãos** quando só se republica o *outbox*; reimportar a exportação feita no primário vivo leva-os a 0 e cria 63 efeitos internos sobre encomendas apagadas. A revisão adversarial reproduziu dois defeitos do instrumento (o RTO ignorava o relógio entre passos, e o RPO não via a perda no princípio da série), corrigidos sem mudar nenhum número arquivado, e obrigou a refazer o RTO composto. Cofre indisponível — 0,50 s de máquina, e a passphrase tem de chegar ao `restore_command` do servidor. **E um achado de disponibilidade:** com o `archive-async=y` em git e o `postgres` como PID 1, um `archive-push` que falha reinicia o cluster (13 vezes em 180 s sem `init`, 0 com ele); o comentário do `infra/backup/pgbackrest.conf` e o RB-K08 §4 passaram a dizê-lo. **O que não fecha, e não é de quem executa:** o simulacro por uma pessoa de *on-call* que não escreveu o RB-K08, a mesa-redonda, o *post-mortem*, a data trimestral e a réplica são do fundador; o `repo1`, o IaC e o DNS são da D1. | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | **KAM-083 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 4 marcadas (critério 6 e DoD 2, 3 e 4), 5 parciais e 3 vazias**, cada uma com a razão e o credor. Os dez runbooks ficam em `docs/runbooks/` e não em `ops/runbooks/` — a leitura e a decisão devolvida estão no critério 1 | KAM-083 |
+| 1.13 | Novembro 2026 | **KAM-084 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 3 marcadas (critérios 4 e 8 e DoD 2) e 10 vazias**, cada uma com a razão e o credor. A condição de paragem do *handoff* disparou: o AGR não corre turnos (`grafos=sem_grafos`), pelo que o LLM, a degradação, o *flood* e o AGR em carga ficam com o KAM-186 e o KAM-188, e o que pede o *host* de 32 GB com o KAM-188. Medido o segmento de entrada com os processos de produção e os limites do compose: o S1 e o S2 cumprem o critério 2 à escala da estação, a rajada passa mensagens e estados pelos dois níveis de deduplicação sem *job* do AGR a mais, conferidos por identidade, e o primeiro recurso saturado é o *worker* de entrada, por CPU, entre 100 e 400 eventos/s conforme a corrida. Relatório em `../docs/tecnica/evidencia/Carga_Dimensionamento.md`, com sete achados. | Equipa KAMBÁ |

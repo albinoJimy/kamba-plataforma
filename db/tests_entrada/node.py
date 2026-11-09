@@ -244,12 +244,21 @@ def lancar(
     rotulo: str,
     porta: int | None = None,
     porta_das_metricas: int | None = None,
+    limites: tuple[str, str] | None = None,
 ) -> Processo:
     """Lanca `node <guiao>` em `pasta` (relativa a raiz). Nao espera por ele.
 
     `porta` e a porta que o processo publica, quando tem servidor HTTP. Em
     contentor, publica-se **so em 127.0.0.1**: um `-p 3000:3000` sem anfitriao
     abria a porta na rede local da maquina de quem corre o gate.
+
+    `limites` e `(memoria, cpus)` no formato do compose (`"256m"`, `"0.5"`), e
+    vai no `docker run` — **no arranque, e nao depois**: o V8 dimensiona o
+    *heap* pela memoria que ve ao arrancar. Medido com a `IMAGEM_NODE` (KAM-084):
+    sem limite, `heap_size_limit` de 2 240 MiB; com `--memory 256m` no arranque,
+    259 MiB. Um `docker update` depois deixa o *heap* dimensionado para a VM, e o
+    processo cresce ate o cgroup o matar. Sem `node` no `PATH` e so assim que
+    se aplica; com `node` local, ignora-se.
     """
     registo = Path(tempfile.gettempdir()) / f"kamba-{rotulo}-{secrets.token_hex(3)}.log"
     ambiente = dict(os.environ)
@@ -281,6 +290,9 @@ def lancar(
         "--volume", f"{registo.parent}:{PASTA_DOS_REGISTOS}",
         "--workdir", f"/repo/{pasta}",
     ]
+    if limites is not None:
+        memoria, cpus = limites
+        comando += ["--memory", memoria, "--memory-swap", memoria, "--cpus", cpus]
     modulos = _raiz_dos_modulos()
     if modulos != RAIZ:
         for relativo in ("node_modules", f"{pasta}/node_modules"):
