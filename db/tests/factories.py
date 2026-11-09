@@ -203,7 +203,18 @@ def aceitar_contratos_vigentes(cursor, tenant_id: str) -> None:
     *trigger* do aceite como qualquer outro `INSERT` — a hora, a evidencia e a
     exigencia da versao vigente sao as da base, e nao deste auxiliar. O
     `onboarding_id` e o proprio `tenant_id`: um caso por tenant.
+
+    As duas metades estao separadas (`publicar_versoes_de_ensaio` e
+    `aceitar_vigentes`) para quem crie o tenant pela ligacao da **aplicacao**:
+    ela aceita mas nao publica, pelo que as versoes se publicam antes por uma
+    ligacao de administrador que confirme.
     """
+    publicar_versoes_de_ensaio(cursor)
+    aceitar_vigentes(cursor, tenant_id)
+
+
+def publicar_versoes_de_ensaio(cursor) -> None:
+    """Publica a versao de ensaio de cada tipo que nao tenha versao vigente."""
     for tipo in ("dpa", "privacidade", "subprocessadores", "tos"):
         conteudo = f"Documento de ensaio ({tipo}). [A CONFIRMAR POR PARECER]\n"
         cursor.execute(
@@ -221,6 +232,10 @@ def aceitar_contratos_vigentes(cursor, tenant_id: str) -> None:
                 VIGENCIA_DE_ENSAIO, VIGENCIA_DE_ENSAIO, tipo,
             ),
         )
+
+
+def aceitar_vigentes(cursor, tenant_id: str) -> None:
+    """Grava o aceite das versoes vigentes, pelo papel do `cursor`."""
     cursor.execute(
         """
         INSERT INTO platform.contract_acceptance

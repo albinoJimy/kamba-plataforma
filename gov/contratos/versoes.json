@@ -1,5 +1,5 @@
 {
-  "_nota": "Versoes publicaveis dos quatro documentos do aceite (KAM-090). Uma versao publicada e imutavel: mudar o texto de um ficheiro e acrescentar uma entrada com versao nova, e o ensaio packages/core-ts/tests/contratos.manifesto.test.ts recusa o contrario. O sha256 e o do conteudo canonico (NFC, fins de linha LF, um LF final). So a ultima entrada de cada tipo tem ficheiro a conferir; as anteriores sao o historico.",
+  "_nota": "Versoes publicaveis dos quatro documentos do aceite (KAM-090). O ensaio packages/core-ts/tests/contratos.manifesto.test.ts compara o texto de cada ficheiro com a ULTIMA entrada do seu tipo: mudar o texto sem tocar no manifesto fica vermelho. O que ele NAO apanha e reescrever o sha256 de uma entrada ja publicada - o historico aqui e prosa, e quem o prende e a base (a versao publicada e imutavel) e o historico do git. Mudar o texto e acrescentar uma entrada com versao nova. O sha256 e o do conteudo canonico (NFC, LF, um LF final).",
   "version": 1,
   "documentos": [
     {

@@ -18,6 +18,13 @@
  * gasta uma das cinco tentativas do desafio (KAM-086), e um cliente adulterado
  * que não abriu os documentos não deve queimar o código do titular.
  *
+ * **A repetição do mesmo POST é idempotente na base, e não necessariamente
+ * aqui.** As linhas não se duplicam (`ON CONFLICT … DO NOTHING`), mas o segundo
+ * pedido volta a verificar o OTP — e se o KAM-086 apagar o desafio depois de
+ * um `acertou`, a repetição devolve `recusado/otp` sobre um aceite que já está
+ * gravado. Quem ligar o ecrã decide se lê a prova antes de pedir o código
+ * outra vez; fica escrito no bloco com o resto do critério 2.
+ *
  * ## O `otp_challenge_id` vem do verificador, e o do KAM-086 ainda não o dá
  *
  * O `Otp` de `../inscricao/otp.ts` guarda **um** desafio por caso, sem
@@ -166,8 +173,14 @@ export async function aceitar(
  * numa tarde. Um endereço que não se lê devolve `null` — a coluna é anulável e
  * a prova não depende dela.
  */
-export function hashDoPrefixoDeIp(endereco: string, chave: Uint8Array): Buffer | null {
+export function hashDoPrefixoDeIp(bruto: string, chave: Uint8Array): Buffer | null {
   let prefixo: string;
+  // IPv4 mapeado em IPv6 (`::ffff:a.b.c.d`) lê-se como o IPv4 que é: num
+  // *socket* de duas pilhas é assim que **todos** os clientes IPv4 chegam, e o
+  // prefixo `/48` deles era sempre `0000:0000:0000` — a coluna ficava
+  // constante. Achado da revisão adversarial.
+  const mapeado = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(bruto);
+  const endereco = mapeado?.[1] ?? bruto;
   const versao = isIP(endereco);
   if (versao === 4) {
     prefixo = `${endereco.split(".").slice(0, 3).join(".")}.0/24`;

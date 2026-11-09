@@ -20,6 +20,7 @@ import {
   type PortasDoAceite,
   type Tipo,
   ProvaInconsistenteError,
+  ProvaVaziaError,
   aceitar,
   canonizar,
   compararVersoes,
@@ -255,6 +256,11 @@ describe("contratos: o prefixo do IP", () => {
     assert.equal(hashDoPrefixoDeIp("nao-e-ip", chave), null);
     assert.equal(hashDoPrefixoDeIp("192.0.2.10", chave)?.length, 32);
   });
+
+  it("IPv4 mapeado em IPv6 é o IPv4 que é, e não um prefixo de zeros", () => {
+    assert.deepEqual(hashDoPrefixoDeIp("::ffff:192.0.2.10", chave), hashDoPrefixoDeIp("192.0.2.77", chave));
+    assert.notDeepEqual(hashDoPrefixoDeIp("::ffff:192.0.2.10", chave), hashDoPrefixoDeIp("::ffff:203.0.113.7", chave));
+  });
 });
 
 describe("contratos: a exportação da prova (critério 9)", () => {
@@ -268,11 +274,20 @@ describe("contratos: a exportação da prova (critério 9)", () => {
     const prova = exportarProva("caso", linhas);
     assert.deepEqual(prova.aceites.map((a) => a.tipo), ["dpa", "tos"]);
     assert.equal(prova.aceites[0]?.aceite_em, "2025-11-09T12:00:00.123456Z");
-    assert.equal(prova.sha256, createHash("sha256").update(JSON.stringify(prova.aceites)).digest("hex"));
+    assert.equal(
+      prova.sha256,
+      createHash("sha256").update(JSON.stringify({ aceites: prova.aceites, onboarding_id: "caso" })).digest("hex"),
+    );
   });
 
-  it("uma evidência que não se reproduz não se exporta", () => {
+  it("o resumo amarra o caso: as mesmas linhas noutro caso dão outro resumo", () => {
+    const linhas = [linha("dpa")];
+    assert.notEqual(exportarProva("caso-a", linhas).sha256, exportarProva("caso-b", linhas).sha256);
+  });
+
+  it("uma evidência que não se reproduz não se exporta, e nada não se sela", () => {
     const adulterada = { ...linha("dpa"), evidenceHash: randomBytes(32) };
     assert.throws(() => exportarProva("caso", [adulterada]), ProvaInconsistenteError);
+    assert.throws(() => exportarProva("caso", []), ProvaVaziaError);
   });
 });

@@ -13,7 +13,7 @@ o minimo:
   a linha do outro caso e invisivel pela RLS;
 * **aceite sem abrir os documentos** — **nao e da base**: a prova de abertura e
   um recibo assinado que o servico emite ao servir o texto, e o ensaio esta em
-  `packages/core-ts/tests/contratos/aceite.test.ts`.
+  `packages/core-ts/tests/contratos.test.ts`.
 
 A `evidence_hash` confronta-se com um oraculo **fora da base** (`hashlib`), e
 nao com a funcao que a calcula: duas leituras da mesma formula que concordam nao
@@ -163,6 +163,31 @@ class TestOTextoPublicado(ComBase):
             "now() - interval '1 day')",
         )
 
+    def test_o_lote_publica_sem_escolher_a_data_de_publicacao(self) -> None:
+        """O `sem_retroactivo` com dentes: o lote nao escreve o `publicado_em`.
+
+        A revisao adversarial publicou, pelo lote, um DPA com as duas datas de ha
+        um ano, e a base aceitou. Com o `INSERT` por coluna, a data e a omissao
+        `now()`, e uma vigencia no passado recusa-se.
+        """
+        lote = self.ligar("batch").cursor()
+        self.assertErroSql(
+            PRIVILEGIO_INSUFICIENTE, lote,
+            f"INSERT INTO {DOCUMENTOS} (tipo, versao, sha256, conteudo, vigente_desde, "
+            "publicado_em) VALUES ('dpa', '7.7.0', sha256(convert_to('x', 'UTF8')), "
+            "'x', now() - interval '1 year', now() - interval '1 year')",
+        )
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK, lote,
+            f"INSERT INTO {DOCUMENTOS} (tipo, versao, sha256, conteudo, vigente_desde) "
+            "VALUES ('dpa', '7.7.1', sha256(convert_to('x', 'UTF8')), 'x', "
+            "now() - interval '1 year')",
+        )
+        lote.execute(
+            f"INSERT INTO {DOCUMENTOS} (tipo, versao, sha256, conteudo, vigente_desde) "
+            "VALUES ('dpa', '7.7.2', sha256(convert_to('x', 'UTF8')), 'x', now())"
+        )
+
     def test_a_aplicacao_nao_publica_e_ninguem_apaga(self) -> None:
         app = self.ligar("app").cursor()
         self.assertErroSql(
@@ -238,13 +263,27 @@ class TestOAceite(ComBase):
     def test_aceite_de_versao_antiga_e_recusado(self) -> None:
         cursor, tenant, documentos = self.contexto()
         antiga, sha_antiga = publicar(cursor, "dpa", "8.0.0", ha_horas=5)
-        self.assertErroSql(
-            VIOLACAO_DE_CHECK, cursor,
-            f"INSERT INTO {ACEITES} (onboarding_id, tenant_id, document_id, versao, "
-            "doc_sha256, signatario_ref, otp_challenge_id, evidence_hash) "
-            "VALUES (%s, %s, %s, '8.0.0', %s, %s, %s, '\\x00'::bytea)",
-            (tenant, tenant, antiga, sha_antiga, str(uuid.uuid4()), str(uuid.uuid4())),
-        )
+        # O `23514` sozinho nao chega: sem o *trigger*, o `evidencia_ck` tambem
+        # o dava (a evidencia enviada e lixo). A mensagem e que diz que foi a
+        # versao a recusar — achado da revisao adversarial.
+        import pg8000.dbapi
+
+        cursor.execute("SAVEPOINT antiga")
+        try:
+            with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
+                cursor.execute(
+                    f"INSERT INTO {ACEITES} (onboarding_id, tenant_id, document_id, "
+                    "versao, doc_sha256, signatario_ref, otp_challenge_id, "
+                    "evidence_hash) VALUES (%s, %s, %s, '8.0.0', %s, %s, %s, "
+                    "'\\x00'::bytea)",
+                    (tenant, tenant, antiga, sha_antiga, str(uuid.uuid4()),
+                     str(uuid.uuid4())),
+                )
+        finally:
+            cursor.execute("ROLLBACK TO SAVEPOINT antiga")
+        erro = capturado.exception.args[0]
+        self.assertEqual(erro.get("C"), VIOLACAO_DE_CHECK)
+        self.assertEqual(erro.get("M"), "a versao 8.0.0 de dpa nao e a vigente")
 
     def test_aceite_que_cita_outro_texto_nao_tem_fk(self) -> None:
         cursor, tenant, documentos = self.contexto()
@@ -341,6 +380,36 @@ class TestOAceite(ComBase):
             "doc_sha256, signatario_ref, otp_challenge_id, evidence_hash) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, '\\x00'::bytea)",
             (a, a, document_id, versao, sha, str(uuid.uuid4()), str(uuid.uuid4())),
+        )
+
+    def test_a_prova_nao_se_emenda_nem_se_apaga_pelo_dono(self) -> None:
+        """O `kamba_migrator` tem todos os privilegios; o *trigger* recusa-os."""
+        cursor, tenant, documentos = self.contexto()
+        document_id, sha = documentos["dpa"]
+        aceitar(cursor, onboarding=tenant, tenant=tenant, document_id=document_id,
+                versao="9.0.0", sha=sha)
+        for instrucao in (
+            f"UPDATE {ACEITES} SET tenant_id = gen_random_uuid() WHERE onboarding_id = %s",
+            f"DELETE FROM {ACEITES} WHERE onboarding_id = %s",
+        ):
+            with self.subTest(instrucao=instrucao):
+                self.assertErroSql(ESTADO_PROIBIDO, cursor, instrucao, (tenant,))
+
+    def test_um_caso_nao_aceita_por_dois_tenants(self) -> None:
+        """Mesmo caso e mesmo OTP: o DPA para A e o ToS para B."""
+        cursor, tenant, documentos = self.contexto()
+        otp = str(uuid.uuid4())
+        document_id, sha = documentos["dpa"]
+        aceitar(cursor, onboarding=tenant, tenant=tenant, document_id=document_id,
+                versao="9.0.0", sha=sha, otp=otp)
+        outro = str(uuid.uuid4())
+        document_id, sha = documentos["tos"]
+        self.assertErroSql(
+            VIOLACAO_DE_EXCLUSAO, cursor,
+            f"INSERT INTO {ACEITES} (onboarding_id, tenant_id, document_id, versao, "
+            "doc_sha256, signatario_ref, otp_challenge_id, evidence_hash) "
+            "VALUES (%s, %s, %s, '9.0.0', %s, %s, %s, '\\x00'::bytea)",
+            (tenant, outro, document_id, sha, str(uuid.uuid4()), otp),
         )
 
     def test_ninguem_emenda_nem_apaga_um_aceite(self) -> None:
@@ -449,8 +518,79 @@ class TestOGateDeActivacao(ComBase):
         self.assertEqual([tuple(l) for l in cursor.fetchall()],
                          [(uuid.UUID(tenant), ["dpa"])])
 
-    def test_o_lote_activa_como_invocador_e_sem_aceite_e_recusado(self) -> None:
-        """Quem muda o estado e o `kamba_batch`, e o gate corre com os olhos dele."""
+    def test_um_aceite_antigo_nao_passa_por_restrito_nem_por_encerrado(self) -> None:
+        """O achado que bloqueava a primeira versao desta revisao.
+
+        O tenant aceitou as quatro na `9.6.0`; depois o DPA `9.6.1` passou a
+        vigente. Entrar em `ativo` pela primeira vez, **venha de onde vier**,
+        exige as vigentes: o `test_onboarding_restrito_ativo_nao_contorna_o_gate`
+        usava zero aceites e ficava verde com o defeito.
+        """
+        cursor = self.ligar("admin").cursor()
+        tenant = self.tenant(cursor)
+        for tipo in TIPOS:
+            publicar(cursor, tipo, "9.6.0", ha_horas=3)
+        factories.aceitar_contratos_vigentes(cursor, tenant)
+        publicar(cursor, "dpa", "9.6.1", ha_horas=2)
+        for estado in ("restrito", "suspenso", "encerrado"):
+            with self.subTest(estado=estado):
+                cursor.execute("SAVEPOINT desvio")
+                cursor.execute(
+                    "UPDATE platform.tenants SET estado = %s WHERE id = %s",
+                    (estado, tenant),
+                )
+                self.assertRecusa(cursor, tenant, "dpa")
+                cursor.execute("ROLLBACK TO SAVEPOINT desvio")
+
+    def test_a_primeira_activacao_so_o_gate_a_escreve(self) -> None:
+        """O lote tem `UPDATE` na tabela inteira e nao consegue fingir que ja activou."""
+        cursor = self.ligar("batch").cursor()
+        tenant = self.tenant(cursor)
+        cursor.execute(
+            "UPDATE platform.tenants SET primeira_activacao_at = now() - interval '1 year' "
+            "WHERE id = %s",
+            (tenant,),
+        )
+        cursor.execute(
+            "SELECT primeira_activacao_at FROM platform.tenants WHERE id = %s", (tenant,)
+        )
+        self.assertIsNone(cursor.fetchone()[0])
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK, cursor,
+            "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,),
+        )
+
+    def test_o_lote_activa_com_os_olhos_dele(self) -> None:
+        """O caso positivo pelo papel de producao, e nao pelo superutilizador.
+
+        O lote so ve o que esta confirmado, pelo que as versoes de ensaio e o
+        aceite gravam-se por uma ligacao de administrador em `autocommit` — e
+        ficam na base de ensaio (a prova e imutavel, e nao tem FK para o tenant,
+        que o lote cria e a ligacao dele desfaz). Ficava vermelho se o
+        `kamba_batch` perdesse o `BYPASSRLS` ou o `SELECT` nos aceites.
+        """
+        import ligacao
+
+        tenant = str(uuid.uuid4())
+        administrador = ligacao.ligar("admin")
+        administrador.autocommit = True
+        try:
+            semente = administrador.cursor()
+            factories.publicar_versoes_de_ensaio(semente)
+            factories.aceitar_vigentes(semente, tenant)
+        finally:
+            administrador.close()
+        cursor = self.ligar("batch").cursor()
+        factories.tenant(cursor, id=tenant)
+        self.activar(cursor, tenant)
+        cursor.execute(
+            "SELECT estado, primeira_activacao_at IS NOT NULL FROM platform.tenants "
+            "WHERE id = %s",
+            (tenant,),
+        )
+        self.assertEqual(tuple(cursor.fetchone()), ("ativo", True))
+
+    def test_o_lote_sem_aceite_e_recusado(self) -> None:
         cursor = self.ligar("batch").cursor()
         tenant = self.tenant(cursor)
         self.assertErroSql(
@@ -458,10 +598,13 @@ class TestOGateDeActivacao(ComBase):
             "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,),
         )
 
-    def test_a_aplicacao_nao_le_a_verificacao_diaria(self) -> None:
-        cursor = self.ligar("app").cursor()
-        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, cursor,
-                           "SELECT * FROM platform.dpa_em_falta()")
+    def test_so_o_lote_corre_a_verificacao_diaria(self) -> None:
+        """A auditoria nao: sem `SELECT` em `tenants` nem `BYPASSRLS`, so dava erro ou mentira."""
+        for identidade in ("app", "audit"):
+            with self.subTest(identidade=identidade):
+                cursor = self.ligar(identidade).cursor()
+                self.assertErroSql(PRIVILEGIO_INSUFICIENTE, cursor,
+                                   "SELECT * FROM platform.dpa_em_falta()")
 
 
 class TestDowngradeDa0040(ComBase):

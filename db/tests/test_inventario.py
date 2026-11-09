@@ -48,6 +48,9 @@ INVENTARIO = {
         "verificado_at": ("timestamp with time zone", SIM, None, "nao"),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "deleted_at": ("timestamp with time zone", SIM, None, "nao"),
+        # KAM-090 (0040): a primeira entrada em `ativo`, que so o *trigger* do
+        # gate escreve. E o que distingue uma activacao nova de uma reactivacao.
+        "primeira_activacao_at": ("timestamp with time zone", SIM, None, "nao"),
     },
     "tenant_channels": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),

@@ -3,9 +3,14 @@
  *
  * É o lado do repositório de «uma versão publicada é imutável»: a base recusa
  * o `UPDATE` (revisão `0040`), e este ensaio recusa que o texto de um ficheiro
- * mude sem uma versão nova no manifesto. Sem ele, o texto que uma PME aceitou
- * e o que o repositório tem podiam divergir em silêncio — e o resumo guardado
- * na prova deixava de corresponder a texto nenhum que alguém consiga mostrar.
+ * mude **sem o manifesto mudar**. Sem ele, o texto que uma PME aceitou e o que
+ * o repositório tem podiam divergir por esquecimento.
+ *
+ * **O que ele não apanha**, e a primeira versão desta nota afirmava o
+ * contrário: reescrever o `sha256` de uma entrada já publicada, em vez de
+ * acrescentar uma versão nova. O ficheiro de uma versão antiga já não existe,
+ * pelo que não há com que a comparar — o histórico prende-o a base e o `git`
+ * (achado da revisão adversarial).
  *
  * **E é o contrato com o inventário do KAM-069** («o gate lê o inventário»): a
  * lista pública de subprocessadores é gerada de `gov/subprocessadores.yaml`, e

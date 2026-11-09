@@ -62,12 +62,12 @@ que o `onboarding_id` tambem nao tem FK.
 
 O bloco diz que uma versao nova «por omissao so bloqueia activacoes novas
 (consequencia para tenants existentes decidida com o parecer)». Por isso o
-*trigger* exige as **vigentes** so a quem entra em `ativo` vindo de
-`onboarding` (ou nasce `ativo`); a quem volta a `ativo` de `restrito` ou
-`suspenso` exige **um** aceite de cada um dos quatro, de qualquer versao. Sem
-esta segunda metade, `onboarding -> restrito -> ativo` contornava o gate; com as
-vigentes ali, uma versao nova do DPA impedia a reactivacao de um tenant que ja
-estava activo — e isso e a decisao que o bloco devolve ao parecer.
+*trigger* exige as **vigentes** a quem entra em `ativo` **pela primeira vez** —
+venha de que estado vier —, e a quem ja esteve activo e volta exige **um**
+aceite de cada um dos quatro, de qualquer versao. «Pela primeira vez» le-se da
+coluna nova `tenants.primeira_activacao_at`, que so o *trigger* escreve: a
+primeira versao desta revisao lia-o do `OLD.estado`, e a revisao adversarial
+mostrou que `onboarding -> restrito -> ativo` passava com um aceite antigo.
 
 O *trigger* corre como **quem invoca**. Quem muda `tenants.estado` e o
 `kamba_batch` (a `0007` tirou-o ao `kamba_app`), que tem `BYPASSRLS` e le os
@@ -110,6 +110,11 @@ FALTA = "platform.contrato_em_falta(uuid, boolean)"
 EVIDENCIA = "platform.contrato_evidencia(bytea, uuid, timestamp with time zone, uuid)"
 DPA_EM_FALTA = "platform.dpa_em_falta()"
 
+#: As colunas que o lote escreve ao publicar. **Nao** estao o `document_id` (a
+#: omissao gera-o) nem o `publicado_em` (a omissao e `now()`, e e o que impede
+#: uma publicacao retroactiva).
+INSERT_DO_LOTE = ("tipo", "versao", "sha256", "conteudo", "vigente_desde")
+
 
 def upgrade() -> None:
     _evidencia()
@@ -139,6 +144,7 @@ def _evidencia() -> None:
           RETURNS bytea
           LANGUAGE sql
           IMMUTABLE STRICT PARALLEL SAFE
+          SET search_path = pg_catalog, platform
         AS $$
           SELECT pg_catalog.sha256(
                    p_doc_sha256
@@ -193,6 +199,12 @@ def _documentos() -> None:
     # passado reescrevia o que um tenant activado no ano passado tinha de ter
     # aceite — e a prova de um aceite antigo passava a parecer a de uma versao
     # que nao era a vigente.
+    #
+    # **O `CHECK` sozinho nao chegava, e a revisao adversarial mediu-o:** o
+    # `publicado_em` vinha de quem insere, e o lote publicou um DPA com as duas
+    # datas de ha um ano. Por isso o `INSERT` do `kamba_batch` e **por coluna** e
+    # nao leva o `publicado_em` (ver `_privilegios`): a data de publicacao e a
+    # omissao `now()`, e nao uma escolha de quem publica.
     #
     # A imutabilidade e por *trigger* e nao so por privilegio, porque o
     # criterio diz «uma versao publicada e imutavel» e o ensaio adversarial
@@ -253,15 +265,50 @@ def _aceites() -> None:
           CONSTRAINT contract_acceptance_otp_de_um_caso_ex
             EXCLUDE USING gist (
               otp_challenge_id servicos.gist_uuid_ops WITH =,
-              onboarding_id servicos.gist_uuid_ops WITH <>)
+              onboarding_id servicos.gist_uuid_ops WITH <>),
+          CONSTRAINT contract_acceptance_caso_de_um_tenant_ex
+            EXCLUDE USING gist (
+              onboarding_id servicos.gist_uuid_ops WITH =,
+              tenant_id servicos.gist_uuid_ops WITH <>)
         )
         """
     )
+    # O segundo `EXCLUDE` entrou pela revisao adversarial: sem ele, o mesmo
+    # caso e o mesmo OTP aceitavam o DPA para o tenant A e o ToS para o B. Um
+    # caso tem **um** tenant pre-alocado, e e por baixo da RLS que isso se ve.
     op.execute(
         f"COMMENT ON TABLE {ACEITES} IS "
-        "'Prova de aceite de uma versao publicada (KAM-090). Append-only por "
-        "privilegio: ninguem tem UPDATE nem DELETE. Sem PII: o signatario e uma "
-        "referencia e o IP so entra como hash do prefixo (ADR-010).'"
+        "'Prova de aceite de uma versao publicada (KAM-090). Append-only: "
+        "ninguem tem UPDATE nem DELETE, e um trigger recusa-os tambem ao dono. "
+        "Sem PII: o signatario e uma referencia e o IP so entra como hash do "
+        "prefixo (ADR-010).'"
+    )
+    # **Imutavel tambem para o dono**, e e achado da revisao adversarial: o
+    # privilegio tirava `UPDATE` e `DELETE` aos papeis de aplicacao, mas o
+    # `kamba_migrator` tem todos, e a evidencia nao cobre o `tenant_id` — mudar
+    # de quem e uma prova passava despercebido a exportacao. O mesmo regime da
+    # versao publicada: um *trigger* que recusa.
+    op.execute(
+        """
+        CREATE FUNCTION platform.contract_acceptance_imutavel()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          SET search_path = pg_catalog, platform
+        AS $$
+        BEGIN
+          RAISE EXCEPTION
+            'uma prova de aceite nao se emenda nem se apaga'
+            USING ERRCODE = '55000';
+        END;
+        $$
+        """
+    )
+    op.execute(
+        f"""
+        CREATE TRIGGER contract_acceptance_imutavel
+          BEFORE UPDATE OR DELETE ON {ACEITES}
+          FOR EACH ROW EXECUTE FUNCTION platform.contract_acceptance_imutavel()
+        """
     )
     # O gate le os aceites por tenant e por documento.
     op.execute(
@@ -360,6 +407,37 @@ def _gate() -> None:
         $$
         """
     )
+    # **A primeira activacao fica escrita na linha**, e e o achado que bloqueava
+    # a primeira versao desta revisao. Ela distinguia «activacao nova» de
+    # «reactivacao» pelo `OLD.estado`: as vigentes a quem vinha de `onboarding`,
+    # um aceite de qualquer versao a quem vinha de outro estado. O
+    # `tenants_estado_ck` nao restringe transicoes, pelo que um tenant com um
+    # aceite antigo passava por `onboarding -> restrito -> ativo` (ou
+    # `encerrado`) e ficava activo sem nunca ter aceite o DPA vigente. A pergunta
+    # certa nao e «de onde vem», e «ja esteve activo?» — e so a linha a sabe.
+    #
+    # Quem a escreve e **so este *trigger***: em qualquer `UPDATE` repoe o valor
+    # antigo por cima do que vier, e num `INSERT` poe-na a nulo. O `kamba_batch`
+    # tem `UPDATE` na tabela inteira, e sem isto escrevia uma data e saltava o
+    # gate. Os tenants que ja nao estao em `onboarding` quando a revisao corre
+    # ficam com a data da migracao: o gate e novo, e o que eles fizeram antes
+    # dele nao se reescreve (em producao nao ha nenhum).
+    op.execute(
+        "ALTER TABLE platform.tenants ADD COLUMN primeira_activacao_at timestamptz"
+    )
+    op.execute(
+        "COMMENT ON COLUMN platform.tenants.primeira_activacao_at IS "
+        "'Quando o tenant entrou em ativo pela primeira vez (KAM-090). So o "
+        "trigger tenants_exige_aceite a escreve; nula ate a primeira activacao.'"
+    )
+    # O `NO FORCE` e pela razao da `0003`: com `FORCE`, o dono sem contexto ve
+    # zero linhas e o `UPDATE` nao toca em nada.
+    op.execute("ALTER TABLE platform.tenants NO FORCE ROW LEVEL SECURITY")
+    op.execute(
+        "UPDATE platform.tenants SET primeira_activacao_at = now() "
+        "WHERE estado <> 'onboarding'"
+    )
+    op.execute("ALTER TABLE platform.tenants FORCE ROW LEVEL SECURITY")
     op.execute(
         """
         CREATE FUNCTION platform.tenants_exige_aceite()
@@ -370,6 +448,11 @@ def _gate() -> None:
         DECLARE
           v_falta text[];
         BEGIN
+          IF TG_OP = 'UPDATE' THEN
+            NEW.primeira_activacao_at := OLD.primeira_activacao_at;
+          ELSE
+            NEW.primeira_activacao_at := NULL;
+          END IF;
           IF NEW.estado <> 'ativo' THEN
             RETURN NEW;
           END IF;
@@ -377,21 +460,26 @@ def _gate() -> None:
             RETURN NEW;
           END IF;
           v_falta := platform.contrato_em_falta(
-            NEW.id, TG_OP = 'INSERT' OR OLD.estado = 'onboarding');
+            NEW.id, NEW.primeira_activacao_at IS NULL);
           IF cardinality(v_falta) > 0 THEN
             RAISE EXCEPTION 'tenant sem DPA aceite nao activa'
               USING ERRCODE = '23514',
                     DETAIL = 'sem aceite: ' || array_to_string(v_falta, ', ');
+          END IF;
+          IF NEW.primeira_activacao_at IS NULL THEN
+            NEW.primeira_activacao_at := now();
           END IF;
           RETURN NEW;
         END;
         $$
         """
     )
+    # Em **qualquer** `UPDATE`, e nao so no do `estado`: e o que impede o lote de
+    # escrever a `primeira_activacao_at` a mao.
     op.execute(
         """
         CREATE TRIGGER tenants_exige_aceite
-          BEFORE INSERT OR UPDATE OF estado ON platform.tenants
+          BEFORE INSERT OR UPDATE ON platform.tenants
           FOR EACH ROW EXECUTE FUNCTION platform.tenants_exige_aceite()
         """
     )
@@ -429,7 +517,13 @@ def _privilegios() -> None:
     op.execute(f"REVOKE ALL ON {DOCUMENTOS} FROM PUBLIC")
     op.execute(f"REVOKE ALL ON {ACEITES} FROM PUBLIC")
     op.execute(f"GRANT SELECT ON {DOCUMENTOS} TO {PAPEL_DA_APP}")
-    op.execute(f"GRANT SELECT, INSERT ON {DOCUMENTOS} TO {PAPEL_DE_LOTE}")
+    op.execute(f"GRANT SELECT ON {DOCUMENTOS} TO {PAPEL_DE_LOTE}")
+    # `INSERT` **por coluna**, sem o `publicado_em` nem o `document_id`: a data
+    # de publicacao e a omissao `now()`, e e isso que da dentes ao
+    # `sem_retroactivo`.
+    op.execute(
+        f"GRANT INSERT ({', '.join(INSERT_DO_LOTE)}) ON {DOCUMENTOS} TO {PAPEL_DE_LOTE}"
+    )
     op.execute(f"GRANT SELECT ON {DOCUMENTOS} TO {PAPEL_DE_AUDITORIA}")
     op.execute(f"GRANT SELECT, INSERT ON {ACEITES} TO {PAPEL_DA_APP}")
     op.execute(f"GRANT SELECT ON {ACEITES} TO {PAPEL_DE_LOTE}")
@@ -439,9 +533,21 @@ def _privilegios() -> None:
     op.execute(f"GRANT EXECUTE ON FUNCTION {FALTA} TO {PAPEL_DA_APP}")
     op.execute(f"GRANT EXECUTE ON FUNCTION {FALTA} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT EXECUTE ON FUNCTION {FALTA} TO {PAPEL_DE_AUDITORIA}")
+    # Do lote **e so dele**: a primeira versao dava-a tambem a auditoria, e a
+    # revisao adversarial mediu que la nao funciona — o `kamba_audit` nao le
+    # `tenants`, e sem `BYPASSRLS` veria zero aceites e daria todos os activos
+    # em falta. Uma concessao que so produz erro ou mentira nao se faz.
     op.execute(f"REVOKE ALL ON FUNCTION {DPA_EM_FALTA} FROM PUBLIC")
     op.execute(f"GRANT EXECUTE ON FUNCTION {DPA_EM_FALTA} TO {PAPEL_DE_LOTE}")
-    op.execute(f"GRANT EXECUTE ON FUNCTION {DPA_EM_FALTA} TO {PAPEL_DE_AUDITORIA}")
+    # As funcoes de *trigger* nao precisam de `EXECUTE` (o PostgreSQL nao o
+    # verifica num *trigger*), pelo que nao ficam com ele para `PUBLIC`. A
+    # `contrato_evidencia` fica: e um resumo puro, entra num `CHECK`, e retira-la
+    # a quem escreve punha o `CHECK` a depender de um privilegio.
+    # Por extenso e nao num `for`: o *gate* 3b le a revisao sem a correr.
+    op.execute("REVOKE ALL ON FUNCTION platform.contract_document_imutavel() FROM PUBLIC")
+    op.execute("REVOKE ALL ON FUNCTION platform.contract_acceptance_imutavel() FROM PUBLIC")
+    op.execute("REVOKE ALL ON FUNCTION platform.contract_acceptance_preparar() FROM PUBLIC")
+    op.execute("REVOKE ALL ON FUNCTION platform.tenants_exige_aceite() FROM PUBLIC")
 
 
 def downgrade() -> None:
@@ -452,11 +558,14 @@ def downgrade() -> None:
     # de producao a prova sai antes pela exportacao do criterio 9.
     op.execute("DROP TRIGGER tenants_exige_aceite ON platform.tenants")
     op.execute("DROP FUNCTION platform.tenants_exige_aceite()")
+    op.execute("ALTER TABLE platform.tenants DROP COLUMN primeira_activacao_at")
     op.execute(f"DROP FUNCTION {DPA_EM_FALTA}")
     op.execute(f"DROP FUNCTION {FALTA}")
     rls.disable_tenant_rls("contract_acceptance")
     op.execute(f"DROP TRIGGER contract_acceptance_preparar ON {ACEITES}")
     op.execute("DROP FUNCTION platform.contract_acceptance_preparar()")
+    op.execute(f"DROP TRIGGER contract_acceptance_imutavel ON {ACEITES}")
+    op.execute("DROP FUNCTION platform.contract_acceptance_imutavel()")
     op.execute(f"DROP TABLE {ACEITES}")
     op.execute(f"DROP TRIGGER contract_document_imutavel ON {DOCUMENTOS}")
     op.execute("DROP FUNCTION platform.contract_document_imutavel()")

@@ -13,7 +13,7 @@
  * forma que ela aceita (`canonizar`) e para o serviço saber, antes de mostrar o
  * ecrã, qual é a versão a mostrar (`vigente`). A `vigente` é a mesma pergunta
  * que o *trigger* `contract_acceptance_preparar` faz, e as duas têm de
- * responder igual — o ensaio `contratos.versoes.test.ts` fixa o desempate.
+ * responder igual — o ensaio `contratos.test.ts` fixa a fronteira.
  *
  * ## A evidência tem largura fixa
  *

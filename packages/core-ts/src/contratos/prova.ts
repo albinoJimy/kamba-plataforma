@@ -35,7 +35,7 @@ export interface LinhaDaProva {
 export interface ProvaExportada {
   readonly onboarding_id: string;
   readonly aceites: readonly Record<string, string>[];
-  /** `sha256` do JSON canónico dos `aceites`, em hexadecimal. */
+  /** `sha256` do JSON canónico de `{ aceites, onboarding_id }`, em hexadecimal. */
   readonly sha256: string;
 }
 
@@ -53,8 +53,24 @@ function instanteIso(micros: bigint): string {
   return `${iso.slice(0, 23)}${resto.toString().padStart(3, "0")}Z`;
 }
 
-/** A prova de um caso, verificada linha a linha. */
+export class ProvaVaziaError extends Error {
+  constructor(onboardingId: string) {
+    super(`o caso ${onboardingId} nao tem aceite nenhum para exportar`);
+    this.name = "ProvaVaziaError";
+  }
+}
+
+/**
+ * A prova de um caso, verificada linha a linha.
+ *
+ * **Uma lista vazia não se exporta**: o `lerProva` com o contexto do tenant
+ * errado devolve zero linhas pela RLS, e selar «nada» com um resumo dava ao
+ * titular uma prova de que não aceitou coisa nenhuma. E o resumo cobre o
+ * `onboarding_id`: sem ele, as mesmas linhas seladas para outro caso davam o
+ * mesmo resumo. Os dois são achados da revisão adversarial.
+ */
 export function exportarProva(onboardingId: string, linhas: readonly LinhaDaProva[]): ProvaExportada {
+  if (linhas.length === 0) throw new ProvaVaziaError(onboardingId);
   const aceites = [...linhas]
     .sort((a, b) => (a.tipo < b.tipo ? -1 : a.tipo > b.tipo ? 1 : 0))
     .map((linha) => {
@@ -78,6 +94,8 @@ export function exportarProva(onboardingId: string, linhas: readonly LinhaDaProv
         versao: linha.versao,
       };
     });
-  const sha256 = createHash("sha256").update(JSON.stringify(aceites), "utf8").digest("hex");
+  const sha256 = createHash("sha256")
+    .update(JSON.stringify({ aceites, onboarding_id: onboardingId }), "utf8")
+    .digest("hex");
   return { onboarding_id: onboardingId, aceites, sha256 };
 }

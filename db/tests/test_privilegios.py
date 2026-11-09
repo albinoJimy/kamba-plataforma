@@ -1334,7 +1334,9 @@ ESPERADO_POR_TABELA.update(
     {
         "contract_document": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": {"SELECT", "INSERT"},
+            # `INSERT` por coluna, e por isso nao aparece aqui: esta em
+            # `COLUNAS_POR_PAPEL`, sem o `publicado_em`.
+            "kamba_batch": {"SELECT"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
@@ -1433,6 +1435,14 @@ COLUNAS_POR_PAPEL = {
     ("kamba_batch", "audit_log", "INSERT"): {
         "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
         "turn_id", "payload_hash",
+    },
+    # KAM-090: o lote publica as versoes **sem** o `publicado_em` nem o
+    # `document_id`. A data de publicacao e a omissao `now()`, e e isso que da
+    # dentes ao `contract_document_sem_retroactivo_ck`: com a coluna concedida,
+    # o lote publicava hoje um DPA que «vigorava» ha um ano — medido pela
+    # revisao adversarial.
+    ("kamba_batch", "contract_document", "INSERT"): {
+        "tipo", "versao", "sha256", "conteudo", "vigente_desde",
     },
     # KAM-028: as dezoito colunas que quem invoca escreve — todas menos o `id`
     # (identidade) e o `ts` (`DEFAULT now()`). O `ts` fica de fora mesmo com o
@@ -2064,6 +2074,9 @@ IMUTAVEIS_PARA_A_APP = {
         "criado_at",  # registo
         "plano",      # KAM-009: o plano manda nos entitlements; quem o altera e o batch
         "estado",     # KAM-009: e a condicao do criterio 2; o sujeito nao a retira
+        # KAM-090: so o *trigger* do gate a escreve; com ela o tenant fingia
+        # que ja tinha estado activo e saltava a exigencia das versoes vigentes.
+        "primeira_activacao_at",
     },
     "tenant_channels": {
         "id",         # identidade

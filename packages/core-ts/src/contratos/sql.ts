@@ -74,9 +74,14 @@ export class LeitorSql implements LeitorDeDocumentos {
 }
 
 /**
- * Grava as quatro linhas **numa** transacção: um aceite com três documentos
- * gravados e o quarto recusado pela base não activava ninguém, mas deixava uma
- * prova parcial que nenhum ecrã pediu.
+ * Grava as quatro linhas pelo cliente que recebe, **sem abrir transacção**.
+ *
+ * O `INSERT` só passa com o contexto do tenant, pelo que este escritor corre
+ * sempre dentro do `comTenant` — que já abriu a transacção e definiu o
+ * `app.tenant_id` com `set_config(…, true)`. É essa transacção que torna as
+ * quatro linhas atómicas. A primeira versão abria a sua: o `BEGIN` interior era
+ * ignorado e o `COMMIT` interior fechava a de fora, deixando o resto do
+ * chamador sem transacção e sem contexto (achado da revisão adversarial).
  */
 export class EscritorSql implements EscritorDeAceites {
   readonly #cliente: ClienteSql;
@@ -86,24 +91,17 @@ export class EscritorSql implements EscritorDeAceites {
   }
 
   async gravar(linhas: readonly LinhaDeAceite[]): Promise<void> {
-    await this.#cliente.query("BEGIN");
-    try {
-      for (const linha of linhas) {
-        await this.#cliente.query(SQL_ACEITE, [
-          linha.onboardingId,
-          linha.tenantId,
-          linha.documentId,
-          linha.versao,
-          Buffer.from(linha.docSha256),
-          linha.signatarioRef,
-          linha.otpChallengeId,
-          linha.ipPrefixHash === null ? null : Buffer.from(linha.ipPrefixHash),
-        ]);
-      }
-      await this.#cliente.query("COMMIT");
-    } catch (erro) {
-      await this.#cliente.query("ROLLBACK");
-      throw erro;
+    for (const linha of linhas) {
+      await this.#cliente.query(SQL_ACEITE, [
+        linha.onboardingId,
+        linha.tenantId,
+        linha.documentId,
+        linha.versao,
+        Buffer.from(linha.docSha256),
+        linha.signatarioRef,
+        linha.otpChallengeId,
+        linha.ipPrefixHash === null ? null : Buffer.from(linha.ipPrefixHash),
+      ]);
     }
   }
 }

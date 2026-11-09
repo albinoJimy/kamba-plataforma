@@ -13327,6 +13327,7 @@ entradas:
       - "UPDATE"
       - "DELETE"
       - "kamba_batch"
+      - "INSERT"
     variantes_literais: []
   - seccao: "3.52"
     conceito: "Tipo de documento"
@@ -13392,6 +13393,8 @@ entradas:
     nomes_nota:
       - "vigente_desde"
       - "contract_document_sem_retroactivo_ck"
+      - "publicado_em"
+      - "now"
     variantes_literais: []
   - seccao: "3.52"
     conceito: "Prova de aceite"
@@ -13421,6 +13424,7 @@ entradas:
       - "onboarding_case"
       - "FORCE"
       - "tenant_iso"
+      - "contract_acceptance_imutavel"
     variantes_literais: []
   - seccao: "3.52"
     conceito: "Chave do aceite repetido"
@@ -13468,6 +13472,19 @@ entradas:
       - "servicos"
     variantes_literais: []
   - seccao: "3.52"
+    conceito: "Um caso, um tenant"
+    canonico: "contract_acceptance_caso_de_um_tenant_ex, EXCLUDE (onboarding_id =, tenant_id <>)"
+    literais:
+      - "contract_acceptance_caso_de_um_tenant_ex"
+      - "EXCLUDE (onboarding_id =, tenant_id <>)"
+    nomes:
+      - "contract_acceptance_caso_de_um_tenant_ex"
+      - "EXCLUDE"
+      - "onboarding_id"
+      - "tenant_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.52"
     conceito: "Evidência do aceite"
     canonico: "contract_acceptance.evidence_hash = platform.contrato_evidencia(doc_sha256, signatario_ref, aceite_em, otp_challenge_id)"
     literais:
@@ -13496,6 +13513,8 @@ entradas:
       - "contract_acceptance.ip_prefix_hash"
     nomes_nota:
       - "sha256"
+      - "ffff"
+      - "a.b.c.d"
     variantes_literais: []
   - seccao: "3.52"
     conceito: "Signatário"
@@ -13525,11 +13544,28 @@ entradas:
     nomes_nota:
       - "DETAIL"
       - "ativo"
-      - "onboarding"
-      - "restrito"
-      - "suspenso"
+      - "INSERT"
+      - "UPDATE"
+      - "tenants"
       - "kamba_batch"
       - "BYPASSRLS"
+    variantes_literais: []
+  - seccao: "3.52"
+    conceito: "Primeira activação"
+    canonico: "tenants.primeira_activacao_at"
+    literais:
+      - "tenants.primeira_activacao_at"
+    nomes:
+      - "tenants.primeira_activacao_at"
+    nomes_nota:
+      - "tenants_exige_aceite"
+      - "INSERT"
+      - "UPDATE"
+      - "ativo"
+      - "OLD.estado"
+      - "onboarding"
+      - "restrito"
+      - "tenants_estado_ck"
     variantes_literais: []
   - seccao: "3.52"
     conceito: "Tipos a que falta aceite"
@@ -13552,6 +13588,8 @@ entradas:
     nomes_nota:
       - "ativo"
       - "EXECUTE"
+      - "tenants"
+      - "BYPASSRLS"
     variantes_literais: []
   - seccao: "3.52"
     conceito: "Recibo de abertura"
@@ -13579,6 +13617,7 @@ entradas:
     nomes_nota:
       - "sha256"
       - "contratos.manifesto.test.ts"
+      - "git"
     variantes_literais: []
 
 tabelas:

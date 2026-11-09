@@ -6786,15 +6786,15 @@ MUTACOES = [
     # `assertRegex` das colunas.
     # --------------------------------------------------- KAM-090 (0040)
     ('revisao 0040: o gate deixa de olhar para quem nasce ativo', REV40,
-     'BEFORE INSERT OR UPDATE OF estado ON platform.tenants',
-     'BEFORE UPDATE OF estado ON platform.tenants',
+     'BEFORE INSERT OR UPDATE ON platform.tenants',
+     'BEFORE UPDATE ON platform.tenants',
      "tests"),
     # **A ligacao, e nao a funcao**: o corpo do gate fica intacto e o que muda e
     # quando ele corre. Um `INSERT` com `estado = 'ativo'` passa a criar um
     # tenant activo sem aceite nenhum. O
     # `test_nascer_ativo_tambem_passa_pelo_gate` tem de a matar.
-    ('revisao 0040: o gate aceita qualquer versao a quem vem do onboarding', REV40,
-     "NEW.id, TG_OP = 'INSERT' OR OLD.estado = 'onboarding');",
+    ('revisao 0040: o gate aceita qualquer versao na primeira activacao', REV40,
+     "NEW.id, NEW.primeira_activacao_at IS NULL);",
      "NEW.id, false);",
      "tests"),
     # Um aceite de uma versao que deixou de vigorar passa a activar. O
@@ -6822,6 +6822,19 @@ MUTACOES = [
     # datada pelo cliente. O
     # `test_a_base_escreve_a_hora_e_a_evidencia_e_ignora_as_do_chamador` tem de
     # a matar.
+    ('revisao 0040: o lote volta a escolher a data de publicacao', REV40,
+     'INSERT_DO_LOTE = ("tipo", "versao", "sha256", "conteudo", "vigente_desde")',
+     'INSERT_DO_LOTE = ("tipo", "versao", "sha256", "conteudo", "vigente_desde", "publicado_em")',
+     "tests"),
+    # O achado 2 da revisao adversarial, como mutacao: com a coluna concedida,
+    # o `test_o_lote_publica_sem_escolher_a_data_de_publicacao` tem de a matar
+    # pelo primeiro `42501`, e a matriz por coluna do `test_privilegios` tambem.
+    ('revisao 0040: o lote passa a poder escrever a primeira activacao', REV40,
+     '            NEW.primeira_activacao_at := OLD.primeira_activacao_at;',
+     '            NULL;',
+     "tests"),
+    # O lote escreve uma data e o gate passa a tratar o tenant como ja activado.
+    # O `test_a_primeira_activacao_so_o_gate_a_escreve` tem de a matar.
     ('revisao 0040: a aplicacao passa a publicar texto juridico', REV40,
      'op.execute(f"GRANT SELECT ON {DOCUMENTOS} TO {PAPEL_DA_APP}")',
      'op.execute(f"GRANT SELECT, INSERT ON {DOCUMENTOS} TO {PAPEL_DA_APP}")',

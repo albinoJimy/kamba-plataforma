@@ -45,6 +45,7 @@ export {
   type LinhaDaProva,
   type ProvaExportada,
   ProvaInconsistenteError,
+  ProvaVaziaError,
   exportarProva,
 } from "./prova.ts";
 export {
