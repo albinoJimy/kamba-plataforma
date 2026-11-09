@@ -634,11 +634,12 @@ class TestDimensionamento(ComEntrada):
         self.relatorio["cenarios"]["repouso"] = {
             "recursos": recursos,
             "anfitriao": amostrador.resumo_do_anfitriao(),
-            "soma_ws_mib_p95": medicao.soma_por_instante(recursos, "ws_mib_p95"),
+            "soma_ws_mib_p95": medicao.soma_dos_p95(recursos, "ws_mib_p95"),
             "outros_contentores": medicao.outros_contentores(
                 {n for n in self.contentores.values() if n}
             ),
         }
+        self._guardar()
         print(f"\n--- repouso ---\n{json.dumps(recursos, indent=2)}")
         self.assertTrue(all(r.get("amostras", 0) > 0 for r in recursos.values()), recursos)
 
