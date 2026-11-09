@@ -225,9 +225,13 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: **94 medidos, exigido 47**. Quem acrescentar o **96.o** paga a seguinte: o 47
 #: serve ate aos 95.
 #:
-#: **O 96.o e o do KAM-186**, medido no ramo dele sobre a `publico/main` em
-#: `6583930f`: **96 medidos, exigido 48**. Se outro bloco fundir antes, o numero
-#: vem da fila (`fila.py`) e nao desta linha. O 48 serve ate aos 97.
+#: **O 96.o e o do KAM-083**, medido na arvore do ramo sobre a `publico/main` em
+#: `6583930f`: **96 medidos, exigido 48**. Se outro ramo do mesmo lote fundir
+#: antes com um bloco medido, o numero re-mede-se na integracao, e nao se soma de
+#: cabeca. Quem acrescentar o **98.o** paga a seguinte: o 48 serve ate aos 97.
+#:
+#: **O 97.o e o do KAM-186**, que integrou depois: re-medido na arvore da fusao,
+#: **97 medidos, exigido 48** — o 48 continua a servir.
 MINIMO_DE_BLOCOS_MEDIDOS = 48
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
