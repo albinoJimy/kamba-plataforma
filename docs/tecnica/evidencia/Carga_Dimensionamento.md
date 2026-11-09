@@ -11,7 +11,7 @@
 | Dono | Plataforma/SRE |
 | Ticket | KAM-084 (EPIC-08) |
 | Classificação | Documento de Referência — Interno |
-| Instrumento | [`db/tests_dimensionamento/`](../../../db/tests_dimensionamento/test_cenarios.py) — `python db/gate_bd.py --suite tests_dimensionamento` |
+| Instrumento | [`db/tests_dimensionamento/`](../../../db/tests_dimensionamento/test_cenarios.py) — `python db/carga.py` |
 
 > **O que este documento é.** A medição do único segmento da pilha que hoje
 > corre com processos de produção de ponta a ponta — do *webhook* da Meta ao
@@ -99,10 +99,19 @@ a porta `grafos` do processo do AGR:
 ## 3. O instrumento
 
 ```bash
-python db/gate_bd.py --suite tests_dimensionamento
+python db/carga.py
 # KAMBA_CARGA_RELATORIO=<caminho.json> guarda o relatório; sem ele, vai para a pasta temporária
 # KAMBA_CARGA_CENARIOS=s1,rajada corre só esses; os outros saltam, e o código de saída é 1
 ```
+
+**É um ponto de entrada próprio, e não uma suite do `db/gate_bd.py`.** O `SUITES`
+de lá é a lista do que o CI corre, e um ensaio (`db/tests/test_mutacoes.py`) exige
+que cada nome dela esteja num alvo do `Makefile`; o ensaio de carga é meia hora de
+relógio e uma medição, e pô-lo num *gate* é decisão do fundador. O `db/carga.py`
+reutiliza do `gate_bd.py` o arranque e a limpeza do PostgreSQL e do Valkey e corre
+a *suite* com as regras de um *gate* — um teste saltado é uma falha. As corridas 1
+a 8 deste documento correram pelo `gate_bd.py`, com a *suite* declarada no
+`SUITES`; o que mudou foi só a porta de entrada.
 
 [`db/tests_dimensionamento/`](../../../db/tests_dimensionamento/test_cenarios.py)
 levanta um PostgreSQL 18.6 e um Valkey reais (os do *gate* 8, por digest), aplica

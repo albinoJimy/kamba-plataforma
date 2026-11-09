@@ -1,6 +1,6 @@
 """O ensaio de carga do KAM-084 no segmento de entrada, com os processos de producao.
 
-    python db/gate_bd.py --suite tests_dimensionamento
+    python db/carga.py
 
 Corre os **processos de producao** — duas replicas de `services/gwy/src/server.ts`
 e uma de `services/worker-canal/src/entrada.ts`, que monta o CHR — contra um

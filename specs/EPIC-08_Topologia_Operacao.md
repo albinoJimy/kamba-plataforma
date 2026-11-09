@@ -1075,7 +1075,7 @@ Treze caixas — 8 critérios e 5 linhas de DoD —, **3 marcadas (critérios 4 
 DoD 2) e 10 vazias**, cada uma com a razão e o credor. O relatório é
 [`../docs/tecnica/evidencia/Carga_Dimensionamento.md`](../docs/tecnica/evidencia/Carga_Dimensionamento.md),
 e o instrumento é [`../db/tests_dimensionamento/`](../db/tests_dimensionamento/test_cenarios.py)
-(`python db/gate_bd.py --suite tests_dimensionamento`, fora do CI por desenho).
+(`python db/carga.py`, um ponto de entrada próprio e fora do CI por desenho: não está no `SUITES` do `db/gate_bd.py`, que é a lista do que o CI corre).
 
 **A condição de paragem do *handoff* disparou, e diz-se à cabeça.** «Se um serviço
 necessário (GWY, AGR, Vendedor) não existir, pára e di-lo»: o Vendedor existe como

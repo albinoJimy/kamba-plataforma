@@ -11,7 +11,6 @@
     python db/gate_bd.py --suite tests_avisos        # gate 8, o aviso ao dono (KAM-115)
     python db/gate_bd.py --suite tests_agr           # gate 8, o AGR (KAM-025)
     python db/gate_bd.py --suite tests_pagamentos    # gate 8, o ledger (KAM-053)
-    python db/gate_bd.py --suite tests_dimensionamento  # ensaio de carga (KAM-084), fora do CI
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -276,12 +275,6 @@ SUITES = (
     # emissao reverte **as duas** escritas, porque o `evt_emitir` corre na
     # transaccao de quem chama.
     "tests_encomendas",
-    # KAM-084: o ensaio de carga do segmento de entrada (S1, S2, rajada e
-    # rampa), com duas replicas do GWY e o *worker* de entrada de producao.
-    # **Nao corre no CI**: nao esta no `ci-8` do `Makefile`, e de proposito — e
-    # meia hora de relogio e uma medicao de dimensionamento, nao um portao. Por-la
-    # num gate e decisao do fundador.
-    "tests_dimensionamento",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
@@ -290,13 +283,7 @@ SUITES_COM_FILA = (
     "tests_eventos_carga",
     "tests_entrada",
     "tests_entrada_carga",
-    "tests_dimensionamento",
 )
-
-#: KAM-084: os cinco cenarios do ensaio de carga levam ~30 min com a drenagem.
-#: Tempo do **criterio** (300 s por cenario, a rajada de uma hora a 20x), e nao
-#: folga.
-TEMPO_MAXIMO_DA_CARGA = 3600
 
 
 def _docker(*argumentos: str, ambiente=None) -> subprocess.CompletedProcess:
@@ -362,11 +349,7 @@ def _correr_suite(ambiente: dict[str, str], suite: str) -> int:
     # quando todos os testes sao saltados, e o trinco da suite salta. Num gate,
     # saltar e falhar.
     limite = (
-        TEMPO_MAXIMO_DA_CARGA
-        if suite == "tests_dimensionamento"
-        else TEMPO_MAXIMO_DOS_EVENTOS
-        if suite in SUITES_COM_FILA
-        else TEMPO_MAXIMO_DA_SUITE
+        TEMPO_MAXIMO_DOS_EVENTOS if suite in SUITES_COM_FILA else TEMPO_MAXIMO_DA_SUITE
     )
     try:
         return subprocess.run(
@@ -388,11 +371,21 @@ def _correr_suite(ambiente: dict[str, str], suite: str) -> int:
         return 1
 
 
-def com_contentor(suite: str) -> int:
+def com_contentor(suite: str, *, com_fila: bool | None = None, correr=None) -> int:
+    """Levanta a base (e a fila, se for preciso), corre a suite e apaga tudo.
+
+    `com_fila` e `correr` sao para quem nao e uma suite de *gate*: o ensaio de
+    carga do KAM-084 (`db/carga.py`) reutiliza o arranque e a limpeza dos
+    contentores sem se declarar no `SUITES` — que e a lista do que o CI corre, e
+    o `test_toda_a_suite_de_base_de_dados_e_invocada_por_um_gate` exige que cada
+    nome dela esteja num alvo do `Makefile`. Por omissao, o comportamento e o de
+    sempre.
+    """
     senha_admin = secrets.token_urlsafe(24)
     sufixo = secrets.token_hex(4)
     nome = f"kamba-gate8-{sufixo}"
-    com_fila = suite in SUITES_COM_FILA
+    if com_fila is None:
+        com_fila = suite in SUITES_COM_FILA
     # A rede so se cria quando faz falta: o caminho das outras tres suites fica
     # exactamente como estava.
     rede = f"kamba-eventos-{sufixo}" if com_fila else ""
@@ -450,7 +443,7 @@ def com_contentor(suite: str) -> int:
                 }
             )
         _esperar_pela_base(ambiente)
-        return _correr_suite(ambiente, suite)
+        return (correr or _correr_suite)(ambiente, suite)
     except RuntimeError as erro:
         print(f"gate de BD: {erro}", file=sys.stderr)
         registo = _docker("logs", "--tail", "20", nome)
