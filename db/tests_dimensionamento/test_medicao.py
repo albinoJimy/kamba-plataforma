@@ -130,6 +130,40 @@ class TestLimitesDoCompose(unittest.TestCase):
         self.assertEqual(limites_do_compose(texto, "b"), ("1m", "2.0"))
 
 
+class TestDuplicados(unittest.TestCase):
+    """O excesso de duplicados da rajada esta preso a causa medida."""
+
+    def _veredicto(self, duplicados: int, falhas: int = 2) -> dict:
+        return medicao.duplicados_explicados(
+            duplicados=duplicados, repetidas=900, falhas=falhas, eventos_por_job=1
+        )
+
+    def test_a_corrida_4_esta_explicada(self) -> None:
+        # 901 para 900, com dois `entrada_falhou`: o excesso de 1 cabe nos 2.
+        self.assertTrue(self._veredicto(901)["explicado"])
+        self.assertTrue(self._veredicto(900, falhas=0)["explicado"])
+
+    def test_uma_repetida_que_escapou_fica_vermelha(self) -> None:
+        self.assertFalse(self._veredicto(899)["explicado"])
+
+    def test_o_dobro_das_repetidas_fica_vermelho(self) -> None:
+        # A mutacao de controlo pedida: a deduplicacao a contar cada repeticao
+        # duas vezes. Com `>=` sozinho, isto passava.
+        self.assertFalse(self._veredicto(1800)["explicado"])
+
+    def test_excesso_sem_falhas_fica_vermelho(self) -> None:
+        self.assertFalse(self._veredicto(901, falhas=0)["explicado"])
+
+    def test_as_falhas_leem_se_do_registo_do_worker(self) -> None:
+        desfechos = {
+            "None|entrada_falhou:Error": 2,
+            "None|entrada_falhou:TimeoutError": 1,
+            "entrada_duplicado|": 901,
+            "chr_encaminhado|": 4500,
+        }
+        self.assertEqual(medicao.falhas_de_entrada(desfechos), 3)
+
+
 class TestPercentil(unittest.TestCase):
     def test_e_um_valor_observado(self) -> None:
         valores = [float(v) for v in range(1, 1001)]
@@ -208,6 +242,14 @@ class TestPlano(unittest.TestCase):
         self.assertLess(gerador.paralelismo_para(5.0) / 5.0, 5.0)
         self.assertEqual(gerador.paralelismo_para(400.0), 50)
         self.assertEqual(gerador.paralelismo_para(5000.0), 64)
+
+    def test_cada_corpo_leva_um_evento(self) -> None:
+        # E o que da `eventos_por_job` ao tecto dos duplicados: se um corpo
+        # passar a levar dois eventos, esta constante e aquele tecto mudam.
+        for pedido in self.fabrica.plano(10.0, 2.0):
+            valor = json.loads(pedido.corpo)["entry"][0]["changes"][0]["value"]
+            eventos = len(valor.get("messages", [])) + len(valor.get("statuses", []))
+            self.assertEqual(eventos, gerador.EVENTOS_POR_CORPO)
 
     def test_cada_pedido_leva_o_tenant_do_canal(self) -> None:
         tenants = {c.tenant_id for c in self.canais}

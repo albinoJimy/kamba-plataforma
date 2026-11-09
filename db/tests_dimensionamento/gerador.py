@@ -62,6 +62,13 @@ from dataclasses import dataclass
 #: Prefixo de todos os `wamid` do ensaio.
 PREFIXO_WAMID = "wamid.KAM084"
 
+#: Quantos eventos leva cada corpo deste gerador: **um** (uma mensagem ou um
+#: estado), e um corpo e um *job* da `wa-inbound`. E o tamanho do lote que um
+#: *job* repetido pode voltar a registar — o tecto do excesso de duplicados em
+#: `medicao.duplicados_explicados`. Um ensaio prende-o a forma dos corpos
+#: (`test_cada_corpo_leva_um_evento`).
+EVENTOS_POR_CORPO = 1
+
 
 @dataclass(frozen=True)
 class Canal:

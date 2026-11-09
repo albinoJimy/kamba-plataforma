@@ -135,10 +135,19 @@ cgroup tem carregado **menos** a *page cache* que o kernel pode largar sem custo
 número não é o `memory.current` (que conta a cache) nem o `anon` (que esquece a
 cache activa). Isto é o «Testes Requeridos» do bloco, à letra.
 
-**O custo da medição está medido.** Em repouso, cada contentor gasta
-~0,04–0,06 núcleo, e é sobretudo o próprio `docker exec` a cada 2 s, que corre
-dentro do cgroup do contentor. Os números de CPU deste documento incluem-no, o que
-é o lado pessimista.
+**O custo da medição não está separado.** Em repouso, cada contentor mostra
+~0,03–0,06 núcleo, e isso inclui o trabalho ocioso do serviço **e** o `cat` que o
+`docker exec` corre dentro do cgroup a cada 2 s; não se mediu um sem o outro (um
+intervalo de 2 s contra um de 10 s separava-os). Os números de CPU deste documento
+incluem os dois, o que é o lado pessimista.
+
+**Os contentores correm com os limites do compose de produção**: o `mem_limit` e
+o `cpus` de `gwy` (nas duas réplicas), `worker-canal` (no *worker* de entrada),
+`postgres` e `queue`, lidos do `infra/compose/docker-compose.prod.yml` e postos
+com `docker update` depois do arranque. A corrida 3 correu **sem** eles — o
+*worker* chegou a 0,89 núcleo, e o compose dá-lhe 0,5 —, e foi a revisão
+adversarial que o apontou; os números de CPU, de débito e da rampa deste documento
+são da corrida 4, que os tem.
 
 **A ferramenta de carga é a biblioteca padrão do Python** (`http.client`,
 `threading`), e não o k6 nem o Locust que o bloco propõe: não acrescenta
@@ -156,12 +165,12 @@ cliente por mês e ≈ 28 800 do bot. Cada mensagem do bot dá três estados (`s
 |---|---|---|---|---|
 | **S1** — pico do Piloto | **5 /s** | 10 | 300 s | *proposta*: ~36× a média das horas úteis. O factor de hora de ponta é uma hipótese a medir com tráfego real (bloco do ticket), e escolheu-se pessimista |
 | **S2** — ×10 | **50 /s** | 100 | 300 s | o S1 ×10, como o critério pede |
-| **Rajada** | **100 /s**, mais 10% repetidos | 10 | ~210 s | 1 h de *backlog* do S1 (18 000 *webhooks*) reentregue a 20×; 1 800 corpos reenviados 30 s depois com os mesmos bytes |
+| **Rajada** | **100 /s**, mais 10% repetidos | 10 | ~210 s | 1 h de *backlog* do S1 (18 000 *webhooks*) reentregue a 20×; 1 800 corpos reenviados 30 s depois — **900 com os mesmos bytes** (que o GWY reconhece pelo `jobId = sha256(corpo)`) e **900 com o mesmo JSON e outros bytes** (que passam o GWY e só a `UNIQUE (kind, event_key)` da base apanha) |
 | **Rampa** | 100 → 200 → 400 → 800 → 1 200 /s, 45 s cada | 100 | até falhar | degraus contíguos, sem drenar; pára no primeiro que falhe o critério 2 ou em que o gerador não imponha a taxa |
 
 A mistura é **1 mensagem de cliente para 3 estados**, a do `E1` §5 e a do
-KAM-013. O doc 09 dá 1:3,6 (28 800 respostas para 24 000 mensagens); a diferença
-são 20% a menos de estados, e fica dita.
+KAM-013. O doc 09 dá 1:3,6 (28 800 respostas para 24 000 mensagens): este perfil
+tem 16,7% menos estados do que o doc 09, e fica dito.
 
 ## 4. Resultados
 
@@ -353,7 +362,8 @@ ou `consumidor.ts` (procurado com `grep`; só o comentário de
 *webhooks* para uma fila que ninguém esvazia**, e o `/healthz` do `worker-canal`
 diria que está tudo bem. O KAM-082 já o tinha medido do lado das métricas (bloco
 KAM-082, critério 3); este ensaio é o mesmo achado visto do lado da carga: o
-processo que ele mede **é** o que falta no compose.
+processo que ele mede **é** o que falta no compose. **Paga-o o KAM-187**, que
+põe os consumidores do `worker-canal` no compose de produção.
 
 ### 6.2 O §4.2 do doc 09 não tem linha para o `worker-canal`
 
@@ -363,6 +373,8 @@ storage*, Nominatim, Typebot, monitorização e SO. O *worker* de entrada, sozin
 mediu **196,6 MiB no p95** da rampa e 200,6 no máximo (§4.5), e o `worker-canal` tem **quatro**
 processos (`entrada`, `agr_shim`, `publicador`, `consumidor`). O compose dá ao
 contentor 256 MiB — dimensionados para o `server.ts`, que é o único que corre.
+**Paga-o o KAM-187**, no seu critério 4: cada consumidor novo entra no orçamento
+de memória com a linha que o paga.
 
 ### 6.3 O tecto de ritmo por contacto descarta, e o critério pede *handoff*
 
@@ -374,7 +386,8 @@ minuto por contacto com «**descarte silencioso**» para o cliente (a sua
 ticket pede que um contacto a 100 msg/min seja «**limitado e redireccionado a
 *handoff***» (RB-K09). As duas leituras não são a mesma coisa: hoje o atacante é
 calado, e ninguém é chamado. Não se mediu nada aqui — o AGR não corre turnos —,
-mas a divergência é de texto e lê-se sem carga.
+mas a divergência é de texto e lê-se sem carga. **Paga-a o KAM-186**, no seu
+critério 11 («o ritmo excedido tem um só comportamento»).
 
 ### 6.4 Dois pré-requisitos de dados que nenhum documento lista
 
@@ -393,9 +406,15 @@ semente, e as duas são verdade em produção também:
 ### 6.5 O gerador mede o Docker Desktop se o deixarem
 
 Com 64 *threads* a 5 pedidos/s, **535 dos 600** pedidos reabriram a ligação (o
-*keep-alive* do Node fecha ao fim de 5 s parado) e o p50 foi 15 ms; com 8,
-**zero** e 5 ms. A corrida 1 do S1, com 64, deu p50 de 60 ms. O gerador passou a
-`taxa / 8` *threads* e conta as reconexões por cenário (`reconexoes`).
+*keep-alive* do Node fecha ao fim de 5 s parado), numa corrida de 120 s com p50 de
+15 ms. Com 8 *threads* houve duas corridas curtas: **zero** reconexões nas duas, e
+p50 de 5 ms numa e de **24,8 ms** na outra. As três correram com o KAM-085 na
+mesma VM. **O que fica provado é a contagem, e não a causa do p50**: as
+reconexões não o explicam sozinhas. O gerador passou a `taxa / 8` *threads*,
+conta as reconexões por cenário com a classe da excepção (`reconexoes_por_erro`),
+e a latência de um pedido que reconectou conta desde a **primeira** tentativa —
+a primeira versão deitava fora o tempo da tentativa falhada, e isso é latência
+que o pedido pagou.
 
 ## 7. Custo do ensaio, e os itens do doc 09 que mudam
 

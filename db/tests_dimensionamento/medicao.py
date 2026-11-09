@@ -240,6 +240,49 @@ def separar_uptime(texto: str) -> tuple[float, str]:
         raise CgroupIlegivel("a primeira linha nao e o /proc/uptime") from erro
 
 
+def falhas_de_entrada(desfechos: dict[str, int]) -> int:
+    """Quantos *jobs* do *worker* de entrada falharam, pelo registo dele.
+
+    O `aoFalhar` do `entrada.ts` escreve `log.excepcao(erro, "entrada_falhou")`,
+    que sai sem `outcome` e com `error_code` `entrada_falhou:<classe>`; o
+    diagnostico do ensaio junta as duas coisas em `None|entrada_falhou:<classe>`.
+    """
+    return sum(n for chave, n in desfechos.items() if "|entrada_falhou" in chave)
+
+
+def duplicados_explicados(
+    *, duplicados: int, repetidas: int, falhas: int, eventos_por_job: int
+) -> dict:
+    """Os duplicados que a base contou estao explicados pelas causas medidas?
+
+    Duas causas, e so duas, e cada tolerancia tem a sua razao:
+
+    - **cada repetida com outros bytes da exactamente um duplicado** — passa o
+      GWY (o `jobId` e o SHA-256 do corpo, e o corpo e outro) e a `UNIQUE (kind,
+      event_key)` reconhece-a. Logo `duplicados >= repetidas`: menos do que isso e
+      uma repetida que escapou ao segundo nivel;
+    - **um *job* que falha e repete volta a registar os eventos que ja tinha
+      registado**, e cada um conta como duplicado. Um corpo destes leva
+      `eventos_por_job` eventos, pelo que o excesso e no maximo
+      `falhas * eventos_por_job`. Medido na corrida 4: 901 para 900, com dois
+      `entrada_falhou`.
+
+    Um excesso acima disso nao tem causa medida — por exemplo, a deduplicacao a
+    contar cada repeticao duas vezes — e falha. O ensaio de controlo e
+    `test_medicao.TestDuplicados.test_o_dobro_das_repetidas_fica_vermelho`.
+    """
+    excesso = duplicados - repetidas
+    tecto = falhas * eventos_por_job
+    return {
+        "duplicados": duplicados,
+        "repetidas_com_outros_bytes": repetidas,
+        "falhas_de_entrada": falhas,
+        "excesso": excesso,
+        "tecto_do_excesso": tecto,
+        "explicado": 0 <= excesso <= tecto,
+    }
+
+
 def ler_contentor(nome: str) -> Leitura:
     """Um `docker exec` que le os ficheiros. Levanta se o contentor nao responder."""
     local = time.monotonic()

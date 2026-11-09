@@ -690,8 +690,19 @@ class TestDimensionamento(ComEntrada):
         # *worker* e foi reconhecida como duplicada pela base. Sem esta asercao,
         # um GWY que deduplicasse por conteudo (ou uma fila que as perdesse)
         # passava a rajada sem que a `UNIQUE` fosse alguma vez exercida.
-        duplicados = bloco["destino"]["desfechos_do_worker"].get("entrada_duplicado|", 0)
-        self.assertEqual(duplicados, len(outros_bytes), bloco["destino"])
+        #
+        # O excesso esta preso a causa medida, e nao livre: ver
+        # `medicao.duplicados_explicados`.
+        desfechos = bloco["destino"]["desfechos_do_worker"]
+        veredicto = medicao.duplicados_explicados(
+            duplicados=desfechos.get("entrada_duplicado|", 0),
+            repetidas=len(outros_bytes),
+            falhas=medicao.falhas_de_entrada(desfechos),
+            eventos_por_job=gerador.EVENTOS_POR_CORPO,
+        )
+        bloco["destino"]["duplicados_explicados"] = veredicto
+        self._guardar()
+        self.assertTrue(veredicto["explicado"], veredicto)
 
     def test_5_rampa(self) -> None:
         # Os planos tem alvos relativos ao seu proprio inicio: cada `disparar`
