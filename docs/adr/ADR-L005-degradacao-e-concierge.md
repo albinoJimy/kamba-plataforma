@@ -97,7 +97,10 @@ perante o critério 1 do KAM-114, e cede **por decisão** e não por omissão.
   sempre. É comportamento do KAM-114 e não deste ticket, mas o modo degradado é
   o caminho que mais vezes o atinge — é o achado `P4`/`P3` da
   [`../analises/ANALISE-39-kam-037-modo-deterministico.md`](../analises/ANALISE-39-kam-037-modo-deterministico.md),
-  e o credor é quem ligar a porta `grafos` do `turno.py` — o **KAM-186**.
+  e o credor era quem ligasse a porta `grafos` do `turno.py` — o **KAM-186**,
+  que a **pagou**: o `__main__` passa sempre a política e o `ServicoDeRascunho`
+  juntos, e o `compilar` (`kamba_agr/grafos.py`) recusa o par sem o serviço,
+  com o código de saída `2` da configuração inválida.
 
 ## Esta decisão é candidata a subir a canónica, e isso não se decide aqui
 
@@ -142,3 +145,4 @@ outro lado, que é o custo registado acima.
 |---|---|---|---|
 | 1.0 | 2026-10-29 | KAM-037 | Versão inicial: a decisão do fundador sobre o que sai ao cliente com o LLM indisponível e a política `concierge` activa no mesmo *tenant* |
 | 1.1 | 2026-11-09 | KAM-186 | Consequências: o credor da guarda de arranque do par «política activa, `ServicoDeRascunho` por ligar», que era «quem ligar a porta `grafos`», ganha o número **KAM-186**. A decisão não muda |
+| 1.2 | 2026-11-09 | KAM-186 | Consequências: a guarda de arranque do par «política activa, `ServicoDeRascunho` por ligar» está **paga** — o par deixou de ser montável e o arranque recusa-o com o código `2`. A decisão não muda |

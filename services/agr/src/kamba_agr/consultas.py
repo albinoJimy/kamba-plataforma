@@ -533,3 +533,23 @@ SQL_SLA_DE_RETOMA = """
      AND h.resumed_at IS NOT NULL
      AND h.opened_at >= %s
 """
+
+
+#: O contacto do turno esta bloqueado? (KAM-186, criterio 6; `docs/tecnica/02`
+#: §7.3 linha 4.) Uma linha com um booleano, ou zero linhas.
+#:
+#: **Bloqueado e apagado ou fundido**, e e uma leitura e nao uma coluna: a
+#: `platform.contacts` nao tem estado de bloqueio (revisao `0003`), e as duas
+#: colunas que dizem «este contacto ja nao e um interlocutor» sao o `erased_at`
+#: (o titular exerceu o apagamento) e o `merged_into` (as mensagens
+#: dele sao de outro contacto). As duas estao no `GRANT SELECT` de colunas do
+#: `kamba_app`. Um bloqueio pedido pela PME precisa de esquema, e fica devolvido.
+#:
+#: O `tenant_id` esta no predicado alem da RLS, pela razao do
+#: `SQL_PALAVRA_DA_CONVERSA`: zero linhas em vez do contacto de outro.
+SQL_CONTACTO_BLOQUEADO = """
+  SELECT erased_at IS NOT NULL OR merged_into IS NOT NULL AS bloqueado
+    FROM platform.contacts
+   WHERE tenant_id = %s
+     AND contact_id = %s
+"""

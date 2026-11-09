@@ -20,15 +20,14 @@ de quatro — o `loader` sao as quatro funcoes de leitura de `esquema.py`, e um
 ficheiro de quarenta linhas para as separar do modelo que elas devolvem nao
 paga a navegacao.
 
-## O arranque, e o que ele NAO liga
+## O arranque, e quem chama o `resolve`
 
-O `load_all` corre no arranque (`__main__.py`) e falha-o com o codigo **5**. O
-que ele nao faz e substituir o `sem_grafos` que o KAM-025 deixou em
-`turno.py`, e isso e deliberado: o `graph` das duas verticais aponta para
-`kamba_agr.verticais.<id>:build_graph`, que o KAM-031 e o KAM-035 escrevem.
-Ligar a porta hoje trocava um 503 por outro 503 e punha uma leitura de
-entitlement no caminho de cada turno, para nada. O `resolve` e a costura, e
-quem a usa e o ticket que tiver um grafo para lhe dar.
+O `load_all` corre no arranque (`__main__.py`) e falha-o com o codigo **5**.
+Desde o KAM-186 o `resolve` esta no caminho de **cada** turno: a porta `grafos`
+de `kamba_agr/grafos.py` chama-o antes de devolver o grafo da vertical, e uma
+recusa acaba no desfecho `servico_indisponivel` com 200, sem voltar a fila. O
+custo e o que o KAM-027 escreveu quando nao a ligou: uma leitura de
+entitlement por turno, em `tenant_guard.tx`, que falha fechada.
 """
 
 from __future__ import annotations

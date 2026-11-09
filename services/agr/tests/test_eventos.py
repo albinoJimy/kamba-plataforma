@@ -130,10 +130,13 @@ def ambiente_do_registo() -> AmbienteDoRegisto:
     reprova — a mesma linha que o `__main__.py` do KAM-028 escreve. Nao se
     desliga a validacao: liga-se o catalogo, que e o que corre em producao.
     """
+    from kamba_agr.grafos import para_validar
     from kamba_agr.tls.catalogo import catalogo_do_piloto
 
+    # KAM-186: o grafo tambem, pela mesma razao do catalogo — as linhas
+    # `grafo: { modo: aviso }` sairam do `registry/gates.yaml`.
     return AmbienteDoRegisto.do_repositorio(
-        REGISTO.parent, catalogo=catalogo_do_piloto()
+        REGISTO.parent, catalogo=catalogo_do_piloto(), construir_grafo=para_validar
     )
 
 

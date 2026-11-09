@@ -340,7 +340,13 @@ class TestCriterioAAsDuasNoMesmoRuntime(unittest.TestCase):
         from kamba_agr.tls.catalogo import catalogo_do_piloto
 
         raiz = pathlib.Path(__file__).resolve().parents[3]
-        ambiente = AmbienteDoRegisto.do_repositorio(raiz, catalogo=catalogo_do_piloto())
+        from kamba_agr.grafos import para_validar
+
+        # KAM-186: o grafo tambem, pela razao do catalogo — as linhas `grafo:
+        # { modo: aviso }` sairam do `registry/gates.yaml`.
+        ambiente = AmbienteDoRegisto.do_repositorio(
+            raiz, catalogo=catalogo_do_piloto(), construir_grafo=para_validar
+        )
         verticais, _, _ = carregar(ambiente, raiz / "registry")
         self.assertEqual(sorted(verticais), ["servicos", "vendedor"])
         # E cada uma aponta para o **seu** `build_graph` pelo registo, sem que

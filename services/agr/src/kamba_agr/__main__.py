@@ -61,10 +61,23 @@ from .admissao import Admissao, Tectos
 from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
-from .conversa import leitor
+from .conversa import leitor, leitor_de_contacto
 from .handoff.autenticacao import verificador
 from .concierge.politica import PoliticaDeConcierge
+from .concierge.portas import ProvedorDeRascunhoPorLigar
+from .concierge.rascunho import ServicoDeRascunho
 from .concierge.servico import Decisor
+from .degradacao import DetectorDeDegradacao
+from .grafos import (
+    PoliticaDoTurno,
+    PortaDeGrafos,
+    PortasIncoerentesError,
+    SaidaPorLigar,
+    admitir,
+    compilar,
+    para_validar,
+)
+from .handoff.servico import ServicoDeHandoff
 from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .metricas import METRICAS
@@ -94,7 +107,7 @@ from .tls.com import (
     executores_do_com,
 )
 from .trancas import TrancaDeConversas
-from .turno import ExecutorDeTurnos, sem_grafos
+from .turno import ExecutorDeTurnos
 
 #: A referencia do `secret` do *agent bot* no cofre (KAM-034, criterio 4).
 #:
@@ -119,7 +132,7 @@ class CredencialDoCom:
     Logo os executores do COM nascem sem a credencial, e esta classe e o fio que
     a liga quando ela existir. Chamada antes disso, **levanta** — o que e um
     defeito de montagem e nao uma recusa: nenhuma tool corre antes de o arranque
-    acabar, porque o `/internal/turn` responde 503 ate o grafo estar registado.
+    acabar, porque nenhum turno chega antes de o `uvicorn` escutar.
 
     E a leitura e **a cada chamada**, como no `api_interna.py`: uma rotacao do
     cofre chega sem reinicio.
@@ -373,14 +386,26 @@ def main() -> int:
     catalogo = catalogo_do_piloto(
         _executores_do_comercio(log, credencial_do_com)
     )
+    # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`
+    # compila o alvo `graph` de cada `registry/<id>.yaml` e confere os seis nos
+    # obrigatorios, e as duas linhas `grafo: { modo: aviso }` sairam do
+    # `registry/gates.yaml`. Um alvo que nao importa e codigo de saida 5.
     ambiente_do_registo = registo.AmbienteDoRegisto.do_repositorio(
-        pasta.parent, catalogo=catalogo
+        pasta.parent, catalogo=catalogo, construir_grafo=para_validar
+    )
+    # **O `AgentRegistry` e o que resolve cada turno** (KAM-027, criterio 6):
+    # vertical por contexto e entitlement activo. O leitor de entitlements e o
+    # do KAM-038, uma ligacao por leitura em `tenant_guard.tx`, e nao abre nada
+    # aqui — a primeira leitura e a do primeiro turno.
+    agentes = registo.AgentRegistry(
+        evt.LeitorDeEntitlements(ligar_para_eventos).ler, metricas=METRICAS
     )
     try:
-        verticais, _, adiadas = registo.carregar(ambiente_do_registo, pasta)
+        adiadas = agentes.load_all(ambiente_do_registo, pasta)
     except (registo.RegistoInvalidoError, registo.FicheiroIlegivelError) as exc:
         log.excepcao(exc, "registo_invalido")
         return SAIDA_REGISTO_INVALIDO
+    verticais = dict(agentes.verticais)
 
     # **Um consumidor por cada `subscriptions`, e o arranque reprova se faltar
     # um** (KAM-038, criterio 1). Duas verificacoes e nao uma, porque nao sao a
@@ -405,8 +430,9 @@ def main() -> int:
         f"_subscricoes_{len(subscricoes)}",
     )
 
-    # As validacoes em modo `aviso` — as que esperam por KAM-031, KAM-035 e
-    # KAM-040 (`registry/gates.yaml`). A do KAM-028 saiu: o catalogo existe. Um `aviso` que nao aparece no
+    # As validacoes em modo `aviso` — hoje so a do golden, que espera pelo
+    # KAM-040 (`registry/gates.yaml`). A do KAM-028 saiu com o catalogo, e as do
+    # grafo sairam com o KAM-186. Um `aviso` que nao aparece no
     # registo de arranque e uma validacao adiada em silencio, que e o que o
     # critero 8 existe para fechar.
     #
@@ -427,7 +453,7 @@ def main() -> int:
         log.excepcao(exc, "cofre_indisponivel")
         return 2
     # A partir daqui os executores do COM tem credencial. Antes disto nenhum
-    # corre: o `/internal/turn` responde 503 ate o grafo estar registado.
+    # corre: nenhum turno chega antes de o `uvicorn` escutar.
     credencial_do_com.ligar(lambda: segredos.get(SEGREDO_DO_COM))
 
     # **Sem checkpointer durável o AGR nao arranca** (KAM-026, criterio 3; o
@@ -477,9 +503,8 @@ def main() -> int:
     # que o servidor pode ter fechado entretanto.
     #
     # **Quem a invoca e o grafo, que e o KAM-031 e o KAM-035**: e esta instancia
-    # que o `build_graph(deps)` do §5.2 recebe. Ate la nada a chama — o
-    # `/internal/turn` responde 503 — e o que ela faz pelo arranque e o que esta
-    # escrito acima.
+    # que o `build_graph(deps)` do §5.2 recebe, ligada mais abaixo (KAM-186) —
+    # a mesma nas duas verticais, pela razao do disjuntor escrita acima.
     tools = ToolLayer(catalogo, abrir_ligacao=ligar_para_tools, metricas=METRICAS)
     # **O `error_code` tem forma, e esta linha nao a tinha.** A *allowlist* do
     # `docs/tecnica/08` §7.3 aceita uma sequencia de palavras com ate tres
@@ -584,23 +609,24 @@ def main() -> int:
         url_do_proxy=os.environ.get(VARIAVEL_DO_PROXY, PROXY_POR_OMISSAO),
         metricas=METRICAS,
     )
-    # **Quem o invoca e o grafo, que e o KAM-031 e o KAM-035**, como a ToolLayer:
-    # e esta instancia que o `build_graph(deps)` recebe. Ate la nada o chama.
+    # **O grafo nao o recebe, e fica dito**: o `Dependencias` nao tem campo de
+    # LLM, e as duas portas que o usariam — o `classificador` do §15.1 e o
+    # `classificador_de_guarda` do KAM-033 — ficam por ligar (ver a linha
+    # `grafo_porta_por_ligar` mais abaixo). Hoje o que ele serve no arranque e
+    # a guarda do `dat.llm_call_log` acima.
     log.info(
         outcome="llm_gateway_pronto",
         error_code=f"papeis_{len(cliente_de_llm.papeis())}",
     )
 
-    # O *handoff* (KAM-034). Sao tres pecas e **so uma se constroi aqui**:
+    # O *handoff* (KAM-034). Sao tres pecas:
     #
     # * o `ServicoDeHandoff` e a porta `hnd` que o `build_graph` recebe, e
-    #   constroi-o quem construir o `Dependencias` — isto e, quem ligar a porta
-    #   `grafos`. **Nao se constroi aqui**, ao contrario do `cliente_de_llm`:
-    #   aquele guarda uma tomada e e preciso fecha-la no encerramento, e este e
-    #   um invólucro de tres portas sem estado nenhum. Um objecto construido que
-    #   ninguem usa era a classe de defeito que a revisao `0011` nomeia pelo
-    #   outro lado — uma coisa criada «para quando for preciso».
-    # * o `Retomador` entra em `/internal/resume` e e usado **agora**;
+    #   constroi-se com as outras portas do grafo, mais abaixo (KAM-186). O
+    #   provedor HTTP do HND nao existe no AGR: a omissao e o `ProvedorPorLigar`,
+    #   que **levanta** `HandoffIndisponivel` — a degradacao do
+    #   `docs/tecnica/01` §11.5 e nao uma omissao silenciosa;
+    # * o `Retomador` entra em `/internal/resume`;
     # * a varredura dos prazos nao se constroi aqui, porque **nao ha
     #   agendador** nesta fase (a mesma linha que o `retencao.py` do KAM-026
     #   escreveu): o corpo da varredura e o `Prazos.varrer`, o credor e o
@@ -608,66 +634,88 @@ def main() -> int:
     #   pediu.
     admissao = Admissao(tectos=tectos)
     trancas = TrancaDeConversas(ligar_para_tranca)
+
+    # **As portas do grafo** (KAM-186, criterio 5). Cada uma tinha uma omissao
+    # nas `Dependencias` que **nao faz nada** — `SemPolitica`, `SemDegradacao`,
+    # `hnd=None`, `_admite_sempre`, `checkpointer=None` —, e um arranque com a
+    # porta esquecida e verde. Por isso estao todas aqui, num so dicionario que
+    # a bateria le, e cada uma tem ensaio que fica vermelho com ela na omissao.
+    #
+    # A `PoliticaDeConcierge` le-se da base em **cada turno**, sem *cache*, e e
+    # isso que faz desactiva-la ter efeito no turno seguinte (criterio 8 do
+    # KAM-114); o leitor e o do KAM-038, que corre em `tenant_guard.tx` com o
+    # *tenant* de quem chama e **falha fechado**. O `ServicoDeRascunho` vai com
+    # ela, sempre: a politica sem servico e o `P3` do `ADR-L005`, e o
+    # `compilar` recusa o par (criterio 8). Vai embrulhada na `PoliticaDoTurno`,
+    # que a le **fora** da *event loop*, na resolucao do turno: o `send` e
+    # `async` e a leitura e sincrona (ver `grafos.py`).
+    portas_do_grafo = {
+        "tools": tools,
+        "saida": SaidaPorLigar(
+            aviso=lambda motivo: log.warn(outcome="saida", error_code=motivo)
+        ),
+        "hnd": ServicoDeHandoff(metricas=METRICAS),
+        "metricas": METRICAS,
+        "admitir": admitir,
+        "checkpointer": checkpointer,
+        "concierge": PoliticaDoTurno(
+            PoliticaDeConcierge(evt.LeitorDeEntitlements(ligar_para_eventos).ler)
+        ),
+        "rascunho": ServicoDeRascunho(
+            abrir_ligacao=ligar_para_concierge,
+            provedor=ProvedorDeRascunhoPorLigar(),
+            metricas=METRICAS,
+        ),
+        "degradacao": DetectorDeDegradacao(admissao=admissao, metricas=METRICAS),
+    }
+    try:
+        grafos_do_processo = compilar(verticais, portas_do_grafo)
+    except PortasIncoerentesError as exc:
+        log.excepcao(exc, "portas_incoerentes")
+        return 2
+    porta_de_grafos = PortaDeGrafos(
+        registo=agentes,
+        grafos=grafos_do_processo,
+        checkpointer=checkpointer,
+        contacto_bloqueado=leitor_de_contacto(ligar_para_leitura),
+        politica=portas_do_grafo["concierge"],
+    )
+    log.info(outcome="grafos_ligados", error_code=f"verticais_{len(grafos_do_processo)}")
+    # **O que fica por ligar diz-se, porta a porta.** Nenhuma destas finge: a
+    # `saida` avisa e levanta em cada envio, e a rota responde 503 (nao ha
+    # Outbound a que o AGR fale, e o achado esta no `grafos.py`), o `stt` sem porta da `ask_repeat` (KAM-036), os
+    # dois classificadores sem porta deixam decidir as regras, e os `modos` sao
+    # o KAM-018. Uma porta por ligar que nao aparece no registo de arranque e
+    # uma omissao silenciosa, que e o que o DoD do KAM-186 proibe.
+    for porta in ("classificador", "classificador_de_guarda", "modos", "saida", "stt"):
+        log.warn(outcome="grafo_porta_por_ligar", error_code=porta)
+
     # KAM-114. O `Decisor` entra em `/internal/draft-decision` e o
-    # `Substituidor` entra no `ExecutorDeTurnos` (criterio 5): os dois sao
-    # usados **agora**.
+    # `Substituidor` entra no `ExecutorDeTurnos` (criterio 5).
     #
     # A varredura dos rascunhos nao se constroi aqui, pela mesma linha do
     # `Prazos` do KAM-034 e do `retencao.py` do KAM-026: **nao ha agendador**
     # nesta fase, o corpo e o `Varredura.varrer`, e o credor e o *scheduler* do
     # EVT (KAM-071).
+    #
+    # **A retoma e a decisao recebem a porta por `thread_id`, e o turno a da
+    # invocacao** (KAM-186, criterio 4). Sao duas resolucoes e nao uma: a
+    # retoma nao tem invocacao — o corpo de `/internal/resume` sao tres campos
+    # —, e a vertical de uma *thread* que espera e a do grafo que a
+    # interrompeu, que quem sabe e o *checkpoint*. As duas resolvem-se **antes**
+    # do CAS, e sem grafo a rota responde 503 sem escrever nada.
     decisor_de_rascunhos = Decisor(
         abrir_ligacao=ligar_para_concierge,
-        grafos=_grafo_da_thread,
+        grafos=porta_de_grafos.da_thread,
         metricas=METRICAS,
     )
     substituidor_de_rascunhos = Substituidor(
         abrir_ligacao=ligar_para_concierge,
         decidir_pelo_sistema=decisor_de_rascunhos.decidir_pelo_sistema,
     )
-    # **As duas portas que o grafo precisa, e que ninguem lhe pode passar hoje.**
-    # A `PoliticaDeConcierge` le-se da base em **cada turno**, sem *cache*, e e
-    # isso que faz desactiva-la ter efeito no turno seguinte (criterio 8) em vez
-    # de «ate 60 s depois»; o leitor e o do KAM-038, que corre em
-    # `tenant_guard.tx` com o *tenant* de quem chama e **falha fechado**.
-    #
-    # Ficam aqui construidas e **nao ligadas**, porque o AGR nao constroi
-    # `Dependencias` nenhuma nesta fase — o `grafos` e o `sem_grafos` e o
-    # `/internal/turn` responde 503 ate o AgentRegistry existir (KAM-027). A
-    # primeira versao deixava a politica numa variavel sem segundo uso, o que
-    # era pior do que isto: nao dizia a ninguem o que falta ligar. **Quem ligar
-    # o AgentRegistry passa estas duas ao `build_graph`**, como
-    # `Dependencias(concierge=..., rascunho=...)` — e sem elas a
-    # `Dependencias.concierge` fica `SemPolitica()`, o concierge nunca liga, e
-    # ninguem o nota.
-    portas_do_concierge = {
-        "concierge": PoliticaDeConcierge(
-            evt.LeitorDeEntitlements(ligar_para_eventos).ler
-        ),
-        # O provedor do HND e o KAM-019; ate la a porta por omissao levanta
-        # `RascunhoIndisponivel`, que e a linha que o `docs/tecnica/01` §11.5
-        # escreve para «Chatwoot indisponivel».
-        "rascunho": None,
-    }
-    log.info(
-        outcome="concierge_por_ligar",
-        error_code=",".join(sorted(portas_do_concierge)),
-    )
     retomador = Retomador(
         abrir_ligacao=ligar_para_handoff,
-        # **A porta tem outra forma, e isso e a parte que importa.** O
-        # `grafos` do executor recebe uma `InvocacaoDoAgente`; este recebe um
-        # `thread_id`, porque a retoma **nao tem invocacao** — o corpo de
-        # `/internal/resume` sao tres campos e nenhum e o `agent_invocation`
-        # (§3.13). A vertical de uma *thread* que espera por um humano e a do
-        # grafo que a interrompeu, e quem a sabe e o *checkpoint*.
-        #
-        # Hoje as duas acabam no mesmo `sem_grafos`, que levanta de qualquer
-        # maneira; o adaptador existe para que quem ligar o AgentRegistry veja
-        # que sao **duas** resolucoes a ligar e nao uma. Enquanto levantar, a
-        # rota responde 503 com `Retry-After` **sem escrever nada** — o grafo
-        # resolve-se antes do CAS (ver `handoff/retoma.py`).
-        grafos=_grafo_da_thread,
+        grafos=porta_de_grafos.da_thread,
         metricas=METRICAS,
     )
     # O consumidor de eventos (KAM-038). As portas que ainda nao existem ficam
@@ -710,9 +758,10 @@ def main() -> int:
     executor = ExecutorDeTurnos(
         trancas=trancas,
         ler_palavra=leitor(ligar_para_leitura),
-        # O AgentRegistry e o KAM-027. Ate la, `/internal/turn` com uma
-        # invocacao valida responde 503 e a mensagem fica na fila.
-        grafos=sem_grafos,
+        # A porta do turno (KAM-186): resolve a vertical pelo registo e pelo
+        # entitlement, le a admissao, e devolve o grafo dela. Uma vertical
+        # recusada acaba em `servico_indisponivel`, com 200 — nao volta a fila.
+        grafos=porta_de_grafos.do_turno,
         # O reencaminhamento ao HND e o KAM-019; a porta e esta, e o criterio 6
         # mede a **decisao** de reencaminhar, nao a entrega.
         reencaminhar=_hnd_por_ligar,
@@ -759,11 +808,9 @@ def main() -> int:
         # para ficam ate o PostgreSQL notar a tomada fechada, e o *worker* que
         # recebe os *jobs* a seguir espera por elas sem razao.
         # As trancas **e** o checkpointer: sao as tres tomadas que este
-        # processo abre, e nenhuma se fecha sozinha. Quem o passa ao
-        # `compile(checkpointer=...)` e o **KAM-031** — e nao o KAM-027, como
-        # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
-        # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
-        # arranque e o encerramento, e nada mais.
+        # processo abre, e nenhuma se fecha sozinha. O checkpointer e o que os
+        # dois grafos recebem no `compile(checkpointer=...)` (KAM-186), e e o
+        # mesmo que a porta por `thread_id` le — um so objecto, uma so tomada.
         ao_encerrar=_fechar_as_tomadas(
             trancas, checkpointer, tools, retomador, conversas_de_eventos
         ),
@@ -780,23 +827,6 @@ def main() -> int:
         access_log=False,
     )
     return 0
-
-
-def _grafo_da_thread(_thread_id: str):
-    """A porta `grafos` da **retoma e da decisao de rascunho**, por ligar.
-
-    Ver o comentario no `main`. **Serve as duas** (KAM-034 e KAM-114) porque as
-    duas tem a mesma forma — recebem um `thread_id` — e resolvem a mesma
-    pergunta: «qual e o grafo que interrompeu este *thread*?». Quem ligar o
-    AgentRegistry substitui esta e a do executor.
-
-    Chama o `sem_grafos` com `None` em vez de o passar directamente, e nao e
-    cerimonia: as duas portas tem formas diferentes — aquela recebe uma
-    `InvocacaoDoAgente` e esta um `thread_id` —, e passar a mesma funcao as duas
-    escondia que sao duas resolucoes a ligar. Quem ligar o AgentRegistry
-    substitui **as duas**.
-    """
-    return sem_grafos(None)  # type: ignore[arg-type]
 
 
 async def _hnd_por_ligar(_invocacoes) -> None:

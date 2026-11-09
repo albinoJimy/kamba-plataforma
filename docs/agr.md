@@ -8,7 +8,7 @@
 | Nomes | [`specs/02_Dicionario_de_Dados_Canonico.md`](../specs/02_Dicionario_de_Dados_Canonico.md) §3.13 (o contrato) e §3.24 (o que este ticket acrescenta) |
 | Código | [`services/agr/src/kamba_agr/`](../services/agr/src/kamba_agr/) (Python) e [`packages/core-ts/src/agr/`](../packages/core-ts/src/agr/) (o *shim* da fila) |
 | Verificações | [`services/agr/tests/`](../services/agr/tests/) no *gate* 4; [`db/tests_agr/`](../db/tests_agr/) no *gate* 8 |
-| Estado | **O esqueleto está em vigor; o serviço não vai a produção antes do KAM-027 e do KAM-031.** Os quatro tectos são *proposta* e calibram-se em KAM-084 |
+| Estado | **O processo resolve e corre os grafos das duas verticais desde o KAM-186**, e **ainda não conversa**: a porta de saída do grafo não tem Outbound a que ligar — um turno que quer responder dá 503 `saida_por_ligar` e volta à fila —, e o texto do cliente não chega à janela enquanto a rota não for decidida (§7-K). Os quatro tectos são *proposta* e calibram-se em KAM-084 |
 
 > **O que este documento é.** O que o AGR faz hoje, o que ele deliberadamente
 > ainda não faz, e as três coisas que enganam quem o opera. O que não está aqui
@@ -38,22 +38,21 @@ esqueleto do serviço. Não há agente nenhum.
 | Grafo do Vendedor / de Serviços | KAM-031 / KAM-035 |
 | Modo determinístico e `agr_degraded_turns_total` | **KAM-037** |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
+| As três portas `grafos` ligadas ao registo, e o `Dependencias` com as portas reais | **KAM-186** (§7-K) |
 
-**`/internal/turn` com uma invocação válida continua a responder 503 com
-`Retry-After`**, e a mensagem fica na fila. É o estado honesto de um esqueleto:
-um 200 fingia que o turno correu, e um 500 punha o BullMQ a repetir para sempre
-uma mensagem que nenhuma versão deste código consegue tratar. A forma segue o
-`docs/tecnica/02` §14, linha do checkpointer indisponível — «o turno não corre;
-a mensagem permanece na fila».
+**`/internal/turn` com uma invocação válida corre o grafo da vertical desde o
+KAM-186**: a porta `grafos` resolve-a pelo registo e pelo entitlement. Com uma
+porta de saída ligada, responde 200 `executado`; com a do processo, que não tem
+Outbound, responde **503 `saida_por_ligar`** e o *job* volta à fila (§7-K). Até lá respondia 503 com `Retry-After` a todos os turnos,
+e o *shim* repetia-o pelas seis tentativas até o *job* ficar em `failed`. Uma
+vertical que o registo recusa (sem entitlement, ou desconhecida) responde **200
+`servico_indisponivel`** e não volta à fila; o 503 `grafo_nao_registado` fica
+para uma vertical sem grafo no processo ou uma *thread* sem *checkpoint*.
 
-**E o KAM-027 não mudou isso, de propósito.** O registo existe, valida-se no
-arranque e o `resolve` funciona; o que não existe é **grafo**. O `graph` das
-duas verticais aponta para `kamba_agr.verticais.<id>:build_graph`, que o KAM-031
-e o KAM-035 escrevem. Ligar o `grafos=` do `ExecutorDeTurnos` ao registo hoje
-trocava um 503 por outro 503 — `GrafoNaoRegistadoError` por alvo que não
-resolve — e punha uma leitura de entitlement no caminho de cada turno para
-nada. O `sem_grafos` fica, e quem o substitui é o ticket que tiver um grafo
-para lhe dar — o **KAM-186**, aberto a 2026-11-09. **O serviço continua a não ir a produção antes do KAM-031.**
+**O que falta para conversar** está no §7-K e não se esconde: a janela do grafo
+chega vazia (o texto do cliente não tem rota até ao AGR, e a decisão está
+devolvida ao fundador), e a resposta composta não sai do processo (nenhum
+serviço instancia o Outbound). O serviço corre turnos; ainda não conversa.
 
 ---
 
@@ -566,11 +565,9 @@ mesmo número estaria a implementá-lo por acidente.
 
 ### O que este ticket não liga
 
-O `grafos=` do `ExecutorDeTurnos`. Ver o §1: o `graph` das duas verticais aponta
-para um módulo que o KAM-031 e o KAM-035 escrevem, e até lá o `/internal/turn`
-continua em 503. O `resolve` é a costura; quem a usa é o ticket que tiver um
-grafo para lhe dar — e é também ele que passa o `checkpointer` ao
-`compile(checkpointer=...)`.
+O `grafos=` do `ExecutorDeTurnos`, que ficou para quem tivesse um grafo. **Ligou-o
+o KAM-186** (§7-K): o `resolve` está no caminho de cada turno, o `checkpointer`
+chega ao `compile(checkpointer=...)`, e a validação (3) passou a `bloqueio`.
 
 ---
 
@@ -1175,18 +1172,17 @@ mais comum da vertical.
 
 ### O que este ticket não liga
 
-**A porta `grafos` do `turno.py` continua a levantar, e o `/internal/turn`
-continua a responder 503.** O KAM-027 deixou-a para «o ticket que tiver um grafo
-para lhe dar», e este tem — mas com as cinco tools `declaradas` um turno real
-respondia a toda a pergunta de produto por `safe_reply` ou por *handoff*, porque o
-passo 1 do `invoke` recusa uma entrada sem executor. O 503 com `Retry-After`, que
-mantém a mensagem na fila, é a linha honesta do §14 até os backends existirem.
+**A porta `grafos` do `turno.py` ficou por ligar neste ticket**, porque as cinco
+tools estavam `declaradas`. O KAM-178 ligou quatro executores e o **KAM-186**
+ligou a porta (§7-K); o `search_catalog` continua `declarado` (credor KAM-061), e
+um turno de pesquisa acaba numa resposta estática, sem excepção.
 
-**E o texto do cliente não tem caminho até ao grafo.** O contrato
+**O texto do cliente continua sem caminho até ao grafo.** O contrato
 `agent_invocation` (§3.13) tem nove campos fechados e nenhum é o corpo da
 mensagem. O grafo lê o texto da janela `messages` do estado — que é o que o §12
-manda guardar — e quem a enche é quem invoca o grafo. A convenção nasce aqui; o
-credor é quem ligar a porta, o **KAM-186**.
+manda guardar — e quem a enche é quem invoca o grafo. O KAM-186 mediu as duas
+rotas e **devolveu a decisão ao fundador** (critério 1 dele): as duas mudam o
+canon, e nenhuma se aplicou.
 
 ## 7-G. O handoff idempotente e a retoma por *compare-and-set* (KAM-034)
 
@@ -1303,8 +1299,8 @@ nenhuma**, e a cadeia fica na `0023`.
 São duas escritas em dois sítios — o `status` na base e o `Command(resume=…)` no
 *checkpointer* do LangGraph — e não há transacção que as cubra.
 
-**O grafo resolve-se primeiro.** Sem grafo para a *thread*, que é o estado do
-serviço enquanto a porta `grafos` levantar, o CAS escrevia `resumed` e a
+**O grafo resolve-se primeiro.** Sem grafo para a *thread* — sem *checkpoint*,
+ou com uma vertical fora do registo (KAM-186) —, o CAS escrevia `resumed` e a
 compensação devolvia-o a `waiting`: duas escritas para nada e uma janela em que
 a passagem aparecia retomada. Resolvido antes, a excepção sobe sem a base ser
 tocada e a rota responde 503 com `Retry-After`.
@@ -1443,7 +1439,7 @@ e não as outras quatro.
 | O cliente HTTP do `openHandoff` | KAM-019 | A porta por omissão levanta `HandoffIndisponivel`, que é a linha do `01` §11.5 para «Chatwoot indisponível»: a passagem degrada, o cliente recebe a mensagem de degradação, e o turno acaba sem excepção não tratada |
 | A transição `conversation.mode = pausada` | KAM-018 | Porta chamada, implementação por ligar. A máquina de modos faz a transição **e** emite `conversation.mode_changed` na mesma transacção; reescrever esse par aqui dava um segundo dono e um modo a mudar **sem evento** |
 | A notificação ao dono da degradação | KAM-115 | Não entra: o `01` §11.4 regra 2 proíbe usar o número da própria loja |
-| A porta `grafos` da retoma | **KAM-186** (quem ligar o AgentRegistry) | 503 com `Retry-After`, e **nada escrito**. São **duas** resoluções a ligar e não uma: a do turno recebe uma `InvocacaoDoAgente` e esta recebe um `thread_id`, porque a retoma não tem invocação |
+| A porta `grafos` da retoma — **paga** | **KAM-186** | Lê a vertical do *checkpoint* da *thread*, antes do CAS; sem ela, 503 e **nada escrito**. Continuam a ser **duas** resoluções e não uma: a do turno recebe uma `InvocacaoDoAgente` e esta recebe um `thread_id`, porque a retoma não tem invocação (§7-K) |
 | O *golden* de handoff (H7, ≥ 85%) | KAM-040 | Os três nós são artefactos comportamentais; o *eval-gate* mede-se lá |
 | A limpeza de passagens em `resumed` sem *checkpoint* retomado | **ninguém** | O resíduo da compensação falhada, descrito acima. **Deixou de ser o estado de toda a passagem resolvida por um humano** — era-o enquanto os dois escritores se sobrepunham, e a emenda 1.42 fechou essa janela; o que resta é a falha dupla (o `Command` **e** a compensação a falharem no mesmo pedido), que é rara e que nenhuma varredura deste repositório vê |
 
@@ -2075,9 +2071,11 @@ num *checkpoint* antes do primeiro nó, pelo que um PAN cru fica em `lg.*` mesmo
 que o `guard_in` o redija a seguir. O `guard_in` substitui a mensagem crua na
 janela (segunda barreira, que protege os *checkpoints* depois dele), e o
 `TestUmaSoVia` recusa, pela AST, uma mensagem `user` construída em `src/` fora do
-`guardas/entrada.py`. **Quem ligar a porta `grafos` do `turno.py` e encher a
-janela — o KAM-186 — usa esta função**: é a convenção que o cabeçalho do `nos.py` do Vendedor
-já escreve para o texto do cliente, agora com a barreira posta.
+`guardas/entrada.py`. **Quem encher a janela usa esta função**: é a convenção que
+o cabeçalho do `nos.py` do Vendedor já escreve para o texto do cliente, agora com
+a barreira posta. O KAM-186 ligou a porta `grafos` e **não** encheu a janela — a
+rota do texto está devolvida ao fundador (§7-K) —, pelo que a via única continua
+sem chamador em produção.
 
 ### A saída: quatro veredictos sobre o texto final
 
@@ -2107,6 +2105,96 @@ escrevê-la é do catálogo de alertas (`ops/metricas/`).
   *Testes Requeridos* do bloco não se cumpre por desenho — está escrito na
   secção de verificação.
 
+## 7-K. A porta `grafos` do processo (KAM-186)
+
+O `__main__.py` passava `grafos=sem_grafos` ao `ExecutorDeTurnos`, e o
+`_grafo_da_thread` da retoma e da decisão de rascunho chamava o mesmo
+`sem_grafos`: todo o turno que chegava ao grafo respondia 503. As funções
+estavam todas certas e testadas — **o defeito era de ligação**, e é por isso que
+a bateria (`test_grafos.py`) corre o `main()` real e lê o que cada porta recebeu.
+
+### Três portas, duas resoluções
+
+| Porta | Recebe | Resolve a vertical por | Sem resolução |
+|---|---|---|---|
+| `ExecutorDeTurnos` | `InvocacaoDoAgente` | `AgentRegistry.resolve` — entitlement activo | 200 `servico_indisponivel`, e o *job* completa |
+| `Retomador` (KAM-034) | `thread_id` | o *checkpoint* da *thread* | 503 `grafo_nao_registado`, **nada escrito** |
+| `Decisor` (KAM-114) | `thread_id` | o *checkpoint* da *thread* | 503 `grafo_nao_registado`, **nada escrito** |
+
+As duas resoluções são `async` (lêem a base e o *checkpoint*) e correm **antes**
+de tudo: a do turno antes do `ainvoke`, a da *thread* antes do CAS. O código está
+em `kamba_agr/grafos.py`, e a leitura de entitlement entra no caminho de cada
+turno — uma por turno, em `tenant_guard.tx`, num *executor*.
+
+### As portas do `Dependencias`, e a omissão de cada uma
+
+Cada porta tinha uma omissão que **não faz nada**, e um arranque com ela
+esquecida é verde. Por isso estão num só dicionário no `__main__`, e cada uma
+tem ensaio no `main()` real que mede a **ligação** e não só o objecto: a mesma
+`ToolLayer` que o arranque conta e fecha, o leitor de entitlements e o de
+contactos do processo, o grafo pelo conteúdo e não pela chave. Dezanove
+mutações `grafos:` provam que os ensaios mordem.
+
+| Porta | Ligada a | Omissão que deixou de valer |
+|---|---|---|
+| `tools` | a `ToolLayer` do processo, a mesma nas duas verticais | — |
+| `hnd` | `ServicoDeHandoff` com o `ProvedorPorLigar` (levanta: a degradação do `01` §11.5) | `None` |
+| `concierge` | `PoliticaDeConcierge` dentro da `PoliticaDoTurno`, lida uma vez por turno num *executor*, antes do `ainvoke` | `SemPolitica` |
+| `rascunho` | `ServicoDeRascunho` com o `ProvedorDeRascunhoPorLigar` (levanta: rascunho `pendente`, prazo de 24 h) | `None` — e a política sem ele é o `P3`, que o `compilar` recusa com o código de saída `2` |
+| `degradacao` | `DetectorDeDegradacao`, com a `Admissao` do processo | `SemDegradacao` |
+| `admitir` | `kamba_agr.grafos.admitir` | `_admite_sempre` |
+| `checkpointer` | o `CheckpointerDoAgr` do arranque | `None` |
+| `persona`, `tools_permitidas` | do `registry/<id>.yaml` | as do Vendedor nas duas verticais |
+
+**Ficam por ligar, e o arranque di-lo** numa linha `grafo_porta_por_ligar` por
+porta: `classificador` e `classificador_de_guarda` (as regras decidem sozinhas),
+`modos` (KAM-018), `stt` (KAM-036) e `saida` (abaixo).
+
+### A admissão do turno
+
+A porta `admitir` é síncrona e recebe o estado, e as duas condições que tem de
+ver estão fora dele: o contacto em `platform.contacts`, e o `turn_id` do turno
+**anterior** — o `estado_inicial` escreve o novo por cima, e o LangGraph grava
+essa entrada antes do primeiro nó. As duas lêem-se na resolução do turno, e o
+veredicto chega ao nó num `ContextVar` (as tarefas do LangGraph herdam o
+contexto de quem chama o `ainvoke`; medido pela bateria).
+
+- **`contacto_bloqueado`** é `erased_at` ou `merged_into` preenchidos, ou zero
+  linhas. A `platform.contacts` não tem estado de bloqueio, e um bloqueio pedido
+  pela PME precisa de esquema — fica devolvido. **O `merged_into` é a parte
+  discutível**: uma mensagem com o `contact_id` antigo durante uma fusão é de um
+  contacto real e acaba sem resposta. A leitura vai com a decisão.
+- **`turno_repetido`** é o mesmo `turn_id` num *checkpoint* sem `next` — um turno
+  que **acabou**. Um que parou a meio repete-se desde o início (critério 4 do
+  KAM-025). Um duplicado que chegue depois de outro turno da mesma *thread* não
+  se vê: o *checkpoint* já tem o `turn_id` seguinte.
+- **`ritmo`** não se lê aqui: o `aceita_o_ritmo` registra a chegada, e chamá-lo
+  duas vezes cortava o tecto a metade.
+
+### O que falta para conversar
+
+- **A janela chega vazia.** O texto do cliente vive no *job* da `wa-inbound` e
+  não em `inbound_events`, e o `agent_invocation` não o leva. As duas rotas — o
+  corpo na `agr-inbound` (emenda ao §3.13, redacção do lado do CHR) ou uma fonte
+  persistida por identificador (esquema novo) — mudam o canon, e estão
+  **devolvidas ao fundador** com a medição na secção de verificação do KAM-186.
+  Com a janela vazia o grafo vai a `safe_reply`.
+- **A resposta não sai do processo.** A `PortaDeSaida` do grafo não tem
+  implementação: o Outbound é o `Saida` de `packages/core-ts/src/outbound/`
+  (KAM-015), e **nenhum serviço o instancia**. A porta ligada é a
+  `SaidaPorLigar`, que avisa com `outcome=saida` e `error_code=saida_por_ligar`
+  e **levanta**: a rota responde 503 `saida_por_ligar` e o *job* volta à fila.
+  A primeira versão não levantava, e a revisão adversarial mediu o custo — o
+  turno acabava `executado`, a resposta ia para lado nenhum, e a desduplicação
+  por `turn_id` recusava a reentrega: mensagem **irrecuperável**. Levantando, o
+  `send` fica por correr no *checkpoint*, o *job* acaba em `failed` e
+  reprocessa-se quando a ponte existir. **O credor não é um ticket**: a ponte
+  AGR → Outbound não está em linha nenhuma do §4.
+- **A resposta estática do `servico_indisponivel` não existe.** O critério 6 do
+  KAM-027 diz que o texto «vive no `compose` (KAM-033)», e o KAM-033 fechou sem
+  o escrever; nenhum caminho de código o tenta enviar. Faltam duas peças, o
+  texto e a ponte, e a recusa responde 200 sem mensagem ao cliente.
+
 ---
 
 ## 9. Controlo de versões
@@ -2133,3 +2221,4 @@ escrevê-la é do catálogo de alertas (`ops/metricas/`).
 | 1.17 | 2026-11-08 | KAM-184 | §7-H: **a acção dos dois pagamentos na vertical Serviços passa a estar escrita** — confirma a marcação com sinal, e o desfecho do consumo deixa de ser `sem_accao` para os dois pares. A secção ganha a tabela das três respostas da `PortaDeMarcacao` (a marcação confirmada, `None` para uma encomenda sem marcação, e levantar quando não se sabe), e a tabela do que ainda não existe ganha a quarta porta, cujo credor **não é um ticket**: o caminho entre o AGR e o módulo `servicos` não está em linha nenhuma do §4 do `specs/INDICE.md`, e a mesma lacuna já estava escrita no `tls/servicos.py`. **A origem do `booking_id` fica devolvida ao fundador** com as duas rotas medidas: ele não vem no evento — os quatro esquemas dos dois tipos têm `additionalProperties: false` e não o admitem — e a acção identifica a encomenda pelo `order_id`. O que muda em produção não é o resultado (nem o `contactos` nem o `marcacoes` são ligados no `__main__.py`, pelo que o `payment.confirmed` do Vendedor já ia para a DLQ pelo contacto por resolver): é o desfecho deixar de dizer «ninguém escreveu isto». | Equipa KAMBÁ |
 | 1.18 | 2026-11-08 | KAM-033 | §7-J: os guardrails — a política com versão e impressão, os seis veredictos de entrada por ordem e o classificador só quando as regras não decidem, a via única para a janela (e a medição que a obriga: o *checkpoint* de entrada), os quatro veredictos de saída, e o que fica por ligar. |
 | 1.19 | 2026-11-09 | KAM-186 | §1, §7-F, §7-G e §7-J: o credor «quem ligar a porta `grafos`» — e «quem ligar o AgentRegistry», na tabela do §7-G — passa a ter número, o **KAM-186**, aberto para isso. Nenhuma afirmação sobre o que o AGR faz muda: a porta continua a levantar até ele ser entregue. |
+| 1.20 | 2026-11-09 | KAM-186 | **A porta `grafos` está ligada.** §7-K novo: as três portas e as duas resoluções, as portas do `Dependencias` com a omissão de cada uma, a admissão do turno (contacto e `turn_id`, e o que ela não vê), e o que falta para conversar — a janela vazia, com a rota do texto devolvida ao fundador, a porta de saída sem Outbound (503 `saida_por_ligar`, para que nenhuma resposta se perca), com credor por abrir, e a resposta estática do `servico_indisponivel`, que não existe. O cabeçalho, o §1, o §7-B, o §7-F, o §7-G e o §7-J deixam de dizer que a porta está por ligar. |

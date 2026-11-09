@@ -22,6 +22,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph
 
 from kamba_agr import registo
+from kamba_agr.grafos import para_validar
 from kamba_agr.tls.catalogo import ESPECIFICACOES_DO_PILOTO, catalogo_do_piloto
 from kamba_agr.metricas import (
     ETIQUETA,
@@ -786,23 +787,26 @@ class TestResolve(unittest.TestCase):
 class TestFicheirosReais(unittest.TestCase):
     """Integracao: o `registry/` **deste** repositorio carrega e valida."""
 
-    def test_o_registo_do_repositorio_carrega_com_dois_avisos_por_vertical(self) -> None:
-        """**Eram tres, e passaram a dois com o KAM-028.**
+    def test_o_registo_do_repositorio_carrega_com_um_aviso_por_vertical(self) -> None:
+        """**Eram tres, passaram a dois com o KAM-028 e a um com o KAM-186.**
 
-        A validacao (1) (`tools`) fechou: o catalogo da ToolLayer existe, o
-        `registry/gates.yaml` deixou de ter a linha `tools: { modo: aviso }`, e
-        ela corre em `bloqueio`. Sobram a (3) `grafo` (KAM-031/035) e a (6)
-        `golden` (KAM-040).
+        A validacao (1) (`tools`) fechou com o catalogo da ToolLayer, e a (3)
+        (`grafo`) com o KAM-186: os dois grafos compilam, o `__main__` passa o
+        `construir_grafo`, e as linhas `grafo: { modo: aviso }` sairam do
+        `registry/gates.yaml`. Sobra a (6) `golden` (KAM-040).
 
-        **E por isso que este teste passa o `catalogo`.** Sem ele a validacao
-        devolve um `PorLigar` que, sem a linha no `gates.yaml`, nao e calado por
-        nada — e o registo recusa-se a carregar. Isso **e** o mecanismo a
-        funcionar: era o que ia acontecer em producao ao primeiro arranque se o
-        `__main__` nao o passasse.
+        **E por isso que este teste passa o `catalogo` e o `construir_grafo`.**
+        Sem eles cada validacao devolve um `PorLigar` que, sem a linha no
+        `gates.yaml`, nao e calado por nada — e o registo recusa-se a carregar.
+        Isso **e** o mecanismo a funcionar: era o que ia acontecer em producao
+        ao primeiro arranque se o `__main__` nao os passasse.
         """
         verticais, gates, adiadas = registo.carregar(
             validar.AmbienteDoRegisto.do_repositorio(
-                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+                RAIZ,
+                {"KAMBA_FASE": "piloto"},
+                catalogo=catalogo_do_piloto(),
+                construir_grafo=para_validar,
             ),
             RAIZ / "registry",
         )
@@ -813,10 +817,25 @@ class TestFicheirosReais(unittest.TestCase):
             [
                 ("golden", "servicos", "KAM-040"),
                 ("golden", "vendedor", "KAM-040"),
-                ("grafo", "servicos", "KAM-035"),
-                ("grafo", "vendedor", "KAM-031"),
             ],
         )
+
+    def test_sem_o_construir_grafo_o_registo_do_repositorio_reprova(self) -> None:
+        """A prova de que fechar o `aviso` do grafo nao trocou um silencio por outro.
+
+        Sem o `construir_grafo` a validacao (3) devolve `PorLigar`, e sem a linha
+        no `gates.yaml` isso **bloqueia** — que e o que acontece a um arranque
+        que deixe de o passar. E as duas verticais aparecem, uma por linha.
+        """
+        with self.assertRaises(registo.RegistoInvalidoError) as capturado:
+            registo.carregar(
+                validar.AmbienteDoRegisto.do_repositorio(
+                    RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+                ),
+                RAIZ / "registry",
+            )
+        self.assertIn("[grafo/vendedor]", str(capturado.exception))
+        self.assertIn("[grafo/servicos]", str(capturado.exception))
 
     def test_com_o_catalogo_ligado_a_validacao_das_tools_morde(self) -> None:
         """A prova de que fechar o `aviso` nao foi trocar um silencio por outro.
@@ -836,7 +855,10 @@ class TestFicheirosReais(unittest.TestCase):
         with self.assertRaises(registo.RegistoInvalidoError) as capturado:
             registo.carregar(
                 validar.AmbienteDoRegisto.do_repositorio(
-                    RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=magro
+                    RAIZ,
+                    {"KAMBA_FASE": "piloto"},
+                    catalogo=magro,
+                    construir_grafo=para_validar,
                 ),
                 RAIZ / "registry",
             )
@@ -849,7 +871,10 @@ class TestFicheirosReais(unittest.TestCase):
         Vendedor e consumido pelo handler de Servicos (KAM-108)."""
         verticais, _, _ = registo.carregar(
             validar.AmbienteDoRegisto.do_repositorio(
-                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+                RAIZ,
+                {"KAMBA_FASE": "piloto"},
+                catalogo=catalogo_do_piloto(),
+                construir_grafo=para_validar,
             ),
             RAIZ / "registry",
         )
@@ -863,7 +888,10 @@ class TestFicheirosReais(unittest.TestCase):
         forma mais barata de o garantir e nao existir ficheiro nenhum dele."""
         verticais, _, _ = registo.carregar(
             validar.AmbienteDoRegisto.do_repositorio(
-                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+                RAIZ,
+                {"KAMBA_FASE": "piloto"},
+                catalogo=catalogo_do_piloto(),
+                construir_grafo=para_validar,
             ),
             RAIZ / "registry",
         )
@@ -940,7 +968,10 @@ class TestFicheirosReais(unittest.TestCase):
         do_registo: set[str] = set()
         for vertical in registo.carregar(
             validar.AmbienteDoRegisto.do_repositorio(
-                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+                RAIZ,
+                {"KAMBA_FASE": "piloto"},
+                catalogo=catalogo_do_piloto(),
+                construir_grafo=para_validar,
             ),
             RAIZ / "registry",
         )[0].values():

@@ -35,10 +35,11 @@ dinheiro, e a intencao esta no identificador do botao, nao no texto.
 O contrato `agent_invocation` (§3.13) tem **nove** campos fechados e nenhum
 deles e o corpo da mensagem: o AGR recebe identificadores. O grafo le o texto da
 janela `messages` do estado, que e o que o §12 manda guardar, e **quem a enche
-e quem invoca o grafo**. Hoje ninguem invoca — a porta `grafos` do `turno.py`
-levanta `GrafoNaoRegistadoError` de proposito —, pelo que a convencao nasce aqui
-e o credor e quem ligar essa porta. Esta escrito na seccao de verificacao do
-bloco e em `docs/agr.md`.
+e quem invoca o grafo**. Desde o KAM-186 o processo invoca-o — a porta `grafos`
+esta ligada (`kamba_agr/grafos.py`) —, mas a janela chega **vazia**: o texto do
+cliente nao tem caminho ate ao AGR, e as duas rotas que o dariam mudam o canon.
+A decisao esta devolvida ao fundador no criterio 1 do KAM-186, e ate la nenhum
+turno de producao tem texto para classificar.
 """
 
 from __future__ import annotations
@@ -310,8 +311,9 @@ def _admite_sempre(_estado: Mapping[str, Any]) -> str | None:
 
     Por isso o grafo e a **segunda** barreira e nao a primeira, e a porta e
     injectavel: o ensaio do criterio 7 passa uma que recusa, e mede que o turno
-    acaba em `END` sem envio. Quem ligar a porta `grafos` do `turno.py` liga
-    tambem esta, com a leitura de `contacts` e a desduplicacao por `turn_id`.
+    acaba em `END` sem envio. **Esta e a omissao de quem compila o grafo sem o
+    processo** — as baterias. O processo liga a `kamba_agr.grafos.admitir`
+    (KAM-186), que le `contacts` e o `turn_id` do *checkpoint* antes do turno.
     """
     return None
 

@@ -2,8 +2,9 @@
 #
 # A PRIMEIRA FORMA dos ficheiros de `registry/` (chave de topo `id`). A forma e
 # a de `docs/tecnica/02` §5.1; as razoes comuns as duas verticais — a chave de
-# limite em `_minor`, os dois eventos de pagamento, o `graph` que ainda nao
-# resolve — estao escritas em `registry/vendedor.yaml` e nao se repetem aqui.
+# limite em `_minor`, os dois eventos de pagamento, o `graph` e o processo que o
+# serve (KAM-186) — estao escritas em `registry/vendedor.yaml` e nao se repetem
+# aqui.
 #
 # O que e proprio desta vertical: ela e a OUTRA METADE DA REGRA DE DOIS
 # (ADR-012). O gate da Fase 0 (`docs/tecnica/00` §13.2, KAM-108) pede que um

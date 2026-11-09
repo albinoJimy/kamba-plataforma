@@ -43,7 +43,9 @@ resposta decide se o *job* se repete:
 | descartado por ritmo (criterio 5) | **200** | completa o *job* |
 | corpo invalido | 400 | descarta o *job* — nao melhora com repeticao |
 | tecto do *tenant* cheio | 503 + `Retry-After` | devolve o *job* a fila com atraso |
-| nao ha grafo para a vertical (KAM-027) | 503 + `Retry-After` | devolve o *job* a fila com atraso |
+| a vertical recusada pelo registo — sem entitlement, ou desconhecida (KAM-186) | **200** `servico_indisponivel` | completa o *job* — e configuracao, e nenhuma tentativa a muda |
+| nao ha grafo registado para a vertical | 503 + `Retry-After` | devolve o *job* a fila com atraso |
+| o grafo quis responder e nao ha Outbound (KAM-186) | 503 `saida_por_ligar` + `Retry-After` | devolve o *job* a fila: a resposta nao se perde |
 | o turno levantou | 500 | devolve o *job* a fila |
 
 E a `/internal/resume` tem a sua, com o chamador a ser o HND (KAM-034):
@@ -55,7 +57,7 @@ E a `/internal/resume` tem a sua, com o chamador a ser o HND (KAM-034):
 | a passagem nao e deste *thread* (isolamento) | **404** | nao repete; a metrica e o registo mostram-no |
 | corpo invalido, ou `outcome` fora dos tres do §11.1 | 400 | descarta |
 | `secret` do *agent bot* ausente ou errado | 401 | nao repete; `agr_resume_nao_autorizado_total` sobe |
-| nao ha grafo para a *thread* (KAM-027) | 503 + `Retry-After` | repete — e **nada foi escrito** |
+| nao ha grafo para a *thread* — sem *checkpoint*, ou vertical fora do registo (KAM-186) | 503 + `Retry-After` | repete — e **nada foi escrito** |
 | o `Command(resume=...)` levantou | 500 | repete — e a passagem **ja voltou** a `waiting` |
 
 **O 404 do `recusado` nao e 403**, e a diferenca e de privacidade: «existe mas
@@ -93,7 +95,7 @@ from .metricas import (
     METRICA_RETOMA_NAO_AUTORIZADA,
     METRICAS,
 )
-from .turno import GrafoNaoRegistadoError
+from .turno import GrafoNaoRegistadoError, SaidaPorLigarError
 
 #: O cabecalho que leva a credencial interna. Dicionario §3.24.
 CABECALHO: Final = "x-kamba-interno"
@@ -265,10 +267,19 @@ def rotas(
                 status_code=503,
                 headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
             )
+        except SaidaPorLigarError:
+            # KAM-186. O grafo correu e quis responder, e nao ha Outbound a que
+            # falar. 503 e nao 200: com 200 o *job* completava e a resposta
+            # perdia-se, e a desduplicacao por `turn_id` recusava a reentrega.
+            return JSONResponse(
+                {"outcome": "saida_por_ligar"},
+                status_code=503,
+                headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
+            )
         except GrafoNaoRegistadoError:
             # 503 e nao 500: «o turno nao corre e a mensagem fica na fila»
-            # (`docs/tecnica/02` §14). Enquanto o KAM-027 nao registar grafos,
-            # e este o estado honesto do servico.
+            # (`docs/tecnica/02` §14). Desde o KAM-186 nao e o estado do
+            # servico: e uma vertical sem grafo registado no processo.
             return JSONResponse(
                 {"outcome": "grafo_nao_registado"},
                 status_code=503,

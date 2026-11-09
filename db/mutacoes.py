@@ -574,6 +574,11 @@ NU_CONSUMO = "libs/py-core/src/kamba_core/eventos/consumo.py"
 #: A API interna (KAM-025), que o KAM-034 estendeu com a segunda credencial e a
 #: ordem das verificacoes da rota de retoma.
 AG_API = "services/agr/src/kamba_agr/api_interna.py"
+#: O arranque do AGR e a porta `grafos` (KAM-186). O defeito que o KAM-186
+#: fechou vivia na **ligacao** e nao numa funcao: as mutacoes do `__main__`
+#: devolvem cada porta a omissao que nao faz nada.
+AG_MAIN = "services/agr/src/kamba_agr/__main__.py"
+AG_GRAFOS = "services/agr/src/kamba_agr/grafos.py"
 REV23 = "db/migrations/versions/0023_llm_call_log.py"
 #: O gerador da configuracao do proxy, o leitor de manifestos e o verificador de
 #: assinaturas, que o KAM-030 estendeu. As suites estao declaradas junto das
@@ -5190,6 +5195,105 @@ MUTACOES = [
      AGR_UNIT),
     # Um `sku` de codigo de barras bloqueia toda a resposta de produto daquela
     # loja (achado 12).
+    # ---------------------------------------------------------------- KAM-186
+    #
+    # A porta `grafos` do processo. **Dezanove**, e dez sao no `__main__`, porque
+    # o defeito do ticket era de ligacao: todas as funcoes estavam certas e o
+    # `__main__` passava `sem_grafos`. Cada uma destas devolve uma porta a
+    # omissao que nao faz nada, e o `test_grafos` corre o `main()` real para as
+    # apanhar.
+    ('grafos: o __main__ volta a passar o sem_grafos ao turno', AG_MAIN,
+     '        grafos=porta_de_grafos.do_turno,',
+     '        grafos=__import__("kamba_agr.turno").turno.sem_grafos,',
+     AGR_UNIT),
+    ('grafos: a retoma volta a uma porta que levanta', AG_MAIN,
+     '''        abrir_ligacao=ligar_para_handoff,
+        grafos=porta_de_grafos.da_thread,''',
+     '''        abrir_ligacao=ligar_para_handoff,
+        grafos=lambda _t: __import__("kamba_agr.turno").turno.sem_grafos(None),''',
+     AGR_UNIT),
+    ('grafos: a decisao de rascunho volta a uma porta que levanta', AG_MAIN,
+     '''        abrir_ligacao=ligar_para_concierge,
+        grafos=porta_de_grafos.da_thread,''',
+     '''        abrir_ligacao=ligar_para_concierge,
+        grafos=lambda _t: __import__("kamba_agr.turno").turno.sem_grafos(None),''',
+     AGR_UNIT),
+    ('grafos: a politica de concierge volta a SemPolitica', AG_MAIN,
+     '''        "concierge": PoliticaDoTurno(
+            PoliticaDeConcierge(evt.LeitorDeEntitlements(ligar_para_eventos).ler)
+        ),''',
+     '''        "concierge": __import__("kamba_agr.concierge.politica").concierge.politica.SemPolitica(),''',
+     AGR_UNIT),
+    # As seis seguintes sao as que **sobreviveram** a revisao adversarial do
+    # KAM-186 contra a primeira versao da bateria, que media a existencia de
+    # cada objecto e nao a ligacao dele: o registo a admitir tudo, o contacto
+    # pela ligacao errada, o grafo do Vendedor para as duas verticais, a
+    # persona vazia, a saida muda e o `resolve` na *event loop*.
+    ('grafos: o registo do processo admite qualquer tenant', AG_MAIN,
+     '        evt.LeitorDeEntitlements(ligar_para_eventos).ler, metricas=METRICAS',
+     '        lambda _t, _m: __import__("types").SimpleNamespace(permitido=True), metricas=METRICAS',
+     AGR_UNIT),
+    ('grafos: o contacto le-se pela ligacao da tranca', AG_MAIN,
+     '        contacto_bloqueado=leitor_de_contacto(ligar_para_leitura),',
+     '        contacto_bloqueado=leitor_de_contacto(ligar_para_tranca),',
+     AGR_UNIT),
+    ('grafos: as duas verticais compilam o grafo do Vendedor', AG_GRAFOS,
+     '        grafos[identificador] = importar_build_graph(vertical.graph)(deps)',
+     '        grafos[identificador] = importar_build_graph("kamba_agr.verticais.vendedor:build_graph")(deps)',
+     AGR_UNIT),
+    ('grafos: a persona da vertical nao chega ao grafo', AG_GRAFOS,
+     '            persona=vertical.persona.model_dump(exclude_none=True),',
+     '            persona={},',
+     AGR_UNIT),
+    ('grafos: a saida por ligar deixa de levantar', AG_GRAFOS,
+     '        raise SaidaPorLigarError("saida_por_ligar")',
+     '        return None',
+     AGR_UNIT),
+    ('grafos: o resolve volta a correr na event loop', AG_GRAFOS,
+     '        resolucao = await asyncio.to_thread(self._registo.resolve, invocacao)',
+     '        resolucao = self._registo.resolve(invocacao)',
+     AGR_UNIT),
+    ('grafos: o detector de degradacao volta a SemDegradacao', AG_MAIN,
+     '        "degradacao": DetectorDeDegradacao(admissao=admissao, metricas=METRICAS),',
+     '        "degradacao": __import__("kamba_agr.degradacao").degradacao.SemDegradacao(),',
+     AGR_UNIT),
+    ('grafos: o servico de handoff fica por ligar', AG_MAIN,
+     '        "hnd": ServicoDeHandoff(metricas=METRICAS),',
+     '        "hnd": None,',
+     AGR_UNIT),
+    ('grafos: a admissao volta ao admite sempre', AG_MAIN,
+     '        "admitir": admitir,',
+     '        "admitir": __import__("kamba_agr.verticais.vendedor.nos").verticais.vendedor.nos._admite_sempre,',
+     AGR_UNIT),
+    ('grafos: o grafo compila sem checkpointer', AG_MAIN,
+     '        "checkpointer": checkpointer,',
+     '        "checkpointer": None,',
+     AGR_UNIT),
+    # Na porta: a recusa da vertical passa a ser ignorada, a admissao deixa de
+    # ler o contacto, um turno parado a meio passa a contar como repetido, e a
+    # thread passa a resolver sempre o Vendedor.
+    ('grafos: a recusa do registo deixa de se ver', AG_GRAFOS,
+     '        if resolucao.vertical is None:',
+     '        if False:',
+     AGR_UNIT),
+    ('grafos: o contacto bloqueado deixa de se ler', AG_GRAFOS,
+     '        if await self._bloqueado(invocacao):',
+     '        if False:',
+     AGR_UNIT),
+    ('grafos: um turno parado a meio conta como repetido', AG_GRAFOS,
+     '        if foto.values.get("turn_id") == invocacao.turn_id and not foto.next:',
+     '        if foto.values.get("turn_id") == invocacao.turn_id:',
+     AGR_UNIT),
+    ('grafos: a thread resolve sempre o Vendedor', AG_GRAFOS,
+     '        return self._grafo(valores.get("vertical"))',
+     '        return self._grafo("vendedor")',
+     AGR_UNIT),
+    # No turno: a recusa da vertical volta a ser uma excepcao, que a rota
+    # traduz em 500 e seis tentativas.
+    ('grafos: a recusa da vertical volta a fila', AG_TURNO,
+     '                    except VerticalRecusadaError:',
+     '                    except ZeroDivisionError:',
+     AGR_UNIT),
     # ---------------------------------------------------------------- KAM-034
     #
     # O *handoff* idempotente e a retoma por *compare-and-set*. **Vinte, e
@@ -7606,6 +7710,12 @@ MODULOS_DO_AGR_UNIT = (
     # correm aqui. O `test_estado` **nao** entra, e mediu-se porque: le o
     # `docs/tecnica/02`, que a copia nao leva, e a linha de base saia vermelha.
     "test_guardas",
+    # KAM-186, pela mesma razao de sempre: **sem esta linha as dezanove mutacoes
+    # `grafos:` sobreviviam todas**, e as oito do `__main__` sao o defeito do
+    # ticket — uma porta ligada ao sitio errado com todas as funcoes certas.
+    # As seis ultimas entraram depois da revisao adversarial, que as encontrou
+    # vivas contra a primeira versao desta bateria.
+    "test_grafos",
 )
 
 

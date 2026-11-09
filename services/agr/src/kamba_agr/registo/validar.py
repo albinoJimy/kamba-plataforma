@@ -172,7 +172,8 @@ class AmbienteDoRegisto:
     raiz: Path
     #: O catalogo da ToolLayer. `None` ate KAM-028.
     catalogo: CatalogoDeTools | None = None
-    #: Como se compila o grafo de uma vertical. `None` ate KAM-031/035.
+    #: Como se compila o grafo de uma vertical. Desde o KAM-186, o
+    #: `kamba_agr.grafos.para_validar`, que o `__main__` passa.
     construir_grafo: Callable[[VerticalDoRegisto], GrafoCompilado] | None = None
 
     @classmethod
@@ -182,6 +183,7 @@ class AmbienteDoRegisto:
         ambiente: Mapping[str, str] | None = None,
         *,
         catalogo: CatalogoDeTools | None = None,
+        construir_grafo: Callable[[VerticalDoRegisto], GrafoCompilado] | None = None,
     ) -> "AmbienteDoRegisto":
         """O ambiente real, com as tres fontes que existem hoje.
 
@@ -196,6 +198,9 @@ class AmbienteDoRegisto:
         de poupar um argumento. Quem o constroi e o `__main__`, que e quem
         tambem o passa a camada — uma so instancia, para que o que a validacao
         confere e o que a camada executa nao possam divergir.
+
+        **O `construir_grafo` entra pela mesma razao** (KAM-186): importar as
+        verticais aqui punha o registo a depender dos grafos que ele valida.
         """
         import os
 
@@ -211,6 +216,7 @@ class AmbienteDoRegisto:
             },
             raiz=raiz,
             catalogo=catalogo,
+            construir_grafo=construir_grafo,
         )
 
 
