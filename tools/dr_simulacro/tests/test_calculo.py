@@ -35,7 +35,8 @@ def _folha_a(restauro_s: float = 600, replay_s: float = 60) -> list[Carimbo]:
     return (_nao("deteccao") + _nao("decisao") + _medido("iac", 0, 5)
             + _medido("restauro", 5, 5 + restauro_s)
             + _medido("replay", 5 + restauro_s, 5 + restauro_s + replay_s)
-            + _medido("verificacao", 1000, 1120) + _nao("dns"))
+            + _medido("verificacao", 5 + restauro_s + replay_s, 5 + restauro_s + replay_s + 120)
+            + _nao("dns"))
 
 
 class TestFolha(unittest.TestCase):
@@ -117,6 +118,23 @@ class TestRto(unittest.TestCase):
         self.assertEqual(len(rto.orcamento_no_composto), 3)
         self.assertIn("verificacao_e_dns: 13.0 min", rto.orcamento_no_composto[2])
 
+    def test_o_relogio_corre_entre_passos(self):
+        # 80 min de pausa entre o restauro e o replay: 4,5 min de passos, 84,5
+        # de relogio. A primeira versao dava 4,5 e «dentro do alvo».
+        carimbos = (_nao("deteccao") + _nao("decisao") + _nao("iac") + _nao("dns")
+                    + _medido("restauro", 0, 240) + _medido("replay", 240 + 4800, 240 + 4800 + 10)
+                    + _medido("verificacao", 5050, 5070))
+        rto = calculo.rto(calculo.duracoes(carimbos, "A"))
+        self.assertEqual(rto.lacunas_segundos, 4800)
+        self.assertEqual(rto.medido_segundos, 240 + 4800 + 10 + 20)
+        self.assertFalse(rto.dentro_do_alvo)
+
+    def test_passos_sobrepostos_nao_contam_lacuna_nem_duas_vezes_o_vao(self):
+        carimbos = (_nao("deteccao") + _nao("decisao") + _nao("iac") + _nao("dns")
+                    + _medido("restauro", 0, 100) + _medido("replay", 50, 120)
+                    + _medido("verificacao", 120, 130))
+        self.assertEqual(calculo.lacunas_segundos(calculo.duracoes(carimbos, "A")), 0)
+
     def test_rubrica_gasta_alem_do_orcamento_nao_acrescenta_negativo(self):
         carimbos = [c for c in _folha_a() if c.passo != "verificacao"] + _medido(
             "verificacao", 0, 20 * 60)
@@ -190,6 +208,12 @@ class TestRpo(unittest.TestCase):
         r = calculo.rpo(_marcadores(*range(1, 101)), restaurados)
         self.assertEqual(r.segundos, 0)
         self.assertEqual(r.buracos, (57,))
+        self.assertFalse(r.dentro_do_alvo)
+
+    def test_perder_o_principio_da_serie_sao_buracos(self):
+        r = calculo.rpo(_marcadores(*range(1, 101)), _marcadores(*range(50, 101)))
+        self.assertEqual(r.segundos, 0)
+        self.assertEqual(r.buracos, tuple(range(1, 50)))
         self.assertFalse(r.dentro_do_alvo)
 
     def test_restaurado_sem_confirmacao_nao_e_rpo_negativo(self):

@@ -30,7 +30,7 @@ que os passos medidos cabem no que sobra. E isso que o relatorio escreve.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from backup_lint import politica
 
@@ -54,6 +54,7 @@ class Duracao:
     rubrica: str
     segundos: float | None
     razao: str = ""
+    inicio: datetime | None = None
 
     @property
     def medido(self) -> bool:
@@ -99,8 +100,39 @@ def duracoes(carimbos: list[Carimbo], cenario: str) -> list[Duracao]:
         segundos = (fim - inicio).total_seconds()
         if segundos < 0:
             raise FolhaInvalida(f"cenario {cenario}: `{passo}` acaba antes de comecar")
-        resultado.append(Duracao(passo, rubrica, segundos))
+        resultado.append(Duracao(passo, rubrica, segundos, inicio=inicio))
     return resultado
+
+
+def lacunas_segundos(lista: list[Duracao]) -> float:
+    """O tempo de relogio entre os passos medidos, que nenhum passo cobre.
+
+    **O relogio nao para entre passos.** A primeira versao somava a duracao de
+    cada passo e mais nada: oitenta minutos de hesitacao entre o IaC e o
+    restauro — exactamente o que o simulacro humano existe para apanhar —
+    davam um RTO de 4,5 min e um codigo de saida 0. Achado da revisao
+    adversarial. Mede-se o intervalo do primeiro inicio ao ultimo fim dos
+    passos medidos (fora do `fora_do_rto`) e tira-se a uniao dos passos; dois
+    passos sobrepostos contam uma vez.
+    """
+    intervalos = sorted(
+        (d.inicio, d.inicio + timedelta(seconds=d.segundos))
+        for d in lista
+        if d.medido and d.inicio is not None and d.rubrica != FORA_DO_RTO
+    )
+    if not intervalos:
+        return 0.0
+    cobertos = 0.0
+    corrente_inicio, corrente_fim = intervalos[0]
+    for inicio, fim in intervalos[1:]:
+        if inicio > corrente_fim:
+            cobertos += (corrente_fim - corrente_inicio).total_seconds()
+            corrente_inicio, corrente_fim = inicio, fim
+        else:
+            corrente_fim = max(corrente_fim, fim)
+    cobertos += (corrente_fim - corrente_inicio).total_seconds()
+    vao = (max(f for _, f in intervalos) - intervalos[0][0]).total_seconds()
+    return max(0.0, vao - cobertos)
 
 
 @dataclass(frozen=True)
@@ -126,6 +158,7 @@ class Rto:
     composto_segundos: float
     rubricas: tuple[Rubrica, ...]
     orcamento_no_composto: tuple[str, ...] = field(default=())
+    lacunas_segundos: float = 0.0
 
     @property
     def dentro_do_alvo(self) -> bool:
@@ -147,7 +180,8 @@ def rto(lista: list[Duracao], orcamento: dict[str, float] | None = None) -> Rto:
     a verificacao duas vezes.
     """
     orcamento = ORCAMENTO_MIN if orcamento is None else orcamento
-    medido = sum(d.segundos for d in lista if d.medido and d.rubrica != FORA_DO_RTO)
+    lacunas = lacunas_segundos(lista)
+    medido = sum(d.segundos for d in lista if d.medido and d.rubrica != FORA_DO_RTO) + lacunas
     composto = medido
     rubricas = []
     no_composto = []
@@ -162,7 +196,7 @@ def rto(lista: list[Duracao], orcamento: dict[str, float] | None = None) -> Rto:
             composto += sobra
             no_composto.append(f"{nome}: {sobra / 60:.1f} min de orcamento ({', '.join(por_medir)})")
         rubricas.append(Rubrica(nome, orcado, soma, por_medir))
-    return Rto(medido, composto, tuple(rubricas), tuple(no_composto))
+    return Rto(medido, composto, tuple(rubricas), tuple(no_composto), lacunas)
 
 
 @dataclass(frozen=True)
@@ -200,7 +234,11 @@ def rpo(confirmados: list[tuple[int, datetime]],
     ultimo_c = confirmados[-1]
     ultimo_r = restaurados[-1]
     numeros = {n for n, _ in restaurados}
-    primeiro = restaurados[0][0]
+    # Os buracos contam-se desde o primeiro **confirmado**, e nao desde o
+    # primeiro restaurado: um restauro que devolve 50..100 de 1..100 perdeu o
+    # principio da serie, e contar a partir do 50 dava RPO 0 sem buraco nenhum.
+    # Achado da revisao adversarial.
+    primeiro = min(confirmados[0][0], restaurados[0][0])
     buracos = tuple(n for n in range(primeiro, ultimo_r[0] + 1) if n not in numeros)
     confirmados_numeros = {n for n, _ in confirmados}
     perdidos = sum(1 for n, _ in confirmados if n not in numeros)

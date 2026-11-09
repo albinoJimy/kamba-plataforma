@@ -51,6 +51,7 @@ def _comando_calcular(argumentos) -> int:
                    for d in lista},
         "rto_medido_min": round(rto.medido_segundos / 60, 2),
         "rto_composto_min": round(rto.composto_segundos / 60, 2),
+        "lacunas_entre_passos_min": round(rto.lacunas_segundos / 60, 2),
         "orcamento_no_composto": list(rto.orcamento_no_composto),
         "rto_dentro_do_alvo": rto.dentro_do_alvo,
         "repetir_cenario_a": rto.repetir_cenario_a,

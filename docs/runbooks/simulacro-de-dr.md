@@ -58,12 +58,29 @@ do orçamento.** O cálculo soma-o ao RTO **composto** e di-lo por extenso; nunc
 ## 3. As linhas-marcador
 
 Um escritor a 1/s, num *host* que **não** é o da base, grava cada marcador **depois** de a
-base confirmar o *commit*, com o instante que a base devolveu:
+base confirmar o *commit*, com o instante que a base devolveu.
+
+**Antes do backup base**, cria-se a tabela — sem ela no backup, o restauro não tem onde pôr
+marcador nenhum (o SQL é o `SQL_TABELA` de `tools/dr_simulacro/marcadores.py`):
+
+```sql
+CREATE SCHEMA IF NOT EXISTS dr_simulacro;
+CREATE TABLE IF NOT EXISTS dr_simulacro.marcador (
+  seq bigint PRIMARY KEY, escrito_em timestamptz NOT NULL DEFAULT clock_timestamp());
+```
+
+Depois, no *host* do escritor, com o `pg8000` instalado (`db/requirements/migrations.txt`) e a
+palavra-passe na variável `KAM085_PG_SENHA` — **nunca** na linha de comandos:
 
 ```sh
+cd tools
 python -m dr_simulacro.marcadores --host <primario> --base kamba_platform \
-    --saida confirmados.csv --erros erros.csv --parar parar
+    --utilizador <papel> --saida confirmados.csv --erros erros.csv --parar parar
 ```
+
+Antes de declarar a falha, confirma-se que o `confirmados.csv` cresce uma linha por segundo e
+que o `erros.csv` está vazio: o escritor regista cada falha de ligação nesse ficheiro e **não
+pára**, pelo que uma palavra-passe errada dá um simulacro sem um único marcador.
 
 Depois do restauro, exporta-se o que voltou:
 
@@ -96,7 +113,7 @@ Com o RTO composto entre 100 e 120 min, **repete-se o cenário A** (Testes Reque
 | Cenário | O que se injecta | O que conta como êxito |
 |---|---|---|
 | **A** — perda do *host* | o primário morre (SIGKILL) e o disco vai com ele | RTO ≤ 2 h, RPO ≤ 5 min, contagens iguais, cadeia íntegra, marcadores sem buraco |
-| **B** — corrupção lógica | uma migração defeituosa (**só no ambiente de ensaio**; nunca em `db/migrations/versions/`) | PITR para antes do erro; 0 efeitos duplicados **e 0 efeitos externos órfãos** |
+| **B** — corrupção lógica | uma migração defeituosa (**só no ambiente de ensaio**; nunca em `db/migrations/versions/`) | PITR para antes do erro; 0 efeitos duplicados, **0 efeitos externos órfãos e 0 efeitos internos sobre linhas que o PITR apagou** — o ensaio local não conseguiu as três ao mesmo tempo (B1 deixa órfãos externos, B2 troca-os por internos) |
 | **C** — cofre indisponível | sem acesso ao Doppler | o restauro corre com a exportação cifrada; o RTO adicional fica registado |
 | **Ransomware** — mesa-redonda | credenciais de produção comprometidas | §6 |
 

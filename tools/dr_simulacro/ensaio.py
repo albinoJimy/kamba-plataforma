@@ -4,7 +4,9 @@
     python -m dr_simulacro ensaio preparar --saida D --gib 20   # base, backup, export
     python -m dr_simulacro ensaio a --saida D                   # perda do host
     python -m dr_simulacro ensaio c --saida D                   # cofre indisponivel
-    python -m dr_simulacro ensaio b --saida D                   # corrupcao logica
+    python -m dr_simulacro ensaio preparar-b --saida D          # corrupcao logica
+    python -m dr_simulacro ensaio b1|b2 --saida D               # PITR, a letra e com exportacao
+    python -m dr_simulacro ensaio pid1 --saida D                # o controlo do PID 1
     python -m dr_simulacro ensaio limpar --saida D
 
 ## O que corre, e o que e emulado
@@ -47,7 +49,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import calculo, folha, marcadores
+from . import calculo, folha, imagem_condutor, marcadores
 
 PREFIXO = "kam085"
 REDE = f"{PREFIXO}-dr"
@@ -55,10 +57,7 @@ IMAGEM_PG_BASE = (
     "pgvector/pgvector:0.8.7-pg18"
     "@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11"
 )
-IMAGEM_PY_BASE = (
-    "python:3.12-slim-trixie"
-    "@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1"
-)
+IMAGEM_PY_BASE = imagem_condutor.IMAGEM
 IMAGEM_PG = f"{PREFIXO}-pg:local"
 IMAGEM_CONDUTOR = f"{PREFIXO}-condutor:local"
 PGDATA = "/var/lib/postgresql/18/docker"
@@ -66,8 +65,14 @@ REPO_NO_CONTENTOR = "/var/lib/pgbackrest"
 ADMIN = "kamba"
 BASE = "kamba_platform"
 BASE_DA_CARGA = "kamba_simulacro_carga"
-#: As tres bases do criterio, mais a da carga sintetica.
-BASES = ("kamba_platform", "kamba_medusa", "kamba_chatwoot", BASE_DA_CARGA)
+#: As bases nao se nomeiam: contam-se **todas** as que o cluster tem, lidas do
+#: `pg_database`. E a cobertura certa para um restauro — o pgBackRest restaura o
+#: cluster inteiro —, e e tambem o que mantem este ficheiro fora da regra do
+#: KAM-042 (`tools/lint_arch/medusa.py`): nenhum componente fora do COM nomeia a
+#: base do Registo. O ensaio le-a como administrador do cluster, como o proprio
+#: backup, e nao como componente; quem quiser uma excepcao a regra pede-a ao
+#: fundador, que e quem decide criterios de *gate*.
+SQL_BASES = "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1;"
 #: Uma linha de carga: dois `gen_random_bytes` (o maximo de cada um e 1024), que
 #: ficam abaixo do limiar do TOAST e por isso **nao** se comprimem na base.
 #: Aleatorios de proposito: e o pior caso para o repositorio (`zst` nao os
@@ -410,8 +415,7 @@ SELECT n.nspname || '.' || c.relname,
  ORDER BY 1;
 """
         resultado = {}
-        existentes = set(self.psql(contentor, "SELECT datname FROM pg_database;").split())
-        for base in (b for b in BASES if b in existentes):
+        for base in self.psql(contentor, SQL_BASES).split():
             for linha in self.psql(contentor, sql, base=base).splitlines():
                 if "|" in linha:
                     tabela, n = linha.split("|", 1)
@@ -645,6 +649,7 @@ def _fechar(ensaio: Ensaio, cenario: str, pasta: Path, extra: dict,
                      for r in rto.rubricas],
         "rto_medido_min": rto.medido_segundos / 60,
         "rto_composto_min": rto.composto_segundos / 60,
+        "lacunas_min": rto.lacunas_segundos / 60,
         "orcamento_no_composto": list(rto.orcamento_no_composto),
         "repetir_cenario_a": rto.repetir_cenario_a,
     }
@@ -794,17 +799,29 @@ def _ancorar(ensaio: Ensaio, host: str, destino: str) -> str:
     return f"/out/B/{destino}/{ficheiro.name}"
 
 
+#: A margem antes de T na exportacao. **O `criado_at` do *outbox* e o inicio da
+#: transaccao** (`DEFAULT now()`, revisao 0004), e nao o *commit*: um evento
+#: cuja transaccao comecou antes de T e fez *commit* depois perde-se no PITR e
+#: ficava fora de um filtro `>= T`. Exporta-se com folga e a reimportacao e
+#: `ON CONFLICT DO NOTHING`, pelo que o que ja esta na base restaurada nao
+#: entra duas vezes. Achado da revisao adversarial; o ensaio arquivado correu
+#: com o filtro `>= T` e sem margem.
+MARGEM_DA_EXPORTACAO = "5 minutes"
+
 SQL_EXPORTAR_OUTBOX = """
 COPY (SELECT event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq,
              particao, envelope, criado_at
         FROM platform.events_outbox
-       WHERE tipo = '{tipo}' AND criado_at >= '{alvo}'::timestamptz ORDER BY id)
+       WHERE tipo = '{tipo}'
+         AND criado_at >= '{alvo}'::timestamptz - interval '{margem}'
+       ORDER BY id)
   TO STDOUT WITH CSV;
 """
 SQL_EXPORTAR_CONSUMIDOS = """
 COPY (SELECT consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq, processado_at
         FROM platform.events_consumed
-       WHERE consumer = '{consumidor}' AND processado_at >= '{alvo}'::timestamptz)
+       WHERE consumer = '{consumidor}'
+         AND processado_at >= '{alvo}'::timestamptz - interval '{margem}')
   TO STDOUT WITH CSV;
 """
 
@@ -848,9 +865,11 @@ def preparar_b(ensaio: Ensaio, segundos_antes: float = 90, segundos_depois: floa
     _parar(ensaio, pasta, escritor, produtor)
     alvo_texto = folha.formatar(alvo)
     (pasta / "export-outbox.csv").write_text(ensaio.psql(
-        PRIMARIO_B, SQL_EXPORTAR_OUTBOX.format(tipo=TIPO, alvo=alvo_texto)), encoding="utf-8")
+        PRIMARIO_B, SQL_EXPORTAR_OUTBOX.format(tipo=TIPO, alvo=alvo_texto,
+                                               margem=MARGEM_DA_EXPORTACAO)), encoding="utf-8")
     (pasta / "export-consumidos.csv").write_text(ensaio.psql(
-        PRIMARIO_B, SQL_EXPORTAR_CONSUMIDOS.format(consumidor=EXTERNO, alvo=alvo_texto)),
+        PRIMARIO_B, SQL_EXPORTAR_CONSUMIDOS.format(consumidor=EXTERNO, alvo=alvo_texto,
+                                                   margem=MARGEM_DA_EXPORTACAO)),
         encoding="utf-8")
     corrompidas = ensaio.psql(PRIMARIO_B, "SELECT count(*), count(*) FILTER (WHERE total_minor = 0) "
                                           "FROM dr_simulacro.encomenda;").strip()
@@ -919,7 +938,9 @@ def cenario_b(ensaio: Ensaio, variante: str) -> dict:
         for nome in ("export-outbox.csv", "export-consumidos.csv"):
             ensaio.docker("cp", str(origem / nome), f"{novo}:/tmp/{nome}")
         reimportados = ensaio.psql(novo, SQL_REIMPORTAR).strip()
-    ensaio.condutor("python", "-m", "dr_simulacro.eventos", "retomar", "--host", novo,
+    # O que o `retomar` republicou conta-se: um «0 duplicados» sobre zero
+    # eventos republicados e uma prova vazia (achado da revisao adversarial).
+    retomado = ensaio.condutor("python", "-m", "dr_simulacro.eventos", "retomar", "--host", novo,
                     "--base", BASE, "--tenant", TENANT,
                     "--externos", f"/out/{variante.upper()}/externos.log",
                     "--parar", f"/out/{variante.upper()}/parar")
@@ -943,6 +964,7 @@ def cenario_b(ensaio: Ensaio, variante: str) -> dict:
     return _fechar(ensaio, variante.upper(), pasta, {
         "alvo": preparado["alvo"], "pgdata_bytes": pgdata, "contencao": contencao,
         "reimportados": reimportados,
+        "retomar": retomado.strip().splitlines()[-1] if retomado.strip() else "",
         "efeitos_internos": len(internos),
         "duplicados_internos": calculo.duplicados(internos),
         "efeitos_externos": len(linhas_externas),

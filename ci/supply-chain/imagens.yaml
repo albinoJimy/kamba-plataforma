@@ -301,6 +301,14 @@ imagens:
 fontes_adicionais:
   - ficheiro: db/gate_bd.py
     constante: IMAGEM
+  # KAM-085: o ensaio local do simulacro de DR levanta o PostgreSQL da imagem do
+  # compose (o mesmo digest do `db/gate_bd.py`) com o pgBackRest por cima, e um
+  # contentor condutor Python com o `pg8000` do lock das migracoes. Sao duas
+  # imagens, e por isso dois ficheiros: aqui so cabe uma constante por ficheiro.
+  - ficheiro: tools/dr_simulacro/ensaio.py
+    constante: IMAGEM_PG_BASE
+  - ficheiro: tools/dr_simulacro/imagem_condutor.py
+    constante: IMAGEM
   # KAM-005: as suites de eventos levantam tambem a fila, porque as garantias do
   # BullMQ estao NAO VERIFICADO (E4 §2.10) e o recuo, a republicacao e a
   # eleicao de lider nao se provam contra uma fila em memoria. O digest esta num

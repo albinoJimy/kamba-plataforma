@@ -35,7 +35,7 @@ class DockerRoteirizado:
         saida = ""
         if argumentos[0] == "exec" and "psql" in argumentos and input is not None:
             if "SELECT datname" in input:
-                saida = "kamba_platform\nkamba_medusa\n"
+                saida = "kamba_platform\nkamba_chatwoot\n"
             elif "query_to_xml" in input:
                 saida = "platform.audit_log|1201\ndr_simulacro.marcador|30\n"
             elif "COPY (SELECT seq" in input:
@@ -120,7 +120,7 @@ class TestCenarioA(unittest.TestCase):
             r = ensaio.cenario_a(e, segundos_de_escrita=0)
         self.assertEqual(r["contagens_divergentes"],
                          {"kamba_platform:platform.audit_log": {"antes": 1201, "depois": 1200},
-                          "kamba_medusa:platform.audit_log": {"antes": 1201, "depois": 1200}})
+                          "kamba_chatwoot:platform.audit_log": {"antes": 1201, "depois": 1200}})
 
 
 class TestCenarioC(unittest.TestCase):
