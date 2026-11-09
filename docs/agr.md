@@ -53,7 +53,7 @@ e o KAM-035 escrevem. Ligar o `grafos=` do `ExecutorDeTurnos` ao registo hoje
 trocava um 503 por outro 503 — `GrafoNaoRegistadoError` por alvo que não
 resolve — e punha uma leitura de entitlement no caminho de cada turno para
 nada. O `sem_grafos` fica, e quem o substitui é o ticket que tiver um grafo
-para lhe dar. **O serviço continua a não ir a produção antes do KAM-031.**
+para lhe dar — o **KAM-186**, aberto a 2026-11-09. **O serviço continua a não ir a produção antes do KAM-031.**
 
 ---
 
@@ -1186,7 +1186,7 @@ mantém a mensagem na fila, é a linha honesta do §14 até os backends existire
 `agent_invocation` (§3.13) tem nove campos fechados e nenhum é o corpo da
 mensagem. O grafo lê o texto da janela `messages` do estado — que é o que o §12
 manda guardar — e quem a enche é quem invoca o grafo. A convenção nasce aqui; o
-credor é quem ligar a porta.
+credor é quem ligar a porta, o **KAM-186**.
 
 ## 7-G. O handoff idempotente e a retoma por *compare-and-set* (KAM-034)
 
@@ -1443,7 +1443,7 @@ e não as outras quatro.
 | O cliente HTTP do `openHandoff` | KAM-019 | A porta por omissão levanta `HandoffIndisponivel`, que é a linha do `01` §11.5 para «Chatwoot indisponível»: a passagem degrada, o cliente recebe a mensagem de degradação, e o turno acaba sem excepção não tratada |
 | A transição `conversation.mode = pausada` | KAM-018 | Porta chamada, implementação por ligar. A máquina de modos faz a transição **e** emite `conversation.mode_changed` na mesma transacção; reescrever esse par aqui dava um segundo dono e um modo a mudar **sem evento** |
 | A notificação ao dono da degradação | KAM-115 | Não entra: o `01` §11.4 regra 2 proíbe usar o número da própria loja |
-| A porta `grafos` da retoma | quem ligar o AgentRegistry | 503 com `Retry-After`, e **nada escrito**. São **duas** resoluções a ligar e não uma: a do turno recebe uma `InvocacaoDoAgente` e esta recebe um `thread_id`, porque a retoma não tem invocação |
+| A porta `grafos` da retoma | **KAM-186** (quem ligar o AgentRegistry) | 503 com `Retry-After`, e **nada escrito**. São **duas** resoluções a ligar e não uma: a do turno recebe uma `InvocacaoDoAgente` e esta recebe um `thread_id`, porque a retoma não tem invocação |
 | O *golden* de handoff (H7, ≥ 85%) | KAM-040 | Os três nós são artefactos comportamentais; o *eval-gate* mede-se lá |
 | A limpeza de passagens em `resumed` sem *checkpoint* retomado | **ninguém** | O resíduo da compensação falhada, descrito acima. **Deixou de ser o estado de toda a passagem resolvida por um humano** — era-o enquanto os dois escritores se sobrepunham, e a emenda 1.42 fechou essa janela; o que resta é a falha dupla (o `Command` **e** a compensação a falharem no mesmo pedido), que é rara e que nenhuma varredura deste repositório vê |
 
@@ -2076,7 +2076,7 @@ que o `guard_in` o redija a seguir. O `guard_in` substitui a mensagem crua na
 janela (segunda barreira, que protege os *checkpoints* depois dele), e o
 `TestUmaSoVia` recusa, pela AST, uma mensagem `user` construída em `src/` fora do
 `guardas/entrada.py`. **Quem ligar a porta `grafos` do `turno.py` e encher a
-janela usa esta função**: é a convenção que o cabeçalho do `nos.py` do Vendedor
+janela — o KAM-186 — usa esta função**: é a convenção que o cabeçalho do `nos.py` do Vendedor
 já escreve para o texto do cliente, agora com a barreira posta.
 
 ### A saída: quatro veredictos sobre o texto final
@@ -2132,3 +2132,4 @@ escrevê-la é do catálogo de alertas (`ops/metricas/`).
 | 1.16 | 2026-11-08 | KAM-069 | §7-D, nota do `destino_negado`: a frase dizia «em `prod` a porta nega tudo **até ao KAM-069**», e esse ticket entregou a tabela e a porta. Passa a dizer o que passou a ser verdade — nega tudo enquanto nenhum destino tiver `apd_ref`. O `arrancar` do `llm/destinos.py` devolve a `PortaDoNucleo` quando há ligação à base e a `NegaTudoAteKam069` quando não há, que é a mais restritiva das duas; o motivo `destino_negado` e a mecânica da degradação **não mudam**. |
 | 1.17 | 2026-11-08 | KAM-184 | §7-H: **a acção dos dois pagamentos na vertical Serviços passa a estar escrita** — confirma a marcação com sinal, e o desfecho do consumo deixa de ser `sem_accao` para os dois pares. A secção ganha a tabela das três respostas da `PortaDeMarcacao` (a marcação confirmada, `None` para uma encomenda sem marcação, e levantar quando não se sabe), e a tabela do que ainda não existe ganha a quarta porta, cujo credor **não é um ticket**: o caminho entre o AGR e o módulo `servicos` não está em linha nenhuma do §4 do `specs/INDICE.md`, e a mesma lacuna já estava escrita no `tls/servicos.py`. **A origem do `booking_id` fica devolvida ao fundador** com as duas rotas medidas: ele não vem no evento — os quatro esquemas dos dois tipos têm `additionalProperties: false` e não o admitem — e a acção identifica a encomenda pelo `order_id`. O que muda em produção não é o resultado (nem o `contactos` nem o `marcacoes` são ligados no `__main__.py`, pelo que o `payment.confirmed` do Vendedor já ia para a DLQ pelo contacto por resolver): é o desfecho deixar de dizer «ninguém escreveu isto». | Equipa KAMBÁ |
 | 1.18 | 2026-11-08 | KAM-033 | §7-J: os guardrails — a política com versão e impressão, os seis veredictos de entrada por ordem e o classificador só quando as regras não decidem, a via única para a janela (e a medição que a obriga: o *checkpoint* de entrada), os quatro veredictos de saída, e o que fica por ligar. |
+| 1.19 | 2026-11-09 | KAM-186 | §1, §7-F, §7-G e §7-J: o credor «quem ligar a porta `grafos`» — e «quem ligar o AgentRegistry», na tabela do §7-G — passa a ter número, o **KAM-186**, aberto para isso. Nenhuma afirmação sobre o que o AGR faz muda: a porta continua a levantar até ele ser entregue. |
