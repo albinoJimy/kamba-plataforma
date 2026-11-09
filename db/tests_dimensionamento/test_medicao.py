@@ -64,6 +64,14 @@ class TestWorkingSet(unittest.TestCase):
         self.assertEqual((leitura.instante, leitura.local), (812.47, 3.0))
         self.assertEqual(leitura.working_set, 115_343_360)
 
+    def test_o_oom_kill_le_se_do_memory_events(self) -> None:
+        eventos = "low 0\nhigh 0\nmax 12\noom 1\noom_kill 1\noom_group_kill 0\n"
+        leitura = medicao.ler_cgroup(CGROUP + eventos, 1.0)
+        self.assertEqual(leitura.oom_kill, 1)
+        # Sem o ficheiro, zero — e o resto da leitura nao muda.
+        self.assertEqual(medicao.ler_cgroup(CGROUP, 1.0).oom_kill, 0)
+        self.assertEqual(leitura.working_set, 115_343_360)
+
     def test_sem_uptime_levanta(self) -> None:
         with self.assertRaises(medicao.CgroupIlegivel):
             medicao.separar_uptime(CGROUP.replace("157286400\n", "", 1).replace("anon", "x y", 1))

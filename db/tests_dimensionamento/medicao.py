@@ -51,6 +51,12 @@ FICHEIROS_DO_CGROUP = (
     "/sys/fs/cgroup/memory.current",
     "/sys/fs/cgroup/memory.stat",
     "/sys/fs/cgroup/cpu.stat",
+    # O `oom_kill` deste ficheiro conta os processos que o kernel matou por o
+    # contentor passar o `mem_limit`. Entrou na corrida 5, quando o *worker* de
+    # entrada deixou de responder a 251,7 MiB de 256 e o registo dele acabou a
+    # meio de uma linha de `info`: sem este contador, a morte por memoria era
+    # uma inferencia.
+    "/sys/fs/cgroup/memory.events",
 )
 
 MIB = 1024 * 1024
@@ -74,6 +80,8 @@ class Leitura:
     inactive_file: int
     usage_usec: int
     local: float = 0.0
+    #: `oom_kill` do `memory.events`: processos mortos por falta de memoria.
+    oom_kill: int = 0
 
     @property
     def working_set(self) -> int:
@@ -111,6 +119,7 @@ def ler_cgroup(texto: str, instante: float, local: float = 0.0) -> Leitura:
         inactive_file=pares["inactive_file"],
         usage_usec=pares["usage_usec"],
         local=local,
+        oom_kill=pares.get("oom_kill", 0),
     )
 
 
@@ -333,6 +342,7 @@ class Serie:
             "nucleos_p50": round(percentil(cpu, 50), 3) if cpu else None,
             "nucleos_p95": round(percentil(cpu, 95), 3) if cpu else None,
             "nucleos_max": round(max(cpu), 3) if cpu else None,
+            "oom_kill": max(l.oom_kill for l in self.leituras),
         }
 
 

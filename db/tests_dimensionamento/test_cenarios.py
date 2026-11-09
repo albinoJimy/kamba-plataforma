@@ -206,6 +206,35 @@ class TestDimensionamento(ComEntrada):
             "limites": cls._aplicar_limites(),
             "cenarios": {},
         }
+        cls.eventos_docker = []
+        cls._vigiar_docker()
+
+    @classmethod
+    def _vigiar_docker(cls) -> None:
+        """Guarda os `oom` e `die` que o Docker emitir para os contentores do ensaio.
+
+        **E a unica prova directa de uma morte por memoria.** O `oom_kill` do
+        cgroup so se le enquanto o contentor existe, e um *worker* morto pelo
+        kernel leva o contentor com ele (`--rm`); o registo do Docker e
+        circular e as amostras do `docker exec` enchem-no em minutos — na
+        corrida 5, quando se foi procurar, o `die` do *worker* ja la nao estava.
+        """
+        import subprocess
+
+        comando = ["docker", "events", "--format", "{{.Action}} {{.Actor.Attributes.name}} {{.Actor.Attributes.exitCode}}"]
+        for nome in cls.contentores.values():
+            if nome:
+                comando += ["--filter", f"container={nome}"]
+        comando += ["--filter", "event=oom", "--filter", "event=die"]
+        cls._eventos = subprocess.Popen(
+            comando, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+        )
+
+        def ler() -> None:
+            for linha in cls._eventos.stdout:
+                cls.eventos_docker.append(f"{time.strftime('%H:%M:%SZ', time.gmtime())} {linha.strip()}")
+
+        threading.Thread(target=ler, daemon=True).start()
 
     @classmethod
     def _aplicar_limites(cls) -> dict:
@@ -253,7 +282,10 @@ class TestDimensionamento(ComEntrada):
     def tearDownClass(cls) -> None:
         destino = cls._destino()
         relatorio = getattr(cls, "relatorio", None)
+        if getattr(cls, "_eventos", None) is not None:
+            cls._eventos.terminate()
         if relatorio is not None:
+            relatorio["eventos_docker"] = list(getattr(cls, "eventos_docker", []))
             relatorio["fim_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             Path(destino).write_text(
                 json.dumps(relatorio, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n"
@@ -485,6 +517,15 @@ class TestDimensionamento(ComEntrada):
             "anfitriao": amostrador.resumo_do_anfitriao(),
             "outros_contentores": outros,
             "destino": diagnostico,
+            # O estado dos tres processos no fim: `None` vivo, ou o codigo de
+            # saida do `docker run` (137 e SIGKILL — o do OOM). Entrou com a
+            # corrida 5, em que a fila deixou de drenar sem nada o dizer.
+            "processos": {
+                "gwy_a": self.gwy_a.popen.poll(),
+                "gwy_b": self.gwy_b.popen.poll(),
+                "worker_entrada": self.worker.popen.poll(),
+            },
+            "eventos_docker": list(self.eventos_docker),
         }
         self.relatorio["cenarios"][nome] = bloco
         self._guardar()
@@ -601,7 +642,11 @@ class TestDimensionamento(ComEntrada):
 
     def _afirmar_sem_perdas(self, bloco: dict) -> None:
         rec = bloco["reconciliacao"]
-        self.assertTrue(bloco["drenou"], f"a fila nao drenou em {DRENAGEM_S}s")
+        self.assertTrue(
+            bloco["drenou"],
+            f"a fila nao drenou em {DRENAGEM_S}s; processos {bloco['processos']}"
+            f"{self.worker.diagnostico()}",
+        )
         self.assertEqual(rec["em_falta"], 0, "ha eventos aceites que a base nao tem")
         self.assertEqual(rec["a_mais"], 0, "ha eventos na base que nao foram enviados, ou repetidos")
         # **E a jusante, por identidade e nao por `<=`.** Cada mensagem unica e
