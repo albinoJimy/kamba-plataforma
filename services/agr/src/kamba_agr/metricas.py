@@ -428,7 +428,17 @@ METRICAS_DO_VALIDADOR: Final = (
 #:                    que houve turnos que nao encontraram a conversa, e a
 #:                    razao exacta nao esta ao alcance de quem le zero linhas
 #: `falhou`           levantou dentro do turno; o *job* volta a fila
-DESFECHOS: Final = ("executado", "entregue_ao_hnd", "sem_conversa", "falhou")
+#: `servico_indisponivel`  o `AgentRegistry.resolve` recusou a vertical (sem
+#:                    entitlement, ou desconhecida); o turno nao entra no grafo
+#:                    e o *job* completa (KAM-186). O nome e o da resposta
+#:                    estatica do criterio 6 do KAM-027, e nao um segundo
+DESFECHOS: Final = (
+    "executado",
+    "entregue_ao_hnd",
+    "sem_conversa",
+    "falhou",
+    "servico_indisponivel",
+)
 
 #: Porque e que um turno nao foi admitido. Lista **fechada**: e etiqueta.
 #:

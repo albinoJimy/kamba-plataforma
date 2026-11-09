@@ -43,7 +43,8 @@ resposta decide se o *job* se repete:
 | descartado por ritmo (criterio 5) | **200** | completa o *job* |
 | corpo invalido | 400 | descarta o *job* — nao melhora com repeticao |
 | tecto do *tenant* cheio | 503 + `Retry-After` | devolve o *job* a fila com atraso |
-| nao ha grafo para a vertical (KAM-027) | 503 + `Retry-After` | devolve o *job* a fila com atraso |
+| a vertical recusada pelo registo — sem entitlement, ou desconhecida (KAM-186) | **200** `servico_indisponivel` | completa o *job* — e configuracao, e nenhuma tentativa a muda |
+| nao ha grafo registado para a vertical | 503 + `Retry-After` | devolve o *job* a fila com atraso |
 | o turno levantou | 500 | devolve o *job* a fila |
 
 E a `/internal/resume` tem a sua, com o chamador a ser o HND (KAM-034):
@@ -55,7 +56,7 @@ E a `/internal/resume` tem a sua, com o chamador a ser o HND (KAM-034):
 | a passagem nao e deste *thread* (isolamento) | **404** | nao repete; a metrica e o registo mostram-no |
 | corpo invalido, ou `outcome` fora dos tres do §11.1 | 400 | descarta |
 | `secret` do *agent bot* ausente ou errado | 401 | nao repete; `agr_resume_nao_autorizado_total` sobe |
-| nao ha grafo para a *thread* (KAM-027) | 503 + `Retry-After` | repete — e **nada foi escrito** |
+| nao ha grafo para a *thread* — sem *checkpoint*, ou vertical fora do registo (KAM-186) | 503 + `Retry-After` | repete — e **nada foi escrito** |
 | o `Command(resume=...)` levantou | 500 | repete — e a passagem **ja voltou** a `waiting` |
 
 **O 404 do `recusado` nao e 403**, e a diferenca e de privacidade: «existe mas
@@ -267,8 +268,8 @@ def rotas(
             )
         except GrafoNaoRegistadoError:
             # 503 e nao 500: «o turno nao corre e a mensagem fica na fila»
-            # (`docs/tecnica/02` §14). Enquanto o KAM-027 nao registar grafos,
-            # e este o estado honesto do servico.
+            # (`docs/tecnica/02` §14). Desde o KAM-186 nao e o estado do
+            # servico: e uma vertical sem grafo registado no processo.
             return JSONResponse(
                 {"outcome": "grafo_nao_registado"},
                 status_code=503,

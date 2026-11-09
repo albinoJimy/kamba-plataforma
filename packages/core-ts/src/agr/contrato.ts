@@ -109,12 +109,16 @@ export const DESFECHOS_DO_AGR = [
   "descartado",
   "tecto_do_tenant",
   "grafo_nao_registado",
+  // KAM-186: a vertical que o registo recusa (sem entitlement, ou
+  // desconhecida). Vem com 200 e o *job* completa — é configuração, e nenhuma
+  // das seis tentativas a muda.
+  "servico_indisponivel",
   "invocacao_invalida",
   "nao_autorizado",
 ] as const;
 export type DesfechoDoAgr = (typeof DESFECHOS_DO_AGR)[number];
 
-/** O desfecho de uma resposta do AGR, ou `desconhecido` se não for um dos oito. */
+/** O desfecho de uma resposta do AGR, ou `desconhecido` se não for um dos nove. */
 export function desfechoDe(corpo: unknown): DesfechoDoAgr | "desconhecido" {
   if (typeof corpo !== "object" || corpo === null) return "desconhecido";
   const valor = (corpo as Record<string, unknown>).outcome;

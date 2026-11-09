@@ -32,7 +32,7 @@
  *
  * ## Etiquetas: uma, e de lista fechada
  *
- * O `outcome` são os oito desfechos de `contrato.ts` mais `desconhecido`, e não
+ * O `outcome` são os nove desfechos de `contrato.ts` mais `desconhecido`, e não
  * cresce com o tráfego. **Nenhuma métrica leva `tenant_id`, `wamid` nem
  * `thread_id`** (`docs/seguranca/ameacas_stride.md`, OBS-I) — e no caso do
  * `wamid` é mais do que cardinalidade: ele carrega o número do interlocutor
@@ -47,7 +47,7 @@ export const METRICA_FALHAS = "agr_shim_failed_total";
 /** Os contadores, pela ordem em que saem. Lista fechada. */
 export const CONTADORES = [METRICA_JOBS, METRICA_FALHAS] as const;
 
-/** Os valores do `outcome`: os oito do AGR mais o que não é nenhum deles. */
+/** Os valores do `outcome`: os nove do AGR mais o que não é nenhum deles. */
 export const DESFECHOS: readonly string[] = [...DESFECHOS_DO_AGR, "desconhecido"];
 
 const AJUDA: Readonly<Record<string, readonly [string, string]>> = {

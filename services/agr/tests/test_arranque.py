@@ -419,11 +419,11 @@ class TestRegistoNoArranque(unittest.TestCase):
         }
         self.assertEqual(
             sorted(codigos),
-            # **Tres e nao quatro desde o KAM-028**: a validacao (1) (`tools`)
-            # fechou — o catalogo da ToolLayer existe e o `registry/gates.yaml`
-            # deixou de a nomear. Um `aviso` que sobrevivesse ao credor seria,
+            # **Um e nao quatro**: a validacao (1) (`tools`) fechou com o
+            # KAM-028 e a (3) (`grafo`) com o KAM-186 — o `registry/gates.yaml`
+            # deixou de as nomear. Um `aviso` que sobrevivesse ao credor seria,
             # ele proprio, erro de arranque.
-            ["golden_kam_040", "grafo_kam_031", "grafo_kam_035"],
+            ["golden_kam_040"],
         )
 
 

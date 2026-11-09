@@ -55,6 +55,7 @@ como `resumed`, que nao bate com nada, e o criterio 7 deixava de ter caminho.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Callable
 from typing import Any, Final
 
@@ -181,13 +182,16 @@ class Retomador:
         tenant_id, contact_id = partes(thread_id)
 
         # **O grafo resolve-se antes do CAS**, e nao e indiferente: sem grafo
-        # para esta *thread* — que e o estado do servico enquanto a porta
-        # `grafos` do `turno.py` levantar `GrafoNaoRegistadoError` — o CAS
-        # escrevia `resumed` e a compensacao devolvia-o a `waiting`, isto e, duas
-        # escritas para nada e uma janela em que a passagem aparecia retomada.
-        # Resolvido primeiro, a excepcao sobe **antes** de a base ser tocada e a
-        # rota responde 503 com `Retry-After`: o *webhook* volta e nada mudou.
+        # para esta *thread* — sem *checkpoint*, ou com uma vertical que o
+        # registo nao tem (`grafos.py`, KAM-186) — o CAS escrevia `resumed` e a
+        # compensacao devolvia-o a `waiting`, isto e, duas escritas para nada e
+        # uma janela em que a passagem aparecia retomada. Resolvido primeiro, a
+        # excepcao sobe **antes** de a base ser tocada e a rota responde 503 com
+        # `Retry-After`: o *webhook* volta e nada mudou. A porta do processo e
+        # `async` — le o *checkpoint* —, e por isso espera-se aqui.
         grafo = self._grafos(thread_id)
+        if inspect.isawaitable(grafo):
+            grafo = await grafo
 
         venceu = await self._executar(
             SQL_RETOMAR_HANDOFF,
