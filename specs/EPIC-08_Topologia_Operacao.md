@@ -51,8 +51,8 @@ O epic concretiza **ADR-008** (alojamento, *backups*, CDN e observabilidade são
 | KAM-083 | Runbooks operacionais (Meta, facilitador, LLM, rating, free tier, tokens, segredos) | chore | M | P0 | KAM-080, KAM-021, KAM-023, KAM-017, KAM-079 |
 | KAM-084 | Teste de carga e validação do dimensionamento | chore | M | P1 | KAM-076, KAM-013, KAM-015, KAM-025, KAM-031, KAM-024 |
 | KAM-085 | Simulacro de recuperação (DR drill) com RTO medido | chore | M | P0 | KAM-079 |
-| KAM-187 | O compose de produção corre os consumidores do `worker-canal` | feature | M | P0 | KAM-076, KAM-080, KAM-013, KAM-025 |
-| KAM-188 | O teste de carga repete-se no *host* P0 | chore | S | P1 | KAM-084, KAM-077, KAM-186, KAM-187 |
+| KAM-187 | O compose de produção corre os consumidores do `worker-canal` | feature | L | P0 | KAM-076, KAM-080, KAM-013, KAM-025 |
+| KAM-188 | O teste de carga repete-se no *host* P0 | chore | M | P1 | KAM-084, KAM-077, KAM-186, KAM-187 |
 
 ---
 
@@ -932,7 +932,7 @@ SLI está em [`../ops/slo.md`](../ops/slo.md).
 |---|---|---|---|
 | 1 | `ops/slo.md` define os 8 SLI do doc 09 §10 (numerador, denominador, janela de 30 dias, fonte, SLO, orçamento) | **marcada** | [`../ops/slo.md`](../ops/slo.md): os **oito**, cada um com os seis campos. O §2.1 dá o operacional por extenso (disponibilidade, 99,5%, **216 min**, por `up{job=~"gwy\|agr"}`); o §2.2 dá os outros sete em tabela, cada um com numerador, denominador, SLO, orçamento, **fonte** (a coluna do §10, copiada e não reinterpretada) e **o que falta com o credor**, sobre a janela de 30 dias que é a mesma dos oito e está dita acima da tabela. Os valores são os do §10 à letra, reconferidos linha a linha contra a tabela do documento-fonte — **e a coluna «Fonte» entrou numa segunda passagem**, porque a primeira versão desta tabela tinha cinco dos seis campos e o critério pede seis: a caixa estava marcada com um campo a menos, e foi a revisão adversarial que o ia levantar. O critério pede que o ficheiro **defina**, e define — o que cada um deles ainda não mede está nas caixas 2 a 4 e no §2.2, não escondido aqui |
 | 2 | *Recording rules* e painel mostram o orçamento restante; com 30 min de falha injectada do ingress em *staging* o orçamento desce 13,9% (30/216) e o alerta de *burn rate* dispara | **parcial** | **A aritmética está provada, e por ensaio e não por afirmação.** Oito *recording rules* em [`../infra/compose/prometheus/regras/kamba-slo.yml`](../infra/compose/prometheus/regras/kamba-slo.yml) → `promtool check rules`: `SUCCESS: 10 rules found`. O caso `orcamento: 30 min de falha injectada descem 13,9% (30/216)` dá **0,1388888…** e **186 min**, com o controlo (30 dias limpos → 216 inteiros) e o estouro (240 min → **−24 min**, negativo de propósito). A segunda metade do critério tem caso próprio: `criterio 2: 30 min de falha do ingress disparam o burn rapido`. O painel é [`../ops/paineis/orcamento-de-erro.json`](../ops/paineis/orcamento-de-erro.json), com o restante em minutos e o consumido em fracção lado a lado. **O que falta é a injecção em *staging*:** o Prometheus só existe no `docker-compose.prod.yml`, **não há ambiente implantado** e o `make up` (dev) não levanta Prometheus nenhum. `promtool test rules` é o motor de regras com séries sintéticas — sem pilha, sem GWY a morrer, sem Alertmanager a receber — e **não é** a injecção que o critério pede. Credores: **D1/KAM-105** (alojamento) e **KAM-069** (subprocessador), os mesmos do critério 5 do KAM-080 |
-| 3 | «Perda de mensagens» operacionalizada como ids aceites no ingress sem desfecho após 15 min = 0 (*proposta*); testada com uma mensagem retida artificialmente | **parcial** | **A operacionalização está escrita** (`ops/slo.md` §2.2, linha 3), com as duas faltas medidas e não supostas. (a) O `inbound_events_total{desfecho}` com o domínio fechado `registado`/`duplicado`/`recuperado` **existe** em `packages/core-ts/src/entrada/metricas.ts` e é servido pelo `entrada.ts` na porta 3013 — que **não é o que o compose corre**: o `CMD` do `services/worker-canal/Dockerfile` é `src/server.ts`, que devolve **404** em `/metrics` por teste do KAM-001, e o `prometheus.yml` não tem alvo para as quatro entradas que servem métricas. Medido. (b) A correlação **por id** entre aceite e desfecho não é expressável em métricas agregadas: sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (emendas **1.21** e **1.25** do dicionário). **A caixa não se marca com o ensaio de uma mensagem retida**, porque não há processo que sirva a série nem pilha onde a retenção aconteça — marcá-la com a prova errada é pior do que a deixar vazia. Credores: o ticket que decidir qual processo do `worker-canal` o compose corre — o **KAM-187**, aberto na emenda 1.10 —, e **KAM-110** para a consulta |
+| 3 | «Perda de mensagens» operacionalizada como ids aceites no ingress sem desfecho após 15 min = 0 (*proposta*); testada com uma mensagem retida artificialmente | **parcial** | **A operacionalização está escrita** (`ops/slo.md` §2.2, linha 3), com as duas faltas medidas e não supostas. (a) O `inbound_events_total{desfecho}` com o domínio fechado `registado`/`duplicado`/`recuperado` **existe** em `packages/core-ts/src/entrada/metricas.ts` e é servido pelo `entrada.ts` na porta 3013 — que **não é o que o compose corre**: o `CMD` do `services/worker-canal/Dockerfile` é `src/server.ts`, que devolve **404** em `/metrics` por teste do KAM-001, e o `prometheus.yml` não tem alvo para as quatro entradas que servem métricas. Medido. (b) A correlação **por id** entre aceite e desfecho não é expressável em métricas agregadas: sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (emendas **1.21** e **1.25** do dicionário). **A caixa não se marca com o ensaio de uma mensagem retida**, porque não há processo que sirva a série nem pilha onde a retenção aconteça — marcá-la com a prova errada é pior do que a deixar vazia. Credores: o ticket que decidir qual processo do `worker-canal` o compose corre — o **KAM-187** —, e **KAM-110** para a consulta |
 | 4 | Alertas de *burn rate* rápido e lento activos (*proposta*: 2% do orçamento numa hora → P2; 5% em 6 h → P3), calibrados e documentados | **parcial** | **Os dois existem, com os limiares que o critério propõe e a severidade que ele dá** (`orcamento_de_erro_burn_rapido` P2, `orcamento_de_erro_burn_lento` P3), ambos com `runbook_url` que resolve para ficheiro no disco, e **documentados** em `ops/slo.md` §4 e no *runbook* [`../docs/runbooks/orcamento-de-erro.md`](../docs/runbooks/orcamento-de-erro.md), que os reivindica por nome. **O que prende a calibração são os casos em volta do limiar e não um caso que dispare:** 4 min de falha numa hora → calado, 5 min → dispara; 10 min em seis horas → calado, 11 min → dispara; e o caso que mostra que o lento não é redundante (11 min no **início** das seis horas disparam o lento com o rápido calado). **A palavra «calibrados» não se cumpre**, e a razão está nos Detalhes Técnicos do próprio ticket: «os valores de *burn rate* … são propostas; calibram-se nos primeiros 30 dias». Calibrar exige tráfego real, que não existe. Credor: **Plataforma/SRE**, no primeiro relatório mensal com tráfego (modelo em [`../ops/slo-relatorio-modelo.md`](../ops/slo-relatorio-modelo.md), §7) |
 | 5 | Política: > 50% do orçamento em 14 dias marca `congelado`; o *gate* 16 recusa *deploys* não urgentes nesse estado (excepto aprovação do Arquitecto registada); 100% → só fiabilidade; testes do *gate* | **vazia** | **Devolvida, e é a primeira das duas que se diz à cabeça.** A política está escrita por extenso nos três estados em `ops/slo.md` §6.1, com «urgente» definido como *proposta* (o §10 e o bloco não o definem), e a **medição** está no painel. O que não se fez é o estado e a ligação ao portão, por duas razões medidas: o *gate* 16 **não existe como *job*** (é o gate humano de aprovação do `specs/01` §4; o `ci.yaml` tem onze *jobs* de gate e nenhum é o 16), e ligá-lo é **alteração de regra de bloqueio pelos dois caminhos**. Registada também a divergência de janela: a política fala de **14 dias** e as regras medem **30**, que é a janela que o critério 1 e o §10 definem — a segunda janela é uma linha de PromQL e **não se escreveu**, porque sem o estado a existir ela não tinha consumidor e seria mais uma série a parecer cobertura. **Credor: o fundador** |
 | 6 | Janelas de manutenção anunciadas fora de 07:00–23:00 WAT contam como indisponibilidade **só** se afectarem mensagens (regra implementada e testada com duas janelas) | **parcial** | **A regra está implementada nas três condições que o critério tem** — anunciada, fora de 06:00–22:00 UTC (= 07:00–23:00 WAT, porque o `hour()` do Prometheus é UTC) e sem mensagens afectadas — e a isenção faz-se por `unless`, pelo que o tempo isento sai do numerador **e** do denominador. **Testada com duas janelas, e com uma terceira que prende a condição que elas não prendiam:** isenta; conta porque afectou mensagens; conta porque era horário comercial. O mecanismo do **anúncio** tem ensaio próprio em [`../infra/compose/prometheus/regras/testes/kamba_manutencao_test.yml`](../infra/compose/prometheus/regras/testes/kamba_manutencao_test.yml), com duas janelas sobre uma *fixture*, para que quem anunciar a primeira a sério não estreie a expressão. **E o ficheiro de regras de produção das janelas passou a estar sob ensaio**, o que não estava: a revisão adversarial mediu que pôr o `vector(0)` do `kamba-manutencao.yml` a `vector(1)` isentava **toda** a indisponibilidade nocturna sem *shed* e deixava os quatro ficheiros de ensaio verdes — um orçamento de erro que para de contar sem um único teste vermelho, e com o procedimento documentado para anunciar uma janela a ser *editar aquela expressão*. Fechado pelo `testes/kamba_slo_producao_test.yml`, que carrega os **dois** ficheiros de produção juntos e exige que a bandeira valha 0 e que o tempo conte. **O limite que fica, com a consequência tirada e não só o limite dito:** «afectou mensagens» é `increase(gwy_shed_total[30m]) > 0`, e com o GWY em baixo **não existe série** `gwy_shed_total` — o `increase` sobre série ausente devolve nada, o `or vector(0)` dá 0, e a janela é julgada «não afectou mensagens». Para uma janela que derrube o ingress, que é o caso normal, esta condição responde **sempre «não»**: o «**só** se afectarem mensagens» do critério é, na prática, **incondicional**. A primeira versão deste ticket dizia o limite em três sítios e **não tirava dele esta conclusão**. Fica assim por escolha e não por engano — a isenção é uma afirmação de quem anunciou a janela, e esta pilha só a pode **refutar**, nunca confirmar; inverter o omisso tornava a regra letra morta pelo outro lado. O que a torna auditável é o anúncio ser um **commit** e o relatório mensal ter uma coluna para ela. O predicado completo é o que a sonda externa responderia: credores **D1/KAM-105** e **KAM-069**. E a lista de janelas anunciadas está **vazia**, porque nenhuma foi anunciada |
@@ -1141,7 +1141,7 @@ Não expandas escopo: a réplica de espera, se necessária, é ticket novo. PR c
 | Fase | 0 |
 | Tipo | feature |
 | Prioridade | P0 |
-| Estimativa | M |
+| Estimativa | L |
 | Dependências | KAM-076, KAM-080, KAM-013, KAM-025 |
 | Bloqueia | KAM-108, KAM-188 |
 | Responsável sugerido | Plataforma/SRE |
@@ -1166,7 +1166,8 @@ git grep -n -E "entrada\.ts|agr_shim|publicador|consumidor\.ts" -- infra/
 ```
 
 Os quatro processos que fazem o trabalho estão em `services/worker-canal/src/`, e
-cada um diz no cabeçalho que é um processo próprio, «porque escala com réplicas»:
+cada um diz no cabeçalho que é um processo próprio por causa de como escala —
+com réplicas, ou, no caso do publicador, com réplicas em espera:
 
 | Processo | O que consome | `/metrics` | Ticket |
 |---|---|---|---|
@@ -1242,8 +1243,13 @@ que o compose de facto corre.
 - [ ] 4. **A soma dos `mem_limit` continua dentro do orçamento.** Cada serviço novo
   entra no `conjunto-reduzido.yaml` como `presente`, com `memoria_mib`, rede e
   razão, e a soma continua ≤ 80% da RAM do *host* (critério 4 do KAM-076), medida
-  pelo `compose_prod lint` e não de cabeça. A razão actual do `worker-canal`
-  («Consumidor da fila de entrada») é corrigida no mesmo PR.
+  pelo `compose_prod lint` e não de cabeça. **E há uma soma fixada:** o
+  `tools/compose_prod/tests/test_lint.py:58-70` exige `soma == 24064` MiB,
+  reconciliada com a proposta do KAM-076, e a razão do `worker-canal` diz que a
+  linha «SO e proxies» fecha exacta. A memória dos serviços novos sai de uma
+  linha nomeada do orçamento, ou o total sobe com a razão escrita, e o ensaio muda
+  com essa razão — não se acerta o número para o ensaio passar. A razão actual do
+  `worker-canal` («Consumidor da fila de entrada») é corrigida no mesmo PR.
 - [ ] 5. **Cada processo que o compose levanta tem alvo no `prometheus.yml`, e só
   esses.** Numa pilha levantada, `up` vale 1 para os quatro, e nenhum alvo fica
   em `up 0` permanente por falta de processo. É isto que paga a metade (a)
@@ -1258,14 +1264,24 @@ que o compose de facto corre.
   corre os mesmos quatro, ou o bloco escreve porque não. A razão não pode ser «o
   `make smoke` não os conhece»: o `HEALTHZ_TARGETS` do `Makefile` é uma lista que
   se acrescenta, e os quatro servem `/healthz` com a carga útil do contrato.
-- [ ] 8. **O que dizia «o ticket que decidir o processo» deixa de o dizer.** O
-  `../ops/slo.md` (§2.1, limite 2, e §2.2, linha 3), o
-  `../docs/runbooks/orcamento-de-erro.md` (limite 3), os comentários de
-  `infra/compose/prometheus/regras/kamba-slo.yml:35-41` e de
+- [ ] 8. **O que dizia que nenhum processo consome a fila deixa de o dizer**,
+  sítio a sítio e não por padrão: um `grep` apanha as linhas de versão e este
+  bloco, que são história. Os sítios: o `../ops/slo.md` (§2.1, limite 2, e §2.2,
+  linha 3), o `../docs/runbooks/orcamento-de-erro.md` (limite 3), os comentários
+  de `infra/compose/prometheus/regras/kamba-slo.yml:35-41` e de
   `infra/compose/prometheus/regras/kamba.yml:117-120` (este nomeia o **KAM-005**,
-  que fundiu) e o cabeçalho do `publicador.ts` passam a descrever o compose novo.
-  Medido por `git grep -n "processo do .worker-canal. o compose corre"`, que dá
-  zero.
+  que fundiu), o cabeçalho do `publicador.ts`, o `services/worker-canal/src/app.ts`
+  e a `description` do `services/worker-canal/package.json` (os dois dizem que o
+  serviço é o consumidor da fila de entrada). A verificação lista cada um com o que
+  passou a dizer.
+- [ ] 9. **O `worker-canal` entra no numerador do SLI operacional, ou fica escrito
+  porque não.** O limite 2 do §2.1 do `../ops/slo.md`, de que este ticket passa a
+  ser credor, é «o `worker-canal` não está no numerador»: a regra de
+  `kamba-slo.yml` lê `up{job=~"gwy|agr"}`. Com os alvos do critério 5, a regra
+  passa a incluir os processos do caminho da mensagem, com os casos do
+  `promtool test rules` a prendê-lo — uma falha só do *worker* desce o SLI —, ou o
+  bloco devolve a decisão, porque mudar a definição de um SLI passa pelo registo
+  do `../ops/slo.md`.
 
 ### Detalhes Técnicos
 
@@ -1331,7 +1347,7 @@ Nao expandas escopo: ligar a porta grafos do AGR e o KAM-186. PR com o template 
 | Fase | 1 |
 | Tipo | chore |
 | Prioridade | P1 |
-| Estimativa | S |
+| Estimativa | M |
 | Dependências | KAM-084, KAM-077, KAM-186, KAM-187 |
 | Bloqueia | — |
 | Responsável sugerido | Plataforma/SRE |
@@ -1344,8 +1360,10 @@ em `e20e4953`, fixa o predicado e o sítio:
 
 ```text
 criterio 2       S1 (pico do Piloto) e S2 (x10): memoria <= 65% (<= 20,8 GB em
-                 32 GB) e CPU <= 60%; se S2 falhar, regista-se o limite como
-                 fronteira do perfil P0
+                 32 GB) e CPU <= 60%; ack do webhook < 500 ms em >= 99,9%;
+                 idade da fila < 2 min; 0 mensagens perdidas por reconciliacao
+                 de ids. Se S2 falhar, regista-se o limite como fronteira do
+                 perfil P0
 Detalhes         «Corre no host de producao antes do go-live ou num clone
                  8 vCPU/32 GB criado por IaC; nunca com dados reais.»
 DoD 4            «Metricas do ensaio disponiveis nos paineis de KAM-080»
@@ -1355,15 +1373,26 @@ O *host* de produção é o **KAM-077**, que depende da decisão **D1** (alojame
 `ext:KAM-105`) e não tem *merge* na `main` — medido:
 `git log --oneline refs/remotes/publico/main | grep -c "KAM-077"` dá **0**.
 
-**A entrega do KAM-084 está a correr numa estação de trabalho**, com 8 vCPU e
-7,6 GiB vistos pelo Docker. É a informação do orquestrador a 2026-11-09, e é
-**INDÍCIO** até o PR do KAM-084 fundir com a secção de verificação: este bloco não
-a mediu, e não há ramo `KAM-084` empurrado (`git ls-remote --heads publico`). Com
-7,6 GiB, o «≤ 65% de 32 GB» do critério 2 não se mede — a percentagem não tem o
-denominador que o critério nomeia. Pelo mesmo relato, as caixas de S1, S2 e dos
-painéis ficam por fechar **por falta de *host*, e não por falta de trabalho**.
-Este ticket é o credor delas, e o critério 5 lê-as da secção de verificação do
-KAM-084 quando ela fundir, em vez de as supor daqui.
+**A entrega do KAM-084 mediu numa estação de trabalho, e por isso deixa caixas por
+fechar.** O ramo dele está empurrado e por fundir (`feature/KAM-084-teste-de-carga`,
+`bfa96cd8`), e a secção de verificação que traz diz-o à cabeça: «8 vCPU e **7,6 GiB**
+na VM do Docker Desktop, e não 8 vCPU / 32 GB», e o AGR sem turnos, porque o
+`__main__.py` passa `grafos=sem_grafos`. Lido nesse ramo, e não na `main`: **as
+caixas podem mudar até ele fundir**, e o critério 6 lê-as de lá quando fundir. O que
+o ramo diz hoje:
+
+| Caixa do KAM-084 | Credor que o ramo escreve |
+|---|---|
+| Critério 2 (S1 e S2: memória, CPU, ack, idade da fila) | a corrida 3 do próprio KAM-084 e «o ticket que repete o teste de carga no *host* P0» |
+| DoD 4 (os painéis) | «o ticket que repete o teste de carga no *host* P0» |
+| Critérios 1 e 3 (o relatório por serviço; a rampa) | esse e «o ticket que liga a porta `grafos` do processo do AGR» |
+| Critérios 5 e 7 (degradação; *flood*) | «o ticket que liga a porta `grafos` do processo do AGR» |
+
+**O primeiro credor é este ticket. O segundo é o KAM-186 para a ligação, e este
+ticket para a medição:** o KAM-186 não tem critério de carga, e um cenário de
+degradação ou de *flood* só se mede com uma pilha que sirva turnos e com a carga a
+correr. Logo este ticket repete também os cenários que dependem de turnos, e não só
+os que dependem do *host*.
 
 **Porque depende do KAM-186 e do KAM-187, e não só do KAM-084 e do KAM-077.**
 Um ensaio de carga sobre a pilha de produção mede o que essa pilha faz. Hoje o
@@ -1373,42 +1402,59 @@ encher uma fila que ninguém lê, com o AGR parado — e a memória «≤ 65%» 
 pela razão errada. O próprio KAM-084 o previu no *handoff*: «se um serviço
 necessário (GWY, AGR, Vendedor) não existir, pára e di-lo».
 
-**Porque S, e porque Fase 1 e P1.** Os *scripts* dos sete cenários, a recolha de
-*working set* e o relatório são do KAM-084; aqui corre-se outra vez, noutro
-*host*, uma parte deles. A fase e a prioridade são as do KAM-084, de que este é a
-continuação: o dimensionamento não bloqueia o *gate* da Fase 0, e é necessário ao
-Piloto.
+**Porque M, e porque Fase 1 e P1.** Os *scripts*, a recolha de *working set* e o
+relatório são do KAM-084, e aqui correm noutro *host*; mas há um clone a criar por
+IaC, se o *host* do KAM-077 ainda não existir, e três cenários que o KAM-084 não
+chegou a correr (degradação, *flood* e a parte da rampa que satura o AGR). A fase e
+a prioridade são as do KAM-084, de que este é a continuação: o dimensionamento não
+bloqueia o *gate* da Fase 0, e é necessário ao Piloto.
 
 ### Objectivo
 
-Repetir no *host* P0 os cenários do KAM-084 cuja medição depende do *host*, e
-fechar com essa medição as caixas que o KAM-084 deixou abertas por não o ter.
+Repetir no *host* P0, com uma pilha que consuma a fila e sirva turnos, os cenários
+do KAM-084 que dependem do *host* ou dos turnos, e fechar com essa medição as
+caixas que o KAM-084 deixou abertas por não ter nenhum dos dois.
 
 ### Critérios de Aceitação
 
 - [ ] 1. **O *host* é o P0, e está medido.** O ensaio corre no *host* do KAM-077 ou
-  num clone de 8 vCPU e 32 GB criado pela IaC do KAM-075, nunca numa estação de
-  trabalho; o relatório regista vCPU, RAM total e a RAM que o Docker vê, com a
-  saída de `nproc`, `free -g` e `docker info`. Um *host* em que o Docker veja menos
-  de 32 GB não fecha nenhuma caixa deste ticket, seja qual for o resultado.
-- [ ] 2. **A pilha serve antes de ser medida.** Antes do S1, o relatório mostra
-  `/internal/turn` a responder 200 `executado` a um turno sintético (KAM-186) e
-  um *job* na `wa-inbound` consumido (KAM-187). Sem as duas linhas, o ensaio não
-  corre: uma pilha que não processa mensagens dá memória baixa pela razão errada.
+  num clone de 8 vCPU e 32 GB nominais criado pela IaC do KAM-075, nunca numa
+  estação de trabalho; o relatório regista vCPU, RAM total e a RAM que o Docker vê,
+  com a saída de `nproc`, `free -g` e `docker info`. As percentagens do critério 3
+  calculam-se sobre a RAM que o Docker vê, e essa base fica escrita ao lado de cada
+  uma — um *host* de 32 GB nominais mostra sempre um pouco menos, e isso não o
+  reprova; uma VM com uma fracção dele, como os 7,6 GiB do KAM-084, reprova.
+- [ ] 2. **A pilha serve antes de ser medida, e com texto.** Antes do S1, o
+  relatório mostra uma mensagem sintética com texto do cliente a entrar na
+  `wa-inbound`, a ser consumida (KAM-187) e a produzir uma resposta do grafo
+  (KAM-186) — não basta um 200 `executado` com a janela vazia. Sem esta linha, o
+  ensaio não corre: uma pilha que não processa mensagens dá memória baixa pela razão
+  errada.
 - [ ] 3. **S1 e S2 à letra do critério 2 do KAM-084**, com os *scripts* dele sem
-  alteração ou com o *diff* justificado no relatório: memória ≤ 65% (≤ 20,8 GB em
-  32 GB) e CPU ≤ 60% em hora de ponta, com o *working set* na definição do doc 09
-  §1.4. Se o S2 falhar, regista-se o limite como fronteira do perfil P0 e a caixa
-  fecha com esse limite — que é o que o critério manda, e não um vermelho.
-- [ ] 4. **As métricas do ensaio estão nos painéis do KAM-080** (DoD 4 do KAM-084),
+  alteração ou com o *diff* justificado no relatório: memória ≤ 65% e CPU ≤ 60%,
+  ack do *webhook* < 500 ms em ≥ 99,9%, idade da fila < 2 min e 0 mensagens perdidas
+  por reconciliação de ids, com o *working set* na definição do doc 09 §1.4. Se o
+  S2 falhar, regista-se o limite como fronteira do perfil P0 e a caixa fecha com
+  esse limite — que é o que o critério manda, e não um vermelho.
+- [ ] 4. **Os cenários que precisam de turnos correm**, à letra dos critérios do
+  KAM-084: a degradação (LiteLLM a 20 s e 5xx activa N1/N2, resposta em ≤ 10 s,
+  recuperação automática), o *flood* (um contacto a 100 msg/min, sem afectar os
+  outros *tenants*, com o comportamento que o critério 11 do KAM-186 deixar), e a
+  rampa até ao primeiro recurso saturado de entre AGR, PostgreSQL, Chatwoot, BullMQ
+  e LiteLLM, com o «~50 conversas por processo AGR» medido ou NÃO VERIFICADO com o
+  motivo. O relatório por serviço (critério 1 do KAM-084) ganha as linhas que
+  ficaram «não medido» por falta de turnos.
+- [ ] 5. **As métricas do ensaio estão nos painéis do KAM-080** (DoD 4 do KAM-084),
   medido por consulta ao Prometheus da pilha sobre a janela do ensaio: as
   consultas dos painéis devolvem séries não vazias nessa janela. Uma captura de
   ecrã não é a prova.
-- [ ] 5. **O relatório do KAM-084 ganha as colunas do *host* P0** ao lado das da
-  estação de trabalho, e as caixas que a secção de verificação do KAM-084 deixar
-  abertas por falta de *host* passam a marcadas com esta evidência — ou ficam
-  abertas com a razão. Nenhuma caixa se marca com um número medido na estação.
-- [ ] 6. **O custo do *host* temporário e do ensaio fica registado** (critério 8 do
+- [ ] 6. **As caixas do KAM-084 fecham com esta evidência, ou ficam com a razão.**
+  O relatório ganha as colunas do *host* P0 ao lado das da estação de trabalho, e
+  cada caixa que a secção de verificação do KAM-084, **tal como fundir**, der a «o
+  ticket que repete o teste de carga no *host* P0» ou à medição de turnos passa a
+  marcada no bloco do KAM-084 ou fica aberta com a razão. Nenhuma caixa se marca com
+  um número medido na estação.
+- [ ] 7. **O custo do *host* temporário e do ensaio fica registado** (critério 8 do
   KAM-084), se o *host* for um clone.
 
 ### Detalhes Técnicos
@@ -1418,9 +1464,9 @@ fechar com essa medição as caixas que o KAM-084 deixou abertas por não o ter.
   monitorização (KAM-080) e os *scripts* do KAM-084.
 - **Só dados sintéticos**, como no KAM-084: `prod` continua em
   `kamba_data_class=synthetic` até ao *gate* de *go-live*.
-- **Os outros cinco cenários** (rampa, rajada, degradação, limites da Meta,
-  *flood*) **não se repetem por omissão**: repetem-se os que o KAM-084 tiver
-  medido com um denominador que dependa do *host*, e o relatório diz quais.
+- **A rajada e os limites da Meta não se repetem por omissão:** o ramo do KAM-084
+  marca-os, e o denominador deles não depende do *host* nem dos turnos. Repetem-se
+  se o relatório mostrar que dependem, e diz-se porquê.
 
 ### Testes Requeridos
 
@@ -1502,4 +1548,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.7 | Novembro 2026 | **KAM-082 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 4 marcadas (critério 1 e DoD 2, 3 e 5), 4 parciais e 4 vazias**, cada uma com a razão e **com o credor nomeado**. Entregue e medido: os **oito** SLI do §10 definidos em [`../ops/slo.md`](../ops/slo.md) com numerador, denominador, janela de 30 dias, fonte, SLO e orçamento; **oito *recording rules*** do orçamento de **216 min** e **dois alertas de *burn rate*** (rápido P2 a 2% numa hora, lento P3 a 5% em seis) em `kamba-slo.yml`, com a bandeira das janelas de manutenção em `kamba-manutencao.yml`; o painel `ops/paineis/orcamento-de-erro.json`; e **21 casos de `promtool test rules`** (na unidade do KAM-080: blocos `- interval:`), com **43** afirmações em quatro ficheiros novos — quatro porque o `evaluation_interval` é por ficheiro e a janela de 30 dias e a fronteira dos alertas pedem cadências incompatíveis, e porque o quarto é o único que carrega os **dois** ficheiros de regras de produção juntos. **A aritmética do critério 2 está provada e não afirmada:** 30 min de falha dão **0,1388888…** e **186 min** restantes, com controlo (30 dias limpos → 216 inteiros) e estouro (240 min → **−24 min**, negativo de propósito). **E a força dos ensaios foi medida três vezes, porque as duas primeiras medições discordaram.** A minha, de seis mutações escolhidas por mim: 6 mortas, 0 sobreviventes — verdadeira sobre as seis e **falsa sobre o que parecia dizer**, porque um canário só prova os defeitos que quem o escreve escolheu, e quem escolhe é quem escreveu os ensaios. A da revisão adversarial, com 23 pontos escolhidos por quem não os escreveu: **10 sobreviventes**, e quase todos as **decisões semânticas centrais** — o `or vector(0)`, o AGR no numerador, as janelas dos dois alertas, as fronteiras do horário, o divisor da escala, e o `kamba-manutencao.yml`, que **não estava carregado por ensaio nenhum**. A terceira, depois de fechar as dez: **29 mortas, 0 sobreviventes, de 29**. Uma das dez tinha causa na *fixture* e não no ensaio — as janelas começavam em instantes que não são múltiplos do intervalo de avaliação, logo a fronteira **não era consultável**, e a lição é geral: uma fronteira que não cai num instante de avaliação não é testável, e o ensaio que a rodeia parece prendê-la. **A medição que decide a forma do ticket:** o §10 tem oito SLI e só **um** tem série que algum processo sirva e que o `prometheus.yml` raspe — das **120** métricas declaradas (122 com a reconciliação `+2` do `services/com`) só **51** são alcançáveis em `compose`, porque onze módulos do `core-ts` não são importados por nenhum serviço. Os sete restantes **não se escreveram como regras inertes**, porque um alerta que nunca dispara parece cobertura: ficam definidos em prosa com credor. **Um deles tinha este ticket como credor** (o p95, que o catálogo do KAM-080 deixou ao KAM-082) e devolve-se medido: dar histogramas ao AGR contraria o **ADR-018**, e a modalidade texto/voz não existe como etiqueta — as duas são canon, logo **o fundador**. **Um defeito encontrado a medir e corrigido:** a retenção do TSDB era **15d** e a janela do SLO é de **30d** — um `avg_over_time(...[30d])` sobre 15 dias **não dá erro**, devolve a média do que existe, e o orçamento «sarava» duas semanas antes do devido. Está em **31d**, sem mexer em `mem_limit` nenhum. **Devolve-se com credor, e à cabeça:** a ligação do estado `congelado` ao *gate* 16 — que **não é um *job* de CI**, é o gate humano de aprovação do `specs/01` §4, e ligá-lo é alteração de regra de bloqueio pelos dois caminhos (**o fundador**) — e a rotação de *on-call*, que é gente e não código, entregue em `ops/on-call.md` com marcadores de papel e **sem nomes de pessoas**, porque o repositório é público (**o fundador**, e **KAM-069** para o canal). **E a injecção de falha em *staging* dos critérios 2 e 3 não tem onde correr:** o Prometheus só existe no compose de produção, não há ambiente implantado, e `promtool test rules` **não é** a injecção pedida — diz-se, em vez de se marcar a caixa com a prova errada. **A revisão adversarial deu 15 achados e verificaram-se os 15 contra a árvore: 15 CONFIRMADOS, nenhum morto** — e três eram afirmações minhas falsas, que é a classe que mais custa. (a) A célula do DoD 5 oferecia o `lint_backlog` como prova de máquina das tabelas de versão dos três documentos novos, e o corpus dele é `('specs/**/*.md', 'docs/**/*.md', 'README.md')`: **`ops/` não entra**, e os 78 documentos contados são 78 antes e 78 depois. Corrigida, e **o corpus não se alargou** — o `versoes.py` é o instrumento do *gate* 3c, e alargá-lo muda o critério de um portão que já bloqueia, a mesma fronteira que o critério 5 devolve. (b) Os números do `lint_refs` no anexo não reproduziam, porque foram medidos antes de os ficheiros novos estarem versionados — e **os lints só vêem o que está versionado**. (c) O `b6c4ddb` deixou uma frase partida no próprio spec. Mais duas propagações em falta: o `catalogo.yaml` continuava a nomear o KAM-082 credor do p95 que este ticket devolveu ao fundador (dois documentos com credores diferentes para a mesma falta), e o comentário do contentor do Prometheus dizia «oito regras de alerta» quando o `rule_files` monta a pasta inteira e ele carrega **20 regras em 3 ficheiros, 10 delas alertas**. E o achado mais afiado não era código, era uma conclusão não tirada: com o ingress em baixo **não existe série** `gwy_shed_total`, logo o predicado «afectou mensagens» responde sempre «não» e o «**só** se afectarem mensagens» do critério 6 é, no caso comum, **incondicional** — o limite estava escrito em três sítios e a consequência em nenhum. **E o próprio defeito da retenção tinha o chão aberto:** um Prometheus que arrancou há três dias publica um «orçamento de 30 dias» calculado sobre 10% da janela, sem erro e sem aviso; entrou a série `slo_caminho_de_venda_amostras_30d` e um painel ao lado do número. **E um gate 4 vermelho meu, que a revisão deu por verde e a medição não:** o `test_os_quatro_paineis_do_criterio_6_existem` do `obs_lint` é um `assertEqual` com quatro nomes e o quinto painel parte-o — partido em dois, o critério 6 continua exigido pelo nome e um painel sem ticket que o reivindique continua a falhar. O `log_policy` vermelho é do **ambiente** e não do ramo: `ModuleNotFoundError: kamba_core` com `Ran 69`, e com o `PYTHONPATH` completo dá **Ran 114, OK**. | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | **KAM-055**, e é uma emenda de **propagação** como a 1.6, pelo mesmo mecanismo: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `services/com/src/payments/metricas.ts`, e a mensagem do *gate* manda levar os números novos à secção de verificação do KAM-080. Medido: `contar_metricas` passa de **20 módulos, 120 nomes** para **21 módulos, 121 nomes**, e a reconciliação `+2` do `services/com` dá **123** declaradas, eram 122. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. A nota que entra diz o que distingue este caso dos dois anteriores: a métrica nova **é** importada e servida — o consumidor de pagamentos expõe-na no seu `/metrics` —, e o que lhe falta é ser **alcançável**, porque acrescentar um alvo para um processo que o `compose` não levanta produz o `up 0` permanente que o critério 4 do KAM-076 recusa. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** este ramo com a `publico/main` integrada em `74ddc23`. O número diz-se sempre com a base ao lado, porque outro ramo em revisão acrescenta um módulo ao mesmo inventário — quem fundir em segundo remede, e sem a base escrita o mesmo número é verdadeiro e falso conforme o dia. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-079 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, nenhuma marcada, 13 vazias ou parciais**, cada uma com a razão e **com o credor nomeado**. O desequilíbrio tem uma causa só, e está medida: **não há `repo1`** — a **D1** (KAM-105) não escolheu jurisdição nem fornecedor —, e sem repositório o `pgbackrest check`, o `pgbackrest info`, o PITR com marcadores, o restauro cronometrado e o restauro com a chave offline **não têm onde correr**. Não é «não se fez»: correr qualquer deles contra um repositório inexistente devolve um erro de ligação, e registar isso como «verificado» era pior do que não verificar. **A decisão de desenho que mais vale, e que é o contrário de entregar menos:** o compose de produção **não monta** esta configuração, porque `archive_mode = on` com um `archive_command` que falha não é um backup incompleto — é uma **falha de disponibilidade**: o PostgreSQL não recicla WAL até o comando devolver 0, pelo que o `pg_wal` cresceria a cada 60 s do `archive_timeout` até o disco encher e o cluster deixar de aceitar escritas. Um ticket de backups que derrubasse a base de dados para parecer entregue seria o pior resultado possível. **E a recusa de arrancar sem destino é real e é do próprio pgBackRest, o que não era verdade na primeira versão:** as seis chaves de destino e de segredo estão **ausentes** do ficheiro e vêm do ambiente pelo `PGBACKREST_<OPÇÃO>` — sem elas, `pgbackrest info` para com «ERROR: [037]: info command requires option: repo1-cipher-pass», medido. A primeira versão escrevia-as como `${NOME:?razão}` e afirmava, em seis sítios, que isso fazia a configuração «recusar-se a funcionar»; o binário mostra que não — «ERROR: [032]: '${KAMBA_X:?razao}' must begin with /» —, porque o pgBackRest **não expande variáveis dentro do ficheiro** e nada neste repositório o renderizava. **Entregue e medido:** a configuração em git (`infra/backup/`: `cobertura.yaml` como fonte única dos números, `pgbackrest.conf`, `postgres-arquivo.conf`); o novo `tools/backup_lint` com **10 regras** sobre **cinco superfícies que dizem o mesmo** (**0 achados**, canário com **38 de 38 casos a morder** e **10 de 10 regras** exercitadas, **93 testes**); e **um predicado por função**, com o relógio por parâmetro e o prazo em coluna — um `now()` por dentro obrigava a esperar 31 dias para provar que o restauro está em dívida. **Porque é que são cinco superfícies:** a divergência entre elas **não dá erro em sítio nenhum** — o limite do alerta do WAL está escrito em **quatro** sítios, e um `archive_timeout` de 60 s no manifesto e de 300 s no `.conf` passa por todos os portões deste repositório. **A retenção reconcilia e não se copia:** «35 dias» não é chave do pgBackRest, que conta backups; a tradução é 5 completos × semanal = 35, prendida por ensaio. **E a chave do PITR estava errada, com o cuidado aplicado a uma e não à outra:** a primeira versão punha `repo1-retention-archive-type=full` com o argumento de que preso ao diferencial o WAL expiraria antes dos 7 dias. A ajuda do binário diz o contrário — «If set to full pgBackRest will keep archive logs for the number of **full** backups defined by repo-retention-archive» —, pelo que `full` com `repo1-retention-archive=7` acima dos 5 completos retidos retinha o WAL de **todos**: ≈**35 dias de WAL** contra os «WAL 7 dias» do `../docs/tecnica/08` §11, que é **sobre-retenção de dados pessoais contra a política escrita**. Está em `diff`, onde 7 diferenciais diários são 7 dias com janela estável; o desvio à recomendação da documentação fica dito, e o modo de falha dele é retenção **a mais** e nunca a menos. **A lição:** a regra de *lint* que certificava isto tinha **canário verde** — um canário prova que uma regra morde, não que está certa, e as cinco superfícies concordavam porque repetiam a mesma leitura errada. O que quebrou o empate foi correr o binário. **O gate do critério 7 está satisfeito e é o que protege titulares:** `pode_enviar` recusa `real` sem `apd_ref` (código de saída 1), a omissão é `synthetic`, e os **16 marcadores** de `_NAO_SAO_REFERENCIA` (`pendente`, `TODO`, `n/a`, …) **não abrem o gate**, cada um em três formas — num ficheiro de configuração, `pendente` parece uma referência. (Eram **8 cadeias escritas à mão**, duas delas sem ser marcadores: **6 dos 16** estavam exercitados, e apagar os outros dez deixava a suite verde.) **E o funil é um só, prendido pelo comportamento:** os dois formatos de saída têm de recusar o mesmo pedido com o mesmo código, e o conjunto dos comandos com `--classe` tem de ser **igual** ao dos que chamam o `_imprimir` — pelo que um comando novo que escreva resultado sem guarda reprova sem ninguém se lembrar dele. **A primeira versão dizia «prendido estruturalmente» e citava um ensaio `test_o_funil_e_um_so` que não existe**; um segundo funil acrescentado por `getattr` contornou o gate por inteiro (saída 0 onde devia ser 1) e os três ensaios de árvore sintáctica passaram todos. **O orçamento de RTO verificou-se e não se corrigiu, e isso é a medição:** os «≈ 30 min para 20 GB a 100 Mbps» do doc 09 §8.2 são **1600 s** de aritmética contra 1800 s escritos — 11,1% de folga, **dentro** dos 20% do critério 4 —, e a regra dos 20% é em **valor absoluto**, porque um orçamento folgado por 40% faz planear um RTO que não se cumpre quando a base crescer. **Dois valores «óbvios» que eram os errados:** «nunca arquivou» dá `inf` e não 0 (um zero lê-se como «acabou de arquivar», que é exactamente o estado em que o arquivo nunca funcionou), e «nunca restaurou» está **em dívida** e não «ainda não é tempo»; pelo mesmo motivo os três *gauges* ficam **ausentes** da exposição sem medição enquanto o contador aparece a zero, e o `NaN` recusa-se — uma comparação com `NaN` é sempre falsa, pelo que um alerta `> 300` deixaria de disparar sem nada avisar. **As métricas nascem e os alertas não se escrevem, por regra deste repositório:** quatro métricas declaradas em `libs/py-core/src/kamba_core/backup/metricas.py`, com `exposta_por: []` no catálogo, porque escrever a regra de alerta hoje **põe o `obs_lint` vermelho** (`metrica_sem_produtor`) — «um alerta que nunca dispara parece cobertura». O que mudou foi **o que falta**: as duas entradas de `regras_por_escrever` passaram de «não há métrica» para «há métrica e nenhum processo a serve», com uma regra de *lint* e canário a prender a prosa à declaração. Propagação do inventário fechado: `contar_metricas` passa de **22 módulos, 124 nomes** para **23 e 128** (**130** declaradas pela reconciliação `+2` do `services/com`) e as «restantes» do §2.2 de 58 para **62**, nas quatro superfícies — medido **depois** de integrar a `main`, que trouxe o módulo do KAM-055 ao mesmo inventário. **O custo pago noutro ticket, dito em voz alta:** esta secção leva o `medidos` do `lint_bloco` (KAM-183) de **85** para **86**, e `86 // 2` são 43 — pelo que o piso **sobe para 43**, e a emenda é de quem funde em segundo. Medido na árvore da fusão com a `main` em `b974dda4`, e não copiado de nenhuma ponta: `medidos 86 | piso exigido 43 | piso actual 43`, com `piso - exigido` a **zero**. **Duas versões anteriores desta linha ficaram falsas sem ninguém tocar numa linha de código:** a primeira dizia «de 83 para 84, e o piso subiu de 41 para 42» e caiu quando o KAM-182 fundiu com a mesma emenda; a segunda dizia «de 84 para 85, e o piso fica em 42» e caiu quando o **KAM-069** (#156) trouxe o 86.º bloco. É exactamente a classe de afirmação que depende da ordem de fusão e que nenhum linter apanha, e a defesa é remedir na integração. Quem subiu o piso é um dado sobre a ordem de fusão e não sobre o corpus. Desde os 81, pagaram esta linha **cinco** blocos — o do KAM-108, o do KAM-055, o do KAM-182, o do KAM-069 e este —, o que faz da emenda uma **cadência** e não uma excepção: com o piso em metade do medido, cada dois blocos de verificação novos pedem uma emenda a uma constante que vive no ticket de outra pessoa. A conta fica escrita em vez da palavra, porque «folga» foi usada nos dois sentidos e os dois estão certos: `piso - exigido` é **zero** e **faltam dois blocos** para a próxima emenda, que o 88.º bloco traz. Não se nomeia aqui quem a pagará: há ramos abertos com secções por fundir, e qual aterra em segundo decide-se na fusão. Fica registado para o KAM-183, que governa a regra. **E o `lint_bloco` apanhou exactamente o que existe para apanhar:** a tabela dizia «satisfeito» no critério 8 com a caixa `- [ ]` — e a resolução acabou por ser pelo outro lado, com a **tabela** a passar a «parcial», depois de a revisão adversarial mostrar porquê. **A revisão adversarial deu 29 achados e verificaram-se todos contra a árvore: nenhum morreu, e dois eram bloqueadores.** (1) **O *gate* 4 estava vermelho por causa deste ramo, com o *lint* a dar zero achados:** o inventário de módulos de métricas do `obs_lint` é uma lista **literal e fechada**, e o ticket levou os números novos às quatro superfícies de prosa que o recado do próprio teste nomeia e **deixou o inventário atrás** — pelo que `obs_lint lint` dava 0 e só a suite via. A lista é a **quinta** superfície da propagação, e está dito no comentário que entrou com o módulo. Com ela, a célula do critério 2 do KAM-080 ficou certa, e a contagem apanhou duas divergências que **já vinham de `06b8aba2`** e que estão nomeadas como tal: o `quality_rating` nunca nomeado na prosa, e o AGR a somar para o total das doze séries sem ser uma delas. (2) **A configuração do pgBackRest fazia o contrário do que prometia, em três chaves, e o *lint* certificava-a.** Resolveu-se a instalar o pgBackRest 2.45 num contentor, porque cinco superfícies que concordam entre si não distinguem uma leitura certa de uma errada: o `archive_command` levava `--async`, que **não existe** («invalid option»), e com ele o arquivo nunca funcionaria; as referências `${...:?}` eram lidas **literalmente**; e o `retention-archive-type=full` retinha 35 dias de WAL onde a política escreve 7. **Sete mutações tinham sobrevivido, e as sete morrem agora.** Quatro eram a âncora do `audit_log`, que estava prendida por três greps de subcadeia e por nada que medisse a propriedade — resolveu-se a correr a consulta contra um **PostgreSQL 18 real**, com uma *fixture* que distingue «o último» de «o menor» e põe uma linha na fronteira: a consulta do ramo dá `ccc`, e as mutações dão `aaa`, `aaa`, a linha do dia seguinte e as 01:00. As outras três eram o **denominador** dos -11,11% publicados (nenhum ensaio afirmava uma percentagem), o parâmetro `quanto` do contador (nunca exercitado) e dez dos dezasseis marcadores do gate. **E três afirmações minhas eram falsas sobre verificações que não existem**, que é a classe que esta casa persegue: um `anti_ransomware` que dizia que «o *lint* falha se o perfil de restauro aparecer com permissão de escrita» — não há tal regra nem tais dados; um «predicado que verifica que a chave do restauro não é a de produção», que não existe em sítio nenhum; e a afirmação de que as credenciais do repositório entravam por referência de ambiente, quando só a passphrase entra e o transporte é SSH. As três estão corrigidas no sítio onde estavam escritas, com o credor. **O que isto custou em números publicados:** quatro contagens desta secção estavam medidas em `cb5c7439`, **antes** da integração da `main`, num ficheiro cujo cabeçalho dizia tê-las medido depois — 77 testes por 93, 31 métricas por 32, 2038 ficheiros por 2098 e 34 migrações/30 documentos por 35/33. Remedidas, e a regra que fica: um número escrito antes da integração não é um número medido. **O que não se tocou, e porquê:** `tools/compose_prod/` e `infra/compose/`, porque `test_lint.py:58` prende a soma do manifesto do conjunto reduzido a **24 064 MiB exactos** — a soma das linhas de limites propostos do bloco do **KAM-076** —, e um serviço de backup é memória que aquela proposta não contém; e `.github/rulesets/` e o `ci.yaml`, porque ligar o `backup_lint` a um portão é alteração de regra de bloqueio, com a medição entregue e a decisão do fundador. **Seis perguntas devolvidas**, entre elas a **D6** (que decide a cobertura dos objectos do STO), o *object lock* que fica **NÃO VERIFICADO** (**INDÍCIO** no KAM-011 §3.3: a sonda não prova que a retenção sobreviva a um reinício nem que não se contorne fora da API S3), e o aviso de que o `repo1` entra na *allowlist* do `proxy-saida` como destino **sem dono declarado** — da mesma classe do facilitador e do STT, mas mais caro, porque recebe cópias de bases de dados inteiras e não chamadas a uma API (sem ordinal: quantos são depende de que PR funda primeiro): a linha da *allowlist*, a entrada no inventário (KAM-069) e o `apd_ref` têm de entrar **no mesmo PR** que o FQDN. | Equipa KAMBÁ |
-| 1.10 | Novembro 2026 | **KAM-187** e **KAM-188** acrescentados, e **não entregues no mesmo PR**: o que se entrega são os tickets. Dois blocos, duas linhas na «Tabela Resumo» e a fase de cada um no §1. Arestas recíprocas nos cabeçalhos: o `Bloqueia` do KAM-076 e do KAM-080 ganha o KAM-187, e o do KAM-077 e do KAM-084 ganha o KAM-188. **O credor do critério 3 do KAM-082** — «o ticket que decidir qual processo do `worker-canal` o compose corre» — ganha o número **KAM-187**, e a caixa continua `parcial`. Nenhuma outra caixa muda. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | **KAM-187** e **KAM-188** acrescentados, e **não entregues no mesmo PR**: o que se entrega são os tickets. O KAM-188 lê as caixas que o ramo do KAM-084 (`feature/KAM-084-teste-de-carga`, por fundir) deixa ao «ticket que repete o teste de carga no *host* P0» e a medição das que deixa ao «ticket que liga a porta `grafos`». Dois blocos, duas linhas na «Tabela Resumo» e a fase de cada um no §1. Arestas recíprocas nos cabeçalhos: o `Bloqueia` do KAM-076 e do KAM-080 ganha o KAM-187, e o do KAM-077 e do KAM-084 ganha o KAM-188. **O credor do critério 3 do KAM-082** — «o ticket que decidir qual processo do `worker-canal` o compose corre» — ganha o número **KAM-187**, e a caixa continua `parcial`. Nenhuma outra caixa muda. | Equipa KAMBÁ |
