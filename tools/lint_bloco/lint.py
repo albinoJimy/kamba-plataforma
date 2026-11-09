@@ -233,13 +233,10 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: **O 97.o e o do KAM-090**, medido na arvore integrada com a `publico/main` em
 #: `c1c45644`: **97 medidos, exigido 48** — nao custou emenda.
 #:
-#: **O 98.o e o do KAM-187**, que integrou depois do KAM-083 e do KAM-090:
-#: medido na arvore da fusao com a `publico/main` em `06ad9ef4`, **98
-#: medidos, exigido 49**. Escreve-se **50** e nao 49, pela regra do 45: e o
-#: valor que a fila de fecho deu contando com o #168 e o #171 a fundir antes, e
-#: vale nas duas arvores (`49 <= 50 <= 98` aqui; `50 <= 50` com os 100 de la).
-#: Quem acrescentar o **102.o** paga a seguinte.
-MINIMO_DE_BLOCOS_MEDIDOS = 50
+#: **O 98.o e o do KAM-073**, medido na arvore integrada com a `publico/main` em
+#: `06ad9ef4`: **98 medidos, exigido 49**. Quem acrescentar o **100.o** paga a
+#: seguinte: o 49 serve ate aos 99.
+MINIMO_DE_BLOCOS_MEDIDOS = 49
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a
