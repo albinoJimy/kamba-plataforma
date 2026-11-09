@@ -51,12 +51,12 @@ FICHEIROS_DO_CGROUP = (
     "/sys/fs/cgroup/memory.current",
     "/sys/fs/cgroup/memory.stat",
     "/sys/fs/cgroup/cpu.stat",
-    # O `oom_kill` deste ficheiro conta os processos que o kernel matou por o
-    # contentor passar o `mem_limit`. Entrou na corrida 5, quando o *worker* de
-    # entrada deixou de responder a 251,7 MiB de 256 e o registo dele acabou a
-    # meio de uma linha de `info`: sem este contador, a morte por memoria era
-    # uma inferencia.
-    "/sys/fs/cgroup/memory.events",
+    # **Sem o `memory.events`, e de proposito.** Entrou para ler o `oom_kill` e
+    # saiu pela revisao adversarial (N7): o contador so se le enquanto o
+    # contentor existe, e o processo que o kernel mata por memoria e o node, PID 1
+    # de um contentor `--rm`, que vai com ele. Um `--init` nao muda isso: o tini
+    # sai quando o node sai. A morte por memoria prova-se pelo codigo de saida
+    # do `docker run` e pelo `oom` do `docker events` (`test_cenarios`).
 )
 
 MIB = 1024 * 1024
@@ -80,8 +80,6 @@ class Leitura:
     inactive_file: int
     usage_usec: int
     local: float = 0.0
-    #: `oom_kill` do `memory.events`: processos mortos por falta de memoria.
-    oom_kill: int = 0
 
     @property
     def working_set(self) -> int:
@@ -119,7 +117,6 @@ def ler_cgroup(texto: str, instante: float, local: float = 0.0) -> Leitura:
         inactive_file=pares["inactive_file"],
         usage_usec=pares["usage_usec"],
         local=local,
-        oom_kill=pares.get("oom_kill", 0),
     )
 
 
@@ -255,40 +252,72 @@ def falhas_de_entrada(desfechos: dict[str, int]) -> int:
     O `aoFalhar` do `entrada.ts` escreve `log.excepcao(erro, "entrada_falhou")`,
     que sai sem `outcome` e com `error_code` `entrada_falhou:<classe>`; o
     diagnostico do ensaio junta as duas coisas em `None|entrada_falhou:<classe>`.
+
+    **Conta a mais, e diz-se**: o `trabalhador.ts` chama o mesmo `aoFalhar` no
+    `error` do *worker*, que nao tem *job* nenhum associado. O tecto do excesso
+    de duplicados que se tira daqui so pode sair **mais largo**, nunca mais
+    estreito.
     """
     return sum(n for chave, n in desfechos.items() if "|entrada_falhou" in chave)
 
 
-def duplicados_explicados(
-    *, duplicados: int, repetidas: int, falhas: int, eventos_por_job: int
-) -> dict:
-    """Os duplicados que a base contou estao explicados pelas causas medidas?
+def id_opaco(identificador: str) -> str:
+    """O `msg_id` que o *worker* regista: `idOpaco` de `logger/politica.ts`.
 
-    Duas causas, e so duas, e cada tolerancia tem a sua razao:
-
-    - **cada repetida com outros bytes da exactamente um duplicado** — passa o
-      GWY (o `jobId` e o SHA-256 do corpo, e o corpo e outro) e a `UNIQUE (kind,
-      event_key)` reconhece-a. Logo `duplicados >= repetidas`: menos do que isso e
-      uma repetida que escapou ao segundo nivel;
-    - **um *job* que falha e repete volta a registar os eventos que ja tinha
-      registado**, e cada um conta como duplicado. Um corpo destes leva
-      `eventos_por_job` eventos, pelo que o excesso e no maximo
-      `falhas * eventos_por_job`. Medido na corrida 4: 901 para 900, com dois
-      `entrada_falhou`.
-
-    Um excesso acima disso nao tem causa medida — por exemplo, a deduplicacao a
-    contar cada repeticao duas vezes — e falha. O ensaio de controlo e
-    `test_medicao.TestDuplicados.test_o_dobro_das_repetidas_fica_vermelho`.
+    `m_` mais os 32 primeiros caracteres hexadecimais do SHA-256 da `event_key`.
+    E por ele que um `entrada_duplicado` do registo se liga a uma repetida do
+    plano, por identidade e nao por contagem.
     """
-    excesso = duplicados - repetidas
+    import hashlib
+
+    return "m_" + hashlib.sha256(identificador.encode("utf-8")).hexdigest()[:32]
+
+
+def duplicados_explicados(
+    *,
+    vistos: list[str],
+    esperados: set[str],
+    proibidos: set[str],
+    falhas: int,
+    eventos_por_job: int,
+) -> dict:
+    """Os `entrada_duplicado` do *worker* sao os que a rajada provocou, **por identidade**?
+
+    - `vistos` sao os `msg_id` dos `entrada_duplicado` do registo do *worker*;
+    - `esperados` sao os das repetidas **com outros bytes**: passam o GWY (o
+      `jobId` dele e o SHA-256 do corpo, e o corpo e outro) e a `UNIQUE (kind,
+      event_key)` tem de reconhecer **cada uma**. Uma em falta e uma repetida
+      que escapou ao segundo nivel;
+    - `proibidos` sao os das repetidas **com os mesmos bytes**: o GWY reconhece-as
+      e nao chegam ao *worker*. Uma vista e uma que passou o primeiro nivel;
+    - o resto dos `vistos` e **excesso**, e a unica causa medida e um *job* que
+      falhou e repetiu, que volta a registar os seus eventos. O tecto e
+      `falhas * eventos_por_job` (corrida 4: 901 para 900, com dois
+      `entrada_falhou`). O `falhas` conta tambem erros do *worker* sem *job*
+      (`falhas_de_entrada`), o que so alarga o tecto. **Uma causa que nao se
+      mediu** — um *job* que perde a tranca e se repete sem `entrada_falhou` — da
+      excesso sem falha, e fica vermelha: e um falso vermelho possivel, dito.
+
+    Os ensaios de controlo estao em `test_medicao.TestDuplicados`, incluindo o
+    que liga as repetidas erradas (os mesmos bytes em vez dos outros) e tem de
+    ficar vermelho.
+    """
+    contagem: dict[str, int] = {}
+    for m in vistos:
+        contagem[m] = contagem.get(m, 0) + 1
+    em_falta = len(esperados - set(contagem))
+    passaram_o_gwy = len(proibidos & set(contagem))
+    excesso = sum(n - (1 if m in esperados else 0) for m, n in contagem.items())
     tecto = falhas * eventos_por_job
     return {
-        "duplicados": duplicados,
-        "repetidas_com_outros_bytes": repetidas,
+        "duplicados": len(vistos),
+        "esperados": len(esperados),
+        "em_falta": em_falta,
+        "mesmos_bytes_que_passaram_o_gwy": passaram_o_gwy,
         "falhas_de_entrada": falhas,
         "excesso": excesso,
         "tecto_do_excesso": tecto,
-        "explicado": 0 <= excesso <= tecto,
+        "explicado": em_falta == 0 and passaram_o_gwy == 0 and excesso <= tecto,
     }
 
 
@@ -342,7 +371,6 @@ class Serie:
             "nucleos_p50": round(percentil(cpu, 50), 3) if cpu else None,
             "nucleos_p95": round(percentil(cpu, 95), 3) if cpu else None,
             "nucleos_max": round(max(cpu), 3) if cpu else None,
-            "oom_kill": max(l.oom_kill for l in self.leituras),
         }
 
 

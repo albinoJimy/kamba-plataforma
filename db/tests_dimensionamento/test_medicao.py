@@ -64,14 +64,6 @@ class TestWorkingSet(unittest.TestCase):
         self.assertEqual((leitura.instante, leitura.local), (812.47, 3.0))
         self.assertEqual(leitura.working_set, 115_343_360)
 
-    def test_o_oom_kill_le_se_do_memory_events(self) -> None:
-        eventos = "low 0\nhigh 0\nmax 12\noom 1\noom_kill 1\noom_group_kill 0\n"
-        leitura = medicao.ler_cgroup(CGROUP + eventos, 1.0)
-        self.assertEqual(leitura.oom_kill, 1)
-        # Sem o ficheiro, zero — e o resto da leitura nao muda.
-        self.assertEqual(medicao.ler_cgroup(CGROUP, 1.0).oom_kill, 0)
-        self.assertEqual(leitura.working_set, 115_343_360)
-
     def test_sem_uptime_levanta(self) -> None:
         with self.assertRaises(medicao.CgroupIlegivel):
             medicao.separar_uptime(CGROUP.replace("157286400\n", "", 1).replace("anon", "x y", 1))
@@ -139,28 +131,59 @@ class TestLimitesDoCompose(unittest.TestCase):
 
 
 class TestDuplicados(unittest.TestCase):
-    """O excesso de duplicados da rajada esta preso a causa medida."""
+    """Os duplicados da rajada, por identidade, e o excesso preso a causa medida."""
 
-    def _veredicto(self, duplicados: int, falhas: int = 2) -> dict:
+    ESPERADOS = {f"m_outro{i}" for i in range(900)}
+    PROIBIDOS = {f"m_igual{i}" for i in range(900)}
+
+    def _veredicto(self, vistos: list[str], falhas: int = 2, esperados=None) -> dict:
         return medicao.duplicados_explicados(
-            duplicados=duplicados, repetidas=900, falhas=falhas, eventos_por_job=1
+            vistos=vistos,
+            esperados=self.ESPERADOS if esperados is None else esperados,
+            proibidos=self.PROIBIDOS,
+            falhas=falhas,
+            eventos_por_job=1,
         )
 
-    def test_a_corrida_4_esta_explicada(self) -> None:
+    def test_o_caso_limpo_e_o_da_corrida_4(self) -> None:
+        exactos = sorted(self.ESPERADOS)
+        self.assertTrue(self._veredicto(exactos, falhas=0)["explicado"])
         # 901 para 900, com dois `entrada_falhou`: o excesso de 1 cabe nos 2.
-        self.assertTrue(self._veredicto(901)["explicado"])
-        self.assertTrue(self._veredicto(900, falhas=0)["explicado"])
+        self.assertTrue(self._veredicto(exactos + ["m_outro0"])["explicado"])
 
     def test_uma_repetida_que_escapou_fica_vermelha(self) -> None:
-        self.assertFalse(self._veredicto(899)["explicado"])
+        self.assertFalse(self._veredicto(sorted(self.ESPERADOS)[1:])["explicado"])
 
     def test_o_dobro_das_repetidas_fica_vermelho(self) -> None:
         # A mutacao de controlo pedida: a deduplicacao a contar cada repeticao
         # duas vezes. Com `>=` sozinho, isto passava.
-        self.assertFalse(self._veredicto(1800)["explicado"])
+        self.assertFalse(self._veredicto(sorted(self.ESPERADOS) * 2)["explicado"])
 
     def test_excesso_sem_falhas_fica_vermelho(self) -> None:
-        self.assertFalse(self._veredicto(901, falhas=0)["explicado"])
+        self.assertFalse(self._veredicto(sorted(self.ESPERADOS) + ["m_x"], falhas=0)["explicado"])
+
+    def test_uma_igual_que_passou_o_gwy_fica_vermelha(self) -> None:
+        vistos = sorted(self.ESPERADOS) + ["m_igual7"]
+        self.assertFalse(self._veredicto(vistos)["explicado"])
+
+    def test_a_contagem_certa_com_os_ids_errados_fica_vermelha(self) -> None:
+        # O N2 da revisao adversarial: a primeira versao contava, e 900
+        # duplicados de qualquer coisa passavam. Por identidade, 900 ids que nao
+        # sao os das repetidas com outros bytes deixam as 900 em falta.
+        self.assertFalse(self._veredicto([f"m_x{i}" for i in range(900)], falhas=900)["explicado"])
+
+    def test_ligar_as_repetidas_erradas_fica_vermelho(self) -> None:
+        # A mutacao da **ligacao** e nao da funcao: o ensaio a passar as iguais
+        # como esperadas. Elas nunca aparecem como duplicadas, logo faltam todas.
+        vistos = sorted(self.ESPERADOS)
+        self.assertFalse(self._veredicto(vistos, esperados=self.PROIBIDOS)["explicado"])
+
+    def test_o_id_opaco_e_o_do_logger(self) -> None:
+        # O valor foi calculado pelo Node (`"m_" + sha256(...).slice(0, 32)`,
+        # `logger/politica.ts`) e escrito por extenso.
+        self.assertEqual(
+            medicao.id_opaco("wamid.KAM084.M.000000001"), "m_c0fcd94e93ecdb4151dc73389b1634ce"
+        )
 
     def test_as_falhas_leem_se_do_registo_do_worker(self) -> None:
         desfechos = {
@@ -272,6 +295,23 @@ class TestPlano(unittest.TestCase):
             gerador.job_do_agr("t1", "wamid.X"),
             "674bd4729afae4b297f84d323e45a391866ef1eda48d570adf29c9ffde1f8ef2",
         )
+
+    def test_as_repetidas_escolhem_se_por_tipo(self) -> None:
+        # O N1 da revisao adversarial: com `plano[::10]` repartido por posicao,
+        # um grupo saia so de mensagens e o outro so de estados `delivered`.
+        plano = self.fabrica.plano(100.0, 40.0)  # 4 000 pedidos, 1 000 mensagens
+        iguais, outros = gerador.escolher_repetidas(plano, 200)
+        for grupo in (iguais, outros):
+            tipos = [p.chave[0] for p in grupo]
+            self.assertEqual(tipos.count("message"), 100)
+            self.assertEqual(tipos.count("statuses"), 100)
+        self.assertFalse({p.chave for p in iguais} & {p.chave for p in outros})
+        # E os estados nao sao todos do mesmo tipo.
+        self.assertGreater(len({p.chave[1].rsplit(":", 1)[1] for p in outros if p.chave[0] == "statuses"}), 1)
+
+    def test_por_grupo_impar_recusa(self) -> None:
+        with self.assertRaises(ValueError):
+            gerador.escolher_repetidas(self.fabrica.plano(10.0, 4.0), 3)
 
     def test_reserializado_e_o_mesmo_json_com_outros_bytes(self) -> None:
         original = self.fabrica.plano(1.0, 1.0)[0]

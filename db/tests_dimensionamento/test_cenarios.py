@@ -179,10 +179,17 @@ class TestDimensionamento(ComEntrada):
 
     @classmethod
     def _arrancar_processos(cls) -> None:
+        # Os processos Node **arrancam** com os limites do compose, e nao os
+        # recebem depois: o V8 dimensiona o *heap* pela memoria que ve ao
+        # arrancar (2 240 MiB sem limite contra 259 MiB com `--memory 256m`,
+        # medido). A corrida 5 aplicava-os com `docker update` e o *worker*
+        # morreu a 251,7 MiB de 256 — artefacto do ensaio, achado N3 da
+        # revisao adversarial.
+        texto = COMPOSE_DE_PRODUCAO.read_text(encoding="utf-8")
         cls.processos = []
-        cls.gwy_a = cls._lancar_gwy()
-        cls.gwy_b = cls._lancar_gwy()
-        cls.worker = cls._lancar_worker()
+        cls.gwy_a = cls._lancar_gwy(limites=limites_do_compose(texto, "gwy"))
+        cls.gwy_b = cls._lancar_gwy(limites=limites_do_compose(texto, "gwy"))
+        cls.worker = cls._lancar_worker(limites=limites_do_compose(texto, "worker-canal"))
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -213,11 +220,12 @@ class TestDimensionamento(ComEntrada):
     def _vigiar_docker(cls) -> None:
         """Guarda os `oom` e `die` que o Docker emitir para os contentores do ensaio.
 
-        **E a unica prova directa de uma morte por memoria.** O `oom_kill` do
-        cgroup so se le enquanto o contentor existe, e um *worker* morto pelo
-        kernel leva o contentor com ele (`--rm`); o registo do Docker e
-        circular e as amostras do `docker exec` enchem-no em minutos — na
-        corrida 5, quando se foi procurar, o `die` do *worker* ja la nao estava.
+        **E, com o codigo de saida, a unica prova directa de uma morte por
+        memoria.** O `oom_kill` do cgroup so se le enquanto o contentor existe, e
+        um *worker* morto pelo kernel leva o contentor com ele (`--rm`), pelo que
+        o ensaio nao o le (achado N7). O registo do Docker e circular e as
+        amostras do `docker exec` enchem-no em minutos — na corrida 5, quando se
+        foi procurar, o `die` do *worker* ja la nao estava.
         """
         import subprocess
 
@@ -238,7 +246,13 @@ class TestDimensionamento(ComEntrada):
 
     @classmethod
     def _aplicar_limites(cls) -> dict:
-        """Poe em cada contentor o `mem_limit` e o `cpus` do servico no compose."""
+        """Poe em cada contentor o `mem_limit` e o `cpus` do servico no compose.
+
+        Os tres processos Node ja arrancaram com eles (`_arrancar_processos`);
+        aqui so se poem no PostgreSQL e no Valkey, que o `gate_bd.py` levanta e
+        que nao dimensionam memoria pelo cgroup no arranque (o
+        `shared_buffers` e o `maxmemory` sao configuracao, nao deteccao).
+        """
         import subprocess
 
         texto = COMPOSE_DE_PRODUCAO.read_text(encoding="utf-8")
@@ -249,6 +263,11 @@ class TestDimensionamento(ComEntrada):
             if not nome:
                 aplicados[rotulo] = "sem contentor (node no PATH): limites por aplicar"
                 continue
+            if rotulo in ("gwy_a", "gwy_b", "worker_entrada"):
+                aplicados[rotulo] = {
+                    "servico": servico, "mem_limit": memoria, "cpus": cpus, "quando": "no arranque",
+                }
+                continue
             feito = subprocess.run(
                 ["docker", "update", "--cpus", cpus, "--memory", memoria,
                  "--memory-swap", memoria, nome],
@@ -256,7 +275,7 @@ class TestDimensionamento(ComEntrada):
             )
             if feito.returncode != 0:
                 raise AssertionError(f"limites de {rotulo}: {feito.stderr.strip()[:300]}")
-            aplicados[rotulo] = {"servico": servico, "mem_limit": memoria, "cpus": cpus}
+            aplicados[rotulo] = {"servico": servico, "mem_limit": memoria, "cpus": cpus, "quando": "docker update"}
         return aplicados
 
     def _guardar(self) -> None:
@@ -705,7 +724,6 @@ class TestDimensionamento(ComEntrada):
         unicos = int(TAXA_S1 * BACKLOG_S)
         taxa = TAXA_S1 * FACTOR_DA_RAJADA
         plano = self.fabrica.plano(taxa, unicos / taxa, canais=self.canais[:CANAIS_S1])
-        passo = int(round(1 / FRACCAO_REPETIDA))
         # **Duas formas de repeticao, metade cada**, porque sao dois niveis de
         # deduplicacao diferentes, e a primeira versao so media o primeiro:
         # - os **mesmos bytes**, que o GWY reconhece pelo `jobId = sha256(corpo)`
@@ -713,42 +731,65 @@ class TestDimensionamento(ComEntrada):
         # - o **mesmo JSON com outros bytes**, que passa o GWY, chega ao *worker*
         #   e so a `UNIQUE (kind, event_key)` de `inbound_events` apanha — e e o
         #   caminho de uma reentrega da Meta depois de a retencao a ter esquecido.
-        escolhidos = plano[::passo]
+        # E **cada grupo e metade mensagens e metade estados** (achado N1): so
+        # uma mensagem diz se o CHR deixa de criar o *job* do AGR.
+        por_grupo = int(round(len(plano) * FRACCAO_REPETIDA / 2))
+        base_iguais, base_outros = gerador.escolher_repetidas(plano, por_grupo)
         iguais = [
             gerador.Pedido(p.alvo + ATRASO_DA_REPETICAO_S, p.corpo, p.assinatura, p.chave, p.tenant_id)
-            for p in escolhidos[0::2]
+            for p in base_iguais
         ]
         outros_bytes = [
             gerador.reserializado(
                 gerador.Pedido(p.alvo + ATRASO_DA_REPETICAO_S, p.corpo, p.assinatura, p.chave, p.tenant_id),
                 APP_SECRET_ACTUAL,
             )
-            for p in escolhidos[1::2]
+            for p in base_outros
         ]
         completo = sorted(plano + iguais + outros_bytes, key=lambda p: p.alvo)
+        linhas_do_worker = len(self.worker.linhas())
         bloco = self._correr(
             "rajada",
             [("rajada", completo)],
-            repetidas={"mesmos_bytes": len(iguais), "outros_bytes": len(outros_bytes)},
+            repetidas={
+                "mesmos_bytes": len(iguais),
+                "outros_bytes": len(outros_bytes),
+                "mensagens_com_outros_bytes": sum(1 for p in outros_bytes if p.chave[0] == "message"),
+                "estados_com_outros_bytes": sum(1 for p in outros_bytes if p.chave[0] == "statuses"),
+            },
         )
         self._afirmar_sem_perdas(bloco)
-        # O segundo nivel **mordeu**: cada repetida com outros bytes chegou ao
-        # *worker* e foi reconhecida como duplicada pela base. Sem esta asercao,
-        # um GWY que deduplicasse por conteudo (ou uma fila que as perdesse)
-        # passava a rajada sem que a `UNIQUE` fosse alguma vez exercida.
-        #
-        # O excesso esta preso a causa medida, e nao livre: ver
-        # `medicao.duplicados_explicados`.
+        # O segundo nivel **mordeu, e por identidade**: cada repetida com outros
+        # bytes aparece no registo do *worker* como `entrada_duplicado` com o
+        # seu `msg_id`, nenhuma das com os mesmos bytes la aparece (o GWY
+        # apanhou-as), e o excesso esta preso a causa medida
+        # (`medicao.duplicados_explicados`). E o `_afirmar_sem_perdas` acima ja
+        # exigiu que nenhuma mensagem repetida desse *job* do AGR a mais.
+        vistos = [
+            linha["msg_id"]
+            for linha in self.worker.linhas()[linhas_do_worker:]
+            if linha.get("outcome") == "entrada_duplicado" and "msg_id" in linha
+        ]
         desfechos = bloco["destino"]["desfechos_do_worker"]
         veredicto = medicao.duplicados_explicados(
-            duplicados=desfechos.get("entrada_duplicado|", 0),
-            repetidas=len(outros_bytes),
+            vistos=vistos,
+            esperados={medicao.id_opaco(p.chave[1]) for p in outros_bytes},
+            proibidos={medicao.id_opaco(p.chave[1]) for p in iguais},
             falhas=medicao.falhas_de_entrada(desfechos),
             eventos_por_job=gerador.EVENTOS_POR_CORPO,
+        )
+        mensagens_esperadas = {
+            medicao.id_opaco(p.chave[1]) for p in outros_bytes if p.chave[0] == "message"
+        }
+        veredicto["mensagens_que_passaram_pelo_segundo_nivel"] = len(
+            mensagens_esperadas & set(vistos)
         )
         bloco["destino"]["duplicados_explicados"] = veredicto
         self._guardar()
         self.assertTrue(veredicto["explicado"], veredicto)
+        self.assertEqual(
+            veredicto["mensagens_que_passaram_pelo_segundo_nivel"], len(mensagens_esperadas), veredicto
+        )
 
     def test_5_rampa(self) -> None:
         # Os planos tem alvos relativos ao seu proprio inicio: cada `disparar`

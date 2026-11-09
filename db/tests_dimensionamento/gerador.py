@@ -283,6 +283,38 @@ def _enviar(
     return 0, (time.perf_counter() - inicio) * 1000.0, erro
 
 
+def escolher_repetidas(plano: list[Pedido], por_grupo: int) -> tuple[list[Pedido], list[Pedido]]:
+    """Dois grupos de `por_grupo` pedidos a repetir, **metade mensagens e metade estados cada**.
+
+    **Escolhe-se por tipo, e a primeira versao nao o fazia**: tirava um em cada
+    dez do plano e repartia-os por posicao, e como o plano vem em blocos de
+    mensagem, estado, estado, estado, um grupo saiu so de mensagens e o outro
+    so de estados `delivered` — nenhuma mensagem passou pelo segundo nivel de
+    deduplicacao, que e o unico que decide se o AGR recebe um *job* a mais.
+    Achado N1 da revisao adversarial. Dentro de cada tipo, os escolhidos
+    espalham-se pelo plano inteiro e alternam entre os dois grupos.
+    """
+    if por_grupo % 2:
+        raise ValueError("por_grupo tem de ser par: metade mensagens, metade estados")
+    metade = por_grupo // 2
+    mensagens = [p for p in plano if p.chave[0] == "message"]
+    estados = [p for p in plano if p.chave[0] == "statuses"]
+
+    def espalhar(lista: list[Pedido], quantos: int) -> list[Pedido]:
+        # Amostra com semente fixa, e **nao** um passo regular: os estados vem
+        # em ciclo `sent`, `delivered`, `read`, e um passo multiplo de 3 caia
+        # sempre no mesmo — o mesmo defeito do N1, um nivel abaixo, apanhado
+        # pelo `test_as_repetidas_escolhem_se_por_tipo`.
+        if quantos > len(lista):
+            raise ValueError("o plano nao tem pedidos que cheguem desse tipo")
+        indices = sorted(random.Random(len(lista)).sample(range(len(lista)), quantos))
+        return [lista[i] for i in indices]
+
+    m = espalhar(mensagens, 2 * metade)
+    e = espalhar(estados, 2 * metade)
+    return m[0::2] + e[0::2], m[1::2] + e[1::2]
+
+
 def reserializado(pedido: Pedido, segredo: str) -> Pedido:
     """O mesmo JSON com **outros bytes**, assinado outra vez.
 
