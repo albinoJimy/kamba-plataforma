@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.20 |
+| Versão | 1.21 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -2347,7 +2347,7 @@ Commits: fix(KAM-176): ...
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-042, KAM-046, KAM-031 |
-| Bloqueia | — |
+| Bloqueia | KAM-186 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/com/port-coverage.md` §2, `../docs/tecnica/03_Core_Comercio_Medusa.md` (§3.2, §6.2, §6.3), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2, §6.3, §6.5), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.27, §3.28, §3.39, §3.44), `EPIC-03_Agent_Runtime_Verticais.md` (blocos KAM-025, KAM-028, KAM-029, KAM-031), ADR-007, ADR-010, ADR-013, ADR-015 |
 
@@ -2926,3 +2926,4 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | 1.18 | Novembro 2026 | **A caixa devolvida passa a dizer o quê, e não só quem e quando.** O fundador decidiu «não dobrar»: a remoção da notificação do AGR não entra no PR do `registry`, logo é trabalho separado e esta caixa é o único sítio do repositório que o reclama — uma caixa sem especificação morre com a fusão da sessão que a sabia. Entram as **três** edições (sair do `TEXTOS`, omitir o `notifica` na subscrição, entrar no `ACCOES_POR_LIGAR`), medidas pela sessão do `registry` e confirmadas por mim contra a árvore dela: a versão com duas fazia o AGR sair com **8**, porque uma subscrição sem destinatário e sem credor reprova o arranque. Mais as duas guardas — as edições 1 e 2 andam juntas ou nenhuma, e um par com as duas coisas também reprova — e **duas consequências que a lista de três não cobria**: o SemVer do `registry/servicos.yaml` tem de acompanhar, pela regra escrita no próprio ficheiro, e o comentário dele conta «os dois» eventos sem `notifica` quando passariam a três, numa contagem que o `lint_contagens` não lê. Com a ressalva de que as edições 2 e 3 são escritas contra um mecanismo que **ainda não fundiu**. Credor: **o fundador**. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | **A ressalva de estado da caixa devolvida passa a ser uma medição, e o ordinal sai da prosa das métricas.** O mecanismo do KAM-039 fundiu (`main` em `bb9b5c6`), pelo que corri o `exigir_handlers` dele sobre o par nos **quatro** estados: a `main` de hoje **aceita** (logo este PR não precisa de emenda nenhuma ao AGR), as três edições juntas **aceitam**, e **cada subconjunto próprio recusa — por motivos diferentes**. A (3) sozinha cai na guarda `diz_as_duas` que o KAM-039 acrescentou; as (1)+(2) sozinhas caem na do credor em falta. «Andam juntas» era mais fraco do que o que se mede: são **atómicas**, e quem as prende é o arranque. E sai da prosa de observabilidade a frase «o **primeiro** módulo de métricas dentro de um serviço»: é uma afirmação sobre a **ordem de fusão** e não sobre o código, e o KAM-055 traz um `payments/metricas.ts` pelo mesmo caminho num PR aberto ao lado — ficava falsa se ele fundisse primeiro. Fica a propriedade, que vale nas duas ordens, e os números passam a levar ao lado a ponta onde foram medidos. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-047 ganha o KAM-184.** Aquele ticket abre a acção do consumo dos dois eventos de pagamento na vertical Serviços, que o *gate* da Fase 0 exige na linha **1.6** da sua checklist e que **não tem credor vivo**: dois credores no código (KAM-047, KAM-035) e um no esquema (KAM-007, nomeado pela secção de verificação do KAM-039), todos com *merge* na `main` — medido em `ca5cac5`. O `lint_backlog` exige a aresta dos dois lados; nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
+| 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-178 deixa de ser `—` e passa a KAM-186** (EPIC-03), que liga a porta `grafos` do AGR e consome os executores das tools que este ticket ligou. | Equipa KAMBÁ |
