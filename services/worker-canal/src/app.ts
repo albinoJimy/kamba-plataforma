@@ -7,7 +7,7 @@
  * `consumidor.ts` (KAM-006). Cada um e um servico proprio do compose desde o
  * KAM-187, e cada um serve o seu `/healthz`. O `server.ts` ficou como o `CMD`
  * por omissao da imagem e nao corre em compose nenhum: a regra
- * `consumidor-sem-comando` do `compose_prod` recusa um servico desta imagem sem
+ * `consumidor-com-server-ts` do `compose_prod` recusa um servico desta imagem sem
  * `command:`.
  *
  * Hono 4.13.x por decisão de `docs/tecnica/09` §3.1: o 5.0.0-rc.0 saiu a 2026-10-08 e

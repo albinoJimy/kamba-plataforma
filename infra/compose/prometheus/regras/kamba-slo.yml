@@ -44,6 +44,14 @@
 # casos do `testes/kamba_slo_burn_test.yml` prendem as tres coisas. A mudanca
 # de definicao esta registada no `ops/slo.md` (versao 1.2).
 #
+# **E os quatro `job` tem de existir.** O `min()` ignora series que nao
+# existem: um `job` que nunca foi descoberto — um processo em ciclo de
+# reinicio cujo nome o DNS do compose deixa de devolver, que e o caso do
+# `entrada.ts` em `prod` hoje — contava como em pe. O `* on() (count(count by
+# (job) (...)) == bool 4)` poe o caminho a mau quando falta algum dos quatro,
+# e o caso «o worker de entrada nunca descoberto» prende-o. Medido pela
+# revisao adversarial do KAM-187.
+#
 # ## As duas assimetrias do `or vector(0)`
 #
 # `min(up{...}) or vector(0)`: sem nenhum alvo descoberto, o caminho conta como
@@ -104,7 +112,7 @@ groups:
       # `alvo_em_baixo` do `kamba.yml` ja a trata como P1 — o SLI nao podia ser
       # mais tolerante do que o alerta.
       - record: slo_caminho_de_venda_bom
-        expr: 'min(up{job=~"gwy|agr|entrada|agr_shim"}) or vector(0)'
+        expr: 'min(up{job=~"gwy|agr|entrada|agr_shim"}) * on() (count(count by (job) (up{job=~"gwy|agr|entrada|agr_shim"})) == bool 4) or vector(0)'
 
       # Houve mensagens afectadas **observadas** na ultima meia hora?
       #

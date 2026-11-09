@@ -159,6 +159,10 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
                 lambda c, padrao=padrao, outro=outro: c.trocar(
                     lint.PROD, padrao, f'"{outro}"'
                 ),
+                # O servico passa a correr outro processo com a porta, as
+                # variaveis e o alvo do seu: a ligacao fica errada por
+                # consequencia, e dizer-lo e verdade. O que o caso prova e a falta.
+                tolera=frozenset({"consumidor-mal-ligado", "consumidor-sem-alvo"}),
             )
         )
         casos.append(
@@ -199,6 +203,77 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
             ),
         )
     )
+    # A ligacao, e nao so o comando: as mutacoes que a revisao adversarial
+    # mostrou passarem pela primeira versao da regra.
+    entrada_cmd = r'^    command: \["node", "services/worker-canal/src/entrada\.ts"\]$'
+    consumidor_cmd = r'^    command: \["node", "services/worker-canal/src/consumidor\.ts"\]$'
+    casos += [
+        Caso(
+            "consumidor-com-scale-zero",
+            frozenset({"consumidor-em-falta"}),
+            "o servico do `consumidor.ts` ganha `scale: 0` e nao arranca nenhuma replica",
+            lambda c: c.trocar(
+                lint.PROD, consumidor_cmd,
+                '    scale: 0\n    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        ),
+        Caso(
+            "consumidor-com-entrypoint",
+            frozenset({"consumidor-mal-ligado"}),
+            "o servico do `entrada.ts` ganha um `entrypoint:` que corre outra coisa",
+            lambda c: c.trocar(
+                lint.PROD, entrada_cmd,
+                '    entrypoint: ["true"]\n'
+                '    command: ["node", "services/worker-canal/src/entrada.ts"]',
+            ),
+        ),
+        Caso(
+            "consumidor-porta-trocada",
+            frozenset({"consumidor-mal-ligado"}),
+            "o `entrada.ts` passa a escutar na 3014, e a sonda e o alvo ficam na 3013",
+            lambda c: c.trocar(lint.PROD, r'^      ENTRADA_PORT: "3013"$', '      ENTRADA_PORT: "3014"'),
+        ),
+        Caso(
+            "consumidor-sem-variavel",
+            frozenset({"consumidor-mal-ligado"}),
+            "o *shim* recebe a fila como `KAMBA_QUEUE_URL`, que ele nao le",
+            lambda c: c.trocar(
+                lint.PROD, r"^      KAMBA_REDIS_URL: redis://queue:6379$",
+                "      KAMBA_QUEUE_URL: redis://queue:6379",
+            ),
+        ),
+        Caso(
+            "consumidor-com-ambiente-de-outro",
+            frozenset({"consumidor-mal-ligado"}),
+            "em *staging*, o `entrada.ts` declara `KAMBA_ENV: prod`",
+            lambda c: c.trocar(
+                lint.STAGING, r"^      KAMBA_ENV: staging\n      KAMBA_FASE: piloto$",
+                "      KAMBA_ENV: prod\n      KAMBA_FASE: piloto",
+            ),
+        ),
+        Caso(
+            "consumidor-com-duas-replicas",
+            frozenset({"consumidor-mal-ligado"}),
+            "em *staging*, o consumidor ganha duas replicas e parte a ordem por particao",
+            lambda c: c.trocar(
+                lint.STAGING, consumidor_cmd,
+                '    deploy:\n      replicas: 2\n'
+                '    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        ),
+        Caso(
+            "consumidor-sem-alvo-renomeado",
+            frozenset({"consumidor-sem-alvo"}),
+            "o `job` do *shim* e renomeado no `prometheus.yml` e sai do numerador do SLI",
+            lambda c: c.trocar(lint.PROMETHEUS, r"^  - job_name: agr_shim$", "  - job_name: worker_agr_shim"),
+        ),
+        Caso(
+            "consumidor-sem-alvo-porta",
+            frozenset({"consumidor-sem-alvo"}),
+            "o alvo do `entrada.ts` passa a raspar a 3014",
+            lambda c: c.trocar(lint.PROMETHEUS, r"^        port: 3013$", "        port: 3014"),
+        ),
+    ]
     return tuple(casos)
 
 
@@ -672,7 +747,10 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
             "langfuse-sem-perfil",
         }
     ),
-    "r_consumidores": frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
+    "r_consumidores": frozenset(
+        {"consumidor-em-falta", "consumidor-com-server-ts", "consumidor-mal-ligado",
+         "consumidor-sem-alvo"}
+    ),
 }
 
 #: O que se copia: so o que o `varrer` le. Copiar a arvore toda levava segundos

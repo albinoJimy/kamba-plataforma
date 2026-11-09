@@ -396,6 +396,14 @@ fontes_adicionais:
   # tres imagens e os tres digests estao nesse ficheiro (o `chatwoot` e o
   # `chatwoot-worker` partilham a mesma), onde o passo `imagens`
   # deste gate os ve e confere.
+  # KAM-187: o ensaio dos quatro processos do `worker-canal` levanta o compose
+  # de staging inteiro, e as imagens e os digests sao os desse ficheiro. Nao e
+  # dispensa: e a mesma declaracao do spike do Chatwoot, logo abaixo.
+  - ficheiro: db/ensaio_consumidores.py
+    sem_imagem: >-
+      Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
+      onde as imagens e os digests estao declarados. O ensaio nao constroi nem
+      puxa nada por conta propria.
   - ficheiro: infra/chatwoot/spike.py
     sem_imagem: >-
       Chama `docker compose -f infra/compose/docker-compose.chatwoot.yml`, que e

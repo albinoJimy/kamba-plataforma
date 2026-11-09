@@ -92,6 +92,36 @@ CONSUMIDORES = (
 #: O `CMD` da imagem. Nao consome nada; um servico que o corra e uma sonda verde
 #: sobre trabalho que ninguem faz.
 SONDA_DO_WORKER = "services/worker-canal/src/server.ts"
+PROMETHEUS = "infra/compose/prometheus/prometheus.yml"
+#: Por processo: o `job` do Prometheus, a variavel e o valor da porta, as
+#: variaveis que o processo **exige no arranque** (lidas do `exigir(...)` de cada
+#: ficheiro de `services/worker-canal/src/`) e o maximo de replicas (`None`
+#: quando escala com replicas).
+PROCESSOS: dict[str, tuple[str, str, int, tuple[str, ...], int | None]] = {
+    "services/worker-canal/src/entrada.ts": (
+        "entrada", "ENTRADA_PORT", 3013,
+        ("KAMBA_QUEUE_URL", "KAMBA_ENTRADA_DB_URL", "KAMBA_CHR_RESOLVER_DB_URL",
+         "KAMBA_CHR_IDENTITY_DB_URL", "KAMBA_FASE", "KAMBA_ENV",
+         "KAMBA_SECRET_PEPPER_CONTACT_HMAC", "KAMBA_SECRET_KEK_CONTACT_DEK"),
+        None,
+    ),
+    "services/worker-canal/src/agr_shim.ts": (
+        "agr_shim", "AGR_SHIM_PORT", 3025,
+        ("KAMBA_REDIS_URL", "KAMBA_AGR_URL", "KAMBA_ENV", "KAMBA_SECRET_AGR_INTERNAL_TOKEN"),
+        None,
+    ),
+    "services/worker-canal/src/publicador.ts": (
+        "publicador", "PUBLICADOR_PORT", 3011,
+        ("KAMBA_QUEUE_URL", "KAMBA_PUBLICADOR_DB_URL"),
+        None,
+    ),
+    "services/worker-canal/src/consumidor.ts": (
+        "consumidor", "CONSUMIDOR_PORT", 3012,
+        ("KAMBA_QUEUE_URL", "KAMBA_CONSUMER", "KAMBA_CONSUMIDOR_DB_URL",
+         "KAMBA_CONSUMIDOR_OPS_DB_URL"),
+        1,
+    ),
+}
 
 #: O unico servico que publica porta, e a unica porta. O WireGuard corre no
 #: *host* (KAM-075) e nao em contentor.
@@ -1211,6 +1241,86 @@ def _comando(ficheiro: compose_mod.Compose, chaves: dict) -> list[str]:
     return (_valor(ficheiro, chaves, "command") or "").split()
 
 
+def _replicas_em(ficheiro: compose_mod.Compose, chaves: dict) -> int:
+    """`deploy.replicas`, ou `scale`, ou 1 — lido do ficheiro dado, e nao de prod."""
+    deploy = _submapa(ficheiro, chaves, "deploy")
+    for no in (deploy.get("replicas"), chaves.get("scale")):
+        if no is None:
+            continue
+        try:
+            return int(ficheiro.documento.resolver(no).texto())
+        except ValueError:
+            return 1
+    return 1
+
+
+def _ligacao(
+    ficheiro: compose_mod.Compose, chaves: dict, processo: str, ambiente: str,
+    replicas: int,
+) -> list[str]:
+    """O que impede este servico de fazer o trabalho do processo que corre."""
+    job, variavel_da_porta, porta, exigidas, maximo = PROCESSOS[processo]
+    problemas: list[str] = []
+    if "entrypoint" in chaves:
+        problemas.append("tem `entrypoint:`, que passa por cima do `command:`")
+    env = _ambiente(ficheiro, chaves)
+    if env.get(variavel_da_porta) != str(porta):
+        problemas.append(
+            f"`{variavel_da_porta}` vale {env.get(variavel_da_porta)!r} e nao "
+            f"{str(porta)!r}: a sonda e o alvo `{job}` estao na {porta}"
+        )
+    sonda = " ".join(_lista(ficheiro, _submapa(ficheiro, chaves, "healthcheck"), "test"))
+    if f"127.0.0.1:{porta}/healthz" not in sonda:
+        problemas.append(f"a sonda nao chama `127.0.0.1:{porta}/healthz`")
+    for variavel in exigidas:
+        if not env.get(variavel, "").strip():
+            problemas.append(f"nao recebe `{variavel}`, que o processo exige no arranque")
+    declarado = env.get("KAMBA_ENV")
+    if declarado is not None and declarado != ambiente:
+        problemas.append(f"declara `KAMBA_ENV: {declarado}` num compose de `{ambiente}`")
+    redes = set(_lista(ficheiro, chaves, "networks")) or set(_submapa(ficheiro, chaves, "networks"))
+    for rede in ("app", "data"):
+        if rede not in redes:
+            problemas.append(f"nao esta na rede `{rede}`")
+    if maximo is not None and replicas > maximo:
+        problemas.append(
+            f"tem {replicas} replicas e o maximo e {maximo}: a ordem por agregado "
+            "assenta em concorrencia 1 por fila de particao (`docs/eventos.md` §4)"
+        )
+    return problemas
+
+
+def _alvo(dados: Dados, servico: str, processos: list[str]) -> list[Achado]:
+    """O `job` de cada processo no `prometheus.yml`, com o nome e a porta certos."""
+    caminho = dados.raiz / PROMETHEUS
+    try:
+        configuracao = load_file(caminho)
+    except (OSError, YamlSubsetError) as excepcao:
+        raise ConfiguracaoInvalida(f"{PROMETHEUS}: ilegivel: {excepcao}") from excepcao
+    achados: list[Achado] = []
+    for processo in processos:
+        job, _var, porta, _exigidas, _maximo = PROCESSOS[processo]
+        alvos = [
+            descoberta
+            for raspagem in configuracao.get("scrape_configs") or []
+            if raspagem.get("job_name") == job
+            for descoberta in raspagem.get("dns_sd_configs") or []
+        ]
+        if not any(
+            servico in (d.get("names") or []) and d.get("port") == porta for d in alvos
+        ):
+            achados.append(
+                Achado(
+                    "consumidor-sem-alvo", PROMETHEUS, 0,
+                    f"nenhum `job_name: {job}` do `prometheus.yml` aponta para "
+                    f"`{servico}` na porta {porta}. O SLI-1 le `up` por `job`, e um "
+                    "processo sem o seu alvo sai do numerador sem que nada fique "
+                    "vermelho (KAM-187).",
+                )
+            )
+    return achados
+
+
 def r_consumidores(dados: Dados) -> list[Achado]:
     """KAM-187, criterio 1: os quatro processos do `worker-canal` correm.
 
@@ -1224,13 +1334,32 @@ def r_consumidores(dados: Dados) -> list[Achado]:
       `server.ts`, por extenso ou por nao ter `command:` (e entao corre o `CMD`
       da imagem, que e o `server.ts`). E o defeito que o KAM-187 fechou.
 
-    O `docker compose config` nao entra aqui de proposito: esta regra le o
+    * **`consumidor-mal-ligado`** — o servico corre o processo certo e nao o
+      pode fazer: um `entrypoint:` que passa por cima do `command:`, a porta da
+      variavel do processo diferente da da sonda, uma variavel que o processo
+      exige no arranque em falta ou vazia, fora de `app` ou de `data`, um
+      `KAMBA_ENV` de outro ambiente, mais de uma replica do consumidor (parte a
+      ordem por particao), ou replicas diferentes entre producao e *staging*.
+    * **`consumidor-sem-alvo`** — o `prometheus.yml` nao tem o `job` do
+      processo a apontar para o nome do servico e para a porta dele. E esse
+      `job` que o SLI-1 le: renomea-lo tirava o processo do numerador sem que
+      nenhum ensaio de regras desse por isso.
+
+    NASCEU DA REVISAO ADVERSARIAL. A primeira versao so conferia o `command:`, e
+    doze mutacoes que deixavam a fila sem consumidor passavam: `scale: 0`, um
+    `entrypoint:`, a porta trocada, a fila do *shim* com o nome dos outros tres,
+    a rede `data` tirada, o `job` renomeado no `prometheus.yml`.
+
+    O `config` do Compose nao entra aqui de proposito: esta regra le o
     ficheiro como o resto do lint. Que o `config` lista cada servico com o seu
     comando, e que a pilha levantada consome, mede-se no anexo do KAM-187.
     """
     achados: list[Achado] = []
-    ficheiros = [dados.prod] + ([dados.staging] if dados.staging is not None else [])
-    for ficheiro in ficheiros:
+    ficheiros = [(dados.prod, "prod")] + (
+        [(dados.staging, "staging")] if dados.staging is not None else []
+    )
+    replicas_de_prod: dict[str, int] = {}
+    for ficheiro, ambiente in ficheiros:
         corridos: set[str] = set()
         for nome, (no, chaves) in sorted(ficheiro.servicos.items()):
             build = _submapa(ficheiro, chaves, "build")
@@ -1257,7 +1386,32 @@ def r_consumidores(dados: Dados) -> list[Achado]:
                 continue
             if _lista(ficheiro, chaves, "profiles"):
                 continue
-            corridos |= {p for p in CONSUMIDORES if any(c.endswith(p) for c in comando)}
+            replicas = _replicas_em(ficheiro, chaves)
+            if replicas < 1:
+                continue
+            processos = [p for p in CONSUMIDORES if any(c.endswith(p) for c in comando)]
+            corridos |= set(processos)
+            for processo in processos:
+                for problema in _ligacao(ficheiro, chaves, processo, ambiente, replicas):
+                    achados.append(
+                        Achado(
+                            "consumidor-mal-ligado", ficheiro.ficheiro, no.linha,
+                            f"o servico `{nome}` corre `{processo}` e {problema} (KAM-187).",
+                        )
+                    )
+            if ambiente == "prod":
+                replicas_de_prod[nome] = replicas
+            elif nome in replicas_de_prod and replicas_de_prod[nome] != replicas:
+                achados.append(
+                    Achado(
+                        "consumidor-mal-ligado", ficheiro.ficheiro, no.linha,
+                        f"o servico `{nome}` tem {replicas} replica(s) em *staging* e "
+                        f"{replicas_de_prod[nome]} em producao. *Staging* existe para "
+                        "provar o que producao corre (KAM-187).",
+                    )
+                )
+            if ambiente == "prod":
+                achados += _alvo(dados, nome, processos)
         for processo in CONSUMIDORES:
             if processo not in corridos:
                 achados.append(

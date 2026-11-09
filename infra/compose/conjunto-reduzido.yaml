@@ -81,7 +81,7 @@ servicos:
   # fila de entrada do canal (KAM-013)» — falso desde que o KAM-013 separou o
   # `entrada.ts`, e o lint passava sobre isso porque confere o nome e nao o que
   # o servico corre. Hoje confere as duas coisas (`consumidor-em-falta`,
-  # `consumidor-sem-comando`).
+  # `consumidor-com-server-ts`).
   #
   # **A memoria dos quatro sobe o total, e nao sai de nenhuma linha.** O doc 09
   # §4.2 nao tem linha para o *worker* (o KAM-084 §6.2 chama-lhe «linha em

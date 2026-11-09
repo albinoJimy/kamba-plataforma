@@ -13,7 +13,11 @@ DoD do bloco pedem **numa pilha a correr, e nao num `docker compose config`**:
                  `entrada.ts` parado, o mesmo *job* fica na fila (o controlo).
                  O mesmo par para a `agr-inbound` e o `agr_shim_total{outcome}`.
     criterio 3   duas replicas do publicador: uma so segura o lock 7101, e N
-                 eventos do *outbox* dao N *jobs* nas particoes, e nao 2N.
+                 eventos do *outbox* dao N publicacoes **somadas nas duas
+                 replicas** (`evt_publish_total{desfecho="entregue"}`), e nao 2N.
+                 Contar os *jobs* nas particoes nao serve de oraculo: o
+                 publicador usa o id do envelope como `jobId`, e o BullMQ
+                 absorve um duplicado.
     criterio 5   `up` = 1 para cada replica dos quatro alvos.
     DoD 3        o consumo em repouso de cada contentor novo.
 
@@ -367,7 +371,15 @@ def criterio_3(pilha: Pilha) -> dict:
         jobs += int(pilha.fila("ZCARD", f"{prefixo}:failed") or 0)
         jobs += int(pilha.fila("ZCARD", f"{prefixo}:delayed") or 0)
     texto = pilha.metricas(PUBLICADOR)
+    por_replica = []
+    for c in pilha.contentores(PUBLICADOR):
+        js = ("fetch('http://127.0.0.1:3011/metrics').then(r=>r.text())"
+              ".then(t=>process.stdout.write(t))")
+        por_replica.append(_soma(pilha.executar(c, "node", "-e", js),
+                                 "evt_publish_total", 'desfecho="entregue"'))
     return {
+        "entregues_por_replica": por_replica,
+        "entregues_somados": sum(por_replica),
         "replicas_do_publicador": len(pilha.contentores(PUBLICADOR)),
         "sessoes_com_o_lock_7101": int(lock),
         "eventos_emitidos": EVENTOS_DO_PUBLICADOR,
@@ -417,6 +429,32 @@ def repouso(pilha: Pilha) -> dict:
     return medidas
 
 
+def veredictos(r: dict) -> dict[str, bool]:
+    """O que cada medicao tem de dar. O guiao sai com 1 se alguma falhar.
+
+    O `agr_shim_total` **nao** entra: conta desfechos do AGR, e o AGR do compose
+    de *staging* nao responde (ver a docstring do modulo). O consumo da fila
+    pelo *shim* entra.
+    """
+    e = r["criterio_2_entrada"]
+    s = r["criterio_2_shim"]
+    p = r["criterio_3_publicador"]
+    up = [linha for linha in r["criterio_5_up"]["series"] if linha[0] in JOBS]
+    return {
+        "c2_entrada_consome": e["consumido"]["inbound_events_depois"] > e["consumido"]["inbound_events_antes"]
+        and e["consumido"]["registado_depois"] > e["consumido"]["registado_antes"],
+        "c2_entrada_controlo": e["controlo_parado"]["fila_wait_15s_depois"] > e["controlo_parado"]["fila_wait_antes"]
+        and e["controlo_parado"]["drenou_ao_voltar"],
+        "c2_shim_consome": s["consumido"]["fila_wait_depois"] == 0,
+        "c2_shim_controlo": s["controlo_parado"]["fila_wait_15s_depois"] > s["controlo_parado"]["fila_wait_antes"]
+        and s["controlo_parado"]["drenou_ao_voltar"],
+        "c3_um_lider": p["sessoes_com_o_lock_7101"] == 1 and p["replicas_do_publicador"] == 2,
+        "c3_sem_dobro": p["entregues_somados"] == p["eventos_emitidos"]
+        and p["eventos_publicados"] == p["eventos_emitidos"],
+        "c5_up": len(up) == 7 and all(linha[2] == "1" for linha in up),
+    }
+
+
 def principal() -> int:
     argumentos = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     argumentos.add_argument("--manter", action="store_true", help="nao derruba a pilha no fim")
@@ -447,7 +485,8 @@ def principal() -> int:
             pilha.compose("up", "-d", "--build", "--wait", "prometheus", *NOVOS, tempo=1800)
             # O AGR a parte: a saude dele nao e o que este ensaio mede, e uma
             # falha dele nao pode esconder a medicao dos quatro.
-            pilha.compose("up", "-d", "--wait", "--no-deps", "agr", verificar=False, tempo=600)
+            pilha.compose("up", "-d", "--wait", "--wait-timeout", "120", "--no-deps", "agr",
+                          verificar=False, tempo=300)
             relatorio["estado"] = pilha.compose("ps", "--format", "{{.Service}} {{.Status}}")
             time.sleep(20)
             relatorio["repouso_mib"] = repouso(pilha)
@@ -455,6 +494,7 @@ def principal() -> int:
             relatorio["criterio_2_entrada"] = criterio_2_entrada(pilha)
             relatorio["criterio_2_shim"] = criterio_2_shim(pilha)
             relatorio["criterio_3_publicador"] = criterio_3(pilha)
+            relatorio["veredictos"] = veredictos(relatorio)
         except Exception as erro:  # noqa: BLE001 — o relatorio leva o que se mediu
             relatorio["erro"] = f"{type(erro).__name__}: {erro}"
             relatorio["registos"] = {
@@ -469,7 +509,8 @@ def principal() -> int:
     if opcoes.relatorio:
         opcoes.relatorio.write_text(texto, encoding="utf-8")
     print(texto)
-    return 1 if "erro" in relatorio else 0
+    falhados = [k for k, ok in relatorio.get("veredictos", {}).items() if not ok]
+    return 1 if "erro" in relatorio or falhados else 0
 
 
 if __name__ == "__main__":

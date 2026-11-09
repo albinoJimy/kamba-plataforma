@@ -367,8 +367,10 @@ O `/metrics` fica no processo do publicador e **não** no `server.ts` do
 `worker-canal`: os serviços têm um teste que exige 404 em `/metrics` (KAM-001), e
 abrir lá a rota mudava um contrato de outro ticket por conveniência deste.
 
-Não há quem recolha estas métricas: é a mesma lacuna que `docs/isolamento.md` §7
-registou para `rls_context_missing_total`. Uma pilha de recolha não tem ticket.
+**Desde o KAM-187 são recolhidas:** o compose de produção e o de *staging* correm o
+publicador, e o `prometheus.yml` raspa-o (`job="publicador"`, porta 3011). Esta nota
+dizia que não havia quem as recolhesse, a mesma lacuna que `docs/isolamento.md` §7
+registou para `rls_context_missing_total`.
 
 ### O atraso medido, e o anfitrião que o explicava mal
 

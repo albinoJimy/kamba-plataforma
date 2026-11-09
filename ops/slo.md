@@ -79,7 +79,9 @@ quatro processos do `worker-canal` (`entrada` 3013, `agr_shim` 3025, `publicador
    deles não para a mensagem do cliente. Os três casos do
    `infra/compose/prometheus/regras/testes/kamba_slo_burn_test.yml` prendem-no —
    uma falha só do `entrada` desce o SLI, uma só do `agr_shim` também, e o
-   publicador e o consumidor em baixo não. **O que este limite deixa:** em
+   publicador e o consumidor em baixo não. **E um `job` do numerador que nunca
+   foi descoberto conta como mau**: o `min()` ignora séries que não existem, e
+   a regra exige os quatro `job` presentes (um quarto caso prende-o). **O que este limite deixa:** em
    `prod`, o `entrada.ts` **não arranca** — o `Identidade.arrancar` do KAM-008
    recusa o provedor de chaves de ambiente com `KAMBA_ENV=prod` e não há
    provedor de cofre (`../docs/identidade.md` §8, linha 2). Com o processo em
@@ -316,4 +318,4 @@ modelo e não um relatório: não há 30 dias de operação para relatar.
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Documento criado pelo **KAM-082**. Os 8 SLI do doc 09 §10 definidos com numerador, denominador, janela, fonte, SLO e orçamento; **um** operacional e sete com credor medido. *Recording rules* do orçamento de 216 min, painel do restante, alertas de *burn rate* rápido (P2) e lento (P3), regra das janelas de manutenção nas suas três condições, e retenção do TSDB de 15d para 31d. **Devolve com credor:** a ligação do estado `congelado` ao *gate* 16 (o fundador) e a rotação de *on-call* (o fundador, e KAM-069 para o canal). | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | §2.1, limite 2, e §2.2, linha 3: o credor «o ticket que decidir qual processo do `worker-canal` o compose corre» ganha o número — o **KAM-187**. Nenhum SLI, SLO nem orçamento muda. | Equipa KAMBÁ |
-| 1.2 | Novembro 2026 | **KAM-187. Muda a definição do SLI-1:** o numerador passa de `up{job=~"gwy\|agr"}` a `up{job=~"gwy\|agr\|entrada\|agr_shim"}` — os dois processos do `worker-canal` no caminho da mensagem, que o compose passou a correr e o Prometheus a raspar; o publicador e o consumidor ficam de fora, por serem o barramento de eventos. Presa por três casos de `promtool test rules`. §2: sete alvos e não três. §2.1, limite 2, reescrito (e o que deixa: em `prod` o `entrada.ts` não arranca, `../docs/identidade.md` §8, linha 2). §2.2, linha 3: a metade (a) paga, o KAM-110 fica credor da (b). O SLO e o orçamento não mudam. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-187. Muda a definição do SLI-1:** o numerador passa de `up{job=~"gwy\|agr"}` a `up{job=~"gwy\|agr\|entrada\|agr_shim"}` — os dois processos do `worker-canal` no caminho da mensagem, que o compose passou a correr e o Prometheus a raspar; o publicador e o consumidor ficam de fora, por serem o barramento de eventos. Presa por quatro casos de `promtool test rules`, e um `job` do numerador sem série conta como mau. §2: sete alvos e não três. §2.1, limite 2, reescrito (e o que deixa: em `prod` o `entrada.ts` não arranca, `../docs/identidade.md` §8, linha 2). §2.2, linha 3: a metade (a) paga, o KAM-110 fica credor da (b). O SLO e o orçamento não mudam. | Equipa KAMBÁ |

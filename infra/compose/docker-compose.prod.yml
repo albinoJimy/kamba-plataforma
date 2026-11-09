@@ -264,7 +264,7 @@ services:
   #
   # O `server.ts` **sai** do compose: os quatro servem o seu `/healthz`, e uma
   # sonda que nao consome nada era um contentor verde sobre uma fila parada —
-  # que foi exactamente o defeito. A regra `consumidor-sem-comando` do
+  # que foi exactamente o defeito. A regra `consumidor-com-server-ts` do
   # `compose_prod` recusa um servico desta imagem sem `command:`, e a
   # `consumidor-em-falta` recusa o compose a que falte um dos quatro.
   #
@@ -968,7 +968,8 @@ services:
     # Entra porque o `conjunto-reduzido.yaml` do KAM-076 ja o tinha `pendente`
     # com `ticket: KAM-080` e **256 MiB orcamentados** — pelo que a soma dos
     # limites nao muda ao passar a `presente`, e o teste que prende os 24 064 MiB
-    # continua verde. Nao e um servico a mais: e o servico que aquele ticket
+    # continua verde. (Prende 25 152 desde o KAM-187, que pos os quatro processos
+    # do `worker-canal` e mudou a soma com a razao escrita no ensaio.) Nao e um servico a mais: e o servico que aquele ticket
     # deixou reservado.
     image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
     <<: *endurecido

@@ -61,6 +61,10 @@ tests:
         values: '1+0x60 0 0 0 0 1+0x60'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x130'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x130'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x130'
     alert_rule_test:
       - eval_time: 65m
         alertname: orcamento_de_erro_burn_rapido
@@ -72,6 +76,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x60 0 0 0 0 0 1+0x60'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x130'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x130'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x130'
     alert_rule_test:
       - eval_time: 66m
@@ -98,6 +106,10 @@ tests:
         values: '1+0x60 0+0x30 1+0x60'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x160'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x160'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x160'
     alert_rule_test:
       - eval_time: 91m
         alertname: orcamento_de_erro_burn_rapido
@@ -118,6 +130,10 @@ tests:
         values: '1+0x10 0 0 0 0 0 0 0 0 0 0 1+0x360'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x400'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x400'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x400'
     alert_rule_test:
       - eval_time: 360m
         alertname: orcamento_de_erro_burn_lento
@@ -129,6 +145,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x10 0 0 0 0 0 0 0 0 0 0 0 1+0x360'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x400'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x400'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x400'
     alert_rule_test:
       - eval_time: 360m
@@ -187,6 +207,10 @@ tests:
         values: '1+0x100'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x30 0+0x30 1+0x40'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x102'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x102'
     promql_expr_test:
       - expr: slo_caminho_de_venda_mau
         eval_time: 45m
@@ -258,6 +282,27 @@ tests:
           - labels: 'slo_caminho_de_venda_mau'
             value: 0
 
+  # **Um `job` que nunca foi descoberto nao e um `job` em pe.** O `min()` ignora
+  # series que nao existem: com o `entrada` sem nenhum alvo resolvido — um
+  # processo em ciclo de reinicio cujo nome o DNS do compose deixa de devolver
+  # —, o caminho contava como bom. A guarda e a contagem de `job` distintos, e
+  # este caso prende-a (medido pela revisao adversarial do KAM-187).
+  - interval: 1m
+    name: "o worker de entrada nunca descoberto: o caminho de venda conta como mau"
+    input_series:
+      - series: 'up{job="gwy",instance="gwy-1:3010"}'
+        values: '1+0x100'
+      - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x100'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x100'
+    promql_expr_test:
+      - expr: slo_caminho_de_venda_mau
+        eval_time: 45m
+        exp_samples:
+          - labels: 'slo_caminho_de_venda_mau'
+            value: 1
+
   - interval: 1m
     name: "o publicador e o consumidor em baixo nao descem o SLI do caminho de venda"
     input_series:
@@ -299,6 +344,10 @@ tests:
         values: '1+0x94 0+0x10 1+0x100'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x210'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x210'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x210'
     alert_rule_test:
       - eval_time: 180m
         alertname: orcamento_de_erro_burn_rapido
@@ -312,6 +361,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x99 0+0x105 1+0x620'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x830'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x830'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x830'
     alert_rule_test:
       - eval_time: 720m
@@ -347,6 +400,10 @@ tests:
         values: '1+0x349 0+0x10 1+0x100'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x460'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x461'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x461'
     promql_expr_test:
       - expr: slo_caminho_de_venda_burn_1h
         eval_time: 360m
@@ -369,6 +426,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x80 0+0x40 1+0x40'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x170'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x170'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x170'
       - series: 'slo_manutencao_anunciada'
         values: '0+0x80 1+0x40 0+0x40'
@@ -395,6 +456,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x80 0+0x40 1+0x40'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x170'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x170'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x170'
       - series: 'slo_manutencao_anunciada'
         values: '0+0x80 1+0x40 0+0x40'
@@ -423,6 +488,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x380 0+0x40 1+0x40'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x470'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x470'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x470'
       - series: 'slo_manutencao_anunciada'
         values: '0+0x380 1+0x40 0+0x40'
@@ -459,6 +528,10 @@ tests:
         values: '0+0x1400'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x1400'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x1400'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x1400'
       - series: 'slo_manutencao_anunciada'
         values: '1+0x1400'
       - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
@@ -492,6 +565,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x60 0+0x60 1+0x60'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x190'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x190'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x190'
       - series: 'slo_manutencao_anunciada'
         values: '0+0x60 1+0x60 0+0x60'
