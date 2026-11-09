@@ -121,11 +121,12 @@ HMAC.
 | Ritmo | cada pedido tem um instante-alvo; o atraso face ao alvo regista-se | um gerador atrasado não passa por um sistema que aguenta |
 | Idade na fila | `recebido_at` do `inbound_events` (relógio da base) − instante de envio (relógio do Windows), corrigido pelo desvio entre relógios medido pelo menor RTT | sem a correcção, media-se o desvio |
 | Reconciliação | o conjunto de `(kind, event_key)` enviado contra o que a base tem; repetidas contam como «a mais» | um `count(*)` não vê uma troca |
-| A jusante | `LLEN bull:agr-inbound:wait` contra o número de mensagens **únicas**, por igualdade | os *jobs* do AGR acumulam-se sem consumidor (§1), e é por isso que se podem contar |
+| A jusante | o conjunto de `jobId` na `agr-inbound` (`LRANGE … wait`) contra o que o plano dá, `sha256(tenant:wamid)` — **por identidade**, e a contagem só como terceira asserção | os *jobs* do AGR acumulam-se sem consumidor (§1), e é por isso que se podem conferir um a um |
 | Memória | `memory.current − inactive_file` do cgroup v2 de cada contentor, lido com `docker exec … cat` a cada 2 s | é o *working set* do `kubelet`; ver abaixo |
-| CPU | `usage_usec` do `cpu.stat`, em núcleos | idem |
+| CPU | `usage_usec` do `cpu.stat`, em núcleos, dividido pelo tempo do **`/proc/uptime` da VM lido no mesmo `cat`** | o `docker exec` leva de 100 ms a segundos, e com o relógio de quem o chama o divisor ficava errado pela diferença entre dois `exec` — foram os «6,6 núcleos» comuns a quatro contentores na corrida 2 (achado da revisão adversarial) |
 | CPU e memória da VM | `/proc/stat` e `/proc/meminfo` lidos de dentro do contentor do Valkey | não têm *namespace*: dão a máquina inteira, o ensaio **e** o resto |
 | Débito do *worker* | eventos por segundo pelo `recebido_at`; o máximo de 10 s consecutivos | é o que a fila consegue drenar |
+| Duplicados da rajada | os `msg_id` dos `entrada_duplicado` do registo do *worker* (`m_` + SHA-256 da `event_key`, o `idOpaco`) contra os das repetidas do plano | por identidade: uma repetida em falta e outra a mais não se anulam |
 
 **O *working set* é a definição do doc 09 §1.4**, «memória residente típica em
 carga, distinta da reservada». A reservada é o `mem_limit`; a residente é o que o
@@ -143,16 +144,29 @@ incluem os dois, o que é o lado pessimista.
 
 **Os contentores correm com os limites do compose de produção**: o `mem_limit` e
 o `cpus` de `gwy` (nas duas réplicas), `worker-canal` (no *worker* de entrada),
-`postgres` e `queue`, lidos do `infra/compose/docker-compose.prod.yml` e postos
-com `docker update` depois do arranque. A corrida 3 correu **sem** eles — o
-*worker* chegou a 0,89 núcleo, e o compose dá-lhe 0,5 —, e foi a revisão
-adversarial que o apontou; os números de CPU, de débito e da rampa deste documento
-são da corrida 5, que os tem.
+`postgres` e `queue`, lidos do `infra/compose/docker-compose.prod.yml`. A corrida
+3 correu **sem** eles — o *worker* chegou a 0,89 núcleo, e o compose dá-lhe 0,5 —,
+e foi a revisão adversarial que o apontou; os números de CPU, de débito e da rampa
+deste documento são da corrida 5, que os tem.
+
+**Mas na corrida 5 a memória entrou tarde, e isso mudou um resultado.** Os limites
+foram postos com `docker update` **depois** do arranque, e o V8 dimensiona o *heap*
+pela memória que vê ao arrancar. **Medido** com a imagem do ensaio:
+`v8.getHeapStatistics().heap_size_limit` dá **2 240 MiB** num contentor que arranca
+sem limite e **259 MiB** num que arranca com `--memory 256m`. Em produção o compose
+põe o `mem_limit` antes do arranque. Desde a ponta `a58f4155` os três processos
+Node arrancam com os limites no `docker run` (`node.lancar(limites=…)`), e o
+`docker update` ficou só para o PostgreSQL e o Valkey, que não dimensionam memória
+pelo cgroup. A consequência para a corrida 5 está no §6.6.
 
 **A ferramenta de carga é a biblioteca padrão do Python** (`http.client`,
 `threading`), e não o k6 nem o Locust que o bloco propõe: não acrescenta
 dependência nenhuma, e por isso não há licença a registar no SBOM de
-ferramentas. O preço é um tecto no gerador, que o ensaio mede (§4.4).
+ferramentas. O preço é um tecto no gerador, que o ensaio mede (§4.4). **A
+assinatura dos corpos é a terceira cópia** da mesma função de HMAC em Python (as
+outras duas são do `tests_entrada` e do `tests_entrada_carga`); fica, pela
+convenção do KAM-013 de cada *suite* assinar sem importar o módulo testado, e a
+revisão adversarial registou-a como código a mais aceite.
 
 ### 3.1 O perfil, e a leitura que se fez dele
 
@@ -174,18 +188,20 @@ tem 16,7% menos estados do que o doc 09, e fica dito.
 
 ## 4. Resultados
 
-### 4.1 As seis corridas, e o que cada uma vale
+### 4.1 As oito corridas, e o que cada uma vale
 
 | Corrida | Quando (UTC) | Vale para | Porque |
 |---|---|---|---|
 | **1** | 2026-11-08 19:13–19:34 | **nada a jusante do CHR** | o CHR **falhou todas as mensagens**: primeiro com `SemChaveActualError` (não havia versão actual em `platform.hmac_key_versions`) e, corrigido isso numa corrida curta, com `chr_estado_recusou` / `estado_pendente` (os tenants nascem `onboarding`). As duas correcções estão na semente (§6.4) |
-| **2** | 2026-11-08 20:15–20:34 | **só correcção** | o KAM-085 corria na mesma VM (o `kam085-primario` a 2,0–3,2 núcleos e 2,0 GiB), o gerador chegou a 33 s de atraso, e os «6,6 núcleos» que os contentores mostraram eram em parte o defeito de relógio do amostrador que a revisão adversarial apontou (§3) |
+| **2** | 2026-11-08 20:15–20:34 | **só correcção** | o KAM-085 corria na mesma VM (o `kam085-primario` a 2,0–3,2 núcleos e 2,0 GiB), o gerador chegou a 33 s de atraso, e os «6,6 núcleos» que os contentores mostraram eram em parte o defeito de relógio do amostrador que a revisão adversarial apontou (§3, linha «CPU») |
 | **3** | 2026-11-09 08:05–08:26 | correcção, ack, idade na fila e *working set* | VM livre, mas **sem os limites do compose** e com o defeito de relógio na CPU por contentor. A CPU por contentor e a rampa desta corrida **não se citam**: a 5 substitui-as |
 | **4** | 2026-11-09 08:53–11:15 | S1, S2 e rampa, como **segunda corrida** da 5 | com os limites. **A rajada está contaminada**: o Windows entrou em espera moderna às 09:05:01 e saiu às 11:07:40 (registo `Microsoft-Windows-Kernel-Power`, eventos 506 e 507), e um pedido ficou 7 359 s parado. A rampa correu já depois do regresso |
 | **5** | **2026-11-09 11:16–11:50** | **tudo o que este documento cita como medido** | VM livre, **`outros_contentores` vazio nos cinco cenários**, limites do compose aplicados, o relógio da CPU corrigido, e a máquina mantida acordada. À ponta `1c1b1c04`, com a `publico/main` `6583930f` integrada. `Ran 41 tests`: o S1, o S2 e a rajada passaram; **a rampa falhou**, e a razão é um achado (§4.4 e §6.6) |
 | **6** | 2026-11-09 12:02–12:10 | **nada** | só a rampa, para confirmar a morte do *worker* da corrida 5; o KAM-083 tinha quatro contentores na mesma VM (`kam083-am`, `-pg`, `-prom`, `-q`) e a CPU da VM estava a 47% no p95 já a 100/s. **Não reproduziu a morte**, e uma corrida contaminada não a desmente |
+| **7** | 2026-11-09 13:22–13:27 | **nada** | só a rajada, já com os processos Node a arrancar com os limites: o GWY não respondeu nos 180 s de arranque, com o KAM-187 e o KAM-083 no mesmo Docker. Não chegou a enviar um pedido; a espera de arranque desta *suite* passou a 600 s |
+| **8** | 2026-11-09 13:52–13:56 | **a correcção da rajada** | só a rajada, depois da revisão adversarial: repetidas escolhidas por tipo (N1), duplicados conferidos por identidade (N2) e processos Node com os limites no arranque (N3). **Com contenção** — o KAM-083 e outros contentores na VM, a CPU dela a 55% no p95 —, pelo que **os tempos desta corrida não se citam**; a correcção vale com contenção. `OK (skipped=4)` |
 
-Salvo indicação, **os números de baixo são da corrida 5**.
+Salvo indicação, **os números de baixo são da corrida 5**; a correcção da rajada é da **8**.
 
 ### 4.2 Correcção
 
@@ -193,7 +209,7 @@ Salvo indicação, **os números de baixo são da corrida 5**.
 |---|---|---|---|---|---|---|---|
 | S1 (5/s, 300 s) | 1 500 | 1 500 | 1 500 | **0** | **0** | **375 / 375**, 0 em falta, 0 a mais | 0,0 s |
 | S2 (50/s, 300 s) | 15 000 | 15 000 | 15 000 | **0** | **0** | **3 750 / 3 750**, 0 em falta, 0 a mais | 0,0 s |
-| Rajada (100/s + 10% repetidos) | 19 800 | 18 000 | 18 000 | **0** | **0** | **4 500 / 4 500**, 0 em falta, 0 a mais | **0,0 s** — a fila nunca passou de **6** *jobs* |
+| Rajada (100/s + 10% repetidos), corrida 8 | 19 800 | 18 000 | 18 000 | **0** | **0** | **4 500 / 4 500**, 0 em falta, 0 a mais | não se cita (contenção); na corrida 5, **0,0 s**, com a fila a nunca passar de **6** *jobs* |
 | Rampa (100 → 1 200/s) | 121 500 | 121 500 | 96 283 | **25 217** | 0 | 24 071 / 30 375 | **não drenou** em 900 s — §4.4 |
 
 **Os *jobs* do AGR comparam-se por identidade**: o conjunto de `jobId` na
@@ -201,29 +217,41 @@ Salvo indicação, **os números de baixo são da corrida 5**.
 `chr/invocacao.ts`). Com a contagem, uma troca — o *job* de uma mensagem em falta
 e o de outra em dobro — passava; a revisão adversarial apontou-o.
 
-**A rajada mede os dois níveis de deduplicação.** 18 000 *webhooks* — uma hora
-do S1 — a 20×, e **1 800 corpos repetidos 30 s depois**:
+**A rajada mede os dois níveis de deduplicação, e por identidade.** 18 000
+*webhooks* — uma hora do S1 — a 20×, e **1 800 corpos repetidos 30 s depois**,
+cada grupo com **metade mensagens e metade estados** (corrida 8):
 
-| Repetidos | Quem os apanha | Medido |
+| Repetidos | Quem os apanha | Medido, pelo `msg_id` de cada um no registo do *worker* |
 |---|---|---|
-| **900 com os mesmos bytes** | o GWY, pelo `jobId = sha256(corpo)` do `webhook.ts`, enquanto o *job* estiver na retenção da fila (10 000 concluídos) | não chegaram ao *worker*: nenhum `entrada_duplicado` lhes corresponde |
-| **900 com o mesmo JSON e outros bytes** | passam o GWY; o *worker* regista-os e a `UNIQUE (kind, event_key)` de `inbound_events` reconhece-os | **900 `entrada_duplicado`**, e **nenhum** *job* do AGR a mais |
+| **900 com os mesmos bytes** (450 mensagens, 450 estados) | o GWY, pelo `jobId = sha256(corpo)` do `webhook.ts`, enquanto o *job* estiver na retenção da fila | **nenhum** chegou ao *worker* como `entrada_duplicado` |
+| **900 com o mesmo JSON e outros bytes** (450 mensagens, 450 estados) | passam o GWY; o *worker* regista-os e a `UNIQUE (kind, event_key)` de `inbound_events` reconhece-os | **os 900** como `entrada_duplicado`, **as 450 mensagens** entre eles, e **nenhum** *job* do AGR a mais — o CHR não encaminha o que a base já tinha |
 
-A primeira versão deste ensaio só repetia os mesmos bytes, e escrevia que media a
-`UNIQUE` da base — que nunca era exercida. **A revisão adversarial apontou-o**, e é
-o segundo nível que cobre a reentrega da Meta até 7 dias, porque a retenção do
-primeiro é de 10 000 *jobs*: ~33 min ao ritmo do S1 e ~100 s ao da rajada (§6.7).
+**A primeira versão disto media uma coisa que não dizia.** Repetia um em cada dez
+pedidos e repartia-os por posição, e como o plano vem em blocos de mensagem,
+estado, estado, estado, os 900 «com outros bytes» saíram **todos estados
+`delivered`** e os 900 «com os mesmos bytes» **todos mensagens**: nenhuma mensagem
+passou pelo segundo nível, que é o único que decide se o AGR recebe um *job* a
+mais. A revisão adversarial reproduziu-o (N1). Hoje escolhe-se por tipo, com uma
+amostra de semente fixa — um passo regular caía sempre no mesmo estado, e um
+ensaio (`test_as_repetidas_escolhem_se_por_tipo`) apanhou-o —, e a corrida 8 diz
+**450 mensagens pelo segundo nível, 450 encontradas, 0 *jobs* do AGR a mais**.
 
-**O excesso de duplicados está preso à causa medida**
-(`medicao.duplicados_explicados`): os duplicados têm de ser **pelo menos** os 900
-repetidos com outros bytes — menos é uma repetida que escapou — e **no máximo**
-mais os eventos de *jobs* que falharam e se repetiram (`entrada_falhou` × 1 evento
-por corpo). Na corrida 5 deu **900, com 0 falhas**: excesso 0, tecto 0. Na corrida
-4 deu 901 com dois `entrada_falhou`, e é daí que o tecto nasce. **Mutação de
-controlo:** sem o tecto, o dobro dos repetidos (1 800) passava; com ele, dois
-ensaios ficam vermelhos (`test_o_dobro_das_repetidas_fica_vermelho` e
-`test_excesso_sem_falhas_fica_vermelho`, medido a mudar o `0 <= excesso <= tecto`
-para `0 <= excesso`).
+**Os duplicados conferem-se por identidade, e o excesso está preso à causa
+medida** (`medicao.duplicados_explicados`): cada repetida com outros bytes tem de
+aparecer como `entrada_duplicado` com o seu `msg_id` (o `idOpaco` do *logger*,
+`m_` + SHA-256 da `event_key`, com o valor fixado pelo Node num ensaio), nenhuma das
+com os mesmos bytes pode aparecer, e o que sobrar é excesso, com o tecto de
+`entrada_falhou` × 1 evento por corpo. Na corrida 8: **900 vistos, 900 esperados,
+0 em falta, 0 que passaram o GWY, 0 falhas, excesso 0**. **Os limites do tecto,
+ditos** (N4): o `entrada_falhou` conta também erros do *worker* sem *job*, o que só
+o alarga; um *job* que perca a tranca e se repita sem `entrada_falhou` dá excesso sem
+falha e fica vermelho — um falso vermelho possível, não visto; e o tecto nasceu da
+corrida 4 (901 para 900 com dois `entrada_falhou`), cuja rajada está contaminada
+pela espera do Windows, pelo que o mecanismo é **INDÍCIO**. **Mutações de controlo**
+(`test_medicao.TestDuplicados`): o dobro dos repetidos, uma igual que passou o GWY,
+900 `msg_id` errados com a contagem certa, e o ensaio a ligar as repetidas erradas
+(as iguais como esperadas) — **todas vermelhas**; e sem o tecto
+(`0 <= excesso <= tecto` trocado por `0 <= excesso`) o dobro dos repetidos passava.
 
 ### 4.3 Ack, idade na fila e CPU — S1, S2 e rajada
 
@@ -264,13 +292,15 @@ limites do compose**:
 
 **O primeiro recurso saturado do segmento é o *worker* de entrada, por CPU, no
 tecto que o compose lhe dá.** A partir de 400/s o *worker* fica colado aos
-0,45 núcleo — o resto dos 0,5 é o *throttling* do cgroup — e a fila cresce. O
+0,45 núcleo e a fila cresce — o resto dos 0,5 será o *throttling* do cgroup, mas
+o `throttled_usec` do `cpu.stat` não se guardou, e é inferência (achado da revisão
+adversarial). O
 consumo com ingestão desce à medida que a ingestão sobe: **~277 eventos/s** a
 400/s, ~185/s a 800/s e ~129/s a 1 200/s (o crescimento da fila descontado da
 taxa), porque o PostgreSQL e o Valkey que ele usa estão a servir o GWY ao mesmo
 tempo. **Onde a fronteira fica depende da corrida**: a 200/s a fila drenou na
 corrida 5 e acumulou 3 261 na corrida 4 (que correu logo a seguir ao regresso da
-espera), pelo que o que se pode afirmar é **entre 200 e 400/s, com 100/s
+espera), pelo que o que se pode afirmar é **entre 100 e 400/s, conforme a corrida, com 100/s
 folgado nas três corridas com limites**. O S1, a 5/s, está ~40× abaixo.
 
 A primeira versão deste documento dizia «não é CPU, é latência»: mediu-se sem os
@@ -290,12 +320,14 @@ jobs/min» do doc 09 §11 não são o tecto do BullMQ neste caminho.
 11:37:42 a meio de uma sequência de `entrada_registado`, sem erro nenhum, as 379
 amostras seguintes do `docker exec` falharam, e o *working set* tinha chegado a
 **251,7 MiB, contra o `mem_limit` de 256 MiB**. Ficaram **25 217 eventos por
-registar** e 6 304 *jobs* do AGR por criar. É **INDÍCIO forte de morte por
-memória (OOM)**, e não CONFIRMADO — o `die` e o `oom` do Docker já tinham saído do
-registo circular dele quando se foi procurar, e a corrida 6, que o devia
-reproduzir, estava contaminada. O ensaio passou a guardar os três sinais que o
-teriam confirmado: o `oom_kill` do `memory.events`, o código de saída de cada
-processo e os eventos `oom` e `die` do Docker, vigiados durante a corrida (§6.6).
+registar** e 6 304 *jobs* do AGR por criar. **Não é medição do que acontece em
+produção**: o `mem_limit` do *worker* entrou por `docker update` depois do
+arranque, e com isso o V8 tinha o *heap* dimensionado para 2 240 MiB e não para os
+256 do cgroup (§3). Morrer sem linha de erro a 251,7 MiB de 256 é exactamente o que
+isso dá. **É um artefacto do ensaio, medido**, e a proposta que a primeira versão
+deste documento tirava daqui — dar ao *worker* mais de 256 MiB — **cai**. Se o
+*worker* aguenta o mesmo *backlog* com o limite no arranque **não se mediu**: a
+rampa não se repetiu, e é do KAM-188.
 
 ### 4.5 *Working set*
 
@@ -316,7 +348,7 @@ compose.
   6, contaminada, **uma réplica chegou a 254,0 MiB** — partindo do arranque e indo
   directa à rampa, sem os cenários anteriores. É INDÍCIO e não medição, mas diz
   que os 256 MiB por réplica não têm a folga que o p95 da corrida 5 sugere.
-- **O *worker* de entrada chega ao tecto** (§4.4). Não tem linha no §4.2 (§6.2).
+- **O *worker* de entrada chega ao tecto, mas com o *heap* do V8 dimensionado para a VM**: o `mem_limit` entrou depois do arranque, e o número não diz o que ele faz com o limite no arranque (§3 e §6.6). Não tem linha no §4.2 (§6.2).
 - **O PostgreSQL cresce com os dados** porque corre em `tmpfs` (§2, ponto 3): de
   119 MiB em repouso para 240 MiB depois de ~130 000 eventos escritos (e apagados
   entre cenários, o que não devolve o espaço). Não é comparável com o doc 09.
@@ -374,7 +406,7 @@ sobre o que se mediu.
 | Object storage | 0,7 GB | 64,3 em repouso (KAM-076 §9, CITADO) | **não medido em carga** | — |
 | Monitorização | 1,5 GB | Prometheus 18,9 em repouso (KAM-076 §9, CITADO) | **não medido em carga** — o ensaio não levanta o Prometheus | — |
 | SO, proxy, *exporters* | 1,5 GB | proxies 31,7 em repouso (KAM-076 §9, CITADO) | **não medido em carga** | — |
-| *worker* de entrada (`worker-canal`) | **sem linha** | S1: 59,0 / 71,8 · rampa: 197,6 / 236,3 | **linha em falta** (§6.2) | **mais de 256 MiB**: com 256 chegou a 251,7 e deixou de responder (§4.4). Quanto mais é do KAM-187, que o põe no compose |
+| *worker* de entrada (`worker-canal`) | **sem linha** | S1: 59,0 / 71,8 · rampa: 197,6 / 236,3 | **linha em falta** (§6.2) | **256 MiB, sem prova de que não chegam**: a morte a 251,7 MiB da corrida 5 é um artefacto do ensaio (§6.6). O valor é do KAM-187, que o põe no compose |
 | **Total** | **≈ 18,6 GB** | — | **não medido** — mediu-se um segmento, e somar estimativas a medições não é medir | — |
 
 **Extrapolação, e só isso:** se os cinco contentores medidos fossem tudo o que o
@@ -449,32 +481,42 @@ e a latência de um pedido que reconectou conta desde a **primeira** tentativa �
 a primeira versão deitava fora o tempo da tentativa falhada, e isso é latência
 que o pedido pagou.
 
-### 6.6 Com o `mem_limit` de 256 MiB, o *worker* de entrada deixa de responder com um *backlog* grande
+### 6.6 O *worker* que deixou de responder na corrida 5 é um artefacto do ensaio
 
-**Evidência (corrida 5, INDÍCIO forte).** Na drenagem de 80 783 *jobs*, o
-*working set* do *worker* chegou a **251,7 MiB** com o `mem_limit` de 256 MiB que
-o compose dá ao `worker-canal`, o registo dele acabou às 11:37:42 a meio de uma
-sequência de `entrada_registado` sem linha de erro, e as 379 amostras seguintes
-falharam por o contentor já não existir. 25 217 eventos ficaram por registar. Não
-é CONFIRMADO porque o `oom` do Docker já tinha saído do registo circular quando se
-procurou; o ensaio guarda agora o `oom_kill` do cgroup, o código de saída e os
-eventos `oom`/`die`, e o KAM-188 corre com eles. **Paga-o o KAM-187**, que dá ao
-`worker-canal` o processo e o orçamento de memória dele (critério 4); e a
-pergunta que fica — porque cresce a memória de um *worker* de concorrência 1 com o
-tamanho da fila — **não se respondeu aqui**.
+**Evidência.** Na drenagem de 80 783 *jobs*, o *working set* do *worker* chegou a
+**251,7 MiB** com o `mem_limit` de 256 MiB, o registo dele acabou às 11:37:42 a
+meio de uma sequência de `entrada_registado` sem linha de erro, e as 379 amostras
+seguintes falharam por o contentor já não existir. **E a causa é do ensaio**: o
+limite entrou por `docker update` depois do arranque, quando o V8 já tinha
+dimensionado o *heap* para a VM — 2 240 MiB, contra 259 MiB num contentor que
+arranca com `--memory 256m` (medido, §3; achado N3 da revisão adversarial). O ensaio
+passou a arrancar os processos Node com os limites. **Se o *worker* aguenta um
+*backlog* de 80 000 com o limite no arranque não se mediu**, e é do KAM-188. O que
+o provaria é o código de saída do `docker run` (137) e o `oom` do `docker events`,
+que o ensaio passou a guardar; o `oom_kill` do `memory.events`, que chegou a
+entrar, saiu, porque não se lê de um contentor que o kernel já levou (achado N7).
+
+**O que fica do achado** é o §6.1 visto de outro lado: os consumidores do
+`worker-canal` não têm processo nem orçamento no compose, e o KAM-187 é que os
+põe lá com o limite que medir.
 
 ### 6.7 A retenção do `jobId` do AGR, que o código manda calibrar aqui
 
 O `packages/core-ts/src/chr/fila.ts` fixa `JOBS_GUARDADOS = 10_000` e escreve
-«Calibra-se em KAM-084, com o perfil de carga real». O que se mediu: a mesma
-retenção no `wa-inbound` cobre **~33 min** ao ritmo do S1 e **~100 s** ao da
-rajada, contra os **7 dias** de reentrega da Meta. **A correcção não depende
-dela**: as repetidas que saem da retenção chegam ao *worker*, a `UNIQUE (kind,
-event_key)` reconhece-as e o CHR não as encaminha — é exactamente o que as 900
-repetidas com outros bytes da rajada mediram (900 `entrada_duplicado`, 0 *jobs* a
-mais). O que a retenção compra é poupar esse trabalho ao *worker*. **Proposta:
-manter os 10 000**, que custam da ordem dos 30 MB de Valkey; o perfil real do
-KAM-188 decide se a poupança vale mais memória.
+«Calibra-se em KAM-084, com o perfil de carga real». **É a retenção da
+`agr-inbound`**, que conta mensagens (um quarto dos *webhooks* do perfil): 10 000
+mensagens cobrem **~2,2 h** ao ritmo do S1 (1,25 mensagens/s) e **~7 min** ao da
+rajada (25/s). A da `wa-inbound` (`MANTER_CONCLUIDOS`, também 10 000) conta
+*webhooks* e cobre ~33 min e ~100 s. As duas ficam muito abaixo dos **7 dias** de
+reentrega da Meta.
+
+**O que se mediu sobre ela, e o que não.** Nesta montagem a `agr-inbound` não tem
+consumidor (§1), pelo que o `removeOnComplete` nunca actua e **a retenção do AGR não
+foi exercida**. O que se mediu foi o nível que a substitui quando expira: as
+mensagens repetidas com outros bytes da rajada passaram o GWY, chegaram ao
+*worker*, a `UNIQUE (kind, event_key)` reconheceu-as, e **nenhuma deu *job* do AGR a
+mais** (§4.2). **Proposta: manter os 10 000**, que custam da ordem dos 30 MB de
+Valkey; o perfil real e um AGR a consumir, no KAM-188, decidem se vale mais.
 
 ## 7. Custo do ensaio, e os itens do doc 09 que mudam
 
@@ -490,9 +532,9 @@ KAM-188 decide se a poupança vale mais memória.
 | Doc 09 | O que muda | Estado |
 |---|---|---|
 | §4.2, linha do GWY | **corrigida para ~0,13 GB no pico do Piloto**; os 0,4 GB confirmam-se como tecto a partir de 50/s | MEDIDO (corrida 5) |
-| §4.2 | falta a linha do `worker-canal` (§6.2): 236,3 MiB no p95 da rampa, e 256 MiB não chegam (§6.6) | MEDIDO (corrida 5) |
+| §4.2 | falta a linha do `worker-canal` (§6.2): 236,3 MiB no p95 da rampa; se 256 MiB chegam com o limite no arranque está por medir (§6.6) | MEDIDO (corrida 5) |
 | §4.2, total ≈ 18,6 GB | continua ESTIMATIVA: o segmento medido não o decide | — |
-| §11, BullMQ «~10k jobs/min» | o BullMQ aceitou ~71 400 *jobs*/min durante 45 s; o limite do segmento é **o consumidor**, por CPU no tecto de 0,5 núcleo do compose, entre 200 e 400 eventos/s (§4.4) | MEDIDO (corrida 5) |
+| §11, BullMQ «~10k jobs/min» | o BullMQ aceitou ~71 400 *jobs*/min durante 45 s; o limite do segmento é **o consumidor**, por CPU no tecto de 0,5 núcleo do compose, entre 100 e 400 eventos/s conforme a corrida (§4.4) | MEDIDO (corrida 5) |
 | §11, AGR «~50 conversas/processo» | continua **NÃO VERIFICADO**: o AGR não corre turnos | — |
 | §12, N1/N2 | não medido (§1) | — |
 | §14.4 | **sem alteração**: nada do que se mediu muda a infra nem o LLM do Piloto | — |
@@ -504,7 +546,7 @@ KAM-188 decide se a poupança vale mais memória.
 | AGR em carga, «~50 conversas/processo», LLM com *stub* e com amostra real, N1/N2, *flood* com *handoff* e *budget* por contacto | **KAM-186**, que liga a porta `grafos` do processo do AGR, e **KAM-188**, que os mede no *host* P0 |
 | S1 e S2 no *host* P0 (memória ≤ 65% e CPU ≤ 60% de 8 vCPU / 32 GB), Chatwoot, Medusa, LiteLLM e monitorização em carga, e as métricas do ensaio nos painéis do KAM-080 | **KAM-188 (o teste de carga no *host* P0)** |
 | O GWY e o Valkey acima de 1 200/s, onde os dois chegam perto do tecto de CPU do compose (§4.4) | **KAM-188 (o teste de carga no *host* P0)** |
-| A morte do *worker* de entrada por memória, confirmada pelo `oom` do Docker (§6.6) | **KAM-188**, com o instrumento que já a regista, e **KAM-187**, que a paga |
+| Se o *worker* de entrada aguenta um *backlog* de ~80 000 com o `mem_limit` posto no arranque (§6.6) | **KAM-188**, com o código de saída e o `oom` do Docker que o ensaio já regista, e **KAM-187**, que lhe dá processo e orçamento |
 | Os limites da Meta com o simulador, e «sem martelar» entre envios do mesmo número (§4.6) | **KAM-188** |
 
 ---
@@ -520,4 +562,4 @@ KAM-188 decide se a poupança vale mais memória.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.0 | Novembro 2026 | Emissão inicial (KAM-084): o segmento de entrada medido com os processos de produção e os limites do compose de produção, em seis corridas, das quais a 5 é a de referência. Correcção: 0 perdidas e os *jobs* do AGR iguais às mensagens únicas por identidade no S1, no S2 e na rajada, com as repetidas pelos dois níveis de deduplicação e o excesso de duplicados preso à causa medida. O S1 e o S2 cumprem o critério 2 à escala desta máquina; o primeiro recurso saturado é o *worker* de entrada, por CPU no tecto do compose, entre 200 e 400 eventos/s; com 256 MiB ele deixa de responder com um *backlog* de ~80 000 (INDÍCIO forte de OOM). O GWY corrigido para ~0,13 GB no pico do Piloto. O AGR, o LLM, a degradação, o *flood* e os limites da Meta com o simulador ficam **não medidos**, com os credores KAM-186 e KAM-188. Sete achados (§6), três deles pagos pelo KAM-186 e pelo KAM-187. Revisão adversarial: quinze achados, os confirmados corrigidos neste documento e no instrumento. | Equipa KAMBÁ |
+| 1.0 | Novembro 2026 | Emissão inicial (KAM-084): o segmento de entrada medido com os processos de produção e os limites do compose de produção, em oito corridas, das quais a 5 é a de referência e a 8 a da correcção da rajada. Correcção: 0 perdidas e os *jobs* do AGR iguais às mensagens únicas por identidade no S1, no S2 e na rajada; na rajada, mensagens e estados repetidos pelos dois níveis de deduplicação, conferidos pelo `msg_id`, sem *job* do AGR a mais. O S1 e o S2 cumprem o critério 2 à escala desta máquina; o primeiro recurso saturado é o *worker* de entrada, por CPU no tecto do compose, entre 100 e 400 eventos/s conforme a corrida. O GWY corrigido para ~0,13 GB no pico do Piloto. A morte do *worker* na rampa da corrida 5 é um artefacto do ensaio (o `mem_limit` entrava depois do arranque do V8, medido). O AGR, o LLM, a degradação, o *flood* e os limites da Meta com o simulador ficam **não medidos**, com os credores KAM-186 e KAM-188. Sete achados (§6), três pagos pelo KAM-186 e pelo KAM-187. Revisão adversarial: quinze achados e, na verificação das correcções, mais sete; os confirmados corrigidos. | Equipa KAMBÁ |

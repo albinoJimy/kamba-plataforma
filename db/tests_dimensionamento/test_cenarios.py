@@ -66,11 +66,21 @@ from pathlib import Path
 
 import ligacao
 from tests_dimensionamento import gerador, medicao
+from tests_entrada import test_entrada as _entrada
 from tests_entrada.test_entrada import (
     APP_SECRET_ACTUAL,
     ComEntrada,
     esperar_por,
 )
+
+#: A espera pelo arranque dos processos Node, **so nesta suite**: 600 s em vez
+#: dos 180 do `tests_entrada`. A razao e a do proprio `ARRANQUE` de la —
+#: «tolerancia de ambiente, nao alvo de latencia» —, agravada aqui: os processos
+#: arrancam com o `cpus` do compose (1,0 no GWY, 0,5 no *worker*), e numa VM
+#: partilhada o GWY nao respondeu em 180 s (corrida 7, com o KAM-187 e o KAM-083
+#: no mesmo Docker). Le-se pelo nome do modulo porque e assim que o
+#: `_lancar_gwy` o le.
+_entrada.ARRANQUE = max(_entrada.ARRANQUE, 600.0)
 
 #: --- O perfil (doc 09 §14.1), e a leitura dele ------------------------------
 #:
