@@ -9,7 +9,7 @@
 | Alertas que o activam | **Nenhum, hoje.** A regra «segredo a expirar < 14 dias» está por escrever: o `ops/secrets-inventory.yaml` tem o `rotacao_dias` e **não tem a data da última rotação**, e nada publica a idade de um segredo. Credor: **KAM-072** (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
 | Gatilho manual | O calendário de rotação (hoje de uma pessoa: não há agendador, KAM-071); o RB-K10 (suspeita de fuga); o RB-K02 §3.3 (*callbacks* inválidos depois de uma troca de chave) |
 | Nível de degradação | — (uma rotação bem feita não degrada nada; mal feita, o consumidor recusa: 401 no GWY, falha de autenticação no facilitador) |
-| Dono | O `owner` da entrada no inventário (`eng_canais`, `eng_pagamentos`, `sre`…), com o Responsável de Segurança em incidente |
+| Dono | Plataforma/SRE; executa com o `owner` da entrada no inventário (`eng_canais`, `eng_pagamentos`, `sre`…), e com o Responsável de Segurança em incidente |
 | Última revisão | 2026-11-09 (KAM-083) |
 | Último ensaio | **Nunca.** O critério 5 do bloco exige ensaio em *staging*; roteiro de mesa-redonda em [`folha-de-ensaio.md`](folha-de-ensaio.md) §3.3. Credor: o fundador; o *staging* com *host* é o KAM-077 |
 | Linha canónica | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha RB-K07; [`../tecnica/08_Seguranca_Conformidade.md`](../tecnica/08_Seguranca_Conformidade.md) §5 |
@@ -37,7 +37,7 @@
   `KAMBA_SECRET_<ID>_ANTERIOR`, [`../adr/ADR-L002-injeccao-de-segredos.md`](../adr/ADR-L002-injeccao-de-segredos.md)),
   e **o ambiente de um processo não muda depois do arranque**: o laço de 60 s do GWY relê
   o anel, mas do mesmo ambiente. Um segredo novo só entra **recriando** o contentor — um
-  `docker compose restart` **não** relê o ambiente.
+  `docker restart` (ou `docker compose restart`) **não** relê o ambiente.
 - **O GWY do compose de produção não recebe os segredos da Meta** — o bloco `environment`
   não os passa (RB-K01 §0). A primeira rotação do `meta_app_secret` tem esse defeito por
   baixo.
@@ -67,7 +67,7 @@ corte; com `anel: false` há corte, e planeia-se.
 
 ```bash
 # Depois de uma rotação de meta_app_secret: o GWY recusa assinaturas?
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'increase(gwy_sig_fail[10m])'
 ```
 `verificado` como no RB-K01 §2.

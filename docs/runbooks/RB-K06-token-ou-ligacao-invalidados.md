@@ -55,7 +55,7 @@ mensagem que nunca chega.
 
 ```bash
 # Estado do canal e da coexistência do tenant
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT c.phone_number_id, c.estado, c.last_account_update_at,
            x.motivo_desligamento, x.desligado_em, x.estado AS sincronizacao, x.passos_feitos, x.prazo_em
@@ -66,7 +66,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # Os account_update recebidos nos últimos 7 dias (todos os tenants)
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT kind, waba_id, phone_number_id, recebido_at, processado_at
       FROM platform.inbound_events
@@ -91,9 +91,11 @@ WhatsApp Business no telemóvel principal está instalada e aberta?
 3. **Re-sincronização do histórico em coexistência: passo único, com prazo de 24 h** a
    contar do *onboarding* (CONFIRMADO, §7). Se se perder, o cliente tem de ser
    desligado e refazer o fluxo. Confirmar na consulta do §2 (`passos_feitos`, `prazo_em`).
-4. **Se a PME não reconecta** (proposta: 7 dias): *tenant* → `suspenso` pelo comando do
-   [RB-K04](RB-K04-quality-rating-vermelho.md) §3, passo 5, por decisão do Responsável de
-   Produto, registada. Repor quando a ligação voltar.
+4. **Suspender até repor**, como o doc 09 §13 manda: confirmada a desligação, *tenant* →
+   `suspenso` pelo comando do [RB-K04](RB-K04-quality-rating-vermelho.md) §3, passo 5,
+   por decisão do Responsável de Produto, registada; **repor** `ativo` quando a ligação
+   voltar (§4). A suspensão não apaga nada: impede que outros caminhos do *tenant* actuem
+   sobre um canal que não envia.
 5. **Se a PME diz que não desligou nada:** pode ser acesso indevido à conta dela — abrir o
    [RB-K10](RB-K10-incidente-de-seguranca.md).
 
@@ -108,8 +110,8 @@ WhatsApp Business no telemóvel principal está instalada e aberta?
 ## 5. Escalamento
 
 Ops/T&S → Plataforma/SRE (se a reconexão falhar) → Responsável de Produto (suspensão).
-De fora: *Direct Support* da Meta, pelo Business Manager (disponibilidade **não
-verificada** para o nosso tipo de parceiro — RB-K04 §7).
+De fora: *Direct Support* da Meta, pelo Business Manager (o *Tech Provider* tem-no,
+CONFIRMADO, `E1`).
 
 ## 6. Comunicação
 

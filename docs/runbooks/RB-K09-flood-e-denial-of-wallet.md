@@ -47,9 +47,9 @@ móveis angolanos é pequeno o bastante para ser enumerável.
 
 ```bash
 # 1. Turnos recusados por ritmo (por contacto) na última hora
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'increase(agr_admitted_rejected_total{motivo="ritmo"}[1h])'
-docker compose -f infra/compose/docker-compose.prod.yml logs --since 1h agr | grep ritmo_excedido
+docker logs --since 1h kamba-prod-agr-1 2>&1 | grep ritmo_excedido
 ```
 A consulta: `verificado` o comando e a sintaxe contra o Prometheus v3.7.3 do compose,
 isolado, a 2026-11-09. O `grep`: `não verificado` contra produção; `ritmo_excedido` é o
@@ -57,7 +57,7 @@ aviso que o AGR emite (`services/agr/src/kamba_agr/api_interna.py`).
 
 ```bash
 # 2. Custo de LLM nas últimas 24 h, por tenant
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT tenant_id, count(*) AS chamadas, sum(custo_usd) AS custo_usd
       FROM dat.llm_call_log
@@ -67,7 +67,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # 3. Conversas com mensagem na última hora, por tenant — o volume que devia explicar o custo
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT tenant_id, count(*) AS conversas_activas_1h
       FROM platform.conversations
@@ -80,11 +80,11 @@ produção.
 
 ```bash
 # 4. Pico de webhooks no GWY (ramo B)
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'increase(gwy_requests_total[10m])'
 ```
 `verificado` como no RB-K01 §2. Não há etiqueta de origem: o IP lê-se nos logs do
-`proxy-tls` (`docker compose … logs --since 1h proxy-tls`, `não verificado`).
+`proxy-tls` (`docker logs --since 1h kamba-prod-proxy-tls-1`, `não verificado`).
 
 **A leitura que decide:** custo a subir **com** conversas a subir é procura — RB-K03.
 Custo a subir **sem** conversas, ou concentrado em poucas conversas, é este runbook.
@@ -95,10 +95,11 @@ Custo a subir **sem** conversas, ou concentrado em poucas conversas, é este run
 
 1. O limite do AGR já está a descartar o excedente (§0). Confirmar que as recusas sobem
    e o custo não.
-2. Se o contacto continua a gerar custo: pôr **essa conversa** fora do bot, em `humano`
-   ou `pausada`, é o único travão por contacto que existe — e **não há comando**; é acção
-   no painel de atendimento (Chatwoot) por quem gere a PME. Proposta de engenharia, não
-   ensaiada.
+2. Se o contacto continua a gerar custo: **não há travão por contacto além do limite do
+   AGR.** O modo da conversa (`platform.conversations.mode`: `bot`, `dono`, `humano`,
+   `pausada`) poria a conversa fora do bot, mas nenhum serviço importa os módulos que o
+   mudam (`hnd`, `modos`), e uma acção no painel do Chatwoot não chega a essa coluna. A
+   contenção que resta é a do *tenant* (§3.3).
 3. Avisar Ops/T&S, que decide com a PME.
 
 ### 3.2 Ramo B — muitos contactos ou um IP

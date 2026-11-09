@@ -62,21 +62,21 @@ isolado, a 2026-11-09; os nomes e as etiquetas são os do `ops/metricas/catalogo
 
 ```bash
 # 1. As filas e a latência
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'inbound_queue_depth'
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'agr_queue_depth'
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'agr_turn_latency_ms'
 ```
 
 ```bash
 # 2. Como acabam os turnos, e como acabam as chamadas ao LLM
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'sum by (outcome) (increase(agr_turns_total[10m]))'
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'sum by (resultado) (increase(agr_llm_erros_total[15m]))'
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'sum by (motivo) (increase(agr_degraded_turns_total[15m]))'
 ```
 **Separar «indisponível» de «sem *budget*»**, que é o que o §13 manda antes de agir:
@@ -86,9 +86,9 @@ orçamento; `destino_negado` é o *gate* de transferência (ADR-008), que em pro
 
 ```bash
 # 3. O LiteLLM está vivo e pronto? (o mesmo teste do healthcheck do compose)
-docker compose -f infra/compose/docker-compose.prod.yml exec litellm python -c \
+docker exec kamba-prod-litellm-1 python -c \
   "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=5).read().decode())"
-docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m litellm
+docker logs --since 30m kamba-prod-litellm-1
 ```
 `verificado` o `/health/readiness` contra a imagem `litellm:v1.104.2` do compose, com a
 configuração do repositório, a 2026-11-09 (devolve `{"status":"healthy","db":"Not connected"}`).
@@ -96,7 +96,7 @@ Nos logs, procurar 429 e 5xx por fornecedor.
 
 ```bash
 # 4. Chamadas ao LLM na última hora, por fornecedor e desfecho
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT fornecedor, resultado, count(*) AS n,
            round(avg(latencia_ms)) AS latencia_media_ms, sum(custo_usd) AS custo_usd
@@ -109,10 +109,10 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # 5. O AGR está vivo, e o que diz?
-docker compose -f infra/compose/docker-compose.prod.yml ps agr
-docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m agr
+docker ps -a --filter label=com.docker.compose.project=kamba-prod --filter label=com.docker.compose.service=agr
+docker logs --since 30m kamba-prod-agr-1
 ```
-`não verificado` contra produção. Procurar `grafo_nao_registado` (§0, ponto 1).
+`não verificado` contra produção. **O `grafo_nao_registado` do §0, ponto 1, não aparece aqui:** é só o corpo JSON da resposta 503 (`api_interna.py`), e o servidor corre sem registo de acessos — nenhum log nem métrica do AGR o distingue. O que o mostra é o *job* a acabar em `failed` na `agr-inbound` depois das tentativas: `docker exec kamba-prod-queue-1 valkey-cli ZCARD bull:agr-inbound:failed` a subir (`verificado` o comando na imagem do Valkey; a fila é a `FILA_AGR` de `packages/core-ts/src/chr/contrato.ts`). Até ao KAM-186, a resposta certa a «é o grafo?» é **sim**.
 
 ## 3. Mitigação
 
@@ -121,9 +121,9 @@ docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m agr
 1. Há consumidor da `wa-inbound`? Hoje **não** (KAM-187): o alerta é verdadeiro e não
    tem mitigação neste runbook. Registar e silenciar com prazo, dizendo porquê:
    ```bash
-   docker compose -f infra/compose/docker-compose.prod.yml exec alertmanager \
+   docker exec kamba-prod-alertmanager-1 \
      amtool --alertmanager.url=http://127.0.0.1:9093 silence add alertname=fila_de_entrada_a_crescer \
-     --duration=24h --author=<papel> --comment="RB-K03: sem consumidor da wa-inbound (KAM-187)"
+     --duration=24h --author="<papel>" --comment="RB-K03: sem consumidor da wa-inbound (KAM-187)"
    ```
    `verificado` a forma contra o Alertmanager v0.28.1 do compose, isolado.
 2. Quando houver consumidor: ver se ele está vivo e se a fila do agente (§3.2) é o
@@ -131,7 +131,7 @@ docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m agr
 
 ### 3.2 Fila do agente ou latência alta
 
-1. Se os turnos acabam em erro por `grafo_nao_registado`, é o §0, ponto 1 — não é LLM.
+1. Se os *jobs* da `agr-inbound` acabam em `failed` (§2, ponto 5) e o `agr_llm_erros_total` não sobe, é o §0, ponto 1 — não é LLM.
 2. Se o `resultado` dominante é `timeout` ou `erro_fornecedor`: o sistema já está em
    **N1** — o LiteLLM troca `kamba-chat` por `kamba-chat-fallback2` (`llm/litellm.config.yaml`,
    `allowed_fails: 3`, `cooldown_time: 30`), **só dentro dos destinos autorizados**. Se
@@ -149,7 +149,7 @@ docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m agr
 1. Separar do **RB-K09**: o consumo subiu com o volume de conversas do *tenant*? Se não,
    é *denial of wallet* — vai para lá.
 2. Subir o limite de um *tenant* é **decisão humana**, registada (doc 09 §13). O
-   mecanismo desenhado é `python infra/llm/chaves.py provisionar <tenant_id> <plano>`
+   mecanismo desenhado é `python infra/llm/chaves.py provisionar "<tenant_id>" "<plano>"`
    com a mensalidade do plano nova — e **não funciona contra este compose** (§0, ponto 3).
    Credor: quem der base de dados ao LiteLLM (KAM-030/fundador).
 3. Enquanto não houver orçamento por *tenant*, o turno sem orçamento degrada para **N2**
@@ -157,7 +157,7 @@ docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m agr
 
 ### 3.4 O AGR não responde
 
-1. `docker compose -f infra/compose/docker-compose.prod.yml restart agr`, **uma** vez
+1. `docker restart kamba-prod-agr-1`, **uma** vez
    (`não verificado` contra produção).
 2. Se o Postgres ou o *checkpointer* estão em baixo, o AGR **não degrada**: responde 503
    com `Retry-After` e a mensagem fica na fila — é o [RB-K08](RB-K08-base-de-dados-e-restauro.md).
@@ -166,7 +166,7 @@ docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m agr
 
 - `agr_queue_depth` e `inbound_queue_depth` a 0, ou a descer, sem o alerta (§2, ponto 1);
 - `agr_turn_latency_ms` abaixo de 8000 com turnos a acontecer;
-- `sum by (resultado)` do §2, ponto 2, dominado por `ok`;
+- `sum by (resultado) (increase(agr_llm_erros_total[15m]))` sem resultado — o contador só conta **falhas** (`llm/cliente.py`), e o AGR não emite séries a zero, pelo que «sem resultado» é «nenhuma falha em 15 min»; e, na consulta do §2, ponto 4, o `resultado` dominado por `ok`;
 - `amtool --alertmanager.url=http://127.0.0.1:9093 alert query` sem os quatro alertas
   deste runbook, e os silêncios expirados.
 

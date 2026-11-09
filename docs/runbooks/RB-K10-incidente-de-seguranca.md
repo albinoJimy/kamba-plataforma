@@ -61,13 +61,14 @@ Os comandos de que a triagem e a preservação precisam:
 ```bash
 # A cadeia do audit_log, antes de qualquer extracto (`resposta_incidentes.md` §7.1).
 # Sai 0 com «cadeia intacta»; sai 2 com «SEV1 auditoria» no stderr.
-python db/auditoria.py verificar --tenant <tenant_id>
+python db/auditoria.py verificar --tenant "<tenant_id>"
 ```
 `não verificado` contra produção (não há). A ferramenta, os argumentos e os
 códigos de saída são os de `db/auditoria.py` (KAM-012), documentados em
 [`../auditoria.md`](../auditoria.md). Liga-se à base pelas variáveis de
 `db/ligacao.py` (`KAMBA_DB_HOST`, `KAMBA_DB_PORT`, `KAMBA_DB_NAME` e a palavra-passe
-do papel, pelo cofre).
+do papel, pelo cofre) — e **hoje não há onde o correr**: o `postgres` de produção não
+publica porta e só está na rede interna `data` ([RB-K08](RB-K08-base-de-dados-e-restauro.md) §2.3).
 
 ```bash
 # Há um segredo no repositório ou numa árvore copiada? Sai 0 limpo, 1 achados.
@@ -78,7 +79,7 @@ cd tools && python -m scan_secrets --root .. tree
 
 ```bash
 # Os alertas activos na hora T0 — vão para a linha temporal.
-docker compose -f infra/compose/docker-compose.prod.yml exec alertmanager \
+docker exec kamba-prod-alertmanager-1 \
   amtool --alertmanager.url=http://127.0.0.1:9093 alert query
 ```
 `verificado` contra o Alertmanager v0.28.1 do compose, com a configuração do
@@ -92,7 +93,7 @@ repositório, a 2026-11-09.
 3. **Triagem em ≤ 1 h (PRZ-1):** a árvore do §5 do procedimento dá a classe.
 4. **Conter** pela tabela do §6 do procedimento — revogar e rodar chaves (o
    **RB-K07**, com a ordem de incidente: LLM e provedores primeiro), isolar um
-   *tenant* (estado `suspenso`, chave virtual com `max_budget: 0`), suspender um
+   *tenant* (estado `suspenso`; a chave virtual com `max_budget: 0` **não existe no compose actual** — o LiteLLM não tem base de dados, RB-K03 §0), suspender um
    destino de transferência, cortar um caminho. Conter antes de compreender, **sem
    destruir o que se vai precisar**.
 5. **Preservar a evidência em ≤ 24 h (PRZ-7)** pelo §7 do procedimento: a cadeia
@@ -107,7 +108,7 @@ repositório, a 2026-11-09.
 
 - a contenção do §6 do procedimento está feita e cada acção tem linha temporal;
 - se houve rotação, o RB-K07 §4 passa para cada segredo rodado;
-- `python db/auditoria.py verificar --tenant <tenant_id>` sai **0** para cada
+- `python db/auditoria.py verificar --tenant "<tenant_id>"` sai **0** para cada
   *tenant* afectado (`não verificado` contra produção);
 - a decisão de notificar está registada, com quem a tomou;
 - o *post-mortem* sem culpa está marcado para ≤ 5 dias (doc 09 §16).

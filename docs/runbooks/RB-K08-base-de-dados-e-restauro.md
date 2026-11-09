@@ -7,7 +7,7 @@
 | Cenário | WAL parado, *host* perdido, erro de integridade, corrupção lógica (migração, *bug*), ou restauro mensal falhado |
 | Severidade | **P1** (WAL parado, *host* perdido, corrupção); **P2** (restauro mensal falhado) |
 | Alertas que o activam | **Nenhum, hoje.** As duas regras (WAL > 5 min, P1; restauro mensal falhado, P2) estão fixadas em dado em [`../../infra/backup/cobertura.yaml`](../../infra/backup/cobertura.yaml) e por escrever: `backup_wal_idade_segundos` e `backup_restauro_desfecho_total` existem (`libs/py-core/src/kamba_core/backup/metricas.py`) e **nenhum processo as serve**, porque o pgBackRest não corre em compose nenhum. Credores: KAM-079, KAM-071/KAM-078 (agendador), **D1/KAM-105** (`repo1`) |
-| Gatilho manual | `alvo_em_baixo` ou `ingress_parado` com o Postgres em baixo (RB-K01 encaminha para aqui); erro de integridade visto em logs; uma migração ou *bug* que escreveu mal; o simulacro trimestral ([`simulacro-de-dr.md`](simulacro-de-dr.md)) |
+| Gatilho manual | Serviços com erro de ligação à base nos logs (o Prometheus não raspa o Postgres, e o caminho do *webhook* não toca na base: o `ingress_parado` não o apanha, embora o §9.2 lhe dê o destino «RB-K01/K08»); erro de integridade visto em logs; uma migração ou *bug* que escreveu mal; o simulacro trimestral ([`simulacro-de-dr.md`](simulacro-de-dr.md)) |
 | Nível de degradação | **N5** (doc 09 §12): BD só de leitura ou lenta — o ingress continua a aceitar e a enfileirar, sem confirmações de dinheiro |
 | Dono | Plataforma/SRE |
 | Última revisão | 2026-11-09 (KAM-083) |
@@ -53,10 +53,10 @@ segurança pode não estar lá — grave, mas sem relógio a correr.
 ### 2.1 O Postgres responde?
 
 ```bash
-docker compose -f infra/compose/docker-compose.prod.yml ps postgres
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker ps -a --filter label=com.docker.compose.project=kamba-prod --filter label=com.docker.compose.service=postgres
+docker exec kamba-prod-postgres-1 \
   sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m postgres
+docker logs --since 30m kamba-prod-postgres-1
 ```
 `verificado` o `pg_isready` na imagem `pgvector/pgvector:0.8.7-pg18` do compose,
 num contentor isolado, a 2026-11-09 («accepting connections»). `não verificado`
@@ -64,7 +64,7 @@ contra produção.
 
 ```bash
 # Está em recuperação (réplica, ou restauro a meio)? «f» é primário normal.
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT pg_is_in_recovery()"'
 ```
 `verificado` na mesma imagem a 2026-11-09 (devolve `f`).
@@ -72,8 +72,8 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 ### 2.2 Disco e WAL
 
 ```bash
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres df -h /var/lib/postgresql
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 df -h /var/lib/postgresql
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT * FROM pg_stat_archiver"'
 ```
 O `df` está `verificado` na mesma imagem; o `pg_stat_archiver` é vista do
@@ -82,9 +82,9 @@ nenhum). Um `failed_count` a subir com `last_archived_time` parado é o WAL para
 
 ```bash
 # Com o pgBackRest montado (hoje não está): o repositório é alcançável e o arquivo funciona?
-docker compose -f infra/compose/docker-compose.prod.yml exec -u postgres postgres \
+docker exec -u postgres kamba-prod-postgres-1 \
   pgbackrest --stanza=kamba check
-docker compose -f infra/compose/docker-compose.prod.yml exec -u postgres postgres \
+docker exec -u postgres kamba-prod-postgres-1 \
   pgbackrest --stanza=kamba info --output=json
 ```
 `não verificado` nesta forma: o serviço que correrá o pgBackRest em produção não
@@ -95,11 +95,16 @@ check` ([`../evidencia/KAM-085.md`](../evidencia/KAM-085.md)).
 ### 2.3 A cadeia do `audit_log`
 
 ```bash
-python db/auditoria.py verificar --tenant <tenant_id>
-python db/auditoria.py verificar --tenant <tenant_id> --ancora <ficheiro-da-ancora>
+python db/auditoria.py verificar --tenant "<tenant_id>"
+python db/auditoria.py verificar --tenant "<tenant_id>" --ancora "<ficheiro-da-ancora>"
 ```
 Sai **0** com «cadeia intacta» e **2** com «SEV1 auditoria» no stderr
-([`../auditoria.md`](../auditoria.md)). `não verificado` contra produção. Depois de um
+([`../auditoria.md`](../auditoria.md)). **Hoje não há onde o correr:** a ferramenta liga-se
+pelo `db/ligacao.py` (`KAMBA_DB_HOST`, por omissão `127.0.0.1`, `KAMBA_DB_PORT`,
+`KAMBA_DB_NAME` e `KAMBA_SECRET_DB_BATCH_PASSWORD`), e o `postgres` de produção não publica
+porta e só está na rede interna `data`. Precisa de um contentor de operação nessa rede com
+o repositório e as dependências — que o compose não tem. `não verificado`; a falta está na
+evidência §5. Depois de um
 PITR, usa-se a **última âncora anterior a T** (anexo A, linha 9).
 
 ## 3. Mitigação
@@ -107,7 +112,7 @@ PITR, usa-se a **última âncora anterior a T** (anexo A, linha 9).
 ### 3.1 Ramo A — o Postgres não responde
 
 1. Ler os logs do §2.1. Se for falta de memória ou de disco, ir ao ramo B.
-2. `docker compose -f infra/compose/docker-compose.prod.yml restart postgres`, **uma**
+2. `docker restart kamba-prod-postgres-1`, **uma**
    vez. Se não voltar em 5 min, é ramo C. (`não verificado` contra produção.)
 3. Enquanto está em baixo, o sistema está em **N5**: o GWY continua a responder e a
    enfileirar no Valkey; nenhum serviço confirma dinheiro.

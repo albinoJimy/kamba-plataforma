@@ -44,7 +44,7 @@ Quatro factos medidos que mudam o que este runbook consegue fazer hoje:
 | Alerta | Condição exacta | O que quer dizer |
 |---|---|---|
 | `ingress_parado` | `increase(gwy_requests_total[10m]) == 0` **ou** `absent(gwy_requests_total)`, entre as 06:00 e as 22:00 UTC (07:00–23:00 WAT) | Nenhum *webhook* contado em 10 min em horário comercial. **Não distingue** «a Meta não envia» de «o GWY não recebe» — o §2 distingue |
-| `alvo_em_baixo` | `up == 0` durante 2 min, para **qualquer** alvo | Um processo que o Prometheus raspa deixou de responder |
+| `alvo_em_baixo` | `up == 0` durante 2 min, para **qualquer** alvo | Um processo que o Prometheus **descobre** não responde ao `/metrics`. **Não apanha um contentor parado:** os alvos descobrem-se por DNS (`dns_sd_configs`), e uma réplica parada sai do DNS do Docker — medido a 2026-11-09 —, pelo que deixa de ter série `up` em vez de a ter a 0. O §2, ponto 1, conta os alvos por isso |
 
 **O `alvo_em_baixo` não é só deste runbook.** Ler a etiqueta `job` e encaminhar:
 
@@ -59,20 +59,24 @@ Quatro factos medidos que mudam o que este runbook consegue fazer hoje:
 Por ordem. Os quatro primeiros dizem se a falha é nossa.
 
 ```bash
-# 1. Que alvos estão em baixo?
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+# 1. Quantos alvos há por job, e quais estão a 0?
+docker exec kamba-prod-prometheus-1 \
+  promtool query instant http://127.0.0.1:9090 'count by (job) (up)'
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'up == 0'
 ```
 `verificado` contra o Prometheus v3.7.3 do compose (imagem por *digest*), com as regras
-do repositório, num contentor isolado, a 2026-11-09. Sem resultado = todos os alvos
-respondem.
+do repositório, num contentor isolado, a 2026-11-09. **O primeiro é o que conta:** o
+esperado é `gwy` 2, `agr` 1, `com` 1, `prometheus` 1. Um `job` que **falta**, ou com menos
+alvos, é um processo parado — o `up == 0` não o mostra (§1). O segundo mostra só os que
+existem e não respondem.
 
 ```bash
 # 2. Chegam webhooks? (0 = nada em 10 min; sem resultado = a série não existe)
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'increase(gwy_requests_total[10m])'
 # e quantos foram recusados por assinatura (uma rotação mal feita dá 401 a tudo: RB-K07)
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'increase(gwy_sig_fail[10m])'
 ```
 `verificado` na mesma pilha isolada (a forma da consulta e do comando; sem GWY a correr,
@@ -81,31 +85,41 @@ a primeira devolve vazio). Os nomes das métricas são os de
 
 ```bash
 # 3. O GWY está vivo, e o que diz?
-docker compose -f infra/compose/docker-compose.prod.yml ps gwy
-docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m gwy
+docker ps -a --filter label=com.docker.compose.project=kamba-prod --filter label=com.docker.compose.service=gwy
+docker logs --since 30m kamba-prod-gwy-1
 ```
-`não verificado` contra produção. Procurar `falta a variável de ambiente` (§0, ponto 1),
-`cofre_inacessivel_no_arranque`, e respostas 503 «queue unavailable» (a fila falhou).
+São duas réplicas: ver também `kamba-prod-gwy-2`. `não verificado` contra produção.
+Procurar, no campo `outcome` das linhas JSON: `excepcao_nao_tratada` (o processo morreu —
+é como sai uma variável de ambiente em falta, §0, ponto 1: o tratador de excepções do
+*logger* escreve o `outcome` e a classe do erro, **não** a mensagem);
+`cofre_inacessivel_no_arranque`; e `fila_indisponivel` (a fila falhou, e a Meta recebeu
+503). Os nomes são os de `packages/core-ts/src/logger/index.ts` e
+`services/gwy/src/webhook.ts`.
 
 ```bash
 # 4. A fila de entrada aceita e está a ser consumida?
-docker compose -f infra/compose/docker-compose.prod.yml exec queue valkey-cli ping
-docker compose -f infra/compose/docker-compose.prod.yml exec queue valkey-cli LLEN bull:wa-inbound:wait
-docker compose -f infra/compose/docker-compose.prod.yml exec prometheus \
+docker exec kamba-prod-queue-1 valkey-cli ping
+docker exec kamba-prod-queue-1 valkey-cli LLEN bull:wa-inbound:wait
+docker exec kamba-prod-queue-1 valkey-cli LLEN bull:wa-inbound:active
+docker exec kamba-prod-queue-1 valkey-cli ZCARD bull:wa-inbound:delayed
+docker exec kamba-prod-prometheus-1 \
   promtool query instant http://127.0.0.1:9090 'inbound_queue_depth'
 ```
 `verificado` o `valkey-cli` na imagem `valkey/valkey:9.1.2` do compose, isolada, a
 2026-11-09. A chave `bull:<fila>:wait` é a forma por omissão do BullMQ, a mesma que a
-suite `db/tests_eventos` do *gate* 8 lê. `inbound_queue_depth` a **-1** quer dizer que
+suite `db/tests_eventos` do *gate* 8 lê. O `inbound_queue_depth` é a **soma** das três
+(`wait`, `delayed`, `active`: `getJobCounts` em `eventos/filas_bullmq.ts`); um `LLEN` só do
+`wait` não é o mesmo número. `inbound_queue_depth` a **-1** quer dizer que
 o GWY não consegue ler a fila. Uma fila a crescer **sem** consumidor é o estado de hoje
 (KAM-187), e não um sintoma de Meta em baixo.
 
 **5. É a Meta?** Só depois de 1–4 dizerem que o nosso lado está bem:
 
 - a página de estado da Meta para a WhatsApp Business Platform — **o endereço não está
-  neste repositório** e guarda-se na [lista de contactos](../seguranca/contactos_incidentes.md),
-  linha «Meta» (NÃO VERIFICADO qual);
-- o `proxy-saida` deixa sair? `docker compose -f infra/compose/docker-compose.prod.yml logs --since 30m proxy-saida`
+  neste repositório nem na [lista de contactos](../seguranca/contactos_incidentes.md)**,
+  que não tem linha para ele (a linha «Meta» é o *Direct Support* e o contacto de
+  segurança). Falta acrescentá-la, fora do repositório; NÃO VERIFICADO qual é;
+- o `proxy-saida` deixa sair? `docker logs --since 30m kamba-prod-proxy-saida-1`
   (`não verificado`): pedidos a `graph.facebook.com` recusados ou sem resposta são
   problema de saída nosso (egress ou DNS), não da Meta.
 
@@ -117,11 +131,12 @@ o GWY não consegue ler a fila. Uma fila a crescer **sem** consumidor é o estad
    **re-entrega os *webhooks* até 7 dias** com *backoff* (CONFIRMADO, §7). A pressa é
    de clientes sem resposta, não de mensagens perdidas.
 2. Se os logs mostram arranque recusado: corrigir a variável ou o segredo em falta
-   (§0) e `docker compose -f infra/compose/docker-compose.prod.yml up -d gwy`.
-3. Se o GWY está vivo e encravado: `docker compose -f infra/compose/docker-compose.prod.yml restart gwy`,
-   **uma** vez. São duas réplicas; o `alvo_em_baixo` diz qual.
+   (§0) e `doppler run -- docker compose -f infra/compose/docker-compose.prod.yml up -d gwy`.
+3. Se o GWY está vivo e encravado: reiniciar **a réplica** que não responde —
+   `docker restart kamba-prod-gwy-1` ou `kamba-prod-gwy-2`, **uma** vez. Qual é, diz o
+   `up == 0` do §2 (a etiqueta `instance`) ou os logs; a outra continua a receber.
 4. Se a fila está em baixo: o GWY responde 503 e a Meta repete — tratar a fila
-   (`docker compose … restart queue`) e confirmar o §4. **Não** esvaziar a fila à mão.
+   (`docker restart kamba-prod-queue-1`) e confirmar o §4. **Não** esvaziar a fila à mão.
 5. Se a BD está em baixo: o caminho do *webhook* **não toca na BD**, pelo que não é
    isto que pára a ingestão; ver o [RB-K08](RB-K08-base-de-dados-e-restauro.md).
 
@@ -135,9 +150,9 @@ Todos os comandos deste ramo: `não verificado` contra produção.
    repetem. Não se reenfileira nada à mão por cima disto.
 2. Silenciar os alertas que vão repetir enquanto a causa é externa, **com prazo**:
    ```bash
-   docker compose -f infra/compose/docker-compose.prod.yml exec alertmanager \
+   docker exec kamba-prod-alertmanager-1 \
      amtool --alertmanager.url=http://127.0.0.1:9093 silence add alertname=ingress_parado \
-     --duration=2h --author=<papel> --comment="RB-K01: Meta em baixo, incidente <id>"
+     --duration=2h --author="<papel>" --comment="RB-K01: Meta em baixo, incidente <id>"
    ```
    `verificado` contra o Alertmanager v0.28.1 do compose, isolado, a 2026-11-09.
    O `ingress_parado` já inibe os P2 e P3 do mesmo ambiente (`inhibit_rules` do
@@ -150,16 +165,16 @@ Todos os comandos deste ramo: `não verificado` contra produção.
 ### 3.3 Depois de recuperar
 
 1. Confirmar o §4.
-2. Ver a fila a escoar (`LLEN` do §2, ponto 4, a descer) — **hoje não escoa**, porque
+2. Ver a fila a escoar (`inbound_queue_depth` do §2, ponto 4, a descer) — **hoje não escoa**, porque
    não há consumidor (KAM-187).
 3. Conciliar o `status` das mensagens enviadas durante a falha — **não há ferramenta**;
    é trabalho do módulo de saída quando estiver ligado.
-4. Expirar o silêncio: `docker compose … exec alertmanager amtool --alertmanager.url=http://127.0.0.1:9093 silence expire <id>`
+4. Expirar o silêncio: `docker exec kamba-prod-alertmanager-1 amtool --alertmanager.url=http://127.0.0.1:9093 silence expire "<id>"`
    (`verificado` como o `silence add`).
 
 ## 4. Critério de recuperação
 
-- `up == 0` sem resultado (§2, ponto 1);
+- `count by (job) (up)` com os alvos esperados, e `up == 0` sem resultado (§2, ponto 1);
 - `increase(gwy_requests_total[10m]) > 0` em horário comercial (§2, ponto 2);
 - `inbound_queue_depth` ≥ 0 e a descer;
 - `amtool --alertmanager.url=http://127.0.0.1:9093 alert query alertname=ingress_parado`

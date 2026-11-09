@@ -109,9 +109,18 @@ os campos são os que o critério 1 enumera.
 Um comando sem marca é defeito do runbook. Um comando `não verificado` não é um
 comando errado — é um comando cujo erro ainda ninguém viu.
 
-**Os comandos são para o *host* de produção, a partir da raiz do repositório**,
-com o compose de produção (`name: kamba-prod`). Em *staging* troca-se o ficheiro
-por `infra/compose/docker-compose.staging.yml`.
+**Os comandos são para o *host* de produção, e chamam os contentores pelo nome**
+(`docker exec kamba-prod-<serviço>-<n>`, `docker logs`, `docker restart`), e não por
+`docker compose -f infra/compose/docker-compose.prod.yml …`. A razão é medida: o compose
+tem mais de uma dezena de variáveis obrigatórias (`${VAR:?…}`, segredos incluídos) e
+**interpola o ficheiro inteiro mesmo para um `ps` ou um `logs`** — sem elas, sai com
+«required variable KAMBA_COMMIT_SHA is missing». Correr o diagnóstico pelo compose
+obrigava a pôr segredos na *shell* de quem está de serviço. O nome dos contentores é
+`<projecto>-<serviço>-<n>`, com o projecto `kamba-prod` do `name:` do compose (medido
+num projecto de ensaio com duas réplicas: `-1` e `-2`); em *staging* é `kamba-staging`.
+**Só recriar um serviço** (`up -d`, para ler um ambiente novo) passa pelo compose, e
+então pelo lançador do [ADR-L002](../adr/ADR-L002-injeccao-de-segredos.md)
+(`doppler run -- docker compose …`), que é `não verificado` porque não há conta.
 
 **Segredos, pessoas e contactos.** Um segredo cita-se pelo **nome da entrada** em
 [`../../ops/secrets-inventory.yaml`](../../ops/secrets-inventory.yaml), nunca pelo
@@ -140,8 +149,8 @@ onde aponta, é do fundador; o que se entrega é a medição.
 
 | Regra | Sev. | Aponta para | O runbook fala dela? | Nota |
 |---|---|---|---|---|
-| `ingress_parado` | P1 | RB-K01 | sim | — |
-| `alvo_em_baixo` | P1 | RB-K01 | sim, **e encaminha** | `up == 0` dispara por **qualquer** alvo — o AGR e o COM incluídos —, e só o do `gwy` é ingestão. O RB-K01 §1 encaminha os outros |
+| `ingress_parado` | P1 | RB-K01 | sim | O §9.2 dá-lhe o destino «RB-K01/K08»; a regra aponta só o RB-K01, e o caminho do *webhook* não toca na base |
+| `alvo_em_baixo` | P1 | RB-K01 | sim, **e encaminha** | `up == 0` dispara por **qualquer** alvo — o AGR e o COM incluídos —, e só o do `gwy` é ingestão. O RB-K01 §1 encaminha os outros. **E não dispara por um contentor parado** (ver §5.2) |
 | `fila_de_entrada_a_crescer` | P2 | RB-K03 | sim, **e encaminha** | A fila de entrada a crescer é, hoje, quase sempre falta de consumidor (KAM-187) e não o LLM |
 | `fila_do_agente_a_crescer` | P2 | RB-K03 | sim | — |
 | `latencia_de_resposta_alta` | P2 | RB-K03 | sim | — |
@@ -162,6 +171,17 @@ não um RB-K. Não tem regra (não há *exporter* de contentores) nem runbook; o
 catálogo já a regista com o credor «quem governa o §9.2». **Credor: o fundador**
 — a resposta é um runbook novo fora da lista fechada do §13, ou a remoção da
 linha.
+
+**E um alerta escrito que não apanha o caso para que foi acrescentado.** O
+`alvo_em_baixo` (`up == 0`) existe, diz o comentário da regra, para apanhar «**uma**
+réplica morta de duas, o COM em baixo, e o AGR em baixo». Os alvos descobrem-se por
+DNS (`dns_sd_configs` do `prometheus.yml`), e **um contentor parado sai do DNS do
+Docker** — medido a 2026-11-09 num projecto de ensaio com duas réplicas: com uma parada,
+o nome resolve só para a outra. Um alvo que não resolve **não tem série `up`**, e uma
+série ausente não é uma série a 0: a regra fica calada. Só apanha um processo que
+resolve e não responde. Os runbooks contam os alvos com `count by (job) (up)` (RB-K01
+§2); mudar a regra — por exemplo com `absent` por `job`, ou um `count` abaixo do
+esperado — é **do fundador**.
 
 E **dois encaminhamentos que estão certos na forma e tortos no efeito**, na
 tabela 5.1: o `alvo_em_baixo` e o `fila_de_entrada_a_crescer` apontam para

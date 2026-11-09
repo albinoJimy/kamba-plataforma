@@ -70,7 +70,7 @@ produção, onde hoje devolvem vazio pelo §0.
 
 ```bash
 # 1. Cobranças à espera, por tenant e facilitador, a mais antiga primeiro
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT tenant_id, provider, estado, count(*) AS n, min(criado_at) AS mais_antiga
       FROM platform.payment_charges
@@ -80,7 +80,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # 2. Callbacks nas últimas 24 h, por hora: quantos chegaram e quantos falharam a autenticação
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT date_trunc('\''hour'\'', recebido_at) AS hora,
            count(*) FILTER (WHERE authn_ok IS FALSE) AS falhas_de_autenticacao,
@@ -92,7 +92,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # 3. Eventos de pagamento na DLQ (Sev1 pelo prefixo payment.)
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT consumer, tipo, count(*) AS abertas, min(criado_at) AS mais_antiga
       FROM platform.events_dlq
@@ -102,7 +102,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # 4. Reservas de stock que expiram nas próximas 2 h
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT count(*) AS a_expirar_em_2h, min(expira_at) AS primeira
       FROM platform.stock_reservations
@@ -139,7 +139,7 @@ expor num terminal.
 
 1. Houve rotação da chave do facilitador (`proxypay_api_key`) nas últimas horas? Se sim,
    é o [RB-K07](RB-K07-rotacao-de-segredos.md): a chave da API é a chave do HMAC, e o
-   inventário diz que não há janela dupla — o reconciliador tem de estar activo durante
+   inventário diz que não há janela dupla **confirmada** do lado do ProxyPay (NÃO VERIFICADO, `E2` pergunta 10) **confirmada** do lado do ProxyPay (NÃO VERIFICADO, `E2` pergunta 10) — o reconciliador tem de estar activo durante
    a troca.
 2. Se não houve rotação, é tentativa de forjar pagamentos: **[RB-K10](RB-K10-incidente-de-seguranca.md)**,
    classe P1 («pagamento forjado», `08` §10).
@@ -192,9 +192,9 @@ até o fornecedor de e-mail estar aprovado — ver RB-K01 §6).
 
 | Facto | Estado | Fonte |
 |---|---|---|
-| ProxyPay: a chave da API é a chave do HMAC do *callback* (`X-Signature`) | do desenho — **INDÍCIO**, sem adaptador que o exercite | `docs/tecnica/04`; `ops/secrets-inventory.yaml`, `proxypay_api_key` |
+| ProxyPay: o *callback* leva `X-Signature` = HMAC-SHA-256 da chave da API sobre o corpo bruto — a chave da API **é** a chave do HMAC | **CONFIRMADO** (`E2`, *webhooks* do RPS); nenhum adaptador nosso o exercita ainda | `docs/tecnica/04`; `ops/secrets-inventory.yaml`, `proxypay_api_key` |
 | O facilitador tem *rate limit* (429); o valor | **NÃO VERIFICADO** | doc 09 §11 |
-| A OPG do *express* expira a 30 min e o cliente tem 90 s | doc 09 §11, herdado | `E2` |
+| A OPG do *express* expira a 30 min e o cliente tem 90 s para validar | **CONFIRMADO** | `E2` (OPG; páginas de produto do Express) |
 
 ---
 

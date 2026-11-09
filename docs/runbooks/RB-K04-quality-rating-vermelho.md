@@ -51,7 +51,7 @@ As consultas leem a base com o utilizador do contentor (`$POSTGRES_USER`), que
 
 ```bash
 # Estado e qualidade do canal do tenant
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT phone_number_id, estado, quality_rating, motivo_restricao, messaging_limit
       FROM platform.tenant_channels WHERE tenant_id = '\''<tenant_id>'\''"'
@@ -59,7 +59,7 @@ docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
 
 ```bash
 # Que templates estão pausados ou com nota, e a história de qualidade do canal
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT name, lang, category, status, quality
       FROM platform.message_templates
@@ -89,14 +89,14 @@ produção. Hoje as tabelas ficam por preencher, pela razão do §0.
 3. Rever e reescrever os *templates* pausados; submeter de novo **só** depois de
    corrigida a causa.
 4. Se a qualidade não melhora em 48 h, ou a Meta pausa *templates* de pagamento:
-   abrir caso no *Direct Support* da Meta (canal na lista de contactos). **Não
-   verificado** que o *Direct Support* esteja disponível no nosso tipo de parceiro:
-   o `E1` associa-o ao *Solution Partner*.
+   abrir caso no *Direct Support* da Meta (canal na lista de contactos). O *Tech
+   Provider*, que é o tipo de parceiro do ADR-001, tem *Direct Support* (CONFIRMADO,
+   `E1`).
 5. **Se persistir** (proposta: vermelho mais de 7 dias, ou reincidência no mês):
    *tenant* → `suspenso`. É **decisão do Responsável de Produto**, registada, e
    executa-se com o papel `kamba_batch` — não há ferramenta (§0):
    ```bash
-   docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+   docker exec kamba-prod-postgres-1 \
      sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "
        BEGIN; SET ROLE kamba_batch;
        UPDATE platform.tenants SET estado = '\''suspenso'\''
@@ -153,7 +153,7 @@ alternativo; envio manual até o fornecedor de e-mail estar aprovado — ver RB-
 |---|---|---|
 | Qualidade baixa **já não reduz** o limite de mensagens (desde 7 Out 2025) | **CONFIRMADO** | `E1`, linha do estado «Flagged» |
 | A Meta pode rever, pausar e rejeitar *templates* a qualquer momento | **CONFIRMADO** | `E1`, linha dos *templates* |
-| O *Direct Support* está disponível ao nosso tipo de parceiro | **NÃO VERIFICADO** | `E1` associa-o ao *Solution Partner* |
+| O *Tech Provider* (o tipo de parceiro do ADR-001) tem *Direct Support* | **CONFIRMADO** | `E1`, linha dos três tipos de parceiro |
 | O módulo pausa um *template* com **qualquer** `message_template_quality_update`, sem olhar ao valor | do código (`qualidade/qualidade.ts`) — achado, ver [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §5 | — |
 
 ---

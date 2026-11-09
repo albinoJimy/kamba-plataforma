@@ -46,7 +46,7 @@ da conta (§7).
 
 ```bash
 # Os canais acima dos 80% este mês
-docker compose -f infra/compose/docker-compose.prod.yml exec postgres \
+docker exec kamba-prod-postgres-1 \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
     SELECT tenant_id, phone_number_id, free_tier_used, estado, motivo_restricao
       FROM platform.tenant_channels

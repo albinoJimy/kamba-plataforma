@@ -79,7 +79,7 @@ chegar a fazer. O condutor não lê a coluna da direita em voz alta.
 
 | # | Injecção | Esperado |
 |---|---|---|
-| 1 | Parar o GWY: `docker compose -f infra/compose/docker-compose.staging.yml stop gwy` | `alvo_em_baixo` (2 min) e `ingress_parado` (até ~15 min, por causa dos 5 min de obsolescência antes do `absent()`); a pessoa separa «ingestão parada do nosso lado» de «Meta em baixo» pelo §2 do runbook |
+| 1 | Parar o GWY: `docker stop kamba-staging-gwy-1 kamba-staging-gwy-2` | `alvo_em_baixo` (2 min) e `ingress_parado` (até ~15 min, por causa dos 5 min de obsolescência antes do `absent()`); a pessoa separa «ingestão parada do nosso lado» de «Meta em baixo» pelo §2 do runbook |
 | 2 | Repor o GWY e cortar a saída para a Graph API no `proxy-saida` | erro de envio, não de ingestão; ramo «envio» do runbook |
 | 3 | Repor tudo | critério de recuperação do §4, com o comando que o confirma |
 
@@ -87,7 +87,7 @@ chegar a fazer. O condutor não lê a coluna da direita em voz alta.
 
 | # | Injecção | Esperado |
 |---|---|---|
-| 1 | Parar o LiteLLM: `docker compose -f infra/compose/docker-compose.staging.yml stop litellm` | o AGR degrada (`degradacao-do-agr.md`); a pessoa distingue «indisponível» de «sem *budget*» |
+| 1 | Parar o LiteLLM: `docker stop kamba-staging-litellm-1` | o AGR degrada (`degradacao-do-agr.md`); a pessoa distingue «indisponível» de «sem *budget*» |
 | 2 | Repor e dar à chave virtual de um *tenant* de ensaio um *budget* esgotado | `llm_sem_budget`; ramo «sem *budget*», com a decisão humana de subir o limite |
 | 3 | Repor | critério de recuperação |
 
