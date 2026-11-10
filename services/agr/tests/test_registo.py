@@ -400,10 +400,10 @@ class TestSeisNegativos(unittest.TestCase):
         self.assertIn("[golden/vendedor]", mensagem)
         self.assertIn("nao existe", mensagem)
 
-    def test_6_sem_eval_harness_a_validacao_tem_sempre_um_problema(self) -> None:
-        """Enquanto o KAM-040 nao existir nao ha como dizer que o gate esta verde,
-        e isso devolve-se como problema — nao como silencio."""
-        self.assertIn("nao ha eval harness", self.erro())
+    def test_6_sem_o_veredicto_no_arranque_a_validacao_tem_sempre_um_problema(self) -> None:
+        """Enquanto o arranque nao ler o veredicto do gate golden (a ligacao e do
+        fundador, KAM-040), isso devolve-se como problema — nao como silencio."""
+        self.assertIn("nao le o veredicto do gate golden", self.erro())
 
     # ---- o modo, e a coerencia entre ficheiros ---------------------------------
 
