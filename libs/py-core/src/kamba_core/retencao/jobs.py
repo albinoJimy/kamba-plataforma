@@ -47,8 +47,8 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Final
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Final, Protocol
 
 from .. import tenant_guard
 from ..direitos.eliminacao import sujeitos_a_reaplicar, sujeitos_apagados
@@ -247,15 +247,27 @@ PARTICIONADAS: Final[Mapping[str, Particionada]] = {
     "llm_call_log": Particionada("dat.llm_call_log", "ts"),
 }
 
-SQL_CRIAR_PARTICAO: Final = "SELECT platform.retencao_criar_particao(%s, %s::date)"
-SQL_LARGAR_PARTICAO: Final = "SELECT platform.retencao_largar_particao(%s, %s::date)"
+
+
+class Particoes(Protocol):
+    """Quem cria e larga uma particao mensal: o dono da tabela.
+
+    A implementacao e o `db/particoes.py`, com a ligacao do `kamba_migrator`.
+    O `kamba_batch` nao e dono, e uma funcao `SECURITY DEFINER` que crie tabelas
+    por DDL dinamico e o que o *gate* 3b recusa por desenho.
+    """
+
+    def criar(self, tabela: str, mes: date) -> None: ...
+
+    def largar(self, tabela: str, mes: date) -> None: ...
+
 SQL_PARTICOES: Final = """
   SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
    WHERE i.inhparent = %s::regclass ORDER BY 1
 """
 
-#: As contagens de uma particao, **pelo pai** e com o intervalo: a funcao que
-#: larga corre como dono e, com `FORCE`, nao ve linha nenhuma — contar la dentro
+#: As contagens de uma particao, **pelo pai** e com o intervalo, como `kamba_batch`:
+#: o dono (quem larga) esta sujeito ao `FORCE` e nao ve linha nenhuma — contar com ele
 #: dava sempre zero (o `db/rls.py` mediu-o na `0027`).
 SQL_CONTAR_MES: Final = {
     "events_log": """
@@ -315,6 +327,7 @@ class Execucao:
     storage: StorageProvider | None = None
     alargamentos: Mapping[str, Alargamento] = field(default_factory=dict)
     delegados: Mapping[str, Callable[[Any, datetime], int]] = field(default_factory=dict)
+    particoes: Particoes | None = None
     politica: tuple[Classe, ...] = politica.POLITICA
 
     @property
@@ -551,16 +564,16 @@ class _Corrida:
 
         O mes corrente **nao**: enquanto nao houver mensais, as linhas dele
         estao na `DEFAULT`, e criar a particao do mes recusava (`23514`) — um
-        alarme todas as noites por uma coisa que nao e defeito.
+        alarme todas as noites por uma coisa que nao e defeito. Sem gestor de
+        particoes, a criacao **falha**: as linhas do mes seguinte iam para a
+        `DEFAULT`, e e isso que o alerta existe para dizer.
         """
         for avanco in (1, 2):
             mes = _primeiro_do_mes(self.x.agora, avanco)
-
-            def criar(cursor: Any, mes: datetime = mes) -> None:
-                cursor.execute(SQL_CRIAR_PARTICAO, (alvo.tabela, mes.date()))
-
             try:
-                self._tx(c.nome, criar)
+                if self.x.particoes is None:
+                    raise RuntimeError("sem gestor de particoes")
+                self.x.particoes.criar(alvo.tabela, mes.date())
             except Exception:
                 self._anotar(c, alvo.tabela, None, purge_log.RESULTADO_FALHOU,
                              purge_log.MOTIVO_PARTICAO, mes)
@@ -576,38 +589,39 @@ class _Corrida:
 
     def _largar_mes(self, c: Classe, alvo: Particionada, mes: datetime,
                     limite: datetime) -> None:
-        retidos = sorted(
-            t for t in self._tenants_com_hold()
-        )
+        """Conta e verifica o hold como `kamba_batch`; larga com o dono.
 
-        def trabalho(cursor: Any) -> list[tuple[str, int, int]]:
-            cursor.execute(SQL_CONTAR_MES[c.nome], (retidos, mes, _primeiro_do_mes(mes, 1)))
-            linhas, retidas = cursor.fetchone()
-            if retidas:
-                raise _Retida()
-            if not self.x.dry_run:
-                cursor.execute(SQL_LARGAR_PARTICAO, (alvo.tabela, mes.date()))
-            return [(f"{alvo.tabela}_{mes:%Y_%m}", int(linhas), 0)]
-
+        Sao duas ligacoes e nao uma, porque so o dono larga uma particao e so o
+        `kamba_batch` ve as linhas de todos os tenants (o dono, com `FORCE`, ve
+        zero — contar com ele dava sempre «sem hold»).
+        """
+        nome = f"{alvo.tabela}_{mes:%Y_%m}"
+        retidos = sorted(self._tenants_com_hold())
         try:
-            registos = self._tx(c.nome, lambda cur: self._escrever_ok(c, None, limite, trabalho(cur), cur))
-            self.relatorio.registos.extend(registos)
-        except _Retida:
-            self._anotar(c, f"{alvo.tabela}_{mes:%Y_%m}", None, purge_log.RESULTADO_RETIDA,
-                         purge_log.MOTIVO_HOLD_TENANT, limite)
+            linhas, retidas = self._tx(c.nome, lambda cur: _linha(
+                cur, SQL_CONTAR_MES[c.nome], (retidos, mes, _primeiro_do_mes(mes, 1))))
         except Exception:
-            self._anotar(c, f"{alvo.tabela}_{mes:%Y_%m}", None, purge_log.RESULTADO_FALHOU,
-                         purge_log.MOTIVO_ERRO, limite)
-
-    def _escrever_ok(self, c: Classe, tenant: str | None, janela_ate: datetime,
-                     feito: Sequence[tuple[str, int, int]], cursor: Any) -> list[purge_log.Registo]:
-        registos = [
-            self._registo(c, t, tenant, purge_log.RESULTADO_OK, None, n, o, janela_ate)
-            for t, n, o in feito
-        ]
-        for registo in registos:
-            purge_log.escrever(cursor, registo)
-        return registos
+            self._anotar(c, nome, None, purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO, limite)
+            return
+        if retidas:
+            self._anotar(c, nome, None, purge_log.RESULTADO_RETIDA,
+                         purge_log.MOTIVO_HOLD_TENANT, limite)
+            return
+        if not self.x.dry_run:
+            if self.x.particoes is None:
+                self._anotar(c, nome, None, purge_log.RESULTADO_RECUSADA,
+                             purge_log.MOTIVO_SEM_CAMINHO, limite)
+                return
+            # shortcut: um hold aplicado entre a contagem e o `DROP` nao e
+            # visto; a janela e a de uma instrucao. Revê-se quando o agendador
+            # (KAM-078) correr a purga em paralelo com a aplicacao de holds.
+            try:
+                self.x.particoes.largar(alvo.tabela, mes.date())
+            except Exception:
+                self._anotar(c, nome, None, purge_log.RESULTADO_FALHOU,
+                             purge_log.MOTIVO_ERRO, limite)
+                return
+        self._anotar_ok(c, nome, int(linhas), limite)
 
     def _tenants_com_hold(self) -> set[str]:
         """Os tenants com hold de tenant **ou** de contacto: uma particao nao
@@ -666,13 +680,14 @@ class _Corrida:
         self.relatorio.registos.append(registo)
 
 
-class _Retida(Exception):
-    """Interna: uma particao com linhas de um tenant retido."""
-
-
 def _coluna(cursor: Any, sql: str, parametros: tuple) -> list[Any]:
     cursor.execute(sql, parametros)
     return [linha[0] for linha in cursor.fetchall()]
+
+
+def _linha(cursor: Any, sql: str, parametros: tuple) -> tuple:
+    cursor.execute(sql, parametros)
+    return tuple(cursor.fetchone())
 
 
 def _escalar(cursor: Any, sql: str, parametros: tuple) -> int:
@@ -769,8 +784,6 @@ __all__ = [
     "PRAZO_DE_ENCERRAMENTO",
     "SQL_AUDIO_EM_VIOLACAO",
     "SQL_CONTAR_MES",
-    "SQL_CRIAR_PARTICAO",
-    "SQL_LARGAR_PARTICAO",
     "SQL_MIDIA_APAGAR",
     "SQL_MIDIA_TENANTS",
     "SQL_MIDIA_VENCIDA",
@@ -780,6 +793,7 @@ __all__ = [
     "Caminho",
     "Execucao",
     "Particionada",
+    "Particoes",
     "PurgaFalhou",
     "Relatorio",
     "encerramento_devido",

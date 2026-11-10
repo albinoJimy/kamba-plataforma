@@ -431,6 +431,19 @@ dominios_historicos:
       aceitar accoes que nenhuma revisao dessa altura conhece. O passo de descida
       recusa-se se houver linhas privacy.dsar_* escritas, porque o audit_log e
       append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0043_retencao_e_purga.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-071"
+    data: "2026-11-10"
+    razao: >-
+      A 0043 (KAM-071) acrescenta ao dominio as duas accoes do hold legal,
+      retention.hold_aplicado e retention.hold_levantado, e o dicionario §3.2
+      passa a declarar onze (emenda 1.75). O upgrade escreve as onze; o
+      downgrade repoe as nove da 0038, que e o que a base passa a ter quando se
+      desce, e e essa declaracao que esta entrada cobre. O passo de descida
+      recusa-se se houver linhas retention.hold_* escritas, porque o audit_log
+      e append-only e nenhum papel tem DELETE.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

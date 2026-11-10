@@ -339,7 +339,7 @@ POLITICA: Final[tuple[Classe, ...]] = (
         "fecho da conversa",
         prazo=Prazo(dias=90),
         fonte="docs/tecnica/08 §11",
-        nota="as conversas vivem no Chatwoot; a purga e a API dele (KAM-034)",
+        nota="as conversas vivem no Chatwoot; a purga e a API dele (KAM-019)",
     ),
     Classe(
         "backup_wal",

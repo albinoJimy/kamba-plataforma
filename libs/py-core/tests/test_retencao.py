@@ -110,16 +110,6 @@ class CursorFalso:
         if "INSERT INTO platform.purge_log" in sql:
             b.purge_log.append(tuple(parametros))
             return
-        if "retencao_criar_particao" in sql:
-            b.criadas.append(tuple(parametros))
-            return
-        if "retencao_largar_particao" in sql:
-            tabela, mes = parametros
-            b.largadas.append((tabela, mes))
-            nome = f"{tabela.split('.')[1]}_{mes:%Y_%m}"
-            b.particoes[tabela].remove(nome)
-            b.tabelas[tabela] = [r for r in b.tabelas.get(tabela, []) if f"{r['ts']:%Y_%m}" != f"{mes:%Y_%m}"]
-            return
         if "FROM pg_inherits" in sql:
             self.linhas_ = [(n,) for n in b.particoes.get(parametros[0], [])]
             return
@@ -187,6 +177,24 @@ class LigacaoFalsa:
 
     def close(self) -> None:
         pass
+
+
+class ParticoesFalsas:
+    """O gestor do dono (`db/particoes.py`), sobre a base falsa."""
+
+    def __init__(self, base: BaseFalsa, falhar: bool = False) -> None:
+        self.base, self.falhar = base, falhar
+
+    def criar(self, tabela, mes) -> None:
+        if self.falhar:
+            raise Falhou("criar particao")
+        self.base.criadas.append((tabela, mes))
+
+    def largar(self, tabela, mes) -> None:
+        b = self.base
+        b.largadas.append((tabela, mes))
+        b.particoes[tabela].remove(f"{tabela.split('.')[1]}_{mes:%Y_%m}")
+        b.tabelas[tabela] = [r for r in b.tabelas.get(tabela, []) if f"{r['ts']:%Y_%m}" != f"{mes:%Y_%m}"]
 
 
 class StorageFalso:
@@ -673,7 +681,7 @@ class TestAsParticoes(unittest.TestCase):
             self.base.linhas("platform.events_log", tenant=A, ts=datetime(2024, mes, 5, tzinfo=timezone.utc))
 
     def test_larga_os_meses_vencidos_e_cria_os_dois_seguintes(self):
-        jobs.executar(execucao(self.base, "events_log"))
+        jobs.executar(execucao(self.base, "events_log", particoes=ParticoesFalsas(self.base)))
         # limite: 2024-11-10; o mes de Outubro acaba a 1 de Novembro, o de
         # Novembro so a 1 de Dezembro.
         self.assertEqual([m.month for _, m in self.base.largadas], [9, 10])
@@ -682,18 +690,25 @@ class TestAsParticoes(unittest.TestCase):
 
     def test_um_hold_de_um_tenant_presente_retem_o_mes(self):
         self.base.holds.append((A, hold.ENTIDADE_CONTACTO, JOAO))
-        jobs.executar(execucao(self.base, "events_log"))
+        jobs.executar(execucao(self.base, "events_log", particoes=ParticoesFalsas(self.base)))
         self.assertEqual(self.base.largadas, [])
         self.assertEqual({r["resultado"] for r in registos(self.base)} - {"recusada"}, {"retida"})
 
     def test_a_falha_ao_criar_m_mais_2_e_sev2(self):
-        self.base.falhar_em = "retencao_criar_particao"
-        relatorio = jobs.executar(execucao(self.base, "events_log"))
+        relatorio = jobs.executar(execucao(
+            self.base, "events_log", particoes=ParticoesFalsas(self.base, falhar=True)))
         self.assertTrue(relatorio.sev2)
         self.assertIn("particao_por_criar", {r.motivo for r in relatorio.falhas})
 
+    def test_sem_gestor_a_criacao_falha_e_nada_se_larga(self):
+        relatorio = jobs.executar(execucao(self.base, "events_log"))
+        self.assertTrue(relatorio.sev2)
+        self.assertEqual(self.base.largadas, [])
+        self.assertIn("sem_caminho", {r["motivo"] for r in registos(self.base, resultado="recusada")})
+
     def test_o_dry_run_nao_cria_nem_larga(self):
-        jobs.executar(execucao(self.base, "events_log", dry_run=True))
+        jobs.executar(execucao(self.base, "events_log", dry_run=True,
+                               particoes=ParticoesFalsas(self.base)))
         self.assertEqual((self.base.criadas, self.base.largadas), ([], []))
         self.assertEqual(sorted(r["linhas"] for r in registos(self.base, resultado="ok")), [1, 1])
 

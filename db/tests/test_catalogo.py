@@ -750,6 +750,10 @@ class TestConvencoes(ComBase):
                 # chave, que e a mesma por coincidencia.
                 ("provisioning_step", "onboarding_id", "uuid", None),
                 ("provisioning_step", "step", "text", None),
+                # KAM-071 (0043). `uuid` gerada, como as outras: uma linha de
+                # purga nao tem chave natural, e a unidade (classe, tabela,
+                # tenant) repete-se a cada execucao de proposito.
+                ("purge_log", "purge_id", "uuid", "gen_random_uuid()"),
                 ("refund_cases", "id", "uuid", "gen_random_uuid()"),
                 # KAM-045: a reserva de stock segue a regra geral, `uuid`
                 # gerado. A posicao e por `ORDER BY 1, 2`: depois de
@@ -897,7 +901,11 @@ class TestConvencoes(ComBase):
     #: guardam quem e subprocessador da plataforma, que e informacao que a
     #: propria lista publica de subprocessadores torna publica.
     ANULAVEIS = frozenset(
-        {"audit_log", "audit_heads", "payment_accounts", "tenant_destinations"}
+        {"audit_log", "audit_heads", "payment_accounts", "tenant_destinations",
+         # KAM-071 (0043). Nulo num `DROP` de particao, que e entre tenants: a
+         # linha diz «larguei este mes» e o mes tem linhas de varios. As linhas
+         # sem tenant so as ve quem tem `BYPASSRLS`, que e quem as escreve.
+         "purge_log"}
     )
 
     def test_tenant_id_e_not_null_e_vem_primeiro_num_indice(self) -> None:
@@ -1222,7 +1230,11 @@ class TestConvencoes(ComBase):
              # repetido, e o caso e que a identifica. A `contract_document`
              # nao esta aqui pela razao da `consent_texts`: e texto de
              # plataforma e nao tem `tenant_id`.
-             "contract_acceptance"},
+             "contract_acceptance",
+             # KAM-071 (0043). O indice e `(tenant_id, registado_at)`, que e a
+             # leitura «as purgas deste tenant» do painel e da auditoria. O
+             # `tenant_id` e anulavel — ver `ANULAVEIS`.
+             "purge_log"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

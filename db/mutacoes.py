@@ -260,6 +260,14 @@ REV38 = "db/migrations/versions/0038_direitos_do_titular.py"
 REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
+#: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila
+#: deu (`0043`): se mudar, muda esta constante e o nome do ficheiro, e o
+#: `--aplicaveis` apanha quem se esqueca dela.
+REV43 = "db/migrations/versions/0043_retencao_e_purga.py"
+RET_JOBS = "libs/py-core/src/kamba_core/retencao/jobs.py"
+RET_HOLD = "libs/py-core/src/kamba_core/retencao/hold.py"
+RET_POLITICA = "libs/py-core/src/kamba_core/retencao/politica.py"
+PARTICOES = "db/particoes.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6806,6 +6814,72 @@ MUTACOES = [
     # que confronta os **tres** sitios onde o dominio esta escrito (a tupla da
     # bateria, os literais da revisao e o catalogo), e o
     # `test_as_sete_accoes_passam`, que o insere.
+    # ------------------------------------------- KAM-071 (revisao `0043`)
+    #
+    # Nove. **As duas primeiras mutam a ligacao entre o tenant e a instrucao**,
+    # que e a unica barreira entre dois tenants: o `kamba_batch` tem
+    # `BYPASSRLS`. E o primeiro caso que o bloco manda ficar vermelho.
+    ('retencao: a purga dos consumidos deixa de filtrar o tenant', RET_JOBS,
+     '        WHERE tenant_id = %s::uuid AND processado_at < %s""",\n)',
+     '        WHERE (tenant_id = %s::uuid OR true) AND processado_at < %s""",\n)'),
+    # A instrucao continua valida e com os mesmos dois parametros: apaga as
+    # linhas de todos os tenants na janela. Quem a mata e o
+    # `test_a_purga_de_a_nao_toca_em_b` do `db/tests/test_retencao_bd.py`, que
+    # poe um hold em B e exige as linhas de B intactas.
+    ('retencao: o hold de tenant deixa de reter', RET_JOBS,
+     '        if self.holds.do_tenant(tenant):\n'
+     '            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_RETIDA,',
+     '        if False:\n'
+     '            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_RETIDA,'),
+    # A mesma morte, pela decisao e nao pela instrucao.
+    ('retencao: o hold le a primeira accao e nao a ultima', RET_HOLD,
+     '           ORDER BY tenant_id, entity, entity_id, id DESC) AS ultima',
+     '           ORDER BY tenant_id, entity, entity_id, id ASC) AS ultima'),
+    # Um hold levantado continua a reter, e um reaplicado fica levantado. Quem
+    # a mata e o `test_aplicar_e_levantar_pela_aplicacao_e_o_lote_ve`.
+    ('retencao: o prazo dos consumidos encolhe para nove dias', RET_POLITICA,
+     '        prazo=Prazo(dias=90),\n'
+     '        fonte="docs/tecnica/06 §7.4",\n'
+     '    ),\n'
+     '    Classe(\n'
+     '        "events_dlq",',
+     '        prazo=Prazo(dias=9),\n'
+     '        fonte="docs/tecnica/06 §7.4",\n'
+     '    ),\n'
+     '    Classe(\n'
+     '        "events_dlq",'),
+    # O prazo e *proposta*, e e por isso mesmo que encolher sem parecer tem de
+    # avermelhar: a linha de 10 dias de A sai. Quem a mata e o mesmo
+    # `test_a_purga_de_a_nao_toca_em_b`, pela contagem de A.
+    ('revisao 0043: o lote ganha DELETE no purge_log', REV43,
+     '    op.execute(f"GRANT SELECT, INSERT ON {PURGE_LOG} TO {PAPEL_DE_LOTE}")',
+     '    op.execute(f"GRANT SELECT, INSERT, DELETE ON {PURGE_LOG} TO {PAPEL_DE_LOTE}")'),
+    # O `purge_log` e *append-only* por privilegio e por mais nada: com
+    # `DELETE`, quem purga apaga a prova de que purgou. Quem a mata e o
+    # `test_o_lote_escreve_e_nao_altera_nem_apaga`.
+    ('revisao 0043: um falhou pode dizer que apagou', REV43,
+     "            CHECK (resultado = 'ok' OR (linhas = 0 AND objectos = 0))",
+     "            CHECK (resultado = 'ok' OR linhas >= 0)"),
+    # O nome fica, e por isso a lista fechada de restricoes continua verde: e o
+    # predicado que deixa de morder. Uma linha `falhou` com contagem afirmava
+    # uma eliminacao que a transaccao reverteu. Quem a mata e o
+    # `test_os_dominios_mordem`, pela linha que passa a entrar.
+    ('revisao 0043: o dominio da accao fica sem o levantamento do hold', REV43,
+     "    \"'retention.hold_aplicado', 'retention.hold_levantado'\"",
+     "    \"'retention.hold_aplicado'\""),
+    # Um hold que nao se levanta e uma retencao para sempre. Quem a mata e o
+    # `test_o_dominio_do_check_e_o_desta_bateria` do `test_auditoria.py`.
+    ('particoes: a particao nova nasce sem FORCE', PARTICOES,
+     '            cursor.execute(f"ALTER TABLE {esquema}.{nome} FORCE ROW LEVEL SECURITY")\n',
+     ''),
+    # A RLS do pai nao cobre quem le a particao directamente (KAM-005); sem
+    # `FORCE`, o dono le-a toda. Quem a mata e o
+    # `test_a_particao_nova_nasce_isolada_e_sem_privilegios`.
+    ('particoes: larga-se um mes dentro do prazo', PARTICOES,
+     '            if ate > prazo.antes_de(agora):',
+     '            if False:'),
+    # Um *job* com o relogio errado largava o mes corrente. Quem a mata e o
+    # `test_o_gestor_recusa_o_que_nao_e_dele`.
     # ---------------------------------------------------------------- KAM-060
     #
     # A porta de escrita dos sinais de anomalia. **As duas primeiras mutam a

@@ -305,7 +305,7 @@ confirma-o: a partição fica com `relrowsecurity = false` e zero políticas.
 Consequências, as duas implementadas:
 
 1. `rls.enable_tenant_rls` corre também na partição, e o
-   `db/eventos_particoes.py` tem de fazer o mesmo em cada partição que criar;
+   `db/particoes.py` (KAM-071) faz o mesmo em cada partição que cria;
 2. nenhuma partição tem privilégio concedido a papel nenhum — quem acede, acede
    pelo pai. Uma partição nova nasce com `relacl` vazio (medido), pelo que isto
    é o estado por omissão, e a verificação está lá para que uma concessão
@@ -437,12 +437,12 @@ alerta Sev2). A `DEFAULT` é também a rede: um `INSERT` cuja data não caiba em
 nenhuma partição mensal entra nela em vez de rebentar — e a sua contagem é o
 sinal de que o *job* não correu.
 
-**O que fica por fazer, e é uma lacuna deste ticket:** o `db/eventos_particoes.py`
-que cria as partições mensais e lhes liga a RLS **não existe**. A revisão e o
-X-05 estão prontos para ele (a verificação de partições corre sobre todas as que
-existirem), mas o *job* em si não foi escrito. Enquanto não existir, todo o
-arquivo cai na partição `DEFAULT`: funciona, e perde a vantagem do `DROP` de
-partição para a retenção de 24 meses (§7.4). Ver §9, linha 4.
+**O que ficou por fazer neste ticket, e o KAM-071 pagou:** o *job* que cria as
+partições mensais e lhes liga a RLS é o `db/particoes.py`, com a ligação do dono,
+e quem decide quais meses é o `kamba_core.retencao.jobs` (M+1 e M+2 criadas; os
+meses para lá dos 24 do §7.4 largados por `DROP`). O que já está na `DEFAULT`
+continua lá — a `DEFAULT` nunca se larga —, e quem chama o *job* a horas é o
+KAM-078. Ver §9, linha 4.
 
 ## 8. BullMQ: o que está NÃO VERIFICADO, e o que se leu
 
@@ -569,8 +569,8 @@ fica o que o envelope não traz e mais nada.
 | 1 | **O contrato v1 publicado tem quantos campos de topo**, e o `seq` fica no topo ou dentro de `agregado` | **Fechada pelo KAM-007 em catorze**, com o `seq` dentro do `agregado` (emenda 1.11 do dicionário). Não por preferência: um `v1.schema.json` com `additionalProperties: false` e nove campos recusava todos os envelopes reais, e o `evt_emitir` constrói catorze |
 | 2 | **`evt_agregado_seq` sem `tenant_id`** (§5): quem conheça o `agregado_id` de outro tenant lê-lhe o contador. Fechar obriga a mudar a chave primária, que é desvio ao §6.1 | Devolvida ao fundador |
 | 3 | **Um estado `bloqueado` no `events_outbox`** para o evento sem conversor, que o §6.2 pede e o DDL do §6.1 não tem (§4) | Devolvida — é uma alteração ao DDL do documento |
-| 4 | **O *job* das partições mensais** (`db/eventos_particoes.py`) não existe (§7). Sem ele todo o arquivo cai na `DEFAULT` e a retenção por `DROP` de partição não funciona | Sem ticket; nasce com a retenção (KAM-071) ou com o procedimento de *deploy* (KAM-078) |
-| 5 | **O *job* de retenção do *outbox* publicado** (7 dias, §7.4): o privilégio existe (`DELETE` ao `kamba_batch`), o *job* não | Sem ticket; idem |
+| 4 | **O *job* das partições mensais** não existia (§7). Sem ele todo o arquivo cai na `DEFAULT` e a retenção por `DROP` de partição não funciona | **Paga pelo KAM-071, menos o agendador**: o `db/particoes.py` cria M+1 e M+2 com a RLS e larga os meses vencidos, e o `kamba_core.retencao.jobs` decide quais. Quem o chama a horas é o KAM-078. O que já está na `DEFAULT` não sai por `DROP` |
+| 5 | **O *job* de retenção do *outbox* publicado** (7 dias, §7.4): o privilégio existia (`DELETE` ao `kamba_batch`), o *job* não | **Paga pelo KAM-071, menos o agendador**: a classe `events_outbox` do `kamba_core.retencao`. Quem o chama a horas é o KAM-078 |
 | 6 | **`order.paid` não está no dicionário.** O Contexto do KAM-005 e o catálogo de `docs/tecnica/06` §5 usam-no; o §3.5 do dicionário não o tinha | **Fechada pelo KAM-007**: a emenda 1.11 pôs os trinta e oito tipos do catálogo no §3.5, e faltavam vinte e não só este |
 | 7 | **`LISTEN evt_novo` sem quem faça `NOTIFY`.** O publicador escuta o canal (§6.2) e o `evt_emitir` não o avisa: o laço acorda pelo intervalo de 200 ms, que é o limite superior do atraso | Sem ticket; o `NOTIFY` entra quando o atraso medido o justificar |
 | 8 | **O limiar de p95 ≤ 1 s** a 50 eventos/s é *proposta* do próprio ticket. **Medido no CI (`ubuntu-latest`): p95 = 0,195 s, máximo = 0,288 s** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) — cinco vezes abaixo do limiar, com tudo publicado e nada perdido. No anfitrião Windows deu 6,0 s e 15,0 s, e a explicação que este documento dava para a diferença (o período do lote de 200, §6.2) **não se sustenta**: se fosse o lote, o Linux daria os mesmos 4 s | Fechada com o número do CI (§6). A caixa do critério 8 está **marcada** |
@@ -587,3 +587,4 @@ fica o que o envelope não traz e mais nada.
 | 1.2 | Outubro 2026 | Duas correcções vindas do KAM-006, no lado do produtor: o *job* passa a pedir `backoff: { type: 'custom' }` (§4), sem o que a escada do §6.4 nunca era consultada; e os dados do *job* passam a levar `tenant_id` ao lado do envelope, porque o consumidor é `kamba_app` e precisa dele para pôr o contexto da RLS antes de ler o arquivo. O lado do consumidor está em `docs/consumo.md`. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-007.** O §10 passa a ter o catálogo tipo a tipo — produtor, consumidores, agregado, PII, fase e **payload** —, lido dos contratos de `contratos/eventos/` para não haver uma terceira cópia escrita à mão. As secções 10 e 11 antigas passam a 11 e 12. A decisão aberta 1 («nove ou treze campos de topo») fecha em **catorze**, pela emenda 1.11 do dicionário; a 6 (`order.paid` fora do dicionário) fecha com o catálogo. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | **KAM-048: o consumidor do `booking.reminder_due` é o COM e não o AGR.** O catálogo espelhava o §12 do `tecnica/03`, que atribuía o lembrete ao AGR; a decisão do fundador dá-o ao COM, pela razão escrita na nota sob aquela tabela — com a janela da Meta fechada o lembrete leva data e hora, e o texto do AGR não leva números por desenho. O AGR continua a subscrever o tipo; retirar-lhe a acção é do KAM-038 e fica devolvido ao fundador. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **KAM-071: as lacunas 4 e 5 do §9 ficam pagas, menos o agendador.** O `db/eventos_particoes.py` que o §7 dava por fazer nasceu como `db/particoes.py`, para as duas tabelas particionadas (`events_log` e `dat.llm_call_log`), e a retenção do *outbox* publicado é uma classe do `kamba_core.retencao`. | Equipa KAMBÁ |

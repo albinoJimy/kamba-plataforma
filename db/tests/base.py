@@ -463,6 +463,16 @@ TABELAS_0038 = ("dsar_requests", "erasure_ledger")
 #: `UPDATE` ao dono — a imutabilidade do texto publicado e criterio do bloco.
 TABELAS_0040 = ("contract_acceptance", "contract_document")
 
+#: O que a revisao 0043 (KAM-071) acrescenta: o registo da purga.
+#:
+#: **Uma tabela, com `tenant_id` anulavel e sem FK.** Anulavel porque um `DROP`
+#: de particao e entre tenants; sem FK porque a linha tem de sobreviver ao
+#: encerramento do tenant, que e o que ela prova. Leva a `tenant_iso` e mais
+#: nada: as linhas sem tenant so as ve o `kamba_batch`, que tem `BYPASSRLS`.
+#: **Append-only por privilegio**, como o `erasure_ledger`: ninguem tem
+#: `UPDATE` nem `DELETE`. A revisao nao cria funcao nenhuma.
+TABELAS_0043 = ("purge_log",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -472,18 +482,23 @@ TABELAS = tuple(
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
-        + TABELAS_0038 + TABELAS_0040
+        + TABELAS_0038 + TABELAS_0040 + TABELAS_0043
     )
 )
 
+#: O que existe em `platform` quando a base esta na revisao `0042`.
+#:
+#: O `downgrade` da `0043` leva a base para aqui. **Deriva do `TABELAS`**, e e
+#: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
+#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela.
+TABELAS_ATE_0042 = tuple(sorted(set(TABELAS) - set(TABELAS_0043)))
+
 #: O que existe em `platform` quando a base esta na revisao `0039`.
 #:
-#: O `downgrade` da `0040` leva a base para aqui. **Deriva do `TABELAS`**, e e
-#: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
-#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. **E descreve
-#: tambem a `0038`**: a `0039` (KAM-060) cria uma funcao e um indice, e nenhuma
-#: tabela.
-TABELAS_ATE_0039 = tuple(sorted(set(TABELAS) - set(TABELAS_0040)))
+#: O `downgrade` da `0040` leva a base para aqui. Deriva do `TABELAS_ATE_0042`
+#: desde o KAM-071, que pos a sua revisao no topo. **E descreve tambem a
+#: `0038`**: a `0039` (KAM-060) cria uma funcao e um indice, e nenhuma tabela.
+TABELAS_ATE_0039 = tuple(sorted(set(TABELAS_ATE_0042) - set(TABELAS_0040)))
 
 #: O que existe em `platform` quando a base esta na revisao `0037`.
 #:
