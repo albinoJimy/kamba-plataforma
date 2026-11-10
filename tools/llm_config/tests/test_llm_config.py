@@ -15,6 +15,7 @@ hasheava, pelo que «mudou o conteudo e nao a versao» nunca se distinguia de
 from __future__ import annotations
 
 import pathlib
+import re
 import shutil
 import tempfile
 import unittest
@@ -81,6 +82,17 @@ class TestOEstadoGeradoEstaEmDia(_ComCopia):
 class TestOBumpSemVer(_ComCopia):
     """Criterio 7, a parte que existe."""
 
+    def _versao(self) -> str:
+        """A linha da `versao` **actual** do ficheiro copiado.
+
+        Lida e nao escrita: os ensaios fixavam `versao: "1.0.0"`, e o primeiro
+        *bump* do ficheiro real (KAM-189) partia-os por uma razao que nao era
+        deles.
+        """
+        linha = re.search(r'^versao: "[^"]*"$', self._texto("llm/aliases.yaml"), re.M)
+        assert linha is not None
+        return linha.group(0)
+
     def test_conteudo_mudado_sem_bump_falha(self) -> None:
         """O canario central deste ticket."""
         self._reescrever("llm/aliases.yaml", "    timeout: 8", "    timeout: 9")
@@ -132,13 +144,13 @@ class TestOBumpSemVer(_ComCopia):
 
     def test_conteudo_mudado_com_bump_e_lock_novo_passa(self) -> None:
         self._reescrever("llm/aliases.yaml", "    timeout: 8", "    timeout: 9")
-        self._reescrever("llm/aliases.yaml", 'versao: "1.0.0"', 'versao: "1.1.0"')
+        self._reescrever("llm/aliases.yaml", self._versao(), 'versao: "99.0.0"')
         self._escrever_calado()
         self.assertEqual(llm_cli.check(self.raiz), [])
 
     def test_versao_mudada_sem_lock_novo_falha(self) -> None:
         """Subir a versao e metade: o *lock* tem de ir no mesmo *commit*."""
-        self._reescrever("llm/aliases.yaml", 'versao: "1.0.0"', 'versao: "1.1.0"')
+        self._reescrever("llm/aliases.yaml", self._versao(), 'versao: "99.0.0"')
         self.assertTrue(llm_cli.check(self.raiz))
 
     def test_o_hash_nao_depende_da_versao(self) -> None:
@@ -148,14 +160,57 @@ class TestOBumpSemVer(_ComCopia):
         hashear o texto inteiro punha-a dentro do hash.
         """
         antes = llm_config.impressao(llm_config.ler(self.raiz))
-        self._reescrever("llm/aliases.yaml", 'versao: "1.0.0"', 'versao: "2.0.0"')
+        self._reescrever("llm/aliases.yaml", self._versao(), 'versao: "98.0.0"')
         depois = llm_config.impressao(llm_config.ler(self.raiz))
         self.assertEqual(antes, depois)
 
     def test_uma_versao_que_nao_e_semver_e_recusada(self) -> None:
-        self._reescrever("llm/aliases.yaml", 'versao: "1.0.0"', 'versao: "ultima"')
+        self._reescrever("llm/aliases.yaml", self._versao(), 'versao: "ultima"')
         with self.assertRaises(llm_config.AliasesInvalidos):
             llm_cli.check(self.raiz)
+
+
+class TestOTectoDeResposta(_ComCopia):
+    """KAM-189: o `max_tokens` por alias, obrigatorio nos papeis que geram texto."""
+
+    def test_o_ficheiro_real_tem_tecto_nos_papeis_de_texto(self) -> None:
+        dados = llm_config.ler(self.raiz)
+        for alias in dados["aliases"]:
+            with self.subTest(alias=alias["nome"]):
+                if alias["papel"] in llm_config.PAPEIS_COM_TECTO:
+                    self.assertIsInstance(alias["max_tokens"], int)
+                    self.assertGreater(alias["max_tokens"], 0)
+                else:
+                    self.assertNotIn("max_tokens", alias)
+
+    def test_sem_tecto_no_router_e_recusado(self) -> None:
+        # Renomear a chave e tira-la: as chaves de um alias nao sao lista fechada.
+        self._reescrever("llm/aliases.yaml", "    max_tokens: 16", "    max_tokenz: 16")
+        with self.assertRaises(llm_config.AliasesInvalidos) as apanhado:
+            llm_config.ler(self.raiz)
+        self.assertIn("max_tokens", str(apanhado.exception))
+
+    def test_um_tecto_que_nao_e_inteiro_positivo_e_recusado(self) -> None:
+        for valor in ("0", "-5", "muitos", "true"):
+            with self.subTest(valor=valor):
+                self._reescrever("llm/aliases.yaml", "    max_tokens: 16", f"    max_tokens: {valor}")
+                with self.assertRaises(llm_config.AliasesInvalidos):
+                    llm_config.ler(self.raiz)
+                self._reescrever("llm/aliases.yaml", f"    max_tokens: {valor}", "    max_tokens: 16")
+
+    def test_um_tecto_no_embed_e_recusado(self) -> None:
+        self._reescrever(
+            "llm/aliases.yaml", "    papel: embed", "    papel: embed\n    max_tokens: 16"
+        )
+        with self.assertRaises(llm_config.AliasesInvalidos):
+            llm_config.ler(self.raiz)
+
+    def test_mudar_o_tecto_sem_bump_falha(self) -> None:
+        """O tecto entra no *hash* do *lock*: muda-lo e um *release*."""
+        self._reescrever("llm/aliases.yaml", "    max_tokens: 16", "    max_tokens: 4096")
+        self.assertTrue(llm_cli.check(self.raiz))
+        with self.assertRaises(llm_config.BumpEmFalta):
+            self._escrever_calado()
 
 
 class TestAValidacaoDosAliases(_ComCopia):

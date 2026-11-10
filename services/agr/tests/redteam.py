@@ -95,7 +95,7 @@ PASTA: Final = RAIZ / "eval" / "adversarial"
 #: do KAM-033 faz a politica: mudar um caso sem subir a versao falha. *Patch*
 #: para corrigir um caso, *minor* para casos novos ou para trocar o `estado` de
 #: um caso, *major* para mudar o esquema.
-VERSAO_DO_CONJUNTO: Final = "1.0.0"
+VERSAO_DO_CONJUNTO: Final = "1.1.0"
 
 #: As familias do criterio 1, com o minimo de cada uma. *Proposta* do bloco,
 #: excepto as duas ultimas, que sao os criterios 5 e 8 (o 5 diz «>= 20 frases»;

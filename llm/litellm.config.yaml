@@ -1,6 +1,6 @@
 # GERADO por `python -m llm_config --root . escrever`. NAO EDITAR A MAO.
 #
-# Fonte: llm/aliases.yaml versao 1.0.0. Quem muda o comportamento e a
+# Fonte: llm/aliases.yaml versao 1.1.0. Quem muda o comportamento e a
 # fonte; este ficheiro e a traducao dela para o esquema do proxy LiteLLM.
 # O passo `aliases` do `lint_arch` falha se este ficheiro nao estiver em dia.
 
@@ -14,6 +14,7 @@ model_list:
       papel: chat
       ordem: 1
       fornecedor: anthropic
+      tecto_de_resposta: 512
   - model_name: kamba-chat-fallback2
     litellm_params:
       model: openai/por_decidir
@@ -23,6 +24,7 @@ model_list:
       papel: chat
       ordem: 2
       fornecedor: openai
+      tecto_de_resposta: 512
   - model_name: kamba-embed
     litellm_params:
       model: gemini/por_decidir
@@ -41,6 +43,7 @@ model_list:
       papel: router
       ordem: 1
       fornecedor: anthropic
+      tecto_de_resposta: 16
   - model_name: kamba-vision
     litellm_params:
       model: gemini/por_decidir
@@ -50,6 +53,7 @@ model_list:
       papel: vision
       ordem: 1
       fornecedor: google
+      tecto_de_resposta: 512
 
 router_settings:
   allowed_fails: 3

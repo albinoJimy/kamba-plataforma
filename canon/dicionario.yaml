@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.76"
+versao_dicionario: "1.77"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7075,6 +7075,26 @@ entradas:
       - "router"
     variantes_literais: []
   - seccao: "3.29"
+    conceito: "Tecto de resposta de um alias"
+    canonico: "max_tokens em llm/aliases.yaml; tecto_de_resposta no model_info do gerado"
+    literais:
+      - "max_tokens"
+      - "tecto_de_resposta"
+      - "model_info"
+    nomes:
+      - "max_tokens"
+      - "tecto_de_resposta"
+      - "model_info"
+    nomes_nota:
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+      - "tecto_de_resposta"
+      - "max_tokens"
+      - "model_info"
+    variantes_literais: []
+  - seccao: "3.29"
     conceito: "Estado de um alias"
     canonico: "aliases[].estado ∈ {ligada, declarada}"
     literais:
@@ -13253,7 +13273,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Versão da política"
-    canonico: "VERSAO_DA_POLITICA, SemVer, 1.1.0"
+    canonico: "VERSAO_DA_POLITICA, SemVer, 1.2.0"
     literais:
       - "VERSAO_DA_POLITICA"
     nomes:

@@ -1,0 +1,47 @@
+{
+ "base": {
+  "loja": {
+   "nome": "Salao Kianda",
+   "zona": "Talatona",
+   "plus_code": "6GCR2F"
+  },
+  "catalogo": [
+   {
+    "service_id": "srv-corte",
+    "nome": "Corte de cabelo",
+    "duracao_min": 30,
+    "preco_tipo": "fixo",
+    "preco_minor": 250000
+   },
+   {
+    "service_id": "srv-coloracao",
+    "nome": "Coloracao",
+    "duracao_min": 90,
+    "preco_tipo": "a_partir_de",
+    "preco_minor": 800000
+   },
+   {
+    "service_id": "srv-noiva",
+    "nome": "Penteado de noiva",
+    "duracao_min": 120,
+    "preco_tipo": "sob_consulta",
+    "preco_minor": null
+   },
+   {
+    "service_id": "srv-tranca",
+    "nome": "Trancas",
+    "duracao_min": 120,
+    "preco_tipo": "fixo",
+    "preco_minor": 600000
+   }
+  ],
+  "marcacoes": [
+   {
+    "id": "BK-OUTRO-1",
+    "de": "outro",
+    "slot_id": "rec-1:2026-11-17T09:00",
+    "estado": "confirmada"
+   }
+  ]
+ }
+}

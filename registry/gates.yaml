@@ -14,6 +14,11 @@
 #
 #   (6) `golden`  — precisa do dataset e do eval harness       -> KAM-040
 #
+# O dataset (`golden/<vertical>/v1`), o harness (`services/agr/tests/golden.py`)
+# e a baseline por versao do grafo (`golden/baselines/`) existem desde o
+# KAM-040. Falta o arranque ler o veredicto dela, que e tornar o gate 13
+# bloqueante: decisao do fundador, e e ela que fecha o KAM-040 e apaga a linha.
+#
 # Eram **tres**. A (1) `tools` fechou com o KAM-028: o catalogo da ToolLayer
 # existe (`kamba_agr/tls/catalogo.py`, as onze tools do §6.2), o `__main__`
 # passa-o ao `load_all`, e a validacao corre em `bloqueio` — e foi **apagar a
