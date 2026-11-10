@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.13 |
+| Versão | 1.14 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -781,8 +781,8 @@ Calcular e mostrar, por tenant e por conversa, o custo de LLM, STT e mensagens M
 - [ ] «Conversa» definida como mensagens do mesmo contacto sem pausa > 24 h; comando `h6-export` produz a amostra das últimas N conversas (omissão 500) com custo LLM, STT e Meta, percentis p50/p90/p99 e rácio custo/mensalidade; validado numa *fixture* com totais conhecidos (igualdade exacta).
 - [ ] Reconciliação em *staging* com tráfego sintético de 7 dias: custo LLM de `llm_call_log` vs *spend logs* do LiteLLM com desvio ≤ 2% por tenant (*proposta*); custo Meta calculado vs tarifa (0,004 USD após 1.000/número/mês) com desvio ≤ 1% na *fixture*.
 - [ ] Painel do *free tier*: mensagens/1.000 por número com *reset* à 00:00 do fuso da conta; alerta a 80% e 100% (reutiliza KAM-023); alerta de orçamento LLM diário > 80% por tenant.
-- [ ] Painel de unit economics: custo fixo mensal (infra + ferramentas) ÷ n.º de PMEs, margem por mensalidade (parâmetro, 30–60 mil Kz), ponto de equilíbrio e comparação **estimado vs medido** com os valores do doc 09 §14.3–14.4; desvio > 30% numa rubrica gera um item de revisão do doc.
-- [ ] Parâmetro `meta_payer = pme|kamba`; o painel mostra «custo para a KAMBÁ» e «custo total para o cliente (inclui Meta)».
+- [x] Painel de unit economics: custo fixo mensal (infra + ferramentas) ÷ n.º de PMEs, margem por mensalidade (parâmetro, 30–60 mil Kz), ponto de equilíbrio e comparação **estimado vs medido** com os valores do doc 09 §14.3–14.4; desvio > 30% numa rubrica gera um item de revisão do doc.
+- [x] Parâmetro `meta_payer = pme|kamba`; o painel mostra «custo para a KAMBÁ» e «custo total para o cliente (inclui Meta)».
 - [ ] Sem conteúdo nem `contact_id` nos painéis ou vistas expostas; acesso por VPN e papel.
 
 ### Detalhes Técnicos
@@ -799,8 +799,8 @@ Calcular e mostrar, por tenant e por conversa, o custo de LLM, STT e mensagens M
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Custo por tenant e por conversa disponível (ADR-018); sem conteúdo nem PII nas vistas.
-- [ ] Tabela de preços versionada com data; valores de mercado marcados como a reconferir.
-- [ ] Documentação do procedimento de reconciliação mensal e de `h6-export`; ligação a KAM-109.
+- [x] Tabela de preços versionada com data; valores de mercado marcados como a reconferir.
+- [x] Documentação do procedimento de reconciliação mensal e de `h6-export`; ligação a KAM-109.
 - [ ] Testes unitários e de integração verdes; cobertura não regride.
 
 ### Handoff para Claude Code
@@ -815,6 +815,55 @@ Objectivo: custo por tenant e por conversa (LLM, STT, Meta), free tier, margem e
 - Nenhum conteúdo, telefone ou contact_id em vistas ou painéis.
 Não expandas escopo: os alertas de free tier são de KAM-023; a decisão H6 é de KAM-109. PR com o template da §7.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+> **O que se entrega:** a vista `platform.v_tenant_cost_daily` (revisão de base de
+> dados com SQL em [`../db/custo.py`](../db/custo.py), declarado como auxiliar de
+> migração em `../ci/canon-lint.yaml`), o comando `h6-export`
+> ([`../db/h6_export.py`](../db/h6_export.py)), os painéis
+> [`../ops/paineis/custo-por-tenant.json`](../ops/paineis/custo-por-tenant.json) e
+> [`../ops/paineis/unit-economics.json`](../ops/paineis/unit-economics.json), o
+> procedimento em [`../ops/custo.md`](../ops/custo.md) e a emenda 1.75 do
+> dicionário (§3.53). **Nada foi medido em operação**: não há tráfego, *staging*
+> nem Grafana a correr. As provas são ensaios — **36 sem base**
+> (`db/tests/test_custo.py`) e **10 contra um PostgreSQL 18.6 descartável**
+> (`db/tests/test_custo_schema.py`), que importam o SQL do módulo em vez de o
+> copiar.
+>
+> **Três factos do repositório decidem metade desta tabela, e mediram-se antes
+> de escrever:** não há registo de chamadas de STT (o `papel` da
+> `dat.llm_call_log` é lista fechada de quatro; o STT é do KAM-036); a
+> `dat.llm_call_log` não tem chave para uma conversa (tem `trace_id`, que não é
+> o `turn_id` — nota do custo na revisão `0024`); e a entrada não se guarda
+> mensagem a mensagem com contacto (`platform.inbound_events` não tem
+> `tenant_id` nem `contact_id`). Por isso a vista **não tem rubrica de STT** em
+> vez de a ter a zero, o LLM por conversa é **rateado** e a conversa mede-se na
+> linha do tempo das mensagens de **saída** — e o `h6-export` escreve as três
+> coisas no campo `metodo` da própria saída.
+>
+> **E um ensaio apanhou um defeito antes de qualquer revisão:** o SQL dos painéis
+> nunca tinha corrido, e o do *free tier* ordenava por uma coluna que a
+> `tenant_channels` não tem (`42703`). O `test_o_sql_dos_paineis_corre_como_o_lote`
+> executa agora as **seis** consultas como `kamba_batch`.
+
+| # | Critério | Estado | Evidência / credor |
+|---|---|---|---|
+| 1 | Vista `v_tenant_cost_daily` (tenant, dia, rubrica, USD, Kz): LLM, STT, Meta por categoria, câmbio parametrizável (913) e sensibilidade 981 / 1.232 | **parcial** | **Feito e medido contra a base:** oito colunas (`tenant_id`, `dia`, `rubrica`, `unidades`, `sem_preco`, `custo_usd`, `custo_aoa_minor`, `fx_aoa_per_usd`), `security_invoker = true`; `llm` de `dat.llm_call_log` sem as recusas de destino e com as chamadas sem preço em `sem_preco`; `meta_<categoria>` do `pricing` das entregues e cobráveis, com a categoria desconhecida em `meta_outra` a custo nulo — `test_os_totais_da_fixture` dá os quatro totais esperados por igualdade exacta. O câmbio é o parâmetro `app.fx_aoa_per_usd` (omissão 913; `test_o_cambio_e_parametro_de_sessao` mede o 1.232 e o regresso à omissão; `test_um_cambio_ilegivel_levanta` dá `22P02`), e os três modos estão em `custo.MODOS_DE_CAMBIO` e no `--modo` do comando. O Kz é `custo_aoa_minor` (cêntimos) e não `custo_kz`, que o *gate* 8 proíbe. **Falta o STT**: não há registo de transcrição, e uma rubrica a zero afirmava que a voz não custou nada — credor **KAM-036** |
+| 2 | Conversa = mesmo contacto sem pausa > 24 h; `h6-export` com as últimas N (500), custo LLM, STT e Meta, p50/p90/p99 e rácio à mensalidade; *fixture* com totais conhecidos (igualdade exacta) | **parcial** | **Feito:** `segmentar()` com 24 h que não partem e 24 h + 1 µs que partem (`test_vinte_e_quatro_horas_nao_partem_e_mais_partem`, `test_um_microssegundo_acima_parte`); `exportar` com `--n 500` por omissão, percentis por posição mais próxima e rácio por tenant e mês; a *fixture* de quatro conversas dá os totais calculados à mão por igualdade de `Decimal` (`test_os_totais_por_conversa`, `test_os_percentis`, `test_o_racio_a_mensalidade`); e corre contra a base sem devolver o contacto (`test_o_h6_export_corre_contra_a_base_sem_devolver_o_contacto`). **O que não fecha:** o STT sai `null` (**KAM-036**); o LLM por conversa é **rateado** pelas mensagens do dia, e não medido — a chave entre chamada e conversa não existe (devolvido pelas três saídas da `0024`); e a conversa mede-se nas mensagens de saída (**INDÍCIO**: o bot responde a cada turno) |
+| 3 | Reconciliação em *staging* com 7 dias de tráfego: LLM vs *spend logs* do LiteLLM ≤ 2% por tenant; Meta vs tarifa ≤ 1% na *fixture* | **parcial** | **A metade da *fixture* está feita:** `reconciliar_llm` (2%, um tenant de um só lado é achado) e `meta_pela_tarifa`/`reconciliar_meta` (1.000 grátis por número e mês, 1%), com a PME típica do doc 09 §14.3 a dar 7,52 USD de 1.880 mensagens (`test_a_pme_tipica_do_doc_09`, `test_meta_a_um_por_cento`, `test_llm_a_dois_por_cento_por_tenant`), e o subcomando `reconciliar`. **A de *staging* não:** não há *staging* (**KAM-075**) nem tráfego sintético, e o caminho da API de *spend* do LiteLLM é **NÃO VERIFICADO** — o KAM-030 mediu o `/key/list` e mais nada |
+| 4 | Painel do *free tier* por número com *reset* à 00:00 do fuso da conta; alerta a 80% e 100% (KAM-023); alerta de orçamento LLM diário > 80% por tenant | **parcial** | **O painel existe** em `custo-por-tenant.json`, com limiares visuais a 80 e 100 e a consulta medida contra a base. **O *reset* é o do KAM-023**, no fuso do **tenant** e não da conta — não há fuso por canal (dívida 66). **Os dois alertas não existem como alerta:** o do *free tier* é a `meta_free_tier_used_ratio`, sem serviço que a sirva (credor **KAM-023**, `regras_por_escrever` do catálogo); o do orçamento LLM é o `LIMIAR_DE_ALERTA` 0,80 do `infra/llm/chaves.py`, sem agendador nem regra (credor **KAM-030**/**KAM-071**). O painel mostra o gasto LLM do dia, não a fracção do tecto, que vive no LiteLLM |
+| 5 | Painel de unit economics: fixo ÷ PMEs, margem por mensalidade (30–60 mil Kz), equilíbrio, estimado vs medido com o doc 09 §14.3–14.4; desvio > 30% gera item de revisão | **satisfeito** | `unit-economics.json`: custo fixo por PME (parâmetro `fixo_usd`, 470 por omissão, a ponta baixa do §14.4, ESTIMATIVA), margem e ponto de equilíbrio com a mensalidade a 30/45/60 mil Kz, e a tabela estimado contra medido com a coluna `rever_doc_09` a 30%. As consultas correm contra a base (`test_o_sql_dos_paineis_corre_como_o_lote`), o mesmo cálculo está no `economia` com o item de revisão (`test_trinta_por_cento_acima_gera_item`, `test_o_ponto_de_equilibrio`), e as estimativas lêem-se do documento e não de memória (`TestEstimativasDoDoc09`). **O Grafana não corre** — a fonte e o deploy são do KAM-080, que é o credor que o *briefing* deu a esta parte |
+| 6 | Parâmetro `meta_payer = pme\|kamba`; o painel mostra «custo para a KAMBÁ» e «custo total para o cliente (inclui Meta)» | **satisfeito** | `--meta-payer pme\|kamba` no `economia` (`test_quem_paga_a_meta_muda_o_custo_para_a_kamba_e_nao_o_do_cliente`). O painel mostra o custo para a KAMBÁ **nas duas leituras** e o custo total para o cliente com a Meta: o `obs_lint` lê o `query` de uma variável do Grafana como PromQL e recusava `pme,kamba` como duas métricas, e a D9 está por decidir |
+| 7 | Sem conteúdo nem `contact_id` nos painéis ou vistas expostas; acesso por VPN e papel | **parcial** | **Sem pessoas, provado nas três superfícies:** as colunas da vista são `custo.COLUNAS` por igualdade e disjuntas dos identificadores proibidos (`test_as_colunas_sao_as_do_modulo_e_nenhuma_aponta_para_pessoas`); o `h6-export` troca o contacto por um `dense_rank` na base; e nenhum `rawSql` de painel nomeia um identificador nem lê outra relação (`TestPaineis`). **Mutação da ligação:** com `NULL::uuid AS contact_id` acrescentado à vista em `db/custo.py`, o primeiro ensaio fica vermelho (`FAILED (failures=1)`). **Papel: feito** — `SELECT` só do `kamba_batch`, e `kamba_app` e `kamba_audit` levam `42501` (`test_so_o_lote_le`). **VPN: não** — é do deploy do Grafana (KAM-080) |
+
+| # | DoD | Estado | Evidência / credor |
+|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | Dois de sete. Os cinco parciais estão na tabela acima, e três dos credores (KAM-036, KAM-075, o deploy do KAM-080) não são de quem executa |
+| 2 | Custo por tenant e por conversa disponível (ADR-018); sem conteúdo nem PII nas vistas | **parcial** | **Por tenant: sim**, na vista. **Por conversa: rateado** no LLM e sem STT, pelas razões do critério 2. **Sem PII: sim**, pelo critério 7. E nada disto corre em operação: o `metering` continua sem serviço que o importe (KAM-080) |
+| 3 | Tabela de preços versionada com data; valores de mercado marcados como a reconferir | **marcada** | Meta: `config/meta_rates.yaml`, efectivas 2026-10-01, CONFIRMADO, copiado no `CASE` da vista com ensaio de paridade (`TestTarifas`). LLM: `llm/precos.yaml` ganha `lido_em: "2026-10-08"` (a data do `E4` §3), com o estado por linha que já tinha. As duas e o câmbio estão em `../ops/custo.md` §5 com «a reconferir antes de fixar tarifas» |
+| 4 | Documentação do procedimento de reconciliação mensal e de `h6-export`; ligação a KAM-109 | **marcada** | `../ops/custo.md`: §2 o `h6-export` e os seus três limites, §3 a reconciliação com o LiteLLM, §4 a reconciliação mensal manual com a factura da Meta (com a visibilidade do Tech Provider como NÃO VERIFICADA), §6 a unit economics; o cabeçalho nomeia o KAM-109 como quem decide a H6 |
+| 5 | Testes unitários e de integração verdes; cobertura não regride | **parcial** | **Verdes:** 36 + 10 ensaios, medidos contra o PostgreSQL 18.6 do *gate* 8. **Cobertura:** `db/**` está fora da medição do *gate* 4 (`ci/thresholds.yaml`), pelo que não regride por construção. **Falta** o ensaio de integração «reconciliação LiteLLM × `llm_call_log`» contra um LiteLLM real: o *gate* 8 não levanta o *proxy*, e o caminho da API de *spend* é NÃO VERIFICADO (critério 3) |
 
 ---
 ## KAM-082 — SLOs, orçamento de erro e alertas
@@ -1723,3 +1772,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.11 | Novembro 2026 | **KAM-085 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 1 marcada (DoD 2) e 12 vazias ou parciais**, cada uma com a razão e **com o credor nomeado**. Entregue: `tools/dr_simulacro/` (folha de passos com carimbos, linhas-marcador a 1/s, cálculo de RPO e RTO por passo, extrapolação e a regra da réplica, e o ensaio local em Docker, **64 testes**) e `docs/runbooks/simulacro-de-dr.md` (papéis, folha, cálculo, cartão da mesa-redonda e modelo de *post-mortem*). **Medido num ensaio local** com o PostgreSQL 18.6 do compose, o pgBackRest real, a configuração de `infra/backup/` tal como está em git, o esquema real e **22,19 GB** sintéticos: perda do *host* — restauro **302,2 s**, *replay* 3,0 s, verificação 49,1 s, **RPO 30,0 s** sem buracos; RTO composto **101,5 min** com o termo de rede a 100 Mbps sobre os 19,86 GB medidos do repositório e o *replay* orçado, dos quais 74,2 min são orçamento — na faixa que manda repetir o A, e a repetição útil é a humana; extrapolado a 50 GB, **134,7 min**, com o ponto de viragem em ≈ 37,7 GB, abaixo dos 40 GB do §8.2 — a regra da réplica de espera dispara com os 100 Mbps orçados, e a decisão fica com o fundador. Corrupção lógica — PITR provado pelos marcadores e **0 duplicados** (vazio no B1, com o publicador síncrono), mas **63 efeitos externos órfãos** quando só se republica o *outbox*; reimportar a exportação feita no primário vivo leva-os a 0 e cria 63 efeitos internos sobre encomendas apagadas. A revisão adversarial reproduziu dois defeitos do instrumento (o RTO ignorava o relógio entre passos, e o RPO não via a perda no princípio da série), corrigidos sem mudar nenhum número arquivado, e obrigou a refazer o RTO composto. Cofre indisponível — 0,50 s de máquina, e a passphrase tem de chegar ao `restore_command` do servidor. **E um achado de disponibilidade:** com o `archive-async=y` em git e o `postgres` como PID 1, um `archive-push` que falha reinicia o cluster (13 vezes em 180 s sem `init`, 0 com ele); o comentário do `infra/backup/pgbackrest.conf` e o RB-K08 §4 passaram a dizê-lo. **O que não fecha, e não é de quem executa:** o simulacro por uma pessoa de *on-call* que não escreveu o RB-K08, a mesa-redonda, o *post-mortem*, a data trimestral e a réplica são do fundador; o `repo1`, o IaC e o DNS são da D1. | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | **KAM-083 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 4 marcadas (critério 6 e DoD 2, 3 e 4), 5 parciais e 3 vazias**, cada uma com a razão e o credor. Os dez runbooks ficam em `docs/runbooks/` e não em `ops/runbooks/` — a leitura e a decisão devolvida estão no critério 1 | KAM-083 |
 | 1.13 | Novembro 2026 | **KAM-084 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 3 marcadas (critérios 4 e 8 e DoD 2) e 10 vazias**, cada uma com a razão e o credor. A condição de paragem do *handoff* disparou: o AGR não corre turnos (`grafos=sem_grafos`), pelo que o LLM, a degradação, o *flood* e o AGR em carga ficam com o KAM-186 e o KAM-188, e o que pede o *host* de 32 GB com o KAM-188. Medido o segmento de entrada com os processos de produção e os limites do compose: o S1 e o S2 cumprem o critério 2 à escala da estação, a rajada passa mensagens e estados pelos dois níveis de deduplicação sem *job* do AGR a mais, conferidos por identidade, e o primeiro recurso saturado é o *worker* de entrada, por CPU, entre 100 e 400 eventos/s conforme a corrida. Relatório em `../docs/tecnica/evidencia/Carga_Dimensionamento.md`, com sete achados. | Equipa KAMBÁ |
+| 1.14 | Novembro 2026 | **KAM-081 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 4 marcadas (critérios 5 e 6, DoD 3 e 4) e 8 vazias**, cada uma com a razão e o credor. A vista `v_tenant_cost_daily`, o `h6-export`, os dois painéis de custo e o `../ops/custo.md`. **Sem rubrica de STT**, porque não há registo de transcrição (KAM-036); o LLM por conversa é **rateado**, porque a `dat.llm_call_log` não tem chave para uma conversa. | Equipa KAMBÁ |

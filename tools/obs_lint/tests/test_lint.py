@@ -595,6 +595,8 @@ class TestRepositorio(_ComCopia):
     #: que apareca sem passar por aqui e um painel que ninguem reivindicou.
     PAINEIS_DE_OUTROS_TICKETS = {
         "orcamento-de-erro": "KAM-082",
+        "custo-por-tenant": "KAM-081",
+        "unit-economics": "KAM-081",
     }
 
     def test_os_quatro_paineis_do_criterio_6_existem(self) -> None:
