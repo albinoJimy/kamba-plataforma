@@ -31,6 +31,10 @@ from typing import Final
 #: Os papeis que o cliente expoe. Lista fechada (dicionario §3.29).
 PAPEIS: Final = ("router", "chat", "vision", "embed")
 
+#: Os papeis que levam `max_tokens` no corpo do pedido (KAM-189). Copia do
+#: `tools/llm_config.PAPEIS_COM_TECTO`, confrontada pelo teste de paridade.
+PAPEIS_COM_TECTO: Final = ("router", "chat", "vision")
+
 #: Os fornecedores de LLM do inventario de subprocessadores (`docs/tecnica/08`
 #: §8.3.2). Lista fechada: um fornecedor fora dela e um destino de
 #: transferencia que ninguem registou (ADR-008).
@@ -65,6 +69,9 @@ class Alias:
     #: destino e consultado para **todos** — ver `cliente.py`.
     fornecedores: tuple[str, ...]
     modelos: tuple[str, ...]
+    #: O tecto de *tokens* de resposta, que vai no corpo de cada chamada
+    #: (KAM-189). `None` so num papel fora de `PAPEIS_COM_TECTO`.
+    max_tokens: int | None = None
 
 
 def nome_do_grupo(alias: str, ordem: int) -> str:
@@ -117,12 +124,20 @@ def ler(pasta: Path) -> dict[str, Alias]:
                 f"{nome}: fornecedor(es) fora do inventario de subprocessadores: "
                 f"{fora} (ADR-008, KAM-069)"
             )
+        tecto = bruto.get("max_tokens")
+        if papel in PAPEIS_COM_TECTO and (
+            not isinstance(tecto, int) or isinstance(tecto, bool) or tecto <= 0
+        ):
+            # Falha fechada no arranque, como o fornecedor fora do inventario:
+            # uma chamada sem tecto paga-se ate ao limite do fornecedor.
+            raise AliasesIndisponiveis(f"{nome}: `max_tokens` em falta ou invalido (KAM-189)")
         saida[papel] = Alias(
             nome=nome,
             papel=papel,
             timeout=int(bruto["timeout"]),
             fornecedores=tuple(f for _, f, _ in linhas),
             modelos=tuple(m for _, _, m in linhas),
+            max_tokens=tecto if papel in PAPEIS_COM_TECTO else None,
         )
 
     faltam = sorted(set(PAPEIS) - set(saida))

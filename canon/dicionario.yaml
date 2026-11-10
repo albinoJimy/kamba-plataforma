@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.75"
+versao_dicionario: "1.77"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7071,6 +7071,26 @@ entradas:
       - "router"
     variantes_literais: []
   - seccao: "3.29"
+    conceito: "Tecto de resposta de um alias"
+    canonico: "max_tokens em llm/aliases.yaml; tecto_de_resposta no model_info do gerado"
+    literais:
+      - "max_tokens"
+      - "tecto_de_resposta"
+      - "model_info"
+    nomes:
+      - "max_tokens"
+      - "tecto_de_resposta"
+      - "model_info"
+    nomes_nota:
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+      - "tecto_de_resposta"
+      - "max_tokens"
+      - "model_info"
+    variantes_literais: []
+  - seccao: "3.29"
     conceito: "Estado de um alias"
     canonico: "aliases[].estado ∈ {ligada, declarada}"
     literais:
@@ -13249,7 +13269,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Versão da política"
-    canonico: "VERSAO_DA_POLITICA, SemVer, 1.1.0"
+    canonico: "VERSAO_DA_POLITICA, SemVer, 1.2.0"
     literais:
       - "VERSAO_DA_POLITICA"
     nomes:
@@ -13628,6 +13648,176 @@ entradas:
       - "git"
     variantes_literais: []
   - seccao: "3.53"
+    conceito: "Custo diário por tenant e rubrica"
+    canonico: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    literais:
+      - "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    nomes:
+      - "platform.v_tenant_cost_daily"
+      - "tenant_id"
+      - "dia"
+      - "rubrica"
+      - "unidades"
+      - "sem_preco"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    nomes_nota:
+      - "platform"
+      - "security_invoker"
+      - "true"
+      - "SELECT"
+      - "kamba_batch"
+      - "dat.llm_call_log"
+      - "platform.outbound_messages"
+      - "dia"
+      - "contact_id"
+      - "wamid"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Rubrica de custo"
+    canonico: "v_tenant_cost_daily.rubrica: llm, meta_service, meta_utility, meta_authentication, meta_marketing, meta_outra"
+    literais:
+      - "v_tenant_cost_daily.rubrica"
+      - "llm"
+      - "meta_service"
+      - "meta_utility"
+      - "meta_authentication"
+      - "meta_marketing"
+      - "meta_outra"
+    nomes:
+      - "v_tenant_cost_daily.rubrica"
+      - "llm"
+      - "meta_service"
+      - "meta_utility"
+      - "meta_authentication"
+      - "meta_marketing"
+      - "meta_outra"
+    nomes_nota:
+      - "CHECK"
+      - "llm"
+      - "dat.llm_call_log.custo_usd"
+      - "meta_"
+      - "pricing"
+      - "microUsdDe"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Câmbio aplicado"
+    canonico: "v_tenant_cost_daily.fx_aoa_per_usd, do parâmetro de sessão app.fx_aoa_per_usd"
+    literais:
+      - "v_tenant_cost_daily.fx_aoa_per_usd"
+      - "app.fx_aoa_per_usd"
+    nomes:
+      - "v_tenant_cost_daily.fx_aoa_per_usd"
+      - "app.fx_aoa_per_usd"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo em kwanzas"
+    canonico: "v_tenant_cost_daily.custo_aoa_minor, bigint, cêntimos"
+    literais:
+      - "v_tenant_cost_daily.custo_aoa_minor"
+      - "bigint"
+    nomes:
+      - "v_tenant_cost_daily.custo_aoa_minor"
+      - "bigint"
+    nomes_nota:
+      - "platform"
+      - "test_nao_ha_colunas_de_dinheiro_nem_saldos"
+      - "EM_UNIDADE_MENOR"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo em dólares"
+    canonico: "v_tenant_cost_daily.custo_usd, numeric"
+    literais:
+      - "v_tenant_cost_daily.custo_usd"
+      - "numeric"
+    nomes:
+      - "v_tenant_cost_daily.custo_usd"
+      - "numeric"
+    nomes_nota:
+      - "numeric"
+      - "dat.llm_call_log.custo_usd"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Mensagens contadas sem preço"
+    canonico: "v_tenant_cost_daily.sem_preco"
+    literais:
+      - "v_tenant_cost_daily.sem_preco"
+    nomes:
+      - "v_tenant_cost_daily.sem_preco"
+    nomes_nota:
+      - "custo_usd"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Unidades"
+    canonico: "v_tenant_cost_daily.unidades"
+    literais:
+      - "v_tenant_cost_daily.unidades"
+    nomes:
+      - "v_tenant_cost_daily.unidades"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Conversa, para custo"
+    canonico: "mensagens do mesmo contacto, no mesmo tenant, sem pausa maior do que 24 h"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "platform.inbound_events"
+      - "tenant_id"
+      - "contact_id"
+      - "h6"
+      - "export"
+      - "platform.conversations"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Exportação da amostra H6"
+    canonico: "h6-export (../db/h6_export.py), job ops_h6_export"
+    literais:
+      - "h6-export"
+      - "ops_h6_export"
+    nomes:
+      - "h6"
+      - "export"
+      - "ops_h6_export"
+    nomes_nota:
+      - "exportar"
+      - "reconciliar"
+      - "meta"
+      - "pricing"
+      - "economia"
+      - "dat.llm_call_log"
+      - "metodo"
+      - "contact_id"
+      - "dense_rank"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Quem paga a Meta"
+    canonico: "meta_payer: pme ou kamba"
+    literais:
+      - "meta_payer"
+      - "pme"
+      - "kamba"
+    nomes:
+      - "meta_payer"
+      - "pme"
+      - "kamba"
+    nomes_nota:
+      - "meta"
+      - "payer"
+      - "economia"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Painéis de custo"
+    canonico: "../ops/paineis/custo-por-tenant.json, ../ops/paineis/unit-economics.json"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "kamba"
+      - "custo"
+    variantes_literais: []
+  - seccao: "3.54"
     conceito: "O módulo"
     canonico: "../packages/core-ts/src/guia/, com o serviço PassoGuiado"
     literais:
@@ -13637,7 +13827,7 @@ entradas:
     nomes_nota:
       - "code"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Pré-voo gravado"
     canonico: "onboarding_case.preflight, jsonb array de «{id, tipo, ok, detalhe}»"
     literais:
@@ -13650,7 +13840,7 @@ entradas:
       - "onboarding_case.fase"
       - "RepositorioDoGuia"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Item do pré-voo"
     canonico: "ItemAvaliado.id ∈ {app_versao, numero_movel, whatsapp_pessoal, cartao_internacional, categoria_aprovada, display_name, dono_presente}"
     literais:
@@ -13673,7 +13863,7 @@ entradas:
       - "dono_presente"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Como se verifica um item"
     canonico: "ItemAvaliado.tipo ∈ {auto, atestado}"
     literais:
@@ -13688,7 +13878,7 @@ entradas:
       - "atestado"
       - "true"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Porquê de um item"
     canonico: "ItemAvaliado.detalhe ∈ {ok, nao_atestado, versao_antiga, versao_ilegivel, fixo_rota_cloud_only, numero_ilegivel, converter_para_business, sem_cartao_internacional, categoria_por_aprovar, categoria_recusada, nome_vazio, nome_com_termo_bloqueado}"
     literais:
@@ -13721,7 +13911,7 @@ entradas:
       - "nome_com_termo_bloqueado"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Versão mínima da app"
     canonico: "VERSAO_MINIMA_DA_APP = 2.24.17"
     literais:
@@ -13732,7 +13922,7 @@ entradas:
     nomes_nota:
       - "E1"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Tipo de linha de um telefone"
     canonico: "Telefone.linha ∈ {movel, fixo, desconhecido}"
     literais:
@@ -13750,7 +13940,7 @@ entradas:
       - "revelar"
       - "cloud_only"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Estado visível do canal"
     canonico: "EstadoGuardado.estado ∈ {pre_voo, iniciado, es_concluido, subscrito, a_sincronizar, verificado, pronto, abandonado, falhado, desligado}"
     literais:
@@ -13786,7 +13976,7 @@ entradas:
       - "iniciado"
       - "phone_number_id"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Motivo de um guia falhado"
     canonico: "EstadoGuardado.motivo ∈ {numero_divergente, sincronizacao_vencida, ligacao_recusada, tecto_da_meta}"
     literais:
@@ -13806,7 +13996,7 @@ entradas:
       - "tecto_da_meta"
       - "CapacityGate"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Marca do modo cloud_only"
     canonico: "extras.featureType = kamba_cloud_only no session_info que o guia compõe"
     literais:
@@ -13824,7 +14014,7 @@ entradas:
       - "cloud_only"
       - "session_info"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Gates que o guia escreve"
     canonico: "meta_es e meta_pagamento, em onboarding_gate"
     literais:
@@ -13841,7 +14031,7 @@ entradas:
       - "detectado"
       - "GatesDoOnboarding"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Estado do método de pagamento"
     canonico: "VerificacaoDoPagamento.estado ∈ {detectado, ausente, desconhecido}"
     literais:
@@ -13860,7 +14050,7 @@ entradas:
       - "KAM"
       - "mps"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Capacidade antes do popup"
     canonico: "CapacityGate, com reserve(onboardingId) ∈ {granted, lista_espera} e release"
     literais:
@@ -13880,7 +14070,7 @@ entradas:
       - "es_max_por_7d"
       - "E1"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Ligação de retoma"
     canonico: "referência de fim retoma, domínio kamba/onboarding/retoma/v1, validade 30 dias"
     literais:
@@ -13891,7 +14081,7 @@ entradas:
       - "FINS"
       - "sessao"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Mensagem ao dono do guia"
     canonico: "AvisoDoGuia, mensagem ∈ {reconectar, sincronizacao_falhou, sincronizacao_lembrete}"
     literais:
@@ -13908,7 +14098,7 @@ entradas:
       - "canal_desligado"
       - "inactividade"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Configuração do popup"
     canonico: "KAMBA_META_APP_ID, KAMBA_META_ES_CONFIG_ID, ONBOARDING_ORIGEM, ONBOARDING_GWY_INTERNO_URL"
     literais:
@@ -15034,13 +15224,28 @@ tabelas:
     assinatura: "platform.dpa_em_falta()"
     seccao: "3.52"
     conceito: "Verificação diária"
+  - nome: "v_tenant_cost_daily"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "dia"
+      - "rubrica"
+      - "unidades"
+      - "sem_preco"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    aberta: false
+    assinatura: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    seccao: "3.53"
+    conceito: "Custo diário por tenant e rubrica"
   - nome: "reserve"
     esquema: ""
     colunas:
       - "onboardingId"
     aberta: false
     assinatura: "reserve(onboardingId)"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Capacidade antes do popup"
 
 dominios:
@@ -16182,14 +16387,14 @@ dominios:
       - "categoria_aprovada"
       - "display_name"
       - "dono_presente"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Item do pré-voo"
     so_no_registo: false
   - coluna: "ItemAvaliado.tipo"
     valores:
       - "auto"
       - "atestado"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Como se verifica um item"
     so_no_registo: false
   - coluna: "ItemAvaliado.detalhe"
@@ -16206,7 +16411,7 @@ dominios:
       - "categoria_recusada"
       - "nome_vazio"
       - "nome_com_termo_bloqueado"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Porquê de um item"
     so_no_registo: false
   - coluna: "Telefone.linha"
@@ -16214,7 +16419,7 @@ dominios:
       - "movel"
       - "fixo"
       - "desconhecido"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Tipo de linha de um telefone"
     so_no_registo: false
   - coluna: "EstadoGuardado.estado"
@@ -16229,7 +16434,7 @@ dominios:
       - "abandonado"
       - "falhado"
       - "desligado"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Estado visível do canal"
     so_no_registo: false
   - coluna: "EstadoGuardado.motivo"
@@ -16238,7 +16443,7 @@ dominios:
       - "sincronizacao_vencida"
       - "ligacao_recusada"
       - "tecto_da_meta"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Motivo de um guia falhado"
     so_no_registo: false
   - coluna: "VerificacaoDoPagamento.estado"
@@ -16246,14 +16451,14 @@ dominios:
       - "detectado"
       - "ausente"
       - "desconhecido"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Estado do método de pagamento"
     so_no_registo: false
   - coluna: "reserve"
     valores:
       - "granted"
       - "lista_espera"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Capacidade antes do popup"
     so_no_registo: false
 

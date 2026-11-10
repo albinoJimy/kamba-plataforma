@@ -34,7 +34,7 @@
 # (KAM-010) e nunca neste ficheiro nem na imagem.
 
 version: 1
-versao: "1.0.0"
+versao: "1.1.0"
 
 # `router_settings` do `docs/tecnica/02` §13.1. Os tres nomes foram confirmados
 # contra a versao fixada (ver `docs/evidencia/KAM-030-litellm.md`): o ticket
@@ -46,10 +46,19 @@ router_settings:
 
 # Um alias por papel. `estado` e o vocabulario do KAM-027 (dicionario §3.26):
 # `ligada` tem modelo escolhido, `declarada` espera pelo `credor`.
+#
+# `max_tokens` e o tecto de *tokens* de resposta que o cliente do AGR manda no
+# corpo de cada chamada (KAM-189): sem ele, um texto que convencesse o modelo a
+# escrever pagava-se ate ao limite do fornecedor, e so o orcamento por *tenant*
+# o travava. Obrigatorio nos papeis que geram texto (`router`, `chat`,
+# `vision`); o `embed` nao o leva. Os valores sao *proposta* e calibram-se no
+# golden (KAM-040): o do router cobre a palavra unica que o classificador
+# devolve, com folga; o do chat e o do vision, uma mensagem de WhatsApp.
 aliases:
   - nome: kamba-router
     papel: router
     timeout: 8
+    max_tokens: 16
     estado: declarada
     credor: KAM-040
     razao: >-
@@ -59,6 +68,7 @@ aliases:
   - nome: kamba-chat
     papel: chat
     timeout: 20
+    max_tokens: 512
     estado: declarada
     credor: KAM-040
     razao: >-
@@ -68,6 +78,7 @@ aliases:
   - nome: kamba-vision
     papel: vision
     timeout: 20
+    max_tokens: 512
     estado: declarada
     credor: KAM-033
     razao: >-

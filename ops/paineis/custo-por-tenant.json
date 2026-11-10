@@ -1,0 +1,184 @@
+{
+  "uid": "kamba-custo-por-tenant",
+  "title": "KAMBA - custo por tenant",
+  "tags": [
+    "kamba",
+    "kam-081",
+    "custo"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "fx",
+        "label": "AOA por USD",
+        "query": "913,981,1232",
+        "current": {
+          "text": "913",
+          "value": "913"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "O que este painel e",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Configuracao versionada, ainda sem Grafana a correr\n\nEste painel le a vista `platform.v_tenant_cost_daily` (KAM-081) por uma fonte PostgreSQL com o uid `kamba-custo`, que **nao esta provisionada**: o Grafana esta `pendente` pela licenca AGPL (KAM-080), e a fonte, o papel de leitura e o acesso por VPN sao do deploy. Nenhuma consulta le contacto, conversa, telefone ou texto: a vista nao os tem, e o `db/tests/test_custo.py` recusa um `rawSql` que os nomeie ou que leia outra relacao.\n\n**Sem STT**: nao ha registo de transcricao (KAM-036). O cambio e a variavel `fx` (913 omissao, INDICIO; 981 = +7,4%; 1232 = +35%)."
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Custo diario por rubrica (USD)",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-custo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-custo"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT dia::timestamp AS time, rubrica, sum(custo_usd) AS custo_usd\n  FROM platform.v_tenant_cost_daily\n WHERE $__timeFilter(dia)\n GROUP BY dia, rubrica\n ORDER BY dia"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Custo por tenant e rubrica no periodo (USD, e Kz ao cambio fx)",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-custo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-custo"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT tenant_id, rubrica, sum(unidades) AS unidades, sum(sem_preco) AS sem_preco,\n       sum(custo_usd) AS custo_usd, round(sum(custo_usd) * $fx, 2) AS custo_aoa\n  FROM platform.v_tenant_cost_daily\n WHERE $__timeFilter(dia)\n GROUP BY tenant_id, rubrica\n ORDER BY tenant_id, rubrica"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Free tier por numero no mes corrente (mensagens / 1.000)",
+      "description": "O contador e o tenant_channels.free_tier_used do KAM-023, que o reinicia as 00:00 do fuso do tenant (nao ha fuso por canal: divida 66). Os alertas de 80% e 100% sao os do KAM-023 (meta_free_tier_used_ratio), hoje sem servico que a sirva.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-custo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-custo"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT c.tenant_id,\n       row_number() OVER (PARTITION BY c.tenant_id ORDER BY c.id) AS numero,\n       c.free_tier_used AS mensagens,\n       round(c.free_tier_used / 10.0, 1) AS percentagem_de_1000\n  FROM platform.tenant_channels c\n  JOIN platform.tenants t ON t.id = c.tenant_id\n WHERE c.free_tier_month = date_trunc('month', now() AT TIME ZONE t.fuso_horario)::date\n ORDER BY percentagem_de_1000 DESC"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Custo LLM de hoje por tenant (USD)",
+      "description": "O orcamento diario vive no LiteLLM (max_budget da chave virtual do tenant) e nao na base: o aviso de 80% e o infra/llm/chaves.py do KAM-030 (LIMIAR_DE_ALERTA 0,80), que ainda nao tem agendador nem regra de alerta. Aqui ve-se o gasto, nao a fraccao do tecto.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-custo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-custo"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT v.tenant_id, v.custo_usd, v.unidades, v.sem_preco\n  FROM platform.v_tenant_cost_daily v\n  JOIN platform.tenants t ON t.id = v.tenant_id\n WHERE v.rubrica = 'llm'\n   AND v.dia = (now() AT TIME ZONE t.fuso_horario)::date\n ORDER BY v.custo_usd DESC NULLS LAST"
+        }
+      ]
+    }
+  ]
+}

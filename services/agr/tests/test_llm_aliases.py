@@ -51,6 +51,10 @@ class TestParidadeComOLlmConfig(unittest.TestCase):
     def test_os_papeis(self) -> None:
         self.assertEqual(servico.PAPEIS, self.ferramenta.PAPEIS)
 
+    def test_os_papeis_com_tecto(self) -> None:
+        """KAM-189: os papeis que levam `max_tokens`, nas duas copias."""
+        self.assertEqual(servico.PAPEIS_COM_TECTO, self.ferramenta.PAPEIS_COM_TECTO)
+
     def test_os_fornecedores_aprovados(self) -> None:
         self.assertEqual(
             servico.FORNECEDORES_APROVADOS, self.ferramenta.FORNECEDORES_APROVADOS
@@ -148,6 +152,31 @@ fornecedores:
             servico.ler(pasta)
         self.assertIn("inventario de subprocessadores", str(apanhado.exception))
 
+    def test_um_router_sem_tecto_de_resposta_levanta(self) -> None:
+        """KAM-189: uma chamada sem `max_tokens` paga-se ate ao limite do fornecedor."""
+        pasta = self._pasta_com(
+            """version: 1
+versao: "1.0.0"
+router_settings:
+  num_retries: 1
+aliases:
+  - nome: kamba-router
+    papel: router
+    timeout: 8
+    estado: declarada
+    credor: KAM-040
+fornecedores:
+  - alias: kamba-router
+    ordem: 1
+    fornecedor: anthropic
+    modelo: por_decidir
+    credor: KAM-040
+"""
+        )
+        with self.assertRaises(servico.AliasesIndisponiveis) as apanhado:
+            servico.ler(pasta)
+        self.assertIn("max_tokens", str(apanhado.exception))
+
     def test_um_papel_em_falta_levanta(self) -> None:
         pasta = self._pasta_com(
             """version: 1
@@ -158,6 +187,7 @@ aliases:
   - nome: kamba-router
     papel: router
     timeout: 8
+    max_tokens: 16
     estado: declarada
     credor: KAM-040
 fornecedores:

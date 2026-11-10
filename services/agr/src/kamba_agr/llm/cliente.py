@@ -257,6 +257,10 @@ class ClienteDeLlm:
                     # `MensagemMinimizada`: traduzir mais cedo devolvia um `dict`
                     # a alguem e perdia a barreira do criterio 1.
                     "messages": [item.para_esquema() for item in mensagens],
+                    # O tecto de resposta do alias (KAM-189). Sem ele, um texto
+                    # que convenca o modelo a escrever paga-se ate ao limite do
+                    # fornecedor, e so o orcamento por *tenant* o travava.
+                    **({"max_tokens": alias.max_tokens} if alias.max_tokens else {}),
                 },
                 alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS,
             )

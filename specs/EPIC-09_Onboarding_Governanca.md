@@ -1022,7 +1022,7 @@ interface CapacityGate { reserve(onboardingId: string): Promise<'granted' | 'lis
 Entregue no ramo `feature/KAM-093-embedded-signup`: o módulo
 [`../packages/core-ts/src/guia/`](../packages/core-ts/src/guia/index.ts) e as rotas `/ligar` e
 `/api/es/*` de [`../services/onboarding-web/src/guia.ts`](../services/onboarding-web/src/guia.ts),
-dicionário §3.53 (emenda 1.75). **Um critério satisfeito e oito parciais; quatro caixas da DoD de
+dicionário §3.54 (emenda 1.77). **Um critério satisfeito e oito parciais; quatro caixas da DoD de
 seis.** **Sem revisão de base de dados**, e a razão é medida: as três tabelas que este bloco
 nomeia — `onboarding_case` (para o `preflight`), `onboarding_gate` e `review_case` — **não existem**
 na cadeia até à `0040`. A primeira tem a `fase` em divergência entre o dicionário §3.2 (seis
@@ -1056,7 +1056,7 @@ contra duplos e contra os corpos do simulador do KAM-024.
 | Sem telefone em claro em logs/eventos; sem *token*/PIN; *scan* de segredos limpo | **satisfeito** | O guia só escreve `outcome` e `error_code` de lista fechada; o número compara-se por HMAC e não é escrito em lado nenhum; `log_policy` com 0 achados e *gate* 9 limpo |
 | Estado `desligado` e reconexão cobertos; alertas e métricas de sincronização nascem com o código | **parcial** | `desligado` e reconexão cobertos (critério 7). As métricas de sincronização existem em `../packages/core-ts/src/coexistencia/metricas.ts` (KAM-017), mas o alerta está no catálogo como «sem serviço que a sirva» — o credor do critério 6 |
 | NÃO VERIFICADOS não tratados como requisito; `cloud_only` como saída documentada | **satisfeito** | Não há item de pré-voo para a elegibilidade de Angola nem para os «≥ 7 dias» (`nao ha item para os NAO VERIFICADOS`); o fixo toma a rota `cloud_only`, o popup dessa rota sai sem `featureType`, e o `session_info` que o guia compõe para o KAM-016 leva a marca `kamba_cloud_only`, que o `modoDoSessionInfo` aceita (`achado 3: o session_info de cada rota…`) |
-| Documentação actualizada; migração (se houver) reversível | **satisfeito** | Sem migração. Este bloco, o dicionário §3.53 com o `canon/dicionario.yaml` regenerado, a enumeração do X-01 do *gate* 6 (caso `X-01/ts/guia`: oito rotas e vinte e quatro ataques, todos 403 uniformes) e o inventário do *gate* 7 (165 declaradas, 0 divergências) |
+| Documentação actualizada; migração (se houver) reversível | **satisfeito** | Sem migração. Este bloco, o dicionário §3.54 com o `canon/dicionario.yaml` regenerado, a enumeração do X-01 do *gate* 6 (caso `X-01/ts/guia`: oito rotas e vinte e quatro ataques, todos 403 uniformes) e o inventário do *gate* 7 (165 declaradas, 0 divergências) |
 
 ### Handoff para Claude Code
 

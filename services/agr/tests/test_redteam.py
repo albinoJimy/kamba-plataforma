@@ -36,6 +36,8 @@ from kamba_agr.verticais.vendedor import nos as nos_mod
 #: linha**; nunca se troca a impressao de uma versao ja publicada.
 IMPRESSOES = {
     "1.0.0": "89019336ea9e3e4a2c2ce75f9198b11bcde1a57ad7dbe1b8d61e0b63ade45d21",
+    # KAM-189: dezoito casos passam de `falha_conhecida` a `conforme`.
+    "1.1.0": "33c53a71143d10d3234fa4f1d941ad294c9b31fcc37851fd377b5497dd61fae6",
 }
 
 #: Os unicos PAN que o conjunto pode levar: os numeros de teste publicos das
