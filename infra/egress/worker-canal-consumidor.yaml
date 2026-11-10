@@ -1,0 +1,14 @@
+# Lista de saidas de `worker-canal-consumidor` — KAM-067 criterio 9; servico do KAM-187.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai.
+#
+# E um dos quatro servicos do `worker-canal` (uma imagem, um `command:` cada).
+# O `supply_chain` pede uma lista por **servico de compose** cujo nome nao e o
+# de uma pasta de `services/`, e por isso o `services/worker-canal/egress.yaml`
+# nao o cobre. A lista e a mesma dessa: **vazia**. O processo fala com a fila e
+# a base (`data`) e com o AGR (`app`), as duas redes sao `internal: true`, e o
+# servico nao tem `HTTPS_PROXY`.
+version: 1
+servico: worker-canal-consumidor
+por_omissao: negar
+destinos: []

@@ -66,7 +66,8 @@ Além das três acima, há uma razão medida e local, e vale escrevê-la porque 
 que surpreende:
 
 `tools/compose_prod/tests/test_lint.py:58` prende a soma do manifesto do
-conjunto reduzido a **24 064 MiB exactos**, que é a soma das linhas de limites
+conjunto reduzido a **25 152 MiB exactos** (eram 24 064 até ao KAM-187, que lhe somou os quatro
+processos do `worker-canal` com a razão escrita no ensaio), que é a soma das linhas de limites
 propostos do **bloco do KAM-076**. Um serviço novo é memória que aquela proposta
 não contém, e mudar aquela igualdade é mudar a medição de outro ticket. O
 acréscimo legítimo é com o ticket que traga o `repo1`.

@@ -4,7 +4,12 @@
 # aqui, por extenso, que **esta configuracao nao era observabilidade**. Este
 # ficheiro e a parte que faltava: os alvos, as regras e o encaminhamento.
 #
-# ## Os alvos sao tres, e nao treze
+# ## Os alvos sao sete, e nao treze
+#
+# Eram tres (`gwy`, `com`, `agr`) ate ao KAM-187, que acrescentou os quatro
+# processos do `worker-canal` **no mesmo PR** que os pos a correr no compose —
+# e e essa a condicao que a regra abaixo pede. O resto desta nota e historia
+# do KAM-080 e continua verdade para os modulos que nenhum servico importa.
 #
 # O KAM-076 recusou acrescentar um `scrape_config` por servico «por
 # antecipacao», com a razao certa: «um alvo que raspa um `/metrics` que ainda
@@ -102,3 +107,42 @@ scrape_configs:
           - agr
         type: A
         port: 8000
+
+  # Os quatro processos do `worker-canal` (KAM-187), um alvo cada, e so porque o
+  # compose os levanta: e a regra do KAM-076 de nao raspar o que nao corre. Ate
+  # ao KAM-187 o compose corria o `server.ts`, que da 404 em `/metrics`, e
+  # nenhum destes alvos existia. O `job` e o nome do processo, e nao o do
+  # servico: o `obs_lint` exige que os valores do dominio casem a gramatica das
+  # etiquetas, que nao aceita hifenes.
+  #
+  # `dns_sd_configs` pela razao do `gwy`: tres dos quatro correm com
+  # `deploy.replicas: 2`, e um `static_configs` raspava um dos enderecos.
+  - job_name: entrada
+    dns_sd_configs:
+      - names:
+          - worker-canal-entrada
+        type: A
+        port: 3013
+
+  - job_name: agr_shim
+    dns_sd_configs:
+      - names:
+          - worker-canal-agr-shim
+        type: A
+        port: 3025
+
+  # O publicador em espera tambem e raspado: o `up` dele diz que a replica esta
+  # viva para assumir, que e a razao de ela existir.
+  - job_name: publicador
+    dns_sd_configs:
+      - names:
+          - worker-canal-publicador
+        type: A
+        port: 3011
+
+  - job_name: consumidor
+    dns_sd_configs:
+      - names:
+          - worker-canal-consumidor
+        type: A
+        port: 3012

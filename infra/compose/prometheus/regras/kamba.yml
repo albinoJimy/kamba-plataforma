@@ -115,9 +115,13 @@ groups:
       #
       # LIMITE das duas: o §9.2 pede a **idade do mais antigo** acima de 2 min;
       # isto mede a **profundidade** sustentada 2 min. Nao e o mesmo predicado —
-      # uma fila funda que escoa depressa dispara isto e nao dispararia aquele. A
-      # idade vive no `evt_outbox_lag_seconds`, servido pelo publicador, que nao
-      # esta em nenhum compose (credor KAM-005).
+      # uma fila funda que escoa depressa dispara isto e nao dispararia aquele.
+      # Esta nota dizia que a idade vivia no `evt_outbox_lag_seconds`, «servido
+      # pelo publicador, que nao esta em nenhum compose (credor KAM-005)». O
+      # publicador corre no compose e e raspado desde o KAM-187 (job
+      # `publicador`), e o KAM-005 fundiu — mas aquela serie e o atraso do
+      # *outbox*, e nao a idade do *job* mais antigo da `wa-inbound`: nao
+      # responde a esta linha, e a idade continua sem serie que a sirva.
       - alert: fila_de_entrada_a_crescer
         expr: 'inbound_queue_depth > 0'
         for: 2m
