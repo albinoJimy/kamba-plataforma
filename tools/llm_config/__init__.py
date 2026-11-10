@@ -112,6 +112,12 @@ PREFIXO_LITELLM: Final = {
 #: Os papeis que o cliente do AGR expoe. Lista fechada (dicionario §3.29).
 PAPEIS: Final = ("router", "chat", "vision", "embed")
 
+#: Os papeis que devolvem texto e que, por isso, levam `max_tokens`: o tecto de
+#: *tokens* de resposta que o cliente do AGR manda no corpo de cada chamada
+#: (KAM-189). Sem ele, uma resposta paga-se ate ao limite do fornecedor. O
+#: `embed` nao gera texto e nao o leva.
+PAPEIS_COM_TECTO: Final = ("router", "chat", "vision")
+
 #: Estados de um alias, no vocabulario do KAM-027 (dicionario §3.26).
 ESTADO_LIGADA: Final = "ligada"
 ESTADO_DECLARADA: Final = "declarada"
@@ -165,6 +171,15 @@ def ler(raiz: Path) -> dict[str, Any]:
             )
         if not isinstance(alias.get("timeout"), int) or alias["timeout"] <= 0:
             raise AliasesInvalidos(f"{nome}: `timeout` tem de ser um inteiro de segundos")
+        tecto = alias.get("max_tokens")
+        if papel in PAPEIS_COM_TECTO:
+            # `bool` e subclasse de `int`: `max_tokens: true` passava como 1.
+            if not isinstance(tecto, int) or isinstance(tecto, bool) or tecto <= 0:
+                raise AliasesInvalidos(
+                    f"{nome}: `max_tokens` tem de ser um inteiro positivo no papel `{papel}`"
+                )
+        elif tecto is not None:
+            raise AliasesInvalidos(f"{nome}: `max_tokens` num papel que nao gera texto")
         nomes.append(nome)
     if len(set(nomes)) != len(nomes):
         raise AliasesInvalidos("dois aliases com o mesmo `nome`")
@@ -324,6 +339,14 @@ def render(dados: dict[str, Any]) -> str:
             f"      ordem: {linha['ordem']}",
             f"      fornecedor: {fornecedor}",
         ]
+        # O tecto de resposta (KAM-189) e do **cliente**, que o manda no corpo;
+        # escreve-se aqui para entrar na `impressao`, que e calculada sobre este
+        # texto: sem ele, mudar o `max_tokens` nao mudava o *hash* do *lock*, e o
+        # passo `aliases` deixava passar um tecto novo sem *bump*. **Com nome
+        # nosso, e nao `max_tokens`**: no `model_info` esse nome e um metadado do
+        # proprio LiteLLM (a janela do modelo), e 16 ali seria lido como tal.
+        if alias.get("max_tokens") is not None:
+            linhas.append(f"      tecto_de_resposta: {alias['max_tokens']}")
     linhas += ["", "router_settings:"]
     for chave in sorted(dados["router_settings"]):
         linhas.append(f"  {chave}: {dados['router_settings'][chave]}")

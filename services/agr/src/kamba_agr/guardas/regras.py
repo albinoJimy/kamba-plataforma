@@ -89,6 +89,8 @@ ASSINATURA: Final = (
     MARCA_DOCUMENTO,
     MARCA_SENSIVEL,
     "card_data>sensitive>injection>abuse>out_of_domain>ok>None",
+    # KAM-189: a forma auxiliar so serve a injeccao e a fronteira.
+    "auxiliar:injection+fronteira",
 )
 
 
@@ -98,7 +100,11 @@ def _compilar(padroes: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
 
 _INJECCAO: Final = _compilar(politica.INJECCAO)
 _FRONTEIRA: Final = _compilar(politica.FRONTEIRA)
+_FRONTEIRA_SEM_ABSOLVICAO: Final = _compilar(politica.FRONTEIRA_SEM_ABSOLVICAO)
 _PRIMEIRA_PESSOA: Final = re.compile(politica.PRIMEIRA_PESSOA)
+_PALAVRA_OFUSCADA: Final = re.compile(politica.PALAVRA_OFUSCADA)
+_LETRAS_ESPACADAS: Final = re.compile(politica.LETRAS_ESPACADAS)
+_SUBSTITUIR: Final = str.maketrans(politica.SUBSTITUICOES)
 _SENSIVEL: Final = _compilar(politica.SENSIVEL)
 _ABUSO: Final = _compilar(politica.ABUSO)
 _FORA_DE_DOMINIO: Final = _compilar(politica.FORA_DE_DOMINIO)
@@ -237,8 +243,30 @@ def e_sensivel(texto: str) -> bool:
     return MARCA_SENSIVEL in texto or any(p.search(normal) for p in _SENSIVEL)
 
 
+def desofuscar(normal: str) -> str:
+    """A forma auxiliar do texto normal: sem substituicao de letras nem letras espacadas.
+
+    «mo$tra» passa a «mostra» e «m o s t r a» a «mostra» (KAM-189). So para a
+    injeccao e a fronteira, e **ao lado** da forma normal, nunca em vez dela: a
+    substituicao muda numeros («500ml»), e as outras regras decidem sobre o
+    texto que o cliente escreveu.
+    """
+    def _palavra(achado: re.Match[str]) -> str:
+        palavra = achado.group(0)
+        return palavra if palavra.isdigit() else palavra.translate(_SUBSTITUIR)
+
+    trocado = _PALAVRA_OFUSCADA.sub(_palavra, normal)
+    return _LETRAS_ESPACADAS.sub(lambda a: a.group(0).replace(" ", ""), trocado)
+
+
 def atravessa_fronteira(normal: str) -> bool:
-    """O X-09 pelas regras: pedir dados de outro contacto, loja ou *tenant*."""
+    """O X-09 pelas regras: pedir dados de outro contacto, loja ou *tenant*.
+
+    O possessivo do cliente absolve os padroes de `FRONTEIRA`, e so esses: os de
+    `FRONTEIRA_SEM_ABSOLVICAO` recusam com ou sem ele (KAM-189).
+    """
+    if any(p.search(normal) for p in _FRONTEIRA_SEM_ABSOLVICAO):
+        return True
     return any(p.search(normal) for p in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(normal)
 
 
@@ -249,7 +277,11 @@ def veredicto_por_regras(texto: str) -> str | None:
     if e_sensivel(texto):
         return "sensitive"
     normal = normalizar(texto)
-    if any(p.search(normal) for p in _INJECCAO) or atravessa_fronteira(normal):
+    auxiliar = desofuscar(normal)
+    if any(
+        any(p.search(forma) for p in _INJECCAO) or atravessa_fronteira(forma)
+        for forma in (normal, auxiliar)
+    ):
         # **Atravessar a fronteira do tenant e `injection`**, nao
         # `out_of_domain`: os dois vao ao `safe_reply` pela linha 9, mas e o
         # `injection` que nomeia o que isto e, e e ele que conta para o

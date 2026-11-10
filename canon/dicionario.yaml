@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.74"
+versao_dicionario: "1.75"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13249,7 +13249,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.51"
     conceito: "Versão da política"
-    canonico: "VERSAO_DA_POLITICA, SemVer, 1.1.0"
+    canonico: "VERSAO_DA_POLITICA, SemVer, 1.2.0"
     literais:
       - "VERSAO_DA_POLITICA"
     nomes:
