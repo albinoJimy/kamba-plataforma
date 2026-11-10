@@ -13702,12 +13702,10 @@ entradas:
       - "v_tenant_cost_daily.custo_aoa_minor"
       - "bigint"
     nomes_nota:
-      - "_kz"
       - "platform"
       - "test_nao_ha_colunas_de_dinheiro_nem_saldos"
       - "EM_UNIDADE_MENOR"
-    variantes_literais:
-      - "custo_kz"
+    variantes_literais: []
   - seccao: "3.53"
     conceito: "Custo em dólares"
     canonico: "v_tenant_cost_daily.custo_usd, numeric"
@@ -16154,10 +16152,5 @@ variantes:
     seccao: "3.30"
     conceito: "Valor monetário normalizado"
     canonico: "value_minor"
-  - nome: "custo_kz"
-    tipo: "nome"
-    seccao: "3.53"
-    conceito: "Custo em kwanzas"
-    canonico: "v_tenant_cost_daily.custo_aoa_minor, bigint, cêntimos"
 
 contradicoes: []

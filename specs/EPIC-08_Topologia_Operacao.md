@@ -818,8 +818,8 @@ Não expandas escopo: os alertas de free tier são de KAM-023; a decisão H6 é 
 
 ### Verificação dos Critérios de Aceitação
 
-> **O que se entrega:** a vista `platform.v_tenant_cost_daily` (revisão de base de
-> dados com SQL em [`../db/custo.py`](../db/custo.py), declarado como auxiliar de
+> **O que se entrega:** a vista `platform.v_tenant_cost_daily` (revisão
+> [`0041`](../db/migrations/versions/0041_custo_por_tenant.py), com o SQL em [`../db/custo.py`](../db/custo.py), declarado como auxiliar de
 > migração em `../ci/canon-lint.yaml`), o comando `h6-export`
 > ([`../db/h6_export.py`](../db/h6_export.py)), os painéis
 > [`../ops/paineis/custo-por-tenant.json`](../ops/paineis/custo-por-tenant.json) e
