@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contratos.kamba.ao/registry/entitlement_keys.schema.json",
   "title": "Entitlement: chaves de limites (TEN, KAM-009)",
-  "description": "O registo de chaves de `entitlements.limites` (e do mesmo mapa em `registry/plans.yaml`). As dez chaves sao as do dicionario canonico §3.2, linha «Entitlement (chaves)», depois da emenda 1.17. Uma chave desconhecida e REJEITADA NA ESCRITA: `additionalProperties` e `false`, e e isso que o criterio 1 do bloco do KAM-009 pede. A ausencia de uma chave NAO e «sem limite»: `platform.ten_consumir` (revisao 0007) nega quando nenhum entitlement activo a declara, que e a falha fechada do criterio 2.",
+  "description": "O registo de chaves de `entitlements.limites` (e do mesmo mapa em `registry/plans.yaml`). As onze chaves sao as do dicionario canonico §3.2, linha «Entitlement (chaves)», depois da emenda 1.17. Uma chave desconhecida e REJEITADA NA ESCRITA: `additionalProperties` e `false`, e e isso que o criterio 1 do bloco do KAM-009 pede. A ausencia de uma chave NAO e «sem limite»: `platform.ten_consumir` (revisao 0007) nega quando nenhum entitlement activo a declara, que e a falha fechada do criterio 2.",
   "type": "object",
   "additionalProperties": false,
   "x-kamba-fonte": "specs/02_Dicionario_de_Dados_Canonico.md §3.2, «Entitlement (chaves)» (emenda 1.17, KAM-009). O bloco do ticket lista quatro chaves e esta desactualizado; o dicionario e a fonte.",
@@ -110,6 +110,15 @@
       "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.17); `docs/tecnica/04` §4.2 M-3.",
       "x-kamba-razao-da-categoria": "A chave de `platform.tenant_usage` e `(tenant_id, chave_limite, periodo)` e nao tem a dimensao do contacto: um contador por tenant nao sabe responder «quantos para ESTE contacto». A janela e tambem movel (24 h, nao um dia de calendario). O agregado calcula-se de `manual_confirmations` por `contact_id`.",
       "x-kamba-nao-verificado": "A unidade. O `docs/tecnica/04` §4.2 M-3 nomeia esta chave ao lado de `manual_daily_max_minor` e nao diz se e uma contagem de pedidos ou uma soma de dinheiro. Le-se como contagem porque o nome NAO acaba em `_minor`, e essa e a convencao do conjunto para dinheiro (`docs/tecnica/03` §5.1 n.o 2). Forma de validar: uma frase em `docs/tecnica/04` §4.2 M-3 que o diga, ou o nome passa a `manual_max_minor_por_contacto_24h`."
+    },
+    "prazo_reclamacao_dias": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Prazo de reclamacao de uma encomenda entregue, em dias desde a entrega. Uma disputa (`entregue -> em_disputa`) fora do prazo e recusada; sem a chave declarada, NENHUM prazo e assumido e a disputa entra (KAM-050, criterio 8).",
+      "x-kamba-categoria": "tecto_por_pedido",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "dias",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.78, KAM-050); `specs/EPIC-04_Core_Comercio.md`, bloco KAM-050, criterio 8.",
+      "x-kamba-sem-omissao": "Nao entra em `registry/plans.yaml` e nao tem valor por omissao em codigo nenhum, de proposito: o direito de desistencia de 7 dias uteis em compras por WhatsApp e INDICIO e espera parecer (KAM-104). A AUSENCIA da chave nao e «prazo zero»: ao contrario dos outros tectos, quem a le trata `sem_entitlement` como «sem prazo configurado» e deixa a disputa entrar, porque recusar uma reclamacao por um prazo que ninguem fixou era assumir um prazo legal."
     }
   }
 }

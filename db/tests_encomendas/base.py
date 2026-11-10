@@ -125,6 +125,24 @@ NUCLEO = {
     ("em_entrega", "entregue"): "COM_DELIVERY_ENABLED",
 }
 
+#: As **nove** do KAM-050 (revisao `0046`), copiadas pela mesma razao: as oito
+#: do criterio 1 mais a `em_entrega -> entrega_falhada` do `docs/tecnica/00`
+#: §6.1, sem a qual as duas que saem de `entrega_falhada` eram linhas mortas.
+KAM_050 = {
+    ("expirada", "paga"): None,
+    ("paga", "reembolso_pendente"): None,
+    ("entregue", "em_disputa"): None,
+    ("em_disputa", "reembolso_pendente"): None,
+    ("em_disputa", "entregue"): None,
+    ("em_entrega", "entrega_falhada"): "COM_DELIVERY_ENABLED",
+    ("entrega_falhada", "em_entrega"): "COM_DELIVERY_ENABLED",
+    ("entrega_falhada", "reembolso_pendente"): "COM_DELIVERY_ENABLED",
+    ("reembolso_pendente", "reembolsada"): None,
+}
+
+#: O grafo inteiro: as vinte e uma.
+GRAFO = {**NUCLEO, **KAM_050}
+
 #: A variavel de sessao que liga a entrega.
 GUC_DA_ENTREGA = "app.com_delivery_enabled"
 
@@ -133,6 +151,8 @@ TRANSICAO_INVALIDA = "KA003"
 SNAPSHOT_IMUTAVEL = "KA004"
 REGISTO_EM_FALTA = "KA005"
 PAGA_SEM_EVENTO = "KA006"
+#: O mesmo codigo, desde a `0046`, para `reembolsada` sem dono ou ops (KAM-050).
+REEMBOLSO_SEM_ACTOR = "KA006"
 
 #: As duas causas autenticadas do §12 que levam a `paga`.
 CAUSA_PROVIDER = "payment.confirmed"
@@ -290,12 +310,41 @@ class ComEncomendas(ComBase):
             ],
             "cancelada": [("criada", "cancelada", "cliente_cancela")],
         }
+        # Os seis do KAM-050 (revisao `0046`), pelo caminho do grafo. Os dois
+        # da entrega precisam da bandeira, que se liga passo a passo: e local a
+        # transaccao, e cada passo confirma a sua.
+        pago = caminhos["paga"]
+        caminhos["entregue"] = [*pago, ("paga", "entregue", "levantamento")]
+        caminhos["em_entrega"] = [*pago, ("paga", "em_entrega", "dispatch")]
+        caminhos["entrega_falhada"] = [
+            *caminhos["em_entrega"],
+            ("em_entrega", "entrega_falhada", "sem_sucesso"),
+        ]
+        caminhos["em_disputa"] = [
+            *caminhos["entregue"],
+            ("entregue", "em_disputa", "reclamacao"),
+        ]
+        caminhos["reembolso_pendente"] = [
+            *pago,
+            ("paga", "reembolso_pendente", "disputa"),
+        ]
+        caminhos["reembolsada"] = [
+            *caminhos["reembolso_pendente"],
+            ("reembolso_pendente", "reembolsada", "reembolso_manual_registado"),
+        ]
         if estado == "criada":
             return 1
         versao = 1
         for de, para, causa in caminhos[estado]:
+            if GRAFO[(de, para)] is not None:
+                self.ligar_bandeira()
             versao = self.transitar(tenant, encomenda, de, para, versao, causa)
         return versao
+
+    def ligar_bandeira(self) -> None:
+        """Liga a `COM_DELIVERY_ENABLED` **so nesta transaccao** (`set_config(..., true)`)."""
+        self.ensaio.execute("SELECT set_config(%s, 'on', true)", (GUC_DA_ENTREGA,))
+        self.ensaio.fetchone()
 
     def transitar(
         self,
@@ -307,6 +356,7 @@ class ComEncomendas(ComBase):
         causa: str,
         *,
         actor_kind: str | None = None,
+        actor_id: str | None = "ops-1",
         evento_id: str | None = None,
         cursor=None,
         confirmar: bool = True,
@@ -367,7 +417,7 @@ class ComEncomendas(ComBase):
             "       (tenant_id, order_id, de, para, version, causa, evento_id, "
             "        actor_kind, actor_id) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (tenant, encomenda, de, para, nova, causa, evento_id, actor_kind, "ops-1"),
+            (tenant, encomenda, de, para, nova, causa, evento_id, actor_kind, actor_id),
         )
         if confirmar and cursor is None:
             self._ensaio.commit()

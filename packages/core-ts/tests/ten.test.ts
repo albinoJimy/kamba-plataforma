@@ -646,9 +646,9 @@ describe("o registo de chaves — a especie e um facto, e nao uma convencao", ()
     "x-kamba-categorias": Record<string, string>;
   };
 
-  it("as dez chaves sao as mesmas do registo", () => {
+  it("as onze chaves sao as mesmas do registo (dez da 1.17 e o prazo do KAM-050)", () => {
     const doRegisto = Object.keys(registo.properties).sort();
-    assert.equal(doRegisto.length, 10);
+    assert.equal(doRegisto.length, 11);
     assert.deepEqual(Object.keys(CHAVES_DE_LIMITE).sort(), doRegisto);
   });
 
@@ -677,7 +677,7 @@ describe("o registo de chaves — a especie e um facto, e nao uma convencao", ()
     }
     assert.deepEqual(contagem, {
       [CATEGORIA_CONTADOR]: 5,
-      [CATEGORIA_TECTO_POR_PEDIDO]: 3,
+      [CATEGORIA_TECTO_POR_PEDIDO]: 4, // tres da 1.17 e o prazo do KAM-050
       [CATEGORIA_TECTO_POR_JANELA]: 2,
     });
   });

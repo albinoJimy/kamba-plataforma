@@ -11,6 +11,7 @@
  *                       → Adiar (pré-condição por chegar)
  *                       → EstadoIncompativel (estado terminal; KAM-055)
  *                       → ForaDeOrdem (seq atrasado E transição inválida)
+ *                       → efeito, se o estado é de excepção (KAM-050)
  *       efeito(bd, envelope)  ← na MESMA transacção
  *     COMMIT
  *
@@ -60,6 +61,7 @@ import type { Envelope } from './envelope.ts';
 import {
   ESTADO_PRETENDIDO,
   type MaquinaDeEstados,
+  estadoDeExcepcao,
   estadoIncompativel,
   podeTransitar,
 } from './estados.ts';
@@ -343,10 +345,16 @@ export async function consumir(
               'não é transição válida',
           );
         }
-        throw new Adiar(
-          ADIAMENTO_POR_OMISSAO,
-          `${estado} -> ${pretendido} ainda não é válido`,
-        );
+        // **Depois da ordem e antes do adiamento** (KAM-050). Um pagamento numa
+        // encomenda `cancelada` ou já paga não vai passar a ser válido à
+        // espera: é dinheiro real que pede um caso de reembolso, e é o efeito
+        // que o sabe abrir. Ver a `ESTADOS_DE_EXCEPCAO`.
+        if (!estadoDeExcepcao(envelope.tipo, estado)) {
+          throw new Adiar(
+            ADIAMENTO_POR_OMISSAO,
+            `${estado} -> ${pretendido} ainda não é válido`,
+          );
+        }
       }
     }
 

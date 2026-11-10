@@ -228,3 +228,57 @@ export {
   type CancelamentoPeloDono,
   type ResultadoDaConfirmacao,
 } from "./owner_confirmation.ts";
+
+// ------------------------------------------------------------------- KAM-050
+
+export {
+  EXCEPCOES,
+  MOTIVOS_DE_REEMBOLSO,
+  TIPO_EXCEPTION,
+  TIPO_REFUND_REQUESTED,
+  VERSAO_EXCEPTION,
+  VERSAO_REFUND_REQUESTED,
+  type Excepcao,
+  type MotivoDeReembolso,
+} from "./contrato.ts";
+
+export {
+  SQL_ABRIR_RERESERVA,
+  SQL_AUDITAR_REEMBOLSO,
+  SQL_DESFAZER_RERESERVA,
+  SQL_FECHAR_RERESERVA,
+  SQL_MARCAR_EXCEPCAO,
+} from "./consultas.ts";
+
+export { payloadDeExcepcao, payloadDeReembolsoPedido } from "./eventos.ts";
+
+export {
+  ACTORES_DO_REEMBOLSO,
+  CAUSA_DO_REEMBOLSO,
+  MOTIVO_POR_ORIGEM,
+  REEMBOLSADA,
+  actorDoReembolso,
+  eFimDeDisputa,
+} from "./graph_ext.ts";
+
+export {
+  ESTADOS_JA_PAGOS,
+  ReReservaRecusadaError,
+  aplicarPagamentoExcedente,
+  aplicarPagamentoTardio,
+  linhasARefazer,
+  ramoDoPagamento,
+  type DesfechoTardio,
+  type PagamentoRecebido,
+  type RamoDoPagamento,
+} from "./late_payment.ts";
+
+export {
+  ACCAO_DO_REEMBOLSO,
+  CHAVE_DO_PRAZO,
+  ENTIDADE_DO_REEMBOLSO,
+  auditarReembolso,
+  dentroDoPrazo,
+  diasDesdeAEntrega,
+  textoDoReembolso,
+} from "./refunds.ts";

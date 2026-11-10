@@ -109,7 +109,7 @@ describe("validarPayload", () => {
 
 describe("o catálogo que o validador lê", () => {
   it("tem os trinta e oito tipos", () => {
-    assert.equal(tiposComContrato().length, 38);
+    assert.equal(tiposComContrato().length, 40);
   });
 
   it("todos os exemplos do repositório passam no validador, em todas as versões", () => {
@@ -130,7 +130,7 @@ describe("o catálogo que o validador lê", () => {
         validados += 1;
       }
     }
-    assert.equal(validados, 76);
+    assert.equal(validados, 80);
   });
 });
 
