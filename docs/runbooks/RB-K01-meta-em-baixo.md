@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K01** |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Cenário | A Cloud API da Meta não aceita envios, ou deixámos de receber *webhooks* |
 | Severidade | **P1** |
 | Alertas que o activam | `ingress_parado` (P1) e `alvo_em_baixo` (P1), em [`../../infra/compose/prometheus/regras/kamba.yml`](../../infra/compose/prometheus/regras/kamba.yml). **Por escrever:** a metade «sonda falha 2×» do §9.2, que exige a sonda externa (D1/KAM-105) |
@@ -31,7 +31,7 @@ Quatro factos medidos que mudam o que este runbook consegue fazer hoje:
    [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §5).
 2. **Nada envia para a Meta.** O cliente da Graph API (`ClienteDaGraph`,
    `packages/core-ts/src/outbound/`) existe e nenhum serviço o instancia; o
-   `worker-canal` do compose só serve `/healthz` (KAM-187). O ramo «envio» deste
+   nenhum dos quatro processos que o compose corre desde o KAM-187 envia. O ramo «envio» deste
    runbook descreve o comportamento do módulo, não de um processo a correr.
 3. **Não há métrica por código de erro da Meta** (`ops/metricas/catalogo.yaml`,
    série «erros 130429/131049», estado `inexistente`). A separação «Meta» contra
@@ -111,7 +111,7 @@ suite `db/tests_eventos` do *gate* 8 lê. O `inbound_queue_depth` é a **soma** 
 (`wait`, `delayed`, `active`: `getJobCounts` em `eventos/filas_bullmq.ts`); um `LLEN` só do
 `wait` não é o mesmo número. `inbound_queue_depth` a **-1** quer dizer que
 o GWY não consegue ler a fila. Uma fila a crescer **sem** consumidor é o estado de hoje
-(KAM-187), e não um sintoma de Meta em baixo.
+em `prod` — o compose corre o consumidor desde o KAM-187, mas em `prod` o `entrada.ts` não arranca — o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre (`../identidade.md` §8, linha 2) —, e não um sintoma de Meta em baixo.
 
 **5. É a Meta?** Só depois de 1–4 dizerem que o nosso lado está bem:
 
@@ -165,8 +165,8 @@ Todos os comandos deste ramo: `não verificado` contra produção.
 ### 3.3 Depois de recuperar
 
 1. Confirmar o §4.
-2. Ver a fila a escoar (`inbound_queue_depth` do §2, ponto 4, a descer) — **hoje não escoa**, porque
-   não há consumidor (KAM-187).
+2. Ver a fila a escoar (`inbound_queue_depth` do §2, ponto 4, a descer) — **em `prod` hoje não escoa**: o
+   compose corre o consumidor (KAM-187), mas em `prod` o `entrada.ts` não arranca — o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre (`../identidade.md` §8, linha 2).
 3. Conciliar o `status` das mensagens enviadas durante a falha — **não há ferramenta**;
    é trabalho do módulo de saída quando estiver ligado.
 4. Expirar o silêncio: `docker exec kamba-prod-alertmanager-1 amtool --alertmanager.url=http://127.0.0.1:9093 silence expire "<id>"`
@@ -218,7 +218,7 @@ E, ao recuperar: «Desde as {hora} o WhatsApp voltou a funcionar normalmente. As
 mensagens que ficaram pendentes estão a ser respondidas.»
 
 A frase «não se perdem» só é verdade na janela de 7 dias da Meta e **com consumidor a
-correr** — hoje não há (KAM-187). Quem aprovar o texto tem de o saber.
+correr** — em `prod` hoje não há: em `prod` o `entrada.ts` não arranca — o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre (`../identidade.md` §8, linha 2). Quem aprovar o texto tem de o saber.
 
 ## 7. Factos de terceiros
 
@@ -235,3 +235,4 @@ correr** — hoje não há (KAM-187). Quem aprovar o texto tem de o saber.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): encaminhamento do `alvo_em_baixo` por `job`, diagnóstico «nós contra a Meta» com comandos marcados, mitigação por ramo, critério de recuperação, e o texto à PME por aprovar. O §0 regista que o GWY do compose não arranca tal como está escrito | KAM-083 |
+| 1.1 | Novembro 2026 | **KAM-187**, integrado depois deste: a falta de consumidor da `wa-inbound` deixa de ser atribuída ao KAM-187, que pôs os quatro processos do `worker-canal` no compose; em `prod` continua, porque o `entrada.ts` não arranca (`../identidade.md` §8, linha 2) | Equipa KAMBÁ |

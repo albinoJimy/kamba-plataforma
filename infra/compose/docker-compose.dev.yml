@@ -182,24 +182,51 @@ services:
       queue:
         condition: service_healthy
 
-  worker-canal:
+  # ------------------------------------------------ worker-canal (KAM-187)
+  #
+  # Os mesmos quatro processos de producao e *staging*, com a mesma imagem e o
+  # mesmo `command:`. O `server.ts` saiu daqui como saiu de la.
+  #
+  # **Um corre sempre, e tres so com `--profile consumidores`.** A razao nao e
+  # o `make smoke` — o `HEALTHZ_TARGETS` acrescenta-se, e o do *shim* esta la —:
+  # e que **este compose nao corre migracoes** (cabecalho deste ficheiro), e o
+  # `entrada.ts`, o `publicador.ts` e o `consumidor.ts` abrem a base **no
+  # arranque** — o `entrada.ts` corre a guarda do ADR-011 contra `channels`, o
+  # `consumidor.ts` le `evt_subscricoes` antes de aceitar trabalho. Numa base
+  # vazia saem com erro e o `make up --wait` nunca fica verde. O `agr_shim.ts`
+  # nao abre ligacao nenhuma, e por isso arranca sempre. E a mesma razao com que
+  # o `docs/eventos.md` §6 deixou o publicador fora deste ficheiro.
+  #
+  # Com a base migrada (`python db/bootstrap.py`, `alembic upgrade head`):
+  #
+  #   docker compose -f infra/compose/docker-compose.dev.yml --profile consumidores up -d
+  #
+  # Os segredos dos tres sao `:-` e nao `:?`, de proposito: o compose interpola
+  # o ficheiro **inteiro**, tambem os servicos fora do perfil, e um `:?` partia
+  # o `make up` a quem nao usa o perfil. Um valor vazio falha na ligacao, que e
+  # fechado.
+  worker-canal-agr-shim:
     <<: *service-defaults
     build:
       context: ../..
       dockerfile: services/worker-canal/Dockerfile
       args:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/worker-canal/src/agr_shim.ts"]
     environment:
       <<: *service-env
-      PORT: "3001"
+      AGR_SHIM_PORT: "3025"
+      KAMBA_ENV: dev
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_AGR_URL: ${KAMBA_AGR_URL:-http://agr:8000}
+      KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?defina-o no .env}
     healthcheck:
-      # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
       test:
         - CMD
         - node
         - -e
         - >-
-          fetch('http://127.0.0.1:3001/healthz')
+          fetch('http://127.0.0.1:3025/healthz')
           .then(r => process.exit(r.ok ? 0 : 1))
           .catch(() => process.exit(1))
       interval: 10s
@@ -207,11 +234,128 @@ services:
       retries: 6
       start_period: 20s
     ports:
-      - "127.0.0.1:${WORKER_CANAL_PORT:-3001}:3001"
+      - "127.0.0.1:${AGR_SHIM_PORT:-3025}:3025"
     networks:
       - app
       - data
     depends_on:
+      queue:
+        condition: service_healthy
+
+  worker-canal-entrada:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/worker-canal/src/entrada.ts"]
+    environment:
+      <<: *service-env
+      ENTRADA_PORT: "3013"
+      KAMBA_ENV: dev
+      KAMBA_FASE: piloto
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_ENTRADA_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_CHR_RESOLVER_DB_URL: postgresql://kamba_resolver:${KAMBA_SECRET_DB_RESOLVER_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_CHR_IDENTITY_DB_URL: postgresql://kamba_identity:${KAMBA_SECRET_DB_IDENTITY_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:-}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3013/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal-publicador:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/worker-canal/src/publicador.ts"]
+    environment:
+      <<: *service-env
+      PUBLICADOR_PORT: "3011"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      # `kamba_batch`: le o *outbox* de todos os tenants (`BYPASSRLS`).
+      KAMBA_PUBLICADOR_DB_URL: postgresql://kamba_batch:${KAMBA_SECRET_DB_BATCH_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3011/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal-consumidor:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/worker-canal/src/consumidor.ts"]
+    environment:
+      <<: *service-env
+      CONSUMIDOR_PORT: "3012"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_CONSUMER: ${KAMBA_CONSUMER:-dev}
+      KAMBA_CONSUMIDOR_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_CONSUMIDOR_OPS_DB_URL: postgresql://kamba_batch:${KAMBA_SECRET_DB_BATCH_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3012/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
       queue:
         condition: service_healthy
 

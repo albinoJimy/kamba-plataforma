@@ -130,6 +130,153 @@ def _servico(nome: str, extra: str = "") -> str:
 {extra}"""
 
 
+def _casos_dos_consumidores() -> tuple[Caso, ...]:
+    """KAM-187: um caso por processo e por defeito, mais os dois de *staging*.
+
+    Por processo, as duas formas do defeito que o critério 1 nomeia:
+
+    * **falta** — o `command:` do serviço passa a correr **outro** dos quatro.
+      Nenhum serviço desaparece, nenhuma rede muda e o `conjunto` continua
+      certo: só a regra nova vê que ninguém corre aquele processo;
+    * **`server.ts`** — o `command:` passa a correr a sonda. Dispara as duas
+      metades: o serviço corre o `server.ts`, e o processo dele ficou sem quem o
+      corra.
+
+    O de *staging* tira o `command:` por inteiro: é a forma exacta do defeito
+    original, um serviço desta imagem a correr o `CMD`.
+    """
+    casos: list[Caso] = []
+    for processo in lint.CONSUMIDORES:
+        curto = processo.rsplit("/", 1)[1].removesuffix(".ts")
+        outro = next(p for p in lint.CONSUMIDORES if p != processo)
+        padrao = rf'"{re.escape(processo)}"'
+        casos.append(
+            Caso(
+                f"consumidor-em-falta-{curto}",
+                frozenset({"consumidor-em-falta"}),
+                f"o servico de `{curto}` passa a correr outro processo, e ninguem "
+                "corre o seu",
+                lambda c, padrao=padrao, outro=outro: c.trocar(
+                    lint.PROD, padrao, f'"{outro}"'
+                ),
+                # O servico passa a correr outro processo com a porta, as
+                # variaveis e o alvo do seu: a ligacao fica errada por
+                # consequencia, e dizer-lo e verdade. O que o caso prova e a falta.
+                tolera=frozenset({"consumidor-mal-ligado", "consumidor-sem-alvo"}),
+            )
+        )
+        casos.append(
+            Caso(
+                f"consumidor-com-server-ts-{curto}",
+                frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
+                f"o servico de `{curto}` passa a correr o `server.ts`",
+                lambda c, padrao=padrao: c.trocar(
+                    lint.PROD, padrao, f'"{lint.SONDA_DO_WORKER}"'
+                ),
+            )
+        )
+    casos.append(
+        Caso(
+            "consumidor-sem-comando-em-staging",
+            frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
+            "em *staging*, o servico do `entrada.ts` perde o `command:` e corre o "
+            "`CMD` da imagem",
+            lambda c: c.trocar(
+                lint.STAGING,
+                r'^    command: \["node", "services/worker-canal/src/entrada\.ts"\]\n',
+                "",
+            ),
+        )
+    )
+    casos.append(
+        Caso(
+            "consumidor-atras-de-perfil",
+            frozenset({"consumidor-em-falta"}),
+            "o servico do `consumidor.ts` passa para tras de um perfil, e um "
+            "arranque sem `--profile` nao o levanta",
+            # Sem retro-referencia: o `trocar` escapa as barras do texto novo.
+            lambda c: c.trocar(
+                lint.PROD,
+                r'^    command: \["node", "services/worker-canal/src/consumidor\.ts"\]$',
+                '    profiles: ["consumidores"]\n'
+                '    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        )
+    )
+    # A ligacao, e nao so o comando: as mutacoes que a revisao adversarial
+    # mostrou passarem pela primeira versao da regra.
+    entrada_cmd = r'^    command: \["node", "services/worker-canal/src/entrada\.ts"\]$'
+    consumidor_cmd = r'^    command: \["node", "services/worker-canal/src/consumidor\.ts"\]$'
+    casos += [
+        Caso(
+            "consumidor-com-scale-zero",
+            frozenset({"consumidor-em-falta"}),
+            "o servico do `consumidor.ts` ganha `scale: 0` e nao arranca nenhuma replica",
+            lambda c: c.trocar(
+                lint.PROD, consumidor_cmd,
+                '    scale: 0\n    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        ),
+        Caso(
+            "consumidor-com-entrypoint",
+            frozenset({"consumidor-mal-ligado"}),
+            "o servico do `entrada.ts` ganha um `entrypoint:` que corre outra coisa",
+            lambda c: c.trocar(
+                lint.PROD, entrada_cmd,
+                '    entrypoint: ["true"]\n'
+                '    command: ["node", "services/worker-canal/src/entrada.ts"]',
+            ),
+        ),
+        Caso(
+            "consumidor-porta-trocada",
+            frozenset({"consumidor-mal-ligado"}),
+            "o `entrada.ts` passa a escutar na 3014, e a sonda e o alvo ficam na 3013",
+            lambda c: c.trocar(lint.PROD, r'^      ENTRADA_PORT: "3013"$', '      ENTRADA_PORT: "3014"'),
+        ),
+        Caso(
+            "consumidor-sem-variavel",
+            frozenset({"consumidor-mal-ligado"}),
+            "o *shim* recebe a fila como `KAMBA_QUEUE_URL`, que ele nao le",
+            lambda c: c.trocar(
+                lint.PROD, r"^      KAMBA_REDIS_URL: redis://queue:6379$",
+                "      KAMBA_QUEUE_URL: redis://queue:6379",
+            ),
+        ),
+        Caso(
+            "consumidor-com-ambiente-de-outro",
+            frozenset({"consumidor-mal-ligado"}),
+            "em *staging*, o `entrada.ts` declara `KAMBA_ENV: prod`",
+            lambda c: c.trocar(
+                lint.STAGING, r"^      KAMBA_ENV: staging\n      KAMBA_FASE: piloto$",
+                "      KAMBA_ENV: prod\n      KAMBA_FASE: piloto",
+            ),
+        ),
+        Caso(
+            "consumidor-com-duas-replicas",
+            frozenset({"consumidor-mal-ligado"}),
+            "em *staging*, o consumidor ganha duas replicas e parte a ordem por particao",
+            lambda c: c.trocar(
+                lint.STAGING, consumidor_cmd,
+                '    deploy:\n      replicas: 2\n'
+                '    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        ),
+        Caso(
+            "consumidor-sem-alvo-renomeado",
+            frozenset({"consumidor-sem-alvo"}),
+            "o `job` do *shim* e renomeado no `prometheus.yml` e sai do numerador do SLI",
+            lambda c: c.trocar(lint.PROMETHEUS, r"^  - job_name: agr_shim$", "  - job_name: worker_agr_shim"),
+        ),
+        Caso(
+            "consumidor-sem-alvo-porta",
+            frozenset({"consumidor-sem-alvo"}),
+            "o alvo do `entrada.ts` passa a raspar a 3014",
+            lambda c: c.trocar(lint.PROMETHEUS, r"^        port: 3013$", "        port: 3014"),
+        ),
+    ]
+    return tuple(casos)
+
+
 CASOS: tuple[Caso, ...] = (
     # ------------------------------------------------- criterio 1: conjunto
     Caso(
@@ -544,6 +691,8 @@ CASOS: tuple[Caso, ...] = (
             "      KAMBA_DATA_CLASS: real",
         ),
     ),
+    # ------------------------------- KAM-187: os quatro processos do worker
+    *_casos_dos_consumidores(),
 )
 
 #: Toda a regra tem de ter canario. Um `lint.REGRAS` novo sem caso aqui falha o
@@ -597,6 +746,10 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
             "staging-obs-com-dados-reais",
             "langfuse-sem-perfil",
         }
+    ),
+    "r_consumidores": frozenset(
+        {"consumidor-em-falta", "consumidor-com-server-ts", "consumidor-mal-ligado",
+         "consumidor-sem-alvo"}
     ),
 }
 

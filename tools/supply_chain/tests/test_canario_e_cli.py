@@ -84,7 +84,13 @@ class TestRepositorioReal(unittest.TestCase):
         # *staging*, com o mesmo digest e o mesmo `mem_limit` — a regra
         # `staging-com-outras-imagens` exige-o, porque *staging* existe
         # para ensaiar o que vai correr.
-        self.assertEqual(resumo["servicos"], 44)
+        #
+        # **KAM-187: de 44 para 53.** O `worker-canal` (um servico, o
+        # `server.ts`) da lugar aos quatro processos que fazem o trabalho, com a
+        # mesma imagem e um `command:` cada — **+3 em cada um dos tres
+        # composes** (producao, *staging* e desenvolvimento, onde tres deles
+        # ficam atras do perfil `consumidores`, que o `runtime` le na mesma).
+        self.assertEqual(resumo["servicos"], 53)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -107,7 +113,11 @@ class TestRepositorioReal(unittest.TestCase):
         # com `destinos: []` — e a lista vazia e a afirmacao: ele **nao
         # notifica**, porque o canal de alertas nao esta escolhido e
         # escolher um acrescenta um subprocessador (KAM-069).
-        self.assertEqual(resumo["servicos"], 18)
+        # **KAM-187: de 18 para 22.** Os quatro servicos do `worker-canal` tem
+        # cada um a sua lista em `infra/egress/`, todas `destinos: []` — o
+        # `services/worker-canal/egress.yaml` cobre o nome da pasta, e um
+        # servico de compose com outro nome pede a sua. Os destinos nao mudam.
+        self.assertEqual(resumo["servicos"], 22)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
