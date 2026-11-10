@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -721,6 +721,14 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > do KAM-076 recusa, pelo que a caixa «Custo e métricas» daquele ticket fica
 > devolvida com credor **KAM-080** — isto é, com credor **este** ticket. Medido
 > neste ramo com a `main` em `fe40048`: **22 módulos, 124 nomes**, 126 declaradas.
+> Nenhuma caixa deste epic muda.
+>
+> **E o KAM-099 trouxe outro membro da classe de cima, dentro de um serviço:** o
+> `services/onboarding-web/src/painel/metricas.ts` declara **dois** nomes
+> (`painel_pedidos_total{rota}` e `painel_erros_total{rota,motivo}`), que as
+> rotas do painel **importam e contam** e que nenhum processo serve: o
+> `onboarding-web` não tem rota `/metrics`. Medido no ramo do KAM-099 sobre a
+> `publico/main` em `b55d2a84`: **24 módulos, 133 nomes**, 135 declaradas.
 > Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
@@ -1855,3 +1863,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.13 | Novembro 2026 | **KAM-084 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 3 marcadas (critérios 4 e 8 e DoD 2) e 10 vazias**, cada uma com a razão e o credor. A condição de paragem do *handoff* disparou: o AGR não corre turnos (`grafos=sem_grafos`), pelo que o LLM, a degradação, o *flood* e o AGR em carga ficam com o KAM-186 e o KAM-188, e o que pede o *host* de 32 GB com o KAM-188. Medido o segmento de entrada com os processos de produção e os limites do compose: o S1 e o S2 cumprem o critério 2 à escala da estação, a rajada passa mensagens e estados pelos dois níveis de deduplicação sem *job* do AGR a mais, conferidos por identidade, e o primeiro recurso saturado é o *worker* de entrada, por CPU, entre 100 e 400 eventos/s conforme a corrida. Relatório em `../docs/tecnica/evidencia/Carga_Dimensionamento.md`, com sete achados. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-187 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: os quatro processos do `worker-canal` nos composes de produção e de *staging* (e no de desenvolvimento, três atrás de um perfil), a regra `r_consumidores` do `compose_prod`, os alvos do Prometheus e o *worker* no numerador do SLI-1. Onze caixas marcadas e três vazias (critérios 2 e 5, e DoD 1; credores KAM-186 e o fundador). A linha 3 da verificação do **KAM-082** passa a dizer que a metade (a) está paga. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-081 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 3 marcadas (critério 6, DoD 3 e 4) e 9 vazias**, cada uma com a razão e o credor. A vista `v_tenant_cost_daily` (revisão `0041`), o `h6-export`, os dois painéis de custo e o `../ops/custo.md`. A revisão adversarial levantou catorze achados, dez confirmados e corrigidos, e devolveu o critério 5 a vazio. **Sem rubrica de STT**, porque não há registo de transcrição (KAM-036); o LLM por conversa é **rateado**, porque a `dat.llm_call_log` não tem chave para uma conversa. | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | **KAM-099**, e é uma emenda de **propagação** como a 1.6 e a 1.8: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `services/onboarding-web/src/painel/metricas.ts`, e a mensagem do *gate* manda levar os números novos à nota do KAM-080. Medido: `contar_metricas` passa de **23 módulos, 131 nomes** para **24 módulos, 133 nomes**, e a reconciliação `+2` do `services/com` dá **135** declaradas, eram 133. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-099 sobre a `publico/main` em `b55d2a84`; quem fundir em segundo remede. | Equipa KAMBÁ |

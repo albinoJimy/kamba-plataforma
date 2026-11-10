@@ -80,7 +80,7 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 #: O `guia` sao as oito rotas do passo guiado do ES (KAM-093), no mesmo
 #: `onboarding-web` e tambem **sem base**: o estado do guia vive no duplo em
 #: memoria, porque as tabelas que o bloco nomeia nao existem.
-GRUPOS = ("sondas", "webhook", "canais", "contacto", "com-interna", "inscricao", "guia")
+GRUPOS = ("sondas", "webhook", "canais", "contacto", "com-interna", "inscricao", "guia", "painel")
 
 #: A imagem usada quando nao ha `node` no `PATH`. A mesma versao de
 #: `.node-version`, fixada pelo digest que `ci/supply-chain/imagens.yaml`

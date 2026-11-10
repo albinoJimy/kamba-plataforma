@@ -206,7 +206,7 @@ test("criterio 8: a lista de produtos so mostra os do tenant da sessao", async (
 
 test("criterio 8: IDOR — o dono de A grava o sku de B e recebe 404, e B nao muda", async () => {
   const m = montar();
-  const r = await m.app.fetch(patch("so-de-b", { preco_tipo: "fixo", preco_kz: "1", versao: V0 }, cookieDe(sessaoA())));
+  const r = await m.app.fetch(patch("so-de-b", { preco_tipo: "fixo", preco_minor: "100", versao: V0 }, cookieDe(sessaoA())));
   assert.equal(r.status, 404);
   assert.deepEqual(await r.json(), { erro: "nao_encontrado" });
   assert.equal(m.comercio.gravacoes.length, 0);
@@ -234,7 +234,7 @@ test("criterio 8: o tenant vem da sessao e nunca do pedido — cabecalho, consul
         "idempotency-key": chave(),
         "x-kamba-tenant": TENANT_B,
       },
-      body: JSON.stringify({ preco_tipo: "fixo", preco_kz: "12000", versao: V0, tenant_id: TENANT_B }),
+      body: JSON.stringify({ preco_tipo: "fixo", preco_minor: "1200000", versao: V0, tenant_id: TENANT_B }),
     }),
   );
   assert.equal(r.status, 200);
@@ -248,7 +248,7 @@ test("criterio 8: sem sessao nenhuma rota le nada, e todas respondem 401", async
     assert.equal(r.status, 401, caminho);
     assert.doesNotMatch(await r.text(), /arroz|K7H3Q1/);
   }
-  const p = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "1", versao: V0 }, ""));
+  const p = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "100", versao: V0 }, ""));
   assert.equal(p.status, 401);
   assert.equal(m.comercio.gravacoes.length, 0);
 });
@@ -291,7 +291,7 @@ test("o adaptador HTTP passa o preco como cadeia e le-o como bigint, e uma rede 
 
 test("criterio 3: gravar o preco chega ao COM com o actor dono e devolve a versao nova", async () => {
   const m = montar();
-  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "12000", versao: V0 }, cookieDe(sessaoA())));
+  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 }, cookieDe(sessaoA())));
   assert.equal(r.status, 200);
   const corpo = (await r.json()) as { versao: string; oferta: { precoMinor: string } };
   assert.notEqual(corpo.versao, V0);
@@ -302,8 +302,8 @@ test("criterio 3: gravar o preco chega ao COM com o actor dono e devolve a versa
 test("conflito: com a versao velha a resposta e 409 com a versao actual", async () => {
   const m = montar();
   const cookie = cookieDe(sessaoA());
-  assert.equal((await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "11000", versao: V0 }, cookie))).status, 200);
-  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "10500", versao: V0 }, cookie));
+  assert.equal((await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1100000", versao: V0 }, cookie))).status, 200);
+  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1050000", versao: V0 }, cookie));
   assert.equal(r.status, 409);
   const corpo = (await r.json()) as { erro: string; versao: string };
   assert.equal(corpo.erro, "conflito");
@@ -314,7 +314,7 @@ test("conflito: com a versao velha a resposta e 409 com a versao actual", async 
 test("idempotencia: a mesma Idempotency-Key duas vezes da uma gravacao, e a segunda diz que repetiu", async () => {
   const m = montar();
   const idem = chave();
-  const corpo = { preco_tipo: "fixo", preco_kz: "12000", versao: V0 };
+  const corpo = { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 };
   const r1 = await m.app.fetch(patch("arroz", corpo, cookieDe(sessaoA()), idem));
   const r2 = await m.app.fetch(patch("arroz", corpo, cookieDe(sessaoA()), idem));
   assert.equal(r1.status, 200);
@@ -327,7 +327,7 @@ test("idempotencia: a mesma Idempotency-Key duas vezes da uma gravacao, e a segu
 test("idempotencia: dois pedidos simultaneos com a mesma chave gravam uma vez", async () => {
   const m = montar();
   const idem = chave();
-  const corpo = { preco_tipo: "fixo", preco_kz: "12000", versao: V0 };
+  const corpo = { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 };
   const respostas = await Promise.all([1, 2, 3].map(() => m.app.fetch(patch("arroz", corpo, cookieDe(sessaoA()), idem))));
   assert.deepEqual(respostas.map((r) => r.status), [200, 200, 200]);
   assert.equal(m.comercio.gravacoes.length, 1);
@@ -336,8 +336,8 @@ test("idempotencia: dois pedidos simultaneos com a mesma chave gravam uma vez", 
 test("idempotencia: a mesma chave com outro corpo e 422 e nao grava", async () => {
   const m = montar();
   const idem = chave();
-  await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "12000", versao: V0 }, cookieDe(sessaoA()), idem));
-  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "9", versao: V0 }, cookieDe(sessaoA()), idem));
+  await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 }, cookieDe(sessaoA()), idem));
+  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "90000", versao: V0 }, cookieDe(sessaoA()), idem));
   assert.equal(r.status, 422);
   assert.equal(m.comercio.gravacoes.length, 1);
 });
@@ -355,7 +355,7 @@ test("idempotencia: a chave e por tenant — a de A nao devolve a resposta a B",
 test("idempotencia: sem chave, ou com uma chave curta, e 400", async () => {
   const m = montar();
   for (const idem of ["", "curta"]) {
-    const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "1", versao: V0 }, cookieDe(sessaoA()), idem));
+    const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "100", versao: V0 }, cookieDe(sessaoA()), idem));
     assert.equal(r.status, 400, idem);
   }
   assert.equal(m.comercio.gravacoes.length, 0);
@@ -364,15 +364,16 @@ test("idempotencia: sem chave, ou com uma chave curta, e 400", async () => {
 test("criterio 5: precos e stocks invalidos sao 400 com o campo, e nada chega ao COM", async () => {
   const m = montar({ precoMaximoKz: 50_000n });
   const maus = [
-    { preco_tipo: "fixo", preco_kz: "-1", versao: V0 },
-    { preco_tipo: "fixo", preco_kz: "12.5", versao: V0 },
-    { preco_tipo: "fixo", preco_kz: "50001", versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "-100", versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "1250.5", versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "5000100", versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "1250050", versao: V0 },
     { preco_tipo: "fixo", versao: V0 },
-    { preco_tipo: "sob_consulta", preco_kz: "10", versao: V0 },
-    { preco_tipo: "preco_modo", preco_kz: "10", versao: V0 },
-    { preco_tipo: "fixo", preco_kz: "10", stock: -1, versao: V0 },
-    { preco_tipo: "fixo", preco_kz: "10", stock: 1.5, versao: V0 },
-    { preco_tipo: "fixo", preco_kz: "10" },
+    { preco_tipo: "sob_consulta", preco_minor: "1000", versao: V0 },
+    { preco_tipo: "preco_modo", preco_minor: "1000", versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "1000", stock: -1, versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "1000", stock: 1.5, versao: V0 },
+    { preco_tipo: "fixo", preco_minor: "1000" },
   ];
   for (const corpo of maus) {
     const r = await m.app.fetch(patch("arroz", corpo, cookieDe(sessaoA())));
@@ -390,12 +391,12 @@ test("criterio 5: o preco maximo le-se do ambiente, e um valor ilegivel falha o 
 test("criterio 5: uma variacao acima de 50% pede confirmacao, e com ela grava", async () => {
   const m = montar();
   const cookie = cookieDe(sessaoA());
-  const semConfirmar = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "15001", versao: V0 }, cookie));
+  const semConfirmar = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1500100", versao: V0 }, cookie));
   assert.equal(semConfirmar.status, 422);
   assert.deepEqual(await semConfirmar.json(), { erro: "confirmacao", variacao_pct: "51" });
   assert.equal(m.comercio.gravacoes.length, 0);
   const confirmada = await m.app.fetch(
-    patch("arroz", { preco_tipo: "fixo", preco_kz: "15001", versao: V0, confirmar_variacao: true }, cookie),
+    patch("arroz", { preco_tipo: "fixo", preco_minor: "1500100", versao: V0, confirmar_variacao: true }, cookie),
   );
   assert.equal(confirmada.status, 200);
   assert.equal(m.comercio.gravacoes.length, 1);
@@ -407,7 +408,7 @@ test("criterio 5: a fronteira dos 50% — exactamente 50% nao pede, e a descida 
   assert.equal(pedeConfirmacao(1_000_000n, 499_900n), true);
   assert.equal(pedeConfirmacao(null, 1_000n), false);
   assert.equal(variacaoPct(0n, 100n), 1_000_000n);
-  assert.equal(lerPedido({ preco_tipo: "fixo", preco_kz: 12, versao: V0 }, 100n).tipo, "ok");
+  assert.equal(lerPedido({ preco_tipo: "fixo", preco_minor: 1200, versao: V0 }, 100n).tipo, "ok");
 });
 
 test("criterio 5: o pedido sem application/json e 415, e um corpo grande e 400", async () => {
@@ -420,7 +421,7 @@ test("criterio 5: o pedido sem application/json e 415, e um corpo grande e 400",
     }),
   );
   assert.equal(r.status, 415);
-  const grande = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "1", versao: V0, x: "a".repeat(5000) }, cookieDe(sessaoA())));
+  const grande = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "100", versao: V0, x: "a".repeat(5000) }, cookieDe(sessaoA())));
   assert.equal(grande.status, 400);
   assert.equal(m.comercio.gravacoes.length, 0);
 });
@@ -434,7 +435,7 @@ test("revogacao: depois de sair, a mesma sessao da 401 em tudo", async () => {
   assert.equal(sair.status, 200);
   assert.match(sair.headers.get("set-cookie") ?? "", /Max-Age=0/);
   assert.equal((await m.app.fetch(get("/painel/produtos", cookie))).status, 401);
-  assert.equal((await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "12000", versao: V0 }, cookie))).status, 401);
+  assert.equal((await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 }, cookie))).status, 401);
   assert.equal(m.comercio.gravacoes.length, 0);
 });
 
@@ -449,7 +450,7 @@ test("revogacao: um PATCH a meio quando a sessao e revogada nao grava", async ()
     await revogacoes.revogar(s.sid);
     return original(t);
   };
-  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_kz: "12000", versao: V0 }, cookieDe(s)));
+  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 }, cookieDe(s)));
   assert.equal(r.status, 401);
   assert.equal(m.comercio.gravacoes.length, 0);
 });

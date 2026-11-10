@@ -17,10 +17,12 @@
  * O corpo usa `preco_tipo`; a divergência fica registada na verificação do
  * bloco.
  *
- * ## O preço entra em Kz inteiros e sai em unidade menor
+ * ## O preço viaja em unidade menor, e tem de ser Kz inteiros
  *
- * O dono escreve «12500», não «1250000». A conversão é aqui, com `bigint`, e é
- * a única: a moeda é o AOA (dicionário §3.4), e a unidade menor é o cêntimo.
+ * O corpo leva `preco_minor`, como todo o dinheiro desta casa (dicionário §3.3:
+ * o `preco_kz` está na coluna «Substitui»). O dono escreve Kz na página, e é o
+ * guião que acrescenta os dois zeros; aqui recusa-se o que não for múltiplo de
+ * 100, porque o critério 5 pede «preço inteiro em Kz».
  */
 
 import { PRECO_TIPOS, type PrecoTipo } from "./comercio.ts";
@@ -67,24 +69,26 @@ export function precoMaximoKz(bruto: string | undefined): bigint {
 /**
  * O corpo do `PATCH`, validado. Devolve o **campo** que falhou, e não o valor.
  *
- * `preco_kz` é o preço em Kz inteiros: cadeia de dígitos ou inteiro seguro.
- * Ausente ou `null` para `sob_consulta`, e obrigatório para os outros dois.
+ * `preco_minor` é cadeia de dígitos ou inteiro seguro, múltiplo de 100 (Kz
+ * inteiros). Ausente ou `null` para `sob_consulta`, e obrigatório nos outros dois.
  */
 export function lerPedido(corpo: Record<string, unknown>, maximoKz: bigint): Leitura {
   const precoTipo = corpo["preco_tipo"];
   if (typeof precoTipo !== "string" || !(PRECO_TIPOS as readonly string[]).includes(precoTipo)) {
     return { tipo: "erro", campo: "preco_tipo" };
   }
-  const bruto = corpo["preco_kz"];
+  const bruto = corpo["preco_minor"];
   let precoMinor: bigint | null = null;
   if (precoTipo === "sob_consulta") {
-    if (bruto !== undefined && bruto !== null) return { tipo: "erro", campo: "preco_kz" };
+    if (bruto !== undefined && bruto !== null) return { tipo: "erro", campo: "preco_minor" };
   } else {
-    let kz: bigint | null = null;
-    if (typeof bruto === "string" && /^[0-9]{1,15}$/.test(bruto)) kz = BigInt(bruto);
-    if (typeof bruto === "number" && Number.isSafeInteger(bruto) && bruto >= 0) kz = BigInt(bruto);
-    if (kz === null || kz > maximoKz) return { tipo: "erro", campo: "preco_kz" };
-    precoMinor = kz * CENTIMOS_POR_KZ;
+    let minor: bigint | null = null;
+    if (typeof bruto === "string" && /^[0-9]{1,17}$/.test(bruto)) minor = BigInt(bruto);
+    if (typeof bruto === "number" && Number.isSafeInteger(bruto) && bruto >= 0) minor = BigInt(bruto);
+    if (minor === null || minor % CENTIMOS_POR_KZ !== 0n || minor > maximoKz * CENTIMOS_POR_KZ) {
+      return { tipo: "erro", campo: "preco_minor" };
+    }
+    precoMinor = minor;
   }
   const stock = corpo["stock"];
   if (stock !== undefined && stock !== null) {
