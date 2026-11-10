@@ -23,9 +23,9 @@
  * tipo `es_falhado`. **Nenhuma das três tabelas existe na base**, medido contra
  * a cadeia de revisões até à `0040`:
  *
- *     onboarding_case   credor KAM-086/087 — a `fase` diverge entre o
+ *     onboarding_case   credor KAM-087 — a `fase` diverge entre o
  *                       dicionário §3.2 (seis valores) e o bloco do KAM-086
- *                       (catorze), e a emenda 1.64 dá-lhes essa decisão
+ *                       (catorze), e a emenda 1.64 dá-lhe essa decisão
  *     onboarding_gate   credor KAM-092
  *     review_case       credor KAM-089
  *
@@ -348,7 +348,7 @@ export interface EstadoGuardado {
 }
 
 /**
- * Onde o estado do guia vive. **Credor do adaptador SQL: KAM-086/087**, na
+ * Onde o estado do guia vive. **Credor do adaptador SQL: KAM-087**, na
  * mesma linha de `onboarding_case`.
  *
  * As transições são *compare-and-set*: `transitar` só escreve se o estado

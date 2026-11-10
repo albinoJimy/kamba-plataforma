@@ -3810,7 +3810,7 @@ domínio de coluna exigiria.
 | Conceito | Nome canónico | Substitui | Notas |
 |---|---|---|---|
 | O módulo | `../packages/core-ts/src/guia/`, com o serviço `PassoGuiado` | — | *proposta* (emenda 1.75, KAM-093). **Não é** o `onboarding/` do KAM-016 (a troca do `code`, que o guia chama por porta e não reimplementa) nem a `inscricao/` do KAM-086 (o registo e o OTP) |
-| Pré-voo gravado | `onboarding_case.preflight`, `jsonb` *array* de «{id, tipo, ok, detalhe}» | — | *proposta* (emenda 1.75, KAM-093). A forma é a dos Detalhes Técnicos do bloco. **A coluna não existe**, porque a tabela não existe: credor **KAM-086/087**, com a divergência da `onboarding_case.fase` (emenda 1.64) a decidir primeiro. Até lá vive no `RepositorioDoGuia` |
+| Pré-voo gravado | `onboarding_case.preflight`, `jsonb` *array* de «{id, tipo, ok, detalhe}» | — | *proposta* (emenda 1.75, KAM-093). A forma é a dos Detalhes Técnicos do bloco. **A coluna não existe**, porque a tabela não existe: credor **KAM-087**, com a divergência da `onboarding_case.fase` (emenda 1.64) a decidir primeiro. Até lá vive no `RepositorioDoGuia` |
 | Item do pré-voo | `ItemAvaliado.id` ∈ {`app_versao`, `numero_movel`, `whatsapp_pessoal`, `cartao_internacional`, `categoria_aprovada`, `display_name`, `dono_presente`} | — | *proposta* (emenda 1.75, KAM-093). Lista **fechada**, **sete**, pela ordem do critério 2. **Não há item** para a elegibilidade de Angola (H3) nem para os «≥ 7 dias» de actividade: são NÃO VERIFICADOS e o bloco proíbe impô-los |
 | Como se verifica um item | `ItemAvaliado.tipo` ∈ {`auto`, `atestado`} | — | *proposta* (emenda 1.75, KAM-093). `atestado` é o que a KAMBÁ não vê — a app no telemóvel do dono, o cartão, a presença — e só vale o booleano `true` |
 | Porquê de um item | `ItemAvaliado.detalhe` ∈ {`ok`, `nao_atestado`, `versao_antiga`, `versao_ilegivel`, `fixo_rota_cloud_only`, `numero_ilegivel`, `converter_para_business`, `sem_cartao_internacional`, `categoria_por_aprovar`, `categoria_recusada`, `nome_vazio`, `nome_com_termo_bloqueado`} | — | *proposta* (emenda 1.75, KAM-093). **Fechada, e a razão é quem a lê**: o T&S, numa fila de revisão. Texto livre ali era o sítio onde um *display name* com um telefone dentro ficava guardado |
@@ -3825,7 +3825,7 @@ domínio de coluna exigiria.
 | Mensagem ao dono do guia | `AvisoDoGuia`, mensagem ∈ {`reconectar`, `sincronizacao_falhou`, `sincronizacao_lembrete`} | — | *proposta* (emenda 1.75, KAM-093). SMS ou e-mail, **nunca WhatsApp**: o tipo não admite outra via. O alarme de canal desligado e o de inactividade **não** estão aqui — são os gatilhos `canal_desligado` e `inactividade` do KAM-115 (§3.23) |
 | Configuração do popup | `KAMBA_META_APP_ID`, `KAMBA_META_ES_CONFIG_ID`, `ONBOARDING_ORIGEM`, `ONBOARDING_GWY_INTERNO_URL` | — | *proposta* (emenda 1.75, KAM-093). **Nenhuma é segredo**: o `appId` e o `config_id` são identificadores públicos que a página entrega ao SDK da Meta. Sem as quatro, o `onboarding-web` arranca **sem** a página e di-lo numa linha (`es_guia_desligado`) |
 
-**O que esta emenda não decide, e a quem.** As três tabelas — `onboarding_case` (**KAM-086/087**),
+**O que esta emenda não decide, e a quem.** As três tabelas — `onboarding_case` (**KAM-087**),
 `onboarding_gate` (**KAM-092**) e `review_case` (**KAM-089**). A lista de termos de categoria
 bloqueada para o *display name* (**KAM-088**). O texto do aviso por SMS, que o
 `../packages/core-ts/src/sms/modelos.ts` mantém em lista fechada sem nenhum escrito (**KAM-116**).

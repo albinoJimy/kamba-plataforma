@@ -17,7 +17,7 @@
  * ainda não existe**: o estado do guia vive no `RepositorioDoGuia`, que só tem
  * duplo em memória no processo do `onboarding-web`, e um consumidor no GWY ou
  * no `worker-canal` não lhe chega. O dia em que o adaptador SQL existir
- * (KAM-086/087) é o dia em que um consumidor o pode ligar.
+ * (KAM-087) é o dia em que um consumidor o pode ligar.
  */
 
 import { EVENTO_PARTNER_REMOVED } from "../coexistencia/contrato.ts";
