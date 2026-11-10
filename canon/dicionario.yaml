@@ -7071,6 +7071,26 @@ entradas:
       - "router"
     variantes_literais: []
   - seccao: "3.29"
+    conceito: "Tecto de resposta de um alias"
+    canonico: "max_tokens em llm/aliases.yaml; tecto_de_resposta no model_info do gerado"
+    literais:
+      - "max_tokens"
+      - "tecto_de_resposta"
+      - "model_info"
+    nomes:
+      - "max_tokens"
+      - "tecto_de_resposta"
+      - "model_info"
+    nomes_nota:
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+      - "tecto_de_resposta"
+      - "max_tokens"
+      - "model_info"
+    variantes_literais: []
+  - seccao: "3.29"
     conceito: "Estado de um alias"
     canonico: "aliases[].estado ∈ {ligada, declarada}"
     literais:

@@ -344,7 +344,8 @@ def render(dados: dict[str, Any]) -> str:
         # texto: sem ele, mudar o `max_tokens` nao mudava o *hash* do *lock*, e o
         # passo `aliases` deixava passar um tecto novo sem *bump*. **Com nome
         # nosso, e nao `max_tokens`**: no `model_info` esse nome e um metadado do
-        # proprio LiteLLM (a janela do modelo), e 16 ali seria lido como tal.
+        # proprio LiteLLM sobre o modelo (a saida maxima, no campo antigo), e 16
+        # ali seria lido como tal.
         if alias.get("max_tokens") is not None:
             linhas.append(f"      tecto_de_resposta: {alias['max_tokens']}")
     linhas += ["", "router_settings:"]

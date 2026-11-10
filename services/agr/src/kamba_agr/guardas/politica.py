@@ -159,29 +159,36 @@ FRONTEIRA: Final = (
 #: Pedidos de fronteira que o `PRIMEIRA_PESSOA` **nao** absolve (KAM-189).
 #:
 #: O primeiro e a forma que juntava os dados do cliente aos de um terceiro na
-#: mesma frase («os meus pedidos **e os da** loja X»): o possessivo absolvia a
-#: frase inteira. Os outros nao tem possessivo que os absolva com razao — a
-#: lista e a contagem dos clientes da loja nunca sao do cliente que pergunta, e
-#: um nome proprio a frente de «encomendou» e outra pessoa.
+#: mesma frase, com um verbo de pedido antes: o possessivo absolvia a frase
+#: inteira. Os outros nao tem possessivo que os absolva com razao — a lista e a
+#: dimensao da clientela da loja nunca sao do cliente que pergunta, e perguntar
+#: **o que** outra pessoa encomendou e pedir os dados dela.
 #:
-#: **Limite escrito:** a conjuncao so apanha o terceiro do `_TERCEIRO` (loja,
-#: empresa, outros clientes). Com um nome («e os do Joao») nao, porque no texto
-#: dobrado um nome e um artigo nao se distinguem: «o meu pedido e o das camisas»
-#: e uma pergunta da loja.
+#: Cada um com os controlos do `casos_guardas.py` ao lado, e a revisao
+#: adversarial mediu porque: a primeira versao recusava «a filha comprou o
+#: vestido, posso trocar?», a fila dos Servicos («quantos clientes tem antes de
+#: mim?») e «quantas vendas fizeram da camisa azul?».
+_CONJUNCAO: Final = r"(?:e|mais|com|junto com)(?: tambem)?"
+_DE_TERCEIRO: Final = rf"(?:(?:{_DADOS_DE_CLIENTES}) )?(?:d[aoe]s? )?{_TERCEIRO}"
+_NAO_E_NOME: Final = (
+    rf"(?:loja|empresa|gente|minha|meu|tua|teu|sua|seu|nossa|nosso|encomenda|pedido|"
+    rf"que|quem|qual|voce|eu|tu|ja|nao|{_NAO_E_TERCEIRO})"
+)
+_ENCOMENDOU: Final = r"(?:tinha |ja )?(?:encomendou|comprou|encomendado|comprado)"
 FRONTEIRA_SEM_ABSOLVICAO: Final = (
-    rf"\b(?:pedidos?|encomendas?|compras?|facturas?|faturas?|mensagens?|conversas?|historico)\b.{{0,15}}"
-    rf"\be (?:tambem )?(?:os|as|o|a) {_TERCEIRO}",
+    rf"\b{_VERBO}\b.{{0,40}}\b(?:{_DADOS_DE_CLIENTES})\b.{{0,15}}"
+    rf"\b{_CONJUNCAO} (?:os|as|o|a) {_DE_TERCEIRO}",
     r"\b(?:lista|listagem|base de dados|ficheiro|relacao|contactos) (?:de|dos|das|com os|com as) "
     r"(?:clientes|compradores|contactos|telefones)\b",
-    r"\bquant[oa]s (?:clientes|compradores|contactos)\b",
-    r"\bquant[oa]s (?:vendas|encomendas|pedidos) (?:fizeram|fez|teve|tiveram|tem a loja|a loja (?:tem|fez|teve))\b",
-    # O texto esta dobrado: «a Maria» e «a maria». O que se exclui e o que nao e
-    # um nome a frente do verbo — a loja, o proprio cliente, «a gente», «o que».
-    # **Sem `levou`, `recebeu` nem `pediu`**: «o ladrao levou a minha encomenda»
-    # e uma queixa, e «o porteiro recebeu?» e «o estafeta pediu o numero» sao
-    # perguntas de entrega.
-    rf"\b(?:o|a) (?!(?:loja|empresa|gente|minha|meu|tua|teu|sua|seu|nossa|nosso|encomenda|pedido|"
-    rf"que|quem|qual|voce|{_NAO_E_TERCEIRO})\b)[a-z]{{3,}} (?:encomendou|comprou)\b",
+    r"\bquant[oa]s (?:clientes|compradores) (?:(?:a|esta|essa|a vossa|vossa) (?:loja|empresa) )?"
+    r"(?:voces )?(?:tem|teem|tens|ha|existem|tiveram)"
+    r"(?: (?:a|esta|essa|a vossa|vossa) (?:loja|empresa)| voces| no total)?\s*[?.!]?$",
+    r"\bquant[oa]s (?:vendas|encomendas|pedidos) (?:a loja |voces |a empresa )?(?:fez|fizeram|teve|tiveram) "
+    r"(?:hoje|ontem|este mes|esta semana|este ano|no total)\b",
+    # «o que» e o que faz disto um pedido de dados: «a filha comprou o vestido,
+    # posso trocar?» e uma pergunta de troca, e «a Maria comprou o que?» nao.
+    rf"\b(?!{_NAO_E_NOME}\b)[a-z]{{2,}}(?: [a-z]{{2,}})? {_ENCOMENDOU} o que\b",
+    rf"\bo que (?:o |a )?(?!{_NAO_E_NOME}\b)[a-z]{{2,}}(?: [a-z]{{2,}})? {_ENCOMENDOU}\b",
 )
 
 #: Ofuscacao por substituicao de letras («mo$tra», «m0stra»). Corre-se so numa
@@ -191,8 +198,9 @@ FRONTEIRA_SEM_ABSOLVICAO: Final = (
 SUBSTITUICOES: Final = {"$": "s", "@": "a", "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t"}
 #: Uma palavra com pelo menos uma letra e pelo menos um caracter substituivel.
 PALAVRA_OFUSCADA: Final = r"[a-z$@0-9]*[a-z][a-z$@0-9]*"
-#: Tres ou mais letras isoladas separadas por um espaco («m o s t r a»).
-LETRAS_ESPACADAS: Final = r"(?<![a-z])[a-z](?: [a-z]){2,}(?![a-z])"
+#: Tres ou mais letras isoladas separadas por um espaco, um ponto, um hifen ou
+#: um sublinhado, o mesmo separador do principio ao fim da corrida.
+LETRAS_ESPACADAS: Final = r"(?<![a-z])[a-z]([ ._-])[a-z](?:\1[a-z])+(?![a-z])"
 
 #: O que **absolve** um padrao de fronteira: o cliente a falar dos pedidos dele.
 #: A revisao adversarial do KAM-031 mediu o custo de nao ter isto (achado 6).
@@ -250,23 +258,31 @@ SENSIVEL: Final = (
     r"\bfiliacao partidaria\b", r"\bem quem votar\b",
     # KAM-189: o lexico que o red-team mediu a faltar. Cada um com o controlo
     # que tem de passar ao lado, no `casos_guardas.py`.
-    # Saude: o estado do proprio, as doencas e os farmacos comuns por nome.
+    # Saude: o estado de alguem, as doencas e os farmacos comuns, por nome e pela
+    # marca. **Os produtos de saude contam** («tem teste de gravidez?», «quanto
+    # custa a insulina?»): sao dado de saude de quem compra, e a loja de farmacia
+    # e de maternidade e o KAM-088 (categorias), como o alcool.
     r"\bdoentes?\b",
     r"\b(?:tenho|estou com|sinto|ando com) (?:muitas? )?dor(?:es)?\b",
     r"\bfebre\b",
+    r"\b(?:estou|ando|tenho|estamos) (?:com )?(?:gripe|tosse|diarreia|vomitos)\b",
     # «roupa de gravida» e uma seccao da loja: conta o estado, dito por alguem.
-    r"\b(?:estou|estava|fiquei|ando|ela esta|minha mulher esta) gravida\b",
+    r"\b(?:estou|estava|fiquei|ando|ela esta|minha mulher esta) gravida\b|\bengravid\w*"
+    r"|\ba espera de (?:um )?bebe\b",
     r"\b(?:gravidez|tuberculos\w*|sida|aids|hepatite\w*|cancro|tumor\w*|depressao|depressiv\w*)\b",
     r"\b(?:paracetamol|ibuprofeno|amoxicilina|aspirina|diclofenac\w*|omeprazol|penicilina|"
-    r"coartem|artemeter\w*|quinino|metformina|insulina|analgesic\w*|anti-?inflamatori\w*)\b",
+    r"coartem|artemeter\w*|quinino|metformina|insulina|analgesic\w*|anti-?inflamatori\w*|"
+    r"panadol|brufen|ben-?u-?ron|voltaren|buscopan|aspegic)\b",
     # Religiao: a identidade, e nao o nome de uma instituicao («Universidade
     # Catolica» e uma morada).
     r"\b(?:mu[cs]ulman\w*|islam\w*)",
     r"\b(?:sou|somos|e|es|ele e|ela e) (?:um |uma )?(?:catolic[oa]s?|evangelic[oa]s?|cristao|crista|"
     r"cristaos|judeu|judia|judeus|ateu|ateia|protestante|adventista|kimbanguista|tocoista|crente)\b",
-    # Politica: o voto, as eleicoes e os partidos. «votos de feliz natal» e um
-    # cartao, e nao conta.
-    r"\b(?:vot(?:ar|ei|as|aste|amos|aram|ou)|eleic\w*|mpla|unita|fnla|casa-ce)\b",
+    # Politica: em quem se vota, as eleicoes e os partidos. O verbo sozinho nao
+    # conta: «votamos na cor azul» e «ja votaste na loja no google?» sao da loja,
+    # e «votos de feliz natal» e um cartao. A t-shirt de um partido conta: diz a
+    # filiacao de quem a compra.
+    r"\bem quem (?:\w+ )?vot\w*|\b(?:eleic\w*|mpla|unita|fnla|casa-ce)\b",
     # Orientacao sexual.
     r"\b(?:gay|lesbica\w*|homossexua\w*|bissexua\w*|transexua\w*|lgbt\w*)\b",
 )
@@ -309,7 +325,11 @@ FORA_DE_DOMINIO: Final = (
     r"\b(?:es|e) capaz de (?:responder a tudo|fazer qualquer coisa)\b",
     r"\bnoticias d[eo] (?:hoje|dia|mundo|angola)\b",
     # KAM-189: a conta aritmetica com «quanto», que ia ao catalogo pelo `quanto`.
-    r"\bquanto (?:e|da|sao|faz) \d+(?:[.,]\d+)? ?(?:vezes|x|\*|mais|\+|menos|a dividir por|dividido por|/) ?\d+",
+    # «quanto e 3 x 2000 kz?» e uma conta de preco: o `x` e os simbolos ficam de
+    # fora, e um resultado em dinheiro tambem.
+    r"\bquanto (?:e|da|sao|faz|fica) \d+(?:[.,]\d+)? (?:vezes|mais|menos|a dividir por|dividido por|"
+    r"multiplicado por) \d+(?:[.,]\d+)?\b(?! ?(?:kz|kwanzas?|akz|mil|dolares|euros))"
+    r"|\bquanto (?:e|da|fica) \d+ (?:ao quadrado|ao cubo)\b",
 )
 
 #: O lexico do dominio comercial. **E o que deixa as regras decidir `ok`** sem

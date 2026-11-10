@@ -57,7 +57,7 @@ IMPRESSOES = {
     # KAM-073: as tres formas de saida que o red-team encontrou (RT-01 a RT-03).
     "1.1.0": "9997d64ccc08ca9faf6b09d7f1a14318fb8279cad6597c778e892063d4ed3180",
     # KAM-189: os achados P3/P4 de entrada do red-team (RT-04, RT-06, RT-09).
-    "1.2.0": "4c72e5e6d46a7d6a3b01fc5905bde992dfc0182dcd4beb7ecb3b8c5f85f1c2e8",
+    "1.2.0": "3a7f6e8db8bfc6be33497907098613dc0a5d6ad1b85c37bfee03d88515eae6c8",
 }
 
 #: Um PAN de teste publico (Visa). Nunca um cartao real.

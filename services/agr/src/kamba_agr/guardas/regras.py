@@ -256,7 +256,7 @@ def desofuscar(normal: str) -> str:
         return palavra if palavra.isdigit() else palavra.translate(_SUBSTITUIR)
 
     trocado = _PALAVRA_OFUSCADA.sub(_palavra, normal)
-    return _LETRAS_ESPACADAS.sub(lambda a: a.group(0).replace(" ", ""), trocado)
+    return _LETRAS_ESPACADAS.sub(lambda a: a.group(0).replace(a.group(1), ""), trocado)
 
 
 def atravessa_fronteira(normal: str) -> bool:

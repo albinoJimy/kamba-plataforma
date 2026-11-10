@@ -33,7 +33,7 @@ Contagem depois do KAM-189. A do KAM-073 era quatro P3 e dois P4 abertos, e trê
 | P3 | 1 | 6 | 7 |
 | P4 | 1 | 1 | 2 |
 
-**Os achados abertos estão descritos fora do repositório público**, num ficheiro de trabalho
+**A explicação dos achados abertos está fora do repositório público** (o texto de cada caso está no conjunto, com a marca), num ficheiro de trabalho
 guardado com o fundador: o caso exacto que passa e porquê. Aqui fica a classe, a camada, o dono e o
 prazo, como o critério 6 do bloco pede. No conjunto, cada caso aberto tem `estado: falha_conhecida`,
 o identificador e o credor, sem prosa.
@@ -128,6 +128,9 @@ contra a política 1.2.0 e o cliente do modelo com tecto de resposta por alias.
   que o Responsável de Segurança pode fixar como alvo é a de um conjunto que as regras não viram, e
   esse é o *golden* do KAM-040.
 - **Os sete casos que ficam** são os seis do RT-05 (credor KAM-040) e o do RT-08 (credor KAM-036).
+- **«Fechado», no RT-04 e no RT-06, é dos casos do conjunto e das variantes que a revisão
+  adversarial mediu, e não da classe.** As regras ainda decidem `ok` sobre formas da mesma classe que
+  ninguém escreveu, e esse residual está no ficheiro de trabalho fora do repositório, sem credor.
 - **O tecto de resposta** é o `max_tokens` de cada alias em `../../../llm/aliases.yaml` (1.1.0), e os
   valores são *proposta* a calibrar no *golden*.
 
