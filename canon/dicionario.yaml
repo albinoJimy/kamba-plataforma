@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.77"
+versao_dicionario: "1.78"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13822,6 +13822,307 @@ entradas:
       - "custo"
     variantes_literais: []
   - seccao: "3.54"
+    conceito: "O módulo"
+    canonico: "../packages/core-ts/src/guia/, com o serviço PassoGuiado"
+    literais:
+      - "PassoGuiado"
+    nomes:
+      - "PassoGuiado"
+    nomes_nota:
+      - "code"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Pré-voo gravado"
+    canonico: "onboarding_case.preflight, jsonb array de «{id, tipo, ok, detalhe}»"
+    literais:
+      - "onboarding_case.preflight"
+      - "jsonb"
+    nomes:
+      - "onboarding_case.preflight"
+      - "jsonb"
+    nomes_nota:
+      - "onboarding_case.fase"
+      - "RepositorioDoGuia"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Item do pré-voo"
+    canonico: "ItemAvaliado.id ∈ {app_versao, numero_movel, whatsapp_pessoal, cartao_internacional, categoria_aprovada, display_name, dono_presente}"
+    literais:
+      - "ItemAvaliado.id"
+      - "app_versao"
+      - "numero_movel"
+      - "whatsapp_pessoal"
+      - "cartao_internacional"
+      - "categoria_aprovada"
+      - "display_name"
+      - "dono_presente"
+    nomes:
+      - "ItemAvaliado.id"
+      - "app_versao"
+      - "numero_movel"
+      - "whatsapp_pessoal"
+      - "cartao_internacional"
+      - "categoria_aprovada"
+      - "display_name"
+      - "dono_presente"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Como se verifica um item"
+    canonico: "ItemAvaliado.tipo ∈ {auto, atestado}"
+    literais:
+      - "ItemAvaliado.tipo"
+      - "auto"
+      - "atestado"
+    nomes:
+      - "ItemAvaliado.tipo"
+      - "auto"
+      - "atestado"
+    nomes_nota:
+      - "atestado"
+      - "true"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Porquê de um item"
+    canonico: "ItemAvaliado.detalhe ∈ {ok, nao_atestado, versao_antiga, versao_ilegivel, fixo_rota_cloud_only, numero_ilegivel, converter_para_business, sem_cartao_internacional, categoria_por_aprovar, categoria_recusada, nome_vazio, nome_com_termo_bloqueado}"
+    literais:
+      - "ItemAvaliado.detalhe"
+      - "ok"
+      - "nao_atestado"
+      - "versao_antiga"
+      - "versao_ilegivel"
+      - "fixo_rota_cloud_only"
+      - "numero_ilegivel"
+      - "converter_para_business"
+      - "sem_cartao_internacional"
+      - "categoria_por_aprovar"
+      - "categoria_recusada"
+      - "nome_vazio"
+      - "nome_com_termo_bloqueado"
+    nomes:
+      - "ItemAvaliado.detalhe"
+      - "ok"
+      - "nao_atestado"
+      - "versao_antiga"
+      - "versao_ilegivel"
+      - "fixo_rota_cloud_only"
+      - "numero_ilegivel"
+      - "converter_para_business"
+      - "sem_cartao_internacional"
+      - "categoria_por_aprovar"
+      - "categoria_recusada"
+      - "nome_vazio"
+      - "nome_com_termo_bloqueado"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Versão mínima da app"
+    canonico: "VERSAO_MINIMA_DA_APP = 2.24.17"
+    literais:
+      - "VERSAO_MINIMA_DA_APP"
+      - "2.24.17"
+    nomes:
+      - "VERSAO_MINIMA_DA_APP"
+    nomes_nota:
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Tipo de linha de um telefone"
+    canonico: "Telefone.linha ∈ {movel, fixo, desconhecido}"
+    literais:
+      - "Telefone.linha"
+      - "movel"
+      - "fixo"
+      - "desconhecido"
+    nomes:
+      - "Telefone.linha"
+      - "movel"
+      - "fixo"
+      - "desconhecido"
+    nomes_nota:
+      - "Telefone"
+      - "revelar"
+      - "cloud_only"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Estado visível do canal"
+    canonico: "EstadoGuardado.estado ∈ {pre_voo, iniciado, es_concluido, subscrito, a_sincronizar, verificado, pronto, abandonado, falhado, desligado}"
+    literais:
+      - "EstadoGuardado.estado"
+      - "pre_voo"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "abandonado"
+      - "falhado"
+      - "desligado"
+    nomes:
+      - "EstadoGuardado.estado"
+      - "pre_voo"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "abandonado"
+      - "falhado"
+      - "desligado"
+    nomes_nota:
+      - "desligado"
+      - "pre_voo"
+      - "channel_onboarding.fase"
+      - "ativo"
+      - "abandonado"
+      - "iniciado"
+      - "phone_number_id"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Motivo de um guia falhado"
+    canonico: "EstadoGuardado.motivo ∈ {numero_divergente, sincronizacao_vencida, ligacao_recusada, tecto_da_meta}"
+    literais:
+      - "EstadoGuardado.motivo"
+      - "numero_divergente"
+      - "sincronizacao_vencida"
+      - "ligacao_recusada"
+      - "tecto_da_meta"
+    nomes:
+      - "EstadoGuardado.motivo"
+      - "numero_divergente"
+      - "sincronizacao_vencida"
+      - "ligacao_recusada"
+      - "tecto_da_meta"
+    nomes_nota:
+      - "numero_divergente"
+      - "tecto_da_meta"
+      - "CapacityGate"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Marca do modo cloud_only"
+    canonico: "extras.featureType = kamba_cloud_only no session_info que o guia compõe"
+    literais:
+      - "extras.featureType"
+      - "kamba_cloud_only"
+      - "session_info"
+    nomes:
+      - "cloud_only"
+      - "extras.featureType"
+      - "kamba_cloud_only"
+      - "session_info"
+    nomes_nota:
+      - "modoDoSessionInfo"
+      - "featureType"
+      - "cloud_only"
+      - "session_info"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Gates que o guia escreve"
+    canonico: "meta_es e meta_pagamento, em onboarding_gate"
+    literais:
+      - "meta_es"
+      - "meta_pagamento"
+      - "onboarding_gate"
+    nomes:
+      - "meta_es"
+      - "meta_pagamento"
+      - "onboarding_gate"
+    nomes_nota:
+      - "meta_es"
+      - "meta_pagamento"
+      - "detectado"
+      - "GatesDoOnboarding"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Estado do método de pagamento"
+    canonico: "VerificacaoDoPagamento.estado ∈ {detectado, ausente, desconhecido}"
+    literais:
+      - "VerificacaoDoPagamento.estado"
+      - "detectado"
+      - "ausente"
+      - "desconhecido"
+    nomes:
+      - "VerificacaoDoPagamento.estado"
+      - "detectado"
+      - "ausente"
+      - "desconhecido"
+    nomes_nota:
+      - "desconhecido"
+      - "ext"
+      - "KAM"
+      - "mps"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Capacidade antes do popup"
+    canonico: "CapacityGate, com reserve(onboardingId) ∈ {granted, lista_espera} e release"
+    literais:
+      - "CapacityGate"
+      - "reserve(onboardingId)"
+      - "granted"
+      - "lista_espera"
+      - "release"
+    nomes:
+      - "CapacityGate"
+      - "reserve"
+      - "onboardingId"
+      - "granted"
+      - "lista_espera"
+      - "release"
+    nomes_nota:
+      - "es_max_por_7d"
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Ligação de retoma"
+    canonico: "referência de fim retoma, domínio kamba/onboarding/retoma/v1, validade 30 dias"
+    literais:
+      - "retoma"
+    nomes:
+      - "retoma"
+    nomes_nota:
+      - "FINS"
+      - "sessao"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Mensagem ao dono do guia"
+    canonico: "AvisoDoGuia, mensagem ∈ {reconectar, sincronizacao_falhou, sincronizacao_lembrete}"
+    literais:
+      - "AvisoDoGuia"
+      - "reconectar"
+      - "sincronizacao_falhou"
+      - "sincronizacao_lembrete"
+    nomes:
+      - "AvisoDoGuia"
+      - "reconectar"
+      - "sincronizacao_falhou"
+      - "sincronizacao_lembrete"
+    nomes_nota:
+      - "canal_desligado"
+      - "inactividade"
+    variantes_literais: []
+  - seccao: "3.54"
+    conceito: "Configuração do popup"
+    canonico: "KAMBA_META_APP_ID, KAMBA_META_ES_CONFIG_ID, ONBOARDING_ORIGEM, ONBOARDING_GWY_INTERNO_URL"
+    literais:
+      - "KAMBA_META_APP_ID"
+      - "KAMBA_META_ES_CONFIG_ID"
+      - "ONBOARDING_ORIGEM"
+      - "ONBOARDING_GWY_INTERNO_URL"
+    nomes:
+      - "KAMBA_META_APP_ID"
+      - "KAMBA_META_ES_CONFIG_ID"
+      - "ONBOARDING_ORIGEM"
+      - "ONBOARDING_GWY_INTERNO_URL"
+    nomes_nota:
+      - "appId"
+      - "config_id"
+      - "onboarding"
+      - "web"
+      - "es_guia_desligado"
+    variantes_literais: []
+  - seccao: "3.55"
     conceito: "Política de retenção"
     canonico: "retention_policy: a POLITICA de ../libs/py-core/src/kamba_core/retencao/politica.py, com VERSAO_DA_POLITICA"
     literais:
@@ -13837,7 +14138,7 @@ entradas:
       - "validar"
       - "SEM_DADOS_PESSOAIS"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Mecanismo de uma classe"
     canonico: "apagar, largar_particao, ttl_sto, ciclo_do_repositorio, externo, delegado, fiscal, conservar, encerramento"
     literais:
@@ -13866,7 +14167,7 @@ entradas:
       - "recusada"
       - "ok"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Prazo fiscal"
     canonico: "fiscal_retention_years, lido de KAMBA_FISCAL_RETENTION_YEARS"
     literais:
@@ -13877,7 +14178,7 @@ entradas:
       - "KAMBA_FISCAL_RETENTION_YEARS"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Registo da purga"
     canonico: "platform.purge_log, catorze colunas"
     literais:
@@ -13903,7 +14204,7 @@ entradas:
       - "DROP"
       - "erasure_ledger"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Modo de uma purga"
     canonico: "purge_log.modo ∈ {efectiva, dry_run}"
     literais:
@@ -13917,7 +14218,7 @@ entradas:
     nomes_nota:
       - "modo"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Resultado de uma unidade"
     canonico: "purge_log.resultado ∈ {ok, recusada, retida, falhou}"
     literais:
@@ -13938,7 +14239,7 @@ entradas:
       - "ok"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
     canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
     literais:
@@ -13964,7 +14265,7 @@ entradas:
       - "ok"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Hold legal no registo de auditoria"
     canonico: "retention.hold_aplicado e retention.hold_levantado"
     literais:
@@ -13982,7 +14283,7 @@ entradas:
       - "entity_id"
       - "payload_hash"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Fecho de uma conversa"
     canonico: "o mais tardio de conversations.window_expires_at e conversations.last_human_activity_at"
     literais:
@@ -13993,7 +14294,7 @@ entradas:
       - "conversations.last_human_activity_at"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Partição mensal"
     canonico: "<pai>_aaaa_mm, em platform.events_log e dat.llm_call_log, criada e largada por ../db/particoes.py"
     literais:
@@ -14012,7 +14313,7 @@ entradas:
       - "tenant_iso"
       - "DEFAULT"
     variantes_literais: []
-  - seccao: "3.54"
+  - seccao: "3.55"
     conceito: "Retenção, o módulo"
     canonico: "../libs/py-core/src/kamba_core/retencao/"
     literais: []
@@ -15140,6 +15441,14 @@ tabelas:
     assinatura: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
     seccao: "3.53"
     conceito: "Custo diário por tenant e rubrica"
+  - nome: "reserve"
+    esquema: ""
+    colunas:
+      - "onboardingId"
+    aberta: false
+    assinatura: "reserve(onboardingId)"
+    seccao: "3.54"
+    conceito: "Capacidade antes do popup"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -16273,11 +16582,94 @@ dominios:
     seccao: "3.52"
     conceito: "Tipo de documento"
     so_no_registo: false
+  - coluna: "ItemAvaliado.id"
+    valores:
+      - "app_versao"
+      - "numero_movel"
+      - "whatsapp_pessoal"
+      - "cartao_internacional"
+      - "categoria_aprovada"
+      - "display_name"
+      - "dono_presente"
+    seccao: "3.54"
+    conceito: "Item do pré-voo"
+    so_no_registo: false
+  - coluna: "ItemAvaliado.tipo"
+    valores:
+      - "auto"
+      - "atestado"
+    seccao: "3.54"
+    conceito: "Como se verifica um item"
+    so_no_registo: false
+  - coluna: "ItemAvaliado.detalhe"
+    valores:
+      - "ok"
+      - "nao_atestado"
+      - "versao_antiga"
+      - "versao_ilegivel"
+      - "fixo_rota_cloud_only"
+      - "numero_ilegivel"
+      - "converter_para_business"
+      - "sem_cartao_internacional"
+      - "categoria_por_aprovar"
+      - "categoria_recusada"
+      - "nome_vazio"
+      - "nome_com_termo_bloqueado"
+    seccao: "3.54"
+    conceito: "Porquê de um item"
+    so_no_registo: false
+  - coluna: "Telefone.linha"
+    valores:
+      - "movel"
+      - "fixo"
+      - "desconhecido"
+    seccao: "3.54"
+    conceito: "Tipo de linha de um telefone"
+    so_no_registo: false
+  - coluna: "EstadoGuardado.estado"
+    valores:
+      - "pre_voo"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "abandonado"
+      - "falhado"
+      - "desligado"
+    seccao: "3.54"
+    conceito: "Estado visível do canal"
+    so_no_registo: false
+  - coluna: "EstadoGuardado.motivo"
+    valores:
+      - "numero_divergente"
+      - "sincronizacao_vencida"
+      - "ligacao_recusada"
+      - "tecto_da_meta"
+    seccao: "3.54"
+    conceito: "Motivo de um guia falhado"
+    so_no_registo: false
+  - coluna: "VerificacaoDoPagamento.estado"
+    valores:
+      - "detectado"
+      - "ausente"
+      - "desconhecido"
+    seccao: "3.54"
+    conceito: "Estado do método de pagamento"
+    so_no_registo: false
+  - coluna: "reserve"
+    valores:
+      - "granted"
+      - "lista_espera"
+    seccao: "3.54"
+    conceito: "Capacidade antes do popup"
+    so_no_registo: false
   - coluna: "purge_log.modo"
     valores:
       - "efectiva"
       - "dry_run"
-    seccao: "3.54"
+    seccao: "3.55"
     conceito: "Modo de uma purga"
     so_no_registo: false
   - coluna: "purge_log.resultado"
@@ -16286,7 +16678,7 @@ dominios:
       - "recusada"
       - "retida"
       - "falhou"
-    seccao: "3.54"
+    seccao: "3.55"
     conceito: "Resultado de uma unidade"
     so_no_registo: false
   - coluna: "purge_log.motivo"
@@ -16298,7 +16690,7 @@ dominios:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
-    seccao: "3.54"
+    seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
     so_no_registo: false
 

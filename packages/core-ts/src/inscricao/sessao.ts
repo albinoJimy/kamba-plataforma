@@ -39,8 +39,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Relogio } from "./contrato.ts";
 import { OCTETOS_DE_HMAC } from "./identificadores.ts";
 
-/** Os dois fins de uma referência. Lista fechada — ver a nota do módulo. */
-export const FINS = ["ticket", "sessao"] as const;
+/** Os três fins de uma referência. Lista fechada — ver a nota do módulo. */
+export const FINS = ["ticket", "sessao", "retoma"] as const;
 
 export type Fim = (typeof FINS)[number];
 
@@ -48,6 +48,7 @@ export type Fim = (typeof FINS)[number];
 export const DOMINIOS_DE_REFERENCIA: Readonly<Record<Fim, string>> = {
   ticket: "kamba/onboarding/ticket/v1",
   sessao: "kamba/onboarding/sessao/v1",
+  retoma: "kamba/onboarding/retoma/v1",
 };
 
 /** Nome do cookie de sessão. */
@@ -85,6 +86,19 @@ export const VALIDADE_DO_BILHETE_S = 1_800;
 export const VALIDADE_DA_SESSAO_S = 86_400;
 
 /**
+ * Validade de uma ligação de retoma, em segundos. ***Proposta***: 30 dias (KAM-093).
+ *
+ * **É o terceiro fim, e também não autentica ninguém.** É a ligação que vai num
+ * SMS ou num e-mail ao dono quando o canal cai (`PARTNER_REMOVED`, critério 7)
+ * ou quando o popup ficou a meio (critério 5): diz **de que caso** é a página, e
+ * a página continua a exigir a `sessao`. Um separador próprio impede que uma
+ * ligação que viajou por SMS sirva de cookie — que era o defeito do bilhete que
+ * o KAM-086 fechou, pela mesma porta. Trinta dias porque o aviso de inactividade
+ * sai aos dez, e o dono pode ler o SMS semanas depois.
+ */
+export const VALIDADE_DA_RETOMA_S = 2_592_000;
+
+/**
  * Validade por fim, em segundos. `0` quer dizer **sem validade**, e hoje
  * **nenhum fim o usa**: a forma da referência admite-o, e dizê-lo é mais
  * honesto do que fingir que não é representável.
@@ -92,6 +106,7 @@ export const VALIDADE_DA_SESSAO_S = 86_400;
 export const VALIDADES: Readonly<Record<Fim, number>> = {
   ticket: VALIDADE_DO_BILHETE_S,
   sessao: VALIDADE_DA_SESSAO_S,
+  retoma: VALIDADE_DA_RETOMA_S,
 };
 
 /**

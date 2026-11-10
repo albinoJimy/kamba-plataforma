@@ -174,6 +174,22 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
             "credor de camada que o `outbound/cliente.ts`."
         ),
     ),
+    "services/onboarding-web/src/pagina_guia.ts": ClienteDeSaida(
+        finalidades=("canal",),
+        consulta_o_gate=False,
+        credor="KAM-102",
+        razao=(
+            "A pagina do passo guiado do Embedded Signup (KAM-093). **O "
+            "servidor nao sai para a Meta daqui**: o FQDN esta na CSP, que "
+            "autoriza o navegador do dono a carregar o SDK e a abrir o popup "
+            "onde ele se autentica na Meta, presente. O que passa e o IP e o "
+            "User-Agent do dono, no passo em que ele fala com a Meta "
+            "directamente; o code volta pelo servidor e segue para o GWY "
+            "(`onboarding/graph.ts`). Nao ha chamada ao gate porque nao ha "
+            "pedido do servidor a autorizar; o enquadramento desta relacao "
+            "directa do dono com a Meta e o do Tech Provider."
+        ),
+    ),
     "packages/core-ts/src/storage/s3.ts": ClienteDeSaida(
         finalidades=("alojamento", "copias_de_seguranca"),
         consulta_o_gate=False,

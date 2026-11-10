@@ -406,10 +406,43 @@ export class Nif extends ComHmac {
   }
 }
 
+/**
+ * O tipo de linha de um número angolano: `movel`, `fixo` ou `desconhecido`.
+ *
+ * Pelo primeiro algarismo nacional: `9` é móvel e `2` é fixo. **INDÍCIO** — é
+ * o plano de numeração como se lê nos números que circulam, e não uma leitura
+ * do plano publicado pelo regulador, que nenhum documento deste repositório
+ * cita. O `desconhecido` é o resto, e inclui os números de ensaio desta casa,
+ * que começam por zero precisamente para não serem de ninguém.
+ */
+export type Linha = "movel" | "fixo" | "desconhecido";
+
+/** A `Linha` de um E.164 já normalizado. Ver o tipo. */
+export function linhaDe(e164: string): Linha {
+  const nacional = e164.startsWith(INDICATIVO) ? e164.slice(INDICATIVO.length) : "";
+  if (!NACIONAL.test(nacional)) return "desconhecido";
+  if (nacional.startsWith("9")) return "movel";
+  if (nacional.startsWith("2")) return "fixo";
+  return "desconhecido";
+}
+
 /** O telefone do dono: em memória em claro, em HMAC nos registos. */
 export class Telefone extends ComHmac {
+  /**
+   * O tipo de linha, calculado **na cunhagem** (KAM-093).
+   *
+   * Pelo mesmo caminho do `hmacs`: o pré-voo do Embedded Signup precisa de
+   * saber se o número é fixo («fixo ⇒ rota de voz / `cloud_only`»), e
+   * perguntar-lho depois obrigava a um terceiro `revelar()` neste módulo — que a
+   * nota do `ComHmac` diz ser um achado de revisão. O tipo de linha não
+   * identifica ninguém: é um de três valores.
+   */
+  readonly linha: Linha;
+
   constructor(bruto: unknown, chaveOuAnel: Uint8Array | readonly (Uint8Array | null)[]) {
-    super(normalizarTelefone(bruto), chaveOuAnel, DOMINIOS.telefone);
+    const e164 = normalizarTelefone(bruto);
+    super(e164, chaveOuAnel, DOMINIOS.telefone);
+    this.linha = linhaDe(e164);
   }
 }
 

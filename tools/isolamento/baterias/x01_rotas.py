@@ -74,6 +74,23 @@ ROTAS_DA_INSCRICAO = (
     "rota:onboarding-web:rotas:ligacao:POST:/api/actividade",
 )
 
+#: As oito rotas do passo guiado do Embedded Signup (KAM-093). Como as da
+#: inscricao, isolam o **caso** e nao o tenant, e o caso sai **so** da sessao:
+#: nenhuma aceita um `onboarding_id` no corpo nem na consulta. O `comSessao` no
+#: identificador e o nome do auxiliar que a enumeracao encontra antes de cada
+#: `app.<verbo>` do `services/onboarding-web/src/guia.ts`, e nao o de uma funcao
+#: que monte as rotas.
+ROTAS_DO_GUIA = (
+    "rota:onboarding-web:guia:comSessao:GET:/ligar",
+    "rota:onboarding-web:guia:comSessao:GET:/api/es/estado",
+    "rota:onboarding-web:guia:comSessao:POST:/api/es/preflight",
+    "rota:onboarding-web:guia:comSessao:POST:/api/es/iniciar",
+    "rota:onboarding-web:guia:comSessao:POST:/api/es/cancelar",
+    "rota:onboarding-web:guia:comSessao:POST:/api/es/concluir",
+    "rota:onboarding-web:guia:comSessao:POST:/api/es/pagamento",
+    "rota:onboarding-web:guia:comSessao:POST:/api/es/retoma",
+)
+
 #: O `POST /api/registo` responde **200** aos dois ataques, e isso nao e uma
 #: falha: e o criterio 9 do bloco KAM-086. Um NIF que existe e um que nao existe
 #: tem de dar o mesmo estado e o mesmo corpo, senao a diferenca e a enumeracao de
@@ -701,6 +718,33 @@ registar_caso(
         com_idor=True,
         aceitaveis_por_item=ACEITAVEIS_DA_INSCRICAO,
         afirmacoes=_afirmacoes_da_inscricao,
+    ),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)
+
+def _afirmacoes_do_guia(item: str, entradas: list[dict]) -> list[str]:
+    """O canario de B tem de estar no caso de B, senao o zero nao diz nada."""
+    if not item.endswith("GET:/ligar"):
+        return []
+    if not any(str(e.get("nota", "")) == "canario-no-caso-de-b" for e in entradas):
+        return [
+            f"{item}: o caso de B nao ficou com o canario no nome do negocio. "
+            "O zero do oraculo nas rotas do guia nao prova nada."
+        ]
+    return []
+
+
+registar_caso(
+    id="X-01/ts/guia",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DO_GUIA,
+    fn=_caso_ts(
+        "guia",
+        ROTAS_DO_GUIA,
+        com_idor=True,
+        afirmacoes=_afirmacoes_do_guia,
     ),
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),

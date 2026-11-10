@@ -2260,6 +2260,258 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
   }
 }
 
+// ------------------------------------------------------------------- o guia
+//
+// As oito rotas do passo guiado do Embedded Signup (KAM-093), no mesmo
+// `onboarding-web`. A lista e **literal** e a ordem e a do `ROTAS_DO_GUIA` do
+// caso.
+//
+// ## O caso sai so da sessao, e e isso que se ataca
+//
+// Nenhuma destas rotas aceita um `onboarding_id` no corpo nem na consulta: o
+// caso sai do cookie `sessao`, que e um HMAC sobre o id. Os ataques sao por isso
+// tres, e exige-se o mesmo 403 a todos:
+//
+//   sessao-de-a-com-id-de-b    a sessao valida de A com o id de B trocado
+//   bilhete-como-sessao        um bilhete (que nao autentica) posto no cookie
+//   id-de-b-no-corpo           a sessao forjada, com o id de B no corpo e na
+//                              consulta — um parametro que nenhuma rota le
+//
+// O `GET /ligar` leva um quarto: a ligacao de retoma de B com a sessao de A, que
+// e o «link de retoma forjado» do bloco na forma que mais se parece com a
+// legitima. O `POST /api/es/retoma` corre **sem** sessao, por desenho, e
+// ataca-se com a retoma de B assinada por outra chave e com o id de B nu.
+
+const ITENS_DO_GUIA = [
+  "rota:onboarding-web:guia:comSessao:GET:/ligar",
+  "rota:onboarding-web:guia:comSessao:GET:/api/es/estado",
+  "rota:onboarding-web:guia:comSessao:POST:/api/es/preflight",
+  "rota:onboarding-web:guia:comSessao:POST:/api/es/iniciar",
+  "rota:onboarding-web:guia:comSessao:POST:/api/es/cancelar",
+  "rota:onboarding-web:guia:comSessao:POST:/api/es/concluir",
+  "rota:onboarding-web:guia:comSessao:POST:/api/es/pagamento",
+  "rota:onboarding-web:guia:comSessao:POST:/api/es/retoma",
+] as const;
+
+/** O telefone de A no guia. `+244 0…`, que nenhum E.164 nacional e. */
+const TELEFONE_DE_A_NO_GUIA = "+244000000003";
+
+/**
+ * Monta o `onboarding-web` com o guia, cria os casos de A e de B em
+ * `aguarda_es` — o de B com o canario no nome do negocio — e ataca as oito.
+ *
+ * **Do `dist`, pela razao do grupo da inscricao**: o `src/guia.ts` do servico
+ * importa `@kamba/core-ts/guia`, e um `PassoGuiado` do `src` era outra classe —
+ * o `instanceof GuiaRecusadoError` da rota deixava de casar.
+ */
+async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
+  const falhar = (nota: string): void => {
+    for (const item of ITENS_DO_GUIA) {
+      relatorio.rotas.push({
+        item,
+        metodo: item.includes(":GET:") ? "GET" : "POST",
+        caminho: item.split(":").slice(-1)[0] ?? "",
+        estado: 0,
+        corpo: "",
+        cabecalhos: {},
+        executado: false,
+        nota,
+      });
+    }
+  };
+
+  let insc: Record<string, unknown>;
+  let sms: Record<string, unknown>;
+  let guiaModulo: Record<string, unknown>;
+  let appModulo: Record<string, unknown>;
+  try {
+    insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
+    sms = await importarDoRepo("packages/core-ts/dist/sms/index.js");
+    guiaModulo = await importarDoRepo("packages/core-ts/dist/guia/index.js");
+    appModulo = await importarDoRepo("services/onboarding-web/src/app.ts");
+  } catch (erro) {
+    falhar(`nao se conseguiu importar o onboarding-web: ${razao(erro)}`);
+    return;
+  }
+
+  const obter = <T>(modulo: Record<string, unknown>, nome: string): T => {
+    const valor = modulo[nome];
+    if (valor === undefined) throw new Error(`o modulo nao exporta ${nome}`);
+    return valor as T;
+  };
+  type Novo = new (...argumentos: never[]) => unknown;
+  const novo = <T>(modulo: Record<string, unknown>, nome: string, ...args: unknown[]): T =>
+    new (obter<Novo>(modulo, nome) as new (...a: unknown[]) => unknown)(...args) as T;
+
+  try {
+    const pepper = Buffer.alloc(32, OCTETO_DE_A);
+    const assinatura = Buffer.alloc(32, OCTETO_DE_ASSINATURA);
+    const destino = Buffer.alloc(32, OCTETO_DO_DESTINO);
+    const outra = Buffer.alloc(32, 0x11);
+    const agora = Date.parse("2026-11-10T10:00:00.000Z");
+    const relogio = (): Date => new Date(agora);
+    const cunharReferencia = obter<(...a: never[]) => string>(insc, "cunharReferencia");
+    const criarApp = obter<(...a: never[]) => AppHono>(appModulo, "createApp");
+
+    const casos = novo<{
+      criar(n: unknown, chave: string): Promise<{ caso: { id: string; nomeNegocio: string } }>;
+      marcarFase(id: string, fase: string): Promise<boolean>;
+    }>(insc, "CasosEmMemoria", relogio);
+    const contadores = novo<object>(insc, "ContadoresEmMemoria");
+    const antiabuso = novo<object>(insc, "AntiAbuso", { contadores, chave: pepper, relogio });
+    const otp = novo<object>(insc, "Otp", {
+      repositorio: novo<object>(insc, "OtpEmMemoria"),
+      contadores,
+      provedor: novo<object>(insc, "OtpPorSmsLocal", {
+        sms: novo<object>(sms, "FakeSmsProvider", { relogio }),
+        pepperDoDestino: destino,
+      }),
+      chave: pepper,
+      relogio,
+    });
+    const registo = novo<object>(insc, "Registo", {
+      repositorio: casos,
+      antiabuso,
+      otp,
+      anelDoPepper: [pepper, null],
+      anelDoToken: [assinatura, null],
+      anelDaSessao: [assinatura, null],
+      relogio,
+    });
+    const guia = novo<object>(guiaModulo, "PassoGuiado", {
+      casos,
+      repositorio: novo<object>(guiaModulo, "GuiaEmMemoria", relogio),
+      capacidade: novo<object>(guiaModulo, "CapacidadeEmMemoria", { relogio }),
+      ligador: { ligar: async () => ({ desfecho: "criado", tentativaId: null }) },
+      gates: novo<object>(guiaModulo, "GatesEmMemoria"),
+      revisao: novo<object>(guiaModulo, "RevisaoEmMemoria"),
+      pagamento: { verificar: async () => "desconhecido" },
+      aviso: novo<object>(guiaModulo, "AvisosEmMemoria"),
+      anelDoPepper: [pepper, null],
+      chaveDaAssinatura: assinatura,
+      origem: "https://onboarding.exemplo.test",
+      configId: "config-de-ensaio",
+      relogio,
+    });
+
+    const app = criarApp(
+      undefined,
+      {
+        registo,
+        otp,
+        actividade: novo<object>(insc, "Actividade", { repositorio: casos, contadores, relogio }),
+        antiabuso,
+        anelDaAssinatura: [assinatura, null],
+        anelDoToken: [assinatura, null],
+        relogio,
+        proxiesDeConfianca: 0,
+      } as never,
+      {
+        guia,
+        registo,
+        otp,
+        anelDaAssinatura: [assinatura, null],
+        appIdDaMeta: "app-de-ensaio",
+        versaoDaGraph: "v21.0",
+        relogio,
+      } as never,
+    );
+
+    const criar = async (n: number, nome: string, telefone: string): Promise<string> => {
+      const { caso } = await casos.criar(
+        {
+          tenantId: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+          origem: "anuncio",
+          nomeNegocio: nome,
+          categoriaDeclarada: "mercearia",
+          nif: novo<object>(insc, "Nif", n === 1 ? NIF_DE_B : NIF_INEXISTENTE, pepper),
+          telefone: novo<object>(insc, "Telefone", telefone, pepper),
+          email: novo<object>(insc, "Email", "dono@exemplo.test"),
+          dispositivoHmac: null,
+          redeHmac: null,
+          flags: [],
+        },
+        `chave-x01-guia-${n}`,
+      );
+      await casos.marcarFase(caso.id, "aguarda_es");
+      return caso.id;
+    };
+
+    const canario = canarioOuSubstituto();
+    const idDeB = await criar(1, canario, TELEFONE_DE_B);
+    const idDeA = await criar(2, "Loja de quem ataca", TELEFONE_DE_A_NO_GUIA);
+    // B tem estado de guia, com pre-voo gravado: e o que uma fuga mostraria.
+    await (guia as { preflight(id: string, a: unknown): Promise<unknown> }).preflight(idDeB, {});
+    const temCanario = canario !== "" && canario !== "sem-canario-no-ambiente";
+
+    const sessaoDeA = cunharReferencia("sessao" as never, idDeA as never, assinatura as never, relogio as never);
+    const [, segundos, assinaturaDeA] = sessaoDeA.split(".");
+    const trocada = `${idDeB}.${segundos ?? ""}.${assinaturaDeA ?? ""}`;
+    const bilheteDeB = cunharReferencia("ticket" as never, idDeB as never, assinatura as never, relogio as never);
+    const ataques: readonly (readonly [string, string])[] = [
+      ["sessao-de-a-com-id-de-b", `kamba_onboarding=${trocada}`],
+      ["bilhete-como-sessao", `kamba_onboarding=${bilheteDeB}`],
+      ["id-de-b-no-corpo", `kamba_onboarding=${idDeB}`],
+    ];
+    const corpoComB = JSON.stringify({ onboarding_id: idDeB, code: "c", waba_id: "w", phone_number_id: "p" });
+
+    // ---- GET /ligar: os tres, mais a retoma de B com a sessao valida de A.
+    const retomaDeB = encodeURIComponent(
+      cunharReferencia("retoma" as never, idDeB as never, assinatura as never, relogio as never),
+    );
+    for (const [, cookie] of [
+      ...ataques,
+      ["retoma-de-b-com-sessao-de-a", `kamba_onboarding=${sessaoDeA}`] as const,
+    ]) {
+      const caminho = cookie.endsWith(sessaoDeA) ? `/ligar?r=${retomaDeB}` : `/ligar?onboarding_id=${idDeB}`;
+      relatorio.rotas.push({
+        ...(await medir(ITENS_DO_GUIA[0], "GET", caminho, app, { headers: { cookie } })),
+        nota: temCanario ? "canario-no-caso-de-b" : "sem-canario-no-caso-de-b",
+      });
+    }
+
+    // ---- As seis rotas de sessao: os tres ataques a cada uma.
+    const deSessao = [
+      ["GET", "/api/es/estado", ITENS_DO_GUIA[1]],
+      ["POST", "/api/es/preflight", ITENS_DO_GUIA[2]],
+      ["POST", "/api/es/iniciar", ITENS_DO_GUIA[3]],
+      ["POST", "/api/es/cancelar", ITENS_DO_GUIA[4]],
+      ["POST", "/api/es/concluir", ITENS_DO_GUIA[5]],
+      ["POST", "/api/es/pagamento", ITENS_DO_GUIA[6]],
+    ] as const;
+    for (const [verbo, caminho, item] of deSessao) {
+      for (const [rotulo, cookie] of ataques) {
+        relatorio.rotas.push({
+          ...(await medir(item, verbo, `${caminho}?onboarding_id=${idDeB}`, app, {
+            method: verbo,
+            headers: { "content-type": "application/json", cookie },
+            ...(verbo === "POST" ? { body: corpoComB } : {}),
+          })),
+          nota: rotulo,
+        });
+      }
+    }
+
+    // ---- POST /api/es/retoma: sem sessao, por desenho.
+    const retomaForjada = cunharReferencia("retoma" as never, idDeB as never, outra as never, relogio as never);
+    for (const [rotulo, r] of [
+      ["retoma-de-b-de-outra-chave", retomaForjada],
+      ["id-de-b-nu", idDeB],
+    ] as const) {
+      relatorio.rotas.push({
+        ...(await medir(ITENS_DO_GUIA[7], "POST", "/api/es/retoma", app, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ r }),
+        })),
+        nota: rotulo,
+      });
+    }
+  } catch (erro) {
+    falhar(`a montagem do guia levantou: ${razao(erro)}`);
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -2271,6 +2523,7 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   // so exista num dos lados e um caso que nunca corre.
   "com-interna": grupoDaApiInternaDoCom,
   inscricao: grupoDaInscricao,
+  guia: grupoDoGuia,
 };
 
 async function main(): Promise<number> {
