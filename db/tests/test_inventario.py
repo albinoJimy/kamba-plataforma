@@ -2309,7 +2309,7 @@ INVENTARIO["erasure_ledger"] = {
     "aplicado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
-#: O registo da purga (KAM-071, revisao `0043`). **Nenhuma coluna guarda dado
+#: O registo da purga (KAM-071, revisao `0042`). **Nenhuma coluna guarda dado
 #: pessoal, e e o criterio 5**: classe, tabela, tenant, contagens e janela, sem
 #: conteudo nem identificador de titular. Nao ha onde caber um `contact_id`, uma
 #: chave de objecto ou texto livre — o `motivo` e um dominio fechado.
@@ -3408,7 +3408,7 @@ class TestInventario(ComBase):
                     # composta da prova. Na prova, o `evidencia_ck` prende a
                     # formula do criterio 3 a quem escreva sem o *trigger*. O
                     # `EXCLUDE` do OTP nao entra: e `contype = 'x'`.
-                    # --------------------------------------- KAM-071 (0043)
+                    # --------------------------------------- KAM-071 (0042)
                     #
                     # **Onze.** Os tres dominios fechados (`modo`, `resultado`,
                     # `motivo`), as duas formas de nome (`classe`, `tabela`), as

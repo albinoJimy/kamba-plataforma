@@ -1,4 +1,4 @@
-"""A revisao 0043 e o *job* de retencao contra a base (KAM-071).
+"""A revisao 0042 e o *job* de retencao contra a base (KAM-071).
 
 As listas fechadas do *gate* 8 afirmam que a revisao **declarou** o que devia.
 Esta bateria mede que o declarado **morde**, e que o *job* do
@@ -45,6 +45,7 @@ _NUCLEO = str(_RAIZ / "libs" / "py-core" / "src")
 if _NUCLEO not in sys.path:
     sys.path.insert(0, _NUCLEO)
 
+from kamba_core.direitos import SujeitoApagado  # noqa: E402
 from kamba_core.retencao import hold, jobs, politica, purge_log  # noqa: E402
 
 import particoes  # noqa: E402
@@ -53,7 +54,7 @@ import ligacao  # noqa: E402
 from tests.base import (  # noqa: E402
     PRIVILEGIO_INSUFICIENTE,
     TABELAS,
-    TABELAS_ATE_0042,
+    TABELAS_ATE_0041,
     VIOLACAO_DE_CHECK,
     ComBase,
     alembic,
@@ -248,12 +249,14 @@ class TestAPurgaNaoSaiDoTenant(ComRetencao):
 
     def test_canario_sem_o_tenant_a_fuga_acontece_na_base(self) -> None:
         a, b = self._dois_tenants_com_hold_em_b()
+        # O predicado fica a ler o tenant e deixa de o exigir: a unidade de A
+        # apaga tambem a linha de B, que a unidade de B (retida) nunca tocou.
         sem_tenant = jobs.Caminho(
             "platform.events_consumed",
             jobs.CAMINHO_CONSUMIDOS.sql_tenants,
-            "SELECT count(*) FROM platform.events_consumed WHERE processado_at < %s",
-            "DELETE FROM platform.events_consumed WHERE processado_at < %s",
-            global_=True,
+            jobs.CAMINHO_CONSUMIDOS.sql_contar,
+            "DELETE FROM platform.events_consumed "
+            "WHERE (tenant_id = %s::uuid OR true) AND processado_at < %s",
         )
         with mock.patch.dict(jobs.CAMINHOS, {"events_consumed": (sem_tenant,)}):
             jobs.executar(self.execucao("events_consumed"))
@@ -279,36 +282,122 @@ class TestAPurgaNaoSaiDoTenant(ComRetencao):
 
 
 class TestORestauro(ComRetencao):
-    """O segundo caso que tem de ficar vermelho."""
+    """O segundo caso que tem de ficar vermelho, como um restauro o produz.
+
+    A base do ensaio faz de **copia de T**: tem a linha que a purga ja tinha
+    tirado (voltou com o restauro) e **nao** tem o apagamento nem o hold que
+    aconteceram depois de T — porque nenhuma copia de T os pode ter. Os dois vem
+    de fora, como na operacao: a exportacao do *ledger* e o registo dos holds.
+    """
 
     def test_o_que_volta_com_o_restauro_sai_outra_vez(self) -> None:
         a = self.tenant()
         self.consumido(a, 100)
         jobs.executar(self.execucao("events_consumed"))
         self.assertEqual(self.consumidos(a), 0)
-        # O restauro logico: a linha volta, e o `purge_log` fica a dizer que a
-        # janela ja correu.
+        # A copia: a linha volta, e o `purge_log` diz que a janela ja correu.
         self.consumido(a, 100)
-        contacto = factories.contacto(self.cursor, a)
-        self.cursor.execute(
-            "INSERT INTO platform.dsar_requests (tenant_id, contact_id, tipo, estado, "
-            " papel_kamba, recebido_at, prazo_dias, prazo_interno_at) VALUES "
-            "(%s, %s, 'eliminacao', 'em_curso', 'subcontratada', now() - interval '3 days', "
-            " 30, now() + interval '27 days') RETURNING dsar_id",
-            (a, contacto),
-        )
-        dsar = self.cursor.fetchone()[0]
-        self.cursor.execute(
-            "INSERT INTO platform.erasure_ledger (tenant_id, dsar_id, contact_id, escopo, "
-            " aplicado_at) VALUES (%s, %s, %s, 'cofre', now() - interval '2 days')",
-            (a, dsar, contacto),
-        )
+        contacto = str(uuid.uuid4())
+        ledger_de_fora = (SujeitoApagado(contact_id=contacto, erased_at=AGORA - timedelta(days=2)),)
         relatorio, sujeitos = jobs.reaplicar_apos_restauro(
-            self.execucao("events_consumed"), AGORA - timedelta(days=5)
+            self.execucao("events_consumed"), AGORA - timedelta(days=5),
+            ledger_externo=ledger_de_fora, holds_externos=hold.Holds(),
         )
         self.assertEqual(self.consumidos(a), 0)
         self.assertEqual(relatorio.linhas("events_consumed"), 1)
-        self.assertIn(contacto, [s.contact_id for s in sujeitos])
+        # A copia nao tem o apagamento; e a fonte de fora que o traz.
+        self.assertEqual([s.contact_id for s in sujeitos], [contacto])
+
+    def test_um_hold_que_a_copia_nao_tem_continua_a_reter(self) -> None:
+        a, b = self.tenant(), self.tenant()
+        for t in (a, b):
+            self.consumido(t, 100)
+        jobs.reaplicar_apos_restauro(
+            self.execucao("events_consumed"), AGORA - timedelta(days=5),
+            ledger_externo=(), holds_externos=hold.Holds(tenants=frozenset({b})),
+        )
+        self.assertEqual((self.consumidos(a), self.consumidos(b)), (0, 1))
+
+
+class TestCadaCaminhoFicaNoSeuTenant(ComRetencao):
+    """O primeiro caso vermelho, em **cada** caminho por tenant e nao so num.
+
+    Dois tenants com uma linha na janela em cada tabela que o *job* purga, e um
+    hold em B. Tudo o que e de A sai; nada do que e de B sai. As mutacoes
+    `OR true` do `db/mutacoes.py` trocam o predicado de cada caminho e exigem
+    que este ensaio as apanhe.
+    """
+
+    def _semear(self, tenant: str) -> None:
+        c = self.cursor
+        c.execute(
+            "INSERT INTO platform.events_outbox (event_id, tipo, versao, tenant_id, "
+            " agregado_tipo, agregado_id, agregado_seq, particao, envelope, criado_at, "
+            " publicado_at) VALUES (gen_random_uuid(), 'order.created', 1, %s, 'order', "
+            " 'agg-ret', 1, 0, '{}'::jsonb, now() - interval '30 days', "
+            " now() - interval '29 days')", (tenant,))
+        c.execute(
+            "INSERT INTO platform.events_dlq (consumer, event_id, tipo, versao, tenant_id, "
+            " envelope, erro, tentativas, estado, criado_at, resolvido_at, resolvido_por) "
+            "VALUES ('retencao.ensaio', gen_random_uuid(), 'order.created', 1, %s, "
+            " '{}'::jsonb, 'x', 3, 'descartada', now() - interval '50 days', "
+            " now() - interval '40 days', 'ops') RETURNING id", (tenant,))
+        dlq = c.fetchone()[0]
+        c.execute("INSERT INTO platform.evt_dlq_aprovacoes (dlq_id, aprovador) VALUES (%s, 'ops')",
+                  (dlq,))
+        canal = factories.canal(c, tenant)
+        contacto = factories.contacto(c, tenant)
+        conversa = str(uuid.uuid4())
+        c.execute(
+            "INSERT INTO platform.conversations (id, tenant_id, contact_id, channel_id, "
+            " last_inbound_at, window_expires_at, last_human_activity_at) VALUES "
+            "(%s, %s, %s, %s, now() - interval '201 days', now() - interval '200 days', "
+            " now() - interval '201 days')",
+            (conversa, tenant, contacto, canal))
+        c.execute(
+            "INSERT INTO platform.outbound_messages (id, tenant_id, channel_id, contact_id, "
+            " conversation_id, idempotency_key, kind, state, created_at) VALUES "
+            "(%s, %s, %s, %s, %s, %s, 'service', 'queued', now() - interval '200 days')",
+            (str(uuid.uuid4()), tenant, canal, contacto, conversa, f"ret-{uuid.uuid4()}"))
+        c.execute(
+            "INSERT INTO platform.media_assets (tenant_id, contact_id, conversation_id, wamid, "
+            " media_id, classe, estado, retain_until) VALUES (%s, %s, %s, %s, %s, "
+            " 'media_audio', 'pendente', now() - interval '1 hour')",
+            (tenant, contacto, conversa, f"wamid.{uuid.uuid4().hex[:12]}",
+             f"media-{uuid.uuid4().hex[:12]}"))
+
+    TABELAS = (
+        "platform.events_outbox", "platform.events_dlq", "platform.evt_dlq_aprovacoes",
+        "platform.outbound_messages", "platform.media_assets",
+    )
+
+    def _contar(self, tabela: str, tenant: str) -> int:
+        if tabela == "platform.evt_dlq_aprovacoes":
+            self.cursor.execute(
+                "SELECT count(*) FROM platform.evt_dlq_aprovacoes a "
+                "JOIN platform.events_dlq d ON d.id = a.dlq_id WHERE d.tenant_id = %s",
+                (tenant,))
+        else:
+            self.cursor.execute(f"SELECT count(*) FROM {tabela} WHERE tenant_id = %s", (tenant,))
+        return self.cursor.fetchone()[0]
+
+    def test_tudo_o_que_e_de_a_sai_e_nada_do_que_e_de_b(self) -> None:
+        a, b = self.tenant(), self.tenant()
+        for t in (a, b):
+            self._semear(t)
+        self.hold_no_tenant(b)
+
+        class Armazenamento:
+            def delete(self, ctx, ref) -> None:
+                pass
+
+        relatorio = jobs.executar(self.execucao(
+            "events_outbox", "events_dlq", "conversas", "audio", storage=Armazenamento()))
+        self.assertEqual(relatorio.falhas, [])
+        for tabela in self.TABELAS:
+            with self.subTest(tabela):
+                self.assertEqual(self._contar(tabela, b), 1, "a purga tocou no tenant retido")
+                self.assertEqual(self._contar(tabela, a), 0, "a purga nao apagou o que devia")
 
 
 class TestAsParticoes(ComRetencao):
@@ -458,7 +547,7 @@ class TestAPoliticaInteiraCorreNaBase(ComRetencao):
         self.assertEqual(sorted(declaradas - catalogo), [], "classes que apontam para o vazio")
 
 
-class TestDowngradeDa0043(ComBase):
+class TestDowngradeDa0042(ComBase):
     """O `downgrade` desce um degrau e recusa-se quando perderia a prova.
 
     Repoe o `head` no `tearDown`, pela razao do `TestDowngradeDa0038`: a ordem
@@ -478,7 +567,7 @@ class TestDowngradeDa0043(ComBase):
     def test_desce_sobe_e_o_dominio_volta_as_nove(self) -> None:
         exigir_base_descartavel()
         alembic_ok("downgrade", "-1")
-        self.assertEqual(self._presentes(), set(TABELAS_ATE_0042))
+        self.assertEqual(self._presentes(), set(TABELAS_ATE_0041))
         [(definicao,)] = self.consultar(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
             "WHERE conname = 'audit_log_action'")
@@ -498,10 +587,10 @@ class TestDowngradeDa0043(ComBase):
                 "(gen_random_uuid(), 'events_outbox', 'platform.events_outbox', "
                 " 'efectiva', 'ok', NULL, 1, 'v', now())")
             conexao.commit()
-            with mock.patch.dict("os.environ", {"KAMBA_DOWNGRADE_0043_COPIA": ""}):
+            with mock.patch.dict("os.environ", {"KAMBA_DOWNGRADE_0042_COPIA": ""}):
                 resultado = alembic("downgrade", "-1")
             self.assertNotEqual(resultado.returncode, 0)
-            self.assertIn("KAMBA_DOWNGRADE_0043_COPIA", resultado.stderr + resultado.stdout)
+            self.assertIn("KAMBA_DOWNGRADE_0042_COPIA", resultado.stderr + resultado.stdout)
             self.assertIn("purge_log", self._presentes())
         finally:
             cursor = conexao.cursor()

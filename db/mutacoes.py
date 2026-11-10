@@ -261,9 +261,9 @@ REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 #: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila
-#: deu (`0043`): se mudar, muda esta constante e o nome do ficheiro, e o
+#: deu (`0042`): se mudar, muda esta constante e o nome do ficheiro, e o
 #: `--aplicaveis` apanha quem se esqueca dela.
-REV43 = "db/migrations/versions/0043_retencao_e_purga.py"
+REV42 = "db/migrations/versions/0042_retencao_e_purga.py"
 RET_JOBS = "libs/py-core/src/kamba_core/retencao/jobs.py"
 RET_HOLD = "libs/py-core/src/kamba_core/retencao/hold.py"
 RET_POLITICA = "libs/py-core/src/kamba_core/retencao/politica.py"
@@ -6814,7 +6814,7 @@ MUTACOES = [
     # que confronta os **tres** sitios onde o dominio esta escrito (a tupla da
     # bateria, os literais da revisao e o catalogo), e o
     # `test_as_sete_accoes_passam`, que o insere.
-    # ------------------------------------------- KAM-071 (revisao `0043`)
+    # ------------------------------------------- KAM-071 (revisao `0042`)
     #
     # Nove. **As duas primeiras mutam a ligacao entre o tenant e a instrucao**,
     # que e a unica barreira entre dois tenants: o `kamba_batch` tem
@@ -6826,11 +6826,62 @@ MUTACOES = [
     # linhas de todos os tenants na janela. Quem a mata e o
     # `test_a_purga_de_a_nao_toca_em_b` do `db/tests/test_retencao_bd.py`, que
     # poe um hold em B e exige as linhas de B intactas.
+    # As cinco seguintes sao a mesma mutacao nos outros caminhos por tenant, e
+    # existem porque a revisao adversarial mediu que, sem elas, so um dos seis
+    # estava provado: os outros cinco ficavam verdes com `OR true`. Quem as mata
+    # e o `test_tudo_o_que_e_de_a_sai_e_nada_do_que_e_de_b`, que semeia uma
+    # linha em cada tabela, em dois tenants, com hold em B.
+    ('retencao: a purga do outbox deixa de filtrar o tenant', RET_JOBS,
+     '    """DELETE FROM platform.events_outbox\n        WHERE tenant_id = %s::uuid\n',
+     '    """DELETE FROM platform.events_outbox\n        WHERE (tenant_id = %s::uuid OR true)\n'),
+    ('retencao: a purga da DLQ deixa de filtrar o tenant', RET_JOBS,
+     '    """DELETE FROM platform.events_dlq\n        WHERE tenant_id = %s::uuid AND',
+     '    """DELETE FROM platform.events_dlq\n        WHERE (tenant_id = %s::uuid OR true) AND'),
+    ('retencao: a purga das aprovacoes deixa de filtrar o tenant', RET_JOBS,
+     "          AND d.tenant_id = %s::uuid AND d.estado <> 'aberta'\n"
+     '          AND d.resolvido_at IS NOT NULL AND d.resolvido_at < %s""",\n)',
+     "          AND (d.tenant_id = %s::uuid OR true) AND d.estado <> 'aberta'\n"
+     '          AND d.resolvido_at IS NOT NULL AND d.resolvido_at < %s""",\n)'),
+    # **Nas mensagens e na midia ha duas barreiras e nao uma**, e as mutacoes
+    # tiram as duas: tirar so uma sobrevivia, medido — nas mensagens a
+    # subconsulta das conversas tambem filtra o tenant, e na midia o `SELECT`
+    # que escolhe os `asset_id` tambem. Sobreviver a uma so e a defesa em
+    # profundidade a funcionar, e nao um ensaio em falta.
+    ('retencao: a purga das mensagens deixa de filtrar o tenant', RET_JOBS,
+     '    """DELETE FROM platform.outbound_messages o\n'
+     '        WHERE o.tenant_id = %s::uuid AND o.created_at < %s\n'
+     '          AND NOT (o.contact_id = ANY(%s::uuid[]))\n'
+     '          AND o.contact_id IN (\n'
+     '                SELECT c.contact_id FROM platform.conversations c\n'
+     '                 WHERE c.tenant_id = %s::uuid\n',
+     '    """DELETE FROM platform.outbound_messages o\n'
+     '        WHERE (o.tenant_id = %s::uuid OR true) AND o.created_at < %s\n'
+     '          AND NOT (o.contact_id = ANY(%s::uuid[]))\n'
+     '          AND o.contact_id IN (\n'
+     '                SELECT c.contact_id FROM platform.conversations c\n'
+     '                 WHERE (c.tenant_id = %s::uuid OR true)\n'),
+    ('retencao: a purga da midia deixa de filtrar o tenant', RET_JOBS,
+     '   WHERE tenant_id = %s::uuid AND retain_until IS NOT NULL AND retain_until <= %s\n'
+     '     AND NOT (contact_id = ANY(%s::uuid[]))\n'
+     '   ORDER BY asset_id\n'
+     '"""\n'
+     'SQL_MIDIA_APAGAR: Final = """\n'
+     '  DELETE FROM platform.media_assets\n'
+     '   WHERE tenant_id = %s::uuid AND asset_id = ANY(%s::uuid[])',
+     '   WHERE (tenant_id = %s::uuid OR true) AND retain_until IS NOT NULL AND retain_until <= %s\n'
+     '     AND NOT (contact_id = ANY(%s::uuid[]))\n'
+     '   ORDER BY asset_id\n'
+     '"""\n'
+     'SQL_MIDIA_APAGAR: Final = """\n'
+     '  DELETE FROM platform.media_assets\n'
+     '   WHERE (tenant_id = %s::uuid OR true) AND asset_id = ANY(%s::uuid[])'),
     ('retencao: o hold de tenant deixa de reter', RET_JOBS,
-     '        if self.holds.do_tenant(tenant):\n'
-     '            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_RETIDA,',
-     '        if False:\n'
-     '            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_RETIDA,'),
+     '                if holds.do_tenant(tenant):\n'
+     '                    raise _Retida(purge_log.MOTIVO_HOLD_TENANT)\n'
+     '                retidos = sorted(holds.contactos_de(tenant))',
+     '                if False:\n'
+     '                    raise _Retida(purge_log.MOTIVO_HOLD_TENANT)\n'
+     '                retidos = sorted(holds.contactos_de(tenant))'),
     # A mesma morte, pela decisao e nao pela instrucao.
     ('retencao: o hold le a primeira accao e nao a ultima', RET_HOLD,
      '           ORDER BY tenant_id, entity, entity_id, id DESC) AS ultima',
@@ -6851,20 +6902,20 @@ MUTACOES = [
     # O prazo e *proposta*, e e por isso mesmo que encolher sem parecer tem de
     # avermelhar: a linha de 10 dias de A sai. Quem a mata e o mesmo
     # `test_a_purga_de_a_nao_toca_em_b`, pela contagem de A.
-    ('revisao 0043: o lote ganha DELETE no purge_log', REV43,
+    ('revisao 0042: o lote ganha DELETE no purge_log', REV42,
      '    op.execute(f"GRANT SELECT, INSERT ON {PURGE_LOG} TO {PAPEL_DE_LOTE}")',
      '    op.execute(f"GRANT SELECT, INSERT, DELETE ON {PURGE_LOG} TO {PAPEL_DE_LOTE}")'),
     # O `purge_log` e *append-only* por privilegio e por mais nada: com
     # `DELETE`, quem purga apaga a prova de que purgou. Quem a mata e o
     # `test_o_lote_escreve_e_nao_altera_nem_apaga`.
-    ('revisao 0043: um falhou pode dizer que apagou', REV43,
+    ('revisao 0042: um falhou pode dizer que apagou', REV42,
      "            CHECK (resultado = 'ok' OR (linhas = 0 AND objectos = 0))",
      "            CHECK (resultado = 'ok' OR linhas >= 0)"),
     # O nome fica, e por isso a lista fechada de restricoes continua verde: e o
     # predicado que deixa de morder. Uma linha `falhou` com contagem afirmava
     # uma eliminacao que a transaccao reverteu. Quem a mata e o
     # `test_os_dominios_mordem`, pela linha que passa a entrar.
-    ('revisao 0043: o dominio da accao fica sem o levantamento do hold', REV43,
+    ('revisao 0042: o dominio da accao fica sem o levantamento do hold', REV42,
      "    \"'retention.hold_aplicado', 'retention.hold_levantado'\"",
      "    \"'retention.hold_aplicado'\""),
     # Um hold que nao se levanta e uma retencao para sempre. Quem a mata e o

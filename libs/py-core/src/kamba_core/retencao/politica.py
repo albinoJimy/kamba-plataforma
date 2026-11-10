@@ -583,6 +583,10 @@ def limite(
             raise PoliticaInvalida(f"{c.nome}: nao admite alargamento")
         if alargamento.antes_de(agora) < c.maximo.antes_de(agora):
             raise PoliticaInvalida(f"{c.nome}: o alargamento passa do maximo")
+        # Um «alargamento» mais curto do que o prazo encurtava-o: a PME pode
+        # conservar mais tempo, e nao apagar mais cedo do que a politica.
+        if alargamento.antes_de(agora) > prazo.antes_de(agora):
+            raise PoliticaInvalida(f"{c.nome}: um alargamento nao encurta o prazo")
         prazo = alargamento
     return prazo.antes_de(agora)
 

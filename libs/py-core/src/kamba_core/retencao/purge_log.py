@@ -16,9 +16,9 @@ alguem escreve o identificador do titular que a purga acabou de apagar.
 
 ## Append-only, e a idempotencia nao e saltar
 
-Ninguem tem `UPDATE` nem `DELETE` (a revisao). Repetir uma janela escreve outra
-linha, com `linhas = 0` — e **nao** e o `purge_log` que decide se uma janela
-corre: um *job* que saltasse as janelas ja registadas nao voltava a apagar o
+Ninguem tem `UPDATE` nem `DELETE` (a revisao). Repetir uma janela nao escreve
+nada sobre um tenant que ja nao tem linhas nela — a corrida nao o encontra — e
+**nao** e o `purge_log` que decide se uma janela corre: um *job* que saltasse as janelas ja registadas nao voltava a apagar o
 que um restauro trouxe de volta, e o `purge_log` restaurado nao e o de antes.
 """
 

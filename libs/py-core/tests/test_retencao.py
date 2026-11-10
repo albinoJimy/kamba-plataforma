@@ -25,6 +25,7 @@ from pathlib import Path
 from unittest import mock
 
 from kamba_core.retencao import hold, jobs, politica, purge_log
+from kamba_core.direitos import SujeitoApagado
 from kamba_core.retencao.politica import Classe, Prazo, Tabela
 from kamba_core.storage.port import ObjectoInexistenteError
 
@@ -56,6 +57,12 @@ class BaseFalsa:
         self.largadas: list[tuple] = []
         self.instrucoes: list[str] = []
         self.falhar_em: str | None = None
+        self.bypass = True
+        #: holds que so aparecem depois de N leituras do `audit_log` — um hold
+        #: aplicado a meio de uma execucao.
+        self.holds_tardios: list[tuple[str, str, str]] = []
+        self.leituras_de_holds = 0
+        self.tardios_a_partir_de = 0
         self._copia = None
 
     def linhas(self, tabela: str, **kw) -> None:
@@ -101,8 +108,13 @@ class CursorFalso:
         if "audit_append" in sql:
             b.auditoria.append(tuple(parametros))
             return
+        if "FROM pg_roles" in sql:
+            self.linhas_ = [(b.bypass,)]
+            return
         if "FROM platform.audit_log" in sql:
-            self.linhas_ = list(b.holds)
+            b.leituras_de_holds += 1
+            tardios = b.holds_tardios if b.leituras_de_holds > b.tardios_a_partir_de else []
+            self.linhas_ = list(b.holds) + list(tardios)
             return
         if "FROM platform.erasure_ledger" in sql:
             self.linhas_ = list(b.ledger)
@@ -451,10 +463,13 @@ class TestAsSuperficiesConcordam(unittest.TestCase):
                     if k.global_:
                         continue
                     with self.subTest(k.tabela):
-                        self.assertIn("tenant_id = %s::uuid", k.sql_contar)
-                        self.assertIn("tenant_id = %s::uuid", k.sql_apagar)
-        self.assertIn("tenant_id = %s::uuid", jobs.SQL_MIDIA_VENCIDA)
-        self.assertIn("tenant_id = %s::uuid", jobs.SQL_MIDIA_APAGAR)
+                        for texto in (k.sql_contar, k.sql_apagar):
+                            self.assertRegex(texto, r"(WHERE|AND)\s+(\w+\.)?tenant_id = %s::uuid\s+AND")
+                            # um `OR` na instrucao desfaz o filtro sem tirar o texto
+                            self.assertNotRegex(texto, r"\bOR\b")
+        for texto in (jobs.SQL_MIDIA_VENCIDA, jobs.SQL_MIDIA_APAGAR):
+            self.assertRegex(texto, r"WHERE\s+tenant_id = %s::uuid\s+AND")
+            self.assertNotRegex(texto, r"\bOR\b")
 
 
 class TestORegisto(unittest.TestCase):
@@ -491,8 +506,10 @@ class TestOJob(unittest.TestCase):
     def test_a_sessao_de_lote_vai_ao_audit_log_primeiro(self):
         """Criterio 8: o papel `kamba_batch` com sessao registada."""
         jobs.executar(execucao(self.base, "events_outbox"))
-        self.assertIn("audit_append", self.base.instrucoes[0])
-        self.assertIn("'batch.run'", self.base.instrucoes[0])
+        # Primeiro confere o papel, depois abre a sessao, e so depois purga.
+        self.assertIn("rolbypassrls", self.base.instrucoes[0])
+        self.assertIn("audit_append", self.base.instrucoes[1])
+        self.assertIn("'batch.run'", self.base.instrucoes[1])
         self.assertEqual(self.base.auditoria[0][0], jobs.ACTOR_DO_LOTE)
 
     def test_apaga_so_o_que_passou_a_janela(self):
@@ -728,18 +745,114 @@ class TestORestauro(unittest.TestCase):
         # o restauro: a linha volta, e o purge_log fica a dizer que a janela
         # ja correu — o pior caso, o de um restauro logico de uma tabela.
         base.linhas("platform.events_consumed", tenant=A, ts=AGORA - timedelta(days=100))
-        restaurado_de = AGORA - timedelta(days=95)
-        base.ledger = [(JOAO, AGORA - timedelta(days=96)), (MARIA, AGORA - timedelta(days=2))]
-        relatorio, sujeitos = jobs.reaplicar_apos_restauro(
-            execucao(base, "events_consumed"), restaurado_de
+        relatorio, _ = jobs.reaplicar_apos_restauro(
+            execucao(base, "events_consumed"), AGORA - timedelta(days=95),
+            ledger_externo=(), holds_externos=hold.Holds(),
         )
         self.assertEqual(base.contar("platform.events_consumed"), 0)
         self.assertEqual(relatorio.linhas(), 1)
+
+    def test_o_ledger_vem_de_fora_da_copia(self):
+        """A copia de T tem o ledger de T: lido so dali, ninguem e reaplicado."""
+        restaurado_de = AGORA - timedelta(days=95)
+        base = BaseFalsa()
+        base.ledger = [(JOAO, AGORA - timedelta(days=96))]  # o que a copia tem
+        de_fora = (
+            SujeitoApagado(contact_id=JOAO, erased_at=AGORA - timedelta(days=96)),
+            SujeitoApagado(contact_id=MARIA, erased_at=AGORA - timedelta(days=2)),
+        )
+        _, so_da_copia = jobs.reaplicar_apos_restauro(
+            execucao(base, "events_consumed"), restaurado_de,
+            ledger_externo=(), holds_externos=hold.Holds())
+        self.assertEqual(so_da_copia, ())
+        _, sujeitos = jobs.reaplicar_apos_restauro(
+            execucao(base, "events_consumed"), restaurado_de,
+            ledger_externo=de_fora, holds_externos=hold.Holds())
         self.assertEqual([s.contact_id for s in sujeitos], [MARIA])
+
+    def test_um_hold_posterior_a_copia_continua_a_reter(self):
+        base = BaseFalsa()
+        base.linhas("platform.events_consumed", tenant=A, ts=AGORA - timedelta(days=100))
+        jobs.reaplicar_apos_restauro(
+            execucao(base, "events_consumed"), AGORA - timedelta(days=95),
+            ledger_externo=(), holds_externos=hold.Holds(tenants=frozenset({A})))
+        self.assertEqual(base.contar("platform.events_consumed"), 1)
+        [r] = registos(base, tabela="platform.events_consumed")
+        self.assertEqual(r["motivo"], "hold_tenant")
+
+    def test_sem_as_fontes_externas_recusa(self):
+        with self.assertRaises(TypeError):
+            jobs.reaplicar_apos_restauro(execucao(BaseFalsa()), AGORA)  # noqa
+        with self.assertRaises(politica.PoliticaInvalida):
+            jobs.reaplicar_apos_restauro(execucao(BaseFalsa()), AGORA,
+                                         ledger_externo=None, holds_externos=None)
 
     def test_a_reaplicacao_nao_e_um_dry_run(self):
         with self.assertRaises(politica.PoliticaInvalida):
-            jobs.reaplicar_apos_restauro(execucao(BaseFalsa(), dry_run=True), AGORA)
+            jobs.reaplicar_apos_restauro(execucao(BaseFalsa(), dry_run=True), AGORA,
+                                         ledger_externo=(), holds_externos=hold.Holds())
+
+
+class TestAsCorreccoesDaRevisao(unittest.TestCase):
+    """Os achados da revisao adversarial, um ensaio cada."""
+
+    def test_um_alargamento_nao_para_as_outras_classes(self):
+        base = BaseFalsa()
+        for tabela in ("platform.events_outbox", "platform.events_consumed"):
+            base.linhas(tabela, tenant=B, ts=AGORA - timedelta(days=100))
+        x = execucao(base, "events_outbox", "events_consumed",
+                     alargamentos={B: jobs.Alargamento(Prazo(dias=200), "contencioso")})
+        relatorio = jobs.executar(x)
+        self.assertEqual(base.contar("platform.events_outbox"), 0)
+        self.assertEqual(base.contar("platform.events_consumed"), 0)
+        self.assertFalse(relatorio.sev2)
+
+    def test_um_alargamento_nao_encurta_o_prazo(self):
+        with self.assertRaisesRegex(politica.PoliticaInvalida, "encurta"):
+            politica.limite(politica.classe("conversas"), AGORA, alargamento=Prazo(dias=1))
+        base = BaseFalsa()
+        base.linhas("platform.outbound_messages", tenant=A, contacto=JOAO,
+                    ts=AGORA - timedelta(days=100), fecho=AGORA - timedelta(days=4))
+        relatorio = jobs.executar(execucao(
+            base, "conversas", alargamentos={A: jobs.Alargamento(Prazo(dias=1), "x")}))
+        self.assertEqual(base.contar("platform.outbound_messages"), 1)
+
+    def test_a_quarentena_e_retida_por_qualquer_hold(self):
+        base = BaseFalsa()
+        base.linhas("platform.unrouted_events", tenant=None, ts=AGORA - timedelta(days=30))
+        base.holds.append((B, hold.ENTIDADE_CONTACTO, JOAO))
+        jobs.executar(execucao(base, "entrada_em_quarentena"))
+        self.assertEqual(base.contar("platform.unrouted_events"), 1)
+        self.assertEqual(registos(base)[0]["resultado"], "retida")
+
+    def test_um_hold_aplicado_a_meio_da_corrida_e_visto(self):
+        base = BaseFalsa()
+        for t in (A, B):
+            base.linhas("platform.events_consumed", tenant=t, ts=AGORA - timedelta(days=100))
+        base.holds_tardios = [(B, hold.ENTIDADE_TENANT, B)]
+        base.tardios_a_partir_de = 1  # a primeira unidade (A) nao o ve; a de B ve
+        jobs.executar(execucao(base, "events_consumed"))
+        self.assertEqual(base.contar("platform.events_consumed", A), 0)
+        self.assertEqual(base.contar("platform.events_consumed", B), 1)
+
+    def test_sem_bypassrls_a_sessao_recusa(self):
+        base = BaseFalsa()
+        base.bypass = False
+        base.linhas("platform.events_consumed", tenant=A, ts=AGORA - timedelta(days=100))
+        with self.assertRaises(jobs.PapelSemBypass):
+            jobs.executar(execucao(base, "events_consumed"))
+        self.assertEqual(base.contar("platform.events_consumed"), 1)
+
+    def test_a_varredura_do_agr_adapta_se_pela_lista(self):
+        base = BaseFalsa()
+        varrer = lambda ligacao, agora: ["t1", "t2", "t3"]  # noqa: E731
+        jobs.executar(execucao(base, "lg_checkpoints",
+                               delegados={"lg_checkpoints": jobs.contar_lista(varrer)}))
+        self.assertEqual(registos(base)[0]["linhas"], 3)
+        base = BaseFalsa()
+        relatorio = jobs.executar(execucao(base, "lg_checkpoints",
+                                           delegados={"lg_checkpoints": varrer}))
+        self.assertTrue(relatorio.sev2)  # a lista crua falha, e diz-se
 
 
 class TestOResto(unittest.TestCase):

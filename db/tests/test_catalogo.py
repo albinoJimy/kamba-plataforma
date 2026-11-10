@@ -750,7 +750,7 @@ class TestConvencoes(ComBase):
                 # chave, que e a mesma por coincidencia.
                 ("provisioning_step", "onboarding_id", "uuid", None),
                 ("provisioning_step", "step", "text", None),
-                # KAM-071 (0043). `uuid` gerada, como as outras: uma linha de
+                # KAM-071 (0042). `uuid` gerada, como as outras: uma linha de
                 # purga nao tem chave natural, e a unidade (classe, tabela,
                 # tenant) repete-se a cada execucao de proposito.
                 ("purge_log", "purge_id", "uuid", "gen_random_uuid()"),
@@ -902,7 +902,7 @@ class TestConvencoes(ComBase):
     #: propria lista publica de subprocessadores torna publica.
     ANULAVEIS = frozenset(
         {"audit_log", "audit_heads", "payment_accounts", "tenant_destinations",
-         # KAM-071 (0043). Nulo num `DROP` de particao, que e entre tenants: a
+         # KAM-071 (0042). Nulo num `DROP` de particao, que e entre tenants: a
          # linha diz «larguei este mes» e o mes tem linhas de varios. As linhas
          # sem tenant so as ve quem tem `BYPASSRLS`, que e quem as escreve.
          "purge_log"}
@@ -1231,7 +1231,7 @@ class TestConvencoes(ComBase):
              # nao esta aqui pela razao da `consent_texts`: e texto de
              # plataforma e nao tem `tenant_id`.
              "contract_acceptance",
-             # KAM-071 (0043). O indice e `(tenant_id, registado_at)`, que e a
+             # KAM-071 (0042). O indice e `(tenant_id, registado_at)`, que e a
              # leitura «as purgas deste tenant» do painel e da auditoria. O
              # `tenant_id` e anulavel — ver `ANULAVEIS`.
              "purge_log"},

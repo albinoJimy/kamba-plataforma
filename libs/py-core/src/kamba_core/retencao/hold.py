@@ -83,6 +83,21 @@ class Holds:
         """Se algum destes tenants tem hold de tenant **ou** de contacto."""
         return any(self.do_tenant(t) or self.contactos_de(t) for t in tenants)
 
+    def algum(self) -> bool:
+        """Se ha algum hold activo, de quem quer que seja."""
+        return bool(self.tenants) or any(self.contactos.values())
+
+    def tenants_retidos(self) -> frozenset[str]:
+        """Os tenants com hold de tenant **ou** de contacto."""
+        return self.tenants | frozenset(t for t, cs in self.contactos.items() if cs)
+
+    def unir(self, outros: "Holds") -> "Holds":
+        """A uniao dos dois. Um hold que so uma fonte conhece continua a reter."""
+        contactos = {t: frozenset(cs) for t, cs in self.contactos.items()}
+        for t, cs in outros.contactos.items():
+            contactos[t] = contactos.get(t, frozenset()) | cs
+        return Holds(self.tenants | outros.tenants, contactos)
+
 
 def ler(cursor: Any) -> Holds:
     """Os holds activos, lidos do `audit_log`."""

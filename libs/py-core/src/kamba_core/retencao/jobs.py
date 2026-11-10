@@ -12,7 +12,8 @@ A purga parte-se em **unidades** — classe, tabela (com as dependentes) e tenan
 — e cada unidade e **uma transaccao** do `kamba_batch`, com a eliminacao e a
 linha do `purge_log` dentro. Uma unidade que levanta reverte inteira e deixa uma
 linha `falhou` numa transaccao propria; as outras seguem. Nao ha estado
-parcial, e repetir uma janela apaga zero e escreve outra linha.
+parcial, e repetir uma janela nao altera o resultado: a segunda corrida nao
+encontra o tenant na janela e nao escreve nada sobre ele.
 
 **O predicado e o tempo, e nunca o `purge_log`.** Uma janela ja registada nao se
 salta: depois de um restauro, as linhas antigas voltaram e o *job* tem de as
@@ -26,14 +27,23 @@ e a **unica** barreira entre a purga de um tenant e os dados de outro. Por isso
 todas as instrucoes por tenant o levam, e o ensaio de base de dados poe um hold
 num tenant e purga o outro.
 
-## O hold decide antes, e nunca copia linhas de volta
+## O hold le-se dentro da unidade, e nunca copia linhas de volta
 
-Um hold de tenant retem a unidade inteira. Um hold de contacto tira esse
+Cada unidade le os *holds* **na sua propria transaccao**, e nao uma vez por
+execucao: um hold aplicado a meio de uma corrida longa e visto pela unidade
+seguinte. Um hold de tenant retem a unidade inteira. Um hold de contacto tira esse
 contacto do predicado quando a tabela tem `contact_id`, e retem a unidade
 inteira quando nao tem — e a leitura conservadora: sem a coluna, nao se sabe
 quais linhas sao dele. Numa particao, qualquer hold de um tenant presente retem
-o `DROP`. **Nunca** se copia uma linha retida para fora e de volta: e o caminho
+o `DROP`, e numa tabela sem tenant (a quarentena) qualquer hold activo retem a
+unidade. **Nunca** se copia uma linha retida para fora e de volta: e o caminho
 pelo qual uma purga reintroduzia dados que o *erasure ledger* ja tinha tirado.
+
+## O papel confere-se, porque sem `BYPASSRLS` tudo parece livre
+
+Uma ligacao sem `BYPASSRLS` le **zero** holds e **zero** linhas retidas numa
+particao, e a purga avancava sobre dados retidos com tudo a dizer «livre». A
+sessao recusa arrancar se o papel nao contornar a RLS.
 
 ## O que nao esta aqui
 
@@ -46,7 +56,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Final, Protocol
 
@@ -68,6 +78,9 @@ SQL_SESSAO: Final = """
            NULL, 'system', %s, 'batch.run', 'retencao', %s, NULL, sha256(%s::bytea)
          )
 """
+
+#: O papel da ligacao contorna a RLS? Ver a nota do modulo.
+SQL_PAPEL: Final = "SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user"
 
 #: Prazo do encerramento de um tenant (`08` §11, criterio 9).
 PRAZO_DE_ENCERRAMENTO: Final = Prazo(dias=30)
@@ -328,6 +341,7 @@ class Execucao:
     alargamentos: Mapping[str, Alargamento] = field(default_factory=dict)
     delegados: Mapping[str, Callable[[Any, datetime], int]] = field(default_factory=dict)
     particoes: Particoes | None = None
+    holds_externos: hold.Holds | None = None
     politica: tuple[Classe, ...] = politica.POLITICA
 
     @property
@@ -353,6 +367,10 @@ class Relatorio:
         return sum(r.linhas for r in self.registos if classe in (None, r.classe))
 
 
+class PapelSemBypass(RuntimeError):
+    """A ligacao do lote nao contorna a RLS: os holds liam-se vazios."""
+
+
 class PurgaFalhou(RuntimeError):
     """Pelo menos uma unidade falhou. **Alerta Sev2.** Sem conteudo na mensagem."""
 
@@ -375,7 +393,6 @@ class _Corrida:
         politica.validar(execucao.politica)
         self.x = execucao
         self.relatorio = Relatorio(str(uuid.uuid4()))
-        self.holds = hold.Holds()
 
     # -- as transaccoes
 
@@ -422,20 +439,34 @@ class _Corrida:
 
         try:
             self.relatorio.registos.extend(self._tx(c.nome, corpo))
+        except _Retida as retida:
+            self._anotar(c, tabela, tenant, purge_log.RESULTADO_RETIDA,
+                         retida.motivo, janela_ate)
         except Exception:
             self._anotar(c, tabela, tenant, purge_log.RESULTADO_FALHOU,
                          purge_log.MOTIVO_ERRO, janela_ate)
+
+    def _holds(self, cursor: Any) -> hold.Holds:
+        """Os holds de agora, na transaccao de quem pergunta, mais os externos."""
+        lidos = hold.ler(cursor)
+        return lidos if self.x.holds_externos is None else lidos.unir(self.x.holds_externos)
 
     # -- a execucao
 
     def correr(self) -> Relatorio:
         sessao = f"{politica.VERSAO_DA_POLITICA}|{self.x.modo}".encode()
 
-        def abrir(cursor: Any) -> hold.Holds:
+        def abrir(cursor: Any) -> None:
+            cursor.execute(SQL_PAPEL)
+            linha = cursor.fetchone()
+            if not linha or linha[0] is not True:
+                raise PapelSemBypass(
+                    "a ligacao do lote nao tem BYPASSRLS: os holds e as linhas "
+                    "retidas liam-se vazios, e a purga avancava sobre eles"
+                )
             cursor.execute(SQL_SESSAO, (ACTOR_DO_LOTE, self.relatorio.execucao_id, sessao))
-            return hold.ler(cursor)
 
-        self.holds = self._tx("sessao", abrir)
+        self._tx("sessao", abrir)
         for c in self.x.politica:
             if c.mecanismo == politica.APAGAR:
                 self._apagar(c)
@@ -469,21 +500,33 @@ class _Corrida:
                 self._apagar_tenant(c, caminho, str(tenant))
 
     def _apagar_tenant(self, c: Classe, caminho: Caminho, tenant: str | None) -> None:
-        alargamento = self.x.alargamentos.get(tenant) if tenant else None
-        limite = politica.limite(
-            c, self.x.agora, alargamento=alargamento.prazo if alargamento else None
-        )
-        if self.holds.do_tenant(tenant):
-            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_RETIDA,
-                         purge_log.MOTIVO_HOLD_TENANT, limite)
-            return
-        retidos = sorted(self.holds.contactos_de(tenant))
-        if retidos and not caminho.com_contacto:
-            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_RETIDA,
-                         purge_log.MOTIVO_HOLD_CONTACTO, limite)
+        # O alargamento e da PME e so vale onde a classe o admite (`maximo`). Um
+        # erro de politica num tenant e uma unidade `falhou`, e nao uma
+        # execucao parada: com ele a sair daqui, nenhuma classe seguinte corria
+        # para tenant nenhum, todas as noites.
+        alargamento = self.x.alargamentos.get(tenant) if tenant and c.maximo else None
+        try:
+            limite = politica.limite(
+                c, self.x.agora, alargamento=alargamento.prazo if alargamento else None
+            )
+        except politica.PoliticaInvalida:
+            self._anotar(c, caminho.tabela, tenant, purge_log.RESULTADO_FALHOU,
+                         purge_log.MOTIVO_ERRO)
             return
 
         def trabalho(cursor: Any) -> list[tuple[str, int, int]]:
+            holds = self._holds(cursor)
+            if tenant is None:
+                # Sem tenant nao se sabe de quem sao as linhas: qualquer hold retem.
+                if holds.algum():
+                    raise _Retida(purge_log.MOTIVO_HOLD_TENANT)
+                retidos: list[str] = []
+            else:
+                if holds.do_tenant(tenant):
+                    raise _Retida(purge_log.MOTIVO_HOLD_TENANT)
+                retidos = sorted(holds.contactos_de(tenant))
+                if retidos and not caminho.com_contacto:
+                    raise _Retida(purge_log.MOTIVO_HOLD_CONTACTO)
             feito = []
             for passo in (*caminho.antes, caminho):
                 parametros = passo.parametros(tenant, limite, retidos)
@@ -510,17 +553,10 @@ class _Corrida:
             return
         tenants = self._tx(c.nome, lambda cur: _coluna(cur, SQL_MIDIA_TENANTS, (agora,)))
         for tenant in (str(t) for t in tenants):
-            if self.holds.do_tenant(tenant):
-                self._anotar(c, "platform.media_assets", tenant, purge_log.RESULTADO_RETIDA,
-                             purge_log.MOTIVO_HOLD_TENANT, agora)
-                continue
-            retidos = sorted(self.holds.contactos_de(tenant))
             self._unidade(c, "platform.media_assets", tenant, agora,
-                          lambda cur, tenant=tenant, retidos=retidos:
-                          self._objectos_do_tenant(cur, tenant, retidos))
+                          lambda cur, tenant=tenant: self._objectos_do_tenant(cur, tenant))
 
-    def _objectos_do_tenant(self, cursor: Any, tenant: str,
-                            retidos: list[str]) -> list[tuple[str, int, int]]:
+    def _objectos_do_tenant(self, cursor: Any, tenant: str) -> list[tuple[str, int, int]]:
         """O objecto primeiro, a linha depois.
 
         Pela ordem inversa, uma falha entre os dois deixava um blob sem linha —
@@ -529,6 +565,10 @@ class _Corrida:
         objecto, e a corrida seguinte apaga-a: o `ObjectoInexistenteError` e o
         estado que se pretende, nao um erro.
         """
+        holds = self._holds(cursor)
+        if holds.do_tenant(tenant):
+            raise _Retida(purge_log.MOTIVO_HOLD_TENANT)
+        retidos = sorted(holds.contactos_de(tenant))
         cursor.execute(SQL_MIDIA_VENCIDA, (tenant, self.x.agora, retidos))
         vencidas = cursor.fetchall()
         objectos = [(str(a), ref, size) for a, ref, size in vencidas if ref]
@@ -596,10 +636,16 @@ class _Corrida:
         zero — contar com ele dava sempre «sem hold»).
         """
         nome = f"{alvo.tabela}_{mes:%Y_%m}"
-        retidos = sorted(self._tenants_com_hold())
+
+        def contar(cursor: Any) -> tuple:
+            # Os holds e a contagem na mesma transaccao. Uma particao nao tem
+            # `contact_id`: um contacto retido retem o mes inteiro do tenant.
+            retidos = sorted(self._holds(cursor).tenants_retidos())
+            return _linha(cursor, SQL_CONTAR_MES[c.nome],
+                          (retidos, mes, _primeiro_do_mes(mes, 1)))
+
         try:
-            linhas, retidas = self._tx(c.nome, lambda cur: _linha(
-                cur, SQL_CONTAR_MES[c.nome], (retidos, mes, _primeiro_do_mes(mes, 1))))
+            linhas, retidas = self._tx(c.nome, contar)
         except Exception:
             self._anotar(c, nome, None, purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO, limite)
             return
@@ -612,9 +658,10 @@ class _Corrida:
                 self._anotar(c, nome, None, purge_log.RESULTADO_RECUSADA,
                              purge_log.MOTIVO_SEM_CAMINHO, limite)
                 return
-            # shortcut: um hold aplicado entre a contagem e o `DROP` nao e
-            # visto; a janela e a de uma instrucao. Revê-se quando o agendador
-            # (KAM-078) correr a purga em paralelo com a aplicacao de holds.
+            # shortcut: um hold aplicado entre a transaccao da contagem e o
+            # `DROP` (outra ligacao, a do dono) nao e visto; a janela e a de uma
+            # ida e volta a base. Reve-se quando o agendador (KAM-078) correr a
+            # purga em paralelo com a aplicacao de holds.
             try:
                 self.x.particoes.largar(alvo.tabela, mes.date())
             except Exception:
@@ -622,11 +669,6 @@ class _Corrida:
                              purge_log.MOTIVO_ERRO, limite)
                 return
         self._anotar_ok(c, nome, int(linhas), limite)
-
-    def _tenants_com_hold(self) -> set[str]:
-        """Os tenants com hold de tenant **ou** de contacto: uma particao nao
-        tem `contact_id`, e um contacto retido retem o mes inteiro."""
-        return set(self.holds.tenants) | {t for t, cs in self.holds.contactos.items() if cs}
 
     # -- fiscal
 
@@ -657,7 +699,8 @@ class _Corrida:
             return
         limite = politica.limite(c, self.x.agora)
         tabela = c.tabelas[0].nome if c.tabelas else c.nome
-        if self.x.dry_run or self.holds.tenants or self.holds.contactos:
+        holds = self._tx(c.nome, self._holds)
+        if self.x.dry_run or holds.algum():
             # O delegado nao sabe de holds nem de dry-run: com um hold activo,
             # ou em dry-run, nao corre — e a leitura conservadora.
             motivo = purge_log.MOTIVO_HOLD_TENANT if not self.x.dry_run else purge_log.MOTIVO_SEM_CAMINHO
@@ -678,6 +721,26 @@ class _Corrida:
         registo = self._registo(c, tabela, None, purge_log.RESULTADO_OK, None, linhas, 0, limite)
         self._tx(c.nome, lambda cur: purge_log.escrever(cur, registo))
         self.relatorio.registos.append(registo)
+
+
+class _Retida(Exception):
+    """Interna: a unidade viu um hold na sua transaccao. Leva o motivo."""
+
+    def __init__(self, motivo: str) -> None:
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
+def contar_lista(varredura: Callable[[Any, datetime], Sequence[Any]]) -> Callable[[Any, datetime], int]:
+    """Adapta uma varredura que devolve a lista do que apagou (a do AGR).
+
+    O `kamba_agr.retencao.varrer` devolve as *threads* apagadas e confirma pelo
+    caminho: **nao e atomico com a linha do `purge_log`**, que vem depois, numa
+    transaccao do lote. Se a varredura levantar a meio, o que ja apagou esta
+    confirmado e a linha diz `falhou` — e a leitura certa, porque a unidade
+    nao acabou.
+    """
+    return lambda ligacao, agora: len(varredura(ligacao, agora))
 
 
 def _coluna(cursor: Any, sql: str, parametros: tuple) -> list[Any]:
@@ -744,7 +807,13 @@ def verificar_audio(abrir_ligacao: AbrirLigacao, agora: datetime) -> tuple[int, 
         ligacao.close()
 
 
-def reaplicar_apos_restauro(execucao: Execucao, restaurado_de: datetime):
+def reaplicar_apos_restauro(
+    execucao: Execucao,
+    restaurado_de: datetime,
+    *,
+    ledger_externo: Sequence[Any],
+    holds_externos: hold.Holds,
+):
     """Depois de um restauro: os titulares a reaplicar, e a purga outra vez.
 
     Duas coisas voltam com uma copia de `restaurado_de`, e as duas tem de sair:
@@ -754,21 +823,41 @@ def reaplicar_apos_restauro(execucao: Execucao, restaurado_de: datetime):
       linhas que voltaram estao outra vez fora da janela e saem;
     * **os titulares apagados depois da copia** — e o *ledger* do KAM-070 quem
       os diz (`sujeitos_a_reaplicar`, com a fronteira `T' > T`). A lista volta a
-      quem chama, que e quem a entrega aos escopos: apagar um titular e dos
-      processos que detem cada loja, e nao da retencao (KAM-070).
+      quem chama, que a entrega aos escopos: apagar um titular e dos processos
+      que detem cada loja, e nao da retencao (KAM-070).
+
+    **O *ledger* e os *holds* vem de fora da copia, e sao obrigatorios.** A base
+    restaurada tem o *ledger* e o `audit_log` de `T`: todas as linhas do
+    *ledger* tem `aplicado_at <= T`, pelo que lido dali o predicado devolvia
+    sempre vazio, e um hold aplicado depois de `T` tinha desaparecido — a purga
+    apagava dados sob retencao legal. A fonte e a exportacao fora da base (o
+    *hook* do KAM-079, que a `0038` nomeia) ou o cluster de antes do restauro.
+    Junta-se ao que a copia tem: um apagamento que so uma das duas fontes
+    conhece continua a ser reaplicado.
 
     Recusa um dry-run: um restauro que so conta deixa os dados la.
     """
     if execucao.dry_run:
         raise politica.PoliticaInvalida("a reaplicacao apos restauro nao e um dry-run")
+    if ledger_externo is None or holds_externos is None:
+        raise politica.PoliticaInvalida(
+            "a reaplicacao exige o ledger e os holds de fora da copia restaurada"
+        )
     ligacao = execucao.abrir_ligacao()
     try:
         with tenant_guard.tx_batch(ligacao, "retencao_restauro") as cursor:
-            ledger = sujeitos_apagados(cursor)
+            da_copia = sujeitos_apagados(cursor)
     finally:
         ligacao.close()
-    sujeitos = sujeitos_a_reaplicar(ledger, restaurado_de)
-    return executar(execucao), sujeitos
+    primeiro: dict[str, Any] = {}
+    for sujeito in (*da_copia, *ledger_externo):
+        anterior = primeiro.get(sujeito.contact_id)
+        if anterior is None or sujeito.erased_at < anterior.erased_at:
+            primeiro[sujeito.contact_id] = sujeito
+    sujeitos = sujeitos_a_reaplicar(tuple(primeiro.values()), restaurado_de)
+    juntos = holds_externos if execucao.holds_externos is None else (
+        execucao.holds_externos.unir(holds_externos))
+    return executar(replace(execucao, holds_externos=juntos)), sujeitos
 
 
 def encerramento_devido(encerrado_at: datetime, agora: datetime) -> bool:
@@ -788,14 +877,17 @@ __all__ = [
     "SQL_MIDIA_TENANTS",
     "SQL_MIDIA_VENCIDA",
     "SQL_PARTICOES",
+    "SQL_PAPEL",
     "SQL_SESSAO",
     "Alargamento",
     "Caminho",
     "Execucao",
     "Particionada",
     "Particoes",
+    "PapelSemBypass",
     "PurgaFalhou",
     "Relatorio",
+    "contar_lista",
     "encerramento_devido",
     "executar",
     "exigir_sem_falhas",
