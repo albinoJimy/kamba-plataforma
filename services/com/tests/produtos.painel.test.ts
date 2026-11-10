@@ -33,6 +33,7 @@ import {
   TIPO_PRODUCT_CHANGED,
   TIPO_STOCK_ADJUSTED,
   alterarOferta,
+  getOfferView,
   listarOfertas,
   type AlteracaoDeOferta,
 } from "../src/produtos/index.ts";
@@ -339,4 +340,15 @@ test("KAM-099: sob consulta grava-se sem preco", async () => {
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.precoTipo, "sob_consulta");
   assert.equal(r.valor.precoMinor, null);
+});
+
+// ------------------------------------------------------- critério 4: o *fact*
+
+test("KAM-099 criterio 4: o preco gravado no painel e o que o getOfferView da a seguir", async () => {
+  const { cliente } = base([linha(TENANT_A, SKU)]);
+  const antes = await comRegisto(deps(cliente), ctx(), (reg) => getOfferView(reg, SKU, new Date("2026-11-10T09:00:00Z")));
+  assert.equal(antes.tipo === "ok" ? antes.valor.precoDisplay?.replace(/\s/g, " ") : null, "12 500 Kz");
+  await comRegisto(deps(cliente), ctx(), (reg) => alterarOferta(reg, alteracao({ precoMinor: 1_500_000n })));
+  const depois = await comRegisto(deps(cliente), ctx(), (reg) => getOfferView(reg, SKU, new Date("2026-11-10T09:00:00Z")));
+  assert.equal(depois.tipo === "ok" ? depois.valor.precoDisplay?.replace(/\s/g, " ") : null, "15 000 Kz");
 });

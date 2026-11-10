@@ -14079,6 +14079,7 @@ entradas:
       - "retoma"
     nomes_nota:
       - "FINS"
+      - "sessao"
     variantes_literais: []
   - seccao: "3.54"
     conceito: "Mensagem ao dono do guia"
@@ -14143,23 +14144,23 @@ entradas:
       - "renovada"
       - "hmac"
     nomes_nota:
+      - "sessao"
       - "tenant_id"
       - "sid"
-    variantes_literais:
-      - "sessao"
+    variantes_literais: []
   - seccao: "3.55"
     conceito: "O corpo da gravação"
-    canonico: "preco_tipo, preco_kz, stock, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
+    canonico: "preco_tipo, preco_minor, stock, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
     literais:
       - "preco_tipo"
-      - "preco_kz"
+      - "preco_minor"
       - "stock"
       - "versao"
       - "confirmar_variacao"
       - "Idempotency-Key"
     nomes:
       - "preco_tipo"
-      - "preco_kz"
+      - "preco_minor"
       - "stock"
       - "versao"
       - "confirmar_variacao"
@@ -14167,12 +14168,11 @@ entradas:
       - "Key"
     nomes_nota:
       - "preco_tipo"
-      - "preco_kz"
+      - "preco_minor"
       - "Idempotency"
       - "Key"
     variantes_literais:
       - "preco_modo"
-      - "preco_minor"
   - seccao: "3.55"
     conceito: "A versão optimista de uma oferta"
     canonico: "offer_terms.atualizado_at, como texto UTC com microssegundos (OfertaDoPainel.versao)"
@@ -14183,14 +14183,13 @@ entradas:
       - "offer_terms.atualizado_at"
       - "OfertaDoPainel.versao"
     nomes_nota:
+      - "offer_terms"
       - "atualizado_at"
       - "timestamptz"
       - "SQL_ALTERAR_OFERTA"
-      - "offer_terms"
       - "clock_timestamp"
       - "now"
-    variantes_literais:
-      - "version"
+    variantes_literais: []
   - seccao: "3.55"
     conceito: "As operações do painel no COM"
     canonico: "listarOfertas, alterarOferta, servidas por POST /internal/list-offers e POST /internal/update-offer"
@@ -16679,6 +16678,11 @@ variantes:
     seccao: "3.2"
     conceito: "Política de isolamento"
     canonico: "tenant_iso (USING e WITH CHECK), criada por rls.enable_tenant_rls"
+  - nome: "preco_kz"
+    tipo: "nome"
+    seccao: "3.3"
+    conceito: "Preço"
+    canonico: "preco_minor + preco_tipo ∈ {fixo, a_partir_de, sob_consulta}"
   - nome: "exato"
     tipo: "valor"
     seccao: "3.3"
@@ -16739,14 +16743,5 @@ variantes:
     seccao: "3.30"
     conceito: "Valor monetário normalizado"
     canonico: "value_minor"
-  - nome: "sessao"
-    tipo: "nome"
-    seccao: "3.55"
-    conceito: "A sessão do painel"
-    canonico: "cookie kamba_painel, domínio kamba/painel/sessao/v1, v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
 
-contradicoes:
-  - nome: "preco_kz"
-    seccao: "3.3"
-    conceito: "Preço"
-    razao: "esta na coluna «Substitui» desta linha e e nome canonico noutra linha do §3; tratado como canonico"
+contradicoes: []
