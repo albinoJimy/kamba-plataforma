@@ -57,7 +57,7 @@ São limites do **instrumento**, não do procedimento, e por isso ficam aqui e n
 no KAM-083.
 
 1. **O SLI não vê o que o cliente vê.** Mede se o Prometheus consegue raspar o
-   GWY e o AGR de dentro da pilha. Internet, DNS, TLS e a Meta ficam fora. A
+   GWY, o AGR e os dois processos do *worker* do limite 3 de dentro da pilha. Internet, DNS, TLS e a Meta ficam fora. A
    sonda externa que fecharia isto é o critério 5 do KAM-080, que ficou **vazio**
    por não haver produção nem *host* externo (credores **D1/KAM-105** e
    **KAM-069**).
@@ -65,11 +65,15 @@ no KAM-083.
    amostra, e a média de 30 dias ignora o intervalo em falta: a pior avaria
    possível é a única que este SLI **subconta**. Se o alerta chegar depois de uma
    paragem do anfitrião, o orçamento mostrado está melhor do que a realidade.
-3. **O `worker-canal` não está no numerador**, embora seja o «processar» do
-   caminho receber → processar → responder. O `CMD` do `Dockerfile` dele corre o
-   `server.ts`, que devolve **404** em `/metrics`, e o `prometheus.yml` não tem
-   alvo para as quatro entradas que servem métricas. Uma falha só do *worker*
-   não desce este SLI.
+3. **Do `worker-canal`, só dois dos quatro processos estão no numerador**
+   (KAM-187). O `entrada.ts` (`job="entrada"`) e o `agr_shim.ts`
+   (`job="agr_shim"`) são o «processar» do caminho receber → processar →
+   responder, e **uma falha só deles desce este SLI**. O `publicador.ts` e o
+   `consumidor.ts` também são raspados (`job="publicador"`, `job="consumidor"`)
+   e **não** descem o SLI: um *burn* não aponta para eles, e o `up` deles lê-se à
+   parte. Até ao KAM-187 nenhum processo do *worker* corria no compose — o
+   serviço corria o `server.ts`, que só serve `/healthz` — e uma falha dele não
+   aparecia em lado nenhum.
 
 ## 4. O que este *stub* não é
 

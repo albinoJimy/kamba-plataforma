@@ -306,6 +306,11 @@ metricas:
           - gwy
           - com
           - agr
+          # KAM-187: os quatro processos do `worker-canal`, um `job` cada.
+          - entrada
+          - agr_shim
+          - publicador
+          - consumidor
 
   - nome: scrape_duration_seconds
     tipo: gauge
@@ -320,6 +325,11 @@ metricas:
           - gwy
           - com
           - agr
+          # KAM-187: os quatro processos do `worker-canal`, um `job` cada.
+          - entrada
+          - agr_shim
+          - publicador
+          - consumidor
 
   # ------------------------------------------ COM / pagamentos (3013)
   #
@@ -539,8 +549,11 @@ series_do_criterio_2:
       - agr_queue_depth
     nota: >-
       **So a profundidade.** A idade do mais antigo — que e o predicado do §9.2 —
-      vive no `evt_outbox_lag_seconds`, servido pelo publicador, que **nao esta
-      em nenhum Dockerfile nem compose** (medido). Credor: KAM-005.
+      nao tem serie. Esta nota dizia que vivia no `evt_outbox_lag_seconds`, «servido
+      pelo publicador, que nao esta em nenhum Dockerfile nem compose» (credor
+      KAM-005). O publicador corre e e raspado desde o KAM-187 (`job` publicador),
+      mas aquela serie e o atraso do *outbox* e nao a idade do mais antigo na
+      `wa-inbound`: continua sem serie que responda a esta linha.
 
   - serie: handoff
     estado: exposta

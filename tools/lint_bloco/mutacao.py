@@ -172,9 +172,11 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # cita: quem o apanha e correr o `--aplicaveis`.
     #
     # **Quinta vez: 47 -> 48, com o KAM-083** (96 medidos).
+    #
+    # **E 50 -> 51 com o KAM-081** (102 medidos, na arvore integrada).
 
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 50", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 51", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 
