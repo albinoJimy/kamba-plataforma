@@ -252,6 +252,11 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: esta no comentario do `INVENTARIO["v_oferta_viva"]`. **Sem coluna de nivel de
 #: stock:** o criterio 7 esta bloqueado pelo D3 e pelo KAM-045.
 #:
+#: A `v_tenant_cost_daily` e do KAM-081 e e a setima: o custo por tenant, dia e
+#: rubrica, que o `h6-export` e os paineis de custo leem. Atravessa esquemas como
+#: a `v_transfer_audit` (le a `dat.llm_call_log` e a `outbound_messages`), e so o
+#: `kamba_batch` a le. O SQL vive em `db/custo.py`, e o ensaio importa-o de la.
+#:
 #: **Por ordem alfabetica**, que e a que o `_vistas` devolve.
 VISTAS = (
     "consent_actual",
@@ -259,6 +264,7 @@ VISTAS = (
     "v_oferta_viva",
     "v_payment_events_audit",
     "v_payment_ledger_heads",
+    "v_tenant_cost_daily",
     "v_transfer_audit",
 )
 
@@ -490,7 +496,8 @@ TABELAS = tuple(
 #:
 #: O `downgrade` da `0042` leva a base para aqui. **Deriva do `TABELAS`**, e e
 #: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
-#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela.
+#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. **E descreve
+#: tambem a `0040`**: a `0041` (KAM-081) cria uma vista e nenhuma tabela.
 TABELAS_ATE_0041 = tuple(sorted(set(TABELAS) - set(TABELAS_0042)))
 
 #: O que existe em `platform` quando a base esta na revisao `0039`.

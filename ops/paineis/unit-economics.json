@@ -1,0 +1,128 @@
+{
+  "uid": "kamba-unit-economics",
+  "title": "KAMBA - unit economics",
+  "tags": [
+    "kamba",
+    "kam-081",
+    "custo",
+    "h6"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-1M/M",
+    "to": "now-1M/M"
+  },
+  "refresh": "1h",
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "fx",
+        "label": "AOA por USD",
+        "query": "913,981,1232",
+        "current": {
+          "text": "913",
+          "value": "913"
+        },
+        "hide": 0
+      },
+      {
+        "type": "custom",
+        "name": "mensalidade_kz",
+        "label": "Mensalidade (Kz)",
+        "query": "30000,45000,60000",
+        "current": {
+          "text": "30000",
+          "value": "30000"
+        },
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "fixo_usd",
+        "label": "Custo fixo mensal, USD (ESTIMATIVA 470-730)",
+        "query": "470",
+        "current": {
+          "text": "470",
+          "value": "470"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "O que este painel e",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Configuracao versionada, ainda sem Grafana a correr\n\nEste painel le a vista `platform.v_tenant_cost_daily` (KAM-081) por uma fonte PostgreSQL com o uid `kamba-custo`, que **nao esta provisionada**: o Grafana esta `pendente` pela licenca AGPL (KAM-080), e a fonte, o papel de leitura e o acesso por VPN sao do deploy. Nenhuma consulta le contacto, conversa, telefone ou texto: a vista nao os tem, e o `db/tests/test_custo.py` recusa um `rawSql` que os nomeie ou que leia outra relacao.\n\n**Sem STT**: nao ha registo de transcricao (KAM-036). O cambio e a variavel `fx` (913 omissao, INDICIO; 981 = +7,4%; 1232 = +35%).\n\nO custo fixo (infra + ferramentas) e parametro: o doc 09 §14.4 da 470-730 USD como ESTIMATIVA, a substituir por cotacoes. As estimativas por PME sao as do doc 09 §14.3, cenario misto, para 300 conversas por mes: a comparacao so diz alguma coisa sobre um **mes inteiro**, e por isso o painel abre no mes anterior. Quem paga a Meta (`meta_payer`) e D9, por decidir: o painel mostra o custo para a KAMBA nas duas leituras, e o custo total para o cliente tambem: a mensalidade, mais a Meta por cima quando e a PME quem a paga. As divisoes convertem as variaveis para `numeric`: o Grafana troca-as por texto, e `30000 / 913` em PostgreSQL e divisao inteira. O mesmo calculo, com `--meta-payer pme|kamba`: `python db/h6_export.py economia`."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Custo por PME, margem e ponto de equilibrio",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-custo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-custo"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "WITH mes AS (\n    SELECT tenant_id,\n           coalesce(sum(custo_usd) FILTER (WHERE rubrica = 'llm'), 0) AS llm,\n           coalesce(sum(custo_usd) FILTER (WHERE rubrica LIKE 'meta_%'), 0) AS meta\n      FROM platform.v_tenant_cost_daily\n     WHERE $__timeFilter(dia)\n     GROUP BY tenant_id\n)\n, variaveis AS (\n    SELECT $fixo_usd::numeric AS fixo_usd,\n           $mensalidade_kz::numeric / $fx::numeric AS mensalidade_usd\n)\nSELECT count(*) AS pmes,\n       v.fixo_usd / NULLIF(count(*), 0) AS custo_fixo_por_pme_usd,\n       avg(llm) AS llm_por_pme_usd,\n       avg(meta) AS meta_por_pme_usd,\n       avg(llm) + v.fixo_usd / NULLIF(count(*), 0)\n           AS custo_para_kamba_por_pme_usd_meta_paga_pela_pme,\n       avg(llm) + avg(meta) + v.fixo_usd / NULLIF(count(*), 0)\n           AS custo_para_kamba_por_pme_usd_meta_paga_pela_kamba,\n       v.mensalidade_usd + avg(meta) AS custo_total_cliente_usd_meta_paga_pela_pme,\n       v.mensalidade_usd AS custo_total_cliente_usd_meta_paga_pela_kamba,\n       v.mensalidade_usd,\n       (v.mensalidade_usd - (avg(llm)) - v.fixo_usd / NULLIF(count(*), 0))\n           / v.mensalidade_usd AS margem_meta_paga_pela_pme,\n       (v.mensalidade_usd - (avg(llm) + avg(meta)) - v.fixo_usd / NULLIF(count(*), 0))\n           / v.mensalidade_usd AS margem_meta_paga_pela_kamba,\n       ceil(v.fixo_usd / NULLIF(v.mensalidade_usd - (avg(llm)), 0))\n           AS equilibrio_pmes_meta_paga_pela_pme,\n       ceil(v.fixo_usd / NULLIF(v.mensalidade_usd - (avg(llm) + avg(meta)), 0))\n           AS equilibrio_pmes_meta_paga_pela_kamba\n  FROM mes CROSS JOIN variaveis v\n GROUP BY v.fixo_usd, v.mensalidade_usd"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Estimado (doc 09 §14.3, misto) contra medido, por PME e por mes",
+      "description": "Um desvio acima de 30% numa rubrica e um item de revisao do docs/tecnica/09 (criterio 5 do KAM-081). STT fica de fora: nao ha registo de transcricao.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-custo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-custo"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "WITH mes AS (\n    SELECT tenant_id,\n           coalesce(sum(custo_usd) FILTER (WHERE rubrica = 'llm'), 0) AS llm,\n           coalesce(sum(custo_usd) FILTER (WHERE rubrica LIKE 'meta_%'), 0) AS meta\n      FROM platform.v_tenant_cost_daily\n     WHERE $__timeFilter(dia)\n     GROUP BY tenant_id\n),\nmedido AS (SELECT avg(llm) AS llm, avg(meta) AS meta FROM mes)\nSELECT e.rubrica,\n       e.estimado_usd,\n       CASE e.rubrica WHEN 'llm' THEN m.llm ELSE m.meta END AS medido_usd,\n       abs(CASE e.rubrica WHEN 'llm' THEN m.llm ELSE m.meta END - e.estimado_usd)\n           / e.estimado_usd AS desvio,\n       abs(CASE e.rubrica WHEN 'llm' THEN m.llm ELSE m.meta END - e.estimado_usd)\n           / e.estimado_usd > 0.30 AS rever_doc_09\n  FROM (VALUES ('llm', 5.5), ('meta', 7.5)) AS e(rubrica, estimado_usd)\n CROSS JOIN medido m"
+        }
+      ]
+    }
+  ]
+}

@@ -1287,7 +1287,7 @@ Implementar o registo de classes de retenção como configuração versionada, o
 
 **9 critérios; 4 marcados, 4 parciais, 1 vazio. 6 caixas de DoD; 2 marcadas, 4
 por satisfazer.** Medido no ramo `feature/KAM-071-retencao-e-purga`, sobre a
-árvore de `publico/main` em `a66354d6`. Nesta máquina não há `make`, `node` nem
+árvore de `publico/main` em `a66354d6` e outra vez depois de integrar a `b4fc0e11`, onde a `0041` do KAM-081 já está e a revisão deste ticket é a `0042`. Nesta máquina não há `make`, `node` nem
 `pnpm`: os *linters* correram directamente (`python -m <lint> --root .. check`),
 a suite de `libs/py-core` com o Python do anfitrião, e os módulos do *gate* 8 e
 do *gate* 6 que esta revisão toca contra o **PostgreSQL 18.6** descartável que o
@@ -1316,7 +1316,7 @@ porque o `purge_log` restaurado não é o de antes.
 pela razão que levou o KAM-069 para `kamba_core.destinos` e o KAM-070 para
 `kamba_core.direitos`: é uma biblioteca de lote sem servidor, e um serviço novo
 pedia imagem, *egress* e cablagem para uma função que corre a horas. O desvio
-está no dicionário §3.53.
+está no dicionário §3.54.
 
 | # | Critério | Estado | Evidência | Credor |
 |---|---|---|---|---|
@@ -1388,8 +1388,8 @@ fundador).
 `test_catalogo`, o `TABELAS_0042` e o `TABELAS_ATE_0041` do `db/tests/base.py`
 (com o `TABELAS_ATE_0039` a derivar dele), o `ACCOES` do `test_auditoria`, a
 entrada das sementes e as três listas do `test_x05_catalogo`, a entrada de
-domínio histórico do `ci/canon-lint.yaml`, e o dicionário (§3.53, §3.2 e a
-emenda 1.75). **E uma que se evitou:** a primeira versão criava as partições
+domínio histórico do `ci/canon-lint.yaml`, e o dicionário (§3.54, §3.2 e a
+emenda 1.76). **E uma que se evitou:** a primeira versão criava as partições
 por duas funções `SECURITY DEFINER`, e o `canon_lint` recusou-as — DDL dinâmico
 dentro de `$$` é o que o *gate* 3b recusa por desenho. Ensinar-lhe a forma era
 afrouxar um *gate*; as partições passaram para o `db/particoes.py`, com a

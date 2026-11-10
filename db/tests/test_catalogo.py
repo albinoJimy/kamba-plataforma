@@ -1401,6 +1401,13 @@ class TestConvencoes(ComBase):
         # sai acompanhado de um `preco_tipo` que pode ter degradado de `fixo`
         # para `a_partir_de` — o numero e o mesmo, o que muda e como se cita.
         ("v_oferta_viva", "preco_minor"),
+        # KAM-081, a `v_tenant_cost_daily`. O custo de um tenant num dia em
+        # centimos de Kz, ao cambio da sessao. **Nao e um saldo**: e o que a
+        # plataforma paga a terceiros (Meta, fornecedores de modelo) por servir
+        # o tenant, recalculado a cada leitura e nunca guardado. Nao se soma
+        # ao longo do tempo numa conta de ninguem e a plataforma nao detem
+        # nada por causa dele. E `_minor` e nao `_kz`, que esta proibido acima.
+        ("v_tenant_cost_daily", "custo_aoa_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.75"
+versao_dicionario: "1.76"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13632,6 +13632,176 @@ entradas:
       - "git"
     variantes_literais: []
   - seccao: "3.53"
+    conceito: "Custo diário por tenant e rubrica"
+    canonico: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    literais:
+      - "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    nomes:
+      - "platform.v_tenant_cost_daily"
+      - "tenant_id"
+      - "dia"
+      - "rubrica"
+      - "unidades"
+      - "sem_preco"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    nomes_nota:
+      - "platform"
+      - "security_invoker"
+      - "true"
+      - "SELECT"
+      - "kamba_batch"
+      - "dat.llm_call_log"
+      - "platform.outbound_messages"
+      - "dia"
+      - "contact_id"
+      - "wamid"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Rubrica de custo"
+    canonico: "v_tenant_cost_daily.rubrica: llm, meta_service, meta_utility, meta_authentication, meta_marketing, meta_outra"
+    literais:
+      - "v_tenant_cost_daily.rubrica"
+      - "llm"
+      - "meta_service"
+      - "meta_utility"
+      - "meta_authentication"
+      - "meta_marketing"
+      - "meta_outra"
+    nomes:
+      - "v_tenant_cost_daily.rubrica"
+      - "llm"
+      - "meta_service"
+      - "meta_utility"
+      - "meta_authentication"
+      - "meta_marketing"
+      - "meta_outra"
+    nomes_nota:
+      - "CHECK"
+      - "llm"
+      - "dat.llm_call_log.custo_usd"
+      - "meta_"
+      - "pricing"
+      - "microUsdDe"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Câmbio aplicado"
+    canonico: "v_tenant_cost_daily.fx_aoa_per_usd, do parâmetro de sessão app.fx_aoa_per_usd"
+    literais:
+      - "v_tenant_cost_daily.fx_aoa_per_usd"
+      - "app.fx_aoa_per_usd"
+    nomes:
+      - "v_tenant_cost_daily.fx_aoa_per_usd"
+      - "app.fx_aoa_per_usd"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo em kwanzas"
+    canonico: "v_tenant_cost_daily.custo_aoa_minor, bigint, cêntimos"
+    literais:
+      - "v_tenant_cost_daily.custo_aoa_minor"
+      - "bigint"
+    nomes:
+      - "v_tenant_cost_daily.custo_aoa_minor"
+      - "bigint"
+    nomes_nota:
+      - "platform"
+      - "test_nao_ha_colunas_de_dinheiro_nem_saldos"
+      - "EM_UNIDADE_MENOR"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo em dólares"
+    canonico: "v_tenant_cost_daily.custo_usd, numeric"
+    literais:
+      - "v_tenant_cost_daily.custo_usd"
+      - "numeric"
+    nomes:
+      - "v_tenant_cost_daily.custo_usd"
+      - "numeric"
+    nomes_nota:
+      - "numeric"
+      - "dat.llm_call_log.custo_usd"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Mensagens contadas sem preço"
+    canonico: "v_tenant_cost_daily.sem_preco"
+    literais:
+      - "v_tenant_cost_daily.sem_preco"
+    nomes:
+      - "v_tenant_cost_daily.sem_preco"
+    nomes_nota:
+      - "custo_usd"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Unidades"
+    canonico: "v_tenant_cost_daily.unidades"
+    literais:
+      - "v_tenant_cost_daily.unidades"
+    nomes:
+      - "v_tenant_cost_daily.unidades"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Conversa, para custo"
+    canonico: "mensagens do mesmo contacto, no mesmo tenant, sem pausa maior do que 24 h"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "platform.inbound_events"
+      - "tenant_id"
+      - "contact_id"
+      - "h6"
+      - "export"
+      - "platform.conversations"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Exportação da amostra H6"
+    canonico: "h6-export (../db/h6_export.py), job ops_h6_export"
+    literais:
+      - "h6-export"
+      - "ops_h6_export"
+    nomes:
+      - "h6"
+      - "export"
+      - "ops_h6_export"
+    nomes_nota:
+      - "exportar"
+      - "reconciliar"
+      - "meta"
+      - "pricing"
+      - "economia"
+      - "dat.llm_call_log"
+      - "metodo"
+      - "contact_id"
+      - "dense_rank"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Quem paga a Meta"
+    canonico: "meta_payer: pme ou kamba"
+    literais:
+      - "meta_payer"
+      - "pme"
+      - "kamba"
+    nomes:
+      - "meta_payer"
+      - "pme"
+      - "kamba"
+    nomes_nota:
+      - "meta"
+      - "payer"
+      - "economia"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Painéis de custo"
+    canonico: "../ops/paineis/custo-por-tenant.json, ../ops/paineis/unit-economics.json"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "kamba"
+      - "custo"
+    variantes_literais: []
+  - seccao: "3.54"
     conceito: "Política de retenção"
     canonico: "retention_policy: a POLITICA de ../libs/py-core/src/kamba_core/retencao/politica.py, com VERSAO_DA_POLITICA"
     literais:
@@ -13647,7 +13817,7 @@ entradas:
       - "validar"
       - "SEM_DADOS_PESSOAIS"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Mecanismo de uma classe"
     canonico: "apagar, largar_particao, ttl_sto, ciclo_do_repositorio, externo, delegado, fiscal, conservar, encerramento"
     literais:
@@ -13676,7 +13846,7 @@ entradas:
       - "recusada"
       - "ok"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Prazo fiscal"
     canonico: "fiscal_retention_years, lido de KAMBA_FISCAL_RETENTION_YEARS"
     literais:
@@ -13687,7 +13857,7 @@ entradas:
       - "KAMBA_FISCAL_RETENTION_YEARS"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Registo da purga"
     canonico: "platform.purge_log, catorze colunas"
     literais:
@@ -13713,7 +13883,7 @@ entradas:
       - "DROP"
       - "erasure_ledger"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Modo de uma purga"
     canonico: "purge_log.modo ∈ {efectiva, dry_run}"
     literais:
@@ -13727,7 +13897,7 @@ entradas:
     nomes_nota:
       - "modo"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Resultado de uma unidade"
     canonico: "purge_log.resultado ∈ {ok, recusada, retida, falhou}"
     literais:
@@ -13748,7 +13918,7 @@ entradas:
       - "ok"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Motivo de uma unidade sem ok"
     canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
     literais:
@@ -13774,7 +13944,7 @@ entradas:
       - "ok"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Hold legal no registo de auditoria"
     canonico: "retention.hold_aplicado e retention.hold_levantado"
     literais:
@@ -13792,7 +13962,7 @@ entradas:
       - "entity_id"
       - "payload_hash"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Fecho de uma conversa"
     canonico: "o mais tardio de conversations.window_expires_at e conversations.last_human_activity_at"
     literais:
@@ -13803,7 +13973,7 @@ entradas:
       - "conversations.last_human_activity_at"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Partição mensal"
     canonico: "<pai>_aaaa_mm, em platform.events_log e dat.llm_call_log, criada e largada por ../db/particoes.py"
     literais:
@@ -13822,7 +13992,7 @@ entradas:
       - "tenant_iso"
       - "DEFAULT"
     variantes_literais: []
-  - seccao: "3.53"
+  - seccao: "3.54"
     conceito: "Retenção, o módulo"
     canonico: "../libs/py-core/src/kamba_core/retencao/"
     literais: []
@@ -14935,6 +15105,21 @@ tabelas:
     assinatura: "platform.dpa_em_falta()"
     seccao: "3.52"
     conceito: "Verificação diária"
+  - nome: "v_tenant_cost_daily"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "dia"
+      - "rubrica"
+      - "unidades"
+      - "sem_preco"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    aberta: false
+    assinatura: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    seccao: "3.53"
+    conceito: "Custo diário por tenant e rubrica"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -16072,7 +16257,7 @@ dominios:
     valores:
       - "efectiva"
       - "dry_run"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Modo de uma purga"
     so_no_registo: false
   - coluna: "purge_log.resultado"
@@ -16081,7 +16266,7 @@ dominios:
       - "recusada"
       - "retida"
       - "falhou"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Resultado de uma unidade"
     so_no_registo: false
   - coluna: "purge_log.motivo"
@@ -16093,7 +16278,7 @@ dominios:
       - "sem_caminho"
       - "particao_por_criar"
       - "erro"
-    seccao: "3.53"
+    seccao: "3.54"
     conceito: "Motivo de uma unidade sem ok"
     so_no_registo: false
 

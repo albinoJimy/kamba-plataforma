@@ -22,7 +22,8 @@
 #
 # ## O que o `up` mede, e o que nao mede
 #
-# **Mede** se o Prometheus conseguiu raspar cada replica do GWY e do AGR. E a
+# **Mede** se o Prometheus conseguiu raspar cada replica do GWY, do AGR e dos
+# dois processos do `worker-canal` no caminho da mensagem. E a
 # unica serie do caminho de venda que **nao depende de o processo ter contado
 # algo** — o `exposicao()` do AGR nao emite series a zero, pelo que um contador
 # a zero e indistinguivel de um processo morto.
@@ -32,13 +33,24 @@
 # **externa** e ficou vazio, porque nao ha producao nem *host* externo onde a
 # por. Credor: **D1/KAM-105** (alojamento) e **KAM-069** (subprocessador).
 #
-# **E o `worker-canal` nao esta no numerador**, embora seja o «processar» do
-# caminho receber -> processar -> responder. O `CMD` do `services/worker-canal/
-# Dockerfile` corre o `server.ts`, que **devolve 404 em `/metrics`** por teste do
-# KAM-001; as quatro entradas que servem metricas (`entrada.ts` 3013,
-# `publicador.ts` 3011, `consumidor.ts` 3012 e o `agr_shim.ts`) nao sao o que o
-# compose corre, e o `prometheus.yml` nao tem alvo para elas. Medido. Credor: o
-# ticket que escolher qual processo do `worker-canal` o compose corre.
+# **E o `worker-canal` esta no numerador desde o KAM-187**, que e o «processar»
+# do caminho receber -> processar -> responder. Ate la nao estava: o compose
+# corria o `server.ts`, que **devolve 404 em `/metrics`** por teste do KAM-001,
+# e nenhum dos quatro processos tinha alvo. Hoje o compose corre os quatro e o
+# `prometheus.yml` raspa-os; entram no numerador os **dois do caminho da
+# mensagem** — o `entrada.ts` (job `entrada`) e o `agr_shim.ts` (job
+# `agr_shim`). O `publicador.ts` e o `consumidor.ts` ficam de fora: sao o
+# barramento de eventos, e uma falha deles nao para a mensagem do cliente. Os
+# casos do `testes/kamba_slo_burn_test.yml` prendem as tres coisas. A mudanca
+# de definicao esta registada no `ops/slo.md` (versao 1.2).
+#
+# **E os quatro `job` tem de existir.** O `min()` ignora series que nao
+# existem: um `job` que nunca foi descoberto — um processo em ciclo de
+# reinicio cujo nome o DNS do compose deixa de devolver, que e o caso do
+# `entrada.ts` em `prod` hoje — contava como em pe. O `* on() (count(count by
+# (job) (...)) == bool 4)` poe o caminho a mau quando falta algum dos quatro,
+# e o caso «o worker de entrada nunca descoberto» prende-o. Medido pela
+# revisao adversarial do KAM-187.
 #
 # ## As duas assimetrias do `or vector(0)`
 #
@@ -100,7 +112,7 @@ groups:
       # `alvo_em_baixo` do `kamba.yml` ja a trata como P1 — o SLI nao podia ser
       # mais tolerante do que o alerta.
       - record: slo_caminho_de_venda_bom
-        expr: 'min(up{job=~"gwy|agr"}) or vector(0)'
+        expr: 'min(up{job=~"gwy|agr|entrada|agr_shim"}) * on() (count(count by (job) (up{job=~"gwy|agr|entrada|agr_shim"})) == bool 4) or vector(0)'
 
       # Houve mensagens afectadas **observadas** na ultima meia hora?
       #

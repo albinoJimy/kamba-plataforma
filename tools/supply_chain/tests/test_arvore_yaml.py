@@ -148,14 +148,19 @@ class TestFicheirosReais(unittest.TestCase):
                 documento = arvore_yaml.ler((ROOT / ficheiro).read_text(encoding="utf-8"))
                 self.assertTrue(documento.raiz.filhos)
 
-    def test_o_compose_real_tem_sete_servicos_e_todos_resolvem(self) -> None:
+    def test_o_compose_real_tem_dez_servicos_e_todos_resolvem(self) -> None:
+        """Eram sete; o KAM-187 trocou o `worker-canal` pelos quatro processos."""
         documento = arvore_yaml.ler(
             (ROOT / "infra/compose/docker-compose.dev.yml").read_text(encoding="utf-8")
         )
         servicos = documento.mapa(documento.mapa(documento.raiz)["services"])
         self.assertEqual(
             sorted(servicos),
-            ["agr", "com", "gwy", "onboarding-web", "postgres", "queue", "worker-canal"],
+            [
+                "agr", "com", "gwy", "onboarding-web", "postgres", "queue",
+                "worker-canal-agr-shim", "worker-canal-consumidor",
+                "worker-canal-entrada", "worker-canal-publicador",
+            ],
         )
         # O `user` do AGR e proprio (`nobody`) e ganha o da ancora (`node`).
         self.assertEqual(documento.mapa(servicos["agr"])["user"].texto(), "nobody")

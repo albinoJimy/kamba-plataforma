@@ -58,6 +58,10 @@ tests:
         values: '1+0x1438 0 1+0x10'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x1450'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x1450'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x1450'
     promql_expr_test:
       - expr: slo_caminho_de_venda_orcamento_consumido
         eval_time: 43200m
@@ -97,6 +101,10 @@ tests:
         values: '1+0x1450'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x1450'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x1450'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x1450'
     promql_expr_test:
       - expr: slo_caminho_de_venda_orcamento_consumido
         eval_time: 43200m
@@ -125,6 +133,10 @@ tests:
       - series: 'up{job="gwy",instance="gwy-1:3010"}'
         values: '1+0x1430 0 0 0 0 0 0 0 0 1+0x10'
       - series: 'up{job="agr",instance="agr-1:8000"}'
+        values: '1+0x1450'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x1450'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
         values: '1+0x1450'
     promql_expr_test:
       - expr: slo_caminho_de_venda_orcamento_consumido > 1

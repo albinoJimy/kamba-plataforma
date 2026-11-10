@@ -64,6 +64,10 @@ tests:
         values: '1+0x80 0+0x40 1+0x40'
       - series: 'up{job="agr",instance="agr-1:8000"}'
         values: '1+0x170'
+      - series: 'up{job="entrada",instance="worker-canal-entrada-1:3013"}'
+        values: '1+0x170'
+      - series: 'up{job="agr_shim",instance="worker-canal-agr-shim-1:3025"}'
+        values: '1+0x170'
       - series: 'gwy_shed_total{job="gwy",instance="gwy-1:3010"}'
         values: '0+0x170'
     promql_expr_test:

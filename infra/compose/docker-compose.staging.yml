@@ -187,16 +187,37 @@ services:
       queue:
         condition: service_healthy
 
-  worker-canal:
+  # ------------------------------------------------ worker-canal (KAM-187)
+  #
+  # Os mesmos quatro servicos do compose de producao, com a mesma imagem, o
+  # mesmo `command:`, as mesmas replicas e os mesmos limites; a razao de cada
+  # escolha esta escrita la e nao se repete aqui. A unica diferenca e o
+  # `KAMBA_ENV`, e e ela que faz o `entrada.ts` arrancar aqui e nao la: em
+  # `staging` o provedor de chaves de ambiente e aceite, em `prod` e recusado
+  # (criterio 9 do KAM-008).
+  worker-canal-entrada:
     <<: *node
     build:
       context: ../..
       dockerfile: services/worker-canal/Dockerfile
       args:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/entrada.ts"]
     environment:
-      <<: [*node-env, *saida]
-      PORT: "3001"
+      <<: *node-env
+      ENTRADA_PORT: "3013"
+      KAMBA_ENV: staging
+      KAMBA_FASE: piloto
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_ENTRADA_DB_URL: ${KAMBA_ENTRADA_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_CHR_RESOLVER_DB_URL: ${KAMBA_CHR_RESOLVER_DB_URL:?o deploy passa a cadeia de ligacao do kamba_resolver}
+      KAMBA_CHR_IDENTITY_DB_URL: ${KAMBA_CHR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:?o cofre entrega o pepper do HMAC de contacto}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+    deploy:
+      replicas: 2
     networks:
       - app
       - data
@@ -208,7 +229,7 @@ services:
         - node
         - -e
         - >-
-          fetch('http://127.0.0.1:3001/healthz')
+          fetch('http://127.0.0.1:3013/healthz')
           .then(r => process.exit(r.ok ? 0 : 1))
           .catch(() => process.exit(1))
       interval: 10s
@@ -216,6 +237,125 @@ services:
       retries: 6
       start_period: 20s
     depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal-agr-shim:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/agr_shim.ts"]
+    environment:
+      <<: *node-env
+      AGR_SHIM_PORT: "3025"
+      KAMBA_ENV: staging
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_AGR_URL: http://agr:8000
+      KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do AGR}
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3025/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      queue:
+        condition: service_healthy
+
+  worker-canal-publicador:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/publicador.ts"]
+    environment:
+      <<: *node-env
+      PUBLICADOR_PORT: "3011"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_PUBLICADOR_DB_URL: ${KAMBA_PUBLICADOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3011/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal-consumidor:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/consumidor.ts"]
+    environment:
+      <<: *node-env
+      CONSUMIDOR_PORT: "3012"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_CONSUMER: ${KAMBA_CONSUMER:?o deploy nomeia a subscricao do consumidor}
+      KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+    networks:
+      - app
+      - data
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3012/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
       queue:
         condition: service_healthy
 

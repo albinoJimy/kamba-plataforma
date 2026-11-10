@@ -367,8 +367,10 @@ O `/metrics` fica no processo do publicador e **não** no `server.ts` do
 `worker-canal`: os serviços têm um teste que exige 404 em `/metrics` (KAM-001), e
 abrir lá a rota mudava um contrato de outro ticket por conveniência deste.
 
-Não há quem recolha estas métricas: é a mesma lacuna que `docs/isolamento.md` §7
-registou para `rls_context_missing_total`. Uma pilha de recolha não tem ticket.
+**Desde o KAM-187 são recolhidas:** o compose de produção e o de *staging* correm o
+publicador, e o `prometheus.yml` raspa-o (`job="publicador"`, porta 3011). Esta nota
+dizia que não havia quem as recolhesse, a mesma lacuna que `docs/isolamento.md` §7
+registou para `rls_context_missing_total`.
 
 ### O atraso medido, e o anfitrião que o explicava mal
 
@@ -408,7 +410,7 @@ aberta 8.
 O ticket deixa a escolha aberta. A decisão, e a razão: o publicador **escala
 para cima com réplicas em espera**, não com concorrência — só o processo que
 ganha o *lock* publica. No mesmo processo que o consumidor da fila de entrada
-(`server.ts`), que escala horizontalmente, N réplicas do consumidor davam N−1
+(o `entrada.ts`; esta nota dizia `server.ts`, que só serve `/healthz`), que escala horizontalmente, N réplicas do consumidor davam N−1
 publicadores a dormir dentro de processos com trabalho a fazer; por isso é um
 **segundo processo**, com o seu `node src/publicador.ts`. Um serviço próprio
 (`services/evt-publisher`) pagava manifesto, imagem, egressos, entrada em
@@ -416,12 +418,13 @@ publicadores a dormir dentro de processos com trabalho a fazer; por isso é um
 laço com a mesma configuração de base de dados e de fila que o `worker-canal` já
 tem.
 
-**O que não foi feito, e é deliberado:** o publicador **não entra no
-`infra/compose/docker-compose.dev.yml`**. O `make up` espera por `--wait` e o
-`make smoke` percorre `HEALTHZ_TARGETS`; um processo cuja saúde normal é «estou à
-espera de ser líder» não cabe nessa forma sem a mudar. O compose de
-desenvolvimento ainda não aplica migrações (é o KAM-075), pelo que o publicador
-lá não teria tabelas. Fica para o KAM-075/KAM-078, e está dito.
+**O que não foi feito, e é deliberado:** o publicador **não entrou no
+`infra/compose/docker-compose.dev.yml`** com o KAM-005, porque o compose de
+desenvolvimento não aplica migrações e o publicador lá não teria tabelas. **Desde o
+KAM-187 entra**, como os outros três processos do `worker-canal`, mas atrás do perfil
+`consumidores`: o `make up` não o levanta, pela mesma razão, e quem tiver a base
+migrada levanta-o com `--profile consumidores`. Nos composes de produção e de
+*staging* corre sempre, com duas réplicas em espera.
 
 ## 7. Partições do arquivo
 
@@ -587,4 +590,5 @@ fica o que o envelope não traz e mais nada.
 | 1.2 | Outubro 2026 | Duas correcções vindas do KAM-006, no lado do produtor: o *job* passa a pedir `backoff: { type: 'custom' }` (§4), sem o que a escada do §6.4 nunca era consultada; e os dados do *job* passam a levar `tenant_id` ao lado do envelope, porque o consumidor é `kamba_app` e precisa dele para pôr o contexto da RLS antes de ler o arquivo. O lado do consumidor está em `docs/consumo.md`. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-007.** O §10 passa a ter o catálogo tipo a tipo — produtor, consumidores, agregado, PII, fase e **payload** —, lido dos contratos de `contratos/eventos/` para não haver uma terceira cópia escrita à mão. As secções 10 e 11 antigas passam a 11 e 12. A decisão aberta 1 («nove ou treze campos de topo») fecha em **catorze**, pela emenda 1.11 do dicionário; a 6 (`order.paid` fora do dicionário) fecha com o catálogo. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | **KAM-048: o consumidor do `booking.reminder_due` é o COM e não o AGR.** O catálogo espelhava o §12 do `tecnica/03`, que atribuía o lembrete ao AGR; a decisão do fundador dá-o ao COM, pela razão escrita na nota sob aquela tabela — com a janela da Meta fechada o lembrete leva data e hora, e o texto do AGR não leva números por desenho. O AGR continua a subscrever o tipo; retirar-lhe a acção é do KAM-038 e fica devolvido ao fundador. | Equipa KAMBÁ |
-| 1.5 | Novembro 2026 | **KAM-071: as lacunas 4 e 5 do §9 ficam pagas, menos o agendador.** O `db/eventos_particoes.py` que o §7 dava por fazer nasceu como `db/particoes.py`, para as duas tabelas particionadas (`events_log` e `dat.llm_call_log`), e a retenção do *outbox* publicado é uma classe do `kamba_core.retencao`. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **KAM-187.** §6: o consumidor da fila de entrada é o `entrada.ts` e não o `server.ts`, que só serve `/healthz`; e o publicador passa a correr nos composes de produção e de *staging*, e no de desenvolvimento atrás do perfil `consumidores`. | Equipa KAMBÁ |
+| 1.6 | Novembro 2026 | **KAM-071: as lacunas 4 e 5 do §9 ficam pagas, menos o agendador.** O `db/eventos_particoes.py` que o §7 dava por fazer nasceu como `db/particoes.py`, para as duas tabelas particionadas (`events_log` e `dat.llm_call_log`), e a retenção do *outbox* publicado é uma classe do `kamba_core.retencao`. | Equipa KAMBÁ |

@@ -12,9 +12,11 @@
  *
  * Escala **para cima** com réplicas em espera, não com concorrência: só o
  * processo que ganha `pg_try_advisory_lock(7101)` publica. É por isso que não
- * vive no mesmo processo que o consumidor da fila de entrada (`server.ts`), que
- * escala horizontalmente — N réplicas do consumidor dariam N-1 publicadores a
- * dormir dentro de processos que têm trabalho a fazer.
+ * vive no mesmo processo que o consumidor da fila de entrada (`entrada.ts`,
+ * KAM-013), que escala horizontalmente — N réplicas do consumidor dariam N-1
+ * publicadores a dormir dentro de processos que têm trabalho a fazer. (Esta
+ * nota dizia `server.ts`, que só serve `/healthz`; o compose corre cada um dos
+ * quatro processos como serviço próprio desde o KAM-187.)
  *
  * ## O que serve em HTTP
  *

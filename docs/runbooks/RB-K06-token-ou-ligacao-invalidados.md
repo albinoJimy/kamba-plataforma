@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K06** |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Cenário | Chega um `account_update` com `PARTNER_REMOVED` (`PRIMARY_INACTIVITY`, `ACCOUNT_DISCONNECTED`, `CHANGE_NUMBER`…), ou uma chamada à Graph API falha por token inválido |
 | Severidade | **P2** |
 | Alertas que o activam | **Nenhum, hoje.** A regra do §9.2 está por escrever: `channel_disconnected_total{motivo}` existe (`packages/core-ts/src/coexistencia/metricas.ts`) e nenhum serviço importa o módulo `coexistencia`. Credor: o ticket que ligar o módulo (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
@@ -21,7 +21,8 @@
 
 - **Nada trata o `account_update` em produção.** O tratador
   (`Coexistente.tratarAccountUpdate`, `packages/core-ts/src/coexistencia/`) existe e não
-  está ligado; e hoje nenhum consumidor lê a `wa-inbound` (KAM-187), pelo que **nem o
+  está ligado; e em `prod` hoje nenhum consumidor lê a `wa-inbound` — o compose corre-o
+  desde o KAM-187, mas em `prod` o `entrada.ts` não arranca — o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre (`../identidade.md` §8, linha 2) —, pelo que **nem o
   registo em `platform.inbound_events` acontece**. A detecção é, por agora, a PME a dizer.
 - **O token inválido não tem tratamento específico** (procurado: nenhum tratamento de
   `OAuthException` ou do código 190 da Graph API). Uma chamada com token inválido falharia
@@ -151,3 +152,4 @@ WhatsApp.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): o que o módulo `coexistencia` faz por motivo, as duas consultas à base verificadas, reconexão e re-sincronização com o prazo de 24 h, suspensão como acto humano, e o texto à PME por aprovar | KAM-083 |
+| 1.1 | Novembro 2026 | **KAM-187**, integrado depois deste: a causa da falta de registo em `prod` é o `entrada.ts` não arrancar (`../identidade.md` §8, linha 2), e não a falta do serviço | Equipa KAMBÁ |

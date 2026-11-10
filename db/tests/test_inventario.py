@@ -2394,6 +2394,29 @@ INVENTARIO["v_transfer_audit"] = {
     "resultado": ("text", SIM, None, "nao"),
 }
 
+#: **A setima vista do esquema** (KAM-081): o custo por tenant, dia e rubrica.
+#: O SQL vive em `db/custo.py`, e o `custo.COLUNAS` e a mesma lista que esta, por
+#: ordem — o `db/tests/test_custo_schema.py` compara a base com aquela tuple e
+#: esta tabela com a base, pelo que as tres nao divergem sem um vermelho.
+#:
+#: **O que nao esta aqui e o criterio 7** («sem conteudo nem `contact_id` nas
+#: vistas expostas»): a `outbound_messages` e lida e o `contact_id`, o
+#: `conversation_id`, o `wamid` e o `pricing` dela nao saem; da `llm_call_log`
+#: saem so somas e contagens. Nenhuma coluna aponta para uma pessoa.
+#:
+#: Como nas outras seis, `SIM` e `None` em todas: numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao.
+INVENTARIO["v_tenant_cost_daily"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "dia": ("date", SIM, None, "nao — o dia no fuso do tenant, sem hora"),
+    "rubrica": ("text", SIM, None, "nao"),
+    "unidades": ("bigint", SIM, None, "nao — uma contagem"),
+    "sem_preco": ("bigint", SIM, None, "nao — uma contagem"),
+    "custo_usd": ("numeric", SIM, None, "nao"),
+    "custo_aoa_minor": ("bigint", SIM, None, "nao"),
+    "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+}
+
 #: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
 #: da oferta viva, que a tool `search_products` junta aos candidatos do indice
 #: (`docs/tecnica/05` secao 6.3).
