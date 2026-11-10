@@ -59,8 +59,9 @@
  * `abandonado` e `cancelado`, que o canon não tem, e tem `activo` onde o canon
  * diz `pronto`. Divergem o nome da coluna (`fase` contra `estado`) e o domínio.
  *
- * Não se resolve aqui: a tabela é do KAM-086 e alterar o canon é do fundador.
- * Fica medido, e vai no corpo do PR — é o credor a quem isto pertence.
+ * Não se resolveu aqui: a tabela é do KAM-086 e alterar o canon é do fundador.
+ * **Resolveu-a a emenda 1.78 (KAM-087, dicionário §3.55)**: a coluna chama-se
+ * `fase` e leva os catorze valores, `aguarda_teste` e `abandonado` incluídos.
  */
 
 /** O cliente de base de dados, como nos outros módulos. */
@@ -129,8 +130,8 @@ export type EstadoDePasso = (typeof ESTADOS_DE_PASSO)[number];
  * Não se altera o canon aqui: estes valores são do
  * `provisioning_step.status_de_espera`, que é coluna **nova** e domínio deste
  * ticket, e entram pelo `canon/extensoes.yaml` qualificados. A falta de
- * `aguarda_teste` e de `abandonado` em `onboarding_case.fase` fica registada
- * para quem escrever essa tabela (KAM-086/087) — e vai no corpo do PR.
+ * `aguarda_teste` e de `abandonado` em `onboarding_case.fase` ficou registada
+ * para quem escrevesse essa tabela, e a emenda 1.78 (KAM-087) pô-los lá.
  */
 export const ESPERAS = ["aguarda_es", "aguarda_catalogo", "aguarda_teste"] as const;
 export type Espera = (typeof ESPERAS)[number];
@@ -352,9 +353,9 @@ export interface LeitorDeCasos {
 /**
  * Quem escreve o estado do caso.
  *
- * **Não há implementação real desta porta**, porque não há `onboarding_case`
- * (ver a nota do módulo): a compensação do passo 1 marca o caso `cancelado` sem
- * apagar histórico, e a tabela onde esse `cancelado` vive é do KAM-086/087.
+ * **Não há implementação real desta porta**: a compensação do passo 1 marca o
+ * caso `cancelado` sem apagar histórico, e a tabela onde esse `cancelado` vive
+ * nasceu com a revisão `0043` (KAM-087) — falta o adaptador SQL que a escreva.
  * Credor nomeado, caixa vazia — e não um simulador apresentado como prova.
  */
 export interface RegistoDoCaso {

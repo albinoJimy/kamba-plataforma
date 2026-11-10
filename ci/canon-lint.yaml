@@ -315,6 +315,13 @@ auxiliares_de_migracao:
       ensaios de base de dados importam-no daqui em vez de o copiar. A revisao
       chama `custo.criar_vista()`/`custo.remover_vista()`, e o lint segue o
       corpo com o SQL literal que elas executam.
+  - modulo: kyc
+    ficheiro: db/kyc.py
+    razao: >-
+      KAM-087: o SQL da `platform.onboarding_case` e da `platform.kyc_check`
+      vive num sitio so, e os ensaios de base de dados importam-no daqui. A
+      revisao chama `kyc.criar()`, `kyc.conceder()` e `kyc.remover()`, e o lint
+      segue o corpo com as constantes literais que elas executam.
 
 # ------------------------------------------- dominios dados por conceito no §3
 #

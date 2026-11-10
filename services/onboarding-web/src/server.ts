@@ -105,8 +105,8 @@ export class RepositorioEmMemoriaEmProducaoError extends Error {
       "o onboarding-web nao arranca em prod: o RepositorioDeCasos so tem a " +
         "implementacao em memoria, e um registo que se perde no reinicio perde " +
         "o nif_hmac que bloqueia o duplicado. Falta o adaptador SQL de " +
-        "platform.onboarding_case (credor: KAM-086/087, e a emenda 1.64 do " +
-        "dicionario para a fase do caso)",
+        "platform.onboarding_case (credor: KAM-086; a tabela existe desde a " +
+        "revisao 0043)",
     );
   }
 }

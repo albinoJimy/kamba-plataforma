@@ -20,15 +20,16 @@
  *
  * O nome do módulo é `inscricao` por isso, e não por gosto.
  *
- * ## A tabela não existe, e isto é a fronteira que a vai receber
+ * ## A tabela existe; o adaptador que a escreve, não
  *
- * O bloco do KAM-086 traz o DDL de `platform.onboarding_case`. **Esta entrega
- * não escreve a migração**, e não é omissão: a vaga de revisão de base de dados
- * deste lote é **de outro ticket** — o bloco não nomeia qual, e nomear um em
- * código era pôr um credor que o canon não escreve —, e a `onboarding_case.fase`
- * do dicionário §3.2 diverge do bloco em **nove valores e num nome**, contados
- * ao lado das `FASES`. A emenda 1.64 do dicionário já nomeia o KAM-086/087 como
- * credor dessa divergência. Escrever a tabela era decidir a emenda de passagem.
+ * O bloco do KAM-086 traz o DDL de `platform.onboarding_case`, e esta entrega
+ * não escreveu a migração: a `onboarding_case.fase` do dicionário §3.2 divergia
+ * do bloco em **nove valores e num nome**, e escrever a tabela era decidir a
+ * emenda de passagem. **A tabela nasceu com o KAM-087** (revisão `0043`, emenda
+ * 1.78 do dicionário, §3.55), com a coluna `fase` e os catorze valores de
+ * `FASES`. O que continua por fazer é o adaptador SQL desta porta — a cifra do
+ * NIF e do telefone e a tradução do `23505` do índice do NIF —, com credor
+ * KAM-086.
  *
  * O que está entregue é o **`RepositorioDeCasos`**, e o precedente é do ticket
  * ao lado: o KAM-091 fundiu os três domínios fechados da saga «que viviam só no

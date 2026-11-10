@@ -23,9 +23,9 @@
  * tipo `es_falhado`. **Nenhuma das três tabelas existe na base**, medido contra
  * a cadeia de revisões até à `0040`:
  *
- *     onboarding_case   credor KAM-087 — a `fase` diverge entre o
- *                       dicionário §3.2 (seis valores) e o bloco do KAM-086
- *                       (catorze), e a emenda 1.64 dá-lhe essa decisão
+ *     onboarding_case   existe desde a revisão `0043` (KAM-087), com o
+ *                       `preflight`; falta o adaptador SQL do guia que o
+ *                       escreva
  *     onboarding_gate   credor KAM-092
  *     review_case       credor KAM-089
  *
