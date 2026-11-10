@@ -26,6 +26,7 @@ import {
   ReferenciaInvalidaError,
   TokenInvalidoError,
   VALIDADES,
+  VALIDADE_DA_RETOMA_S,
   VALIDADE_DA_SESSAO_S,
   VALIDADE_DO_BILHETE_S,
   VALIDADE_MAXIMA_DIAS,
@@ -176,9 +177,21 @@ describe("inscricao: o token de /entrar (criterio 1)", () => {
 });
 
 describe("inscricao: o bilhete e a sessao (modulo sessao)", () => {
-  it("sao dois fins, e os separadores de dominio sao diferentes", () => {
-    assert.deepEqual([...FINS], ["ticket", "sessao"]);
-    assert.notEqual(DOMINIOS_DE_REFERENCIA.ticket, DOMINIOS_DE_REFERENCIA.sessao);
+  it("sao tres fins, e os separadores de dominio sao todos diferentes", () => {
+    // O terceiro, `retoma`, e do KAM-093: a ligacao que vai num SMS ao dono.
+    assert.deepEqual([...FINS], ["ticket", "sessao", "retoma"]);
+    const dominios = FINS.map((fim) => DOMINIOS_DE_REFERENCIA[fim]);
+    assert.equal(new Set(dominios).size, FINS.length);
+  });
+
+  it("uma ligacao de RETOMA nao serve de sessao, nem a sessao de retoma (KAM-093)", () => {
+    // A retoma viaja por SMS: se servisse de cookie, quem lesse o SMS ficava
+    // autenticado sem provar posse do telefone.
+    const retoma = cunharReferencia("retoma", CASO, CHAVE, AGORA);
+    const sessao = cunharReferencia("sessao", CASO, CHAVE, AGORA);
+    assert.equal(lerReferencia("retoma", retoma, [CHAVE, null], AGORA), CASO);
+    assert.throws(() => lerReferencia("sessao", retoma, [CHAVE, null], AGORA), ReferenciaInvalidaError);
+    assert.throws(() => lerReferencia("retoma", sessao, [CHAVE, null], AGORA), ReferenciaInvalidaError);
   });
 
   it("um BILHETE nao serve de SESSAO, e uma sessao nao serve de bilhete", () => {
@@ -213,7 +226,8 @@ describe("inscricao: o bilhete e a sessao (modulo sessao)", () => {
     // problema: o cookie morre com o navegador, o VALOR nao morria.
     assert.equal(VALIDADE_DO_BILHETE_S, 1_800);
     assert.equal(VALIDADE_DA_SESSAO_S, 86_400);
-    assert.deepEqual(VALIDADES, { ticket: 1_800, sessao: 86_400 });
+    assert.equal(VALIDADE_DA_RETOMA_S, 2_592_000);
+    assert.deepEqual(VALIDADES, { ticket: 1_800, sessao: 86_400, retoma: 2_592_000 });
 
     for (const fim of FINS) {
       const referencia = cunharReferencia(fim, CASO, CHAVE, AGORA);

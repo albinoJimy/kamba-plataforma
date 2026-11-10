@@ -40,6 +40,14 @@
 import { serve } from "@hono/node-server";
 import { port } from "@kamba/core-ts";
 import {
+  AvisosEmMemoria,
+  CapacidadeEmMemoria,
+  GatesEmMemoria,
+  GuiaEmMemoria,
+  PassoGuiado,
+  RevisaoEmMemoria,
+} from "@kamba/core-ts/guia";
+import {
   Actividade,
   AntiAbuso,
   CasosEmMemoria,
@@ -53,6 +61,7 @@ import {
   anelDoPepper,
 } from "@kamba/core-ts/inscricao";
 import { instalar } from "@kamba/core-ts/logger";
+import { versaoDaGraph } from "@kamba/core-ts/onboarding";
 import { EnvSecretProvider, Secrets, isAmbiente } from "@kamba/core-ts/secrets";
 import {
   FakeSmsProvider,
@@ -62,6 +71,8 @@ import {
 
 import { createApp } from "./app.ts";
 import { exigirComunicacaoLimpa } from "./comunicacao.ts";
+import type { OpcoesDoGuia } from "./guia.ts";
+import { LigadorPorHttp } from "./ligador.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 import { paginaDeRegisto } from "./pagina.ts";
 
@@ -71,6 +82,19 @@ const log = instalar(SERVICE);
 
 const VARIAVEL_DO_AMBIENTE = "KAMBA_AMBIENTE";
 const VARIAVEL_DOS_PROXIES = "ONBOARDING_PROXIES_DE_CONFIANCA";
+
+/**
+ * As quatro variáveis do passo guiado do ES (KAM-093). **Nenhuma é segredo**: o
+ * `appId` e o `config_id` são identificadores públicos que a página entrega ao
+ * SDK da Meta, a origem é o endereço público deste serviço, e o GWY interno é
+ * um endereço da rede do compose.
+ */
+const VARIAVEIS_DO_GUIA = {
+  appId: "KAMBA_META_APP_ID",
+  configId: "KAMBA_META_ES_CONFIG_ID",
+  origem: "ONBOARDING_ORIGEM",
+  gwy: "ONBOARDING_GWY_INTERNO_URL",
+} as const;
 
 /** Levantado quando falta o adaptador SQL do repositório. Ver a nota do módulo. */
 export class RepositorioEmMemoriaEmProducaoError extends Error {
@@ -175,6 +199,56 @@ const registo = new Registo({
 });
 const actividade = new Actividade({ repositorio: casos, contadores });
 
+/**
+ * O passo guiado do ES, **só se as quatro variáveis estiverem**.
+ *
+ * Sem uma app da Meta não há popup a abrir, e o `dev` da maioria das máquinas
+ * não tem uma. Montar a página sem ela era servir um botão que falha no
+ * navegador; não a montar é a página dar 404, e o arranque di-lo numa linha.
+ * As portas que ficam em memória são as das três tabelas que não existem — ver
+ * a nota do `@kamba/core-ts/guia` — e o detector de pagamento responde
+ * `desconhecido`, que deixa o `meta_pagamento` vermelho: **não há fonte
+ * CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio
+ * (credor: KAM-023 / ext:KAM-102).
+ */
+function montarGuia(): OpcoesDoGuia | undefined {
+  const valores = Object.fromEntries(
+    Object.entries(VARIAVEIS_DO_GUIA).map(([chave, nome]) => [chave, (process.env[nome] ?? "").trim()]),
+  ) as Record<keyof typeof VARIAVEIS_DO_GUIA, string>;
+  if (Object.values(valores).some((v) => v === "")) {
+    log.info({ outcome: "es_guia_desligado" });
+    return undefined;
+  }
+  const guia = new PassoGuiado({
+    casos,
+    repositorio: new GuiaEmMemoria(),
+    capacidade: new CapacidadeEmMemoria(),
+    ligador: new LigadorPorHttp(valores.gwy),
+    gates: new GatesEmMemoria(),
+    revisao: new RevisaoEmMemoria(),
+    pagamento: { verificar: async () => "desconhecido" },
+    aviso: new AvisosEmMemoria(),
+    anelDoPepper: [pepper, pepperAnterior],
+    chaveDaAssinatura: assinatura,
+    origem: valores.origem,
+    configId: valores.configId,
+    log,
+  });
+  // O temporizador dos 30 min (critério 5). Um por minuto basta: o prazo é de
+  // meia hora, e o erro máximo é um minuto a mais.
+  setInterval(() => {
+    guia.abandonarVencidos().catch((erro: unknown) => log.excepcao(erro, "abandono_falhou"));
+  }, 60_000).unref();
+  return {
+    guia,
+    registo,
+    otp,
+    anelDaAssinatura: [assinatura, assinaturaAnterior],
+    appIdDaMeta: valores.appId,
+    versaoDaGraph: versaoDaGraph(),
+  };
+}
+
 // **A política de comunicação verifica-se no arranque**, e não só por resposta:
 // um serviço que suba com o texto errado mostra-o a um dono antes de alguém
 // notar. Falha fechado — ver `./comunicacao.ts`.
@@ -193,7 +267,7 @@ const app = createApp(log, {
   anelDaAssinatura: [assinatura, assinaturaAnterior],
   anelDoToken: [assinatura, assinaturaAnterior],
   proxiesDeConfianca: proxiesDeConfianca(),
-});
+}, montarGuia());
 
 serve({ fetch: app.fetch, hostname, port: listenPort }, () => {
   // O anfitrião e a porta não estão na *allowlist* de `docs/tecnica/08` §7.3,
