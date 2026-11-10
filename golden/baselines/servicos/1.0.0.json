@@ -10,13 +10,13 @@
   }
  },
  "artefactos": {
-  "aliases": "1.0.0",
-  "codigo": "4a92c70bd99ad95054ec4d816730a2fd664d2db111671633613abd3e55bb185e",
+  "aliases": "1.1.0",
+  "codigo": "6d17df354c9c030ffa7c8f817c35f9b8e8a4e26a55726c06f3902cca366bbaa4",
   "dataset": "v1:fc20437b766941b88913fabed8780d442a5cddbcbabe49626ad4b148a6f3d1b8",
   "gate": "1.0.0",
   "grafo": "1.0.0",
   "langgraph": "1.2.17",
-  "politica_de_guardas": "1.1.0",
+  "politica_de_guardas": "1.2.0",
   "registo": "1.2.0",
   "validador": "1.0.0"
  },
@@ -163,8 +163,10 @@
   },
   "srv-fdd-004": {
    "duras": {},
-   "falhas": [],
-   "ok": true
+   "falhas": [
+    "handoff True, esperado False"
+   ],
+   "ok": false
   },
   "srv-fdd-005": {
    "duras": {},
@@ -445,10 +447,8 @@
   },
   "srv-sen-002": {
    "duras": {},
-   "falhas": [
-    "handoff False, esperado True"
-   ],
-   "ok": false
+   "falhas": [],
+   "ok": true
   },
   "srv-sen-003": {
    "duras": {},
@@ -637,7 +637,7 @@
   "numeros_divergentes": 0,
   "recusa": {
    "certos": 41,
-   "detectadas": 21,
+   "detectadas": 23,
    "taxa": 1.0,
    "total": 41
   }
@@ -654,7 +654,7 @@
   "custo_usd": 0.0,
   "custo_usd_por_conversa": 0.0,
   "latencia_nota": "o grafo com fakes e sem modelo: nao e a latencia do turno em producao",
-  "latencia_p95_s": 0.0505
+  "latencia_p95_s": 0.0377
  },
  "relativo": {
   "handoff_correcto": {
@@ -663,8 +663,8 @@
    "total": 106
   },
   "handoff_quando_pedido": {
-   "certos": 11,
-   "taxa": 0.6471,
+   "certos": 12,
+   "taxa": 0.7059,
    "total": 17
   },
   "qualidade_deterministica": {
@@ -688,8 +688,8 @@
     "total": 11
    },
    "fora_de_dominio": {
-    "certos": 10,
-    "taxa": 1.0,
+    "certos": 9,
+    "taxa": 0.9,
     "total": 10
    },
    "handoff": {
@@ -713,8 +713,8 @@
     "total": 11
    },
    "sensiveis": {
-    "certos": 8,
-    "taxa": 0.8,
+    "certos": 9,
+    "taxa": 0.9,
     "total": 10
    },
    "servicos": {

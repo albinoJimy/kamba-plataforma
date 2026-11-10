@@ -69,6 +69,11 @@ RAIZ: Final = Path(__file__).resolve().parents[3]
 for _caminho in (RAIZ / "services/agr/src", RAIZ / "libs/py-core/src", Path(__file__).parent):
     if str(_caminho) not in sys.path:
         sys.path.insert(0, str(_caminho))
+# O `tools/` vai no fim, como no `PYTHONPATH` do `Makefile`: o `llm/aliases.py`
+# le o `kamba_yaml` de la, e o cenario do tecto de saida do red-team passa por
+# ele desde o KAM-189. No fim para nao sombrear nada do AGR.
+if str(RAIZ / "tools") not in sys.path:
+    sys.path.append(str(RAIZ / "tools"))
 
 from apoio import invocacao_crua  # noqa: E402
 from kamba_agr import grafos  # noqa: E402
