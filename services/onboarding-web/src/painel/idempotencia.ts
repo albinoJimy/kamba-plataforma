@@ -36,6 +36,8 @@ export const FORMA_DA_CHAVE = /^[A-Za-z0-9_.:-]{16,128}$/;
 export interface Guardada {
   readonly estado: number;
   readonly corpo: unknown;
+  /** `false` para uma resposta que não responde ao pedido (a sessão revogada). */
+  readonly guardar?: boolean | undefined;
 }
 
 interface Entrada {
@@ -70,13 +72,16 @@ export class Idempotencia {
       return { tipo: "repetida", resposta: await viva.resposta };
     }
     const resposta = fazer();
+    // Apaga antes de pôr, para que uma chave renovada vá para o fim do mapa: a
+    // poda varre do princípio, e uma chave fresca no princípio saía primeiro.
+    this.#entradas.delete(id);
     this.#entradas.set(id, { impressao, em: agora, resposta });
     this.#podar(agora);
     try {
       const r = await resposta;
       // Uma resposta 5xx não se guarda: o COM em baixo não é uma resposta ao
       // pedido, e a repetição com a mesma chave tem de poder tentar outra vez.
-      if (r.estado >= 500) this.#entradas.delete(id);
+      if (r.estado >= 500 || r.guardar === false) this.#entradas.delete(id);
       return { tipo: "nova", resposta: r };
     } catch (erro) {
       this.#entradas.delete(id);

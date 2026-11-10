@@ -35,7 +35,9 @@
  *
  * ```text
  * HIPÓTESE
- * - Hipótese: 30 dias deslizantes, com tecto absoluto de 90 dias desde o OTP.
+ * - Hipótese: 30 dias deslizantes, com tecto absoluto de 90 dias desde a
+ *   entrada no painel (que é, no máximo, 24 h depois do OTP: a `sessao` do
+ *   registo de onde se cunha vale 24 h).
  * - Evidência: os 30 dias são do critério 1. O tecto não está no bloco: sem
  *   ele, uma sessão usada uma vez por mês renovava-se para sempre sem nunca
  *   voltar a provar a posse do telefone.
@@ -55,7 +57,7 @@ export const NOME_DO_COOKIE_DO_PAINEL = "kamba_painel";
 /** Validade deslizante, em segundos: **30 dias** (critério 1). */
 export const VALIDADE_DO_PAINEL_S = 30 * 24 * 3600;
 
-/** Tecto absoluto desde a entrada por OTP, em segundos. ***Proposta***: 90 dias. */
+/** Tecto absoluto desde a entrada no painel, em segundos. ***Proposta***: 90 dias. */
 export const TECTO_DO_PAINEL_S = 90 * 24 * 3600;
 
 /**
@@ -84,7 +86,7 @@ export interface SessaoDoPainel {
   readonly tenantId: string;
   /** O `onboarding_id` do caso de quem entrou: o `actor.id` da auditoria. */
   readonly dono: string;
-  /** Segundos desde a época: a entrada por OTP. Não muda com a renovação. */
+  /** Segundos desde a época: a entrada no painel. Não muda com a renovação. */
   readonly emitida: number;
   /** Segundos desde a época: a última renovação. */
   readonly renovada: number;

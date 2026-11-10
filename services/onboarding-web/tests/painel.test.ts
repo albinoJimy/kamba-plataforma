@@ -84,6 +84,7 @@ interface Montagem {
   readonly revogacoes: RevogacoesEmMemoria;
   readonly metricas: MetricasDoPainel;
   readonly canal: CanalEmMemoria;
+  readonly casos: Map<string, { tenantId: string; fase: string }>;
   agora: Date;
 }
 
@@ -103,6 +104,7 @@ function montar(extra: Partial<OpcoesDoPainel> = {}): Montagem {
     revogacoes,
     metricas,
     canal,
+    casos,
     agora: INICIO,
     app: undefined as unknown as Montagem["app"],
   };
@@ -588,4 +590,108 @@ test("sem a inscricao montada o painel nao e servido", async () => {
     anelDaAssinatura: [CHAVE, null],
   });
   assert.equal((await app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).status, 404);
+});
+
+// ------------------------------------------------ achados da revisão adversarial
+
+test("o painel nao grava stock: um stock no corpo e 400 stock_por_ligar, e nada chega ao COM", async () => {
+  const m = montar();
+  const r = await m.app.fetch(patch("arroz", { preco_tipo: "fixo", preco_minor: "1000000", stock: 3, versao: V0 }, cookieDe(sessaoA())));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { erro: "campo", campo: "stock_por_ligar" });
+  assert.equal(m.comercio.gravacoes.length, 0);
+  const pagina = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
+  assert.doesNotMatch(pagina, /name="stock"/);
+});
+
+test("sair apaga as duas sessoes, a do painel e a do registo", async () => {
+  const m = montar();
+  const r = await m.app.fetch(new Request("http://127.0.0.1/painel/sair", { method: "POST", headers: { cookie: cookieDe(sessaoA()) } }));
+  const cookies = r.headers.getSetCookie();
+  assert.ok(cookies.some((c) => /^kamba_painel=;.*Max-Age=0/.test(c)), cookies.join(" | "));
+  assert.ok(cookies.some((c) => /^kamba_onboarding=;.*Max-Age=0/.test(c)), cookies.join(" | "));
+});
+
+test("revogacao: um caso que deixa de estar activo fecha o painel no pedido seguinte", async () => {
+  const m = montar();
+  const cookie = cookieDe(sessaoA());
+  assert.equal((await m.app.fetch(get("/painel/produtos", cookie))).status, 200);
+  m.casos.set(CASO_A, { tenantId: TENANT_A, fase: "cancelado" });
+  assert.equal((await m.app.fetch(get("/painel/produtos", cookie))).status, 401);
+  // E uma sessao cujo tenant nao e o do caso tambem nao serve.
+  m.casos.set(CASO_A, { tenantId: TENANT_B, fase: "activo" });
+  assert.equal((await m.app.fetch(get("/painel/produtos", cookie))).status, 401);
+});
+
+test("criterio 6: o detalhe da propria encomenda abre, com os dados de A", async () => {
+  const m = montar();
+  const r = await m.app.fetch(get(`/painel/encomendas/${ORDEM_A}`, cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /K7H3Q1/);
+});
+
+test("criterio 6: o filtro ate corta as encomendas depois do dia", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [], [
+    encomenda(ORDEM_A, { numeroPublico: "K00001", criadoAt: "2026-11-01T10:00:00.000Z" }),
+    encomenda("0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c0c", { numeroPublico: "K00002", criadoAt: "2026-11-08T10:00:00.000Z" }),
+  ]);
+  const corpo = await (await m.app.fetch(get("/painel/encomendas?estado=aguarda_pagamento&ate=2026-11-05", cookieDe(sessaoA())))).text();
+  assert.match(corpo, /K00001/);
+  assert.doesNotMatch(corpo, /K00002/);
+});
+
+test("idempotencia: uma resposta 5xx nao fica guardada, e a repeticao com a mesma chave grava", async () => {
+  const m = montar();
+  const original = m.comercio.listarOfertas.bind(m.comercio);
+  let falhar = true;
+  m.comercio.listarOfertas = async (t: string) => {
+    if (falhar) {
+      falhar = false;
+      return { tipo: "erro" as const, erro: "UPSTREAM_DOWN" };
+    }
+    return original(t);
+  };
+  const idem = chave();
+  const corpo = { preco_tipo: "fixo", preco_minor: "1200000", versao: V0 };
+  assert.equal((await m.app.fetch(patch("arroz", corpo, cookieDe(sessaoA()), idem))).status, 503);
+  const r = await m.app.fetch(patch("arroz", corpo, cookieDe(sessaoA()), idem));
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("idempotent-replayed"), null);
+  assert.equal(m.comercio.gravacoes.length, 1);
+});
+
+test("idempotencia: o mesmo pedido com outra ordem de chaves e outro espacamento e repeticao, e nao 422", async () => {
+  const m = montar();
+  const idem = chave();
+  const primeiro = new Request("http://127.0.0.1/painel/produtos/arroz", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: cookieDe(sessaoA()), "idempotency-key": idem },
+    body: '{"preco_tipo":"fixo","preco_minor":"1200000","versao":"' + V0 + '"}',
+  });
+  const segundo = new Request("http://127.0.0.1/painel/produtos/arroz", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: cookieDe(sessaoA()), "idempotency-key": idem },
+    body: '{ "versao": "' + V0 + '", "preco_minor": "1200000", "preco_tipo": "fixo" }',
+  });
+  assert.equal((await m.app.fetch(primeiro)).status, 200);
+  const r = await m.app.fetch(segundo);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("idempotent-replayed"), "true");
+  assert.equal(m.comercio.gravacoes.length, 1);
+});
+
+test("renovacao: uma sessao com a renovacao no futuro e recusada", () => {
+  const s = sessaoA();
+  const doFuturo = { ...s, renovada: s.renovada + 3600 };
+  assert.equal(lerSessao(cunharSessao(doFuturo, CHAVE), [CHAVE], INICIO), null);
+});
+
+test("um preco com centimos nao se pre-preenche, para nao se perder numa gravacao", async () => {
+  const m = montar();
+  m.comercio.semear(TENANT_A, [oferta("arroz", { precoMinor: 1_250_050n })]);
+  const corpo = await (await m.app.fetch(get("/painel/produtos", cookieDe(sessaoA())))).text();
+  assert.match(corpo, /name="preco_kz" inputmode="numeric" pattern="\[0-9\]\*" value=""/);
+  assert.match(corpo, /data-kz=""/);
+  assert.match(corpo, /12 500,50 Kz/);
 });

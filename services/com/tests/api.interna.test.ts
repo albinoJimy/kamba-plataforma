@@ -67,6 +67,8 @@ interface Chamadas {
 
 /** O que o `update-offer` entregou ao módulo. */
 const alteracoes: AlteracaoDeOferta[] = [];
+/** O tenant do `ctx` de cada `listarOfertas`. */
+const tenantsDasOfertas: string[] = [];
 
 function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } {
   const contagem = new Map<string, number>();
@@ -176,8 +178,9 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
         },
       };
     },
-    async listarOfertas() {
+    async listarOfertas(ctx: Ctx) {
       contar("listarOfertas");
+      tenantsDasOfertas.push(ctx.tenantId);
       return ok({ itens: [], truncada: false });
     },
     async alterarOferta(_ctx: Ctx, a) {
@@ -623,10 +626,16 @@ test("o /healthz continua sem credencial", async () => {
 // ------------------------------------------------- KAM-099: o painel do dono
 
 test("KAM-099: o list-offers chama a operacao com o tenant do cabecalho", async () => {
+  tenantsDasOfertas.length = 0;
   const { aplicacao, chamadas } = app();
   const r = await aplicacao.fetch(
-    pedido("/internal/list-offers", { actor: { kind: "dono", id: "dono-1" }, trace_id: "t" }, BONS),
+    pedido(
+      "/internal/list-offers",
+      { actor: { kind: "dono", id: "dono-1" }, trace_id: "t", tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      BONS,
+    ),
   );
+  assert.deepEqual(tenantsDasOfertas, [TENANT]);
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { tipo: "ok", valor: { itens: [], truncada: false } });
   assert.equal(chamadas.contagem.get("listarOfertas"), 1);

@@ -116,14 +116,13 @@ const GUIAO_DOS_PRODUTOS = [
   "    var tipo = f.elements.preco_tipo.value;",
   "    var corpo = { preco_tipo: tipo, versao: f.dataset.versao };",
   "    var kz = f.elements.preco_kz.value.trim();",
+  "    if (tipo === f.dataset.tipo && kz === f.dataset.kz) { saida.textContent = 'Sem alteracoes.'; return; }",
   "    if (tipo !== 'sob_consulta') {",
   "      if (!/^[0-9]+$/.test(kz)) { saida.textContent = 'Escreva o preco em Kz, so com algarismos.'; return; }",
   "      corpo.preco_minor = kz.replace(/^0+(?=.)/, '') + '00';",
   "    }",
-  "    var stock = f.elements.stock.value.trim();",
-  "    if (stock !== '') corpo.stock = Number(stock);",
   "    var resumo = tipo === 'sob_consulta' ? 'preco sob consulta' : kz + ' Kz';",
-  "    if (!window.confirm('Gravar ' + resumo + (stock !== '' ? ' e stock ' + stock : '') + '?')) return;",
+  "    if (!window.confirm('Gravar ' + resumo + '?')) return;",
   "    async function enviar(c) {",
   "      return fetch('/painel/produtos/' + encodeURIComponent(f.dataset.sku), {",
   "        method: 'PATCH', credentials: 'same-origin',",
@@ -157,16 +156,19 @@ function opcoesDoModo(actual: string): string {
 export function paginaDeProdutos(nonce: string, ofertas: readonly Oferta[], truncada: boolean): string {
   const cartoes = ofertas
     .map((o) => {
-      const kzActual = o.precoMinor === null ? "" : (o.precoMinor / 100n).toString();
+      // **Um preço com cêntimos não se pré-preenche.** O campo é em Kz inteiros
+      // (critério 5), e pôr lá o valor arredondado fazia uma gravação qualquer
+      // cortar os cêntimos sem o dono ver. Fica vazio, e o preço exacto está no
+      // texto ao lado. Achado da revisão adversarial.
+      const kzActual = o.precoMinor === null || o.precoMinor % 100n !== 0n ? "" : (o.precoMinor / 100n).toString();
       const stock =
         o.stockQuantidade === null
           ? `stock ${escapar(o.stockModo)}, sem quantidade declarada`
           : `${o.stockQuantidade} em stock (${o.stockReservada} reservadas)`;
-      return `<form class="oferta cartao" data-sku="${escapar(o.sku)}" data-versao="${escapar(o.versao)}">
+      return `<form class="oferta cartao" data-sku="${escapar(o.sku)}" data-versao="${escapar(o.versao)}" data-tipo="${escapar(o.precoTipo)}" data-kz="${escapar(kzActual)}">
 <h2>${escapar(o.nome)}</h2><p>${escapar(precoLegivel(o))} · ${stock}</p>
 <label>Modo do preço <select name="preco_tipo">${opcoesDoModo(o.precoTipo)}</select></label>
 <label>Preço em Kz <input name="preco_kz" inputmode="numeric" pattern="[0-9]*" value="${escapar(kzActual)}"></label>
-<label>Stock <input name="stock" inputmode="numeric" pattern="[0-9]*" placeholder="sem alteração"></label>
 <button type="submit">Gravar</button> <span class="saida" role="status"></span></form>`;
     })
     .join("\n");

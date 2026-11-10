@@ -280,7 +280,9 @@ export const SQL_OFERTA_DO_PAINEL = `
  *
  * O `preco_atualizado_at` só avança se o preço mudou, e quem o decide é o módulo
  * (`$6`), pela razão do `SQL_ACTUALIZAR_TERMOS`. Um `CASE` sobre `$3` e `$4` era
- * repetir marcadores, que a suite do *gate* 8 recusa.
+ * repetir marcadores, que a suite do *gate* 8 recusa. Quando o preço muda, o
+ * `preco_valido_ate` limpa-se: o dono confirmou o preço agora, e uma validade
+ * antiga fazia o `getOfferView` lê-lo como vencido.
  */
 export const SQL_ALTERAR_OFERTA = `
   UPDATE platform.offer_terms
@@ -288,6 +290,8 @@ export const SQL_ALTERAR_OFERTA = `
          preco_minor = $4,
          preco_atualizado_at = CASE WHEN $6::boolean THEN clock_timestamp()
                                     ELSE preco_atualizado_at END,
+         preco_valido_ate = CASE WHEN $6::boolean THEN NULL
+                                 ELSE preco_valido_ate END,
          atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2
      AND atualizado_at = $5::timestamptz

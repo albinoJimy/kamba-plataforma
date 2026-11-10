@@ -4,6 +4,16 @@
  * «Preço inteiro em Kz ≥ 0 e ≤ um máximo configurável; alteração de preço
  * > ±50% (*proposta*) pede confirmação extra; stock ≥ 0.»
  *
+ * ## O painel não grava stock, e recusa-o
+ *
+ * O COM não expõe a escrita da `stock_quantidade`: o `ajustarStock` audita e
+ * emite o `stock.adjusted`, e a quantidade que as reservas e o agente leem
+ * fica como estava (o `GRANT UPDATE` da `0033` não a inclui). Um campo de
+ * stock que respondesse «gravado» deixava o dono pôr 0 e o bot continuar a
+ * vender — pior do que não ter o campo. Um `stock` no corpo é por isso **400**
+ * com o campo `stock_por_ligar`, até o COM ter onde o escrever (credor
+ * KAM-043/049). Achado da revisão adversarial.
+ *
  * Funções puras: nenhuma vai à rede, e todas correm **antes** de o painel
  * chamar o COM. O COM repete a parte que é dele (o par modo/preço, `≥ 0`,
  * inteiros), e isso não é duplicar a regra: é a mesma barreira em quem a
@@ -39,9 +49,6 @@ export const CENTIMOS_POR_KZ = 100n;
  */
 export const PRECO_MAXIMO_KZ_POR_OMISSAO = 100_000_000n;
 
-/** O stock máximo aceite. ***Proposta***: um milhão de unidades. */
-export const STOCK_MAXIMO = 1_000_000;
-
 /** A variação a partir da qual se pede confirmação, em pontos percentuais. ***Proposta***: 50. */
 export const VARIACAO_QUE_PEDE_CONFIRMACAO = 50n;
 
@@ -49,7 +56,6 @@ export const VARIACAO_QUE_PEDE_CONFIRMACAO = 50n;
 export interface PedidoValido {
   readonly precoTipo: PrecoTipo;
   readonly precoMinor: bigint | null;
-  readonly stock?: number | undefined;
   readonly versao: string;
   readonly confirmarVariacao: boolean;
 }
@@ -90,12 +96,7 @@ export function lerPedido(corpo: Record<string, unknown>, maximoKz: bigint): Lei
     }
     precoMinor = minor;
   }
-  const stock = corpo["stock"];
-  if (stock !== undefined && stock !== null) {
-    if (typeof stock !== "number" || !Number.isSafeInteger(stock) || stock < 0 || stock > STOCK_MAXIMO) {
-      return { tipo: "erro", campo: "stock" };
-    }
-  }
+  if (corpo["stock"] !== undefined) return { tipo: "erro", campo: "stock_por_ligar" };
   const versao = corpo["versao"];
   if (typeof versao !== "string" || versao.length === 0 || versao.length > 40) {
     return { tipo: "erro", campo: "versao" };
@@ -107,7 +108,6 @@ export function lerPedido(corpo: Record<string, unknown>, maximoKz: bigint): Lei
     pedido: {
       precoTipo: precoTipo as PrecoTipo,
       precoMinor,
-      ...(typeof stock === "number" ? { stock } : {}),
       versao,
       confirmarVariacao: confirmar === true,
     },

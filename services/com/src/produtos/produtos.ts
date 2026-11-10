@@ -939,6 +939,10 @@ export async function alterarOferta(
   r: Registo,
   a: AlteracaoDeOferta,
 ): Promise<Resultado<OfertaDoPainel>> {
+  // **Só o dono grava pelo painel.** A origem da auditoria é `painel_do_dono`, e
+  // um `agente` ou um `sistema` com a credencial interna gravava preços com a
+  // origem errada. Achado da revisão adversarial.
+  if (r.ctx.actor.kind !== "dono") return erro("VALIDATION_ERROR");
   if (typeof a.sku !== "string" || a.sku.trim().length === 0) return erro("VALIDATION_ERROR");
   if (!(PRECO_TIPOS as readonly string[]).includes(a.precoTipo)) return erro("VALIDATION_ERROR");
   const temPreco = a.precoMinor !== null;
@@ -955,7 +959,13 @@ export async function alterarOferta(
   const antes = await lerParaEscrita(r, a.sku);
   if (antes === null || antes.estado === "arquivado") return erro("NOT_FOUND");
 
-  const mudouOPreco = antes.precoTipo !== a.precoTipo || antes.precoMinor !== a.precoMinor;
+  // **Um preço com validade conta como mudança**, mesmo com o valor igual: o dono
+  // que grava no painel está a pôr o preço **agora**, e o `SQL_ALTERAR_OFERTA`
+  // limpa o `preco_valido_ate`. Sem isto, um preço vencido continuava a ler-se
+  // `a_partir_de` com aviso depois de o dono o confirmar (critério 4). Achado da
+  // revisão adversarial.
+  const mudouOPreco =
+    antes.precoTipo !== a.precoTipo || antes.precoMinor !== a.precoMinor || antes.precoValidoAte !== null;
   if (!mudouOPreco && a.stock === undefined) {
     // Nada a gravar. A versão continua a decidir a resposta: um dono com uma
     // página velha não recebe «gravado» só porque o valor coincide.
@@ -979,8 +989,8 @@ export async function alterarOferta(
     await registarAlteracaoDePreco(
       r,
       a.sku,
-      { preco_tipo: antes.precoTipo, preco_minor: antes.precoMinor },
-      { preco_tipo: a.precoTipo, preco_minor: a.precoMinor },
+      { preco_tipo: antes.precoTipo, preco_minor: antes.precoMinor, preco_valido_ate: antes.precoValidoAte },
+      { preco_tipo: a.precoTipo, preco_minor: a.precoMinor, preco_valido_ate: null },
       "painel_do_dono",
     );
   }

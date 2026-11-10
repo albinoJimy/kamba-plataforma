@@ -14150,18 +14150,16 @@ entradas:
     variantes_literais: []
   - seccao: "3.55"
     conceito: "O corpo da gravação"
-    canonico: "preco_tipo, preco_minor, stock, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
+    canonico: "preco_tipo, preco_minor, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
     literais:
       - "preco_tipo"
       - "preco_minor"
-      - "stock"
       - "versao"
       - "confirmar_variacao"
       - "Idempotency-Key"
     nomes:
       - "preco_tipo"
       - "preco_minor"
-      - "stock"
       - "versao"
       - "confirmar_variacao"
       - "Idempotency"
@@ -14169,6 +14167,9 @@ entradas:
     nomes_nota:
       - "preco_tipo"
       - "preco_minor"
+      - "stock"
+      - "stock_por_ligar"
+      - "stock_quantidade"
       - "Idempotency"
       - "Key"
     variantes_literais:
@@ -14189,6 +14190,7 @@ entradas:
       - "SQL_ALTERAR_OFERTA"
       - "clock_timestamp"
       - "now"
+      - "preco_valido_ate"
     variantes_literais: []
   - seccao: "3.55"
     conceito: "As operações do painel no COM"

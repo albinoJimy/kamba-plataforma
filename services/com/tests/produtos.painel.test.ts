@@ -22,6 +22,8 @@
  */
 
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import type { ClienteSql, Ctx } from "../src/port/index.ts";
@@ -139,6 +141,9 @@ function base(
         if (sql.includes("preco_tipo = $3")) {
           alvo.preco_tipo = String(parametros[2]);
           alvo.preco_minor = parametros[3] === null ? null : String(parametros[3]);
+          if (/preco_valido_ate = CASE WHEN \$6::boolean THEN NULL/.test(sql) && parametros[5] === true) {
+            alvo.preco_valido_ate = null;
+          }
         }
         alvo.versao = seguinte(alvo.versao);
         visto.escritas.push(sql.includes("preco_tipo = $3") ? "preco" : "stock");
@@ -161,8 +166,8 @@ function deps(cliente: ClienteSql): Dependencias {
   return { comTenant: async (_t, trabalho) => trabalho(cliente), anel: ANEL };
 }
 
-function ctx(tenant = TENANT_A): Ctx {
-  return { tenantId: tenant, actor: { kind: "dono", id: "dono-1" }, traceId: "trace-painel" };
+function ctx(tenant = TENANT_A, kind: Ctx["actor"]["kind"] = "dono"): Ctx {
+  return { tenantId: tenant, actor: { kind, id: "dono-1" }, traceId: "trace-painel" };
 }
 
 function alteracao(extra: Partial<AlteracaoDeOferta> = {}): AlteracaoDeOferta {
@@ -351,4 +356,54 @@ test("KAM-099 criterio 4: o preco gravado no painel e o que o getOfferView da a 
   await comRegisto(deps(cliente), ctx(), (reg) => alterarOferta(reg, alteracao({ precoMinor: 1_500_000n })));
   const depois = await comRegisto(deps(cliente), ctx(), (reg) => getOfferView(reg, SKU, new Date("2026-11-10T09:00:00Z")));
   assert.equal(depois.tipo === "ok" ? depois.valor.precoDisplay?.replace(/\s/g, " ") : null, "15 000 Kz");
+});
+
+test("KAM-099: so o actor dono grava pelo painel — agente, sistema e ops dao VALIDATION_ERROR", async () => {
+  for (const kind of ["agente", "sistema", "ops"] as const) {
+    const { cliente, visto } = base([linha(TENANT_A, SKU)]);
+    const r = await comRegisto(deps(cliente), ctx(TENANT_A, kind), (reg) => alterarOferta(reg, alteracao()));
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, kind);
+    assert.deepEqual(visto.escritas, [], kind);
+  }
+});
+
+test("KAM-099 criterio 4: gravar o mesmo preco sobre um preco vencido renova-o, e o fact deixa de o dar como vencido", async () => {
+  const { cliente, visto } = base([linha(TENANT_A, SKU, { preco_valido_ate: "2026-11-01T00:00:00.000Z" })]);
+  const agora = new Date("2026-11-10T09:00:00Z");
+  const antes = await comRegisto(deps(cliente), ctx(), (reg) => getOfferView(reg, SKU, agora));
+  assert.equal(antes.tipo === "ok" ? antes.valor.precoTipo : null, "a_partir_de");
+  const r = await comRegisto(deps(cliente), ctx(), (reg) => alterarOferta(reg, alteracao({ precoMinor: 1_250_000n })));
+  assert.equal(r.tipo, "ok");
+  assert.deepEqual(visto.escritas, ["preco"]);
+  assert.equal(visto.auditorias.length, 1);
+  const depois = await comRegisto(deps(cliente), ctx(), (reg) => getOfferView(reg, SKU, agora));
+  assert.equal(depois.tipo === "ok" ? depois.valor.precoTipo : null, "fixo");
+});
+
+/** Os ficheiros `.ts` de uma raiz, sem `node_modules` nem `dist`. */
+function fontes(raiz: string): string[] {
+  const saida: string[] = [];
+  for (const nome of readdirSync(raiz)) {
+    if (nome === "node_modules" || nome === "dist") continue;
+    const caminho = join(raiz, nome);
+    if (statSync(caminho).isDirectory()) saida.push(...fontes(caminho));
+    else if (nome.endsWith(".ts")) saida.push(caminho);
+  }
+  return saida;
+}
+
+test("KAM-099: todos os UPDATE da offer_terms escrevem atualizado_at = clock_timestamp() — sem isso o CAS deixa passar a escrita perdida", () => {
+  // O invariante de que o CAS depende, prendido por leitura das instrucoes e
+  // nao pelo nome da coluna. Um escritor novo que se esqueca do
+  // `atualizado_at`, ou que o escreva com `now()`, fica vermelho aqui.
+  const raizes = [new URL("../src", import.meta.url), new URL("../../../packages/core-ts/src", import.meta.url)];
+  const instrucoes: string[] = [];
+  for (const raiz of raizes) {
+    for (const ficheiro of fontes(raiz.pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
+      const texto = readFileSync(ficheiro, "utf8");
+      for (const m of texto.matchAll(/`([^`]*UPDATE\s+platform\.offer_terms[^`]*)`/g)) instrucoes.push(`${ficheiro}: ${m[1]}`);
+    }
+  }
+  assert.ok(instrucoes.length >= 6, `so ${instrucoes.length} instrucoes encontradas`);
+  for (const i of instrucoes) assert.match(i, /atualizado_at = clock_timestamp\(\)/, i.slice(0, 160));
 });

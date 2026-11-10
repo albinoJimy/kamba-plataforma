@@ -2766,14 +2766,24 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     }
     const deB = comercio.ofertas.get(TENANT_DE_B_NO_PAINEL)?.get(canario);
     const intacto = comercio.gravacoes.length === 0 && deB !== undefined && deB["precoMinor"] === 1_000_000n;
+    // A sonda positiva do PATCH: o `sku` de A, com a sessao de A, grava. Fora
+    // das entradas, porque o 200 dela quebrava a uniformidade dos tres 404.
+    const legitimo = await app.request("/painel/produtos/arroz-de-a", {
+      method: "PATCH",
+      headers: { cookie: cookieDeA, "content-type": "application/json", "idempotency-key": "chave-x01-painel-sonda-0000" },
+      body: JSON.stringify({ preco_tipo: "fixo", preco_minor: "1100000", versao: "2026-11-10T09:00:00.000001Z" }),
+    });
+    const sondaDoPatch = legitimo.status === 200 ? "sonda=viva" : "sonda=morta";
     for (const entrada of relatorio.rotas) {
-      if (entrada.item === ITENS_DO_PAINEL[3]) entrada.nota += intacto ? " b=intacto" : " b=alterado";
+      if (entrada.item === ITENS_DO_PAINEL[3]) entrada.nota += ` ${intacto ? "b=intacto" : "b=alterado"} ${sondaDoPatch}`;
     }
 
     // ---- GET /painel/encomendas/:id: a encomenda de B, com a sessao de A.
+    const propria = await app.request(`/painel/encomendas/${ORDEM_DE_A_NO_PAINEL}`, { headers: { cookie: cookieDeA } });
+    const sondaDoDetalhe = propria.status === 200 && (await propria.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta";
     for (let vez = 0; vez < 3; vez += 1) {
       const [c, headers] = comTenantDeB(`/painel/encomendas/${ORDEM_DE_B_NO_PAINEL}`, vez);
-      await empurrar(ITENS_DO_PAINEL[5], "GET", c, { headers }, () => "");
+      await empurrar(ITENS_DO_PAINEL[5], "GET", c, { headers }, () => sondaDoDetalhe);
     }
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);

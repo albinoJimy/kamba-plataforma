@@ -5,7 +5,8 @@
  *                                   sessão do painel; 401 sem ela
  *     POST  /painel/sair            revoga a sessão do painel
  *     GET   /painel/produtos        a lista, com o formulário (critério 2)
- *     PATCH /painel/produtos/:id    preço e stock, com `Idempotency-Key` e versão
+ *     PATCH /painel/produtos/:id    o preço, com `Idempotency-Key` e versão; o
+ *                                   stock recusa-se — ver `./validacao.ts`
  *     GET   /painel/encomendas      só leitura, por estado e data (critério 6)
  *     GET   /painel/encomendas/:id  uma encomenda
  *     GET   /painel/canal           o estado do canal (critério 7)
@@ -36,7 +37,7 @@
 import { Hono } from "hono";
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { cookieDoCabecalho, lerReferencia, ReferenciaInvalidaError } from "@kamba/core-ts/inscricao";
+import { cabecalhoQueApaga, cookieDoCabecalho, lerReferencia, ReferenciaInvalidaError } from "@kamba/core-ts/inscricao";
 import type { Logger } from "@kamba/core-ts/logger";
 
 import type { LeitorDoCanal } from "./canal.ts";
@@ -115,6 +116,18 @@ function html(corpo: string, estado: number, n: string, extra: Record<string, st
   });
 }
 
+/** O JSON de um valor com as chaves ordenadas, a qualquer profundidade. */
+function canonico(valor: unknown): string {
+  if (Array.isArray(valor)) return `[${valor.map(canonico).join(",")}]`;
+  if (valor !== null && typeof valor === "object") {
+    const pares = Object.keys(valor as Record<string, unknown>)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonico((valor as Record<string, unknown>)[k])}`);
+    return `{${pares.join(",")}}`;
+  }
+  return JSON.stringify(valor);
+}
+
 /** Um `bigint` sai como cadeia de dígitos. */
 function semBigInt(valor: unknown): unknown {
   return JSON.parse(JSON.stringify(valor, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
@@ -145,6 +158,14 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     const agora = relogio();
     const s = lerSessao(cookieDoPainel(cabecalho), opcoes.anelDaAssinatura, agora);
     if (s === null || (await opcoes.revogacoes.revogada(s))) return null;
+    // **O caso lê-se outra vez a cada pedido.** Uma sessão de 30 dias sobre um
+    // caso que entretanto foi `cancelado` ou `rejeitado` continuava a abrir o
+    // catálogo até ao tecto; com esta leitura, mudar a fase do caso fecha o
+    // painel no pedido seguinte. E o tenant tem de ser o do caso, e não só o
+    // da assinatura. Achado da revisão adversarial.
+    const caso = await opcoes.casos.porId(s.dono);
+    if (caso === null || caso.tenantId.toLowerCase() !== s.tenantId) return null;
+    if (!(FASES_COM_PAINEL as readonly string[]).includes(caso.fase)) return null;
     const nova = renovacao(s, agora);
     const chave = opcoes.anelDaAssinatura[0];
     if (nova === null || !(chave instanceof Uint8Array)) return { s, renovar: {} };
@@ -183,7 +204,15 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     const sessao = await sessaoDe(c.req.header("cookie"));
     if (sessao !== null) await opcoes.revogacoes.revogar(sessao.s.sid);
     log?.info({ outcome: "painel_sessao_revogada" });
-    return html(paginaSemSessao(n), 200, n, { "set-cookie": cabecalhoQueApagaASessao() });
+    // **Apaga as duas sessões, e não só a do painel.** A do registo (24 h) ficava
+    // no navegador, e um `GET /painel/entrar` a seguir cunhava logo outra de 30
+    // dias: num telemóvel partilhado, quem pegasse a seguir entrava. O valor da
+    // do registo não se revoga (não tem lista), pelo que uma cópia dele vale até
+    // às 24 h — e é esse o limite que fica. Achado da revisão adversarial.
+    const r = html(paginaSemSessao(n), 200, n);
+    r.headers.append("set-cookie", cabecalhoQueApagaASessao());
+    r.headers.append("set-cookie", cabecalhoQueApaga());
+    return r;
   });
 
   app.get("/painel/produtos", async (c) => {
@@ -239,11 +268,16 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       return json({ erro: "campo", campo: leitura.campo }, 400, renovar);
     }
     const pedido = leitura.pedido;
-    const impressao = `${sku}\u0000${texto}`;
+    // A impressao e o corpo **canonico** (chaves ordenadas), e nao o texto: o
+    // mesmo pedido com outro espacamento e o mesmo pedido.
+    const impressao = `${sku}\u0000${canonico(corpo)}`;
 
     const desfecho = await idempotencia.uma(s.tenantId, chave, impressao, async (): Promise<Guardada> => {
       const lista = await comercio.listarOfertas(s.tenantId, actor(s));
       if (lista.tipo !== "ok") return { estado: 503, corpo: { erro: "indisponivel" } };
+      // shortcut: o preco anterior le-se da lista (tecto de 200 ofertas), pelo que
+      // uma oferta para la da 200.a da 404 aqui como na pagina, que tambem nao a
+      // mostra; reve-se quando o COM servir a leitura de uma oferta so.
       const antes = lista.valor.itens.find((o) => o.sku === sku);
       if (antes === undefined) return { estado: 404, corpo: { erro: "nao_encontrado" } };
       if (!pedido.confirmarVariacao && pedeConfirmacao(antes.precoMinor, pedido.precoMinor)) {
@@ -253,13 +287,12 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
         };
       }
       // A segunda leitura da revogação: ver a nota do módulo.
-      if (await opcoes.revogacoes.revogada(s)) return { estado: 401, corpo: { erro: "sessao" } };
+      if (await opcoes.revogacoes.revogada(s)) return { estado: 401, corpo: { erro: "sessao" }, guardar: false };
       const r = await comercio.alterarOferta(s.tenantId, actor(s), {
         sku,
         precoTipo: pedido.precoTipo,
         precoMinor: pedido.precoMinor,
         versao: pedido.versao,
-        ...(pedido.stock === undefined ? {} : { stock: pedido.stock }),
       });
       if (r.tipo === "ok") return { estado: 200, corpo: semBigInt({ versao: r.valor.versao, oferta: r.valor }) };
       if (r.tipo === "conflito") return { estado: 409, corpo: semBigInt({ erro: "conflito", versao: r.valor.versao, oferta: r.valor }) };

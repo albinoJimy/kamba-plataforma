@@ -789,8 +789,13 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal",
 )
 
-#: As que respondem 200 aos ataques, e porque. Ver a nota de cima.
+#: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
+#: respondem 200 (ver a nota de cima). O `PATCH` e o detalhe de encomenda
+#: respondem **404 e so 404**: o criterio 8 escreve «404, nao 403», e com o
+#: global uma regressao para 403 ficava verde. Achado da revisao adversarial.
 ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
+    "rota:onboarding-web:painel/rotas:actor:PATCH:/painel/produtos/:id": (404,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas/:id": (404,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/sair": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas": (200,),
@@ -819,7 +824,10 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "varrimento nao encontra o que nunca la esteve.",
         )
     )
-    if item in ACEITAVEIS_DO_PAINEL and not item.endswith("/painel/sair"):
+    # A sonda positiva: nas listas, os dados de A chegaram a resposta dos
+    # ataques; no `PATCH` e no detalhe, um pedido legitimo de A, fora das
+    # entradas, deu 200. Sem ela, uma rota morta (401 ou 404 a tudo) passava.
+    if not item.endswith(("/painel/sair", "/painel/entrar")):
         achados.extend(
             _exigir_marca(
                 item,

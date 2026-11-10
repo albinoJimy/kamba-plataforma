@@ -267,7 +267,7 @@ export class ComercioEmMemoria implements Comercio {
     this.encomendas.set(tenantId, [...encomendas]);
   }
 
-  async listarOfertas(tenantId: string) {
+  async listarOfertas(tenantId: string): Promise<Resposta<{ itens: readonly Oferta[]; truncada: boolean }>> {
     const itens = [...(this.ofertas.get(tenantId)?.values() ?? [])];
     return { tipo: "ok" as const, valor: { itens, truncada: false } };
   }
