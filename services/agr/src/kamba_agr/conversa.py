@@ -32,7 +32,7 @@ from typing import Any
 
 from kamba_core import tenant_guard
 
-from .consultas import SQL_PALAVRA_DA_CONVERSA
+from .consultas import SQL_CONTACTO_BLOQUEADO, SQL_PALAVRA_DA_CONVERSA
 from .contexto import InvocacaoDoAgente
 from .turno import Palavra
 
@@ -95,3 +95,45 @@ def leitor(abrir_ligacao: Callable[[], Any]) -> Callable[[InvocacaoDoAgente], An
                 raise
 
     return ler
+
+
+def contacto_bloqueado_sincrono(ligacao: Any, invocacao: InvocacaoDoAgente) -> bool:
+    """O contacto do turno esta bloqueado? Zero linhas e **bloqueado**.
+
+    A conversa ja se leu antes (a palavra), pelo que um contacto que nao se le
+    e uma incoerencia ou um contexto de RLS trocado — e a porta fecha, pela
+    razao do ponto 2 desta nota: um `or False` aqui corria o turno sobre um
+    contacto que nao se conseguiu ver.
+    """
+    with tenant_guard.tx(ligacao, invocacao.tenant_id) as cursor:
+        cursor.execute(
+            SQL_CONTACTO_BLOQUEADO, (invocacao.tenant_id, invocacao.contact_id)
+        )
+        linha = cursor.fetchone()
+    return True if linha is None else bool(linha[0])
+
+
+def leitor_de_contacto(
+    abrir_ligacao: Callable[[], Any],
+) -> Callable[[InvocacaoDoAgente], Any]:
+    """A leitura do contacto da porta `admitir` (KAM-186), uma ligacao por leitura.
+
+    Uma ligacao por leitura e nao uma guardada, como o `LeitorDeEntitlements`:
+    a leitura e uma por turno e corre num *executor*, e uma tomada guardada
+    pedia o `asyncio.Lock` do `leitor` acima para nada.
+    """
+
+    def ler(invocacao: InvocacaoDoAgente) -> bool:
+        ligacao = abrir_ligacao()
+        try:
+            return contacto_bloqueado_sincrono(ligacao, invocacao)
+        finally:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — a leitura ja aconteceu
+                pass
+
+    async def bloqueado(invocacao: InvocacaoDoAgente) -> bool:
+        return await asyncio.to_thread(ler, invocacao)
+
+    return bloqueado

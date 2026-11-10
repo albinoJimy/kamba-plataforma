@@ -27,14 +27,15 @@
 # unico caminho de pagamento que existe hoje, que e o pedido confirmado a mao.
 #
 # ---------------------------------------------------------------------------
-# O `graph` AINDA NAO RESOLVE, E ISSO ESTA DECIDIDO.
+# O `graph` RESOLVE, E O PROCESSO SERVE-O (KAM-186).
 #
 # O §5.1 escreve `kamba.verticals.vendedor:build_graph`, um caminho que nao
 # existe nem pode existir: o pacote chama-se `kamba_agr`, e o KAM-025 ja
-# decidiu que o que e so do AGR vive nele (`estado.py`). O alvo abaixo e
-# *proposta*, e quem o ratifica e o KAM-031, que escreve o modulo. Enquanto nao
-# existir, a validacao (3) do §5.2 corre em modo `aviso`
-# (`registry/gates.yaml`) e o `/internal/turn` continua a responder 503.
+# decidiu que o que e so do AGR vive nele (`estado.py`). O alvo abaixo foi
+# escrito pelo KAM-031, e desde o KAM-186 o arranque compila-o: a validacao (3)
+# do §5.2 corre em `bloqueio` (as linhas `grafo` sairam do `registry/gates.yaml`)
+# e o `/internal/turn` serve-o, pela porta `grafos` de `kamba_agr/grafos.py`.
+# Mudar so comentarios nao sobe a `version`: o tuplo e o mesmo.
 
 # ---------------------------------------------------------------------------
 # ESTILO DE BLOCO, E NAO DE FLUXO — ver `registry/gates.yaml`, que leva a razao

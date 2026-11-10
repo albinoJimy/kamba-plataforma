@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -238,7 +238,7 @@ procedimento.
 | **Não há produção.** O compose de produção corre em `KAMBA_DATA_CLASS=synthetic` e não há *host* (D1/KAM-105) | Nenhum comando contra produção foi corrido | `docs/observabilidade.md`, `infra/backup/cobertura.yaml` |
 | **O Alertmanager não notifica ninguém.** Os três `receivers` não têm notificador; o canal de alertas não está escolhido | Um alerta vê-se no Alertmanager e não chega a um telemóvel. Hoje, quem está de serviço tem de **ir ver** | [`../../ops/on-call.md`](../../ops/on-call.md) §3, KAM-069 |
 | **Nenhum consumidor lê a `wa-inbound` em produção** | O compose corre os quatro processos do `worker-canal` desde o KAM-187, mas o `entrada.ts` não arranca com `KAMBA_ENV=prod`: o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre. O GWY aceita e enfileira; nada processa. Uma fila de entrada a crescer é isto antes de ser outra coisa | [`../identidade.md`](../identidade.md) §8, linha 2 (o fundador); `specs/EPIC-08` bloco KAM-187 |
-| **O AGR responde 503 a todos os turnos** (a porta `grafos` não está ligada) | Todo o turno do Vendedor falha e repete até `failed`. Não é o LLM | `specs/EPIC-03` bloco KAM-186 |
+| **O AGR responde 503 `saida_por_ligar` aos turnos que respondem** (a porta `grafos` está ligada desde o KAM-186; a de saída não tem Outbound) | O turno corre o grafo, não chama o LLM, e repete até `failed`. Não é o LLM | `specs/EPIC-03` bloco KAM-186; `docs/agr.md` §7-K |
 | **Não há escala de *on-call*** com pessoas | «Escalar ao secundário» não tem destinatário | `ops/on-call.md`, credor o fundador |
 | **Não há sonda sintética externa** | A metade «sonda falha 2×» do `ingress_parado` não existe | `docs/observabilidade.md`, D1/KAM-105 |
 | **O GWY do compose não arranca tal como está escrito**: exige `KAMBA_QUEUE_URL`, `KAMBA_AMBIENTE` e os dois segredos da Meta, e nenhum compose lhos passa | Numa pilha levantada assim, o `ingress_parado` dispara e a causa é nossa | `services/gwy/src/server.ts`; [RB-K01](RB-K01-meta-em-baixo.md) §0 |
@@ -251,4 +251,5 @@ procedimento.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | Criado pelo **KAM-083**: índice dos dez runbooks, o modelo único, as convenções de marca dos comandos, as duas listas alerta ↔ runbook medidas, e o estado do sistema que todos herdam | KAM-083 |
-| 1.1 | Novembro 2026 | **KAM-187**, integrado depois deste: a linha «nenhum consumidor lê a `wa-inbound`» passa a dizer porquê — o compose corre os quatro processos, e em `prod` o `entrada.ts` não arranca | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **KAM-186**: a linha «O AGR responde 503 a todos os turnos» passa a dizer o 503 que fica — o `saida_por_ligar` — e que a porta `grafos` está ligada. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a linha «nenhum consumidor lê a `wa-inbound`» passa a dizer porquê — o compose corre os quatro processos, e em `prod` o `entrada.ts` não arranca | Equipa KAMBÁ |

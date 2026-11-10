@@ -371,11 +371,21 @@ def _correr_suite(ambiente: dict[str, str], suite: str) -> int:
         return 1
 
 
-def com_contentor(suite: str) -> int:
+def com_contentor(suite: str, *, com_fila: bool | None = None, correr=None) -> int:
+    """Levanta a base (e a fila, se for preciso), corre a suite e apaga tudo.
+
+    `com_fila` e `correr` sao para quem nao e uma suite de *gate*: o ensaio de
+    carga do KAM-084 (`db/carga.py`) reutiliza o arranque e a limpeza dos
+    contentores sem se declarar no `SUITES` — que e a lista do que o CI corre, e
+    o `test_toda_a_suite_de_base_de_dados_e_invocada_por_um_gate` exige que cada
+    nome dela esteja num alvo do `Makefile`. Por omissao, o comportamento e o de
+    sempre.
+    """
     senha_admin = secrets.token_urlsafe(24)
     sufixo = secrets.token_hex(4)
     nome = f"kamba-gate8-{sufixo}"
-    com_fila = suite in SUITES_COM_FILA
+    if com_fila is None:
+        com_fila = suite in SUITES_COM_FILA
     # A rede so se cria quando faz falta: o caminho das outras tres suites fica
     # exactamente como estava.
     rede = f"kamba-eventos-{sufixo}" if com_fila else ""
@@ -433,7 +443,7 @@ def com_contentor(suite: str) -> int:
                 }
             )
         _esperar_pela_base(ambiente)
-        return _correr_suite(ambiente, suite)
+        return (correr or _correr_suite)(ambiente, suite)
     except RuntimeError as erro:
         print(f"gate de BD: {erro}", file=sys.stderr)
         registo = _docker("logs", "--tail", "20", nome)

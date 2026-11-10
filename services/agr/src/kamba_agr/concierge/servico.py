@@ -33,6 +33,7 @@ nesta classe, e usado para medir, e nao sai.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -52,6 +53,14 @@ from .maquina import (
     exigir_motivo,
     numero_livre,
 )
+
+
+async def _resolver(grafos: Callable[[str], Any], thread_id: str) -> Any:
+    """O grafo da *thread*, pela porta sincrona ou pela `async` do processo."""
+    grafo = grafos(thread_id)
+    if inspect.isawaitable(grafo):
+        grafo = await grafo
+    return grafo
 
 class TextoEditadoInvalidoError(ValueError):
     """`editado` sem texto, ou texto numa decisao que o nao leva."""
@@ -162,8 +171,9 @@ class Decisor:
         motivo_valido = exigir_motivo(motivo, decisao)
         tenant_id, _contact_id = partes(thread_id)
 
-        # Licao 1 da nota do modulo: antes de tocar na base.
-        grafo = self._grafos(thread_id)
+        # Licao 1 da nota do modulo: antes de tocar na base. A porta do
+        # processo e `async` (le o *checkpoint*, KAM-186), e espera-se aqui.
+        grafo = await _resolver(self._grafos, thread_id)
 
         razao: float | None = None
         livre = False
@@ -238,7 +248,7 @@ class Decisor:
                 f"(recebido: {decisao!r})"
             )
         tenant_id, _contact_id = partes(thread_id)
-        grafo = self._grafos(thread_id)
+        grafo = await _resolver(self._grafos, thread_id)
 
         venceu = await self._executar(
             SQL_DECIDIR_RASCUNHO,

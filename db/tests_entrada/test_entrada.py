@@ -243,7 +243,7 @@ class ComEntrada(unittest.TestCase):
     # --- os dois processos -------------------------------------------------
 
     @classmethod
-    def _lancar_gwy(cls) -> node.Processo:
+    def _lancar_gwy(cls, limites: tuple[str, str] | None = None) -> node.Processo:
         porta = porta_livre()
         # Duas portas: a publica so leva o `/wa/webhook`, e o `/metrics` vive
         # na interna. E a correccao de um achado da revisao adversarial —
@@ -266,6 +266,7 @@ class ComEntrada(unittest.TestCase):
             "gwy",
             porta=porta,
             porta_das_metricas=porta_das_metricas,
+            limites=limites,
         )
         cls.processos.append(processo)
         if not esperar_por(lambda: _sonda(porta), ARRANQUE):
@@ -273,7 +274,7 @@ class ComEntrada(unittest.TestCase):
         return processo
 
     @classmethod
-    def _lancar_worker(cls) -> node.Processo:
+    def _lancar_worker(cls, limites: tuple[str, str] | None = None) -> node.Processo:
         porta = porta_livre()
         processo = node.lancar(
             "services/worker-canal",
@@ -299,6 +300,7 @@ class ComEntrada(unittest.TestCase):
             },
             "entrada",
             porta=porta,
+            limites=limites,
         )
         cls.processos.append(processo)
         if not esperar_por(lambda: _sonda(porta), ARRANQUE):

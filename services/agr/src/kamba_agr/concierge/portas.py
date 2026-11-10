@@ -109,7 +109,25 @@ class PortaDeRascunho(Protocol):
     ) -> str: ...
 
 
+class ProvedorDeRascunhoPorLigar:
+    """O `postDraft` do HND, por ligar. O provedor HTTP nao existe no AGR.
+
+    **Levanta `RascunhoIndisponivel`**, que e a degradacao que o
+    `docs/tecnica/01` §11.5 escreve para «Chatwoot indisponivel» e que o
+    `ServicoDeRascunho` ja trata: grava a linha `pendente`, conta, e o prazo das
+    24 h fecha-a. Nao sai mensagem nenhuma ao cliente. E a mesma forma do
+    `ProvedorPorLigar` do handoff (KAM-034), e liga-se no `__main__` desde o
+    KAM-186 para que a politica de concierge nunca corra sem servico (o `P3`).
+    """
+
+    __slots__ = ()
+
+    def publicar(self, **_campos: object) -> str:
+        raise RascunhoIndisponivel("provedor_de_rascunho_por_ligar")
+
+
 __all__ = [
+    "ProvedorDeRascunhoPorLigar",
     "ConciergeSemServicoError",
     "PortaDeRascunho",
     "RascunhoIndisponivel",

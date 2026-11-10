@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K03** |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Cenário | Os turnos do agente ficam lentos ou param, a fila de entrada ou a do agente cresce, ou o orçamento de LLM de um *tenant* esgota |
 | Severidade | **P2** (filas e latência), **P3** (orçamento) |
 | Alertas que o activam | `fila_de_entrada_a_crescer` (P2), `fila_do_agente_a_crescer` (P2), `latencia_de_resposta_alta` (P2) e `llm_sem_budget` (P3), em [`../../infra/compose/prometheus/regras/kamba.yml`](../../infra/compose/prometheus/regras/kamba.yml). A `degradacao_acima_do_limiar` e o `disjuntor_do_llm_aberto` vão para [`degradacao-do-agr.md`](degradacao-do-agr.md) |
@@ -21,10 +21,12 @@
 
 Quatro factos medidos que, hoje, explicam estes alertas antes de o LLM os explicar:
 
-1. **O AGR responde 503 a todos os turnos do Vendedor** — a porta `grafos` não está
-   ligada (`GrafoNaoRegistadoError`, KAM-186). O turno não chega ao LLM, repete pela
-   escada de tentativas e acaba em `failed`. Uma latência ou uma fila do agente alta é
-   isto antes de ser o fornecedor.
+1. **O AGR responde 503 `saida_por_ligar` aos turnos que querem responder** — a
+   porta `grafos` está ligada desde o KAM-186 e o grafo corre, mas a porta de saída
+   não tem Outbound a que falar (`docs/agr.md` §7-K). O turno **não chama o LLM** (as
+   duas portas que o usariam estão por ligar), repete pela escada de tentativas e
+   acaba em `failed`. Uma latência ou uma fila do agente alta é isto antes de ser o
+   fornecedor.
 2. **Em `prod`, nenhum consumidor lê a `wa-inbound`.** O compose corre o `entrada.ts` desde
    o KAM-187, mas em `prod` o `entrada.ts` não arranca — o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre (`../identidade.md` §8, linha 2). O `fila_de_entrada_a_crescer`
    dispara com **qualquer** tráfego, e a causa não é o LLM.
@@ -113,7 +115,7 @@ docker exec kamba-prod-postgres-1 \
 docker ps -a --filter label=com.docker.compose.project=kamba-prod --filter label=com.docker.compose.service=agr
 docker logs --since 30m kamba-prod-agr-1
 ```
-`não verificado` contra produção. **O `grafo_nao_registado` do §0, ponto 1, não aparece aqui:** é só o corpo JSON da resposta 503 (`api_interna.py`), e o servidor corre sem registo de acessos — nenhum log nem métrica do AGR o distingue. O que o mostra é o *job* a acabar em `failed` na `agr-inbound` depois das tentativas: `docker exec kamba-prod-queue-1 valkey-cli ZCARD bull:agr-inbound:failed` a subir (`verificado` o comando na imagem do Valkey; a fila é a `FILA_AGR` de `packages/core-ts/src/chr/contrato.ts`). Até ao KAM-186, a resposta certa a «é o grafo?» é **sim**.
+`não verificado` contra produção. **O `saida_por_ligar` do §0, ponto 1, aparece aqui:** o AGR escreve uma linha `"outcome":"saida","error_code":"saida_por_ligar"` por cada resposta que não saiu (KAM-186) — `docker logs … | grep -c saida_por_ligar`, `não verificado` contra uma pilha levantada. O que o mostra é o *job* a acabar em `failed` na `agr-inbound` depois das tentativas: `docker exec kamba-prod-queue-1 valkey-cli ZCARD bull:agr-inbound:failed` a subir (`verificado` o comando na imagem do Valkey; a fila é a `FILA_AGR` de `packages/core-ts/src/chr/contrato.ts`). Até haver ponte AGR → Outbound, a resposta certa a «é a saída?» é **sim**.
 
 ## 3. Mitigação
 
@@ -199,4 +201,5 @@ comercial — o texto do RB-K01 §6 com «o assistente está a responder em modo
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): um ramo por alerta, as consultas ao Prometheus e à base verificadas, a separação «indisponível» contra «sem *budget*», e o N1/N2 como o que já acontece sozinho. O §0 regista que o LiteLLM do compose não tem chaves virtuais nem orçamentos (medido) | KAM-083 |
-| 1.1 | Novembro 2026 | **KAM-187**, integrado depois deste: a falta de consumidor da `wa-inbound` passa a ter a causa certa — o compose corre o `entrada.ts`, e em `prod` ele não arranca (`../identidade.md` §8, linha 2) | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **KAM-186**: o §0, ponto 1, e o §2 deixam de dizer que a porta `grafos` está por ligar. O 503 passa a ser o `saida_por_ligar` — o grafo corre e a resposta não tem Outbound a que sair —, e esse aparece no registo do AGR, ao contrário do `grafo_nao_registado`, que só vivia no corpo da resposta. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a falta de consumidor da `wa-inbound` passa a ter a causa certa — o compose corre o `entrada.ts`, e em `prod` ele não arranca (`../identidade.md` §8, linha 2) | Equipa KAMBÁ |

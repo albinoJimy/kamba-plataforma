@@ -78,6 +78,7 @@ mensagem duas vezes.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -131,31 +132,57 @@ class LoteMisturadoError(RuntimeError):
 
 
 class GrafoNaoRegistadoError(RuntimeError):
-    """Nao ha grafo para esta vertical. O AgentRegistry e o KAM-027.
+    """Nao ha grafo para esta vertical, ou para esta *thread*.
 
-    E o estado em que este ticket deixa o servico de proposito: o Objectivo diz
-    «sem ainda conter grafos de negocio». O que isto **nao** pode ser e um 200 a
-    fingir que o turno correu, nem um 500 que ponha o BullMQ a repetir para
-    sempre uma mensagem que nenhuma versao deste codigo consegue tratar: a API
-    responde 503 com `Retry-After`, que e «o turno nao corre agora e a mensagem
-    fica na fila» — a mesma linha que o `docs/tecnica/02` §14 escreve para o
-    checkpointer indisponivel.
-
-    **O AGR nao vai a producao antes do KAM-027 e do KAM-031.** Fica escrito
-    aqui, em `docs/agr.md` e na secção de verificacao do bloco do ticket.
+    Desde o KAM-186 o processo liga as tres portas ao registo (`grafos.py`), e
+    isto deixou de ser o estado do servico: e o de uma *thread* sem
+    *checkpoint* ou com uma vertical que o registo nao tem. O que isto **nao**
+    pode ser e um 200 a fingir que o turno correu, nem um 500 que ponha o BullMQ
+    a repetir para sempre: a API responde 503 com `Retry-After`, que e «o turno
+    nao corre agora e a mensagem fica na fila» — a mesma linha que o
+    `docs/tecnica/02` §14 escreve para o checkpointer indisponivel.
     """
 
 
-def sem_grafos(_invocacao: InvocacaoDoAgente) -> Grafo:
-    """A porta `grafos` por omissao: levanta.
+class VerticalRecusadaError(RuntimeError):
+    """O `AgentRegistry.resolve` recusou a vertical: o turno nao corre e **nao repete**.
 
-    **O KAM-027 nao a substituiu, e isso e decisao escrita.** Ele entregou o
-    `AgentRegistry` — que valida o registo no arranque e resolve a vertical por
-    contexto e entitlement —, mas o `graph` das duas verticais aponta para
-    `kamba_agr.verticais.<id>:build_graph`, que o KAM-031 e o KAM-035 escrevem.
-    Ligar esta porta ao registo hoje trocava este 503 por outro 503 (o alvo nao
-    resolve) e punha uma leitura de entitlement no caminho de **cada** turno,
-    para nada. Quem a substitui e o ticket que tiver um grafo para lhe dar.
+    E a resposta que o criterio 6 do KAM-027 fixou (`servico_indisponivel`),
+    para um *tenant* sem o entitlement ou uma vertical que o registo nao tem.
+    E configuracao e nao avaria — nenhuma das seis tentativas do *shim* a muda —,
+    pelo que o turno acaba com o desfecho `servico_indisponivel` e a rota
+    responde 200. Leva o `motivo` da lista fechada do §3.26; o alerta ja foi
+    contado pelo `resolve`.
+    """
+
+    def __init__(self, motivo: str) -> None:
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
+class SaidaPorLigarError(RuntimeError):
+    """O grafo quis responder e nao ha Outbound a que o AGR fale (KAM-186).
+
+    A rota responde 503 `saida_por_ligar` com `Retry-After`: o turno nao
+    acabou, o *checkpoint* fica com o `send` por correr, e o *job* volta a fila
+    em vez de completar com a resposta perdida. Ver o `SaidaPorLigar` de
+    `grafos.py`.
+    """
+
+
+#: O desfecho de um turno cuja vertical o registo recusou. E o identificador da
+#: resposta estatica do criterio 6 do KAM-027, e nao um segundo nome para ela.
+DESFECHO_SERVICO_INDISPONIVEL = "servico_indisponivel"
+
+
+def sem_grafos(_invocacao: InvocacaoDoAgente) -> Grafo:
+    """A porta `grafos` que levanta sempre. **Nao e a do processo.**
+
+    Era a omissao do AGR ate ao KAM-186, que liga as tres portas ao registo de
+    verticais (`grafos.py`). Fica para as baterias que medem a outra direccao
+    de cada porta — com ela no lugar da resolucao, o mesmo pedido volta a 503 —
+    e e a mutacao que a `agr_unit` devolve ao `__main__` para provar que o
+    ensaio da ligacao morde.
     """
     raise GrafoNaoRegistadoError("grafo_nao_registado")
 
@@ -176,7 +203,7 @@ class ExecutorDeTurnos:
         self,
         trancas: Any,
         ler_palavra: Callable[[InvocacaoDoAgente], Awaitable[Palavra | None]],
-        grafos: Callable[[InvocacaoDoAgente], Grafo],
+        grafos: Callable[[InvocacaoDoAgente], Grafo | Awaitable[Grafo]],
         reencaminhar: Callable[[list[InvocacaoDoAgente]], Awaitable[None]],
         admissao: Admissao | None = None,
         relogio: Callable[[], float] = time.monotonic,
@@ -350,11 +377,21 @@ class ExecutorDeTurnos:
                     desfecho = "entregue_ao_hnd"
                 else:
                     estado = estado_inicial(primeira)
-                    grafo = self._grafos(primeira)
-                    await grafo.ainvoke(
-                        estado, {"configurable": {"thread_id": thread_id}}
-                    )
-                    desfecho = "executado"
+                    try:
+                        # A porta do processo e `async` (KAM-186): le o
+                        # entitlement, o contacto e o *checkpoint* antes de
+                        # devolver o grafo. A sincrona continua a servir.
+                        grafo = self._grafos(primeira)
+                        if inspect.isawaitable(grafo):
+                            grafo = await grafo
+                    except VerticalRecusadaError:
+                        grafo = None
+                        desfecho = DESFECHO_SERVICO_INDISPONIVEL
+                    if grafo is not None:
+                        await grafo.ainvoke(
+                            estado, {"configurable": {"thread_id": thread_id}}
+                        )
+                        desfecho = "executado"
         except BaseException as erro:  # noqa: BLE001 — repassado a quem chama
             METRICAS.contar(METRICA_TURNOS, "falhou")
             METRICAS.medir(METRICA_DURACAO, (self._agora() - comecou) * 1_000)

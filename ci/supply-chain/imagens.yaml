@@ -434,3 +434,20 @@ fontes_adicionais:
   # Docker e nao esta declarado e uma imagem que ninguem fixou nem inventariou.
   - ficheiro: tools/isolamento/condutor/ponte.py
     constante: IMAGEM_NODE
+  # KAM-084: a medicao do ensaio de carga le o cgroup dos contentores que a
+  # suite ja levantou (`docker exec <nome> cat /sys/fs/cgroup/...`) e pergunta
+  # ao Docker os recursos e o que mais esta a correr (`docker info`,
+  # `docker ps`). Nao lanca contentor nenhum, e por isso nao ha constante.
+  - ficheiro: db/tests_dimensionamento/medicao.py
+    sem_imagem: >-
+      So docker exec, docker ps e docker info sobre contentores que ja existem
+      (os do gate e os que db/tests_entrada/node.py lanca, com IMAGEM_NODE).
+      Nao nomeia imagem nem cria contentor.
+  # KAM-084: os cenarios do mesmo ensaio poem os limites do compose de producao
+  # nos contentores medidos (`docker update --cpus --memory`) e vigiam os `oom`
+  # e `die` deles (`docker events`). Tambem nao lancam contentor nenhum.
+  - ficheiro: db/tests_dimensionamento/test_cenarios.py
+    sem_imagem: >-
+      So docker update e docker events sobre contentores que ja existem (os do
+      gate e os que db/tests_entrada/node.py lanca, com IMAGEM_NODE). Nao nomeia
+      imagem nem cria contentor.
