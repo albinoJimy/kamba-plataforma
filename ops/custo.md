@@ -27,7 +27,11 @@ dizem-no. Escrever zero era afirmar que a voz não custou nada.
 **Sem pessoas em parte nenhuma.** A vista não tem `contact_id`, conversa,
 telefone, `wamid` nem texto; o `h6-export` troca o contacto por um ordinal **na
 base**; e o `db/tests/test_custo.py` recusa um `rawSql` de painel que nomeie um
-identificador ou leia outra relação.
+identificador ou que escreva uma relação qualificada fora da vista, da
+`tenant_channels` e da `tenants` — em maiúsculas ou minúsculas, depois de um
+`FROM`, de um `JOIN` ou de uma vírgula. **É um ensaio sobre o texto, e tem o
+limite disso:** a defesa que não depende do texto é a fonte do Grafana ler com
+um papel que só tenha `SELECT` na vista, que é do deploy.
 
 ## 2. `h6-export`: a amostra de conversas
 
@@ -43,19 +47,29 @@ Corre como `kamba_batch` (as variáveis do `db/ligacao.py`), sob o *job*
   início e de fim, o número de mensagens e o custo LLM, STT e Meta;
 * **os percentis p50, p90 e p99** do custo total por conversa, por posição mais
   próxima (um valor que existe na amostra, sem interpolar);
-* **o rácio custo/mensalidade por tenant e mês**, em Kz ao câmbio pedido.
+* **o rácio custo/mensalidade por tenant e mês**, em Kz ao câmbio pedido. O
+  custo é o **do mês inteiro**, lido da vista, e não a soma da amostra (que
+  dependia do N e do corte); o mês corrente sai com `mes_completo: false`;
+* **`llm_nao_atribuido`**: o LLM dos dias em que o tenant não enviou mensagem
+  nenhuma, por tenant. Não tem a quem ser rateado, e sem esta linha perdia-se;
+* **`excluidas`**: as conversas que ficaram de fora por ainda estarem abertas
+  (a última mensagem tem menos de 24 h) ou por poderem ter começado antes da
+  janela (a primeira está nas primeiras 24 h dela). A amostra só leva
+  conversas inteiras.
 
 Três limites, que a própria saída escreve no campo `metodo`:
 
 1. **Conversa** é «mensagens do mesmo contacto sem pausa maior do que 24 h»,
-   **medida nas mensagens de saída**. A entrada não se guarda mensagem a mensagem
-   com contacto (`platform.inbound_events` não tem `tenant_id` nem
-   `contact_id`), pelo que uma conversa sem resposta do bot não aparece.
+   **medida nas mensagens de saída**. As mensagens de texto da entrada não se
+   guardam com contacto (`platform.inbound_events` não tem `tenant_id` nem
+   `contact_id`; a mídia guarda-se, em `platform.media_assets`, e é só a mídia),
+   pelo que uma conversa sem resposta do bot não aparece.
    **INDÍCIO**: o bot responde a cada turno.
 2. **O LLM por conversa é rateado** pelas mensagens de saída do tenant nesse
    dia, e não medido: a `dat.llm_call_log` não tem chave para uma conversa — tem
    `trace_id`, que não é o `turn_id` nem o contacto (nota do custo na revisão
-   `0024`). A soma do rateado dá o LLM do dia, tenant a tenant.
+   `0024`). A soma do rateado dá o LLM dos dias **com** mensagens, tenant a
+   tenant; o dos dias sem nenhuma vai para `llm_nao_atribuido`.
 3. **A Meta é medida**: a tarifa da categoria que o `pricing` dos *statuses* diz,
    nas mensagens entregues e cobráveis.
 
@@ -75,9 +89,22 @@ de **2%** (*proposta*, do critério 3) ou que só aparecem de um lado.
 **Quando correr:** sete dias de tráfego sintético em *staging*, como o critério
 3 pede, e depois uma vez por mês. Nada disto correu: não há *staging*.
 
-## 4. Reconciliação mensal com a factura da Meta
+## 4. Reconciliação da Meta
 
-**Manual e mensal**, porque a factura é da PME:
+**Pela tarifa, por comando:**
+
+```bash
+python db/h6_export.py reconciliar-meta --mes 2026-11
+```
+
+Por número (o ordinal do canal dentro do tenant; o `channel_id` não sai da
+base) e mês, compara o custo **medido** — as mensagens que o `pricing` diz
+cobráveis, à tarifa da categoria — com o custo **pela tarifa** — a contagem das
+entregues, com 1.000 *service* grátis e 0,004 USD depois. Desvio acima de **1%**
+é achado, e o comando sai com 1. Uma categoria que não conhecemos é achado, e
+não zero.
+
+**Contra a factura, manual e mensal**, porque a factura é da PME:
 
 1. No Billing Hub da conta da PME, tirar o total do mês por categoria e por
    número. **Para um Tech Provider, a visibilidade dessa factura é NÃO
@@ -117,8 +144,19 @@ ferramentas) como ESTIMATIVA, a substituir por cotações. O comando dá o custo
 fixo e variável por PME, o custo para a KAMBÁ e o custo total para o cliente
 (que inclui sempre a Meta), a margem por mensalidade, o ponto de equilíbrio e os
 itens de revisão do doc 09 — uma rubrica com desvio acima de **30%** contra o
-cenário pedido do §14.3 gera um item. O painel mostra o mesmo, com o custo para
-a KAMBÁ nas **duas** leituras do `meta_payer`, porque a D9 está por decidir.
+cenário pedido do §14.3 gera um item na saída. O painel mostra o mesmo, com o
+custo para a KAMBÁ e o custo para o cliente nas **duas** leituras do
+`meta_payer`, porque a D9 está por decidir, e abre no **mês anterior**: a
+comparação com o §14.3 só diz alguma coisa sobre um mês inteiro.
+
+**O custo total para o cliente é o que ele paga, e não o que custa servi-lo:** a
+mensalidade e, quando é a PME quem paga a Meta, a Meta por cima. O LLM e o fixo
+são da KAMBÁ. **É uma leitura** do «custo total para o cliente (inclui Meta)»
+do critério 6, e escreve-se como tal.
+
+**O que fica de fora:** a comparação com o §14.4 por estágio (o painel usa dele
+só a omissão do custo fixo), e um item de revisão escrito num sítio que dure —
+hoje é uma linha na saída do comando e uma coluna no painel.
 
 ## 7. O que fica com credor
 

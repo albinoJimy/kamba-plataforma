@@ -13747,6 +13747,8 @@ entradas:
       - "platform.inbound_events"
       - "tenant_id"
       - "contact_id"
+      - "h6"
+      - "export"
       - "platform.conversations"
     variantes_literais: []
   - seccao: "3.53"
@@ -13762,6 +13764,8 @@ entradas:
     nomes_nota:
       - "exportar"
       - "reconciliar"
+      - "meta"
+      - "pricing"
       - "economia"
       - "dat.llm_call_log"
       - "metodo"

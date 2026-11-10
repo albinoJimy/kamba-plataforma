@@ -46,8 +46,17 @@ O cambio e o parametro de sessao `app.fx_aoa_per_usd`, com omissao **913**
 o mesmo parametro com outro valor — `981` (+7,4%, a venda do BNI) e `1232`
 (+35%, o choque do §14.5) — e a vista devolve o cambio que usou na coluna
 `fx_aoa_per_usd`, para que nenhuma leitura em Kz fique sem a taxa ao lado. Um
-valor que nao seja numero **levanta** na conversao, e isso e o comportamento
-certo: um cambio ilegivel nao cai em silencio para a omissao.
+valor que nao seja numero, ou que seja zero ou negativo, **levanta** (`22P02`),
+e isso e o comportamento certo: um cambio ilegivel nao cai em silencio para a
+omissao, e um negativo dava custos negativos. O erro do nao-positivo vem de uma
+conversao que depende do valor lido, e nao de uma constante: uma constante no
+ramo `ELSE` era dobrada no planeamento e levantava sempre.
+
+**Cobravel e so o `billable` booleano verdadeiro.** Um `"billable": "yes"` em
+texto nao conta, como no `tarifa_micro_usd` daqui — e, sem a guarda, um
+`"talvez"` levantava na conversao e derrubava a vista inteira, para todos os
+tenants. A guarda vai num `CASE` e nao num `AND`, porque o PostgreSQL nao
+garante a ordem de avaliacao de um `AND`.
 
 O Kz sai em unidade menor inteira (`custo_aoa_minor`, centimos), arredondado
 **uma vez**, na linha da vista. A soma de linhas ja arredondadas pode divergir
@@ -137,11 +146,18 @@ MICRO_USD_POR_USD: Final = 1_000_000
 SQL_CRIAR_VISTA: Final = """
 CREATE VIEW platform.v_tenant_cost_daily
   WITH (security_invoker = true) AS
-WITH cambio AS (
+WITH cambio_lido AS (
     SELECT COALESCE(
                NULLIF(current_setting('app.fx_aoa_per_usd', true), '')::numeric,
                913
-           ) AS fx_aoa_per_usd
+           ) AS valor
+),
+cambio AS (
+    SELECT CASE
+               WHEN c.valor > 0 THEN c.valor
+               ELSE (c.valor::text || ' nao e um cambio positivo')::numeric
+           END AS fx_aoa_per_usd
+      FROM cambio_lido c
 ),
 custo_llm AS (
     SELECT l.tenant_id,
@@ -177,8 +193,11 @@ mensagens_meta AS (
       FROM platform.outbound_messages o
       JOIN platform.tenants t ON t.id = o.tenant_id
      WHERE o.delivered_at IS NOT NULL
-       AND o.pricing IS NOT NULL
-       AND (o.pricing ->> 'billable')::boolean
+       AND CASE
+               WHEN jsonb_typeof(o.pricing -> 'billable') = 'boolean'
+               THEN (o.pricing -> 'billable')::boolean
+               ELSE false
+           END
 ),
 custo_meta AS (
     SELECT m.tenant_id,

@@ -199,12 +199,58 @@ class TestConversas(unittest.TestCase):
             {"p50": Decimal("0.0005"), "p90": Decimal("0.024"), "p99": Decimal("0.024")},
         )
 
-    def test_o_racio_a_mensalidade(self) -> None:
-        racios = {r["tenant_id"]: r for r in self.saida["racio_por_tenant_e_mes"]}
-        self.assertEqual(racios["A"]["conversas"], 3)
+    def _com_mes(self, n: int) -> dict:
+        return h6.montar_exportacao(
+            h6.segmentar(FIXTURE), LLM_DA_FIXTURE, n, Decimal(913), Decimal(30000),
+            custo_mensal={("A", "2026-10"): Decimal("0.0345"), ("B", "2026-10"): Decimal("0.0005")},
+            mes_corrente="2026-11",
+        )
+
+    def test_o_racio_a_mensalidade_e_do_mes_inteiro(self) -> None:
+        racios = {r["tenant_id"]: r for r in self._com_mes(500)["racio_por_tenant_e_mes"]}
+        self.assertEqual(racios["A"]["conversas_na_amostra"], 3)
         self.assertEqual(racios["A"]["custo_aoa_minor"], 3150)  # 0,0345 x 913 x 100
         self.assertEqual(Decimal(racios["A"]["racio_custo_mensalidade"]), Decimal("0.001050"))
+        self.assertTrue(racios["A"]["mes_completo"])
         self.assertEqual(self.saida["mensalidade_aoa_minor"], 3_000_000)
+
+    def test_o_racio_nao_depende_do_tamanho_da_amostra(self) -> None:
+        """Achado A3 da revisao: somado da amostra, N=1 e N=500 davam racios diferentes."""
+        grande = {r["tenant_id"]: r for r in self._com_mes(500)["racio_por_tenant_e_mes"]}
+        pequena = {r["tenant_id"]: r for r in self._com_mes(1)["racio_por_tenant_e_mes"]}
+        self.assertTrue(pequena)
+        for tenant_id, linha in pequena.items():
+            self.assertEqual(
+                linha["racio_custo_mensalidade"], grande[tenant_id]["racio_custo_mensalidade"]
+            )
+
+    def test_o_mes_corrente_sai_incompleto(self) -> None:
+        saida = h6.montar_exportacao(
+            h6.segmentar(FIXTURE), LLM_DA_FIXTURE, 500, Decimal(913), Decimal(30000),
+            custo_mensal={("A", "2026-10"): Decimal("0.0345")}, mes_corrente="2026-10",
+        )
+        linha = next(r for r in saida["racio_por_tenant_e_mes"] if r["tenant_id"] == "A")
+        self.assertFalse(linha["mes_completo"])
+
+    def test_o_llm_de_um_dia_sem_mensagens_nao_se_perde(self) -> None:
+        """Achado A2: o LLM de um dia sem saida saia do rateio sem rasto."""
+        llm = dict(LLM_DA_FIXTURE)
+        llm[("A", dt.date(2026, 10, 3))] = Decimal("0.009000")
+        saida = h6.montar_exportacao(h6.segmentar(FIXTURE), llm, 500, Decimal(913), Decimal(30000))
+        self.assertEqual(
+            saida["llm_nao_atribuido"], [{"tenant_id": "A", "dias": 1, "custo_usd": "0.009000"}]
+        )
+        self.assertEqual(self.saida["llm_nao_atribuido"], [])
+
+    def test_conversas_por_fechar_e_cortadas_ficam_de_fora(self) -> None:
+        """Achado A13: a amostra so leva conversas inteiras."""
+        escolhidas, excluidas = h6.ultimas(
+            h6.segmentar(FIXTURE), 500,
+            fechadas_ate=_instante("2026-10-02T12:00:00"),   # a A/1 das 14:00 esta aberta
+            inicio_minimo=_instante("2026-10-01T10:30:00"),  # comecam antes: A/1 e B/1
+        )
+        self.assertEqual(excluidas, {"por_fechar": 1, "cortadas_pela_janela": 2})
+        self.assertEqual([(c.tenant_id, c.contacto) for c in escolhidas], [("A", 2)])
 
     def test_a_categoria_sem_tarifa_conta_e_nao_custa(self) -> None:
         self.assertEqual(self.saida["mensagens_meta_sem_tarifa"], 1)
@@ -239,10 +285,30 @@ class TestReconciliacao(unittest.TestCase):
 
     def test_a_pme_tipica_do_doc_09(self) -> None:
         """2.880 mensagens de servico, 1.000 gratis: 1.880 x 0,004 = 7,52 USD."""
-        estimado = h6.meta_pela_tarifa({"service": 2880})
-        self.assertEqual(estimado, 7_520_000)
-        medido = 1880 * custo.tarifa_micro_usd({"billable": True, "category": "service"})
-        self.assertIsNone(h6.reconciliar_meta(medido, estimado))
+        self.assertEqual(h6.meta_pela_tarifa({"service": 2880}), 7_520_000)
+
+    def test_por_numero_a_meta_medida_e_a_da_tarifa(self) -> None:
+        """O medido vem das cobradas pelo `pricing`; o estimado, da contagem pela tarifa.
+
+        Achado A4 da revisao: o ensaio anterior usava a mesma constante dos dois
+        lados. Aqui os dois lados vem de colunas diferentes da mesma linha.
+        """
+        resultados, achados = h6.reconciliar_meta_por_numero([
+            ("A", 1, "service", 1003, 3),     # a Meta cobrou 3: as 1.000 primeiras gratis
+            ("A", 1, "utility", 2, 2),
+            ("A", 2, "service", 1003, 1003),  # cobrou tudo: o free tier nao se aplicou
+        ])
+        por_numero = {r["numero"]: r for r in resultados}
+        self.assertEqual(por_numero[1]["medido_usd_micro"], 20_000)
+        self.assertEqual(por_numero[1]["pela_tarifa_usd_micro"], 20_000)
+        self.assertTrue(por_numero[1]["dentro_da_tolerancia"])
+        self.assertFalse(por_numero[2]["dentro_da_tolerancia"])
+        self.assertEqual(len(achados), 1)
+        self.assertIn("numero 2", achados[0])
+
+    def test_categoria_desconhecida_e_achado(self) -> None:
+        _, achados = h6.reconciliar_meta_por_numero([("A", 1, "xpto", 5, 5)])
+        self.assertIn("categoria sem tarifa", achados[0])
 
     def test_meta_a_um_por_cento(self) -> None:
         estimado = h6.meta_pela_tarifa({"service": 1500, "utility": 100, "marketing": 10})
@@ -298,7 +364,12 @@ class TestEconomia(unittest.TestCase):
         kamba = h6.economia(self.MES, Decimal(600), Decimal(45000), Decimal(913), "kamba")
         self.assertEqual(Decimal(pme["custo_para_kamba_por_pme_usd"]), Decimal("305.5"))
         self.assertEqual(Decimal(kamba["custo_para_kamba_por_pme_usd"]), Decimal("313"))
-        self.assertEqual(pme["custo_total_cliente_por_pme_usd"], kamba["custo_total_cliente_por_pme_usd"])
+        # O cliente paga a mensalidade, e a Meta por cima so quando e ele quem a paga.
+        mensalidade = Decimal(45000) / Decimal(913)
+        self.assertEqual(Decimal(pme["custo_total_cliente_por_pme_usd"]),
+                         (mensalidade + Decimal("7.5")).quantize(h6.ESCALA_USD))
+        self.assertEqual(Decimal(kamba["custo_total_cliente_por_pme_usd"]),
+                         mensalidade.quantize(h6.ESCALA_USD))
         self.assertEqual(Decimal(pme["custo_fixo_por_pme_usd"]), Decimal(300))
 
     def test_o_ponto_de_equilibrio(self) -> None:
@@ -323,6 +394,19 @@ class TestEconomia(unittest.TestCase):
             h6.economia(self.MES, Decimal(600), Decimal(45000), Decimal(913), "outro")
         with self.assertRaises(h6.ErroDeUso):
             h6.economia({}, Decimal(600), Decimal(45000), Decimal(913), "pme")
+        with self.assertRaises(h6.ErroDeUso):
+            h6.economia(self.MES, Decimal(600), Decimal(0), Decimal(913), "pme")
+
+    def test_a_linha_de_comandos_recusa_sem_traceback(self) -> None:
+        """Achado A12: `abc` e `0` saem pelo `argparse`, com 2, antes de tocar na base."""
+        for argumentos in (["exportar", "--mensalidade-kz", "abc"],
+                           ["exportar", "--mensalidade-kz", "0"],
+                           ["exportar", "--cambio", "-913"],
+                           ["economia", "--mes", "2026-13", "--fixo-usd", "470"]):
+            with self.subTest(argumentos=argumentos):
+                with self.assertRaises(SystemExit) as saida:
+                    h6._analisador().parse_args(argumentos)
+                self.assertEqual(saida.exception.code, 2)
 
 
 class TestEstimativasDoDoc09(unittest.TestCase):
@@ -388,20 +472,58 @@ class TestPaineis(unittest.TestCase):
             with self.subTest(painel=nome):
                 self.assertGreater(len(self._consultas(nome)), 0)
 
+    #: Os esquemas da base, o `public` e os de sistema. Uma relacao destes escrita
+    #: em **qualquer** sitio da consulta conta como lida — e nao so a que vem a
+    #: seguir a um `FROM`/`JOIN` em maiusculas: a revisao adversarial (A5) leu a
+    #: `outbound_messages` por uma juncao por virgula e por um `join` em
+    #: minusculas, e as duas passavam.
+    ESQUEMAS = r"(?:platform|dat|lg|servicos|public|pg_catalog|information_schema)"
+
+    #: Os nomes sem esquema que um `FROM` destes paineis pode ter: as CTE.
+    CTES = {"mes", "medido", "variaveis"}
+
+    def _lidas(self, sql: str) -> set[str]:
+        return {
+            r.lower() for r in re.findall(rf"\b({self.ESQUEMAS}\.[a-z_]+)", sql, re.IGNORECASE)
+        }
+
     def test_nenhuma_consulta_nomeia_um_identificador(self) -> None:
         for nome in self.PAINEIS:
             for sql in self._consultas(nome):
                 with self.subTest(painel=nome, sql=sql[:60]):
                     for proibido in h6.IDENTIFICADORES_PROIBIDOS:
-                        self.assertIsNone(re.search(rf"\b{proibido}\b", sql), proibido)
+                        self.assertIsNone(
+                            re.search(rf"\b{proibido}\b", sql, re.IGNORECASE), proibido
+                        )
 
     def test_so_leem_as_relacoes_permitidas(self) -> None:
         for nome in self.PAINEIS:
             for sql in self._consultas(nome):
                 with self.subTest(painel=nome, sql=sql[:60]):
-                    lidas = set(re.findall(r"(?:FROM|JOIN)\s+([a-z_]+\.[a-z_]+)", sql))
-                    self.assertTrue(lidas, "consulta sem FROM qualificado")
+                    lidas = self._lidas(sql)
+                    self.assertTrue(lidas, "consulta sem relacao qualificada")
                     self.assertLessEqual(lidas, self.RELACOES)
+
+    def test_nao_ha_relacao_sem_esquema(self) -> None:
+        """Um `FROM outbound_messages` sem esquema escapava ao ensaio de cima."""
+        for nome in self.PAINEIS:
+            for sql in self._consultas(nome):
+                with self.subTest(painel=nome, sql=sql[:60]):
+                    for alvo in re.findall(
+                        r"\b(?:from|join)\s+([a-z_]+)\b(?!\.)", sql, re.IGNORECASE
+                    ):
+                        self.assertIn(alvo.lower(), self.CTES, f"relacao sem esquema: {alvo}")
+
+    def test_o_ensaio_morde_as_formas_da_revisao(self) -> None:
+        """As formas que a revisao usou para ler a `outbound_messages`, e uma terceira."""
+        formas = (
+            "SELECT o.* FROM platform.v_tenant_cost_daily v, platform.outbound_messages o",
+            "SELECT 1 FROM platform.v_tenant_cost_daily v join platform.outbound_messages o on true",
+            "select 1 from PLATFORM.OUTBOUND_MESSAGES",
+        )
+        for sql in formas:
+            with self.subTest(sql=sql):
+                self.assertFalse(self._lidas(sql) <= self.RELACOES)
 
 
 if __name__ == "__main__":
