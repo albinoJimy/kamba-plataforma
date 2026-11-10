@@ -3,8 +3,8 @@
  *
  * Substitui a vitrine Next.js no Piloto (ADR-019). O registo, o OTP e o
  * anti-abuso são o KAM-086 e vivem em `./rotas.ts`; a página guiada do Embedded
- * Signup v4 é o KAM-093 e vive em `./guia.ts`. A troca do `code` é o KAM-016, no
- * GWY, e não está aqui.
+ * Signup v4 é o KAM-093 e vive em `./guia.ts`; o painel do dono é o KAM-099 e
+ * vive em `./painel/`. A troca do `code` é o KAM-016, no GWY, e não está aqui.
  *
  * Hono 4.13.x por decisão de `docs/tecnica/09` §3.1: o 5.0.0-rc.0 saiu a 2026-10-08 e
  * um *release candidate* não entra em produção (E4 §2.13).
@@ -25,9 +25,15 @@ import type { Logger } from "@kamba/core-ts/logger";
 
 import { SERVICE, VERSION } from "./meta.ts";
 import { rotasDoGuia, type OpcoesDoGuia } from "./guia.ts";
+import { rotasDoPainel, type OpcoesDoPainel } from "./painel/rotas.ts";
 import { rotasDeInscricao, type OpcoesDasRotas } from "./rotas.ts";
 
-export function createApp(log?: Logger, inscricao?: OpcoesDasRotas, guia?: OpcoesDoGuia): Hono {
+export function createApp(
+  log?: Logger,
+  inscricao?: OpcoesDasRotas,
+  guia?: OpcoesDoGuia,
+  painel?: OpcoesDoPainel,
+): Hono {
   const app = new Hono();
 
   // Sem isto, o tratador de erro por omissão do Hono faz `console.error(err)`:
@@ -45,6 +51,9 @@ export function createApp(log?: Logger, inscricao?: OpcoesDasRotas, guia?: Opcoe
   // O passo guiado do ES (KAM-093) monta-se ao lado, e só com a inscrição: a
   // página exige a sessão que o OTP cunha.
   if (inscricao !== undefined && guia !== undefined) app.route("/", rotasDoGuia({ ...guia, log }));
+  // O painel do dono (KAM-099) também só com a inscrição: entra-se nele com a
+  // sessão que o OTP cunha.
+  if (inscricao !== undefined && painel !== undefined) app.route("/", rotasDoPainel({ ...painel, log }));
 
   return app;
 }
