@@ -95,6 +95,7 @@ import {
   REEMBOLSADA,
   actorDoReembolso,
   eFimDeDisputa,
+  exigeHumano,
 } from "./graph_ext.ts";
 import { auditarReembolso, dentroDoPrazo } from "./refunds.ts";
 
@@ -270,6 +271,14 @@ export async function transition(
   if (antes === null) return recusar("NOT_FOUND");
   const de = String(antes["estado"]) as OrderState;
   const fimDeDisputa = eFimDeDisputa(de, pedido.para);
+  // **A aprovação humana do §6.2** (KAM-050): o pedido de reembolso e a decisão
+  // de uma disputa são de dono ou ops identificado. Ver o `exigeHumano`.
+  if (
+    exigeHumano(de, pedido.para) &&
+    !actorDoReembolso(e.ctx.actor.kind, e.ctx.actor.id)
+  ) {
+    return recusar("VALIDATION_ERROR");
+  }
 
   // A guarda do `pendente_confirmacao` (§6.2): `total_minor <= limite_manual`
   // do tenant. **Pelo `checkCeiling` do `ten` e não por uma consulta nova**: o

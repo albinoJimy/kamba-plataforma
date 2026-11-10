@@ -176,9 +176,11 @@ autenticado é dinheiro real em qualquer estado, e o `docs/tecnica/03` §6.6
 dá-lhe um destino em cada um: `expirada` paga (regras 1 e 2), `cancelada` e os
 estados já pagos pedem reembolso sem transitar (regras 3 e 4). Os primeiros
 chegam ao efeito pelo `podeTransitar`; os outros pela `ESTADOS_DE_EXCEPCAO`,
-que se consulta **depois** da ordem — um evento atrasado continua a ser
-`fora_de_ordem` — e **antes** do adiamento. Só `criada` continua a adiar: a
-referência ainda não foi emitida.
+que se consulta **antes** da ordem e do adiamento: a ordem existe para impedir
+uma transição fora de tempo, e estes não transitam — dois pagamentos reais
+entregues fora de ordem fazem o de `seq` menor chegar depois, e a DLQ perdia o
+pedido de reembolso dele. Só `criada` continua a adiar: a referência ainda não
+foi emitida.
 
 **O `estadoDe` recebe a ligação da transacção por argumento**, e não um cliente
 guardado no construtor da máquina. A razão foi medida ao ligar o primeiro

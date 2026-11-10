@@ -648,6 +648,37 @@ for (const [de, motivo] of [
   });
 }
 
+for (const [kind, de, para] of [
+  ["agente", "paga", "reembolso_pendente"],
+  ["sistema", "em_disputa", "reembolso_pendente"],
+  ["agente", "em_disputa", "entregue"],
+] as const) {
+  test(`${de} -> ${para} por ${kind} é recusada: a aprovação é humana (§6.2)`, async () => {
+    const base = baseFalsa({ estado: de, entregaConfirmadaPor: "cliente" });
+    const r = await transition(encomendas(base, kind, "x-1"), {
+      orderId: ORDEM,
+      para,
+      expectedVersion: 3,
+      causa: { causa: "ensaio" },
+      entregaConfirmadaPor: "cliente",
+    });
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
+    assert.ok(!base.vistas.some((v) => v.sql === SQL_TRANSITAR), "nao chegou ao CAS");
+    assert.deepEqual(emitidos(base.vistas), []);
+  });
+}
+
+test("entregue -> em_disputa pelo agente passa: quem reclama é o cliente", async () => {
+  const base = baseFalsa({ estado: "entregue" });
+  const r = await transition(encomendas(base, "agente", "agr-1"), {
+    orderId: ORDEM,
+    para: "em_disputa",
+    expectedVersion: 3,
+    causa: { causa: "reclamacao" },
+  });
+  assert.equal(r.tipo, "ok");
+});
+
 test("entrega_falhada -> reembolso_pendente leva o motivo entrega_falhada (com a bandeira)", async () => {
   const base = baseFalsa({ estado: "entrega_falhada" });
   const e = { ...encomendas(base, "ops", "op-7"), bandeiras: ["COM_DELIVERY_ENABLED"] };
@@ -748,12 +779,16 @@ function fontesDoCom(): string[] {
 
 /**
  * Uma **chamada** a `refund` ou `payout`, em qualquer forma: método
- * (`provider.refund(`), função (`refund(`), ou com o nome numa variável
- * (`["refund"](`). Comentários e cadeias contam também, de propósito: uma
- * menção no código é onde a chamada começa, e a nota que explica porque não há
- * chamada escreve «reembolso», não `refund(`.
+ * (`provider.refund(`), função com o nome dentro (`issueRefund(`,
+ * `refundPayment(`), o método **lido** sem ser chamado (`const f = p.refund`),
+ * ou com o nome numa variável (`["refund"]`). Alargado pela revisão
+ * adversarial: a primeira forma só apanhava `refund(` com fronteira de palavra.
+ * Comentários e cadeias contam também, de propósito: uma menção no código é onde
+ * a chamada começa, e a nota que explica porque não há chamada escreve
+ * «reembolso», não `refund(`.
  */
-const CHAMADA_PROIBIDA = /\b(refund|payout)\s*\(|\[\s*["'`](refund|payout)["'`]\s*\]\s*\(/i;
+const CHAMADA_PROIBIDA =
+  /(refund|payout)\w*\s*\(|\.(refund|payout)\b|\[\s*["'`](refund|payout)\w*["'`]\s*\]/i;
 
 test("nenhum código do COM chama refund nem payout (ADR-004)", () => {
   const achados = fontesDoCom().filter((f) =>
@@ -762,11 +797,14 @@ test("nenhum código do COM chama refund nem payout (ADR-004)", () => {
   assert.deepEqual(achados, [], "o COM nao move dinheiro: reembolsos sao manuais");
 });
 
-test("o canário da varredura: as três formas de chamada são apanhadas", () => {
+test("o canário da varredura: as seis formas de chamada são apanhadas", () => {
   for (const amostra of [
     "await provider.refund(cobranca)",
     "payout (conta, valor)",
     'adaptador["refund"](x)',
+    "await issueRefund(x)",
+    "refundPayment(x)",
+    "const f = p.refund;",
   ]) {
     assert.ok(CHAMADA_PROIBIDA.test(amostra), amostra);
   }

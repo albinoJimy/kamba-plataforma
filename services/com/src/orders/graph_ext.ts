@@ -75,6 +75,29 @@ export function actorDoReembolso(kind: ActorKind, id: string): boolean {
 }
 
 /**
+ * A transição pede **aprovação humana** (o `docs/tecnica/03` §6.2)?
+ *
+ * Três: o pedido de reembolso (`→ reembolso_pendente`, de qualquer origem), o
+ * registo do reembolso (`→ reembolsada`) e a decisão de uma disputa a favor da
+ * PME (`em_disputa → entregue`). Todas se decidem por um dono ou por ops, e
+ * nenhuma por um modelo de linguagem ou por um processo: um `agente` que abrisse
+ * um pedido de reembolso emitia um `order.refund_requested` que ninguém pediu, e
+ * um que decidisse uma disputa fechava uma reclamação sem ninguém a ler. A
+ * **reclamação** (`entregue → em_disputa`) não está aqui: quem reclama é o
+ * cliente, e o agente pode registá-la.
+ *
+ * Só o `reembolsada` tem barreira na base (`KA006`, revisão `0046`); as outras
+ * duas guardam-se aqui, e é isso que fica escrito na verificação do bloco.
+ */
+export function exigeHumano(de: OrderState, para: OrderState): boolean {
+  return (
+    para === "reembolso_pendente" ||
+    para === REEMBOLSADA ||
+    eFimDeDisputa(de, para)
+  );
+}
+
+/**
  * A ida a `entregue` é uma **entrega**, ou o fim de uma disputa a favor da PME?
  *
  * A diferença decide três coisas no `transition`: o fim de uma disputa não exige

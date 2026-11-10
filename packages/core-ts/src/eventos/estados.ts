@@ -137,9 +137,10 @@ export const ESTADOS_INCOMPATIVEIS: Readonly<Record<string, readonly EstadoDaEnc
  * reembolso nenhum. O efeito do COM é quem decide o que fazer, e **não
  * transita**: emite `order.exception` e `order.refund_requested`.
  *
- * **A verificação de ordem corre antes dela**, e de propósito: um evento com
- * `seq` atrás do último aplicado continua a ser `fora_de_ordem`. Um segundo
- * pagamento real tem `seq` maior do que o primeiro, porque foi emitido depois.
+ * **E corre antes da verificação de ordem.** A ordem existe para impedir uma
+ * transição fora de tempo, e estes não transitam; dois pagamentos reais
+ * entregues fora de ordem fazem o de `seq` menor chegar depois do outro, e
+ * mandá-lo para a DLQ como `fora_de_ordem` perdia o pedido de reembolso.
  */
 export const ESTADOS_DE_EXCEPCAO: Readonly<Record<string, readonly EstadoDaEncomenda[]>> = {
   'payment.confirmed': [

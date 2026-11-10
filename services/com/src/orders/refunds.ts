@@ -12,7 +12,7 @@
  * ```
  *
  * O «não» do terceiro é verificado por máquina e não por esta nota: o
- * `services/com/tests/orders.reembolso.test.ts` varre o `src/` do COM à procura
+ * `services/com/tests/orders.pagamento_tardio.test.ts` varre o `src/` do COM à procura
  * de qualquer chamada a `refund` ou `payout`, e o canário dele prova que a
  * varredura morde.
  *

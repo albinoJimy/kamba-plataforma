@@ -262,7 +262,7 @@ os dois caminhos (com instante e sem).
 
 ### 5.2 Nem todas as chaves se consomem — e o registo já o dizia
 
-**Este é o achado de desenho da revisão.** As dez chaves de
+**Este é o achado de desenho da revisão.** As onze chaves de
 `registry/entitlement_keys.schema.json` são de três espécies, e o registo
 declara-as em `x-kamba-categoria` e `x-kamba-consumivel`:
 
@@ -362,8 +362,8 @@ ticket não constrói. Comparar um valor solto com um tecto diário daria «cabe
 cada pedido até ao fim do dia — a mesma classe de defeito que o
 `x-kamba-consumivel` existe para fechar.
 
-**Ficam com caminho de aplicação 8 das 10 chaves**: as 5 consumíveis pela
-`consumeLimit`, e as 3 de tecto por pedido pela `checkCeiling`.
+**Ficam com caminho de aplicação 9 das 11 chaves**: as 5 consumíveis pela
+`consumeLimit`, e as 4 de tecto por pedido pela `checkCeiling` (a quarta, o prazo do KAM-050, com a ausência lida como «sem prazo» por quem a chama).
 
 ## 6. Cache — e a razão por que a visibilidade é só o TTL
 
@@ -597,7 +597,7 @@ Também tem medição, e é desta metade:
 |---|---|
 | A matriz do §7.2, **completa** | 210 casos (5 × 6 × 7) em cada idioma, contra o regime e a célula escritos à mão no teste |
 | O SQL das quatro consultas é o mesmo nos dois idiomas | Carácter a carácter, depois de reescrever `$n` → `%s` (`TestParidadeDoTypeScript`) |
-| A espécie das dez chaves é a do registo | Um teste em cada idioma lê `registry/entitlement_keys.schema.json`; um terceiro confronta as duas tabelas entre si |
+| A espécie das onze chaves é a do registo | Um teste em cada idioma lê `registry/entitlement_keys.schema.json`; um terceiro confronta as duas tabelas entre si |
 | A derivação da chave de idempotência é a mesma nos dois | Vector fixo escrito nos dois ficheiros de teste, confrontado por um teste de paridade |
 | A tradução do `KA002` e do `22023` | Testada nos dois idiomas sem base de dados: o que se verifica é a leitura do `SQLSTATE`, o erro que sai, e — no `22023` — que a causa da guarda de `p_agora` **não** é traduzida |
 | O SQL das constantes contra uma base real | A *suite* `db/tests_ten/` importa o `SQL_CONSUMIR` e o `SQL_PERIODO` de `kamba_core.ten.consultas` em vez de os reescrever, e corre contra **PostgreSQL 18.6** com o `pg8000`. Mede duas coisas desta metade: que `periodo(None)` devolve o período corrente — e não `None`, que era o M3 — e que as constantes não precisam de *casts* explícitos para o controlador as ligar |

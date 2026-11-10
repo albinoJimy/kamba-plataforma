@@ -11,7 +11,7 @@
  *                       → Adiar (pré-condição por chegar)
  *                       → EstadoIncompativel (estado terminal; KAM-055)
  *                       → ForaDeOrdem (seq atrasado E transição inválida)
- *                       → efeito, se o estado é de excepção (KAM-050)
+ *                       → efeito, se o estado é de excepção, antes da ordem (KAM-050)
  *       efeito(bd, envelope)  ← na MESMA transacção
  *     COMMIT
  *
@@ -337,7 +337,16 @@ export async function consumir(
             'a transita (o caso completo é o KAM-050)',
         );
       }
-      if (!podeTransitar(estado, pretendido)) {
+      // **Antes da ordem e do adiamento** (KAM-050). Um pagamento numa
+      // encomenda `cancelada` ou já paga não vai passar a ser válido à espera, e
+      // não transita: é dinheiro real que pede um caso de reembolso, e é o
+      // efeito que o sabe abrir (ver a `ESTADOS_DE_EXCEPCAO`). **E não passa
+      // pela verificação de ordem**: dois pagamentos reais entregues fora de
+      // ordem fazem o de `seq` menor chegar depois do outro, e mandá-lo para a
+      // DLQ como `fora_de_ordem` era perder o pedido de reembolso de dinheiro
+      // que entrou — achado da revisão adversarial do KAM-050. A ordem existe
+      // para impedir uma **transição** fora de tempo, e estes não transitam.
+      if (!estadoDeExcepcao(envelope.tipo, estado) && !podeTransitar(estado, pretendido)) {
         const atrasado = ultimoSeq !== null && agregado.seq < ultimoSeq;
         if (atrasado) {
           throw new ForaDeOrdem(
@@ -345,16 +354,10 @@ export async function consumir(
               'não é transição válida',
           );
         }
-        // **Depois da ordem e antes do adiamento** (KAM-050). Um pagamento numa
-        // encomenda `cancelada` ou já paga não vai passar a ser válido à
-        // espera: é dinheiro real que pede um caso de reembolso, e é o efeito
-        // que o sabe abrir. Ver a `ESTADOS_DE_EXCEPCAO`.
-        if (!estadoDeExcepcao(envelope.tipo, estado)) {
-          throw new Adiar(
-            ADIAMENTO_POR_OMISSAO,
-            `${estado} -> ${pretendido} ainda não é válido`,
-          );
-        }
+        throw new Adiar(
+          ADIAMENTO_POR_OMISSAO,
+          `${estado} -> ${pretendido} ainda não é válido`,
+        );
       }
     }
 

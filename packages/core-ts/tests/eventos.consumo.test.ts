@@ -426,7 +426,10 @@ describe("consumir()", () => {
 
   it("é fora_de_ordem quando o seq vem atrasado E a transição é inválida", async () => {
     bd.ultimoSeq = 7;
-    const maquina = new MaquinaFalsa("paga");
+    // `criada` e nao `paga`: desde o KAM-050 um pagamento sobre uma encomenda
+    // paga e a regra 4 do §6.6 (estado de excepcao), e nao uma transicao
+    // invalida. `criada -> paga` continua a ser-o.
+    const maquina = new MaquinaFalsa("criada");
     await assert.rejects(
       consumir(
         {
@@ -544,7 +547,8 @@ describe("processar(): a política das seis tentativas", () => {
             agregado: { tipo: "order", id: "9b2f6c1a-7e3d-4c80-b5a1-2d9e8f7a6b50", seq: 2 },
           }),
         }),
-        maquina: new MaquinaFalsa("paga"),
+        // `criada`, pela razao escrita no ensaio do `consumir` acima (KAM-050).
+        maquina: new MaquinaFalsa("criada"),
       },
       async () => {},
     );
@@ -716,6 +720,49 @@ describe("consumir() sobre os estados do KAM-050", () => {
       assert.ok(bd.instrucoes.includes("COMMIT"));
     });
   }
+
+  it("um segundo pagamento com seq atrasado numa encomenda paga aplica, e não é fora_de_ordem", async () => {
+    // Dois pagamentos reais entregues fora de ordem: o de seq maior pagou a
+    // encomenda, e o de seq menor chega depois. É dinheiro que entrou, e o
+    // efeito tem de pedir o reembolso — a DLQ perdia-o.
+    bd.ultimoSeq = 99;
+    const feitos: string[] = [];
+    const resultado = await consumir(
+      {
+        bd,
+        consumer: CONSUMER,
+        envelope: envelope({ tipo: "payment.confirmed" }),
+        exigeOrdem: true,
+        maquina: new MaquinaFalsa("paga"),
+        metricas,
+      },
+      async () => {
+        feitos.push("efeito");
+      },
+    );
+    assert.equal(resultado.desfecho, "aplicado");
+    assert.deepEqual(feitos, ["efeito"]);
+  });
+
+  it("um seq atrasado numa transição inválida continua a ser fora_de_ordem", async () => {
+    bd.ultimoSeq = 99;
+    await assert.rejects(
+      consumir(
+        {
+          bd,
+          consumer: CONSUMER,
+          envelope: envelope({ tipo: "payment.confirmed" }),
+          exigeOrdem: true,
+          maquina: new MaquinaFalsa("criada"),
+          metricas,
+        },
+        async () => {
+          assert.fail("o efeito nao corre");
+        },
+      ),
+      ForaDeOrdem,
+    );
+  });
 
   it("criada continua a adiar: a referência ainda não foi emitida", async () => {
     await assert.rejects(
