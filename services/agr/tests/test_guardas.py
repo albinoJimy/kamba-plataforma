@@ -56,6 +56,8 @@ IMPRESSOES = {
     "1.0.0": "367b785a8f964edf9bfa3a8730e099873b3ee5c112b2748a15a12ac44edfa928",
     # KAM-073: as tres formas de saida que o red-team encontrou (RT-01 a RT-03).
     "1.1.0": "9997d64ccc08ca9faf6b09d7f1a14318fb8279cad6597c778e892063d4ed3180",
+    # KAM-189: os achados P3/P4 de entrada do red-team (RT-04, RT-06, RT-09).
+    "1.2.0": "3a7f6e8db8bfc6be33497907098613dc0a5d6ad1b85c37bfee03d88515eae6c8",
 }
 
 #: Um PAN de teste publico (Visa). Nunca um cartao real.
@@ -187,7 +189,8 @@ class TestPolitica(unittest.TestCase):
     def test_os_padroes_compilam_e_estao_dobrados(self) -> None:
         """Escritos sem acentos e sem maiusculas, porque correm sobre o texto dobrado."""
         for nome in (
-            "INJECCAO", "FRONTEIRA", "SENSIVEL", "ABUSO", "FORA_DE_DOMINIO", "DOMINIO",
+            "INJECCAO", "FRONTEIRA", "FRONTEIRA_SEM_ABSOLVICAO", "SENSIVEL", "ABUSO",
+            "FORA_DE_DOMINIO", "DOMINIO",
             "PROMESSA_DESCONTO", "PROMESSA_PRAZO", "PROMESSA_PAGO", "PROMESSA_COMPARACAO",
             "IDENTIDADE", "FUGA", "URL",
         ):
