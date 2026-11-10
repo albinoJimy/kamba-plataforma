@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Core de Comércio (COM): Medusa v2 sujeito a spike, modelo de dados `platform`, encomendas, reservas, Catálogo AI, reviews |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md` (âncora), `../exploracao/11-arquitetura-detalhada-engenharia.md` §2–§5, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -591,18 +591,24 @@ stateDiagram-v2
     aguarda_pagamento --> expirada: TTL da reserva
     expirada --> aguarda_pagamento: nova referencia na mesma encomenda
     expirada --> cancelada: sem recuperacao
-    expirada --> paga: pagamento tardio autenticado (extensao proposta)
+    expirada --> paga: pagamento tardio autenticado (6.6)
     paga --> em_entrega: dispatch (Clusters)
     paga --> entregue: levantamento na loja
     em_entrega --> entregue: codigo de entrega confirmado
-    paga --> reembolso_pendente: disputa, processo manual
-    entregue --> reembolso_pendente: disputa apos entrega (extensao proposta)
+    em_entrega --> entrega_falhada: sem sucesso (Clusters)
+    entrega_falhada --> em_entrega: nova tentativa (Clusters)
+    entrega_falhada --> reembolso_pendente: devolucao (Clusters)
+    paga --> reembolso_pendente: disputa antes da entrega
+    entregue --> em_disputa: reclamacao
+    em_disputa --> reembolso_pendente: decisao a favor do cliente
+    em_disputa --> entregue: decisao a favor da PME
+    reembolso_pendente --> reembolsada: reembolso manual registado
     entregue --> [*]
     cancelada --> [*]
-    reembolso_pendente --> [*]
+    reembolsada --> [*]
 ```
 
-As duas transições marcadas «extensão proposta» **não existem** no documento 00 §6.1 e são necessárias (§6.6, e `entregue` com disputa). Até serem ratificadas, o COM implementa-as protegidas por *flag* de configuração e regista a lacuna em §15.
+**Desde o KAM-050 este diagrama é o do documento 00 §6.1**, e as transições que esta secção marcava como «extensão proposta» estão no `order_state_graph` (revisão `0046`): `expirada → paga` é o pagamento tardio do §6.6, e a disputa depois da entrega passa por `em_disputa` — o `entregue → reembolso_pendente` directo que este documento propunha **não** foi implementado, e o PA-03-4 regista-o. As três que passam por `entrega_falhada` ficam atrás de `COM_DELIVERY_ENABLED`, desligada no Piloto, como as duas do `em_entrega`. `reembolsada` só se alcança por registo manual de dono ou ops identificado, com `audit_log` (ADR-004: a plataforma nunca move o dinheiro). A ratificação do PA-03-4 continua a ser do fundador.
 
 ### 6.2 Tabela de transições (guarda → efeitos → evento)
 
@@ -622,7 +628,10 @@ As duas transições marcadas «extensão proposta» **não existem** no documen
 | paga | entregue | levantamento confirmado | `entrega_confirmada_por` definido | `entregue_at` | `order.delivered` |
 | paga | em_entrega | dispatch (C) | entrega aceite | — | `order.dispatched` |
 | em_entrega | entregue | código de entrega | código válido (`07`) | idem | `order.delivered` |
-| paga / entregue | reembolso_pendente | disputa | aprovação humana | caso manual (ADR-004); nada é movido pela plataforma | `order.refund_requested` |
+| paga / em_disputa / entrega_falhada | reembolso_pendente | disputa, decisão a favor do cliente, devolução | aprovação humana | caso manual (ADR-004); nada é movido pela plataforma | `order.refund_requested` (`motivo` `disputa` ou `entrega_falhada`) |
+| entregue | em_disputa | reclamação | dentro do `prazo_reclamacao_dias` do tenant, **se** configurado (sem valor por omissão até parecer, KAM-104) | — | — |
+| em_disputa | entregue | decisão a favor da PME | aprovação humana | `entregue_at` e quem confirmou ficam os da entrega | — (não é entrega nova) |
+| reembolso_pendente | reembolsada | reembolso manual registado | actor `dono` ou `ops` identificado | linha de `audit_log` (`order.refund_record`) | — |
 
 Implementação: a tabela é dados (`order_state_graph(de, para)`) validados por *trigger* `BEFORE UPDATE` sobre `estado`; a função `transition` faz `UPDATE ... WHERE id=$1 AND version=$2 AND estado=$de RETURNING *`, grava `order_state_log` e `events_outbox` na **mesma transacção**. Falha de CAS ⇒ reler e reavaliar (nunca forçar).
 
@@ -698,6 +707,8 @@ Possível porque a referência pode ser paga em ATM até ao fim da sua validade 
 2. Sem stock ⇒ `expirada → paga` com `excepcao='pagamento_tardio_sem_stock'`; notifica dono e ops; resolução **manual** (entregar mais tarde ou reembolso manual, ADR-004). O cliente nunca fica sem resposta.
 3. Estado `cancelada` ⇒ criar caso de reembolso manual (`reembolso_pendente`) e alertar.
 4. Dois pagamentos autenticados para a mesma encomenda ⇒ segundo gera `excepcao='pagamento_duplicado'` e caso de reembolso manual (04 §7).
+
+**Como o KAM-050 as implementa, e o que fica por decidir.** As regras 1 e 2 acabam em `paga` pelo `transition` do §6.2, com a re-reserva **antes** e dentro de um *savepoint* (sem stock numa linha, nenhuma fica reservada); a regra 2 marca a excepção e emite `order.exception`. As regras 3 e 4 **não transitam**: marcam a excepção (`pagamento_apos_cancelamento` na 3, `pagamento_duplicado` na 4) e emitem `order.exception` e `order.refund_requested`. O «caso de reembolso manual» é esse pedido: **não se abre linha em `refund_cases`**, porque o único escritor dessa tabela (`manual_reverter`, revisão `0032`) a abre dentro de uma reversão no *ledger*, e abri-la fora disso é decisão devolvida ao fundador (revisão `0039`). A regra 4 só dispara hoje quando o segundo pagamento é de **outra** cobrança: o `pagamento_duplicado` da mesma cobrança não está na `payment_outbox_map` (revisão `0035`) e não chega ao COM.
 
 ---
 
@@ -1088,7 +1099,7 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | **PA-03-1 — Porta `CommerceRegistry` e encapsulamento do Medusa** | O COM expõe `CommerceRegistry` à TLS; nenhum componente fora do COM tem credenciais do Medusa; o admin Medusa é interno. A máquina de estados e a idempotência vivem em `platform`. | Torna D3 reversível sem tocar em agentes/PAY; impõe o isolamento num único ponto. |
 | **PA-03-2 — Idempotência de pedido por intenção** | `intent_key` derivado de `(tenant, contacto, draft_id, draft_version)`; proíbe chaves por janela temporal ou telefone. | Corrige o defeito de fronteira e a recompra bloqueada. |
 | **PA-03-3 — Contacto por BSUID/HMAC e telefone em tabela separada** | `contacts` + `contact_endpoints` cifrada com finalidade e expiração; nenhuma tabela de negócio guarda `msisdn`. | Concretiza o ADR-010. |
-| **PA-03-4 — Ratificar extensões da máquina §6.1** | Acrescentar `expirada → paga` (pagamento tardio) e `entregue → reembolso_pendente`; `confirmacao_dono` como subestado de `criada`. | Necessárias por §6.5–§6.6 e §7.3. |
+| **PA-03-4 — Ratificar extensões da máquina §6.1** | Acrescentar `expirada → paga` (pagamento tardio) e a disputa depois da entrega; `confirmacao_dono` como subestado de `criada`. **Implementada pelo KAM-050 (revisão `0046`) com uma alteração:** a disputa depois da entrega é `entregue → em_disputa → reembolso_pendente`, como o documento 00 §6.1, e **não** o `entregue → reembolso_pendente` directo que esta proposta escrevia. A ratificação é do fundador. | Necessárias por §6.5–§6.6 e §7.3. |
 
 ---
 
@@ -1124,3 +1135,4 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | 1.5 | Novembro 2026 | **O `order.reconciliation_issue` sai da tabela do §12, por decisão do fundador a 2026-11-04.** A linha dava-lhe produtor (COM), consumidores (OBS, ops), *payload* (`order_id`, `tipo`) e fase (P), e o evento não existia em mais sítio nenhum: sem contrato publicado, fora dos trinta e oito tipos do §3.5 do dicionário e ausente do `06` §5. Era a **dívida documental 174**, aberta pelo KAM-044 — cujo critério 8 mandava emiti-lo —, que escreveu as duas saídas possíveis e ficou sem credor; a decisão é a saída de o tirar daqui, e a dívida fica riscada. Fica no lugar dele a linha de `platform.order_reconciliation_issues` da revisão `0030`, que é o que a métrica lê, e um ensaio que guarda a decisão. **A proveniência está escrita no corpo:** resposta directa do fundador a esta sessão (a do KAM-044) a 2026-11-04, à pergunta de qual das duas saídas que a dívida 174 escreveu seguir. **E o que a regra (2) do §10.3 perde está escrito no lugar da linha, com o credor medido** — o registo fica na tabela `order_reconciliation_issues`, o sinal é a métrica do §13, e ligar métrica a alerta é o **KAM-080** (SLO no **KAM-082**); até lá a regra não tem caminho de alerta, e isso é a **dívida 177**, aberta nesta emenda. **Nenhuma outra linha desta tabela é tocada**, e a dívida 37 — que descreve esta tabela como um segundo catálogo paralelo ao do `06` §5 — continua aberta: esta emenda tira um evento, não reconcilia os dois catálogos. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-179: o §7.2 passa a dizer de quem é a cotação.** A descrição da `price_quote` escrevia «um preço total para `(sku, qty)`» e **não** dizia que o âmbito inclui o contacto, enquanto o DDL do §5.4 escreve `contact_id NOT NULL` com FK composta e o critério 6 do **KAM-066** exige que o contacto X não leia as `price_quotes` de Y — três fontes, duas leituras. **Decisão do fundador de 2026-11-04: a cotação é por contacto**, e o parágrafo fica com a decisão, a razão que a sustenta (o `emitida_por` já é a coluna de quem a emitiu) e o que a ausência do predicado custava, medido contra um PostgreSQL real. Sem isto, o §7.2 continuava a ser a fonte de onde a leitura errada se re-derivava. O DDL do §5.4 **não** muda: a coluna e a FK já lá estão. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-048: o consumidor do `booking.reminder_due` passa do AGR para o COM, por decisão do fundador.** O §12 atribuía ao AGR «mensagem livre ou *template utility*» — o comportamento que o KAM-048 implementa em `services/com/src/servicos/reminders/`. Enquanto o lembrete não existia a divergência não custava nada; ao implementá-lo, ela produziu dois caminhos com código para falar com o cliente sobre o mesmo evento, com chaves de idempotência diferentes que não se deduplicam. A razão decisiva é o critério 3: com a janela fechada o lembrete leva data e hora, e o texto do AGR não leva números por desenho. A nota sob a tabela diz o que fica por fazer — retirar a acção ao AGR é alterar o comportamento entregue do KAM-038, devolvido ao fundador como caixa no bloco do KAM-048 — e porque é que **hoje** não há duplicado. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | **KAM-050: a máquina do §6.1 passa a ser a do documento 00.** O diagrama deixa de marcar «extensão proposta» e ganha as transições que o KAM-050 pôs no `order_state_graph` (revisão `0046`): `expirada → paga`, a disputa por `em_disputa`, a entrega falhada atrás da bandeira e o `reembolsada` por registo manual. O §6.2 ganha as quatro linhas correspondentes, o §6.6 diz como as quatro regras estão implementadas e o que fica por decidir (o escritor da `refund_cases` fora de uma reversão manual, e o `pagamento_duplicado` na `payment_outbox_map`), e o PA-03-4 regista a única alteração à proposta: a disputa depois da entrega passa por `em_disputa`. | Equipa KAMBÁ |
