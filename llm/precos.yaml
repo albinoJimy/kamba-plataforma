@@ -34,6 +34,12 @@
 
 version: 1
 
+# **A data de leitura da tabela** (KAM-081): o `E4` §3 diz «consultados em
+# 2026-10-08». Sao valores de mercado, e reconferem-se na fonte antes de fixar
+# tarifas — a data esta aqui para que quem le saiba ha quanto tempo nao se faz.
+# Nenhum codigo a le: o `precos.py` so le `version` e `precos`.
+lido_em: "2026-10-08"
+
 # `fonte` e `estado` por linha, porque nao sao todas do mesmo grau: as do
 # Anthropic e do OpenAI foram lidas da pagina oficial, as do Google sao resumo
 # de WebFetch.

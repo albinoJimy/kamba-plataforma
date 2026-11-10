@@ -575,8 +575,10 @@ series_do_criterio_2:
     metricas: []
     nota: >-
       `meta_cost_usd_total` e `meta_cost_usd_estimate` existem; o modulo
-      `metering` nao e importado por nenhum servico. O custo por tenant sai do
-      `SQL_CUSTO_DO_TENANT`, por consulta, e **nao** de etiqueta.
+      `metering` nao e importado por nenhum servico. O custo por tenant sai de
+      consulta, e **nao** de etiqueta: desde o KAM-081, da vista
+      `platform.v_tenant_cost_daily` (LLM e Meta por tenant, dia e rubrica),
+      que os paineis `custo-por-tenant` e `unit-economics` leem por SQL.
 
   - serie: erros Meta 130429 e 131049
     estado: inexistente
