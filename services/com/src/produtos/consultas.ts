@@ -144,7 +144,7 @@ export const SQL_ACTUALIZAR_TERMOS = `
          preco_valido_ate = $6,
          stock_modo = $7,
          preco_atualizado_at = $8,
-         atualizado_at = now()
+         atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
   RETURNING sku, preco_tipo, preco_minor, currency, stock_modo, atualizado_at
 `;
@@ -178,7 +178,7 @@ export const SQL_ACTUALIZAR_TERMOS = `
 export const SQL_PUBLICAR = `
   UPDATE platform.offer_terms
      SET estado = 'publicado',
-         atualizado_at = now()
+         atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2
      AND categoria_restrita IS NULL
      AND estado <> 'arquivado'
@@ -205,9 +205,95 @@ export const SQL_AJUSTAR_STOCK = `
   UPDATE platform.offer_terms
      SET stock_modo = $3,
          stock_verificado_at = now(),
-         atualizado_at = now()
+         atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
   RETURNING sku, stock_modo, stock_verificado_at, atualizado_at
+`;
+
+// ------------------------------------------------- KAM-099: o painel do dono
+
+/*
+ * A versão optimista de uma oferta, como texto **com os microssegundos**.
+ *
+ * O `atualizado_at` é a versão (KAM-099): a `offer_terms` não tem coluna
+ * `version`, e criá-la era uma revisão de base de dados. Sai como texto porque o
+ * `pg` de Node devolve um `timestamptz` como `Date`, e um `Date` tem
+ * milissegundos — com o `clock_timestamp()` a escrever microssegundos, a versão
+ * que voltasse do navegador nunca casava a da linha, e todas as escritas davam
+ * conflito. Em UTC e com o `Z` escrito à mão, para não depender do `TimeZone`
+ * da sessão.
+ *
+ * **Escrita por extenso nas duas leituras, e não interpolada**: a suite do
+ * *gate* 8 lê o texto entre as crases (`ConsultaDoTypeScript`), e um `${...}`
+ * chegava ao PostgreSQL tal e qual.
+ */
+
+/**
+ * As ofertas de um tenant, para a lista do painel (KAM-099, critério 2).
+ *
+ * **Com a quantidade e a reserva da `0033`**, que a `offer_terms` tem e que
+ * nenhuma outra leitura do módulo devolve. As arquivadas não entram: arquivar é
+ * terminal, e uma linha que não se pode editar não pertence a uma lista de
+ * edição. O `LIMIT $2` com uma linha a mais distingue «acabou» de «há mais».
+ */
+export const SQL_LISTAR_OFERTAS = `
+  SELECT sku, nome, preco_tipo, preco_minor, currency, preco_valido_ate,
+         stock_modo, stock_quantidade, stock_reservada, stock_verificado_at,
+         estado, to_char(atualizado_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS versao
+    FROM platform.offer_terms
+   WHERE tenant_id = $1 AND deleted_at IS NULL AND estado <> 'arquivado'
+   ORDER BY nome, sku
+   LIMIT $2
+`;
+
+/** Uma oferta, na mesma forma da lista. Para a releitura de um conflito. */
+export const SQL_OFERTA_DO_PAINEL = `
+  SELECT sku, nome, preco_tipo, preco_minor, currency, preco_valido_ate,
+         stock_modo, stock_quantidade, stock_reservada, stock_verificado_at,
+         estado, to_char(atualizado_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS versao
+    FROM platform.offer_terms
+   WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
+`;
+
+/**
+ * Muda o preço de uma oferta **com compare-and-set** sobre o `atualizado_at`.
+ *
+ * O predicado `atualizado_at = $5::timestamptz` **é** o CAS: com a versão velha,
+ * a instrução casa zero linhas, e o módulo responde `conflito` com a releitura.
+ * Corre sempre depois do `SQL_TERMOS_PARA_ESCRITA`, que tranca a linha — o
+ * `FOR UPDATE` serializa as escritas e o predicado diz se a do chamador ainda é
+ * sobre a linha que ele viu.
+ *
+ * ## Porque é que os cinco escritores da `offer_terms` passaram a `clock_timestamp()`
+ *
+ * O `now()` é o instante de **início da transacção**. Duas transacções que
+ * comecem no mesmo microssegundo escrevem o mesmo `atualizado_at`, e então uma
+ * escrita que chegou entre a leitura do dono e a gravação dele deixava a versão
+ * igual — e o CAS deixava passar a escrita perdida. O `FOR UPDATE` **não** chega
+ * para o impedir: serializa as duas transacções, mas a segunda escreve o seu
+ * `now()`, que é anterior ao fim da primeira. O `clock_timestamp()` é avaliado
+ * quando a linha é escrita, já com a tranca na mão, pelo que é posterior à
+ * confirmação de quem escreveu antes. Medido pela leitura das cinco instruções
+ * (`SQL_ACTUALIZAR_TERMOS`, `SQL_PUBLICAR`, `SQL_AJUSTAR_STOCK` e o
+ * `SQL_RESERVAR` e o `SQL_DEVOLVER_STOCK` das reservas): todas escrevem o
+ * `atualizado_at` na mesma instrução, e não há *trigger* que o escreva.
+ *
+ * O `preco_atualizado_at` só avança se o preço mudou, e quem o decide é o módulo
+ * (`$6`), pela razão do `SQL_ACTUALIZAR_TERMOS`. Um `CASE` sobre `$3` e `$4` era
+ * repetir marcadores, que a suite do *gate* 8 recusa.
+ */
+export const SQL_ALTERAR_OFERTA = `
+  UPDATE platform.offer_terms
+     SET preco_tipo = $3,
+         preco_minor = $4,
+         preco_atualizado_at = CASE WHEN $6::boolean THEN clock_timestamp()
+                                    ELSE preco_atualizado_at END,
+         atualizado_at = clock_timestamp()
+   WHERE tenant_id = $1 AND sku = $2
+     AND atualizado_at = $5::timestamptz
+     AND estado <> 'arquivado'
+     AND deleted_at IS NULL
+  RETURNING sku
 `;
 
 /**

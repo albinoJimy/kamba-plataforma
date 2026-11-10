@@ -100,6 +100,9 @@ export const ORIGENS = [
   "publicacao",
   "ajuste_de_stock",
   "cotacao_do_dono",
+  // KAM-099: o dono a corrigir o preço no painel — o caso que o parágrafo acima
+  // já dava como exemplo de origem distinta.
+  "painel_do_dono",
 ] as const;
 export type Origem = (typeof ORIGENS)[number];
 

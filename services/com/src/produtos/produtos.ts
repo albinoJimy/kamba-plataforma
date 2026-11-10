@@ -66,21 +66,27 @@
  */
 
 import {
+  conflito,
   erro,
   eUuid,
   ok,
+  PRECO_TIPOS,
   type OfferView,
   type OwnerConfirmation,
   type ProductRef,
   type Resultado,
 } from "../port/contrato.ts";
 import {
+  LIMITE_DO_PAINEL,
   MAXIMO_DE_RESULTADOS,
   MOEDA,
   STOCK_BAIXO_LIMIAR,
   SOB_CONSULTA,
   type AjusteDeStock,
+  type AlteracaoDeOferta,
   type Cotacao,
+  type ListaDoPainel,
+  type OfertaDoPainel,
   type EstadoDaOferta,
   type PedidoDeCotacao,
   type RascunhoDeProduto,
@@ -95,8 +101,11 @@ import {
   SQLSTATE_UNICIDADE,
   SQL_ACEITAR_COTACAO,
   SQL_ACTUALIZAR_TERMOS,
+  SQL_ALTERAR_OFERTA,
   SQL_AJUSTAR_STOCK,
   SQL_COTACAO_VALIDA,
+  SQL_LISTAR_OFERTAS,
+  SQL_OFERTA_DO_PAINEL,
   SQL_PESQUISAR,
   SQL_PUBLICAR,
   SQL_TERMOS,
@@ -399,7 +408,7 @@ async function registarAlteracaoDePreco(
   // na comparação do preço com um achado da revisão adversarial, e não cabia.
   antes: Instantaneo | null,
   depois: Instantaneo & { preco_tipo: string; preco_minor: bigint | null },
-  origem: "upsert_rascunho" | "publicacao" | "cotacao_do_dono",
+  origem: "upsert_rascunho" | "publicacao" | "cotacao_do_dono" | "painel_do_dono",
 ): Promise<void> {
   await auditarPreco(
     r.emitir,
@@ -876,6 +885,142 @@ export async function searchOffers(
       nome: String(linha["nome"]),
     })),
   );
+}
+
+// ------------------------------------------------ KAM-099: o painel do dono
+
+/**
+ * As ofertas do tenant, para a lista do painel (KAM-099, critério 2).
+ *
+ * **Lê pelo repo-base, como todas as outras**: o tenant é o do `ctx`, e é a
+ * única coisa que decide de quem são as linhas. Não há argumento por onde um
+ * pedido escolha outro tenant.
+ */
+export async function listarOfertas(r: Registo): Promise<Resultado<ListaDoPainel>> {
+  const linhas = await r.repo.noTenant(SQL_LISTAR_OFERTAS, [LIMITE_DO_PAINEL + 1]);
+  return ok({
+    itens: linhas.slice(0, LIMITE_DO_PAINEL).map(lerOferta),
+    truncada: linhas.length > LIMITE_DO_PAINEL,
+  });
+}
+
+/**
+ * A forma de uma versão: o `to_char` do `SQL_OFERTA_DO_PAINEL`, e nada mais.
+ *
+ * Uma cadeia qualquer chegava ao `$5::timestamptz` e o PostgreSQL recusava-a
+ * com `22007` — uma **excepção**, fora do `Resultado`. Recusada aqui é
+ * `VALIDATION_ERROR`, e não custa uma ida à base.
+ */
+const FORMA_DA_VERSAO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+/**
+ * Grava o preço e, se vier, o stock de uma oferta, **com CAS** (KAM-099).
+ *
+ * ```text
+ * 1. valida                         VALIDATION_ERROR, sem ir à base
+ * 2. lê a linha com FOR UPDATE      NOT_FOUND se não existe neste tenant
+ * 3. nada muda                      ok se a versão casa, conflito se não
+ * 4. SQL_ALTERAR_OFERTA             zero linhas => conflito, com a releitura
+ * 5. preço mudou                    audit_log + catalog.price_changed
+ * 6. stock veio                     o ajustarStock: audit_log + stock.adjusted
+ * ```
+ *
+ * **O CAS corre sempre que alguma coisa muda, incluindo só o stock**: é a
+ * instrução que move a versão, e um ajuste de stock que não passasse por ela
+ * gravava sobre uma linha que o dono não viu.
+ *
+ * **O nível de stock não fica na `stock_quantidade`.** O `ajustarStock` audita
+ * e emite o `stock.adjusted` com a quantidade, e não a grava: o `GRANT UPDATE`
+ * da `0033` não inclui a coluna, e conceder-lho é uma revisão de base de dados
+ * (credor: **KAM-043/049**, que é quem a `0033` nomeia). A lista continua a
+ * mostrar o que a coluna tem. É a caixa do stock que fica parcial.
+ */
+export async function alterarOferta(
+  r: Registo,
+  a: AlteracaoDeOferta,
+): Promise<Resultado<OfertaDoPainel>> {
+  if (typeof a.sku !== "string" || a.sku.trim().length === 0) return erro("VALIDATION_ERROR");
+  if (!(PRECO_TIPOS as readonly string[]).includes(a.precoTipo)) return erro("VALIDATION_ERROR");
+  const temPreco = a.precoMinor !== null;
+  if (a.precoTipo === SOB_CONSULTA && temPreco) return erro("VALIDATION_ERROR");
+  if (a.precoTipo !== SOB_CONSULTA && !temPreco) return erro("VALIDATION_ERROR");
+  if (temPreco && (a.precoMinor as bigint) < 0n) return erro("VALIDATION_ERROR");
+  if (a.stock !== undefined && (!Number.isSafeInteger(a.stock) || a.stock < 0)) {
+    return erro("VALIDATION_ERROR");
+  }
+  if (typeof a.versao !== "string" || !FORMA_DA_VERSAO.test(a.versao)) {
+    return erro("VALIDATION_ERROR");
+  }
+
+  const antes = await lerParaEscrita(r, a.sku);
+  if (antes === null || antes.estado === "arquivado") return erro("NOT_FOUND");
+
+  const mudouOPreco = antes.precoTipo !== a.precoTipo || antes.precoMinor !== a.precoMinor;
+  if (!mudouOPreco && a.stock === undefined) {
+    // Nada a gravar. A versão continua a decidir a resposta: um dono com uma
+    // página velha não recebe «gravado» só porque o valor coincide.
+    const actual = await lerOfertaDoPainel(r, a.sku);
+    if (actual === null) return erro("NOT_FOUND");
+    return actual.versao === a.versao ? ok(actual) : conflito(actual);
+  }
+
+  const escrita = await comRecusaDeDominio(() =>
+    r.repo.noTenant(SQL_ALTERAR_OFERTA, [a.sku, a.precoTipo, a.precoMinor, a.versao, mudouOPreco]),
+  );
+  if (escrita.tipo === "erro") return erro(escrita.erro);
+  if (escrita.valor.length === 0) {
+    // A versão não casou: outra escrita chegou entre a leitura do dono e esta.
+    // «Relê e reavalia», com a releitura no corpo.
+    const actual = await lerOfertaDoPainel(r, a.sku);
+    return actual === null ? erro("NOT_FOUND") : conflito(actual);
+  }
+
+  if (mudouOPreco) {
+    await registarAlteracaoDePreco(
+      r,
+      a.sku,
+      { preco_tipo: antes.precoTipo, preco_minor: antes.precoMinor },
+      { preco_tipo: a.precoTipo, preco_minor: a.precoMinor },
+      "painel_do_dono",
+    );
+  }
+  if (a.stock !== undefined) {
+    const ajuste = await ajustarStock(r, { sku: a.sku, qty: a.stock, motivo: "ajuste_do_dono" });
+    if (ajuste.tipo !== "ok") {
+      // Inalcançável: a quantidade foi validada no passo 1 e a linha está
+      // trancada desde o passo 2. **Lança, para desfazer a transacção**: um
+      // `erro` devolvido confirmava o preço gravado sem o stock que vinha com ele.
+      throw new Error(`o ajuste de stock do painel falhou depois do CAS: ${ajuste.tipo}`);
+    }
+  }
+  const depois = await lerOfertaDoPainel(r, a.sku);
+  return depois === null ? erro("NOT_FOUND") : ok(depois);
+}
+
+/** Uma oferta na forma do painel, ou `null`. */
+async function lerOfertaDoPainel(r: Registo, sku: string): Promise<OfertaDoPainel | null> {
+  const linha = (await r.repo.noTenant(SQL_OFERTA_DO_PAINEL, [sku]))[0];
+  return linha === undefined ? null : lerOferta(linha);
+}
+
+/** Uma linha das duas leituras do painel. */
+function lerOferta(linha: Readonly<Record<string, unknown>>): OfertaDoPainel {
+  const quantidade = linha["stock_quantidade"];
+  return {
+    sku: String(linha["sku"]),
+    nome: String(linha["nome"]),
+    precoTipo: linha["preco_tipo"] as OfertaDoPainel["precoTipo"],
+    precoMinor: emMinor(linha["preco_minor"]),
+    currency: String(linha["currency"]),
+    precoValidoAte: emInstante(linha["preco_valido_ate"]),
+    stockModo: linha["stock_modo"] as OfertaDoPainel["stockModo"],
+    stockQuantidade:
+      quantidade === null || quantidade === undefined ? null : Number(quantidade),
+    stockReservada: Number(linha["stock_reservada"] ?? 0),
+    stockVerificadoAt: emInstante(linha["stock_verificado_at"]),
+    estado: linha["estado"] as EstadoDaOferta,
+    versao: String(linha["versao"]),
+  };
 }
 
 // ------------------------------------------------------------------ auxiliares

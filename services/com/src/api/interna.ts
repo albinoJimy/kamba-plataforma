@@ -4,7 +4,7 @@
  * A forma é a do `/internal/turn` e `/internal/resume` do AGR (KAM-025):
  * credencial no cabeçalho, comparação em **tempo constante**, autenticação
  * **antes** de se ler o corpo, e o segredo no inventário. «Mínima» é o
- * adjectivo, e cumpre-se: sete rotas, nenhuma de administração, nenhuma que
+ * adjectivo, e cumpre-se: nove rotas, nenhuma de administração, nenhuma que
  * exista «para depois». A `/healthz` fica onde estava e **não** leva credencial
  * — é a sonda do *rolling deploy*, e uma sonda que precisa de segredo é uma
  * sonda que falha no dia em que o segredo roda.
@@ -72,6 +72,7 @@ import {
 } from "../port/index.ts";
 import type { OperacoesDoCom } from "../adapters/medusa/index.ts";
 import { exposicao, TIPO_DE_CONTEUDO } from "../metricas.ts";
+import type { AlteracaoDeOferta } from "../produtos/index.ts";
 import type {
   ErroDaCriacao,
   PedidoDeCriacao,
@@ -105,7 +106,16 @@ export const SEGREDO_DA_API = "com_internal_token";
  */
 export const CORPO_MAXIMO = 8 * 1024;
 
-/** As sete rotas, pela ordem em que a cadeia grafo → TLS → COM as toca. */
+/**
+ * As nove rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as toca, e
+ * as duas do painel do dono (KAM-099) no fim.
+ *
+ * **As duas do painel não são administração**, e é a distinção que o «nenhuma
+ * de administração» acima defende: servem um dono a ler e a corrigir o **seu**
+ * catálogo, com o tenant no `x-kamba-tenant` e o `actor` `dono` no corpo, e a
+ * escrita passa pelo CAS do módulo `produtos`. O Medusa Admin continua sem
+ * superfície (DoD do KAM-099).
+ */
 export const ROTAS = [
   "/internal/offer-view",
   "/internal/propose-cart",
@@ -114,6 +124,8 @@ export const ROTAS = [
   "/internal/list-orders",
   "/internal/transition",
   "/internal/request-owner-confirmation",
+  "/internal/list-offers",
+  "/internal/update-offer",
 ] as const;
 
 /**
@@ -281,6 +293,35 @@ function semBigInt(valor: unknown): unknown {
   return valor;
 }
 
+/**
+ * A alteração de oferta que o corpo descreve, ou `null` (KAM-099).
+ *
+ * O `preco_minor` é `null` **explícito** para `sob_consulta` e uma cadeia de
+ * dígitos (ou inteiro seguro) para os outros dois; o resto da validação — o par
+ * modo/preço, a forma da versão — é do módulo, que é quem a repete para quem o
+ * use sem esta API.
+ */
+function alteracaoDoCorpo(corpo: Record<string, unknown>): AlteracaoDeOferta | null {
+  const sku = corpo["sku"];
+  const precoTipo = corpo["preco_tipo"];
+  const versao = corpo["versao"];
+  const stock = corpo["stock"];
+  if (typeof sku !== "string" || sku.length === 0) return null;
+  if (typeof precoTipo !== "string") return null;
+  if (typeof versao !== "string") return null;
+  const bruto = corpo["preco_minor"];
+  const precoMinor = bruto === null ? null : emMinor(bruto);
+  if (bruto !== null && precoMinor === null) return null;
+  if (stock !== undefined && !Number.isSafeInteger(stock)) return null;
+  return {
+    sku,
+    precoTipo: precoTipo as AlteracaoDeOferta["precoTipo"],
+    precoMinor,
+    versao,
+    ...(stock === undefined ? {} : { stock: stock as number }),
+  };
+}
+
 /** O filtro do `listOrders` que o corpo descreve. A validação é do módulo. */
 function filtroDoCorpo(corpo: Record<string, unknown>): OrderFilter {
   const filtro: {
@@ -313,8 +354,8 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   /**
    * A autenticação, **antes** de o corpo ser lido.
    *
-   * Um `app.use` e não uma linha em cada rota: sete rotas e sete verificações
-   * era a oitava a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
+   * Um `app.use` e não uma linha em cada rota: nove rotas e nove verificações
+   * era a décima a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
    * da rota.
    */
   api.use("/internal/*", async (c, next) => {
@@ -394,7 +435,7 @@ function responder(
   );
 }
 
-/** As sete rotas, uma a uma. O despacho é por igualdade e não por padrão. */
+/** As nove rotas, uma a uma. O despacho é por igualdade e não por padrão. */
 async function despachar(
   rota: (typeof ROTAS)[number],
   ctx: Ctx,
@@ -476,6 +517,18 @@ async function despachar(
 
   if (rota === "/internal/list-orders") {
     return responder(await porta.listOrders(ctx, filtroDoCorpo(corpo)));
+  }
+
+  if (rota === "/internal/list-offers") {
+    return responder(await deps.operacoes.listarOfertas(ctx));
+  }
+
+  if (rota === "/internal/update-offer") {
+    const alteracao = alteracaoDoCorpo(corpo);
+    if (alteracao === null) {
+      return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
+    }
+    return responder(await deps.operacoes.alterarOferta(ctx, alteracao));
   }
 
   if (rota === "/internal/transition") {
