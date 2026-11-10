@@ -75,15 +75,65 @@ servicos:
       Entrada unica do trafego externo (ADR-001). Duas replicas, criterio 5.
       O limite do bloco e «2x0,25 GB»; aqui e por servico e nao por replica.
 
-  - nome: worker-canal
+  # O `worker-canal` sao quatro servicos, uma imagem e um `command:` cada
+  # (KAM-187). **O nome `worker-canal` deixou de ser servico**: era o
+  # `server.ts`, que so serve `/healthz`, e a razao dele dizia «Consumidor da
+  # fila de entrada do canal (KAM-013)» — falso desde que o KAM-013 separou o
+  # `entrada.ts`, e o lint passava sobre isso porque confere o nome e nao o que
+  # o servico corre. Hoje confere as duas coisas (`consumidor-em-falta`,
+  # `consumidor-com-server-ts`).
+  #
+  # **A memoria dos quatro sobe o total, e nao sai de nenhuma linha.** O doc 09
+  # §4.2 nao tem linha para o *worker* (o KAM-084 §6.2 chama-lhe «linha em
+  # falta»), e os 256 MiB que o `worker-canal` tirava da linha «SO e proxies»
+  # eram de um processo que nao consumia nada. Somam 1 344 MiB e substituem os
+  # 256: o total do manifesto passa de 24 064 para 25 152 MiB (+1 088), 76,8%
+  # da RAM do *host*, dentro dos 80% do criterio 4 do KAM-076.
+  - nome: worker-canal-entrada
+    estado: presente
+    rede: app
+    memoria_mib: 512
+    replicas: 2
+    razao: >-
+      O `entrada.ts` (KAM-013): consome a `wa-inbound`, regista em
+      `inbound_events` e entrega ao CHR. Escala com replicas. 256 MiB por
+      replica e a recomendacao do KAM-084 (§4.5 e §6.2 do
+      `docs/tecnica/evidencia/Carga_Dimensionamento.md`): o *working set*
+      maximo medido sob carga foi 200,6 MiB, 78% do limite.
+
+  - nome: worker-canal-agr-shim
+    estado: presente
+    rede: app
+    memoria_mib: 384
+    replicas: 2
+    razao: >-
+      O `agr_shim.ts` (KAM-025): consome a `agr-inbound` e entrega ao AGR por
+      `POST /internal/turn`. Escala com replicas e nao abre ligacao a base.
+      192 MiB por replica e *proposta*: sem turnos no AGR nao ha carga que o
+      meca (o KAM-084 §1 regista-o), e o repouso medido esta no anexo do
+      KAM-187.
+
+  - nome: worker-canal-publicador
     estado: presente
     rede: app
     memoria_mib: 256
+    replicas: 2
     razao: >-
-      Consumidor da fila de entrada do canal (KAM-013). Nao esta nomeado na
-      lista do bloco, que diz «GWY x2, AGR workers x2»: o worker de entrada
-      nasceu depois do doc 09 §4.2. Este quarto de GB sai da linha «SO e
-      proxies» (1,5 GB), que com os dois proxies e o pgBackRest fecha exacta.
+      O `publicador.ts` (KAM-005): *outbox* para as particoes. Duas replicas
+      **em espera** — so quem ganha `pg_try_advisory_lock(7101)` publica —,
+      pelo que a segunda e tempo de recuperacao e nao debito. 128 MiB por
+      replica e *proposta*, acima do repouso medido no anexo do KAM-187.
+
+  - nome: worker-canal-consumidor
+    estado: presente
+    rede: app
+    memoria_mib: 192
+    razao: >-
+      O `consumidor.ts` (KAM-006): particoes para `events_consumed` e a DLQ.
+      Uma replica: a ordem por agregado assenta em concorrencia 1 por fila de
+      particao (`docs/eventos.md` §4). 192 MiB e *proposta* — sao dezasseis
+      *workers* BullMQ num processo —, acima do repouso medido no anexo do
+      KAM-187.
 
   - nome: agr
     estado: presente

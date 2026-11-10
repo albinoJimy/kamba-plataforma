@@ -123,7 +123,7 @@
       "title": "O que este painel nao mostra",
       "options": {
         "mode": "markdown",
-        "content": "### Series sem produtor\n\nEstas series existem em codigo e **nenhum processo as serve**, pelo que nao ha grafico para elas. Nao e uma lacuna deste painel: e a medicao do KAM-080, e cada uma tem credor escrito em `ops/metricas/catalogo.yaml`.\n\n- **mensagens enviadas** (`outbound_sent_total`) — o estagio de saida nao esta ligado; credor KAM-015.\n- **p50/p95/p99 de resposta** — o AGR nao tem histogramas (ADR-018); o `agr_turn_latency_ms` e o **ultimo** valor, nao um quantil. Credor KAM-082.\n- **idade do mais antigo na fila** (`evt_outbox_lag_seconds`) — o publicador nao esta em nenhum compose; credor KAM-005. O que esta aqui e a **profundidade**.\n"
+        "content": "### Series sem produtor\n\nEstas series existem em codigo e **nenhum processo as serve**, pelo que nao ha grafico para elas. Nao e uma lacuna deste painel: e a medicao do KAM-080, e cada uma tem credor escrito em `ops/metricas/catalogo.yaml`.\n\n- **mensagens enviadas** (`outbound_sent_total`) — o estagio de saida nao esta ligado; credor KAM-015.\n- **p50/p95/p99 de resposta** — o AGR nao tem histogramas (ADR-018); o `agr_turn_latency_ms` e o **ultimo** valor, nao um quantil. Credor KAM-082.\n- **idade do mais antigo na fila de entrada** — nenhuma serie a mede. O `evt_outbox_lag_seconds` e o atraso do *outbox*, servido pelo publicador, que corre e e raspado desde o KAM-187, e nao responde a isto. O que esta aqui e a **profundidade**.\n"
       },
       "id": 7
     }

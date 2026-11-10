@@ -248,16 +248,67 @@ services:
       queue:
         condition: service_healthy
 
-  worker-canal:
+  # ------------------------------------------------ worker-canal (KAM-187)
+  #
+  # **Quatro servicos, uma imagem, um `command:` cada.** Ate ao KAM-187 havia
+  # um servico `worker-canal` sem `command:`, que corria o `CMD` da imagem — o
+  # `server.ts`, que so serve `/healthz` — e **ninguem consumia a
+  # `wa-inbound`**. Os quatro processos que fazem o trabalho estao em
+  # `services/worker-canal/src/`, e cada um diz no cabecalho que e um processo
+  # proprio por causa de como escala:
+  #
+  #   entrada.ts     wa-inbound -> inbound_events, CHR, agr-inbound   3013   replicas
+  #   agr_shim.ts    agr-inbound -> POST /internal/turn no AGR        3025   replicas
+  #   publicador.ts  outbox -> particoes                              3011   em espera (lock 7101)
+  #   consumidor.ts  particoes -> events_consumed, DLQ                3012   uma
+  #
+  # O `server.ts` **sai** do compose: os quatro servem o seu `/healthz`, e uma
+  # sonda que nao consome nada era um contentor verde sobre uma fila parada —
+  # que foi exactamente o defeito. A regra `consumidor-com-server-ts` do
+  # `compose_prod` recusa um servico desta imagem sem `command:`, e a
+  # `consumidor-em-falta` recusa o compose a que falte um dos quatro.
+  #
+  # Sem `*saida`: nenhum dos quatro declara destino em
+  # `services/worker-canal/egress.yaml` (`destinos: []`). Falam com a fila e a
+  # base (`data`) e com o AGR (`app`); `app` e `data` sao `internal: true`, e
+  # sem `HTTPS_PROXY` nao ha caminho para fora. Estao em `app` tambem porque e
+  # por la que o Prometheus os raspa.
+  #
+  # Os `mem_limit` sao os do `conjunto-reduzido.yaml`, com a razao de cada um.
+  worker-canal-entrada:
     <<: *node
     build:
       context: ../..
       dockerfile: services/worker-canal/Dockerfile
       args:
         KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/entrada.ts"]
     environment:
-      <<: [*node-env, *saida]
-      PORT: "3001"
+      <<: *node-env
+      ENTRADA_PORT: "3013"
+      # **Em `prod` este processo NAO arranca hoje, e e medido.** O
+      # `Identidade.arrancar` do KAM-008 recusa o provedor de chaves de
+      # ambiente com `KAMBA_ENV=prod` (`exigirKeyProviderDeCofre`, criterio 9 do
+      # KAM-008), e nao ha provedor de cofre: e a contradicao do
+      # `docs/identidade.md` §8, linha 2, devolvida ao fundador. Nao se poe
+      # `dev` aqui para o fazer arrancar — isso era desligar a recusa.
+      KAMBA_ENV: prod
+      KAMBA_FASE: piloto
+      KAMBA_QUEUE_URL: redis://queue:6379
+      # Tres papeis, tres ligacoes (cabecalho do `entrada.ts`): `kamba_app`,
+      # `kamba_resolver` e `kamba_identity`.
+      KAMBA_ENTRADA_DB_URL: ${KAMBA_ENTRADA_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_CHR_RESOLVER_DB_URL: ${KAMBA_CHR_RESOLVER_DB_URL:?o deploy passa a cadeia de ligacao do kamba_resolver}
+      KAMBA_CHR_IDENTITY_DB_URL: ${KAMBA_CHR_IDENTITY_DB_URL:?o deploy passa a cadeia de ligacao do kamba_identity}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC:?o cofre entrega o pepper do HMAC de contacto}
+      KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR: ${KAMBA_SECRET_PEPPER_CONTACT_HMAC_ANTERIOR:-}
+      KAMBA_SECRET_KEK_CONTACT_DEK: ${KAMBA_SECRET_KEK_CONTACT_DEK:?o cofre entrega a KEK das DEK de contacto}
+      KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR: ${KAMBA_SECRET_KEK_CONTACT_DEK_ANTERIOR:-}
+    # Escala com replicas (cabecalho do `entrada.ts`): o *worker* trata um *job*
+    # de cada vez, e o KAM-084 mediu-o como o primeiro recurso saturado do
+    # segmento de entrada, entre 200 e 400 *webhooks*/s.
+    deploy:
+      replicas: 2
     networks:
       - app
       - data
@@ -269,7 +320,7 @@ services:
         - node
         - -e
         - >-
-          fetch('http://127.0.0.1:3001/healthz')
+          fetch('http://127.0.0.1:3013/healthz')
           .then(r => process.exit(r.ok ? 0 : 1))
           .catch(() => process.exit(1))
       interval: 10s
@@ -277,6 +328,140 @@ services:
       retries: 6
       start_period: 20s
     depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal-agr-shim:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/agr_shim.ts"]
+    environment:
+      <<: *node-env
+      # «Tem de coincidir com o compose» (`agr_shim.ts`): e esta.
+      AGR_SHIM_PORT: "3025"
+      KAMBA_ENV: prod
+      # O shim le `KAMBA_REDIS_URL`, e nao `KAMBA_QUEUE_URL` como os outros
+      # tres. E a mesma fila.
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_AGR_URL: http://agr:8000
+      KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do AGR}
+    # Escala com replicas; nao abre ligacao a base (cabecalho do `agr_shim.ts`).
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3025/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      queue:
+        condition: service_healthy
+
+  worker-canal-publicador:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/publicador.ts"]
+    environment:
+      <<: *node-env
+      PUBLICADOR_PORT: "3011"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      KAMBA_PUBLICADOR_DB_URL: ${KAMBA_PUBLICADOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+    # **Duas replicas, e so uma publica.** Quem ganha `pg_try_advisory_lock(7101)`
+    # publica; a outra fica em espera e assume quando a primeira larga o lock.
+    # Nao e escala de debito: e o tempo de recuperacao de uma avaria.
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3011/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal-consumidor:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/consumidor.ts"]
+    environment:
+      <<: *node-env
+      CONSUMIDOR_PORT: "3012"
+      KAMBA_QUEUE_URL: redis://queue:6379
+      # A subscricao (`evt_subscricoes.consumer`). Obrigatoria: o processo
+      # recusa arrancar sem ela, e um nome por omissao era uma subscricao que
+      # ninguem configurou.
+      KAMBA_CONSUMER: ${KAMBA_CONSUMER:?o deploy nomeia a subscricao do consumidor}
+      # Dois papeis (cabecalho do `consumidor.ts`): o consumo como `kamba_app`,
+      # o reconciliador e o *gauge* da DLQ como `kamba_batch`.
+      KAMBA_CONSUMIDOR_DB_URL: ${KAMBA_CONSUMIDOR_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_CONSUMIDOR_OPS_DB_URL: ${KAMBA_CONSUMIDOR_OPS_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+    # **Uma replica.** As dezasseis filas de particao garantem a ordem por
+    # agregado com «concorrencia 1 por fila» (`docs/eventos.md` §4, *Fan-out*);
+    # uma segunda replica punha dois *workers* na mesma particao.
+    networks:
+      - app
+      - data
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3012/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
       queue:
         condition: service_healthy
 
@@ -681,7 +866,8 @@ services:
     #
     # **Actualizado pelo KAM-080 e pelo KAM-082.** Onde esta nota dizia «a
     # configuracao so se raspa a si proprio» e «nao se afirma que ha
-    # observabilidade», hoje ha tres alvos (`gwy`, `com`, `agr`), o Alertmanager
+    # observabilidade», hoje ha sete alvos (`gwy`, `com`, `agr` e, desde o
+    # KAM-187, os quatro processos do `worker-canal`), o Alertmanager
     # ao lado e — medido pelo `obs_lint` e pelo `promtool check rules` —
     # **20 regras em 3 ficheiros, das quais 10 sao alertas**.
     #
@@ -695,7 +881,7 @@ services:
     #
     # O que **continua** verdade, e nao se apaga por ser inconveniente:
     #
-    #   * os alvos sao tres e nao treze. Os modulos `outbound`, `metering`,
+    #   * os alvos sao sete e nao treze. Os modulos `outbound`, `metering`,
     #     `hnd` e `qualidade` declaram metricas que nenhum servico importa, e
     #     raspa-las publicava zeros permanentes — a razao esta no
     #     `prometheus/prometheus.yml` e o credor de cada uma no
@@ -744,7 +930,7 @@ services:
       # O dia a mais e folga sobre a janela, para que ela esteja sempre coberta
       # por inteiro. Nada mais muda: o `mem_limit` e o mesmo, pelo que a soma
       # dos limites do `conjunto-reduzido.yaml` nao se move. O disco cresce com
-      # o periodo retido; com tres alvos e as series deste repositorio e
+      # o periodo retido; com sete alvos e as series deste repositorio e
       # irrelevante, mas e **INDICIO** e nao medicao — nao ha pilha a correr
       # onde o medir, e o volume `prometheus-data` nao tem tecto declarado.
       - "--storage.tsdb.retention.time=31d"
@@ -782,7 +968,8 @@ services:
     # Entra porque o `conjunto-reduzido.yaml` do KAM-076 ja o tinha `pendente`
     # com `ticket: KAM-080` e **256 MiB orcamentados** — pelo que a soma dos
     # limites nao muda ao passar a `presente`, e o teste que prende os 24 064 MiB
-    # continua verde. Nao e um servico a mais: e o servico que aquele ticket
+    # continua verde. (Prende 25 152 desde o KAM-187, que pos os quatro processos
+    # do `worker-canal` e mudou a soma com a razao escrita no ensaio.) Nao e um servico a mais: e o servico que aquele ticket
     # deixou reservado.
     image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
     <<: *endurecido
