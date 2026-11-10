@@ -13,6 +13,7 @@ contexto, e que os catorze valores da linha sao os que se esperam.
 
 from __future__ import annotations
 
+import pathlib
 import unittest
 from decimal import Decimal
 from typing import Any
@@ -138,12 +139,19 @@ class _Ligacao:
         ]
 
 
+#: Os aliases do repositorio, lidos como o servico os le. Os modelos das linhas
+#: abaixo sao inventados (o ficheiro diz `por_decidir`), mas o **tecto de
+#: resposta e o do ficheiro** (KAM-189): e o que o *red-team* le no corpo
+#: enviado (`redteam.cenario_tecto_de_saida_do_classificador`).
+REAIS = aliases_mod.ler(pathlib.Path(__file__).resolve().parents[3] / "llm")
+
 ALIAS_CHAT = aliases_mod.Alias(
     nome="kamba-chat",
     papel="chat",
     timeout=20,
     fornecedores=("anthropic", "openai"),
     modelos=("claude-haiku-5-5", "gpt-6-luna"),
+    max_tokens=REAIS["chat"].max_tokens,
 )
 ALIAS_ROUTER = aliases_mod.Alias(
     nome="kamba-router",
@@ -151,6 +159,7 @@ ALIAS_ROUTER = aliases_mod.Alias(
     timeout=8,
     fornecedores=("anthropic",),
     modelos=("claude-haiku-5-5",),
+    max_tokens=REAIS["router"].max_tokens,
 )
 ALIASES = {"chat": ALIAS_CHAT, "router": ALIAS_ROUTER}
 
@@ -684,6 +693,24 @@ class TestOsOutrosDesfechos(unittest.TestCase):
         cliente, _, _ = _cliente()
         with self.assertRaises(FornecedorFalhou):
             cliente.chamar("embed", _msg("ola"), CTX)
+
+    def test_o_corpo_leva_o_tecto_de_resposta_do_alias(self) -> None:
+        """KAM-189: o `max_tokens` de `llm/aliases.yaml` vai no corpo, por papel.
+
+        Le o **corpo enviado** ao transporte e o ficheiro real, e nao a constante
+        do ensaio: um tecto mudado no ficheiro e o que tem de sair.
+        """
+        for papel in ("router", "chat"):
+            with self.subTest(papel=papel):
+                transporte = _Transporte()
+                cliente, _, _ = _cliente(transporte)
+                cliente.chamar(papel, _msg("ola"), CTX)
+                corpo = transporte.chamadas[0][2]
+                self.assertEqual(corpo["max_tokens"], REAIS[papel].max_tokens)
+                self.assertIsInstance(corpo["max_tokens"], int)
+                self.assertGreater(corpo["max_tokens"], 0)
+        # O router responde uma palavra: o tecto dele e o mais baixo.
+        self.assertLess(REAIS["router"].max_tokens, REAIS["chat"].max_tokens)
 
     def test_o_tecto_do_cliente_excede_o_do_proxy(self) -> None:
         """Desistir antes do proxy fazia o *fallback* do criterio 6 nunca acontecer."""
