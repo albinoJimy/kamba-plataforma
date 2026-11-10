@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.74 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.75 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -3796,6 +3796,43 @@ do KAM-086, que hoje guarda um desafio por caso **sem identificador** — credor
 
 ---
 
+### 3.53 O passo guiado do Embedded Signup: pré-voo, estados visíveis, capacidade e retoma (KAM-093)
+
+*Emenda 1.75, **proposta**.* Os nomes do módulo
+[`../packages/core-ts/src/guia/`](../packages/core-ts/src/guia/index.ts) e das rotas `/ligar` e
+`/api/es/*` do `onboarding-web`. **Nenhuma revisão de base de dados**: as três tabelas que o bloco
+nomeia — `onboarding_case`, `onboarding_gate` e `review_case` — não existem, e os nomes abaixo que
+são colunas delas ficam aqui como **destino** do adaptador, com o credor de cada uma. Os domínios
+fechados qualificam-se pelo **tipo** que os declara e não por uma coluna, pela regra que a emenda
+1.30 aplicou ao `RecursoCriado.recurso`: uma coluna que não existe não pode levar o `CHECK` que um
+domínio de coluna exigiria.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| O módulo | `../packages/core-ts/src/guia/`, com o serviço `PassoGuiado` | — | *proposta* (emenda 1.75, KAM-093). **Não é** o `onboarding/` do KAM-016 (a troca do `code`, que o guia chama por porta e não reimplementa) nem a `inscricao/` do KAM-086 (o registo e o OTP) |
+| Pré-voo gravado | `onboarding_case.preflight`, `jsonb` *array* de «{id, tipo, ok, detalhe}» | — | *proposta* (emenda 1.75, KAM-093). A forma é a dos Detalhes Técnicos do bloco. **A coluna não existe**, porque a tabela não existe: credor **KAM-086/087**, com a divergência da `onboarding_case.fase` (emenda 1.64) a decidir primeiro. Até lá vive no `RepositorioDoGuia` |
+| Item do pré-voo | `ItemAvaliado.id` ∈ {`app_versao`, `numero_movel`, `whatsapp_pessoal`, `cartao_internacional`, `categoria_aprovada`, `display_name`, `dono_presente`} | — | *proposta* (emenda 1.75, KAM-093). Lista **fechada**, **sete**, pela ordem do critério 2. **Não há item** para a elegibilidade de Angola (H3) nem para os «≥ 7 dias» de actividade: são NÃO VERIFICADOS e o bloco proíbe impô-los |
+| Como se verifica um item | `ItemAvaliado.tipo` ∈ {`auto`, `atestado`} | — | *proposta* (emenda 1.75, KAM-093). `atestado` é o que a KAMBÁ não vê — a app no telemóvel do dono, o cartão, a presença — e só vale o booleano `true` |
+| Porquê de um item | `ItemAvaliado.detalhe` ∈ {`ok`, `nao_atestado`, `versao_antiga`, `versao_ilegivel`, `fixo_rota_cloud_only`, `numero_ilegivel`, `converter_para_business`, `sem_cartao_internacional`, `categoria_por_aprovar`, `categoria_recusada`, `nome_vazio`, `nome_com_termo_bloqueado`} | — | *proposta* (emenda 1.75, KAM-093). **Fechada, e a razão é quem a lê**: o T&S, numa fila de revisão. Texto livre ali era o sítio onde um *display name* com um telefone dentro ficava guardado |
+| Versão mínima da app | `VERSAO_MINIMA_DA_APP` = `2.24.17` | — | *proposta* (emenda 1.75, KAM-093). CONFIRMADO no `E1` §3; compara-se componente a componente, e `2.24.9` é antiga |
+| Tipo de linha de um telefone | `Telefone.linha` ∈ {`movel`, `fixo`, `desconhecido`} | — | *proposta* (emenda 1.75, KAM-093). Pelo primeiro algarismo nacional — `9` móvel, `2` fixo —, **INDÍCIO** (os números em circulação, não o plano publicado pelo regulador). Calcula-se **na cunhagem** do `Telefone` da inscrição, para o pré-voo não acrescentar um `revelar()`. Fixo ⇒ rota `cloud_only` e não bloqueio |
+| Estado visível do canal | `EstadoGuardado.estado` ∈ {`pre_voo`, `iniciado`, `es_concluido`, `subscrito`, `a_sincronizar`, `verificado`, `pronto`, `abandonado`, `falhado`, `desligado`} | — | *proposta* (emenda 1.75, KAM-093). **Dez**: os seis do caminho do critério 5, os dois que ele nomeia a seguir, o `desligado` do critério 7 e o `pre_voo` antes do popup. **Não é** a `channel_onboarding.fase` (§3.21), que tem `ativo` e não tem `desligado`: é a vista que junta as duas máquinas para o dono. `abandonado` só sai de `iniciado`, e os três terminais voltam a `iniciado` — repetir o ES sem registo novo |
+| Motivo de um guia falhado | `EstadoGuardado.motivo` ∈ {`numero_divergente`, `sincronizacao_vencida`, `ligacao_recusada`} | — | *proposta* (emenda 1.75, KAM-093). O `numero_divergente` **prende**: a página não o desprende, e quem o faz é a revisão (KAM-089) |
+| Gates que o guia escreve | `meta_es` e `meta_pagamento`, em `onboarding_gate` | — | *proposta* (emenda 1.75, KAM-093). `meta_es` verde só com o número confirmado **e** a sincronização concluída; `meta_pagamento` vermelho em tudo o que não é `detectado`. **A tabela é do KAM-092** e não existe; o guia escreve pela porta `GatesDoOnboarding` |
+| Estado do método de pagamento | `VerificacaoDoPagamento.estado` ∈ {`detectado`, `ausente`, `desconhecido`} | — | *proposta* (emenda 1.75, KAM-093). `desconhecido` é o normal hoje: **não há fonte CONFIRMADA** de que a Graph diga se o WABA tem cartão antes do primeiro envio (credor KAM-023 / `ext:KAM-102`). A alternativa devolvida é `mps` (D5) |
+| Capacidade antes do popup | `CapacityGate`, com `reserve(onboardingId)` ∈ {`granted`, `lista_espera`} e `release` | — | *proposta* (emenda 1.75, KAM-093). A interface dos Detalhes Técnicos, à letra. Janela de sete dias e `es_max_por_7d` = 10 por omissão, CONFIRMADOS no `E1`. Repetir do mesmo caso não gasta lugar; a fila e os convites são do KAM-095 |
+| Ligação de retoma | referência de fim `retoma`, domínio `kamba/onboarding/retoma/v1`, validade 30 dias | — | *proposta* (emenda 1.75, KAM-093). O terceiro fim do `FINS` da inscrição. **Não autentica**: diz de que caso é a página, e a página exige a `sessao` ao lado — uma retoma de outro caso, forjada ou sem sessão dá o mesmo 403. A validade é *proposta* |
+| Mensagem ao dono do guia | `AvisoDoGuia`, mensagem ∈ {`reconectar`, `sincronizacao_falhou`, `sincronizacao_lembrete`} | — | *proposta* (emenda 1.75, KAM-093). SMS ou e-mail, **nunca WhatsApp**: o tipo não admite outra via. O alarme de canal desligado e o de inactividade **não** estão aqui — são os gatilhos `canal_desligado` e `inactividade` do KAM-115 (§3.23) |
+| Configuração do popup | `KAMBA_META_APP_ID`, `KAMBA_META_ES_CONFIG_ID`, `ONBOARDING_ORIGEM`, `ONBOARDING_GWY_INTERNO_URL` | — | *proposta* (emenda 1.75, KAM-093). **Nenhuma é segredo**: o `appId` e o `config_id` são identificadores públicos que a página entrega ao SDK da Meta. Sem as quatro, o `onboarding-web` arranca **sem** a página e di-lo numa linha (`es_guia_desligado`) |
+
+**O que esta emenda não decide, e a quem.** As três tabelas — `onboarding_case` (**KAM-086/087**),
+`onboarding_gate` (**KAM-092**) e `review_case` (**KAM-089**). A lista de termos de categoria
+bloqueada para o *display name* (**KAM-088**). O texto do aviso por SMS, que o
+`../packages/core-ts/src/sms/modelos.ts` mantém em lista fechada sem nenhum escrito (**KAM-116**).
+A forma do `session_info` que o popup devolve, que é **NÃO VERIFICADA** (**`ext:KAM-102`**).
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -3891,3 +3928,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.72 | Novembro 2026 | **Emenda (*proposta*), KAM-090: o aceite contratual versionado.** §3.52 nova: a `platform.contract_document` (sete colunas, **sem `tenant_id`**, imutável por *trigger* e por privilégio, `sha256` conferido pela base sobre o conteúdo canónico) e a `platform.contract_acceptance` (onze colunas, `id` `uuid` e não o `bigserial` do bloco, sem FK para `tenants`, RLS `FORCE`), o domínio de **quatro** tipos, a evidência em largura fixa, o `EXCLUDE` que impede o OTP de um caso de servir noutro — **entre tenants**, por baixo da RLS —, o gate de activação por *trigger* em `tenants` (`tenant sem DPA aceite nao activa`) e a `dpa_em_falta()` da verificação diária. **Sem `SECURITY DEFINER`.** Fica com credor o que não é deste ticket: o texto jurídico (KAM-104), o `onboarding_case` (KAM-086/087), o id do desafio de OTP (KAM-086) e a consequência de uma versão nova para os tenants existentes (parecer). | Equipa KAMBÁ |
 | 1.73 | Novembro 2026 | **Emenda (*proposta*), KAM-073: a versão da política de guardas passa a 1.1.0.** O §3.51 escrevia o valor da `VERSAO_DA_POLITICA`, e o *red-team* do AGR mudou a política: três formas de saída passavam o `guard_out` e foram fechadas (regra *minor* da própria constante, padrão novo). Nenhum nome entra nem sai; muda o valor. | Equipa KAMBÁ |
 | 1.74 | Novembro 2026 | **Emenda (*proposta*), KAM-186: o turno cuja vertical o registo recusa.** §3.24: o desfecho de um turno ganha o quinto valor, `servico_indisponivel`, e o `agr_shim_total{outcome}` passa a **onze** valores. O `servico_indisponivel` **não é nome novo**: é o identificador da resposta estática do §3.26 (KAM-027, critério 6), que passa a ser também o desfecho do turno — a porta `grafos` do processo chama o `resolve` em cada turno, e uma recusa responde 200 e não volta à fila. O **`saida_por_ligar`** (*proposta*) é a resposta 503 de um turno cujo grafo quis responder sem Outbound a que o AGR fale: o *job* volta à fila, e a resposta não se perde — com 200 completava e a desduplicação por `turn_id` recusava a reentrega. As duas listas fechadas no código — `DESFECHOS` do `metricas.py` e `DESFECHOS_DO_AGR` do `agr/contrato.ts` — mudam no mesmo *commit*. | Equipa KAMBÁ |
+| 1.75 | Novembro 2026 | **Emenda (*proposta*), KAM-093: o passo guiado do Embedded Signup.** §3.53 nova: o módulo `guia/` e o `PassoGuiado`; o pré-voo na forma dos Detalhes Técnicos, com os **sete** itens, os dois tipos e os **doze** detalhes em lista fechada; o `Telefone.linha` calculado na cunhagem; os **dez** estados visíveis do canal e a matriz deles, que **não** é a `channel_onboarding.fase`; os três motivos de falha, dos quais o `numero_divergente` prende; os gates `meta_es` e `meta_pagamento`; o `CapacityGate` à letra; o terceiro fim de referência, `retoma`, que não autentica; as três mensagens ao dono, que **não** repetem os gatilhos do KAM-115; e as quatro variáveis da página, nenhuma segredo. **Nenhuma revisão de base de dados**: o `onboarding_case`, o `onboarding_gate` e o `review_case` não existem, e criar o primeiro para lhe pendurar o `preflight` decidia a divergência da emenda 1.64 de passagem. Os domínios qualificam-se pelo **tipo**, pela regra da 1.30. | Equipa KAMBÁ |
