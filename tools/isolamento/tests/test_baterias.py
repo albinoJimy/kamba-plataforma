@@ -120,6 +120,7 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             + x01_rotas.CANAIS_DO_GWY
             + x01_rotas.ROTAS_DA_API_INTERNA_DO_COM
             + x01_rotas.ROTAS_DA_INSCRICAO
+            + x01_rotas.ROTAS_DO_GUIA
         )
         # **As tres listas do AGR subtraem-se, e nao duas.** O conjunto de
         # TypeScript deriva-se por subtraccao, pelo que uma lista nova do AGR

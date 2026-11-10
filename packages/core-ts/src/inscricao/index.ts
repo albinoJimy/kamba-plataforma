@@ -122,12 +122,14 @@ export {
   hmacCorresponde,
   hmacDe,
   hmacsDoAnel,
+  linhaDe,
   normalizarEmail,
   normalizarNif,
   normalizarTelefone,
   normalizarTexto,
   prefixoDeIp,
   type Dominio,
+  type Linha,
   type MotivoDaRecusa,
 } from "./identificadores.ts";
 
@@ -189,6 +191,7 @@ export {
   FINS,
   NOME_DO_COOKIE,
   VALIDADES,
+  VALIDADE_DA_RETOMA_S,
   VALIDADE_DA_SESSAO_S,
   VALIDADE_DO_BILHETE_S,
   ReferenciaInvalidaError,

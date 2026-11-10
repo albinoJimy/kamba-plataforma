@@ -235,8 +235,13 @@ describe("o inventario deste repositorio", () => {
     // contagem nao se cita de uma medicao anterior, re-mede-se depois da ultima
     // edicao. E a sexta vez que esta salvaguarda morde um ticket que nao a
     // estava a pensar.
-    assert.equal(totalDeclarado(), 154);
-    assert.equal(INVENTARIO.length, 41);
+    //
+    // **165 em 43 ficheiros desde o KAM-093**: as duas baterias do passo guiado
+    // (seis e quatro) e um terceiro destino no condutor do gate 6, o do caso de
+    // A do grupo `guia`. Medidas com `varrer`, e a razao de os moveis casarem os
+    // dois padroes esta na entrada.
+    assert.equal(totalDeclarado(), 165);
+    assert.equal(INVENTARIO.length, 43);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

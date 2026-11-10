@@ -423,13 +423,42 @@ export const INVENTARIO: readonly Entrada[] = [
   },
   {
     ficheiro: "tools/isolamento/tests/condutor/rotas.ts",
-    ocorrencias: 2,
+    ocorrencias: 3,
     razao:
       "os dois destinos do grupo `inscricao` do condutor de isolamento (gate 6, " +
       "KAM-066): o do caso de B, que e o atacado, e o de quem ataca. O modulo da " +
       "inscricao so aceita +244, pelo que um numero ficticio era recusado antes " +
       "de o caso de B existir — e sem caso de B os dez ataques nao atacam nada. " +
-      "Nacionais a comecar por zero, como os das outras entradas desta lista",
+      "Nacionais a comecar por zero, como os das outras entradas desta lista. " +
+      "O terceiro e o caso de A do grupo `guia` (KAM-093), da mesma forma",
+  },
+  // --- O passo guiado do Embedded Signup (KAM-093) ------------------------
+  //
+  // **Estes sim comecam pelo `9` do movel**, e e a unica forma de medir o que
+  // o ticket pede: o pre-voo le o tipo de linha do telefone do OTP («numero
+  // movel; fixo => rota de voz / cloud_only»), e um nacional a comecar por zero
+  // e `desconhecido` e bloqueia o popup. O bloco usado e o `+244` seguido de
+  // `90` e zeros, que nenhum operador angolano atribui — **INDICIO**, lido dos
+  // prefixos em circulacao (91, 92, 93, 94, 95, 99) e nao do plano publicado.
+  // Por isso casam os DOIS padroes, e cada um conta duas vezes; o fixo (`2`
+  // depois do indicativo) e o de ensaio (`0`) so casam o `e164_entre_aspas`.
+  // As grafias com espaco que o `display_phone_number` da Meta traz nao casam
+  // nenhum, porque o espaco quebra a corrida de digitos.
+  {
+    ficheiro: "packages/core-ts/tests/guia.test.ts",
+    ocorrencias: 6,
+    razao:
+      "o movel do dono e um segundo movel para a divergencia do criterio 4 " +
+      "(dois padroes cada), mais um fixo para a rota cloud_only e um nacional " +
+      "a comecar por zero para o tipo de linha desconhecido do pre-voo",
+  },
+  {
+    ficheiro: "services/onboarding-web/tests/guia.test.ts",
+    ocorrencias: 4,
+    razao:
+      "o movel do dono A e o do dono B da bateria HTTP do KAM-093 (dois padroes " +
+      "cada): o B existe para o isolamento entre sessoes e para a retoma de " +
+      "outro caso, e o pre-voo so abre o popup a um movel",
   },
   {
     ficheiro: "services/onboarding-web/tests/adversarial.test.ts",
