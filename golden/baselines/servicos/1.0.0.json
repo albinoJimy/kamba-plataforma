@@ -11,7 +11,8 @@
  },
  "artefactos": {
   "aliases": "1.0.0",
-  "dataset": "v1:afaa1484d414fe7cfe771e0a5a9adda028317fa8bb2c523bad043e69fb27b2c1",
+  "codigo": "e440e5ee10dae27fc9336c9ffd14e9159511e7035faf8030ba8d9dd6eb46b11c",
+  "dataset": "v1:fc20437b766941b88913fabed8780d442a5cddbcbabe49626ad4b148a6f3d1b8",
   "gate": "1.0.0",
   "grafo": "1.0.0",
   "langgraph": "1.2.17",
@@ -636,6 +637,7 @@
   "numeros_divergentes": 0,
   "recusa": {
    "certos": 41,
+   "detectadas": 21,
    "taxa": 1.0,
    "total": 41
   }
@@ -644,7 +646,7 @@
   "avisos": [],
   "completo": true,
   "razoes": [],
-  "referencia": null,
+  "referencia": "1.0.0",
   "veredicto": "verde"
  },
  "monitorizado": {
@@ -652,7 +654,7 @@
   "custo_usd": 0.0,
   "custo_usd_por_conversa": 0.0,
   "latencia_nota": "o grafo com fakes e sem modelo: nao e a latencia do turno em producao",
-  "latencia_p95_s": 0.0258
+  "latencia_p95_s": 0.0766
  },
  "relativo": {
   "handoff_correcto": {
