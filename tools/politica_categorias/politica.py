@@ -24,6 +24,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +41,22 @@ GERADO = Path("packages/core-ts/src/screening/politica.gerada.ts")
 
 PARECER = "(a confirmar por parecer)"
 
+SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+
+#: A sintaxe de expressao regular que os dois motores leem da mesma maneira
+#: (achado F07 da revisao adversarial). O gate compila em Python e o motor
+#: em JavaScript, e ha formas que um aceita e o outro le de outra maneira ou
+#: recusa: `\A`, `\Z` e `\z` nao sao ancoras em JS; `{,n}` e literal em JS;
+#: `(?i)` e grupos `(?...)` rebentam o JS ou mudam o sentido; o `$` do Python
+#: aceita um `\n` final. Recusam-se as formas, em vez de se traduzirem.
+SINTAXE_PROIBIDA = (
+    (re.compile(r"\\[AZz]"), "\\A, \\Z ou \\z (nao sao ancoras em JavaScript)"),
+    (re.compile(r"\{,"), "{,n} (em JavaScript e literal)"),
+    (re.compile(r"\(\?"), "grupo (?...) (sinalizadores e afirmacoes leem-se de outra maneira)"),
+    (re.compile(r"[$^]"), "ancoras ^ e $ (o $ do Python aceita um fim de linha)"),
+    (re.compile(r"\)[*+]|\)\{\d*,"), "quantificador sobre grupo (risco de retrocesso exponencial)"),
+)
+
 
 class PoliticaInvalida(ValueError):
     """A fonte nao cumpre o esquema ou um dos invariantes."""
@@ -52,8 +70,16 @@ class Politica:
 
 
 def _versao(texto: str) -> tuple[int, int, int]:
+    if SEMVER.fullmatch(texto) is None:
+        raise PoliticaInvalida(f"versao {texto!r} nao e SemVer sem sufixos")
     maior, menor, revisao = (int(parte) for parte in texto.split("."))
     return maior, menor, revisao
+
+
+def _chave_do_termo(termo: str) -> str:
+    """Minusculas e sem acentos: `cervêja` e `cerveja` sao o mesmo termo (F15)."""
+    decomposto = unicodedata.normalize("NFKD", termo.casefold())
+    return "".join(c for c in decomposto if not unicodedata.combining(c))
 
 
 def conteudo_canonico(documento: dict) -> bytes:
@@ -90,7 +116,7 @@ def ler(raiz: Path) -> Politica:
         if entrada["decisao"] == "bloqueada" and entrada["fonte_meta"] is None and lei is None:
             raise PoliticaInvalida(f"{ident}: bloqueada sem fonte_meta nem fonte_lei")
         for termo in entrada["termos"]:
-            chave = termo.casefold()
+            chave = _chave_do_termo(termo)
             if chave in donos:
                 raise PoliticaInvalida(
                     f"termo {termo!r} em {donos[chave]} e em {ident}: a decisao "
@@ -98,6 +124,9 @@ def ler(raiz: Path) -> Politica:
                 )
             donos[chave] = ident
         for padrao in entrada["padroes"]:
+            for forma, porque in SINTAXE_PROIBIDA:
+                if forma.search(padrao):
+                    raise PoliticaInvalida(f"{ident}: padrao {padrao!r} usa {porque}")
             try:
                 re.compile(padrao)
             except re.error as erro:
@@ -117,7 +146,11 @@ def ler_lock(raiz: Path) -> list[tuple[str, str]]:
         if not linha or linha.startswith("#"):
             continue
         partes = linha.split()
-        if len(partes) != 2 or not re.fullmatch(r"[0-9a-f]{64}", partes[1]):
+        if (
+            len(partes) != 2
+            or SEMVER.fullmatch(partes[0]) is None
+            or not re.fullmatch(r"[0-9a-f]{64}", partes[1])
+        ):
             raise PoliticaInvalida(f"{LOCK}:{numero}: esperado «<versao> <sha256>»")
         linhas.append((partes[0], partes[1]))
     return linhas
@@ -189,3 +222,47 @@ def modulo_ts(politica: Politica) -> str:
         "\n"
         f"export const POLITICA: PoliticaFonte = {corpo};\n"
     )
+
+
+def lock_da_base(raiz: Path, referencia: str) -> list[tuple[str, str]] | None:
+    """O lock tal como esta em `referencia` (um ramo ou *commit*), ou `None` se la nao existir.
+
+    Le pelo `git show`, sem tocar na arvore de trabalho.
+    """
+    resultado = subprocess.run(
+        ["git", "-C", str(raiz), "show", f"{referencia}:{LOCK.as_posix()}"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if resultado.returncode != 0:
+        if "exists on disk, but not in" in resultado.stderr or "does not exist in" in resultado.stderr:
+            return None
+        raise PoliticaInvalida(f"git show {referencia}: {resultado.stderr.strip()}")
+    linhas = []
+    for linha in resultado.stdout.splitlines():
+        linha = linha.strip()
+        if linha and not linha.startswith("#"):
+            versao, sha = linha.split()
+            linhas.append((versao, sha))
+    return linhas
+
+
+def problemas_contra_a_base(lock: list[tuple[str, str]], base: list[tuple[str, str]] | None) -> list[str]:
+    """O lock so cresce: cada versao publicada na base fica com o mesmo `sha256`.
+
+    E o que fecha o achado F05: sem a base, o selo era auto-atestado — mudava-se
+    o conteudo, apagava-se a linha do lock, corria-se `gerar`, e o `check`
+    ficava verde com a mesma versao.
+    """
+    if base is None:
+        return []
+    actual = dict(lock)
+    saida = []
+    for versao, sha in base:
+        if versao not in actual:
+            saida.append(f"a versao {versao} saiu do lock (estava na base)")
+        elif actual[versao] != sha:
+            saida.append(f"a versao {versao} mudou de conteudo depois de publicada")
+    return saida

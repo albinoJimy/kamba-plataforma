@@ -78,7 +78,13 @@ def _erros(valor: Any, esquema: dict, onde: str) -> list[str]:
     if isinstance(valor, str):
         if "minLength" in esquema and len(valor) < esquema["minLength"]:
             saida.append(f"{onde}: menos de {esquema['minLength']} caracteres")
-        if "pattern" in esquema and re.search(esquema["pattern"], valor) is None:
+        # O `$` do Python casa antes de um fim de linha final e o do JSON Schema
+        # (ECMA) nao: um texto com quebra de linha passava (achado F14). Um texto
+        # com quebra de linha nao cumpre um padrao ancorado no fim.
+        padrao = esquema.get("pattern")
+        if padrao is not None and (
+            re.search(padrao, valor) is None or (padrao.endswith("$") and "\n" in valor)
+        ):
             saida.append(f"{onde}: {valor!r} nao casa {esquema['pattern']}")
     if isinstance(valor, list):
         if "minItems" in esquema and len(valor) < esquema["minItems"]:

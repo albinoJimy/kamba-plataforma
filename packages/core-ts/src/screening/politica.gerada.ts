@@ -8,7 +8,7 @@ import type { PoliticaFonte } from "./tipos.ts";
 
 export const POLITICA: PoliticaFonte = {
   "versao": "1.0.0",
-  "sha256": "ab57cb5cdae44b1c99a6984544a9f34adbce1557a70f1c18e5cc178412a90d78",
+  "sha256": "a9bccda03cac6a2502a534edc77843aa0251971e74a42bf9b09c3d0694cbd185",
   "categorias": [
     {
       "id": "armas",
@@ -178,7 +178,7 @@ export const POLITICA: PoliticaFonte = {
       "id": "medicamentos_saude",
       "decisao": "bloqueada",
       "fonte_meta": "E1 §4 (CONFIRMADO): produtos medicos e de saude, drogas com receita",
-      "fonte_lei": "DP 41/24 e venda online de medicamentos NAO VERIFICADOS (E3 §5) (a confirmar por parecer)",
+      "fonte_lei": "DP 41/24, licenciamento farmaceutico (E3 §5, CONFIRMADO, uma fonte); venda online de medicamentos NAO VERIFICADA (a confirmar por parecer)",
       "estado_evidencia": "CONFIRMADO",
       "revisto_em": "2026-11-10",
       "termos": [
@@ -217,7 +217,6 @@ export const POLITICA: PoliticaFonte = {
       ],
       "padroes": [
         "\\b\\d+ ?(mg|ml) (comprimido|capsula|dose)",
-        "\\bcura (para|da|do|de)\\b",
         "\\b(xarope|cha|oleo|remedio) (natural|caseiro|milagroso)\\b"
       ]
     },
@@ -225,7 +224,7 @@ export const POLITICA: PoliticaFonte = {
       "id": "clinicas",
       "decisao": "bloqueada",
       "fonte_meta": "E1 §4 (CONFIRMADO): saude e telemedicina",
-      "fonte_lei": "Lei 22/11, art. 5.º c) e 13.º, dados sensiveis (E3, CONFIRMADO) (a confirmar por parecer)",
+      "fonte_lei": "Lei 22/11, art. 5.º c) e 13.º, dados sensiveis: a leitura e a do docs/tecnica/10 §8.1 (CONFIRMADO ali), que o E3 nao associa a clinicas (a confirmar por parecer)",
       "estado_evidencia": "CONFIRMADO",
       "revisto_em": "2026-11-10",
       "termos": [
@@ -439,7 +438,11 @@ export const POLITICA: PoliticaFonte = {
         "só adultos",
         "entrega discreta",
         "sem receita",
-        "natural milagroso"
+        "natural milagroso",
+        "bebidas",
+        "bar",
+        "garrafeira",
+        "adega"
       ],
       "padroes": [
         "\\b18 ?\\+",

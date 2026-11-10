@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  cabeNoPedido,
   type ClassificadorDeCategorias,
   lerVeredicto,
   prepararPedido,
@@ -28,6 +29,8 @@ import type { Decisao, EntradaDoScreen, Origem, ResultadoDoScreen, SujeitoTipo }
 
 /** A regra que diz que o classificador falhou e a decisão ficou `condicional`. */
 export const REGRA_CLASSIFICADOR_INDISPONIVEL = "classificador_indisponivel";
+/** A regra de uma entrada maior do que o pedido ao classificador. */
+export const REGRA_CLASSIFICADOR_PARCIAL = "classificador_parcial";
 /** A regra que diz que o classificador subiu a decisão das regras. */
 export const REGRA_CLASSIFICADOR = "classificador";
 
@@ -118,7 +121,14 @@ export async function screen(
   let confianca = regras.confianca;
   let origem: Origem = "regra";
 
-  if (decisao === "permitida" && confianca < LIMIAR_DE_CONFIANCA) {
+  if (decisao === "permitida" && confianca < LIMIAR_DE_CONFIANCA && !cabeNoPedido(entrada)) {
+    // O classificador só vê o que cabe no pedido (achado F09): um décimo
+    // primeiro texto ou uma descrição maior do que o tecto não foram lidos por
+    // ninguém além das regras, e o que ninguém leu não se aprova.
+    decisao = "condicional";
+    lista = [...lista, REGRA_CLASSIFICADOR_PARCIAL];
+    confianca = 0;
+  } else if (decisao === "permitida" && confianca < LIMIAR_DE_CONFIANCA) {
     const veredicto = await consultar(dependencias.classificador, entrada);
     if (veredicto === null) {
       decisao = "condicional";
@@ -168,14 +178,18 @@ export interface ProdutoAPublicar {
 }
 
 /**
- * Falha fechado se o produto não tiver decisão `permitida` válida para a
- * versão corrente da política **e** para o conteúdo que vai ser publicado.
+ * Falha fechado se o produto não tiver decisão válida para a versão corrente
+ * da política **e** para o conteúdo que vai ser publicado.
  *
- * Três recusas, e a ordem importa: sem decisão nenhuma; uma `bloqueada` em
- * qualquer linha da chave — final, nem uma revisão humana posterior a desce;
- * a última linha não `permitida` — uma `condicional` espera pela revisão
- * (KAM-089), que grava `origem = 'humano'`. Um erro do leitor sobe: não ter
- * conseguido ler não é ter lido «pode».
+ * **Com decisão humana, vale a última humana** — é o recurso que o
+ * `docs/tecnica/10` §8.2 dá à T&S («decide casos `condicional` e recursos»), e
+ * é o que levanta um falso `bloqueada` (achado F02 da revisão adversarial: a
+ * primeira versão dizia «nem um humano a desce», e um vestido «cor de vinho»
+ * ficava fora do catálogo sem recurso). **Sem decisão humana, todas as linhas
+ * têm de ser `permitida`**: um segundo `screen` do mesmo conteúdo não ultrapassa
+ * uma `condicional` pendente (achado F03) — repetir até o modelo dizer que sim
+ * não é revisão. Um erro do leitor sobe: não ter conseguido ler não é ter lido
+ * «pode».
  */
 export async function assertPublishable(
   produto: ProdutoAPublicar,
@@ -189,6 +203,12 @@ export async function assertPublishable(
     conteudoSha256: conteudoSha256(produto.entrada),
   });
   if (linhas.length === 0) throw new NaoPublicavelError("sem_decisao");
+  const humanas = linhas.filter((l) => l.origem === "humano");
+  if (humanas.length > 0) {
+    const ultima = humanas[humanas.length - 1]!.decisao;
+    if (ultima === "permitida") return;
+    throw new NaoPublicavelError(ultima === "bloqueada" ? "bloqueada" : "por_rever");
+  }
   if (linhas.some((l) => l.decisao === "bloqueada")) throw new NaoPublicavelError("bloqueada");
-  if (linhas[linhas.length - 1]!.decisao !== "permitida") throw new NaoPublicavelError("por_rever");
+  if (linhas.some((l) => l.decisao !== "permitida")) throw new NaoPublicavelError("por_rever");
 }

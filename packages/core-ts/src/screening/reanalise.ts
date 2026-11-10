@@ -56,10 +56,27 @@ export interface ResultadoDaReanalise {
   readonly terminou: boolean;
 }
 
+/**
+ * A unidade de trabalho de um produto: abre a transacção com o contexto do
+ * tenant dele, corre `trabalho` e confirma — ou desfaz se `trabalho` lançar.
+ *
+ * **É o que liga a decisão à violação** (achados F11 e F12 da revisão
+ * adversarial). Sem ela, um emissor que falhasse depois de o `screen` gravar
+ * perdia a violação para sempre — a execução seguinte já não via o produto —;
+ * e um escritor único para um lote de vários tenants batia na RLS `WITH CHECK`
+ * no primeiro produto do segundo tenant. Em produção, o escritor e o emissor
+ * do `trabalho` usam o cliente desta transacção (o emissor pelo `evt_emitir`,
+ * no mesmo *outbox*). A omissão corre sem transacção, e serve só aos ensaios.
+ */
+export type PorProduto = <T>(tenantId: string, trabalho: () => Promise<T>) => Promise<T>;
+
+const SEM_TRANSACCAO: PorProduto = (_tenant, trabalho) => trabalho();
+
 export async function reanalisar(
   dependencias: DependenciasDoScreen & {
     readonly catalogo: LeitorDoCatalogo;
     readonly emissor: EmissorDeViolacoes;
+    readonly porProduto?: PorProduto;
   },
   orcamento: Orcamento,
 ): Promise<ResultadoDaReanalise> {
@@ -73,22 +90,25 @@ export async function reanalisar(
     const limite = Math.min(orcamento.tamanhoDoLote, orcamento.maximoPorExecucao - analisados);
     const lote = await dependencias.catalogo.porReanalisar(versao, limite);
     if (lote.length === 0) return { analisados, violacoes, terminou: true };
+    const porProduto = dependencias.porProduto ?? SEM_TRANSACCAO;
     for (const produto of lote.slice(0, limite)) {
-      const resultado = await screen(
-        { tenantId: produto.tenantId, sujeitoTipo: "produto", sujeitoRef: produto.sku },
-        { categoria_declarada: produto.categoriaDeclarada, textos: produto.textos },
-        dependencias,
-      );
-      analisados += 1;
-      if (resultado.decisao === "bloqueada") {
+      const violou = await porProduto(produto.tenantId, async () => {
+        const resultado = await screen(
+          { tenantId: produto.tenantId, sujeitoTipo: "produto", sujeitoRef: produto.sku },
+          { categoria_declarada: produto.categoriaDeclarada, textos: produto.textos },
+          dependencias,
+        );
+        if (resultado.decisao !== "bloqueada") return false;
         await dependencias.emissor.emitir({
           tenantId: produto.tenantId,
           sku: produto.sku,
           regras: resultado.regras,
           versaoPolitica: versao,
         });
-        violacoes += 1;
-      }
+        return true;
+      });
+      analisados += 1;
+      if (violou) violacoes += 1;
     }
     if (lote.length < limite) return { analisados, violacoes, terminou: true };
   }

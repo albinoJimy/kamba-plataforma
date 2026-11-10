@@ -47,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="politica_categorias")
     parser.add_argument("comando", choices=("gerar", "check"))
     parser.add_argument("--root", default=".", help="raiz do repositorio")
+    parser.add_argument(
+        "--base",
+        help="ramo ou commit publicado (ex.: refs/remotes/publico/main): o lock so pode crescer contra ele",
+    )
     args = parser.parse_args(argv)
     raiz = Path(args.root).resolve()
 
@@ -64,6 +68,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     problemas = pol.problemas_do_lock(politica, lock)
+    if args.base:
+        try:
+            problemas += pol.problemas_contra_a_base(lock, pol.lock_da_base(raiz, args.base))
+        except pol.PoliticaInvalida as erro:
+            print(f"politica_categorias: {erro}", file=sys.stderr)
+            return 2
     if _ler_texto(raiz / pol.GERADO) != pol.modulo_ts(politica):
         problemas.append(f"{pol.GERADO} nao corresponde a fonte: corre `gerar`")
     for problema in problemas:

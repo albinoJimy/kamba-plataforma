@@ -106,6 +106,32 @@ describe("golden: os casos allow/deny da politica", () => {
     assert.deepEqual(gravesPermitidas, []);
   });
 
+  it("controlo: o conjunto do revisor adversarial, que o autor nao viu ao escrever as regras", async (t) => {
+    // Escrito pela revisao adversarial depois de a politica estar afinada: e a
+    // medida de generalizacao. **Mede-se e reporta-se**, e so os dezasseis
+    // truques de escrita (homoglifos, enchimentos, letras partidas) sao
+    // exigidos — sao o trabalho do normalizador, e foram corrigidos a partir
+    // deste conjunto, pelo que deixaram de ser cegos. O resto sao marcas e
+    // eufemismos que nenhuma lista de termos generaliza: e o trabalho do
+    // classificador, que nao esta ligado (credor KAM-040).
+    const controlo = ler("controlo.jsonl") as (Caso & { grupo: string; truque_de_escrita: boolean })[];
+    const contagem: Record<string, Record<Decisao, number>> = {};
+    const truquesFalhados: string[] = [];
+    let gravesPermitidas = 0;
+    for (const caso of controlo) {
+      const decisao = await decidir(caso);
+      (contagem[caso.grupo] ??= { permitida: 0, condicional: 0, bloqueada: 0 })[decisao] += 1;
+      if (caso.truque_de_escrita && decisao === "permitida") truquesFalhados.push(caso.id);
+      if (caso.grupo === "evasao" && decisao === "permitida" && ["armas", "medicamentos_saude"].includes(caso.alvo)) {
+        gravesPermitidas += 1;
+      }
+    }
+    t.diagnostic(`controlo por grupo: ${JSON.stringify(contagem)}`);
+    t.diagnostic(`armas e medicamentos disfarcados que ficaram permitida: ${gravesPermitidas}`);
+    assert.equal(controlo.filter((c) => c.truque_de_escrita).length, 16);
+    assert.deepEqual(truquesFalhados, []);
+  });
+
   it("permitido: falsos bloqueios medidos, com tecto de 15%", async (t) => {
     const falhas = await medir(PERMITIDO);
     const bloqueadas = falhas.filter((f) => f.includes("→ bloqueada"));

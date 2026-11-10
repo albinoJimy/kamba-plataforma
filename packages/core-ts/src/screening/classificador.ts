@@ -51,23 +51,51 @@ export interface ClassificadorDeCategorias {
 }
 
 /** Tectos do pedido. *Proposta*: o custo por decisão mede-se com o alias ligado. */
-export const LIMITES_DO_PEDIDO = { textos: 10, caracteresPorTexto: 300, caracteresDaCategoria: 80 } as const;
+export const LIMITES_DO_PEDIDO = { textos: 20, caracteresPorTexto: 1000, caracteresDaCategoria: 200 } as const;
+
+/**
+ * A entrada cabe inteira no pedido? Se não cabe, o classificador não a leu, e
+ * o `screen` não a pode dar por `permitida` (achado F09).
+ */
+export function cabeNoPedido(entrada: { readonly categoria_declarada: string; readonly textos: readonly string[] }): boolean {
+  return (
+    entrada.categoria_declarada.length <= LIMITES_DO_PEDIDO.caracteresDaCategoria &&
+    entrada.textos.length <= LIMITES_DO_PEDIDO.textos &&
+    entrada.textos.every((t) => t.length <= LIMITES_DO_PEDIDO.caracteresPorTexto)
+  );
+}
+
+/** Os algarismos por extenso, para apanhar um número ditado por palavras. */
+const POR_EXTENSO = "(?:zero|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove)";
 
 const CONTACTOS: readonly RegExp[] = [
-  // Endereços de correio e URLs.
-  /[^\s@]+@[^\s@]+\.[^\s@]+/g,
+  // Endereços de correio, também os disfarçados (`loja arroba exemplo ponto ao`,
+  // `loja[at]exemplo`) e os que não têm domínio de topo (`loja@gmail`).
+  /[^\s@]+\s*(?:@|\(at\)|\[at\]|\barroba\b)\s*[^\s@]+/gi,
+  // URLs, com ou sem esquema: `wa.me/…`, `instagram.com/…`, `loja.ao`.
   /\b(?:https?:\/\/|www\.)\S+/gi,
-  // Sete ou mais dígitos, com espaços, pontos, hífens ou parênteses pelo meio:
-  // apanha `923 456 789`, `+244 923-456-789` e um NIF, que nenhum título de
-  // produto precisa de ter inteiro.
-  /\+?\d(?:[\s.\-()]*\d){6,}/g,
+  /\b[\w-]+(?:\.[\w-]+)*\.(?:com|ao|net|org|co|pt|br|me|io|app|info|biz|gl|ly)\b\S*/gi,
+  // Sete ou mais dígitos com qualquer separador pelo meio — espaços, pontos,
+  // hífens, travessões, barras, sublinhados, parênteses: apanha um telefone e
+  // um NIF, que nenhum título de produto precisa de ter inteiro.
+  /\+?\d(?:[\s.\-–—‒/_()]*\d){6,}/g,
+  // Cinco ou mais algarismos por extenso seguidos.
+  new RegExp(`\\b${POR_EXTENSO}(?:[\\s,.-]+${POR_EXTENSO}){4,}\\b`, "gi"),
   // Um `@utilizador` de rede social.
   /(?<![\w])@\w{2,}/g,
 ];
 
-/** Tira contactos e números longos. Devolve o texto com `[removido]` no lugar. */
+/**
+ * Tira contactos e números longos. Devolve o texto com `[removido]` no lugar.
+ *
+ * Normaliza a compatibilidade primeiro (NFKC), para que os dígitos de largura
+ * total (`９２３…`) sejam dígitos. **Não tira nomes de pessoas**: sem um
+ * reconhecedor de entidades, um nome num título passa — é o limite que a
+ * secção de verificação regista no critério 5.
+ */
 export function semDadosPessoais(texto: string): string {
-  return CONTACTOS.reduce((t, padrao) => t.replace(padrao, "[removido]"), texto);
+  const compativel = texto.normalize("NFKC");
+  return CONTACTOS.reduce((t, padrao) => t.replace(padrao, "[removido]"), compativel);
 }
 
 export function prepararPedido(categoriaDeclarada: string, textos: readonly string[]): PedidoAoClassificador {

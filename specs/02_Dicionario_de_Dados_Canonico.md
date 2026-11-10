@@ -3918,11 +3918,14 @@ que essa revisão cria, e são **proposta** até ela correr contra PostgreSQL. O
 da lista não é deste dicionário: cada entrada da política leva o estado do E3 §5 e *(a confirmar
 por parecer)*.
 
-**A regra que nenhuma coluna exprime: `bloqueada` é final, e o classificador só sobe até
-`condicional`.** Uma `bloqueada` das regras não chama o classificador, e nem uma revisão humana
-posterior a desce para o `assertPublishable`. O veredicto do classificador passa por um tecto em
+**A regra que nenhuma coluna exprime: `bloqueada` é final para as máquinas, e o classificador só
+sobe até `condicional`.** Uma `bloqueada` das regras não chama o classificador, e nenhum `screen`
+posterior a desce; só uma decisão humana — o recurso que o `../docs/tecnica/10` §8.2 dá à T&S — a
+levanta para o `assertPublishable`. O veredicto do classificador passa por um tecto em
 `condicional` antes de se juntar às regras — o critério 2 do bloco di-lo na forma
-`permitida → condicional` —, pelo que um modelo nunca bloqueia sem recurso: manda a revisão.
+`permitida → condicional` —, pelo que um modelo nunca bloqueia sem recurso: manda a revisão. E
+um termo que casa só **aproximadamente** (palavras juntas, radical) desce um nível: de
+`bloqueada` para `condicional` (a regra vem como `aproximado:<id>`).
 
 | Conceito | Nome canónico | Substitui | Notas |
 |---|---|---|---|
@@ -3933,9 +3936,9 @@ posterior a desce para o `assertPublishable`. O veredicto do classificador passa
 | Sujeito de uma decisão | `screening_decision.sujeito_tipo` ∈ {`categoria`, `produto`} | — | *proposta* (emenda 1.79, KAM-088). A `sujeito_ref` de uma `categoria` é o texto declarado — e é dela que a re-análise lê a categoria do tenant; a de um `produto` é o `sku` da `offer_terms` (§3.40) |
 | Decisão gravada | `platform.screening_decision`, **onze** colunas | — | *proposta* (emenda 1.79, KAM-088). `id`, `tenant_id`, `onboarding_id`, `sujeito_tipo`, `sujeito_ref`, `decisao`, `regras`, `versao_politica`, `origem`, `conteudo_sha256`, `criado_at`. **Três divergências do DDL do bloco, todas a favor do §2:** o `id` é `uuid` e não `bigserial`; o `tenant_id` é `NOT NULL`, porque é tabela de negócio com RLS `FORCE` (o aceite do KAM-090 já pré-aloca o tenant do caso); e o `criado_at` preenche-se com `clock_timestamp()`, porque com um `id` aleatório é ele que ordena as decisões. *Append-only*: o `kamba_app` tem `SELECT` e `INSERT`, e mais nada. Sem FK para o caso, porque o `onboarding_case` é do KAM-087 |
 | Resumo do conteúdo decidido | `screening_decision.conteudo_sha256`, 32 octetos | — | *proposta* (emenda 1.79, KAM-088). **Coluna que o bloco não tem**, e a razão é um caso adversarial do KAM-094 («edição posterior»): sem ela, a decisão `permitida` de «camisola» valia para o mesmo `sku` depois de o título passar a «whisky». `sha256` do JSON `[categoria_declarada, textos]` em texto cru |
-| Versão da política numa decisão | `screening_decision.versao_politica` | — | *proposta* (emenda 1.79, KAM-088). A `versao` da política, ou `<versao>+t.<sha8>` quando a decisão usou a sobreposição de um tenant: uma decisão tomada com a sobreposição não vale como tomada sem ela |
-| Sobreposição por tenant | `fundirSobreposicao(base, sobreposicao)` e o erro `SobreposicaoRelaxaError` | — | *proposta* (emenda 1.79, KAM-088). Só acrescenta restrição: sobe decisões, acrescenta termos e padrões a entradas restritivas, cria entradas restritivas. Descer uma decisão, criar uma `permitida`, acrescentar termos a uma `permitida` ou trazer uma chave que não conhece **falha na validação** |
-| Publicação segura | `assertPublishable(produto)` e o erro `NaoPublicavelError`, motivo ∈ {`sem_decisao`, `bloqueada`, `por_rever`} | — | *proposta* (emenda 1.79, KAM-088). Falha fechado sem decisão `permitida` para a versão corrente **e** para o conteúdo; uma `bloqueada` em qualquer linha da chave é final. É a função que a transição `offer_terms.estado → publicado` do KAM-094 chama |
+| Versão da política numa decisão | `screening_decision.versao_politica` | — | *proposta* (emenda 1.79, KAM-088). A `versao` da política com a versão do **motor** como metadado SemVer — `1.0.0+m.2` —, e `1.0.0+t.<sha8>.m.2` quando a decisão usou a sobreposição de um tenant: a mesma política lida por outro motor decide outras coisas, e uma decisão tomada com a sobreposição não vale como tomada sem ela. A `VERSAO_DO_MOTOR` está presa a uma impressão das leituras de um corpus fixo (`screening.test.ts`) |
+| Sobreposição por tenant | `fundirSobreposicao(base, sobreposicao)` e o erro `SobreposicaoRelaxaError` | — | *proposta* (emenda 1.79, KAM-088). Só acrescenta restrição: sobe decisões, acrescenta termos a entradas restritivas, cria entradas restritivas. Descer uma decisão, criar uma `permitida`, acrescentar termos a uma `permitida`, trazer **padrões** (uma expressão regular de tenant é código, e um retrocesso exponencial prende o processo) ou uma chave que não conhece **falha na validação** |
+| Publicação segura | `assertPublishable(produto)` e o erro `NaoPublicavelError`, motivo ∈ {`sem_decisao`, `bloqueada`, `por_rever`} | — | *proposta* (emenda 1.79, KAM-088). Falha fechado sem decisão válida para a versão corrente **e** para o conteúdo. Com decisão `humano`, vale a última humana (o recurso); sem ela, **todas** as linhas da chave têm de ser `permitida` — um segundo `screen` não ultrapassa uma `condicional` pendente. É a função que a transição `offer_terms.estado → publicado` do KAM-094 chama |
 | Alias do classificador | `screening-nano` | — | *proposta* (emenda 1.79, KAM-088). O nome que o bloco dá. **Não está em `../llm/aliases.yaml`**: o §3.29 fecha os nomes de alias em quatro, um por papel, e o cliente do AGR indexa-os por papel — um segundo `router` tomava o lugar do `kamba-router`. Declará-lo pede papel novo neste dicionário, e é de outro ticket |
 
 **O que esta emenda não decide, e a quem.** A revisão que cria a `screening_decision` — a seguinte

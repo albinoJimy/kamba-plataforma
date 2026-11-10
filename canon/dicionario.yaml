@@ -14473,8 +14473,11 @@ entradas:
       - "screening_decision.versao_politica"
     nomes_nota:
       - "versao"
+      - "m"
       - "t"
       - "sha8"
+      - "VERSAO_DO_MOTOR"
+      - "screening.test.ts"
     variantes_literais: []
   - seccao: "3.56"
     conceito: "Sobreposição por tenant"
@@ -14507,8 +14510,10 @@ entradas:
       - "bloqueada"
       - "por_rever"
     nomes_nota:
+      - "humano"
       - "permitida"
-      - "bloqueada"
+      - "screen"
+      - "condicional"
       - "offer_terms.estado"
       - "publicado"
     variantes_literais: []

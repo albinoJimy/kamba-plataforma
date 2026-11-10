@@ -6,11 +6,13 @@
  * mais restritiva das que casarem é a decisão. Uma entrada `permitida` só conta
  * quando casa a **categoria declarada**: num título de produto, «roupa» não
  * desbloqueia nada, e é isso que fecha o abuso típico do bloco (declarar
- * «moda» e vender álcool). O que não casa nada é `condicional` — «o resto».
+ * «moda» e vender álcool). O que não casa nada é `condicional` — «o resto». Um
+ * casamento só **aproximado** (na leitura compacta) desce um nível: uma
+ * `bloqueada` vale `condicional`, e uma `condicional` não conta (ver `casa`).
  *
  * **A sobreposição por tenant só acrescenta restrição.** Pode subir a decisão
- * de uma entrada, acrescentar termos e padrões às restritivas e criar entradas
- * restritivas novas. Tudo o que alargue o que se permite — descer uma decisão,
+ * de uma entrada, acrescentar termos às restritivas e criar entradas
+ * restritivas novas — padrões não, que são código (ver `CHAVES_DA_SOBREPOSICAO`). Tudo o que alargue o que se permite — descer uma decisão,
  * criar uma `permitida`, acrescentar um termo a uma `permitida` (que passaria a
  * aceitar mais categorias declaradas) — falha na validação, e não em silêncio.
  */
@@ -108,8 +110,18 @@ function compilarEntrada(entrada: Pick<EntradaFonte, "id" | "decisao" | "termos"
   };
 }
 
+/**
+ * A versão do **motor** — normalização e regras de casamento (achado F06). A
+ * mesma política lida por um motor diferente decide coisas diferentes, e a
+ * `versao_politica` gravada tem de o dizer: vai como metadado SemVer
+ * (`1.0.0+m.1`). Sobe-se quando o que sai do `normalizar` ou do `casa` muda, e
+ * o ensaio «impressão do motor» de `screening.test.ts` recusa que mude sem
+ * subir: prende cada versão a um `sha256` das leituras de um corpus fixo.
+ */
+export const VERSAO_DO_MOTOR = 2;
+
 export function compilar(fonte: PoliticaFonte): PoliticaCompilada {
-  if (!/^\d+\.\d+\.\d+(\+[0-9a-z.]+)?$/.test(fonte.versao)) {
+  if (!/^\d+\.\d+\.\d+(\+[0-9a-z.]+)?$/.test(fonte.versao) || /\.m\.\d+$|\+m\.\d+$/.test(fonte.versao)) {
     throw new PoliticaInvalidaError(`versao ${JSON.stringify(fonte.versao)} nao e SemVer`);
   }
   const ids = new Set<string>();
@@ -117,20 +129,56 @@ export function compilar(fonte: PoliticaFonte): PoliticaCompilada {
     if (ids.has(id)) throw new PoliticaInvalidaError(`id repetido: ${id}`);
     ids.add(id);
   }
-  return { versao: fonte.versao, entradas: fonte.categorias.map(compilarEntrada) };
+  const versao = `${fonte.versao}${fonte.versao.includes("+") ? "." : "+"}m.${VERSAO_DO_MOTOR}`;
+  return { versao, entradas: fonte.categorias.map(compilarEntrada) };
 }
 
-function casa(entrada: EntradaCompilada, texto: TextoNormalizado): boolean {
+/**
+ * Como um termo casou. **`exacto`**: palavra a palavra (com o plural em `s`) ou
+ * por um padrão. **`aproximado`**: só na leitura compacta, que junta palavras
+ * vizinhas e casa pelo radical — é a que apanha `cer veja` e `cervejinha`, e é
+ * também a que lê «por nós» como `porno` e «colar masculino» como `armas`
+ * (achado F02 da revisão adversarial). Por isso um casamento aproximado de uma
+ * entrada `bloqueada` vale `condicional`: vai a revisão humana, e não fecha a
+ * porta a um produto inocente sem ninguém o ver.
+ */
+type Casamento = "exacto" | "aproximado" | null;
+
+function casa(entrada: EntradaCompilada, texto: TextoNormalizado): Casamento {
   const comEspacos = ` ${texto.palavras} `;
+  let aproximado = false;
   for (const termo of entrada.termos) {
-    if (comEspacos.includes(` ${termo.palavras} `)) return true;
-    if (termo.compacta !== null && texto.compacta.includes(termo.compacta)) return true;
+    if (comEspacos.includes(` ${termo.palavras} `) || comEspacos.includes(` ${termo.palavras}s `)) return "exacto";
+    if (termo.compacta !== null && texto.compacta.includes(termo.compacta)) aproximado = true;
   }
   for (const padrao of entrada.padroes) {
-    if (padrao.test(texto.basica) || padrao.test(texto.palavras)) return true;
+    if (padrao.test(texto.basica) || padrao.test(texto.palavras)) return "exacto";
   }
-  return false;
+  return aproximado ? "aproximado" : null;
 }
+
+function melhor(entrada: EntradaCompilada, textos: readonly TextoNormalizado[]): Casamento {
+  let resultado: Casamento = null;
+  for (const texto of textos) {
+    const c = casa(entrada, texto);
+    if (c === "exacto") return c;
+    if (c === "aproximado") resultado = c;
+  }
+  return resultado;
+}
+
+/** O prefixo das regras que casaram só aproximadamente: `aproximado:alcool`. */
+export const PREFIXO_APROXIMADO = "aproximado:";
+
+/** A regra de uma entrada maior do que os limites: avaliou-se cortada. */
+export const REGRA_ENTRADA_EXCEDIDA = "entrada_excedida";
+
+/**
+ * Os tectos da entrada (achado F13). Acima deles avalia-se o que cabe e a
+ * decisão não pode ser `permitida`: o que não se leu não se aprova, e um texto
+ * de cinco megabytes não pode prender o processo. *Proposta*.
+ */
+export const LIMITES_DA_ENTRADA = { textos: 50, caracteresPorTexto: 5000, caracteresDaCategoria: 200 } as const;
 
 export interface DecisaoDasRegras {
   readonly decisao: Decisao;
@@ -144,22 +192,48 @@ export function avaliarRegras(
   categoriaDeclarada: string,
   textos: readonly string[],
 ): DecisaoDasRegras {
-  const categoria = normalizar(categoriaDeclarada);
-  const todos = [categoria, ...textos.map(normalizar)];
+  const excedida =
+    categoriaDeclarada.length > LIMITES_DA_ENTRADA.caracteresDaCategoria ||
+    textos.length > LIMITES_DA_ENTRADA.textos ||
+    textos.some((t) => t.length > LIMITES_DA_ENTRADA.caracteresPorTexto);
+  const categoria = normalizar(categoriaDeclarada.slice(0, LIMITES_DA_ENTRADA.caracteresDaCategoria));
+  const todos = [
+    categoria,
+    ...textos.slice(0, LIMITES_DA_ENTRADA.textos).map((t) => normalizar(t.slice(0, LIMITES_DA_ENTRADA.caracteresPorTexto))),
+  ];
 
-  const restritivas = politica.entradas.filter(
-    (e) => e.decisao !== "permitida" && todos.some((t) => casa(e, t)),
-  );
-  if (restritivas.length > 0) {
-    const decisao = maxRestricao(...restritivas.map((e) => e.decisao));
+  const decisoes: Decisao[] = [];
+  const regras: string[] = [];
+  for (const entrada of politica.entradas) {
+    if (entrada.decisao === "permitida") continue;
+    const casamento = melhor(entrada, todos);
+    if (casamento === null) continue;
+    // O aproximado desce um nível: de `bloqueada` para `condicional`, e de
+    // `condicional` para nada — «muamba **de ga**linha» compactado contém
+    // `adega`, e um sinal fraco lido de forma fraca não é sinal.
+    if (casamento === "aproximado" && entrada.decisao === "condicional") continue;
+    if (casamento === "exacto") {
+      decisoes.push(entrada.decisao);
+      regras.push(entrada.id);
+    } else {
+      decisoes.push("condicional");
+      regras.push(`${PREFIXO_APROXIMADO}${entrada.id}`);
+    }
+  }
+  if (excedida) {
+    decisoes.push("condicional");
+    regras.push(REGRA_ENTRADA_EXCEDIDA);
+  }
+  if (decisoes.length > 0) {
+    const decisao = maxRestricao(...decisoes);
     return {
       decisao,
-      regras: restritivas.map((e) => e.id).sort(),
+      regras: regras.sort(),
       confianca: decisao === "bloqueada" ? CONFIANCA.bloqueada : CONFIANCA.condicional,
     };
   }
   const permitidas = politica.entradas.filter(
-    (e) => e.decisao === "permitida" && casa(e, categoria),
+    (e) => e.decisao === "permitida" && casa(e, categoria) === "exacto",
   );
   if (permitidas.length > 0) {
     return { decisao: "permitida", regras: permitidas.map((e) => e.id).sort(), confianca: CONFIANCA.permitida };
@@ -175,7 +249,7 @@ export function avaliarRegras(
 export function bloqueadasEm(politica: PoliticaCompilada, texto: string): readonly string[] {
   const normalizado = normalizar(texto);
   return politica.entradas
-    .filter((e) => e.decisao === "bloqueada" && casa(e, normalizado))
+    .filter((e) => e.decisao === "bloqueada" && casa(e, normalizado) === "exacto")
     .map((e) => e.id)
     .sort();
 }
@@ -188,7 +262,6 @@ export interface EntradaDaSobreposicao {
   readonly id: string;
   readonly decisao: Decisao;
   readonly termos?: readonly string[];
-  readonly padroes?: readonly string[];
 }
 
 export interface Sobreposicao {
@@ -206,7 +279,13 @@ export class SobreposicaoRelaxaError extends Error {
   }
 }
 
-const CHAVES_DA_SOBREPOSICAO = new Set(["id", "decisao", "termos", "padroes"]);
+/**
+ * **Sem `padroes`** (achado F08): uma expressão regular de uma sobreposição é
+ * código de terceiros a correr sobre cada texto, e `^(a+)+$` com vinte e seis
+ * letras prendia o processo mais de um segundo. Uma sobreposição acrescenta
+ * termos; os padrões são da base, que passa por revisão.
+ */
+const CHAVES_DA_SOBREPOSICAO = new Set(["id", "decisao", "termos"]);
 
 function validarForma(entrada: unknown): EntradaDaSobreposicao {
   if (typeof entrada !== "object" || entrada === null || Array.isArray(entrada)) {
@@ -221,7 +300,7 @@ function validarForma(entrada: unknown): EntradaDaSobreposicao {
   }
   if (id === "?") throw new SobreposicaoRelaxaError(id, "id invalido");
   if (!DECISOES.includes(registo.decisao as Decisao)) throw new SobreposicaoRelaxaError(id, "decisao invalida");
-  for (const lista of ["termos", "padroes"] as const) {
+  for (const lista of ["termos"] as const) {
     const valor = registo[lista];
     if (valor !== undefined && (!Array.isArray(valor) || valor.some((v) => typeof v !== "string" || v.trim() === ""))) {
       throw new SobreposicaoRelaxaError(id, `${lista} tem de ser uma lista de textos`);
@@ -251,7 +330,7 @@ export function fundirSobreposicao(base: PoliticaFonte, sobreposicao: Sobreposic
     if (vistas.has(entrada.id)) throw new SobreposicaoRelaxaError(entrada.id, "entrada repetida");
     vistas.add(entrada.id);
     const termos = entrada.termos ?? [];
-    const padroes = entrada.padroes ?? [];
+    const padroes: readonly string[] = [];
     const existente = porId.get(entrada.id);
     if (existente === undefined) {
       if (entrada.decisao === "permitida") {
@@ -273,7 +352,7 @@ export function fundirSobreposicao(base: PoliticaFonte, sobreposicao: Sobreposic
     if (grau(entrada.decisao) < grau(existente.decisao)) {
       throw new SobreposicaoRelaxaError(entrada.id, `desce ${existente.decisao} para ${entrada.decisao}`);
     }
-    if (entrada.decisao === "permitida" && (termos.length > 0 || padroes.length > 0)) {
+    if (entrada.decisao === "permitida" && termos.length > 0) {
       throw new SobreposicaoRelaxaError(entrada.id, "acrescentar termos a uma permitida aceita mais categorias declaradas");
     }
     compilarEntrada({ id: entrada.id, decisao: entrada.decisao, termos, padroes });

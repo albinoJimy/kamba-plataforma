@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -37,6 +38,24 @@ class TestRepositorio(unittest.TestCase):
         codigo, saida, erro = correr(RAIZ, "check")
         self.assertEqual(codigo, 0, erro)
         self.assertIn("conforme", saida)
+
+    def test_o_lock_so_cresce_contra_a_main(self) -> None:
+        """O F05 contra a `main` publicada, quando a clonagem a tem.
+
+        **Num clone sem o ramo base este ensaio salta**, e diz-o: o *job* do
+        gate 4 faz `checkout` so do ramo, e buscar a base e mudar o *job*, que e
+        do fundador. O gate 7 ja busca a base para o `contract_diff`.
+        """
+        for referencia in ("refs/remotes/publico/main", "refs/remotes/origin/main"):
+            existe = subprocess.run(
+                ["git", "-C", str(RAIZ), "rev-parse", "--verify", "--quiet", referencia],
+                capture_output=True,
+                check=False,
+            )
+            if existe.returncode == 0:
+                self.assertEqual(cli.main(["check", "--root", str(RAIZ), "--base", referencia]), 0)
+                return
+        self.skipTest("sem ramo base nesta clonagem: o selo contra a main nao foi medido aqui")
 
     def test_as_oito_do_piloto_sao_bloqueada_e_as_cinco_permitidas(self) -> None:
         decisoes = {e["id"]: e["decisao"] for e in pol.ler(RAIZ).documento["categorias"]}
@@ -136,7 +155,61 @@ class TestInvariantes(Arvore):
         self.assertInvalida(texto, "drogas: bloqueada sem fonte_meta nem fonte_lei")
 
 
+class TestAchadosDaRevisao(Arvore):
+    """Os achados F05, F07, F14, F15 e F16 da revisao adversarial."""
+
+    def assertInvalida(self, texto: str, mensagem: str) -> None:
+        self.escrever(texto)
+        codigo, _, erro = correr(self.raiz, "check")
+        self.assertEqual(codigo, 2, erro)
+        self.assertIn(mensagem, erro)
+
+    def test_f07_sintaxe_que_o_javascript_le_de_outra_maneira(self) -> None:
+        for padrao in (r"\Agin", r"gin\Z", r"g.{,3}n", r"(?i)gin", r"^gin", r"gin$", r"(a+)+b"):
+            with self.subTest(padrao=padrao):
+                self.assertInvalida(
+                    self.fonte().replace("    padroes: []\n", f"    padroes:\n      - '{padrao}'\n", 1),
+                    "padrao",
+                )
+
+    def test_f15_termo_repetido_com_acento_diferente(self) -> None:
+        self.assertInvalida(
+            self.fonte().replace("      - tequila\n", "      - tequila\n      - cervêja\n", 1), "termo 'cervêja'"
+        )
+
+    def test_f16_versao_com_sufixo_no_lock(self) -> None:
+        caminho = self.raiz / pol.LOCK
+        caminho.write_text(caminho.read_text(encoding="utf-8") + "1.0.1-rc1 " + "0" * 64 + "\n", encoding="utf-8")
+        codigo, _, erro = correr(self.raiz, "check")
+        self.assertEqual(codigo, 2, erro)
+
+    def test_f05_o_lock_so_cresce_contra_a_base(self) -> None:
+        base = [("1.0.0", "a" * 64)]
+        self.assertEqual(pol.problemas_contra_a_base([("1.0.0", "a" * 64), ("1.1.0", "b" * 64)], base), [])
+        self.assertIn("mudou de conteudo", pol.problemas_contra_a_base([("1.0.0", "c" * 64)], base)[0])
+        self.assertIn("saiu do lock", pol.problemas_contra_a_base([("1.1.0", "b" * 64)], base)[0])
+        self.assertEqual(pol.problemas_contra_a_base([("1.0.0", "c" * 64)], None), [])
+
+    def test_f05_o_check_le_a_base_pelo_git(self) -> None:
+        def git(*argumentos: str) -> None:
+            subprocess.run(["git", "-C", str(self.raiz), *argumentos], check=True, capture_output=True)
+
+        git("init", "-q")
+        git("-c", "user.name=t", "-c", "user.email=t@t", "add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base")
+        # O ataque do achado: muda o conteudo, apaga a linha do lock e regenera.
+        self.escrever(self.fonte().replace("      - tequila\n", "", 1))
+        (self.raiz / pol.LOCK).write_text("", encoding="utf-8")
+        self.assertEqual(correr(self.raiz, "gerar")[0], 0)
+        self.assertEqual(correr(self.raiz, "check")[0], 0)
+        codigo = cli.main(["check", "--root", str(self.raiz), "--base", "HEAD"])
+        self.assertEqual(codigo, 1)
+
+
 class TestValidador(unittest.TestCase):
+    def test_f14_o_dolar_nao_aceita_um_fim_de_linha(self) -> None:
+        self.assertEqual(len(esquema.erros("1.0.0\n", {"type": "string", "pattern": "^1\\.0\\.0$"})), 1)
+
     def test_recusa_palavra_chave_que_nao_implementa(self) -> None:
         with self.assertRaises(esquema.EsquemaInvalido):
             esquema.erros({}, {"type": "object", "oneOf": []})
