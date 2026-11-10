@@ -42,7 +42,7 @@ import {
   lerReferencia,
 } from "@kamba/core-ts/inscricao";
 import type { ResultadoDoEs } from "@kamba/core-ts/onboarding";
-import { FakeSmsProvider } from "@kamba/core-ts/sms";
+import { FakeSmsProvider, cunharDestino } from "@kamba/core-ts/sms";
 
 import { createApp } from "../src/app.ts";
 import { LigadorPorHttp } from "../src/ligador.ts";
@@ -241,7 +241,9 @@ describe("KAM-093 HTTP ADVERSARIAL: ligacao de retoma forjada => 403", () => {
     const b = await m.caso(OUTRO_MOVEL);
     const um = await (await m.app.request(`/ligar?r=${m.retoma(b.id)}`, { headers: { cookie: m.cookie(a.id) } })).text();
     const outro = await (await m.app.request(`/ligar?r=${m.retoma(a.id, OUTRA_CHAVE)}`, { headers: { cookie: m.cookie(a.id) } })).text();
-    assert.equal(um, outro);
+    // O `nonce` muda por resposta; o resto do corpo e igual.
+    const semNonce = (html: string): string => html.replace(/nonce="[0-9a-f]+"/g, 'nonce=""');
+    assert.equal(semNonce(um), semNonce(outro));
   });
 
   it("POST /api/es/retoma: forjada 403; valida manda o OTP ao telefone REGISTADO e devolve um bilhete", async () => {
@@ -303,7 +305,6 @@ describe("KAM-093 HTTP: o fluxo, e o FINISH repetido", () => {
       code: "code-de-ensaio",
       waba_id: "waba-1",
       phone_number_id: "pnid-1",
-      session_info: SESSION_INFO,
       tenant_id: "00000000-0000-4000-8000-0000000000ff",
     };
     const um = await m.post("/api/es/concluir", corpo, a.id);
@@ -328,6 +329,70 @@ describe("KAM-093 HTTP: o fluxo, e o FINISH repetido", () => {
     const a = await m.caso();
     const r = await m.post("/api/es/pagamento", {}, a.id);
     assert.deepEqual(r.corpo, { estado: "desconhecido", verde: false, alternativa: "mps" });
+  });
+});
+
+describe("KAM-093 HTTP: a retoma de ponta a ponta (achados 2, 8 e 11 da revisao)", () => {
+  it("retoma -> codigo SMS -> sessao -> /ligar abre, e o caso NAO recua de aguarda_es", async () => {
+    const m = await montar();
+    const a = await m.caso();
+    const r = await m.post("/api/es/retoma", { r: decodeURIComponent(m.retoma(a.id)) });
+    assert.equal(r.estado, 200);
+    const codigo = /([0-9]{6})/.exec(m.sms.enviados.at(-1)?.corpo ?? "")?.[1] ?? "";
+    const v = await m.app.request("/api/otp/verificar", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ referencia: r.corpo.referencia, codigo }),
+    });
+    assert.equal(((await v.json()) as { veredicto: string }).veredicto, "acertou");
+    const cookie = (v.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    assert.equal((await m.casos.porId(a.id))?.fase, "aguarda_es");
+    const pagina = await m.app.request(`/ligar?r=${m.retoma(a.id)}`, { headers: { cookie } });
+    assert.equal(pagina.status, 200);
+  });
+
+  it("o OTP da retoma vai ao telefone REGISTADO, e nao ao que o pedido traz", async () => {
+    const m = await montar();
+    const a = await m.caso();
+    await m.post("/api/es/retoma", { r: decodeURIComponent(m.retoma(a.id)), telefone: OUTRO_MOVEL });
+    const destino = m.sms.enviados.at(-1)?.destinoHmac;
+    assert.equal(destino, cunharDestino(MOVEL, PEPPER_DO_DESTINO).hmac);
+    assert.notEqual(destino, cunharDestino(OUTRO_MOVEL, PEPPER_DO_DESTINO).hmac);
+  });
+
+  it("a retoma de um caso que ja nao esta no passo do ES da 403 e nao manda SMS", async () => {
+    const m = await montar();
+    const a = await m.caso(MOVEL, "kyc_pendente");
+    const r = await m.post("/api/es/retoma", { r: decodeURIComponent(m.retoma(a.id)) });
+    assert.equal(r.estado, 403);
+    assert.equal(m.sms.enviados.length, 0);
+  });
+
+  it("a pagina de recusa traz o caminho da retoma, com o mesmo corpo para todas as recusas", async () => {
+    const m = await montar();
+    const a = await m.caso();
+    const html = await (await m.app.request(`/ligar?r=${m.retoma(a.id)}`)).text();
+    assert.match(html, /\/api\/es\/retoma/);
+    assert.match(html, /\/api\/otp\/verificar/);
+  });
+});
+
+describe("KAM-093 HTTP: autorizacao com uma sessao VALIDA (achado 10 da revisao)", () => {
+  it("a sessao valida de A, com o id de B no corpo e na consulta, nunca toca no caso de B", async () => {
+    const m = await montar();
+    const a = await m.caso();
+    const b = await m.caso(OUTRO_MOVEL);
+    await m.post("/api/es/preflight", ATESTADOS, b.id);
+    await m.post("/api/es/iniciar", {}, b.id);
+    const antes = JSON.stringify(await m.repositorio.ler(b.id));
+    const corpo = { onboarding_id: b.id, code: "c", waba_id: "w", phone_number_id: "p", ...ATESTADOS };
+    for (const rota of ["preflight", "iniciar", "cancelar", "concluir", "pagamento"]) {
+      await m.post(`/api/es/${rota}?onboarding_id=${b.id}`, corpo, a.id);
+    }
+    const estado = await m.app.request(`/api/es/estado?onboarding_id=${b.id}`, { headers: { cookie: m.cookie(a.id) } });
+    assert.doesNotMatch(await estado.text(), new RegExp(b.id));
+    assert.equal(JSON.stringify(await m.repositorio.ler(b.id)), antes);
+    assert.equal(m.ligador.chamadas.every((c) => c.tenant_id === a.tenantId), true);
   });
 });
 

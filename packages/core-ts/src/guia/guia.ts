@@ -55,6 +55,7 @@ import {
   type EstadoDoGuia,
   type EstadoDoPagamento,
   type EstadoGuardado,
+  FEATURE_TYPE_CLOUD_ONLY,
   type FilaDeRevisao,
   type GatesDoOnboarding,
   GuiaRecusadoError,
@@ -83,12 +84,16 @@ export interface ConfiguracaoDoPopup {
   readonly evento_final: string;
 }
 
-/** O que o popup devolve à página, e a página manda ao `concluir`. */
+/**
+ * O que o popup devolve à página, e a página manda ao `concluir`.
+ *
+ * **Sem `session_info`**: compõe-o o guia (`sessionInfo`), e o que a página
+ * mandasse era só o eco da configuração que o servidor lhe deu.
+ */
 export interface Finish {
   readonly code: unknown;
   readonly waba_id: unknown;
   readonly phone_number_id: unknown;
-  readonly session_info: unknown;
 }
 
 /** Os estados que a sincronização do KAM-017 comunica ao guia. */
@@ -209,9 +214,19 @@ export class PassoGuiado {
       return { desfecho: "lista_espera" };
     }
     if (guia.estado !== "iniciado") {
+      // **Uma tentativa nova começa limpa.** Voltar de `falhado`, `desligado`
+      // ou `abandonado` repõe os dois factos do `verificado` e esquece o
+      // número da tentativa anterior: sem isto, uma reconexão com **outro**
+      // número herdava o `numeroConfirmado` do antigo e chegava a `verificado`
+      // sem nunca ser comparada. Achado da revisão adversarial.
       const passou = await this.#d.repositorio.transitar(onboardingId, guia.estado, "iniciado", {
         iniciadoEm: this.#agora(),
         motivo: null,
+        tentativaId: null,
+        phoneNumberId: null,
+        wabaId: null,
+        numeroConfirmado: false,
+        sincronizado: false,
       });
       if (!passou) throw new GuiaRecusadoError("estado_errado");
     }
@@ -277,11 +292,7 @@ export class PassoGuiado {
     const code = textoCurto(finish.code);
     const wabaId = textoCurto(finish.waba_id);
     const phoneNumberId = textoCurto(finish.phone_number_id);
-    const sessionInfo =
-      typeof finish.session_info === "object" && finish.session_info !== null
-        ? (finish.session_info as Readonly<Record<string, unknown>>)
-        : null;
-    if (caso === null || code === null || wabaId === null || phoneNumberId === null || sessionInfo === null) {
+    if (caso === null || code === null || wabaId === null || phoneNumberId === null) {
       throw new GuiaRecusadoError("estado_errado");
     }
     if (guia.estado !== "iniciado") {
@@ -290,41 +301,70 @@ export class PassoGuiado {
       if (guia.phoneNumberId === phoneNumberId) return { estado: guia.estado, novo: false };
       throw new GuiaRecusadoError("estado_errado");
     }
+    // **O FINISH reclama-se ANTES de se ligar**, e é um achado da revisão
+    // adversarial: com o *compare-and-set* depois do `ligar()`, o temporizador
+    // dos 30 min podia passar o guia a `abandonado` enquanto a Meta respondia —
+    // o canal nascia, a reserva era devolvida, e o guia ficava sem
+    // `phone_number_id`, pelo que os webhooks desse número eram ignorados e o
+    // número **nunca** era conferido. Reclamado aqui, o temporizador já não o
+    // vê em `iniciado`, e um segundo `FINISH` concorrente perde antes de falar
+    // com o GWY.
+    const reclamou = await this.#d.repositorio.transitar(onboardingId, "iniciado", "es_concluido", {
+      phoneNumberId,
+      wabaId,
+    });
+    if (!reclamou) {
+      const agora = await this.#d.repositorio.ler(onboardingId);
+      return { estado: agora?.estado ?? "iniciado", novo: false };
+    }
+    const rota = guia.preflight?.rota ?? "coexistencia";
     const resultado = await this.#d.ligador.ligar({
       tenant_id: caso.tenantId,
       code,
       waba_id: wabaId,
       phone_number_id: phoneNumberId,
-      session_info: sessionInfo,
+      session_info: this.sessionInfo(rota),
     });
-    if (resultado.desfecho === "lista_espera") {
-      await this.#d.repositorio.transitar(onboardingId, "iniciado", "abandonado", {});
+    if (resultado.desfecho === "lista_espera" || resultado.desfecho === "recusado") {
+      await this.#falhar(
+        onboardingId,
+        "es_concluido",
+        resultado.desfecho === "lista_espera" ? "tecto_da_meta" : "ligacao_recusada",
+      );
       await this.#d.capacidade.release(onboardingId);
-      return { estado: "abandonado", novo: true };
-    }
-    if (resultado.desfecho === "recusado") {
-      await this.#falhar(onboardingId, "iniciado", "ligacao_recusada");
       return { estado: "falhado", novo: true };
-    }
-    const passou = await this.#d.repositorio.transitar(onboardingId, "iniciado", "es_concluido", {
-      tentativaId: resultado.tentativaId,
-      phoneNumberId,
-      wabaId,
-    });
-    if (!passou) {
-      const agora = await this.#d.repositorio.ler(onboardingId);
-      return { estado: agora?.estado ?? "iniciado", novo: false };
     }
     // O KAM-016 devolve a tentativa já em `subscrito`: a subscrição dos onze
     // campos e a leitura de confirmação correm dentro do `ligar()`.
-    await this.#d.repositorio.transitar(onboardingId, "es_concluido", "subscrito", {});
-    const guiaDepois = await this.#d.repositorio.ler(onboardingId);
-    if (guiaDepois?.preflight?.rota === "cloud_only") {
+    await this.#d.repositorio.transitar(onboardingId, "es_concluido", "subscrito", {
+      tentativaId: resultado.tentativaId,
       // Em `cloud_only` não há histórico a sincronizar.
-      await this.#d.repositorio.marcar(onboardingId, "sincronizado");
-    }
+      ...(rota === "cloud_only" ? { sincronizado: true } : {}),
+    });
+    // Um webhook do número pode ter chegado enquanto a Meta respondia: o
+    // número já confirmado, em `cloud_only`, basta para `verificado`.
+    await this.#talvezVerificar(onboardingId);
     this.#d.log?.info({ outcome: "es_concluido" });
-    return { estado: "subscrito", novo: true };
+    const depois = await this.#d.repositorio.ler(onboardingId);
+    return { estado: depois?.estado ?? "subscrito", novo: true };
+  }
+
+  /**
+   * O `session_info` que segue para o KAM-016, **composto pelo guia**.
+   *
+   * Não se repassa o que a página manda: a página só pode ecoar a configuração
+   * que o servidor lhe deu, e a forma do que o popup devolve é NÃO VERIFICADA.
+   * Composto aqui, a partir da rota que o pré-voo gravou, diz o que o guia de
+   * facto abriu — e a rota `cloud_only` leva a marca `FEATURE_TYPE_CLOUD_ONLY`,
+   * sem a qual o `modoDoSessionInfo` a recusava.
+   */
+  sessionInfo(rota: Rota): Readonly<Record<string, unknown>> {
+    return {
+      sessionInfoVersion: SESSION_INFO_VERSION,
+      extras: {
+        featureType: rota === "coexistencia" ? FEATURE_TYPE_DE_COEXISTENCIA : FEATURE_TYPE_CLOUD_ONLY,
+      },
+    };
   }
 
   /**
@@ -341,16 +381,39 @@ export class PassoGuiado {
     const caso = await this.#d.casos.porId(id);
     const guia = await this.#d.repositorio.ler(id);
     if (caso === null || guia === null) return null;
-    if (guia.numeroConfirmado) return true;
+    // **Compara-se sempre, e não só a primeira vez.** O `numeroConfirmado`
+    // repõe-se a cada volta a `iniciado` (ver o `iniciar`), mas a comparação
+    // é barata e um `return true` por memória era o atalho que deixava uma
+    // reconexão com outro número herdar a confirmação do antigo. Achado da
+    // revisão adversarial.
     if (numeroCoincide(displayPhoneNumber, caso.telefoneHmac, this.#d.anelDoPepper)) {
-      await this.#d.repositorio.marcar(id, "numeroConfirmado");
+      if (!guia.numeroConfirmado) await this.#d.repositorio.marcar(id, "numeroConfirmado");
       await this.#talvezVerificar(id);
       return true;
     }
-    await this.#falhar(id, guia.estado, "numero_divergente");
+    await this.#prender(id);
     await this.#d.revisao.abrir(id, "es_falhado", "numero_divergente");
     this.#d.log?.warn({ outcome: "es_numero_divergente" });
     return false;
+  }
+
+  /**
+   * Põe o guia em `falhado` com `numero_divergente`, **de qualquer estado**.
+   *
+   * A prisão sobrepõe-se à matriz, e é um achado da revisão adversarial: com o
+   * `#falhar`, um guia que já estivesse `falhado` por sincronização vencida
+   * ficava com esse motivo — que a página desprende —, e o dono com o número
+   * alheio voltava a abrir o popup com o `review_case` ainda aberto. O mesmo
+   * para `desligado` e `abandonado`, de onde a matriz não leva a `falhado`.
+   */
+  async #prender(id: string): Promise<void> {
+    for (let tentativa = 0; tentativa < 4; tentativa += 1) {
+      const guia = await this.#d.repositorio.ler(id);
+      if (guia === null) return;
+      if (guia.estado === "falhado" && guia.motivo === "numero_divergente") break;
+      if (await this.#d.repositorio.transitar(id, guia.estado, "falhado", { motivo: "numero_divergente" })) break;
+    }
+    await this.#d.gates.marcar(id, "meta_es", false, "numero_divergente");
   }
 
   /** Um sinal da sincronização do KAM-017. **O critério 6.** */

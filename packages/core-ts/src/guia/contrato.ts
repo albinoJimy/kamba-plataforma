@@ -223,6 +223,7 @@ export const MOTIVOS_DE_FALHA = [
   "numero_divergente",
   "sincronizacao_vencida",
   "ligacao_recusada",
+  "tecto_da_meta",
 ] as const;
 export type MotivoDeFalha = (typeof MOTIVOS_DE_FALHA)[number];
 
@@ -365,7 +366,10 @@ export interface RepositorioDoGuia {
     de: EstadoDoGuia,
     para: EstadoDoGuia,
     campos: Partial<
-      Pick<EstadoGuardado, "iniciadoEm" | "motivo" | "tentativaId" | "phoneNumberId" | "wabaId">
+      Pick<
+        EstadoGuardado,
+        "iniciadoEm" | "motivo" | "tentativaId" | "phoneNumberId" | "wabaId" | "numeroConfirmado" | "sincronizado"
+      >
     >,
   ): Promise<boolean>;
   /** Marca um dos dois factos que o `verificado` exige. Idempotente. */
@@ -394,6 +398,20 @@ export interface ResultadoDaLigacao {
   readonly desfecho: "criado" | "repetido" | "recusado" | "lista_espera";
   readonly tentativaId: string | null;
 }
+
+/**
+ * O `featureType` que o guia declara ao KAM-016 numa ligação `cloud_only`.
+ *
+ * **É uma marca nossa, e não um valor da Meta.** O `modoDoSessionInfo` do
+ * KAM-016 recusa um `session_info` sem `featureType` — decidir o modo pela
+ * ausência era decidi-lo por omissão — e aceita como `cloud_only` qualquer
+ * valor que não seja o da coexistência. O `E1` §3 só nomeia o da coexistência,
+ * e a forma do `session_info` que o popup devolve é NÃO VERIFICADA; por isso o
+ * guia **compõe** o `session_info` a partir da rota que o pré-voo gravou, em
+ * vez de repassar o que a página diz, e diz qual dos dois modos abriu. Achado
+ * da revisão adversarial: sem isto, todo o número fixo era recusado com 400.
+ */
+export const FEATURE_TYPE_CLOUD_ONLY = "kamba_cloud_only";
 
 /** Levantada quando a página é pedida para um caso que não pode abrir. */
 export class GuiaRecusadoError extends Error {

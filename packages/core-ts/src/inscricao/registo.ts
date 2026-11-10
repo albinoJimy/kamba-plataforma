@@ -276,8 +276,19 @@ export class Registo {
    * `kyc_pendente` é a fase seguinte do dicionário §3.2, e é onde este ticket
    * acaba: o K1 é do KAM-087. Devolve `false` se o caso não existe, que é o 404
    * do teste de isolamento.
+   *
+   * **Só avança, e nunca faz recuar.** O OTP também se pede **depois** do
+   * registo: a ligação de retoma do Embedded Signup (KAM-093) volta a provar a
+   * posse do telefone dias mais tarde, com o caso já em `aguarda_es`. Marcar
+   * `kyc_pendente` sem olhar para a fase fazia esse caso recuar para antes do
+   * KYC, e a página que a retoma devia abrir passava a responder 409. Achado
+   * da revisão adversarial do KAM-093. Num caso que já passou o OTP, acertar
+   * outra vez é só a prova de posse que a sessão precisa.
    */
   async concluirOtp(id: string): Promise<boolean> {
+    const caso = await this.#repositorio.porId(id);
+    if (caso === null) return false;
+    if (caso.fase !== "registo" && caso.fase !== "otp_pendente") return true;
     return this.#repositorio.marcarFase(id, "kyc_pendente");
   }
 

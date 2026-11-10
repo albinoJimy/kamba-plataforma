@@ -15,8 +15,7 @@
  *
  * ## O que o guião envia, e o que não envia
  *
- * Ao servidor só vão o `code`, o `waba_id`, o `phone_number_id` e o
- * `session_info` (critério 1). O *token* nunca passa pelo navegador: o `code` é
+ * Ao servidor só vão o `code`, o `waba_id` e o `phone_number_id` (critério 1). O *token* nunca passa pelo navegador: o `code` é
  * trocado no GWY (KAM-016), e o *token* e o PIN vão de lá directamente ao
  * cofre. A página **não tem** campo para *token*, PIN ou código da Meta, e o
  * texto diz ao dono que nunca os peça a ninguém.
@@ -24,10 +23,11 @@
  * ## A forma do `session_info` é NÃO VERIFICADA
  *
  * O evento de *session logging* do popup (`WA_EMBEDDED_SIGNUP`) traz o
- * `phone_number_id` e o `waba_id`; a forma exacta do resto não está no `E1`. O
- * guião manda a versão e o `featureType` que ele próprio pediu, mais o nome do
- * evento que recebeu — o que o KAM-016 verifica é, por isso, a configuração que
- * esta página abriu, e não uma afirmação independente da Meta. Fica dito.
+ * `phone_number_id` e o `waba_id`; a forma exacta do resto não está no `E1`. Por
+ * isso o guião **não** o manda: o `session_info` que o KAM-016 verifica é
+ * composto no servidor a partir da rota que o pré-voo gravou (`sessionInfo` do
+ * `PassoGuiado`), e diz o que a página abriu — não é uma afirmação
+ * independente da Meta. Fica dito.
  */
 
 /** O que a página precisa. */
@@ -45,7 +45,7 @@ export function cspDaLigacao(nonce: string): string {
     `style-src 'nonce-${nonce}'`,
     `script-src 'nonce-${nonce}' https://connect.facebook.net`,
     "connect-src 'self' https://graph.facebook.com https://www.facebook.com",
-    "frame-src https://www.facebook.com https://web.facebook.com",
+    "frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com",
     "img-src https://www.facebook.com",
     "form-action 'self'",
     "frame-ancestors 'none'",
@@ -150,10 +150,14 @@ const GUIAO = `
           if(!resposta||!resposta.authResponse||!resposta.authResponse.code){
             api('/api/es/cancelar',{}).then(actualizar);return;
           }
-          api('/api/es/concluir',{code:resposta.authResponse.code,waba_id:ids.waba_id,
-            phone_number_id:ids.phone_number_id,
-            session_info:{sessionInfoVersion:cfg.extras.sessionInfoVersion,
-              extras:{featureType:cfg.extras.featureType},evento:ids.evento}}).then(actualizar);
+          // O evento WA_EMBEDDED_SIGNUP pode chegar depois do callback: espera-se
+          // por ele ate 5 s, em vez de mandar o code sem numero e o gastar.
+          var codigo=resposta.authResponse.code,espera=0;
+          (function mandar(){
+            if(!ids.phone_number_id&&espera<20){espera+=1;setTimeout(mandar,250);return;}
+            api('/api/es/concluir',{code:codigo,waba_id:ids.waba_id,
+              phone_number_id:ids.phone_number_id}).then(actualizar);
+          })();
         },{config_id:cfg.config_id,response_type:cfg.response_type,
            override_default_response_type:cfg.override_default_response_type,extras:cfg.extras});
       });
@@ -196,9 +200,46 @@ export function paginaDaLigacao(dados: DadosDaLigacao): string {
 </body></html>`;
 }
 
+/**
+ * O caminho da retoma sem sessão: código SMS ao telefone **registado**, e a
+ * página recarrega-se com a sessão nova. O guião lê o `r` do endereço, no
+ * navegador, pelo que o **corpo** da recusa é o mesmo para uma ligação forjada,
+ * alheia, expirada ou sem sessão — quem distingue é o servidor, no
+ * `POST /api/es/retoma`, e responde 403 igual a todas as que não servem.
+ */
+const GUIAO_DA_RETOMA = `
+(function(){
+  var r=new URLSearchParams(location.search).get('r');
+  var caixa=document.getElementById('retoma');
+  if(!r){return;}
+  caixa.hidden=false;
+  var referencia=null;
+  function post(caminho,corpo){
+    return fetch(caminho,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},
+      body:JSON.stringify(corpo)}).then(function(x){return x.json().then(function(j){return {estado:x.status,corpo:j};});});
+  }
+  document.getElementById('enviar').addEventListener('click',function(){
+    post('/api/es/retoma',{r:r}).then(function(x){
+      if(x.estado!==200){caixa.textContent='Esta ligação já não serve. Peça uma nova ao apoio.';return;}
+      referencia=x.corpo.referencia;document.getElementById('codigo').hidden=false;
+    });
+  });
+  document.getElementById('codigo').addEventListener('submit',function(ev){
+    ev.preventDefault();
+    post('/api/otp/verificar',{referencia:referencia,codigo:ev.target.c.value}).then(function(x){
+      if(x.corpo.veredicto==='acertou'){location.reload();}
+    });
+  });
+})();
+`;
+
 /** A página de recusa. Igual para forjado, alheio, expirado e sem sessão. */
-export function paginaDeRecusaDaLigacao(): string {
+export function paginaDeRecusaDaLigacao(nonce: string): string {
+  const n = escapar(nonce);
   return `<!doctype html>
 <html lang="pt-AO"><head><meta charset="utf-8"><title>Ligação inválida</title></head>
-<body><h1>Esta ligação não abre</h1><p>Entre outra vez pela ligação que recebeu e confirme o código SMS.</p></body></html>`;
+<body><h1>Esta ligação não abre</h1><p>Entre outra vez pela ligação que recebeu e confirme o código SMS.</p>
+<div id="retoma" hidden><button id="enviar" type="button">Enviar código SMS</button>
+<form id="codigo" hidden><label>Código: <input name="c" inputmode="numeric" autocomplete="one-time-code"></label><button type="submit">Confirmar</button></form></div>
+<script nonce="${n}">${GUIAO_DA_RETOMA}</script></body></html>`;
 }

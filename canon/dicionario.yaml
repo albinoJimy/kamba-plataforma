@@ -13784,22 +13784,45 @@ entradas:
       - "ativo"
       - "abandonado"
       - "iniciado"
+      - "phone_number_id"
     variantes_literais: []
   - seccao: "3.53"
     conceito: "Motivo de um guia falhado"
-    canonico: "EstadoGuardado.motivo ∈ {numero_divergente, sincronizacao_vencida, ligacao_recusada}"
+    canonico: "EstadoGuardado.motivo ∈ {numero_divergente, sincronizacao_vencida, ligacao_recusada, tecto_da_meta}"
     literais:
       - "EstadoGuardado.motivo"
       - "numero_divergente"
       - "sincronizacao_vencida"
       - "ligacao_recusada"
+      - "tecto_da_meta"
     nomes:
       - "EstadoGuardado.motivo"
       - "numero_divergente"
       - "sincronizacao_vencida"
       - "ligacao_recusada"
+      - "tecto_da_meta"
     nomes_nota:
       - "numero_divergente"
+      - "tecto_da_meta"
+      - "CapacityGate"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Marca do modo cloud_only"
+    canonico: "extras.featureType = kamba_cloud_only no session_info que o guia compõe"
+    literais:
+      - "extras.featureType"
+      - "kamba_cloud_only"
+      - "session_info"
+    nomes:
+      - "cloud_only"
+      - "extras.featureType"
+      - "kamba_cloud_only"
+      - "session_info"
+    nomes_nota:
+      - "modoDoSessionInfo"
+      - "featureType"
+      - "cloud_only"
+      - "session_info"
     variantes_literais: []
   - seccao: "3.53"
     conceito: "Gates que o guia escreve"
@@ -16214,6 +16237,7 @@ dominios:
       - "numero_divergente"
       - "sincronizacao_vencida"
       - "ligacao_recusada"
+      - "tecto_da_meta"
     seccao: "3.53"
     conceito: "Motivo de um guia falhado"
     so_no_registo: false

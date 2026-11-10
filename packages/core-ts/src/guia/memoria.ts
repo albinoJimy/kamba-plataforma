@@ -83,7 +83,10 @@ export class GuiaEmMemoria implements RepositorioDoGuia {
     de: EstadoDoGuia,
     para: EstadoDoGuia,
     campos: Partial<
-      Pick<EstadoGuardado, "iniciadoEm" | "motivo" | "tentativaId" | "phoneNumberId" | "wabaId">
+      Pick<
+        EstadoGuardado,
+        "iniciadoEm" | "motivo" | "tentativaId" | "phoneNumberId" | "wabaId" | "numeroConfirmado" | "sincronizado"
+      >
     >,
   ): Promise<boolean> {
     // Síncrono do `get` ao `set`: é o que faz isto ser *compare-and-set*.

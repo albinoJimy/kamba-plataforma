@@ -122,14 +122,14 @@ export function rotasDoGuia(opcoes: OpcoesDoGuia): Hono {
     const daRetoma = r === undefined ? null : ler("retoma", r, opcoes.anelDaAssinatura, relogio);
     if (id === null || (r !== undefined && daRetoma !== id)) {
       log?.info({ outcome: "ligar_recusado" });
-      return c.html(paginaDeRecusaDaLigacao(), 403, cabecalhosDaLigacao(nonce));
+      return c.html(paginaDeRecusaDaLigacao(nonce), 403, cabecalhosDaLigacao(nonce));
     }
     try {
       await guia.abrir(id);
     } catch (erro) {
       if (!(erro instanceof GuiaRecusadoError)) throw erro;
       log?.info({ outcome: "ligar_recusado", error_code: erro.motivo });
-      return c.html(paginaDeRecusaDaLigacao(), estadoHttp(erro), cabecalhosDaLigacao(nonce));
+      return c.html(paginaDeRecusaDaLigacao(nonce), estadoHttp(erro), cabecalhosDaLigacao(nonce));
     }
     return c.html(paginaDaLigacao({ nonce, appId: opcoes.appIdDaMeta, versaoDaGraph: opcoes.versaoDaGraph }), 200, cabecalhosDaLigacao(nonce));
   });
@@ -170,12 +170,12 @@ export function rotasDoGuia(opcoes: OpcoesDoGuia): Hono {
   app.post("/api/es/concluir", async (c) => {
     const corpo = await corpoJson(c.req.raw);
     const r = await comSessao(c.req.header("cookie"), async (id) =>
-      // **Quatro campos, e o `tenant_id` não é um deles**: sai do caso.
+      // **Três campos, e o `tenant_id` não é um deles**: sai do caso. O
+      // `session_info` também não: compõe-o o guia, a partir da rota gravada.
       guia.concluir(id, {
         code: corpo.code,
         waba_id: corpo.waba_id,
         phone_number_id: corpo.phone_number_id,
-        session_info: corpo.session_info,
       }),
     );
     return c.json(r.corpo, r.estado);
@@ -195,12 +195,22 @@ export function rotasDoGuia(opcoes: OpcoesDoGuia): Hono {
     const corpo = await corpoJson(c.req.raw);
     const id = ler("retoma", corpo.r, opcoes.anelDaAssinatura, relogio);
     if (id === null) return c.json({ erro: "token" }, 403);
+    // A chave **antes** do envio: um 503 depois de mandar o SMS era um código
+    // gasto que ninguém podia usar. E o caso tem de estar no passo do ES — uma
+    // ligação de retoma de um caso que já não está em `aguarda_es` não tem
+    // página a que voltar, e não serve para mandar SMS ao dono.
+    const chave = opcoes.anelDaAssinatura[0];
+    if (!(chave instanceof Uint8Array)) return c.json({ erro: "indisponivel" }, 503);
+    try {
+      await guia.abrir(id);
+    } catch (erro) {
+      if (!(erro instanceof GuiaRecusadoError)) throw erro;
+      return c.json({ erro: "token" }, 403);
+    }
     const telefone = await opcoes.registo.telefoneDoCaso(id);
     if (telefone === null) return c.json({ erro: "token" }, 403);
     const envio = await opcoes.otp.enviar(id, telefone);
     if (!envio.enviado) return c.json({ erro: "limite" }, 429);
-    const chave = opcoes.anelDaAssinatura[0];
-    if (!(chave instanceof Uint8Array)) return c.json({ erro: "indisponivel" }, 503);
     return c.json({ referencia: cunharReferencia("ticket", id, chave, relogio) }, 200);
   });
 

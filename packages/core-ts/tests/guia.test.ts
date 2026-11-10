@@ -61,6 +61,7 @@ import {
   linhaDe,
 } from "../src/inscricao/index.ts";
 import type { ResultadoDoEs } from "../src/onboarding/contrato.ts";
+import { modoDoSessionInfo } from "../src/onboarding/onboarding.ts";
 
 const PEPPER = Buffer.alloc(32, 0x5a);
 const ANTERIOR = Buffer.alloc(32, 0x2b);
@@ -70,11 +71,6 @@ const MOVEL = "+244900000001";
 const OUTRO_MOVEL = "+244900000002";
 const FIXO = "+244200000001";
 const DE_ENSAIO = "+244000000001";
-
-const SESSION_INFO = {
-  sessionInfoVersion: "3",
-  extras: { featureType: "whatsapp_business_app_onboarding" },
-};
 
 const TUDO_ATESTADO: Atestados = {
   versaoDaApp: "2.24.17",
@@ -179,7 +175,7 @@ async function montar(opcoes: { telefone?: string; maximo?: number } = {}) {
 type Montagem = Awaited<ReturnType<typeof montar>>;
 
 function finish(waba = "waba-1", pnid = "pnid-1") {
-  return { code: "code-de-ensaio", waba_id: waba, phone_number_id: pnid, session_info: SESSION_INFO };
+  return { code: "code-de-ensaio", waba_id: waba, phone_number_id: pnid };
 }
 
 /** Leva um caso até `subscrito`. */
@@ -669,6 +665,128 @@ describe("KAM-093 integracao: o simulador de webhooks do KAM-024", () => {
     await ateSubscrito(m);
     const canal = canalDe(new Gerador("kam093/ficticio"));
     assert.equal(await m.guia.confirmarNumero("pnid-1", canal.displayPhoneNumber), false);
+  });
+});
+
+describe("KAM-093 revisao adversarial: os achados, cada um com o seu ensaio", () => {
+  it("achado 1: uma reconexao com OUTRO numero nao herda a confirmacao do antigo", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m);
+    await m.guia.confirmarNumero("pnid-1", "+244 900 000 001");
+    await m.guia.sincronizacao("pnid-1", "a_sincronizar");
+    await m.guia.sincronizacao("pnid-1", "concluida");
+    assert.equal(await m.guia.desligado("pnid-1"), true);
+    assert.equal((await m.guia.iniciar(c.id)).desfecho, "popup");
+    const limpo = await m.repositorio.ler(c.id);
+    assert.equal(limpo?.numeroConfirmado, false);
+    assert.equal(limpo?.sincronizado, false);
+    assert.equal(limpo?.phoneNumberId, null);
+    await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-2"));
+    assert.equal(await m.guia.confirmarNumero("pnid-2", "+244 900 000 002"), false);
+    await m.guia.sincronizacao("pnid-2", "concluida");
+    assert.equal((await m.repositorio.ler(c.id))?.estado, "falhado");
+    assert.deepEqual(m.gates.de(c.id, "meta_es"), { verde: false, motivo: "numero_divergente" });
+  });
+
+  it("achado 1: o mesmo, a voltar por sincronizacao vencida", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m);
+    await m.guia.confirmarNumero("pnid-1", "+244 900 000 001");
+    await m.guia.sincronizacao("pnid-1", "vencida_24h");
+    await m.guia.iniciar(c.id);
+    await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-2"));
+    assert.equal(await m.guia.confirmarNumero("pnid-2", "+244 900 000 002"), false);
+  });
+
+  it("achado 3: o session_info de cada rota passa o modoDoSessionInfo do KAM-016, e diz a rota certa", async () => {
+    const m = await montar();
+    assert.equal(modoDoSessionInfo(m.guia.sessionInfo("coexistencia")), "coexistencia");
+    assert.equal(modoDoSessionInfo(m.guia.sessionInfo("cloud_only")), "cloud_only");
+    // E e esse o que segue para o GWY, nao um eco da pagina.
+    const fixo = await ateSubscrito(m, FIXO);
+    void fixo;
+    const enviado = m.ligador.chamadas.at(-1)?.session_info ?? {};
+    assert.equal(modoDoSessionInfo(enviado), "cloud_only");
+  });
+
+  it("achado 4: a divergencia prende mesmo com o guia ja falhado por sincronizacao vencida", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m);
+    await m.guia.sincronizacao("pnid-1", "vencida_24h");
+    assert.equal((await m.repositorio.ler(c.id))?.motivo, "sincronizacao_vencida");
+    assert.equal(await m.guia.confirmarNumero("pnid-1", "+244 900 000 002"), false);
+    assert.equal((await m.repositorio.ler(c.id))?.motivo, "numero_divergente");
+    await assert.rejects(m.guia.iniciar(c.id), (e: unknown) => e instanceof GuiaRecusadoError && e.motivo === "preso_em_revisao");
+  });
+
+  it("achado 4: e com o guia desligado, de onde a matriz nao leva a falhado", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m);
+    await m.guia.desligado("pnid-1");
+    assert.equal(await m.guia.confirmarNumero("pnid-1", "+244 900 000 002"), false);
+    await assert.rejects(m.guia.iniciar(c.id), GuiaRecusadoError);
+  });
+
+  it("achado 5: o temporizador dos 30 min nao abandona um FINISH a meio da ligacao", async () => {
+    const m = await montar();
+    const c = await m.caso();
+    await m.guia.preflight(c.id, TUDO_ATESTADO);
+    await m.guia.iniciar(c.id);
+    m.relogio.avancar(31 * 60_000);
+    // O ligador cede o turno; o temporizador corre enquanto a Meta responde.
+    const fim = m.guia.concluir(c.id, finish());
+    await new Promise((r) => setImmediate(r));
+    assert.equal(await m.guia.abandonarVencidos(), 0);
+    assert.equal((await fim).estado, "subscrito");
+    assert.equal(m.capacidade.vivas(), 1);
+    assert.equal(await m.repositorio.porPhoneNumberId("pnid-1"), c.id);
+  });
+
+  it("achado 5: lista_espera do GWY e recusa do GWY passam a falhado e devolvem o lugar", async () => {
+    for (const [desfecho, motivo] of [
+      ["lista_espera", "tecto_da_meta"],
+      ["recusado", "ligacao_recusada"],
+    ] as const) {
+      const m = await montar();
+      m.ligador.desfecho = desfecho;
+      const c = await m.caso();
+      await m.guia.preflight(c.id, TUDO_ATESTADO);
+      await m.guia.iniciar(c.id);
+      assert.equal((await m.guia.concluir(c.id, finish())).estado, "falhado");
+      assert.equal((await m.repositorio.ler(c.id))?.motivo, motivo);
+      assert.equal(m.capacidade.vivas(), 0);
+      assert.equal((await m.guia.iniciar(c.id)).desfecho, "popup", "e o ES repete-se");
+    }
+  });
+
+  it("achado 6: uma reconexao cloud_only chega a verificado", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m, FIXO);
+    await m.guia.confirmarNumero("pnid-1", "+244 200 000 001");
+    assert.equal((await m.repositorio.ler(c.id))?.estado, "verificado");
+    await m.guia.desligado("pnid-1");
+    await m.guia.iniciar(c.id);
+    await m.guia.concluir(c.id, finish(`waba-${c.id}`, "pnid-1"));
+    await m.guia.confirmarNumero("pnid-1", "+244 200 000 001");
+    assert.equal((await m.repositorio.ler(c.id))?.estado, "verificado");
+  });
+
+  it("achado 7: um history de numero alheio NUNCA passa o guia por a_sincronizar", async () => {
+    const m = await montar();
+    const c = await ateSubscrito(m);
+    const passagens: string[] = [];
+    const original = m.repositorio.transitar.bind(m.repositorio);
+    m.repositorio.transitar = async (id, de, para, campos) => {
+      passagens.push(para);
+      return original(id, de, para, campos);
+    };
+    const g = new Gerador("kam093/ordem");
+    const canal = { ...canalDe(g), phoneNumberId: "pnid-1", displayPhoneNumber: "+244 900 000 002" };
+    await aplicarWebhook(m.guia, {
+      entry: [{ changes: [{ field: "history", value: valorDe(g, "history", { canal, quem: interlocutorDe(g) }) }] }],
+    });
+    assert.deepEqual(passagens, ["falhado"]);
+    assert.equal((await m.repositorio.ler(c.id))?.estado, "falhado");
   });
 });
 
