@@ -412,6 +412,14 @@ class TestDecisao(unittest.TestCase):
         b["duro"]["fugas"] = 1
         self.assertEqual(g.comparar(a, b, 0.5), ["duro difere"])
 
+    def test_a_latencia_so_difere_acima_das_duas_margens(self) -> None:
+        """0,227 s contra 0,036 s foi medido no mesmo commit, com carga ao lado."""
+        a = self._rel(0.9, 0.9)
+        b = json.loads(json.dumps(a))
+        a["monitorizado"]["latencia_p95_s"], b["monitorizado"]["latencia_p95_s"] = 0.036, 0.227
+        self.assertEqual(g.comparar(a, b, 0.5, 0.5), [])
+        self.assertEqual(len(g.comparar(a, b, 0.5, 0.1)), 1)
+
     def test_o_relatorio_regista_os_artefactos_que_o_criterio_6_nomeia(self) -> None:
         self.assertEqual(
             set(self.base["artefactos"]),

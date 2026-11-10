@@ -1323,15 +1323,23 @@ def decidir(
 _VOLATEIS: Final = ("monitorizado",)
 
 
-def comparar(a: Mapping[str, Any], b: Mapping[str, Any], margem_relativa: float) -> list[str]:
-    """As diferencas entre duas corridas, para alem da margem registada."""
+def comparar(
+    a: Mapping[str, Any], b: Mapping[str, Any], margem_relativa: float, margem_absoluta_s: float = 0.0
+) -> list[str]:
+    """As diferencas entre duas corridas, para alem da margem registada.
+
+    A latencia so difere se passar **as duas** margens. Com p95 de dezenas de
+    milissegundos (o grafo com *fakes*), a relativa sozinha mede a carga da
+    maquina: medido, 0,227 s contra 0,036 s com outros processos a correr ao
+    lado, no mesmo *commit*.
+    """
     diferencas = [
         f"{chave} difere"
         for chave in sorted(set(a) | set(b))
         if chave not in _VOLATEIS and a.get(chave) != b.get(chave)
     ]
     pa, pb = a["monitorizado"]["latencia_p95_s"], b["monitorizado"]["latencia_p95_s"]
-    if max(pa, pb) and abs(pa - pb) / max(pa, pb) > margem_relativa:
+    if max(pa, pb) and abs(pa - pb) / max(pa, pb) > margem_relativa and abs(pa - pb) > margem_absoluta_s:
         diferencas.append(f"latencia p95 {pa} contra {pb}, acima da margem {margem_relativa}")
     return diferencas
 
@@ -1437,8 +1445,13 @@ def main(argv: list[str] | None = None) -> int:
             # chaves de texto repetiam-se por construcao, e a repeticao media
             # pouco (achado da revisao adversarial).
             segunda = _noutro_processo(vertical, argumentos)
-            margem = float(ler_gate(vertical)["reprodutibilidade"]["latencia_p95_margem_relativa"])
-            diferencas = comparar(json.loads(json.dumps(relatorio, default=str)), segunda, margem)
+            repro = ler_gate(vertical)["reprodutibilidade"]
+            diferencas = comparar(
+                json.loads(json.dumps(relatorio, default=str)),
+                segunda,
+                float(repro["latencia_p95_margem_relativa"]),
+                float(repro["latencia_p95_margem_absoluta_s"]),
+            )
             print("  repeticao: " + ("igual dentro da margem" if not diferencas else "; ".join(diferencas)))
             codigo = codigo or (1 if diferencas else 0)
         if argumentos.saida:

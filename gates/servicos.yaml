@@ -68,3 +68,7 @@ reprodutibilidade:
   # Duas execucoes do mesmo commit: tudo igual excepto a latencia, que pode
   # variar ate esta fraccao do p95 maior (criterio 7, medido no PR).
   latencia_p95_margem_relativa: 0.5
+  # E ate este valor absoluto: sem modelo o p95 sao dezenas de milissegundos,
+  # e a margem relativa sozinha media a carga da maquina (0,227 s contra
+  # 0,036 s no mesmo commit, com outros processos ao lado).
+  latencia_p95_margem_absoluta_s: 0.5

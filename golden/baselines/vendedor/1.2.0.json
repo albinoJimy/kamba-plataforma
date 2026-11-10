@@ -52,7 +52,7 @@
  },
  "artefactos": {
   "aliases": "1.0.0",
-  "codigo": "6d5f00e37ff43df017380ba28b9af1377717253426c22af4b73bca7293934046",
+  "codigo": "ff0241f7106e1b2f0c1b32bbf61ded292aac36c8db3bfc74f85fa03eaf1f54b8",
   "dataset": "v1:c9ad819647b6f4b7e02fac44faf02374291eb7dfd61155d42fb9a2f8e9532d6e",
   "gate": "1.0.0",
   "grafo": "1.2.0",
@@ -706,7 +706,7 @@
   "custo_usd": 0.0,
   "custo_usd_por_conversa": 0.0,
   "latencia_nota": "o grafo com fakes e sem modelo: nao e a latencia do turno em producao",
-  "latencia_p95_s": 0.0393
+  "latencia_p95_s": 0.0397
  },
  "relativo": {
   "handoff_correcto": {
