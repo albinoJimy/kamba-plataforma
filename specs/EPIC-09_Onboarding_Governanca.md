@@ -479,8 +479,8 @@ CREATE TABLE platform.screening_decision (  -- append-only
 
 Entregue no ramo `feature/KAM-088-screening`: a política em `../policy/categorias/`, o gerador
 `../tools/politica_categorias/` e o módulo
-[`../packages/core-ts/src/screening/`](../packages/core-ts/src/screening/index.ts), dicionário §3.55
-(emenda 1.78). **A revisão da `screening_decision` ainda não está neste ramo**: a cadeia do alembic
+[`../packages/core-ts/src/screening/`](../packages/core-ts/src/screening/index.ts), dicionário §3.56
+(emenda 1.79). **A revisão da `screening_decision` ainda não está neste ramo**: a cadeia do alembic
 aguenta uma revisão por fundir de cada vez, e a deste ticket é a seguinte à do KAM-087. O SQL vive
 no módulo (`sql.ts`) e os ensaios contra PostgreSQL entram com a revisão.
 
@@ -502,7 +502,7 @@ no módulo (`sql.ts`) e os ensaios contra PostgreSQL entram com a revisão.
 | Facto jurídico *(a confirmar por parecer)*; estado de evidência por entrada | **satisfeito** | Cada `fonte_lei` não nula tem a marca, e o gerador **recusa** a que não a tenha (`test_fonte_lei_sem_parecer`); `estado_evidencia` obrigatório e na escala de três; uma `bloqueada` sem fonte nenhuma é recusada. As leis NÃO VERIFICADAS (armas, venda online de medicamentos) ficam como estado da fonte, e o bloqueio dessas categorias assenta na Meta, que é CONFIRMADO |
 | Nenhum dado pessoal ao LLM; custo por decisão medido | **parcial** | O primeiro, pelo critério 5. **O custo não se mede** sem o alias ligado a um modelo com destino autorizado (KAM-069) — credor **KAM-040** |
 | Decisões *append-only* com `INSERT`; isolamento pelo teste cruzado | **não satisfeito** | Entra com a revisão da tabela |
-| Migração reversível; sem segredos; documentação actualizada | **parcial** | Sem segredos (o `chave` do adaptador vem do cofre e nenhum valor está no repositório); dicionário §3.55 e `canon/dicionario.yaml` regenerado. **A migração entra com a revisão da tabela** |
+| Migração reversível; sem segredos; documentação actualizada | **parcial** | Sem segredos (o `chave` do adaptador vem do cofre e nenhum valor está no repositório); dicionário §3.56 e `canon/dicionario.yaml` regenerado. **A migração entra com a revisão da tabela** |
 
 #### O que este ticket tocou que não era dele, e porquê
 

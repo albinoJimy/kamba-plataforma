@@ -1807,6 +1807,15 @@ SEM_RECEITA_COM_RAZAO = {
     # (zero) e escreve com o contexto de B uma linha de A (`42501`), pela
     # ligacao da aplicacao.
     ("platform", "contract_acceptance"),
+    # KAM-071: o registo da purga, pela razao da `erasure_ledger`: *append-only*
+    # por privilegio — o `kamba_batch` tem `SELECT, INSERT`, nenhum papel tem
+    # `UPDATE` nem `DELETE` —, e uma receita fazia desta bateria o unico sitio
+    # onde a prova de uma purga se apaga. **A politica mede-se noutro sitio:** o
+    # `db/tests/test_retencao_bd.py` prova que a aplicacao nao alcanca a tabela
+    # (`42501`) e que o lote escreve e nao altera nem apaga; e as linhas de
+    # `tenant_id` nulo sao invisiveis a `tenant_iso` para quem nao tem
+    # `BYPASSRLS`, que e a mesma forma do `audit_log`.
+    ("platform", "purge_log"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo

@@ -1359,6 +1359,26 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
+#: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
+#: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
+#: devia poder apagar a prova de que purgou. A aplicacao nao alcanca a tabela.
+ESPERADO_POR_TABELA.update(
+    {
+        "purge_log": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
