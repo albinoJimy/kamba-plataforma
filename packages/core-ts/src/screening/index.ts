@@ -25,6 +25,7 @@ export * from "./tipos.ts";
 export { normalizar, MINIMO_PARA_COMPACTA, type TextoNormalizado } from "./normalizar.ts";
 export {
   avaliarRegras,
+  bloqueadasEm,
   compilar,
   CONFIANCA,
   fundirSobreposicao,

@@ -5,7 +5,7 @@ Nao e um validador de JSON Schema. O repositorio nao tem nenhum (o
 categorias usa onze palavras-chave. Este modulo implementa essas onze e
 **recusa o esquema** que use outra: um validador que ignorasse em silencio uma
 palavra-chave que nao conhece validava menos do que o esquema diz, e o ficheiro
-`politica.schema.json` passava a mentir sobre o que o gate garante.
+`politica.esquema.json` passava a mentir sobre o que o gate garante.
 """
 
 from __future__ import annotations

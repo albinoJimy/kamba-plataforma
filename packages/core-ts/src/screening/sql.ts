@@ -3,6 +3,10 @@
  * (KAM-088). As constantes são exportadas porque os ensaios contra PostgreSQL
  * as importam daqui: um ensaio que reescrevesse o SQL à mão media o SQL dele.
  *
+ * **A ordem das decisoes e a do `criado_at`**, que a revisao preenche com
+ * `clock_timestamp()` e nao com `now()`: o `id` e `uuid` aleatorio (dicionario §2)
+ * e nao ordena nada, e o `now()` e o mesmo para toda a transaccao.
+ *
  * O escritor e o leitor correm pela ligação da **aplicação**, dentro do
  * `comTenant` de quem monta o módulo: a tabela tem RLS `FORCE` e o `INSERT` só
  * passa o `WITH CHECK` com `app.tenant_id` igual ao `tenant_id` da linha. A
@@ -31,7 +35,7 @@ export const SQL_GRAVAR =
 export const SQL_DECISOES =
   "SELECT decisao, origem FROM platform.screening_decision " +
   "WHERE tenant_id = $1 AND sujeito_tipo = $2 AND sujeito_ref = $3 " +
-  "AND versao_politica = $4 AND conteudo_sha256 = $5 ORDER BY id";
+  "AND versao_politica = $4 AND conteudo_sha256 = $5 ORDER BY criado_at, id";
 
 /**
  * Os produtos publicados sem decisão para a versão `$1`, até `$2`.
@@ -44,7 +48,7 @@ export const SQL_POR_REANALISAR =
   "SELECT o.tenant_id::text AS tenant_id, o.sku, o.nome, " +
   "coalesce((SELECT c.sujeito_ref FROM platform.screening_decision c " +
   "WHERE c.tenant_id = o.tenant_id AND c.sujeito_tipo = 'categoria' " +
-  "ORDER BY c.id DESC LIMIT 1), '') AS categoria_declarada " +
+  "ORDER BY c.criado_at DESC, c.id DESC LIMIT 1), '') AS categoria_declarada " +
   "FROM platform.offer_terms o " +
   "WHERE o.estado = 'publicado' AND o.deleted_at IS NULL " +
   "AND NOT EXISTS (SELECT 1 FROM platform.screening_decision d " +

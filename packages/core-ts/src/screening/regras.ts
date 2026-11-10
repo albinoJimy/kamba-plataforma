@@ -167,6 +167,19 @@ export function avaliarRegras(
   return { decisao: "condicional", regras: [REGRA_NAO_LISTADA], confianca: CONFIANCA.naoListada };
 }
 
+/**
+ * As entradas `bloqueada` que casam um texto solto — o *display name* do
+ * número, que o pré-voo do KAM-093 tem de recusar quando nomeia uma categoria
+ * bloqueada. Lista vazia = nenhuma. Não grava nada: um nome não é um produto.
+ */
+export function bloqueadasEm(politica: PoliticaCompilada, texto: string): readonly string[] {
+  const normalizado = normalizar(texto);
+  return politica.entradas
+    .filter((e) => e.decisao === "bloqueada" && casa(e, normalizado))
+    .map((e) => e.id)
+    .sort();
+}
+
 // ---------------------------------------------------------------------------
 // Sobreposição por tenant
 // ---------------------------------------------------------------------------

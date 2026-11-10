@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://kamba.ao/policy/categorias/politica.schema.json",
+  "$id": "https://kamba.ao/policy/categorias/politica.esquema.json",
   "title": "Politica de categorias do screening (KAM-088)",
   "description": "A forma de policy/categorias/*.yaml. O validador e o de tools/politica_categorias/esquema.py, que recusa qualquer palavra-chave que nao conheca: um esquema que usasse uma e passasse calado validava menos do que diz.",
   "type": "object",

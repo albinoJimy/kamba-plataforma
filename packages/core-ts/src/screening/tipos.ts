@@ -1,7 +1,7 @@
 /**
  * Os tipos do screening de categorias (KAM-088).
  *
- * A forma da fonte (`PoliticaFonte`) é a de `policy/categorias/politica.schema.json`,
+ * A forma da fonte (`PoliticaFonte`) é a de `policy/categorias/politica.esquema.json`,
  * com os nomes do ficheiro: o módulo gerado é a fonte em JSON, e renomear aqui
  * era ter dois vocabulários para o mesmo objecto.
  */

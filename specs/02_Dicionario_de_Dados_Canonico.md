@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.77 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.78 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -3869,6 +3869,44 @@ bloqueada para o *display name* (**KAM-088**). O texto do aviso por SMS, que o
 `../packages/core-ts/src/sms/modelos.ts` mantém em lista fechada sem nenhum escrito (**KAM-116**).
 A forma do `session_info` que o popup devolve, que é **NÃO VERIFICADA** (**`ext:KAM-102`**).
 
+### 3.55 Screening de categorias: a política, a `screening_decision` e o `assertPublishable` (KAM-088)
+
+*Emenda 1.78, **proposta**.* Os nomes da política de categorias como *policy-as-code*, do módulo
+[`../packages/core-ts/src/screening/`](../packages/core-ts/src/screening/index.ts) e da tabela de
+decisões. **A tabela não tem revisão ainda**: a cadeia do alembic aguenta uma revisão por fundir de
+cada vez, e a desta emenda é a seguinte à do KAM-087. As linhas da tabela abaixo descrevem a forma
+que essa revisão cria, e são **proposta** até ela correr contra PostgreSQL. O **conteúdo jurídico**
+da lista não é deste dicionário: cada entrada da política leva o estado do E3 §5 e *(a confirmar
+por parecer)*.
+
+**A regra que nenhuma coluna exprime: `bloqueada` é final, e o classificador só sobe até
+`condicional`.** Uma `bloqueada` das regras não chama o classificador, e nem uma revisão humana
+posterior a desce para o `assertPublishable`. O veredicto do classificador passa por um tecto em
+`condicional` antes de se juntar às regras — o critério 2 do bloco di-lo na forma
+`permitida → condicional` —, pelo que um modelo nunca bloqueia sem recurso: manda a revisão.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Política de categorias | `../policy/categorias/politica.yaml`, com `politica.esquema.json` e `versoes.lock` | — | *proposta* (emenda 1.78, KAM-088). A união Meta ∪ lei do `../docs/tecnica/10` §8.1. `versao` em SemVer; o `versoes.lock` fixa o `sha256` do conteúdo de cada versão, e mudar o conteúdo sem subir a versão reprova o gate 4 (`../tools/politica_categorias/`). Compilada em `politica.gerada.ts`, que não se edita |
+| Entrada da política | `id`, `decisao`, `termos`, `padroes`, `fonte_meta`, `fonte_lei`, `estado_evidencia`, `revisto_em` | — | *proposta* (emenda 1.78, KAM-088). As oito chaves do critério 1, e nenhuma outra (`additionalProperties: false`). Uma `fonte_lei` não nula leva `(a confirmar por parecer)`, e uma `bloqueada` sem fonte nenhuma é recusada — os dois pelo gerador |
+| Decisão de screening | `screening_decision.decisao` ∈ {`permitida`, `condicional`, `bloqueada`} | — | *proposta* (emenda 1.78, KAM-088). Lista **fechada**, por esta ordem de restrição; `maxRestricao` devolve a mais restritiva. O que nenhuma entrada casa é `condicional` (`nao_listada`) |
+| Origem de uma decisão | `screening_decision.origem` ∈ {`regra`, `llm`, `humano`} | — | *proposta* (emenda 1.78, KAM-088). `llm` só quando o classificador **subiu** a decisão das regras; uma falha dele é `regra`, com a regra `classificador_indisponivel` |
+| Sujeito de uma decisão | `screening_decision.sujeito_tipo` ∈ {`categoria`, `produto`} | — | *proposta* (emenda 1.78, KAM-088). A `sujeito_ref` de uma `categoria` é o texto declarado — e é dela que a re-análise lê a categoria do tenant; a de um `produto` é o `sku` da `offer_terms` (§3.40) |
+| Decisão gravada | `platform.screening_decision`, **onze** colunas | — | *proposta* (emenda 1.78, KAM-088). `id`, `tenant_id`, `onboarding_id`, `sujeito_tipo`, `sujeito_ref`, `decisao`, `regras`, `versao_politica`, `origem`, `conteudo_sha256`, `criado_at`. **Três divergências do DDL do bloco, todas a favor do §2:** o `id` é `uuid` e não `bigserial`; o `tenant_id` é `NOT NULL`, porque é tabela de negócio com RLS `FORCE` (o aceite do KAM-090 já pré-aloca o tenant do caso); e o `criado_at` preenche-se com `clock_timestamp()`, porque com um `id` aleatório é ele que ordena as decisões. *Append-only*: o `kamba_app` tem `SELECT` e `INSERT`, e mais nada. Sem FK para o caso, porque o `onboarding_case` é do KAM-087 |
+| Resumo do conteúdo decidido | `screening_decision.conteudo_sha256`, 32 octetos | — | *proposta* (emenda 1.78, KAM-088). **Coluna que o bloco não tem**, e a razão é um caso adversarial do KAM-094 («edição posterior»): sem ela, a decisão `permitida` de «camisola» valia para o mesmo `sku` depois de o título passar a «whisky». `sha256` do JSON `[categoria_declarada, textos]` em texto cru |
+| Versão da política numa decisão | `screening_decision.versao_politica` | — | *proposta* (emenda 1.78, KAM-088). A `versao` da política, ou `<versao>+t.<sha8>` quando a decisão usou a sobreposição de um tenant: uma decisão tomada com a sobreposição não vale como tomada sem ela |
+| Sobreposição por tenant | `fundirSobreposicao(base, sobreposicao)` e o erro `SobreposicaoRelaxaError` | — | *proposta* (emenda 1.78, KAM-088). Só acrescenta restrição: sobe decisões, acrescenta termos e padrões a entradas restritivas, cria entradas restritivas. Descer uma decisão, criar uma `permitida`, acrescentar termos a uma `permitida` ou trazer uma chave que não conhece **falha na validação** |
+| Publicação segura | `assertPublishable(produto)` e o erro `NaoPublicavelError`, motivo ∈ {`sem_decisao`, `bloqueada`, `por_rever`} | — | *proposta* (emenda 1.78, KAM-088). Falha fechado sem decisão `permitida` para a versão corrente **e** para o conteúdo; uma `bloqueada` em qualquer linha da chave é final. É a função que a transição `offer_terms.estado → publicado` do KAM-094 chama |
+| Alias do classificador | `screening-nano` | — | *proposta* (emenda 1.78, KAM-088). O nome que o bloco dá. **Não está em `../llm/aliases.yaml`**: o §3.29 fecha os nomes de alias em quatro, um por papel, e o cliente do AGR indexa-os por papel — um segundo `router` tomava o lugar do `kamba-router`. Declará-lo pede papel novo neste dicionário, e é de outro ticket |
+
+**O que esta emenda não decide, e a quem.** A revisão que cria a `screening_decision` — a seguinte
+à do KAM-087 na cadeia. O contrato do evento `screening.violation_detected`, que o §3.5 ainda não
+tem (a lista fechada continua em trinta e oito tipos): a re-análise emite por uma porta, e o
+contrato, os tipos gerados e as contagens que dizem «trinta e oito» são um ticket próprio; o
+consumidor é o **KAM-097**. A revisão humana dos casos `condicional` e o que ela grava com
+`origem = 'humano'` — **KAM-089**. O lexicon PT-AO construído de um *dataset* real, que o
+repositório não tem — o Piloto. O modelo atrás do alias e o custo por decisão — **KAM-040**.
+
 ---
 
 ## 4. Itens que continuam por decidir
@@ -3969,3 +4007,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.75 | Novembro 2026 | **Emenda (*proposta*), KAM-081: o custo por tenant e por conversa.** §3.53 nova, **sem tabela**: a vista `platform.v_tenant_cost_daily` (oito colunas, `security_invoker`, `SELECT` só do `kamba_batch`), as **seis** rubricas, o câmbio no parâmetro `app.fx_aoa_per_usd` (omissão 913, INDÍCIO), o `custo_aoa_minor` no lugar de um nome com sufixo «_kz», que o *gate* 8 proíbe, a conversa para custo (pausa de 24 h, medida nas mensagens de saída), o comando `h6-export` e o *job* `ops_h6_export`, o parâmetro `meta_payer` e os dois painéis. **Três coisas que se escrevem em vez de se decidirem em silêncio:** não há rubrica de STT, porque não há registo de transcrição (KAM-036); o custo LLM por conversa é **rateado** pelas mensagens do dia, porque a `dat.llm_call_log` não tem chave para uma conversa (`0024`); e o `meta_payer` é parâmetro do comando e não variável do painel, porque é a D9 e está por decidir. **O que não decide:** a fonte de dados do Grafana, o papel com que lê e a VPN (deploy, KAM-080). | Equipa KAMBÁ |
 | 1.76 | Novembro 2026 | **Emenda (*proposta*), KAM-189: a versão da política de guardas passa a 1.2.0.** O §3.51 escreve o valor da `VERSAO_DA_POLITICA`, e o KAM-189 mudou a política: padrões de entrada novos para os achados P3/P4 do *red-team* do AGR que não tinham outro dono (regra *minor* da própria constante, padrão novo). E entra um nome no §3.29, o tecto de resposta de um alias (`max_tokens` na fonte, `tecto_de_resposta` no gerado). | Equipa KAMBÁ |
 | 1.77 | Novembro 2026 | **Emenda (*proposta*), KAM-093: o passo guiado do Embedded Signup.** §3.54 nova: o módulo `guia/` e o `PassoGuiado`; o pré-voo na forma dos Detalhes Técnicos, com os **sete** itens, os dois tipos e os **doze** detalhes em lista fechada; o `Telefone.linha` calculado na cunhagem; os **dez** estados visíveis do canal e a matriz deles, que **não** é a `channel_onboarding.fase`; os **quatro** motivos de falha, dos quais o `numero_divergente` prende de qualquer estado; a marca `kamba_cloud_only` do `session_info` que o guia compõe; os gates `meta_es` e `meta_pagamento`; o `CapacityGate` à letra; o terceiro fim de referência, `retoma`, que não autentica; as três mensagens ao dono, que **não** repetem os gatilhos do KAM-115; e as quatro variáveis da página, nenhuma segredo. **Nenhuma revisão de base de dados**: o `onboarding_case`, o `onboarding_gate` e o `review_case` não existem, e criar o primeiro para lhe pendurar o `preflight` decidia a divergência da emenda 1.64 de passagem. Os domínios qualificam-se pelo **tipo**, pela regra da 1.30. | Equipa KAMBÁ |
+| 1.78 | Novembro 2026 | **Emenda (*proposta*), KAM-088: o screening de categorias.** §3.55 nova: a política Meta ∪ lei em `../policy/categorias/` (esquema, SemVer fixado por `sha256`, oito chaves por entrada), os três domínios fechados — `decisao`, `origem` e `sujeito_tipo` —, a `platform.screening_decision` com **onze** colunas e as três divergências do DDL do bloco que o §2 decide (`id` `uuid`, `tenant_id` `NOT NULL`, `criado_at` por `clock_timestamp()`), a coluna `conteudo_sha256` que o bloco não tem e que fecha a «edição posterior», a sobreposição por tenant que só acrescenta restrição e o `assertPublishable`. **Sem revisão de base de dados nesta emenda**: a da tabela é a seguinte à do KAM-087 na cadeia. **O alias `screening-nano` fica nomeado e não declarado**, porque o §3.29 fecha os aliases em quatro, um por papel. Credores: a revisão da tabela, o contrato `screening.violation_detected` (o §3.5 continua em trinta e oito tipos), KAM-089, KAM-040, KAM-097 e o Piloto. | Equipa KAMBÁ |

@@ -13,6 +13,7 @@ import { describe, it } from "node:test";
 import {
   assertPublishable,
   avaliarRegras,
+  bloqueadasEm,
   type ClassificadorDeCategorias,
   classificadorPorProxy,
   compilar,
@@ -181,6 +182,10 @@ describe("regras", () => {
   });
   it("um termo curto nao casa dentro de outra palavra", () => {
     assert.equal(avaliarRegras(p, "moda", ["armario de cozinha"]).decisao, "permitida");
+  });
+  it("o display name que nomeia uma categoria bloqueada e recusado (credor do KAM-093)", () => {
+    assert.deepEqual(bloqueadasEm(p, "Bar da Esquina — Cervejas"), ["alcool"]);
+    assert.deepEqual(bloqueadasEm(p, "Boutique Kianda"), []);
   });
   it("um padrao invalido recusa a compilacao", () => {
     const fonte: PoliticaFonte = { ...POLITICA, categorias: [{ ...POLITICA.categorias[0]!, padroes: ["(sem fecho"] }] };

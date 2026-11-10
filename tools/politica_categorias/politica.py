@@ -1,6 +1,6 @@
 """Ler, validar e compilar a politica de categorias (KAM-088).
 
-A fonte e `policy/categorias/politica.yaml`; o esquema, `politica.schema.json`
+A fonte e `policy/categorias/politica.yaml`; o esquema, `politica.esquema.json`
 ao lado; o registo das versoes, `versoes.lock`; e o compilado, o modulo
 TypeScript que o motor importa. Tres invariantes que nenhum esquema exprime e
 que este modulo impoe:
@@ -33,7 +33,7 @@ from . import esquema as validador
 
 PASTA = Path("policy/categorias")
 FONTE = PASTA / "politica.yaml"
-ESQUEMA = PASTA / "politica.schema.json"
+ESQUEMA = PASTA / "politica.esquema.json"
 LOCK = PASTA / "versoes.lock"
 GERADO = Path("packages/core-ts/src/screening/politica.gerada.ts")
 

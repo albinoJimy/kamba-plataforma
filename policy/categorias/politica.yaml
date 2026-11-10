@@ -7,7 +7,7 @@
 #     python -m politica_categorias gerar      # com tools/ no PYTHONPATH
 #
 # e o gate 4 recusa um gerado que nao corresponda a fonte, uma fonte que nao
-# cumpra `politica.schema.json`, e um conteudo que mude sem a `versao` subir
+# cumpra `politica.esquema.json`, e um conteudo que mude sem a `versao` subir
 # (`versoes.lock`). E um **artefacto comportamental**: cada decisao grava a
 # `versao` com que foi tomada, e mudar a versao dispara a re-analise do
 # catalogo publicado.

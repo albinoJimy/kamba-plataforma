@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.77"
+versao_dicionario: "1.78"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -14118,6 +14118,210 @@ entradas:
       - "web"
       - "es_guia_desligado"
     variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Política de categorias"
+    canonico: "../policy/categorias/politica.yaml, com politica.esquema.json e versoes.lock"
+    literais:
+      - "politica.esquema.json"
+      - "versoes.lock"
+    nomes:
+      - "politica.esquema.json"
+      - "versoes.lock"
+    nomes_nota:
+      - "versao"
+      - "versoes.lock"
+      - "sha256"
+      - "politica.gerada.ts"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Entrada da política"
+    canonico: "id, decisao, termos, padroes, fonte_meta, fonte_lei, estado_evidencia, revisto_em"
+    literais:
+      - "id"
+      - "decisao"
+      - "termos"
+      - "padroes"
+      - "fonte_meta"
+      - "fonte_lei"
+      - "estado_evidencia"
+      - "revisto_em"
+    nomes:
+      - "id"
+      - "decisao"
+      - "termos"
+      - "padroes"
+      - "fonte_meta"
+      - "fonte_lei"
+      - "estado_evidencia"
+      - "revisto_em"
+    nomes_nota:
+      - "additionalProperties"
+      - "false"
+      - "fonte_lei"
+      - "a"
+      - "confirmar"
+      - "por"
+      - "parecer"
+      - "bloqueada"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Decisão de screening"
+    canonico: "screening_decision.decisao ∈ {permitida, condicional, bloqueada}"
+    literais:
+      - "screening_decision.decisao"
+      - "permitida"
+      - "condicional"
+      - "bloqueada"
+    nomes:
+      - "screening_decision.decisao"
+      - "permitida"
+      - "condicional"
+      - "bloqueada"
+    nomes_nota:
+      - "maxRestricao"
+      - "condicional"
+      - "nao_listada"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Origem de uma decisão"
+    canonico: "screening_decision.origem ∈ {regra, llm, humano}"
+    literais:
+      - "screening_decision.origem"
+      - "regra"
+      - "llm"
+      - "humano"
+    nomes:
+      - "screening_decision.origem"
+      - "regra"
+      - "llm"
+      - "humano"
+    nomes_nota:
+      - "llm"
+      - "regra"
+      - "classificador_indisponivel"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Sujeito de uma decisão"
+    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto}"
+    literais:
+      - "screening_decision.sujeito_tipo"
+      - "categoria"
+      - "produto"
+    nomes:
+      - "screening_decision.sujeito_tipo"
+      - "categoria"
+      - "produto"
+    nomes_nota:
+      - "sujeito_ref"
+      - "categoria"
+      - "produto"
+      - "sku"
+      - "offer_terms"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Decisão gravada"
+    canonico: "platform.screening_decision, onze colunas"
+    literais:
+      - "platform.screening_decision"
+    nomes:
+      - "platform.screening_decision"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "onboarding_id"
+      - "sujeito_tipo"
+      - "sujeito_ref"
+      - "decisao"
+      - "regras"
+      - "versao_politica"
+      - "origem"
+      - "conteudo_sha256"
+      - "criado_at"
+      - "uuid"
+      - "bigserial"
+      - "NOT"
+      - "NULL"
+      - "FORCE"
+      - "clock_timestamp"
+      - "kamba_app"
+      - "SELECT"
+      - "INSERT"
+      - "onboarding_case"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Resumo do conteúdo decidido"
+    canonico: "screening_decision.conteudo_sha256, 32 octetos"
+    literais:
+      - "screening_decision.conteudo_sha256"
+    nomes:
+      - "screening_decision.conteudo_sha256"
+    nomes_nota:
+      - "permitida"
+      - "sku"
+      - "sha256"
+      - "categoria_declarada"
+      - "textos"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Versão da política numa decisão"
+    canonico: "screening_decision.versao_politica"
+    literais:
+      - "screening_decision.versao_politica"
+    nomes:
+      - "screening_decision.versao_politica"
+    nomes_nota:
+      - "versao"
+      - "t"
+      - "sha8"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Sobreposição por tenant"
+    canonico: "fundirSobreposicao(base, sobreposicao) e o erro SobreposicaoRelaxaError"
+    literais:
+      - "fundirSobreposicao(base, sobreposicao)"
+      - "SobreposicaoRelaxaError"
+    nomes:
+      - "fundirSobreposicao"
+      - "base"
+      - "sobreposicao"
+      - "SobreposicaoRelaxaError"
+    nomes_nota:
+      - "permitida"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Publicação segura"
+    canonico: "assertPublishable(produto) e o erro NaoPublicavelError, motivo ∈ {sem_decisao, bloqueada, por_rever}"
+    literais:
+      - "assertPublishable(produto)"
+      - "NaoPublicavelError"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    nomes:
+      - "assertPublishable"
+      - "produto"
+      - "NaoPublicavelError"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    nomes_nota:
+      - "permitida"
+      - "bloqueada"
+      - "offer_terms.estado"
+      - "publicado"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Alias do classificador"
+    canonico: "screening-nano"
+    literais:
+      - "screening-nano"
+    nomes:
+      - "screening"
+      - "nano"
+    nomes_nota:
+      - "router"
+      - "kamba"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -16460,6 +16664,29 @@ dominios:
       - "lista_espera"
     seccao: "3.54"
     conceito: "Capacidade antes do popup"
+    so_no_registo: false
+  - coluna: "screening_decision.decisao"
+    valores:
+      - "permitida"
+      - "condicional"
+      - "bloqueada"
+    seccao: "3.55"
+    conceito: "Decisão de screening"
+    so_no_registo: false
+  - coluna: "screening_decision.origem"
+    valores:
+      - "regra"
+      - "llm"
+      - "humano"
+    seccao: "3.55"
+    conceito: "Origem de uma decisão"
+    so_no_registo: false
+  - coluna: "screening_decision.sujeito_tipo"
+    valores:
+      - "categoria"
+      - "produto"
+    seccao: "3.55"
+    conceito: "Sujeito de uma decisão"
     so_no_registo: false
 
 variantes:
