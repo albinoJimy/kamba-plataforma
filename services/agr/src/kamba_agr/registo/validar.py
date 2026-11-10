@@ -382,13 +382,18 @@ def validar_golden(
             )
         )
     # shortcut: a segunda metade do §5.2 (6) — «o gate da versao esta verde» —
-    # nao se mede, e devolve-se sempre como problema em vez de se omitir; revê-se
-    # quando o KAM-040 entregar o eval harness, e nesse dia esta linha sai daqui
-    # **e** a linha `golden` sai de `registry/gates.yaml`.
+    # nao se le no arranque, e devolve-se sempre como problema em vez de se
+    # omitir. O KAM-040 entregou o dataset, o harness e a baseline por versao do
+    # grafo (`services/agr/tests/golden.py verificar` responde a pergunta sem
+    # correr nada); o que falta e ligar essa resposta ao arranque e ao CI, que e
+    # tornar o gate 13 bloqueante — decisao do fundador. Revê-se quando ele a
+    # tomar: nesse dia esta linha passa a ler a baseline **e** a linha `golden`
+    # sai de `registry/gates.yaml`.
     problemas.append(
         PorLigar(
-            f"nao ha eval harness que diga se o gate golden de `{vertical.id}` "
-            f"v{vertical.version} esta verde"
+            f"o arranque nao le o veredicto do gate golden de `{vertical.id}` "
+            f"v{vertical.version} (a baseline e o `golden.py verificar` existem; a "
+            "ligacao e do fundador)"
         )
     )
     return tuple(problemas)

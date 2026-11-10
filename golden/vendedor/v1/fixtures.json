@@ -1,0 +1,64 @@
+{
+ "base": {
+  "loja": {
+   "nome": "Casa Bela",
+   "zona": "Maianga",
+   "plus_code": "6GCR2F"
+  },
+  "catalogo": [
+   {
+    "sku": "SKU-100",
+    "nome": "Camisa Azul",
+    "preco_tipo": "fixo",
+    "preco_minor": 1250000,
+    "stock": 7
+   },
+   {
+    "sku": "SKU-200",
+    "nome": "Vestido de Festa",
+    "preco_tipo": "a_partir_de",
+    "preco_minor": 3500000,
+    "stock": 2
+   },
+   {
+    "sku": "SKU-300",
+    "nome": "Fato por medida",
+    "preco_tipo": "sob_consulta",
+    "preco_minor": null,
+    "stock": 0
+   },
+   {
+    "sku": "SKU-400",
+    "nome": "Sandalia de Couro",
+    "preco_tipo": "fixo",
+    "preco_minor": 900000,
+    "stock": 0
+   },
+   {
+    "sku": "SKU-500",
+    "nome": "Bolsa de Pano Africano",
+    "preco_tipo": "fixo",
+    "preco_minor": 1500000,
+    "stock": 12
+   },
+   {
+    "sku": "SKU-600",
+    "nome": "Calca de Ganga",
+    "preco_tipo": "fixo",
+    "preco_minor": 1800000,
+    "stock": 3
+   }
+  ],
+  "encomendas": [
+   {
+    "id": "ABC-100",
+    "de": "contacto",
+    "estado": "pendente"
+   },
+   {
+    "id": "ABC-999",
+    "de": "outro"
+   }
+  ]
+ }
+}
