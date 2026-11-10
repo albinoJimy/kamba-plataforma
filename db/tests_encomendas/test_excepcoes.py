@@ -21,6 +21,7 @@ from __future__ import annotations
 import pg8000.dbapi
 
 from tests.base import VIOLACAO_DE_CHECK, VIOLACAO_DE_UNICIDADE, sqlstate
+from tests_encomendas.base import PAGA_SEM_EVENTO
 from tests_encomendas.consultas import (
     SQL_ABRIR_RERESERVA,
     SQL_AUDITAR_REEMBOLSO,
@@ -206,3 +207,50 @@ class TestReReserva(ComReservas):
         cursor.execute(SQL_FECHAR_RERESERVA.sql)
         conexao.commit()
         self.assertEqual(self.stock_de(self.tenant, self.sku)[1], 2)
+
+
+class TestPagamentoTardioNaBase(ComReservas):
+    """DoD do KAM-050: `paga` por pagamento tardio exige evento autenticado.
+
+    A aresta `expirada -> paga` e nova, e a barreira e a mesma da `0030`: o
+    `order_estado_exige_log` olha para o estado de **chegada**, pelo que o
+    pagamento tardio nao abre uma segunda via para `paga`. Mede-se nos dois
+    sentidos, porque uma barreira que so se prova a deixar passar nao se provou.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tenant = self.criar_tenant()
+
+    def test_com_evento_consumido_e_actor_sistema_passa(self) -> None:
+        encomenda = self.criar_encomenda(self.tenant)
+        versao = self.levar_a(self.tenant, encomenda, "expirada")
+        self.assertIsNone(
+            self.tentar_transicao(
+                self.tenant, encomenda, "expirada", "paga", versao,
+                "payment.confirmed", actor_kind="sistema",
+            )
+        )
+
+    def test_sem_recibo_de_consumo_e_recusado(self) -> None:
+        encomenda = self.criar_encomenda(self.tenant)
+        versao = self.levar_a(self.tenant, encomenda, "expirada")
+        self.assertEqual(
+            self.tentar_transicao(
+                self.tenant, encomenda, "expirada", "paga", versao,
+                "payment.confirmed", actor_kind="sistema",
+                evento_id="0192f1c4-0000-7000-8000-000000000000",
+            ),
+            PAGA_SEM_EVENTO,
+        )
+
+    def test_por_ops_e_recusado(self) -> None:
+        encomenda = self.criar_encomenda(self.tenant)
+        versao = self.levar_a(self.tenant, encomenda, "expirada")
+        self.assertEqual(
+            self.tentar_transicao(
+                self.tenant, encomenda, "expirada", "paga", versao,
+                "payment.confirmed", actor_kind="ops",
+            ),
+            PAGA_SEM_EVENTO,
+        )

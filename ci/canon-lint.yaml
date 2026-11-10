@@ -438,6 +438,19 @@ dominios_historicos:
       aceitar accoes que nenhuma revisao dessa altura conhece. O passo de descida
       recusa-se se houver linhas privacy.dsar_* escritas, porque o audit_log e
       append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0042_retencao_e_purga.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-071"
+    data: "2026-11-10"
+    razao: >-
+      A 0042 (KAM-071) acrescenta ao dominio as duas accoes do hold legal,
+      retention.hold_aplicado e retention.hold_levantado, e o dicionario §3.2
+      passa a declarar onze (emenda 1.78). O upgrade escreve as onze; o
+      downgrade repoe as nove da 0038, que e o que a base passa a ter quando se
+      desce, e e essa declaracao que esta entrada cobre. O passo de descida
+      recusa-se se houver linhas retention.hold_* escritas, porque o audit_log
+      e append-only e nenhum papel tem DELETE.
   - revisao: "db/migrations/versions/0030_encomendas_e_estados.py"
     tabela: "orders_mirror"
     coluna: "excepcao"
@@ -448,7 +461,7 @@ dominios_historicos:
       docs/tecnica/03. A 0046 (KAM-050) acrescenta-lhe a quarta,
       pagamento_apos_cancelamento (regra 3 do §6.6), por DROP CONSTRAINT mais
       ADD CONSTRAINT com o mesmo nome, e o dicionario §3.43 passou a declarar as
-      quatro (emenda 1.78). A declaracao da 0030 fica a dizer tres, que e o que a
+      quatro (emenda 1.79). A declaracao da 0030 fica a dizer tres, que e o que a
       base tinha naquela revisao.
   - revisao: "db/migrations/versions/0046_estados_adicionais_da_encomenda.py"
     tabela: "orders_mirror"
@@ -468,9 +481,9 @@ dominios_historicos:
     ticket: "KAM-050"
     data: "2026-11-10"
     razao: >-
-      O upgrade escreve as dez accoes, que e o que o dicionario §3.2 declara
-      desde a emenda 1.78 (order.refund_record, o registo manual do reembolso), e
-      o downgrade repoe as nove da 0038. A segunda e a que esta entrada cobre, e
+      O upgrade escreve as doze accoes, que e o que o dicionario §3.2 declara
+      desde a emenda 1.79 (order.refund_record, o registo manual do reembolso), e
+      o downgrade repoe as onze da 0042. A segunda e a que esta entrada cobre, e
       o passo de descida recusa-se se houver linhas order.refund_record escritas.
 
 # ------------------------------------------------ unicidades que o §3 proibe

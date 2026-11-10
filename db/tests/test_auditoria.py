@@ -82,7 +82,13 @@ ACCOES = (
     "audit.read",
     "privacy.dsar_recusado",
     "privacy.dsar_rectificado",
-    # A decima, da revisao `0046` (KAM-050, criterio 5): o registo manual de um
+    # KAM-071 (0042): o hold legal vive no registo (criterio 6, «fica no
+    # `audit_log`»). Aplicar e levantar sao dois factos, e o *job* le o estado
+    # pela ultima accao de cada alvo — uma tabela de holds era um segundo
+    # registo do mesmo facto.
+    "retention.hold_aplicado",
+    "retention.hold_levantado",
+    # A decima segunda, da revisao `0046` (KAM-050, criterio 5): o registo manual de um
     # reembolso por dono ou ops. A mesma extensao por migracao, com a mesma
     # recusa no `downgrade` se houver linhas escritas.
     "order.refund_record",

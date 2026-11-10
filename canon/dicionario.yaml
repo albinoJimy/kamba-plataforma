@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.78"
+versao_dicionario: "1.79"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -706,7 +706,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, order.refund_record}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record}"
     literais:
       - "action"
       - "price.update"
@@ -718,6 +718,8 @@ entradas:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
       - "order.refund_record"
     nomes:
       - "action"
@@ -730,6 +732,8 @@ entradas:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
       - "order.refund_record"
     nomes_nota:
       - "order.refund_record"
@@ -14147,6 +14151,204 @@ entradas:
       - "es_guia_desligado"
     variantes_literais: []
   - seccao: "3.55"
+    conceito: "Política de retenção"
+    canonico: "retention_policy: a POLITICA de ../libs/py-core/src/kamba_core/retencao/politica.py, com VERSAO_DA_POLITICA"
+    literais:
+      - "retention_policy"
+      - "POLITICA"
+      - "VERSAO_DA_POLITICA"
+    nomes:
+      - "retention_policy"
+      - "POLITICA"
+      - "VERSAO_DA_POLITICA"
+    nomes_nota:
+      - "purge_log"
+      - "validar"
+      - "SEM_DADOS_PESSOAIS"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Mecanismo de uma classe"
+    canonico: "apagar, largar_particao, ttl_sto, ciclo_do_repositorio, externo, delegado, fiscal, conservar, encerramento"
+    literais:
+      - "apagar"
+      - "largar_particao"
+      - "ttl_sto"
+      - "ciclo_do_repositorio"
+      - "externo"
+      - "delegado"
+      - "fiscal"
+      - "conservar"
+      - "encerramento"
+    nomes:
+      - "apagar"
+      - "largar_particao"
+      - "ttl_sto"
+      - "ciclo_do_repositorio"
+      - "externo"
+      - "delegado"
+      - "fiscal"
+      - "conservar"
+      - "encerramento"
+    nomes_nota:
+      - "fiscal"
+      - "delegado"
+      - "recusada"
+      - "ok"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Prazo fiscal"
+    canonico: "fiscal_retention_years, lido de KAMBA_FISCAL_RETENTION_YEARS"
+    literais:
+      - "fiscal_retention_years"
+      - "KAMBA_FISCAL_RETENTION_YEARS"
+    nomes:
+      - "fiscal_retention_years"
+      - "KAMBA_FISCAL_RETENTION_YEARS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Registo da purga"
+    canonico: "platform.purge_log, catorze colunas"
+    literais:
+      - "platform.purge_log"
+    nomes:
+      - "platform.purge_log"
+    nomes_nota:
+      - "purge_id"
+      - "execucao_id"
+      - "classe"
+      - "tabela"
+      - "tenant_id"
+      - "modo"
+      - "resultado"
+      - "motivo"
+      - "linhas"
+      - "objectos"
+      - "janela_ate"
+      - "politica_versao"
+      - "iniciado_at"
+      - "registado_at"
+      - "contact_id"
+      - "DROP"
+      - "erasure_ledger"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Modo de uma purga"
+    canonico: "purge_log.modo ∈ {efectiva, dry_run}"
+    literais:
+      - "purge_log.modo"
+      - "efectiva"
+      - "dry_run"
+    nomes:
+      - "purge_log.modo"
+      - "efectiva"
+      - "dry_run"
+    nomes_nota:
+      - "modo"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Resultado de uma unidade"
+    canonico: "purge_log.resultado ∈ {ok, recusada, retida, falhou}"
+    literais:
+      - "purge_log.resultado"
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    nomes:
+      - "purge_log.resultado"
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    nomes_nota:
+      - "retida"
+      - "falhou"
+      - "ok"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Motivo de uma unidade sem ok"
+    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
+    literais:
+      - "purge_log.motivo"
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    nomes:
+      - "ok"
+      - "purge_log.motivo"
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    nomes_nota:
+      - "ok"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Hold legal no registo de auditoria"
+    canonico: "retention.hold_aplicado e retention.hold_levantado"
+    literais:
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
+    nomes:
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
+    nomes_nota:
+      - "audit_log.action"
+      - "entity"
+      - "retention_hold_tenant"
+      - "retention_hold_contact"
+      - "uuid"
+      - "entity_id"
+      - "payload_hash"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Fecho de uma conversa"
+    canonico: "o mais tardio de conversations.window_expires_at e conversations.last_human_activity_at"
+    literais:
+      - "conversations.window_expires_at"
+      - "conversations.last_human_activity_at"
+    nomes:
+      - "conversations.window_expires_at"
+      - "conversations.last_human_activity_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Partição mensal"
+    canonico: "<pai>_aaaa_mm, em platform.events_log e dat.llm_call_log, criada e largada por ../db/particoes.py"
+    literais:
+      - "<pai>_aaaa_mm"
+      - "platform.events_log"
+      - "dat.llm_call_log"
+    nomes:
+      - "pai"
+      - "_aaaa_mm"
+      - "platform.events_log"
+      - "dat.llm_call_log"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "FORCE"
+      - "tenant_iso"
+      - "DEFAULT"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Retenção, o módulo"
+    canonico: "../libs/py-core/src/kamba_core/retencao/"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.56"
     conceito: "Arestas do KAM-050"
     canonico: "nove: expirada→paga; paga→reembolso_pendente; entregue→em_disputa; em_disputa→{reembolso_pendente, entregue}; em_entrega→entrega_falhada; entrega_falhada→{em_entrega, reembolso_pendente}; reembolso_pendente→reembolsada"
     literais:
@@ -14184,7 +14386,7 @@ entradas:
       - "criada"
       - "em_disputa"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Ramo de um pagamento autenticado"
     canonico: "RamoDoPagamento ∈ {normal, tardio, apos_cancelamento, duplicado}"
     literais:
@@ -14207,7 +14409,7 @@ entradas:
       - "paga"
       - "duplicado"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Estados de excepção do consumo"
     canonico: "ESTADOS_DE_EXCEPCAO do ../packages/core-ts/src/eventos/estados.ts"
     literais:
@@ -14220,7 +14422,7 @@ entradas:
       - "cancelada"
       - "ESTADOS_INCOMPATIVEIS"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Motivo de um pedido de reembolso"
     canonico: "MotivoDeReembolso ∈ {pagamento_apos_cancelamento, pagamento_duplicado, disputa, entrega_falhada}"
     literais:
@@ -14244,7 +14446,7 @@ entradas:
       - "em_disputa"
       - "entrega_falhada"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Registo do reembolso"
     canonico: "causa reembolso_manual_registado no order_state_log, accão order.refund_record no audit_log, actor dono ou ops com actor_id"
     literais:
@@ -14269,7 +14471,7 @@ entradas:
       - "KA006"
       - "prova_ref"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Re-reserva do pagamento tardio"
     canonico: "índice único parcial stock_reservations_linha_viva_uq, (tenant_id, order_id, line_no) WHERE estado <> 'libertada', e o savepoint com_rereserva"
     literais:
@@ -14288,7 +14490,7 @@ entradas:
     nomes_nota:
       - "reserveStock"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Prazo de reclamação"
     canonico: "prazo_reclamacao_dias, chave de entitlements.limites (§3.2)"
     literais:
@@ -15502,6 +15704,8 @@ dominios:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
       - "order.refund_record"
     seccao: "3.2"
     conceito: "Acções auditadas"
@@ -16646,13 +16850,41 @@ dominios:
     seccao: "3.54"
     conceito: "Capacidade antes do popup"
     so_no_registo: false
+  - coluna: "purge_log.modo"
+    valores:
+      - "efectiva"
+      - "dry_run"
+    seccao: "3.55"
+    conceito: "Modo de uma purga"
+    so_no_registo: false
+  - coluna: "purge_log.resultado"
+    valores:
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    seccao: "3.55"
+    conceito: "Resultado de uma unidade"
+    so_no_registo: false
+  - coluna: "purge_log.motivo"
+    valores:
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    seccao: "3.55"
+    conceito: "Motivo de uma unidade sem ok"
+    so_no_registo: false
   - coluna: "RamoDoPagamento"
     valores:
       - "normal"
       - "tardio"
       - "apos_cancelamento"
       - "duplicado"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Ramo de um pagamento autenticado"
     so_no_registo: false
   - coluna: "MotivoDeReembolso"
@@ -16661,7 +16893,7 @@ dominios:
       - "pagamento_duplicado"
       - "disputa"
       - "entrega_falhada"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Motivo de um pedido de reembolso"
     so_no_registo: false
 

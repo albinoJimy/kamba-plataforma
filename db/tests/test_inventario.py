@@ -2309,6 +2309,27 @@ INVENTARIO["erasure_ledger"] = {
     "aplicado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O registo da purga (KAM-071, revisao `0042`). **Nenhuma coluna guarda dado
+#: pessoal, e e o criterio 5**: classe, tabela, tenant, contagens e janela, sem
+#: conteudo nem identificador de titular. Nao ha onde caber um `contact_id`, uma
+#: chave de objecto ou texto livre — o `motivo` e um dominio fechado.
+INVENTARIO["purge_log"] = {
+    "purge_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "execucao_id": ("uuid", NAO, None, "nao"),
+    "classe": ("text", NAO, None, "nome da classe de retencao"),
+    "tabela": ("text", NAO, None, "nome qualificado de uma tabela"),
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "modo": ("text", NAO, None, "nao"),
+    "resultado": ("text", NAO, None, "nao"),
+    "motivo": ("text", SIM, None, "dominio fechado, sem texto livre"),
+    "linhas": ("bigint", NAO, None, "nao"),
+    "objectos": ("bigint", NAO, "0", "nao"),
+    "janela_ate": ("timestamp with time zone", SIM, None, "nao"),
+    "politica_versao": ("text", NAO, None, "nao"),
+    "iniciado_at": ("timestamp with time zone", NAO, None, "nao"),
+    "registado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -3416,6 +3437,24 @@ class TestInventario(ComBase):
                     # composta da prova. Na prova, o `evidencia_ck` prende a
                     # formula do criterio 3 a quem escreva sem o *trigger*. O
                     # `EXCLUDE` do OTP nao entra: e `contype = 'x'`.
+                    # --------------------------------------- KAM-071 (0042)
+                    #
+                    # **Onze.** Os tres dominios fechados (`modo`, `resultado`,
+                    # `motivo`), as duas formas de nome (`classe`, `tabela`), as
+                    # tres contagens e a versao, e os dois que ligam colunas: um
+                    # `ok` nao tem motivo e tudo o resto tem, e so um `ok`
+                    # apagou alguma coisa.
+                    "purge_log_classe_ck",
+                    "purge_log_linhas_ck",
+                    "purge_log_modo_ck",
+                    "purge_log_motivo_ck",
+                    "purge_log_motivo_par_ck",
+                    "purge_log_objectos_ck",
+                    "purge_log_pkey",
+                    "purge_log_politica_versao_ck",
+                    "purge_log_resultado_ck",
+                    "purge_log_so_ok_apaga_ck",
+                    "purge_log_tabela_ck",
                     "contract_acceptance_aceite_uq",
                     "contract_acceptance_evidencia_ck",
                     "contract_acceptance_ip_prefix_hash_ck",
