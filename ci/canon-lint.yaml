@@ -308,6 +308,13 @@ auxiliares_de_migracao:
       revisoes chamam `enable_tenant_rls`/`disable_tenant_rls` em vez de
       repetirem o SQL. O ficheiro entra com o KAM-004; enquanto nao existir,
       nenhuma revisao o importa e esta entrada nao e exercida.
+  - modulo: custo
+    ficheiro: db/custo.py
+    razao: >-
+      KAM-081: o SQL da `platform.v_tenant_cost_daily` vive num sitio so, e os
+      ensaios de base de dados importam-no daqui em vez de o copiar. A revisao
+      chama `custo.criar_vista()`/`custo.remover_vista()`, e o lint segue o
+      corpo com o SQL literal que elas executam.
 
 # ------------------------------------------- dominios dados por conceito no §3
 #

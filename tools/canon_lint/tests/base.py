@@ -21,6 +21,10 @@ _COPIAR = (
     "ci/canon-allow.yaml",
     "db/migrations/versions",
     "db/rls.py",
+    # KAM-081: o segundo modulo auxiliar de migracao. Sem ele, a copia le uma
+    # revisao que chama `custo.criar_vista()` e da `ilegivel` por o ficheiro
+    # declarado nao existir.
+    "db/custo.py",
     "docs/tecnica",
     "tools/canon_lint/tests/fixtures",
 )

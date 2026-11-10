@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.13 |
+| Versão | 1.15 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -782,7 +782,7 @@ Calcular e mostrar, por tenant e por conversa, o custo de LLM, STT e mensagens M
 - [ ] Reconciliação em *staging* com tráfego sintético de 7 dias: custo LLM de `llm_call_log` vs *spend logs* do LiteLLM com desvio ≤ 2% por tenant (*proposta*); custo Meta calculado vs tarifa (0,004 USD após 1.000/número/mês) com desvio ≤ 1% na *fixture*.
 - [ ] Painel do *free tier*: mensagens/1.000 por número com *reset* à 00:00 do fuso da conta; alerta a 80% e 100% (reutiliza KAM-023); alerta de orçamento LLM diário > 80% por tenant.
 - [ ] Painel de unit economics: custo fixo mensal (infra + ferramentas) ÷ n.º de PMEs, margem por mensalidade (parâmetro, 30–60 mil Kz), ponto de equilíbrio e comparação **estimado vs medido** com os valores do doc 09 §14.3–14.4; desvio > 30% numa rubrica gera um item de revisão do doc.
-- [ ] Parâmetro `meta_payer = pme|kamba`; o painel mostra «custo para a KAMBÁ» e «custo total para o cliente (inclui Meta)».
+- [x] Parâmetro `meta_payer = pme|kamba`; o painel mostra «custo para a KAMBÁ» e «custo total para o cliente (inclui Meta)».
 - [ ] Sem conteúdo nem `contact_id` nos painéis ou vistas expostas; acesso por VPN e papel.
 
 ### Detalhes Técnicos
@@ -799,8 +799,8 @@ Calcular e mostrar, por tenant e por conversa, o custo de LLM, STT e mensagens M
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Custo por tenant e por conversa disponível (ADR-018); sem conteúdo nem PII nas vistas.
-- [ ] Tabela de preços versionada com data; valores de mercado marcados como a reconferir.
-- [ ] Documentação do procedimento de reconciliação mensal e de `h6-export`; ligação a KAM-109.
+- [x] Tabela de preços versionada com data; valores de mercado marcados como a reconferir.
+- [x] Documentação do procedimento de reconciliação mensal e de `h6-export`; ligação a KAM-109.
 - [ ] Testes unitários e de integração verdes; cobertura não regride.
 
 ### Handoff para Claude Code
@@ -815,6 +815,84 @@ Objectivo: custo por tenant e por conversa (LLM, STT, Meta), free tier, margem e
 - Nenhum conteúdo, telefone ou contact_id em vistas ou painéis.
 Não expandas escopo: os alertas de free tier são de KAM-023; a decisão H6 é de KAM-109. PR com o template da §7.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+> **O que se entrega:** a vista `platform.v_tenant_cost_daily` (revisão
+> [`0041`](../db/migrations/versions/0041_custo_por_tenant.py), com o SQL em
+> [`../db/custo.py`](../db/custo.py), declarado como auxiliar de migração em
+> `../ci/canon-lint.yaml`), o comando `h6-export`
+> ([`../db/h6_export.py`](../db/h6_export.py)), os painéis
+> [`../ops/paineis/custo-por-tenant.json`](../ops/paineis/custo-por-tenant.json) e
+> [`../ops/paineis/unit-economics.json`](../ops/paineis/unit-economics.json), o
+> procedimento em [`../ops/custo.md`](../ops/custo.md) e a emenda 1.75 do
+> dicionário (§3.53). **Nada foi medido em operação**: não há tráfego, *staging*
+> nem Grafana a correr. As provas são ensaios — **45 sem base**
+> (`db/tests/test_custo.py`) e **14 contra um PostgreSQL 18.6 descartável**
+> (`db/tests/test_custo_schema.py`), que importam o SQL do módulo em vez de o
+> copiar.
+>
+> **Três factos do repositório decidem metade desta tabela, e mediram-se antes
+> de escrever:** não há registo de chamadas de STT (o `papel` da
+> `dat.llm_call_log` é lista fechada de quatro; o STT é do KAM-036); a
+> `dat.llm_call_log` não tem chave para uma conversa (tem `trace_id`, que não é
+> o `turn_id` — nota do custo na revisão `0024`); e as mensagens de texto da
+> entrada não se guardam com contacto (`platform.inbound_events` não tem
+> `tenant_id` nem `contact_id`). Por isso a vista **não tem rubrica de STT** em
+> vez de a ter a zero, o LLM por conversa é **rateado** e a conversa mede-se na
+> linha do tempo das mensagens de **saída** — e o `h6-export` escreve as três
+> coisas no campo `metodo` da própria saída.
+>
+> **A revisão adversarial, independente, levantou catorze achados**: dez
+> CONFIRMADOS e quatro PLAUSÍVEIS. Os confirmados ficaram todos corrigidos, cada
+> um com um ensaio que o reproduz:
+>
+> - **o painel de unit economics fazia divisão inteira** (`30000 / 913` = 32 em
+>   PostgreSQL) e dava outro ponto de equilíbrio que o `economia()`. Agora um
+>   ensaio compara os dois sobre os mesmos dados, e com a divisão inteira de
+>   volta fica vermelho (`Decimal('32.000000') != Decimal('32.858708')`);
+> - **o LLM de um dia sem mensagens de saída saía do rateio sem rasto** — sai
+>   agora em `llm_nao_atribuido`;
+> - **o rácio à mensalidade dependia do N** e do corte da amostra; passa a ser o
+>   do mês inteiro, lido da vista, e o mês corrente sai marcado como incompleto;
+> - **a metade Meta do critério 3 era um ensaio tautológico** e não estava ligada
+>   a comando nenhum. Passa a ter o subcomando `reconciliar-meta`, por número e
+>   mês, medido contra a base com 1.003 mensagens;
+> - **o ensaio de PII da vista importava o oráculo do alvo**: com
+>   `o.contact_id AS contacto` na vista e no `COLUNAS`, ficava verde. Agora tem a
+>   lista escrita no ensaio, e exige uma só coluna `uuid`;
+> - **o ensaio dos painéis contornava-se** com uma junção por vírgula ou um
+>   `join` em minúsculas;
+> - e mais quatro: o painel abria no mês corrente, que é parcial; um `billable`
+>   em texto contava, e um `"talvez"` derrubava a vista para todos; o câmbio
+>   aceitava zero e negativo; e a linha de comandos dava *traceback*.
+>
+> **Os PLAUSÍVEIS decidem uma caixa:** o critério 5 volta a vazio — a comparação
+> com o §14.4 não está feita, e o «item de revisão» é uma linha de saída e não um
+> item que dure. Também ficou corrigida a leitura do «custo total para o
+> cliente», que passa a ser o que ele paga e não o custo de o servir.
+>
+> **E um ensaio apanhou um defeito antes da revisão:** o SQL dos painéis nunca
+> tinha corrido, e o do *free tier* ordenava por uma coluna que a
+> `tenant_channels` não tem (`42703`).
+
+| # | Critério | Estado | Evidência / credor |
+|---|---|---|---|
+| 1 | Vista `v_tenant_cost_daily` (tenant, dia, rubrica, USD, Kz): LLM, STT, Meta por categoria, câmbio parametrizável (913) e sensibilidade 981 / 1.232 | **parcial** | **Feito e medido contra a base:** oito colunas (`tenant_id`, `dia`, `rubrica`, `unidades`, `sem_preco`, `custo_usd`, `custo_aoa_minor`, `fx_aoa_per_usd`), `security_invoker = true`; `llm` de `dat.llm_call_log` sem as recusas de destino e com as chamadas sem preço em `sem_preco`; `meta_<categoria>` do `pricing` das entregues com `billable` booleano verdadeiro, com a categoria desconhecida em `meta_outra` a custo nulo — `test_os_totais_da_fixture` dá os quatro totais esperados por igualdade exacta. O câmbio é o parâmetro `app.fx_aoa_per_usd` (omissão 913; `test_o_cambio_e_parametro_de_sessao` mede o 1.232 e o regresso à omissão; ilegível, zero ou negativo dão `22P02`), e os três modos estão em `custo.MODOS_DE_CAMBIO` e no `--modo` do comando. O Kz é `custo_aoa_minor` (cêntimos), porque o *gate* 8 proíbe o sufixo «_kz». **Falta o STT**: não há registo de transcrição, e uma rubrica a zero afirmava que a voz não custou nada — credor **KAM-036** |
+| 2 | Conversa = mesmo contacto sem pausa > 24 h; `h6-export` com as últimas N (500), custo LLM, STT e Meta, p50/p90/p99 e rácio à mensalidade; *fixture* com totais conhecidos (igualdade exacta) | **parcial** | **Feito:** `segmentar()` com 24 h que não partem e 24 h + 1 µs que partem; `exportar` com `--n 500` por omissão, só com conversas inteiras (as por fechar e as cortadas pela janela contam em `excluidas`), percentis por posição mais próxima, o rácio do mês inteiro e o LLM não atribuído; a *fixture* de quatro conversas dá os totais calculados à mão por igualdade de `Decimal` (`test_os_totais_por_conversa`, `test_os_percentis`, `test_o_racio_a_mensalidade_e_do_mes_inteiro`); e corre contra a base sem devolver o contacto (`test_o_h6_export_corre_contra_a_base_sem_devolver_o_contacto`). **O que não fecha:** o STT sai `null` (**KAM-036**); o LLM por conversa é **rateado** pelas mensagens do dia, e não medido — a chave entre chamada e conversa não existe (devolvido pelas três saídas da `0024`); e a conversa mede-se nas mensagens de saída (**INDÍCIO**: o bot responde a cada turno) |
+| 3 | Reconciliação em *staging* com 7 dias de tráfego: LLM vs *spend logs* do LiteLLM ≤ 2% por tenant; Meta vs tarifa ≤ 1% na *fixture* | **parcial** | **A Meta está feita contra a base:** o `reconciliar-meta` compara, por número e mês, o medido pelo `pricing` com a contagem pela tarifa (1.000 *service* grátis), e com 1.003 mensagens de serviço e 2 de utility dá 20.000 micro-USD dos dois lados (`test_a_reconciliacao_meta_por_numero_contra_a_base`); um número a que a Meta cobrou tudo é achado (`test_por_numero_a_meta_medida_e_a_da_tarifa`). **O LLM tem o comando e a *fixture*** (`reconciliar`, 2%, um tenant de um só lado é achado), **mas não *staging***: não há *staging* (**KAM-075**) nem tráfego sintético, e o caminho da API de *spend* do LiteLLM é **NÃO VERIFICADO** — o KAM-030 mediu o `/key/list` e mais nada |
+| 4 | Painel do *free tier* por número com *reset* à 00:00 do fuso da conta; alerta a 80% e 100% (KAM-023); alerta de orçamento LLM diário > 80% por tenant | **parcial** | **O painel existe** em `custo-por-tenant.json`, com limiares visuais a 80 e 100 e a consulta medida contra a base. **O *reset* é o do KAM-023**, no fuso do **tenant** e não da conta — não há fuso por canal (dívida 66). **Os dois alertas não existem como alerta:** o do *free tier* é a `meta_free_tier_used_ratio`, sem serviço que a sirva (credor **KAM-023**, `regras_por_escrever` do catálogo); o do orçamento LLM é o `LIMIAR_DE_ALERTA` 0,80 do `infra/llm/chaves.py`, sem agendador nem regra (credor **KAM-030**/**KAM-071**). O painel mostra o gasto LLM do dia, não a fracção do tecto, que vive no LiteLLM |
+| 5 | Painel de unit economics: fixo ÷ PMEs, margem por mensalidade (30–60 mil Kz), equilíbrio, estimado vs medido com o doc 09 §14.3–14.4; desvio > 30% gera item de revisão | **parcial** | **Feito:** `unit-economics.json` com o custo fixo por PME (parâmetro `fixo_usd`, 470 por omissão, a ponta baixa do §14.4, ESTIMATIVA), margem e ponto de equilíbrio com a mensalidade a 30/45/60 mil Kz, e a tabela estimado contra medido do §14.3 com a coluna `rever_doc_09` a 30%; abre no mês anterior, que é inteiro. Os números do painel são os do `economia()` sobre os mesmos dados (`test_o_painel_de_unit_economics_da_os_numeros_do_comando`), e as estimativas lêem-se do documento (`TestEstimativasDoDoc09`). **O que não fecha:** a comparação com o **§14.4** por estágio não está feita — dele só se usa a omissão do fixo —, e o «item de revisão» é uma linha na saída do `economia` e uma coluna no painel, não um item que fique escrito. **O Grafana não corre**: a fonte e o deploy são do KAM-080 |
+| 6 | Parâmetro `meta_payer = pme\|kamba`; o painel mostra «custo para a KAMBÁ» e «custo total para o cliente (inclui Meta)» | **satisfeito** | `--meta-payer pme\|kamba` no `economia` (`test_quem_paga_a_meta_muda_o_custo_para_a_kamba_e_nao_o_do_cliente`). O painel mostra as duas grandezas **nas duas leituras** do `meta_payer`: o `obs_lint` lê o `query` de uma variável do Grafana como PromQL e recusava `pme,kamba` como duas métricas, e a D9 está por decidir. **A leitura do «custo total para o cliente», escrita para quem a quiser rever:** é o que ele paga — a mensalidade, mais a Meta por cima quando é a PME quem a paga —, e não o custo de o servir |
+| 7 | Sem conteúdo nem `contact_id` nos painéis ou vistas expostas; acesso por VPN e papel | **parcial** | **Sem pessoas, provado nas três superfícies:** as colunas da vista contra uma lista **escrita no ensaio**, com uma só coluna `uuid` (`test_as_colunas_sao_estas_e_nenhuma_aponta_para_pessoas`); o `h6-export` troca o contacto e o canal por ordinais **na base**; e nenhum `rawSql` de painel nomeia um identificador nem escreve uma relação qualificada fora das três permitidas, com o ensaio a morder as formas da revisão (`TestPaineis`). **Mutações da ligação:** com `NULL::uuid AS contact_id` na vista, e com `o.contact_id AS contacto` na vista **e** no `COLUNAS`, o ensaio da vista fica vermelho. **O limite:** a prova dos painéis é sobre o texto do SQL; a que não depende dele é a fonte do Grafana ler com um papel só com `SELECT` na vista, que é do deploy. **Papel: feito** — `SELECT` só do `kamba_batch`, e `kamba_app` e `kamba_audit` levam `42501` (`test_so_o_lote_le`). **VPN: não** — é do deploy do Grafana (KAM-080) |
+
+| # | DoD | Estado | Evidência / credor |
+|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | Um de sete. Os seis parciais estão na tabela acima, e três dos credores (KAM-036, KAM-075, o deploy do KAM-080) não são de quem executa |
+| 2 | Custo por tenant e por conversa disponível (ADR-018); sem conteúdo nem PII nas vistas | **parcial** | **Por tenant: sim**, na vista. **Por conversa: rateado** no LLM e sem STT, pelas razões do critério 2. **Sem PII: sim**, pelo critério 7. E nada disto corre em operação: o `metering` continua sem serviço que o importe (KAM-080) |
+| 3 | Tabela de preços versionada com data; valores de mercado marcados como a reconferir | **marcada** | Meta: `config/meta_rates.yaml`, efectivas 2026-10-01, CONFIRMADO, copiado no `CASE` da vista com ensaio de paridade (`TestTarifas`). LLM: `llm/precos.yaml` ganha `lido_em: "2026-10-08"` (a data do `E4` §3), com o estado por linha que já tinha. As duas e o câmbio estão em `../ops/custo.md` §5 com «a reconferir antes de fixar tarifas» |
+| 4 | Documentação do procedimento de reconciliação mensal e de `h6-export`; ligação a KAM-109 | **marcada** | `../ops/custo.md`: §2 o `h6-export` e os seus limites, §3 a reconciliação com o LiteLLM, §4 a reconciliação da Meta — pela tarifa, por comando, e contra a factura, manual e mensal (com a visibilidade do Tech Provider como NÃO VERIFICADA) —, §6 a unit economics; o cabeçalho nomeia o KAM-109 como quem decide a H6 |
+| 5 | Testes unitários e de integração verdes; cobertura não regride | **parcial** | **Verdes:** 45 + 14 ensaios, medidos contra o PostgreSQL 18.6 do *gate* 8. **Cobertura:** `db/**` está fora da medição do *gate* 4 (`ci/thresholds.yaml`), pelo que não regride por construção. **Falta** o ensaio de integração «reconciliação LiteLLM × `llm_call_log`» contra um LiteLLM real: o *gate* 8 não levanta o *proxy*, e o caminho da API de *spend* é NÃO VERIFICADO (critério 3) |
 
 ---
 ## KAM-082 — SLOs, orçamento de erro e alertas
@@ -932,7 +1010,7 @@ SLI está em [`../ops/slo.md`](../ops/slo.md).
 |---|---|---|---|
 | 1 | `ops/slo.md` define os 8 SLI do doc 09 §10 (numerador, denominador, janela de 30 dias, fonte, SLO, orçamento) | **marcada** | [`../ops/slo.md`](../ops/slo.md): os **oito**, cada um com os seis campos. O §2.1 dá o operacional por extenso (disponibilidade, 99,5%, **216 min**, por `up{job=~"gwy\|agr"}`); o §2.2 dá os outros sete em tabela, cada um com numerador, denominador, SLO, orçamento, **fonte** (a coluna do §10, copiada e não reinterpretada) e **o que falta com o credor**, sobre a janela de 30 dias que é a mesma dos oito e está dita acima da tabela. Os valores são os do §10 à letra, reconferidos linha a linha contra a tabela do documento-fonte — **e a coluna «Fonte» entrou numa segunda passagem**, porque a primeira versão desta tabela tinha cinco dos seis campos e o critério pede seis: a caixa estava marcada com um campo a menos, e foi a revisão adversarial que o ia levantar. O critério pede que o ficheiro **defina**, e define — o que cada um deles ainda não mede está nas caixas 2 a 4 e no §2.2, não escondido aqui |
 | 2 | *Recording rules* e painel mostram o orçamento restante; com 30 min de falha injectada do ingress em *staging* o orçamento desce 13,9% (30/216) e o alerta de *burn rate* dispara | **parcial** | **A aritmética está provada, e por ensaio e não por afirmação.** Oito *recording rules* em [`../infra/compose/prometheus/regras/kamba-slo.yml`](../infra/compose/prometheus/regras/kamba-slo.yml) → `promtool check rules`: `SUCCESS: 10 rules found`. O caso `orcamento: 30 min de falha injectada descem 13,9% (30/216)` dá **0,1388888…** e **186 min**, com o controlo (30 dias limpos → 216 inteiros) e o estouro (240 min → **−24 min**, negativo de propósito). A segunda metade do critério tem caso próprio: `criterio 2: 30 min de falha do ingress disparam o burn rapido`. O painel é [`../ops/paineis/orcamento-de-erro.json`](../ops/paineis/orcamento-de-erro.json), com o restante em minutos e o consumido em fracção lado a lado. **O que falta é a injecção em *staging*:** o Prometheus só existe no `docker-compose.prod.yml`, **não há ambiente implantado** e o `make up` (dev) não levanta Prometheus nenhum. `promtool test rules` é o motor de regras com séries sintéticas — sem pilha, sem GWY a morrer, sem Alertmanager a receber — e **não é** a injecção que o critério pede. Credores: **D1/KAM-105** (alojamento) e **KAM-069** (subprocessador), os mesmos do critério 5 do KAM-080 |
-| 3 | «Perda de mensagens» operacionalizada como ids aceites no ingress sem desfecho após 15 min = 0 (*proposta*); testada com uma mensagem retida artificialmente | **parcial** | **A operacionalização está escrita** (`ops/slo.md` §2.2, linha 3), com as duas faltas medidas e não supostas. (a) O `inbound_events_total{desfecho}` com o domínio fechado `registado`/`duplicado`/`recuperado` **existe** em `packages/core-ts/src/entrada/metricas.ts` e é servido pelo `entrada.ts` na porta 3013 — que **não é o que o compose corre**: o `CMD` do `services/worker-canal/Dockerfile` é `src/server.ts`, que devolve **404** em `/metrics` por teste do KAM-001, e o `prometheus.yml` não tem alvo para as quatro entradas que servem métricas. Medido. (b) A correlação **por id** entre aceite e desfecho não é expressável em métricas agregadas: sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (emendas **1.21** e **1.25** do dicionário). **A caixa não se marca com o ensaio de uma mensagem retida**, porque não há processo que sirva a série nem pilha onde a retenção aconteça — marcá-la com a prova errada é pior do que a deixar vazia. Credores: o ticket que decidir qual processo do `worker-canal` o compose corre — o **KAM-187** —, e **KAM-110** para a consulta |
+| 3 | «Perda de mensagens» operacionalizada como ids aceites no ingress sem desfecho após 15 min = 0 (*proposta*); testada com uma mensagem retida artificialmente | **parcial** | **A operacionalização está escrita** (`ops/slo.md` §2.2, linha 3), com as duas faltas medidas e não supostas. (a) O `inbound_events_total{desfecho}` com o domínio fechado `registado`/`duplicado`/`recuperado` é servido pelo `entrada.ts` na porta 3013, e **desde o KAM-187 é o que o compose corre e o que o Prometheus raspa** (`job="entrada"`): **paga**, com a medição na verificação do KAM-187 (critérios 2 e 5) — e com a ressalva de que em `prod` o `entrada.ts` ainda não arranca (`../docs/identidade.md` §8, linha 2). *Esta metade dizia, até ao KAM-187, que o `CMD` da imagem era o `server.ts` e que nenhum alvo existia.* (b) A correlação **por id** entre aceite e desfecho não é expressável em métricas agregadas: sai de consulta SQL sobre `platform.channel_events`, pela mesma razão por que o por-*tenant* sai de SQL (emendas **1.21** e **1.25** do dicionário). **A caixa não se marca com o ensaio de uma mensagem retida**, porque não havia processo que servisse a série nem pilha onde a retenção acontecesse (o KAM-187 mediu a retenção com o serviço do `entrada.ts` parado, mas o predicado é por id e fica com a metade (b)) — marcá-la com a prova errada é pior do que a deixar vazia. Credor: **KAM-110** para a consulta (a metade (a) foi paga pelo KAM-187) |
 | 4 | Alertas de *burn rate* rápido e lento activos (*proposta*: 2% do orçamento numa hora → P2; 5% em 6 h → P3), calibrados e documentados | **parcial** | **Os dois existem, com os limiares que o critério propõe e a severidade que ele dá** (`orcamento_de_erro_burn_rapido` P2, `orcamento_de_erro_burn_lento` P3), ambos com `runbook_url` que resolve para ficheiro no disco, e **documentados** em `ops/slo.md` §4 e no *runbook* [`../docs/runbooks/orcamento-de-erro.md`](../docs/runbooks/orcamento-de-erro.md), que os reivindica por nome. **O que prende a calibração são os casos em volta do limiar e não um caso que dispare:** 4 min de falha numa hora → calado, 5 min → dispara; 10 min em seis horas → calado, 11 min → dispara; e o caso que mostra que o lento não é redundante (11 min no **início** das seis horas disparam o lento com o rápido calado). **A palavra «calibrados» não se cumpre**, e a razão está nos Detalhes Técnicos do próprio ticket: «os valores de *burn rate* … são propostas; calibram-se nos primeiros 30 dias». Calibrar exige tráfego real, que não existe. Credor: **Plataforma/SRE**, no primeiro relatório mensal com tráfego (modelo em [`../ops/slo-relatorio-modelo.md`](../ops/slo-relatorio-modelo.md), §7) |
 | 5 | Política: > 50% do orçamento em 14 dias marca `congelado`; o *gate* 16 recusa *deploys* não urgentes nesse estado (excepto aprovação do Arquitecto registada); 100% → só fiabilidade; testes do *gate* | **vazia** | **Devolvida, e é a primeira das duas que se diz à cabeça.** A política está escrita por extenso nos três estados em `ops/slo.md` §6.1, com «urgente» definido como *proposta* (o §10 e o bloco não o definem), e a **medição** está no painel. O que não se fez é o estado e a ligação ao portão, por duas razões medidas: o *gate* 16 **não existe como *job*** (é o gate humano de aprovação do `specs/01` §4; o `ci.yaml` tem onze *jobs* de gate e nenhum é o 16), e ligá-lo é **alteração de regra de bloqueio pelos dois caminhos**. Registada também a divergência de janela: a política fala de **14 dias** e as regras medem **30**, que é a janela que o critério 1 e o §10 definem — a segunda janela é uma linha de PromQL e **não se escreveu**, porque sem o estado a existir ela não tinha consumidor e seria mais uma série a parecer cobertura. **Credor: o fundador** |
 | 6 | Janelas de manutenção anunciadas fora de 07:00–23:00 WAT contam como indisponibilidade **só** se afectarem mensagens (regra implementada e testada com duas janelas) | **parcial** | **A regra está implementada nas três condições que o critério tem** — anunciada, fora de 06:00–22:00 UTC (= 07:00–23:00 WAT, porque o `hour()` do Prometheus é UTC) e sem mensagens afectadas — e a isenção faz-se por `unless`, pelo que o tempo isento sai do numerador **e** do denominador. **Testada com duas janelas, e com uma terceira que prende a condição que elas não prendiam:** isenta; conta porque afectou mensagens; conta porque era horário comercial. O mecanismo do **anúncio** tem ensaio próprio em [`../infra/compose/prometheus/regras/testes/kamba_manutencao_test.yml`](../infra/compose/prometheus/regras/testes/kamba_manutencao_test.yml), com duas janelas sobre uma *fixture*, para que quem anunciar a primeira a sério não estreie a expressão. **E o ficheiro de regras de produção das janelas passou a estar sob ensaio**, o que não estava: a revisão adversarial mediu que pôr o `vector(0)` do `kamba-manutencao.yml` a `vector(1)` isentava **toda** a indisponibilidade nocturna sem *shed* e deixava os quatro ficheiros de ensaio verdes — um orçamento de erro que para de contar sem um único teste vermelho, e com o procedimento documentado para anunciar uma janela a ser *editar aquela expressão*. Fechado pelo `testes/kamba_slo_producao_test.yml`, que carrega os **dois** ficheiros de produção juntos e exige que a bandeira valha 0 e que o tempo conte. **O limite que fica, com a consequência tirada e não só o limite dito:** «afectou mensagens» é `increase(gwy_shed_total[30m]) > 0`, e com o GWY em baixo **não existe série** `gwy_shed_total` — o `increase` sobre série ausente devolve nada, o `or vector(0)` dá 0, e a janela é julgada «não afectou mensagens». Para uma janela que derrube o ingress, que é o caso normal, esta condição responde **sempre «não»**: o «**só** se afectarem mensagens» do critério é, na prática, **incondicional**. A primeira versão deste ticket dizia o limite em três sítios e **não tirava dele esta conclusão**. Fica assim por escolha e não por engano — a isenção é uma afirmação de quem anunciou a janela, e esta pilha só a pode **refutar**, nunca confirmar; inverter o omisso tornava a regra letra morta pelo outro lado. O que a torna auditável é o anúncio ser um **commit** e o relatório mensal ter uma coluna para ela. O predicado completo é o que a sonda externa responderia: credores **D1/KAM-105** e **KAM-069**. E a lista de janelas anunciadas está **vazia**, porque nenhuma foi anunciada |
@@ -1392,7 +1470,7 @@ que o compose de facto corre.
 
 ### Critérios de Aceitação
 
-- [ ] 1. **Os quatro processos são serviços do compose de produção e do de
+- [x] 1. **Os quatro processos são serviços do compose de produção e do de
   *staging*, cada um com o seu `command:`**, com a mesma imagem do `worker-canal`.
   Medido por `docker compose config`, que lista cada serviço com o comando dele —
   e nas **duas direcções**: uma regra do `compose_prod` falha se um dos quatro
@@ -1405,13 +1483,13 @@ que o compose de facto corre.
   `inbound_events_total{desfecho}`; com o serviço do `entrada.ts` parado, o mesmo
   *job* fica na fila e o `inbound_queue_depth` sobe. O mesmo par para a
   `agr-inbound` e o `agr_shim.ts`, medido pelo `agr_shim_total{outcome}`.
-- [ ] 3. **As réplicas dizem como cada processo escala.** O `entrada.ts` e o
+- [x] 3. **As réplicas dizem como cada processo escala.** O `entrada.ts` e o
   `agr_shim.ts` escalam com réplicas; o `publicador.ts` escala **em espera** — só
   quem ganha o `pg_try_advisory_lock(7101)` publica —, e duas réplicas dele não
   publicam a dobrar (medido: com duas, o número de publicações é o de uma). O
   `consumidor.ts` continua a recusar arrancar com uma subscrição de `payment.*` sem
   `exige_ordem`.
-- [ ] 4. **A soma dos `mem_limit` continua dentro do orçamento.** Cada serviço novo
+- [x] 4. **A soma dos `mem_limit` continua dentro do orçamento.** Cada serviço novo
   entra no `conjunto-reduzido.yaml` como `presente`, com `memoria_mib`, rede e
   razão, e a soma continua ≤ 80% da RAM do *host* (critério 4 do KAM-076), medida
   pelo `compose_prod lint` e não de cabeça. **E há uma soma fixada:** o
@@ -1426,16 +1504,16 @@ que o compose de facto corre.
   em `up 0` permanente por falta de processo. É isto que paga a metade (a)
   do critério 3 do KAM-082: o `inbound_events_total{desfecho}` passa a ser
   raspado. A metade (b) — a correlação por id — continua com o credor que tem.
-- [ ] 6. **Os serviços novos passam as regras de endurecimento sem dispensa nova:**
+- [x] 6. **Os serviços novos passam as regras de endurecimento sem dispensa nova:**
   FS só de leitura, não-root, `mem_limit`, `cpus`, `cap_drop: ALL`, `healthcheck`
   com `/healthz` e redes mínimas (`app` e `data`, e nenhuma saída para a Internet
   que o `infra/egress/` não declare). Medido pelo `compose_prod lint` e pelo
   `supply_chain runtime`.
-- [ ] 7. **O compose de desenvolvimento** (`docker-compose.dev.yml`, o do `make up`)
+- [x] 7. **O compose de desenvolvimento** (`docker-compose.dev.yml`, o do `make up`)
   corre os mesmos quatro, ou o bloco escreve porque não. A razão não pode ser «o
   `make smoke` não os conhece»: o `HEALTHZ_TARGETS` do `Makefile` é uma lista que
   se acrescenta, e os quatro servem `/healthz` com a carga útil do contrato.
-- [ ] 8. **O que dizia que nenhum processo consome a fila deixa de o dizer**,
+- [x] 8. **O que dizia que nenhum processo consome a fila deixa de o dizer**,
   sítio a sítio e não por padrão: um `grep` apanha as linhas de versão e este
   bloco, que são história. Os sítios: o `../ops/slo.md` (§2.1, limite 2, e §2.2,
   linha 3), o `../docs/runbooks/orcamento-de-erro.md` (limite 3), os comentários
@@ -1445,7 +1523,7 @@ que o compose de facto corre.
   e a `description` do `services/worker-canal/package.json` (os dois dizem que o
   serviço é o consumidor da fila de entrada). A verificação lista cada um com o que
   passou a dizer.
-- [ ] 9. **O `worker-canal` entra no numerador do SLI operacional, ou fica escrito
+- [x] 9. **O `worker-canal` entra no numerador do SLI operacional, ou fica escrito
   porque não.** O limite 2 do §2.1 do `../ops/slo.md`, de que este ticket passa a
   ser credor, é «o `worker-canal` não está no numerador»: a regra de
   `kamba-slo.yml` lê `up{job=~"gwy|agr"}`. Com os alvos do critério 5, a regra
@@ -1482,11 +1560,11 @@ controlo do serviço parado (critério 2). As duas réplicas do publicador (crit
 
 - [ ] Critérios de aceitação satisfeitos e demonstráveis, com as caixas abertas a
   nomear o credor.
-- [ ] Nenhum segredo no compose; nenhuma dispensa nova em `ci/`.
-- [ ] Consumo em repouso dos serviços novos medido e registado ao lado do do
+- [x] Nenhum segredo no compose; nenhuma dispensa nova em `ci/`.
+- [x] Consumo em repouso dos serviços novos medido e registado ao lado do do
   KAM-076.
-- [ ] `../ops/slo.md` e o critério 3 do KAM-082 actualizados, com linha de versão.
-- [ ] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
+- [x] `../ops/slo.md` e o critério 3 do KAM-082 actualizados, com linha de versão.
+- [x] Secção «Verificação dos Critérios de Aceitação» no bloco, com a medição de
   cada caixa e a ponta onde foi medida.
 
 ### Handoff para Claude Code
@@ -1507,6 +1585,58 @@ worker-canal, cada um com comando, replicas, healthcheck e alvo de metricas.
 - Nao acrescentes alvo para processo que o compose nao corre.
 Nao expandas escopo: ligar a porta grafos do AGR e o KAM-186. PR com o template da §7.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+Catorze caixas — 9 critérios e 5 linhas de DoD —, **onze marcadas** e **três
+vazias** (os critérios 2 e 5, e a linha 1 do DoD, que depende deles), cada uma com
+a razão e o credor. Medido no ramo `feature/KAM-187-consumidores` sobre a base `6583930f`;
+a pilha levantada correu de 14:12 a 14:24 UTC de 2026-11-09, com as imagens
+construídas da árvore deste PR e os sete veredictos do ensaio a verdadeiro. Os comandos, as saídas e as tabelas completas estão em
+[`../docs/evidencia/KAM-187.md`](../docs/evidencia/KAM-187.md), e o ensaio em
+`../db/ensaio_consumidores.py`.
+
+> **O `server.ts` sai dos três composes, e a razão é o defeito.** Uma sonda que não
+> consome nada é um contentor verde sobre uma fila parada — o que o `worker-canal`
+> era até aqui. Os quatro processos servem cada um o seu `/healthz`, pelo que a
+> sonda não faz falta a nenhum. O ficheiro fica, como o `CMD` por omissão da imagem
+> (e com os testes do KAM-001), e a regra `consumidor-com-server-ts` recusa um
+> serviço desta imagem que o corra — por extenso ou por não ter `command:`.
+
+> **Três achados que o bloco não pedia, e que a pilha levantada mediu.** (1) **Em
+> `prod` o `entrada.ts` não arranca**: o `Identidade.arrancar` do KAM-008 recusa o
+> provedor de chaves de ambiente com `KAMBA_ENV=prod`, e não há provedor de cofre —
+> é a contradição do `../docs/identidade.md` §8, linha 2, devolvida ao fundador e
+> sem ticket. Em `staging` também não arrancava, por outra razão, e essa
+> corrigiu-se aqui: o processo pedia um provedor de `dev` para qualquer valor que
+> não fosse `prod`, e o KAM-008 recusa a diferença (`ambienteDasChaves`, com teste).
+> (2) **O AGR de `staging`/`prod` não fica saudável**: o compose não lhe passa
+> `KAMBA_ENV`, a credencial interna nem as variáveis da base do *checkpointer*, e
+> com elas o registo acaba em `ModuleNotFoundError`. (3) **O GWY não arranca em
+> compose nenhum**: nenhum lhe passa `KAMBA_QUEUE_URL` nem `KAMBA_AMBIENTE`, que o
+> `server.ts` dele exige. Os dois últimos ficam fora do escopo e vão no relatório.
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Os quatro processos como serviços de produção e de *staging*, com `command:` e a mesma imagem; regra do `compose_prod` nos dois sentidos, com canário por processo | **satisfeito** | **Os serviços:** `worker-canal-entrada`, `-agr-shim`, `-publicador` e `-consumidor` nos dois ficheiros, todos com `dockerfile: services/worker-canal/Dockerfile` e o seu `command:`; o `docker compose config` da pilha de *staging* lista cada um com o comando dele (anexo §1.1). **A regra** é a `r_consumidores` (`../tools/compose_prod/lint.py`), sobre produção **e** *staging*: `consumidor-em-falta` quando nenhum serviço desta imagem corre um dos quatro sem perfil, e `consumidor-com-server-ts` quando um serviço desta imagem corre o `server.ts` ou não tem `command:`. **E a ligação, e não só o comando** — a revisão adversarial mostrou doze mutações que deixavam a fila sem consumidor e passavam a primeira versão: `consumidor-mal-ligado` (um `entrypoint:`, a variável da porta diferente da sonda, uma variável que o processo exige no arranque em falta, fora de `app` ou `data`, um `KAMBA_ENV` de outro ambiente, mais de uma réplica do consumidor, réplicas diferentes entre produção e *staging*; `scale: 0` conta como não correr) e `consumidor-sem-alvo` (o `job` do processo no `prometheus.yml` sem o nome do serviço e a porta). **O canário** tem dezoito casos novos: por processo, «passa a correr outro dos quatro» e «passa a correr o `server.ts`»; o `command:` apagado em *staging*; o consumidor atrás de um perfil e com `scale: 0`; e oito da ligação. `compose_prod canario`: **63 de 63** a morder, 14 de 14 regras; a suite do `compose_prod`: 36 testes OK. O `server.ts`: sai, com a razão na nota acima | — |
+| 2 | Uma mensagem consumida numa pilha levantada; o controlo com o serviço parado; o mesmo par para a `agr-inbound` e o `agr_shim_total{outcome}` | **parcial** | **A metade do `entrada.ts` cumpre-se**, com os quatro `healthy`: um *job* na `wa-inbound` deu `inbound_events` 0 → **1** e `inbound_events_total{desfecho="registado"}` 0 → **1**; com o serviço parado, o mesmo *job* ficou na fila (`LLEN bull:wa-inbound:wait` 0 → **1** em 15 s, `inbound_events` parado em 1) e drenou ao voltar (anexo §1.2). **Duas coisas não são à letra.** A subida mediu-se com `LLEN` e não com o `inbound_queue_depth`, que é um *gauge* do **GWY** — e o GWY não arranca em compose nenhum (achado 3). E **a metade do `agr_shim.ts` não se cumpre**: o *shim* consome (a fila esvazia, e com ele parado enche 0 → 1), mas o AGR não responde e o `agr_shim_total{outcome}` ficou em **0, sem nenhum `outcome`** — só o `agr_shim_failed_total` subiu (4). O predicado é o desfecho do AGR, e não há | **KAM-186** (o AGR saudável nos composes); o `inbound_queue_depth` fica para o ticket que der ao GWY as variáveis de arranque, que **não existe** e está no relatório |
+| 3 | As réplicas dizem como cada processo escala; o publicador em espera não publica a dobrar; o consumidor recusa `payment.*` sem `exige_ordem` | **satisfeito** | `entrada` e `agr-shim` com `replicas: 2`; o publicador com **2 em espera** e o consumidor com **1** — a ordem por agregado assenta em concorrência 1 por fila de partição (`../docs/eventos.md` §4), e uma segunda réplica punha dois *workers* na mesma partição. **Medido com duas réplicas do publicador:** **uma** sessão com o lock 7101 em `pg_locks`; 20 eventos emitidos → `evt_publish_total{desfecho="entregue"}` **0 numa réplica e 20 na outra**, 20 somados e não 40; 20 *jobs* e 20 em `events_consumed` (anexo §1.3). O oráculo é a soma das publicações e não os *jobs*: o publicador usa o id do envelope como `jobId` e o BullMQ absorve um duplicado, pelo que contar *jobs* não podia falhar — a revisão adversarial mediu-o, e o ensaio mudou. A recusa do consumidor é código que este ticket não toca; a prova continua a ser `../services/worker-canal/tests/consumidor.test.ts` («recusa, e nomeia a subscrição culpada») | — |
+| 4 | A soma dos `mem_limit` dentro do orçamento; cada serviço novo no manifesto; a soma fixada muda com a razão; a razão do `worker-canal` corrigida | **satisfeito** | Os quatro entram `presente` em `../infra/compose/conjunto-reduzido.yaml`, com `memoria_mib`, `replicas`, rede e razão; o `worker-canal` **sai** (e com ele a razão «Consumidor da fila de entrada»). **A memória não sai de nenhuma linha do bloco**: o doc 09 §4.2 não tem linha para o *worker* (o KAM-084 §6.2 chama-lhe «linha em falta»), e os 256 MiB que o `server.ts` tirava da linha «SO e proxies» eram de um processo que não consumia nada. Os quatro somam **1 344 MiB** (2×256 + 2×192 + 2×128 + 192); o total do manifesto passa de **24 064 para 25 152 MiB** (76,8% de 32 GiB, abaixo dos 80%), e a reserva real dos presentes de 20 992 para **22 080**. O `test_lint.py` mudou com a conta escrita — `24064 − 256 + 1344` — e não com o número solto. `compose_prod lint`: **0 achados**. Os 256 MiB do `entrada.ts` são a recomendação do KAM-084 (máximo medido 200,6 MiB); os outros três são *proposta* | — |
+| 5 | Um alvo no `prometheus.yml` por processo que o compose levanta, e só esses; `up` = 1 numa pilha levantada | **parcial** | Quatro `job` novos — `entrada`, `agr_shim`, `publicador`, `consumidor` — por `dns_sd_configs` (três correm com duas réplicas). Na pilha de *staging*: **`up` = 1 nas sete séries** dos quatro (anexo §1.4). O `inbound_events_total{desfecho}` passa a ser raspado, que é a metade (a) do critério 3 do KAM-082. A regra `consumidor-sem-alvo` prende cada `job` ao nome do serviço e à porta. **Porque não se marca:** o critério diz que «nenhum alvo fica em `up 0` permanente», e num compose de **produção** o `entrada.ts` reinicia em ciclo (achado 1) — o alvo `entrada` ficava a 0 para sempre, o `alvo_em_baixo` disparava e o SLI-1 contava o caminho como mau. À letra, a medição em *staging* não chega para uma propriedade de produção | **O fundador** (o arranque do `entrada.ts` em `prod`: `../docs/identidade.md` §8, linha 2) |
+| 6 | Endurecimento sem dispensa nova; redes mínimas; nenhuma saída que o `infra/egress/` não declare | **satisfeito** | Os quatro herdam o `x-node` (FS só de leitura, `user: node`, `cap_drop: ALL`, `no-new-privileges`), com `mem_limit`, `cpus` e `healthcheck` a `/healthz`; redes **`app` e `data`**; **sem** `*saida` — o `services/worker-canal/egress.yaml` tem `destinos: []` e as duas redes são `internal: true`. Cada serviço tem a sua lista de saídas vazia em `../infra/egress/worker-canal-{entrada,agr-shim,publicador,consumidor}.yaml` — o `supply_chain egress` pede uma por serviço de compose cujo nome não é uma pasta de `services/`, e a primeira versão deste PR deixava o *gate* 11 vermelho com quatro `egress-em-falta` (apanhado pela revisão). `compose_prod lint`: 0 achados; `supply_chain check`: conforme em todos os passos menos o `cosign-sem-binario`, que é desta máquina (o binário não está instalado) e não do ramo. **Nenhuma dispensa:** a única linha nova em `ci/` é a declaração do lançador do ensaio em `ci/supply-chain/imagens.yaml` (`sem_imagem`, a forma do `infra/chatwoot/spike.py`) | — |
+| 7 | O compose de desenvolvimento corre os mesmos quatro, ou o bloco escreve porque não | **satisfeito** | Os quatro estão no `docker-compose.dev.yml` com o mesmo `command:`; o `agr_shim.ts` corre sempre (é o do `make smoke`: `HEALTHZ_TARGETS` passou a `worker-canal=3025`), e os outros três ficam atrás de `--profile consumidores`. **Porque não correm sempre:** o compose de desenvolvimento **não corre migrações**, e os três abrem a base no arranque — a guarda do ADR-011 contra `channels`, a leitura de `evt_subscricoes` —, pelo que numa base vazia saem com erro e o `make up --wait` não ficava verde. Não é o `make smoke`. `docker compose config --services`: sem perfil, só o *shim*; com perfil, os quatro (anexo §3) | — |
+| 8 | O que dizia que nenhum processo consome a fila deixa de o dizer, sítio a sítio | **satisfeito** | `../ops/slo.md` §2.1 limite 2 (reescrito: o *worker* entra pelos dois processos do caminho da mensagem) e §2.2 linha 3 (uma falta de duas); `../docs/runbooks/orcamento-de-erro.md` limite 3 (e o 1, que dizia «GWY e AGR»); `kamba-slo.yml` (o comentário passa a dizer que o *worker* está no numerador desde o KAM-187); `kamba.yml` (a nota que nomeava o KAM-005 diz que o publicador corre e é raspado, e que a série dele não responde àquela linha); o cabeçalho do `publicador.ts` (o consumidor da fila é o `entrada.ts`); o `app.ts` («a sonda do `server.ts`, e mais nada»); a `description` do `package.json`, que ganhou também o *script* `agr_shim`. **E os que a lista não nomeava**, quase todos apanhados pela revisão: o `../docs/eventos.md` §6 (versão 1.5: o `server.ts`, e «não há quem recolha estas métricas»); a razão do `conjunto-reduzido.yaml` (critério 4); a nota do `../ops/metricas/catalogo.yaml` e o painel `../ops/paineis/caminho-de-venda.json`, que diziam que o publicador não estava em compose nenhum; e os «24 064 MiB exactos» do `../infra/backup/README.md`, do `../infra/backup/pgbackrest.conf` e do comentário do `alertmanager` no compose. **Fica como está**, por ser o contrato de outro bloco escrito antes deste: a frase do KAM-186 no `EPIC-03` que diz que o `agr_shim.ts` não corre em compose nenhum e nomeia o KAM-187 como quem o resolve | — |
+| 9 | O `worker-canal` no numerador do SLI operacional, com `promtool` a prendê-lo, ou a decisão devolvida | **satisfeito** | `slo_caminho_de_venda_bom` passa a `min(up{job=~"gwy\|agr\|entrada\|agr_shim"})`: os dois processos do caminho da mensagem. O publicador e o consumidor **ficam de fora**, por serem o barramento de eventos. **E um `job` do numerador que nunca foi descoberto conta como mau** — o `min()` ignora séries que não existem, e um processo em ciclo de reinício pode sair do DNS do compose (apanhado pela revisão): a regra multiplica pela contagem de `job` distintos `== bool 4`. Quatro casos novos em `kamba_slo_burn_test.yml`: só o `entrada` em baixo → mau; só o `agr_shim` em baixo → mau; o `entrada` sem série nenhuma → mau; publicador e consumidor em baixo → bom. Os casos antigos ganharam as séries dos dois `job` novos a 1, que é o que lhes mantém o significado. `promtool test rules` aos cinco ficheiros: SUCCESS; tirar a guarda, o `entrada` ou o `agr_shim` do *regex*, ou juntar o publicador, deixa-o vermelho. A mudança de definição passou pelo registo: `../ops/slo.md` **versão 1.2**. O domínio do `job` no `../ops/metricas/catalogo.yaml` ganhou os quatro valores (`obs_lint`: 0 achados) | — |
+
+#### Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Critérios satisfeitos e demonstráveis, com as caixas abertas a nomear o credor | **não satisfeito** | Sete de nove satisfeitos; o **2** e o **5** ficam parciais, com o credor nomeado | **KAM-186** (critério 2), **o fundador** (critério 5) |
+| 2 | Nenhum segredo no compose; nenhuma dispensa nova em `ci/` | **satisfeito** | Todo o segredo entra por `${...:?}` (prod e *staging*) ou `${...:-}` (dev, com a razão escrita); o `scan_secrets` do *pre-commit* deu limpo nos 27 ficheiros; `git diff 6583930f -- ci/` vazio. O ensaio gera as senhas por execução e não as imprime | — |
+| 3 | Consumo em repouso dos serviços novos medido e registado ao lado do do KAM-076 | **satisfeito** | Em `../docs/evidencia/KAM-187.md` §1.5, na mesma pasta do `KAM-076.md`: **43,7 a 51,6 MiB** por contentor (*working set* do cgroup), nas sete réplicas | — |
+| 4 | `../ops/slo.md` e o critério 3 do KAM-082 actualizados, com linha de versão | **satisfeito** | `../ops/slo.md` versão **1.2**; a linha 3 da verificação do KAM-082 diz que a metade (a) está paga, e o KAM-110 fica credor da (b); este epic ganha a linha 1.14 | — |
+| 5 | Secção de verificação no bloco, com a medição de cada caixa e a ponta | **satisfeito** | Esta secção; a ponta é `feature/KAM-187-consumidores` sobre `6583930f` | — |
 
 ---
 
@@ -1723,3 +1853,5 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.11 | Novembro 2026 | **KAM-085 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 1 marcada (DoD 2) e 12 vazias ou parciais**, cada uma com a razão e **com o credor nomeado**. Entregue: `tools/dr_simulacro/` (folha de passos com carimbos, linhas-marcador a 1/s, cálculo de RPO e RTO por passo, extrapolação e a regra da réplica, e o ensaio local em Docker, **64 testes**) e `docs/runbooks/simulacro-de-dr.md` (papéis, folha, cálculo, cartão da mesa-redonda e modelo de *post-mortem*). **Medido num ensaio local** com o PostgreSQL 18.6 do compose, o pgBackRest real, a configuração de `infra/backup/` tal como está em git, o esquema real e **22,19 GB** sintéticos: perda do *host* — restauro **302,2 s**, *replay* 3,0 s, verificação 49,1 s, **RPO 30,0 s** sem buracos; RTO composto **101,5 min** com o termo de rede a 100 Mbps sobre os 19,86 GB medidos do repositório e o *replay* orçado, dos quais 74,2 min são orçamento — na faixa que manda repetir o A, e a repetição útil é a humana; extrapolado a 50 GB, **134,7 min**, com o ponto de viragem em ≈ 37,7 GB, abaixo dos 40 GB do §8.2 — a regra da réplica de espera dispara com os 100 Mbps orçados, e a decisão fica com o fundador. Corrupção lógica — PITR provado pelos marcadores e **0 duplicados** (vazio no B1, com o publicador síncrono), mas **63 efeitos externos órfãos** quando só se republica o *outbox*; reimportar a exportação feita no primário vivo leva-os a 0 e cria 63 efeitos internos sobre encomendas apagadas. A revisão adversarial reproduziu dois defeitos do instrumento (o RTO ignorava o relógio entre passos, e o RPO não via a perda no princípio da série), corrigidos sem mudar nenhum número arquivado, e obrigou a refazer o RTO composto. Cofre indisponível — 0,50 s de máquina, e a passphrase tem de chegar ao `restore_command` do servidor. **E um achado de disponibilidade:** com o `archive-async=y` em git e o `postgres` como PID 1, um `archive-push` que falha reinicia o cluster (13 vezes em 180 s sem `init`, 0 com ele); o comentário do `infra/backup/pgbackrest.conf` e o RB-K08 §4 passaram a dizê-lo. **O que não fecha, e não é de quem executa:** o simulacro por uma pessoa de *on-call* que não escreveu o RB-K08, a mesa-redonda, o *post-mortem*, a data trimestral e a réplica são do fundador; o `repo1`, o IaC e o DNS são da D1. | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | **KAM-083 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 4 marcadas (critério 6 e DoD 2, 3 e 4), 5 parciais e 3 vazias**, cada uma com a razão e o credor. Os dez runbooks ficam em `docs/runbooks/` e não em `ops/runbooks/` — a leitura e a decisão devolvida estão no critério 1 | KAM-083 |
 | 1.13 | Novembro 2026 | **KAM-084 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **13 caixas, 3 marcadas (critérios 4 e 8 e DoD 2) e 10 vazias**, cada uma com a razão e o credor. A condição de paragem do *handoff* disparou: o AGR não corre turnos (`grafos=sem_grafos`), pelo que o LLM, a degradação, o *flood* e o AGR em carga ficam com o KAM-186 e o KAM-188, e o que pede o *host* de 32 GB com o KAM-188. Medido o segmento de entrada com os processos de produção e os limites do compose: o S1 e o S2 cumprem o critério 2 à escala da estação, a rajada passa mensagens e estados pelos dois níveis de deduplicação sem *job* do AGR a mais, conferidos por identidade, e o primeiro recurso saturado é o *worker* de entrada, por CPU, entre 100 e 400 eventos/s conforme a corrida. Relatório em `../docs/tecnica/evidencia/Carga_Dimensionamento.md`, com sete achados. | Equipa KAMBÁ |
+| 1.14 | Novembro 2026 | **KAM-187 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: os quatro processos do `worker-canal` nos composes de produção e de *staging* (e no de desenvolvimento, três atrás de um perfil), a regra `r_consumidores` do `compose_prod`, os alvos do Prometheus e o *worker* no numerador do SLI-1. Onze caixas marcadas e três vazias (critérios 2 e 5, e DoD 1; credores KAM-186 e o fundador). A linha 3 da verificação do **KAM-082** passa a dizer que a metade (a) está paga. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | **KAM-081 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 3 marcadas (critério 6, DoD 3 e 4) e 9 vazias**, cada uma com a razão e o credor. A vista `v_tenant_cost_daily` (revisão `0041`), o `h6-export`, os dois painéis de custo e o `../ops/custo.md`. A revisão adversarial levantou catorze achados, dez confirmados e corrigidos, e devolveu o critério 5 a vazio. **Sem rubrica de STT**, porque não há registo de transcrição (KAM-036); o LLM por conversa é **rateado**, porque a `dat.llm_call_log` não tem chave para uma conversa. | Equipa KAMBÁ |

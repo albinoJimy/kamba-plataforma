@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K03** |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Cenário | Os turnos do agente ficam lentos ou param, a fila de entrada ou a do agente cresce, ou o orçamento de LLM de um *tenant* esgota |
 | Severidade | **P2** (filas e latência), **P3** (orçamento) |
 | Alertas que o activam | `fila_de_entrada_a_crescer` (P2), `fila_do_agente_a_crescer` (P2), `latencia_de_resposta_alta` (P2) e `llm_sem_budget` (P3), em [`../../infra/compose/prometheus/regras/kamba.yml`](../../infra/compose/prometheus/regras/kamba.yml). A `degradacao_acima_do_limiar` e o `disjuntor_do_llm_aberto` vão para [`degradacao-do-agr.md`](degradacao-do-agr.md) |
@@ -27,7 +27,8 @@ Quatro factos medidos que, hoje, explicam estes alertas antes de o LLM os explic
    duas portas que o usariam estão por ligar), repete pela escada de tentativas e
    acaba em `failed`. Uma latência ou uma fila do agente alta é isto antes de ser o
    fornecedor.
-2. **Nenhum consumidor lê a `wa-inbound`** (KAM-187). O `fila_de_entrada_a_crescer`
+2. **Em `prod`, nenhum consumidor lê a `wa-inbound`.** O compose corre o `entrada.ts` desde
+   o KAM-187, mas em `prod` o `entrada.ts` não arranca — o KAM-008 recusa as chaves de identidade vindas do ambiente e não há cofre (`../identidade.md` §8, linha 2). O `fila_de_entrada_a_crescer`
    dispara com **qualquer** tráfego, e a causa não é o LLM.
 3. **O LiteLLM do compose não tem base de dados, e por isso não tem chaves virtuais nem
    orçamentos por *tenant*.** Medido contra a imagem fixada (`v1.104.2`, por *digest*) com
@@ -46,7 +47,7 @@ Quatro factos medidos que, hoje, explicam estes alertas antes de o LLM os explic
 
 | Alerta | Condição | O mais provável hoje | Ramo |
 |---|---|---|---|
-| `fila_de_entrada_a_crescer` | `inbound_queue_depth > 0` durante 2 min | **falta de consumidor** (KAM-187), não o LLM | §3.1 |
+| `fila_de_entrada_a_crescer` | `inbound_queue_depth > 0` durante 2 min | **falta de consumidor** em `prod` (§0, ponto 2), não o LLM | §3.1 |
 | `fila_do_agente_a_crescer` | `agr_queue_depth > 0` durante 2 min | turnos à espera de vaga na admissão do AGR | §3.2 |
 | `latencia_de_resposta_alta` | `agr_turn_latency_ms > 8000` durante 10 min, com turnos a acontecer | LLM lento (N1) ou o AGR saturado | §3.2 |
 | `llm_sem_budget` | apareceu um `agr_llm_erros_total{resultado="budget_exhausted"}` | orçamento esgotado — **ou** consumo anómalo, que é o [RB-K09](RB-K09-flood-e-denial-of-wallet.md) | §3.3 |
@@ -120,12 +121,13 @@ docker logs --since 30m kamba-prod-agr-1
 
 ### 3.1 Fila de entrada a crescer
 
-1. Há consumidor da `wa-inbound`? Hoje **não** (KAM-187): o alerta é verdadeiro e não
+1. Há consumidor da `wa-inbound`? Em `prod`, hoje **não** — o serviço
+   `worker-canal-entrada` reinicia em ciclo (§0, ponto 2): o alerta é verdadeiro e não
    tem mitigação neste runbook. Registar e silenciar com prazo, dizendo porquê:
    ```bash
    docker exec kamba-prod-alertmanager-1 \
      amtool --alertmanager.url=http://127.0.0.1:9093 silence add alertname=fila_de_entrada_a_crescer \
-     --duration=24h --author="<papel>" --comment="RB-K03: sem consumidor da wa-inbound (KAM-187)"
+     --duration=24h --author="<papel>" --comment="RB-K03: sem consumidor da wa-inbound (identidade §8, linha 2)"
    ```
    `verificado` a forma contra o Alertmanager v0.28.1 do compose, isolado.
 2. Quando houver consumidor: ver se ele está vivo e se a fila do agente (§3.2) é o
@@ -200,3 +202,4 @@ comercial — o texto do RB-K01 §6 com «o assistente está a responder em modo
 |---|---|---|---|
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): um ramo por alerta, as consultas ao Prometheus e à base verificadas, a separação «indisponível» contra «sem *budget*», e o N1/N2 como o que já acontece sozinho. O §0 regista que o LiteLLM do compose não tem chaves virtuais nem orçamentos (medido) | KAM-083 |
 | 1.1 | Novembro 2026 | **KAM-186**: o §0, ponto 1, e o §2 deixam de dizer que a porta `grafos` está por ligar. O 503 passa a ser o `saida_por_ligar` — o grafo corre e a resposta não tem Outbound a que sair —, e esse aparece no registo do AGR, ao contrário do `grafo_nao_registado`, que só vivia no corpo da resposta. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a falta de consumidor da `wa-inbound` passa a ter a causa certa — o compose corre o `entrada.ts`, e em `prod` ele não arranca (`../identidade.md` §8, linha 2) | Equipa KAMBÁ |

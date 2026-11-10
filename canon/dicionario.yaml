@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.74"
+versao_dicionario: "1.75"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -13627,6 +13627,176 @@ entradas:
       - "contratos.manifesto.test.ts"
       - "git"
     variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo diário por tenant e rubrica"
+    canonico: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    literais:
+      - "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    nomes:
+      - "platform.v_tenant_cost_daily"
+      - "tenant_id"
+      - "dia"
+      - "rubrica"
+      - "unidades"
+      - "sem_preco"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    nomes_nota:
+      - "platform"
+      - "security_invoker"
+      - "true"
+      - "SELECT"
+      - "kamba_batch"
+      - "dat.llm_call_log"
+      - "platform.outbound_messages"
+      - "dia"
+      - "contact_id"
+      - "wamid"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Rubrica de custo"
+    canonico: "v_tenant_cost_daily.rubrica: llm, meta_service, meta_utility, meta_authentication, meta_marketing, meta_outra"
+    literais:
+      - "v_tenant_cost_daily.rubrica"
+      - "llm"
+      - "meta_service"
+      - "meta_utility"
+      - "meta_authentication"
+      - "meta_marketing"
+      - "meta_outra"
+    nomes:
+      - "v_tenant_cost_daily.rubrica"
+      - "llm"
+      - "meta_service"
+      - "meta_utility"
+      - "meta_authentication"
+      - "meta_marketing"
+      - "meta_outra"
+    nomes_nota:
+      - "CHECK"
+      - "llm"
+      - "dat.llm_call_log.custo_usd"
+      - "meta_"
+      - "pricing"
+      - "microUsdDe"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Câmbio aplicado"
+    canonico: "v_tenant_cost_daily.fx_aoa_per_usd, do parâmetro de sessão app.fx_aoa_per_usd"
+    literais:
+      - "v_tenant_cost_daily.fx_aoa_per_usd"
+      - "app.fx_aoa_per_usd"
+    nomes:
+      - "v_tenant_cost_daily.fx_aoa_per_usd"
+      - "app.fx_aoa_per_usd"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo em kwanzas"
+    canonico: "v_tenant_cost_daily.custo_aoa_minor, bigint, cêntimos"
+    literais:
+      - "v_tenant_cost_daily.custo_aoa_minor"
+      - "bigint"
+    nomes:
+      - "v_tenant_cost_daily.custo_aoa_minor"
+      - "bigint"
+    nomes_nota:
+      - "platform"
+      - "test_nao_ha_colunas_de_dinheiro_nem_saldos"
+      - "EM_UNIDADE_MENOR"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Custo em dólares"
+    canonico: "v_tenant_cost_daily.custo_usd, numeric"
+    literais:
+      - "v_tenant_cost_daily.custo_usd"
+      - "numeric"
+    nomes:
+      - "v_tenant_cost_daily.custo_usd"
+      - "numeric"
+    nomes_nota:
+      - "numeric"
+      - "dat.llm_call_log.custo_usd"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Mensagens contadas sem preço"
+    canonico: "v_tenant_cost_daily.sem_preco"
+    literais:
+      - "v_tenant_cost_daily.sem_preco"
+    nomes:
+      - "v_tenant_cost_daily.sem_preco"
+    nomes_nota:
+      - "custo_usd"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Unidades"
+    canonico: "v_tenant_cost_daily.unidades"
+    literais:
+      - "v_tenant_cost_daily.unidades"
+    nomes:
+      - "v_tenant_cost_daily.unidades"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Conversa, para custo"
+    canonico: "mensagens do mesmo contacto, no mesmo tenant, sem pausa maior do que 24 h"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "platform.inbound_events"
+      - "tenant_id"
+      - "contact_id"
+      - "h6"
+      - "export"
+      - "platform.conversations"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Exportação da amostra H6"
+    canonico: "h6-export (../db/h6_export.py), job ops_h6_export"
+    literais:
+      - "h6-export"
+      - "ops_h6_export"
+    nomes:
+      - "h6"
+      - "export"
+      - "ops_h6_export"
+    nomes_nota:
+      - "exportar"
+      - "reconciliar"
+      - "meta"
+      - "pricing"
+      - "economia"
+      - "dat.llm_call_log"
+      - "metodo"
+      - "contact_id"
+      - "dense_rank"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Quem paga a Meta"
+    canonico: "meta_payer: pme ou kamba"
+    literais:
+      - "meta_payer"
+      - "pme"
+      - "kamba"
+    nomes:
+      - "meta_payer"
+      - "pme"
+      - "kamba"
+    nomes_nota:
+      - "meta"
+      - "payer"
+      - "economia"
+    variantes_literais: []
+  - seccao: "3.53"
+    conceito: "Painéis de custo"
+    canonico: "../ops/paineis/custo-por-tenant.json, ../ops/paineis/unit-economics.json"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "kamba"
+      - "custo"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -14733,6 +14903,21 @@ tabelas:
     assinatura: "platform.dpa_em_falta()"
     seccao: "3.52"
     conceito: "Verificação diária"
+  - nome: "v_tenant_cost_daily"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "dia"
+      - "rubrica"
+      - "unidades"
+      - "sem_preco"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    aberta: false
+    assinatura: "platform.v_tenant_cost_daily(tenant_id, dia, rubrica, unidades, sem_preco, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    seccao: "3.53"
+    conceito: "Custo diário por tenant e rubrica"
 
 dominios:
   - coluna: "consent_event.purpose"

@@ -68,7 +68,7 @@ exige-suites:
 PYTHONPATH_ALL := $(ROOT)/tools:$(ROOT)/libs/py-core/src:$(ROOT)/services/agr/src
 
 # Servicos e portas, para a sonda. Tem de coincidir com o compose.
-HEALTHZ_TARGETS := gwy=3000 worker-canal=3001 com=3002 onboarding-web=3003 agr=8000
+HEALTHZ_TARGETS := gwy=3000 worker-canal=3025 com=3002 onboarding-web=3003 agr=8000
 
 
 # Pacotes Node com testes, para a medicao de cobertura por pacote. Enumerados e

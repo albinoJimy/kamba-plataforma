@@ -81,6 +81,7 @@ import {
 } from "@kamba/core-ts/entrada";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
+import { type Ambiente, isAmbiente } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
 import { Hono } from "hono";
 import { Client } from "pg";
@@ -255,6 +256,25 @@ export function criarApp(registo?: Logger): Hono {
   return app;
 }
 
+/**
+ * O ambiente do provedor de chaves de identidade, lido do `KAMBA_ENV`.
+ *
+ * **Era `KAMBA_ENV === "prod" ? "prod" : "dev"`, e isso impedia o arranque em
+ * *staging* (KAM-187).** O `exigirKeyProviderDeCofre` do KAM-008 exige que o
+ * ambiente declarado e o do provedor coincidam: `KAMBA_ENV=staging` dava um
+ * provedor de `dev` e o processo saía com `AmbienteDeIdentidadeError`. Nenhum
+ * compose corria este processo, pelo que ninguém o tinha visto.
+ *
+ * Um valor fora de `dev`/`staging`/`prod` devolve `dev` e **não** liga nada: o
+ * `exigirKeyProviderDeCofre` recusa-o na mesma, porque compara com o valor
+ * declarado e não com este. Em `prod` o provedor de ambiente continua recusado
+ * — essa recusa é o critério 9 do KAM-008, e não se contorna aqui.
+ */
+export function ambienteDasChaves(env: NodeJS.ProcessEnv): Ambiente {
+  const declarado = (env.KAMBA_ENV ?? "").trim();
+  return isAmbiente(declarado) ? declarado : "dev";
+}
+
 async function principal(): Promise<void> {
   const urlDaBase = exigir(VARIAVEL_DA_BASE);
   const urlDaFila = exigir(VARIAVEL_DA_FILA);
@@ -277,9 +297,7 @@ async function principal(): Promise<void> {
   await verificarArranque(resolvedorBd, process.env);
 
   const identidade = await Identidade.arrancar({
-    chaves: new EnvKeyProvider({
-      ambiente: process.env.KAMBA_ENV === "prod" ? "prod" : "dev",
-    }),
+    chaves: new EnvKeyProvider({ ambiente: ambienteDasChaves(process.env) }),
   });
   // O gancho que reaponta conversas numa fusao de contactos. Corre **dentro** da
   // transacao da fusao, com a ligacao e o contexto que o modulo de identidade

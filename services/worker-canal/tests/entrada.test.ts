@@ -13,7 +13,12 @@ import { describe, it } from "node:test";
 import { sha256Hex, tratarCorpo } from "@kamba/core-ts/entrada";
 import type { ClienteSql } from "@kamba/core-ts/entrada";
 
-import { EncaminhadorQueSoRegista, PORTA_POR_OMISSAO, criarApp } from "../src/entrada.ts";
+import {
+  EncaminhadorQueSoRegista,
+  PORTA_POR_OMISSAO,
+  ambienteDasChaves,
+  criarApp,
+} from "../src/entrada.ts";
 import { SERVICE } from "../src/meta.ts";
 
 const WABA = "109876543210987";
@@ -126,5 +131,22 @@ describe("as rotas do processo de entrada", () => {
     for (const caminho of ["/", "/wa/webhook", "/admin"]) {
       assert.notEqual((await criarApp().request(caminho)).status, 200, caminho);
     }
+  });
+});
+
+describe("o ambiente das chaves de identidade (KAM-187)", () => {
+  it("staging da um provedor de staging, e nao de dev", () => {
+    // Era `prod ? prod : dev`: o `exigirKeyProviderDeCofre` comparava `staging`
+    // com `dev` e o processo nao arrancava no compose de *staging*.
+    assert.equal(ambienteDasChaves({ KAMBA_ENV: "staging" }), "staging");
+    assert.equal(ambienteDasChaves({ KAMBA_ENV: " prod " }), "prod");
+    assert.equal(ambienteDasChaves({ KAMBA_ENV: "dev" }), "dev");
+  });
+
+  it("um valor desconhecido nao vira staging nem prod", () => {
+    // A recusa de um valor desconhecido e do `exigirKeyProviderDeCofre`, que
+    // compara com o declarado; aqui so se prova que nao se promove nada.
+    assert.equal(ambienteDasChaves({ KAMBA_ENV: "producao" }), "dev");
+    assert.equal(ambienteDasChaves({}), "dev");
   });
 });

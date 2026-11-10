@@ -232,6 +232,21 @@ MARCADORES = {
     "KAMBA_SECRET_COM_INTERNAL_TOKEN": "marcador",
     "KAMBA_SECRET_SEGREDO_INTENTS": "marcador",
     "KAMBA_COM_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    # KAM-187: os quatro processos do `worker-canal` exigem as suas ligacoes, as
+    # chaves de identidade, a credencial do AGR e a subscricao. Mesma razao das
+    # de cima, e o mesmo sintoma sem elas: gate 6 vermelho na interpolacao
+    # (`required variable KAMBA_SECRET_AGR_INTERNAL_TOKEN is missing a value`).
+    # O `test_cada_variavel_obrigatoria_tem_marcador` prende a lista ao compose.
+    "KAMBA_ENTRADA_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_CHR_RESOLVER_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_CHR_IDENTITY_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_PUBLICADOR_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_CONSUMIDOR_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_CONSUMIDOR_OPS_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_SECRET_PEPPER_CONTACT_HMAC": "marcador",
+    "KAMBA_SECRET_KEK_CONTACT_DEK": "marcador",
+    "KAMBA_SECRET_AGR_INTERNAL_TOKEN": "marcador",
+    "KAMBA_CONSUMER": "marcador",
 }
 
 
