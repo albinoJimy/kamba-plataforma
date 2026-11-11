@@ -60,6 +60,11 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     # Meta e nao se traduz, e a lista fechada e o que impede que um telefone de
     # cliente entre num dia com este nome.
     ("channel_onboarding", "phone_number_id"),
+    # KAM-087, revisao `0043`: o telefone do caso de onboarding, nas duas formas
+    # que a `contacts` e a `contact_endpoints` ja tinham — cifrado em aplicacao
+    # e em HMAC para o indice. Nenhuma guarda o numero em claro.
+    ("onboarding_case", "phone_enc"),
+    ("onboarding_case", "phone_hmac"),
 }
 FRAGMENTOS_DE_TELEFONE = ("msisdn", "telefone", "phone")
 
@@ -226,6 +231,12 @@ class TestConvencoes(ComBase):
                 # duas: o `kamba_app` le-a, e um `id` sequencial dizia-lhe
                 # quantos aceites a plataforma tem.
                 "contract_acceptance",
+                # KAM-087: o caso de onboarding e a verificacao K1, `uuid`
+                # aleatorio pela regra geral: o `onboarding_id` e a referencia
+                # que o registo devolve ao dono, e um sequencial dizia quantos
+                # registos a plataforma tem.
+                "kyc_check",
+                "onboarding_case",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -622,6 +633,9 @@ class TestConvencoes(ComBase):
                 # existe para outra coisa — e o que o criterio 5 poe em
                 # `media://{asset_id}`, e tem de ser estavel quando a chave do
                 # objecto mudar de molde.
+                # KAM-087 (0043): a verificacao K1, `uuid` gerada pela regra
+                # geral, antes de `manual_confirmations` («ky» < «ma»).
+                ("kyc_check", "id", "uuid", "gen_random_uuid()"),
                 ("manual_confirmations", "id", "uuid", "gen_random_uuid()"),
                 ("media_assets", "asset_id", "uuid", "gen_random_uuid()"),
                 # KAM-015: a chave do template e **natural e de texto**
@@ -655,6 +669,9 @@ class TestConvencoes(ComBase):
                 # ("of" < "ou").
                 ("offer_terms", "sku", "text", None),
                 ("offer_terms", "tenant_id", "uuid", None),
+                # KAM-087 (0043): o caso de onboarding, `uuid` gerada; entre a
+                # oferta e as encomendas («off» < «onb» < «ord»).
+                ("onboarding_case", "id", "uuid", "gen_random_uuid()"),
                 # KAM-044: as cinco das encomendas, e tres formas diferentes.
                 #
                 # O `order_intents` tem chave **natural e composta**,
@@ -750,6 +767,10 @@ class TestConvencoes(ComBase):
                 # chave, que e a mesma por coincidencia.
                 ("provisioning_step", "onboarding_id", "uuid", None),
                 ("provisioning_step", "step", "text", None),
+                # KAM-071 (0042). `uuid` gerada, como as outras: uma linha de
+                # purga nao tem chave natural, e a unidade (classe, tabela,
+                # tenant) repete-se a cada execucao de proposito.
+                ("purge_log", "purge_id", "uuid", "gen_random_uuid()"),
                 ("refund_cases", "id", "uuid", "gen_random_uuid()"),
                 # KAM-045: a reserva de stock segue a regra geral, `uuid`
                 # gerado. A posicao e por `ORDER BY 1, 2`: depois de
@@ -897,7 +918,11 @@ class TestConvencoes(ComBase):
     #: guardam quem e subprocessador da plataforma, que e informacao que a
     #: propria lista publica de subprocessadores torna publica.
     ANULAVEIS = frozenset(
-        {"audit_log", "audit_heads", "payment_accounts", "tenant_destinations"}
+        {"audit_log", "audit_heads", "payment_accounts", "tenant_destinations",
+         # KAM-071 (0042). Nulo num `DROP` de particao, que e entre tenants: a
+         # linha diz «larguei este mes» e o mes tem linhas de varios. As linhas
+         # sem tenant so as ve quem tem `BYPASSRLS`, que e quem as escreve.
+         "purge_log"}
     )
 
     def test_tenant_id_e_not_null_e_vem_primeiro_num_indice(self) -> None:
@@ -1222,7 +1247,15 @@ class TestConvencoes(ComBase):
              # repetido, e o caso e que a identifica. A `contract_document`
              # nao esta aqui pela razao da `consent_texts`: e texto de
              # plataforma e nao tem `tenant_id`.
-             "contract_acceptance"},
+             "contract_acceptance",
+             # KAM-071 (0042). O indice e `(tenant_id, registado_at)`, que e a
+             # leitura «as purgas deste tenant» do painel e da auditoria. O
+             # `tenant_id` e anulavel — ver `ANULAVEIS`.
+             "purge_log",
+             # KAM-087 (0043). O caso satisfaz a convencao pela unicidade do
+             # `tenant_id` pre-alocado; a verificacao K1, pelo indice
+             # `kyc_check_tenant_idx`. Nenhuma tem FK para `tenants`.
+             "kyc_check", "onboarding_case"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1770,7 +1803,12 @@ class TestConvencoes(ComBase):
         # publicado» ser propriedade da base. A prova **nao** tem FK para
         # `tenants` (o aceite e anterior a linha do tenant, que so nasce no
         # passo 1 da saga) e a versao publicada nao tem FK nenhuma.
-        self.assertEqual(len(linhas), 78)
+        #
+        # **79 e nao 78** desde a `0043` (KAM-087): **uma**, a
+        # `kyc_check_caso_fk`, composta `(onboarding_id, tenant_id)` para a
+        # `onboarding_case_id_tenant_uq`: uma verificacao nao junta o caso de
+        # um com o tenant de outro. O caso nao tem FK nenhuma.
+        self.assertEqual(len(linhas), 79)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

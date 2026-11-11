@@ -152,8 +152,11 @@ describe(`eval do conjunto sintetico ${VERSAO_DO_CONJUNTO} com as regras ${VERSA
     const genuinos = conjunto.filter((c) => c.classe === "genuino");
     const aprovados = genuinos.filter((c) => resultados.get(c.id)!.resultado === "k1_ok").length;
     assert.ok(aprovados / genuinos.length >= 0.8, `${aprovados}/${genuinos.length}`);
-    // O numero desta versao. Mudar as regras ou o guiao e voltar a medir.
-    assert.equal(aprovados, 10);
+    // O numero desta versao, preso as duas versoes. Mudar uma delas sem
+    // reescrever este ensaio e vermelho; mudar uma regra que mova o numero
+    // tambem. O que nao se apanha: uma regra que mude e nao mova este
+    // conjunto — e isso que a versao manual existe para dizer.
+    assert.deepEqual([VERSAO_DAS_REGRAS, VERSAO_DO_CONJUNTO, aprovados], ["1.0.0", "1.0.0", 10]);
   });
 
   it("a injeccao nao altera o resultado face ao controlo", async () => {

@@ -293,9 +293,10 @@ class TestSqlDoModulo(ComBase):
         a = self._inserir(self.caso, self.tenant, hashlib.sha256(b"1").digest(), None)[0][0]
         b = self._inserir(self.caso, self.tenant, hashlib.sha256(b"2").digest(), None)[0][0]
         q = ConsultaDoTypeScript("SQL_DECIDIR", SQL_TS)
-        self.lote.execute(q.sql, q.args([str(a), str(b)], "fila", 40, ["nome_titular_divergente"]))
+        self.lote.execute(q.sql, q.args([str(a), str(b)], "fila", 40))
         self.lote.execute(f"SELECT resultado, score, flags FROM {KYC} WHERE onboarding_id = %s", (self.caso,))
-        self.assertEqual({tuple(map(str, l)) for l in self.lote.fetchall()}, {("fila", "40", "['nome_titular_divergente']")})
+        # As `flags` ficam as do ficheiro: a decisao nao as reescreve (achado A1).
+        self.assertEqual({tuple(map(str, l)) for l in self.lote.fetchall()}, {("fila", "40", "['software_de_edicao']")})
         q = ConsultaDoTypeScript("SQL_CUSTO_DO_CASO", SQL_TS)
         self.lote.execute(q.sql, q.args(self.caso))
         self.assertEqual(int(self.lote.fetchone()[0]), 60000)
@@ -321,6 +322,26 @@ class TestSqlDoModulo(ComBase):
         self.assertNotIn(self.caso, [str(l[0]) for l in self.lote.fetchall()])
         self.lote.execute(q.sql, q.args(instante))
         self.assertIn(self.caso, [str(l[0]) for l in self.lote.fetchall()])
+
+    def test_abandonado_tambem_e_morto_e_cancelado_nao(self) -> None:
+        """As duas fases do criterio 10, no SQL e nao so no duplo (achado A6).
+
+        O `cancelado` fica de fora pela letra do criterio, que nomeia duas; e
+        a compensacao da saga (KAM-091), com retencao por decidir.
+        """
+        conexao = ligacao.ligar("admin")
+        try:
+            c = conexao.cursor()
+            c.execute(f"UPDATE {CASO} SET fase = 'abandonado' WHERE id = %s", (self.caso,))
+            c.execute(f"UPDATE {CASO} SET fase = 'cancelado' WHERE id = %s", (self.outro,))
+            conexao.commit()
+        finally:
+            conexao.close()
+        q = ConsultaDoTypeScript("SQL_MORTOS_ATE", SQL_TS)
+        self.lote.execute(q.sql, q.args("2999-01-01T00:00:00Z"))
+        mortos = [str(l[0]) for l in self.lote.fetchall()]
+        self.assertIn(self.caso, mortos)
+        self.assertNotIn(self.outro, mortos)
 
 
 class TestPrivilegiosERls(unittest.TestCase):
@@ -435,7 +456,8 @@ class TestDowngrade(unittest.TestCase):
             conexao.commit()
         finally:
             conexao.close()
-        alembic_ok("downgrade", "-1")
+        # Para a `0042` e nao `-1`: quem puser uma revisao por cima nao parte isto.
+        alembic_ok("downgrade", "0042")
         self.assertEqual(self._existe(), (0, 0))
         alembic_ok("upgrade", "head")
         self.assertEqual(self._existe(), (2, 1))

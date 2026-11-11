@@ -1359,6 +1359,60 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O caso de onboarding e a verificacao K1 (KAM-087, revisao `0043`). Os
+#: `UPDATE` sao **por coluna** e nao aparecem nesta matriz de tabela: o
+#: `kamba_app` altera a `fase`, as `flags`, o `owner_active_seconds` e o
+#: `preflight`; o lote altera a `fase`, as `flags`, o `preflight` e o
+#: `activo_at`, e na verificacao o `resultado`, o `score`, as `flags` e o
+#: `extraido_enc`. **Ninguem apaga**, e a aplicacao **nao alcanca** o
+#: `kyc_check`: as marcas sao o motivo interno do criterio 7.
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_case": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "kyc_check": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
+#: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
+#: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
+#: devia poder apagar a prova de que purgou. A aplicacao nao alcanca a tabela.
+ESPERADO_POR_TABELA.update(
+    {
+        "purge_log": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {

@@ -284,10 +284,20 @@ export interface OcrProvider {
  * O caso vai à fila com a marca `visao_recusada`; nada sai de Angola.
  */
 export class VisaoNaoAutorizadaError extends Error {
-  override readonly name = "VisaoNaoAutorizadaError";
+  override readonly name: string = "VisaoNaoAutorizadaError";
   constructor(motivo: string) {
     super(`visao recusada: ${motivo}`);
   }
+}
+
+/**
+ * Levantado quando o `vision_llm` responde e a resposta não se lê como JSON de
+ * campos. Conta como `visao_recusada` e vai à fila: uma avaria do fornecedor
+ * **não** é um documento ilegível, e o ilegível é a única rejeição sem humano
+ * (achado A9).
+ */
+export class RespostaDeVisaoInvalidaError extends VisaoNaoAutorizadaError {
+  override readonly name: string = "RespostaDeVisaoInvalidaError";
 }
 
 /** Levantado quando o custo do caso ou o orçamento diário esgota (critério 9). */
@@ -340,13 +350,16 @@ export interface RepositorioDeVerificacoes {
   doCaso(onboardingId: string): Promise<readonly Verificacao[]>;
   /** Há um `phash` de **outro** caso a Hamming ≤ `maximo` deste? */
   phashVistoNoutroCaso(onboardingId: string, phash: string, maximo: number): Promise<boolean>;
-  /** Grava a decisão do caso nas verificações dadas. */
-  decidir(
-    ids: readonly string[],
-    resultado: Resultado,
-    score: number,
-    flags: readonly Marca[],
-  ): Promise<void>;
+  /**
+   * Grava o resultado e o *score* do caso nas verificações dadas.
+   *
+   * **Não grava as marcas.** As `flags` de uma verificação são as do **seu**
+   * ficheiro; as marcas agregadas do caso vão à fila. A primeira versão
+   * gravava as do caso em cada linha, e elas voltavam na decisão seguinte como
+   * se fossem do ficheiro: um alvará corrigido continuava `alvara_expirado` —
+   * achado A1 da revisão adversarial.
+   */
+  decidir(ids: readonly string[], resultado: Resultado, score: number): Promise<void>;
   /** Custo acumulado do caso, em micro-dólares. */
   custoDoCaso(onboardingId: string): Promise<number>;
 }
@@ -364,7 +377,12 @@ export interface CasoDoKyc {
 /** A porta dos casos. Implementada pelo `RepositorioDeCasos` da inscrição. */
 export interface CasosDoKyc {
   porId(id: string): Promise<CasoDoKyc | null>;
-  marcarFase(id: string, fase: "rejeitado"): Promise<boolean>;
+  /**
+   * `rejeitado` no terceiro ilegível; `em_revisao` quando a decisão é fila.
+   * Sem o segundo, um caso que foi à fila por regra dura continuava a receber
+   * documentos e a decisão seguinte aprovava-o sem humano (achado A2).
+   */
+  marcarFase(id: string, fase: "rejeitado" | "em_revisao"): Promise<boolean>;
 }
 
 /**

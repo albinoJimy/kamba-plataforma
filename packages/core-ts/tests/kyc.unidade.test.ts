@@ -24,6 +24,8 @@ import {
   camposDasLinhas,
   codificarPngCinzento,
   dataDoCalendario,
+  dataEmLuanda,
+  VerificacoesEmMemoria,
   descodificarPng,
   detectarFormato,
   dhash,
@@ -158,8 +160,21 @@ describe("regras duras e ponderadas (criterios 4 e 5)", () => {
     const a = avaliar(entrada({ alvara: doc({ nome_negocio: "Boutique", nome_titular: "Ana Gomes Lopes", validade_alvara: "31/12/2027", actividade: "Reparacao de automoveis" }) }));
     assert.deepEqual(a.marcas, ["actividade_incoerente"]);
     assert.equal(a.score, 30);
+    assert.equal(a.recomendacao, "investigar", "declarar moda e vender outra coisa e o vector do KAM-088");
     const desconhecida = avaliar({ ...entrada({ alvara: doc({ nome_negocio: "Boutique", nome_titular: "Ana Gomes Lopes", validade_alvara: "31/12/2027", actividade: "Reparacao de automoveis" }) }), categoriaDeclarada: "oficina" });
     assert.equal(desconhecida.resultado, "k1_ok");
+  });
+
+  it("a fronteira do score: 20 exactos vai a fila, 19 nao (>= e nao >)", () => {
+    const base = entrada().documentos.banco;
+    const baixa = entrada({ banco: { ...base, campos: { ...base.campos, iban: { valor: base.campos.iban!.valor, conf: 0.5 } } } });
+    assert.equal(avaliar({ ...baixa, limiares: { ...LIMIARES_POR_OMISSAO, pesoConfianca: 20 } }).resultado, "fila");
+    assert.equal(avaliar({ ...baixa, limiares: { ...LIMIARES_POR_OMISSAO, pesoConfianca: 19 } }).resultado, "k1_ok");
+  });
+
+  it("o nome compara-se tambem contra o alvara, e nao so contra o banco", () => {
+    const a = avaliar(entrada({ alvara: doc({ nome_negocio: "Boutique", nome_titular: "Severino Xavier", validade_alvara: "31/12/2027", actividade: "Vestuario" }) }));
+    assert.deepEqual(a.marcas, ["nome_titular_divergente"]);
   });
 
   it("com o limiar subido a 50, 40 de nome ja nao vai a fila: o limiar e configuravel", () => {
@@ -329,6 +344,54 @@ describe("o PNG (criterio 1)", () => {
     b[25] = 3;
     b.writeUInt32BE(crc32(b.subarray(12, 29)), 29);
     assert.throws(() => descodificarPng(b, 1e6), FicheiroInvalidoError);
+  });
+});
+
+describe("o dia em Luanda", () => {
+  it("as 23:30 UTC ja e o dia seguinte em Luanda (UTC+1)", () => {
+    assert.equal(dataEmLuanda(new Date("2026-11-10T22:59:59Z")), "2026-11-10");
+    assert.equal(dataEmLuanda(new Date("2026-11-10T23:00:00Z")), "2026-11-11");
+  });
+});
+
+describe("o duplo do phash diz o mesmo que o SQL", () => {
+  it("fronteira em 6 e o proprio caso nao conta", async () => {
+    const v = new VerificacoesEmMemoria();
+    const base = 0x0123456789abcdefn;
+    const hex = (n: bigint) => n.toString(16).padStart(16, "0");
+    await v.inserir({ onboardingId: "outro", tipo: "bi", docRef: "x", sha256: "a".repeat(64), phash: hex(base), extraidoCifrado: null, flags: [], resultado: "pendente", versaoRegras: "1.0.0", custoMicroUsd: 0 });
+    assert.equal(await v.phashVistoNoutroCaso("este", hex(base ^ 0b111111n), 6), true);
+    assert.equal(await v.phashVistoNoutroCaso("este", hex(base ^ 0b1111111n), 6), false);
+    assert.equal(await v.phashVistoNoutroCaso("outro", hex(base), 6), false);
+  });
+});
+
+function comPedaco(png: Uint8Array, tipo: string, dados: Uint8Array): Uint8Array {
+  const b = Buffer.from(png);
+  const fim = b.indexOf("IEND") - 4;
+  const p = Buffer.alloc(12 + dados.length);
+  p.writeUInt32BE(dados.length, 0);
+  p.write(tipo, 4, "latin1");
+  Buffer.from(dados).copy(p, 8);
+  p.writeUInt32BE(crc32(p.subarray(4, 8 + dados.length)), 8 + dados.length);
+  return new Uint8Array(Buffer.concat([b.subarray(0, fim), p, b.subarray(fim)]));
+}
+
+describe("os metadados do PNG que a primeira versao nao lia", () => {
+  it("o pedaco eXIf e o zTXt com Software sao lidos", () => {
+    const base = codificarPngCinzento(pagina(6));
+    const s = Buffer.from("GIMP 2.10\0", "latin1");
+    const tiff = Buffer.alloc(8 + 2 + 12 + 4);
+    tiff.write("MM\0*", 0, "latin1");
+    tiff.writeUInt32BE(8, 4);
+    tiff.writeUInt16BE(1, 8);
+    tiff.writeUInt16BE(0x0131, 10);
+    tiff.writeUInt16BE(2, 12);
+    tiff.writeUInt32BE(s.length, 14);
+    tiff.writeUInt32BE(tiff.length, 18);
+    assert.deepEqual(descodificarPng(comPedaco(base, "eXIf", Buffer.concat([tiff, s])), 1e6).software, ["GIMP 2.10"]);
+    const z = Buffer.concat([Buffer.from("Software\0\0", "latin1"), deflateSync(Buffer.from("Adobe Photoshop 25.0"))]);
+    assert.deepEqual(descodificarPng(comPedaco(base, "zTXt", z), 1e6).software, ["Adobe Photoshop 25.0"]);
   });
 });
 

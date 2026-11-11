@@ -260,6 +260,18 @@ REV38 = "db/migrations/versions/0038_direitos_do_titular.py"
 REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
+#: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila
+#: deu (`0042`): se mudar, muda esta constante e o nome do ficheiro, e o
+#: `--aplicaveis` apanha quem se esqueca dela.
+REV42 = "db/migrations/versions/0042_retencao_e_purga.py"
+RET_JOBS = "libs/py-core/src/kamba_core/retencao/jobs.py"
+RET_HOLD = "libs/py-core/src/kamba_core/retencao/hold.py"
+RET_POLITICA = "libs/py-core/src/kamba_core/retencao/politica.py"
+PARTICOES = "db/particoes.py"
+#: KAM-087: o caso de onboarding e o KYC K1. O SQL das tabelas vive no modulo
+#: auxiliar e o das consultas no TypeScript, que a suite executa tal como esta.
+KYC_DDL = "db/kyc.py"
+KYC_SQL = "packages/core-ts/src/kyc/sql.ts"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6806,6 +6818,123 @@ MUTACOES = [
     # que confronta os **tres** sitios onde o dominio esta escrito (a tupla da
     # bateria, os literais da revisao e o catalogo), e o
     # `test_as_sete_accoes_passam`, que o insere.
+    # ------------------------------------------- KAM-071 (revisao `0042`)
+    #
+    # Nove. **As duas primeiras mutam a ligacao entre o tenant e a instrucao**,
+    # que e a unica barreira entre dois tenants: o `kamba_batch` tem
+    # `BYPASSRLS`. E o primeiro caso que o bloco manda ficar vermelho.
+    ('retencao: a purga dos consumidos deixa de filtrar o tenant', RET_JOBS,
+     '        WHERE tenant_id = %s::uuid AND processado_at < %s""",\n)',
+     '        WHERE (tenant_id = %s::uuid OR true) AND processado_at < %s""",\n)'),
+    # A instrucao continua valida e com os mesmos dois parametros: apaga as
+    # linhas de todos os tenants na janela. Quem a mata e o
+    # `test_a_purga_de_a_nao_toca_em_b` do `db/tests/test_retencao_bd.py`, que
+    # poe um hold em B e exige as linhas de B intactas.
+    # As cinco seguintes sao a mesma mutacao nos outros caminhos por tenant, e
+    # existem porque a revisao adversarial mediu que, sem elas, so um dos seis
+    # estava provado: os outros cinco ficavam verdes com `OR true`. Quem as mata
+    # e o `test_tudo_o_que_e_de_a_sai_e_nada_do_que_e_de_b`, que semeia uma
+    # linha em cada tabela, em dois tenants, com hold em B.
+    ('retencao: a purga do outbox deixa de filtrar o tenant', RET_JOBS,
+     '    """DELETE FROM platform.events_outbox\n        WHERE tenant_id = %s::uuid\n',
+     '    """DELETE FROM platform.events_outbox\n        WHERE (tenant_id = %s::uuid OR true)\n'),
+    ('retencao: a purga da DLQ deixa de filtrar o tenant', RET_JOBS,
+     '    """DELETE FROM platform.events_dlq\n        WHERE tenant_id = %s::uuid AND',
+     '    """DELETE FROM platform.events_dlq\n        WHERE (tenant_id = %s::uuid OR true) AND'),
+    ('retencao: a purga das aprovacoes deixa de filtrar o tenant', RET_JOBS,
+     "          AND d.tenant_id = %s::uuid AND d.estado <> 'aberta'\n"
+     '          AND d.resolvido_at IS NOT NULL AND d.resolvido_at < %s""",\n)',
+     "          AND (d.tenant_id = %s::uuid OR true) AND d.estado <> 'aberta'\n"
+     '          AND d.resolvido_at IS NOT NULL AND d.resolvido_at < %s""",\n)'),
+    # **Nas mensagens e na midia ha duas barreiras e nao uma**, e as mutacoes
+    # tiram as duas: tirar so uma sobrevivia, medido — nas mensagens a
+    # subconsulta das conversas tambem filtra o tenant, e na midia o `SELECT`
+    # que escolhe os `asset_id` tambem. Sobreviver a uma so e a defesa em
+    # profundidade a funcionar, e nao um ensaio em falta.
+    ('retencao: a purga das mensagens deixa de filtrar o tenant', RET_JOBS,
+     '    """DELETE FROM platform.outbound_messages o\n'
+     '        WHERE o.tenant_id = %s::uuid AND o.created_at < %s\n'
+     '          AND NOT (o.contact_id = ANY(%s::uuid[]))\n'
+     '          AND o.contact_id IN (\n'
+     '                SELECT c.contact_id FROM platform.conversations c\n'
+     '                 WHERE c.tenant_id = %s::uuid\n',
+     '    """DELETE FROM platform.outbound_messages o\n'
+     '        WHERE (o.tenant_id = %s::uuid OR true) AND o.created_at < %s\n'
+     '          AND NOT (o.contact_id = ANY(%s::uuid[]))\n'
+     '          AND o.contact_id IN (\n'
+     '                SELECT c.contact_id FROM platform.conversations c\n'
+     '                 WHERE (c.tenant_id = %s::uuid OR true)\n'),
+    ('retencao: a purga da midia deixa de filtrar o tenant', RET_JOBS,
+     '   WHERE tenant_id = %s::uuid AND retain_until IS NOT NULL AND retain_until <= %s\n'
+     '     AND NOT (contact_id = ANY(%s::uuid[]))\n'
+     '   ORDER BY asset_id\n'
+     '"""\n'
+     'SQL_MIDIA_APAGAR: Final = """\n'
+     '  DELETE FROM platform.media_assets\n'
+     '   WHERE tenant_id = %s::uuid AND asset_id = ANY(%s::uuid[])',
+     '   WHERE (tenant_id = %s::uuid OR true) AND retain_until IS NOT NULL AND retain_until <= %s\n'
+     '     AND NOT (contact_id = ANY(%s::uuid[]))\n'
+     '   ORDER BY asset_id\n'
+     '"""\n'
+     'SQL_MIDIA_APAGAR: Final = """\n'
+     '  DELETE FROM platform.media_assets\n'
+     '   WHERE (tenant_id = %s::uuid OR true) AND asset_id = ANY(%s::uuid[])'),
+    ('retencao: o hold de tenant deixa de reter', RET_JOBS,
+     '                if holds.do_tenant(tenant):\n'
+     '                    raise _Retida(purge_log.MOTIVO_HOLD_TENANT)\n'
+     '                retidos = sorted(holds.contactos_de(tenant))',
+     '                if False:\n'
+     '                    raise _Retida(purge_log.MOTIVO_HOLD_TENANT)\n'
+     '                retidos = sorted(holds.contactos_de(tenant))'),
+    # A mesma morte, pela decisao e nao pela instrucao.
+    ('retencao: o hold le a primeira accao e nao a ultima', RET_HOLD,
+     '           ORDER BY tenant_id, entity, entity_id, id DESC) AS ultima',
+     '           ORDER BY tenant_id, entity, entity_id, id ASC) AS ultima'),
+    # Um hold levantado continua a reter, e um reaplicado fica levantado. Quem
+    # a mata e o `test_aplicar_e_levantar_pela_aplicacao_e_o_lote_ve`.
+    ('retencao: o prazo dos consumidos encolhe para nove dias', RET_POLITICA,
+     '        prazo=Prazo(dias=90),\n'
+     '        fonte="docs/tecnica/06 §7.4",\n'
+     '    ),\n'
+     '    Classe(\n'
+     '        "events_dlq",',
+     '        prazo=Prazo(dias=9),\n'
+     '        fonte="docs/tecnica/06 §7.4",\n'
+     '    ),\n'
+     '    Classe(\n'
+     '        "events_dlq",'),
+    # O prazo e *proposta*, e e por isso mesmo que encolher sem parecer tem de
+    # avermelhar: a linha de 10 dias de A sai. Quem a mata e o mesmo
+    # `test_a_purga_de_a_nao_toca_em_b`, pela contagem de A.
+    ('revisao 0042: o lote ganha DELETE no purge_log', REV42,
+     '    op.execute(f"GRANT SELECT, INSERT ON {PURGE_LOG} TO {PAPEL_DE_LOTE}")',
+     '    op.execute(f"GRANT SELECT, INSERT, DELETE ON {PURGE_LOG} TO {PAPEL_DE_LOTE}")'),
+    # O `purge_log` e *append-only* por privilegio e por mais nada: com
+    # `DELETE`, quem purga apaga a prova de que purgou. Quem a mata e o
+    # `test_o_lote_escreve_e_nao_altera_nem_apaga`.
+    ('revisao 0042: um falhou pode dizer que apagou', REV42,
+     "            CHECK (resultado = 'ok' OR (linhas = 0 AND objectos = 0))",
+     "            CHECK (resultado = 'ok' OR linhas >= 0)"),
+    # O nome fica, e por isso a lista fechada de restricoes continua verde: e o
+    # predicado que deixa de morder. Uma linha `falhou` com contagem afirmava
+    # uma eliminacao que a transaccao reverteu. Quem a mata e o
+    # `test_os_dominios_mordem`, pela linha que passa a entrar.
+    ('revisao 0042: o dominio da accao fica sem o levantamento do hold', REV42,
+     "    \"'retention.hold_aplicado', 'retention.hold_levantado'\"",
+     "    \"'retention.hold_aplicado'\""),
+    # Um hold que nao se levanta e uma retencao para sempre. Quem a mata e o
+    # `test_o_dominio_do_check_e_o_desta_bateria` do `test_auditoria.py`.
+    ('particoes: a particao nova nasce sem FORCE', PARTICOES,
+     '            cursor.execute(f"ALTER TABLE {esquema}.{nome} FORCE ROW LEVEL SECURITY")\n',
+     ''),
+    # A RLS do pai nao cobre quem le a particao directamente (KAM-005); sem
+    # `FORCE`, o dono le-a toda. Quem a mata e o
+    # `test_a_particao_nova_nasce_isolada_e_sem_privilegios`.
+    ('particoes: larga-se um mes dentro do prazo', PARTICOES,
+     '            if ate > prazo.antes_de(agora):',
+     '            if False:'),
+    # Um *job* com o relogio errado largava o mes corrente. Quem a mata e o
+    # `test_o_gestor_recusa_o_que_nao_e_dele`.
     # ---------------------------------------------------------------- KAM-060
     #
     # A porta de escrita dos sinais de anomalia. **As duas primeiras mutam a
@@ -6945,6 +7074,36 @@ MUTACOES = [
      "tests"),
     # O `test_a_aplicacao_nao_publica_e_ninguem_apaga` e a matriz do
     # `test_privilegios` tem de a matar.
+    # ------------------------------------------- KAM-087 (revisao `0043`)
+    #
+    # Quatro, e cada uma tira uma barreira que so a base tem.
+    ('kyc: o phash passa a contar o proprio caso', KYC_SQL,
+     "   WHERE onboarding_id <> $1 AND phash IS NOT NULL",
+     "   WHERE (onboarding_id <> $1 OR true) AND phash IS NOT NULL",
+     "tests"),
+    # Um reenvio do mesmo documento por outro ficheiro passava a ser «imagem
+    # reutilizada». O `test_o_phash_e_procurado_noutros_casos_com_fronteira_em_6`
+    # tem de a matar, pela terceira asercao.
+    ('kyc: o fase_at passa a ser o do chamador', KYC_DDL,
+     "  IF TG_OP = 'INSERT' OR NEW.fase IS DISTINCT FROM OLD.fase THEN\n"
+     "    NEW.fase_at := now();",
+     "  IF false THEN\n"
+     "    NEW.fase_at := now();",
+     "tests"),
+    # Quem insere com uma data antiga purga os documentos no dia em que o caso
+    # morre. O `test_o_fase_at_e_do_trigger` tem de a matar.
+    ('kyc: o documento deixa de estar preso ao prefixo do tenant', KYC_DDL,
+     "    CHECK (starts_with(doc_ref, 't/' || tenant_id::text || '/kyc_documento/'))",
+     "    CHECK (true)",
+     "tests"),
+    # Uma verificacao de A passava a apontar para um objecto de B no STO. O
+    # `test_o_doc_ref_tem_de_ser_do_tenant_da_linha` tem de a matar.
+    ('kyc: a aplicacao passa a ler as marcas internas', KYC_DDL,
+     'SQL_CONCEDER_KYC_AUDITORIA: Final = "GRANT SELECT ON platform.kyc_check TO kamba_audit"',
+     'SQL_CONCEDER_KYC_AUDITORIA: Final = "GRANT SELECT ON platform.kyc_check TO kamba_audit, kamba_app"',
+     "tests"),
+    # O motivo interno chegava ao servico do dono (criterio 7). O
+    # `test_quem_pode_o_que` tem de a matar.
 ]
 
 

@@ -81,6 +81,8 @@ export type Recebido =
 
 export type Decidido =
   | { readonly estado: "incompleto"; readonly faltam: readonly TipoDeDocumento[] }
+  /** O caso já não está em `kyc_pendente`: a decisão é de quem o tem agora. */
+  | { readonly estado: "fora_de_fase"; readonly fase: string }
   | {
       readonly estado: "decidido";
       readonly avaliacao: Avaliacao;
@@ -185,6 +187,17 @@ export class ServicoKyc {
 
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     const ja = await d.verificacoes.porSha(onboardingId, sha256);
+    if (ja !== null && ja.resultado === "ilegivel") {
+      // O mesmo ficheiro ilegível outra vez: não conta, e também não é «lido»
+      // — dizer «lido» ao dono era sucesso sobre um documento que não se leu
+      // (achado A10).
+      return {
+        estado: "novo_carregamento",
+        verificacao: ja,
+        restantes: this.#l.pedidosDeNovoCarregamento + 1 - (await this.#ilegiveis(onboardingId, tipo)),
+        motivoPublico: "ilegivel",
+      };
+    }
     if (ja !== null) return { estado: "lido", verificacao: ja, repetido: true };
 
     const av = await d.antivirus.verificar(bytes);
@@ -230,7 +243,13 @@ export class ServicoKyc {
     } catch (e) {
       if (e instanceof VisaoNaoAutorizadaError) marcas.push("visao_recusada");
       else if (e instanceof OrcamentoExcedidoError) marcas.push("orcamento_excedido");
-      else throw e;
+      else {
+        // Uma avaria do motor não deixa o documento no STO sem linha que o
+        // refira: a purga só vê objectos com linha, e um órfão ficava os dez
+        // anos do tecto (achado A5). O erro que sobe é o original.
+        await d.armazem.delete(ctx, { key: chave, tamanho: bytes.length, sha256 }).catch(() => undefined);
+        throw e;
+      }
     }
 
     // Ilegível: um campo exigido que não veio, ou veio e não se lê. Um campo
@@ -269,9 +288,7 @@ export class ServicoKyc {
     }
     if (!ilegivel) return { estado: "lido", verificacao, repetido: false };
 
-    const ilegiveis = (await d.verificacoes.doCaso(onboardingId)).filter(
-      (v) => v.tipo === tipo && v.resultado === "ilegivel",
-    ).length;
+    const ilegiveis = await this.#ilegiveis(onboardingId, tipo);
     if (ilegiveis > this.#l.pedidosDeNovoCarregamento) {
       await d.casos.marcarFase(onboardingId, "rejeitado");
       return { estado: "rejeitado", verificacao, motivoPublico: "ilegivel" };
@@ -289,8 +306,14 @@ export class ServicoKyc {
     const d = this.#d;
     const caso = await d.casos.porId(onboardingId);
     if (caso === null) throw new Error("caso inexistente");
+    // Só um caso em `kyc_pendente` se decide. Depois de uma fila, o caso está em
+    // `em_revisao` e a decisão é do T&S: decidir outra vez, sobre documentos
+    // recarregados, aprovava sem humano um caso que uma regra dura mandou à
+    // fila (achado A2).
+    if (caso.fase !== "kyc_pendente") return { estado: "fora_de_fase", fase: caso.fase };
+    const todas = await d.verificacoes.doCaso(onboardingId);
     const ultimas = new Map<TipoDeDocumento, Verificacao>();
-    for (const v of await d.verificacoes.doCaso(onboardingId)) {
+    for (const v of todas) {
       if (v.resultado !== "ilegivel") ultimas.set(v.tipo, v);
     }
     const faltam = TIPOS_DE_DOCUMENTO.filter((t) => !ultimas.has(t));
@@ -299,10 +322,16 @@ export class ServicoKyc {
     const documentos = {} as Record<TipoDeDocumento, DocumentoLido>;
     for (const [tipo, v] of ultimas) {
       const c = v.extraidoCifrado === null ? null : await this.#ler(v, onboardingId);
+      // As marcas do **ficheiro** de todos os documentos deste tipo, os
+      // ilegíveis incluídos: uma imagem reutilizada que também não se lia
+      // continua a ser um sinal sobre quem a enviou.
+      const doFicheiro = todas
+        .filter((x) => x.tipo === tipo && x.id !== v.id && x.resultado === "ilegivel")
+        .flatMap((x) => x.flags.filter((m) => m === "imagem_reutilizada" || m === "software_de_edicao"));
       documentos[tipo] = {
         campos: c?.campos ?? {},
         invalidos: c?.invalidos ?? [],
-        marcas: v.flags.filter((m) => m !== "ilegivel"),
+        marcas: [...new Set([...v.flags.filter((m) => m !== "ilegivel"), ...doFicheiro])],
       };
     }
     const avaliacao = avaliar({
@@ -322,7 +351,6 @@ export class ServicoKyc {
         verificacoes.map((v) => v.id),
         avaliacao.resultado,
         avaliacao.score,
-        avaliacao.marcas,
       );
       if (avaliacao.resultado === "fila") {
         await d.fila.enviar({
@@ -331,6 +359,7 @@ export class ServicoKyc {
           marcas: avaliacao.marcas,
           recomendacao: avaliacao.recomendacao,
         });
+        await d.casos.marcarFase(onboardingId, "em_revisao");
       }
     }
     return {
@@ -377,6 +406,12 @@ export class ServicoKyc {
       if (vs.length > 0) await mortos.esquecer(vs.map((v) => v.id));
     }
     return apagados;
+  }
+
+  async #ilegiveis(onboardingId: string, tipo: TipoDeDocumento): Promise<number> {
+    return (await this.#d.verificacoes.doCaso(onboardingId)).filter(
+      (v) => v.tipo === tipo && v.resultado === "ilegivel",
+    ).length;
   }
 
   async #ler(v: Verificacao, onboardingId: string): Promise<Conteudo> {

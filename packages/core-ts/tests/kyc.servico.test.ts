@@ -58,8 +58,9 @@ class AntivirusFalso implements Antivirus {
   }
 }
 
-function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Rasterizador; armazem?: (s: StorageProvider) => StorageProvider } = {}) {
-  let agora = HOJE;
+function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Rasterizador; armazem?: (s: StorageProvider) => StorageProvider; agora?: Date } = {}) {
+  let agora = o.agora ?? HOJE;
+  const cifra = new CifraAesGcm(randomBytes(32));
   const relogio = () => agora;
   const verificacoes = new VerificacoesEmMemoria(relogio);
   const casos = new CasosEmMemoria(verificacoes, relogio);
@@ -73,7 +74,7 @@ function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Ra
     antivirus,
     rasterizador: new RasterizadorLocal(o.isolado ?? null),
     ocr: o.ocr ?? new OcrLocal(new MotorDeGrelha()),
-    cifra: new CifraAesGcm(randomBytes(32)),
+    cifra,
     fila,
     anelDoNif: ANEL,
     relogio,
@@ -87,7 +88,7 @@ function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Ra
       nomeNegocio: "negocio",
       categoriaDeclarada: c.categoria,
     });
-  return { servico, verificacoes, casos, sto, fila, antivirus, juntar, avancar: (ms: number) => (agora = new Date(agora.getTime() + ms)) };
+  return { servico, verificacoes, casos, sto, fila, antivirus, cifra, juntar, avancar: (ms: number) => (agora = new Date(agora.getTime() + ms)) };
 }
 
 async function carregarTodos(m: ReturnType<typeof montar>, c: CasoSintetico) {
@@ -137,7 +138,8 @@ describe("o caminho completo", () => {
     assert.ok(d.avaliacao.marcas.includes("nif_divergente"));
     assert.equal(d.motivoPublico, "nao_foi_possivel_validar");
     assert.equal(TEXTO_DO_MOTIVO[d.motivoPublico!], "Não foi possível validar os documentos. A nossa equipa vai analisar o pedido.");
-    await m.servico.decidir(ADULTERADO.id);
+    assert.equal((await m.casos.porId(ADULTERADO.id))!.fase, "em_revisao");
+    assert.deepEqual(await m.servico.decidir(ADULTERADO.id), { estado: "fora_de_fase", fase: "em_revisao" });
     assert.equal(m.fila.pedidos.length, 1);
     assert.equal(m.fila.pedidos[0]!.recomendacao, "investigar");
   });
@@ -324,6 +326,15 @@ describe("vision_llm: falha fechada (criterio 2) e orcamento (criterio 9)", () =
     assert.equal(pedidos[0]!.corpo["model"], "kyc-vision");
     const primeira = m.verificacoes.linhas[0]!;
     assert.equal(primeira.custoMicroUsd, 30_000);
+    // O NIF que o modelo «leu» nao e um NIF: fica em `invalidos` e nao em
+    // `campos` — o `validarCampos` corre sobre a saida do `vision_llm` no
+    // caminho do servico, e nao so num ensaio de unidade (achado A4).
+    const lido = JSON.parse(new TextDecoder().decode(await m.cifra.decifrar(primeira.extraidoCifrado!, `${GENUINO.id}:nif`))) as {
+      campos: Record<string, unknown>;
+      invalidos: string[];
+    };
+    assert.deepEqual(lido.invalidos, ["nif"]);
+    assert.deepEqual(Object.keys(lido.campos), ["nome_titular"]);
     assert.ok(!primeira.flags.includes("orcamento_excedido"));
     // 30 000 gastos + 20 000 de estimativa = 50 000: no tecto, ainda passa.
     await m.servico.receber(GENUINO.id, "bi", GENUINO.documentos.bi);
@@ -411,6 +422,109 @@ describe("purga D+30 (criterio 10)", () => {
     m.casos.juntar({ ...(await m.casos.porId(GENUINO.id))!, fase: "abandonado" });
     m.avancar(30 * 86_400_000);
     assert.equal(await m.servico.purgar(m.casos), 4);
+  });
+});
+
+describe("os achados da revisao adversarial", () => {
+  const EXPIRADO = CONJUNTO.filter((c) => c.classe === "data_editada")[3]!;
+
+  function alvaraCom(c: CasoSintetico, validade: string, semente: number): Uint8Array {
+    const linhas = c.linhas.alvara.map((l) => (l.startsWith("VALIDADE:") ? `VALIDADE: ${validade}` : l));
+    return desenhar({ linhas, fundo: semente, ruido: 0, semente });
+  }
+
+  it("A1, A2: a fila fecha o caso; e depois de o T&S o devolver, o alvara corrigido decide sem a marca antiga", async () => {
+    const m = montar();
+    await carregarTodos(m, EXPIRADO);
+    const primeira = await m.servico.decidir(EXPIRADO.id);
+    assert.ok(primeira.estado === "decidido" && primeira.motivoPublico === "alvara_expirado");
+    assert.equal((await m.casos.porId(EXPIRADO.id))!.fase, "em_revisao");
+    const novo = alvaraCom(EXPIRADO, "31/12/2028", 99);
+    assert.deepEqual(await m.servico.receber(EXPIRADO.id, "alvara", novo), { estado: "recusado", motivo: "caso" });
+    // O T&S devolve o caso ao dono (KAM-089); o duplo faz as vezes da fila.
+    m.casos.juntar({ ...(await m.casos.porId(EXPIRADO.id))!, fase: "kyc_pendente" });
+    assert.equal((await m.servico.receber(EXPIRADO.id, "alvara", novo)).estado, "lido");
+    const segunda = await m.servico.decidir(EXPIRADO.id);
+    assert.ok(segunda.estado === "decidido");
+    if (segunda.estado !== "decidido") return;
+    assert.deepEqual(segunda.avaliacao.marcas, [], "a marca do alvara antigo nao se cola ao novo");
+    assert.equal(segunda.avaliacao.resultado, "k1_ok");
+    for (const v of m.verificacoes.linhas.filter((x) => x.tipo === "alvara")) {
+      assert.ok(!v.flags.includes("alvara_expirado"), "as flags de uma linha sao as do seu ficheiro");
+    }
+  });
+
+  it("A2: uma regra dura nao se lava recarregando os quatro documentos", async () => {
+    const reutilizado = CONJUNTO.find((c) => c.classe === "imagem_reutilizada")!;
+    const m = montar();
+    for (const c of CONJUNTO.slice(0, CONJUNTO.indexOf(reutilizado))) await carregarTodos(m, c);
+    await carregarTodos(m, reutilizado);
+    const d = await m.servico.decidir(reutilizado.id);
+    assert.ok(d.estado === "decidido" && d.avaliacao.resultado === "fila");
+    for (const t of TIPOS) {
+      assert.deepEqual(await m.servico.receber(reutilizado.id, t, alvaraCom(reutilizado, "31/12/2028", 500 + TIPOS.indexOf(t))), { estado: "recusado", motivo: "caso" });
+    }
+    assert.deepEqual(await m.servico.decidir(reutilizado.id), { estado: "fora_de_fase", fase: "em_revisao" });
+  });
+
+  it("A5: uma avaria do OCR nao deixa o documento orfao no STO", async () => {
+    const m = montar({ ocr: { nome: "avariado", extract: async () => { throw new Error("tesseract saiu com 1"); } } });
+    m.juntar(GENUINO);
+    await assert.rejects(m.servico.receber(GENUINO.id, "bi", GENUINO.documentos.bi), /tesseract/);
+    assert.equal(m.sto.total(), 0);
+    assert.equal(m.verificacoes.linhas.length, 0);
+  });
+
+  it("A9: um modelo que responde lixo vai a fila e nunca rejeita o caso", async () => {
+    const transporte: Transporte = async () => ({
+      status: 200,
+      headers: { get: () => "0.001" },
+      text: async () => JSON.stringify({ choices: [{ message: { content: "Desculpe, nao posso ajudar." } }] }),
+    });
+    const m = montar({
+      ocr: new OcrDeVisao({
+        gate: { decidir: async () => ({ autorizado: true, apdRef: "APD/2026/1" }) },
+        transporte,
+        urlBase: "http://litellm.interno",
+        chaveVirtual: "sk-teste",
+        fornecedor: "fornecedor_de_visao",
+        custoDoCaso: async () => 0,
+        tectoPorCasoMicroUsd: 50_000,
+        estimativaMicroUsd: 1_000,
+      }),
+    });
+    m.juntar(GENUINO);
+    for (const s of [1, 2, 3]) {
+      const r = await m.servico.receber(GENUINO.id, "bi", alvaraCom(GENUINO, "31/12/2028", 700 + s));
+      assert.equal(r.estado, "lido");
+    }
+    assert.equal((await m.casos.porId(GENUINO.id))!.fase, "kyc_pendente");
+    assert.ok(m.verificacoes.linhas.every((v) => v.flags.includes("visao_recusada") && v.resultado === "pendente"));
+  });
+
+  it("A10: o mesmo ficheiro ilegivel outra vez responde ilegivel, e nao lido", async () => {
+    const m = montar();
+    m.juntar(GENUINO);
+    const ilegivel = desenhar({ linhas: ["BILHETE DE IDENTIDADE"], fundo: 1, ruido: 0, semente: 1 });
+    await m.servico.receber(GENUINO.id, "bi", ilegivel);
+    const r = await m.servico.receber(GENUINO.id, "bi", ilegivel);
+    assert.ok(r.estado === "novo_carregamento" && r.restantes === 2 && r.motivoPublico === "ilegivel");
+  });
+
+  it("M29: o dia de hoje e o de Luanda — as 23:30 UTC ja e amanha la", async () => {
+    const hoje = (agora: string) => {
+      const m = montar({ agora: new Date(agora) });
+      return m;
+    };
+    for (const [agora, esperado] of [["2026-11-10T22:30:00Z", "k1_ok"], ["2026-11-10T23:30:00Z", "fila"]] as const) {
+      const m = hoje(agora);
+      m.juntar(GENUINO);
+      for (const t of TIPOS) {
+        await m.servico.receber(GENUINO.id, t, t === "alvara" ? alvaraCom(GENUINO, "10/11/2026", 800) : GENUINO.documentos[t]);
+      }
+      const d = await m.servico.decidir(GENUINO.id);
+      assert.ok(d.estado === "decidido" && d.avaliacao.resultado === esperado, `${agora}: ${JSON.stringify(d)}`);
+    }
   });
 });
 

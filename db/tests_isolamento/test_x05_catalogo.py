@@ -231,6 +231,11 @@ class TestCatalogoReal(ComBase):
                 ("platform", "fraud_signals", "tenant_id"),
                 ("platform", "handoff_accounts", "tenant_id"),
                 ("platform", "handoffs", "tenant_id"),
+                # KAM-087: a verificacao K1, entre `handoffs` e
+                # `manual_confirmations` («ha» < «ky» < «ma»). O caso de
+                # onboarding vem mais abaixo, depois de `offer_terms`. As tres
+                # listas deste ficheiro no mesmo PR.
+                ("platform", "kyc_check", "tenant_id"),
                 # KAM-020: a midia, e a posicao e entre `handoffs` e
                 # `message_templates` — «ha» < «me», e contra
                 # `message_templates` decide o terceiro caracter («d» < «s»).
@@ -244,6 +249,8 @@ class TestCatalogoReal(ComBase):
                 # `tenant_id` e **parte da chave primaria** e nao uma
                 # coluna ao lado dela.
                 ("platform", "offer_terms", "tenant_id"),
+                # KAM-087: o caso de onboarding («off» < «onb» < «ord»).
+                ("platform", "onboarding_case", "tenant_id"),
                 # KAM-044: as quatro das encomendas. A ordem e a do `sorted()`
                 # por ponto de codigo, e nela o `_` (0x5F) vence o `s` (0x73):
                 # as tres `order_*` vem **antes** da `orders_mirror`, e todas
@@ -308,6 +315,10 @@ class TestCatalogoReal(ComBase):
                 # listas deste ficheiro que precisam de uma tabela isolada nova,
                 # e as tres estao feitas no mesmo PR.
                 ("platform", "provisioning_step", "tenant_id"),
+                # KAM-071: o registo da purga, entre a saga e o reembolso
+                # («pro» < «pur» < «ref»). As tres listas deste ficheiro no
+                # mesmo PR, pela licao que a nota do KAM-017 escreveu.
+                ("platform", "purge_log", "tenant_id"),
                 ("platform", "refund_cases", "tenant_id"),
                 # KAM-045: a reserva de stock, entre o caso de reembolso e o
                 # canal («ref» < «sto» < «ten»). A nota do KAM-044 mais abaixo
@@ -497,6 +508,9 @@ class TestCatalogoReal(ComBase):
                 # A consulta pede so `tablename`, pelo que a ordem e alfabetica
                 # pelo nome e nao pelo esquema: depois de `hmac_key_versions`,
                 # antes de `media_assets`.
+                # KAM-087: a verificacao K1, antes das do `dat` («ky» < «ll»).
+                # Uma politica so, a do `db/rls.py`.
+                ("kyc_check", "tenant_iso", "ALL", "{public}"),
                 ("llm_call_log", "tenant_iso", "ALL", "{public}"),
                 ("llm_call_log_default", "tenant_iso", "ALL", "{public}"),
                 ("manual_confirmations", "tenant_iso", "ALL", "{public}"),
@@ -508,6 +522,9 @@ class TestCatalogoReal(ComBase):
                 # `rls.enable_tenant_rls` e o unico sitio onde a politica se
                 # escreve, e nao toma parametros de papel.
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
+                # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
+                # `tenant_id` pre-alocado.
+                ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
                 # `_` (0x5F) vence o `s` (0x73) — as tres `order_*` vem antes da
                 # `orders_mirror`. `ALL` e `{public}` nas quatro, como em todas:
@@ -583,6 +600,10 @@ class TestCatalogoReal(ComBase):
                 # tabelas de `platform` que nao sao lidas pelo resolvedor. Entre
                 # `price_quotes` e `refund_cases` pelo nome da tabela.
                 ("provisioning_step", "tenant_iso", "ALL", "{public}"),
+                # KAM-071: uma politica so, a do `db/rls.py`. As linhas de
+                # `tenant_id` nulo (um `DROP` de particao) nao casam com ela, e
+                # so as ve quem tem `BYPASSRLS` — a forma do `audit_log`.
+                ("purge_log", "tenant_iso", "ALL", "{public}"),
                 ("refund_cases", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
@@ -703,6 +724,8 @@ class TestCatalogoReal(ComBase):
              # `fraud_signals` antes de `handoff_accounts` ('f' < 'h').
              "fraud_signals",
              "handoff_accounts", "handoffs",
+             # KAM-087: a verificacao K1.
+             "kyc_check",
              # KAM-020: a midia. **Quarta lista deste ficheiro a precisar de
              # uma tabela nova**, e a nota do KAM-019 ja avisava que eram tres:
              # a descoberta, as politicas por nome, e esta. Conta-se aqui para
@@ -717,6 +740,8 @@ class TestCatalogoReal(ComBase):
              # listas sao perguntas diferentes sobre a mesma tabela, e quem
              # acrescenta uma corre o *gate* 6 **inteiro**. Medido outra vez.
              "message_templates", "offer_terms",
+             # KAM-087: o caso de onboarding.
+             "onboarding_case",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
              # vez — **sexta lista deste ficheiro a precisar de uma tabela
              # nova**, e as cinco anteriores ja estavam feitas quando esta
@@ -758,6 +783,8 @@ class TestCatalogoReal(ComBase):
              "price_quotes",
              # KAM-091: o estado da saga, entre a cotacao e o caso de reembolso.
              "provisioning_step",
+             # KAM-071: o registo da purga.
+             "purge_log",
              "refund_cases",
              # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
              "stock_reservations",

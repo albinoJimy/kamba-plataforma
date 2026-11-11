@@ -23,7 +23,7 @@ import type {
   Verificacao,
   VerificacaoNova,
 } from "./contrato.ts";
-import type { CasosMortos } from "./servico.ts";
+import { FASES_PURGAVEIS, type CasosMortos } from "./servico.ts";
 
 export class VerificacoesEmMemoria implements RepositorioDeVerificacoes {
   readonly linhas: Verificacao[] = [];
@@ -55,10 +55,10 @@ export class VerificacoesEmMemoria implements RepositorioDeVerificacoes {
     );
   }
 
-  async decidir(ids: readonly string[], resultado: Resultado, score: number, flags: readonly Marca[]): Promise<void> {
+  async decidir(ids: readonly string[], resultado: Resultado, score: number): Promise<void> {
     for (let i = 0; i < this.linhas.length; i++) {
       const v = this.linhas[i]!;
-      if (ids.includes(v.id)) this.linhas[i] = { ...v, resultado, score, flags: [...flags] };
+      if (ids.includes(v.id)) this.linhas[i] = { ...v, resultado, score };
     }
   }
 
@@ -98,7 +98,7 @@ export class CasosEmMemoria implements CasosDoKyc, CasosMortos {
     return this.casos.get(id) ?? null;
   }
 
-  async marcarFase(id: string, fase: "rejeitado"): Promise<boolean> {
+  async marcarFase(id: string, fase: "rejeitado" | "em_revisao"): Promise<boolean> {
     const c = this.casos.get(id);
     if (c === undefined) return false;
     this.casos.set(id, { ...c, fase, faseEm: this.#relogio() });
@@ -107,7 +107,7 @@ export class CasosEmMemoria implements CasosDoKyc, CasosMortos {
 
   async mortosAte(limite: Date): Promise<readonly { onboardingId: string; tenantId: string }[]> {
     return [...this.casos.values()]
-      .filter((c) => (c.fase === "rejeitado" || c.fase === "abandonado") && c.faseEm <= limite)
+      .filter((c) => FASES_PURGAVEIS.includes(c.fase) && c.faseEm <= limite)
       .map((c) => ({ onboardingId: c.id, tenantId: c.tenantId }));
   }
 

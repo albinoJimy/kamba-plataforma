@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.78"
+versao_dicionario: "1.79"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -211,7 +211,7 @@ entradas:
       - "restrito"
   - seccao: "3.2"
     conceito: "Fase do onboarding"
-    canonico: "onboarding_case.fase, catorze valores (§3.55)"
+    canonico: "onboarding_case.fase, catorze valores (§3.56)"
     literais:
       - "onboarding_case.fase"
     nomes:
@@ -223,6 +223,10 @@ entradas:
       - "provisionando"
       - "aguarda_es"
       - "aguarda_catalogo"
+      - "activo"
+      - "pronto"
+      - "channel_onboarding.fase"
+      - "EstadoGuardado.estado"
     variantes_literais:
       - "onboarding_case.estado"
   - seccao: "3.2"
@@ -697,7 +701,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado}"
     literais:
       - "action"
       - "price.update"
@@ -709,6 +713,8 @@ entradas:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
     nomes:
       - "action"
       - "price.update"
@@ -720,6 +726,8 @@ entradas:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
     nomes_nota:
       - "audit.read"
     variantes_literais: []
@@ -14117,6 +14125,204 @@ entradas:
       - "es_guia_desligado"
     variantes_literais: []
   - seccao: "3.55"
+    conceito: "Política de retenção"
+    canonico: "retention_policy: a POLITICA de ../libs/py-core/src/kamba_core/retencao/politica.py, com VERSAO_DA_POLITICA"
+    literais:
+      - "retention_policy"
+      - "POLITICA"
+      - "VERSAO_DA_POLITICA"
+    nomes:
+      - "retention_policy"
+      - "POLITICA"
+      - "VERSAO_DA_POLITICA"
+    nomes_nota:
+      - "purge_log"
+      - "validar"
+      - "SEM_DADOS_PESSOAIS"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Mecanismo de uma classe"
+    canonico: "apagar, largar_particao, ttl_sto, ciclo_do_repositorio, externo, delegado, fiscal, conservar, encerramento"
+    literais:
+      - "apagar"
+      - "largar_particao"
+      - "ttl_sto"
+      - "ciclo_do_repositorio"
+      - "externo"
+      - "delegado"
+      - "fiscal"
+      - "conservar"
+      - "encerramento"
+    nomes:
+      - "apagar"
+      - "largar_particao"
+      - "ttl_sto"
+      - "ciclo_do_repositorio"
+      - "externo"
+      - "delegado"
+      - "fiscal"
+      - "conservar"
+      - "encerramento"
+    nomes_nota:
+      - "fiscal"
+      - "delegado"
+      - "recusada"
+      - "ok"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Prazo fiscal"
+    canonico: "fiscal_retention_years, lido de KAMBA_FISCAL_RETENTION_YEARS"
+    literais:
+      - "fiscal_retention_years"
+      - "KAMBA_FISCAL_RETENTION_YEARS"
+    nomes:
+      - "fiscal_retention_years"
+      - "KAMBA_FISCAL_RETENTION_YEARS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Registo da purga"
+    canonico: "platform.purge_log, catorze colunas"
+    literais:
+      - "platform.purge_log"
+    nomes:
+      - "platform.purge_log"
+    nomes_nota:
+      - "purge_id"
+      - "execucao_id"
+      - "classe"
+      - "tabela"
+      - "tenant_id"
+      - "modo"
+      - "resultado"
+      - "motivo"
+      - "linhas"
+      - "objectos"
+      - "janela_ate"
+      - "politica_versao"
+      - "iniciado_at"
+      - "registado_at"
+      - "contact_id"
+      - "DROP"
+      - "erasure_ledger"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Modo de uma purga"
+    canonico: "purge_log.modo ∈ {efectiva, dry_run}"
+    literais:
+      - "purge_log.modo"
+      - "efectiva"
+      - "dry_run"
+    nomes:
+      - "purge_log.modo"
+      - "efectiva"
+      - "dry_run"
+    nomes_nota:
+      - "modo"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Resultado de uma unidade"
+    canonico: "purge_log.resultado ∈ {ok, recusada, retida, falhou}"
+    literais:
+      - "purge_log.resultado"
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    nomes:
+      - "purge_log.resultado"
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    nomes_nota:
+      - "retida"
+      - "falhou"
+      - "ok"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Motivo de uma unidade sem ok"
+    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
+    literais:
+      - "purge_log.motivo"
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    nomes:
+      - "ok"
+      - "purge_log.motivo"
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    nomes_nota:
+      - "ok"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Hold legal no registo de auditoria"
+    canonico: "retention.hold_aplicado e retention.hold_levantado"
+    literais:
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
+    nomes:
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
+    nomes_nota:
+      - "audit_log.action"
+      - "entity"
+      - "retention_hold_tenant"
+      - "retention_hold_contact"
+      - "uuid"
+      - "entity_id"
+      - "payload_hash"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Fecho de uma conversa"
+    canonico: "o mais tardio de conversations.window_expires_at e conversations.last_human_activity_at"
+    literais:
+      - "conversations.window_expires_at"
+      - "conversations.last_human_activity_at"
+    nomes:
+      - "conversations.window_expires_at"
+      - "conversations.last_human_activity_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Partição mensal"
+    canonico: "<pai>_aaaa_mm, em platform.events_log e dat.llm_call_log, criada e largada por ../db/particoes.py"
+    literais:
+      - "<pai>_aaaa_mm"
+      - "platform.events_log"
+      - "dat.llm_call_log"
+    nomes:
+      - "pai"
+      - "_aaaa_mm"
+      - "platform.events_log"
+      - "dat.llm_call_log"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "FORCE"
+      - "tenant_iso"
+      - "DEFAULT"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Retenção, o módulo"
+    canonico: "../libs/py-core/src/kamba_core/retencao/"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.56"
     conceito: "Caso de onboarding"
     canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
     literais:
@@ -14156,7 +14362,7 @@ entradas:
       - "kyc_check"
       - "DELETE"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Fase do caso"
     canonico: "onboarding_case.fase ∈ {registo, otp_pendente, kyc_pendente, em_revisao, aprovado, provisionando, aguarda_es, lista_espera, aguarda_catalogo, aguarda_teste, activo, rejeitado, abandonado, cancelado}"
     literais:
@@ -14200,7 +14406,7 @@ entradas:
       - "ativo"
       - "tenants.estado"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Entrada na fase"
     canonico: "onboarding_case.fase_at"
     literais:
@@ -14214,7 +14420,7 @@ entradas:
       - "UPDATE"
       - "fase"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Origem do convite"
     canonico: "onboarding_case.origem ∈ {convite, contabilista, anuncio}"
     literais:
@@ -14230,7 +14436,7 @@ entradas:
     nomes_nota:
       - "ORIGENS"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Marca do caso"
     canonico: "onboarding_case.flags ⊆ {duplicado_ambiguo}"
     literais:
@@ -14244,7 +14450,7 @@ entradas:
       - "flags"
       - "ARRAY"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Unicidade do NIF vivo"
     canonico: "índice onboarding_nif_vivo sobre nif_hmac, parcial"
     literais:
@@ -14257,7 +14463,7 @@ entradas:
       - "fase"
       - "CasoDuplicadoError"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Verificação K1 de um documento"
     canonico: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
     literais:
@@ -14288,7 +14494,7 @@ entradas:
       - "phash"
       - "kamba_app"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Tipo de documento K1"
     canonico: "kyc_check.doc_tipo ∈ {nif, alvara, bi, banco}"
     literais:
@@ -14305,7 +14511,7 @@ entradas:
       - "banco"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Resultado de uma verificação"
     canonico: "kyc_check.resultado ∈ {k1_ok, fila, ilegivel, pendente}"
     literais:
@@ -14325,7 +14531,7 @@ entradas:
       - "rejeitado"
       - "fase"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Marca de uma verificação"
     canonico: "kyc_check.flags ⊆ {nif_divergente, alvara_expirado, imagem_reutilizada, software_de_edicao, iban_invalido, nome_titular_divergente, confianca_baixa, actividade_incoerente, visao_recusada, orcamento_excedido, ilegivel}"
     literais:
@@ -14356,7 +14562,7 @@ entradas:
       - "ilegivel"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Objecto do documento"
     canonico: "kyc_check.doc_ref, a chave do STO, com starts_with(doc_ref, 't/' \|\| tenant_id \|\| '/kyc_documento/')"
     literais:
@@ -14366,7 +14572,7 @@ entradas:
     nomes_nota:
       - "kyc_documento"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Hash perceptual"
     canonico: "kyc_check.phash, 8 octetos"
     literais:
@@ -14376,7 +14582,7 @@ entradas:
     nomes_nota:
       - "bit_count"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Campos extraídos"
     canonico: "kyc_check.extraido_enc"
     literais:
@@ -14389,7 +14595,7 @@ entradas:
       - "rejeitado"
       - "abandonado"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Versão das regras"
     canonico: "kyc_check.versao_regras, SemVer; VERSAO_DAS_REGRAS = 1.0.0"
     literais:
@@ -14403,7 +14609,7 @@ entradas:
       - "kyc"
       - "vision"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Custo de LLM de uma verificação"
     canonico: "kyc_check.custo_micro_usd, inteiro ≥ 0"
     literais:
@@ -14412,7 +14618,7 @@ entradas:
       - "kyc_check.custo_micro_usd"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "Motivo público do KYC"
     canonico: "MotivoPublico ∈ {ilegivel, alvara_expirado, nao_foi_possivel_validar}"
     literais:
@@ -15580,7 +15786,7 @@ tabelas:
       - "activo_at"
     aberta: false
     assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Caso de onboarding"
   - nome: "kyc_check"
     esquema: "platform"
@@ -15601,7 +15807,7 @@ tabelas:
       - "criado_at"
     aberta: false
     assinatura: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Verificação K1 de um documento"
 
 dominios:
@@ -15675,6 +15881,8 @@ dominios:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -16817,6 +17025,34 @@ dominios:
     seccao: "3.54"
     conceito: "Capacidade antes do popup"
     so_no_registo: false
+  - coluna: "purge_log.modo"
+    valores:
+      - "efectiva"
+      - "dry_run"
+    seccao: "3.55"
+    conceito: "Modo de uma purga"
+    so_no_registo: false
+  - coluna: "purge_log.resultado"
+    valores:
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    seccao: "3.55"
+    conceito: "Resultado de uma unidade"
+    so_no_registo: false
+  - coluna: "purge_log.motivo"
+    valores:
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    seccao: "3.55"
+    conceito: "Motivo de uma unidade sem ok"
+    so_no_registo: false
   - coluna: "onboarding_case.fase"
     valores:
       - "registo"
@@ -16833,7 +17069,7 @@ dominios:
       - "rejeitado"
       - "abandonado"
       - "cancelado"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Fase do caso"
     so_no_registo: false
   - coluna: "onboarding_case.origem"
@@ -16841,7 +17077,7 @@ dominios:
       - "convite"
       - "contabilista"
       - "anuncio"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Origem do convite"
     so_no_registo: false
   - coluna: "kyc_check.doc_tipo"
@@ -16850,7 +17086,7 @@ dominios:
       - "alvara"
       - "bi"
       - "banco"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Tipo de documento K1"
     so_no_registo: false
   - coluna: "kyc_check.resultado"
@@ -16859,7 +17095,7 @@ dominios:
       - "fila"
       - "ilegivel"
       - "pendente"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Resultado de uma verificação"
     so_no_registo: false
   - coluna: "MotivoPublico"
@@ -16867,7 +17103,7 @@ dominios:
       - "ilegivel"
       - "alvara_expirado"
       - "nao_foi_possivel_validar"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "Motivo público do KYC"
     so_no_registo: false
 

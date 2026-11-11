@@ -6,7 +6,7 @@
  * é o que diz ser, já foi visto noutro caso, e passou por um editor de imagem.
  */
 
-import { ferramentaDoXmp } from "./png.ts";
+import { ferramentaDoXmp, softwareDoTiff } from "./png.ts";
 import type { Formato, Pagina } from "./contrato.ts";
 
 /**
@@ -68,31 +68,6 @@ export function softwareDoJpeg(bytes: Uint8Array): string[] {
       }
     }
     i = fim;
-  }
-  return achados;
-}
-
-function softwareDoTiff(t: Uint8Array): string[] {
-  if (t.length < 8) return [];
-  const pequeno = t[0] === 0x49 && t[1] === 0x49;
-  if (!pequeno && !(t[0] === 0x4d && t[1] === 0x4d)) return [];
-  const u16 = (o: number): number => (pequeno ? t[o]! | (t[o + 1]! << 8) : (t[o]! << 8) | t[o + 1]!);
-  const u32 = (o: number): number =>
-    (pequeno
-      ? t[o]! | (t[o + 1]! << 8) | (t[o + 2]! << 16) | (t[o + 3]! << 24)
-      : (t[o]! << 24) | (t[o + 1]! << 16) | (t[o + 2]! << 8) | t[o + 3]!) >>> 0;
-  const ifd = u32(4);
-  if (ifd + 2 > t.length) return [];
-  const entradas = u16(ifd);
-  const achados: string[] = [];
-  for (let k = 0; k < entradas; k++) {
-    const e = ifd + 2 + k * 12;
-    if (e + 12 > t.length) break;
-    if (u16(e) !== 0x0131 || u16(e + 2) !== 2) continue;
-    const n = u32(e + 4);
-    const o = n <= 4 ? e + 8 : u32(e + 8);
-    if (n === 0 || n > 200 || o + n > t.length) continue;
-    achados.push(Buffer.from(t.subarray(o, o + n)).toString("latin1").replace(/\0+$/, ""));
   }
   return achados;
 }

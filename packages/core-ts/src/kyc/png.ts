@@ -58,6 +58,37 @@ export function ferramentaDoXmp(xmp: string): string[] {
   return achados.filter((s) => s !== "");
 }
 
+/**
+ * A etiqueta `Software` (0x0131) do primeiro IFD de um bloco TIFF/EXIF. Cada
+ * leitura confere-se contra o tamanho do bloco: um deslocamento para fora dele
+ * ignora-se, não se segue. Serve o JPEG (`./forense.ts`) e o pedaço `eXIf` do
+ * PNG.
+ */
+export function softwareDoTiff(t: Uint8Array): string[] {
+  if (t.length < 8) return [];
+  const pequeno = t[0] === 0x49 && t[1] === 0x49;
+  if (!pequeno && !(t[0] === 0x4d && t[1] === 0x4d)) return [];
+  const u16 = (o: number): number => (pequeno ? t[o]! | (t[o + 1]! << 8) : (t[o]! << 8) | t[o + 1]!);
+  const u32 = (o: number): number =>
+    (pequeno
+      ? t[o]! | (t[o + 1]! << 8) | (t[o + 2]! << 16) | (t[o + 3]! << 24)
+      : (t[o]! << 24) | (t[o + 1]! << 16) | (t[o + 2]! << 8) | t[o + 3]!) >>> 0;
+  const ifd = u32(4);
+  if (ifd + 2 > t.length) return [];
+  const entradas = u16(ifd);
+  const achados: string[] = [];
+  for (let k = 0; k < entradas; k++) {
+    const e = ifd + 2 + k * 12;
+    if (e + 12 > t.length) break;
+    if (u16(e) !== 0x0131 || u16(e + 2) !== 2) continue;
+    const n = u32(e + 4);
+    const o = n <= 4 ? e + 8 : u32(e + 8);
+    if (n === 0 || n > 200 || o + n > t.length) continue;
+    achados.push(Buffer.from(t.subarray(o, o + n)).toString("latin1").replace(/\0+$/, ""));
+  }
+  return achados;
+}
+
 /** Descodifica um PNG em cinzento de 8 bits. Ver a nota do módulo. */
 export function descodificarPng(bytes: Uint8Array, pixeisMaximos: number): PngLido {
   if (bytes.length < 8 || ASSINATURA_PNG.some((v, i) => bytes[i] !== v)) {
@@ -103,6 +134,22 @@ export function descodificarPng(bytes: Uint8Array, pixeisMaximos: number): PngLi
         const chave = Buffer.from(dados.subarray(0, zero)).toString("latin1");
         const valor = Buffer.from(dados.subarray(zero + 1)).toString("latin1");
         if (CHAVES_DE_SOFTWARE.has(chave.toLowerCase())) software.push(valor.slice(0, 200));
+      }
+    } else if (tipo === "eXIf") {
+      software.push(...softwareDoTiff(dados));
+    } else if (tipo === "zTXt") {
+      const zero = dados.indexOf(0);
+      if (zero > 0 && dados[zero + 1] === 0) {
+        const chave = Buffer.from(dados.subarray(0, zero)).toString("latin1");
+        if (CHAVES_DE_SOFTWARE.has(chave.toLowerCase())) {
+          try {
+            // Com tecto: um metadado não tem razão para passar de 4 KiB.
+            const valor = inflateSync(dados.subarray(zero + 2), { maxOutputLength: 4096 });
+            software.push(valor.toString("latin1").slice(0, 200));
+          } catch {
+            // Um pedaço que não descomprime no tecto não se lê, e não vale nada.
+          }
+        }
       }
     } else if (tipo === "iTXt") {
       const zero = dados.indexOf(0);

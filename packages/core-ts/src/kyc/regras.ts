@@ -231,11 +231,17 @@ export function avaliar(entrada: EntradaDasRegras): Avaliacao {
   return { marcas: lista, score, resultado: fila ? "fila" : "k1_ok", recomendacao: recomendar(lista, fila) };
 }
 
+/**
+ * As marcas que pedem investigação e não documentos novos. A `actividade_incoerente`
+ * está aqui: é o vector «declarar moda e vender álcool» do KAM-088, e um
+ * «aprovar» como recomendação dela era o T&S a ler o contrário do risco.
+ */
 const SINAIS_DE_FRAUDE: readonly Marca[] = [
   "nif_divergente",
   "imagem_reutilizada",
   "software_de_edicao",
   "nome_titular_divergente",
+  "actividade_incoerente",
 ];
 
 function recomendar(marcas: readonly Marca[], fila: boolean): Recomendacao {

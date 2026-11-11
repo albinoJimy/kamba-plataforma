@@ -39,6 +39,7 @@ import { codificarPngCinzento } from "./png.ts";
 import {
   CAMPOS,
   OrcamentoExcedidoError,
+  RespostaDeVisaoInvalidaError,
   VisaoNaoAutorizadaError,
   type DocRef,
   type Extraido,
@@ -170,13 +171,19 @@ export class OcrDeVisao implements OcrProvider {
       throw new Error(`vision_llm respondeu ${resposta.status}`);
     }
     const custo = Number(resposta.headers.get("x-litellm-response-cost") ?? "NaN");
-    let campos: unknown = {};
+    let campos: unknown;
     try {
       const conteudo = (JSON.parse(corpo) as { choices?: { message?: { content?: unknown } }[] })
         .choices?.[0]?.message?.content;
-      campos = typeof conteudo === "string" ? JSON.parse(conteudo) : {};
+      campos = typeof conteudo === "string" ? JSON.parse(conteudo) : null;
     } catch {
-      campos = {};
+      campos = null;
+    }
+    // Uma resposta que não é um objecto de campos é uma avaria do fornecedor e
+    // não um documento ilegível: lida como `{}`, três recusas do modelo
+    // rejeitavam o caso sem humano (achado A9).
+    if (typeof campos !== "object" || campos === null || Array.isArray(campos)) {
+      throw new RespostaDeVisaoInvalidaError("resposta sem objecto de campos");
     }
     // Os campos voltam crus: quem os valida é o serviço, pela mesma função que
     // valida os do OCR local. Um custo que não se lê conta como o tecto inteiro,

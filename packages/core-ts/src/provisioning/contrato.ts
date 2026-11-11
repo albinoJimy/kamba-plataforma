@@ -60,7 +60,7 @@
  * diz `pronto`. Divergem o nome da coluna (`fase` contra `estado`) e o domínio.
  *
  * Não se resolveu aqui: a tabela é do KAM-086 e alterar o canon é do fundador.
- * **Resolveu-a a emenda 1.78 (KAM-087, dicionário §3.55)**: a coluna chama-se
+ * **Resolveu-a a emenda 1.79 (KAM-087, dicionário §3.56)**: a coluna chama-se
  * `fase` e leva os catorze valores, `aguarda_teste` e `abandonado` incluídos.
  */
 
@@ -131,7 +131,7 @@ export type EstadoDePasso = (typeof ESTADOS_DE_PASSO)[number];
  * `provisioning_step.status_de_espera`, que é coluna **nova** e domínio deste
  * ticket, e entram pelo `canon/extensoes.yaml` qualificados. A falta de
  * `aguarda_teste` e de `abandonado` em `onboarding_case.fase` ficou registada
- * para quem escrevesse essa tabela, e a emenda 1.78 (KAM-087) pô-los lá.
+ * para quem escrevesse essa tabela, e a emenda 1.79 (KAM-087) pô-los lá.
  */
 export const ESPERAS = ["aguarda_es", "aguarda_catalogo", "aguarda_teste"] as const;
 export type Espera = (typeof ESPERAS)[number];

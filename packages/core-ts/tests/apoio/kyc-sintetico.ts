@@ -234,6 +234,8 @@ export interface CasoSintetico {
   readonly nifDeclarado: string;
   readonly categoria: string;
   readonly documentos: Readonly<Record<TipoDeDocumento, Uint8Array>>;
+  /** O texto de cada documento, para um ensaio o redesenhar com uma linha mudada. */
+  readonly linhas: Readonly<Record<TipoDeDocumento, readonly string[]>>;
   /** Para a injecção: o mesmo caso **sem** as linhas injectadas. */
   readonly controlo?: Readonly<Record<TipoDeDocumento, Uint8Array>>;
 }
@@ -376,6 +378,7 @@ export function gerarConjunto(): CasoSintetico[] {
               categoria: p.negocio.categoria,
               documentos: { ...documentos, alvara: documento("alvara", INJECCAO) },
               controlo: documentos,
+              linhas: t,
             }
           : {
               id: uuid(r),
@@ -385,6 +388,7 @@ export function gerarConjunto(): CasoSintetico[] {
               nifDeclarado: p.nif,
               categoria: p.negocio.categoria,
               documentos,
+              linhas: t,
             };
       casos.push(caso);
       fundosAnteriores.push(...fundos);

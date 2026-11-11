@@ -69,8 +69,9 @@ export const SQL_PHASH_NOUTRO_CASO = `SELECT EXISTS (
      AND bit_count(('x' || encode(phash, 'hex'))::bit(64)
                    # ('x' || encode($2::bytea, 'hex'))::bit(64)) <= $3) AS visto`;
 
+/** Só o resultado e o *score*: as `flags` são do ficheiro (achado A1). */
 export const SQL_DECIDIR = `UPDATE platform.kyc_check
-  SET resultado = $2, score = $3, flags = $4::text[]
+  SET resultado = $2, score = $3
   WHERE id = ANY($1::uuid[])`;
 
 export const SQL_CUSTO_DO_CASO = `SELECT coalesce(sum(custo_micro_usd), 0)::bigint AS total
@@ -161,8 +162,8 @@ export class VerificacoesSql implements RepositorioDeVerificacoes {
     return r.rows[0]?.visto === true;
   }
 
-  async decidir(ids: readonly string[], resultado: Resultado, score: number, flags: readonly Marca[]): Promise<void> {
-    await this.#c.query(SQL_DECIDIR, [[...ids], resultado, score, [...flags]]);
+  async decidir(ids: readonly string[], resultado: Resultado, score: number): Promise<void> {
+    await this.#c.query(SQL_DECIDIR, [[...ids], resultado, score]);
   }
 
   async custoDoCaso(onboardingId: string): Promise<number> {
