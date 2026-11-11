@@ -1425,7 +1425,6 @@ entradas:
     nomes_nota:
       - "evento_pagamento_id"
       - "id"
-      - "payment"
       - "order.exception"
       - "preco_tipo"
       - "expira_at"
@@ -11219,7 +11218,6 @@ entradas:
       - "cancelada"
       - "CHECK"
       - "valor_divergente"
-      - "payment.failed"
     variantes_literais: []
   - seccao: "3.43"
     conceito: "Quem confirma a entrega"
@@ -14417,7 +14415,6 @@ entradas:
     nomes:
       - "ESTADOS_DE_EXCEPCAO"
     nomes_nota:
-      - "payment"
       - "paga"
       - "cancelada"
       - "ESTADOS_INCOMPATIVEIS"

@@ -113,10 +113,10 @@
     },
     "prazo_reclamacao_dias": {
       "$ref": "#/$defs/bigint_nao_negativo",
-      "description": "Prazo de reclamacao de uma encomenda entregue, em dias desde a entrega. Uma disputa (`entregue -> em_disputa`) fora do prazo e recusada; sem a chave declarada, NENHUM prazo e assumido e a disputa entra (KAM-050, criterio 8).",
+      "description": "Prazo de reclamacao de uma encomenda entregue: uma contagem de DIAS desde a entrega. Uma disputa (`entregue -> em_disputa`) fora do prazo e recusada; sem a chave declarada, NENHUM prazo e assumido e a disputa entra (KAM-050, criterio 8).",
       "x-kamba-categoria": "tecto_por_pedido",
       "x-kamba-consumivel": false,
-      "x-kamba-unidade": "dias",
+      "x-kamba-unidade": "contagem",
       "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.78, KAM-050); `specs/EPIC-04_Core_Comercio.md`, bloco KAM-050, criterio 8.",
       "x-kamba-sem-omissao": "Nao entra em `registry/plans.yaml` e nao tem valor por omissao em codigo nenhum, de proposito: o direito de desistencia de 7 dias uteis em compras por WhatsApp e INDICIO e espera parecer (KAM-104). A AUSENCIA da chave nao e «prazo zero»: ao contrario dos outros tectos, quem a le trata `sem_entitlement` como «sem prazo configurado» e deixa a disputa entrar, porque recusar uma reclamacao por um prazo que ninguem fixou era assumir um prazo legal."
     }
