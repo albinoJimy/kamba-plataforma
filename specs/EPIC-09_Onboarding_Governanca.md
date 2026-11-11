@@ -1536,7 +1536,7 @@ Entregue no ramo `feature/KAM-099-painel`, sobre a `publico/main` em `b55d2a84`:
 operações do COM (`listarOfertas`, `alterarOferta`) em
 [`../services/com/src/produtos/produtos.ts`](../services/com/src/produtos/produtos.ts) com as rotas
 `/internal/list-offers` e `/internal/update-offer`, o caso `X-01/ts/painel` do *gate* 6 e o dicionário
-§3.55 (emenda 1.78). **Um critério satisfeito e oito parciais; quatro caixas da DoD de seis.**
+§3.56 (emenda 1.79). **Um critério satisfeito e oito parciais; quatro caixas da DoD de seis.**
 **Sem revisão de base de dados**, e não por falta de vaga: a escrita passa pelo módulo `produtos` do
 COM, e a versão optimista é uma coluna que a `offer_terms` já tem (o `atualizado_at`).
 
@@ -1593,7 +1593,7 @@ revogação em memória (critério 1) e as métricas não servidas (DoD 5).
 | Alterações de preço e stock em `audit_log` imutável; sem telefone em claro em logs (ADR-010) | **satisfeito** | `price.update` e `stock.adjust` pelo `audit_append` do KAM-012, na transacção da escrita. Os *logs* do painel só levam `outcome` e `error_code` de lista fechada; `log_policy` com 0 achados |
 | Sem Typebot/n8n; sem Medusa Admin exposto; dependências e licenças verificadas | **satisfeito** | Nenhuma dependência nova nos dois serviços. As duas rotas novas do COM servem um dono a ler e corrigir o **seu** catálogo, atrás da credencial interna e do `x-kamba-tenant`; o Medusa Admin continua sem superfície |
 | Métricas de uso do painel e erros nascem com o código (ADR-018); migração (se houver) reversível | **parcial** | Sem migração. `painel_pedidos_total{rota}` e `painel_erros_total{rota,motivo}`, com domínios fechados e sem tenant, contadas pelas rotas; **declaradas e não servidas**, porque o `onboarding-web` não tem rota `/metrics`. Propagação do inventário do `obs_lint`: `contar_metricas` → 24 módulos, 133 nomes, 135 declaradas |
-| Documentação actualizada; sem segredos | **satisfeito** | Este bloco; dicionário §3.55 e §3.39 (emenda 1.78), com o `canon/dicionario.yaml` regenerado; `../docs/observabilidade.md` 1.9; nota do KAM-080 no EPIC-08 1.16; `../docs/com/port-coverage.md` 1.6; `com_internal_token` com o `onboarding-web` como terceiro consumidor no inventário de segredos. *Gate* 9 limpo |
+| Documentação actualizada; sem segredos | **satisfeito** | Este bloco; dicionário §3.56 e §3.39 (emenda 1.79), com o `canon/dicionario.yaml` regenerado; `../docs/observabilidade.md` 1.9; nota do KAM-080 no EPIC-08 1.16; `../docs/com/port-coverage.md` 1.6; `com_internal_token` com o `onboarding-web` como terceiro consumidor no inventário de segredos. *Gate* 9 limpo |
 
 **O que fica em memória, e o credor.** As sessões revogadas e as chaves de idempotência vivem em
 memória, como o repositório de casos do KAM-086 — e o `server.ts` continua a recusar arrancar em

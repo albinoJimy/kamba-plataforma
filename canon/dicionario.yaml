@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.78"
+versao_dicionario: "1.79"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -703,7 +703,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado}"
     literais:
       - "action"
       - "price.update"
@@ -715,6 +715,8 @@ entradas:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
     nomes:
       - "action"
       - "price.update"
@@ -726,6 +728,8 @@ entradas:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
     nomes_nota:
       - "audit.read"
     variantes_literais: []
@@ -14119,6 +14123,204 @@ entradas:
       - "es_guia_desligado"
     variantes_literais: []
   - seccao: "3.55"
+    conceito: "Política de retenção"
+    canonico: "retention_policy: a POLITICA de ../libs/py-core/src/kamba_core/retencao/politica.py, com VERSAO_DA_POLITICA"
+    literais:
+      - "retention_policy"
+      - "POLITICA"
+      - "VERSAO_DA_POLITICA"
+    nomes:
+      - "retention_policy"
+      - "POLITICA"
+      - "VERSAO_DA_POLITICA"
+    nomes_nota:
+      - "purge_log"
+      - "validar"
+      - "SEM_DADOS_PESSOAIS"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Mecanismo de uma classe"
+    canonico: "apagar, largar_particao, ttl_sto, ciclo_do_repositorio, externo, delegado, fiscal, conservar, encerramento"
+    literais:
+      - "apagar"
+      - "largar_particao"
+      - "ttl_sto"
+      - "ciclo_do_repositorio"
+      - "externo"
+      - "delegado"
+      - "fiscal"
+      - "conservar"
+      - "encerramento"
+    nomes:
+      - "apagar"
+      - "largar_particao"
+      - "ttl_sto"
+      - "ciclo_do_repositorio"
+      - "externo"
+      - "delegado"
+      - "fiscal"
+      - "conservar"
+      - "encerramento"
+    nomes_nota:
+      - "fiscal"
+      - "delegado"
+      - "recusada"
+      - "ok"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Prazo fiscal"
+    canonico: "fiscal_retention_years, lido de KAMBA_FISCAL_RETENTION_YEARS"
+    literais:
+      - "fiscal_retention_years"
+      - "KAMBA_FISCAL_RETENTION_YEARS"
+    nomes:
+      - "fiscal_retention_years"
+      - "KAMBA_FISCAL_RETENTION_YEARS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Registo da purga"
+    canonico: "platform.purge_log, catorze colunas"
+    literais:
+      - "platform.purge_log"
+    nomes:
+      - "platform.purge_log"
+    nomes_nota:
+      - "purge_id"
+      - "execucao_id"
+      - "classe"
+      - "tabela"
+      - "tenant_id"
+      - "modo"
+      - "resultado"
+      - "motivo"
+      - "linhas"
+      - "objectos"
+      - "janela_ate"
+      - "politica_versao"
+      - "iniciado_at"
+      - "registado_at"
+      - "contact_id"
+      - "DROP"
+      - "erasure_ledger"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Modo de uma purga"
+    canonico: "purge_log.modo ∈ {efectiva, dry_run}"
+    literais:
+      - "purge_log.modo"
+      - "efectiva"
+      - "dry_run"
+    nomes:
+      - "purge_log.modo"
+      - "efectiva"
+      - "dry_run"
+    nomes_nota:
+      - "modo"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Resultado de uma unidade"
+    canonico: "purge_log.resultado ∈ {ok, recusada, retida, falhou}"
+    literais:
+      - "purge_log.resultado"
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    nomes:
+      - "purge_log.resultado"
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    nomes_nota:
+      - "retida"
+      - "falhou"
+      - "ok"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Motivo de uma unidade sem ok"
+    canonico: "purge_log.motivo ∈ {fiscal_sem_prazo, fiscal_imutavel, hold_tenant, hold_contacto, sem_caminho, particao_por_criar, erro}"
+    literais:
+      - "purge_log.motivo"
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    nomes:
+      - "ok"
+      - "purge_log.motivo"
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    nomes_nota:
+      - "ok"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Hold legal no registo de auditoria"
+    canonico: "retention.hold_aplicado e retention.hold_levantado"
+    literais:
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
+    nomes:
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
+    nomes_nota:
+      - "audit_log.action"
+      - "entity"
+      - "retention_hold_tenant"
+      - "retention_hold_contact"
+      - "uuid"
+      - "entity_id"
+      - "payload_hash"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Fecho de uma conversa"
+    canonico: "o mais tardio de conversations.window_expires_at e conversations.last_human_activity_at"
+    literais:
+      - "conversations.window_expires_at"
+      - "conversations.last_human_activity_at"
+    nomes:
+      - "conversations.window_expires_at"
+      - "conversations.last_human_activity_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Partição mensal"
+    canonico: "<pai>_aaaa_mm, em platform.events_log e dat.llm_call_log, criada e largada por ../db/particoes.py"
+    literais:
+      - "<pai>_aaaa_mm"
+      - "platform.events_log"
+      - "dat.llm_call_log"
+    nomes:
+      - "pai"
+      - "_aaaa_mm"
+      - "platform.events_log"
+      - "dat.llm_call_log"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "FORCE"
+      - "tenant_iso"
+      - "DEFAULT"
+    variantes_literais: []
+  - seccao: "3.55"
+    conceito: "Retenção, o módulo"
+    canonico: "../libs/py-core/src/kamba_core/retencao/"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.56"
     conceito: "As rotas do painel"
     canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
     literais: []
@@ -14128,7 +14330,7 @@ entradas:
       - "sku"
       - "order_id"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "A sessão do painel"
     canonico: "cookie kamba_painel, domínio kamba/painel/sessao/v1, v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
     literais:
@@ -14148,7 +14350,7 @@ entradas:
       - "tenant_id"
       - "sid"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "O corpo da gravação"
     canonico: "preco_tipo, preco_minor, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
     literais:
@@ -14174,7 +14376,7 @@ entradas:
       - "Key"
     variantes_literais:
       - "preco_modo"
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "A versão optimista de uma oferta"
     canonico: "offer_terms.atualizado_at, como texto UTC com microssegundos (OfertaDoPainel.versao)"
     literais:
@@ -14192,7 +14394,7 @@ entradas:
       - "now"
       - "preco_valido_ate"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "As operações do painel no COM"
     canonico: "listarOfertas, alterarOferta, servidas por POST /internal/list-offers e POST /internal/update-offer"
     literais:
@@ -14207,7 +14409,7 @@ entradas:
       - "createOrder"
       - "Resultado"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "A origem de auditoria do painel"
     canonico: "painel_do_dono"
     literais:
@@ -14222,7 +14424,7 @@ entradas:
       - "onboarding_id"
       - "actor_id"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "As métricas do painel"
     canonico: "painel_pedidos_total{rota}, painel_erros_total{rota,motivo}"
     literais:
@@ -14252,7 +14454,7 @@ entradas:
       - "onboarding"
       - "web"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "O estado do canal no painel"
     canonico: "VistaDoCanal.estado ∈ {ativo, a_sincronizar, desligado, sem_canal}"
     literais:
@@ -14271,7 +14473,7 @@ entradas:
       - "platform.channels"
       - "sem_canal"
     variantes_literais: []
-  - seccao: "3.55"
+  - seccao: "3.56"
     conceito: "A configuração do painel"
     canonico: "ONBOARDING_COM_INTERNO_URL, PAINEL_PRECO_MAXIMO_KZ"
     literais:
@@ -15487,6 +15689,8 @@ dominios:
       - "audit.read"
       - "privacy.dsar_recusado"
       - "privacy.dsar_rectificado"
+      - "retention.hold_aplicado"
+      - "retention.hold_levantado"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -16629,13 +16833,41 @@ dominios:
     seccao: "3.54"
     conceito: "Capacidade antes do popup"
     so_no_registo: false
+  - coluna: "purge_log.modo"
+    valores:
+      - "efectiva"
+      - "dry_run"
+    seccao: "3.55"
+    conceito: "Modo de uma purga"
+    so_no_registo: false
+  - coluna: "purge_log.resultado"
+    valores:
+      - "ok"
+      - "recusada"
+      - "retida"
+      - "falhou"
+    seccao: "3.55"
+    conceito: "Resultado de uma unidade"
+    so_no_registo: false
+  - coluna: "purge_log.motivo"
+    valores:
+      - "fiscal_sem_prazo"
+      - "fiscal_imutavel"
+      - "hold_tenant"
+      - "hold_contacto"
+      - "sem_caminho"
+      - "particao_por_criar"
+      - "erro"
+    seccao: "3.55"
+    conceito: "Motivo de uma unidade sem ok"
+    so_no_registo: false
   - coluna: "VistaDoCanal.estado"
     valores:
       - "ativo"
       - "a_sincronizar"
       - "desligado"
       - "sem_canal"
-    seccao: "3.55"
+    seccao: "3.56"
     conceito: "O estado do canal no painel"
     so_no_registo: false
 
