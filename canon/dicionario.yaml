@@ -1372,6 +1372,7 @@ entradas:
       - "versao_politica"
       - "sha256"
       - "screening_decision.conteudo_sha256"
+      - "evt_emitir"
       - "tenant_id"
       - "v1"
       - "v2"

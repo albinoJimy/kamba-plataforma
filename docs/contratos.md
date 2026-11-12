@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/contratos.md` |
 | Ticket | KAM-007 — Catálogo de eventos: schemas versionados e teste de compatibilidade |
-| Estado | 39 tipos em `contratos/eventos/`, com `v1` e `v2` cada (78 contratos; o 39.º, `screening.violation_detected`, é do KAM-191); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emenda 1.11 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
+| Estado | 39 tipos em `contratos/eventos/`, com `v1` e `v2` cada (78 contratos; o 39.º, `screening.violation_detected`, é do KAM-191); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11 e 1.83 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
 | Âmbito | O **contrato** de um evento: o que um produtor pode emitir e o que um consumidor pode esperar, e o que impede isso de mudar sem versão. Não o laço de publicação (`docs/eventos.md`) nem o de consumo (`docs/consumo.md`) |
 | Fontes | `docs/tecnica/06` §4, §5, §6.6, §7.1, §7.3; `docs/tecnica/01` §6.3, §7.2; `specs/02` §3.5 (emenda 1.11); ADR-009, ADR-010, ADR-013 |
 
@@ -92,7 +92,16 @@ re-análise do screening (KAM-088) encontra quando um produto publicado passa a
 `bloqueada` numa versão nova da política. Agregado `product` com o `sku` como
 `id`, classe P0, e um payload de quatro campos — `sku`, `regras`,
 `versao_politica` e `sha256` —, sem texto do produto e sem `tenant_id`, que vai
-no envelope. O resumo chama-se `sha256` e não `conteudo_sha256`, que é o nome
+no envelope (nenhum dos outros trinta e oito leva `tenant_id` no payload).
+
+**O resumo vai em base32 (RFC 4648, minúsculas, sem `=`), e não em hexadecimal.**
+O `evt_emitir` recusa todo o payload que case a guarda de telefone
+(`\+?244 ?9[0-9]{8}`), e 64 hexadecimais casam-na num conteúdo em cada ~50 mil.
+A revisão adversarial encontrou um: a recusa desfazia a decisão, a execução
+seguinte da re-análise voltava ao mesmo produto pela mesma ordem, e parava nele
+para sempre — e um tenant podia fabricar o conteúdo de propósito. O alfabeto do
+base32 não tem `9` nem `+`, pelo que nenhum resumo casa a guarda, por
+construção. O resumo chama-se `sha256` e não `conteudo_sha256`, que é o nome
 da coluna: o *lint* de PII do §4.2 compara por raiz e `conteudo` é uma delas.
 O nome escolhido já é canónico, e uma excepção na lista aprovada seria um campo
 que nada mais vigiava.
@@ -104,6 +113,16 @@ versão de cada tipo cubra o domínio inteiro de `finalidades` (dez), e o
 *gate*. O produtor (`packages/core-ts/src/screening/emissor.ts`) emite a `v1`,
 como os eventos de catálogo do COM, porque a finalidade dele (`transacao`) está
 nas duas e uma `v1` lê-se em qualquer subscrição sem conversor.
+
+**Duas propriedades que o consumidor (KAM-097) tem de saber.** O agregado
+`(product, sku)` é o mesmo do `catalog.product_changed` e do
+`catalog.price_changed`, pelo que a sequência `agregado.seq` é partilhada: quem
+só subscreve os de catálogo vê saltos no `seq`, e não há hoje consumidor que
+exija `seq` contíguo. E a `screening_decision` é *append-only* sem unicidade,
+pelo que duas execuções sobrepostas da re-análise podem decidir o mesmo
+produto e emitir duas violações com `id` diferentes: a deduplicação por
+`event_id` não as junta, e quem conta violações deduplica por
+`(tenant_id, sku, versao_politica, sha256)`.
 
 ## 4. O que impede um contrato de partir
 

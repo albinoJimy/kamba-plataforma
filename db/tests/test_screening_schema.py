@@ -23,6 +23,7 @@ O que so uma base prova, e por isso este ficheiro existe:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -94,6 +95,11 @@ def gravar(cursor, tenant_id: str, **campos) -> None:
     valores.update(campos)
     q = ConsultaDoTypeScript("SQL_GRAVAR", SQL_TS)
     cursor.execute(q.sql, q.args(*valores.values()))
+
+
+def _base32(resumo: bytes) -> str:
+    """O `sha256EmBase32` do `emissor.ts`, pela biblioteca padrao: RFC 4648."""
+    return base64.b32encode(resumo).decode("ascii").lower().rstrip("=")
 
 
 def caso(cursor) -> tuple[str, str]:
@@ -254,12 +260,14 @@ class TestViolacao(ComBase):
     uma escrita recusada aborta a transaccao com a decisao dentro.
     """
 
-    def _emitir(self, cursor, tenant: str, sku: str = "sku-1") -> tuple[str, dict]:
+    def _emitir(
+        self, cursor, tenant: str, sku: str = "sku-1", resumo: str | None = None
+    ) -> tuple[str, dict]:
         payload = {
             "sku": sku,
             "regras": ["armas"],
             "versao_politica": VERSAO,
-            "sha256": _sha("camisola").hex(),
+            "sha256": _base32(_sha("camisola")) if resumo is None else resumo,
         }
         q = ConsultaDoTypeScript("SQL_EMITIR_VIOLACAO", EMISSOR_TS)
         cursor.execute(
@@ -309,6 +317,31 @@ class TestViolacao(ComBase):
         # um evento orfao.
         conexao.rollback()
         self.assertEqual(self._contar(tenant), (0, 0))
+
+    def test_o_resumo_em_base32_passa_a_guarda_onde_o_hexadecimal_caia(self) -> None:
+        """Achado F1: o hexadecimal do resumo casava a guarda de telefone.
+
+        O conteudo e o que a revisao adversarial encontrou, e o resumo e
+        calculado aqui (o JSON canonico do `conteudoSha256`). Com hexadecimal o
+        `evt_emitir` recusava (`23514`), a decisao desfazia-se e a re-analise
+        parava no mesmo produto em todas as execucoes; com base32, passa.
+        """
+        resumo = hashlib.sha256(
+            json.dumps(["moda", ["vinho tinto 65521"]], separators=(",", ":")).encode("utf-8")
+        ).digest()
+        app = self.ligar("app").cursor()
+        tenant = str(uuid.uuid4())
+        factories.contexto(app, tenant)
+        q = ConsultaDoTypeScript("SQL_EMITIR_VIOLACAO", EMISSOR_TS)
+        payload_hex = json.dumps(
+            {"sku": "s", "regras": ["alcool"], "versao_politica": VERSAO, "sha256": resumo.hex()}
+        )
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK, app, q.sql,
+            q.args(TIPO_VIOLACAO, 1, tenant, "product", "s", payload_hex, "P0", ["transacao"]),
+        )
+        event_id, _ = self._emitir(app, tenant, sku="s", resumo=_base32(resumo))
+        self.assertTrue(event_id)
 
     def test_uma_escrita_recusada_desfaz_a_decisao(self) -> None:
         import pg8000.dbapi

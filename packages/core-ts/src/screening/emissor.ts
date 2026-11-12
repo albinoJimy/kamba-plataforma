@@ -34,7 +34,7 @@
  * O payload não leva texto do produto: leva o `sku` (referência), as regras
  * (identificadores da política), a versão da política e o `sha256` do conteúdo
  * decidido — o mesmo resumo da `screening_decision.conteudo_sha256`, em
- * hexadecimal. O `tenant_id` vai no envelope, que é o que o `evt_emitir` põe e
+ * **base32** e não em hexadecimal (ver `sha256EmBase32`). O `tenant_id` vai no envelope, que é o que o `evt_emitir` põe e
  * o que a RLS do *outbox* confere; não se repete no payload, que é o caminho por
  * onde um tenant de outro poderia entrar.
  *
@@ -46,8 +46,9 @@ import type { PayloadScreeningViolationDetected } from "@kamba/contracts";
 
 import { validarPayload } from "../eventos/contratos.ts";
 import { comTenant } from "../tenant_guard/index.ts";
+import type { DependenciasDoScreen } from "./motor.ts";
 import type { EmissorDeViolacoes, PorProduto, Violacao } from "./reanalise.ts";
-import type { ClienteSql } from "./sql.ts";
+import { CatalogoSql, type ClienteSql, EscritorSql } from "./sql.ts";
 
 export const TIPO_VIOLACAO = "screening.violation_detected";
 export const VERSAO_VIOLACAO = 1;
@@ -78,13 +79,49 @@ export function porProdutoSql(cliente: ClienteSql): PorProduto {
     comTenant(cliente, tenantId, () => trabalho());
 }
 
+/** O alfabeto do base32 do RFC 4648, em minúsculas. Sem `0`, `1`, `8` e `9`. */
+const ALFABETO_BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+
+/**
+ * O resumo em base32 (RFC 4648, minúsculas, sem `=`): 52 caracteres para 32
+ * octetos.
+ *
+ * **Não é hexadecimal, e a razão é uma avaria medida** (achado F1 da revisão
+ * adversarial). O `evt_emitir` recusa todo o payload que case
+ * `\+?244 ?9[0-9]{8}` — a guarda de telefone da revisão `0004` —, e 64
+ * hexadecimais casam-na em cerca de um conteúdo em cinquenta mil (estimado:
+ * 53 posições × (1/16)⁴ × (10/16)⁸): o produto «vinho tinto 65521» da categoria
+ * `moda` dá um resumo em que `244` aparece seguido de um `9` e de mais oito
+ * algarismos. A recusa desfazia a decisão, a execução seguinte voltava ao mesmo
+ * produto pela mesma ordem, e a re-análise ficava parada nele para sempre — e
+ * um tenant conseguia fabricar esse conteúdo de propósito. O alfabeto do base32
+ * não tem `9` nem `+`, pelo que **nenhum** resumo casa as duas expressões da
+ * guarda, por construção e não por probabilidade.
+ */
+export function sha256EmBase32(octetos: Uint8Array): string {
+  let saida = "";
+  let acumulado = 0;
+  let bits = 0;
+  for (const octeto of octetos) {
+    acumulado = (acumulado << 8) | octeto;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      saida += ALFABETO_BASE32[(acumulado >>> bits) & 31];
+    }
+    acumulado &= (1 << bits) - 1;
+  }
+  if (bits > 0) saida += ALFABETO_BASE32[(acumulado << (5 - bits)) & 31];
+  return saida;
+}
+
 /** O payload do contrato, a partir de uma violação. Sem texto do produto. */
 export function payloadDaViolacao(violacao: Violacao): PayloadScreeningViolationDetected {
   return {
     sku: violacao.sku,
     regras: [...violacao.regras],
     versao_politica: violacao.versaoPolitica,
-    sha256: Buffer.from(violacao.conteudoSha256).toString("hex"),
+    sha256: sha256EmBase32(violacao.conteudoSha256),
   };
 }
 
@@ -121,4 +158,35 @@ export class EmissorSql implements EmissorDeViolacoes {
       );
     }
   }
+}
+
+/** As ligações e o que a re-análise de produção precisa além delas. */
+export interface LigacoesDaReanalise {
+  /** A ligação de `kamba_app`: decisões, eventos e a transacção por produto. */
+  readonly app: ClienteSql;
+  /** A ligação de `kamba_batch`: o catálogo por re-analisar, que atravessa tenants. */
+  readonly batch: ClienteSql;
+  readonly politica: DependenciasDoScreen["politica"];
+  readonly classificador: DependenciasDoScreen["classificador"];
+}
+
+/**
+ * As dependências de produção do `reanalisar`, montadas num sítio só
+ * (achado F3 da revisão adversarial).
+ *
+ * A garantia «a decisão e o evento na mesma transacção» depende de o
+ * `EscritorSql`, o `EmissorSql` e o `porProdutoSql` assentarem na **mesma**
+ * ligação. Deixá-la a quem monta o *job* era deixá-la a uma linha que ninguém
+ * ensaia: um emissor sobre outra ligação confirmava o evento à parte. Aqui só
+ * há um sítio onde a ligação da aplicação entra, e os três usam-na.
+ */
+export function dependenciasDaReanalise(ligacoes: LigacoesDaReanalise) {
+  return {
+    politica: ligacoes.politica,
+    classificador: ligacoes.classificador,
+    escritor: new EscritorSql(ligacoes.app),
+    emissor: new EmissorSql(ligacoes.app),
+    porProduto: porProdutoSql(ligacoes.app),
+    catalogo: new CatalogoSql(ligacoes.batch),
+  };
 }

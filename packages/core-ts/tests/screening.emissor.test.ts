@@ -20,14 +20,14 @@ import { validarPayload } from "../src/eventos/contratos.ts";
 import {
   AGREGADO_VIOLACAO,
   CLASSE_PII_VIOLACAO,
+  dependenciasDaReanalise,
   type ClienteSql,
   conteudoSha256,
   EmissorSql,
-  EscritorSql,
   FINALIDADES_VIOLACAO,
   payloadDaViolacao,
   politicaCorrente,
-  porProdutoSql,
+  sha256EmBase32,
   reanalisar,
   SQL_EMITIR_VIOLACAO,
   SQL_GRAVAR,
@@ -68,7 +68,7 @@ function cliente(resposta: () => unknown = () => ({ event_id: "0192f1c4-7b1e-7d2
 }
 
 describe("o payload de screening.violation_detected", () => {
-  it("leva sku, regras, versao_politica e o sha256 em hexadecimal, e nada mais", () => {
+  it("leva sku, regras, versao_politica e o sha256 em base32, e nada mais", () => {
     const p = payloadDaViolacao(violacao());
     assert.deepEqual(Object.keys(p).sort(), ["regras", "sha256", "sku", "versao_politica"]);
     assert.equal(p.sku, "SKU-1");
@@ -76,11 +76,44 @@ describe("o payload de screening.violation_detected", () => {
     assert.equal(p.versao_politica, "1.0.0+m.2");
     // O oraculo e o sha256 do JSON canonico, calculado aqui e nao importado:
     // trocar o `conteudoSha256` do modulo por outro resumo poe isto vermelho.
+    // A codificacao e verificada a parte, contra os vectores do RFC 4648.
     const esperado = createHash("sha256")
       .update(JSON.stringify([ENTRADA.categoria_declarada, ENTRADA.textos]), "utf8")
-      .digest("hex");
-    assert.equal(p.sha256, esperado);
-    assert.match(p.sha256, /^[0-9a-f]{64}$/);
+      .digest();
+    assert.equal(p.sha256, sha256EmBase32(esperado));
+    assert.match(p.sha256, /^[a-z2-7]{52}$/);
+  });
+
+  it("o base32 e o do RFC 4648 (seccao 10), em minusculas e sem `=`", () => {
+    const vectores: [string, string][] = [
+      ["", ""],
+      ["f", "my"],
+      ["fo", "mzxq"],
+      ["foo", "mzxw6"],
+      ["foob", "mzxw6yq"],
+      ["fooba", "mzxw6ytb"],
+      ["foobar", "mzxw6ytboi"],
+    ];
+    for (const [entrada, saida] of vectores) {
+      assert.equal(sha256EmBase32(Buffer.from(entrada, "utf8")), saida, entrada);
+    }
+  });
+
+  it("(F1) um resumo nunca casa a guarda de telefone do evt_emitir, e o hexadecimal casava", () => {
+    // As duas expressoes da revisao 0004, copiadas do SQL e nao importadas.
+    const guarda = [/\+?244 ?9[0-9]{8}/, /"\+[0-9]{9,15}"/];
+    // O conteudo que a revisao adversarial encontrou: o hexadecimal do resumo
+    // dele tem `244` seguido de `9` e de oito algarismos. Com hexadecimal, o
+    // evt_emitir recusava o evento, a decisao desfazia-se, e a re-analise
+    // voltava a parar no mesmo produto em todas as execucoes.
+    const entrada = { categoria_declarada: "moda", textos: ["vinho tinto 65521"] };
+    const octetos = conteudoSha256(entrada);
+    const hex = Buffer.from(octetos).toString("hex");
+    assert.ok(guarda[0]!.test(hex), "o caso deixou de reproduzir o defeito do hexadecimal");
+    const payload = JSON.stringify(payloadDaViolacao({ ...violacao(), conteudoSha256: octetos }));
+    for (const expressao of guarda) assert.ok(!expressao.test(payload), payload);
+    // Por construcao, e nao so neste caso: o alfabeto nao tem `9` nem `+`.
+    assert.ok(!/[0189+]/.test(sha256EmBase32(octetos)));
   });
 
   it("nao leva o texto do produto em campo nenhum", () => {
@@ -135,7 +168,7 @@ describe("EmissorSql", () => {
   });
 });
 
-describe("a re-analise com o EmissorSql e o porProdutoSql", () => {
+describe("a re-analise montada pela dependenciasDaReanalise", () => {
   /**
    * Um cliente que regista o que lhe chega e falha o `evt_emitir` quando se
    * lhe pede. A transaccao **nao** e simulada: e o `comTenant` real, por
@@ -157,21 +190,29 @@ describe("a re-analise com o EmissorSql e o porProdutoSql", () => {
       { tenantId: TENANT, sku: "SKU-1", categoriaDeclarada: "moda", textos: ["vinho tinto"] },
       { tenantId: TENANT, sku: "SKU-2", categoriaDeclarada: "moda", textos: ["camisola de la"] },
     ];
+    // O catalogo vem de **outra** ligacao, a do `kamba_batch`, e devolve as
+    // linhas na forma do `SQL_POR_REANALISAR`.
     let lido = false;
-    const deps = {
+    const batch: ClienteSql = {
+      query: async <T,>() => {
+        const linhas = lido
+          ? []
+          : produtos.map((p) => ({
+              tenant_id: p.tenantId,
+              sku: p.sku,
+              nome: p.textos[0],
+              categoria_declarada: p.categoriaDeclarada,
+            }));
+        lido = true;
+        return { rows: linhas as T[] };
+      },
+    };
+    const deps = dependenciasDaReanalise({
+      app: c,
+      batch,
       politica: politicaCorrente(),
       classificador: null,
-      escritor: new EscritorSql(c),
-      emissor: new EmissorSql(c),
-      catalogo: {
-        porReanalisar: async () => {
-          if (lido) return [];
-          lido = true;
-          return produtos;
-        },
-      },
-      porProduto: porProdutoSql(c),
-    };
+    });
     /** A sequencia, com o SQL de cada passo trocado por um nome legivel. */
     const passos = () =>
       consultas.map((q) =>
@@ -204,9 +245,10 @@ describe("a re-analise com o EmissorSql e o porProdutoSql", () => {
     ]);
     const gravar = consultas.find((q) => q.sql === SQL_GRAVAR)!;
     const emitir = consultas.find((q) => q.sql === SQL_EMITIR_VIOLACAO)!;
-    // O sha256 do evento e o da decisao gravada: o mesmo conteudo, a mesma prova.
+    // O sha256 do evento e o da decisao gravada: o mesmo conteudo, a mesma prova
+    // (a codificacao, verificada contra o RFC 4648 no seu proprio ensaio).
     const payload = JSON.parse(emitir.valores[5] as string) as Record<string, unknown>;
-    assert.equal(payload["sha256"], Buffer.from(gravar.valores[8] as Buffer).toString("hex"));
+    assert.equal(payload["sha256"], sha256EmBase32(new Uint8Array(gravar.valores[8] as Buffer)));
   });
 
   it("uma falha da escrita no outbox desfaz a transaccao com a decisao, e para a execucao", async () => {

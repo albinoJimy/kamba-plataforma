@@ -91,12 +91,15 @@ export {
 export {
   AGREGADO_VIOLACAO,
   CLASSE_PII_VIOLACAO,
+  dependenciasDaReanalise,
   EmissorSql,
   FINALIDADES_VIOLACAO,
   payloadDaViolacao,
   porProdutoSql,
+  sha256EmBase32,
   SQL_EMITIR_VIOLACAO,
   TIPO_VIOLACAO,
   VERSAO_VIOLACAO,
+  type LigacoesDaReanalise,
 } from "./emissor.ts";
 export { CatalogoSql, EscritorSql, LeitorSql, SQL_DECISOES, SQL_GRAVAR, SQL_POR_REANALISAR, type ClienteSql } from "./sql.ts";

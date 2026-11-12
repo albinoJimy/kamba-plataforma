@@ -146,8 +146,8 @@
         },
         "sha256": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$",
-          "description": "O screening_decision.conteudo_sha256 da decisao, em hexadecimal minusculo. Um resumo, e nao o texto do produto."
+          "pattern": "^[a-z2-7]{52}$",
+          "description": "O screening_decision.conteudo_sha256 da decisao, em base32 (RFC 4648, minusculas, sem padding). Base32 e nao hexadecimal: o alfabeto nao tem 9 nem +, e por isso nenhum resumo casa a guarda de telefone do evt_emitir. Um resumo, e nao o texto do produto."
         }
       }
     }
