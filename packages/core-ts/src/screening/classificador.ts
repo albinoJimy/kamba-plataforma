@@ -26,7 +26,7 @@ import { DECISOES, type Decisao } from "./tipos.ts";
  * O alias do proxy LiteLLM que o bloco nomeia (KAM-030).
  *
  * **Declarado em `llm/aliases.yaml` com o papel próprio `screening`** (dicionário
- * §3.29, emenda 1.85, KAM-192): aquele ficheiro tem um alias por papel e o
+ * §3.29, emenda 1.84, KAM-192): aquele ficheiro tem um alias por papel e o
  * cliente do AGR indexa-os por papel, pelo que com um papel existente tomava o
  * lugar de outro alias. Declarado não é ligado: o modelo é `por_decidir` e o
  * papel não tem finalidade de transferência, pelo que o `screen` continua a
