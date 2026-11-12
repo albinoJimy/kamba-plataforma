@@ -23,9 +23,11 @@
  * `platform.manual_reverter` — que abre o caso **dentro** de uma reversão no
  * *ledger*. Abrir um caso sem essa reversão é a decisão que a revisão `0039`
  * (KAM-060) devolveu ao fundador por escrito: «um caso aberto por um lote, sem
- * reversão no *ledger*, é um caso que ninguém sabe fechar». O que fica por
- * decidir é quem escreve a `refund_cases` fora de uma reversão manual, e com que
- * papel. Até lá, o caso é o `order.refund_requested` e a excepção na encomenda.
+ * reversão no *ledger*, é um caso que ninguém sabe fechar». **Decidiu-a a
+ * 2026-11-12, opção (b):** quem abre o caso é o PAY, ao consumir o
+ * `order.refund_requested`, com o papel do PAY — a tabela tem um só dono, e o
+ * COM nunca lhe escreve. O consumidor fica num ticket do EPIC-05; até lá, o
+ * caso é o `order.refund_requested` e a excepção na encomenda.
  */
 
 import { checkCeiling } from "@kamba/core-ts/ten";

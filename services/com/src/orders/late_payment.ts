@@ -38,7 +38,7 @@
  * está paga. O grafo não tem aresta para isto e não deve ter: a encomenda fica no
  * estado em que está, ganha a excepção na coluna e emite `order.exception` e
  * `order.refund_requested`. **Não se escreve na `refund_cases`**: ver a nota do
- * `refunds.ts` — é decisão devolvida ao fundador.
+ * `refunds.ts` — abre-a o PAY ao consumir o pedido (decisão (b) do fundador).
  *
  * **A regra 4 só dispara hoje por um dos dois caminhos.** Um segundo pagamento
  * de uma **segunda cobrança** (uma referência antiga paga depois de uma nova)

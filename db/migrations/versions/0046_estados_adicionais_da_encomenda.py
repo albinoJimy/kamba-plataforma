@@ -32,8 +32,10 @@ Revisao **aditiva**: nao apaga coluna, tabela nem linha. O que faz, por ordem:
 ## O que **nao** faz
 
 **Nao escreve na `refund_cases`, nem lhe da escritor.** Abrir um caso de
-reembolso sem reversao no *ledger* e a decisao que a `0039` devolveu ao
-fundador; as regras 3 e 4 ficam com a excepcao e o evento.
+reembolso sem reversao no *ledger* era a decisao que a `0039` devolveu ao
+fundador, e ele decidiu-a a 2026-11-12 pela opcao (b): abre-o o PAY ao
+consumir o `order.refund_requested`. As regras 3 e 4 ficam com a excepcao e
+o evento.
 
 ## O `downgrade` e aditivo, e recusa em vez de apagar
 
