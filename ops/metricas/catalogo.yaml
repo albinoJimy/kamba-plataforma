@@ -227,6 +227,50 @@ metricas:
       - nome: estado
         cardinalidade_maxima: 16
 
+  # --------------------------------------------------- IDX, no AGR (KAM-193)
+  #
+  # O modulo e o `kamba_core.idx.metricas`, e quem o serve e a `/metrics` do
+  # AGR, que e onde a pesquisa corre (o executor do `search_catalog`). Os dois
+  # dominios estao **por extenso** e sao os do codigo (`MODOS` e `RAMOS`); o
+  # `libs/py-core/tests/test_idx_metricas.py` confronta os dois lados. O `ramo`
+  # tem um valor so, `todos`, porque o `idx.candidatos` corre os tres ramos numa
+  # instrucao e o processo so ve a duracao dela: a razao esta no modulo. Nenhuma
+  # das tres leva o texto da pergunta, e o registo nem o recebe.
+  - nome: idx_query_ms
+    tipo: gauge
+    fonte: libs/py-core/src/kamba_core/idx/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Duracao da ultima pesquisa no indice, em ms, por ramo e modo.
+    etiquetas:
+      - nome: ramo
+        dominio:
+          - todos
+      - nome: modo
+        dominio:
+          - hibrido
+          - lexical
+
+  - nome: idx_results_total
+    tipo: counter
+    fonte: libs/py-core/src/kamba_core/idx/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Candidatos devolvidos pela pesquisa no indice, somados.
+    etiquetas: []
+
+  - nome: idx_mode
+    tipo: counter
+    fonte: libs/py-core/src/kamba_core/idx/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Pesquisas no indice, por modo.
+    etiquetas:
+      - nome: modo
+        dominio:
+          - hibrido
+          - lexical
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A
