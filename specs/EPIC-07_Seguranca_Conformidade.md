@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.32 |
+| Versão | 1.33 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -2305,4 +2305,5 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.29 | Novembro 2026 | KAM-190 (acrescentado ao EPIC-09 no PR do KAM-099): a contagem viva do backlog na nota do `assert` passa de 189 a **190**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.30 | Novembro 2026 | KAM-191 e KAM-192 (acrescentados ao EPIC-09 no PR do KAM-088): a contagem viva do backlog na nota do `assert` passa de 190 a **192**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | KAM-193 (acrescentado ao EPIC-06 no PR do KAM-061): a contagem viva do backlog na nota do `assert` passa de 192 a **193**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
-| 1.32 | Novembro 2026 | KAM-195 (acrescentado ao EPIC-09 no PR do KAM-192): o `Bloqueia` do KAM-069 ganha o KAM-195, que depende dele para a finalidade de transferência do papel `screening`; e a contagem viva do backlog na nota do `assert` passa de 193 a **195**, com o KAM-194 do PR do KAM-193. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.32 | Novembro 2026 | KAM-194 (acrescentado ao EPIC-01 no PR do KAM-193): a contagem viva do backlog na nota do `assert` passa de 193 a **194**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.33 | Novembro 2026 | KAM-195 (acrescentado ao EPIC-09 no PR do KAM-192): o `Bloqueia` do KAM-069 ganha o KAM-195, que depende dele para a finalidade de transferência do papel `screening`; e a contagem viva do backlog na nota do `assert` passa de 194 a **195**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

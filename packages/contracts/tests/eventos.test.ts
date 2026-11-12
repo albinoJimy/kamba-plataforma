@@ -23,7 +23,7 @@ import { CATALOGO, type TipoDeEvento } from "../src/eventos.gerado.ts";
 const CONTRATOS = new URL("../../../contratos/eventos/", import.meta.url);
 
 /** Os trinta e oito do dicionário §3.5, emenda 1.11. */
-const ESPERADOS = 38;
+const ESPERADOS = 40;
 
 /**
  * As versões de um tipo, lidas da pasta.

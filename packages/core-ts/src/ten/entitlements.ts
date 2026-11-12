@@ -18,7 +18,7 @@
  *
  * ## As duas perguntas nao sao a mesma, e a diferenca esta no registo
  *
- * As dez chaves de `registry/entitlement_keys.schema.json` nao sao todas da
+ * As onze chaves de `registry/entitlement_keys.schema.json` nao sao todas da
  * mesma especie, e o registo di-lo em `x-kamba-consumivel`:
  *
  * * **baldes por periodo** (`msgs_ai_mes`, `marcacoes_mes`, …) acumulam-se e
@@ -193,11 +193,11 @@ export interface ChaveDeLimite {
 }
 
 /**
- * As dez chaves do registo, com a especie de cada uma.
+ * As onze chaves do registo, com a especie de cada uma.
  *
  * ## Porque e que isto existe
  *
- * O registo ja dizia, em `x-kamba-consumivel`, quais das dez chaves se
+ * O registo ja dizia, em `x-kamba-consumivel`, quais das onze chaves se
  * consomem — e **nada lia esse campo**. A consequencia media-se: nada impedia
  * `consumeLimit(tenant, "valor_max_pedido_minor", 5_000_000, …)`, que cria
  * linha em `platform.tenant_usage` para um tecto que nao tem contador e, com o
@@ -256,6 +256,14 @@ export const CHAVES_DE_LIMITE: Readonly<Record<string, ChaveDeLimite>> = {
   manual_max_por_contacto_24h: {
     nome: "manual_max_por_contacto_24h",
     categoria: CATEGORIA_TECTO_POR_JANELA,
+    consumivel: false,
+  },
+  // KAM-050, criterio 8: o prazo de reclamacao, em dias desde a entrega. Tecto
+  // por pedido como os tres de cima, com uma diferenca que vive em quem o le e
+  // nao aqui: sem a chave declarada nao ha prazo nenhum (ver o registo).
+  prazo_reclamacao_dias: {
+    nome: "prazo_reclamacao_dias",
+    categoria: CATEGORIA_TECTO_POR_PEDIDO,
     consumivel: false,
   },
 };
@@ -331,7 +339,7 @@ export class ChaveDesconhecidaError extends Error {
   constructor(nome: string) {
     super(
       `a chave ${JSON.stringify(nome)} nao esta no registo de chaves de limite ` +
-        "(`registry/entitlement_keys.schema.json`, dez chaves). O registo recusa " +
+        "(`registry/entitlement_keys.schema.json`, onze chaves). O registo recusa " +
         "chaves desconhecidas na escrita; esta recusa-as na leitura.",
     );
     this.name = "ChaveDesconhecidaError";

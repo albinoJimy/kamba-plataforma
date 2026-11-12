@@ -162,6 +162,62 @@ export const SQL_EMITIR = `
   ) AS event_id
 `;
 
+// ------------------------------------------------ KAM-050: as excepções
+
+/**
+ * Marca a excepção da encomenda (KAM-050, regras 2, 3 e 4 do `03` §6.6).
+ *
+ * **Não é uma transição**: o estado não muda, a `version` não sobe e o
+ * `order_transicao_valida` não tem nada a dizer — ele só olha para o estado e
+ * para o `lines_snapshot`. É por isso que não leva CAS: duas marcações
+ * concorrentes não se contradizem, e a de transição que a acompanha (regra 2)
+ * já correu o seu.
+ *
+ * **A primeira excepção fica**, pelo `COALESCE`. A coluna guarda uma e não uma
+ * lista, e uma segunda excepção sobre a mesma encomenda (um duplicado depois de
+ * um pagamento tardio sem stock) não pode apagar a primeira, que pode estar por
+ * resolver. Cada uma tem o seu `order.exception`, e é o *outbox* que guarda a
+ * história.
+ */
+export const SQL_MARCAR_EXCEPCAO = `
+  UPDATE platform.orders_mirror
+     SET excepcao = COALESCE(excepcao, $3),
+         atualizado_at = now()
+   WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+  RETURNING id, excepcao
+`;
+
+/**
+ * A linha de auditoria do reembolso registado (KAM-050, critério 5).
+ *
+ * A mesma porta do `produtos/consultas.ts` (`platform.audit_append`, revisão
+ * `0006`), com o *hash* calculado na base pela razão escrita no
+ * `produtos/auditoria.ts`: a coluna exige 32 bytes, e o `sha256` da base é a
+ * mesma função que o verificador usa. A acção é `order.refund_record`, que a
+ * revisão `0046` acrescenta ao domínio fechado do `audit_log_action`.
+ */
+export const SQL_AUDITAR_REEMBOLSO = `
+  SELECT platform.audit_append(
+    $1::uuid, $2, $3, $4, $5, $6, $7, sha256($8::bytea)
+  )
+`;
+
+/**
+ * As três instruções que tornam a re-reserva do pagamento tardio **tentável**
+ * (KAM-050, regras 1 e 2).
+ *
+ * O `reserveStock` do KAM-045 é tudo-ou-nada **pela transacção de quem chama**:
+ * uma linha sem stock devolve `OUT_OF_STOCK` e conta com o `ROLLBACK` para
+ * desfazer as que já passaram. Aqui não há `ROLLBACK`: sem stock, a regra 2 manda
+ * **continuar** — `expirada -> paga` com a excepção —, e a transacção é a do
+ * consumo, que ainda tem de confirmar o recibo do evento. O *savepoint* é o
+ * `ROLLBACK` da re-reserva sozinha. O nome é fixo porque não há aninhamento: a
+ * re-reserva corre uma vez por evento.
+ */
+export const SQL_ABRIR_RERESERVA = `SAVEPOINT com_rereserva`;
+export const SQL_DESFAZER_RERESERVA = `ROLLBACK TO SAVEPOINT com_rereserva`;
+export const SQL_FECHAR_RERESERVA = `RELEASE SAVEPOINT com_rereserva`;
+
 // ------------------------------------------- KAM-046: o recibo de intenção
 
 /*

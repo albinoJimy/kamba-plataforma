@@ -262,14 +262,14 @@ os dois caminhos (com instante e sem).
 
 ### 5.2 Nem todas as chaves se consomem — e o registo já o dizia
 
-**Este é o achado de desenho da revisão.** As dez chaves de
+**Este é o achado de desenho da revisão.** As onze chaves de
 `registry/entitlement_keys.schema.json` são de três espécies, e o registo
 declara-as em `x-kamba-categoria` e `x-kamba-consumivel`:
 
 | Espécie | Chaves | Pergunta | Função |
 |---|---|---|---|
 | `contador_por_periodo` (5) | `msgs_ai_mes`, `marcacoes_mes`, `imagens_mes`, `posts_mes`, `orcamentos_mes` | «quanto já gastei?» | `consumeLimit` → `ten_consumir` |
-| `tecto_por_pedido` (3) | `valor_max_pedido_minor`, `manual_max_minor`, `manual_dupla_acima_minor` | «este valor cabe?» | `checkCeiling` → `SQL_TECTO` |
+| `tecto_por_pedido` (4) | `valor_max_pedido_minor`, `manual_max_minor`, `manual_dupla_acima_minor`, `prazo_reclamacao_dias` | «este valor cabe?» | `checkCeiling` → `SQL_TECTO` |
 | `tecto_por_janela` (2) | `manual_daily_max_minor`, `manual_max_por_contacto_24h` | «o agregado da janela cabe?» | **nenhuma** — ver §5.4 |
 
 O `x-kamba-consumivel` existia e **nada o lia**. Nada impedia
@@ -320,6 +320,7 @@ deixou de ter excepções.**
 | Escreve | **Nada.** Sem `tenant_usage`, sem `usage_ledger`, sem chave de idempotência: não há nada para repetir porque nada muda |
 | Sem linha activa que declare a chave | **Nega** (critério 2). A `ten_tecto` devolve `NULL`, e `NULL` não quer dizer «sem limite». É `SECURITY INVOKER`, pelo que a RLS de outro tenant dá o mesmo `NULL` — e lê-se como negado |
 | Limite ilegível em `entitlements.limites` | **Levanta** `LimiteIlegivel` / `LimiteIlegivelError` — ver §5.3.1 |
+| `prazo_reclamacao_dias` | O único em que a **ausência** da chave não recusa (KAM-050, critério 8). É o prazo de reclamação de uma encomenda entregue, em dias, e não tem valor por omissão até haver parecer (KAM-104): quem o lê — o `dentroDoPrazo` do COM — trata `sem_entitlement` como «sem prazo configurado» e deixa a disputa entrar, porque recusar era assumir um prazo legal. A função do `ten` responde o mesmo que a todos os tectos; a diferença é de quem a lê |
 | `manual_dupla_acima_minor` | O único em que `cabe = false` **não** é uma recusa: o registo escreve-o, e acima do limiar o pedido exige o segundo confirmador (`04` §4.2 M-5). A função devolve o facto; quem chama decide |
 
 #### 5.3.1 Um limite ilegível não é «não cabe»
@@ -361,8 +362,8 @@ ticket não constrói. Comparar um valor solto com um tecto diário daria «cabe
 cada pedido até ao fim do dia — a mesma classe de defeito que o
 `x-kamba-consumivel` existe para fechar.
 
-**Ficam com caminho de aplicação 8 das 10 chaves**: as 5 consumíveis pela
-`consumeLimit`, e as 3 de tecto por pedido pela `checkCeiling`.
+**Ficam com caminho de aplicação 9 das 11 chaves**: as 5 consumíveis pela
+`consumeLimit`, e as 4 de tecto por pedido pela `checkCeiling` (a quarta, o prazo do KAM-050, com a ausência lida como «sem prazo» por quem a chama).
 
 ## 6. Cache — e a razão por que a visibilidade é só o TTL
 
@@ -596,7 +597,7 @@ Também tem medição, e é desta metade:
 |---|---|
 | A matriz do §7.2, **completa** | 210 casos (5 × 6 × 7) em cada idioma, contra o regime e a célula escritos à mão no teste |
 | O SQL das quatro consultas é o mesmo nos dois idiomas | Carácter a carácter, depois de reescrever `$n` → `%s` (`TestParidadeDoTypeScript`) |
-| A espécie das dez chaves é a do registo | Um teste em cada idioma lê `registry/entitlement_keys.schema.json`; um terceiro confronta as duas tabelas entre si |
+| A espécie das onze chaves é a do registo | Um teste em cada idioma lê `registry/entitlement_keys.schema.json`; um terceiro confronta as duas tabelas entre si |
 | A derivação da chave de idempotência é a mesma nos dois | Vector fixo escrito nos dois ficheiros de teste, confrontado por um teste de paridade |
 | A tradução do `KA002` e do `22023` | Testada nos dois idiomas sem base de dados: o que se verifica é a leitura do `SQLSTATE`, o erro que sai, e — no `22023` — que a causa da guarda de `p_agora` **não** é traduzida |
 | O SQL das constantes contra uma base real | A *suite* `db/tests_ten/` importa o `SQL_CONSUMIR` e o `SQL_PERIODO` de `kamba_core.ten.consultas` em vez de os reescrever, e corre contra **PostgreSQL 18.6** com o `pg8000`. Mede duas coisas desta metade: que `periodo(None)` devolve o período corrente — e não `None`, que era o M3 — e que as constantes não precisam de *casts* explícitos para o controlador as ligar |
@@ -628,3 +629,4 @@ Também tem medição, e é desta metade:
 | 1.0 | Outubro 2026 | Emissão parcial (KAM-009): as duas bibliotecas sobre a revisão `0007`. Regista o achado de §4 — a matriz do `01` §7.2 funde dois domínios de estado e não tem célula para um tenant `ativo` sobre um canal `desligado` —, a regra de precedência proposta, e as quatro decisões devolvidas aos donos do `01` e do `02`. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | O `SQL_TECTO` passa a chamar `platform.ten_tecto`, criada na metade da revisão: a regra do mínimo deixa de estar escrita em dois sítios (decisão 10, resolvida), e o `22023` que a função levanta sobre um limite não inteiro ganha erro próprio nas duas linguagens — um dado corrompido não se lê como «não cabe» (§5.3.1). | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Correcção da revisão adversarial, metade das bibliotecas (§1.1). **M3:** `coalesce` no `SQL_PERIODO`, e os dois caminhos testados nos dois idiomas (§5.1). **M4:** `desligado` passa a ganhar de tudo na precedência — é transporte e não política —, e a matriz passa a estar coberta inteira, 210 casos por idioma (§4.1). **M5:** a espécie de cada chave passa a ser lida do registo, nasce o `checkCeiling` sobre o `SQL_TECTO`, e cada função recusa a chave da outra espécie; duas das dez chaves ficam declaradamente sem caminho de aplicação (§5.2 a §5.4). **C1:** a chave de idempotência passa a ser derivada, com a do cliente como um componente, e o `KA002` ganha erro próprio (§7.3). **m6:** §11 passa a separar o que tem medição — com os números de `92eb2f4` — do que continua por verificar, e a dizer contra que revisão cada número foi medido. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-050: a décima primeira chave.** O `prazo_reclamacao_dias` entra no registo como tecto por pedido, sem valor por omissão e fora do `registry/plans.yaml`, e a tabela das espécies passa a quatro tectos por pedido. A excepção à falha fechada fica escrita na linha da chave: a ausência não recusa, porque o critério 8 do KAM-050 proíbe assumir um prazo legal. | Equipa KAMBÁ |

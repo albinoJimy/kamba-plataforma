@@ -3502,6 +3502,12 @@ class TestInventario(ComBase):
             # impoe regra nenhuma — e so velocidade —, pelo que o `False` aqui e
             # a afirmacao certa e nao uma omissao.
             "stock_reservations_expira_idx": False,
+            # KAM-050 (0046): parcial e **unico**. Substitui a
+            # `stock_reservations_linha_uq` da `0033`, que era total: com ela, a
+            # linha de uma encomenda `expirada` nao se re-reservava (regra 1 do
+            # `docs/tecnica/03` §6.6). Uma reserva **viva** por linha continua a
+            # ser regra; uma libertada deixa de contar.
+            "stock_reservations_linha_viva_uq": True,
             # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
             # unicos. O do contacto cobre so os enderecos utilizaveis
             # (verificados e nao invalidos), que e o conjunto que a entrega le;
@@ -4015,13 +4021,16 @@ class TestInventario(ComBase):
                     "orders_mirror_intent_key_ck",
                     "orders_mirror_intent_uq",
                     "orders_mirror_numero_uq",
-                    # KAM-045 (0033): as **doze** da reserva de stock — oito
+                    # KAM-045 (0033): as **doze** da reserva de stock (onze desde a `0046`) — oito
                     # `CHECK`, a chave primaria e a unicidade na tabela nova,
                     # mais as duas FK que o teste das cascatas ja conta a
                     # parte. As quatro da `offer_terms` estao mais abaixo, com
                     # as da `0028`, porque e dela que a tabela e.
                     "stock_reservations_pkey",
-                    "stock_reservations_linha_uq",
+                    # A `stock_reservations_linha_uq` saiu com a `0046`
+                    # (KAM-050): a unicidade passou a indice parcial
+                    # (`stock_reservations_linha_viva_uq`), que nao e
+                    # restricao e nao entra neste inventario.
                     "stock_reservations_estado_ck",
                     "stock_reservations_motivo_ck",
                     "stock_reservations_sku_ck",

@@ -44,9 +44,14 @@
  *
  * O estado de partida e a ordem. Quem recusa um `payment.*` que chega antes de
  * `aguarda_pagamento` é o `consumir`, pela pré-condição do
- * `ESTADO_PRETENDIDO`; quem o manda para a DLQ com `estado_incompativel` numa
- * encomenda `expirada` ou `cancelada` é o `processar`. Repetir essas decisões
- * aqui era tê-las em dois sítios, e o sítio que falhasse primeiro decidia.
+ * `ESTADO_PRETENDIDO`. Repetir essa decisão aqui era tê-la em dois sítios, e o
+ * sítio que falhasse primeiro decidia.
+ *
+ * **O que mudou com o KAM-050:** o `consumir` deixou de mandar para a DLQ um
+ * pagamento sobre uma encomenda `expirada` ou `cancelada` (ver a
+ * `ESTADOS_DE_EXCEPCAO` do `packages/core-ts/src/eventos/estados.ts`). Esses, e
+ * o segundo pagamento de uma encomenda já paga, chegam aqui, e o
+ * `../orders/late_payment.ts` aplica as quatro regras do `docs/tecnica/03` §6.6.
  */
 
 import { validarPayload } from "@kamba/core-ts/eventos";
@@ -58,7 +63,14 @@ import {
   VIA_POR_CAUSA,
   type CausaQuePaga,
 } from "../orders/contrato.ts";
+import type { OrderState } from "../orders/contrato.ts";
 import { emitir } from "../orders/eventos.ts";
+import {
+  aplicarPagamentoExcedente,
+  aplicarPagamentoTardio,
+  ramoDoPagamento,
+  type PagamentoRecebido,
+} from "../orders/late_payment.ts";
 import {
   lerEncomenda,
   transition,
@@ -316,6 +328,25 @@ export function efeitoDePagamento(deps: DependenciasDoPagamento): Efeito {
     const antes = await lerEncomenda(e, orderId);
     if (antes === null) throw new EncomendaAusenteError(orderId);
 
+    // **O ramo, pelo estado** (KAM-050, `docs/tecnica/03` §6.6). O consumo já
+    // deixou passar o estado — `expirada` pelo `podeTransitar`, a `cancelada` e
+    // os já pagos pela `ESTADOS_DE_EXCEPCAO` —, e o que se faz com ele é daqui.
+    const ramo = ramoDoPagamento(String(antes["estado"]) as OrderState);
+    const pagamento: PagamentoRecebido = {
+      orderId,
+      eventoId: envelope.id,
+      causa: tipo,
+      valorMinor: BigInt(String(envelope.payload["valor_minor"])),
+      currency: String(envelope.payload["currency"]),
+    };
+    if (ramo === "apos_cancelamento" || ramo === "duplicado") {
+      // **Sem a verificação do valor**, e é de propósito: o pagamento não paga
+      // a encomenda, pelo que comparar com o total não decide nada — o que se
+      // pede de volta é o que entrou, seja qual for.
+      await aplicarPagamentoExcedente(e, pagamento, ramo);
+      return;
+    }
+
     // **`BigInt` e não `Number`**, nos dois lados. O `total_minor` é `bigint` na
     // base e o condutor devolve-o como cadeia; um `Number()` acima de 2^53
     // arredonda **em silêncio**, e aqui o arredondamento decide entre pagar a
@@ -330,7 +361,7 @@ export function efeitoDePagamento(deps: DependenciasDoPagamento): Efeito {
     // chega acima de 2^53. O lado que podia perder precisão por nossa conta é o
     // `total_minor`, e esse vem como cadeia.
     const total = BigInt(String(antes["total_minor"]));
-    const valor = BigInt(String(envelope.payload["valor_minor"]));
+    const valor = pagamento.valorMinor;
     if (valor !== total) {
       // O critério 6: **não transita** e gera `payment.failed`. O evento fica
       // consumido — a linha de `events_consumed` do `consumir` confirma com
@@ -345,12 +376,23 @@ export function efeitoDePagamento(deps: DependenciasDoPagamento): Efeito {
       return;
     }
 
-    const resultado = await transition(e, {
-      orderId,
-      para: "paga",
-      expectedVersion: Number(antes["version"]),
-      causa: { causa: tipo, eventoId: envelope.id },
-    });
+    // O pagamento tardio (regras 1 e 2) re-reserva **antes** de transitar e
+    // consome as reservas por dentro; o caminho normal transita e consome aqui.
+    const resultado =
+      ramo === "tardio"
+        ? (
+            await aplicarPagamentoTardio(
+              e,
+              pagamento,
+              Number(antes["version"]),
+            )
+          ).resultado
+        : await transition(e, {
+            orderId,
+            para: "paga",
+            expectedVersion: Number(antes["version"]),
+            causa: { causa: tipo, eventoId: envelope.id },
+          });
     if (resultado.tipo === "conflito") {
       throw new ConflitoDeTransicaoError(orderId, resultado.estado.version);
     }
@@ -361,7 +403,9 @@ export function efeitoDePagamento(deps: DependenciasDoPagamento): Efeito {
     // As reservas, **depois** da transição e na mesma transacção. A ordem é a do
     // §6.2 («reservas `consumida`» é efeito da aresta), e é idempotente pelo
     // `estado = 'ativa'` do `SQL_CONSUMIR`: uma encomenda sem reservas muda zero
-    // linhas e devolve `ok`, que é o caso de uma venda de serviço.
+    // linhas e devolve `ok`, que é o caso de uma venda de serviço. No ramo
+    // tardio o `aplicarPagamentoTardio` já as consumiu, e a segunda chamada muda
+    // zero linhas.
     const reservas = await commitReservation({ repo }, orderId);
     if (reservas.tipo === "erro") {
       throw new EfeitoRecusadoError("commitReservation", reservas.erro);

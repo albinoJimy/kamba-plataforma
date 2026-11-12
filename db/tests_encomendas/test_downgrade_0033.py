@@ -117,7 +117,9 @@ RESTRICOES_DA_RESERVA = (
     "stock_reservations_estado_ck",
     "stock_reservations_libertada_exige_motivo_ck",
     "stock_reservations_line_no_ck",
-    "stock_reservations_linha_uq",
+    # A `stock_reservations_linha_uq` saiu daqui com a revisao `0046` (KAM-050):
+    # em `head` a unicidade e o indice parcial `stock_reservations_linha_viva_uq`,
+    # que nao e restricao e por isso se pergunta ao `pg_indexes`, abaixo.
     "stock_reservations_motivo_ck",
     "stock_reservations_pkey",
     "stock_reservations_qty_ck",
@@ -143,12 +145,15 @@ RESTRICOES_DA_OFERTA = (
     "offer_terms_stock_reservada_ck",
 )
 
-#: Os tres indices que **nao** servem restricao nenhuma. Perguntam-se ao
+#: Os quatro indices que **nao** servem restricao nenhuma. Perguntam-se ao
 #: `pg_indexes`, que e o catalogo deles.
 INDICES = (
     "stock_reservations_encomenda_idx",
     "stock_reservations_expira_idx",
     "stock_reservations_tenant_estado_idx",
+    # O da `0046`: e unico, mas parcial, e um `UNIQUE` parcial so existe como
+    # indice. Cai com a tabela no `downgrade` para `0032`, como os outros.
+    "stock_reservations_linha_viva_uq",
 )
 
 #: A politica de RLS, com o nome que o `db/rls.py` fixa.
