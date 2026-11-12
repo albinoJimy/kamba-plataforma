@@ -290,7 +290,7 @@ class TestOQueAVersaoNovaAcrescentaEhEmitidoPorAlgumExemplo(unittest.TestCase):
                         valor,
                         emitidos,
                         f"«{valor}» entrou no dominio e nenhum exemplo o emite: "
-                        "a verificacao de exemplos valida 76 contratos e nao "
+                        "a verificacao de exemplos valida todos os contratos e nao "
                         "exercita este valor em nenhum",
                     )
 

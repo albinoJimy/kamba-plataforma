@@ -938,7 +938,10 @@ class TestRegistoDeChaves(unittest.TestCase):
             sorted(self.schema["properties"]),
             sorted(registo.chaves_de_limite(self.saber.politica)),
         )
-        self.assertEqual(len(self.schema["properties"]), 10, "a emenda 1.17 pos as chaves em dez")
+        self.assertEqual(
+            len(self.schema["properties"]), 11,
+            "a emenda 1.17 pos as chaves em dez, e a 1.83 (KAM-050) em onze",
+        )
 
     def test_uma_chave_desconhecida_e_rejeitada_na_escrita(self) -> None:
         """Criterio 1 do bloco do KAM-009, no proprio schema."""

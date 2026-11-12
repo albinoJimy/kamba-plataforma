@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.32 |
+| Versão | 1.34 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -644,7 +644,7 @@ Testes: unit, varrimento X-11 sobre 1.000 fixtures, arquitectura. PR com o templ
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-008, ext:KAM-105 |
-| Bloqueia | KAM-030, KAM-033, KAM-036, KAM-049, KAM-063, KAM-087, KAM-109, KAM-110, KAM-120 |
+| Bloqueia | KAM-030, KAM-033, KAM-036, KAM-049, KAM-063, KAM-087, KAM-109, KAM-110, KAM-120, KAM-195 |
 | Responsável sugerido | Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.4, §8.2, §8.3, §8.6), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§1.1, §2, requisitos 4, 5, 8, 9, 25), `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-008, D1, D9, D12), ADR-008 |
 
@@ -1977,7 +1977,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 194 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 196 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2305,4 +2305,6 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.29 | Novembro 2026 | KAM-190 (acrescentado ao EPIC-09 no PR do KAM-099): a contagem viva do backlog na nota do `assert` passa de 189 a **190**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.30 | Novembro 2026 | KAM-191 e KAM-192 (acrescentados ao EPIC-09 no PR do KAM-088): a contagem viva do backlog na nota do `assert` passa de 190 a **192**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | KAM-193 (acrescentado ao EPIC-06 no PR do KAM-061): a contagem viva do backlog na nota do `assert` passa de 192 a **193**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
-| 1.32 | Novembro 2026 | KAM-196 (acrescentado ao EPIC-09 no PR do KAM-089): a contagem viva do backlog na nota do `assert` passa de 193 a **194**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.32 | Novembro 2026 | KAM-194 (acrescentado ao EPIC-01 no PR do KAM-193): a contagem viva do backlog na nota do `assert` passa de 193 a **194**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.33 | Novembro 2026 | KAM-195 (acrescentado ao EPIC-09 no PR do KAM-192): o `Bloqueia` do KAM-069 ganha o KAM-195, que depende dele para a finalidade de transferência do papel `screening`; e a contagem viva do backlog na nota do `assert` passa de 194 a **195**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.34 | Novembro 2026 | KAM-196 (acrescentado ao EPIC-09 no PR do KAM-089): a contagem viva do backlog na nota do `assert` passa de 195 a **196**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

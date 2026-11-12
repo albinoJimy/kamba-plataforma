@@ -7624,7 +7624,7 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
 
     Leva o pacote, o `tools/kamba_yaml.py` (o `pii` le a lista aprovada por
     ele), a lista aprovada, e **os contratos**: o `test_catalogo_e_cli.py`
-    corre sobre os trinta e oito ficheiros reais, e nao sobre schemas
+    corre sobre os ficheiros reais, e nao sobre schemas
     inventados — uma logica certa com um catalogo que nao carrega nao serve.
     Leva tambem o `docs/tecnica/06` e o `canon/dicionario.yaml`, que sao as
     duas fontes contra as quais o catalogo e os `enum` se verificam.

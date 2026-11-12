@@ -116,7 +116,7 @@ lê-se uma vez no arranque e não se recarrega — não há *watcher*, não há 
 pelo que uma política em YAML falhava o critério 8 («desactivar repõe o envio
 automático **sem reiniciar o AGR**») por construção. O `entitlements.limites` tem
 `additionalProperties: false` no `registry/entitlement_keys.schema.json` e as suas
-dez chaves são todas `bigint_nao_negativo`, pelo que um `concierge: true` ali é
+onze chaves são todas `bigint_nao_negativo`, pelo que um `concierge: true` ali é
 **recusado na escrita**. E uma tabela de políticas não existe, e era uma
 superfície a mais para o que uma linha já diz.
 

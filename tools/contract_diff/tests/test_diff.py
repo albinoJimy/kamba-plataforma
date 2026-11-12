@@ -187,7 +187,7 @@ class TestFalhaFechadaDeVerdade(unittest.TestCase):
     levantava `TypeError` e abortava o `check` inteiro, com um traceback que
     nao nomeia o contrato nem a causa.
 
-    Nenhuma destas formas existe nos trinta e oito contratos de hoje. A que
+    Nenhuma destas formas existe nos contratos de hoje. A que
     aparecesse no **ramo base** matava o gate para toda a gente — e um gate
     que morre nao e um gate que bloqueia, e um gate que se desliga.
     """

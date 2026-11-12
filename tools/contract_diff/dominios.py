@@ -66,7 +66,7 @@ class Vigiado:
     #: Para que serve, numa frase que sobreviva ao autor.
     razao: str
     #: `True` quando **todos** os contratos têm de ter este `enum` — é o caso
-    #: do envelope, que é igual nos 38. `False` quando só alguns tipos o têm;
+    #: do envelope, que é igual em todos. `False` quando só alguns tipos o têm;
     #: nesses, a regra é a da herança (ver `verificar`).
     universal: bool
 
@@ -156,7 +156,7 @@ def verificar(raiz: Path) -> list[Achado]:
 
     Duas regras de presenca, consoante o par:
 
-    * **universal** — o envelope esta nos 38 contratos, logo **todos** tem de
+    * **universal** — o envelope esta em todos os contratos, logo **todos** tem de
       ter o `enum`. Uma versao nova que o perca falha, e um contrato novo que
       nunca o tenha tido tambem;
     * **por heranca** — o `payload` so existe nos dois `consent.*`. Exigi-lo a

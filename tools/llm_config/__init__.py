@@ -109,14 +109,15 @@ PREFIXO_LITELLM: Final = {
     "google": "gemini",
 }
 
-#: Os papeis que o cliente do AGR expoe. Lista fechada (dicionario §3.29).
-PAPEIS: Final = ("router", "chat", "vision", "embed")
+#: Os papeis que o cliente do AGR expoe. Lista fechada (dicionario §3.29), com
+#: o `screening` do classificador do GOV desde o KAM-192.
+PAPEIS: Final = ("router", "chat", "vision", "embed", "screening")
 
 #: Os papeis que devolvem texto e que, por isso, levam `max_tokens`: o tecto de
 #: *tokens* de resposta que o cliente do AGR manda no corpo de cada chamada
 #: (KAM-189). Sem ele, uma resposta paga-se ate ao limite do fornecedor. O
 #: `embed` nao gera texto e nao o leva.
-PAPEIS_COM_TECTO: Final = ("router", "chat", "vision")
+PAPEIS_COM_TECTO: Final = ("router", "chat", "vision", "screening")
 
 #: Estados de um alias, no vocabulario do KAM-027 (dicionario §3.26).
 ESTADO_LIGADA: Final = "ligada"

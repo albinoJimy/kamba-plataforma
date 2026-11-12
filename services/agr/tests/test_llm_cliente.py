@@ -563,6 +563,36 @@ class TestOGateDeDestino(unittest.TestCase):
         cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(consultados, ["anthropic", "openai"])
 
+    def test_o_screening_nega_antes_de_sair_e_grava_a_linha(self) -> None:
+        """O papel do KAM-192, com os aliases do repositorio e em `staging`.
+
+        `staging` autoriza `conversa`, pelo que a recusa so pode vir da falta de
+        finalidade do papel — e nao de o ambiente negar tudo. Nada sai para o
+        proxy, e a recusa fica registada com o papel `screening`, que o `CHECK`
+        da `0047` aceita.
+        """
+        lig = _Ligacao()
+        met = metricas_mod.MetricasDoAgr()
+        transporte = _Transporte()
+        cliente = ClienteDeLlm(
+            aliases=REAIS, tabela_de_precos=PRECOS,
+            porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
+            abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
+            metricas=met, transporte=transporte,
+        )
+        self.assertIn("screening", cliente.papeis())
+        with self.assertRaises(DestinoNegado):
+            cliente.chamar("screening", _msg("Coartem 20 comprimidos"), CTX)
+        self.assertEqual(transporte.chamadas, [])
+        linhas = lig.linhas()
+        self.assertEqual(len(linhas), 1)
+        self.assertEqual(linhas[0]["papel"], "screening")
+        self.assertEqual(linhas[0]["resultado"], RESULTADO_DESTINO)
+        self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_DESTINO_NEGADO), 1)
+        # O controlo: o mesmo cliente, no papel `router`, sai para o proxy.
+        cliente.chamar("router", _msg("ola"), CTX)
+        self.assertEqual(len(transporte.chamadas), 1)
+
     def test_um_papel_sem_finalidade_nega_e_grava(self) -> None:
         """Esta recusa vinha de fora do `try` e saia sem linha nem metrica."""
         alias = aliases_mod.Alias("kamba-x", "chat", 20, ("anthropic",), ("m",))

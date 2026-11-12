@@ -90,7 +90,17 @@ class TestLerOFicheiroReal(unittest.TestCase):
     def setUp(self) -> None:
         self.aliases = servico.ler(_raiz() / "llm")
 
-    def test_os_quatro_papeis(self) -> None:
+    def test_os_cinco_papeis(self) -> None:
+        """Os quatro que ja existiam e o `screening` do KAM-192, um alias cada.
+
+        A lista e escrita por extenso e nao lida do `PAPEIS`: comparar o leitor
+        com a constante que ele proprio usa nao media se um papel antigo
+        desapareceu ao entrar o novo.
+        """
+        self.assertEqual(
+            sorted(self.aliases),
+            sorted(("router", "chat", "vision", "embed", "screening")),
+        )
         self.assertEqual(sorted(self.aliases), sorted(servico.PAPEIS))
 
     def test_os_tectos_do_131(self) -> None:
@@ -108,6 +118,25 @@ class TestLerOFicheiroReal(unittest.TestCase):
         self.assertEqual(self.aliases["chat"].nome, "kamba-chat")
         self.assertEqual(self.aliases["vision"].nome, "kamba-vision")
         self.assertEqual(self.aliases["embed"].nome, "kamba-embed")
+        self.assertEqual(self.aliases["screening"].nome, "screening-nano")
+
+    def test_o_screening_nao_toma_o_lugar_do_router(self) -> None:
+        """O defeito que o KAM-088 mediu: um segundo `router` no indice.
+
+        Os cinco nomes sao distintos, e o `screening-nano` so e alcancavel pelo
+        seu papel.
+        """
+        nomes = [alias.nome for alias in self.aliases.values()]
+        self.assertEqual(len(nomes), len(set(nomes)))
+        self.assertEqual(
+            [p for p, a in self.aliases.items() if a.nome == "screening-nano"],
+            ["screening"],
+        )
+
+    def test_o_screening_leva_tecto_de_resposta(self) -> None:
+        """Gera texto (o `{decisao, confianca}`), logo leva `max_tokens`."""
+        self.assertEqual(self.aliases["screening"].max_tokens, 32)
+        self.assertEqual(self.aliases["screening"].timeout, 5)
 
     def test_todos_os_fornecedores_estao_aprovados(self) -> None:
         for papel, alias in self.aliases.items():
@@ -248,9 +277,24 @@ class TestOGateDeDestinoPorSi(unittest.TestCase):
             porta.autorizar("t", "anthropic", "finalidade_inventada")
 
     def test_cada_papel_tem_finalidade(self) -> None:
+        """Todos menos o `screening`, e o `screening` por nome.
+
+        O papel do classificador entrou (KAM-192) sem finalidade de
+        transferencia: nenhuma das treze do dicionario §3.49 o serve, e
+        acrescentar uma e uma revisao de base de dados. Sem finalidade, o
+        `finalidade_de` nega — falha fechada. A excepcao e **um nome**, e nao um
+        filtro: um sexto papel sem finalidade avermelha este ensaio.
+        """
+        sem_finalidade = set()
         for papel in servico.PAPEIS:
+            try:
+                finalidade = destinos.finalidade_de(papel)
+            except destinos.DestinoNegado:
+                sem_finalidade.add(papel)
+                continue
             with self.subTest(papel=papel):
-                self.assertIn(destinos.finalidade_de(papel), destinos.FINALIDADES)
+                self.assertIn(finalidade, destinos.FINALIDADES)
+        self.assertEqual(sem_finalidade, {"screening"})
 
     def test_um_papel_sem_finalidade_levanta(self) -> None:
         with self.assertRaises(destinos.DestinoNegado):

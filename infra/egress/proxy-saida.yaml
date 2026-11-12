@@ -55,8 +55,8 @@ destinos:
     porta: 443
     protocolo: https
     razao: >-
-      Declarado por `litellm`. Fornecedor de `kamba-router` e `kamba-chat`
-      (ordem 1) em `llm/aliases.yaml`.
+      Declarado por `litellm`. Fornecedor de `kamba-router`, `kamba-chat` e
+      `screening-nano` (ordem 1) em `llm/aliases.yaml`.
     ticket: KAM-076
 
   - fqdn: api.openai.com

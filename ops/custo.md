@@ -20,8 +20,8 @@
 | Painéis | [`paineis/custo-por-tenant.json`](paineis/custo-por-tenant.json), [`paineis/unit-economics.json`](paineis/unit-economics.json) | Custo diário por rubrica, por tenant, *free tier* por número, LLM do dia; custo por PME, margem, equilíbrio e estimado contra medido |
 
 **Sem STT em parte nenhuma.** Não há registo de chamadas de transcrição: o
-`papel` da `dat.llm_call_log` é lista fechada de quatro, e o STT entra com o
-KAM-036. A vista não tem a rubrica, o `h6-export` escreve `null`, e os painéis
+`papel` da `dat.llm_call_log` é lista fechada — os quatro da `0023` e o
+`screening` da `0047` —, e o STT entra com o KAM-036. A vista não tem a rubrica, o `h6-export` escreve `null`, e os painéis
 dizem-no. Escrever zero era afirmar que a voz não custou nada.
 
 **Sem pessoas em parte nenhuma.** A vista não tem `contact_id`, conversa,

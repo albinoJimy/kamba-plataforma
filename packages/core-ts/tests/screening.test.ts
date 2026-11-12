@@ -484,7 +484,16 @@ describe("reanalisar", () => {
     const r2 = await reanalisar(deps, { tamanhoDoLote: 2, maximoPorExecucao: 5 });
     assert.deepEqual(r2, { analisados: 2, violacoes: 0, terminou: true });
     assert.equal(b.linhas.length, 7);
-    assert.deepEqual(violacoes, [{ tenantId: TENANT, sku: "s3", regras: ["alcool"], versaoPolitica: politicaCorrente().versao }]);
+    assert.deepEqual(violacoes, [
+      {
+        tenantId: TENANT,
+        sku: "s3",
+        regras: ["alcool"],
+        versaoPolitica: politicaCorrente().versao,
+        // O sha256 do conteudo decidido (KAM-191): o mesmo da linha gravada.
+        conteudoSha256: b.linhas.find((l) => l.sujeitoRef === "s3")!.conteudoSha256,
+      },
+    ]);
   });
   it("(F11/F12) um emissor que falha desfaz a decisao do produto, e a execucao seguinte emite", async () => {
     const confirmadas: LinhaDeDecisao[] = [];

@@ -4,7 +4,7 @@
 |---|---|
 | Ticket | **KAM-089** — Fila de revisão por excepção para T&S/T2 (`../specs/EPIC-09_Onboarding_Governanca.md`) |
 | Código | [`../packages/core-ts/src/revisao/`](../packages/core-ts/src/revisao/index.ts) e a revisão [`../db/migrations/versions/0048_fila_de_revisao.py`](../db/migrations/versions/0048_fila_de_revisao.py) |
-| Nomes | Dicionário §3.60 |
+| Nomes | Dicionário §3.61 |
 | Estado | **Proposta.** O serviço, as tabelas e as portas existem e estão medidos; **a consola HTTP não existe**, porque a identidade da equipa com MFA não existe (ver §4). Nenhum procedimento desta página foi ensaiado por um revisor |
 
 ---

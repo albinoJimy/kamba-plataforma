@@ -47,8 +47,8 @@ export interface ClienteSql {
  *
  * O critério 8 enumera seis: `order.created`, `order.paid`, `order.expired`,
  * `order.cancelled`, `order.delivered` e `order.reconciliation_issue`. Dos
- * seis, **cinco** têm contrato em `contratos/eventos/` e estão nos trinta e oito
- * tipos que o dicionário §3.5 fixa. O sexto **não existe**, e desde 2026-11-04 já
+ * seis, **cinco** têm contrato em `contratos/eventos/` e estão na lista fechada
+ * de tipos que o dicionário §3.5 fixa. O sexto **não existe**, e desde 2026-11-04 já
  * não está nem no §12: não tem contrato, não está no §3.5, não está no
  * `docs/tecnica/06` §5, e o fundador decidiu — por resposta directa a quem
  * executou o KAM-044, a 2026-11-04 — tirar a linha dele do §12 do
@@ -82,21 +82,71 @@ export const TIPO_EXPIRED = "order.expired";
 export const TIPO_CANCELLED = "order.cancelled";
 export const TIPO_DELIVERED = "order.delivered";
 
-/** As versões emitidas. `v1` nos cinco, como em todos os produtores. */
+/**
+ * Os **dois** tipos que o KAM-050 acrescenta, e são os que o bloco nomeia.
+ *
+ * Os dois existem no `../../../../docs/tecnica/03` (§6.2 e §6.6) e não tinham
+ * contrato: o KAM-050 publica-os em `contratos/eventos/`, e com eles o catálogo
+ * passa de trinta e oito a **quarenta** tipos. Nenhum dos dois transporta PII:
+ * identificador da encomenda, um domínio fechado e, no do reembolso, o valor.
+ */
+export const TIPO_EXCEPTION = "order.exception";
+export const TIPO_REFUND_REQUESTED = "order.refund_requested";
+
+/** As versões emitidas. `v1` nos sete, como em todos os produtores. */
 export const VERSAO_CREATED = 1;
 export const VERSAO_PAID = 1;
 export const VERSAO_EXPIRED = 1;
 export const VERSAO_CANCELLED = 1;
 export const VERSAO_DELIVERED = 1;
+export const VERSAO_EXCEPTION = 1;
+export const VERSAO_REFUND_REQUESTED = 1;
 
-/** O `agregado.tipo` dos cinco contratos: `order` (é `const` em todos). */
+/** O `agregado.tipo` dos sete contratos: `order` (é `const` em todos). */
 export const AGREGADO_ORDER = "order";
 
-/** A classe de PII dos cinco exemplos publicados: `P0`. */
+/** A classe de PII dos sete exemplos publicados: `P0`. */
 export const CLASSE_PII_ENCOMENDA = "P0";
 
-/** As finalidades dos cinco exemplos publicados. */
+/** As finalidades dos sete exemplos publicados. */
 export const FINALIDADES_ENCOMENDA = ["transacao"] as const;
+
+/**
+ * As **quatro** excepções da encomenda (`orders_mirror.excepcao`).
+ *
+ * As três primeiras são as do §5.4, que a revisão `0030` fechou no
+ * `orders_mirror_excepcao_ck` e deixou ao KAM-050 por escrever. A quarta é a
+ * regra 3 do §6.6 — o pagamento autenticado sobre uma encomenda `cancelada` —,
+ * que o §5.4 não nomeava e a revisão `0046` acrescenta ao domínio: sem ela, a
+ * regra 3 não deixava rasto na encomenda e a única marca era o evento, que
+ * nenhuma listagem de ops lê.
+ *
+ * O `valor_divergente` **não** é escrito pelo KAM-050: o valor que não bate é o
+ * critério 6 do KAM-055, que emite `payment.failed` e não transita.
+ */
+export const EXCEPCOES = [
+  "pagamento_tardio_sem_stock",
+  "pagamento_duplicado",
+  "valor_divergente",
+  "pagamento_apos_cancelamento",
+] as const;
+export type Excepcao = (typeof EXCEPCOES)[number];
+
+/**
+ * Os **quatro** motivos do `order.refund_requested`.
+ *
+ * Dois são das regras do §6.6 (o pagamento a mais, sem transição) e dois são
+ * das arestas que chegam a `reembolso_pendente` (§6.1 do `docs/tecnica/00`):
+ * `disputa` para as que saem de `paga` e de `em_disputa`, e `entrega_falhada`
+ * para a devolução depois de uma entrega sem sucesso.
+ */
+export const MOTIVOS_DE_REEMBOLSO = [
+  "pagamento_apos_cancelamento",
+  "pagamento_duplicado",
+  "disputa",
+  "entrega_falhada",
+] as const;
+export type MotivoDeReembolso = (typeof MOTIVOS_DE_REEMBOLSO)[number];
 
 /**
  * Os estados que **emitem** evento neste ticket, e os que não emitem.
@@ -111,12 +161,20 @@ export const FINALIDADES_ENCOMENDA = ["transacao"] as const;
  * Uma transição para um estado que não está neste mapa **grava o registo e não
  * emite**: é o que `pendente_confirmacao`, `aguarda_pagamento` e `em_entrega`
  * fazem hoje, e o credor de cada evento está escrito acima.
+ *
+ * **O KAM-050 acrescenta um destino, e deixa três sem evento.** O
+ * `reembolso_pendente` emite `order.refund_requested`, que é o evento que o
+ * §6.2 lhe dá. O `em_disputa`, o `entrega_falhada` e o `reembolsada` não têm
+ * evento no §6.2 nem contrato, e não se inventa um: a disputa e a entrega
+ * falhada ficam no `order_state_log`, e o reembolso registado fica no
+ * `audit_log` (`order.refund_record`), que é o rasto que o critério 5 pede.
  */
 export const EVENTO_POR_ESTADO: Readonly<Partial<Record<OrderState, string>>> = {
   paga: TIPO_PAID,
   expirada: TIPO_EXPIRED,
   cancelada: TIPO_CANCELLED,
   entregue: TIPO_DELIVERED,
+  reembolso_pendente: TIPO_REFUND_REQUESTED,
 };
 
 // -------------------------------------------------------------------- causas
@@ -188,7 +246,10 @@ export const SQLSTATE_TRANSICAO = "KA003";
 export const SQLSTATE_SNAPSHOT = "KA004";
 /** `KA005`: mudou de estado sem gravar `order_state_log` na mesma transacção. */
 export const SQLSTATE_REGISTO = "KA005";
-/** `KA006`: `paga` sem evento autenticado do PAY com actor `sistema`. */
+/**
+ * `KA006`: `paga` sem evento autenticado do PAY com actor `sistema`, ou — desde
+ * a revisão `0046` — `reembolsada` sem actor `dono` ou `ops` identificado.
+ */
 export const SQLSTATE_AUTENTICIDADE = "KA006";
 /** `KA007`: `pendente_confirmacao` acima do tecto manual, ou sem entitlement. */
 export const SQLSTATE_TECTO_MANUAL = "KA007";
