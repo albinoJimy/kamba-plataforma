@@ -22,8 +22,11 @@ import { CATALOGO, type TipoDeEvento } from "../src/eventos.gerado.ts";
 /** A pasta dos contratos, a partir deste ficheiro. */
 const CONTRATOS = new URL("../../../contratos/eventos/", import.meta.url);
 
-/** Os trinta e oito do dicionário §3.5, emenda 1.11. */
-const ESPERADOS = 38;
+/**
+ * Os trinta e nove do dicionário §3.5: os trinta e oito da emenda 1.11 e o
+ * `screening.violation_detected` da 1.83 (KAM-191).
+ */
+const ESPERADOS = 39;
 
 /**
  * As versões de um tipo, lidas da pasta.

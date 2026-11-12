@@ -425,6 +425,22 @@ export interface PayloadReviewRequestedV2 {
   readonly order_id: string;
 }
 
+/** Payload de `screening.violation_detected` v1. */
+export interface PayloadScreeningViolationDetected {
+  readonly sku: string;
+  readonly regras: readonly string[];
+  readonly versao_politica: string;
+  readonly sha256: string;
+}
+
+/** Payload de `screening.violation_detected` v2. */
+export interface PayloadScreeningViolationDetectedV2 {
+  readonly sku: string;
+  readonly regras: readonly string[];
+  readonly versao_politica: string;
+  readonly sha256: string;
+}
+
 /** Payload de `stock.adjusted` v1. */
 export interface PayloadStockAdjusted {
   readonly sku: string;
@@ -690,6 +706,11 @@ export const CATALOGO = {
     versoes: [1, 2],
     obrigatorios: ["order_id"],
     permitidos: ["order_id"],
+  },
+  "screening.violation_detected": {
+    versoes: [1, 2],
+    obrigatorios: ["regras", "sha256", "sku", "versao_politica"],
+    permitidos: ["regras", "sha256", "sku", "versao_politica"],
   },
   "stock.adjusted": {
     versoes: [1, 2],

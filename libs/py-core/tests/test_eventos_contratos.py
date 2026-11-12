@@ -26,15 +26,17 @@ from kamba_core.eventos.contratos import CATALOGO
 RAIZ = Path(__file__).resolve().parents[3]
 CONTRATOS = RAIZ / "contratos" / "eventos"
 
-#: Os trinta e oito do dicionario §3.5, emenda 1.11.
-ESPERADOS = 38
+#: Os trinta e nove do dicionario §3.5: os trinta e oito da emenda 1.11 e o
+#: `screening.violation_detected` da 1.83 (KAM-191).
+ESPERADOS = 39
 
 #: Os sete do `docs/tecnica/06` §7.3.
 PROIBIDOS = ("telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email")
 
 
-#: Os contratos: 76 ficheiros em 38 pastas, desde o KAM-159.
-ESPERADOS_CONTRATOS = 76
+#: Os contratos: dois por pasta desde o KAM-159 — 78 ficheiros em 39 pastas
+#: desde o KAM-191.
+ESPERADOS_CONTRATOS = 78
 
 
 def versoes_de(tipo: str) -> list[int]:
@@ -143,8 +145,8 @@ class TestTiposGerados(unittest.TestCase):
         from typing import is_typeddict
 
         classes = [n for n in dir(contratos) if is_typeddict(getattr(contratos, n))]
-        # Um por **contrato**, e nao por tipo: desde o KAM-159 sao 76 em 38
-        # pastas. O payload de uma versao nova pode mudar — nos dois
+        # Um por **contrato**, e nao por tipo: dois por pasta desde o KAM-159
+        # (`ESPERADOS_CONTRATOS`). O payload de uma versao nova pode mudar — nos dois
         # `consent.*` muda — e um TypedDict partilhado escondia-o.
         self.assertEqual(len(classes), ESPERADOS_CONTRATOS)
         self.assertTrue(all(n.startswith("Payload") for n in classes))

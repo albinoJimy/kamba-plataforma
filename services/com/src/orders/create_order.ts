@@ -63,7 +63,7 @@
  *   **KAM-045**, e o critério 7 deste bloco diz por extenso que a encomenda do
  *   `confirmar_dono` fica «sem referência nem reserva»;
  * * **não emite `charge.requested`** — esse tipo **não existe** no catálogo
- *   publicado (`contratos/eventos/` tem trinta e oito e nenhum é ele; o §3.5 do
+ *   publicado (nenhuma pasta de `contratos/eventos/` é ele; o §3.5 do
  *   dicionário também não), e emiti-lo levantava `TipoDesconhecidoError` no
  *   `validarPayload` antes de o *gate* 7 ver o envelope. A divergência está na
  *   dívida documental **37** desde o KAM-007: o §12 do `docs/tecnica/03` é um

@@ -400,6 +400,22 @@ class PayloadReviewRequestedV2(TypedDict):
     order_id: str
 
 
+class PayloadScreeningViolationDetected(TypedDict):
+    """Payload de `screening.violation_detected` v1."""
+    sku: str
+    regras: list[object]
+    versao_politica: str
+    sha256: str
+
+
+class PayloadScreeningViolationDetectedV2(TypedDict):
+    """Payload de `screening.violation_detected` v2."""
+    sku: str
+    regras: list[object]
+    versao_politica: str
+    sha256: str
+
+
 class PayloadStockAdjusted(TypedDict):
     """Payload de `stock.adjusted` v1."""
     sku: str
@@ -661,6 +677,11 @@ CATALOGO: dict[str, dict[str, object]] = {
         "versoes": [1, 2],
         "obrigatorios": ['order_id'],
         "permitidos": ['order_id'],
+    },
+    "screening.violation_detected": {
+        "versoes": [1, 2],
+        "obrigatorios": ['regras', 'sha256', 'sku', 'versao_politica'],
+        "permitidos": ['regras', 'sha256', 'sku', 'versao_politica'],
     },
     "stock.adjusted": {
         "versoes": [1, 2],

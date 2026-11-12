@@ -12,7 +12,7 @@ E prova-se tambem a guarda de PII da `0004` sobre **estes** payloads: um
 ## Cinco tipos e nao seis, e o sexto foi decidido fora
 
 O criterio 8 enumera seis eventos. **Cinco** tem contrato publicado em
-`contratos/eventos/` e estao nos trinta e oito tipos que o dicionario §3.5 fixa;
+`contratos/eventos/` e estao na lista fechada de tipos que o dicionario §3.5 fixa;
 o sexto — `order.reconciliation_issue` — nao tem contrato, nao esta no §3.5 e
 nao esta no `docs/tecnica/06` §5. **Estava** so no §12 do `docs/tecnica/03`, que
 e o documento que a divida documental 37 descreve como «um segundo catalogo de
@@ -247,7 +247,7 @@ class TestEmissaoPeloOutbox(ComEncomendas):
             "o fundador decidiu a 2026-11-04 que este evento nao existe, e a "
             "linha dele saiu do §12 do docs/tecnica/03. Se alguem publicar o "
             "contrato, nao basta fazer cair este ensaio: reabre a decisao, "
-            "porque leva a emenda do dicionario §3.5 (trinta e oito tipos) e a "
+            "porque leva a emenda do dicionario §3.5 (a lista fechada de tipos) e a "
             "contagem que tres ficheiros repetem",
         )
         for tipo, _ in TIPOS:

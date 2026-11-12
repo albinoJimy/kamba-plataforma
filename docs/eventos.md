@@ -132,7 +132,7 @@ os dois nomes.
 
 **Isto esteve por decidir e está decidido.** A emenda 1.11 do dicionário
 (KAM-007) fixou o envelope em **catorze** campos de topo, com o `seq` dentro do
-`agregado`, e os trinta e oito `v1.schema.json` declaram exactamente essa
+`agregado`, e os `v1.schema.json` de todos os tipos declaram exactamente essa
 lista. Não foi preferência: um contrato com `additionalProperties: false` e
 nove campos recusava **todos** os envelopes que o `evt_emitir` constrói. O que
 este parágrafo dizia antes — que um schema com os treze campos falharia o gate

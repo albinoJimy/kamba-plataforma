@@ -16,11 +16,15 @@ O que so uma base prova, e por isso este ficheiro existe:
    categoria declarada mais recente.
 6. **RLS pela ligacao da aplicacao**: um tenant nao ve nem escreve o de outro.
 7. **O `downgrade`.**
+8. **O emissor da violacao** (KAM-191): o `SQL_EMITIR_VIOLACAO` na transaccao
+   da decisao, o envelope contra o contrato `v1`, e a decisao desfeita quando a
+   escrita no *outbox* e recusada.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unittest
 import uuid
@@ -37,11 +41,16 @@ from tests.base import (
     alembic_ok,
     em_head,
     exigir_base_descartavel,
+    sqlstate,
 )
 
 RAIZ = Path(__file__).resolve().parents[2]
 TIPOS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "tipos.ts"
 SQL_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "sql.ts"
+
+EMISSOR_TS = RAIZ / "packages" / "core-ts" / "src" / "screening" / "emissor.ts"
+TIPO_VIOLACAO = "screening.violation_detected"
+CONTRATO_V1 = RAIZ / "contratos" / "eventos" / TIPO_VIOLACAO / "v1.schema.json"
 
 TABELA = "platform.screening_decision"
 VERSAO = "1.0.0+m.2"
@@ -234,6 +243,90 @@ class TestReanalise(ComBase):
         admin.execute(q.sql, q.args("1.1.0+m.2", 100))
         skus = sorted(l[1] for l in admin.fetchall() if l[0] == tenant)
         self.assertEqual(skus, ["ja-decidido", "por-decidir"])
+
+
+class TestViolacao(ComBase):
+    """KAM-191: o `SQL_EMITIR_VIOLACAO` do `emissor.ts`, na transaccao da decisao.
+
+    O que so a base prova: o `evt_emitir` escreve no *outbox* **dentro** da
+    transaccao de quem chama — a decisao e o evento confirmam ou desfazem-se
+    juntos —, o envelope que ele constroi e o que o contrato `v1` descreve, e
+    uma escrita recusada aborta a transaccao com a decisao dentro.
+    """
+
+    def _emitir(self, cursor, tenant: str, sku: str = "sku-1") -> tuple[str, dict]:
+        payload = {
+            "sku": sku,
+            "regras": ["armas"],
+            "versao_politica": VERSAO,
+            "sha256": _sha("camisola").hex(),
+        }
+        q = ConsultaDoTypeScript("SQL_EMITIR_VIOLACAO", EMISSOR_TS)
+        cursor.execute(
+            q.sql,
+            q.args(TIPO_VIOLACAO, 1, tenant, "product", sku, json.dumps(payload), "P0", ["transacao"]),
+        )
+        return str(cursor.fetchone()[0]), payload
+
+    def _contar(self, tenant: str) -> tuple[int, int]:
+        admin = self.ligar("admin").cursor()
+        admin.execute(f"SELECT count(*) FROM {TABELA} WHERE tenant_id = %s", (tenant,))
+        decisoes = admin.fetchone()[0]
+        admin.execute(
+            "SELECT count(*) FROM platform.events_outbox WHERE tenant_id = %s AND tipo = %s",
+            (tenant, TIPO_VIOLACAO),
+        )
+        return decisoes, admin.fetchone()[0]
+
+    def test_a_bloqueada_e_o_evento_ficam_na_mesma_transaccao(self) -> None:
+        import jsonschema
+
+        conexao = self.ligar("app")
+        app = conexao.cursor()
+        tenant = str(uuid.uuid4())
+        factories.contexto(app, tenant)
+        gravar(app, tenant, decisao="bloqueada", regras=["armas"])
+        event_id, payload = self._emitir(app, tenant)
+
+        app.execute(
+            "SELECT tipo, versao, agregado_tipo, agregado_id, envelope "
+            "FROM platform.events_outbox WHERE event_id = %s",
+            (event_id,),
+        )
+        tipo, versao, agregado_tipo, agregado_id, envelope = app.fetchone()
+        envelope = envelope if isinstance(envelope, dict) else json.loads(envelope)
+        self.assertEqual((tipo, versao, agregado_tipo, agregado_id), (TIPO_VIOLACAO, 1, "product", "sku-1"))
+        self.assertEqual(envelope["tenant_id"], tenant)
+        self.assertEqual(envelope["payload"], payload)
+        self.assertEqual((envelope["classe_pii"], envelope["finalidades"]), ("P0", ["transacao"]))
+        # O envelope real, e nao o exemplo, contra o contrato publicado: um
+        # contrato que o produtor nao consegue satisfazer passava o gate 7.
+        esquema = json.loads((CONTRATO_V1).read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator(esquema).validate(envelope)
+
+        # A outra metade: desfeita a transaccao, nao fica nem a decisao nem o
+        # evento. Um `evt_emitir` que confirmasse por conta propria deixava aqui
+        # um evento orfao.
+        conexao.rollback()
+        self.assertEqual(self._contar(tenant), (0, 0))
+
+    def test_uma_escrita_recusada_desfaz_a_decisao(self) -> None:
+        import pg8000.dbapi
+
+        conexao = self.ligar("app")
+        app = conexao.cursor()
+        tenant, outro = str(uuid.uuid4()), str(uuid.uuid4())
+        factories.contexto(app, tenant)
+        gravar(app, tenant, decisao="bloqueada", regras=["armas"])
+        # O evento de outro tenant: a RLS `WITH CHECK` do outbox recusa-o, como
+        # recusaria qualquer escrita que a base nao aceite. Sem `SAVEPOINT`, de
+        # proposito: e a transaccao inteira que tem de cair.
+        with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
+            self._emitir(app, outro)
+        self.assertEqual(sqlstate(capturado.exception), PRIVILEGIO_INSUFICIENTE)
+        conexao.rollback()
+        self.assertEqual(self._contar(tenant), (0, 0))
+        self.assertEqual(self._contar(outro), (0, 0))
 
 
 class TestDowngrade(unittest.TestCase):

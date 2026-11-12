@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.82"
+versao_dicionario: "1.83"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1280,7 +1280,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, screening.violation_detected"
     literais:
       - "order.created"
       - "order.paid"
@@ -1320,6 +1320,7 @@ entradas:
       - "booking.created"
       - "booking.reminder_due"
       - "booking.cancelled"
+      - "screening.violation_detected"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1359,7 +1360,22 @@ entradas:
       - "booking.created"
       - "booking.reminder_due"
       - "booking.cancelled"
+      - "screening.violation_detected"
     nomes_nota:
+      - "screening.violation_detected"
+      - "bloqueada"
+      - "product"
+      - "sku"
+      - "id"
+      - "catalog.product_changed"
+      - "regras"
+      - "versao_politica"
+      - "sha256"
+      - "screening_decision.conteudo_sha256"
+      - "tenant_id"
+      - "v1"
+      - "v2"
+      - "finalidades"
       - "order.paid"
       - "channel.updated"
       - "contact.merged"

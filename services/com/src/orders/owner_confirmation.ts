@@ -36,9 +36,9 @@
  * * a **reserva** é o `reserveStock` e a `stock_reservations` do §6.4 —
  *   **KAM-045**, que o bloco deste ticket nomeia na instrução «não expandas
  *   escopo»;
- * * o **`charge.requested` não existe**. O catálogo publicado tem trinta e oito
- *   contratos (`contratos/eventos/`) e nenhum é ele; o §3.5 do dicionário fecha
- *   a lista nos mesmos trinta e oito. Ele vive só no §12 do `docs/tecnica/03`,
+ * * o **`charge.requested` não existe**. Nenhum contrato do catálogo publicado
+ *   (`contratos/eventos/`) é ele, e a lista fechada do §3.5 do dicionário
+ *   também não o tem. Ele vive só no §12 do `docs/tecnica/03`,
  *   que é precisamente o «segundo catálogo de eventos, paralelo ao do
  *   `docs/tecnica/06` §5» da **dívida documental 37**. Emiti-lo levantava
  *   `TipoDesconhecidoError` no `validarPayload` antes de o *gate* 7 chegar a ver

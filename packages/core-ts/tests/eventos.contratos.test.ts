@@ -1,7 +1,7 @@
 /**
  * A validação de payload do produtor (KAM-007, critério 6).
  *
- * Corre contra o catálogo **real** — os trinta e oito contratos gerados — e
+ * Corre contra o catálogo **real** — os contratos gerados de todos os tipos — e
  * não contra um catálogo de teste. Um validador que passe sobre um catálogo
  * inventado não diz nada sobre o que vai acontecer quando o COM emitir o
  * primeiro `order.created`.
@@ -108,8 +108,10 @@ describe("validarPayload", () => {
 });
 
 describe("o catálogo que o validador lê", () => {
-  it("tem os trinta e oito tipos", () => {
-    assert.equal(tiposComContrato().length, 38);
+  it("tem os trinta e nove tipos", () => {
+    // Os trinta e oito da emenda 1.11 e o `screening.violation_detected` da
+    // emenda 1.83 do dicionário (KAM-191).
+    assert.equal(tiposComContrato().length, 39);
   });
 
   it("todos os exemplos do repositório passam no validador, em todas as versões", () => {
@@ -117,9 +119,9 @@ describe("o catálogo que o validador lê", () => {
     // Se o validador recusasse algum, estaria a ser mais severo do que o
     // contrato — que é tão defeito como ser mais permissivo.
     //
-    // **Em todas as versões**, e não só na `v1`: desde o KAM-159 há 76
-    // contratos em 38 pastas, e a versão que um produtor novo escreve é a
-    // última. Validar só a primeira deixava a mais recente por verificar
+    // **Em todas as versões**, e não só na `v1`: desde o KAM-159 há dois
+    // contratos por pasta — 78 em 39 pastas desde o KAM-191 —, e um
+    // produtor novo pode escrever a última. Validar só a primeira deixava a mais recente por verificar
     // deste lado.
     let validados = 0;
     for (const tipo of tiposComContrato()) {
@@ -130,7 +132,7 @@ describe("o catálogo que o validador lê", () => {
         validados += 1;
       }
     }
-    assert.equal(validados, 76);
+    assert.equal(validados, 78);
   });
 });
 

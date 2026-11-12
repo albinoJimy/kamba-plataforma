@@ -88,4 +88,15 @@ export {
   type ResultadoDaReanalise,
   type Violacao,
 } from "./reanalise.ts";
+export {
+  AGREGADO_VIOLACAO,
+  CLASSE_PII_VIOLACAO,
+  EmissorSql,
+  FINALIDADES_VIOLACAO,
+  payloadDaViolacao,
+  porProdutoSql,
+  SQL_EMITIR_VIOLACAO,
+  TIPO_VIOLACAO,
+  VERSAO_VIOLACAO,
+} from "./emissor.ts";
 export { CatalogoSql, EscritorSql, LeitorSql, SQL_DECISOES, SQL_GRAVAR, SQL_POR_REANALISAR, type ClienteSql } from "./sql.ts";
