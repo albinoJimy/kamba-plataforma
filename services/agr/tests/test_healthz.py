@@ -282,14 +282,22 @@ class TestMetricas(unittest.TestCase):
         """
         from kamba_core.idx import metricas as idx
 
+        # **Repor antes, e nao so depois.** O registo e global ao processo, e o
+        # alvo `ordem-dos-ensaios` corre esta pasta na ordem inversa: os ensaios
+        # que chamam o `search_catalog` (o `test_idx`, o `test_tls`, os das
+        # verticais) escrevem nele antes deste, e o `idx_results_total` chegava
+        # aqui a 4 e nao a 3 (achado 1 da revisao adversarial, reproduzido).
+        idx.METRICAS.repor()
         self.addCleanup(idx.METRICAS.repor)
         idx.METRICAS.registar_pesquisa(modo="lexical", duracao_ms=41, resultados=3)
 
-        corpo = request("/metrics")[2].decode("utf-8")
-        self.assertIn('idx_query_ms{ramo="todos",modo="lexical"} 41', corpo)
-        self.assertIn("idx_results_total 3", corpo)
-        self.assertIn('idx_mode{modo="lexical"} 1', corpo)
-        self.assertIn("# TYPE idx_mode counter", corpo)
+        linhas = request("/metrics")[2].decode("utf-8").splitlines()
+        # Linhas inteiras e nao substrings: `idx_results_total 3` tambem casava
+        # `idx_results_total 31`.
+        self.assertIn('idx_query_ms{ramo="todos",modo="lexical"} 41', linhas)
+        self.assertIn("idx_results_total 3", linhas)
+        self.assertIn('idx_mode{modo="lexical"} 1', linhas)
+        self.assertIn("# TYPE idx_mode counter", linhas)
 
 
 class TestMetadados(unittest.TestCase):

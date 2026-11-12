@@ -184,7 +184,7 @@ Testes: SQL de CI, lint, integração, desempenho. PR com o template (§7).
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-061 |
-| Bloqueia | KAM-064 |
+| Bloqueia | KAM-064, KAM-194 |
 | Responsável sugerido | Engenheiro de Dados/Pesquisa |
 | Documentos de referência | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§4.4, §5, §14.4), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.3), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§8), ADR-007, ADR-010 |
 
@@ -393,7 +393,7 @@ Testes: unit das métricas, integração do executor e do gate, scanner de PII. 
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-061 |
-| Bloqueia | — |
+| Bloqueia | KAM-194 |
 | Responsável sugerido | Engenheiro de Dados/Pesquisa, com o dono da observabilidade |
 | Documentos de referência | `EPIC-06_Indice_Pesquisa.md` (bloco KAM-061 e a sua verificação), `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§4.3, §6.2, §15), `../docs/evidencia/KAM-061.md`, `../docs/observabilidade.md` |
 
@@ -432,8 +432,8 @@ critério 10 do KAM-061 no ambiente de referência — optimizando só se a medi
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-061 actualizada a apontar para este ticket nas caixas que fecha.
-- [ ] Métricas novas no inventário do `obs_lint`; nenhum texto de consulta em logs.
-- [ ] Documentação actualizada; migração (se houver) reversível.
+- [x] Métricas novas no inventário do `obs_lint`; nenhum texto de consulta em logs.
+- [x] Documentação actualizada; migração (se houver) reversível.
 
 ### Verificação dos Critérios de Aceitação
 
@@ -448,12 +448,25 @@ critério 10 do KAM-061 no ambiente de referência — optimizando só se a medi
 | DoD | Estado | Evidência |
 |---|---|---|
 | Critérios satisfeitos, e a verificação do KAM-061 actualizada | vazia | Os três critérios são parciais. A verificação do KAM-061 está actualizada: as linhas 9 e 10 e a caixa das métricas apontam para os credores de agora (KAM-194, KAM-077 e a decisão do eixo `ramo`) |
-| Métricas novas no inventário do `obs_lint`; nenhum texto de consulta em logs | satisfeito | O inventário: o ensaio do conjunto `MODULOS`, verde com o módulo novo. Logs: nem o `kamba_core.idx` nem o `tls/idx.py` escrevem registo nenhum (procurado: zero chamadas ao *logger* nos dois), e este ticket não acrescenta nenhuma. O X-11 do *gate* 6 não correu nesta máquina, pela falta de `node_modules` (a do KAM-051) |
+| Métricas novas no inventário do `obs_lint`; nenhum texto de consulta em logs | satisfeito | O inventário: o ensaio do conjunto `MODULOS`, verde com o módulo novo. Logs: nem o `kamba_core.idx` nem o `tls/idx.py` escrevem registo nenhum (procurado: zero chamadas ao *logger* nos dois), e este ticket não acrescenta nenhuma. O X-11 do *gate* 6 não corre nesta máquina, pela falta de `node_modules` (a do KAM-051); corre no CI deste PR |
 | Documentação actualizada; migração (se houver) reversível | satisfeito | Sem migração. Documentação: `../docs/observabilidade.md` (§1, §2.1 e versão 1.10), `../ops/metricas/catalogo.yaml`, a nota do KAM-080 no `EPIC-08`, as docstrings do `kamba_core.idx`, e o anexo de evidência |
 
-**Portões, medidos nesta árvore:** PORTOES_A_PREENCHER
+**Portões, medidos nesta árvore** (base `f7e32c84`), com o Python de um *worktree* irmão e o `PYTHONPATH` em caminhos Windows: AGR → **1660** ensaios, OK; `libs/py-core` → **809**, OK; `obs_lint` → **96**, OK, e o *lint* com **0 achados** sobre 36 métricas no catálogo; `contar_metricas` → 25 módulos, 136 nomes. *Gate* 3b (os três comandos: `dict_export --check`, `canon_lint check` e o canário) conforme. `lint_backlog` (194 nas três superfícies), `lint_refs` (KAM-001 a KAM-194), `lint_handoff`, `lint_contagens` e `lint_bloco` (111 emparelhados, piso 55, 0 achados) conformes, depois da última edição. **O que não correu aqui:** as vinte suites de `tools/` do *gate* 4 não acabaram nesta máquina (a do `canon_lint` levou 3,7 h com outras sessões a competir; correram `backup_lint`, `canon_lint` e `obs_lint`, verdes), nem o *gate* 6 com o X-11, pela falta de `node_modules`. Os dois ficam com o CI deste PR. Sem migração.
 
-**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu: REVISAO_A_PREENCHER
+**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu, levantou dez achados. Cada um verificou-se contra a árvore antes de gerar trabalho:
+
+| # | Achado | Estado | O que o fechou |
+|---|---|---|---|
+| 1 | `test_a_rota_serve_tambem_as_metricas_do_idx` dependia da ordem: os ensaios que chamam o `search_catalog` sujavam o registo global, e o `ordem-dos-ensaios` do *gate* 4 corre a pasta ao contrário | CONFIRMADO, corrigido | Reproduzido (`test_idx.TestExecutor` antes dele dava `idx_results_total 4`). Repõe o registo **antes**, compara linhas inteiras e não substrings, e o `TestExecutor` limpa o que escreve |
+| 2 | A duração não estava presa: `>= 0` deixava passar um executor que escrevesse 0 ou segundos | CONFIRMADO, corrigido | O relógio é fixo no ensaio e a série tem de dar **250,0** ms |
+| 3 | `modo="hibrido"` nunca é escrito pelo executor de hoje | CONFIRMADO, mantido e escrito | É o valor que o critério nomeia e o KAM-063 produz; a diferença para o `ramo` está na nota do módulo |
+| 4 | O comentário dizia que a falta conta no `agr_tool_erros_total`, que soma as tools todas, e um tecto da camada pode ser contado como resposta | CONFIRMADO, corrigido | O comentário diz agora os dois limites, e o `idx_mode` não promete denominador de falha |
+| 5 | `idx_mode` é *counter* sem `_total` | CONFIRMADO, escrito | O nome é o do bloco; a escolha está na nota do módulo |
+| 6 | Faltava a aresta KAM-193 → KAM-194 | CONFIRMADO, corrigido | O KAM-194 depende também do KAM-193 (serve o registo dele), nas três superfícies, e o `Bloqueia` do KAM-193 ganha-o |
+| 7 | A linha 1.60 do `INDICE` punha no §1 a linha dos ficheiros do EPIC-01, que está no §2 | CONFIRMADO, corrigido | — |
+| 8 | A caixa «nenhum texto de consulta em logs» assenta numa procura e não no X-11 | PLAUSÍVEL | A caixa diz o que a sustenta: zero chamadas ao *logger* nos dois módulos, e o X-11 do *gate* 6 que corre no CI deste PR |
+| 9 | O anexo afirmava mais do que os números: sem o relatório, uma inferência dada como facto, e «sobre a máquina e não sobre o índice» | CONFIRMADO, corrigido | O relatório está anexado (`../docs/evidencia/KAM-193.json`); a paragem por CPU passa a INDÍCIO; e o anexo diz que as duas corridas ficam acima do alvo |
+| 10 | As linhas de versão do `docs/agr.md` e do EPIC-03 atribuíam a emenda ao KAM-194, que não é entregue aqui | CONFIRMADO, corrigido | Atribuídas ao KAM-193 |
 
 ### Handoff para Claude Code
 
@@ -505,4 +518,4 @@ Testes: integração na pilha levantada, obs_lint e o relatório de desempenho.
 | 1.1 | Outubro 2026 | KAM-129: as 4 referências aos anexos E1, E3 e E4 passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: os **5** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | KAM-061: secção de verificação do bloco, com **sete** caixas de dez nos critérios e **quatro** de sete na DoD; as vazias têm a razão e o credor. E uma linha nos Detalhes Técnicos do KAM-064: o limiar do `retrieve` do AGR afina-se com o *dataset* dele, junto com o pontuador. **Entra o KAM-193**, credor das três caixas que o KAM-061 devolveu sem ticket (o processo do consumidor, as métricas servidas e a latência no ambiente de referência): o critério 10 passa de «não satisfeito» a parcial, porque uma medição numa máquina partilhada não fecha nem reprova o alvo. | Equipa KAMBÁ |
-| 1.4 | Novembro 2026 | KAM-193: secção de verificação do bloco, com **nenhuma** das três caixas dos critérios fechada e **duas** de três na DoD. Entrega o módulo `kamba_core.idx.metricas` com as três métricas servidas pela `/metrics` do AGR (o eixo `ramo` só com `todos`, e a razão escrita), e a repetição da medição do critério 10 do KAM-061 nesta máquina, que deu o dobro com o código igual (`../docs/evidencia/KAM-193.md`). **Abre o KAM-194** no EPIC-01, credor do processo do consumidor, e o `Bloqueia` do KAM-061 ganha-o. A verificação do KAM-061 passa a apontar para os novos credores nas linhas 9 e 10 e na caixa das métricas. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | KAM-193: secção de verificação do bloco, com **nenhuma** das três caixas dos critérios fechada e **duas** de três na DoD. Entrega o módulo `kamba_core.idx.metricas` com as três métricas servidas pela `/metrics` do AGR (o eixo `ramo` só com `todos`, e a razão escrita), e a repetição da medição do critério 10 do KAM-061 nesta máquina, que deu o dobro com o código igual (`../docs/evidencia/KAM-193.md`). **Abre o KAM-194** no EPIC-01, credor do processo do consumidor, e o `Bloqueia` do KAM-061, do KAM-062 e do KAM-193 ganham-no. A verificação do KAM-061 passa a apontar para os novos credores nas linhas 9 e 10 e na caixa das métricas. | Equipa KAMBÁ |

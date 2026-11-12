@@ -59,6 +59,13 @@ class TestPontuador(unittest.TestCase):
 
 
 class TestExecutor(unittest.TestCase):
+    def setUp(self) -> None:
+        # O executor escreve no registo global do IDX desde o KAM-193; estes
+        # ensaios nao o leem, mas nao o deixam sujo para quem vier a seguir.
+        from kamba_core.idx import metricas
+
+        self.addCleanup(metricas.METRICAS.repor)
+
     def test_o_tenant_e_o_do_contexto_e_a_linha_leva_o_score(self) -> None:
         linha = {"sku": "a", "product_ref": "a", "nome": "A", "preco_tipo": "fixo"}
         with mock.patch.object(
@@ -120,15 +127,17 @@ class TestMetricasDoExecutor(unittest.TestCase):
 
     def test_uma_pesquisa_que_respondeu_escreve_as_tres_series(self) -> None:
         linha = {"sku": "a", "product_ref": "a", "nome": "A", "preco_tipo": "fixo"}
+        # O relogio e fixo para que a **duracao** fique presa, e nao so a
+        # existencia da serie: com `>= 0`, um executor que escrevesse 0 ou
+        # segundos em vez de milissegundos passava (achado 2 da revisao).
         with mock.patch.object(
             idx.pesquisa, "candidatos", return_value=((linha, 0.2 / 61), (linha, 0.1 / 61))
-        ):
+        ), mock.patch.object(idx.time, "perf_counter", side_effect=(10.0, 10.25)):
             idx.executar(_pedido(self.PERGUNTA))
         lido = self.registo.ler()
         self.assertEqual(lido["idx_mode:lexical"], 1)
         self.assertEqual(lido["idx_results_total"], 2)
-        self.assertIn("idx_query_ms:todos:lexical", lido)
-        self.assertGreaterEqual(lido["idx_query_ms:todos:lexical"], 0)
+        self.assertEqual(lido["idx_query_ms:todos:lexical"], 250.0)
         self.assertEqual(
             set(lido),
             {"idx_mode:lexical", "idx_results_total", "idx_query_ms:todos:lexical"},

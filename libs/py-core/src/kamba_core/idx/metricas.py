@@ -38,6 +38,17 @@ lista no dia em que houver quem o meca; ate la, declara-lo era publicar uma
 serie que nunca se escreve. O tempo por ramo **mede-se** hoje, mas fora do
 processo: o `db/desempenho_indice.py` le-o do `EXPLAIN ANALYZE`.
 
+## Dois nomes que sao do bloco e nao da convencao
+
+* **`idx_mode` e um *counter* sem o sufixo `_total`.** A convencao do Prometheus
+  pede-o, e o `promtool check metrics` avisa; o formato 0.0.4 que o AGR serve
+  aceita-o. O nome e o que o bloco KAM-061 e o criterio do KAM-193 escrevem, e
+  muda-lo era mudar o contrato que eles citam — fica dito aqui, e nao em silencio.
+* **`modo="hibrido"` esta no dominio e o executor de hoje nunca o escreve**: sem
+  embedding da pergunta (KAM-063), toda a pesquisa e lexical. A diferenca para
+  o `ramo` e que este valor esta escrito no criterio (`idx_mode{hibrido|lexical}`)
+  e tem quem o venha a produzir; um valor por ramo nao tem.
+
 ## Um *gauge* e nao um histograma
 
 Pela razao do `agr_tool_latency_ms` e do `agr_turn_latency_ms`: esta biblioteca

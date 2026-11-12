@@ -120,7 +120,7 @@ KAM-144.
 | [KAM-182](tickets/KAM-182.md) | O corredor do `ordem-dos-ensaios` falha sem conseguir nomear o teste vermelho, e diz que a culpa é dele | fix | S | P2 | KAM-173 |
 | [KAM-183](tickets/KAM-183.md) | As duas superfícies de um bloco de ticket podem discordar, e nenhum portão as compara | feature | M | P1 | KAM-002 |
 | [KAM-185](tickets/KAM-185.md) | A escolha do lote e a ordem de fecho fazem-se à mão, e as três superfícies que serializam a fusão atravessam os epics | feature | M | P1 | — |
-| [KAM-194](tickets/KAM-194.md) | Ponte fila → consumidor Python: casca BullMQ → HTTP e registo de subscrições | feature | L | P1 | KAM-061 |
+| [KAM-194](tickets/KAM-194.md) | Ponte fila → consumidor Python: casca BullMQ → HTTP e registo de subscrições | feature | L | P1 | KAM-061, KAM-062, KAM-193 |
 
 ---
 

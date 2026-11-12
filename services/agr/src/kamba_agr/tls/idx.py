@@ -155,10 +155,15 @@ def executar(pedido: Pedido) -> Resposta:
         raise
     # So a pesquisa que respondeu entra na serie (KAM-193). Uma que passou do
     # tecto tinha a duracao do tecto e nao a da pesquisa, e um *gauge* com o
-    # ultimo valor ficava preso ao numero que o chamador escolheu; a falta conta
-    # no `agr_tool_erros_total`, que e onde a ToolLayer ja a conta. A pergunta
-    # **nao** passa para a metrica: o registo so recebe o modo, a duracao e o
-    # numero de candidatos.
+    # ultimo valor ficava preso ao numero que o chamador escolheu. **O limite
+    # disto, dito:** a falta conta-se no `agr_tool_erros_total{codigo}` da
+    # ToolLayer, que soma as tools todas e nao diz qual falhou, pelo que o
+    # `idx_mode` nao tem denominador para uma taxa de falha **da pesquisa**. E
+    # quando o tecto que estoura e o da camada (`asyncio.wait_for`), a camada
+    # responde `UPSTREAM_TIMEOUT` sem esperar por este executor: se a pesquisa
+    # acabar depois, ela entra aqui como resposta, com a duracao longa. A
+    # pergunta **nao** passa para a metrica: o registo so recebe o modo, a
+    # duracao e o numero de candidatos.
     METRICAS_DO_IDX.registar_pesquisa(
         modo="hibrido" if hibrido else "lexical",
         duracao_ms=(time.perf_counter() - inicio) * 1_000,
