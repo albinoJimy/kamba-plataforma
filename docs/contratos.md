@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/contratos.md` |
 | Ticket | KAM-007 — Catálogo de eventos: schemas versionados e teste de compatibilidade |
-| Estado | 39 tipos em `contratos/eventos/`, com `v1` e `v2` cada (78 contratos; o 39.º, `screening.violation_detected`, é do KAM-191); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11 e 1.83 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
+| Estado | 41 tipos em `contratos/eventos/`, com `v1` e `v2` cada (82 contratos; o `screening.violation_detected` é do KAM-191); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11 e 1.83 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
 | Âmbito | O **contrato** de um evento: o que um produtor pode emitir e o que um consumidor pode esperar, e o que impede isso de mudar sem versão. Não o laço de publicação (`docs/eventos.md`) nem o de consumo (`docs/consumo.md`) |
 | Fontes | `docs/tecnica/06` §4, §5, §6.6, §7.1, §7.3; `docs/tecnica/01` §6.3, §7.2; `specs/02` §3.5 (emenda 1.11); ADR-009, ADR-010, ADR-013 |
 
@@ -87,12 +87,12 @@ registar que estava decidido.
 
 ### O `screening.violation_detected`, e porque nasce com duas versões
 
-O trigésimo nono tipo (KAM-191, emenda 1.83 do dicionário) é a violação que a
+O tipo do KAM-191 (emenda 1.84 do dicionário) é a violação que a
 re-análise do screening (KAM-088) encontra quando um produto publicado passa a
 `bloqueada` numa versão nova da política. Agregado `product` com o `sku` como
 `id`, classe P0, e um payload de quatro campos — `sku`, `regras`,
 `versao_politica` e `sha256` —, sem texto do produto e sem `tenant_id`, que vai
-no envelope (nenhum dos outros trinta e oito leva `tenant_id` no payload).
+no envelope (nenhum dos outros quarenta leva `tenant_id` no payload).
 
 **O resumo vai em base32 (RFC 4648, minúsculas, sem `=`), e não em hexadecimal.**
 O `evt_emitir` recusa todo o payload que case a guarda de telefone
@@ -283,7 +283,7 @@ leu o nome da função.
 | # | Decisão | Estado |
 |---|---|---|
 | 1 | **Três padrões de telefone em três sítios.** O §7.3 escreve `\+?244\d{9}`; o `evt_emitir` e o `pii.ts` implementam `\+?244 ?9[0-9]{8}` e `"\+[0-9]{9,15}"`. São semanticamente diferentes, e o do código tem falsos positivos documentados (`docs/eventos.md` §11, ressalva 11) que fizeram uma transacção de negócio falhar numa medição de carga | Devolvida. Este ticket usa o do código, por paridade com a base; apertar o padrão muda o §6.1 e é alteração ao documento técnico |
-| 2 | **Os payloads são *proposta*.** Nenhum documento especifica os campos de 37 dos 39 tipos (o `screening.violation_detected` tem-nos no critério 1 do KAM-191); derivaram-se do DDL e dos epics | Calibra-se com o primeiro produtor de cada tipo (KAM-038, KAM-041 e seguintes). O §6.6 torna isto barato: um campo que falte acrescenta-se sem versão nova |
+| 2 | **Os payloads são *proposta*.** Nenhum documento especifica os campos da maioria dos tipos (o `screening.violation_detected` tem-nos no critério 1 do KAM-191); derivaram-se do DDL e dos epics | Calibra-se com o primeiro produtor de cada tipo (KAM-038, KAM-041 e seguintes). O §6.6 torna isto barato: um campo que falte acrescenta-se sem versão nova |
 | 3 | **`tenant.activated` como gatilho do provisioning.** O dicionário diz `tenant.approved` e nomeia os documentos a corrigir; o `docs/00-KAMBA-documento-mestre.md` continua a usar o outro e **não está** na lista | Resíduo documental, registado. O documento mestre é artefacto compilado e não é fonte |
 | 4 | **Os tipos de Fase C e D não têm contrato** — `review.removed`, `placement.impression`, `placement.conversion_proven`, `score.computed`, e os `delivery.*` do `docs/tecnica/07` | Por desenho: o critério 1 pede Fase P. Nascem com os tickets que os emitem |
 | 5 | **A parte dos webhooks do gate 7** (contratos da Meta) continua por fazer | É o KAM-024; o alvo `ci-7` diz onde se acrescenta |
@@ -297,4 +297,4 @@ leu o nome da função.
 | 1.0 | Outubro 2026 | Emissão (KAM-007): 38 contratos v1, o classificador de diferenças com falha fechada, o *lint* de PII com a lista aprovada que o §7.3 nomeava e nunca enumerou, os exemplos validados, a `versao_max` das subscrições, os tipos gerados e o gate 7 activo. Fecha as decisões abertas 1 e 6 de `docs/eventos.md` e a dúvida «9 ou 14» da emenda 1.9. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **O que a revisão adversarial mudou (KAM-007).** O *lint* de PII deixou de comparar sete nomes por segmento exacto — passava o plural de cada um e o inglês todo — e a lista aprovada ganhou a sua primeira entrada no mesmo dia (C1, m4); os trinta e oito contratos deixaram de admitir `classe_pii` P2, que o §7.1 proíbe (M1); o `agregado.tipo` passou a `const` e apanhou **vinte e sete exemplos** com o agregado da primeira pasta copiado (M2); `payment.confirmed` e `payment.manual_confirmed` deixaram de admitir o mesmo método de autenticação (M7); o classificador passou a falhar fechado em vez de rebentar (m1, m2, m3); e o lado Python ganhou `NotRequired` e um `validar_payload` (M5). O catálogo passou a ser verificado contra o §5 e não contra uma contagem (M4). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-009: o §4.4 deixa de dizer que `registry/` só tem um `README.md` — tem o `plans.yaml`, que é a forma dos **planos** e não declara `subscriptions`. O `versao_max` continua a passar sobre zero subscrições, e continua a dizê-lo. | Equipa KAMBÁ |
-| 1.3 | Novembro 2026 | KAM-191: entra o `screening.violation_detected`, o trigésimo nono tipo, com `v1` e `v2` — a razão das duas está no §3. O cabeçalho deixa de dizer «38 contratos v1», que desde o KAM-159 já não era verdade (eram 76, com a `v2`), e passa a 39 tipos e 78 contratos; o §4.1 deixa de fixar o número em prosa, e o §6 passa a «37 dos 39». | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | KAM-191: entra o `screening.violation_detected`, com `v1` e `v2` — a razão das duas está no §3. O cabeçalho deixa de dizer «38 contratos v1», que desde o KAM-159 já não era verdade (eram 76, com a `v2`), e passa a 41 tipos e 82 contratos (com os dois do KAM-050); o §4.1 deixa de fixar o número em prosa, e o §6 deixa de contar os tipos sem campos especificados. | Equipa KAMBÁ |

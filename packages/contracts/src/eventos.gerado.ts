@@ -211,6 +211,20 @@ export interface PayloadOrderDeliveredV2 {
   readonly entrega_confirmada_por: "cliente" | "dono" | "estafeta";
 }
 
+/** Payload de `order.exception` v1. */
+export interface PayloadOrderException {
+  readonly order_id: string;
+  readonly excepcao: "pagamento_tardio_sem_stock" | "pagamento_duplicado" | "valor_divergente" | "pagamento_apos_cancelamento";
+  readonly evento_pagamento_id: string;
+}
+
+/** Payload de `order.exception` v2. */
+export interface PayloadOrderExceptionV2 {
+  readonly order_id: string;
+  readonly excepcao: "pagamento_tardio_sem_stock" | "pagamento_duplicado" | "valor_divergente" | "pagamento_apos_cancelamento";
+  readonly evento_pagamento_id: string;
+}
+
 /** Payload de `order.expired` v1. */
 export interface PayloadOrderExpired {
   readonly order_id: string;
@@ -237,6 +251,22 @@ export interface PayloadOrderPaidV2 {
   readonly valor_minor: number;
   readonly currency: "AOA";
   readonly paga_via: "provider_autenticado" | "manual_auditado" | "cod_manual";
+}
+
+/** Payload de `order.refund_requested` v1. */
+export interface PayloadOrderRefundRequested {
+  readonly order_id: string;
+  readonly motivo: "pagamento_apos_cancelamento" | "pagamento_duplicado" | "disputa" | "entrega_falhada";
+  readonly valor_minor: number;
+  readonly currency: "AOA";
+}
+
+/** Payload de `order.refund_requested` v2. */
+export interface PayloadOrderRefundRequestedV2 {
+  readonly order_id: string;
+  readonly motivo: "pagamento_apos_cancelamento" | "pagamento_duplicado" | "disputa" | "entrega_falhada";
+  readonly valor_minor: number;
+  readonly currency: "AOA";
 }
 
 /** Payload de `payment.confirmed` v1. */
@@ -637,6 +667,11 @@ export const CATALOGO = {
     obrigatorios: ["entrega_confirmada_por", "order_id"],
     permitidos: ["entrega_confirmada_por", "order_id"],
   },
+  "order.exception": {
+    versoes: [1, 2],
+    obrigatorios: ["evento_pagamento_id", "excepcao", "order_id"],
+    permitidos: ["evento_pagamento_id", "excepcao", "order_id"],
+  },
   "order.expired": {
     versoes: [1, 2],
     obrigatorios: ["expira_at", "order_id"],
@@ -646,6 +681,11 @@ export const CATALOGO = {
     versoes: [1, 2],
     obrigatorios: ["currency", "order_id", "paga_via", "valor_minor"],
     permitidos: ["currency", "order_id", "paga_via", "valor_minor"],
+  },
+  "order.refund_requested": {
+    versoes: [1, 2],
+    obrigatorios: ["currency", "motivo", "order_id", "valor_minor"],
+    permitidos: ["currency", "motivo", "order_id", "valor_minor"],
   },
   "payment.confirmed": {
     versoes: [1, 2],

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.31 |
+| Versão | 1.32 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1977,7 +1977,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 193 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 194 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2305,3 +2305,4 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.29 | Novembro 2026 | KAM-190 (acrescentado ao EPIC-09 no PR do KAM-099): a contagem viva do backlog na nota do `assert` passa de 189 a **190**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.30 | Novembro 2026 | KAM-191 e KAM-192 (acrescentados ao EPIC-09 no PR do KAM-088): a contagem viva do backlog na nota do `assert` passa de 190 a **192**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.31 | Novembro 2026 | KAM-193 (acrescentado ao EPIC-06 no PR do KAM-061): a contagem viva do backlog na nota do `assert` passa de 192 a **193**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.32 | Novembro 2026 | KAM-194 (acrescentado ao EPIC-01 no PR do KAM-193): a contagem viva do backlog na nota do `assert` passa de 193 a **194**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

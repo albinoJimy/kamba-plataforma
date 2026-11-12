@@ -202,6 +202,20 @@ class PayloadOrderDeliveredV2(TypedDict):
     entrega_confirmada_por: str
 
 
+class PayloadOrderException(TypedDict):
+    """Payload de `order.exception` v1."""
+    order_id: str
+    excepcao: str
+    evento_pagamento_id: str
+
+
+class PayloadOrderExceptionV2(TypedDict):
+    """Payload de `order.exception` v2."""
+    order_id: str
+    excepcao: str
+    evento_pagamento_id: str
+
+
 class PayloadOrderExpired(TypedDict):
     """Payload de `order.expired` v1."""
     order_id: str
@@ -228,6 +242,22 @@ class PayloadOrderPaidV2(TypedDict):
     valor_minor: int
     currency: str
     paga_via: str
+
+
+class PayloadOrderRefundRequested(TypedDict):
+    """Payload de `order.refund_requested` v1."""
+    order_id: str
+    motivo: str
+    valor_minor: int
+    currency: str
+
+
+class PayloadOrderRefundRequestedV2(TypedDict):
+    """Payload de `order.refund_requested` v2."""
+    order_id: str
+    motivo: str
+    valor_minor: int
+    currency: str
 
 
 class PayloadPaymentConfirmed(TypedDict):
@@ -608,6 +638,11 @@ CATALOGO: dict[str, dict[str, object]] = {
         "obrigatorios": ['entrega_confirmada_por', 'order_id'],
         "permitidos": ['entrega_confirmada_por', 'order_id'],
     },
+    "order.exception": {
+        "versoes": [1, 2],
+        "obrigatorios": ['evento_pagamento_id', 'excepcao', 'order_id'],
+        "permitidos": ['evento_pagamento_id', 'excepcao', 'order_id'],
+    },
     "order.expired": {
         "versoes": [1, 2],
         "obrigatorios": ['expira_at', 'order_id'],
@@ -617,6 +652,11 @@ CATALOGO: dict[str, dict[str, object]] = {
         "versoes": [1, 2],
         "obrigatorios": ['currency', 'order_id', 'paga_via', 'valor_minor'],
         "permitidos": ['currency', 'order_id', 'paga_via', 'valor_minor'],
+    },
+    "order.refund_requested": {
+        "versoes": [1, 2],
+        "obrigatorios": ['currency', 'motivo', 'order_id', 'valor_minor'],
+        "permitidos": ['currency', 'motivo', 'order_id', 'valor_minor'],
     },
     "payment.confirmed": {
         "versoes": [1, 2],

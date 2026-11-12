@@ -56,7 +56,7 @@ limpo não prova que o lint morde.
 **A superfície `registo` lê duas formas**, distinguidas pela chave de topo e
 nunca pelo nome do ficheiro: a **vertical** (`id`) e os **planos** (`plans`).
 Um ficheiro que não seja nenhuma das duas **falha**. Os nomes de limite são
-confrontados com as dez chaves do dicionário §3.2 nas duas formas — uma lista
+confrontados com as onze chaves do dicionário §3.2 nas duas formas — uma lista
 de nomes na vertical, um mapa nome → valor num plano —, e o que cada chave
 **é** (contador por período, tecto por pedido, tecto por janela) está em
 [`registry/entitlement_keys.schema.json`](../registry/entitlement_keys.schema.json),

@@ -519,6 +519,8 @@ emite é especulação.
 | `order.expired` | COM | COM/stock, AGR, DAT | order | P1 | P | `order_id`, `expira_at` |
 | `order.cancelled` | COM | COM/stock, AGR, DAT | order | P1 | P | `order_id`, `motivo` |
 | `order.delivered` | COM | REP, DAT | order | P1 | P | `order_id`, `entrega_confirmada_por` |
+| `order.exception` | COM | HND (dono e ops), DAT | order | P1 | P | `order_id`, `excepcao`, `evento_pagamento_id` |
+| `order.refund_requested` | COM | HND (dono e ops), DAT | order | P1 | P | `order_id`, `motivo`, `valor_minor`, `currency` |
 | `payment.reference_issued` | PAY | AGR, COM†, DAT | order | P0 | P | `order_id`, `provider`, `referencia`, `valor_minor`, `currency`, `expira_at` |
 | `payment.confirmed` | PAY | COM†, AGR, REP, DAT | order | P0 | P | `order_id`, `provider`, `referencia`, `valor_minor`, `currency`, `autenticacao` |
 | `payment.manual_confirmed` | PAY | COM†, DAT | order | P0 | P | `order_id`, `valor_minor`, `currency`, `autenticacao` |
@@ -592,3 +594,4 @@ fica o que o envelope não traz e mais nada.
 | 1.4 | Novembro 2026 | **KAM-048: o consumidor do `booking.reminder_due` é o COM e não o AGR.** O catálogo espelhava o §12 do `tecnica/03`, que atribuía o lembrete ao AGR; a decisão do fundador dá-o ao COM, pela razão escrita na nota sob aquela tabela — com a janela da Meta fechada o lembrete leva data e hora, e o texto do AGR não leva números por desenho. O AGR continua a subscrever o tipo; retirar-lhe a acção é do KAM-038 e fica devolvido ao fundador. | Equipa KAMBÁ |
 | 1.5 | Novembro 2026 | **KAM-187.** §6: o consumidor da fila de entrada é o `entrada.ts` e não o `server.ts`, que só serve `/healthz`; e o publicador passa a correr nos composes de produção e de *staging*, e no de desenvolvimento atrás do perfil `consumidores`. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-071: as lacunas 4 e 5 do §9 ficam pagas, menos o agendador.** O `db/eventos_particoes.py` que o §7 dava por fazer nasceu como `db/particoes.py`, para as duas tabelas particionadas (`events_log` e `dat.llm_call_log`), e a retenção do *outbox* publicado é uma classe do `kamba_core.retencao`. | Equipa KAMBÁ |
+| 1.7 | Novembro 2026 | **KAM-050.** §10: entram `order.exception` e `order.refund_requested`, os dois tipos que o KAM-050 publica (o catálogo passa a quarenta tipos). Os consumidores são os do `tecnica/06` §5; nenhum está implementado, e é isso que a secção de verificação do KAM-050 diz da notificação ao dono e a ops. | Equipa KAMBÁ |

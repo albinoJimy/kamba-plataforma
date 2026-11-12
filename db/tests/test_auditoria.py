@@ -88,6 +88,10 @@ ACCOES = (
     # registo do mesmo facto.
     "retention.hold_aplicado",
     "retention.hold_levantado",
+    # A decima segunda, da revisao `0046` (KAM-050, criterio 5): o registo manual de um
+    # reembolso por dono ou ops. A mesma extensao por migracao, com a mesma
+    # recusa no `downgrade` se houver linhas escritas.
+    "order.refund_record",
 )
 
 #: O dominio de `actor_type`.

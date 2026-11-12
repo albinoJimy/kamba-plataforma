@@ -193,6 +193,7 @@ export {
 export {
   type ClienteDeLeitura,
   ESTADOS_DA_ENCOMENDA,
+  ESTADOS_DE_EXCEPCAO,
   ESTADOS_INCOMPATIVEIS,
   ESTADO_PRETENDIDO,
   EstadoDesconhecidoError,
@@ -201,6 +202,7 @@ export {
   MaquinaNaBase,
   TRANSICOES,
   eEstado,
+  estadoDeExcepcao,
   estadoIncompativel,
   podeTransitar,
 } from "./estados.ts";

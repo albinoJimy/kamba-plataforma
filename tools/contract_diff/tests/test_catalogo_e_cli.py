@@ -1,7 +1,7 @@
 """O catalogo real, e o gate como um todo (KAM-007).
 
 Os outros dois ficheiros testam a logica com schemas construidos para o efeito.
-Este corre sobre **os contratos do repositorio** (trinta e nove tipos desde o
+Este corre sobre **os contratos do repositorio** (quarenta e um tipos desde o
 KAM-191) e sobre o CLI,
 que e o que o `make ci-7` chama. Uma logica certa com um catalogo que nao
 carrega nao serve de nada.
@@ -18,11 +18,12 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os trinta e nove **tipos** do dicionario §3.5: os trinta e oito da emenda
-#: 1.11 e o `screening.violation_detected` da 1.83 (KAM-191). Escritos aqui a
+#: Os quarenta e um **tipos** do dicionario §3.5: os trinta e oito da emenda
+#: 1.11, os dois do KAM-050 (1.83) e o `screening.violation_detected` da 1.84
+#: (KAM-191). Escritos aqui a
 #: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
-ESPERADOS = 39
+ESPERADOS = 41
 
 #: As versoes publicadas de cada tipo. Sao **duas** desde o KAM-159, que
 #: acrescentou a `v2` a todos: a uniao das finalidades de consentimento alarga
@@ -46,7 +47,7 @@ FORA_DO_CINCO = {
     "booking.created": "specs/EPIC-04, vertical de servicos",
     "booking.reminder_due": "specs/EPIC-04, por extenso: «registar no catalogo (KAM-007)»",
     "booking.cancelled": "specs/EPIC-04, vertical de servicos",
-    "screening.violation_detected": "dicionario §3.5, emenda 1.83; a re-analise do KAM-088",
+    "screening.violation_detected": "dicionario §3.5, emenda 1.84; a re-analise do KAM-088",
 }
 
 #: O §5 escreve os tipos de uma familia em abreviatura — `tenant.activated` /
@@ -119,7 +120,7 @@ class TestOCatalogoDoRepositorio(unittest.TestCase):
 
     def test_sao_trinta_e_oito_e_carregam_todos(self) -> None:
         # O nome e o de 2026-10 e fica: o `specs/tickets/KAM-007.md` cita-o como
-        # evidencia. A contagem e a de `ESPERADOS`, trinta e nove desde o KAM-191.
+        # evidencia. A contagem e a de `ESPERADOS`, quarenta e um desde o KAM-191.
         self.assertEqual(len(self.contratos), ESPERADOS_FICHEIROS)
         self.assertEqual(len({c.tipo for c in self.contratos}), ESPERADOS)
 

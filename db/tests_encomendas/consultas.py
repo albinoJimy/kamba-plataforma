@@ -91,6 +91,14 @@ SQL_ENCOMENDA_DA_CHAVE = exigir("SQL_ENCOMENDA_DA_CHAVE")
 SQL_VISTA = exigir("SQL_VISTA")
 SQL_LISTAR = exigir("SQL_LISTAR")
 
+# As cinco do KAM-050, exercitadas em `test_excepcoes.py`: a marca da excepcao,
+# a linha de auditoria do reembolso e as tres do *savepoint* da re-reserva.
+SQL_MARCAR_EXCEPCAO = exigir("SQL_MARCAR_EXCEPCAO")
+SQL_AUDITAR_REEMBOLSO = exigir("SQL_AUDITAR_REEMBOLSO")
+SQL_ABRIR_RERESERVA = exigir("SQL_ABRIR_RERESERVA")
+SQL_DESFAZER_RERESERVA = exigir("SQL_DESFAZER_RERESERVA")
+SQL_FECHAR_RERESERVA = exigir("SQL_FECHAR_RERESERVA")
+
 # As doze das reservas de stock (KAM-045), do modulo `reservations`. Corridas em
 # `test_reservas.py`, `test_expiracao.py` e `test_idempotencia_de_reservas.py`.
 SQL_LER_OFERTA = exigir_das_reservas("SQL_LER_OFERTA")
@@ -147,4 +155,9 @@ EXERCITADAS = (
     "SQL_ENCOMENDA_DA_CHAVE",
     "SQL_VISTA",
     "SQL_LISTAR",
+    "SQL_MARCAR_EXCEPCAO",
+    "SQL_AUDITAR_REEMBOLSO",
+    "SQL_ABRIR_RERESERVA",
+    "SQL_DESFAZER_RERESERVA",
+    "SQL_FECHAR_RERESERVA",
 )

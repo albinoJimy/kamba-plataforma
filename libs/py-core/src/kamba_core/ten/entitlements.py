@@ -18,7 +18,7 @@ RLS.
 
 ## As duas perguntas nao sao a mesma, e a diferenca esta no registo
 
-As dez chaves de `registry/entitlement_keys.schema.json` nao sao todas da
+As onze chaves de `registry/entitlement_keys.schema.json` nao sao todas da
 mesma especie, e o registo di-lo em `x-kamba-consumivel`:
 
 * **baldes por periodo** (`msgs_ai_mes`, `marcacoes_mes`, …) acumulam-se e
@@ -177,11 +177,11 @@ class ChaveDeLimite:
     consumivel: bool
 
 
-#: As dez chaves do registo, com a especie de cada uma.
+#: As onze chaves do registo, com a especie de cada uma.
 #:
 #: ## Porque e que isto existe
 #:
-#: O registo ja dizia, em `x-kamba-consumivel`, quais das dez chaves se
+#: O registo ja dizia, em `x-kamba-consumivel`, quais das onze chaves se
 #: consomem — e **nada lia esse campo**. A consequencia media-se: nada impedia
 #: `consume_limit(tenant, "valor_max_pedido_minor", 5_000_000, ...)`, que cria
 #: linha em `platform.tenant_usage` para um tecto que nao tem contador e, com o
@@ -218,6 +218,8 @@ CHAVES_DE_LIMITE: Mapping[str, ChaveDeLimite] = {
         ChaveDeLimite(
             "manual_max_por_contacto_24h", CATEGORIA_TECTO_POR_JANELA, False
         ),
+        # KAM-050: o prazo de reclamacao. Sem omissao, ver o registo.
+        ChaveDeLimite("prazo_reclamacao_dias", CATEGORIA_TECTO_POR_PEDIDO, False),
     )
 }
 
@@ -337,7 +339,7 @@ def especie_da_chave(chave: object) -> ChaveDeLimite:
     if especie is None:
         raise ChaveDesconhecida(
             f"a chave {nome!r} nao esta no registo de chaves de limite "
-            "(`registry/entitlement_keys.schema.json`, dez chaves). O registo "
+            "(`registry/entitlement_keys.schema.json`, onze chaves). O registo "
             "recusa chaves desconhecidas na escrita; esta recusa-as na leitura."
         )
     return especie

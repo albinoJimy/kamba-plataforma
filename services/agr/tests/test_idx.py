@@ -59,6 +59,13 @@ class TestPontuador(unittest.TestCase):
 
 
 class TestExecutor(unittest.TestCase):
+    def setUp(self) -> None:
+        # O executor escreve no registo global do IDX desde o KAM-193; estes
+        # ensaios nao o leem, mas nao o deixam sujo para quem vier a seguir.
+        from kamba_core.idx import metricas
+
+        self.addCleanup(metricas.METRICAS.repor)
+
     def test_o_tenant_e_o_do_contexto_e_a_linha_leva_o_score(self) -> None:
         linha = {"sku": "a", "product_ref": "a", "nome": "A", "preco_tipo": "fixo"}
         with mock.patch.object(
@@ -104,6 +111,61 @@ class TestExecutor(unittest.TestCase):
 
     def test_o_executor_e_o_do_search_catalog(self) -> None:
         self.assertEqual(idx.executores_do_idx(), {"search_catalog": idx.executar})
+
+
+class TestMetricasDoExecutor(unittest.TestCase):
+    """KAM-193: a ligacao do executor ao registo do IDX, e nao so o registo."""
+
+    PERGUNTA = "quero comprar nike air force 923456789"
+
+    def setUp(self) -> None:
+        from kamba_core.idx import metricas
+
+        self.registo = metricas.METRICAS
+        self.registo.repor()
+        self.addCleanup(self.registo.repor)
+
+    def test_uma_pesquisa_que_respondeu_escreve_as_tres_series(self) -> None:
+        linha = {"sku": "a", "product_ref": "a", "nome": "A", "preco_tipo": "fixo"}
+        # O relogio e fixo para que a **duracao** fique presa, e nao so a
+        # existencia da serie: com `>= 0`, um executor que escrevesse 0 ou
+        # segundos em vez de milissegundos passava (achado 2 da revisao).
+        with mock.patch.object(
+            idx.pesquisa, "candidatos", return_value=((linha, 0.2 / 61), (linha, 0.1 / 61))
+        ), mock.patch.object(idx.time, "perf_counter", side_effect=(10.0, 10.25)):
+            idx.executar(_pedido(self.PERGUNTA))
+        lido = self.registo.ler()
+        self.assertEqual(lido["idx_mode:lexical"], 1)
+        self.assertEqual(lido["idx_results_total"], 2)
+        self.assertEqual(lido["idx_query_ms:todos:lexical"], 250.0)
+        self.assertEqual(
+            set(lido),
+            {"idx_mode:lexical", "idx_results_total", "idx_query_ms:todos:lexical"},
+            "o executor de hoje e lexical: nenhuma serie hibrida",
+        )
+
+    def test_a_pergunta_nao_chega_a_exposicao(self) -> None:
+        with mock.patch.object(idx.pesquisa, "candidatos", return_value=()):
+            idx.executar(_pedido(self.PERGUNTA))
+        texto = self.registo.exposicao()
+        self.assertIn("idx_results_total 0", texto)
+        for pedaco in (*self.PERGUNTA.split(), TENANT):
+            with self.subTest(pedaco=pedaco):
+                self.assertNotIn(pedaco, texto)
+
+    def test_uma_pesquisa_que_falhou_nao_escreve(self) -> None:
+        """O tecto e qualquer outro erro: a duracao seria a do tecto, nao a da pesquisa."""
+        for erro in (Exception({"C": "57014"}), Exception({"C": "42501"})):
+            with self.subTest(erro=erro):
+                with mock.patch.object(idx.pesquisa, "candidatos", side_effect=erro):
+                    with self.assertRaises(Exception):
+                        idx.executar(_pedido())
+        self.assertEqual(self.registo.ler(), {})
+
+    def test_um_filtro_recusado_nao_escreve(self) -> None:
+        with self.assertRaises(ErroDeBackend):
+            idx.executar(_pedido(filtros={"cor": "azul"}))
+        self.assertEqual(self.registo.ler(), {})
 
 
 if __name__ == "__main__":

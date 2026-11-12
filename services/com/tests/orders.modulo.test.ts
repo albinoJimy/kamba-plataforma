@@ -38,6 +38,8 @@ import {
   payloadDeEntregue,
   payloadDeExpirada,
   payloadDePaga,
+  payloadDeExcepcao,
+  payloadDeReembolsoPedido,
   reconciliar,
   transicaoPermitida,
   transition,
@@ -165,7 +167,7 @@ test("o pagamento tardio e a disputa não estão no núcleo (são KAM-050)", () 
 
 // ----------------------------------------------------------------- payloads
 
-test("os cinco payloads passam o `validarPayload` dos contratos publicados", () => {
+test("os sete payloads passam o `validarPayload` dos contratos publicados", () => {
   const casos: [string, number, Record<string, unknown>][] = [
     [
       EMISSOES.criada.tipo,
@@ -197,6 +199,21 @@ test("os cinco payloads passam o `validarPayload` dos contratos publicados", () 
       EMISSOES.entregue.tipo,
       EMISSOES.entregue.versao,
       payloadDeEntregue(ENCOMENDA, "cliente"),
+    ],
+    // Os dois do KAM-050, contra os contratos que ele publica.
+    [
+      EMISSOES.excepcao.tipo,
+      EMISSOES.excepcao.versao,
+      payloadDeExcepcao(
+        ENCOMENDA,
+        "pagamento_tardio_sem_stock",
+        "0192f3a4-9c2d-7e3f-8a41-5b6c7d8e9fa0",
+      ),
+    ],
+    [
+      EMISSOES.reembolso.tipo,
+      EMISSOES.reembolso.versao,
+      payloadDeReembolsoPedido(ENCOMENDA, "pagamento_duplicado", 1_250_000n, "AOA"),
     ],
   ];
   for (const [tipo, versao, payload] of casos) {

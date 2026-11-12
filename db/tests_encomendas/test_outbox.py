@@ -35,13 +35,16 @@ from tests.base import VIOLACAO_DE_CHECK, sqlstate
 from tests_encomendas.base import TOTAL, ComEncomendas
 from tests_encomendas.consultas import EXERCITADAS, SQL_EMITIR, SQL_GRAFO
 
-#: Os cinco tipos com contrato publicado, e as versoes emitidas.
+#: Os sete tipos com contrato publicado, e as versoes emitidas: os cinco do
+#: KAM-044 e os dois do KAM-050.
 TIPOS = (
     ("order.created", 1),
     ("order.paid", 1),
     ("order.expired", 1),
     ("order.cancelled", 1),
     ("order.delivered", 1),
+    ("order.exception", 1),
+    ("order.refund_requested", 1),
 )
 
 #: O sexto, que o catalogo nao tem. Ver a nota do modulo.
@@ -73,7 +76,7 @@ class TestEmissaoPeloOutbox(ComEncomendas):
         )
         return str(cursor.fetchone()[0])
 
-    def test_os_cinco_entram_no_outbox_com_o_agregado_order(self) -> None:
+    def test_os_sete_entram_no_outbox_com_o_agregado_order(self) -> None:
         payloads = {
             "order.created": {
                 "order_id": self.encomenda,
@@ -100,6 +103,17 @@ class TestEmissaoPeloOutbox(ComEncomendas):
                 "order_id": self.encomenda,
                 "entrega_confirmada_por": "cliente",
             },
+            "order.exception": {
+                "order_id": self.encomenda,
+                "excepcao": "pagamento_duplicado",
+                "evento_pagamento_id": "0192f3a4-9c2d-7e3f-8a41-5b6c7d8e9fa0",
+            },
+            "order.refund_requested": {
+                "order_id": self.encomenda,
+                "motivo": "pagamento_duplicado",
+                "valor_minor": TOTAL,
+                "currency": "AOA",
+            },
         }
         _, cursor = self.ligar_app(self.tenant)
         for tipo, versao in TIPOS:
@@ -117,7 +131,7 @@ class TestEmissaoPeloOutbox(ComEncomendas):
                 (tipo, versao, "order", self.encomenda, n)
                 for n, (tipo, versao) in enumerate(TIPOS, start=1)
             ],
-            "os cinco na linhagem da **encomenda**: o `agregado_id` e o "
+            "os sete na linhagem da **encomenda**: o `agregado_id` e o "
             "`order_id`, pelo que a sequencia e dela e de mais nenhuma",
         )
 
@@ -208,21 +222,44 @@ class TestEmissaoPeloOutbox(ComEncomendas):
         """
         outro = self.criar_tenant()
         conexao, cursor = self.ligar_app(self.tenant)
-        with self.assertRaises(pg8000.dbapi.DatabaseError):
-            cursor.execute(
-                SQL_EMITIR.sql,
-                SQL_EMITIR.args(
-                    "order.cancelled",
-                    1,
-                    outro,
-                    "order",
-                    self.encomenda,
-                    json.dumps({"order_id": self.encomenda, "motivo": "ataque"}),
-                    "P0",
-                    ["transacao"],
-                ),
-            )
-        conexao.rollback()
+        # Os dois do KAM-050 entram pelo mesmo caminho, e os «Testes
+        # Requeridos» do bloco pedem ISO-43..46 para eles por nome.
+        for tipo, payload in (
+            ("order.cancelled", {"order_id": self.encomenda, "motivo": "ataque"}),
+            (
+                "order.exception",
+                {
+                    "order_id": self.encomenda,
+                    "excepcao": "pagamento_duplicado",
+                    "evento_pagamento_id": "0192f3a4-9c2d-7e3f-8a41-5b6c7d8e9fa0",
+                },
+            ),
+            (
+                "order.refund_requested",
+                {
+                    "order_id": self.encomenda,
+                    "motivo": "pagamento_duplicado",
+                    "valor_minor": TOTAL,
+                    "currency": "AOA",
+                },
+            ),
+        ):
+            with self.subTest(tipo=tipo):
+                with self.assertRaises(pg8000.dbapi.DatabaseError):
+                    cursor.execute(
+                        SQL_EMITIR.sql,
+                        SQL_EMITIR.args(
+                            tipo,
+                            1,
+                            outro,
+                            "order",
+                            self.encomenda,
+                            json.dumps(payload),
+                            "P0",
+                            ["transacao"],
+                        ),
+                    )
+                conexao.rollback()
         self.assertEqual(
             self.consultar(
                 "SELECT count(*) FROM platform.events_outbox WHERE tenant_id = %s",
@@ -357,4 +394,4 @@ class TestCoberturaDasConsultas(ComEncomendas):
         _, cursor = self.ligar_app(self.criar_tenant())
         cursor.execute(SQL_GRAFO.sql)
         linhas = cursor.fetchall()
-        self.assertEqual(len(linhas), 12, "as doze do nucleo")
+        self.assertEqual(len(linhas), 21, "as doze do nucleo e as nove do KAM-050")
