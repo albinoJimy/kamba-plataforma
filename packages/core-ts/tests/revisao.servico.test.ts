@@ -426,7 +426,7 @@ describe("acesso minimo a dados pessoais (criterio 6)", () => {
     m.dados.set(o.id, { nif: "5417038261" });
     const r = await m.abrir(o);
     assert.ok(r.estado === "aberto");
-    m.auditoria.registar = async () => {
+    m.auditoria.gravar = async () => {
       throw new Error("audit_log fora");
     };
     await assert.rejects(m.servico.revelar(revisor(), r.caso.id, "nif"), /audit_log fora/);

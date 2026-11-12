@@ -313,7 +313,7 @@ export interface RegistoDeAuditoria {
 }
 
 export interface Auditoria {
-  registar(r: RegistoDeAuditoria): Promise<void>;
+  gravar(r: RegistoDeAuditoria): Promise<void>;
 }
 
 /**

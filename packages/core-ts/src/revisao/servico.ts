@@ -431,7 +431,7 @@ export class ServicoDeRevisao {
    */
   async ver(revisor: Revisor, casoId: string): Promise<VistaDoCaso> {
     let caso = await this.#autorizar(revisor, casoId);
-    await this.#d.auditoria.registar({
+    await this.#d.auditoria.gravar({
       accao: "review.acesso",
       tenantId: caso.tenantId,
       actorId: revisor.id,
@@ -470,7 +470,7 @@ export class ServicoDeRevisao {
     const caso = await this.#autorizar(revisor, casoId);
     const onboarding = await this.#onboardingDoCaso(caso);
     if (onboarding === null) return null;
-    await this.#d.auditoria.registar({
+    await this.#d.auditoria.gravar({
       accao: "review.acesso",
       tenantId: caso.tenantId,
       actorId: revisor.id,
@@ -499,7 +499,7 @@ export class ServicoDeRevisao {
     const auditoria = this.#d.auditoria;
     return this.#d.documentos.url(revisor.id, onboarding, verificacaoId, {
       async anotarAcesso(a) {
-        await auditoria.registar({
+        await auditoria.gravar({
           accao: "review.acesso",
           tenantId,
           actorId: a.revisor,
@@ -621,7 +621,7 @@ export class ServicoDeRevisao {
     const motivo: MotivoDeRecusa | null = !papel ? "sem_papel" : !revisor.mfa ? "sem_mfa" : null;
     if (motivo === null) return;
     if (caso !== null) await this.#recusar(revisor, caso, motivo);
-    await this.#d.auditoria.registar({
+    await this.#d.auditoria.gravar({
       accao: "review.recusa",
       tenantId: null,
       actorId: revisor.id === "" ? "desconhecido" : revisor.id,
@@ -651,7 +651,7 @@ export class ServicoDeRevisao {
   }
 
   async #recusar(revisor: Revisor, caso: CasoDeRevisao, motivo: MotivoDeRecusa): Promise<never> {
-    await this.#d.auditoria.registar({
+    await this.#d.auditoria.gravar({
       accao: "review.recusa",
       tenantId: caso.tenantId,
       actorId: revisor.id === "" ? "desconhecido" : revisor.id,

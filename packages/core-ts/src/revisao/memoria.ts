@@ -182,7 +182,7 @@ export class OnboardingsEmMemoria implements OnboardingsDaRevisao {
 export class AuditoriaEmMemoria {
   readonly linhas: RegistoDeAuditoria[] = [];
 
-  async registar(r: RegistoDeAuditoria): Promise<void> {
+  async gravar(r: RegistoDeAuditoria): Promise<void> {
     this.linhas.push(r);
   }
 }

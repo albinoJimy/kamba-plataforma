@@ -341,7 +341,7 @@ export class AuditoriaSql implements Auditoria {
     this.#c = cliente;
   }
 
-  async registar(r: RegistoDeAuditoria): Promise<void> {
+  async gravar(r: RegistoDeAuditoria): Promise<void> {
     await this.#c.query(SQL_AUDITAR, [
       r.tenantId,
       r.actorId,
