@@ -465,6 +465,30 @@ dominios_historicos:
       desce, e e essa declaracao que esta entrada cobre. O passo de descida
       recusa-se se houver linhas retention.hold_* escritas, porque o audit_log
       e append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0023_llm_call_log.py"
+    tabela: "llm_call_log"
+    coluna: "papel"
+    ticket: "KAM-192"
+    data: "2026-11-12"
+    razao: >-
+      A 0023 (KAM-030) criou o dominio com os quatro papeis do docs/tecnica/02
+      §13.2. A 0047 (KAM-192) acrescenta-lhe o screening, o papel do
+      classificador de categorias do GOV (KAM-088), por DROP CONSTRAINT mais ADD
+      CONSTRAINT com o mesmo nome, e o dicionario §3.29 passa a declarar cinco
+      (emenda 1.85). A declaracao da 0023 fica a dizer quatro, e e o que a base
+      tinha naquela revisao.
+  - revisao: "db/migrations/versions/0047_papel_screening.py"
+    tabela: "llm_call_log"
+    coluna: "papel"
+    ticket: "KAM-192"
+    data: "2026-11-12"
+    razao: >-
+      A mesma revisao declara o dominio duas vezes: o upgrade escreve os cinco,
+      que e o que o dicionario declara, e o downgrade repoe os quatro da 0023,
+      que e o que a base passa a ter quando se desce. A segunda e a que esta
+      entrada cobre. O passo de descida recusa-se se houver linhas com papel
+      screening, porque a dat.llm_call_log e append-only e nenhum papel tem
+      DELETE.
   - revisao: "db/migrations/versions/0030_encomendas_e_estados.py"
     tabela: "orders_mirror"
     coluna: "excepcao"

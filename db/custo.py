@@ -30,8 +30,9 @@ ha fuso por canal (divida 66, `0013`).
   em `sem_preco`: uma categoria que nao conhecemos nao se converte num numero
   inventado;
 * **STT nao existe aqui, e nao e esquecimento.** Nao ha registo de chamadas de
-  transcricao em lado nenhum: o `papel` da `0023` e uma lista fechada de quatro
-  (`router`, `chat`, `vision`, `embed`) e o STT entra com o KAM-036. Uma rubrica
+  transcricao em lado nenhum: o `papel` da `0023` e uma lista fechada (`router`,
+  `chat`, `vision`, `embed`, e o `screening` da `0047`) e o STT entra com o
+  KAM-036. Uma rubrica
   `stt` a zero dizia «a voz nao custou nada» sobre o que ninguem regista.
 
 ## Tarifas e cambio

@@ -8,6 +8,7 @@
     TestIsolamento          X-04, com canarios
     TestRestricoes          os `CHECK` da revisao `0023`, um a um
     TestAParticao           a `DEFAULT` existe e tem RLS; uma nova nasce sem *trigger*
+    TestDowngradeDa0047     o papel `screening` (KAM-192): desce, sobe, e recusa com linhas
 
 O que **so** aqui se prova, e nao se prova com uma base falsa:
 
@@ -23,11 +24,14 @@ O que **so** aqui se prova, e nao se prova com uma base falsa:
 
 from __future__ import annotations
 
+import importlib.util
 import unittest
 import uuid
 from decimal import Decimal
+from pathlib import Path
 
 from tests import factories
+from tests.base import alembic, alembic_ok, em_head, exigir_base_descartavel
 from tests_agr.base import ComAgr
 
 from kamba_agr.llm import registo  # noqa: E402
@@ -428,10 +432,16 @@ class TestRestricoes(_ComLlm):
     def test_um_papel_fora_da_lista_fechada(self) -> None:
         self._recusa(papel="encaminhador")
 
-    def test_os_quatro_papeis_passam(self) -> None:
+    def test_os_cinco_papeis_passam(self) -> None:
+        """Os da `0023` e o `screening` da `0047` (KAM-192), por extenso.
+
+        Por extenso **e** pelo `PAPEIS` do servico: so a constante deixava este
+        ensaio verde com o papel tirado das duas listas ao mesmo tempo.
+        """
         from kamba_agr.llm.aliases import PAPEIS
 
-        for papel in PAPEIS:
+        self.assertIn("screening", PAPEIS)
+        for papel in (*PAPEIS, "router", "chat", "vision", "embed", "screening"):
             with self.subTest(papel=papel):
                 self.assertTrue(self.escrever(_linha(self.tenant, papel=papel)), papel)
 
@@ -463,6 +473,28 @@ class TestAParticao(_ComLlm):
             "AND c.relname = 'llm_call_log_default'"
         )
         self.assertEqual(linhas, [("llm_call_log_default",)])
+
+    def test_a_particao_herda_o_check_dos_cinco_papeis(self) -> None:
+        """A `0047` reescreve o `CHECK` no pai; a particao tem de o ter igual.
+
+        E o que faz um `INSERT` na `DEFAULT` (onde caem todas as linhas, porque
+        nao ha mensais) aceitar o `screening` — e e no catalogo da particao que
+        isso se ve, nao no do pai.
+        """
+        linhas = self.consultar(
+            "SELECT c.relname, pg_get_constraintdef(k.oid) FROM pg_constraint k "
+            "JOIN pg_class c ON c.oid = k.conrelid "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'dat' AND k.conname = 'llm_call_log_papel_ck' "
+            "ORDER BY c.relname"
+        )
+        self.assertEqual(
+            [nome for nome, _ in linhas], ["llm_call_log", "llm_call_log_default"]
+        )
+        for nome, definicao in linhas:
+            with self.subTest(tabela=nome):
+                for papel in ("router", "chat", "vision", "embed", "screening"):
+                    self.assertIn(f"'{papel}'", definicao)
 
     def test_o_pai_e_a_particao_tem_rls_force(self) -> None:
         """Para o *gate* 6 uma particao e uma tabela: sem isto, falhava."""
@@ -529,6 +561,75 @@ class TestAParticao(_ComLlm):
 
     def _largar_particao_de_ensaio(self) -> None:
         self.semente.execute("DROP TABLE IF EXISTS dat.llm_call_log_ensaio")
+
+
+
+def _anterior_a_0047() -> str:
+    """O `down_revision` da revisao do KAM-192, lido do proprio ficheiro.
+
+    Lido e nao escrito: a revisao renumera-se na integracao (quem funde em
+    segundo renumera), e um literal aqui ficava a apontar para outro passo.
+    """
+    versoes = Path(__file__).resolve().parents[1] / "migrations" / "versions"
+    (ficheiro,) = sorted(versoes.glob("*_papel_screening.py"))
+    spec = importlib.util.spec_from_file_location("revisao_do_kam_192", ficheiro)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return str(modulo.down_revision)
+
+
+def _definicao_do_check(consultar) -> str:
+    return consultar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+        "WHERE conname = 'llm_call_log_papel_ck' "
+        "AND conrelid = 'dat.llm_call_log'::regclass"
+    )[0][0]
+
+
+class TestDowngradeDa0047(_ComLlm):
+    """O `downgrade` repoe os quatro papeis da `0023` e recusa-se com linhas.
+
+    **Repoe o `head` no `tearDown`**, pela razao do `TestDowngradeDa0038`: uma
+    base deixada abaixo da cabeca fazia falhar o que corresse depois.
+    """
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        if not em_head():
+            alembic_ok("upgrade", "head")
+
+    def test_desce_para_os_quatro_e_sobe_para_os_cinco(self) -> None:
+        exigir_base_descartavel()
+        alembic_ok("downgrade", _anterior_a_0047())
+        definicao = _definicao_do_check(self.consultar)
+        self.assertNotIn("'screening'", definicao)
+        for papel in ("router", "chat", "vision", "embed"):
+            self.assertIn(f"'{papel}'", definicao)
+        alembic_ok("upgrade", "head")
+        self.assertIn("'screening'", _definicao_do_check(self.consultar))
+
+    def test_com_uma_linha_screening_o_downgrade_recusa_se(self) -> None:
+        """A recusa diz a contagem e o que fazer, e a base fica na cabeca.
+
+        A contagem corre como dono da tabela, e o pai tem `FORCE`: sem o
+        `NO FORCE` da `0047`, o dono via zero linhas e a descida seguia ate ao
+        `ADD CONSTRAINT`, que **falha** com `23514` — a validacao de um `CHECK`
+        nao passa pela RLS (medido contra PostgreSQL 18.6). A base nao ficava
+        inconsistente; a recusa e que saia sem dizer porque. E isso que a
+        asserção sobre «append-only» distingue. A linha e confirmada pela
+        aplicacao, com contexto de tenant, para a ligacao do `alembic` a ver; a
+        limpeza e a do `_limpar_llm`, com o *trigger* desligado.
+        """
+        exigir_base_descartavel()
+        self.assertTrue(self.escrever(_linha(self.tenant, papel="screening")))
+        resultado = alembic("downgrade", _anterior_a_0047())
+        self.assertNotEqual(
+            resultado.returncode, 0,
+            "o downgrade tem de recusar: a tabela e append-only e a linha fica",
+        )
+        self.assertIn("append-only", resultado.stderr + resultado.stdout)
+        self.assertTrue(em_head(), "a recusa tem de deixar a base na cabeca")
+        self.assertIn("'screening'", _definicao_do_check(self.consultar))
 
 
 if __name__ == "__main__":
