@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.82"
+versao_dicionario: "1.83"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7033,44 +7033,59 @@ entradas:
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Papel de um alias"
-    canonico: "llm_call_log.papel ∈ {router, chat, vision, embed}"
+    canonico: "llm_call_log.papel ∈ {router, chat, vision, embed, screening}"
     literais:
       - "llm_call_log.papel"
       - "router"
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
     nomes:
       - "llm_call_log.papel"
       - "router"
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
     nomes_nota:
       - "CHECK"
+      - "screening"
       - "PAPEIS"
       - "tool"
+      - "nano"
+      - "finalidade_de"
+      - "destino_negado"
       - "vision"
       - "embed"
       - "declarada"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Nome de um alias"
-    canonico: "kamba-router, kamba-chat, kamba-vision, kamba-embed"
+    canonico: "kamba-router, kamba-chat, kamba-vision, kamba-embed, screening-nano"
     literais:
       - "kamba-router"
       - "kamba-chat"
       - "kamba-vision"
       - "kamba-embed"
+      - "screening-nano"
     nomes:
       - "kamba"
       - "router"
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
+      - "nano"
     nomes_nota:
       - "timeout"
       - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+      - "screening"
+      - "nano"
+      - "classificadorPorProxy"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Tecto de resposta de um alias"
@@ -7087,6 +7102,7 @@ entradas:
       - "router"
       - "chat"
       - "vision"
+      - "screening"
       - "embed"
       - "tecto_de_resposta"
       - "max_tokens"
@@ -15009,8 +15025,13 @@ entradas:
       - "screening"
       - "nano"
     nomes_nota:
+      - "screening"
       - "router"
       - "kamba"
+      - "estado"
+      - "declarada"
+      - "modelo"
+      - "por_decidir"
     variantes_literais: []
   - seccao: "3.59"
     conceito: "Documento do índice"
@@ -16976,6 +16997,7 @@ dominios:
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
     seccao: "3.29"
     conceito: "Papel de um alias"
     so_no_registo: false

@@ -25,12 +25,13 @@ import { DECISOES, type Decisao } from "./tipos.ts";
 /**
  * O alias do proxy LiteLLM que o bloco nomeia (KAM-030).
  *
- * **Ainda não está em `llm/aliases.yaml`**, e não por esquecimento: aquele
- * ficheiro tem um alias por papel, de uma lista fechada de quatro (dicionário
- * §3.29), e o cliente do AGR indexa-os por papel — um segundo `router` tomava o
- * lugar do `kamba-router` em silêncio. Declará-lo pede um papel novo no canon,
- * que é o KAM-192; até lá o `screen` corre com o classificador a
- * `null`, que dá `condicional` em vez de `permitida`.
+ * **Declarado em `llm/aliases.yaml` com o papel próprio `screening`** (dicionário
+ * §3.29, emenda 1.83, KAM-192): aquele ficheiro tem um alias por papel e o
+ * cliente do AGR indexa-os por papel, pelo que com um papel existente tomava o
+ * lugar de outro alias. Declarado não é ligado: o modelo é `por_decidir` e o
+ * papel não tem finalidade de transferência, pelo que o `screen` continua a
+ * correr com o classificador a `null`, que dá `condicional` em vez de
+ * `permitida`.
  */
 export const ALIAS_DO_CLASSIFICADOR = "screening-nano";
 
