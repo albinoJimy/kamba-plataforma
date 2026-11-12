@@ -2539,3 +2539,50 @@ class TestProtocoloDeIdempotencia(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ----------------------------------------------- KAM-061: o backend `idx`
+class TestOBackendDoIndiceRecebeALigacao(_Base):
+    """O `search_catalog` pela camada **real**, com o catalogo de producao.
+
+    O executor do indice le a base pela tomada do `Pedido`, e a camada so a da
+    aos backends de `BACKENDS_DA_BASE`. Se o `idx` sair dessa lista, o executor
+    levanta, o `retrieve` ve `ok=False` e **toda** a pesquisa cai no
+    `unknown_reply` sem vermelho nenhum: os ensaios do executor constroem o
+    `Pedido` a mao e contornam a camada. Este nao. Achado 2 da revisao
+    adversarial do KAM-061.
+    """
+
+    def test_o_executor_recebe_a_tomada_da_camada_e_o_tenant_do_contexto(self) -> None:
+        from unittest import mock
+
+        from kamba_agr.tls import idx
+        from kamba_agr.tls.catalogo import especificacoes_do_piloto
+
+        especificacoes = tuple(
+            e
+            for e in especificacoes_do_piloto(idx.executores_do_idx())
+            if e.nome == "search_catalog"
+        )
+        self.assertTrue(especificacoes and especificacoes[0].ligada)
+        camada, ligacao, _ = self.camada(especificacoes=especificacoes)
+        recebidos: list[tuple[Any, ...]] = []
+
+        def candidatos(conexao, tenant, texto, **_):
+            recebidos.append((conexao, tenant, texto))
+            return ()
+
+        with mock.patch.object(idx.pesquisa, "candidatos", side_effect=candidatos):
+            resultado = self.invocar(
+                camada,
+                name="search_catalog",
+                args={"query": "arroz"},
+                allowed=("search_catalog",),
+                confirmation=None,
+                idempotency_key=None,
+            )
+        self.assertTrue(resultado.ok, resultado.error)
+        self.assertEqual(resultado.data, {"candidatos": ()})
+        ((conexao, tenant, texto),) = recebidos
+        self.assertIsInstance(conexao, _Ligacao)
+        self.assertEqual((tenant, texto), (TENANT, "arroz"))

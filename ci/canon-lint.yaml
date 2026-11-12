@@ -322,6 +322,13 @@ auxiliares_de_migracao:
       vive num sitio so, e os ensaios de base de dados importam-no daqui. A
       revisao chama `kyc.criar()`, `kyc.conceder()` e `kyc.remover()`, e o lint
       segue o corpo com as constantes literais que elas executam.
+  - modulo: indice
+    ficheiro: db/indice.py
+    razao: >-
+      KAM-061: o DDL do esquema `idx` e a funcao `idx.candidatos` vivem num
+      sitio so, e os ensaios de base de dados importam-nos daqui em vez de os
+      copiar. A revisao chama `indice.criar()`/`indice.remover()`, e o lint
+      segue o corpo com as constantes literais que elas executam.
 
 # ------------------------------------------- dominios dados por conceito no §3
 #

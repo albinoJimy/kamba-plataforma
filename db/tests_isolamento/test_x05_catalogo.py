@@ -145,6 +145,13 @@ class TestCatalogoReal(ComBase):
                 # o *trigger* `ENABLE ALWAYS` recusa o `DELETE` da limpeza. O
                 # isolamento dela prova-se em `db/tests_agr/test_llm_call_log.py`.
                 ("dat", "llm_call_log", "tenant_id"),
+                # KAM-061: o indice de pesquisa, no esquema `idx` — entre o
+                # `dat` e o `platform`, pelo `ORDER BY 1, 2`. As duas tem receita
+                # de sementes; a `termo_canonico` tem `tenant_id` anulavel (as
+                # entradas globais), como a `tenant_destinations`, e entra pela
+                # coluna como as outras.
+                ("idx", "search_doc", "tenant_id"),
+                ("idx", "termo_canonico", "tenant_id"),
                 # KAM-012. Nenhuma das duas tem receita de sementes, e as
                 # duas razoes estao em `sementes.SEM_RECEITA_COM_RAZAO`: o
                 # `audit_heads` nao tem politica para provar, e o `audit_log` e
@@ -618,6 +625,9 @@ class TestCatalogoReal(ComBase):
                 # KAM-088: a decisao de screening, entre `resources` e
                 # `services` pela colacao `C` («res» < «scr» < «ser»).
                 ("screening_decision", "tenant_iso", "ALL", "{public}"),
+                # KAM-061: o documento do indice, no `idx`. Depois da `screening_decision`
+                # e antes de `services` («scr» < «sea» < «ser»).
+                ("search_doc", "tenant_iso", "ALL", "{public}"),
                 ("services", "tenant_iso", "ALL", "{public}"),
                 # KAM-045: **uma** politica, a `tenant_iso`, como as outras
                 # tabelas de `platform` que nao sao lidas pelo resolvedor. Entre
@@ -659,6 +669,13 @@ class TestCatalogoReal(ComBase):
                 ("tenant_usage", "tenant_iso", "ALL", "{public}"),
                 ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenants", "tenant_iso", "ALL", "{public}"),
+                # KAM-061: o dicionario PT-AO, com **duas** politicas pela forma
+                # da `tenant_destinations` acima: a `tenant_iso` intacta e a
+                # `termos_globais`, `FOR SELECT USING (tenant_id IS NULL)` e sem
+                # `TO`. Depois de `tenants` («ten» < «ter») e antes de
+                # `tool_audit`; dentro da tabela, «tenant_iso» < «termos».
+                ("termo_canonico", "tenant_iso", "ALL", "{public}"),
+                ("termo_canonico", "termos_globais", "SELECT", "{public}"),
                 # KAM-028: a `tool_audit`. A politica nao e redundante com o
                 # *append-only* — o `WITH CHECK` e o que impede o papel da
                 # aplicacao de escrever uma linha de auditoria **no nome de

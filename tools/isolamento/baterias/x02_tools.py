@@ -47,10 +47,12 @@ RAIZ = Path(__file__).resolve().parents[3]
 
 #: As onze tools do REG, pela ordem do catalogo. Literais de proposito (ver o
 #: comentario das listas em `x01_rotas.py`).
-TOOLS_LIGADAS = ("tool:get_store_info",)
+#: O `search_catalog` passou a ligada com o KAM-061: o `__main__` liga-o
+#: **sempre** ao indice (`tls/idx.py`), e o X-02 ataca-o pela camada real, com o
+#: executor real e a base do *gate*.
+TOOLS_LIGADAS = ("tool:get_store_info", "tool:search_catalog")
 
 TOOLS_DECLARADAS = (
-    "tool:search_catalog",
     "tool:get_price_stock",
     "tool:propose_cart",
     "tool:criar_pedido",
@@ -180,12 +182,22 @@ def _varrer_resultado(ctx, rotulo: str, resultado) -> list[str]:  # noqa: ANN001
     ]
 
 
+def _executores():  # noqa: ANN202
+    """Os executores que o `__main__` liga **sempre**: hoje, o do indice."""
+    _no_caminho()
+    from kamba_agr.tls.idx import executores_do_idx  # noqa: PLC0415
+
+    return executores_do_idx()
+
+
 def _camada(ctx, abrir_ligacao):  # noqa: ANN001, ANN202
     _no_caminho()
     from kamba_agr.tls.camada import ToolLayer  # noqa: PLC0415
     from kamba_agr.tls.catalogo import catalogo_do_piloto  # noqa: PLC0415
 
-    return ToolLayer(catalogo_do_piloto(), abrir_ligacao=abrir_ligacao, ligacoes=1)
+    return ToolLayer(
+        catalogo_do_piloto(_executores()), abrir_ligacao=abrir_ligacao, ligacoes=1
+    )
 
 
 def _invocar(camada, contexto, nome: str, argumentos: dict, permitidas):  # noqa: ANN001
@@ -201,7 +213,7 @@ def _atacar(ctx, nomes: tuple[str, ...], abrir_ligacao) -> list[str]:  # noqa: A
     _no_caminho()
     from kamba_agr.tls.catalogo import catalogo_do_piloto  # noqa: PLC0415
 
-    catalogo = catalogo_do_piloto()
+    catalogo = catalogo_do_piloto(_executores())
     camada = _camada(ctx, abrir_ligacao)
     contexto = _contexto_de_a(ctx)
     permitidas = [nome.split(":", 1)[1] for nome in nomes]
@@ -335,6 +347,28 @@ def _ligadas(ctx) -> list[str]:  # noqa: ANN001
                 f"leva o canario de A ({canario_de_a!r}). O ataque corre contra "
                 "uma tool que nao le a linha que se semeou."
             )
+
+    # A sonda positiva do `search_catalog` (KAM-061): A procura o seu proprio
+    # produto pelo nome e recebe-o, pela camada real — tomada, `tenant_guard`,
+    # indice e *join* a oferta viva. Sem ela, «nenhum canario de B» passava com
+    # um executor que devolvesse sempre vazio.
+    canario_do_indice = ctx.a.canarios.get(("idx", "search_doc"))
+    procura = _invocar(
+        camada,
+        contexto,
+        "search_catalog",
+        {"query": f"produto {canario_do_indice}"},
+        ["search_catalog"],
+    )
+    skus = [c.get("sku") for c in (procura.data or {}).get("candidatos", ())] if procura.ok else []
+    if canario_do_indice not in skus:
+        achados.append(
+            "X-02/tls/ligada: a sonda positiva do `search_catalog` falhou — A "
+            f"procurou o seu produto e recebeu {skus!r}"
+            + (f" ({procura.error.codigo})" if procura.error else "")
+            + ". O ataque com os argumentos de B acima nao prova isolamento "
+            "nenhum se a pesquisa nao devolve nada a ninguem."
+        )
     return achados
 
 

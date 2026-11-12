@@ -76,6 +76,13 @@
 # semantica, e quem o prende coluna a coluna e o inventario fechado de
 # `db/tests/test_inventario.py`.
 #
+# O `tenants.zona` saiu **pela mesma razao**, com a emenda 1.82 (KAM-061): o
+# `zona` passou a ser nome do §3.59, como coluna de `idx.search_doc`, porque o
+# §4.2 do `docs/tecnica/05` da ao documento do indice a zona herdada do tenant.
+# **O que isto alarga:** uma coluna `zona` passa a ser aceite em qualquer
+# tabela. Nas duas onde existe hoje e a mesma zona da loja, que nao e dado de
+# pessoa singular, e o inventario fechado continua a prende-la coluna a coluna.
+#
 # As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
 # §3.1 nao enumera: duas colunas de `contact_endpoints` — o dicionario escreve a
 # tabela com reticencias — e os valores dos tres dominios fechados. Eram tres:
@@ -102,10 +109,6 @@ extensoes:
     ticket: KAM-003
     data: 2026-10-11
   - nome: tenants.owner_contact_id
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
-  - nome: tenants.zona
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11

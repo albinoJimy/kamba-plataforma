@@ -2776,6 +2776,62 @@ INVENTARIO_SERVICOS = {
     },
 }
 
+#: O inventario fechado do esquema `idx` (KAM-061, revisao `0045`), num
+#: dicionario proprio pela razao do `INVENTARIO_SERVICOS`.
+#:
+#: **Nenhuma coluna guarda dados de pessoa**, e e essa a regra do esquema: o
+#: indice e o catalogo da PME normalizado, e o §4.2 do `docs/tecnica/05` diz que
+#: o `descr_norm` vem do catalogo e nunca de mensagens de clientes. O
+#: `information_schema` da o `halfvec` como `USER-DEFINED` e a coluna gerada sem
+#: omissao (a expressao vive no `generation_expression`, nao no
+#: `column_default`).
+INVENTARIO_IDX = {
+    "search_doc": {
+        "doc_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "product_ref": ("text", NAO, None, "nao; o sku da oferta (ADR-003)"),
+        "norm_versao": ("integer", NAO, None, "nao"),
+        "nome_norm": ("text", NAO, None, "nao; nome do produto normalizado"),
+        "marca_canon": ("text", SIM, None, "nao"),
+        "categoria_canon": ("text", SIM, None, "nao"),
+        "descr_norm": (
+            "text",
+            NAO,
+            "''::text",
+            "nao; vem do catalogo da PME, nunca de mensagens de clientes (§4.2)",
+        ),
+        "zona": ("text", SIM, None, "nao; zona da loja, nao de pessoa"),
+        "visivel": ("boolean", NAO, "true", "nao"),
+        "visivel_federado": ("boolean", NAO, "false", "nao"),
+        "embedding": (
+            "USER-DEFINED",
+            SIM,
+            None,
+            "nao; vector do texto do catalogo, nunca de uma pergunta",
+        ),
+        "embedding_modelo": ("text", SIM, None, "nao"),
+        "fts": ("tsvector", SIM, None, "nao; gerada do texto do catalogo"),
+        "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "termo_canonico": {
+        "id": ("bigint", NAO, None, "nao"),
+        "tenant_id": ("uuid", SIM, None, "nao; nulo e entrada global"),
+        "tipo": ("text", NAO, None, "nao"),
+        "termo": ("text", NAO, None, "nao; termo de lexico"),
+        "canonico": ("text", NAO, None, "nao; termo de lexico"),
+        "peso": ("real", NAO, "1.0", "nao"),
+        "origem": ("text", NAO, None, "nao"),
+        "activo": ("boolean", NAO, "true", "nao"),
+        "aprovado_por": (
+            "text",
+            SIM,
+            None,
+            "nao; texto livre de ops, nunca contacto de cliente",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+}
+
 
 class TestInventario(ComBase):
     def no_catalogo(self, esquema: str = "platform") -> dict[str, dict[str, tuple]]:
@@ -2831,8 +2887,30 @@ class TestInventario(ComBase):
                 with self.subTest(coluna=f"servicos.{tabela}.{coluna}"):
                     self.assertEqual(catalogo[tabela][coluna], (tipo, anulavel, omissao))
 
+    def test_o_catalogo_do_idx_e_exactamente_o_inventario(self) -> None:
+        """O mesmo trinco, para o esquema `idx` (KAM-061).
+
+        Pela razao do `servicos`: o `test_o_catalogo_e_exactamente_o_inventario`
+        filtra `table_schema = 'platform'`, e um esquema novo era invisivel.
+        """
+        catalogo = self.no_catalogo("idx")
+        self.assertEqual(
+            set(catalogo), set(INVENTARIO_IDX), "tabelas a mais ou a menos no esquema idx"
+        )
+        for tabela, colunas in INVENTARIO_IDX.items():
+            self.assertEqual(
+                set(catalogo[tabela]),
+                set(colunas),
+                f"colunas de idx.{tabela} diferem do inventario: uma coluna nova "
+                "tem de ser declarada em db/tests/test_inventario.py, com a "
+                "resposta a «guarda dados pessoais?»",
+            )
+            for coluna, (tipo, anulavel, omissao, _) in colunas.items():
+                with self.subTest(coluna=f"idx.{tabela}.{coluna}"):
+                    self.assertEqual(catalogo[tabela][coluna], (tipo, anulavel, omissao))
+
     def test_toda_a_coluna_tem_a_pergunta_dos_dados_pessoais_respondida(self) -> None:
-        for inventario in (INVENTARIO, INVENTARIO_SERVICOS):
+        for inventario in (INVENTARIO, INVENTARIO_SERVICOS, INVENTARIO_IDX):
             for tabela, colunas in inventario.items():
                 for coluna, (_, _, _, pessoal) in colunas.items():
                     with self.subTest(coluna=f"{tabela}.{coluna}"):

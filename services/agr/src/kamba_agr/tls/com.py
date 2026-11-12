@@ -14,12 +14,11 @@ modulo e esse credor para as que falam com o COM.
 | `propose_cart` | `POST /internal/propose-cart` | ligada, com *fact* `total` |
 | `criar_pedido` | `POST /internal/create-order` | ligada |
 | `get_order_status` | `POST /internal/get-order` | ligada |
-| `search_catalog` | — | continua `declarada`, credor **KAM-061** |
+| `search_catalog` | — | nao e daqui: fala com o **IDX**, em `tls/idx.py` (KAM-061) |
 
-O `search_catalog` fala com o **IDX** (§6.2) e o `idx.candidatos` e o KAM-061,
-que e de fase 1 e nao existe na arvore — `services/` tem cinco servicos e
-nenhum deles e o IDX. Liga-la a um `stand-in` era servir um catalogo que nao e o
-catalogo, que e exactamente o que o `fakes.py` da vertical nao faz em producao.
+O `search_catalog` fala com o **IDX** (§6.2) e nao com o COM: o `idx.candidatos`
+vive na base da plataforma (ADR-006), e o executor dele esta em `tls/idx.py`,
+ligado pelo KAM-061.
 
 ## O `get_price_stock` nao devolve *facts*, e isso e um achado e nao um atalho
 
@@ -268,8 +267,8 @@ def executores_do_com(cliente: ClienteDoCom) -> dict[str, Any]:
     """As quatro tools do Vendedor que falam com o COM.
 
     Devolve o mapa que o `especificacoes_do_vendedor()` espera, **sem** o
-    `search_catalog`: aquele fala com o IDX e o credor é o KAM-061. Quem junta os
-    dois é o `catalogo.py`.
+    `search_catalog`: aquele fala com o IDX e o executor é o de `tls/idx.py`
+    (KAM-061). Quem junta os dois mapas é o `__main__`.
     """
     proximo_fact = _contador()
 

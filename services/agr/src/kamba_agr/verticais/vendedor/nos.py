@@ -92,7 +92,14 @@ from .arestas import (
 
 #: O limiar do IDX abaixo do qual o `retrieve` vai a `unknown_reply` (§7.3 linha
 #: 18). **Parametro, e o §7.3 chama-lhe isso** — «limiar de IDX, parametro».
-#: Quem o calibra e o KAM-061, com indice real; o valor aqui faz o ramo existir.
+#:
+#: **E o limiar do duplo**, e nao o do indice real: compara com o `score` do
+#: `search_catalog` de `fakes.py` (a fraccao da designacao coberta). O do indice
+#: e o `LIMIAR_DO_RRF` de `tls/idx.py` (KAM-061), contra o RRF normalizado pelo
+#: seu maximo teorico, e o `__main__` passa-o ao grafo junto com o executor —
+#: cada pontuador com o seu limiar, e um dono por par. **A calibracao do par real
+#: e do KAM-064**, com o *dataset*: o KAM-061 ligou-o e deixou o valor como
+#: *proposta*, porque um limiar escolhido sem dados era um numero inventado.
 LIMIAR_IDX: Final = 0.5
 
 #: A validade de um carrinho, em segundos. **30 min, *proposta*** — o criterio 4
@@ -844,7 +851,7 @@ def _query_de(texto: str) -> str:
     recusava uma pergunta de 280 caracteres no passo 3 do `invoke`, e o cliente
     recebia «nao encontrei nada no catalogo» — uma avaria nossa a responder como
     uma ausencia de catalogo (achado 14 da revisao adversarial). A extraccao a
-    serio do que se procura numa frase e do KAM-061, com indice real; isto e o
+    serio do que se procura numa frase e da normalizacao PT-AO (KAM-062); isto e o
     limite declarado, e corta pelo fim porque o inicio de uma pergunta e onde o
     produto costuma estar.
 

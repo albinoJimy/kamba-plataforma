@@ -205,6 +205,17 @@ def aplicar(ambiente=None) -> list[str]:
         )
         cursor.execute("GRANT USAGE, CREATE ON SCHEMA public TO kamba_migrator")
         feito.append(f"privilegios de base concedidos em {base}")
+
+        # O `vector` (pgvector 0.8.7) **nao e *trusted***: medido no
+        # `pg_available_extension_versions` da imagem do *gate*, `trusted = f`.
+        # O `kamba_migrator` nao o consegue criar, e a revisao do indice (KAM-061)
+        # precisa dele para o `halfvec`. Em desenvolvimento quem o cria e o
+        # `infra/compose/postgres/initdb/01-bases-e-extensoes.sql`, como
+        # administrador; aqui e este passo, pela mesma razao e com a mesma guarda.
+        # A revisao repete o `CREATE EXTENSION IF NOT EXISTS`, que com a extensao
+        # ja criada nao pede privilegio nenhum.
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        feito.append(f"extensao vector garantida em {base}")
     finally:
         conexao.close()
     return feito
