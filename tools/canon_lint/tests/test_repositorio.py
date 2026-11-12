@@ -33,6 +33,15 @@ MANIFESTO = "tools/canon_lint/tests/fixtures/manifesto.yaml"
 #: (subiu de 11 para 12 de Outubro com o KAM-008). As *fixtures* inventadas
 #: tem datas no passado e passam com qualquer dia de hoje.
 HOJE = datetime.date.today()
+#: As dividas que a bateria constroi datam-se **a partir de `HOJE`**, e nao com
+#: dias escritos no codigo. Com `criado_em: 2026-10-11` e `expira_em:
+#: 2026-11-10` literais, a `DIVIDA_BOA` venceu a 2026-11-10 e o gate 4 ficou
+#: vermelho em todos os PRs sem nada de errado no repositorio; a do
+#: `com_divida` vencia a 2026-11-16. A janela continua a ser o maximo do
+#: `documentos.PRAZO_MAXIMO_DIAS` (30 dias), como era, para as mutacoes do
+#: «maximo» e do «futuro» continuarem a morrer pela razao que dizem.
+CRIADO = HOJE.isoformat()
+EXPIRA = (HOJE + datetime.timedelta(days=30)).isoformat()
 
 
 class TestRepositorioReal(unittest.TestCase):
@@ -156,7 +165,7 @@ class TestMutacoes(ComCopia):
             self.assertEqual(achados[0].ficheiro, ficheiro)
 
     def com_divida(self, ficheiro: str, variante: str, ocorrencias: int,
-                   expira_em: str = "2026-11-16") -> None:
+                   expira_em: str = EXPIRA, criado_em: str = CRIADO) -> None:
         """Declara uma divida na copia, para a testar sem depender do repositorio.
 
         O `ci/canon-allow.yaml` real tem hoje `dividas: []` — e isso e o
@@ -176,7 +185,7 @@ class TestMutacoes(ComCopia):
             f"    variante: {variante}\n"
             f"    ocorrencias: {ocorrencias}\n"
             "    origem: KAM-139\n"
-            "    criado_em: 2026-10-17\n"
+            f"    criado_em: {criado_em}\n"
             f"    expira_em: {expira_em}\n"
             '    razao: "Divida construida pela bateria de testes para exercitar o mecanismo '
             'das dividas com prazo, que o repositorio real ja nao tem por estarem todas pagas."\n'
@@ -496,7 +505,7 @@ class TestMutacoes(ComCopia):
 
     def test_divida_vencida_falha(self) -> None:
         self.trocar(DOC03, "kamba_batch (BYPASSRLS, auditado)", "kamba_ops (BYPASSRLS, auditado)")
-        self.com_divida(DOC03, "kamba_ops", 1, expira_em="2026-11-16")
+        self.com_divida(DOC03, "kamba_ops", 1, criado_em="2026-10-17", expira_em="2026-11-16")
         self.assertEqual(self.achados(datetime.date(2026, 11, 16)), [])
         vencidas = self.achados(datetime.date(2026, 11, 17))
         self.assertEqual({a.classe for a in vencidas}, {REGRA})
@@ -616,8 +625,8 @@ class TestConfiguracao(ComCopia):
         "    variante: kamba_ops\n"
         "    ocorrencias: 1\n"
         "    origem: KAM-111\n"
-        "    criado_em: 2026-10-11\n"
-        "    expira_em: 2026-11-10\n"
+        f"    criado_em: {CRIADO}\n"
+        f"    expira_em: {EXPIRA}\n"
         '    razao: "Uma divida construida pela bateria para exercitar a validacao da '
         'forma de uma entrada, que o repositorio real ja nao tem por estarem todas pagas."\n'
     )
@@ -641,12 +650,15 @@ class TestConfiguracao(ComCopia):
         self.assertEqual([str(a) for a in cli.verificar(self.raiz, hoje=HOJE)[0]], [])
 
     def test_excepcao_de_documento_mal_formada(self) -> None:
-        divida = "    variante: kamba_ops\n    ocorrencias: 1\n    origem: KAM-111\n    criado_em: 2026-10-11\n    expira_em: 2026-11-10\n"
+        divida = f"    variante: kamba_ops\n    ocorrencias: 1\n    origem: KAM-111\n    criado_em: {CRIADO}\n    expira_em: {EXPIRA}\n"
+        um_ano = (HOJE + datetime.timedelta(days=365)).isoformat()
+        amanha = (HOJE + datetime.timedelta(days=1)).isoformat()
+        amanha_mais_30 = (HOJE + datetime.timedelta(days=31)).isoformat()
         for velho, novo, padrao in (
             ("    variante: kamba_ops\n    ocorrencias: 1\n", "    variante: kamba_xyz\n    ocorrencias: 1\n", "nao e uma variante"),
             ("    variante: kamba_ops\n    ocorrencias: 1\n", "    variante: kamba_ops\n    ocorrencias: 0\n", "ocorrencias"),
-            (divida, divida.replace("expira_em: 2026-11-10", "expira_em: 2027-10-11"), "maximo"),
-            (divida, divida.replace("criado_em: 2026-10-11", "criado_em: 2031-01-01").replace("expira_em: 2026-11-10", "expira_em: 2031-01-31"), "futuro"),  # M9
+            (divida, divida.replace(f"expira_em: {EXPIRA}", f"expira_em: {um_ano}"), "maximo"),
+            (divida, divida.replace(f"criado_em: {CRIADO}", f"criado_em: {amanha}").replace(f"expira_em: {EXPIRA}", f"expira_em: {amanha_mais_30}"), "futuro"),  # M9
             (divida, divida.replace("    origem: KAM-111\n", ""), "origem"),
             (divida, divida + "    aprovado_por: ninguem\n", "aprovado_por"),  # M40
         ):
