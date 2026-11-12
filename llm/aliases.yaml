@@ -98,7 +98,7 @@ aliases:
     timeout: 5
     max_tokens: 32
     estado: declarada
-    credor: KAM-040
+    credor: KAM-195
     razao: >-
       O classificador de categorias do screening do GOV (KAM-088, papel do
       KAM-192). Tem papel proprio para nao tomar o lugar do `kamba-router`: o
@@ -106,7 +106,9 @@ aliases:
       `classificadorPorProxy`, e o `max_tokens` cobre o `{decisao, confianca}`
       que o esquema fechado aceita. **Sem finalidade de transferencia**: o
       `finalidade_de` do AGR nega o papel, e uma chamada sai em
-      `destino_negado` ate haver finalidade e destino autorizado.
+      `destino_negado` ate haver finalidade e destino autorizado. O KAM-195 liga-o:
+      a finalidade, e o classificador do GOV a chamar pelo cliente. O modelo
+      fica com o KAM-040, como nos outros quatro.
 
 # Fornecedores por alias, em lista propria e nao aninhada: o leitor de YAML
 # deste repositorio (`tools/kamba_yaml.py`) aceita um subconjunto, e uma lista
