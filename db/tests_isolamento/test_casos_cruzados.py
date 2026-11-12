@@ -34,7 +34,7 @@ import unittest
 from pathlib import Path
 
 import ligacao
-from tests_isolamento.base import ComDoisTenants
+from tests_isolamento.base import ComDoisTenants, definir_contexto
 
 RAIZ = Path(__file__).resolve().parents[2]
 for _relativo in ("tools", "services/agr/src", "libs/py-core/src"):
@@ -120,8 +120,42 @@ class ComHarness(ComDoisTenants):
             semente.apagar_marcas_de_consumo(cls._cursores["admin"], tenant.id)
         super().tearDownClass()
 
+    def _cursor_partilhado(self, papel: str, tenant_id: str | None = None):
+        """Cursor do papel e contexto pedidos, **numa ligacao por par**.
+
+        O `cursor_de` da base abre uma ligacao nova por chamada e so a fecha no
+        fim do teste — e o corredor corre o X-03, o X-04 e o X-05 **no mesmo
+        teste**, com uma chamada por tabela isolada em cada um. Com mais tabelas
+        isoladas a soma passou as 100 ligacoes do servidor, e o X-04 e o X-05
+        rebentaram com `53300` («remaining connection slots are reserved»),
+        medido: um vermelho que nao era de isolamento e crescia com cada tabela
+        nova.
+
+        **Portado do KAM-061** (`feature/KAM-061-idx-candidatos`, commits
+        `ac0bb43f` e `7c901207`), sem as baterias dele: o KAM-087 bateu no mesmo
+        numero com as duas tabelas da `0043`. O trecho e identico, e quem fundir
+        em segundo fica com um so.
+
+        Aqui a ligacao e por `(papel, tenant)`, e cada reuso **desfaz** a
+        transaccao anterior antes de voltar a pôr o contexto: cada chamada ve o
+        mesmo que uma ligacao nova veria, porque o contexto e local a
+        transaccao (`set_config(..., true)`) e os casos que usam esta porta so
+        leem.
+        """
+        chave = (papel, tenant_id)
+        conexao = self._partilhadas.get(chave)
+        if conexao is None:
+            conexao = self._partilhadas[chave] = self.ligar(papel)
+        else:
+            conexao.rollback()
+        cursor = conexao.cursor()
+        if tenant_id is not None:
+            definir_contexto(cursor, tenant_id)
+        return cursor
+
     def contexto(self) -> Contexto:
         """O `Contexto` que os casos recebem, com as portas desta suite."""
+        self._partilhadas: dict[tuple[str, str | None], object] = {}
         oraculo = Oraculo(
             {
                 f"{schema}.{tabela}": self.b.guardado((schema, tabela))
@@ -142,7 +176,7 @@ class ComHarness(ComDoisTenants):
                     for (schema, tabela), canario in self.par.y.canarios.items()
                 }
             ),
-            cursor_de=self.cursor_de,
+            cursor_de=self._cursor_partilhado,
             cursores=self._cursores,
             tabelas=self.por_tabela(),
             agr=_agr_importavel(),

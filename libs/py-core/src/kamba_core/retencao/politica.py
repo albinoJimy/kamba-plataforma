@@ -435,6 +435,15 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.payment_confirmers", pendencia=_RELACAO),
             _t("platform.fraud_signals", pendencia=_RELACAO),
             _t("platform.provisioning_step", pendencia=_RELACAO),
+            # KAM-087 (0043). O caso vive com o tenant pre-alocado. Os
+            # documentos K1 de um caso rejeitado ou abandonado esquecem-se a
+            # D+30 do `fase_at` pelo `ServicoKyc.purgar` (TypeScript), que
+            # nenhum agendador chama ainda; os de um caso vivo seguem a relacao.
+            _t("platform.onboarding_case", pendencia=_RELACAO),
+            _t(
+                "platform.kyc_check",
+                pendencia=_RELACAO + "; casos mortos: D+30 pelo ServicoKyc.purgar, sem agendador",
+            ),
             _t("servicos.bookings", pendencia=_RELACAO),
         ),
         fonte="docs/tecnica/08 §7.1 e §11 (PME: relacao + fiscal)",

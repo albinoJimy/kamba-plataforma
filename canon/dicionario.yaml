@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.79"
+versao_dicionario: "1.80"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -211,26 +211,24 @@ entradas:
       - "restrito"
   - seccao: "3.2"
     conceito: "Fase do onboarding"
-    canonico: "onboarding_case.fase: kyc_pendente, aprovado, provisionando, aguarda_es, aguarda_catalogo, pronto"
+    canonico: "onboarding_case.fase, catorze valores (§3.57)"
     literais:
       - "onboarding_case.fase"
-      - "kyc_pendente"
-      - "aprovado"
-      - "provisionando"
-      - "aguarda_es"
-      - "aguarda_catalogo"
-      - "pronto"
     nomes:
       - "onboarding_case.fase"
+    nomes_nota:
+      - "onboarding"
       - "kyc_pendente"
       - "aprovado"
       - "provisionando"
       - "aguarda_es"
       - "aguarda_catalogo"
+      - "activo"
       - "pronto"
-    nomes_nota:
-      - "onboarding"
-    variantes_literais: []
+      - "channel_onboarding.fase"
+      - "EstadoGuardado.estado"
+    variantes_literais:
+      - "onboarding_case.estado"
   - seccao: "3.2"
     conceito: "Pré-alocação do tenant"
     canonico: "onboarding_case.tenant_id criado no registo"
@@ -13841,7 +13839,11 @@ entradas:
       - "onboarding_case.preflight"
       - "jsonb"
     nomes_nota:
-      - "onboarding_case.fase"
+      - "jsonb"
+      - "CHECK"
+      - "jsonb_typeof"
+      - "preflight"
+      - "array"
       - "RepositorioDoGuia"
     variantes_literais: []
   - seccao: "3.54"
@@ -14487,6 +14489,317 @@ entradas:
       - "web"
       - "painel_desligado"
       - "com_internal_token"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Caso de onboarding"
+    canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    literais:
+      - "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    nomes:
+      - "platform.onboarding_case"
+      - "id"
+      - "tenant_id"
+      - "fase"
+      - "fase_at"
+      - "origem"
+      - "nome_negocio"
+      - "categoria_declarada"
+      - "nif_enc"
+      - "nif_hmac"
+      - "phone_enc"
+      - "phone_hmac"
+      - "email_enc"
+      - "device_hash"
+      - "ip_prefix_hash"
+      - "flags"
+      - "owner_active_seconds"
+      - "preflight"
+      - "criado_at"
+      - "activo_at"
+    nomes_nota:
+      - "fase"
+      - "estado"
+      - "preflight"
+      - "fase_at"
+      - "FORCE"
+      - "tenant_iso"
+      - "tenant_id"
+      - "contract_acceptance"
+      - "UNIQUE"
+      - "id"
+      - "kyc_check"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Fase do caso"
+    canonico: "onboarding_case.fase ∈ {registo, otp_pendente, kyc_pendente, em_revisao, aprovado, provisionando, aguarda_es, lista_espera, aguarda_catalogo, aguarda_teste, activo, rejeitado, abandonado, cancelado}"
+    literais:
+      - "onboarding_case.fase"
+      - "registo"
+      - "otp_pendente"
+      - "kyc_pendente"
+      - "em_revisao"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "lista_espera"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+      - "activo"
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+    nomes:
+      - "onboarding_case.fase"
+      - "registo"
+      - "otp_pendente"
+      - "kyc_pendente"
+      - "em_revisao"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "lista_espera"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+      - "activo"
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+    nomes_nota:
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+      - "FASES_MORTAS"
+      - "activo"
+      - "ativo"
+      - "tenants.estado"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Entrada na fase"
+    canonico: "onboarding_case.fase_at"
+    literais:
+      - "onboarding_case.fase_at"
+    nomes:
+      - "onboarding_case.fase_at"
+    nomes_nota:
+      - "onboarding_case_fase_at"
+      - "INSERT"
+      - "now"
+      - "UPDATE"
+      - "fase"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Origem do convite"
+    canonico: "onboarding_case.origem ∈ {convite, contabilista, anuncio}"
+    literais:
+      - "onboarding_case.origem"
+      - "convite"
+      - "contabilista"
+      - "anuncio"
+    nomes:
+      - "onboarding_case.origem"
+      - "convite"
+      - "contabilista"
+      - "anuncio"
+    nomes_nota:
+      - "ORIGENS"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Marca do caso"
+    canonico: "onboarding_case.flags ⊆ {duplicado_ambiguo}"
+    literais:
+      - "onboarding_case.flags"
+      - "duplicado_ambiguo"
+    nomes:
+      - "onboarding_case.flags"
+      - "duplicado_ambiguo"
+    nomes_nota:
+      - "CHECK"
+      - "flags"
+      - "ARRAY"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Unicidade do NIF vivo"
+    canonico: "índice onboarding_nif_vivo sobre nif_hmac, parcial"
+    literais:
+      - "onboarding_nif_vivo"
+      - "nif_hmac"
+    nomes:
+      - "onboarding_nif_vivo"
+      - "nif_hmac"
+    nomes_nota:
+      - "fase"
+      - "CasoDuplicadoError"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Verificação K1 de um documento"
+    canonico: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
+    literais:
+      - "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
+    nomes:
+      - "platform.kyc_check"
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "doc_tipo"
+      - "doc_ref"
+      - "sha256"
+      - "phash"
+      - "extraido_enc"
+      - "flags"
+      - "score"
+      - "resultado"
+      - "versao_regras"
+      - "custo_micro_usd"
+      - "criado_at"
+    nomes_nota:
+      - "tenant_id"
+      - "custo_micro_usd"
+      - "onboarding_id"
+      - "UNIQUE"
+      - "sha256"
+      - "kamba_batch"
+      - "phash"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Tipo de documento K1"
+    canonico: "kyc_check.doc_tipo ∈ {nif, alvara, bi, banco}"
+    literais:
+      - "kyc_check.doc_tipo"
+      - "nif"
+      - "alvara"
+      - "bi"
+      - "banco"
+    nomes:
+      - "kyc_check.doc_tipo"
+      - "nif"
+      - "alvara"
+      - "bi"
+      - "banco"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Resultado de uma verificação"
+    canonico: "kyc_check.resultado ∈ {k1_ok, fila, ilegivel, pendente}"
+    literais:
+      - "kyc_check.resultado"
+      - "k1_ok"
+      - "fila"
+      - "ilegivel"
+      - "pendente"
+    nomes:
+      - "kyc_check.resultado"
+      - "k1_ok"
+      - "fila"
+      - "ilegivel"
+      - "pendente"
+    nomes_nota:
+      - "pendente"
+      - "rejeitado"
+      - "fase"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Marca de uma verificação"
+    canonico: "kyc_check.flags ⊆ {nif_divergente, alvara_expirado, imagem_reutilizada, software_de_edicao, iban_invalido, nome_titular_divergente, confianca_baixa, actividade_incoerente, visao_recusada, orcamento_excedido, ilegivel}"
+    literais:
+      - "kyc_check.flags"
+      - "nif_divergente"
+      - "alvara_expirado"
+      - "imagem_reutilizada"
+      - "software_de_edicao"
+      - "iban_invalido"
+      - "nome_titular_divergente"
+      - "confianca_baixa"
+      - "actividade_incoerente"
+      - "visao_recusada"
+      - "orcamento_excedido"
+      - "ilegivel"
+    nomes:
+      - "kyc_check.flags"
+      - "nif_divergente"
+      - "alvara_expirado"
+      - "imagem_reutilizada"
+      - "software_de_edicao"
+      - "iban_invalido"
+      - "nome_titular_divergente"
+      - "confianca_baixa"
+      - "actividade_incoerente"
+      - "visao_recusada"
+      - "orcamento_excedido"
+      - "ilegivel"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Objecto do documento"
+    canonico: "kyc_check.doc_ref, a chave do STO, com starts_with(doc_ref, 't/' \|\| tenant_id \|\| '/kyc_documento/')"
+    literais:
+      - "kyc_check.doc_ref"
+    nomes:
+      - "kyc_check.doc_ref"
+    nomes_nota:
+      - "kyc_documento"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Hash perceptual"
+    canonico: "kyc_check.phash, 8 octetos"
+    literais:
+      - "kyc_check.phash"
+    nomes:
+      - "kyc_check.phash"
+    nomes_nota:
+      - "bit_count"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Campos extraídos"
+    canonico: "kyc_check.extraido_enc"
+    literais:
+      - "kyc_check.extraido_enc"
+    nomes:
+      - "kyc_check.extraido_enc"
+    nomes_nota:
+      - "onboarding_id"
+      - "tipo"
+      - "rejeitado"
+      - "abandonado"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Versão das regras"
+    canonico: "kyc_check.versao_regras, SemVer; VERSAO_DAS_REGRAS = 1.0.0"
+    literais:
+      - "kyc_check.versao_regras"
+      - "VERSAO_DAS_REGRAS"
+      - "1.0.0"
+    nomes:
+      - "kyc_check.versao_regras"
+      - "VERSAO_DAS_REGRAS"
+    nomes_nota:
+      - "kyc"
+      - "vision"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Custo de LLM de uma verificação"
+    canonico: "kyc_check.custo_micro_usd, inteiro ≥ 0"
+    literais:
+      - "kyc_check.custo_micro_usd"
+    nomes:
+      - "kyc_check.custo_micro_usd"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Motivo público do KYC"
+    canonico: "MotivoPublico ∈ {ilegivel, alvara_expirado, nao_foi_possivel_validar}"
+    literais:
+      - "MotivoPublico"
+      - "ilegivel"
+      - "alvara_expirado"
+      - "nao_foi_possivel_validar"
+    nomes:
+      - "MotivoPublico"
+      - "ilegivel"
+      - "alvara_expirado"
+      - "nao_foi_possivel_validar"
+    nomes_nota: []
     variantes_literais: []
 
 tabelas:
@@ -15617,6 +15930,53 @@ tabelas:
     assinatura: "reserve(onboardingId)"
     seccao: "3.54"
     conceito: "Capacidade antes do popup"
+  - nome: "onboarding_case"
+    esquema: "platform"
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "fase"
+      - "fase_at"
+      - "origem"
+      - "nome_negocio"
+      - "categoria_declarada"
+      - "nif_enc"
+      - "nif_hmac"
+      - "phone_enc"
+      - "phone_hmac"
+      - "email_enc"
+      - "device_hash"
+      - "ip_prefix_hash"
+      - "flags"
+      - "owner_active_seconds"
+      - "preflight"
+      - "criado_at"
+      - "activo_at"
+    aberta: false
+    assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    seccao: "3.57"
+    conceito: "Caso de onboarding"
+  - nome: "kyc_check"
+    esquema: "platform"
+    colunas:
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "doc_tipo"
+      - "doc_ref"
+      - "sha256"
+      - "phash"
+      - "extraido_enc"
+      - "flags"
+      - "score"
+      - "resultado"
+      - "versao_regras"
+      - "custo_micro_usd"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
+    seccao: "3.57"
+    conceito: "Verificação K1 de um documento"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -16869,6 +17229,59 @@ dominios:
       - "sem_canal"
     seccao: "3.56"
     conceito: "O estado do canal no painel"
+    so_no_registo: false
+  - coluna: "onboarding_case.fase"
+    valores:
+      - "registo"
+      - "otp_pendente"
+      - "kyc_pendente"
+      - "em_revisao"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "lista_espera"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+      - "activo"
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+    seccao: "3.57"
+    conceito: "Fase do caso"
+    so_no_registo: false
+  - coluna: "onboarding_case.origem"
+    valores:
+      - "convite"
+      - "contabilista"
+      - "anuncio"
+    seccao: "3.57"
+    conceito: "Origem do convite"
+    so_no_registo: false
+  - coluna: "kyc_check.doc_tipo"
+    valores:
+      - "nif"
+      - "alvara"
+      - "bi"
+      - "banco"
+    seccao: "3.57"
+    conceito: "Tipo de documento K1"
+    so_no_registo: false
+  - coluna: "kyc_check.resultado"
+    valores:
+      - "k1_ok"
+      - "fila"
+      - "ilegivel"
+      - "pendente"
+    seccao: "3.57"
+    conceito: "Resultado de uma verificação"
+    so_no_registo: false
+  - coluna: "MotivoPublico"
+    valores:
+      - "ilegivel"
+      - "alvara_expirado"
+      - "nao_foi_possivel_validar"
+    seccao: "3.57"
+    conceito: "Motivo público do KYC"
     so_no_registo: false
 
 variantes:

@@ -1438,8 +1438,9 @@ INVENTARIO = {
             NAO,
             None,
             "nao — a chave do caso de onboarding, **sem FK**: a tabela "
-            "`onboarding_case` ainda nao existe (credor KAM-086/087). E uma "
-            "referencia opaca e nao um dado da pessoa",
+            "`onboarding_case` nasceu depois, com a `0043` (KAM-087), e a FK "
+            "ficou por acrescentar. E uma referencia opaca e nao um dado da "
+            "pessoa",
         ),
         "tenant_id": (
             "uuid",
@@ -2330,6 +2331,81 @@ INVENTARIO["purge_log"] = {
     "registado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O caso de onboarding (KAM-087, revisao `0043`; DDL do KAM-086). **O NIF e o
+#: telefone vao cifrados em aplicacao e com HMAC ao lado**, como em `contacts`:
+#: o HMAC e para a correspondencia e o indice unico, e nao se inverte. O
+#: `nome_negocio` e o nome do negocio e nao da pessoa, mas numa PME em nome
+#: individual pode ser o nome do dono — fica respondido como dado pessoal.
+INVENTARIO["onboarding_case"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": (
+        "uuid",
+        NAO,
+        "gen_random_uuid()",
+        "nao — pre-alocado no registo, sem FK: a linha de `tenants` nasce no "
+        "passo 1 da saga (KAM-091)",
+    ),
+    "fase": ("text", NAO, "'registo'::text", "nao"),
+    "fase_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "origem": ("text", NAO, None, "nao"),
+    "nome_negocio": (
+        "text",
+        NAO,
+        None,
+        "pode ser — numa PME em nome individual e o nome do dono",
+    ),
+    "categoria_declarada": ("text", NAO, None, "nao"),
+    "nif_enc": ("bytea", NAO, None, "cifrado em aplicacao (ADR-010)"),
+    "nif_hmac": ("bytea", NAO, None, "HMAC do NIF; pseudonimo, nao se inverte"),
+    "phone_enc": ("bytea", NAO, None, "cifrado em aplicacao (ADR-010)"),
+    "phone_hmac": ("bytea", NAO, None, "HMAC do telefone; pseudonimo, nao se inverte"),
+    "email_enc": ("bytea", SIM, None, "cifrado em aplicacao (ADR-010)"),
+    "device_hash": ("bytea", SIM, None, "HMAC grosseiro do dispositivo; pseudonimo"),
+    "ip_prefix_hash": ("bytea", SIM, None, "HMAC do prefixo de IP, nunca o endereco"),
+    "flags": ("ARRAY", NAO, "'{}'::text[]", "nao"),
+    "owner_active_seconds": ("integer", NAO, "0", "nao"),
+    "preflight": (
+        "jsonb",
+        SIM,
+        None,
+        "nao — itens e detalhes de listas fechadas (KAM-093), sem texto livre",
+    ),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "activo_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
+#: A verificacao K1 de um documento (KAM-087, revisao `0043`). **O documento
+#: nao esta aqui**: esta no STO, e a linha guarda a chave. Os campos lidos (NIF,
+#: nome, BI, IBAN) vao cifrados em aplicacao no `extraido_enc`, e esquecem-se a
+#: D+30 de um caso rejeitado ou abandonado.
+INVENTARIO["kyc_check"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "doc_tipo": ("text", NAO, None, "nao"),
+    "doc_ref": (
+        "text",
+        NAO,
+        None,
+        "nao — a chave do objecto no STO, que guarda o documento; o acesso e "
+        "por URL assinada de 300 s e auditado",
+    ),
+    "sha256": ("bytea", NAO, None, "nao — resumo do ficheiro"),
+    "phash": ("bytea", SIM, None, "nao — dHash de 64 bits da imagem"),
+    "extraido_enc": (
+        "bytea",
+        SIM,
+        None,
+        "cifrado em aplicacao (AES-256-GCM): NIF, nome do titular, BI e IBAN",
+    ),
+    "flags": ("ARRAY", NAO, "'{}'::text[]", "nao"),
+    "score": ("smallint", SIM, None, "nao"),
+    "resultado": ("text", NAO, None, "nao"),
+    "versao_regras": ("text", NAO, None, "nao"),
+    "custo_micro_usd": ("integer", NAO, "0", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -2939,6 +3015,10 @@ class TestInventario(ComBase):
                         "manual_confirmations_tenant_fk",
                         "manual_confirmations_charge_fk",
                         "manual_confirmations_actor_fk",
+                        # KAM-087 (0043): a verificacao K1 aponta o caso pelo
+                        # par `(onboarding_id, tenant_id)`, sem cascata: um
+                        # caso nao se apaga com as verificacoes dentro.
+                        "kyc_check_caso_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3398,6 +3478,9 @@ class TestInventario(ComBase):
             # chegaram no mesmo.
             "dsar_requests_aberto_uq": True,
             "dsar_requests_prazo_idx": False,
+            # KAM-087: o NIF de um caso **vivo** e unico (o indice do bloco do
+            # KAM-086). Unico e parcial: um caso rejeitado deixa o NIF voltar.
+            "onboarding_nif_vivo": True,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -3438,6 +3521,35 @@ class TestInventario(ComBase):
                     # tres contagens e a versao, e os dois que ligam colunas: um
                     # `ok` nao tem motivo e tudo o resto tem, e so um `ok`
                     # apagou alguma coisa.
+                    # --------------------------------------- KAM-087 (0043)
+                    #
+                    # O caso: os dominios da `fase`, da `origem` e das
+                    # `flags`, as formas dos dois HMAC e do `preflight`, o
+                    # contador, e as duas unicidades (o tenant pre-alocado e
+                    # o par que a FK do `kyc_check` aponta).
+                    "onboarding_case_fase_ck",
+                    "onboarding_case_flags_ck",
+                    "onboarding_case_id_tenant_uq",
+                    "onboarding_case_nif_hmac_ck",
+                    "onboarding_case_origem_ck",
+                    "onboarding_case_owner_active_seconds_ck",
+                    "onboarding_case_phone_hmac_ck",
+                    "onboarding_case_pkey",
+                    "onboarding_case_preflight_ck",
+                    "onboarding_case_tenant_uq",
+                    # A verificacao: os tres dominios, as formas, o
+                    # prefixo do STO e a idempotencia por `sha256`.
+                    "kyc_check_custo_micro_usd_ck",
+                    "kyc_check_doc_ref_ck",
+                    "kyc_check_doc_tipo_ck",
+                    "kyc_check_documento_uq",
+                    "kyc_check_flags_ck",
+                    "kyc_check_phash_ck",
+                    "kyc_check_pkey",
+                    "kyc_check_resultado_ck",
+                    "kyc_check_score_ck",
+                    "kyc_check_sha256_ck",
+                    "kyc_check_versao_regras_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

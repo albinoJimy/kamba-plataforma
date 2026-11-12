@@ -268,6 +268,10 @@ RET_JOBS = "libs/py-core/src/kamba_core/retencao/jobs.py"
 RET_HOLD = "libs/py-core/src/kamba_core/retencao/hold.py"
 RET_POLITICA = "libs/py-core/src/kamba_core/retencao/politica.py"
 PARTICOES = "db/particoes.py"
+#: KAM-087: o caso de onboarding e o KYC K1. O SQL das tabelas vive no modulo
+#: auxiliar e o das consultas no TypeScript, que a suite executa tal como esta.
+KYC_DDL = "db/kyc.py"
+KYC_SQL = "packages/core-ts/src/kyc/sql.ts"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7070,6 +7074,36 @@ MUTACOES = [
      "tests"),
     # O `test_a_aplicacao_nao_publica_e_ninguem_apaga` e a matriz do
     # `test_privilegios` tem de a matar.
+    # ------------------------------------------- KAM-087 (revisao `0043`)
+    #
+    # Quatro, e cada uma tira uma barreira que so a base tem.
+    ('kyc: o phash passa a contar o proprio caso', KYC_SQL,
+     "   WHERE onboarding_id <> $1 AND phash IS NOT NULL",
+     "   WHERE (onboarding_id <> $1 OR true) AND phash IS NOT NULL",
+     "tests"),
+    # Um reenvio do mesmo documento por outro ficheiro passava a ser «imagem
+    # reutilizada». O `test_o_phash_e_procurado_noutros_casos_com_fronteira_em_6`
+    # tem de a matar, pela terceira asercao.
+    ('kyc: o fase_at passa a ser o do chamador', KYC_DDL,
+     "  IF TG_OP = 'INSERT' OR NEW.fase IS DISTINCT FROM OLD.fase THEN\n"
+     "    NEW.fase_at := now();",
+     "  IF false THEN\n"
+     "    NEW.fase_at := now();",
+     "tests"),
+    # Quem insere com uma data antiga purga os documentos no dia em que o caso
+    # morre. O `test_o_fase_at_e_do_trigger` tem de a matar.
+    ('kyc: o documento deixa de estar preso ao prefixo do tenant', KYC_DDL,
+     "    CHECK (starts_with(doc_ref, 't/' || tenant_id::text || '/kyc_documento/'))",
+     "    CHECK (true)",
+     "tests"),
+    # Uma verificacao de A passava a apontar para um objecto de B no STO. O
+    # `test_o_doc_ref_tem_de_ser_do_tenant_da_linha` tem de a matar.
+    ('kyc: a aplicacao passa a ler as marcas internas', KYC_DDL,
+     'SQL_CONCEDER_KYC_AUDITORIA: Final = "GRANT SELECT ON platform.kyc_check TO kamba_audit"',
+     'SQL_CONCEDER_KYC_AUDITORIA: Final = "GRANT SELECT ON platform.kyc_check TO kamba_audit, kamba_app"',
+     "tests"),
+    # O motivo interno chegava ao servico do dono (criterio 7). O
+    # `test_quem_pode_o_que` tem de a matar.
 ]
 
 
