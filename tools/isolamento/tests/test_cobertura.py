@@ -210,7 +210,7 @@ class TestORepositorio(unittest.TestCase):
     def test_todas_as_baterias_com_superficie_tem_caso(self) -> None:
         casos = registo.carregar_casos()
         por_bateria = {caso.bateria for caso in casos.values()}
-        for bateria in ("X-01", "X-02", "X-03", "X-04", "X-05", "C-01", "P-01"):
+        for bateria in ("X-01", "X-02", "X-03", "X-04", "X-05", "X-06", "C-01", "P-01"):
             with self.subTest(bateria=bateria):
                 self.assertIn(bateria, por_bateria)
 

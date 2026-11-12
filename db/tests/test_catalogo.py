@@ -14,6 +14,7 @@ from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     TABELAS,
     TABELAS_DAT,
+    TABELAS_IDX,
     TABELAS_LG,
     TABELAS_SERVICOS,
     ComBase,
@@ -2009,7 +2010,11 @@ class TestPapeis(ComBase):
             # **depois** do `public`: a ordem e alfabetica pelo esquema, e
             # `public` < `servicos`. E a primeira vez que alguma coisa fica
             # depois da `alembic_version` nesta lista.
+            #
+            # O `idx` entra pela mesma razao (KAM-061, revisao `0045`) e vem
+            # **entre** o `dat` e o `lg`: `dat` < `idx` < `lg`.
             [("dat", tabela) for tabela in TABELAS_DAT]
+            + [("idx", tabela) for tabela in TABELAS_IDX]
             + [("lg", tabela) for tabela in TABELAS_LG]
             + [("platform", tabela) for tabela in TABELAS]
             + [("public", "alembic_version")]

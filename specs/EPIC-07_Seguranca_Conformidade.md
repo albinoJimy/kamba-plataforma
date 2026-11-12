@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.30 |
+| Versão | 1.31 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1977,7 +1977,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 192 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 193 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2304,3 +2304,4 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.28 | Novembro 2026 | KAM-071 (retenção e purga por classe de dados): **quatro** dos nove critérios e **duas** das seis caixas de DoD marcadas, com a secção «Verificação dos Critérios de Aceitação». Entregues: o módulo `../libs/py-core/src/kamba_core/retencao/` (a `retention_policy` com vinte classes, todas *proposta*; o *job* com `apagar`, `ttl_sto`, `largar_particao` e a recusa `fiscal`; o *dry-run*; o *hold* legal, que vive no `audit_log`; e a reaplicação da purga depois de um restauro), a revisão [`0042`](../db/migrations/versions/0042_retencao_e_purga.py) com a `platform.purge_log` e as duas acções do *hold*, e o `../db/particoes.py`, que cria e larga as partições mensais com a ligação do dono. **Os dois casos que o bloco manda ficar vermelhos estão medidos contra a base**: uma purga que tocasse noutro tenant e um restauro que trouxesse de volta o que a purga tirou. Ficam com credor o agendador (KAM-078), o encaminhamento do Sev2 (KAM-080), a purga pela API do Chatwoot (KAM-019), o caminho fiscal (o fundador, com o KAM-104) e o encerramento (KAM-098). **E uma divergência devolvida:** o Contexto atribui ao `../docs/tecnica/06` §7.4 os 13 meses do `assistant_queries`, e o `06` dá 12 (dívida 206). Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | KAM-190 (acrescentado ao EPIC-09 no PR do KAM-099): a contagem viva do backlog na nota do `assert` passa de 189 a **190**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.30 | Novembro 2026 | KAM-191 e KAM-192 (acrescentados ao EPIC-09 no PR do KAM-088): a contagem viva do backlog na nota do `assert` passa de 190 a **192**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.31 | Novembro 2026 | KAM-193 (acrescentado ao EPIC-06 no PR do KAM-061): a contagem viva do backlog na nota do `assert` passa de 192 a **193**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

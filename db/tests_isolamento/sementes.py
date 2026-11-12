@@ -1329,6 +1329,45 @@ def _marcacao(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+#: O vector do documento semeado, **igual nos dois tenants**: e o que o X-06
+#: (`tools/isolamento/baterias/x06_vectores.py`) pesquisa, e o documento do
+#: outro tenant fica a distancia zero da pergunta — a forma mais hostil.
+_VECTOR = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
+
+
+def _documento_do_indice(cursor, tenant_id: str, canario: str) -> None:
+    """Um documento do indice de pesquisa (KAM-061, revisao `0045`).
+
+    O canario vai no `product_ref`, que e a segunda coluna da unicidade
+    `(tenant_id, product_ref)` — dois tenants podem semear o mesmo canario, que
+    e o que o X-03 precisa. Semeia o administrador: o `kamba_batch` nao tem
+    privilegio nenhum no `idx`, e o `kamba_app`, que escreve em producao (o
+    consumidor de eventos), esta sob `WITH CHECK` e as receitas nao definem
+    contexto.
+    """
+    cursor.execute(
+        "INSERT INTO idx.search_doc "
+        "(tenant_id, product_ref, norm_versao, nome_norm, embedding) "
+        "VALUES (%s, %s, 1, %s, %s::halfvec)",
+        (tenant_id, canario, f"produto {canario}", _VECTOR),
+    )
+
+
+def _termo_do_lexico(cursor, tenant_id: str, canario: str) -> None:
+    """Uma entrada **do tenant** no dicionario PT-AO (KAM-061, revisao `0045`).
+
+    Nunca uma global: a global (`tenant_id` nulo) e legivel por todos os tenants
+    por desenho (politica `termos_globais`), e o X-03 mede o que um tenant le do
+    outro. O `kamba_app` so le esta tabela, pelo que a receita prova que o
+    privilegio de escrita nem existe.
+    """
+    cursor.execute(
+        "INSERT INTO idx.termo_canonico (tenant_id, tipo, termo, canonico, origem) "
+        "VALUES (%s, 'sinonimo', %s, 'canonico', 'tenant')",
+        (tenant_id, canario),
+    )
+
+
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
@@ -1410,6 +1449,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         semeador="admin", escrita_do_papel=False,
     ),
     ("platform", "offer_terms"): Receita(_oferta, "sku", "nome", "nome alterado"),
+    # KAM-061: as duas do `idx`, semeadas pelo administrador (nem o
+    # `kamba_batch` tem privilegio no esquema). O documento e **escrito pelo
+    # papel** — o consumidor de eventos corre como `kamba_app` —, pelo que a RLS
+    # e a ultima barreira na escrita; o lexico so e lido por ele.
+    ("idx", "search_doc"): Receita(
+        _documento_do_indice, "product_ref", "nome_norm", "nome alterado",
+        semeador="admin",
+    ),
+    ("idx", "termo_canonico"): Receita(
+        _termo_do_lexico, "termo", None, None,
+        semeador="admin", escrita_do_papel=False,
+    ),
     # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
     # vai buscar o contacto por subconsulta, e o `kamba_batch` **nao tem
     # `SELECT` em `platform.contacts`** — as tabelas de identidade sao do
@@ -2150,6 +2201,10 @@ ORDEM = (
     # que esta bateria nunca lhe escreve linha nenhuma — e um pedido sem linhas
     # de ledger apaga-se sem a FK dizer nada.
     ("platform", "dsar_requests"),
+    # KAM-061: as duas do `idx` so tem FK para `tenants`, e ninguem as aponta.
+    # A posicao e indiferente e a escolhida e a dos numeros dos tickets.
+    ("idx", "search_doc"),
+    ("idx", "termo_canonico"),
 )
 
 #: As identidades com que as receitas semeiam.

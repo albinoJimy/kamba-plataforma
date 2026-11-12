@@ -102,6 +102,25 @@ class ComHarness(ComDoisTenants):
         # **nenhuma** tool responde, e o X-02 fica verde sem medir nada.
         semente.activar_tenant(administrador, cls.a.id)
         semente.semear_entitlement(administrador, cls.a.id)
+        # **E o B tambem activo** (KAM-061). Com o B no `onboarding` da
+        # omissao, a porta `tn` do `idx.candidatos` lia zero tenants para
+        # qualquer `p_tenant = B`, e o X-06 ficava verde sem medir RLS
+        # nenhuma — o «vector a distancia zero do de B» nao era hostil.
+        # Achado 1 da revisao adversarial do KAM-061.
+        semente.activar_tenant(administrador, cls.b.id)
+        # A oferta viva do documento de indice de A, publicada e com o `sku`
+        # igual ao `product_ref` semeado: sem ela, o `search_catalog` do X-02
+        # (KAM-061) nunca tinha o que devolver a A, e a sonda positiva ficava
+        # sem objecto. **Aqui e nao na receita**: a receita semeia uma linha por
+        # tabela e por tenant, e o `TestReutilizacaoDeLigacao` exige-o — uma
+        # segunda linha na `offer_terms` deixou-o vermelho, medido. Apaga-se com
+        # a `offer_terms` do tenant no `apagar_tenant`.
+        canario_do_indice = cls.a.canarios[("idx", "search_doc")]
+        administrador.execute(
+            "INSERT INTO platform.offer_terms (tenant_id, sku, nome, preco_tipo, estado) "
+            "VALUES (%s, %s, %s, 'sob_consulta', 'publicado')",
+            (cls.a.id, canario_do_indice, f"produto {canario_do_indice}"),
+        )
         # As marcas de consumo com os `consumer` **reais** (`agr_vendedor`,
         # `agr_servicos`), nos dois tenants. Sem elas a bateria dos
         # consumidores EVT contava zero por ausencia e nao por isolamento: a

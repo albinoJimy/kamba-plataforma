@@ -473,6 +473,11 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",
+    # KAM-061 (0045). O documento do indice e o catalogo normalizado da PME, e
+    # vive com a oferta: quando ela sai, o consumidor poe-no invisivel, e a
+    # purga dele segue a do catalogo. O lexico e de termos, e nunca de pessoas.
+    "idx.search_doc": "catalogo normalizado: vida do catalogo",
+    "idx.termo_canonico": "lexico PT-AO, sem pessoas",
 }
 
 

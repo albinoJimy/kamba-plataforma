@@ -29,6 +29,8 @@ _COPIAR = (
     # `kyc.criar()`, e sem o ficheiro na copia 45 ensaios desta suite davam
     # `ilegivel` a mais — medido no gate 4 do CI.
     "db/kyc.py",
+    # KAM-061: o quarto, pela mesma razao — a revisao chama `indice.criar()`.
+    "db/indice.py",
     "docs/tecnica",
     "tools/canon_lint/tests/fixtures",
 )

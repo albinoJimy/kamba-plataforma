@@ -134,9 +134,10 @@ def especificacoes_do_piloto(
     ligado era pior do que nenhum, porque a tool aparecia ao modelo e recusava.
 
     **As que nao tem executor ficam `declaradas`, com o credor que ja tinham.**
-    E o caso do `search_catalog`, cujo backend e o IDX: o `idx.candidatos` e o
-    **KAM-061**, de fase 1, e nao existe na arvore. Liga-la a um `stand-in` era
-    servir um catalogo que nao e o catalogo.
+    Era o caso do `search_catalog` ate ao **KAM-061**, que o liga ao IDX em
+    `tls/idx.py`: o `__main__` passa-lhe esse executor, e uma chamada sem ele
+    continua a devolve-lo `declarado`. Liga-lo a um `stand-in` era servir um
+    catalogo que nao e o catalogo.
 
     Chamar isto **sem** executores devolve as onze como o KAM-031 as deixou, que
     e o que a bateria do registo compara.

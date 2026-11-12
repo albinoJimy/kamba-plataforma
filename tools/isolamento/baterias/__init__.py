@@ -17,6 +17,7 @@ MODULOS = (
     "x01_rotas",
     "x02_tools",
     "x03_x04_x05_base",
+    "x06_vectores",
     "c01_contacto",
     "p01_pooling",
     "evt_consumidores",

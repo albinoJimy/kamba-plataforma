@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.81 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.82 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4031,6 +4031,46 @@ repositório não tem — o Piloto. O modelo atrás do alias e o custo por decis
 
 ---
 
+### 3.59 Índice de pesquisa por tenant: `idx.search_doc`, `idx.termo_canonico` e o `idx.candidatos` (KAM-061)
+
+*Emenda 1.82, **proposta**.* Os nomes que a revisão
+[`0045`](../db/migrations/versions/0045_indice_de_pesquisa.py) cria no esquema `idx`, que o
+§3.6 já reservava. O DDL é o do [`../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md`](../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md)
+§4.1, §4.2 e §4.4 e a função a do §6.2, **sem alterações de semântica**; o SQL vive em
+[`db/indice.py`](../db/indice.py), declarado como módulo auxiliar de migração em
+`../ci/canon-lint.yaml`, e os ensaios importam-no dali em vez de o copiarem.
+
+**A regra que nenhuma coluna exprime: o índice não é fonte de nenhum número.** Nenhuma coluna
+do esquema `idx` tem no nome preço, stock ou quantidade, em português ou em inglês, e o ensaio
+varre o `information_schema` do esquema inteiro; o texto que gera um embedding passa por um
+*lint* que recusa dinheiro e as palavras de stock e de preço. Preço e stock entram na resposta
+pelo *join* com a `platform.v_oferta_viva` (§3.40, KAM-051), no instante da pergunta (ADR-007).
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Documento do índice | `idx.search_doc`, **quinze** colunas | — | *proposta* (emenda 1.82, KAM-061). `doc_id`, `tenant_id`, `product_ref`, `norm_versao`, `nome_norm`, `marca_canon`, `categoria_canon`, `descr_norm`, `zona`, `visivel`, `visivel_federado`, `embedding`, `embedding_modelo`, `fts`, `atualizado_at` — as do §4.2, pela ordem dele. Um documento por `(tenant_id, product_ref)`, com essa unicidade. RLS `FORCE` com a política `tenant_iso`; o `kamba_app` lê, insere e actualiza, e **não apaga** — a purga é da retenção. **Sem índice ANN** no Piloto (PROP-IDX-1): os três índices são o GIN do `fts`, o GIN de trigramas do `nome_norm` e o parcial por tenant dos visíveis |
+| Referência ao produto | `search_doc.product_ref` | — | *proposta* (emenda 1.82, KAM-061). O id opaco no COM (ADR-003); hoje é o `sku`, que é o que a vista da oferta expõe como `product_ref` (emenda 1.68). Nunca preço nem stock |
+| Texto normalizado | `search_doc.nome_norm`, `search_doc.descr_norm`, `search_doc.marca_canon`, `search_doc.categoria_canon` | — | *proposta* (emenda 1.82, KAM-061). Minúsculas, sem acentos e sem pontuação, pela **mesma** função dos dois lados — o consumidor e a consulta (`../libs/py-core/src/kamba_core/idx/texto.py`). Marca, categoria e descrição ficam nulas e vazia até haver de onde as ler: a oferta só tem o nome, e o léxico de marcas é o KAM-062 |
+| Versão da normalização | `search_doc.norm_versao` | — | *proposta* (emenda 1.82, KAM-061). **1** enquanto só houver o passo 1 do §5.1; sobe com o dicionário PT-AO (KAM-062), e um documento com versão anterior reindexa-se |
+| Visibilidade na pesquisa | `search_doc.visivel`, `search_doc.visivel_federado` | — | *proposta* (emenda 1.82, KAM-061). O `visivel` é a oferta publicável **e** o tenant activo, relidos do estado presente pelo consumidor; é a primeira de **duas** defesas, e a segunda é a porta de tenant activo da função. O `visivel_federado` é o *opt-in* de Clusters e fica falso |
+| Vector do produto | `search_doc.embedding`, `search_doc.embedding_modelo` | — | *proposta* (emenda 1.82, KAM-061). `halfvec(1024)` **provisório** até ao KAM-063 (PROP-IDX-4). Nulo é o modo lexical, que é o estado de todo o documento enquanto não houver destino autorizado (ADR-008) |
+| Vector de pesquisa textual | `search_doc.fts` | — | *proposta* (emenda 1.82, KAM-061). Coluna **gerada** e guardada, pela configuração `idx.kamba_pt`, com os pesos A, A, B, C do §4.2 |
+| Zona do documento | `search_doc.zona` | — | *proposta* (emenda 1.82, KAM-061). Herdada do tenant, só para filtro grosseiro; nenhum escritor a preenche no Piloto |
+| Dicionário PT-AO | `idx.termo_canonico`, **dez** colunas | — | *proposta* (emenda 1.82, KAM-061). `id`, `tenant_id`, `tipo`, `termo`, `canonico`, `peso`, `origem`, `activo`, `aprovado_por`, `criado_at`, as do §4.4. **O `tenant_id` é anulável: nulo é uma entrada global.** Duas políticas, pela forma da `tenant_destinations` (§3.49): a `tenant_iso` intacta e a `termos_globais`, só de leitura, para as globais — pelo que nenhum tenant escreve uma global. Unicidade por `(tenant, tipo, termo)` nas activas, com o nulo reduzido a um `uuid` de zeros. Quem a enche é o KAM-062 |
+| Tipo de termo | `termo_canonico.tipo` ∈ {`marca`, `unidade`, `sinonimo`, `erro_comum`, `stopword`} | — | *proposta* (emenda 1.82, KAM-061). Lista **fechada**, **cinco**, as do §4.4 |
+| Origem de um termo | `termo_canonico.origem` ∈ {`ops`, `catalogo`, `dataset`, `tenant`} | — | *proposta* (emenda 1.82, KAM-061). Lista **fechada**, **quatro**, as do §4.4 |
+| Peso de um termo | `termo_canonico.peso`, real em ]0, 1] | — | *proposta* (emenda 1.82, KAM-061). A expansão de um sinónimo pesa menos do que o termo dito |
+| Termo e forma canónica | `termo_canonico.termo`, `termo_canonico.canonico`, `termo_canonico.aprovado_por` | — | *proposta* (emenda 1.82, KAM-061). Minúsculas, sem acentos. O `aprovado_por` é texto livre de *ops* e não um identificador de pessoa do registo |
+| Pesquisa por tenant | `idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)` | — | *proposta* (emenda 1.82, KAM-061). A do §6.2: três ramos com ordenação antes do limite, fusão por RRF ponderado (0,5 / 0,3 / 0,2, k = 60, INDÍCIO) e porta de tenant activo. **`SECURITY INVOKER`**: sem contexto de tenant devolve zero linhas, e com o contexto de A e o parâmetro de B também — a RLS das duas tabelas que lê é de quem chama. **Uma adaptação ao texto do §6.2, e não de semântica:** cada ramo desempata pelo `doc_id` antes do limite, porque o §6.2 só desempatava depois dele e um empate no último lugar era sorteio |
+| Configuração de pesquisa textual | `idx.kamba_pt`, cópia da configuração *portuguese* com o dicionário *unaccent* | — | *proposta* (emenda 1.82, KAM-061). O §4.1. A extensão `vector` é criada pelo *initdb* e pelo `../db/bootstrap.py`, que correm como administrador: a 0.8.7 **não é *trusted***, medido no catálogo da imagem |
+
+**O que esta emenda não decide, e a quem.** O léxico PT-AO e a expansão de sinónimos
+(**KAM-062**). O modelo de embeddings, a dimensão e o destino autorizado (**KAM-063**,
+PROP-IDX-4). O limiar do `pg_trgm`, os pesos e o `k` do RRF, a afinar no dataset (**KAM-064**).
+O `disponivel` e o filtro de stock do §6.3, que dependem do nível de stock (**KAM-045** e **D3**).
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -4133,3 +4173,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.79 | Novembro 2026 | **Emenda (*proposta*), KAM-099: o painel do dono.** §3.56 nova: as **sete** rotas do painel; a sessão `kamba_painel`, com separador de domínio próprio, o tenant dentro da assinatura, 30 dias deslizantes e revogação por `sid`; o corpo da gravação com `preco_tipo` e `preco_minor` em Kz inteiros, que substitui o `preco_modo` do bloco pela emenda 1.12; a **versão optimista** da oferta, que é o `offer_terms.atualizado_at` com microssegundos, com os **cinco** escritores da tabela passados a `clock_timestamp()`; as duas operações do COM fora da porta e as duas rotas internas que as servem; a origem de auditoria `painel_do_dono`; as duas métricas, declaradas e não servidas; os quatro estados do canal no painel; e as duas variáveis, nenhuma segredo. O §3.39 passa de **sete** a **nove** rotas da API interna do COM, nas duas linhas que as contavam. **Nenhuma revisão de base de dados.** | Equipa KAMBÁ |
 | 1.80 | Novembro 2026 | **Emenda (*proposta*), KAM-087: o caso de onboarding e o KYC K1.** §3.57 nova: a `platform.onboarding_case` (dezanove colunas) e a `platform.kyc_check` (catorze), da revisão `0043`. **A `onboarding_case.fase` deixa de ter seis valores e passa a catorze**, com o valor final `activo` e não o `pronto` do §3.2, porque o `pronto` já designa o canal pronto, com o nome `fase` e não o `estado` do DDL do bloco do KAM-086 — a divergência que a emenda 1.64 deu a este ticket como credor, medida em quatro fontes no §3.57; a linha do §3.2 aponta para lá. O `fase_at` é novo e só o *trigger* o escreve. O `preflight` do §3.54 passa a existir. O `kyc_check` leva, além do DDL do bloco, o `tenant_id` com FK composta para o caso, o `custo_micro_usd` e a unicidade `(onboarding_id, sha256)`. Fica com credor o que não é deste ticket: o adaptador SQL da inscrição (KAM-086), a ponte do *gate* de transferência para o `vision_llm`, a fila (KAM-089) e as FK das tabelas que nasceram antes do caso. | Equipa KAMBÁ |
 | 1.81 | Novembro 2026 | **Emenda (*proposta*), KAM-088: o screening de categorias.** §3.58 nova: a política Meta ∪ lei em `../policy/categorias/` (esquema, SemVer fixado por `sha256`, oito chaves por entrada), os três domínios fechados — `decisao`, `origem` e `sujeito_tipo` —, a `platform.screening_decision` com **onze** colunas e as três divergências do DDL do bloco que o §2 decide (`id` `uuid`, `tenant_id` `NOT NULL`, `criado_at` por `clock_timestamp()`), a coluna `conteudo_sha256` que o bloco não tem e que fecha a «edição posterior», a sobreposição por tenant que só acrescenta restrição e o `assertPublishable`. A tabela nasce na revisão `0044`, *append-only* por privilégio e por *trigger*, com FK composta para a `onboarding_case` da `0043`. **O alias `screening-nano` fica nomeado e não declarado**, porque o §3.29 fecha os aliases em quatro, um por papel. Credores: o contrato `screening.violation_detected` (o §3.5 continua em trinta e oito tipos) — KAM-191; o papel do alias — KAM-192; KAM-089, KAM-040, KAM-097 e o Piloto. | Equipa KAMBÁ |
+| 1.82 | Novembro 2026 | **Emenda (*proposta*), KAM-061: o índice de pesquisa por tenant.** §3.59 nova: o esquema `idx` que o §3.6 reservava — a `idx.search_doc` com as suas **quinze** colunas e **sem** índice ANN, a `idx.termo_canonico` com as suas **dez** e as duas listas fechadas do §4.4 (**cinco** tipos, **quatro** origens), a configuração `idx.kamba_pt` e a função `idx.candidatos` do §6.2 com a assinatura dele. **Uma adaptação ao texto da função, dita:** cada ramo desempata pelo `doc_id` antes do limite, que é o que o critério 6 do bloco pede. **E uma medição que muda quem cria uma extensão:** a `vector` 0.8.7 não é *trusted*, pelo que o `kamba_migrator` não a cria — cria-a quem corre como administrador, o *initdb* do compose e o `db/bootstrap.py` do *gate* 8. **O que não decide:** léxico (KAM-062), modelo de embeddings (KAM-063), limiar e pesos (KAM-064), stock na resposta (KAM-045, D3). | Equipa KAMBÁ |

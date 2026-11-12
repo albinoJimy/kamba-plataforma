@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.81"
+versao_dicionario: "1.82"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15012,6 +15012,226 @@ entradas:
       - "router"
       - "kamba"
     variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Documento do índice"
+    canonico: "idx.search_doc, quinze colunas"
+    literais:
+      - "idx.search_doc"
+    nomes:
+      - "idx.search_doc"
+    nomes_nota:
+      - "doc_id"
+      - "tenant_id"
+      - "product_ref"
+      - "norm_versao"
+      - "nome_norm"
+      - "marca_canon"
+      - "categoria_canon"
+      - "descr_norm"
+      - "zona"
+      - "visivel"
+      - "visivel_federado"
+      - "embedding"
+      - "embedding_modelo"
+      - "fts"
+      - "atualizado_at"
+      - "FORCE"
+      - "tenant_iso"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Referência ao produto"
+    canonico: "search_doc.product_ref"
+    literais:
+      - "search_doc.product_ref"
+    nomes:
+      - "search_doc.product_ref"
+    nomes_nota:
+      - "sku"
+      - "product_ref"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Texto normalizado"
+    canonico: "search_doc.nome_norm, search_doc.descr_norm, search_doc.marca_canon, search_doc.categoria_canon"
+    literais:
+      - "search_doc.nome_norm"
+      - "search_doc.descr_norm"
+      - "search_doc.marca_canon"
+      - "search_doc.categoria_canon"
+    nomes:
+      - "search_doc.nome_norm"
+      - "search_doc.descr_norm"
+      - "search_doc.marca_canon"
+      - "search_doc.categoria_canon"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Versão da normalização"
+    canonico: "search_doc.norm_versao"
+    literais:
+      - "search_doc.norm_versao"
+    nomes:
+      - "search_doc.norm_versao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Visibilidade na pesquisa"
+    canonico: "search_doc.visivel, search_doc.visivel_federado"
+    literais:
+      - "search_doc.visivel"
+      - "search_doc.visivel_federado"
+    nomes:
+      - "search_doc.visivel"
+      - "search_doc.visivel_federado"
+    nomes_nota:
+      - "visivel"
+      - "visivel_federado"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Vector do produto"
+    canonico: "search_doc.embedding, search_doc.embedding_modelo"
+    literais:
+      - "search_doc.embedding"
+      - "search_doc.embedding_modelo"
+    nomes:
+      - "search_doc.embedding"
+      - "search_doc.embedding_modelo"
+    nomes_nota:
+      - "halfvec"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Vector de pesquisa textual"
+    canonico: "search_doc.fts"
+    literais:
+      - "search_doc.fts"
+    nomes:
+      - "search_doc.fts"
+    nomes_nota:
+      - "idx.kamba_pt"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Zona do documento"
+    canonico: "search_doc.zona"
+    literais:
+      - "search_doc.zona"
+    nomes:
+      - "search_doc.zona"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Dicionário PT-AO"
+    canonico: "idx.termo_canonico, dez colunas"
+    literais:
+      - "idx.termo_canonico"
+    nomes:
+      - "idx.termo_canonico"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "tipo"
+      - "termo"
+      - "canonico"
+      - "peso"
+      - "origem"
+      - "activo"
+      - "aprovado_por"
+      - "criado_at"
+      - "tenant_destinations"
+      - "tenant_iso"
+      - "termos_globais"
+      - "tenant"
+      - "uuid"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Tipo de termo"
+    canonico: "termo_canonico.tipo ∈ {marca, unidade, sinonimo, erro_comum, stopword}"
+    literais:
+      - "termo_canonico.tipo"
+      - "marca"
+      - "unidade"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    nomes:
+      - "termo_canonico.tipo"
+      - "marca"
+      - "unidade"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Origem de um termo"
+    canonico: "termo_canonico.origem ∈ {ops, catalogo, dataset, tenant}"
+    literais:
+      - "termo_canonico.origem"
+      - "ops"
+      - "catalogo"
+      - "dataset"
+      - "tenant"
+    nomes:
+      - "termo_canonico.origem"
+      - "ops"
+      - "catalogo"
+      - "dataset"
+      - "tenant"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Peso de um termo"
+    canonico: "termo_canonico.peso, real em ]0, 1]"
+    literais:
+      - "termo_canonico.peso"
+    nomes:
+      - "termo_canonico.peso"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Termo e forma canónica"
+    canonico: "termo_canonico.termo, termo_canonico.canonico, termo_canonico.aprovado_por"
+    literais:
+      - "termo_canonico.termo"
+      - "termo_canonico.canonico"
+      - "termo_canonico.aprovado_por"
+    nomes:
+      - "termo_canonico.termo"
+      - "termo_canonico.canonico"
+      - "termo_canonico.aprovado_por"
+    nomes_nota:
+      - "aprovado_por"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Pesquisa por tenant"
+    canonico: "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
+    literais:
+      - "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
+    nomes:
+      - "idx.candidatos"
+      - "p_tenant"
+      - "p_q_norm"
+      - "p_q_or"
+      - "p_qvec"
+      - "p_k"
+      - "p_w_sem"
+      - "p_w_tri"
+      - "p_w_fts"
+      - "p_rrf_k"
+    nomes_nota:
+      - "SECURITY"
+      - "INVOKER"
+      - "doc_id"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Configuração de pesquisa textual"
+    canonico: "idx.kamba_pt, cópia da configuração portuguese com o dicionário unaccent"
+    literais:
+      - "idx.kamba_pt"
+    nomes:
+      - "idx.kamba_pt"
+    nomes_nota:
+      - "vector"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -16188,6 +16408,22 @@ tabelas:
     assinatura: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
     seccao: "3.57"
     conceito: "Verificação K1 de um documento"
+  - nome: "candidatos"
+    esquema: "idx"
+    colunas:
+      - "p_tenant"
+      - "p_q_norm"
+      - "p_q_or"
+      - "p_qvec"
+      - "p_k"
+      - "p_w_sem"
+      - "p_w_tri"
+      - "p_w_fts"
+      - "p_rrf_k"
+    aberta: false
+    assinatura: "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
+    seccao: "3.59"
+    conceito: "Pesquisa por tenant"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -17516,6 +17752,25 @@ dominios:
       - "produto"
     seccao: "3.58"
     conceito: "Sujeito de uma decisão"
+    so_no_registo: false
+  - coluna: "termo_canonico.tipo"
+    valores:
+      - "marca"
+      - "unidade"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    seccao: "3.59"
+    conceito: "Tipo de termo"
+    so_no_registo: false
+  - coluna: "termo_canonico.origem"
+    valores:
+      - "ops"
+      - "catalogo"
+      - "dataset"
+      - "tenant"
+    seccao: "3.59"
+    conceito: "Origem de um termo"
     so_no_registo: false
 
 variantes:

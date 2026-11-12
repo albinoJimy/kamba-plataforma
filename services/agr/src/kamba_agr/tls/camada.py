@@ -107,6 +107,11 @@ TIMEOUT_ESCRITA_POR_OMISSAO_MS: Final = 8_000
 VARIAVEL_DE_LIGACOES: Final = "KAMBA_TLS_LIGACOES"
 LIGACOES_POR_OMISSAO: Final = 4
 
+#: Os backends que falam com a nossa base, e por isso recebem a tomada no
+#: `Pedido.ligacao`: o `plataforma` (KAM-028) e o `idx` (KAM-061), que no Piloto
+#: vive na mesma base (ADR-006). Os outros dois falam por HTTP.
+BACKENDS_DA_BASE: Final = frozenset({"plataforma", "idx"})
+
 #: A folga do tecto que a camada impoe, sobre o tecto da classe.
 #:
 #: O tecto do §6.5 e do **backend**, e onde ha um tecto preciso do lado do
@@ -867,7 +872,10 @@ class ToolLayer:
             ctx=inv.ctx,
             args=inv.args,
             timeout_ms=self.timeout_de(especificacao.klass),
-            ligacao=inv.ligacao if backend == "plataforma" else None,
+            # O `idx` tambem (KAM-061): no Piloto o indice vive na base da
+            # plataforma (ADR-006), e o `search_catalog` le-o como o
+            # `get_store_info` le a `platform.tenants` — sob `tenant_guard.tx`.
+            ligacao=inv.ligacao if backend in BACKENDS_DA_BASE else None,
             # A chave do §6.3 (KAM-029). E o que torna verdadeira a frase do
             # criterio 4 — «o backend e idempotente pela chave» —, e sem ela a
             # retoma de uma linha `falhada` duplicava o efeito em vez de o
