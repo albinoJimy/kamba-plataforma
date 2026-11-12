@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.78"
+versao_dicionario: "1.79"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -9779,8 +9779,8 @@ entradas:
       - "money"
     variantes_literais: []
   - seccao: "3.39"
-    conceito: "As sete rotas da API interna do COM"
-    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation"
+    conceito: "As nove rotas da API interna do COM"
+    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer"
     literais: []
     nomes: []
     nomes_nota:
@@ -14320,6 +14320,174 @@ entradas:
     nomes: []
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As rotas do painel"
+    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "id"
+      - "sku"
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A sessão do painel"
+    canonico: "cookie kamba_painel, domínio kamba/painel/sessao/v1, v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
+    literais:
+      - "kamba_painel"
+      - "v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
+    nomes:
+      - "kamba_painel"
+      - "v1"
+      - "sid"
+      - "tenant"
+      - "dono"
+      - "emitida"
+      - "renovada"
+      - "hmac"
+    nomes_nota:
+      - "sessao"
+      - "tenant_id"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "O corpo da gravação"
+    canonico: "preco_tipo, preco_minor, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
+    literais:
+      - "preco_tipo"
+      - "preco_minor"
+      - "versao"
+      - "confirmar_variacao"
+      - "Idempotency-Key"
+    nomes:
+      - "preco_tipo"
+      - "preco_minor"
+      - "versao"
+      - "confirmar_variacao"
+      - "Idempotency"
+      - "Key"
+    nomes_nota:
+      - "preco_tipo"
+      - "preco_minor"
+      - "stock"
+      - "stock_por_ligar"
+      - "stock_quantidade"
+      - "Idempotency"
+      - "Key"
+    variantes_literais:
+      - "preco_modo"
+  - seccao: "3.56"
+    conceito: "A versão optimista de uma oferta"
+    canonico: "offer_terms.atualizado_at, como texto UTC com microssegundos (OfertaDoPainel.versao)"
+    literais:
+      - "offer_terms.atualizado_at"
+      - "OfertaDoPainel.versao"
+    nomes:
+      - "offer_terms.atualizado_at"
+      - "OfertaDoPainel.versao"
+    nomes_nota:
+      - "offer_terms"
+      - "atualizado_at"
+      - "timestamptz"
+      - "SQL_ALTERAR_OFERTA"
+      - "clock_timestamp"
+      - "now"
+      - "preco_valido_ate"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As operações do painel no COM"
+    canonico: "listarOfertas, alterarOferta, servidas por POST /internal/list-offers e POST /internal/update-offer"
+    literais:
+      - "listarOfertas"
+      - "alterarOferta"
+    nomes:
+      - "listarOfertas"
+      - "alterarOferta"
+    nomes_nota:
+      - "OperacoesDoCom"
+      - "proposeCart"
+      - "createOrder"
+      - "Resultado"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A origem de auditoria do painel"
+    canonico: "painel_do_dono"
+    literais:
+      - "painel_do_dono"
+    nomes:
+      - "painel_do_dono"
+    nomes_nota:
+      - "ORIGENS"
+      - "dono"
+      - "owner"
+      - "audit_log"
+      - "onboarding_id"
+      - "actor_id"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As métricas do painel"
+    canonico: "painel_pedidos_total{rota}, painel_erros_total{rota,motivo}"
+    literais:
+      - "painel_pedidos_total{rota}"
+      - "painel_erros_total{rota,motivo}"
+    nomes:
+      - "painel_pedidos_total"
+      - "rota"
+      - "painel_erros_total"
+      - "motivo"
+    nomes_nota:
+      - "rota"
+      - "entrar"
+      - "produtos"
+      - "gravar"
+      - "encomendas"
+      - "encomenda"
+      - "canal"
+      - "sair"
+      - "motivo"
+      - "sem_sessao"
+      - "nao_encontrado"
+      - "invalido"
+      - "conflito"
+      - "confirmacao"
+      - "indisponivel"
+      - "onboarding"
+      - "web"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "O estado do canal no painel"
+    canonico: "VistaDoCanal.estado ∈ {ativo, a_sincronizar, desligado, sem_canal}"
+    literais:
+      - "VistaDoCanal.estado"
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    nomes:
+      - "VistaDoCanal.estado"
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    nomes_nota:
+      - "platform.channels"
+      - "sem_canal"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A configuração do painel"
+    canonico: "ONBOARDING_COM_INTERNO_URL, PAINEL_PRECO_MAXIMO_KZ"
+    literais:
+      - "ONBOARDING_COM_INTERNO_URL"
+      - "PAINEL_PRECO_MAXIMO_KZ"
+    nomes:
+      - "ONBOARDING_COM_INTERNO_URL"
+      - "PAINEL_PRECO_MAXIMO_KZ"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "painel_desligado"
+      - "com_internal_token"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -16692,6 +16860,15 @@ dominios:
       - "erro"
     seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
+    so_no_registo: false
+  - coluna: "VistaDoCanal.estado"
+    valores:
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    seccao: "3.56"
+    conceito: "O estado do canal no painel"
     so_no_registo: false
 
 variantes:

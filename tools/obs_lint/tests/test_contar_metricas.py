@@ -246,6 +246,10 @@ class TestRepositorio(unittest.TestCase):
         #   sobre os mesmos envios somava o mesmo dinheiro duas vezes num painel
         #   que nao tinha como saber.
         "services/com/src/servicos/reminders/metricas.ts",
+        # Nasceu com o KAM-099 (painel do dono). Vive dentro do `onboarding-web`,
+        # que o importa e **nao** o serve: o servico nao tem rota `/metrics`, e
+        # abri-la e uma superficie HTTP nova com caso no gate 6.
+        "services/onboarding-web/src/painel/metricas.ts",
     )
 
     #: O que fazer quando este teste ficar vermelho. Vai na mensagem de erro,

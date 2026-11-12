@@ -32,13 +32,19 @@ class TestWaiverDispensa(unittest.TestCase):
         self, gate: str, expira: str, criado: str | None = None
     ) -> Path:
         pasta = Path(tempfile.mkdtemp())
+        # A aprovacao data-se do **mesmo dia** do `criado_em`, e nao de um dia
+        # escrito no codigo: o `ci_waivers` recusa uma aprovacao com mais de 30
+        # dias, e com `aprovacao:fundador@2026-10-11` literal o waiver deixou de
+        # ser valido a 2026-11-11 — o `test_waiver_valido_dispensa` ficou vermelho
+        # e os outros dois passavam pela razao errada (waiver invalido).
+        criado = criado or datetime.date.today().isoformat()
         (pasta / "ci").mkdir()
         (pasta / "ci" / "waivers.yaml").write_text(
             "version: 1\n"
             "waivers:\n"
             f"  - gate: {gate}\n"
             "    alvo: pipeline\n"
-            "    adr_ou_aprovacao: aprovacao:fundador@2026-10-11\n"
+            f"    adr_ou_aprovacao: aprovacao:fundador@{criado}\n"
             "    autor: fundador\n"
             "    razao: >-\n"
             "      O ticket que implementa este gate ainda nao foi executado; fica\n"
@@ -46,7 +52,7 @@ class TestWaiverDispensa(unittest.TestCase):
             # O `criado_em` e obrigatorio desde o KAM-135, e e dele que o prazo
             # se conta. Por omissao e **hoje**: estas fixtures escrevem waivers
             # que acabam de nascer.
-            f"    criado_em: {criado or datetime.date.today().isoformat()}\n"
+            f"    criado_em: {criado}\n"
             f"    expira_em: {expira}\n",
             encoding="utf-8",
         )

@@ -4,7 +4,8 @@
  *
  * Anfitriao do Medusa 2.21.x (ADR-003). O arranque do Medusa depende do
  * spike KAM-041 e da porta CommerceRegistry do KAM-042; aqui a sonda, as
- * metricas do repo-base e as sete rotas `/internal/*` do KAM-178.
+ * metricas do repo-base e as nove rotas `/internal/*`: sete do KAM-178 e duas do
+ * painel do dono (KAM-099).
  *
  * Hono 4.13.x por decisão de `docs/tecnica/09` §3.1: o 5.0.0-rc.0 saiu a 2026-10-08 e
  * um *release candidate* não entra em produção (E4 §2.13).

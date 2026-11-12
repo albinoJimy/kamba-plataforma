@@ -1279,9 +1279,9 @@ async function lerPorContacto(
 
 // ------------------------------------------------------ a API interna do COM
 //
-// As nove superficies que o KAM-178 acrescentou ao COM: as sete rotas
-// `POST /internal/*`, o `GET /metrics` e o `ALL /internal/*` da app construida
-// **sem** a API montada.
+// As onze superficies da API interna do COM: as nove rotas `POST /internal/*`
+// (sete do KAM-178 e as duas do painel do dono, KAM-099), o `GET /metrics` e o
+// `ALL /internal/*` da app construida **sem** a API montada.
 //
 // ## A propriedade que este grupo mede, e a que ele **nao** mede
 //
@@ -1323,7 +1323,7 @@ async function lerPorContacto(
 // que o criterio pede. O que dela vai para o relatorio e o veredicto, na
 // `nota`.
 
-/** As sete rotas, pela ordem de `services/com/src/api/interna.ts`. */
+/** As nove rotas, pela ordem de `services/com/src/api/interna.ts`. */
 const ROTAS_DO_COM = [
   "/internal/offer-view",
   "/internal/propose-cart",
@@ -1332,9 +1332,11 @@ const ROTAS_DO_COM = [
   "/internal/list-orders",
   "/internal/transition",
   "/internal/request-owner-confirmation",
+  "/internal/list-offers",
+  "/internal/update-offer",
 ] as const;
 
-/** O `item` enumerado de uma das sete. Copiado do caso, nao derivado dele. */
+/** O `item` enumerado de uma das nove. Copiado do caso, nao derivado dele. */
 function itemDoCom(rota: string): string {
   return `rota:com:api/interna:apiInterna:POST:${rota}`;
 }
@@ -1346,7 +1348,7 @@ const ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*";
  * A rota por onde se ataca o `ALL /internal/*`.
  *
  * O item enumerado e um padrao, e um padrao nao se pede: pede-se um caminho que
- * ele apanhe. Esta e uma das sete, para que o ataque seja o mesmo que as outras
+ * ele apanhe. Esta e uma das nove, para que o ataque seja o mesmo que as outras
  * entradas levam — a diferenca medida e so a app nao ter a API montada.
  */
 const ROTA_DE_AMOSTRA_DO_COM = "/internal/get-order";
@@ -1366,6 +1368,8 @@ const SKU_DE_A = "arroz-5kg-de-a";
 const ORDER_DE_A = "0000000a-0000-4000-8000-00000000000a";
 const CONTACTO_DE_A = "0000000c-0000-4000-8000-00000000000c";
 const CARRINHO_DE_A = "C7H3Q9ABCDEFGHJKMNPQRSTVWX";
+/** A versao optimista de uma oferta de A (KAM-099): o `atualizado_at` com microssegundos. */
+const VERSAO_DE_A = "2026-11-05T10:00:00.000001Z";
 
 /**
  * O contacto de B quando o `KAMBA_X01_TENANT_B` nao tem forma de UUID.
@@ -1397,10 +1401,11 @@ type ModoDoDuplo = "recusa" | "sonda";
  * As operacoes do COM, em duplo, com o registo do `ctx` de cada chamada.
  *
  * A forma e a de `services/com/tests/api.interna.test.ts` — a porta mais o
- * `proposeCart` e o `createOrder` das operacoes — e nao se reinventa. Dos doze
- * metodos da porta, **sete** sao alcancaveis por estas sete rotas (o
- * `despachar` chama cinco da porta e dois das operacoes); os restantes nao se
- * duplicam, porque um duplo que nada chama e codigo que ninguem mede.
+ * `proposeCart` e o `createOrder` das operacoes — e nao se reinventa. As nove
+ * rotas chamam **nove** operacoes (o `despachar` chama cinco da porta e quatro
+ * das operacoes: as duas da saga e as duas do painel do KAM-099); os restantes
+ * metodos da porta nao se duplicam, porque um duplo que nada chama e codigo que
+ * ninguem mede.
  *
  * O `registo` e a medicao central deste grupo: a afirmacao «o `ctx` tem o
  * tenant do cabecalho e mais nada» le-se nele, e nao na resposta.
@@ -1534,6 +1539,22 @@ function operacoesDeEnsaioDoCom(
         }),
       );
     },
+    async listarOfertas(ctx: unknown) {
+      return servir("listarOfertas", ctx, valorDeA({ itens: [], truncada: false }));
+    },
+    async alterarOferta(ctx: unknown) {
+      return servir(
+        "alterarOferta",
+        ctx,
+        valorDeA({
+          sku: SKU_DE_A,
+          nome: canarioDeA,
+          precoTipo: "fixo",
+          precoMinor: 1_000_000n,
+          versao: VERSAO_DE_A,
+        }),
+      );
+    },
   };
 
   return { operacoes, registo };
@@ -1633,6 +1654,10 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       linhas: [{ sku: SKU_DE_A, qty: 1 }],
     };
     if (rota === "/internal/offer-view") return { sku: SKU_DE_A };
+    if (rota === "/internal/list-offers") return {};
+    if (rota === "/internal/update-offer") {
+      return { sku: SKU_DE_A, preco_tipo: "fixo", preco_minor: "1000000", versao: VERSAO_DE_A };
+    }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
       return { ...rascunho, total_esperado_minor: "2500000", cart_id: CARRINHO_DE_A };
@@ -1669,6 +1694,12 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
       linhas: [{ sku: canario, qty: 1 }],
     };
     if (rota === "/internal/offer-view") return { sku: canario };
+    // A lista do painel nao recebe identificador de dominio nenhum: o de B que
+    // ela pode levar sao so os campos extra do `camposDeB`.
+    if (rota === "/internal/list-offers") return {};
+    if (rota === "/internal/update-offer") {
+      return { sku: canario, preco_tipo: "fixo", preco_minor: "1", versao: VERSAO_DE_A, stock: 1 };
+    }
     if (rota === "/internal/propose-cart") return rascunho;
     if (rota === "/internal/create-order") {
       return { ...rascunho, total_esperado_minor: "999", cart_id: canario };
@@ -1898,7 +1929,7 @@ async function grupoDaApiInternaDoCom(relatorio: Relatorio): Promise<void> {
 
   // --- o `ALL /internal/*`, na app construida **sem** `api` -----------------
   //
-  // Os mesmos tres ataques a uma das sete rotas. A afirmacao e 503 uniforme e
+  // Os mesmos tres ataques a uma das nove rotas. A afirmacao e 503 uniforme e
   // **sem corpo que distinga tenants** — e isso mede-se comparando os tres
   // corpos entre si, que e a unica forma de o dizer sem inspeccionar o que a
   // app devolveu a procura de uma lista de valores proibidos.
@@ -2512,6 +2543,253 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
   }
 }
 
+// --------------------------------------------------- o painel do dono (KAM-099)
+//
+// As sete rotas do `services/onboarding-web/src/painel/rotas.ts`. Isolam o
+// **tenant**, e o tenant sai so da sessao do painel, que o assina. O duplo do COM
+// (`ComercioEmMemoria`) guarda as ofertas e as encomendas num mapa por tenant e
+// so le do mapa que recebe: uma rota que tirasse o tenant de outro sitio que nao
+// a sessao punha os dados de B na resposta, e o oraculo apanhava o canario.
+//
+// Os ataques, e o estado que se exige a cada um, estao na nota do caso em
+// `baterias/x01_rotas.py`. As marcas da `nota` sao tres e nenhuma leva canario:
+//
+//   canario-de-b=presente   os dados de B levam o canario do ambiente
+//   sonda=viva              a resposta com a sessao de A trouxe os dados de A
+//   b=intacto               depois dos tres PATCH, a oferta de B nao mudou
+//   sessao-de-b=viva        depois dos tres «sair» forjados, B continua dentro
+
+const ITENS_DO_PAINEL = [
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/sair",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos",
+  "rota:onboarding-web:painel/rotas:actor:PATCH:/painel/produtos/:id",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas/:id",
+  "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal",
+] as const;
+
+/** Os dois tenants do painel. UUID, porque a sessao assina a forma canonica. */
+const TENANT_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000a1";
+const TENANT_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000b1";
+const CASO_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000c1";
+const CASO_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000c1";
+const ORDEM_DE_A_NO_PAINEL = "0000000a-0000-4000-8000-0000000000d1";
+const ORDEM_DE_B_NO_PAINEL = "0000000b-0000-4000-8000-0000000000d1";
+
+/** O marcador de A: o que tem de **chegar** a resposta das listas. */
+const MARCADOR_DE_A = "marcador-de-a-no-painel";
+
+async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
+  const falhar = (nota: string): void => {
+    for (const item of ITENS_DO_PAINEL) {
+      const partes = item.split(":");
+      for (let vez = 0; vez < 3; vez += 1) {
+        relatorio.rotas.push({
+          item,
+          metodo: partes[3] ?? "",
+          caminho: partes.slice(4).join(":"),
+          estado: 0,
+          corpo: "",
+          cabecalhos: {},
+          executado: false,
+          nota,
+        });
+      }
+    }
+  };
+
+  let insc: Record<string, unknown>;
+  let rotas: Record<string, unknown>;
+  let comercioModulo: Record<string, unknown>;
+  let canalModulo: Record<string, unknown>;
+  let sessaoModulo: Record<string, unknown>;
+  try {
+    insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
+    rotas = await importarDoRepo("services/onboarding-web/src/painel/rotas.ts");
+    comercioModulo = await importarDoRepo("services/onboarding-web/src/painel/comercio.ts");
+    canalModulo = await importarDoRepo("services/onboarding-web/src/painel/canal.ts");
+    sessaoModulo = await importarDoRepo("services/onboarding-web/src/painel/sessao.ts");
+  } catch (erro) {
+    falhar(`nao se conseguiu importar o painel: ${razao(erro)}`);
+    return;
+  }
+
+  try {
+    const chave = Buffer.alloc(32, OCTETO_DE_ASSINATURA);
+    const outra = Buffer.alloc(32, 0x11);
+    const agora = new Date("2026-11-10T10:00:00.000Z");
+    const relogio = (): Date => agora;
+    const canario = canarioOuSubstituto();
+    const marcaDoCanario = canarios().length === 0 ? "canario-de-b=ausente" : "canario-de-b=presente";
+
+    type Oferta = Record<string, unknown>;
+    const oferta = (sku: string, nome: string): Oferta => ({
+      sku,
+      nome,
+      precoTipo: "fixo",
+      precoMinor: 1_000_000n,
+      currency: "AOA",
+      stockModo: "indicativo",
+      stockQuantidade: 3,
+      stockReservada: 0,
+      estado: "publicado",
+      versao: "2026-11-10T09:00:00.000001Z",
+    });
+    const encomenda = (orderId: string, numero: string): Record<string, unknown> => ({
+      orderId,
+      numeroPublico: numero,
+      estado: "aguarda_pagamento",
+      totalMinor: 2_500_000n,
+      currency: "AOA",
+      criadoAt: "2026-11-09T10:00:00.000Z",
+      contactId: "0000000c-0000-4000-8000-0000000000c9",
+    });
+
+    const comercio = new (comercioModulo["ComercioEmMemoria"] as new () => {
+      semear(t: string, o: readonly Oferta[], e?: readonly Record<string, unknown>[]): void;
+      ofertas: Map<string, Map<string, Oferta>>;
+      gravacoes: unknown[];
+    })();
+    comercio.semear(TENANT_DE_A_NO_PAINEL, [oferta("arroz-de-a", MARCADOR_DE_A)], [
+      encomenda(ORDEM_DE_A_NO_PAINEL, MARCADOR_DE_A),
+    ]);
+    comercio.semear(TENANT_DE_B_NO_PAINEL, [oferta(canario, canario)], [encomenda(ORDEM_DE_B_NO_PAINEL, canario)]);
+
+    const canal = new (canalModulo["CanalEmMemoria"] as new () => { vistas: Map<string, unknown> })();
+    canal.vistas.set(TENANT_DE_A_NO_PAINEL, { estado: "ativo", nivel: MARCADOR_DE_A, tecto: 250, avisos: [] });
+    canal.vistas.set(TENANT_DE_B_NO_PAINEL, { estado: "desligado", nivel: canario, tecto: 50, avisos: [canario] });
+
+    const revogacoes = new (sessaoModulo["RevogacoesEmMemoria"] as new () => {
+      revogada(s: unknown): Promise<boolean>;
+    })();
+    const casos = new Map([
+      [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "activo" }],
+      [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
+    ]);
+    const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
+      comercio,
+      canal,
+      revogacoes,
+      casos: { porId: async (id: string) => casos.get(id) ?? null },
+      anelDaAssinatura: [chave, null],
+      relogio,
+    });
+
+    const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
+    const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
+    const cunharReferencia = insc["cunharReferencia"] as (...a: unknown[]) => string;
+    const sessaoDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_DE_A_NO_PAINEL, agora);
+    const sessaoDeB = novaSessao(TENANT_DE_B_NO_PAINEL, CASO_DE_B_NO_PAINEL, agora);
+    const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
+
+    const empurrar = async (
+      item: string,
+      metodo: string,
+      caminho: string,
+      init: { method?: string; body?: BodyInit; headers?: Record<string, string> },
+      marcas: (corpo: string) => string,
+    ): Promise<void> => {
+      const entrada = await medir(item, metodo, caminho, app, init);
+      relatorio.rotas.push({ ...entrada, nota: `${marcaDoCanario} ${marcas(entrada.corpo)}`.trim() });
+    };
+    const sonda = (corpo: string): string => (corpo.includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta");
+
+    // ---- GET /painel/entrar: tres sessoes do registo que nao sao de ninguem.
+    const doRegistoDeA = cunharReferencia("sessao", CASO_DE_A_NO_PAINEL, chave, relogio);
+    const [, segundos, assinaturaDeA] = doRegistoDeA.split(".");
+    for (const cookie of [
+      `kamba_onboarding=${CASO_DE_B_NO_PAINEL}.${segundos ?? ""}.${assinaturaDeA ?? ""}`,
+      `kamba_onboarding=${cunharReferencia("ticket", CASO_DE_B_NO_PAINEL, chave, relogio)}`,
+      `kamba_onboarding=${CASO_DE_B_NO_PAINEL}`,
+    ]) {
+      await empurrar(ITENS_DO_PAINEL[0], "GET", "/painel/entrar", { headers: { cookie } }, () => "");
+    }
+
+    // ---- POST /painel/sair: tres sessoes forjadas com o `sid` e o tenant de B.
+    const textoDeA = cunharSessao(sessaoDeA, chave);
+    const forjadas = [
+      textoDeA.replace(String(sessaoDeA["sid"]), String(sessaoDeB["sid"])),
+      cunharSessao(sessaoDeB, outra),
+      String(sessaoDeB["sid"]),
+    ];
+    for (const valor of forjadas) {
+      await empurrar(ITENS_DO_PAINEL[1], "POST", "/painel/sair", { method: "POST", headers: { cookie: `kamba_painel=${valor}` } }, () => "");
+    }
+    const bViva = !(await revogacoes.revogada(sessaoDeB));
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[1]) entrada.nota += bViva ? " sessao-de-b=viva" : " sessao-de-b=revogada";
+    }
+
+    // ---- As listas: a sessao de A com o tenant de B no pedido.
+    const comTenantDeB = (caminho: string, vez: number): [string, Record<string, string>] => {
+      const sep = caminho.includes("?") ? "&" : "?";
+      const naConsulta = `${caminho}${sep}tenant_id=${TENANT_DE_B_NO_PAINEL}`;
+      if (vez === 0) return [naConsulta, { cookie: cookieDeA }];
+      if (vez === 1) return [caminho, { cookie: cookieDeA, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL }];
+      return [naConsulta, { cookie: cookieDeA, "x-kamba-tenant": TENANT_DE_B_NO_PAINEL }];
+    };
+    for (const [item, caminho] of [
+      [ITENS_DO_PAINEL[2], "/painel/produtos"],
+      [ITENS_DO_PAINEL[4], "/painel/encomendas?estado=aguarda_pagamento"],
+      [ITENS_DO_PAINEL[6], "/painel/canal"],
+    ] as const) {
+      for (let vez = 0; vez < 3; vez += 1) {
+        const [c, headers] = comTenantDeB(caminho, vez);
+        await empurrar(item, "GET", c, { headers }, sonda);
+      }
+    }
+
+    // ---- PATCH /painel/produtos/:id: o `sku` de B, com a sessao de A.
+    const corpos = [
+      { preco_tipo: "fixo", preco_minor: "100", versao: "2026-11-10T09:00:00.000001Z" },
+      { preco_tipo: "fixo", preco_minor: "100", versao: "2026-11-10T09:00:00.000001Z", tenant_id: TENANT_DE_B_NO_PAINEL },
+      { preco_tipo: "fixo", preco_minor: "100", versao: "2026-11-10T09:00:00.000001Z", tenant_id: TENANT_DE_B_NO_PAINEL },
+    ];
+    for (const [vez, corpo] of corpos.entries()) {
+      const [c, headers] = comTenantDeB(`/painel/produtos/${encodeURIComponent(canario)}`, vez);
+      await empurrar(
+        ITENS_DO_PAINEL[3],
+        "PATCH",
+        c,
+        {
+          method: "PATCH",
+          headers: {
+            ...headers,
+            "content-type": "application/json",
+            "idempotency-key": `chave-x01-painel-${vez}-0000`,
+          },
+          body: JSON.stringify(corpo),
+        },
+        () => "",
+      );
+    }
+    const deB = comercio.ofertas.get(TENANT_DE_B_NO_PAINEL)?.get(canario);
+    const intacto = comercio.gravacoes.length === 0 && deB !== undefined && deB["precoMinor"] === 1_000_000n;
+    // A sonda positiva do PATCH: o `sku` de A, com a sessao de A, grava. Fora
+    // das entradas, porque o 200 dela quebrava a uniformidade dos tres 404.
+    const legitimo = await app.request("/painel/produtos/arroz-de-a", {
+      method: "PATCH",
+      headers: { cookie: cookieDeA, "content-type": "application/json", "idempotency-key": "chave-x01-painel-sonda-0000" },
+      body: JSON.stringify({ preco_tipo: "fixo", preco_minor: "1100000", versao: "2026-11-10T09:00:00.000001Z" }),
+    });
+    const sondaDoPatch = legitimo.status === 200 ? "sonda=viva" : "sonda=morta";
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[3]) entrada.nota += ` ${intacto ? "b=intacto" : "b=alterado"} ${sondaDoPatch}`;
+    }
+
+    // ---- GET /painel/encomendas/:id: a encomenda de B, com a sessao de A.
+    const propria = await app.request(`/painel/encomendas/${ORDEM_DE_A_NO_PAINEL}`, { headers: { cookie: cookieDeA } });
+    const sondaDoDetalhe = propria.status === 200 && (await propria.text()).includes(MARCADOR_DE_A) ? "sonda=viva" : "sonda=morta";
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB(`/painel/encomendas/${ORDEM_DE_B_NO_PAINEL}`, vez);
+      await empurrar(ITENS_DO_PAINEL[5], "GET", c, { headers }, () => sondaDoDetalhe);
+    }
+  } catch (erro) {
+    falhar(`a montagem do painel levantou: ${razao(erro)}`);
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -2524,6 +2802,7 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   "com-interna": grupoDaApiInternaDoCom,
   inscricao: grupoDaInscricao,
   guia: grupoDoGuia,
+  painel: grupoDoPainel,
 };
 
 async function main(): Promise<number> {

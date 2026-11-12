@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.9 |
+| Versão | 1.10 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -61,6 +61,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-099 | Painel light da PME: preço, stock e estado do pedido | feature | M | P1 | KAM-086, KAM-043, KAM-044, KAM-012 |
 | KAM-116 | Agregador de SMS para OTP e avisos | chore | S | P0 | — |
 | KAM-117 | Instrumentação de KPIs de onboarding, churn e tenants dormentes | feature | M | P1 | KAM-092, KAM-081, KAM-018, KAM-044, KAM-055, KAM-099 |
+| KAM-190 | Painel light: caixas devolvidas pelo KAM-099 | feature | M | P2 | KAM-099, KAM-097 |
 
 ---
 
@@ -1314,7 +1315,7 @@ Testes: unit, integração, isolamento e adversarial (auto-compra, comprador ún
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-055, KAM-044, KAM-089, KAM-008, KAM-021 |
-| Bloqueia | KAM-096 |
+| Bloqueia | KAM-096, KAM-190 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV) com Responsável de Produto (T&S) |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§8.3, §15.1, §16), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2, §12), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.6), ADR-013, ADR-015, ADR-017 |
 
@@ -1478,7 +1479,7 @@ disputa, restauro de backup).
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-086, KAM-043, KAM-044, KAM-012 |
-| Bloqueia | KAM-117 |
+| Bloqueia | KAM-117, KAM-190 |
 | Responsável sugerido | Engenheiro de Plataforma (frontend) |
 | Documentos de referência | `../docs/tecnica/00_Arquitectura_Solucao.md` (§13.2), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3.1), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§7), `../docs/tecnica/10_Onboarding_Governanca.md` (§13), ADR-019, ADR-007, ADR-015 |
 
@@ -1499,7 +1500,7 @@ Entregar um painel web móvel-primeiro, autenticado por OTP, com edição de pre
 - [ ] Validação: preço inteiro em Kz ≥ 0 e ≤ um máximo configurável; alteração de preço > ±50% (*proposta*) pede confirmação extra; stock ≥ 0; pedido duplicado (mesma chave) não duplica a gravação.
 - [ ] Lista de encomendas (só leitura) com estado da máquina canónica (`aguarda_pagamento`, `pendente_confirmacao`, `paga`, `entregue`, …), valor, data e referência; filtros por estado e data; nenhum telefone em claro (contacto por `contact_id`; mostrar contacto só quando o dono é o responsável e o dado é necessário, com auditoria).
 - [ ] O painel mostra o estado do canal (`ativo`, `a_sincronizar`, `desligado`) e o nível de confiança/tecto actual, com ligação ao passo de reconexão de KAM-093 e aos avisos de T&S de KAM-097.
-- [ ] Isolamento: o dono de A não vê nem altera dados de B por nenhum endpoint (404, não 403); RLS `FORCE` activa.
+- [x] Isolamento: o dono de A não vê nem altera dados de B por nenhum endpoint (404, não 403); RLS `FORCE` activa.
 - [ ] Utilizável em telemóvel de gama baixa: página inicial ≤ 200 KB comprimida e interactiva em ≤ 3 s em 3G simulado (*proposta*); sem scripts de terceiros; texto em português de Angola.
 
 ### Detalhes Técnicos
@@ -1523,11 +1524,87 @@ PATCH /painel/produtos/:id  { preco_modo, preco_minor?, stock?, versao }   // ve
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; teste de isolamento cruzado cobre os novos endpoints (ADR-015).
-- [ ] Idempotência das escritas testada (ADR-009); números só de tools/Registo (ADR-007).
-- [ ] Alterações de preço e stock em `audit_log` imutável; sem telefone em claro em logs (ADR-010).
-- [ ] Sem Typebot/n8n; sem Medusa Admin exposto; dependências e licenças verificadas.
+- [x] Idempotência das escritas testada (ADR-009); números só de tools/Registo (ADR-007).
+- [x] Alterações de preço e stock em `audit_log` imutável; sem telefone em claro em logs (ADR-010).
+- [x] Sem Typebot/n8n; sem Medusa Admin exposto; dependências e licenças verificadas.
 - [ ] Métricas de uso do painel e erros nascem com o código (ADR-018); migração (se houver) reversível.
-- [ ] Documentação actualizada; sem segredos.
+- [x] Documentação actualizada; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-099-painel`, sobre a `publico/main` em `b55d2a84`: as rotas do painel em
+[`../services/onboarding-web/src/painel/`](../services/onboarding-web/src/painel/rotas.ts), as duas
+operações do COM (`listarOfertas`, `alterarOferta`) em
+[`../services/com/src/produtos/produtos.ts`](../services/com/src/produtos/produtos.ts) com as rotas
+`/internal/list-offers` e `/internal/update-offer`, o caso `X-01/ts/painel` do *gate* 6 e o dicionário
+§3.56 (emenda 1.79). **Um critério satisfeito e oito parciais; quatro caixas da DoD de seis.**
+**Sem revisão de base de dados**, e não por falta de vaga: a escrita passa pelo módulo `produtos` do
+COM, e a versão optimista é uma coluna que a `offer_terms` já tem (o `atualizado_at`).
+
+**O CAS, e o que obrigou a mexer em cinco instruções que não são deste ticket.** A `offer_terms` não
+tem coluna `version`. A versão é o `atualizado_at`, devolvido como texto UTC com microssegundos (o
+`pg` de Node dava-o como `Date`, com milissegundos, e nenhuma versão voltaria a casar). O predicado
+`AND atualizado_at = $5::timestamptz` do `SQL_ALTERAR_OFERTA` é o CAS, depois da leitura trancada que o
+módulo já fazia. Mas o `now()` é o **início da transacção**, e duas transacções do mesmo instante
+deixavam a versão igual: o `FOR UPDATE` serializa-as e não impede que a segunda escreva o seu `now()`,
+anterior ao fim da primeira. Por isso os **cinco** escritores da tabela passaram a `clock_timestamp()`
+— três do `produtos` (`SQL_ACTUALIZAR_TERMOS`, `SQL_PUBLICAR`, `SQL_AJUSTAR_STOCK`) e dois das reservas
+(`SQL_RESERVAR`, `SQL_DEVOLVER_STOCK`). Lidas as instruções e não o nome da coluna: todos os `UPDATE`
+de `platform.offer_terms` em `services/`, `packages/` e `tools/` escrevem o `atualizado_at` na mesma
+instrução, e não há *trigger* que o escreva — e um ensaio do COM prende-o, lendo as instruções. Uma
+reserva entre a leitura do dono e a gravação dele dá 409 — é «relê e reavalia», e é o comportamento
+escolhido, com o custo de um «recarregue» ao dono.
+
+**A revisão adversarial correu numa passagem e deu dezassete achados; fecharam-se treze neste ramo, e
+os quatro que ficam estão nas caixas abaixo.** Os três altos mudaram o que esta tabela afirma:
+(1) **o CAS nunca tinha corrido contra um PostgreSQL** — quatro mutações do SQL (a versão sem o
+`to_char`, sem o `AT TIME ZONE 'UTC'`, o `$6` trocado por `true`) sobreviviam com a bateria do COM verde,
+porque a base de ensaio fabricava a versão; entrou o `db/tests_produtos/test_painel.py`, contra o motor,
+com outro `TimeZone` na sessão e duas escritas na mesma transacção; (2) **o stock gravado no painel não
+tinha efeito e a página dizia «Gravado»** — o dono punha 0 e as reservas e o bot continuavam a vender;
+o painel deixou de oferecer o campo e recusa-o; (3) **o «Sair» não fechava o acesso** — a sessão do
+registo (24 h) ficava no navegador e o `GET /painel/entrar` cunhava logo outra; o «Sair» apaga agora as
+duas. Fecharam-se também: o caso relido a cada pedido (um caso `cancelado` fechava o painel só ao fim de
+90 dias), os cêntimos que uma gravação cortava sem aviso, o preço vencido que gravar não renovava, o
+`update-offer` aberto a qualquer `actor.kind`, o 403 que o caso do *gate* 6 aceitava no `PATCH` e no
+detalhe (agora **só 404**, e com sonda positiva), a impressão da idempotência sobre o texto bruto, as
+respostas 401 e 5xx guardadas, e quatro mutações das rotas que nenhum ensaio apanhava (o detalhe da
+própria encomenda, o filtro `ate`, o 5xx não guardado, a renovação no futuro). Os quatro que ficam: o
+tecto de 200 ofertas no `PATCH` (marcado `shortcut:` no código), a ligação de reconexão (critério 7), a
+revogação em memória (critério 1) e as métricas não servidas (DoD 5).
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — OTP do KAM-086; sessão de 30 dias com renovação, revogável; sem palavras-passe; ligada ao `tenant_id` do dono e nunca a um parâmetro | **parcial** | `GET /painel/entrar` só cunha a sessão do painel a partir de uma `sessao` válida do registo (depois do OTP) e de um caso com tenant (`FASES_COM_PAINEL`). A sessão tem separador próprio (`kamba/painel/sessao/v1`), leva o tenant **dentro** da assinatura, vale 30 dias deslizantes, renova-se depois de um dia com o mesmo `sid`, e tem tecto de 90 dias desde a entrada no painel (*proposta*). A cada pedido relê o caso: uma fase fora das do painel fecha-o no pedido seguinte. `POST /painel/sair` revoga-a e apaga também a sessão do registo; `revogarDoTenant` revoga as emitidas até um instante, e **ainda não tem chamador** (o off-boarding é o KAM-098). Ensaios em `../services/onboarding-web/tests/painel.test.ts`: a sessão do registo não serve de sessão do painel nem o contrário, o tenant trocado e a outra chave dão 401, a renovada guarda o `sid` e a emissão, e uma revogada ou expirada **não se renova**. **Parcial porque a revogação vive em memória**: um reinício esquece-a, e as sessões são HMAC sem estado. Credor **KAM-086/087**, o mesmo do repositório de casos, que é também a razão de o `server.ts` não arrancar em `prod` |
+| 2 — lista com modo de preço, preço, stock e variantes; edição de preço e stock com confirmação antes de gravar | **parcial** | A lista traz o modo, o preço e o stock da `0033` (quantidade e reservadas) e a versão (`listarOfertas`, com tecto de 200 e `truncada`). A página pede `confirm()` antes do `PATCH`, não manda nada se o valor não mudou, e não pré-preenche um preço com cêntimos. **A edição de stock não está**: o COM não expõe a escrita da `stock_quantidade` — o `GRANT UPDATE` da `0033` não a inclui, e conceder-lho é uma revisão de base de dados (credor **KAM-043/049**, que é quem a `0033` nomeia). O `alterarOferta` do COM aceita o nível e passa-o ao `ajustarStock` (auditado e emitido), mas o painel **não o oferece**: um campo que dissesse «gravado» deixava o bot vender o que o dono pôs a zero. **As variantes não existem**: nenhuma tabela as tem. A extracção do **KAM-049** já as nomeia como campo, e é o credor |
+| 3 — toda a escrita pela porta `CommerceRegistry`/ToolLayer, nunca por SQL directo; `audit_log` com valor anterior, novo, actor e hora; `catalog.price_changed`/`stock.adjusted` | **parcial** | O painel não tem cliente de base de dados: grava pelo `update-offer` do COM, que corre o `alterarOferta` na transacção do `comRegisto` — repo-base com o filtro de tenant, `audit_log` (`price.update`, origem `painel_do_dono`, actor `owner` com o `onboarding_id`) e `catalog.price_changed`, e o `stock.adjusted` pelo `ajustarStock` (`produtos.painel.test.ts`). **Duas diferenças à letra:** a escrita passa pelas `OperacoesDoCom` e não por um dos doze métodos da porta, que o §3.39 fecha; e o `audit_log` guarda o **hash** do antes e do depois e não os valores — é o desenho do KAM-043 sobre o `audit_append` do KAM-012, e o valor novo segue no evento. O valor anterior em claro não fica em lado nenhum (credor **KAM-012**) |
+| 4 — preço e stock que o bot cita vêm do Registo; editar o painel altera o *fact* seguinte; nada em *prompt* nem *embedding* | **parcial** | O preço: o `getOfferView` — a leitura que o agente cita — lê a mesma linha que o `alterarOferta` escreve, sem cache (`criterio 4: o preco gravado no painel e o que o getOfferView da a seguir`, 12 500 Kz e depois 15 000 Kz), e gravar um preço vencido renova-o (`a_partir_de` passa a `fixo`). O stock não, pela razão do critério 2. O ensaio ponta a ponta com o AGR («o bot cita o novo preço no turno seguinte») não corre aqui |
+| 5 — preço inteiro em Kz ≥ 0 e ≤ máximo configurável; > ±50% pede confirmação extra; stock ≥ 0; a mesma chave não duplica a gravação | **parcial** | `lerPedido`: `preco_minor` múltiplo de 100 (Kz inteiros), ≤ `PAINEL_PRECO_MAXIMO_KZ` (omissão de 100 000 000 Kz, *proposta*), e um valor ilegível na variável falha o arranque. **O «stock ≥ 0» não se valida no painel porque o painel não grava stock** (critério 2): um `stock` no corpo é 400 `stock_por_ligar`; o `alterarOferta` do COM recusa um nível negativo ou fraccionário. Acima de 50% a resposta é 422 `confirmacao` e só grava com `confirmar_variacao` (a fronteira exacta não pede, e a descida conta). A `Idempotency-Key` vale por tenant: duas vezes, e três em simultâneo, dão **uma** gravação; a mesma chave com outro corpo dá 422, e com o mesmo corpo noutra ordem de chaves é repetição; uma resposta 5xx não fica guardada. O COM repete a validação (`VALIDATION_ERROR` sem ir à base) |
+| 6 — encomendas só leitura, com o estado canónico, valor, data e referência; filtros por estado e data; nenhum telefone em claro | **parcial** | A lista lê pelo `list-orders` do KAM-044, com os doze estados da porta (um ensaio confronta a lista do painel com o texto do `ORDER_STATES` do COM), valor, data e referência; o filtro por estado vai ao COM. **O filtro por data é sobre a página que o COM devolve** (até 100 encomendas): o `listOrders` não filtra por data, e alargá-lo é do dono do `listOrders`. **O contacto nunca aparece** — nem o `contact_id` —, pelo que o telefone também não; o «mostrar o contacto quando o dono é o responsável, com auditoria» não está feito. Credor das duas faltas: **KAM-190** |
+| 7 — estado do canal (`ativo`, `a_sincronizar`, `desligado`) e o nível de confiança/tecto, com ligação à reconexão do KAM-093 e aos avisos de T&S do KAM-097 | **parcial** | A página mostra o estado, o nível, o tecto e os avisos, com a ligação a `/ligar` quando o canal está desligado ou por ligar. **A fonte é um duplo** (`CanalEmMemoria`, que responde `sem_canal`): o `onboarding-web` não tem cliente de base de dados nem rota de outro serviço que sirva `platform.channels` e a qualidade do canal. O adaptador é do **KAM-190**; a fonte dos avisos de T&S é o **KAM-097**. **E a ligação de reconexão só serve nas primeiras 24 h:** o `/ligar` do KAM-093 exige a sessão do registo, e um dono que só tem a do painel recebe 403; reentrar depois disso é refazer o OTP pelo registo (credor **KAM-190**) |
+| 8 — isolamento: o dono de A não vê nem altera dados de B por nenhum endpoint (404, não 403); RLS `FORCE` activa | **satisfeito** | **O tenant vem só da sessão.** Nenhuma rota lê tenant do caminho, da consulta, do corpo ou de cabeçalho, e o adaptador HTTP põe o da sessão no `x-kamba-tenant` do COM. Ensaios: o `sku` de B no `PATCH` dá 404 e B não muda; a encomenda de B dá o mesmo 404, com o mesmo corpo, que uma que não existe, e a de A abre; o tenant de B na consulta, no corpo e no cabeçalho é ignorado. *Gate* 6: o caso `X-01/ts/painel` ataca as **sete** rotas três vezes cada (21 ataques, canário de B nos dados de B), com o `PATCH` e o detalhe a aceitar **só 404**, e com as marcas `sonda=viva` (os dados de A chegam, ou um pedido legítimo de A dá 200), `b=intacto` e `sessao-de-b=viva`, e as duas rotas novas do COM entram no `X-01/ts/com-interna` com `ctx=a` nos três ataques; `gate_bd.py --suite tests_isolamento` → **83 ensaios, OK** (medido antes dos achados da revisão; o condutor foi re-corrido depois deles). O CAS mede-se contra o motor em `db/tests_produtos/test_painel.py` (*gate* 8). A RLS `FORCE` da `offer_terms` e do `orders_mirror` é das revisões `0028` e `0030`, e o X-05 do mesmo *gate* confirma-a no catálogo |
+| 9 — telemóvel de gama baixa: página inicial ≤ 200 KB comprimida e interactiva em ≤ 3 s em 3G simulado; sem scripts de terceiros; português de Angola | **parcial** | A página dos produtos tem **3 757 octetos** comprimida com 200 produtos (139 764 sem comprimir; 1 475 vazia), medido com `gzipSync`; um ensaio prende o tecto de 200 KB. Sem scripts de terceiros: um guião próprio, com o `nonce` da CSP `default-src 'none'`. `lang="pt-AO"`. **Os 3 s em 3G simulado não estão medidos**: o repositório não tem navegador com limitação de rede (credor **KAM-190**) |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios de Aceitação satisfeitos; teste de isolamento cruzado cobre os novos endpoints (ADR-015) | **não satisfeito** | Seis critérios parciais. O isolamento cruzado cobre os nove endpoints novos (sete do painel e dois do COM), no X-01 e nas baterias dos dois serviços |
+| Idempotência das escritas testada (ADR-009); números só de tools/Registo (ADR-007) | **satisfeito** | A `Idempotency-Key` (critério 5), e no COM a repetição com a versão nova não grava, não audita e não emite. O preço da lista e o da gravação vêm do COM; o painel não guarda nenhum |
+| Alterações de preço e stock em `audit_log` imutável; sem telefone em claro em logs (ADR-010) | **satisfeito** | `price.update` e `stock.adjust` pelo `audit_append` do KAM-012, na transacção da escrita. Os *logs* do painel só levam `outcome` e `error_code` de lista fechada; `log_policy` com 0 achados |
+| Sem Typebot/n8n; sem Medusa Admin exposto; dependências e licenças verificadas | **satisfeito** | Nenhuma dependência nova nos dois serviços. As duas rotas novas do COM servem um dono a ler e corrigir o **seu** catálogo, atrás da credencial interna e do `x-kamba-tenant`; o Medusa Admin continua sem superfície |
+| Métricas de uso do painel e erros nascem com o código (ADR-018); migração (se houver) reversível | **parcial** | Sem migração. `painel_pedidos_total{rota}` e `painel_erros_total{rota,motivo}`, com domínios fechados e sem tenant, contadas pelas rotas; **declaradas e não servidas**, porque o `onboarding-web` não tem rota `/metrics` (credor **KAM-190**). Propagação do inventário do `obs_lint`: `contar_metricas` → 24 módulos, 133 nomes, 135 declaradas |
+| Documentação actualizada; sem segredos | **satisfeito** | Este bloco; dicionário §3.56 e §3.39 (emenda 1.79), com o `canon/dicionario.yaml` regenerado; `../docs/observabilidade.md` 1.9; nota do KAM-080 no EPIC-08 1.16; `../docs/com/port-coverage.md` 1.6; `com_internal_token` com o `onboarding-web` como terceiro consumidor no inventário de segredos. *Gate* 9 limpo |
+
+**O que fica em memória, e o credor.** As sessões revogadas e as chaves de idempotência vivem em
+memória, como o repositório de casos do KAM-086 — e o `server.ts` continua a recusar arrancar em
+`prod` por esse motivo. O adaptador persistente é do mesmo credor (**KAM-086/087**).
+
+**Devolvido ao KAM-190, aberto neste mesmo PR para que o credor exista quando a caixa fica aberta:** o filtro de data
+no `listOrders` e o contacto mostrado com auditoria (critério 6); o adaptador do estado do canal
+(critério 7); a medição de 3 s em 3G simulado (critério 9); a rota `/metrics` do `onboarding-web`
+(DoD 5); a leitura de uma oferta só no COM, que tira o tecto de 200 do `PATCH`; e uma reentrada no painel
+que não passe pela sessão de 24 h do registo.
 
 ### Handoff para Claude Code
 
@@ -1784,6 +1861,72 @@ Não expandas escopo: sem unit economics (KAM-081), sem encerramento (KAM-098). 
 
 ---
 
+## KAM-190 — Painel light: caixas devolvidas pelo KAM-099
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-099, KAM-097 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (frontend), com o dono do COM |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-099 e a sua verificação), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3.1), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§7), `../docs/observabilidade.md` |
+
+### Contexto
+
+O KAM-099 entregou o painel do dono no `onboarding-web` e devolveu cinco caixas que nenhum ticket do
+backlog recebia. Este ticket é o credor delas, e nasce **no mesmo PR** que as devolve: uma caixa
+devolvida «sem ticket» morre na fusão, porque ninguém fica a dever. Os motivos de cada uma estão na
+verificação do bloco KAM-099 e não se repetem aqui.
+
+### Objectivo
+
+Fechar as cinco faltas do painel que o KAM-099 deixou medidas e por fazer, sem reabrir o que ele
+entregou.
+
+### Critérios de Aceitação
+
+- [ ] Critério 6 do KAM-099: o filtro de data das encomendas aplica-se **no COM** (`listOrders`, com o cursor a respeitar o intervalo) e não à página que ele devolve; e o contacto da encomenda mostra-se ao dono só quando ele é o responsável e o dado é necessário, com linha de `audit_log`, e nunca o telefone em claro.
+- [ ] Critério 7 do KAM-099: o estado do canal, o nível de confiança e o tecto vêm de um adaptador real (`platform.channels` e a qualidade do canal do KAM-021) em vez do `CanalEmMemoria`, com os avisos de T&S do KAM-097; e o dono volta a entrar no painel sem depender da sessão de 24 h do registo (a ligação de reconexão incluída).
+- [ ] Critério 9 do KAM-099: a página inicial do painel fica interactiva em ≤ 3 s em 3G simulado (*proposta*), medida num navegador com limitação de rede e com o comando registado.
+- [ ] DoD 5 do KAM-099: o `onboarding-web` serve `GET /metrics` com o `painel_pedidos_total` e o `painel_erros_total`, com caso no *gate* 6 e alvo no `prometheus.yml`.
+- [ ] O COM serve a leitura de **uma** oferta para o painel, e o `PATCH /painel/produtos/:id` deixa de procurar o preço anterior na lista (o `shortcut:` do tecto de 200 sai do `services/onboarding-web/src/painel/rotas.ts`).
+
+### Detalhes Técnicos
+
+- **Componentes:** COM (`listOrders`, leitura de uma oferta), `onboarding-web` (rotas do painel e `/metrics`), CHR/qualidade do canal (leitura do estado), T&S (avisos).
+- **Isolamento:** o tenant continua a vir só da sessão do painel; cada rota nova entra no X-01 do *gate* 6 com 404 uniforme para identificadores de outro tenant.
+
+### Testes Requeridos
+
+- Integração: filtro de data no COM contra PostgreSQL; contacto mostrado com linha de auditoria; estado do canal lido da base.
+- Isolamento: as rotas novas no X-01; o contacto de uma encomenda de outro tenant ⇒ 404.
+- Desempenho: a medição em 3G simulado, com o comando e o resultado.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-099 actualizada a apontar para este ticket nas caixas que fecha.
+- [ ] Sem telefone em claro em logs; métricas novas no inventário do `obs_lint`.
+- [ ] Documentação actualizada; migração (se houver) reversível.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-190 da KAMBÁ (caixas devolvidas pelo KAM-099).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-190 e KAM-099, com a verificação deste) e
+docs/tecnica/09 §3.1.
+Objectivo: fechar as cinco faltas do painel do dono: filtro de data no COM e contacto auditado,
+adaptador do estado do canal e reentrada sem a sessão do registo, medição em 3G simulado, /metrics do
+onboarding-web, e leitura de uma oferta no COM.
+Regras: tenant só da sessão; 404 e não 403; nenhuma escrita fora das operações do COM com CAS.
+Testes: integração, isolamento no X-01 e a medição de desempenho.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -1833,3 +1976,4 @@ Não expandas escopo: sem unit economics (KAM-081), sem encerramento (KAM-098). 
 | 1.7 | Novembro 2026 | KAM-086: entram as duas secções de verificação do bloco do `onboarding-web` — **dez** critérios e **seis** linhas de DoD, contados no bloco. **Oito** critérios marcados e **dois parciais**; **duas** caixas de DoD marcadas, **duas parciais** e **duas vazias**, cada uma com credor que sobrevive à fusão. Entregue e medido: o módulo `../packages/core-ts/src/inscricao/` e as rotas de `../services/onboarding-web/`, com **176 ensaios verdes** (136 no pacote, 40 no serviço) e a suite adversarial (a)–(f) escrita por extenso — o (a) corre os mil registos de cinquenta prefixos, com os desafios emitidos todos primeiro, que é o que um bot faz para contornar o tempo mínimo. **A tabela `platform.onboarding_case` NÃO tem migração**, e as duas razões estão medidas: a vaga de revisão de base de dados deste lote é de outro ticket, e a `onboarding_case.fase` do dicionário §3.2 tem **seis** valores onde este bloco escreve **catorze** — a emenda 1.64 já nomeia o KAM-086/087 como credor dessa divergência, e escrever a tabela era decidi-la de passagem. O que está entregue é a fronteira que o adaptador vai preencher (o `RepositorioDeCasos`), pelo precedente do KAM-091; e a consequência está no código, não numa nota: o `server.ts` **recusa arrancar em `prod`**, porque um registo em memória perde-se no reinício e com ele o `nif_hmac` que bloqueia o duplicado. **Quatro achados da revisão mudaram o que uma caixa pode dizer:** a procura de duplicados era cega a uma rotação do *pepper* (o `porNifHmac` só corria com a chave actual, e o registo seguinte do mesmo negócio criava uma segunda linha viva com o mesmo NIF); o bilhete do OTP e o cookie de sessão eram o mesmo valor, pelo que no caminho de recuperação do critério 8 bastava pô-lo no navegador para ficar autenticado sem provar posse do telefone; o `X-Forwarded-For` era lido sem *proxies* de confiança declarados, o que é desligar o limite de rede com um cabeçalho; e o tempo mínimo de preenchimento só vale porque o instante de início vai assinado dentro do desafio. **A revisão adversarial correu numa passagem com três eixos e os onze achados funcionais estão fechados neste ramo**, mais cinco oráculos que mutações simples atravessavam e seis afirmações contáveis falsas — duas delas nesta própria secção de evidência. Os três piores desarmavam critérios que a primeira versão deste bloco dizia ter medido: o `/entrar` passava o prefixo de IP em claro onde o anti-abuso espera um HMAC (dois espaços de chave disjuntos, logo a «prova adaptativa» do critério 7 era **sempre a base**, e o `desafioPara` que faz a coisa certa era código morto); o NIF enumerava-se por um estado HTTP, porque as barreiras do OTP são por telefone de **destino** e o destino difere entre os dois caminhos; e a chave de idempotência não estava ligada ao corpo, pelo que corrigir o NIF e voltar a submeter guardava o NIF errado e mandava o código para o telefone novo. **E o piso do `lint_bloco` sobe de 44 para 45**, com as duas medições escritas no `../tools/lint_bloco/lint.py`: esta árvore mede 89 emparelhados (exigido 44) e a mesma árvore com o bloco do #157 mede 90 (exigido 45), pelo que 45 é o único valor que serve nas duas e o piso deixa de depender da ordem de fusão. Dois segredos novos em `../ops/secrets-inventory.yaml` com `introduzido_por: KAM-086`, e a nota da `pepper_sms_destino` corrigida no mesmo passo — a cláusula «nenhum serviço liga o módulo» deixou de ser verdade. **Nenhum número de telefone real entra em ficheiro nenhum**: os trinta novos são nacionais a começar por zero (que um E.164 nacional nunca é) ou grafias estrangeiras que existem para ser recusadas, e estão declarados no inventário do *gate* 7 com a contagem medida por `meta-sim varrer`. | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | KAM-090: entra a secção de verificação do bloco do aceite contratual — **dez** critérios e **seis** linhas de DoD. **Três** critérios marcados (1, 3 e 5), **seis parciais** e **um** por fazer (o opt-in do dono, devolvido ao fundador); **quatro** caixas de DoD marcadas. Entregue e medido contra PostgreSQL: a revisão `0040`, o gate de activação por *trigger* em `tenants` e o módulo `../packages/core-ts/src/contratos/`. Credores do que falta: KAM-086/087, KAM-071, KAM-089, KAM-098, KAM-104 e o fundador. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | KAM-093: entra a secção de verificação do bloco do passo guiado do Embedded Signup — **nove** critérios e **seis** linhas de DoD. **Um** critério satisfeito (9) e **oito parciais**; **quatro** caixas de DoD marcadas. A revisão adversarial confirmou **oito** achados, três deles altos — a reconexão com outro número herdava a confirmação do antigo, a retoma fazia o caso recuar a `kyc_pendente`, e o `cloud_only` era recusado pelo KAM-016 — e estão todos fechados, cada um com o ensaio que a sua mutação põe vermelho. Entregue: o módulo `../packages/core-ts/src/guia/` e as rotas `/ligar` e `/api/es/*` do `onboarding-web`, medidos contra duplos e contra os corpos do simulador do KAM-024. **Sem revisão de base de dados**: o `onboarding_case`, o `onboarding_gate` e o `review_case` que o bloco nomeia não existem, e criar o primeiro decidia a emenda 1.64 de passagem. Credores do que falta: KAM-087, KAM-088, KAM-089, KAM-092, KAM-095, KAM-023, KAM-115, KAM-116 e `ext:KAM-102`. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | KAM-099: entra a secção de verificação, com **um critério satisfeito e oito parciais** e quatro caixas da DoD de seis, cada caixa por fechar com o seu credor. **Entra o KAM-190** (feature, M, P2, fase 1, dependências KAM-099 e KAM-097), credor das cinco caixas que nenhum ticket recebia; o `Bloqueia` do KAM-099 e do KAM-097 ganha o KAM-190. Total do epic: **17**. **Sem revisão de base de dados**: a escrita passa pelo módulo `produtos` do COM, com CAS sobre o `offer_terms.atualizado_at`, e os cinco escritores da tabela passam a `clock_timestamp()`. | Equipa KAMBÁ |

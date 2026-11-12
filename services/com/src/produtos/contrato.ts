@@ -317,6 +317,57 @@ export interface AjusteDeStock {
   readonly motivo: MotivoDeAjuste;
 }
 
+// ------------------------------------------------ KAM-099: o painel do dono
+
+/**
+ * Quantas ofertas a lista do painel devolve de uma vez. ***Proposta***: 200.
+ *
+ * Um catálogo de PME do Piloto tem dezenas de produtos, não milhares, e uma
+ * lista sem tecto era uma consulta cujo custo cresce com o tenant. Acima disto
+ * a resposta diz `truncada` em vez de cortar em silêncio.
+ */
+export const LIMITE_DO_PAINEL = 200;
+
+/** Uma oferta como o painel a mostra: termos, stock da `0033` e a versão. */
+export interface OfertaDoPainel {
+  readonly sku: string;
+  readonly nome: string;
+  readonly precoTipo: PrecoTipo;
+  readonly precoMinor: bigint | null;
+  readonly currency: string;
+  readonly precoValidoAte: string | null;
+  readonly stockModo: StockModo;
+  /** A `stock_quantidade` da `0033`. `null` quando o dono nunca a declarou. */
+  readonly stockQuantidade: number | null;
+  readonly stockReservada: number;
+  readonly stockVerificadoAt: string | null;
+  readonly estado: EstadoDaOferta;
+  /** O `atualizado_at` com microssegundos: a versão optimista. */
+  readonly versao: string;
+}
+
+/** A lista do painel. `truncada` quando havia mais do que `LIMITE_DO_PAINEL`. */
+export interface ListaDoPainel {
+  readonly itens: readonly OfertaDoPainel[];
+  readonly truncada: boolean;
+}
+
+/**
+ * O que o dono pede ao gravar uma oferta no painel.
+ *
+ * **O preço inteiro, e não uma diferença**: o painel mostra o valor e o dono
+ * grava o que vê. O `stock`, se vier, é o **nível** — a mesma leitura do
+ * `AjusteDeStock`.
+ */
+export interface AlteracaoDeOferta {
+  readonly sku: string;
+  readonly precoTipo: PrecoTipo;
+  readonly precoMinor: bigint | null;
+  readonly stock?: number | undefined;
+  /** A versão que o dono viu. Com outra na linha, a resposta é `conflito`. */
+  readonly versao: string;
+}
+
 /** Quem emite uma cotação, e para quem. */
 export interface PedidoDeCotacao {
   readonly sku: string;
