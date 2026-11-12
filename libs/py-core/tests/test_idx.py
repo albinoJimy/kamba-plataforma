@@ -13,7 +13,7 @@ import unittest
 import uuid
 
 from kamba_core.eventos.consumo import Resultado
-from kamba_core.idx import consumidor, pesquisa, texto
+from kamba_core.idx import consumidor, lexico, pesquisa, texto
 
 
 class TestNormalizar(unittest.TestCase):
@@ -84,16 +84,30 @@ class TestTextoDeEmbedding(unittest.TestCase):
 
 
 class _Cursor:
+    """Responde as tres leituras do lexico (KAM-062) e devolve o resto da ligacao."""
+
     def __init__(self, ligacao: "_Ligacao") -> None:
         self.ligacao = ligacao
+        self.ultima = ""
+        self.description: list[tuple[str]] = []
 
     def execute(self, sql: str, parametros=()) -> None:
-        self.ligacao.chamadas.append((sql, tuple(parametros)))
+        self.ligacao.chamadas.append((sql, tuple(parametros or ())))
+        self.ultima = sql
 
     def fetchone(self):
         return ("x",)
 
     def fetchall(self):
+        if self.ultima is lexico.SQL_LER_VERSOES:
+            self.description = [("versao",), ("versao_do_indice",)]
+            return [(1, 1)]
+        if self.ultima is lexico.SQL_LER_LEXICO:
+            self.description = [("tenant_id",), ("tipo",), ("termo",), ("canonico",), ("peso",)]
+            return list(self.ligacao.lexico)
+        if self.ultima is lexico.SQL_LER_VOCABULARIO:
+            self.description = [("palavra",), ("frequencia",)]
+            return []
         return self.ligacao.linhas
 
     def close(self) -> None:
@@ -103,8 +117,9 @@ class _Cursor:
 class _Ligacao:
     autocommit = False
 
-    def __init__(self, linhas=()) -> None:
+    def __init__(self, linhas=(), lexico=()) -> None:
         self.linhas = list(linhas)
+        self.lexico = list(lexico)
         self.chamadas: list[tuple[str, tuple]] = []
         self.confirmada = False
 
@@ -128,7 +143,9 @@ class TestPesquisar(unittest.TestCase):
         pesquisa.pesquisar(ligacao, self.TENANT, "arroz agulha")
         sql, parametros = ligacao.chamadas[-1]
         self.assertIs(sql, pesquisa.SQL_RESPOSTA)
-        self.assertEqual(parametros, ("arroz agulha", "arroz or agulha", None, None, None))
+        self.assertEqual(
+            parametros, ("arroz agulha", "arroz or agulha", None, None, None, None, None, None)
+        )
         self.assertNotIn(self.TENANT, parametros)
         # O contexto foi posto pelo `tenant_guard`, primeira instrucao.
         self.assertIn(self.TENANT, ligacao.chamadas[0][1])
@@ -137,13 +154,48 @@ class TestPesquisar(unittest.TestCase):
     def test_o_limiar_e_local_a_transaccao(self) -> None:
         ligacao = _Ligacao()
         pesquisa.pesquisar(ligacao, self.TENANT, "arroz", limiar=0.5)
-        self.assertEqual(ligacao.chamadas[1], (pesquisa.SQL_LIMIAR, ("0.5",)))
+        self.assertIn((pesquisa.SQL_LIMIAR, ("0.5",)), ligacao.chamadas)
         self.assertIn(", true)", pesquisa.SQL_LIMIAR)
 
     def test_o_vector_vai_em_texto_e_o_preco_duas_vezes(self) -> None:
         ligacao = _Ligacao()
         pesquisa.pesquisar(ligacao, self.TENANT, "arroz", qvec=(1, 0.5), max_preco_minor=100)
-        self.assertEqual(ligacao.chamadas[-1][1][2:], ("[1.0,0.5]", 100, 100))
+        self.assertEqual(ligacao.chamadas[-1][1][2:5], ("[1.0,0.5]", 100, 100))
+
+    def test_as_restricoes_do_cliente_filtram_a_oferta_viva(self) -> None:
+        """KAM-062: o preco dito sai do texto e vai para o filtro, nunca ao indice."""
+        ligacao = _Ligacao()
+        procura = pesquisa.procurar(ligacao, self.TENANT, "geleira entre 100 e 150 mil")
+        sql, parametros = ligacao.chamadas[-1]
+        self.assertIs(sql, pesquisa.SQL_RESPOSTA)
+        self.assertEqual(parametros[:2], ("geleira", "geleira"))
+        self.assertEqual(parametros[3:], (15_000_000, 15_000_000, 10_000_000, 10_000_000, None))
+        self.assertEqual(procura.normalizacao.restricoes.min_preco_minor, 10_000_000)
+
+    def test_o_tecto_mais_apertado_ganha(self) -> None:
+        ligacao = _Ligacao()
+        pesquisa.procurar(ligacao, self.TENANT, "geleira ate 250 mil", max_preco_minor=100)
+        self.assertEqual(ligacao.chamadas[-1][1][3:5], (100, 100))
+        ligacao = _Ligacao()
+        pesquisa.procurar(ligacao, self.TENANT, "geleira ate 1 mil", max_preco_minor=10**9)
+        self.assertEqual(ligacao.chamadas[-1][1][3:5], (100_000, 100_000))
+
+    def test_o_alvo_so_ordena(self) -> None:
+        ligacao = _Ligacao()
+        pesquisa.procurar(ligacao, self.TENANT, "geleira 250 mil")
+        self.assertEqual(ligacao.chamadas[-1][1][3:], (None, None, None, None, 25_000_000))
+
+    def test_moeda_estrangeira_nao_filtra(self) -> None:
+        ligacao = _Ligacao()
+        procura = pesquisa.procurar(ligacao, self.TENANT, "iphone ate 300 dolares")
+        self.assertEqual(ligacao.chamadas[-1][1][3:], (None,) * 5)
+        self.assertEqual(procura.normalizacao.restricoes.moeda, "USD")
+
+    def test_o_lexico_do_tenant_entra_na_pergunta(self) -> None:
+        tenant = str(uuid.uuid4())
+        ligacao = _Ligacao(lexico=[(None, "sinonimo", "geleira", "frigorifico", 0.8)])
+        pesquisa.procurar(ligacao, tenant, "quero geleira", cache=lexico.Cache())
+        self.assertEqual(ligacao.chamadas[-1][1][1], "quero or geleira or frigorifico")
 
     def test_o_preco_e_unidade_menor_inteira(self) -> None:
         for errado in (1.5, "100", True):
@@ -215,9 +267,13 @@ class TestPesquisar(unittest.TestCase):
 class _Bd:
     """O `ClienteSql`: responde ao SQL conhecido e regista o resto."""
 
-    def __init__(self, oferta=None, duplicado: bool = False) -> None:
+    def __init__(self, oferta=None, duplicado: bool = False, lexico=(), versoes=(1, 1),
+                 desactualizados=()) -> None:
         self.oferta = oferta
         self.duplicado = duplicado
+        self.lexico = tuple(lexico)
+        self.versoes = versoes
+        self.desactualizados = list(desactualizados)
         self.chamadas: list[tuple[str, tuple]] = []
 
     def executar(self, sql: str, parametros=()) -> Resultado:
@@ -226,6 +282,15 @@ class _Bd:
             return Resultado(contagem=0 if self.duplicado else 1)
         if sql is consumidor.SQL_LER_OFERTA:
             return Resultado(linhas=(self.oferta,) if self.oferta else ())
+        if sql is lexico.SQL_LER_VERSOES:
+            versao, do_indice = self.versoes
+            return Resultado(linhas=({"versao": versao, "versao_do_indice": do_indice},))
+        if sql is lexico.SQL_LER_LEXICO:
+            return Resultado(linhas=self.lexico)
+        if sql is consumidor.SQL_DESACTUALIZADOS:
+            limite = parametros[1]
+            lote, self.desactualizados = self.desactualizados[:limite], self.desactualizados[limite:]
+            return Resultado(linhas=tuple({"product_ref": ref} for ref in lote))
         return Resultado(contagem=1)
 
     def sqls(self) -> list[str]:
@@ -250,7 +315,8 @@ class TestConsumidor(unittest.TestCase):
         )
         self.assertEqual(resultado.desfecho, "aplicado")
         self.assertIn(
-            (consumidor.SQL_ESCREVER_DOCUMENTO, ("g1", 1, "frigorifico lg", True)), bd.chamadas
+            (consumidor.SQL_ESCREVER_DOCUMENTO, ("g1", 1, "frigorifico lg", None, True)),
+            bd.chamadas,
         )
 
     def test_produto_sem_oferta_esconde(self) -> None:
@@ -260,6 +326,35 @@ class TestConsumidor(unittest.TestCase):
         )
         self.assertIn((consumidor.SQL_ESCONDER_DOCUMENTO, ("g1",)), bd.chamadas)
         self.assertNotIn(consumidor.SQL_ESCREVER_DOCUMENTO, bd.sqls())
+
+    def test_o_documento_leva_marca_e_unidade_do_lexico_e_a_versao_corrente(self) -> None:
+        """KAM-062: o lado do indice sao os passos 1, 4 e 5, com a versao de agora."""
+        linhas = (
+            {"tenant_id": None, "tipo": "marca", "termo": "i phone", "canonico": "iphone"},
+            {"tenant_id": None, "tipo": "unidade", "termo": "giga", "canonico": "gb"},
+            {"tenant_id": None, "tipo": "sinonimo", "termo": "celular", "canonico": "telemovel"},
+        )
+        bd = _Bd(oferta={"nome": "I Phone 13 128 Giga", "publicado": True}, lexico=linhas,
+                 versoes=(9, 4))
+        consumidor.consumir_evento(
+            bd, _envelope("catalog.product_changed", {"sku": "g1", "estado": "publicado"})
+        )
+        self.assertIn(
+            (consumidor.SQL_ESCREVER_DOCUMENTO, ("g1", 9, "iphone 13 128 gb", "iphone", True)),
+            bd.chamadas,
+        )
+
+    def test_reindexar_reescreve_os_marcados_pela_versao_do_indice(self) -> None:
+        bd = _Bd(oferta={"nome": "Geleira LG", "publicado": True}, versoes=(9, 4),
+                 desactualizados=["a", "b", "c"])
+        self.assertEqual(consumidor.reindexar(bd, str(uuid.uuid4()), lote=2), 2)
+        # A versao do indice (4), e nao a corrente (9), escolhe os marcados.
+        self.assertIn((consumidor.SQL_DESACTUALIZADOS, (4, 2)), bd.chamadas)
+        escritos = [p for sql, p in bd.chamadas if sql is consumidor.SQL_ESCREVER_DOCUMENTO]
+        self.assertEqual([p[0] for p in escritos], ["a", "b"])
+        self.assertTrue(all(p[1] == 9 for p in escritos))
+        self.assertEqual(consumidor.reindexar(bd, str(uuid.uuid4()), lote=2), 1)
+        self.assertEqual(consumidor.reindexar(bd, str(uuid.uuid4()), lote=2), 0)
 
     def test_os_quatro_eventos_do_tenant_releem_o_tenant(self) -> None:
         for tipo in consumidor.EVENTOS_DO_TENANT:

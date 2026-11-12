@@ -1361,9 +1361,10 @@ def _termo_do_lexico(cursor, tenant_id: str, canario: str) -> None:
     outro. O `kamba_app` so le esta tabela, pelo que a receita prova que o
     privilegio de escrita nem existe.
     """
+    # O `aprovado_por` e obrigatorio desde a revisao `0048` (KAM-062, criterio 7).
     cursor.execute(
-        "INSERT INTO idx.termo_canonico (tenant_id, tipo, termo, canonico, origem) "
-        "VALUES (%s, 'sinonimo', %s, 'canonico', 'tenant')",
+        "INSERT INTO idx.termo_canonico (tenant_id, tipo, termo, canonico, origem, aprovado_por) "
+        "VALUES (%s, 'sinonimo', %s, 'canonico', 'tenant', 'semente-x03')",
         (tenant_id, canario),
     )
 

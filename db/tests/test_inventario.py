@@ -2786,6 +2786,12 @@ INVENTARIO_SERVICOS = {
 #: omissao (a expressao vive no `generation_expression`, nao no
 #: `column_default`).
 INVENTARIO_IDX = {
+    # KAM-062 (revisao `0048`): a versao do lexico. Sem `tenant_id` e sem pessoa.
+    "norm_versao": {
+        "versao": ("bigint", NAO, None, "nao"),
+        "afecta_indice": ("boolean", NAO, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     "search_doc": {
         "doc_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
         "tenant_id": ("uuid", NAO, None, "nao"),

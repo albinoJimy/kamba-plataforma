@@ -346,6 +346,117 @@ DROP SCHEMA idx
 """
 
 
+# ------------------------------------------------------------------ KAM-062
+#
+# A revisao `0048`: o que a normalizacao PT-AO precisa e o esquema da `0045`
+# nao tem. **Nao muda a funcao `idx.candidatos`.** Tres pecas:
+#
+# 1. **`idx.norm_versao`**, o «`idx.norm_versao` global» do §4.4 que a `0045`
+#    nao criou. Um registo so de acrescento: cada escrita no `termo_canonico`
+#    acrescenta uma linha, pelo gatilho, e diz se afecta o indice (marca ou
+#    unidade: os passos 4 e 5 do §5.1 escrevem no `nome_norm`) ou so a consulta
+#    (sinonimo, erro comum, *stopword*). Daqui saem as duas versoes que o
+#    `kamba_core.idx.lexico` le: a maior de todas e a maior das que afectam o
+#    indice. **Sem `tenant_id`**: a versao e global (§4.4), e uma linha diz so
+#    que «algo mudou», nunca o que nem de quem — pelo que nao leva RLS, pela
+#    regra do *gate* 6 (pergunta por RLS a quem tem a coluna). A identidade
+#    comeca em **2**, porque **1** e a versao com que o KAM-061 escreveu o
+#    indice (e a que o lexico devolve sem linhas).
+# 2. **Duas `CHECK` no `termo_canonico`** (criterio 7): o `aprovado_por` e
+#    obrigatorio e nao vazio, e uma entrada `origem = 'dataset'` nao fica
+#    `activo` — ate o *gate* do KAM-064 existir, que e quem a pode soltar. E
+#    falha fechada: o lexico de *dataset* entra inactivo e espera.
+# 3. **O `kamba_app` le a versao** e nao a escreve. Quem escreve o lexico (e por
+#    isso, pelo gatilho, a versao) e o dono — a curadoria de *ops*.
+
+#: A tabela das versoes.
+NORM_VERSAO: Final = "idx.norm_versao"
+
+#: Os tipos do lexico que escrevem no indice (passos 4 e 5 do §5.1).
+TIPOS_QUE_AFECTAM_O_INDICE: Final = ("marca", "unidade")
+
+SQL_NORM_VERSAO: Final = """
+CREATE TABLE idx.norm_versao (
+  versao        bigint      GENERATED ALWAYS AS IDENTITY (START WITH 2),
+  -- Verdadeiro quando a alteracao foi de marca ou unidade: os documentos com
+  -- versao anterior ficam marcados para reindexar.
+  afecta_indice boolean     NOT NULL,
+  criado_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT norm_versao_pkey PRIMARY KEY (versao)
+)
+"""
+
+#: O gatilho que acrescenta a versao. `AFTER`, por linha, nas tres operacoes:
+#: apagar uma marca tambem muda o indice. `SECURITY INVOKER` (a omissao): quem
+#: escreve o lexico escreve a versao, e o `kamba_app` nao escreve nenhum.
+SQL_REGISTAR_NORM_VERSAO: Final = """
+CREATE FUNCTION idx.f_registar_norm_versao() RETURNS trigger
+  LANGUAGE plpgsql AS $$
+DECLARE
+  v_afecta boolean;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    v_afecta := NEW.tipo IN ('marca', 'unidade');
+  ELSIF TG_OP = 'DELETE' THEN
+    v_afecta := OLD.tipo IN ('marca', 'unidade');
+  ELSE
+    v_afecta := NEW.tipo IN ('marca', 'unidade') OR OLD.tipo IN ('marca', 'unidade');
+  END IF;
+  INSERT INTO idx.norm_versao (afecta_indice) VALUES (v_afecta);
+  RETURN NULL;
+END
+$$;
+CREATE TRIGGER termo_canonico_norm_versao
+  AFTER INSERT OR UPDATE OR DELETE ON idx.termo_canonico
+  FOR EACH ROW EXECUTE FUNCTION idx.f_registar_norm_versao()
+"""
+
+#: As duas regras do criterio 7. A tabela nasce vazia (a `0045` nao lhe deu
+#: escritor), pelo que a validacao das linhas existentes nao recusa nada.
+SQL_REGRAS_DO_LEXICO: Final = """
+ALTER TABLE idx.termo_canonico
+  ADD CONSTRAINT termo_canonico_aprovado_ck
+    CHECK (aprovado_por IS NOT NULL AND btrim(aprovado_por) <> ''),
+  ADD CONSTRAINT termo_canonico_dataset_inactivo_ck
+    CHECK (origem <> 'dataset' OR NOT activo)
+"""
+
+SQL_COMENTAR_NORMALIZACAO: Final = """
+COMMENT ON TABLE idx.norm_versao IS
+  'Versao do dicionario PT-AO (docs/tecnica/05 secao 4.4; KAM-062). Uma linha por escrita no idx.termo_canonico, pelo gatilho; afecta_indice diz se os documentos reindexam. Sem tenant_id.';
+COMMENT ON FUNCTION idx.f_registar_norm_versao() IS
+  'Gatilho do idx.termo_canonico: acrescenta uma versao. Marca e unidade afectam o indice; o resto so a consulta.'
+"""
+
+SQL_CONCEDER_NORMALIZACAO: Final = """
+GRANT SELECT ON idx.norm_versao TO kamba_app;
+REVOKE ALL ON FUNCTION idx.f_registar_norm_versao() FROM PUBLIC
+"""
+
+SQL_REMOVER_NORMALIZACAO: Final = """
+DROP TRIGGER termo_canonico_norm_versao ON idx.termo_canonico;
+DROP FUNCTION idx.f_registar_norm_versao();
+DROP TABLE idx.norm_versao;
+ALTER TABLE idx.termo_canonico
+  DROP CONSTRAINT termo_canonico_dataset_inactivo_ck,
+  DROP CONSTRAINT termo_canonico_aprovado_ck
+"""
+
+
+def criar_normalizacao() -> None:
+    """O `upgrade` da `0048` (KAM-062): versao, gatilho, regras e privilegios."""
+    op.execute(SQL_NORM_VERSAO)
+    op.execute(SQL_REGISTAR_NORM_VERSAO)
+    op.execute(SQL_REGRAS_DO_LEXICO)
+    op.execute(SQL_COMENTAR_NORMALIZACAO)
+    op.execute(SQL_CONCEDER_NORMALIZACAO)
+
+
+def remover_normalizacao() -> None:
+    """O `downgrade` da `0048`: o inverso, sem `CASCADE`."""
+    op.execute(SQL_REMOVER_NORMALIZACAO)
+
+
 def criar() -> None:
     """O `upgrade` inteiro: extensoes, esquema, tabelas, RLS, funcao e privilegios."""
     op.execute(SQL_EXTENSOES)

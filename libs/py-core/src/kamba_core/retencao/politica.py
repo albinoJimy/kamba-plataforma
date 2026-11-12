@@ -478,6 +478,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # purga dele segue a do catalogo. O lexico e de termos, e nunca de pessoas.
     "idx.search_doc": "catalogo normalizado: vida do catalogo",
     "idx.termo_canonico": "lexico PT-AO, sem pessoas",
+    # KAM-062 (0048). Uma linha por alteracao do lexico: um numero, um booleano
+    # e uma data, sem tenant e sem pessoa.
+    "idx.norm_versao": "versao do lexico PT-AO, sem tenant nem pessoas",
 }
 
 

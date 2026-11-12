@@ -184,9 +184,24 @@ STALE_CONFIRMATION: Final = "STALE_CONFIRMATION"
 #: nenhuma linha de auditoria pode levar.
 REFERENCIA_EM_FALTA: Final = "REFERENCIA_EM_FALTA"
 
-#: O dominio fechado de `state.avisos` (emenda 1.40, mais o do KAM-037). Os sete
-#: primeiros sao erros tipados do §6.5 que o §6.5 manda o `compose` explicar; os
-#: dois ultimos nascem em nos nossos. **Fechado** porque o `compose` decide por
+#: As tres perguntas da normalizacao PT-AO (KAM-062, `docs/tecnica/05` §5). O
+#: `search_catalog` devolve-as e o `retrieve` poe-nas aqui; o `unknown_reply`
+#: faz **uma** delas, pela ordem desta tupla. Nao sao erros de tool, pela razao
+#: do `STALE_CONFIRMATION`: nascem da pergunta do cliente, nao do *backend*.
+#:
+#: * `TERMO_AMBIGUO` — um termo com mais de um sentido («telefone»: telemovel ou
+#:   telefone fixo), que se pergunta em vez de se corrigir em silencio;
+#: * `MOEDA_ESTRANGEIRA` — um preco noutra moeda que nao a AOA (§5.2);
+#: * `TERMO_DESCONHECIDO` — uma palavra que nem o lexico nem o vocabulario da
+#:   loja resolvem (§5.3).
+TERMO_AMBIGUO: Final = "TERMO_AMBIGUO"
+MOEDA_ESTRANGEIRA: Final = "MOEDA_ESTRANGEIRA"
+TERMO_DESCONHECIDO: Final = "TERMO_DESCONHECIDO"
+PERGUNTAS_DO_IDX: Final = (TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO)
+
+#: O dominio fechado de `state.avisos` (emenda 1.40, mais o do KAM-037 e os tres
+#: do KAM-062). Os sete primeiros sao erros tipados do §6.5 que o §6.5 manda o
+#: `compose` explicar; os outros nascem em nos nossos. **Fechado** porque o `compose` decide por
 #: valor conhecido: um aviso que ele nao conheca cai na explicacao de omissao, e
 #: a de omissao nao e a de uma recusa por regra.
 AVISOS: Final = (
@@ -199,6 +214,7 @@ AVISOS: Final = (
     "UPSTREAM_DOWN",
     STALE_CONFIRMATION,
     REFERENCIA_EM_FALTA,
+    *PERGUNTAS_DO_IDX,
 )
 
 #: Os desfechos da linha 4 — porque e que um turno nao corre (§3.31).

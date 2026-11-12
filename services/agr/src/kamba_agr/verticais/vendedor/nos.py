@@ -82,9 +82,13 @@ from ...validador.veredicto import Policy, medir_validacao, validar
 from .arestas import (
     AVISOS,
     INTENCOES,
+    MOEDA_ESTRANGEIRA,
+    PERGUNTAS_DO_IDX,
     RECUSAS,
     REFERENCIA_EM_FALTA,
     STALE_CONFIRMATION,
+    TERMO_AMBIGUO,
+    TERMO_DESCONHECIDO,
     VERSAO_DO_GRAFO,
 )
 
@@ -230,6 +234,19 @@ FRASE_DO_AVISO: Final = {
     ),
     REFERENCIA_EM_FALTA: (
         "Diga-me a referencia do pedido e eu consulto-o."
+    ),
+    # As tres perguntas da normalizacao (KAM-062). Sao a **unica** mensagem do
+    # turno (`unknown_reply`), e por isso perguntas e nao avisos.
+    TERMO_AMBIGUO: (
+        "Essa palavra pode querer dizer mais de uma coisa. Pode dizer melhor o "
+        "que procura?"
+    ),
+    MOEDA_ESTRANGEIRA: (
+        "So consigo procurar precos em kwanzas. Pode dizer o valor em Kz?"
+    ),
+    TERMO_DESCONHECIDO: (
+        "Nao reconheci uma das palavras da sua mensagem no catalogo da loja. "
+        "Pode escrever de outra maneira?"
     ),
 }
 
@@ -1329,6 +1346,14 @@ def retrieve(deps: Dependencias):
         resultado = await _invocar(
             deps, estado, "search_catalog", {"query": _query_de(_texto_do_cliente(estado))}
         )
+        pergunta = resultado.data.get("pergunta") if resultado.ok else None
+        if pergunta in PERGUNTAS_DO_IDX:
+            # KAM-062: a normalizacao precisa de perguntar antes de pesquisar
+            # (termo ambiguo, moeda estrangeira, palavra que nao se resolve).
+            # Sem ofertas, o turno sai pela aresta 19 e o `unknown_reply` faz
+            # **uma** pergunta — e nao mostra candidatos de uma pesquisa feita
+            # com metade da frase.
+            return {"ofertas": (), "avisos": _avisos_com(estado, pergunta)}
         if not resultado.ok:
             # O §7.3 da ao `retrieve` **duas** arestas e nenhuma e `handoff`:
             # uma falha do IDX sai pelo `unknown_reply`, com o texto de «nao
@@ -1880,7 +1905,13 @@ def _resposta_estatica(texto: str) -> dict[str, Any]:
 def unknown_reply(deps: Dependencias):
     """Linha 19 -> 34: abaixo do limiar do IDX."""
 
-    async def no(_estado: dict[str, Any]) -> dict[str, Any]:
+    async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        # Uma pergunta da normalizacao (KAM-062), se o `retrieve` a deixou: uma
+        # so, pela ordem do `PERGUNTAS_DO_IDX`. Sem ela, o «nao encontrei».
+        avisos = tuple(estado.get("avisos") or ())
+        for pergunta in PERGUNTAS_DO_IDX:
+            if pergunta in avisos:
+                return _resposta_estatica(FRASE_DO_AVISO[pergunta])
         return _resposta_estatica(MSG_NAO_ENTENDI)
 
     return no

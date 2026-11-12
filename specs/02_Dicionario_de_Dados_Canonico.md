@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.82 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.83 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -1739,7 +1739,7 @@ STT), o §11 (o par `handoff_prepare`/`handoff_wait`) e o §14 (a degradação).
 | Intenção do Vendedor | `state.intent` ∈ {`produto`, `preco_stock`, `comprar`, `confirmar`, `pagamento_estado`, `encomenda`, `info_loja`, `humano`, `outro`} | — | ../docs/tecnica/02 §7.3, linhas 11 a 17. **Nove**, e é a lista do Vendedor: a de Serviços está no §8.2 e é outra |
 | Veredicto da guarda de entrada | `state.guard.veredicto` ∈ {`ok`, `injection`, `abuse`, `out_of_domain`, `card_data`, `sensitive`} | — | ../docs/tecnica/02 §7.3 linhas 8 a 10, e §8.4 (as cinco camadas de entrada) |
 | Oferta de produto no estado do turno | `state.ofertas` | — | Os campos são os do contrato de saída da tool (`../docs/tecnica/05` §6.3) e **não se repetem aqui**: um deles designa o produto por palavras, e torná-lo canónico esvaziava a extensão qualificada da designação da loja no `canon/extensoes.yaml` — medido pelo *gate* 3b. Só deste turno, reiniciado em `ingest` |
-| Aviso de negócio para o `compose` | `state.avisos` ⊆ {`NOT_FOUND`, `OUT_OF_STOCK`, `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `VALIDATION_ERROR`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`, `STALE_CONFIRMATION`, `REFERENCIA_EM_FALTA`} | — | **Nove** (emenda 1.46). Os sete primeiros são erros tipados do §6.5 (§3.28); o oitavo nasce no §7.3 linha 24 e o nono no `order_status` — e nenhum dos dois é erro de tool |
+| Aviso de negócio para o `compose` | `state.avisos` ⊆ {`NOT_FOUND`, `OUT_OF_STOCK`, `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `VALIDATION_ERROR`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`, `STALE_CONFIRMATION`, `REFERENCIA_EM_FALTA`, `TERMO_AMBIGUO`, `MOEDA_ESTRANGEIRA`, `TERMO_DESCONHECIDO`} | — | **Doze** (emenda 1.46; os três últimos da emenda 1.83, KAM-062, §3.60). Os sete primeiros são erros tipados do §6.5 (§3.28); o oitavo nasce no §7.3 linha 24, o nono no `order_status` e os três últimos no `retrieve`, pela normalização PT-AO — e nenhum deles é erro de tool |
 | Consulta de pedido sem referência dada | `REFERENCIA_EM_FALTA` | — | KAM-037, emenda 1.46. **Não é `NOT_FOUND`**: «não me disse qual» não é «não existe», e confundi-los dizia «não encontrei esse **artigo** no **catálogo**» a quem pediu o estado de um pedido. Valor de `state.avisos`, não de `tool_audit.error_code` |
 | Confirmação antiga ou inválida | `STALE_CONFIRMATION` | — | ../docs/tecnica/02 §7.3 linha 24. Valor de `state.avisos`, não de `tool_audit.error_code` |
 | Desfecho da admissao do turno | `state.admissao` ∈ {`turno_repetido`, `contacto_bloqueado`, `ritmo`} | — | ../docs/tecnica/02 §7.3 linha 4. `None` quando o turno corre; o `ritmo` e o mesmo valor que o `agr_admitted_rejected_total` ja usa (§3.24) |
@@ -4069,6 +4069,34 @@ pelo *join* com a `platform.v_oferta_viva` (§3.40, KAM-051), no instante da per
 PROP-IDX-4). O limiar do `pg_trgm`, os pesos e o `k` do RRF, a afinar no dataset (**KAM-064**).
 O `disponivel` e o filtro de stock do §6.3, que dependem do nível de stock (**KAM-045** e **D3**).
 
+### 3.60 Normalização PT-AO: a versão do léxico e as perguntas da pesquisa (KAM-062)
+
+O `../docs/tecnica/05` §4.4 manda que «cada alteração incrementa `idx.norm_versao` global», e
+a revisão `0045` não criou esse objecto. A revisão `0048` cria-o, sem mudar a função
+`idx.candidatos`. O SQL vive em [`db/indice.py`](../db/indice.py) (`criar_normalizacao`), pela
+razão do §3.59. A normalização é a de
+[`kamba_core.idx.normalizacao`](../libs/py-core/src/kamba_core/idx/normalizacao.py): nove passos,
+determinística, sem LLM e sem rede.
+
+**O léxico do §5.1 continua ilustrativo e NÃO VERIFICADO.** Esta emenda nomeia onde ele vive e
+como muda, e não lhe dá conteúdo: nenhuma linha do `idx.termo_canonico` nasce com ela.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Versão do léxico PT-AO | `idx.norm_versao`, **três** colunas: `versao`, `afecta_indice`, `criado_at` | — | *proposta* (emenda 1.83, KAM-062). Só de acrescento: uma linha por escrita no `idx.termo_canonico`, pelo gatilho. **Sem `tenant_id`**: a versão é global (§4.4) e uma linha diz só que algo mudou, nunca o quê nem de quem, pelo que não leva RLS. A identidade começa em **2**, porque **1** é a versão com que o KAM-061 escreveu o índice. O `kamba_app` lê e não escreve |
+| Alteração que reindexa | `norm_versao.afecta_indice` | — | *proposta* (emenda 1.83, KAM-062). Verdadeiro quando o termo alterado é `marca` ou `unidade`: os passos 4 e 5 do §5.1 escrevem no `search_doc.nome_norm`. Um `sinonimo`, um `erro_comum` ou uma `stopword` só sobem a versão, e nenhum documento fica marcado (critério 4 do bloco) |
+| Gatilho da versão | `idx.f_registar_norm_versao()`, gatilho `termo_canonico_norm_versao` | — | *proposta* (emenda 1.83, KAM-062). `AFTER INSERT OR UPDATE OR DELETE`, por linha. Apagar ou desactivar uma marca também reindexa |
+| Aprovação de um termo | `termo_canonico_aprovado_ck` | — | *proposta* (emenda 1.83, KAM-062). O `aprovado_por` passa a obrigatório e não vazio (critério 7). Continua texto livre de *ops*, nunca contacto de cliente |
+| Termo de *dataset* inactivo | `termo_canonico_dataset_inactivo_ck` | — | *proposta* (emenda 1.83, KAM-062). Uma entrada `origem = 'dataset'` não fica `activo` enquanto o *gate* de avaliação do KAM-064 não existir: é ele quem a solta, com a medição do nDCG@3 |
+| Pergunta da normalização | `state.avisos` ⊇ {`TERMO_AMBIGUO`, `MOEDA_ESTRANGEIRA`, `TERMO_DESCONHECIDO`} | — | *proposta* (emenda 1.83, KAM-062). O `search_catalog` devolve **uma** delas, por esta ordem, e o `unknown_reply` faz essa pergunta como a única mensagem do turno. Pela razão do `STALE_CONFIRMATION`, não são erros de tool nem valores de `tool_audit.error_code`. Vai **o código, nunca a palavra** do cliente |
+| Alternativas de um sinónimo ambíguo | `termo_canonico.canonico` com as alternativas separadas por barra vertical | — | *proposta* (emenda 1.83, KAM-062). O índice único do §4.4 deixa um só canónico por `(tenant, tipo, termo)`, e é no canónico que se escrevem as alternativas («telefone» → telemóvel ou telefone fixo). Um termo assim não se expande: pergunta-se |
+
+**O que esta emenda não decide, e a quem.** O conteúdo do léxico, curado por *ops* e revisto
+por dois falantes de PT-AO antes de `activo` (critério de saída do NÃO VERIFICADO), e a
+validação contra o `golden_search` (**KAM-064**). O relatório semanal de *tokens* não
+resolvidos e o seu armazenamento, que precisam de um sujeito para contar «cinco distintos» e por
+isso de uma classe de retenção (ver a verificação do bloco KAM-062).
+
 ---
 
 ## 4. Itens que continuam por decidir
@@ -4174,3 +4202,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.80 | Novembro 2026 | **Emenda (*proposta*), KAM-087: o caso de onboarding e o KYC K1.** §3.57 nova: a `platform.onboarding_case` (dezanove colunas) e a `platform.kyc_check` (catorze), da revisão `0043`. **A `onboarding_case.fase` deixa de ter seis valores e passa a catorze**, com o valor final `activo` e não o `pronto` do §3.2, porque o `pronto` já designa o canal pronto, com o nome `fase` e não o `estado` do DDL do bloco do KAM-086 — a divergência que a emenda 1.64 deu a este ticket como credor, medida em quatro fontes no §3.57; a linha do §3.2 aponta para lá. O `fase_at` é novo e só o *trigger* o escreve. O `preflight` do §3.54 passa a existir. O `kyc_check` leva, além do DDL do bloco, o `tenant_id` com FK composta para o caso, o `custo_micro_usd` e a unicidade `(onboarding_id, sha256)`. Fica com credor o que não é deste ticket: o adaptador SQL da inscrição (KAM-086), a ponte do *gate* de transferência para o `vision_llm`, a fila (KAM-089) e as FK das tabelas que nasceram antes do caso. | Equipa KAMBÁ |
 | 1.81 | Novembro 2026 | **Emenda (*proposta*), KAM-088: o screening de categorias.** §3.58 nova: a política Meta ∪ lei em `../policy/categorias/` (esquema, SemVer fixado por `sha256`, oito chaves por entrada), os três domínios fechados — `decisao`, `origem` e `sujeito_tipo` —, a `platform.screening_decision` com **onze** colunas e as três divergências do DDL do bloco que o §2 decide (`id` `uuid`, `tenant_id` `NOT NULL`, `criado_at` por `clock_timestamp()`), a coluna `conteudo_sha256` que o bloco não tem e que fecha a «edição posterior», a sobreposição por tenant que só acrescenta restrição e o `assertPublishable`. A tabela nasce na revisão `0044`, *append-only* por privilégio e por *trigger*, com FK composta para a `onboarding_case` da `0043`. **O alias `screening-nano` fica nomeado e não declarado**, porque o §3.29 fecha os aliases em quatro, um por papel. Credores: o contrato `screening.violation_detected` (o §3.5 continua em trinta e oito tipos) — KAM-191; o papel do alias — KAM-192; KAM-089, KAM-040, KAM-097 e o Piloto. | Equipa KAMBÁ |
 | 1.82 | Novembro 2026 | **Emenda (*proposta*), KAM-061: o índice de pesquisa por tenant.** §3.59 nova: o esquema `idx` que o §3.6 reservava — a `idx.search_doc` com as suas **quinze** colunas e **sem** índice ANN, a `idx.termo_canonico` com as suas **dez** e as duas listas fechadas do §4.4 (**cinco** tipos, **quatro** origens), a configuração `idx.kamba_pt` e a função `idx.candidatos` do §6.2 com a assinatura dele. **Uma adaptação ao texto da função, dita:** cada ramo desempata pelo `doc_id` antes do limite, que é o que o critério 6 do bloco pede. **E uma medição que muda quem cria uma extensão:** a `vector` 0.8.7 não é *trusted*, pelo que o `kamba_migrator` não a cria — cria-a quem corre como administrador, o *initdb* do compose e o `db/bootstrap.py` do *gate* 8. **O que não decide:** léxico (KAM-062), modelo de embeddings (KAM-063), limiar e pesos (KAM-064), stock na resposta (KAM-045, D3). | Equipa KAMBÁ |
+| 1.83 | Novembro 2026 | **Emenda (*proposta*), KAM-062: a normalização PT-AO.** §3.60 nova: a `idx.norm_versao` que o `../docs/tecnica/05` §4.4 nomeia e a revisão `0045` não criou (**três** colunas, sem `tenant_id`, só de acrescento), o gatilho que a alimenta a partir do `idx.termo_canonico` e as duas regras do critério 7 do bloco — o `aprovado_por` obrigatório e nenhuma entrada de *dataset* activa antes do *gate* do KAM-064. O §3.31 passa de **nove** a **doze** avisos, com as três perguntas da normalização (`TERMO_AMBIGUO`, `MOEDA_ESTRANGEIRA`, `TERMO_DESCONHECIDO`). **O que não decide:** o conteúdo do léxico, que continua ilustrativo e NÃO VERIFICADO (KAM-064 e revisão por falantes), e o armazenamento do relatório semanal de *tokens* não resolvidos. | Equipa KAMBÁ |

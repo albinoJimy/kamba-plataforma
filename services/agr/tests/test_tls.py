@@ -2568,11 +2568,13 @@ class TestOBackendDoIndiceRecebeALigacao(_Base):
         camada, ligacao, _ = self.camada(especificacoes=especificacoes)
         recebidos: list[tuple[Any, ...]] = []
 
-        def candidatos(conexao, tenant, texto, **_):
+        # Desde o KAM-062 o executor chama o `procurar`, que devolve a pergunta
+        # normalizada ao lado das linhas; o `candidatos` e o mesmo sem ela.
+        def procurar(conexao, tenant, texto, **_):
             recebidos.append((conexao, tenant, texto))
-            return ()
+            return idx.pesquisa.Procura(None, ())
 
-        with mock.patch.object(idx.pesquisa, "candidatos", side_effect=candidatos):
+        with mock.patch.object(idx.pesquisa, "procurar", side_effect=procurar):
             resultado = self.invocar(
                 camada,
                 name="search_catalog",

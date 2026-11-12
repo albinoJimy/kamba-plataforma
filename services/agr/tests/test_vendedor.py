@@ -1251,6 +1251,31 @@ class TestOutrosNos(unittest.TestCase):
         self.assertEqual(backend.chamadas["search_catalog"], 1)
         self.assertIn("Nao encontrei nada no catalogo", saida.textos[0])
 
+    def test_a_pergunta_da_normalizacao_e_a_unica_mensagem(self) -> None:
+        """KAM-062: o `search_catalog` pede uma pergunta e o turno faz so essa.
+
+        Sem ofertas, mesmo que haja candidatos: uma pesquisa feita com metade da
+        frase («telefone» sem saber qual, um preco em dolares) nao se mostra.
+        """
+        for codigo in tabela.PERGUNTAS_DO_IDX:
+            with self.subTest(codigo=codigo):
+
+                class ComPergunta(BackendDeEnsaio):
+                    def search_catalog(self, pedido):  # noqa: N805
+                        resposta = super().search_catalog(pedido)
+                        return type(resposta)(data={**resposta.data, "pergunta": codigo})
+
+                grafo, _deps, backend, saida, _lig = montar(backend=ComPergunta())
+                final = correr(grafo, estado_de("tem camisa azul?"))
+                self.assertEqual(final["ofertas"], ())
+                self.assertIn(codigo, final["avisos"])
+                # Uma mensagem so (a do primeiro turno leva a apresentacao da
+                # persona antes), e a pergunta dentro dela.
+                self.assertEqual(len(saida.textos), 1)
+                self.assertTrue(saida.textos[0].endswith(nos_mod.FRASE_DO_AVISO[codigo]))
+                self.assertNotIn(nos_mod.MSG_NAO_ENTENDI, saida.textos[0])
+                self.assertEqual(backend.chamadas["search_catalog"], 1)
+
     def test_um_pedido_sem_referencia_no_texto_explica(self) -> None:
         """**E o aviso e `REFERENCIA_EM_FALTA` e nao `NOT_FOUND`** (KAM-037).
 

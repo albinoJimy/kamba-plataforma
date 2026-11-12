@@ -23,8 +23,19 @@ esta ligacao (`db/tests_produtos/test_indice.py`, `TestResposta`).
   pelo KAM-045. O campo sai **`None`** — «nao sei» — e nao `True`, que afirmava
   um stock que ninguem leu, nem `False`, que escondia o produto. Pela mesma
   razao nao ha a segunda volta «com menos de 3, oferecer os indisponiveis».
-* **Os sinonimos e as marcas** da pergunta sao o KAM-062; a expansao `q_or` e so
-  os termos da pergunta (`kamba_core.idx.texto.consulta`).
+* **O `alvo_preco_minor`** («250 mil» sem verbo, §5.2) so desempata: a ordem
+  manda o `o_score`, e o alvo entra depois dele, pela distancia ao preco.
+
+## A pergunta passa pela normalizacao PT-AO (KAM-062)
+
+O texto do cliente passa pelos nove passos do §5.1
+(`kamba_core.idx.normalizacao`), com o lexico e o vocabulario do tenant lidos
+**na mesma transaccao** e com o mesmo contexto (`kamba_core.idx.lexico`). As
+restricoes de preco que o cliente disse saem do texto e filtram a **oferta
+viva** — o `max_preco_minor` e o `min_preco_minor` —, nunca o indice. Um tecto
+dado pelo chamador e um tecto dito pelo cliente somam-se pelo mais apertado.
+Uma moeda estrangeira nao filtra nada: a conversao nao e nossa, e o AGR
+pergunta.
 * **O `qvec`** (embedding da pergunta) e o KAM-063. Aqui passa-se `None`, que e o
   modo lexical do §6.5 — *fail closed* para o dado.
 """
@@ -32,11 +43,13 @@ esta ligacao (`db/tests_produtos/test_indice.py`, `TestResposta`).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core.tenant_guard import tx
 
-from .texto import consulta
+from . import lexico as lexico_mod
+from .normalizacao import Normalizacao, normalizar
 
 #: O limiar do `pg_trgm` por transaccao (§6.2, nota i). **Proposta**, igual ao
 #: `db/indice.py` `LIMIAR_DE_PALAVRA`; o valor final e do dataset (KAM-064).
@@ -76,8 +89,9 @@ SQL_LIMIAR: Final = """
 #: razao do `test_oferta_viva.py`: o `sob_consulta` tem `preco_minor` nulo, e um
 #: `DESC` futuro invertia-o em silencio.
 #:
-#: Parametros: `p_q_norm`, `p_q_or`, `p_qvec` (texto `[...]` ou nulo) e o
-#: `max_preco_minor` duas vezes (nulo = sem filtro).
+#: Parametros: `p_q_norm`, `p_q_or`, `p_qvec` (texto `[...]` ou nulo), o
+#: `max_preco_minor` duas vezes, o `min_preco_minor` duas vezes (nulo = sem
+#: filtro) e o `alvo_preco_minor` (nulo = sem alvo).
 SQL_RESPOSTA: Final = """
   SELECT v.sku, c.o_product_ref AS product_ref, v.nome, v.preco_minor,
          v.preco_tipo, v.lido_em, c.o_score
@@ -88,7 +102,9 @@ SQL_RESPOSTA: Final = """
      AND v.product_ref = c.o_product_ref
    WHERE v.publicado
      AND (%s::bigint IS NULL OR v.preco_minor <= %s::bigint)
-   ORDER BY c.o_score DESC, v.preco_minor ASC NULLS LAST, v.sku
+     AND (%s::bigint IS NULL OR v.preco_minor >= %s::bigint)
+   ORDER BY c.o_score DESC, abs(v.preco_minor - %s::bigint) ASC NULLS LAST,
+            v.preco_minor ASC NULLS LAST, v.sku
    LIMIT 3
 """
 
@@ -128,6 +144,75 @@ SQL_TECTO: Final = """
 """
 
 
+@dataclass(frozen=True)
+class Procura:
+    """A pergunta normalizada e o que ela encontrou.
+
+    A `normalizacao` leva as perguntas que o AGR tem de fazer
+    (`tokens_nao_resolvidos`, `desambiguacoes`, moeda estrangeira); as `linhas`
+    sao as do contrato do §6.3, cada uma com o `o_score` ao lado.
+    """
+
+    normalizacao: Normalizacao | None
+    linhas: tuple[tuple[dict[str, Any], float], ...]
+
+
+def _mais_apertado(a: int | None, b: int | None) -> int | None:
+    return b if a is None else a if b is None else min(a, b)
+
+
+def procurar(
+    conexao: Any,
+    tenant: object,
+    texto: str,
+    *,
+    origem: str = "texto",
+    max_preco_minor: int | None = None,
+    qvec: Sequence[float] | None = None,
+    limiar: float = LIMIAR_DE_PALAVRA,
+    tecto_ms: int | None = None,
+    cache: lexico_mod.Cache = lexico_mod.CACHE,
+) -> Procura:
+    """Normaliza a pergunta (§5.1) e devolve ate tres ofertas publicadas.
+
+    O `tenant` so serve para abrir a transaccao (`tenant_guard.tx`), que recusa
+    `None`, vazio e o que nao for UUID antes de tocar na base. Uma pergunta que
+    normalizada fique vazia devolve vazio sem consulta: o `websearch_to_tsquery`
+    de nada e um aviso, nao uma pesquisa. O `tecto_ms` poe o `statement_timeout`
+    **do lado do servidor**, local a transaccao: um tecto so no cliente deixava
+    a consulta a correr na base depois de o turno desistir dela.
+    """
+    if isinstance(max_preco_minor, bool) or (
+        max_preco_minor is not None and not isinstance(max_preco_minor, int)
+    ):
+        raise TypeError("max_preco_minor e unidade menor inteira (dicionario §2)")
+    with tx(conexao, tenant) as cursor:
+        if tecto_ms is not None:
+            cursor.execute(SQL_TECTO, (str(int(tecto_ms)),))
+        lexico, vocabulario = cache.entradas(cursor, tenant)
+        pergunta = normalizar(texto, tenant, origem, lexico=lexico, vocabulario=vocabulario)
+        if not pergunta.q_norm:
+            return Procura(pergunta, ())
+        restricoes = pergunta.restricoes
+        tecto = _mais_apertado(max_preco_minor, restricoes.max_preco_minor)
+        cursor.execute(SQL_LIMIAR, (str(limiar),))
+        cursor.execute(
+            SQL_RESPOSTA,
+            (
+                pergunta.q_norm,
+                pergunta.q_or,
+                _vector(qvec),
+                tecto,
+                tecto,
+                restricoes.min_preco_minor,
+                restricoes.min_preco_minor,
+                restricoes.alvo_preco_minor,
+            ),
+        )
+        linhas = cursor.fetchall()
+    return Procura(pergunta, tuple((_linha(linha), _score(linha)) for linha in linhas))
+
+
 def candidatos(
     conexao: Any,
     tenant: object,
@@ -142,38 +227,13 @@ def candidatos(
 
     A linha e a do contrato do §6.3; o `o_score` **nao** entra nela — e da
     ordenacao e do limiar de quem chama (o `retrieve` do AGR, pelo
-    `kamba_agr.tls.idx`), e nao diz respeito ao cliente.
-
-    O `tenant` so serve para abrir a transaccao (`tenant_guard.tx`), que recusa
-    `None`, vazio e o que nao for UUID antes de tocar na base. Uma pergunta que
-    normalizada fique vazia devolve vazio sem consulta: o `websearch_to_tsquery`
-    de nada e um aviso, nao uma pesquisa. O `tecto_ms` poe o `statement_timeout`
-    **do lado do servidor**, local a transaccao: um tecto so no cliente deixava
-    a consulta a correr na base depois de o turno desistir dela.
+    `kamba_agr.tls.idx`), e nao diz respeito ao cliente. E o `procurar` sem a
+    normalizacao a vista.
     """
-    if isinstance(max_preco_minor, bool) or (
-        max_preco_minor is not None and not isinstance(max_preco_minor, int)
-    ):
-        raise TypeError("max_preco_minor e unidade menor inteira (dicionario §2)")
-    pergunta = consulta(texto)
-    with tx(conexao, tenant) as cursor:
-        if not pergunta.q_norm:
-            return ()
-        if tecto_ms is not None:
-            cursor.execute(SQL_TECTO, (str(int(tecto_ms)),))
-        cursor.execute(SQL_LIMIAR, (str(limiar),))
-        cursor.execute(
-            SQL_RESPOSTA,
-            (
-                pergunta.q_norm,
-                pergunta.q_or,
-                _vector(qvec),
-                max_preco_minor,
-                max_preco_minor,
-            ),
-        )
-        linhas = cursor.fetchall()
-    return tuple((_linha(linha), _score(linha)) for linha in linhas)
+    return procurar(
+        conexao, tenant, texto,
+        max_preco_minor=max_preco_minor, qvec=qvec, limiar=limiar, tecto_ms=tecto_ms,
+    ).linhas
 
 
 def pesquisar(

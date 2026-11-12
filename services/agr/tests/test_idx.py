@@ -12,6 +12,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from kamba_core.idx import normalizacao as norm
+from kamba_core.idx.pesquisa import Procura
+
 from kamba_agr.tls import idx
 from kamba_agr.tls.especificacoes import ErroDeBackend
 from kamba_agr.tls.vendedor import ArgumentosDeSearchCatalog
@@ -58,11 +61,18 @@ class TestPontuador(unittest.TestCase):
         self.assertLess((0.3 + 0.2) / 61, idx.LIMIAR_DO_RRF)
 
 
+def _procura(linhas=(), texto: str = "arroz", lexico: norm.Lexico | None = None, vocabulario=None):
+    """O que o `pesquisa.procurar` devolve, com a normalizacao feita a serio."""
+    lex = lexico or norm.Lexico(TENANT)
+    normalizacao = norm.normalizar(texto, TENANT, "texto", lexico=lex, vocabulario=vocabulario)
+    return Procura(normalizacao, tuple(linhas))
+
+
 class TestExecutor(unittest.TestCase):
     def test_o_tenant_e_o_do_contexto_e_a_linha_leva_o_score(self) -> None:
         linha = {"sku": "a", "product_ref": "a", "nome": "A", "preco_tipo": "fixo"}
         with mock.patch.object(
-            idx.pesquisa, "candidatos", return_value=((linha, 0.2 / 61),)
+            idx.pesquisa, "procurar", return_value=_procura(((linha, 0.2 / 61),))
         ) as candidatos:
             resposta = idx.executar(_pedido("arroz"))
         argumentos, opcoes = candidatos.call_args
@@ -72,7 +82,7 @@ class TestExecutor(unittest.TestCase):
         self.assertEqual(resposta.facts, ())
 
     def test_o_teto_de_preco_e_o_unico_filtro(self) -> None:
-        with mock.patch.object(idx.pesquisa, "candidatos", return_value=()) as candidatos:
+        with mock.patch.object(idx.pesquisa, "procurar", return_value=_procura()) as candidatos:
             idx.executar(_pedido(filtros={"max_preco_minor": "2500000"}))
         self.assertEqual(candidatos.call_args[1]["max_preco_minor"], 2_500_000)
         for filtros in (
@@ -93,17 +103,56 @@ class TestExecutor(unittest.TestCase):
 
     def test_o_tecto_do_servidor_volta_como_timeout(self) -> None:
         cancelada = Exception({"C": "57014", "M": "canceling statement"})
-        with mock.patch.object(idx.pesquisa, "candidatos", side_effect=cancelada):
+        with mock.patch.object(idx.pesquisa, "procurar", side_effect=cancelada):
             with self.assertRaises(TimeoutError):
                 idx.executar(_pedido())
         outra = Exception({"C": "42501"})
-        with mock.patch.object(idx.pesquisa, "candidatos", side_effect=outra):
+        with mock.patch.object(idx.pesquisa, "procurar", side_effect=outra):
             with self.assertRaises(Exception) as erro:
                 idx.executar(_pedido())
         self.assertIs(erro.exception, outra)
 
     def test_o_executor_e_o_do_search_catalog(self) -> None:
         self.assertEqual(idx.executores_do_idx(), {"search_catalog": idx.executar})
+
+
+class TestPergunta(unittest.TestCase):
+    """KAM-062: a normalizacao diz ao AGR o que perguntar, e so o codigo."""
+
+    LEXICO = norm.Lexico.de_linhas(
+        ({"tenant_id": None, "tipo": "sinonimo", "termo": "telefone",
+          "canonico": "telemovel|telefone fixo"},),
+        TENANT,
+    )
+    VOCABULARIO = norm.Vocabulario.de_frequencias({"telemovel": 2, "samsung": 1})
+
+    def executar(self, texto: str):
+        procura = _procura(texto=texto, lexico=self.LEXICO, vocabulario=self.VOCABULARIO)
+        with mock.patch.object(idx.pesquisa, "procurar", return_value=procura):
+            return idx.executar(_pedido(texto))
+
+    def test_as_tres_perguntas(self) -> None:
+        casos = {
+            "telefone": "TERMO_AMBIGUO",
+            "samsung ate 300 dolares": "MOEDA_ESTRANGEIRA",
+            "xyzq": "TERMO_DESCONHECIDO",
+        }
+        for texto, codigo in casos.items():
+            with self.subTest(texto=texto):
+                self.assertEqual(self.executar(texto).data["pergunta"], codigo)
+
+    def test_a_ambiguidade_passa_a_frente_e_e_uma_so(self) -> None:
+        self.assertEqual(self.executar("telefone xyzq ate 3 dolares").data["pergunta"], "TERMO_AMBIGUO")
+
+    def test_sem_nada_a_perguntar_nao_ha_campo(self) -> None:
+        self.assertNotIn("pergunta", self.executar("samsung").data)
+
+    def test_o_codigo_e_do_dominio_do_grafo_e_nunca_a_palavra(self) -> None:
+        self.assertEqual(
+            {"TERMO_AMBIGUO", "MOEDA_ESTRANGEIRA", "TERMO_DESCONHECIDO"},
+            set(nos.PERGUNTAS_DO_IDX),
+        )
+        self.assertNotIn("xyzq", repr(self.executar("xyzq").data))
 
 
 if __name__ == "__main__":
