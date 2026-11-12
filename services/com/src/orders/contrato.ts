@@ -47,8 +47,8 @@ export interface ClienteSql {
  *
  * O critério 8 enumera seis: `order.created`, `order.paid`, `order.expired`,
  * `order.cancelled`, `order.delivered` e `order.reconciliation_issue`. Dos
- * seis, **cinco** têm contrato em `contratos/eventos/` e estão nos trinta e oito
- * tipos que o dicionário §3.5 fixa. O sexto **não existe**, e desde 2026-11-04 já
+ * seis, **cinco** têm contrato em `contratos/eventos/` e estão na lista fechada
+ * de tipos que o dicionário §3.5 fixa. O sexto **não existe**, e desde 2026-11-04 já
  * não está nem no §12: não tem contrato, não está no §3.5, não está no
  * `docs/tecnica/06` §5, e o fundador decidiu — por resposta directa a quem
  * executou o KAM-044, a 2026-11-04 — tirar a linha dele do §12 do

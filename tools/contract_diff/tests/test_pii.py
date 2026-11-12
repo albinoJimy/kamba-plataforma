@@ -215,7 +215,7 @@ class TestOBuracoDoSegmentoExacto(unittest.TestCase):
     def test_e_os_que_tem_de_passar_continuam_a_passar(self) -> None:
         """A correccao nao vale nada se fizer o lint gritar sobre tudo.
 
-        Estes sao campos reais dos trinta e oito contratos: um falso positivo
+        Estes sao campos reais dos contratos do repositorio: um falso positivo
         aqui e uma excepcao a declarar em `ci/contratos-allow.yaml`, e uma
         lista de excepcoes longa e uma lista que ninguem le.
         """

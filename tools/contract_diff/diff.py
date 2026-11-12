@@ -103,7 +103,7 @@ def comparar_fechado(base, actual, caminho: str = "") -> list[Diferenca]:
     `items` em tuplo, um `enum` de objectos, um subschema booleano — levantava
     `TypeError` e abortava o `check` inteiro, com uma excepcao que nao aponta
     para o contrato nem para a causa (achado m1 da revisao adversarial).
-    Nenhuma dessas formas existe hoje nos trinta e oito contratos; a que
+    Nenhuma dessas formas existe hoje nos contratos do repositorio; a que
     aparecer no **ramo base** matava o gate para toda a gente.
 
     Esta funcao e a porta por onde o gate chama o classificador. O `comparar`
