@@ -87,8 +87,17 @@ import {
   payloadDeEntregue,
   payloadDeExpirada,
   payloadDePaga,
+  payloadDeReembolsoPedido,
 } from "./eventos.ts";
 import { lerGrafo, transicaoPermitida } from "./graph.ts";
+import {
+  MOTIVO_POR_ORIGEM,
+  REEMBOLSADA,
+  actorDoReembolso,
+  eFimDeDisputa,
+  exigeHumano,
+} from "./graph_ext.ts";
+import { auditarReembolso, dentroDoPrazo } from "./refunds.ts";
 
 /** O repo-base, na parte que este módulo usa. */
 export interface RepoDoTenant {
@@ -152,6 +161,11 @@ export interface PedidoDeTransicao {
   readonly entregaConfirmadaPor?: string | null;
   /** Fixa ou prolonga o fim da reserva. Obrigatório para `expirada` se faltar. */
   readonly expiraAt?: string | null;
+  /**
+   * A referência do reembolso feito pela PME, para `reembolsada` (KAM-050).
+   * Opcional: entra no *hash* da linha de auditoria, e não na encomenda.
+   */
+  readonly provaRef?: string | null;
 }
 
 /** O resultado das três formas. Ver a nota do módulo. */
@@ -232,19 +246,39 @@ export async function transition(
   if (pedido.para === "paga" && !pagamentoAutenticado(e.ctx, pedido.causa)) {
     return recusar("VALIDATION_ERROR");
   }
+  // **`reembolsada` só por dono ou ops identificado** (KAM-050, critério 5). A
+  // barreira real é o `order_estado_exige_log` da revisão `0046` (`KA006`).
+  if (
+    pedido.para === REEMBOLSADA &&
+    !actorDoReembolso(e.ctx.actor.kind, e.ctx.actor.id)
+  ) {
+    return recusar("VALIDATION_ERROR");
+  }
   if (
     pedido.para === "entregue" &&
     (pedido.entregaConfirmadaPor ?? null) === null
   ) {
     // O contrato do `order.delivered` exige `entrega_confirmada_por`, e o
     // `orders_mirror_entregue_exige_quem_ck` exige-o na coluna: recusar aqui
-    // dá-lhe um erro de domínio em vez de um `23514`.
+    // dá-lhe um erro de domínio em vez de um `23514`. **Também no fim de uma
+    // disputa** (KAM-050), e antes de ler a base: quem decide a disputa a favor
+    // da PME passa o valor que a encomenda já tem, e o `COALESCE` do
+    // `SQL_TRANSITAR` mantém o da coluna — ver o `fimDeDisputa` abaixo.
     return recusar("VALIDATION_ERROR");
   }
 
   const antes = await lerEncomenda(e, pedido.orderId);
   if (antes === null) return recusar("NOT_FOUND");
   const de = String(antes["estado"]) as OrderState;
+  const fimDeDisputa = eFimDeDisputa(de, pedido.para);
+  // **A aprovação humana do §6.2** (KAM-050): o pedido de reembolso e a decisão
+  // de uma disputa são de dono ou ops identificado. Ver o `exigeHumano`.
+  if (
+    exigeHumano(de, pedido.para) &&
+    !actorDoReembolso(e.ctx.actor.kind, e.ctx.actor.id)
+  ) {
+    return recusar("VALIDATION_ERROR");
+  }
 
   // A guarda do `pendente_confirmacao` (§6.2): `total_minor <= limite_manual`
   // do tenant. **Pelo `checkCeiling` do `ten` e não por uma consulta nova**: o
@@ -288,7 +322,22 @@ export async function transition(
     return recusar("VALIDATION_ERROR");
   }
 
-  const instante = (e.agora ?? (() => new Date()))().toISOString();
+  const agora = (e.agora ?? (() => new Date()))();
+  // **O prazo de reclamação** (KAM-050, critério 8): por tenant, e sem omissão.
+  // Ver o `dentroDoPrazo` para a razão de a ausência da chave deixar entrar.
+  if (
+    pedido.para === "em_disputa" &&
+    !(await dentroDoPrazo(
+      e.emitir,
+      e.ctx.tenantId,
+      antes["entregue_at"] === null ? null : String(antes["entregue_at"]),
+      agora,
+    ))
+  ) {
+    return recusar("VALIDATION_ERROR");
+  }
+
+  const instante = agora.toISOString();
   const expiraAt = pedido.expiraAt ?? null;
   if (pedido.para === "expirada" && antes["expira_at"] === null && expiraAt === null) {
     // O `order.expired` tem `expira_at` em `required`: expirar sem instante era
@@ -307,8 +356,12 @@ export async function transition(
     pedido.para === "paga"
       ? VIA_POR_CAUSA[pedido.causa.causa as CausaQuePaga]
       : null,
-    pedido.para === "entregue" ? instante : null,
-    pedido.para === "entregue" ? pedido.entregaConfirmadaPor : null,
+    // No fim de uma disputa, os dois ficam como estavam: o `entregue_at` é o da
+    // entrega que houve, e não o da decisão.
+    pedido.para === "entregue" && !fimDeDisputa ? instante : null,
+    pedido.para === "entregue" && !fimDeDisputa
+      ? pedido.entregaConfirmadaPor
+      : null,
     expiraAt,
   ]);
   const depois = linhas[0];
@@ -338,7 +391,17 @@ export async function transition(
     },
   });
 
-  await emitirDoEstado(e, pedido, estado);
+  if (pedido.para === REEMBOLSADA) {
+    await auditarReembolso(
+      e.emitir,
+      e.ctx,
+      pedido.orderId,
+      estado.version,
+      pedido.provaRef ?? null,
+    );
+  }
+
+  await emitirDoEstado(e, pedido, de, estado);
   return { tipo: "ok", estado };
 }
 
@@ -354,10 +417,37 @@ export async function transition(
 async function emitirDoEstado(
   e: Encomendas,
   pedido: PedidoDeTransicao,
+  de: OrderState,
   estado: EstadoDaEncomenda,
 ): Promise<void> {
   const tipo = EVENTO_POR_ESTADO[pedido.para];
   if (tipo === undefined) return;
+  // O fim de uma disputa não é uma entrega nova. Ver o `eFimDeDisputa`.
+  if (eFimDeDisputa(de, pedido.para)) return;
+
+  if (pedido.para === "reembolso_pendente") {
+    const motivo = MOTIVO_POR_ORIGEM[de];
+    if (motivo === undefined) {
+      // Inalcançável pelo grafo, que só chega a `reembolso_pendente` pelas três
+      // origens do mapa. Lança em vez de inventar um motivo: a transição e o
+      // registo revertem com a transacção de quem chama.
+      throw new Error(
+        `reembolso_pendente a partir de ${de} nao tem motivo de reembolso: o ` +
+          "grafo so chega la de paga, em_disputa e entrega_falhada (KAM-050)",
+      );
+    }
+    await emitir(e.emitir, e.ctx.tenantId, {
+      ...EMISSOES.reembolso,
+      orderId: estado.orderId,
+      payload: payloadDeReembolsoPedido(
+        estado.orderId,
+        motivo,
+        estado.totalMinor,
+        estado.currency,
+      ),
+    });
+    return;
+  }
 
   if (pedido.para === "paga") {
     await emitir(e.emitir, e.ctx.tenantId, {

@@ -106,10 +106,63 @@ export const ESTADO_PRETENDIDO: Readonly<Record<string, EstadoDaEncomenda>> = {
  * isso que a aresta `expirada → paga` fica na `TRANSICOES` em vez de sair: o
  * grafo do §6.1 continua a ser o do negócio, e o que esta lista diz é só que
  * **este** ticket não a implementa.
+ *
+ * **O KAM-050 esvaziou-a, e o mecanismo fica.** Os dois estados passaram a ter
+ * caminho: `expirada` é o pagamento tardio (regras 1 e 2 do `../docs/tecnica/03`
+ * §6.6), e chega ao efeito pelo `podeTransitar`, que já o aceitava; `cancelada`
+ * é a regra 3 e chega pela `ESTADOS_DE_EXCEPCAO` abaixo. Um pagamento autenticado
+ * é dinheiro real em qualquer estado, e nenhum estado da encomenda o torna
+ * «incompatível sem esperança»: o que muda é o que o COM faz com ele. A lista
+ * fica, vazia, porque a classificação `estado_incompativel` é um desfecho do
+ * consumo de `docs/consumo.md` §4 e serve qualquer tipo que a venha a precisar.
  */
 export const ESTADOS_INCOMPATIVEIS: Readonly<Record<string, readonly EstadoDaEncomenda[]>> = {
-  'payment.confirmed': ['expirada', 'cancelada'],
-  'payment.manual_confirmed': ['expirada', 'cancelada'],
+  'payment.confirmed': [],
+  'payment.manual_confirmed': [],
+};
+
+/**
+ * Os estados em que um `payment.*` vai ao efeito **sem** a aresta para `paga`
+ * (KAM-050, `../docs/tecnica/03` §6.6, regras 3 e 4).
+ *
+ * São os estados em que o pagamento não paga a encomenda e **não** se espera:
+ *
+ * * `cancelada` — regra 3: o dinheiro chegou depois de a encomenda morrer;
+ * * os sete a partir de `paga` — regra 4: a encomenda já está paga, e este é um
+ *   **segundo** pagamento autenticado.
+ *
+ * Sem esta lista, o `podeTransitar` dizia «não» aos oito e o consumidor
+ * **adiava** seis vezes até à DLQ com `adiado_sem_resolver`: trinta minutos de
+ * fila a esperar por um estado que nunca chega, e um pagamento real sem caso de
+ * reembolso nenhum. O efeito do COM é quem decide o que fazer, e **não
+ * transita**: emite `order.exception` e `order.refund_requested`.
+ *
+ * **E corre antes da verificação de ordem.** A ordem existe para impedir uma
+ * transição fora de tempo, e estes não transitam; dois pagamentos reais
+ * entregues fora de ordem fazem o de `seq` menor chegar depois do outro, e
+ * mandá-lo para a DLQ como `fora_de_ordem` perdia o pedido de reembolso.
+ */
+export const ESTADOS_DE_EXCEPCAO: Readonly<Record<string, readonly EstadoDaEncomenda[]>> = {
+  'payment.confirmed': [
+    'cancelada',
+    'paga',
+    'em_entrega',
+    'entregue',
+    'entrega_falhada',
+    'em_disputa',
+    'reembolso_pendente',
+    'reembolsada',
+  ],
+  'payment.manual_confirmed': [
+    'cancelada',
+    'paga',
+    'em_entrega',
+    'entregue',
+    'entrega_falhada',
+    'em_disputa',
+    'reembolso_pendente',
+    'reembolsada',
+  ],
 };
 
 /** O que o consumidor pergunta antes de aplicar um efeito de transição. */
@@ -176,6 +229,16 @@ export function podeTransitar(de: string, para: string): boolean {
 export function estadoIncompativel(tipo: string, estado: string): boolean {
   if (!eEstado(estado)) throw new EstadoDesconhecidoError(estado);
   return (ESTADOS_INCOMPATIVEIS[tipo] ?? []).includes(estado);
+}
+
+/**
+ * O estado é de excepção para este tipo: vai ao efeito sem transitar? Ver a
+ * `ESTADOS_DE_EXCEPCAO`. Um estado desconhecido **lança**, pela razão do
+ * `estadoIncompativel`.
+ */
+export function estadoDeExcepcao(tipo: string, estado: string): boolean {
+  if (!eEstado(estado)) throw new EstadoDesconhecidoError(estado);
+  return (ESTADOS_DE_EXCEPCAO[tipo] ?? []).includes(estado);
 }
 
 /**

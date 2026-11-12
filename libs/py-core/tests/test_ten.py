@@ -547,7 +547,7 @@ class TestRegistoDeChaves(unittest.TestCase):
 
     def test_as_dez_chaves_sao_as_mesmas(self) -> None:
         do_registo = sorted(self.registo["properties"])
-        self.assertEqual(len(do_registo), 10)
+        self.assertEqual(len(do_registo), 11)  # dez da 1.17 e o prazo do KAM-050
         self.assertEqual(sorted(CHAVES_DE_LIMITE), do_registo)
 
     def test_a_categoria_e_o_consumivel_vem_do_registo(self) -> None:
@@ -582,7 +582,7 @@ class TestRegistoDeChaves(unittest.TestCase):
             contagem,
             {
                 CATEGORIA_CONTADOR: 5,
-                CATEGORIA_TECTO_POR_PEDIDO: 3,
+                CATEGORIA_TECTO_POR_PEDIDO: 4,  # tres da 1.17 e o prazo do KAM-050
                 CATEGORIA_TECTO_POR_JANELA: 2,
             },
         )

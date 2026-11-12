@@ -27,14 +27,14 @@ RAIZ = Path(__file__).resolve().parents[3]
 CONTRATOS = RAIZ / "contratos" / "eventos"
 
 #: Os trinta e oito do dicionario §3.5, emenda 1.11.
-ESPERADOS = 38
+ESPERADOS = 40
 
 #: Os sete do `docs/tecnica/06` §7.3.
 PROIBIDOS = ("telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email")
 
 
 #: Os contratos: 76 ficheiros em 38 pastas, desde o KAM-159.
-ESPERADOS_CONTRATOS = 76
+ESPERADOS_CONTRATOS = 80
 
 
 def versoes_de(tipo: str) -> list[int]:

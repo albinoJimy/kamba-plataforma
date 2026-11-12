@@ -565,7 +565,7 @@ enquanto *gate*.
 > `registry/gates.yaml`: o *modo* de cada validação de arranque do §5.2, com o
 > ticket que a desbloqueia). A forma lê-se pela chave de topo e **nunca** pelo
 > nome do ficheiro. As chaves de topo de cada forma são listas fechadas, cada
-> nome de limite é confrontado com as dez chaves do dicionário §3.2, e um
+> nome de limite é confrontado com as onze chaves do dicionário §3.2, e um
 > ficheiro que não seja **nenhuma** das três falha — não passa por não ter sido
 > lido.
 >

@@ -25,6 +25,7 @@ import {
   Adiar,
   ESCADA_DO_CONSUMIDOR,
   ESTADOS_DA_ENCOMENDA,
+  ESTADOS_DE_EXCEPCAO,
   ESTADOS_INCOMPATIVEIS,
   ESTADO_PRETENDIDO,
   type Envelope,
@@ -45,6 +46,7 @@ import {
   atrasoDaTentativaDoConsumidor,
   consumir,
   eEstado,
+  estadoDeExcepcao,
   estadoIncompativel,
   lerEnvelope,
   podeTransitar,
@@ -424,7 +426,10 @@ describe("consumir()", () => {
 
   it("é fora_de_ordem quando o seq vem atrasado E a transição é inválida", async () => {
     bd.ultimoSeq = 7;
-    const maquina = new MaquinaFalsa("paga");
+    // `criada` e nao `paga`: desde o KAM-050 um pagamento sobre uma encomenda
+    // paga e a regra 4 do §6.6 (estado de excepcao), e nao uma transicao
+    // invalida. `criada -> paga` continua a ser-o.
+    const maquina = new MaquinaFalsa("criada");
     await assert.rejects(
       consumir(
         {
@@ -542,7 +547,8 @@ describe("processar(): a política das seis tentativas", () => {
             agregado: { tipo: "order", id: "9b2f6c1a-7e3d-4c80-b5a1-2d9e8f7a6b50", seq: 2 },
           }),
         }),
-        maquina: new MaquinaFalsa("paga"),
+        // `criada`, pela razao escrita no ensaio do `consumir` acima (KAM-050).
+        maquina: new MaquinaFalsa("criada"),
       },
       async () => {},
     );
@@ -594,44 +600,30 @@ describe("processar(): a política das seis tentativas", () => {
   });
 });
 
-describe("o estado incompatível do KAM-055", () => {
-  it("são os dois terminais, e só para os dois eventos que pagam", () => {
+describe("o estado incompatível do KAM-055, esvaziado pelo KAM-050", () => {
+  it("as listas existem para os dois eventos que pagam, e estão vazias", () => {
     assert.deepEqual(Object.keys(ESTADOS_INCOMPATIVEIS).sort(), [
       "payment.confirmed",
       "payment.manual_confirmed",
     ]);
     for (const tipo of Object.keys(ESTADOS_INCOMPATIVEIS)) {
-      assert.deepEqual([...(ESTADOS_INCOMPATIVEIS[tipo] ?? [])].sort(), [
-        "cancelada",
-        "expirada",
-      ]);
+      // **Vazias**, e isso é o KAM-050: os dois estados que o KAM-055 mandava
+      // para a DLQ passaram a ter caminho — `expirada` é o pagamento tardio e
+      // `cancelada` é a regra 3 do `docs/tecnica/03` §6.6. Um pagamento
+      // autenticado é dinheiro real em qualquer estado.
+      assert.deepEqual([...(ESTADOS_INCOMPATIVEIS[tipo] ?? [])], []);
     }
-    // E os dois são exactamente os do `ESTADO_PRETENDIDO`: uma lista a mais
-    // declarava um estado terminal para um evento que não transita nada.
     assert.deepEqual(
       Object.keys(ESTADOS_INCOMPATIVEIS).sort(),
       Object.keys(ESTADO_PRETENDIDO).sort(),
     );
   });
 
-  it("diz sim aos dois terminais e não ao estado de onde se paga", () => {
-    assert.ok(estadoIncompativel("payment.confirmed", "expirada"));
-    assert.ok(estadoIncompativel("payment.confirmed", "cancelada"));
-    assert.ok(!estadoIncompativel("payment.confirmed", "aguarda_pagamento"));
-    assert.ok(!estadoIncompativel("payment.confirmed", "pendente_confirmacao"));
-  });
-
-  it("não é a mesma pergunta que o podeTransitar, e o expirada prova-o", () => {
-    // **O caso que obriga a verificação a vir antes.** A aresta
-    // `expirada → paga` está na TRANSICOES de propósito (pagamento tardio do
-    // Multicaixa), pelo que o `podeTransitar` diz «pode» — e se a
-    // classificação corresse depois dele, o efeito aplicava uma transição que o
-    // grafo da base recusa. O `cancelada` não tem arestas e diz «não», que é o
-    // caminho do adiamento: dois estados, dois sítios errados, um código certo.
-    assert.ok(TRANSICOES.expirada.includes("paga"));
-    assert.ok(podeTransitar("expirada", "paga"));
-    assert.ok(!podeTransitar("cancelada", "paga"));
-    assert.ok(estadoIncompativel("payment.confirmed", "expirada"));
+  it("nem expirada nem cancelada são incompatíveis", () => {
+    assert.ok(!estadoIncompativel("payment.confirmed", "expirada"));
+    assert.ok(!estadoIncompativel("payment.confirmed", "cancelada"));
+    assert.ok(!estadoIncompativel("payment.manual_confirmed", "expirada"));
+    assert.ok(!estadoIncompativel("payment.manual_confirmed", "cancelada"));
   });
 
   it("um estado desconhecido lança, como no podeTransitar", () => {
@@ -646,7 +638,59 @@ describe("o estado incompatível do KAM-055", () => {
   });
 });
 
-describe("consumir() sobre um estado terminal", () => {
+describe("os estados de excepção do KAM-050", () => {
+  it("são a cancelada e os sete a partir de paga, para os dois que pagam", () => {
+    // Escritos à mão e não lidos do módulo: um oráculo importado do alvo fica
+    // verde com o alvo errado.
+    const esperados = [
+      "cancelada",
+      "em_disputa",
+      "em_entrega",
+      "entrega_falhada",
+      "entregue",
+      "paga",
+      "reembolsada",
+      "reembolso_pendente",
+    ];
+    assert.deepEqual(Object.keys(ESTADOS_DE_EXCEPCAO).sort(), [
+      "payment.confirmed",
+      "payment.manual_confirmed",
+    ]);
+    for (const tipo of Object.keys(ESTADOS_DE_EXCEPCAO)) {
+      assert.deepEqual([...(ESTADOS_DE_EXCEPCAO[tipo] ?? [])].sort(), esperados);
+    }
+  });
+
+  it("os estados de onde se paga não são de excepção, e o expirada também não", () => {
+    // `expirada` chega ao efeito pelo `podeTransitar`, que já aceitava a
+    // aresta `expirada → paga`; não precisa da lista, e estar nela escondia que
+    // é a única das três excepções que transita.
+    for (const estado of ["criada", "aguarda_pagamento", "pendente_confirmacao", "expirada"]) {
+      assert.ok(!estadoDeExcepcao("payment.confirmed", estado), estado);
+    }
+    assert.ok(podeTransitar("expirada", "paga"));
+  });
+
+  it("todo o estado é de onde se paga, de excepção, ou criada", () => {
+    // A partição que torna impossível um pagamento ficar a adiar até à DLQ: os
+    // doze estados caem num de três sítios, e só `criada` espera.
+    for (const estado of ESTADOS_DA_ENCOMENDA) {
+      const pode = podeTransitar(estado, "paga");
+      const excepcao = estadoDeExcepcao("payment.confirmed", estado);
+      assert.ok(!(pode && excepcao), `${estado} esta nos dois`);
+      if (!pode && !excepcao) assert.equal(estado, "criada");
+    }
+  });
+
+  it("um estado desconhecido lança", () => {
+    assert.throws(
+      () => estadoDeExcepcao("payment.confirmed", "pago"),
+      EstadoDesconhecidoError,
+    );
+  });
+});
+
+describe("consumir() sobre os estados do KAM-050", () => {
   let bd: BdFalsa;
   let metricas: Metricas;
 
@@ -655,40 +699,96 @@ describe("consumir() sobre um estado terminal", () => {
     metricas = new Metricas();
   });
 
-  for (const estado of ["expirada", "cancelada"] as const) {
-    it(`recusa um payment.confirmed numa encomenda ${estado}, sem aplicar nada`, async () => {
+  for (const estado of ["expirada", "cancelada", "paga", "reembolsada"] as const) {
+    it(`aplica o efeito a um payment.confirmed numa encomenda ${estado}`, async () => {
       const feitos: string[] = [];
-      await assert.rejects(
-        consumir(
-          {
-            bd,
-            consumer: CONSUMER,
-            envelope: envelope({ tipo: "payment.confirmed" }),
-            exigeOrdem: true,
-            maquina: new MaquinaFalsa(estado),
-            metricas,
-          },
-          async () => {
-            feitos.push("efeito");
-          },
-        ),
-        (erro: unknown) => {
-          assert.ok(erro instanceof EstadoIncompativel);
-          assert.equal(erro.estado, estado);
-          return true;
+      const resultado = await consumir(
+        {
+          bd,
+          consumer: CONSUMER,
+          envelope: envelope({ tipo: "payment.confirmed" }),
+          exigeOrdem: true,
+          maquina: new MaquinaFalsa(estado),
+          metricas,
+        },
+        async () => {
+          feitos.push("efeito");
         },
       );
-      assert.deepEqual(feitos, [], "o efeito não corre");
-      assert.ok(bd.instrucoes.includes("ROLLBACK"), "e a marca desfaz-se");
+      assert.equal(resultado.desfecho, "aplicado");
+      assert.deepEqual(feitos, ["efeito"], "o efeito corre uma vez");
+      assert.ok(bd.instrucoes.includes("COMMIT"));
     });
   }
 
-  it("o código é o que o critério 7 escreve, e não um nome parecido", () => {
+  it("um segundo pagamento com seq atrasado numa encomenda paga aplica, e não é fora_de_ordem", async () => {
+    // Dois pagamentos reais entregues fora de ordem: o de seq maior pagou a
+    // encomenda, e o de seq menor chega depois. É dinheiro que entrou, e o
+    // efeito tem de pedir o reembolso — a DLQ perdia-o.
+    bd.ultimoSeq = 99;
+    const feitos: string[] = [];
+    const resultado = await consumir(
+      {
+        bd,
+        consumer: CONSUMER,
+        envelope: envelope({ tipo: "payment.confirmed" }),
+        exigeOrdem: true,
+        maquina: new MaquinaFalsa("paga"),
+        metricas,
+      },
+      async () => {
+        feitos.push("efeito");
+      },
+    );
+    assert.equal(resultado.desfecho, "aplicado");
+    assert.deepEqual(feitos, ["efeito"]);
+  });
+
+  it("um seq atrasado numa transição inválida continua a ser fora_de_ordem", async () => {
+    bd.ultimoSeq = 99;
+    await assert.rejects(
+      consumir(
+        {
+          bd,
+          consumer: CONSUMER,
+          envelope: envelope({ tipo: "payment.confirmed" }),
+          exigeOrdem: true,
+          maquina: new MaquinaFalsa("criada"),
+          metricas,
+        },
+        async () => {
+          assert.fail("o efeito nao corre");
+        },
+      ),
+      ForaDeOrdem,
+    );
+  });
+
+  it("criada continua a adiar: a referência ainda não foi emitida", async () => {
+    await assert.rejects(
+      consumir(
+        {
+          bd,
+          consumer: CONSUMER,
+          envelope: envelope({ tipo: "payment.confirmed" }),
+          exigeOrdem: true,
+          maquina: new MaquinaFalsa("criada"),
+          metricas,
+        },
+        async () => {
+          assert.fail("o efeito nao corre sobre criada");
+        },
+      ),
+      Adiar,
+    );
+  });
+
+  it("o código do estado incompatível continua o do critério 7 do KAM-055", () => {
     assert.equal(EstadoIncompativel.CODIGO, "estado_incompativel");
   });
 });
 
-describe("processar() sobre um estado terminal", () => {
+describe("processar() com um efeito que declara o estado incompatível", () => {
   let bd: BdFalsa;
   let metricas: Metricas;
 
@@ -698,43 +798,30 @@ describe("processar() sobre um estado terminal", () => {
   });
 
   it("vai à DLQ à primeira tentativa, e não depois das seis", async () => {
+    // A classificação continua a existir para quem a levante — hoje nenhuma
+    // lista a usa, e um efeito pode. Mede-se aqui para que o mecanismo não
+    // apodreça calado enquanto as listas estão vazias.
     const resultado = await processar(
       {
         bd,
         consumer: CONSUMER,
         envelope: envelope({ tipo: "payment.confirmed" }),
         exigeOrdem: true,
-        maquina: new MaquinaFalsa("expirada"),
+        maquina: new MaquinaFalsa("aguarda_pagamento"),
         metricas,
         tentativa: 1,
       },
-      async () => {},
+      async () => {
+        throw new EstadoIncompativel("aguarda_pagamento", "ensaio");
+      },
     );
     assert.equal(resultado.desfecho, "dlq");
     assert.equal(resultado.erro, EstadoIncompativel.CODIGO);
-    // **À primeira**, e isso é a diferença que se mede: pelo caminho do
-    // `Adiar` seriam seis tentativas e meia hora de fila para acabar em
-    // `adiado_sem_resolver`, que esconde a razão a quem abre a entrada.
     assert.equal(
       parametro(bd, "INSERT INTO platform.events_dlq", 6),
       EstadoIncompativel.CODIGO,
     );
     assert.equal(parametro(bd, "INSERT INTO platform.events_dlq", 7), 1);
-  });
-
-  it("não conta retentativa: não há nada a retentar", async () => {
-    await processar(
-      {
-        bd,
-        consumer: CONSUMER,
-        envelope: envelope({ tipo: "payment.confirmed" }),
-        exigeOrdem: true,
-        maquina: new MaquinaFalsa("cancelada"),
-        metricas,
-        tentativa: 1,
-      },
-      async () => {},
-    );
     assert.equal(metricas.ler()[`${METRICA_RETENTATIVAS}:adiado`], undefined);
     assert.equal(metricas.ler()[`${METRICA_RETENTATIVAS}:erro`], undefined);
   });

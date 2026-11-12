@@ -17,10 +17,10 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os trinta e oito **tipos** do dicionario §3.5, emenda 1.11. Escritos aqui a
+#: Os quarenta **tipos** do dicionario §3.5 (38 da emenda 1.11 e 2 do KAM-050). A
 #: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
-ESPERADOS = 38
+ESPERADOS = 40
 
 #: As versoes publicadas de cada tipo. Sao **duas** desde o KAM-159, que
 #: acrescentou a `v2` a todos: a uniao das finalidades de consentimento alarga

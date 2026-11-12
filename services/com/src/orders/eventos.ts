@@ -43,14 +43,20 @@ import {
   TIPO_CREATED,
   TIPO_DELIVERED,
   TIPO_EXPIRED,
+  TIPO_EXCEPTION,
   TIPO_PAID,
+  TIPO_REFUND_REQUESTED,
   VERSAO_CANCELLED,
   VERSAO_CREATED,
   VERSAO_DELIVERED,
+  VERSAO_EXCEPTION,
   VERSAO_EXPIRED,
   VERSAO_PAID,
+  VERSAO_REFUND_REQUESTED,
   type ClienteSql,
+  type Excepcao,
   type LinhaDaEncomenda,
+  type MotivoDeReembolso,
 } from "./contrato.ts";
 import { SQL_EMITIR } from "./consultas.ts";
 
@@ -183,6 +189,49 @@ export function payloadDeEntregue(
 }
 
 /**
+ * O payload de `order.exception` (KAM-050).
+ *
+ * Três campos e nenhum de texto livre. O `evento_pagamento_id` é o `id` do
+ * `payment.*` que causou a excepção, e é o que deixa ops ir do alerta ao
+ * pagamento no *ledger* sem adivinhar qual dos dois de um duplicado é o
+ * segundo. É um identificador de evento, não de pessoa.
+ */
+export function payloadDeExcepcao(
+  orderId: string,
+  excepcao: Excepcao,
+  eventoPagamentoId: string,
+): Record<string, unknown> {
+  return {
+    order_id: orderId,
+    excepcao,
+    evento_pagamento_id: eventoPagamentoId,
+  };
+}
+
+/**
+ * O payload de `order.refund_requested` (KAM-050).
+ *
+ * O `valor_minor` é **o do dinheiro a devolver**, e não o total da encomenda,
+ * quando os dois diferem: nas regras 3 e 4 do §6.6 é o valor do pagamento que
+ * chegou a mais; nas arestas para `reembolso_pendente` é o total, que é o que o
+ * cliente pagou. Nenhum dos dois é movido pela plataforma (ADR-004): este
+ * evento **pede** o caso, e quem devolve é a PME, a partir da conta dela.
+ */
+export function payloadDeReembolsoPedido(
+  orderId: string,
+  motivo: MotivoDeReembolso,
+  valorMinor: bigint,
+  currency: string,
+): Record<string, unknown> {
+  return {
+    order_id: orderId,
+    motivo,
+    valor_minor: emInteiroSeguro(valorMinor, `valor_minor de ${orderId}`),
+    currency,
+  };
+}
+
+/**
  * Emite um evento e devolve o `event_id`.
  *
  * O `agregado.tipo` é `order` nos cinco (é `const` em todos os contratos) e o
@@ -216,11 +265,13 @@ export async function emitir(
   return id;
 }
 
-/** O tipo e a versão de cada um dos cinco, para quem emite. */
+/** O tipo e a versão de cada um dos sete, para quem emite. */
 export const EMISSOES = {
   criada: { tipo: TIPO_CREATED, versao: VERSAO_CREATED },
   paga: { tipo: TIPO_PAID, versao: VERSAO_PAID },
   expirada: { tipo: TIPO_EXPIRED, versao: VERSAO_EXPIRED },
   cancelada: { tipo: TIPO_CANCELLED, versao: VERSAO_CANCELLED },
   entregue: { tipo: TIPO_DELIVERED, versao: VERSAO_DELIVERED },
+  excepcao: { tipo: TIPO_EXCEPTION, versao: VERSAO_EXCEPTION },
+  reembolso: { tipo: TIPO_REFUND_REQUESTED, versao: VERSAO_REFUND_REQUESTED },
 } as const;
