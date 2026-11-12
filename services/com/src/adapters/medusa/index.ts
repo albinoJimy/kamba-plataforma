@@ -139,10 +139,15 @@ import {
   RELOGIO_DO_SISTEMA,
   SQL_AUDITAR,
   SQL_EMITIR,
+  alterarOferta as alterarOfertaDoModulo,
   confirmacaoValida,
   getOfferView as getOfferViewDoModulo,
+  listarOfertas as listarOfertasDoModulo,
   publishProduct as publishProductDoModulo,
   upsertProductDraft as upsertProductDraftDoModulo,
+  type AlteracaoDeOferta,
+  type ListaDoPainel,
+  type OfertaDoPainel,
   type RascunhoDeProduto,
   type Relogio,
 } from "../../produtos/index.ts";
@@ -931,6 +936,15 @@ export interface OperacoesDoCom {
   ): Promise<ResultadoFinal<Proposta>>;
   /** A *saga* do §6.3, idempotente por `intent_key`. */
   createOrder(ctx: Ctx, pedido: PedidoDeCriacao): Promise<ResultadoDaCriacao>;
+  /**
+   * As ofertas do tenant, para o painel do dono (KAM-099). Lê e não escreve.
+   *
+   * **Não é método da porta**, pela razão do `proposeCart`: o §3.39 fecha-a em
+   * doze, e a lista de edição é de um consumidor só, o painel.
+   */
+  listarOfertas(ctx: Ctx): Promise<Resultado<ListaDoPainel>>;
+  /** Preço e stock de uma oferta, com CAS sobre o `atualizado_at` (KAM-099). */
+  alterarOferta(ctx: Ctx, a: AlteracaoDeOferta): Promise<Resultado<OfertaDoPainel>>;
 }
 
 /**
@@ -996,6 +1010,14 @@ export function operacoesDoCom(
             )),
       };
       return createOrderDaSaga(montagem, pedido);
+    },
+
+    async listarOfertas(ctx: Ctx) {
+      return comRegisto(deps, ctx, (r) => listarOfertasDoModulo(r));
+    },
+
+    async alterarOferta(ctx: Ctx, a: AlteracaoDeOferta) {
+      return comRegisto(deps, ctx, (r) => alterarOfertaDoModulo(r, a));
     },
   };
 }

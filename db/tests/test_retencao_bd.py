@@ -566,7 +566,9 @@ class TestDowngradeDa0042(ComBase):
 
     def test_desce_sobe_e_o_dominio_volta_as_nove(self) -> None:
         exigir_base_descartavel()
-        alembic_ok("downgrade", "-1")
+        # Para a `0041` e nao `-1`: desde a `0043` (KAM-087) a `0042` ja nao e
+        # o topo, e um degrau so parava nela.
+        alembic_ok("downgrade", "0041")
         self.assertEqual(self._presentes(), set(TABELAS_ATE_0041))
         [(definicao,)] = self.consultar(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
@@ -588,7 +590,7 @@ class TestDowngradeDa0042(ComBase):
                 " 'efectiva', 'ok', NULL, 1, 'v', now())")
             conexao.commit()
             with mock.patch.dict("os.environ", {"KAMBA_DOWNGRADE_0042_COPIA": ""}):
-                resultado = alembic("downgrade", "-1")
+                resultado = alembic("downgrade", "0041")
             self.assertNotEqual(resultado.returncode, 0)
             self.assertIn("KAMBA_DOWNGRADE_0042_COPIA", resultado.stderr + resultado.stdout)
             self.assertIn("purge_log", self._presentes())

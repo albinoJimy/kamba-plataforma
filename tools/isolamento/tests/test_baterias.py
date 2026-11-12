@@ -121,6 +121,7 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             + x01_rotas.ROTAS_DA_API_INTERNA_DO_COM
             + x01_rotas.ROTAS_DA_INSCRICAO
             + x01_rotas.ROTAS_DO_GUIA
+            + x01_rotas.ROTAS_DO_PAINEL
         )
         # **As tres listas do AGR subtraem-se, e nao duas.** O conjunto de
         # TypeScript deriva-se por subtraccao, pelo que uma lista nova do AGR
@@ -135,11 +136,11 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         )
         self.assertEqual(set(declaradas), enumeradas)
 
-    def test_as_nove_superficies_da_api_interna_do_com(self) -> None:
-        """As nove do KAM-178 sao **exactamente** as que a enumeracao da ao COM.
+    def test_as_onze_superficies_da_api_interna_do_com(self) -> None:
+        """As onze (KAM-178 e KAM-099) sao **exactamente** as que a enumeracao da ao COM.
 
         A lista de cima ja apanharia uma divergencia, mas apanha-a somada as
-        outras tres. Esta diz o que importa dizer: no dia em que uma oitava rota
+        outras tres. Esta diz o que importa dizer: no dia em que uma decima rota
         entrar na constante `ROTAS` de `services/com/src/api/interna.ts`, e este
         ensaio que fica vermelho e nomeia o sitio.
         """
@@ -153,15 +154,15 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         # ficheiro escreve: derivar esta lista da outra fazia uma sonda nova do
         # COM nascer coberta aqui. Quem apanha a divergencia entre a enumeracao
         # e a lista declarada e o `test_as_rotas_de_typescript`; o que este
-        # ensaio prende e as **nove** rotas da API interna.
+        # ensaio prende e as **onze** superficies da API interna.
         esperadas = set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM) | {
             "rota:com:app:createApp:GET:/healthz",
             "rota:com:payments/arranque:criarApp:GET:/healthz",
             "rota:com:payments/arranque:criarApp:GET:/metrics",
         }
         self.assertEqual(do_com, esperadas)
-        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 9)
-        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 9)
+        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 11)
+        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 11)
 
     def test_as_onze_tools(self) -> None:
         declaradas = set(x02_tools.TOOLS_LIGADAS) | set(x02_tools.TOOLS_DECLARADAS)
@@ -186,10 +187,10 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
 
 
 class TestOsAceitaveisPorItem(unittest.TestCase):
-    """Os nove itens do COM nao respondem todos a mesma coisa.
+    """Os onze itens do COM nao respondem todos a mesma coisa.
 
     O `GET /metrics` responde **200** e o `ALL /internal/*` responde **503**; as
-    sete `POST /internal/*` respondem recusa. A sobreposicao e por item, e e
+    nove `POST /internal/*` respondem recusa. A sobreposicao e por item, e e
     isso que estes dois canarios fixam: alargar o `RECUSAS_ACEITAVEIS` global
     para acomodar o 200 fazia **todos** os outros casos deixar de apanhar um 200
     a um identificador de outro tenant, que e a falha que a bateria existe para
