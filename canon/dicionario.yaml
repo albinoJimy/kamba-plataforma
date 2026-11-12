@@ -14929,6 +14929,8 @@ entradas:
       - "kamba_app"
       - "SELECT"
       - "INSERT"
+      - "UPDATE"
+      - "DELETE"
       - "onboarding_case"
     variantes_literais: []
   - seccao: "3.58"

@@ -1393,6 +1393,26 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A decisao de screening (KAM-088, revisao `0044`). **Append-only por
+#: privilegio e por *trigger***: a aplicacao corre o `screen` e escreve, o
+#: lote le para a re-analise do catalogo, a auditoria le, e ninguem altera
+#: nem apaga. O recurso humano e uma linha nova.
+ESPERADO_POR_TABELA.update(
+    {
+        "screening_decision": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que

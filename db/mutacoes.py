@@ -272,6 +272,10 @@ PARTICOES = "db/particoes.py"
 #: auxiliar e o das consultas no TypeScript, que a suite executa tal como esta.
 KYC_DDL = "db/kyc.py"
 KYC_SQL = "packages/core-ts/src/kyc/sql.ts"
+#: KAM-088: a decisao de screening. O DDL vive na revisao; as consultas no
+#: TypeScript, que a suite executa tal como esta.
+REV44 = "db/migrations/versions/0044_screening_de_categorias.py"
+SCREENING_SQL = "packages/core-ts/src/screening/sql.ts"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7104,6 +7108,30 @@ MUTACOES = [
      "tests"),
     # O motivo interno chegava ao servico do dono (criterio 7). O
     # `test_quem_pode_o_que` tem de a matar.
+
+    # ------------------------------------------- KAM-088 (revisao `0044`)
+    #
+    # Tres, e cada uma tira uma barreira que so a base tem.
+    ('screening: o criado_at passa a ser o da transaccao', REV44,
+     "criado_at        timestamptz NOT NULL DEFAULT clock_timestamp(),",
+     "criado_at        timestamptz NOT NULL DEFAULT now(),",
+     "tests"),
+    # Duas decisoes na mesma transaccao empatavam e o `id` aleatorio decidia
+    # qual valia (F17). O `test_o_criado_at_e_do_relogio_e_nao_da_transaccao`
+    # tem de a matar.
+    ('screening: a aplicacao passa a emendar decisoes', REV44,
+     'GRANT SELECT, INSERT ON platform.screening_decision TO kamba_app',
+     'GRANT SELECT, INSERT, UPDATE ON platform.screening_decision TO kamba_app',
+     "tests"),
+    # Uma `bloqueada` emendada para `permitida` publicava sem rasto. O
+    # `test_ninguem_emenda_nem_apaga` tem de a matar (o `42501` vira `55000`).
+    ('screening: a categoria do tenant passa a ser a mais antiga', SCREENING_SQL,
+     "ORDER BY c.criado_at DESC, c.id DESC LIMIT 1",
+     "ORDER BY c.criado_at ASC, c.id DESC LIMIT 1",
+     "tests"),
+    # A re-analise lia a categoria que o dono ja trocou. O
+    # `test_o_lote_ve_os_publicados_sem_decisao_com_a_categoria_mais_recente`
+    # tem de a matar.
 ]
 
 

@@ -320,6 +320,8 @@ class TestCatalogoReal(ComBase):
                 # mesmo PR, pela licao que a nota do KAM-017 escreveu.
                 ("platform", "purge_log", "tenant_id"),
                 ("platform", "refund_cases", "tenant_id"),
+                # KAM-088: a decisao de screening («ref» < «scr» < «sto»).
+                ("platform", "screening_decision", "tenant_id"),
                 # KAM-045: a reserva de stock, entre o caso de reembolso e o
                 # canal («ref» < «sto» < «ten»). A nota do KAM-044 mais abaixo
                 # vale outra vez: sao **tres** as listas deste ficheiro que
@@ -613,6 +615,9 @@ class TestCatalogoReal(ComBase):
                 # estas duas entre elas: o `ORDER BY 1, 2` e por tabela **e**
                 # por politica, e so a suite contra a base o mostrou.
                 ("resources", "tenant_iso", "ALL", "{public}"),
+                # KAM-088: a decisao de screening, entre `resources` e
+                # `services` pela colacao `C` («res» < «scr» < «ser»).
+                ("screening_decision", "tenant_iso", "ALL", "{public}"),
                 ("services", "tenant_iso", "ALL", "{public}"),
                 # KAM-045: **uma** politica, a `tenant_iso`, como as outras
                 # tabelas de `platform` que nao sao lidas pelo resolvedor. Entre
@@ -786,6 +791,8 @@ class TestCatalogoReal(ComBase):
              # KAM-071: o registo da purga.
              "purge_log",
              "refund_cases",
+             # KAM-088: a decisao de screening.
+             "screening_decision",
              # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
              "stock_reservations",
              "tenant_channels",

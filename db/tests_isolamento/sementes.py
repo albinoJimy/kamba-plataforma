@@ -1855,6 +1855,16 @@ SEM_RECEITA_COM_RAZAO = {
     # `db/tests/test_kyc_schema.py` prova a `tenant_iso` com o `tenant_id` nos
     # dois lados e a RLS ligada e forcada, e a FK composta para o caso.
     ("platform", "kyc_check"),
+    # KAM-088: a decisao de screening, pela razao da `contract_acceptance`: e
+    # *append-only* por privilegio **e** por *trigger* — nenhum papel tem
+    # `UPDATE` (as receitas precisam de uma coluna alteravel) nem `DELETE`, e
+    # o *trigger* recusa tambem ao administrador o `DELETE` com que as
+    # receitas limpam. **A politica mede-se noutro sitio**: o
+    # `test_a_aplicacao_escreve_no_seu_tenant_e_nao_ve_o_dos_outros` do
+    # `db/tests/test_screening_schema.py` le com o contexto de B a linha de A
+    # (zero) e escreve com o contexto de B uma linha de A (`42501`), pela
+    # ligacao da aplicacao.
+    ("platform", "screening_decision"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo

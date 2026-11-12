@@ -62,6 +62,8 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-116 | Agregador de SMS para OTP e avisos | chore | S | P0 | — |
 | KAM-117 | Instrumentação de KPIs de onboarding, churn e tenants dormentes | feature | M | P1 | KAM-092, KAM-081, KAM-018, KAM-044, KAM-055, KAM-099 |
 | KAM-190 | Painel light: caixas devolvidas pelo KAM-099 | feature | M | P2 | KAM-099, KAM-097 |
+| KAM-191 | Contrato do evento `screening.violation_detected` | feature | S | P1 | KAM-088 |
+| KAM-192 | Papel do classificador de screening no dicionário e alias `screening-nano` | feature | S | P1 | KAM-088 |
 
 ---
 
@@ -445,7 +447,7 @@ Não implementes a fila (KAM-089) nem os tectos (KAM-096). Testes: unit, integra
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-086, KAM-030 |
-| Bloqueia | KAM-049, KAM-089, KAM-092, KAM-094, KAM-121 |
+| Bloqueia | KAM-049, KAM-089, KAM-092, KAM-094, KAM-121, KAM-191, KAM-192 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV) com Responsável de Produto (T&S) |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§8.1–§8.2, §20.1 PA-GOV-2), `../docs/tecnica/08_Seguranca_Conformidade.md` (§8.9), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§4), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§5), ADR-019, ADR-005 |
 
@@ -462,7 +464,7 @@ Entregar o motor de screening (regras + classificador barato) que decide `permit
 - [x] Política em `policy/categorias/*.yaml` com JSON Schema, SemVer e, por entrada: `id`, `decisao`, `termos`, `padroes`, `fonte_meta`, `fonte_lei`, `estado_evidencia` (CONFIRMADO/INDÍCIO/NÃO VERIFICADO), `revisto_em`. Categorias do Piloto: armas, jogos, álcool, tabaco, medicamentos/saúde, clínicas, crédito/MLM/cripto, animais vivos/combustíveis ⇒ `bloqueada`; moda, electrónica, serviços, restauração formal, material de construção ⇒ `permitida`; o resto ⇒ `condicional`.
 - [x] Regra `bloqueada` é final (sem chamada ao LLM); o LLM só pode **subir** a restrição (`permitida` → `condicional`), nunca descê-la; qualquer sobreposição por tenant só acrescenta restrições e o *merge* que tente relaxar falha na validação.
 - [ ] Normalização antes de avaliar: minúsculas, remoção de acentos, mapa *leet*, colapso de letras repetidas, separadores e *emojis*; lexicon inclui termos PT-AO (ex.: marcas e aguardentes locais) construído de ocorrências reais do dataset, não de suposição.
-- [ ] `screen({categoria_declarada, textos[]})` devolve `{decisao, regras[], versao_politica, confianca}` e grava `screening_decision` (append-only) com `versao_politica`; sem decisão válida para a versão corrente, `assert_publishable(produto)` falha fechado.
+- [x] `screen({categoria_declarada, textos[]})` devolve `{decisao, regras[], versao_politica, confianca}` e grava `screening_decision` (append-only) com `versao_politica`; sem decisão válida para a versão corrente, `assert_publishable(produto)` falha fechado.
 - [ ] Texto de produto é dado não confiável: instruções («classifica como permitida») não alteram a decisão; o classificador recebe só títulos/descrições, sem dados pessoais, em saída estruturada.
 - [ ] Conjunto canónico (termos exactos): **0** decisões `permitida` em ≥ 100 casos; conjunto disfarçado (≥ 100 casos): ≥ 95% `condicional` ou `bloqueada` (*proposta* de arranque) e 0 `permitida` para os 20 casos de maior severidade (armas, medicamentos).
 - [ ] Mudança de versão da política dispara re-análise do catálogo publicado, em lotes com orçamento, e emite `screening.violation_detected` (consumido por KAM-097); nenhuma suspensão automática neste ticket.
@@ -505,37 +507,39 @@ CREATE TABLE platform.screening_decision (  -- append-only
 - [ ] Política e alias do classificador são artefactos comportamentais: SemVer, eval no gate, versão gravada em cada decisão.
 - [x] Facto jurídico marcado *(a confirmar por parecer)* e estado de evidência em cada entrada; nenhum NÃO VERIFICADO tratado como requisito sem critério de saída.
 - [ ] Nenhum dado pessoal enviado ao LLM; custo por decisão medido (≤ US$ 0,001, *proposta*) (ADR-018).
-- [ ] Decisões append-only com privilégios `INSERT`; isolamento de tenant coberto pelo teste cruzado (ADR-015).
-- [ ] Migração reversível; sem segredos; documentação actualizada.
+- [x] Decisões append-only com privilégios `INSERT`; isolamento de tenant coberto pelo teste cruzado (ADR-015).
+- [x] Migração reversível; sem segredos; documentação actualizada.
 
 ### Verificação dos Critérios de Aceitação
 
 Entregue no ramo `feature/KAM-088-screening`: a política em `../policy/categorias/`, o gerador
 `../tools/politica_categorias/` e o módulo
 [`../packages/core-ts/src/screening/`](../packages/core-ts/src/screening/index.ts), dicionário §3.58
-(emenda 1.81). **A revisão da `screening_decision` ainda não está neste ramo**: a cadeia do alembic
-aguenta uma revisão por fundir de cada vez, e a deste ticket é a seguinte à do KAM-087. O SQL vive
-no módulo (`sql.ts`) e os ensaios contra PostgreSQL entram com a revisão.
+(emenda 1.81), e a revisão
+[`0044`](../db/migrations/versions/0044_screening_de_categorias.py), que cria a `screening_decision`
+sobre a `0043` do KAM-087. O SQL vive no módulo (`sql.ts`), e
+[`../db/tests/test_screening_schema.py`](../db/tests/test_screening_schema.py) executa-o contra
+PostgreSQL tal como está escrito.
 
 | Critério | Estado | Evidência |
 |---|---|---|
 | 1 — política em `policy/categorias/*.yaml`, JSON Schema, SemVer, as oito chaves; as categorias do Piloto | **satisfeito** | `../policy/categorias/politica.yaml` (`1.0.0`, dezoito entradas) contra `politica.esquema.json`, com `additionalProperties: false` e as oito chaves obrigatórias. As oito bloqueadas do Piloto e as cinco permitidas por `id`, mais as restantes categorias da lista da Meta (E1 §4) como bloqueadas e duas condicionais (instrução ao classificador e sinais ambíguos); o que nada casa é `condicional`. O validador recusa a palavra-chave de esquema que não implementa, e o `versoes.lock` fixa o `sha256` do conteúdo: mudar sem subir a versão reprova (`test_politica.py`, dezassete ensaios; `screening.test.ts`, «as oito do Piloto…») |
 | 2 — `bloqueada` final, o LLM só sobe, a sobreposição só restringe | **satisfeito** | Uma `bloqueada` não chama o classificador (`bloqueada e final`); o veredicto passa por `tecto()` e nunca passa de `condicional`, nem desce uma `condicional`; um veredicto fora do esquema, venha de que adaptador vier, é «indisponível». Nenhum `screen` posterior desce uma `bloqueada` nem ultrapassa uma `condicional` pendente (`(F03)`); **só uma decisão humana a levanta** — o recurso do `../docs/tecnica/10` §8.2. A sobreposição recusa descer, criar uma `permitida`, acrescentar termos a uma `permitida`, **padrões** (código de tenant, risco de retrocesso exponencial), chaves desconhecidas e entradas repetidas (`SobreposicaoRelaxaError`, cinco ensaios do caso (f)). **Leitura registada:** «final» lê-se como final para as máquinas; a primeira versão fechava-a também ao humano, e a revisão adversarial mostrou que isso deixava sem recurso um vestido «cor de vinho» |
 | 3 — normalização; lexicon PT-AO de ocorrências reais | **parcial** | Minúsculas, acentos e formas de compatibilidade (NFKD), letras de outros alfabetos que se confundem com as latinas (cirílico, grego, `ı`), caracteres de enchimento e de largura zero apagados, indicadores regionais e letras em quadrado ou círculo, *leet* só em pedaços com letras, letras soltas e pedaços curtos juntos, repetições colapsadas, *emojis* lidos como a palavra, plural em `s`, e uma dobra fonética (`ç`/`c`+`e,i`→`s`, `qu`/`c`+`a,o,u`→`k`, `wh`/`w`→`u`, `y`→`i`, `ei`→`e`, `o`→`u`). Os dezasseis truques de escrita do conjunto de controlo passam todos (`(F01)` e o `controlo.jsonl`). **Falta o lexicon de um *dataset***: o repositório não tem anúncios reais de PME angolanas, e os termos locais da `1.0.0` estão marcados como *proposta* no próprio ficheiro — credor **o Piloto** |
-| 4 — `screen` com a forma `{decisao, regras[], versao_politica, confianca}`, grava `screening_decision`; `assertPublishable` falha fechado | **parcial** | A forma e a gravação pela porta estão feitas: o `screen` só devolve depois de gravar, e um erro do escritor sobe. O `assertPublishable` recusa sem decisão, com uma `bloqueada` em qualquer linha (nem um humano a desce), e com a última não `permitida`; a chave é a versão **e** o `sha256` do conteúdo, que fecha a «edição posterior» (cinco ensaios). **Falta a tabela**: a revisão é a seguinte à do KAM-087 |
+| 4 — `screen` com a forma `{decisao, regras[], versao_politica, confianca}`, grava `screening_decision`; `assertPublishable` falha fechado | **satisfeito** | A forma e a gravação pela porta estão feitas: o `screen` só devolve depois de gravar, e um erro do escritor sobe. O `assertPublishable` recusa sem decisão, com uma `bloqueada` em qualquer linha (nem um humano a desce), e com a última não `permitida`; a chave é a versão **e** o `sha256` do conteúdo, que fecha a «edição posterior» (cinco ensaios). A tabela é a da `0044`, *append-only*, e o SQL do módulo corre contra PostgreSQL: gravar, ler as decisões de uma chave pela ordem do `criado_at` (que avança dentro da mesma transacção) e os produtos por re-analisar com a categoria declarada mais recente (`test_screening_schema.py`) |
 | 5 — texto não confiável; só títulos e descrições, sem dados pessoais, em saída estruturada | **parcial** | O texto vai ao modelo como valor de JSON na mensagem do utilizador e nunca nas instruções; `response_format` com esquema fechado e `lerVeredicto` exacto; uma instrução no texto não muda a decisão (caso (b)); o que não cabe no pedido (vinte textos de mil caracteres) não pode ficar `permitida` (`classificador_parcial`). `semDadosPessoais` tira correio (também `arroba`, `[at]`, sem domínio de topo), URLs com ou sem esquema (`wa.me/…`), sete ou mais dígitos com qualquer separador, dígitos de largura total e números por extenso. **Falta: nomes de pessoas** — sem um reconhecedor de entidades, um nome num título chega ao modelo (achado F04, a metade que fica aberta). **Medido contra um `fetch` falso**: o alias não está ligado |
 | 6 — canónico 0 `permitida` em ≥ 100; disfarçado ≥ 95%; 0 `permitida` nos 20 graves | **parcial** | Com o pior classificador possível (responde sempre `permitida`), que mede as regras sozinhas: **134** canónicos com **0** `permitida`; **125/125** disfarçados; **0** `permitida` nos 20 graves. **Mas estes conjuntos estão sobreajustados:** a primeira passagem deu 103/125 (82,4%) e a política foi afinada a olhar para eles. **A medida que conta é a do conjunto de controlo**, escrito pela revisão adversarial depois de a política estar fechada (`../policy/categorias/casos/controlo.jsonl`, 130 casos): na versão revista do autor, **6/81** evasões apanhadas; depois das correcções do normalizador, **25/81**, com **27** armas e medicamentos disfarçados ainda `permitida`. O que escapa são marcas e eufemismos («Black Label», «Glock», «Coartem») que nenhuma lista de termos generaliza — é o trabalho do classificador, que não está ligado. **Hoje nada escapa em produção**: sem classificador, toda a `permitida` das regras vira `condicional` e vai a revisão humana. O limiar fica por provar até ao alias ligado — credor **KAM-040** |
-| 7 — mudança de versão dispara re-análise em lotes com orçamento e emite `screening.violation_detected`; sem suspensão | **parcial** | `reanalisar`: lotes de `tamanhoDoLote` até `maximoPorExecucao`, retoma sem cursor (lê o que não tem decisão para a versão corrente), uma `bloqueada` emite pela porta `EmissorDeViolacoes` e nada mais — não suspende (dois ensaios). **Falta o contrato do evento**: o §3.5 do dicionário fecha os tipos em trinta e oito, e acrescentar um é emenda, contrato `v1`/`v2`, tipos gerados e as contagens em prosa que dizem o número — credor **um ticket próprio**, consumidor **KAM-097** |
+| 7 — mudança de versão dispara re-análise em lotes com orçamento e emite `screening.violation_detected`; sem suspensão | **parcial** | `reanalisar`: lotes de `tamanhoDoLote` até `maximoPorExecucao`, retoma sem cursor (lê o que não tem decisão para a versão corrente), uma `bloqueada` emite pela porta `EmissorDeViolacoes` e nada mais — não suspende (dois ensaios). **Falta o contrato do evento**: o §3.5 do dicionário fecha os tipos em trinta e oito, e acrescentar um é emenda, contrato `v1`/`v2`, tipos gerados e as contagens em prosa que dizem o número — credor **KAM-191**, consumidor **KAM-097** |
 | 8 — casos *allow/deny* no gate 12; alterar a política sem passar bloqueia | **parcial** | Os casos e o `check` da política correm no **gate 4**, que bloqueia hoje: a suite de `../tools/politica_categorias/` é descoberta pelo `SUITES_DE_TOOLS` e os `screening*.test.ts` pelo `node --test` do pacote. O selo da versão compara o `versoes.lock` com o da `main` (`check --base`), porque sem a base era auto-atestado (achado F05); **no gate 4 o ensaio salta quando a clonagem não tem a `main`**, e buscá-la é mudar o *job*. **Não há job do gate 12**: um job novo é contexto exigido do *ruleset* — **o fundador**, para os dois |
 
 | DoD | Estado | Evidência |
 |---|---|---|
-| Critérios satisfeitos; gate 12 configurado e verde | **não satisfeito** | Seis em aberto: 3, 4, 5, 6, 7 e 8 |
-| Política e alias como artefactos comportamentais: SemVer, eval no gate, versão em cada decisão | **parcial** | A política sim: SemVer fixado por `sha256`, casos no gate 4 e a `versao_politica` em cada linha — com a versão do **motor** como metadado (`1.0.0+m.2`), presa a uma impressão das leituras de um corpus fixo, porque a mesma política lida por outro motor decidia outra coisa (achado F06; medido: tirar o `0` do *leet* põe a impressão vermelha). **O alias não**: `screening-nano` fica nomeado e não declarado, porque o `../llm/aliases.yaml` tem um alias por papel de uma lista fechada de quatro (dicionário §3.29) e o cliente do AGR indexa-os por papel — medido: um segundo `router` avermelha três ensaios do AGR e tomava o lugar do `kamba-router`. Credor **um ticket próprio** (papel novo no §3.29) e **KAM-040** (o modelo) |
+| Critérios satisfeitos; gate 12 configurado e verde | **não satisfeito** | Cinco em aberto: 3, 5, 6, 7 e 8 |
+| Política e alias como artefactos comportamentais: SemVer, eval no gate, versão em cada decisão | **parcial** | A política sim: SemVer fixado por `sha256`, casos no gate 4 e a `versao_politica` em cada linha — com a versão do **motor** como metadado (`1.0.0+m.2`), presa a uma impressão das leituras de um corpus fixo, porque a mesma política lida por outro motor decidia outra coisa (achado F06; medido: tirar o `0` do *leet* põe a impressão vermelha). **O alias não**: `screening-nano` fica nomeado e não declarado, porque o `../llm/aliases.yaml` tem um alias por papel de uma lista fechada de quatro (dicionário §3.29) e o cliente do AGR indexa-os por papel — medido: um segundo `router` avermelha três ensaios do AGR e tomava o lugar do `kamba-router`. Credor **KAM-192** (papel novo no §3.29) e **KAM-040** (o modelo) |
 | Facto jurídico *(a confirmar por parecer)*; estado de evidência por entrada | **satisfeito** | Cada `fonte_lei` não nula tem a marca, e o gerador **recusa** a que não a tenha (`test_fonte_lei_sem_parecer`); `estado_evidencia` obrigatório e na escala de três; uma `bloqueada` sem fonte nenhuma é recusada. As leis NÃO VERIFICADAS (armas, venda online de medicamentos) ficam como estado da fonte, e o bloqueio dessas categorias assenta na Meta, que é CONFIRMADO |
 | Nenhum dado pessoal ao LLM; custo por decisão medido | **parcial** | Contactos e números sim, nomes não (critério 5). **O custo não se mede** sem o alias ligado a um modelo com destino autorizado (KAM-069) — credor **KAM-040** |
-| Decisões *append-only* com `INSERT`; isolamento pelo teste cruzado | **não satisfeito** | Entra com a revisão da tabela |
-| Migração reversível; sem segredos; documentação actualizada | **parcial** | Sem segredos (o `chave` do adaptador vem do cofre e nenhum valor está no repositório); dicionário §3.58 e `canon/dicionario.yaml` regenerado. **A migração entra com a revisão da tabela** |
+| Decisões *append-only* com `INSERT`; isolamento pelo teste cruzado | **satisfeito** | O `kamba_app` tem `SELECT` e `INSERT` e mais nada; o lote e a auditoria leem; um *trigger* recusa `UPDATE` e `DELETE` também ao dono (`55000`), e a aplicação recebe `42501` (`test_ninguem_emenda_nem_apaga`, e a matriz do `test_privilegios.py`). RLS `FORCE` pela `tenant_iso`, no catálogo do X-05; a ligação da aplicação com o contexto de B lê zero linhas de A e não escreve uma linha de A (`42501`, `test_a_aplicacao_escreve_no_seu_tenant_e_nao_ve_o_dos_outros`). **Fora das receitas do gate 6, pela razão da `contract_acceptance`**: sem coluna alterável e sem `DELETE` para limpar, e uma receita fazia daquela bateria o único sítio onde uma decisão se apagava — escrito em `db/tests_isolamento/sementes.py` |
+| Migração reversível; sem segredos; documentação actualizada | **satisfeito** | A `0044` desce para a `0043` com linhas e volta a subir (`TestDowngrade`), e o gate 8 corre o ciclo da cadeia inteira; sem segredos (o `chave` do adaptador vem do cofre e nenhum valor está no repositório); dicionário §3.58 e `canon/dicionario.yaml` regenerado |
 
 #### A revisão adversarial
 
@@ -550,13 +554,14 @@ um conjunto de controlo próprio. **Dezanove achados**, e só um mudou de sentid
   F10 («moda e bebidas»), F11 e F12 (a violação perdida e o lote de vários tenants — uma transacção
   por produto), F13 (entrada enorme), F14, F15 e F16 (o validador do esquema e o *lock*), F18 (duas
   atribuições jurídicas: o DP 41/24 é CONFIRMADO quanto ao licenciamento, e a Lei 22/11 nas clínicas
-  é leitura do `../docs/tecnica/10` §8.1 e não do E3).
+  é leitura do `../docs/tecnica/10` §8.1 e não do E3), e o F17 (a ordem das decisões), com a revisão
+  da tabela: o `criado_at` por `clock_timestamp()` (`test_o_criado_at_e_do_relogio_e_nao_da_transaccao`).
 - **O F10 mudou de forma:** a primeira correcção exigia que a categoria declarada fosse coberta por
   inteiro por termos permitidos, e pôs **dezassete** pratos de restaurante em `condicional`
   («muamba de galinha com funge»). Revertida; «bebidas», «bar», «garrafeira» e «adega» passam a
   sinais `condicional` da política.
-- **Ficam abertos, e estão nas linhas acima:** os nomes de pessoas (F04), o vocabulário que só o
-  classificador generaliza (F01), e o F17 (ordem das decisões), que é da revisão da tabela.
+- **Ficam abertos, e estão nas linhas acima:** os nomes de pessoas (F04) e o vocabulário que só o
+  classificador generaliza (F01).
 
 #### O que este ticket tocou que não era dele, e porquê
 
@@ -2013,6 +2018,133 @@ Testes: integração, isolamento no X-01 e a medição de desempenho.
 
 ---
 
+## KAM-191 — Contrato do evento `screening.violation_detected`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-088 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o dono dos contratos de evento |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-088 e a sua verificação, critério 7), `02_Dicionario_de_Dados_Canonico.md` (§3.5 e §3.58), `../docs/tecnica/10_Onboarding_Governanca.md` (§8.2), `../docs/contratos.md` |
+
+### Contexto
+
+O KAM-088 entregou a re-análise do catálogo por versão da política, que emite uma violação por uma
+porta (`EmissorDeViolacoes`) quando um produto publicado passa a `bloqueada`. O evento ainda não
+existe: o §3.5 do dicionário fecha a lista de tipos, e acrescentar um é emenda, contrato versionado,
+tipos gerados e as contagens em prosa que dizem o número. Este ticket é o credor dessa caixa, e nasce
+no mesmo PR que a devolve.
+
+### Objectivo
+
+Dar ao `screening.violation_detected` um contrato no catálogo de eventos e ligar a porta da
+re-análise ao *outbox*, sem suspender ninguém: quem decide a sanção é o KAM-097.
+
+### Critérios de Aceitação
+
+- [ ] O tipo `screening.violation_detected` entra no §3.5 do dicionário por emenda, com o envelope comum e um corpo sem texto do produto: tenant, `sku`, regras, `versao_politica` e o `sha256` do conteúdo decidido.
+- [ ] O contrato `v1` entra em `../contratos/eventos/`, com exemplo, e passa o *gate* 7 (compatibilidade, PII, exemplos); os tipos gerados e todas as contagens do catálogo acompanham.
+- [ ] A porta `EmissorDeViolacoes` do `../packages/core-ts/src/screening/reanalise.ts` ganha um adaptador que escreve no *outbox* na mesma transacção da decisão, e uma falha de escrita desfaz a decisão.
+- [ ] A re-análise continua a não suspender tenants nem despublicar produtos; o consumidor é o KAM-097.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (re-análise do screening), EVT (*outbox* e catálogo de contratos).
+- **Isolamento:** o evento leva o `tenant_id` da decisão e nada de outro tenant; a escrita no *outbox* corre na transacção por produto que a re-análise já abre.
+
+### Testes Requeridos
+
+- Contrato: o exemplo valida contra o esquema; o *gate* 7 verde com o tipo novo.
+- Integração: uma `bloqueada` na re-análise deixa uma linha no *outbox* na mesma transacção; uma falha de escrita não deixa a decisão.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-088 actualizada a apontar para este ticket no critério 7.
+- [ ] Sem texto de produto nem dados pessoais no corpo do evento.
+- [ ] Documentação actualizada (dicionário, catálogo de contratos).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-191 da KAMBÁ (contrato do evento screening.violation_detected).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-191 e KAM-088, com a verificação deste),
+specs/02_Dicionario_de_Dados_Canonico.md (§3.5 e §3.58) e docs/contratos.md.
+Objectivo: o tipo novo no §3.5 por emenda, o contrato v1 com exemplo, os tipos gerados e as contagens,
+e o adaptador da porta EmissorDeViolacoes ao outbox na transacção da decisão.
+Regras: sem texto do produto no evento; a re-análise não suspende — o consumidor é o KAM-097.
+Testes: gate 7 e integração contra PostgreSQL.
+```
+
+---
+
+## KAM-192 — Papel do classificador de screening no dicionário e alias `screening-nano`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-088 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o dono do AGR |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-088 e a sua verificação, DoD 2), `02_Dicionario_de_Dados_Canonico.md` (§3.29 e §3.58), `../llm/aliases.yaml` |
+
+### Contexto
+
+O bloco do KAM-088 nomeia o alias do classificador, `screening-nano`, e o KAM-088 deixou-o nomeado e
+não declarado: o `../llm/aliases.yaml` tem um alias por papel, de uma lista fechada no §3.29, e o
+cliente do AGR indexa os aliases por papel. Declará-lo com um papel existente tomava o lugar de outro
+alias em silêncio, e foi medido a avermelhar três ensaios do AGR. Este ticket é o credor dessa caixa,
+e nasce no mesmo PR que a devolve.
+
+### Objectivo
+
+Dar ao classificador de screening um papel próprio no dicionário e declarar o `screening-nano` sem
+tirar o lugar a nenhum alias existente.
+
+### Critérios de Aceitação
+
+- [ ] O §3.29 do dicionário ganha o papel do classificador por emenda, e a lista fechada de papéis passa a contar com ele em todas as superfícies que a dizem.
+- [ ] O `screening-nano` entra em `../llm/aliases.yaml` com esse papel, e o cliente do AGR continua a resolver os quatro aliases que já existiam (os ensaios de `../services/agr/tests/test_llm_chaves.py` verdes).
+- [ ] O `ALIAS_DO_CLASSIFICADOR` do `../packages/core-ts/src/screening/classificador.ts` deixa de estar documentado como não declarado.
+
+### Detalhes Técnicos
+
+- **Componentes:** canon (§3.29), configuração do LLM (`llm/aliases.yaml`), AGR (resolução por papel), GOV (o classificador).
+- **Fora deste ticket:** o modelo atrás do alias, o destino autorizado e o custo por decisão — **KAM-040**.
+
+### Testes Requeridos
+
+- Unidade: a resolução por papel devolve o alias novo e os quatro antigos.
+- Canon: o *gate* 3b conforme com o papel novo.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-088 actualizada a apontar para este ticket na DoD 2.
+- [ ] Nenhuma chave nem destino de LLM no repositório.
+- [ ] Documentação actualizada (dicionário regenerado).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-192 da KAMBÁ (papel do classificador de screening e alias screening-nano).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-192 e KAM-088, com a verificação deste),
+specs/02_Dicionario_de_Dados_Canonico.md (§3.29 e §3.58) e llm/aliases.yaml.
+Objectivo: um papel novo no §3.29 por emenda, o alias screening-nano declarado com ele, e o cliente do
+AGR a resolver os cinco aliases.
+Regras: nenhum alias existente muda de papel; sem chaves nem destinos no repositório.
+Testes: os do AGR e o gate 3b.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -2064,4 +2196,4 @@ Testes: integração, isolamento no X-01 e a medição de desempenho.
 | 1.9 | Novembro 2026 | KAM-093: entra a secção de verificação do bloco do passo guiado do Embedded Signup — **nove** critérios e **seis** linhas de DoD. **Um** critério satisfeito (9) e **oito parciais**; **quatro** caixas de DoD marcadas. A revisão adversarial confirmou **oito** achados, três deles altos — a reconexão com outro número herdava a confirmação do antigo, a retoma fazia o caso recuar a `kyc_pendente`, e o `cloud_only` era recusado pelo KAM-016 — e estão todos fechados, cada um com o ensaio que a sua mutação põe vermelho. Entregue: o módulo `../packages/core-ts/src/guia/` e as rotas `/ligar` e `/api/es/*` do `onboarding-web`, medidos contra duplos e contra os corpos do simulador do KAM-024. **Sem revisão de base de dados**: o `onboarding_case`, o `onboarding_gate` e o `review_case` que o bloco nomeia não existem, e criar o primeiro decidia a emenda 1.64 de passagem. Credores do que falta: KAM-087, KAM-088, KAM-089, KAM-092, KAM-095, KAM-023, KAM-115, KAM-116 e `ext:KAM-102`. | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | KAM-099: entra a secção de verificação, com **um critério satisfeito e oito parciais** e quatro caixas da DoD de seis, cada caixa por fechar com o seu credor. **Entra o KAM-190** (feature, M, P2, fase 1, dependências KAM-099 e KAM-097), credor das cinco caixas que nenhum ticket recebia; o `Bloqueia` do KAM-099 e do KAM-097 ganha o KAM-190. Total do epic: **17**. **Sem revisão de base de dados**: a escrita passa pelo módulo `produtos` do COM, com CAS sobre o `offer_terms.atualizado_at`, e os cinco escritores da tabela passam a `clock_timestamp()`. | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | KAM-087: entram as duas secções de verificação do bloco do KYC K1 — **dez** critérios e **seis** linhas de DoD. **Cinco** critérios marcados (3, 5, 6, 7 e 8) e **cinco parciais** (1, 2, 4, 9 e 10), cada um com o credor da parte que falta; o 4 é parcial pela revisão adversarial, que mediu o *phash* a confundir papel de modelo comum com imagem reutilizada; **três** linhas de DoD marcadas (2, 4 e 6) e **três parciais**. A `onboarding_case.fase` que a emenda 1.64 do dicionário deu a este ticket fica resolvida no §3.57 (emenda 1.80), com o valor final `activo`. | Equipa KAMBÁ |
-| 1.12 | Novembro 2026 | KAM-088: entra a secção de verificação do bloco do screening de categorias — **oito** critérios e **seis** linhas de DoD. **Dois** critérios satisfeitos (1 e 2) e **seis parciais**; **uma** caixa de DoD satisfeita, **três parciais** e **duas** por satisfazer. Entregue: a política Meta ∪ lei em `../policy/categorias/`, o gerador que a valida e fixa a versão por `sha256` contra a `main`, e o módulo `../packages/core-ts/src/screening/`. **Sem revisão de base de dados nesta versão da secção**: a da `screening_decision` é a seguinte à do KAM-087 na cadeia. **Uma medição que se escreve contra o próprio ramo:** os casos disfarçados do autor deram 82,4% na primeira passagem e a política foi afinada a olhar para eles; o conjunto de controlo que a revisão adversarial escreveu depois dá **6/81** evasões apanhadas na versão revista e **25/81** depois das correcções do normalizador — o resto é vocabulário que só o classificador generaliza, e o classificador não está ligado. A revisão confirmou dezanove achados; dezassete fecham-se aqui com ensaio, e a semântica de `bloqueada` passa a «final para as máquinas»: só um recurso humano (`../docs/tecnica/10` §8.2) a levanta. Credores: a revisão da tabela, um ticket para o contrato `screening.violation_detected`, outro para o papel do alias `screening-nano`, KAM-040, KAM-089, KAM-097, o Piloto e o fundador (o job do gate 12 e a base no gate 4). | Equipa KAMBÁ |
+| 1.12 | Novembro 2026 | KAM-088: entra a secção de verificação do bloco do screening de categorias — **oito** critérios e **seis** linhas de DoD. **Três** critérios satisfeitos (1, 2 e 4) e **cinco parciais**; **três** caixas de DoD satisfeitas, **duas parciais** e **uma** por satisfazer. Entregue: a política Meta ∪ lei em `../policy/categorias/`, o gerador que a valida e fixa a versão por `sha256` contra a `main`, o módulo `../packages/core-ts/src/screening/` e a revisão `0044` da `screening_decision`, *append-only* por privilégio e por *trigger*, sobre a `0043` do KAM-087. **Uma medição que se escreve contra o próprio ramo:** os casos disfarçados do autor deram 82,4% na primeira passagem e a política foi afinada a olhar para eles; o conjunto de controlo que a revisão adversarial escreveu depois dá **6/81** evasões apanhadas na versão revista e **25/81** depois das correcções do normalizador — o resto é vocabulário que só o classificador generaliza, e o classificador não está ligado. A revisão confirmou dezanove achados; dezoito fecham-se aqui com ensaio, e a semântica de `bloqueada` passa a «final para as máquinas»: só um recurso humano (`../docs/tecnica/10` §8.2) a levanta. **Entram o KAM-191** (o contrato `screening.violation_detected`) **e o KAM-192** (o papel do alias `screening-nano`), feature, S, P1, fase 1, dependência KAM-088, credores das duas caixas que nenhum ticket recebia; o `Bloqueia` do KAM-088 ganha os dois. Total do epic: **19**. Credores: KAM-191, KAM-192, KAM-040, KAM-089, KAM-097, o Piloto e o fundador (o job do gate 12 e a base no gate 4). | Equipa KAMBÁ |

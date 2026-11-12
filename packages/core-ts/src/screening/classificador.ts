@@ -29,7 +29,7 @@ import { DECISOES, type Decisao } from "./tipos.ts";
  * ficheiro tem um alias por papel, de uma lista fechada de quatro (dicionário
  * §3.29), e o cliente do AGR indexa-os por papel — um segundo `router` tomava o
  * lugar do `kamba-router` em silêncio. Declará-lo pede um papel novo no canon,
- * que é decisão de outro ticket; até lá o `screen` corre com o classificador a
+ * que é o KAM-192; até lá o `screen` corre com o classificador a
  * `null`, que dá `condicional` em vez de `permitida`.
  */
 export const ALIAS_DO_CLASSIFICADOR = "screening-nano";

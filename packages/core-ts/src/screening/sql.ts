@@ -26,16 +26,17 @@ export interface ClienteSql {
   ): Promise<{ readonly rows: readonly T[] }>;
 }
 
-export const SQL_GRAVAR =
-  "INSERT INTO platform.screening_decision " +
-  "(tenant_id, onboarding_id, sujeito_tipo, sujeito_ref, decisao, regras, " +
-  "versao_politica, origem, conteudo_sha256) " +
-  "VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9)";
+export const SQL_GRAVAR = `
+INSERT INTO platform.screening_decision
+  (tenant_id, onboarding_id, sujeito_tipo, sujeito_ref, decisao, regras,
+   versao_politica, origem, conteudo_sha256)
+VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9)`;
 
-export const SQL_DECISOES =
-  "SELECT decisao, origem FROM platform.screening_decision " +
-  "WHERE tenant_id = $1 AND sujeito_tipo = $2 AND sujeito_ref = $3 " +
-  "AND versao_politica = $4 AND conteudo_sha256 = $5 ORDER BY criado_at, id";
+export const SQL_DECISOES = `
+SELECT decisao, origem FROM platform.screening_decision
+WHERE tenant_id = $1 AND sujeito_tipo = $2 AND sujeito_ref = $3
+  AND versao_politica = $4 AND conteudo_sha256 = $5
+ORDER BY criado_at, id`;
 
 /**
  * Os produtos publicados sem decisão para a versão `$1`, até `$2`.
@@ -44,17 +45,17 @@ export const SQL_DECISOES =
  * categoria mais recente; sem ela, vai vazia e o produto cai em
  * `condicional` — um tenant sem categoria avaliada não tem nada `permitida`.
  */
-export const SQL_POR_REANALISAR =
-  "SELECT o.tenant_id::text AS tenant_id, o.sku, o.nome, " +
-  "coalesce((SELECT c.sujeito_ref FROM platform.screening_decision c " +
-  "WHERE c.tenant_id = o.tenant_id AND c.sujeito_tipo = 'categoria' " +
-  "ORDER BY c.criado_at DESC, c.id DESC LIMIT 1), '') AS categoria_declarada " +
-  "FROM platform.offer_terms o " +
-  "WHERE o.estado = 'publicado' AND o.deleted_at IS NULL " +
-  "AND NOT EXISTS (SELECT 1 FROM platform.screening_decision d " +
-  "WHERE d.tenant_id = o.tenant_id AND d.sujeito_tipo = 'produto' " +
-  "AND d.sujeito_ref = o.sku AND d.versao_politica = $1) " +
-  "ORDER BY o.tenant_id, o.sku LIMIT $2";
+export const SQL_POR_REANALISAR = `
+SELECT o.tenant_id::text AS tenant_id, o.sku, o.nome,
+  coalesce((SELECT c.sujeito_ref FROM platform.screening_decision c
+            WHERE c.tenant_id = o.tenant_id AND c.sujeito_tipo = 'categoria'
+            ORDER BY c.criado_at DESC, c.id DESC LIMIT 1), '') AS categoria_declarada
+FROM platform.offer_terms o
+WHERE o.estado = 'publicado' AND o.deleted_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM platform.screening_decision d
+                  WHERE d.tenant_id = o.tenant_id AND d.sujeito_tipo = 'produto'
+                    AND d.sujeito_ref = o.sku AND d.versao_politica = $1)
+ORDER BY o.tenant_id, o.sku LIMIT $2`;
 
 export class EscritorSql implements EscritorDeDecisoes {
   readonly #cliente: ClienteSql;
