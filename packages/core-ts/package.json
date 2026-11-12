@@ -123,6 +123,10 @@
       "types": "./dist/contratos/index.d.ts",
       "default": "./dist/contratos/index.js"
     },
+    "./screening": {
+      "types": "./dist/screening/index.d.ts",
+      "default": "./dist/screening/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

@@ -1,0 +1,134 @@
+{"id": "can-001", "conjunto": "canonico", "categoria_declarada": "armas", "textos": ["Pistola semi-automática com estojo"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-002", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Revólver de colecção em bom estado"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-003", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Espingarda de caça", "Cartuchos calibre 12 incluídos"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-004", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Munições para pistola, caixa de 50"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-005", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Caçadeira de dois canos"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-006", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Carabina com mira telescópica"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-007", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Granada de fumo"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-008", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Taser recarregável para defesa pessoal"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-009", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Spray de pimenta de bolso"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-010", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Soqueira em aço inox"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-011", "conjunto": "canonico", "categoria_declarada": "armas de fogo", "textos": ["Venda de arma de fogo com licença"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-012", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Silenciador universal"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-013", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Pólvora negra a granel"], "esperado": ["bloqueada"], "alvo": "armas", "severidade": "normal"}
+{"id": "can-014", "conjunto": "canonico", "categoria_declarada": "jogos de azar", "textos": ["Banca de apostas aberta todos os dias"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-015", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Raspadinha premiada, compra já"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-016", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Slot machine para bar"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-017", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Bilhetes de lotaria semanais"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-018", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Roleta de casino profissional"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-019", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Prognósticos de futebol com odds altas"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-020", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Bingo da sorte todos os sábados"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-021", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Máquina de jogo com jackpot acumulado"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-022", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Apostas desportivas online"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-023", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Aposta mínima de 500 Kz, ganhe até 50 vezes"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-024", "conjunto": "canonico", "categoria_declarada": "casino", "textos": ["Casino nocturno com mesas de cartas"], "esperado": ["bloqueada"], "alvo": "jogos", "severidade": "normal"}
+{"id": "can-025", "conjunto": "canonico", "categoria_declarada": "bebidas alcoólicas", "textos": ["Grade de cerveja"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-026", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Vinho tinto 75 cl"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-027", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Whisky 12 anos"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-028", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Vodka 1 litro"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-029", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Gin com água tónica"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-030", "conjunto": "canonico", "categoria_declarada": "restauração formal", "textos": ["Rum envelhecido"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-031", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Aguardente de cana caseira"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-032", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Licor de café"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-033", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Espumante para festas"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-034", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Champanhe para casamentos"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-035", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Cuca lata 33 cl, pack de 24"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-036", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Caporroto tradicional"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-037", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Maruvo fresco"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-038", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Cachaça em garrafa de vidro"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-039", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Conhaque"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-040", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Tequila com sal e limão"], "esperado": ["bloqueada"], "alvo": "alcool", "severidade": "normal"}
+{"id": "can-041", "conjunto": "canonico", "categoria_declarada": "tabaco", "textos": ["Tabaco de enrolar"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-042", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Maço de cigarros"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-043", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Charutos, caixa de 10"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-044", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Vape recarregável com essências"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-045", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Cigarro electrónico com carregador USB"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-046", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Narguilé completo"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-047", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Essência de narguilé sabor menta"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-048", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Mortalhas e filtros"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-049", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Cigarrilha aromatizada"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-050", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Pods descartáveis de nicotina"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-051", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Rapé tradicional"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-052", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Shisha de vidro"], "esperado": ["bloqueada"], "alvo": "tabaco", "severidade": "normal"}
+{"id": "can-053", "conjunto": "canonico", "categoria_declarada": "farmácia", "textos": ["Medicamentos ao domicílio"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-054", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Paracetamol 500 mg comprimidos"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-055", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Amoxicilina em cápsulas"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-056", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Xarope para a tosse"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-057", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Termómetro clínico digital"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-058", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Teste de gravidez"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-059", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Chá emagrecedor"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-060", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Suplementos para ganhar massa muscular"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-061", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Viagra genérico"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-062", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Antibióticos sem complicações"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-063", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Ibuprofeno 400"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-064", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Anabolizante injectável"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-065", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Remédio para dores nas costas"], "esperado": ["bloqueada"], "alvo": "medicamentos_saude", "severidade": "normal"}
+{"id": "can-066", "conjunto": "canonico", "categoria_declarada": "clínica", "textos": ["Clínica dentária no bairro"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-067", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Consulta médica ao domicílio"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-068", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Telemedicina 24 horas"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-069", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Análises clínicas com resultado no mesmo dia"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-070", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Dentista de serviço ao sábado"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-071", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Sessões de fisioterapia"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-072", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Psicólogo com marcação"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-073", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Enfermeiro para pensos ao domicílio"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-074", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Curandeiro tradicional"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-075", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Kimbanda resolve problemas"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-076", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Laboratório de análises"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-077", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Consultório de estomatologia"], "esperado": ["bloqueada"], "alvo": "clinicas", "severidade": "normal"}
+{"id": "can-078", "conjunto": "canonico", "categoria_declarada": "crédito", "textos": ["Crédito rápido sem fiador"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-079", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Empréstimo para funcionários públicos"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-080", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Microcrédito para pequeno negócio"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-081", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Kilapi com juros baixos"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-082", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Cobrança de dívidas"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-083", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Marketing multinível, junta-te à equipa"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-084", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Bitcoin e USDT ao melhor câmbio"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-085", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Compra e venda de criptomoedas"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-086", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Kinguila: venda de dólares"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-087", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Investimento garantido com retorno diário"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-088", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Duplicar dinheiro em 30 dias"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-089", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Crédito pessoal aprovado em 24 horas"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-090", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Ethereum para carteira digital"], "esperado": ["bloqueada"], "alvo": "credito_mlm_cripto", "severidade": "normal"}
+{"id": "can-091", "conjunto": "canonico", "categoria_declarada": "animais", "textos": ["Filhotes de cão de raça"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-092", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Papagaio cinzento que fala"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-093", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Gasolina em bidões"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-094", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Gasóleo para gerador, com entrega"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-095", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Botija de gás cheia"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-096", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Petróleo iluminante"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-097", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Peças de marfim esculpidas"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-098", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Escamas de pangolim"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-099", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Querosene a granel"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-100", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Vendo filhotes de gato persa"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-101", "conjunto": "canonico", "categoria_declarada": "combustíveis", "textos": ["Combustível ao litro"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-102", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Animais vivos para estimação"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-103", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Gás de cozinha, recarga"], "esperado": ["bloqueada"], "alvo": "animais_vivos_combustiveis", "severidade": "normal"}
+{"id": "can-104", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Liamba de boa qualidade"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-105", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Cannabis em flor"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-106", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Óleo de CBD"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-107", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Haxixe"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-108", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Gomas com THC"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-109", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Marijuana seca"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-110", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Ecstasy para festas"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-111", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Cocaína"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-112", "conjunto": "canonico", "categoria_declarada": "drogas", "textos": ["Drogas recreativas"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-113", "conjunto": "canonico", "categoria_declarada": "electrónica", "textos": ["Maconha"], "esperado": ["bloqueada"], "alvo": "drogas", "severidade": "normal"}
+{"id": "can-114", "conjunto": "canonico", "categoria_declarada": "adultos", "textos": ["Brinquedo sexual com entrega"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-115", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Massagem erótica"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-116", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Acompanhantes"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-117", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Lingerie erótica"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-118", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Site de encontros"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-119", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Namoro online, inscreve-te"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-120", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Filmes de pornografia"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-121", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Encontros amorosos organizados"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-122", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Massagens com final feliz"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-123", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Revista erótica"], "esperado": ["bloqueada"], "alvo": "adultos_encontros", "severidade": "normal"}
+{"id": "can-124", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Documentos falsos"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-125", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Bilhete de identidade falso"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-126", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Diploma falso de licenciatura"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-127", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Carta de condução falsa"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-128", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Nota falsa de alta qualidade"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-129", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Venda de órgão humano"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-130", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Sangue humano"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-131", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Materiais para campanha eleitoral"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-132", "conjunto": "canonico", "categoria_declarada": "moda", "textos": ["Camisolas do partido político"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-133", "conjunto": "canonico", "categoria_declarada": "serviços", "textos": ["Passaporte falsificado"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}
+{"id": "can-134", "conjunto": "canonico", "categoria_declarada": "loja geral", "textos": ["Rim para transplante"], "esperado": ["bloqueada"], "alvo": "partes_do_corpo_fraude_politica", "severidade": "normal"}

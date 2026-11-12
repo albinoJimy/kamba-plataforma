@@ -412,6 +412,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.purge_log", pendencia="prova da purga"),
             _t("platform.consent_event", pendencia="relacao + prescricao (a confirmar)"),
             _t("platform.contract_acceptance", pendencia="prova contratual da PME"),
+            # KAM-088 (0044). *Append-only* por *trigger*: a decisao e o que
+            # justifica um produto publicado ou recusado, e o recurso e
+            # uma linha nova.
+            _t("platform.screening_decision", pendencia="prova da decisao de screening"),
         ),
         fonte="docs/tecnica/08 §11",
     ),

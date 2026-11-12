@@ -487,6 +487,14 @@ TABELAS_0042 = ("purge_log",)
 #: antes. A revisao cria uma funcao de *trigger* (`onboarding_case_fase_at`).
 TABELAS_0043 = ("kyc_check", "onboarding_case")
 
+#: O que a revisao 0044 (KAM-088) acrescenta: as decisoes de screening.
+#:
+#: **Uma tabela, com RLS `FORCE` pela `tenant_iso`**, *append-only* por
+#: privilegio **e** por *trigger* (`screening_decision_imutavel`, a forma da
+#: `contract_acceptance`). FK composta `(onboarding_id, tenant_id)` para a
+#: `onboarding_case`, com o `onboarding_id` anulavel.
+TABELAS_0044 = ("screening_decision",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -497,15 +505,22 @@ TABELAS = tuple(
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
+        + TABELAS_0044
     )
 )
 
-#: O que existe em `platform` quando a base esta na revisao `0042`.
+#: O que existe em `platform` quando a base esta na revisao `0043`.
 #:
-#: O `downgrade` da `0043` leva a base para aqui. **Deriva do `TABELAS`**, e e
+#: O `downgrade` da `0044` leva a base para aqui. **Deriva do `TABELAS`**, e e
 #: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
 #: revisao a seguir poe a sua aqui e faz **esta** derivar da dela.
-TABELAS_ATE_0042 = tuple(sorted(set(TABELAS) - set(TABELAS_0043)))
+TABELAS_ATE_0043 = tuple(sorted(set(TABELAS) - set(TABELAS_0044)))
+
+#: O que existe em `platform` quando a base esta na revisao `0042`.
+#:
+#: O `downgrade` da `0043` leva a base para aqui. Deriva do `TABELAS_ATE_0043`
+#: desde o KAM-088, que pos a sua revisao no topo.
+TABELAS_ATE_0042 = tuple(sorted(set(TABELAS_ATE_0043) - set(TABELAS_0043)))
 
 #: O que existe em `platform` quando a base esta na revisao `0041`.
 #:

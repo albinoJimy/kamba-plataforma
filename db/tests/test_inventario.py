@@ -2406,6 +2406,28 @@ INVENTARIO["kyc_check"] = {
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: A decisao de screening (KAM-088, revisao `0044`). **O texto do produto nao
+#: esta aqui**: a linha guarda o `sha256` do conteudo decidido, e a
+#: `sujeito_ref` e o `sku` ou o texto da categoria declarada pelo dono.
+INVENTARIO["screening_decision"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "onboarding_id": ("uuid", SIM, None, "nao"),
+    "sujeito_tipo": ("text", NAO, None, "nao"),
+    "sujeito_ref": (
+        "text",
+        NAO,
+        None,
+        "nao — o `sku` do produto, ou a categoria declarada do negocio",
+    ),
+    "decisao": ("text", NAO, None, "nao"),
+    "regras": ("ARRAY", NAO, None, "nao — ids de regras da politica"),
+    "versao_politica": ("text", NAO, None, "nao"),
+    "origem": ("text", NAO, None, "nao"),
+    "conteudo_sha256": ("bytea", NAO, None, "nao — resumo do conteudo decidido"),
+    "criado_at": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -3019,6 +3041,10 @@ class TestInventario(ComBase):
                         # par `(onboarding_id, tenant_id)`, sem cascata: um
                         # caso nao se apaga com as verificacoes dentro.
                         "kyc_check_caso_fk",
+                        # KAM-088 (0044): a decisao de screening aponta o caso
+                        # pelo mesmo par, sem cascata: um caso nao se apaga com
+                        # as decisoes dentro, que sao *append-only*.
+                        "screening_decision_caso_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3550,6 +3576,19 @@ class TestInventario(ComBase):
                     "kyc_check_score_ck",
                     "kyc_check_sha256_ck",
                     "kyc_check_versao_regras_ck",
+                    # --------------------------------------- KAM-088 (0044)
+                    #
+                    # **Sete.** Os tres dominios fechados (`decisao`,
+                    # `origem`, `sujeito_tipo`), a referencia nao vazia, a
+                    # versao SemVer com o metadado do motor (`+m.N`), o
+                    # resumo de 32 octetos e a chave primaria.
+                    "screening_decision_conteudo_sha256_ck",
+                    "screening_decision_decisao_ck",
+                    "screening_decision_origem_ck",
+                    "screening_decision_pkey",
+                    "screening_decision_sujeito_ref_ck",
+                    "screening_decision_sujeito_tipo_ck",
+                    "screening_decision_versao_politica_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",
