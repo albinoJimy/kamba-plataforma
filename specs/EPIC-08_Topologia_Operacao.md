@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.16 |
+| Versão | 1.17 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -374,6 +374,7 @@ Automatizar o caminho `merge → imagem assinada → staging → smoke → aprov
 - *Smoke* usa o simulador de KAM-024 para o tráfego sintético e o número de teste real da Meta para o fio ponta a ponta; mocks do callback assinam com HMAC-SHA256 do corpo bruto (`X-Signature`). Sandbox ProxyPay: `PUT /references/{id}` e *mock payment* (só sandbox).
 - Paragem graciosa do *worker* (*proposta*: ≤ 60 s) para não cortar turnos a meio; dois *workers* nunca ficam em actualização em simultâneo.
 - Falhas da Meta no *smoke* (indisponibilidade) classificam-se `inconclusivo`, não `verde`.
+- *Jobs* que o deploy liga ao agendador: o `reanalisar` do screening de categorias (`../packages/core-ts/src/screening/reanalise.ts`, montado pela `dependenciasDaReanalise` do `emissor.ts`), que corre quando a versão da política muda e emite `screening.violation_detected` (KAM-088, critério 7; o contrato e o emissor são do KAM-191).
 
 ### Testes Requeridos
 - Negativos dos gates 14, 16, 18 e do aborto por número de produção; teste de reversão automática.
@@ -1864,3 +1865,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.14 | Novembro 2026 | **KAM-187 entregue**, com a secção «Verificação dos Critérios de Aceitação» no bloco: os quatro processos do `worker-canal` nos composes de produção e de *staging* (e no de desenvolvimento, três atrás de um perfil), a regra `r_consumidores` do `compose_prod`, os alvos do Prometheus e o *worker* no numerador do SLI-1. Onze caixas marcadas e três vazias (critérios 2 e 5, e DoD 1; credores KAM-186 e o fundador). A linha 3 da verificação do **KAM-082** passa a dizer que a metade (a) está paga. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-081 entregue em parte**, com a secção «Verificação dos Critérios de Aceitação» no bloco: **12 caixas, 3 marcadas (critério 6, DoD 3 e 4) e 9 vazias**, cada uma com a razão e o credor. A vista `v_tenant_cost_daily` (revisão `0041`), o `h6-export`, os dois painéis de custo e o `../ops/custo.md`. A revisão adversarial levantou catorze achados, dez confirmados e corrigidos, e devolveu o critério 5 a vazio. **Sem rubrica de STT**, porque não há registo de transcrição (KAM-036); o LLM por conversa é **rateado**, porque a `dat.llm_call_log` não tem chave para uma conversa. | Equipa KAMBÁ |
 | 1.16 | Novembro 2026 | **KAM-099**, e é uma emenda de **propagação** como a 1.6 e a 1.8: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `services/onboarding-web/src/painel/metricas.ts`, e a mensagem do *gate* manda levar os números novos à nota do KAM-080. Medido: `contar_metricas` passa de **23 módulos, 131 nomes** para **24 módulos, 133 nomes**, e a reconciliação `+2` do `services/com` dá **135** declaradas, eram 133. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-099 sobre a `publico/main` em `b55d2a84`; quem fundir em segundo remede. | Equipa KAMBÁ |
+| 1.17 | Novembro 2026 | **KAM-191**: os Detalhes Técnicos do KAM-078 passam a nomear o agendador do `reanalisar` do screening entre os *jobs* que o deploy liga, para que a parte que falta ao critério 7 do KAM-088 (nada agenda a re-análise quando a versão da política muda) tenha credor com a caixa no próprio bloco. Só essa linha; nenhum critério novo. | Equipa KAMBÁ |
