@@ -8,7 +8,7 @@ a do `idx.search_doc` so as do tenant do contexto.
 
 ## A versao, e o que ela diz
 
-O `idx.norm_versao` (revisao `0048`) e um registo so de acrescento: cada
+O `idx.norm_versao` (revisao `0049`) e um registo so de acrescento: cada
 escrita no `idx.termo_canonico` acrescenta uma linha, por gatilho, e diz se
 afecta o indice (marca ou unidade) ou so a consulta. Daqui saem dois numeros:
 
@@ -29,8 +29,9 @@ O §5.3 obtem o vocabulario por `ts_stat` sobre o `fts`. O `fts` guarda
 Aqui o vocabulario sao as **palavras** dos documentos visiveis do tenant — o
 mesmo texto que gera o `fts`, antes do radical —, menos as palavras vazias da
 configuracao `idx.kamba_pt` (as que o `fts` descarta). Por isso uma palavra do
-vocabulario e, por construcao, uma palavra que o ramo `fts` encontra num
-documento visivel: o «>= 1 candidato apos correccao» do criterio 5.
+vocabulario e uma palavra que o ramo `fts` encontra num documento visivel, e
+com o `or` do `q_or` a pergunta corrigida inteira tambem: o «>= 1 candidato
+apos correccao» do criterio 5 (a fronteira esta no `normalizacao`).
 """
 
 from __future__ import annotations
@@ -122,6 +123,9 @@ def ler_vocabulario(bd: Any) -> Vocabulario:
 #: a corrigir *typos*. O lexico e invalidado pela versao, nao pelo TTL.
 TTL_DO_CACHE_S: Final = 60.0
 
+#: Quantos tenants o *cache* guarda. **Proposta**: o Piloto tem dezenas.
+MAXIMO_DE_TENANTS_NO_CACHE: Final = 256
+
 
 @dataclass
 class _Entrada:
@@ -161,7 +165,12 @@ class Cache:
                 vocabulario=ler_vocabulario(cursor),
                 lido_em=agora,
             )
+            self._por_tenant.pop(chave, None)
             self._por_tenant[chave] = entrada
+            # Um tecto, para o *cache* nao crescer com o numero de tenants: sai
+            # o lido ha mais tempo (a ordem de insercao do `dict`).
+            while len(self._por_tenant) > MAXIMO_DE_TENANTS_NO_CACHE:
+                self._por_tenant.pop(next(iter(self._por_tenant)))
         return entrada.lexico, entrada.vocabulario
 
 

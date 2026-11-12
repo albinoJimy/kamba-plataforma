@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.21 |
+| Versão | 1.22 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -1659,7 +1659,7 @@ Commits: feat(KAM-049): …
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-044 |
-| Bloqueia | — |
+| Bloqueia | KAM-197 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§6.1, §6.6, §15, §16 PA-03-4), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.1), `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` (§7.2), ADR-004, ADR-013 |
 
@@ -2927,3 +2927,4 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | 1.19 | Novembro 2026 | **A ressalva de estado da caixa devolvida passa a ser uma medição, e o ordinal sai da prosa das métricas.** O mecanismo do KAM-039 fundiu (`main` em `bb9b5c6`), pelo que corri o `exigir_handlers` dele sobre o par nos **quatro** estados: a `main` de hoje **aceita** (logo este PR não precisa de emenda nenhuma ao AGR), as três edições juntas **aceitam**, e **cada subconjunto próprio recusa — por motivos diferentes**. A (3) sozinha cai na guarda `diz_as_duas` que o KAM-039 acrescentou; as (1)+(2) sozinhas caem na do credor em falta. «Andam juntas» era mais fraco do que o que se mede: são **atómicas**, e quem as prende é o arranque. E sai da prosa de observabilidade a frase «o **primeiro** módulo de métricas dentro de um serviço»: é uma afirmação sobre a **ordem de fusão** e não sobre o código, e o KAM-055 traz um `payments/metricas.ts` pelo mesmo caminho num PR aberto ao lado — ficava falsa se ele fundisse primeiro. Fica a propriedade, que vale nas duas ordens, e os números passam a levar ao lado a ponta onde foram medidos. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-047 ganha o KAM-184.** Aquele ticket abre a acção do consumo dos dois eventos de pagamento na vertical Serviços, que o *gate* da Fase 0 exige na linha **1.6** da sua checklist e que **não tem credor vivo**: dois credores no código (KAM-047, KAM-035) e um no esquema (KAM-007, nomeado pela secção de verificação do KAM-039), todos com *merge* na `main` — medido em `ca5cac5`. O `lint_backlog` exige a aresta dos dois lados; nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-178 deixa de ser `—` e passa a KAM-186** (EPIC-03), que liga a porta `grafos` do AGR e consome os executores das tools que este ticket ligou. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-050 passa a nomear o **KAM-197** (EPIC-05), que abre a `refund_cases` ao consumir o `order.refund_requested` das regras 3 e 4. | Equipa KAMBÁ |

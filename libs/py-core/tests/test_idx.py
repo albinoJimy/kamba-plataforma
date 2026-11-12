@@ -287,6 +287,10 @@ class _Bd:
             return Resultado(linhas=({"versao": versao, "versao_do_indice": do_indice},))
         if sql is lexico.SQL_LER_LEXICO:
             return Resultado(linhas=self.lexico)
+        if sql is consumidor.SQL_LER_OFERTAS:
+            return Resultado(linhas=tuple(
+                {"product_ref": ref, **self.oferta} for ref in parametros[0]
+            ) if self.oferta else ())
         if sql is consumidor.SQL_DESACTUALIZADOS:
             limite = parametros[1]
             lote, self.desactualizados = self.desactualizados[:limite], self.desactualizados[limite:]
@@ -315,7 +319,7 @@ class TestConsumidor(unittest.TestCase):
         )
         self.assertEqual(resultado.desfecho, "aplicado")
         self.assertIn(
-            (consumidor.SQL_ESCREVER_DOCUMENTO, ("g1", 1, "frigorifico lg", None, True)),
+            (consumidor.SQL_ESCREVER_DOCUMENTO, (1, "g1", "frigorifico lg", None, True)),
             bd.chamadas,
         )
 
@@ -340,7 +344,7 @@ class TestConsumidor(unittest.TestCase):
             bd, _envelope("catalog.product_changed", {"sku": "g1", "estado": "publicado"})
         )
         self.assertIn(
-            (consumidor.SQL_ESCREVER_DOCUMENTO, ("g1", 9, "iphone 13 128 gb", "iphone", True)),
+            (consumidor.SQL_ESCREVER_DOCUMENTO, (9, "g1", "iphone 13 128 gb", "iphone", True)),
             bd.chamadas,
         )
 
@@ -350,9 +354,11 @@ class TestConsumidor(unittest.TestCase):
         self.assertEqual(consumidor.reindexar(bd, str(uuid.uuid4()), lote=2), 2)
         # A versao do indice (4), e nao a corrente (9), escolhe os marcados.
         self.assertIn((consumidor.SQL_DESACTUALIZADOS, (4, 2)), bd.chamadas)
-        escritos = [p for sql, p in bd.chamadas if sql is consumidor.SQL_ESCREVER_DOCUMENTO]
-        self.assertEqual([p[0] for p in escritos], ["a", "b"])
-        self.assertTrue(all(p[1] == 9 for p in escritos))
+        # Uma escrita so para o lote, com a versao corrente (9) a cabeca.
+        escritos = [p for sql, p in bd.chamadas if sql == consumidor.sql_escrever_documentos(2)]
+        self.assertEqual(
+            escritos, [(9, "a", "geleira lg", None, True, "b", "geleira lg", None, True)]
+        )
         self.assertEqual(consumidor.reindexar(bd, str(uuid.uuid4()), lote=2), 1)
         self.assertEqual(consumidor.reindexar(bd, str(uuid.uuid4()), lote=2), 0)
 

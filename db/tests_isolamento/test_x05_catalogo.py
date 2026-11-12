@@ -150,6 +150,12 @@ class TestCatalogoReal(ComBase):
                 # de sementes; a `termo_canonico` tem `tenant_id` anulavel (as
                 # entradas globais), como a `tenant_destinations`, e entra pela
                 # coluna como as outras.
+                #
+                # **A `idx.norm_versao` (KAM-062, `0049`) fica de fora sem
+                # dispensa**, pela razao da `payment_outbox_map`: e global e nao
+                # tem `tenant_id`. Uma linha diz so que o lexico mudou e se isso
+                # reindexa — nem o que, nem de quem —, e esta no
+                # `SEM_DADOS_PESSOAIS` da retencao com essa razao.
                 ("idx", "search_doc", "tenant_id"),
                 ("idx", "termo_canonico", "tenant_id"),
                 # KAM-012. Nenhuma das duas tem receita de sementes, e as

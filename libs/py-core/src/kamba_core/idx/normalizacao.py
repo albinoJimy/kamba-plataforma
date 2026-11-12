@@ -50,9 +50,16 @@ cruzada com a do PostgreSQL no *gate* 8), com a frequencia como desempate e a
 ordem alfabetica como desempate final. **So corrige com semelhanca >= 0,6**
 (`LIMIAR_DE_CORRECCAO`). O vocabulario vem so de documentos visiveis do tenant e
 sem palavras vazias da configuracao `idx.kamba_pt`, pelo que um vocabulo
-corrigido e, por construcao, um termo que o ramo `fts` encontra: e o «>= 1
-candidato apos correccao» do criterio 5, que o *gate* 8 mede. Abaixo do limiar,
-o *token* vai para `tokens_nao_resolvidos` e o AGR pergunta.
+corrigido e um termo que o ramo `fts` encontra num documento visivel; e como o
+`q_or` liga os termos por `or` (D7), a **pergunta inteira** corrigida tambem
+devolve esse documento, diga o resto o que disser. E o «>= 1 candidato apos
+correccao» do criterio 5, e o *gate* 8 mede-o com a palavra sozinha e com a
+frase. Duas fronteiras, ditas: o filtro de preco da oferta viva corre **depois**
+(um tecto pode esvaziar a resposta, e isso e o tecto, nao a correccao); e os
+erros comuns da **tabela** (`erro_comum`) corrigem sem limiar, porque sao
+curados — o proprio criterio pede «niker» -> «nike», e a semelhanca dos dois e
+4/7, abaixo de 0,6. Abaixo do limiar, o *token* vai para
+`tokens_nao_resolvidos` e o AGR pergunta (se nada passar o limiar do grafo).
 """
 
 from __future__ import annotations
@@ -63,7 +70,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
-from .numeros import Restricoes, extrair_restricoes, por_extenso
+from .numeros import NUMERO, Restricoes, extrair_restricoes, por_extenso
 
 #: As origens do texto (§5.1). Lista fechada.
 ORIGENS: Final = ("texto", "voz")
@@ -96,14 +103,22 @@ _FUNCIONAIS: Final = frozenset(
     "tem ha".split()
 )
 
-#: Tudo o que nao e letra nem algarismo passa a espaco (passo 1).
-_NAO_PALAVRA: Final = re.compile(r'[^0-9a-z"]+')
+#: Tudo o que nao e letra nem algarismo passa a espaco (passo 1). O `\x01` e o
+#: ponto decimal guardado (ver `_DECIMAL`), que volta a ser `.` no fim.
+_NAO_PALAVRA: Final = re.compile('[^0-9a-z"\x01]+')
 
 #: Separador de milhares: `250.000` -> `250000` (§5.2, «menos de 250.000 kz»).
 _MILHARES: Final = re.compile(r"(?<=\d)\.(?=\d{3}(?!\d))")
 
-#: Algarismos colados a um sufixo de preco: `250k`, `250kz` -> `250 k`, `250 kz`.
-_SUFIXO_DE_PRECO: Final = re.compile(r"^(\d+)(k|kz|akz|aoa)$")
+#: O que sobra entre algarismos depois dos milhares e decimal: a virgula
+#: angolana («1,5 milhoes», «250.000,00») e o ponto («1.5 mil»). Sem isto, a
+#: pontuacao partia «1,5» em `1 5`, e o `5 milhoes` virava um preco errado
+#: com o `1` no texto do indice (achados 2 e 5 da revisao adversarial).
+_DECIMAL: Final = re.compile(r"(?<=\d)[.,](?=\d)")
+
+#: Algarismos colados a um sufixo de preco: `250k`, `250kz`, `250mil` ->
+#: `250 k`, `250 kz`, `250 mil`.
+_SUFIXO_DE_PRECO: Final = re.compile(r"^(\d+(?:\.\d+)?)(k|kz|akz|aoa|mil)$")
 
 #: Algarismos colados a letras, para o passo 4 separar so quando o sufixo e
 #: uma unidade do lexico (`250l` sim, `a52` e `ps5` nao).
@@ -132,15 +147,19 @@ def passo_1(texto: str) -> list[str]:
 
     >>> passo_1('Geleira LG 55", até 250.000 Kz!! 😀')
     ['geleira', 'lg', '55', '"', 'ate', '250000', 'kz']
+    >>> passo_1("até 250.000,00 kz ou 1,5 milhões")
+    ['ate', '250000.00', 'kz', 'ou', '1.5', 'milhoes']
     """
     base = _sem_acentos(unicodedata.normalize("NFKC", texto).lower())
     for simbolo, palavra in _SIMBOLOS_DE_MOEDA:
         base = base.replace(simbolo, palavra)
     base = _MILHARES.sub("", base)
+    base = _DECIMAL.sub("\x01", base)
     base = _ASPAS_DEPOIS_DE_ALGARISMO.sub(lambda m: m.group(1) + " \x00", base)
     base = base.replace('"', " ").replace("\x00", '"')
     tokens: list[str] = []
     for token in _NAO_PALAVRA.sub(" ", base).split():
+        token = token.replace("\x01", ".")
         sufixo = _SUFIXO_DE_PRECO.match(token)
         tokens.extend(sufixo.groups() if sufixo else (token,))
     return tokens
@@ -223,9 +242,33 @@ class Lexico:
                 termos[chave] = novo
         return cls(tenant_id=alvo, termos=termos, norm_versao=norm_versao)
 
-    def do_tipo(self, tipo: str) -> dict[tuple[str, ...], Termo]:
+    def __post_init__(self) -> None:
+        # Os termos por tipo e as palavras protegidas do *typo*, calculados uma
+        # vez por lexico e nao em cada consulta: o lexico vive no *cache* e a
+        # consulta corre no orcamento de 20 ms do criterio 10.
+        por_tipo: dict[str, dict[tuple[str, ...], Termo]] = {}
+        for (tipo, palavras), termo in self.termos.items():
+            por_tipo.setdefault(tipo, {})[palavras] = termo
+        protegidas = frozenset(
+            palavra
+            for tipo in ("stopword", "sinonimo", "marca", "unidade")
+            for termo in por_tipo.get(tipo, {}).values()
+            for palavra in (
+                *termo.termo,
+                *termo.canonico.replace(SEPARADOR_DE_ALTERNATIVAS, " ").split(),
+            )
+        )
+        object.__setattr__(self, "_por_tipo", por_tipo)
+        object.__setattr__(self, "_protegidas", protegidas)
+
+    def do_tipo(self, tipo: str) -> Mapping[tuple[str, ...], Termo]:
         """Os termos de um tipo, pelas suas palavras."""
-        return {palavras: t for (t_tipo, palavras), t in self.termos.items() if t_tipo == tipo}
+        return self._por_tipo.get(tipo, {})  # type: ignore[attr-defined]
+
+    @property
+    def protegidas(self) -> frozenset[str]:
+        """As palavras do lexico que nunca sao *typo* (termos e canonicos)."""
+        return self._protegidas  # type: ignore[attr-defined]
 
 
 def _substituir(
@@ -508,18 +551,16 @@ def normalizar(
     tokens, _ = _passos_4_e_5(tokens, lexico)
 
     stopwords = lexico.do_tipo("stopword")
-    sinonimos = lexico.do_tipo("sinonimo")
-    protegidos = frozenset(
-        palavra
-        for grupo in (stopwords, sinonimos, lexico.do_tipo("marca"), lexico.do_tipo("unidade"))
-        for termo in grupo.values()
-        for palavra in (*termo.termo, *termo.canonico.replace(SEPARADOR_DE_ALTERNATIVAS, " ").split())
+    tokens, correccoes, nao_resolvidos = _corrigir(
+        tokens, lexico, vocabulario, lexico.protegidas
     )
-    tokens, correccoes, nao_resolvidos = _corrigir(tokens, lexico, vocabulario, protegidos)
     tokens, _ = _substituir(tokens, {k: Termo("stopword", k, "") for k in stopwords})
     extra, ambiguas = _sinonimos(tokens, lexico)
 
-    termos_or = [t for t in dict.fromkeys([*tokens, *extra]) if not t.isdigit() and t != '"']
+    # Os numeros (inteiros e decimais) e as aspas nao vao ao `q_or` (passo 3).
+    termos_or = [
+        t for t in dict.fromkeys([*tokens, *extra]) if not NUMERO.fullmatch(t) and t != "\""
+    ]
     # Um termo ambiguo nao entra no `q_or` sozinho: pergunta-se primeiro.
     ambiguos = {palavra for d in ambiguas for palavra in d.termo.split()}
     termos_or = [t for t in termos_or if t not in ambiguos]

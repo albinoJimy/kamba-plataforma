@@ -244,9 +244,12 @@ FRASE_DO_AVISO: Final = {
     MOEDA_ESTRANGEIRA: (
         "So consigo procurar precos em kwanzas. Pode dizer o valor em Kz?"
     ),
+    # Nao culpa o cliente: com o lexico vazio, a palavra «desconhecida» e muitas
+    # vezes so um produto que a loja nao vende. Por isso guarda a saida do
+    # `MSG_NAO_ENTENDI` — o colega da loja.
     TERMO_DESCONHECIDO: (
-        "Nao reconheci uma das palavras da sua mensagem no catalogo da loja. "
-        "Pode escrever de outra maneira?"
+        "Nao encontrei no catalogo da loja algumas das palavras que escreveu. "
+        "Pode dizer de outra maneira, ou falar com um colega da loja?"
     ),
 }
 
@@ -1347,12 +1350,21 @@ def retrieve(deps: Dependencias):
             deps, estado, "search_catalog", {"query": _query_de(_texto_do_cliente(estado))}
         )
         pergunta = resultado.data.get("pergunta") if resultado.ok else None
-        if pergunta in PERGUNTAS_DO_IDX:
-            # KAM-062: a normalizacao precisa de perguntar antes de pesquisar
-            # (termo ambiguo, moeda estrangeira, palavra que nao se resolve).
+        acima = [
+            candidato
+            for candidato in (resultado.data.get("candidatos") or () if resultado.ok else ())
+            if float(candidato.get("score", 0)) >= deps.limiar_idx
+        ]
+        # KAM-062: a normalizacao pede uma pergunta. O termo ambiguo e a moeda
+        # estrangeira perguntam **sempre** — mostrar candidatos era escolher um
+        # sentido, ou ignorar um tecto, em silencio. A palavra desconhecida so
+        # pergunta se nada passou o limiar: com o lexico vazio, «quero comprar
+        # arroz» tem duas palavras que a loja nao conhece, e a pesquisa
+        # encontrou o arroz. O limiar decide aqui, e nao no executor, porque e
+        # aqui que ele vive (achado 6 da revisao adversarial).
+        if pergunta in PERGUNTAS_DO_IDX and not (pergunta == TERMO_DESCONHECIDO and acima):
             # Sem ofertas, o turno sai pela aresta 19 e o `unknown_reply` faz
-            # **uma** pergunta — e nao mostra candidatos de uma pesquisa feita
-            # com metade da frase.
+            # **uma** pergunta.
             return {"ofertas": (), "avisos": _avisos_com(estado, pergunta)}
         if not resultado.ok:
             # O §7.3 da ao `retrieve` **duas** arestas e nenhuma e `handoff`:
@@ -1363,11 +1375,6 @@ def retrieve(deps: Dependencias):
                 "ofertas": (),
                 "avisos": _avisos_com(estado, _aviso_do_erro(resultado)),
             }
-        acima = [
-            candidato
-            for candidato in resultado.data.get("candidatos") or ()
-            if float(candidato.get("score", 0)) >= deps.limiar_idx
-        ]
         return {"ofertas": tuple(_oferta_crua(c) for c in acima)}
 
     return no

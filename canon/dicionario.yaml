@@ -15287,6 +15287,26 @@ entradas:
       - "OR"
       - "UPDATE"
       - "DELETE"
+      - "SHARE"
+      - "ROW"
+      - "EXCLUSIVE"
+      - "norm_versao"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Versão só de acrescento"
+    canonico: "idx.f_recusar_alteracao_de_versao(), gatilho norm_versao_so_acrescenta"
+    literais:
+      - "idx.f_recusar_alteracao_de_versao()"
+      - "norm_versao_so_acrescenta"
+    nomes:
+      - "idx.f_recusar_alteracao_de_versao"
+      - "norm_versao_so_acrescenta"
+    nomes_nota:
+      - "BEFORE"
+      - "UPDATE"
+      - "OR"
+      - "DELETE"
+      - "norm_versao"
     variantes_literais: []
   - seccao: "3.60"
     conceito: "Aprovação de um termo"
@@ -16540,6 +16560,13 @@ tabelas:
     assinatura: "idx.f_registar_norm_versao()"
     seccao: "3.60"
     conceito: "Gatilho da versão"
+  - nome: "f_recusar_alteracao_de_versao"
+    esquema: "idx"
+    colunas: []
+    aberta: false
+    assinatura: "idx.f_recusar_alteracao_de_versao()"
+    seccao: "3.60"
+    conceito: "Versão só de acrescento"
 
 dominios:
   - coluna: "consent_event.purpose"

@@ -147,6 +147,17 @@ class TestPergunta(unittest.TestCase):
     def test_sem_nada_a_perguntar_nao_ha_campo(self) -> None:
         self.assertNotIn("pergunta", self.executar("samsung").data)
 
+    def test_a_palavra_desconhecida_vai_com_os_candidatos_e_o_grafo_decide(self) -> None:
+        """«quero comprar samsung»: o executor diz, e o `retrieve` decide pelo limiar."""
+        linha = {"sku": "s", "product_ref": "s", "nome": "Samsung", "preco_tipo": "fixo"}
+        procura = _procura(((linha, 0.2 / 61),), texto="quero comprar samsung",
+                           lexico=self.LEXICO, vocabulario=self.VOCABULARIO)
+        self.assertIn("comprar", procura.normalizacao.tokens_nao_resolvidos)
+        with mock.patch.object(idx.pesquisa, "procurar", return_value=procura):
+            dados = idx.executar(_pedido("quero comprar samsung")).data
+        self.assertEqual(dados["pergunta"], "TERMO_DESCONHECIDO")
+        self.assertEqual([c["sku"] for c in dados["candidatos"]], ["s"])
+
     def test_o_codigo_e_do_dominio_do_grafo_e_nunca_a_palavra(self) -> None:
         self.assertEqual(
             {"TERMO_AMBIGUO", "MOEDA_ESTRANGEIRA", "TERMO_DESCONHECIDO"},

@@ -221,7 +221,7 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: `ORDER BY 1, 2` do `test_o_migrator_nao_e_dono_de_nada_fora_do_que_criou`; o
 #: esquema vem **entre** o `dat` e o `lg`.
 #:
-#: KAM-062 (revisao `0048`) acrescenta a `norm_versao`, que vem primeiro pela
+#: KAM-062 (revisao `0049`) acrescenta a `norm_versao`, que vem primeiro pela
 #: ordem alfabetica.
 TABELAS_IDX = ("norm_versao", "search_doc", "termo_canonico")
 #: As vistas do esquema. Separadas das tabelas porque a descoberta do catalogo

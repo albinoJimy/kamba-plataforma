@@ -77,7 +77,9 @@ class TestContrato(unittest.TestCase):
 
     def test_o_modulo_nao_importa_rede_nem_llm(self) -> None:
         """Sem rede: os `import` dos dois modulos sao todos da biblioteca de base."""
-        permitidos = {"__future__", "re", "unicodedata", "collections.abc", "dataclasses", "typing"}
+        permitidos = {
+            "__future__", "re", "unicodedata", "collections.abc", "dataclasses", "typing", "decimal"
+        }
         raiz = Path(n.__file__).parent
         for nome in ("normalizacao.py", "numeros.py"):
             arvore = ast.parse((raiz / nome).read_text(encoding="utf-8"))
@@ -150,6 +152,33 @@ class TestRestricoes(unittest.TestCase):
         self.assertEqual(saida.q_norm, "frigorifico")
         self.assertEqual(saida.q_or, "frigorifico")
 
+    def test_as_formas_angolanas_de_escrever_um_valor(self) -> None:
+        """Achados 1, 2, 5, 11 e 13 da revisao adversarial, como tabela."""
+        casos = {
+            "geleira até 250.000,00 kz": {"max_preco_minor": 25_000_000},
+            "geleira até 250 000 kz": {"max_preco_minor": 25_000_000},
+            "geleira menos de 1,5 milhões": {"max_preco_minor": 150_000_000},
+            "geleira 1.5 mil": {"alvo_preco_minor": 150_000},
+            "geleira 250mil": {"alvo_preco_minor": 25_000_000},
+            "geleira até mil kz": {"max_preco_minor": 100_000},
+            "geleira até 12.000.000 kz": {"max_preco_minor": 1_200_000_000},
+            "geleira até 1 milhão de dólares": {"moeda": "USD"},
+            "geleira até $300": {"moeda": "USD"},
+            "geleira até 99999999999999999999 kz": {"max_preco_minor": 2**63 - 1},
+            "geleira entre 100 e 150 mil e até 50 mil": {"max_preco_minor": 5_000_000},
+        }
+        for frase, esperado in casos.items():
+            with self.subTest(frase=frase):
+                saida = norm(frase)
+                self.assertEqual(saida.restricoes.como_dict(), esperado)
+                self.assertNotRegex(saida.q_or, r"\d", "um numero chegou ao q_or")
+                self.assertNotIn("ate", saida.q_norm.split())
+
+    def test_um_numero_que_nao_e_preco_nao_se_junta(self) -> None:
+        """«quero 2 300» nao diz se e um numero ou dois: fica como esta."""
+        self.assertEqual(norm("quero 2 300").restricoes.como_dict(), {})
+        self.assertEqual(norm("Frigorifico 1,5 L").q_norm, "frigorifico 1.5 l")
+
 
 class TestVoz(unittest.TestCase):
     """Criterio 3: por extenso so com `origem = 'voz'`."""
@@ -163,6 +192,23 @@ class TestVoz(unittest.TestCase):
         saida = norm("geleira até duzentos e cinquenta mil", origem="voz")
         self.assertEqual(saida.restricoes.max_preco_minor, 25_000_000)
         self.assertEqual(saida.q_norm, "geleira")
+
+    def test_os_casos_da_voz_que_a_revisao_partiu(self) -> None:
+        """Achados 1, 3 e 4: o «e» que sobe, a cauda depois do «mil», o «de»."""
+        casos = {
+            "entre cem e duzentos mil": {"min_preco_minor": 10_000_000, "max_preco_minor": 20_000_000},
+            "entre cem e cento e cinquenta mil": {
+                "min_preco_minor": 10_000_000, "max_preco_minor": 15_000_000,
+            },
+            "até dois mil e quinhentos": {"max_preco_minor": 250_000},
+            "até trezentos mil e quinhentos": {"max_preco_minor": 30_050_000},
+            "um milhão de euros": {"moeda": "EUR"},
+        }
+        for frase, esperado in casos.items():
+            with self.subTest(frase=frase):
+                saida = norm("geleira " + frase, origem="voz")
+                self.assertEqual(saida.restricoes.como_dict(), esperado)
+                self.assertEqual(saida.q_norm, "geleira")
 
     def test_so_converte_com_origem_voz(self) -> None:
         saida = norm("duzentos e cinquenta mil", origem="texto")
@@ -243,6 +289,25 @@ class TestTypo(unittest.TestCase):
         saida = norm("nikr")
         self.assertEqual(saida.q_norm, "nikr")
         self.assertEqual(saida.tokens_nao_resolvidos, ("nikr",))
+
+    def test_o_limiar_e_0_6_dos_dois_lados(self) -> None:
+        """O limiar do criterio, escrito aqui e nao importado do modulo.
+
+        «frigorixico» fica **exactamente** em 0,6 (corrige: o criterio diz
+        «>= 0,6») e «computadro» em 4/7 (nao corrige). Um limiar que subisse
+        um pouco ou descesse ate 4/7 fica vermelho num dos dois — o ensaio
+        anterior so comparava com a constante do proprio modulo (achado 8).
+        """
+        self.assertEqual(n.LIMIAR_DE_CORRECCAO, 0.6)
+        vocabulario = n.Vocabulario.de_frequencias({"frigorifico": 1, "computador": 1})
+        self.assertEqual(n.semelhanca("frigorixico", "frigorifico"), 0.6)
+        self.assertAlmostEqual(n.semelhanca("computadro", "computador"), 4 / 7)
+        corrigida = n.normalizar("frigorixico", None, "texto", lexico=n.Lexico(None),
+                                 vocabulario=vocabulario)
+        self.assertEqual(corrigida.q_norm, "frigorifico")
+        nao = n.normalizar("computadro", None, "texto", lexico=n.Lexico(None),
+                           vocabulario=vocabulario)
+        self.assertEqual((nao.q_norm, nao.tokens_nao_resolvidos), ("computadro", ("computadro",)))
 
     def test_semelhanca_e_a_do_pg_trgm(self) -> None:
         """Os trigramas com margem do `pg_trgm`: 4 comuns em 7 distintos."""

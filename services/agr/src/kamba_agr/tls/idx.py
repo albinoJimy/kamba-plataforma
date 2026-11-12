@@ -157,12 +157,19 @@ def executar(pedido: Pedido) -> Resposta:
 
 
 def pergunta_da_normalizacao(normalizacao: Any) -> str | None:
-    """A pergunta que o AGR faz antes de pesquisar, ou `None` (KAM-062).
+    """A pergunta que a normalizacao pede ao AGR, ou `None` (KAM-062).
 
     Uma so, pela ordem do `PERGUNTAS_DO_IDX` do grafo: a ambiguidade primeiro
     (o que o cliente quer), depois a moeda (quanto quer gastar), depois a
     palavra desconhecida. **O codigo, e nunca a palavra**: o termo do cliente
     nao vai para o estado nem para a auditoria da tool.
+
+    **Quem decide se pergunta e o `retrieve`**, e nao este executor: a palavra
+    desconhecida so pergunta quando nenhum candidato passa o limiar do grafo, e
+    o limiar e dele. Com o lexico vazio — o estado de producao enquanto o do
+    §5.1 nao for validado —, «quero comprar arroz» tem «quero» e «comprar» fora
+    do vocabulario da loja, e perguntar por elas trocava todo o pedido tipico
+    de WhatsApp por uma pergunta (medido no `TestLigacaoDoAgr` do *gate* 8).
     """
     if normalizacao is None:
         return None

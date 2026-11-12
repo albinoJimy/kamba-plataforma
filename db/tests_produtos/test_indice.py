@@ -164,7 +164,7 @@ class TestEsquema(ComIndice):
             "  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
             " WHERE n.nspname = 'idx' AND c.relkind = 'r' ORDER BY 1"
         )
-        # A `norm_versao` (KAM-062, `0048`) nao tem `tenant_id` nem RLS: a versao
+        # A `norm_versao` (KAM-062, `0049`) nao tem `tenant_id` nem RLS: a versao
         # e global (§4.4), e o *gate* 6 pergunta por RLS a quem tem a coluna.
         self.assertEqual(
             [tuple(linha) for linha in linhas],

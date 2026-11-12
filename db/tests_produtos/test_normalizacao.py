@@ -1,4 +1,4 @@
-"""A normalizacao PT-AO contra um PostgreSQL real (KAM-062, revisao `0048`).
+"""A normalizacao PT-AO contra um PostgreSQL real (KAM-062, revisao `0049`).
 
 O que a suite unitaria (`libs/py-core/tests/test_idx_normalizacao.py`) nao pode
 medir, porque precisa da base:
@@ -122,16 +122,46 @@ class TestVersao(ComLexico):
         self.assertGreater(depois.versao_do_indice, antes.versao_do_indice)
         self.assertEqual(depois.versao, depois.versao_do_indice)
 
-    def test_desactivar_e_apagar_uma_unidade_tambem_marcam(self) -> None:
+    def test_desactivar_e_apagar_uma_unidade_activa_marcam(self) -> None:
         termo_id = self.termo("unidade", f"litr{uuid.uuid4().hex[:6]}", "l")
         antes = self.versoes()
         self.semente.execute(
             "UPDATE idx.termo_canonico SET activo = false WHERE id = %s", (termo_id,)
         )
+        self.assertGreater(self.versoes().versao_do_indice, antes.versao_do_indice)
+        outro = self.termo("unidade", f"gig{uuid.uuid4().hex[:6]}", "gb")
         meio = self.versoes()
-        self.assertGreater(meio.versao_do_indice, antes.versao_do_indice)
-        self.semente.execute("DELETE FROM idx.termo_canonico WHERE id = %s", (termo_id,))
+        self.semente.execute("DELETE FROM idx.termo_canonico WHERE id = %s", (outro,))
         self.assertGreater(self.versoes().versao_do_indice, meio.versao_do_indice)
+
+    def test_uma_entrada_inactiva_nao_marca_o_indice(self) -> None:
+        """Achado 14: uma marca inactiva (a de *dataset*) nao escreve no `nome_norm`.
+
+        Sobe a versao — o lexico mudou —, e a do indice fica: inserir, apagar.
+        """
+        antes = self.versoes()
+        self.semente.execute(
+            "INSERT INTO idx.termo_canonico "
+            "(tenant_id, tipo, termo, canonico, origem, activo, aprovado_por) "
+            "VALUES (NULL, 'marca', %s, 'nike', 'dataset', false, 'ensaio') RETURNING id",
+            (f"naik{uuid.uuid4().hex[:6]}",),
+        )
+        termo_id = int(self.semente.fetchone()[0])
+        self.semente.execute("DELETE FROM idx.termo_canonico WHERE id = %s", (termo_id,))
+        depois = self.versoes()
+        self.assertGreater(depois.versao, antes.versao)
+        self.assertEqual(depois.versao_do_indice, antes.versao_do_indice)
+
+    def test_a_versao_so_se_acrescenta(self) -> None:
+        """Nem o dono reescreve nem apaga uma versao: o maximo nunca desce."""
+        self.termo("sinonimo", f"bina{uuid.uuid4().hex[:6]}", "bicicleta")
+        admin = self.ligar("admin").cursor()
+        for instrucao in (
+            "UPDATE idx.norm_versao SET afecta_indice = NOT afecta_indice",
+            "DELETE FROM idx.norm_versao",
+        ):
+            with self.subTest(instrucao=instrucao):
+                self.assertErroSql("P0001", admin, instrucao)
 
     def test_o_kamba_app_le_a_versao_e_nao_a_escreve(self) -> None:
         cursor = self.cursor_app(None)
@@ -171,6 +201,18 @@ class TestReindexacao(ComLexico):
         self.reindexar(b)
         self.assertEqual(self.documento_de(a, "t")[:2], ("naiki air", None))
         self.assertEqual(self.documento_de(b, "t")[:2], ("nike air", "nike"))
+
+    def test_um_invisivel_desactualizado_nao_e_marcado_e_a_volta_acaba(self) -> None:
+        """O `AND visivel` do `SQL_DESACTUALIZADOS` (achado 8 da revisao).
+
+        Um documento escondido cuja oferta desapareceu nao sobe de versao (o
+        `SQL_ESCONDER_DOCUMENTO` nao a toca). Sem o filtro, era marcado em todas
+        as voltas e o ciclo «ate dar zero» nao acabava.
+        """
+        tenant = self.tenant_em("ativo")
+        self.documento(tenant, "fantasma", "geleira velha", visivel=False)
+        self.termo("unidade", f"lt{uuid.uuid4().hex[:6]}", "l")
+        self.assertEqual(self.reindexar(tenant), 0)
 
     def test_2000_produtos_em_menos_de_10_minutos(self) -> None:
         """O alvo do criterio 4, medido aqui: a medicao e da maquina do *gate*."""
@@ -221,6 +263,18 @@ class TestTypo(ComLexico):
         procura = pesquisa.procurar(conexao, tenant, "xyzq", cache=lexico.Cache())
         self.assertEqual(procura.normalizacao.tokens_nao_resolvidos, ("xyzq",))
 
+    def test_a_frase_corrigida_inteira_encontra_o_produto(self) -> None:
+        """O criterio 5 pede a consulta corrigida, e nao so a palavra (achado 9)."""
+        tenant = self.tenant_em("ativo")
+        self.criar_oferta(tenant, sku="g1", nome="Frigorifico LG 250 L")
+        self.indexar(tenant, "g1")
+        procura = pesquisa.procurar(
+            self.ligar("app"), tenant, "quero um frigorifco xyzq barato", cache=lexico.Cache()
+        )
+        self.assertIn(("frigorifco", "frigorifico"), procura.normalizacao.correccoes)
+        self.assertIn("xyzq", procura.normalizacao.tokens_nao_resolvidos)
+        self.assertEqual([l["sku"] for l, _ in procura.linhas], ["g1"])
+
     def test_niker_pela_tabela_de_erros_comuns(self) -> None:
         tenant = self.tenant_em("ativo")
         self.criar_oferta(tenant, sku="n1", nome="Nike Air Force 1")
@@ -254,6 +308,38 @@ class TestTypo(ComLexico):
         cursor = self.cursor_app(a)
         self.assertNotIn("zungueira", lexico.ler_vocabulario(cursor).frequencias)
         self.desfazer(a)
+
+
+class TestRestricoesNaOfertaViva(ComLexico):
+    """As restricoes ditas filtram a oferta viva, e nunca o indice (achado 8).
+
+    O ensaio puro so via a posicao dos parametros; este ve o efeito no
+    PostgreSQL, com o `>=` do minimo e o `<=` do maximo a morder.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tenant = self.tenant_em("ativo")
+        for sku, kz in (("g-barata", 90_000), ("g-media", 120_000), ("g-cara", 200_000)):
+            self.criar_oferta(self.tenant, sku=sku, nome=f"Geleira {sku}", preco_minor=kz * 100)
+            self.indexar(self.tenant, sku)
+        self.conexao = self.ligar("app")
+
+    def skus(self, texto: str) -> set[str]:
+        procura = pesquisa.procurar(self.conexao, self.tenant, texto, cache=lexico.Cache())
+        return {l["sku"] for l, _ in procura.linhas}
+
+    def test_entre_filtra_pelos_dois_lados(self) -> None:
+        self.assertEqual(self.skus("geleira entre 100 e 150 mil"), {"g-media"})
+
+    def test_o_minimo_sozinho(self) -> None:
+        self.assertEqual(self.skus("geleira acima de 100 mil kz"), {"g-media", "g-cara"})
+
+    def test_o_maximo_sozinho(self) -> None:
+        self.assertEqual(self.skus("geleira ate 150 mil"), {"g-barata", "g-media"})
+
+    def test_o_alvo_nao_filtra(self) -> None:
+        self.assertEqual(self.skus("geleira 120 mil"), {"g-barata", "g-media", "g-cara"})
 
 
 class TestPrecedencia(ComLexico):

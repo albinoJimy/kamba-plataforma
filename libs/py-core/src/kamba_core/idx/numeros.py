@@ -4,7 +4,7 @@ Duas coisas, ambas puras e sobre a lista de *tokens* que o passo 1 deixou
 (minusculas, sem acentos, sem pontuacao):
 
 * **`por_extenso`** e o passo 2: os numeros ditos por extenso passam a
-  algarismos («duzentos e cinquenta mil» -> `250000`). **So corre com
+  algarismos («duzentos e cinquenta mil» -> `250 mil`). **So corre com
   `origem = 'voz'`** (criterio 3): numa mensagem escrita, «cinco» e mais
   provavelmente parte de um nome do que uma quantia, e a transcricao do STT
   (KAM-036) e que escreve os numeros por extenso.
@@ -30,23 +30,44 @@ preco e a pesquisa filtrava tudo.
 | preco sem verbo | `alvo_preco_minor` (ordena por proximidade, nao filtra) |
 | moeda que nao e AOA | `moeda` com o codigo, e **nenhum** valor: a conversao nao e nossa, pergunta-se |
 
+## As formas angolanas de escrever um valor
+
+O passo 1 entrega os decimais com ponto e os milhares ja juntos: «250.000» e
+`250000`, «250.000,00» e `250000.00`, «1,5 milhoes» e `1.5 milhoes`. Aqui
+juntam-se ainda os milhares separados por espaco («250 000 kz») — so quando o
+grupo acaba em multiplicador ou moeda, porque «quero 2 300» nao diz se e um
+numero ou dois. A moeda pode vir depois de «de» («1 milhao de dolares»), e a
+estrangeira antes do numero («$300», que o passo 1 da `usd 300`). Um valor
+acima do `bigint` fica no tecto do `bigint`, que e «sem filtro» e nao um erro
+da base.
+
 ## O que **nao** esta aqui, e porque
 
 * **`qtd`.** O §5.1 lista-a no passo 3, e nenhum criterio a pede. Um numero
   solto seguido de palavra e tanto quantidade («2 bicicletas») como modelo
   («iphone 13 pro»), e adivinhar e pior do que nao extrair: fica no `q_norm`.
-* **Decimais** («1,5 milhoes»). A virgula e pontuacao no passo 1. Fica escrito
-  como limite; o dataset do KAM-064 diz se aparece.
+* **Um multiplicador seguido de unidade** («250 mil litros») le-se como preco.
+  As unidades sao lexico (passo 4) e este passo corre antes dele; o dataset do
+  KAM-064 diz se a forma aparece.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Final
 
 #: Kz -> unidade menor (dicionario §2; §5.2: «daí o factor 100»).
 MINOR_POR_KZ: Final = 100
+
+#: O maior valor que a coluna `bigint` da oferta viva compara. Um tecto acima
+#: disto e «sem tecto», e nao um `out of range` na base.
+MAXIMO_BIGINT: Final = 2**63 - 1
+
+#: Um numero como o passo 1 o entrega: inteiro ou com ponto decimal.
+NUMERO: Final = re.compile(r"\d+(?:\.\d+)?")
 
 #: As formas de AOA do §5.2, ja sem acentos.
 MOEDA_AOA: Final = frozenset({"kz", "kwanza", "kwanzas", "akz", "kuanza", "kuanzas", "aoa"})
@@ -119,12 +140,28 @@ _UNIDADES: Final = {
 _ARTIGOS: Final = frozenset({"um", "uma"})
 
 
+def _peso(token: str) -> int:
+    """O peso de uma palavra de numero, para a regra da descida (`_ler_numero`)."""
+    if token in ("milhao", "milhoes"):
+        return 1_000_000
+    if token == "mil":
+        return 1_000
+    return _UNIDADES[token]
+
+
 def _e_palavra_de_numero(token: str) -> bool:
     return token in _UNIDADES or token in ("mil", "milhao", "milhoes")
 
 
-def _ler_numero(tokens: Sequence[str], inicio: int) -> tuple[int, int] | None:
-    """O numero por extenso que comeca em `inicio`: `(valor, fim)`, ou `None`."""
+def _ler_numero(tokens: Sequence[str], inicio: int) -> tuple[int, int, int] | None:
+    """O numero por extenso em `inicio`: `(valor, fim, maior_multiplicador)`.
+
+    **Cada palavra junta-se so a uma maior do que ela.** «duzentos e
+    cinquenta», «cento e vinte», «mil e duzentos» descem; «cem e duzentos» sobe,
+    e por isso sao dois numeros — e o «entre cem e duzentos mil» da voz fica
+    `entre 100 e 200 mil`, e nao `300000` (achado 3 da revisao adversarial). Os
+    multiplicadores (`mil`, `milhao`) multiplicam o que ficou para tras.
+    """
     primeiro = tokens[inicio]
     if not _e_palavra_de_numero(primeiro):
         return None
@@ -134,41 +171,55 @@ def _ler_numero(tokens: Sequence[str], inicio: int) -> tuple[int, int] | None:
             return None
     total = 0
     grupo = 0
+    ultimo = 0  # o peso da ultima palavra lida; 0 antes da primeira
+    maior = 1
     i = inicio
-    lido = False
     while i < len(tokens):
         token = tokens[i]
+        if token == "e" and ultimo and i + 1 < len(tokens) and tokens[i + 1] in _UNIDADES:
+            if _UNIDADES[tokens[i + 1]] >= ultimo:
+                break  # «cem e duzentos»: dois numeros, e o «e» fica
+            i += 1
+            continue
         if token in _UNIDADES:
+            if ultimo and _UNIDADES[token] >= ultimo:
+                break  # «cinco seis» sao dois numeros
             grupo += _UNIDADES[token]
         elif token == "mil":
             total += (grupo or 1) * 1_000
             grupo = 0
+            maior = max(maior, 1_000)
         elif token in ("milhao", "milhoes"):
             total = (total + (grupo or 1)) * 1_000_000
             grupo = 0
-        elif (
-            token == "e"
-            and lido
-            and i + 1 < len(tokens)
-            and tokens[i + 1] in _UNIDADES
-        ):
-            # «duzentos e cinquenta»: o «e» so liga duas palavras de numero.
-            i += 1
-            continue
+            maior = 1_000_000
         else:
             break
-        lido = True
+        ultimo = _peso(token)
         i += 1
-    return total + grupo, i
+    return total + grupo, i, maior
+
+
+def _decimal_em_texto(valor: Decimal) -> str:
+    texto = format(valor, "f")
+    return texto.rstrip("0").rstrip(".") if "." in texto else texto
 
 
 def por_extenso(tokens: Sequence[str]) -> list[str]:
     """Passo 2: os numeros por extenso passam a algarismos.
 
+    **O multiplicador dito fica dito**, em decimal se for preciso: «duzentos e
+    cinquenta mil» sai `250 mil` e «dois mil e quinhentos» sai `2.5 mil`, que
+    sao as formas escritas que o passo 3 le como preco. Sem isto, «ate dois mil
+    e quinhentos» dava `ate 2500`, um numero solto sem multiplicador, e o tecto
+    perdia-se (achado 4 da revisao adversarial).
+
     >>> por_extenso("ate duzentos e cinquenta mil kz".split())
     ['ate', '250', 'mil', 'kz']
     >>> por_extenso("mil e duzentos".split())
-    ['1200']
+    ['1.2', 'mil']
+    >>> por_extenso("entre cem e duzentos mil".split())
+    ['entre', '100', 'e', '200', 'mil']
     """
     saida: list[str] = []
     i = 0
@@ -178,19 +229,12 @@ def por_extenso(tokens: Sequence[str]) -> list[str]:
             saida.append(tokens[i])
             i += 1
             continue
-        valor, fim = lido
-        palavras = tokens[i:fim]
-        i = fim
-        # O multiplicador dito fica dito: «duzentos e cinquenta mil» sai como
-        # `250 mil`, que e a forma escrita que o passo 3 le como preco. Sem
-        # isto, «ate duzentos e cinquenta mil» dava `ate 250000`, um numero
-        # solto sem multiplicador, e o tecto perdia-se.
-        if palavras[-1] in ("milhao", "milhoes") and valor % 1_000_000 == 0:
-            saida.extend((str(valor // 1_000_000), "milhoes"))
-        elif palavras[-1] == "mil" and valor % 1_000 == 0:
-            saida.extend((str(valor // 1_000), "mil"))
-        else:
+        valor, i, maior = lido
+        if maior == 1:
             saida.append(str(valor))
+        else:
+            palavra = "milhoes" if maior == 1_000_000 else "mil"
+            saida.extend((_decimal_em_texto(Decimal(valor) / maior), palavra))
     return saida
 
 
@@ -238,35 +282,62 @@ class Restricoes:
 
 @dataclass(frozen=True)
 class _Preco:
-    valor: int  # em Kz, ja multiplicado
-    tem_multiplicador: bool
+    valor: Decimal  # em Kz, ja multiplicado
+    multiplicador: int  # 1 sem multiplicador
     moeda: str | None  # "AOA", codigo estrangeiro, ou None
     fim: int
 
+    @property
+    def e_preco(self) -> bool:
+        return self.multiplicador != 1 or self.moeda is not None
+
+    @property
+    def minor(self) -> int:
+        bruto = (self.valor * MINOR_POR_KZ).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+        return min(int(bruto), MAXIMO_BIGINT)
+
+
+def _moeda_em(tokens: Sequence[str], i: int) -> tuple[str | None, int]:
+    """A moeda em `i`, ou depois de um «de» em `i`: `(codigo, fim)`."""
+    j = i + 1 if i < len(tokens) and tokens[i] == "de" else i
+    if j < len(tokens) and tokens[j] in MOEDA_AOA:
+        return "AOA", j + 1
+    if j < len(tokens) and tokens[j] in MOEDAS_ESTRANGEIRAS:
+        return MOEDAS_ESTRANGEIRAS[tokens[j]], j + 1
+    return None, i
+
 
 def _ler_preco(tokens: Sequence[str], inicio: int) -> _Preco | None:
-    """`NUM [mult] [moeda]` a comecar em `inicio`, ou `None`."""
-    if inicio >= len(tokens) or not tokens[inicio].isdigit():
+    """`NUM [mult] [de] [moeda]` a comecar em `inicio`, ou `None`.
+
+    O `NUM` e um numero do passo 1, os grupos de milhares separados por espaco
+    («250 000», so se o que vem a seguir for multiplicador ou moeda), ou o
+    `mil` sozinho seguido de moeda («ate mil kz»).
+    """
+    if inicio >= len(tokens):
         return None
-    valor = int(tokens[inicio])
-    i = inicio + 1
-    multiplicador = False
+    primeiro = tokens[inicio]
+    if primeiro == "mil":
+        moeda, fim = _moeda_em(tokens, inicio + 1)
+        return _Preco(Decimal(1_000), 1_000, moeda, fim) if moeda else None
+    if not NUMERO.fullmatch(primeiro):
+        return None
+    texto, i = primeiro, inicio + 1
+    if primeiro.isdigit() and len(primeiro) <= 3:
+        j = i
+        while j < len(tokens) and len(tokens[j]) == 3 and tokens[j].isdigit():
+            j += 1
+        seguinte = tokens[j] if j < len(tokens) else ""
+        if j > i and (seguinte in MULTIPLICADORES or _moeda_em(tokens, j)[0]):
+            texto, i = "".join(tokens[inicio:j]), j
+    valor = Decimal(texto)
+    multiplicador = 1
     if i < len(tokens) and tokens[i] in MULTIPLICADORES:
-        valor *= MULTIPLICADORES[tokens[i]]
-        multiplicador = True
+        multiplicador = MULTIPLICADORES[tokens[i]]
+        valor *= multiplicador
         i += 1
-    moeda: str | None = None
-    if i < len(tokens) and tokens[i] in MOEDA_AOA:
-        moeda = "AOA"
-        i += 1
-    elif i < len(tokens) and tokens[i] in MOEDAS_ESTRANGEIRAS:
-        moeda = MOEDAS_ESTRANGEIRAS[tokens[i]]
-        i += 1
+    moeda, i = _moeda_em(tokens, i)
     return _Preco(valor, multiplicador, moeda, i)
-
-
-def _e_preco(preco: _Preco) -> bool:
-    return preco.tem_multiplicador or preco.moeda is not None
 
 
 def _verbo(tokens: Sequence[str], inicio: int, verbos: tuple[tuple[str, ...], ...]) -> int:
@@ -280,13 +351,17 @@ def _verbo(tokens: Sequence[str], inicio: int, verbos: tuple[tuple[str, ...], ..
 def _moeda_prefixada(tokens: Sequence[str], inicio: int) -> str | None:
     """`usd 300`, `$300` (o passo 1 da `usd 300`): a moeda antes do numero."""
     token = tokens[inicio] if inicio < len(tokens) else ""
-    if token in MOEDAS_ESTRANGEIRAS and inicio + 1 < len(tokens) and tokens[inicio + 1].isdigit():
+    seguinte = tokens[inicio + 1] if inicio + 1 < len(tokens) else ""
+    if token in MOEDAS_ESTRANGEIRAS and NUMERO.fullmatch(seguinte):
         return MOEDAS_ESTRANGEIRAS[token]
     return None
 
 
 def extrair_restricoes(tokens: Sequence[str]) -> tuple[Restricoes, list[str]]:
     """Passo 3: as restricoes de preco e os *tokens* que sobram.
+
+    Uma restricao posterior substitui a anterior do mesmo tipo, e um minimo
+    acima do maximo cai (o cliente corrigiu-se; o tecto e o que fica).
 
     >>> r, resto = extrair_restricoes("geleira ate 250 mil".split())
     >>> r.max_preco_minor, resto
@@ -304,36 +379,35 @@ def extrair_restricoes(tokens: Sequence[str]) -> tuple[Restricoes, list[str]]:
             a = _ler_preco(tokens, i + 1)
             if a is not None and a.fim < len(tokens) and tokens[a.fim] == "e":
                 b = _ler_preco(tokens, a.fim + 1)
-                if b is not None and (_e_preco(a) or _e_preco(b)):
-                    valor_a = a.valor
-                    if not a.tem_multiplicador and b.tem_multiplicador:
-                        valor_a *= b.valor // int(tokens[a.fim + 1])
+                if b is not None and (a.e_preco or b.e_preco):
+                    if a.multiplicador == 1 and b.multiplicador != 1:
+                        a = _Preco(a.valor * b.multiplicador, b.multiplicador, a.moeda, a.fim)
                     moeda = a.moeda or b.moeda
                     if moeda not in (None, "AOA"):
                         estrangeira = moeda
                     else:
-                        minimo = min(valor_a, b.valor) * MINOR_POR_KZ
-                        maximo = max(valor_a, b.valor) * MINOR_POR_KZ
+                        minimo, maximo = sorted((a.minor, b.minor))
                     i = b.fim
                     continue
-        estrangeira_antes = _moeda_prefixada(tokens, i)
-        if estrangeira_antes is not None:
-            estrangeira = estrangeira_antes
-            i += 2
-            continue
         n_max = _verbo(tokens, i, VERBOS_DE_MAXIMO)
         n_min = 0 if n_max else _verbo(tokens, i, VERBOS_DE_MINIMO)
         salto = n_max or n_min
+        prefixada = _moeda_prefixada(tokens, i + salto)
+        if prefixada is not None:
+            # «ate $300»: o verbo, a moeda e o numero saem juntos.
+            estrangeira = prefixada
+            i += salto + 2
+            continue
         preco = _ler_preco(tokens, i + salto)
-        if preco is not None and _e_preco(preco):
+        if preco is not None and preco.e_preco:
             if preco.moeda not in (None, "AOA"):
                 estrangeira = preco.moeda
             elif n_max:
-                maximo = preco.valor * MINOR_POR_KZ
+                maximo = preco.minor
             elif n_min:
-                minimo = preco.valor * MINOR_POR_KZ
+                minimo = preco.minor
             else:
-                alvo = preco.valor * MINOR_POR_KZ
+                alvo = preco.minor
             i = preco.fim
             continue
         resto.append(tokens[i])
@@ -341,4 +415,6 @@ def extrair_restricoes(tokens: Sequence[str]) -> tuple[Restricoes, list[str]]:
     if estrangeira is not None:
         # Um valor noutra moeda nao se converte aqui: nenhum tecto, pergunta-se.
         return Restricoes(moeda=estrangeira), resto
+    if minimo is not None and maximo is not None and minimo > maximo:
+        minimo = None
     return Restricoes(maximo, minimo, alvo), resto
