@@ -7142,7 +7142,7 @@ MUTACOES = [
 
     # ------------------------------------------- KAM-089 (revisao `0048`)
     #
-    # Cinco, e cada uma tira uma barreira que so a base tem.
+    # Seis, e cada uma tira uma barreira que so a base tem.
     ('revisao: o trigger deixa passar qualquer transicao', REV48,
      "IF NEW.estado IS DISTINCT FROM OLD.estado AND NOT (",
      "IF false AND NOT (",
@@ -7156,11 +7156,11 @@ MUTACOES = [
     # Reentregar um caso de saga abria-o outra vez, sem limite. O
     # `test_a_chave_e_idempotente_com_e_sem_onboarding` tem de a matar.
     ('revisao: o lote passa a poder baixar a prioridade', REV48,
-     '"GRANT SELECT, INSERT, UPDATE (estado, fila_at, sla_alerta_at, sla_due_at, "',
-     '"GRANT SELECT, INSERT, UPDATE (estado, prioridade, fila_at, sla_alerta_at, sla_due_at, "',
+     "          IF NEW.prioridade > OLD.prioridade THEN",
+     "          IF false THEN",
      "tests"),
     # Um caso de risco alto descia para um so revisor. O
-    # `test_o_lote_muda_estado_e_prazo_mas_nao_a_prioridade` tem de a matar.
+    # `test_a_prioridade_so_fica_mais_urgente` tem de a matar.
     ('revisao: a aplicacao passa a ler o motivo interno', REV48,
      'op.execute("GRANT SELECT ON platform.review_case TO kamba_audit")',
      'op.execute("GRANT SELECT ON platform.review_case TO kamba_audit, kamba_app")',

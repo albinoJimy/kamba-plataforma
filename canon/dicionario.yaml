@@ -15406,7 +15406,6 @@ entradas:
       - "review_case.prioridade"
     nomes_nota:
       - "prioridadeDeRiscoAlto"
-      - "UPDATE"
     variantes_literais: []
   - seccao: "3.60"
     conceito: "Decisão do revisor"
@@ -15555,6 +15554,7 @@ entradas:
     nomes_nota:
       - "ip_prefix_hash"
       - "device_hash"
+      - "auditoria"
       - "em_triagem_automatica"
       - "drenarTriagem"
     variantes_literais: []

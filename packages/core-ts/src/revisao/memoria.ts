@@ -17,9 +17,11 @@ import {
   type DecisaoNova,
   type DecisaoRegistada,
   type EstadoDoCaso,
+  type Evidencia,
   type FiltroDaFila,
   type OnboardingDaRevisao,
   type OnboardingsDaRevisao,
+  type Recomendacao,
   type RegistoDeAuditoria,
   type RepositorioDeRevisao,
   type Sla,
@@ -78,6 +80,18 @@ export class FilaDeRevisaoEmMemoria implements RepositorioDeRevisao {
     return true;
   }
 
+  async reforcar(
+    id: string,
+    r: { prioridade: number; motivoInterno: string; evidencias: readonly Evidencia[]; recomendacao: Recomendacao | null },
+  ): Promise<boolean> {
+    const c = this.casos.get(id);
+    if (c === undefined || !(ESTADOS_PENDENTES.includes(c.estado) || c.estado === "em_triagem_automatica")) return false;
+    // A base recusa uma prioridade menos urgente por *trigger*; o duplo também.
+    if (r.prioridade > c.prioridade) throw new Error("prioridade menos urgente recusada");
+    this.casos.set(id, { ...c, prioridade: r.prioridade, motivoInterno: r.motivoInterno, evidencias: [...r.evidencias], recomendacao: r.recomendacao });
+    return true;
+  }
+
   async registarDecisao(nova: DecisaoNova): Promise<DecisaoRegistada> {
     if (!this.casos.has(nova.casoId)) throw new Error("caso inexistente");
     const d: DecisaoRegistada = Object.freeze({ ...nova, id: randomUUID(), em: this.#agora() });
@@ -89,10 +103,8 @@ export class FilaDeRevisaoEmMemoria implements RepositorioDeRevisao {
     return this.registo.filter((d) => d.casoId === casoId);
   }
 
-  async pendentesDoOnboarding(onboardingId: string): Promise<readonly CasoDeRevisao[]> {
-    return [...this.casos.values()].filter(
-      (c) => c.onboardingId === onboardingId && (ESTADOS_PENDENTES.includes(c.estado) || c.estado === "em_triagem_automatica"),
-    );
+  async casosDoOnboarding(onboardingId: string): Promise<readonly CasoDeRevisao[]> {
+    return [...this.casos.values()].filter((c) => c.onboardingId === onboardingId);
   }
 
   async contarNaFilaDesde(origem: string | null, desde: Date): Promise<number> {
@@ -102,6 +114,17 @@ export class FilaDeRevisaoEmMemoria implements RepositorioDeRevisao {
         c.estado !== "em_triagem_automatica" &&
         c.filaEm.getTime() >= desde.getTime() &&
         this.#origem(c.onboardingId) === origem,
+    ).length;
+  }
+
+  async contarNaFilaDoTenantDesde(tenantId: string, desde: Date): Promise<number> {
+    return [...this.casos.values()].filter(
+      (c) =>
+        c.onboardingId === null &&
+        c.tenantId === tenantId &&
+        c.tipo !== "auditoria" &&
+        c.estado !== "em_triagem_automatica" &&
+        c.filaEm.getTime() >= desde.getTime(),
     ).length;
   }
 
@@ -140,6 +163,10 @@ export class OnboardingsEmMemoria implements OnboardingsDaRevisao {
 
   async porId(id: string): Promise<OnboardingDaRevisao | null> {
     return this.casos.get(id) ?? null;
+  }
+
+  async porTenant(tenantId: string): Promise<OnboardingDaRevisao | null> {
+    return [...this.casos.values()].find((c) => c.tenantId === tenantId) ?? null;
   }
 
   async marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean> {

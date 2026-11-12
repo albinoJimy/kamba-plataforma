@@ -200,18 +200,34 @@ export interface RepositorioDeRevisao {
   porId(id: string): Promise<CasoDeRevisao | null>;
   /**
    * Muda o estado se o actual for `de`. `false` se não era: duas decisões
-   * concorrentes sobre o mesmo caso não passam as duas.
+   * concorrentes sobre o mesmo caso não passam as duas. Com `sla`, reinicia o
+   * prazo e o alerta; com `sla.filaEm`, também a entrada na fila (a saída da
+   * triagem). O recurso reinicia o prazo e **não** a entrada: a primeira decisão
+   * mede-se a partir da entrada, e um recurso não a apaga.
    */
   transitar(id: string, de: EstadoDoCaso, para: EstadoDoCaso, sla?: Sla & { readonly filaEm?: Date }): Promise<boolean>;
+  /**
+   * Um envio repetido sobre um caso **pendente** traz o que a porta sabe agora:
+   * o motivo interno e a recomendação novos, as evidências somadas, e a
+   * prioridade mais urgente das duas — **nunca** menos urgente, e a base impõe-no
+   * por *trigger*. `false` se o caso já não está pendente.
+   */
+  reforcar(id: string, r: { readonly prioridade: number; readonly motivoInterno: string; readonly evidencias: readonly Evidencia[]; readonly recomendacao: Recomendacao | null }): Promise<boolean>;
   registarDecisao(nova: DecisaoNova): Promise<DecisaoRegistada>;
   decisoes(casoId: string): Promise<readonly DecisaoRegistada[]>;
-  /** Os casos pendentes de um onboarding (para saber se ainda o bloqueiam). */
-  pendentesDoOnboarding(onboardingId: string): Promise<readonly CasoDeRevisao[]>;
+  /** Todos os casos de um onboarding, pendentes e decididos (para saber se ainda o bloqueiam). */
+  casosDoOnboarding(onboardingId: string): Promise<readonly CasoDeRevisao[]>;
   /**
    * Quantos casos desta origem entraram hoje na vista humana. A origem é o
    * `ip_prefix_hash` do onboarding, ou o `device_hash` na falta dele.
    */
   contarNaFilaDesde(origem: string | null, desde: Date): Promise<number>;
+  /**
+   * Quantos casos **sem onboarding** deste tenant entraram hoje na vista humana,
+   * fora as auditorias. Uma `condicional` de produto chega sem onboarding e o
+   * conteúdo é do tenant: sem esta quota, um tenant inundava a fila pelo catálogo.
+   */
+  contarNaFilaDoTenantDesde(tenantId: string, desde: Date): Promise<number>;
   /** Os casos em triagem, do mais antigo para o mais recente. */
   emTriagem(limite: number): Promise<readonly CasoDeRevisao[]>;
   /** Os pendentes cujo alerta dos 80% já passou e ainda não foi dado. */
@@ -248,6 +264,12 @@ export interface OnboardingDaRevisao {
 /** A porta dos onboardings. Implementada pelo `RepositorioDeCasos` da inscrição. */
 export interface OnboardingsDaRevisao {
   porId(id: string): Promise<OnboardingDaRevisao | null>;
+  /**
+   * O onboarding de um tenant, pelo `tenant_id` pré-alocado (único por caso).
+   * É o que diz quem é parte num caso sem onboarding — uma auditoria, um
+   * produto do catálogo — e de onde vêm os dados dele.
+   */
+  porTenant(tenantId: string): Promise<OnboardingDaRevisao | null>;
   marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean>;
 }
 
@@ -279,7 +301,8 @@ export type AccaoDeAuditoria = (typeof ACCOES_DE_AUDITORIA)[number];
 /** Uma linha do `audit_log` (KAM-012), escrita por `platform.audit_append`. */
 export interface RegistoDeAuditoria {
   readonly accao: AccaoDeAuditoria;
-  readonly tenantId: string;
+  /** `null` para o que não é de um tenant: uma lista recusada vai à cadeia de plataforma. */
+  readonly tenantId: string | null;
   /** O `revisor.id`, ou `desconhecido` para quem chegou sem identidade. */
   readonly actorId: string;
   /** O que foi tocado: `kyc_check`, `onboarding_case`, `review_case`. */
@@ -420,6 +443,7 @@ export const MOTIVOS_DE_RECUSA = [
   "revisor_da_primeira_instancia",
   "estado_invalido",
   "recurso_ja_usado",
+  "recurso_sem_rejeicao",
   "decisao_invalida",
   "evidencia_alheia",
 ] as const;
@@ -434,7 +458,8 @@ export class RevisaoRecusadaError extends Error {
   constructor(motivo: MotivoDeRecusa) {
     super(`revisao recusada: ${motivo}`);
     this.motivo = motivo;
-    this.estadoHttp = motivo === "estado_invalido" || motivo === "recurso_ja_usado" ? 409 : 403;
+    this.estadoHttp =
+      motivo === "estado_invalido" || motivo === "recurso_ja_usado" || motivo === "recurso_sem_rejeicao" ? 409 : 403;
   }
 }
 

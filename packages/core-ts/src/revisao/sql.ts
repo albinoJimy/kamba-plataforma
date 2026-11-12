@@ -61,10 +61,25 @@ export const SQL_POR_ID = `SELECT id, tipo, onboarding_id, tenant_id, motivo_cod
 export const SQL_TRANSITAR = `UPDATE platform.review_case SET estado = $3
   WHERE id = $1 AND estado = $2 RETURNING id`;
 
-/** A transição que reinicia o prazo: a saída da triagem e a abertura do recurso. */
+/**
+ * A transição que reinicia o prazo e o alerta: a saída da triagem (com a
+ * entrada na fila nova, `$4`) e a abertura do recurso (com `$4` nulo, que
+ * mantém a entrada — a primeira decisão mede-se a partir dela).
+ */
 export const SQL_TRANSITAR_COM_SLA = `UPDATE platform.review_case
-  SET estado = $3, fila_at = $4, sla_alerta_at = $5, sla_due_at = $6, sla_alertado_at = NULL
+  SET estado = $3, fila_at = coalesce($4, fila_at), sla_alerta_at = $5, sla_due_at = $6, sla_alertado_at = NULL
   WHERE id = $1 AND estado = $2 RETURNING id`;
+
+/**
+ * Um envio repetido sobre um caso pendente. A prioridade só fica **mais**
+ * urgente — `least` aqui, e o *trigger* da `0048` recusa o contrário a quem
+ * escreva sem esta instrução.
+ */
+export const SQL_REFORCAR = `UPDATE platform.review_case
+  SET prioridade = least(prioridade, $2), motivo_interno = $3, evidencias = $4::jsonb, recomendacao = $5
+  WHERE id = $1
+    AND estado IN ('em_triagem_automatica', 'aberto', 'em_analise', 'escalado', 'recurso_aberto')
+  RETURNING id`;
 
 /** O `tenant_id` lê-se do caso, na mesma instrução: a FK composta prende os dois. */
 export const SQL_REGISTAR_DECISAO = `INSERT INTO platform.review_decision_log
@@ -75,10 +90,9 @@ export const SQL_REGISTAR_DECISAO = `INSERT INTO platform.review_decision_log
 export const SQL_DECISOES = `SELECT id, case_id, revisor_id, decisao, instancia, regra, nota_enc, em
   FROM platform.review_decision_log WHERE case_id = $1 ORDER BY em, id`;
 
-export const SQL_PENDENTES_DO_ONBOARDING = `SELECT id, tipo, onboarding_id, tenant_id, motivo_codigo, motivo_interno, motivo_publico,
+export const SQL_CASOS_DO_ONBOARDING = `SELECT id, tipo, onboarding_id, tenant_id, motivo_codigo, motivo_interno, motivo_publico,
   evidencias, recomendacao, estado, prioridade, fila_at, sla_alerta_at, sla_due_at, sla_alertado_at, criado_at FROM platform.review_case
-  WHERE onboarding_id = $1
-    AND estado IN ('em_triagem_automatica', 'aberto', 'em_analise', 'escalado', 'recurso_aberto')`;
+  WHERE onboarding_id = $1 ORDER BY criado_at, id`;
 
 /**
  * A quota: casos **deste** dia que entraram na vista humana vindos da mesma
@@ -96,6 +110,11 @@ export const SQL_CONTAR_NA_FILA = `SELECT count(*)::int AS n
   FROM platform.review_case r JOIN platform.onboarding_case c ON c.id = r.onboarding_id
   WHERE coalesce(c.ip_prefix_hash, c.device_hash) IS NOT DISTINCT FROM $1::bytea
     AND r.estado <> 'em_triagem_automatica' AND r.fila_at >= $2`;
+
+/** A quota de um tenant para os casos sem onboarding, fora as auditorias. */
+export const SQL_CONTAR_NA_FILA_DO_TENANT = `SELECT count(*)::int AS n FROM platform.review_case
+  WHERE tenant_id = $1 AND onboarding_id IS NULL AND tipo <> 'auditoria'
+    AND estado <> 'em_triagem_automatica' AND fila_at >= $2`;
 
 export const SQL_EM_TRIAGEM = `SELECT id, tipo, onboarding_id, tenant_id, motivo_codigo, motivo_interno, motivo_publico,
   evidencias, recomendacao, estado, prioridade, fila_at, sla_alerta_at, sla_due_at, sla_alertado_at, criado_at FROM platform.review_case
@@ -243,11 +262,19 @@ export class RevisaoSql implements RepositorioDeRevisao {
             id,
             de,
             para,
-            sla.filaEm ?? new Date(),
+            sla.filaEm ?? null,
             sla.slaAlertaAt,
             sla.slaDueAt,
           ]);
     return r.rows.length === 1;
+  }
+
+  async reforcar(
+    id: string,
+    r: { prioridade: number; motivoInterno: string; evidencias: readonly Evidencia[]; recomendacao: CasoDeRevisao["recomendacao"] },
+  ): Promise<boolean> {
+    const q = await this.#c.query(SQL_REFORCAR, [id, r.prioridade, r.motivoInterno, JSON.stringify(r.evidencias), r.recomendacao]);
+    return q.rows.length === 1;
   }
 
   async registarDecisao(n: DecisaoNova): Promise<DecisaoRegistada> {
@@ -267,8 +294,13 @@ export class RevisaoSql implements RepositorioDeRevisao {
     return (await this.#c.query<LinhaDeDecisao>(SQL_DECISOES, [casoId])).rows.map(decisaoDe);
   }
 
-  async pendentesDoOnboarding(onboardingId: string): Promise<readonly CasoDeRevisao[]> {
-    return (await this.#c.query<Linha>(SQL_PENDENTES_DO_ONBOARDING, [onboardingId])).rows.map(casoDe);
+  async casosDoOnboarding(onboardingId: string): Promise<readonly CasoDeRevisao[]> {
+    return (await this.#c.query<Linha>(SQL_CASOS_DO_ONBOARDING, [onboardingId])).rows.map(casoDe);
+  }
+
+  async contarNaFilaDoTenantDesde(tenantId: string, desde: Date): Promise<number> {
+    const r = await this.#c.query<{ n: number }>(SQL_CONTAR_NA_FILA_DO_TENANT, [tenantId, desde]);
+    return Number(r.rows[0]?.n ?? 0);
   }
 
   async contarNaFilaDesde(origem: string | null, desde: Date): Promise<number> {

@@ -18,6 +18,7 @@ import {
   type MotivoDeAlerta,
   type MotivoPublico,
   type OnboardingDaRevisao,
+  type OnboardingsDaRevisao,
   type Revisor,
   type TipoDeCaso,
   type ViaDoAviso,
@@ -31,7 +32,9 @@ export function revisor(o: Partial<Revisor> = {}): Revisor {
   return { id: randomUUID(), papeis: ["ts_revisor"], mfa: true, nifHmac: null, telefoneHmac: null, ...o };
 }
 
-export function montarRevisao(o: { agora?: Date; limiares?: Partial<Limiares>; inicioDaAmostragem?: Date | null } = {}) {
+export function montarRevisao(
+  o: { agora?: Date; limiares?: Partial<Limiares>; inicioDaAmostragem?: Date | null; onboardings?: OnboardingsDaRevisao } = {},
+) {
   let agora = o.agora ?? SEXTA;
   const relogio = () => agora;
   const onboardings = new OnboardingsEmMemoria();
@@ -47,7 +50,9 @@ export function montarRevisao(o: { agora?: Date; limiares?: Partial<Limiares>; i
   const urls: { revisor: string; onboardingId: string; verificacaoId: string }[] = [];
   const servico = new ServicoDeRevisao({
     repositorio,
-    onboardings,
+    // Uma ponte para os onboardings de outro duplo (o do KYC) substitui estes:
+    // o servico tem de ver os mesmos onboardings que as portas.
+    onboardings: o.onboardings ?? onboardings,
     auditoria,
     aviso: { avisar: async (p) => void avisos.push({ ...p }) },
     alerta: (motivo, campos) => void alertas.push({ motivo, ...campos }),

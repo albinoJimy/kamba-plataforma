@@ -134,6 +134,9 @@ function montarComKyc() {
       if (c === null) return null;
       return { id: c.id, tenantId: c.tenantId, fase: c.fase, redeHmac: "aa", dispositivoHmac: null, nifHmac: c.nifHmac, telefoneHmac: "bb" };
     },
+    async porTenant() {
+      return null;
+    },
     async marcarFase(id, fase) {
       const c = casos.casos.get(id);
       if (c === undefined) return false;
@@ -195,7 +198,7 @@ describe("a partir do KYC (KAM-087): abertura, decisao e recurso", () => {
     const m = montarComKyc();
     await m.carregar(ADULTERADO);
     await m.kyc.decidir(ADULTERADO.id);
-    const fila = filaDoKyc(m.servico, { porId: async () => ({ id: ADULTERADO.id, tenantId: ADULTERADO.tenantId, fase: "em_revisao", redeHmac: null, dispositivoHmac: null, nifHmac: "", telefoneHmac: "" }), marcarFase: async () => true }, m.verificacoes);
+    const fila = filaDoKyc(m.servico, { porId: async () => ({ id: ADULTERADO.id, tenantId: ADULTERADO.tenantId, fase: "em_revisao", redeHmac: null, dispositivoHmac: null, nifHmac: "", telefoneHmac: "" }), porTenant: async () => null, marcarFase: async () => true }, m.verificacoes);
     for (let i = 0; i < 3; i++) await fila.enviar({ onboardingId: ADULTERADO.id, score: 40, marcas: ["nif_divergente"], recomendacao: "investigar" });
     assert.equal(m.repositorio.casos.size, 1);
   });
@@ -292,7 +295,7 @@ describe("quem decide (criterio 3 e 6)", () => {
     await recusa(m.servico.decidir(sem, r.caso.id, "aprovar"), "sem_papel");
     await recusa(m.servico.listar(sem), "sem_papel");
     await recusa(m.servico.decidir(revisor({ mfa: false }), r.caso.id, "rejeitar"), "sem_mfa");
-    assert.deepEqual(m.auditoria.linhas.map((x) => [x.accao, x.detalhe]), [["review.recusa", "sem_papel"], ["review.recusa", "sem_papel"], ["review.recusa", "sem_mfa"]]);
+    assert.deepEqual(m.auditoria.linhas.map((x) => [x.accao, x.detalhe]), [["review.recusa", "sem_papel"], ["review.recusa", "sem_papel"], ["review.recusa", "sem_papel"], ["review.recusa", "sem_mfa"]]);
     assert.equal(m.repositorio.registo.length, 0);
     assert.equal(m.repositorio.casos.get(r.caso.id)!.estado, "aberto", "uma leitura recusada nao mexe no estado");
   });
@@ -483,7 +486,7 @@ describe("SLA, alerta e amostragem (criterio 2 e 7)", () => {
     assert.deepEqual(m.alertas, [{ motivo: "sla_80", casoId: a.caso.id, tipo: "kyc" }]);
   });
 
-  it("o recurso tem prazo novo, contado da abertura do recurso", async () => {
+  it("o recurso tem prazo novo, contado da abertura do recurso, e a entrada na fila fica", async () => {
     const m = montarRevisao();
     const r = await m.abrir(m.onboarding());
     assert.ok(r.estado === "aberto");
@@ -491,7 +494,8 @@ describe("SLA, alerta e amostragem (criterio 2 e 7)", () => {
     m.avancar(3 * 24 * H);
     const rec = await m.servico.abrirRecurso(r.caso.id);
     assert.ok(rec.slaDueAt.getTime() > r.caso.slaDueAt.getTime());
-    assert.equal(rec.filaEm.getTime(), m.agora().getTime());
+    assert.equal(rec.filaEm.getTime(), r.caso.filaEm.getTime(), "a primeira decisao mede-se da entrada");
+    assert.equal(rec.slaAlertadoEm, null);
   });
 
   it("amostragem: perto de 20% de 500 aprovacoes nas primeiras 8 semanas, prioridade 9; nenhuma depois", async () => {

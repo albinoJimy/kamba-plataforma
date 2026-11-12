@@ -280,11 +280,12 @@ class TestPrivilegios(ComBase):
             with self.subTest(alvo=alvo):
                 self.assertErroSql(PRIVILEGIO_INSUFICIENTE, app, f"SELECT 1 FROM {alvo}")
 
-    def test_o_lote_muda_estado_e_prazo_mas_nao_a_prioridade(self) -> None:
+    def test_o_lote_muda_estado_e_prazo_mas_nao_a_chave_nem_o_motivo_publico(self) -> None:
         lote = self.ligar("batch").cursor()
         caso = abrir(lote, str(uuid.uuid4()), prioridade=1)
-        for coluna, valor in (("prioridade", 5), ("motivo_publico", "'documento_expirado'"),
-                              ("tenant_id", "gen_random_uuid()"), ("motivo_codigo", "'outro'")):
+        for coluna, valor in (("motivo_publico", "'documento_expirado'"), ("tipo", "'trust'"),
+                              ("tenant_id", "gen_random_uuid()"), ("motivo_codigo", "'outro'"),
+                              ("onboarding_id", "gen_random_uuid()")):
             with self.subTest(coluna=coluna):
                 self.assertErroSql(PRIVILEGIO_INSUFICIENTE, lote,
                                    f"UPDATE {CASO} SET {coluna} = {valor} WHERE id = %s", (caso[0],))
@@ -301,6 +302,60 @@ class TestPrivilegios(ComBase):
                     "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
                     "WHERE oid = %s::regclass", (f"platform.{tabela}",))
                 self.assertEqual((ligada, forcada), (True, True))
+
+
+class TestReforco(ComBase):
+    def test_a_prioridade_so_fica_mais_urgente(self) -> None:
+        lote = self.ligar("batch").cursor()
+        caso = abrir(lote, str(uuid.uuid4()), prioridade=5)
+        lote.execute(f"UPDATE {CASO} SET prioridade = 1 WHERE id = %s", (caso[0],))
+        self.assertErroSql(VIOLACAO_DE_CHECK, lote,
+                           f"UPDATE {CASO} SET prioridade = 2 WHERE id = %s", (caso[0],))
+
+    def test_o_reforco_traz_o_que_a_porta_sabe_e_nunca_baixa_a_urgencia(self) -> None:
+        lote = self.ligar("batch").cursor()
+        caso = abrir(lote, str(uuid.uuid4()), prioridade=2)
+        q = ConsultaDoTypeScript("SQL_REFORCAR", SQL_TS)
+        novas = json.dumps([{"tipo": "kyc_check", "ref": "a"}, {"tipo": "kyc_check", "ref": "b"}])
+        lote.execute(q.sql, q.args(caso[0], 5, "marcas=nif_divergente", novas, "rejeitar"))
+        self.assertEqual(len(lote.fetchall()), 1)
+        lote.execute(f"SELECT prioridade, motivo_interno, jsonb_array_length(evidencias), recomendacao "
+                     f"FROM {CASO} WHERE id = %s", (caso[0],))
+        self.assertEqual(tuple(lote.fetchone()), (2, "marcas=nif_divergente", 2, "rejeitar"))
+        lote.execute(q.sql, q.args(caso[0], 1, "x", "[]", None))
+        lote.execute(f"SELECT prioridade FROM {CASO} WHERE id = %s", (caso[0],))
+        self.assertEqual(lote.fetchone()[0], 1)
+
+    def test_um_caso_decidido_nao_se_reforca(self) -> None:
+        lote = self.ligar("batch").cursor()
+        caso = abrir(lote, str(uuid.uuid4()), estado="decidido")
+        q = ConsultaDoTypeScript("SQL_REFORCAR", SQL_TS)
+        lote.execute(q.sql, q.args(caso[0], 1, "x", "[]", None))
+        self.assertEqual(len(lote.fetchall()), 0)
+
+
+class TestIsolamento(ComBase):
+    """O teste cruzado do ADR-015: o `kamba_audit` le pela RLS, e so o seu tenant."""
+
+    def test_a_auditoria_le_o_seu_tenant_e_nao_o_dos_outros(self) -> None:
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        conexao = ligacao.ligar("admin")
+        try:
+            caso = abrir(conexao.cursor(), a, None, tipo="trust", motivo_codigo=f"rls_{a[:8]}")
+            decidir(conexao.cursor(), caso[0], "rejeitar")
+            conexao.commit()
+        finally:
+            conexao.close()
+        auditoria = self.ligar("audit").cursor()
+        for contexto, esperado in ((a, 1), (b, 0), (None, 0)):
+            factories.contexto(auditoria, contexto)
+            for tabela, coluna in ((CASO, "id"), (LOG, "case_id")):
+                with self.subTest(contexto=contexto, tabela=tabela):
+                    auditoria.execute(f"SELECT count(*) FROM {tabela} WHERE {coluna} = %s", (caso[0],))
+                    self.assertEqual(auditoria.fetchone()[0], esperado)
+            with self.subTest(contexto=contexto, tabela="v_review_sla"):
+                auditoria.execute("SELECT count(*) FROM platform.v_review_sla WHERE case_id = %s", (caso[0],))
+                self.assertEqual(auditoria.fetchone()[0], esperado)
 
 
 class TestConsultas(ComBase):
@@ -343,7 +398,7 @@ class TestConsultas(ComBase):
         lote.execute(q.sql, q.args("kyc", "aberto", 1, 0))
         self.assertEqual(len(lote.fetchall()), 1)
 
-        q = ConsultaDoTypeScript("SQL_PENDENTES_DO_ONBOARDING", SQL_TS)
+        q = ConsultaDoTypeScript("SQL_CASOS_DO_ONBOARDING", SQL_TS)
         lote.execute(q.sql, q.args(onb))
         self.assertEqual(len(lote.fetchall()), 3)
 
@@ -363,6 +418,96 @@ class TestConsultas(ComBase):
         lote.execute(q.sql, q.args(triagem[0], "em_triagem_automatica", "aberto", dia,
                                    dia + timedelta(hours=19), dia + timedelta(hours=24)))
         self.assertEqual(len(lote.fetchall()), 1)
+
+    def test_as_origens_nulas_partilham_a_quota_e_a_do_tenant_conta_so_sem_onboarding(self) -> None:
+        admin = self.ligar("admin").cursor()
+        for _ in range(2):
+            onb, tenant = onboarding(admin, rede=None, dispositivo=None)
+            abrir(admin, tenant, onb)
+        q = ConsultaDoTypeScript("SQL_CONTAR_NA_FILA", SQL_TS)
+        admin.execute(q.sql, q.args(None, AGORA - timedelta(hours=1)))
+        self.assertGreaterEqual(admin.fetchone()[0], 2, "as nulas contam juntas")
+        tenant = str(uuid.uuid4())
+        for i in range(3):
+            abrir(admin, tenant, None, tipo="catalogo", motivo_codigo=f"screening:c{i}")
+        abrir(admin, tenant, None, tipo="auditoria", motivo_codigo="amostra:x")
+        abrir(admin, tenant, None, tipo="catalogo", motivo_codigo="screening:t",
+              estado="em_triagem_automatica")
+        q = ConsultaDoTypeScript("SQL_CONTAR_NA_FILA_DO_TENANT", SQL_TS)
+        admin.execute(q.sql, q.args(tenant, AGORA - timedelta(hours=1)))
+        self.assertEqual(admin.fetchone()[0], 3, "sem a auditoria nem a triagem")
+
+    def test_a_pagina_filtra_pelo_estado_e_os_alertas_cobrem_todos_os_pendentes(self) -> None:
+        admin = self.ligar("admin").cursor()
+        tenant = str(uuid.uuid4())
+        vencido = {"fila_at": AGORA - timedelta(days=2), "sla_alerta_at": AGORA - timedelta(days=1),
+                   "sla_due_at": AGORA - timedelta(hours=1)}
+        casos = {estado: abrir(admin, tenant, None, tipo="trust", motivo_codigo=f"e_{estado}",
+                               estado=estado, **vencido)[0]
+                 for estado in ("aberto", "em_analise", "escalado", "recurso_aberto", "decidido")}
+        q = ConsultaDoTypeScript("SQL_PAGINA", SQL_TS)
+        admin.execute(q.sql, q.args("trust", "escalado", 1000, 0))
+        ids = {l[0] for l in admin.fetchall()}
+        self.assertIn(casos["escalado"], ids)
+        self.assertNotIn(casos["aberto"], ids, "o filtro de estado filtra")
+        q = ConsultaDoTypeScript("SQL_ALERTAS_DEVIDOS", SQL_TS)
+        admin.execute(q.sql, q.args(AGORA))
+        devidos = {l[0] for l in admin.fetchall()}
+        for estado in ("aberto", "em_analise", "escalado", "recurso_aberto"):
+            self.assertIn(casos[estado], devidos, estado)
+        self.assertNotIn(casos["decidido"], devidos)
+
+    def test_reiniciar_o_prazo_repoe_o_alerta_e_o_recurso_mantem_a_entrada(self) -> None:
+        admin = self.ligar("admin").cursor()
+        caso = abrir(admin, str(uuid.uuid4()), None, tipo="trust", motivo_codigo="prazo",
+                     estado="decidido")
+        alertar = ConsultaDoTypeScript("SQL_MARCAR_ALERTADO", SQL_TS)
+        admin.execute(alertar.sql, alertar.args(caso[0], AGORA))
+        q = ConsultaDoTypeScript("SQL_TRANSITAR_COM_SLA", SQL_TS)
+        novo = AGORA + timedelta(days=3)
+        admin.execute(q.sql, q.args(caso[0], "decidido", "recurso_aberto", None,
+                                    novo, novo + timedelta(hours=5)))
+        admin.execute(f"SELECT fila_at, sla_alertado_at, sla_due_at FROM {CASO} WHERE id = %s", (caso[0],))
+        fila_at, alertado, due = admin.fetchone()
+        self.assertEqual(fila_at, AGORA, "o recurso nao apaga a entrada")
+        self.assertIsNone(alertado, "o alerta volta a poder sair")
+        self.assertEqual(due, novo + timedelta(hours=5))
+
+    def test_a_decisao_grava_se_no_caso_pedido(self) -> None:
+        admin = self.ligar("admin").cursor()
+        tenant = str(uuid.uuid4())
+        a = abrir(admin, tenant, None, tipo="trust", motivo_codigo="a")
+        b = abrir(admin, tenant, None, tipo="trust", motivo_codigo="b")
+        decidir(admin, b[0], "rejeitar")
+        admin.execute(f"SELECT case_id::text FROM {LOG} WHERE tenant_id = %s", (tenant,))
+        self.assertEqual([l[0] for l in admin.fetchall()], [str(b[0])])
+
+    def test_dentro_do_sla_e_da_instancia_em_curso(self) -> None:
+        admin = self.ligar("admin").cursor()
+        tenant = str(uuid.uuid4())
+        passado = {"fila_at": AGORA - timedelta(days=3), "sla_alerta_at": AGORA - timedelta(days=2),
+                   "sla_due_at": AGORA - timedelta(days=1)}
+        atrasado = abrir(admin, tenant, None, tipo="trust", motivo_codigo="atrasado", **passado)
+        a_tempo = abrir(admin, tenant, None, tipo="trust", motivo_codigo="a_tempo")
+        decidir(admin, a_tempo[0], "pedir_info")
+        recurso = abrir(admin, tenant, None, tipo="trust", motivo_codigo="recurso",
+                        estado="recurso_aberto", **passado)
+        decidir(admin, recurso[0], "rejeitar")  # a primeira instancia, antes do prazo do recurso
+        admin.execute("SELECT case_id::text, dentro_do_sla FROM platform.v_review_sla "
+                      "WHERE tenant_id = %s", (tenant,))
+        vista = {k: v for k, v in admin.fetchall()}
+        self.assertIs(vista[str(atrasado[0])], False, "sem decisao e com o prazo passado")
+        self.assertIs(vista[str(a_tempo[0])], True)
+        self.assertIs(vista[str(recurso[0])], False, "a primeira instancia nao conta para o recurso")
+
+    def test_os_casos_do_onboarding_sao_todos(self) -> None:
+        admin = self.ligar("admin").cursor()
+        onb, tenant = onboarding(admin)
+        abrir(admin, tenant, onb, motivo_codigo="a")
+        abrir(admin, tenant, onb, motivo_codigo="b", estado="decidido")
+        q = ConsultaDoTypeScript("SQL_CASOS_DO_ONBOARDING", SQL_TS)
+        admin.execute(q.sql, q.args(onb))
+        self.assertEqual(sorted(l[9] for l in admin.fetchall()), ["aberto", "decidido"])
 
     def test_a_vista_do_sla_e_os_contadores(self) -> None:
         # Como administrador: o lote nao tem `INSERT` na `onboarding_case` (e do

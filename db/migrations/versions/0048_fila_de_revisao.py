@@ -42,13 +42,18 @@ mensagem que o `alembic history` imprime.
 
 Um *trigger* recusa uma transicao de `estado` fora da tabela `TRANSICOES` de
 `packages/core-ts/src/revisao/contrato.ts`; o ensaio de base confronta as duas.
-`decidido_final` nao sai.
+`decidido_final` nao sai. O mesmo *trigger* recusa uma `prioridade` **menos**
+urgente: o lote reforca um caso pendente com o que a porta sabe agora (um KYC
+que volta a decidir depois de um `pedir_info`), e a prioridade e o que decide
+se aprovar pede dois revisores — baixa-la era tirar um.
 
 ## Privilegios
 
 A fila corre como `kamba_batch` (atravessa tenants, e o papel auditado). O
 `kamba_app` **nao tem privilegio nenhum** nas duas tabelas nem na vista: o motivo
-interno e so do T&S. **Ninguem tem `DELETE`**, e no `review_decision_log`
+interno e so do T&S. O lote muda o estado, o prazo e o reforco (prioridade so
+para mais urgente, motivo interno, evidencias, recomendacao); a chave de
+abertura e o motivo publico nao. **Ninguem tem `DELETE`**, e no `review_decision_log`
 ninguem tem `UPDATE`. A auditoria le.
 
 ## O `downgrade`
@@ -176,6 +181,10 @@ def upgrade() -> None:
           SET search_path = pg_catalog, platform
         AS $$
         BEGIN
+          IF NEW.prioridade > OLD.prioridade THEN
+            RAISE EXCEPTION 'prioridade de review_case so fica mais urgente: % -> %',
+              OLD.prioridade, NEW.prioridade USING ERRCODE = '23514';
+          END IF;
           IF NEW.estado IS DISTINCT FROM OLD.estado AND NOT (
                (OLD.estado = 'em_triagem_automatica' AND NEW.estado = 'aberto')
             OR (OLD.estado = 'aberto' AND NEW.estado IN ('em_analise', 'escalado', 'decidido'))
@@ -269,12 +278,16 @@ def upgrade() -> None:
         CREATE VIEW platform.v_review_sla WITH (security_invoker = true) AS
         SELECT r.id AS case_id, r.tenant_id, r.tipo, r.estado, r.prioridade,
                r.fila_at, r.sla_alerta_at, r.sla_due_at, d.primeira_decisao_at,
-               coalesce(d.primeira_decisao_at, now()) <= r.sla_due_at AS dentro_do_sla
+               CASE WHEN r.estado IN ('recurso_aberto', 'decidido_final')
+                    THEN coalesce(d.primeira_do_recurso_at, now()) <= r.sla_due_at
+                    ELSE coalesce(d.primeira_decisao_at, now()) <= r.sla_due_at
+               END AS dentro_do_sla
           FROM platform.review_case r
           LEFT JOIN LATERAL (
-            SELECT min(l.em) AS primeira_decisao_at
+            SELECT min(l.em) FILTER (WHERE l.instancia = 'primeira') AS primeira_decisao_at,
+                   min(l.em) FILTER (WHERE l.instancia = 'recurso') AS primeira_do_recurso_at
               FROM platform.review_decision_log l
-             WHERE l.case_id = r.id AND l.instancia = 'primeira'
+             WHERE l.case_id = r.id
           ) d ON true
          WHERE r.estado <> 'em_triagem_automatica'
         """
@@ -282,7 +295,9 @@ def upgrade() -> None:
     op.execute(
         "COMMENT ON VIEW platform.v_review_sla IS "
         "'Prazo e primeira decisao de cada caso na vista humana (KAM-089). "
-        "dentro_do_sla compara com o sla_due_at gravado, que ja e em dias uteis.'"
+        "dentro_do_sla e o da instancia em curso: no recurso, a primeira decisao "
+        "do recurso contra o prazo do recurso; fora dele, a primeira decisao "
+        "contra o prazo da primeira instancia. O prazo ja e em dias uteis.'"
     )
 
     rls.enable_tenant_rls("review_case")
@@ -291,8 +306,9 @@ def upgrade() -> None:
     op.execute("REVOKE ALL ON platform.review_decision_log FROM PUBLIC")
     op.execute("REVOKE ALL ON platform.v_review_sla FROM PUBLIC")
     op.execute(
-        "GRANT SELECT, INSERT, UPDATE (estado, fila_at, sla_alerta_at, sla_due_at, "
-        "sla_alertado_at) ON platform.review_case TO kamba_batch"
+        "GRANT SELECT, INSERT, UPDATE (estado, prioridade, motivo_interno, evidencias, "
+        "recomendacao, fila_at, sla_alerta_at, sla_due_at, sla_alertado_at) "
+        "ON platform.review_case TO kamba_batch"
     )
     op.execute("GRANT SELECT ON platform.review_case TO kamba_audit")
     op.execute("GRANT SELECT, INSERT ON platform.review_decision_log TO kamba_batch")

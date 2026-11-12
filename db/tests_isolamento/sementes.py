@@ -1922,10 +1922,11 @@ SEM_RECEITA_COM_RAZAO = {
     # escreve e o `kamba_batch`, com `BYPASSRLS` — uma receita nao tinha papel
     # sujeito a RLS. E o registo de decisoes e *append-only* por *trigger*, que
     # recusa o `DELETE` com que as receitas limpam. **A politica mede-se
-    # noutro sitio**: o `db/tests/test_revisao_schema.py` prova a `tenant_iso`
-    # com a RLS ligada e forcada nas duas, le com o contexto de B as linhas de A
-    # pela ligacao da aplicacao (sem privilegio, `42501`) e mede as FK
-    # compostas.
+    # noutro sitio**: o `TestIsolamento` do `db/tests/test_revisao_schema.py`
+    # le pela ligacao da auditoria (o unico papel com `SELECT` sujeito a RLS)
+    # um caso e a sua decisao com o contexto do tenant dono (uma linha), com o de
+    # outro tenant (zero) e sem contexto (zero), nas duas tabelas e na vista; o
+    # `TestPrivilegios` mede a RLS ligada e forcada e o `42501` da aplicacao.
     ("platform", "review_case"),
     ("platform", "review_decision_log"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o

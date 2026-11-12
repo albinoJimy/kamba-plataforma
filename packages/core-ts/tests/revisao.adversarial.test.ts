@@ -42,24 +42,32 @@ import {
   type OnboardingsDaRevisao,
 } from "../src/revisao/index.ts";
 
-import { HOJE, MotorDeGrelha, desenhar, nifHmac } from "./apoio/kyc-sintetico.ts";
+import { HOJE, MotorDeGrelha, desenhar, gerarConjunto, nifHmac } from "./apoio/kyc-sintetico.ts";
+
+const TIPOS = ["nif", "alvara", "bi", "banco"] as const;
 import { montarRevisao, revisor } from "./apoio/revisao.ts";
 
 const ANEL = [new Uint8Array(32).fill(3)];
 
 describe("(a) 500 registos de lixo nao chegam a humano", () => {
   it("250 com OTP por validar, 150 ilegiveis e 100 duplicados exactos: zero casos", async () => {
-    const m = montarRevisao({ agora: HOJE });
-    const relogio = () => m.agora();
-    const verificacoes = new VerificacoesEmMemoria(relogio);
-    const casos = new CasosEmMemoria(verificacoes, relogio);
+    // **O servico ve os mesmos onboardings que as portas** (a `ponte`): a
+    // primeira versao deste ensaio montava o servico sobre outro duplo, onde
+    // estes ids nao existiam, e as 750 recusas eram «onboarding desconhecido»
+    // em vez de «OTP por validar» — desligar a barreira do OTP deixava-o verde.
+    let relogio = () => HOJE;
+    const verificacoes = new VerificacoesEmMemoria(() => relogio());
+    const casos = new CasosEmMemoria(verificacoes, () => relogio());
     const ponte: OnboardingsDaRevisao = {
       async porId(id) {
         const c = await casos.porId(id);
         return c === null ? null : { id, tenantId: c.tenantId, fase: c.fase, redeHmac: "aa", dispositivoHmac: null, nifHmac: c.nifHmac, telefoneHmac: "bb" };
       },
+      porTenant: async () => null,
       marcarFase: async () => true,
     };
+    const m = montarRevisao({ agora: HOJE, onboardings: ponte });
+    relogio = () => m.agora();
     const kyc = new ServicoKyc({
       verificacoes,
       casos,
@@ -79,7 +87,8 @@ describe("(a) 500 registos de lixo nao chegam a humano", () => {
     };
     const ilegivel = (semente: number) => desenhar({ linhas: ["BILHETE DE IDENTIDADE"], fundo: semente, ruido: 0, semente });
 
-    // 250 com o OTP por validar: cada um tenta as tres portas.
+    // 250 com o OTP por validar: cada um tenta as tres portas, e a recusa tem de
+    // dizer a fase — nao «desconhecido».
     let recusados = 0;
     for (let i = 0; i < 250; i++) {
       const id = juntar(i % 2 === 0 ? "registo" : "otp_pendente");
@@ -92,7 +101,7 @@ describe("(a) 500 registos de lixo nao chegam a humano", () => {
           regras: ["x"], versaoPolitica: "1.0.0+m.2", origem: "regra", conteudoSha256: new Uint8Array(32),
         }),
       ]) {
-        await assert.rejects(tentar(), CasoNaoElegivelError);
+        await assert.rejects(tentar(), (e: unknown) => e instanceof CasoNaoElegivelError && /fase (registo|otp_pendente)\)/.test(e.message));
         recusados++;
       }
     }
@@ -106,13 +115,25 @@ describe("(a) 500 registos de lixo nao chegam a humano", () => {
       assert.equal(fim.at(-1)!.estado, "rejeitado");
     }
 
-    // 100 duplicados exactos: o mesmo ficheiro ilegivel reenviado; o KYC nao o conta duas vezes.
-    for (let i = 0; i < 100; i++) {
+    // 100 duplicados exactos. Noventa sao o mesmo ficheiro ilegivel reenviado,
+    // que o KYC nao conta duas vezes. Dez sao os quatro documentos **legiveis** de
+    // um caso genuino, cada um reenviado duas vezes: o reenvio e idempotente pelo
+    // `sha256` e nao e «imagem reutilizada», porque e o mesmo caso.
+    for (let i = 0; i < 90; i++) {
       const id = juntar("kyc_pendente");
       const f = ilegivel(9000 + i);
       for (let k = 0; k < 4; k++) assert.equal((await kyc.receber(id, "bi", f)).estado, "novo_carregamento");
       assert.equal((await kyc.decidir(id)).estado, "incompleto");
     }
+    const genuinos = gerarConjunto().filter((c) => c.classe === "genuino");
+    assert.equal(genuinos.length, 10);
+    for (const g of genuinos) {
+      casos.juntar({ id: g.id, tenantId: g.tenantId, fase: "kyc_pendente", nifHmac: nifHmac(g.nifDeclarado, ANEL), nomeNegocio: "negocio", categoriaDeclarada: g.categoria });
+      for (let k = 0; k < 3; k++) for (const t of TIPOS) await kyc.receber(g.id, t, g.documentos[t]);
+      const d = await kyc.decidir(g.id);
+      assert.ok(d.estado === "decidido" && d.avaliacao.resultado === "k1_ok", `${g.id}: ${JSON.stringify(d.estado)}`);
+    }
+    assert.equal(verificacoes.linhas.filter((v) => genuinos.some((g) => g.id === v.onboardingId)).length, 40, "o reenvio nao duplica"); 
 
     assert.equal(m.repositorio.casos.size, 0, "nenhum caso chegou a fila");
     assert.equal(m.alertas.length, 0);

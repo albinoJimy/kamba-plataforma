@@ -42,8 +42,21 @@ export class CasoNaoElegivelError extends Error {
   }
 }
 
+/**
+ * Um caso decidido não se reabre pela mesma chave, e uma porta que não o sabe
+ * julgava ter um humano a olhar. O KYC não deve voltar a mandar depois de uma
+ * decisão (a fase já não é `kyc_pendente`): se manda, falha fechado.
+ */
+export class CasoJaDecididoError extends Error {
+  override readonly name = "CasoJaDecididoError";
+  constructor() {
+    super("ja existe um caso decidido com esta chave");
+  }
+}
+
 function exigirAberto(r: ResultadoDaAbertura): void {
   if (r.estado === "nao_elegivel") throw new CasoNaoElegivelError(r.fase);
+  if (r.estado === "ja_decidido") throw new CasoJaDecididoError();
 }
 
 const RECOMENDACAO_DO_KYC: Readonly<Record<RecomendacaoDoKyc, Recomendacao>> = {
@@ -92,25 +105,39 @@ export function filaDoKyc(
   };
 }
 
-/** A porta do guia do Embedded Signup (`../guia/contrato.ts`), cumprida. */
+/** Quantas falhas de ES decididas se encadeiam antes de desistir. */
+const FALHAS_DE_ES_MAXIMAS = 20;
+
+/**
+ * A porta do guia do Embedded Signup (`../guia/contrato.ts`), cumprida.
+ *
+ * O guia abre **um** caso pendente por onboarding. Depois de a revisão o
+ * decidir, o guia desprende o número; uma falha nova é um caso novo, com a chave
+ * `es_falhado:<oito primeiros do caso anterior>` — senão a segunda falha caía no
+ * caso já decidido e ninguém a via.
+ */
 export function filaDoGuia(servico: ServicoDeRevisao, onboardings: OnboardingsDaRevisao): FilaDoGuia {
   return {
     async abrir(onboardingId: string, tipo: "es_falhado", motivo: MotivoDeFalha) {
       const o = await onboardings.porId(onboardingId);
       if (o === null) throw new CasoNaoElegivelError(null);
-      exigirAberto(
-        await servico.abrir({
+      let motivoCodigo = "es_falhado";
+      for (let i = 0; i < FALHAS_DE_ES_MAXIMAS; i++) {
+        const r = await servico.abrir({
           tipo,
           tenantId: o.tenantId,
           onboardingId,
-          motivoCodigo: "es_falhado",
+          motivoCodigo,
           motivoInterno: `motivo=${motivo}`,
           motivoPublico: "nao_foi_possivel_validar",
           evidencias: [{ tipo: "onboarding_case", ref: onboardingId }],
           recomendacao: "investigar",
           prioridade: PRIORIDADES.normal,
-        }),
-      );
+        });
+        if (r.estado !== "ja_decidido") return exigirAberto(r);
+        motivoCodigo = `es_falhado:${r.caso.id.slice(0, 8)}`;
+      }
+      throw new CasoJaDecididoError();
     },
   };
 }
@@ -152,7 +179,9 @@ export function escritorComFila(escritor: EscritorDeDecisoes, servico: ServicoDe
         recomendacao: null,
         prioridade: PRIORIDADES.normal,
       });
-      exigirAberto(r);
+      // Um conteúdo já decidido por humano não volta à fila: a decisão humana
+      // está gravada e é ela que o `assertPublishable` lê.
+      if (r.estado !== "ja_decidido") exigirAberto(r);
     },
   };
 }

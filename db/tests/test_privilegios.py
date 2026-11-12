@@ -1909,16 +1909,18 @@ COLUNAS_POR_PAPEL = {
     ("kamba_pay_hooks", "payment_accounts", "SELECT"): {
         "id", "tenant_id", "provider", "entidade", "pos_id", "estado",
     },
-    # KAM-089 (0048): o lote muda o estado e o prazo de um caso, e mais nada. O
-    # que fica **fora** e o que o caso **e**: o `tipo`, o `onboarding_id`, o
-    # `tenant_id` e o `motivo_codigo` (a chave de abertura — mudar um deles
-    # abria um segundo caso por cima do primeiro), os dois motivos, as
-    # evidencias, a recomendacao e a `prioridade`. A prioridade importa mais do
-    # que parece: e ela que decide se aprovar pede dois revisores, e um
-    # `UPDATE (prioridade)` deixava quem corre a fila baixar um caso de risco
-    # alto para um so revisor.
+    # KAM-089 (0048): o lote muda o estado e o prazo de um caso, e reforca um
+    # caso pendente com o que a porta sabe agora — a prioridade, o motivo
+    # interno, as evidencias e a recomendacao (um KYC que volta a decidir depois
+    # de um `pedir_info`). O que fica **fora** e o que o caso **e**: o `tipo`, o
+    # `onboarding_id`, o `tenant_id` e o `motivo_codigo` (a chave de abertura —
+    # mudar um deles abria um segundo caso por cima do primeiro) e o motivo
+    # publico, que e o que o dono le. **A prioridade so fica mais urgente**, e
+    # quem o impoe e o *trigger* e nao esta matriz: e ela que decide se aprovar
+    # pede dois revisores, e baixa-la era tirar um.
     ("kamba_batch", "review_case", "UPDATE"): {
-        "estado", "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
+        "estado", "prioridade", "motivo_interno", "evidencias", "recomendacao",
+        "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
     },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")

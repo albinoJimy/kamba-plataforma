@@ -27,7 +27,12 @@ em ≤ 1 dia útil de Luanda, p90.
 **O lixo não chega aqui.** Um onboarding sem OTP validado não abre caso (a porta recusa e a
 entrada falha fechada); o documento ilegível e o duplicado exacto resolvem-se no KYC; uma origem
 que abre mais de 20 casos num dia de Luanda (*proposta*) vê o excesso ficar
-`em_triagem_automatica`, com alerta, e entrar no dia seguinte.
+`em_triagem_automatica`, com alerta, e entrar no dia seguinte. Um caso **sem** onboarding (um
+produto do catálogo) conta contra o seu tenant, com a mesma quota; só a amostragem fica fora.
+
+**Um envio repetido reforça o caso pendente.** O KYC que volta a decidir depois de um
+`pedir_info` cai no mesmo caso, que fica com o motivo, a recomendação e os documentos novos e
+com a prioridade mais urgente das duas — nunca menos urgente.
 
 ## 2. O *runbook* do revisor
 
@@ -39,7 +44,7 @@ que abre mais de 20 casos num dia de Luanda (*proposta*) vê o excesso ficar
 não mostra dados pessoais. **Não há exportação**, e não se pede: uma lista inteira de casos com
 documentos é o canal de fuga que esta fila existe para não ser.
 
-**2. Abrir o caso.** Abrir passa-o a `em_analise`. O NIF, o BI e o telefone aparecem mascarados
+**2. Abrir o caso.** Abrir passa-o a `em_analise`, e a leitura fica no `audit_log`. O NIF, o BI e o telefone aparecem mascarados
 (`*******261`). Se precisar do valor inteiro, **revele um campo de cada vez**: cada revelação
 fica no `audit_log` com o seu nome, antes de o valor aparecer.
 
@@ -51,8 +56,8 @@ são evidência **deste** caso. Não descarregue, não fotografe o ecrã, não r
 
 | Decisão | Quando | O que acontece |
 |---|---|---|
-| `aprovar` | A evidência sustenta o pedido | Num caso de prioridade 1 ou 2 (risco alto) é preciso **outro** revisor a aprovar também; o seu voto fica registado e o caso espera. Fechado, o onboarding passa a `aprovado` se nenhum outro caso o bloquear |
-| `rejeitar` | A evidência contradiz o pedido | O onboarding passa a `rejeitado` e o dono recebe o motivo público do caso por SMS. Pode recorrer **uma vez** |
+| `aprovar` | A evidência sustenta o pedido | Num caso de prioridade 1 ou 2 (risco alto) é preciso **outro** revisor a aprovar também; o seu voto fica registado e o caso espera. Fechado, o onboarding passa a `aprovado` se nenhum outro caso o bloquear — e o dono só recebe «aprovado» quando isso acontece |
+| `rejeitar` | A evidência contradiz o pedido | O onboarding passa a `rejeitado` e o dono recebe por SMS o motivo público que escolher (um dos quatro), ou o do caso. Pode recorrer **uma vez** |
 | `pedir_info` | Falta um documento ou um esclarecimento | Num caso `kyc`, o dono pode voltar a carregar documentos; **o caso continua aberto**, e o KYC não o fecha sozinho. Um `pedir_info` entre duas aprovações recomeça a contagem dos dois revisores |
 | `escalar` | Dúvida jurídica, suspeita grave, ou é parte | O caso passa a `escalado`, e só o `ts_lider` o decide |
 
@@ -62,11 +67,17 @@ fixos** — não há campo para lhe escrever outra coisa, de propósito: um moti
 falsificador qual foi a regra ensina-o a passar da próxima vez.
 
 **5. Se for parte.** Se o caso é seu, de um familiar ou de um negócio em que tem interesse, **não
-o abra**: escale. A fila recusa sozinha quem tem o mesmo NIF ou telefone do onboarding, mas não
-sabe das outras relações.
+o abra**: escale. A fila recusa sozinha quem tem o mesmo NIF ou telefone do onboarding (num caso
+sem onboarding, do onboarding do tenant), mas não sabe das outras relações.
 
-**6. O recurso.** Um caso decidido pode ter **um** recurso, decidido por quem **não** decidiu a
-primeira instância. Só aprova ou rejeita.
+**6. O recurso.** Uma **rejeição** pode ter **um** recurso, decidido por quem **não** decidiu a
+primeira instância — e, se o caso foi escalado, por um `ts_lider`. Só aprova ou rejeita. Um
+recurso aprovado só tira o onboarding de `rejeitado` se nada mais o rejeitou (os outros casos
+aprovados, e um caso de KYC aprovado).
+
+**7. A auditoria.** Um caso `auditoria` aponta o onboarding cuja aprovação automática foi
+amostrada: mostra os dados dele mascarados e abre os documentos dele. Se o rejeitar, é um falso
+aprovado, e entra na taxa.
 
 **Prazos.** O prazo é 1 dia útil de Luanda a contar da entrada na fila (sábados, domingos e
 feriados não contam). Aos 80% sai um alerta. A métrica é o p90 do tempo útil até à primeira
@@ -94,6 +105,14 @@ A linha que esta fila acrescenta ao `tecnica/10_Onboarding_Governanca.md` §17:
   (Carnaval, Sexta-feira Santa) entram por configuração.
 - **Os limiares** — a quota de 20, o risco alto em prioridade ≤ 2, o *score* 60, os 20% e as 8
   semanas da amostragem — são propostas que ninguém calibrou.
+- **O *job* da fila.** `drenarTriagem`, `alertarSla`, `amostrar` (sobre cada aprovação
+  automática) e `reaplicarEfeitos` (para uma decisão cujo aviso ou screening falhou) existem e
+  ninguém os chama. Credor: KAM-196.
+- **A quota entre processos.** As aberturas da mesma origem correm em série **num** processo;
+  entre processos a quota pode exceder-se pelo número deles.
+- **Uma origem partilhada.** Num prefixo de IP móvel partilhado por muitos (CGNAT), a quota é de
+  todos, e a triagem drena por ordem de chegada: um atacante constante atrasa os legítimos do
+  mesmo prefixo. **PLAUSÍVEL**, por medir: o tamanho real dos prefixos das operadoras.
 
 ---
 

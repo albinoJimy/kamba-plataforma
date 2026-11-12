@@ -13,9 +13,9 @@
  *
  * Só os tipos `kyc`, `categoria` e `duplicado` **bloqueiam** o onboarding. Um
  * deles rejeitado põe o onboarding em `rejeitado`. Aprovado, o onboarding passa
- * a `aprovado` **se** estiver em `em_revisao` **e** não houver outro caso
- * pendente que o bloqueie: um K1 aprovado não aprova uma categoria condicional
- * ainda por decidir. Um `pedir_info` num caso `kyc` devolve o onboarding a
+ * a `aprovado` **se** estiver em `em_revisao` **e** nenhum outro caso que o
+ * bloqueie estiver pendente ou rejeitado: um K1 aprovado não aprova uma
+ * categoria condicional ainda por decidir. Um `pedir_info` num caso `kyc` devolve o onboarding a
  * `kyc_pendente`, para o dono poder carregar documentos — e o caso **continua
  * aberto**: o KYC volta a decidir, e um `k1_ok` não fecha o caso, que é o que
  * impede um documento limpo carregado depois de uma regra dura de aprovar sem
@@ -54,6 +54,7 @@ import type {
 } from "./contrato.ts";
 import {
   CasoInexistenteError,
+  DECISOES,
   ESTADOS_PENDENTES,
   LIMIARES_POR_OMISSAO,
   MOTIVOS_PUBLICOS,
@@ -120,7 +121,11 @@ export interface PedidoDeAbertura {
 }
 
 export type ResultadoDaAbertura =
-  | { readonly estado: "aberto" | "em_triagem_automatica"; readonly caso: CasoDeRevisao; readonly repetido: boolean }
+  | {
+      readonly estado: "aberto" | "em_triagem_automatica" | "ja_decidido";
+      readonly caso: CasoDeRevisao;
+      readonly repetido: boolean;
+    }
   | { readonly estado: "nao_elegivel"; readonly fase: string | null };
 
 export type ResultadoDaDecisao =
@@ -174,6 +179,8 @@ export class ServicoDeRevisao {
   readonly #l: Limiares;
   readonly #f: Feriados;
   readonly #agora: Relogio;
+  /** Um trinco por chave de quota: as aberturas da mesma origem correm em série. */
+  readonly #trincos = new Map<string, Promise<void>>();
 
   constructor(d: DependenciasDaRevisao) {
     this.#d = d;
@@ -187,8 +194,25 @@ export class ServicoDeRevisao {
   /**
    * Abre um caso, ou devolve o que já existe para a mesma chave.
    *
-   * A ordem importa: a idempotência vem **antes** da quota, senão reentregar o
-   * mesmo evento contava duas vezes contra a origem.
+   * **A quota.** Um caso com onboarding conta contra a sua origem (o prefixo
+   * de IP, ou o dispositivo); um caso sem onboarding conta contra o seu tenant,
+   * porque o conteúdo de um produto é do tenant e uma `condicional` por produto
+   * era a forma de inundar a fila sem passar pelo registo. Só a `auditoria`
+   * (a amostragem, que é nossa) fica fora.
+   *
+   * **A contagem e a inserção correm em série por chave de quota**, neste
+   * processo: duzentas aberturas em paralelo da mesma origem davam mais de
+   * vinte casos abertos, porque contavam todas antes de alguma inserir.
+   * ***shortcut:*** entre processos a quota pode exceder-se pelo número de
+   * processos que abrem casos ao mesmo tempo; revê-se quando a fila tiver mais
+   * do que um processo a abrir (KAM-196), com um `pg_advisory_xact_lock` sobre a
+   * chave.
+   *
+   * **Um envio repetido sobre um caso pendente reforça-o** (`reforcar`): o KYC
+   * que volta a decidir depois de um `pedir_info` traz marcas e documentos
+   * novos, e um caso que ficasse com a prioridade antiga deixava um só revisor
+   * aprovar uma regra dura nova. Sobre um caso já decidido, o resultado é
+   * `ja_decidido` — e não `aberto`, que mentia a quem chamou.
    */
   async abrir(p: PedidoDeAbertura): Promise<ResultadoDaAbertura> {
     if (!TIPOS_DE_CASO.includes(p.tipo)) throw new RangeError("tipo de caso desconhecido");
@@ -196,47 +220,59 @@ export class ServicoDeRevisao {
     if (!Number.isInteger(p.prioridade) || p.prioridade < 1 || p.prioridade > 9) {
       throw new RangeError("prioridade fora de 1..9");
     }
-    let origem: string | null = null;
-    let interno = false;
+    let quota: Quota | null;
     if (p.onboardingId !== null) {
       const o = await this.#d.onboardings.porId(p.onboardingId);
       if (o === null || o.tenantId !== p.tenantId) return { estado: "nao_elegivel", fase: null };
       if (!FASES_ELEGIVEIS.includes(o.fase)) return { estado: "nao_elegivel", fase: o.fase };
-      origem = o.redeHmac ?? o.dispositivoHmac;
+      quota = { tipo: "origem", origem: o.redeHmac ?? o.dispositivoHmac };
     } else {
-      // Sem onboarding, o caso vem de dentro (T&S, saga, amostragem): não há
-      // origem que um atacante controle, e a quota não se aplica.
-      interno = true;
+      quota = p.tipo === "auditoria" ? null : { tipo: "tenant", tenantId: p.tenantId };
     }
-    const agora = this.#agora();
-    const naQuota =
-      interno ||
-      p.tipo === "auditoria" ||
-      (await this.#d.repositorio.contarNaFilaDesde(origem, inicioDoDiaEmLuanda(agora))) <
-        this.#l.quotaPorOrigemPorDia;
-    const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
-    const { caso, repetido } = await this.#d.repositorio.abrir({
-      tipo: p.tipo,
-      onboardingId: p.onboardingId,
-      tenantId: p.tenantId,
-      motivoCodigo: p.motivoCodigo,
-      motivoInterno: p.motivoInterno,
-      motivoPublico: p.motivoPublico,
-      evidencias: p.evidencias,
-      recomendacao: p.recomendacao,
-      estado: naQuota ? "aberto" : "em_triagem_automatica",
-      prioridade: p.prioridade,
-      filaEm: agora,
-      ...sla,
+    const chave = quota === null ? `sem_quota:${p.tenantId}` : quota.tipo === "origem" ? `o:${quota.origem}` : `t:${quota.tenantId}`;
+    return this.#emSerie(chave, async () => {
+      const agora = this.#agora();
+      const naQuota = quota === null || (await this.#contar(quota, inicioDoDiaEmLuanda(agora))) < this.#l.quotaPorOrigemPorDia;
+      const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
+      const aberto = await this.#d.repositorio.abrir({
+        tipo: p.tipo,
+        onboardingId: p.onboardingId,
+        tenantId: p.tenantId,
+        motivoCodigo: p.motivoCodigo,
+        motivoInterno: p.motivoInterno,
+        motivoPublico: p.motivoPublico,
+        evidencias: p.evidencias,
+        recomendacao: p.recomendacao,
+        estado: naQuota ? "aberto" : "em_triagem_automatica",
+        prioridade: p.prioridade,
+        filaEm: agora,
+        ...sla,
+      });
+      let caso = aberto.caso;
+      if (aberto.repetido) {
+        if (caso.estado === "decidido" || caso.estado === "decidido_final") {
+          return { estado: "ja_decidido", caso, repetido: true };
+        }
+        const evidencias = [...caso.evidencias];
+        for (const e of p.evidencias) {
+          if (!evidencias.some((x) => x.tipo === e.tipo && x.ref === e.ref)) evidencias.push(e);
+        }
+        await this.#d.repositorio.reforcar(caso.id, {
+          prioridade: Math.min(caso.prioridade, p.prioridade),
+          motivoInterno: p.motivoInterno,
+          evidencias,
+          recomendacao: p.recomendacao,
+        });
+        caso = (await this.#d.repositorio.porId(caso.id)) ?? caso;
+      } else if (caso.estado === "em_triagem_automatica") {
+        this.#d.alerta("quota_da_origem", { casoId: caso.id, tipo: caso.tipo });
+      }
+      return {
+        estado: caso.estado === "em_triagem_automatica" ? "em_triagem_automatica" : "aberto",
+        caso,
+        repetido: aberto.repetido,
+      };
     });
-    if (!repetido && caso.estado === "em_triagem_automatica") {
-      this.#d.alerta("quota_da_origem", { casoId: caso.id, tipo: caso.tipo });
-    }
-    return {
-      estado: caso.estado === "em_triagem_automatica" ? "em_triagem_automatica" : "aberto",
-      caso,
-      repetido,
-    };
   }
 
   // ---------------------------------------------------------------- decidir
@@ -245,7 +281,9 @@ export class ServicoDeRevisao {
    * Uma decisão de primeira instância.
    *
    * `regra` é o código da regra ou do motivo que o revisor invoca; `nota` é
-   * texto livre do revisor, que vai **cifrado** e nunca para o dono.
+   * texto livre do revisor, que vai **cifrado** e nunca para o dono;
+   * `motivoPublico` é um dos quatro códigos fixos, e é o que o dono lê numa
+   * rejeição.
    */
   async decidir(
     revisor: Revisor,
@@ -263,65 +301,64 @@ export class ServicoDeRevisao {
     if (decisao === "escalar" && caso.estado === "escalado") {
       return this.#recusar(revisor, caso, "estado_invalido");
     }
+    if (!DECISOES.includes(decisao)) return this.#recusar(revisor, caso, "decisao_invalida");
     if (opcoes.motivoPublico !== undefined && !MOTIVOS_PUBLICOS.includes(opcoes.motivoPublico)) {
       return this.#recusar(revisor, caso, "decisao_invalida");
     }
-    const anteriores = await this.#d.repositorio.decisoes(casoId);
-    const desta = anteriores.filter((x) => x.instancia === "primeira");
 
     if (decisao === "aprovar" && caso.prioridade <= this.#l.prioridadeDeRiscoAlto) {
-      const aprovadores = this.#aprovadoresDesde(desta);
-      if (aprovadores.has(revisor.id)) return this.#recusar(revisor, caso, "mesmo_revisor");
-      if (aprovadores.size === 0) {
-        await this.#registar(revisor, caso, decisao, "primeira", opcoes);
-        const actual = caso.estado === "aberto" ? await this.#transitar(caso, "em_analise") : caso;
-        return { estado: "aguarda_segundo_revisor", caso: actual };
-      }
-    }
-
-    if (decisao === "escalar") {
+      const espera = await this.#primeiroDeDois(revisor, caso, "primeira", opcoes);
+      if (espera !== null) return espera;
+    } else if (decisao === "escalar") {
       await this.#registar(revisor, caso, decisao, "primeira", opcoes);
-      return { estado: "escalado", caso: await this.#transitar(caso, "escalado") };
-    }
-    if (decisao === "pedir_info") {
+      return { estado: "escalado", caso: await this.#mover(caso.id, ["aberto", "em_analise"], "escalado") };
+    } else if (decisao === "pedir_info") {
       await this.#registar(revisor, caso, decisao, "primeira", opcoes);
-      const actual = caso.estado === "aberto" ? await this.#transitar(caso, "em_analise") : caso;
+      const actual = caso.estado === "aberto" ? await this.#mover(caso.id, ["aberto"], "em_analise") : caso;
       if (caso.onboardingId !== null) {
         if (caso.tipo === "kyc") await this.#d.onboardings.marcarFase(caso.onboardingId, "kyc_pendente");
         await this.#avisar(caso, "pedir_info", "informacao_em_falta");
       }
       return { estado: "em_analise", caso: actual };
+    } else {
+      await this.#registar(revisor, caso, decisao, "primeira", opcoes);
     }
 
     // aprovar (com o segundo revisor, se era preciso) ou rejeitar: fecha.
-    await this.#registar(revisor, caso, decisao, "primeira", opcoes);
-    const fechado = await this.#transitar(caso, "decidido");
-    const publico = opcoes.motivoPublico ?? caso.motivoPublico;
-    await this.#efeitos(fechado, decisao, revisor, publico, "primeira");
+    const fechado = await this.#mover(caso.id, ["aberto", "em_analise", "escalado"], "decidido");
+    await this.#efeitos(fechado, decisao, revisor, opcoes.motivoPublico ?? caso.motivoPublico, "primeira");
     return { estado: "decidido", decisao, caso: fechado };
   }
 
   /**
-   * Abre o recurso de um caso decidido. **Um** por decisão: um caso
-   * `decidido_final`, ou com uma decisão de recurso no registo, recusa.
+   * Abre o recurso de um caso decidido. **Um** por decisão, e **só de uma
+   * rejeição**: o recurso é do dono contra o «não», e uma aprovação recorrida
+   * por ninguém acabava rejeitada sem ninguém o ter pedido.
    *
    * Quem pede o recurso é o dono, por um canal que não é desta fila (a rota do
-   * dono não existe); a fila recebe o pedido já autenticado.
+   * dono não existe — KAM-196); a fila recebe o pedido já autenticado.
    */
   async abrirRecurso(casoId: string): Promise<CasoDeRevisao> {
     const caso = await this.#d.repositorio.porId(casoId);
     if (caso === null) throw new CasoInexistenteError();
-    if (caso.estado !== "decidido") throw new RevisaoRecusadaError(
-      caso.estado === "recurso_aberto" || caso.estado === "decidido_final" ? "recurso_ja_usado" : "estado_invalido",
-    );
-    const agora = this.#agora();
-    const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
-    const ok = await this.#d.repositorio.transitar(caso.id, "decidido", "recurso_aberto", { ...sla, filaEm: agora });
+    if (caso.estado !== "decidido") {
+      throw new RevisaoRecusadaError(
+        caso.estado === "recurso_aberto" || caso.estado === "decidido_final" ? "recurso_ja_usado" : "estado_invalido",
+      );
+    }
+    if ((await this.#decisaoFinal(caso)) !== "rejeitar") throw new RevisaoRecusadaError("recurso_sem_rejeicao");
+    const sla = calcularSla(this.#agora(), this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
+    const ok = await this.#d.repositorio.transitar(caso.id, "decidido", "recurso_aberto", sla);
     if (!ok) throw new RevisaoRecusadaError("recurso_ja_usado");
     return (await this.#d.repositorio.porId(caso.id))!;
   }
 
-  /** Decide o recurso. Só `aprovar` ou `rejeitar`, e nunca por quem decidiu a primeira instância. */
+  /**
+   * Decide o recurso. Só `aprovar` ou `rejeitar`; nunca por quem decidiu a
+   * primeira instância; e um caso que foi escalado na primeira só o decide o
+   * `ts_lider` também no recurso — senão um revisor revertia por recurso o que
+   * só um líder podia decidir.
+   */
   async decidirRecurso(
     revisor: Revisor,
     casoId: string,
@@ -332,22 +369,48 @@ export class ServicoDeRevisao {
     if (caso.estado !== "recurso_aberto") return this.#recusar(revisor, caso, "estado_invalido");
     if (decisao !== "aprovar" && decisao !== "rejeitar") return this.#recusar(revisor, caso, "decisao_invalida");
     const anteriores = await this.#d.repositorio.decisoes(casoId);
-    if (anteriores.some((x) => x.instancia === "primeira" && x.revisorId === revisor.id)) {
+    const primeira = anteriores.filter((x) => x.instancia === "primeira");
+    if (primeira.some((x) => x.revisorId === revisor.id)) {
       return this.#recusar(revisor, caso, "revisor_da_primeira_instancia");
     }
-    const doRecurso = anteriores.filter((x) => x.instancia === "recurso");
-    if (decisao === "aprovar" && caso.prioridade <= this.#l.prioridadeDeRiscoAlto) {
-      const aprovadores = this.#aprovadoresDesde(doRecurso);
-      if (aprovadores.has(revisor.id)) return this.#recusar(revisor, caso, "mesmo_revisor");
-      if (aprovadores.size === 0) {
-        await this.#registar(revisor, caso, decisao, "recurso", opcoes);
-        return { estado: "aguarda_segundo_revisor", caso };
-      }
+    if (primeira.some((x) => x.decisao === "escalar") && !revisor.papeis.includes("ts_lider")) {
+      return this.#recusar(revisor, caso, "so_lider");
     }
-    await this.#registar(revisor, caso, decisao, "recurso", opcoes);
-    const fechado = await this.#transitar(caso, "decidido_final");
+    if (decisao === "aprovar" && caso.prioridade <= this.#l.prioridadeDeRiscoAlto) {
+      const espera = await this.#primeiroDeDois(revisor, caso, "recurso", opcoes);
+      if (espera !== null) return espera;
+    } else {
+      await this.#registar(revisor, caso, decisao, "recurso", opcoes);
+    }
+    const fechado = await this.#mover(caso.id, ["recurso_aberto"], "decidido_final");
     await this.#efeitos(fechado, decisao, revisor, caso.motivoPublico, "recurso");
     return { estado: "decidido", decisao, caso: fechado };
+  }
+
+  /**
+   * Volta a aplicar os efeitos de um caso decidido: a fase do onboarding, a
+   * decisão humana de screening e o aviso ao dono.
+   *
+   * Existe porque a decisão e os efeitos não são uma transacção: o caso fecha
+   * primeiro (é o que impede duas decisões), e um efeito que falhe — o aviso, o
+   * screening — deixava o caso decidido e o onboarding parado, sem retoma. Os
+   * efeitos são idempotentes **excepto o aviso**, que volta a sair.
+   * ***shortcut:*** sem caixa de saída; quem chama é o *job* da fila (KAM-196)
+   * sobre os casos que ele saiba terem falhado.
+   */
+  async reaplicarEfeitos(casoId: string): Promise<void> {
+    const caso = await this.#d.repositorio.porId(casoId);
+    if (caso === null) throw new CasoInexistenteError();
+    const final = await this.#decisaoFinal(caso);
+    if (final === null) throw new RevisaoRecusadaError("estado_invalido");
+    const ultima = (await this.#d.repositorio.decisoes(casoId)).filter((x) => x.decisao === final).at(-1)!;
+    await this.#efeitos(
+      caso,
+      final,
+      { id: ultima.revisorId, papeis: [], mfa: true, nifHmac: null, telefoneHmac: null },
+      caso.motivoPublico,
+      caso.estado === "decidido_final" ? "recurso" : "primeira",
+    );
   }
 
   // -------------------------------------------------------------- consultar
@@ -363,14 +426,24 @@ export class ServicoDeRevisao {
   /**
    * O caso, para decidir: motivo interno, evidências por referência, histórico
    * de decisões e os dados pessoais **mascarados**. Abrir um caso `aberto` passa-o
-   * a `em_analise`.
+   * a `em_analise`, e a leitura fica no `audit_log`: o motivo interno é o que
+   * a fila tem de mais sensível depois dos documentos.
    */
   async ver(revisor: Revisor, casoId: string): Promise<VistaDoCaso> {
     let caso = await this.#autorizar(revisor, casoId);
-    if (caso.estado === "aberto") caso = await this.#transitar(caso, "em_analise");
+    await this.#d.auditoria.registar({
+      accao: "review.acesso",
+      tenantId: caso.tenantId,
+      actorId: revisor.id,
+      entidade: "review_case",
+      entidadeId: caso.id,
+      detalhe: "ver",
+    });
+    if (caso.estado === "aberto") caso = await this.#mover(caso.id, ["aberto"], "em_analise");
+    const onboarding = await this.#onboardingDoCaso(caso);
     const dados = {} as Record<CampoPessoal, string | null>;
     for (const campo of ["nif", "numero_bi", "telefone"] as const) {
-      const v = caso.onboardingId === null ? null : await this.#d.dados.ler(caso.onboardingId, campo);
+      const v = onboarding === null ? null : await this.#d.dados.ler(onboarding, campo);
       dados[campo] = v === null ? null : mascarar(v);
     }
     const decisoes = (await this.#d.repositorio.decisoes(casoId)).map((x) => ({
@@ -386,7 +459,7 @@ export class ServicoDeRevisao {
       motivoPublico: caso.motivoPublico,
       recomendacao: caso.recomendacao,
       evidencias: caso.evidencias,
-      onboardingId: caso.onboardingId,
+      onboardingId: onboarding,
       dados,
       decisoes,
     };
@@ -395,31 +468,36 @@ export class ServicoDeRevisao {
   /** Revela **um** campo em claro. O acesso fica no `audit_log` antes de o valor sair. */
   async revelar(revisor: Revisor, casoId: string, campo: CampoPessoal): Promise<string | null> {
     const caso = await this.#autorizar(revisor, casoId);
-    if (caso.onboardingId === null) return null;
+    const onboarding = await this.#onboardingDoCaso(caso);
+    if (onboarding === null) return null;
     await this.#d.auditoria.registar({
       accao: "review.acesso",
       tenantId: caso.tenantId,
       actorId: revisor.id,
       entidade: "onboarding_case",
-      entidadeId: caso.onboardingId,
+      entidadeId: onboarding,
       detalhe: `revelar:${campo}`,
     });
-    return this.#d.dados.ler(caso.onboardingId, campo);
+    return this.#d.dados.ler(onboarding, campo);
   }
 
   /**
-   * A URL de um documento de KYC do caso. O documento tem de ser uma evidência
-   * **deste** caso: um revisor com o caso A aberto não pede o documento do caso
-   * B pelo identificador. O acesso fica no `audit_log` antes de a URL existir,
+   * A URL de um documento de KYC do caso. O documento tem de ser deste caso:
+   * uma evidência `kyc_check` dele, ou — num caso que aponta o onboarding
+   * inteiro, como a auditoria — um documento **desse** onboarding, que o KYC
+   * confere antes de assinar. Um revisor com o caso A aberto não pede o
+   * documento do caso B. O acesso fica no `audit_log` antes de a URL existir,
    * e a URL vale ≤ 300 s (o KYC prende o TTL).
    */
   async urlDoDocumento(revisor: Revisor, casoId: string, verificacaoId: string): Promise<string> {
     const caso = await this.#autorizar(revisor, casoId);
-    const deste = caso.evidencias.some((e) => e.tipo === "kyc_check" && e.ref === verificacaoId);
-    if (!deste || caso.onboardingId === null) return this.#recusar(revisor, caso, "evidencia_alheia");
+    const onboarding = await this.#onboardingDoCaso(caso);
+    const directo = caso.evidencias.some((e) => e.tipo === "kyc_check" && e.ref === verificacaoId);
+    const doOnboarding = onboarding !== null && caso.evidencias.some((e) => e.tipo === "onboarding_case" && e.ref === onboarding);
+    if (onboarding === null || (!directo && !doOnboarding)) return this.#recusar(revisor, caso, "evidencia_alheia");
     const tenantId = caso.tenantId;
     const auditoria = this.#d.auditoria;
-    return this.#d.documentos.url(revisor.id, caso.onboardingId, verificacaoId, {
+    return this.#d.documentos.url(revisor.id, onboarding, verificacaoId, {
       async anotarAcesso(a) {
         await auditoria.registar({
           accao: "review.acesso",
@@ -437,17 +515,22 @@ export class ServicoDeRevisao {
 
   /**
    * Passa casos da triagem para a vista humana, pela ordem de chegada, até a
-   * quota do dia de cada origem. Corre num *job* (o excesso de ontem entra
-   * hoje). O SLA conta a partir da entrada, não da criação.
+   * quota do dia de cada origem (ou do tenant, num caso sem onboarding). Corre
+   * num *job* (o excesso de ontem entra hoje). O SLA conta a partir da entrada,
+   * não da criação.
    */
   async drenarTriagem(limite = 500): Promise<number> {
     const agora = this.#agora();
     const desde = inicioDoDiaEmLuanda(agora);
     let entraram = 0;
     for (const caso of await this.#d.repositorio.emTriagem(limite)) {
-      const o = caso.onboardingId === null ? null : await this.#d.onboardings.porId(caso.onboardingId);
-      const origem = o === null ? null : (o.redeHmac ?? o.dispositivoHmac);
-      if ((await this.#d.repositorio.contarNaFilaDesde(origem, desde)) >= this.#l.quotaPorOrigemPorDia) continue;
+      let quota: Quota;
+      if (caso.onboardingId === null) quota = { tipo: "tenant", tenantId: caso.tenantId };
+      else {
+        const o = await this.#d.onboardings.porId(caso.onboardingId);
+        quota = { tipo: "origem", origem: o === null ? null : (o.redeHmac ?? o.dispositivoHmac) };
+      }
+      if ((await this.#contar(quota, desde)) >= this.#l.quotaPorOrigemPorDia) continue;
       const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
       if (await this.#d.repositorio.transitar(caso.id, "em_triagem_automatica", "aberto", { ...sla, filaEm: agora })) {
         entraram++;
@@ -473,7 +556,8 @@ export class ServicoDeRevisao {
    * Amostra uma aprovação **automática**: nas primeiras semanas (8, *proposta*)
    * desde o início da amostragem, 20% (*proposta*) geram um caso `auditoria`
    * de prioridade baixa. O resultado desses casos é a taxa de falsos aprovados.
-   * Sem `inicioDaAmostragem`, não se amostra.
+   * Sem `inicioDaAmostragem`, não se amostra. **Ninguém a chama ainda**: quem
+   * conhece a aprovação automática é o KAM-092, e o *job* é o KAM-196.
    */
   async amostrar(onboardingId: string, tenantId: string): Promise<ResultadoDaAbertura | null> {
     const inicio = this.#d.inicioDaAmostragem ?? null;
@@ -497,12 +581,54 @@ export class ServicoDeRevisao {
 
   // ---------------------------------------------------------------- privado
 
-  /** Identidade e papel; MFA. Uma recusa aqui também fica no `audit_log`. */
+  async #emSerie<T>(chave: string, f: () => Promise<T>): Promise<T> {
+    const antes = this.#trincos.get(chave) ?? Promise.resolve();
+    let soltar!: () => void;
+    const minha = new Promise<void>((r) => (soltar = r));
+    const cadeia = antes.then(() => minha);
+    this.#trincos.set(chave, cadeia);
+    await antes;
+    try {
+      return await f();
+    } finally {
+      soltar();
+      if (this.#trincos.get(chave) === cadeia) this.#trincos.delete(chave);
+    }
+  }
+
+  #contar(quota: Quota, desde: Date): Promise<number> {
+    return quota.tipo === "origem"
+      ? this.#d.repositorio.contarNaFilaDesde(quota.origem, desde)
+      : this.#d.repositorio.contarNaFilaDoTenantDesde(quota.tenantId, desde);
+  }
+
+  /**
+   * O onboarding de que o caso trata: o dele, ou o que a evidência aponta (a
+   * auditoria aponta o onboarding amostrado), ou o do tenant (um produto do
+   * catálogo). É dele que vêm os dados mascarados e é contra ele que se mede
+   * quem é parte.
+   */
+  async #onboardingDoCaso(caso: CasoDeRevisao): Promise<string | null> {
+    if (caso.onboardingId !== null) return caso.onboardingId;
+    const ref = caso.evidencias.find((e) => e.tipo === "onboarding_case")?.ref;
+    if (ref !== undefined) return ref;
+    return (await this.#d.onboardings.porTenant(caso.tenantId))?.id ?? null;
+  }
+
+  /** Identidade e papel; MFA. Uma recusa aqui também fica no `audit_log`, com ou sem caso. */
   async #exigirIdentidade(revisor: Revisor, caso: CasoDeRevisao | null): Promise<void> {
     const papel = revisor.papeis.some((p) => (PAPEIS as readonly string[]).includes(p));
     const motivo: MotivoDeRecusa | null = !papel ? "sem_papel" : !revisor.mfa ? "sem_mfa" : null;
     if (motivo === null) return;
     if (caso !== null) await this.#recusar(revisor, caso, motivo);
+    await this.#d.auditoria.registar({
+      accao: "review.recusa",
+      tenantId: null,
+      actorId: revisor.id === "" ? "desconhecido" : revisor.id,
+      entidade: "review_case",
+      entidadeId: "fila",
+      detalhe: motivo,
+    });
     throw new RevisaoRecusadaError(motivo);
   }
 
@@ -514,14 +640,13 @@ export class ServicoDeRevisao {
       throw new CasoInexistenteError();
     }
     await this.#exigirIdentidade(revisor, caso);
-    if (caso.onboardingId !== null) {
-      const o = await this.#d.onboardings.porId(caso.onboardingId);
-      const parte =
-        o !== null &&
-        ((revisor.nifHmac !== null && revisor.nifHmac === o.nifHmac) ||
-          (revisor.telefoneHmac !== null && revisor.telefoneHmac === o.telefoneHmac));
-      if (parte) return this.#recusar(revisor, caso, "parte_no_caso");
-    }
+    const id = await this.#onboardingDoCaso(caso);
+    const o = id === null ? null : await this.#d.onboardings.porId(id);
+    const parte =
+      o !== null &&
+      ((revisor.nifHmac !== null && revisor.nifHmac === o.nifHmac) ||
+        (revisor.telefoneHmac !== null && revisor.telefoneHmac === o.telefoneHmac));
+    if (parte) return this.#recusar(revisor, caso, "parte_no_caso");
     return caso;
   }
 
@@ -551,6 +676,32 @@ export class ServicoDeRevisao {
     return s;
   }
 
+  /**
+   * A aprovação de risco alto. Regista o voto; se, **relido o registo depois de
+   * gravar**, já houver dois revisores distintos, devolve `null` e quem chamou
+   * fecha. Relê-se porque duas aprovações concorrentes viam as duas «zero
+   * aprovadores», gravavam as duas, e o caso ficava à espera de um terceiro com
+   * dois votos válidos no registo.
+   */
+  async #primeiroDeDois(
+    revisor: Revisor,
+    caso: CasoDeRevisao,
+    instancia: Instancia,
+    opcoes: { readonly regra?: string | null; readonly nota?: string | null },
+  ): Promise<ResultadoDaDecisao | null> {
+    const desta = (await this.#d.repositorio.decisoes(caso.id)).filter((x) => x.instancia === instancia);
+    if (this.#aprovadoresDesde(desta).has(revisor.id)) return this.#recusar(revisor, caso, "mesmo_revisor");
+    await this.#registar(revisor, caso, "aprovar", instancia, opcoes);
+    const depois = (await this.#d.repositorio.decisoes(caso.id)).filter((x) => x.instancia === instancia);
+    if (this.#aprovadoresDesde(depois).size >= 2) return null;
+    let actual = caso;
+    if (caso.estado === "aberto") {
+      await this.#d.repositorio.transitar(caso.id, "aberto", "em_analise");
+      actual = (await this.#d.repositorio.porId(caso.id)) ?? caso;
+    }
+    return { estado: "aguarda_segundo_revisor", caso: actual };
+  }
+
   async #registar(
     revisor: Revisor,
     caso: CasoDeRevisao,
@@ -572,16 +723,44 @@ export class ServicoDeRevisao {
     });
   }
 
-  async #transitar(caso: CasoDeRevisao, para: EstadoDoCaso): Promise<CasoDeRevisao> {
-    if (!(await this.#d.repositorio.transitar(caso.id, caso.estado, para))) {
-      // Outra decisão chegou primeiro. A desta já está no registo, e o
-      // registo é a verdade sobre quem decidiu o quê; o estado é de quem ganhou.
-      throw new RevisaoRecusadaError("estado_invalido");
+  /**
+   * Move o caso para `para` a partir do estado em que ele **está agora**, se for
+   * um dos `de`. Relê antes de mover: um caso que outra decisão passou de
+   * `aberto` a `em_analise` entretanto continua a poder fechar. Se outra decisão
+   * o fechou, recusa — o voto desta já está no registo.
+   */
+  async #mover(id: string, de: readonly EstadoDoCaso[], para: EstadoDoCaso): Promise<CasoDeRevisao> {
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      const agora = await this.#d.repositorio.porId(id);
+      if (agora === null || !de.includes(agora.estado)) break;
+      if (await this.#d.repositorio.transitar(id, agora.estado, para)) return (await this.#d.repositorio.porId(id))!;
     }
-    return (await this.#d.repositorio.porId(caso.id))!;
+    throw new RevisaoRecusadaError("estado_invalido");
   }
 
-  /** O que a decisão final faz ao onboarding, ao screening e ao dono. Ver a nota do módulo. */
+  /** A decisão que fechou o caso (`aprovar` ou `rejeitar`), ou `null` se ainda não fechou. */
+  async #decisaoFinal(caso: CasoDeRevisao): Promise<"aprovar" | "rejeitar" | null> {
+    if (caso.estado !== "decidido" && caso.estado !== "decidido_final" && caso.estado !== "recurso_aberto") return null;
+    const instancia: Instancia = caso.estado === "decidido_final" ? "recurso" : "primeira";
+    const ultima = (await this.#d.repositorio.decisoes(caso.id))
+      .filter((x) => x.instancia === instancia && (x.decisao === "aprovar" || x.decisao === "rejeitar"))
+      .at(-1);
+    return ultima === undefined ? null : (ultima.decisao as "aprovar" | "rejeitar");
+  }
+
+  /**
+   * O que a decisão final faz ao onboarding, ao screening e ao dono. Ver a nota
+   * do módulo.
+   *
+   * **Um recurso aprovado só tira o onboarding de `rejeitado` se mais nada o
+   * rejeitou**: todos os outros casos que bloqueiam têm de estar decididos a
+   * aprovar, e tem de haver um caso `kyc` aprovado (este ou outro). Sem a
+   * segunda condição, o recurso de uma categoria aprovava um onboarding que o
+   * KYC rejeitou sozinho ao terceiro ilegível, sem caso nenhum na fila.
+   *
+   * O aviso ao dono diz o que **aconteceu**: «aprovado» só quando a fase passou
+   * a `aprovado`; com outro caso ainda pendente, o dono não recebe nada.
+   */
   async #efeitos(
     caso: CasoDeRevisao,
     decisao: Decisao,
@@ -601,16 +780,19 @@ export class ServicoDeRevisao {
       }
     }
     if (caso.onboardingId === null || !TIPOS_QUE_BLOQUEIAM.includes(caso.tipo)) return;
-    const aviso: Aviso = instancia === "recurso" ? "recurso_decidido" : decisao === "aprovar" ? "aprovado" : "rejeitado";
     if (decisao === "rejeitar") {
       await this.#d.onboardings.marcarFase(caso.onboardingId, "rejeitado");
-      await this.#avisar(caso, aviso, motivoPublico);
+      await this.#avisar(caso, instancia === "recurso" ? "recurso_decidido" : "rejeitado", motivoPublico);
       return;
     }
-    const o = await this.#d.onboardings.porId(caso.onboardingId);
-    const outros = (await this.#d.repositorio.pendentesDoOnboarding(caso.onboardingId)).filter(
+    const outros = (await this.#d.repositorio.casosDoOnboarding(caso.onboardingId)).filter(
       (x) => x.id !== caso.id && TIPOS_QUE_BLOQUEIAM.includes(x.tipo),
     );
+    const finais = await Promise.all(outros.map(async (x) => ({ caso: x, final: await this.#decisaoFinal(x) })));
+    const pendente = outros.some((x) => x.estado === "em_triagem_automatica" || ESTADOS_PENDENTES.includes(x.estado));
+    const rejeitadoPorOutro = finais.some((x) => x.final === "rejeitar" && x.caso.estado !== "recurso_aberto");
+    const kycAprovado = caso.tipo === "kyc" || finais.some((x) => x.caso.tipo === "kyc" && x.final === "aprovar");
+    const o = await this.#d.onboardings.porId(caso.onboardingId);
     const fase = o?.fase;
     // `kyc_pendente` só conta para o próprio caso `kyc`: é onde um `pedir_info`
     // o deixou. Uma categoria aprovada com o K1 ainda por decidir não aprova o
@@ -618,11 +800,11 @@ export class ServicoDeRevisao {
     const desbloqueavel =
       fase === "em_revisao" ||
       (caso.tipo === "kyc" && fase === "kyc_pendente") ||
-      (instancia === "recurso" && fase === "rejeitado");
-    if (outros.length === 0 && desbloqueavel) {
-      await this.#d.onboardings.marcarFase(caso.onboardingId, "aprovado");
-    }
-    await this.#avisar(caso, aviso, null);
+      (instancia === "recurso" && fase === "rejeitado" && kycAprovado);
+    const aprovou = !pendente && !rejeitadoPorOutro && desbloqueavel;
+    if (aprovou) await this.#d.onboardings.marcarFase(caso.onboardingId, "aprovado");
+    if (instancia === "recurso") await this.#avisar(caso, "recurso_decidido", null);
+    else if (aprovou) await this.#avisar(caso, "aprovado", null);
   }
 
   async #avisar(caso: CasoDeRevisao, aviso: Aviso, motivo: MotivoPublico | null): Promise<void> {
@@ -631,6 +813,9 @@ export class ServicoDeRevisao {
     await this.#d.aviso.avisar({ onboardingId: caso.onboardingId, via: "sms", aviso, motivoPublico: motivo });
   }
 }
+
+/** A chave contra a qual um caso conta para a quota. */
+type Quota = { readonly tipo: "origem"; readonly origem: string | null } | { readonly tipo: "tenant"; readonly tenantId: string };
 
 function resumo(c: CasoDeRevisao): ResumoDoCaso {
   return {

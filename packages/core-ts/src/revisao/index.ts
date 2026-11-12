@@ -5,6 +5,7 @@
 
 export * from "./contrato.ts";
 export {
+  CasoJaDecididoError,
   CasoNaoElegivelError,
   SCORE_DE_RISCO_ALTO,
   decisaoHumanaDeScreening,
@@ -62,7 +63,9 @@ export {
   SQL_EM_TRIAGEM,
   SQL_MARCAR_ALERTADO,
   SQL_PAGINA,
-  SQL_PENDENTES_DO_ONBOARDING,
+  SQL_CASOS_DO_ONBOARDING,
+  SQL_CONTAR_NA_FILA_DO_TENANT,
+  SQL_REFORCAR,
   SQL_POR_CHAVE,
   SQL_POR_ID,
   SQL_REGISTAR_DECISAO,
