@@ -25,15 +25,18 @@ A tabela e particionada (`PARTITION BY RANGE (ts)`) e a `0023` criou o `CHECK`
 particao — uma restricao herdada nao se larga na filha (`42P16`). O ensaio
 confirma no catalogo que a `llm_call_log_default` ficou com os cinco.
 
-## O `NO FORCE` a volta das duas operacoes
+## O `NO FORCE` so na contagem do `downgrade`, e so no pai
 
-E a armadilha que a `0003` mediu contra o PostgreSQL 18.6 e que a `0038`
-repetiu no `audit_log`: com `FORCE ROW LEVEL SECURITY`, uma consulta do dono
-**sem contexto de tenant ve zero linhas**. O pai e a particao tem `FORCE`
-(`_rls` da `0023`). No `upgrade` o dominio novo e superconjunto do antigo e a
-validacao e verdadeira de qualquer maneira; no `downgrade` nao, e a contagem
-que decide a recusa sairia zero. Desliga-se nos dois sentidos pela razao que a
-`0038` escreveu: a assimetria e o que se esquece.
+Com `FORCE ROW LEVEL SECURITY`, uma consulta do dono **sem contexto de tenant
+ve zero linhas**, e o pai tem `FORCE` (`_rls` da `0023`): sem o `NO FORCE`, a
+contagem que decide a recusa saia zero. Medido contra PostgreSQL 18.6 na
+revisao adversarial, e e menos do que a `0038` escreve: a **validacao** de um
+`ADD CONSTRAINT CHECK` le a tabela directamente e **nao** passa pela RLS — com
+`FORCE` e uma linha `screening`, o `ADD` falha com `23514`, nao valida zero. O
+`NO FORCE` serve so para a recusa sair com a contagem e o que fazer em vez de
+um `23514` que nao o diz. Uma consulta pelo pai so obedece ao `FORCE` do pai,
+pelo que a particao nao se toca; no `upgrade` o dominio cresce e nao ha nada
+a contar.
 
 ## O `downgrade`
 
@@ -54,7 +57,6 @@ branch_labels = None
 depends_on = None
 
 TABELA = "dat.llm_call_log"
-PARTICAO = "dat.llm_call_log_default"
 RESTRICAO_DO_PAPEL = "llm_call_log_papel_ck"
 
 #: O dominio depois desta revisao (dicionario §3.29, emenda 1.83). **Literal**,
@@ -68,18 +70,7 @@ PAPEIS_SQL_0047 = "'router', 'chat', 'vision', 'embed', 'screening'"
 PAPEIS_SQL_0023 = "'router', 'chat', 'vision', 'embed'"
 
 
-def _sem_force() -> None:
-    op.execute(f"ALTER TABLE {TABELA} NO FORCE ROW LEVEL SECURITY")
-    op.execute(f"ALTER TABLE {PARTICAO} NO FORCE ROW LEVEL SECURITY")
-
-
-def _com_force() -> None:
-    op.execute(f"ALTER TABLE {TABELA} FORCE ROW LEVEL SECURITY")
-    op.execute(f"ALTER TABLE {PARTICAO} FORCE ROW LEVEL SECURITY")
-
-
 def upgrade() -> None:
-    _sem_force()
     op.execute(f"ALTER TABLE {TABELA} DROP CONSTRAINT {RESTRICAO_DO_PAPEL}")
     op.execute(
         f"""
@@ -88,16 +79,16 @@ def upgrade() -> None:
           CHECK (papel IN ({PAPEIS_SQL_0047}))
         """
     )
-    _com_force()
 
 
 def downgrade() -> None:
-    _sem_force()
+    op.execute(f"ALTER TABLE {TABELA} NO FORCE ROW LEVEL SECURITY")
     linhas = (
         op.get_bind()
         .exec_driver_sql(f"SELECT count(*) FROM {TABELA} WHERE papel = 'screening'")
         .scalar_one()
     )
+    op.execute(f"ALTER TABLE {TABELA} FORCE ROW LEVEL SECURITY")
     if linhas:
         raise RuntimeError(
             f"downgrade da 0047 recusado: ha {linhas} linha(s) de dat.llm_call_log "
@@ -113,4 +104,3 @@ def downgrade() -> None:
           CHECK (papel IN ({PAPEIS_SQL_0023}))
         """
     )
-    _com_force()

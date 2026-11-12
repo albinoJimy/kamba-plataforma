@@ -7125,6 +7125,8 @@ entradas:
       - "credor"
       - "KAM"
       - "NNN"
+      - "screening"
+      - "nano"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Ordem de tentativa de um fornecedor"

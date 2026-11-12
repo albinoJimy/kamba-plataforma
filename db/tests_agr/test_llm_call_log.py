@@ -609,14 +609,16 @@ class TestDowngradeDa0047(_ComLlm):
         self.assertIn("'screening'", _definicao_do_check(self.consultar))
 
     def test_com_uma_linha_screening_o_downgrade_recusa_se(self) -> None:
-        """**O ensaio onde um `NO FORCE` esquecido nao dava erro nenhum.**
+        """A recusa diz a contagem e o que fazer, e a base fica na cabeca.
 
-        A contagem corre como dono da tabela, e o pai e a particao tem `FORCE`:
-        sem o `NO FORCE` da `0047`, o dono via zero linhas, a descida seguia e o
-        `ADD CONSTRAINT` validava tambem zero — uma linha `screening` ficava
-        debaixo de um `CHECK` que diz que ela nao existe. A linha e confirmada
-        pela aplicacao, com contexto de tenant, e o `alembic` corre noutro
-        processo; a limpeza e a do `_limpar_llm`, com o *trigger* desligado.
+        A contagem corre como dono da tabela, e o pai tem `FORCE`: sem o
+        `NO FORCE` da `0047`, o dono via zero linhas e a descida seguia ate ao
+        `ADD CONSTRAINT`, que **falha** com `23514` — a validacao de um `CHECK`
+        nao passa pela RLS (medido contra PostgreSQL 18.6). A base nao ficava
+        inconsistente; a recusa e que saia sem dizer porque. E isso que a
+        asserção sobre «append-only» distingue. A linha e confirmada pela
+        aplicacao, com contexto de tenant, para a ligacao do `alembic` a ver; a
+        limpeza e a do `_limpar_llm`, com o *trigger* desligado.
         """
         exigir_base_descartavel()
         self.assertTrue(self.escrever(_linha(self.tenant, papel="screening")))
