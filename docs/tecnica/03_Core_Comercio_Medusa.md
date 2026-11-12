@@ -990,7 +990,7 @@ omissão.** A decisão é do **fundador**, e a proveniência fica escrita porque
 página de canon que afirma uma decisão sem dizer por onde ela chegou é a mesma
 afirmação sem medição que este repositório recusa em todo o resto: foi
 resposta directa do fundador a esta sessão (a do KAM-044) a 2026-11-04, à pergunta de qual das duas saídas que a dívida 174 escreveu seguir. Ele estava aqui e **em mais sítio nenhum**: sem
-contrato em `../../contratos/eventos/`, fora dos **trinta e oito** tipos que o
+contrato em `../../contratos/eventos/`, fora da lista fechada de tipos que o
 `../../specs/02_Dicionario_de_Dados_Canonico.md` §3.5 fixa e ausente do `06` §5 —
 que é quem dá produtor, consumidores, agregado, classe de PII e fase. O KAM-044
 mediu a consequência de o emitir: `TipoDesconhecidoError` no `validarPayload`,

@@ -72,7 +72,7 @@ export const FINALIDADES = [
 ] as const;
 
 /**
- * As oito que a `v1` dos 38 contratos aceita.
+ * As oito que a `v1` de todos os contratos aceita.
  *
  * **Existe porque uma lista por versão é o que o §6.6 obriga.** A `v1` está
  * publicada e congelada: o `enum` dela tem estes oito e vai continuar a tê-los

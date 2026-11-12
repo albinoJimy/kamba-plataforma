@@ -18,7 +18,7 @@
  * fila de revisão (KAM-089) como qualquer outra.
  */
 
-import { screen, type DependenciasDoScreen } from "./motor.ts";
+import { conteudoSha256, screen, type DependenciasDoScreen } from "./motor.ts";
 
 export interface ProdutoPublicado {
   readonly tenantId: string;
@@ -38,6 +38,12 @@ export interface Violacao {
   readonly sku: string;
   readonly regras: readonly string[];
   readonly versaoPolitica: string;
+  /**
+   * O sha256 do conteúdo decidido — o mesmo `conteudoSha256` que o `screen`
+   * gravou na decisão (KAM-191). Diz ao consumidor **que versão** do produto
+   * violou, sem levar o texto dela.
+   */
+  readonly conteudoSha256: Uint8Array;
 }
 
 export interface EmissorDeViolacoes {
@@ -67,6 +73,9 @@ export interface ResultadoDaReanalise {
  * no primeiro produto do segundo tenant. Em produção, o escritor e o emissor
  * do `trabalho` usam o cliente desta transacção (o emissor pelo `evt_emitir`,
  * no mesmo *outbox*). A omissão corre sem transacção, e serve só aos ensaios.
+ *
+ * O emissor de produção é o `EmissorSql` de `emissor.ts` (KAM-191), construído
+ * sobre o cliente **desta** transacção — o mesmo do `EscritorSql`.
  */
 export type PorProduto = <T>(tenantId: string, trabalho: () => Promise<T>) => Promise<T>;
 
@@ -93,9 +102,10 @@ export async function reanalisar(
     const porProduto = dependencias.porProduto ?? SEM_TRANSACCAO;
     for (const produto of lote.slice(0, limite)) {
       const violou = await porProduto(produto.tenantId, async () => {
+        const entrada = { categoria_declarada: produto.categoriaDeclarada, textos: produto.textos };
         const resultado = await screen(
           { tenantId: produto.tenantId, sujeitoTipo: "produto", sujeitoRef: produto.sku },
-          { categoria_declarada: produto.categoriaDeclarada, textos: produto.textos },
+          entrada,
           dependencias,
         );
         if (resultado.decisao !== "bloqueada") return false;
@@ -104,6 +114,7 @@ export async function reanalisar(
           sku: produto.sku,
           regras: resultado.regras,
           versaoPolitica: versao,
+          conteudoSha256: conteudoSha256(entrada),
         });
         return true;
       });
