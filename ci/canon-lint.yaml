@@ -475,7 +475,7 @@ dominios_historicos:
       §13.2. A 0047 (KAM-192) acrescenta-lhe o screening, o papel do
       classificador de categorias do GOV (KAM-088), por DROP CONSTRAINT mais ADD
       CONSTRAINT com o mesmo nome, e o dicionario §3.29 passa a declarar cinco
-      (emenda 1.84). A declaracao da 0023 fica a dizer quatro, e e o que a base
+      (emenda 1.85). A declaracao da 0023 fica a dizer quatro, e e o que a base
       tinha naquela revisao.
   - revisao: "db/migrations/versions/0047_papel_screening.py"
     tabela: "llm_call_log"

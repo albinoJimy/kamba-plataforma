@@ -11,7 +11,7 @@ O dicionario §3.29 tem **um** conceito para o papel de um alias e para a coluna
 transferencia (ADR-008, ADR-018) grava o mesmo valor. A `0023` impos o dominio
 com um `CHECK` fechado de quatro, e o KAM-088 deixou o alias do classificador de
 screening (`screening-nano`) nomeado e nao declarado porque declara-lo com um
-dos quatro papeis tomava o lugar de outro alias. O papel novo e a emenda 1.84
+dos quatro papeis tomava o lugar de outro alias. O papel novo e a emenda 1.85
 do dicionario; esta revisao e a metade da base, e sem ela uma chamada do papel
 `screening` pelo cliente do AGR sairia com a linha recusada pelo servidor
 (`23514`) e engolida pelo `_escrever` — o registo de transferencia perdido em
@@ -59,7 +59,7 @@ depends_on = None
 TABELA = "dat.llm_call_log"
 RESTRICAO_DO_PAPEL = "llm_call_log_papel_ck"
 
-#: O dominio depois desta revisao (dicionario §3.29, emenda 1.84). **Literal**,
+#: O dominio depois desta revisao (dicionario §3.29, emenda 1.85). **Literal**,
 #: pela razao da `0023`: o *gate* 3b nao resolve uma chamada de funcao dentro de
 #: um `op.execute`.
 PAPEIS_SQL_0047 = "'router', 'chat', 'vision', 'embed', 'screening'"
