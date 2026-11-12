@@ -547,12 +547,22 @@ class TestAPoliticaInteiraCorreNaBase(ComRetencao):
         self.assertEqual(sorted(declaradas - catalogo), [], "classes que apontam para o vazio")
 
 
+#: O degrau de baixo da `0042`. Ver a nota da classe.
+ANTERIOR_A_0042 = "0041"
+
+
 class TestDowngradeDa0042(ComBase):
     """O `downgrade` desce um degrau e recusa-se quando perderia a prova.
 
     Repoe o `head` no `tearDown`, pela razao do `TestDowngradeDa0038`: a ordem
-    dos modulos do `unittest` nao e uma garantia. Desce por `-1` e nao por
-    numero: o degrau de baixo e o da fila, e a fila decide-o na integracao.
+    dos modulos do `unittest` nao e uma garantia.
+
+    **Desce para a `0041` pelo numero, e ja nao por `-1`** (KAM-050). O `-1`
+    servia enquanto o numero desta revisao era provisorio e ela era a ultima;
+    com a `0042` fundida, o degrau de baixo esta fixo, e com uma revisao acima
+    dela o `-1` descia **essa** e nao a `0042` — a recusa por `purge_log` nunca
+    corria e as tabelas eram as de `head`. Medido com a `0046` do KAM-050 na
+    arvore: dois ensaios vermelhos.
     """
 
     def tearDown(self) -> None:
@@ -566,7 +576,7 @@ class TestDowngradeDa0042(ComBase):
 
     def test_desce_sobe_e_o_dominio_volta_as_nove(self) -> None:
         exigir_base_descartavel()
-        alembic_ok("downgrade", "-1")
+        alembic_ok("downgrade", ANTERIOR_A_0042)
         self.assertEqual(self._presentes(), set(TABELAS_ATE_0041))
         [(definicao,)] = self.consultar(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
@@ -588,7 +598,7 @@ class TestDowngradeDa0042(ComBase):
                 " 'efectiva', 'ok', NULL, 1, 'v', now())")
             conexao.commit()
             with mock.patch.dict("os.environ", {"KAMBA_DOWNGRADE_0042_COPIA": ""}):
-                resultado = alembic("downgrade", "-1")
+                resultado = alembic("downgrade", ANTERIOR_A_0042)
             self.assertNotEqual(resultado.returncode, 0)
             self.assertIn("KAMBA_DOWNGRADE_0042_COPIA", resultado.stderr + resultado.stdout)
             self.assertIn("purge_log", self._presentes())
