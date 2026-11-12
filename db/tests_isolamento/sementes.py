@@ -310,8 +310,9 @@ def _passo_da_saga(cursor, tenant_id: str, canario: str) -> None:
     `status_de_espera`, que tem dominio fechado de tres valores.
 
     O `onboarding_id` e um `gen_random_uuid()` por linha: **nao ha FK** para
-    `onboarding_case`, que e tabela que ainda nao existe (credor KAM-086/087), e
-    duas linhas com o mesmo `step` so colidem se partilharem o caso.
+    `onboarding_case` — a tabela nasceu depois, com a `0043` (KAM-087), e a FK
+    fica como seguimento —, e duas linhas com o mesmo `step` so colidem se
+    partilharem o caso.
 
     **O `attempt` entra explicito, a `1`.** A coluna e `NOT NULL` **sem
     omissao** de proposito (ver a nota da revisao: um `DEFAULT 0` convidava um
@@ -329,6 +330,28 @@ def _passo_da_saga(cursor, tenant_id: str, canario: str) -> None:
         "INSERT INTO platform.provisioning_step "
         "(onboarding_id, tenant_id, step, status, attempt, external_id) "
         "VALUES (gen_random_uuid(), %s, 'tenant_e_caso', 'em_curso', 1, %s)",
+        (tenant_id, canario),
+    )
+
+
+def _caso_de_onboarding(cursor, tenant_id: str, canario: str) -> None:
+    """Um caso de onboarding com o canario no `nome_negocio` (KAM-087, `0043`).
+
+    O `tenant_id` do caso e o **pre-alocado**, e e unico: um caso por tenant, que
+    e o que esta bateria semeia. **Sem FK para `tenants`**, pela mesma razao da
+    `provisioning_step`. O canario vai no `nome_negocio`, que e texto livre e nao
+    entra em unicidade nenhuma; os HMAC sao `sha256` de um UUID novo, para dois
+    tenants nao colidirem no indice unico do NIF vivo.
+
+    **Semeia o administrador**, porque o `kamba_batch` nao tem `INSERT` nesta
+    tabela: quem a escreve em producao e o registo do `onboarding-web`, como
+    `kamba_app` e sob a `tenant_iso`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.onboarding_case "
+        "(tenant_id, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, "
+        "phone_enc, phone_hmac) VALUES (%s, 'convite', %s, 'moda', '\\x01', "
+        "sha256(uuid_send(gen_random_uuid())), '\\x02', sha256(uuid_send(gen_random_uuid())))",
         (tenant_id, canario),
     )
 
@@ -1306,6 +1329,45 @@ def _marcacao(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+#: O vector do documento semeado, **igual nos dois tenants**: e o que o X-06
+#: (`tools/isolamento/baterias/x06_vectores.py`) pesquisa, e o documento do
+#: outro tenant fica a distancia zero da pergunta — a forma mais hostil.
+_VECTOR = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
+
+
+def _documento_do_indice(cursor, tenant_id: str, canario: str) -> None:
+    """Um documento do indice de pesquisa (KAM-061, revisao `0045`).
+
+    O canario vai no `product_ref`, que e a segunda coluna da unicidade
+    `(tenant_id, product_ref)` — dois tenants podem semear o mesmo canario, que
+    e o que o X-03 precisa. Semeia o administrador: o `kamba_batch` nao tem
+    privilegio nenhum no `idx`, e o `kamba_app`, que escreve em producao (o
+    consumidor de eventos), esta sob `WITH CHECK` e as receitas nao definem
+    contexto.
+    """
+    cursor.execute(
+        "INSERT INTO idx.search_doc "
+        "(tenant_id, product_ref, norm_versao, nome_norm, embedding) "
+        "VALUES (%s, %s, 1, %s, %s::halfvec)",
+        (tenant_id, canario, f"produto {canario}", _VECTOR),
+    )
+
+
+def _termo_do_lexico(cursor, tenant_id: str, canario: str) -> None:
+    """Uma entrada **do tenant** no dicionario PT-AO (KAM-061, revisao `0045`).
+
+    Nunca uma global: a global (`tenant_id` nulo) e legivel por todos os tenants
+    por desenho (politica `termos_globais`), e o X-03 mede o que um tenant le do
+    outro. O `kamba_app` so le esta tabela, pelo que a receita prova que o
+    privilegio de escrita nem existe.
+    """
+    cursor.execute(
+        "INSERT INTO idx.termo_canonico (tenant_id, tipo, termo, canonico, origem) "
+        "VALUES (%s, 'sinonimo', %s, 'canonico', 'tenant')",
+        (tenant_id, canario),
+    )
+
+
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
@@ -1387,6 +1449,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         semeador="admin", escrita_do_papel=False,
     ),
     ("platform", "offer_terms"): Receita(_oferta, "sku", "nome", "nome alterado"),
+    # KAM-061: as duas do `idx`, semeadas pelo administrador (nem o
+    # `kamba_batch` tem privilegio no esquema). O documento e **escrito pelo
+    # papel** — o consumidor de eventos corre como `kamba_app` —, pelo que a RLS
+    # e a ultima barreira na escrita; o lexico so e lido por ele.
+    ("idx", "search_doc"): Receita(
+        _documento_do_indice, "product_ref", "nome_norm", "nome alterado",
+        semeador="admin",
+    ),
+    ("idx", "termo_canonico"): Receita(
+        _termo_do_lexico, "termo", None, None,
+        semeador="admin", escrita_do_papel=False,
+    ),
     # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
     # vai buscar o contacto por subconsulta, e o `kamba_batch` **nao tem
     # `SELECT` em `platform.contacts`** — as tabelas de identidade sao do
@@ -1466,6 +1540,14 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "provisioning_step"): Receita(
         _passo_da_saga, "external_id", "atualizado_at",
         "2099-01-01T00:00:00+00:00",
+    ),
+    # KAM-087: o caso de onboarding. A coluna alteravel e o
+    # `owner_active_seconds`, uma das quatro do `GRANT UPDATE` por coluna ao
+    # `kamba_app`, inteira e sem dominio fechado: a `fase` tem o `CHECK` dos
+    # catorze e o `preflight` exige um *array*.
+    ("platform", "onboarding_case"): Receita(
+        _caso_de_onboarding, "nome_negocio", "owner_active_seconds", 4242,
+        semeador="admin",
     ),
     # KAM-069: os destinos de transferencia. **Nenhuma coluna alteravel**, e e a
     # propriedade da tabela e nao uma lacuna da bateria: o `kamba_app` tem
@@ -1816,6 +1898,24 @@ SEM_RECEITA_COM_RAZAO = {
     # `tenant_id` nulo sao invisiveis a `tenant_iso` para quem nao tem
     # `BYPASSRLS`, que e a mesma forma do `audit_log`.
     ("platform", "purge_log"),
+    # KAM-087: a verificacao K1, porque **a aplicacao nao a alcanca**: o
+    # `kamba_app` nao tem privilegio nenhum nesta tabela — as marcas sao o
+    # motivo interno, que o criterio 7 reserva ao T&S —, e quem a escreve e o
+    # `kamba_batch`, com `BYPASSRLS`. Uma receita nao tinha papel sujeito a
+    # RLS para ler nem para escrever. **A politica mede-se no catalogo:** o
+    # `db/tests/test_kyc_schema.py` prova a `tenant_iso` com o `tenant_id` nos
+    # dois lados e a RLS ligada e forcada, e a FK composta para o caso.
+    ("platform", "kyc_check"),
+    # KAM-088: a decisao de screening, pela razao da `contract_acceptance`: e
+    # *append-only* por privilegio **e** por *trigger* — nenhum papel tem
+    # `UPDATE` (as receitas precisam de uma coluna alteravel) nem `DELETE`, e
+    # o *trigger* recusa tambem ao administrador o `DELETE` com que as
+    # receitas limpam. **A politica mede-se noutro sitio**: o
+    # `test_a_aplicacao_escreve_no_seu_tenant_e_nao_ve_o_dos_outros` do
+    # `db/tests/test_screening_schema.py` le com o contexto de B a linha de A
+    # (zero) e escreve com o contexto de B uma linha de A (`42501`), pela
+    # ligacao da aplicacao.
+    ("platform", "screening_decision"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo
@@ -2077,10 +2177,15 @@ ORDEM = (
     ("platform", "refund_cases"),
     ("platform", "fraud_signals"),
     # KAM-091: **sem FK nenhuma** — nem para `tenants`, porque e o passo 1 da
-    # saga que escreve essa linha, nem para `onboarding_case`, que nao existe.
+    # saga que escreve essa linha, nem para `onboarding_case`, que nasceu
+    # depois dela (`0043`, KAM-087) e a quem a FK ficou por acrescentar.
     # Ninguem a aponta, pelo que a posicao e indiferente e a escolhida e a dos
     # numeros dos tickets, como entre as duas acima.
     ("platform", "provisioning_step"),
+    # KAM-087: sem FK para `tenants` (o `tenant_id` e pre-alocado) e sem
+    # ninguem que a aponte nesta bateria — a `kyc_check`, que a aponta, nao
+    # tem receita. A posicao e a dos numeros dos tickets.
+    ("platform", "onboarding_case"),
     # KAM-069: **sem FK nenhuma**, nem para `tenants` — um destino registra-se
     # antes de o tenant activar, e e o *gate* de go-live do criterio 8 que corre
     # na transicao. Ninguem a aponta, pelo que a posicao e indiferente e a
@@ -2096,6 +2201,10 @@ ORDEM = (
     # que esta bateria nunca lhe escreve linha nenhuma — e um pedido sem linhas
     # de ledger apaga-se sem a FK dizer nada.
     ("platform", "dsar_requests"),
+    # KAM-061: as duas do `idx` so tem FK para `tenants`, e ninguem as aponta.
+    # A posicao e indiferente e a escolhida e a dos numeros dos tickets.
+    ("idx", "search_doc"),
+    ("idx", "termo_canonico"),
 )
 
 #: As identidades com que as receitas semeiam.

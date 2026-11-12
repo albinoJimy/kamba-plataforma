@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.79"
+versao_dicionario: "1.83"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -211,26 +211,24 @@ entradas:
       - "restrito"
   - seccao: "3.2"
     conceito: "Fase do onboarding"
-    canonico: "onboarding_case.fase: kyc_pendente, aprovado, provisionando, aguarda_es, aguarda_catalogo, pronto"
+    canonico: "onboarding_case.fase, catorze valores (§3.57)"
     literais:
       - "onboarding_case.fase"
-      - "kyc_pendente"
-      - "aprovado"
-      - "provisionando"
-      - "aguarda_es"
-      - "aguarda_catalogo"
-      - "pronto"
     nomes:
       - "onboarding_case.fase"
+    nomes_nota:
+      - "onboarding"
       - "kyc_pendente"
       - "aprovado"
       - "provisionando"
       - "aguarda_es"
       - "aguarda_catalogo"
+      - "activo"
       - "pronto"
-    nomes_nota:
-      - "onboarding"
-    variantes_literais: []
+      - "channel_onboarding.fase"
+      - "EstadoGuardado.estado"
+    variantes_literais:
+      - "onboarding_case.estado"
   - seccao: "3.2"
     conceito: "Pré-alocação do tenant"
     canonico: "onboarding_case.tenant_id criado no registo"
@@ -9796,8 +9794,8 @@ entradas:
       - "money"
     variantes_literais: []
   - seccao: "3.39"
-    conceito: "As sete rotas da API interna do COM"
-    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation"
+    conceito: "As nove rotas da API interna do COM"
+    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer"
     literais: []
     nomes: []
     nomes_nota:
@@ -13867,7 +13865,11 @@ entradas:
       - "onboarding_case.preflight"
       - "jsonb"
     nomes_nota:
-      - "onboarding_case.fase"
+      - "jsonb"
+      - "CHECK"
+      - "jsonb_typeof"
+      - "preflight"
+      - "array"
       - "RepositorioDoGuia"
     variantes_literais: []
   - seccao: "3.54"
@@ -14347,6 +14349,916 @@ entradas:
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.56"
+    conceito: "As rotas do painel"
+    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "id"
+      - "sku"
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A sessão do painel"
+    canonico: "cookie kamba_painel, domínio kamba/painel/sessao/v1, v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
+    literais:
+      - "kamba_painel"
+      - "v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
+    nomes:
+      - "kamba_painel"
+      - "v1"
+      - "sid"
+      - "tenant"
+      - "dono"
+      - "emitida"
+      - "renovada"
+      - "hmac"
+    nomes_nota:
+      - "sessao"
+      - "tenant_id"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "O corpo da gravação"
+    canonico: "preco_tipo, preco_minor, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
+    literais:
+      - "preco_tipo"
+      - "preco_minor"
+      - "versao"
+      - "confirmar_variacao"
+      - "Idempotency-Key"
+    nomes:
+      - "preco_tipo"
+      - "preco_minor"
+      - "versao"
+      - "confirmar_variacao"
+      - "Idempotency"
+      - "Key"
+    nomes_nota:
+      - "preco_tipo"
+      - "preco_minor"
+      - "stock"
+      - "stock_por_ligar"
+      - "stock_quantidade"
+      - "Idempotency"
+      - "Key"
+    variantes_literais:
+      - "preco_modo"
+  - seccao: "3.56"
+    conceito: "A versão optimista de uma oferta"
+    canonico: "offer_terms.atualizado_at, como texto UTC com microssegundos (OfertaDoPainel.versao)"
+    literais:
+      - "offer_terms.atualizado_at"
+      - "OfertaDoPainel.versao"
+    nomes:
+      - "offer_terms.atualizado_at"
+      - "OfertaDoPainel.versao"
+    nomes_nota:
+      - "offer_terms"
+      - "atualizado_at"
+      - "timestamptz"
+      - "SQL_ALTERAR_OFERTA"
+      - "clock_timestamp"
+      - "now"
+      - "preco_valido_ate"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As operações do painel no COM"
+    canonico: "listarOfertas, alterarOferta, servidas por POST /internal/list-offers e POST /internal/update-offer"
+    literais:
+      - "listarOfertas"
+      - "alterarOferta"
+    nomes:
+      - "listarOfertas"
+      - "alterarOferta"
+    nomes_nota:
+      - "OperacoesDoCom"
+      - "proposeCart"
+      - "createOrder"
+      - "Resultado"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A origem de auditoria do painel"
+    canonico: "painel_do_dono"
+    literais:
+      - "painel_do_dono"
+    nomes:
+      - "painel_do_dono"
+    nomes_nota:
+      - "ORIGENS"
+      - "dono"
+      - "owner"
+      - "audit_log"
+      - "onboarding_id"
+      - "actor_id"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As métricas do painel"
+    canonico: "painel_pedidos_total{rota}, painel_erros_total{rota,motivo}"
+    literais:
+      - "painel_pedidos_total{rota}"
+      - "painel_erros_total{rota,motivo}"
+    nomes:
+      - "painel_pedidos_total"
+      - "rota"
+      - "painel_erros_total"
+      - "motivo"
+    nomes_nota:
+      - "rota"
+      - "entrar"
+      - "produtos"
+      - "gravar"
+      - "encomendas"
+      - "encomenda"
+      - "canal"
+      - "sair"
+      - "motivo"
+      - "sem_sessao"
+      - "nao_encontrado"
+      - "invalido"
+      - "conflito"
+      - "confirmacao"
+      - "indisponivel"
+      - "onboarding"
+      - "web"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "O estado do canal no painel"
+    canonico: "VistaDoCanal.estado ∈ {ativo, a_sincronizar, desligado, sem_canal}"
+    literais:
+      - "VistaDoCanal.estado"
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    nomes:
+      - "VistaDoCanal.estado"
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    nomes_nota:
+      - "platform.channels"
+      - "sem_canal"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A configuração do painel"
+    canonico: "ONBOARDING_COM_INTERNO_URL, PAINEL_PRECO_MAXIMO_KZ"
+    literais:
+      - "ONBOARDING_COM_INTERNO_URL"
+      - "PAINEL_PRECO_MAXIMO_KZ"
+    nomes:
+      - "ONBOARDING_COM_INTERNO_URL"
+      - "PAINEL_PRECO_MAXIMO_KZ"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "painel_desligado"
+      - "com_internal_token"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Caso de onboarding"
+    canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    literais:
+      - "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    nomes:
+      - "platform.onboarding_case"
+      - "id"
+      - "tenant_id"
+      - "fase"
+      - "fase_at"
+      - "origem"
+      - "nome_negocio"
+      - "categoria_declarada"
+      - "nif_enc"
+      - "nif_hmac"
+      - "phone_enc"
+      - "phone_hmac"
+      - "email_enc"
+      - "device_hash"
+      - "ip_prefix_hash"
+      - "flags"
+      - "owner_active_seconds"
+      - "preflight"
+      - "criado_at"
+      - "activo_at"
+    nomes_nota:
+      - "fase"
+      - "estado"
+      - "preflight"
+      - "fase_at"
+      - "FORCE"
+      - "tenant_iso"
+      - "tenant_id"
+      - "contract_acceptance"
+      - "UNIQUE"
+      - "id"
+      - "kyc_check"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Fase do caso"
+    canonico: "onboarding_case.fase ∈ {registo, otp_pendente, kyc_pendente, em_revisao, aprovado, provisionando, aguarda_es, lista_espera, aguarda_catalogo, aguarda_teste, activo, rejeitado, abandonado, cancelado}"
+    literais:
+      - "onboarding_case.fase"
+      - "registo"
+      - "otp_pendente"
+      - "kyc_pendente"
+      - "em_revisao"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "lista_espera"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+      - "activo"
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+    nomes:
+      - "onboarding_case.fase"
+      - "registo"
+      - "otp_pendente"
+      - "kyc_pendente"
+      - "em_revisao"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "lista_espera"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+      - "activo"
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+    nomes_nota:
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+      - "FASES_MORTAS"
+      - "activo"
+      - "ativo"
+      - "tenants.estado"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Entrada na fase"
+    canonico: "onboarding_case.fase_at"
+    literais:
+      - "onboarding_case.fase_at"
+    nomes:
+      - "onboarding_case.fase_at"
+    nomes_nota:
+      - "onboarding_case_fase_at"
+      - "INSERT"
+      - "now"
+      - "UPDATE"
+      - "fase"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Origem do convite"
+    canonico: "onboarding_case.origem ∈ {convite, contabilista, anuncio}"
+    literais:
+      - "onboarding_case.origem"
+      - "convite"
+      - "contabilista"
+      - "anuncio"
+    nomes:
+      - "onboarding_case.origem"
+      - "convite"
+      - "contabilista"
+      - "anuncio"
+    nomes_nota:
+      - "ORIGENS"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Marca do caso"
+    canonico: "onboarding_case.flags ⊆ {duplicado_ambiguo}"
+    literais:
+      - "onboarding_case.flags"
+      - "duplicado_ambiguo"
+    nomes:
+      - "onboarding_case.flags"
+      - "duplicado_ambiguo"
+    nomes_nota:
+      - "CHECK"
+      - "flags"
+      - "ARRAY"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Unicidade do NIF vivo"
+    canonico: "índice onboarding_nif_vivo sobre nif_hmac, parcial"
+    literais:
+      - "onboarding_nif_vivo"
+      - "nif_hmac"
+    nomes:
+      - "onboarding_nif_vivo"
+      - "nif_hmac"
+    nomes_nota:
+      - "fase"
+      - "CasoDuplicadoError"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Verificação K1 de um documento"
+    canonico: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
+    literais:
+      - "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
+    nomes:
+      - "platform.kyc_check"
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "doc_tipo"
+      - "doc_ref"
+      - "sha256"
+      - "phash"
+      - "extraido_enc"
+      - "flags"
+      - "score"
+      - "resultado"
+      - "versao_regras"
+      - "custo_micro_usd"
+      - "criado_at"
+    nomes_nota:
+      - "tenant_id"
+      - "custo_micro_usd"
+      - "onboarding_id"
+      - "UNIQUE"
+      - "sha256"
+      - "kamba_batch"
+      - "phash"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Tipo de documento K1"
+    canonico: "kyc_check.doc_tipo ∈ {nif, alvara, bi, banco}"
+    literais:
+      - "kyc_check.doc_tipo"
+      - "nif"
+      - "alvara"
+      - "bi"
+      - "banco"
+    nomes:
+      - "kyc_check.doc_tipo"
+      - "nif"
+      - "alvara"
+      - "bi"
+      - "banco"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Resultado de uma verificação"
+    canonico: "kyc_check.resultado ∈ {k1_ok, fila, ilegivel, pendente}"
+    literais:
+      - "kyc_check.resultado"
+      - "k1_ok"
+      - "fila"
+      - "ilegivel"
+      - "pendente"
+    nomes:
+      - "kyc_check.resultado"
+      - "k1_ok"
+      - "fila"
+      - "ilegivel"
+      - "pendente"
+    nomes_nota:
+      - "pendente"
+      - "rejeitado"
+      - "fase"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Marca de uma verificação"
+    canonico: "kyc_check.flags ⊆ {nif_divergente, alvara_expirado, imagem_reutilizada, software_de_edicao, iban_invalido, nome_titular_divergente, confianca_baixa, actividade_incoerente, visao_recusada, orcamento_excedido, ilegivel}"
+    literais:
+      - "kyc_check.flags"
+      - "nif_divergente"
+      - "alvara_expirado"
+      - "imagem_reutilizada"
+      - "software_de_edicao"
+      - "iban_invalido"
+      - "nome_titular_divergente"
+      - "confianca_baixa"
+      - "actividade_incoerente"
+      - "visao_recusada"
+      - "orcamento_excedido"
+      - "ilegivel"
+    nomes:
+      - "kyc_check.flags"
+      - "nif_divergente"
+      - "alvara_expirado"
+      - "imagem_reutilizada"
+      - "software_de_edicao"
+      - "iban_invalido"
+      - "nome_titular_divergente"
+      - "confianca_baixa"
+      - "actividade_incoerente"
+      - "visao_recusada"
+      - "orcamento_excedido"
+      - "ilegivel"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Objecto do documento"
+    canonico: "kyc_check.doc_ref, a chave do STO, com starts_with(doc_ref, 't/' \|\| tenant_id \|\| '/kyc_documento/')"
+    literais:
+      - "kyc_check.doc_ref"
+    nomes:
+      - "kyc_check.doc_ref"
+    nomes_nota:
+      - "kyc_documento"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Hash perceptual"
+    canonico: "kyc_check.phash, 8 octetos"
+    literais:
+      - "kyc_check.phash"
+    nomes:
+      - "kyc_check.phash"
+    nomes_nota:
+      - "bit_count"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Campos extraídos"
+    canonico: "kyc_check.extraido_enc"
+    literais:
+      - "kyc_check.extraido_enc"
+    nomes:
+      - "kyc_check.extraido_enc"
+    nomes_nota:
+      - "onboarding_id"
+      - "tipo"
+      - "rejeitado"
+      - "abandonado"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Versão das regras"
+    canonico: "kyc_check.versao_regras, SemVer; VERSAO_DAS_REGRAS = 1.0.0"
+    literais:
+      - "kyc_check.versao_regras"
+      - "VERSAO_DAS_REGRAS"
+      - "1.0.0"
+    nomes:
+      - "kyc_check.versao_regras"
+      - "VERSAO_DAS_REGRAS"
+    nomes_nota:
+      - "kyc"
+      - "vision"
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Custo de LLM de uma verificação"
+    canonico: "kyc_check.custo_micro_usd, inteiro ≥ 0"
+    literais:
+      - "kyc_check.custo_micro_usd"
+    nomes:
+      - "kyc_check.custo_micro_usd"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.57"
+    conceito: "Motivo público do KYC"
+    canonico: "MotivoPublico ∈ {ilegivel, alvara_expirado, nao_foi_possivel_validar}"
+    literais:
+      - "MotivoPublico"
+      - "ilegivel"
+      - "alvara_expirado"
+      - "nao_foi_possivel_validar"
+    nomes:
+      - "MotivoPublico"
+      - "ilegivel"
+      - "alvara_expirado"
+      - "nao_foi_possivel_validar"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Política de categorias"
+    canonico: "../policy/categorias/politica.yaml, com politica.esquema.json e versoes.lock"
+    literais:
+      - "politica.esquema.json"
+      - "versoes.lock"
+    nomes:
+      - "politica.esquema.json"
+      - "versoes.lock"
+    nomes_nota:
+      - "versao"
+      - "versoes.lock"
+      - "sha256"
+      - "politica.gerada.ts"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Entrada da política"
+    canonico: "id, decisao, termos, padroes, fonte_meta, fonte_lei, estado_evidencia, revisto_em"
+    literais:
+      - "id"
+      - "decisao"
+      - "termos"
+      - "padroes"
+      - "fonte_meta"
+      - "fonte_lei"
+      - "estado_evidencia"
+      - "revisto_em"
+    nomes:
+      - "id"
+      - "decisao"
+      - "termos"
+      - "padroes"
+      - "fonte_meta"
+      - "fonte_lei"
+      - "estado_evidencia"
+      - "revisto_em"
+    nomes_nota:
+      - "additionalProperties"
+      - "false"
+      - "fonte_lei"
+      - "a"
+      - "confirmar"
+      - "por"
+      - "parecer"
+      - "bloqueada"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Decisão de screening"
+    canonico: "screening_decision.decisao ∈ {permitida, condicional, bloqueada}"
+    literais:
+      - "screening_decision.decisao"
+      - "permitida"
+      - "condicional"
+      - "bloqueada"
+    nomes:
+      - "screening_decision.decisao"
+      - "permitida"
+      - "condicional"
+      - "bloqueada"
+    nomes_nota:
+      - "maxRestricao"
+      - "condicional"
+      - "nao_listada"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Origem de uma decisão"
+    canonico: "screening_decision.origem ∈ {regra, llm, humano}"
+    literais:
+      - "screening_decision.origem"
+      - "regra"
+      - "llm"
+      - "humano"
+    nomes:
+      - "screening_decision.origem"
+      - "regra"
+      - "llm"
+      - "humano"
+    nomes_nota:
+      - "llm"
+      - "regra"
+      - "classificador_indisponivel"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Sujeito de uma decisão"
+    canonico: "screening_decision.sujeito_tipo ∈ {categoria, produto}"
+    literais:
+      - "screening_decision.sujeito_tipo"
+      - "categoria"
+      - "produto"
+    nomes:
+      - "screening_decision.sujeito_tipo"
+      - "categoria"
+      - "produto"
+    nomes_nota:
+      - "sujeito_ref"
+      - "categoria"
+      - "produto"
+      - "sku"
+      - "offer_terms"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Decisão gravada"
+    canonico: "platform.screening_decision, onze colunas"
+    literais:
+      - "platform.screening_decision"
+    nomes:
+      - "platform.screening_decision"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "onboarding_id"
+      - "sujeito_tipo"
+      - "sujeito_ref"
+      - "decisao"
+      - "regras"
+      - "versao_politica"
+      - "origem"
+      - "conteudo_sha256"
+      - "criado_at"
+      - "uuid"
+      - "bigserial"
+      - "NOT"
+      - "NULL"
+      - "FORCE"
+      - "clock_timestamp"
+      - "kamba_app"
+      - "SELECT"
+      - "INSERT"
+      - "UPDATE"
+      - "DELETE"
+      - "onboarding_case"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Resumo do conteúdo decidido"
+    canonico: "screening_decision.conteudo_sha256, 32 octetos"
+    literais:
+      - "screening_decision.conteudo_sha256"
+    nomes:
+      - "screening_decision.conteudo_sha256"
+    nomes_nota:
+      - "permitida"
+      - "sku"
+      - "sha256"
+      - "categoria_declarada"
+      - "textos"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Versão da política numa decisão"
+    canonico: "screening_decision.versao_politica"
+    literais:
+      - "screening_decision.versao_politica"
+    nomes:
+      - "screening_decision.versao_politica"
+    nomes_nota:
+      - "versao"
+      - "m"
+      - "t"
+      - "sha8"
+      - "VERSAO_DO_MOTOR"
+      - "screening.test.ts"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Sobreposição por tenant"
+    canonico: "fundirSobreposicao(base, sobreposicao) e o erro SobreposicaoRelaxaError"
+    literais:
+      - "fundirSobreposicao(base, sobreposicao)"
+      - "SobreposicaoRelaxaError"
+    nomes:
+      - "fundirSobreposicao"
+      - "base"
+      - "sobreposicao"
+      - "SobreposicaoRelaxaError"
+    nomes_nota:
+      - "permitida"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Publicação segura"
+    canonico: "assertPublishable(produto) e o erro NaoPublicavelError, motivo ∈ {sem_decisao, bloqueada, por_rever}"
+    literais:
+      - "assertPublishable(produto)"
+      - "NaoPublicavelError"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    nomes:
+      - "assertPublishable"
+      - "produto"
+      - "NaoPublicavelError"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    nomes_nota:
+      - "humano"
+      - "permitida"
+      - "screen"
+      - "condicional"
+      - "offer_terms.estado"
+      - "publicado"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Alias do classificador"
+    canonico: "screening-nano"
+    literais:
+      - "screening-nano"
+    nomes:
+      - "screening"
+      - "nano"
+    nomes_nota:
+      - "router"
+      - "kamba"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Documento do índice"
+    canonico: "idx.search_doc, quinze colunas"
+    literais:
+      - "idx.search_doc"
+    nomes:
+      - "idx.search_doc"
+    nomes_nota:
+      - "doc_id"
+      - "tenant_id"
+      - "product_ref"
+      - "norm_versao"
+      - "nome_norm"
+      - "marca_canon"
+      - "categoria_canon"
+      - "descr_norm"
+      - "zona"
+      - "visivel"
+      - "visivel_federado"
+      - "embedding"
+      - "embedding_modelo"
+      - "fts"
+      - "atualizado_at"
+      - "FORCE"
+      - "tenant_iso"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Referência ao produto"
+    canonico: "search_doc.product_ref"
+    literais:
+      - "search_doc.product_ref"
+    nomes:
+      - "search_doc.product_ref"
+    nomes_nota:
+      - "sku"
+      - "product_ref"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Texto normalizado"
+    canonico: "search_doc.nome_norm, search_doc.descr_norm, search_doc.marca_canon, search_doc.categoria_canon"
+    literais:
+      - "search_doc.nome_norm"
+      - "search_doc.descr_norm"
+      - "search_doc.marca_canon"
+      - "search_doc.categoria_canon"
+    nomes:
+      - "search_doc.nome_norm"
+      - "search_doc.descr_norm"
+      - "search_doc.marca_canon"
+      - "search_doc.categoria_canon"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Versão da normalização"
+    canonico: "search_doc.norm_versao"
+    literais:
+      - "search_doc.norm_versao"
+    nomes:
+      - "search_doc.norm_versao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Visibilidade na pesquisa"
+    canonico: "search_doc.visivel, search_doc.visivel_federado"
+    literais:
+      - "search_doc.visivel"
+      - "search_doc.visivel_federado"
+    nomes:
+      - "search_doc.visivel"
+      - "search_doc.visivel_federado"
+    nomes_nota:
+      - "visivel"
+      - "visivel_federado"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Vector do produto"
+    canonico: "search_doc.embedding, search_doc.embedding_modelo"
+    literais:
+      - "search_doc.embedding"
+      - "search_doc.embedding_modelo"
+    nomes:
+      - "search_doc.embedding"
+      - "search_doc.embedding_modelo"
+    nomes_nota:
+      - "halfvec"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Vector de pesquisa textual"
+    canonico: "search_doc.fts"
+    literais:
+      - "search_doc.fts"
+    nomes:
+      - "search_doc.fts"
+    nomes_nota:
+      - "idx.kamba_pt"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Zona do documento"
+    canonico: "search_doc.zona"
+    literais:
+      - "search_doc.zona"
+    nomes:
+      - "search_doc.zona"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Dicionário PT-AO"
+    canonico: "idx.termo_canonico, dez colunas"
+    literais:
+      - "idx.termo_canonico"
+    nomes:
+      - "idx.termo_canonico"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "tipo"
+      - "termo"
+      - "canonico"
+      - "peso"
+      - "origem"
+      - "activo"
+      - "aprovado_por"
+      - "criado_at"
+      - "tenant_destinations"
+      - "tenant_iso"
+      - "termos_globais"
+      - "tenant"
+      - "uuid"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Tipo de termo"
+    canonico: "termo_canonico.tipo ∈ {marca, unidade, sinonimo, erro_comum, stopword}"
+    literais:
+      - "termo_canonico.tipo"
+      - "marca"
+      - "unidade"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    nomes:
+      - "termo_canonico.tipo"
+      - "marca"
+      - "unidade"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Origem de um termo"
+    canonico: "termo_canonico.origem ∈ {ops, catalogo, dataset, tenant}"
+    literais:
+      - "termo_canonico.origem"
+      - "ops"
+      - "catalogo"
+      - "dataset"
+      - "tenant"
+    nomes:
+      - "termo_canonico.origem"
+      - "ops"
+      - "catalogo"
+      - "dataset"
+      - "tenant"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Peso de um termo"
+    canonico: "termo_canonico.peso, real em ]0, 1]"
+    literais:
+      - "termo_canonico.peso"
+    nomes:
+      - "termo_canonico.peso"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Termo e forma canónica"
+    canonico: "termo_canonico.termo, termo_canonico.canonico, termo_canonico.aprovado_por"
+    literais:
+      - "termo_canonico.termo"
+      - "termo_canonico.canonico"
+      - "termo_canonico.aprovado_por"
+    nomes:
+      - "termo_canonico.termo"
+      - "termo_canonico.canonico"
+      - "termo_canonico.aprovado_por"
+    nomes_nota:
+      - "aprovado_por"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Pesquisa por tenant"
+    canonico: "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
+    literais:
+      - "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
+    nomes:
+      - "idx.candidatos"
+      - "p_tenant"
+      - "p_q_norm"
+      - "p_q_or"
+      - "p_qvec"
+      - "p_k"
+      - "p_w_sem"
+      - "p_w_tri"
+      - "p_w_fts"
+      - "p_rrf_k"
+    nomes_nota:
+      - "SECURITY"
+      - "INVOKER"
+      - "doc_id"
+    variantes_literais: []
+  - seccao: "3.59"
+    conceito: "Configuração de pesquisa textual"
+    canonico: "idx.kamba_pt, cópia da configuração portuguese com o dicionário unaccent"
+    literais:
+      - "idx.kamba_pt"
+    nomes:
+      - "idx.kamba_pt"
+    nomes_nota:
+      - "vector"
+    variantes_literais: []
+  - seccao: "3.60"
     conceito: "Arestas do KAM-050"
     canonico: "nove: expirada→paga; paga→reembolso_pendente; entregue→em_disputa; em_disputa→{reembolso_pendente, entregue}; em_entrega→entrega_falhada; entrega_falhada→{em_entrega, reembolso_pendente}; reembolso_pendente→reembolsada"
     literais:
@@ -14384,7 +15296,7 @@ entradas:
       - "criada"
       - "em_disputa"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.60"
     conceito: "Ramo de um pagamento autenticado"
     canonico: "RamoDoPagamento ∈ {normal, tardio, apos_cancelamento, duplicado}"
     literais:
@@ -14407,7 +15319,7 @@ entradas:
       - "paga"
       - "duplicado"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.60"
     conceito: "Estados de excepção do consumo"
     canonico: "ESTADOS_DE_EXCEPCAO do ../packages/core-ts/src/eventos/estados.ts"
     literais:
@@ -14419,7 +15331,7 @@ entradas:
       - "cancelada"
       - "ESTADOS_INCOMPATIVEIS"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.60"
     conceito: "Motivo de um pedido de reembolso"
     canonico: "MotivoDeReembolso ∈ {pagamento_apos_cancelamento, pagamento_duplicado, disputa, entrega_falhada}"
     literais:
@@ -14443,7 +15355,7 @@ entradas:
       - "em_disputa"
       - "entrega_falhada"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.60"
     conceito: "Registo do reembolso"
     canonico: "causa reembolso_manual_registado no order_state_log, accão order.refund_record no audit_log, actor dono ou ops com actor_id"
     literais:
@@ -14468,7 +15380,7 @@ entradas:
       - "KA006"
       - "prova_ref"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.60"
     conceito: "Re-reserva do pagamento tardio"
     canonico: "índice único parcial stock_reservations_linha_viva_uq, (tenant_id, order_id, line_no) WHERE estado <> 'libertada', e o savepoint com_rereserva"
     literais:
@@ -14487,7 +15399,7 @@ entradas:
     nomes_nota:
       - "reserveStock"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.60"
     conceito: "Prazo de reclamação"
     canonico: "prazo_reclamacao_dias, chave de entitlements.limites (§3.2)"
     literais:
@@ -15629,6 +16541,69 @@ tabelas:
     assinatura: "reserve(onboardingId)"
     seccao: "3.54"
     conceito: "Capacidade antes do popup"
+  - nome: "onboarding_case"
+    esquema: "platform"
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "fase"
+      - "fase_at"
+      - "origem"
+      - "nome_negocio"
+      - "categoria_declarada"
+      - "nif_enc"
+      - "nif_hmac"
+      - "phone_enc"
+      - "phone_hmac"
+      - "email_enc"
+      - "device_hash"
+      - "ip_prefix_hash"
+      - "flags"
+      - "owner_active_seconds"
+      - "preflight"
+      - "criado_at"
+      - "activo_at"
+    aberta: false
+    assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
+    seccao: "3.57"
+    conceito: "Caso de onboarding"
+  - nome: "kyc_check"
+    esquema: "platform"
+    colunas:
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "doc_tipo"
+      - "doc_ref"
+      - "sha256"
+      - "phash"
+      - "extraido_enc"
+      - "flags"
+      - "score"
+      - "resultado"
+      - "versao_regras"
+      - "custo_micro_usd"
+      - "criado_at"
+    aberta: false
+    assinatura: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
+    seccao: "3.57"
+    conceito: "Verificação K1 de um documento"
+  - nome: "candidatos"
+    esquema: "idx"
+    colunas:
+      - "p_tenant"
+      - "p_q_norm"
+      - "p_q_or"
+      - "p_qvec"
+      - "p_k"
+      - "p_w_sem"
+      - "p_w_tri"
+      - "p_w_fts"
+      - "p_rrf_k"
+    aberta: false
+    assinatura: "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
+    seccao: "3.59"
+    conceito: "Pesquisa por tenant"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -16875,13 +17850,117 @@ dominios:
     seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
     so_no_registo: false
+  - coluna: "VistaDoCanal.estado"
+    valores:
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    seccao: "3.56"
+    conceito: "O estado do canal no painel"
+    so_no_registo: false
+  - coluna: "onboarding_case.fase"
+    valores:
+      - "registo"
+      - "otp_pendente"
+      - "kyc_pendente"
+      - "em_revisao"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "lista_espera"
+      - "aguarda_catalogo"
+      - "aguarda_teste"
+      - "activo"
+      - "rejeitado"
+      - "abandonado"
+      - "cancelado"
+    seccao: "3.57"
+    conceito: "Fase do caso"
+    so_no_registo: false
+  - coluna: "onboarding_case.origem"
+    valores:
+      - "convite"
+      - "contabilista"
+      - "anuncio"
+    seccao: "3.57"
+    conceito: "Origem do convite"
+    so_no_registo: false
+  - coluna: "kyc_check.doc_tipo"
+    valores:
+      - "nif"
+      - "alvara"
+      - "bi"
+      - "banco"
+    seccao: "3.57"
+    conceito: "Tipo de documento K1"
+    so_no_registo: false
+  - coluna: "kyc_check.resultado"
+    valores:
+      - "k1_ok"
+      - "fila"
+      - "ilegivel"
+      - "pendente"
+    seccao: "3.57"
+    conceito: "Resultado de uma verificação"
+    so_no_registo: false
+  - coluna: "MotivoPublico"
+    valores:
+      - "ilegivel"
+      - "alvara_expirado"
+      - "nao_foi_possivel_validar"
+    seccao: "3.57"
+    conceito: "Motivo público do KYC"
+    so_no_registo: false
+  - coluna: "screening_decision.decisao"
+    valores:
+      - "permitida"
+      - "condicional"
+      - "bloqueada"
+    seccao: "3.58"
+    conceito: "Decisão de screening"
+    so_no_registo: false
+  - coluna: "screening_decision.origem"
+    valores:
+      - "regra"
+      - "llm"
+      - "humano"
+    seccao: "3.58"
+    conceito: "Origem de uma decisão"
+    so_no_registo: false
+  - coluna: "screening_decision.sujeito_tipo"
+    valores:
+      - "categoria"
+      - "produto"
+    seccao: "3.58"
+    conceito: "Sujeito de uma decisão"
+    so_no_registo: false
+  - coluna: "termo_canonico.tipo"
+    valores:
+      - "marca"
+      - "unidade"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    seccao: "3.59"
+    conceito: "Tipo de termo"
+    so_no_registo: false
+  - coluna: "termo_canonico.origem"
+    valores:
+      - "ops"
+      - "catalogo"
+      - "dataset"
+      - "tenant"
+    seccao: "3.59"
+    conceito: "Origem de um termo"
+    so_no_registo: false
   - coluna: "RamoDoPagamento"
     valores:
       - "normal"
       - "tardio"
       - "apos_cancelamento"
       - "duplicado"
-    seccao: "3.56"
+    seccao: "3.60"
     conceito: "Ramo de um pagamento autenticado"
     so_no_registo: false
   - coluna: "MotivoDeReembolso"
@@ -16890,7 +17969,7 @@ dominios:
       - "pagamento_duplicado"
       - "disputa"
       - "entrega_falhada"
-    seccao: "3.56"
+    seccao: "3.60"
     conceito: "Motivo de um pedido de reembolso"
     so_no_registo: false
 

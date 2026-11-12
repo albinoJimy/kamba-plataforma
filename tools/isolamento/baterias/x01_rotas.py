@@ -16,7 +16,8 @@ as respostas a identificadores de B sao indistinguiveis entre si.
                                  `tenant_id`, e que o oraculo morderia se levasse
 ```
 
-As sete `POST /internal/*` do COM (KAM-178) entram na primeira metade, e o
+As nove `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099) entram na
+primeira metade, e o
 `ALL /internal/*` da app sem API montada entra nela tambem: ele recebe os mesmos
 corpos, e o que se afirma e que os recusa de forma indistinguivel. O
 `GET /metrics` do COM entra na segunda.
@@ -441,7 +442,7 @@ registar_caso(
 #
 # O `ctxDoPedido` de `services/com/src/api/interna.ts` le o tenant **so** do
 # cabecalho; o `actor` e o `trace_id` vem do corpo, e nenhum tenant vem de la.
-# Por isso cada uma das sete rotas `POST /internal/*` leva tres ataques com a
+# Por isso cada uma das nove rotas `POST /internal/*` leva tres ataques com a
 # credencial certa e `x-kamba-tenant: <A>`: um corpo valido de A com campos
 # extra que nomeiam B (`tenant_id`, `tenant`, `merchant_id` e o canario de B num
 # campo livre), um corpo cujos identificadores de dominio sao de B, e os dois
@@ -458,7 +459,8 @@ registar_caso(
 # sao exigidas aqui: uma afirmacao nao medida nao e um verde.
 
 
-#: As sete rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM.
+#: As nove rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM: as
+#: sete do KAM-178 e as duas do painel do dono (KAM-099) no fim.
 ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/offer-view",
     "rota:com:api/interna:apiInterna:POST:/internal/propose-cart",
@@ -467,6 +469,8 @@ ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/list-orders",
     "rota:com:api/interna:apiInterna:POST:/internal/transition",
     "rota:com:api/interna:apiInterna:POST:/internal/request-owner-confirmation",
+    "rota:com:api/interna:apiInterna:POST:/internal/list-offers",
+    "rota:com:api/interna:apiInterna:POST:/internal/update-offer",
 )
 
 #: O `GET /metrics` do COM. Sem credencial e sem identificadores (§3.39).
@@ -475,8 +479,8 @@ ITEM_DAS_METRICAS_DO_COM = "rota:com:api/interna:rotaDasMetricas:GET:/metrics"
 #: O `ALL /internal/*` da app construida **sem** a API montada.
 ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*"
 
-#: As nove, que e o que o caso cobre. Literais pela razao do topo do modulo: um
-#: filtro fazia uma oitava rota nascer coberta.
+#: As onze, que e o que o caso cobre. Literais pela razao do topo do modulo: um
+#: filtro fazia uma rota nova nascer coberta.
 ROTAS_DA_API_INTERNA_DO_COM = (
     *ROTAS_POST_DA_API_INTERNA_DO_COM,
     ITEM_DAS_METRICAS_DO_COM,
@@ -745,6 +749,131 @@ registar_caso(
         ROTAS_DO_GUIA,
         com_idor=True,
         afirmacoes=_afirmacoes_do_guia,
+    ),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)
+
+# ------------------------------------------------ o painel do dono (KAM-099)
+#
+# As sete rotas do `services/onboarding-web/src/painel/rotas.ts`. **Isolam o
+# tenant**, e o tenant sai **so** da sessao do painel, que o assina. O `actor` no
+# identificador e o nome da declaracao que a enumeracao encontra antes de cada
+# `app.<verbo>`, e nao o de uma funcao que monte as rotas.
+#
+# Os ataques sao tres por rota:
+#
+#     PATCH e encomenda/:id   a sessao de A com o identificador de B no caminho,
+#                             com e sem o tenant de B no corpo, na consulta e no
+#                             cabecalho: 404 uniforme, e nunca 403 (criterio 8)
+#     listas e canal          a sessao de A com o tenant de B na consulta, no
+#                             cabecalho e nos dois: 200 com os dados de **A**, e
+#                             nada de B
+#     entrar                  a sessao do registo de A com o caso de B trocado,
+#                             o bilhete de B e o id de B nu: 401 uniforme
+#     sair                    sessoes forjadas com o `sid` e o tenant de B: 200,
+#                             e a sessao de B continua viva
+#
+# **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
+# do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
+# dados de A sairem e os de B nao. Uma lista que respondesse 401 a uma sessao
+# valida estava em baixo, e o caso ficava verde por nao ter medido nada — por
+# isso o condutor escreve `sonda=viva` quando o marcador de A chegou a resposta.
+ROTAS_DO_PAINEL = (
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/sair",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos",
+    "rota:onboarding-web:painel/rotas:actor:PATCH:/painel/produtos/:id",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas/:id",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal",
+)
+
+#: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
+#: respondem 200 (ver a nota de cima). O `PATCH` e o detalhe de encomenda
+#: respondem **404 e so 404**: o criterio 8 escreve «404, nao 403», e com o
+#: global uma regressao para 403 ficava verde. Achado da revisao adversarial.
+ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
+    "rota:onboarding-web:painel/rotas:actor:PATCH:/painel/produtos/:id": (404,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas/:id": (404,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/sair": (200,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos": (200,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas": (200,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal": (200,),
+}
+
+#: Ataques por rota do painel.
+ATAQUES_POR_ROTA_DO_PAINEL = 3
+
+
+def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
+    """As medicoes que vem na `nota`, e que o oraculo nao ve."""
+    achados: list[str] = []
+    if len(entradas) != ATAQUES_POR_ROTA_DO_PAINEL:
+        achados.append(
+            f"{item}: o condutor deixou {len(entradas)} entrada(s) e o caso pede "
+            f"{ATAQUES_POR_ROTA_DO_PAINEL} ataques."
+        )
+    achados.extend(
+        _exigir_marca(
+            item,
+            entradas,
+            "canario-de-b",
+            "presente",
+            "Sem o canario de B nos dados de B, o zero do oraculo prova que o "
+            "varrimento nao encontra o que nunca la esteve.",
+        )
+    )
+    # A sonda positiva: nas listas, os dados de A chegaram a resposta dos
+    # ataques; no `PATCH` e no detalhe, um pedido legitimo de A, fora das
+    # entradas, deu 200. Sem ela, uma rota morta (401 ou 404 a tudo) passava.
+    if not item.endswith(("/painel/sair", "/painel/entrar")):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sonda",
+                "viva",
+                "A resposta com a sessao de A nao trouxe os dados de A: o 200 "
+                "nao mediu que o tenant e o da sessao, so que a rota respondeu.",
+            )
+        )
+    if item.endswith("PATCH:/painel/produtos/:id"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "b",
+                "intacto",
+                "A oferta de B mudou depois de um ataque com a sessao de A: e o "
+                "IDOR de escrita que o criterio 8 proibe.",
+            )
+        )
+    if item.endswith("POST:/painel/sair"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sessao-de-b",
+                "viva",
+                "Uma sessao forjada com o `sid` de B revogou a sessao de B: quem "
+                "ataca desliga o dono do lado.",
+            )
+        )
+    return achados
+
+
+registar_caso(
+    id="X-01/ts/painel",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DO_PAINEL,
+    fn=_caso_ts(
+        "painel",
+        ROTAS_DO_PAINEL,
+        com_idor=True,
+        aceitaveis_por_item=ACEITAVEIS_DO_PAINEL,
+        afirmacoes=_afirmacoes_do_painel,
     ),
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),

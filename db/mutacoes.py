@@ -264,10 +264,23 @@ REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 #: deu (`0042`): se mudar, muda esta constante e o nome do ficheiro, e o
 #: `--aplicaveis` apanha quem se esqueca dela.
 REV42 = "db/migrations/versions/0042_retencao_e_purga.py"
+#: KAM-061: o indice de pesquisa. O DDL e a funcao vivem no modulo auxiliar e nao
+#: na revisao (`0045`), pelo que e ele o alvo; a revisao so chama `criar()`.
+INDICE = "db/indice.py"
+IDX_PESQUISA = "libs/py-core/src/kamba_core/idx/pesquisa.py"
+IDX_CONSUMIDOR = "libs/py-core/src/kamba_core/idx/consumidor.py"
 RET_JOBS = "libs/py-core/src/kamba_core/retencao/jobs.py"
 RET_HOLD = "libs/py-core/src/kamba_core/retencao/hold.py"
 RET_POLITICA = "libs/py-core/src/kamba_core/retencao/politica.py"
 PARTICOES = "db/particoes.py"
+#: KAM-087: o caso de onboarding e o KYC K1. O SQL das tabelas vive no modulo
+#: auxiliar e o das consultas no TypeScript, que a suite executa tal como esta.
+KYC_DDL = "db/kyc.py"
+KYC_SQL = "packages/core-ts/src/kyc/sql.ts"
+#: KAM-088: a decisao de screening. O DDL vive na revisao; as consultas no
+#: TypeScript, que a suite executa tal como esta.
+REV44 = "db/migrations/versions/0044_screening_de_categorias.py"
+SCREENING_SQL = "packages/core-ts/src/screening/sql.ts"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7070,6 +7083,129 @@ MUTACOES = [
      "tests"),
     # O `test_a_aplicacao_nao_publica_e_ninguem_apaga` e a matriz do
     # `test_privilegios` tem de a matar.
+    # ------------------------------------------- KAM-087 (revisao `0043`)
+    #
+    # Quatro, e cada uma tira uma barreira que so a base tem.
+    ('kyc: o phash passa a contar o proprio caso', KYC_SQL,
+     "   WHERE onboarding_id <> $1 AND phash IS NOT NULL",
+     "   WHERE (onboarding_id <> $1 OR true) AND phash IS NOT NULL",
+     "tests"),
+    # Um reenvio do mesmo documento por outro ficheiro passava a ser «imagem
+    # reutilizada». O `test_o_phash_e_procurado_noutros_casos_com_fronteira_em_6`
+    # tem de a matar, pela terceira asercao.
+    ('kyc: o fase_at passa a ser o do chamador', KYC_DDL,
+     "  IF TG_OP = 'INSERT' OR NEW.fase IS DISTINCT FROM OLD.fase THEN\n"
+     "    NEW.fase_at := now();",
+     "  IF false THEN\n"
+     "    NEW.fase_at := now();",
+     "tests"),
+    # Quem insere com uma data antiga purga os documentos no dia em que o caso
+    # morre. O `test_o_fase_at_e_do_trigger` tem de a matar.
+    ('kyc: o documento deixa de estar preso ao prefixo do tenant', KYC_DDL,
+     "    CHECK (starts_with(doc_ref, 't/' || tenant_id::text || '/kyc_documento/'))",
+     "    CHECK (true)",
+     "tests"),
+    # Uma verificacao de A passava a apontar para um objecto de B no STO. O
+    # `test_o_doc_ref_tem_de_ser_do_tenant_da_linha` tem de a matar.
+    ('kyc: a aplicacao passa a ler as marcas internas', KYC_DDL,
+     'SQL_CONCEDER_KYC_AUDITORIA: Final = "GRANT SELECT ON platform.kyc_check TO kamba_audit"',
+     'SQL_CONCEDER_KYC_AUDITORIA: Final = "GRANT SELECT ON platform.kyc_check TO kamba_audit, kamba_app"',
+     "tests"),
+    # O motivo interno chegava ao servico do dono (criterio 7). O
+    # `test_quem_pode_o_que` tem de a matar.
+
+    # ------------------------------------------- KAM-088 (revisao `0044`)
+    #
+    # Tres, e cada uma tira uma barreira que so a base tem.
+    ('screening: o criado_at passa a ser o da transaccao', REV44,
+     "criado_at        timestamptz NOT NULL DEFAULT clock_timestamp(),",
+     "criado_at        timestamptz NOT NULL DEFAULT now(),",
+     "tests"),
+    # Duas decisoes na mesma transaccao empatavam e o `id` aleatorio decidia
+    # qual valia (F17). O `test_o_criado_at_e_do_relogio_e_nao_da_transaccao`
+    # tem de a matar.
+    ('screening: a aplicacao passa a emendar decisoes', REV44,
+     'GRANT SELECT, INSERT ON platform.screening_decision TO kamba_app',
+     'GRANT SELECT, INSERT, UPDATE ON platform.screening_decision TO kamba_app',
+     "tests"),
+    # Uma `bloqueada` emendada para `permitida` publicava sem rasto. O
+    # `test_ninguem_emenda_nem_apaga` tem de a matar (o `42501` vira `55000`).
+    ('screening: a categoria do tenant passa a ser a mais antiga', SCREENING_SQL,
+     "ORDER BY c.criado_at DESC, c.id DESC LIMIT 1",
+     "ORDER BY c.criado_at ASC, c.id DESC LIMIT 1",
+     "tests"),
+    # A re-analise lia a categoria que o dono ja trocou. O
+    # `test_o_lote_ve_os_publicados_sem_decisao_com_a_categoria_mais_recente`
+    # tem de a matar.
+
+    # ------------------------------------------------------------- KAM-061
+    # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
+    # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
+    # o corpo** — o tenant da transaccao, o encaminhamento do consumidor, o
+    # filtro na oferta viva —, porque uma funcao certa ligada ao sitio errado
+    # passa os ensaios dela. As que a RLS mascara por desenho (o predicado de
+    # tenant no *join* da resposta, o do consumidor) nao estao aqui: a segunda
+    # defesa sobrevive a perda da primeira, e e para isso que existe.
+    ("indice: a porta tn aceita o tenant em qualquer estado", INDICE,
+     "WHERE t.id = p_tenant AND t.estado = 'ativo'",
+     "WHERE t.id = p_tenant", PRODUTOS),
+    # O dominio inteiro e nao so o valor que a prosa nomeia: o `onboarding` e a
+    # omissao, e o `test_tenant_em_onboarding_zero_resultados_com_visivel` mata.
+    ("indice: a porta tn so fecha o suspenso", INDICE,
+     "WHERE t.id = p_tenant AND t.estado = 'ativo'",
+     "WHERE t.id = p_tenant AND t.estado <> 'suspenso'", PRODUTOS),
+    ("indice: o ramo tri volta a sortear o empate no limite", INDICE,
+     "WHERE d.visivel AND p_q_norm <% d.nome_norm\n         ORDER BY sc DESC, d.doc_id",
+     "WHERE d.visivel AND p_q_norm <% d.nome_norm\n         ORDER BY sc DESC", PRODUTOS),
+    ("indice: o ramo fts volta a sortear o empate no limite", INDICE,
+     "WHERE d.visivel AND d.fts @@ q.tsq\n         ORDER BY sc DESC, d.doc_id",
+     "WHERE d.visivel AND d.fts @@ q.tsq\n         ORDER BY sc DESC", PRODUTOS),
+    # O defeito D7, reintroduzido.
+    ("indice: o ramo fts volta ao plainto_tsquery", INDICE,
+     "websearch_to_tsquery('idx.kamba_pt'::regconfig, p_q_or)",
+     "plainto_tsquery('idx.kamba_pt'::regconfig, p_q_or)", PRODUTOS),
+    ("indice: um HNSW no embedding", INDICE,
+     "CREATE INDEX search_doc_tenant    ON idx.search_doc (tenant_id) WHERE visivel\n",
+     "CREATE INDEX search_doc_tenant    ON idx.search_doc (tenant_id) WHERE visivel;\n"
+     "CREATE INDEX search_doc_ann ON idx.search_doc USING hnsw (embedding halfvec_cosine_ops)\n",
+     PRODUTOS),
+    ("indice: o kamba_app passa a apagar documentos", INDICE,
+     "GRANT SELECT, INSERT, UPDATE ON idx.search_doc TO kamba_app;",
+     "GRANT SELECT, INSERT, UPDATE, DELETE ON idx.search_doc TO kamba_app;", PRODUTOS),
+    # As duas da RLS morrem no X-03 do *gate* 6: com o contexto de A, a leitura
+    # da tabela traz o canario de B.
+    ("indice: a politica do search_doc deixa passar tudo", INDICE,
+     "CREATE POLICY tenant_iso ON idx.search_doc\n  USING (tenant_id = ",
+     "CREATE POLICY tenant_iso ON idx.search_doc\n  USING (true OR tenant_id = ",
+     ISOLAMENTO),
+    ("indice: as entradas globais do lexico passam a ser todas", INDICE,
+     "FOR SELECT USING (tenant_id IS NULL)",
+     "FOR SELECT USING (true)", ISOLAMENTO),
+    # A ligacao: a transaccao da resposta abre com outro tenant que nao o do
+    # pedido. A funcao e a consulta ficam certas, e tudo o que sai e vazio.
+    ("pesquisa: a transaccao abre com outro tenant", IDX_PESQUISA,
+     "with tx(conexao, tenant) as cursor:",
+     'with tx(conexao, "00000000-0000-0000-0000-000000000000") as cursor:', PRODUTOS),
+    ("pesquisa: a resposta perde o filtro do publicado", IDX_PESQUISA,
+     "   WHERE v.publicado\n", "   WHERE true\n", PRODUTOS),
+    ("pesquisa: o teto de preco deixa de filtrar", IDX_PESQUISA,
+     "(%s::bigint IS NULL OR v.preco_minor <= %s::bigint)",
+     "(%s::bigint IS NULL OR %s::bigint IS NOT NULL)", PRODUTOS),
+    # A ligacao do consumidor: o tipo de produto deixa de chegar ao efeito.
+    ("consumidor: o produto deixa de ser encaminhado", IDX_CONSUMIDOR,
+     "    if tipo == PRODUTO_ALTERADO:\n",
+     '    if tipo == "catalog.price_changed":\n', PRODUTOS),
+    ("consumidor: o visivel ignora o estado do tenant", IDX_CONSUMIDOR,
+     "SELECT t.id, %s, %s, %s, (%s AND t.estado = 'ativo')",
+     "SELECT t.id, %s, %s, %s, %s", PRODUTOS),
+    ("consumidor: o visivel ignora a oferta", IDX_CONSUMIDOR,
+     'bool(linha["publicado"])', "True", PRODUTOS),
+    ("consumidor: o evento do tenant ignora o estado", IDX_CONSUMIDOR,
+     "SET visivel = COALESCE((SELECT t.estado = 'ativo'",
+     "SET visivel = COALESCE((SELECT true", PRODUTOS),
+    ("consumidor: a oferta que desaparece fica visivel", IDX_CONSUMIDOR,
+     "        bd.executar(SQL_ESCONDER_DOCUMENTO, (sku,))\n",
+     '        bd.executar("SELECT %s", (sku,))\n', PRODUTOS),
 ]
 
 
@@ -7162,6 +7298,17 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
     shutil.copy(
         RAIZ / "docs" / "dividas-documentais.md",
         destino / "docs" / "dividas-documentais.md",
+    )
+    # KAM-061: o `docs/tecnica/05`, pela mesma regra. A `tests_produtos` le o
+    # contrato de saida da tool **do documento** (§6.3) em dois ensaios — o
+    # `test_oferta_viva` do KAM-051 e o `test_indice` deste —, e sem ele a linha
+    # de base da suite fica vermelha com `FileNotFoundError` e nenhuma mutacao
+    # da suite se pode provar. Medido: o defeito ja la estava desde o KAM-051,
+    # que nunca correu as suas mutacoes fora do `--aplicaveis`.
+    (destino / "docs" / "tecnica").mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        RAIZ / "docs" / "tecnica" / "05_Indice_Pesquisa_Motor_Atencao.md",
+        destino / "docs" / "tecnica" / "05_Indice_Pesquisa_Motor_Atencao.md",
     )
     # KAM-032: o dicionario, pela mesma razao do ficheiro acima. O `TestCanon`
     # do `test_validador.py` confronta os sete veredictos, os cinco blocos e as

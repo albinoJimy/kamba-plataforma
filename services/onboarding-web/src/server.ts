@@ -73,6 +73,11 @@ import { createApp } from "./app.ts";
 import { exigirComunicacaoLimpa } from "./comunicacao.ts";
 import type { OpcoesDoGuia } from "./guia.ts";
 import { LigadorPorHttp } from "./ligador.ts";
+import { CanalEmMemoria } from "./painel/canal.ts";
+import { ComercioPorHttp } from "./painel/comercio.ts";
+import type { OpcoesDoPainel } from "./painel/rotas.ts";
+import { RevogacoesEmMemoria } from "./painel/sessao.ts";
+import { precoMaximoKz } from "./painel/validacao.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 import { paginaDeRegisto } from "./pagina.ts";
 
@@ -105,8 +110,8 @@ export class RepositorioEmMemoriaEmProducaoError extends Error {
       "o onboarding-web nao arranca em prod: o RepositorioDeCasos so tem a " +
         "implementacao em memoria, e um registo que se perde no reinicio perde " +
         "o nif_hmac que bloqueia o duplicado. Falta o adaptador SQL de " +
-        "platform.onboarding_case (credor: KAM-086/087, e a emenda 1.64 do " +
-        "dicionario para a fase do caso)",
+        "platform.onboarding_case (credor: KAM-086; a tabela existe desde a " +
+        "revisao 0043)",
     );
   }
 }
@@ -249,6 +254,33 @@ function montarGuia(): OpcoesDoGuia | undefined {
   };
 }
 
+/**
+ * O painel do dono (KAM-099), **só se o COM interno estiver configurado**.
+ *
+ * Sem o endereço da API interna do COM não há onde ler nem gravar o catálogo, e
+ * montar o painel era servir uma página que falha no primeiro pedido. Com ele,
+ * a credencial `com_internal_token` é obrigatória: sem ela o arranque **falha**
+ * (o `get` do cofre lança), em vez de subir um painel que responde 503 a tudo.
+ *
+ * O estado do canal é o duplo em memória, e diz `sem_canal`: o adaptador que o
+ * lê de `platform.channels` é o credor da caixa do critério 7.
+ */
+async function montarPainel(): Promise<OpcoesDoPainel | undefined> {
+  const com = (process.env["ONBOARDING_COM_INTERNO_URL"] ?? "").trim();
+  if (com === "") {
+    log.info({ outcome: "painel_desligado" });
+    return undefined;
+  }
+  return {
+    comercio: new ComercioPorHttp(com, await secrets.get("com_internal_token")),
+    canal: new CanalEmMemoria(),
+    revogacoes: new RevogacoesEmMemoria(),
+    casos,
+    anelDaAssinatura: [assinatura, assinaturaAnterior],
+    precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
+  };
+}
+
 // **A política de comunicação verifica-se no arranque**, e não só por resposta:
 // um serviço que suba com o texto errado mostra-o a um dono antes de alguém
 // notar. Falha fechado — ver `./comunicacao.ts`.
@@ -267,7 +299,7 @@ const app = createApp(log, {
   anelDaAssinatura: [assinatura, assinaturaAnterior],
   anelDoToken: [assinatura, assinaturaAnterior],
   proxiesDeConfianca: proxiesDeConfianca(),
-}, montarGuia());
+}, montarGuia(), await montarPainel());
 
 serve({ fetch: app.fetch, hostname, port: listenPort }, () => {
   // O anfitrião e a porta não estão na *allowlist* de `docs/tecnica/08` §7.3,

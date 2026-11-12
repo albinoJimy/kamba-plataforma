@@ -940,7 +940,7 @@ class TestRegistoDeChaves(unittest.TestCase):
         )
         self.assertEqual(
             len(self.schema["properties"]), 11,
-            "a emenda 1.17 pos as chaves em dez, e a 1.79 (KAM-050) em onze",
+            "a emenda 1.17 pos as chaves em dez, e a 1.83 (KAM-050) em onze",
         )
 
     def test_uma_chave_desconhecida_e_rejeitada_na_escrita(self) -> None:

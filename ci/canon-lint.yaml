@@ -315,6 +315,20 @@ auxiliares_de_migracao:
       ensaios de base de dados importam-no daqui em vez de o copiar. A revisao
       chama `custo.criar_vista()`/`custo.remover_vista()`, e o lint segue o
       corpo com o SQL literal que elas executam.
+  - modulo: kyc
+    ficheiro: db/kyc.py
+    razao: >-
+      KAM-087: o SQL da `platform.onboarding_case` e da `platform.kyc_check`
+      vive num sitio so, e os ensaios de base de dados importam-no daqui. A
+      revisao chama `kyc.criar()`, `kyc.conceder()` e `kyc.remover()`, e o lint
+      segue o corpo com as constantes literais que elas executam.
+  - modulo: indice
+    ficheiro: db/indice.py
+    razao: >-
+      KAM-061: o DDL do esquema `idx` e a funcao `idx.candidatos` vivem num
+      sitio so, e os ensaios de base de dados importam-nos daqui em vez de os
+      copiar. A revisao chama `indice.criar()`/`indice.remover()`, e o lint
+      segue o corpo com as constantes literais que elas executam.
 
 # ------------------------------------------- dominios dados por conceito no §3
 #
@@ -461,7 +475,7 @@ dominios_historicos:
       docs/tecnica/03. A 0046 (KAM-050) acrescenta-lhe a quarta,
       pagamento_apos_cancelamento (regra 3 do §6.6), por DROP CONSTRAINT mais
       ADD CONSTRAINT com o mesmo nome, e o dicionario §3.43 passou a declarar as
-      quatro (emenda 1.79). A declaracao da 0030 fica a dizer tres, que e o que a
+      quatro (emenda 1.83). A declaracao da 0030 fica a dizer tres, que e o que a
       base tinha naquela revisao.
   - revisao: "db/migrations/versions/0046_estados_adicionais_da_encomenda.py"
     tabela: "orders_mirror"
@@ -482,7 +496,7 @@ dominios_historicos:
     data: "2026-11-10"
     razao: >-
       O upgrade escreve as doze accoes, que e o que o dicionario §3.2 declara
-      desde a emenda 1.79 (order.refund_record, o registo manual do reembolso), e
+      desde a emenda 1.83 (order.refund_record, o registo manual do reembolso), e
       o downgrade repoe as onze da 0042. A segunda e a que esta entrada cobre, e
       o passo de descida recusa-se se houver linhas order.refund_record escritas.
 

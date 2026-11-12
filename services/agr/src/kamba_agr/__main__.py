@@ -100,6 +100,7 @@ from .llm import precos as llm_precos
 from .llm import registo as llm_registo
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
+from .tls.idx import LIMIAR_DO_RRF, executores_do_idx
 from .tls.com import (
     SEGREDO_DO_COM,
     VARIAVEL_DA_BASE as VARIAVEL_DO_COM,
@@ -383,8 +384,10 @@ def main() -> int:
     # A credencial do COM e lida do cofre mais abaixo e liga-se a este objecto
     # quando o for: ver a `CredencialDoCom`.
     credencial_do_com = CredencialDoCom()
+    # O `search_catalog` liga-se **sempre** (KAM-061): o indice vive na base da
+    # plataforma, a que o AGR ja tem tomada, e nao depende de variavel nenhuma.
     catalogo = catalogo_do_piloto(
-        _executores_do_comercio(log, credencial_do_com)
+        {**_executores_do_comercio(log, credencial_do_com), **executores_do_idx()}
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`
     # compila o alvo `graph` de cada `registry/<id>.yaml` e confere os seis nos
@@ -667,6 +670,11 @@ def main() -> int:
             metricas=METRICAS,
         ),
         "degradacao": DetectorDeDegradacao(admissao=admissao, metricas=METRICAS),
+        # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
+        # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e
+        # nao o `LIMIAR_IDX` do duplo — que comparado com um RRF mandava toda a
+        # pesquisa para o `unknown_reply`.
+        "limiar_idx": LIMIAR_DO_RRF,
     }
     try:
         grafos_do_processo = compilar(verticais, portas_do_grafo)

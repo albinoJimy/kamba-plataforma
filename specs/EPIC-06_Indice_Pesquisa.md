@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Índice e Pesquisa |
-| Versão | 1.2 |
+| Versão | 1.3 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` |
@@ -18,7 +18,7 @@ O **IDX** responde à pergunta «o que é que *esta loja* vende que corresponda 
 
 Três decisões moldam o epic. Primeiro, **fusão por RRF ponderado** em vez de soma linear (PROP-IDX-2): `ts_rank`, cosseno e trigrama não partilham escala e o RRF resiste a trocas de modelo. Segundo, **Piloto sem índice ANN**: com HNSW/IVFFlat o filtro por `tenant_id` é aplicado depois do índice (CONFIRMADO, README do pgvector) e o tenant raro recebe lista vazia sem erro — o modo de falha mais perigoso, porque parece «a loja não tem esse produto»; catálogos de 50–2 000 produtos usam busca exacta com `btree(tenant_id)` (PROP-IDX-1). Terceiro, **modo lexical obrigatório** (PROP-IDX-3): o texto da consulta do cliente enviado a um fornecedor de embeddings no estrangeiro é, por defeito, uma transferência internacional (INDÍCIO, `../docs/tecnica/evidencia/E3` §2; precedente de USD 505 mil, ADR-008); sem destino autorizado (`apd_ref`) o IDX corre só com trigramas e FTS — *fail closed* para o dado, aberto para o serviço.
 
-Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX recebe `catalog.product_changed` e referencia produtos por `product_ref` opaco, imune ao resultado do spike D3) e **ADR-010** (consultas e pesos sem identificadores). Tudo o que pressupõe o número da plataforma — índice federado, assistente de consumo, «quero comprar», AdsEngine, vitrine SEO — é **Diferido/Clusters** (ADR-011, D2) e **não** faz parte deste epic. É **Fase 1**: os quatro tickets (KAM-061 a KAM-064) entram depois do esqueleto andante, e a qualidade só se mede com o dataset PT-AO do ticket KAM-064; o modelo de embeddings (PROP-IDX-4) e o léxico PT-AO são NÃO VERIFICADOS e têm critério de saída por medição.
+Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX recebe `catalog.product_changed` e referencia produtos por `product_ref` opaco, imune ao resultado do spike D3) e **ADR-010** (consultas e pesos sem identificadores). Tudo o que pressupõe o número da plataforma — índice federado, assistente de consumo, «quero comprar», AdsEngine, vitrine SEO — é **Diferido/Clusters** (ADR-011, D2) e **não** faz parte deste epic. É **Fase 1**: os cinco tickets (KAM-061 a KAM-064, e o KAM-193 que o KAM-061 abriu) entram depois do esqueleto andante, e a qualidade só se mede com o dataset PT-AO do ticket KAM-064; o modelo de embeddings (PROP-IDX-4) e o léxico PT-AO são NÃO VERIFICADOS e têm critério de saída por medição.
 
 ---
 
@@ -44,6 +44,7 @@ Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX rec
 | KAM-062 | Normalização PT-AO: sinónimos, marcas e tolerância a erros | feature | M | P1 | KAM-061 |
 | KAM-063 | Embeddings do catálogo e modo lexical quando o destino não está autorizado | feature | M | P1 | KAM-061, KAM-030, ext:KAM-069 |
 | KAM-064 | Avaliação de qualidade da pesquisa e dataset | feature | M | P1 | KAM-061, KAM-040, KAM-062, KAM-063 |
+| KAM-193 | IDX: processo do consumidor, métricas servidas e latência no ambiente de referência | feature | M | P1 | KAM-061 |
 
 ---
 
@@ -57,7 +58,7 @@ Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX rec
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-042, KAM-043, KAM-051, KAM-028, KAM-006, KAM-007 |
-| Bloqueia | KAM-062, KAM-063, KAM-064 |
+| Bloqueia | KAM-062, KAM-063, KAM-064, KAM-193 |
 | Responsável sugerido | Engenheiro de Dados/Pesquisa |
 | Documentos de referência | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§4, §6, §7, §15), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§5.5, §7), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§5), ADR-003, ADR-006, ADR-007, ADR-015 |
 
@@ -68,13 +69,13 @@ O Piloto precisa de uma pesquisa que o AGR possa chamar numa tool (`search_produ
 Criar o schema `idx` (extensões, configuração FTS `idx.kamba_pt`, `idx.search_doc` sem ANN), a função `idx.candidatos`, o consumidor de `catalog.product_changed` e dos eventos de estado do tenant, e a camada de resposta `search_products` com *join* à oferta viva `com.v_oferta_viva`.
 
 ### Critérios de Aceitação
-- [ ] Os testes T1–T4 de `../docs/tecnica/05` §6.4 correm em CI (a asserção de cada um nunca é removida para passar; só o limiar `pg_trgm.word_similarity_threshold`, proposta 0,45, é afinado pelo dataset).
-- [ ] Tenant A a pesquisar «nike» com produtos homónimos em B e S devolve 0 linhas com `tenant_id ≠ A`; tenant `suspenso` ou `onboarding` devolve 0 linhas mesmo com `visivel = true` (porta `tn`).
-- [ ] `idx.search_doc` e `idx.termo_canonico` têm RLS `FORCE` por `tenant_id` (entradas globais com `tenant_id` nulo legíveis); sem `SET LOCAL app.tenant_id` a função devolve 0 linhas.
-- [ ] *Lint* de schema: 0 colunas em `idx` com `preco|price|stock|qtd` no nome; o *lint* de texto de embedding rejeita dígitos seguidos de `kz|akz|$` e as palavras «stock», «disponível», «preço» (3 casos negativos no teste).
-- [ ] `SELECT count(*) FROM pg_indexes WHERE schemaname='idx' AND indexdef ~* '(hnsw|ivfflat)'` devolve 0 no Piloto.
-- [ ] Com `p_qvec = NULL` a função mantém a assinatura, devolve `o_rk_sem` nulo e o mesmo ranking lexical; 20 execuções da mesma consulta devolvem a mesma lista ordenada (desempate por `doc_id`).
-- [ ] Uma consulta com 3 termos em que 1 não existe devolve ainda os candidatos dos outros 2 (`websearch_to_tsquery` com `or`, defeito D7).
+- [x] Os testes T1–T4 de `../docs/tecnica/05` §6.4 correm em CI (a asserção de cada um nunca é removida para passar; só o limiar `pg_trgm.word_similarity_threshold`, proposta 0,45, é afinado pelo dataset).
+- [x] Tenant A a pesquisar «nike» com produtos homónimos em B e S devolve 0 linhas com `tenant_id ≠ A`; tenant `suspenso` ou `onboarding` devolve 0 linhas mesmo com `visivel = true` (porta `tn`).
+- [x] `idx.search_doc` e `idx.termo_canonico` têm RLS `FORCE` por `tenant_id` (entradas globais com `tenant_id` nulo legíveis); sem `SET LOCAL app.tenant_id` a função devolve 0 linhas.
+- [x] *Lint* de schema: 0 colunas em `idx` com `preco|price|stock|qtd` no nome; o *lint* de texto de embedding rejeita dígitos seguidos de `kz|akz|$` e as palavras «stock», «disponível», «preço» (3 casos negativos no teste).
+- [x] `SELECT count(*) FROM pg_indexes WHERE schemaname='idx' AND indexdef ~* '(hnsw|ivfflat)'` devolve 0 no Piloto.
+- [x] Com `p_qvec = NULL` a função mantém a assinatura, devolve `o_rk_sem` nulo e o mesmo ranking lexical; 20 execuções da mesma consulta devolvem a mesma lista ordenada (desempate por `doc_id`).
+- [x] Uma consulta com 3 termos em que 1 não existe devolve ainda os candidatos dos outros 2 (`websearch_to_tsquery` com `or`, defeito D7).
 - [ ] A camada de resposta só devolve linhas `publicado` e `stock_disp > 0`, filtra por `max_preco_kz` na oferta viva (nunca no índice) e devolve `[{sku, product_ref, nome, preco_kz, preco_tipo, disponivel, fonte:'registo', lido_em}]`; com < 3 resultados devolve os indisponíveis marcados `disponivel=false`.
 - [ ] Um `catalog.product_changed` torna o produto pesquisável em p95 ≤ 30 s; `tenant.suspended` põe `visivel=false` em ≤ 30 s e, se o consumidor atrasar, a porta `tn` já impede a fuga.
 - [ ] Em tenant de 5 000 documentos sintéticos: ramo lexical p95 ≤ 80 ms e híbrido (excl. embedding) p95 ≤ 120 ms em 500 execuções; o resultado e o ambiente ficam registados.
@@ -95,12 +96,66 @@ Criar o schema `idx` (extensões, configuração FTS `idx.kamba_pt`, `idx.search
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Isolamento de tenant: RLS `FORCE` e casos X-06 na suite cruzada (KAM-066); tenant pequeno obtém resultados mesmo com um tenant grande.
-- [ ] Números só de tools: preço e stock só no *join* vivo; nenhum número vem do índice; o contrato inclui `sku` para o validador.
-- [ ] Idempotência: o consumidor de eventos é idempotente (`events_consumed`) e testado com duplicados ×10.
-- [ ] Privacidade: nenhum identificador de cliente no índice; logs sem texto de consulta.
+- [x] Isolamento de tenant: RLS `FORCE` e casos X-06 na suite cruzada (KAM-066); tenant pequeno obtém resultados mesmo com um tenant grande.
+- [x] Números só de tools: preço e stock só no *join* vivo; nenhum número vem do índice; o contrato inclui `sku` para o validador.
+- [x] Idempotência: o consumidor de eventos é idempotente (`events_consumed`) e testado com duplicados ×10.
+- [x] Privacidade: nenhum identificador de cliente no índice; logs sem texto de consulta.
 - [ ] Custo e observabilidade: métricas de latência por ramo e de modo.
 - [ ] Migração reversível; dependências fixadas (`pgvector` ≥ 0.8.7); cobertura ≥ 75% (≥ 90% no isolamento).
+
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-11-10** sobre `baef17ea`, integrada e medida outra vez a **2026-11-12** sobre `9b68d6b5`. A revisão é a **`0045`** (`db/migrations/versions/0045_indice_de_pesquisa.py`). O DDL e a função vivem em `../db/indice.py`, declarado como módulo auxiliar de migração, e os ensaios importam-no dali. O lado Python é `../libs/py-core/src/kamba_core/idx/` (`texto`, `pesquisa`, `consumidor`). Reproduz-se, nesta máquina, com o `.venv` e o Docker, e não com `make` (que aqui não existe):
+
+```bash
+python db/gate_bd.py --suite tests_produtos      # T1-T4, isolamento, consumidor, resposta
+python db/gate_bd.py --suite tests_isolamento    # gate 6: X-03, X-04, X-05 e o X-06 novo
+python db/desempenho_indice.py relatorio.json    # criterio 10, fora do CI
+python -c "import sys; sys.path[:0]=['libs/py-core/src','libs/py-core/tests']; import unittest; unittest.main(module=None, argv=['x','test_idx'])"
+```
+
+**O DDL do §4.1, §4.2 e §4.4 e a função do §6.2 entram sem alterações de semântica**, com quatro adaptações de forma, cada uma escrita na nota do `db/indice.py`: `tenants` passa a `platform.tenants`; as restrições têm nome; cada ramo desempata pelo `doc_id` **antes** do `LIMIT` (o §6.2 só desempatava depois, e um empate no último lugar era sorteio — é isso que o critério 6 pede); e três formas de instrução (`CREATE FUNCTION` e `CREATE SCHEMA` sem `OR REPLACE` nem `IF NOT EXISTS`, e o `unaccent` criado `WITH SCHEMA public`, que é onde o `idx.f_unaccent` do §4.1 o chama). **O que o §4 não tem e o bloco pede é acréscimo, não adaptação:** a RLS das duas tabelas — a `tenant_iso` intacta e, no léxico, a `termos_globais` só de leitura, pela forma da `destinos_globais` do KAM-069 —, os `GRANT` e os comentários.
+
+**Portões, medidos na árvore integrada com a `publico/main` em `9b68d6b5`** (KAM-087 e KAM-088 fundidos, a `0045` sobre a `0044`). `tests_produtos` → **140** ensaios, OK. *Gate* 6 → 83 ensaios, uma falha só, `test_os_casos_que_precisam_de_node`, que é a falta de `node_modules` nesta máquina (a do KAM-051); passam o X-02 com o `search_catalog` ligado e o X-06. *Gate* 8, suite `tests` → **869** ensaios, com o inventário fechado do `idx`, o dono das tabelas, o ciclo `upgrade → downgrade → upgrade` através da `0045` e a lista de retenção do KAM-071, que pediu as duas tabelas do `idx` no `SEM_DADOS_PESSOAIS` (`test_o_catalogo_esta_todo_mapeado`, vermelho até lá, medido). AGR → 204 ensaios nos módulos tocados, OK; `py-core`, OK. Gate 3b, `lint_backlog`, `lint_refs`, `lint_contagens`, `lint_handoff` e `lint_bloco` (110 medidos, piso 55) conformes. **Mutações:** as 15 de `tests_produtos` correram e as **15** foram apanhadas — e uma delas (o desempate do `fts`) sobreviveu primeiro e matou-se com uma pergunta que só esse ramo responde. As duas de RLS morrem no *gate* 6, cuja linha de base não fica verde nesta máquina pelo Node, e ficam para a corrida nocturna. A receita de cópia passou a levar o `docs/tecnica/05`: sem ele a linha de base da `tests_produtos` era vermelha, já desde o KAM-051.
+
+**Uma medição que mudou quem cria uma extensão.** A `vector` 0.8.7 **não é *trusted*** (`pg_available_extension_versions`, na imagem do *gate*: `trusted = f`), pelo que o `kamba_migrator` não a cria. Quem a cria é quem corre como administrador: o *initdb* do compose (já o fazia) e o `db/bootstrap.py` do *gate* 8 (passa a fazê-lo, com a mesma guarda). A revisão repete o `CREATE EXTENSION IF NOT EXISTS`, e não larga extensões no `downgrade`.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | T1–T4 do §6.4 em CI | satisfeito | Um ensaio por teste, com a asserção do documento e mais uma, **que** produto veio e não só quantos: `test_t1_typo_encontra_o_produto_de_a_e_so_de_a`, `test_t2_nenhum_resultado_de_b_ou_s_ao_pesquisar_em_a` (com o *join* do §6.4, lido pelo administrador), `test_t3_tenant_suspenso_zero_resultados`, `test_t4_sinonimo_so_na_descricao_bate_pela_expansao` (e é o ramo `fts` que bate, não o trigrama). Em `db/tests_produtos/test_indice.py`, que o `make ci-8` corre (`--suite tests_produtos`). O limiar 0,45 é **proposta** (`indice.LIMIAR_DE_PALAVRA`); nenhuma asserção foi removida. `word_similarity('niker','nike air force 1 branco')` mediu **0,667**, e não os ≈ 0,57 calculados à mão no §6.2 |
+| 2 | Isolamento entre três tenants; `suspenso` e `onboarding` dão zero | satisfeito | `test_homonimos_em_tres_tenants_nao_atravessam`, `test_t3_…`, `test_tenant_em_onboarding_zero_resultados_com_visivel` — e `test_os_estados_que_nao_sao_ativo_fecham_todos`, porque o domínio tem cinco valores e a prosa nomeia dois (`restrito` e `encerrado` também fecham). As mutações «a porta tn aceita o tenant em qualquer estado» e «a porta tn só fecha o suspenso» estão no `db/mutacoes.py` |
+| 3 | RLS `FORCE` nas duas tabelas, globais legíveis, sem contexto zero linhas | satisfeito | `test_as_duas_tabelas_tem_rls_force`; `test_as_entradas_globais_do_lexico_leem_se_e_nao_se_escrevem` (com contexto **e** sem ele); `test_sem_contexto_zero_linhas`. **A ligação, e não só o corpo:** `test_o_parametro_de_outro_tenant_nao_contorna_o_contexto` põe o contexto em A e o `p_tenant` em B, e exige zero linhas, com o controlo em B. O *gate* 6 cobre as duas tabelas pela descoberta (X-03, X-04, X-05) e pelo X-06 novo (`tools/isolamento/baterias/x06_vectores.py`) |
+| 4 | *Lint* de esquema e de texto de embedding | satisfeito | Esquema: `test_nenhuma_coluna_do_idx_fala_de_preco_nem_de_stock`, com o controlo de que a mesma expressão encontra o `preco_minor` da oferta. Texto: `kamba_core.idx.texto.exigir_texto_de_embedding`, `test_os_tres_negativos_do_criterio` (dinheiro, «stock», «disponível» e «preço»), mais `test_todas_as_formas_de_dinheiro` e os positivos de `test_o_que_nao_e_dinheiro_passa`. **Sem chamador de produção ainda**: quem gera embeddings é o KAM-063 |
+| 5 | Zero índices `hnsw`/`ivfflat` no `idx` | satisfeito | `test_zero_indices_ann_no_esquema`, a consulta do critério à letra, com o controlo de que os três índices do §4.2 existem. Mutação «um HNSW no embedding» |
+| 6 | `p_qvec` nulo, mesmo ranking lexical, 20 execuções iguais com desempate por `doc_id` | satisfeito | `test_qvec_nulo_e_modo_lexical_com_o_mesmo_ranking` (postos `tri` e `fts` iguais com e sem vector); `test_vinte_execucoes_devolvem_a_mesma_lista`; e `test_o_empate_no_limite_decide_se_pelo_doc_id`, sete empatados com `p_k = 3`, que é o caso que o texto do §6.2 deixava ao acaso. Mutações dos dois desempates |
+| 7 | Três termos, um inexistente, devolve os outros (D7) | satisfeito | `test_um_termo_inexistente_nao_anula_os_outros`, e é o ramo `fts` que o devolve. Mutação «o ramo fts volta ao `plainto_tsquery`» |
+| 8 | Camada de resposta: só `publicado`, `stock_disp > 0`, preço filtrado na oferta viva, contrato de saída, indisponíveis com menos de 3 | parcial | **A metade entregue:** `kamba_core.idx.pesquisa.pesquisar`, a consulta do §6.3 sobre a `platform.v_oferta_viva` do KAM-051, **sem parâmetro de tenant** (lê o `app.tenant_id` da transacção): `test_so_sai_o_publicado` (despublicado depois de indexado e sem evento: é a oferta viva que o tira), `test_o_filtro_de_preco_e_na_oferta_viva_e_nunca_no_indice` (o preço muda sem evento e o filtro vê o de agora), `test_o_contrato_e_o_da_secao_6_3_lido_do_documento` (os oito campos lidos do documento, não copiados), `test_o_tenant_vem_do_contexto_e_nao_de_um_parametro` (o mesmo `sku` e nome em B, com outro preço). **E a tool está ligada**: o `search_catalog` do AGR chama-a (`../services/agr/src/kamba_agr/tls/idx.py`), com o `score` normalizado pelo máximo teórico do RRF e o limiar *proposta* 0,3 que o `__main__` passa ao grafo — `TestLigacaoDoAgr`, que corre o `retrieve` real: a frase típica passa (0,4, só pelo `fts`), e com o limiar do duplo a mesma frase caía (o defeito da escala, fixado); `test_um_numero_da_pergunta_nao_encontra_o_produto_errado` («quero 2 bicicletas» contra «Arroz 2 kg»: os algarismos saem da expansão `or`, pelo passo 3 do §5.1). A ligação da camada ao *backend* `idx` tem ensaio pela `ToolLayer` real (`test_tls.TestOBackendDoIndiceRecebeALigacao`), que fica vermelho com o `idx` fora de `BACKENDS_DA_BASE` — medido. **Um limite dito, e não escondido:** no modo lexical o limiar 0,3 deixa passar todo o candidato do topo, pelo que «não resolvível» é a resposta **vazia** e não uma decisão do limiar; uma pergunta que partilhe um só termo com um produto devolve-o, e o `cart_build` propõe-no (o cliente confirma por botão antes de haver encomenda). Afinar isto é o par do KAM-064. **A metade bloqueada:** o filtro `stock_disp > 0` e o `disponivel=false` dos indisponíveis dependem do nível de stock, que a vista não tem — credores **KAM-045** e **D3**, como no critério 7 do KAM-051. O campo sai `None` («não sei»). E os nomes do critério (`preco_kz`, `preco_tipo 'exato'`) são os que o dicionário substitui: o contrato é o canónico do §6.3, `preco_minor` e `fixo` (emenda 1.68) |
+| 9 | Frescura: produto pesquisável em p95 ≤ 30 s; `tenant.suspended` ≤ 30 s; a porta `tn` impede a fuga | parcial | **O efeito e a segunda defesa estão medidos; o processo não existe.** `kamba_core.idx.consumidor` dentro do `consumir` do KAM-006, que lê o estado presente e não o *payload* (a ordem não importa): `test_o_produto_publicado_entra_normalizado_e_visivel`, `test_suspender_e_reactivar_o_tenant`, `test_o_efeito_le_o_estado_presente_e_nao_o_payload`, `test_cada_forma_de_nao_ser_publicavel_fica_invisivel`; e `test_tenant_suspenso_responde_vazio_mesmo_com_o_indice_por_actualizar`, que é a frase «se o consumidor atrasar, a porta `tn` já impede a fuga». **O que falta é quem subscreve a fila e chama o consumidor** (a entrada em `../registry/` e o trabalhador): sem ele, os dois p95 não têm o que medir. Credor **KAM-193**, aberto neste PR |
+| 10 | Latência em 5 000 documentos: lexical p95 ≤ 80 ms, híbrido p95 ≤ 120 ms, 500 execuções, resultado e ambiente registados | parcial | **Medido, e a medição não fecha nem reprova o alvo**: correu numa máquina partilhada, com outros *gates* a competir. Credor **KAM-193**, aberto neste PR, que a repete no ambiente de referência e optimiza se ela o pedir. O que se mediu: `python db/desempenho_indice.py` (o instrumento, fora do CI): 3 tenants × 5 000 documentos, 500 execuções por modo como `kamba_app`. No servidor (`EXPLAIN ANALYZE`): lexical p50 **92 ms**, p95 **175 ms**; híbrido p50 **123 ms**, p95 **265 ms**. No cliente: lexical p95 **329 ms**, híbrido p95 **430 ms**. O resultado e o ambiente estão em `../docs/evidencia/KAM-061.md`. **Onde está o tempo:** no ramo `tri`, que o planeador serve pelo índice por tenant e recalcula o `word_similarity` sobre os 5 000 documentos (≈ 100 de 116 ms no plano registado). Um GIN composto `(tenant_id, nome_norm gin_trgm_ops)` com `btree_gin` baixou o p50 de 128 para 83 ms numa experiência, e **não entrou**: é DDL fora do §4.2, e medido numa máquina com três *gates* de outras sessões a correr ao mesmo tempo e um catálogo sintético muito mais denso do que um real (≈ 550 correspondências por pergunta). Fica como hipótese, com o instrumento pronto para a medir |
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | vazia | Os critérios 8, 9 e 10 são parciais, pelas razões acima; o 9 e o 10 têm credor no KAM-193 |
+| Isolamento: RLS `FORCE`, casos X-06 na suite cruzada, tenant pequeno ao lado de um grande | satisfeito | RLS `FORCE` nas duas (critério 3); a bateria **X-06** passa a existir (`../tools/isolamento/baterias/x06_vectores.py`): com o contexto de A e um vector a distância zero do de B, o ramo semântico só devolve A, com sonda positiva; o parâmetro de B com o contexto de A dá zero; sem contexto, zero. **Com B `ativo`**: o corredor só activava A, e com B em `onboarding` a porta `tn` fechava as sondas sem a RLS chegar a ser medida (achado 1 da revisão adversarial). E o **X-02** ataca o `search_catalog` pela camada real, com o executor real e argumentos de B, e com sonda positiva (A encontra o seu produto). `test_o_tenant_pequeno_obtem_resultados_ao_lado_de_um_grande`: 300 documentos com o vector exacto da pergunta num tenant, um só no outro, e o pequeno vê o seu no posto 1 |
+| Números só de tools; o contrato inclui `sku` | satisfeito | Nenhuma coluna de preço ou stock no `idx` (critério 4); o preço sai da oferta viva no instante da pergunta (critério 8); o `sku` é o primeiro campo do contrato, e o executor do AGR devolve-o sem *facts* novos — o preço do turno continua a vir do `get_price_stock` |
+| Idempotência: `events_consumed`, duplicados ×10 | satisfeito | `test_dez_duplicados_escrevem_uma_vez`: dez entregas do mesmo evento, um `aplicado` e nove `duplicado`, uma linha e um só `atualizado_at` |
+| Privacidade: nenhum identificador de cliente no índice; logs sem texto de consulta | satisfeito | O inventário fechado do `idx` responde «não» coluna a coluna (`test_o_catalogo_do_idx_e_exactamente_o_inventario`); o `descr_norm` vem do catálogo. Nem o `kamba_core.idx` nem o `tls/idx.py` escrevem registo nenhum, e a mensagem do *lint* de embedding diz a categoria e nunca o excerto (`test_a_mensagem_nao_repete_o_texto`) |
+| Custo e observabilidade: métricas de latência por ramo e de modo | vazia | **Não há métricas.** `idx_query_ms{ramo,modo}` por ramo não sai de uma função SQL que corre os três numa consulta, e as outras duas (`idx_results_total`, `idx_mode`) custam o inventário fechado do `obs_lint` e as contagens da `../docs/observabilidade.md`. Credor **KAM-193**, aberto neste PR |
+| Migração reversível; `pgvector` fixado; cobertura | parcial | `downgrade` sem `CASCADE`, que larga tudo menos as extensões, coberto pelo ciclo do *gate* 8 (`test_migracao`); o `pgvector` 0.8.7 é o da imagem fixada por *digest*. A cobertura do `kamba_core.idx` mede-se no estrato `restante` (≥ 75%); **pôr o `pesquisa.py` no estrato `critico` (≥ 90%) é alteração do `../ci/thresholds.yaml`**, que é regra de bloqueio e decisão do fundador — a pergunta está com ele, pelo orquestrador do lote |
+
+**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu, levantou nove achados. Cada um foi verificado contra o código antes de gerar trabalho:
+
+| # | Achado | Estado | O que o fechou |
+|---|---|---|---|
+| 1 | O X-06 era verde sem medir RLS: o B do corredor nunca estava `ativo`, e a porta `tn` fechava as sondas | CONFIRMADO, corrigido | O corredor activa também o B (`test_casos_cruzados.py`) |
+| 2 | A ligação da camada ao *backend* `idx` não tinha ensaio que a matasse; o X-02 tratava o `search_catalog` como declarado | CONFIRMADO, corrigido | `TestOBackendDoIndiceRecebeALigacao` pela `ToolLayer` real (vermelho com a mutação, medido); o X-02 ataca-o como ligado, com sonda positiva, e a semente do documento leva a oferta viva |
+| 3 | O limiar 0,3 deixa passar qualquer termo único do `fts`, e um algarismo («quero 2 bicicletas» contra «Arroz 2 kg») encontrava o produto errado | CONFIRMADO no PostgreSQL; algarismos corrigidos, o resto dito | Os algarismos saem da expansão `or` (§5.1, passo 3), com ensaio; o termo único fica como limite escrito e é o par do KAM-064 |
+| 4 | As adaptações declaradas divergiam entre o código e esta secção, e faltavam três | CONFIRMADO, corrigido | As quatro, iguais nas duas superfícies, e o acréscimo da RLS separado delas |
+| 5 | Duas referências a `db/tests_idx/`, que não existe | CONFIRMADO, corrigido | Apontam para `db/tests_produtos/test_indice.py` |
+| 6 | O consumidor não subscreve `tenant.approved` nem `tenant.provisioned` | MORTO | O `tenant.approved` é o gatilho do *provisioning* (dicionário §3.5) e o tenant continua em `onboarding`; a passagem a `ativo` é o `tenant.activated`, que se subscreve |
+| 7 | O ensaio do `p_qvec` nulo compara postos que o ramo `sem` não pode mudar | CONFIRMADO, aceite | É a igualdade que o critério pede, e é por construção: está dito no ensaio |
+| 8 | O ensaio do desempate matava a mutação só em probabilidade | CONFIRMADO, corrigido | Os `doc_id` entram por ordem decrescente, num tenant só deles |
+| 9 | `max_preco_minor` com «²» ou acima do `bigint` rebentava em vez de `VALIDATION_ERROR` | CONFIRMADO, corrigido | Até 18 algarismos ASCII, com os dois casos no ensaio |
 
 ### Handoff para Claude Code
 
@@ -296,6 +351,7 @@ Construir o dataset `golden_search` (≥ 300 consultas, ≥ 5 catálogos), o exe
 - **Origem dos dados:** (1) conversas do concierge/H7, só depois da reescrita sintética e com consentimento (a confirmar por parecer, E3); (2) sintéticas por ops para a cauda; enquanto o concierge não gerar volume (KAM-109), o dataset arranca 100% sintético e regista-se.
 - Reaproveita a infra de *eval harness* de KAM-040 (golden PT-AO de conversas): são datasets diferentes com o mesmo executor de CI.
 - O dicionário e os pesos do RRF só se alteram por PR com o relatório do *gate* anexado.
+- **O limiar do `retrieve` do AGR também se afina aqui** (KAM-061): o `LIMIAR_DO_RRF` de `../services/agr/src/kamba_agr/tls/idx.py`, contra o RRF normalizado pelo seu máximo teórico (`score_normalizado`), entrou como *proposta* (0,3) quando o KAM-061 ligou o `search_catalog`, e muda junto com o pontuador, com o mesmo relatório.
 
 ### Testes Requeridos
 - Unit: cada métrica com casos de valor conhecido (incluindo empates e consultas sem relevantes).
@@ -323,6 +379,73 @@ executor com success@3, recall@10, nDCG@3, zero-result e falso-positivo em híbr
 - Os alvos (0,85/0,90/0,75/...) são PROPOSTAS; regista desvios, não os escondas.
 Não expandas escopo: normalização (KAM-062), embeddings (KAM-063), dataset de conversas do AGR (KAM-040).
 Testes: unit das métricas, integração do executor e do gate, scanner de PII. PR com o template (§7).
+```
+
+---
+
+## KAM-193 — IDX: processo do consumidor, métricas servidas e latência no ambiente de referência
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-06 — Índice e Pesquisa |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-061 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Dados/Pesquisa, com o dono da observabilidade |
+| Documentos de referência | `EPIC-06_Indice_Pesquisa.md` (bloco KAM-061 e a sua verificação), `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§4.3, §6.2, §15), `../docs/evidencia/KAM-061.md`, `../docs/observabilidade.md` |
+
+### Contexto
+
+O KAM-061 entregou o índice, a função, o consumidor e a camada de resposta, e devolveu três caixas
+que nenhum ticket do backlog recebia. Este ticket é o credor delas, e nasce **no mesmo PR** que as
+devolve: uma caixa devolvida «sem ticket» morre na fusão, porque ninguém fica a dever. Os motivos e
+as medições de cada uma estão na verificação do bloco KAM-061 e no anexo `../docs/evidencia/KAM-061.md`,
+e não se repetem aqui.
+
+### Objectivo
+
+Pôr o consumidor do índice a correr como processo, servir as métricas do IDX, e medir a latência do
+critério 10 do KAM-061 no ambiente de referência — optimizando só se a medição o pedir.
+
+### Critérios de Aceitação
+
+- [ ] Critério 9 do KAM-061: um processo subscreve `catalog.product_changed` e os quatro eventos de estado do tenant na fila e chama o `kamba_core.idx.consumidor.consumir_evento`, com a subscrição declarada em `../registry/`; um produto alterado fica pesquisável em p95 ≤ 30 s e um `tenant.suspended` põe `visivel=false` em ≤ 30 s, medidos numa pilha levantada.
+- [ ] DoD «métricas» do KAM-061: `idx_query_ms{ramo,modo}`, `idx_results_total` e `idx_mode{hibrido|lexical}` servidas, no inventário do `obs_lint` e nas contagens da `../docs/observabilidade.md`; sem identificadores nem texto de consulta nas etiquetas.
+- [ ] Critério 10 do KAM-061: o p95 do ramo lexical (alvo ≤ 80 ms) e do híbrido sem o embedding da pergunta (alvo ≤ 120 ms), em 500 execuções sobre um tenant de 5 000 documentos, medidos com o `../db/desempenho_indice.py` **no ambiente de referência** e não numa máquina partilhada; se ficarem acima, a optimização entra por revisão nova com a medição antes e depois (a hipótese do GIN composto está no anexo do KAM-061).
+
+### Detalhes Técnicos
+
+- **Componentes:** IDX (consumidor e função), EVT (subscrição), OBS (métricas).
+- **O consumidor já existe e lê o estado presente**, pelo que o processo não precisa de ordem (`exige_ordem = False`); o que falta é quem o chama.
+- **Por ramo, `idx_query_ms` não sai de uma função SQL** que corre os três ramos numa consulta: medir por ramo pede instrumentação própria, e a escolha fica escrita.
+- O ambiente de referência é o do fundador; a medição regista-se como a do KAM-061, com o ambiente ao lado.
+
+### Testes Requeridos
+
+- Integração: o processo consome um `catalog.product_changed` e um `tenant.suspended` numa pilha levantada, com o p95 medido.
+- Observabilidade: o `obs_lint` vê as três métricas, e o X-11 nenhum texto de consulta.
+- Desempenho: o relatório do `db/desempenho_indice.py` no ambiente de referência, anexado.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-061 actualizada a apontar para este ticket nas caixas que fecha.
+- [ ] Métricas novas no inventário do `obs_lint`; nenhum texto de consulta em logs.
+- [ ] Documentação actualizada; migração (se houver) reversível.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-193 da KAMBÁ (caixas devolvidas pelo KAM-061).
+Lê specs/EPIC-06_Indice_Pesquisa.md (blocos KAM-193 e KAM-061, com a verificação deste) e
+docs/evidencia/KAM-061.md.
+Objectivo: o processo que chama o consumidor do idx, as três métricas do IDX servidas, e a medição do
+critério 10 do KAM-061 no ambiente de referência.
+Regras: o tenant vem do envelope (consumidor) e do contexto (pesquisa); nada de texto de consulta em
+etiquetas nem em logs; uma optimização só entra com medição antes e depois.
+Testes: integração na pilha levantada, obs_lint e o relatório de desempenho.
 ```
 
 ---
@@ -361,3 +484,4 @@ Testes: unit das métricas, integração do executor e do gate, scanner de PII. 
 | 1.0 | Outubro 2026 | Emissão inicial: 4 tickets (KAM-061 a KAM-064) — pesquisa híbrida por tenant com RRF, normalização PT-AO, embeddings com modo lexical e avaliação de qualidade. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 4 referências aos anexos E1, E3 e E4 passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: os **5** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | KAM-061: secção de verificação do bloco, com **sete** caixas de dez nos critérios e **quatro** de sete na DoD; as vazias têm a razão e o credor. E uma linha nos Detalhes Técnicos do KAM-064: o limiar do `retrieve` do AGR afina-se com o *dataset* dele, junto com o pontuador. **Entra o KAM-193**, credor das três caixas que o KAM-061 devolveu sem ticket (o processo do consumidor, as métricas servidas e a latência no ambiente de referência): o critério 10 passa de «não satisfeito» a parcial, porque uma medição numa máquina partilhada não fecha nem reprova o alvo. | Equipa KAMBÁ |

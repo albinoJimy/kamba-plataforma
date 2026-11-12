@@ -40,7 +40,7 @@ enumeracao nao o conseguiu resolver — e precisa de caso como qualquer outro.
 | X-01 | rotas (IDOR autenticado) | `baterias/x01_rotas.py` |
 | X-02 | *tools* do REG, pela ToolLayer | `baterias/x02_tools.py` |
 | X-03 / X-04 / X-05 | a base: contexto, falha fechada, catalogo | `baterias/x03_x04_x05_base.py` |
-| X-06 | vectores (IDX) | **por escrever** — credor KAM-061 |
+| X-06 | vectores (IDX) | `baterias/x06_vectores.py` (KAM-061) |
 | **X-07** | **reservada** | — ver «A lacuna X-07», abaixo |
 | X-08 | *storage* | **por escrever** — credor KAM-011, KAM-020 |
 | X-09 | injeccao cruzada, ≥ 30 *prompts* PT-AO | **por escrever** — credor KAM-073 |

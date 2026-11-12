@@ -20,15 +20,16 @@
  *
  * O nome do módulo é `inscricao` por isso, e não por gosto.
  *
- * ## A tabela não existe, e isto é a fronteira que a vai receber
+ * ## A tabela existe; o adaptador que a escreve, não
  *
- * O bloco do KAM-086 traz o DDL de `platform.onboarding_case`. **Esta entrega
- * não escreve a migração**, e não é omissão: a vaga de revisão de base de dados
- * deste lote é **de outro ticket** — o bloco não nomeia qual, e nomear um em
- * código era pôr um credor que o canon não escreve —, e a `onboarding_case.fase`
- * do dicionário §3.2 diverge do bloco em **nove valores e num nome**, contados
- * ao lado das `FASES`. A emenda 1.64 do dicionário já nomeia o KAM-086/087 como
- * credor dessa divergência. Escrever a tabela era decidir a emenda de passagem.
+ * O bloco do KAM-086 traz o DDL de `platform.onboarding_case`, e esta entrega
+ * não escreveu a migração: a `onboarding_case.fase` do dicionário §3.2 divergia
+ * do bloco em **nove valores e num nome**, e escrever a tabela era decidir a
+ * emenda de passagem. **A tabela nasceu com o KAM-087** (revisão `0043`, emenda
+ * 1.80 do dicionário, §3.57), com a coluna `fase` e os catorze valores de
+ * `FASES`. O que continua por fazer é o adaptador SQL desta porta — a cifra do
+ * NIF e do telefone e a tradução do `23505` do índice do NIF —, com credor
+ * KAM-086.
  *
  * O que está entregue é o **`RepositorioDeCasos`**, e o precedente é do ticket
  * ao lado: o KAM-091 fundiu os três domínios fechados da saga «que viviam só no
@@ -68,9 +69,11 @@ import type { Email, Nif, Telefone } from "./identificadores.ts";
  *     1 só no canon   `pronto`, que aqui é o `activo`
  *
  * O último é o que mais importa, porque não é uma ausência: é um valor
- * **renomeado**, e a emenda tem de decidir qual dos dois nomes fica. Entregar
+ * **renomeado**, e a emenda tinha de decidir qual dos dois nomes fica. Entregar
  * seis era implementar uma máquina de estados que o próprio bloco contradiz;
- * entregar catorze e contar a divergência é o que deixa a emenda decidível.
+ * entregar catorze e contar a divergência é o que deixou a emenda decidível.
+ * **Decidiu-a a emenda 1.80 (KAM-087, §3.57): fica `activo`**, porque o
+ * `pronto` já designa o canal pronto noutras duas máquinas do onboarding.
  *
  * Deste ticket só se alcançam as **duas primeiras** (`registo` e
  * `otp_pendente`) e a terceira por conclusão do OTP (`kyc_pendente`). As outras

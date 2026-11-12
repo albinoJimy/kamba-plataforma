@@ -145,6 +145,13 @@ class TestCatalogoReal(ComBase):
                 # o *trigger* `ENABLE ALWAYS` recusa o `DELETE` da limpeza. O
                 # isolamento dela prova-se em `db/tests_agr/test_llm_call_log.py`.
                 ("dat", "llm_call_log", "tenant_id"),
+                # KAM-061: o indice de pesquisa, no esquema `idx` — entre o
+                # `dat` e o `platform`, pelo `ORDER BY 1, 2`. As duas tem receita
+                # de sementes; a `termo_canonico` tem `tenant_id` anulavel (as
+                # entradas globais), como a `tenant_destinations`, e entra pela
+                # coluna como as outras.
+                ("idx", "search_doc", "tenant_id"),
+                ("idx", "termo_canonico", "tenant_id"),
                 # KAM-012. Nenhuma das duas tem receita de sementes, e as
                 # duas razoes estao em `sementes.SEM_RECEITA_COM_RAZAO`: o
                 # `audit_heads` nao tem politica para provar, e o `audit_log` e
@@ -231,6 +238,11 @@ class TestCatalogoReal(ComBase):
                 ("platform", "fraud_signals", "tenant_id"),
                 ("platform", "handoff_accounts", "tenant_id"),
                 ("platform", "handoffs", "tenant_id"),
+                # KAM-087: a verificacao K1, entre `handoffs` e
+                # `manual_confirmations` («ha» < «ky» < «ma»). O caso de
+                # onboarding vem mais abaixo, depois de `offer_terms`. As tres
+                # listas deste ficheiro no mesmo PR.
+                ("platform", "kyc_check", "tenant_id"),
                 # KAM-020: a midia, e a posicao e entre `handoffs` e
                 # `message_templates` — «ha» < «me», e contra
                 # `message_templates` decide o terceiro caracter («d» < «s»).
@@ -244,6 +256,8 @@ class TestCatalogoReal(ComBase):
                 # `tenant_id` e **parte da chave primaria** e nao uma
                 # coluna ao lado dela.
                 ("platform", "offer_terms", "tenant_id"),
+                # KAM-087: o caso de onboarding («off» < «onb» < «ord»).
+                ("platform", "onboarding_case", "tenant_id"),
                 # KAM-044: as quatro das encomendas. A ordem e a do `sorted()`
                 # por ponto de codigo, e nela o `_` (0x5F) vence o `s` (0x73):
                 # as tres `order_*` vem **antes** da `orders_mirror`, e todas
@@ -313,6 +327,8 @@ class TestCatalogoReal(ComBase):
                 # mesmo PR, pela licao que a nota do KAM-017 escreveu.
                 ("platform", "purge_log", "tenant_id"),
                 ("platform", "refund_cases", "tenant_id"),
+                # KAM-088: a decisao de screening («ref» < «scr» < «sto»).
+                ("platform", "screening_decision", "tenant_id"),
                 # KAM-045: a reserva de stock, entre o caso de reembolso e o
                 # canal («ref» < «sto» < «ten»). A nota do KAM-044 mais abaixo
                 # vale outra vez: sao **tres** as listas deste ficheiro que
@@ -501,6 +517,9 @@ class TestCatalogoReal(ComBase):
                 # A consulta pede so `tablename`, pelo que a ordem e alfabetica
                 # pelo nome e nao pelo esquema: depois de `hmac_key_versions`,
                 # antes de `media_assets`.
+                # KAM-087: a verificacao K1, antes das do `dat` («ky» < «ll»).
+                # Uma politica so, a do `db/rls.py`.
+                ("kyc_check", "tenant_iso", "ALL", "{public}"),
                 ("llm_call_log", "tenant_iso", "ALL", "{public}"),
                 ("llm_call_log_default", "tenant_iso", "ALL", "{public}"),
                 ("manual_confirmations", "tenant_iso", "ALL", "{public}"),
@@ -512,6 +531,9 @@ class TestCatalogoReal(ComBase):
                 # `rls.enable_tenant_rls` e o unico sitio onde a politica se
                 # escreve, e nao toma parametros de papel.
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
+                # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
+                # `tenant_id` pre-alocado.
+                ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
                 # `_` (0x5F) vence o `s` (0x73) — as tres `order_*` vem antes da
                 # `orders_mirror`. `ALL` e `{public}` nas quatro, como em todas:
@@ -600,6 +622,12 @@ class TestCatalogoReal(ComBase):
                 # estas duas entre elas: o `ORDER BY 1, 2` e por tabela **e**
                 # por politica, e so a suite contra a base o mostrou.
                 ("resources", "tenant_iso", "ALL", "{public}"),
+                # KAM-088: a decisao de screening, entre `resources` e
+                # `services` pela colacao `C` («res» < «scr» < «ser»).
+                ("screening_decision", "tenant_iso", "ALL", "{public}"),
+                # KAM-061: o documento do indice, no `idx`. Depois da `screening_decision`
+                # e antes de `services` («scr» < «sea» < «ser»).
+                ("search_doc", "tenant_iso", "ALL", "{public}"),
                 ("services", "tenant_iso", "ALL", "{public}"),
                 # KAM-045: **uma** politica, a `tenant_iso`, como as outras
                 # tabelas de `platform` que nao sao lidas pelo resolvedor. Entre
@@ -641,6 +669,13 @@ class TestCatalogoReal(ComBase):
                 ("tenant_usage", "tenant_iso", "ALL", "{public}"),
                 ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenants", "tenant_iso", "ALL", "{public}"),
+                # KAM-061: o dicionario PT-AO, com **duas** politicas pela forma
+                # da `tenant_destinations` acima: a `tenant_iso` intacta e a
+                # `termos_globais`, `FOR SELECT USING (tenant_id IS NULL)` e sem
+                # `TO`. Depois de `tenants` («ten» < «ter») e antes de
+                # `tool_audit`; dentro da tabela, «tenant_iso» < «termos».
+                ("termo_canonico", "tenant_iso", "ALL", "{public}"),
+                ("termo_canonico", "termos_globais", "SELECT", "{public}"),
                 # KAM-028: a `tool_audit`. A politica nao e redundante com o
                 # *append-only* — o `WITH CHECK` e o que impede o papel da
                 # aplicacao de escrever uma linha de auditoria **no nome de
@@ -711,6 +746,8 @@ class TestCatalogoReal(ComBase):
              # `fraud_signals` antes de `handoff_accounts` ('f' < 'h').
              "fraud_signals",
              "handoff_accounts", "handoffs",
+             # KAM-087: a verificacao K1.
+             "kyc_check",
              # KAM-020: a midia. **Quarta lista deste ficheiro a precisar de
              # uma tabela nova**, e a nota do KAM-019 ja avisava que eram tres:
              # a descoberta, as politicas por nome, e esta. Conta-se aqui para
@@ -725,6 +762,8 @@ class TestCatalogoReal(ComBase):
              # listas sao perguntas diferentes sobre a mesma tabela, e quem
              # acrescenta uma corre o *gate* 6 **inteiro**. Medido outra vez.
              "message_templates", "offer_terms",
+             # KAM-087: o caso de onboarding.
+             "onboarding_case",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
              # vez — **sexta lista deste ficheiro a precisar de uma tabela
              # nova**, e as cinco anteriores ja estavam feitas quando esta
@@ -769,6 +808,8 @@ class TestCatalogoReal(ComBase):
              # KAM-071: o registo da purga.
              "purge_log",
              "refund_cases",
+             # KAM-088: a decisao de screening.
+             "screening_decision",
              # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
              "stock_reservations",
              "tenant_channels",

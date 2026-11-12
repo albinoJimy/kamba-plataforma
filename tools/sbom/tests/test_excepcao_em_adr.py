@@ -32,6 +32,10 @@ class TestExcepcaoEmADR(unittest.TestCase):
             (self.raiz / ficheiro).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / ficheiro, self.raiz / ficheiro)
         self.expira = (datetime.date.today() + datetime.timedelta(days=10)).isoformat()
+        # A aprovacao e do dia do `criado_em` (hoje), e nao de um dia escrito no
+        # codigo: com `@2026-10-12` literal ela passou a ter 31 dias a
+        # 2026-11-12 e o `ci_waivers` recusou o ficheiro antes do gate 11 o ler.
+        self.aprovacao = f"aprovacao:fundador@{datetime.date.today().isoformat()}"
 
     def instalar(self, nome: str, licenca: str | None) -> None:
         pasta = self.raiz / "node_modules" / ".pnpm" / f"{nome}@1.0.0" / "node_modules" / nome
@@ -74,7 +78,7 @@ class TestExcepcaoEmADR(unittest.TestCase):
             with self.subTest(licenca=licenca):
                 shutil.rmtree(self.raiz / "node_modules", ignore_errors=True)
                 self.instalar("proibido", licenca)
-                self.waiver("pkg:npm/proibido@1.0.0", "aprovacao:fundador@2026-10-12")
+                self.waiver("pkg:npm/proibido@1.0.0", self.aprovacao)
                 achados, estatisticas = verificar_licencas(self.raiz)
                 self.assertEqual(len(achados), 1, achados)
                 self.assertIn("nao cita um ADR", achados[0])
@@ -124,7 +128,7 @@ class TestExcepcaoEmADR(unittest.TestCase):
         """So as **proibidas** exigem ADR: «nao sei que licenca e» resolve-se lendo-a,
         e quem a leu assina — e o que `ci/licenses.yaml` descreve."""
         self.instalar("misterio", None)
-        self.waiver("pkg:npm/misterio@1.0.0", "aprovacao:fundador@2026-10-12")
+        self.waiver("pkg:npm/misterio@1.0.0", self.aprovacao)
         achados, _ = verificar_licencas(self.raiz)
         self.assertEqual(achados, [])
 

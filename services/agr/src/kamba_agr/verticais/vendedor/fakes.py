@@ -5,7 +5,7 @@
 Corre na bateria e no *smoke* do *golden*. **Nao corre em producao, e nenhum
 arranque importa este modulo**: o `catalogo_do_piloto()` mantem as cinco entradas
 `declaradas` com o credor que liga cada backend (KAM-043, KAM-044, KAM-046,
-KAM-061), e a razao esta escrita em `tls/vendedor.py` — um executor de ensaio
+KAM-061 — que ja liga o `search_catalog` em `tls/idx.py`), e a razao esta escrita em `tls/vendedor.py` — um executor de ensaio
 registado no catalogo de producao devolvia um `ToolResult` `ok` com *facts* que
 nenhuma loja tem, e o validador de citacao **aceita-os**, porque sao *facts* de
 uma tool. Era abrir no sitio mais caro o buraco que o ADR-007 fecha.
@@ -141,8 +141,9 @@ class BackendDeEnsaio:
         Nao e o RRF do KAM-061 e nao finge ser: e uma ordem monotona e
         explicavel, que e o que o `retrieve` precisa para decidir contra um
         limiar. **E o par (pontuador, limiar) tem um dono so**: o valor de
-        `LIMIAR_IDX` so quer dizer algo contra um pontuador, e os dois mudam
-        juntos quando o KAM-061 trouxer o indice real.
+        `LIMIAR_IDX` so quer dizer algo contra **este** pontuador. O indice
+        real tem o seu par em `tls/idx.py` (`score_normalizado` e
+        `LIMIAR_DO_RRF`), e o `__main__` liga-o.
         """
         self._contar("search_catalog")
         self._avaria("search_catalog")

@@ -40,6 +40,7 @@ from kamba_agr.estado import estado_inicial
 from kamba_agr.handoff.servico import ServicoDeHandoff
 from kamba_agr.metricas import DESFECHOS, METRICA_REGISTO_NEGADO, MetricasDoAgr
 from kamba_agr.tls.camada import ToolLayer
+from kamba_agr.tls import idx as tls_idx
 from kamba_agr.tls.catalogo import catalogo_do_piloto
 from kamba_agr.turno import (
     DESFECHO_SERVICO_INDISPONIVEL,
@@ -318,6 +319,12 @@ class TestLigacaoDoArranque(unittest.TestCase):
         self.assertNotIsInstance(portas["concierge"].politica, SemPolitica)
         self.assertIsInstance(portas["degradacao"], DetectorDeDegradacao)
         self.assertNotIsInstance(portas["degradacao"], SemDegradacao)
+        # KAM-061: o limiar do `retrieve` e o do pontuador real. Na omissao (o
+        # `LIMIAR_IDX` do duplo, 0,5), toda a pesquisa real caia no
+        # `unknown_reply`, porque o RRF normalizado de um candidato so do `fts`
+        # vale 0,4.
+        self.assertEqual(portas["limiar_idx"], tls_idx.LIMIAR_DO_RRF)
+        self.assertNotEqual(portas["limiar_idx"], nos_vendedor.LIMIAR_IDX)
         self.assertIsInstance(portas["hnd"], ServicoDeHandoff)
         self.assertIsInstance(portas["rascunho"], ServicoDeRascunho)
         self.assertIsInstance(portas["tools"], ToolLayer)
@@ -386,11 +393,15 @@ class TestToolsNoArranque(unittest.TestCase):
                 return json.loads(linha)["error_code"]
         self.fail("sem linha toollayer_pronta")
 
-    def test_com_o_com_ligam_se_cinco_de_onze(self) -> None:
-        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_5_de_11")
+    def test_com_o_com_ligam_se_seis_de_onze(self) -> None:
+        # Quatro do COM, a `get_store_info` e, desde o KAM-061, o
+        # `search_catalog` do IDX.
+        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_6_de_11")
 
-    def test_sem_o_com_so_a_da_plataforma(self) -> None:
-        self.assertEqual(self._linha(), "ligadas_1_de_11")
+    def test_sem_o_com_a_da_plataforma_e_a_do_indice(self) -> None:
+        # O `search_catalog` liga-se sem `KAMBA_COM_URL`: o indice vive na base
+        # da plataforma, e nao depende do COM (KAM-061).
+        self.assertEqual(self._linha(), "ligadas_2_de_11")
 
 
 class TestPesquisaSemExecutor(unittest.TestCase):

@@ -412,6 +412,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.purge_log", pendencia="prova da purga"),
             _t("platform.consent_event", pendencia="relacao + prescricao (a confirmar)"),
             _t("platform.contract_acceptance", pendencia="prova contratual da PME"),
+            # KAM-088 (0044). *Append-only* por *trigger*: a decisao e o que
+            # justifica um produto publicado ou recusado, e o recurso e
+            # uma linha nova.
+            _t("platform.screening_decision", pendencia="prova da decisao de screening"),
         ),
         fonte="docs/tecnica/08 §11",
     ),
@@ -435,6 +439,15 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.payment_confirmers", pendencia=_RELACAO),
             _t("platform.fraud_signals", pendencia=_RELACAO),
             _t("platform.provisioning_step", pendencia=_RELACAO),
+            # KAM-087 (0043). O caso vive com o tenant pre-alocado. Os
+            # documentos K1 de um caso rejeitado ou abandonado esquecem-se a
+            # D+30 do `fase_at` pelo `ServicoKyc.purgar` (TypeScript), que
+            # nenhum agendador chama ainda; os de um caso vivo seguem a relacao.
+            _t("platform.onboarding_case", pendencia=_RELACAO),
+            _t(
+                "platform.kyc_check",
+                pendencia=_RELACAO + "; casos mortos: D+30 pelo ServicoKyc.purgar, sem agendador",
+            ),
             _t("servicos.bookings", pendencia=_RELACAO),
         ),
         fonte="docs/tecnica/08 §7.1 e §11 (PME: relacao + fiscal)",
@@ -460,6 +473,11 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",
+    # KAM-061 (0045). O documento do indice e o catalogo normalizado da PME, e
+    # vive com a oferta: quando ela sai, o consumidor poe-no invisivel, e a
+    # purga dele segue a do catalogo. O lexico e de termos, e nunca de pessoas.
+    "idx.search_doc": "catalogo normalizado: vida do catalogo",
+    "idx.termo_canonico": "lexico PT-AO, sem pessoas",
 }
 
 

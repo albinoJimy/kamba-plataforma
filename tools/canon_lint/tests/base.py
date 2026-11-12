@@ -25,6 +25,12 @@ _COPIAR = (
     # revisao que chama `custo.criar_vista()` e da `ilegivel` por o ficheiro
     # declarado nao existir.
     "db/custo.py",
+    # KAM-087: o terceiro, pela mesma razao. A revisao `0043` chama
+    # `kyc.criar()`, e sem o ficheiro na copia 45 ensaios desta suite davam
+    # `ilegivel` a mais — medido no gate 4 do CI.
+    "db/kyc.py",
+    # KAM-061: o quarto, pela mesma razao — a revisao chama `indice.criar()`.
+    "db/indice.py",
     "docs/tecnica",
     "tools/canon_lint/tests/fixtures",
 )

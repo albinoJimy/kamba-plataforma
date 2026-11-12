@@ -115,9 +115,17 @@
       "types": "./dist/inscricao/index.d.ts",
       "default": "./dist/inscricao/index.js"
     },
+    "./kyc": {
+      "types": "./dist/kyc/index.d.ts",
+      "default": "./dist/kyc/index.js"
+    },
     "./contratos": {
       "types": "./dist/contratos/index.d.ts",
       "default": "./dist/contratos/index.js"
+    },
+    "./screening": {
+      "types": "./dist/screening/index.d.ts",
+      "default": "./dist/screening/index.js"
     },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",

@@ -208,6 +208,11 @@ _SEM_NOMES = {
     ("alter", "sequence"), ("alter", "view"),
     ("alter", "database"), ("alter", "extension"), ("alter", "trigger"),
     ("alter", "procedure"), ("alter", "materialized"),
+    # `CREATE TEXT SEARCH CONFIGURATION idx.kamba_pt (COPY = ...)` e o
+    # `ALTER TEXT SEARCH CONFIGURATION ... ALTER MAPPING` (KAM-061): o nome que
+    # criam e de uma configuracao de pesquisa textual, que o §3 nao classifica
+    # como tabela, coluna nem valor — o mesmo estatuto do `CREATE COLLATION`.
+    ("create", "text"), ("alter", "text"),
 }
 
 _MODIFICADORES = {

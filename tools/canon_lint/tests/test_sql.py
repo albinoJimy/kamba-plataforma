@@ -233,6 +233,8 @@ class TestOutrasInstrucoes(unittest.TestCase):
             "INSERT INTO platform.tenants (id) SELECT gen_random_uuid()",
             "WITH a AS (SELECT 1) INSERT INTO platform.t SELECT * FROM a",
             "CREATE SCHEMA platform AUTHORIZATION kamba_migrator",
+            "CREATE TEXT SEARCH CONFIGURATION idx.kamba_pt (COPY = pg_catalog.portuguese)",
+            "ALTER TEXT SEARCH CONFIGURATION idx.kamba_pt ALTER MAPPING FOR word WITH public.unaccent",
         ):
             with self.subTest(texto=texto):
                 self.assertEqual(obj(texto).desconhecidas, [])
