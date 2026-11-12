@@ -114,7 +114,7 @@ export const SQL_LER_OFERTA = `
 export const SQL_RESERVAR = `
   UPDATE platform.offer_terms
      SET stock_reservada = stock_reservada + $3,
-         atualizado_at = now()
+         atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2
      AND deleted_at IS NULL
      AND (stock_quantidade - stock_reservada >= $3
@@ -137,7 +137,7 @@ export const SQL_RESERVAR = `
 export const SQL_DEVOLVER_STOCK = `
   UPDATE platform.offer_terms
      SET stock_reservada = stock_reservada - $3,
-         atualizado_at = now()
+         atualizado_at = clock_timestamp()
    WHERE tenant_id = $1 AND sku = $2
      AND stock_reservada >= $3
   RETURNING sku, stock_quantidade, stock_reservada

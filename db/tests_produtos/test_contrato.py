@@ -464,6 +464,11 @@ class TestOContratoComOModulo(ComOfertas):
             "SQL_PUBLICAR": (tenant, SKU_PARTILHADO),
             "SQL_AJUSTAR_STOCK": (tenant, SKU_PARTILHADO, "garantido"),
             "SQL_PESQUISAR": (tenant, "arroz", "arroz", 5),
+            # KAM-099. A versao e um texto que nao casa: o caso prova que o
+            # texto corre, e o `test_painel` mede o CAS.
+            "SQL_LISTAR_OFERTAS": (tenant, 5),
+            "SQL_OFERTA_DO_PAINEL": (tenant, SKU_PARTILHADO),
+            "SQL_ALTERAR_OFERTA": (tenant, SKU_PARTILHADO, "fixo", PRECO, "2026-01-01T00:00:00.000001Z", True),
             # Cinco e nao quatro: o `contact_id = $2` entrou com o KAM-179.
             # A cotacao e **por contacto**, por decisao do fundador de
             # 2026-11-04: sem o predicado, dentro do mesmo tenant o contacto X

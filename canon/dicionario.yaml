@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.79"
+versao_dicionario: "1.80"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -211,7 +211,7 @@ entradas:
       - "restrito"
   - seccao: "3.2"
     conceito: "Fase do onboarding"
-    canonico: "onboarding_case.fase, catorze valores (§3.56)"
+    canonico: "onboarding_case.fase, catorze valores (§3.57)"
     literais:
       - "onboarding_case.fase"
     nomes:
@@ -9777,8 +9777,8 @@ entradas:
       - "money"
     variantes_literais: []
   - seccao: "3.39"
-    conceito: "As sete rotas da API interna do COM"
-    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation"
+    conceito: "As nove rotas da API interna do COM"
+    canonico: "POST /internal/offer-view, /internal/propose-cart, /internal/create-order, /internal/get-order, /internal/list-orders, /internal/transition, /internal/request-owner-confirmation, /internal/list-offers, /internal/update-offer"
     literais: []
     nomes: []
     nomes_nota:
@@ -14323,6 +14323,174 @@ entradas:
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.56"
+    conceito: "As rotas do painel"
+    canonico: "GET /painel/entrar, POST /painel/sair, GET /painel/produtos, PATCH /painel/produtos/:id, GET /painel/encomendas, GET /painel/encomendas/:id, GET /painel/canal"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "id"
+      - "sku"
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A sessão do painel"
+    canonico: "cookie kamba_painel, domínio kamba/painel/sessao/v1, v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
+    literais:
+      - "kamba_painel"
+      - "v1.<sid>.<tenant>.<dono>.<emitida>.<renovada>.<hmac>"
+    nomes:
+      - "kamba_painel"
+      - "v1"
+      - "sid"
+      - "tenant"
+      - "dono"
+      - "emitida"
+      - "renovada"
+      - "hmac"
+    nomes_nota:
+      - "sessao"
+      - "tenant_id"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "O corpo da gravação"
+    canonico: "preco_tipo, preco_minor, versao, confirmar_variacao, com o cabeçalho Idempotency-Key"
+    literais:
+      - "preco_tipo"
+      - "preco_minor"
+      - "versao"
+      - "confirmar_variacao"
+      - "Idempotency-Key"
+    nomes:
+      - "preco_tipo"
+      - "preco_minor"
+      - "versao"
+      - "confirmar_variacao"
+      - "Idempotency"
+      - "Key"
+    nomes_nota:
+      - "preco_tipo"
+      - "preco_minor"
+      - "stock"
+      - "stock_por_ligar"
+      - "stock_quantidade"
+      - "Idempotency"
+      - "Key"
+    variantes_literais:
+      - "preco_modo"
+  - seccao: "3.56"
+    conceito: "A versão optimista de uma oferta"
+    canonico: "offer_terms.atualizado_at, como texto UTC com microssegundos (OfertaDoPainel.versao)"
+    literais:
+      - "offer_terms.atualizado_at"
+      - "OfertaDoPainel.versao"
+    nomes:
+      - "offer_terms.atualizado_at"
+      - "OfertaDoPainel.versao"
+    nomes_nota:
+      - "offer_terms"
+      - "atualizado_at"
+      - "timestamptz"
+      - "SQL_ALTERAR_OFERTA"
+      - "clock_timestamp"
+      - "now"
+      - "preco_valido_ate"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As operações do painel no COM"
+    canonico: "listarOfertas, alterarOferta, servidas por POST /internal/list-offers e POST /internal/update-offer"
+    literais:
+      - "listarOfertas"
+      - "alterarOferta"
+    nomes:
+      - "listarOfertas"
+      - "alterarOferta"
+    nomes_nota:
+      - "OperacoesDoCom"
+      - "proposeCart"
+      - "createOrder"
+      - "Resultado"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A origem de auditoria do painel"
+    canonico: "painel_do_dono"
+    literais:
+      - "painel_do_dono"
+    nomes:
+      - "painel_do_dono"
+    nomes_nota:
+      - "ORIGENS"
+      - "dono"
+      - "owner"
+      - "audit_log"
+      - "onboarding_id"
+      - "actor_id"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "As métricas do painel"
+    canonico: "painel_pedidos_total{rota}, painel_erros_total{rota,motivo}"
+    literais:
+      - "painel_pedidos_total{rota}"
+      - "painel_erros_total{rota,motivo}"
+    nomes:
+      - "painel_pedidos_total"
+      - "rota"
+      - "painel_erros_total"
+      - "motivo"
+    nomes_nota:
+      - "rota"
+      - "entrar"
+      - "produtos"
+      - "gravar"
+      - "encomendas"
+      - "encomenda"
+      - "canal"
+      - "sair"
+      - "motivo"
+      - "sem_sessao"
+      - "nao_encontrado"
+      - "invalido"
+      - "conflito"
+      - "confirmacao"
+      - "indisponivel"
+      - "onboarding"
+      - "web"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "O estado do canal no painel"
+    canonico: "VistaDoCanal.estado ∈ {ativo, a_sincronizar, desligado, sem_canal}"
+    literais:
+      - "VistaDoCanal.estado"
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    nomes:
+      - "VistaDoCanal.estado"
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    nomes_nota:
+      - "platform.channels"
+      - "sem_canal"
+    variantes_literais: []
+  - seccao: "3.56"
+    conceito: "A configuração do painel"
+    canonico: "ONBOARDING_COM_INTERNO_URL, PAINEL_PRECO_MAXIMO_KZ"
+    literais:
+      - "ONBOARDING_COM_INTERNO_URL"
+      - "PAINEL_PRECO_MAXIMO_KZ"
+    nomes:
+      - "ONBOARDING_COM_INTERNO_URL"
+      - "PAINEL_PRECO_MAXIMO_KZ"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "painel_desligado"
+      - "com_internal_token"
+    variantes_literais: []
+  - seccao: "3.57"
     conceito: "Caso de onboarding"
     canonico: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
     literais:
@@ -14362,7 +14530,7 @@ entradas:
       - "kyc_check"
       - "DELETE"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Fase do caso"
     canonico: "onboarding_case.fase ∈ {registo, otp_pendente, kyc_pendente, em_revisao, aprovado, provisionando, aguarda_es, lista_espera, aguarda_catalogo, aguarda_teste, activo, rejeitado, abandonado, cancelado}"
     literais:
@@ -14406,7 +14574,7 @@ entradas:
       - "ativo"
       - "tenants.estado"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Entrada na fase"
     canonico: "onboarding_case.fase_at"
     literais:
@@ -14420,7 +14588,7 @@ entradas:
       - "UPDATE"
       - "fase"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Origem do convite"
     canonico: "onboarding_case.origem ∈ {convite, contabilista, anuncio}"
     literais:
@@ -14436,7 +14604,7 @@ entradas:
     nomes_nota:
       - "ORIGENS"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Marca do caso"
     canonico: "onboarding_case.flags ⊆ {duplicado_ambiguo}"
     literais:
@@ -14450,7 +14618,7 @@ entradas:
       - "flags"
       - "ARRAY"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Unicidade do NIF vivo"
     canonico: "índice onboarding_nif_vivo sobre nif_hmac, parcial"
     literais:
@@ -14463,7 +14631,7 @@ entradas:
       - "fase"
       - "CasoDuplicadoError"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Verificação K1 de um documento"
     canonico: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
     literais:
@@ -14494,7 +14662,7 @@ entradas:
       - "phash"
       - "kamba_app"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Tipo de documento K1"
     canonico: "kyc_check.doc_tipo ∈ {nif, alvara, bi, banco}"
     literais:
@@ -14511,7 +14679,7 @@ entradas:
       - "banco"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Resultado de uma verificação"
     canonico: "kyc_check.resultado ∈ {k1_ok, fila, ilegivel, pendente}"
     literais:
@@ -14531,7 +14699,7 @@ entradas:
       - "rejeitado"
       - "fase"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Marca de uma verificação"
     canonico: "kyc_check.flags ⊆ {nif_divergente, alvara_expirado, imagem_reutilizada, software_de_edicao, iban_invalido, nome_titular_divergente, confianca_baixa, actividade_incoerente, visao_recusada, orcamento_excedido, ilegivel}"
     literais:
@@ -14562,7 +14730,7 @@ entradas:
       - "ilegivel"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Objecto do documento"
     canonico: "kyc_check.doc_ref, a chave do STO, com starts_with(doc_ref, 't/' \|\| tenant_id \|\| '/kyc_documento/')"
     literais:
@@ -14572,7 +14740,7 @@ entradas:
     nomes_nota:
       - "kyc_documento"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Hash perceptual"
     canonico: "kyc_check.phash, 8 octetos"
     literais:
@@ -14582,7 +14750,7 @@ entradas:
     nomes_nota:
       - "bit_count"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Campos extraídos"
     canonico: "kyc_check.extraido_enc"
     literais:
@@ -14595,7 +14763,7 @@ entradas:
       - "rejeitado"
       - "abandonado"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Versão das regras"
     canonico: "kyc_check.versao_regras, SemVer; VERSAO_DAS_REGRAS = 1.0.0"
     literais:
@@ -14609,7 +14777,7 @@ entradas:
       - "kyc"
       - "vision"
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Custo de LLM de uma verificação"
     canonico: "kyc_check.custo_micro_usd, inteiro ≥ 0"
     literais:
@@ -14618,7 +14786,7 @@ entradas:
       - "kyc_check.custo_micro_usd"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.56"
+  - seccao: "3.57"
     conceito: "Motivo público do KYC"
     canonico: "MotivoPublico ∈ {ilegivel, alvara_expirado, nao_foi_possivel_validar}"
     literais:
@@ -15786,7 +15954,7 @@ tabelas:
       - "activo_at"
     aberta: false
     assinatura: "platform.onboarding_case(id, tenant_id, fase, fase_at, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, email_enc, device_hash, ip_prefix_hash, flags, owner_active_seconds, preflight, criado_at, activo_at)"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Caso de onboarding"
   - nome: "kyc_check"
     esquema: "platform"
@@ -15807,7 +15975,7 @@ tabelas:
       - "criado_at"
     aberta: false
     assinatura: "platform.kyc_check(id, onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, phash, extraido_enc, flags, score, resultado, versao_regras, custo_micro_usd, criado_at)"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Verificação K1 de um documento"
 
 dominios:
@@ -17053,6 +17221,15 @@ dominios:
     seccao: "3.55"
     conceito: "Motivo de uma unidade sem ok"
     so_no_registo: false
+  - coluna: "VistaDoCanal.estado"
+    valores:
+      - "ativo"
+      - "a_sincronizar"
+      - "desligado"
+      - "sem_canal"
+    seccao: "3.56"
+    conceito: "O estado do canal no painel"
+    so_no_registo: false
   - coluna: "onboarding_case.fase"
     valores:
       - "registo"
@@ -17069,7 +17246,7 @@ dominios:
       - "rejeitado"
       - "abandonado"
       - "cancelado"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Fase do caso"
     so_no_registo: false
   - coluna: "onboarding_case.origem"
@@ -17077,7 +17254,7 @@ dominios:
       - "convite"
       - "contabilista"
       - "anuncio"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Origem do convite"
     so_no_registo: false
   - coluna: "kyc_check.doc_tipo"
@@ -17086,7 +17263,7 @@ dominios:
       - "alvara"
       - "bi"
       - "banco"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Tipo de documento K1"
     so_no_registo: false
   - coluna: "kyc_check.resultado"
@@ -17095,7 +17272,7 @@ dominios:
       - "fila"
       - "ilegivel"
       - "pendente"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Resultado de uma verificação"
     so_no_registo: false
   - coluna: "MotivoPublico"
@@ -17103,7 +17280,7 @@ dominios:
       - "ilegivel"
       - "alvara_expirado"
       - "nao_foi_possivel_validar"
-    seccao: "3.56"
+    seccao: "3.57"
     conceito: "Motivo público do KYC"
     so_no_registo: false
 

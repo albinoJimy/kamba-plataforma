@@ -26,7 +26,7 @@
  * não escreveu a migração: a `onboarding_case.fase` do dicionário §3.2 divergia
  * do bloco em **nove valores e num nome**, e escrever a tabela era decidir a
  * emenda de passagem. **A tabela nasceu com o KAM-087** (revisão `0043`, emenda
- * 1.79 do dicionário, §3.56), com a coluna `fase` e os catorze valores de
+ * 1.80 do dicionário, §3.57), com a coluna `fase` e os catorze valores de
  * `FASES`. O que continua por fazer é o adaptador SQL desta porta — a cifra do
  * NIF e do telefone e a tradução do `23505` do índice do NIF —, com credor
  * KAM-086.
@@ -72,7 +72,7 @@ import type { Email, Nif, Telefone } from "./identificadores.ts";
  * **renomeado**, e a emenda tinha de decidir qual dos dois nomes fica. Entregar
  * seis era implementar uma máquina de estados que o próprio bloco contradiz;
  * entregar catorze e contar a divergência é o que deixou a emenda decidível.
- * **Decidiu-a a emenda 1.79 (KAM-087, §3.56): fica `activo`**, porque o
+ * **Decidiu-a a emenda 1.80 (KAM-087, §3.57): fica `activo`**, porque o
  * `pronto` já designa o canal pronto noutras duas máquinas do onboarding.
  *
  * Deste ticket só se alcançam as **duas primeiras** (`registo` e

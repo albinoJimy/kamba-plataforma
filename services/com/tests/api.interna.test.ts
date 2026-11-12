@@ -42,6 +42,7 @@ import {
 } from "../src/api/interna.ts";
 import { TIPO_DE_CONTEUDO } from "../src/metricas.ts";
 import type { OperacoesDoCom } from "../src/adapters/medusa/index.ts";
+import type { AlteracaoDeOferta } from "../src/produtos/index.ts";
 import {
   conflito,
   erro,
@@ -63,6 +64,11 @@ const CREDENCIAL_DO_AGR = "a-credencial-do-agr";
 interface Chamadas {
   readonly contagem: Map<string, number>;
 }
+
+/** O que o `update-offer` entregou ao módulo. */
+const alteracoes: AlteracaoDeOferta[] = [];
+/** O tenant do `ctx` de cada `listarOfertas`. */
+const tenantsDasOfertas: string[] = [];
 
 function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } {
   const contagem = new Map<string, number>();
@@ -172,6 +178,29 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
         },
       };
     },
+    async listarOfertas(ctx: Ctx) {
+      contar("listarOfertas");
+      tenantsDasOfertas.push(ctx.tenantId);
+      return ok({ itens: [], truncada: false });
+    },
+    async alterarOferta(_ctx: Ctx, a) {
+      contar("alterarOferta");
+      alteracoes.push(a);
+      return ok({
+        sku: a.sku,
+        nome: "Arroz 5 kg",
+        precoTipo: a.precoTipo,
+        precoMinor: a.precoMinor,
+        currency: "AOA",
+        precoValidoAte: null,
+        stockModo: "indicativo" as const,
+        stockQuantidade: null,
+        stockReservada: 0,
+        stockVerificadoAt: null,
+        estado: "publicado" as const,
+        versao: "2026-11-02T11:00:00.000002Z",
+      });
+    },
   };
   return { operacoes, chamadas: { contagem } };
 }
@@ -211,7 +240,7 @@ const BONS = {
 
 // ------------------------------------------------------------------- a credencial
 
-test("criterio 2: as sete rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+test("criterio 2: as nove rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
   const { aplicacao, chamadas } = app();
   for (const rota of ROTAS) {
     const r = await aplicacao.fetch(
@@ -514,7 +543,7 @@ test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", as
 });
 
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
-  // As sete rotas são `POST`. Um `GET` que respondesse era uma superfície que
+  // As nove rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
   const { aplicacao } = app();
   for (const rota of ROTAS) {
@@ -592,4 +621,72 @@ test("o /healthz continua sem credencial", async () => {
     new Request("http://127.0.0.1/healthz", { method: "GET" }),
   );
   assert.equal(r.status, 200);
+});
+
+// ------------------------------------------------- KAM-099: o painel do dono
+
+test("KAM-099: o list-offers chama a operacao com o tenant do cabecalho", async () => {
+  tenantsDasOfertas.length = 0;
+  const { aplicacao, chamadas } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/list-offers",
+      { actor: { kind: "dono", id: "dono-1" }, trace_id: "t", tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      BONS,
+    ),
+  );
+  assert.deepEqual(tenantsDasOfertas, [TENANT]);
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { tipo: "ok", valor: { itens: [], truncada: false } });
+  assert.equal(chamadas.contagem.get("listarOfertas"), 1);
+});
+
+test("KAM-099: o update-offer le o preco como bigint e devolve-o como cadeia", async () => {
+  alteracoes.length = 0;
+  const { aplicacao } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/update-offer",
+      {
+        actor: { kind: "dono", id: "dono-1" },
+        trace_id: "t",
+        sku: "arroz-5kg",
+        preco_tipo: "fixo",
+        preco_minor: "1500000",
+        stock: 7,
+        versao: "2026-11-02T11:00:00.000001Z",
+      },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  const corpo = (await r.json()) as { valor: { precoMinor: unknown } };
+  assert.equal(corpo.valor.precoMinor, "1500000");
+  assert.equal(alteracoes[0]?.precoMinor, 1_500_000n);
+  assert.equal(alteracoes[0]?.stock, 7);
+});
+
+test("KAM-099: o update-offer sem versao, com preco fracionario ou stock nao inteiro e 400", async () => {
+  const base = {
+    actor: { kind: "dono", id: "dono-1" },
+    trace_id: "t",
+    sku: "arroz-5kg",
+    preco_tipo: "fixo",
+    preco_minor: "1500000",
+    versao: "2026-11-02T11:00:00.000001Z",
+  };
+  const maus = [
+    { ...base, versao: undefined },
+    { ...base, preco_minor: 12.5 },
+    { ...base, preco_minor: "-3" },
+    { ...base, stock: 2.5 },
+    { ...base, stock: "7" },
+    { ...base, sku: "" },
+  ];
+  for (const corpo of maus) {
+    const { aplicacao, chamadas } = app();
+    const r = await aplicacao.fetch(pedido("/internal/update-offer", corpo, BONS));
+    assert.equal(r.status, 400, JSON.stringify(corpo));
+    assert.equal(chamadas.contagem.get("alterarOferta"), undefined);
+  }
 });
