@@ -58,9 +58,11 @@ KAM-064.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Final
 
 from kamba_core.idx import pesquisa
+from kamba_core.idx.metricas import METRICAS as METRICAS_DO_IDX
 
 from .erros import VALIDATION_ERROR
 from .especificacoes import ErroDeBackend, Pedido, Resposta
@@ -129,6 +131,12 @@ def executar(pedido: Pedido) -> Resposta:
             "de backend `idx` sem tomada e defeito de registo, nao resposta"
         )
     tecto_de_preco = _tecto_de_preco(dict(pedido.args.filtros))
+    # Sem `qvec`: o modo e o lexical (§6.5) ate o KAM-063 dar o embedding da
+    # pergunta. **Uma variavel e nao dois literais**, porque o mesmo facto decide
+    # o maximo teorico do pontuador e a etiqueta `modo` das metricas (KAM-193), e
+    # dois literais divergiam no dia em que o vector chegasse.
+    hibrido = False
+    inicio = time.perf_counter()
     try:
         resultados = pesquisa.candidatos(
             pedido.ligacao,
@@ -145,8 +153,19 @@ def executar(pedido: Pedido) -> Resposta:
                 f"a pesquisa passou do tecto de {pedido.timeout_ms} ms"
             ) from erro
         raise
+    # So a pesquisa que respondeu entra na serie (KAM-193). Uma que passou do
+    # tecto tinha a duracao do tecto e nao a da pesquisa, e um *gauge* com o
+    # ultimo valor ficava preso ao numero que o chamador escolheu; a falta conta
+    # no `agr_tool_erros_total`, que e onde a ToolLayer ja a conta. A pergunta
+    # **nao** passa para a metrica: o registo so recebe o modo, a duracao e o
+    # numero de candidatos.
+    METRICAS_DO_IDX.registar_pesquisa(
+        modo="hibrido" if hibrido else "lexical",
+        duracao_ms=(time.perf_counter() - inicio) * 1_000,
+        resultados=len(resultados),
+    )
     candidatos: list[dict[str, Any]] = [
-        {**linha, "score": round(score_normalizado(score, hibrido=False), 4)}
+        {**linha, "score": round(score_normalizado(score, hibrido=hibrido), 4)}
         for linha, score in resultados
     ]
     return Resposta(data={"candidatos": tuple(candidatos)})

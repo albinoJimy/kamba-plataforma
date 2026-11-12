@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.20 |
+| Versão | 1.21 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -3725,8 +3725,8 @@ predicado) provam-se em `db/tests_agr/test_eventos.py`, com o SQL a correr.
 | A decisão janela/*template* | É do Outbound, e o catálogo de *templates* aprovados não existe | KAM-015, KAM-024 |
 | A entrega do aviso ao dono | A porta está; o painel e o e-mail são do HND, e o canal alternativo é outro ticket | KAM-019, KAM-115 |
 | A resolução `(agregado) -> contact_id` | Cinco dos seis contratos não trazem `contact_id` | KAM-041, KAM-047 |
-| As linhas de `evt_subscricoes` | Sem elas o publicador não entrega nada ao AGR. A fonte única para as escrever é o `consumidores()` deste ticket | KAM-005 |
-| A casca BullMQ → `POST /internal/event` | É casca, pelo molde do `agr/shim.ts` | KAM-005, KAM-006 |
+| As linhas de `evt_subscricoes` | Sem elas o publicador não entrega nada ao AGR. A fonte única para as escrever é o `consumidores()` deste ticket | KAM-194 (era o KAM-005, fechado) |
+| A casca BullMQ → `POST /internal/event` | É casca, pelo molde do `agr/shim.ts` | KAM-194 (eram o KAM-005 e o KAM-006, fechados) |
 | A `evt_acoes` | Continua **sem escritor**. Aqui a janela que ela fecha está fechada por desenho (o efeito corre dentro da transacção), mas quem vier a precisar de um efeito que não caiba numa transacção precisa dela | KAM-006 |
 | O grafo invocado a partir de um evento | O `ingest` pressupõe uma mensagem do cliente | KAM-031, KAM-035 |
 
@@ -5287,3 +5287,4 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 | 1.18 | Novembro 2026 | KAM-073: a caixa de *eval-gate* do DoD do KAM-033 citava a versão da política de guardas no presente; acrescenta-se que é **1.1.0** desde o *red-team*, que mudou a política. Nenhum critério, caixa ou estado deste epic muda. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | **KAM-186 entregue: a porta `grafos` está ligada, e o AGR serve turnos sem ainda conversar.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **cinco critérios satisfeitos** (1, 2, 5, 8 e 10), **quatro parciais** (3, 4, 6 e 9) e **dois devolvidos ao fundador** (7 e 11); **quatro caixas de DoD marcadas e uma vazia**. As três portas — a do turno, por `InvocacaoDoAgente` e `AgentRegistry.resolve`, e as duas por `thread_id`, pelo *checkpoint* — ligam-se ao registo em `kamba_agr/grafos.py`, e o `Dependencias` de cada vertical sai das omissões que não fazem nada. **A decisão que deu forma ao ticket foi devolvida e não tomada**: a rota do texto do cliente até à janela muda o canon nas duas saídas medidas, pelo que a janela chega vazia. **E um achado sem ticket**: a `PortaDeSaida` do grafo não tem implementação — o `Saida` do KAM-015 é uma biblioteca TypeScript que nenhum serviço instancia —, pelo que a resposta não sai do processo — e o turno que quer responder dá 503 `saida_por_ligar` e volta à fila, para que nenhuma resposta se perca. Dicionário: emenda **1.74** (o desfecho `servico_indisponivel`, sem nome novo, e o `saida_por_ligar` do *shim*). A revisão adversarial encontrou **doze** mutações da ligação vivas contra a primeira bateria, e as doze passaram a ser apanhadas. `../docs/agr.md` 1.20 (§7-K novo), `../docs/concierge.md` 1.3, `ADR-L005` 1.2. **Sem migração.** | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **KAM-040 entregue em parte: o golden PT-AO e o *eval harness* existem, e o gate 13 ainda não bloqueia.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1, 2, 4 e 7), três parciais (3, 5 e 8) e o 6 devolvido ao fundador, que é quem torna o gate bloqueante. Medido no grafo que o processo serve, sem modelo: o Vendedor reprova o gate duro na recusa (43/50) e os Serviços passam, com **zero** violações duras nas duas verticais. Fica registado o achado de a compra do Vendedor não fechar pelo caminho do processo. | Equipa KAMBÁ |
+| 1.21 | Novembro 2026 | **KAM-194**, e é uma correcção de **credor**, não de conteúdo: na verificação do KAM-038, a casca BullMQ → `POST /internal/event` e as linhas de `evt_subscricoes` do AGR apontavam para o KAM-005 e o KAM-006, que estão fechados. Passam ao **KAM-194**, que o KAM-193 abre como a ponte fila → consumidor Python e que serve o AGR e o IDX com a mesma casca. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

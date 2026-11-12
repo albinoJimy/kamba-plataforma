@@ -273,6 +273,24 @@ class TestMetricas(unittest.TestCase):
                     f"forma de identificador {forma.pattern} em {linha[: linha.index('{')]}",
                 )
 
+    def test_a_rota_serve_tambem_as_metricas_do_idx(self) -> None:
+        """KAM-193: o registo do `kamba_core.idx` sai na mesma `/metrics`.
+
+        Sem a linha da rota, o registo enchia-se no executor e nao saia em
+        sitio nenhum — medido e invisivel, que e o defeito que o `exposicao()`
+        do AGR ja pagou com as medidas etiquetadas.
+        """
+        from kamba_core.idx import metricas as idx
+
+        self.addCleanup(idx.METRICAS.repor)
+        idx.METRICAS.registar_pesquisa(modo="lexical", duracao_ms=41, resultados=3)
+
+        corpo = request("/metrics")[2].decode("utf-8")
+        self.assertIn('idx_query_ms{ramo="todos",modo="lexical"} 41', corpo)
+        self.assertIn("idx_results_total 3", corpo)
+        self.assertIn('idx_mode{modo="lexical"} 1', corpo)
+        self.assertIn("# TYPE idx_mode counter", corpo)
+
 
 class TestMetadados(unittest.TestCase):
     def test_o_servico_e_o_da_topologia(self) -> None:

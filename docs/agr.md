@@ -1513,7 +1513,7 @@ subscrevem eventos do EVT» (ADR-009), e o que cada uma subscreve está no seu
 `registry/<id>.yaml`; este ticket liga essas linhas a consumidores.
 
 ```
-evt.<consumer>.p<0..15>  (BullMQ, casca em TypeScript — KAM-005/KAM-006)
+evt.<consumer>.p<0..15>  (BullMQ, casca em TypeScript — KAM-194)
         │
         └── POST /internal/event   {event_id, tenant_id, envelope, tentativas}
                 │
@@ -2222,3 +2222,4 @@ contexto de quem chama o `ainvoke`; medido pela bateria).
 | 1.18 | 2026-11-08 | KAM-033 | §7-J: os guardrails — a política com versão e impressão, os seis veredictos de entrada por ordem e o classificador só quando as regras não decidem, a via única para a janela (e a medição que a obriga: o *checkpoint* de entrada), os quatro veredictos de saída, e o que fica por ligar. |
 | 1.19 | 2026-11-09 | KAM-186 | §1, §7-F, §7-G e §7-J: o credor «quem ligar a porta `grafos`» — e «quem ligar o AgentRegistry», na tabela do §7-G — passa a ter número, o **KAM-186**, aberto para isso. Nenhuma afirmação sobre o que o AGR faz muda: a porta continua a levantar até ele ser entregue. |
 | 1.20 | 2026-11-09 | KAM-186 | **A porta `grafos` está ligada.** §7-K novo: as três portas e as duas resoluções, as portas do `Dependencias` com a omissão de cada uma, a admissão do turno (contacto e `turn_id`, e o que ela não vê), e o que falta para conversar — a janela vazia, com a rota do texto devolvida ao fundador, a porta de saída sem Outbound (503 `saida_por_ligar`, para que nenhuma resposta se perca), com credor por abrir, e a resposta estática do `servico_indisponivel`, que não existe. O cabeçalho, o §1, o §7-B, o §7-F, o §7-G e o §7-J deixam de dizer que a porta está por ligar. |
+| 1.21 | 2026-11-12 | KAM-194 | §7-H: o credor da casca BullMQ → `/internal/event` passa a ser o KAM-194 (era o KAM-005/KAM-006, fechados). Sem alteração de conteúdo técnico. |
