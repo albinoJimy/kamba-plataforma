@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.82"
+versao_dicionario: "1.83"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -701,7 +701,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa}"
     literais:
       - "action"
       - "price.update"
@@ -715,6 +715,9 @@ entradas:
       - "privacy.dsar_rectificado"
       - "retention.hold_aplicado"
       - "retention.hold_levantado"
+      - "order.refund_record"
+      - "review.acesso"
+      - "review.recusa"
     nomes:
       - "action"
       - "price.update"
@@ -728,7 +731,11 @@ entradas:
       - "privacy.dsar_rectificado"
       - "retention.hold_aplicado"
       - "retention.hold_levantado"
+      - "order.refund_record"
+      - "review.acesso"
+      - "review.recusa"
     nomes_nota:
+      - "order.refund_record"
       - "audit.read"
     variantes_literais: []
   - seccao: "3.2"
@@ -15232,6 +15239,339 @@ entradas:
     nomes_nota:
       - "vector"
     variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Caso de revisão"
+    canonico: "platform.review_case, dezasseis colunas"
+    literais:
+      - "platform.review_case"
+    nomes:
+      - "platform.review_case"
+    nomes_nota:
+      - "id"
+      - "tipo"
+      - "onboarding_id"
+      - "tenant_id"
+      - "motivo_codigo"
+      - "motivo_interno"
+      - "motivo_publico"
+      - "evidencias"
+      - "recomendacao"
+      - "estado"
+      - "prioridade"
+      - "fila_at"
+      - "sla_alerta_at"
+      - "sla_due_at"
+      - "sla_alertado_at"
+      - "criado_at"
+      - "NOT"
+      - "NULL"
+      - "FORCE"
+      - "em_triagem_automatica"
+      - "onboarding_case"
+      - "ref"
+      - "kyc_check"
+      - "screening_decision"
+      - "kamba_batch"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Chave de abertura"
+    canonico: "review_case_abertura_uq: UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)"
+    literais:
+      - "review_case_abertura_uq"
+      - "UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)"
+    nomes:
+      - "review_case_abertura_uq"
+      - "UNIQUE"
+      - "NULLS"
+      - "NOT"
+      - "DISTINCT"
+      - "tipo"
+      - "tenant_id"
+      - "onboarding_id"
+      - "motivo_codigo"
+    nomes_nota:
+      - "tenant_id"
+      - "NULLS"
+      - "NOT"
+      - "DISTINCT"
+      - "onboarding_id"
+      - "motivo_codigo"
+      - "familia"
+      - "detalhe"
+      - "kyc_k1"
+      - "es_falhado"
+      - "screening"
+      - "sha256"
+      - "amostra"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Tipo de caso"
+    canonico: "review_case.tipo ∈ {kyc, categoria, duplicado, es_falhado, saga, catalogo, recurso, trust, auditoria}"
+    literais:
+      - "review_case.tipo"
+      - "kyc"
+      - "categoria"
+      - "duplicado"
+      - "es_falhado"
+      - "saga"
+      - "catalogo"
+      - "recurso"
+      - "trust"
+      - "auditoria"
+    nomes:
+      - "review_case.tipo"
+      - "kyc"
+      - "categoria"
+      - "duplicado"
+      - "es_falhado"
+      - "saga"
+      - "catalogo"
+      - "recurso"
+      - "trust"
+      - "auditoria"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Estado do caso"
+    canonico: "review_case.estado ∈ {em_triagem_automatica, aberto, em_analise, escalado, decidido, recurso_aberto, decidido_final}"
+    literais:
+      - "review_case.estado"
+      - "em_triagem_automatica"
+      - "aberto"
+      - "em_analise"
+      - "escalado"
+      - "decidido"
+      - "recurso_aberto"
+      - "decidido_final"
+    nomes:
+      - "review_case.estado"
+      - "em_triagem_automatica"
+      - "aberto"
+      - "em_analise"
+      - "escalado"
+      - "decidido"
+      - "recurso_aberto"
+      - "decidido_final"
+    nomes_nota:
+      - "em_triagem_automatica"
+      - "TRANSICOES"
+      - "review_case_transicao"
+      - "decidido_final"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Motivo público"
+    canonico: "review_case.motivo_publico ∈ {nao_foi_possivel_validar, documento_expirado, categoria_nao_permitida, informacao_em_falta}"
+    literais:
+      - "review_case.motivo_publico"
+      - "nao_foi_possivel_validar"
+      - "documento_expirado"
+      - "categoria_nao_permitida"
+      - "informacao_em_falta"
+    nomes:
+      - "review_case.motivo_publico"
+      - "nao_foi_possivel_validar"
+      - "documento_expirado"
+      - "categoria_nao_permitida"
+      - "informacao_em_falta"
+    nomes_nota:
+      - "TEXTO_DO_MOTIVO_PUBLICO"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Recomendação automática"
+    canonico: "review_case.recomendacao ∈ {aprovar, rejeitar, pedir_info, investigar}"
+    literais:
+      - "review_case.recomendacao"
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "investigar"
+    nomes:
+      - "review_case.recomendacao"
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "investigar"
+    nomes_nota:
+      - "pedir_documentos"
+      - "pedir_info"
+      - "investigar"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Prioridade e risco alto"
+    canonico: "review_case.prioridade ∈ 1…9, 1 a mais urgente"
+    literais:
+      - "review_case.prioridade"
+    nomes:
+      - "review_case.prioridade"
+    nomes_nota:
+      - "prioridadeDeRiscoAlto"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Decisão do revisor"
+    canonico: "platform.review_decision_log, nove colunas: id, case_id, tenant_id, revisor_id, decisao, instancia, regra, nota_enc, em"
+    literais:
+      - "platform.review_decision_log"
+      - "id"
+      - "case_id"
+      - "tenant_id"
+      - "revisor_id"
+      - "decisao"
+      - "instancia"
+      - "regra"
+      - "nota_enc"
+      - "em"
+    nomes:
+      - "platform.review_decision_log"
+      - "id"
+      - "case_id"
+      - "tenant_id"
+      - "revisor_id"
+      - "decisao"
+      - "instancia"
+      - "regra"
+      - "nota_enc"
+      - "em"
+    nomes_nota:
+      - "review_decision_log.decisao"
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "escalar"
+      - "review_decision_log.instancia"
+      - "primeira"
+      - "recurso"
+      - "id"
+      - "uuid"
+      - "bigserial"
+      - "tenant_id"
+      - "case_id"
+      - "instancia"
+      - "em"
+      - "clock_timestamp"
+      - "review_decision_log_imutavel"
+      - "nota_enc"
+      - "review_case"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Vista do SLA"
+    canonico: "platform.v_review_sla"
+    literais:
+      - "platform.v_review_sla"
+    nomes:
+      - "platform.v_review_sla"
+    nomes_nota:
+      - "case_id"
+      - "tenant_id"
+      - "tipo"
+      - "estado"
+      - "prioridade"
+      - "fila_at"
+      - "sla_alerta_at"
+      - "sla_due_at"
+      - "primeira_decisao_at"
+      - "dentro_do_sla"
+      - "security_invoker"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "SLA em dias úteis"
+    canonico: "calcularSla, somarTempoUtil, tempoUtilEntre e a tabela Feriados (fixos MM-DD, datas AAAA-MM-DD)"
+    literais:
+      - "calcularSla"
+      - "somarTempoUtil"
+      - "tempoUtilEntre"
+      - "Feriados"
+      - "fixos"
+      - "datas"
+    nomes:
+      - "calcularSla"
+      - "somarTempoUtil"
+      - "tempoUtilEntre"
+      - "Feriados"
+      - "fixos"
+      - "datas"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Métricas da fila"
+    canonico: "review_first_decision_p90_segundos, review_casos{tipo,estado}, review_decisoes{tipo,decisao}, review_falsos_aprovados_ratio"
+    literais:
+      - "review_first_decision_p90_segundos"
+      - "review_casos{tipo,estado}"
+      - "review_decisoes{tipo,decisao}"
+      - "review_falsos_aprovados_ratio"
+    nomes:
+      - "review_first_decision_p90_segundos"
+      - "review_casos"
+      - "tipo"
+      - "estado"
+      - "review_decisoes"
+      - "decisao"
+      - "review_falsos_aprovados_ratio"
+    nomes_nota:
+      - "review_first_decision_p90"
+      - "SQL_CONTADORES"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Papéis de quem revê"
+    canonico: "ts_revisor, ts_lider"
+    literais:
+      - "ts_revisor"
+      - "ts_lider"
+    nomes:
+      - "ts_revisor"
+      - "ts_lider"
+    nomes_nota:
+      - "escalado"
+      - "ts_lider"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Acções auditadas da fila"
+    canonico: "review.acesso, review.recusa no audit_log.action (§3.2)"
+    literais:
+      - "review.acesso"
+      - "review.recusa"
+      - "audit_log.action"
+    nomes:
+      - "review.acesso"
+      - "review.recusa"
+      - "audit_log.action"
+    nomes_nota:
+      - "review.acesso"
+      - "entity"
+      - "kyc_check"
+      - "onboarding_case"
+      - "review.recusa"
+      - "payload_hash"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Quota anti-inundação"
+    canonico: "quotaPorOrigemPorDia, 20 (proposta)"
+    literais:
+      - "quotaPorOrigemPorDia"
+    nomes:
+      - "quotaPorOrigemPorDia"
+    nomes_nota:
+      - "ip_prefix_hash"
+      - "device_hash"
+      - "em_triagem_automatica"
+      - "drenarTriagem"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Amostragem de auditoria"
+    canonico: "fracaoDaAmostra 0,2 e semanasDeAmostragem 8 (propostas)"
+    literais:
+      - "fracaoDaAmostra"
+      - "semanasDeAmostragem"
+    nomes:
+      - "fracaoDaAmostra"
+      - "semanasDeAmostragem"
+    nomes_nota:
+      - "onboarding_id"
+      - "inicioDaAmostragem"
+      - "auditoria"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -16498,6 +16838,9 @@ dominios:
       - "privacy.dsar_rectificado"
       - "retention.hold_aplicado"
       - "retention.hold_levantado"
+      - "order.refund_record"
+      - "review.acesso"
+      - "review.recusa"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -17771,6 +18114,50 @@ dominios:
       - "tenant"
     seccao: "3.59"
     conceito: "Origem de um termo"
+    so_no_registo: false
+  - coluna: "review_case.tipo"
+    valores:
+      - "kyc"
+      - "categoria"
+      - "duplicado"
+      - "es_falhado"
+      - "saga"
+      - "catalogo"
+      - "recurso"
+      - "trust"
+      - "auditoria"
+    seccao: "3.60"
+    conceito: "Tipo de caso"
+    so_no_registo: false
+  - coluna: "review_case.estado"
+    valores:
+      - "em_triagem_automatica"
+      - "aberto"
+      - "em_analise"
+      - "escalado"
+      - "decidido"
+      - "recurso_aberto"
+      - "decidido_final"
+    seccao: "3.60"
+    conceito: "Estado do caso"
+    so_no_registo: false
+  - coluna: "review_case.motivo_publico"
+    valores:
+      - "nao_foi_possivel_validar"
+      - "documento_expirado"
+      - "categoria_nao_permitida"
+      - "informacao_em_falta"
+    seccao: "3.60"
+    conceito: "Motivo público"
+    so_no_registo: false
+  - coluna: "review_case.recomendacao"
+    valores:
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "investigar"
+    seccao: "3.60"
+    conceito: "Recomendação automática"
     so_no_registo: false
 
 variantes:

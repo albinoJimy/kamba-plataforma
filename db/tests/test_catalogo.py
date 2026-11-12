@@ -243,6 +243,12 @@ class TestConvencoes(ComBase):
                 # `kamba_app` le-a, e um sequencial dizia-lhe quantas decisoes
                 # a plataforma toma. A ordem e a do `criado_at`.
                 "screening_decision",
+                # KAM-089: o caso de revisao e a decisao do revisor. `uuid`
+                # aleatorio, e no registo de decisoes **nao** o `bigserial` do
+                # bloco, pela razao da decisao de screening: um sequencial dizia
+                # quantas decisoes a plataforma toma.
+                "review_case",
+                "review_decision_log",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -778,6 +784,11 @@ class TestConvencoes(ComBase):
                 # tenant) repete-se a cada execucao de proposito.
                 ("purge_log", "purge_id", "uuid", "gen_random_uuid()"),
                 ("refund_cases", "id", "uuid", "gen_random_uuid()"),
+                # KAM-089 (0048): o caso de revisao e o registo de decisoes,
+                # pela regra geral. Entre o caso de reembolso e a decisao de
+                # screening («ref» < «rev» < «scr»).
+                ("review_case", "id", "uuid", "gen_random_uuid()"),
+                ("review_decision_log", "id", "uuid", "gen_random_uuid()"),
                 # KAM-088 (0044): a decisao de screening, `uuid` gerada pela
                 # regra geral e nao o `bigserial` do bloco — um sequencial
                 # dizia quantas decisoes a plataforma toma. Entre o caso de
@@ -1270,7 +1281,12 @@ class TestConvencoes(ComBase):
              # KAM-088 (0044). Pelo indice `screening_decision_chave_idx`, que
              # comeca pelo `tenant_id` e e a pergunta do `assertPublishable`.
              # Sem FK para `tenants`: o caso tem o tenant pre-alocado.
-             "screening_decision"},
+             "screening_decision",
+             # KAM-089 (0048). Pelos indices `review_case_tenant_idx` e
+             # `review_decision_log_tenant_idx`. Sem FK para `tenants`: o caso
+             # de onboarding tem o tenant pre-alocado, e a linha de `tenants`
+             # so nasce no passo 1 da saga.
+             "review_case", "review_decision_log"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1828,7 +1844,15 @@ class TestConvencoes(ComBase):
         # `screening_decision_caso_fk`, composta `(onboarding_id, tenant_id)`
         # para a mesma unicidade do caso, pela mesma razao. O `onboarding_id`
         # e anulavel: a decisao de um produto nao tem caso.
-        self.assertEqual(len(linhas), 80)
+        #
+        # **82 e nao 80** desde a `0048` (KAM-089): **duas**. A
+        # `review_case_caso_fk`, composta `(onboarding_id, tenant_id)` para a
+        # unicidade do caso de onboarding, com o `onboarding_id` anulavel (um
+        # caso de saga ou de *trust* nao tem onboarding); e a
+        # `review_decision_log_case_fk`, composta `(case_id, tenant_id)` para a
+        # `review_case_id_tenant_uq`: uma decisao nao junta o caso de um com o
+        # tenant de outro.
+        self.assertEqual(len(linhas), 82)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

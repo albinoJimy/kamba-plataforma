@@ -51,7 +51,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-089 | Fila de revisão por excepção para T&S/T2 | feature | L | P0 | KAM-087, KAM-088 |
 | KAM-090 | Aceite contratual versionado: ToS, DPA e aviso de privacidade | feature | M | P0 | KAM-086, ext:KAM-104 |
 | KAM-091 | Saga de provisioning com idempotência, compensação e reconciliação | feature | L | P0 | KAM-009, KAM-019, KAM-030, KAM-042, KAM-016 |
-| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007 |
+| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
 | KAM-093 | Passo guiado do Embedded Signup: pré-voo e falhas | feature | M | P0 | KAM-016, KAM-017, KAM-086 |
 | KAM-094 | Catálogo mínimo e teste ponta a ponta automático | feature | M | P0 | KAM-049, KAM-091, KAM-088, KAM-092, KAM-093, KAM-023 |
 | KAM-095 | Lista de espera para o limite de onboarding da Meta | feature | M | P1 | KAM-093, ext:KAM-102 |
@@ -64,6 +64,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-190 | Painel light: caixas devolvidas pelo KAM-099 | feature | M | P2 | KAM-099, KAM-097 |
 | KAM-191 | Contrato do evento `screening.violation_detected` | feature | S | P1 | KAM-088 |
 | KAM-192 | Papel do classificador de screening no dicionário e alias `screening-nano` | feature | S | P1 | KAM-088 |
+| KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | KAM-089 |
 
 ---
 
@@ -593,7 +594,7 @@ Testes: unit, integração, adversarial (disfarces, injecção, relaxar polític
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-087, KAM-088 |
-| Bloqueia | KAM-092, KAM-097 |
+| Bloqueia | KAM-092, KAM-097, KAM-196 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV) com Responsável de Produto (T&S) |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 «Intervenção por excepção», §8.2, §16, §17), `../docs/tecnica/08_Seguranca_Conformidade.md` (§6), ADR-019, ADR-015 |
 
@@ -977,7 +978,7 @@ Testes: idempotência 2x e crash a meio, compensação com falha no passo 4, rec
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007 |
+| Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
 | Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127 |
 | Responsável sugerido | Arquitecto de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1, §16, §20.1 PA-GOV-1/6), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§4–§5), ADR-009, ADR-019 |
@@ -2141,6 +2142,79 @@ Objectivo: um papel novo no §3.29 por emenda, o alias screening-nano declarado 
 AGR a resolver os cinco aliases.
 Regras: nenhum alias existente muda de papel; sem chaves nem destinos no repositório.
 Testes: os do AGR e o gate 3b.
+```
+
+---
+
+## KAM-196 — Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | L |
+| Dependências | KAM-089 |
+| Bloqueia | KAM-092 |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Responsável de Segurança |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-089 e a sua verificação), `02_Dicionario_de_Dados_Canonico.md` (§3.60), `../docs/revisao.md`, `../docs/tecnica/08_Seguranca_Conformidade.md` (§6, MFA no acesso humano), ADR-015 |
+
+### Contexto
+
+O KAM-089 entregou a fila de revisão como serviço (`../packages/core-ts/src/revisao/`): abrir,
+listar sem dados pessoais, ver mascarado, revelar com registo, URL de documento de ≤ 300 s com
+registo, decidir, recorrer. **Não entregou a consola**, porque não há identidade de equipa neste
+repositório — nem IdP, nem contas de staff, nem MFA —, e uma rota `/equipa` sem ela era uma porta
+para os dados de todos os onboardings. Também não entregou o texto do aviso ao dono: o
+`../packages/core-ts/src/sms/` só tem o modelo do OTP. Este ticket é o credor dessas caixas, e
+nasce no PR que as devolve. **A escolha do IdP e a criação das contas de staff são do fundador**
+(contraparte e conta); o resto mede-se contra um IdP falso.
+
+### Objectivo
+
+Pôr a fila de revisão nas mãos de T&S: uma consola mínima no `onboarding-web`, protegida por
+identidade de equipa com MFA, e os avisos ao dono pela via certa.
+
+### Critérios de Aceitação
+
+- [ ] **(Fundador)** IdP da equipa escolhido e contas `ts_revisor`/`ts_lider` criadas, com MFA obrigatória; a escolha fica escrita com o subprocessador que acrescenta (KAM-069) e a sua licença.
+- [ ] Porta `IdentidadeDaEquipa` com um IdP falso nos ensaios: devolve o `Revisor` do §3.60 (identificador, papéis, MFA verificada, HMAC de NIF e telefone para a regra da parte); sem sessão válida ⇒ 401, sem MFA ⇒ 403, e nenhuma rota da consola responde sem ela.
+- [ ] Rotas `/equipa` no `onboarding-web` sobre o `ServicoDeRevisao`: lista paginada sem dados pessoais, caso mascarado, revelar um campo, abrir um documento (redirecção para a URL de ≤ 300 s), decidir, abrir e decidir recurso; **nenhuma rota de exportação**; as recusas do serviço respondem 403/409 e ficam no `audit_log`.
+- [ ] Cada rota nova tem caso real na bateria X-01 (`../tools/isolamento/baterias/x01_rotas.py` e o condutor `../tools/isolamento/tests/condutor/rotas.ts`): uma sessão de equipa sem papel não lê, e uma sessão de dono não entra.
+- [ ] Modelos de SMS (ASCII, ≤ 160 caracteres) e de e-mail para `aprovado`, `rejeitado`, `pedir_info` e `recurso_decidido`, com o texto fixo do motivo público; a via é o telefone registado ou o e-mail, **nunca** o número da loja. Nenhum número de telefone real no texto nem nos ensaios.
+- [ ] A fila corre num *job* nomeado com credenciais de lote: `drenarTriagem` e `alertarSla` agendados, e as métricas do §3.60 servidas.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (consola), `onboarding-web`, SMS (KAM-116), avisos ao dono (KAM-115), isolamento (X-01).
+- **A consola não é o Medusa Admin nem o Chatwoot** (bloco do KAM-089).
+- **Fora deste ticket:** as decisões em si (KAM-089), as sanções (KAM-097), a escolha do IdP e as contas (fundador).
+
+### Testes Requeridos
+
+- Unidade: a porta de identidade recusa sem sessão, sem papel e sem MFA.
+- Integração: as rotas `/equipa` sobre o serviço com duplos, ponta a ponta, e o `audit_log` de cada visualização.
+- Isolamento: os casos X-01 das rotas novas.
+- Adversarial: uma sessão de dono, uma de equipa sem papel e uma sem MFA não lêem caso nenhum; a lista não exporta mais de uma página.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, com o do fundador marcado só quando ele o fechar.
+- [ ] Sem segredos nem telefones reais no repositório; o IdP falso só existe nos ensaios.
+- [ ] Documentação actualizada (`../docs/revisao.md` §4 deixa de listar a consola e o aviso como em falta).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-196 da KAMBÁ (consola da fila de revisão).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-196 e KAM-089, com a verificação deste),
+specs/02_Dicionario_de_Dados_Canonico.md (§3.60), docs/revisao.md e packages/core-ts/src/revisao/.
+Objectivo: porta IdentidadeDaEquipa com IdP falso, rotas /equipa no onboarding-web sobre o
+ServicoDeRevisao, casos X-01 das rotas novas, modelos de SMS e e-mail do aviso ao dono, e o job da fila.
+Regras: a escolha do IdP e as contas de staff são do fundador; sem exportação; sem telefones reais;
+nenhuma rota responde sem identidade com MFA.
+Testes: unidade, integração, isolamento e adversarial.
 ```
 
 ---

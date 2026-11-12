@@ -2428,6 +2428,49 @@ INVENTARIO["screening_decision"] = {
     "criado_at": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
 }
 
+#: O caso de revisao (KAM-089, revisao `0048`). **Nenhum dado pessoal**: as
+#: evidencias sao referencias (`kyc_check`, `screening_decision`,
+#: `onboarding_case`), o motivo interno e composto de codigos pelo modulo
+#: (`marcas=...;score=...`) e o publico e de lista fechada.
+INVENTARIO["review_case"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tipo": ("text", NAO, None, "nao"),
+    "onboarding_id": ("uuid", SIM, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "motivo_codigo": ("text", NAO, None, "nao"),
+    "motivo_interno": (
+        "text",
+        NAO,
+        None,
+        "nao — codigos de marcas e regras, composto pelo modulo; so para T&S",
+    ),
+    "motivo_publico": ("text", NAO, None, "nao"),
+    "evidencias": ("jsonb", NAO, "'[]'::jsonb", "nao — referencias, nunca copias"),
+    "recomendacao": ("text", SIM, None, "nao"),
+    "estado": ("text", NAO, "'aberto'::text", "nao"),
+    "prioridade": ("smallint", NAO, "5", "nao"),
+    "fila_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "sla_alerta_at": ("timestamp with time zone", NAO, None, "nao"),
+    "sla_due_at": ("timestamp with time zone", NAO, None, "nao"),
+    "sla_alertado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A decisao do revisor (KAM-089, revisao `0048`). A `nota_enc` e texto livre
+#: do revisor e **pode** levar dados pessoais: vai cifrada em aplicacao, com o
+#: `review_case:<id>` como contexto, e nunca sai para o dono.
+INVENTARIO["review_decision_log"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "case_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "revisor_id": ("uuid", NAO, None, "nao — identificador de staff, nao do titular"),
+    "decisao": ("text", NAO, None, "nao"),
+    "instancia": ("text", NAO, "'primeira'::text", "nao"),
+    "regra": ("text", SIM, None, "nao"),
+    "nota_enc": ("bytea", SIM, None, "sim — cifrada em aplicacao"),
+    "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -2504,6 +2547,23 @@ INVENTARIO["v_transfer_audit"] = {
 #:
 #: Como nas outras seis, `SIM` e `None` em todas: numa vista o PostgreSQL nao
 #: prova `NOT NULL` nem guarda omissao.
+#: A vista do SLA da fila de revisao (KAM-089, revisao `0048`). Escreve-se a
+#: mao pela razao das outras: duas das dez colunas nao sao colunas do caso (a
+#: primeira decisao, do registo, e o `dentro_do_sla`, calculado). As colunas de
+#: uma vista sao todas anulaveis no catalogo.
+INVENTARIO["v_review_sla"] = {
+    "case_id": ("uuid", SIM, None, "nao"),
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "tipo": ("text", SIM, None, "nao"),
+    "estado": ("text", SIM, None, "nao"),
+    "prioridade": ("smallint", SIM, None, "nao"),
+    "fila_at": ("timestamp with time zone", SIM, None, "nao"),
+    "sla_alerta_at": ("timestamp with time zone", SIM, None, "nao"),
+    "sla_due_at": ("timestamp with time zone", SIM, None, "nao"),
+    "primeira_decisao_at": ("timestamp with time zone", SIM, None, "nao"),
+    "dentro_do_sla": ("boolean", SIM, None, "nao"),
+}
+
 INVENTARIO["v_tenant_cost_daily"] = {
     "tenant_id": ("uuid", SIM, None, "nao"),
     "dia": ("date", SIM, None, "nao — o dia no fuso do tenant, sem hora"),
@@ -3123,6 +3183,12 @@ class TestInventario(ComBase):
                         # pelo mesmo par, sem cascata: um caso nao se apaga com
                         # as decisoes dentro, que sao *append-only*.
                         "screening_decision_caso_fk",
+                        # KAM-089 (0048): o caso de revisao aponta o caso de
+                        # onboarding pelo par, e a decisao aponta o caso de
+                        # revisao pelo par. Sem cascata: o registo e
+                        # *append-only* e nao se apaga com o caso.
+                        "review_case_caso_fk",
+                        "review_decision_log_case_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3502,6 +3568,10 @@ class TestInventario(ComBase):
             # impoe regra nenhuma — e so velocidade —, pelo que o `False` aqui e
             # a afirmacao certa e nao uma omissao.
             "stock_reservations_expira_idx": False,
+            # KAM-089: o dos casos de um onboarding, parcial e **nao** unico.
+            # Cobre so os casos com onboarding, que sao os que a quota e o
+            # desbloqueio perguntam; um caso de saga ou de *trust* nao entra.
+            "review_case_onboarding_idx": False,
             # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
             # unicos. O do contacto cobre so os enderecos utilizaveis
             # (verificados e nao invalidos), que e o conjunto que a entrega le;
@@ -3667,6 +3737,32 @@ class TestInventario(ComBase):
                     "screening_decision_sujeito_ref_ck",
                     "screening_decision_sujeito_tipo_ck",
                     "screening_decision_versao_politica_ck",
+                    # --------------------------------------- KAM-089 (0048)
+                    #
+                    # **Dezassete.** No caso: os cinco dominios fechados
+                    # (`tipo`, `estado`, `motivo_publico`, `recomendacao`,
+                    # `prioridade`), a forma do `motivo_codigo`, o tamanho do
+                    # interno, as evidencias em lista, a ordem do prazo, a
+                    # chave de abertura, a unicidade composta da FK da decisao
+                    # e a chave primaria. Na decisao: os dois dominios, a
+                    # regra, o recurso so de aprovar ou rejeitar e a chave.
+                    "review_case_abertura_uq",
+                    "review_case_estado_ck",
+                    "review_case_evidencias_ck",
+                    "review_case_id_tenant_uq",
+                    "review_case_motivo_codigo_ck",
+                    "review_case_motivo_interno_ck",
+                    "review_case_motivo_publico_ck",
+                    "review_case_pkey",
+                    "review_case_prioridade_ck",
+                    "review_case_recomendacao_ck",
+                    "review_case_sla_ck",
+                    "review_case_tipo_ck",
+                    "review_decision_log_decisao_ck",
+                    "review_decision_log_instancia_ck",
+                    "review_decision_log_pkey",
+                    "review_decision_log_recurso_ck",
+                    "review_decision_log_regra_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

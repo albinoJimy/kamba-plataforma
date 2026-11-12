@@ -127,6 +127,10 @@
       "types": "./dist/screening/index.d.ts",
       "default": "./dist/screening/index.js"
     },
+    "./revisao": {
+      "types": "./dist/revisao/index.d.ts",
+      "default": "./dist/revisao/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"
