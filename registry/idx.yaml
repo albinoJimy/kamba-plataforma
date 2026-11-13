@@ -1,0 +1,43 @@
+# registry/idx.yaml — o consumidor do indice de pesquisa (KAM-061, KAM-194)
+#
+# A QUARTA FORMA dos ficheiros de `registry/`, distinguida pela chave de topo
+# `consumidor`: um consumidor de eventos que NAO e uma vertical. Nao tem
+# persona, grafo, tools nem entitlements — so subscreve eventos e tem um efeito,
+# que corre num processo proprio (`python -m kamba_core.idx`) e nao no AGR. O
+# `load_all` do AGR salta-o, como salta os planos.
+#
+# O *gate* 3b (`tools/canon_lint/registo.py`) valida-o como valida as
+# `subscriptions` de uma vertical: cada `tipo` e um evento do dicionario e do
+# catalogo de contratos, e a `versao` tem de ter o seu `contratos/eventos/
+# <tipo>/v<versao>.schema.json`. As chaves de topo sao uma lista fechada.
+#
+# ---------------------------------------------------------------------------
+# ESTE FICHEIRO E A REVISAO `0052` DIZEM O MESMO, e um ensaio confronta-os.
+#
+# As linhas de `platform.evt_subscricoes` so as escreve o dono das tabelas
+# (`kamba_migrator`): em producao nao ha escritor, e por isso vem por uma
+# revisao de dados. O `services/agr/tests/test_subscricoes_0052.py` le esta
+# declaracao e as `subscriptions` das verticais, e reprova se a revisao
+# divergir — uma subscricao declarada aqui e esquecida la era um evento que o
+# publicador nunca entregava, sem erro nenhum.
+#
+# O `exige_ordem` nao se escreve: deriva-se do prefixo `payment.`, como no AGR
+# (`eventos/subscricoes.py`). Nenhum destes cinco o tem, e o consumidor do
+# indice le o estado presente — a ordem nao importa (`kamba_core.idx.consumidor`).
+#
+# ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
+# estilo de fluxo (ver `registry/gates.yaml`).
+
+consumidor: idx
+version: 1.0.0
+subscriptions:
+  - tipo: catalog.product_changed
+    versao: 1
+  - tipo: tenant.suspended
+    versao: 1
+  - tipo: tenant.closed
+    versao: 1
+  - tipo: tenant.activated
+    versao: 1
+  - tipo: tenant.reactivated
+    versao: 1

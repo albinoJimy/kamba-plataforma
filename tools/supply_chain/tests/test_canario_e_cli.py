@@ -90,7 +90,11 @@ class TestRepositorioReal(unittest.TestCase):
         # mesma imagem e um `command:` cada — **+3 em cada um dos tres
         # composes** (producao, *staging* e desenvolvimento, onde tres deles
         # ficam atras do perfil `consumidores`, que o `runtime` le na mesma).
-        self.assertEqual(resumo["servicos"], 53)
+        #
+        # **KAM-194: de 53 para 62.** O `idx` (imagem do AGR) e as duas pontes
+        # (imagem do `worker-canal`), **+3 em cada um dos tres composes** — em
+        # desenvolvimento atras do perfil `consumidores`.
+        self.assertEqual(resumo["servicos"], 62)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -117,7 +121,9 @@ class TestRepositorioReal(unittest.TestCase):
         # cada um a sua lista em `infra/egress/`, todas `destinos: []` — o
         # `services/worker-canal/egress.yaml` cobre o nome da pasta, e um
         # servico de compose com outro nome pede a sua. Os destinos nao mudam.
-        self.assertEqual(resumo["servicos"], 22)
+        # **KAM-194: de 22 para 25.** O `idx` e as duas pontes, cada um com a
+        # sua lista em `infra/egress/`, todas `destinos: []`.
+        self.assertEqual(resumo["servicos"], 25)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a

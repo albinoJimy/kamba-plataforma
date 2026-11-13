@@ -404,6 +404,13 @@ fontes_adicionais:
       Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
       onde as imagens e os digests estao declarados. O ensaio nao constroi nem
       puxa nada por conta propria.
+  # KAM-194: o ensaio da ponte e do IDX numa pilha levantada. Mesma forma do de
+  # cima, e o mesmo compose de staging (a constante `COMPOSE` vem de la).
+  - ficheiro: db/ensaio_idx.py
+    sem_imagem: >-
+      Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
+      onde as imagens e os digests estao declarados. O ensaio nao constroi nem
+      puxa nada por conta propria.
   - ficheiro: infra/chatwoot/spike.py
     sem_imagem: >-
       Chama `docker compose -f infra/compose/docker-compose.chatwoot.yml`, que e

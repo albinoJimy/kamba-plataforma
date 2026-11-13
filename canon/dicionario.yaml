@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.92"
+versao_dicionario: "1.93"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -8233,6 +8233,144 @@ entradas:
       - "kamba_core.tenant_guard"
       - "kamba_app"
       - "INSERT"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Casca da fila para consumidores Python"
+    canonico: "packages/core-ts/src/eventos/ponte.ts (decisão) e ponte_bullmq.ts (casca), corrida por services/worker-canal/src/ponte.ts"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "events_consumed"
+      - "duplicado"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Variáveis da casca"
+    canonico: "KAMBA_PONTE_CONSUMERS, KAMBA_PONTE_ALVO, KAMBA_PONTE_SEGREDO, PONTE_PORT"
+    literais:
+      - "KAMBA_PONTE_CONSUMERS"
+      - "KAMBA_PONTE_ALVO"
+      - "KAMBA_PONTE_SEGREDO"
+      - "PONTE_PORT"
+    nomes:
+      - "KAMBA_PONTE_CONSUMERS"
+      - "KAMBA_PONTE_ALVO"
+      - "KAMBA_PONTE_SEGREDO"
+      - "PONTE_PORT"
+    nomes_nota:
+      - "consumer"
+      - "x"
+      - "kamba"
+      - "interno"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Envelope nulo na entrega"
+    canonico: "o job do reconciliador"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "tenant_id"
+      - "tentativas_esgotadas"
+      - "AGR_RESERVA_DE_PAGAMENTO"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Métrica da casca"
+    canonico: "evt_ponte_total{outcome}, outcome ∈ {entregue, repetir, recusado}"
+    literais:
+      - "evt_ponte_total{outcome}"
+      - "outcome ∈ {entregue, repetir, recusado}"
+    nomes:
+      - "evt_ponte_total"
+      - "outcome"
+      - "entregue"
+      - "repetir"
+      - "recusado"
+    nomes_nota:
+      - "tenant_id"
+      - "event_id"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Consumidor do índice"
+    canonico: "idx"
+    literais:
+      - "idx"
+    nomes:
+      - "idx"
+    nomes_nota:
+      - "consumer"
+      - "evt_subscricoes"
+      - "catalog.product_changed"
+      - "tenant"
+      - "exige_ordem"
+      - "false"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Quarta forma do registry/"
+    canonico: "chave de topo consumidor, com version e subscriptions[] de {tipo, versao}"
+    literais:
+      - "consumidor"
+      - "version"
+    nomes:
+      - "consumidor"
+      - "version"
+    nomes_nota:
+      - "versao"
+      - "agr_"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Linhas de evt_subscricoes dos consumidores Python"
+    canonico: "revisão de dados 0052 (provisória), escrita pelo kamba_migrator"
+    literais:
+      - "kamba_migrator"
+    nomes:
+      - "evt_subscricoes"
+      - "kamba_migrator"
+    nomes_nota:
+      - "idx"
+      - "finalidade"
+      - "transacao"
+      - "versao_max"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Processo do IDX"
+    canonico: "python -m kamba_core.idx, serviço idx, porta IDX_PORT (8061)"
+    literais:
+      - "idx"
+      - "IDX_PORT"
+    nomes:
+      - "idx"
+      - "IDX_PORT"
+    nomes_nota:
+      - "idx_internal_token"
+      - "agr_internal_token"
+      - "kamba_batch"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Motivo de uma entrada aberta na DLQ pelo IDX"
+    canonico: "envelope_invalido, tipo_desconhecido, tentativas_esgotadas"
+    literais:
+      - "envelope_invalido"
+      - "tipo_desconhecido"
+      - "tentativas_esgotadas"
+    nomes:
+      - "envelope_invalido"
+      - "tipo_desconhecido"
+      - "tentativas_esgotadas"
+    nomes_nota:
+      - "events_dlq.erro"
+      - "tentativas_esgotadas"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Ciclo da reindexação"
+    canonico: "KAMBA_IDX_REINDEX_INTERVALO_S (60 s), KAMBA_IDX_REINDEX_LOTE (200), tecto de 50 lotes por tenant e volta"
+    literais:
+      - "KAMBA_IDX_REINDEX_INTERVALO_S"
+      - "KAMBA_IDX_REINDEX_LOTE"
+    nomes:
+      - "KAMBA_IDX_REINDEX_INTERVALO_S"
+      - "KAMBA_IDX_REINDEX_LOTE"
+    nomes_nota:
+      - "idx_reindexed_total"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Código de saída com subscrições por registar"
