@@ -150,9 +150,12 @@ async function fase(onboardingId: string): Promise<string> {
 }
 
 async function limpar(): Promise<void> {
-  // Pela ordem das chaves estrangeiras. A `screening_decision` é *append-only*
-  // por *trigger*; o administrador desliga-o só para a limpeza da base de ensaio.
+  // Pela ordem das chaves estrangeiras.
+  // As duas tabelas *append-only* têm *trigger* de imutabilidade que recusa
+  // também ao dono; o administrador desliga-o só para limpar a base de ensaio.
+  await admin.query("ALTER TABLE platform.review_decision_log DISABLE TRIGGER USER");
   await admin.query("DELETE FROM platform.review_decision_log");
+  await admin.query("ALTER TABLE platform.review_decision_log ENABLE TRIGGER USER");
   await admin.query("DELETE FROM platform.review_case");
   await admin.query("ALTER TABLE platform.screening_decision DISABLE TRIGGER USER");
   await admin.query("DELETE FROM platform.screening_decision");
@@ -241,7 +244,8 @@ describe("o processo de lote contra a base", () => {
     const p = montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 });
     const r = await p.ciclo.correr();
     assert.equal(r.reaplicados, 1);
-    assert.deepEqual(await efeitos.pendentes(10), []);
+    // O caso do cenário anterior continua marcado (o aviso não tem via); este não.
+    assert.ok(!(await efeitos.pendentes(100)).includes(decidido));
     const linhas = async () =>
       (
         await admin.query<{ decisao: string; origem: string; tenant_id: string }>(
@@ -283,8 +287,13 @@ describe("o processo de lote contra a base", () => {
           const repositorio: RepositorioDeRevisao = comTrinco
             ? sql
             : new Proxy(sql, {
-                get: (alvo, nome) =>
-                  nome === "emTrinco" ? undefined : (Reflect.get(alvo, nome, alvo) as unknown),
+                // Os métodos ligados ao alvo: o `RevisaoSql` tem campos
+                // `#privados`, e chamados com o `this` do `Proxy` rebentavam.
+                get: (alvo, nome) => {
+                  if (nome === "emTrinco") return undefined;
+                  const v = Reflect.get(alvo, nome, alvo) as unknown;
+                  return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(alvo) : v;
+                },
               });
           const servico = new ServicoDeRevisao({
             repositorio,

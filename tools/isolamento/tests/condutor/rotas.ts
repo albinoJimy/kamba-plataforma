@@ -3129,8 +3129,10 @@ async function grupoDoLote(relatorio: Relatorio): Promise<void> {
       const partes = item.split(":");
       relatorio.rotas.push({
         item,
-        metodo: partes[3] ?? "",
-        caminho: partes.slice(4).join(":"),
+        // `rota:<servico>:<ficheiro>:<funcao>:<METODO>:<caminho>`: o metodo e o
+        // quinto campo, e o caminho o resto (que pode levar `:`).
+        metodo: partes[4] ?? "",
+        caminho: partes.slice(5).join(":"),
         estado: 0,
         corpo: "",
         cabecalhos: {},
@@ -3188,7 +3190,7 @@ async function grupoDoLote(relatorio: Relatorio): Promise<void> {
     }
     const app = (criarApp as (m: unknown) => AppHono)(ciclo.metricas);
     for (const item of ITENS_DO_LOTE) {
-      const caminho = item.split(":").slice(4).join(":");
+      const caminho = item.split(":").slice(5).join(":");
       const entrada = await medir(item, "GET", caminho, app);
       if (item.endsWith("GET:/metrics")) {
         const nomes = [
