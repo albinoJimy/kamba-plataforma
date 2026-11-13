@@ -271,6 +271,37 @@ metricas:
           - hibrido
           - lexical
 
+  # KAM-063: as duas do DoD dos embeddings, no mesmo modulo e servidas pela
+  # mesma `/metrics`. O `uso` separa a pergunta (com o tecto de 1,5 s do
+  # criterio 3) do catalogo; o `motivo` so conta as consultas que tinham com que
+  # ir ao fornecedor e cairam em lexical. Nenhuma leva texto nem tenant.
+  - nome: embedding_latency_ms
+    tipo: gauge
+    fonte: libs/py-core/src/kamba_core/idx/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Duracao da ultima chamada ao fornecedor de embeddings, em ms, por uso.
+    etiquetas:
+      - nome: uso
+        dominio:
+          - catalogo
+          - consulta
+
+  - nome: embedding_fallback_total
+    tipo: counter
+    fonte: libs/py-core/src/kamba_core/idx/metricas.py
+    exposta_por:
+      - agr
+    ajuda: Consultas que cairam em modo lexical em vez de ir ao fornecedor.
+    etiquetas:
+      - nome: motivo
+        dominio:
+          - destino_negado
+          - falha
+          - modelo_divergente
+          - sensivel
+          - tempo_esgotado
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A

@@ -100,7 +100,8 @@ from .llm import precos as llm_precos
 from .llm import registo as llm_registo
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
-from .tls.idx import LIMIAR_DO_RRF, executores_do_idx
+from .tls.embeddings import consulta_vectorial
+from .tls.idx import LIMIAR_DO_RRF, LigacaoVectorial, executores_do_idx
 from .tls.com import (
     SEGREDO_DO_COM,
     VARIAVEL_DA_BASE as VARIAVEL_DO_COM,
@@ -386,8 +387,14 @@ def main() -> int:
     credencial_do_com = CredencialDoCom()
     # O `search_catalog` liga-se **sempre** (KAM-061): o indice vive na base da
     # plataforma, a que o AGR ja tem tomada, e nao depende de variavel nenhuma.
+    # O vector da pergunta (KAM-063) liga-se mais abaixo, com o cliente do
+    # gateway; ate la, e sem modelo escolhido, a pesquisa e lexical.
+    ligacao_vectorial = LigacaoVectorial()
     catalogo = catalogo_do_piloto(
-        {**_executores_do_comercio(log, credencial_do_com), **executores_do_idx()}
+        {
+            **_executores_do_comercio(log, credencial_do_com),
+            **executores_do_idx(ligacao_vectorial),
+        }
     )
     # **A validacao (3) corre a serio desde o KAM-186**: o `construir_grafo`
     # compila o alvo `graph` de cada `registry/<id>.yaml` e confere os seis nos
@@ -620,6 +627,15 @@ def main() -> int:
     log.info(
         outcome="llm_gateway_pronto",
         error_code=f"papeis_{len(cliente_de_llm.papeis())}",
+    )
+    # **O vector da pergunta (KAM-063)**, pela mesma porta de destinos que o
+    # gateway. Sem modelo no `kamba-embed` fica por ligar e a pesquisa e lexical
+    # — e diz-se no arranque, que o silencio lia-se como modo hibrido.
+    vectorial = consulta_vectorial(cliente_de_llm, destinos)
+    ligacao_vectorial.ligar(vectorial)
+    log.info(
+        outcome="idx_embeddings",
+        error_code="hibrido_ligado" if vectorial is not None else "so_lexical_sem_modelo",
     )
 
     # O *handoff* (KAM-034). Sao tres pecas:

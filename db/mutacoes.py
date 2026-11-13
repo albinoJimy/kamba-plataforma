@@ -7281,6 +7281,12 @@ MUTACOES = [
     ("pesquisa: a transaccao abre com outro tenant", IDX_PESQUISA,
      "with tx(conexao, tenant) as cursor:",
      'with tx(conexao, "00000000-0000-0000-0000-000000000000") as cursor:', PRODUTOS),
+    # KAM-063: a transaccao curta do modo hibrido (o modelo dos vectores e a
+    # normalizacao) tambem e do tenant do contexto. Aberta com outro, o indice
+    # parece sem vectores e a pesquisa hibrida passa a lexical.
+    ("pesquisa: a transaccao do modelo abre com outro tenant", IDX_PESQUISA,
+     "with tx(conexao, tenant) as previo:",
+     'with tx(conexao, "00000000-0000-0000-0000-000000000000") as previo:', PRODUTOS),
     ("pesquisa: a resposta perde o filtro do publicado", IDX_PESQUISA,
      "   WHERE v.publicado\n", "   WHERE true\n", PRODUTOS),
     ("pesquisa: o teto de preco deixa de filtrar", IDX_PESQUISA,
