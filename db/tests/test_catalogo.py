@@ -254,6 +254,17 @@ class TestConvencoes(ComBase):
                 # foto recebida), e um sequencial dizia-lhe quantas fotos a
                 # plataforma inteira recebe.
                 "catalog_ingestions",
+                # KAM-059: o billing da plataforma. `uuid` aleatorio pela regra
+                # geral, nas cinco: o `kamba_pay` e o `kamba_app` leem as de
+                # tenant sob a `tenant_iso`, e um sequencial dizia-lhes quantas
+                # subscricoes, ciclos e pagamentos a plataforma tem. Na
+                # `commission_accruals` e **contra** o DDL do §11.2, que a
+                # escrevia de identidade — ver a revisao.
+                "billing_cycles",
+                "billing_ops_approvals",
+                "commission_accruals",
+                "price_book",
+                "subscriptions",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -488,6 +499,11 @@ class TestConvencoes(ComBase):
                 ("audit_heads", "chave", "uuid",
                  "COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
                 ("audit_log", "id", "bigint", None),
+                # KAM-059 (revisao do billing): o ciclo e a aprovacao de ops,
+                # `uuid` gerada pela regra geral. Entre a auditoria e o
+                # Catalogo AI («au» < «bi» < «ca»).
+                ("billing_cycles", "id", "uuid", "gen_random_uuid()"),
+                ("billing_ops_approvals", "id", "uuid", "gen_random_uuid()"),
                 # KAM-049 (revisao do Catalogo AI): a ingestao, `uuid` gerada
                 # pela regra geral. Entre a auditoria e os canais («au» < «ca»
                 # < «ch»).
@@ -532,6 +548,11 @@ class TestConvencoes(ComBase):
                 # versao do aviso identifica-se pelo numero que lhe foi dado e
                 # pela finalidade que descreve, e um `uuid` ali era um
                 # identificador que ninguem citaria.
+                # KAM-059: a sombra da comissao, `uuid` gerada e **nao** a
+                # identidade do §11.2 — o `kamba_app` e o `kamba_pay` leem-na
+                # sob a `tenant_iso`, e uma sequencia dizia quantos pagamentos
+                # autenticados tem a plataforma («com» < «con»).
+                ("commission_accruals", "id", "uuid", "gen_random_uuid()"),
                 ("consent_event", "id", "uuid", "gen_random_uuid()"),
                 ("consent_texts", "purpose", "text", None),
                 ("consent_texts", "version", "text", None),
@@ -765,6 +786,8 @@ class TestConvencoes(ComBase):
                 # KAM-043: a cotacao segue a regra geral, `uuid` gerado. A
                 # posicao e por `ORDER BY 1, 2`: depois de `payment_accounts`
                 # ("pa" < "pr") e antes de `tenant_channels`.
+                # KAM-059: o precario, `uuid` gerado («price_b» < «price_q»).
+                ("price_book", "id", "uuid", "gen_random_uuid()"),
                 ("price_quotes", "id", "uuid", "gen_random_uuid()"),
                 # KAM-091: o estado da saga tem chave **natural e composta**, e
                 # nao um `uuid` gerado — e a `UNIQUE(onboarding_id, step)` que o
@@ -807,6 +830,8 @@ class TestConvencoes(ComBase):
                 # gerado. A posicao e por `ORDER BY 1, 2`: depois de
                 # `refund_cases` ("re" < "st") e antes de `tenant_channels`.
                 ("stock_reservations", "id", "uuid", "gen_random_uuid()"),
+                # KAM-059: a subscricao, `uuid` gerado («st» < «su» < «te»).
+                ("subscriptions", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-069: os destinos de transferencia seguem a regra geral,
                 # `uuid` gerado — e **nao** a chave natural das linhas acima,
@@ -1301,7 +1326,14 @@ class TestConvencoes(ComBase):
              # reentrega do mesmo `media_id` da Meta), o `phash_idx` (a
              # pergunta «e o mesmo produto?») e o `fila_idx` (a fila humana).
              # **Com** FK para `tenants`: uma foto chega de um tenant ja activo.
-             "catalog_ingestions"},
+             "catalog_ingestions",
+             # KAM-059 (revisao do billing). A subscricao pela unicidade
+             # `subscriptions_tenant_uq`; o ciclo pela `billing_cycles_tenant_id_uq`
+             # `(tenant_id, id)`, que existe para a FK composta da cobranca; a
+             # sombra e a aprovacao de ops pelos indices `_tenant_idx`. As
+             # quatro com FK para `tenants`.
+             "subscriptions", "billing_cycles", "commission_accruals",
+             "billing_ops_approvals"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1447,6 +1479,28 @@ class TestConvencoes(ComBase):
         # `NOT_SUPPORTED`. Esta coluna registra quanto a PME tem de devolver da
         # conta dela, e nao uma quantia que alguem aqui guarde.
         ("refund_cases", "valor_minor"),
+        # KAM-059, revisao do billing. **Cinco, e nenhuma e um saldo**, pela
+        # regra do ADR-L008, coluna a coluna:
+        #
+        # * `price_book.valor_minor` e o preco de um plano — o que a KAMBA pede
+        #   pela assinatura —, como o `offer_terms.preco_minor` e o preco de um
+        #   SKU. A plataforma nao detem nada por causa dele;
+        # * `billing_cycles.valor_minor` e esse preco copiado para o ciclo ao
+        #   abrir, e nao muda depois (o gatilho `billing_cycles_transicao`
+        #   recusa): e o montante de **uma** factura, nao uma soma corrente;
+        # * `billing_ops_approvals.valor_minor` e o valor que um de ops leu no
+        #   extracto e aprovou — tem de ser igual ao da cobranca, e e por isso
+        #   que existe;
+        # * `commission_accruals.base_minor` e `comissao_minor` sao a **sombra**:
+        #   o valor de um pagamento autenticado e o que se poderia facturar
+        #   sobre ele. Nunca se factura nem se retem (ADR-004, ADR-017), e o
+        #   `commission_accruals_so_sombra` impede a base de dizer o contrario.
+        #   A soma delas e uma medida de *unit economics*, nao fundos detidos.
+        ("price_book", "valor_minor"),
+        ("billing_cycles", "valor_minor"),
+        ("billing_ops_approvals", "valor_minor"),
+        ("commission_accruals", "base_minor"),
+        ("commission_accruals", "comissao_minor"),
         # KAM-051, revisao `0037`. **A segunda vista desta lista**, e esta aqui
         # pela razao escrita na entrada da `v_payment_events_audit`: o
         # `information_schema.columns` lista as colunas das vistas, e uma vista
@@ -1873,7 +1927,17 @@ class TestConvencoes(ComBase):
         # composta porque nao aponta para nada de um tenant: a tabela nao tem
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
-        self.assertEqual(len(linhas), 83)
+        #
+        # **92 e nao 83** desde a revisao do billing (KAM-059): **nove**. Quatro
+        # simples para `tenants(id)` (`subscriptions_`, `billing_cycles_`,
+        # `commission_accruals_` e `billing_ops_approvals_tenant_fk`); a
+        # `commission_accruals_evento_fk` para `payment_events(id)` e a
+        # `billing_ops_approvals_charge_fk` para `payment_charges(id)`, simples
+        # porque o gatilho e a porta conferem o tenant; e tres **compostas** pela
+        # licao ISO-58 — a `charges_billing_fk` (cobranca -> ciclo), a
+        # `billing_cycles_subscricao_do_mesmo_tenant_fk` e a
+        # `commission_accruals_encomenda_do_mesmo_tenant_fk`.
+        self.assertEqual(len(linhas), 92)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

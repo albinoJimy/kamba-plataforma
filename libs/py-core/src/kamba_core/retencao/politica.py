@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-10.1"
+VERSAO_DA_POLITICA: Final = "2026-11-13.1"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -382,6 +382,10 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.payment_callbacks_inbox", pendencia=_FISCAL_IMUTAVEL),
             _t("platform.manual_confirmations", pendencia=_FISCAL_IMUTAVEL),
             _t("platform.refund_cases", pendencia=_FISCAL_IMUTAVEL),
+            # KAM-059: a aprovacao de ops da confirmacao de um ciclo. E a prova
+            # humana de um pagamento, como a `manual_confirmations`, e o
+            # `actor_id` e de staff — sai com o prazo fiscal do pagamento.
+            _t("platform.billing_ops_approvals", pendencia=_FISCAL_IMUTAVEL),
         ),
         fiscal=True,
         fonte="docs/tecnica/08 §8.8 e §11; E3 §6",
@@ -484,6 +488,13 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.channel_quality_log": "qualidade do numero do negocio",
     "platform.tenant_destinations": "destinos de transferencia do negocio",
     "platform.offer_terms": "catalogo: vida do catalogo",
+    # KAM-059: o billing da plataforma. Nenhuma das quatro guarda dado de
+    # pessoa: o preco de um plano, a assinatura e os ciclos de uma loja, e a
+    # sombra da comissao (identificadores e valores).
+    "platform.price_book": "precario da assinatura, igual para todos",
+    "platform.subscriptions": "assinatura do negocio a KAMBA",
+    "platform.billing_cycles": "ciclos de facturacao do negocio",
+    "platform.commission_accruals": "sombra da comissao: identificadores e valores",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",

@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/contratos.md` |
 | Ticket | KAM-007 — Catálogo de eventos: schemas versionados e teste de compatibilidade |
-| Estado | 41 tipos em `contratos/eventos/`, com `v1` e `v2` cada (82 contratos; o `screening.violation_detected` é do KAM-191); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11 e 1.83 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
+| Estado | 42 tipos em `contratos/eventos/`, com `v1` e `v2` cada (84 contratos; o `screening.violation_detected` é do KAM-191 e o `billing.cycle_paid` do KAM-059); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.92 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
 | Âmbito | O **contrato** de um evento: o que um produtor pode emitir e o que um consumidor pode esperar, e o que impede isso de mudar sem versão. Não o laço de publicação (`docs/eventos.md`) nem o de consumo (`docs/consumo.md`) |
 | Fontes | `docs/tecnica/06` §4, §5, §6.6, §7.1, §7.3; `docs/tecnica/01` §6.3, §7.2; `specs/02` §3.5 (emenda 1.11); ADR-009, ADR-010, ADR-013 |
 
@@ -123,6 +123,31 @@ pelo que duas execuções sobrepostas da re-análise podem decidir o mesmo
 produto e emitir duas violações com `id` diferentes: a deduplicação por
 `event_id` não as junta, e quem conta violações deduplica por
 `(tenant_id, sku, versao_politica, sha256)`.
+
+### O `billing.cycle_paid`, e porque não é um `payment.confirmed`
+
+O tipo do KAM-059 (emenda 1.92 do dicionário) é o pagamento de um ciclo da
+assinatura que a KAMBÁ cobra às PMEs. Os cinco eventos `payment.*` agregam por
+`order` e exigem `order_id`, e a revisão `0035` fechou-os às cobranças de
+encomenda — uma cobrança de ciclo não tem encomenda. Este agrega por
+`billing_cycle`, classe P0, com um payload de sete campos: `billing_cycle_id`,
+`subscription_id`, `charge_id`, `periodo_inicio` e `periodo_fim` (datas civis do
+período `[início, fim)`), `valor_minor` e `currency`.
+
+**É emitido pela base, e não por um processo.** O gatilho
+`payment_charges_ciclo_pago` corre quando a projecção do *ledger* põe a cobrança
+do ciclo em `paga`, e emite na mesma transacção do pagamento — um ciclo emite
+**um**, seja o pagamento autenticado pelo facilitador ou confirmado por ops com
+dupla aprovação. Nasce com `v1` e `v2` pela razão do `screening.violation_detected`
+acima; a base emite a `v1`.
+
+**Uma propriedade partilhada com os outros tipos de identificadores em
+hexadecimal, e dita.** A guarda de telefone do `evt_emitir`
+(`\+?244 ?9[0-9]{8}`) casa um UUID cujo último bloco seja `2449` seguido de oito
+dígitos — uma vez em cerca de três milhões por UUID. Aqui há três, e como o
+evento sai na transacção do pagamento, a recusa reverte o pagamento. É o mesmo
+risco que o `order_id` de cada `payment.*` já corre; corrigi-lo é na guarda, e
+não neste contrato (dívida documental do KAM-059).
 
 ## 4. O que impede um contrato de partir
 
@@ -298,3 +323,4 @@ leu o nome da função.
 | 1.1 | Outubro 2026 | **O que a revisão adversarial mudou (KAM-007).** O *lint* de PII deixou de comparar sete nomes por segmento exacto — passava o plural de cada um e o inglês todo — e a lista aprovada ganhou a sua primeira entrada no mesmo dia (C1, m4); os trinta e oito contratos deixaram de admitir `classe_pii` P2, que o §7.1 proíbe (M1); o `agregado.tipo` passou a `const` e apanhou **vinte e sete exemplos** com o agregado da primeira pasta copiado (M2); `payment.confirmed` e `payment.manual_confirmed` deixaram de admitir o mesmo método de autenticação (M7); o classificador passou a falhar fechado em vez de rebentar (m1, m2, m3); e o lado Python ganhou `NotRequired` e um `validar_payload` (M5). O catálogo passou a ser verificado contra o §5 e não contra uma contagem (M4). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-009: o §4.4 deixa de dizer que `registry/` só tem um `README.md` — tem o `plans.yaml`, que é a forma dos **planos** e não declara `subscriptions`. O `versao_max` continua a passar sobre zero subscrições, e continua a dizê-lo. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | KAM-191: entra o `screening.violation_detected`, com `v1` e `v2` — a razão das duas está no §3. O cabeçalho deixa de dizer «38 contratos v1», que desde o KAM-159 já não era verdade (eram 76, com a `v2`), e passa a 41 tipos e 82 contratos (com os dois do KAM-050); o §4.1 deixa de fixar o número em prosa, e o §6 deixa de contar os tipos sem campos especificados. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | KAM-059: entra o `billing.cycle_paid`, com `v1` e `v2`, emitido pela projecção do *ledger*; 42 tipos e 84 contratos. Fica escrita a exposição dos UUID à guarda de telefone do `evt_emitir`, comum aos tipos com identificadores em hexadecimal. | Equipa KAMBÁ |

@@ -59,10 +59,17 @@
  *                   `avaliarConfirmacao` daqui e o oraculo da suite e a
  *                   mensagem que o agente mostra ao dono, nao a recusa
  *
- * **A frase que estava aqui dizia «nenhum deles esta aqui», e passou a ser
- * falsa em um dos cinco.** As FK para `orders_mirror` sao o KAM-055; o ProxyPay
- * e o KAM-056; o billing e o KAM-059 — esses tres continuam fora. O `refund` e
- * o `payout` devolvem `NOT_SUPPORTED` por ADR-004 e nao por estarem por fazer.
+ * E, desde o **KAM-059**, o billing da plataforma:
+ *
+ *     billing       o periodo, o preco em vigor, a validade de 72 h e a sombra
+ *                   da comissao, puros; o *job* de abertura de ciclos, a mudanca
+ *                   de plano com os `entitlements`, a aprovacao de ops e as
+ *                   cadeias SQL que a suite de base de dados le; e a porta
+ *                   `InvoiceProvider`, declarada e sem implementacao (D7)
+ *
+ * As FK para `orders_mirror` sao o KAM-055 e o ProxyPay e o KAM-056. O `refund`
+ * e o `payout` devolvem `NOT_SUPPORTED` por ADR-004 e nao por estarem por
+ * fazer.
  *
  * ## `beneficiary_kind` e `pme`, e **nao** `tenant`
  *
@@ -157,15 +164,19 @@ export {
 } from "./anomalias.ts";
 
 export {
+  COMISSAO_OMISSAO,
+  COMISSAO_SEM_PARECER,
   CONTA_DE_PME_COM_ENTIDADE_DA_KAMBA,
   ENTIDADES_DA_KAMBA,
   FLAGS_OMISSAO,
   PAYOUTS_SEM_PSP_LICENCIADO,
   ArranqueRecusado,
+  type ConfiguracaoDaComissao,
   type ContaParaGuarda,
   type EntidadesDaKamba,
   type FlagsDeDinheiro,
   verificarArranque,
+  verificarComissao,
   verificarG2,
   verificarG4,
 } from "./arranque.ts";
@@ -354,6 +365,56 @@ export {
   expiraEm,
   rotuloDaEvidencia,
 } from "./manual.ts";
+
+export {
+  BPS_POR_UNIDADE,
+  DIA_MAXIMO_DO_PERIODO,
+  ESTADOS_DA_SUBSCRICAO,
+  ESTADOS_DO_CICLO,
+  ESTADOS_QUE_ABREM_CICLO,
+  HORAS_DE_VALIDADE,
+  MODOS_DA_COMISSAO,
+  MotivoEmFalta,
+  PeriodoInvalido,
+  SQL_BILLING_ABRIR_CICLO,
+  SQL_BILLING_CICLO_EMITIDO,
+  SQL_BILLING_COBRANCA,
+  SQL_BILLING_CONFIRMAR_OPS,
+  SQL_BILLING_CONTEXTO,
+  SQL_BILLING_EMITIR,
+  SQL_BILLING_PRECARIO,
+  SQL_BILLING_SUBSCRICOES,
+  SQL_MUDAR_PLANO,
+  SQL_SOMBRA_GRAVAR,
+  SQL_SOMBRA_POR_MEDIR,
+  SubscricaoInexistente,
+  TaxaInvalida,
+  type ContaDeReceita,
+  type CustomerRef,
+  type DataCivil,
+  type Emissao,
+  type EmissorDeCobranca,
+  type EntitlementDoPlano,
+  type EstadoDaSubscricao,
+  type EstadoDoCiclo,
+  type InvoiceProvider,
+  type InvoiceRef,
+  type LinhaDoPrecario,
+  type OrgRef,
+  type Periodo,
+  type RelatorioDeAbertura,
+  type RespostaDeOps,
+  abrirCiclos,
+  acumularSombra,
+  aprovarPorOps,
+  comissaoEmSombra,
+  dataEmLuanda,
+  emissorManual,
+  mudarPlano,
+  periodoDe,
+  precoEmVigor,
+  validadeDaCobranca,
+} from "./billing.ts";
 
 export {
   ADAPTADORES_COM_LICENCA_BNA,

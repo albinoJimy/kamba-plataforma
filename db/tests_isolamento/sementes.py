@@ -1389,6 +1389,39 @@ def _ingestao_do_catalogo(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _subscricao(cursor, tenant_id: str, canario: str) -> None:
+    """A subscricao do tenant (KAM-059). O canario vai no `plano`.
+
+    O `plano` tem a forma `^[a-z][a-z0-9_]*$` (o `subscriptions_plano_ck`, a
+    mesma do `tenants_plano_ck`), e o canario desta bateria — `canario_<rotulo>_
+    <hex>` — ja a satisfaz. Uma por tenant (`subscriptions_tenant_uq`), e e uma
+    que a bateria semeia.
+    """
+    cursor.execute(
+        "INSERT INTO platform.subscriptions (tenant_id, plano) VALUES (%s, %s)",
+        (tenant_id, canario),
+    )
+
+
+def _ciclo_de_billing(cursor, tenant_id: str, canario: str) -> None:
+    """Um ciclo aberto da subscricao do tenant (KAM-059). O canario vai no `id`.
+
+    **Nenhuma coluna de texto livre**: o `estado` e um dominio fechado, o
+    `periodo` e um intervalo de datas, e as tres outras sao chaves ou dinheiro.
+    O canario vai na chave primaria, como na `conversations`, com
+    `guardado=_uuid`. A subscricao vem pela subconsulta: a `ORDEM` semeia-a
+    antes, e a FK composta `(tenant_id, subscription_id)` exige que seja a
+    **deste** tenant.
+    """
+    cursor.execute(
+        "INSERT INTO platform.billing_cycles "
+        "(id, subscription_id, tenant_id, periodo, valor_minor) VALUES "
+        "(%s, (SELECT id FROM platform.subscriptions WHERE tenant_id = %s), %s, "
+        "daterange('2026-11-01', '2026-12-01'), 1)",
+        (_uuid(canario), tenant_id, tenant_id),
+    )
+
+
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
@@ -1490,6 +1523,19 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "catalog_ingestions"): Receita(
         _ingestao_do_catalogo, "media_id_meta", "sku", "sku-alterado",
         semeador="admin",
+    ),
+    # KAM-059: a subscricao e o ciclo. **Nenhum papel de aplicacao lhes
+    # escreve**: o `kamba_app` le, e quem escreve e o lote (a subscricao) e o
+    # `kamba_pay` (o ciclo, sob a `tenant_iso`). Por isso `escrita_do_papel=False`
+    # e o X-03/X-04 prova que o `kamba_app` **nao tem o privilegio**. A
+    # subscricao semeia-a o lote, que tem `INSERT`; o ciclo, o administrador —
+    # nem o lote lhe insere.
+    ("platform", "subscriptions"): Receita(
+        _subscricao, "plano", None, None, escrita_do_papel=False,
+    ),
+    ("platform", "billing_cycles"): Receita(
+        _ciclo_de_billing, "id", None, None,
+        semeador="admin", guardado=_uuid, escrita_do_papel=False,
     ),
     # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
     # vai buscar o contacto por subconsulta, e o `kamba_batch` **nao tem
@@ -2089,6 +2135,19 @@ SEM_RECEITA_COM_RAZAO = {
     # O privilegio mede-se no `TestPrivilegiosDasQuatroTabelas`, que exige
     # `42501` no `INSERT` do `kamba_app`.
     ("platform", "payment_confirmers"),
+    # KAM-059: a sombra da comissao e as aprovacoes de ops, e a razao e a da
+    # `manual_confirmations`, as duas por cima da `payment_charges`. A sombra
+    # tem `payment_event_id NOT NULL` com FK para o ledger, e o gatilho
+    # `commission_accruals_so_autenticado` exige que o evento seja um pagamento
+    # autenticado da mesma encomenda — uma receita tinha de semear uma cobranca
+    # e paga-la pela porta, que e o ticket inteiro e esta fora desta bateria
+    # pelo `assert_beneficiary`. As aprovacoes tem `charge_id NOT NULL` com FK
+    # para a cobranca, pela mesma razao. O isolamento das duas mede-se em
+    # `db/tests_pagamentos/test_subscricao_e_billing.py` (o `kamba_app` do
+    # vizinho le zero, e o `kamba_pay` de outro tenant nao escreve), e as duas
+    # tem `tenant_iso` com `FORCE`, que o X-05 confere acima.
+    ("platform", "commission_accruals"),
+    ("platform", "billing_ops_approvals"),
     # KAM-030. Pela razao da `audit_log` e da `tool_audit`: as receitas semeiam
     # **e apagam**, e o *trigger* `ENABLE ALWAYS` da revisao `0023` recusa o
     # `DELETE`. O isolamento prova-se em `db/tests_agr/test_llm_call_log.py`,
@@ -2251,6 +2310,10 @@ ORDEM = (
     # KAM-049: a ingestao so tem FK para `tenants`, e ninguem a aponta. A
     # posicao e indiferente e a escolhida e a dos numeros dos tickets.
     ("platform", "catalog_ingestions"),
+    # KAM-059: a subscricao antes do ciclo, que a aponta pela FK composta. Na
+    # ordem inversa, o ciclo apaga-se primeiro.
+    ("platform", "subscriptions"),
+    ("platform", "billing_cycles"),
 )
 
 #: As identidades com que as receitas semeiam.

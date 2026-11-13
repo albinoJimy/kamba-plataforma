@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.91"
+versao_dicionario: "1.92"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1290,7 +1290,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected, billing.cycle_paid"
     literais:
       - "order.created"
       - "order.paid"
@@ -1333,6 +1333,7 @@ entradas:
       - "order.exception"
       - "order.refund_requested"
       - "screening.violation_detected"
+      - "billing.cycle_paid"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1375,12 +1376,23 @@ entradas:
       - "order.exception"
       - "order.refund_requested"
       - "screening.violation_detected"
+      - "billing.cycle_paid"
     nomes_nota:
+      - "billing.cycle_paid"
+      - "order"
+      - "billing_cycle"
+      - "id"
+      - "billing_cycle_id"
+      - "subscription_id"
+      - "charge_id"
+      - "periodo_inicio"
+      - "periodo_fim"
+      - "valor_minor"
+      - "currency"
       - "screening.violation_detected"
       - "bloqueada"
       - "product"
       - "sku"
-      - "id"
       - "catalog.product_changed"
       - "regras"
       - "versao_politica"
@@ -1402,7 +1414,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim"
     literais:
       - "order_id"
       - "review_id"
@@ -1422,6 +1434,9 @@ entradas:
       - "provider_event_id"
       - "plano"
       - "evento_pagamento_id"
+      - "subscription_id"
+      - "periodo_inicio"
+      - "periodo_fim"
     nomes:
       - "order_id"
       - "review_id"
@@ -1441,7 +1456,14 @@ entradas:
       - "provider_event_id"
       - "plano"
       - "evento_pagamento_id"
+      - "subscription_id"
+      - "periodo_inicio"
+      - "periodo_fim"
     nomes_nota:
+      - "billing.cycle_paid"
+      - "in"
+      - "cio"
+      - "fim"
       - "evento_pagamento_id"
       - "id"
       - "order.exception"
@@ -16452,6 +16474,398 @@ entradas:
       - "EfeitoPorAplicarError"
       - "prod"
     variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Precário da assinatura"
+    canonico: "platform.price_book, nove colunas: id, plano, valor_minor, currency, iva_pct, valido_de, valido_ate, nota, criado_at"
+    literais:
+      - "platform.price_book"
+      - "id"
+      - "plano"
+      - "valor_minor"
+      - "currency"
+      - "iva_pct"
+      - "valido_de"
+      - "valido_ate"
+      - "nota"
+      - "criado_at"
+    nomes:
+      - "platform.price_book"
+      - "id"
+      - "plano"
+      - "valor_minor"
+      - "currency"
+      - "iva_pct"
+      - "valido_de"
+      - "valido_ate"
+      - "nota"
+      - "criado_at"
+    nomes_nota:
+      - "tenant_id"
+      - "payment_outbox_map"
+      - "valido_de"
+      - "price_book_plano_valido_de_uq"
+      - "valido_ate"
+      - "UPDATE"
+      - "DELETE"
+      - "kamba_batch"
+      - "iva_pct"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Auditoria do precário"
+    canonico: "gatilho price_book_auditado (função platform.price_book_auditar())"
+    literais:
+      - "price_book_auditado"
+      - "platform.price_book_auditar()"
+    nomes:
+      - "price_book_auditado"
+      - "platform.price_book_auditar"
+    nomes_nota:
+      - "audit_log"
+      - "price.update"
+      - "price_book"
+      - "staff"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Subscrição"
+    canonico: "platform.subscriptions, seis colunas: id, tenant_id, plano, estado, periodo_dia, criado_at"
+    literais:
+      - "platform.subscriptions"
+      - "id"
+      - "tenant_id"
+      - "plano"
+      - "estado"
+      - "periodo_dia"
+      - "criado_at"
+    nomes:
+      - "platform.subscriptions"
+      - "id"
+      - "tenant_id"
+      - "plano"
+      - "estado"
+      - "periodo_dia"
+      - "criado_at"
+    nomes_nota:
+      - "subscriptions_tenant_uq"
+      - "plano"
+      - "tenants_plano_ck"
+      - "tenants.plano"
+      - "entitlements"
+      - "SQL_MUDAR_PLANO"
+      - "kamba_batch"
+      - "ativo"
+      - "false"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Estado da subscrição"
+    canonico: "subscriptions.estado ∈ {ativa, em_atraso, suspensa, cancelada}"
+    literais:
+      - "subscriptions.estado"
+      - "ativa"
+      - "em_atraso"
+      - "suspensa"
+      - "cancelada"
+    nomes:
+      - "subscriptions.estado"
+      - "ativa"
+      - "em_atraso"
+      - "suspensa"
+      - "cancelada"
+    nomes_nota:
+      - "ativa"
+      - "em_atraso"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Dia do período"
+    canonico: "subscriptions.periodo_dia, de 1 a 28"
+    literais:
+      - "subscriptions.periodo_dia"
+    nomes:
+      - "subscriptions.periodo_dia"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Ciclo de facturação"
+    canonico: "platform.billing_cycles, seis colunas: id, subscription_id, tenant_id, periodo, valor_minor, estado"
+    literais:
+      - "platform.billing_cycles"
+      - "id"
+      - "subscription_id"
+      - "tenant_id"
+      - "periodo"
+      - "valor_minor"
+      - "estado"
+    nomes:
+      - "platform.billing_cycles"
+      - "id"
+      - "subscription_id"
+      - "tenant_id"
+      - "periodo"
+      - "valor_minor"
+      - "estado"
+    nomes_nota:
+      - "billing_cycles_periodo_uq"
+      - "subscription_id"
+      - "periodo"
+      - "daterange"
+      - "in"
+      - "cio"
+      - "fim"
+      - "valor_minor"
+      - "billing_cycles_subscricao_do_mesmo_tenant_fk"
+      - "subscriptions"
+      - "tenant_id"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Estado do ciclo"
+    canonico: "billing_cycles.estado ∈ {aberto, cobranca_emitida, paga, em_atraso, anulado}"
+    literais:
+      - "billing_cycles.estado"
+      - "aberto"
+      - "cobranca_emitida"
+      - "paga"
+      - "em_atraso"
+      - "anulado"
+    nomes:
+      - "billing_cycles.estado"
+      - "aberto"
+      - "cobranca_emitida"
+      - "paga"
+      - "em_atraso"
+      - "anulado"
+    nomes_nota:
+      - "billing_cycles_transicao"
+      - "platform.billing_cycle_transitar"
+      - "aberto"
+      - "cobranca_emitida"
+      - "anulado"
+      - "em_atraso"
+      - "paga"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "FK da cobrança para o ciclo"
+    canonico: "charges_billing_fk, payment_charges (tenant_id, billing_cycle_id) → billing_cycles (tenant_id, id)"
+    literais:
+      - "charges_billing_fk"
+      - "payment_charges (tenant_id, billing_cycle_id)"
+      - "billing_cycles (tenant_id, id)"
+    nomes:
+      - "charges_billing_fk"
+      - "payment_charges"
+      - "tenant_id"
+      - "billing_cycle_id"
+      - "billing_cycles"
+      - "id"
+    nomes_nota:
+      - "billing_cycle_id"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Cobrança do ciclo"
+    canonico: "tentativa 1, metodo manual (sem referência) ou referencia, validade de 72 h"
+    literais:
+      - "metodo"
+      - "manual"
+      - "referencia"
+    nomes:
+      - "metodo"
+      - "manual"
+      - "referencia"
+    nomes_nota:
+      - "plataforma_receita_propria"
+      - "assert_beneficiary"
+      - "emissorManual"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Ciclo pago"
+    canonico: "gatilho payment_charges_ciclo_pago (função platform.billing_cycle_pagar()), agregado billing_cycle"
+    literais:
+      - "payment_charges_ciclo_pago"
+      - "platform.billing_cycle_pagar()"
+      - "billing_cycle"
+    nomes:
+      - "payment_charges_ciclo_pago"
+      - "platform.billing_cycle_pagar"
+      - "billing_cycle"
+    nomes_nota:
+      - "paga"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Aprovação de ops"
+    canonico: "platform.billing_ops_approvals, sete colunas: id, tenant_id, charge_id, actor_id, motivo, valor_minor, criado_at"
+    literais:
+      - "platform.billing_ops_approvals"
+      - "id"
+      - "tenant_id"
+      - "charge_id"
+      - "actor_id"
+      - "motivo"
+      - "valor_minor"
+      - "criado_at"
+    nomes:
+      - "platform.billing_ops_approvals"
+      - "id"
+      - "tenant_id"
+      - "charge_id"
+      - "actor_id"
+      - "motivo"
+      - "valor_minor"
+      - "criado_at"
+    nomes_nota:
+      - "billing_ops_approvals_pessoa_uq"
+      - "actor_id"
+      - "review_decision_log.revisor_id"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Porta de ops"
+    canonico: "platform.billing_confirmar_ops(p_charge_id, p_actor_id, p_motivo, p_valor_minor)"
+    literais:
+      - "platform.billing_confirmar_ops(p_charge_id, p_actor_id, p_motivo, p_valor_minor)"
+    nomes:
+      - "platform.billing_confirmar_ops"
+      - "p_charge_id"
+      - "p_actor_id"
+      - "p_motivo"
+      - "p_valor_minor"
+    nomes_nota:
+      - "SECURITY"
+      - "INVOKER"
+      - "kamba_pay"
+      - "pagamento_confirmado"
+      - "authn_method"
+      - "manual"
+      - "actor_kind"
+      - "ops"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "O G8 das cobranças de ciclo"
+    canonico: "gatilho payment_events_g8_ops (função platform.exigir_dupla_de_ops()); o payment_events_g8_humano passa a ter WHEN (NEW.billing_cycle_id IS NULL)"
+    literais:
+      - "payment_events_g8_ops"
+      - "platform.exigir_dupla_de_ops()"
+      - "payment_events_g8_humano"
+      - "WHEN (NEW.billing_cycle_id IS NULL)"
+    nomes:
+      - "payment_events_g8_ops"
+      - "platform.exigir_dupla_de_ops"
+      - "payment_events_g8_humano"
+      - "WHEN"
+      - "NEW.billing_cycle_id"
+      - "IS"
+      - "NULL"
+    nomes_nota:
+      - "manual_confirmations_so_encomenda"
+      - "platform.manual_so_encomenda"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Comissão em sombra"
+    canonico: "platform.commission_accruals, nove colunas: id, tenant_id, order_id, payment_event_id, base_minor, taxa_bps, comissao_minor, modo, criado_at"
+    literais:
+      - "platform.commission_accruals"
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "payment_event_id"
+      - "base_minor"
+      - "taxa_bps"
+      - "comissao_minor"
+      - "modo"
+      - "criado_at"
+    nomes:
+      - "platform.commission_accruals"
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "payment_event_id"
+      - "base_minor"
+      - "taxa_bps"
+      - "comissao_minor"
+      - "modo"
+      - "criado_at"
+    nomes_nota:
+      - "commission_accruals_evento_uq"
+      - "payment_event_id"
+      - "commission_accruals_so_autenticado"
+      - "platform.commission_accrual_verificar"
+      - "pagamento_confirmado"
+      - "hmac"
+      - "consulta"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Modo da comissão"
+    canonico: "commission_accruals.modo ∈ {sombra, facturavel}, e commission_accruals_so_sombra"
+    literais:
+      - "commission_accruals.modo"
+      - "sombra"
+      - "facturavel"
+      - "commission_accruals_so_sombra"
+    nomes:
+      - "commission_accruals.modo"
+      - "sombra"
+      - "facturavel"
+      - "commission_accruals_so_sombra"
+    nomes_nota:
+      - "sombra"
+      - "facturavel"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Comissão ligada"
+    canonico: "commission_enabled, global e por tenant, desligada por omissão; parecer_ref"
+    literais:
+      - "commission_enabled"
+      - "parecer_ref"
+    nomes:
+      - "commission_enabled"
+      - "parecer_ref"
+    nomes_nota:
+      - "parecer_ref"
+      - "verificarComissao"
+      - "COMISSAO_SEM_PARECER"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Leituras do billing"
+    canonico: "políticas pay_receita_propria (na payment_accounts, FOR SELECT TO kamba_pay, só as linhas de plataforma_receita_propria) e pay_billing_subscricoes (na subscriptions, FOR SELECT TO kamba_pay, todas)"
+    literais:
+      - "pay_receita_propria"
+      - "payment_accounts"
+      - "FOR SELECT TO kamba_pay"
+      - "plataforma_receita_propria"
+      - "pay_billing_subscricoes"
+      - "subscriptions"
+      - "FOR SELECT TO kamba_pay"
+    nomes:
+      - "pay_receita_propria"
+      - "payment_accounts"
+      - "FOR"
+      - "SELECT"
+      - "TO"
+      - "kamba_pay"
+      - "plataforma_receita_propria"
+      - "pay_billing_subscricoes"
+      - "subscriptions"
+    nomes_nota:
+      - "payment_accounts"
+      - "kamba_pay"
+      - "id"
+      - "beneficiary_kind"
+      - "tenant_id"
+      - "provider"
+      - "estado"
+      - "webhook_token"
+      - "credenciais_ref"
+      - "tenant_iso"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Gancho fiscal"
+    canonico: "InvoiceProvider, os seis métodos do 04 §13"
+    literais:
+      - "InvoiceProvider"
+      - "04"
+    nomes:
+      - "InvoiceProvider"
+    nomes_nota:
+      - "billing.ts"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -17695,6 +18109,38 @@ tabelas:
     assinatura: "conta(id)"
     seccao: "3.65"
     conceito: "A porta da identidade da equipa"
+  - nome: "price_book_auditar"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.price_book_auditar()"
+    seccao: "3.66"
+    conceito: "Auditoria do precário"
+  - nome: "billing_cycle_pagar"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.billing_cycle_pagar()"
+    seccao: "3.66"
+    conceito: "Ciclo pago"
+  - nome: "billing_confirmar_ops"
+    esquema: "platform"
+    colunas:
+      - "p_charge_id"
+      - "p_actor_id"
+      - "p_motivo"
+      - "p_valor_minor"
+    aberta: false
+    assinatura: "platform.billing_confirmar_ops(p_charge_id, p_actor_id, p_motivo, p_valor_minor)"
+    seccao: "3.66"
+    conceito: "Porta de ops"
+  - nome: "exigir_dupla_de_ops"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.exigir_dupla_de_ops()"
+    seccao: "3.66"
+    conceito: "O G8 das cobranças de ciclo"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -19139,6 +19585,32 @@ dominios:
       - "reembolsos"
     seccao: "3.64"
     conceito: "Modo do processo de pagamentos do COM"
+    so_no_registo: false
+  - coluna: "subscriptions.estado"
+    valores:
+      - "ativa"
+      - "em_atraso"
+      - "suspensa"
+      - "cancelada"
+    seccao: "3.66"
+    conceito: "Estado da subscrição"
+    so_no_registo: false
+  - coluna: "billing_cycles.estado"
+    valores:
+      - "aberto"
+      - "cobranca_emitida"
+      - "paga"
+      - "em_atraso"
+      - "anulado"
+    seccao: "3.66"
+    conceito: "Estado do ciclo"
+    so_no_registo: false
+  - coluna: "commission_accruals.modo"
+    valores:
+      - "sombra"
+      - "facturavel"
+    seccao: "3.66"
+    conceito: "Modo da comissão"
     so_no_registo: false
 
 variantes:

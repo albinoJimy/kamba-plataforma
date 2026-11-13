@@ -8,6 +8,28 @@ ficheiro estiver desactualizado.
 from typing import NotRequired, TypedDict
 
 
+class PayloadBillingCyclePaid(TypedDict):
+    """Payload de `billing.cycle_paid` v1."""
+    billing_cycle_id: str
+    subscription_id: str
+    charge_id: str
+    periodo_inicio: str
+    periodo_fim: str
+    valor_minor: int
+    currency: str
+
+
+class PayloadBillingCyclePaidV2(TypedDict):
+    """Payload de `billing.cycle_paid` v2."""
+    billing_cycle_id: str
+    subscription_id: str
+    charge_id: str
+    periodo_inicio: str
+    periodo_fim: str
+    valor_minor: int
+    currency: str
+
+
 class PayloadBookingCancelled(TypedDict):
     """Payload de `booking.cancelled` v1."""
     booking_id: str
@@ -568,6 +590,11 @@ class PayloadTenantSuspendedV2(TypedDict):
 
 #: Todos os contratos, por tipo. Lista fechada.
 CATALOGO: dict[str, dict[str, object]] = {
+    "billing.cycle_paid": {
+        "versoes": [1, 2],
+        "obrigatorios": ['billing_cycle_id', 'charge_id', 'currency', 'periodo_fim', 'periodo_inicio', 'subscription_id', 'valor_minor'],
+        "permitidos": ['billing_cycle_id', 'charge_id', 'currency', 'periodo_fim', 'periodo_inicio', 'subscription_id', 'valor_minor'],
+    },
     "booking.cancelled": {
         "versoes": [1, 2],
         "obrigatorios": ['booking_id', 'motivo'],

@@ -14,6 +14,8 @@ import { describe, it } from "node:test";
 
 import {
   CAPACIDADES_DO_FAKE,
+  COMISSAO_OMISSAO,
+  COMISSAO_SEM_PARECER,
   CONTA_DE_PME_COM_ENTIDADE_DA_KAMBA,
   ENTIDADES_DA_KAMBA,
   FLAGS_OMISSAO,
@@ -26,6 +28,7 @@ import {
   type ProviderCapabilities,
   RegistoDeProviders,
   verificarArranque,
+  verificarComissao,
   verificarG2,
   verificarG4,
 } from "../src/pagamentos/index.ts";
@@ -186,9 +189,73 @@ describe("pagamentos/arranque: as duas guardas juntas", () => {
         new RegistoDeProviders(SEMPRE_VERDE),
         [conta()],
         daKamba,
+        COMISSAO_OMISSAO,
       ),
     );
     assert.equal(erro.codigo, PAYOUTS_SEM_PSP_LICENCIADO);
+  });
+});
+
+describe("pagamentos/arranque: KAM-059 criterio 7 — comissao sem parecer", () => {
+  const tenant = "00000000-0000-4000-8000-000000000059";
+
+  it("por omissao a comissao esta desligada, global e por tenant, e arranca", () => {
+    assert.equal(FLAGS_OMISSAO.commissionEnabled, false);
+    assert.deepEqual(COMISSAO_OMISSAO, { porTenant: {}, parecerRef: null });
+    verificarComissao(FLAGS_OMISSAO, COMISSAO_OMISSAO);
+  });
+
+  it("commission_enabled=true global sem parecer_ref nao arranca", () => {
+    const erro = capturar<ArranqueRecusado>(() =>
+      verificarComissao({ ...FLAGS_OMISSAO, commissionEnabled: true }, COMISSAO_OMISSAO),
+    );
+    assert.equal(erro.codigo, COMISSAO_SEM_PARECER);
+    assert.match(erro.message, /global/);
+    assert.match(erro.message, /D8/);
+  });
+
+  it("um tenant ligado sem parecer_ref tambem nao arranca, com a global desligada", () => {
+    const erro = capturar<ArranqueRecusado>(() =>
+      verificarComissao(FLAGS_OMISSAO, { porTenant: { [tenant]: true }, parecerRef: null }),
+    );
+    assert.equal(erro.codigo, COMISSAO_SEM_PARECER);
+    assert.ok(erro.message.includes(tenant));
+    assert.ok(!erro.message.includes("global"));
+  });
+
+  it("um parecer_ref em branco nao e parecer", () => {
+    assert.throws(
+      () =>
+        verificarComissao(
+          { ...FLAGS_OMISSAO, commissionEnabled: true },
+          { porTenant: {}, parecerRef: "   " },
+        ),
+      ArranqueRecusado,
+    );
+  });
+
+  it("um tenant explicitamente desligado nao pede parecer", () => {
+    verificarComissao(FLAGS_OMISSAO, { porTenant: { [tenant]: false }, parecerRef: null });
+  });
+
+  it("com parecer_ref, ligar arranca (a base continua a so aceitar sombra)", () => {
+    verificarComissao(
+      { ...FLAGS_OMISSAO, commissionEnabled: true },
+      { porTenant: { [tenant]: true }, parecerRef: "D8/parecer-de-ensaio" },
+    );
+  });
+
+  it("o verificarArranque corre a guarda da comissao", () => {
+    const erro = capturar<ArranqueRecusado>(() =>
+      verificarArranque(
+        { payoutsEnabled: false, commissionEnabled: true },
+        new RegistoDeProviders(SEMPRE_VERDE),
+        [],
+        ENTIDADES_DA_KAMBA,
+        COMISSAO_OMISSAO,
+      ),
+    );
+    assert.equal(erro.codigo, COMISSAO_SEM_PARECER);
   });
 });
 

@@ -108,10 +108,11 @@ describe("validarPayload", () => {
 });
 
 describe("o catálogo que o validador lê", () => {
-  it("tem os quarenta e um tipos", () => {
-    // Os trinta e oito da emenda 1.11, os dois do KAM-050 (emenda 1.83) e o
-    // `screening.violation_detected` da emenda 1.84 do dicionário (KAM-191).
-    assert.equal(tiposComContrato().length, 41);
+  it("tem os quarenta e dois tipos", () => {
+    // Os trinta e oito da emenda 1.11, os dois do KAM-050 (emenda 1.83), o
+    // `screening.violation_detected` da emenda 1.84 do dicionário (KAM-191) e o
+    // `billing.cycle_paid` da 1.92 (KAM-059).
+    assert.equal(tiposComContrato().length, 42);
   });
 
   it("todos os exemplos do repositório passam no validador, em todas as versões", () => {
@@ -120,7 +121,7 @@ describe("o catálogo que o validador lê", () => {
     // contrato — que é tão defeito como ser mais permissivo.
     //
     // **Em todas as versões**, e não só na `v1`: desde o KAM-159 há dois
-    // contratos por pasta — 82 em 41 pastas desde o KAM-191 —, e um
+    // contratos por pasta — 84 em 42 pastas desde o KAM-059 —, e um
     // produtor novo pode escrever a última. Validar só a primeira deixava a mais recente por verificar
     // deste lado.
     let validados = 0;
@@ -132,7 +133,7 @@ describe("o catálogo que o validador lê", () => {
         validados += 1;
       }
     }
-    assert.equal(validados, 82);
+    assert.equal(validados, 84);
   });
 });
 

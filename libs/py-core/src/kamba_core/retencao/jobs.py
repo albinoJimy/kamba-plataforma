@@ -306,6 +306,7 @@ COLUNA_FISCAL: Final[Mapping[str, str]] = {
     "platform.payment_callbacks_inbox": "recebido_at",
     "platform.manual_confirmations": "criado_at",
     "platform.refund_cases": "criado_at",
+    "platform.billing_ops_approvals": "criado_at",
 }
 
 

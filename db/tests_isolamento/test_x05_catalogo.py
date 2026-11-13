@@ -165,6 +165,9 @@ class TestCatalogoReal(ComBase):
                 # limpeza.
                 ("platform", "audit_heads", "tenant_id"),
                 ("platform", "audit_log", "tenant_id"),
+                # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
+                ("platform", "billing_cycles", "tenant_id"),
+                ("platform", "billing_ops_approvals", "tenant_id"),
                 # KAM-049: a ingestao do Catalogo AI, entre a auditoria e os
                 # canais («au» < «ca» < «ch»).
                 ("platform", "catalog_ingestions", "tenant_id"),
@@ -189,6 +192,8 @@ class TestCatalogoReal(ComBase):
                 # «consent_event» vem depois de «channel_quality_log»
                 # («ch» < «co») e antes de «contact_deks» («consent_» <
                 # «contact_», porque 's' < 't').
+                # KAM-059: a sombra da comissao («com» < «con»).
+                ("platform", "commission_accruals", "tenant_id"),
                 ("platform", "consent_event", "tenant_id"),
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
@@ -347,6 +352,9 @@ class TestCatalogoReal(ComBase):
                 # vale outra vez: sao **tres** as listas deste ficheiro que
                 # precisaram desta tabela, e as tres estao feitas no mesmo PR.
                 ("platform", "stock_reservations", "tenant_id"),
+                # KAM-059: a subscricao («st» < «su» < «te»). O `price_book` nao
+                # tem `tenant_id` e nao entra.
+                ("platform", "subscriptions", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-069: os destinos de transferencia, entre o canal e o
                 # contador de uso («tenant_ch» < «tenant_de» < «tenant_us»). A
@@ -473,6 +481,9 @@ class TestCatalogoReal(ComBase):
                 # contrario da lista da descoberta, aqui em cima, que ordena
                 # por esquema e as poe todas no fim.
                 ("availability_rules", "tenant_iso", "ALL", "{public}"),
+                # KAM-059: o ciclo e as aprovacoes de ops («bi» < «bo»).
+                ("billing_cycles", "tenant_iso", "ALL", "{public}"),
+                ("billing_ops_approvals", "tenant_iso", "ALL", "{public}"),
                 ("bookings", "tenant_iso", "ALL", "{public}"),
                 # KAM-049: a ingestao do Catalogo AI, entre a agenda e os
                 # canais pela colacao `C` («bo» < «ca» < «ch»).
@@ -483,6 +494,8 @@ class TestCatalogoReal(ComBase):
                 ("channel_onboarding", "tenant_iso", "ALL", "{public}"),
                 # KAM-021: o registo das transicoes de qualidade.
                 ("channel_quality_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-059: a sombra da comissao («com» < «con»).
+                ("commission_accruals", "tenant_iso", "ALL", "{public}"),
                 # KAM-022: a prova de consentimento.
                 ("consent_event", "tenant_iso", "ALL", "{public}"),
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
@@ -600,6 +613,15 @@ class TestCatalogoReal(ComBase):
                 # `FOR SELECT` e nao `ALL`, e ordena **antes** da `tenant_iso`
                 # pelo nome («pay» < «ten»).
                 ("payment_accounts", "pay_hooks_token", "SELECT", "{kamba_pay_hooks}"),
+                # KAM-059: a politica de billing que o secao 6.2 pedia e que a
+                # nota acima dava por inexistente (divida 154). **So `SELECT`,
+                # so ao `kamba_pay` e so as linhas de
+                # `plataforma_receita_propria`** — a conta de receita propria,
+                # de `tenant_id` nulo, que a `tenant_iso` esconde de todos. O que
+                # a limita alem disso e o `GRANT` por coluna (cinco, sem o
+                # `webhook_token` nem o `credenciais_ref`). Ordena entre a
+                # `pay_hooks_token` e a `tenant_iso` pelo nome.
+                ("payment_accounts", "pay_receita_propria", "SELECT", "{kamba_pay}"),
                 ("payment_accounts", "tenant_iso", "ALL", "{public}"),
                 # KAM-053: a cobranca e o ledger. **Uma politica cada e nenhuma
                 # com `TO`**: ao contrario da conta, aqui nao ha papel que leia
@@ -654,6 +676,14 @@ class TestCatalogoReal(ComBase):
                 # `services` e `tenant_channels` pela colacao `C` («ser» <
                 # «sto» < «ten»).
                 ("stock_reservations", "tenant_iso", "ALL", "{public}"),
+                # KAM-059: a subscricao tem **duas**, como a conta: a
+                # `pay_billing_subscricoes`, `FOR SELECT TO kamba_pay`, e a
+                # `tenant_iso`. O billing le as subscricoes de todos os tenants
+                # — e a lista de quem a KAMBA cobra — e escreve sob a
+                # `tenant_iso` de cada um. Com `TO`, a politica so vale para o
+                # papel do PAY, e a `tenant_iso` dos outros fica intacta.
+                ("subscriptions", "pay_billing_subscricoes", "SELECT", "{kamba_pay}"),
+                ("subscriptions", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 # KAM-069: **duas** politicas, e e a primeira tabela deste
@@ -722,6 +752,9 @@ class TestCatalogoReal(ComBase):
             [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
+             # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
+             "billing_cycles",
+             "billing_ops_approvals",
              # KAM-049: a ingestao do Catalogo AI («au» < «ca» < «ch»).
              "catalog_ingestions",
              # KAM-017: o estado de coexistencia. **Quinta e sexta listas
@@ -739,6 +772,8 @@ class TestCatalogoReal(ComBase):
              # KAM-021: o registo das transicoes de qualidade.
              "channel_quality_log",
              # KAM-022: a prova de consentimento.
+             # KAM-059: a sombra da comissao («com» < «con»).
+             "commission_accruals",
              "consent_event",
              "contact_deks", "contact_endpoints", "contacts",
              # KAM-090: a prova de aceite, com a `tenant_iso` do `db/rls.py`.
@@ -837,6 +872,8 @@ class TestCatalogoReal(ComBase):
              "screening_decision",
              # KAM-045: a reserva de stock, entre o caso de reembolso e o canal.
              "stock_reservations",
+             # KAM-059: a subscricao, depois da reserva («st» < «su»).
+             "subscriptions",
              "tenant_channels",
              # KAM-069: os destinos de transferencia. **Terceira lista deste
              # ficheiro a precisar da tabela nova**, e as duas de cima ja

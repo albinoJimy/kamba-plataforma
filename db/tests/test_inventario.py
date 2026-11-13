@@ -2524,6 +2524,78 @@ INVENTARIO["catalog_ingestions"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O billing da plataforma (KAM-059, revisao do billing). **Nenhuma destas
+#: colunas guarda dado pessoal**: o precario e de plataforma, a subscricao e o
+#: ciclo sao de um tenant (uma loja), a sombra guarda identificadores e valores,
+#: e o `actor_id` da aprovacao e de staff da KAMBA, nao de um titular.
+INVENTARIO["price_book"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "plano": ("text", NAO, None, "nao"),
+    "valor_minor": (
+        "bigint", NAO, None,
+        "nao — o preco do plano em unidade menor. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+    ),
+    "currency": (
+        "character", NAO, "'AOA'::bpchar",
+        "nao — dominio de um valor. `char(3)` com `CHECK`, como a `payment_charges`: e o DDL do §11.2",
+    ),
+    "iva_pct": ("numeric", NAO, "14.00", "nao — NAO VERIFICADO, a confirmar com contabilista"),
+    "valido_de": ("date", NAO, None, "nao"),
+    "valido_ate": ("date", SIM, None, "nao"),
+    "nota": ("text", SIM, None, "nao — nota de produto sobre o preco, nunca de uma pessoa"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["subscriptions"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "plano": ("text", NAO, None, "nao"),
+    "estado": ("text", NAO, "'ativa'::text", "nao"),
+    "periodo_dia": ("smallint", NAO, "1", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["billing_cycles"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "subscription_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "periodo": ("daterange", NAO, None, "nao"),
+    "valor_minor": (
+        "bigint", NAO, None,
+        "nao — o preco do ciclo, fixo desde que abriu. Ver `EM_UNIDADE_MENOR`",
+    ),
+    "estado": ("text", NAO, "'aberto'::text", "nao"),
+}
+
+INVENTARIO["commission_accruals"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "order_id": ("uuid", NAO, None, "nao"),
+    "payment_event_id": ("bigint", NAO, None, "nao"),
+    "base_minor": ("bigint", NAO, None, "nao — sombra, nunca facturada. Ver `EM_UNIDADE_MENOR`"),
+    "taxa_bps": ("integer", NAO, None, "nao"),
+    "comissao_minor": (
+        "bigint", NAO, None, "nao — sombra, nunca facturada. Ver `EM_UNIDADE_MENOR`",
+    ),
+    "modo": ("text", NAO, "'sombra'::text", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["billing_ops_approvals"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "charge_id": ("uuid", NAO, None, "nao"),
+    "actor_id": ("uuid", NAO, None, "nao — identificador de staff, nao do titular"),
+    "motivo": (
+        "text", NAO, None,
+        "nao — a razao de ops (o extracto que leu), nunca dados do pagador",
+    ),
+    "valor_minor": (
+        "bigint", NAO, None, "nao — o valor aprovado, igual ao da cobranca. Ver `EM_UNIDADE_MENOR`",
+    ),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -3253,6 +3325,19 @@ class TestInventario(ComBase):
                         # tenant nao apaga as fotos dele por baixo da retencao,
                         # que e quem as purga (KAM-071).
                         "catalog_ingestions_tenant_fk",
+                        # KAM-059 (revisao do billing): as nove, todas sem
+                        # cascata. Um ciclo nao se apaga com a subscricao, nem a
+                        # cobranca com o ciclo (o ledger e *append-only*), nem a
+                        # sombra com o evento que a mediu.
+                        "subscriptions_tenant_fk",
+                        "billing_cycles_tenant_fk",
+                        "billing_cycles_subscricao_do_mesmo_tenant_fk",
+                        "charges_billing_fk",
+                        "commission_accruals_tenant_fk",
+                        "commission_accruals_encomenda_do_mesmo_tenant_fk",
+                        "commission_accruals_evento_fk",
+                        "billing_ops_approvals_tenant_fk",
+                        "billing_ops_approvals_charge_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3872,6 +3957,44 @@ class TestInventario(ComBase):
                     "catalog_ingestions_publicada_ck",
                     "catalog_ingestions_sku_ck",
                     "catalog_ingestions_ultima_mensagem_ck",
+                    # ------------------- KAM-059 (revisao do billing)
+                    #
+                    # **Trinta.** O precario (sete: chave, unicidade por plano e
+                    # `valido_de`, a forma do plano, o valor nao negativo, a
+                    # moeda, o IVA e a validade), a subscricao (seis), o ciclo
+                    # (seis: o periodo unico por subscricao e o par para a FK da
+                    # cobranca), a sombra (sete, com o `so_sombra` e o calculo da
+                    # taxa) e a aprovacao de ops (quatro).
+                    "billing_cycles_estado_ck",
+                    "billing_cycles_periodo_ck",
+                    "billing_cycles_periodo_uq",
+                    "billing_cycles_pkey",
+                    "billing_cycles_tenant_id_uq",
+                    "billing_cycles_valor_ck",
+                    "billing_ops_approvals_motivo_ck",
+                    "billing_ops_approvals_pessoa_uq",
+                    "billing_ops_approvals_pkey",
+                    "billing_ops_approvals_valor_ck",
+                    "commission_accruals_base_ck",
+                    "commission_accruals_calculo_ck",
+                    "commission_accruals_evento_uq",
+                    "commission_accruals_modo_ck",
+                    "commission_accruals_pkey",
+                    "commission_accruals_so_sombra",
+                    "commission_accruals_taxa_ck",
+                    "price_book_currency_ck",
+                    "price_book_iva_ck",
+                    "price_book_pkey",
+                    "price_book_plano_ck",
+                    "price_book_plano_valido_de_uq",
+                    "price_book_valor_ck",
+                    "price_book_validade_ck",
+                    "subscriptions_estado_ck",
+                    "subscriptions_periodo_dia_ck",
+                    "subscriptions_pkey",
+                    "subscriptions_plano_ck",
+                    "subscriptions_tenant_id_uq",
+                    "subscriptions_tenant_uq",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

@@ -9,6 +9,28 @@
  * O gate 7 (`make ci-7`) falha se este ficheiro estiver desactualizado.
  */
 
+/** Payload de `billing.cycle_paid` v1. */
+export interface PayloadBillingCyclePaid {
+  readonly billing_cycle_id: string;
+  readonly subscription_id: string;
+  readonly charge_id: string;
+  readonly periodo_inicio: string;
+  readonly periodo_fim: string;
+  readonly valor_minor: number;
+  readonly currency: "AOA";
+}
+
+/** Payload de `billing.cycle_paid` v2. */
+export interface PayloadBillingCyclePaidV2 {
+  readonly billing_cycle_id: string;
+  readonly subscription_id: string;
+  readonly charge_id: string;
+  readonly periodo_inicio: string;
+  readonly periodo_fim: string;
+  readonly valor_minor: number;
+  readonly currency: "AOA";
+}
+
 /** Payload de `booking.cancelled` v1. */
 export interface PayloadBookingCancelled {
   readonly booking_id: string;
@@ -597,6 +619,11 @@ export interface EntradaDoCatalogo {
 
 /** Todos os contratos, por tipo. A lista e fechada: um tipo fora dela e desconhecido. */
 export const CATALOGO = {
+  "billing.cycle_paid": {
+    versoes: [1, 2],
+    obrigatorios: ["billing_cycle_id", "charge_id", "currency", "periodo_fim", "periodo_inicio", "subscription_id", "valor_minor"],
+    permitidos: ["billing_cycle_id", "charge_id", "currency", "periodo_fim", "periodo_inicio", "subscription_id", "valor_minor"],
+  },
   "booking.cancelled": {
     versoes: [1, 2],
     obrigatorios: ["booking_id", "motivo"],

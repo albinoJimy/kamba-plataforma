@@ -18,12 +18,12 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os quarenta e um **tipos** do dicionario §3.5: os trinta e oito da emenda
-#: 1.11, os dois do KAM-050 (1.83) e o `screening.violation_detected` da 1.84
-#: (KAM-191). Escritos aqui a
+#: Os quarenta e dois **tipos** do dicionario §3.5: os trinta e oito da emenda
+#: 1.11, os dois do KAM-050 (1.83), o `screening.violation_detected` da 1.84
+#: (KAM-191) e o `billing.cycle_paid` do KAM-059. Escritos aqui a
 #: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
-ESPERADOS = 41
+ESPERADOS = 42
 
 #: As versoes publicadas de cada tipo. Sao **duas** desde o KAM-159, que
 #: acrescentou a `v2` a todos: a uniao das finalidades de consentimento alarga
@@ -120,7 +120,7 @@ class TestOCatalogoDoRepositorio(unittest.TestCase):
 
     def test_sao_trinta_e_oito_e_carregam_todos(self) -> None:
         # O nome e o de 2026-10 e fica: o `specs/tickets/KAM-007.md` cita-o como
-        # evidencia. A contagem e a de `ESPERADOS`, quarenta e um desde o KAM-191.
+        # evidencia. A contagem e a de `ESPERADOS`, quarenta e dois desde o KAM-059.
         self.assertEqual(len(self.contratos), ESPERADOS_FICHEIROS)
         self.assertEqual(len({c.tipo for c in self.contratos}), ESPERADOS)
 
