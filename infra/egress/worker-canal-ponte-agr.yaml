@@ -1,0 +1,15 @@
+# Lista de saidas de `worker-canal-ponte-agr` — KAM-067 criterio 9; servico do KAM-194.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai.
+#
+# E um dos servicos do `worker-canal` (uma imagem, um `command:` cada), e
+# corre o `ponte.ts`. O `supply_chain` pede uma lista por **servico de
+# compose** cujo nome nao e o de uma pasta de `services/`, e por isso o
+# `services/worker-canal/egress.yaml` nao o cobre. A lista e a mesma dessa:
+# **vazia**. O processo fala com a fila (`data`) e com o alvo da entrega
+# (`app`), as duas redes sao `internal: true`, e o servico nao tem
+# `HTTPS_PROXY`.
+version: 1
+servico: worker-canal-ponte-agr
+por_omissao: negar
+destinos: []

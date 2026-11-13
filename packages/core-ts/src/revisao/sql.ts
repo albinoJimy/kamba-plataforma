@@ -477,7 +477,7 @@ export class OnboardingsSql implements OnboardingsDaRevisao {
 }
 
 /**
- * A marca de «efeito por aplicar» de um caso (KAM-198, revisão `0052`). O
+ * A marca de «efeito por aplicar» de um caso (KAM-198, revisão `0053`). O
  * `kamba_batch` tem `UPDATE` só desta coluna.
  *
  * **Marcar renova o instante, e resolver só limpa o instante que leu.** Dois

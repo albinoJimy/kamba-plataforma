@@ -261,6 +261,12 @@ services:
   #   agr_shim.ts    agr-inbound -> POST /internal/turn no AGR        3025   replicas
   #   publicador.ts  outbox -> particoes                              3011   em espera (lock 7101)
   #   consumidor.ts  particoes -> events_consumed, DLQ                3012   uma
+  #   ponte.ts       particoes -> POST /internal/event (Python)       3194   uma
+  #
+  # O `ponte.ts` (KAM-194) corre em **dois** servicos, um por alvo: o
+  # `worker-canal-ponte-idx` entrega ao `idx` e o `worker-canal-ponte-agr` ao
+  # `agr`. Cada um apresenta **um** segredo (`KAMBA_PONTE_SEGREDO`), e por isso
+  # nao se juntam.
   #
   # O `server.ts` **sai** do compose: os quatro servem o seu `/healthz`, e uma
   # sonda que nao consome nada era um contentor verde sobre uma fila parada —
@@ -465,6 +471,99 @@ services:
       queue:
         condition: service_healthy
 
+  # KAM-194. A casca BullMQ -> HTTP: le as particoes `evt.idx.p<n>` e entrega
+  # cada *job* ao `idx` por `POST /internal/event`. Nao abre ligacao a base nem
+  # marca `events_consumed` — isso e do lado Python (cabecalho do `ponte.ts`).
+  worker-canal-ponte-idx:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/ponte.ts"]
+    environment:
+      <<: *node-env
+      PONTE_PORT: "3194"
+      KAMBA_ENV: prod
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_PONTE_CONSUMERS: idx
+      KAMBA_PONTE_ALVO: http://idx:8061
+      # O **id** do segredo, e nao o valor: o `Secrets` le-o de
+      # `KAMBA_SECRET_IDX_INTERNAL_TOKEN`, que e o que o `idx` verifica.
+      KAMBA_PONTE_SEGREDO: idx_internal_token
+      KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do IDX}
+    # **Uma replica**, pela razao do `consumidor.ts`: a ordem por agregado
+    # assenta em concorrencia 1 por fila de particao, e uma segunda replica
+    # punha dois *workers* na mesma particao.
+    networks:
+      - app
+      - data
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3194/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      queue:
+        condition: service_healthy
+      idx:
+        condition: service_healthy
+
+  # O mesmo processo, outro alvo e outro segredo: as particoes dos dois
+  # consumidores do AGR, entregues ao `agr` por `POST /internal/event`.
+  worker-canal-ponte-agr:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/worker-canal/src/ponte.ts"]
+    environment:
+      <<: *node-env
+      PONTE_PORT: "3194"
+      KAMBA_ENV: prod
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_PONTE_CONSUMERS: agr_vendedor,agr_servicos
+      KAMBA_PONTE_ALVO: http://agr:8000
+      KAMBA_PONTE_SEGREDO: agr_internal_token
+      KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do AGR}
+    # Uma replica, pela mesma razao.
+    networks:
+      - app
+      - data
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3194/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      queue:
+        condition: service_healthy
+      agr:
+        condition: service_healthy
+
   agr:
     <<: *endurecido
     # O AGR corre `python:3.12-slim`, onde nao existe o utilizador `node`.
@@ -513,6 +612,65 @@ services:
       postgres:
         condition: service_healthy
       queue:
+        condition: service_healthy
+
+  # KAM-194. O processo do IDX — `python -m kamba_core.idx` — com a imagem do
+  # AGR, que ja traz o `kamba_core` e o `pg8000`. Recebe os eventos da ponte em
+  # `POST /internal/event` e corre o ciclo da reindexacao. Nao sai para fora
+  # (`infra/egress/idx.yaml`, `destinos: []`), e por isso nao tem `*saida`.
+  idx:
+    <<: *endurecido
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["python", "-m", "kamba_core.idx"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      HOST: 0.0.0.0
+      IDX_PORT: "8061"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+      KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+      KAMBA_ENV: prod
+      # A credencial que a ponte apresenta. **Nao** e o `agr_internal_token`:
+      # uma credencial por servico (`ops/secrets-inventory.yaml`).
+      KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do IDX}
+      # Dois papeis (cabecalho do `kamba_core/idx/processo.py`): as entregas e
+      # a reindexacao como `kamba_app`, e so a lista de *tenants* activos como
+      # `kamba_batch`.
+      KAMBA_DB_HOST: postgres
+      KAMBA_DB_PORT: "5432"
+      KAMBA_DB_NAME: ${KAMBA_DB_NAME:?o deploy nomeia a base da plataforma}
+      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:?o cofre entrega a senha do kamba_app}
+      KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:?o cofre entrega a senha do kamba_batch}
+    # **Uma replica.** O ciclo da reindexacao corre em cada processo; duas
+    # replicas eram duas voltas sobre os mesmos documentos.
+    networks:
+      - app
+      - data
+    # *Proposta*, sem medicao: um processo da biblioteca padrao, uma *thread*
+    # por pedido e no maximo dezasseis ligacoes abertas (cabecalho do
+    # `processo.py`). Medir sob carga e o KAM-084.
+    mem_limit: 192m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import sys, urllib.request;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:8061/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
         condition: service_healthy
 
   com:

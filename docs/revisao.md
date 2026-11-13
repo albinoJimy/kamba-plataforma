@@ -165,7 +165,7 @@ outro papel, sai com código 1 antes de abrir a porta.
   por caso, reaplica os efeitos marcados e recalcula as métricas. Um passo que falha não pára os
   outros, e o registo diz quais falharam, pelo nome.
 - **Os efeitos por reaplicar vivem na base**: a coluna `review_case.efeito_pendente_at` da revisão
-  `0052`. O serviço que decide marca o caso **antes** dos efeitos e limpa-o quando correm todos; um
+  `0053`. O serviço que decide marca o caso **antes** dos efeitos e limpa-o quando correm todos; um
   processo que morra a meio deixa a marca, e o lote reaplica-a. O lote só vê uma marca com mais de
   **dois minutos** (a carência, *proposta*): sem ela, corria os efeitos ao mesmo tempo que quem
   decidiu, e o aviso saía duas vezes. Uma reaplicação que falha remarca o caso e manda-o para o fim

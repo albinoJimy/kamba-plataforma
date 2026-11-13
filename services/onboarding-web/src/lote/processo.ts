@@ -296,7 +296,7 @@ export function escritorHumanoDeScreening(app: ConjuntoSql): EscritorDeDecisoes 
 
 /**
  * A lista de efeitos por reaplicar do processo: a coluna
- * `review_case.efeito_pendente_at` da revisão `0052`, como `kamba_batch`.
+ * `review_case.efeito_pendente_at` da revisão `0053`, como `kamba_batch`.
  * **Sobrevive a um reinício** (critério 2), e é a mesma que a consola marca
  * quando tiver o serviço montado sobre a base.
  */

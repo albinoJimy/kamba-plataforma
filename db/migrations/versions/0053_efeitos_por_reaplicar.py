@@ -52,12 +52,13 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0052"
-#: **Encaixa na `0051` do KAM-197**, a cabeca da `publico/main` quando esta
-#: revisao se escreveu (`aff72d29`). O numero e provisorio: o do KAM-194 (#193)
-#: tambem e `0052`, e quem fundir em segundo renumera na integracao, pela regra
-#: da casa — um ramo nao reserva a linha de versoes para outro.
-down_revision = "0051"
+revision = "0053"
+#: **Encaixa na `0052` do KAM-194** (#193, revisao de dados das subscricoes),
+#: que fundiu primeiro: a cabeca da `publico/main` era ela na integracao
+#: (`be3e6eba`). Esta revisao escreveu-se como `0052` sobre a `0051` e
+#: renumerou-se na integracao, pela regra da casa — um ramo nao reserva a linha
+#: de versoes para outro.
+down_revision = "0052"
 branch_labels = None
 depends_on = None
 
@@ -91,7 +92,7 @@ def downgrade() -> None:
         BEGIN
           IF EXISTS (SELECT 1 FROM {CASOS} WHERE {COLUNA} IS NOT NULL) THEN
             RAISE EXCEPTION
-              'downgrade da 0052 recusado: ha casos de revisao com um efeito por '
+              'downgrade da 0053 recusado: ha casos de revisao com um efeito por '
               'aplicar, e tirar a coluna {COLUNA} perdia-o (KAM-198)'
               USING ERRCODE = 'object_not_in_prerequisite_state';
           END IF;

@@ -271,7 +271,7 @@ export interface RepositorioDeRevisao {
  * fase, o screening e o aviso vêm depois e podem falhar. O serviço **marca** o
  * caso antes de correr os efeitos e **resolve-o** quando correm todos; o ciclo
  * do processo de lote reaplica os marcados. Sobre a base (`EfeitosPorReaplicarSql`)
- * a marca é a coluna `review_case.efeito_pendente_at` da revisão `0052`, e
+ * a marca é a coluna `review_case.efeito_pendente_at` da revisão `0053`, e
  * sobrevive a um reinício e a um processo que morra entre a decisão e os efeitos.
  */
 export interface EfeitosPorReaplicar {

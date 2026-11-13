@@ -11,7 +11,7 @@ as respostas a identificadores de B sao indistinguiveis entre si.
 
 ```text
 14 rotas levam identificadores   o IDOR e possivel, e e o que se ataca
-16 rotas sao sonda ou metricas   nao recebem identificador nenhum; o que se
+18 rotas sao sonda ou metricas   nao recebem identificador nenhum; o que se
                                  prova e que a resposta nao leva canario nem
                                  `tenant_id`, e que o oraculo morderia se levasse
 ```
@@ -43,6 +43,12 @@ tenant e o dia em que esta bateria tem de ficar vermelha.
   `com-interna` e a excepcao**: os duplos substituem a porta do COM, pelo que
   ele corre sem base nenhuma — o que se mede nele e a construcao do `ctx`, e nao
   a filtragem.
+
+* **As tres rotas do processo do IDX** (KAM-194) sao a excepcao a frase
+  seguinte: um `BaseHTTPRequestHandler` nao tem chamavel para conduzir em
+  processo, e o caso (`_idx.py`) levanta o servidor do proprio processo em
+  `127.0.0.1:0`. Corre em `db/tests_isolamento/`, onde estao o oraculo e os
+  dois tenants.
 
 Nenhuma das duas metades e um servidor levantado: sao as aplicacoes em processo.
 Isso nao e so velocidade — e o que torna o caso determinista e o que permite
@@ -140,6 +146,11 @@ SONDAS_TS = (
     "rota:worker-canal:consumidor:criarApp:GET:/metrics",
     "rota:worker-canal:entrada:criarApp:GET:/healthz",
     "rota:worker-canal:entrada:criarApp:GET:/metrics",
+    # KAM-194: a ponte fila -> consumidor Python. O `/metrics` serve o
+    # `evt_ponte_total{outcome}`, sem `consumer` nem tenant; e aqui que um
+    # rotulo por tenant ficaria vermelho.
+    "rota:worker-canal:ponte:criarApp:GET:/healthz",
+    "rota:worker-canal:ponte:criarApp:GET:/metrics",
     "rota:worker-canal:publicador:criarApp:GET:/healthz",
     "rota:worker-canal:publicador:criarApp:GET:/metrics",
 )
@@ -382,6 +393,58 @@ registar_caso(
     fn=_conduzir_metricas_do_agr,
     precisa="agr",
     origens=("corpo", "cabecalhos"),
+)
+
+# ------------------------------------------------- o processo do IDX (KAM-194)
+#
+# Tres rotas de um `BaseHTTPRequestHandler` da biblioteca padrao, em `libs/`, que
+# a enumeracao passou a ver com o `_rotas_python_stdlib`. O ataque esta em
+# `_idx.py`, que levanta o servidor do proprio processo numa porta efemera.
+# Correm em `db/tests_isolamento/` (`precisa="postgres"`) porque e la que o
+# contexto tem os dois tenants e o oraculo; a base em si nao e tocada.
+
+#: A rota de entrega. Credencial da instancia; o tenant vem do envelope.
+ROTA_INTERNA_DO_IDX = (
+    "rota:py-core:kamba_core/idx/processo:tratador:POST:/internal/event",
+)
+
+#: A sonda e as metricas do IDX. Sem identificadores a entrada.
+SONDAS_DO_IDX = (
+    "rota:py-core:kamba_core/idx/processo:tratador:GET:/healthz",
+    "rota:py-core:kamba_core/idx/processo:tratador:GET:/metrics",
+)
+
+
+def _conduzir_idx(ctx) -> list[str]:  # noqa: ANN001
+    from ._idx import atacar_rota_interna  # noqa: PLC0415
+
+    return atacar_rota_interna(ctx)
+
+
+def _conduzir_sondas_do_idx(ctx) -> list[str]:  # noqa: ANN001
+    from ._idx import atacar_sonda_e_metricas  # noqa: PLC0415
+
+    return atacar_sonda_e_metricas(ctx)
+
+
+registar_caso(
+    id="X-01/idx/rota-interna",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTA_INTERNA_DO_IDX,
+    fn=_conduzir_idx,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos", "logs"),
+)
+
+registar_caso(
+    id="X-01/idx/sondas",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=SONDAS_DO_IDX,
+    fn=_conduzir_sondas_do_idx,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos", "logs"),
 )
 
 registar_caso(

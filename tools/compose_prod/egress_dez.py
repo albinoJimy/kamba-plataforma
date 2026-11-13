@@ -247,6 +247,12 @@ MARCADORES = {
     "KAMBA_SECRET_KEK_CONTACT_DEK": "marcador",
     "KAMBA_SECRET_AGR_INTERNAL_TOKEN": "marcador",
     "KAMBA_CONSUMER": "marcador",
+    # KAM-194: o `idx` exige a credencial dele e as duas senhas da base, e a
+    # ponte do IDX apresenta a mesma credencial. Mesma razao e mesmo sintoma.
+    "KAMBA_SECRET_IDX_INTERNAL_TOKEN": "marcador",
+    "KAMBA_DB_NAME": "marcador",
+    "KAMBA_SECRET_DB_APP_PASSWORD": "marcador",
+    "KAMBA_SECRET_DB_BATCH_PASSWORD": "marcador",
     # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
     "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
     "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",

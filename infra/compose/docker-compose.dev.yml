@@ -359,6 +359,92 @@ services:
       queue:
         condition: service_healthy
 
+  # KAM-194. As duas pontes e o `idx` tambem ficam atras de
+  # `--profile consumidores`, e por razoes diferentes: a ponte nao abre a base,
+  # mas so tem trabalho quando o `publicador.ts` enche as particoes, e ele esta
+  # no perfil; o `idx` exige as duas senhas da base no arranque e escreve no
+  # `idx.search_doc`, que so existe com a base migrada. Os segredos sao `:-`
+  # pela razao escrita acima.
+  worker-canal-ponte-idx:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/worker-canal/src/ponte.ts"]
+    environment:
+      <<: *service-env
+      PONTE_PORT: "3194"
+      KAMBA_ENV: dev
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_PONTE_CONSUMERS: idx
+      KAMBA_PONTE_ALVO: http://idx:8061
+      KAMBA_PONTE_SEGREDO: idx_internal_token
+      KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:-}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3194/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      queue:
+        condition: service_healthy
+      idx:
+        condition: service_healthy
+
+  worker-canal-ponte-agr:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/worker-canal/src/ponte.ts"]
+    environment:
+      <<: *service-env
+      PONTE_PORT: "3194"
+      KAMBA_ENV: dev
+      KAMBA_REDIS_URL: redis://queue:6379
+      KAMBA_PONTE_CONSUMERS: agr_vendedor,agr_servicos
+      KAMBA_PONTE_ALVO: ${KAMBA_AGR_URL:-http://agr:8000}
+      KAMBA_PONTE_SEGREDO: agr_internal_token
+      KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:-}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3194/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      queue:
+        condition: service_healthy
+      agr:
+        condition: service_healthy
+
   agr:
     <<: *service-defaults
     # O AGR corre `python:3.12-slim`, onde nao existe o utilizador `node`.
@@ -425,6 +511,50 @@ services:
       postgres:
         condition: service_healthy
       queue:
+        condition: service_healthy
+
+  # KAM-194. O processo do IDX, com a imagem do AGR (que traz o `kamba_core` e
+  # o `pg8000`). No perfil `consumidores` pela razao escrita nas pontes. Sem
+  # `ports:`: a `POST /internal/event` so a chama a ponte, pela rede `app`.
+  idx:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["python", "-m", "kamba_core.idx"]
+    environment:
+      HOST: 0.0.0.0
+      IDX_PORT: "8061"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+      KAMBA_ENV: dev
+      KAMBA_SECRET_IDX_INTERNAL_TOKEN: ${KAMBA_SECRET_IDX_INTERNAL_TOKEN:-}
+      KAMBA_DB_HOST: postgres
+      KAMBA_DB_PORT: "5432"
+      KAMBA_DB_NAME: ${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:-}
+      KAMBA_SECRET_DB_BATCH_PASSWORD: ${KAMBA_SECRET_DB_BATCH_PASSWORD:-}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import sys, urllib.request;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:8061/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
         condition: service_healthy
 
   com:

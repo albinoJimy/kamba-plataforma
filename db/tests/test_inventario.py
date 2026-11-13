@@ -2461,7 +2461,7 @@ INVENTARIO["review_case"] = {
     "sla_due_at": ("timestamp with time zone", NAO, None, "nao"),
     "sla_alertado_at": ("timestamp with time zone", SIM, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
-    # KAM-198 (revisao `0052`): a marca de «efeito por aplicar». Um instante.
+    # KAM-198 (revisao `0053`): a marca de «efeito por aplicar». Um instante.
     "efeito_pendente_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 

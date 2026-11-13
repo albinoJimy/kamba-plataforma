@@ -33,7 +33,7 @@
  * **Desde o KAM-198 o serviço marca o caso ele próprio**, antes de correr os
  * efeitos (`efeitos` nas dependências do `ServicoDeRevisao`), e a lista vive na
  * base (`EfeitosPorReaplicarSql`, coluna `review_case.efeito_pendente_at` da
- * revisão `0052`): sobrevive a um reinício, e a um processo que morra entre a
+ * revisão `0053`): sobrevive a um reinício, e a um processo que morra entre a
  * decisão e os efeitos. O `efeitoFalhou` fica para quem monta o serviço sem
  * essa porta.
  *

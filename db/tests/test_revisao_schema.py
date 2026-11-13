@@ -609,7 +609,7 @@ class TestDowngrade(unittest.TestCase):
 
 
 class TestEfeitosPorReaplicar(ComBase):
-    """A marca de «efeito por aplicar» da revisao `0052` (KAM-198).
+    """A marca de «efeito por aplicar» da revisao `0053` (KAM-198).
 
     As tres consultas sao as do modulo (`SQL_MARCAR_EFEITO`, `SQL_EFEITOS_PENDENTES`,
     `SQL_RESOLVER_EFEITO`), lidas do `sql.ts` e nao copiadas.
@@ -665,10 +665,10 @@ class TestEfeitosPorReaplicar(ComBase):
                            f"UPDATE {CASO} SET efeito_pendente_at = now()")
 
 
-class TestDowngradeDa0052(unittest.TestCase):
-    """O `downgrade` da `0052` recusa-se com um caso marcado, e sem ele desfaz tudo.
+class TestDowngradeDa0053(unittest.TestCase):
+    """O `downgrade` da `0053` recusa-se com um caso marcado, e sem ele desfaz tudo.
 
-    **Desce pelo numero (`0051`) e nao por `-1`**, pela licao do KAM-071, e **nao
+    **Desce pelo numero (`0052`) e nao por `-1`**, pela licao do KAM-071, e **nao
     exige `em_head()` depois de recusar**, pela do KAM-089: com outra revisao por
     cima, o Alembic desce-a primeiro e a base fica nesta.
     """
@@ -702,16 +702,16 @@ class TestDowngradeDa0052(unittest.TestCase):
         c.execute(f"UPDATE {CASO} SET efeito_pendente_at = now() WHERE id = %s", (caso,))
         conexao.commit()
         try:
-            resultado = alembic("downgrade", "0051")
+            resultado = alembic("downgrade", "0052")
             self.assertNotEqual(resultado.returncode, 0, "o downgrade devia recusar")
-            self.assertIn("downgrade da 0052 recusado", resultado.stderr)
+            self.assertIn("downgrade da 0053 recusado", resultado.stderr)
             self.assertEqual(self._coluna(), 1, "a coluna ficou, com a marca")
         finally:
             if not em_head():
                 alembic_ok("upgrade", "head")
             c.execute(f"DELETE FROM {CASO} WHERE id = %s", (caso,))
             conexao.commit()
-        alembic_ok("downgrade", "0051")
+        alembic_ok("downgrade", "0052")
         try:
             self.assertEqual(self._coluna(), 0)
             c2 = self._admin().cursor()

@@ -1983,7 +1983,7 @@ COLUNAS_POR_PAPEL = {
     # quem o impoe e o *trigger* e nao esta matriz: e ela que decide se aprovar
     # pede dois revisores, e baixa-la era tirar um.
     #
-    # KAM-198 (0052): e a marca de «efeito por aplicar», que o servico escreve
+    # KAM-198 (0053): e a marca de «efeito por aplicar», que o servico escreve
     # antes dos efeitos e o lote limpa depois de os reaplicar.
     ("kamba_batch", "review_case", "UPDATE"): {
         "estado", "prioridade", "motivo_interno", "evidencias", "recomendacao",

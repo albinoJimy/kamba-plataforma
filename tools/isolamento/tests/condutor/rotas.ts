@@ -288,6 +288,20 @@ const SONDAS: readonly Sonda[] = [
     fabrica: "criarApp",
     caminho: "/metrics",
   },
+  // KAM-194. A `criarApp` da ponte aceita o *logger* como opcional e
+  // constroi-se sem argumentos, como a do `agr_shim.ts`: nao abre a fila.
+  {
+    item: "rota:worker-canal:ponte:criarApp:GET:/healthz",
+    modulo: "services/worker-canal/src/ponte.ts",
+    fabrica: "criarApp",
+    caminho: "/healthz",
+  },
+  {
+    item: "rota:worker-canal:ponte:criarApp:GET:/metrics",
+    modulo: "services/worker-canal/src/ponte.ts",
+    fabrica: "criarApp",
+    caminho: "/metrics",
+  },
   {
     item: "rota:worker-canal:app:createApp:GET:/healthz",
     modulo: "services/worker-canal/src/app.ts",
@@ -341,7 +355,7 @@ const SONDAS: readonly Sonda[] = [
  * elas o webhook **nao e montado**. Passar-lhes duplos aqui montava rotas que
  * este grupo nao enumera, e o grupo `webhook` e o que as monta de proposito.
  *
- * As dezasseis sondas nao recebem identificador nenhum, pelo que nao ha IDOR a
+ * As dezoito sondas nao recebem identificador nenhum, pelo que nao ha IDOR a
  * fazer: o que se prova e que elas **respondem** — uma rota que nao responde nao
  * foi atacada — e que o que respondem atravessa o oraculo como qualquer outra.
  */
