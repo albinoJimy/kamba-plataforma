@@ -7239,8 +7239,14 @@ MUTACOES = [
      "    if tipo == PRODUTO_ALTERADO:\n",
      '    if tipo == "catalog.price_changed":\n', PRODUTOS),
     ("consumidor: o visivel ignora o estado do tenant", IDX_CONSUMIDOR,
-     "SELECT t.id, %s, %s, %s, (%s AND t.estado = 'ativo')",
-     "SELECT t.id, %s, %s, %s, %s", PRODUTOS),
+     "(u.publicado AND t.estado = 'ativo')",
+     "u.publicado", PRODUTOS),
+    # KAM-062: o *worker* reescreve os marcados, e so os visiveis. Sem o
+    # `AND visivel`, um documento escondido cuja oferta desapareceu era marcado
+    # em todas as voltas e o ciclo nao acabava.
+    ("consumidor: o worker reindexa tambem os invisiveis", IDX_CONSUMIDOR,
+     "     AND visivel\n     AND norm_versao < %s\n",
+     "     AND norm_versao < %s\n", PRODUTOS),
     ("consumidor: o visivel ignora a oferta", IDX_CONSUMIDOR,
      'bool(linha["publicado"])', "True", PRODUTOS),
     ("consumidor: o evento do tenant ignora o estado", IDX_CONSUMIDOR,

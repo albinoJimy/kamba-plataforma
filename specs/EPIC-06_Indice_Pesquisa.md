@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Índice e Pesquisa |
-| Versão | 1.4 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` |
@@ -195,16 +195,16 @@ O cliente angolano diz «geleira» e a loja vende «frigorífico»; escreve «ni
 Implementar `normalizar(texto, tenant_id, origem)` com os 9 passos do §5.1, a tabela `idx.termo_canonico`, o versionamento `norm_versao` com reindexação em segundo plano, a correcção de erros por vocabulário do tenant e o relatório semanal de *tokens* não resolvidos.
 
 ### Critérios de Aceitação
-- [ ] A função implementa os 9 passos, devolve `{q_norm, q_or, restricoes, tokens_nao_resolvidos, norm_versao}` e é pura: mesma entrada, mesma saída em 100 execuções; sem chamadas de rede nem LLM.
-- [ ] Restrições (tabela §5.2 como testes): «até 250 mil», «no máximo 250k», «menos de 250.000 kz» → `max_preco_kz=250000`; «entre 100 e 150 mil» → `min=100000, max=150000`; «250 mil» sem verbo de limite → `alvo_preco_kz=250000` (ordena, não filtra); moeda diferente de AOA → pergunta.
-- [ ] Origem `voz`: «duzentos e cinquenta mil» → 250000; os números por extenso só se convertem com `origem='voz'`.
+- [x] A função implementa os 9 passos, devolve `{q_norm, q_or, restricoes, tokens_nao_resolvidos, norm_versao}` e é pura: mesma entrada, mesma saída em 100 execuções; sem chamadas de rede nem LLM.
+- [x] Restrições (tabela §5.2 como testes): «até 250 mil», «no máximo 250k», «menos de 250.000 kz» → `max_preco_kz=250000`; «entre 100 e 150 mil» → `min=100000, max=150000`; «250 mil» sem verbo de limite → `alvo_preco_kz=250000` (ordena, não filtra); moeda diferente de AOA → pergunta.
+- [x] Origem `voz`: «duzentos e cinquenta mil» → 250000; os números por extenso só se convertem com `origem='voz'`.
 - [ ] Unidades e marcas canónicas aplicam-se ao índice e à consulta; sinónimos só à consulta (`q_or`): alterar um sinónimo incrementa `norm_versao` mas não marca documentos para reindexar; alterar marca/unidade marca-os e o *worker* reindexa-os (tenant de 2 000 produtos em ≤ 10 min).
-- [ ] Erro comum e *typo*: auto-correcção só com `similarity ≥ 0,6` **e** ≥ 1 candidato após correcção; caso contrário o *token* vai para `tokens_nao_resolvidos` e o AGR faz uma só pergunta (teste «niker» → «nike» e «xyzq» → não resolvido).
-- [ ] O termo do tenant prevalece sobre o global; um termo de B nunca é aplicado a A (RLS na tabela, teste cruzado).
+- [x] Erro comum e *typo*: auto-correcção só com `similarity ≥ 0,6` **e** ≥ 1 candidato após correcção; caso contrário o *token* vai para `tokens_nao_resolvidos` e o AGR faz uma só pergunta (teste «niker» → «nike» e «xyzq» → não resolvido).
+- [x] O termo do tenant prevalece sobre o global; um termo de B nunca é aplicado a A (RLS na tabela, teste cruzado).
 - [ ] Todo o termo novo exige `aprovado_por`; entradas `origem='dataset'` só ficam `activo` depois de passarem o *gate* de KAM-064 (nDCG@3 não cai > 2 pontos).
 - [ ] O relatório semanal agrega *tokens* não resolvidos com ≥ 5 sujeitos distintos, sem texto bruto, sem `contact_id` e sem `sujeito_ref`.
-- [ ] «Telefone» ambíguo (telemóvel vs telefone fixo) gera pergunta de desambiguação, não correcção silenciosa.
-- [ ] Latência da normalização p95 ≤ 20 ms por consulta (proposta, medir).
+- [x] «Telefone» ambíguo (telemóvel vs telefone fixo) gera pergunta de desambiguação, não correcção silenciosa.
+- [x] Latência da normalização p95 ≤ 20 ms por consulta (proposta, medir).
 
 ### Detalhes Técnicos
 - **Componentes:** IDX, AGR. Módulos `services/idx/src/normalize/{pipeline,numbers,units,typos}.ts`; DDL de `idx.termo_canonico` em §4.4 (índice único `termo_canonico_uq` com `COALESCE(tenant_id, 0-uuid)`).
@@ -222,10 +222,70 @@ Implementar `normalizar(texto, tenant_id, origem)` com os 9 passos do §5.1, a t
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Isolamento de tenant: RLS `FORCE` em `idx.termo_canonico` e caso novo na suite cruzada.
-- [ ] Números só de tools: as restrições de preço do cliente filtram a oferta viva; nunca viram texto de índice.
+- [x] Números só de tools: as restrições de preço do cliente filtram a oferta viva; nunca viram texto de índice.
 - [ ] Privacidade: relatórios agregados sem texto bruto; logs sem conteúdo de consulta.
 - [ ] Eval-gate verde: alterar o dicionário corre o *gate* de KAM-064; SemVer do dicionário atribuída.
 - [ ] Migração reversível; léxico validado por falantes e registado.
+
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-11-12** sobre `f7e32c84` (a `publico/main` com o KAM-061), com a revisão presa à `0045`, e **medida outra vez a 2026-11-13 na árvore integrada** com a `publico/main` em `32092f45` (o #187 do KAM-089 já fundido). A revisão é a **`0049`** (`db/migrations/versions/0049_normalizacao_pt_ao.py`), sobre a `0048` do KAM-089 (a cadeia do lote: `0046` KAM-050, `0047` KAM-192, `0048` KAM-089). **Na árvore integrada, com a `0049` por cima de tudo:**
+
+- *gate* 8: `tests_produtos` com **164** ensaios OK e `tests_agr` com **252** OK;
+- os ensaios de descida `TestDowngradeDa0038` (19), `TestDowngradeDa0042` (no `test_retencao_bd`, 26), `TestDowngradeDa0046` (4), `TestDowngradeDa0047` (na `tests_agr`) e o `TestDowngrade` da `0048` (no `test_revisao_schema`, 29): todos OK. O `downgrade` da `0049` não tem guarda nem recusa, pelo que nenhuma descida que o atravesse pára nele;
+- as listas fechadas `test_inventario` (12), `test_auditoria` (28), `test_catalogo` (28) e `test_migracao` (18): OK;
+- *gate* 6: 83 ensaios, com uma só falha, a do `TestCasosDeNode`, que precisa de Node e não o tem nesta máquina (a mesma da medição de base);
+- AGR com **1670** ensaios e `py-core` com **858**: OK. O DDL vive em `../db/indice.py` (`criar_normalizacao`), pela razão do KAM-061. **Uma adaptação dos Detalhes Técnicos, dita:** os módulos não são `services/idx/src/normalize/*.ts` mas `../libs/py-core/src/kamba_core/idx/` (`normalizacao`, `numeros`, `lexico`), ao lado do índice, da camada de resposta e do consumidor que o KAM-061 já escreveu em Python — uma normalização em TypeScript não tinha quem a chamasse. Reproduz-se nesta máquina com o `.venv` e o Docker:
+
+```bash
+python db/gate_bd.py --suite tests_produtos      # gate 8: a versao, a reindexacao, o typo, a RLS, as CHECK
+python -c "import sys; sys.path[:0]=['libs/py-core/src','libs/py-core/tests']; import unittest; unittest.main(module=None, argv=['x','test_idx_normalizacao','test_idx'])"
+```
+
+**O léxico do §5.1 continua ilustrativo e NÃO VERIFICADO**, e este ticket não o promove: nenhuma linha do `idx.termo_canonico` nasce com ele. O exemplo do §5.1 só existe como *fixture* dos ensaios. Em produção, enquanto não houver léxico curado, a normalização faz os passos que não dependem dele (1, 2, 3 e o *typo* por vocabulário), e os passos 4 a 8 ficam à espera das linhas.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Os 9 passos, os cinco campos, pura em 100 execuções, sem rede nem LLM | satisfeito | `kamba_core.idx.normalizacao.normalizar(texto, tenant_id, origem, lexico=…, vocabulario=…)`: o léxico e o vocabulário entram por parâmetro, e é isso que a torna pura (`kamba_core.idx.lexico` lê-os da base). `test_devolve_os_cinco_campos`, `test_os_nove_passos_numa_frase`, `test_mesma_entrada_mesma_saida_em_100_execucoes` e `test_o_modulo_nao_importa_rede_nem_llm`, que lê os `import` dos dois módulos e só aceita a biblioteca de base. Devolve ainda as `desambiguacoes` (critério 9) |
+| 2 | A tabela do §5.2 como ensaios; moeda estrangeira pergunta | satisfeito | `TestRestricoes`: os três máximos, o «entre», o alvo que não filtra, as cinco formas de AOA e as três de moeda estrangeira. **Os nomes são os do dicionário e do §5.2, e não os do critério:** `max_preco_minor = 25 000 000` (unidade menor, 1 Kz = 100), e não `max_preco_kz = 250000` — a mesma substituição da emenda 1.68 que o KAM-061 já fez. Mais as formas angolanas que a revisão adversarial partiu: «250.000,00», «250 000», «1,5 milhões», «250mil», «até mil kz», «1 milhão de dólares» e o valor acima do `bigint` (`test_as_formas_angolanas_de_escrever_um_valor`). E no PostgreSQL, a filtrar a oferta viva: `TestRestricoesNaOfertaViva` (máximo, mínimo, «entre», e o alvo que não filtra) |
+| 3 | «duzentos e cinquenta mil» → 250000, só com `origem='voz'` | satisfeito | `test_duzentos_e_cinquenta_mil` (`valor_por_extenso` = 250 000 e a restrição em unidade menor), `test_so_converte_com_origem_voz`, `test_a_tabela_de_numeros` e `test_os_casos_da_voz_que_a_revisao_partiu`: o «e» só junta uma palavra menor a uma maior («entre cem e duzentos mil» são dois números), e o multiplicador dito fica dito («dois mil e quinhentos» é `2.5 mil`) |
+| 4 | Marca e unidade nos dois lados, sinónimo só na consulta; sinónimo sobe a versão sem marcar, marca/unidade marca e o *worker* reindexa 2 000 em ≤ 10 min | parcial | **A metade entregue:** os dois lados (`test_marca_e_unidade_nos_dois_lados`, `test_sinonimo_so_na_consulta`); a versão é a `idx.norm_versao` (`0049`), por gatilho no `termo_canonico` (`TestVersao`: o sinónimo sobe a versão e não a do índice; a marca sobe as duas; desactivar e apagar uma unidade activa também marcam, e uma entrada inactiva não; e a versão só se acrescenta — `test_a_versao_so_se_acrescenta`, nem o dono a reescreve nem a apaga); o *worker* é o `kamba_core.idx.consumidor.reindexar` (`test_sinonimo_nao_reindexa_e_marca_reindexa`, `test_um_invisivel_desactualizado_nao_e_marcado_e_a_volta_acaba`), e os 2 000 documentos medem-se em `test_2000_produtos_em_menos_de_10_minutos`. Medido contra a base: **2 000 documentos em 8,3 s**, por lotes de 200 numa escrita só (a primeira versão, uma instrução por documento, levou 472 s numa máquina carregada). **A metade que falta:** o processo de fundo que chama o `reindexar` em ciclo numa pilha levantada — o mesmo processo Python que liga a fila ao consumidor. Credor **KAM-194** (ponte fila → consumidor Python), cujo bloco nomeia o ciclo do `reindexar` |
+| 5 | Auto-correcção só com similaridade ≥ 0,6 **e** ≥ 1 candidato; senão `tokens_nao_resolvidos` e uma só pergunta («niker» → «nike», «xyzq» → não resolvido) | satisfeito | `test_niker_e_nike`, `test_xyzq_nao_se_resolve`, `test_o_limiar_e_0_6_dos_dois_lados` (o limiar escrito no ensaio, com um par em 0,6 e outro em 4/7); a semelhança é a do `pg_trgm`, cruzada com o PostgreSQL (`test_a_semelhanca_e_a_do_pg_trgm`); o «≥ 1 candidato» mede-se na base com a palavra (`test_cada_palavra_do_vocabulario_encontra_um_candidato`) e com a frase corrigida inteira (`test_a_frase_corrigida_inteira_encontra_o_produto`). **Duas leituras, ditas:** o «niker» corrige pela tabela de erros comuns e sem limiar (a semelhança dele com «nike» é 4/7 e o critério pede-o corrigido); e a pergunta da palavra desconhecida só se faz quando nenhum candidato passa o limiar do grafo — com o léxico vazio, «quero comprar arroz» tem duas palavras que nenhuma loja vende, e perguntar por elas trocava todo o pedido típico por uma pergunta (`test_a_palavra_desconhecida_com_candidato_acima_do_limiar_nao_pergunta`). A pergunta é uma só (`test_a_pergunta_da_normalizacao_e_a_unica_mensagem`) |
+| 6 | O termo do tenant prevalece; um termo de B nunca se aplica a A (RLS, teste cruzado) | satisfeito | Puro: `TestPrecedencia` (e o `Lexico.de_linhas` descarta outra vez o termo de outro tenant). Na base, como `kamba_app`: `test_o_termo_do_tenant_prevalece_sobre_o_global` e `test_um_termo_de_b_nunca_chega_ao_lexico_de_a`, com o controlo de que o mesmo termo se lê com o contexto de B; e `test_a_marca_de_b_nao_reescreve_o_documento_de_a` |
+| 7 | `aprovado_por` obrigatório; `dataset` só `activo` depois do *gate* do KAM-064 | parcial | **A metade entregue:** as duas `CHECK` da `0049` — `termo_canonico_aprovado_ck` (nulo, vazio e só espaços recusados) e `termo_canonico_dataset_inactivo_ck` (`test_sem_aprovado_por_recusa`, `test_dataset_so_entra_inactivo`). **A metade que falta:** o *gate* do KAM-064 não existe, e por isso uma entrada de *dataset* não fica activa nunca — falha fechada. Credor **KAM-064**, que solta a `CHECK` com a medição do nDCG@3 |
+| 8 | Relatório semanal de *tokens* não resolvidos, ≥ 5 sujeitos distintos, sem texto bruto, sem `contact_id` nem `sujeito_ref` | parcial | **A metade entregue:** a normalização devolve os `tokens_nao_resolvidos` de cada consulta (critério 5), que é a matéria-prima do relatório, e não os guarda em lado nenhum. **A metade devolvida:** o relatório e o seu armazenamento. Contar «cinco sujeitos distintos» obriga a guardar texto da consulta ligado a um sujeito, e isso pede a mesma decisão de privacidade e de retenção que o dataset do KAM-064 já tem de tomar — e o DoD do KAM-061 diz «logs sem texto de consulta». Credor **KAM-064**, que é a curadoria do dicionário a partir do dataset, e cujo bloco nomeia esta caixa como recebida |
+| 9 | «Telefone» ambíguo pergunta, não corrige em silêncio | satisfeito | O canónico leva as alternativas separadas por barra vertical (o índice único do §4.4 deixa um só canónico por termo): `test_telefone_sozinho_pergunta` (nem «telefone» nem «telemóvel» entram no `q_or`), `test_telefone_fixo_ja_respondeu` e `test_celular_nao_e_ambiguo`; no grafo, o `TERMO_AMBIGUO` pergunta mesmo com candidatos acima do limiar |
+| 10 | p95 da normalização ≤ 20 ms (proposta, medir) | satisfeito | `TestLatencia.test_p95_abaixo_de_20_ms`: 500 consultas com um léxico de 2 000 termos e um vocabulário de 5 000 palavras. A primeira versão mediu 26,7 ms numa máquina carregada; os termos por tipo passaram a calcular-se uma vez por léxico e não por consulta. É o piso de uma máquina de desenvolvimento; o ambiente de referência é o do KAM-193 |
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | vazia | Os critérios 4, 7 e 8 são parciais, pelas razões acima |
+| Isolamento: RLS `FORCE` em `idx.termo_canonico` e caso novo na suite cruzada | parcial | A RLS `FORCE` é da `0045` e o X-03 continua a cobri-la (a semente passou a levar o `aprovado_por`). O caso novo de «termo de B aplicado a A» está no *gate* 8 (`test_um_termo_de_b_nunca_chega_ao_lexico_de_a`, como `kamba_app`) e **não** na suite cruzada do *gate* 6, cuja linha de base não fica verde nesta máquina pelo Node |
+| Números só de tools: as restrições filtram a oferta viva e nunca viram texto de índice | satisfeito | Critério 2 e `TestRestricoesNaOfertaViva`; nenhum número chega ao `q_or` (`test_as_formas_angolanas_de_escrever_um_valor` verifica-o caso a caso) |
+| Privacidade: relatórios agregados sem texto bruto; logs sem conteúdo de consulta | parcial | Nenhum módulo novo escreve registo nem guarda a consulta; o grafo recebe o **código** da pergunta e nunca a palavra (`test_o_codigo_e_do_dominio_do_grafo_e_nunca_a_palavra`). O relatório agregado é do KAM-064 (critério 8) |
+| Eval-gate verde e SemVer do dicionário | vazia | Credor **KAM-064**. A versão do léxico é um inteiro monótono (`idx.norm_versao`), e não uma SemVer |
+| Migração reversível; léxico validado por falantes e registado | parcial | A `0049` desce sem `CASCADE`, pelo ciclo do *gate* 8 (`TestDowngradeDa0028` passa por ela). O léxico **não** foi validado por falantes: é o estado NÃO VERIFICADO que o bloco manda herdar |
+
+**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu, levantou dezasseis achados. Cada um foi verificado contra o código antes de gerar trabalho:
+
+| # | Achado | Estado | O que o fechou |
+|---|---|---|---|
+| 1 | «até 1 milhão **de** dólares» virava um tecto em kwanzas | CONFIRMADO, corrigido | A moeda lê-se também depois de «de» (`numeros._moeda_em`) |
+| 2 | «250.000,00 kz» e «250 000 kz» davam preço 0 e mandavam o número ao índice | CONFIRMADO, corrigido | O passo 1 guarda o decimal; os grupos de milhares juntam-se antes de multiplicador ou moeda |
+| 3 | Na voz, o «e» juntava dois números («entre cem e duzentos mil» = 300 mil) | CONFIRMADO, corrigido | Uma palavra só se junta a uma maior do que ela |
+| 4 | «até dois mil e quinhentos» (voz) perdia o tecto | CONFIRMADO, corrigido | O multiplicador dito fica dito, em decimal (`2.5 mil`) |
+| 5 | Os decimais davam uma restrição errada, e o comentário dizia o contrário | CONFIRMADO, corrigido | Decimais suportados; o comentário saiu |
+| 6 | Com o léxico vazio, `TERMO_DESCONHECIDO` substituía o «não encontrei» em quase tudo, e o executor decidia antes do limiar | CONFIRMADO, corrigido | A decisão passou ao `retrieve`, depois do limiar; o texto não culpa o cliente e mantém o colega |
+| 7 | A identidade dá a versão pela ordem de início, e a visibilidade é pela de *commit*: um documento podia ficar desactualizado sem marca | PLAUSÍVEL, corrigido | O gatilho toma `SHARE ROW EXCLUSIVE` na `norm_versao`: quem escreve o léxico serializa |
+| 8 | Ensaios que não mordiam: o limiar importado do alvo, o `AND visivel`, o mínimo e o alvo do `SQL_RESPOSTA` | CONFIRMADO, corrigido | `test_o_limiar_e_0_6_dos_dois_lados`, `test_um_invisivel_desactualizado_nao_e_marcado_e_a_volta_acaba` (e a mutação no `db/mutacoes.py`), `TestRestricoesNaOfertaViva` |
+| 9 | O «≥ 1 candidato» só estava provado para palavras soltas | PLAUSÍVEL, corrigido | O `or` do `q_or` dá-o para a frase; mede-se com `test_a_frase_corrigida_inteira_encontra_o_produto`, e a fronteira está escrita no módulo |
+| 10 | O alvo de preço quase nunca ordena: o `o_score` raramente empata | CONFIRMADO, aceite | Leitura dita: o alvo desempata depois da relevância, e nunca filtra. Pô-lo à frente da relevância punha um produto mal relacionado e com o preço certo antes do pedido; a calibração é do KAM-064 |
+| 11 | Um número enorme partia a tool no `bigint` | CONFIRMADO, corrigido | Fica no tecto do `bigint`, que é «sem filtro» |
+| 12 | Restrições contraditórias davam resposta vazia | CONFIRMADO, corrigido | Um mínimo acima do máximo cai; fica o tecto |
+| 13 | «250mil», «até mil kz» e «até $300» não se reconheciam | CONFIRMADO, corrigido | As três, com ensaio |
+| 14 | Qualquer marca reindexava todos os tenants, mesmo inactiva | CONFIRMADO, corrigido em parte | Uma entrada inactiva já não marca (`test_uma_entrada_inactiva_nao_marca_o_indice`). A versão continua global, como o §4.4 a escreve: uma marca de um tenant reescreve os documentos de todos, com o mesmo conteúdo nos outros. É custo e não correcção |
+| 15 | O `kamba_app` vê a cadência das alterações do léxico de outros tenants | CONFIRMADO, aceite | Uma linha diz só «algo mudou» e quando, nunca o quê nem de quem |
+| 16 | O *cache* crescia sem limite | CONFIRMADO, corrigido | Tecto de 256 tenants (*proposta*) |
 
 ### Handoff para Claude Code
 
@@ -352,6 +412,7 @@ Construir o dataset `golden_search` (≥ 300 consultas, ≥ 5 catálogos), o exe
 - Reaproveita a infra de *eval harness* de KAM-040 (golden PT-AO de conversas): são datasets diferentes com o mesmo executor de CI.
 - O dicionário e os pesos do RRF só se alteram por PR com o relatório do *gate* anexado.
 - **O limiar do `retrieve` do AGR também se afina aqui** (KAM-061): o `LIMIAR_DO_RRF` de `../services/agr/src/kamba_agr/tls/idx.py`, contra o RRF normalizado pelo seu máximo teórico (`score_normalizado`), entrou como *proposta* (0,3) quando o KAM-061 ligou o `search_catalog`, e muda junto com o pontuador, com o mesmo relatório.
+- **Recebido do KAM-062**, que o devolveu na sua verificação: o critério 8 daquele bloco (o relatório semanal de *tokens* não resolvidos, ≥ 5 sujeitos distintos, sem texto bruto, sem `contact_id` nem `sujeito_ref`) e a metade do critério 7 que solta a `termo_canonico_dataset_inactivo_ck` quando o *gate* deste ticket passar. O relatório guarda texto da consulta ligado a um sujeito, e pede a mesma decisão de privacidade e de retenção que este ticket já toma para o dataset; o KAM-062 deixa a normalização a devolver os `tokens_nao_resolvidos` e não os guarda.
 
 ### Testes Requeridos
 - Unit: cada métrica com casos de valor conhecido (incluindo empates e consultas sem relevantes).
@@ -519,3 +580,4 @@ Testes: integração na pilha levantada, obs_lint e o relatório de desempenho.
 | 1.2 | Outubro 2026 | KAM-145: os **5** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | KAM-061: secção de verificação do bloco, com **sete** caixas de dez nos critérios e **quatro** de sete na DoD; as vazias têm a razão e o credor. E uma linha nos Detalhes Técnicos do KAM-064: o limiar do `retrieve` do AGR afina-se com o *dataset* dele, junto com o pontuador. **Entra o KAM-193**, credor das três caixas que o KAM-061 devolveu sem ticket (o processo do consumidor, as métricas servidas e a latência no ambiente de referência): o critério 10 passa de «não satisfeito» a parcial, porque uma medição numa máquina partilhada não fecha nem reprova o alvo. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | KAM-193: secção de verificação do bloco, com **nenhuma** das três caixas dos critérios fechada e **duas** de três na DoD. Entrega o módulo `kamba_core.idx.metricas` com as três métricas servidas pela `/metrics` do AGR (o eixo `ramo` só com `todos`, e a razão escrita), e a repetição da medição do critério 10 do KAM-061 nesta máquina, que deu o dobro com o código igual (`../docs/evidencia/KAM-193.md`). **Abre o KAM-194** no EPIC-01, credor do processo do consumidor, e o `Bloqueia` do KAM-061, do KAM-062 e do KAM-193 ganham-no. A verificação do KAM-061 passa a apontar para os novos credores nas linhas 9 e 10 e na caixa das métricas. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | KAM-062: secção de verificação do bloco, com **sete** caixas de dez nos critérios e **uma** de seis na DoD; as parciais e a vazia têm a razão e o credor (KAM-064 recebe o relatório semanal e a soltura das entradas de *dataset*, e fica-lhe uma linha nos Detalhes Técnicos; KAM-194 recebe o ciclo do *worker*). O léxico do §5.1 continua NÃO VERIFICADO. | Equipa KAMBÁ |

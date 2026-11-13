@@ -220,7 +220,10 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: esquema e quem as consome diz qual. Por ordem alfabetica, que e a do
 #: `ORDER BY 1, 2` do `test_o_migrator_nao_e_dono_de_nada_fora_do_que_criou`; o
 #: esquema vem **entre** o `dat` e o `lg`.
-TABELAS_IDX = ("search_doc", "termo_canonico")
+#:
+#: KAM-062 (revisao `0049`) acrescenta a `norm_versao`, que vem primeiro pela
+#: ordem alfabetica.
+TABELAS_IDX = ("norm_versao", "search_doc", "termo_canonico")
 #: As vistas do esquema. Separadas das tabelas porque a descoberta do catalogo
 #: tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — tem aqui o

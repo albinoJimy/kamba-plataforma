@@ -82,9 +82,13 @@ from ...validador.veredicto import Policy, medir_validacao, validar
 from .arestas import (
     AVISOS,
     INTENCOES,
+    MOEDA_ESTRANGEIRA,
+    PERGUNTAS_DO_IDX,
     RECUSAS,
     REFERENCIA_EM_FALTA,
     STALE_CONFIRMATION,
+    TERMO_AMBIGUO,
+    TERMO_DESCONHECIDO,
     VERSAO_DO_GRAFO,
 )
 
@@ -230,6 +234,22 @@ FRASE_DO_AVISO: Final = {
     ),
     REFERENCIA_EM_FALTA: (
         "Diga-me a referencia do pedido e eu consulto-o."
+    ),
+    # As tres perguntas da normalizacao (KAM-062). Sao a **unica** mensagem do
+    # turno (`unknown_reply`), e por isso perguntas e nao avisos.
+    TERMO_AMBIGUO: (
+        "Essa palavra pode querer dizer mais de uma coisa. Pode dizer melhor o "
+        "que procura?"
+    ),
+    MOEDA_ESTRANGEIRA: (
+        "So consigo procurar precos em kwanzas. Pode dizer o valor em Kz?"
+    ),
+    # Nao culpa o cliente: com o lexico vazio, a palavra «desconhecida» e muitas
+    # vezes so um produto que a loja nao vende. Por isso guarda a saida do
+    # `MSG_NAO_ENTENDI` — o colega da loja.
+    TERMO_DESCONHECIDO: (
+        "Nao encontrei no catalogo da loja algumas das palavras que escreveu. "
+        "Pode dizer de outra maneira, ou falar com um colega da loja?"
     ),
 }
 
@@ -1329,6 +1349,23 @@ def retrieve(deps: Dependencias):
         resultado = await _invocar(
             deps, estado, "search_catalog", {"query": _query_de(_texto_do_cliente(estado))}
         )
+        pergunta = resultado.data.get("pergunta") if resultado.ok else None
+        acima = [
+            candidato
+            for candidato in (resultado.data.get("candidatos") or () if resultado.ok else ())
+            if float(candidato.get("score", 0)) >= deps.limiar_idx
+        ]
+        # KAM-062: a normalizacao pede uma pergunta. O termo ambiguo e a moeda
+        # estrangeira perguntam **sempre** — mostrar candidatos era escolher um
+        # sentido, ou ignorar um tecto, em silencio. A palavra desconhecida so
+        # pergunta se nada passou o limiar: com o lexico vazio, «quero comprar
+        # arroz» tem duas palavras que a loja nao conhece, e a pesquisa
+        # encontrou o arroz. O limiar decide aqui, e nao no executor, porque e
+        # aqui que ele vive (achado 6 da revisao adversarial).
+        if pergunta in PERGUNTAS_DO_IDX and not (pergunta == TERMO_DESCONHECIDO and acima):
+            # Sem ofertas, o turno sai pela aresta 19 e o `unknown_reply` faz
+            # **uma** pergunta.
+            return {"ofertas": (), "avisos": _avisos_com(estado, pergunta)}
         if not resultado.ok:
             # O §7.3 da ao `retrieve` **duas** arestas e nenhuma e `handoff`:
             # uma falha do IDX sai pelo `unknown_reply`, com o texto de «nao
@@ -1338,11 +1375,6 @@ def retrieve(deps: Dependencias):
                 "ofertas": (),
                 "avisos": _avisos_com(estado, _aviso_do_erro(resultado)),
             }
-        acima = [
-            candidato
-            for candidato in resultado.data.get("candidatos") or ()
-            if float(candidato.get("score", 0)) >= deps.limiar_idx
-        ]
         return {"ofertas": tuple(_oferta_crua(c) for c in acima)}
 
     return no
@@ -1880,7 +1912,13 @@ def _resposta_estatica(texto: str) -> dict[str, Any]:
 def unknown_reply(deps: Dependencias):
     """Linha 19 -> 34: abaixo do limiar do IDX."""
 
-    async def no(_estado: dict[str, Any]) -> dict[str, Any]:
+    async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        # Uma pergunta da normalizacao (KAM-062), se o `retrieve` a deixou: uma
+        # so, pela ordem do `PERGUNTAS_DO_IDX`. Sem ela, o «nao encontrei».
+        avisos = tuple(estado.get("avisos") or ())
+        for pergunta in PERGUNTAS_DO_IDX:
+            if pergunta in avisos:
+                return _resposta_estatica(FRASE_DO_AVISO[pergunta])
         return _resposta_estatica(MSG_NAO_ENTENDI)
 
     return no

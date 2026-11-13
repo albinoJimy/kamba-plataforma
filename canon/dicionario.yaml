@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.86"
+versao_dicionario: "1.87"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7666,7 +7666,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Aviso de negócio para o compose"
-    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION, REFERENCIA_EM_FALTA}"
+    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION, REFERENCIA_EM_FALTA, TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO}"
     literais:
       - "state.avisos"
       - "NOT_FOUND"
@@ -7678,6 +7678,9 @@ entradas:
       - "UPSTREAM_DOWN"
       - "STALE_CONFIRMATION"
       - "REFERENCIA_EM_FALTA"
+      - "TERMO_AMBIGUO"
+      - "MOEDA_ESTRANGEIRA"
+      - "TERMO_DESCONHECIDO"
     nomes:
       - "compose"
       - "state.avisos"
@@ -7690,8 +7693,12 @@ entradas:
       - "UPSTREAM_DOWN"
       - "STALE_CONFIRMATION"
       - "REFERENCIA_EM_FALTA"
+      - "TERMO_AMBIGUO"
+      - "MOEDA_ESTRANGEIRA"
+      - "TERMO_DESCONHECIDO"
     nomes_nota:
       - "order_status"
+      - "retrieve"
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Consulta de pedido sem referência dada"
@@ -15789,6 +15796,128 @@ entradas:
       - "inicioDaAmostragem"
       - "auditoria"
     variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Versão do léxico PT-AO"
+    canonico: "idx.norm_versao, três colunas: versao, afecta_indice, criado_at"
+    literais:
+      - "idx.norm_versao"
+      - "versao"
+      - "afecta_indice"
+      - "criado_at"
+    nomes:
+      - "idx.norm_versao"
+      - "versao"
+      - "afecta_indice"
+      - "criado_at"
+    nomes_nota:
+      - "idx.termo_canonico"
+      - "tenant_id"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Alteração que reindexa"
+    canonico: "norm_versao.afecta_indice"
+    literais:
+      - "norm_versao.afecta_indice"
+    nomes:
+      - "norm_versao.afecta_indice"
+    nomes_nota:
+      - "marca"
+      - "unidade"
+      - "search_doc.nome_norm"
+      - "sinonimo"
+      - "erro_comum"
+      - "stopword"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Gatilho da versão"
+    canonico: "idx.f_registar_norm_versao(), gatilho termo_canonico_norm_versao"
+    literais:
+      - "idx.f_registar_norm_versao()"
+      - "termo_canonico_norm_versao"
+    nomes:
+      - "idx.f_registar_norm_versao"
+      - "termo_canonico_norm_versao"
+    nomes_nota:
+      - "AFTER"
+      - "INSERT"
+      - "OR"
+      - "UPDATE"
+      - "DELETE"
+      - "SHARE"
+      - "ROW"
+      - "EXCLUSIVE"
+      - "norm_versao"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Versão só de acrescento"
+    canonico: "idx.f_recusar_alteracao_de_versao(), gatilho norm_versao_so_acrescenta"
+    literais:
+      - "idx.f_recusar_alteracao_de_versao()"
+      - "norm_versao_so_acrescenta"
+    nomes:
+      - "idx.f_recusar_alteracao_de_versao"
+      - "norm_versao_so_acrescenta"
+    nomes_nota:
+      - "BEFORE"
+      - "UPDATE"
+      - "OR"
+      - "DELETE"
+      - "norm_versao"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Aprovação de um termo"
+    canonico: "termo_canonico_aprovado_ck"
+    literais:
+      - "termo_canonico_aprovado_ck"
+    nomes:
+      - "termo_canonico_aprovado_ck"
+    nomes_nota:
+      - "aprovado_por"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Termo de dataset inactivo"
+    canonico: "termo_canonico_dataset_inactivo_ck"
+    literais:
+      - "termo_canonico_dataset_inactivo_ck"
+    nomes:
+      - "termo_canonico_dataset_inactivo_ck"
+    nomes_nota:
+      - "origem"
+      - "dataset"
+      - "activo"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Pergunta da normalização"
+    canonico: "state.avisos ⊇ {TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO}"
+    literais:
+      - "state.avisos"
+      - "TERMO_AMBIGUO"
+      - "MOEDA_ESTRANGEIRA"
+      - "TERMO_DESCONHECIDO"
+    nomes:
+      - "state.avisos"
+      - "TERMO_AMBIGUO"
+      - "MOEDA_ESTRANGEIRA"
+      - "TERMO_DESCONHECIDO"
+    nomes_nota:
+      - "search_catalog"
+      - "unknown_reply"
+      - "STALE_CONFIRMATION"
+      - "tool_audit.error_code"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Alternativas de um sinónimo ambíguo"
+    canonico: "termo_canonico.canonico com as alternativas separadas por barra vertical"
+    literais:
+      - "termo_canonico.canonico"
+    nomes:
+      - "termo_canonico.canonico"
+    nomes_nota:
+      - "tenant"
+      - "tipo"
+      - "termo"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -16981,6 +17110,20 @@ tabelas:
     assinatura: "idx.candidatos(p_tenant, p_q_norm, p_q_or, p_qvec, p_k, p_w_sem, p_w_tri, p_w_fts, p_rrf_k)"
     seccao: "3.59"
     conceito: "Pesquisa por tenant"
+  - nome: "f_registar_norm_versao"
+    esquema: "idx"
+    colunas: []
+    aberta: false
+    assinatura: "idx.f_registar_norm_versao()"
+    seccao: "3.62"
+    conceito: "Gatilho da versão"
+  - nome: "f_recusar_alteracao_de_versao"
+    esquema: "idx"
+    colunas: []
+    aberta: false
+    assinatura: "idx.f_recusar_alteracao_de_versao()"
+    seccao: "3.62"
+    conceito: "Versão só de acrescento"
 
 dominios:
   - coluna: "consent_event.purpose"

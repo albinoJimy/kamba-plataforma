@@ -164,9 +164,15 @@ class TestEsquema(ComIndice):
             "  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
             " WHERE n.nspname = 'idx' AND c.relkind = 'r' ORDER BY 1"
         )
+        # A `norm_versao` (KAM-062, `0049`) nao tem `tenant_id` nem RLS: a versao
+        # e global (§4.4), e o *gate* 6 pergunta por RLS a quem tem a coluna.
         self.assertEqual(
             [tuple(linha) for linha in linhas],
-            [("search_doc", True, True), ("termo_canonico", True, True)],
+            [
+                ("norm_versao", False, False),
+                ("search_doc", True, True),
+                ("termo_canonico", True, True),
+            ],
         )
 
     def test_nenhuma_coluna_do_idx_fala_de_preco_nem_de_stock(self) -> None:
@@ -227,6 +233,11 @@ class TestEsquema(ComIndice):
             ("termo_canonico", "INSERT"): False,
             ("termo_canonico", "UPDATE"): False,
             ("termo_canonico", "DELETE"): False,
+            # KAM-062: a versao le-se e nunca se escreve pela aplicacao.
+            ("norm_versao", "SELECT"): True,
+            ("norm_versao", "INSERT"): False,
+            ("norm_versao", "UPDATE"): False,
+            ("norm_versao", "DELETE"): False,
         }
         for (tabela, privilegio), tem in esperado.items():
             with self.subTest(tabela=tabela, privilegio=privilegio):
@@ -248,8 +259,9 @@ class TestEsquema(ComIndice):
         tenant = self.tenant_em("ativo")
         termo = f"global_{uuid.uuid4().hex[:8]}"
         self.semente.execute(
-            "INSERT INTO idx.termo_canonico (tenant_id, tipo, termo, canonico, origem) "
-            "VALUES (NULL, 'sinonimo', %s, 'frigorifico', 'ops')",
+            "INSERT INTO idx.termo_canonico "
+            "(tenant_id, tipo, termo, canonico, origem, aprovado_por) "
+            "VALUES (NULL, 'sinonimo', %s, 'frigorifico', 'ops', 'ensaio')",
             (termo,),
         )
         self.addCleanup(

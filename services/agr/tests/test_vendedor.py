@@ -137,6 +137,17 @@ def estado_de(texto: str = "", *, tipo: str = "text", **troca: Any) -> dict[str,
     return estado
 
 
+def _com_pergunta(codigo: str) -> BackendDeEnsaio:
+    """O duplo do backend com o `search_catalog` a pedir a pergunta `codigo` (KAM-062)."""
+
+    class ComPergunta(BackendDeEnsaio):
+        def search_catalog(self, pedido):  # noqa: N805
+            resposta = super().search_catalog(pedido)
+            return type(resposta)(data={**resposta.data, "pergunta": codigo})
+
+    return ComPergunta()
+
+
 def montar(
     *,
     backend: BackendDeEnsaio | None = None,
@@ -1250,6 +1261,45 @@ class TestOutrosNos(unittest.TestCase):
         self.assertEqual(final["ofertas"], ())
         self.assertEqual(backend.chamadas["search_catalog"], 1)
         self.assertIn("Nao encontrei nada no catalogo", saida.textos[0])
+
+    def test_a_pergunta_da_normalizacao_e_a_unica_mensagem(self) -> None:
+        """KAM-062: o `search_catalog` pede uma pergunta e o turno faz so essa.
+
+        Sem ofertas, mesmo que haja candidatos: uma pesquisa feita com metade da
+        frase («telefone» sem saber qual, um preco em dolares) nao se mostra.
+        """
+        # A ambiguidade e a moeda perguntam mesmo com a «Camisa Azul» acima do
+        # limiar; a palavra desconhecida so pergunta sem candidatos.
+        casos = {
+            tabela.TERMO_AMBIGUO: "tem camisa azul?",
+            tabela.MOEDA_ESTRANGEIRA: "tem camisa azul?",
+            tabela.TERMO_DESCONHECIDO: "tem algum xyzq?",
+        }
+        for codigo, frase in casos.items():
+            with self.subTest(codigo=codigo):
+                grafo, _deps, backend, saida, _lig = montar(backend=_com_pergunta(codigo))
+                final = correr(grafo, estado_de(frase))
+                self.assertEqual(final["ofertas"], ())
+                self.assertIn(codigo, final["avisos"])
+                # Uma mensagem so (a do primeiro turno leva a apresentacao da
+                # persona antes), e a pergunta dentro dela.
+                self.assertEqual(len(saida.textos), 1)
+                self.assertTrue(saida.textos[0].endswith(nos_mod.FRASE_DO_AVISO[codigo]))
+                self.assertNotIn(nos_mod.MSG_NAO_ENTENDI, saida.textos[0])
+                self.assertEqual(backend.chamadas["search_catalog"], 1)
+
+    def test_a_palavra_desconhecida_com_candidato_acima_do_limiar_nao_pergunta(self) -> None:
+        """«quero comprar arroz» com o lexico vazio: o «comprar» nao e da loja.
+
+        O executor diz `TERMO_DESCONHECIDO`, a «Camisa Azul» passa o limiar, e o
+        turno mostra-a em vez de perguntar (achado 6 da revisao adversarial).
+        """
+        grafo, _deps, _backend, _saida, _lig = montar(
+            backend=_com_pergunta(tabela.TERMO_DESCONHECIDO)
+        )
+        final = correr(grafo, estado_de("tem camisa azul?"))
+        self.assertEqual([o["sku"] for o in final["ofertas"]], ["SKU-100"])
+        self.assertNotIn(tabela.TERMO_DESCONHECIDO, final["avisos"])
 
     def test_um_pedido_sem_referencia_no_texto_explica(self) -> None:
         """**E o aviso e `REFERENCIA_EM_FALTA` e nao `NOT_FOUND`** (KAM-037).

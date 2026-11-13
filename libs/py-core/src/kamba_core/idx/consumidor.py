@@ -36,8 +36,8 @@ consumidor atrasar, a porta `tn` ja impede a fuga de um tenant suspenso.
   o que falta e infraestrutura de eventos — a casca BullMQ -> HTTP, as linhas
   de `platform.evt_subscricoes` e uma forma do `registry/` para um consumidor
   que nao e vertical —, e serve tambem o `/internal/event` do AGR.
-* `marca_canon`, `categoria_canon` e `descr_norm`: o `platform.offer_terms` so
-  tem `nome`, e o lexico de marcas e o KAM-062. Ficam nulos e vazio.
+* `categoria_canon` e `descr_norm`: o `platform.offer_terms` so tem `nome`.
+  Ficam nulo e vazio. A `marca_canon` sai do lexico (KAM-062).
 * O embedding (KAM-063). O documento nasce sem ele, que e o modo lexical.
 """
 
@@ -54,14 +54,16 @@ from kamba_core.eventos.consumo import (
     consumir,
 )
 
-from .texto import normalizar
+from .lexico import consultar, ler_lexico, ler_versoes
+from .normalizacao import Lexico, normalizar_documento
 
 #: O nome do consumidor em `platform.events_consumed`. A chave de idempotencia e
 #: `(consumer, event_id)`: mudar este nome reprocessa tudo.
 CONSUMIDOR: Final = "idx"
 
-#: A versao do dicionario PT-AO aplicada ao `nome_norm`. **1** enquanto nao
-#: houver dicionario (KAM-062): e so o passo 1 do §5.1.
+#: A versao com que o KAM-061 escreveu o indice: so o passo 1 do §5.1. Desde o
+#: KAM-062 a versao e a do `idx.norm_versao` (`kamba_core.idx.lexico`), e esta e
+#: a que ele devolve sem linhas.
 NORM_VERSAO: Final = 1
 
 #: O tipo do evento de produto.
@@ -88,20 +90,52 @@ SQL_LER_OFERTA: Final = """
      AND v.product_ref = %s
 """
 
-#: Escreve ou reescreve o documento. O `visivel` junta o tenant `ativo` ao
-#: `publicado` da oferta; o `SELECT` sobre `platform.tenants` le **so** o tenant
-#: do contexto (RLS por `id`), e sem ele nao escreve nada.
-SQL_ESCREVER_DOCUMENTO: Final = """
-  INSERT INTO idx.search_doc (tenant_id, product_ref, norm_versao, nome_norm, visivel)
-  SELECT t.id, %s, %s, %s, (%s AND t.estado = 'ativo')
+#: As ofertas vivas de um lote de documentos, numa so leitura (o *worker*).
+SQL_LER_OFERTAS: Final = """
+  SELECT v.product_ref, v.nome, v.publicado
+    FROM platform.v_oferta_viva v
+   WHERE v.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+     AND v.product_ref = ANY(%s::text[])
+"""
+
+#: Escreve ou reescreve documentos, um ou um lote, numa so instrucao. O
+#: `visivel` junta o tenant `ativo` ao `publicado` da oferta; o `SELECT` sobre
+#: `platform.tenants` le **so** o tenant do contexto (RLS por `id`), e sem ele
+#: nao escreve nada. O `{linhas}` e uma `_LINHA_A_ESCREVER` por documento
+#: (`sql_escrever_documentos`): o caminho do evento e o do *worker* escrevem
+#: pela **mesma** instrucao, e a definicao de «visivel» e uma so.
+_SQL_ESCREVER_DOCUMENTOS: Final = """
+  INSERT INTO idx.search_doc
+         (tenant_id, product_ref, norm_versao, nome_norm, marca_canon, visivel)
+  SELECT t.id, u.product_ref, %s, u.nome_norm, u.marca_canon,
+         (u.publicado AND t.estado = 'ativo')
     FROM platform.tenants t
+   CROSS JOIN (VALUES {linhas}) AS u(product_ref, nome_norm, marca_canon, publicado)
    WHERE t.id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
   ON CONFLICT (tenant_id, product_ref) DO UPDATE
      SET norm_versao   = EXCLUDED.norm_versao,
          nome_norm     = EXCLUDED.nome_norm,
+         marca_canon   = EXCLUDED.marca_canon,
          visivel       = EXCLUDED.visivel,
          atualizado_at = now()
 """
+
+#: Um documento no `VALUES`, com os tipos escritos: uma `marca_canon` nula em
+#: todas as linhas nao deixa o PostgreSQL adivinhar a coluna.
+_LINHA_A_ESCREVER: Final = "(%s::text, %s::text, %s::text, %s::boolean)"
+
+
+def sql_escrever_documentos(quantos: int) -> str:
+    """A instrucao que escreve `quantos` documentos (parametros: versao e 4 por linha)."""
+    if quantos < 1:
+        raise ValueError("escrever zero documentos nao e uma instrucao")
+    return _SQL_ESCREVER_DOCUMENTOS.replace(
+        "{linhas}", ", ".join([_LINHA_A_ESCREVER] * quantos)
+    )
+
+
+#: A de um documento, que e a do caminho do evento.
+SQL_ESCREVER_DOCUMENTO: Final = sql_escrever_documentos(1)
 
 #: A oferta desapareceu: o documento fica, invisivel. Nao se apaga — o
 #: `kamba_app` nao tem `DELETE` no indice, e a purga e da retencao.
@@ -139,18 +173,108 @@ def _sku(envelope: Mapping[str, object]) -> str:
     return sku
 
 
-def efeito_do_produto(bd: ClienteSql, envelope: Mapping[str, object]) -> None:
-    """`catalog.product_changed`: escreve o documento a partir da oferta viva."""
-    sku = _sku(envelope)
-    oferta = bd.executar(SQL_LER_OFERTA, (sku,)).linhas
-    if not oferta:
+#: A oferta ainda por ler (o caminho do evento le-a; o *worker* ja a leu).
+_POR_LER: Final = object()
+
+
+def escrever_documento(
+    bd: ClienteSql,
+    tenant_id: object,
+    sku: str,
+    lexico: Lexico | None = None,
+    oferta: object = _POR_LER,
+) -> None:
+    """Escreve o documento do `sku` a partir da oferta viva e do lexico de agora.
+
+    O `nome_norm` e a `marca_canon` saem dos passos 1, 4 e 5 do §5.1 com o
+    lexico do tenant (`normalizar_documento`), e a `norm_versao` gravada e a
+    versao desse lexico: e o que o *worker* de reindexacao compara. Sem
+    `lexico`, le-o da base, na transaccao do chamador; o *worker* passa-o, para
+    nao o reler a cada documento de um lote, e a `oferta` ja lida (`None` se
+    deixou de existir).
+    """
+    if oferta is _POR_LER:
+        lidas = bd.executar(SQL_LER_OFERTA, (sku,)).linhas
+        oferta = lidas[0] if lidas else None
+    if oferta is None:
         bd.executar(SQL_ESCONDER_DOCUMENTO, (sku,))
         return
-    linha = oferta[0]
+    if lexico is None:
+        lexico = ler_lexico(bd, tenant_id, ler_versoes(bd).versao)
     bd.executar(
         SQL_ESCREVER_DOCUMENTO,
-        (sku, NORM_VERSAO, normalizar(str(linha["nome"])), bool(linha["publicado"])),
+        (lexico.norm_versao, *_linha_do_documento(sku, oferta, lexico)),  # type: ignore[arg-type]
     )
+
+
+def _linha_do_documento(
+    sku: str, linha: Mapping[str, object], lexico: Lexico
+) -> tuple[str, str, str | None, bool]:
+    """`(product_ref, nome_norm, marca_canon, publicado)` de uma oferta viva."""
+    documento = normalizar_documento(str(linha["nome"]), lexico)
+    return (sku, documento.nome_norm, documento.marca_canon, bool(linha["publicado"]))
+
+
+def efeito_do_produto(bd: ClienteSql, envelope: Mapping[str, object]) -> None:
+    """`catalog.product_changed`: escreve o documento a partir da oferta viva."""
+    escrever_documento(bd, envelope.get("tenant_id"), _sku(envelope))
+
+
+#: Os documentos do tenant do contexto escritos antes da ultima alteracao do
+#: lexico que afecta o indice (marca ou unidade), pela ordem do `doc_id`.
+SQL_DESACTUALIZADOS: Final = """
+  SELECT product_ref
+    FROM idx.search_doc
+   WHERE tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+     AND visivel
+     AND norm_versao < %s
+   ORDER BY doc_id
+   LIMIT %s
+"""
+
+#: Quantos documentos uma volta do *worker* reescreve. **Proposta**: uma
+#: transaccao curta por lote, para nao segurar o indice do tenant.
+LOTE_DE_REINDEXACAO: Final = 200
+
+
+def reindexar(bd: ClienteSql, tenant_id: object, lote: int = LOTE_DE_REINDEXACAO) -> int:
+    """Uma volta do *worker* (§4.4): reescreve ate `lote` documentos marcados.
+
+    Marcado e o documento **visivel** com `norm_versao` abaixo da
+    `versao_do_indice` — a ultima alteracao de marca ou unidade. Alterar um
+    sinonimo nao sobe essa versao, e por isso nao marca nada (criterio 4). Um
+    invisivel nao conta: nao aparece na pesquisa, e volta a ser escrito pelo
+    `catalog.product_changed` que o publicar. E isso que faz a volta acabar —
+    um documento cuja oferta desapareceu e escondido e deixa de ser marcado, em
+    vez de voltar em cada volta. Corre na transaccao do
+    chamador, com o contexto do tenant; devolve quantos reescreveu, e zero
+    quer dizer que o tenant esta em dia. Quem a chama em ciclo, ate dar zero, e
+    o processo de fundo.
+    """
+    versoes = ler_versoes(bd)
+    marcados = consultar(bd, SQL_DESACTUALIZADOS, (versoes.versao_do_indice, int(lote)))
+    if not marcados:
+        return 0
+    # Um lexico, uma leitura de ofertas e uma escrita por lote, na mesma
+    # transaccao que as versoes — e lidos **depois** delas: um lexico que mude
+    # entre as duas leituras grava uma versao abaixo do que aplicou, e o
+    # documento volta a ser marcado (o lado seguro). Medido no *gate* 8: uma
+    # instrucao por documento eram 472 s para 2 000 numa maquina carregada.
+    lexico = ler_lexico(bd, tenant_id, versoes.versao)
+    refs = [str(linha["product_ref"]) for linha in marcados]
+    ofertas = {str(o["product_ref"]): o for o in consultar(bd, SQL_LER_OFERTAS, (refs,))}
+    linhas: list[object] = []
+    for ref in refs:
+        oferta = ofertas.get(ref)
+        if oferta is None:
+            bd.executar(SQL_ESCONDER_DOCUMENTO, (ref,))
+        else:
+            linhas.extend(_linha_do_documento(ref, oferta, lexico))
+    if linhas:
+        bd.executar(
+            sql_escrever_documentos(len(linhas) // 4), (lexico.norm_versao, *linhas)
+        )
+    return len(marcados)
 
 
 def efeito_do_tenant(bd: ClienteSql, envelope: Mapping[str, object]) -> None:

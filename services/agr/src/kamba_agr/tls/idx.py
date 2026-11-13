@@ -138,7 +138,7 @@ def executar(pedido: Pedido) -> Resposta:
     hibrido = False
     inicio = time.perf_counter()
     try:
-        resultados = pesquisa.candidatos(
+        procura = pesquisa.procurar(
             pedido.ligacao,
             pedido.ctx.tenant_id,
             pedido.args.query,
@@ -167,13 +167,43 @@ def executar(pedido: Pedido) -> Resposta:
     METRICAS_DO_IDX.registar_pesquisa(
         modo="hibrido" if hibrido else "lexical",
         duracao_ms=(time.perf_counter() - inicio) * 1_000,
-        resultados=len(resultados),
+        resultados=len(procura.linhas),
     )
     candidatos: list[dict[str, Any]] = [
         {**linha, "score": round(score_normalizado(score, hibrido=hibrido), 4)}
-        for linha, score in resultados
+        for linha, score in procura.linhas
     ]
-    return Resposta(data={"candidatos": tuple(candidatos)})
+    dados: dict[str, Any] = {"candidatos": tuple(candidatos)}
+    pergunta = pergunta_da_normalizacao(procura.normalizacao)
+    if pergunta is not None:
+        dados["pergunta"] = pergunta
+    return Resposta(data=dados)
+
+
+def pergunta_da_normalizacao(normalizacao: Any) -> str | None:
+    """A pergunta que a normalizacao pede ao AGR, ou `None` (KAM-062).
+
+    Uma so, pela ordem do `PERGUNTAS_DO_IDX` do grafo: a ambiguidade primeiro
+    (o que o cliente quer), depois a moeda (quanto quer gastar), depois a
+    palavra desconhecida. **O codigo, e nunca a palavra**: o termo do cliente
+    nao vai para o estado nem para a auditoria da tool.
+
+    **Quem decide se pergunta e o `retrieve`**, e nao este executor: a palavra
+    desconhecida so pergunta quando nenhum candidato passa o limiar do grafo, e
+    o limiar e dele. Com o lexico vazio — o estado de producao enquanto o do
+    §5.1 nao for validado —, «quero comprar arroz» tem «quero» e «comprar» fora
+    do vocabulario da loja, e perguntar por elas trocava todo o pedido tipico
+    de WhatsApp por uma pergunta (medido no `TestLigacaoDoAgr` do *gate* 8).
+    """
+    if normalizacao is None:
+        return None
+    if normalizacao.desambiguacoes:
+        return "TERMO_AMBIGUO"
+    if normalizacao.restricoes.moeda:
+        return "MOEDA_ESTRANGEIRA"
+    if normalizacao.tokens_nao_resolvidos:
+        return "TERMO_DESCONHECIDO"
+    return None
 
 
 def executores_do_idx() -> dict[str, Any]:
@@ -186,6 +216,7 @@ __all__ = [
     "LIMIAR_DO_RRF",
     "executar",
     "executores_do_idx",
+    "pergunta_da_normalizacao",
     "maximo_teorico",
     "score_normalizado",
 ]
