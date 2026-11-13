@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Índice e Pesquisa |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` |
@@ -18,7 +18,7 @@ O **IDX** responde à pergunta «o que é que *esta loja* vende que corresponda 
 
 Três decisões moldam o epic. Primeiro, **fusão por RRF ponderado** em vez de soma linear (PROP-IDX-2): `ts_rank`, cosseno e trigrama não partilham escala e o RRF resiste a trocas de modelo. Segundo, **Piloto sem índice ANN**: com HNSW/IVFFlat o filtro por `tenant_id` é aplicado depois do índice (CONFIRMADO, README do pgvector) e o tenant raro recebe lista vazia sem erro — o modo de falha mais perigoso, porque parece «a loja não tem esse produto»; catálogos de 50–2 000 produtos usam busca exacta com `btree(tenant_id)` (PROP-IDX-1). Terceiro, **modo lexical obrigatório** (PROP-IDX-3): o texto da consulta do cliente enviado a um fornecedor de embeddings no estrangeiro é, por defeito, uma transferência internacional (INDÍCIO, `../docs/tecnica/evidencia/E3` §2; precedente de USD 505 mil, ADR-008); sem destino autorizado (`apd_ref`) o IDX corre só com trigramas e FTS — *fail closed* para o dado, aberto para o serviço.
 
-Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX recebe `catalog.product_changed` e referencia produtos por `product_ref` opaco, imune ao resultado do spike D3) e **ADR-010** (consultas e pesos sem identificadores). Tudo o que pressupõe o número da plataforma — índice federado, assistente de consumo, «quero comprar», AdsEngine, vitrine SEO — é **Diferido/Clusters** (ADR-011, D2) e **não** faz parte deste epic. É **Fase 1**: os cinco tickets (KAM-061 a KAM-064, e o KAM-193 que o KAM-061 abriu) entram depois do esqueleto andante, e a qualidade só se mede com o dataset PT-AO do ticket KAM-064; o modelo de embeddings (PROP-IDX-4) e o léxico PT-AO são NÃO VERIFICADOS e têm critério de saída por medição.
+Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX recebe `catalog.product_changed` e referencia produtos por `product_ref` opaco, imune ao resultado do spike D3) e **ADR-010** (consultas e pesos sem identificadores). Tudo o que pressupõe o número da plataforma — índice federado, assistente de consumo, «quero comprar», AdsEngine, vitrine SEO — é **Diferido/Clusters** (ADR-011, D2) e **não** faz parte deste epic. É **Fase 1**: os seis tickets (KAM-061 a KAM-064, o KAM-193 que o KAM-061 abriu e o KAM-199 que o KAM-064 abriu) entram depois do esqueleto andante, e a qualidade só se mede com o dataset PT-AO do ticket KAM-064; o modelo de embeddings (PROP-IDX-4) e o léxico PT-AO são NÃO VERIFICADOS e têm critério de saída por medição.
 
 ---
 
@@ -45,6 +45,7 @@ Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX rec
 | KAM-063 | Embeddings do catálogo e modo lexical quando o destino não está autorizado | feature | M | P1 | KAM-061, KAM-030, ext:KAM-069 |
 | KAM-064 | Avaliação de qualidade da pesquisa e dataset | feature | M | P1 | KAM-061, KAM-040, KAM-062, KAM-063 |
 | KAM-193 | IDX: processo do consumidor, métricas servidas e latência no ambiente de referência | feature | M | P1 | KAM-061 |
+| KAM-199 | Activação do *eval-gate* de pesquisa e troca do modelo de embeddings | feature | L | P1 | KAM-064 |
 
 ---
 
@@ -429,7 +430,7 @@ Testes: unit do gate, integração, arquitectura (cliente só via gate), avalia�
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-061, KAM-040, KAM-062, KAM-063 |
-| Bloqueia | — |
+| Bloqueia | KAM-199 |
 | Responsável sugerido | Engenheiro de Dados/Pesquisa |
 | Documentos de referência | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§14, §15), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§4, termos de ML), `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-018, §9), `../docs/tecnica/08_Seguranca_Conformidade.md` (§8.7) |
 
@@ -587,6 +588,71 @@ critério 10 do KAM-061 no ambiente de referência.
 Regras: o tenant vem do envelope (consumidor) e do contexto (pesquisa); nada de texto de consulta em
 etiquetas nem em logs; uma optimização só entra com medição antes e depois.
 Testes: integração na pilha levantada, obs_lint e o relatório de desempenho.
+```
+
+---
+
+## KAM-199 — Activação do *eval-gate* de pesquisa e troca do modelo de embeddings
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-06 — Índice e Pesquisa |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-064 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Dados/Pesquisa, com o dono do CI |
+| Documentos de referência | `EPIC-06_Indice_Pesquisa.md` (bloco KAM-064 e a sua verificação; blocos KAM-062 e KAM-063), `../docs/evidencia/KAM-064.md`, `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§4.2, §6.5, §14), `../llm/aliases.yaml` |
+
+### Contexto
+
+O KAM-064 entregou o *dataset* `golden_search`, o executor, as métricas, o relatório, o *gate* como comando e a linha de base. Recebeu do KAM-062, do KAM-063 e do KAM-194 caixas que só fecham com **uma decisão do fundador** ou com **migração**, e nenhuma das duas cabia nele. Este ticket é o credor delas, e nasce no mesmo PR que as devolve: uma caixa devolvida «sem ticket» morre na fusão. As três decisões, com as opções e a medição que as informa, estão no anexo `../docs/evidencia/KAM-064.md`; este bloco não as repete nem as toma.
+
+### Objectivo
+
+Pôr o *eval-gate* de pesquisa a correr no CI na forma que o fundador decidir, soltar as entradas de léxico de *dataset* atrás dele, e — com o modelo de embeddings escolhido — a coluna da dimensão do modelo, a comutação atómica, as medições com o fornecedor real e a fila de mortos persistida do *worker*.
+
+### Critérios de Aceitação
+
+- [ ] Critério 6 do KAM-064: o `python db/golden_search.py` e o `python -m eval_search.gate verificar` correm no CI na forma decidida pelo fundador (pergunta 1 do anexo), nas alterações de dicionário, pesos, modelo, limiar do `pg_trgm` e `idx.candidatos`, e o *job* falha também quando falha um teste de isolamento do §6.4 ou do §7.3.
+- [ ] Metade do critério 7 do KAM-062: uma revisão nova substitui a `termo_canonico_dataset_inactivo_ck` por uma activação que só aceita uma entrada `origem='dataset'` com o relatório do *gate* verde anexado (nDCG@3 não cai > 2 pontos), com teste de migração e descida.
+- [ ] Critério 8 do KAM-062: o relatório semanal de *tokens* não resolvidos em produção, na forma de privacidade e de retenção que o fundador decidir (pergunta 2 do anexo), sem texto bruto da consulta nem `contact_id` nem `sujeito_ref`, com ≥ 5 sujeitos distintos por *token* publicado.
+- [ ] Critério 8 do KAM-063: com ≥ 2 candidatos medidos pelo executor do KAM-064 na divisão `dev` com o fornecedor real (híbrido contra lexical, nDCG@3 e success@3), a decisão do modelo escrita (PROP-IDX-4) e o `kamba-embed` sai de `por_decidir` (pergunta 3 do anexo).
+- [ ] Critério 6 do KAM-063: a coluna nova com a dimensão do modelo escolhido e a comutação atómica, nunca dois modelos na mesma coluna, com teste de migração.
+- [ ] Critérios 3 e 7 do KAM-063 (este recebido pelo KAM-194): o p95 ≤ 600 ms do embedding da pergunta em *staging* com destino autorizado; 2 000 produtos embebidos em ≤ 10 min pelo processo do KAM-194; e o documento que o fornecedor recusa sempre isolado numa fila de mortos persistida, sem travar o lote seguinte.
+- [ ] DoD do KAM-063: o *eval-gate* verde na troca de modelo, com uma linha de base nova (SemVer *major*) registada a partir do relatório do fornecedor real.
+
+### Detalhes Técnicos
+
+- **Componentes:** IDX (revisões novas no esquema `idx`), OBS, CI, AGR (a ligação do vector no arranque).
+- O executor e o *gate* já existem: `../db/golden_search.py`, `../tools/eval_search/`. O fornecedor real entra no lugar do falso pela `ClienteDeEmbeddings(porta, FornecedorDoGateway(...))` do KAM-063; o *gate* recusa comparar um híbrido de outro fornecedor com a linha de base, e por isso a troca pede linha de base nova.
+- Medir com o fornecedor real gasta: é chamada paga com chave virtual, e precisa de destino autorizado com `apd_ref` (ADR-008), mesmo com o *dataset* sintético.
+- O *job* novo é um contexto exigido novo no *ruleset* de `main`: regra de bloqueio, decisão do fundador.
+
+### Testes Requeridos
+
+- Integração: o *job* do *gate* a falhar com uma regressão artificial de nDCG num PR de ensaio, e a passar no seguinte.
+- Migração: a coluna nova e a comutação, ida e volta; a activação de uma entrada de *dataset* sem relatório recusada.
+- Desempenho: o p95 do embedding em *staging* e o tempo dos 2 000 produtos, anexados.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, e as verificações do KAM-062, do KAM-063 e do KAM-064 actualizadas a apontar para este ticket nas caixas que fecha.
+- [ ] Documentação actualizada; migrações reversíveis.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-199 da KAMBÁ (caixas devolvidas pelo KAM-064).
+Lê specs/EPIC-06_Indice_Pesquisa.md (blocos KAM-199 e KAM-064, com a verificação deste) e
+docs/evidencia/KAM-064.md (as três decisões do fundador e as opções).
+Objectivo: o eval-gate de pesquisa no CI, a soltura das entradas de léxico de dataset, e a troca do modelo de
+embeddings com a coluna da dimensão dele, as medições com o fornecedor real e a fila de mortos persistida.
+Regras: nada arranca antes de a decisão correspondente do fundador estar escrita; nenhuma chamada paga sem
+destino autorizado com apd_ref; um job novo no CI é contexto exigido novo e é do fundador.
+Testes: migração, integração do gate no CI, desempenho em staging.
 ```
 
 ---
