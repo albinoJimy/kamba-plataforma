@@ -27,7 +27,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final, Protocol
 
@@ -37,6 +37,10 @@ from .fornecedor import FORMA_DO_FORNECEDOR, GENERATIVAS, OPERACOES
 
 #: A classe da versao no STO: `t/{tenant}/foto/…`.
 CLASSE_STO: Final = "foto"
+
+#: As classes de onde vem um original: a foto da ingestao do Catalogo AI
+#: (KAM-049) e uma versao anterior (melhorar a versao melhorada).
+CLASSES_DE_ORIGEM: Final = ("catalogo", CLASSE_STO)
 
 
 class ConflitoDeEstado(RuntimeError):
@@ -66,6 +70,9 @@ class Trabalho:
     latencia_ms: int | None = None
     aviso_at: datetime | None = None
     versao: int = 0
+    #: Do gatilho: a ultima escrita. E por ele que o `recuperar` sabe que um
+    #: `a_processar` esta preso.
+    atualizado_at: datetime | None = None
 
     @property
     def gerado_por_ia(self) -> bool:
@@ -81,8 +88,11 @@ def validar(linha: Trabalho) -> None:
         raise TrabalhoInvalido(f"operacao `{linha.operacao}` fora do dominio")
     if not FORMA_DO_FORNECEDOR.fullmatch(linha.provider):
         raise TrabalhoInvalido("provider fora da forma")
-    if not linha.origem_ref.startswith(f"t/{linha.tenant_id}/"):
-        raise TrabalhoInvalido("origem_ref e uma chave do STO do proprio tenant")
+    if not any(linha.origem_ref.startswith(f"t/{linha.tenant_id}/{classe}/") for classe in CLASSES_DE_ORIGEM):
+        # So a foto de um produto: o `image_jobs_origem_ref_ck`. Uma chave de
+        # outra classe (um documento KYC, a media de um cliente) nao e foto de
+        # produto e nao sai por aqui (achado da revisao adversarial).
+        raise TrabalhoInvalido("origem_ref e uma foto `catalogo` ou `foto` do proprio tenant")
     if linha.versao_ref is not None and not linha.versao_ref.startswith(f"t/{linha.tenant_id}/{CLASSE_STO}/"):
         raise TrabalhoInvalido("versao_ref e uma chave `foto` do proprio tenant")
     if not 1 <= len(linha.idempotency_key) <= 200:
@@ -134,8 +144,10 @@ def novo_id() -> str:
 class RepositorioEmMemoria:
     """A porta em memoria, com as recusas da base."""
 
-    def __init__(self) -> None:
+    def __init__(self, agora: Callable[[], datetime] = lambda: datetime.now(UTC)) -> None:
         self._linhas: dict[str, Trabalho] = {}
+        #: O relogio do «gatilho»: poe o `atualizado_at` como a base.
+        self.agora = agora
 
     def todas(self) -> tuple[Trabalho, ...]:
         return tuple(self._linhas.values())
@@ -145,8 +157,8 @@ class RepositorioEmMemoria:
         for existente in self._linhas.values():
             if existente.tenant_id == linha.tenant_id and existente.idempotency_key == linha.idempotency_key:
                 return existente
-        self._linhas[linha.image_job_id] = linha
-        return linha
+        self._linhas[linha.image_job_id] = replace(linha, versao=0, atualizado_at=self.agora())
+        return self._linhas[linha.image_job_id]
 
     def ler(self, tenant_id: str, image_job_id: str) -> Trabalho | None:
         linha = self._linhas.get(image_job_id)
@@ -183,6 +195,7 @@ class RepositorioEmMemoria:
             sintetica=actual.sintetica,
             aviso_at=actual.aviso_at,
             versao=actual.versao + 1,
+            atualizado_at=self.agora(),
         )
         return self._linhas[lido.image_job_id]
 
@@ -191,7 +204,7 @@ class RepositorioEmMemoria:
 
 _COLUNAS = (
     "image_job_id::text, tenant_id::text, origem_ref, operacao, provider, idempotency_key, "
-    "estado, motivo, versao_ref, sintetica, escolhida, custo_usd, latencia_ms, aviso_at, versao"
+    "estado, motivo, versao_ref, sintetica, escolhida, custo_usd, latencia_ms, aviso_at, versao, atualizado_at"
 )
 
 SQL_INSERIR = (
@@ -220,7 +233,7 @@ SQL_GRAVAR = (
 
 def _de_linha(linha: Sequence[Any]) -> Trabalho:
     (id_, tenant, origem, operacao, provider, chave, estado, motivo, versao_ref, sintetica, escolhida, custo,
-     latencia, aviso, versao) = linha
+     latencia, aviso, versao, atualizado_at) = linha
     return Trabalho(
         image_job_id=str(id_),
         tenant_id=str(tenant),
@@ -237,6 +250,7 @@ def _de_linha(linha: Sequence[Any]) -> Trabalho:
         latencia_ms=None if latencia is None else int(latencia),
         aviso_at=aviso,
         versao=int(versao),
+        atualizado_at=atualizado_at,
     )
 
 

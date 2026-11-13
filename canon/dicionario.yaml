@@ -16621,6 +16621,7 @@ entradas:
     nomes_nota:
       - "image_jobs_origem_ref_ck"
       - "image_jobs_versao_ref_ck"
+      - "catalogo"
       - "foto"
     variantes_literais:
       - "origem_asset_id"
@@ -16668,21 +16669,28 @@ entradas:
     variantes_literais: []
   - seccao: "3.66"
     conceito: "A tool e o trabalhador"
-    canonico: "ServicoDeFoto.enhance_image (cria o pendente, sem rede para fora) e ServicoDeFoto.processar (o consumidor da fila)"
+    canonico: "ServicoDeFoto.enhance_image (cria o pendente, sem rede para fora), ServicoDeFoto.processar (o consumidor da fila) e ServicoDeFoto.recuperar (um a_processar sem escrita há mais de PRESO_APOS, 5 min)"
     literais:
       - "ServicoDeFoto.enhance_image"
       - "pendente"
       - "ServicoDeFoto.processar"
+      - "ServicoDeFoto.recuperar"
+      - "a_processar"
+      - "PRESO_APOS"
     nomes:
       - "ServicoDeFoto.enhance_image"
       - "pendente"
       - "ServicoDeFoto.processar"
+      - "ServicoDeFoto.recuperar"
+      - "a_processar"
+      - "PRESO_APOS"
     nomes_nota:
+      - "PRESO_APOS"
       - "processar"
     variantes_literais: []
   - seccao: "3.66"
     conceito: "Lista de recusa de fornecedores"
-    canonico: "RECUSADOS: Black Forest Labs e remove.bg, comparados por nome normalizado"
+    canonico: "RECUSADOS: Black Forest Labs e remove.bg, procurados como subcadeia do nome normalizado"
     literais:
       - "RECUSADOS"
     nomes:

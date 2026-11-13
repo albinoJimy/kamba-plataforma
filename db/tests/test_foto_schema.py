@@ -361,6 +361,9 @@ class TestRestricoes(ComBase):
             _origem(b),
             "https://exemplo.invalid/foto.jpg",
             f"t/{a}",
+            # Do proprio tenant, mas de uma classe que nao e foto de produto.
+            f"t/{a}/kyc/2026/11/{uuid.uuid4()}",
+            f"t/{a}/media_imagem/2026/11/{uuid.uuid4()}",
         ):
             with self.subTest(origem_ref=origem):
                 self.assertErroSql(
@@ -525,6 +528,117 @@ class TestFinalidadeImagem(ComBase):
         admin.execute(sql, (tenant, "imagem"))
         self.assertEqual(admin.rowcount, 1)
         self.assertErroSql(VIOLACAO_DE_CHECK, admin, sql, (tenant, "imagens"))
+
+
+def _nucleo():  # type: ignore[no-untyped-def]
+    """O `kamba_core` e os *fakes* da Foto AI, pela razao do `test_catalogo_ai_schema.py`."""
+    import sys
+
+    for pasta in (RAIZ / "libs" / "py-core" / "src", RAIZ / "libs" / "py-core" / "tests"):
+        if str(pasta) not in sys.path:
+            sys.path.insert(0, str(pasta))
+    import test_foto
+    from kamba_core.foto import repositorio, servico
+
+    return repositorio, servico, test_foto
+
+
+class TestRepositorioNaBase(ComBase):
+    """O `RepositorioDbapi` pela ligacao da aplicacao (achado 6 da revisao adversarial).
+
+    O resto deste modulo mede as restricoes com SQL escrito a mao; aqui corre o
+    SQL **do repositorio** — o `ON CONFLICT` com a releitura, o `gravar` contra
+    a `versao`, o `escolhida_de` — e o servico inteiro por cima dele.
+    """
+
+    def _tenants(self) -> tuple[str, str]:
+        admin = self.ligar("admin")
+        a = factories.tenant(admin.cursor())
+        b = factories.tenant(admin.cursor())
+        admin.commit()
+        return a, b
+
+    def _repo(self):  # type: ignore[no-untyped-def]
+        repositorio, _, _ = _nucleo()
+        return repositorio, repositorio.RepositorioDbapi(lambda: ligacao.ligar("app"))
+
+    def _pedido(self, repositorio, a: str, chave: str = "k1", origem: str | None = None):  # type: ignore[no-untyped-def]
+        return repositorio.Trabalho(
+            image_job_id=str(uuid.uuid4()), tenant_id=a, origem_ref=origem or _origem(a),
+            operacao="cutout", provider="photoroom", idempotency_key=chave,
+        )
+
+    def test_a_mesma_chave_e_um_trabalho_pela_porta(self) -> None:
+        a, _ = self._tenants()
+        repositorio, repo = self._repo()
+        primeiro = repo.inserir(self._pedido(repositorio, a))
+        segundo = repo.inserir(self._pedido(repositorio, a))
+        self.assertEqual(primeiro.image_job_id, segundo.image_job_id)
+        self.assertIsNotNone(primeiro.atualizado_at)
+        [(linhas,)] = self.consultar(f"SELECT count(*) FROM {TABELA} WHERE tenant_id = %s", (a,))
+        self.assertEqual(linhas, 1)
+
+    def test_duas_escritas_da_mesma_leitura_dao_conflito(self) -> None:
+        from dataclasses import replace
+
+        a, _ = self._tenants()
+        repositorio, repo = self._repo()
+        lida = repo.inserir(self._pedido(repositorio, a))
+        escrita = repo.gravar(lida, replace(lida, estado="a_processar"))
+        self.assertEqual(escrita.versao, lida.versao + 1)
+        with self.assertRaises(repositorio.ConflitoDeEstado):
+            repo.gravar(lida, replace(lida, estado="a_processar"))
+
+    def test_outro_tenant_nao_le_pela_porta(self) -> None:
+        a, b = self._tenants()
+        repositorio, repo = self._repo()
+        lida = repo.inserir(self._pedido(repositorio, a))
+        self.assertIsNone(repo.ler(b, lida.image_job_id))
+        self.assertFalse(repo.tem_trabalhos(b))
+        self.assertTrue(repo.tem_trabalhos(a))
+
+    def test_o_servico_inteiro_sobre_a_base(self) -> None:
+        a, _ = self._tenants()
+        repositorio, servico, apoio = _nucleo()
+        destinos = apoio.DestinosFake({(a, "primario", "imagem"), (a, "contingencia", "imagem")})
+        armazenamento = apoio.criar_storage_fake()
+        primario, contingencia = apoio.FornecedorFake("primario"), apoio.FornecedorFake("contingencia")
+        s = servico.ServicoDeFoto(
+            repositorio=repositorio.RepositorioDbapi(lambda: ligacao.ligar("app")),
+            storage=armazenamento.storage,
+            fornecedores=(primario, contingencia),
+            destinos=destinos,
+            detector=apoio.DetectorFake(),
+            redimensionador=apoio.RedimensionadorFake(),
+            quota=apoio.QuotaFake(),
+            ambiente="prod",
+        )
+        origens = []
+        for i in range(2):
+            chave = apoio.nova_chave(apoio.Ctx(a), "catalogo", apoio.AGORA)
+            armazenamento.storage.put(
+                apoio.Ctx(a), chave, apoio.jpeg(b"BASE%d" % i),
+                apoio.ObjectMeta("image/jpeg", "catalogo", apoio.AGORA + apoio.timedelta(days=90)),
+            )
+            origens.append(chave)
+        pedido = s.enhance_image(a, origens[0], "cutout", "k1")
+        self.assertEqual(pedido.aviso, servico.AVISO_ESTRANGEIRO)
+        feito = s.processar(a, pedido.trabalho.image_job_id)
+        self.assertEqual(feito.estado, "concluido")
+        # A repeticao nao volta a chamar o fornecedor.
+        s.processar(a, pedido.trabalho.image_job_id)
+        self.assertEqual(len(primario.recebidos), 1)
+        # Duas versoes do mesmo original, e uma so escolhida.
+        outro = s.enhance_image(a, origens[0], "luz_basica", "k2")
+        s.processar(a, outro.trabalho.image_job_id)
+        s.escolher(a, pedido.trabalho.image_job_id, versao=True)
+        s.escolher(a, outro.trabalho.image_job_id, versao=True)
+        lidas = self.consultar(
+            f"SELECT idempotency_key, escolhida, custo_usd, aviso_at IS NOT NULL FROM {TABELA} "
+            "WHERE tenant_id = %s ORDER BY idempotency_key",
+            (a,),
+        )
+        self.assertEqual(lidas, [("k1", False, Decimal("0.018000"), True), ("k2", True, Decimal("0.018000"), False)])
 
 
 class TestDowngrade(unittest.TestCase):

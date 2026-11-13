@@ -35,8 +35,9 @@ inventarios desta casa (o `TABELAS` do *gate* 8, o `INVENTARIO` do *gate* 7, o
 
 A segunda direccao e a que tem valor hoje: hoje **um** dos sete pontos consulta o
 *gate*, e se alguem lhe tirar a chamada isto fica vermelho. **Desde o KAM-120 ha
-uma segunda entrada que consulta**, a Foto AI, que nao e um dos sete pontos do
-criterio: e a finalidade `imagem`, que a revisao `foto_de_produtos` acrescenta.
+mais duas entradas que consultam**, o servico e o *bake-off* da Foto AI, que nao
+sao dos sete pontos do criterio: e a finalidade `imagem`, que a revisao
+`foto_de_produtos` acrescenta.
 
 ## O que isto NAO apanha, e diz-se para nao se ler como mais do que e
 
@@ -137,7 +138,7 @@ class ClienteDeSaida:
 #: O inventario. **Fechado**, e crescer e uma alteracao visivel.
 #:
 #: Sete finalidades no criterio 4 e **uma** linha a consultar o *gate* entre
-#: elas (a segunda que consulta, a da Foto AI, nao e desses sete): e a
+#: elas (as duas da Foto AI, que tambem consultam, nao sao desses sete): e a
 #: medicao que a caixa daquele criterio leva, e esta tabela e onde ela vive em
 #: vez de viver numa frase de um bloco.
 CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
@@ -163,6 +164,18 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
             "enviar a foto, e so depois da minimizacao local (EXIF, rostos e "
             "matriculas). Nao escreve FQDN nenhum: fala com o `ImageProvider`, "
             "cujos adaptadores reais nascem com a decisao do bake-off."
+        ),
+    ),
+    "libs/py-core/src/kamba_core/foto/bakeoff.py": ClienteDeSaida(
+        finalidades=("imagem",),
+        consulta_o_gate=True,
+        credor="",
+        razao=(
+            "O harness do bake-off de fornecedores de imagem (KAM-120), que e o "
+            "caminho por onde as primeiras fotos reais saem. Chama `autorizar` "
+            "com a finalidade `imagem` para cada fornecedor e recusa o bake-off "
+            "inteiro se um nao estiver autorizado; cada foto passa pela mesma "
+            "minimizacao local do servico antes de sair."
         ),
     ),
     "packages/core-ts/src/outbound/cliente.ts": ClienteDeSaida(

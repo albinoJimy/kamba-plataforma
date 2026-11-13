@@ -29,7 +29,8 @@ mensagem que o `alembic history` imprime.
   (`catalog_ingestions.media_ref`) ou do painel, e nenhuma das duas tem linha
   la. As duas colunas sao chaves do STO **do proprio tenant**, com o mesmo
   `starts_with` da `catalog_ingestions_media_ref_ck`, e a versao numa classe
-  propria (`foto`).
+  propria (`foto`). O original so pode ser das classes `catalogo` ou `foto`:
+  um documento KYC ou a media de um cliente nao sao foto de produto.
 * **`custo_usd numeric(10, 6)` em vez de `custo_minor bigint`.** O preco de
   referencia de um recorte e 0,018 USD (E5): em centimos inteiros nao cabe, e o
   precedente do mesmo dado e o `catalog_ingestions.custo_llm_usd` e o
@@ -240,7 +241,8 @@ def upgrade() -> None:
           atualizado_at    timestamptz NOT NULL DEFAULT now(),
           CONSTRAINT image_jobs_idempotency_uq UNIQUE (tenant_id, idempotency_key),
           CONSTRAINT image_jobs_origem_ref_ck
-            CHECK (starts_with(origem_ref, 't/' || tenant_id::text || '/')),
+            CHECK (starts_with(origem_ref, 't/' || tenant_id::text || '/catalogo/')
+                   OR starts_with(origem_ref, 't/' || tenant_id::text || '/foto/')),
           CONSTRAINT image_jobs_versao_ref_ck
             CHECK (starts_with(versao_ref, 't/' || tenant_id::text || '/foto/')),
           CONSTRAINT image_jobs_motivo_ck

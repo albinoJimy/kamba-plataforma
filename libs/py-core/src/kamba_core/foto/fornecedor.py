@@ -68,9 +68,14 @@ TIMEOUT_S: Final = 45.0
 #: A forma de um fornecedor: o `provider` da `0036` e da `image_jobs`.
 FORMA_DO_FORNECEDOR: Final = re.compile(r"[a-z][a-z0-9_-]{1,62}")
 
-#: A lista de recusa do criterio 6, **normalizada** (ver a nota do modulo).
+#: A lista de recusa do criterio 6, **normalizada** e procurada como
+#: **subcadeia** do nome normalizado (ver a nota do modulo). A primeira versao
+#: comparava por igualdade e pelas partes entre `-`/`_`, e a revisao
+#: adversarial mostrou `remove-bg-api`, `black-forest` e `black-forest-labs-api`
+#: a passar. Uma subcadeia recusa de mais (um `influx` cai no `flux`), e e o
+#: lado seguro: o nome do adaptador escolhe-se, e escolhe-se outro.
 RECUSADOS: Final[dict[str, str]] = {
-    "blackforestlabs": "Black Forest Labs: licenca perpetua de treino com inputs e outputs (E5)",
+    "blackforest": "Black Forest Labs: licenca perpetua de treino com inputs e outputs (E5)",
     "bfl": "Black Forest Labs: licenca perpetua de treino com inputs e outputs (E5)",
     "flux": "o modelo da Black Forest Labs, pela mesma licenca (E5)",
     "removebg": "remove.bg: passa para a Leonardo.Ai a 2026-12-01 (E5)",
@@ -138,11 +143,8 @@ def validar_fornecedor(fornecedor: ImageProvider) -> None:
     nome = getattr(fornecedor, "nome", None)
     if not isinstance(nome, str) or not FORMA_DO_FORNECEDOR.fullmatch(nome):
         raise FornecedorRecusado("o nome de um fornecedor tem a forma do `provider` da `0036`")
-    razao = RECUSADOS.get(normalizar_nome(nome))
-    if razao is None:
-        # Um nome composto (`bfl-flux-pro`) leva o recusado dentro.
-        partes = {normalizar_nome(p) for p in re.split(r"[_-]", nome)}
-        razao = next((RECUSADOS[p] for p in sorted(partes) if p in RECUSADOS), None)
+    normalizado = normalizar_nome(nome)
+    razao = next((r for marca, r in sorted(RECUSADOS.items()) if marca in normalizado), None)
     if razao is not None:
         raise FornecedorRecusado(f"fornecedor `{nome}` na lista de recusa: {razao}")
     if getattr(fornecedor, "tier", None) != TIER_PAGO:

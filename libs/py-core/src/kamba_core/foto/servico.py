@@ -55,13 +55,14 @@ from typing import Final, Protocol, runtime_checkable
 from ..catalogo.exif import formato
 from ..destinos.porta import FINALIDADE_IMAGEM
 from ..storage.chave import nova_chave
-from ..storage.port import Ctx, ObjectMeta, ObjectRef, StorageProvider
+from ..storage.port import Ctx, ObjectMeta, ObjectoInexistenteError, ObjectRef, StorageProvider
 from . import estados
 from .fornecedor import (
     ETIQUETA_GERADA,
     GENERATIVAS,
     OPERACAO_VARIACAO_LIFESTYLE,
     OPERACOES,
+    TIMEOUT_S,
     ErroDoFornecedor,
     ImageProvider,
     Melhoria,
@@ -69,7 +70,7 @@ from .fornecedor import (
     validar_configuracao,
 )
 from .minimizacao import TAMANHO_MAXIMO, DetectorLocal, Redimensionador, minimizar, pode_sair
-from .repositorio import CLASSE_STO, ConflitoDeEstado, Repositorio, Trabalho, novo_id
+from .repositorio import CLASSE_STO, ConflitoDeEstado, Repositorio, Trabalho, novo_id, validar
 
 #: O ambiente em que entram imagens reais.
 AMBIENTE_PROD: Final = "prod"
@@ -89,9 +90,17 @@ AVISO_ESTRANGEIRO: Final = "Esta foto vai ser processada por serviço de IA no e
 MOTIVO_LIMITE: Final = "limite_excedido"
 MOTIVO_SEM_ENTITLEMENT: Final = "sem_entitlement"
 
+#: *Proposta*: um `a_processar` sem escrita ha mais disto esta preso. Maior do
+#: que as duas tentativas do criterio 9 somadas (2 x 45 s), com folga.
+PRESO_APOS: Final = timedelta(minutes=5)
+
 
 class OperacaoRecusada(ValueError):
     """Operacao fora do dominio, ou a `variacao_lifestyle` com as variacoes desligadas."""
+
+
+class ChaveReutilizada(ValueError):
+    """A mesma chave de idempotencia com outra foto ou outra operacao."""
 
 
 class TrabalhoInexistente(LookupError):
@@ -145,6 +154,22 @@ def _monotonico_ms() -> float:
     return time.monotonic() * 1000.0
 
 
+def _custo(valor: object) -> Decimal:
+    """O custo de uma tentativa, como `Decimal` finito e nao negativo.
+
+    Um adaptador que devolva `float`, `NaN` ou lixo nao pode deixar o trabalho
+    preso depois de o fornecedor ter sido pago (achado da revisao adversarial):
+    o `float` converte-se pelo texto, e o resto conta como zero.
+    """
+    try:
+        custo = valor if isinstance(valor, Decimal) else Decimal(str(valor))
+    except Exception:  # noqa: BLE001
+        return Decimal(0)
+    if not custo.is_finite() or custo < 0:
+        return Decimal(0)
+    return custo
+
+
 @dataclass
 class ServicoDeFoto:
     """O pipeline. Todas as portas sao obrigatorias: nao ha omissao que deixe passar."""
@@ -185,26 +210,38 @@ class ServicoDeFoto:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("um pedido leva a chave de idempotencia")
 
-        # Primeiro o limite do mes: acima dele **nao nasce trabalho**. O
-        # consumo e idempotente pela mesma chave, pelo que a repeticao de um
-        # pedido aceite e aceite outra vez sem contar.
+        pedido = Trabalho(
+            image_job_id=novo_id(),
+            tenant_id=tenant_id,
+            origem_ref=origem_ref,
+            operacao=operacao,
+            provider=self.fornecedores[0].nome,
+            idempotency_key=idempotency_key,
+            # **Em `prod` nao ha imagens sinteticas**: a declaracao so vale
+            # fora dele, onde e a barreira do criterio 5. Em `prod` uma foto
+            # declarada sintetica passava ao lado do filtro da carta
+            # (achado da revisao adversarial).
+            sintetica=bool(sintetica) and self.ambiente != AMBIENTE_PROD,
+        )
+        # Primeiro valida-se, depois consome-se: um pedido que a base recusaria
+        # (origem de outro tenant, chave comprida demais) nao gasta quota
+        # (achado da revisao adversarial).
+        validar(pedido)
+
+        # O limite do mes: acima dele **nao nasce trabalho**. O consumo e
+        # idempotente pela mesma chave, pelo que a repeticao de um pedido
+        # aceite e aceite outra vez sem contar.
         consumo = self.quota.consumir(tenant_id, f"foto:{idempotency_key}")
         if not consumo.aceite:
             return Resultado(None, motivo=consumo.motivo or MOTIVO_LIMITE)
 
         primeiro = not self.repositorio.tem_trabalhos(tenant_id)
-        linha = self.repositorio.inserir(
-            Trabalho(
-                image_job_id=novo_id(),
-                tenant_id=tenant_id,
-                origem_ref=origem_ref,
-                operacao=operacao,
-                provider=self.fornecedores[0].nome,
-                idempotency_key=idempotency_key,
-                sintetica=sintetica,
-                aviso_at=self.agora() if primeiro else None,
-            )
-        )
+        linha = self.repositorio.inserir(replace(pedido, aviso_at=self.agora() if primeiro else None))
+        if (linha.origem_ref, linha.operacao) != (origem_ref, operacao):
+            # A mesma chave com outro pedido nao e repeticao: e um erro de quem
+            # chama, e devolver o trabalho da primeira foto em silencio era
+            # responder sobre outra coisa.
+            raise ChaveReutilizada("a chave de idempotencia ja serviu outro pedido")
         return Resultado(linha, aviso=AVISO_ESTRANGEIRO if linha.aviso_at is not None else None)
 
     def processar(self, tenant_id: str, image_job_id: str) -> Resultado:
@@ -220,9 +257,18 @@ class ServicoDeFoto:
         return self._correr(linha)
 
     def recuperar(self, tenant_id: str, image_job_id: str) -> Resultado:
-        """Um `a_processar` que ficou preso. Quem decide que esta preso e quem chama."""
+        """Um `a_processar` que ficou preso: sem escrita ha mais de `PRESO_APOS`.
+
+        **O predicado e daqui, e nao de quem chama** (achado da revisao
+        adversarial): com um trabalhador vivo dentro do `enhance`, um
+        `recuperar` sem ele chamava o fornecedor outra vez. `PRESO_APOS` e
+        maior do que as duas tentativas somadas, pelo que um trabalhador vivo
+        nunca esta «preso».
+        """
         linha = self._ler(tenant_id, image_job_id)
-        if linha.estado != estados.A_PROCESSAR:
+        if linha.estado != estados.A_PROCESSAR or linha.atualizado_at is None:
+            return Resultado(linha)
+        if self.agora() - linha.atualizado_at < PRESO_APOS:
             return Resultado(linha)
         return self._correr(linha)
 
@@ -283,7 +329,10 @@ class ServicoDeFoto:
         # 4. A minimizacao local, sobre o original relido do STO.
         try:
             original = self._bytes(tenant, linha.origem_ref)
-        except Exception:  # noqa: BLE001 — o original nao se le: nao sai nada
+        except ObjectoInexistenteError:
+            # O original ja nao existe: pede-se outra foto. Uma falha
+            # transitoria do STO **sobe**, e o trabalho fica onde estava para a
+            # fila o tentar outra vez — nao e culpa da foto do dono.
             return self._parar(linha, estados.FALHADO, estados.MOTIVO_FORMATO)
         minimizada = minimizar(original, self.detector, self.redimensionador)
         if minimizada.imagem is None:
@@ -307,16 +356,25 @@ class ServicoDeFoto:
                 return self._parar(linha, estados.BLOQUEADA_GATE, estados.MOTIVO_MINIMIZACAO, custo=custo)
             inicio = self.relogio_ms()
             try:
-                melhoria = fornecedor.enhance(imagem, Opcoes(operacao=linha.operacao))
+                melhoria = fornecedor.enhance(imagem, Opcoes(operacao=linha.operacao, timeout_s=TIMEOUT_S))
             except ErroDoFornecedor as erro:
-                custo += max(erro.custo_usd, Decimal(0))
+                custo += _custo(getattr(erro, "custo_usd", 0))
                 motivo = estados.MOTIVO_FORNECEDOR
                 continue
             except Exception:  # noqa: BLE001 — `TimeoutError` e o resto: contingencia
                 motivo = estados.MOTIVO_FORNECEDOR
                 continue
             latencia = max(0, int(round(self.relogio_ms() - inicio)))
-            custo += max(melhoria.custo_usd, Decimal(0))
+            custo += _custo(getattr(melhoria, "custo_usd", 0))
+            if latencia > TIMEOUT_S * 1000:
+                # **O *timeout* mede-se aqui, e nao so no adaptador** (achado
+                # da revisao adversarial): uma resposta que chegou depois dos
+                # 45 s conta como *timeout* — pagou-se, apaga-se la, e passa a
+                # contingencia. Um adaptador que bloqueie para sempre continua
+                # a ser defeito dele: o `Protocol` exige-lhe o `timeout_s`.
+                motivo = estados.MOTIVO_FORNECEDOR
+                self._apagar_no_fornecedor(fornecedor, melhoria)
+                continue
             if not self._e_imagem(melhoria):
                 motivo = estados.MOTIVO_RESULTADO_INVALIDO
                 self._apagar_no_fornecedor(fornecedor, melhoria)
@@ -343,18 +401,28 @@ class ServicoDeFoto:
             ),
         )
         self._apagar_no_fornecedor(fornecedor, melhoria)
-        concluido = self.repositorio.gravar(
-            linha,
-            replace(
+        try:
+            concluido = self.repositorio.gravar(
                 linha,
-                estado=estados.CONCLUIDO,
-                motivo=None,
-                provider=fornecedor.nome,
-                versao_ref=chave,
-                custo_usd=custo,
-                latencia_ms=latencia,
-            ),
-        )
+                replace(
+                    linha,
+                    estado=estados.CONCLUIDO,
+                    motivo=None,
+                    provider=fornecedor.nome,
+                    versao_ref=chave,
+                    custo_usd=custo,
+                    latencia_ms=latencia,
+                ),
+            )
+        except ConflitoDeEstado:
+            # Outro trabalhador escreveu primeiro: a versao desta tentativa nao
+            # fica orfa no STO. O custo dela perde-se da linha, e e o limite
+            # escrito no bloco — o `recuperar` com `PRESO_APOS` torna o caso raro.
+            try:
+                self.storage.delete(Ctx(tenant), ObjectRef(key=chave, tamanho=0))
+            except Exception:  # noqa: BLE001 — a retencao apanha-a
+                pass
+            return Resultado(self._ler(tenant, linha.image_job_id))
         return Resultado(concluido)
 
     # ------------------------------------------------------------ apoio
@@ -415,6 +483,8 @@ __all__ = [
     "AMBIENTE_PROD",
     "AVISO_ESTRANGEIRO",
     "CHAVE_DE_LIMITE",
+    "PRESO_APOS",
+    "ChaveReutilizada",
     "GENERATIVAS",
     "MODULO",
     "Consumo",

@@ -512,9 +512,15 @@ class TestGateDeTransferencia(unittest.TestCase):
         m.contingencia.real_data_ok = False
         _, real = pedir_e_processar(m, jpeg(b"P1"), "k1")
         self.assertEqual(real.trabalho.motivo, estados.MOTIVO_SEM_CARTA)
-        _, sintetica = pedir_e_processar(m, jpeg(b"P2"), "k2", sintetica=True)
+        self.assertEqual(m.egress, [])
+        # As sinteticas so existem fora de `prod`: la, o fornecedor sem carta
+        # recebe-as.
+        s = montar(ambiente="staging")
+        s.primario.real_data_ok = False
+        s.contingencia.real_data_ok = False
+        _, sintetica = pedir_e_processar(s, jpeg(b"P2"), "k2", sintetica=True)
         self.assertEqual(sintetica.estado, estados.CONCLUIDO)
-        self.assertEqual(len(m.egress), 1)
+        self.assertEqual(len(s.egress), 1)
 
     def test_com_a_porta_real_do_kam_069_so_autorizado_com_apd_ref_deixa_sair(self) -> None:
         """A `PortaSobreDestinos` de verdade, sobre linhas de `tenant_destinations`."""
@@ -704,8 +710,11 @@ class TestConcorrenciaEIsolamento(unittest.TestCase):
         r = m.servico.processar(A, pedido.trabalho.image_job_id)  # type: ignore[union-attr]
         self.assertEqual(r.estado, estados.A_PROCESSAR)
         self.assertEqual(m.egress, [])
+        # E o `recuperar` tambem nao, enquanto o trabalho nao estiver preso: o
+        # caso «preso» e o `test_recuperar_so_depois_de_preso`.
         recuperado = m.servico.recuperar(A, pedido.trabalho.image_job_id)  # type: ignore[union-attr]
-        self.assertEqual(recuperado.estado, estados.CONCLUIDO)
+        self.assertEqual(recuperado.estado, estados.A_PROCESSAR)
+        self.assertEqual(m.egress, [])
 
     def test_outro_tenant_nao_le_o_trabalho(self) -> None:
         m = montar()
@@ -792,7 +801,9 @@ class TestBakeoff(unittest.TestCase):
         photoroom = FornecedorFake("photoroom", custo=Decimal("0.02"), modo="timeout")
         tique = itertools.count(0, 1000)
         fotos = [(f"f{i:02d}", jpeg(b"P%d" % i, com_metadados=False)) for i in range(30)]
-        execucoes = bakeoff.correr(fotos, [bria, photoroom], "cutout", lambda: float(next(tique)))
+        execucoes = bakeoff.correr(
+            fotos, [bria, photoroom], "cutout", lambda: float(next(tique)), **_barreiras_do_bakeoff()
+        )
         self.assertTrue(bakeoff.suficiente(execucoes))
         avaliacoes = [
             bakeoff.Avaliacao(f, "bria", utilizavel_a=True, utilizavel_b=(i % 10 != 0), alterou_produto=(i == 0))
@@ -812,6 +823,225 @@ class TestBakeoff(unittest.TestCase):
     def test_poucas_fotos_ou_um_fornecedor_nao_chegam(self) -> None:
         execucoes = [bakeoff.Execucao(f"f{i}", "bria", True, 10, Decimal(0)) for i in range(40)]
         self.assertFalse(bakeoff.suficiente(execucoes))
+
+
+def _barreiras_do_bakeoff(*, autorizar: tuple[str, ...] = ("bria", "photoroom"), **extra: object) -> dict[str, object]:
+    destinos = DestinosFake()
+    for nome in autorizar:
+        destinos.autorizados.add((A, nome, FINALIDADE_IMAGEM))
+    barreiras: dict[str, object] = {
+        "tenant_id": A,
+        "destinos": destinos,
+        "detector": DetectorFake(),
+        "redimensionador": RedimensionadorFake(),
+        "ambiente": "prod",
+        "sinteticas": False,
+    }
+    barreiras.update(extra)
+    return barreiras
+
+
+class TestBakeoffPelasBarreiras(unittest.TestCase):
+    """Achado 1 da revisao adversarial: o *bake-off* e o caminho das primeiras fotos reais."""
+
+    def _correr(self, fornecedores, fotos=None, **barreiras):  # type: ignore[no-untyped-def]
+        fotos = fotos if fotos is not None else [("f1", jpeg(b"P1", largura=6000, altura=4000))]
+        return bakeoff.correr(fotos, fornecedores, "cutout", lambda: 0.0, **_barreiras_do_bakeoff(**barreiras))
+
+    def test_a_foto_sai_minimizada_e_a_com_rosto_nao_sai(self) -> None:
+        bria = FornecedorFake("bria")
+        execucoes = self._correr([bria], [("f1", jpeg(b"P1", largura=6000, altura=4000)), ("f2", jpeg(b"ROSTO"))])
+        self.assertEqual([e.foto_id for e in execucoes], ["f1"])
+        (enviado,) = bria.recebidos
+        self.assertNotIn(GPS, enviado)
+        self.assertFalse(tem_metadados(enviado))
+        self.assertLessEqual(max(dimensoes(enviado)), LADO_MAXIMO)
+
+    def test_sem_destino_recusa_o_bakeoff_inteiro(self) -> None:
+        bria, photoroom = FornecedorFake("bria"), FornecedorFake("photoroom")
+        with self.assertRaises(bakeoff.BakeoffRecusado):
+            self._correr([bria, photoroom], autorizar=("bria",))
+        self.assertEqual(bria.recebidos + photoroom.recebidos, [])
+
+    def test_lista_de_recusa_tier_e_carta_recusam(self) -> None:
+        for fornecedor in (
+            FornecedorFake("bfl", real_data_ok=True),
+            FornecedorFake("bria", tier="gratuito"),
+            FornecedorFake("bria", real_data_ok=False),
+        ):
+            with self.subTest(nome=fornecedor.nome, tier=fornecedor.tier), self.assertRaises(bakeoff.BakeoffRecusado):
+                self._correr([fornecedor], autorizar=(fornecedor.nome,))
+            self.assertEqual(fornecedor.recebidos, [])
+
+    def test_fora_de_prod_so_sinteticas(self) -> None:
+        bria = FornecedorFake("bria")
+        with self.assertRaises(bakeoff.BakeoffRecusado):
+            self._correr([bria], ambiente="staging")
+        self.assertEqual(len(self._correr([bria], ambiente="staging", sinteticas=True)), 1)
+
+
+class TestAchadosDaRevisao(unittest.TestCase):
+    def test_lista_de_recusa_por_subcadeia(self) -> None:
+        for nome in ("remove-bg-api", "remove-bg-v2", "black-forest", "blackforest", "black-forest-labs-api"):
+            with self.subTest(nome=nome), self.assertRaises(FornecedorRecusado):
+                validar_configuracao([FornecedorFake(nome)])
+
+    def test_pedido_invalido_nao_gasta_quota(self) -> None:
+        m = montar()
+        with self.assertRaises(TrabalhoInvalido):
+            m.servico.enhance_image(A, m.guardar(jpeg(), tenant=B), "cutout", "k1")
+        with self.assertRaises(TrabalhoInvalido):
+            m.servico.enhance_image(A, m.guardar(jpeg()), "cutout", "k" * 201)
+        self.assertEqual(m.quota.chaves, set())
+
+    def test_origem_de_outra_classe_e_recusada(self) -> None:
+        m = montar()
+        for classe in ("kyc", "media_imagem"):
+            with self.subTest(classe=classe), self.assertRaises(TrabalhoInvalido):
+                m.servico.enhance_image(A, m.guardar(jpeg(), classe=classe), "cutout", f"k-{classe}")
+
+    def test_em_prod_a_declaracao_sintetica_nao_salta_a_carta(self) -> None:
+        m = montar()
+        m.primario.real_data_ok = False
+        m.contingencia.real_data_ok = False
+        _, r = pedir_e_processar(m, jpeg(b"P1"), sintetica=True)
+        self.assertFalse(r.trabalho.sintetica)
+        self.assertEqual(r.trabalho.motivo, estados.MOTIVO_SEM_CARTA)
+        self.assertEqual(m.egress, [])
+
+    def test_a_mesma_chave_com_outra_foto_e_recusada(self) -> None:
+        from kamba_core.foto.servico import ChaveReutilizada
+
+        m = montar()
+        m.servico.enhance_image(A, m.guardar(jpeg(b"P1")), "cutout", "k1")
+        with self.assertRaises(ChaveReutilizada):
+            m.servico.enhance_image(A, m.guardar(jpeg(b"P2")), "cutout", "k1")
+
+    def test_dois_trabalhadores_no_pendente_so_um_chama_o_fornecedor(self) -> None:
+        m = montar()
+        origem = m.guardar(jpeg(b"P1"))
+        job = m.servico.enhance_image(A, origem, "cutout", "k1").trabalho.image_job_id  # type: ignore[union-attr]
+        lido = m.repo.ler(A, job)
+        original = m.repo.ler
+
+        def ler_e_perder(tenant: str, image_job_id: str):  # type: ignore[no-untyped-def]
+            # O outro trabalhador escreve entre a leitura deste e a escrita.
+            linha = original(tenant, image_job_id)
+            if linha is not None and linha.versao == lido.versao and linha.estado == estados.PENDENTE:
+                m.repo.ler = original  # type: ignore[method-assign]
+                m.repo.gravar(linha, Trabalho(**{**linha.__dict__, "estado": estados.A_PROCESSAR}))
+            return linha
+
+        m.repo.ler = ler_e_perder  # type: ignore[method-assign]
+        r = m.servico.processar(A, job)
+        self.assertEqual(r.estado, estados.A_PROCESSAR)
+        self.assertEqual(m.egress, [])
+
+    def test_recuperar_so_depois_de_preso(self) -> None:
+        from kamba_core.foto.servico import PRESO_APOS
+
+        relogio = [AGORA]
+        m = montar()
+        m.repo.agora = lambda: relogio[0]  # type: ignore[method-assign]
+        m.servico.agora = lambda: relogio[0]
+        origem = m.guardar(jpeg(b"P1"))
+        job = m.servico.enhance_image(A, origem, "cutout", "k1").trabalho.image_job_id  # type: ignore[union-attr]
+        lido = m.repo.ler(A, job)
+        m.repo.gravar(lido, Trabalho(**{**lido.__dict__, "estado": estados.A_PROCESSAR}))
+        relogio[0] = AGORA + PRESO_APOS - timedelta(seconds=1)
+        self.assertEqual(m.servico.recuperar(A, job).estado, estados.A_PROCESSAR)
+        self.assertEqual(m.egress, [])
+        relogio[0] = AGORA + PRESO_APOS
+        self.assertEqual(m.servico.recuperar(A, job).estado, estados.CONCLUIDO)
+
+    def test_o_servico_pede_45_s_e_mede_o_timeout_ele_proprio(self) -> None:
+        m = montar()
+        lento = itertools.chain([0.0, 46_000.0], itertools.count(50_000, 1000))
+        m.servico.relogio_ms = lambda: float(next(lento))
+        opcoes: list[Opcoes] = []
+        original = m.primario.enhance
+
+        def regista(imagem: bytes, o: Opcoes) -> Melhoria:
+            opcoes.append(o)
+            return original(imagem, o)
+
+        m.primario.enhance = regista  # type: ignore[method-assign]
+        _, r = pedir_e_processar(m, jpeg(b"P1"))
+        self.assertEqual(opcoes[0].timeout_s, 45.0)
+        # A resposta do primario chegou aos 46 s: conta como timeout, paga-se,
+        # apaga-se la, e a contingencia serve.
+        self.assertEqual(r.trabalho.provider, "contingencia")
+        self.assertEqual(m.primario.apagados, ["ref-1"])
+        self.assertEqual(r.trabalho.custo_usd, Decimal("0.036"))
+
+    def test_custo_em_float_ou_nan_nao_prende_o_trabalho(self) -> None:
+        for custo, esperado in ((0.018, Decimal("0.018")), (float("nan"), Decimal(0)), ("lixo", Decimal(0))):
+            with self.subTest(custo=custo):
+                m = montar()
+                m.primario.custo = custo  # type: ignore[assignment]
+                _, r = pedir_e_processar(m, jpeg(b"P1"))
+                self.assertEqual(r.estado, estados.CONCLUIDO)
+                self.assertEqual(r.trabalho.custo_usd, esperado)
+
+    def test_original_que_desapareceu_e_falha_e_o_sto_em_baixo_sobe(self) -> None:
+        m = montar()
+        origem = f"t/{A}/catalogo/2026/11/11111111-1111-4111-8111-111111111111"
+        r = m.servico.enhance_image(A, origem, "cutout", "k1")
+        feito = m.servico.processar(A, r.trabalho.image_job_id)  # type: ignore[union-attr]
+        self.assertEqual(feito.trabalho.motivo, estados.MOTIVO_FORMATO)
+
+        m = montar()
+        r = m.servico.enhance_image(A, m.guardar(jpeg(b"P1")), "cutout", "k1")
+
+        def em_baixo(*_: object) -> object:
+            raise ConnectionError("STO em baixo")
+
+        m.servico.storage = type("Em baixo", (), {"get": staticmethod(em_baixo)})()  # type: ignore[assignment]
+        with self.assertRaises(ConnectionError):
+            m.servico.processar(A, r.trabalho.image_job_id)  # type: ignore[union-attr]
+        self.assertEqual(m.repo.ler(A, r.trabalho.image_job_id).estado, estados.PENDENTE)  # type: ignore[union-attr]
+
+    def test_detector_com_resposta_ilegivel_bloqueia(self) -> None:
+        class Ilegivel:
+            def __init__(self, resposta: object) -> None:
+                self.resposta = resposta
+
+            def detectar(self, imagem: bytes) -> object:
+                return self.resposta
+
+        for resposta in (None, {"rostos": 0}, object()):
+            with self.subTest(resposta=resposta):
+                saida = minimizar(jpeg(b"P1"), Ilegivel(resposta), RedimensionadorFake())  # type: ignore[arg-type]
+                self.assertEqual((saida.estado, saida.motivo), (estados.BLOQUEADA_GATE, estados.MOTIVO_MINIMIZACAO))
+
+    def test_resultado_grande_demais_nao_e_versao(self) -> None:
+        m = montar()
+        enorme = png(b"X") + b"\x00" * TAMANHO_MAXIMO
+
+        def grande(imagem: bytes, o: Opcoes) -> Melhoria:
+            m.primario.recebidos.append(imagem)
+            return Melhoria(enorme, Decimal("0.018"), "primario", None)
+
+        m.primario.enhance = grande  # type: ignore[method-assign]
+        m.contingencia.modo = "erro"
+        _, r = pedir_e_processar(m, jpeg(b"P1"))
+        self.assertEqual(r.trabalho.motivo, estados.MOTIVO_FORNECEDOR)
+        self.assertIsNone(r.trabalho.versao_ref)
+
+    def test_as_recusas_do_lado_de_ca_sem_a_base(self) -> None:
+        from kamba_core.foto.repositorio import exigir_escrita, validar
+
+        m = montar()
+        _, falhado = pedir_e_processar(m, jpeg(b"ROSTO"), "k1")
+        with self.assertRaises(estados.TransicaoRecusada):
+            exigir_escrita(falhado.trabalho, falhado.trabalho)
+        _, concluido = pedir_e_processar(m, jpeg(b"P1"), "k2")
+        t = concluido.trabalho
+        with self.assertRaises(estados.TransicaoRecusada):
+            exigir_escrita(t, Trabalho(**{**t.__dict__, "versao_ref": f"t/{A}/foto/2026/11/{t.image_job_id}"}))
+        exigir_escrita(t, Trabalho(**{**t.__dict__, "escolhida": True}))
+        with self.assertRaises(TrabalhoInvalido):
+            validar(Trabalho(**{**t.__dict__, "versao_ref": f"t/{A}/catalogo/2026/11/{t.image_job_id}"}))
 
 
 if __name__ == "__main__":

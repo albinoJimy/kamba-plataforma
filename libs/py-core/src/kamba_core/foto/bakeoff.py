@@ -35,7 +35,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
 
-from .fornecedor import ErroDoFornecedor, ImageProvider, Opcoes
+from ..destinos.porta import FINALIDADE_IMAGEM
+from .fornecedor import ErroDoFornecedor, FornecedorRecusado, ImageProvider, Opcoes, validar_fornecedor
+from .minimizacao import DetectorLocal, Redimensionador, minimizar, pode_sair
+from .servico import AMBIENTE_PROD, PortaDeDestinos
 
 #: Os alvos do criterio, todos *proposta*.
 UTILIZAVEL_MINIMO: Final = Decimal("0.80")
@@ -91,15 +94,62 @@ def percentil(valores: Sequence[int], p: float) -> int | None:
     return ordenados[posicao - 1]
 
 
+class BakeoffRecusado(RuntimeError):
+    """O *bake-off* nao corre: um fornecedor nao pode receber estas fotos."""
+
+
 def correr(
     fotos: Iterable[tuple[str, bytes]],
     fornecedores: Sequence[ImageProvider],
     operacao: str,
     relogio_ms: Callable[[], float],
+    *,
+    tenant_id: str,
+    destinos: PortaDeDestinos,
+    detector: DetectorLocal,
+    redimensionador: Redimensionador,
+    ambiente: str,
+    sinteticas: bool,
 ) -> list[Execucao]:
-    """Cada foto por cada fornecedor. Uma falha fica registada, nao interrompe."""
+    """Cada foto por cada fornecedor, **pelas mesmas barreiras do servico**.
+
+    A primeira versao chamava o `enhance` sobre os bytes recebidos, sem *gate*,
+    sem lista de recusa, sem carta e sem minimizacao — e o *bake-off* e
+    precisamente o caminho por onde as primeiras fotos reais saem (achado da
+    revisao adversarial, que o bloqueava). Hoje, antes de qualquer envio:
+
+    * cada fornecedor passa a `validar_fornecedor` (lista de recusa e *tier*),
+      e o *gate* com a finalidade `imagem` para o `tenant_id` do *bake-off*;
+    * fotos reais (`sinteticas=False`) so em `prod` e so para fornecedores com
+      a carta (`real_data_ok`); fora de `prod`, so sinteticas;
+    * cada foto passa pela `minimizar` e, imediatamente antes do envio, pelo
+      `pode_sair`. Uma foto que nao pode sair **nao conta** — nao vai a
+      nenhum fornecedor.
+
+    Um fornecedor que falhe uma destas condicoes **recusa o *bake-off*
+    inteiro** (`BakeoffRecusado`): correr so com os outros mudava a comparacao
+    sem ninguem decidir isso.
+    """
+    for fornecedor in fornecedores:
+        try:
+            validar_fornecedor(fornecedor)
+        except FornecedorRecusado as erro:
+            raise BakeoffRecusado(str(erro)) from erro
+        try:
+            destinos.autorizar(tenant_id, fornecedor.nome, FINALIDADE_IMAGEM)
+        except Exception as erro:  # noqa: BLE001 — falha fechada
+            raise BakeoffRecusado(f"`{fornecedor.nome}` sem destino `imagem` autorizado") from erro
+        if not sinteticas and fornecedor.real_data_ok is not True:
+            raise BakeoffRecusado(f"`{fornecedor.nome}` sem carta de nao-treino: so recebe sinteticas")
+    if not sinteticas and ambiente != AMBIENTE_PROD:
+        raise BakeoffRecusado("fora de `prod` so imagens sinteticas")
+
     execucoes: list[Execucao] = []
-    for foto_id, imagem in fotos:
+    for foto_id, bruto in fotos:
+        minimizada = minimizar(bruto, detector, redimensionador)
+        if minimizada.imagem is None or not pode_sair(minimizada.imagem):
+            continue
+        imagem = minimizada.imagem
         for fornecedor in fornecedores:
             inicio = relogio_ms()
             try:
