@@ -35,6 +35,8 @@ from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     VIOLACAO_DE_CHECK,
     ConsultaDoTypeScript,
+    alembic,
+    alembic_ok,
 )
 from tests_pagamentos.base import VALOR, ComLedger
 from tests_pagamentos.manual_base import ComConfirmacaoManual
@@ -142,23 +144,21 @@ class TestAberturaSemLedger(ComPedidoDeReembolso):
     def test_uma_repeticao_que_diverge_e_recusada(self) -> None:
         pedido = str(uuid.uuid4())
         self.abrir(pedido=pedido)
-        for campo, valor in (
-            ("valor", VALOR + 1),
-            ("motivo", "disputa"),
+        # Os tres campos que a repeticao compara, cada um com o seu caso. A
+        # encomenda faltava, e a mutacao que desliga essa comparacao
+        # sobrevivia: achado da revisao adversarial.
+        outra_encomenda = self.criar_encomenda(self.tenant)
+        for campo, encomenda, motivo, valor in (
+            ("valor", self.encomenda, "pagamento_duplicado", VALOR + 1),
+            ("motivo", self.encomenda, "disputa", VALOR),
+            ("encomenda", outra_encomenda, "pagamento_duplicado", VALOR),
         ):
             with self.subTest(campo=campo):
                 self.assertErroSql(
                     VIOLACAO_DE_CHECK,
                     self.pay,
                     ABRIR.sql,
-                    ABRIR.args(
-                        self.tenant,
-                        self.encomenda,
-                        valor if campo == "motivo" else "pagamento_duplicado",
-                        valor if campo == "valor" else VALOR,
-                        "AOA",
-                        pedido,
-                    ),
+                    ABRIR.args(self.tenant, encomenda, motivo, valor, "AOA", pedido),
                 )
         self.confirmar(self.pay, self.tenant)
         self.assertEqual(len(self.casos()), 1)
@@ -363,3 +363,59 @@ class TestDuplicadoChegaAoCom(ComLedger):
             p_authn_ok=False,
         )
         self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
+
+
+class TestDowngradeDa0050(ComPedidoDeReembolso):
+    """O `downgrade` recusa-se com um caso aberto por pedido, e sem ele desfaz tudo.
+
+    **A guarda conta com o `FORCE` desligado**, pela licao da `0046`: a ligacao
+    do Alembic e dona da tabela, e sem `app.tenant_id` um `count(*)` sob
+    `FORCE` le zero. O primeiro ensaio e o que o mostra — e a mutacao que tira o
+    `NO FORCE` tem de o matar.
+
+    **Desce pelo numero (`0049`) e nao por `-1`**, pela licao do KAM-071: com
+    uma revisao acima desta, `-1` desceria a outra.
+    """
+
+    def coluna_existe(self) -> bool:
+        self.semente.execute(
+            "SELECT count(*) FROM information_schema.columns "
+            " WHERE table_schema = 'platform' AND table_name = 'refund_cases' "
+            "   AND column_name = 'pedido_evento_id'"
+        )
+        return int(self.semente.fetchone()[0]) == 1
+
+    def test_com_um_caso_aberto_por_pedido_o_downgrade_recusa(self) -> None:
+        self.abrir()
+        self.confirmar(self.pay, self.tenant)
+        resultado = alembic("downgrade", "0049")
+        self.assertNotEqual(resultado.returncode, 0, "o downgrade devia recusar")
+        self.assertIn("downgrade da 0050 recusado", resultado.stderr)
+        self.assertTrue(self.coluna_existe(), "a coluna ficou, com o caso")
+
+    def test_sem_casos_o_downgrade_desfaz_e_o_upgrade_repoe(self) -> None:
+        self.semente.execute(
+            "DELETE FROM platform.refund_cases WHERE pedido_evento_id IS NOT NULL"
+        )
+        alembic_ok("downgrade", "0049")
+        try:
+            self.assertFalse(self.coluna_existe())
+            self.semente.execute(
+                "SELECT count(*) FROM pg_proc WHERE proname = "
+                "'abrir_caso_de_reembolso'"
+            )
+            self.assertEqual(int(self.semente.fetchone()[0]), 0)
+            self.semente.execute(
+                "SELECT count(*) FROM platform.payment_outbox_map "
+                " WHERE tipo_evento = 'pagamento_duplicado'"
+            )
+            self.assertEqual(int(self.semente.fetchone()[0]), 0)
+            self.semente.execute(
+                "SELECT has_schema_privilege('kamba_pay', 'platform', 'USAGE'), "
+                "       has_table_privilege('kamba_pay', 'platform.events_consumed', "
+                "                           'INSERT')"
+            )
+            self.assertEqual(tuple(self.semente.fetchone()), (False, False))
+        finally:
+            alembic_ok("upgrade", "head")
+        self.assertTrue(self.coluna_existe())

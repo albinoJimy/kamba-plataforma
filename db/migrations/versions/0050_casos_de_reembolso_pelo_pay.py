@@ -64,10 +64,16 @@ a PME a partir da conta dela, e o caso e o registo disso
   `sistema` nunca autentica pagamento nenhum (o `confirmar_exige_autenticacao`
   da `0029`).
 * **Um reentregue nao e um duplo.** O F-01 (o facilitador reentrega o mesmo
-  callback) e absorvido pelo G7 **antes** do ledger — o `prescricaoDosGates`
+  callback) e absorvido pelo G7 **antes** do ledger — o `escritasDoVeredicto`
   devolve `[]` para o veredicto `duplicado` —, e o `pagamento_duplicado` so se
-  escreve no F-08, que e o segundo pagamento autenticado. Mapear o tipo nao faz
-  uma reentrega pedir reembolso.
+  escreve no F-08, que e o segundo pagamento autenticado **sobre uma cobranca
+  ja paga**. Isto ultimo passou a ser verdade com este ticket e nao antes: o G6
+  devolve `duplo` tambem em `iniciada`, `falhada` e `cancelada`, e o
+  `escritasDoVeredicto` so prescreve o `pagamento_duplicado` nos
+  `ESTADOS_DO_DUPLICADO` (`paga`, `reembolso_pendente`, `reembolsada`). Sem
+  isso, numa `falhada` por valor divergente (F-02) a encomenda continuava em
+  `aguarda_pagamento` e o `payment.confirmed` pagava-a sem o humano que o F-02
+  exige — achado da revisao adversarial.
 """
 
 from __future__ import annotations
@@ -345,7 +351,9 @@ def _mapa() -> None:
     («segundo pagamento autenticado na mesma encomenda»), e o `ramoDoPagamento`
     do COM decide pelo estado da encomenda — paga ou adiante, e `duplicado`.
     A `payment_evt_payload` da `0035` recusa um `payment.confirmed` sem
-    `authn_ok`, pelo que um duplicado nao autenticado continua sem evento.
+    `authn_ok`, pelo que um duplicado nao autenticado **e recusado**, e a
+    escrita no ledger reverte com ele: antes desta revisao gravava-se sem
+    evento. O unico escritor do tipo so o prescreve depois do G1.
     """
     op.execute(
         f"INSERT INTO {MAPA} (tipo_evento, authn_method, evt_tipo, evt_versao) "

@@ -110,7 +110,11 @@ describe("gates do worker: a ordem do G7 antes do G6", () => {
     const veredicto = avaliarGates(
       entrada({ cobranca: { ...COBRANCA, estado: "paga" } }),
     );
-    assert.deepEqual(veredicto, { tipo: "duplo", gate: "G6" });
+    assert.deepEqual(veredicto, {
+      tipo: "duplo",
+      gate: "G6",
+      estadoDaCobranca: "paga",
+    });
     assert.deepEqual(
       escritasDoVeredicto(veredicto).map((e) => e.tipo),
       ["pagamento_recebido", "pagamento_duplicado"],
@@ -334,8 +338,36 @@ describe("gates do worker: o pagamento tardio", () => {
       );
       assert.deepEqual(
         veredicto,
-        { tipo: "duplo", gate: "G6" },
+        { tipo: "duplo", gate: "G6", estadoDaCobranca: estado },
         `o estado ${estado} nao e um pagamento tardio`,
+      );
+    }
+  });
+
+  it("KAM-197: so depois de paga o duplo escreve pagamento_duplicado", () => {
+    // Desde a `0050` o `pagamento_duplicado` chega ao COM como
+    // `payment.confirmed`. Numa `falhada` (F-02) a encomenda continua a
+    // aguardar pagamento, e esse evento pagava-a sem o humano que o F-02
+    // exige. Achado da revisao adversarial.
+    for (const estado of ["paga", "reembolso_pendente", "reembolsada"]) {
+      const veredicto = avaliarGates(
+        entrada({ cobranca: { ...COBRANCA, estado } }),
+      );
+      assert.deepEqual(
+        escritasDoVeredicto(veredicto).map((e) => e.tipo),
+        ["pagamento_recebido", "pagamento_duplicado"],
+        estado,
+      );
+    }
+    for (const estado of ["falhada", "cancelada", "iniciada"]) {
+      const veredicto = avaliarGates(
+        entrada({ cobranca: { ...COBRANCA, estado } }),
+      );
+      assert.equal(veredicto.tipo, "duplo", estado);
+      assert.deepEqual(
+        escritasDoVeredicto(veredicto).map((e) => e.tipo),
+        ["pagamento_recebido"],
+        `${estado}: fica o facto, e quem decide e uma pessoa`,
       );
     }
   });

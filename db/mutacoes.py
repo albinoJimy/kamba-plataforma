@@ -7255,9 +7255,12 @@ MUTACOES = [
     ("consumidor: o visivel ignora a oferta", IDX_CONSUMIDOR,
      'bool(linha["publicado"])', "True", PRODUTOS),
     # --------------------------------------------------- KAM-197 (0050)
-    # A repeticao que diverge deixa de ser recusada: o mesmo pedido com outro
-    # valor devolvia o caso antigo em silencio. O
-    # `test_uma_repeticao_que_diverge_e_recusada` tem de a matar, e o
+    # A repeticao com **outra encomenda** deixa de ser recusada (o `AND` liga
+    # antes do `OR`, pelo que so a comparacao do `order_id` se desliga): o mesmo
+    # pedido sobre outra encomenda devolvia o caso antigo em silencio. O subcaso
+    # `encomenda` do `test_uma_repeticao_que_diverge_e_recusada` tem de a matar
+    # — sobreviveu a primeira versao do ensaio, que so variava o valor e o
+    # motivo (achado da revisao adversarial) —, e o
     # `test_duplicados_x10_dao_um_caso` tem de ficar verde.
     ("revisao 0050: a repeticao que diverge passa", REV_REEMBOLSOS,
      "          IF v_antes.order_id IS DISTINCT FROM p_order_id\n",
@@ -7289,8 +7292,18 @@ MUTACOES = [
      "('pagamento_duplicado', 'hmac', 'payment.confirmed', 1)",
      "('pagamento_duplicado', 'sistema', 'payment.confirmed', 1)",
      "tests_pagamentos"),
-    # A porta escreve no ledger: o caso passa a abrir com um evento. O
-    # `test_o_caso_abre_sem_linha_nova_no_ledger` tem de a matar pela contagem.
+    # A porta mexe na cobranca. O `test_o_caso_abre_sem_linha_nova_no_ledger`
+    # tem de a matar pela asercao do **estado** da cobranca (o `UPDATE` nao
+    # acrescenta linha ao ledger, pelo que a contagem nao a ve), ou pelo erro
+    # que o `UPDATE` levante.
+    ("revisao 0050: a guarda do downgrade le sob FORCE", REV_REEMBOLSOS,
+     '    op.execute(f"ALTER TABLE {REEMBOLSOS} NO FORCE ROW LEVEL SECURITY")\n',
+     "",
+     "tests_pagamentos"),
+    # **A licao da `0046`, a valer.** Sem o `NO FORCE`, a contagem da guarda
+    # corre sob `tenant_iso` sem `app.tenant_id` e le zero: o `downgrade` passa e
+    # apaga a ligacao do caso ao pedido. O
+    # `test_com_um_caso_aberto_por_pedido_o_downgrade_recusa` tem de a matar.
     ("revisao 0050: a porta toca na cobranca", REV_REEMBOLSOS,
      "            RETURN v_caso;\n",
      "            UPDATE platform.payment_charges SET estado = 'reembolso_pendente'"

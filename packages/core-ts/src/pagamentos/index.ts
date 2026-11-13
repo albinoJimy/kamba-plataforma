@@ -202,6 +202,7 @@ export {
 } from "./contas.ts";
 
 export {
+  ESTADOS_DO_DUPLICADO,
   ESTADOS_QUE_ACEITAM,
   ESTADO_TARDIO,
   GATES_DO_WORKER,

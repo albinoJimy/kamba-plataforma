@@ -2053,11 +2053,35 @@ inventário de segredos e as três listas de variáveis de papel (`gate_bd`, `en
 `dr_simulacro`). **Seis mutações novas** no `../db/mutacoes.py`, e a quinta muta a **ligação** do
 mapa e não um predicado.
 
-**O que fica escrito e não muda código.** Um `pagamento_duplicado` escrito sobre uma cobrança que
-**não** está paga chegaria ao COM como pagamento. O único escritor do tipo (o veredicto `duplo` do
-`../packages/core-ts/src/pagamentos/gates.ts`) só o prescreve com a cobrança `paga`, pelo que o caso
-não se alcança por um caminho medido; fechá-lo na base é um gatilho novo no *ledger*, que é do
-KAM-053 e alargava este ticket.
+**Uma alteração fora dos critérios, e declarada: o escritor do `pagamento_duplicado`.** Com o
+mapeamento, o tipo passou a chegar ao COM como `payment.confirmed`, e o G6 do
+`../packages/core-ts/src/pagamentos/gates.ts` devolve `duplo` **também** em `iniciada`, `falhada` e
+`cancelada` — não só depois de paga. Numa `falhada` por valor divergente (F-02) a encomenda continua
+em `aguarda_pagamento`, e o evento pagava-a sem o humano que o F-02 exige. O
+`escritasDoVeredicto` passa a prescrever o `pagamento_duplicado` **só** nos `ESTADOS_DO_DUPLICADO`
+(`paga`, `reembolso_pendente`, `reembolsada`); nos outros fica o facto (`pagamento_recebido`) e o
+alerta do veredicto, como no `divergente` fora de `emitida`. Ensaio: `KAM-197: so depois de paga o
+duplo escreve pagamento_duplicado` (`pagamentos.gates.test.ts`). **É a escolha conservadora e é
+reversível**: se o fundador quiser que um pagamento sobre uma cobrança `cancelada` (uma tentativa
+substituída, F-06) peça reembolso pela regra 3, é uma linha naquela lista.
+
+**A revisão adversarial**, independente e sem acesso ao raciocínio do executor, sobre o diff e os
+requisitos, com as mutações. Seis achados, cada um verificado contra o código antes de gerar
+trabalho:
+
+| # | O que ela encontrou | Veredicto | O que mudou |
+|---|---|---|---|
+| 1 | A mutação «a repetição que diverge passa» sobrevivia: o `AND` liga antes do `OR`, pelo que desligava só a comparação da encomenda, e o ensaio só variava o valor e o motivo | **CONFIRMADO** | O ensaio ganhou o subcaso `encomenda` (outra encomenda do mesmo tenant), e o comentário da mutação diz o que ela faz |
+| 2 | O `duplo` não é só «depois de paga»: o G6 devolve-o em `iniciada`, `falhada` e `cancelada`, e numa `falhada` o `payment.confirmed` pagava a encomenda | **CONFIRMADO** | O escritor corrigido (parágrafo acima), e a prosa da `0050` e deste bloco que afirmava o contrário |
+| 3 | A guarda do `downgrade` da `0050` não tinha ensaio nem mutação | **CONFIRMADO** | `TestDowngradeDa0050`: a recusa com um caso aberto por pedido e o ciclo sem casos (coluna, porta, mapa e privilégios do `kamba_pay` saem e voltam), mais a mutação que tira o `NO FORCE` |
+| 4 | Prosa contra código: um nome de função que não existe, «um duplicado não autenticado continua sem evento» (é recusado) e o comentário de uma mutação | **CONFIRMADO** | Corrigidos |
+| 5 | O `refund_case` de um sinal escrito antes do consumo fica `por_abrir` | **PLAUSÍVEL**, declarado | É a leitura do critério 5 escrita acima: o sinal é verdadeiro no instante em que se escreve, e a janela do escritor não o reescreve. Se o critério pedir a reescrita, é uma decisão sobre o ciclo de vida de um sinal (a `fraud_signals` não tem coluna de estado — dívida da `0039`), e volta ao fundador |
+| 6 | O arranque do modo `reembolsos` não recusa subscrições **a mais** no mesmo `consumer` | **PLAUSÍVEL**, aceite | Um `consumer` partilhado com `payment.*` mandava esses eventos à DLQ com `tipo inesperado` — falha alta e não silenciosa. Fica escrito |
+
+E o que ela investigou e **matou**: os privilégios do `kamba_pay` contra todo o SQL do caminho de
+consumo (chegam, e não sobra nada), o isolamento da porta, a concorrência do `ON CONFLICT` sobre o
+índice parcial, a reentrega F-01, as listas fechadas e o duplo dos ensaios em TypeScript, que lê o
+texto da instrução.
 
 ### Handoff para Claude Code
 
