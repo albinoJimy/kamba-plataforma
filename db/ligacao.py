@@ -43,6 +43,8 @@ PAPEIS = {
     "audit": "kamba_audit",
     "agr": "kamba_agr",
     "pay_hooks": "kamba_pay_hooks",
+    # KAM-197: o consumidor do PAY, decisao (A) do fundador de 2026-11-13.
+    "pay": "kamba_pay",
 }
 
 #: Variavel de ambiente da palavra-passe de cada identidade.
@@ -56,6 +58,7 @@ VARIAVEL_DA_SENHA = {
     "audit": "KAMBA_SECRET_DB_AUDIT_PASSWORD",
     "agr": "KAMBA_SECRET_DB_AGR_PASSWORD",
     "pay_hooks": "KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD",
+    "pay": "KAMBA_SECRET_DB_PAY_PASSWORD",
 }
 
 

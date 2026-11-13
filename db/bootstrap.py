@@ -50,6 +50,10 @@ O que cada papel pode, e a razao:
                     (revisao 0029): grava no `payment_callbacks_inbox`, que nao
                     tem `tenant_id`, e resolve o `webhook_token` por funcao.
                     Nao contorna a RLS e nao le cobrancas nem o ledger.
+    kamba_pay       CONNECT. O consumidor do PAY (revisao 0051): consome o
+                    `order.refund_requested` e abre a `refund_cases` pela
+                    porta `abrir_caso_de_reembolso`, de que e o unico com
+                    `EXECUTE`. Nao contorna a RLS.
 
 Nenhum e superutilizador, nenhum cria bases nem papeis.
 """
@@ -93,6 +97,13 @@ ATRIBUTOS = {
     # *token*, que passa pela `resolve_webhook_token` e nao pela tabela. Dar-lhe
     # `BYPASSRLS` era dar-lhe tudo o mais de que ele nao precisa.
     "kamba_pay_hooks": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+    # O papel do consumidor do PAY (KAM-197, decisao (A) do fundador de
+    # 2026-11-13). Existe para que a `refund_cases` tenha **um so dono**
+    # imposto pela base: o COM corre como `kamba_app`, e um `EXECUTE` da porta
+    # concedido ao `kamba_app` deixava o COM abrir casos. `NOBYPASSRLS`: o
+    # consumo trabalha um tenant de cada vez, com o `app.tenant_id` do
+    # envelope. O que pode e concedido pela revisao `0051`.
+    "kamba_pay": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
 }
 
 

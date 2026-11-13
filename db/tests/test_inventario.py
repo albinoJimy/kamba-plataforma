@@ -2152,6 +2152,13 @@ INVENTARIO = {
         ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "fechado_at": ("timestamp with time zone", SIM, None, "nao"),
+        "pedido_evento_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — o id do envelope order.refund_requested que abriu o caso "
+            "(KAM-197); nulo nos casos da manual_reverter",
+        ),
     },
     "fraud_signals": {
         "id": ("bigint", NAO, None, "nao — identidade, pela razao do events_outbox"),
@@ -3727,6 +3734,11 @@ class TestInventario(ComBase):
             # KAM-087: o NIF de um caso **vivo** e unico (o indice do bloco do
             # KAM-086). Unico e parcial: um caso rejeitado deixa o NIF voltar.
             "onboarding_nif_vivo": True,
+            # KAM-197: o pedido que abriu um caso de reembolso abre-o **uma**
+            # vez. Unico, e e a idempotencia do criterio 1 imposta pela base;
+            # parcial porque os casos da `manual_reverter` nao vem de pedido
+            # nenhum. Perder o `UNIQUE` dava dois casos para o mesmo pedido.
+            "refund_cases_pedido_uq": True,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "

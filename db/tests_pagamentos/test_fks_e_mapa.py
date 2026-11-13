@@ -109,7 +109,13 @@ FIM_DO_COMENTARIO_DA_0029 = "que prende tambem o dono (FORCE)."
 #: mudar — e é isso que se quer medir: quem mexer no mapeamento da revisão sem
 #: mexer aqui descobre-o por um vermelho, e não por um evento que um consumidor
 #: deixou de receber em produção.
-MAPEAMENTO = (
+#:
+#: **Em `head` sao nove linhas e nao sete**, desde o KAM-197: a revisao `0051`
+#: acrescenta o `pagamento_duplicado` pelos dois caminhos autenticados, e o
+#: `test_o_upgrade_seguinte_repoe_tudo` sobe a `head` e nao a `0035`. As sete da
+#: `0035` ficam nomeadas a parte, e e o conjunto delas mais as duas que se
+#: compara — uma linha a mais ou a menos de qualquer das duas revisoes falha.
+MAPEAMENTO_DA_0035 = (
     ("cobranca_expirada", "sistema", "payment.expired", 1),
     ("pagamento_confirmado", "consulta", "payment.confirmed", 1),
     ("pagamento_confirmado", "hmac", "payment.confirmed", 1),
@@ -118,6 +124,15 @@ MAPEAMENTO = (
     ("pagamento_divergente", "hmac", "payment.failed", 1),
     ("referencia_emitida", "sistema", "payment.reference_issued", 1),
 )
+
+#: As duas da `0051` (KAM-197).
+MAPEAMENTO_DA_0051 = (
+    ("pagamento_duplicado", "consulta", "payment.confirmed", 1),
+    ("pagamento_duplicado", "hmac", "payment.confirmed", 1),
+)
+
+#: O mapa em `head`, pela ordem do `ORDER BY 1, 2` do `mapa()`.
+MAPEAMENTO = tuple(sorted(MAPEAMENTO_DA_0035 + MAPEAMENTO_DA_0051))
 
 
 def esquema(tipo: str, versao: int = 1) -> dict:
