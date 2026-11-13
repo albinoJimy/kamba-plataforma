@@ -121,14 +121,6 @@ def _tecto_de_preco(filtros: dict[str, str]) -> int | None:
     return int(bruto)
 
 
-#: O que fica da pesquisa quando o vector da pergunta gasta o seu tecto, em ms.
-#: **Proposta.** O tecto de uma tool `read` e 2 s (§6.5 do `docs/tecnica/02`) e
-#: o do embedding 1,5 s (criterio 3 do KAM-063): com esta reserva os dois
-#: cabem, e com um tecto de tool menor e o embedding que encolhe, nao a
-#: pesquisa.
-RESERVA_DA_PESQUISA_MS: Final = 500
-
-
 class LigacaoVectorial:
     """O fio entre o executor e a `ConsultaVectorial`, ligado no arranque.
 
@@ -151,20 +143,6 @@ class LigacaoVectorial:
         return self._vectorial
 
 
-def _com_tecto(
-    vectorial: ConsultaVectorial | None, timeout_ms: int
-) -> ConsultaVectorial | None:
-    """A consulta vectorial com o tecto que cabe no da tool, ou `None` se nao cabe."""
-    if vectorial is None:
-        return None
-    disponivel_s = (timeout_ms - RESERVA_DA_PESQUISA_MS) / 1000
-    if disponivel_s <= 0:
-        return None
-    # `com_tecto` e nao `dataclasses.replace`: a politica do KAM-112 recusa o
-    # `replace` em todo o AGR, porque e assim que se forjaria um `MinimisedText`.
-    return vectorial.com_tecto(min(vectorial.tecto_s, disponivel_s))
-
-
 def executar(pedido: Pedido, ligacao: LigacaoVectorial | None = None) -> Resposta:
     """`search_catalog(query, filtros)`: ate tres candidatos, com `score` em [0, 1].
 
@@ -182,9 +160,9 @@ def executar(pedido: Pedido, ligacao: LigacaoVectorial | None = None) -> Respost
             "de backend `idx` sem tomada e defeito de registo, nao resposta"
         )
     tecto_de_preco = _tecto_de_preco(dict(pedido.args.filtros))
-    vectorial = _com_tecto(
-        ligacao.actual if ligacao is not None else None, pedido.timeout_ms
-    )
+    # O prazo do vector cabe no tecto da tool: quem o corta e o `procurar`,
+    # que conta tambem o tempo da porta e da primeira transaccao.
+    vectorial = ligacao.actual if ligacao is not None else None
     inicio = time.perf_counter()
     try:
         procura = pesquisa.procurar(
@@ -271,7 +249,6 @@ __all__ = [
     "FILTRO_DE_PRECO",
     "LIMIAR_DO_RRF",
     "LigacaoVectorial",
-    "RESERVA_DA_PESQUISA_MS",
     "executar",
     "executores_do_idx",
     "pergunta_da_normalizacao",

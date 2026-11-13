@@ -61,6 +61,12 @@ from . import lexico as lexico_mod
 from .embeddings import SQL_MODELOS_DO_INDICE, ConsultaVectorial, modelo_do_indice
 from .normalizacao import Normalizacao, normalizar
 
+#: O que fica para a pesquisa quando o vector da pergunta gasta o seu prazo, em
+#: ms. **Proposta.** O tecto de uma tool `read` e 2 s (§6.5 do `docs/tecnica/02`)
+#: e o do embedding 1,5 s (criterio 3 do KAM-063): com esta reserva os dois
+#: cabem, e um tecto menor encolhe o embedding e nao a pesquisa.
+RESERVA_DA_PESQUISA_MS: Final = 500
+
 #: Os dois modos do §6.5, com os nomes da metrica `idx_mode`.
 MODO_HIBRIDO: Final = "hibrido"
 MODO_LEXICAL: Final = "lexical"
@@ -209,17 +215,36 @@ def procurar(
     ):
         raise TypeError("max_preco_minor e unidade menor inteira (dicionario §2)")
     modelo_esperado: str | None = None
+    pergunta: Normalizacao | None = None
     if qvec is None and vectorial is not None:
         inicio = relogio()
-        # Uma transaccao curta so para o modelo: o vector pede-se **fora** de
-        # qualquer transaccao, que nao fica aberta durante a ida ao fornecedor.
+        # Uma transaccao curta para o modelo e para a normalizacao: o vector
+        # pede-se **fora** de qualquer transaccao, que nao fica aberta durante a
+        # ida ao fornecedor. A normalizacao vem **antes** do vector: uma
+        # pergunta que normalizada fica vazia («ate 5000 kz») nao pesquisa nada,
+        # e o vector dela era uma transferencia sem uso (achado 4 da revisao).
         with tx(conexao, tenant) as cursor:
             cursor.execute(SQL_MODELOS_DO_INDICE)
             estado = modelo_do_indice(cursor.fetchall())
+            lexico, vocabulario = cache.entradas(cursor, tenant)
+            pergunta = normalizar(
+                texto, tenant, origem, lexico=lexico, vocabulario=vocabulario
+            )
+        if not pergunta.q_norm:
+            return Procura(pergunta, ())
         if estado.misturado:
             vectorial.mistura()
         elif estado.modelo is not None:
-            resultado = vectorial.vector(str(tenant), texto, estado.modelo)
+            # O prazo do vector e o tecto da pesquisa menos a reserva dela,
+            # contado **daqui**: a porta e a transaccao de cima ja gastaram.
+            prazo = (
+                None
+                if tecto_ms is None
+                else inicio + (tecto_ms - RESERVA_DA_PESQUISA_MS) / 1000
+            )
+            resultado = vectorial.vector(
+                str(tenant), texto, estado.modelo, enviar=pergunta.q_norm, prazo=prazo
+            )
             qvec, modelo_esperado = resultado.qvec, resultado.modelo
         if tecto_ms is not None:
             tecto_ms = max(1, int(tecto_ms - (relogio() - inicio) * 1000))
@@ -234,8 +259,11 @@ def procurar(
                 qvec = None
                 if vectorial is not None:
                     vectorial.mistura()
-        lexico, vocabulario = cache.entradas(cursor, tenant)
-        pergunta = normalizar(texto, tenant, origem, lexico=lexico, vocabulario=vocabulario)
+        if pergunta is None:
+            lexico, vocabulario = cache.entradas(cursor, tenant)
+            pergunta = normalizar(
+                texto, tenant, origem, lexico=lexico, vocabulario=vocabulario
+            )
         if not pergunta.q_norm:
             return Procura(pergunta, ())
         restricoes = pergunta.restricoes

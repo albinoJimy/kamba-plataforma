@@ -89,6 +89,9 @@ FINALIDADE: Final = FINALIDADE_EMBEDDINGS
 #: diferenca de dimensao e um erro e nao uma distancia.
 DIMENSAO: Final = 1024
 
+#: O maior valor finito de meia precisao, que e o que o `halfvec` guarda.
+MAXIMO_DO_HALFVEC: Final = 65504.0
+
 #: O tecto do embedding da pergunta, em segundos (criterio 3).
 TECTO_DA_CONSULTA_S: Final = 1.5
 
@@ -138,6 +141,10 @@ class FornecedorDeEmbeddings(Protocol):
     proxy incluido): e sobre eles que a porta corre. Em producao e o adaptador
     do AGR sobre o gateway LiteLLM, com a chave virtual do tenant e a linha em
     `dat.llm_call_log`; nos ensaios, um falso com contador.
+
+    Pode ter um `aceita(texto) -> bool`, opcional: os textos que recusaria
+    sozinho, para que o *worker* os conte como recusados um a um em vez de
+    perder o lote (`ClienteDeEmbeddings.aceita`).
     """
 
     fornecedores: tuple[str, ...]
@@ -192,6 +199,13 @@ def _validar(resposta: object, quantos: int) -> Vectores:
             for x in vector
         ):
             raise EmbeddingInvalido(f"o vector {posicao} tem um valor que nao e finito")
+        # O `halfvec` guarda meia precisao: acima de 65 504 o `::halfvec` levanta
+        # no SQL — na pesquisa, um erro ao cliente; no *worker*, fora do `try`.
+        if any(abs(x) > MAXIMO_DO_HALFVEC for x in vector):
+            raise EmbeddingInvalido(f"o vector {posicao} nao cabe em meia precisao")
+        # Um vector nulo da `NaN` no `<=>` e o ramo `sem` ordena por `doc_id`.
+        if not any(vector):
+            raise EmbeddingInvalido(f"o vector {posicao} e nulo")
     return resposta
 
 
@@ -232,6 +246,22 @@ class ClienteDeEmbeddings:
         except Exception as erro:  # noqa: BLE001 — falha fechada, e por desenho
             raise EmbeddingNegado(str(erro) or type(erro).__name__) from erro
 
+    def aceita(self, texto: str) -> bool:
+        """Se o fornecedor aceita este texto **sozinho**. Um que levanta, nao.
+
+        Existe para que um texto que o fornecedor recusa nao derrube o lote
+        inteiro (achado 1 da revisao adversarial): o *worker* pergunta texto a
+        texto antes de juntar, e o recusado conta como `recusados`. Um
+        fornecedor sem `aceita` aceita tudo o que o *lint* deixou passar.
+        """
+        filtro = getattr(self._fornecedor, "aceita", None)
+        if filtro is None:
+            return True
+        try:
+            return bool(filtro(texto))
+        except Exception:  # noqa: BLE001 — na duvida, o texto nao sai
+            return False
+
     def vectores(
         self,
         tenant_id: str,
@@ -240,17 +270,24 @@ class ClienteDeEmbeddings:
         uso: str,
         tecto_s: float,
         esperar: bool = False,
+        prazo: float | None = None,
     ) -> Vectores:
         """Os vectores de `textos`, depois da porta. Levanta; nunca devolve meio.
 
         Com `esperar`, a chamada corre numa *thread* e a espera e cortada no
         `tecto_s` (`TempoEsgotado`). Sem ele, o tecto vai so para o transporte.
+        Com `prazo` (no relogio deste cliente), o tecto e o que **sobra** dele
+        depois da porta: a porta pode ir a base, e esse tempo conta.
         """
         textos = tuple(textos)
         if not textos:
             raise ValueError("embeber zero textos nao e uma chamada")
         self.autorizar(tenant_id)
         inicio = self._relogio()
+        if prazo is not None:
+            tecto_s = min(tecto_s, prazo - inicio)
+            if tecto_s <= 0:
+                raise TempoEsgotado("a porta gastou o prazo do embedding da pergunta")
         if esperar:
             futuro = _executor().submit(self._fornecedor, tenant_id, textos, tecto_s)
             try:
@@ -345,9 +382,22 @@ class ConsultaVectorial:
     metricas: MetricasDoIdx = METRICAS
 
     def vector(
-        self, tenant_id: str, texto: str, modelo_do_indice: str | None
+        self,
+        tenant_id: str,
+        texto: str,
+        modelo_do_indice: str | None,
+        *,
+        enviar: str | None = None,
+        prazo: float | None = None,
     ) -> VectorDaConsulta:
-        """O vector de `texto` com o modelo do indice, ou lexical. **Nunca levanta.**
+        """O vector da pergunta com o modelo do indice, ou lexical. **Nunca levanta.**
+
+        O detector le o `texto` **cru** (o `@` de um e-mail e o `+` de um
+        indicativo so existem nele); o que sai e o `enviar` — na pesquisa, o
+        `q_norm` da normalizacao PT-AO do KAM-062, sem as restricoes de preco,
+        que e a mesma forma do `nome_norm` do documento. Sem `enviar`, sai o
+        passo 1 do §5.1 do `texto`. O `prazo` (relogio `time.monotonic`) e o
+        da `ClienteDeEmbeddings.vectores`.
 
         Sem modelo no indice (nenhum vector, ou mais de um modelo), a pergunta
         **nao** vai ao fornecedor: seria uma transferencia sem nada com que a
@@ -361,14 +411,17 @@ class ConsultaVectorial:
             recusar = True
         if recusar:
             return self._caiu(QUEDA_SENSIVEL)
-        # O mesmo passo 1 do §5.1 que o `nome_norm` do documento teve: minusculas,
-        # sem acentos, sem pontuacao. Corre fora da transaccao da pesquisa.
-        normal = normalizar(texto)
+        normal = normalizar(texto) if enviar is None else enviar
         if not normal:
             return _SEM_VECTOR
         try:
             resposta = self.cliente.vectores(
-                tenant_id, (normal,), uso="consulta", tecto_s=self.tecto_s, esperar=True
+                tenant_id,
+                (normal,),
+                uso="consulta",
+                tecto_s=self.tecto_s,
+                esperar=True,
+                prazo=prazo,
             )
         except EmbeddingNegado:
             return self._caiu(QUEDA_DESTINO)
@@ -449,8 +502,12 @@ SQL_OUTRO_MODELO: Final = """
 
 #: Grava os vectores de um lote. **So onde o texto ainda e o que se embebeu**: o
 #: documento que mudou de nome entretanto tem o vector anulado pelo consumidor e
-#: ficava com o do nome antigo. E so num tenant sem vectores de outro modelo,
-#: na mesma instrucao. Parametros: o modelo duas vezes, e cinco por linha.
+#: ficava com o do nome antigo. E so num tenant sem vectores de outro modelo.
+#: **O limite desta guarda, dito:** em `READ COMMITTED`, dois *workers* com
+#: modelos diferentes no mesmo tenant, ao mesmo tempo, nao veem a escrita um do
+#: outro e gravam os dois. A pesquisa apanha a mistura (`modelos_do_indice`) e
+#: cai em lexical — falha fechada —, e o processo do KAM-194 corre um *worker*
+#: por tenant. Parametros: o modelo, seis por linha, e o modelo.
 _SQL_GRAVAR: Final = """
   UPDATE idx.search_doc d
      SET embedding = u.vec::halfvec, embedding_modelo = %s
@@ -491,7 +548,8 @@ class VoltaDoCatalogo:
 
     `motivo` diz porque nao se gravou nada (a porta, o tecto, uma falha, ou um
     modelo diferente no tenant); `recusados` sao os documentos cujo texto o
-    *lint* recusou e que ficam so lexicais.
+    *lint* ou o fornecedor (`ClienteDeEmbeddings.aceita`) recusou, **um a um**,
+    e que ficam so lexicais. Um texto recusado nunca derruba o lote.
     """
 
     lidos: int
@@ -531,7 +589,10 @@ def embeber_catalogo(
     recusados = 0
     for linha in linhas:
         texto = _texto_da_linha(linha)
-        if texto is None:
+        # Texto a texto, antes de juntar: um so recusado pelo fornecedor (um
+        # nome que o detector de PII le como morada) derrubava o lote inteiro,
+        # e para sempre — o *retry* da volta seguinte recusava-o outra vez.
+        if texto is None or not cliente.aceita(texto):
             recusados += 1
         else:
             a_embeber.append((linha, texto))
@@ -569,16 +630,26 @@ def embeber_catalogo(
 
 
 def _texto_da_linha(linha: Mapping[str, object]) -> str | None:
-    """O texto de embedding de um documento, ou `None` se o *lint* o recusa."""
+    """O texto que sai para o fornecedor, ou `None` se o *lint* o recusa.
+
+    **Duas formas do mesmo documento, e cada uma para uma coisa.** O *lint* le
+    o nome **cru** da oferta viva, com a pontuacao — e onde estao o `@` de um
+    e-mail e o `$` de um preco. O que sai e a forma **normalizada** do
+    documento (`nome_norm`, `marca_canon`, `categoria_canon`, `descr_norm`, os
+    passos do §5.1 do KAM-062), que e a mesma forma do `q_norm` que a pergunta
+    envia: os dois lados do vector sao embebidos da mesma maneira.
+    """
     nome = linha.get("nome")
     if not isinstance(nome, str):
         return None
+    partes = (
+        linha.get("marca_canon"),
+        linha.get("categoria_canon"),
+        linha.get("descr_norm"),
+    )
     try:
-        return texto_de_embedding(
-            nome,
-            linha.get("marca_canon"),  # type: ignore[arg-type]
-            linha.get("categoria_canon"),  # type: ignore[arg-type]
-            linha.get("descr_norm"),  # type: ignore[arg-type]
-        )
+        texto_de_embedding(nome, *partes)  # type: ignore[arg-type]
+        normal = texto_de_embedding(linha.get("nome_norm") or "", *partes)  # type: ignore[arg-type]
     except TextoDeEmbeddingProibido:
         return None
+    return normal or None

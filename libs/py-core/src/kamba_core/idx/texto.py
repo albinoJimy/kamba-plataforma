@@ -45,7 +45,13 @@ _NAO_PALAVRA: Final = re.compile(r"[^0-9a-z]+")
 #: Dinheiro: algarismos seguidos de `kz`, `akz` ou `$`, com ou sem espaco, e o
 #: `$` antes de algarismos. Le-se sobre o texto **ja sem acentos e em
 #: minusculas**, pelo que `500 KZ` e `500kz` sao o mesmo caso.
-_DINHEIRO: Final = re.compile(r"\d[\d.,]*\s*(?:akz|kz|\$)|\$\s*\d")
+#: Desde o KAM-063 tambem a moeda por extenso e as estrangeiras («15000
+#: kwanzas», «AOA 15000», «USD 10», «10 euros», «10 €»): a revisao adversarial
+#: mostrou-as a passar, e este *lint* e agora a barreira de um texto que sai.
+_DINHEIRO: Final = re.compile(
+    r"\d[\d.,]*\s*(?:(?:akz|kz|kwanzas?|aoa|usd|eur|euros?|dolares?)\b|\$|€)"
+    r"|(?:\$|€)\s*\d|\b(?:aoa|usd|eur)\s*\d"
+)
 
 #: As palavras proibidas da regra (b), **sem acento**: a comparacao e feita
 #: sobre o texto normalizado, e assim «preço» e «preco» sao a mesma recusa.
@@ -62,13 +68,23 @@ _PALAVRA_PROIBIDA: Final = re.compile(
 #: AGR com sete algarismos nao apanham. **O que isto recusa a mais, dito:** um
 #: codigo de barras de 13 algarismos no nome. O documento fica so lexical, que e
 #: o lado seguro; um telefone dentro de um vector nao se corrige.
-_TELEFONE: Final = re.compile(r"(?<!\d)\+?\d(?:[\s.\-]?\d){8,}(?!\d)")
+#: Os separadores sao ate dois de espaco, ponto, barra, sublinhado, virgula ou
+#: hifen («923  456  789», «923/456/789»): so um tipo deixava-os passar. Um ISBN
+#: tambem cai aqui, que e o mesmo lado seguro.
+_TELEFONE: Final = re.compile(r"(?<!\d)\+?\d(?:[\s./_,\-]{0,2}\d){8,}(?!\d)")
 
-#: Contacto da PME: um e-mail ou um endereco web. Le-se no texto **com** a
-#: pontuacao, porque o `normalizar` apaga o `@` e o ponto.
+#: Contacto da PME: um e-mail, um endereco web (com ou sem `www.`, pelos
+#: dominios de topo que uma PME de Angola usa) ou um `@utilizador` de rede
+#: social. Le-se no texto **com** a pontuacao, porque o `normalizar` apaga o
+#: `@` e o ponto. **O que nao apanha, dito:** um dominio fora da lista
+#: (`loja.shop`).
 _CONTACTO: Final = re.compile(
     r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}|\bhttps?://|\bwww\.[a-z0-9\-]"
+    r"|\b[a-z0-9\-]+\.(?:co\.ao|ao|com|net|org|pt|br)\b|(?<![\w@])@[a-z0-9_.]{3,}"
 )
+
+#: Stock dito de outra forma, sobre o texto normalizado: conta como `stock`.
+_STOCK: Final = re.compile(r"\besgotad[oa]s?\b|\bultimas? unidades?\b|\brestam? \d+")
 
 
 def _sem_acentos(texto: str) -> str:
@@ -142,7 +158,10 @@ def motivos_de_recusa(texto: str) -> tuple[str, ...]:
         motivos.append("contacto")
     # Pela ordem de `PALAVRAS_PROIBIDAS` e nao pela do texto: a mesma recusa da
     # sempre os mesmos motivos, pela mesma ordem.
-    encontradas = set(_PALAVRA_PROIBIDA.findall(normalizar(texto)))
+    normal = normalizar(texto)
+    encontradas = set(_PALAVRA_PROIBIDA.findall(normal))
+    if _STOCK.search(normal):
+        encontradas.add("stock")
     motivos.extend(p for p in PALAVRAS_PROIBIDAS if p in encontradas)
     return tuple(motivos)
 

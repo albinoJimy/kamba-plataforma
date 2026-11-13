@@ -38,8 +38,10 @@ ADAPTADOR = "kamba_agr/tls/embeddings.py"
 CLIENTE_HTTP = "kamba_agr/llm/cliente.py"
 NUCLEO = "kamba_core/idx/embeddings.py"
 
-#: Os metodos do `ClienteDeEmbeddings` que podem tocar no fornecedor.
-METODOS_COM_FORNECEDOR = frozenset({"__init__", "autorizar", "vectores"})
+#: Os metodos do `ClienteDeEmbeddings` que podem tocar no fornecedor. O
+#: `aceita` le o filtro local dele (`FornecedorDoGateway.aceita`, que so corre o
+#: detector de PII) e nunca o chama: o que sai para fora passa pelo `vectores`.
+METODOS_COM_FORNECEDOR = frozenset({"__init__", "aceita", "autorizar", "vectores"})
 
 
 def _nome(no: ast.AST) -> str | None:
@@ -124,6 +126,16 @@ def _ordem_no_cliente(classe: ast.ClassDef) -> list[tuple[str, int]]:
         ]
         if not portas or min(referencias) < min(portas):
             saida.append(("fornecedor_antes_da_porta", min(referencias)))
+        # A porta dentro de um `try` pode ser engolida (achado 11 da revisao):
+        # a ordem das linhas fica certa e a recusa nao chega a quem chama.
+        for no in ast.walk(metodo):
+            if isinstance(no, ast.Try) and any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "autorizar"
+                for n in ast.walk(no)
+            ):
+                saida.append(("fornecedor_antes_da_porta", no.lineno))
     return saida
 
 
@@ -187,6 +199,18 @@ class TestCanarios(unittest.TestCase):
         fonte = (
             "class ClienteDeEmbeddings:\n"
             "    def vectores(self, t, x):\n"
+            "        return self._fornecedor(t, x, 1)\n"
+        )
+        self.assertIn("fornecedor_antes_da_porta", self.regras(NUCLEO, fonte))
+
+    def test_porta_engolida_por_um_try(self) -> None:
+        fonte = (
+            "class ClienteDeEmbeddings:\n"
+            "    def vectores(self, t, x):\n"
+            "        try:\n"
+            "            self.autorizar(t)\n"
+            "        except EmbeddingNegado:\n"
+            "            pass\n"
             "        return self._fornecedor(t, x, 1)\n"
         )
         self.assertIn("fornecedor_antes_da_porta", self.regras(NUCLEO, fonte))

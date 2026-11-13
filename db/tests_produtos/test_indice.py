@@ -982,8 +982,9 @@ class TestEmbeddings(ComIndice):
         fornecedor = _FornecedorDeEnsaio()
         volta = self.embeber(fornecedor)
         self.assertEqual((volta.lidos, volta.gravados, volta.recusados, volta.motivo), (2, 1, 1, None))
-        # O texto que saiu e o nome da oferta viva, com o acento e sem preco.
-        self.assertEqual(fornecedor.chamadas, [("Frigorífico LG 250 L",)])
+        # O *lint* leu o nome cru da oferta viva; o que saiu e a forma
+        # normalizada do documento, a mesma do `q_norm` da pergunta.
+        self.assertEqual(fornecedor.chamadas, [("frigorifico lg 250 l",)])
         self.assertEqual(
             self.vectores(),
             {"bolo": (False, None), "geleira": (True, "modelo-de-ensaio")},
@@ -1021,7 +1022,7 @@ class TestEmbeddings(ComIndice):
         # E o *worker* volta a embebe-lo, com o nome novo.
         fornecedor = _FornecedorDeEnsaio()
         self.assertEqual(self.embeber(fornecedor).gravados, 1)
-        self.assertEqual(fornecedor.chamadas, [("Arroz carolino 5 kg",)])
+        self.assertEqual(fornecedor.chamadas, [("arroz carolino 5 kg",)])
 
     def test_a_escrita_nao_grava_o_vector_de_um_nome_que_mudou(self) -> None:
         """A chamada fica entre a leitura e a escrita: o nome pode mudar no meio."""
@@ -1039,6 +1040,22 @@ class TestEmbeddings(ComIndice):
         volta = self.embeber(_FornecedorDeEnsaio(durante=renomear))
         self.assertEqual((volta.lidos, volta.gravados), (1, 0))
         self.assertEqual(self.vectores(), {"arroz": (False, None)})
+
+    def test_o_invisivel_nao_vai_ao_fornecedor(self) -> None:
+        """O `visivel` e a barreira do catalogo que nao se publica: um produto
+        pausado, restrito ou de um tenant suspenso nao sai para fora."""
+        self.criar_oferta(self.tenant, sku="pausado", nome="Arroz agulha 5 kg", estado="pausado")
+        self.criar_oferta(self.tenant, sku="restrito", nome="Xarope para a tosse",
+                          categoria_restrita="farmacia")
+        self.indexar("pausado")
+        self.indexar("restrito")
+        self.assertEqual(
+            self.vectores(), {"pausado": (False, None), "restrito": (False, None)}
+        )
+        fornecedor = _FornecedorDeEnsaio()
+        volta = self.embeber(fornecedor)
+        self.assertEqual(volta, embeddings.VoltaDoCatalogo(0, 0, 0, None))
+        self.assertEqual(fornecedor.chamadas, [])
 
     def test_sem_destino_na_base_zero_chamadas(self) -> None:
         """Criterios 1 e 9: a porta real, sem linha em `tenant_destinations`."""

@@ -88,6 +88,20 @@ class FornecedorDoGateway:
         #: que a porta do nucleo corre.
         self.fornecedores: tuple[str, ...] = cliente.fornecedores_de(papel)
 
+    def aceita(self, texto: str) -> bool:
+        """Se o texto sai **sozinho**: o detector de PII nao acha nada nele.
+
+        O *worker* pergunta isto texto a texto, e um nome de produto que o
+        detector le como morada («Pao de Luanda») fica so lexical em vez de
+        derrubar o lote. **O custo, dito:** esses nomes nao tem vector. Mandar
+        o texto mascarado nao e opcao — o `minimise` troca a palavra por
+        `MORADA_1` —, e mandar o cru e passar ao lado do KAM-112.
+        """
+        _minimo, mapa = minimise(
+            texto, ContextoDeMinimizacao(tenant_id="", thread_id=_THREAD)
+        )
+        return not mapa.valores
+
     def __call__(
         self, tenant_id: str, textos: Sequence[str], tecto_s: float
     ) -> Vectores:

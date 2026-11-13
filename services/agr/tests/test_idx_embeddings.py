@@ -170,6 +170,15 @@ class TestFornecedorDoGateway(unittest.TestCase):
                 self.assertNotIn("923", str(erro.exception))
         self.assertEqual(transporte.chamadas, [])
 
+    def test_aceita_texto_a_texto(self) -> None:
+        """O *worker* pergunta antes de juntar: um recusado nao derruba o lote."""
+        transporte = _Transporte()
+        cliente, _ = _cliente(transporte)
+        fornecedor = tls_embeddings.FornecedorDoGateway(cliente)
+        self.assertTrue(fornecedor.aceita("arroz agulha 25 kg"))
+        self.assertFalse(fornecedor.aceita("bolo, ligue 923 456 789"))
+        self.assertEqual(transporte.chamadas, [])
+
     def test_os_fornecedores_sao_os_do_alias(self) -> None:
         cliente, _ = _cliente(_Transporte())
         self.assertEqual(tls_embeddings.FornecedorDoGateway(cliente).fornecedores, ("openai",))
@@ -270,15 +279,10 @@ class TestExecutorHibrido(unittest.TestCase):
         self.assertEqual(resposta.data["candidatos"][0]["score"], 0.5)
         self.assertEqual(self.registo.ler()["idx_mode:hibrido"], 1)
         self.assertNotIn("idx_mode:lexical", self.registo.ler())
-        enviado = procurar.call_args.kwargs["vectorial"]
-        self.assertEqual(enviado.tecto_s, 1.5)
-
-    def test_o_tecto_do_vector_cabe_no_da_tool(self) -> None:
-        casos = {2_000: 1.5, 1_000: 0.5, 500: None, 8_000: 1.5}
-        for timeout_ms, esperado in casos.items():
-            with self.subTest(timeout_ms=timeout_ms):
-                resultado = idx._com_tecto(self.vectorial, timeout_ms)
-                self.assertEqual(None if resultado is None else resultado.tecto_s, esperado)
+        # A consulta vai inteira, e o tecto da tool tambem: quem corta o prazo
+        # do vector e o `procurar`, que conta a porta e a primeira transaccao.
+        self.assertIs(procurar.call_args.kwargs["vectorial"], self.vectorial)
+        self.assertEqual(procurar.call_args.kwargs["tecto_ms"], 2_000)
 
     def test_ligacao_por_ligar_e_lexical(self) -> None:
         with mock.patch.object(idx.pesquisa, "procurar", return_value=_procura()) as procurar:

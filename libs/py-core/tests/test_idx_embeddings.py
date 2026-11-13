@@ -19,7 +19,8 @@ from collections.abc import Sequence
 
 from kamba_core.destinos import ESTADO_AUTORIZADO, PortaSobreDestinos
 from kamba_core.eventos.consumo import Resultado
-from kamba_core.idx import consumidor, embeddings, metricas, texto
+import test_idx
+from kamba_core.idx import consumidor, embeddings, metricas, pesquisa, texto
 from kamba_core.idx.embeddings import (
     DIMENSAO,
     ClienteDeEmbeddings,
@@ -49,7 +50,11 @@ class FakeEmbeddingProvider:
         atraso_s: float = 0.0,
         erro: Exception | None = None,
         resposta: object = None,
+        por_texto: bool = False,
+        recusa: tuple[str, ...] = (),
     ) -> None:
+        self.por_texto = por_texto
+        self.recusa = recusa
         self.fornecedores = fornecedores
         self.modelo = modelo
         self.atraso_s = atraso_s
@@ -65,7 +70,13 @@ class FakeEmbeddingProvider:
             raise self.erro
         if self.resposta is not None:
             return self.resposta  # type: ignore[return-value]
+        if self.por_texto:
+            # Um vector diferente por texto: troca-los entre documentos tem de se ver.
+            return Vectores(self.modelo, tuple(vector(float(len(t))) for t in textos))
         return Vectores(self.modelo, tuple(vector() for _ in textos))
+
+    def aceita(self, texto_: str) -> bool:
+        return texto_ not in self.recusa
 
 
 def destino(status: str = ESTADO_AUTORIZADO, *, apd: bool = True, pais: str = "US") -> dict:
@@ -356,6 +367,8 @@ class TestRespostaDoFornecedor(ComRegisto):
             "infinito": Vectores(MODELO, ((math.inf,) + (0.0,) * (DIMENSAO - 1),)),
             "booleano": Vectores(MODELO, ((True,) + (0.0,) * (DIMENSAO - 1),)),
             "a mais": Vectores(MODELO, (vector(), vector())),
+            "nulo": Vectores(MODELO, ((0.0,) * DIMENSAO,)),
+            "fora do halfvec": Vectores(MODELO, (vector(70000.0),)),
             "sem modelo": Vectores(" ", (vector(),)),
             "nao e vectores": {"data": []},
         }
@@ -411,6 +424,16 @@ class TestTextoDoCatalogo(unittest.TestCase):
             "Bolo, ver www.bolos.co.ao": ("contacto",),
             "Bolo https://bolos.ao": ("contacto",),
             "Telemovel com stock": ("stock",),
+            "Arroz 15000 kwanzas": ("dinheiro",),
+            "Arroz AOA 15000": ("dinheiro",),
+            "Perfume 10 euros": ("dinheiro",),
+            "Camisa 923/456/789": ("telefone",),
+            "Camisa 923  456  789": ("telefone",),
+            "Bolo, ver loja.co.ao": ("contacto",),
+            "Bolo facebook.com/bolos": ("contacto",),
+            "Bolo, siga @bolosdajoana": ("contacto",),
+            "Sapatilha esgotada": ("stock",),
+            "Sapatilha, ultimas unidades": ("stock",),
         }
         for frase, motivos in casos.items():
             with self.subTest(frase=frase):
@@ -490,14 +513,55 @@ class TestWorkerDoCatalogo(ComRegisto):
             volta,
             embeddings.VoltaDoCatalogo(3, 1, 2, "00000000-0000-4000-8000-000000000003"),
         )
-        # So o texto limpo saiu, e numa chamada.
+        # So o texto limpo saiu, numa chamada, e na forma normalizada do
+        # documento — a mesma do `q_norm` da pergunta.
         self.assertEqual(len(fornecedor.chamadas), 1)
-        self.assertEqual(fornecedor.chamadas[0][1], ("Arroz Agulha 25 kg",))
+        self.assertEqual(fornecedor.chamadas[0][1], ("arroz agulha 25 kg",))
         (gravacao,) = bd.gravacoes()
         self.assertEqual(gravacao[0], MODELO)
         self.assertEqual(gravacao[-1], MODELO)
         self.assertEqual(gravacao[1], "00000000-0000-4000-8000-000000000001")
         self.assertEqual(gravacao[2], embeddings.em_texto(vector()))
+
+    def test_o_lint_le_o_nome_cru_e_nao_o_normalizado(self) -> None:
+        """O `nome_norm` perde o `@` e o ponto: o e-mail so se ve no nome cru."""
+        bd = BdFalsa([documento("00000000-0000-4000-8000-000000000001", "Bolo, loja@gmail.com")])
+        self.assertEqual(bd.documentos[0]["nome_norm"], "bolo loja gmail com")
+        fornecedor = FakeEmbeddingProvider()
+        volta = embeddings.embeber_catalogo(
+            bd, TENANT, self.cliente(Leitor({"openai": [destino()]}), fornecedor), MODELO
+        )
+        self.assertEqual((volta.recusados, volta.gravados), (1, 0))
+        self.assertEqual(fornecedor.chamadas, [])
+
+    def test_cada_vector_vai_para_o_seu_documento(self) -> None:
+        bd = BdFalsa([
+            documento("00000000-0000-4000-8000-000000000001", "Arroz"),
+            documento("00000000-0000-4000-8000-000000000002", "Feijao manteiga"),
+        ])
+        fornecedor = FakeEmbeddingProvider(por_texto=True)
+        embeddings.embeber_catalogo(
+            bd, TENANT, self.cliente(Leitor({"openai": [destino()]}), fornecedor), MODELO
+        )
+        (gravacao,) = bd.gravacoes()
+        por_doc = {gravacao[1 + 6 * i]: gravacao[2 + 6 * i] for i in range(2)}
+        self.assertEqual(por_doc, {
+            "00000000-0000-4000-8000-000000000001": embeddings.em_texto(vector(5.0)),
+            "00000000-0000-4000-8000-000000000002": embeddings.em_texto(vector(15.0)),
+        })
+
+    def test_um_texto_que_o_fornecedor_recusa_nao_derruba_o_lote(self) -> None:
+        """Achado 1 da revisao: um so recusado deixava o lote inteiro em `falha`."""
+        bd = BdFalsa([
+            documento("00000000-0000-4000-8000-000000000001", "Arroz agulha"),
+            documento("00000000-0000-4000-8000-000000000002", "Pao de Luanda"),
+        ])
+        fornecedor = FakeEmbeddingProvider(recusa=("pao de luanda",))
+        volta = embeddings.embeber_catalogo(
+            bd, TENANT, self.cliente(Leitor({"openai": [destino()]}), fornecedor), MODELO
+        )
+        self.assertEqual((volta.gravados, volta.recusados, volta.motivo), (1, 1, None))
+        self.assertEqual(fornecedor.chamadas[0][1], ("arroz agulha",))
         self.assertIn("embedding_latency_ms:catalogo", self.registo.ler())
 
     def test_sem_destino_nada_sai_e_nada_se_grava(self) -> None:
@@ -595,6 +659,113 @@ class TestReembedding(unittest.TestCase):
 
     def test_o_preco_nao_esta_na_instrucao(self) -> None:
         self.assertNotRegex(consumidor.SQL_ESCREVER_DOCUMENTO, r"preco|stock")
+
+
+class TestPrazo(ComRegisto):
+    """Achado 5 da revisao: o prazo do vector conta depois da porta."""
+
+    def cliente(self, fornecedor: FakeEmbeddingProvider) -> ClienteDeEmbeddings:
+        return ClienteDeEmbeddings(
+            PortaSobreDestinos(Leitor({"openai": [destino()]}), relogio=self.relogio),
+            fornecedor,
+            metricas=self.registo,
+        )
+
+    def test_prazo_ja_gasto_nao_chama(self) -> None:
+        fornecedor = FakeEmbeddingProvider()
+        with self.assertRaises(TempoEsgotado):
+            self.cliente(fornecedor).vectores(
+                TENANT, ("arroz",), uso="consulta", tecto_s=1.5, esperar=True,
+                prazo=time.monotonic() - 1,
+            )
+        self.assertEqual(fornecedor.chamadas, [])
+
+    def test_o_tecto_e_o_que_sobra_do_prazo(self) -> None:
+        fornecedor = FakeEmbeddingProvider()
+        self.cliente(fornecedor).vectores(
+            TENANT, ("arroz",), uso="consulta", tecto_s=1.5, esperar=True,
+            prazo=time.monotonic() + 0.4,
+        )
+        self.assertLessEqual(fornecedor.chamadas[0][2], 0.4)
+        self.assertGreater(fornecedor.chamadas[0][2], 0.0)
+
+
+class _CursorComModelos(test_idx._Cursor):
+    """O cursor falso do `test_idx`, que responde tambem aos modelos do indice."""
+
+    def fetchall(self):
+        if self.ultima is embeddings.SQL_MODELOS_DO_INDICE:
+            return self.ligacao.modelos.pop(0)
+        return super().fetchall()
+
+
+class _LigacaoComModelos(test_idx._Ligacao):
+    def __init__(self, *modelos: list) -> None:
+        super().__init__()
+        self.modelos = list(modelos)
+
+    def cursor(self) -> _CursorComModelos:
+        return _CursorComModelos(self)
+
+
+class TestProcurarHibrido(ComRegisto):
+    """O caminho hibrido do `procurar`, sem base (achado 10 da revisao)."""
+
+    def consulta_autorizada(self, fornecedor: FakeEmbeddingProvider) -> ConsultaVectorial:
+        return self.consulta(Leitor({"openai": [destino()]}), fornecedor)
+
+    def resposta(self, ligacao: _LigacaoComModelos) -> tuple:
+        (parametros,) = [p for s, p in ligacao.chamadas if s is pesquisa.SQL_RESPOSTA]
+        return parametros
+
+    def test_um_modelo_e_hibrido_com_o_q_norm(self) -> None:
+        ligacao = _LigacaoComModelos([(MODELO,)], [(MODELO,)])
+        fornecedor = FakeEmbeddingProvider()
+        procura = pesquisa.procurar(
+            ligacao, TENANT, "Arroz agulha ate 5000 kz",
+            vectorial=self.consulta_autorizada(fornecedor),
+        )
+        self.assertEqual(procura.modo, "hibrido")
+        # O que sai e o `q_norm`, sem a restricao de preco que o cliente disse.
+        self.assertEqual(fornecedor.chamadas[0][1], (procura.normalizacao.q_norm,))
+        self.assertNotIn("5000", fornecedor.chamadas[0][1][0])
+        self.assertIsNotNone(self.resposta(ligacao)[2])
+
+    def test_o_modelo_muda_entre_as_transaccoes(self) -> None:
+        ligacao = _LigacaoComModelos([(MODELO,)], [("outro",)])
+        procura = pesquisa.procurar(
+            ligacao, TENANT, "arroz", vectorial=self.consulta_autorizada(FakeEmbeddingProvider())
+        )
+        self.assertEqual(procura.modo, "lexical")
+        self.assertIsNone(self.resposta(ligacao)[2])
+        self.assertEqual(self.quedas(), {"modelo_divergente": 1})
+
+    def test_pergunta_que_normalizada_fica_vazia_nao_sai(self) -> None:
+        """Achado 4 da revisao: so a restricao de preco nao pesquisa nada."""
+        ligacao = _LigacaoComModelos([(MODELO,)])
+        fornecedor = FakeEmbeddingProvider()
+        procura = pesquisa.procurar(
+            ligacao, TENANT, "ate 5000 kz", vectorial=self.consulta_autorizada(fornecedor)
+        )
+        self.assertEqual(procura.normalizacao.q_norm, "")
+        self.assertEqual(fornecedor.chamadas, [])
+        self.assertEqual(procura.linhas, ())
+
+    def test_o_tempo_do_vector_desconta_se_do_tecto_da_pesquisa(self) -> None:
+        inicio = time.monotonic()
+        instantes = iter((inicio, inicio + 0.3))
+        ligacao = _LigacaoComModelos([(MODELO,)], [(MODELO,)])
+        fornecedor = FakeEmbeddingProvider()
+        pesquisa.procurar(
+            ligacao, TENANT, "arroz", tecto_ms=2_000,
+            vectorial=self.consulta_autorizada(fornecedor),
+            relogio=lambda: next(instantes),
+        )
+        self.assertIn((pesquisa.SQL_TECTO, ("1700",)), ligacao.chamadas)
+        # E o vector teve o prazo do tecto menos a reserva da pesquisa.
+        self.assertLessEqual(
+            fornecedor.chamadas[0][2], (2_000 - pesquisa.RESERVA_DA_PESQUISA_MS) / 1000
+        )
 
 
 class TestArranqueDoExecutor(unittest.TestCase):
