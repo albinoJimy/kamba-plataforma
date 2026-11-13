@@ -43,6 +43,16 @@ async function principal(): Promise<void> {
   const config = lerConfiguracao(process.env);
   const lote = new pg.Pool(opcoesDoConjunto(config.urlDoLote, "lote"));
   const app = new pg.Pool(opcoesDoConjunto(config.urlDaApp, "app"));
+  // Uma ligação **ociosa** que a base corta (um reinício, o
+  // `idle_in_transaction_session_timeout`) chega como um `error` do conjunto, e
+  // sem ouvinte é uma excepção não tratada que mata o processo. O `pg` já tira
+  // a ligação do conjunto; aqui só se diz, pelo código do erro e não pela
+  // mensagem.
+  for (const conjunto of [lote, app]) {
+    conjunto.on("error", (erro: Error & { code?: string }) =>
+      log.warn({ outcome: "ligacao_perdida", error_code: erro.code ?? erro.name }),
+    );
+  }
   let arrancou = false;
   try {
     const { processo, app: http } = await arrancar({
@@ -51,10 +61,20 @@ async function principal(): Promise<void> {
       log,
       inicioDaAmostragem: config.inicioDaAmostragem,
     });
-    const servidor = serve({
-      fetch: http.fetch,
-      hostname: process.env.HOST?.trim() || "127.0.0.1",
-      port: config.porta,
+    // **Espera-se pela porta aberta antes de dizer `service_started`.** O
+    // `serve` devolve antes de o `listen` acabar, e uma porta ocupada chegava
+    // depois como um `error` sem ouvinte — uma excepção não tratada com o
+    // `service_started` já escrito (medido no gate 8 do runner). Assim é um
+    // arranque recusado, com o código do sistema no registo.
+    const servidor = await new Promise<ReturnType<typeof serve>>((aberto, falhou) => {
+      const s = serve(
+        { fetch: http.fetch, hostname: process.env.HOST?.trim() || "127.0.0.1", port: config.porta },
+        () => aberto(s),
+      );
+      s.once("error", (erro: Error & { code?: string }) => {
+        log.error({ outcome: "porta_falhou", error_code: erro.code ?? erro.name });
+        falhou(erro);
+      });
     });
     const parar = processo.ciclo.agendar(config.intervaloMs, (r) => registarVolta(log, r));
     // A primeira volta já, e não daqui a um intervalo: as métricas sairiam a

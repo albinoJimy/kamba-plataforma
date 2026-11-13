@@ -34,6 +34,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
@@ -438,7 +439,16 @@ describe("o processo de lote contra a base", () => {
       u.password = exigir(senha);
       return u.toString();
     };
-    const porta = 39_000 + Math.floor(Math.random() * 900);
+    // Uma porta que o sistema diz livre, e não uma sorteada: no runner as
+    // ligações do próprio ensaio à base ocupam portas locais da gama alta.
+    const porta = await new Promise<number>((livre, falhou) => {
+      const sonda = createServer();
+      sonda.once("error", falhou);
+      sonda.listen(0, "127.0.0.1", () => {
+        const endereco = sonda.address();
+        sonda.close(() => (typeof endereco === "object" && endereco !== null ? livre(endereco.port) : falhou(new Error("sem porta"))));
+      });
+    });
     const ficheiro = fileURLToPath(new URL("../../../services/onboarding-web/src/lote.ts", import.meta.url));
     const filho = spawn(process.execPath, [ficheiro], {
       env: {
