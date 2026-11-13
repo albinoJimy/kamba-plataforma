@@ -422,6 +422,12 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # pessoais e vai cifrada; o prazo e o da prova, por decidir.
             _t("platform.review_case", pendencia="prova da revisao humana"),
             _t("platform.review_decision_log", pendencia="prova da revisao humana"),
+            # KAM-097 (revisao de T&S). Os sinais e a escada de sancoes: o
+            # registo *append-only* do que levou a cada passo e do recurso. Sem
+            # dados pessoais (so referencias); o prazo e o da prova de uma
+            # decisao recorrivel, por decidir.
+            _t("platform.ts_signal", pendencia="prova de uma sancao recorrivel"),
+            _t("platform.ts_sanction", pendencia="prova de uma sancao recorrivel"),
         ),
         fonte="docs/tecnica/08 §11",
     ),

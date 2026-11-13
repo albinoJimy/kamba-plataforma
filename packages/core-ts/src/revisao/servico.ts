@@ -66,6 +66,7 @@ import {
   TIPOS_DE_CASO,
 } from "./contrato.ts";
 import { FERIADOS_POR_OMISSAO, calcularSla, inicioDoDiaEmLuanda, type Feriados } from "./sla.ts";
+import type { EfeitosDeTrust } from "../trust/servico.ts";
 
 /**
  * As fases do onboarding em que um caso pode entrar na fila: depois do OTP. O
@@ -91,6 +92,9 @@ export const TIPOS_QUE_BLOQUEIAM: readonly TipoDeCaso[] = ["kyc", "categoria", "
 /** Os tipos cuja decisão é uma decisão humana de screening. */
 const TIPOS_DE_SCREENING: readonly TipoDeCaso[] = ["categoria", "catalogo"];
 
+/** Os tipos cuja decisão é de Trust & Safety (KAM-097): uma sanção ou o recurso de uma. */
+const TIPOS_DE_TRUST: readonly TipoDeCaso[] = ["trust", "recurso"];
+
 export interface DependenciasDaRevisao {
   readonly repositorio: RepositorioDeRevisao;
   readonly onboardings: OnboardingsDaRevisao;
@@ -101,6 +105,13 @@ export interface DependenciasDaRevisao {
   readonly dados: DadosPessoais;
   readonly documentos: DocumentosDaRevisao;
   readonly screening: DecisaoHumanaDeScreening;
+  /**
+   * O efeito de uma decisão sobre um caso `trust` ou `recurso` (KAM-097). Sem
+   * ele, decidir um desses casos **falha** como efeito por aplicar, e o ciclo
+   * volta a tentá-lo: um caso de sanção decidido sem efeito era uma sanção que
+   * ninguém aplicou e de que ninguém soube.
+   */
+  readonly trust?: EfeitosDeTrust;
   readonly relogio?: Relogio;
   readonly limiares?: Limiares;
   readonly feriados?: Feriados;
@@ -306,6 +317,12 @@ export class ServicoDeRevisao {
     if (opcoes.motivoPublico !== undefined && !MOTIVOS_PUBLICOS.includes(opcoes.motivoPublico)) {
       return this.#recusar(revisor, caso, "decisao_invalida");
     }
+    // KAM-097: rejeitar um caso `trust` aplica a sanção, e uma sanção sem motivo
+    // não se aplica (ensaio adversarial (f)). O motivo é a `regra` que o revisor
+    // invoca, e fica no `review_decision_log` e na `ts_sanction`.
+    if (caso.tipo === "trust" && decisao === "rejeitar" && (opcoes.regra ?? "").trim() === "") {
+      return this.#recusar(revisor, caso, "decisao_invalida");
+    }
 
     if (decisao === "aprovar" && caso.prioridade <= this.#l.prioridadeDeRiscoAlto) {
       const espera = await this.#primeiroDeDois(revisor, caso, "primeira", opcoes);
@@ -325,7 +342,7 @@ export class ServicoDeRevisao {
     // aprovar (com o segundo revisor, se era preciso) ou rejeitar: fecha.
     const fechado = await this.#mover(caso.id, ["aberto", "em_analise", "escalado"], "decidido");
     await this.#porAplicar(caso.id, () =>
-      this.#efeitos(fechado, decisao, revisor, opcoes.motivoPublico ?? caso.motivoPublico, "primeira"),
+      this.#efeitos(fechado, decisao, revisor, opcoes.motivoPublico ?? caso.motivoPublico, "primeira", false, opcoes.regra ?? null),
     );
     return { estado: "decidido", decisao, caso: fechado };
   }
@@ -370,6 +387,8 @@ export class ServicoDeRevisao {
         caso.estado === "recurso_aberto" || caso.estado === "decidido_final" ? "recurso_ja_usado" : "estado_invalido",
       );
     }
+    // Um caso `recurso` já é o recurso (KAM-097): recorrer dele era o segundo.
+    if (caso.tipo === "recurso") throw new RevisaoRecusadaError("recurso_ja_usado");
     if ((await this.#decisaoFinal(caso)) !== "rejeitar") throw new RevisaoRecusadaError("recurso_sem_rejeicao");
     const sla = calcularSla(this.#agora(), this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
     const ok = await this.#d.repositorio.transitar(caso.id, "decidido", "recurso_aberto", sla);
@@ -432,7 +451,9 @@ export class ServicoDeRevisao {
       await this.#registar(revisor, caso, decisao, "recurso", opcoes);
     }
     const fechado = await this.#mover(caso.id, ["recurso_aberto"], "decidido_final");
-    await this.#porAplicar(caso.id, () => this.#efeitos(fechado, decisao, revisor, caso.motivoPublico, "recurso"));
+    await this.#porAplicar(caso.id, () =>
+      this.#efeitos(fechado, decisao, revisor, caso.motivoPublico, "recurso", false, opcoes.regra ?? null),
+    );
     return { estado: "decidido", decisao, caso: fechado };
   }
 
@@ -473,6 +494,7 @@ export class ServicoDeRevisao {
       caso.motivoPublico,
       caso.estado === "decidido_final" ? "recurso" : "primeira",
       true,
+      ultima.regra,
     );
   }
 
@@ -837,7 +859,13 @@ export class ServicoDeRevisao {
     motivoPublico: MotivoPublico,
     instancia: Instancia,
     reaplicar = false,
+    regra: string | null = null,
   ): Promise<void> {
+    if (TIPOS_DE_TRUST.includes(caso.tipo)) {
+      if (this.#d.trust === undefined) throw new Error("caso de trust decidido sem T&S ligado");
+      await this.#d.trust.aplicarDecisao({ caso, decisao, revisorId: revisor.id, instancia, regra });
+      return;
+    }
     if (TIPOS_DE_SCREENING.includes(caso.tipo)) {
       for (const chave of chavesDeScreening(caso.evidencias)) {
         await this.#d.screening.gravar({
