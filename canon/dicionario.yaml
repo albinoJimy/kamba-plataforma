@@ -8237,27 +8237,11 @@ entradas:
   - seccao: "3.33"
     conceito: "Casca da fila para consumidores Python"
     canonico: "packages/core-ts/src/eventos/ponte.ts (decisão) e ponte_bullmq.ts (casca), corrida por services/worker-canal/src/ponte.ts"
-    literais:
-      - "ponte_bullmq.ts"
-    nomes:
-      - "ponte_bullmq.ts"
+    literais: []
+    nomes: []
     nomes_nota:
-      - "Worker"
-      - "evt"
-      - "consumer"
-      - "p"
       - "events_consumed"
       - "duplicado"
-      - "worker"
-      - "canal"
-      - "Retry"
-      - "After"
-      - "ponte"
-      - "agr"
-      - "idx"
-      - "concurrency"
-      - "largarAoFalhar"
-      - "jobId"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Variáveis da casca"
@@ -8285,14 +8269,8 @@ entradas:
     nomes: []
     nomes_nota:
       - "tenant_id"
-      - "envelope"
-      - "null"
-      - "platform.events_log"
-      - "kamba_core.eventos.entrega.SQL_ENVELOPE_DO_ARQUIVO"
       - "tentativas_esgotadas"
       - "AGR_RESERVA_DE_PAGAMENTO"
-      - "tipo"
-      - "payment"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Métrica da casca"
@@ -8309,8 +8287,6 @@ entradas:
     nomes_nota:
       - "tenant_id"
       - "event_id"
-      - "OBS"
-      - "I"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Consumidor do índice"
@@ -8321,7 +8297,6 @@ entradas:
       - "idx"
     nomes_nota:
       - "consumer"
-      - "kamba_core.idx.consumidor"
       - "evt_subscricoes"
       - "catalog.product_changed"
       - "tenant"
@@ -8334,60 +8309,40 @@ entradas:
     literais:
       - "consumidor"
       - "version"
-      - "subscriptions[]"
-      - "{tipo, versao}"
     nomes:
       - "consumidor"
       - "version"
-      - "subscriptions"
-      - "tipo"
-      - "versao"
     nomes_nota:
-      - "tipo"
       - "versao"
       - "agr_"
-      - "load_all"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Linhas de evt_subscricoes dos consumidores Python"
     canonico: "revisão de dados 0052 (provisória), escrita pelo kamba_migrator"
     literais:
-      - "0052"
       - "kamba_migrator"
     nomes:
       - "evt_subscricoes"
       - "kamba_migrator"
     nomes_nota:
       - "idx"
-      - "consumidores"
       - "finalidade"
       - "transacao"
       - "versao_max"
-      - "downgrade"
-      - "upgrade"
-      - "ON"
-      - "CONFLICT"
     variantes_literais: []
   - seccao: "3.33"
     conceito: "Processo do IDX"
     canonico: "python -m kamba_core.idx, serviço idx, porta IDX_PORT (8061)"
     literais:
-      - "python -m kamba_core.idx"
       - "idx"
       - "IDX_PORT"
     nomes:
-      - "python"
-      - "m"
-      - "kamba_core.idx"
       - "idx"
       - "IDX_PORT"
     nomes_nota:
       - "idx_internal_token"
       - "agr_internal_token"
-      - "reindexar"
       - "kamba_batch"
-      - "tx_batch"
-      - "idx_reindexacao"
       - "kamba_app"
     variantes_literais: []
   - seccao: "3.33"
