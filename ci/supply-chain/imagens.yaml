@@ -327,6 +327,10 @@ fontes_adicionais:
     constante: IMAGEM_NODE
   - ficheiro: db/tests_avisos/node.py
     constante: IMAGEM_NODE
+  # KAM-198: o processo de lote do onboarding, TypeScript contra a base, num
+  # contentor Node na rede do gate quando a maquina nao tem `node`.
+  - ficheiro: db/tests_lote/node.py
+    constante: IMAGEM_NODE
   # KAM-005: o publicador e TypeScript e corre num contentor Node quando a
   # maquina nao tem `node`, na rede do gate.
   - ficheiro: db/tests_eventos/node.py

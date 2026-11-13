@@ -628,7 +628,8 @@ class TestEfeitosPorReaplicar(ComBase):
         lote.execute(marcar.sql, marcar.args(caso))
         marca = lote.fetchone()[0]
         pendentes = ConsultaDoTypeScript("SQL_EFEITOS_PENDENTES", SQL_TS)
-        lote.execute(pendentes.sql, pendentes.args(100))
+        # A carencia a zero: a marca e de agora.
+        lote.execute(pendentes.sql, pendentes.args(100, 0))
         self.assertIn((caso, marca), [tuple(l) for l in lote.fetchall()])
         resolver = ConsultaDoTypeScript("SQL_RESOLVER_EFEITO", SQL_TS)
         lote.execute(resolver.sql, resolver.args(caso, marca))

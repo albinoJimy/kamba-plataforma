@@ -94,7 +94,11 @@ class TestRepositorioReal(unittest.TestCase):
         # **KAM-194: de 53 para 62.** O `idx` (imagem do AGR) e as duas pontes
         # (imagem do `worker-canal`), **+3 em cada um dos tres composes** — em
         # desenvolvimento atras do perfil `consumidores`.
-        self.assertEqual(resumo["servicos"], 62)
+        #
+        # **KAM-198: de 62 para 65.** O processo de lote do onboarding (imagem
+        # do `onboarding-web`), **+1 em cada um dos tres composes** — em
+        # desenvolvimento atras do perfil `consumidores`.
+        self.assertEqual(resumo["servicos"], 65)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
