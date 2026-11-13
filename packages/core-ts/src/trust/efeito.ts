@@ -31,6 +31,8 @@
  * contagem — nunca o outro tenant.
  */
 
+import { createHash } from "node:crypto";
+
 import type { Efeito } from "../eventos/consumo.ts";
 import type { ClienteSql } from "../eventos/publicador.ts";
 import type { SinalNovo } from "./contrato.ts";
@@ -86,6 +88,20 @@ export interface OpcoesDoTrust {
 }
 
 const DIA = 86_400_000;
+
+/**
+ * Um `uuid` determinístico para «este tenant, esta família, esta janela de N
+ * dias»: a chave de um sinal que vale uma vez por janela. Os primeiros 16
+ * octetos de um SHA-256, com os bits de versão (8) e de variante do RFC 9562.
+ */
+export function refDaJanela(tenantId: string, familia: string, agora: Date, dias: number): string {
+  const janela = (agora.getTime() - (agora.getTime() % (dias * DIA))) / (dias * DIA);
+  const h = createHash("sha256").update(`kamba/trust/${familia}/v1\0${tenantId}\0${janela}`, "utf8").digest();
+  h[6] = ((h[6] ?? 0) & 0x0f) | 0x80;
+  h[8] = ((h[8] ?? 0) & 0x3f) | 0x80;
+  const x = h.subarray(0, 16).toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+}
 
 function texto(v: unknown): string {
   if (typeof v !== "string" || v === "") throw new TypeError("payload sem o campo esperado");
@@ -203,7 +219,11 @@ export async function sinaisDoEvento(
       const { queixas, pagos } = await f.queixas(new Date(agora.getTime() - p.diasDasQueixas * DIA));
       const n = queixasQueContam(queixas, pagos, agora, p);
       if (queixaRecorrente(n, p)) {
-        sinais.push({ tenantId, tipo: "queixa_recorrente", refEvento: envelope.id, detalhe: { contagem: n }, ocorridoEm });
+        // **Um sinal por janela**, e não um por queixa: com o `envelope.id` como
+        // chave, dois compradores pagos que se queixassem cinco vezes davam cinco
+        // sinais e a `limitacao` automática — a retaliação passava pela
+        // repetição (achado 5). A janela é a das queixas.
+        sinais.push({ tenantId, tipo: "queixa_recorrente", refEvento: refDaJanela(tenantId, "queixa", agora, p.diasDasQueixas), detalhe: { contagem: n }, ocorridoEm });
       }
       break;
     }
@@ -235,7 +255,7 @@ export function efeitoDeTrust(o: OpcoesDoTrust = {}): Efeito {
     const agora = relogio();
     const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "app"), politica, relogio: () => agora });
     for (const s of await sinaisDoEvento(bd, envelope, agora, politica)) {
-      const r = await servico.registar(s);
+      const r = await servico.sinalizar(s);
       if (r.repetido) continue;
       o.contadores?.sinal(s.tipo);
       for (const x of r.sancoes) o.contadores?.sancao(x.passo, x.origem);
@@ -254,7 +274,7 @@ export async function varrerNaoEntregas(bd: ClienteSql, o: OpcoesDoTrust = {}): 
     const pagaEm = data(l["paga_at"]);
     if (!naoEntregue(pagaEm, null, agora, p)) continue;
     const orderId = String(l["order_id"]);
-    const r = await servico.registar({ tenantId: String(l["tenant_id"]), tipo: "nao_entrega", refEvento: orderId, detalhe: { order_id: orderId }, ocorridoEm: agora });
+    const r = await servico.sinalizar({ tenantId: String(l["tenant_id"]), tipo: "nao_entrega", refEvento: orderId, detalhe: { order_id: orderId }, ocorridoEm: agora });
     if (!r.repetido) {
       n++;
       o.contadores?.sinal("nao_entrega");
@@ -271,7 +291,7 @@ export async function varrerFotos(bd: ClienteSql, o: OpcoesDoTrust = {}): Promis
   const servico = new ServicoDeTrust({ repositorio: new RepositorioDeTrustSql(bd, "lote"), politica: p, relogio: () => agora });
   let n = 0;
   for (const l of (await bd.query(SQL_FOTOS_REPETIDAS)).rows) {
-    const r = await servico.registar({
+    const r = await servico.sinalizar({
       tenantId: String(l["tenant_id"]),
       tipo: "foto_repetida",
       refEvento: String(l["ingestao_id"]),

@@ -291,8 +291,99 @@ class TestEscadaNaBase(Base):
         outro = factories.tenant(self.cursor)
         caso = _caso(self.cursor, outro)
         self.como("kamba_batch")
-        sql, args = self.sancao(origem="humana", case_id=caso, autor=str(uuid.uuid4()), chave="caso:y")
+        sql, args = self.sancao(origem="humana", case_id=caso, autor=str(uuid.uuid4()), chave=f"caso:{caso}")
         self.assertErroSql("23503", self.cursor, sql, args)
+
+
+class TestAchadosDaRevisao(Base):
+    """Os achados da revisao adversarial que so a base prova."""
+
+    def test_a_chave_e_o_autor_estao_presos_a_origem(self) -> None:
+        """Achado 8 e mutacao M9: o `kamba_app` nao ocupa a chave de um recurso."""
+        caso = _caso(self.cursor, self.tenant)
+        self.como("kamba_batch")
+        self.cursor.execute(*self.sancao(chave="auto:aviso:1"))
+        aviso = self.cursor.fetchone()[0]
+        for nome, campos in (
+            ("automatica com chave de recurso", {"chave": f"recurso:{aviso}"}),
+            ("automatica com chave de caso", {"chave": f"caso:{caso}"}),
+            ("automatica com autor de pessoa", {"autor": str(uuid.uuid4())}),
+            ("automatica com recurso", {"chave": f"recurso:{aviso}", "recurso_de": aviso,
+                                        "recurso_estado": "provido"}),
+            ("humana com autor de sistema", {"origem": "humana", "case_id": caso,
+                                             "chave": f"caso:{caso}"}),
+            ("humana com chave de outro caso", {"origem": "humana", "case_id": caso,
+                                                "autor": str(uuid.uuid4()), "chave": "caso:outro"}),
+        ):
+            with self.subTest(nome):
+                self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, *self.sancao(**campos))
+        self.como("kamba_app", self.tenant)
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, *self.sancao(chave=f"recurso:{aviso}"))
+
+    def test_o_instante_de_um_sinal_nao_se_recua_nem_se_adianta(self) -> None:
+        """Achado 1: um sinal datado de 2000 pesava zero no risco."""
+        self.como("kamba_app", self.tenant)
+        q = ConsultaDoTypeScript("SQL_GRAVAR_SINAL", SQL_TS)
+        for instante in (datetime(2000, 1, 1, tzinfo=timezone.utc), datetime(2100, 1, 1, tzinfo=timezone.utc)):
+            ref = str(uuid.uuid4())
+            self.cursor.execute(q.sql, q.args(self.tenant, "auto_compra", "alta", ref, "{}", instante))
+            self.cursor.execute(
+                "SELECT ocorrido_em BETWEEN now() - interval '1 day' AND now() "
+                f"FROM {SINAL} WHERE ref_evento = %s", (ref,))
+            with self.subTest(instante=instante.year):
+                self.assertIs(self.cursor.fetchone()[0], True)
+
+    def test_a_aplicacao_nao_mexe_no_dono_e_os_confirmadores_dono_contam(self) -> None:
+        """Achado 9 e mutacao M10."""
+        self.como("kamba_app", self.tenant)
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, self.cursor,
+                           "UPDATE platform.tenants SET owner_contact_id = NULL WHERE id = %s",
+                           (self.tenant,))
+        self.como(None, self.tenant)
+        dono = factories.contacto(self.cursor, self.tenant)
+        funcionario = factories.contacto(self.cursor, self.tenant)
+        for contacto, papel in ((dono, "dono"), (funcionario, "funcionario")):
+            self.cursor.execute(
+                "INSERT INTO platform.payment_confirmers (tenant_id, contact_id, papel) "
+                "VALUES (%s, %s, %s)", (self.tenant, contacto, papel))
+        self.como("kamba_app", self.tenant)
+        q = ConsultaDoTypeScript("SQL_CONTACTOS_DO_DONO", SQL_TS)
+        self.cursor.execute(q.sql, q.args(self.tenant))
+        self.assertEqual({str(c) for (c,) in self.cursor.fetchall()}, {dono})
+
+    def test_a_independencia_avaliada_e_sem_auto_compra_e_independente(self) -> None:
+        """Mutacao M11: o caso positivo da independencia, e so com o `order.paid`."""
+        pedido = str(uuid.uuid4())
+        for tipo in ("order.created", "order.paid"):
+            evento = str(uuid.uuid4())
+            self.cursor.execute(
+                "INSERT INTO platform.events_log (event_id, tipo, versao, tenant_id, agregado_tipo, "
+                " agregado_id, agregado_seq, ocorrido_em, registado_em, classe_pii, envelope) "
+                "VALUES (%s, %s, 1, %s, 'order', %s, 1, now(), now(), 'P0', '{}')",
+                (evento, tipo, self.tenant, pedido))
+            self.cursor.execute(
+                "INSERT INTO platform.events_consumed (consumer, event_id, tenant_id, agregado_tipo, "
+                " agregado_id, agregado_seq) VALUES ('trust', %s, %s, 'order', %s, 1)",
+                (evento, self.tenant, pedido))
+            self.como("kamba_app", self.tenant)
+            q = ConsultaDoTypeScript("SQL_INDEPENDENCIA", SQL_TS)
+            self.cursor.execute(q.sql, q.args(self.tenant, pedido, "trust"))
+            with self.subTest(consumido=tipo):
+                self.assertEqual(tuple(self.cursor.fetchone()), (False, tipo == "order.paid"))
+            self.como(None, self.tenant)
+
+    def test_um_encerramento_em_recurso_nao_fecha(self) -> None:
+        """Mutacao M12: o caso em `recurso_aberto` esta a ser recorrido."""
+        caso = _caso(self.cursor, self.tenant)
+        self.cursor.execute("UPDATE platform.review_case SET estado = 'decidido' WHERE id = %s", (caso,))
+        self.cursor.execute("UPDATE platform.review_case SET estado = 'recurso_aberto' WHERE id = %s", (caso,))
+        self.como("kamba_batch")
+        self.cursor.execute(*self.sancao(origem="humana", passo="encerramento", case_id=caso,
+                                         autor=str(uuid.uuid4()), chave=f"caso:{caso}",
+                                         motivo_publico="loja_encerrada", justificacao_salto="x"))
+        q = ConsultaDoTypeScript("SQL_ENCERRAMENTOS_POR_FECHAR", SQL_TS)
+        self.cursor.execute(q.sql, q.args(datetime.now(timezone.utc) + timedelta(days=1)))
+        self.assertEqual([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant], [])
 
 
 class TestPrivilegios(Base):

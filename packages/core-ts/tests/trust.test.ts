@@ -43,6 +43,7 @@ import {
   queixasQueContam,
   recusaDaSancao,
   risco,
+  refDaJanela,
   sinaisDoEvento,
   type FilaDoTrust,
   type MotivoPublicoDaSancao,
@@ -79,7 +80,7 @@ function montar(o: { agora?: Date } = {}) {
   const tenantId = o0.tenantId;
   tenants.estados.set(tenantId, "ativo");
   const sinal = (tipo: SinalNovo["tipo"], ref = randomUUID()) =>
-    trust.registar({ tenantId, tipo, refEvento: ref, detalhe: {}, ocorridoEm: agora });
+    trust.sinalizar({ tenantId, tipo, refEvento: ref, detalhe: {}, ocorridoEm: agora });
   return {
     ...r,
     trust,
@@ -247,7 +248,7 @@ describe("sinais e escada automatica", () => {
   it("um detalhe com uma chave fora da lista recusa-se: o detalhe so leva referencias", async () => {
     const m = montar();
     await recusaDoTrust(
-      m.trust.registar({ tenantId: m.tenantId, tipo: "auto_compra", refEvento: randomUUID(), detalhe: { telefone: "x" } as never, ocorridoEm: SEXTA }),
+      m.trust.sinalizar({ tenantId: m.tenantId, tipo: "auto_compra", refEvento: randomUUID(), detalhe: { telefone: "x" } as never, ocorridoEm: SEXTA }),
       "detalhe_invalido",
     );
   });
@@ -566,8 +567,8 @@ describe("suite adversarial (KAM-097)", () => {
     const m = montar();
     const orderId = randomUUID();
     const s = { tenantId: m.tenantId, tipo: "auto_compra" as const, refEvento: orderId, detalhe: { order_id: orderId }, ocorridoEm: SEXTA };
-    const a = await m.trust.registar(s);
-    const b = await m.trust.registar(s);
+    const a = await m.trust.sinalizar(s);
+    const b = await m.trust.sinalizar(s);
     assert.equal(a.repetido, false);
     assert.equal(b.repetido, true);
     assert.deepEqual(b.sancoes, [], "a reentrega nao volta a correr a escada");
@@ -608,5 +609,162 @@ describe("suite adversarial (KAM-097)", () => {
       assert.deepEqual(await sinaisDoEvento(bd, envelope(tipo, { order_id: randomUUID() }), SEXTA), []);
       assert.deepEqual(bd.pedidas, []);
     }
+  });
+});
+
+// ------------------------------------------------- os achados da revisao
+
+describe("achados da revisao adversarial (KAM-097)", () => {
+  async function propor(m: ReturnType<typeof montar>, passo: "suspensao" | "encerramento", chave: string, justificacao: string | null = null) {
+    const r = await m.trust.proporSancao({ tenantId: m.tenantId, passo, motivoInterno: "x", sinais: [], justificacaoDoSalto: justificacao, chave });
+    assert.ok(r.estado === "aberto", `a proposta ${chave} ficou ${r.estado}`);
+    return r.caso;
+  }
+
+  it("1: um sinal escrito antes do consumidor nao lhe esconde a escada", async () => {
+    const m = montar();
+    const ref = randomUUID();
+    // O `kamba_app` escreve-o primeiro, e datado do passado.
+    await m.repositorio.gravarSinal({ tenantId: m.tenantId, tipo: "auto_compra", refEvento: ref, detalhe: {}, ocorridoEm: new Date("2000-01-01T00:00:00Z") });
+    assert.ok(m.repositorio.sinais[0]!.ocorridoEm.getTime() >= SEXTA.getTime() - DIA, "o instante nao se recua");
+    const r = await m.trust.sinalizar({ tenantId: m.tenantId, tipo: "auto_compra", refEvento: ref, detalhe: {}, ocorridoEm: SEXTA });
+    assert.equal(r.repetido, true);
+    assert.deepEqual(r.sancoes.map((s) => s.passo), ["aviso"]);
+  });
+
+  it("2: um recurso provido que baixa o passo em vigor nao bloqueia a suspensao pendente", async () => {
+    const m = montar();
+    const a = await m.sinal("auto_compra");
+    const b = await m.sinal("violacao_de_categoria");
+    const limitacao = b.sancoes[0]!;
+    const caso = await propor(m, "suspensao", "s1");
+    const recurso = await m.trust.pedirRecurso(m.tenantId, limitacao.id);
+    await m.servico.decidir(revisor(), recurso.id, "aprovar");
+    assert.equal(await m.trust.passoEmVigor(m.tenantId), "aviso");
+    await m.servico.decidir(revisor(), caso.id, "rejeitar", { regra: "ts_categoria" });
+    const s = m.repositorio.sancoes.find((x) => x.passo === "suspensao")!;
+    assert.match(s.justificacaoDoSalto ?? "", /desceu por recurso/);
+    assert.equal(m.tenants.estados.get(m.tenantId), "suspenso");
+    assert.ok(a.sancoes.length === 1);
+  });
+
+  it("4: a proposta de sancao nao fica atras da quota diaria do tenant", async () => {
+    const m = montar();
+    for (let i = 0; i < 25; i++) {
+      await m.servico.abrir({
+        tipo: "catalogo", tenantId: m.tenantId, onboardingId: null, motivoCodigo: `c${i}`, motivoInterno: "x",
+        motivoPublico: "categoria_nao_permitida", evidencias: [], recomendacao: null, prioridade: 5,
+      });
+    }
+    await m.sinal("auto_compra");
+    await m.sinal("auto_compra");
+    await propor(m, "suspensao", "s1");
+  });
+
+  it("5: queixas repetidas na mesma janela dao um sinal, e a janela seguinte outro", () => {
+    const t = randomUUID();
+    const a = refDaJanela(t, "queixa", SEXTA, 30);
+    assert.equal(refDaJanela(t, "queixa", new Date(SEXTA.getTime() + 60_000), 30), a);
+    assert.notEqual(refDaJanela(t, "queixa", new Date(SEXTA.getTime() + 31 * DIA), 30), a);
+    assert.notEqual(refDaJanela(randomUUID(), "queixa", SEXTA, 30), a);
+    assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("6: o recurso de uma sancao tem prazo; depois dele o encerramento fecha", async () => {
+    const m = montar();
+    await m.sinal("auto_compra");
+    await m.sinal("auto_compra");
+    const s = await propor(m, "suspensao", "s1");
+    await m.servico.decidir(revisor(), s.id, "rejeitar", { regra: "r" });
+    m.avancarDias(15);
+    await recusaDaFila(m.servico.abrirRecurso(s.id), "recurso_fora_de_prazo");
+  });
+
+  it("T5: o recurso provido de uma suspensao nao levanta o que outra sancao grave mantem", async () => {
+    const m = montar();
+    await m.sinal("auto_compra");
+    await m.sinal("auto_compra");
+    const s = await propor(m, "suspensao", "s1");
+    await m.servico.decidir(revisor(), s.id, "rejeitar", { regra: "r" });
+    const e = await propor(m, "encerramento", "e1");
+    await m.servico.decidir(lider(), e.id, "rejeitar", { regra: "r" });
+    await m.servico.abrirRecurso(s.id);
+    await m.servico.decidirRecurso(revisor(), s.id, "aprovar");
+    assert.equal(m.tenants.estados.get(m.tenantId), "suspenso", "o encerramento continua em vigor");
+  });
+
+  it("T6: um tenant restrito tambem se suspende", async () => {
+    const m = montar();
+    m.tenants.estados.set(m.tenantId, "restrito");
+    await m.sinal("auto_compra");
+    await m.sinal("auto_compra");
+    const s = await propor(m, "suspensao", "s1");
+    await m.servico.decidir(revisor(), s.id, "rejeitar", { regra: "r" });
+    assert.equal(m.tenants.estados.get(m.tenantId), "suspenso");
+  });
+
+  it("T11 e T13: o recurso negado de um encerramento encerra; um provido deixa-o fora do fecho", async () => {
+    const m = montar();
+    await m.sinal("auto_compra");
+    await m.sinal("auto_compra");
+    const s = await propor(m, "suspensao", "s1");
+    await m.servico.decidir(revisor(), s.id, "rejeitar", { regra: "r" });
+    const e = await propor(m, "encerramento", "e1");
+    await m.servico.decidir(lider(), e.id, "rejeitar", { regra: "r" });
+    // T11: um encerramento cujo recurso foi provido nao fecha, mesmo que a lista o traga.
+    const encerramento = m.repositorio.sancoes.find((x) => x.passo === "encerramento")!;
+    await m.servico.abrirRecurso(e.id);
+    await m.servico.decidirRecurso(lider(), e.id, "aprovar");
+    m.avancarDias(15);
+    assert.equal(await m.trust.fecharEncerramentos(async () => [encerramento]), 0);
+    assert.equal(m.tenants.estados.get(m.tenantId), "suspenso");
+    // T13: noutro tenant, o recurso negado encerra.
+    const n = montar();
+    await n.sinal("auto_compra");
+    await n.sinal("auto_compra");
+    const s2 = await propor(n, "suspensao", "s1");
+    await n.servico.decidir(revisor(), s2.id, "rejeitar", { regra: "r" });
+    const e2 = await propor(n, "encerramento", "e1");
+    await n.servico.decidir(lider(), e2.id, "rejeitar", { regra: "r" });
+    await n.servico.abrirRecurso(e2.id);
+    await n.servico.decidirRecurso(lider(), e2.id, "rejeitar");
+    assert.equal(n.tenants.estados.get(n.tenantId), "encerrado");
+  });
+
+  it("T8: o limiar configurado da burla chega ao efeito", async () => {
+    const tenant = randomUUID();
+    const orderId = randomUUID();
+    const dois = [orderId, randomUUID()].map((id) => ({ order_id: id, total_minor: "4800000", criado_at: SEXTA, paga_at: new Date(SEXTA.getTime() + 600_000) }));
+    const respostas = new Map<string, Record<string, unknown>[]>([
+      [SQL_PEDIDO_E_COMPRADOR, [{ order_id: orderId, contactos: [randomUUID()], paga_via: "manual_auditado" }]],
+      [SQL_CONTACTOS_DO_DONO, []],
+      [SQL_TENANT_E_TECTO, [{ primeira_activacao_at: new Date(SEXTA.getTime() - DIA), tecto: "5000000" }]],
+      [SQL_PEDIDOS_MANUAIS, dois],
+    ]);
+    const env = envelope("order.paid", { order_id: orderId, paga_via: "manual_auditado" }, tenant);
+    assert.deepEqual(await sinaisDoEvento(bdDeFactos(respostas), env, SEXTA), []);
+    const politica = { ...POLITICA_DE_RISCO, pedidosProximosDoTecto: 2 };
+    assert.deepEqual((await sinaisDoEvento(bdDeFactos(respostas), env, SEXTA, politica)).map((x) => x.tipo), ["burla_provavel"]);
+  });
+
+  it("T14: a confirmacao suspeita e a desta encomenda, e nao a de outras", async () => {
+    const lenta = randomUUID();
+    const linhas = [
+      { order_id: lenta, total_minor: "1000", criado_at: SEXTA, paga_at: new Date(SEXTA.getTime() + 600_000) },
+      ...[1, 2].map(() => ({ order_id: randomUUID(), total_minor: "1000", criado_at: SEXTA, paga_at: new Date(SEXTA.getTime() + 5_000) })),
+    ];
+    const bd = bdDeFactos(new Map([[SQL_PEDIDOS_MANUAIS, linhas]]));
+    assert.deepEqual(await sinaisDoEvento(bd, envelope("payment.manual_confirmed", { order_id: lenta }), SEXTA), []);
+  });
+
+  it("8: o duplo recusa uma chave que nao e da origem, como a base", async () => {
+    const repo = new RepositorioDeTrustEmMemoria();
+    const base = {
+      tenantId: randomUUID(), passo: "aviso" as const, origem: "automatica" as const, motivoInterno: "x",
+      motivoPublico: "conduta_em_analise" as const, autor: "sistema:1.0.0", regra: null, sinais: [], casoId: null,
+      justificacaoDoSalto: null, recursoDe: null, recursoEstado: null,
+    };
+    await assert.rejects(repo.gravarSancao({ ...base, chave: `recurso:${randomUUID()}` }), RecusaDaBaseError);
+    await assert.rejects(repo.gravarSancao({ ...base, chave: "auto:aviso:1", autor: randomUUID() }), RecusaDaBaseError);
   });
 });

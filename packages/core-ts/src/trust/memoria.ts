@@ -45,7 +45,10 @@ export class RepositorioDeTrustEmMemoria implements RepositorioDeTrust {
   async gravarSinal(s: SinalNovo): Promise<{ readonly sinal: SinalGravado; readonly repetido: boolean }> {
     const e = this.sinais.find((x) => x.tenantId === s.tenantId && x.tipo === s.tipo && x.refEvento === s.refEvento);
     if (e !== undefined) return { sinal: e, repetido: true };
-    const sinal: SinalGravado = { ...s, id: randomUUID(), severidade: SEVERIDADE_DO_TIPO[s.tipo] };
+    // O mesmo que o `ts_signal_instante` da base: o instante fica em [agora - 1 dia, agora].
+    const agora = this.#relogio().getTime();
+    const instante = Math.max(Math.min(s.ocorridoEm.getTime(), agora), agora - 86_400_000);
+    const sinal: SinalGravado = { ...s, ocorridoEm: new Date(instante), id: randomUUID(), severidade: SEVERIDADE_DO_TIPO[s.tipo] };
     this.sinais.push(sinal);
     return { sinal, repetido: false };
   }
@@ -59,6 +62,13 @@ export class RepositorioDeTrustEmMemoria implements RepositorioDeTrust {
       throw new RecusaDaBaseError("42501", "o kamba_app so escreve sancoes automaticas");
     }
     if (s.motivoInterno.trim() === "") throw new RecusaDaBaseError("23514", "ts_sanction_motivo_interno_ck");
+    // O `ts_sanction_chave_ck`: a chave e o autor presos à origem.
+    const chaveCerta =
+      s.origem === "automatica"
+        ? s.recursoDe === null && s.chave.startsWith("auto:") && s.autor.startsWith("sistema:")
+        : !s.autor.startsWith("sistema:") &&
+          (s.recursoDe === null ? s.chave === `caso:${s.casoId}` : s.chave === `recurso:${s.recursoDe}`);
+    if (!chaveCerta) throw new RecusaDaBaseError("23514", "ts_sanction_chave_ck");
     if (s.origem === "automatica" && !PASSOS_AUTOMATICOS.includes(s.passo)) {
       throw new RecusaDaBaseError("23514", "ts_sanction_grave_humana_ck");
     }

@@ -844,9 +844,6 @@ class TestConvencoes(ComBase):
                 ("tenant_usage", "periodo", "date", None),
                 ("tenant_usage", "tenant_id", "uuid", None),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
-                # KAM-097: as duas de T&S, `uuid` gerada pela regra geral.
-                ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
-                ("ts_signal", "id", "uuid", "gen_random_uuid()"),
                 # KAM-028: de identidade, como a de `audit_log` e pela mesma
                 # razao — `kamba_app` escreve e **nao le**, pelo que nenhum
                 # papel sujeito a RLS ve esta coluna.
@@ -858,6 +855,10 @@ class TestConvencoes(ComBase):
                 # referencia por chave estrangeira: o que liga esta linha a de
                 # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
                 ("tool_idempotency", "key", "text", None),
+                # KAM-097: as duas de T&S, `uuid` gerada pela regra geral, depois
+                # das de ferramentas («too» < «ts_»).
+                ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
+                ("ts_signal", "id", "uuid", "gen_random_uuid()"),
                 ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),

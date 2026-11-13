@@ -2,7 +2,7 @@
  * O caso de uso de Trust & Safety (KAM-097). Ver `./contrato.ts` para o desenho.
  *
  * ```text
- * registar         um sinal (idempotente) e, se é novo, a escada automática
+ * sinalizar        um sinal (idempotente) e, se é novo, a escada automática
  * proporSancao     um passo humano: abre um caso `trust` na fila
  * pedirRecurso     o recurso do dono, uma vez por sanção
  * aplicarDecisao   o efeito de uma decisão da fila sobre um caso `trust` ou `recurso`
@@ -105,16 +105,18 @@ export class ServicoDeTrust implements EfeitosDeTrust {
   // --------------------------------------------------------------- sinais
 
   /**
-   * Grava um sinal e, **se é novo**, corre a escada automática. Um sinal
-   * repetido (a mesma chave) não volta a correr a escada: a reentrega de um
-   * evento dá um sinal e zero sanções a mais (ensaio adversarial (e)).
+   * Grava um sinal e corre a escada automática — **também** sobre um sinal
+   * repetido. A reentrega de um evento não grava nada a mais (ensaio
+   * adversarial (e)), porque a chave de cada sanção automática leva o sinal que
+   * a disparou. Mas não correr a escada num repetido deixava o `kamba_app`
+   * escrever o sinal antes do consumidor e, com isso, nunca ver a escada
+   * (achado 1 da revisão adversarial).
    */
-  async registar(novo: SinalNovo): Promise<{ readonly sinal: SinalGravado; readonly repetido: boolean; readonly sancoes: readonly SancaoGravada[] }> {
+  async sinalizar(novo: SinalNovo): Promise<{ readonly sinal: SinalGravado; readonly repetido: boolean; readonly sancoes: readonly SancaoGravada[] }> {
     for (const chave of Object.keys(novo.detalhe)) {
       if (!(CHAVES_DO_DETALHE as readonly string[]).includes(chave)) throw new TrustRecusadoError("detalhe_invalido");
     }
     const g = await this.#d.repositorio.gravarSinal(novo);
-    if (g.repetido) return { ...g, sancoes: [] };
     return { ...g, sancoes: await this.avaliarEscada(novo.tenantId, g.sinal) };
   }
 
@@ -240,6 +242,16 @@ export class ServicoDeTrust implements EfeitosDeTrust {
     if (d.instancia === "primeira") {
       if (d.decisao === "aprovar") return;
       const proposta = propostaDoCaso(caso);
+      // O salto valida-se na proposta, contra o que estava em vigor **então**. Se
+      // um recurso provido baixou o passo em vigor antes da decisão, a mesma
+      // decisão passava a ser salto sem justificação, a base recusava-a e o caso
+      // ficava decidido sem sanção para sempre (achado 2). A justificação é
+      // o facto, escrito, e não uma razão inventada.
+      const vigor = emVigor(await this.#d.repositorio.sancoesDoTenant(caso.tenantId)).passo;
+      const salta = ordem(proposta.passo) > ordem(vigor) + 1;
+      const justificacao =
+        proposta.justificacao ??
+        (salta ? `o passo em vigor desceu por recurso depois da proposta; decidido com a regra ${d.regra ?? "-"}` : null);
       const g = await this.#d.repositorio.gravarSancao({
         tenantId: caso.tenantId,
         chave: `caso:${caso.id}`,
@@ -251,7 +263,7 @@ export class ServicoDeTrust implements EfeitosDeTrust {
         regra: d.regra,
         sinais: caso.evidencias.filter((e) => e.tipo === "ts_signal").map((e) => e.ref),
         casoId: caso.id,
-        justificacaoDoSalto: proposta.justificacao,
+        justificacaoDoSalto: justificacao,
         recursoDe: null,
         recursoEstado: null,
       });

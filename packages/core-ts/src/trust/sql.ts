@@ -222,12 +222,20 @@ export const SQL_COMPRADORES_PAGOS = `
 
 // ------------------------------------------------------------- varreduras (lote)
 
-/** Encomendas `paga` sem entrega há mais de N dias, de todos os tenants. */
+/**
+ * Encomendas `paga` sem entrega há mais de N dias, de todos os tenants, **que
+ * ainda não têm o sinal**: sem isso as já sinalizadas ocupavam a cabeça do
+ * `LIMIT` para sempre, e as novas nunca chegavam a ser lidas (achado 11). A
+ * foto repetida, pela mesma razão.
+ */
 export const SQL_NAO_ENTREGUES = `
-  SELECT tenant_id::text AS tenant_id, id::text AS order_id, paga_at
-    FROM platform.orders_mirror
-   WHERE estado = 'paga' AND entregue_at IS NULL AND paga_at < $1
-   ORDER BY paga_at, id
+  SELECT o.tenant_id::text AS tenant_id, o.id::text AS order_id, o.paga_at
+    FROM platform.orders_mirror o
+   WHERE o.estado = 'paga' AND o.entregue_at IS NULL AND o.paga_at < $1
+     AND NOT EXISTS (SELECT 1 FROM platform.ts_signal s
+                      WHERE s.tenant_id = o.tenant_id AND s.tipo = 'nao_entrega'
+                        AND s.ref_evento = o.id)
+   ORDER BY o.paga_at, o.id
    LIMIT 1000
 `;
 
@@ -243,6 +251,9 @@ export const SQL_FOTOS_REPETIDAS = `
     FROM platform.catalog_ingestions a
     JOIN platform.catalog_ingestions b ON b.phash = a.phash AND b.tenant_id <> a.tenant_id
    WHERE a.phash IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM platform.ts_signal s
+                      WHERE s.tenant_id = a.tenant_id AND s.tipo = 'foto_repetida'
+                        AND s.ref_evento = a.id)
    GROUP BY a.tenant_id, a.id
    ORDER BY a.tenant_id, a.id
    LIMIT 1000

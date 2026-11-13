@@ -34,6 +34,7 @@
  * deixa ler ao `kamba_app`.
  */
 
+import { LIMIARES_POR_OMISSAO } from "../revisao/contrato.ts";
 import type { Passo, PoliticaDeRisco, Severidade, TipoDeSinal } from "./regras.ts";
 
 /** As chaves que o `detalhe` de um sinal admite. A base fecha-as por `CHECK`. */
@@ -160,7 +161,14 @@ export interface LimiaresDoServico {
   readonly prioridadeDaProposta: number;
 }
 
-export const LIMIARES_DO_SERVICO: LimiaresDoServico = { diasDoRecurso: 14, prioridadeDaProposta: 3 };
+/**
+ * O prazo de recurso é o da fila (`diasDoRecursoDeTrust`), e não um segundo
+ * número: com dois, a fila aceitava um recurso depois de o encerramento fechar.
+ */
+export const LIMIARES_DO_SERVICO: LimiaresDoServico = {
+  diasDoRecurso: LIMIARES_POR_OMISSAO.diasDoRecursoDeTrust,
+  prioridadeDaProposta: 3,
+};
 
 export type Relogio = () => Date;
 

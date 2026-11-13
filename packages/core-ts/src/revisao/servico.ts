@@ -92,6 +92,9 @@ export const TIPOS_QUE_BLOQUEIAM: readonly TipoDeCaso[] = ["kyc", "categoria", "
 /** Os tipos cuja decisão é uma decisão humana de screening. */
 const TIPOS_DE_SCREENING: readonly TipoDeCaso[] = ["categoria", "catalogo"];
 
+/** Os tipos sem quota diária: a amostragem e os de Trust & Safety (KAM-097). */
+const SEM_QUOTA: readonly TipoDeCaso[] = ["auditoria", "trust", "recurso"];
+
 /** Os tipos cuja decisão é de Trust & Safety (KAM-097): uma sanção ou o recurso de uma. */
 const TIPOS_DE_TRUST: readonly TipoDeCaso[] = ["trust", "recurso"];
 
@@ -239,7 +242,11 @@ export class ServicoDeRevisao {
       if (!FASES_ELEGIVEIS.includes(o.fase)) return { estado: "nao_elegivel", fase: o.fase };
       quota = { tipo: "origem", origem: o.redeHmac ?? o.dispositivoHmac };
     } else {
-      quota = p.tipo === "auditoria" ? null : { tipo: "tenant", tenantId: p.tenantId };
+      // A `auditoria` e os casos de T&S (KAM-097) ficam fora da quota: são nossos,
+      // e uma proposta de suspensão atrás de vinte condicionais do catálogo ficava
+      // em triagem — o tenant atrasava a própria sanção inundando a fila. O
+      // `recurso` é um por sanção (a chave), pelo que não inunda.
+      quota = SEM_QUOTA.includes(p.tipo) ? null : { tipo: "tenant", tenantId: p.tenantId };
     }
     const chave = quota === null ? `sem_quota:${p.tenantId}` : quota.tipo === "origem" ? `o:${quota.origem}` : `t:${quota.tenantId}`;
     return this.#emSerie(chave, async () => {
@@ -389,7 +396,12 @@ export class ServicoDeRevisao {
     }
     // Um caso `recurso` já é o recurso (KAM-097): recorrer dele era o segundo.
     if (caso.tipo === "recurso") throw new RevisaoRecusadaError("recurso_ja_usado");
-    if ((await this.#decisaoFinal(caso)) !== "rejeitar") throw new RevisaoRecusadaError("recurso_sem_rejeicao");
+    const final = await this.#ultimaFinal(caso);
+    if (final?.decisao !== "rejeitar") throw new RevisaoRecusadaError("recurso_sem_rejeicao");
+    // KAM-097: o recurso de uma sanção tem prazo — depois dele o encerramento fecha.
+    if (caso.tipo === "trust" && this.#agora().getTime() - final.em.getTime() > this.#l.diasDoRecursoDeTrust * 86_400_000) {
+      throw new RevisaoRecusadaError("recurso_fora_de_prazo");
+    }
     const sla = calcularSla(this.#agora(), this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
     const ok = await this.#d.repositorio.transitar(caso.id, "decidido", "recurso_aberto", sla);
     if (!ok) throw new RevisaoRecusadaError("recurso_ja_usado");

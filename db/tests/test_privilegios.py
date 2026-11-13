@@ -2311,6 +2311,9 @@ IMUTAVEIS_PARA_A_APP = {
         # KAM-090: so o *trigger* do gate a escreve; com ela o tenant fingia
         # que ja tinha estado activo e saltava a exigencia das versoes vigentes.
         "primeira_activacao_at",
+        # KAM-097: a auto-compra compara o comprador com o dono, e o dono
+        # anulava-o antes de comprar a si proprio. Escreve-o o provisioning.
+        "owner_contact_id",
     },
     "tenant_channels": {
         "id",         # identidade

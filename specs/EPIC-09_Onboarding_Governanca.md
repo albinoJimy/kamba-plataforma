@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.17 |
+| Versão | 1.18 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -67,6 +67,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-195 | Screening: o classificador chama pelo cliente com gate de destino, registo e custo, e a finalidade de transferência | feature | L | P1 | KAM-192, KAM-069 |
 | KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | KAM-089 |
 | KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | KAM-196 |
+| KAM-199 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
 
 ---
 
@@ -1018,7 +1019,7 @@ Testes: idempotência 2x e crash a meio, compensação com falha no passo 4, rec
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196, KAM-198 |
-| Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127 |
+| Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127, KAM-199 |
 | Responsável sugerido | Arquitecto de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1, §16, §20.1 PA-GOV-1/6), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§4–§5), ADR-009, ADR-019 |
 
@@ -1053,6 +1054,7 @@ CREATE TABLE platform.onboarding_gate (
 CREATE TABLE platform.tenant_state_log ( -- append-only
   id bigserial PRIMARY KEY, tenant_id uuid NOT NULL, de text NOT NULL, para text NOT NULL, motivo text NOT NULL, actor text NOT NULL, em timestamptz DEFAULT now());
 ```
+- **Recebido do KAM-097**, que o devolveu na sua verificação: a escada de sanções muda o estado do tenant (`ativo`/`restrito` → `suspenso`, `suspenso` → `ativo` no recurso provido, `suspenso` → `encerrado`) por um CAS do `kamba_batch` atrás da porta `EstadoDosTenants` (`../packages/core-ts/src/trust/sql.ts`), e **sem evento**. Quando a `transition_tenant` deste bloco existir, aquela porta passa a chamá-la, com o `motivo` e o `actor` da sanção. E quem escreve o `tenants.owner_contact_id` no provisioning: a auto-compra do KAM-097 compara o comprador com ele e com os confirmadores `dono`, e hoje ninguém o escreve.
 
 ### Testes Requeridos
 
@@ -1406,6 +1408,7 @@ CREATE TABLE platform.trust_order_eligibility ( -- escrita por função
   order_id uuid PRIMARY KEY, tenant_id uuid NOT NULL, comprador_ref uuid NOT NULL, valor_minor bigint NOT NULL,
   independente boolean, entregue_confirmado_at timestamptz, janela_fim timestamptz, disputa boolean NOT NULL DEFAULT false);
 ```
+- **Recebido do KAM-097**, que entregou os dois sinais que este bloco lê: a independência de um comprador é o `SQL_INDEPENDENCIA` (`independente`, `nao_independente` ou `por_avaliar`, **fail-closed**: sem o `order.paid` consumido pelo consumidor de T&S, não conta), e a descida ao nível 0 por sanção é o `ServicoDeTrust.restricoes(tenant).tectoNoNivelZero`, verdadeiro com uma `limitacao` ou acima em vigor. Fazer o tecto cumprir é deste bloco.
 
 ### Testes Requeridos
 
@@ -1447,7 +1450,7 @@ Testes: unit, integração, isolamento e adversarial (auto-compra, comprador ún
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-055, KAM-044, KAM-089, KAM-008, KAM-021 |
-| Bloqueia | KAM-096, KAM-190 |
+| Bloqueia | KAM-096, KAM-190, KAM-199 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV) com Responsável de Produto (T&S) |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§8.3, §15.1, §16), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2, §12), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.6), ADR-013, ADR-015, ADR-017 |
 
@@ -1463,14 +1466,14 @@ Detectar sinais de burla e auto-compra a partir dos eventos de pedido e pagament
 
 - [ ] Consome `order.created`, `order.paid`, `order.delivered`, `payment.manual_confirmed`, `payment.confirmed`, `query.handoff` e `screening.violation_detected` de forma idempotente (`events_consumed`); sem PII nos sinais, só referências.
 - [ ] **Auto-compra:** comprador cujo `contact_id`, `bsuid_hmac` ou `phone_hmac` coincide com o do dono (`owner_contact_id`, telefone provado) gera `ts_signal(auto_compra, alta)` em ≤ 1 min após `order.paid`; o pedido fica `independente = false` e é anulado para tectos, reviews e comissões.
-- [ ] Tenant novo (≤ 14 dias, *proposta*) com ≥ 3 pedidos manuais próximos do tecto gera `burla_provavel`; pagamento confirmado pelo dono em < 30 s após a criação, repetido, gera `confirmacao_suspeita`.
+- [x] Tenant novo (≤ 14 dias, *proposta*) com ≥ 3 pedidos manuais próximos do tecto gera `burla_provavel`; pagamento confirmado pelo dono em < 30 s após a criação, repetido, gera `confirmacao_suspeita`.
 - [ ] Sinais de listagem: *hash* perceptual da foto repetido noutro tenant (informativo, não bloqueia: fornecedores comuns existem); preço fora de 1%–100× a mediana da categoria só avaliado com ≥ 20 produtos de referência.
 - [ ] Sinais de reclamação contam só contactos com pedido pago (anti-retaliação); ≥ 2 reclamações ou disputas em 30 dias e pedidos `paga` sem `entregue` há > 7 dias (*propostas*) geram `queixa_recorrente`/`nao_entrega`.
 - [ ] Mudança de conta bancária ou de NIF após activação gera sinal alto e `review_case` `trust`.
 - [ ] Escada: `aviso` → `limitacao` (sem novos produtos/listas; tecto volta ao nível 0) → `suspensao` (`transition_tenant(..., 'suspenso')`, CHR responde mensagem estática, entregas pendentes finalizadas, novas encomendas bloqueadas) → `encerramento`. `aviso` e `limitacao` podem ser automáticos por limiar (*proposta*: risco ≥ 30 e ≥ 60); **`suspensao` e `encerramento` só por decisão humana** (KAM-089), com motivo.
-- [ ] Cada passo grava `ts_sanction` (append-only) com regra, sinais, autor e hora; recurso uma só vez, decidido por outro revisor; saltar passos exige justificação escrita.
+- [x] Cada passo grava `ts_sanction` (append-only) com regra, sinais, autor e hora; recurso uma só vez, decidido por outro revisor; saltar passos exige justificação escrita.
 - [ ] O dono é notificado por SMS/e-mail e painel com `motivo_publico`; nunca se revela a heurística.
-- [ ] Reviews e comissões ficam fora do Piloto; a anulação de comissão (Clusters) usa o mesmo sinal, sem implementação aqui.
+- [x] Reviews e comissões ficam fora do Piloto; a anulação de comissão (Clusters) usa o mesmo sinal, sem implementação aqui.
 
 ### Detalhes Técnicos
 
@@ -1498,10 +1501,48 @@ CREATE TABLE platform.ts_sanction ( -- append-only
 
 - [ ] Critérios de Aceitação satisfeitos; suite adversarial verde; limitação (b) escrita na documentação.
 - [ ] Sinais, sanções e transições append-only e atribuíveis; RLS `FORCE` e teste cruzado (ADR-015).
-- [ ] Idempotência por `(tenant_id, tipo, ref_evento)` (ADR-009); eventos e logs sem PII (ADR-010).
-- [ ] Nenhuma sanção grave automática; plataforma sem fundos (ADR-004, ADR-017); pagamento só por evento autenticado (ADR-013).
-- [ ] Base legal do tratamento cruzado marcada *(a confirmar por parecer)*; limiares como *proposta*.
+- [x] Idempotência por `(tenant_id, tipo, ref_evento)` (ADR-009); eventos e logs sem PII (ADR-010).
+- [x] Nenhuma sanção grave automática; plataforma sem fundos (ADR-004, ADR-017); pagamento só por evento autenticado (ADR-013).
+- [x] Base legal do tratamento cruzado marcada *(a confirmar por parecer)*; limiares como *proposta*.
 - [ ] Migração reversível; métricas e alertas de T&S nascem com o código; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+O módulo é `../packages/core-ts/src/trust/` (regras puras, serviço, efeito do consumidor, varreduras, adaptador SQL, aviso por SMS e o duplo em memória), as tabelas são a `platform.ts_signal` e a `platform.ts_sanction` da revisão `0053` (número **provisório**) e os nomes estão no dicionário §3.66 (emenda 1.92). A escada grave passa pela fila do KAM-089: o gancho `trust` do `ServicoDeRevisao` aplica a decisão de um caso `trust` ou `recurso`. **As baterias**: `../packages/core-ts/tests/trust.test.ts` (**49** ensaios: regras, escada, integração com a fila verdadeira, suite adversarial e os achados da revisão), com a `revisao.*` e a `sms.*` ao lado **293/293**; a suite inteira do `core-ts` dá **2710** verdes e **4** vermelhos de ambiente (o `tools/meta-sim` não resolve `@kamba/core-ts` com o `node_modules` montado), nenhum deste ticket; e `../db/tests/test_trust_schema.py` **26/26** contra o PostgreSQL do *gate* 8, com o `test_catalogo`, o `test_privilegios` e o `test_inventario` verdes sobre as listas propagadas.
+
+**O que este ticket não entrega, dito uma vez:** nenhum processo corre o consumidor nem as varreduras em `prod`, não há métricas nem alertas de T&S servidos, e quatro fontes de sinal não existem. Tudo isso é do **KAM-199**, aberto neste PR.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Consome os sete tipos de forma idempotente (`events_consumed`); sem PII nos sinais | **parcial** | **Medido:** o `efeitoDeTrust` é o `Efeito` do `consumir` (a marca e os sinais na mesma transacção, como `kamba_app`), com os sete tipos em `TIPOS_CONSUMIDOS`; a reentrega dá **um** sinal (ensaio (e)) e a chave da base é a segunda barreira. O `detalhe` só admite chaves de referência, por `CHECK` (`test_o_detalhe_so_leva_chaves_de_referencia`), e o `kamba_app` nem o lê. **Falta:** um processo que subscreva os sete tipos e corra o efeito — **KAM-199**. E o `query.handoff` **não tem produtor** na árvore (INDÍCIO de que a metade das reclamações por conversa ainda não chega) |
+| 2. Auto-compra por `contact_id`, `bsuid_hmac` ou `phone_hmac` do dono gera `auto_compra` alto em ≤ 1 min após `order.paid`; pedido `independente = false` e anulado para tectos, reviews e comissões | **parcial** | **Medido:** a regra compara o contacto **canónico** do comprador (cadeia de `merged_into`) com o `owner_contact_id` e os confirmadores `dono`; o `order.created` e o `order.paid` da mesma encomenda dão **um** sinal (`ref_evento` = `order_id`); a independência é o `SQL_INDEPENDENCIA`, **fail-closed** (`test_a_independencia_avaliada_e_sem_auto_compra_e_independente`). O `kamba_app` **não lê** o `phone_hmac` nem o `bsuid_hmac`: a coincidência por HMAC é a da resolução de identidade (KAM-008), que funde o mesmo telefone em formatos diferentes e o BSUID do dono no mesmo contacto — o ensaio (a) mede a igualdade dos HMAC e a comparação do canónico, **não** a resolução ponta a ponta. A revisão retirou ao `kamba_app` o `UPDATE (owner_contact_id)`: o dono anulava-o antes de comprar a si próprio. **Falta:** os ≤ 1 min (sem processo, **KAM-199**); o tecto (**KAM-096**, que recebe a marca); a comparação directa por HMAC depois de uma rotação de chave (PLAUSÍVEL na revisão, **KAM-199**); quem escreve o `owner_contact_id` (**KAM-092**) |
+| 3. Tenant novo com ≥ 3 pedidos manuais perto do tecto → `burla_provavel`; confirmação pelo dono em < 30 s, repetida → `confirmacao_suspeita` | **marcada** | `burlaProvavel` e `confirmacaoSuspeita` com os limites dos dois lados (14 dias, 80% do tecto, 30 s exactos, uma só não chega) e o limiar configurável a **chegar ao efeito** (T8 da revisão); o efeito lê a activação, o tecto do `entitlements` e os pedidos manuais pelas constantes SQL, cada uma planeada com o papel que a corre (`test_cada_constante_planeia_com_o_papel_que_a_corre`), e a confirmação suspeita exige que **esta** encomenda seja a rápida (T14) |
+| 4. Foto repetida noutro tenant (informativa); preço fora de 1%–100× da mediana só com ≥ 20 referências | **parcial** | **Medido:** `varrerFotos` compara o *phash* entre tenants como `kamba_batch` (a revisão dá-lhe `SELECT` em três colunas da `catalog_ingestions`), devolve uma contagem e nunca o outro tenant, e o sinal pesa 0; salta o que já sinalizou. `avaliarPreco` com os limites (19 referências → `sem_referencia`, 1% e 100× nas fronteiras). **Falta:** a fonte dos preços de referência por categoria, e quem chame o `avaliarPreco` — **KAM-199** |
+| 5. Reclamações só de compradores pagos; ≥ 2 em 30 dias → `queixa_recorrente`; `paga` sem `entregue` > 7 dias → `nao_entrega` | **parcial** | **Medido:** `queixasQueContam` conta um por contacto, só de quem pagou, dentro da janela (ensaio (d)); a queixa recorrente vale **um sinal por janela** e não um por queixa (achado 5 da revisão); `varrerNaoEntregas` e o `naoEntregue` nos 7 dias, sem repetir o que já sinalizou. **Falta:** o produtor do `query.handoff` e o agendamento das varreduras — **KAM-199** |
+| 6. Mudança de conta bancária ou de NIF após activação → sinal alto e `review_case` `trust` | **não satisfeito** | O tipo `mudanca_de_conta` existe, alto, e a proposta de sanção abre o caso `trust`; **nada anuncia a mudança** — a `payment_accounts` e o NIF não têm histórico nem evento. Credor: **KAM-199** |
+| 7. Escada `aviso` → `limitacao` → `suspensao` → `encerramento`; `aviso` e `limitacao` automáticos por limiar; os dois graves só por decisão humana com motivo | **parcial** | **Medido:** a máquina sobe um degrau de cada vez, até à `limitacao`, por risco ≥ 30 e ≥ 60 (*propostas*), e nunca suspende, nem com risco 100; a base recusa uma grave automática (`ts_sanction_grave_humana_ck`). A suspensão nasce de uma proposta que abre um caso `trust`, e só um revisor com papel e MFA a aplica, rejeitando-o **com a regra** — sem ela a fila recusa (ensaio (f)); o tenant passa `ativo`/`restrito` → `suspenso`, e o CHR responde a mensagem estática pela matriz que já existe (`tenantGate`, `../packages/core-ts/src/chr/chr.ts`, KAM-009). O encerramento suspende já e só passa a `encerrado` com o recurso negado ou o prazo de 14 dias vencido. A proposta não conta para a quota do tenant (achado 4). **Falta:** a transição pela `transition_tenant` com o evento (**KAM-092**, aqui é um CAS do `kamba_batch` e nenhum `tenant.suspended` sai); o tecto no nível 0 (**KAM-096**) e o bloqueio do catálogo (**KAM-199**) numa `limitacao`, que hoje só se lê em `restricoes()` |
+| 8. Cada passo grava `ts_sanction` *append-only* com regra, sinais, autor e hora; recurso uma só vez, por outro revisor; saltar passos exige justificação escrita | **marcada** | *Append-only* por privilégio e por *trigger* (`55000` também ao dono); regra, sinais, autor e `em` em cada linha; a chave e o autor presos à origem (`ts_sanction_chave_ck`, achado 8). O recurso de uma humana é o da fila — por outro revisor, um só, e com prazo (`recurso_fora_de_prazo`); o de uma automática é um caso `recurso` único pela chave, de que a fila não deixa recorrer. O salto sem justificação recusa-se na proposta e na base, com um trinco por tenant; e uma decisão que se tornou salto por um recurso entretanto provido grava o facto como justificação, em vez de ficar presa (achado 2) |
+| 9. O dono é avisado por SMS/e-mail e painel com o `motivo_publico`; nunca se revela a heurística | **parcial** | **Medido:** seis modelos de SMS `ts_*` **sem parâmetros**, cada um o texto fixo do seu motivo (um ensaio prende os dois), para o telefone do onboarding; o `motivo_interno`, a regra e os sinais não têm caminho para o dono. Os passos humanos e os recursos avisam; o painel tem a fonte (`avisosDoPainel`). **Falta:** o e-mail; o aviso dos passos automáticos, que o consumidor não envia (achado 7) — **KAM-199**; e o adaptador do painel — **KAM-190** |
+| 10. Reviews e comissões fora do Piloto; a anulação de comissão usa o mesmo sinal, sem implementação aqui | **marcada** | Nada de reviews nem de comissões neste ticket; o sinal que as anularia é o `auto_compra` por encomenda, e a marca de independência é a mesma leitura |
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos; suite adversarial verde; limitação (b) escrita | **parcial** | Verdes: (a) formatos do telefone e BSUID (pela igualdade dos HMAC e o canónico), (b) segunda SIM, (d) retaliação, (e) reentrega, (f) suspender sem motivo. **(c), o anel de tenants, não**: o `phone_hmac` leva o tenant na mensagem, e correlacionar compradores entre tenants pede um identificador que não existe (**KAM-199**). A limitação (b) está no `../docs/tecnica/10` §8.3 (versão 1.11) |
+| 2. Sinais, sanções e transições *append-only* e atribuíveis; RLS `FORCE` e teste cruzado (ADR-015) | **parcial** | Sinais e sanções: *append-only*, atribuíveis, RLS `FORCE`, e o teste cruzado pela ligação da aplicação (`test_um_tenant_nao_ve_nem_escreve_os_sinais_e_sancoes_de_outro`: zero linhas de A com o contexto de B, `42501` a escrever no tenant de outro, nada sem contexto). **As transições do tenant não têm registo**: o `tenant_state_log` é do **KAM-092** |
+| 3. Idempotência por `(tenant_id, tipo, ref_evento)` (ADR-009); eventos e logs sem PII (ADR-010) | **marcada** | `ts_signal_chave_uq` e a marca do `events_consumed`; o módulo não escreve *logs* nem emite eventos, e o `detalhe` fechado |
+| 4. Nenhuma sanção grave automática; plataforma sem fundos; pagamento só por evento autenticado | **marcada** | `ts_sanction_grave_humana_ck` e a escada que pára na `limitacao`; T&S não toca em dinheiro; os sinais de pagamento vêm dos eventos `payment.*`/`order.paid`, que o KAM-055 só emite autenticados |
+| 5. Base legal do tratamento cruzado *(a confirmar por parecer)*; limiares como *proposta* | **marcada** | No dicionário §3.66 e no doc 10 §8.3; a `POLITICA_DE_RISCO` 1.0.0 e os limiares do serviço são todos *proposta* |
+| 6. Migração reversível; métricas e alertas nascem com o código; sem segredos | **parcial** | A `0053` desce para a anterior e volta a subir (`TestDowngrade`, a anterior lida do ficheiro). **Métricas e alertas não**: só a porta `ContadoresDoTrust`, sem processo que as sirva — **KAM-199** |
+
+#### A revisão adversarial
+
+Um agente que não viu o raciocínio desta entrega reviu o `e5aa1f87` com **27 mutações** (13 de base, 14 de TypeScript) e levantou **doze** achados, todos **procedentes** e nenhum morto. Dez estão corrigidos, com ensaio que os mata: (1) o `kamba_app` escrevia o sinal antes do consumidor e datado do passado — o `ocorrido_em` fica entre ontem e agora (`ts_signal_instante`) e a escada corre também sobre um sinal repetido; (2) um recurso provido num degrau baixo prendia para sempre a suspensão pendente; (4) a proposta ficava atrás da quota diária do tenant; (5) a queixa repetida contornava o anti-retaliação; (6) um recurso tardio dizia «aceite» sobre uma loja encerrada; (8) o `kamba_app` ocupava a chave `recurso:<id>`; (9) o dono anulava o `owner_contact_id`; (11) as varreduras ficavam presas na cabeça do `LIMIT`; (12) dois passos concorrentes passavam a verificação do salto; e o (3), na parte que é deste ticket — a limitação (b) no doc 10. **Ficam com credor:** o (7), o aviso dos passos automáticos (**KAM-199**); o (10), a transição sem registo (**KAM-092**); e o resto do (3) (**KAM-199**). Das **doze** mutações sobreviventes, as que tiravam uma barreira real (M10, M12, T5, T11, T13) e as restantes (M9, M11, T2, T6, T8, T14) têm agora ensaio. Ficam **sete** mutações permanentes da `0053` no `../db/mutacoes.py`, todas mortas pelo `test_trust_schema.py`.
+
+#### O que este ticket tocou que não era dele, e porquê
+
+O `ServicoDeRevisao` (KAM-089): o gancho `trust`, a regra obrigatória para rejeitar um caso `trust`, a recusa de recorrer de um caso `recurso`, o prazo do recurso de uma sanção e os casos de T&S fora da quota. Os seis modelos de SMS `ts_*` (KAM-116/KAM-196). O `GRANT UPDATE (owner_contact_id)` do `kamba_app` na `tenants` (KAM-003/KAM-009), retirado. E o `SELECT` de três colunas da `catalog_ingestions` (KAM-049) para o `kamba_batch`.
 
 ### Handoff para Claude Code
 
@@ -2031,6 +2072,7 @@ entregou.
 
 - **Componentes:** COM (`listOrders`, leitura de uma oferta), `onboarding-web` (rotas do painel e `/metrics`), CHR/qualidade do canal (leitura do estado), T&S (avisos).
 - **Isolamento:** o tenant continua a vir só da sessão do painel; cada rota nova entra no X-01 do *gate* 6 com 404 uniforme para identificadores de outro tenant.
+- **Recebido do KAM-097**: a fonte dos avisos de T&S do critério 7 é o `ServicoDeTrust.avisosDoPainel(tenant)` (`../packages/core-ts/src/trust/servico.ts`), que devolve os **códigos** públicos das sanções em vigor (`ts_sanction.motivo_publico`, dicionário §3.66), do mais recente para o mais antigo — nunca o motivo interno. O adaptador que os leva ao `VistaDoCanal.avisos` é deste bloco.
 
 ### Testes Requeridos
 
@@ -2548,6 +2590,78 @@ Testes: integração contra PostgreSQL, isolamento e arranque.
 
 ---
 
+## KAM-199 — Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-097, KAM-092 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com SRE e o Responsável de Produto (T&S) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-097, KAM-092 e KAM-198), `02_Dicionario_de_Dados_Canonico.md` (§3.66), `../docs/tecnica/10_Onboarding_Governanca.md` (§8.3), `../docs/observabilidade.md` |
+
+### Contexto
+
+O KAM-097 entregou as regras de Trust & Safety, as duas tabelas (`ts_signal`, `ts_sanction`), o
+efeito do consumidor de eventos, as varreduras e a ligação da escada à fila de revisão
+(`../packages/core-ts/src/trust/`). **Nada disto corre em `prod`**: nenhum processo consome os sete
+tipos de evento com o `efeitoDeTrust`, nenhum agendador corre as varreduras nem o
+`fecharEncerramentos`, e as métricas de T&S não existem. E há quatro sinais cuja regra existe e cuja
+**fonte de factos não**: o preço fora da mediana da categoria, a mudança de conta bancária ou de NIF
+depois da activação, a correlação entre tenants por comprador (o anel do ensaio adversarial (c)) e a
+coincidência por HMAC quando o comprador não foi fundido no contacto do dono. Este ticket é o credor
+das caixas que o KAM-097 deixou parciais, e nasce no PR que as devolve.
+
+### Objectivo
+
+T&S a correr em `prod`, medido e alertado, com as quatro fontes de sinal que faltam.
+
+### Critérios de Aceitação
+
+- [ ] Um processo consome os sete tipos do critério 1 do KAM-097 com o `efeitoDeTrust`, como `kamba_app`, com as subscrições declaradas em `platform.evt_subscricoes`, e arranca em `prod` com `/healthz` e `/metrics`.
+- [ ] As varreduras (`varrerNaoEntregas`, `varrerFotos`) e o `fecharEncerramentos` correm agendados como `kamba_batch`, e cada corrida fica no `audit_log` (`batch.run`).
+- [ ] Métricas de T&S servidas, com domínio fechado e sem tenant (`OBS-I`): sinais por tipo e sanções por passo e origem; e um alerta para uma `suspensao` decidida e para a escada automática acima de um ritmo (*proposta*).
+- [ ] Preço anómalo: os preços de referência por categoria (≥ 20 produtos) vêm de uma fonte nomeada, e o `avaliarPreco` corre sobre cada produto publicado.
+- [ ] Mudança de conta bancária ou de NIF depois da activação gera `mudanca_de_conta` e um `review_case` `trust`, a partir de um evento ou de um histórico que hoje não existe.
+- [ ] Correlação entre tenants por comprador (o mesmo número a comprar em tenants do mesmo dono) por um identificador de comprador que não dependa do tenant, só por papel auditado e só como sinal; a base legal fica *(a confirmar por parecer)*.
+- [ ] A `limitacao` em vigor bloqueia produtos e listas novos no caminho do catálogo, e os passos automáticos são avisados ao dono por SMS (o consumidor não envia: só o painel os mostra).
+- [ ] A transição do tenant da escada passa pela `transition_tenant` do KAM-092, e o `tenant.suspended`, o `tenant.closed` e o `tenant.reactivated` saem com ela.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV, TEN, COM, IDX (consumidor do `tenant.suspended`), observabilidade (ADR-018), isolamento (X-01).
+- **Fora deste ticket:** as regras e a escada (KAM-097), o tecto (KAM-096), o painel (KAM-190).
+
+### Testes Requeridos
+
+- Integração: o processo contra o PostgreSQL do *gate* 8 com os sete tipos e a reentrega; as varreduras com tenants cruzados.
+- Isolamento: o caso X-01 do `/metrics`; a correlação cruzada só pelo papel auditado.
+- **Adversarial:** o anel de três tenants do mesmo dono a comprar entre si dá sinal.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; base legal do tratamento cruzado marcada *(a confirmar por parecer)*.
+- [ ] Métricas e alertas de T&S nascem com o processo; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-199 da KAMBÁ (T&S em produção).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-097, KAM-092 e KAM-199), o dicionário §3.66,
+packages/core-ts/src/trust/ e docs/tecnica/10 §8.3.
+Objectivo: o consumidor de T&S e as varreduras a correr em prod, métricas e alertas, e as quatro
+fontes de sinal que faltam.
+Regras: o consumidor é kamba_app; as varreduras são kamba_batch; correlação cruzada só por papel
+auditado e só como sinal; limiares são propostas.
+Testes: integração, isolamento e o anel de tenants.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -2605,3 +2719,4 @@ Testes: integração contra PostgreSQL, isolamento e arranque.
 | 1.15 | Novembro 2026 | KAM-089: entram as duas secções de verificação do bloco da fila de revisão — **nove** critérios (cinco marcados, quatro parciais) e **seis** itens da DoD (três marcados, três parciais), cada parcial com o credor nomeado —, e o **KAM-196** nasce neste PR como credor da identidade da equipa com MFA, da consola `/equipa`, dos modelos do aviso ao dono e do *job* da fila; o **KAM-092** passa a depender dele, no bloco e na tabela-resumo. A revisão adversarial deu dezanove achados e mudou código: os dois bloqueadores eram o recurso de uma categoria a aprovar um onboarding rejeitado pelo KYC e a suite (a) a não medir a barreira do OTP. | Equipa KAMBÁ |
 | 1.16 | Novembro 2026 | **Credor nomeado, no PR do KAM-049:** o bloco do KAM-094 ganha, nos Detalhes Técnicos, a linha do que recebe do KAM-049 — o adaptador de visão real do Catálogo AI e o p95 e o custo medidos em staging com o eval-gate verde, com o ext:KAM-101 como condição. Sem critério novo, sem mudar estimativa nem dependências. | Equipa KAMBÁ |
 | 1.17 | Novembro 2026 | KAM-196: entram as duas secções de verificação do bloco da consola da fila de revisão — **seis** critérios (quatro satisfeitos, o do fundador vazio e o do *job* parcial) e **três** itens da DoD (dois marcados, um parcial). Entregue: a porta `IdentidadeDaEquipa` e a sessão `kamba_equipa` com separador de domínio próprio, as **nove** rotas `/equipa` no `onboarding-web` com a barreira 401/403 antes do serviço, o caso `X-01/ts/equipa` com bateria e condutor, os cinco modelos de SMS e os cinco e-mails do aviso ao dono com o adaptador da porta, e o ciclo da fila. A revisão adversarial confirmou seis achados médios e mudou código, o mais grave um `pedir_info` cujo aviso se perdia. **Entra o KAM-198** (feature, M, P0, fase 1, dependência KAM-196), credor do processo de lote que corre o ciclo e serve as métricas; o `Bloqueia` do KAM-196 e as `Dependências` do KAM-092 ganham-no, no bloco e na tabela-resumo. Total do epic: **22**. Sem revisão de base de dados. | Equipa KAMBÁ |
+| 1.18 | Novembro 2026 | **KAM-097**: secção de verificação no bloco (com a revisão adversarial), e o **KAM-199** acrescentado, no mesmo PR, como credor das caixas que o KAM-097 deixa parciais — o processo do consumidor e das varreduras, as métricas e os alertas de T&S, e as quatro fontes de sinal que faltam. Linhas «Recebido do KAM-097» nos blocos KAM-092, KAM-096 e KAM-190. O EPIC-09 passa a **23** tickets. | Equipa KAMBÁ |

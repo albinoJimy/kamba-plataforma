@@ -17,6 +17,7 @@ export {
   MOTIVO_DE_RECLAMACAO,
   TIPOS_CONSUMIDOS,
   efeitoDeTrust,
+  refDaJanela,
   sinaisDoEvento,
   varrerFotos,
   varrerNaoEntregas,

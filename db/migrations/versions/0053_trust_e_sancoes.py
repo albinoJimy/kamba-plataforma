@@ -51,7 +51,17 @@ tenant. Nao e o vigiado a escrever o registo de vigilancia no sentido que a
 2. **nada se apaga nem se emenda** (privilegio e *trigger*): um sinal ou uma
    sancao nao se retiram;
 3. o `kamba_app` **nao escreve** uma linha humana nem um desfecho de recurso
-   (`ts_sanction_regras`): levantar a propria sancao era o unico abuso com ganho.
+   (`ts_sanction_regras`), e a chave e o autor de cada linha estao presos a
+   origem (`ts_sanction_chave_ck`): nao ocupa a chave `recurso:<id>` de um
+   recurso que ainda nao foi decidido. Levantar a propria sancao era o unico
+   abuso com ganho;
+4. o `ocorrido_em` de um sinal fica entre ontem e agora (`ts_signal_instante`):
+   um sinal escrito antes do consumidor e datado do passado nao decai para zero,
+   e o consumidor corre a escada mesmo sobre um sinal repetido.
+
+A auto-compra compara com o `owner_contact_id`, e esta revisao **retira** ao
+`kamba_app` o `UPDATE` dessa coluna: o dono anulava-a antes de comprar a si
+proprio. Nenhum codigo da aplicacao a escreve.
 
 O que sobra ao `kamba_app` e escrever sinais e avisos **contra si proprio**. O
 lote (`kamba_batch`) escreve as linhas humanas e as varreduras que atravessam
@@ -119,6 +129,30 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX ts_signal_tenant_idx ON platform.ts_signal (tenant_id, ocorrido_em)"
     )
+    # Quem grava escolhe o `ocorrido_em`, e o risco decai com ele: um sinal
+    # datado de 2000 pesava zero. O *trigger* prende-o a [agora - 1 dia, agora]:
+    # um evento entregue tarde conta como recente, o que e o lado seguro.
+    op.execute(
+        """
+        CREATE FUNCTION platform.ts_signal_instante()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          SET search_path = pg_catalog, platform
+        AS $$
+        BEGIN
+          NEW.ocorrido_em := greatest(least(NEW.ocorrido_em, now()), now() - interval '1 day');
+          RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER ts_signal_instante
+          BEFORE INSERT ON platform.ts_signal
+          FOR EACH ROW EXECUTE FUNCTION platform.ts_signal_instante()
+        """
+    )
     op.execute(
         "COMMENT ON TABLE platform.ts_signal IS "
         "'Sinal de Trust & Safety (KAM-097). Append-only. Severidade fixa por tipo. "
@@ -176,6 +210,13 @@ def upgrade() -> None:
           CONSTRAINT ts_sanction_recurso_ck
             CHECK ((recurso_de IS NULL) = (recurso_estado IS NULL)
               AND (recurso_de IS NULL OR origem = 'humana')),
+          CONSTRAINT ts_sanction_chave_ck CHECK (
+               (origem = 'automatica' AND recurso_de IS NULL
+                AND left(chave, 5) = 'auto:' AND left(autor, 8) = 'sistema:')
+            OR (origem = 'humana' AND recurso_de IS NULL
+                AND chave = concat('caso:', case_id) AND left(autor, 8) <> 'sistema:')
+            OR (origem = 'humana' AND recurso_de IS NOT NULL
+                AND chave = concat('recurso:', recurso_de) AND left(autor, 8) <> 'sistema:')),
           CONSTRAINT ts_sanction_chave_uq UNIQUE (tenant_id, chave),
           CONSTRAINT ts_sanction_id_tenant_uq UNIQUE (id, tenant_id),
           CONSTRAINT ts_sanction_caso_fk FOREIGN KEY (case_id, tenant_id)
@@ -237,6 +278,9 @@ def upgrade() -> None:
               USING ERRCODE = '42501';
           END IF;
           IF NEW.recurso_de IS NULL THEN
+            -- Duas insercoes concorrentes do mesmo tenant liam o mesmo passo em
+            -- vigor e passavam as duas a verificacao do salto.
+            PERFORM pg_advisory_xact_lock(hashtext('ts_sanction:' || NEW.tenant_id::text));
             SELECT max(array_position(
                      ARRAY['aviso', 'limitacao', 'suspensao', 'encerramento'], s.passo))
               INTO em_vigor
@@ -282,6 +326,11 @@ def upgrade() -> None:
     )
     op.execute("REVOKE ALL ON FUNCTION platform.ts_imutavel() FROM PUBLIC")
     op.execute("REVOKE ALL ON FUNCTION platform.ts_sanction_regras() FROM PUBLIC")
+    op.execute("REVOKE ALL ON FUNCTION platform.ts_signal_instante() FROM PUBLIC")
+    # A auto-compra ancora-se no `owner_contact_id`, e o `kamba_app` podia
+    # anula-lo antes de comprar a si proprio (achado 9). Nenhum codigo da
+    # aplicacao o escreve; quem o escreve e o provisioning (KAM-092), pelo lote.
+    op.execute("REVOKE UPDATE (owner_contact_id) ON platform.tenants FROM kamba_app")
     # A varredura da foto repetida (critério 4): o lote compara o *phash* entre
     # tenants. So as tres colunas que a comparacao precisa, e nada do resto da
     # ingestao (o `extraido` e os media continuam fora do lote).
@@ -291,6 +340,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("GRANT UPDATE (owner_contact_id) ON platform.tenants TO kamba_app")
     op.execute(
         "REVOKE SELECT (id, tenant_id, phash) ON platform.catalog_ingestions FROM kamba_batch"
     )
@@ -298,6 +348,8 @@ def downgrade() -> None:
     rls.disable_tenant_rls("ts_signal")
     op.execute("DROP TRIGGER ts_sanction_regras ON platform.ts_sanction")
     op.execute("DROP FUNCTION platform.ts_sanction_regras()")
+    op.execute("DROP TRIGGER ts_signal_instante ON platform.ts_signal")
+    op.execute("DROP FUNCTION platform.ts_signal_instante()")
     op.execute("DROP TRIGGER ts_sanction_imutavel ON platform.ts_sanction")
     op.execute("DROP TRIGGER ts_signal_imutavel ON platform.ts_signal")
     op.execute("DROP FUNCTION platform.ts_imutavel()")
