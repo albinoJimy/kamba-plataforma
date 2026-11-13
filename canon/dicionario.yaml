@@ -15920,7 +15920,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.63"
     conceito: "Ingestão do Catálogo AI"
-    canonico: "platform.catalog_ingestions, dezasseis colunas: id, tenant_id, media_ref, media_id_meta, phash, estado, extraido, campos_em_falta, perguntas_feitas, categoria_restrita, sku, custo_llm_usd, confirmado_at, confirmado_por, criado_at, atualizado_at"
+    canonico: "platform.catalog_ingestions, dezoito colunas: id, tenant_id, media_ref, media_id_meta, phash, estado, extraido, campos_em_falta, perguntas_feitas, categoria_restrita, sku, custo_llm_usd, confirmado_at, confirmado_por, ultima_mensagem_id, versao, criado_at, atualizado_at"
     literais:
       - "platform.catalog_ingestions"
       - "id"
@@ -15937,6 +15937,8 @@ entradas:
       - "custo_llm_usd"
       - "confirmado_at"
       - "confirmado_por"
+      - "ultima_mensagem_id"
+      - "versao"
       - "criado_at"
       - "atualizado_at"
     nomes:
@@ -15955,6 +15957,8 @@ entradas:
       - "custo_llm_usd"
       - "confirmado_at"
       - "confirmado_por"
+      - "ultima_mensagem_id"
+      - "versao"
       - "criado_at"
       - "atualizado_at"
     nomes_nota:
@@ -15963,9 +15967,32 @@ entradas:
       - "confirmado_por"
       - "OwnerConfirmation"
       - "publicada"
+      - "ultima_mensagem_id"
+      - "versao"
       - "FORCE"
       - "tenant_iso"
       - "kamba_app"
+      - "atualizado_at"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Versão da ingestão"
+    canonico: "catalog_ingestions.versao, inteiro"
+    literais:
+      - "catalog_ingestions.versao"
+    nomes:
+      - "catalog_ingestions.versao"
+    nomes_nota:
+      - "catalog_ingestions_transicao"
+      - "atualizado_at"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Última mensagem do dono processada"
+    canonico: "catalog_ingestions.ultima_mensagem_id"
+    literais:
+      - "catalog_ingestions.ultima_mensagem_id"
+    nomes:
+      - "catalog_ingestions.ultima_mensagem_id"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.63"
     conceito: "Estado da ingestão"

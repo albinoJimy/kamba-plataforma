@@ -146,7 +146,7 @@ def confirmar(campo: Campo) -> Campo:
     return replace(campo, confirmado=True)
 
 
-def _texto(bruto: object) -> str | None:
+def limpar_texto(bruto: object) -> str | None:
     if not isinstance(bruto, str):
         return None
     # Sem caracteres de controlo nem de formatacao (`Cc`, `Cf`): um texto com
@@ -201,15 +201,15 @@ def ler_resposta_da_visao(texto: str) -> Extraccao:
         if nome == "variantes":
             if not isinstance(bruto, list):
                 continue
-            lidas = tuple(t for t in (_texto(v) for v in bruto[:MAXIMO_DE_VARIANTES]) if t)
+            lidas = tuple(t for t in (limpar_texto(v) for v in bruto[:MAXIMO_DE_VARIANTES]) if t)
             valor = lidas or None
         else:
-            valor = _texto(bruto)
+            valor = limpar_texto(bruto)
         if valor is None:
             continue
         campos[nome] = Campo(valor=valor, confianca=_confianca(entrada.get("confianca")), fonte=IA_VISAO)
     etiqueta = dados.get(CHAVE_DA_ETIQUETA)
-    preco = _texto(etiqueta.get("valor")) if isinstance(etiqueta, dict) else _texto(etiqueta)
+    preco = limpar_texto(etiqueta.get("valor")) if isinstance(etiqueta, dict) else limpar_texto(etiqueta)
     conhecidas = set(CAMPOS_DA_VISAO) | {CHAVE_DA_ETIQUETA}
     return Extraccao(
         campos=campos,

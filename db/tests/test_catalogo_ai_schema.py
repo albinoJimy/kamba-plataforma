@@ -60,6 +60,7 @@ from catalogo_apoio import (  # noqa: E402
     confirmacao,
     jpeg,
     lexico,
+    responder,
 )
 from kamba_core.catalogo import estados  # noqa: E402
 from kamba_core.catalogo.pipeline import ServicoDeIngestao  # noqa: E402
@@ -298,7 +299,7 @@ class TestPipelineNaBase(ComBase):
         self.assertEqual(r.estado, estados.A_PERGUNTAR)
         for resposta in ({"preco_tipo": "fixo"}, {"preco": "12 mil"}, {"stock_modo": "garantido"},
                          {"stock": "5"}, {"entrega": "entrega"}):
-            r = servico.responder(a, r.ingestao.id, resposta)
+            r = responder(servico, a, r.ingestao.id, resposta)
         self.assertEqual(r.estado, estados.RASCUNHO)
         final = servico.confirmar(a, r.ingestao.id, confirmacao(r.versao_texto or ""))
         self.assertEqual(final.estado, estados.PUBLICADA)
@@ -339,6 +340,36 @@ class TestPipelineNaBase(ComBase):
         repo.gravar(lida, _com_estado(lida, "descartada"))
         with self.assertRaises(ConflitoDeEstado):
             repo.gravar(lida, _com_estado(lida, "rascunho"))
+
+    def test_duas_escritas_no_mesmo_estado_nao_se_sobrepoem(self) -> None:
+        """A versao, e nao o estado, e o que o `gravar` compara (achado 4 da revisao)."""
+        from dataclasses import replace
+
+        a, _ = self._tenants()
+        servico, _, _ = self._servico((a,), {"m1": jpeg(b"VERS")})
+        lida = servico.receber(a, "m1").ingestao
+        self.assertEqual(lida.estado, estados.A_PERGUNTAR)
+        repo = RepositorioDbapi(lambda: ligacao.ligar("app"))
+        escrita = repo.gravar(lida, replace(lida, perguntas_feitas=lida.perguntas_feitas + 1))
+        self.assertEqual(escrita.versao, lida.versao + 1)
+        with self.assertRaises(ConflitoDeEstado):
+            repo.gravar(lida, replace(lida, perguntas_feitas=lida.perguntas_feitas + 2))
+
+    def test_a_versao_e_o_atualizado_at_sao_do_gatilho(self) -> None:
+        admin = self.ligar("admin")
+        tenant = factories.tenant(admin.cursor())
+        linha = inserir(admin.cursor(), tenant)
+        admin.commit()
+        app = self.ligar("app").cursor()
+        factories.contexto(app, tenant)
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, app,
+                           f"UPDATE {TABELA} SET versao = 0 WHERE id = %s", (linha,))
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, app,
+                           f"UPDATE {TABELA} SET atualizado_at = now() WHERE id = %s", (linha,))
+        app.execute(f"UPDATE {TABELA} SET sku = 'cat-a' WHERE id = %s RETURNING versao", (linha,))
+        self.assertEqual(app.fetchone()[0], 1)
+        app.execute(f"UPDATE {TABELA} SET sku = 'cat-b' WHERE id = %s RETURNING versao", (linha,))
+        self.assertEqual(app.fetchone()[0], 2)
 
 
 def _com_estado(ingestao, estado: str):

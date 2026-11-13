@@ -21,9 +21,14 @@ processos a correr ao mesmo tempo.
 
 ## Concorrencia
 
-O `gravar` recebe o estado **lido** e escreve com `AND estado = %s`: duas
-respostas do dono a mesma ingestao em paralelo nao se sobrepoem em silencio —
-a segunda recebe `ConflitoDeEstado` e relê.
+O `gravar` recebe a linha **lida** e escreve com `AND versao = %s`. A `versao`
+e da base: o *trigger* sobe-a em cada escrita, e nenhum papel tem `UPDATE`
+nela. Duas escritas a partir da mesma leitura — duas respostas do dono em
+paralelo, ou uma correccao a meio de uma confirmacao — nao se sobrepoem em
+silencio, **mesmo sem mudar de estado**: a segunda recebe `ConflitoDeEstado`.
+A primeira versao escrevia com `AND estado = %s`, e a revisao adversarial
+mostrou o que isso deixava passar (`a_perguntar -> a_perguntar` perdia a
+primeira resposta).
 """
 
 from __future__ import annotations
@@ -69,6 +74,8 @@ class Ingestao:
     custo_llm_usd: Decimal = Decimal(0)
     confirmado_at: datetime | None = None
     confirmado_por: str | None = None
+    ultima_mensagem_id: str | None = None
+    versao: int = 0
 
     def extraido(self) -> dict[str, Any]:
         """O `jsonb` da coluna: campo -> {valor, confianca, fonte, confirmado, corrigido}."""
@@ -100,6 +107,16 @@ def validar(linha: Ingestao) -> None:
         raise IngestaoInvalida("publicada exige confirmacao do dono, sku e nenhuma categoria restrita")
     if linha.custo_llm_usd < 0:
         raise IngestaoInvalida("custo_llm_usd negativo")
+    # Os comprimentos dos `CHECK` de coluna, por paridade: um valor que a base
+    # recusaria tem de ser recusado **antes** de qualquer efeito fora dela.
+    for nome, valor, maximo in (
+        ("media_id_meta", linha.media_id_meta, 256),
+        ("sku", linha.sku, 64),
+        ("confirmado_por", linha.confirmado_por, 200),
+        ("ultima_mensagem_id", linha.ultima_mensagem_id, 256),
+    ):
+        if valor is not None and not 1 <= len(valor) <= maximo:
+            raise IngestaoInvalida(f"{nome} fora de [1, {maximo}] caracteres")
 
 
 class Repositorio(Protocol):
@@ -166,7 +183,7 @@ class RepositorioEmMemoria:
 
     def gravar(self, lido: Ingestao, nova: Ingestao) -> Ingestao:
         actual = self.ler(lido.tenant_id, lido.id)
-        if actual is None or actual.estado != lido.estado:
+        if actual is None or actual.versao != lido.versao:
             raise ConflitoDeEstado("a ingestao mudou entre a leitura e a escrita")
         if lido.estado in estados.FINAIS:
             # O *trigger* da base: uma linha final nao muda.
@@ -175,7 +192,13 @@ class RepositorioEmMemoria:
         if nova.perguntas_feitas < lido.perguntas_feitas:
             raise IngestaoInvalida("perguntas_feitas nao desce")
         validar(nova)
-        self._linhas[nova.id] = replace(nova, tenant_id=lido.tenant_id, media_ref=lido.media_ref, media_id_meta=lido.media_id_meta)
+        self._linhas[nova.id] = replace(
+            nova,
+            tenant_id=lido.tenant_id,
+            media_ref=lido.media_ref,
+            media_id_meta=lido.media_id_meta,
+            versao=lido.versao + 1,
+        )
         return self._linhas[nova.id]
 
 
@@ -184,7 +207,7 @@ class RepositorioEmMemoria:
 _COLUNAS = (
     "id::text, tenant_id::text, media_ref, media_id_meta, estado, phash, extraido::text, "
     "campos_em_falta, perguntas_feitas, categoria_restrita, sku, custo_llm_usd, "
-    "confirmado_at, confirmado_por"
+    "confirmado_at, confirmado_por, ultima_mensagem_id, versao"
 )
 
 SQL_INSERIR = (
@@ -207,14 +230,15 @@ SQL_COM_PHASH = (
 SQL_GRAVAR = (
     "UPDATE platform.catalog_ingestions SET estado = %s, phash = %s, extraido = %s::jsonb, "
     "campos_em_falta = %s::text[], perguntas_feitas = %s, categoria_restrita = %s, sku = %s, "
-    "custo_llm_usd = %s, confirmado_at = %s, confirmado_por = %s, atualizado_at = now() "
-    "WHERE tenant_id = %s::uuid AND id = %s::uuid AND estado = %s "
+    "custo_llm_usd = %s, confirmado_at = %s, confirmado_por = %s, ultima_mensagem_id = %s "
+    "WHERE tenant_id = %s::uuid AND id = %s::uuid AND versao = %s "
     f"RETURNING {_COLUNAS}"
 )
 
 
 def _de_linha(linha: Sequence[Any]) -> Ingestao:
-    (id_, tenant, media_ref, media_id, estado, phash, extraido, falta, feitas, restrita, sku, custo, conf_at, conf_por) = linha
+    (id_, tenant, media_ref, media_id, estado, phash, extraido, falta, feitas, restrita, sku, custo, conf_at, conf_por,
+     ultima, versao) = linha
     bruto = json.loads(extraido) if isinstance(extraido, str) else (extraido or {})
     return Ingestao(
         id=str(id_),
@@ -231,6 +255,8 @@ def _de_linha(linha: Sequence[Any]) -> Ingestao:
         custo_llm_usd=Decimal(str(custo)),
         confirmado_at=conf_at,
         confirmado_por=conf_por,
+        ultima_mensagem_id=ultima,
+        versao=int(versao),
     )
 
 
@@ -295,9 +321,10 @@ class RepositorioDbapi:
                 nova.custo_llm_usd,
                 nova.confirmado_at,
                 nova.confirmado_por,
+                nova.ultima_mensagem_id,
                 lido.tenant_id,
                 lido.id,
-                lido.estado,
+                lido.versao,
             ),
         )
         if escrita is None:

@@ -2475,7 +2475,7 @@ INVENTARIO["review_decision_log"] = {
 #: esta aqui**: a `media_ref` e a chave do objecto no STO do proprio tenant
 #: (presa a ele por `CHECK`), e o EXIF e o GPS saem antes do STO. O `extraido`
 #: guarda o que a visao leu do produto, campo a campo, e e catalogo e nao
-#: pessoa. Dezasseis colunas.
+#: pessoa. Dezoito colunas.
 INVENTARIO["catalog_ingestions"] = {
     "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
     "tenant_id": ("uuid", NAO, None, "nao"),
@@ -2486,7 +2486,7 @@ INVENTARIO["catalog_ingestions"] = {
         "nao — a chave do objecto no STO do tenant, nunca a URL da Meta",
     ),
     "media_id_meta": ("text", SIM, None, "nao — identificador da midia na Meta"),
-    "phash": ("bytea", SIM, None, "nao — dHash de 64 bits da imagem"),
+    "phash": ("bytea", SIM, None, "nao — hash perceptual (DCT) de 64 bits da imagem"),
     "estado": ("text", NAO, "'recebida'::text", "nao"),
     "extraido": (
         "jsonb",
@@ -2506,6 +2506,13 @@ INVENTARIO["catalog_ingestions"] = {
         None,
         "nao — identificador do actor que confirmou, nunca o nome nem o telefone",
     ),
+    "ultima_mensagem_id": (
+        "text",
+        SIM,
+        None,
+        "nao — identificador da ultima mensagem do dono processada, nunca o texto",
+    ),
+    "versao": ("integer", NAO, "0", "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
@@ -3852,6 +3859,7 @@ class TestInventario(ComBase):
                     "catalog_ingestions_pkey",
                     "catalog_ingestions_publicada_ck",
                     "catalog_ingestions_sku_ck",
+                    "catalog_ingestions_ultima_mensagem_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

@@ -142,6 +142,31 @@ def perfil_da_categoria(categoria: str | None) -> str:
     return "geral"
 
 
+#: Os perfis que **pedem menos** do que o `geral`: so o `servico` (sem stock nem
+#: entrega). Escolhe-se so com a categoria dita ou confirmada pelo dono.
+_PERFIS_QUE_ENCOLHEM: Final = frozenset({"servico"})
+
+
+def perfil_dos_campos(campos: Mapping[str, Campo]) -> str:
+    """O perfil que a ingestao usa, a partir dos campos que tem.
+
+    **O texto de uma foto nunca encolhe as perguntas.** A categoria da visao e
+    dado nao fiavel (criterio 8): uma etiqueta que diga «servicos de reparacao»
+    nao pode tirar o stock e a entrega das perguntas. Por isso uma categoria que
+    veio da visao e o dono nao confirmou so escolhe um perfil que **acrescenta**
+    campos ao `geral` (vestuario, alimentar, electronica); o `servico`, que pede
+    menos, so vale com a categoria do dono. A categoria aparece no resumo, e e
+    la que o dono a corrige (achado da revisao adversarial).
+    """
+    campo = campos.get("categoria")
+    if campo is None or campo.abaixo_do_limiar or not isinstance(campo.valor, str):
+        return "geral"
+    perfil = perfil_da_categoria(campo.valor)
+    if perfil in _PERFIS_QUE_ENCOLHEM and not campo.visivel_ao_cliente:
+        return "geral"
+    return perfil
+
+
 def _valor(campos: Mapping[str, Campo], nome: str) -> str | None:
     campo = campos.get(nome)
     if campo is None or campo.abaixo_do_limiar or not isinstance(campo.valor, str):

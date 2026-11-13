@@ -36,6 +36,7 @@ from catalogo_apoio import (
     montar,
     png,
     resposta,
+    responder,
     textura,
 )
 from kamba_core.catalogo import completude, estados, exif, imagem, indicadores, screening
@@ -132,9 +133,67 @@ class TestExif(unittest.TestCase):
         # Os dados entropicos, com enchimento e RST, ficam byte a byte.
         self.assertIn(b"\x12\x34\xff\x00\x56DADOS\xff\xd0\x78\x9a", limpo)
         self.assertIn(b"JFIF", limpo)
-        self.assertIn(b"ICC_PROFILE", limpo)
+        # O perfil ICC sai: leva texto, e a revisao adversarial pos GPS nele.
+        self.assertNotIn(b"ICC_PROFILE", limpo)
         for marcador in (b"\xff\xdb", b"\xff\xc0", b"\xff\xc4", b"\xff\xda"):
             self.assertIn(marcador, limpo)
+
+    def test_segmentos_que_ficam_pelo_marcador_nao_levam_metadados_pelo_conteudo(self) -> None:
+        """Os seis caminhos da revisao adversarial: GPS em segmentos «permitidos»."""
+        from catalogo_apoio import _segmento  # type: ignore[attr-defined]
+
+        base = jpeg(com_metadados=False, com_cauda=False)
+        inicio, resto = base[:2], base[2:]
+        miniatura = b"\xff\xd8" + _segmento(0xE1, b"Exif\x00\x00" + GPS) + b"\xff\xd9"
+        casos = {
+            "APP0 com Exif": _segmento(0xE0, b"Exif\x00\x00" + GPS),
+            "APP0 JFXX com miniatura": _segmento(0xE0, b"JFXX\x00\x10" + miniatura),
+            "JFIF com miniatura": _segmento(0xE0, b"JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x01\x01" + GPS[:3]),
+            "APP14 com texto": _segmento(0xEE, b"Adobe\x00\x64\x00\x00\x00\x00\x01" + GPS),
+            "ICC com texto": _segmento(0xE2, b"ICC_PROFILE\x00\x01\x01desc" + GPS),
+        }
+        for nome, segmento in casos.items():
+            with self.subTest(caso=nome):
+                sujo = inicio + segmento + resto
+                self.assertTrue(exif.tem_metadados(sujo))
+                limpo = exif.limpar_metadados(sujo)
+                self.assertNotIn(GPS, limpo)
+                self.assertNotIn(GPS[:3], limpo)
+                self.assertFalse(exif.tem_metadados(limpo))
+
+    def test_segmento_estrutural_com_bytes_a_mais_e_invalido(self) -> None:
+        from catalogo_apoio import _segmento  # type: ignore[attr-defined]
+
+        base = jpeg(com_metadados=False, com_cauda=False)
+        dqt = _segmento(0xDB, b"\x00" + bytes(range(64)))
+        sujo = base.replace(dqt, _segmento(0xDB, b"\x00" + bytes(range(64)) + GPS))
+        self.assertNotEqual(sujo, base)
+        with self.assertRaises(exif.ImagemInvalida):
+            exif.limpar_metadados(sujo)
+        self.assertTrue(exif.tem_metadados(sujo))
+
+    def test_png_sem_iccp_e_com_comprimentos_certos(self) -> None:
+        from catalogo_apoio import _chunk  # type: ignore[attr-defined]
+
+        original = png()
+        com_iccp = original.replace(b"\x00\x00\x00\x09pHYs", _chunk(b"iCCP", b"perfil " + GPS + b"\x00\x00x") + b"\x00\x00\x00\x09pHYs", 1)
+        limpo = exif.limpar_metadados(com_iccp)
+        self.assertNotIn(GPS, limpo)
+        self.assertNotIn(b"iCCP", limpo)
+        self.assertFalse(exif.tem_metadados(limpo))
+        gama_errado = original.replace(b"\x00\x00\x00\x09pHYs", _chunk(b"gAMA", b"\x00\x00\x00\x00" + GPS) + b"\x00\x00\x00\x09pHYs", 1)
+        with self.assertRaises(exif.ImagemInvalida):
+            exif.limpar_metadados(gama_errado)
+
+    def test_a_segunda_guarda_nao_e_a_limpeza(self) -> None:
+        """`tem_metadados` recusa o que nao e a forma minima, mesmo sem chamar o `limpar`."""
+        limpo = exif.limpar_metadados(jpeg())
+        self.assertFalse(exif.tem_metadados(limpo))
+        # Um JPEG limpo com um COM acrescentado e um PNG com cauda.
+        self.assertTrue(exif.tem_metadados(limpo[:2] + b"\xff\xfe\x00\x05oi!" + limpo[2:]))
+        self.assertTrue(exif.tem_metadados(limpo + b"cauda"))
+        self.assertTrue(exif.tem_metadados(exif.limpar_metadados(png()) + b"cauda"))
+        self.assertTrue(exif.tem_metadados(b"\xff\xd8\x00"))
 
     def test_limpar_e_idempotente(self) -> None:
         limpo = exif.limpar_metadados(jpeg())
@@ -519,11 +578,11 @@ class TestRepositorio(unittest.TestCase):
 
 
 def _ate_ao_rascunho(m, ingestao_id: str):  # type: ignore[no-untyped-def]
-    r = m.servico.responder(A, ingestao_id, {"preco_tipo": "é fixo"})
-    r = m.servico.responder(A, ingestao_id, {"preco": "12 mil"})
-    r = m.servico.responder(A, ingestao_id, {"stock_modo": "garantido"})
-    r = m.servico.responder(A, ingestao_id, {"stock": "5"})
-    r = m.servico.responder(A, ingestao_id, {"entrega": "entrega em Luanda"})
+    r = responder(m.servico, A, ingestao_id, {"preco_tipo": "é fixo"})
+    r = responder(m.servico, A, ingestao_id, {"preco": "12 mil"})
+    r = responder(m.servico, A, ingestao_id, {"stock_modo": "garantido"})
+    r = responder(m.servico, A, ingestao_id, {"stock": "5"})
+    r = responder(m.servico, A, ingestao_id, {"entrega": "entrega em Luanda"})
     return r
 
 
@@ -537,11 +596,15 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(r.ingestao.campos[SUGESTAO].valor, "1200000")
         self.assertFalse(r.ingestao.campos[SUGESTAO].confirmado)
         self.assertEqual(r.ingestao.custo_llm_usd, Decimal("0.0042"))
-        r = m.servico.responder(A, r.ingestao.id, {"preco_tipo": "é fixo"})
+        r = responder(m.servico, A, r.ingestao.id, {"preco_tipo": "é fixo"})
         self.assertEqual([(p.campo, p.sugestao) for p in r.perguntas], [("preco", "12 000 Kz")])
         r = _ate_ao_rascunho(m, r.ingestao.id)
         self.assertEqual(r.estado, estados.RASCUNHO, r)
-        self.assertEqual(r.resumo, "Camisa polo nike, variantes M e L, 12 000 Kz, 5 em stock")
+        self.assertEqual(
+            r.resumo,
+            "Camisa polo nike, categoria vestuario, cor azul, variantes M e L, "
+            "entrega entrega em Luanda, 12 000 Kz, 5 em stock",
+        )
         self.assertEqual(len(m.registo.rascunhos), 1)
         self.assertNotIn(SUGESTAO, m.registo.rascunhos[0][2])
         self.assertEqual(m.registo.publicados, [])
@@ -573,10 +636,10 @@ class TestPipeline(unittest.TestCase):
         m = montar()
         r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
         antiga = r.versao_texto or ""
-        r2 = m.servico.responder(A, r.ingestao.id, {"cor": "verde"})
+        r2 = responder(m.servico, A, r.ingestao.id, {"cor": "verde"})
         self.assertEqual(r2.estado, estados.RASCUNHO)
         self.assertTrue(r2.ingestao.campos["cor"].corrigido)
-        r3 = m.servico.responder(A, r.ingestao.id, {"stock": "7"})
+        r3 = responder(m.servico, A, r.ingestao.id, {"stock": "7"})
         with self.assertRaises(ConfirmacaoRecusada):
             m.servico.confirmar(A, r.ingestao.id, confirmacao(antiga))
         final = m.servico.confirmar(A, r.ingestao.id, confirmacao(r3.versao_texto or ""))
@@ -744,7 +807,7 @@ class TestPipeline(unittest.TestCase):
         with self.assertRaises(ConfirmacaoRecusada):
             m.servico.confirmar(A, r.ingestao.id, confirmacao("x"))
         # O dono a responder nao a desbloqueia.
-        self.assertEqual(m.servico.responder(A, r.ingestao.id, {"preco_tipo": "fixo"}).estado, estados.BLOQUEADA_CATEGORIA)
+        self.assertEqual(responder(m.servico, A, r.ingestao.id, {"preco_tipo": "fixo"}).estado, estados.BLOQUEADA_CATEGORIA)
         # A decisao humana do T&S levanta-a; o screening corre outra vez.
         m.screening.decisao_forcada = screening.ResultadoDoScreen("permitida", (), "1", 1.0)
         levantada = m.servico.retomar(A, r.ingestao.id)
@@ -754,7 +817,7 @@ class TestPipeline(unittest.TestCase):
     def test_resposta_do_dono_que_muda_o_produto_volta_ao_screening(self) -> None:
         m = montar()
         r = m.servico.receber(A, "m1")
-        r = m.servico.responder(A, r.ingestao.id, {"nome": "Cerveja preta"})
+        r = responder(m.servico, A, r.ingestao.id, {"nome": "Cerveja preta"})
         self.assertEqual((r.estado, r.ingestao.categoria_restrita), (estados.BLOQUEADA_CATEGORIA, "alcool"))
 
     def test_screening_que_falha_e_restritivo(self) -> None:
@@ -799,7 +862,7 @@ class TestPipeline(unittest.TestCase):
             if not r.perguntas:
                 break
             # Respostas que nao se leem: a pergunta conta e repete-se.
-            r = m.servico.responder(A, r.ingestao.id, {p.campo: "hmm" for p in r.perguntas if p.campo in ("preco_tipo", "preco", "stock_modo", "stock")} or {"x": "y"})
+            r = responder(m.servico, A, r.ingestao.id, {p.campo: "hmm" for p in r.perguntas if p.campo in ("preco_tipo", "preco", "stock_modo", "stock")} or {"x": "y"})
         self.assertEqual(r.ingestao.perguntas_feitas, completude.MAXIMO_DE_PERGUNTAS)
         self.assertEqual(r.motivo, "limite_de_perguntas")
         self.assertEqual(r.estado, estados.A_PERGUNTAR)
@@ -810,7 +873,185 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(m.servico.descartar(A, r.ingestao.id).estado, estados.DESCARTADA)
         self.assertEqual(m.servico.descartar(A, r.ingestao.id).estado, estados.DESCARTADA)
         self.assertEqual(m.servico.retomar(A, r.ingestao.id).estado, estados.DESCARTADA)
-        self.assertEqual(m.servico.responder(A, r.ingestao.id, {"nome": "x"}).estado, estados.DESCARTADA)
+        self.assertEqual(responder(m.servico, A, r.ingestao.id, {"nome": "x"}).estado, estados.DESCARTADA)
+
+    # ------------------------------------------------ achados da revisao adversarial
+
+    def test_correccao_a_meio_da_confirmacao_nao_e_publicada(self) -> None:
+        """Achado 1: a correccao entre a leitura e a escrita da confirmacao."""
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        lida = m.repo.ler(A, r.ingestao.id)
+        responder(m.servico, A, r.ingestao.id, {"preco": "1 kz"})
+        ler_original = m.repo.ler
+
+        def ler_velha(tenant: str, ingestao_id: str):  # type: ignore[no-untyped-def]
+            m.repo.ler = ler_original  # type: ignore[method-assign]
+            return lida
+
+        m.repo.ler = ler_velha  # type: ignore[method-assign]
+        with self.assertRaises(ConflitoDeEstado):
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(m.registo.publicados, [])
+        self.assertEqual(m.repo.ler(A, r.ingestao.id).estado, estados.RASCUNHO)  # type: ignore[union-attr]
+        self.assertEqual(m.registo.rascunhos[-1][2]["preco"].valor, "100")
+
+    def test_o_resumo_mostra_todos_os_campos_e_so_esses_ficam_confirmados(self) -> None:
+        """Achado 2: um campo da visao fora do perfil e abaixo do limiar."""
+        texto = resposta(
+            {
+                "nome": "Camisa polo",
+                "categoria": "vestuario",
+                "variantes": ["M"],
+                "material": {"valor": "pele de crocodilo", "confianca": 0.1},
+                "cor": {"valor": "vermelha", "confianca": 0.2},
+            }
+        )
+        m = montar(visao=VisaoFake(texto=texto))
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        self.assertIn("material pele de crocodilo", r.resumo or "")
+        self.assertIn("cor vermelha", r.resumo or "")
+        antiga = r.versao_texto or ""
+        # Corrigir um campo que so o resumo mostrava invalida a versao.
+        r2 = responder(m.servico, A, r.ingestao.id, {"material": "algodao"})
+        self.assertIn("material algodao", r2.resumo or "")
+        with self.assertRaises(ConfirmacaoRecusada):
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(antiga))
+        final = m.servico.confirmar(A, r.ingestao.id, confirmacao(r2.versao_texto or ""))
+        self.assertTrue(final.ingestao.campos["cor"].visivel_ao_cliente)
+        self.assertFalse(final.ingestao.campos[SUGESTAO].confirmado if SUGESTAO in final.ingestao.campos else False)
+
+    def test_a_categoria_da_foto_nao_encolhe_as_perguntas(self) -> None:
+        """Achado 3: «servicos de reparacao» na foto nao tira o stock."""
+        texto = resposta({"nome": "Telemovel", "categoria": "servicos de reparacao"})
+        m = montar(visao=VisaoFake(texto=texto))
+        r = m.servico.receber(A, "m1")
+        r = responder(m.servico, A, r.ingestao.id, {"preco_tipo": "fixo"})
+        r = responder(m.servico, A, r.ingestao.id, {"preco": "90 mil"})
+        self.assertEqual([p.campo for p in r.perguntas], ["stock_modo"])
+        # Dita pelo dono, a categoria de servico vale.
+        r = responder(m.servico, A, r.ingestao.id, {"categoria": "Serviço"})
+        self.assertNotIn("stock_modo", r.ingestao.campos_em_falta)
+        self.assertIn("duracao", r.ingestao.campos_em_falta)
+
+    def test_duas_escritas_da_mesma_leitura_no_mesmo_estado(self) -> None:
+        """Achado 4: o bloqueio optimista e pela versao, nao pelo estado."""
+        m = montar()
+        r = m.servico.receber(A, "m1")
+        lida = m.repo.ler(A, r.ingestao.id)
+        assert lida is not None
+        m.repo.gravar(lida, replace(lida, perguntas_feitas=lida.perguntas_feitas + 1))
+        with self.assertRaises(ConflitoDeEstado):
+            m.repo.gravar(lida, replace(lida, perguntas_feitas=lida.perguntas_feitas + 2))
+
+    def test_uma_falha_qualquer_da_visao_nao_prende_a_linha(self) -> None:
+        """Achado 6: um `TimeoutError` da porta, e o `retomar` de `em_extraccao`."""
+        m = montar()
+
+        def rebenta(tenant_id: str, imagem: bytes):  # type: ignore[no-untyped-def]
+            raise TimeoutError("o proxy nao respondeu")
+
+        m.visao.extrair = rebenta  # type: ignore[method-assign]
+        self.assertEqual(m.servico.receber(A, "m1").estado, estados.A_PERGUNTAR)
+        # Uma linha que ficou em `em_extraccao` (um processo que morreu) retoma.
+        m2 = montar({"m1": jpeg(b"P1"), "m2": jpeg(b"P2")})
+        presa = m2.servico.receber(A, "m2").ingestao
+        m2.repo._linhas[presa.id] = replace(presa, estado=estados.EM_EXTRACCAO)  # type: ignore[attr-defined]
+        self.assertEqual(m2.servico.retomar(A, presa.id).estado, estados.A_PERGUNTAR)
+
+    def test_a_mesma_mensagem_entregue_duas_vezes_nao_conta_perguntas(self) -> None:
+        """Achado 7: idempotencia do `responder` por `mensagem_id`."""
+        m = montar()
+        r = m.servico.receber(A, "m1")
+        r1 = responder(m.servico, A, r.ingestao.id, {"preco_tipo": "talvez"}, mensagem_id="wamid.1")
+        r2 = responder(m.servico, A, r.ingestao.id, {"preco_tipo": "talvez"}, mensagem_id="wamid.1")
+        self.assertEqual(r1.ingestao.perguntas_feitas, r2.ingestao.perguntas_feitas)
+        self.assertEqual(r2.ingestao.versao, r1.ingestao.versao)
+        r3 = responder(m.servico, A, r.ingestao.id, {"preco_tipo": "talvez"}, mensagem_id="wamid.2")
+        self.assertEqual(r3.ingestao.perguntas_feitas, r1.ingestao.perguntas_feitas + 1)
+        with self.assertRaises(ValueError):
+            m.servico.responder(A, r.ingestao.id, {"nome": "x"}, mensagem_id="")
+
+    def test_um_actor_que_a_base_recusaria_nao_chega_ao_registo(self) -> None:
+        """Achado 8: o `validar` com os comprimentos dos `CHECK`."""
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        with self.assertRaises(IngestaoInvalida):
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or "", actor="x" * 300))
+        self.assertEqual(m.registo.publicados, [])
+
+    def test_o_registo_que_falha_depois_da_escrita_recupera_repetindo(self) -> None:
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        publicar = m.registo.publicar
+
+        def falha(*_: object) -> None:
+            raise ConnectionError("COM em baixo")
+
+        m.registo.publicar = falha  # type: ignore[method-assign]
+        with self.assertRaises(ConnectionError):
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(m.repo.ler(A, r.ingestao.id).estado, estados.PUBLICADA)  # type: ignore[union-attr]
+        m.registo.publicar = publicar  # type: ignore[method-assign]
+        m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(len(m.registo.publicados), 1)
+        # Outro actor nao re-sincroniza uma publicada.
+        with self.assertRaises(ConfirmacaoRecusada):
+            m.servico.confirmar(A, r.ingestao.id, confirmacao(r.versao_texto or "", actor="owner:2"))
+
+    def test_m07_a_imagem_relida_do_sto_passa_outra_vez_pela_guarda(self) -> None:
+        m = montar()
+        get_original = m.storage.storage.get  # type: ignore[attr-defined]
+
+        class StorageSujo:
+            def __getattr__(self, nome: str):  # type: ignore[no-untyped-def]
+                return getattr(m.storage.storage, nome)  # type: ignore[attr-defined]
+
+            def get(self, ctx, ref):  # type: ignore[no-untyped-def]
+                return iter([b"".join(get_original(ctx, ref))[:2] + b"\xff\xe1\x00\x08Exif" + b"".join(get_original(ctx, ref))[2:]])
+
+        m.servico.storage = StorageSujo()  # type: ignore[assignment]
+        r = m.servico.receber(A, "m1")
+        self.assertEqual((r.estado, r.motivo), (estados.BLOQUEADA_GATE, "metadados"))
+        self.assertEqual(m.visao.imagens, [])
+
+    def test_m09_fora_de_prod_e_sempre_so_sinteticas(self) -> None:
+        for ambiente in ("dev", "test", "", "PROD"):
+            with self.subTest(ambiente=ambiente):
+                m = montar(ambiente=ambiente)
+                self.assertEqual(m.servico.receber(A, "m1").motivo, "so_sinteticas")
+                self.assertEqual(m.visao.imagens, [])
+
+    def test_m22_o_sku_e_o_mesmo_em_todos_os_rascunhos(self) -> None:
+        m = montar()
+        r = _ate_ao_rascunho(m, m.servico.receber(A, "m1").ingestao.id)
+        responder(m.servico, A, r.ingestao.id, {"cor": "verde"})
+        responder(m.servico, A, r.ingestao.id, {"stock": "9"})
+        self.assertGreaterEqual(len(m.registo.rascunhos), 3)
+        self.assertEqual({sku for _, sku, _ in m.registo.rascunhos}, {r.ingestao.sku})
+
+    def test_m23_retomar_com_o_screening_ainda_a_bloquear_mantem_o_bloqueio(self) -> None:
+        cerveja = resposta({"nome": "Cerveja Cuca", "categoria": "bebidas"})
+        m = montar(visao=VisaoFake(texto=cerveja))
+        r = m.servico.receber(A, "m1")
+        retomada = m.servico.retomar(A, r.ingestao.id)
+        self.assertEqual((retomada.estado, retomada.ingestao.categoria_restrita), (estados.BLOQUEADA_CATEGORIA, "alcool"))
+        self.assertEqual(len(m.screening.pedidos), 2)
+
+    def test_m25_o_custo_acumula_entre_chamadas(self) -> None:
+        m = montar(autorizar=False)
+        r = m.servico.receber(A, "m1")
+        lida = m.repo.ler(A, r.ingestao.id)
+        assert lida is not None
+        m.repo._linhas[lida.id] = replace(lida, custo_llm_usd=Decimal("0.0100"))  # type: ignore[attr-defined]
+        m.destinos.autorizados.add((A, "anthropic", "visao"))
+        self.assertEqual(m.servico.retomar(A, r.ingestao.id).ingestao.custo_llm_usd, Decimal("0.0142"))
+
+    def test_m17_a_memoria_recusa_a_transicao_que_a_base_recusa(self) -> None:
+        repo = RepositorioEmMemoria()
+        linha = repo.inserir(Ingestao(id="i1", tenant_id=A, media_ref=f"t/{A}/catalogo/2026/11/x", media_id_meta="m"))
+        with self.assertRaises(estados.TransicaoRecusada):
+            repo.gravar(linha, replace(linha, estado=estados.PUBLICADA))
 
     def test_iso_47_a_50_url_assinada_de_outro_tenant(self) -> None:
         """ISO-47..50: a foto do tenant B nao se le nem se assina com o contexto A."""
@@ -891,8 +1132,8 @@ class TestInjeccaoIndirecta(unittest.TestCase):
         m = montar(visao=VisaoFake(texto=self._resposta(INJECCOES[2])))
         r = m.servico.receber(A, "m1")
         self.assertEqual(r.ingestao.campos[SUGESTAO].valor, "100")
-        r = m.servico.responder(A, r.ingestao.id, {"preco_tipo": "fixo"})
-        r = m.servico.responder(A, r.ingestao.id, {"preco": "45 mil"})
+        r = responder(m.servico, A, r.ingestao.id, {"preco_tipo": "fixo"})
+        r = responder(m.servico, A, r.ingestao.id, {"preco": "45 mil"})
         self.assertEqual(r.ingestao.campos["preco"].valor, "4500000")
         self.assertEqual(r.ingestao.campos["preco"].fonte, DONO_TEXTO)
 

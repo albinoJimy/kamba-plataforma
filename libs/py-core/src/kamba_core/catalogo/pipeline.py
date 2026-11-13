@@ -68,6 +68,7 @@ from .extraccao import (
     Campo,
     ExtraccaoInvalida,
     confirmar as confirmar_campo,
+    limpar_texto,
     do_dono,
     ler_resposta_da_visao,
 )
@@ -248,7 +249,9 @@ def interpretar(campo: str, texto: str, fonte: str) -> str | tuple[str, ...] | N
     if campo == "stock":
         valor = _ler_inteiro(texto, fonte)
         return str(valor) if valor is not None else None
-    limpo = " ".join(texto.split())[:200]
+    # O texto livre do dono passa pela mesma limpeza da visao: sem caracteres
+    # de controlo nem de formatacao (`Cf`), cortado ao mesmo tecto.
+    limpo = limpar_texto(texto)
     if not limpo:
         return None
     if campo == "variantes":
@@ -265,8 +268,37 @@ def _kz(minor: str) -> str:
     return f"{inteiro:,}".replace(",", " ") + " Kz"
 
 
+#: Os campos que o resumo mostra com rotulo, por esta ordem. **Todos** os campos
+#: do produto entram no resumo, e e essa a condicao para a confirmacao valer
+#: por eles: a primeira versao mostrava cinco e confirmava todos, e uma `cor` ou
+#: um `material` da visao abaixo do limiar saiam visiveis ao cliente sem o dono
+#: os ter visto (achado da revisao adversarial). Um campo que nao esteja aqui
+#: entra a seguir, pelo nome, e tambem e mostrado.
+ROTULOS_DO_RESUMO: Final = (
+    ("categoria", "categoria"),
+    ("cor", "cor"),
+    ("tamanho", "tamanho"),
+    ("material", "material"),
+    ("unidade", "unidade"),
+    ("variantes", "variantes"),
+    ("entrega", "entrega"),
+    ("garantia", "garantia"),
+    ("duracao", "duracao"),
+    ("local", "local"),
+    ("pre_aviso", "pre-aviso"),
+)
+_FORA_DOS_ROTULOS: Final = frozenset(
+    {"nome", "marca", "preco_tipo", "preco", "stock_modo", "stock", SUGESTAO}
+    | {nome for nome, _ in ROTULOS_DO_RESUMO}
+)
+
+
 def resumo(campos: Mapping[str, Campo]) -> str:
-    """O resumo da etapa 9 («Camisa Nike, tam. M e L, 12 000 Kz, 5 em stock»)."""
+    """O resumo da etapa 9, com **todos** os campos do produto.
+
+    «Camisa polo nike, categoria vestuario, cor azul, variantes M e L,
+    12 000 Kz, 5 em stock» — e a versao deste texto que a confirmacao leva.
+    """
     partes: list[str] = []
 
     def valor(nome: str) -> str | None:
@@ -278,8 +310,12 @@ def resumo(campos: Mapping[str, Campo]) -> str:
     cabeca = " ".join(v for v in (valor("nome"), valor("marca")) if v)
     if cabeca:
         partes.append(cabeca)
-    if valor("variantes"):
-        partes.append(f"variantes {valor('variantes')}")
+    for nome, rotulo in ROTULOS_DO_RESUMO:
+        if valor(nome):
+            partes.append(f"{rotulo} {valor(nome)}")
+    for nome in sorted(set(campos) - _FORA_DOS_ROTULOS):
+        if valor(nome):
+            partes.append(f"{nome} {valor(nome)}")
     tipo = valor("preco_tipo")
     preco = valor("preco")
     if tipo == "sob_consulta":
@@ -291,6 +327,8 @@ def resumo(campos: Mapping[str, Campo]) -> str:
         partes.append(f"{stock} em stock")
     elif valor("stock_modo") == "confirmar_dono":
         partes.append("stock a confirmar a cada pedido")
+    elif valor("stock_modo"):
+        partes.append(f"stock {valor('stock_modo')}")
     return ", ".join(partes)
 
 
@@ -375,9 +413,15 @@ class ServicoDeIngestao:
         return self._depois_da_captura(linha, self._imagem(linha), sintetica=sintetica, verificar_duplicado=False)
 
     def retomar(self, tenant_id: str, ingestao_id: str, *, sintetica: bool = False) -> Resultado:
-        """Depois de uma decisao humana: o *gate* autorizado, ou o T&S a levantar a categoria."""
+        """Depois de uma decisao humana: o *gate* autorizado, ou o T&S a levantar a categoria.
+
+        Tambem tira de `em_extraccao` uma ingestao que la ficou por um processo
+        que morreu a meio: volta a passar pelo *gate* antes de voltar a sair.
+        **Nunca levanta um bloqueio por si**: a `bloqueada_categoria` volta a
+        perguntar ao screening, e so sai se ele agora permitir.
+        """
         linha = self._ler(tenant_id, ingestao_id)
-        if linha.estado == estados.BLOQUEADA_GATE:
+        if linha.estado in (estados.BLOQUEADA_GATE, estados.EM_EXTRACCAO):
             return self._gate_e_extraccao(linha, sintetica=sintetica)
         if linha.estado == estados.BLOQUEADA_CATEGORIA:
             return self._screening_e_completude(linha, linha.campos, preco_sugerido=None, custo=Decimal(0))
@@ -395,14 +439,24 @@ class ServicoDeIngestao:
         ingestao_id: str,
         respostas: Mapping[str, str],
         *,
+        mensagem_id: str,
         fonte: str = DONO_TEXTO,
     ) -> Resultado:
-        """As respostas do dono (ou uma correccao ao rascunho). Etapas 5 a 8 outra vez."""
+        """As respostas do dono (ou uma correccao ao rascunho). Etapas 5 a 8 outra vez.
+
+        **Idempotente por `mensagem_id`.** A entrega do WhatsApp e «pelo menos uma
+        vez»: a mesma mensagem entregue duas vezes nao volta a contar perguntas
+        nem a reescrever o rascunho — devolve o estado de agora.
+        """
+        if not mensagem_id:
+            raise ValueError("uma resposta do dono leva o id da mensagem")
         linha = self._ler(tenant_id, ingestao_id)
         if linha.estado not in (estados.A_PERGUNTAR, estados.RASCUNHO):
             return Resultado(linha)
-        perfil = completude.perfil_da_categoria(self._texto(linha.campos, "categoria"))
-        aceites = set(completude.PERFIS[perfil]) | set(CAMPOS_DA_VISAO)
+        if linha.ultima_mensagem_id == mensagem_id:
+            return self._sem_escrever(linha)
+        linha = replace(linha, ultima_mensagem_id=mensagem_id)
+        aceites = set(CAMPOS_DA_VISAO).union(*completude.PERFIS.values())
         campos = dict(linha.campos)
         for nome, texto in respostas.items():
             if nome not in aceites or not isinstance(texto, str):
@@ -419,27 +473,44 @@ class ServicoDeIngestao:
         return self._completude(linha, campos, preco_sugerido=preco_sugerido)
 
     def confirmar(self, tenant_id: str, ingestao_id: str, confirmacao: ConfirmacaoDoDono) -> Resultado:
-        """Etapa 9. Sem confirmacao valida nao ha `publicada`."""
+        """Etapa 9. Sem confirmacao valida nao ha `publicada`.
+
+        **A ordem e a garantia.** Primeiro grava-se a `publicada` contra a
+        versao lida: uma correccao do dono que chegue entre a leitura e a
+        escrita muda a versao, e esta escrita sai em `ConflitoDeEstado`; depois
+        dela nenhuma correccao entra, porque a linha e final. **So entao** o
+        Registo recebe o rascunho confirmado e a publicacao. A primeira versao
+        publicava antes de gravar, e a revisao adversarial mediu o resultado:
+        um preco corrigido para 1 Kz a meio era publicado com a confirmacao dos
+        12 000.
+
+        Se o Registo falhar depois da escrita, a linha ja diz `publicada` e o
+        Registo nao: **repetir a mesma confirmacao** volta a sincroniza-lo (e
+        idempotente pelo `sku`), e e esse o caminho de recuperacao.
+        """
         linha = self._ler(tenant_id, ingestao_id)
-        if linha.estado != estados.RASCUNHO:
-            raise ConfirmacaoRecusada(f"so um rascunho se confirma (estado `{linha.estado}`)")
         if not confirmacao.actor or confirmacao.em.tzinfo is None:
             raise ConfirmacaoRecusada("a confirmacao leva quem confirmou e um instante com fuso")
-        perfil = completude.perfil_da_categoria(self._texto(linha.campos, "categoria"))
-        if completude.campos_em_falta(linha.campos, perfil):
-            raise ConfirmacaoRecusada("ha campos em falta: o rascunho nao esta completo")
-        texto = resumo(linha.campos)
+        produto = {n: c for n, c in linha.campos.items() if n != SUGESTAO}
+        texto = resumo(produto)
         if confirmacao.versao_texto != versao_do_texto(texto):
             # O dono confirmou um texto que ja nao e este: um campo mudou depois.
             raise ConfirmacaoRecusada("a confirmacao e de outra versao do resumo")
+        if linha.estado == estados.PUBLICADA and linha.sku and linha.confirmado_por == confirmacao.actor:
+            self._sincronizar_registo(linha, confirmacao)
+            return Resultado(linha)
+        if linha.estado != estados.RASCUNHO:
+            raise ConfirmacaoRecusada(f"so um rascunho se confirma (estado `{linha.estado}`)")
+        if completude.campos_em_falta(produto, completude.perfil_dos_campos(produto)):
+            raise ConfirmacaoRecusada("ha campos em falta: o rascunho nao esta completo")
         if linha.categoria_restrita is not None or not linha.sku:
             raise ConfirmacaoRecusada("categoria restrita ou sem sku")
-        self.registo.publicar(tenant_id, linha.sku, confirmacao)
-        # A sugestao de preco nao e um campo do produto: nao se confirma.
+        # Confirma-se o que o resumo mostrou, que e **todos** os campos do
+        # produto. A sugestao de preco nao e um campo do produto: nao se confirma.
         confirmados = {
             nome: c if nome == SUGESTAO else confirmar_campo(c) for nome, c in linha.campos.items()
         }
-        return self._mudar(
+        publicada = self._mudar(
             linha,
             replace(
                 linha,
@@ -449,6 +520,8 @@ class ServicoDeIngestao:
                 confirmado_por=confirmacao.actor,
             ),
         )
+        self._sincronizar_registo(publicada.ingestao, confirmacao)
+        return publicada
 
     def url_interna(self, tenant_id: str, ingestao_id: str) -> str:
         """A URL interna assinada da foto limpa. Outro tenant nao a obtem (ISO-47..50)."""
@@ -506,6 +579,11 @@ class ServicoDeIngestao:
             extraccao = None
         except ExtraccaoInvalida:
             extraccao = None
+        except Exception:  # noqa: BLE001 — um `TimeoutError` nao prende a linha
+            # Qualquer outra falha da porta segue como «sem extraccao», e nao
+            # deixa a linha presa em `em_extraccao` (achado da revisao
+            # adversarial). O custo, se o houve, nao se sabe.
+            extraccao = None
         if extraccao is None:
             # Sem extraccao, pergunta-se tudo ao dono: a foto continua a servir.
             return self._screening_e_completude(linha, {}, preco_sugerido=None, custo=custo)
@@ -559,7 +637,7 @@ class ServicoDeIngestao:
         # Etapa 7: completude e perguntas.
         nova = replace(base or linha, campos=dict(campos))
         produto = {n: c for n, c in campos.items() if n != SUGESTAO}
-        perfil = completude.perfil_da_categoria(self._texto(produto, "categoria"))
+        perfil = completude.perfil_dos_campos(produto)
         falta = completude.campos_em_falta(produto, perfil)
         perguntas = completude.proximas_perguntas(
             produto, perfil, nova.perguntas_feitas, preco_sugerido=_preco_legivel(preco_sugerido)
@@ -575,17 +653,37 @@ class ServicoDeIngestao:
             return self._mudar(linha, alvo, perguntas=perguntas, motivo=motivo)
 
         # Etapa 8: rascunho, inactivo no Registo.
+        # **Grava-se primeiro**: o Registo so recebe o rascunho de uma escrita
+        # que ganhou a versao, e uma que a perdeu nao lhe toca. O `sku` e o da
+        # ingestao, sempre o mesmo: uma correccao reescreve o mesmo rascunho.
         sku = nova.sku or f"cat-{nova.id.replace('-', '')[:16]}"
-        self.registo.rascunho(nova.tenant_id, sku, produto)
         texto = resumo(produto)
         alvo = replace(nova, estado=estados.RASCUNHO, campos_em_falta=(), sku=sku)
-        return self._mudar(linha, alvo, resumo=texto, versao_texto=versao_do_texto(texto))
+        resultado = self._mudar(linha, alvo, resumo=texto, versao_texto=versao_do_texto(texto))
+        self.registo.rascunho(nova.tenant_id, sku, produto)
+        return resultado
 
     # ------------------------------------------------------------ apoio
 
     def _mudar(self, lido: Ingestao, nova: Ingestao, **resultado: object) -> Resultado:
         gravada = self.repositorio.gravar(lido, nova)
         return Resultado(gravada, **resultado)  # type: ignore[arg-type]
+
+    def _sincronizar_registo(self, linha: Ingestao, confirmacao: ConfirmacaoDoDono) -> None:
+        """O rascunho confirmado e a publicacao no Registo. Idempotente pelo `sku`."""
+        if not linha.sku:
+            raise ConfirmacaoRecusada("sem sku")
+        produto = {n: c for n, c in linha.campos.items() if n != SUGESTAO}
+        self.registo.rascunho(linha.tenant_id, linha.sku, produto)
+        self.registo.publicar(linha.tenant_id, linha.sku, confirmacao)
+
+    def _sem_escrever(self, linha: Ingestao) -> Resultado:
+        """O estado de agora, sem gravar nada: a resposta a uma mensagem repetida."""
+        produto = {n: c for n, c in linha.campos.items() if n != SUGESTAO}
+        if linha.estado == estados.RASCUNHO:
+            texto = resumo(produto)
+            return Resultado(linha, resumo=texto, versao_texto=versao_do_texto(texto))
+        return Resultado(linha)
 
     def _bloquear_gate(self, linha: Ingestao, motivo: str) -> Resultado:
         if linha.estado == estados.BLOQUEADA_GATE:

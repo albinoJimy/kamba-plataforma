@@ -35,12 +35,29 @@ mensagem que o `alembic history` imprime.
   de cliente nem de tenant, que e o que a regra do `*_minor` cobre.
 * **`perguntas_feitas BETWEEN 0 AND 12`** em vez de `<= 12`: um negativo nao e
   um numero de perguntas.
+* **`versao`**, que o *trigger* sobe em cada escrita (e o `atualizado_at`, que
+  ele tambem poe): o repositorio escreve **contra a versao lida**. A primeira
+  versao escrevia contra o estado, e a revisao adversarial mostrou o custo —
+  uma correcção do dono entre a leitura e a escrita da confirmacao era
+  publicada com a confirmacao da versao anterior, e duas respostas no mesmo
+  estado perdiam a primeira em silencio.
+* **`ultima_mensagem_id`**: o identificador da ultima resposta do dono que a
+  ingestao processou. A entrega do WhatsApp e «pelo menos uma vez», e uma
+  resposta reentregue nao pode voltar a contar perguntas.
 
 ## Privilegios
 
-O `kamba_app` le, insere (so a identidade da foto) e actualiza o resto. **Nao
-tem `DELETE`**: uma ingestao descarta-se pelo estado, e a purga e da retencao
-(KAM-071), que hoje classifica a tabela na relacao com o tenant.
+O `kamba_app` le, insere (so a identidade da foto) e actualiza o resto, **menos**
+a `versao` e o `atualizado_at`, que sao do *trigger*. **Nao tem `DELETE`**: uma
+ingestao descarta-se pelo estado, e a purga e da retencao (KAM-071), que hoje
+classifica a tabela na relacao com o tenant.
+
+**O que isto nao separa, dito:** o `kamba_app` escreve o `estado` e a
+`categoria_restrita`, pelo que a base nao distingue a aplicacao do T&S. A
+decisao humana do screening nao vive aqui: e a `screening_decision` do KAM-088,
+e o `retomar` volta a perguntar ao screening em vez de a ler desta linha. Nenhum
+outro papel le a tabela; uma leitura transversal da fila para o T&S e do
+KAM-119.
 
 ## A cadeia
 
@@ -131,6 +148,10 @@ def upgrade() -> None:
           confirmado_por     text
                              CONSTRAINT catalog_ingestions_confirmado_por_ck
                              CHECK (length(confirmado_por) BETWEEN 1 AND 200),
+          ultima_mensagem_id text
+                             CONSTRAINT catalog_ingestions_ultima_mensagem_ck
+                             CHECK (length(ultima_mensagem_id) BETWEEN 1 AND 256),
+          versao             integer NOT NULL DEFAULT 0,
           criado_at          timestamptz NOT NULL DEFAULT now(),
           atualizado_at      timestamptz NOT NULL DEFAULT now(),
           CONSTRAINT catalog_ingestions_media_uq UNIQUE (tenant_id, media_id_meta),
@@ -184,6 +205,11 @@ def upgrade() -> None:
             RAISE EXCEPTION 'transicao de catalog_ingestions recusada: % -> %',
               OLD.estado, NEW.estado USING ERRCODE = '23514';
           END IF;
+          -- A versao da linha e da base, e nao de quem escreve: sobe uma em
+          -- cada escrita, e e contra ela que o repositorio escreve. Ninguem a
+          -- pode baixar nem repetir, porque nenhum papel tem UPDATE nela.
+          NEW.versao := OLD.versao + 1;
+          NEW.atualizado_at := now();
           RETURN NEW;
         END;
         $$
@@ -203,7 +229,7 @@ def upgrade() -> None:
         f"GRANT SELECT, INSERT (id, tenant_id, media_ref, media_id_meta, phash), "
         "UPDATE (estado, phash, extraido, campos_em_falta, perguntas_feitas, "
         "categoria_restrita, sku, custo_llm_usd, confirmado_at, confirmado_por, "
-        f"atualizado_at) ON {TABELA} TO kamba_app"
+        f"ultima_mensagem_id) ON {TABELA} TO kamba_app"
     )
     op.execute("REVOKE ALL ON FUNCTION platform.catalog_ingestions_transicao() FROM PUBLIC")
 

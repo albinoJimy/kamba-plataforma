@@ -12,6 +12,7 @@ import hashlib
 import json
 import random
 import struct
+import uuid
 import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -61,7 +62,8 @@ def jpeg(marca: bytes = b"", *, com_metadados: bool = True, com_cauda: bool = Tr
     partes.append(_segmento(0xE2, b"ICC_PROFILE\x00\x01\x01perfil"))
     partes.append(_segmento(0xDB, b"\x00" + bytes(range(64))))
     partes.append(_segmento(0xC0, b"\x08\x01\xe0\x02\x80\x01\x01\x11\x00"))
-    partes.append(_segmento(0xC4, b"\x00" + bytes(16) + b"\x00"))
+    # Um codigo de comprimento 1 e o seu simbolo: 1 + 16 + 1 bytes, exactos.
+    partes.append(_segmento(0xC4, b"\x00" + b"\x01" + bytes(15) + b"\x00"))
     partes.append(_segmento(0xDA, b"\x01\x01\x00\x00\x3f\x00"))
     # Dados entropicos com enchimento (`FF 00`) e um RST, como na norma.
     partes.append(b"\x12\x34\xff\x00\x56" + marca + b"\xff\xd0\x78\x9a")
@@ -282,6 +284,12 @@ def montar(
         ambiente=ambiente,
     )
     return Montagem(servico, repo, fonte, v, destinos, screening, registo, descodificador, armazenamento)
+
+
+def responder(servico: ServicoDeIngestao, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+    """O `responder` com um `mensagem_id` novo em cada chamada, salvo se o ensaio der um."""
+    kwargs.setdefault("mensagem_id", f"wamid.{uuid.uuid4().hex}")
+    return servico.responder(*args, **kwargs)  # type: ignore[arg-type]
 
 
 def confirmacao(versao: str, actor: str = "owner:1") -> ConfirmacaoDoDono:
