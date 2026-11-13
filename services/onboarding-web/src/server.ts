@@ -291,6 +291,14 @@ exigirComunicacaoLimpa(
 const hostname = process.env.HOST?.trim() || "127.0.0.1";
 const listenPort = port(DEFAULT_PORT);
 
+// **A consola da fila de revisão (KAM-196) não se monta aqui**, e não é
+// esquecimento: ela só existe atrás da identidade da equipa com MFA, e o IdP
+// que a serve não está escolhido — a escolha e as contas de staff são do
+// fundador (critério 1 do bloco). O único IdP que existe é o falso dos ensaios,
+// que não entra num processo. Montá-la sem ele era uma porta para os dados de
+// todos os onboardings; o arranque di-lo numa linha.
+log.info({ outcome: "equipa_desligada" });
+
 const app = createApp(log, {
   registo,
   otp,

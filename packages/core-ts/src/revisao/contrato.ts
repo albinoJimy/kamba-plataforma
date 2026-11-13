@@ -137,6 +137,22 @@ export const TEXTO_DO_MOTIVO_PUBLICO: Readonly<Record<MotivoPublico, string>> = 
   informacao_em_falta: "Precisamos de mais informacao para analisar o pedido.",
 };
 
+/**
+ * A primeira frase de cada texto: a **causa**, sem o passo seguinte (KAM-196).
+ *
+ * O aviso de um recurso decidido não pode repetir o texto inteiro: o do
+ * `nao_foi_possivel_validar` diz «Pode recorrer uma vez desta decisao», e depois
+ * do recurso já não pode. Cada causa é o começo exacto do seu texto, e um ensaio
+ * mede-o: se alguém mudar um texto sem mudar a causa, os dois deixam de dizer o
+ * mesmo motivo e o ensaio fica vermelho.
+ */
+export const CAUSA_DO_MOTIVO_PUBLICO: Readonly<Record<MotivoPublico, string>> = {
+  nao_foi_possivel_validar: "Nao foi possivel validar o pedido.",
+  documento_expirado: "Um dos documentos esta fora da validade.",
+  categoria_nao_permitida: "A categoria declarada nao pode ser vendida na plataforma.",
+  informacao_em_falta: "Precisamos de mais informacao para analisar o pedido.",
+};
+
 /** Uma evidência é uma **referência**, nunca uma cópia (critério 1). */
 export interface Evidencia {
   /** O nome da tabela de onde vem, sem esquema: `kyc_check`, `screening_decision`, … */

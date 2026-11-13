@@ -2790,6 +2790,297 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
   }
 }
 
+// ------------------------------------- a consola da fila de revisao (KAM-196)
+//
+// As nove rotas do `services/onboarding-web/src/equipa/rotas.ts`. A fila corre
+// sobre os duplos em memoria do `@kamba/core-ts/revisao`, e o IdP e um falso
+// **deste guiao**: o servico nao tem nenhum. O «B» e um caso de outro tenant cujo
+// motivo interno e NIF levam o canario do ambiente; os ataques sao de quem chega
+// sem identidade da equipa, e o que se exige a cada um esta no caso em
+// `baterias/x01_rotas.py`. As marcas da `nota`, nenhuma com canario:
+//
+//   canario-de-b=presente   o caso de B leva o canario do ambiente
+//   sem-papel=403           uma sessao de equipa sem papel, contra o caso de B
+//   sem-mfa=403             uma sessao de equipa sem MFA, contra o caso de B
+//   sonda=viva              uma sessao de equipa com papel e MFA deu o seu 2xx
+//   b=intacto               o caso de B nao mudou nem ganhou decisao
+//   sessao-viva=sim         os tres «sair» forjados nao revogaram a sessao alvo
+
+const ITENS_DA_EQUIPA = [
+  "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/entrar",
+  "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/sair",
+  "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/casos",
+  "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/casos/:id",
+  "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/revelar",
+  "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/casos/:id/documentos/:verificacao",
+  "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/decisao",
+  "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/recurso",
+  "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/recurso/decisao",
+] as const;
+
+/** O marcador de A: o que tem de chegar as respostas legitimas. */
+const MARCADOR_DA_EQUIPA = "marcador-de-a-na-consola";
+
+async function grupoDaEquipa(relatorio: Relatorio): Promise<void> {
+  const falhar = (nota: string): void => {
+    for (const item of ITENS_DA_EQUIPA) {
+      const partes = item.split(":");
+      for (let vez = 0; vez < 3; vez += 1) {
+        relatorio.rotas.push({
+          item,
+          metodo: partes[3] ?? "",
+          caminho: partes.slice(4).join(":"),
+          estado: 0,
+          corpo: "",
+          cabecalhos: {},
+          executado: false,
+          nota,
+        });
+      }
+    }
+  };
+
+  let revisao: Record<string, unknown>;
+  let insc: Record<string, unknown>;
+  let rotas: Record<string, unknown>;
+  let sessaoDaEquipa: Record<string, unknown>;
+  let sessaoDoPainel: Record<string, unknown>;
+  try {
+    revisao = await importarDoRepo("packages/core-ts/dist/revisao/index.js");
+    insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
+    rotas = await importarDoRepo("services/onboarding-web/src/equipa/rotas.ts");
+    sessaoDaEquipa = await importarDoRepo("services/onboarding-web/src/equipa/sessao.ts");
+    sessaoDoPainel = await importarDoRepo("services/onboarding-web/src/painel/sessao.ts");
+  } catch (erro) {
+    falhar(`nao se conseguiu importar a consola: ${razao(erro)}`);
+    return;
+  }
+
+  try {
+    const chave = Buffer.alloc(32, OCTETO_DE_ASSINATURA);
+    const agora = new Date("2026-11-13T09:00:00.000Z");
+    const relogio = (): Date => agora;
+    const canario = canarioOuSubstituto();
+    const marcaDoCanario = canarios().length === 0 ? "canario-de-b=ausente" : "canario-de-b=presente";
+
+    type Onb = { id: string; tenantId: string; fase: string; redeHmac: string | null; dispositivoHmac: string | null; nifHmac: string; telefoneHmac: string };
+    type Caso = { id: string; estado: string; onboardingId: string | null };
+    const onboardings = new (revisao["OnboardingsEmMemoria"] as new () => { casos: Map<string, Onb> })();
+    const repositorio = new (revisao["FilaDeRevisaoEmMemoria"] as new (o: unknown, r: () => Date) => {
+      casos: Map<string, Caso>;
+      registo: { casoId: string }[];
+    })(() => null, relogio);
+    const auditoria = new (revisao["AuditoriaEmMemoria"] as new () => { linhas: unknown[] })();
+    const dados = new Map<string, Record<string, string>>();
+    const Servico = revisao["ServicoDeRevisao"] as new (d: unknown) => {
+      abrir(p: unknown): Promise<{ estado: string; caso: Caso }>;
+    };
+    const servico = new Servico({
+      repositorio,
+      onboardings,
+      auditoria,
+      aviso: { avisar: async () => {} },
+      alerta: () => {},
+      cifra: { cifrar: async (b: Uint8Array) => b, decifrar: async (b: Uint8Array) => b },
+      dados: { ler: async (id: string, campo: string) => dados.get(id)?.[campo] ?? null },
+      documentos: {
+        async url(rev: string, onb: string, verificacaoId: string, aud: { anotarAcesso(a: unknown): Promise<void> }) {
+          await aud.anotarAcesso({ revisor: rev, onboardingId: onb, verificacaoId, em: agora });
+          return `https://sto.invalid/${verificacaoId}`;
+        },
+      },
+      screening: { gravar: async () => {} },
+      relogio,
+    });
+
+    const verificacao = "0000000e-0000-4000-8000-0000000000e1";
+    let seq = 0;
+    async function abrirCaso(tenant: string, marca: string): Promise<Caso> {
+      seq += 1;
+      const o: Onb = {
+        id: `0000000e-0000-4000-8000-${String(seq).padStart(12, "0")}`,
+        tenantId: tenant,
+        fase: "em_revisao",
+        redeHmac: `rede-${seq}`,
+        dispositivoHmac: null,
+        nifHmac: `nif-${seq}`,
+        telefoneHmac: `tel-${seq}`,
+      };
+      onboardings.casos.set(o.id, o);
+      dados.set(o.id, { nif: marca, numero_bi: marca, telefone: marca });
+      const r = await servico.abrir({
+        tipo: "kyc",
+        tenantId: tenant,
+        onboardingId: o.id,
+        motivoCodigo: "kyc_k1",
+        motivoInterno: marca,
+        motivoPublico: "nao_foi_possivel_validar",
+        evidencias: [{ tipo: "kyc_check", ref: verificacao }],
+        recomendacao: "investigar",
+        prioridade: 5,
+      });
+      return r.caso;
+    }
+    const casoDeB = await abrirCaso("0000000b-0000-4000-8000-0000000000b1", canario);
+    const casoDeA = await abrirCaso("0000000a-0000-4000-8000-0000000000a1", MARCADOR_DA_EQUIPA);
+    const outroDeA = await abrirCaso("0000000a-0000-4000-8000-0000000000a1", MARCADOR_DA_EQUIPA);
+
+    // O IdP falso: contas e provas de uso unico.
+    type Conta = { id: string; papeis: string[]; nifHmac: null; telefoneHmac: null };
+    const contas = new Map<string, Conta>();
+    const provas = new Map<string, { id: string; mfa: boolean }>();
+    function novaConta(id: string, papeis: string[]): Conta {
+      const c = { id, papeis, nifHmac: null, telefoneHmac: null };
+      contas.set(id, c);
+      return c;
+    }
+    const r1 = novaConta("0000000f-0000-4000-8000-0000000000f1", ["ts_revisor"]);
+    const r2 = novaConta("0000000f-0000-4000-8000-0000000000f2", ["ts_revisor"]);
+    const semPapel = novaConta("0000000f-0000-4000-8000-0000000000f3", ["suporte"]);
+    const semMfa = novaConta("0000000f-0000-4000-8000-0000000000f4", ["ts_lider"]);
+    const usada = "prova-ja-usada-0001";
+    provas.set(usada, { id: r1.id, mfa: true });
+
+    const revogacoes = new (sessaoDaEquipa["RevogacoesDaEquipaEmMemoria"] as new () => {
+      revogada(sid: string): Promise<boolean>;
+    })();
+    const app = (rotas["rotasDaEquipa"] as (o: unknown) => AppHono)({
+      identidade: {
+        async autenticar(prova: string) {
+          const a = provas.get(prova) ?? null;
+          provas.delete(prova);
+          return a;
+        },
+        conta: async (id: string) => contas.get(id) ?? null,
+      },
+      servico,
+      auditoria,
+      revogacoes,
+      anelDaAssinatura: [chave, null],
+      relogio,
+    });
+    // Gasta-se a prova antes dos ataques: o terceiro ataque ao `entrar` e reusa-la.
+    await app.request(`/equipa/entrar?prova=${usada}`);
+
+    const novaDaEquipa = sessaoDaEquipa["novaSessaoDaEquipa"] as (a: unknown, d: Date) => { sid: string };
+    const cunharDaEquipa = sessaoDaEquipa["cunharSessaoDaEquipa"] as (s: unknown, c: Uint8Array) => string;
+    const cookieDe = (c: Conta, mfa: boolean): string => `kamba_equipa=${cunharDaEquipa(novaDaEquipa({ id: c.id, mfa }, agora), chave)}`;
+    const cunharDoPainel = sessaoDoPainel["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
+    const novaDoPainel = sessaoDoPainel["novaSessao"] as (t: string, d: string, a: Date) => unknown;
+    const doPainel = cunharDoPainel(novaDoPainel("0000000b-0000-4000-8000-0000000000b1", casoDeB.onboardingId ?? "", agora), chave);
+    const cunharReferencia = insc["cunharReferencia"] as (...a: unknown[]) => string;
+    const doRegisto = cunharReferencia("sessao", casoDeB.onboardingId, chave, relogio);
+    const cookiesDoDono = [`kamba_painel=${doPainel}`, `kamba_onboarding=${doRegisto}`, `kamba_equipa=${doPainel}`];
+
+    const pedir = (caminho: string, metodo: string, cookie: string, corpo?: unknown): Promise<Response> =>
+      app.request(caminho, {
+        method: metodo,
+        headers: { cookie, ...(corpo === undefined ? {} : { "content-type": "application/json" }) },
+        ...(corpo === undefined ? {} : { body: JSON.stringify(corpo) }),
+      });
+    const empurrar = async (item: string, metodo: string, caminho: string, init: Parameters<AppHono["request"]>[1], marcas: string): Promise<void> => {
+      const entrada = await medir(item, metodo, caminho, app, init);
+      relatorio.rotas.push({ ...entrada, nota: `${marcaDoCanario} ${marcas}`.trim() });
+    };
+
+    // ---- GET /equipa/entrar: tres provas que nao sao do IdP.
+    for (const prova of [doPainel, doRegisto, usada]) {
+      await empurrar(ITENS_DA_EQUIPA[0], "GET", `/equipa/entrar?prova=${encodeURIComponent(prova)}`, {}, "");
+    }
+
+    // ---- POST /equipa/sair: tres valores forjados com o `sid` de uma sessao viva.
+    const alvo = novaDaEquipa({ id: r2.id, mfa: true }, agora);
+    const textoDoAlvo = cunharDaEquipa(alvo, chave);
+    const deR1 = cunharDaEquipa(novaDaEquipa({ id: r1.id, mfa: true }, agora), chave);
+    const forjadas = [
+      deR1.replace(deR1.split(".")[1] ?? "", alvo.sid),
+      cunharDaEquipa(alvo, Buffer.alloc(32, 0x11)),
+      alvo.sid,
+    ];
+    for (const valor of forjadas) {
+      await empurrar(ITENS_DA_EQUIPA[1], "POST", "/equipa/sair", { method: "POST", headers: { cookie: `kamba_equipa=${valor}` } }, "");
+    }
+    const viva =
+      !(await revogacoes.revogada(alvo.sid)) && (await pedir("/equipa/casos", "GET", `kamba_equipa=${textoDoAlvo}`)).status === 200;
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DA_EQUIPA[1]) entrada.nota += viva ? " sessao-viva=sim" : " sessao-viva=nao";
+    }
+
+    // ---- As sete rotas do caso: tres sessoes de dono contra o caso de B.
+    const doCaso: [string, string, (id: string) => string, unknown][] = [
+      [ITENS_DA_EQUIPA[2], "GET", () => "/equipa/casos", undefined],
+      [ITENS_DA_EQUIPA[3], "GET", (id) => `/equipa/casos/${id}`, undefined],
+      [ITENS_DA_EQUIPA[4], "POST", (id) => `/equipa/casos/${id}/revelar`, { campo: "nif" }],
+      [ITENS_DA_EQUIPA[5], "GET", (id) => `/equipa/casos/${id}/documentos/${verificacao}`, undefined],
+      [ITENS_DA_EQUIPA[6], "POST", (id) => `/equipa/casos/${id}/decisao`, { decisao: "rejeitar", motivo_publico: "documento_expirado" }],
+      [ITENS_DA_EQUIPA[7], "POST", (id) => `/equipa/casos/${id}/recurso`, {}],
+      [ITENS_DA_EQUIPA[8], "POST", (id) => `/equipa/casos/${id}/recurso/decisao`, { decisao: "aprovar" }],
+    ];
+    const marcas = new Map<string, string[]>();
+    for (const [item, metodo, caminho, corpo] of doCaso) {
+      for (const cookie of cookiesDoDono) {
+        await empurrar(
+          item,
+          metodo,
+          caminho(casoDeB.id),
+          {
+            method: metodo,
+            headers: { cookie, ...(corpo === undefined ? {} : { "content-type": "application/json" }) },
+            ...(corpo === undefined ? {} : { body: JSON.stringify(corpo) }),
+          },
+          "",
+        );
+      }
+      // As duas sessoes de equipa sem direito, fora das entradas: 403, e sem o canario.
+      const m: string[] = [];
+      for (const [nome, cookie] of [
+        ["sem-papel", cookieDe(semPapel, true)],
+        ["sem-mfa", cookieDe(semMfa, false)],
+      ] as const) {
+        const r = await pedir(caminho(casoDeB.id), metodo, cookie, corpo);
+        const texto = await r.text();
+        m.push(`${nome}=${r.status === 403 && !texto.includes(canario) ? "403" : String(r.status)}`);
+      }
+      marcas.set(item, m);
+    }
+    const intacto =
+      repositorio.casos.get(casoDeB.id)?.estado === "aberto" && !repositorio.registo.some((d) => d.casoId === casoDeB.id);
+
+    // ---- As sondas: uma sessao com papel e MFA, sobre os casos de A.
+    const deR1Cookie = cookieDe(r1, true);
+    const deR2Cookie = cookieDe(r2, true);
+    const sondas: [string, boolean][] = [];
+    const lista = await pedir("/equipa/casos", "GET", deR1Cookie);
+    sondas.push([ITENS_DA_EQUIPA[2], lista.status === 200 && (await lista.text()).includes(casoDeA.id)]);
+    const ver = await pedir(`/equipa/casos/${casoDeA.id}`, "GET", deR1Cookie);
+    sondas.push([ITENS_DA_EQUIPA[3], ver.status === 200 && (await ver.text()).includes(MARCADOR_DA_EQUIPA)]);
+    const revelar = await pedir(`/equipa/casos/${casoDeA.id}/revelar`, "POST", deR1Cookie, { campo: "nif" });
+    sondas.push([ITENS_DA_EQUIPA[4], revelar.status === 200 && (await revelar.text()).includes(MARCADOR_DA_EQUIPA)]);
+    const doc = await pedir(`/equipa/casos/${casoDeA.id}/documentos/${verificacao}`, "GET", deR1Cookie);
+    sondas.push([ITENS_DA_EQUIPA[5], doc.status === 303]);
+    const decisao = await pedir(`/equipa/casos/${outroDeA.id}/decisao`, "POST", deR1Cookie, {
+      decisao: "rejeitar",
+      motivo_publico: "documento_expirado",
+    });
+    sondas.push([ITENS_DA_EQUIPA[6], decisao.status === 200]);
+    const recurso = await pedir(`/equipa/casos/${outroDeA.id}/recurso`, "POST", deR1Cookie, {});
+    sondas.push([ITENS_DA_EQUIPA[7], recurso.status === 200]);
+    const final = await pedir(`/equipa/casos/${outroDeA.id}/recurso/decisao`, "POST", deR2Cookie, { decisao: "aprovar" });
+    sondas.push([ITENS_DA_EQUIPA[8], final.status === 200]);
+
+    const escrevem = new Set<string>([ITENS_DA_EQUIPA[6], ITENS_DA_EQUIPA[7], ITENS_DA_EQUIPA[8]]);
+    for (const [item, viva] of sondas) {
+      const extra = [...(marcas.get(item) ?? []), viva ? "sonda=viva" : "sonda=morta"];
+      if (escrevem.has(item)) extra.push(intacto ? "b=intacto" : "b=alterado");
+      for (const entrada of relatorio.rotas) {
+        if (entrada.item === item) entrada.nota += ` ${extra.join(" ")}`;
+      }
+    }
+  } catch (erro) {
+    falhar(`a montagem da consola levantou: ${razao(erro)}`);
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -2803,6 +3094,7 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   inscricao: grupoDaInscricao,
   guia: grupoDoGuia,
   painel: grupoDoPainel,
+  equipa: grupoDaEquipa,
 };
 
 async function main(): Promise<number> {

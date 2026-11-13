@@ -354,6 +354,31 @@ export class ServicoDeRevisao {
   }
 
   /**
+   * O recurso aberto **pela consola**, em nome do dono (KAM-196): a equipa
+   * regista o pedido que o dono fez por outro canal. Passa pela mesma barreira
+   * de todas as operações da consola — papel, MFA e «não é parte no caso» —, e
+   * o registo fica no `audit_log` antes de o recurso abrir. Uma recusa do
+   * `abrirRecurso` também fica lá, com o motivo.
+   */
+  async registarRecurso(revisor: Revisor, casoId: string): Promise<CasoDeRevisao> {
+    const caso = await this.#autorizar(revisor, casoId);
+    await this.#d.auditoria.gravar({
+      accao: "review.acesso",
+      tenantId: caso.tenantId,
+      actorId: revisor.id,
+      entidade: "review_case",
+      entidadeId: caso.id,
+      detalhe: "recurso:abrir",
+    });
+    try {
+      return await this.abrirRecurso(casoId);
+    } catch (erro) {
+      if (erro instanceof RevisaoRecusadaError) return this.#recusar(revisor, caso, erro.motivo);
+      throw erro;
+    }
+  }
+
+  /**
    * Decide o recurso. Só `aprovar` ou `rejeitar`; nunca por quem decidiu a
    * primeira instância; e um caso que foi escalado na primeira só o decide o
    * `ts_lider` também no recurso — senão um revisor revertia por recurso o que
@@ -410,6 +435,7 @@ export class ServicoDeRevisao {
       { id: ultima.revisorId, papeis: [], mfa: true, nifHmac: null, telefoneHmac: null },
       caso.motivoPublico,
       caso.estado === "decidido_final" ? "recurso" : "primeira",
+      true,
     );
   }
 
@@ -767,6 +793,7 @@ export class ServicoDeRevisao {
     revisor: Revisor,
     motivoPublico: MotivoPublico,
     instancia: Instancia,
+    reaplicar = false,
   ): Promise<void> {
     if (TIPOS_DE_SCREENING.includes(caso.tipo)) {
       for (const chave of chavesDeScreening(caso.evidencias)) {
@@ -797,10 +824,15 @@ export class ServicoDeRevisao {
     // `kyc_pendente` só conta para o próprio caso `kyc`: é onde um `pedir_info`
     // o deixou. Uma categoria aprovada com o K1 ainda por decidir não aprova o
     // onboarding — o KYC não tem caso pendente a bloquear, e passava.
+    // Ao **reaplicar**, `aprovado` também conta: a primeira passagem pode ter
+    // marcado a fase e falhado no aviso, que é o último efeito. Sem isto, o
+    // `reaplicarEfeitos` via a fase já em `aprovado`, não a contava, e o aviso
+    // que tinha falhado nunca saía (KAM-196, achado do ensaio do *job*).
     const desbloqueavel =
       fase === "em_revisao" ||
       (caso.tipo === "kyc" && fase === "kyc_pendente") ||
-      (instancia === "recurso" && fase === "rejeitado" && kycAprovado);
+      (instancia === "recurso" && fase === "rejeitado" && kycAprovado) ||
+      (reaplicar && fase === "aprovado");
     const aprovou = !pendente && !rejeitadoPorOutro && desbloqueavel;
     if (aprovou) await this.#d.onboardings.marcarFase(caso.onboardingId, "aprovado");
     if (instancia === "recurso") await this.#avisar(caso, "recurso_decidido", null);
