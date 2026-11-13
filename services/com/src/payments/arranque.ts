@@ -165,7 +165,7 @@ export function porta(
  * `pagamentos` é o do KAM-055: o COM a aplicar `payment.*` à encomenda, como
  * `kamba_app`. `reembolsos` é o do PAY: abre a `refund_cases` ao ler
  * `order.refund_requested`, com o papel `kamba_pay` — o único com `EXECUTE` na
- * porta da revisão `0050` (decisão (A) do fundador de 2026-11-13).
+ * porta da revisão `0051` (decisão (A) do fundador de 2026-11-13).
  *
  * **Um processo com dois modos e não dois pontos de entrada**, e a razão é
  * medida e não estética: um ponto de entrada novo é um ficheiro que só se

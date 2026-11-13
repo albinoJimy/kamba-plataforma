@@ -345,7 +345,7 @@ describe("gates do worker: o pagamento tardio", () => {
   });
 
   it("KAM-197: so depois de paga o duplo escreve pagamento_duplicado", () => {
-    // Desde a `0050` o `pagamento_duplicado` chega ao COM como
+    // Desde a `0051` o `pagamento_duplicado` chega ao COM como
     // `payment.confirmed`. Numa `falhada` (F-02) a encomenda continua a
     // aguardar pagamento, e esse evento pagava-a sem o humano que o F-02
     // exige. Achado da revisao adversarial.

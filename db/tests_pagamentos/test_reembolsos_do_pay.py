@@ -20,7 +20,7 @@ o duplicado    o `pagamento_duplicado` do ledger chega ao COM como o
 
 **Corre depois do `test_downgrade*` e do `test_fks_e_mapa`, pela ordem
 alfabetica, e isso conta:** os casos que estes ensaios deixam (com
-`pedido_evento_id`) fazem o `downgrade` da `0050` recusar-se, que e o que ele
+`pedido_evento_id`) fazem o `downgrade` da `0051` recusar-se, que e o que ele
 deve fazer. A limpeza do `ComConfirmacaoManual` apaga-os por tenant.
 """
 
@@ -365,7 +365,7 @@ class TestDuplicadoChegaAoCom(ComLedger):
         self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
 
 
-class TestDowngradeDa0050(ComPedidoDeReembolso):
+class TestDowngradeDa0051(ComPedidoDeReembolso):
     """O `downgrade` recusa-se com um caso aberto por pedido, e sem ele desfaz tudo.
 
     **A guarda conta com o `FORCE` desligado**, pela licao da `0046`: a ligacao
@@ -373,7 +373,7 @@ class TestDowngradeDa0050(ComPedidoDeReembolso):
     `FORCE` le zero. O primeiro ensaio e o que o mostra — e a mutacao que tira o
     `NO FORCE` tem de o matar.
 
-    **Desce pelo numero (`0049`) e nao por `-1`**, pela licao do KAM-071: com
+    **Desce pelo numero (`0050`) e nao por `-1`**, pela licao do KAM-071: com
     uma revisao acima desta, `-1` desceria a outra.
     """
 
@@ -388,16 +388,16 @@ class TestDowngradeDa0050(ComPedidoDeReembolso):
     def test_com_um_caso_aberto_por_pedido_o_downgrade_recusa(self) -> None:
         self.abrir()
         self.confirmar(self.pay, self.tenant)
-        resultado = alembic("downgrade", "0049")
+        resultado = alembic("downgrade", "0050")
         self.assertNotEqual(resultado.returncode, 0, "o downgrade devia recusar")
-        self.assertIn("downgrade da 0050 recusado", resultado.stderr)
+        self.assertIn("downgrade da 0051 recusado", resultado.stderr)
         self.assertTrue(self.coluna_existe(), "a coluna ficou, com o caso")
 
     def test_sem_casos_o_downgrade_desfaz_e_o_upgrade_repoe(self) -> None:
         self.semente.execute(
             "DELETE FROM platform.refund_cases WHERE pedido_evento_id IS NOT NULL"
         )
-        alembic_ok("downgrade", "0049")
+        alembic_ok("downgrade", "0050")
         try:
             self.assertFalse(self.coluna_existe())
             self.semente.execute(

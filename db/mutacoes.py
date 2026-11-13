@@ -259,10 +259,10 @@ REV38 = "db/migrations/versions/0038_direitos_do_titular.py"
 #: esqueca dela: uma mutacao cujo alvo nao existe nao mede nada.
 REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 #: KAM-197: a porta que abre a `refund_cases` a partir de um pedido, e o
-#: `pagamento_duplicado` no mapa do *outbox*. **Numero provisorio** (`0050`): o
+#: `pagamento_duplicado` no mapa do *outbox*. **Numero provisorio** (`0051`): o
 #: final da-o quem integra, e esta constante muda com ele — o `--aplicaveis`
 #: apanha quem se esqueca dela.
-REV_REEMBOLSOS = "db/migrations/versions/0050_casos_de_reembolso_pelo_pay.py"
+REV_REEMBOLSOS = "db/migrations/versions/0051_casos_de_reembolso_pelo_pay.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 #: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila
@@ -7254,7 +7254,7 @@ MUTACOES = [
      "     AND norm_versao < %s\n", PRODUTOS),
     ("consumidor: o visivel ignora a oferta", IDX_CONSUMIDOR,
      'bool(linha["publicado"])', "True", PRODUTOS),
-    # --------------------------------------------------- KAM-197 (0050)
+    # --------------------------------------------------- KAM-197 (0051)
     # A repeticao com **outra encomenda** deixa de ser recusada (o `AND` liga
     # antes do `OR`, pelo que so a comparacao do `order_id` se desliga): o mesmo
     # pedido sobre outra encomenda devolvia o caso antigo em silencio. O subcaso
@@ -7262,33 +7262,33 @@ MUTACOES = [
     # — sobreviveu a primeira versao do ensaio, que so variava o valor e o
     # motivo (achado da revisao adversarial) —, e o
     # `test_duplicados_x10_dao_um_caso` tem de ficar verde.
-    ("revisao 0050: a repeticao que diverge passa", REV_REEMBOLSOS,
+    ("revisao 0051: a repeticao que diverge passa", REV_REEMBOLSOS,
      "          IF v_antes.order_id IS DISTINCT FROM p_order_id\n",
      "          IF false AND v_antes.order_id IS DISTINCT FROM p_order_id\n",
      "tests_pagamentos"),
     # O indice deixa de ser unico: o `ON CONFLICT` deixa de ter arbitro e a
     # porta falha em todas as chamadas — o que prova que a idempotencia e da
     # base e nao de um `SELECT` antes do `INSERT`.
-    ("revisao 0050: o indice do pedido deixa de ser unico", REV_REEMBOLSOS,
+    ("revisao 0051: o indice do pedido deixa de ser unico", REV_REEMBOLSOS,
      'f"CREATE UNIQUE INDEX {INDICE} ON {REEMBOLSOS}',
      'f"CREATE INDEX {INDICE} ON {REEMBOLSOS}',
      "tests_pagamentos"),
     # Um quinto motivo entra na lista fechada. Dois ensaios a matam: a recusa a
     # correr (`test_um_motivo_fora_do_contrato_e_recusado`) e o confronto da
     # funcao instalada com o ficheiro do contrato.
-    ("revisao 0050: um motivo fora do contrato entra na lista", REV_REEMBOLSOS,
+    ("revisao 0051: um motivo fora do contrato entra na lista", REV_REEMBOLSOS,
      '    "\'pagamento_apos_cancelamento\'",\n',
      '    "\'pagamento_apos_cancelamento\'",\n    "\'reembolso\'",\n',
      "tests_pagamentos"),
     # A moeda deixa de ser confrontada com a da encomenda.
-    ("revisao 0050: a moeda do pedido deixa de contar", REV_REEMBOLSOS,
+    ("revisao 0051: a moeda do pedido deixa de contar", REV_REEMBOLSOS,
      "IF p_currency IS DISTINCT FROM v_moeda THEN",
      "IF false THEN",
      "tests_pagamentos"),
     # **A ligacao do mapa**: o duplicado pelo `hmac` deixa de produzir evento,
     # e a regra 4 volta a nao disparar pelo caminho do ledger (divida 211). O
     # `test_o_duplicado_sai_como_payment_confirmed_valido` tem de a matar.
-    ("revisao 0050: o duplicado do hmac sai do mapa", REV_REEMBOLSOS,
+    ("revisao 0051: o duplicado do hmac sai do mapa", REV_REEMBOLSOS,
      "('pagamento_duplicado', 'hmac', 'payment.confirmed', 1)",
      "('pagamento_duplicado', 'sistema', 'payment.confirmed', 1)",
      "tests_pagamentos"),
@@ -7296,7 +7296,7 @@ MUTACOES = [
     # tem de a matar pela asercao do **estado** da cobranca (o `UPDATE` nao
     # acrescenta linha ao ledger, pelo que a contagem nao a ve), ou pelo erro
     # que o `UPDATE` levante.
-    ("revisao 0050: a guarda do downgrade le sob FORCE", REV_REEMBOLSOS,
+    ("revisao 0051: a guarda do downgrade le sob FORCE", REV_REEMBOLSOS,
      '    op.execute(f"ALTER TABLE {REEMBOLSOS} NO FORCE ROW LEVEL SECURITY")\n',
      "",
      "tests_pagamentos"),
@@ -7304,7 +7304,7 @@ MUTACOES = [
     # corre sob `tenant_iso` sem `app.tenant_id` e le zero: o `downgrade` passa e
     # apaga a ligacao do caso ao pedido. O
     # `test_com_um_caso_aberto_por_pedido_o_downgrade_recusa` tem de a matar.
-    ("revisao 0050: a porta toca na cobranca", REV_REEMBOLSOS,
+    ("revisao 0051: a porta toca na cobranca", REV_REEMBOLSOS,
      "            RETURN v_caso;\n",
      "            UPDATE platform.payment_charges SET estado = 'reembolso_pendente'"
      " WHERE tenant_id = p_tenant_id AND order_id = p_order_id;\n"

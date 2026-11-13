@@ -80,12 +80,17 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0050"
-#: **Provisorio.** A cabeca da `publico/main` e a `0049` (KAM-062), medido com
-#: `git ls-tree --name-only refs/remotes/publico/main db/migrations/versions/`.
-#: O lote tem mais tres revisoes abertas (`0051` a `0053`), e o numero final
-#: da-o quem integra, pela regra da casa: um ramo nao reserva a linha para outro.
-down_revision = "0049"
+revision = "0051"
+#: **Provisorio, e por ordem do orquestrador do lote.** A cabeca da
+#: `publico/main` e a `0049` (KAM-062), e a `0050` e a do KAM-049, que ficou
+#: pronto primeiro: esta encaixa nela. **Neste ramo, sem a `0050`, o Alembic
+#: nao encontra a revisao de baixo** — mede-se com a `down_revision` na `0049`
+#: e integra-se depois da do KAM-049, pela regra «o numero mais alto espera
+#: pelo mais baixo».
+#: As medicoes do bloco correram com esta revisao na `0050` e a `down_revision`
+#: na `0049`, antes da ordem de renumerar. O numero final da-o quem integra,
+#: pela regra da casa: um ramo nao reserva a linha para outro.
+down_revision = "0050"
 branch_labels = None
 depends_on = None
 
@@ -153,7 +158,7 @@ def downgrade() -> None:
         BEGIN
           IF EXISTS (SELECT 1 FROM {REEMBOLSOS} WHERE {COLUNA} IS NOT NULL) THEN
             RAISE EXCEPTION
-              'downgrade da 0050 recusado: ha casos de reembolso abertos pelo '
+              'downgrade da 0051 recusado: ha casos de reembolso abertos pelo '
               'consumidor do PAY, e tirar a coluna {COLUNA} apagava a ligacao '
               'ao pedido que os abriu (KAM-197)'
               USING ERRCODE = 'object_not_in_prerequisite_state';

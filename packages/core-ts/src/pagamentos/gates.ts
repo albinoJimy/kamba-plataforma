@@ -59,7 +59,7 @@ export const ESTADO_TARDIO = "expirada" as const;
  * Os estados em que um `duplo` é o F-08 — **a cobrança já foi paga** — e só
  * esses escrevem `pagamento_duplicado` (KAM-197).
  *
- * Desde a revisão `0050` o `pagamento_duplicado` sai como `payment.confirmed`, que
+ * Desde a revisão `0051` o `pagamento_duplicado` sai como `payment.confirmed`, que
  * é o que a regra 4 do KAM-050 lê. Fora destes três estados ele mentia: o G6
  * devolve `duplo` também em `iniciada`, `falhada` e `cancelada`, e numa
  * `falhada` por valor divergente (F-02) a encomenda continua em
@@ -311,7 +311,7 @@ export function escritasDoVeredicto(
     case "duplo":
       // F-08: o segundo pagamento autenticado sobre uma cobrança já paga. **Só
       // aí**: ver o `ESTADOS_DO_DUPLICADO` — o `pagamento_duplicado` chega ao
-      // COM como `payment.confirmed` desde a revisão `0050` (KAM-197).
+      // COM como `payment.confirmed` desde a revisão `0051` (KAM-197).
       return (ESTADOS_DO_DUPLICADO as readonly string[]).includes(
         veredicto.estadoDaCobranca,
       )

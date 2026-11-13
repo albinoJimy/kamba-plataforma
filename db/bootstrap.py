@@ -50,7 +50,7 @@ O que cada papel pode, e a razao:
                     (revisao 0029): grava no `payment_callbacks_inbox`, que nao
                     tem `tenant_id`, e resolve o `webhook_token` por funcao.
                     Nao contorna a RLS e nao le cobrancas nem o ledger.
-    kamba_pay       CONNECT. O consumidor do PAY (revisao 0050): consome o
+    kamba_pay       CONNECT. O consumidor do PAY (revisao 0051): consome o
                     `order.refund_requested` e abre a `refund_cases` pela
                     porta `abrir_caso_de_reembolso`, de que e o unico com
                     `EXECUTE`. Nao contorna a RLS.
@@ -102,7 +102,7 @@ ATRIBUTOS = {
     # imposto pela base: o COM corre como `kamba_app`, e um `EXECUTE` da porta
     # concedido ao `kamba_app` deixava o COM abrir casos. `NOBYPASSRLS`: o
     # consumo trabalha um tenant de cada vez, com o `app.tenant_id` do
-    # envelope. O que pode e concedido pela revisao `0050`.
+    # envelope. O que pode e concedido pela revisao `0051`.
     "kamba_pay": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
 }
 

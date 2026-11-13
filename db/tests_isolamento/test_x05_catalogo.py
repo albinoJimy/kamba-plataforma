@@ -1296,7 +1296,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
     )
 
     #: A porta que abre a `refund_cases` a partir de um pedido (KAM-197,
-    #: revisao `0050`). **O grantee e o que a distingue de um furo**, como na
+    #: revisao `0051`). **O grantee e o que a distingue de um furo**, como na
     #: de cima: e `EXECUTE` do **`kamba_pay`** e nao do `kamba_app`, por
     #: decisao (A) do fundador de 2026-11-13 — o COM corre como `kamba_app`,
     #: e a tabela tem um so dono. Quem o apanha se mudar e o

@@ -15,7 +15,7 @@
  * (a biblioteca) e os processos dele vivem aqui: o consumidor de `payment.*` do
  * KAM-055 e a composição do motor de anomalias do KAM-060. Este é mais um, e o
  * que o separa do COM não é a pasta — é a **ligação**: corre com o papel do
- * PAY, que é o único com `EXECUTE` na porta da revisão `0050`.
+ * PAY, que é o único com `EXECUTE` na porta da revisão `0051`.
  *
  * ## O que este ficheiro decide, e o que deixa à base
  *
@@ -45,7 +45,7 @@ import type { ClienteSql, Efeito, Envelope } from "@kamba/core-ts/eventos";
 export const TIPO_DO_PEDIDO = "order.refund_requested";
 
 /**
- * A chamada à porta da revisão `0050`.
+ * A chamada à porta da revisão `0051`.
  *
  * Os seis argumentos pela ordem da assinatura: tenant, encomenda, motivo,
  * valor, moeda e o `id` do envelope. O `id` do envelope é o sexto e não o

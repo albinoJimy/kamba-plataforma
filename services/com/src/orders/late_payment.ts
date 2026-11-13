@@ -43,7 +43,7 @@
  * **A regra 4 dispara pelos dois caminhos desde o KAM-197.** Um segundo
  * pagamento de uma **segunda cobrança** (uma referência antiga paga depois de
  * uma nova) chega como `payment.confirmed`; um segundo pagamento da **mesma**
- * cobrança é `pagamento_duplicado` no *ledger*, e a revisão `0050` mapeia-o para
+ * cobrança é `pagamento_duplicado` no *ledger*, e a revisão `0051` mapeia-o para
  * o mesmo `payment.confirmed`. Os dois passam por aqui.
  */
 
