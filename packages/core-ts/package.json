@@ -139,6 +139,10 @@
       "types": "./dist/revisao/index.d.ts",
       "default": "./dist/revisao/index.js"
     },
+    "./trust": {
+      "types": "./dist/trust/index.d.ts",
+      "default": "./dist/trust/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

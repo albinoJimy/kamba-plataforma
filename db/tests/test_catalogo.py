@@ -254,6 +254,12 @@ class TestConvencoes(ComBase):
                 # foto recebida), e um sequencial dizia-lhe quantas fotos a
                 # plataforma inteira recebe.
                 "catalog_ingestions",
+                # KAM-097: o sinal e a sancao de T&S. `uuid` aleatorio e **nao**
+                # o `bigserial` do bloco: o `kamba_app` le-os (o `RETURNING id`
+                # e a escada), e um sequencial dizia-lhe quantos sinais e
+                # quantas sancoes a plataforma conta.
+                "ts_signal",
+                "ts_sanction",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -849,6 +855,10 @@ class TestConvencoes(ComBase):
                 # referencia por chave estrangeira: o que liga esta linha a de
                 # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
                 ("tool_idempotency", "key", "text", None),
+                # KAM-097: as duas de T&S, `uuid` gerada pela regra geral, depois
+                # das de ferramentas («too» < «ts_»).
+                ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
+                ("ts_signal", "id", "uuid", "gen_random_uuid()"),
                 ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
@@ -1301,7 +1311,12 @@ class TestConvencoes(ComBase):
              # reentrega do mesmo `media_id` da Meta), o `phash_idx` (a
              # pergunta «e o mesmo produto?») e o `fila_idx` (a fila humana).
              # **Com** FK para `tenants`: uma foto chega de um tenant ja activo.
-             "catalog_ingestions"},
+             "catalog_ingestions",
+             # KAM-097 (revisao de T&S). Pelos indices `ts_signal_tenant_idx` e
+             # `ts_sanction_tenant_idx` (o risco e a escada leem por tenant e
+             # por instante), e pelas unicidades das chaves. **Com** FK para
+             # `tenants`: um sinal e de um tenant que ja existe.
+             "ts_signal", "ts_sanction"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1873,7 +1888,14 @@ class TestConvencoes(ComBase):
         # composta porque nao aponta para nada de um tenant: a tabela nao tem
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
-        self.assertEqual(len(linhas), 83)
+        #
+        # **87 e nao 83** desde a revisao de T&S (KAM-097): **quatro**. As duas
+        # `ts_*_tenant_fk`, simples para `tenants(id)`; a `ts_sanction_caso_fk`,
+        # composta `(case_id, tenant_id)` para a `review_case_id_tenant_uq` (uma
+        # sancao humana nao junta o caso de um tenant com outro); e a
+        # `ts_sanction_recurso_fk`, composta `(recurso_de, tenant_id)` para a
+        # propria tabela: o desfecho de um recurso e do tenant da sancao.
+        self.assertEqual(len(linhas), 87)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

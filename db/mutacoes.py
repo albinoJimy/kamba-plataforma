@@ -309,6 +309,10 @@ def _revisao_por_glob(padrao: str) -> str:
 #: que e provisorio. O ensaio que a prova (`db/tests/test_catalogo_ai_schema.py`)
 #: descobre-a pelo mesmo padrao.
 REV_CATALOGO_AI = _revisao_por_glob("*_catalogo_ai.py")
+#: KAM-097: os sinais e a escada de sancoes de T&S, descoberta pelo *glob* e nao
+#: pelo numero, que e provisorio (`0053`). O ensaio que a prova
+#: (`db/tests/test_trust_schema.py`) descobre-a pelo mesmo padrao.
+REV_TRUST = _revisao_por_glob("*_trust_e_sancoes.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7368,6 +7372,58 @@ MUTACOES = [
      " WHERE tenant_id = p_tenant_id AND order_id = p_order_id;\n"
      "            RETURN v_caso;\n",
      "tests_pagamentos"),
+    # ------------------------------------------- KAM-097 (revisao de T&S)
+    #
+    # Sete, e cada uma tira uma barreira que so a base tem. A suite e a
+    # `tests`, e o modulo que as tem de matar e o `db/tests/test_trust_schema.py`.
+    ("trust: o sinal perde o FORCE da RLS", REV_TRUST,
+     '    rls.enable_tenant_rls("ts_signal")\n',
+     '    rls.enable_tenant_rls("ts_signal")\n'
+     '    op.execute("ALTER TABLE platform.ts_signal NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # O dono da tabela via e escrevia os sinais de todos os tenants. O
+    # `test_a_rls_esta_ligada_e_forcada_nas_duas` tem de a matar.
+    ("trust: o kamba_app escreve a linha humana e o recurso", REV_TRUST,
+     "          IF current_user = 'kamba_app'\n",
+     "          IF false AND current_user = 'kamba_app'\n",
+     "tests"),
+    # O tenant levantava a propria sancao com uma linha de recurso `provido`. O
+    # `test_a_aplicacao_escreve_avisos_automaticos_e_nada_humano` tem de a matar.
+    ("trust: a suspensao automatica passa", REV_TRUST,
+     "CHECK (origem = 'humana' OR passo IN ('aviso', 'limitacao'))",
+     "CHECK (origem IN ('humana', 'automatica'))",
+     "tests"),
+    # A maquina suspendia. O
+    # `test_a_suspensao_e_o_encerramento_nunca_sao_automaticos` tem de a matar.
+    ("trust: o salto passa sem justificacao", REV_TRUST,
+     "               AND NEW.justificacao_salto IS NULL THEN\n",
+     "               AND false THEN\n",
+     "tests"),
+    # Uma suspensao sem aviso nem limitacao antes, e sem uma linha escrita a
+    # dizer porque. O `test_a_humana_leva_caso_e_o_salto_leva_justificacao` tem
+    # de a matar.
+    ("trust: a severidade deixa de ser a do tipo", REV_TRUST,
+     "                AND severidade = 'media')\n",
+     "                AND severidade IN ('baixa', 'media', 'alta'))\n",
+     "tests"),
+    # Um sinal de `confirmacao_suspeita` escrito antes do consumidor com
+    # severidade `baixa` ficava com a chave e pesava menos. O
+    # `test_a_severidade_da_base_e_a_do_modulo_tipo_a_tipo` tem de a matar.
+    ("trust: a chave deixa de estar presa a origem", REV_TRUST,
+     "                AND chave = concat('recurso:', recurso_de) AND left(autor, 8) <> 'sistema:')),\n",
+     "                AND chave = concat('recurso:', recurso_de) AND left(autor, 8) <> 'sistema:')\n"
+     "            OR true),\n",
+     "tests"),
+    # O `kamba_app` ocupava a chave `recurso:<id>` de um recurso por decidir, e
+    # o desfecho real saia repetido (achado 8 da revisao adversarial). O
+    # `test_a_chave_e_o_autor_estao_presos_a_origem` tem de a matar.
+    ("trust: o instante de um sinal recua", REV_TRUST,
+     "          NEW.ocorrido_em := greatest(least(NEW.ocorrido_em, now()), now() - interval '1 day');\n",
+     "          NEW.ocorrido_em := NEW.ocorrido_em;\n",
+     "tests"),
+    # Um sinal datado de 2000 decaia para zero no risco (achado 1). O
+    # `test_o_instante_de_um_sinal_nao_se_recua_nem_se_adianta` tem de a matar.
+
     ("consumidor: o evento do tenant ignora o estado", IDX_CONSUMIDOR,
      "SET visivel = COALESCE((SELECT t.estado = 'ativo'",
      "SET visivel = COALESCE((SELECT true", PRODUTOS),

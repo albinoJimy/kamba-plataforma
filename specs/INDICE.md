@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.65
+**Versão do conjunto:** 1.66
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **198 tickets atómicos (KAM-001 a KAM-198)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **199 tickets atómicos (KAM-001 a KAM-199)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -57,10 +57,10 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193 | 5 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189 | 14 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198 | 22 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-199 | 23 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-198** | **198** | — |
+| **TOTAL** | **KAM-001 – KAM-199** | **199** | — |
 
 ### 3.2 Fases
 
@@ -300,6 +300,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-195 | Screening: o classificador chama pelo cliente com gate de destino, registo e custo, e a finalidade de transferência | feature | L | P1 | 1 | KAM-192, KAM-069 |
 | KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | 1 | KAM-089 |
 | KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | 1 | KAM-196 |
+| KAM-199 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | 1 | KAM-097, KAM-092 |
 
 ### EPIC-10 — Spikes, Validação e Gates
 
@@ -435,3 +436,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.63 | Novembro 2026 | **KAM-197** acrescentado ao **EPIC-05**, no PR do **KAM-062**, que o abre e não o implementa: o PAY abre a `refund_cases` ao consumir `order.refund_requested` (decisão do fundador de 2026-11-12, opção b — um só dono da tabela, sem escritor no COM). É o credor do critério 4 do KAM-060 e das regras 3 e 4 do KAM-050. **Superfícies:** a linha do §4, o §3.1 — o EPIC-05 com **11** e o TOTAL a `KAM-001 – KAM-197` com **197** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-050 e o do KAM-053 ganham o KAM-197, nos blocos. | Equipa KAMBÁ |
 | 1.64 | Novembro 2026 | **KAM-197:** a estimativa passa de M a L, pela decisão (A) do fundador de 2026-11-13 — o consumidor do PAY corre com um papel novo, `kamba_pay`, e isso é bootstrap, ligação, segredo e as matrizes de papéis. Nenhuma dependência muda. | Equipa KAMBÁ |
 | 1.65 | Novembro 2026 | **KAM-198** acrescentado ao **EPIC-09**, no PR do **KAM-196**, que o abre e não o implementa: é o credor da metade do critério 6 do KAM-196 que nenhum ticket recebia — o processo de lote do onboarding, que corre como `kamba_batch` com os adaptadores SQL, arranca em `prod`, agenda o ciclo da fila de revisão (`drenarTriagem`, `alertarSla`, `reaplicarEfeitos`), serve o `/metrics` e dá ao KAM-092 o ponto onde ele liga o `amostrar`. O KAM-196 entrega o ciclo (`../packages/core-ts/src/revisao/ciclo.ts`) e nenhum processo o corre: o `onboarding-web` recusa `prod` e não tem adaptadores SQL. **Escrito como infraestrutura de lote do onboarding, e não só da fila**, porque a reconciliação da saga (KAM-091) vai precisar do mesmo processo (decisão do orquestrador do lote). **M, P0, fase 1**: o critério 6 do KAM-196 é P0. **Superfícies:** a linha do §4, o §3.1 — o EPIC-09 com **22** e o TOTAL a `KAM-001 – KAM-198` com **198** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-196 ganha o KAM-198, e as `Dependências` do KAM-092 também, porque o `amostrar` dele liga-se no processo do KAM-198; no §4, na tabela-resumo e no bloco. | Equipa KAMBÁ |
+| 1.66 | Novembro 2026 | **KAM-199** acrescentado ao **EPIC-09**, no PR do **KAM-097**, que o abre e não o implementa: é o credor das caixas que o KAM-097 deixa parciais — o processo que consome os sete tipos de evento com o efeito de T&S, o agendamento das varreduras e do fecho dos encerramentos, as métricas e os alertas de T&S, e as quatro fontes de sinal cuja regra existe e cujos factos não (preço por categoria, mudança de conta ou de NIF, correlação entre tenants por comprador, coincidência por HMAC). Depende do KAM-097 e do KAM-092 (a `transition_tenant`). **199** tickets. | Equipa KAMBÁ |

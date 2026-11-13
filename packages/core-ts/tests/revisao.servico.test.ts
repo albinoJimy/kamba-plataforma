@@ -382,13 +382,16 @@ describe("quem decide (criterio 3 e 6)", () => {
   });
 
   it("es_falhado, saga e trust nao mexem na fase do onboarding", async () => {
-    const m = montarRevisao();
+    // KAM-097: o efeito de um caso `trust` e de T&S, e rejeita-lo pede a regra.
+    const trust: string[] = [];
+    const m = montarRevisao({ trust: { aplicarDecisao: async (d) => void trust.push(d.caso.tipo) } });
     const o = m.onboarding({ fase: "aguarda_es" });
     for (const tipo of ["es_falhado", "saga", "trust"] as const) {
       const r = await m.abrir(o, { tipo, motivoCodigo: tipo });
       assert.ok(r.estado === "aberto");
-      await m.servico.decidir(revisor(), r.caso.id, "rejeitar");
+      await m.servico.decidir(revisor(), r.caso.id, "rejeitar", { regra: "r" });
     }
+    assert.deepEqual(trust, ["trust"]);
     assert.equal(m.onboardings.casos.get(o.id)!.fase, "aguarda_es");
     assert.equal(m.onboardings.fases.length, 0);
   });

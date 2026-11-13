@@ -1959,6 +1959,16 @@ SEM_RECEITA_COM_RAZAO = {
     # `TestPrivilegios` mede a RLS ligada e forcada e o `42501` da aplicacao.
     ("platform", "review_case"),
     ("platform", "review_decision_log"),
+    # KAM-097: os sinais e as sancoes de T&S, pela razao da
+    # `screening_decision`: *append-only* por privilegio **e** por *trigger*
+    # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
+    # receitas limpam, e ninguem tem `UPDATE`. **A politica mede-se noutro
+    # sitio**: o `TestIsolamento` do `db/tests/test_trust_schema.py` escreve e le
+    # pela ligacao da aplicacao com o contexto de A e de B (zero linhas de A, e
+    # `42501` a escrever no tenant de outro), e o `TestPrivilegios` mede a RLS
+    # ligada e forcada.
+    ("platform", "ts_signal"),
+    ("platform", "ts_sanction"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo

@@ -24,6 +24,7 @@ import {
   type ViaDoAviso,
   type Aviso,
 } from "../../src/revisao/index.ts";
+import type { EfeitosDeTrust } from "../../src/trust/index.ts";
 
 /** Uma sexta-feira, 10:00 em Luanda. */
 export const SEXTA = new Date("2026-11-13T09:00:00Z");
@@ -33,7 +34,14 @@ export function revisor(o: Partial<Revisor> = {}): Revisor {
 }
 
 export function montarRevisao(
-  o: { agora?: Date; limiares?: Partial<Limiares>; inicioDaAmostragem?: Date | null; onboardings?: OnboardingsDaRevisao } = {},
+  o: {
+    agora?: Date;
+    limiares?: Partial<Limiares>;
+    inicioDaAmostragem?: Date | null;
+    onboardings?: OnboardingsDaRevisao;
+    /** KAM-097: o efeito das decisões sobre casos `trust` e `recurso`. */
+    trust?: EfeitosDeTrust;
+  } = {},
 ) {
   let agora = o.agora ?? SEXTA;
   const relogio = () => agora;
@@ -69,6 +77,7 @@ export function montarRevisao(
     relogio,
     limiares: { ...LIMIARES_POR_OMISSAO, ...(o.limiares ?? {}) },
     inicioDaAmostragem: o.inicioDaAmostragem ?? null,
+    ...(o.trust === undefined ? {} : { trust: o.trust }),
   });
 
   /** Um onboarding já depois do OTP, pronto para ter casos. */

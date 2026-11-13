@@ -533,6 +533,20 @@ TABELAS_0048 = ("review_case", "review_decision_log")
 #: (KAM-062) nao cria tabelas no `platform`.
 TABELAS_CATALOGO_AI = ("catalog_ingestions",)
 
+#: O que a revisao de Trust & Safety (KAM-097) acrescenta: sinais e sancoes.
+#:
+#: **O nome leva o assunto e nao o numero da revisao**, pela razao do
+#: `TABELAS_CATALOGO_AI`: o numero (`0053`) e provisorio e da-o a integracao.
+#:
+#: **Duas tabelas, ambas com RLS `FORCE` pela `tenant_iso`**, *append-only* por
+#: privilegio **e** por *trigger* (`ts_imutavel`), com FK simples para
+#: `tenants(id)`. A `ts_sanction` tem FK composta `(case_id, tenant_id)` para a
+#: `review_case` e `(recurso_de, tenant_id)` para si propria, e um *trigger* de
+#: insercao (`ts_sanction_regras`) que recusa ao `kamba_app` as linhas humanas e
+#: um passo que salta degraus sem justificacao. A `0051` (KAM-197) e a `0052`
+#: (KAM-194) nao criam tabelas no `platform`.
+TABELAS_TRUST = ("ts_sanction", "ts_signal")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -543,20 +557,28 @@ TABELAS = tuple(
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
-        + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI
+        + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_TRUST
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao anterior a de
+#: Trust & Safety (KAM-097).
+#:
+#: O `downgrade` dessa revisao leva a base para aqui. **Deriva do `TABELAS`**, e
+#: e a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
+#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. Descreve
+#: tambem a revisao do Catalogo AI, a `0051` e a `0052`, que nao criam tabelas
+#: depois da `catalog_ingestions`.
+TABELAS_ANTES_DO_TRUST = tuple(sorted(set(TABELAS) - set(TABELAS_TRUST)))
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: Catalogo AI (KAM-049).
 #:
-#: O `downgrade` da revisao do Catalogo AI leva a base para aqui. **Deriva do
-#: `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
-#: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
-#: dela. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: O `downgrade` da revisao do Catalogo AI leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_TRUST` desde o KAM-097, que pos a sua revisao no topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
 #: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0049`, e isto **descreve tambem
 #: a `0048`**: a `0049` (KAM-062) nao cria tabelas no `platform`.
-TABELAS_ANTES_DO_CATALOGO_AI = tuple(sorted(set(TABELAS) - set(TABELAS_CATALOGO_AI)))
+TABELAS_ANTES_DO_CATALOGO_AI = tuple(sorted(set(TABELAS_ANTES_DO_TRUST) - set(TABELAS_CATALOGO_AI)))
 
 #: O que existe em `platform` quando a base esta na revisao `0047`.
 #:

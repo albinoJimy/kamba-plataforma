@@ -2524,6 +2524,41 @@ INVENTARIO["catalog_ingestions"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: Os sinais de Trust & Safety (KAM-097). **Sem dados pessoais**: o `detalhe` so
+#: admite chaves de referencia (`order_id`, `sku`, contagens), fechadas por
+#: `CHECK`, e o `ref_evento` e um evento ou um agregado. Oito colunas.
+INVENTARIO["ts_signal"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "tipo": ("text", NAO, None, "nao"),
+    "severidade": ("text", NAO, None, "nao"),
+    "ref_evento": ("uuid", NAO, None, "nao — o evento, ou o agregado do sinal"),
+    "detalhe": ("jsonb", NAO, "'{}'::jsonb", "nao — so chaves de referencia, por CHECK"),
+    "ocorrido_em": ("timestamp with time zone", NAO, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A escada de sancoes de Trust & Safety (KAM-097). O `motivo_interno` e texto de
+#: T&S sobre o comportamento de uma loja, nao sobre uma pessoa; o `autor` e um
+#: identificador de staff ou `sistema:<versao>`. Quinze colunas.
+INVENTARIO["ts_sanction"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "chave": ("text", NAO, None, "nao"),
+    "passo": ("text", NAO, None, "nao"),
+    "origem": ("text", NAO, None, "nao"),
+    "motivo_interno": ("text", NAO, None, "nao — so para T&S; o kamba_app nao o le"),
+    "motivo_publico": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "autor": ("text", NAO, None, "nao — identificador de staff ou do sistema"),
+    "regra": ("text", SIM, None, "nao"),
+    "sinais": ("jsonb", NAO, "'[]'::jsonb", "nao — identificadores de ts_signal"),
+    "case_id": ("uuid", SIM, None, "nao"),
+    "justificacao_salto": ("text", SIM, None, "nao — texto de T&S sobre a loja"),
+    "recurso_de": ("uuid", SIM, None, "nao"),
+    "recurso_estado": ("text", SIM, None, "nao"),
+    "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -3253,6 +3288,15 @@ class TestInventario(ComBase):
                         # tenant nao apaga as fotos dele por baixo da retencao,
                         # que e quem as purga (KAM-071).
                         "catalog_ingestions_tenant_fk",
+                        # KAM-097 (revisao de T&S): os sinais e as sancoes
+                        # apontam o tenant, a sancao humana aponta o caso de
+                        # revisao pelo par, e o desfecho de um recurso aponta a
+                        # sancao recorrida pelo par. Sem cascata: e tudo
+                        # *append-only*.
+                        "ts_signal_tenant_fk",
+                        "ts_sanction_tenant_fk",
+                        "ts_sanction_caso_fk",
+                        "ts_sanction_recurso_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3847,6 +3891,42 @@ class TestInventario(ComBase):
                     "review_decision_log_pkey",
                     "review_decision_log_recurso_ck",
                     "review_decision_log_regra_ck",
+                    # ------------------------- KAM-097 (revisao de T&S)
+                    #
+                    # **Vinte e quatro.** No sinal: o tipo, o dominio e o par
+                    # tipo/severidade (a severidade fixa), o `detalhe` fechado a
+                    # chaves de referencia, a chave do bloco, a unicidade
+                    # composta das FK e a chave primaria. Na sancao: os
+                    # dominios (passo, origem, motivo publico, desfecho), as
+                    # formas (chave, autor, motivo interno, regra, sinais,
+                    # justificacao), as quatro coerencias (a chave e o autor presos a
+                    # origem, grave so humana, humana
+                    # com caso, recurso humano e com desfecho), a chave, a
+                    # unicidade composta e a chave primaria.
+                    "ts_signal_chave_uq",
+                    "ts_signal_detalhe_ck",
+                    "ts_signal_id_tenant_uq",
+                    "ts_signal_pkey",
+                    "ts_signal_severidade_ck",
+                    "ts_signal_severidade_dominio_ck",
+                    "ts_signal_tipo_ck",
+                    "ts_sanction_autor_ck",
+                    "ts_sanction_chave_ck",
+                    "ts_sanction_chave_forma_ck",
+                    "ts_sanction_chave_uq",
+                    "ts_sanction_grave_humana_ck",
+                    "ts_sanction_humana_com_caso_ck",
+                    "ts_sanction_id_tenant_uq",
+                    "ts_sanction_justificacao_ck",
+                    "ts_sanction_motivo_interno_ck",
+                    "ts_sanction_motivo_publico_ck",
+                    "ts_sanction_origem_ck",
+                    "ts_sanction_passo_ck",
+                    "ts_sanction_pkey",
+                    "ts_sanction_recurso_ck",
+                    "ts_sanction_recurso_estado_ck",
+                    "ts_sanction_regra_ck",
+                    "ts_sanction_sinais_ck",
                     # ------------------- KAM-049 (revisao do Catalogo AI)
                     #
                     # **Catorze.** Os nove de coluna (o dominio do `estado`, a

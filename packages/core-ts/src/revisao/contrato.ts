@@ -434,6 +434,12 @@ export interface Limiares {
   readonly semanasDeAmostragem: number;
   /** Casos por página da consola. Não há exportação. */
   readonly paginaMaxima: number;
+  /**
+   * Dias, depois da decisão, em que uma sanção de T&S (um caso `trust`) se pode
+   * recorrer (KAM-097). Depois deles o encerramento fecha, e um recurso tardio
+   * dizia ao dono «aceite» sobre uma loja já encerrada.
+   */
+  readonly diasDoRecursoDeTrust: number;
 }
 
 export const LIMIARES_POR_OMISSAO: Limiares = {
@@ -443,6 +449,7 @@ export const LIMIARES_POR_OMISSAO: Limiares = {
   prioridadeDeRiscoAlto: 2,
   fracaoDaAmostra: 0.2,
   semanasDeAmostragem: 8,
+  diasDoRecursoDeTrust: 14,
   paginaMaxima: 50,
 };
 
@@ -462,6 +469,7 @@ export const MOTIVOS_DE_RECUSA = [
   "recurso_sem_rejeicao",
   "decisao_invalida",
   "evidencia_alheia",
+  "recurso_fora_de_prazo",
 ] as const;
 export type MotivoDeRecusa = (typeof MOTIVOS_DE_RECUSA)[number];
 
@@ -475,7 +483,12 @@ export class RevisaoRecusadaError extends Error {
     super(`revisao recusada: ${motivo}`);
     this.motivo = motivo;
     this.estadoHttp =
-      motivo === "estado_invalido" || motivo === "recurso_ja_usado" || motivo === "recurso_sem_rejeicao" ? 409 : 403;
+      motivo === "estado_invalido" ||
+      motivo === "recurso_ja_usado" ||
+      motivo === "recurso_sem_rejeicao" ||
+      motivo === "recurso_fora_de_prazo"
+        ? 409
+        : 403;
   }
 }
 
