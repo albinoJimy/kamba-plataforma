@@ -33,8 +33,16 @@
  * ***shortcut:*** a lista de efeitos por reaplicar é em memória, como tudo o
  * que o `onboarding-web` tem: perde-se no reinício, e então o caso fica
  * decidido com o efeito por aplicar até alguém o reaplicar à mão. Revê-se com
- * o processo de lote da fila (o `kamba_batch` sobre a `RevisaoSql`), que é onde
- * esta lista passa a ser uma consulta aos casos decididos sem efeito.
+ * o processo de lote do onboarding (KAM-198, o `kamba_batch` sobre a
+ * `RevisaoSql`), cujo critério 2 é esta lista sobreviver a um reinício.
+ *
+ * ## Quem o corre
+ *
+ * **Ninguém, ainda.** O ciclo é o módulo; o processo que o agenda com
+ * credenciais de lote, o serve em `/metrics` e dá ao KAM-092 o gancho do
+ * `amostrar` é o KAM-198. O `onboarding-web` recusa `prod` e não tem os
+ * adaptadores SQL, e agendar o ciclo lá era correr sobre uma fila em memória
+ * que nada escreve.
  */
 
 import type { Feriados } from "./sla.ts";

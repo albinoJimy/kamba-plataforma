@@ -2,10 +2,10 @@
 
 | Campo | Valor |
 |---|---|
-| Ticket | **KAM-089** — Fila de revisão por excepção para T&S/T2 (`../specs/EPIC-09_Onboarding_Governanca.md`) |
-| Código | [`../packages/core-ts/src/revisao/`](../packages/core-ts/src/revisao/index.ts) e a revisão [`../db/migrations/versions/0048_fila_de_revisao.py`](../db/migrations/versions/0048_fila_de_revisao.py) |
-| Nomes | Dicionário §3.61 |
-| Estado | **Proposta.** O serviço, as tabelas e as portas existem e estão medidos; **a consola HTTP não existe**, porque a identidade da equipa com MFA não existe (ver §4). Nenhum procedimento desta página foi ensaiado por um revisor |
+| Ticket | **KAM-089** — Fila de revisão por excepção para T&S/T2; **KAM-196** — a consola, a identidade da equipa e os avisos ao dono (`../specs/EPIC-09_Onboarding_Governanca.md`) |
+| Código | [`../packages/core-ts/src/revisao/`](../packages/core-ts/src/revisao/index.ts), a revisão [`../db/migrations/versions/0048_fila_de_revisao.py`](../db/migrations/versions/0048_fila_de_revisao.py) e a consola [`../services/onboarding-web/src/equipa/`](../services/onboarding-web/src/equipa/rotas.ts) |
+| Nomes | Dicionário §3.61 e §3.63 |
+| Estado | **Proposta.** O serviço, as tabelas, as portas e a consola HTTP existem e estão medidos contra duplos; **a consola não está montada em processo nenhum**, porque o IdP da equipa não está escolhido (ver §4 e §5). Nenhum procedimento desta página foi ensaiado por um revisor |
 
 ---
 
@@ -93,26 +93,61 @@ A linha que esta fila acrescenta ao `tecnica/10_Onboarding_Governanca.md` §17:
 
 ## 4. O que não está feito, e quem o faz
 
-- **A consola HTTP e a identidade da equipa.** O serviço expõe tudo o que a consola precisa
-  (`listar`, `ver`, `revelar`, `urlDoDocumento`, `decidir`, `abrirRecurso`, `decidirRecurso`), mas
-  não há IdP, contas de staff nem MFA neste repositório, e uma rota `/equipa` sem eles era uma
-  porta aberta para os dados de todos os onboardings. Credor: o seguimento nomeado no bloco do
-  KAM-089.
-- **O texto do SMS e do e-mail ao dono.** A porta `AvisoAoDono` é chamada com o motivo público e a
-  via (`sms` ou `email`, nunca o número da loja); o `packages/core-ts/src/sms/` só tem o modelo
-  do OTP. Mesmo credor.
+- **O IdP da equipa e as contas de staff.** A consola existe (§5) e só se monta com um IdP
+  verdadeiro; a escolha dele e a criação das contas `ts_revisor` e `ts_lider` com MFA são do
+  **fundador** (contraparte e conta, critério 1 do KAM-196), escritas com o subprocessador que
+  acrescentam (KAM-069). O adaptador do IdP escolhido tem de ligar a prova ao navegador que começou
+  a entrada (`state`/`nonce` de OIDC).
+- **O processo de lote.** O *job* da fila existe (`CicloDaFila`: drenar a triagem, dar os alertas
+  dos 80%, reaplicar os efeitos que falharam, recalcular as métricas), e nenhum processo o corre
+  com credenciais de lote nem serve `/metrics`; a lista de efeitos por reaplicar é em memória.
+  Credor: **KAM-198**. O `amostrar` sobre cada aprovação automática é do **KAM-092**, pelo gancho
+  `aprovacaoAutomatica`.
+- **A via de e-mail do aviso.** Os textos existem e o adaptador sabe usá-la (`CorreioDoDono`), mas
+  o serviço manda sempre por SMS e nenhum fornecedor de e-mail está escolhido (KAM-115).
+- **O motivo escolhido na decisão.** O serviço sabe usar um motivo público diferente do do caso no
+  aviso dessa decisão, mas não o guarda, e o recurso e a reaplicação voltavam ao do caso. Por isso
+  a consola não o aceita: o motivo é o que a abertura fixou. Guardá-lo é uma coluna no
+  `review_decision_log`.
 - **Os feriados.** A tabela por omissão é **NÃO VERIFICADA** contra a lei em vigor; os móveis
   (Carnaval, Sexta-feira Santa) entram por configuração.
 - **Os limiares** — a quota de 20, o risco alto em prioridade ≤ 2, o *score* 60, os 20% e as 8
-  semanas da amostragem — são propostas que ninguém calibrou.
-- **O *job* da fila.** `drenarTriagem`, `alertarSla`, `amostrar` (sobre cada aprovação
-  automática) e `reaplicarEfeitos` (para uma decisão cujo aviso ou screening falhou) existem e
-  ninguém os chama. Credor: KAM-196.
+  semanas da amostragem, as 8 h da sessão da equipa — são propostas que ninguém calibrou.
 - **A quota entre processos.** As aberturas da mesma origem correm em série **num** processo;
-  entre processos a quota pode exceder-se pelo número deles.
+  entre processos a quota pode exceder-se pelo número deles. Credor: KAM-198.
 - **Uma origem partilhada.** Num prefixo de IP móvel partilhado por muitos (CGNAT), a quota é de
   todos, e a triagem drena por ordem de chegada: um atacante constante atrasa os legítimos do
   mesmo prefixo. **PLAUSÍVEL**, por medir: o tamanho real dos prefixos das operadoras.
+- **As revogações da consola** perdem-se num reinício, como tudo o que o `onboarding-web` guarda em
+  memória; uma sessão terminada volta a valer até ao fim das 8 h.
+
+## 5. A consola `/equipa`
+
+Nove rotas no `onboarding-web` (`../services/onboarding-web/src/equipa/rotas.ts`), JSON, sobre o
+`ServicoDeRevisao`:
+
+| Rota | O que faz |
+|---|---|
+| `GET /equipa/entrar?prova=…` | o regresso do IdP: troca a prova pela sessão `kamba_equipa`; 401 sem prova válida, 403 sem MFA ou sem papel |
+| `POST /equipa/sair` | revoga a sessão verificada |
+| `GET /equipa/casos?tipo=&estado=&pagina=` | uma página de 50, sem dados pessoais; não há exportação |
+| `GET /equipa/casos/:id` | o caso, com NIF, BI e telefone mascarados; passa um `aberto` a `em_analise` |
+| `POST /equipa/casos/:id/revelar` | um campo em claro, registado antes de sair |
+| `GET /equipa/casos/:id/documentos/:verificacao` | `303` para a URL de ≤ 300 s, registado antes de existir |
+| `POST /equipa/casos/:id/decisao` | `aprovar`, `rejeitar`, `pedir_info`, `escalar`, com `regra` e `nota` (cifrada) |
+| `POST /equipa/casos/:id/recurso` | regista o recurso que o dono pediu por outro canal |
+| `POST /equipa/casos/:id/recurso/decisao` | `aprovar` ou `rejeitar` o recurso, por outro revisor |
+
+**A barreira vem antes do serviço:** sem sessão da equipa, 401; sessão sem MFA ou conta sem papel,
+403 com `review.recusa` no `audit_log`. Os papéis lêem-se do IdP a cada pedido. A sessão do dono
+não entra: tem outro cookie e outro separador de domínio. Todos os `POST` exigem
+`application/json`. Uma decisão registada cujo efeito falhou (a fase, o screening, o aviso)
+responde **202** e vai para o *job*.
+
+**O aviso ao dono** sai pelo SMS ao telefone **registado** no onboarding, nunca pelo número da
+loja, com um dos cinco modelos `revisao_*` e o texto fixo do motivo público; os e-mails têm os
+mesmos cinco casos. O recurso aceite não diz «aprovado», porque o pedido pode esperar por outro
+caso.
 
 ---
 
@@ -121,3 +156,4 @@ A linha que esta fila acrescenta ao `tecnica/10_Onboarding_Governanca.md` §17:
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | **KAM-089**: criação — o que a fila é, o *runbook* do revisor, a linha da RACI e o que fica por fazer. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **KAM-196**: a consola `/equipa` (§5, nova), a identidade da equipa e os avisos ao dono saem do §4; entram nele o IdP e as contas (fundador), o processo de lote (KAM-198), a via de e-mail e o motivo escolhido na decisão. | Equipa KAMBÁ |

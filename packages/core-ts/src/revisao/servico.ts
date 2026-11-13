@@ -206,7 +206,7 @@ export class ServicoDeRevisao {
    * vinte casos abertos, porque contavam todas antes de alguma inserir.
    * ***shortcut:*** entre processos a quota pode exceder-se pelo número de
    * processos que abrem casos ao mesmo tempo; revê-se quando a fila tiver mais
-   * do que um processo a abrir (KAM-196), com um `pg_advisory_xact_lock` sobre a
+   * do que um processo a abrir (KAM-198), com um `pg_advisory_xact_lock` sobre a
    * chave.
    *
    * **Um envio repetido sobre um caso pendente reforça-o** (`reforcar`): o KYC
@@ -359,7 +359,8 @@ export class ServicoDeRevisao {
    * por ninguém acabava rejeitada sem ninguém o ter pedido.
    *
    * Quem pede o recurso é o dono, por um canal que não é desta fila (a rota do
-   * dono não existe — KAM-196); a fila recebe o pedido já autenticado.
+   * dono não existe); a fila recebe o pedido já autenticado. A consola do
+   * KAM-196 regista-o pelo `registarRecurso`.
    */
   async abrirRecurso(casoId: string): Promise<CasoDeRevisao> {
     const caso = await this.#d.repositorio.porId(casoId);
@@ -619,7 +620,8 @@ export class ServicoDeRevisao {
    * desde o início da amostragem, 20% (*proposta*) geram um caso `auditoria`
    * de prioridade baixa. O resultado desses casos é a taxa de falsos aprovados.
    * Sem `inicioDaAmostragem`, não se amostra. **Ninguém a chama ainda**: quem
-   * conhece a aprovação automática é o KAM-092, e o *job* é o KAM-196.
+   * conhece a aprovação automática é o KAM-092; o gancho é o
+   * `CicloDaFila.aprovacaoAutomatica` (KAM-196), e o processo que o serve é o KAM-198.
    */
   async amostrar(onboardingId: string, tenantId: string): Promise<ResultadoDaAbertura | null> {
     const inicio = this.#d.inicioDaAmostragem ?? null;

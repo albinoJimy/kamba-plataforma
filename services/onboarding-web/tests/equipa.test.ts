@@ -336,9 +336,9 @@ describe("equipa: nenhuma rota responde sem identidade com MFA (adversarial)", (
       }
       const novas = m.auditoria.linhas.slice(antes);
       assert.equal(novas.length, rotas.length);
-      // `consola`: a recusa e da barreira, antes do servico. Sem a barreira o
+      // `barreira`: a recusa e da barreira, antes do servico. Sem a barreira o
       // servico tambem recusava com 403, mas com o caso no registo.
-      assert.ok(novas.every((l) => l.accao === "review.recusa" && l.detalhe === motivo && l.actorId === conta.id && l.entidadeId === "consola"));
+      assert.ok(novas.every((l) => l.accao === "review.recusa" && l.detalhe === motivo && l.actorId === conta.id && l.entidadeId === "barreira"));
     }
     assert.equal(m.repositorio.casos.get(caso.id)!.estado, "aberto");
   });

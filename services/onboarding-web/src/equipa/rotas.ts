@@ -161,7 +161,7 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
       tenantId: null,
       actorId,
       entidade: "review_case",
-      entidadeId: "consola",
+      entidadeId: "barreira",
       detalhe: motivo,
     });
     log?.info({ outcome: "equipa_recusada", error_code: motivo });
