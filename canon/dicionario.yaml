@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.87"
+versao_dicionario: "1.88"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11955,9 +11955,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.45"
     conceito: "Caso de reembolso"
-    canonico: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    canonico: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at, pedido_evento_id)"
     literais:
-      - "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+      - "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at, pedido_evento_id)"
     nomes:
       - "refund_cases"
       - "id"
@@ -11970,7 +11970,9 @@ entradas:
       - "prova_ref"
       - "criado_at"
       - "fechado_at"
+      - "pedido_evento_id"
     nomes_nota:
+      - "pedido_evento_id"
       - "refund"
       - "NOT_SUPPORTED"
     variantes_literais: []
@@ -15918,6 +15920,125 @@ entradas:
       - "tipo"
       - "termo"
     variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Papel do consumidor do PAY"
+    canonico: "kamba_pay"
+    literais:
+      - "kamba_pay"
+    nomes:
+      - "kamba_pay"
+    nomes_nota:
+      - "kamba_migrator"
+      - "CREATEROLE"
+      - "NOBYPASSRLS"
+      - "app.tenant_id"
+      - "SELECT"
+      - "events_log"
+      - "INSERT"
+      - "events_consumed"
+      - "ON"
+      - "CONFLICT"
+      - "EXECUTE"
+      - "refund_cases"
+      - "KAMBA_SECRET_DB_PAY_PASSWORD"
+      - "db_pay_password"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Porta de abertura do caso"
+    canonico: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
+    literais:
+      - "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
+    nomes:
+      - "platform.abrir_caso_de_reembolso"
+      - "p_tenant_id"
+      - "p_order_id"
+      - "p_motivo"
+      - "p_valor_minor"
+      - "p_currency"
+      - "p_pedido_evento_id"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "order.refund_requested"
+      - "refund_cases.motivo"
+      - "CHECK"
+      - "refund_cases"
+      - "charge_id"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Pedido que abriu o caso"
+    canonico: "refund_cases.pedido_evento_id, com o índice único parcial refund_cases_pedido_uq (tenant_id, pedido_evento_id) WHERE pedido_evento_id IS NOT NULL"
+    literais:
+      - "refund_cases.pedido_evento_id"
+      - "refund_cases_pedido_uq"
+      - "(tenant_id, pedido_evento_id) WHERE pedido_evento_id IS NOT NULL"
+    nomes:
+      - "refund_cases.pedido_evento_id"
+      - "refund_cases_pedido_uq"
+      - "tenant_id"
+      - "pedido_evento_id"
+      - "WHERE"
+      - "IS"
+      - "NOT"
+      - "NULL"
+    nomes_nota:
+      - "id"
+      - "order.refund_requested"
+      - "manual_reverter"
+      - "events_consumed"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "O duplicado no outbox"
+    canonico: "payment_outbox_map ⊇ {(pagamento_duplicado, hmac), (pagamento_duplicado, consulta)} → payment.confirmed v1"
+    literais:
+      - "payment_outbox_map"
+      - "pagamento_duplicado"
+      - "hmac"
+      - "pagamento_duplicado"
+      - "consulta"
+      - "payment.confirmed"
+    nomes:
+      - "payment_outbox_map"
+      - "pagamento_duplicado"
+      - "hmac"
+      - "consulta"
+      - "payment.confirmed"
+    nomes_nota:
+      - "payment.confirmed"
+      - "ramoDoPagamento"
+      - "pagamento_duplicado"
+      - "manual"
+      - "manual_confirmar"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Modo do processo de pagamentos do COM"
+    canonico: "COM_PAGAMENTOS_MODO ∈ {pagamentos, reembolsos}, com a ligação KAMBA_PAY_DB_URL no segundo"
+    literais:
+      - "COM_PAGAMENTOS_MODO"
+      - "pagamentos"
+      - "reembolsos"
+      - "KAMBA_PAY_DB_URL"
+    nomes:
+      - "COM_PAGAMENTOS_MODO"
+      - "pagamentos"
+      - "reembolsos"
+      - "KAMBA_PAY_DB_URL"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "O caso no sinal de duplicado"
+    canonico: "fraud_signals.detalhe.refund_case = o id do caso, ou por_abrir"
+    literais:
+      - "fraud_signals.detalhe.refund_case"
+      - "id"
+      - "por_abrir"
+    nomes:
+      - "fraud_signals.detalhe.refund_case"
+      - "id"
+      - "por_abrir"
+    nomes_nota:
+      - "por_abrir"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -16864,8 +16985,9 @@ tabelas:
       - "prova_ref"
       - "criado_at"
       - "fechado_at"
+      - "pedido_evento_id"
     aberta: false
-    assinatura: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    assinatura: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at, pedido_evento_id)"
     seccao: "3.45"
     conceito: "Caso de reembolso"
   - nome: "fraud_signals"
@@ -17124,6 +17246,19 @@ tabelas:
     assinatura: "idx.f_recusar_alteracao_de_versao()"
     seccao: "3.62"
     conceito: "Versão só de acrescento"
+  - nome: "abrir_caso_de_reembolso"
+    esquema: "platform"
+    colunas:
+      - "p_tenant_id"
+      - "p_order_id"
+      - "p_motivo"
+      - "p_valor_minor"
+      - "p_currency"
+      - "p_pedido_evento_id"
+    aberta: false
+    assinatura: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
+    seccao: "3.63"
+    conceito: "Porta de abertura do caso"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -18538,6 +18673,13 @@ dominios:
       - "investigar"
     seccao: "3.61"
     conceito: "Recomendação automática"
+    so_no_registo: false
+  - coluna: "COM_PAGAMENTOS_MODO"
+    valores:
+      - "pagamentos"
+      - "reembolsos"
+    seccao: "3.63"
+    conceito: "Modo do processo de pagamentos do COM"
     so_no_registo: false
 
 variantes:

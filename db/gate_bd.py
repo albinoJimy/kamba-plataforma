@@ -46,7 +46,7 @@ caso fica um `kamba-gate8-*` orfao, que se remove a mao.
 trincos, e o segundo e o que importa:
 
 - a base tem de se chamar `kamba_gate8`;
-- as palavras-passe dos oito papeis tem de vir **dadas** no ambiente. Os papeis
+- as palavras-passe dos nove papeis tem de vir **dadas** no ambiente. Os papeis
   sao globais a instancia, nao a base: o `bootstrap` redefine-lhes a
   palavra-passe, e gera-las aqui trocava as credenciais de todos os servicos da
   instancia por valores que ninguem conhece. Este modo so e seguro contra uma

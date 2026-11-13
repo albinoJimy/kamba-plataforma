@@ -159,6 +159,91 @@ export function porta(
   return valor;
 }
 
+/**
+ * Os dois consumidores que este processo sabe ser (KAM-197).
+ *
+ * `pagamentos` é o do KAM-055: o COM a aplicar `payment.*` à encomenda, como
+ * `kamba_app`. `reembolsos` é o do PAY: abre a `refund_cases` ao ler
+ * `order.refund_requested`, com o papel `kamba_pay` — o único com `EXECUTE` na
+ * porta da revisão `0050` (decisão (A) do fundador de 2026-11-13).
+ *
+ * **Um processo com dois modos e não dois pontos de entrada**, e a razão é
+ * medida e não estética: um ponto de entrada novo é um ficheiro que só se
+ * exercita com PostgreSQL e Redis reais, e entrava nos `excluidos` do
+ * `ci/thresholds.yaml` — uma alteração a um limiar, que pede o fundador. Assim a
+ * casca é a mesma, e a escolha vive aqui, medida.
+ */
+export const MODOS = ["pagamentos", "reembolsos"] as const;
+export type Modo = (typeof MODOS)[number];
+
+/** Que consumidor arranca. Sem ela, o do KAM-055, que era o único. */
+export const VARIAVEL_DO_MODO = "COM_PAGAMENTOS_MODO";
+
+/**
+ * A ligação do consumo, por modo. **Variáveis diferentes, e não a mesma com
+ * outro valor**: o `KAMBA_COM_DB_URL` a levar a credencial do `kamba_pay` era
+ * um nome a dizer «COM» sobre a ligação que existe para o COM não ter.
+ */
+export const VARIAVEL_DA_BASE_POR_MODO: Readonly<Record<Modo, string>> = {
+  pagamentos: VARIAVEL_DA_BASE,
+  reembolsos: "KAMBA_PAY_DB_URL",
+};
+
+export class ModoInvalidoError extends Error {
+  override readonly name = "ModoInvalidoError";
+
+  constructor(bruto: string) {
+    super(
+      `${VARIAVEL_DO_MODO} inválido: ${bruto}. Os modos são ${MODOS.join(", ")}`,
+    );
+  }
+}
+
+/**
+ * O modo, do ambiente, ou **levanta**.
+ *
+ * Um valor desconhecido não cai na omissão: um `reembolso` sem o `s` arrancava
+ * o consumidor de pagamentos com a ligação errada, e o erro aparecia como uma
+ * subscrição em falta e não como o que é.
+ */
+export function modo(
+  ambiente: Record<string, string | undefined> = process.env,
+): Modo {
+  const bruto = ambiente[VARIAVEL_DO_MODO];
+  if (bruto === undefined || bruto.trim() === "") return "pagamentos";
+  const valor = bruto.trim();
+  if (!(MODOS as readonly string[]).includes(valor)) {
+    throw new ModoInvalidoError(bruto);
+  }
+  return valor as Modo;
+}
+
+/**
+ * A subscrição **deste** consumidor existe e está activa (o modo `reembolsos`).
+ *
+ * É o `exigirSubscricaoComOrdem` sem a terceira condição: o
+ * `order.refund_requested` não é `payment.*`, a restrição da `0005` não lhe
+ * exige ordem, e a abertura do caso não depende dela — a idempotência é do
+ * `pedido_evento_id`, não da sequência. Exigi-la recusava uma subscrição certa.
+ */
+export async function exigirSubscricaoActiva(
+  bd: ClienteDeArranque,
+  consumer: string,
+  tipos: readonly string[],
+): Promise<void> {
+  const { rows } = await bd.query(SQL_A_MINHA_SUBSCRICAO, [consumer, [...tipos]]);
+  const porTipo = new Map(rows.map((linha) => [String(linha.tipo), linha]));
+  for (const tipo of tipos) {
+    const linha = porTipo.get(tipo);
+    if (linha === undefined) {
+      throw new SubscricaoEmFaltaError(consumer, `não tem linha para ${tipo}`);
+    }
+    if (linha.activo !== true) {
+      throw new SubscricaoEmFaltaError(consumer, `está inactiva para ${tipo}`);
+    }
+  }
+}
+
 /** A mesma guarda global do `worker-canal`, pela razão dele. */
 export async function exigirOrdemNosPagamentos(
   bd: ClienteDeArranque,

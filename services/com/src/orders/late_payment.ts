@@ -40,12 +40,11 @@
  * `order.refund_requested`. **Não se escreve na `refund_cases`**: ver a nota do
  * `refunds.ts` — abre-a o PAY ao consumir o pedido (decisão (b) do fundador).
  *
- * **A regra 4 só dispara hoje por um dos dois caminhos.** Um segundo pagamento
- * de uma **segunda cobrança** (uma referência antiga paga depois de uma nova)
- * chega como `payment.confirmed` e passa por aqui. Um segundo pagamento da
- * **mesma** cobrança é `pagamento_duplicado` no *ledger*, e esse tipo não está na
- * `payment_outbox_map` da revisão `0035`: o COM nunca recebe o sinal. Credor: o
- * ticket que acrescentar o `pagamento_duplicado` à `payment_outbox_map`.
+ * **A regra 4 dispara pelos dois caminhos desde o KAM-197.** Um segundo
+ * pagamento de uma **segunda cobrança** (uma referência antiga paga depois de
+ * uma nova) chega como `payment.confirmed`; um segundo pagamento da **mesma**
+ * cobrança é `pagamento_duplicado` no *ledger*, e a revisão `0050` mapeia-o para
+ * o mesmo `payment.confirmed`. Os dois passam por aqui.
  */
 
 import { TTL_OMISSAO_MS } from "../reservations/contrato.ts";

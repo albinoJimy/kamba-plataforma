@@ -48,24 +48,31 @@ import { SERVICE } from "../meta.ts";
 import { CAUSAS_QUE_PAGAM } from "../orders/contrato.ts";
 import {
   TABELA_DO_ESTADO,
-  VARIAVEL_DA_BASE,
+  VARIAVEL_DA_BASE_POR_MODO,
   VARIAVEL_DA_FILA,
   VARIAVEL_DA_OPERACAO,
   VARIAVEL_DO_CONSUMER,
   criarApp,
   exigir,
   exigirOrdemNosPagamentos,
+  exigirSubscricaoActiva,
   exigirSubscricaoComOrdem,
+  modo,
   porta,
 } from "./arranque.ts";
 import { efeitoDePagamento } from "./efeito.ts";
 import { LAG } from "./metricas.ts";
+import { TIPO_DO_PEDIDO, efeitoDeReembolso } from "./reembolsos.ts";
 
 const log = instalar(SERVICE);
 
 async function principal(): Promise<void> {
+  // KAM-197: o mesmo processo é o consumidor do PAY no modo `reembolsos`, com
+  // a ligação do `kamba_pay`. A escolha e as guardas vivem no `./arranque.ts`.
+  const qual = modo();
+  const pagamentos = qual === "pagamentos";
   const consumer = exigir(VARIAVEL_DO_CONSUMER);
-  const urlDaBase = exigir(VARIAVEL_DA_BASE);
+  const urlDaBase = exigir(VARIAVEL_DA_BASE_POR_MODO[qual]);
   const urlDaOperacao = exigir(VARIAVEL_DA_OPERACAO);
   const urlDaFila = exigir(VARIAVEL_DA_FILA);
 
@@ -73,7 +80,11 @@ async function principal(): Promise<void> {
   await operacao.connect();
   try {
     await exigirOrdemNosPagamentos(operacao);
-    await exigirSubscricaoComOrdem(operacao, consumer, CAUSAS_QUE_PAGAM);
+    if (pagamentos) {
+      await exigirSubscricaoComOrdem(operacao, consumer, CAUSAS_QUE_PAGAM);
+    } else {
+      await exigirSubscricaoActiva(operacao, consumer, [TIPO_DO_PEDIDO]);
+    }
   } finally {
     await operacao.end().catch(() => {});
   }
@@ -86,12 +97,14 @@ async function principal(): Promise<void> {
       await cliente.connect();
       return cliente;
     },
-    subscricao: { consumer, exigeOrdem: true },
+    subscricao: { consumer, exigeOrdem: pagamentos },
     filas: filasDe(consumer),
-    efeito: efeitoDePagamento({
-      consumer,
-      observarLag: (segundos) => LAG.observar(segundos),
-    }),
+    efeito: pagamentos
+      ? efeitoDePagamento({
+          consumer,
+          observarLag: (segundos) => LAG.observar(segundos),
+        })
+      : efeitoDeReembolso(),
     // **Sem cliente no construtor**: a máquina recebe o `bd` da transacção do
     // consumo por argumento (ver o `estadoDe` de `estados.ts`). Uma máquina
     // ligada a outra sessão lia a `orders_mirror` sem o `app.tenant_id` e, sob
