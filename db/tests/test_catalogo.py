@@ -1868,7 +1868,7 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_oito_e_so_os_oito(self) -> None:
+    def test_existem_os_nove_e_so_os_nove(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
         do KAM-008, o `kamba_audit` do KAM-012, o `kamba_agr` do KAM-026 e o
         `kamba_pay_hooks` do KAM-053.
@@ -1891,11 +1891,18 @@ class TestPapeis(ComBase):
         `db/bootstrap.py` para os atributos e o `ESPERADO_POR_TABELA` de
         `test_privilegios.py` para o que ele alcanca — que e o inbox, sem
         `tenant_id`, e sete colunas da `payment_accounts`, e nada mais.
+
+        **O nono e o `kamba_pay` do KAM-197**, por decisao (A) do fundador
+        de 2026-11-13: o consumidor do PAY, o unico com `EXECUTE` na porta
+        que abre a `refund_cases`. Existe para que a tabela tenha um so dono
+        **imposto pela base** — o COM corre como `kamba_app`, e uma porta
+        concedida ao `kamba_app` deixava o COM abrir casos.
         """
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
-             "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks"},
+             "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks",
+             "kamba_pay"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -1938,6 +1945,10 @@ class TestPapeis(ComBase):
                 # ledger de todos os tenants; assim ve sete colunas das contas e
                 # o inbox, que nao tem `tenant_id`.
                 "kamba_pay_hooks": False,
+                # KAM-197: o consumo trabalha um tenant de cada vez, com o
+                # `app.tenant_id` do envelope, e a porta le a encomenda sob
+                # RLS. Com `BYPASSRLS` abria casos em qualquer tenant.
+                "kamba_pay": False,
             },
         )
 

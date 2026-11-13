@@ -171,3 +171,23 @@ funcoes:
       continua sujeita a politica do tenant, e `db/tests_pagamentos/test_anomalias.py`
       mede as duas coisas, mais o par que quebra se o grantee passar a
       `kamba_app`.
+
+  - funcao: platform.abrir_caso_de_reembolso(p_tenant_id uuid, p_order_id uuid, p_motivo text, p_valor_minor bigint, p_currency text, p_pedido_evento_id uuid)
+    adr: ADR-004
+    razao: >-
+      Abre o caso de reembolso a partir de um `order.refund_requested` (KAM-197,
+      decisao (b) do fundador de 2026-11-12: o PAY abre o caso, com o papel
+      dele, e a tabela tem um so dono). A `platform.refund_cases` nao tem
+      `INSERT` para papel nenhum, pela razao escrita na `0032`: com `INSERT`,
+      abria-se um caso sem barreira nenhuma, com o motivo e o montante a
+      escolha. Com `SECURITY INVOKER` a excepcao mudava de sitio e ficava
+      maior: era preciso conceder esse `INSERT`.
+      O grantee e o **`kamba_pay`** e mais ninguem (decisao (A) do fundador de
+      2026-11-13): o COM corre como `kamba_app` e leva `42501`, que e o que faz
+      da regra «um so dono» uma recusa da base e nao uma convencao.
+      Quatro barreiras dentro: o motivo contra a lista fechada do contrato, a
+      encomenda no tenant da transaccao (lida sob RLS), a moeda da encomenda,
+      e a repeticao do mesmo pedido, que devolve o caso que ja existe ou
+      recusa se o conteudo divergir. Nao toca no ledger nem na cobranca, e nao
+      contorna o `FORCE`: `db/tests_pagamentos/test_reembolsos_do_pay.py` mede
+      as quatro, o isolamento e o `42501` do `kamba_app`.

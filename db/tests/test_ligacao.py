@@ -89,6 +89,9 @@ class TestCredenciais(unittest.TestCase):
                 # nome da variavel e ele em maiusculas com o prefixo — como os
                 # sete acima, e nao um nome escolhido aqui.
                 "KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD",
+                # KAM-197: o papel do consumidor do PAY, o nono. Id
+                # `db_pay_password` no inventario, pela mesma regra.
+                "KAMBA_SECRET_DB_PAY_PASSWORD",
             },
         )
 

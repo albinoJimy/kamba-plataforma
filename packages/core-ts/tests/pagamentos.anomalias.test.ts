@@ -56,6 +56,7 @@ import {
   LIMIARES_PROPOSTOS,
   PLANO_DE_CALIBRACAO,
   PREFIXO_DO_AJUSTE,
+  REEMBOLSO_POR_ABRIR,
   REGRAS,
   REGRA_POR_ID,
   SEPARADOR_DO_EXTRACTO,
@@ -66,6 +67,7 @@ import {
   SQL_ANOMALIAS_CONFIRMACOES,
   SQL_ANOMALIAS_EVENTOS,
   SQL_ANOMALIAS_RECUSAS,
+  SQL_ANOMALIAS_REEMBOLSOS,
   SQL_REGISTAR_SINAL,
   SinalComPii,
   TERMINAIS_SEM_PAGAMENTO,
@@ -83,6 +85,7 @@ import {
   sinaisDaReconciliacao,
 } from "../src/pagamentos/index.ts";
 import type {
+  CasoDeReembolsoObservado,
   CobrancaObservada,
   ConfirmacaoObservada,
   EntradaDaConfirmacao,
@@ -156,6 +159,7 @@ function foto(campos: Partial<Fotografia> = {}): Fotografia {
     confirmacoes: [],
     recusas: [],
     casa: [],
+    reembolsos: [],
     agora: AGORA,
     ...campos,
   };
@@ -373,12 +377,84 @@ describe("R-04 — duplicado (criterio 4, G6)", () => {
     assert.deepEqual(daRegra(avaliar(foto({ eventos })), "R-04"), []);
   });
 
-  it("o sinal diz que o refund_case esta por abrir, em vez de o supor", () => {
-    // O criterio 4 pede um `refund_cases`, e nenhum papel o consegue escrever.
-    // Um sinal que nao o dissesse fazia parecer que o caso existe.
+  it("sem caso aberto, o sinal diz que o refund_case esta por abrir", () => {
+    // O PAY abre o caso ao consumir o pedido (KAM-197), e isso e assincrono.
+    // Um sinal calculado antes nao o pode supor.
     const eventos = [evento({ tipoEvento: "pagamento_duplicado" })];
     const sinal = daRegra(avaliar(foto({ eventos })), "R-04")[0];
-    assert.equal(sinal?.detalhe["refund_case"], "por_abrir");
+    assert.equal(sinal?.detalhe["refund_case"], REEMBOLSO_POR_ABRIR);
+  });
+
+  const CASO_A = "cccccccc-0000-4000-8000-00000000000a";
+  const CASO_B = "cccccccc-0000-4000-8000-00000000000b";
+  const COBRANCA = "aaaaaaaa-0000-4000-8000-000000000001";
+  const caso = (casoId: string, campos: Partial<CasoDeReembolsoObservado> = {}) => ({
+    casoId,
+    tenantId: TENANT,
+    chargeId: COBRANCA,
+    valorMinor: 100_000n,
+    ...campos,
+  });
+
+  it("com o caso aberto, o sinal diz qual e (KAM-197)", () => {
+    const eventos = [evento({ tipoEvento: "pagamento_duplicado" })];
+    const sinal = daRegra(
+      avaliar(foto({ eventos, reembolsos: [caso(CASO_A)] })),
+      "R-04",
+    )[0];
+    assert.equal(sinal?.detalhe["refund_case"], CASO_A);
+  });
+
+  it("um caso de outra cobranca, de outro valor ou de outro tenant nao conta", () => {
+    // Cada campo do casamento com o seu caso: um casamento que ignorasse um
+    // deles dava um caso que nao e deste duplicado como se fosse.
+    const eventos = [evento({ tipoEvento: "pagamento_duplicado" })];
+    for (const [nome, outro] of [
+      ["cobranca", caso(CASO_A, { chargeId: "aaaaaaaa-0000-4000-8000-000000000009" })],
+      ["valor", caso(CASO_A, { valorMinor: 99_999n })],
+      ["tenant", caso(CASO_A, { tenantId: "99999999-9999-4999-8999-999999999999" })],
+    ] as const) {
+      const sinal = daRegra(
+        avaliar(foto({ eventos, reembolsos: [outro] })),
+        "R-04",
+      )[0];
+      assert.equal(sinal?.detalhe["refund_case"], REEMBOLSO_POR_ABRIR, nome);
+    }
+  });
+
+  it("dois duplicados e um caso: so um deles fica com o caso", () => {
+    // **Um caso por duplicado.** Tres pagamentos da mesma cobranca sao dois
+    // pedidos de reembolso; dar o mesmo caso aos dois dizia que estavam ambos
+    // tratados por um so.
+    const eventos = [
+      evento({ eventId: 1n, tipoEvento: "pagamento_duplicado" }),
+      evento({ eventId: 2n, tipoEvento: "pagamento_duplicado" }),
+    ];
+    const casos = daRegra(
+      avaliar(foto({ eventos, reembolsos: [caso(CASO_A)] })),
+      "R-04",
+    ).map((s) => s.detalhe["refund_case"]);
+    assert.deepEqual([...casos].sort(), [CASO_A, REEMBOLSO_POR_ABRIR].sort());
+  });
+
+  it("dois duplicados e dois casos: cada um com o seu, qualquer que seja a ordem", () => {
+    // A atribuicao e por ordem total, pelo que inverter as listas da
+    // fotografia nao troca os casos entre os sinais (criterio 9).
+    const eventos = [
+      evento({ eventId: 1n, tipoEvento: "pagamento_duplicado" }),
+      evento({ eventId: 2n, tipoEvento: "pagamento_duplicado" }),
+    ];
+    const reembolsos = [caso(CASO_A), caso(CASO_B)];
+    const normal = avaliar(foto({ eventos, reembolsos }));
+    const invertida = avaliar(
+      foto({ eventos: [...eventos].reverse(), reembolsos: [...reembolsos].reverse() }),
+    );
+    assert.deepEqual(normal, invertida);
+    const porEvento = new Map(
+      daRegra(normal, "R-04").map((s) => [s.detalhe["event_id"], s.detalhe["refund_case"]]),
+    );
+    assert.equal(porEvento.get("1"), CASO_A);
+    assert.equal(porEvento.get("2"), CASO_B);
   });
 });
 
@@ -641,6 +717,7 @@ describe("o determinismo (criterio 9)", () => {
       cobrancas: [...normal.cobrancas].reverse(),
       confirmacoes: [...normal.confirmacoes].reverse(),
       recusas: [...normal.recusas].reverse(),
+      reembolsos: [...normal.reembolsos].reverse(),
     };
     assert.deepEqual(avaliar(normal), avaliar(invertida));
   });
@@ -1512,9 +1589,9 @@ describe("os catorze achados da revisao adversarial", () => {
 });
 
 describe("as cadeias de SQL", () => {
-  it("as seis cadeias estao nomeadas, para a suite de base de dados as ler", () => {
-    assert.equal(CADEIAS_DAS_ANOMALIAS.length, 6);
-    assert.equal(new Set(CADEIAS_DAS_ANOMALIAS).size, 6);
+  it("as sete cadeias estao nomeadas, para a suite de base de dados as ler", () => {
+    assert.equal(CADEIAS_DAS_ANOMALIAS.length, 7);
+    assert.equal(new Set(CADEIAS_DAS_ANOMALIAS).size, 7);
   });
 
   it("nenhuma delas escreve: o motor nao escreve estado de pagamento", () => {
@@ -1543,7 +1620,7 @@ describe("as cadeias de SQL", () => {
     }
   });
 
-  it("o mapa deste ensaio cobre as seis, e nao cinco", () => {
+  it("o mapa deste ensaio cobre as sete, e nao seis", () => {
     // **Sem este par, o ensaio de cima passava com o mapa a meio**: um `nome`
     // sem entrada dava `undefined` e o `assert.ok` dizia-o, mas uma cadeia
     // acrescentada ao `CADEIAS_DAS_ANOMALIAS` e esquecida aqui aparecia como
@@ -1566,4 +1643,5 @@ const SQL: Readonly<Record<(typeof CADEIAS_DAS_ANOMALIAS)[number], string>> = {
   SQL_ANOMALIAS_RECUSAS,
   SQL_ANOMALIAS_CASA,
   SQL_ANOMALIAS_AJUSTES_FEITOS,
+  SQL_ANOMALIAS_REEMBOLSOS,
 };
