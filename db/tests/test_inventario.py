@@ -3893,13 +3893,14 @@ class TestInventario(ComBase):
                     "review_decision_log_regra_ck",
                     # ------------------------- KAM-097 (revisao de T&S)
                     #
-                    # **Vinte e tres.** No sinal: o tipo, o dominio e o par
+                    # **Vinte e quatro.** No sinal: o tipo, o dominio e o par
                     # tipo/severidade (a severidade fixa), o `detalhe` fechado a
                     # chaves de referencia, a chave do bloco, a unicidade
                     # composta das FK e a chave primaria. Na sancao: os
                     # dominios (passo, origem, motivo publico, desfecho), as
                     # formas (chave, autor, motivo interno, regra, sinais,
-                    # justificacao), as tres coerencias (grave so humana, humana
+                    # justificacao), as quatro coerencias (a chave e o autor presos a
+                    # origem, grave so humana, humana
                     # com caso, recurso humano e com desfecho), a chave, a
                     # unicidade composta e a chave primaria.
                     "ts_signal_chave_uq",
@@ -3910,6 +3911,7 @@ class TestInventario(ComBase):
                     "ts_signal_severidade_dominio_ck",
                     "ts_signal_tipo_ck",
                     "ts_sanction_autor_ck",
+                    "ts_sanction_chave_ck",
                     "ts_sanction_chave_forma_ck",
                     "ts_sanction_chave_uq",
                     "ts_sanction_grave_humana_ck",
