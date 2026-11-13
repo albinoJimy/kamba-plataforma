@@ -4,12 +4,14 @@
 # aqui, por extenso, que **esta configuracao nao era observabilidade**. Este
 # ficheiro e a parte que faltava: os alvos, as regras e o encaminhamento.
 #
-# ## Os alvos sao sete, e nao treze
+# ## Os alvos sao nove, e nao treze
 #
 # Eram tres (`gwy`, `com`, `agr`) ate ao KAM-187, que acrescentou os quatro
 # processos do `worker-canal` **no mesmo PR** que os pos a correr no compose —
-# e e essa a condicao que a regra abaixo pede. O resto desta nota e historia
-# do KAM-080 e continua verdade para os modulos que nenhum servico importa.
+# e e essa a condicao que a regra abaixo pede. O KAM-194 acrescentou dois pela
+# mesma condicao: a `ponte` (dois servicos, um `job`) e o `idx`. O resto desta
+# nota e historia do KAM-080 e continua verdade para os modulos que nenhum
+# servico importa.
 #
 # O KAM-076 recusou acrescentar um `scrape_config` por servico «por
 # antecipacao», com a razao certa: «um alvo que raspa um `/metrics` que ainda
@@ -146,3 +148,25 @@ scrape_configs:
           - worker-canal-consumidor
         type: A
         port: 3012
+
+  # KAM-194. O `ponte.ts` corre em dois servicos, um por alvo, e e o mesmo
+  # processo: um `job` com os dois nomes. A serie e a `evt_ponte_total`, e o
+  # `consumer` nao entra em etiqueta (`OBS-I`), pelo que e a `instance` que
+  # distingue a ponte do IDX da do AGR.
+  - job_name: ponte
+    dns_sd_configs:
+      - names:
+          - worker-canal-ponte-idx
+          - worker-canal-ponte-agr
+        type: A
+        port: 3194
+
+  # O processo do IDX (KAM-194): `idx_reindexed_total`. Fora do numerador do
+  # SLI-1 como a ponte, o publicador e o consumidor: e barramento de eventos e
+  # nao caminho da mensagem (`ops/slo.md`).
+  - job_name: idx
+    dns_sd_configs:
+      - names:
+          - idx
+        type: A
+        port: 8061

@@ -73,7 +73,8 @@ SO_EM_DATA = frozenset({"postgres", "queue", "seaweedfs"})
 #: Criterio 5: duas replicas e `/healthz`. O bloco diz «GWY e *workers* AGR».
 DUAS_REPLICAS = frozenset({"gwy", "agr"})
 
-#: KAM-187: a imagem do `worker-canal`, e os quatro processos que o compose de
+#: KAM-187: a imagem do `worker-canal`, e os processos (quatro, cinco desde o
+#: KAM-194) que o compose de
 #: producao e o de *staging* **tem** de correr com ela.
 #:
 #: NASCEU DE UM VERDE SOBRE UMA FILA PARADA. O manifesto declarava o
@@ -88,6 +89,10 @@ CONSUMIDORES = (
     "services/worker-canal/src/agr_shim.ts",
     "services/worker-canal/src/publicador.ts",
     "services/worker-canal/src/consumidor.ts",
+    # KAM-194: a ponte fila -> consumidor Python. Corre em **dois** servicos,
+    # um por alvo (`worker-canal-ponte-idx` e `worker-canal-ponte-agr`), e a
+    # regra so exige que **algum** a corra; a ligacao confere-se em cada um.
+    "services/worker-canal/src/ponte.ts",
 )
 #: O `CMD` da imagem. Nao consome nada; um servico que o corra e uma sonda verde
 #: sobre trabalho que ninguem faz.
@@ -120,6 +125,27 @@ PROCESSOS: dict[str, tuple[str, str, int, tuple[str, ...], int | None]] = {
         ("KAMBA_QUEUE_URL", "KAMBA_CONSUMER", "KAMBA_CONSUMIDOR_DB_URL",
          "KAMBA_CONSUMIDOR_OPS_DB_URL"),
         1,
+    ),
+    # Os quatro do `exigir(...)` do `ponte.ts`, mais o `KAMBA_ENV`: o processo
+    # cai em `dev` sem ele, e um `dev` em producao serve segredos de `dev`. O
+    # maximo e 1 pela razao do consumidor — concorrencia 1 por particao.
+    "services/worker-canal/src/ponte.ts": (
+        "ponte", "PONTE_PORT", 3194,
+        ("KAMBA_REDIS_URL", "KAMBA_PONTE_CONSUMERS", "KAMBA_PONTE_ALVO",
+         "KAMBA_PONTE_SEGREDO", "KAMBA_ENV"),
+        1,
+    ),
+}
+
+#: Processos cujo segredo obrigatorio vem **nomeado por outra variavel**. O
+#: `ponte.ts` le em `KAMBA_PONTE_SEGREDO` o **id** do segredo que apresenta, e o
+#: `Secrets.arrancar` exige `KAMBA_SECRET_<ID EM MAIUSCULAS>` no arranque. Um
+#: servico que nomeie um segredo e receba outro nao arranca — ou, pior, arranca
+#: com a credencial de outro alvo. A lista de ids e a `SEGREDOS_DA_PONTE` do
+#: proprio `ponte.ts`.
+SEGREDO_NOMEADO: dict[str, tuple[str, tuple[str, ...]]] = {
+    "services/worker-canal/src/ponte.ts": (
+        "KAMBA_PONTE_SEGREDO", ("agr_internal_token", "idx_internal_token"),
     ),
 }
 
@@ -1275,6 +1301,19 @@ def _ligacao(
     for variavel in exigidas:
         if not env.get(variavel, "").strip():
             problemas.append(f"nao recebe `{variavel}`, que o processo exige no arranque")
+    if processo in SEGREDO_NOMEADO:
+        variavel, permitidos = SEGREDO_NOMEADO[processo]
+        segredo = env.get(variavel, "").strip()
+        if segredo and segredo not in permitidos:
+            problemas.append(
+                f"`{variavel}` nomeia {segredo!r}, fora de {list(permitidos)}: o "
+                "processo recusa-o no arranque"
+            )
+        elif segredo and not env.get(f"KAMBA_SECRET_{segredo.upper()}", "").strip():
+            problemas.append(
+                f"`{variavel}` nomeia {segredo!r} e o servico nao recebe "
+                f"`KAMBA_SECRET_{segredo.upper()}`, que o processo exige no arranque"
+            )
     declarado = env.get("KAMBA_ENV")
     if declarado is not None and declarado != ambiente:
         problemas.append(f"declara `KAMBA_ENV: {declarado}` num compose de `{ambiente}`")
@@ -1322,11 +1361,11 @@ def _alvo(dados: Dados, servico: str, processos: list[str]) -> list[Achado]:
 
 
 def r_consumidores(dados: Dados) -> list[Achado]:
-    """KAM-187, criterio 1: os quatro processos do `worker-canal` correm.
+    """KAM-187, criterio 1: os processos do `worker-canal` correm (cinco desde o KAM-194).
 
     Nos dois sentidos, em producao **e** em *staging*:
 
-    * **`consumidor-em-falta`** — um dos quatro nao e o `command:` de nenhum
+    * **`consumidor-em-falta`** — um dos processos nao e o `command:` de nenhum
       servico construido com a imagem do `worker-canal` (ou so o e atras de um
       `profiles:`, que um arranque sem `--profile` nao levanta). Ninguem consome
       a fila dele.

@@ -918,6 +918,94 @@ class TestPlanos(unittest.TestCase):
         self.assertEqual(self.classes("plans: &a\n"), [ILEGIVEL])
 
 
+#: A quarta forma (KAM-194), minima: o consumidor do indice com uma subscricao.
+CONSUMIDOR = """\
+consumidor: idx
+version: 1.0.0
+subscriptions:
+  - tipo: catalog.product_changed
+    versao: 1
+  - tipo: tenant.suspended
+    versao: 1
+"""
+
+
+class TestConsumidor(unittest.TestCase):
+    """A forma `consumidor` (KAM-194) — e uma negativa por regra, com o canario.
+
+    O canario e a negativa: cada regra tem um ficheiro que a viola e que da
+    **exactamente um** achado, e a forma minima que da zero. Sem isso nada prova
+    que a verificacao morde.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.saber = saber()
+
+    def achados(self, fonte: str, ficheiro: str = "registry/idx.yaml"):
+        return registo.verificar(ficheiro, fonte, self.saber)
+
+    def unico(self, fonte: str, classe: str, trecho: str):
+        achados = self.achados(fonte)
+        self.assertEqual([a.classe for a in achados], [classe], [str(a) for a in achados])
+        self.assertIn(trecho, achados[0].mensagem)
+        return achados[0]
+
+    def test_o_ficheiro_real_do_repositorio_passa(self) -> None:
+        from .base import ROOT
+
+        fonte = (ROOT / "registry/idx.yaml").read_text(encoding="utf-8")
+        self.assertEqual([str(a) for a in self.achados(fonte)], [])
+
+    def test_a_forma_minima_passa_com_qualquer_nome_de_ficheiro(self) -> None:
+        self.assertEqual(self.achados(CONSUMIDOR), [])
+        self.assertEqual(self.achados(CONSUMIDOR, "registry/qualquer.yaml"), [])
+
+    def test_tipo_fora_do_catalogo_recusa(self) -> None:
+        """O teste do bloco: um tipo que o dicionario nao tem."""
+        self.unico(CONSUMIDOR.replace("tenant.suspended", "tenant.paused"), FORA, "`tenant.paused`")
+
+    def test_versao_sem_contrato_publicado_recusa(self) -> None:
+        fonte = CONSUMIDOR.replace("  - tipo: tenant.suspended\n    versao: 1", "  - tipo: tenant.suspended\n    versao: 9")
+        self.unico(fonte, REGRA, "contratos/eventos/tenant.suspended/v9.schema.json")
+
+    def test_versao_que_nao_e_inteiro_positivo_recusa(self) -> None:
+        for mau in ("0", "true", '"1"'):
+            with self.subTest(mau=mau):
+                fonte = CONSUMIDOR.replace(
+                    "  - tipo: tenant.suspended\n    versao: 1", f"  - tipo: tenant.suspended\n    versao: {mau}"
+                )
+                self.unico(fonte, REGRA, "inteira >= 1")
+
+    def test_o_mesmo_tipo_duas_vezes_recusa(self) -> None:
+        fonte = CONSUMIDOR + "  - tipo: tenant.suspended\n    versao: 1\n"
+        self.unico(fonte, REGRA, "duas vezes")
+
+    def test_o_prefixo_do_agr_recusa(self) -> None:
+        self.unico(CONSUMIDOR.replace("consumidor: idx", "consumidor: agr_idx"), REGRA, "`agr_`")
+
+    def test_nome_fora_da_gramatica_recusa(self) -> None:
+        self.unico(CONSUMIDOR.replace("consumidor: idx", "consumidor: Idx-1"), REGRA, "snake_case")
+
+    def test_sem_version_recusa(self) -> None:
+        self.unico(CONSUMIDOR.replace("version: 1.0.0\n", ""), REGRA, "SemVer")
+
+    def test_chave_desconhecida_no_topo_e_na_subscricao(self) -> None:
+        self.unico(CONSUMIDOR + "graph: x:y\n", ILEGIVEL, "chave `graph` desconhecida")
+        fonte = CONSUMIDOR.replace("    versao: 1\n  - tipo: tenant", "    versao: 1\n    notifica: []\n  - tipo: tenant")
+        self.unico(fonte, ILEGIVEL, "chave `notifica` desconhecida")
+
+    def test_sem_subscricoes_recusa(self) -> None:
+        self.unico("consumidor: idx\nversion: 1.0.0\nsubscriptions: []\n", ILEGIVEL, "pelo menos uma")
+
+    def test_consumidor_e_vertical_no_mesmo_ficheiro_falham(self) -> None:
+        self.unico(CONSUMIDOR + "id: vendedor\n", REGRA, "nao se misturam")
+
+    def test_a_mensagem_de_nenhuma_forma_nomeia_as_quatro(self) -> None:
+        achado = self.unico("version: 1.0.0\n", REGRA, "quatro unicas formas")
+        self.assertIn("sem `consumidor`", achado.mensagem)
+
+
 class TestRegistoDeChaves(unittest.TestCase):
     """`registry/entitlement_keys.schema.json` contra o dicionario §3.2.
 

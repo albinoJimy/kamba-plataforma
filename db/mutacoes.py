@@ -7764,7 +7764,8 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     # chegou a correr. O `subscricoes.py` le `registry/*.yaml` por caminho
     # relativo, e o seu docstring ainda diz que a pasta «tem so um README.md»:
     # quatro YAML entraram depois, e o `test_catalogo_e_cli.py` passou a exigir
-    # «8 subscricao(oes) lida(s)». Sem a pasta, a copia lia zero.
+    # «8 subscricao(oes) lida(s)» — treze desde o KAM-194, com as cinco do `idx`
+    # (a quarta forma do registo). Sem a pasta, a copia lia zero.
     shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
     (destino / "ci").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "ci" / "contratos-allow.yaml", destino / "ci" / "contratos-allow.yaml")
