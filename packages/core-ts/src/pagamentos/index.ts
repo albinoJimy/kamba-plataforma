@@ -368,6 +368,7 @@ export {
 
 export {
   BPS_POR_UNIDADE,
+  ContaDeReceitaInactiva,
   DIA_MAXIMO_DO_PERIODO,
   ESTADOS_DA_SUBSCRICAO,
   ESTADOS_DO_CICLO,

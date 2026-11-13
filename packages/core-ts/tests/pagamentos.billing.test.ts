@@ -127,6 +127,16 @@ describe("billing: o preco em vigor (criterio 6)", () => {
     assert.equal(precoEmVigor(linhas, "inexistente", "2026-11-01"), null);
   });
 
+  it("um plano descontinuado nao ressuscita o preco anterior", () => {
+    const descontinuado = [
+      linha("velho", 1_000n, "2026-01-01"),
+      linha("velho", 2_000n, "2026-06-01", "2026-09-01"),
+    ];
+    assert.equal(precoEmVigor(descontinuado, "velho", "2026-08-01")?.valorMinor, 2_000n);
+    assert.equal(precoEmVigor(descontinuado, "velho", "2026-09-01"), null);
+    assert.equal(precoEmVigor(descontinuado, "velho", "2026-05-01")?.valorMinor, 1_000n);
+  });
+
   it("nao se engana pela ordem das linhas", () => {
     assert.equal(precoEmVigor([...linhas].reverse(), "base", "2026-12-01")?.valorMinor, 1_200_000n);
   });
@@ -160,7 +170,12 @@ describe("billing: validade e sombra", () => {
   });
 });
 
-function baseDoJob(opcoes: { cicloNovo: boolean; preco?: string; falhaNa?: string }): BaseFalsa {
+function baseDoJob(opcoes: {
+  cicloNovo: boolean;
+  preco?: string;
+  falhaNa?: string;
+  contaInactiva?: boolean;
+}): BaseFalsa {
   return new BaseFalsa((sql) => {
     if (opcoes.falhaNa !== undefined && sql === opcoes.falhaNa) throw new Error("falha forcada");
     if (sql === SQL_BILLING_SUBSCRICOES) {
@@ -181,6 +196,9 @@ function baseDoJob(opcoes: { cicloNovo: boolean; preco?: string; falhaNa?: strin
     }
     if (sql === SQL_BILLING_ABRIR_CICLO) {
       return opcoes.cicloNovo ? { rows: [{ id: "ciclo-1" }], rowCount: 1 } : vazio;
+    }
+    if (sql === SQL_BILLING_COBRANCA) {
+      return opcoes.contaInactiva === true ? vazio : { rows: [{ id: "cobranca-1" }], rowCount: 1 };
     }
     return vazio;
   });
@@ -215,7 +233,6 @@ describe("billing: o job de abertura (criterio 2)", () => {
       TENANT,
       "ciclo-1",
       CONTA.id,
-      "manual",
       "manual",
       null,
       "1000000",
@@ -266,6 +283,20 @@ describe("billing: o job de abertura (criterio 2)", () => {
     assert.match(relatorio.falhas[0]?.erro ?? "", /falha forcada/);
     assert.equal(bd.sqls.at(-1), "ROLLBACK");
     assert.ok(!bd.sqls.includes("COMMIT"));
+  });
+
+  it("uma conta da KAMBA inactiva nao cobra: reverte o ciclo e diz porque", async () => {
+    const bd = baseDoJob({ cicloNovo: true, preco: "1000000", contaInactiva: true });
+    const relatorio = await abrirCiclos(bd, {
+      agora: AGORA,
+      conta: CONTA,
+      emissor: emissorManual,
+      gerarId: () => "cobranca-1",
+    });
+    assert.deepEqual(relatorio.abertos, []);
+    assert.match(relatorio.falhas[0]?.erro ?? "", /receita propria activa/);
+    assert.ok(!bd.sqls.includes(SQL_BILLING_EMITIR));
+    assert.equal(bd.sqls.at(-1), "ROLLBACK");
   });
 
   it("le o precario uma vez por plano", async () => {
@@ -434,6 +465,18 @@ function ficheirosDeCodigo(dir: string, saida: string[] = []): string[] {
   return saida;
 }
 
+//: Os nomes de quem emitiria um documento fiscal, em TS e em Python.
+const NOME_DE_EMISSAO = String.raw`(?:issue_?invoice\w*|emitir_?factura\w*|emitirFactura\w*|issueInvoice\w*)`;
+//: Uma funcao declarada (`function`, `def`) **ou** uma em seta atribuida a um
+//: nome: a primeira versao so via as duas primeiras, e um
+//: `export const emitirFactura = async () => ...` passava (revisao adversarial).
+const FUNCAO_DE_EMISSAO = new RegExp(
+  String.raw`\b(?:(?:async\s+)?function|def)\s+${NOME_DE_EMISSAO}|\b(?:const|let|var)\s+${NOME_DE_EMISSAO}\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\(|function|[A-Za-z_$][\w$]*\s*=>)`,
+  "i",
+);
+const METODO_DE_EMISSAO = /^\s*(?:async\s+)?issueInvoiceReceipt\s*\([^)]*\)\s*(?::[^;{]*)?\{/m;
+const ROTA_DE_EMISSAO = /\.(?:get|post|put|patch|delete|route)\s*\(\s*["'`][^"'`]*(?:factura|invoice)/i;
+
 describe("billing: criterio 9 — nao ha emissao de factura (C-04)", () => {
   const ficheiros = ARVORES.flatMap((arvore) => ficheirosDeCodigo(join(RAIZ, arvore)));
 
@@ -450,22 +493,29 @@ describe("billing: criterio 9 — nao ha emissao de factura (C-04)", () => {
   });
 
   it("nenhuma funcao emite factura, e nenhuma rota a serve", () => {
-    const funcao =
-      /\b(?:function|def|async\s+function)\s+(?:issue_?invoice\w*|emitir_?factura\w*|emitirFactura\w*|issueInvoice\w*)/i;
-    const metodo = /^\s*(?:async\s+)?issueInvoiceReceipt\s*\([^)]*\)\s*[:{][^;]*\{/m;
-    const rota = /\.(?:get|post|put|patch|delete|route)\s*\(\s*["'`][^"'`]*(?:factura|invoice)/i;
     const achados = ficheiros.filter((f) => {
       const texto = readFileSync(f, "utf-8");
-      return funcao.test(texto) || metodo.test(texto) || rota.test(texto);
+      return (
+        FUNCAO_DE_EMISSAO.test(texto) ||
+        METODO_DE_EMISSAO.test(texto) ||
+        ROTA_DE_EMISSAO.test(texto)
+      );
     });
     assert.deepEqual(achados.map((f) => relative(RAIZ, f)), []);
   });
 
-  it("e os tres detectores mordem num texto que emite", () => {
-    const funcao = /\b(?:function|def|async\s+function)\s+(?:issue_?invoice\w*|emitir_?factura\w*|emitirFactura\w*|issueInvoice\w*)/i;
-    const rota = /\.(?:get|post|put|patch|delete|route)\s*\(\s*["'`][^"'`]*(?:factura|invoice)/i;
-    assert.ok(funcao.test("export async function emitirFactura(x) {}"));
-    assert.ok(funcao.test("def issue_invoice(pedido):"));
-    assert.ok(rota.test('app.post("/billing/factura", h)'));
+  it("e os detectores mordem num texto que emite — os mesmos, e nao copias", () => {
+    for (const texto of [
+      "export async function emitirFactura(x) {}",
+      "def issue_invoice(pedido):",
+      "export const emitirFactura = async (pedido) => pedido;",
+      "const issueInvoiceReceipt2: Emissor = async () => null;",
+      "let emitir_factura = function () {};",
+    ]) {
+      assert.ok(FUNCAO_DE_EMISSAO.test(texto), texto);
+    }
+    assert.ok(!FUNCAO_DE_EMISSAO.test("issueInvoiceReceipt(org: OrgRef): Promise<InvoiceRef>;"));
+    assert.ok(METODO_DE_EMISSAO.test("  async issueInvoiceReceipt(org, req) {\n  }"));
+    assert.ok(ROTA_DE_EMISSAO.test('app.post("/billing/factura", h)'));
   });
 });

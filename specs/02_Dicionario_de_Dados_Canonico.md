@@ -2509,7 +2509,8 @@ papéis sujeitos a RLS** e é lida só pelo `kamba_batch` (`BYPASSRLS`). O §6.2
 «acessível só ao papel de billing»; **esse papel não existe** nos sete de
 `../db/ligacao.py`, e quem o vai precisar é o **KAM-059**. Fica *fail closed*, com
 o credor nomeado, em vez de se criar um papel para uma tabela que ainda não tem
-quem a leia.
+quem a leia. **Desde a emenda 1.92 (KAM-059) o papel existe:** é o `kamba_pay` (§3.64), e a
+política `pay_receita_propria` (§3.66) dá-lhe a leitura da conta própria, e só a ele.
 
 | Conceito | Nome canónico | Substitui | Nota |
 |---|---|---|---|
@@ -2539,7 +2540,7 @@ quem a leia.
   cobranças e as FK para `orders_mirror` são o **KAM-055**, e a FK de
   `billing_cycles` é o **KAM-059**;
 * **nenhum papel de billing.** O §6.2 nomeia-o e ele não existe; credor
-  **KAM-059**;
+  **KAM-059** — pago na emenda 1.92, que é o `kamba_pay` com a política `pay_receita_propria` (§3.66);
 * **nenhum adaptador real.** O `ManualProvider` é o **KAM-054**, o ProxyPay o
   **KAM-056** e a avaliação do AppyPay o **KAM-057**. O `FakeProvider` é o
   adaptador de referência do *harness*, e não um simulador de facilitador: um
@@ -4294,6 +4295,8 @@ por uma política só de leitura, e **só a ele** entre os papéis sujeitos a RL
 | Cobrança do ciclo | tentativa 1, `metodo` `manual` (sem referência) ou `referencia`, validade de **72 h** | — | *proposta* (emenda 1.92, KAM-059). Na conta de `plataforma_receita_propria`; o G-1 (`assert_beneficiary`) recusa-a numa de PME. No Piloto o emissor é o de transferência (`emissorManual`), porque a conta EMIS própria da KAMBÁ é **NÃO VERIFICADA** (D4) |
 | Ciclo pago | gatilho `payment_charges_ciclo_pago` (função `platform.billing_cycle_pagar()`), agregado `billing_cycle` | — | *proposta* (emenda 1.92, KAM-059). Quando a projecção do *ledger* põe a cobrança do ciclo em `paga`, o ciclo passa a `paga` e emite-se o evento de ciclo pago do §3.5, **na mesma transacção**. Um ciclo emite **um**: uma segunda cobrança paga encontra-o já `paga` |
 | Aprovação de ops | `platform.billing_ops_approvals`, **sete** colunas: `id`, `tenant_id`, `charge_id`, `actor_id`, `motivo`, `valor_minor`, `criado_at` | — | *proposta* (emenda 1.92, KAM-059). Uma por pessoa e por cobrança (`billing_ops_approvals_pessoa_uq`); motivo não vazio; valor igual ao da cobrança. O `actor_id` é a identidade da equipa no IdP (§3.65), **sem FK**, como o `review_decision_log.revisor_id` |
+| Quem escreve o *ledger* de um ciclo | gatilho `payment_events_billing_papel` (função `platform.billing_papel_no_ledger()`) | — | *proposta* (emenda 1.92, KAM-059). Pelo `session_user`, que um `SECURITY DEFINER` não troca: um evento da cobrança de um ciclo só entra numa ligação do `kamba_pay`, e o `kamba_pay` só escreve eventos de ciclos. Sem ele, o `kamba_app` — o papel dos turnos do agente, no contexto da PME que deve — pagava o ciclo com um pagamento «autenticado» escrito à mão na porta do *ledger*. Pressupõe que cada papel se liga com a sua credencial, sem `SET ROLE` |
+| Cobrança só em ciclo vivo | gatilho `payment_charges_ciclo_vivo` (função `platform.billing_cobranca_de_ciclo_vivo()`) | — | *proposta* (emenda 1.92, KAM-059). Uma cobrança nova de ciclo só num ciclo `aberto`, `cobranca_emitida` ou `em_atraso`. O `kamba_pay` insere cobranças **por coluna, sem `order_id`** |
 | Porta de ops | `platform.billing_confirmar_ops(p_charge_id, p_actor_id, p_motivo, p_valor_minor)` | — | *proposta* (emenda 1.92, KAM-059). `SECURITY INVOKER`, só ao `kamba_pay`. Uma aprovação regista; a segunda, de **outra** pessoa, escreve o `pagamento_confirmado` com `authn_method = 'manual'`, `actor_kind = 'ops'` e o motivo |
 | O G8 das cobranças de ciclo | gatilho `payment_events_g8_ops` (função `platform.exigir_dupla_de_ops()`); o `payment_events_g8_humano` passa a ter `WHEN (NEW.billing_cycle_id IS NULL)` | — | *proposta* (emenda 1.92, KAM-059). A confirmação manual de um ciclo é de ops, com motivo e duas aprovações de pessoas distintas, uma delas a do evento. O G8 da `0032` **não muda de corpo**: continua a ser o que corre para toda a cobrança de encomenda. E o caminho do dono fecha-se aos ciclos pelo gatilho `manual_confirmations_so_encomenda` (função `platform.manual_so_encomenda()`): a PME é quem paga |
 | Comissão em sombra | `platform.commission_accruals`, **nove** colunas: `id`, `tenant_id`, `order_id`, `payment_event_id`, `base_minor`, `taxa_bps`, `comissao_minor`, `modo`, `criado_at` | — | *proposta* (emenda 1.92, KAM-059). *Append-only* por privilégio. `commission_accruals_evento_uq` `(payment_event_id)`; `comissao_minor = base_minor * taxa_bps / 10000`; o gatilho `commission_accruals_so_autenticado` (função `platform.commission_accrual_verificar()`) exige um `pagamento_confirmado` aceite e autenticado pelo facilitador (`hmac` ou `consulta`), do mesmo tenant e encomenda, com a base igual ao valor dele. A taxa **não tem omissão**: é «por contrato» (§11.1) e não está decidida |

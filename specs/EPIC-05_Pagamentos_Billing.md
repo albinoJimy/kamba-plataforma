@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Pagamentos e Billing |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` |
@@ -1106,6 +1106,7 @@ Implementar o motor da régua sobre `billing_cycles`, idempotente por passo, com
 ### Detalhes Técnicos
 - **Componentes:** PAY, TEN, GOV. Módulos `services/pay/src/dunning/{engine,steps,config}.ts`; tabela `billing_dunning_steps(billing_cycle_id, passo, executado_at, resultado)` com `UNIQUE (billing_cycle_id, passo)` (proposta).
 - **Dependência de dados:** consome `subscriptions` e `billing_cycles` de KAM-059 (DDL em `../docs/tecnica/04` §11.2); o mestre não declara a dependência (ver problemas). Até KAM-059 estar `Done`, o motor testa-se com fixtures desse DDL.
+- **Recebido do KAM-059** (caixa que fica com este ticket como credor): o **agendamento** dos dois *jobs* do billing — o `abrirCiclos` (abertura de ciclos e cobranças) e o `acumularSombra` (comissão em sombra, que espera também a taxa de medição, D8) de `../packages/core-ts/src/pagamentos/billing.ts` — as transições de `subscriptions.estado` para `em_atraso` e `suspensa`, que o KAM-059 deixa só com o domínio e a leitura (um tenant `em_atraso` mantém os limites, e continua a abrir ciclo); o cancelamento da cobrança em aberto quando um ciclo se anula (um pagamento que chegue depois fica no *ledger* e o ciclo continua `anulado`, sem evento); e a chamada ao `verificarArranque` — com a guarda da comissão sem `parecer_ref` — no arranque do processo que correr esses *jobs*, que é o primeiro processo do PAY a ler as *flags* de dinheiro.
 - **Eventos:** `billing.reminder_due` (interno) e `tenant.suspended`/`tenant.reactivated` (catálogo `../docs/tecnica/06` §5); sem PII no payload.
 - **Canal:** `OwnerNotifier` com adaptadores *WhatsApp via outbound* (KAM-015, dentro da janela ou *template utility*) e *ops manual*. A categoria Meta do *template* é NÃO VERIFICADA (pergunta D2/KAM-101); saída: se a Meta o classificar como marketing, o adaptador WhatsApp fica desligado e a régua usa o canal de ops.
 - Suspensão não é instantânea no cliente final: o CHR responde com mensagem determinística de loja indisponível (princípio 12).
@@ -1161,16 +1162,16 @@ No Piloto a receita é **assinatura**; a comissão sobre transacção fica desli
 Implementar `price_book`, `subscriptions`, `billing_cycles` e `commission_accruals` (modo sombra), a abertura idempotente de ciclos e cobranças, o pagamento do ciclo por evento autenticado ou confirmação de ops com dupla aprovação, e a ligação do plano aos `entitlements`.
 
 ### Critérios de Aceitação
-- [ ] A migração cria as 4 tabelas de `../docs/tecnica/04` §11.2 e a FK `charges_billing_fk`; `UNIQUE (subscription_id, periodo)` garante 1 ciclo por período e a migração é reversível.
-- [ ] O *job* de abertura de ciclos corre 2 vezes para o mesmo período e produz 1 `billing_cycle` e 1 `payment_charge` (`UNIQUE (billing_cycle_id, tentativa)`); a cobrança tem validade de 72 h.
-- [ ] A cobrança usa só contas `plataforma_receita_propria`; criá-la numa conta de PME falha pelo *trigger* G-1 e uma cobrança de encomenda nesta conta também.
-- [ ] `payment.confirmed` autenticado leva o ciclo a `paga`; o mesmo evento 10× produz 1 transição e 1 evento `billing.cycle_paid`.
-- [ ] Com `ManualProvider` no billing, a confirmação é de ops (`actor_kind='ops'`) com motivo obrigatório e duas pessoas distintas; uma só aprovação não conclui.
-- [ ] Alterar uma linha de `price_book` (nova `valido_de`) não altera ciclos já em `cobranca_emitida`; só se aplica ao ciclo seguinte, e a alteração fica no `audit_log`.
+- [x] A migração cria as 4 tabelas de `../docs/tecnica/04` §11.2 e a FK `charges_billing_fk`; `UNIQUE (subscription_id, periodo)` garante 1 ciclo por período e a migração é reversível.
+- [x] O *job* de abertura de ciclos corre 2 vezes para o mesmo período e produz 1 `billing_cycle` e 1 `payment_charge` (`UNIQUE (billing_cycle_id, tentativa)`); a cobrança tem validade de 72 h.
+- [x] A cobrança usa só contas `plataforma_receita_propria`; criá-la numa conta de PME falha pelo *trigger* G-1 e uma cobrança de encomenda nesta conta também.
+- [x] `payment.confirmed` autenticado leva o ciclo a `paga`; o mesmo evento 10× produz 1 transição e 1 evento `billing.cycle_paid`.
+- [x] Com `ManualProvider` no billing, a confirmação é de ops (`actor_kind='ops'`) com motivo obrigatório e duas pessoas distintas; uma só aprovação não conclui.
+- [x] Alterar uma linha de `price_book` (nova `valido_de`) não altera ciclos já em `cobranca_emitida`; só se aplica ao ciclo seguinte, e a alteração fica no `audit_log`.
 - [ ] `commission_enabled=false` por omissão (global e por tenant): `commission_accruals` só aceita `modo='sombra'`, `UNIQUE (payment_event_id)` evita duplicados, e arrancar com `commission_enabled=true` sem `parecer_ref` (D8) falha no arranque.
-- [ ] Mudar `subscriptions.plano` actualiza os `entitlements` do tenant (KAM-009) na mesma transacção; um tenant `em_atraso` mantém os limites até à suspensão da régua.
-- [ ] Nenhum documento fiscal é emitido por este ticket: um teste confirma que não existe rota nem função de emissão (C-04).
-- [ ] Está definido (processo documentado; interface `InvoiceProvider` como gancho, implementação Diferida) como a KAMBÁ emite a **factura-recibo** da sua própria assinatura às PMEs em conformidade com a AGT, via software certificado (D7); no Piloto é um processo manual registado, sem emitir facturas a partir de código próprio (a confirmar por parecer; E2).
+- [x] Mudar `subscriptions.plano` actualiza os `entitlements` do tenant (KAM-009) na mesma transacção; um tenant `em_atraso` mantém os limites até à suspensão da régua.
+- [x] Nenhum documento fiscal é emitido por este ticket: um teste confirma que não existe rota nem função de emissão (C-04).
+- [x] Está definido (processo documentado; interface `InvoiceProvider` como gancho, implementação Diferida) como a KAMBÁ emite a **factura-recibo** da sua própria assinatura às PMEs em conformidade com a AGT, via software certificado (D7); no Piloto é um processo manual registado, sem emitir facturas a partir de código próprio (a confirmar por parecer; E2).
 
 ### Detalhes Técnicos
 - **Componentes:** TEN, PAY. Módulos `services/pay/src/billing/{cycles,price_book,accruals}.ts`; DDL em `../docs/tecnica/04` §11.2. `iva_pct` tem 14,00 por omissão no DDL; confirmar com contabilista (NÃO está em `../docs/tecnica/evidencia/`).
@@ -1187,11 +1188,111 @@ Implementar `price_book`, `subscriptions`, `billing_cycles` e `commission_accrua
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Plataforma sem fundos: a receita é da KAMBÁ como comerciante; sem retenção nem repasse de vendas; comissão desligada.
-- [ ] Pagamento só por evento autenticado ou confirmação humana de ops com dupla aprovação.
-- [ ] Idempotência: ciclos e cobranças com chave e teste de repetição.
-- [ ] Isolamento: RLS `FORCE` com a conta da KAMBÁ acessível só ao papel de billing; caso na suite cruzada.
+- [x] Plataforma sem fundos: a receita é da KAMBÁ como comerciante; sem retenção nem repasse de vendas; comissão desligada.
+- [x] Pagamento só por evento autenticado ou confirmação humana de ops com dupla aprovação.
+- [x] Idempotência: ciclos e cobranças com chave e teste de repetição.
+- [x] Isolamento: RLS `FORCE` com a conta da KAMBÁ acessível só ao papel de billing; caso na suite cruzada.
 - [ ] Migração reversível; dois revisores; parecer D8 referenciado para qualquer activação futura de comissão.
+
+### Verificação dos Critérios de Aceitação
+
+**Nove caixas de dez nos critérios, e quatro de seis na Definition of Done** — a primeira da DoD
+segue o critério 7 —, e as que ficam abertas têm credor que sobrevive à fusão. O critério 7 fica **parcial** na metade «falha no
+arranque»: a guarda existe e está medida, mas **nenhum processo do PAY lê as *flags* de dinheiro**
+ainda (já era assim com o G-2 e o G-4 do KAM-052), pelo que não há arranque que ela possa recusar —
+credor **KAM-058**, cujo processo é o primeiro a correr *jobs* do PAY, com a linha «Recebido do
+KAM-059» nos *Detalhes Técnicos* dele (que leva também o agendamento dos dois *jobs* e o
+cancelamento da cobrança ao anular um ciclo). Os **dois revisores** são nomeação do fundador, como
+no KAM-052 a KAM-055.
+
+**Onde vive o billing.** Não há `services/pay/` (dívidas 148 e 213). O módulo é
+`../packages/core-ts/src/pagamentos/billing.ts`, no estrato `critico` do `../ci/thresholds.yaml`
+sem padrão novo, e as barreiras vivem na revisão
+[`0054_billing_da_plataforma.py`](../db/migrations/versions/0054_billing_da_plataforma.py)
+(número **provisório**, sobre a `0051`; o final dá-o a integração). O papel de billing que o
+`../docs/tecnica/04` §6.2 nomeia é o **`kamba_pay`** do KAM-197 — a dívida 154 fica paga.
+
+**Três decisões de desenho que os critérios não escreviam, e a razão de cada uma.**
+
+* **O ciclo ouve o *ledger*, e não o `payment.confirmed`.** Uma cobrança de ciclo não emite
+  `payment.confirmed`: a `0035` fechou os cinco `payment.*` às cobranças de encomenda, porque
+  agregam por `order`. O gatilho `payment_charges_ciclo_pago` corre quando a projecção do
+  *ledger* põe a cobrança do ciclo em `paga` — dentro da transacção do pagamento —, passa o ciclo
+  a `paga` e emite o evento novo de ciclo pago (§3.66 do dicionário, contrato em
+  `../contratos/eventos/`). A divergência de texto está na dívida 213.
+* **A dupla de ops tem tabela própria, e o G8 da `0032` não muda de corpo.** O G8 exige uma fase
+  de `manual_confirmations` com o `actor_contact_id` do evento, e essa coluna tem FK para
+  `contacts`: ops não é um contacto (a identidade da equipa é do IdP, §3.65). Reescrever a
+  `exigir_fase_manual` copiava o corpo para a revisão nova e desligava, em silêncio, qualquer
+  mutação sobre a `0032`. Em vez disso o *trigger* da `0032` ganha `WHEN (NEW.billing_cycle_id IS
+  NULL)` e os ciclos ganham o seu, `payment_events_g8_ops`; e o caminho do dono fecha-se aos
+  ciclos — a PME é quem paga.
+* **O *ledger* de um ciclo só se escreve pelo `kamba_pay`, e o `kamba_pay` só escreve o dos
+  ciclos.** O gatilho `payment_events_billing_papel` decide pelo `session_user`, que um
+  `SECURITY DEFINER` não troca. Foi a revisão adversarial que o tornou necessário (abaixo).
+* **O billing corre como `kamba_pay`, e não numa `SECURITY DEFINER`.** O dono das funções é
+  `NOBYPASSRLS` e o `FORCE` prende-o: dentro de uma `DEFINER` a conta de `tenant_id` nulo é
+  invisível e o `assert_beneficiary` recusava toda a cobrança de ciclo (a lição da `0027`). A
+  política `pay_receita_propria` dá ao `kamba_pay`, e só a ele, a leitura da conta própria — cinco
+  colunas, sem o `webhook_token` nem o `credenciais_ref`.
+
+**As medições, nesta máquina, contra PostgreSQL 18 em Docker e Node 24.21 em contentor**, com a
+revisão como `0054` sobre a `0051` (`refs/remotes/publico/main` em `aff72d29`):
+o *gate* 3b inteiro (`dict_export --check`, `canon_lint check` e o canário) → **conforme**; as suites
+do `canon_lint` (**231**) e do `contract_diff` (**117**) → **OK**, com os gerados em dia e 84
+contratos conformes; `lint_backlog`, `lint_refs`, `lint_handoff` e `lint_contagens` → **conforme**;
+`../db/tests_pagamentos/test_subscricao_e_billing.py` → **`Ran 43 tests` / `OK`**; os ensaios de
+catálogo, inventário e privilégios do *gate* 8 e os X-03/X-04 e X-05 do *gate* 6 → **verdes** (o
+último, `Ran 65 tests` / `OK`); os de `../packages/core-ts/tests/` → **2849 ensaios, 0 falhas** (medidos antes das correcções da revisão), com o
+`typecheck` do `core-ts` e do COM a zero, e os do billing e do arranque, depois da revisão, **53 de
+53**, com o `billing.ts` a **100 %** de linhas; os do `py-core` de eventos e de retenção → **`Ran 90
+tests` / `OK`**; `python db/mutacoes.py --aplicaveis` → **1129 conferidas, 0 não aplicáveis**. **O
+que não se mediu, e diz-se:** as suites **inteiras** `tests` e `tests_pagamentos` esgotaram os 900 s
+do `gate_bd.py` a meio de ensaios que não tocam no billing (o `TestConcorrencia` dos eventos e o
+`test_maquina`), com a máquina carregada por contentores de outras sessões — **não medidas** aqui;
+decide o CI.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Migração com as 4 tabelas do §11.2 e a `charges_billing_fk`; `UNIQUE (subscription_id, periodo)`; reversível | **satisfeito** | As quatro tabelas e uma quinta, a `billing_ops_approvals` (critério 5). `test_um_ciclo_por_periodo` (`23505`); `test_a_cobranca_aponta_para_um_ciclo_que_existe_e_do_mesmo_tenant` (um ciclo inexistente ou de outro tenant é recusado — primeiro pelo gatilho `payment_charges_ciclo_vivo` —, e a `charges_billing_fk` medida pelo catálogo: composta, `(tenant_id, billing_cycle_id)` → `(tenant_id, id)`); `test_o_ciclo_nao_aponta_para_a_subscricao_de_outro_tenant` (`23503`); `test_dominios_e_limites`. Reversível: o `downgrade` larga tudo o que o `upgrade` cria e repõe o G8 da `0032` sem a condição; corre no ciclo do `test_reembolsos_do_pay.py` (que desce à `0050`) e no `test_migracao` do *gate* 8, e **recusa-se** com cobranças de ciclo na base (`test_o_downgrade_recusa_com_cobrancas_de_ciclo`), pela razão da `0051`. Os desvios do DDL estão na dívida 212 |
+| 2 | *Job* ×2 no mesmo período → 1 ciclo e 1 cobrança; validade 72 h | **satisfeito** | `test_o_job_duas_vezes_da_um_ciclo_e_uma_cobranca_de_72_h`, com as cadeias SQL do `billing.ts` (`ConsultaDoTypeScript`): um ciclo, uma cobrança, `valid_until = agora + 72 h`, `emitida`, ciclo `cobranca_emitida`. A ordem e a atomicidade do `abrirCiclos` medem-se em `pagamentos.billing.test.ts` (uma transacção por subscrição; uma falha reverte a dela e não pára as outras) |
+| 3 | Cobrança só em contas `plataforma_receita_propria`; G-1 nos dois sentidos | **satisfeito** | `test_uma_cobranca_de_ciclo_numa_conta_de_pme_e_recusada_pelo_g1` (`23514`, o `assert_beneficiary` da `0027`, `INVOKER`, que vê a conta pela política do `kamba_pay`; e a cadeia do *job* nem a escolhe) e `test_uma_cobranca_de_encomenda_na_conta_da_kamba_e_recusada_pelo_g1` (`23514`, pelo administrador — o `kamba_pay` nem lá chega: o `INSERT` dele é sem `order_id`, `test_o_billing_nao_cria_nem_paga_cobrancas_de_encomenda`). E a conta tem de estar `ativo`: `test_uma_conta_da_kamba_que_nao_esta_activa_nao_cobra` |
+| 4 | Pagamento autenticado leva o ciclo a `paga`; ×10 → 1 transição e 1 evento de ciclo pago | **satisfeito** | `test_dez_vezes_o_mesmo_pagamento_da_uma_transicao_e_um_evento`: dez `pagamento_confirmado` com `hmac` e o mesmo `provider_event_id`, um aceite, cobrança e ciclo `paga`, **um** envelope no *outbox*, validado contra o contrato (`jsonschema`). Lido como o **facto** autenticado no *ledger* e não como o envelope `payment.confirmed`, que a cobrança de ciclo não emite (dívida 213). `test_o_ciclo_nao_fica_paga_sem_a_cobranca_paga` e `test_o_grafo_do_ciclo` medem que o `paga` só se atinge por aí; `test_a_pme_nao_paga_o_proprio_ciclo_pelo_ledger` que o «autenticado» não se escreve à mão (`hmac` e `consulta` pelo `kamba_app` → `42501`); `test_um_ciclo_pago_nao_recebe_cobranca_nova` e `test_o_pagamento_de_um_ciclo_anulado_fica_no_ledger_e_nao_o_paga` que um ciclo dá um pagamento e um evento |
+| 5 | Com `ManualProvider`, confirmação de ops (`actor_kind='ops'`), motivo obrigatório, duas pessoas distintas; uma não conclui | **satisfeito** | `test_uma_aprovacao_nao_conclui_e_a_segunda_de_outra_pessoa_conclui` (a mesma pessoa duas vezes não conta; o evento sai com `ops`, `manual` e o motivo), `test_sem_motivo_ou_com_outro_valor_nao_ha_aprovacao`, `test_o_ledger_recusa_a_confirmacao_manual_sem_a_dupla` (uma aprovação, ou `actor_kind='dono'`, pela porta do *ledger* directa), `test_duas_aprovacoes_nao_servem_outro_actor_nem_outro_tipo`, `test_duas_aprovacoes_sem_motivo_no_evento_nao_entram`, `test_uma_aprovacao_de_outro_tenant_nao_conta` e `test_uma_confirmacao_manual_do_dono_nao_entra_numa_cobranca_de_ciclo`. **O limite, dito:** a base garante dois `actor_id` diferentes e não autentica pessoas — quem autentica é a consola, no IdP, com MFA (KAM-196); um chamador com a credencial do `kamba_pay` que inventasse dois identificadores passava. É a forma do `review_decision_log.revisor_id` da `0048`, e está escrita em `../docs/billing.md` §2 |
+| 6 | Linha nova de `price_book` não altera ciclos em `cobranca_emitida`; só o seguinte; fica no `audit_log` | **satisfeito** | `test_o_preco_novo_nao_toca_no_ciclo_emitido_e_fica_auditado` (o ciclo mantém o valor; o seguinte abre com o novo; uma linha `price.update` com a entidade `price_book` e o actor `staff`), `test_o_valor_de_um_ciclo_nao_muda_depois_de_abrir`, `test_um_preco_sem_actor_nao_entra_e_so_o_lote_escreve`. O preço é o do **início** do período (`precoEmVigor`, em `pagamentos.billing.test.ts`) |
+| 7 | `commission_enabled=false` por omissão, global e por tenant; só `sombra`; `UNIQUE (payment_event_id)`; ligar sem `parecer_ref` falha no arranque | **parcial** — a guarda existe e não há arranque que a chame; credor **KAM-058** | `verificarComissao` em `pagamentos.arranque.test.ts` (sete ensaios: global, por tenant, em branco, desligado explícito, com parecer, e pelo `verificarArranque`). Na base: `test_so_sombra_e_so_o_calculo_da_taxa`, `test_a_sombra_mede_o_pagamento_autenticado_uma_vez` (o `UNIQUE` absorve a repetição), `test_a_sombra_nao_deriva_de_um_evento_que_nao_e_pagamento_autenticado` e `test_um_pagamento_confirmado_manual_nao_entra_na_sombra` |
+| 8 | Mudar o plano actualiza os `entitlements` na mesma transacção; `em_atraso` mantém os limites | **satisfeito** | `test_o_plano_e_os_entitlements_mudam_numa_instrucao` (o `SQL_MUDAR_PLANO`: subscrição, `tenants.plano`, os módulos do plano garantidos e os outros desligados, numa só instrução), `test_em_atraso_mantem_os_limites` (o `ten_tecto` não muda, e a subscrição continua a abrir ciclo), `test_so_o_lote_muda_o_plano` |
+| 9 | Nenhum documento fiscal emitido; um teste confirma que não há rota nem função de emissão (C-04) | **satisfeito** | `billing: criterio 9` em `pagamentos.billing.test.ts`: varre `packages/`, `services/` e `libs/` (mais de cem ficheiros — o zero tem controlo), afirma que nenhuma classe implementa a `InvoiceProvider` e que nenhuma função nem rota emite factura, e prova que os detectores mordem num texto que emite |
+| 10 | Processo definido para a factura-recibo da assinatura; `InvoiceProvider` como gancho, implementação Diferida | **satisfeito**, como *proposta* | `../docs/billing.md` §3: o processo manual registado do Piloto, com software certificado pela AGT **por escolher** (D7) e **a confirmar por parecer**; a porta com os seis métodos do `04` §13 em `billing.ts`, sem implementação |
+
+| # | Definition of Done | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Todos os critérios satisfeitos e demonstráveis | **parcial** | Nove dos dez; o 7 fica parcial na metade do arranque, com credor KAM-058 |
+| 2 | Plataforma sem fundos: receita da KAMBÁ como comerciante; sem retenção nem repasse; comissão desligada | **satisfeito** | A cobrança de ciclo só numa conta de `plataforma_receita_propria` (G-1, critério 3); nenhuma escrita de dinheiro sai da plataforma (o `refund` e o `payout` continuam `NOT_SUPPORTED`); a comissão é sombra por restrição da base e por guarda de arranque (critério 7). As cinco colunas `_minor` novas estão no `EM_UNIDADE_MENOR` de `../db/tests/test_catalogo.py`, cada uma com a razão de não ser um saldo (ADR-L008) |
+| 3 | Pagamento só por evento autenticado ou confirmação humana de ops com dupla aprovação | **satisfeito** | O gatilho `billing_cycles_transicao` (o `paga` exige a cobrança `paga` no *ledger*) e o `payment_events_g8_ops`; critérios 4 e 5 |
+| 4 | Idempotência: ciclos e cobranças com chave e teste de repetição | **satisfeito** | `billing_cycles_periodo_uq` e o `payment_charges_billing_tentativa_uq` da `0029`, com `ON CONFLICT` no *job*; o *job* ×2 e o pagamento ×10 (critérios 2 e 4); nenhuma cobrança nova num ciclo pago ou anulado (`payment_charges_ciclo_vivo`); a aprovação repetida da mesma pessoa (`billing_ops_approvals_pessoa_uq`) |
+| 5 | Isolamento: RLS `FORCE` com a conta da KAMBÁ acessível só ao papel de billing; caso na suite cruzada | **satisfeito** | `tenant_iso` com `FORCE` nas quatro tabelas de tenant; `test_a_conta_da_kamba_e_visivel_so_ao_papel_do_billing` (o `kamba_app` e o `kamba_audit` lêem zero), `test_o_billing_nao_ve_as_contas_de_pme_de_outro_tenant`, `test_o_billing_nao_le_o_token_nem_as_credenciais` (`42501`), `test_rls_cruzada_nas_subscricoes_e_nos_ciclos`, `test_rls_cruzada_na_sombra_e_nas_aprovacoes`, `test_o_billing_nao_escreve_um_ciclo_noutro_tenant`; os nove gatilhos em `ENABLE ALWAYS` (`test_os_gatilhos_do_billing_correm_sempre`). **Na suite cruzada** (*gate* 6): receitas novas para a `subscriptions` e a `billing_cycles` em `../db/tests_isolamento/sementes.py`, e a `commission_accruals` e a `billing_ops_approvals` no `SEM_RECEITA_COM_RAZAO`, com a razão (assentam no *ledger*); as três listas do `test_x05_catalogo.py`, com as duas políticas novas do `kamba_pay` |
+| 6 | Migração reversível; dois revisores; parecer D8 referenciado para activar comissão | **parcial** | Reversível (critério 1) e o parecer D8 é a condição escrita do arranque e da revisão que largar o `commission_accruals_so_sombra` (critério 7, `../docs/billing.md` §4). **Os dois revisores ficam por nomear** — credor: **o fundador** |
+
+**O que a revisão adversarial mudou.** Uma revisão independente — sem o raciocínio de quem escreveu, com oito sondas de ataque, dezassete mutações de base e oito de TypeScript — reprovou o ramo com **dois achados altos**, os dois CONFIRMADOS por sonda. **(A1)** O `kamba_app` — o papel dos turnos do agente, no contexto da PME que **deve** — pagava o ciclo com um `pagamento_confirmado` `hmac` ou `consulta` escrito à mão na porta do *ledger*, onde tem `EXECUTE` desde a `0029`; o G8 de ops só olhava para o `manual`. **(A2)** O `INSERT` e o `EXECUTE` que este ramo dava ao `kamba_pay` deixavam-no criar e pagar cobranças **de encomenda** de qualquer tenant. Fecham-se com o gatilho `payment_events_billing_papel` (pelo `session_user`) e com o `INSERT` por coluna, sem `order_id`. **Médios:** (M1) uma tentativa 2 de um ciclo já pago era criada e paga — dinheiro duas vezes, sem sinal —, e fecha-se com o `payment_charges_ciclo_vivo`; (M2) cinco guardas sem ensaio que as mordesse: quatro ganharam ensaio, e a quinta — o filtro de tenant do G8 de ops — **saiu**, porque a RLS já fazia o trabalho e nenhum ensaio o podia morder (e a mutação dele, que este ramo dizia apanhada, sobrevivia); e a suite estava vermelha nas duas fotografias medidas — o `assertErroSql` sobre uma ligação em `autocommit`, e a FK entre tenants medida contra o índice errado. **Baixos:** o detector do C-04 não via funções em seta (passa a ver, e o ensaio reutiliza os padrões em vez de os copiar); o `COMMENT` do `assert_beneficiary` dizia que o billing corria como `kamba_batch` (reescrito, e o `downgrade` repõe-no); a sombra e as aprovações não tinham caso cruzado (ensaio novo); uma conta da KAMBÁ `suspenso` aceitava cobranças, e o preço de um plano descontinuado ressuscitava (os dois corrigidos, com ensaio). **Ficam como PLAUSÍVEL, ditos:** o `motivo` de ops é texto livre e só o `append` lhe passa a guarda de telefone; e o `downgrade` apaga subscrições e preços sem guarda quando não há cobranças de ciclo — são configuração, e a guarda que importa (a das cobranças) está lá.
+
+**Mutações.** **Quinze, em `../db/mutacoes.py`, e as quinze apanhadas** pela suite do billing, cada uma
+numa cópia da árvore com o seu PostgreSQL: o `paga` sem o *ledger*, uma aprovação de ops a bastar,
+o G8 do dono de volta aos ciclos, o dono a confirmar o próprio ciclo, a comissão facturável, a
+sombra a aceitar o caminho humano, a política do PAY aberta às contas das PMEs, o preço auditado
+noutra entidade, qualquer papel no *ledger* de um ciclo, o `kamba_pay` no *ledger* das
+encomendas, uma cobrança nova num ciclo pago, o pagamento a olhar para um ciclo anulado, o G8 de
+ops sem `ENABLE ALWAYS`, e o G8 de ops a aceitar outro `actor_kind` ou um actor sem aprovação. As
+sete últimas são as que a revisão mediu como sobreviventes ou abertas, e cada uma tem o ensaio que a
+mata nomeado ao lado. A do filtro de tenant do G8 de ops **saiu da lista com o filtro**: sobrevivia,
+porque a RLS fazia o trabalho dele.
+
+**O que fica aberto, e com quem.** O agendamento do `abrirCiclos` e do `acumularSombra` e as
+transições da subscrição para `em_atraso` e `suspensa` — **KAM-058**. O callback de um
+facilitador sobre a conta própria da KAMBÁ — depende de a KAMBÁ ter conta EMIS ou contrato com um
+facilitador (**D4**, KAM-103), que este ticket não podia obter sem contactar ninguém. A taxa da
+sombra — contrato, depois do parecer (**D8**). O software de facturação certificado — **D7**. Os
+preços e o IVA — produto e contabilista. Os dois revisores — o fundador.
 
 ### Handoff para Claude Code
 
@@ -2144,3 +2245,4 @@ Testes: as regras 3 e 4 de ponta a ponta, duplicados x10, e o ledger sem linha n
 | 1.13 | Novembro 2026 | **KAM-057 entregue, com cinco dos sete critérios e três das cinco caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, com os sete critérios e as cinco caixas da DoD, cada um com evidência nomeada. As saídas: a matriz AppyPay contra ProxyPay em dezanove critérios (`../docs/pagamentos/matriz_facilitadores.md`), a decisão **proposta** — adiar, com gatilhos escritos — em `../docs/adr/ADR-L011-segundo-facilitador-appypay.md`, e as perguntas redigidas e **por enviar** em `../docs/pagamentos/perguntas_appypay.md`. **Ficam abertos o critério 1 (enviar as perguntas) e o 6 (revisão por Arquitecto e Responsável de Produto), os dois com credor o fundador.** A documentação Stoplight da AppyPay foi lida pela primeira vez a 2026-11-08, e o «Contexto» do bloco, que diz o contrário, fica como a premissa com que o ticket foi escrito. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | **KAM-197** acrescentado, no PR do **KAM-062**, que o abre e não o implementa: o PAY abre a `refund_cases` ao consumir `order.refund_requested` (decisão do fundador de 2026-11-12, opção b — um só dono da tabela, sem escritor no COM). É o credor do critério 4 do KAM-060, que passa a dizê-lo, e das regras 3 e 4 do KAM-050. O `Bloqueia` do KAM-053 ganha a aresta recíproca. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-197 entregue.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, com os cinco critérios e as três caixas da DoD, **as oito marcadas**. Regista as duas decisões do fundador que deram a forma ao ticket — a (b) de 2026-11-12 (o PAY abre o caso, sem reversão no *ledger*, com um só dono da tabela) e a **(A) de 2026-11-13**: o papel é novo, `kamba_pay`, e só ele tem `EXECUTE` na porta, pelo que o COM leva `42501`. **A estimativa passa de M a L** por causa do papel, no bloco, na tabela-resumo e no §4 do índice. O critério 4 do **KAM-060** passa a `satisfeito` no bloco dele, com o registo do estado anterior intacto. A revisão é a `0051`, provisória. | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | **KAM-059 entregue, com nove dos dez critérios e quatro das seis caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, uma linha de evidência por caixa. A revisão do billing é a `0054`, provisória. O critério 7 fica **parcial** na metade do arranque (nenhum processo do PAY lê as *flags* de dinheiro), e os dois revisores são do fundador. O bloco do **KAM-058** ganha a linha «Recebido do KAM-059» (o agendamento dos dois *jobs*, as transições da subscrição, o cancelamento da cobrança ao anular um ciclo e a guarda de arranque da comissão). Uma revisão adversarial reprovou o ramo com dois achados altos — a PME pagava o próprio ciclo com um `hmac` escrito à mão no *ledger*, e o `kamba_pay` escrevia no *ledger* das encomendas —, fechados com o gatilho `payment_events_billing_papel` e o `INSERT` por coluna. | Equipa KAMBÁ |

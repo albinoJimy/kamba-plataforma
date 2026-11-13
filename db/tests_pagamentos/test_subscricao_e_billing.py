@@ -36,7 +36,8 @@ from tests.base import (
     ConsultaDoTypeScript,
     alembic,
 )
-from tests_pagamentos.base import ComLedger
+from tests_pagamentos.base import VALOR, ComLedger
+from tests_pagamentos.manual_base import ComConfirmacaoManual
 
 RAIZ = Path(__file__).resolve().parents[2]
 MODULO = RAIZ / "packages" / "core-ts" / "src" / "pagamentos" / "billing.ts"
@@ -75,6 +76,11 @@ class ComBilling(ComLedger):
         self.conta = self.criar_conta_da_kamba()
         self.subscricao = self.criar_subscricao(self.tenant, self.plano)
         self.pay = self.cursor_papel("pay", self.tenant)
+        #: O administrador **numa transaccao**, para os casos negativos: o
+        #: `assertErroSql` abre um `SAVEPOINT`, que nao existe em `autocommit`
+        #: (que e o modo da `semente`). Superutilizador: mede o `CHECK` e o
+        #: gatilho, que valem para todos, e nao o privilegio.
+        self.admin = self.cursor_papel("admin", self.tenant)
 
     # ------------------------------------------------------------ sementes
 
@@ -171,10 +177,11 @@ class ComBilling(ComLedger):
         cursor.execute(
             COBRANCA.sql,
             COBRANCA.args(
-                cobranca, tenant, ciclo, self.conta, "manual", "manual", None, valor,
+                cobranca, tenant, ciclo, self.conta, "manual", None, valor,
                 agora + datetime.timedelta(hours=72),
             ),
         )
+        self.assertIsNotNone(cursor.fetchone(), "a cobranca do ciclo nao entrou")
         cursor.execute(EMITIR.sql, EMITIR.args(cobranca, self.conta, valor))
         cursor.execute(EMITIDO.sql, EMITIDO.args(ciclo))
         self.confirmar(cursor, tenant)
@@ -212,28 +219,58 @@ class TestCriterio1Tabelas(ComBilling):
     def test_um_ciclo_por_periodo(self) -> None:
         self.abrir()
         self.assertErroSql(
-            VIOLACAO_DE_UNICIDADE, self.semente,
+            VIOLACAO_DE_UNICIDADE, self.admin,
             "INSERT INTO platform.billing_cycles (subscription_id, tenant_id, periodo, "
             "valor_minor) VALUES (%s, %s, daterange(%s::date, %s::date), %s)",
             (self.subscricao, self.tenant, INICIO, FIM, PRECO),
         )
 
     def test_a_cobranca_aponta_para_um_ciclo_que_existe_e_do_mesmo_tenant(self) -> None:
-        ciclo = self.abrir()
+        """Duas barreiras para a mesma regra, e o ensaio mede as duas.
+
+        Por `INSERT`, quem recusa primeiro e o gatilho `payment_charges_ciclo_vivo`
+        (`BEFORE`, `23514`): um ciclo que nao existe, ou que e de outro tenant,
+        nao esta vivo no tenant da cobranca. A `charges_billing_fk` vem depois,
+        e por `INSERT` ja nao e alcancavel — mede-se pelo catalogo: composta, do
+        par `(tenant_id, billing_cycle_id)` para o par `(tenant_id, id)` da
+        `billing_cycles`. As duas medidas antes mediam outra coisa (o
+        `payment_charges_activa_uq`, `23505`), achado da revisao adversarial.
+        """
+        self.semente.execute(
+            "INSERT INTO platform.billing_cycles (subscription_id, tenant_id, periodo, "
+            "valor_minor) VALUES (%s, %s, daterange('2027-01-01', '2027-02-01'), %s) "
+            "RETURNING id",
+            (self.subscricao, self.tenant, PRECO),
+        )
+        ciclo = str(self.semente.fetchone()[0])
         outro = self.criar_tenant()
         for tenant, alvo in ((self.tenant, str(uuid.uuid4())), (outro, ciclo)):
             self.assertErroSql(
-                VIOLACAO_DE_FK, self.semente,
+                VIOLACAO_DE_CHECK, self.admin,
                 "INSERT INTO platform.payment_charges (tenant_id, billing_cycle_id, "
                 "tentativa, account_id, provider, metodo, amount_minor, valid_until) "
                 "VALUES (%s, %s, 2, %s, 'manual', 'manual', %s, now())",
                 (tenant, alvo, self.conta, PRECO),
             )
+        self.semente.execute(
+            "SELECT c.confrelid::regclass::text, "
+            "       (SELECT array_agg(a.attname::text ORDER BY k.n) FROM unnest(c.conkey) "
+            "          WITH ORDINALITY AS k(num, n) JOIN pg_attribute a "
+            "          ON a.attrelid = c.conrelid AND a.attnum = k.num), "
+            "       (SELECT array_agg(a.attname::text ORDER BY k.n) FROM unnest(c.confkey) "
+            "          WITH ORDINALITY AS k(num, n) JOIN pg_attribute a "
+            "          ON a.attrelid = c.confrelid AND a.attnum = k.num) "
+            "  FROM pg_constraint c WHERE c.conname = 'charges_billing_fk'"
+        )
+        alvo, colunas, referidas = self.semente.fetchone()
+        self.assertEqual(alvo, "platform.billing_cycles")
+        self.assertEqual(list(colunas), ["tenant_id", "billing_cycle_id"])
+        self.assertEqual(list(referidas), ["tenant_id", "id"])
 
     def test_o_ciclo_nao_aponta_para_a_subscricao_de_outro_tenant(self) -> None:
         outro = self.criar_tenant()
         self.assertErroSql(
-            VIOLACAO_DE_FK, self.semente,
+            VIOLACAO_DE_FK, self.admin,
             "INSERT INTO platform.billing_cycles (subscription_id, tenant_id, periodo, "
             "valor_minor) VALUES (%s, %s, daterange('2026-11-01', '2026-12-01'), %s)",
             (self.subscricao, outro, PRECO),
@@ -254,7 +291,7 @@ class TestCriterio1Tabelas(ComBilling):
         )
         for sql, parametros in casos:
             with self.subTest(sql=sql[:60]):
-                self.assertErroSql(VIOLACAO_DE_CHECK, self.semente, sql, parametros)
+                self.assertErroSql(VIOLACAO_DE_CHECK, self.admin, sql, parametros)
 
 
 class TestCriterio2Job(ComBilling):
@@ -295,20 +332,46 @@ class TestCriterio2Job(ComBilling):
 
 class TestCriterio3BeneficiarioERls(ComBilling):
     def test_uma_cobranca_de_ciclo_numa_conta_de_pme_e_recusada_pelo_g1(self) -> None:
+        """O G-1 da `0027`, pela instrucao directa (a cadeia do *job* nem a escolhe)."""
         conta_pme = self.criar_conta(self.tenant)
         self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
         self.pay.execute(ABRIR.sql, ABRIR.args(self.subscricao, self.tenant, INICIO, FIM, PRECO))
         ciclo = str(self.pay.fetchone()[0])
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.pay, COBRANCA.sql,
-            COBRANCA.args(str(uuid.uuid4()), self.tenant, ciclo, conta_pme, "fakeprovider",
-                          "referencia", "REF1", PRECO, datetime.datetime.now(datetime.timezone.utc)),
+            VIOLACAO_DE_CHECK, self.pay,
+            "INSERT INTO platform.payment_charges (tenant_id, billing_cycle_id, account_id, "
+            "provider, metodo, referencia, amount_minor, valid_until) "
+            "VALUES (%s, %s, %s, 'fakeprovider', 'referencia', 'REF1', %s, now())",
+            (self.tenant, ciclo, conta_pme, PRECO),
         )
+        self.pay.execute(COBRANCA.sql, COBRANCA.args(
+            str(uuid.uuid4()), self.tenant, ciclo, conta_pme, "referencia", "REF1", PRECO,
+            datetime.datetime.now(datetime.timezone.utc)))
+        self.assertIsNone(self.pay.fetchone(), "a cadeia do job so escolhe a conta da KAMBA")
+
+    def test_uma_conta_da_kamba_que_nao_esta_activa_nao_cobra(self) -> None:
+        self.semente.execute(
+            "UPDATE platform.payment_accounts SET estado = 'suspenso' WHERE id = %s",
+            (self.conta,),
+        )
+        self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
+        self.pay.execute(ABRIR.sql, ABRIR.args(self.subscricao, self.tenant, INICIO, FIM, PRECO))
+        ciclo = str(self.pay.fetchone()[0])
+        self.pay.execute(COBRANCA.sql, COBRANCA.args(
+            str(uuid.uuid4()), self.tenant, ciclo, self.conta, "manual", None, PRECO,
+            datetime.datetime.now(datetime.timezone.utc)))
+        self.assertIsNone(self.pay.fetchone())
 
     def test_uma_cobranca_de_encomenda_na_conta_da_kamba_e_recusada_pelo_g1(self) -> None:
+        """Pelo administrador, que ve a conta da KAMBA e tem o `INSERT` inteiro.
+
+        O `kamba_pay` nem chega aqui: o `INSERT` dele e sem `order_id`
+        (`test_o_billing_nao_cria_nem_paga_cobrancas_de_encomenda`). O que se
+        mede e o G-1 da `0027` contra quem consegue escrever a cobranca.
+        """
         encomenda = self.criar_encomenda(self.tenant)
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.pay,
+            VIOLACAO_DE_CHECK, self.admin,
             "INSERT INTO platform.payment_charges (tenant_id, order_id, account_id, "
             "provider, metodo, amount_minor, valid_until) "
             "VALUES (%s, %s, %s, 'manual', 'manual', %s, now())",
@@ -327,6 +390,50 @@ class TestCriterio3BeneficiarioERls(ComBilling):
             cursor.execute(sql, (self.conta,))
             self.assertEqual(cursor.fetchone()[0], 0, papel)
 
+    def test_o_billing_nao_ve_as_contas_de_pme_de_outro_tenant(self) -> None:
+        """A politica do billing abre **so** a conta da KAMBA, e nao as das PMEs.
+
+        Com o `USING` da `pay_receita_propria` alargado (a `true`, ou sem o
+        predicado do beneficiario), o `kamba_pay` no contexto de A lia as
+        contas de pagamento de todas as PMEs — para onde vai o dinheiro de
+        cada uma. A sonda positiva ao lado: a conta de PME do proprio tenant
+        do contexto continua visivel, pela `tenant_iso`.
+        """
+        outro = self.criar_tenant()
+        conta_de_b = self.criar_conta(outro)
+        conta_de_a = self.criar_conta(self.tenant)
+        sql = "SELECT count(*) FROM platform.payment_accounts WHERE id = %s"
+        self.pay.execute(sql, (conta_de_b,))
+        self.assertEqual(self.pay.fetchone()[0], 0)
+        self.pay.execute(sql, (conta_de_a,))
+        self.assertEqual(self.pay.fetchone()[0], 1, "o controlo positivo")
+
+    def test_o_billing_nao_cria_nem_paga_cobrancas_de_encomenda(self) -> None:
+        """O `kamba_pay` so escreve no ledger dos ciclos (revisao adversarial, A2).
+
+        Dois caminhos, as duas recusas: o `INSERT` de uma cobranca de encomenda
+        (o `GRANT INSERT` e por coluna, **sem** `order_id`) e um evento no
+        ledger de uma cobranca de encomenda que ja existe (o gatilho
+        `payment_events_billing_papel`).
+        """
+        conta_pme = self.criar_conta(self.tenant)
+        encomenda = self.criar_encomenda(self.tenant)
+        self.assertErroSql(
+            PRIVILEGIO_INSUFICIENTE, self.pay,
+            "INSERT INTO platform.payment_charges (tenant_id, order_id, account_id, "
+            "provider, metodo, referencia, amount_minor, valid_until) "
+            "VALUES (%s, %s, %s, 'fakeprovider', 'referencia', 'REF2', %s, now())",
+            (self.tenant, encomenda, conta_pme, PRECO),
+        )
+        de_encomenda = self.criar_cobranca(self.tenant, conta_pme)
+        sql, argumentos = self.sql_da_porta(
+            p_charge_id=de_encomenda, p_tipo_evento="pagamento_confirmado",
+            p_account_id=conta_pme, p_valor_minor=VALOR,
+        )
+        self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, self.pay, sql, argumentos)
+        self.assertEqual(self.estado_da_cobranca(de_encomenda), "emitida")
+
     def test_o_billing_nao_le_o_token_nem_as_credenciais(self) -> None:
         for coluna in ("webhook_token", "credenciais_ref"):
             self.assertErroSql(
@@ -334,6 +441,35 @@ class TestCriterio3BeneficiarioERls(ComBilling):
                 f"SELECT {coluna} FROM platform.payment_accounts WHERE id = %s",
                 (self.conta,),
             )
+
+    def test_rls_cruzada_na_sombra_e_nas_aprovacoes(self) -> None:
+        """As duas tabelas sem receita no X-05 (revisao adversarial, B3)."""
+        ciclo = self.abrir()
+        cobranca = self.cobranca_do_ciclo(ciclo)
+        self.aprovar(cobranca, str(uuid.uuid4()))
+        conta_pme = self.criar_conta(self.tenant)
+        paga = self.criar_cobranca(self.tenant, conta_pme, estado="paga")
+        self.semente.execute(
+            "SELECT id, order_id, valor_minor FROM platform.payment_events "
+            " WHERE charge_id = %s AND tipo_evento = 'pagamento_confirmado'", (paga,))
+        evento, encomenda, valor = self.semente.fetchone()
+        self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
+        self.pay.execute(SOMBRA_GRAVAR.sql, SOMBRA_GRAVAR.args(
+            self.tenant, str(encomenda), int(evento), int(valor), 0, 0))
+        self.confirmar(self.pay, self.tenant)
+        outro = self.criar_tenant()
+        for papel in ("app", "pay"):
+            vizinho = self.cursor_papel(papel, outro)
+            for tabela in ("commission_accruals", "billing_ops_approvals"):
+                vizinho.execute(
+                    f"SELECT count(*) FROM platform.{tabela} WHERE tenant_id = %s",
+                    (self.tenant,),
+                )
+                self.assertEqual(vizinho.fetchone()[0], 0, f"{papel} {tabela}")
+        dono = self.cursor_papel("app", self.tenant)
+        for tabela in ("commission_accruals", "billing_ops_approvals"):
+            dono.execute(f"SELECT count(*) FROM platform.{tabela}")
+            self.assertEqual(dono.fetchone()[0], 1, f"o controlo positivo: {tabela}")
 
     def test_rls_cruzada_nas_subscricoes_e_nos_ciclos(self) -> None:
         ciclo = self.abrir()
@@ -366,20 +502,23 @@ class TestCriterio4PagamentoAutenticado(ComBilling):
 
         from tests_pagamentos.test_fks_e_mapa import esquema, verificador
 
-        app = self.cursor_papel("app", self.tenant)
+        # **Pelo papel de billing**, que e quem corre o *worker* do callback
+        # da conta da KAMBA quando ele existir (D4): um evento de ciclo noutra
+        # ligacao e recusado (`test_a_pme_nao_paga_o_proprio_ciclo_pelo_ledger`).
+        pay = self.cursor_papel("pay", self.tenant)
         aceites = 0
         for _ in range(10):
-            app.execute("SAVEPOINT tentativa")
+            pay.execute("SAVEPOINT tentativa")
             try:
                 self.appendar(
-                    app, self.cobranca, self.conta, "pagamento_confirmado",
+                    pay, self.cobranca, self.conta, "pagamento_confirmado",
                     p_valor_minor=PRECO, p_provider_event_id="evt-ciclo-1",
                 )
                 aceites += 1
-                app.execute("RELEASE SAVEPOINT tentativa")
+                pay.execute("RELEASE SAVEPOINT tentativa")
             except Exception:  # noqa: BLE001 — a repeticao recusada e o esperado
-                app.execute("ROLLBACK TO SAVEPOINT tentativa")
-        self.confirmar(app, self.tenant)
+                pay.execute("ROLLBACK TO SAVEPOINT tentativa")
+        self.confirmar(pay, self.tenant)
         self.assertEqual(aceites, 1, "uma cobranca paga nao volta a pagar")
         self.assertEqual(self.estado_da_cobranca(self.cobranca), "paga")
         self.assertEqual(self.estado_do_ciclo(self.ciclo), "paga")
@@ -395,13 +534,85 @@ class TestCriterio4PagamentoAutenticado(ComBilling):
         )
         jsonschema.validate(envelope, esquema("billing.cycle_paid"), format_checker=verificador())
 
+    def test_a_pme_nao_paga_o_proprio_ciclo_pelo_ledger(self) -> None:
+        """O `kamba_app` no contexto da PME que deve (revisao adversarial, A1).
+
+        E o papel dos turnos do agente e do *worker* das encomendas, e tem
+        `EXECUTE` na porta do ledger desde a `0029`. Sem o gatilho
+        `payment_events_billing_papel`, um `pagamento_confirmado` `hmac` ou
+        `consulta` directo pagava o ciclo sem facilitador nem ops.
+        """
+        app = self.cursor_papel("app", self.tenant)
+        for metodo in ("hmac", "consulta"):
+            with self.subTest(metodo=metodo):
+                sql, argumentos = self.sql_da_porta(
+                    p_charge_id=self.cobranca, p_tipo_evento="pagamento_confirmado",
+                    p_account_id=self.conta, p_valor_minor=PRECO, p_authn_method=metodo,
+                )
+                self.assertErroSql(PRIVILEGIO_INSUFICIENTE, app, sql, argumentos)
+        self.assertEqual(self.estado_do_ciclo(self.ciclo), "cobranca_emitida")
+        self.assertEqual(self.eventos_de_ciclo_pago(self.ciclo), [])
+
+    def test_um_ciclo_pago_nao_recebe_cobranca_nova(self) -> None:
+        """Revisao adversarial, M1: a tentativa 2 de um ciclo pago."""
+        self.pagar()
+        self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK, self.pay,
+            "INSERT INTO platform.payment_charges (tenant_id, billing_cycle_id, tentativa, "
+            "account_id, provider, metodo, amount_minor, valid_until) "
+            "VALUES (%s, %s, 2, %s, 'manual', 'manual', %s, now())",
+            (self.tenant, self.ciclo, self.conta, PRECO),
+        )
+
+    def test_o_pagamento_de_um_ciclo_anulado_fica_no_ledger_e_nao_o_paga(self) -> None:
+        """O dinheiro chegou, e o ledger regista; o ciclo anulado nao muda.
+
+        E o filtro de estado do `billing_cycle_pagar`: sem ele o `UPDATE` do
+        ciclo tentava `anulado -> paga`, o gatilho de transicao recusava, e o
+        **pagamento** revertia — um facto do facilitador perdido.
+        """
+        self.pay.execute(
+            "UPDATE platform.billing_cycles SET estado = 'anulado' WHERE id = %s", (self.ciclo,)
+        )
+        self.confirmar(self.pay, self.tenant)
+        self.pagar()
+        self.assertEqual(self.estado_da_cobranca(self.cobranca), "paga")
+        self.assertEqual(self.estado_do_ciclo(self.ciclo), "anulado")
+        self.assertEqual(self.eventos_de_ciclo_pago(self.ciclo), [])
+
+    def test_os_gatilhos_do_billing_correm_sempre(self) -> None:
+        """`ENABLE ALWAYS` (`tgenabled = 'A'`), pela licao da `0006`.
+
+        Na omissao, um superutilizador com `session_replication_role = replica`
+        saltava-os — e o G8 de ops, a guarda do papel e a do `paga` com eles.
+        """
+        self.semente.execute(
+            "SELECT tgname::text, tgenabled::text FROM pg_trigger "
+            " WHERE tgname = ANY(%s) ORDER BY 1",
+            ([
+                "billing_cycles_transicao", "commission_accruals_so_autenticado",
+                "manual_confirmations_so_encomenda", "payment_charges_ciclo_pago",
+                "payment_charges_ciclo_vivo", "payment_events_billing_papel",
+                "payment_events_g8_humano", "payment_events_g8_ops", "price_book_auditado",
+            ],),
+        )
+        linhas = [tuple(linha) for linha in self.semente.fetchall()]
+        self.assertEqual(len(linhas), 9, linhas)
+        self.assertEqual({estado for _, estado in linhas}, {"A"}, linhas)
+
+    def pagar(self) -> None:
+        pay = self.cursor_papel("pay", self.tenant)
+        self.appendar(pay, self.cobranca, self.conta, "pagamento_confirmado", p_valor_minor=PRECO)
+        self.confirmar(pay, self.tenant)
+
     def test_o_ciclo_nao_fica_paga_sem_a_cobranca_paga(self) -> None:
         self.assertErroSql(
             VIOLACAO_DE_CHECK, self.pay,
             "UPDATE platform.billing_cycles SET estado = 'paga' WHERE id = %s", (self.ciclo,),
         )
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.semente,
+            VIOLACAO_DE_CHECK, self.admin,
             "UPDATE platform.billing_cycles SET estado = 'paga' WHERE id = %s", (self.ciclo,),
         )
 
@@ -414,9 +625,7 @@ class TestCriterio4PagamentoAutenticado(ComBilling):
             "UPDATE platform.billing_cycles SET estado = 'em_atraso' WHERE id = %s", (self.ciclo,)
         )
         self.confirmar(self.pay, self.tenant)
-        app = self.cursor_papel("app", self.tenant)
-        self.appendar(app, self.cobranca, self.conta, "pagamento_confirmado", p_valor_minor=PRECO)
-        self.confirmar(app, self.tenant)
+        self.pagar()
         self.assertEqual(self.estado_do_ciclo(self.ciclo), "paga", "em_atraso tambem paga")
         self.assertEqual(len(self.eventos_de_ciclo_pago(self.ciclo)), 1)
         self.assertErroSql(
@@ -427,7 +636,7 @@ class TestCriterio4PagamentoAutenticado(ComBilling):
     def test_uma_confirmacao_manual_do_dono_nao_entra_numa_cobranca_de_ciclo(self) -> None:
         contacto = factories.contacto(self.semente, self.tenant)
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.semente,
+            VIOLACAO_DE_CHECK, self.admin,
             "INSERT INTO platform.manual_confirmations (tenant_id, charge_id, fase, "
             "actor_contact_id, canal_msg_id) VALUES (%s, %s, 'declaracao_cliente', %s, 'm1')",
             (self.tenant, self.cobranca, contacto),
@@ -491,6 +700,58 @@ class TestCriterio5DuplaDeOps(ComBilling):
                 self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
                 self.assertErroSql(VIOLACAO_DE_CHECK, self.pay, sql, argumentos)
 
+    def test_uma_aprovacao_de_outro_tenant_nao_conta(self) -> None:
+        """A dupla conta-se **no tenant do evento**.
+
+        A `billing_ops_approvals_charge_fk` e simples (`charge_id` ->
+        `payment_charges.id`), e uma FK confere-se como dono, por cima da RLS:
+        uma aprovacao escrita no contexto de outro tenant pode apontar para esta
+        cobranca. **Quem a impede de contar e a RLS**, e nao um filtro: o G8 de
+        ops corre como o dono sob `FORCE`, com o contexto de quem paga, e nao a
+        ve. O filtro de tenant que a primeira versao tinha era redundante — a
+        revisao adversarial mostrou-o por mutacao —, e saiu.
+        """
+        self.aprovar(self.cobranca, self.ops_a)
+        outro = self.criar_tenant()
+        self.semente.execute(
+            "INSERT INTO platform.billing_ops_approvals (tenant_id, charge_id, actor_id, "
+            "motivo, valor_minor) VALUES (%s, %s, %s, 'forjada', %s)",
+            (outro, self.cobranca, self.ops_b, PRECO),
+        )
+        sql, argumentos = self.sql_da_porta(
+            p_charge_id=self.cobranca, p_tipo_evento="pagamento_confirmado",
+            p_account_id=self.conta, p_valor_minor=PRECO, p_authn_method="manual",
+            p_actor_kind="ops", p_actor_id=self.ops_a, p_motivo="extracto",
+        )
+        self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.pay, sql, argumentos)
+
+    def test_duas_aprovacoes_nao_servem_outro_actor_nem_outro_tipo(self) -> None:
+        """Revisao adversarial, M2: o `actor_kind` e o actor do evento.
+
+        Com as duas aprovacoes escritas, o evento tem de ser **de ops** e de
+        **uma das duas pessoas**: um `dono` com o actor de uma delas, ou um
+        `ops` com um terceiro actor, nao entram.
+        """
+        self.aprovar(self.cobranca, self.ops_a)
+        self.semente.execute(
+            "INSERT INTO platform.billing_ops_approvals (tenant_id, charge_id, actor_id, "
+            "motivo, valor_minor) VALUES (%s, %s, %s, 'b', %s)",
+            (self.tenant, self.cobranca, self.ops_b, PRECO),
+        )
+        for campos in (
+            {"p_actor_kind": "dono", "p_actor_id": self.ops_b},
+            {"p_actor_kind": "ops", "p_actor_id": str(uuid.uuid4())},
+        ):
+            with self.subTest(**campos):
+                sql, argumentos = self.sql_da_porta(
+                    p_charge_id=self.cobranca, p_tipo_evento="pagamento_confirmado",
+                    p_account_id=self.conta, p_valor_minor=PRECO, p_authn_method="manual",
+                    p_motivo="extracto", **campos,
+                )
+                self.pay.execute(CONTEXTO.sql, CONTEXTO.args(self.tenant))
+                self.assertErroSql(VIOLACAO_DE_CHECK, self.pay, sql, argumentos)
+
     def test_duas_aprovacoes_sem_motivo_no_evento_nao_entram(self) -> None:
         self.semente.execute(
             "INSERT INTO platform.billing_ops_approvals (tenant_id, charge_id, actor_id, "
@@ -544,13 +805,13 @@ class TestCriterio6Preco(ComBilling):
             "UPDATE platform.billing_cycles SET valor_minor = 1 WHERE id = %s", (ciclo,),
         )
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.semente,
+            VIOLACAO_DE_CHECK, self.admin,
             "UPDATE platform.billing_cycles SET valor_minor = 1 WHERE id = %s", (ciclo,),
         )
 
     def test_um_preco_sem_actor_nao_entra_e_so_o_lote_escreve(self) -> None:
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.semente,
+            VIOLACAO_DE_CHECK, self.admin,
             "INSERT INTO platform.price_book (plano, valor_minor, valido_de) "
             "VALUES (%s, 1, '2030-01-01')",
             (self.plano,),
@@ -612,7 +873,7 @@ class TestCriterio7Sombra(ComBilling):
 
     def test_so_sombra_e_so_o_calculo_da_taxa(self) -> None:
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.semente,
+            VIOLACAO_DE_CHECK, self.admin,
             "INSERT INTO platform.commission_accruals (tenant_id, order_id, "
             "payment_event_id, base_minor, taxa_bps, comissao_minor, modo) "
             "VALUES (%s, %s, %s, %s, 0, 0, 'facturavel')",
@@ -718,3 +979,32 @@ class TestReversivel(ComBilling):
         resultado = alembic("downgrade", anterior)
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("downgrade do billing recusado", resultado.stderr + resultado.stdout)
+
+
+class TestSombraNaoMedeConfirmacaoHumana(ComConfirmacaoManual):
+    """A sombra so deriva do facilitador: uma confirmacao humana nao mede nada.
+
+    Uma cobranca de encomenda paga **pelo caminho humano inteiro** (declaracao
+    do cliente e confirmacao do dono, a `cobranca_paga` do KAM-054) tem um
+    `pagamento_confirmado` com `authn_method = 'manual'`, da mesma encomenda e
+    com o mesmo valor — tudo o resto que o gatilho confere bate. So a
+    autenticacao o recusa, e e isso que este ensaio isola.
+    """
+
+    def test_um_pagamento_confirmado_manual_nao_entra_na_sombra(self) -> None:
+        self.cobranca_paga()
+        self.confirmar(self.cursor, self.tenant)
+        self.semente.execute(
+            "SELECT id FROM platform.payment_events "
+            " WHERE charge_id = %s AND tipo_evento = 'pagamento_confirmado' "
+            "   AND authn_method = 'manual'",
+            (self.cobranca,),
+        )
+        evento = int(self.semente.fetchone()[0])
+        pay = self.cursor_papel("pay", self.tenant)
+        self.assertErroSql(
+            VIOLACAO_DE_CHECK, pay, SOMBRA_GRAVAR.sql,
+            SOMBRA_GRAVAR.args(self.tenant, self.encomenda, evento, VALOR, 0, 0),
+        )
+        pay.execute(SOMBRA_POR_MEDIR.sql, SOMBRA_POR_MEDIR.args(100))
+        self.assertNotIn(evento, [int(linha[0]) for linha in pay.fetchall()])

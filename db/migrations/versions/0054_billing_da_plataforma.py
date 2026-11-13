@@ -30,6 +30,11 @@ este ticket, e as barreiras que fazem do ciclo uma propriedade da base:
                               (criterio 4)
     billing_confirmar_ops     a confirmacao de ops com dupla aprovacao
     payment_events_g8_ops     o G8 do caminho de ops, para as cobrancas de ciclo
+    payment_events_billing_papel
+                              o ledger de um ciclo so pelo `kamba_pay`, e o
+                              `kamba_pay` so no ledger dos ciclos
+    payment_charges_ciclo_vivo
+                              uma cobranca nova so num ciclo que ainda se cobra
 
 ## Porque e que o ciclo nao ouve o `payment.confirmed`
 
@@ -153,6 +158,31 @@ MODOS_DA_COMISSAO = ("'sombra'", "'facturavel'")
 #: comissao so deriva destes (§11.1: «`paga_via='provider_autenticado'`»): uma
 #: confirmacao humana nao mede atribuicao nenhuma.
 AUTENTICADOS_PELO_FACILITADOR = ("'hmac'", "'consulta'")
+
+#: As colunas que o papel de billing escreve numa cobranca: **sem `order_id`**.
+COLUNAS_DA_COBRANCA_DE_CICLO = (
+    "id, tenant_id, billing_cycle_id, tentativa, account_id, provider, metodo, "
+    "referencia, amount_minor, currency, valid_until"
+)
+
+#: O `COMMENT` do `assert_beneficiary`, como a `0027` o deixou (para o
+#: `downgrade`) e como fica: o billing corre como `kamba_pay`, e nao como
+#: `kamba_batch`, que era o que a `0027` dizia antes de haver papel de billing.
+COMENTARIO_G1_0027 = (
+    "Guarda G-1 do docs/tecnica/04 secao 10.4 (KAM-052): o beneficiario de "
+    "uma cobranca de encomenda e a PME que vendeu, e o de uma de billing e a "
+    "KAMBA. O CREATE TRIGGER sobre payment_charges e do KAM-055. SECURITY "
+    "INVOKER: o DEFINER nao contorna FORCE ROW LEVEL SECURITY (corre como o "
+    "dono, que e NOBYPASSRLS), e o billing corre como kamba_batch, que tem "
+    "BYPASSRLS e ve a conta de tenant_id nulo."
+)
+COMENTARIO_G1 = (
+    "Guarda G-1 do docs/tecnica/04 secao 10.4 (KAM-052): o beneficiario de "
+    "uma cobranca de encomenda e a PME que vendeu, e o de uma de billing e a "
+    "KAMBA. SECURITY INVOKER: o DEFINER nao contorna FORCE ROW LEVEL SECURITY. "
+    "O billing corre como kamba_pay, que ve a conta de tenant_id nulo pela "
+    "politica pay_receita_propria (KAM-059)."
+)
 
 #: A assinatura da porta de ops, para o `COMMENT`, o `GRANT` e o `DROP`.
 CONFIRMAR_OPS = "platform.billing_confirmar_ops(uuid, uuid, text, bigint)"
@@ -671,6 +701,42 @@ def _ciclo_pago() -> None:
         """
     )
     op.execute(f"ALTER TABLE {COBRANCAS} ENABLE ALWAYS TRIGGER payment_charges_ciclo_pago")
+    # **Uma cobranca nova so num ciclo vivo.** A revisao adversarial criou e
+    # pagou uma tentativa 2 de um ciclo ja `paga` — dinheiro recebido duas vezes,
+    # sem sinal nenhum. Num ciclo `paga` ou `anulado` nao ha nada a cobrar, e o
+    # `INSERT` recusa. O que **nao** se recusa e o pagamento de uma cobranca que
+    # ja existia quando o ciclo foi anulado: o dinheiro chegou, e o ledger regista
+    # factos; cancelar a cobranca ao anular o ciclo e da regua (KAM-058).
+    op.execute(
+        f"""
+        CREATE FUNCTION platform.billing_cobranca_de_ciclo_vivo() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog, platform AS $func$
+        BEGIN
+          IF NOT EXISTS (
+               SELECT 1 FROM {CICLOS} b
+                WHERE b.id = NEW.billing_cycle_id AND b.tenant_id = NEW.tenant_id
+                  AND b.estado IN ('aberto', 'cobranca_emitida', 'em_atraso')) THEN
+            RAISE EXCEPTION
+              'payment_charges: o ciclo % nao esta vivo (paga, anulado ou '
+              'invisivel); nao ha nada a cobrar', NEW.billing_cycle_id
+              USING ERRCODE = 'check_violation';
+          END IF;
+          RETURN NEW;
+        END $func$
+        """
+    )
+    op.execute(
+        "REVOKE ALL ON FUNCTION platform.billing_cobranca_de_ciclo_vivo() FROM PUBLIC"
+    )
+    op.execute(
+        f"""
+        CREATE TRIGGER payment_charges_ciclo_vivo
+          BEFORE INSERT ON {COBRANCAS}
+          FOR EACH ROW WHEN (NEW.billing_cycle_id IS NOT NULL)
+          EXECUTE FUNCTION platform.billing_cobranca_de_ciclo_vivo()
+        """
+    )
+    op.execute(f"ALTER TABLE {COBRANCAS} ENABLE ALWAYS TRIGGER payment_charges_ciclo_vivo")
 
 
 #: O `CREATE TRIGGER` do G8 da `0032`, **com** a condicao que esta revisao lhe
@@ -694,6 +760,26 @@ def _g8_das_cobrancas_de_ciclo() -> None:
     """O G8 da `0032` para as encomendas, e o de ops para os ciclos.
 
     Ver o cabecalho para a razao de **nao** se reescrever a funcao da `0032`.
+
+    **As aprovacoes contam-se sem filtro de tenant, e nao e descuido.** O
+    gatilho corre dentro da `append_payment_event`, como o dono, sob `FORCE` e
+    com o `app.tenant_id` de quem paga: uma aprovacao escrita noutro tenant e
+    **invisivel** aqui. A primeira versao filtrava por `tenant_id` tambem, e a
+    revisao adversarial mostrou-o por mutacao: tirar o filtro nao mudava nada,
+    porque a RLS ja fazia o trabalho. Um filtro que nenhum ensaio consegue
+    morder e codigo que parece barreira e nao e.
+
+    **E o ledger de um ciclo so se escreve pelo papel de billing.** A revisao
+    adversarial mediu os dois buracos que o G8 de ops sozinho deixava: o
+    `kamba_app` — o papel dos turnos do agente, no contexto da PME que **deve**
+    — pagava o ciclo com um `pagamento_confirmado` `hmac` directo na porta do
+    ledger, sem facilitador e sem ops; e o `kamba_pay`, com o `EXECUTE` que este
+    ticket lhe da, escrevia no ledger de **encomendas** de qualquer tenant. O
+    gatilho `payment_events_billing_papel` fecha os dois, pelo `session_user` —
+    o papel que abriu a ligacao, que um `SECURITY DEFINER` nao troca: um evento
+    de ciclo so entra numa ligacao do `kamba_pay`, e o `kamba_pay` so escreve
+    eventos de ciclo. O que isto pressupoe, e fica dito: cada papel liga-se com
+    a sua credencial (`db/ligacao.py`), sem `SET ROLE` a partir de um *pooler*.
     """
     op.execute("DROP TRIGGER payment_events_g8_humano ON platform.payment_events")
     op.execute(G8_SO_ENCOMENDA)
@@ -724,11 +810,10 @@ def _g8_das_cobrancas_de_ciclo() -> None:
           END IF;
           IF NOT EXISTS (
                SELECT 1 FROM {APROVACOES} a
-                WHERE a.charge_id = NEW.charge_id AND a.tenant_id = NEW.tenant_id
-                  AND a.actor_id = NEW.actor_id
+                WHERE a.charge_id = NEW.charge_id AND a.actor_id = NEW.actor_id
                   AND a.valor_minor = NEW.valor_minor)
              OR (SELECT count(DISTINCT a.actor_id) FROM {APROVACOES} a
-                  WHERE a.charge_id = NEW.charge_id AND a.tenant_id = NEW.tenant_id
+                  WHERE a.charge_id = NEW.charge_id
                     AND a.valor_minor = NEW.valor_minor) < 2 THEN
             RAISE EXCEPTION
               'G8 (billing): a cobranca % so se confirma por ops com duas '
@@ -751,6 +836,42 @@ def _g8_das_cobrancas_de_ciclo() -> None:
     )
     op.execute(
         "ALTER TABLE platform.payment_events ENABLE ALWAYS TRIGGER payment_events_g8_ops"
+    )
+    op.execute(
+        f"""
+        CREATE FUNCTION platform.billing_papel_no_ledger() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog, platform AS $func$
+        BEGIN
+          IF NEW.billing_cycle_id IS NOT NULL
+             AND session_user::text <> '{PAPEL_DO_PAY}' THEN
+            RAISE EXCEPTION
+              'ledger: um evento da cobranca de um ciclo de billing so entra pelo '
+              'papel de billing (%), e esta ligacao e de %; a PME que deve nao '
+              'escreve o pagamento a KAMBA', '{PAPEL_DO_PAY}', session_user
+              USING ERRCODE = 'insufficient_privilege';
+          END IF;
+          IF NEW.billing_cycle_id IS NULL
+             AND session_user::text = '{PAPEL_DO_PAY}' THEN
+            RAISE EXCEPTION
+              'ledger: o papel de billing so escreve eventos de ciclos de billing, '
+              'e a cobranca % e de uma encomenda', NEW.charge_id
+              USING ERRCODE = 'insufficient_privilege';
+          END IF;
+          RETURN NEW;
+        END $func$
+        """
+    )
+    op.execute("REVOKE ALL ON FUNCTION platform.billing_papel_no_ledger() FROM PUBLIC")
+    op.execute(
+        """
+        CREATE TRIGGER payment_events_billing_papel
+          BEFORE INSERT ON platform.payment_events
+          FOR EACH ROW EXECUTE FUNCTION platform.billing_papel_no_ledger()
+        """
+    )
+    op.execute(
+        "ALTER TABLE platform.payment_events "
+        "ENABLE ALWAYS TRIGGER payment_events_billing_papel"
     )
     # O caminho do dono fica fechado as cobrancas de ciclo.
     op.execute(
@@ -943,7 +1064,13 @@ def _privilegios() -> None:
     op.execute(f"GRANT UPDATE (estado) ON {CICLOS} TO {PAPEL_DO_PAY}")
     op.execute(f"GRANT SELECT, INSERT ON {ACCRUALS} TO {PAPEL_DO_PAY}")
     op.execute(f"GRANT SELECT, INSERT ON {APROVACOES} TO {PAPEL_DO_PAY}")
-    op.execute(f"GRANT SELECT, INSERT ON {COBRANCAS} TO {PAPEL_DO_PAY}")
+    # **Sem `order_id`**: o papel de billing so cria cobrancas de ciclo. Com o
+    # `INSERT` de tabela, criava uma cobranca de encomenda na conta de uma PME
+    # de qualquer tenant (achado da revisao adversarial).
+    op.execute(f"GRANT SELECT ON {COBRANCAS} TO {PAPEL_DO_PAY}")
+    op.execute(
+        f"GRANT INSERT ({COLUNAS_DA_COBRANCA_DE_CICLO}) ON {COBRANCAS} TO {PAPEL_DO_PAY}"
+    )
     op.execute(f"GRANT SELECT ON {EVENTOS} TO {PAPEL_DO_PAY}")
     op.execute(
         f"GRANT SELECT (id, beneficiary_kind, tenant_id, provider, estado) "
@@ -955,6 +1082,9 @@ def _privilegios() -> None:
         f"jsonb, timestamptz) TO {PAPEL_DO_PAY}"
     )
     op.execute(f"GRANT EXECUTE ON FUNCTION {CONFIRMAR_OPS} TO {PAPEL_DO_PAY}")
+    op.execute(
+        f"COMMENT ON FUNCTION platform.assert_beneficiary() IS '{COMENTARIO_G1}'"
+    )
 
 
 def downgrade() -> None:
@@ -983,6 +1113,9 @@ def downgrade() -> None:
     )
     op.execute(f"ALTER TABLE {COBRANCAS} FORCE ROW LEVEL SECURITY")
 
+    op.execute(
+        f"COMMENT ON FUNCTION platform.assert_beneficiary() IS '{COMENTARIO_G1_0027}'"
+    )
     op.execute(f"REVOKE ALL ON FUNCTION {CONFIRMAR_OPS} FROM {PAPEL_DO_PAY}")
     op.execute(
         "REVOKE EXECUTE ON FUNCTION platform.append_payment_event("
@@ -994,6 +1127,9 @@ def downgrade() -> None:
         f"ON {CONTAS} FROM {PAPEL_DO_PAY}"
     )
     op.execute(f"REVOKE ALL ON {EVENTOS} FROM {PAPEL_DO_PAY}")
+    op.execute(
+        f"REVOKE INSERT ({COLUNAS_DA_COBRANCA_DE_CICLO}) ON {COBRANCAS} FROM {PAPEL_DO_PAY}"
+    )
     op.execute(f"REVOKE ALL ON {COBRANCAS} FROM {PAPEL_DO_PAY}")
     op.execute(f"DROP FUNCTION {CONFIRMAR_OPS}")
 
@@ -1001,6 +1137,8 @@ def downgrade() -> None:
         f"DROP TRIGGER manual_confirmations_so_encomenda ON {CONFIRMACOES}"
     )
     op.execute("DROP FUNCTION platform.manual_so_encomenda()")
+    op.execute("DROP TRIGGER payment_events_billing_papel ON platform.payment_events")
+    op.execute("DROP FUNCTION platform.billing_papel_no_ledger()")
     op.execute("DROP TRIGGER payment_events_g8_ops ON platform.payment_events")
     op.execute("DROP FUNCTION platform.exigir_dupla_de_ops()")
     op.execute("DROP TRIGGER payment_events_g8_humano ON platform.payment_events")
@@ -1010,6 +1148,8 @@ def downgrade() -> None:
         "ENABLE ALWAYS TRIGGER payment_events_g8_humano"
     )
 
+    op.execute(f"DROP TRIGGER payment_charges_ciclo_vivo ON {COBRANCAS}")
+    op.execute("DROP FUNCTION platform.billing_cobranca_de_ciclo_vivo()")
     op.execute(f"DROP TRIGGER payment_charges_ciclo_pago ON {COBRANCAS}")
     op.execute("DROP FUNCTION platform.billing_cycle_pagar()")
     op.execute(f"ALTER TABLE {COBRANCAS} DROP CONSTRAINT charges_billing_fk")

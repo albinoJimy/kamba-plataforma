@@ -176,8 +176,14 @@ export function precoEmVigor(
   for (const linha of linhas) {
     if (linha.plano !== plano) continue;
     if (linha.validoDe > inicio) continue;
-    if (linha.validoAte !== null && linha.validoAte <= inicio) continue;
     if (melhor === null || linha.validoDe > melhor.validoDe) melhor = linha;
+  }
+  // **A mais recente decide, e se ja acabou nao ha preco.** A primeira versao
+  // saltava as linhas acabadas e voltava a uma mais antiga sem fim: um plano
+  // descontinuado (a linha nova com `valido_ate`) ressuscitava o preco de
+  // antes dela. Achado da revisao adversarial.
+  if (melhor !== null && melhor.validoAte !== null && melhor.validoAte <= inicio) {
+    return null;
   }
   return melhor;
 }
@@ -293,14 +299,22 @@ export const SQL_BILLING_ABRIR_CICLO = `
 `;
 
 /**
- * A cobrança do ciclo, tentativa 1, na conta de receita própria. O G-1
- * (`assert_beneficiary`) recusa-a numa conta de PME.
+ * A cobrança do ciclo, tentativa 1, na conta de receita própria **activa**.
+ *
+ * O `provider` lê-se da conta e não se recebe: e a conta tem de estar `ativo`,
+ * que o `assert_beneficiary` (G-1) não confere — uma conta da KAMBÁ `suspenso`
+ * ou `revogado` aceitava cobranças (achado da revisão adversarial). Sem linha
+ * devolvida, o *job* recusa e reverte o ciclo que acabou de abrir. O G-1
+ * continua a recusar uma conta de PME, e é a barreira; isto é a pergunta certa.
  */
 export const SQL_BILLING_COBRANCA = `
   INSERT INTO platform.payment_charges (
       id, tenant_id, billing_cycle_id, tentativa, account_id, provider, metodo,
       referencia, amount_minor, currency, valid_until)
-  VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, 'AOA', $9)
+  SELECT $1, $2, $3, 1, a.id, a.provider, $5, $6, $7, 'AOA', $8
+    FROM platform.payment_accounts a
+   WHERE a.id = $4 AND a.beneficiary_kind = 'plataforma_receita_propria'
+     AND a.estado = 'ativo'
   ON CONFLICT ON CONSTRAINT payment_charges_billing_tentativa_uq DO NOTHING
   RETURNING id
 `;
@@ -398,6 +412,10 @@ export const SQL_SOMBRA_GRAVAR = `
 // --------------------------------------------------------------------------
 // Os jobs.
 // --------------------------------------------------------------------------
+
+export class ContaDeReceitaInactiva extends Error {
+  override readonly name = "ContaDeReceitaInactiva";
+}
 
 /** A conta de receita própria da KAMBÁ com que se cobra. */
 export type ContaDeReceita = { readonly id: Uuid; readonly provider: string };
@@ -521,17 +539,21 @@ export async function abrirCiclos(
           valorMinor: preco.valorMinor,
           conta: opcoes.conta,
         });
-        await bd.query(SQL_BILLING_COBRANCA, [
+        const cobranca = await bd.query(SQL_BILLING_COBRANCA, [
           chargeId,
           tenant,
           cicloId,
           opcoes.conta.id,
-          opcoes.conta.provider,
           emissao.metodo,
           emissao.referencia,
           preco.valorMinor.toString(),
           validadeDaCobranca(opcoes.agora).toISOString(),
         ]);
+        if (cobranca.rows.length === 0) {
+          throw new ContaDeReceitaInactiva(
+            `a conta ${opcoes.conta.id} nao e uma conta de receita propria activa`,
+          );
+        }
         await bd.query(SQL_BILLING_EMITIR, [
           chargeId,
           opcoes.conta.id,

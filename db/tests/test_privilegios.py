@@ -1566,7 +1566,7 @@ PRIVILEGIOS_DO_PAY = {
     "billing_cycles": {"SELECT", "INSERT"},
     "commission_accruals": {"SELECT", "INSERT"},
     "billing_ops_approvals": {"SELECT", "INSERT"},
-    "payment_charges": {"SELECT", "INSERT"},
+    "payment_charges": {"SELECT"},
     "payment_events": {"SELECT"},
 }
 ESPERADO_POR_TABELA = {
@@ -2048,6 +2048,15 @@ COLUNAS_POR_PAPEL = {
     # ao ledger sao do gatilho `billing_cycles_transicao`; esta linha prende que
     # o valor e o periodo nem sequer se podem tentar.
     ("kamba_pay", "billing_cycles", "UPDATE"): {"estado"},
+    # KAM-059: o billing cria cobrancas **de ciclo** e de mais nada. O `INSERT`
+    # e por coluna e **sem `order_id`**: com o de tabela, o papel criava uma
+    # cobranca de encomenda na conta de uma PME de qualquer tenant (revisao
+    # adversarial). O `payment_charges_um_sujeito` faz o resto — sem `order_id`,
+    # o `billing_cycle_id` e obrigatorio.
+    ("kamba_pay", "payment_charges", "INSERT"): {
+        "id", "tenant_id", "billing_cycle_id", "tentativa", "account_id", "provider",
+        "metodo", "referencia", "amount_minor", "currency", "valid_until",
+    },
     # KAM-089 (0048): o lote muda o estado e o prazo de um caso, e reforca um
     # caso pendente com o que a porta sabe agora — a prioridade, o motivo
     # interno, as evidencias e a recomendacao (um KYC que volta a decidir depois

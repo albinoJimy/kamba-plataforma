@@ -263,6 +263,9 @@ REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 #: final da-o quem integra, e esta constante muda com ele — o `--aplicaveis`
 #: apanha quem se esqueca dela.
 REV_REEMBOLSOS = "db/migrations/versions/0051_casos_de_reembolso_pelo_pay.py"
+#: KAM-059: o billing da plataforma. **Numero provisorio** (`0054`): o final
+#: da-o quem integra, e esta constante muda com ele.
+REV_BILLING = "db/migrations/versions/0054_billing_da_plataforma.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 #: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila
@@ -7374,6 +7377,99 @@ MUTACOES = [
     ("consumidor: a oferta que desaparece fica visivel", IDX_CONSUMIDOR,
      "        bd.executar(SQL_ESCONDER_DOCUMENTO, (sku,))\n",
      '        bd.executar("SELECT %s", (sku,))\n', PRODUTOS),
+    # --------------------------------------------------- KAM-059 (billing)
+    # Uma por barreira da revisao, e cada uma com o ensaio que a mata nomeado.
+    # O ciclo fica `paga` sem a cobranca paga no ledger:
+    # `test_o_ciclo_nao_fica_paga_sem_a_cobranca_paga`.
+    ("billing: o ciclo paga sem o ledger", REV_BILLING,
+     "          IF NEW.estado = 'paga' AND NOT EXISTS (\n",
+     "          IF false AND NEW.estado = 'paga' AND NOT EXISTS (\n",
+     "tests_pagamentos"),
+    # Uma aprovacao de ops basta: o subcaso `ops` do
+    # `test_o_ledger_recusa_a_confirmacao_manual_sem_a_dupla`.
+    ("billing: uma aprovacao de ops basta", REV_BILLING,
+     "                    AND a.valor_minor = NEW.valor_minor) < 2 THEN",
+     "                    AND a.valor_minor = NEW.valor_minor) < 1 THEN",
+     "tests_pagamentos"),
+    # O G8 da `0032` volta a valer para os ciclos, e a confirmacao de ops deixa
+    # de passar (ela nao escreve fase de `manual_confirmations`):
+    # `test_uma_aprovacao_nao_conclui_e_a_segunda_de_outra_pessoa_conclui`.
+    ("billing: o G8 do dono volta aos ciclos", REV_BILLING,
+     "          FOR EACH ROW WHEN (NEW.billing_cycle_id IS NULL)\n",
+     "          FOR EACH ROW\n",
+     "tests_pagamentos"),
+    # O caminho do dono abre-se aos ciclos:
+    # `test_uma_confirmacao_manual_do_dono_nao_entra_numa_cobranca_de_ciclo`.
+    ("billing: o dono confirma o proprio ciclo", REV_BILLING,
+     "                        AND c.billing_cycle_id IS NOT NULL) THEN",
+     "                        AND false) THEN",
+     "tests_pagamentos"),
+    # A comissao facturavel entra: `test_so_sombra_e_so_o_calculo_da_taxa`.
+    ("billing: a comissao deixa de ser so sombra", REV_BILLING,
+     "            CONSTRAINT commission_accruals_so_sombra CHECK (modo = 'sombra'),\n",
+     "",
+     "tests_pagamentos"),
+    # A sombra mede uma confirmacao humana:
+    # `test_um_pagamento_confirmado_manual_nao_entra_na_sombra`.
+    ("billing: a sombra aceita o caminho humano", REV_BILLING,
+     "             OR v_evento.authn_method NOT IN (",
+     "             OR false AND v_evento.authn_method NOT IN (",
+     "tests_pagamentos"),
+    # A politica do billing abre as contas de todas as PMEs:
+    # `test_o_billing_nao_ve_as_contas_de_pme_de_outro_tenant`.
+    ("billing: o papel do PAY le as contas de todas as PME", REV_BILLING,
+     "          USING (beneficiary_kind = 'plataforma_receita_propria')",
+     "          USING (true)",
+     "tests_pagamentos"),
+    # O preco novo deixa de ficar auditado com a entidade certa:
+    # `test_o_preco_novo_nao_toca_no_ciclo_emitido_e_fica_auditado`.
+    ("billing: o preco audita-se noutra entidade", REV_BILLING,
+     "'price.update', 'price_book', NEW.id::text,",
+     "'price.update', 'precario', NEW.id::text,",
+     "tests_pagamentos"),
+    # A PME paga o proprio ciclo com um `hmac` directo na porta:
+    # `test_a_pme_nao_paga_o_proprio_ciclo_pelo_ledger`.
+    ("billing: qualquer papel escreve o ledger de um ciclo", REV_BILLING,
+     "          IF NEW.billing_cycle_id IS NOT NULL\n"
+     "             AND session_user::text <> '{PAPEL_DO_PAY}' THEN",
+     "          IF false AND NEW.billing_cycle_id IS NOT NULL\n"
+     "             AND session_user::text <> '{PAPEL_DO_PAY}' THEN",
+     "tests_pagamentos"),
+    # O papel de billing escreve no ledger das encomendas:
+    # `test_o_billing_nao_cria_nem_paga_cobrancas_de_encomenda`.
+    ("billing: o papel do PAY escreve o ledger das encomendas", REV_BILLING,
+     "          IF NEW.billing_cycle_id IS NULL\n"
+     "             AND session_user::text = '{PAPEL_DO_PAY}' THEN",
+     "          IF false AND NEW.billing_cycle_id IS NULL\n"
+     "             AND session_user::text = '{PAPEL_DO_PAY}' THEN",
+     "tests_pagamentos"),
+    # Uma tentativa 2 num ciclo pago: `test_um_ciclo_pago_nao_recebe_cobranca_nova`.
+    ("billing: um ciclo pago recebe cobranca nova", REV_BILLING,
+     "                  AND b.estado IN ('aberto', 'cobranca_emitida', 'em_atraso')) THEN",
+     "                  ) THEN",
+     "tests_pagamentos"),
+    # O pagamento de um ciclo anulado reverte:
+    # `test_o_pagamento_de_um_ciclo_anulado_fica_no_ledger_e_nao_o_paga`.
+    ("billing: o pagamento olha para o ciclo anulado", REV_BILLING,
+     "             AND estado IN ('cobranca_emitida', 'em_atraso')\n",
+     "\n",
+     "tests_pagamentos"),
+    # O G8 de ops deixa de correr com `replica`:
+    # `test_os_gatilhos_do_billing_correm_sempre`.
+    ("billing: o G8 de ops na omissao", REV_BILLING,
+     '"ALTER TABLE platform.payment_events ENABLE ALWAYS TRIGGER payment_events_g8_ops"',
+     '"ALTER TABLE platform.payment_events ENABLE TRIGGER payment_events_g8_ops"',
+     "tests_pagamentos"),
+    # Um `dono` com duas aprovacoes passa, e um terceiro actor tambem:
+    # `test_duas_aprovacoes_nao_servem_outro_actor_nem_outro_tipo`.
+    ("billing: o G8 de ops aceita outro actor_kind", REV_BILLING,
+     "          IF NEW.actor_kind <> 'ops' THEN",
+     "          IF false AND NEW.actor_kind <> 'ops' THEN",
+     "tests_pagamentos"),
+    ("billing: o G8 de ops aceita um actor sem aprovacao", REV_BILLING,
+     "                WHERE a.charge_id = NEW.charge_id AND a.actor_id = NEW.actor_id\n",
+     "                WHERE a.charge_id = NEW.charge_id\n",
+     "tests_pagamentos"),
 ]
 
 

@@ -16717,6 +16717,40 @@ entradas:
       - "review_decision_log.revisor_id"
     variantes_literais: []
   - seccao: "3.66"
+    conceito: "Quem escreve o ledger de um ciclo"
+    canonico: "gatilho payment_events_billing_papel (função platform.billing_papel_no_ledger())"
+    literais:
+      - "payment_events_billing_papel"
+      - "platform.billing_papel_no_ledger()"
+    nomes:
+      - "payment_events_billing_papel"
+      - "platform.billing_papel_no_ledger"
+    nomes_nota:
+      - "session_user"
+      - "SECURITY"
+      - "DEFINER"
+      - "kamba_pay"
+      - "kamba_app"
+      - "SET"
+      - "ROLE"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Cobrança só em ciclo vivo"
+    canonico: "gatilho payment_charges_ciclo_vivo (função platform.billing_cobranca_de_ciclo_vivo())"
+    literais:
+      - "payment_charges_ciclo_vivo"
+      - "platform.billing_cobranca_de_ciclo_vivo()"
+    nomes:
+      - "payment_charges_ciclo_vivo"
+      - "platform.billing_cobranca_de_ciclo_vivo"
+    nomes_nota:
+      - "aberto"
+      - "cobranca_emitida"
+      - "em_atraso"
+      - "kamba_pay"
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.66"
     conceito: "Porta de ops"
     canonico: "platform.billing_confirmar_ops(p_charge_id, p_actor_id, p_motivo, p_valor_minor)"
     literais:
@@ -18123,6 +18157,20 @@ tabelas:
     assinatura: "platform.billing_cycle_pagar()"
     seccao: "3.66"
     conceito: "Ciclo pago"
+  - nome: "billing_papel_no_ledger"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.billing_papel_no_ledger()"
+    seccao: "3.66"
+    conceito: "Quem escreve o ledger de um ciclo"
+  - nome: "billing_cobranca_de_ciclo_vivo"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.billing_cobranca_de_ciclo_vivo()"
+    seccao: "3.66"
+    conceito: "Cobrança só em ciclo vivo"
   - nome: "billing_confirmar_ops"
     esquema: "platform"
     colunas:

@@ -321,6 +321,15 @@ class TestEscritaCruzada(ComDoisTenants):
                 # `test_a_linha_nao_muda_de_conta`; aqui so se regista que o
                 # `42501` deixou de ser alcancavel nesta tabela.
                 continue
+            if tabela == "billing_cycles":
+                # KAM-059: pela razao do `tenant_usage`. O gatilho
+                # `billing_cycles_transicao` (`BEFORE UPDATE`) recusa mudar
+                # tudo menos o `estado` — o `tenant_id` incluido —, e dispara
+                # antes da politica. Prova-o o `test_o_valor_de_um_ciclo_nao_
+                # muda_depois_de_abrir` de `tests_pagamentos/test_subscricao_e_
+                # billing.py`; aqui regista-se que o `42501` deixou de ser
+                # alcancavel nesta tabela.
+                continue
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 self.assertErroSql(
                     PRIVILEGIO_INSUFICIENTE,
