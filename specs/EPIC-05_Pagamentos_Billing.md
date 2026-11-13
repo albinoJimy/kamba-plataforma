@@ -2017,7 +2017,7 @@ limiar, que é do fundador. A escolha do modo e as guardas de arranque vivem no 
 medido.
 
 **As medições, nesta máquina, contra PostgreSQL 18.6 em Docker e Node 24.21 em contentor**, com a
-revisão na árvore como `0050` sobre a `0049` — **e renumerada depois para `0051`, sobre a `0050` do KAM-049**, por ordem do orquestrador do lote; o número final dá-o a integração, e neste ramo, sem a `0050` do KAM-049, o Alembic não encontra a revisão de baixo, pelo que o *gate* 8 do PR só fica verde depois de ela fundir:
+revisão na árvore como `0050` sobre a `0049` — **e renumerada depois para `0051`, sobre a `0050` do KAM-049**, por ordem do orquestrador do lote; e integrada sobre a `main` em `303ed1cd`, onde a `0050` já fundiu. As corridas abaixo marcadas «integrada» são dessa árvore:
 `python db/gate_bd.py --suite tests_pagamentos` → **`Ran 268 tests` / `OK`** (com os dois ensaios do `downgrade` que a revisão adversarial pediu); `--suite tests` →
 **`Ran 901 tests` / `OK`**; `--suite tests_isolamento` → **`Ran 83 tests` / `OK`**; os ensaios de `../services/com/tests/payments.*` e
 `orders.*` → **`tests 234 / pass 234 / fail 0`**, com o `typecheck` do COM a zero; os de

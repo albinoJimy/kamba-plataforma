@@ -249,6 +249,11 @@ class TestConvencoes(ComBase):
                 # quantas decisoes a plataforma toma.
                 "review_case",
                 "review_decision_log",
+                # KAM-049: a ingestao do Catalogo AI. `uuid` aleatorio pela
+                # regra geral: o `kamba_app` le-a (precisa do `RETURNING id` da
+                # foto recebida), e um sequencial dizia-lhe quantas fotos a
+                # plataforma inteira recebe.
+                "catalog_ingestions",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -483,6 +488,10 @@ class TestConvencoes(ComBase):
                 ("audit_heads", "chave", "uuid",
                  "COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
                 ("audit_log", "id", "bigint", None),
+                # KAM-049 (revisao do Catalogo AI): a ingestao, `uuid` gerada
+                # pela regra geral. Entre a auditoria e os canais («au» < «ca»
+                # < «ch»).
+                ("catalog_ingestions", "id", "uuid", "gen_random_uuid()"),
                 # KAM-021: a chave e um `uuid` gerado, e a idempotencia da
                 # tabela esta ao lado, na `event_key_uq` composta com o
                 # `tenant_id`. Uma chave primaria derivada do evento era o
@@ -1286,7 +1295,13 @@ class TestConvencoes(ComBase):
              # `review_decision_log_tenant_idx`. Sem FK para `tenants`: o caso
              # de onboarding tem o tenant pre-alocado, e a linha de `tenants`
              # so nasce no passo 1 da saga.
-             "review_case", "review_decision_log"},
+             "review_case", "review_decision_log",
+             # KAM-049 (revisao do Catalogo AI). Os tres indices comecam pelo
+             # `tenant_id`: a unicidade `catalog_ingestions_media_uq` (a
+             # reentrega do mesmo `media_id` da Meta), o `phash_idx` (a
+             # pergunta «e o mesmo produto?») e o `fila_idx` (a fila humana).
+             # **Com** FK para `tenants`: uma foto chega de um tenant ja activo.
+             "catalog_ingestions"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1852,7 +1867,13 @@ class TestConvencoes(ComBase):
         # `review_decision_log_case_fk`, composta `(case_id, tenant_id)` para a
         # `review_case_id_tenant_uq`: uma decisao nao junta o caso de um com o
         # tenant de outro.
-        self.assertEqual(len(linhas), 82)
+        #
+        # **83 e nao 82** desde a revisao do Catalogo AI (KAM-049): **uma**, a
+        # `catalog_ingestions_tenant_fk`, simples para `tenants(id)`. Nao e
+        # composta porque nao aponta para nada de um tenant: a tabela nao tem
+        # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
+        # (`catalog_ingestions_media_ref_ck`) e nao por FK.
+        self.assertEqual(len(linhas), 83)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

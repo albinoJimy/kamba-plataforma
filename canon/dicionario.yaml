@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.88"
+versao_dicionario: "1.90"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15921,6 +15921,310 @@ entradas:
       - "termo"
     variantes_literais: []
   - seccao: "3.63"
+    conceito: "Ingestão do Catálogo AI"
+    canonico: "platform.catalog_ingestions, dezoito colunas: id, tenant_id, media_ref, media_id_meta, phash, estado, extraido, campos_em_falta, perguntas_feitas, categoria_restrita, sku, custo_llm_usd, confirmado_at, confirmado_por, ultima_mensagem_id, versao, criado_at, atualizado_at"
+    literais:
+      - "platform.catalog_ingestions"
+      - "id"
+      - "tenant_id"
+      - "media_ref"
+      - "media_id_meta"
+      - "phash"
+      - "estado"
+      - "extraido"
+      - "campos_em_falta"
+      - "perguntas_feitas"
+      - "categoria_restrita"
+      - "sku"
+      - "custo_llm_usd"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "ultima_mensagem_id"
+      - "versao"
+      - "criado_at"
+      - "atualizado_at"
+    nomes:
+      - "platform.catalog_ingestions"
+      - "id"
+      - "tenant_id"
+      - "media_ref"
+      - "media_id_meta"
+      - "phash"
+      - "estado"
+      - "extraido"
+      - "campos_em_falta"
+      - "perguntas_feitas"
+      - "categoria_restrita"
+      - "sku"
+      - "custo_llm_usd"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "ultima_mensagem_id"
+      - "versao"
+      - "criado_at"
+      - "atualizado_at"
+    nomes_nota:
+      - "categoria_restrita"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "OwnerConfirmation"
+      - "publicada"
+      - "ultima_mensagem_id"
+      - "versao"
+      - "FORCE"
+      - "tenant_iso"
+      - "kamba_app"
+      - "atualizado_at"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Versão da ingestão"
+    canonico: "catalog_ingestions.versao, inteiro"
+    literais:
+      - "catalog_ingestions.versao"
+    nomes:
+      - "catalog_ingestions.versao"
+    nomes_nota:
+      - "catalog_ingestions_transicao"
+      - "atualizado_at"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Última mensagem do dono processada"
+    canonico: "catalog_ingestions.ultima_mensagem_id"
+    literais:
+      - "catalog_ingestions.ultima_mensagem_id"
+    nomes:
+      - "catalog_ingestions.ultima_mensagem_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Estado da ingestão"
+    canonico: "catalog_ingestions.estado ∈ {recebida, rejeitada_qualidade, em_extraccao, a_perguntar, rascunho, publicada, bloqueada_gate, bloqueada_categoria, descartada}"
+    literais:
+      - "catalog_ingestions.estado"
+      - "recebida"
+      - "rejeitada_qualidade"
+      - "em_extraccao"
+      - "a_perguntar"
+      - "rascunho"
+      - "publicada"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+      - "descartada"
+    nomes:
+      - "catalog_ingestions.estado"
+      - "recebida"
+      - "rejeitada_qualidade"
+      - "em_extraccao"
+      - "a_perguntar"
+      - "rascunho"
+      - "publicada"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+      - "descartada"
+    nomes_nota:
+      - "kamba_core.catalogo.estados.TRANSICOES"
+      - "catalog_ingestions_transicao"
+      - "platform.catalog_ingestions_transicao"
+      - "publicada"
+      - "rascunho"
+      - "descartada"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Referência da foto"
+    canonico: "catalog_ingestions.media_ref"
+    literais:
+      - "catalog_ingestions.media_ref"
+    nomes:
+      - "catalog_ingestions.media_ref"
+    nomes_nota:
+      - "catalog_ingestions_media_ref_ck"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Idempotência da foto"
+    canonico: "catalog_ingestions_media_uq: UNIQUE (tenant_id, media_id_meta)"
+    literais:
+      - "catalog_ingestions_media_uq"
+      - "UNIQUE (tenant_id, media_id_meta)"
+    nomes:
+      - "catalog_ingestions_media_uq"
+      - "UNIQUE"
+      - "tenant_id"
+      - "media_id_meta"
+    nomes_nota:
+      - "media_id"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Hash perceptual"
+    canonico: "catalog_ingestions.phash, oito bytes"
+    literais:
+      - "catalog_ingestions.phash"
+    nomes:
+      - "catalog_ingestions.phash"
+    nomes_nota:
+      - "phash"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Campo extraído"
+    canonico: "catalog_ingestions.extraido: campo → {valor, confianca, fonte, confirmado, corrigido}"
+    literais:
+      - "catalog_ingestions.extraido"
+      - "valor"
+      - "confianca"
+      - "fonte"
+      - "confirmado"
+      - "corrigido"
+    nomes:
+      - "catalog_ingestions.extraido"
+      - "valor"
+      - "confianca"
+      - "fonte"
+      - "confirmado"
+      - "corrigido"
+    nomes_nota:
+      - "nome"
+      - "marca"
+      - "categoria"
+      - "cor"
+      - "tamanho"
+      - "material"
+      - "unidade"
+      - "variantes"
+      - "corrigido"
+      - "ia_visao"
+      - "preco_sugerido"
+      - "preco"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Proveniência de um campo"
+    canonico: "fonte ∈ {dono_texto, dono_voz, ia_visao, importado}"
+    literais:
+      - "fonte"
+      - "dono_texto"
+      - "dono_voz"
+      - "ia_visao"
+      - "importado"
+    nomes:
+      - "fonte"
+      - "dono_texto"
+      - "dono_voz"
+      - "ia_visao"
+      - "importado"
+    nomes_nota:
+      - "ia_visao"
+      - "confirmado"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Limiar de confiança da visão"
+    canonico: "LIMIAR_IA_VISAO = 0,8"
+    literais:
+      - "LIMIAR_IA_VISAO"
+    nomes:
+      - "LIMIAR_IA_VISAO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Perfil de completude"
+    canonico: "geral, vestuario, alimentar, electronica, servico"
+    literais:
+      - "geral"
+      - "vestuario"
+      - "alimentar"
+      - "electronica"
+      - "servico"
+    nomes:
+      - "geral"
+      - "vestuario"
+      - "alimentar"
+      - "electronica"
+      - "servico"
+    nomes_nota:
+      - "geral"
+      - "preco_tipo"
+      - "preco"
+      - "stock_modo"
+      - "stock"
+      - "garantia"
+      - "duracao"
+      - "local"
+      - "pre_aviso"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Perguntas ao dono"
+    canonico: "MAXIMO_POR_MENSAGEM = 3, MAXIMO_DE_PERGUNTAS = 12"
+    literais:
+      - "MAXIMO_POR_MENSAGEM"
+      - "MAXIMO_DE_PERGUNTAS"
+    nomes:
+      - "MAXIMO_POR_MENSAGEM"
+      - "MAXIMO_DE_PERGUNTAS"
+    nomes_nota:
+      - "catalog_ingestions_perguntas_ck"
+      - "preco_tipo"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Categoria que bloqueia"
+    canonico: "catalog_ingestions.categoria_restrita, forma ^[a-z0-9_]{1,60}$"
+    literais:
+      - "catalog_ingestions.categoria_restrita"
+      - "^[a-z0-9_]{1,60}$"
+    nomes:
+      - "catalog_ingestions.categoria_restrita"
+      - "a"
+      - "z0"
+      - "_"
+    nomes_nota:
+      - "id"
+      - "medicamentos_saude"
+      - "armas"
+      - "jogos"
+      - "tabaco"
+      - "alcool"
+      - "screening_indisponivel"
+      - "bloqueada_categoria"
+      - "catalog_ingestions_bloqueada_ck"
+      - "publicada"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Publicação confirmada"
+    canonico: "catalog_ingestions_publicada_ck"
+    literais:
+      - "catalog_ingestions_publicada_ck"
+    nomes:
+      - "catalog_ingestions_publicada_ck"
+    nomes_nota:
+      - "publicada"
+      - "sku"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "categoria_restrita"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Custo de LLM da ingestão"
+    canonico: "catalog_ingestions.custo_llm_usd, numeric(10,6), não nulo"
+    literais:
+      - "catalog_ingestions.custo_llm_usd"
+      - "numeric(10,6)"
+    nomes:
+      - "catalog_ingestions.custo_llm_usd"
+      - "numeric"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Fila humana do catálogo"
+    canonico: "catalog_ingestions_fila_idx (bloqueada_gate, bloqueada_categoria)"
+    literais:
+      - "catalog_ingestions_fila_idx"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+    nomes:
+      - "catalog_ingestions_fila_idx"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+    nomes_nota:
+      - "review_case"
+      - "review_case.tipo"
+    variantes_literais: []
+  - seccao: "3.64"
     conceito: "Papel do consumidor do PAY"
     canonico: "kamba_pay"
     literais:
@@ -15943,7 +16247,7 @@ entradas:
       - "KAMBA_SECRET_DB_PAY_PASSWORD"
       - "db_pay_password"
     variantes_literais: []
-  - seccao: "3.63"
+  - seccao: "3.64"
     conceito: "Porta de abertura do caso"
     canonico: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
     literais:
@@ -15965,7 +16269,7 @@ entradas:
       - "refund_cases"
       - "charge_id"
     variantes_literais: []
-  - seccao: "3.63"
+  - seccao: "3.64"
     conceito: "Pedido que abriu o caso"
     canonico: "refund_cases.pedido_evento_id, com o índice único parcial refund_cases_pedido_uq (tenant_id, pedido_evento_id) WHERE pedido_evento_id IS NOT NULL"
     literais:
@@ -15987,7 +16291,7 @@ entradas:
       - "manual_reverter"
       - "events_consumed"
     variantes_literais: []
-  - seccao: "3.63"
+  - seccao: "3.64"
     conceito: "O duplicado no outbox"
     canonico: "payment_outbox_map ⊇ {(pagamento_duplicado, hmac), (pagamento_duplicado, consulta)} → payment.confirmed v1"
     literais:
@@ -16018,7 +16322,7 @@ entradas:
       - "falhada"
       - "cancelada"
     variantes_literais: []
-  - seccao: "3.63"
+  - seccao: "3.64"
     conceito: "Modo do processo de pagamentos do COM"
     canonico: "COM_PAGAMENTOS_MODO ∈ {pagamentos, reembolsos}, com a ligação KAMBA_PAY_DB_URL no segundo"
     literais:
@@ -16033,7 +16337,7 @@ entradas:
       - "KAMBA_PAY_DB_URL"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.63"
+  - seccao: "3.64"
     conceito: "O caso no sinal de duplicado"
     canonico: "fraud_signals.detalhe.refund_case = o id do caso, ou por_abrir"
     literais:
@@ -17254,6 +17558,13 @@ tabelas:
     assinatura: "idx.f_recusar_alteracao_de_versao()"
     seccao: "3.62"
     conceito: "Versão só de acrescento"
+  - nome: "numeric"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "numeric(10,6)"
+    seccao: "3.63"
+    conceito: "Custo de LLM da ingestão"
   - nome: "abrir_caso_de_reembolso"
     esquema: "platform"
     colunas:
@@ -17265,7 +17576,7 @@ tabelas:
       - "p_pedido_evento_id"
     aberta: false
     assinatura: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
-    seccao: "3.63"
+    seccao: "3.64"
     conceito: "Porta de abertura do caso"
 
 dominios:
@@ -18682,11 +18993,34 @@ dominios:
     seccao: "3.61"
     conceito: "Recomendação automática"
     so_no_registo: false
+  - coluna: "catalog_ingestions.estado"
+    valores:
+      - "recebida"
+      - "rejeitada_qualidade"
+      - "em_extraccao"
+      - "a_perguntar"
+      - "rascunho"
+      - "publicada"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+      - "descartada"
+    seccao: "3.63"
+    conceito: "Estado da ingestão"
+    so_no_registo: false
+  - coluna: "fonte"
+    valores:
+      - "dono_texto"
+      - "dono_voz"
+      - "ia_visao"
+      - "importado"
+    seccao: "3.63"
+    conceito: "Proveniência de um campo"
+    so_no_registo: false
   - coluna: "COM_PAGAMENTOS_MODO"
     valores:
       - "pagamentos"
       - "reembolsos"
-    seccao: "3.63"
+    seccao: "3.64"
     conceito: "Modo do processo de pagamentos do COM"
     so_no_registo: false
 

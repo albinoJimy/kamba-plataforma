@@ -81,15 +81,11 @@ from __future__ import annotations
 from alembic import op
 
 revision = "0051"
-#: **Provisorio, e por ordem do orquestrador do lote.** A cabeca da
-#: `publico/main` e a `0049` (KAM-062), e a `0050` e a do KAM-049, que ficou
-#: pronto primeiro: esta encaixa nela. **Neste ramo, sem a `0050`, o Alembic
-#: nao encontra a revisao de baixo** — mede-se com a `down_revision` na `0049`
-#: e integra-se depois da do KAM-049, pela regra «o numero mais alto espera
-#: pelo mais baixo».
-#: As medicoes do bloco correram com esta revisao na `0050` e a `down_revision`
-#: na `0049`, antes da ordem de renumerar. O numero final da-o quem integra,
-#: pela regra da casa: um ramo nao reserva a linha para outro.
+#: **Encaixa na `0050` do KAM-049 (`0050_catalogo_ai.py`)**, que fundiu primeiro:
+#: a cabeca da `publico/main` era ela na integracao (`303ed1cd`), e o numero foi
+#: dado pelo orquestrador do lote. A revisao escreveu-se como `0050` sobre a
+#: `0049` e renumerou-se na integracao, pela regra da casa: um ramo nao reserva
+#: a linha de versoes para outro.
 down_revision = "0050"
 branch_labels = None
 depends_on = None

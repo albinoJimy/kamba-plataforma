@@ -165,6 +165,9 @@ class TestCatalogoReal(ComBase):
                 # limpeza.
                 ("platform", "audit_heads", "tenant_id"),
                 ("platform", "audit_log", "tenant_id"),
+                # KAM-049: a ingestao do Catalogo AI, entre a auditoria e os
+                # canais («au» < «ca» < «ch»).
+                ("platform", "catalog_ingestions", "tenant_id"),
                 # KAM-021: o registo das transicoes de qualidade. A posicao
                 # e **depois** das duas `audit_*` e **antes** das
                 # `contact_*`: no `sorted()` por ponto de codigo, «ch»
@@ -471,6 +474,9 @@ class TestCatalogoReal(ComBase):
                 # por esquema e as poe todas no fim.
                 ("availability_rules", "tenant_iso", "ALL", "{public}"),
                 ("bookings", "tenant_iso", "ALL", "{public}"),
+                # KAM-049: a ingestao do Catalogo AI, entre a agenda e os
+                # canais pela colacao `C` («bo» < «ca» < «ch»).
+                ("catalog_ingestions", "tenant_iso", "ALL", "{public}"),
                 ("channel_coexistence", "tenant_iso", "ALL", "{public}"),
                 # KAM-016: a tentativa de onboarding, antes da de qualidade
                 # («channel_o» < «channel_q»).
@@ -716,6 +722,8 @@ class TestCatalogoReal(ComBase):
             [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
+             # KAM-049: a ingestao do Catalogo AI («au» < «ca» < «ch»).
+             "catalog_ingestions",
              # KAM-017: o estado de coexistencia. **Quinta e sexta listas
              # deste ficheiro a precisarem da tabela nova** (esta e a de
              # `test_as_politicas_sao_exactamente_as_declaradas`), e a licao
