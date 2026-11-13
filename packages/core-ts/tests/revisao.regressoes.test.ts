@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 
 import { CifraAesGcm } from "../src/kyc/index.ts";
 import {
+  EfeitoPorAplicarError,
   FERIADOS_POR_OMISSAO,
   MetricasDaRevisao,
   RevisaoRecusadaError,
@@ -124,7 +125,13 @@ describe("o recurso e o desbloqueio do onboarding", () => {
       recomendacao: null, prioridade: 5,
     });
     assert.ok(c.estado === "aberto");
-    await assert.rejects(s.decidir(revisor(), c.caso.id, "aprovar"), /screening em baixo/);
+    // KAM-196: a falha de um efeito sai embrulhada, para a consola saber que a
+    // decisão ficou registada e há um efeito por reaplicar.
+    await assert.rejects(
+      s.decidir(revisor(), c.caso.id, "aprovar"),
+      (e: unknown) =>
+        e instanceof EfeitoPorAplicarError && e.casoId === c.caso.id && /screening em baixo/.test(String((e.cause as Error).message)),
+    );
     assert.equal(base.onboardings.casos.get(o.id)!.fase, "em_revisao");
     falhar = false;
     await s.reaplicarEfeitos(c.caso.id);

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.90"
+versao_dicionario: "1.92"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -12138,9 +12138,9 @@ entradas:
     variantes_literais: []
   - seccao: "3.45"
     conceito: "Caso de reembolso"
-    canonico: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    canonico: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at, pedido_evento_id)"
     literais:
-      - "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+      - "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at, pedido_evento_id)"
     nomes:
       - "refund_cases"
       - "id"
@@ -12153,7 +12153,9 @@ entradas:
       - "prova_ref"
       - "criado_at"
       - "fechado_at"
+      - "pedido_evento_id"
     nomes_nota:
+      - "pedido_evento_id"
       - "refund"
       - "NOT_SUPPORTED"
     variantes_literais: []
@@ -16405,6 +16407,234 @@ entradas:
       - "review_case"
       - "review_case.tipo"
     variantes_literais: []
+  - seccao: "3.64"
+    conceito: "Papel do consumidor do PAY"
+    canonico: "kamba_pay"
+    literais:
+      - "kamba_pay"
+    nomes:
+      - "kamba_pay"
+    nomes_nota:
+      - "kamba_migrator"
+      - "CREATEROLE"
+      - "NOBYPASSRLS"
+      - "app.tenant_id"
+      - "SELECT"
+      - "events_log"
+      - "INSERT"
+      - "events_consumed"
+      - "ON"
+      - "CONFLICT"
+      - "EXECUTE"
+      - "refund_cases"
+      - "KAMBA_SECRET_DB_PAY_PASSWORD"
+      - "db_pay_password"
+    variantes_literais: []
+  - seccao: "3.64"
+    conceito: "Porta de abertura do caso"
+    canonico: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
+    literais:
+      - "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
+    nomes:
+      - "platform.abrir_caso_de_reembolso"
+      - "p_tenant_id"
+      - "p_order_id"
+      - "p_motivo"
+      - "p_valor_minor"
+      - "p_currency"
+      - "p_pedido_evento_id"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "order.refund_requested"
+      - "refund_cases.motivo"
+      - "CHECK"
+      - "refund_cases"
+      - "charge_id"
+    variantes_literais: []
+  - seccao: "3.64"
+    conceito: "Pedido que abriu o caso"
+    canonico: "refund_cases.pedido_evento_id, com o índice único parcial refund_cases_pedido_uq (tenant_id, pedido_evento_id) WHERE pedido_evento_id IS NOT NULL"
+    literais:
+      - "refund_cases.pedido_evento_id"
+      - "refund_cases_pedido_uq"
+      - "(tenant_id, pedido_evento_id) WHERE pedido_evento_id IS NOT NULL"
+    nomes:
+      - "refund_cases.pedido_evento_id"
+      - "refund_cases_pedido_uq"
+      - "tenant_id"
+      - "pedido_evento_id"
+      - "WHERE"
+      - "IS"
+      - "NOT"
+      - "NULL"
+    nomes_nota:
+      - "id"
+      - "order.refund_requested"
+      - "manual_reverter"
+      - "events_consumed"
+    variantes_literais: []
+  - seccao: "3.64"
+    conceito: "O duplicado no outbox"
+    canonico: "payment_outbox_map ⊇ {(pagamento_duplicado, hmac), (pagamento_duplicado, consulta)}"
+    literais:
+      - "payment_outbox_map"
+      - "pagamento_duplicado"
+      - "hmac"
+      - "pagamento_duplicado"
+      - "consulta"
+    nomes:
+      - "payment_outbox_map"
+      - "pagamento_duplicado"
+      - "hmac"
+      - "consulta"
+    nomes_nota:
+      - "test_palavras_de_tipo_e_metades_de_evento_nao_sao_nomes"
+      - "canon_lint"
+      - "ramoDoPagamento"
+      - "pagamento_duplicado"
+      - "manual"
+      - "manual_confirmar"
+      - "ESTADOS_DO_DUPLICADO"
+      - "paga"
+      - "reembolso_pendente"
+      - "reembolsada"
+      - "duplo"
+      - "iniciada"
+      - "falhada"
+      - "cancelada"
+    variantes_literais: []
+  - seccao: "3.64"
+    conceito: "Modo do processo de pagamentos do COM"
+    canonico: "COM_PAGAMENTOS_MODO ∈ {pagamentos, reembolsos}, com a ligação KAMBA_PAY_DB_URL no segundo"
+    literais:
+      - "COM_PAGAMENTOS_MODO"
+      - "pagamentos"
+      - "reembolsos"
+      - "KAMBA_PAY_DB_URL"
+    nomes:
+      - "COM_PAGAMENTOS_MODO"
+      - "pagamentos"
+      - "reembolsos"
+      - "KAMBA_PAY_DB_URL"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.64"
+    conceito: "O caso no sinal de duplicado"
+    canonico: "fraud_signals.detalhe.refund_case = o id do caso, ou por_abrir"
+    literais:
+      - "fraud_signals.detalhe.refund_case"
+      - "id"
+      - "por_abrir"
+    nomes:
+      - "fraud_signals.detalhe.refund_case"
+      - "id"
+      - "por_abrir"
+    nomes_nota:
+      - "por_abrir"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "As rotas da consola"
+    canonico: "GET /equipa/entrar, POST /equipa/sair, GET /equipa/casos, GET /equipa/casos/:id, POST /equipa/casos/:id/revelar, GET /equipa/casos/:id/documentos/:verificacao, POST /equipa/casos/:id/decisao, POST /equipa/casos/:id/recurso, POST /equipa/casos/:id/recurso/decisao"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "review.recusa"
+      - "POST"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "A porta da identidade da equipa"
+    canonico: "IdentidadeDaEquipa: autenticar(prova) → {id, mfa}, conta(id) → o Revisor do §3.61 sem a MFA"
+    literais:
+      - "IdentidadeDaEquipa"
+      - "autenticar(prova)"
+      - "{id, mfa}"
+      - "conta(id)"
+      - "Revisor"
+    nomes:
+      - "IdentidadeDaEquipa"
+      - "autenticar"
+      - "prova"
+      - "id"
+      - "mfa"
+      - "conta"
+      - "Revisor"
+    nomes_nota:
+      - "state"
+      - "nonce"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "A sessão da equipa"
+    canonico: "cookie kamba_equipa, domínio kamba/equipa/sessao/v1, v1.<sid>.<conta>.<mfa>.<emitida>.<hmac>"
+    literais:
+      - "kamba_equipa"
+      - "v1.<sid>.<conta>.<mfa>.<emitida>.<hmac>"
+    nomes:
+      - "kamba_equipa"
+      - "v1"
+      - "sid"
+      - "conta"
+      - "mfa"
+      - "emitida"
+      - "hmac"
+    nomes_nota:
+      - "sessao"
+      - "SameSite"
+      - "Lax"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "Os modelos de SMS do aviso"
+    canonico: "revisao_aprovado, revisao_rejeitado, revisao_pedir_info, revisao_recurso_aprovado, revisao_recurso_mantido"
+    literais:
+      - "revisao_aprovado"
+      - "revisao_rejeitado"
+      - "revisao_pedir_info"
+      - "revisao_recurso_aprovado"
+      - "revisao_recurso_mantido"
+    nomes:
+      - "revisao_aprovado"
+      - "revisao_rejeitado"
+      - "revisao_pedir_info"
+      - "revisao_recurso_aprovado"
+      - "revisao_recurso_mantido"
+    nomes_nota:
+      - "aviso_de_servico"
+      - "motivo"
+      - "causa"
+      - "recurso_decidido"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "A causa de um motivo público"
+    canonico: "CAUSA_DO_MOTIVO_PUBLICO"
+    literais:
+      - "CAUSA_DO_MOTIVO_PUBLICO"
+    nomes:
+      - "CAUSA_DO_MOTIVO_PUBLICO"
+    nomes_nota:
+      - "TEXTO_DO_MOTIVO_PUBLICO"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "O ciclo da fila"
+    canonico: "CicloDaFila, com os passos drenar, alertar, reaplicar e medir"
+    literais:
+      - "CicloDaFila"
+      - "drenar"
+      - "alertar"
+      - "reaplicar"
+      - "medir"
+    nomes:
+      - "CicloDaFila"
+      - "drenar"
+      - "alertar"
+      - "reaplicar"
+      - "medir"
+    nomes_nota:
+      - "aprovacaoAutomatica"
+      - "amostrar"
+      - "EfeitoPorAplicarError"
+      - "prod"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -17351,8 +17581,9 @@ tabelas:
       - "prova_ref"
       - "criado_at"
       - "fechado_at"
+      - "pedido_evento_id"
     aberta: false
-    assinatura: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at)"
+    assinatura: "refund_cases(id, tenant_id, order_id, charge_id, motivo, valor_minor, estado, prova_ref, criado_at, fechado_at, pedido_evento_id)"
     seccao: "3.45"
     conceito: "Caso de reembolso"
   - nome: "fraud_signals"
@@ -17618,6 +17849,35 @@ tabelas:
     assinatura: "numeric(10,6)"
     seccao: "3.63"
     conceito: "Custo de LLM da ingestão"
+  - nome: "abrir_caso_de_reembolso"
+    esquema: "platform"
+    colunas:
+      - "p_tenant_id"
+      - "p_order_id"
+      - "p_motivo"
+      - "p_valor_minor"
+      - "p_currency"
+      - "p_pedido_evento_id"
+    aberta: false
+    assinatura: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
+    seccao: "3.64"
+    conceito: "Porta de abertura do caso"
+  - nome: "autenticar"
+    esquema: ""
+    colunas:
+      - "prova"
+    aberta: false
+    assinatura: "autenticar(prova)"
+    seccao: "3.65"
+    conceito: "A porta da identidade da equipa"
+  - nome: "conta"
+    esquema: ""
+    colunas:
+      - "id"
+    aberta: false
+    assinatura: "conta(id)"
+    seccao: "3.65"
+    conceito: "A porta da identidade da equipa"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -19055,6 +19315,13 @@ dominios:
       - "importado"
     seccao: "3.63"
     conceito: "Proveniência de um campo"
+    so_no_registo: false
+  - coluna: "COM_PAGAMENTOS_MODO"
+    valores:
+      - "pagamentos"
+      - "reembolsos"
+    seccao: "3.64"
+    conceito: "Modo do processo de pagamentos do COM"
     so_no_registo: false
 
 variantes:

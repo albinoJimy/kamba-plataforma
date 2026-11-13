@@ -34,6 +34,7 @@ import {
   SQL_ANOMALIAS_CONFIRMACOES,
   SQL_ANOMALIAS_EVENTOS,
   SQL_ANOMALIAS_RECUSAS,
+  SQL_ANOMALIAS_REEMBOLSOS,
   SQL_REGISTAR_SINAL,
   detectarAnomalias,
   lerExtracto,
@@ -42,6 +43,7 @@ import {
 } from "@kamba/core-ts/pagamentos";
 import type {
   AjusteProposto,
+  CasoDeReembolsoObservado,
   CobrancaObservada,
   EscritaDeSinais,
   ConfirmacaoObservada,
@@ -106,11 +108,11 @@ function _ouNulo(valor: unknown): string | null {
 /**
  * A fotografia, lida numa ligação.
  *
- * **As cinco leituras numa `Promise.all`**, e não em série: são independentes e
- * a janela é a mesma, pelo que a ordem não decide nada. Em série pagava-se cinco
+ * **As seis leituras numa `Promise.all`**, e não em série: são independentes e
+ * a janela é a mesma, pelo que a ordem não decide nada. Em série pagava-se seis
  * vezes a latência da base por uma fotografia que é uma.
  *
- * A `casa` é **por tenant**, ao contrário das outras quatro: o
+ * A `casa` é **por tenant**, ao contrário das outras cinco: o
  * `SQL_ANOMALIAS_CASA` junta `payment_confirmers` a `contacts` e essa junção só
  * faz sentido dentro de um tenant. Quem corre o motor sobre vários tenants
  * chama isto uma vez por tenant — que é o que o `kamba_batch` faz, e o que
@@ -125,13 +127,14 @@ export function leituraSobre(
   return {
     async fotografar(): Promise<Fotografia> {
       const limite = desde(agora, horas);
-      const [eventos, cobrancas, confirmacoes, recusas, casa] =
+      const [eventos, cobrancas, confirmacoes, recusas, casa, reembolsos] =
         await Promise.all([
           bd.query(SQL_ANOMALIAS_EVENTOS, [[...TIPOS_QUE_O_MOTOR_LE], limite]),
           bd.query(SQL_ANOMALIAS_COBRANCAS, [limite]),
           bd.query(SQL_ANOMALIAS_CONFIRMACOES, [limite]),
           bd.query(SQL_ANOMALIAS_RECUSAS, [limite]),
           bd.query(SQL_ANOMALIAS_CASA, [tenantId]),
+          bd.query(SQL_ANOMALIAS_REEMBOLSOS, [limite]),
         ]);
       return {
         eventos: eventos.rows.map(_evento),
@@ -139,6 +142,7 @@ export function leituraSobre(
         confirmacoes: confirmacoes.rows.map(_confirmacao),
         recusas: recusas.rows.map(_recusa),
         casa: casa.rows.map(_contacto),
+        reembolsos: reembolsos.rows.map(_reembolso),
         agora: agora.toISOString(),
       };
     },
@@ -197,6 +201,22 @@ function _recusa(linha: Record<string, unknown>): RecusaDeCallback {
   return {
     accountId: String(linha["account_id"]),
     instante: _instante(linha["recebido_at"]),
+  };
+}
+
+/**
+ * Um caso de reembolso de duplicado (KAM-197), por cobranca.
+ *
+ * O `id` do caso vai para o `casoId` e o `charge_id` da juncao para o
+ * `chargeId`: os dois sao UUID, e trocados davam um `refund_case` com o
+ * identificador de uma cobranca — e o ensaio da composicao que o prende.
+ */
+function _reembolso(linha: Record<string, unknown>): CasoDeReembolsoObservado {
+  return {
+    casoId: String(linha["id"]),
+    tenantId: String(linha["tenant_id"]),
+    chargeId: String(linha["charge_id"]),
+    valorMinor: BigInt(String(linha["valor_minor"])),
   };
 }
 

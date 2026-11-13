@@ -55,6 +55,7 @@ import type {
 import {
   CasoInexistenteError,
   DECISOES,
+  EfeitoPorAplicarError,
   ESTADOS_PENDENTES,
   LIMIARES_POR_OMISSAO,
   MOTIVOS_PUBLICOS,
@@ -205,7 +206,7 @@ export class ServicoDeRevisao {
    * vinte casos abertos, porque contavam todas antes de alguma inserir.
    * ***shortcut:*** entre processos a quota pode exceder-se pelo número de
    * processos que abrem casos ao mesmo tempo; revê-se quando a fila tiver mais
-   * do que um processo a abrir (KAM-196), com um `pg_advisory_xact_lock` sobre a
+   * do que um processo a abrir (KAM-198), com um `pg_advisory_xact_lock` sobre a
    * chave.
    *
    * **Um envio repetido sobre um caso pendente reforça-o** (`reforcar`): o KYC
@@ -315,10 +316,7 @@ export class ServicoDeRevisao {
     } else if (decisao === "pedir_info") {
       await this.#registar(revisor, caso, decisao, "primeira", opcoes);
       const actual = caso.estado === "aberto" ? await this.#mover(caso.id, ["aberto"], "em_analise") : caso;
-      if (caso.onboardingId !== null) {
-        if (caso.tipo === "kyc") await this.#d.onboardings.marcarFase(caso.onboardingId, "kyc_pendente");
-        await this.#avisar(caso, "pedir_info", "informacao_em_falta");
-      }
+      await this.#porAplicar(caso.id, () => this.#efeitosDoPedidoDeInformacao(caso));
       return { estado: "em_analise", caso: actual };
     } else {
       await this.#registar(revisor, caso, decisao, "primeira", opcoes);
@@ -326,8 +324,33 @@ export class ServicoDeRevisao {
 
     // aprovar (com o segundo revisor, se era preciso) ou rejeitar: fecha.
     const fechado = await this.#mover(caso.id, ["aberto", "em_analise", "escalado"], "decidido");
-    await this.#efeitos(fechado, decisao, revisor, opcoes.motivoPublico ?? caso.motivoPublico, "primeira");
+    await this.#porAplicar(caso.id, () =>
+      this.#efeitos(fechado, decisao, revisor, opcoes.motivoPublico ?? caso.motivoPublico, "primeira"),
+    );
     return { estado: "decidido", decisao, caso: fechado };
+  }
+
+  /** Os efeitos de um `pedir_info`: o onboarding volta a `kyc_pendente` (num caso `kyc`) e o dono é avisado. */
+  async #efeitosDoPedidoDeInformacao(caso: CasoDeRevisao): Promise<void> {
+    if (caso.onboardingId === null) return;
+    if (caso.tipo === "kyc") await this.#d.onboardings.marcarFase(caso.onboardingId, "kyc_pendente");
+    await this.#avisar(caso, "pedir_info", "informacao_em_falta");
+  }
+
+  /**
+   * Corre os efeitos de uma decisão **já registada**, e embrulha a falha deles
+   * num `EfeitoPorAplicarError` (KAM-196). É por este erro, e só por ele, que a
+   * consola sabe que há um efeito para o *job* reaplicar: um erro antes de a
+   * decisão ficar registada não é um efeito por aplicar, e reaplicá-lo mandava
+   * ao dono o aviso de uma decisão que não aconteceu (achado 3 da revisão
+   * adversarial).
+   */
+  async #porAplicar(casoId: string, efeitos: () => Promise<void>): Promise<void> {
+    try {
+      await efeitos();
+    } catch (erro) {
+      throw new EfeitoPorAplicarError(casoId, erro);
+    }
   }
 
   /**
@@ -336,7 +359,8 @@ export class ServicoDeRevisao {
    * por ninguém acabava rejeitada sem ninguém o ter pedido.
    *
    * Quem pede o recurso é o dono, por um canal que não é desta fila (a rota do
-   * dono não existe — KAM-196); a fila recebe o pedido já autenticado.
+   * dono não existe); a fila recebe o pedido já autenticado. A consola do
+   * KAM-196 regista-o pelo `registarRecurso`.
    */
   async abrirRecurso(casoId: string): Promise<CasoDeRevisao> {
     const caso = await this.#d.repositorio.porId(casoId);
@@ -351,6 +375,31 @@ export class ServicoDeRevisao {
     const ok = await this.#d.repositorio.transitar(caso.id, "decidido", "recurso_aberto", sla);
     if (!ok) throw new RevisaoRecusadaError("recurso_ja_usado");
     return (await this.#d.repositorio.porId(caso.id))!;
+  }
+
+  /**
+   * O recurso aberto **pela consola**, em nome do dono (KAM-196): a equipa
+   * regista o pedido que o dono fez por outro canal. Passa pela mesma barreira
+   * de todas as operações da consola — papel, MFA e «não é parte no caso» —, e
+   * o registo fica no `audit_log` antes de o recurso abrir. Uma recusa do
+   * `abrirRecurso` também fica lá, com o motivo.
+   */
+  async registarRecurso(revisor: Revisor, casoId: string): Promise<CasoDeRevisao> {
+    const caso = await this.#autorizar(revisor, casoId);
+    await this.#d.auditoria.gravar({
+      accao: "review.acesso",
+      tenantId: caso.tenantId,
+      actorId: revisor.id,
+      entidade: "review_case",
+      entidadeId: caso.id,
+      detalhe: "recurso:abrir",
+    });
+    try {
+      return await this.abrirRecurso(casoId);
+    } catch (erro) {
+      if (erro instanceof RevisaoRecusadaError) return this.#recusar(revisor, caso, erro.motivo);
+      throw erro;
+    }
   }
 
   /**
@@ -383,24 +432,37 @@ export class ServicoDeRevisao {
       await this.#registar(revisor, caso, decisao, "recurso", opcoes);
     }
     const fechado = await this.#mover(caso.id, ["recurso_aberto"], "decidido_final");
-    await this.#efeitos(fechado, decisao, revisor, caso.motivoPublico, "recurso");
+    await this.#porAplicar(caso.id, () => this.#efeitos(fechado, decisao, revisor, caso.motivoPublico, "recurso"));
     return { estado: "decidido", decisao, caso: fechado };
   }
 
   /**
    * Volta a aplicar os efeitos de um caso decidido: a fase do onboarding, a
-   * decisão humana de screening e o aviso ao dono.
+   * decisão humana de screening e o aviso ao dono. E os de um `pedir_info`
+   * ainda em curso — a fase e o aviso —, que de outra forma se perdiam: o caso
+   * continua pendente, e sem isto o *job* largava-o como «não fechou» e o dono
+   * nunca sabia o que faltava (achado 1 da revisão adversarial do KAM-196).
    *
    * Existe porque a decisão e os efeitos não são uma transacção: o caso fecha
    * primeiro (é o que impede duas decisões), e um efeito que falhe — o aviso, o
    * screening — deixava o caso decidido e o onboarding parado, sem retoma. Os
    * efeitos são idempotentes **excepto o aviso**, que volta a sair.
    * ***shortcut:*** sem caixa de saída; quem chama é o *job* da fila (KAM-196)
-   * sobre os casos que ele saiba terem falhado.
+   * sobre os casos que a consola viu falhar (`EfeitoPorAplicarError`), numa
+   * lista em memória; revê-se com o processo de lote do KAM-198.
    */
   async reaplicarEfeitos(casoId: string): Promise<void> {
     const caso = await this.#d.repositorio.porId(casoId);
     if (caso === null) throw new CasoInexistenteError();
+    if (ESTADOS_PENDENTES.includes(caso.estado) && caso.estado !== "recurso_aberto") {
+      const ultima = (await this.#d.repositorio.decisoes(casoId)).filter((x) => x.instancia === "primeira").at(-1);
+      if (ultima?.decisao !== "pedir_info") throw new RevisaoRecusadaError("estado_invalido");
+      await this.#efeitosDoPedidoDeInformacao(caso);
+      return;
+    }
+    // Um recurso aberto ainda não decidiu nada: reaplicar a primeira instância
+    // mandava ao dono «pode recorrer» com o recurso em curso.
+    if (caso.estado === "recurso_aberto") throw new RevisaoRecusadaError("estado_invalido");
     const final = await this.#decisaoFinal(caso);
     if (final === null) throw new RevisaoRecusadaError("estado_invalido");
     const ultima = (await this.#d.repositorio.decisoes(casoId)).filter((x) => x.decisao === final).at(-1)!;
@@ -410,6 +472,7 @@ export class ServicoDeRevisao {
       { id: ultima.revisorId, papeis: [], mfa: true, nifHmac: null, telefoneHmac: null },
       caso.motivoPublico,
       caso.estado === "decidido_final" ? "recurso" : "primeira",
+      true,
     );
   }
 
@@ -557,7 +620,8 @@ export class ServicoDeRevisao {
    * desde o início da amostragem, 20% (*proposta*) geram um caso `auditoria`
    * de prioridade baixa. O resultado desses casos é a taxa de falsos aprovados.
    * Sem `inicioDaAmostragem`, não se amostra. **Ninguém a chama ainda**: quem
-   * conhece a aprovação automática é o KAM-092, e o *job* é o KAM-196.
+   * conhece a aprovação automática é o KAM-092; o gancho é o
+   * `CicloDaFila.aprovacaoAutomatica` (KAM-196), e o processo que o serve é o KAM-198.
    */
   async amostrar(onboardingId: string, tenantId: string): Promise<ResultadoDaAbertura | null> {
     const inicio = this.#d.inicioDaAmostragem ?? null;
@@ -740,12 +804,17 @@ export class ServicoDeRevisao {
 
   /** A decisão que fechou o caso (`aprovar` ou `rejeitar`), ou `null` se ainda não fechou. */
   async #decisaoFinal(caso: CasoDeRevisao): Promise<"aprovar" | "rejeitar" | null> {
-    if (caso.estado !== "decidido" && caso.estado !== "decidido_final" && caso.estado !== "recurso_aberto") return null;
+    const ultima = await this.#ultimaFinal(caso);
+    return ultima === undefined ? null : (ultima.decisao as "aprovar" | "rejeitar");
+  }
+
+  /** A linha da decisão que fechou o caso, ou `undefined`. */
+  async #ultimaFinal(caso: CasoDeRevisao): Promise<DecisaoRegistada | undefined> {
+    if (caso.estado !== "decidido" && caso.estado !== "decidido_final" && caso.estado !== "recurso_aberto") return undefined;
     const instancia: Instancia = caso.estado === "decidido_final" ? "recurso" : "primeira";
-    const ultima = (await this.#d.repositorio.decisoes(caso.id))
+    return (await this.#d.repositorio.decisoes(caso.id))
       .filter((x) => x.instancia === instancia && (x.decisao === "aprovar" || x.decisao === "rejeitar"))
       .at(-1);
-    return ultima === undefined ? null : (ultima.decisao as "aprovar" | "rejeitar");
   }
 
   /**
@@ -767,6 +836,7 @@ export class ServicoDeRevisao {
     revisor: Revisor,
     motivoPublico: MotivoPublico,
     instancia: Instancia,
+    reaplicar = false,
   ): Promise<void> {
     if (TIPOS_DE_SCREENING.includes(caso.tipo)) {
       for (const chave of chavesDeScreening(caso.evidencias)) {
@@ -797,10 +867,26 @@ export class ServicoDeRevisao {
     // `kyc_pendente` só conta para o próprio caso `kyc`: é onde um `pedir_info`
     // o deixou. Uma categoria aprovada com o K1 ainda por decidir não aprova o
     // onboarding — o KYC não tem caso pendente a bloquear, e passava.
+    // Ao **reaplicar**, `aprovado` também conta: a primeira passagem pode ter
+    // marcado a fase e falhado no aviso, que é o último efeito. Sem isto, o
+    // `reaplicarEfeitos` via a fase já em `aprovado`, não a contava, e o aviso
+    // que tinha falhado nunca saía (KAM-196, achado do ensaio do *job*). **Mas
+    // só se foi esta decisão a aprovar**: se outro caso do mesmo onboarding foi
+    // decidido depois, foi ele que pôs a fase em `aprovado` e mandou o aviso, e
+    // reaplicar este mandava um segundo (achado 2 da revisão adversarial).
+    let aprovadoPorOutro = false;
+    if (reaplicar && fase === "aprovado") {
+      const minha = (await this.#ultimaFinal(caso))?.em.getTime() ?? 0;
+      for (const x of outros) {
+        const delas = await this.#ultimaFinal(x);
+        if (delas !== undefined && delas.em.getTime() > minha) aprovadoPorOutro = true;
+      }
+    }
     const desbloqueavel =
       fase === "em_revisao" ||
       (caso.tipo === "kyc" && fase === "kyc_pendente") ||
-      (instancia === "recurso" && fase === "rejeitado" && kycAprovado);
+      (instancia === "recurso" && fase === "rejeitado" && kycAprovado) ||
+      (reaplicar && fase === "aprovado" && !aprovadoPorOutro);
     const aprovou = !pendente && !rejeitadoPorOutro && desbloqueavel;
     if (aprovou) await this.#d.onboardings.marcarFase(caso.onboardingId, "aprovado");
     if (instancia === "recurso") await this.#avisar(caso, "recurso_decidido", null);

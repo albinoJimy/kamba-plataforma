@@ -44,8 +44,10 @@
  * esta escrita no *docstring* dela: «`fraud_signals` com `INSERT`, quem e
  * vigiado escrevia no registo de vigilancia». O unico escritor da tabela e a
  * `platform.manual_confirmar`, que e `SECURITY DEFINER` e so escreve as duas
- * regras do M-3; o `refund_cases` e igual, e escreve-o so a
- * `platform.manual_reverter`.
+ * regras do M-3; o `refund_cases` era igual, e escrevia-o so a
+ * `platform.manual_reverter`. **Desde o KAM-197 tem um segundo escritor**, a
+ * `platform.abrir_caso_de_reembolso` do consumidor do PAY, e este motor **le**
+ * os casos que ela abre para a R-04 dizer qual e (ver o `_casosPorDuplicado`).
  *
  * Isto e um vao entre dois tickets e nao um defeito de nenhum: o KAM-054
  * escreveu, com razao, que o KAM-060 «nao acrescenta tabela» — e a tabela
@@ -425,6 +427,22 @@ export type ContactoDaCasa = {
 };
 
 /**
+ * Um caso de reembolso de duplicado aberto pelo consumidor do PAY (KAM-197).
+ *
+ * **Pela cobranca e nao pela encomenda**, e a razao e o que a R-04 le: o
+ * `pagamento_duplicado` do *ledger* e de uma cobranca, e o caso que o PAY abre e
+ * de uma encomenda (o `order.refund_requested` nao traz `charge_id`). Quem faz a
+ * ponte e o SQL, que junta o caso as cobrancas da encomenda dele; o motor so
+ * compara `chargeId` e valor.
+ */
+export type CasoDeReembolsoObservado = {
+  readonly casoId: Uuid;
+  readonly tenantId: Uuid;
+  readonly chargeId: Uuid;
+  readonly valorMinor: Minor;
+};
+
+/**
  * O que o motor le, numa fotografia.
  *
  * **Uma fotografia e nao um fluxo**, e isso e o que torna o determinismo
@@ -438,6 +456,14 @@ export type Fotografia = {
   readonly confirmacoes: readonly ConfirmacaoObservada[];
   readonly recusas: readonly RecusaDeCallback[];
   readonly casa: readonly ContactoDaCasa[];
+  /**
+   * Os casos de reembolso de duplicado que o PAY ja abriu (KAM-197).
+   *
+   * **Obrigatorio e nao opcional**, de proposito: opcional, uma composicao que
+   * se esquecesse de o ler deixava a R-04 a dizer `por_abrir` sobre um caso que
+   * existe — e nenhum ensaio do motor o via, porque o motor estaria certo.
+   */
+  readonly reembolsos: readonly CasoDeReembolsoObservado[];
   /** O instante de referencia das janelas. Injectado, nao lido do relogio. */
   readonly agora: Instant;
 };
@@ -864,6 +890,7 @@ function _r04(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
   for (const e of naJanela) {
     porConta.set(e.accountId, (porConta.get(e.accountId) ?? 0) + 1);
   }
+  const casos = _casosPorDuplicado(foto, naJanela);
   return naJanela
     .filter((e) => (porConta.get(e.accountId) ?? 0) >= cfg.limiares["R-04"])
     .map((e) =>
@@ -875,14 +902,58 @@ function _r04(foto: Fotografia, cfg: Configuracao): readonly Sinal[] {
           account_id: e.accountId,
           event_id: String(e.eventId),
           valor_minor: String(e.valorMinor),
-          // **A caixa que o sinal nao fecha, dita no proprio sinal.** O
-          // criterio 4 pede um `refund_cases`, e nenhum papel o consegue
-          // escrever (ver o cabecalho). Quem ler este sinal sabe que o caso
-          // esta por abrir em vez de supor que ele existe.
-          refund_case: "por_abrir",
+          // **O caso, quando existe; `por_abrir`, quando nao.** O PAY abre-o ao
+          // consumir o `order.refund_requested` (KAM-197), e isso e assincrono:
+          // um sinal calculado antes do consumo diz `por_abrir`, e e verdade no
+          // instante em que se escreve. O que nunca faz e supor o caso.
+          refund_case: casos.get(e.eventId) ?? REEMBOLSO_POR_ABRIR,
         },
       }),
     );
+}
+
+/** O `refund_case` de um sinal de duplicado sem caso aberto. */
+export const REEMBOLSO_POR_ABRIR = "por_abrir";
+
+/**
+ * Que caso de reembolso corresponde a cada duplicado, pelo `eventId`.
+ *
+ * **Um caso por duplicado, e nao o mesmo caso para todos.** Tres pagamentos da
+ * mesma cobranca sao dois duplicados e dois pedidos de reembolso; casar os dois
+ * com o primeiro caso dizia que estavam ambos tratados com um caso so. A
+ * atribuicao e gulosa e por ordem total — eventos por `eventId`, casos por
+ * `casoId` —, pelo que nao depende da ordem em que a base devolveu as linhas
+ * (o segundo ensaio do criterio 9).
+ *
+ * Casa por tenant, cobranca e valor. O valor e o do pagamento: e o que o COM
+ * pede de volta na regra 4 (`aplicarPagamentoExcedente`), e e o `valor_minor`
+ * do `pagamento_duplicado` que o `payment.confirmed` leva.
+ */
+function _casosPorDuplicado(
+  foto: Fotografia,
+  duplicados: readonly EventoObservado[],
+): ReadonlyMap<bigint, Uuid> {
+  const livres = [...foto.reembolsos].sort((a, b) =>
+    a.casoId < b.casoId ? -1 : a.casoId > b.casoId ? 1 : 0,
+  );
+  const usados = new Set<Uuid>();
+  const porEvento = new Map<bigint, Uuid>();
+  const ordenados = [...duplicados].sort((a, b) =>
+    a.eventId < b.eventId ? -1 : a.eventId > b.eventId ? 1 : 0,
+  );
+  for (const e of ordenados) {
+    const caso = livres.find(
+      (c) =>
+        !usados.has(c.casoId) &&
+        c.tenantId === e.tenantId &&
+        c.chargeId === e.chargeId &&
+        c.valorMinor === e.valorMinor,
+    );
+    if (caso === undefined) continue;
+    usados.add(caso.casoId);
+    porEvento.set(e.eventId, caso.casoId);
+  }
+  return porEvento;
 }
 
 /**
@@ -1730,7 +1801,28 @@ export const CADEIAS_DAS_ANOMALIAS = [
   "SQL_ANOMALIAS_RECUSAS",
   "SQL_ANOMALIAS_CASA",
   "SQL_ANOMALIAS_AJUSTES_FEITOS",
+  "SQL_ANOMALIAS_REEMBOLSOS",
 ] as const;
+
+/**
+ * Os casos de reembolso de duplicado que o PAY abriu, por cobranca (KAM-197).
+ *
+ * O caso e da **encomenda** e o duplicado e da **cobranca**: a juncao pela
+ * encomenda devolve uma linha por cobranca dela, e o `_casosPorDuplicado` do
+ * motor gasta cada caso uma vez so. **So os do consumidor** (`pedido_evento_id`
+ * preenchido): um caso da `manual_reverter` e uma reversao, nao a resposta a um
+ * duplicado. A chave de ordenacao e total, pela razao do criterio 9.
+ */
+export const SQL_ANOMALIAS_REEMBOLSOS = `
+  SELECT r.id, r.tenant_id, c.id AS charge_id, r.valor_minor
+    FROM platform.refund_cases r
+    JOIN platform.payment_charges c
+      ON c.tenant_id = r.tenant_id AND c.order_id = r.order_id
+   WHERE r.motivo = 'pagamento_duplicado'
+     AND r.pedido_evento_id IS NOT NULL
+     AND r.criado_at >= $1
+   ORDER BY r.id, c.id
+`;
 
 // ------------------------------------------------------------------- o job
 
