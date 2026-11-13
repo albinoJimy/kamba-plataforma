@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.22 |
+| Versão | 1.23 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -1673,14 +1673,14 @@ Estender o `order_state_graph` e o `CHECK` com os estados e transições adicion
 
 ### Critérios de Aceitação
 
-- [ ] Migração *expand* acrescenta `em_disputa`, `entrega_falhada`, `reembolsada` ao `CHECK` e as transições `expirada→paga`, `paga→reembolso_pendente`, `entregue→em_disputa`, `em_disputa→reembolso_pendente`, `em_disputa→entregue`, `entrega_falhada→em_entrega`, `entrega_falhada→reembolso_pendente`, `reembolso_pendente→reembolsada`; o teste *table-driven* de KAM-044 passa a incluí-las e continua a rejeitar todas as outras.
-- [ ] Pagamento tardio, regra 1: encomenda `expirada` com stock re-reservável → re-reserva e `expirada → paga` (`order.paid`).
+- [x] Migração *expand* acrescenta `em_disputa`, `entrega_falhada`, `reembolsada` ao `CHECK` e as transições `expirada→paga`, `paga→reembolso_pendente`, `entregue→em_disputa`, `em_disputa→reembolso_pendente`, `em_disputa→entregue`, `entrega_falhada→em_entrega`, `entrega_falhada→reembolso_pendente`, `reembolso_pendente→reembolsada`; o teste *table-driven* de KAM-044 passa a incluí-las e continua a rejeitar todas as outras.
+- [x] Pagamento tardio, regra 1: encomenda `expirada` com stock re-reservável → re-reserva e `expirada → paga` (`order.paid`).
 - [ ] Regra 2: sem stock → `expirada → paga` com `excepcao='pagamento_tardio_sem_stock'`, evento `order.exception`, notificação a dono e ops, resolução manual; o cliente recebe resposta (nunca fica sem resposta).
 - [ ] Regra 3: pagamento autenticado numa encomenda `cancelada` cria caso de reembolso manual (`reembolso_pendente`) e alerta; regra 4: 2.º pagamento autenticado na mesma encomenda → `excepcao='pagamento_duplicado'` e caso de reembolso manual.
 - [ ] `reembolsada` só é alcançável por registo manual de actor `dono` ou `ops` autenticado, com `audit_log`; nenhum código chama `PaymentProvider.refund` nem `payout` a partir do COM (lint e teste); nada é movido pela plataforma.
-- [ ] `em_entrega`/`entrega_falhada` ficam atrás de `COM_DELIVERY_ENABLED` (desligado no Piloto, GEO é Clusters); activá-lo não exige migração.
-- [ ] Eventos `order.exception` e `order.refund_requested` saem pelo *outbox* com envelope validado e sem PII; `downgrade` da migração é aditivo e testado.
-- [ ] Prazo de reclamação (`prazo_reclamacao_dias`) é configuração por tenant sem valor por omissão até haver parecer; nenhum prazo legal é assumido.
+- [x] `em_entrega`/`entrega_falhada` ficam atrás de `COM_DELIVERY_ENABLED` (desligado no Piloto, GEO é Clusters); activá-lo não exige migração.
+- [x] Eventos `order.exception` e `order.refund_requested` saem pelo *outbox* com envelope validado e sem PII; `downgrade` da migração é aditivo e testado.
+- [x] Prazo de reclamação (`prazo_reclamacao_dias`) é configuração por tenant sem valor por omissão até haver parecer; nenhum prazo legal é assumido.
 
 ### Detalhes Técnicos
 
@@ -1701,11 +1701,75 @@ Estender o `order_state_graph` e o `CHECK` com os estados e transições adicion
 ### Definition of Done
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Pagamento só por evento autenticado:** `paga` por pagamento tardio exige evento autenticado do PAY (ADR-013).
-- [ ] **Plataforma sem fundos:** reembolso manual e fora da plataforma; nenhum fluxo recebe, retém ou repassa dinheiro (ADR-004).
-- [ ] **Idempotência:** evento de pagamento repetido não duplica excepções nem casos de reembolso.
-- [ ] **Isolamento de tenant:** RLS `FORCE`; suite cruzada cobre o novo caminho (ADR-015).
+- [x] **Pagamento só por evento autenticado:** `paga` por pagamento tardio exige evento autenticado do PAY (ADR-013).
+- [x] **Plataforma sem fundos:** reembolso manual e fora da plataforma; nenhum fluxo recebe, retém ou repassa dinheiro (ADR-004).
+- [x] **Idempotência:** evento de pagamento repetido não duplica excepções nem casos de reembolso.
+- [x] **Isolamento de tenant:** RLS `FORCE`; suite cruzada cobre o novo caminho (ADR-015).
 - [ ] **Migrações reversíveis:** `downgrade` aditivo testado; PA-03-4 e doc 00/03 alinhados; revisão por dois revisores (dinheiro).
+
+### Verificação dos Critérios de Aceitação
+
+**Cinco caixas marcadas de oito, e quatro de seis na Definition of Done.** As que ficam vazias estão
+nomeadas, cada uma com a razão e com o credor. Duas pediam decisões que não são deste ticket, e o
+coordenador do lote devolveu-as por escrito ao executor a 2026-11-10: quem escreve a
+`refund_cases` fora de uma reversão manual, e com que papel — **decidido pelo fundador a
+2026-11-12: opção (b), o PAY abre-a ao consumir `order.refund_requested`, credor
+KAM-197** —; e o
+`pagamento_duplicado` na `payment_outbox_map`. As outras pedem consumidores que não existem, um portão novo e a nomeação de
+revisores.
+
+**As medições, nesta máquina, contra PostgreSQL 18.6 em Docker e Node 24.21 em contentor**, com a
+revisão `0046` na árvore (a numeração definitiva da revisão é a da fila de fusão do lote):
+`python db/gate_bd.py --suite tests_encomendas` → **`Ran 193 tests` / `OK`**;
+`--suite tests` → **`Ran 838 tests` / `OK`**; os ensaios do COM → **`tests 510 / pass 510 / fail 0`**;
+os do `core-ts` → **`tests 2534 / pass 2533 / fail 0 / skipped 1`**; os do `py-core` → **`Ran 772 tests` / `OK (skipped=1)`**; o `contract_diff check --base
+refs/remotes/publico/main` → **conforme, 80 contratos (76 na base, 4 novos, 0 quebrantes)**; os três
+comandos do *gate* 3b → **conforme**, com o canário a morder; o *gate* 6 (`--suite
+tests_isolamento`) → **`Ran 83 tests` / `OK`**.
+
+**Dois vermelhos do *gate* 4 que não são deste ramo**, medidos numa cópia limpa da `main`:
+`test_a_divida_boa_e_mesmo_boa` do `canon_lint` (a dívida `kamba_ops` venceu a 2026-11-10) e
+`test_waiver_valido_dispensa` do `lint_arch` (a aprovação da *fixture* passou dos trinta dias). São
+datas fixas e avermelham a `main` inteira; a correcção vai no PR do KAM-099.
+
+**Uma alteração fora do ticket, declarada:** o `TestDowngradeDa0042` do KAM-071
+(`db/tests/test_retencao_bd.py`) descia por `-1`, o que só desce a `0042` enquanto ela é a última
+revisão; com a `0046` acima, os dois ensaios ficavam vermelhos. Passa a descer para a `0041` pelo
+número, que é fixo desde que a `0042` fundiu. **E vale para as revisões do lote entre as duas.**
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Migração *expand* com os estados no `CHECK` e as oito transições; *table-driven* a incluí-las e a rejeitar as outras | **satisfeito** | Os doze estados já estavam no `orders_mirror_estado_ck` desde a `0030` (o KAM-044 fixou-os pelo dicionário §3.3), pelo que o *expand* desta revisão é o **grafo**: a `0046` acrescenta **nove** arestas — as oito do critério e a `em_entrega → entrega_falhada` do `docs/tecnica/00` §6.1, sem a qual as duas que saem de `entrega_falhada` eram linhas mortas. `test_a_tabela_tem_exactamente_as_vinte_e_uma` afirma o grafo por igualdade de conjunto, e `test_os_doze_estados_alcancam_se_a_partir_de_criada` é o ensaio que teria apanhado a aresta em falta. O *table-driven* passa a medir **os cento e quarenta e quatro pares por execução** (`test_os_132_pares_so_passam_os_do_grafo` mais os doze `X → X`), e não 88 por execução e 48 por construção: com a `0046`, todos os estados se alcançam pelo grafo. O canário do *trigger* fica |
+| 2 | Regra 1: `expirada` com stock re-reservável → re-reserva e `expirada → paga` (`order.paid`) | **satisfeito** | `late_payment.ts`: re-reserva **antes** de transitar, com o `reserveStock` do KAM-045 sem alteração, só para as linhas cuja reserva foi libertada. Para que a mesma linha tenha uma segunda reserva, a `0046` troca a `stock_reservations_linha_uq` por um índice único **parcial** (`WHERE estado <> 'libertada'`): `test_uma_linha_libertada_reserva_se_outra_vez` e `test_duas_reservas_vivas_na_mesma_linha_sao_recusadas`. No TypeScript, `regra 1: expirada com stock re-reserva, paga e consome, e emite só o order.paid` afirma a ordem (`SQL_RESERVAR` antes do `SQL_TRANSITAR`) |
+| 3 | Regra 2: sem stock → `paga` com `pagamento_tardio_sem_stock`, `order.exception`, notificação a dono e ops, resolução manual; o cliente recebe resposta | **parcial** | **Feito:** a transição, a excepção e o evento — `regra 2: sem stock paga com a excepção, emite order.exception, e não prende stock`, com uma linha com stock e outra sem para provar que o *savepoint* desfaz a que passou (`test_o_savepoint_desfaz_a_re_reserva_e_deixa_a_transaccao_viva` mede-o na base). **Por fazer:** a notificação a dono e ops e a resposta ao cliente são **consumidores** do `order.exception` no HND e no AGR, que não existem — nenhuma subscrição em `registry/` o lê. Credor: o ticket que ligar o `order.exception` ao HND e ao AGR |
+| 4 | Regras 3 e 4: caso de reembolso manual e alerta na `cancelada`; `pagamento_duplicado` e caso de reembolso no segundo pagamento | **parcial** | **Feito:** as duas regras do lado do COM, sem transição — `regra 3: cancelada não transita, marca a excepção e pede o reembolso do que entrou` e os três `regra 4: …` (`paga`, `entregue`, `reembolsada`). A excepção da regra 3 é a quarta do domínio (`pagamento_apos_cancelamento`, revisão `0046`). **Motivo: decidido pelo fundador a 2026-11-12: opção (b), o PAY abre a `refund_cases` ao consumir `order.refund_requested`; credor KAM-197.** Até esse consumidor existir, o «caso de reembolso manual» é o `order.refund_requested`, e o COM **não** escreve na `refund_cases`: a tabela fica com um único dono, o PAY. **E a regra 4 não dispara em produção pelo caminho do *ledger***: o `pagamento_duplicado` não está na `payment_outbox_map` da `0035` (dívida documental **211**), e o ensaio injecta o evento. Credor: o ticket que acrescentar o `pagamento_duplicado` à `payment_outbox_map` |
+| 5 | `reembolsada` só por registo manual de dono ou ops, com `audit_log`; nenhum código chama `refund` nem `payout` do COM (lint e teste) | **parcial** | **Feito:** a barreira na base — o `order_estado_exige_log` da `0046` recusa com `KA006` outro actor ou um `actor_id` vazio (`TestReembolsadaSoPorDonoOuOps`, com canário que desliga o *trigger*); a linha de `audit_log` com a acção nova `order.refund_record` (`test_a_accao_order_refund_record_escreve_se_como_kamba_app`, e `reembolsada por ops grava a linha de auditoria com a versão de depois`); e o **teste** estático — `nenhum código do COM chama refund nem payout (ADR-004)`, com canário das três formas de chamada. **Não feito: o lint.** Estender um *linter* existente ao `services/com/src` muda o âmbito de um portão, e isso é do fundador. **E o «autenticado» tem uma fronteira que fica escrita** (achado 2 da revisão): a base verifica o `actor_kind` e o `actor_id` que a linha do registo leva, e esse actor vem do `ctx` de quem chama — pela API interna, do corpo do pedido, autenticado pela credencial interna e não pela pessoa. O `paga` ancora no recibo de consumo; o `reembolsada` não tem âncora equivalente, e a linha de `audit_log` é escrita pelo módulo e não imposta pela base (o `kamba_app` não lê o `audit_log`). Fechar isto pede identidade de pessoa na API interna, que é do HND e do painel |
+| 6 | `em_entrega`/`entrega_falhada` atrás de `COM_DELIVERY_ENABLED`; activá-lo não exige migração | **satisfeito** | `test_as_cinco_atras_da_bandeira`, `test_as_cinco_da_bandeira_nao_passam_com_ela_desligada` e `test_ligar_a_bandeira_nao_exige_migracao`: a mesma aresta passa ou não pela variável de sessão, sem tocar na tabela |
+| 7 | `order.exception` e `order.refund_requested` pelo *outbox*, com envelope validado e sem PII; `downgrade` aditivo e testado | **satisfeito** | Contratos em `contratos/eventos/` (v1 e v2, como os outros 38), gerados os tipos, e o `contract_diff` conforme com o *lint* de PII a zero. `test_os_sete_entram_no_outbox_com_o_agregado_order` e o ISO-43..46 para os dois (`test_o_envelope_de_outro_tenant_e_recusado`). Os sete *payloads* passam o `validarPayload`. O `downgrade`: `TestDowngradeDa0046` mede os seis objectos em `head`, depois da descida e depois da subida, e mede a **recusa** com uma encomenda na quarta excepção e com duas reservas na mesma linha — a primeira versão da guarda lia zero linhas sob `FORCE ROW LEVEL SECURITY`, e foi este ensaio que o mostrou |
+| 8 | `prazo_reclamacao_dias` por tenant, sem valor por omissão; nenhum prazo legal assumido | **satisfeito** | Chave nova de `entitlements.limites` (tecto por pedido, unidade dias), **fora** do `registry/plans.yaml`. Na aresta `entregue → em_disputa`, a **ausência** da chave deixa a disputa entrar — recusar era assumir o prazo zero. Quatro ensaios: sem prazo com 400 dias, e prazo 7 com 3, 7 e 8 dias |
+
+| # | Definition of Done | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **não satisfeito** | Cinco de oito. Os três que faltam estão acima, cada um com credor |
+| 2 | `paga` por pagamento tardio exige evento autenticado do PAY | **satisfeito** | A barreira da `0030` olha para o estado de chegada, e a aresta nova não abre segunda via: `TestPagamentoTardioNaBase` passa com evento consumido e recusa sem recibo de consumo e por `ops` (`KA006`) |
+| 3 | Plataforma sem fundos: reembolso manual e fora da plataforma | **satisfeito** | Nenhum `refund`/`payout` no COM (o teste estático), e o reembolso registado é uma transição com auditoria e nenhum movimento. A `refund_cases` não se escreve |
+| 4 | Idempotência: evento repetido não duplica excepções nem casos de reembolso | **satisfeito** | `o mesmo payment.confirmed duas vezes dá uma excepção e um pedido de reembolso`, pelo consumo real (o recibo de `events_consumed`), e `a primeira excepção fica` na base |
+| 5 | Isolamento de tenant: RLS `FORCE`, suite cruzada cobre o novo caminho | **satisfeito** | Nenhuma tabela nova; os dois eventos novos têm o ISO-43..46, e o `SQL_MARCAR_EXCEPCAO` não alcança a encomenda de outro tenant (`test_o_filtro_de_tenant_impede_marcar_a_encomenda_de_outro`). E a suite cruzada inteira: `python db/gate_bd.py --suite tests_isolamento` → **`Ran 83 tests` / `OK`** |
+| 6 | `downgrade` aditivo testado; PA-03-4 e doc 00/03 alinhados; revisão por dois revisores (dinheiro) | **parcial** | O `downgrade` e o alinhamento estão feitos (`docs/tecnica/03` 1.8: o §6.1 passa a ser o do documento 00, e o PA-03-4 regista a única alteração — a disputa depois da entrega passa por `em_disputa`). **Os dois revisores** são nomeação do fundador, como no KAM-052 ao KAM-055; houve **uma** revisão adversarial independente, e o que ela mudou está abaixo |
+
+**A revisão adversarial**, independente e sem acesso ao raciocínio do executor, sobre o código e os requisitos, com as transições inválidas como caso negativo. Nove achados; cada um verificado contra o código antes de gerar trabalho:
+
+| # | O que ela encontrou | Veredicto | O que mudou |
+|---|---|---|---|
+| 1 | A `0046` reescrevia o `audit_log_action` a partir da `0038` e **apagava as duas acções do *hold* legal** que a `0042` (KAM-071) acrescentou, entretanto fundida: o `upgrade` falhava com `23514` sobre linhas de *hold*, ou passava e recusava todo o *hold* seguinte. Nenhum conflito de texto o mostra — as duas revisões são ficheiros diferentes | **CONFIRMADO** | A `main` integrada; o domínio parte das onze da `0042` e o `downgrade` repõe-nas; a emenda passa a 1.83 e a secção a §3.60; e a nota da revisão diz a quem vier entre as duas que tem de pôr a sua acção lá também |
+| 2 | O actor do `reembolsada` é o do `ctx`, declarado por quem chama; a linha de `audit_log` não é imposta pela base | **CONFIRMADO** | Fica escrito no critério 5, que continua **parcial**, com o que o fecha |
+| 3 | A «aprovação humana» que o §6.2 dá ao pedido de reembolso e à decisão da disputa não era verificada em sítio nenhum: um `agente` abria um `order.refund_requested` | **CONFIRMADO** | `exigeHumano` no `graph_ext.ts`, verificado no `transition`: `→ reembolso_pendente` e `em_disputa → entregue` só por dono ou ops identificado, com três ensaios de recusa e um de que a reclamação continua aberta ao agente |
+| 4 | O `em_disputa → entregue` não se alcança pela porta (`Cause` não leva `entrega_confirmada_por`) e o `provaRef` não chega | **CONFIRMADO, já escrito** | É a limitação que o adaptador do KAM-178 escreve para o `entregue` («o `Cause` do §3.2 é `{causa, eventoId}`»), com o mesmo credor: uma decisão sobre o §3.39. As duas alcançam-se pelo módulo |
+| 5 | Um segundo pagamento real com `seq` menor, entregue depois de o outro pagar, ia para a DLQ como `fora_de_ordem` e **perdia o pedido de reembolso** | **CONFIRMADO** | A `ESTADOS_DE_EXCEPCAO` passa a ser consultada **antes** da ordem, que existe para impedir transições fora de tempo — e estas não transitam. Dois ensaios: o atrasado numa encomenda paga aplica, e o atrasado numa transição inválida continua `fora_de_ordem` |
+| 6 | A regra 4 podia disparar sobre dinheiro que entrou uma vez: confirmação manual e depois o `payment.confirmed` do facilitador para a mesma cobrança | **MORTO** | O segundo pagamento da **mesma** cobrança é `pagamento_duplicado` no *ledger* (a `next_state` recusa `paga + pagamento_confirmado`), e esse tipo não tem linha na `payment_outbox_map`: nenhum `payment.confirmed` sai. É a dívida 211, vista do outro lado |
+| 7 | Uma leitura do tecto sem linhas cai em `sem_entitlement`, e o prazo deixa a disputa entrar | **PLAUSÍVEL, aceite** | O `SQL_TECTO` é um `SELECT` de uma função e devolve sempre uma linha — o próprio `checkCeiling` o escreve —, pelo que o caso não se alcança por um caminho medido; se se alcançasse, a disputa entrava, que é o lado que o critério 8 escolhe para a dúvida. Fica escrito e não muda código |
+| 8 | Prosa a contradizer o código: um ensaio citado com o nome errado, «dez chaves» em seis sítios, e a regra estática a não apanhar `issueRefund(` nem `p.refund` lido | **CONFIRMADO** | Corrigidos; a regra passa a apanhar seis formas, com canário de cada uma |
+| 9 | O *savepoint* da re-reserva só simulado em memória | **MORTO** | `test_o_savepoint_desfaz_a_re_reserva_e_deixa_a_transaccao_viva` corre-o contra PostgreSQL com as três cadeias do módulo |
 
 ### Handoff para Claude Code
 
@@ -2927,4 +2991,5 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | 1.19 | Novembro 2026 | **A ressalva de estado da caixa devolvida passa a ser uma medição, e o ordinal sai da prosa das métricas.** O mecanismo do KAM-039 fundiu (`main` em `bb9b5c6`), pelo que corri o `exigir_handlers` dele sobre o par nos **quatro** estados: a `main` de hoje **aceita** (logo este PR não precisa de emenda nenhuma ao AGR), as três edições juntas **aceitam**, e **cada subconjunto próprio recusa — por motivos diferentes**. A (3) sozinha cai na guarda `diz_as_duas` que o KAM-039 acrescentou; as (1)+(2) sozinhas caem na do credor em falta. «Andam juntas» era mais fraco do que o que se mede: são **atómicas**, e quem as prende é o arranque. E sai da prosa de observabilidade a frase «o **primeiro** módulo de métricas dentro de um serviço»: é uma afirmação sobre a **ordem de fusão** e não sobre o código, e o KAM-055 traz um `payments/metricas.ts` pelo mesmo caminho num PR aberto ao lado — ficava falsa se ele fundisse primeiro. Fica a propriedade, que vale nas duas ordens, e os números passam a levar ao lado a ponta onde foram medidos. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-047 ganha o KAM-184.** Aquele ticket abre a acção do consumo dos dois eventos de pagamento na vertical Serviços, que o *gate* da Fase 0 exige na linha **1.6** da sua checklist e que **não tem credor vivo**: dois credores no código (KAM-047, KAM-035) e um no esquema (KAM-007, nomeado pela secção de verificação do KAM-039), todos com *merge* na `main` — medido em `ca5cac5`. O `lint_backlog` exige a aresta dos dois lados; nenhum critério, estimativa ou conteúdo deste epic muda. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-178 deixa de ser `—` e passa a KAM-186** (EPIC-03), que liga a porta `grafos` do AGR e consome os executores das tools que este ticket ligou. | Equipa KAMBÁ |
-| 1.22 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo:** o `Bloqueia` do KAM-050 passa a nomear o **KAM-197** (EPIC-05), que abre a `refund_cases` ao consumir o `order.refund_requested` das regras 3 e 4. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | **KAM-050 entregue: estados adicionais da encomenda.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, com os oito critérios e as seis caixas do DoD, cada um com evidência nomeada: **cinco caixas marcadas de oito, e quatro de seis no DoD**. As vazias têm credor: o consumidor do PAY que abre a `refund_cases` ao ler o `order.refund_requested` (decisão (b) do fundador, 2026-11-12; ticket do EPIC-05 a abrir no fim do lote), o `pagamento_duplicado` na `payment_outbox_map` (o ticket que o acrescentar; dívida 211), os consumidores do `order.exception` no HND e no AGR, o *lint* de `refund`/`payout` (alterar o âmbito de um portão é do fundador) e os dois revisores (nomeação do fundador). A revisão `0046` acrescenta nove arestas ao grafo (as oito do critério 1 e a `em_entrega → entrega_falhada` do documento 00, sem a qual `entrega_falhada` ficava sem entrada), a quarta excepção, a acção de auditoria do reembolso, o ramo do `reembolsada` no *trigger* diferido e o índice parcial da re-reserva. | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | **Credor nomeado, no PR do KAM-062:** o bloco do KAM-050 troca «o consumidor fica num ticket do EPIC-05 que o orquestrador abre no fim do lote» por **credor KAM-197** (EPIC-05), no resumo da verificação e na linha do critério 4, e o `Bloqueia` passa a nomear o KAM-197 (aresta recíproca). Nenhuma caixa muda. | Equipa KAMBÁ |

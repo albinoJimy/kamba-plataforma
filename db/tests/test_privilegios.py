@@ -1413,6 +1413,38 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A fila de revisao (KAM-089, revisao `0048`). **So o lote e a auditoria**: a
+#: fila atravessa tenants e corre como `kamba_batch`, e o `kamba_app` nao tem
+#: nada — o motivo interno e so do T&S, e um defeito no `onboarding-web` nao o
+#: mostra ao dono. O caso tem `UPDATE` **por coluna** (ver `COLUNAS_POR_PAPEL`);
+#: o registo de decisoes e *append-only* por privilegio e por *trigger*.
+ESPERADO_POR_TABELA.update(
+    {
+        "review_case": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "review_decision_log": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
@@ -1877,6 +1909,19 @@ COLUNAS_POR_PAPEL = {
     ("kamba_pay_hooks", "payment_accounts", "SELECT"): {
         "id", "tenant_id", "provider", "entidade", "pos_id", "estado",
     },
+    # KAM-089 (0048): o lote muda o estado e o prazo de um caso, e reforca um
+    # caso pendente com o que a porta sabe agora — a prioridade, o motivo
+    # interno, as evidencias e a recomendacao (um KYC que volta a decidir depois
+    # de um `pedir_info`). O que fica **fora** e o que o caso **e**: o `tipo`, o
+    # `onboarding_id`, o `tenant_id` e o `motivo_codigo` (a chave de abertura —
+    # mudar um deles abria um segundo caso por cima do primeiro) e o motivo
+    # publico, que e o que o dono le. **A prioridade so fica mais urgente**, e
+    # quem o impoe e o *trigger* e nao esta matriz: e ela que decide se aprovar
+    # pede dois revisores, e baixa-la era tirar um.
+    ("kamba_batch", "review_case", "UPDATE"): {
+        "estado", "prioridade", "motivo_interno", "evidencias", "recomendacao",
+        "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
+    },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -1953,6 +1998,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     "manual_confirmations",
     "refund_cases",
     "fraud_signals",
+    # KAM-089 (0048): o caso de revisao tem `UPDATE` por coluna para o lote,
+    # e o registo de decisoes entra pela razao das de eventos.
+    "review_case",
+    "review_decision_log",
     "contacts",
     "contact_deks",
     "contact_endpoints",

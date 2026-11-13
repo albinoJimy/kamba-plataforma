@@ -31,7 +31,11 @@ consumidor atrasar, a porta `tn` ja impede a fuga de um tenant suspenso.
 
 * O **processo** que subscreve a fila e chama `consumir_evento` (a entrada em
   `registry/` e o trabalhador). Sem ele, o p95 de frescura do criterio 9 nao se
-  mede; o efeito e a transaccao sim, e estao medidos contra um PostgreSQL.
+  mede; o efeito e a transaccao sim, e estao medidos contra um PostgreSQL. O
+  credor e o **KAM-194** (a ponte fila -> consumidor Python), e nao o KAM-193:
+  o que falta e infraestrutura de eventos — a casca BullMQ -> HTTP, as linhas
+  de `platform.evt_subscricoes` e uma forma do `registry/` para um consumidor
+  que nao e vertical —, e serve tambem o `/internal/event` do AGR.
 * `categoria_canon` e `descr_norm`: o `platform.offer_terms` so tem `nome`.
   Ficam nulo e vazio. A `marca_canon` sai do lexico (KAM-062).
 * O embedding (KAM-063). O documento nasce sem ele, que e o modo lexical.

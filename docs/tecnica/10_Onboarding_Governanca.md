@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Onboarding e Governação (GOV e TEN/onboarding) |
-| Versão | 1.9 |
+| Versão | 1.10 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/13-big-picture-ecossistema.md` (§5, §9.3), `../exploracao/11-arquitetura-detalhada-engenharia.md` (§5.3), `../exploracao/05-estrategia-loja-no-whatsapp.md`, `../exploracao/06-expansao-plataforma.md`, `../exploracao/07-pontos-cegos-2.md` (§2, §8, §9, §11), `../exploracao/14-tese-minima-e-plano-de-validacao.md` |
@@ -716,6 +716,7 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | Embedded Signup v4 | R | R | C | — | I | C | A | — |
 | Consentimento / aviso de privacidade | I | I | I | I | A | R | C | C |
 | Moderação, sanções, recursos | I | I | C | R | A | I | — | C |
+| Fila de revisão por excepção (KAM-089: decisão, recurso, amostragem; *runbook* em [`../revisao.md`](../revisao.md)) | I | — | R | R, A | C | C | — | — |
 | Rede de agentes (auditoria, comissões) | — | R | C | C | A | I | — | C |
 | Suporte T1/T2 e golden set | I | I | R | C | A | C | C | — |
 | Off-boarding e purga | R | I | R | C | I | A | C | C |
@@ -836,3 +837,4 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | 1.7 | Outubro 2026 | KAM-130: a **L-GOV-1** deixa de acusar a contagem de ADRs do `INDICE.md`. Os percursos e o ADR-004/ADR-008 mantêm-se. | Equipa KAMBÁ |
 | 1.8 | Outubro 2026 | KAM-169: as **quatro** afirmações deste documento sobre a origem do *golden set* passam a nomear as **três origens do KAM-040** (`sintetico`, `t2_anonimizado`, `real_consentido`), por decisão do fundador a 2026-10-30 (`../adr/ADR-L006-origem-do-golden-set.md`). O §11.2 diz que o seu pipeline é o da reescrita sintética de casos T2 e **não fixa** o rótulo de `origem` que esse caso leva — três linhas do canon dizem `sintetico` e o `02` §16.2 lista o T2 anonimizado como origem própria, pelo que a tensão fica escrita e o rótulo decide-se no KAM-040; a cláusula (a) do §11.3 deixa de excluir conversas reais e passa a exigir o **registo de consentimento**, com a leitura jurídica marcada `(a confirmar por parecer)` e o KAM-104 nomeado como quem a leva ao parecer; a **PA-GOV-4** do §20.1 acompanha. O **risco** da tabela do §18 não se apaga — passa a nomear o que hoje o produz, `dados reais **sem consentimento registado**`, e a mitigação passa a ser o registo mais a reescrita, em vez da exclusão do material real. As três linhas que não mudam ficam ditas: `nenhum modelo é treinado ou afinado com dados WhatsApp` (b), a retenção zero do fornecedor (c) e o parecer (d) — a proibição dos Termos é sobre **treino**, e continua verdadeira. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | KAM-088: o §8.1 passa a dizer onde a lista vive como *policy-as-code* e que o resto da lista da Meta do E1 §4 também bloqueia. Sem alteração de nenhuma decisão da tabela. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | KAM-089: o §17 ganha a linha da fila de revisão por excepção, que a DoD do bloco pede — T2/Ops executa os casos `es_falhado` e `saga`, T&S executa os outros e responde pela fila, Produto é consultado nos limiares e Segurança no acesso e na auditoria. O *runbook* do revisor vive em `../revisao.md`. Nenhuma outra linha muda. | Equipa KAMBÁ |

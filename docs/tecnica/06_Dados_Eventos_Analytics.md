@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Dados, Eventos e Analytics (EVT e DAT) |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/11-arquitetura-detalhada-engenharia.md` §2, §3, §8; `../exploracao/13-big-picture-ecossistema.md` §9.5; `../exploracao/06-expansao-plataforma.md` §3, §5 |
@@ -143,6 +143,7 @@ Chave de ordem = `agregado`. Consumidores marcados «†» exigem ordem por agre
 | `order.paid` | COM, ao consumir `payment.confirmed` ou `payment.manual_confirmed` | AGR (avisa cliente e dono), REP (agenda review), DAT, GEO† (C) | order | P1 | P |
 | `order.expired` / `order.cancelled` | COM (scheduler de TTL 24–72 h / acção) | COM/stock (libertar), AGR, DAT | order | P1 | P |
 | `order.delivered` | COM (levantamento) / GEO (código de entrega, C) | REP, DAT, `ads` (D) | order | P1 | P |
+| `order.exception` / `order.refund_requested` | COM (pagamento tardio, pagamento a mais e aresta para `reembolso_pendente`; `03` §6.6) | HND (dono e ops: resolução manual e reembolso fora da plataforma, ADR-004), DAT | order | P1 | P |
 | `payment.reference_issued` | PAY | AGR (envia referência), COM† (→ `aguarda_pagamento`), DAT | order | P0 | P |
 | `payment.confirmed` | PAY, **só** por callback autenticado (ADR-013) | COM†, AGR, REP, DAT, Score (D) | order | P0 | P |
 | `payment.manual_confirmed` | PAY (`ManualProvider`; confirmação humana auditada, limite de valor) | COM†, **AGR**, DAT (contado à parte) | order | P0 | P |
@@ -665,3 +666,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 | 1.4 | Outubro 2026 | KAM-140: §7.3 — o DDL de `consent_event` sai daqui e remete para `10` §7.2. Eram **cinco** formas da mesma tabela no conjunto, e esta divergia da do dicionário §3.1 em cinco nomes de campo. O índice e a vista ficam, com os nomes da forma de referência. As oito finalidades mantêm-se como desenho; se são estas ou as cinco do dicionário é o **KAM-159**, e não se decide de passagem. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | KAM-159: §7.3 — as finalidades passam a ser as dez do dicionário §3.1, e o texto deixa de dizer que a escolha está por fazer. Fica dito que a **base legal** não está fixada, com o apontador para a tabela do `10` §7.2 e para o KAM-104. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | KAM-159: §7.3 — a contagem das finalidades sem base legal no `evidencia/E3` passa de cinco a **seis**. A tabela do `10` §7.2 sempre teve seis linhas com «nada»; a prosa dizia cinco e propagou-se a quatro documentos a partir dali. Encontrado pela revisão adversarial. | Equipa KAMBÁ |
+| 1.7 | Novembro 2026 | KAM-050: §5 — entram `order.exception` e `order.refund_requested`, os dois eventos que o `03` §6.2 e §6.6 já davam ao COM sem contrato. O catálogo de `contratos/eventos/` passa de trinta e oito a **quarenta** tipos (oitenta ficheiros, v1 e v2). Nenhum dos dois leva PII: identificador da encomenda, um domínio fechado e, no do reembolso, o valor em unidade menor. | Equipa KAMBÁ |

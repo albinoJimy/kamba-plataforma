@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.12 |
+| Versão | 1.15 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -51,7 +51,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-089 | Fila de revisão por excepção para T&S/T2 | feature | L | P0 | KAM-087, KAM-088 |
 | KAM-090 | Aceite contratual versionado: ToS, DPA e aviso de privacidade | feature | M | P0 | KAM-086, ext:KAM-104 |
 | KAM-091 | Saga de provisioning com idempotência, compensação e reconciliação | feature | L | P0 | KAM-009, KAM-019, KAM-030, KAM-042, KAM-016 |
-| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007 |
+| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
 | KAM-093 | Passo guiado do Embedded Signup: pré-voo e falhas | feature | M | P0 | KAM-016, KAM-017, KAM-086 |
 | KAM-094 | Catálogo mínimo e teste ponta a ponta automático | feature | M | P0 | KAM-049, KAM-091, KAM-088, KAM-092, KAM-093, KAM-023 |
 | KAM-095 | Lista de espera para o limite de onboarding da Meta | feature | M | P1 | KAM-093, ext:KAM-102 |
@@ -64,6 +64,8 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-190 | Painel light: caixas devolvidas pelo KAM-099 | feature | M | P2 | KAM-099, KAM-097 |
 | KAM-191 | Contrato do evento `screening.violation_detected` | feature | S | P1 | KAM-088 |
 | KAM-192 | Papel do classificador de screening no dicionário e alias `screening-nano` | feature | S | P1 | KAM-088 |
+| KAM-195 | Screening: o classificador chama pelo cliente com gate de destino, registo e custo, e a finalidade de transferência | feature | L | P1 | KAM-192, KAM-069 |
+| KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | KAM-089 |
 
 ---
 
@@ -529,13 +531,13 @@ PostgreSQL tal como está escrito.
 | 4 — `screen` com a forma `{decisao, regras[], versao_politica, confianca}`, grava `screening_decision`; `assertPublishable` falha fechado | **satisfeito** | A forma e a gravação pela porta estão feitas: o `screen` só devolve depois de gravar, e um erro do escritor sobe. O `assertPublishable` recusa sem decisão, com uma `bloqueada` em qualquer linha (nem um humano a desce), e com a última não `permitida`; a chave é a versão **e** o `sha256` do conteúdo, que fecha a «edição posterior» (cinco ensaios). A tabela é a da `0044`, *append-only*, e o SQL do módulo corre contra PostgreSQL: gravar, ler as decisões de uma chave pela ordem do `criado_at` (que avança dentro da mesma transacção) e os produtos por re-analisar com a categoria declarada mais recente (`test_screening_schema.py`) |
 | 5 — texto não confiável; só títulos e descrições, sem dados pessoais, em saída estruturada | **parcial** | O texto vai ao modelo como valor de JSON na mensagem do utilizador e nunca nas instruções; `response_format` com esquema fechado e `lerVeredicto` exacto; uma instrução no texto não muda a decisão (caso (b)); o que não cabe no pedido (vinte textos de mil caracteres) não pode ficar `permitida` (`classificador_parcial`). `semDadosPessoais` tira correio (também `arroba`, `[at]`, sem domínio de topo), URLs com ou sem esquema (`wa.me/…`), sete ou mais dígitos com qualquer separador, dígitos de largura total e números por extenso. **Falta: nomes de pessoas** — sem um reconhecedor de entidades, um nome num título chega ao modelo (achado F04, a metade que fica aberta). **Medido contra um `fetch` falso**: o alias não está ligado |
 | 6 — canónico 0 `permitida` em ≥ 100; disfarçado ≥ 95%; 0 `permitida` nos 20 graves | **parcial** | Com o pior classificador possível (responde sempre `permitida`), que mede as regras sozinhas: **134** canónicos com **0** `permitida`; **125/125** disfarçados; **0** `permitida` nos 20 graves. **Mas estes conjuntos estão sobreajustados:** a primeira passagem deu 103/125 (82,4%) e a política foi afinada a olhar para eles. **A medida que conta é a do conjunto de controlo**, escrito pela revisão adversarial depois de a política estar fechada (`../policy/categorias/casos/controlo.jsonl`, 130 casos): na versão revista do autor, **6/81** evasões apanhadas; depois das correcções do normalizador, **25/81**, com **27** armas e medicamentos disfarçados ainda `permitida`. O que escapa são marcas e eufemismos («Black Label», «Glock», «Coartem») que nenhuma lista de termos generaliza — é o trabalho do classificador, que não está ligado. **Hoje nada escapa em produção**: sem classificador, toda a `permitida` das regras vira `condicional` e vai a revisão humana. O limiar fica por provar até ao alias ligado — credor **KAM-040** |
-| 7 — mudança de versão dispara re-análise em lotes com orçamento e emite `screening.violation_detected`; sem suspensão | **parcial** | `reanalisar`: lotes de `tamanhoDoLote` até `maximoPorExecucao`, retoma sem cursor (lê o que não tem decisão para a versão corrente), uma `bloqueada` emite pela porta `EmissorDeViolacoes` e nada mais — não suspende (dois ensaios). **Falta o contrato do evento**: o §3.5 do dicionário fecha os tipos em trinta e oito, e acrescentar um é emenda, contrato `v1`/`v2`, tipos gerados e as contagens em prosa que dizem o número — credor **KAM-191**, consumidor **KAM-097** |
+| 7 — mudança de versão dispara re-análise em lotes com orçamento e emite `screening.violation_detected`; sem suspensão | **parcial** | `reanalisar`: lotes de `tamanhoDoLote` até `maximoPorExecucao`, retoma sem cursor (lê o que não tem decisão para a versão corrente), uma `bloqueada` emite pela porta `EmissorDeViolacoes` e nada mais — não suspende (dois ensaios). **O contrato do evento está entregue pelo KAM-191**: o `screening.violation_detected` entrou no §3.5 (emenda 1.84, quarenta e um tipos), com contrato `v1`/`v2`, tipos gerados e as contagens, e a porta ganhou o `EmissorSql`, que escreve no *outbox* pela transacção do produto (`porProdutoSql`) — ver a verificação do bloco KAM-191. **O que continua a faltar, e não é do KAM-191:** nada **agenda** o `reanalisar` quando a versão muda — a função faz o lote, e ninguém a chama a horas; o agendador é do **KAM-078**, cujos Detalhes Técnicos o nomeiam (EPIC-08 1.18) — e o consumidor, que decide a sanção, é o **KAM-097** |
 | 8 — casos *allow/deny* no gate 12; alterar a política sem passar bloqueia | **parcial** | Os casos e o `check` da política correm no **gate 4**, que bloqueia hoje: a suite de `../tools/politica_categorias/` é descoberta pelo `SUITES_DE_TOOLS` e os `screening*.test.ts` pelo `node --test` do pacote. O selo da versão compara o `versoes.lock` com o da `main` (`check --base`), porque sem a base era auto-atestado (achado F05); **no gate 4 o ensaio salta quando a clonagem não tem a `main`**, e buscá-la é mudar o *job*. **Não há job do gate 12**: um job novo é contexto exigido do *ruleset* — **o fundador**, para os dois |
 
 | DoD | Estado | Evidência |
 |---|---|---|
-| Critérios satisfeitos; gate 12 configurado e verde | **não satisfeito** | Cinco em aberto: 3, 5, 6, 7 e 8 |
-| Política e alias como artefactos comportamentais: SemVer, eval no gate, versão em cada decisão | **parcial** | A política sim: SemVer fixado por `sha256`, casos no gate 4 e a `versao_politica` em cada linha — com a versão do **motor** como metadado (`1.0.0+m.2`), presa a uma impressão das leituras de um corpus fixo, porque a mesma política lida por outro motor decidia outra coisa (achado F06; medido: tirar o `0` do *leet* põe a impressão vermelha). **O alias não**: `screening-nano` fica nomeado e não declarado, porque o `../llm/aliases.yaml` tem um alias por papel de uma lista fechada de quatro (dicionário §3.29) e o cliente do AGR indexa-os por papel — medido: um segundo `router` avermelha três ensaios do AGR e tomava o lugar do `kamba-router`. Credor **KAM-192** (papel novo no §3.29) e **KAM-040** (o modelo) |
+| Critérios satisfeitos; gate 12 configurado e verde | **não satisfeito** | Cinco em aberto: 3, 5, 6, 7 e 8 (o 7 já só pelo agendador, KAM-078, e pelo consumidor, KAM-097: o contrato do evento é do KAM-191) |
+| Política e alias como artefactos comportamentais: SemVer, eval no gate, versão em cada decisão | **parcial** | A política sim: SemVer fixado por `sha256`, casos no gate 4 e a `versao_politica` em cada linha — com a versão do **motor** como metadado (`1.0.0+m.2`), presa a uma impressão das leituras de um corpus fixo, porque a mesma política lida por outro motor decidia outra coisa (achado F06; medido: tirar o `0` do *leet* põe a impressão vermelha). **O alias está declarado e não ligado**: o **KAM-192** deu-lhe o papel próprio `screening` (dicionário §3.29, emenda 1.85, revisão `0047`), porque com um papel existente tomava o lugar de outro alias — medido: um segundo `router` avermelhava três ensaios do AGR. Continua sem modelo (`por_decidir`) e sem eval no gate — credor **KAM-040**, como nos outros quatro aliases —, e sem finalidade de transferência, com o classificador a chamar o proxy sem passar pelo cliente do AGR — credor **KAM-195** |
 | Facto jurídico *(a confirmar por parecer)*; estado de evidência por entrada | **satisfeito** | Cada `fonte_lei` não nula tem a marca, e o gerador **recusa** a que não a tenha (`test_fonte_lei_sem_parecer`); `estado_evidencia` obrigatório e na escala de três; uma `bloqueada` sem fonte nenhuma é recusada. As leis NÃO VERIFICADAS (armas, venda online de medicamentos) ficam como estado da fonte, e o bloqueio dessas categorias assenta na Meta, que é CONFIRMADO |
 | Nenhum dado pessoal ao LLM; custo por decisão medido | **parcial** | Contactos e números sim, nomes não (critério 5). **O custo não se mede** sem o alias ligado a um modelo com destino autorizado (KAM-069) — credor **KAM-040** |
 | Decisões *append-only* com `INSERT`; isolamento pelo teste cruzado | **satisfeito** | O `kamba_app` tem `SELECT` e `INSERT` e mais nada; o lote e a auditoria leem; um *trigger* recusa `UPDATE` e `DELETE` também ao dono (`55000`), e a aplicação recebe `42501` (`test_ninguem_emenda_nem_apaga`, e a matriz do `test_privilegios.py`). RLS `FORCE` pela `tenant_iso`, no catálogo do X-05; a ligação da aplicação com o contexto de B lê zero linhas de A e não escreve uma linha de A (`42501`, `test_a_aplicacao_escreve_no_seu_tenant_e_nao_ve_o_dos_outros`). **Fora das receitas do gate 6, pela razão da `contract_acceptance`**: sem coluna alterável e sem `DELETE` para limpar, e uma receita fazia daquela bateria o único sítio onde uma decisão se apagava — escrito em `db/tests_isolamento/sementes.py` |
@@ -593,7 +595,7 @@ Testes: unit, integração, adversarial (disfarces, injecção, relaxar polític
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-087, KAM-088 |
-| Bloqueia | KAM-092, KAM-097 |
+| Bloqueia | KAM-092, KAM-097, KAM-196 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV) com Responsável de Produto (T&S) |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 «Intervenção por excepção», §8.2, §16, §17), `../docs/tecnica/08_Seguranca_Conformidade.md` (§6), ADR-019, ADR-015 |
 
@@ -607,15 +609,15 @@ Implementar `review_case` com triagem, SLA, decisão auditada, recurso, amostrag
 
 ### Critérios de Aceitação
 
-- [ ] Tipos de caso: `kyc`, `categoria`, `duplicado`, `es_falhado`, `saga`, `catalogo`, `recurso`, `trust`, `auditoria`; cada caso guarda `motivo_interno`, `motivo_publico`, referências a evidências (nunca cópias), recomendação automática e `sla_due_at`.
+- [x] Tipos de caso: `kyc`, `categoria`, `duplicado`, `es_falhado`, `saga`, `catalogo`, `recurso`, `trust`, `auditoria`; cada caso guarda `motivo_interno`, `motivo_publico`, referências a evidências (nunca cópias), recomendação automática e `sla_due_at`.
 - [ ] SLA de 1 dia útil conta em dias úteis `Africa/Luanda` com tabela de feriados configurável; alerta aos 80% do prazo; métrica `review_first_decision_p90`.
-- [ ] Decisões `aprovar`, `rejeitar`, `pedir_info`, `escalar` gravadas em `review_decision_log` (append-only) com revisor, hora e regra; aprovar um caso de risco alto exige **dois** revisores distintos (*proposta*); um revisor não decide casos em que é parte.
-- [ ] Aprovação de caso `kyc`/`categoria` desbloqueia o caso (estado `aprovado` para KAM-092); rejeição devolve o `motivo_publico` genérico; **um** recurso por decisão, decidido por revisor diferente.
-- [ ] Quotas anti-inundação: só entram na fila casos com OTP validado e anti-bot passado; máximo de casos por origem/prefixo/dia (*proposta*); documento ilegível ou duplicado exacto é resolvido automaticamente (KAM-087) sem chegar a humano.
+- [x] Decisões `aprovar`, `rejeitar`, `pedir_info`, `escalar` gravadas em `review_decision_log` (append-only) com revisor, hora e regra; aprovar um caso de risco alto exige **dois** revisores distintos (*proposta*); um revisor não decide casos em que é parte.
+- [x] Aprovação de caso `kyc`/`categoria` desbloqueia o caso (estado `aprovado` para KAM-092); rejeição devolve o `motivo_publico` genérico; **um** recurso por decisão, decidido por revisor diferente.
+- [x] Quotas anti-inundação: só entram na fila casos com OTP validado e anti-bot passado; máximo de casos por origem/prefixo/dia (*proposta*); documento ilegível ou duplicado exacto é resolvido automaticamente (KAM-087) sem chegar a humano.
 - [ ] Acesso: papéis `ts_revisor` e `ts_lider` com MFA; documentos só por URL assinada ≤ 5 min; cada visualização é registada; NIF/BI mascarados por defeito; sem exportação em massa.
 - [ ] Amostragem: 20% das aprovações automáticas nas primeiras 8 semanas (*proposta*) geram caso `auditoria` de baixa prioridade; o resultado alimenta a taxa de falsos aprovados.
 - [ ] Vista `v_review_sla` e contadores por tipo, motivo e decisão; notificações ao dono por SMS/e-mail (nunca pelo número da loja).
-- [ ] Idempotência: reentregar o mesmo evento de abertura não cria 2 casos (chave `(tipo, onboarding_id, motivo_codigo)`).
+- [x] Idempotência: reentregar o mesmo evento de abertura não cria 2 casos (chave `(tipo, onboarding_id, motivo_codigo)`).
 
 ### Detalhes Técnicos
 
@@ -643,11 +645,48 @@ CREATE TABLE platform.review_decision_log ( -- append-only (INSERT)
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; suite adversarial (a)–(d) verde.
-- [ ] Toda a decisão é registada, imutável e atribuível a pessoa; acesso a documentos auditado (`audit_log`, KAM-012).
+- [x] Toda a decisão é registada, imutável e atribuível a pessoa; acesso a documentos auditado (`audit_log`, KAM-012).
 - [ ] Isolamento de tenant/caso por RLS `FORCE` e teste cruzado (ADR-015); papel `kamba_ops` auditado.
 - [ ] Sem PII em logs; URLs assinadas curtas; MFA verificado nos papéis.
-- [ ] Métricas de SLA e fila nascem com a funcionalidade (ADR-018); migração reversível; sem segredos.
-- [ ] Documentação actualizada (runbook do revisor, matriz RACI de `../docs/tecnica/10` §17).
+- [x] Métricas de SLA e fila nascem com a funcionalidade (ADR-018); migração reversível; sem segredos.
+- [x] Documentação actualizada (runbook do revisor, matriz RACI de `../docs/tecnica/10` §17).
+
+### Verificação dos Critérios de Aceitação
+
+O módulo é `../packages/core-ts/src/revisao/`, as tabelas são a `platform.review_case` e a `platform.review_decision_log` e a vista `platform.v_review_sla` da revisão `0048`, e os nomes estão no dicionário §3.61 (emenda 1.86). **As baterias**: `revisao.unidade.test.ts` (SLA, feriados, percentil, máscara, balde, métricas), `revisao.servico.test.ts` (o caso de uso com duplos, e com o `ServicoKyc` **verdadeiro** do KAM-087 a alimentar a fila pela sua porta), `revisao.adversarial.test.ts` (a suite (a)–(d) do bloco) e `revisao.regressoes.test.ts` (um ensaio por achado da revisão adversarial) — **96/96** no *gate* 4; e `../db/tests/test_revisao_schema.py` contra o PostgreSQL — **29/29** —, com o `test_inventario`, o `test_catalogo`, o `test_privilegios` e as listas do X-05 no *gate* 8 e no 6. **A base mediu-se com a cadeia local apontada à `0045`**, porque a `0046` e a `0047` são de outros PRs do lote; a `0048` aponta a `0047`.
+
+**O que este ticket não entrega, e diz-se uma vez para as linhas abaixo: não há quem decida com as mãos.** A identidade da equipa (IdP, contas de staff, MFA) **não existe neste repositório**, e uma consola `/equipa` sem ela era uma porta para os dados de todos os onboardings; o texto do SMS e do e-mail ao dono também não existe. O serviço expõe tudo o que a consola precisa e falha fechado; a consola, a identidade, os modelos e o *job* que chama o lote são do **KAM-196**, aberto neste PR, e a escolha do IdP é do fundador.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Nove tipos; cada caso com `motivo_interno`, `motivo_publico`, evidências por referência, recomendação e `sla_due_at` | **marcada** | O domínio de `review_case.tipo` é o `TIPOS_DE_CASO` do módulo, confrontado com a base (`test_os_dominios_sao_os_do_modulo`). As evidências são `{tipo, ref}` e nunca cópias: o KYC manda os `kyc_check.id` do caso, o screening a chave da decisão, a auditoria o `onboarding_case.id` (`um adulterado abre um caso kyc com os quatro kyc_check como evidencia`). O motivo público é de lista **fechada** de quatro, com `CHECK` na base. **Divergências do DDL do bloco, todas ditas no §3.61:** `tenant_id NOT NULL`, `motivo_publico NOT NULL`, mais `fila_at`, `sla_alerta_at`, `sla_alertado_at` e o estado `em_triagem_automatica` |
+| 2. SLA de 1 dia útil em `Africa/Luanda` com feriados configuráveis; alerta aos 80%; métrica `review_first_decision_p90` | **parcial** | **Medido:** o prazo conta **tempo útil** — sexta 15:00 vence segunda 15:00, sábado 10:00 vence terça 00:00, uma quarta feriado empurra um dia —, o alerta dos 80% de sexta 15:00 é segunda 10:12, e o desvio fixo de Luanda confere com o `Intl` em Janeiro e Julho. A tabela de feriados é configurável (fixos `MM-DD` e móveis por data). O alerta sai **uma vez** e só para pendentes, e o recurso e a saída da triagem reiniciam-no. A métrica é `review_first_decision_p90_segundos`, em tempo útil, e não conta zero para um caso em recurso (o recurso reinicia o prazo e não a entrada). **O que fica por fechar:** a métrica está **declarada e não servida** (a fila não tem processo), e **a tabela de feriados por omissão é NÃO VERIFICADA** contra a lei em vigor. Credor: KAM-196 (o *job* e a exposição) e o fundador (os feriados) |
+| 3. Decisões em `review_decision_log` *append-only* com revisor, hora e regra; dois revisores distintos no risco alto; um revisor não decide casos em que é parte | **marcada** | O registo é *append-only* por privilégio **e** por *trigger* (`55000` também ao dono, `test_ninguem_emenda_nem_apaga_uma_decisao`), com `revisor_id`, `em` por `clock_timestamp()` e `regra`; a nota do revisor vai cifrada. Risco alto é prioridade ≤ 2 (*proposta*): o mesmo revisor duas vezes recusa, um `pedir_info` no meio recomeça a contagem, e **duas aprovações concorrentes fecham o caso** (relê-se o registo depois de gravar). A prioridade **só fica mais urgente**, por *trigger*. «Parte» mede-se pelo HMAC do NIF e do telefone contra o onboarding do caso — e, num caso sem onboarding, contra o do tenant ou o que a auditoria aponta; a recusa fica no `audit_log` (`(c)`). **Uma limitação dita:** outras relações (família, sócios) a fila não as conhece, e o *runbook* manda escalar |
+| 4. Aprovar `kyc`/`categoria` desbloqueia (`aprovado` para o KAM-092); rejeição com o motivo público genérico; um recurso por decisão, por revisor diferente | **marcada** | Aprovar passa o onboarding a `aprovado` **só** se nenhum outro caso que bloqueie estiver pendente ou rejeitado — um K1 aprovado não aprova uma categoria por decidir —, e o dono só recebe «aprovado» quando isso acontece. Rejeitar põe-no em `rejeitado` e avisa com o motivo público escolhido (um dos quatro). O recurso é **um**, só **de uma rejeição**, decidido por quem não decidiu a primeira instância (e por um `ts_lider` se o caso foi escalado), e um recurso aprovado só tira o onboarding de `rejeitado` se mais nada o rejeitou — os outros casos aprovados e um K1 aprovado (`(A)`, `(A2)`). Com o KYC verdadeiro: dois revisores aprovam um adulterado e o onboarding fica `aprovado`; um `pedir_info` devolve-o a `kyc_pendente` e o reenvio do KYC cai no **mesmo** caso, reforçado (`(B)`) |
+| 5. Só entram casos com OTP validado e anti-bot passado; máximo por origem/prefixo/dia; ilegível e duplicado exacto resolvidos no KAM-087 sem humano | **marcada** | A abertura recusa um onboarding fora das fases depois do OTP, e as três portas (KYC, guia, screening) falham fechadas — **250 registos com o OTP por validar dão 750 recusas que dizem a fase**, e a mutação que tira a barreira faz a suite (a) falhar (na primeira versão sobrevivia: o serviço não via os onboardings das portas). A quota é de **20 por origem e dia de Luanda** (*proposta*): o `ip_prefix_hash`, ou o `device_hash`, com as nulas a partilhar uma; um caso **sem** onboarding conta contra o tenant (`(C)`). **200 aberturas concorrentes dão 20 abertas e 180 em triagem** (`(E)`). Ilegíveis (150) e duplicados exactos (90 ilegíveis e 10 casos genuínos com os quatro documentos reenviados) não abrem caso nenhum. ***shortcut:*** a série por origem é por processo; entre processos, a quota excede-se pelo número deles — revê-se com o *job* do KAM-196 |
+| 6. Papéis `ts_revisor` e `ts_lider` com MFA; documentos por URL de ≤ 5 min; cada visualização registada; NIF/BI mascarados; sem exportação | **parcial** | **Medido:** sem papel ou sem MFA nada se lê nem se decide, e a recusa fica no `audit_log` — também a da lista; `escalado` só o `ts_lider`. A URL vem do `ServicoKyc.urlParaRevisao` (TTL ≤ 300 s): abre aos 0 s e devolve **403** aos 300 s; o acesso fica no `audit_log` **antes** de a URL existir, uma linha por visualização, e um documento que não é do caso recusa (`evidencia_alheia`). Ver um caso também se regista. NIF, BI e telefone saem `*******261`; revelar é um campo de cada vez, registado antes. A lista tem página de 50 e nenhum dado pessoal, e não há operação de exportação. **O que fica por fechar:** **não há identidade de equipa** — os papéis e a MFA chegam como factos da porta `Revisor` e a fila recusa quem chega sem eles, mas ninguém os emite. Credor: KAM-196 e o fundador (o IdP) |
+| 7. Amostragem: 20% das aprovações automáticas nas primeiras 8 semanas geram caso `auditoria` de baixa prioridade; o resultado alimenta a taxa de falsos aprovados | **parcial** | **Medido:** `amostrar` escolhe pelo SHA-256 do `onboarding_id` (determinístico, e perto de 20% em 10 000 identificadores sequenciais), abre `auditoria` de prioridade 9, fora da quota, só dentro das 8 semanas, e não abre dois para a mesma aprovação. O caso mostra os dados mascarados do onboarding amostrado e abre os documentos dele (`(L)`), e o dono desse onboarding não o decide (`(D)`). A taxa é a `review_falsos_aprovados_ratio`. **O que fica por fechar:** **ninguém chama `amostrar`** — quem conhece a aprovação automática é o KAM-092, e o *job* é o KAM-196 |
+| 8. Vista `v_review_sla` e contadores por tipo, motivo e decisão; notificações ao dono por SMS/e-mail, nunca pelo número da loja | **parcial** | **Medido:** a `v_review_sla` (`security_invoker`) dá a primeira decisão e o `dentro_do_sla` da instância em curso, medidos contra a base com o caso atrasado, o a tempo e o recurso; o `SQL_CONTADORES` conta por tipo, família de motivo e **última** decisão (a de recurso por cima da primeira — a primeira versão contava ao contrário, e o ensaio de base apanhou-o). O aviso sai pela porta `AvisoAoDono`, cujo tipo de via só tem `sms` e `email`, com o motivo público e nada mais. **O que fica por fechar:** **o texto do SMS e do e-mail não existe**, nem o adaptador da porta. Credor: KAM-196 |
+| 9. Idempotência: reentregar o mesmo evento não cria dois casos (`(tipo, onboarding_id, motivo_codigo)`) | **marcada** | A chave é `UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)`: com onboarding é a do bloco; sem ele o `NULLS NOT DISTINCT` impede reentregar sem limite (mutação na `0048` morta pelo `test_a_chave_e_idempotente_com_e_sem_onboarding`). Reentregar não gasta quota. Um envio repetido sobre um caso **decidido** diz `ja_decidido` — e não `aberto` —, e o guia abre então um caso novo para a falha nova |
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos; suite adversarial (a)–(d) verde | **parcial** | A suite (a)–(d) está verde (13/13 no ficheiro dela), e (a) mede agora a barreira do OTP pela fase. Cinco critérios marcados e quatro parciais (2, 6, 7, 8), todos com o credor nomeado |
+| 2. Toda a decisão registada, imutável e atribuível a pessoa; acesso a documentos auditado (`audit_log`, KAM-012) | **marcada** | O `review_decision_log` (critério 3); o `audit_log` ganha `review.acesso` e `review.recusa` pela `0048`, escritas por `platform.audit_append` como `staff` (`test_o_audit_log_recebe_as_duas_accoes_pelo_lote`). O `downgrade` recusa-se com linhas `review.*` — **não medido no gate 8**, porque o `audit_log` é *append-only* e uma linha com `commit` prendia os `downgrade` das outras suites |
+| 3. Isolamento por RLS `FORCE` e teste cruzado (ADR-015); papel `kamba_ops` auditado | **parcial** | **Medido:** RLS ligada e forçada nas duas tabelas, e o teste cruzado pela ligação da auditoria (o único papel com `SELECT` sujeito a RLS): com o contexto do tenant dono lê o caso, a decisão e a linha da vista; com o de outro e sem contexto, zero. O `kamba_app` não tem privilégio nenhum (`42501`). **O que não se cumpre à letra:** o `kamba_ops` **não existe** — o §3.2 do dicionário resolveu a divergência a favor do `kamba_batch`, que é o papel com `BYPASSRLS` e auditado, e é com ele que a fila corre. Devolve-se a leitura: a caixa marca-se se o fundador aceitar o `kamba_batch` como o papel do critério |
+| 4. Sem PII em logs; URLs assinadas curtas; MFA verificado nos papéis | **parcial** | O módulo não escreve *logs*; os alertas levam o caso e o tipo e nada mais; a URL é a de ≤ 300 s do KYC. **O que fica por fechar:** a MFA (critério 6). Credor: KAM-196 |
+| 5. Métricas de SLA e fila nascem com a funcionalidade (ADR-018); migração reversível; sem segredos | **marcada** | As quatro métricas nascem no `metricas.ts` e entram no inventário fechado do `obs_lint` (**26 módulos, 140 nomes** na árvore integrada com a `main` em `ac3f9527`, levados ao `../docs/observabilidade.md` e ao EPIC-08); servi-las é do KAM-196. A `0048` desce e volta a subir com linhas (`test_desce_com_linhas_e_volta_a_subir`). Nenhum segredo, telefone ou NIF real no diff |
+| 6. Documentação actualizada (runbook do revisor, RACI de `../docs/tecnica/10` §17) | **marcada** | `../docs/revisao.md` (o que a fila é e o *runbook* do revisor) e a linha nova da RACI no §17 do doc 10 (versão 1.10) |
+
+#### A revisão adversarial
+
+Um agente que não viu o raciocínio desta entrega reviu o `3bf95224` com **56 mutações** e levantou **dezanove** achados: **dezoito procedentes**, todos corrigidos — quinze reproduzidos (catorze com ensaio, um com mutação), que têm agora ensaio que os mata, e três de documentação e medição (a verificação em falta, o isolamento só afirmado e uma contagem) —, e **um PLAUSÍVEL**. Os dois bloqueadores: **o recurso de uma categoria aprovava um onboarding que o KYC tinha rejeitado** — sozinho, ao terceiro ilegível, ou noutro caso —, porque só se olhava para os casos pendentes; e **a suite (a) não media a barreira do OTP**: o serviço estava montado sobre outros onboardings, e as 750 recusas eram «desconhecido» e não «fase». Os altos: o reenvio do KYC depois de um `pedir_info` ficava com a prioridade antiga, e **um só revisor aprovava uma regra dura nova**; um produto do catálogo chegava sem onboarding e **não contava para quota nenhuma**; e duzentas aberturas concorrentes davam mais de vinte casos abertos. Os médios e baixos: a parte decidia a auditoria da própria aprovação; a auditoria não mostrava dados nem abria documentos; um efeito que falhava deixava o caso decidido sem retoma (`reaplicarEfeitos`); o dono recebia «aprovado» sem o estar; o recurso contornava o «só o líder»; o recurso reiniciava a entrada e o p90 contava zero; uma lista recusada não ficava no `audit_log`; o `abrir` dizia `aberto` a um caso decidido; duas aprovações concorrentes não fechavam; havia recurso de uma aprovação. **Oito mutações sobreviviam e morrem agora**, uma delas a de um defeito real que o ensaio de base apanhou ao ser escrito: o `SQL_CONTADORES` punha a decisão de primeira instância por cima da de recurso. **O PLAUSÍVEL:** num prefixo de IP móvel partilhado (CGNAT), um atacante constante atrasa os legítimos do mesmo prefixo; falta medir o tamanho dos prefixos, e está no `../docs/revisao.md` §4.
+
+#### O que este ticket tocou que não era dele, e porquê
+
+O `audit_log_action` (KAM-012): as duas acções da fila, sobre o domínio da `0046` do KAM-050, com a entrada do `downgrade` em `../ci/canon-lint.yaml` pelo precedente da `0038` e da `0042`. O bloco do KAM-092: depende agora do KAM-196.
 
 ### Handoff para Claude Code
 
@@ -977,7 +1016,7 @@ Testes: idempotência 2x e crash a meio, compensação com falha no passo 4, rec
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007 |
+| Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
 | Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127 |
 | Responsável sugerido | Arquitecto de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1, §16, §20.1 PA-GOV-1/6), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§4–§5), ADR-009, ADR-019 |
@@ -2047,10 +2086,10 @@ re-análise ao *outbox*, sem suspender ninguém: quem decide a sanção é o KAM
 
 ### Critérios de Aceitação
 
-- [ ] O tipo `screening.violation_detected` entra no §3.5 do dicionário por emenda, com o envelope comum e um corpo sem texto do produto: tenant, `sku`, regras, `versao_politica` e o `sha256` do conteúdo decidido.
-- [ ] O contrato `v1` entra em `../contratos/eventos/`, com exemplo, e passa o *gate* 7 (compatibilidade, PII, exemplos); os tipos gerados e todas as contagens do catálogo acompanham.
-- [ ] A porta `EmissorDeViolacoes` do `../packages/core-ts/src/screening/reanalise.ts` ganha um adaptador que escreve no *outbox* na mesma transacção da decisão, e uma falha de escrita desfaz a decisão.
-- [ ] A re-análise continua a não suspender tenants nem despublicar produtos; o consumidor é o KAM-097.
+- [x] O tipo `screening.violation_detected` entra no §3.5 do dicionário por emenda, com o envelope comum e um corpo sem texto do produto: tenant, `sku`, regras, `versao_politica` e o `sha256` do conteúdo decidido.
+- [x] O contrato `v1` entra em `../contratos/eventos/`, com exemplo, e passa o *gate* 7 (compatibilidade, PII, exemplos); os tipos gerados e todas as contagens do catálogo acompanham.
+- [x] A porta `EmissorDeViolacoes` do `../packages/core-ts/src/screening/reanalise.ts` ganha um adaptador que escreve no *outbox* na mesma transacção da decisão, e uma falha de escrita desfaz a decisão.
+- [x] A re-análise continua a não suspender tenants nem despublicar produtos; o consumidor é o KAM-097.
 
 ### Detalhes Técnicos
 
@@ -2064,9 +2103,66 @@ re-análise ao *outbox*, sem suspender ninguém: quem decide a sanção é o KAM
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-088 actualizada a apontar para este ticket no critério 7.
-- [ ] Sem texto de produto nem dados pessoais no corpo do evento.
-- [ ] Documentação actualizada (dicionário, catálogo de contratos).
+- [x] Critérios de Aceitação satisfeitos, e a verificação do KAM-088 actualizada a apontar para este ticket no critério 7.
+- [x] Sem texto de produto nem dados pessoais no corpo do evento.
+- [x] Documentação actualizada (dicionário, catálogo de contratos).
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-191-evento-violacao`: a emenda 1.84 do dicionário (§3.5, linha «Tipos do
+Piloto») com o `../canon/dicionario.yaml` regenerado; os contratos
+[`v1` e `v2`](../contratos/eventos/screening.violation_detected/v1.schema.json) com os dois exemplos; os
+tipos gerados (`../packages/contracts/src/eventos.gerado.ts` e
+`../libs/py-core/src/kamba_core/eventos/contratos.py`); o adaptador
+[`../packages/core-ts/src/screening/emissor.ts`](../packages/core-ts/src/screening/emissor.ts) — o
+`EmissorSql`, a transacção por produto `porProdutoSql` e a `dependenciasDaReanalise`, que monta os
+três sobre a **mesma** ligação de `kamba_app` e o catálogo sobre a de `kamba_batch` —; o
+`conteudoSha256` na `Violacao` da `reanalise.ts`; e o `TestViolacao` em
+[`../db/tests/test_screening_schema.py`](../db/tests/test_screening_schema.py), que corre o
+`SQL_EMITIR_VIOLACAO` do módulo contra PostgreSQL tal como está escrito. **Sem revisão de base de
+dados**: o `evt_emitir` não tem lista de tipos, e o tipo novo não pede DDL.
+
+**Duas leituras, ditas em vez de escolhidas em silêncio.** (1) O critério 1 lista o tenant entre o que
+o evento leva. O `tenant_id` vai no **envelope comum**, que o `evt_emitir` preenche e a RLS do
+*outbox* confere, e **não** se repete no payload — **nenhum** dos outros quarenta contratos o
+repete (medido sobre os `v1.schema.json`): um `tenant_id` no corpo é o caminho que o
+`../services/agr/src/kamba_agr/eventos/handlers.py` recusa abrir, e duas fontes do mesmo valor podem
+divergir. (2) O resumo chama-se `sha256` no payload, e não `conteudo_sha256` como a coluna: o *lint* de
+PII do *gate* 7 compara por raiz e apanha `conteudo`; o nome já é canónico (`media_assets.sha256`), e
+uma excepção em `../ci/contratos-allow.yaml` era um campo que nada mais vigiava. A leitura (1) foi
+devolvida e confirmada pelo orquestrador do lote: o tenant fica no envelope, como nos outros quarenta contratos.
+
+**O resumo vai em base32 (RFC 4648), e não em hexadecimal — achado F1 da revisão adversarial.** A
+primeira versão mandava 64 hexadecimais, e a guarda de telefone do `evt_emitir` (`0004`) casa-os num
+conteúdo em cada ~50 mil: a revisão encontrou um («vinho tinto 65521», categoria `moda`). A recusa
+desfazia a decisão, a execução seguinte voltava ao mesmo produto pela mesma ordem do
+`SQL_POR_REANALISAR`, e a re-análise ficava parada nele para sempre — e um tenant podia fabricar o
+conteúdo. O alfabeto do base32 não tem `9` nem `+`, pelo que nenhum resumo casa a guarda, por
+construção; medido nos dois lados: o ensaio `(F1) um resumo nunca casa a guarda de telefone do
+evt_emitir, e o hexadecimal casava` e, contra a base, o `evt_emitir` a recusar o hexadecimal desse
+conteúdo (`23514`) e a aceitar o base32 (`test_o_resumo_em_base32_passa_a_guarda_onde_o_hexadecimal_caia`).
+Os outros três campos não são do tenant de forma que dispare a guarda: as `regras` e a versão vêm da
+política, e um `sku` com um telefone já não se grava, porque o `catalog.product_changed` do COM passa
+pela mesma guarda na transacção que o cria.
+
+**Porque nasce com `v1` e `v2`.** O *gate* 7 (`dominios`) exige que a última versão de cada tipo
+cubra as **dez** finalidades, e o `lerEnvelope` fixa o domínio **por número de versão** — **oito** na
+`v1`. Uma `v1` só, com as dez, prometia o que o leitor recusa; com as oito, avermelhava o *gate*. O
+produtor emite a `v1`, como os eventos de catálogo do COM: a finalidade é `transacao`, que as duas
+têm.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — o tipo no §3.5 por emenda, envelope comum, corpo sem texto do produto | **satisfeito** | Emenda 1.84: `screening.violation_detected` na lista fechada do §3.5, que passa a **quarenta e um** (os quarenta da `main`, com os dois do KAM-050); agregado `product` com o `sku` como `id` (a linhagem do `catalog.product_changed`), classe P0, payload `sku`, `regras`, `versao_politica` e `sha256`, `additionalProperties: false`. Leitura: **o tenant vai no envelope, como nos outros quarenta** — nenhum deles o repete no payload, e um campo que só este evento tivesse partia a convenção; a caixa dá-se por cumprida nessa leitura, confirmada pelo orquestrador do lote. Gate 3b: `dict_export --check` conforme, `canon_lint check` conforme (`dicionario v1.84`, `eventos: 82 ficheiro(s)`), canário 10/10. Sem texto: `nao leva o texto do produto em campo nenhum` (`../packages/core-ts/tests/screening.emissor.test.ts`) |
+| 2 — contrato `v1` com exemplo, *gate* 7, tipos gerados e contagens | **satisfeito** | `contract_diff check` contra a `publico/main`: **82** contratos, 80 na base, **2 novos, 0 quebrantes**; PII **0** nomes proibidos; exemplos **0** inválidos; domínios **0** divergências; gerados **0** desactualizados; canário 11 negativas e 4 positivas, **0** falhas. Os exemplos validam contra o esquema no `exemplos` e o payload real no `validarPayload` das duas versões (`passa no validador do contrato, nas duas versoes publicadas`). Contagens: o `ESPERADOS` passa a 41 em três baterias (`../tools/contract_diff/tests/test_catalogo_e_cli.py`, `../libs/py-core/tests/test_eventos_contratos.py`, `../packages/contracts/tests/eventos.test.ts`) e o `../packages/core-ts/tests/eventos.contratos.test.ts` a 41 e 82; o tipo entra no `FORA_DO_CINCO`, porque o `../docs/tecnica/06` §5 não o lista; a prosa que dizia «trinta e oito» no presente deixa de fixar o número (`../docs/contratos.md` 1.3, `../docs/eventos.md`, o `contract_diff` e quatro comentários do COM). Suites: `contract_diff` **117** OK, `py-core` **97** OK, `@kamba/contracts` **12** OK, e os `screening*` e `eventos.*` do `@kamba/core-ts` **307** OK, com o *typecheck* dos dois pacotes a zero |
+| 3 — o adaptador escreve no *outbox* na transacção da decisão; uma falha desfaz a decisão | **satisfeito** | `EmissorSql` valida o payload contra o contrato e chama o `evt_emitir` pelo cliente que recebe; `porProdutoSql` é o `comTenant` sobre esse **mesmo** cliente, e a `dependenciasDaReanalise` é o único sítio onde a ligação da aplicação entra (achado F3: deixar a composição a quem monta o *job* era deixá-la a uma linha sem ensaio). **A prova é composta, e diz-se:** nenhum ensaio corre o `reanalisar` em TypeScript contra PostgreSQL. A metade TypeScript mede, pelo `comTenant` real e pela fábrica, a sequência: `BEGIN`, contexto, `gravar`, `emitir`, `COMMIT`; com o `evt_emitir` a falhar, `BEGIN`, contexto, `gravar`, `emitir`, `ROLLBACK` e a execução pára (`uma bloqueada grava e emite dentro da mesma transaccao do produto, e confirma`, `uma falha da escrita no outbox desfaz a transaccao com a decisao, e para a execucao`), e a ordem dos argumentos do `evt_emitir` (`chama o evt_emitir com o tipo, a versao, o tenant, o produto e o payload`). A metade da base corre o `SQL_EMITIR_VIOLACAO` e o `SQL_GRAVAR` do módulo tal como estão escritos, com os argumentos nessa ordem: a decisão e a linha do *outbox* estão na mesma transacção, o envelope **real** valida contra o `v1.schema.json`, e um `ROLLBACK` não deixa nem uma nem outra (`test_a_bloqueada_e_o_evento_ficam_na_mesma_transaccao`); uma escrita recusada pela RLS do *outbox* (`42501`) aborta a transacção com a decisão dentro (`test_uma_escrita_recusada_desfaz_a_decisao`) — **13** ensaios do ficheiro OK numa base descartável do `../db/gate_bd.py` |
+| 4 — a re-análise não suspende nem despublica; o consumidor é o KAM-097 | **satisfeito** | A sequência do critério 3 é **exaustiva**: além do contexto e da transacção, o único SQL que a re-análise corre é o `gravar` e o `emitir` — nenhum `UPDATE` de `tenants` nem de `offer_terms`. O `EmissorSql` só chama o `evt_emitir`. Consumidor: o KAM-097, que consome o tipo no seu critério 1 |
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos, e a verificação do KAM-088 a apontar para este ticket no critério 7 | **satisfeito** | Os quatro acima. A linha do critério 7 do KAM-088 diz agora que o contrato e o adaptador são deste ticket, e o que continua a faltar lá — nada **agenda** o `reanalisar` na mudança de versão (credor KAM-078, cujos Detalhes Técnicos o nomeiam desde a versão 1.18 do EPIC-08) e o consumidor (KAM-097) — fica nomeado com credor |
+| Sem texto de produto nem dados pessoais no corpo do evento | **satisfeito** | Quatro campos, nenhum de texto livre: o `sku` é referência (a mesma que o `catalog.product_changed` já leva), as `regras` são identificadores da política, a versão é SemVer, e o `sha256` é um resumo de 52 caracteres de base32 (`pattern` no contrato). Ensaio: o texto do produto não aparece no payload serializado. *Lint* de PII do *gate* 7: **0** |
+| Documentação actualizada (dicionário, catálogo de contratos) | **satisfeito** | Dicionário 1.84 (§3.5, a nota do §3.58 fechada, a linha do §6) com o `canon/dicionario.yaml` regenerado; `../docs/contratos.md` 1.3, com a subsecção do tipo novo no §3 |
 
 ### Handoff para Claude Code
 
@@ -2092,7 +2188,7 @@ Testes: gate 7 e integração contra PostgreSQL.
 | Prioridade | P1 |
 | Estimativa | S |
 | Dependências | KAM-088 |
-| Bloqueia | — |
+| Bloqueia | KAM-195 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com o dono do AGR |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-088 e a sua verificação, DoD 2), `02_Dicionario_de_Dados_Canonico.md` (§3.29 e §3.58), `../llm/aliases.yaml` |
 
@@ -2111,9 +2207,9 @@ tirar o lugar a nenhum alias existente.
 
 ### Critérios de Aceitação
 
-- [ ] O §3.29 do dicionário ganha o papel do classificador por emenda, e a lista fechada de papéis passa a contar com ele em todas as superfícies que a dizem.
-- [ ] O `screening-nano` entra em `../llm/aliases.yaml` com esse papel, e o cliente do AGR continua a resolver os quatro aliases que já existiam (os ensaios de `../services/agr/tests/test_llm_chaves.py` verdes).
-- [ ] O `ALIAS_DO_CLASSIFICADOR` do `../packages/core-ts/src/screening/classificador.ts` deixa de estar documentado como não declarado.
+- [x] O §3.29 do dicionário ganha o papel do classificador por emenda, e a lista fechada de papéis passa a contar com ele em todas as superfícies que a dizem.
+- [x] O `screening-nano` entra em `../llm/aliases.yaml` com esse papel, e o cliente do AGR continua a resolver os quatro aliases que já existiam (os ensaios de `../services/agr/tests/test_llm_chaves.py` verdes).
+- [x] O `ALIAS_DO_CLASSIFICADOR` do `../packages/core-ts/src/screening/classificador.ts` deixa de estar documentado como não declarado.
 
 ### Detalhes Técnicos
 
@@ -2127,9 +2223,46 @@ tirar o lugar a nenhum alias existente.
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos, e a verificação do KAM-088 actualizada a apontar para este ticket na DoD 2.
-- [ ] Nenhuma chave nem destino de LLM no repositório.
-- [ ] Documentação actualizada (dicionário regenerado).
+- [x] Critérios de Aceitação satisfeitos, e a verificação do KAM-088 actualizada a apontar para este ticket na DoD 2.
+- [x] Nenhuma chave nem destino de LLM no repositório.
+- [x] Documentação actualizada (dicionário regenerado).
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-192-screening-nano`: o papel `screening` no dicionário §3.29 (emenda
+1.85), o alias `screening-nano` em [`../llm/aliases.yaml`](../llm/aliases.yaml) (versão `1.2.0`,
+com o `../llm/litellm.config.yaml` e o `../ci/llm-aliases.lock` gerados), os dois `PAPEIS` com o
+quinto valor, e a revisão [`0047`](../db/migrations/versions/0047_papel_screening.py), que reescreve
+o `CHECK` de `dat.llm_call_log.papel`.
+
+**A revisão de base de dados não estava no bloco, e é a parte que mais pesa.** O §3.29 tem um só
+conceito para o papel do alias e para a coluna `llm_call_log.papel`, e a `0023` impõe esse domínio
+com um `CHECK` fechado de quatro. Um papel novo sem revisão deixava o *gate* 3b vermelho na `0023`
+(medido: `falta: screening`). E deixava uma chamada `screening` pelo cliente do AGR com a linha
+recusada pelo servidor, e o `_escrever` engole essa recusa: o registo de transferência perdia-se em
+silêncio. A outra saída — partir o conceito em dois e deixar o papel fora da coluna — foi recusada
+pelo orquestrador do lote. Deixava as chamadas do classificador sem registo, sem custo e sem *gate*
+de destino.
+
+**Declarado não é ligado.** O modelo é `por_decidir`, como nos outros quatro. O papel não tem
+finalidade de transferência: nenhuma das treze do §3.49 o serve, e acrescentar uma é outra
+revisão. Sem finalidade, o `finalidade_de` do AGR nega-o, e uma chamada `screening` sai em
+`destino_negado` com a sua linha. O classificador do GOV continua a chamar o proxy directamente e
+não passa pelo cliente do AGR. Essa ligação e a finalidade ficam com o credor **KAM-195**.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — o §3.29 ganha o papel por emenda; a lista fechada conta com ele em todas as superfícies que a dizem | **satisfeito** | Emenda 1.85, com as linhas «Papel de um alias», «Nome de um alias» e «Tecto de resposta» do §3.29 e a do §3.58, e o `canon/dicionario.yaml` regenerado (`dict_export --check`: corresponde). As superfícies, uma a uma: o `CHECK` da `0047` (pai e partição `DEFAULT`, `test_a_particao_herda_o_check_dos_cinco_papeis`); o `PAPEIS` e o `PAPEIS_COM_TECTO` do AGR e do `../tools/llm_config/`, confrontados pelo teste de paridade; o §13.2 do `../docs/tecnica/02_Agent_Runtime_Verticais.md` (versão 1.9); os Detalhes Técnicos do KAM-030 no EPIC-03 (versão 1.21); a nota do `../db/custo.py` e a sua gémea em `../ops/custo.md`; e os textos de razão do `api.anthropic.com` em `../infra/egress/litellm.yaml`, `../infra/egress/proxy-saida.yaml` e `../tools/compose_prod/egress_dez.py`, que passam a nomear o `screening-nano` (só a razão; nenhum destino muda). **Fica de fora, de propósito, o padrão de eco `kamba-(router|chat|vision|embed)` da política de guardas** (`../services/agr/src/kamba_agr/guardas/politica.py`): não diz a lista de papéis, diz os nomes que podem ecoar numa conversa do AGR, e o `screening-nano` nunca entra num *prompt* do AGR. As duas declarações antigas do domínio ficam em `dominios_historicos` do `../ci/canon-lint.yaml`, e a entrada da `0023` morde: retirada, o 3b dá `falta: screening` |
+| 2 — o `screening-nano` entra com esse papel; o cliente do AGR resolve os quatro que já existiam (ensaios do `test_llm_chaves.py` verdes) | **satisfeito** | `TestLerOFicheiroReal` lê o ficheiro real: `test_os_cinco_papeis` (com a lista por extenso), `test_os_nomes_dos_aliases`, `test_o_screening_nao_toma_o_lugar_do_router` e `test_o_screening_leva_tecto_de_resposta`. As 110 baterias `test_llm*.py` do AGR estão verdes, e entre elas as do `test_llm_chaves.py`, cuja chave de *tenant* continua só com os grupos de `router` e `chat` — e é por isso que o classificador não a pode usar: a chave com que o GOV chama o `screening-nano` é do KAM-195. A chamada pelo cliente foi medida com o destino negado: `test_o_screening_nega_antes_de_sair_e_grava_a_linha` corre em `staging`, onde o ambiente autoriza; nada sai para o proxy, grava uma linha `papel = 'screening'` em `destino_negado`, e o `router` do mesmo cliente sai como controlo. Contra PostgreSQL, `test_os_cinco_papeis_passam` escreve as cinco |
+| 3 — o `ALIAS_DO_CLASSIFICADOR` deixa de estar documentado como não declarado | **satisfeito** | A nota em `../packages/core-ts/src/screening/classificador.ts` diz que está declarado com o papel `screening` e não ligado. É a única mudança em `packages/core-ts`, e é só comentário: sete linhas por seis |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; a verificação do KAM-088 aponta para este ticket na DoD 2 | **satisfeito** | Os três acima. A linha da DoD 2 do KAM-088 diz agora que o alias está declarado por este ticket e o que falta para o ligar |
+| Nenhuma chave nem destino de LLM no repositório | **satisfeito** | O `chave_env` é o **nome** `LLM_KEY_P1`, que o `kamba-router` já usa, e o valor vive no cofre. O fornecedor `anthropic` já está no inventário de subprocessadores e nas listas de saída: nenhum ficheiro de `../infra/egress/` muda. Nenhum ensaio chama um modelo: o cliente usa o transporte falso e o destino negado |
+| Documentação actualizada (dicionário regenerado) | **satisfeito** | Dicionário 1.85 e `canon/dicionario.yaml` regenerado; *gate* 3b conforme nos três comandos (`dict_export --check`, `canon_lint check`, `canon_lint canario`) |
 
 ### Handoff para Claude Code
 
@@ -2141,6 +2274,147 @@ Objectivo: um papel novo no §3.29 por emenda, o alias screening-nano declarado 
 AGR a resolver os cinco aliases.
 Regras: nenhum alias existente muda de papel; sem chaves nem destinos no repositório.
 Testes: os do AGR e o gate 3b.
+```
+
+---
+
+## KAM-195 — Screening: o classificador chama pelo cliente com gate de destino, registo e custo, e a finalidade de transferência
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-192, KAM-069 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o dono do AGR e o responsável de conformidade |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-088 e KAM-192, com as suas verificações), `EPIC-07_Seguranca_Conformidade.md` (bloco KAM-069), `02_Dicionario_de_Dados_Canonico.md` (§3.29 e §3.49), `../docs/tecnica/02_Agent_Runtime_Verticais.md` §13 |
+
+### Contexto
+
+O KAM-192 declarou o alias `screening-nano` com o papel próprio `screening` (dicionário §3.29, emenda
+1.85, revisão `0047`) e deixou-o **declarado e não ligado**, por duas razões medidas. A primeira: o
+classificador do KAM-088 vive em TypeScript (`../packages/core-ts/src/screening/classificador.ts`) e
+chama o proxy LiteLLM directamente. O cliente que aplica o *gate* de destino do KAM-069, grava a
+linha em `dat.llm_call_log` e calcula o custo só existe em Python, no AGR, e em `packages/core-ts`
+não há escritor dessa tabela nem *gate* de destino de LLM. A segunda: o papel não tem finalidade de
+transferência. Nenhuma das treze de `tenant_destinations.purpose` (§3.49, revisão `0036`) serve o
+classificador de categorias, e o `finalidade_de` do AGR nega-o — uma chamada `screening` sai em
+`destino_negado`, com a sua linha. Este ticket é o credor das duas metades, e nasce no PR do KAM-192.
+
+### Objectivo
+
+Pôr o classificador de screening a chamar o modelo pelo mesmo caminho dos outros papéis — *gate* de
+destino, registo e custo — e dar ao papel a finalidade de transferência que o autoriza.
+
+### Critérios de Aceitação
+
+- [ ] O classificador do GOV chama o modelo por um caminho que aplica o *gate* de destino do KAM-069, grava a linha em `dat.llm_call_log` com o papel `screening` e calcula o custo. O caminho pode ser uma rota HTTP no AGR que o GOV chama, ou um cliente em TypeScript com as mesmas três garantias, e o desenho escolhido fica escrito neste bloco com a razão. Nenhuma chamada do classificador sai sem passar pelo *gate*, e há ensaio que o prova com o destino negado.
+- [ ] A finalidade de transferência do papel entra no domínio de `tenant_destinations.purpose` por emenda ao §3.49 e por revisão de base de dados sobre a `0036`, e o `FINALIDADE_DO_PAPEL` do AGR passa a mapear o `screening`. **A finalidade nova é confirmada pelo fundador antes de entrar**, porque abre um destino de transferência e o procedimento da APD (ADR-008, KAM-069) é dele.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (o classificador), AGR (o cliente e, se for o desenho escolhido, a rota), canon (§3.49), base de dados (a revisão da finalidade).
+- **A chave.** A chave virtual de um *tenant* só alcança os grupos de `router` e `chat` (`MODELOS_DA_CHAVE` em `../infra/llm/chaves.py`): o classificador precisa de uma chave cujo `models` inclua o `screening-nano`, e o desenho diz de quem é e onde vive.
+- **Os tectos de tempo.** O `screening-nano` tem `timeout: 5` por tentativa no proxy, com `num_retries: 1`, e o `classificadorPorProxy` aborta aos 5 s no total: uma primeira tentativa lenta faz a segunda correr depois de o cliente desistir, e paga-se. O caminho escolhido acerta os dois para a nova tentativa caber no orçamento de quem chama.
+- **Fora deste ticket:** o modelo atrás do alias e o eval no *gate* — o `modelo` continua `por_decidir` até ao *golden* do screening, com o credor KAM-040 dos outros quatro aliases.
+
+### Testes Requeridos
+
+- Unidade: o classificador com o destino negado não abre ligação ao proxy e grava a linha; com o destino autorizado, a linha leva o custo.
+- Base de dados: a finalidade nova no `CHECK` da `tenant_destinations.purpose`, com o `downgrade` a recusar-se quando há linhas.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, com o desenho da ligação escrito neste bloco.
+- [ ] A confirmação do fundador sobre a finalidade registada, com a data.
+- [ ] Nenhuma chave nem chamada a modelo real no repositório nem nos ensaios.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-195 da KAMBÁ (o classificador de screening a chamar pelo cliente, e a finalidade).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-088, KAM-192 e KAM-195), specs/EPIC-07_Seguranca_Conformidade.md
+(bloco KAM-069), specs/02_Dicionario_de_Dados_Canonico.md (§3.29 e §3.49),
+packages/core-ts/src/screening/classificador.ts e services/agr/src/kamba_agr/llm/.
+Objectivo: o classificador passa pelo gate de destino, pelo registo e pelo custo; o papel screening ganha finalidade.
+Regras: a finalidade nova espera pela confirmação do fundador; sem chaves nem chamadas reais.
+Testes: os do AGR, os do core-ts e os de base de dados da revisão nova.
+```
+
+---
+
+## KAM-196 — Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | L |
+| Dependências | KAM-089 |
+| Bloqueia | KAM-092 |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Responsável de Segurança |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-089 e a sua verificação), `02_Dicionario_de_Dados_Canonico.md` (§3.61), `../docs/revisao.md`, `../docs/tecnica/08_Seguranca_Conformidade.md` (§6, MFA no acesso humano), ADR-015 |
+
+### Contexto
+
+O KAM-089 entregou a fila de revisão como serviço (`../packages/core-ts/src/revisao/`): abrir,
+listar sem dados pessoais, ver mascarado, revelar com registo, URL de documento de ≤ 300 s com
+registo, decidir, recorrer. **Não entregou a consola**, porque não há identidade de equipa neste
+repositório — nem IdP, nem contas de staff, nem MFA —, e uma rota `/equipa` sem ela era uma porta
+para os dados de todos os onboardings. Também não entregou o texto do aviso ao dono: o
+`../packages/core-ts/src/sms/` só tem o modelo do OTP. Este ticket é o credor dessas caixas, e
+nasce no PR que as devolve. **A escolha do IdP e a criação das contas de staff são do fundador**
+(contraparte e conta); o resto mede-se contra um IdP falso.
+
+### Objectivo
+
+Pôr a fila de revisão nas mãos de T&S: uma consola mínima no `onboarding-web`, protegida por
+identidade de equipa com MFA, e os avisos ao dono pela via certa.
+
+### Critérios de Aceitação
+
+- [ ] **(Fundador)** IdP da equipa escolhido e contas `ts_revisor`/`ts_lider` criadas, com MFA obrigatória; a escolha fica escrita com o subprocessador que acrescenta (KAM-069) e a sua licença.
+- [ ] Porta `IdentidadeDaEquipa` com um IdP falso nos ensaios: devolve o `Revisor` do §3.61 (identificador, papéis, MFA verificada, HMAC de NIF e telefone para a regra da parte); sem sessão válida ⇒ 401, sem MFA ⇒ 403, e nenhuma rota da consola responde sem ela.
+- [ ] Rotas `/equipa` no `onboarding-web` sobre o `ServicoDeRevisao`: lista paginada sem dados pessoais, caso mascarado, revelar um campo, abrir um documento (redirecção para a URL de ≤ 300 s), decidir, abrir e decidir recurso; **nenhuma rota de exportação**; as recusas do serviço respondem 403/409 e ficam no `audit_log`.
+- [ ] Cada rota nova tem caso real na bateria X-01 (`../tools/isolamento/baterias/x01_rotas.py` e o condutor `../tools/isolamento/tests/condutor/rotas.ts`): uma sessão de equipa sem papel não lê, e uma sessão de dono não entra.
+- [ ] Modelos de SMS (ASCII, ≤ 160 caracteres) e de e-mail para `aprovado`, `rejeitado`, `pedir_info` e `recurso_decidido`, com o texto fixo do motivo público; a via é o telefone registado ou o e-mail, **nunca** o número da loja. Nenhum número de telefone real no texto nem nos ensaios.
+- [ ] A fila corre num *job* nomeado com credenciais de lote: `drenarTriagem` e `alertarSla` agendados, `amostrar` chamado sobre cada aprovação automática (a que o KAM-092 conhece), `reaplicarEfeitos` sobre as decisões cujo efeito falhou, e as métricas do §3.61 servidas.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (consola), `onboarding-web`, SMS (KAM-116), avisos ao dono (KAM-115), isolamento (X-01).
+- **A consola não é o Medusa Admin nem o Chatwoot** (bloco do KAM-089).
+- **Fora deste ticket:** as decisões em si (KAM-089), as sanções (KAM-097), a escolha do IdP e as contas (fundador).
+
+### Testes Requeridos
+
+- Unidade: a porta de identidade recusa sem sessão, sem papel e sem MFA.
+- Integração: as rotas `/equipa` sobre o serviço com duplos, ponta a ponta, e o `audit_log` de cada visualização.
+- Isolamento: os casos X-01 das rotas novas.
+- Adversarial: uma sessão de dono, uma de equipa sem papel e uma sem MFA não lêem caso nenhum; a lista não exporta mais de uma página.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos, com o do fundador marcado só quando ele o fechar.
+- [ ] Sem segredos nem telefones reais no repositório; o IdP falso só existe nos ensaios.
+- [ ] Documentação actualizada (`../docs/revisao.md` §4 deixa de listar a consola e o aviso como em falta).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-196 da KAMBÁ (consola da fila de revisão).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-196 e KAM-089, com a verificação deste),
+specs/02_Dicionario_de_Dados_Canonico.md (§3.61), docs/revisao.md e packages/core-ts/src/revisao/.
+Objectivo: porta IdentidadeDaEquipa com IdP falso, rotas /equipa no onboarding-web sobre o
+ServicoDeRevisao, casos X-01 das rotas novas, modelos de SMS e e-mail do aviso ao dono, e o job da fila.
+Regras: a escolha do IdP e as contas de staff são do fundador; sem exportação; sem telefones reais;
+nenhuma rota responde sem identidade com MFA.
+Testes: unidade, integração, isolamento e adversarial.
 ```
 
 ---
@@ -2197,3 +2471,6 @@ Testes: os do AGR e o gate 3b.
 | 1.10 | Novembro 2026 | KAM-099: entra a secção de verificação, com **um critério satisfeito e oito parciais** e quatro caixas da DoD de seis, cada caixa por fechar com o seu credor. **Entra o KAM-190** (feature, M, P2, fase 1, dependências KAM-099 e KAM-097), credor das cinco caixas que nenhum ticket recebia; o `Bloqueia` do KAM-099 e do KAM-097 ganha o KAM-190. Total do epic: **17**. **Sem revisão de base de dados**: a escrita passa pelo módulo `produtos` do COM, com CAS sobre o `offer_terms.atualizado_at`, e os cinco escritores da tabela passam a `clock_timestamp()`. | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | KAM-087: entram as duas secções de verificação do bloco do KYC K1 — **dez** critérios e **seis** linhas de DoD. **Cinco** critérios marcados (3, 5, 6, 7 e 8) e **cinco parciais** (1, 2, 4, 9 e 10), cada um com o credor da parte que falta; o 4 é parcial pela revisão adversarial, que mediu o *phash* a confundir papel de modelo comum com imagem reutilizada; **três** linhas de DoD marcadas (2, 4 e 6) e **três parciais**. A `onboarding_case.fase` que a emenda 1.64 do dicionário deu a este ticket fica resolvida no §3.57 (emenda 1.80), com o valor final `activo`. | Equipa KAMBÁ |
 | 1.12 | Novembro 2026 | KAM-088: entra a secção de verificação do bloco do screening de categorias — **oito** critérios e **seis** linhas de DoD. **Três** critérios satisfeitos (1, 2 e 4) e **cinco parciais**; **três** caixas de DoD satisfeitas, **duas parciais** e **uma** por satisfazer. Entregue: a política Meta ∪ lei em `../policy/categorias/`, o gerador que a valida e fixa a versão por `sha256` contra a `main`, o módulo `../packages/core-ts/src/screening/` e a revisão `0044` da `screening_decision`, *append-only* por privilégio e por *trigger*, sobre a `0043` do KAM-087. **Uma medição que se escreve contra o próprio ramo:** os casos disfarçados do autor deram 82,4% na primeira passagem e a política foi afinada a olhar para eles; o conjunto de controlo que a revisão adversarial escreveu depois dá **6/81** evasões apanhadas na versão revista e **25/81** depois das correcções do normalizador — o resto é vocabulário que só o classificador generaliza, e o classificador não está ligado. A revisão confirmou dezanove achados; dezoito fecham-se aqui com ensaio, e a semântica de `bloqueada` passa a «final para as máquinas»: só um recurso humano (`../docs/tecnica/10` §8.2) a levanta. **Entram o KAM-191** (o contrato `screening.violation_detected`) **e o KAM-192** (o papel do alias `screening-nano`), feature, S, P1, fase 1, dependência KAM-088, credores das duas caixas que nenhum ticket recebia; o `Bloqueia` do KAM-088 ganha os dois. Total do epic: **19**. Credores: KAM-191, KAM-192, KAM-040, KAM-089, KAM-097, o Piloto e o fundador (o job do gate 12 e a base no gate 4). | Equipa KAMBÁ |
+| 1.13 | Novembro 2026 | KAM-191: entra a secção de verificação do bloco do contrato `screening.violation_detected` — **quatro** critérios e **três** linhas de DoD, todos satisfeitos. Entregue: a emenda 1.84 do dicionário (§3.5, quarenta e um tipos), os contratos `v1` e `v2` com exemplo, os tipos gerados e as contagens que diziam trinta e oito, e o adaptador `EmissorSql` com a transacção por produto `porProdutoSql` e a fábrica `dependenciasDaReanalise`, medidos contra PostgreSQL. **A revisão adversarial confirmou oito achados, e o mais grave parava a re-análise:** o resumo ia em hexadecimal, a guarda de telefone do `evt_emitir` casa-o num conteúdo em cada ~50 mil, e um produto assim desfazia a decisão e travava todas as execuções seguintes no mesmo sítio — passou a base32, cujo alfabeto não a pode casar. Os outros: a composição de produção num sítio só, contagens no presente que ainda diziam trinta e oito, o `seq` partilhado com os eventos de catálogo e os duplicados sob execuções sobrepostas documentados para o KAM-097, e a prova do critério 3 dita como composta. **Duas leituras ditas no bloco:** o tenant vai no envelope e não no payload (nenhum dos outros quarenta contratos o repete; confirmada pelo orquestrador do lote), e o resumo chama-se `sha256` porque o *lint* de PII do *gate* 7 apanha `conteudo`. **A linha do critério 7 do KAM-088 aponta para este ticket** e deixa de ter o KAM-191 como credor: o que lá falta é o agendador do `reanalisar` (KAM-078) e o consumidor (KAM-097). Sem revisão de base de dados e sem alteração ao *backlog*. | Equipa KAMBÁ |
+| 1.14 | Novembro 2026 | KAM-192: entram as duas secções de verificação do bloco do papel do classificador de screening — **três** critérios e **três** linhas de DoD, todos satisfeitos. O `screening-nano` fica declarado em `../llm/aliases.yaml` com o papel próprio `screening` (dicionário §3.29, emenda 1.85), e **com uma revisão de base de dados que o bloco não previa**: o papel é o domínio fechado de `dat.llm_call_log.papel`, e a `0047` reescreve o `CHECK` da `0023`, com o `downgrade` a recusar-se quando há linhas `screening`. A linha da DoD 2 do KAM-088 passa a apontar para esta entrega. Declarado não é ligado: o modelo fica com o KAM-040, como nos outros quatro aliases, e a finalidade de transferência e a ligação do classificador ao cliente do AGR ficam com o credor **KAM-195**, que **entra** neste PR (feature, L, P1, fase 1, dependências KAM-192 e KAM-069); o `Bloqueia` do KAM-192 ganha-o, e o do KAM-069 também. Total do epic: **20**. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | KAM-089: entram as duas secções de verificação do bloco da fila de revisão — **nove** critérios (cinco marcados, quatro parciais) e **seis** itens da DoD (três marcados, três parciais), cada parcial com o credor nomeado —, e o **KAM-196** nasce neste PR como credor da identidade da equipa com MFA, da consola `/equipa`, dos modelos do aviso ao dono e do *job* da fila; o **KAM-092** passa a depender dele, no bloco e na tabela-resumo. A revisão adversarial deu dezanove achados e mudou código: os dois bloqueadores eram o recurso de uma categoria a aprovar um onboarding rejeitado pelo KYC e a suite (a) a não medir a barreira do OTP. | Equipa KAMBÁ |

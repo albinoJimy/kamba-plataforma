@@ -1,6 +1,6 @@
 # GERADO por `python -m llm_config --root . escrever`. NAO EDITAR A MAO.
 #
-# Fonte: llm/aliases.yaml versao 1.1.0. Quem muda o comportamento e a
+# Fonte: llm/aliases.yaml versao 1.2.0. Quem muda o comportamento e a
 # fonte; este ficheiro e a traducao dela para o esquema do proxy LiteLLM.
 # O passo `aliases` do `lint_arch` falha se este ficheiro nao estiver em dia.
 
@@ -54,6 +54,16 @@ model_list:
       ordem: 1
       fornecedor: google
       tecto_de_resposta: 512
+  - model_name: screening-nano
+    litellm_params:
+      model: anthropic/por_decidir
+      api_key: os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic
+      timeout: 5
+    model_info:
+      papel: screening
+      ordem: 1
+      fornecedor: anthropic
+      tecto_de_resposta: 32
 
 router_settings:
   allowed_fails: 3

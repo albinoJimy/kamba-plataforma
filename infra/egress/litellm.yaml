@@ -30,8 +30,8 @@ destinos:
     porta: 443
     protocolo: https
     razao: >-
-      Fornecedor de `kamba-router` e de `kamba-chat` (ordem 1) em
-      `llm/aliases.yaml`. Subprocessador do `docs/tecnica/08` §8.3.2; destino
+      Fornecedor de `kamba-router`, de `kamba-chat` e de `screening-nano`
+      (ordem 1) em `llm/aliases.yaml`. Subprocessador do `docs/tecnica/08` §8.3.2; destino
       de transferencia `pendente` ate o KAM-069 lhe dar `apd_ref`.
     ticket: KAM-030
   - fqdn: api.openai.com

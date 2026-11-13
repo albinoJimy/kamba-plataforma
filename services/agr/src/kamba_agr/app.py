@@ -32,6 +32,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
+from kamba_core.idx.metricas import METRICAS as METRICAS_DO_IDX
+
 from .meta import SERVICE, VERSION
 from .metricas import METRICAS
 
@@ -65,8 +67,14 @@ async def metricas_endpoint(_request: Request) -> PlainTextResponse:
     segunda porta so acrescentava uma porta. E a mesma leitura do COM, que serve
     `/metrics` na porta da sua API interna (KAM-178).
     """
+    # **Dois registos na mesma rota** desde o KAM-193: o do AGR e o do IDX
+    # (`kamba_core.idx.metricas`), que vive na biblioteca porque a pesquisa e do
+    # dominio do indice e o AGR e so quem a chama. Os dois omitem uma serie
+    # que ainda nao foi escrita, pelo que um processo fresco continua a servir
+    # corpo vazio (`test_um_processo_fresco_serve_corpo_vazio`).
     return PlainTextResponse(
-        METRICAS.exposicao(), media_type=TIPO_DE_CONTEUDO_DAS_METRICAS
+        METRICAS.exposicao() + METRICAS_DO_IDX.exposicao(),
+        media_type=TIPO_DE_CONTEUDO_DAS_METRICAS,
     )
 
 

@@ -355,7 +355,9 @@ class TestAConfiguracaoGerada(_ComCopia):
         self.assertEqual(primeiro, self._texto(llm_config.CONFIG))
 
     def test_cada_alias_tem_uma_entrada_com_o_seu_nome(self) -> None:
-        for alias in ("kamba-router", "kamba-chat", "kamba-vision", "kamba-embed"):
+        for alias in (
+            "kamba-router", "kamba-chat", "kamba-vision", "kamba-embed", "screening-nano"
+        ):
             with self.subTest(alias=alias):
                 self.assertIn(f"model_name: {alias}\n", self.config)
 

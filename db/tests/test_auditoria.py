@@ -88,6 +88,16 @@ ACCOES = (
     # registo do mesmo facto.
     "retention.hold_aplicado",
     "retention.hold_levantado",
+    # A decima segunda, da revisao `0046` (KAM-050, criterio 5): o registo manual de um
+    # reembolso por dono ou ops. A mesma extensao por migracao, com a mesma
+    # recusa no `downgrade` se houver linhas escritas.
+    "order.refund_record",
+    # A decima terceira e a decima quarta, da revisao `0048` (KAM-089): cada
+    # documento visto e cada campo revelado na fila de revisao, e cada operacao
+    # dela recusada (sem papel, sem MFA, parte no caso). A mesma extensao por
+    # migracao, com a mesma recusa no `downgrade` se houver linhas escritas.
+    "review.acesso",
+    "review.recusa",
 )
 
 #: O dominio de `actor_type`.

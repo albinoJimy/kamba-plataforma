@@ -139,6 +139,9 @@ class TestFinalidades(unittest.TestCase):
                 )
         with self.assertRaises(DestinoNegado):
             destinos_mod.finalidade_de("papel_que_nao_existe")
+        # O `screening` (KAM-192) e um papel do cliente sem finalidade: nega.
+        with self.assertRaises(DestinoNegado):
+            destinos_mod.finalidade_de("screening")
 
 
 if __name__ == "__main__":

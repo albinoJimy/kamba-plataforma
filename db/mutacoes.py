@@ -281,6 +281,8 @@ KYC_SQL = "packages/core-ts/src/kyc/sql.ts"
 #: TypeScript, que a suite executa tal como esta.
 REV44 = "db/migrations/versions/0044_screening_de_categorias.py"
 SCREENING_SQL = "packages/core-ts/src/screening/sql.ts"
+REV48 = "db/migrations/versions/0048_fila_de_revisao.py"
+REVISAO_SQL = "packages/core-ts/src/revisao/sql.ts"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7138,6 +7140,47 @@ MUTACOES = [
     # `test_o_lote_ve_os_publicados_sem_decisao_com_a_categoria_mais_recente`
     # tem de a matar.
 
+    # ------------------------------------------- KAM-089 (revisao `0048`)
+    #
+    # Seis, e cada uma tira uma barreira que so a base tem.
+    ('revisao: o trigger deixa passar qualquer transicao', REV48,
+     "IF NEW.estado IS DISTINCT FROM OLD.estado AND NOT (",
+     "IF false AND NOT (",
+     "tests"),
+    # Um caso `decidido_final` voltava a `aberto` e decidia-se outra vez. O
+    # `test_a_maquina_do_trigger_e_a_do_modulo_par_a_par` tem de a matar.
+    ('revisao: a chave de abertura deixa de segurar os casos sem onboarding', REV48,
+     "UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)",
+     "UNIQUE (tipo, tenant_id, onboarding_id, motivo_codigo)",
+     "tests"),
+    # Reentregar um caso de saga abria-o outra vez, sem limite. O
+    # `test_a_chave_e_idempotente_com_e_sem_onboarding` tem de a matar.
+    ('revisao: o lote passa a poder baixar a prioridade', REV48,
+     "          IF NEW.prioridade > OLD.prioridade THEN",
+     "          IF false THEN",
+     "tests"),
+    # Um caso de risco alto descia para um so revisor. O
+    # `test_a_prioridade_so_fica_mais_urgente` tem de a matar.
+    ('revisao: a aplicacao passa a ler o motivo interno', REV48,
+     'op.execute("GRANT SELECT ON platform.review_case TO kamba_audit")',
+     'op.execute("GRANT SELECT ON platform.review_case TO kamba_audit, kamba_app")',
+     "tests"),
+    # O motivo interno chegava ao servico do dono. O
+    # `test_a_aplicacao_nao_le_nada_da_fila` tem de a matar.
+    ('revisao: a quota passa a contar a triagem', REVISAO_SQL,
+     "AND r.estado <> 'em_triagem_automatica' AND r.fila_at >= $2",
+     "AND r.fila_at >= $2",
+     "tests"),
+    # Os casos em triagem gastavam a quota e a fila nunca drenava. O
+    # `test_a_quota_conta_a_origem_e_recua_para_o_dispositivo` tem de a matar.
+    ('revisao: os contadores contam a primeira instancia por cima do recurso', REVISAO_SQL,
+     "ORDER BY (l.instancia = 'recurso') DESC, l.em DESC, l.id DESC LIMIT 1",
+     "ORDER BY (l.instancia = 'recurso'), l.em DESC, l.id DESC LIMIT 1",
+     "tests"),
+    # Um caso revertido em recurso contava como a decisao que o recurso
+    # desfez, e a taxa de falsos aprovados mentia. Foi o defeito que o
+    # `test_a_vista_do_sla_e_os_contadores` apanhou na primeira corrida.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -7587,7 +7630,7 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
 
     Leva o pacote, o `tools/kamba_yaml.py` (o `pii` le a lista aprovada por
     ele), a lista aprovada, e **os contratos**: o `test_catalogo_e_cli.py`
-    corre sobre os trinta e oito ficheiros reais, e nao sobre schemas
+    corre sobre os ficheiros reais, e nao sobre schemas
     inventados — uma logica certa com um catalogo que nao carrega nao serve.
     Leva tambem o `docs/tecnica/06` e o `canon/dicionario.yaml`, que sao as
     duas fontes contra as quais o catalogo e os `enum` se verificam.

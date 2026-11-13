@@ -28,12 +28,14 @@ import dataclasses
 from pathlib import Path
 from typing import Final
 
-#: Os papeis que o cliente expoe. Lista fechada (dicionario §3.29).
-PAPEIS: Final = ("router", "chat", "vision", "embed")
+#: Os papeis que o cliente expoe. Lista fechada (dicionario §3.29): o
+#: `screening` e o do classificador do GOV (KAM-192), e o mesmo dominio esta no
+#: `CHECK` de `dat.llm_call_log.papel` desde a revisao `0047`.
+PAPEIS: Final = ("router", "chat", "vision", "embed", "screening")
 
 #: Os papeis que levam `max_tokens` no corpo do pedido (KAM-189). Copia do
 #: `tools/llm_config.PAPEIS_COM_TECTO`, confrontada pelo teste de paridade.
-PAPEIS_COM_TECTO: Final = ("router", "chat", "vision")
+PAPEIS_COM_TECTO: Final = ("router", "chat", "vision", "screening")
 
 #: Os fornecedores de LLM do inventario de subprocessadores (`docs/tecnica/08`
 #: §8.3.2). Lista fechada: um fornecedor fora dela e um destino de
@@ -143,6 +145,6 @@ def ler(pasta: Path) -> dict[str, Alias]:
     faltam = sorted(set(PAPEIS) - set(saida))
     if faltam:
         raise AliasesIndisponiveis(
-            f"papel(eis) sem alias: {', '.join(faltam)}. O cliente expoe os quatro"
+            f"papel(eis) sem alias: {', '.join(faltam)}. O cliente expoe os cinco"
         )
     return saida

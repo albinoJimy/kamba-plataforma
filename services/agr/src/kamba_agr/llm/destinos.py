@@ -75,6 +75,11 @@ FINALIDADES: Final = (FINALIDADE_CONVERSA, FINALIDADE_EMBEDDINGS, FINALIDADE_VIS
 #: `embed` indexa catalogo e o `vision` le fotos de produto. Sao finalidades
 #: diferentes porque o inventario as separa, e porque um dia uma pode estar
 #: autorizada e a outra nao.
+#:
+#: **O `screening` (KAM-192) nao esta aqui, de proposito.** Nenhuma das treze
+#: finalidades do dicionario §3.49 serve o classificador de categorias, e uma
+#: finalidade nova e uma revisao de base de dados: ate la, o `finalidade_de`
+#: nega o papel e uma chamada sai em `destino_negado`, com a sua linha.
 FINALIDADE_DO_PAPEL: Final = {
     "router": FINALIDADE_CONVERSA,
     "chat": FINALIDADE_CONVERSA,

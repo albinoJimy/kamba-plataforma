@@ -82,7 +82,7 @@ DESTINOS: tuple[dict, ...] = (
     {
         "fqdn": "api.anthropic.com",
         "permitido": True,
-        "razao": "Fornecedor de `kamba-router` e `kamba-chat`; declarado por `litellm`.",
+        "razao": "Fornecedor de `kamba-router`, `kamba-chat` e `screening-nano`; declarado por `litellm`.",
     },
     {
         "fqdn": "api.openai.com",

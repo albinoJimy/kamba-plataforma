@@ -34,7 +34,7 @@
 # (KAM-010) e nunca neste ficheiro nem na imagem.
 
 version: 1
-versao: "1.1.0"
+versao: "1.2.0"
 
 # `router_settings` do `docs/tecnica/02` §13.1. Os tres nomes foram confirmados
 # contra a versao fixada (ver `docs/evidencia/KAM-030-litellm.md`): o ticket
@@ -51,7 +51,7 @@ router_settings:
 # corpo de cada chamada (KAM-189): sem ele, um texto que convencesse o modelo a
 # escrever pagava-se ate ao limite do fornecedor, e so o orcamento por *tenant*
 # o travava. Obrigatorio nos papeis que geram texto (`router`, `chat`,
-# `vision`); o `embed` nao o leva. Os valores sao *proposta* e calibram-se no
+# `vision`, `screening`); o `embed` nao o leva. Os valores sao *proposta* e calibram-se no
 # golden (KAM-040): o do router cobre a palavra unica que o classificador
 # devolve, com folga; o do chat e o do vision, uma mensagem de WhatsApp.
 aliases:
@@ -93,6 +93,23 @@ aliases:
     razao: >-
       Embeddings do catalogo, no IDX (§13.2, «A decidir em 05»). Mesma razao
       do `kamba-vision`: declarado, sem no do AGR a chama-lo.
+  - nome: screening-nano
+    papel: screening
+    timeout: 5
+    max_tokens: 32
+    estado: declarada
+    credor: KAM-040
+    razao: >-
+      O classificador de categorias do screening do GOV (KAM-088, papel do
+      KAM-192). Tem papel proprio para nao tomar o lugar do `kamba-router`: o
+      cliente do AGR indexa os aliases por papel. O tecto de 5 s e o do
+      `classificadorPorProxy`, e o `max_tokens` cobre o `{decisao, confianca}`
+      que o esquema fechado aceita. **Sem finalidade de transferencia**: o
+      `finalidade_de` do AGR nega o papel, e uma chamada sai em
+      `destino_negado` ate haver finalidade e destino autorizado. O `credor` e
+      o do modelo (KAM-040), como nos outros quatro, porque `ligada` quer dizer
+      modelo escolhido; a finalidade e o classificador do GOV a chamar pelo
+      cliente sao do KAM-195.
 
 # Fornecedores por alias, em lista propria e nao aninhada: o leitor de YAML
 # deste repositorio (`tools/kamba_yaml.py`) aceita um subconjunto, e uma lista
@@ -132,3 +149,9 @@ fornecedores:
     modelo: por_decidir
     chave_env: LLM_KEY_P3
     credor: KAM-063
+  - alias: screening-nano
+    ordem: 1
+    fornecedor: anthropic
+    modelo: por_decidir
+    chave_env: LLM_KEY_P1
+    credor: KAM-040

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.83"
+versao_dicionario: "1.87"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -243,7 +243,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Entitlement (chaves)"
-    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor, prazo_reclamacao_dias"
     literais:
       - "msgs_ai_mes"
       - "marcacoes_mes"
@@ -256,6 +256,7 @@ entradas:
       - "manual_daily_max_minor"
       - "manual_max_por_contacto_24h"
       - "manual_dupla_acima_minor"
+      - "prazo_reclamacao_dias"
     nomes:
       - "msgs_ai_mes"
       - "marcacoes_mes"
@@ -268,6 +269,7 @@ entradas:
       - "manual_daily_max_minor"
       - "manual_max_por_contacto_24h"
       - "manual_dupla_acima_minor"
+      - "prazo_reclamacao_dias"
     nomes_nota:
       - "valor_max_pedido_minor"
       - "ManualProvider"
@@ -275,6 +277,7 @@ entradas:
       - "manual_max_kz"
       - "entitlements"
       - "limites"
+      - "prazo_reclamacao_dias"
     variantes_literais:
       - "valor_max_pedido_kz"
   - seccao: "3.2"
@@ -701,7 +704,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa}"
     literais:
       - "action"
       - "price.update"
@@ -715,6 +718,9 @@ entradas:
       - "privacy.dsar_rectificado"
       - "retention.hold_aplicado"
       - "retention.hold_levantado"
+      - "order.refund_record"
+      - "review.acesso"
+      - "review.recusa"
     nomes:
       - "action"
       - "price.update"
@@ -728,7 +734,11 @@ entradas:
       - "privacy.dsar_rectificado"
       - "retention.hold_aplicado"
       - "retention.hold_levantado"
+      - "order.refund_record"
+      - "review.acesso"
+      - "review.recusa"
     nomes_nota:
+      - "order.refund_record"
       - "audit.read"
     variantes_literais: []
   - seccao: "3.2"
@@ -1280,7 +1290,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Tipos do Piloto"
-    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled"
+    canonico: "order.created, order.paid, order.expired, order.cancelled, order.delivered, payment.reference_issued, payment.confirmed, payment.manual_confirmed, payment.failed, payment.expired, review.requested, review.created, query.resolved, query.unresolved, query.handoff, tenant.approved, tenant.provisioned, tenant.activated, tenant.suspended, tenant.reactivated, tenant.closed, catalog.product_changed, catalog.price_changed, stock.reserved, stock.released, stock.adjusted, stock.low, consent.recorded, consent.withdrawn, privacy.erasure_requested, privacy.erasure_applied, channel.updated, channel.inactivity_warning, contact.merged, conversation.mode_changed, booking.created, booking.reminder_due, booking.cancelled, order.exception, order.refund_requested, screening.violation_detected"
     literais:
       - "order.created"
       - "order.paid"
@@ -1320,6 +1330,9 @@ entradas:
       - "booking.created"
       - "booking.reminder_due"
       - "booking.cancelled"
+      - "order.exception"
+      - "order.refund_requested"
+      - "screening.violation_detected"
     nomes:
       - "order.created"
       - "order.paid"
@@ -1359,7 +1372,27 @@ entradas:
       - "booking.created"
       - "booking.reminder_due"
       - "booking.cancelled"
+      - "order.exception"
+      - "order.refund_requested"
+      - "screening.violation_detected"
     nomes_nota:
+      - "screening.violation_detected"
+      - "bloqueada"
+      - "product"
+      - "sku"
+      - "id"
+      - "catalog.product_changed"
+      - "regras"
+      - "versao_politica"
+      - "sha256"
+      - "screening_decision.conteudo_sha256"
+      - "evt_emitir"
+      - "tenant_id"
+      - "v1"
+      - "v2"
+      - "finalidades"
+      - "order.exception"
+      - "order.refund_requested"
       - "order.paid"
       - "channel.updated"
       - "contact.merged"
@@ -1369,7 +1402,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id"
     literais:
       - "order_id"
       - "review_id"
@@ -1388,6 +1421,7 @@ entradas:
       - "authn_ok"
       - "provider_event_id"
       - "plano"
+      - "evento_pagamento_id"
     nomes:
       - "order_id"
       - "review_id"
@@ -1406,7 +1440,11 @@ entradas:
       - "authn_ok"
       - "provider_event_id"
       - "plano"
+      - "evento_pagamento_id"
     nomes_nota:
+      - "evento_pagamento_id"
+      - "id"
+      - "order.exception"
       - "preco_tipo"
       - "expira_at"
       - "orders_mirror"
@@ -7033,44 +7071,59 @@ entradas:
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Papel de um alias"
-    canonico: "llm_call_log.papel ∈ {router, chat, vision, embed}"
+    canonico: "llm_call_log.papel ∈ {router, chat, vision, embed, screening}"
     literais:
       - "llm_call_log.papel"
       - "router"
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
     nomes:
       - "llm_call_log.papel"
       - "router"
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
     nomes_nota:
       - "CHECK"
+      - "screening"
       - "PAPEIS"
       - "tool"
+      - "nano"
+      - "finalidade_de"
+      - "destino_negado"
       - "vision"
       - "embed"
       - "declarada"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Nome de um alias"
-    canonico: "kamba-router, kamba-chat, kamba-vision, kamba-embed"
+    canonico: "kamba-router, kamba-chat, kamba-vision, kamba-embed, screening-nano"
     literais:
       - "kamba-router"
       - "kamba-chat"
       - "kamba-vision"
       - "kamba-embed"
+      - "screening-nano"
     nomes:
       - "kamba"
       - "router"
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
+      - "nano"
     nomes_nota:
       - "timeout"
       - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+      - "screening"
+      - "nano"
+      - "classificadorPorProxy"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Tecto de resposta de um alias"
@@ -7087,6 +7140,7 @@ entradas:
       - "router"
       - "chat"
       - "vision"
+      - "screening"
       - "embed"
       - "tecto_de_resposta"
       - "max_tokens"
@@ -7109,6 +7163,8 @@ entradas:
       - "credor"
       - "KAM"
       - "NNN"
+      - "screening"
+      - "nano"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Ordem de tentativa de um fornecedor"
@@ -11189,18 +11245,23 @@ entradas:
     variantes_literais: []
   - seccao: "3.43"
     conceito: "Excepção da encomenda"
-    canonico: "orders_mirror.excepcao ∈ {pagamento_tardio_sem_stock, pagamento_duplicado, valor_divergente}"
+    canonico: "orders_mirror.excepcao ∈ {pagamento_tardio_sem_stock, pagamento_duplicado, valor_divergente, pagamento_apos_cancelamento}"
     literais:
       - "orders_mirror.excepcao"
       - "pagamento_tardio_sem_stock"
       - "pagamento_duplicado"
       - "valor_divergente"
+      - "pagamento_apos_cancelamento"
     nomes:
       - "orders_mirror.excepcao"
       - "pagamento_tardio_sem_stock"
       - "pagamento_duplicado"
       - "valor_divergente"
-    nomes_nota: []
+      - "pagamento_apos_cancelamento"
+    nomes_nota:
+      - "cancelada"
+      - "CHECK"
+      - "valor_divergente"
     variantes_literais: []
   - seccao: "3.43"
     conceito: "Quem confirma a entrega"
@@ -12148,6 +12209,10 @@ entradas:
       - "criado_at"
       - "atualizado_at"
       - "UNIQUE"
+      - "stock_reservations_linha_viva_uq"
+      - "WHERE"
+      - "libertada"
+      - "expirada"
       - "orders_mirror"
       - "lines_snapshot"
     variantes_literais: []
@@ -15016,8 +15081,13 @@ entradas:
       - "screening"
       - "nano"
     nomes_nota:
+      - "screening"
       - "router"
       - "kamba"
+      - "estado"
+      - "declarada"
+      - "modelo"
+      - "por_decidir"
     variantes_literais: []
   - seccao: "3.59"
     conceito: "Documento do índice"
@@ -15240,6 +15310,493 @@ entradas:
       - "vector"
     variantes_literais: []
   - seccao: "3.60"
+    conceito: "Arestas do KAM-050"
+    canonico: "nove: expirada→paga; paga→reembolso_pendente; entregue→em_disputa; em_disputa→{reembolso_pendente, entregue}; em_entrega→entrega_falhada; entrega_falhada→{em_entrega, reembolso_pendente}; reembolso_pendente→reembolsada"
+    literais:
+      - "expirada"
+      - "paga"
+      - "paga"
+      - "reembolso_pendente"
+      - "entregue"
+      - "em_disputa"
+      - "em_disputa"
+      - "reembolso_pendente"
+      - "entregue"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "entrega_falhada"
+      - "em_entrega"
+      - "reembolso_pendente"
+      - "reembolso_pendente"
+      - "reembolsada"
+    nomes:
+      - "expirada"
+      - "paga"
+      - "reembolso_pendente"
+      - "entregue"
+      - "em_disputa"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "reembolsada"
+    nomes_nota:
+      - "entregue"
+      - "reembolso_pendente"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "COM_DELIVERY_ENABLED"
+      - "criada"
+      - "em_disputa"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Ramo de um pagamento autenticado"
+    canonico: "RamoDoPagamento ∈ {normal, tardio, apos_cancelamento, duplicado}"
+    literais:
+      - "RamoDoPagamento"
+      - "normal"
+      - "tardio"
+      - "apos_cancelamento"
+      - "duplicado"
+    nomes:
+      - "RamoDoPagamento"
+      - "normal"
+      - "tardio"
+      - "apos_cancelamento"
+      - "duplicado"
+    nomes_nota:
+      - "expirada"
+      - "tardio"
+      - "cancelada"
+      - "apos_cancelamento"
+      - "paga"
+      - "duplicado"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Estados de excepção do consumo"
+    canonico: "ESTADOS_DE_EXCEPCAO do ../packages/core-ts/src/eventos/estados.ts"
+    literais:
+      - "ESTADOS_DE_EXCEPCAO"
+    nomes:
+      - "ESTADOS_DE_EXCEPCAO"
+    nomes_nota:
+      - "paga"
+      - "cancelada"
+      - "ESTADOS_INCOMPATIVEIS"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Motivo de um pedido de reembolso"
+    canonico: "MotivoDeReembolso ∈ {pagamento_apos_cancelamento, pagamento_duplicado, disputa, entrega_falhada}"
+    literais:
+      - "MotivoDeReembolso"
+      - "pagamento_apos_cancelamento"
+      - "pagamento_duplicado"
+      - "disputa"
+      - "entrega_falhada"
+    nomes:
+      - "MotivoDeReembolso"
+      - "pagamento_apos_cancelamento"
+      - "pagamento_duplicado"
+      - "disputa"
+      - "entrega_falhada"
+    nomes_nota:
+      - "motivo"
+      - "order.refund_requested"
+      - "reembolso_pendente"
+      - "disputa"
+      - "paga"
+      - "em_disputa"
+      - "entrega_falhada"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Registo do reembolso"
+    canonico: "causa reembolso_manual_registado no order_state_log, accão order.refund_record no audit_log, actor dono ou ops com actor_id"
+    literais:
+      - "reembolso_manual_registado"
+      - "order_state_log"
+      - "order.refund_record"
+      - "audit_log"
+      - "dono"
+      - "ops"
+      - "actor_id"
+    nomes:
+      - "reembolso_manual_registado"
+      - "order_state_log"
+      - "order.refund_record"
+      - "audit_log"
+      - "dono"
+      - "ops"
+      - "actor_id"
+    nomes_nota:
+      - "reembolsada"
+      - "order_estado_exige_log"
+      - "KA006"
+      - "prova_ref"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Re-reserva do pagamento tardio"
+    canonico: "índice único parcial stock_reservations_linha_viva_uq, (tenant_id, order_id, line_no) WHERE estado <> 'libertada', e o savepoint com_rereserva"
+    literais:
+      - "stock_reservations_linha_viva_uq"
+      - "(tenant_id, order_id, line_no) WHERE estado <> 'libertada'"
+      - "com_rereserva"
+    nomes:
+      - "stock_reservations_linha_viva_uq"
+      - "tenant_id"
+      - "order_id"
+      - "line_no"
+      - "WHERE"
+      - "estado"
+      - "libertada"
+      - "com_rereserva"
+    nomes_nota:
+      - "reserveStock"
+    variantes_literais: []
+  - seccao: "3.60"
+    conceito: "Prazo de reclamação"
+    canonico: "prazo_reclamacao_dias, chave de entitlements.limites (§3.2)"
+    literais:
+      - "prazo_reclamacao_dias"
+      - "entitlements.limites"
+    nomes:
+      - "prazo_reclamacao_dias"
+      - "entitlements.limites"
+    nomes_nota:
+      - "entregue"
+      - "em_disputa"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Caso de revisão"
+    canonico: "platform.review_case, dezasseis colunas"
+    literais:
+      - "platform.review_case"
+    nomes:
+      - "platform.review_case"
+    nomes_nota:
+      - "id"
+      - "tipo"
+      - "onboarding_id"
+      - "tenant_id"
+      - "motivo_codigo"
+      - "motivo_interno"
+      - "motivo_publico"
+      - "evidencias"
+      - "recomendacao"
+      - "estado"
+      - "prioridade"
+      - "fila_at"
+      - "sla_alerta_at"
+      - "sla_due_at"
+      - "sla_alertado_at"
+      - "criado_at"
+      - "NOT"
+      - "NULL"
+      - "FORCE"
+      - "em_triagem_automatica"
+      - "onboarding_case"
+      - "ref"
+      - "kyc_check"
+      - "screening_decision"
+      - "kamba_batch"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Chave de abertura"
+    canonico: "review_case_abertura_uq: UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)"
+    literais:
+      - "review_case_abertura_uq"
+      - "UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)"
+    nomes:
+      - "review_case_abertura_uq"
+      - "UNIQUE"
+      - "NULLS"
+      - "NOT"
+      - "DISTINCT"
+      - "tipo"
+      - "tenant_id"
+      - "onboarding_id"
+      - "motivo_codigo"
+    nomes_nota:
+      - "tenant_id"
+      - "NULLS"
+      - "NOT"
+      - "DISTINCT"
+      - "onboarding_id"
+      - "motivo_codigo"
+      - "familia"
+      - "detalhe"
+      - "kyc_k1"
+      - "es_falhado"
+      - "screening"
+      - "sha256"
+      - "amostra"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Tipo de caso"
+    canonico: "review_case.tipo ∈ {kyc, categoria, duplicado, es_falhado, saga, catalogo, recurso, trust, auditoria}"
+    literais:
+      - "review_case.tipo"
+      - "kyc"
+      - "categoria"
+      - "duplicado"
+      - "es_falhado"
+      - "saga"
+      - "catalogo"
+      - "recurso"
+      - "trust"
+      - "auditoria"
+    nomes:
+      - "review_case.tipo"
+      - "kyc"
+      - "categoria"
+      - "duplicado"
+      - "es_falhado"
+      - "saga"
+      - "catalogo"
+      - "recurso"
+      - "trust"
+      - "auditoria"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Estado do caso"
+    canonico: "review_case.estado ∈ {em_triagem_automatica, aberto, em_analise, escalado, decidido, recurso_aberto, decidido_final}"
+    literais:
+      - "review_case.estado"
+      - "em_triagem_automatica"
+      - "aberto"
+      - "em_analise"
+      - "escalado"
+      - "decidido"
+      - "recurso_aberto"
+      - "decidido_final"
+    nomes:
+      - "review_case.estado"
+      - "em_triagem_automatica"
+      - "aberto"
+      - "em_analise"
+      - "escalado"
+      - "decidido"
+      - "recurso_aberto"
+      - "decidido_final"
+    nomes_nota:
+      - "em_triagem_automatica"
+      - "TRANSICOES"
+      - "review_case_transicao"
+      - "decidido_final"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Motivo público"
+    canonico: "review_case.motivo_publico ∈ {nao_foi_possivel_validar, documento_expirado, categoria_nao_permitida, informacao_em_falta}"
+    literais:
+      - "review_case.motivo_publico"
+      - "nao_foi_possivel_validar"
+      - "documento_expirado"
+      - "categoria_nao_permitida"
+      - "informacao_em_falta"
+    nomes:
+      - "review_case.motivo_publico"
+      - "nao_foi_possivel_validar"
+      - "documento_expirado"
+      - "categoria_nao_permitida"
+      - "informacao_em_falta"
+    nomes_nota:
+      - "TEXTO_DO_MOTIVO_PUBLICO"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Recomendação automática"
+    canonico: "review_case.recomendacao ∈ {aprovar, rejeitar, pedir_info, investigar}"
+    literais:
+      - "review_case.recomendacao"
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "investigar"
+    nomes:
+      - "review_case.recomendacao"
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "investigar"
+    nomes_nota:
+      - "pedir_documentos"
+      - "pedir_info"
+      - "investigar"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Prioridade e risco alto"
+    canonico: "review_case.prioridade ∈ 1…9, 1 a mais urgente"
+    literais:
+      - "review_case.prioridade"
+    nomes:
+      - "review_case.prioridade"
+    nomes_nota:
+      - "prioridadeDeRiscoAlto"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Decisão do revisor"
+    canonico: "platform.review_decision_log, nove colunas: id, case_id, tenant_id, revisor_id, decisao, instancia, regra, nota_enc, em"
+    literais:
+      - "platform.review_decision_log"
+      - "id"
+      - "case_id"
+      - "tenant_id"
+      - "revisor_id"
+      - "decisao"
+      - "instancia"
+      - "regra"
+      - "nota_enc"
+      - "em"
+    nomes:
+      - "platform.review_decision_log"
+      - "id"
+      - "case_id"
+      - "tenant_id"
+      - "revisor_id"
+      - "decisao"
+      - "instancia"
+      - "regra"
+      - "nota_enc"
+      - "em"
+    nomes_nota:
+      - "review_decision_log.decisao"
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "escalar"
+      - "review_decision_log.instancia"
+      - "primeira"
+      - "recurso"
+      - "id"
+      - "uuid"
+      - "bigserial"
+      - "tenant_id"
+      - "case_id"
+      - "instancia"
+      - "em"
+      - "clock_timestamp"
+      - "review_decision_log_imutavel"
+      - "nota_enc"
+      - "review_case"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Vista do SLA"
+    canonico: "platform.v_review_sla"
+    literais:
+      - "platform.v_review_sla"
+    nomes:
+      - "platform.v_review_sla"
+    nomes_nota:
+      - "case_id"
+      - "tenant_id"
+      - "tipo"
+      - "estado"
+      - "prioridade"
+      - "fila_at"
+      - "sla_alerta_at"
+      - "sla_due_at"
+      - "primeira_decisao_at"
+      - "dentro_do_sla"
+      - "security_invoker"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "SLA em dias úteis"
+    canonico: "calcularSla, somarTempoUtil, tempoUtilEntre e a tabela Feriados (fixos MM-DD, datas AAAA-MM-DD)"
+    literais:
+      - "calcularSla"
+      - "somarTempoUtil"
+      - "tempoUtilEntre"
+      - "Feriados"
+      - "fixos"
+      - "datas"
+    nomes:
+      - "calcularSla"
+      - "somarTempoUtil"
+      - "tempoUtilEntre"
+      - "Feriados"
+      - "fixos"
+      - "datas"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Métricas da fila"
+    canonico: "review_first_decision_p90_segundos, review_casos{tipo,estado}, review_decisoes{tipo,decisao}, review_falsos_aprovados_ratio"
+    literais:
+      - "review_first_decision_p90_segundos"
+      - "review_casos{tipo,estado}"
+      - "review_decisoes{tipo,decisao}"
+      - "review_falsos_aprovados_ratio"
+    nomes:
+      - "review_first_decision_p90_segundos"
+      - "review_casos"
+      - "tipo"
+      - "estado"
+      - "review_decisoes"
+      - "decisao"
+      - "review_falsos_aprovados_ratio"
+    nomes_nota:
+      - "review_first_decision_p90"
+      - "SQL_CONTADORES"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Papéis de quem revê"
+    canonico: "ts_revisor, ts_lider"
+    literais:
+      - "ts_revisor"
+      - "ts_lider"
+    nomes:
+      - "ts_revisor"
+      - "ts_lider"
+    nomes_nota:
+      - "escalado"
+      - "ts_lider"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Acções auditadas da fila"
+    canonico: "review.acesso, review.recusa no audit_log.action (§3.2)"
+    literais:
+      - "review.acesso"
+      - "review.recusa"
+      - "audit_log.action"
+    nomes:
+      - "review.acesso"
+      - "review.recusa"
+      - "audit_log.action"
+    nomes_nota:
+      - "review.acesso"
+      - "entity"
+      - "kyc_check"
+      - "onboarding_case"
+      - "review.recusa"
+      - "payload_hash"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Quota anti-inundação"
+    canonico: "quotaPorOrigemPorDia, 20 (proposta)"
+    literais:
+      - "quotaPorOrigemPorDia"
+    nomes:
+      - "quotaPorOrigemPorDia"
+    nomes_nota:
+      - "ip_prefix_hash"
+      - "device_hash"
+      - "auditoria"
+      - "em_triagem_automatica"
+      - "drenarTriagem"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Amostragem de auditoria"
+    canonico: "fracaoDaAmostra 0,2 e semanasDeAmostragem 8 (propostas)"
+    literais:
+      - "fracaoDaAmostra"
+      - "semanasDeAmostragem"
+    nomes:
+      - "fracaoDaAmostra"
+      - "semanasDeAmostragem"
+    nomes_nota:
+      - "onboarding_id"
+      - "inicioDaAmostragem"
+      - "auditoria"
+    variantes_literais: []
+  - seccao: "3.62"
     conceito: "Versão do léxico PT-AO"
     canonico: "idx.norm_versao, três colunas: versao, afecta_indice, criado_at"
     literais:
@@ -15257,7 +15814,7 @@ entradas:
       - "tenant_id"
       - "kamba_app"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Alteração que reindexa"
     canonico: "norm_versao.afecta_indice"
     literais:
@@ -15272,7 +15829,7 @@ entradas:
       - "erro_comum"
       - "stopword"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Gatilho da versão"
     canonico: "idx.f_registar_norm_versao(), gatilho termo_canonico_norm_versao"
     literais:
@@ -15292,7 +15849,7 @@ entradas:
       - "EXCLUSIVE"
       - "norm_versao"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Versão só de acrescento"
     canonico: "idx.f_recusar_alteracao_de_versao(), gatilho norm_versao_so_acrescenta"
     literais:
@@ -15308,7 +15865,7 @@ entradas:
       - "DELETE"
       - "norm_versao"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Aprovação de um termo"
     canonico: "termo_canonico_aprovado_ck"
     literais:
@@ -15318,7 +15875,7 @@ entradas:
     nomes_nota:
       - "aprovado_por"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Termo de dataset inactivo"
     canonico: "termo_canonico_dataset_inactivo_ck"
     literais:
@@ -15330,7 +15887,7 @@ entradas:
       - "dataset"
       - "activo"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Pergunta da normalização"
     canonico: "state.avisos ⊇ {TERMO_AMBIGUO, MOEDA_ESTRANGEIRA, TERMO_DESCONHECIDO}"
     literais:
@@ -15349,7 +15906,7 @@ entradas:
       - "STALE_CONFIRMATION"
       - "tool_audit.error_code"
     variantes_literais: []
-  - seccao: "3.60"
+  - seccao: "3.62"
     conceito: "Alternativas de um sinónimo ambíguo"
     canonico: "termo_canonico.canonico com as alternativas separadas por barra vertical"
     literais:
@@ -16558,14 +17115,14 @@ tabelas:
     colunas: []
     aberta: false
     assinatura: "idx.f_registar_norm_versao()"
-    seccao: "3.60"
+    seccao: "3.62"
     conceito: "Gatilho da versão"
   - nome: "f_recusar_alteracao_de_versao"
     esquema: "idx"
     colunas: []
     aberta: false
     assinatura: "idx.f_recusar_alteracao_de_versao()"
-    seccao: "3.60"
+    seccao: "3.62"
     conceito: "Versão só de acrescento"
 
 dominios:
@@ -16641,6 +17198,9 @@ dominios:
       - "privacy.dsar_rectificado"
       - "retention.hold_aplicado"
       - "retention.hold_levantado"
+      - "order.refund_record"
+      - "review.acesso"
+      - "review.recusa"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -17119,6 +17679,7 @@ dominios:
       - "chat"
       - "vision"
       - "embed"
+      - "screening"
     seccao: "3.29"
     conceito: "Papel de um alias"
     so_no_registo: false
@@ -17417,6 +17978,7 @@ dominios:
       - "pagamento_tardio_sem_stock"
       - "pagamento_duplicado"
       - "valor_divergente"
+      - "pagamento_apos_cancelamento"
     seccao: "3.43"
     conceito: "Excepção da encomenda"
     so_no_registo: false
@@ -17915,6 +18477,68 @@ dominios:
     seccao: "3.59"
     conceito: "Origem de um termo"
     so_no_registo: false
+  - coluna: "RamoDoPagamento"
+    valores:
+      - "normal"
+      - "tardio"
+      - "apos_cancelamento"
+      - "duplicado"
+    seccao: "3.60"
+    conceito: "Ramo de um pagamento autenticado"
+    so_no_registo: false
+  - coluna: "MotivoDeReembolso"
+    valores:
+      - "pagamento_apos_cancelamento"
+      - "pagamento_duplicado"
+      - "disputa"
+      - "entrega_falhada"
+    seccao: "3.60"
+    conceito: "Motivo de um pedido de reembolso"
+    so_no_registo: false
+  - coluna: "review_case.tipo"
+    valores:
+      - "kyc"
+      - "categoria"
+      - "duplicado"
+      - "es_falhado"
+      - "saga"
+      - "catalogo"
+      - "recurso"
+      - "trust"
+      - "auditoria"
+    seccao: "3.61"
+    conceito: "Tipo de caso"
+    so_no_registo: false
+  - coluna: "review_case.estado"
+    valores:
+      - "em_triagem_automatica"
+      - "aberto"
+      - "em_analise"
+      - "escalado"
+      - "decidido"
+      - "recurso_aberto"
+      - "decidido_final"
+    seccao: "3.61"
+    conceito: "Estado do caso"
+    so_no_registo: false
+  - coluna: "review_case.motivo_publico"
+    valores:
+      - "nao_foi_possivel_validar"
+      - "documento_expirado"
+      - "categoria_nao_permitida"
+      - "informacao_em_falta"
+    seccao: "3.61"
+    conceito: "Motivo público"
+    so_no_registo: false
+  - coluna: "review_case.recomendacao"
+    valores:
+      - "aprovar"
+      - "rejeitar"
+      - "pedir_info"
+      - "investigar"
+    seccao: "3.61"
+    conceito: "Recomendação automática"
+    so_no_registo: false
 
 variantes:
   - nome: "lookup_hmac"
@@ -17946,7 +18570,7 @@ variantes:
     tipo: "nome"
     seccao: "3.2"
     conceito: "Entitlement (chaves)"
-    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor, prazo_reclamacao_dias"
   - nome: "kamba_ops"
     tipo: "nome"
     seccao: "3.2"

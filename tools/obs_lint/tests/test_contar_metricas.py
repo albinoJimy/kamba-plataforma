@@ -192,6 +192,12 @@ class TestRepositorio(unittest.TestCase):
         # as quatro de prosa que o RECADO nomeia e deixou o inventario atras,
         # pelo que o gate 4 reprovou o PR com o lint a dar zero achados.
         "libs/py-core/src/kamba_core/backup/metricas.py",
+        # Nasceu com o KAM-193 (as tres do IDX). Biblioteca em `libs/py-core`,
+        # como o `backup`, mas **servida**: quem a importa e a serve e o AGR,
+        # que e o processo onde a pesquisa corre, na mesma `/metrics` que o
+        # registo dele. Tem um eixo de dois nomes (`idx_query_ms{ramo,modo}`),
+        # que a biblioteca do AGR nao sabe escrever.
+        "libs/py-core/src/kamba_core/idx/metricas.py",
         "libs/py-core/src/kamba_core/ten/metricas.py",
         "packages/core-ts/src/agr/metricas.ts",
         "packages/core-ts/src/avisos/metricas.ts",
@@ -211,6 +217,11 @@ class TestRepositorio(unittest.TestCase):
         # contagem reprovava o PR de quem acrescenta uma metrica.
         "packages/core-ts/src/provisioning/metricas.ts",
         "packages/core-ts/src/qualidade/metricas.ts",
+        # Nasceu com o KAM-089 (fila de revisao por excepcao). Quatro nomes,
+        # declarados e nao servidos: a fila nao tem processo proprio, e o
+        # `onboarding-web` nao tem rota `/metrics`. Quem a servir e o *job* que
+        # o seguimento do KAM-089 escrever.
+        "packages/core-ts/src/revisao/metricas.ts",
         # Nasceu com o KAM-116 (agregador de SMS) **depois de este ticket
         # fundir**, e e o segundo exemplo da mesma coisa que o
         # `provisioning` foi o primeiro: sete nomes que nenhum servico

@@ -20,7 +20,7 @@
  *
  * O critério 5 escreve `price.changed`, `stock.changed`, `stock.low`,
  * `product.published` e `product.updated`. Desses, **só o `stock.low` existe**:
- * o dicionário §3.5 fixa os trinta e oito tipos do Piloto desde a emenda 1.11, e
+ * o dicionário §3.5 fixa os tipos do Piloto desde a emenda 1.11, e
  * o KAM-007 publicou cada um em `contratos/eventos/<tipo>/v1.schema.json` com
  * `additionalProperties: false`. Os que servem este ticket chamam-se
  * `catalog.price_changed`, `stock.adjusted`, `stock.low` e

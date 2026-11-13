@@ -1,7 +1,8 @@
 """O catalogo real, e o gate como um todo (KAM-007).
 
 Os outros dois ficheiros testam a logica com schemas construidos para o efeito.
-Este corre sobre **os trinta e oito contratos do repositorio** e sobre o CLI,
+Este corre sobre **os contratos do repositorio** (quarenta e um tipos desde o
+KAM-191) e sobre o CLI,
 que e o que o `make ci-7` chama. Uma logica certa com um catalogo que nao
 carrega nao serve de nada.
 """
@@ -17,10 +18,12 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os trinta e oito **tipos** do dicionario §3.5, emenda 1.11. Escritos aqui a
+#: Os quarenta e um **tipos** do dicionario §3.5: os trinta e oito da emenda
+#: 1.11, os dois do KAM-050 (1.83) e o `screening.violation_detected` da 1.84
+#: (KAM-191). Escritos aqui a
 #: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
-ESPERADOS = 38
+ESPERADOS = 41
 
 #: As versoes publicadas de cada tipo. Sao **duas** desde o KAM-159, que
 #: acrescentou a `v2` a todos: a uniao das finalidades de consentimento alarga
@@ -32,7 +35,7 @@ VERSOES_POR_TIPO = 2
 #: segunda versao.
 ESPERADOS_FICHEIROS = ESPERADOS * VERSOES_POR_TIPO
 
-#: Os oito que o `docs/tecnica/06` §5 **nao** tem, e porque e que estao no
+#: Os nove que o `docs/tecnica/06` §5 **nao** tem, e porque e que estao no
 #: catalogo. Esta lista e o complemento exacto do §5: o que nao estiver aqui
 #: nem la nao pode ter contrato (ver `TestCoberturaDoCinco`).
 FORA_DO_CINCO = {
@@ -44,6 +47,7 @@ FORA_DO_CINCO = {
     "booking.created": "specs/EPIC-04, vertical de servicos",
     "booking.reminder_due": "specs/EPIC-04, por extenso: «registar no catalogo (KAM-007)»",
     "booking.cancelled": "specs/EPIC-04, vertical de servicos",
+    "screening.violation_detected": "dicionario §3.5, emenda 1.84; a re-analise do KAM-088",
 }
 
 #: O §5 escreve os tipos de uma familia em abreviatura — `tenant.activated` /
@@ -115,6 +119,8 @@ class TestOCatalogoDoRepositorio(unittest.TestCase):
         cls.contratos = catalogo.todos(RAIZ)
 
     def test_sao_trinta_e_oito_e_carregam_todos(self) -> None:
+        # O nome e o de 2026-10 e fica: o `specs/tickets/KAM-007.md` cita-o como
+        # evidencia. A contagem e a de `ESPERADOS`, quarenta e um desde o KAM-191.
         self.assertEqual(len(self.contratos), ESPERADOS_FICHEIROS)
         self.assertEqual(len({c.tipo for c in self.contratos}), ESPERADOS)
 
@@ -123,7 +129,7 @@ class TestOCatalogoDoRepositorio(unittest.TestCase):
 
         Hoje sao `v1` e `v2`, e o que importa e que **nenhum tipo fique para
         tras**: a `v2` alargou o dominio das finalidades no envelope, que e
-        comum aos 38, pelo que ou todos a tem ou ha um que o produtor novo nao
+        comum a todos os tipos, pelo que ou todos a tem ou ha um que o produtor novo nao
         consegue emitir com a finalidade nova.
         """
         esperadas = set(range(1, VERSOES_POR_TIPO + 1))
@@ -236,7 +242,7 @@ class TestCoberturaDoCinco(unittest.TestCase):
         adiantados = (self.do_cinco["C"] | self.do_cinco["D"]) & self.no_catalogo
         self.assertEqual(adiantados, set())
 
-    def test_o_catalogo_e_exactamente_o_cinco_mais_os_oito_nomeados(self) -> None:
+    def test_o_catalogo_e_exactamente_o_cinco_mais_os_nomeados(self) -> None:
         self.assertEqual(self.no_catalogo, self.do_cinco["P"] | set(FORA_DO_CINCO))
 
 

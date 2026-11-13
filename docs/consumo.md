@@ -154,7 +154,7 @@ BullMQ**, com um cliente SQL falso.
 | Saída | Quando | O que acontece |
 |---|---|---|
 | `Adiar(5 s)` | A pré-condição ainda não se verifica (`payment.confirmed` antes de `aguarda_pagamento`) | Tenta-se outra vez. Esgotadas as tentativas: DLQ com `adiado_sem_resolver:` — **nunca** a transição aplicada à força |
-| `EstadoIncompativel` | O agregado está num estado **terminal** para aquele tipo (`expirada` ou `cancelada`, para os dois eventos que pagam) | DLQ à primeira, com `erro = 'estado_incompativel'`. Não há tentativa que resolva um estado que não volta atrás |
+| `EstadoIncompativel` | O agregado está num estado **terminal** para aquele tipo. Desde o KAM-050 **nenhum estado o é** para os dois eventos que pagam: `expirada` é o pagamento tardio, e a `cancelada` e os estados a partir de `paga` vão ao efeito pela `ESTADOS_DE_EXCEPCAO`. A classificação fica, e um efeito pode levantá-la | DLQ à primeira, com `erro = 'estado_incompativel'`. Não há tentativa que resolva um estado que não volta atrás |
 | `ForaDeOrdem` | O evento vem atrasado **e** a transição não é válida | DLQ à primeira, com `erro = 'fora_de_ordem'`. Não há tentativa que resolva um atraso |
 | qualquer outro erro | Falha técnica | Recua pela escada; na sexta, DLQ com a mensagem do erro |
 
@@ -170,6 +170,17 @@ grafo da base recusa com um erro técnico. Por isso a classificação corre
 **antes** do `podeTransitar`, e a lista (`ESTADOS_INCOMPATIVEIS`) é distinta da
 `TRANSICOES`: o grafo do §6.1 continua a ser o do negócio, e o que a lista diz é
 só que **este** consumidor não implementa aquela aresta.
+
+**O KAM-050 esvaziou a lista e acrescentou uma segunda.** Um pagamento
+autenticado é dinheiro real em qualquer estado, e o `docs/tecnica/03` §6.6
+dá-lhe um destino em cada um: `expirada` paga (regras 1 e 2), `cancelada` e os
+estados já pagos pedem reembolso sem transitar (regras 3 e 4). Os primeiros
+chegam ao efeito pelo `podeTransitar`; os outros pela `ESTADOS_DE_EXCEPCAO`,
+que se consulta **antes** da ordem e do adiamento: a ordem existe para impedir
+uma transição fora de tempo, e estes não transitam — dois pagamentos reais
+entregues fora de ordem fazem o de `seq` menor chegar depois, e a DLQ perdia o
+pedido de reembolso dele. Só `criada` continua a adiar: a referência ainda não
+foi emitida.
 
 **O `estadoDe` recebe a ligação da transacção por argumento**, e não um cliente
 guardado no construtor da máquina. A razão foi medida ao ligar o primeiro
@@ -402,3 +413,4 @@ em `test_o_job_pede_a_escada_do_consumidor`. O que a *suite* com fila mede é a
 | 1.0 | Outubro 2026 | Emissão (KAM-006): revisão `0005`, *wrapper* de consumo nos dois idiomas, DLQ com Sev1 por tipo e descarte a dois aprovadores, `once()`, reconciliador com *lock* próprio, e a *suite* `tests_eventos_consumo` no gate 8. Registo de três defeitos que só a base e a fila reais mostraram: o consumo precisa do contexto de tenant na transacção, cada fila precisa da sua ligação, e o *job* tinha de pedir a escada do consumidor para ela ser consultada. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Três correcções da revisão adversarial (ANALISE-23): o `once()` passa a **recusar-se** a correr dentro da transacção do consumo, onde o seu `COMMIT` confirmava a marca de consumo sem o efeito (§8, ponto 3); a leitura do envelope passa a ter política própria, sem a qual um evento ilegível ficava num ciclo de reposição silencioso (§4); e a unicidade da DLQ passa a ser **parcial**, para que um ciclo novo depois de uma resolução abra a sua entrada sem precisar de dar `UPDATE` a quem consome (§5). | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-055: a quarta saida, e o `estadoDe` a receber a ligacao.** O §4 passa de tres saidas a quatro — entra o `EstadoIncompativel`, com `erro = 'estado_incompativel'` **a primeira tentativa** —, e fica escrito porque a classificacao corre **antes** do `podeTransitar`: sem ela, o `cancelada` adiava seis vezes para acabar em `adiado_sem_resolver` e o `expirada`, que esta na `TRANSICOES` de proposito (pagamento tardio, KAM-050), deixava o efeito tentar uma transicao que o grafo da base recusa. E o `estadoDe` da `MaquinaDeEstados` passa a receber o `bd` por argumento: com o cliente no construtor, a maquina lia a replica sem o `app.tenant_id` da transaccao do consumo e, sob RLS `FORCE`, devolvia `null` **sempre** — isto e, adiava todos os eventos ate a DLQ. Medido ao ligar o primeiro consumidor real; a `MaquinaNaBase` nunca tinha sido construida em producao. **E declara-se o que o espelho em Python nao acompanha** (as duas, com os 97 ensaios de paridade verdes porque nenhum compara o conjunto de saidas entre os idiomas), com credor KAM-006. | Equipa KAMBA |
+| 1.3 | Novembro 2026 | **KAM-050: os estados terminais deixam de o ser para os pagamentos.** O §4 diz que a `ESTADOS_INCOMPATIVEIS` ficou vazia e porquê, e que a `ESTADOS_DE_EXCEPCAO` leva ao efeito um pagamento sobre uma encomenda `cancelada` ou já paga, depois da verificação de ordem e antes do adiamento. O espelho em Python continua sem as duas listas, como a versão 1.2 já declarava. | Equipa KAMBÁ |
