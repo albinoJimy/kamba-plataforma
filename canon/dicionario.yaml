@@ -16293,22 +16293,21 @@ entradas:
     variantes_literais: []
   - seccao: "3.64"
     conceito: "O duplicado no outbox"
-    canonico: "payment_outbox_map ⊇ {(pagamento_duplicado, hmac), (pagamento_duplicado, consulta)} → payment.confirmed v1"
+    canonico: "payment_outbox_map ⊇ {(pagamento_duplicado, hmac), (pagamento_duplicado, consulta)}"
     literais:
       - "payment_outbox_map"
       - "pagamento_duplicado"
       - "hmac"
       - "pagamento_duplicado"
       - "consulta"
-      - "payment.confirmed"
     nomes:
       - "payment_outbox_map"
       - "pagamento_duplicado"
       - "hmac"
       - "consulta"
-      - "payment.confirmed"
     nomes_nota:
-      - "payment.confirmed"
+      - "test_palavras_de_tipo_e_metades_de_evento_nao_sao_nomes"
+      - "canon_lint"
       - "ramoDoPagamento"
       - "pagamento_duplicado"
       - "manual"
