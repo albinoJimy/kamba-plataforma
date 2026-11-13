@@ -251,6 +251,32 @@ export interface RepositorioDeRevisao {
   marcarAlertado(id: string, em: Date): Promise<void>;
   /** Uma página da vista humana, por prioridade e prazo. */
   pagina(filtro: FiltroDaFila, limite: number, depoisDe: number): Promise<readonly CasoDeRevisao[]>;
+  /**
+   * Corre `trabalho` com a chave da quota trancada **entre processos** (KAM-198).
+   * O `trabalho` recebe o repositório a usar dentro do trinco — a contagem e a
+   * escrita têm de ir pela mesma transacção que o segura, senão o trinco solta-se
+   * antes de a escrita a ver.
+   *
+   * Opcional: o duplo em memória vive num processo só, e aí o `#emSerie` do
+   * serviço chega. O adaptador SQL implementa-o com um `pg_advisory_xact_lock`.
+   */
+  emTrinco?<T>(chave: string, trabalho: (repositorio: RepositorioDeRevisao) => Promise<T>): Promise<T>;
+}
+
+/**
+ * Os casos com um efeito da decisão por aplicar (KAM-196, KAM-198).
+ *
+ * A decisão e os efeitos não são uma transacção: o caso fecha primeiro, e a
+ * fase, o screening e o aviso vêm depois e podem falhar. O serviço **marca** o
+ * caso antes de correr os efeitos e **resolve-o** quando correm todos; o ciclo
+ * do processo de lote reaplica os marcados. Sobre a base (`EfeitosPorReaplicarSql`)
+ * a marca é a coluna `review_case.efeito_pendente_at` da revisão `0052`, e
+ * sobrevive a um reinício e a um processo que morra entre a decisão e os efeitos.
+ */
+export interface EfeitosPorReaplicar {
+  marcar(casoId: string): Promise<void>;
+  pendentes(limite: number): Promise<readonly string[]>;
+  resolver(casoId: string): Promise<void>;
 }
 
 export interface FiltroDaFila {

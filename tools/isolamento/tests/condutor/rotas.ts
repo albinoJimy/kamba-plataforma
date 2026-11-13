@@ -3104,6 +3104,110 @@ async function grupoDaEquipa(relatorio: Relatorio): Promise<void> {
   }
 }
 
+// -------------------------------------- o processo de lote do onboarding (KAM-198)
+//
+// A lista e **literal** e a ordem e a do caso em `baterias/x01_rotas.py`.
+const ITENS_DO_LOTE = [
+  "rota:onboarding-web:lote/processo:criarApp:GET:/healthz",
+  "rota:onboarding-web:lote/processo:criarApp:GET:/metrics",
+] as const;
+
+/**
+ * As duas rotas do processo de lote, servidas das metricas de uma volta **real**
+ * do `CicloDaFila`.
+ *
+ * O ciclo corre com um servico que nao drena nem alerta (nao ha base) e um
+ * leitor em memoria com dois casos `kyc` abertos: um de A e um de B, e o de B
+ * com o canario no `motivo_codigo` — que o `SQL_CONTADORES` devolve pela familia
+ * e que as metricas **nao** podem pôr em etiqueta — e o `tenant_id` de B. A
+ * `criarApp` recebe as metricas dessa volta, como o `lote.ts` lhe passa as do
+ * ciclo em producao. O que o oraculo varre e o que um Prometheus raspava.
+ */
+async function grupoDoLote(relatorio: Relatorio): Promise<void> {
+  const falhar = (nota: string): void => {
+    for (const item of ITENS_DO_LOTE) {
+      const partes = item.split(":");
+      relatorio.rotas.push({
+        item,
+        metodo: partes[3] ?? "",
+        caminho: partes.slice(4).join(":"),
+        estado: 0,
+        corpo: "",
+        cabecalhos: {},
+        executado: false,
+        nota,
+      });
+    }
+  };
+
+  let revisao: Record<string, unknown>;
+  let processo: Record<string, unknown>;
+  try {
+    revisao = await importarDoRepo("packages/core-ts/dist/revisao/index.js");
+    processo = await importarDoRepo("services/onboarding-web/src/lote/processo.ts");
+  } catch (erro) {
+    falhar(`nao se conseguiu importar o processo de lote: ${razao(erro)}`);
+    return;
+  }
+
+  try {
+    const canario = canarioOuSubstituto();
+    const marcaDoCanario = canarios().length === 0 ? "canario-de-b=ausente" : "canario-de-b=presente";
+    const tenantA = ambiente("KAMBA_X01_TENANT_A") || "00000000-0000-4000-8000-00000000000a";
+    const tenantB = ambiente("KAMBA_X01_TENANT_B") || "00000000-0000-4000-8000-00000000000b";
+    const filaEm = new Date("2026-11-13T09:00:00.000Z");
+    const casos = [
+      { tenantId: tenantA, motivoCodigo: "k1:regra_dura" },
+      { tenantId: tenantB, motivoCodigo: `${canario}:${tenantB}` },
+    ];
+    const leitor = {
+      vista: async () => casos.map(() => ({ tipo: "kyc", estado: "aberto", filaEm, primeiraDecisaoEm: null })),
+      contadores: async () =>
+        casos.map((c) => ({ tipo: "kyc", motivo: c.motivoCodigo.split(":")[0], decisao: null, n: 1 })),
+    };
+    const servico = {
+      drenarTriagem: async () => 0,
+      alertarSla: async () => 0,
+      reaplicarEfeitos: async () => {},
+      amostrar: async () => null,
+    };
+    const Ciclo = revisao["CicloDaFila"] as new (o: unknown) => {
+      metricas: unknown;
+      correr(): Promise<{ falhas: readonly string[] }>;
+    };
+    const ciclo = new Ciclo({ servico, leitor });
+    const volta = await ciclo.correr();
+    if (volta.falhas.length > 0) {
+      falhar(`a volta do ciclo falhou nos passos ${volta.falhas.join(",")}`);
+      return;
+    }
+    const criarApp = processo["criarApp"];
+    if (typeof criarApp !== "function") {
+      falhar("services/onboarding-web/src/lote/processo.ts nao exporta criarApp como funcao");
+      return;
+    }
+    const app = (criarApp as (m: unknown) => AppHono)(ciclo.metricas);
+    for (const item of ITENS_DO_LOTE) {
+      const caminho = item.split(":").slice(4).join(":");
+      const entrada = await medir(item, "GET", caminho, app);
+      if (item.endsWith("GET:/metrics")) {
+        const nomes = [
+          "review_first_decision_p90_segundos",
+          "review_casos",
+          "review_decisoes",
+          "review_falsos_aprovados_ratio",
+        ];
+        const series = nomes.filter((n) => new RegExp(`^# TYPE ${n} gauge$`, "m").test(entrada.corpo)).length;
+        const contados = /^review_casos\{tipo="kyc",estado="aberto"\} 2$/m.test(entrada.corpo);
+        entrada.nota = `${marcaDoCanario} casos=${contados ? "contados" : "por-contar"} series=${series}`;
+      }
+      relatorio.rotas.push(entrada);
+    }
+  } catch (erro) {
+    falhar(`a montagem do processo de lote levantou: ${razao(erro)}`);
+  }
+}
+
 // ---------------------------------------------------------------------- o main
 
 const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
@@ -3118,6 +3222,7 @@ const GRUPOS: Record<string, (relatorio: Relatorio) => Promise<void>> = {
   guia: grupoDoGuia,
   painel: grupoDoPainel,
   equipa: grupoDaEquipa,
+  lote: grupoDoLote,
 };
 
 async function main(): Promise<number> {

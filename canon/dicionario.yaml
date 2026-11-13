@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.91"
+versao_dicionario: "1.92"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15467,7 +15467,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.61"
     conceito: "Caso de revisão"
-    canonico: "platform.review_case, dezasseis colunas"
+    canonico: "platform.review_case, dezassete colunas"
     literais:
       - "platform.review_case"
     nomes:
@@ -15489,6 +15489,7 @@ entradas:
       - "sla_due_at"
       - "sla_alertado_at"
       - "criado_at"
+      - "efeito_pendente_at"
       - "NOT"
       - "NULL"
       - "FORCE"
@@ -15499,6 +15500,18 @@ entradas:
       - "screening_decision"
       - "kamba_batch"
       - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.61"
+    conceito: "Efeito por aplicar"
+    canonico: "review_case.efeito_pendente_at"
+    literais:
+      - "review_case.efeito_pendente_at"
+    nomes:
+      - "review_case.efeito_pendente_at"
+    nomes_nota:
+      - "kamba_batch"
+      - "UPDATE"
+      - "downgrade"
     variantes_literais: []
   - seccao: "3.61"
     conceito: "Chave de abertura"

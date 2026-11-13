@@ -21,12 +21,9 @@
  * motivo não entra como etiqueta, porque `screening:<sha256>` dava uma série
  * por caso.
  *
- * **Recalculadas e não servidas**: o *job* da fila (`./ciclo.ts`, KAM-196)
- * recalcula-as a cada volta, mas nenhum processo o corre nem serve `/metrics`.
- * A exposição está pronta para o processo de lote do KAM-198.
- *
- * shortcut: as séries recalculam-se de uma leitura da vista e nenhum endpoint
- * as lê; revê-se com o processo de lote que as serve (KAM-198).
+ * **Recalculadas e servidas**: o *job* da fila (`./ciclo.ts`, KAM-196)
+ * recalcula-as a cada volta, e o processo de lote do onboarding (KAM-198,
+ * `services/onboarding-web/src/lote.ts`) serve a mesma instância em `/metrics`.
  */
 
 import { DECISOES, ESTADOS, TIPOS_DE_CASO, type Decisao, type EstadoDoCaso, type TipoDeCaso } from "./contrato.ts";

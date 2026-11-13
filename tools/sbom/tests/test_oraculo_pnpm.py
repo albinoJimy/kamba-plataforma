@@ -66,7 +66,7 @@ class TestOraculoPnpm(unittest.TestCase):
                     f"a menos {sorted(set(esperado) - set(obtido))}",
                 )
 
-    def test_o_pg_nao_chega_aos_dois_servicos_que_o_nao_tem(self) -> None:
+    def test_o_pg_nao_chega_ao_servico_que_o_nao_tem(self) -> None:
         """O defeito que a revisao adversarial encontrou, fixado pelo nome.
 
         O `pg` esta resolvido no *snapshot* do `bullmq` como *peer* opcional,
@@ -86,6 +86,11 @@ class TestOraculoPnpm(unittest.TestCase):
         ele passa a ter conteudo.
 
         Tirar o `com` daqui sem o pôr la era trocar uma medicao por nenhuma.
+
+        **E eram dois e e um: o `services/onboarding-web` saiu pelo KAM-198**, pela
+        mesma razao e para o mesmo sitio — declarou o `pg` para o processo de lote
+        do onboarding, e passou para o `test_quem_declara_o_pg_continua_a_leva_lo`.
+        O `gwy` fica, e e nele que a aresta do *peer* opcional continua medida.
         """
         arrastados = {
             "pg", "pg-cloudflare", "pg-connection-string", "pg-int8", "pg-pool",
@@ -94,7 +99,7 @@ class TestOraculoPnpm(unittest.TestCase):
             "xtend",
         }
         self.assertEqual(len(arrastados), 14)
-        for servico in ("services/gwy", "services/onboarding-web"):
+        for servico in ("services/gwy",):
             with self.subTest(servico=servico):
                 nomes = {
                     x.rsplit("@", 1)[0]
@@ -146,8 +151,11 @@ class TestOraculoPnpm(unittest.TestCase):
         ele saiu da lista dos que nao tem o `pg` porque passou a declara-lo, e
         uma afirmacao que apenas desaparecesse de um caso sem aparecer no outro
         era uma medicao perdida em silencio.
+
+        **O `services/onboarding-web` entra pelo KAM-198**, pela mesma razao: saiu
+        do caso de cima porque passou a declarar o `pg`.
         """
-        for alvo in ("services/com", "services/worker-canal", "packages/core-ts"):
+        for alvo in ("services/com", "services/worker-canal", "services/onboarding-web", "packages/core-ts"):
             with self.subTest(alvo=alvo):
                 nomes = {
                     x.rsplit("@", 1)[0]

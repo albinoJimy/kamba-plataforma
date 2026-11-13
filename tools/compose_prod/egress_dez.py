@@ -247,6 +247,9 @@ MARCADORES = {
     "KAMBA_SECRET_KEK_CONTACT_DEK": "marcador",
     "KAMBA_SECRET_AGR_INTERNAL_TOKEN": "marcador",
     "KAMBA_CONSUMER": "marcador",
+    # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
+    "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 

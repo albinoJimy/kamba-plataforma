@@ -4,11 +4,12 @@
 # aqui, por extenso, que **esta configuracao nao era observabilidade**. Este
 # ficheiro e a parte que faltava: os alvos, as regras e o encaminhamento.
 #
-# ## Os alvos sao sete, e nao treze
+# ## Os alvos sao oito, e nao treze
 #
 # Eram tres (`gwy`, `com`, `agr`) ate ao KAM-187, que acrescentou os quatro
 # processos do `worker-canal` **no mesmo PR** que os pos a correr no compose —
-# e e essa a condicao que a regra abaixo pede. O resto desta nota e historia
+# e e essa a condicao que a regra abaixo pede. O oitavo e o processo de lote do
+# onboarding (KAM-198), que entrou no compose no mesmo PR que este alvo. O resto desta nota e historia
 # do KAM-080 e continua verdade para os modulos que nenhum servico importa.
 #
 # O KAM-076 recusou acrescentar um `scrape_config` por servico «por
@@ -146,3 +147,12 @@ scrape_configs:
           - worker-canal-consumidor
         type: A
         port: 3012
+
+  # O processo de lote do onboarding (KAM-198): as quatro series da fila de
+  # revisao (dicionario §3.61), que o ciclo recalcula a cada volta.
+  - job_name: onboarding_lote
+    dns_sd_configs:
+      - names:
+          - onboarding-lote
+        type: A
+        port: 3014

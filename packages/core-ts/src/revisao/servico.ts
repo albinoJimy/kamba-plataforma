@@ -38,6 +38,7 @@ import type {
   DecisaoHumanaDeScreening,
   DecisaoRegistada,
   DocumentosDaRevisao,
+  EfeitosPorReaplicar,
   EstadoDoCaso,
   Evidencia,
   FiltroDaFila,
@@ -106,6 +107,13 @@ export interface DependenciasDaRevisao {
   readonly feriados?: Feriados;
   /** O dia em que a amostragem começou (o arranque do Piloto). Sem ele, não se amostra. */
   readonly inicioDaAmostragem?: Date | null;
+  /**
+   * Onde se marca um caso com efeitos por aplicar (KAM-198). Com ela, o serviço
+   * marca **antes** de correr os efeitos e resolve **depois** de correrem todos:
+   * um processo que morra a meio deixa a marca, e o ciclo reaplica-a. Sem ela,
+   * só o `EfeitoPorAplicarError` diz a quem chamou que ficou um efeito por aplicar.
+   */
+  readonly efeitos?: EfeitosPorReaplicar;
 }
 
 /** O pedido de abertura. */
@@ -203,11 +211,11 @@ export class ServicoDeRevisao {
    *
    * **A contagem e a inserção correm em série por chave de quota**, neste
    * processo: duzentas aberturas em paralelo da mesma origem davam mais de
-   * vinte casos abertos, porque contavam todas antes de alguma inserir.
-   * ***shortcut:*** entre processos a quota pode exceder-se pelo número de
-   * processos que abrem casos ao mesmo tempo; revê-se quando a fila tiver mais
-   * do que um processo a abrir (KAM-198), com um `pg_advisory_xact_lock` sobre a
-   * chave.
+   * vinte casos abertos, porque contavam todas antes de alguma inserir. **E
+   * entre processos** (KAM-198): com um repositório que tranca (`emTrinco`, o
+   * `pg_advisory_xact_lock` do adaptador SQL), a contagem e a inserção correm
+   * dentro do trinco da chave, na mesma transacção — o processo de lote e quem
+   * mais abrir casos não passam os dois no limite.
    *
    * **Um envio repetido sobre um caso pendente reforça-o** (`reforcar`): o KYC
    * que volta a decidir depois de um `pedir_info` traz marcas e documentos
@@ -231,11 +239,12 @@ export class ServicoDeRevisao {
       quota = p.tipo === "auditoria" ? null : { tipo: "tenant", tenantId: p.tenantId };
     }
     const chave = quota === null ? `sem_quota:${p.tenantId}` : quota.tipo === "origem" ? `o:${quota.origem}` : `t:${quota.tenantId}`;
-    return this.#emSerie(chave, async () => {
+    return this.#emSerie(chave, () => this.#trancado(chave, async (repositorio) => {
       const agora = this.#agora();
-      const naQuota = quota === null || (await this.#contar(quota, inicioDoDiaEmLuanda(agora))) < this.#l.quotaPorOrigemPorDia;
+      const naQuota =
+        quota === null || (await this.#contar(repositorio, quota, inicioDoDiaEmLuanda(agora))) < this.#l.quotaPorOrigemPorDia;
       const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
-      const aberto = await this.#d.repositorio.abrir({
+      const aberto = await repositorio.abrir({
         tipo: p.tipo,
         onboardingId: p.onboardingId,
         tenantId: p.tenantId,
@@ -258,13 +267,13 @@ export class ServicoDeRevisao {
         for (const e of p.evidencias) {
           if (!evidencias.some((x) => x.tipo === e.tipo && x.ref === e.ref)) evidencias.push(e);
         }
-        await this.#d.repositorio.reforcar(caso.id, {
+        await repositorio.reforcar(caso.id, {
           prioridade: Math.min(caso.prioridade, p.prioridade),
           motivoInterno: p.motivoInterno,
           evidencias,
           recomendacao: p.recomendacao,
         });
-        caso = (await this.#d.repositorio.porId(caso.id)) ?? caso;
+        caso = (await repositorio.porId(caso.id)) ?? caso;
       } else if (caso.estado === "em_triagem_automatica") {
         this.#d.alerta("quota_da_origem", { casoId: caso.id, tipo: caso.tipo });
       }
@@ -273,7 +282,7 @@ export class ServicoDeRevisao {
         caso,
         repetido: aberto.repetido,
       };
-    });
+    }));
   }
 
   // ---------------------------------------------------------------- decidir
@@ -346,11 +355,20 @@ export class ServicoDeRevisao {
    * adversarial).
    */
   async #porAplicar(casoId: string, efeitos: () => Promise<void>): Promise<void> {
+    // A marca vai **antes** dos efeitos (KAM-198): se o processo morrer entre a
+    // decisão e eles, o caso fica marcado e o ciclo reaplica-o. A janela que
+    // sobra é a de uma instrução, entre a decisão gravada e esta marca. Uma
+    // marca que falha conta como um efeito por aplicar — a consola di-lo.
     try {
+      await this.#d.efeitos?.marcar(casoId);
       await efeitos();
     } catch (erro) {
       throw new EfeitoPorAplicarError(casoId, erro);
     }
+    // Resolver **fora** do `try`: os efeitos correram, e uma marca que não se
+    // limpa só os faz correr outra vez. Embrulhá-la num `EfeitoPorAplicarError`
+    // dizia à consola que um efeito falhou quando nenhum falhou.
+    await this.#d.efeitos?.resolver(casoId);
   }
 
   /**
@@ -446,10 +464,11 @@ export class ServicoDeRevisao {
    * Existe porque a decisão e os efeitos não são uma transacção: o caso fecha
    * primeiro (é o que impede duas decisões), e um efeito que falhe — o aviso, o
    * screening — deixava o caso decidido e o onboarding parado, sem retoma. Os
-   * efeitos são idempotentes **excepto o aviso**, que volta a sair.
-   * ***shortcut:*** sem caixa de saída; quem chama é o *job* da fila (KAM-196)
-   * sobre os casos que a consola viu falhar (`EfeitoPorAplicarError`), numa
-   * lista em memória; revê-se com o processo de lote do KAM-198.
+   * efeitos são idempotentes **excepto o aviso**, que volta a sair (e a decisão
+   * humana de screening, que é *append-only* e cuja idempotência é do escritor
+   * de quem monta o serviço — o do processo de lote não repete a última linha).
+   * Quem chama é o *job* da fila sobre os casos marcados: o serviço marca-os ele
+   * próprio antes dos efeitos, com a porta `efeitos` (KAM-198).
    */
   async reaplicarEfeitos(casoId: string): Promise<void> {
     const caso = await this.#d.repositorio.porId(casoId);
@@ -593,11 +612,18 @@ export class ServicoDeRevisao {
         const o = await this.#d.onboardings.porId(caso.onboardingId);
         quota = { tipo: "origem", origem: o === null ? null : (o.redeHmac ?? o.dispositivoHmac) };
       }
-      if ((await this.#contar(quota, desde)) >= this.#l.quotaPorOrigemPorDia) continue;
-      const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
-      if (await this.#d.repositorio.transitar(caso.id, "em_triagem_automatica", "aberto", { ...sla, filaEm: agora })) {
-        entraram++;
-      }
+      // A mesma chave e o mesmo trinco da abertura: drenar um caso para a vista
+      // humana conta contra a quota como abri-lo, e um processo a drenar
+      // enquanto outro abre passavam os dois no limite (KAM-198).
+      const chave = quota.tipo === "origem" ? `o:${quota.origem}` : `t:${quota.tenantId}`;
+      const entrou = await this.#emSerie(chave, () =>
+        this.#trancado(chave, async (repositorio) => {
+          if ((await this.#contar(repositorio, quota, desde)) >= this.#l.quotaPorOrigemPorDia) return false;
+          const sla = calcularSla(agora, this.#f, this.#l.diasUteisDoSla, this.#l.fracaoDoAlerta);
+          return repositorio.transitar(caso.id, "em_triagem_automatica", "aberto", { ...sla, filaEm: agora });
+        }),
+      );
+      if (entrou) entraram++;
     }
     return entraram;
   }
@@ -621,7 +647,8 @@ export class ServicoDeRevisao {
    * de prioridade baixa. O resultado desses casos é a taxa de falsos aprovados.
    * Sem `inicioDaAmostragem`, não se amostra. **Ninguém a chama ainda**: quem
    * conhece a aprovação automática é o KAM-092; o gancho é o
-   * `CicloDaFila.aprovacaoAutomatica` (KAM-196), e o processo que o serve é o KAM-198.
+   * `CicloDaFila.aprovacaoAutomatica` (KAM-196), servido pelo processo de lote do
+   * onboarding (KAM-198, `aprovacaoAutomatica` do `ProcessoDeLote`).
    */
   async amostrar(onboardingId: string, tenantId: string): Promise<ResultadoDaAbertura | null> {
     const inicio = this.#d.inicioDaAmostragem ?? null;
@@ -660,10 +687,20 @@ export class ServicoDeRevisao {
     }
   }
 
-  #contar(quota: Quota, desde: Date): Promise<number> {
+  /**
+   * Corre `f` dentro do trinco **entre processos** da chave, se o repositório o
+   * tiver (`emTrinco`); senão com o próprio repositório, e o `#emSerie` que o
+   * embrulha é o trinco que há.
+   */
+  #trancado<T>(chave: string, f: (repositorio: RepositorioDeRevisao) => Promise<T>): Promise<T> {
+    const r = this.#d.repositorio;
+    return r.emTrinco === undefined ? f(r) : r.emTrinco(chave, f);
+  }
+
+  #contar(repositorio: RepositorioDeRevisao, quota: Quota, desde: Date): Promise<number> {
     return quota.tipo === "origem"
-      ? this.#d.repositorio.contarNaFilaDesde(quota.origem, desde)
-      : this.#d.repositorio.contarNaFilaDoTenantDesde(quota.tenantId, desde);
+      ? repositorio.contarNaFilaDesde(quota.origem, desde)
+      : repositorio.contarNaFilaDoTenantDesde(quota.tenantId, desde);
   }
 
   /**

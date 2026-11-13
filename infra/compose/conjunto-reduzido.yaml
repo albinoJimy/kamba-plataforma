@@ -159,6 +159,18 @@ servicos:
     memoria_mib: 768
     razao: Onboarding self-service da PME (ADR-019). Substitui a vitrine.
 
+  - nome: onboarding-lote
+    estado: presente
+    rede: app
+    memoria_mib: 128
+    razao: >-
+      O processo de lote do onboarding (KAM-198): a imagem do `onboarding-web`
+      com outro `command:` (`services/onboarding-web/src/lote.ts`). Corre o ciclo
+      da fila de revisao como `kamba_batch` e serve as metricas dela; e onde a
+      reconciliacao da saga (KAM-091) vai correr. Uma replica. 128 MiB e
+      *proposta*, igual a uma replica do publicador: um laco por minuto sobre a
+      base e um `/metrics`, sem fila nem cache.
+
   - nome: chatwoot
     estado: presente
     rede: app

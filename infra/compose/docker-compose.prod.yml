@@ -583,6 +583,62 @@ services:
       retries: 6
       start_period: 20s
 
+  # ------------------------------------- processo de lote do onboarding (KAM-198)
+  #
+  # **A mesma imagem do `onboarding-web`, outro `command:`**, pela razao dos
+  # quatro do `worker-canal`: o processo partilha o pacote e o
+  # `@kamba/core-ts/revisao`. Corre o ciclo da fila de revisao como
+  # `kamba_batch` (drenar a triagem, os alertas dos 80%, reaplicar os efeitos que
+  # falharam, recalcular as metricas), serve-as em `/metrics`, e e onde o KAM-092
+  # liga o `amostrar` e a reconciliacao da saga (KAM-091) vai correr.
+  #
+  # **Arranca em `prod`**, ao contrario do `server.ts` deste pacote: corre sobre os
+  # adaptadores SQL. Sem as duas cadeias de ligacao, ou com uma de outro papel,
+  # sai com codigo 1 antes de abrir a porta.
+  #
+  # Uma replica: duas voltas concorrentes nao estragam nada (o trinco da quota e
+  # da base e as transicoes sao condicionais), mas dobravam os alertas.
+  #
+  # Sem `*saida`: nao fala para fora (`services/onboarding-web/egress.yaml`,
+  # `destinos: []`). `data` para a base, `app` para o Prometheus o raspar.
+  onboarding-lote:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    command: ["node", "services/onboarding-web/src/lote.ts"]
+    environment:
+      <<: *node-env
+      KAMBA_AMBIENTE: prod
+      LOTE_PORT: "3014"
+      # `kamba_batch` (a fila atravessa tenants) e `kamba_app` (so a decisao
+      # humana de screening, dentro do `comTenant` do tenant do caso).
+      KAMBA_LOTE_DB_URL: ${KAMBA_LOTE_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
+      KAMBA_LOTE_APP_DB_URL: ${KAMBA_LOTE_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+    networks:
+      - app
+      - data
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3014/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   chatwoot:
     # Chatwoot 4.18.0, MIT fora de `enterprise/` (E4 §2.2). Digest ja fixado no
     # inventario pelo KAM-019.

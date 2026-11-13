@@ -500,6 +500,43 @@ services:
     ports:
       - "127.0.0.1:${ONBOARDING_WEB_PORT:-3003}:3003"
 
+  # O processo de lote do onboarding (KAM-198). Atras do perfil `consumidores`,
+  # como os processos do `worker-canal`: so faz sentido com a base migrada.
+  onboarding-lote:
+    <<: *service-defaults
+    profiles: ["consumidores"]
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    command: ["node", "services/onboarding-web/src/lote.ts"]
+    environment:
+      <<: *service-env
+      KAMBA_AMBIENTE: dev
+      LOTE_PORT: "3014"
+      KAMBA_LOTE_DB_URL: postgresql://kamba_batch:${KAMBA_SECRET_DB_BATCH_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_LOTE_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3014/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 networks:
   # `edge` (proxy inverso TLS) e `ops` (Prometheus, Loki, pgBackRest) fazem parte
   # da topologia de `docs/tecnica/09` §3.2 mas nao do compose de desenvolvimento:

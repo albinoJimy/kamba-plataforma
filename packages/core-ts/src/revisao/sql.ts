@@ -22,9 +22,12 @@ import type {
   CasoNovo,
   DecisaoNova,
   DecisaoRegistada,
+  EfeitosPorReaplicar,
   EstadoDoCaso,
   Evidencia,
   FiltroDaFila,
+  OnboardingDaRevisao,
+  OnboardingsDaRevisao,
   RegistoDeAuditoria,
   RepositorioDeRevisao,
   Sla,
@@ -35,6 +38,16 @@ export interface ClienteSql {
     texto: string,
     valores?: readonly unknown[],
   ): Promise<{ readonly rows: readonly T[] }>;
+}
+
+/**
+ * Um conjunto de ligações (o `pg.Pool`): responde a consultas soltas e empresta
+ * uma ligação **dedicada** para uma transacção. O trinco da quota precisa da
+ * segunda — um `BEGIN` mandado ao conjunto ia para uma ligação e o resto da
+ * transacção para outras.
+ */
+export interface ConjuntoSql extends ClienteSql {
+  connect(): Promise<ClienteSql & { release(erro?: Error | boolean): void }>;
 }
 
 /**
@@ -100,11 +113,10 @@ export const SQL_CASOS_DO_ONBOARDING = `SELECT id, tipo, onboarding_id, tenant_i
  * Uma origem nula conta com as outras nulas: não ter origem não dá quota
  * própria.
  *
- * ***shortcut:*** sem trinco, duas aberturas concorrentes da mesma origem podem
- * passar as duas no limite, e a quota excede-se pelo número de pedidos em
- * paralelo; aceitável enquanto a abertura vier de passos sequenciais por caso
- * (KYC, guia). Revê-se se a fila passar a ser alimentada em paralelo, com um
- * `pg_advisory_xact_lock` sobre a origem.
+ * A contagem e a escrita que ela decide correm dentro do trinco da chave
+ * (`SQL_TRINCO_DA_QUOTA`, `RevisaoSql.emTrinco`, KAM-198): duas aberturas
+ * concorrentes da mesma origem, mesmo em processos diferentes, não passam as
+ * duas no limite.
  */
 export const SQL_CONTAR_NA_FILA = `SELECT count(*)::int AS n
   FROM platform.review_case r JOIN platform.onboarding_case c ON c.id = r.onboarding_id
@@ -134,6 +146,24 @@ export const SQL_PAGINA = `SELECT id, tipo, onboarding_id, tenant_id, motivo_cod
   WHERE estado <> 'em_triagem_automatica'
     AND ($1::text IS NULL OR tipo = $1) AND ($2::text IS NULL OR estado = $2)
   ORDER BY prioridade, sla_due_at, id LIMIT $3 OFFSET $4`;
+
+/**
+ * O trinco da quota entre processos (KAM-198). **Dentro** de uma transacção: o
+ * `pg_advisory_xact_lock` larga-se no `COMMIT`, e fora de uma transacção cada
+ * instrução é a sua e o trinco larga-se na seguinte — o mesmo que não existir.
+ *
+ * **A forma de dois argumentos, e não a de um `bigint`.** O primeiro é o espaço
+ * desta fila (`ESPACO_DO_TRINCO_DA_QUOTA`) e o segundo o `hashtext` da chave da
+ * quota (`o:<origem>`, `t:<tenant>`). As duas formas são espaços de chaves que o
+ * PostgreSQL não sobrepõe, pelo que nenhum `hashtextextended` dos trincos de
+ * conversa (`../modos/consultas.ts`) nem o `7101` do publicador colidem com
+ * este. Duas origens com o mesmo `hashtext` partilham o trinco: serializam-se
+ * sem necessidade, e a contagem continua a ser a de cada uma.
+ */
+export const SQL_TRINCO_DA_QUOTA = `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`;
+
+/** O espaço do trinco da quota na forma de dois argumentos. O número do ticket. */
+export const ESPACO_DO_TRINCO_DA_QUOTA = 7198;
 
 /** As linhas da vista do SLA, para as métricas. */
 export const SQL_VISTA_SLA = `SELECT case_id, tipo, estado, fila_at, sla_due_at, primeira_decisao_at, dentro_do_sla
@@ -220,11 +250,61 @@ function decisaoDe(l: LinhaDeDecisao): DecisaoRegistada {
   };
 }
 
+/** O trinco da quota pedido a uma ligação solta, que não segura transacção nenhuma. */
+export class TrincoSemConjuntoError extends Error {
+  override readonly name = "TrincoSemConjuntoError";
+
+  constructor() {
+    super("o trinco da quota precisa de um conjunto de ligacoes (pg.Pool): uma ligacao solta nao segura a transaccao");
+  }
+}
+
 export class RevisaoSql implements RepositorioDeRevisao {
   readonly #c: ClienteSql;
+  readonly #conjunto: ConjuntoSql | null;
 
-  constructor(cliente: ClienteSql) {
+  /**
+   * Com `conjunto`, o `emTrinco` empresta dele uma ligação dedicada para a
+   * transacção do trinco; sem ele, recusa-o (`TrincoSemConjuntoError`) em vez de
+   * abrir um `BEGIN` numa ligação que outras consultas partilham. **Explícito, e
+   * não adivinhado pelo `connect`**: um `pg.Client` também tem `connect`, e
+   * chamá-lo outra vez numa ligação aberta falha.
+   */
+  constructor(cliente: ClienteSql, opcoes: { readonly conjunto?: ConjuntoSql } = {}) {
     this.#c = cliente;
+    this.#conjunto = opcoes.conjunto ?? null;
+  }
+
+  /**
+   * A contagem e a escrita de uma abertura (ou de uma drenagem) com a chave da
+   * quota trancada **entre processos** (KAM-198, critério 5). O `trabalho` corre
+   * sobre um `RevisaoSql` da ligação emprestada, dentro da transacção que segura
+   * o trinco; um erro reverte-a e devolve a ligação.
+   */
+  async emTrinco<T>(chave: string, trabalho: (repositorio: RepositorioDeRevisao) => Promise<T>): Promise<T> {
+    if (this.#conjunto === null) throw new TrincoSemConjuntoError();
+    const ligacao = await this.#conjunto.connect();
+    let partida: Error | undefined;
+    try {
+      await ligacao.query("BEGIN");
+      try {
+        await ligacao.query(SQL_TRINCO_DA_QUOTA, [ESPACO_DO_TRINCO_DA_QUOTA, chave]);
+        const resultado = await trabalho(new RevisaoSql(ligacao));
+        await ligacao.query("COMMIT");
+        return resultado;
+      } catch (erro) {
+        try {
+          await ligacao.query("ROLLBACK");
+        } catch (falhou) {
+          // Uma ligação que nem reverte não volta ao conjunto: devolvê-la
+          // deixava a transacção aberta à espera do próximo que a emprestasse.
+          partida = falhou instanceof Error ? falhou : new Error("rollback falhou");
+        }
+        throw erro;
+      }
+    } finally {
+      ligacao.release(partida);
+    }
   }
 
   async abrir(n: CasoNovo): Promise<{ caso: CasoDeRevisao; repetido: boolean }> {
@@ -327,6 +407,122 @@ export class RevisaoSql implements RepositorioDeRevisao {
     return (
       await this.#c.query<Linha>(SQL_PAGINA, [filtro.tipo ?? null, filtro.estado ?? null, limite, depoisDe])
     ).rows.map(casoDe);
+  }
+}
+
+/**
+ * Os onboardings que a fila lê e cuja fase muda (KAM-198), sobre a
+ * `platform.onboarding_case` da `0043`. Corre como `kamba_batch`, que tem
+ * `SELECT` e `UPDATE (fase, …)` nela (`db/kyc.py`): a fila atravessa tenants, e
+ * um onboarding de outro tenant é o que ela lê por natureza.
+ *
+ * Os quatro *hashes* saem em hexadecimal, que é a forma da porta: a quota
+ * devolve-os à base com `Buffer.from(origem, "hex")`.
+ */
+export const SQL_ONBOARDING_POR_ID = `SELECT id, tenant_id, fase, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
+  FROM platform.onboarding_case WHERE id = $1`;
+
+export const SQL_ONBOARDING_POR_TENANT = `SELECT id, tenant_id, fase, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
+  FROM platform.onboarding_case WHERE tenant_id = $1`;
+
+/** O `fase_at` mantém-no o *trigger* da `0043`. */
+export const SQL_MARCAR_FASE = `UPDATE platform.onboarding_case SET fase = $2 WHERE id = $1 RETURNING id`;
+
+interface LinhaDoOnboarding {
+  id: string;
+  tenant_id: string;
+  fase: string;
+  ip_prefix_hash: Uint8Array | null;
+  device_hash: Uint8Array | null;
+  nif_hmac: Uint8Array;
+  phone_hmac: Uint8Array;
+}
+
+const hex = (v: Uint8Array): string => Buffer.from(v).toString("hex");
+
+function onboardingDe(l: LinhaDoOnboarding): OnboardingDaRevisao {
+  return {
+    id: l.id,
+    tenantId: l.tenant_id,
+    fase: l.fase,
+    redeHmac: l.ip_prefix_hash === null ? null : hex(l.ip_prefix_hash),
+    dispositivoHmac: l.device_hash === null ? null : hex(l.device_hash),
+    nifHmac: hex(l.nif_hmac),
+    telefoneHmac: hex(l.phone_hmac),
+  };
+}
+
+export class OnboardingsSql implements OnboardingsDaRevisao {
+  readonly #c: ClienteSql;
+
+  constructor(cliente: ClienteSql) {
+    this.#c = cliente;
+  }
+
+  async porId(id: string): Promise<OnboardingDaRevisao | null> {
+    const r = await this.#c.query<LinhaDoOnboarding>(SQL_ONBOARDING_POR_ID, [id]);
+    return r.rows[0] === undefined ? null : onboardingDe(r.rows[0]);
+  }
+
+  async porTenant(tenantId: string): Promise<OnboardingDaRevisao | null> {
+    const r = await this.#c.query<LinhaDoOnboarding>(SQL_ONBOARDING_POR_TENANT, [tenantId]);
+    return r.rows[0] === undefined ? null : onboardingDe(r.rows[0]);
+  }
+
+  async marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean> {
+    return (await this.#c.query(SQL_MARCAR_FASE, [id, fase])).rows.length === 1;
+  }
+}
+
+/**
+ * A marca de «efeito por aplicar» de um caso (KAM-198, revisão `0052`). O
+ * `kamba_batch` tem `UPDATE` só desta coluna.
+ *
+ * **Marcar renova o instante, e resolver só limpa o instante que leu.** Dois
+ * processos tocam na mesma marca: o que decide (marca, corre os efeitos,
+ * resolve) e o lote (lê os pendentes, reaplica, resolve). Se o lote reaplicasse
+ * uma decisão antiga enquanto uma nova marcava e falhava, um `resolver`
+ * incondicional apagava a marca nova — e o efeito novo perdia-se. Com a
+ * comparação, o `resolver` do lote não encontra a linha e a marca nova fica.
+ *
+ * O instante viaja como **texto** e não como `Date`: a coluna tem microssegundos
+ * e o `Date` do JavaScript tem milissegundos, pelo que um `Date` relido nunca
+ * era igual ao que está na base.
+ */
+export const SQL_MARCAR_EFEITO = `UPDATE platform.review_case SET efeito_pendente_at = clock_timestamp()
+  WHERE id = $1 RETURNING efeito_pendente_at::text AS marca`;
+
+export const SQL_EFEITOS_PENDENTES = `SELECT id, efeito_pendente_at::text AS marca FROM platform.review_case
+  WHERE efeito_pendente_at IS NOT NULL ORDER BY efeito_pendente_at, id LIMIT $1`;
+
+/** Com `$2` nulo (uma marca que este processo não leu), limpa sem comparar. */
+export const SQL_RESOLVER_EFEITO = `UPDATE platform.review_case SET efeito_pendente_at = NULL
+  WHERE id = $1 AND ($2::text IS NULL OR efeito_pendente_at = $2::timestamptz)`;
+
+export class EfeitosPorReaplicarSql implements EfeitosPorReaplicar {
+  readonly #c: ClienteSql;
+  /** A marca que este processo escreveu ou leu, por caso: é a que o `resolver` limpa. */
+  readonly #marcas = new Map<string, string>();
+
+  constructor(cliente: ClienteSql) {
+    this.#c = cliente;
+  }
+
+  async marcar(casoId: string): Promise<void> {
+    const r = await this.#c.query<{ marca: string }>(SQL_MARCAR_EFEITO, [casoId]);
+    if (r.rows[0] !== undefined) this.#marcas.set(casoId, r.rows[0].marca);
+  }
+
+  async pendentes(limite: number): Promise<readonly string[]> {
+    const r = await this.#c.query<{ id: string; marca: string }>(SQL_EFEITOS_PENDENTES, [limite]);
+    for (const l of r.rows) this.#marcas.set(l.id, l.marca);
+    return r.rows.map((l) => l.id);
+  }
+
+  async resolver(casoId: string): Promise<void> {
+    const marca = this.#marcas.get(casoId) ?? null;
+    await this.#c.query(SQL_RESOLVER_EFEITO, [casoId, marca]);
+    this.#marcas.delete(casoId);
   }
 }
 

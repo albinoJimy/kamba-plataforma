@@ -65,6 +65,9 @@ def main() -> int:
         # KAM-044: as encomendas — o grafo, o CAS por versao, o registo
         # append-only e a autenticidade de `paga`.
         "tests_encomendas",
+        # KAM-198: o processo de lote do onboarding — o ciclo da fila, o
+        # screening como `kamba_app` e a quota entre processos.
+        "tests_lote",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

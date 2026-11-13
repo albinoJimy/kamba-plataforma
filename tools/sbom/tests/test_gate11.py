@@ -152,11 +152,17 @@ class TestFechoPorAlvo(unittest.TestCase):
     #: `@kamba/core-ts`, `pg`) e por isso carregam o mesmo. Esta linha mudar foi
     #: exactamente o que ela existe para obrigar: a dependencia nova foi uma
     #: decisao escrita e nao um acidente.
+    #:
+    #: **E o `services/onboarding-web` passou de 27 a 44 pelo KAM-198**, pela
+    #: mesma razao e com a mesma conta: declarou o `pg` (e o `@types/pg`) para o
+    #: processo de lote do onboarding (`src/lote.ts`) abrir as ligacoes do
+    #: `kamba_batch` e do `kamba_app`. Declara agora o mesmo que o `com` e o
+    #: `worker-canal`, e carrega o mesmo.
     DEPENDENCIAS_POR_SERVICO = {
         "services/gwy": 27,
         "services/worker-canal": 44,
         "services/com": 44,
-        "services/onboarding-web": 27,
+        "services/onboarding-web": 44,
     }
 
     def test_os_servicos_node_carregam_o_que_declaram(self) -> None:

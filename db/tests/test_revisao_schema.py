@@ -39,6 +39,7 @@ from tests.base import (
     VIOLACAO_DE_FK,
     ComBase,
     ConsultaDoTypeScript,
+    alembic,
     alembic_ok,
     em_head,
     exigir_base_descartavel,
@@ -604,6 +605,125 @@ class TestDowngrade(unittest.TestCase):
         self.assertEqual(self._existe(), (0, 0, 0, False))
         alembic_ok("upgrade", "head")
         self.assertEqual(self._existe(), (2, 2, 1, True))
+
+
+
+class TestEfeitosPorReaplicar(ComBase):
+    """A marca de «efeito por aplicar» da revisao `0052` (KAM-198).
+
+    As tres consultas sao as do modulo (`SQL_MARCAR_EFEITO`, `SQL_EFEITOS_PENDENTES`,
+    `SQL_RESOLVER_EFEITO`), lidas do `sql.ts` e nao copiadas.
+    """
+
+    def test_o_lote_marca_lista_e_resolve_ate_num_caso_decidido_final(self) -> None:
+        lote = self.ligar("batch").cursor()
+        caso = abrir(lote, str(uuid.uuid4()))[0]
+        # Um caso que ja nao sai do estado: o *trigger* so olha para o estado e a
+        # prioridade, e a marca escreve-se na mesma.
+        for de, para in (("aberto", "decidido"), ("decidido", "recurso_aberto"),
+                         ("recurso_aberto", "decidido_final")):
+            q = ConsultaDoTypeScript("SQL_TRANSITAR", SQL_TS)
+            lote.execute(q.sql, q.args(caso, de, para))
+        marcar = ConsultaDoTypeScript("SQL_MARCAR_EFEITO", SQL_TS)
+        lote.execute(marcar.sql, marcar.args(caso))
+        marca = lote.fetchone()[0]
+        pendentes = ConsultaDoTypeScript("SQL_EFEITOS_PENDENTES", SQL_TS)
+        lote.execute(pendentes.sql, pendentes.args(100))
+        self.assertIn((caso, marca), [tuple(l) for l in lote.fetchall()])
+        resolver = ConsultaDoTypeScript("SQL_RESOLVER_EFEITO", SQL_TS)
+        lote.execute(resolver.sql, resolver.args(caso, marca))
+        lote.execute(f"SELECT efeito_pendente_at FROM {CASO} WHERE id = %s", (caso,))
+        self.assertIsNone(lote.fetchone()[0])
+
+    def test_resolver_com_uma_marca_antiga_nao_apaga_a_nova(self) -> None:
+        lote = self.ligar("batch").cursor()
+        caso = abrir(lote, str(uuid.uuid4()))[0]
+        marcar = ConsultaDoTypeScript("SQL_MARCAR_EFEITO", SQL_TS)
+        lote.execute(marcar.sql, marcar.args(caso))
+        antiga = lote.fetchone()[0]
+        lote.execute(marcar.sql, marcar.args(caso))
+        nova = lote.fetchone()[0]
+        self.assertNotEqual(antiga, nova, "marcar renova o instante")
+        resolver = ConsultaDoTypeScript("SQL_RESOLVER_EFEITO", SQL_TS)
+        lote.execute(resolver.sql, resolver.args(caso, antiga))
+        lote.execute(f"SELECT efeito_pendente_at::text FROM {CASO} WHERE id = %s", (caso,))
+        self.assertEqual(lote.fetchone()[0], nova)
+        # Sem marca lida (`NULL`), limpa sem comparar.
+        lote.execute(resolver.sql, resolver.args(caso, None))
+        lote.execute(f"SELECT efeito_pendente_at FROM {CASO} WHERE id = %s", (caso,))
+        self.assertIsNone(lote.fetchone()[0])
+
+    def test_o_lote_so_ganhou_esta_coluna_e_a_aplicacao_nada(self) -> None:
+        lote = self.ligar("batch").cursor()
+        caso = abrir(lote, str(uuid.uuid4()))[0]
+        lote.execute(f"UPDATE {CASO} SET efeito_pendente_at = now() WHERE id = %s", (caso,))
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, lote,
+                           f"UPDATE {CASO} SET criado_at = now() WHERE id = %s", (caso,))
+        app = self.ligar("app").cursor()
+        factories.contexto(app, str(uuid.uuid4()))
+        self.assertErroSql(PRIVILEGIO_INSUFICIENTE, app,
+                           f"UPDATE {CASO} SET efeito_pendente_at = now()")
+
+
+class TestDowngradeDa0052(unittest.TestCase):
+    """O `downgrade` da `0052` recusa-se com um caso marcado, e sem ele desfaz tudo.
+
+    **Desce pelo numero (`0051`) e nao por `-1`**, pela licao do KAM-071, e **nao
+    exige `em_head()` depois de recusar**, pela do KAM-089: com outra revisao por
+    cima, o Alembic desce-a primeiro e a base fica nesta.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        exigir_base_descartavel()
+        if not em_head():
+            alembic_ok("upgrade", "head")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if not em_head():
+            alembic_ok("upgrade", "head")
+
+    def _admin(self):
+        conexao = ligacao.ligar("admin")
+        self.addCleanup(conexao.close)
+        return conexao
+
+    def _coluna(self) -> int:
+        c = self._admin().cursor()
+        c.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'platform' "
+                  "AND table_name = 'review_case' AND column_name = 'efeito_pendente_at'")
+        return int(c.fetchone()[0])
+
+    def test_com_um_caso_marcado_recusa_e_sem_ele_desce_e_volta(self) -> None:
+        conexao = self._admin()
+        c = conexao.cursor()
+        caso = abrir(c, str(uuid.uuid4()))[0]
+        c.execute(f"UPDATE {CASO} SET efeito_pendente_at = now() WHERE id = %s", (caso,))
+        conexao.commit()
+        try:
+            resultado = alembic("downgrade", "0051")
+            self.assertNotEqual(resultado.returncode, 0, "o downgrade devia recusar")
+            self.assertIn("downgrade da 0052 recusado", resultado.stderr)
+            self.assertEqual(self._coluna(), 1, "a coluna ficou, com a marca")
+        finally:
+            if not em_head():
+                alembic_ok("upgrade", "head")
+            c.execute(f"DELETE FROM {CASO} WHERE id = %s", (caso,))
+            conexao.commit()
+        alembic_ok("downgrade", "0051")
+        try:
+            self.assertEqual(self._coluna(), 0)
+            c2 = self._admin().cursor()
+            c2.execute("SELECT count(*) FROM pg_indexes WHERE indexname = 'review_case_efeito_pendente_idx'")
+            self.assertEqual(int(c2.fetchone()[0]), 0)
+        finally:
+            alembic_ok("upgrade", "head")
+        self.assertEqual(self._coluna(), 1)
+        c3 = self._admin().cursor()
+        c3.execute("SELECT has_column_privilege('kamba_batch', 'platform.review_case', "
+                   "'efeito_pendente_at', 'UPDATE')")
+        self.assertTrue(c3.fetchone()[0])
 
 
 if __name__ == "__main__":
