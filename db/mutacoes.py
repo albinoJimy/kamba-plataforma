@@ -283,6 +283,27 @@ REV44 = "db/migrations/versions/0044_screening_de_categorias.py"
 SCREENING_SQL = "packages/core-ts/src/screening/sql.ts"
 REV48 = "db/migrations/versions/0048_fila_de_revisao.py"
 REVISAO_SQL = "packages/core-ts/src/revisao/sql.ts"
+
+
+def _revisao_por_glob(padrao: str) -> str:
+    """O caminho relativo da **unica** revisao que casa com o padrao.
+
+    Para as revisoes cujo numero e provisorio e so a integracao fixa (quem funde
+    em segundo renumera): um literal aqui ficava a apontar para um ficheiro que
+    deixou de existir. Sem nenhuma, ou com mais de uma, devolve o proprio
+    padrao, que nao e ficheiro nenhum: o `--aplicaveis` acusa-o em vez de a
+    prova correr contra a revisao errada.
+    """
+    achadas = sorted((RAIZ / "db" / "migrations" / "versions").glob(padrao))
+    if len(achadas) != 1:
+        return f"db/migrations/versions/{padrao}"
+    return achadas[0].relative_to(RAIZ).as_posix()
+
+
+#: KAM-049: a revisao do Catalogo AI, descoberta pelo *glob* e nao pelo numero,
+#: que e provisorio. O ensaio que a prova (`db/tests/test_catalogo_ai_schema.py`)
+#: descobre-a pelo mesmo padrao.
+REV_CATALOGO_AI = _revisao_por_glob("*_catalogo_ai.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7181,6 +7202,37 @@ MUTACOES = [
     # desfez, e a taxa de falsos aprovados mentia. Foi o defeito que o
     # `test_a_vista_do_sla_e_os_contadores` apanhou na primeira corrida.
 
+    # --------------------------------- KAM-049 (revisao do Catalogo AI)
+    #
+    # Tres, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_CATALOGO_AI`), porque o numero e provisorio.
+    # A suite e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_catalogo_ai_schema.py`.
+    ('catalogo ai: a ingestao perde o FORCE da RLS', REV_CATALOGO_AI,
+     '    rls.enable_tenant_rls("catalog_ingestions")\n',
+     '    rls.enable_tenant_rls("catalog_ingestions")\n'
+     '    op.execute(f"ALTER TABLE {TABELA} NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # A politica continuava la, mas o dono da tabela (`kamba_migrator`) via e
+    # escrevia as fotos de todos os tenants. O
+    # `test_a_rls_esta_ligada_e_forcada` tem de a matar.
+    ('catalogo ai: uma linha publicada deixa de ser final', REV_CATALOGO_AI,
+     "IF OLD.estado IN ('publicada', 'descartada') THEN",
+     "IF OLD.estado IN ('descartada') THEN",
+     "tests"),
+    # Um produto publicado voltava a mudar de SKU, de extraccao ou de quem o
+    # confirmou, por baixo da confirmacao do dono. O
+    # `test_uma_linha_final_nao_muda_nem_fora_do_estado` tem de a matar.
+    ('catalogo ai: publicar deixa de exigir a confirmacao do dono', REV_CATALOGO_AI,
+     ",\n          CONSTRAINT catalog_ingestions_publicada_ck\n"
+     "            CHECK (estado <> 'publicada' OR (categoria_restrita IS NULL AND sku IS NOT NULL\n"
+     "                   AND confirmado_at IS NOT NULL AND confirmado_por IS NOT NULL))",
+     "",
+     "tests"),
+    # Uma linha passava a `publicada` sem SKU, com categoria restrita ou sem
+    # quem confirmou e quando: o criterio da confirmacao ficava so no Python.
+    # O `test_restricoes_de_linha` tem de a matar.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -7229,6 +7281,12 @@ MUTACOES = [
     ("pesquisa: a transaccao abre com outro tenant", IDX_PESQUISA,
      "with tx(conexao, tenant) as cursor:",
      'with tx(conexao, "00000000-0000-0000-0000-000000000000") as cursor:', PRODUTOS),
+    # KAM-063: a transaccao curta do modo hibrido (o modelo dos vectores e a
+    # normalizacao) tambem e do tenant do contexto. Aberta com outro, o indice
+    # parece sem vectores e a pesquisa hibrida passa a lexical.
+    ("pesquisa: a transaccao do modelo abre com outro tenant", IDX_PESQUISA,
+     "with tx(conexao, tenant) as previo:",
+     'with tx(conexao, "00000000-0000-0000-0000-000000000000") as previo:', PRODUTOS),
     ("pesquisa: a resposta perde o filtro do publicado", IDX_PESQUISA,
      "   WHERE v.publicado\n", "   WHERE true\n", PRODUTOS),
     ("pesquisa: o teto de preco deixa de filtrar", IDX_PESQUISA,

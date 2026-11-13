@@ -38,7 +38,10 @@ consumidor atrasar, a porta `tn` ja impede a fuga de um tenant suspenso.
   que nao e vertical —, e serve tambem o `/internal/event` do AGR.
 * `categoria_canon` e `descr_norm`: o `platform.offer_terms` so tem `nome`.
   Ficam nulo e vazio. A `marca_canon` sai do lexico (KAM-062).
-* O embedding (KAM-063). O documento nasce sem ele, que e o modo lexical.
+* O embedding. O documento nasce sem ele, que e o modo lexical, e quem o
+  escreve e o *worker* do `kamba_core.idx.embeddings` (KAM-063). Daqui so sai
+  uma coisa sobre ele: reescrever o documento com **outro** texto anula o
+  vector, e com o mesmo texto deixa-o (`COLUNAS_DO_TEXTO_ESCRITAS`).
 """
 
 from __future__ import annotations
@@ -98,12 +101,33 @@ SQL_LER_OFERTAS: Final = """
      AND v.product_ref = ANY(%s::text[])
 """
 
+#: As colunas do texto de embedding que a instrucao de escrita **escreve**
+#: (KAM-063, criterio 5). Se o texto nao mudou, o vector fica; se mudou, fica
+#: nulo e o *worker* reembebe-o. **O preco nao esta aqui, nem pode estar**: o
+#: documento nao tem coluna de preco, e por isso mudar o preco reescreve o
+#: documento com o mesmo texto e o vector sobrevive. A `categoria_canon` e a
+#: `descr_norm` sao do texto de embedding mas **ninguem as escreve** (o
+#: `platform.offer_terms` so tem `nome`): no dia em que a instrucao as escrever,
+#: entram nesta tupla — e o `test_cada_coluna_do_texto_escrita_e_comparada`
+#: recusa a instrucao que escreva uma coluna do texto sem a comparar.
+COLUNAS_DO_TEXTO_ESCRITAS: Final = ("nome_norm", "marca_canon")
+
+#: O texto de embedding nao mudou: as colunas antigas igualam as novas.
+_TEXTO_IGUAL: Final = (
+    "("
+    + ", ".join(f"idx.search_doc.{c}" for c in COLUNAS_DO_TEXTO_ESCRITAS)
+    + ") IS NOT DISTINCT FROM ("
+    + ", ".join(f"EXCLUDED.{c}" for c in COLUNAS_DO_TEXTO_ESCRITAS)
+    + ")"
+)
+
 #: Escreve ou reescreve documentos, um ou um lote, numa so instrucao. O
 #: `visivel` junta o tenant `ativo` ao `publicado` da oferta; o `SELECT` sobre
 #: `platform.tenants` le **so** o tenant do contexto (RLS por `id`), e sem ele
 #: nao escreve nada. O `{linhas}` e uma `_LINHA_A_ESCREVER` por documento
 #: (`sql_escrever_documentos`): o caminho do evento e o do *worker* escrevem
-#: pela **mesma** instrucao, e a definicao de «visivel» e uma so.
+#: pela **mesma** instrucao, e a definicao de «visivel» e uma so. O vector e o
+#: seu modelo so sobrevivem se o texto for o mesmo (`COLUNAS_DO_TEXTO_ESCRITAS`).
 _SQL_ESCREVER_DOCUMENTOS: Final = """
   INSERT INTO idx.search_doc
          (tenant_id, product_ref, norm_versao, nome_norm, marca_canon, visivel)
@@ -117,8 +141,11 @@ _SQL_ESCREVER_DOCUMENTOS: Final = """
          nome_norm     = EXCLUDED.nome_norm,
          marca_canon   = EXCLUDED.marca_canon,
          visivel       = EXCLUDED.visivel,
+         embedding     = CASE WHEN {texto_igual} THEN idx.search_doc.embedding END,
+         embedding_modelo
+                       = CASE WHEN {texto_igual} THEN idx.search_doc.embedding_modelo END,
          atualizado_at = now()
-"""
+""".replace("{texto_igual}", _TEXTO_IGUAL)
 
 #: Um documento no `VALUES`, com os tipos escritos: uma `marca_canon` nula em
 #: todas as linhas nao deixa o PostgreSQL adivinhar a coluna.

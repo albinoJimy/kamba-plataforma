@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.20 |
+| Versão | 1.21 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -747,13 +747,17 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > `publico/main` integrada em `ac3f9527`: **26 módulos, 140 nomes**, 142 declaradas.
 > Nenhuma caixa deste epic muda.
 >
+> **E o KAM-063 acrescentou dois nomes ao módulo do IDX, sem módulo novo:**
+> `embedding_latency_ms{uso}` e `embedding_fallback_total{motivo}`, servidos pela
+> mesma `/metrics` do AGR. Medido no ramo do KAM-063 sobre a `publico/main` em
+> `a6bb0ae0`: **26 módulos, 142 nomes**, 144 declaradas. Nenhuma caixa deste epic muda.
 > **E o KAM-194 trouxe dois nomes que nascem servidos e raspados:** o
 > `packages/core-ts/src/eventos/metricas_ponte.ts` é módulo novo com **um**
 > (`evt_ponte_total{outcome}`, servido pelo `ponte.ts` na 3194, `job` `ponte`), e
 > o `kamba_core.idx.metricas` ganha o `idx_reindexed_total` (servido pelo processo
-> do IDX na 8061, `job` `idx`). Medido no ramo do KAM-194 sobre a `publico/main`
-> em `a6bb0ae0`: **27 módulos, 142 nomes**, 144 declaradas, e as restantes nas
-> mesmas. Nenhuma caixa deste epic muda.
+> do IDX na 8061, `job` `idx`). Medido no ramo do KAM-194 com a `publico/main`
+> integrada em `303ed1cd`: **27 módulos, 144 nomes**, 146 declaradas, e as
+> restantes nas mesmas. Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
@@ -1891,4 +1895,5 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.17 | Novembro 2026 | **KAM-193**, e é uma emenda de **propagação** como a 1.16: o inventário fechado de módulos de métricas do `tools/obs_lint` passa a ter o `libs/py-core/src/kamba_core/idx/metricas.py`, e a nota da verificação do KAM-080 ganha a linha com os números novos — **25 módulos, 136 nomes**, 138 declaradas, medidos sobre a `publico/main` em `f7e32c84`. As três métricas são servidas pela `/metrics` do AGR. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.18 | Novembro 2026 | **KAM-191**: os Detalhes Técnicos do KAM-078 passam a nomear o agendador do `reanalisar` do screening entre os *jobs* que o deploy liga, para que a parte que falta ao critério 7 do KAM-088 (nada agenda a re-análise quando a versão da política muda) tenha credor com a caixa no próprio bloco. Só essa linha; nenhum critério novo. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | **KAM-089**, e é uma emenda de **propagação** como a 1.6, a 1.8, a 1.16 e a 1.17: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `packages/core-ts/src/revisao/metricas.ts`, e a mensagem do *gate* manda levar os números novos à nota do KAM-080. Medido: `contar_metricas` passa de **25 módulos, 136 nomes** para **26 módulos, 140 nomes**, e a reconciliação `+2` do `services/com` dá **142** declaradas, eram 138. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-089 com a `publico/main` integrada em `ac3f9527`, que já traz o módulo do KAM-193. | Equipa KAMBÁ |
-| 1.20 | Novembro 2026 | **KAM-194**, e é uma emenda de **propagação** como a 1.19: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `packages/core-ts/src/eventos/metricas_ponte.ts`, e o `libs/py-core/src/kamba_core/idx/metricas.py` ganhou um nome. Medido: `contar_metricas` passa de **26 módulos, 140 nomes** para **27 módulos, 142 nomes**, e a reconciliação `+2` do `services/com` dá **144** declaradas, eram 142. Os dois nomes são servidos e raspados no mesmo PR (`job` `ponte` e `job` `idx`), pelo que as restantes não se movem. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-194 sobre a `publico/main` em `a6bb0ae0`; quem fundir em segundo remede. | Equipa KAMBÁ |
+| 1.20 | Novembro 2026 | **KAM-063**, emenda de **propagação** como a 1.17 e a 1.19: dois nomes novos no módulo de métricas do IDX (`embedding_latency_ms{uso}` e `embedding_fallback_total{motivo}`), sem módulo novo, e a nota da verificação do KAM-080 ganha a linha com os números — **26 módulos, 142 nomes**, 144 declaradas, medidos no ramo do KAM-063 sobre a `publico/main` em `a6bb0ae0`. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.21 | Novembro 2026 | **KAM-194**, e é uma emenda de **propagação** como a 1.19: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `packages/core-ts/src/eventos/metricas_ponte.ts`, e o `libs/py-core/src/kamba_core/idx/metricas.py` ganhou um nome. Medido: `contar_metricas` passa de **26 módulos, 142 nomes** (depois do KAM-063) para **27 módulos, 144 nomes**, e a reconciliação `+2` do `services/com` dá **146** declaradas, eram 144. Os dois nomes são servidos e raspados no mesmo PR (`job` `ponte` e `job` `idx`), pelo que as restantes não se movem. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-194 com a `publico/main` integrada em `303ed1cd`, que já traz o KAM-063; quem fundir em segundo remede. | Equipa KAMBÁ |

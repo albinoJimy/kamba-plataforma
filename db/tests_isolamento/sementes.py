@@ -1369,6 +1369,26 @@ def _termo_do_lexico(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _ingestao_do_catalogo(cursor, tenant_id: str, canario: str) -> None:
+    """Uma foto recebida pelo Catalogo AI (KAM-049). O canario vai no `media_id_meta`.
+
+    So as colunas que o `kamba_app` pode inserir, e e de proposito: a mesma
+    receita corre como o papel nos testes de escrita cruzada, e uma coluna fora
+    do `GRANT INSERT` dava o `42501` do privilegio em vez do da politica. A
+    `media_ref` leva o tenant da linha, que e o que a
+    `catalog_ingestions_media_ref_ck` exige — com outro tenant, o `CHECK`
+    recusava antes de a politica dizer alguma coisa.
+
+    Semeia o administrador: o `kamba_batch` nao tem privilegio nenhum nesta
+    tabela, e o `kamba_app` nao tem `DELETE`, com que estas receitas limpam.
+    """
+    cursor.execute(
+        "INSERT INTO platform.catalog_ingestions (tenant_id, media_ref, media_id_meta) "
+        "VALUES (%s, 't/' || %s || '/catalogo/semente', %s)",
+        (tenant_id, tenant_id, canario),
+    )
+
+
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
@@ -1461,6 +1481,15 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("idx", "termo_canonico"): Receita(
         _termo_do_lexico, "termo", None, None,
         semeador="admin", escrita_do_papel=False,
+    ),
+    # KAM-049: a ingestao do Catalogo AI. O *pipeline* corre como `kamba_app`,
+    # que le, insere e actualiza por coluna, pelo que a RLS e a ultima barreira
+    # nas duas escritas. A coluna alteravel e o `sku`, que esta no
+    # `GRANT UPDATE` e que o *trigger* deixa mudar numa linha `recebida` (ele so
+    # olha para o `estado`, para as perguntas e para as linhas finais).
+    ("platform", "catalog_ingestions"): Receita(
+        _ingestao_do_catalogo, "media_id_meta", "sku", "sku-alterado",
+        semeador="admin",
     ),
     # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
     # vai buscar o contacto por subconsulta, e o `kamba_batch` **nao tem
@@ -2219,6 +2248,9 @@ ORDEM = (
     # A posicao e indiferente e a escolhida e a dos numeros dos tickets.
     ("idx", "search_doc"),
     ("idx", "termo_canonico"),
+    # KAM-049: a ingestao so tem FK para `tenants`, e ninguem a aponta. A
+    # posicao e indiferente e a escolhida e a dos numeros dos tickets.
+    ("platform", "catalog_ingestions"),
 )
 
 #: As identidades com que as receitas semeiam.

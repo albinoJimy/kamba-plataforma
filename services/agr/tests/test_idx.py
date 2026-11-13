@@ -84,7 +84,10 @@ class TestExecutor(unittest.TestCase):
             resposta = idx.executar(_pedido("arroz"))
         argumentos, opcoes = candidatos.call_args
         self.assertEqual(argumentos[1:], (TENANT, "arroz"))
-        self.assertEqual(opcoes, {"max_preco_minor": None, "tecto_ms": 2_000})
+        # Sem `LigacaoVectorial`, o vector nao e pedido: modo lexical (KAM-063).
+        self.assertEqual(
+            opcoes, {"max_preco_minor": None, "tecto_ms": 2_000, "vectorial": None}
+        )
         self.assertEqual(resposta.data, {"candidatos": ({**linha, "score": 0.4},)})
         self.assertEqual(resposta.facts, ())
 

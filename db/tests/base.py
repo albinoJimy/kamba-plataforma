@@ -518,6 +518,21 @@ TABELAS_0044 = ("screening_decision",)
 #: nao criam nenhuma no `platform`.
 TABELAS_0048 = ("review_case", "review_decision_log")
 
+#: O que a revisao do Catalogo AI (KAM-049) acrescenta: as ingestoes de fotos.
+#:
+#: **O nome leva a tabela e nao o numero da revisao, de proposito**: o numero e
+#: provisorio e da-o a integracao pela ordem de quem funde, e um literal aqui
+#: ficava a apontar para outro passo da cadeia (os ensaios descobrem a revisao
+#: pelo *glob* `*_catalogo_ai.py`).
+#:
+#: **Uma tabela, com RLS `FORCE` pela `tenant_iso`**, FK simples
+#: `catalog_ingestions_tenant_fk` para `tenants(id)` e uma funcao de *trigger*
+#: (`catalog_ingestions_transicao`) que impoe as transicoes de `estado`, recusa
+#: que as perguntas descam e congela as linhas `publicada` e `descartada`. O
+#: `kamba_app` le, insere e actualiza por coluna, e nao apaga. A `0049`
+#: (KAM-062) nao cria tabelas no `platform`.
+TABELAS_CATALOGO_AI = ("catalog_ingestions",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -528,18 +543,28 @@ TABELAS = tuple(
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
-        + TABELAS_0044 + TABELAS_0048
+        + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI
     )
 )
 
+#: O que existe em `platform` quando a base esta na revisao anterior a do
+#: Catalogo AI (KAM-049).
+#:
+#: O `downgrade` da revisao do Catalogo AI leva a base para aqui. **Deriva do
+#: `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
+#: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
+#: dela. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0049`, e isto **descreve tambem
+#: a `0048`**: a `0049` (KAM-062) nao cria tabelas no `platform`.
+TABELAS_ANTES_DO_CATALOGO_AI = tuple(sorted(set(TABELAS) - set(TABELAS_CATALOGO_AI)))
+
 #: O que existe em `platform` quando a base esta na revisao `0047`.
 #:
-#: O `downgrade` da `0048` leva a base para aqui. **Deriva do `TABELAS`**, e e
-#: a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
-#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. **E descreve
-#: tambem a `0044`, a `0045` e a `0046`**: nenhuma das tres cria tabelas no
-#: `platform` (ver `TABELAS_0048`).
-TABELAS_ATE_0047 = tuple(sorted(set(TABELAS) - set(TABELAS_0048)))
+#: O `downgrade` da `0048` leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CATALOGO_AI` desde o KAM-049, que pos a sua revisao no
+#: topo. **E descreve tambem a `0044`, a `0045` e a `0046`**: nenhuma das tres
+#: cria tabelas no `platform` (ver `TABELAS_0048`).
+TABELAS_ATE_0047 = tuple(sorted(set(TABELAS_ANTES_DO_CATALOGO_AI) - set(TABELAS_0048)))
 
 #: O que existe em `platform` quando a base esta na revisao `0043`.
 #:
