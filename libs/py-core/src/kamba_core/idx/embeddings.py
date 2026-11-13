@@ -380,6 +380,10 @@ class ConsultaVectorial:
             return self._caiu(QUEDA_MODELO)
         return VectorDaConsulta(resposta.vectores[0], resposta.modelo, None)
 
+    def com_tecto(self, tecto_s: float) -> ConsultaVectorial:
+        """A mesma consulta com outro tecto: o que cabe no tecto de quem chama."""
+        return ConsultaVectorial(self.cliente, self.sensivel, tecto_s, self.metricas)
+
     def _caiu(self, motivo: str) -> VectorDaConsulta:
         self.metricas.contar_queda(motivo=motivo)
         return VectorDaConsulta(None, None, motivo)

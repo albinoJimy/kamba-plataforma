@@ -58,7 +58,6 @@ KAM-064.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import re
 import time
@@ -161,7 +160,9 @@ def _com_tecto(
     disponivel_s = (timeout_ms - RESERVA_DA_PESQUISA_MS) / 1000
     if disponivel_s <= 0:
         return None
-    return dataclasses.replace(vectorial, tecto_s=min(vectorial.tecto_s, disponivel_s))
+    # `com_tecto` e nao `dataclasses.replace`: a politica do KAM-112 recusa o
+    # `replace` em todo o AGR, porque e assim que se forjaria um `MinimisedText`.
+    return vectorial.com_tecto(min(vectorial.tecto_s, disponivel_s))
 
 
 def executar(pedido: Pedido, ligacao: LigacaoVectorial | None = None) -> Resposta:

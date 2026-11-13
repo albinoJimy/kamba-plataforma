@@ -1104,7 +1104,12 @@ class TestEmbeddings(ComIndice):
         caida = pesquisa.procurar(conexao, self.tenant, "frigorifico", vectorial=negada)
         self.assertEqual(caida.modo, "lexical")
         self.assertEqual(len(fornecedor.chamadas), 1)
-        self.assertEqual(caida.linhas, lexical.linhas)
+        # O mesmo resultado do lexical, linha a linha e com o mesmo `o_score`;
+        # so o `lido_em` muda, porque e o instante da leitura.
+        def sem_instante(procura):
+            return [({**l, "lido_em": None}, s) for l, s in procura.linhas]
+
+        self.assertEqual(sem_instante(caida), sem_instante(lexical))
         self.assertEqual(
             self.registo.ler()["embedding_fallback_total:destino_negado"], 1
         )
@@ -1130,6 +1135,39 @@ class TestEmbeddings(ComIndice):
         self.assertEqual(
             self.registo.ler()["embedding_fallback_total:modelo_divergente"], 1
         )
+
+    def test_o_executor_do_agr_sem_destino_responde_lexical_e_conta(self) -> None:
+        """Criterio 1 de ponta a ponta: a *tool* do AGR, a porta real sobre a
+        base (sem linha em `tenant_destinations`), zero chamadas, resposta em
+        lexical e `idx_mode{lexical}` mais um."""
+        for sku, nome in (("geleira", "Frigorífico LG 250 L"), ("arroz", "Arroz agulha 5 kg")):
+            self.criar_oferta(self.tenant, sku=sku, nome=nome)
+            self.indexar(sku)
+        self.embeber(_FornecedorDeEnsaio())  # o indice tem vectores: ha com que ir
+        agr = _agr()
+        fornecedor = _FornecedorDeEnsaio()
+        porta = PortaSobreDestinos(destinos_dbapi.leitor(lambda: ligacao.ligar("app")))
+        ligacao_vectorial = agr.idx.LigacaoVectorial()
+        ligacao_vectorial.ligar(
+            embeddings.ConsultaVectorial(
+                self.cliente(fornecedor, porta), lambda _t: False, metricas=self.registo
+            )
+        )
+        global_ = metricas_mod.METRICAS
+        global_.repor()
+        self.addCleanup(global_.repor)
+        pedido = agr.esp.Pedido(
+            ctx=SimpleNamespace(tenant_id=self.tenant),
+            args=agr.vendedor.ArgumentosDeSearchCatalog(query="frigorifico", filtros={}),
+            timeout_ms=2_000,
+            ligacao=self.ligar("app"),
+        )
+        resposta = agr.idx.executar(pedido, ligacao_vectorial)
+        self.assertEqual(fornecedor.chamadas, [])
+        self.assertEqual([c["sku"] for c in resposta.data["candidatos"]], ["geleira"])
+        self.assertEqual(global_.ler().get("idx_mode:lexical"), 1)
+        self.assertNotIn("idx_mode:hibrido", global_.ler())
+        self.assertEqual(self.registo.ler()["embedding_fallback_total:destino_negado"], 1)
 
     def test_tenant_sem_vectores_nao_chama_o_fornecedor(self) -> None:
         self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
