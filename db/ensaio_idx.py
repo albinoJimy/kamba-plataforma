@@ -119,11 +119,36 @@ def _p95(valores: list[float]) -> float:
     return ordenados[max(0, -(-95 * len(ordenados) // 100) - 1)]
 
 
+#: As versoes de ensaio dos quatro documentos do KAM-090, pela receita do
+#: `db/tests/factories.py` (`publicar_versoes_de_ensaio`): desde a revisao
+#: `0040`, um *tenant* so passa a `ativo` com o DPA aceite.
+_PUBLICAR = """
+INSERT INTO platform.contract_document (tipo, versao, sha256, conteudo, vigente_desde, publicado_em)
+SELECT t, '0.0.1', sha256(convert_to('Documento de ensaio KAM-194 ' || t, 'UTF8')),
+       'Documento de ensaio KAM-194 ' || t, '2000-01-01T00:00:00+00:00', '2000-01-01T00:00:00+00:00'
+  FROM unnest(ARRAY['dpa', 'privacidade', 'subprocessadores', 'tos']) AS t
+ WHERE NOT EXISTS (SELECT 1 FROM platform.contract_document d
+                    WHERE d.tipo = t AND d.vigente_desde <= now())
+ON CONFLICT DO NOTHING
+"""
+
+
 def _tenant(pilha: Pilha, nome: str) -> str:
-    return pilha.sql(
-        "INSERT INTO platform.tenants (tipo, nome, estado) "
-        f"VALUES ('pme', '{nome}', 'ativo') RETURNING id"
+    """Um *tenant* `ativo`: criado em `onboarding`, com os aceites, e activado."""
+    pilha.sql(_PUBLICAR)
+    tenant = pilha.sql(
+        f"INSERT INTO platform.tenants (tipo, nome) VALUES ('pme', '{nome}') RETURNING id"
     ).splitlines()[0]
+    pilha.sql(
+        "INSERT INTO platform.contract_acceptance (onboarding_id, tenant_id, document_id, versao, "
+        "doc_sha256, signatario_ref, otp_challenge_id, evidence_hash) "
+        f"SELECT '{tenant}', '{tenant}', v.document_id, v.versao, v.sha256, "
+        f"'{uuid.uuid4()}', '{uuid.uuid4()}', ''::bytea "
+        "FROM (SELECT DISTINCT ON (tipo) document_id, versao, sha256 FROM platform.contract_document "
+        "WHERE vigente_desde <= now() ORDER BY tipo, vigente_desde DESC) AS v"
+    )
+    pilha.sql(f"UPDATE platform.tenants SET estado = 'ativo' WHERE id = '{tenant}'")
+    return tenant
 
 
 def _oferta(pilha: Pilha, tenant: str, sku: str) -> None:
@@ -280,6 +305,9 @@ def principal() -> int:
     with tempfile.TemporaryDirectory(prefix="kam194-") as pasta:
         env = _ambiente()
         env["KAMBA_SECRET_IDX_INTERNAL_TOKEN"] = env.get("KAMBA_SECRET_IDX_INTERNAL_TOKEN") or uuid.uuid4().hex
+        # O `_ambiente` gera um valor para cada `${X:?}` do compose, e o nome da
+        # base e um deles: tem de ser o da base que o ensaio cria.
+        env["KAMBA_DB_NAME"] = BASE
         pilha = Pilha(Path(pasta), env)
         relatorio["commit"] = env["KAMBA_COMMIT_SHA"]
         try:
