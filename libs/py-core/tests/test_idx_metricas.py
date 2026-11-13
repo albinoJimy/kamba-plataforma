@@ -91,8 +91,52 @@ class TestRegisto(unittest.TestCase):
 
     def test_repor(self) -> None:
         self.registo.registar_pesquisa(modo="lexical", duracao_ms=1, resultados=1)
+        self.registo.registar_embedding(uso="consulta", duracao_ms=1)
+        self.registo.contar_queda(motivo="sensivel")
         self.registo.repor()
         self.assertEqual(self.registo.exposicao(), "")
+
+    def test_as_duas_series_dos_embeddings(self) -> None:
+        """KAM-063: a ultima latencia por uso e as quedas por motivo."""
+        self.registo.registar_embedding(uso="consulta", duracao_ms=120)
+        self.registo.registar_embedding(uso="consulta", duracao_ms=80.5)
+        self.registo.contar_queda(motivo="destino_negado")
+        self.registo.contar_queda(motivo="destino_negado")
+        self.registo.contar_queda(motivo="tempo_esgotado")
+        self.assertEqual(
+            self.registo.exposicao(),
+            "# HELP embedding_latency_ms Duracao da ultima chamada ao fornecedor de "
+            "embeddings, em ms, por uso.\n"
+            "# TYPE embedding_latency_ms gauge\n"
+            'embedding_latency_ms{uso="consulta"} 80.5\n'
+            "# HELP embedding_fallback_total Consultas que cairam em modo lexical em "
+            "vez de ir ao fornecedor, por motivo.\n"
+            "# TYPE embedding_fallback_total counter\n"
+            'embedding_fallback_total{motivo="destino_negado"} 2\n'
+            'embedding_fallback_total{motivo="tempo_esgotado"} 1\n',
+        )
+
+    def test_os_dominios_dos_embeddings_sao_fechados(self) -> None:
+        for chamada in (
+            lambda: self.registo.registar_embedding(uso="pergunta", duracao_ms=1),
+            lambda: self.registo.contar_queda(motivo="sem_motivo"),
+            lambda: self.registo.contar_queda(motivo="11111111-1111-4111-8111-111111111111"),
+            lambda: self.registo.registar_embedding(uso="consulta", duracao_ms=float("nan")),
+        ):
+            with self.subTest(chamada=chamada), self.assertRaises(ValueError):
+                chamada()
+
+    def test_os_embeddings_nao_tem_por_onde_receber_texto(self) -> None:
+        import inspect
+
+        self.assertEqual(
+            set(inspect.signature(m.MetricasDoIdx.registar_embedding).parameters),
+            {"self", "uso", "duracao_ms"},
+        )
+        self.assertEqual(
+            set(inspect.signature(m.MetricasDoIdx.contar_queda).parameters),
+            {"self", "motivo"},
+        )
 
 
 class TestContrato(unittest.TestCase):
@@ -117,6 +161,9 @@ class TestContrato(unittest.TestCase):
             m.METRICA_LATENCIA: {"ramo": set(m.RAMOS), "modo": set(m.MODOS)},
             m.METRICA_RESULTADOS: {},
             m.METRICA_MODO: {"modo": set(m.MODOS)},
+            # KAM-063.
+            m.METRICA_EMBEDDING_LATENCIA: {"uso": set(m.USOS)},
+            m.METRICA_EMBEDDING_QUEDA: {"motivo": set(m.MOTIVOS_DE_QUEDA)},
         }
         for nome, etiquetas in esperado.items():
             with self.subTest(metrica=nome):

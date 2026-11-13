@@ -1445,6 +1445,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A ingestao do Catalogo AI (KAM-049, revisao do Catalogo AI). **So a
+#: aplicacao**: o *pipeline* corre como `kamba_app`, com o contexto do tenant,
+#: e le a tabela inteira mas insere e actualiza **por coluna** (ver
+#: `COLUNAS_POR_PAPEL`) — por isso a matriz de tabela diz so `SELECT`. **Ninguem
+#: apaga**: uma ingestao descarta-se pelo estado, e a purga da retencao e
+#: trabalho de outro ticket. Nem o lote nem a auditoria a alcancam hoje.
+ESPERADO_POR_TABELA.update(
+    {
+        "catalog_ingestions": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
@@ -1838,6 +1860,21 @@ COLUNAS_POR_PAPEL = {
         "status_de_espera",
         "atualizado_at",
     },
+    # KAM-049 (revisao do Catalogo AI): o `INSERT` da aplicacao e so a
+    # identidade da foto — uma linha nasce `recebida`, e um `INSERT (estado)`
+    # deixava-a nascer `publicada` sem confirmacao. O `UPDATE` e o resto, **menos
+    # a identidade** (`id`, `tenant_id`, `media_ref`, `media_id_meta`), o
+    # `criado_at` e **a `versao` e o `atualizado_at`, que sao do *trigger***: a
+    # versao e o que o repositorio compara para nao perder uma escrita, e uma
+    # aplicacao que a pudesse escrever podia repeti-la.
+    ("kamba_app", "catalog_ingestions", "INSERT"): {
+        "id", "tenant_id", "media_ref", "media_id_meta", "phash",
+    },
+    ("kamba_app", "catalog_ingestions", "UPDATE"): {
+        "estado", "phash", "extraido", "campos_em_falta", "perguntas_feitas",
+        "categoria_restrita", "sku", "custo_llm_usd", "confirmado_at",
+        "confirmado_por", "ultima_mensagem_id",
+    },
     # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
     # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
     # — o `kamba_pay_hooks` marca o desfecho do que acabou de receber e o
@@ -1988,6 +2025,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # para o tenant de outro, e nada no catalogo o apanharia — esta tabela nao
     # tem FK para `tenants`, porque e o passo 1 da saga que escreve essa linha.
     "provisioning_step",
+    # KAM-049: a ingestao do Catalogo AI, pela razao do `provisioning_step`. Um
+    # `GRANT UPDATE (versao)` ou `(media_ref)` a mais era invisivel na matriz de
+    # tabela, e qualquer um dos dois desfazia uma garantia da revisao.
+    "catalog_ingestions",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

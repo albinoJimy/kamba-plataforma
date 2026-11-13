@@ -4,7 +4,7 @@
 |---|---|
 | Ticket | **KAM-089** — Fila de revisão por excepção para T&S/T2; **KAM-196** — a consola, a identidade da equipa e os avisos ao dono (`../specs/EPIC-09_Onboarding_Governanca.md`) |
 | Código | [`../packages/core-ts/src/revisao/`](../packages/core-ts/src/revisao/index.ts), a revisão [`../db/migrations/versions/0048_fila_de_revisao.py`](../db/migrations/versions/0048_fila_de_revisao.py) e a consola [`../services/onboarding-web/src/equipa/`](../services/onboarding-web/src/equipa/rotas.ts) |
-| Nomes | Dicionário §3.61 e §3.63 |
+| Nomes | Dicionário §3.61 e §3.65 |
 | Estado | **Proposta.** O serviço, as tabelas, as portas e a consola HTTP existem e estão medidos contra duplos; **a consola não está montada em processo nenhum**, porque o IdP da equipa não está escolhido (ver §4 e §5). Nenhum procedimento desta página foi ensaiado por um revisor |
 
 ---

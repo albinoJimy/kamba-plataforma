@@ -1,10 +1,14 @@
-"""As tres metricas do IDX (KAM-193, DoD «metricas» do KAM-061).
+"""As cinco metricas do IDX (KAM-193 e KAM-063, DoD «metricas» do KAM-061).
 
-    idx_query_ms{ramo,modo}  gauge    duracao da ultima pesquisa, em milissegundos
-    idx_results_total        counter  candidatos devolvidos pela pesquisa, somados
-    idx_mode{modo}           counter  pesquisas, por modo (`hibrido` ou `lexical`)
+    idx_query_ms{ramo,modo}           gauge    duracao da ultima pesquisa, em ms
+    idx_results_total                 counter  candidatos devolvidos, somados
+    idx_mode{modo}                    counter  pesquisas, por modo (`hibrido` ou `lexical`)
+    embedding_latency_ms{uso}         gauge    duracao da ultima chamada de embeddings
+    embedding_fallback_total{motivo}  counter  consultas que cairam em lexical, por motivo
 
-Os nomes sao os do bloco KAM-061 (Detalhes Tecnicos) e do criterio do KAM-193. A
+As tres primeiras sao do bloco KAM-061 (Detalhes Tecnicos) e do criterio do
+KAM-193; as duas ultimas, do DoD do KAM-063 («metricas `idx_mode`,
+`embedding_latency_ms`, `embedding_fallback_total`»). A
 forma e a das outras bibliotecas de metricas desta arvore
 (`kamba_core.ten.metricas`, `kamba_agr.metricas`): numeros em memoria, com um
 trinco, sem dependencias, e **sem porta** — quem serve `/metrics` e o processo
@@ -14,12 +18,12 @@ dos dois p95 na «metrica do TLS», e e la que a chamada esta.
 
 ## Nenhuma etiqueta e aberta, e nenhuma leva texto de consulta
 
-As duas etiquetas tem **dominio fechado**, escrito aqui e repetido no
-`ops/metricas/catalogo.yaml`: `modo` em {`hibrido`, `lexical`} e `ramo` em
-{`todos`}. Um valor fora da lista levanta, e um `tenant_id` levanta antes disso,
-pela gramatica (um UUID tem hifenes). **O texto da pergunta nao tem por onde
-entrar**: nenhum metodo deste modulo recebe texto, so o modo, a duracao e um
-numero de resultados. E a regra do `OBS-I` e do *handoff* do KAM-193 («nada de
+As quatro etiquetas tem **dominio fechado**, escrito aqui e repetido no
+`ops/metricas/catalogo.yaml`: `modo` em {`hibrido`, `lexical`}, `ramo` em
+{`todos`}, `uso` em `USOS` e `motivo` em `MOTIVOS_DE_QUEDA`. Um valor fora da
+lista levanta, e um `tenant_id` levanta antes disso, pela gramatica (um UUID tem
+hifenes). **O texto da pergunta nao tem por onde entrar**: nenhum metodo deste
+modulo recebe texto, so valores de dominio, duracoes e um numero de resultados. E a regra do `OBS-I` e do *handoff* do KAM-193 («nada de
 texto de consulta em etiquetas nem em logs»), imposta pela assinatura e nao por
 uma lista de proibidos.
 
@@ -44,10 +48,21 @@ processo: o `db/desempenho_indice.py` le-o do `EXPLAIN ANALYZE`.
   pede-o, e o `promtool check metrics` avisa; o formato 0.0.4 que o AGR serve
   aceita-o. O nome e o que o bloco KAM-061 e o criterio do KAM-193 escrevem, e
   muda-lo era mudar o contrato que eles citam — fica dito aqui, e nao em silencio.
-* **`modo="hibrido"` esta no dominio e o executor de hoje nunca o escreve**: sem
-  embedding da pergunta (KAM-063), toda a pesquisa e lexical. A diferenca para
-  o `ramo` e que este valor esta escrito no criterio (`idx_mode{hibrido|lexical}`)
-  e tem quem o venha a produzir; um valor por ramo nao tem.
+* **`modo="hibrido"` so se escreve com vector e com indice que o use**: o
+  executor so o escreve quando a pergunta foi embebida e o tenant tem
+  documentos embebidos com o mesmo modelo (`kamba_core.idx.embeddings`). Sem
+  modelo escolhido (o alias `kamba-embed` esta `por_decidir`), toda a pesquisa
+  continua lexical.
+
+## O motivo da queda e o uso da chamada sao dominios fechados
+
+O `embedding_fallback_total{motivo}` conta **so** as consultas que tinham com
+que ir ao fornecedor e nao foram: destino negado, assunto sensivel ou
+identificador, tecto de 1,5 s, falha, e vector de outro modelo. Um tenant sem
+documentos embebidos, ou um processo sem fornecedor ligado, cai em lexical
+**sem** contar aqui: nao e uma queda, e o estado de repouso, e conta-lo afogava
+o sinal. O `embedding_latency_ms{uso}` separa a pergunta (`consulta`, a que tem
+o tecto do criterio 3) do catalogo (`catalogo`, que corre em lote).
 
 ## Um *gauge* e nao um histograma
 
@@ -87,6 +102,25 @@ MODOS: Final = ("hibrido", "lexical")
 #: Os ramos medidos. So `todos`: ver a nota do modulo.
 RAMOS: Final = ("todos",)
 
+#: Duracao da ultima chamada ao fornecedor de embeddings, em ms (KAM-063).
+METRICA_EMBEDDING_LATENCIA: Final = "embedding_latency_ms"
+
+#: Consultas que cairam em lexical tendo com que ir ao fornecedor (KAM-063).
+METRICA_EMBEDDING_QUEDA: Final = "embedding_fallback_total"
+
+#: Para que serviu a chamada: a pergunta do cliente ou o texto do catalogo.
+USOS: Final = ("catalogo", "consulta")
+
+#: Porque e que a consulta caiu em lexical. Lista fechada: ver a nota do modulo
+#: e o `kamba_core.idx.embeddings`, que e quem os escreve.
+MOTIVOS_DE_QUEDA: Final = (
+    "destino_negado",
+    "falha",
+    "modelo_divergente",
+    "sensivel",
+    "tempo_esgotado",
+)
+
 #: A gramatica de uma etiqueta, a mesma das outras bibliotecas.
 ETIQUETA: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 
@@ -97,6 +131,14 @@ _AJUDA: Final = {
     ),
     METRICA_RESULTADOS: ("counter", "Candidatos devolvidos pela pesquisa no indice."),
     METRICA_MODO: ("counter", "Pesquisas no indice, por modo (hibrido ou lexical)."),
+    METRICA_EMBEDDING_LATENCIA: (
+        "gauge",
+        "Duracao da ultima chamada ao fornecedor de embeddings, em ms, por uso.",
+    ),
+    METRICA_EMBEDDING_QUEDA: (
+        "counter",
+        "Consultas que cairam em modo lexical em vez de ir ao fornecedor, por motivo.",
+    ),
 }
 
 
@@ -117,7 +159,7 @@ def _validar(nome: str, valor: object, dominio: tuple[str, ...]) -> str:
 
 
 class MetricasDoIdx:
-    """As tres series do IDX, em memoria e seguras entre *threads*. So numeros."""
+    """As cinco series do IDX, em memoria e seguras entre *threads*. So numeros."""
 
     def __init__(self) -> None:
         self._trinco = threading.Lock()
@@ -125,6 +167,23 @@ class MetricasDoIdx:
         self._resultados = 0
         self._por_modo: dict[str, int] = {}
         self._resultados_escritos = False
+        self._embedding_latencia: dict[str, float] = {}
+        self._quedas: dict[str, int] = {}
+
+    def registar_embedding(self, *, uso: str, duracao_ms: float) -> None:
+        """Uma chamada ao fornecedor de embeddings que respondeu, e quanto levou."""
+        uso = _validar("uso", uso, USOS)
+        duracao = float(duracao_ms)
+        if not duracao >= 0:  # apanha tambem o NaN
+            raise ValueError("duracao_ms e um numero nao negativo")
+        with self._trinco:
+            self._embedding_latencia[uso] = duracao
+
+    def contar_queda(self, *, motivo: str) -> None:
+        """Uma consulta que caiu em lexical. **So o motivo**, nunca a pergunta."""
+        motivo = _validar("motivo", motivo, MOTIVOS_DE_QUEDA)
+        with self._trinco:
+            self._quedas[motivo] = self._quedas.get(motivo, 0) + 1
 
     def registar_pesquisa(
         self, *, modo: str, duracao_ms: float, resultados: int, ramo: str = "todos"
@@ -156,6 +215,15 @@ class MetricasDoIdx:
             valores.update({f"{METRICA_MODO}:{m}": n for m, n in self._por_modo.items()})
             if self._resultados_escritos:
                 valores[METRICA_RESULTADOS] = self._resultados
+            valores.update(
+                {
+                    f"{METRICA_EMBEDDING_LATENCIA}:{u}": v
+                    for u, v in self._embedding_latencia.items()
+                }
+            )
+            valores.update(
+                {f"{METRICA_EMBEDDING_QUEDA}:{m}": n for m, n in self._quedas.items()}
+            )
         return valores
 
     def repor(self) -> None:
@@ -164,6 +232,8 @@ class MetricasDoIdx:
             self._por_modo.clear()
             self._resultados = 0
             self._resultados_escritos = False
+            self._embedding_latencia.clear()
+            self._quedas.clear()
 
     def exposicao(self) -> str:
         """O texto no formato do Prometheus, com `# TYPE` e `# HELP`."""
@@ -171,6 +241,8 @@ class MetricasDoIdx:
             latencia = dict(self._latencia)
             por_modo = dict(self._por_modo)
             resultados = self._resultados if self._resultados_escritos else None
+            embedding_latencia = dict(self._embedding_latencia)
+            quedas = dict(self._quedas)
         linhas: list[str] = []
 
         def cabecalho(metrica: str) -> None:
@@ -192,6 +264,19 @@ class MetricasDoIdx:
             cabecalho(METRICA_MODO)
             for modo in sorted(por_modo):
                 linhas.append(f'{METRICA_MODO}{{modo="{modo}"}} {por_modo[modo]}')
+        if embedding_latencia:
+            cabecalho(METRICA_EMBEDDING_LATENCIA)
+            for uso in sorted(embedding_latencia):
+                linhas.append(
+                    f'{METRICA_EMBEDDING_LATENCIA}{{uso="{uso}"}} '
+                    f"{_numero(embedding_latencia[uso])}"
+                )
+        if quedas:
+            cabecalho(METRICA_EMBEDDING_QUEDA)
+            for motivo in sorted(quedas):
+                linhas.append(
+                    f'{METRICA_EMBEDDING_QUEDA}{{motivo="{motivo}"}} {quedas[motivo]}'
+                )
         return "\n".join(linhas) + ("\n" if linhas else "")
 
 
