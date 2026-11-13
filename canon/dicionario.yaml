@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.91"
+versao_dicionario: "1.92"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -12799,7 +12799,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
@@ -12809,6 +12809,7 @@ entradas:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
       - "pagamentos"
@@ -12824,6 +12825,7 @@ entradas:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
       - "pagamentos"
@@ -12831,6 +12833,7 @@ entradas:
       - "transcricao"
       - "visao"
     nomes_nota:
+      - "imagem"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -16452,6 +16455,279 @@ entradas:
       - "EfeitoPorAplicarError"
       - "prod"
     variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Trabalho de imagem"
+    canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
+    literais:
+      - "platform.image_jobs"
+      - "image_job_id"
+      - "tenant_id"
+      - "origem_ref"
+      - "versao_ref"
+      - "operacao"
+      - "provider"
+      - "estado"
+      - "motivo"
+      - "idempotency_key"
+      - "sintetica"
+      - "gerado_por_ia"
+      - "escolhida"
+      - "custo_usd"
+      - "latencia_ms"
+      - "aviso_at"
+      - "versao"
+      - "criado_at"
+      - "atualizado_at"
+    nomes:
+      - "platform.image_jobs"
+      - "image_job_id"
+      - "tenant_id"
+      - "origem_ref"
+      - "versao_ref"
+      - "operacao"
+      - "provider"
+      - "estado"
+      - "motivo"
+      - "idempotency_key"
+      - "sintetica"
+      - "gerado_por_ia"
+      - "escolhida"
+      - "custo_usd"
+      - "latencia_ms"
+      - "aviso_at"
+      - "versao"
+      - "criado_at"
+      - "atualizado_at"
+    nomes_nota:
+      - "FORCE"
+      - "tenant_iso"
+      - "kamba_app"
+      - "DELETE"
+      - "UNIQUE"
+      - "tenant_id"
+      - "idempotency_key"
+      - "image_jobs_idempotency_uq"
+    variantes_literais:
+      - "origem_asset_id"
+      - "versao_asset_id"
+      - "custo_minor"
+  - seccao: "3.66"
+    conceito: "Estado do trabalho"
+    canonico: "image_jobs.estado ∈ {pendente, a_processar, concluido, bloqueada_gate, falhado}"
+    literais:
+      - "image_jobs.estado"
+      - "pendente"
+      - "a_processar"
+      - "concluido"
+      - "bloqueada_gate"
+      - "falhado"
+    nomes:
+      - "image_jobs.estado"
+      - "pendente"
+      - "a_processar"
+      - "concluido"
+      - "bloqueada_gate"
+      - "falhado"
+    nomes_nota:
+      - "kamba_core.foto.estados.TRANSICOES"
+      - "image_jobs_transicao"
+      - "platform.image_jobs_transicao"
+      - "falhado"
+      - "concluido"
+      - "escolhida"
+      - "custo_usd"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Motivo do trabalho"
+    canonico: "image_jobs.motivo ∈ {sem_destino, so_sinteticas, sem_carta, minimizacao, dados_pessoais, formato, fornecedor, resultado_invalido}"
+    literais:
+      - "image_jobs.motivo"
+      - "sem_destino"
+      - "so_sinteticas"
+      - "sem_carta"
+      - "minimizacao"
+      - "dados_pessoais"
+      - "formato"
+      - "fornecedor"
+      - "resultado_invalido"
+    nomes:
+      - "image_jobs.motivo"
+      - "sem_destino"
+      - "so_sinteticas"
+      - "sem_carta"
+      - "minimizacao"
+      - "dados_pessoais"
+      - "formato"
+      - "fornecedor"
+      - "resultado_invalido"
+    nomes_nota:
+      - "bloqueada_gate"
+      - "falhado"
+      - "image_jobs_motivo_ck"
+      - "dados_pessoais"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Operação de imagem"
+    canonico: "image_jobs.operacao ∈ {cutout, fundo_simples, luz_basica, variacao_lifestyle}"
+    literais:
+      - "image_jobs.operacao"
+      - "cutout"
+      - "fundo_simples"
+      - "luz_basica"
+      - "variacao_lifestyle"
+    nomes:
+      - "image_jobs.operacao"
+      - "cutout"
+      - "fundo_simples"
+      - "luz_basica"
+      - "variacao_lifestyle"
+    nomes_nota:
+      - "variacao_lifestyle"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Marca de conteúdo gerado"
+    canonico: "image_jobs.gerado_por_ia, coluna gerada (operacao = 'variacao_lifestyle')"
+    literais:
+      - "image_jobs.gerado_por_ia"
+      - "operacao = 'variacao_lifestyle'"
+    nomes:
+      - "image_jobs.gerado_por_ia"
+      - "operacao"
+      - "variacao_lifestyle"
+    nomes_nota:
+      - "ETIQUETA_GERADA"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Escolha do dono"
+    canonico: "image_jobs.escolhida, booleano"
+    literais:
+      - "image_jobs.escolhida"
+    nomes:
+      - "image_jobs.escolhida"
+    nomes_nota:
+      - "concluido"
+      - "image_jobs_escolhida_ck"
+      - "image_jobs_escolhida_uq"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Referências da foto"
+    canonico: "image_jobs.origem_ref e image_jobs.versao_ref"
+    literais:
+      - "image_jobs.origem_ref"
+      - "image_jobs.versao_ref"
+    nomes:
+      - "image_jobs.origem_ref"
+      - "image_jobs.versao_ref"
+    nomes_nota:
+      - "image_jobs_origem_ref_ck"
+      - "image_jobs_versao_ref_ck"
+      - "foto"
+    variantes_literais:
+      - "origem_asset_id"
+      - "versao_asset_id"
+  - seccao: "3.66"
+    conceito: "Custo do fornecedor de imagem"
+    canonico: "image_jobs.custo_usd, numeric(10,6), não nulo"
+    literais:
+      - "image_jobs.custo_usd"
+      - "numeric(10,6)"
+    nomes:
+      - "image_jobs.custo_usd"
+      - "numeric"
+    nomes_nota:
+      - "imagens_mes"
+    variantes_literais:
+      - "custo_minor"
+  - seccao: "3.66"
+    conceito: "Aviso da primeira utilização"
+    canonico: "image_jobs.aviso_at e AVISO_ESTRANGEIRO"
+    literais:
+      - "image_jobs.aviso_at"
+      - "AVISO_ESTRANGEIRO"
+    nomes:
+      - "image_jobs.aviso_at"
+      - "AVISO_ESTRANGEIRO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "A interface de fornecedor"
+    canonico: "ImageProvider.enhance(imagem, opcoes) → Melhoria, e ImageProvider.apagar(ref_no_fornecedor)"
+    literais:
+      - "ImageProvider.enhance(imagem, opcoes)"
+      - "Melhoria"
+      - "ImageProvider.apagar(ref_no_fornecedor)"
+    nomes:
+      - "ImageProvider.enhance"
+      - "imagem"
+      - "opcoes"
+      - "Melhoria"
+      - "ImageProvider.apagar"
+      - "ref_no_fornecedor"
+    nomes_nota:
+      - "enhance_image"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "A tool e o trabalhador"
+    canonico: "ServicoDeFoto.enhance_image (cria o pendente, sem rede para fora) e ServicoDeFoto.processar (o consumidor da fila)"
+    literais:
+      - "ServicoDeFoto.enhance_image"
+      - "pendente"
+      - "ServicoDeFoto.processar"
+    nomes:
+      - "ServicoDeFoto.enhance_image"
+      - "pendente"
+      - "ServicoDeFoto.processar"
+    nomes_nota:
+      - "processar"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Lista de recusa de fornecedores"
+    canonico: "RECUSADOS: Black Forest Labs e remove.bg, comparados por nome normalizado"
+    literais:
+      - "RECUSADOS"
+    nomes:
+      - "RECUSADOS"
+    nomes_nota:
+      - "pago"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Carta de não-treino"
+    canonico: "ImageProvider.real_data_ok, falso por omissão"
+    literais:
+      - "ImageProvider.real_data_ok"
+    nomes:
+      - "ImageProvider.real_data_ok"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "As portas da minimização local"
+    canonico: "DetectorLocal.detectar → Deteccao (rostos, matrículas, documentos, ecrãs) e Redimensionador.reduzir"
+    literais:
+      - "DetectorLocal.detectar"
+      - "Deteccao"
+      - "Redimensionador.reduzir"
+    nomes:
+      - "DetectorLocal.detectar"
+      - "Deteccao"
+      - "Redimensionador.reduzir"
+    nomes_nota:
+      - "LADO_MAXIMO"
+      - "TAMANHO_MAXIMO"
+      - "PIXEIS_MAXIMOS"
+    variantes_literais: []
+  - seccao: "3.66"
+    conceito: "Finalidade de uma transferência de imagem"
+    canonico: "imagem, em tenant_destinations.purpose"
+    literais:
+      - "imagem"
+      - "tenant_destinations.purpose"
+    nomes:
+      - "imagem"
+      - "tenant_destinations.purpose"
+    nomes_nota:
+      - "visao"
+    variantes_literais:
+      - "imagem:<provider>"
 
 tabelas:
   - nome: "contacts"
@@ -17695,6 +17971,13 @@ tabelas:
     assinatura: "conta(id)"
     seccao: "3.65"
     conceito: "A porta da identidade da equipa"
+  - nome: "numeric"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "numeric(10,6)"
+    seccao: "3.66"
+    conceito: "Custo do fornecedor de imagem"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -18754,6 +19037,7 @@ dominios:
       - "embeddings"
       - "entrega_de_conteudo"
       - "facturacao"
+      - "imagem"
       - "observabilidade"
       - "otp_e_avisos_de_servico"
       - "pagamentos"
@@ -19140,6 +19424,38 @@ dominios:
     seccao: "3.64"
     conceito: "Modo do processo de pagamentos do COM"
     so_no_registo: false
+  - coluna: "image_jobs.estado"
+    valores:
+      - "pendente"
+      - "a_processar"
+      - "concluido"
+      - "bloqueada_gate"
+      - "falhado"
+    seccao: "3.66"
+    conceito: "Estado do trabalho"
+    so_no_registo: false
+  - coluna: "image_jobs.motivo"
+    valores:
+      - "sem_destino"
+      - "so_sinteticas"
+      - "sem_carta"
+      - "minimizacao"
+      - "dados_pessoais"
+      - "formato"
+      - "fornecedor"
+      - "resultado_invalido"
+    seccao: "3.66"
+    conceito: "Motivo do trabalho"
+    so_no_registo: false
+  - coluna: "image_jobs.operacao"
+    valores:
+      - "cutout"
+      - "fundo_simples"
+      - "luz_basica"
+      - "variacao_lifestyle"
+    seccao: "3.66"
+    conceito: "Operação de imagem"
+    so_no_registo: false
 
 variantes:
   - nome: "lookup_hmac"
@@ -19247,5 +19563,20 @@ variantes:
     seccao: "3.30"
     conceito: "Valor monetário normalizado"
     canonico: "value_minor"
+  - nome: "origem_asset_id"
+    tipo: "nome"
+    seccao: "3.66"
+    conceito: "Trabalho de imagem"
+    canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
+  - nome: "versao_asset_id"
+    tipo: "nome"
+    seccao: "3.66"
+    conceito: "Trabalho de imagem"
+    canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
+  - nome: "custo_minor"
+    tipo: "nome"
+    seccao: "3.66"
+    conceito: "Trabalho de imagem"
+    canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
 
 contradicoes: []

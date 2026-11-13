@@ -536,6 +536,30 @@ dominios_historicos:
       que a base passa a ter quando se desce, e e essa declaracao que esta
       entrada cobre. O passo de descida recusa-se se houver linhas review.*
       escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-120"
+    data: "2026-11-13"
+    razao: >-
+      A 0036 (KAM-069) criou o dominio com as treze finalidades de
+      transferencia. A revisao foto_de_produtos (KAM-120) acrescenta-lhe a
+      imagem, a do melhoramento de fotos por um fornecedor no estrangeiro, por
+      DROP CONSTRAINT mais ADD CONSTRAINT com o mesmo nome, e o dicionario §3.49
+      passa a declarar catorze (emenda 1.92). A declaracao da 0036 fica a dizer
+      treze, e e o que a base tinha naquela revisao.
+  - revisao: "db/migrations/versions/0055_foto_de_produtos.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-120"
+    data: "2026-11-13"
+    razao: >-
+      A revisao declara o dominio duas vezes: o upgrade escreve as catorze, que
+      e o que o dicionario declara, e o downgrade repoe as treze da 0036. A
+      segunda e a que esta entrada cobre. O passo de descida recusa-se se houver
+      destinos com purpose imagem, porque sao registos de uma decisao de
+      transferencia e nao se apagam para descer. O numero 0055 e provisorio:
+      renumerar a revisao e mudar esta linha tambem.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

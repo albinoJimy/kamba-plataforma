@@ -81,7 +81,11 @@ VISTA = "platform.v_transfer_audit"
 #: Os **quatro** estados do dominio da `0036`.
 ESTADOS = ("pendente", "autorizado", "revogado", "negado")
 
-#: As **treze** finalidades do dominio da `0036`.
+#: As **catorze** finalidades do dominio na cabeca: as treze da `0036` e a
+#: `imagem`, que a revisao da Foto de produtos (KAM-120) acrescenta — o
+#: melhoramento de imagem nao cabe em nenhuma das treze, e a `visao` e a
+#: extraccao de campos do Catalogo AI. O dominio de treze, depois da descida
+#: dessa revisao, mede-o o `db/tests/test_foto_schema.py`.
 FINALIDADES = (
     "alojamento",
     "canal",
@@ -90,6 +94,7 @@ FINALIDADES = (
     "embeddings",
     "entrega_de_conteudo",
     "facturacao",
+    "imagem",
     "observabilidade",
     "otp_e_avisos_de_servico",
     "pagamentos",

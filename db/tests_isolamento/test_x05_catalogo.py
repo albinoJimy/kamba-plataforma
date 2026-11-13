@@ -247,6 +247,9 @@ class TestCatalogoReal(ComBase):
                 ("platform", "fraud_signals", "tenant_id"),
                 ("platform", "handoff_accounts", "tenant_id"),
                 ("platform", "handoffs", "tenant_id"),
+                # KAM-120: o trabalho de imagem da Foto de produtos, entre
+                # `handoffs` e `kyc_check` («ha» < «im» < «ky»).
+                ("platform", "image_jobs", "tenant_id"),
                 # KAM-087: a verificacao K1, entre `handoffs` e
                 # `manual_confirmations` («ha» < «ky» < «ma»). O caso de
                 # onboarding vem mais abaixo, depois de `offer_terms`. As tres
@@ -523,6 +526,9 @@ class TestCatalogoReal(ComBase):
                 ("fraud_signals", "tenant_iso", "ALL", "{public}"),
                 ("handoff_accounts", "tenant_iso", "ALL", "{public}"),
                 ("handoffs", "tenant_iso", "ALL", "{public}"),
+                # KAM-120: o trabalho de imagem, uma politica so, a do
+                # `db/rls.py` («ha» < «im» < «ky»).
+                ("image_jobs", "tenant_iso", "ALL", "{public}"),
                 # KAM-020: a midia, pela mesma ordem.
                 # KAM-030: as duas do esquema `dat` (revisao `0023`). **Sao
                 # duas e nao uma**: a segunda e a particao por omissao, e tem
@@ -768,6 +774,8 @@ class TestCatalogoReal(ComBase):
              # `fraud_signals` antes de `handoff_accounts` ('f' < 'h').
              "fraud_signals",
              "handoff_accounts", "handoffs",
+             # KAM-120: o trabalho de imagem da Foto de produtos.
+             "image_jobs",
              # KAM-087: a verificacao K1.
              "kyc_check",
              # KAM-020: a midia. **Quarta lista deste ficheiro a precisar de

@@ -107,7 +107,7 @@ class TestRepositorio(unittest.TestCase):
             with self.subTest(finalidade=finalidade):
                 self.assertIn(finalidade, FINALIDADES)
 
-    def test_as_finalidades_sem_cliente_sao_as_treze_menos_as_declaradas(self) -> None:
+    def test_as_finalidades_sem_cliente_sao_as_do_dominio_menos_as_declaradas(self) -> None:
         """Nos dois sentidos, e e o achado 6 da revisao adversarial.
 
         A versao anterior comparava so a interseccao — «nenhuma das sem cliente
@@ -116,7 +116,7 @@ class TestRepositorio(unittest.TestCase):
         nao dizia `canal`, `pagamentos`, `facturacao` nem `segredos`. A conta do
         criterio 4 fechava por acidente.
 
-        Agora exige-se a **igualdade** com as treze menos as declaradas: uma
+        Agora exige-se a **igualdade** com as do dominio menos as declaradas: uma
         entrada nova que cubra uma finalidade da lista reprova aqui, e uma
         finalidade que deixe de ser coberta tambem.
         """

@@ -70,12 +70,13 @@ CAMINHO = "gov/subprocessadores.yaml"
 #: mantem as duas superficies a dizer o mesmo.
 LINHAS_ESPERADAS = 11
 
-#: As finalidades de `platform.tenant_destinations.purpose` (revisao `0036`).
+#: As finalidades de `platform.tenant_destinations.purpose` (revisao `0036`, e a
+#: `imagem` da revisao `foto_de_produtos`, KAM-120).
 #:
-#: **Treze, e a lista nao se importa de `kamba_core`**: as ferramentas correm
+#: **Catorze, e a lista nao se importa de `kamba_core`**: as ferramentas correm
 #: antes de qualquer instalacao (ver `kamba_yaml`), e `tools/` nao depende de
 #: `libs/`. A paridade entre as duas copias e um teste
-#: (`test_as_treze_finalidades_sao_as_do_nucleo`), que e a forma desta casa para
+#: (`test_as_finalidades_sao_as_do_nucleo`), que e a forma desta casa para
 #: duas listas que tem de dizer o mesmo sem uma depender da outra.
 FINALIDADES = (
     "alojamento",
@@ -85,6 +86,7 @@ FINALIDADES = (
     "embeddings",
     "entrega_de_conteudo",
     "facturacao",
+    "imagem",
     "observabilidade",
     "otp_e_avisos_de_servico",
     "pagamentos",

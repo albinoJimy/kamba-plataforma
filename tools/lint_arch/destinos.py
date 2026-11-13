@@ -34,7 +34,9 @@ inventarios desta casa (o `TABELAS` do *gate* 8, o `INVENTARIO` do *gate* 7, o
                entradas mortas descreve uma arvore que nao existe.
 
 A segunda direccao e a que tem valor hoje: hoje **um** dos sete pontos consulta o
-*gate*, e se alguem lhe tirar a chamada isto fica vermelho.
+*gate*, e se alguem lhe tirar a chamada isto fica vermelho. **Desde o KAM-120 ha
+uma segunda entrada que consulta**, a Foto AI, que nao e um dos sete pontos do
+criterio: e a finalidade `imagem`, que a revisao `foto_de_produtos` acrescenta.
 
 ## O que isto NAO apanha, e diz-se para nao se ler como mais do que e
 
@@ -134,7 +136,8 @@ class ClienteDeSaida:
 
 #: O inventario. **Fechado**, e crescer e uma alteracao visivel.
 #:
-#: Sete finalidades no criterio 4 e **uma** linha a consultar o *gate*: e a
+#: Sete finalidades no criterio 4 e **uma** linha a consultar o *gate* entre
+#: elas (a segunda que consulta, a da Foto AI, nao e desses sete): e a
 #: medicao que a caixa daquele criterio leva, e esta tabela e onde ela vive em
 #: vez de viver numa frase de um bloco.
 CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
@@ -148,6 +151,18 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
             "(dicionario secao 3.29: o fallback e do router e o cliente nao "
             "escolhe quem serve), e nao escreve FQDN nenhum — fala com o proxy "
             "interno por `KAMBA_LLM_PROXY_URL`."
+        ),
+    ),
+    "libs/py-core/src/kamba_core/foto/servico.py": ClienteDeSaida(
+        finalidades=("imagem",),
+        consulta_o_gate=True,
+        credor="",
+        razao=(
+            "O trabalhador da Foto AI (KAM-120). Chama `autorizar` com a "
+            "finalidade `imagem` para **cada** fornecedor de imagem antes de lhe "
+            "enviar a foto, e so depois da minimizacao local (EXIF, rostos e "
+            "matriculas). Nao escreve FQDN nenhum: fala com o `ImageProvider`, "
+            "cujos adaptadores reais nascem com a decisao do bake-off."
         ),
     ),
     "packages/core-ts/src/outbound/cliente.ts": ClienteDeSaida(
@@ -246,8 +261,8 @@ CLIENTES_DE_SAIDA: dict[str, ClienteDeSaida] = {
 #: causa era o `ClienteDeSaida.finalidade` ser **uma** cadeia: uma entrada que
 #: serve tres finalidades so podia declarar uma, e a conta fechava por acidente.
 #:
-#: Deriva-se das treze menos as declaradas, e o
-#: `test_as_finalidades_sem_cliente_sao_as_treze_menos_as_declaradas` confronta
+#: Deriva-se das catorze menos as declaradas, e o
+#: `test_as_finalidades_sem_cliente_sao_as_do_dominio_menos_as_declaradas` confronta
 #: as duas **nos dois sentidos**. A lista escrita a mao fica porque leva o
 #: **credor**, que nao se deriva de nada.
 FINALIDADES_SEM_CLIENTE = {

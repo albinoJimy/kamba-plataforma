@@ -462,6 +462,15 @@ POLITICA: Final[tuple[Classe, ...]] = (
                 "platform.catalog_ingestions",
                 pendencia=_RELACAO + "; a foto no STO expira pelo retain_until (90 dias, proposta)",
             ),
+            # KAM-120 (revisao da Foto de produtos). O trabalho de melhoramento
+            # de uma foto: vive com o catalogo do tenant e sai no
+            # encerramento. O original e a versao estao no STO, presos ao
+            # tenant pela `origem_ref` e pela `versao_ref`, e expiram pelo
+            # `retain_until` do objecto.
+            _t(
+                "platform.image_jobs",
+                pendencia=_RELACAO + "; o original e a versao no STO expiram pelo retain_until",
+            ),
             _t("servicos.bookings", pendencia=_RELACAO),
         ),
         fonte="docs/tecnica/08 §7.1 e §11 (PME: relacao + fiscal)",

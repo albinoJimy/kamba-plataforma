@@ -546,15 +546,15 @@ class TestConfiguracaoSintetica(unittest.TestCase):
 
 
 class TestDominios(unittest.TestCase):
-    def test_sao_treze_finalidades_e_estao_ordenadas(self) -> None:
-        """O numero e o do dicionario §3.49, e a ordem e a da revisao `0036`.
+    def test_sao_catorze_finalidades_e_estao_ordenadas(self) -> None:
+        """O numero e o do dicionario §3.49 (catorze desde o KAM-120), e a ordem e a da revisao `0036`.
 
         **Fixo no codigo e nao derivado**, que e a diferenca entre um teste e um
         espelho: `len(FINALIDADES)` contra `len(FINALIDADES)` passa sempre.
         """
-        self.assertEqual(len(FINALIDADES), 13)
+        self.assertEqual(len(FINALIDADES), 14)
         self.assertEqual(list(FINALIDADES), sorted(FINALIDADES))
-        self.assertEqual(len(set(FINALIDADES)), 13)
+        self.assertEqual(len(set(FINALIDADES)), 14)
 
 
 if __name__ == "__main__":
