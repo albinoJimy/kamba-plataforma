@@ -165,9 +165,17 @@ outro papel, sai com código 1 antes de abrir a porta.
   por caso, reaplica os efeitos marcados e recalcula as métricas. Um passo que falha não pára os
   outros, e o registo diz quais falharam, pelo nome.
 - **Os efeitos por reaplicar vivem na base**: a coluna `review_case.efeito_pendente_at` da revisão
-  `0052`. Quem decide marca o caso **antes** dos efeitos e limpa-o quando correm todos; um processo
-  que morra a meio deixa a marca, e a volta seguinte reaplica-a. Um caso marcado há muito tempo é o
-  sinal de que um efeito não tem saída — hoje, o aviso ao dono (§4).
+  `0052`. O serviço que decide marca o caso **antes** dos efeitos e limpa-o quando correm todos; um
+  processo que morra a meio deixa a marca, e o lote reaplica-a. O lote só vê uma marca com mais de
+  **dois minutos** (a carência, *proposta*): sem ela, corria os efeitos ao mesmo tempo que quem
+  decidiu, e o aviso saía duas vezes. Uma reaplicação que falha remarca o caso e manda-o para o fim
+  da fila, pelo que um efeito sem saída não tapa os outros; a carência é o intervalo entre
+  tentativas. Reaplicar não reescreve a fase do onboarding se ela mudou depois da decisão.
+- **Quem marca, hoje: ninguém em produção.** Só decide quem tem a consola, e a consola só se monta
+  com o IdP da equipa (§4, fundador). Quando se montar sobre a base, com a mesma lista, marca.
+- **Cada ligação tem limites de tempo** (instrução 30 s, trinco 10 s, transacção parada 60 s,
+  *propostas*): uma sessão presa a segurar o trinco da quota faz falhar o passo, e não congela o
+  ciclo.
 - **A quota vale entre processos**: a contagem e a escrita de uma abertura ou de uma drenagem correm
   na mesma transacção, sob um trinco consultivo da base sobre a chave da quota.
 - **O gancho do KAM-092**: `aprovacaoAutomatica(onboarding, tenant)` amostra uma aprovação automática

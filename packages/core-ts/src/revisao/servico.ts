@@ -340,10 +340,26 @@ export class ServicoDeRevisao {
   }
 
   /** Os efeitos de um `pedir_info`: o onboarding volta a `kyc_pendente` (num caso `kyc`) e o dono é avisado. */
-  async #efeitosDoPedidoDeInformacao(caso: CasoDeRevisao): Promise<void> {
+  async #efeitosDoPedidoDeInformacao(caso: CasoDeRevisao, desde?: Date): Promise<void> {
     if (caso.onboardingId === null) return;
-    if (caso.tipo === "kyc") await this.#d.onboardings.marcarFase(caso.onboardingId, "kyc_pendente");
+    if (caso.tipo === "kyc" && !(await this.#faseMudouDesde(caso.onboardingId, desde))) {
+      await this.#d.onboardings.marcarFase(caso.onboardingId, "kyc_pendente");
+    }
     await this.#avisar(caso, "pedir_info", "informacao_em_falta");
+  }
+
+  /**
+   * Ao **reaplicar** (`desde` é o instante da decisão): a fase mudou depois
+   * dela? Se mudou, ou o efeito já a aplicou ou outro passo a levou para a
+   * frente — o KYC que volta a decidir depois de um `pedir_info` põe-na em
+   * `em_revisao`, ou rejeita —, e reescrevê-la a cada volta do lote desfazia
+   * esse passo (KAM-198, achado 2 da revisão adversarial). Fora de uma
+   * reaplicação (`desde` indefinido), ou sem o instante da fase, responde que não.
+   */
+  async #faseMudouDesde(onboardingId: string, desde: Date | undefined): Promise<boolean> {
+    if (desde === undefined) return false;
+    const faseEm = (await this.#d.onboardings.porId(onboardingId))?.faseEm;
+    return faseEm !== undefined && faseEm.getTime() >= desde.getTime();
   }
 
   /**
@@ -365,10 +381,17 @@ export class ServicoDeRevisao {
     } catch (erro) {
       throw new EfeitoPorAplicarError(casoId, erro);
     }
-    // Resolver **fora** do `try`: os efeitos correram, e uma marca que não se
-    // limpa só os faz correr outra vez. Embrulhá-la num `EfeitoPorAplicarError`
-    // dizia à consola que um efeito falhou quando nenhum falhou.
-    await this.#d.efeitos?.resolver(casoId);
+    // Os efeitos correram. Uma marca que não se limpa **não** se diz a quem
+    // decidiu: embrulhá-la num `EfeitoPorAplicarError` dizia que um efeito
+    // falhou quando nenhum falhou, e deixá-la subir crua dava um 500 a uma
+    // decisão que aconteceu (achado 10 da revisão adversarial). O custo, dito:
+    // o lote reaplica-a depois da carência, e os efeitos são idempotentes
+    // excepto o aviso, que volta a sair.
+    try {
+      await this.#d.efeitos?.resolver(casoId);
+    } catch {
+      // A marca fica; o ciclo trata dela.
+    }
   }
 
   /**
@@ -476,7 +499,7 @@ export class ServicoDeRevisao {
     if (ESTADOS_PENDENTES.includes(caso.estado) && caso.estado !== "recurso_aberto") {
       const ultima = (await this.#d.repositorio.decisoes(casoId)).filter((x) => x.instancia === "primeira").at(-1);
       if (ultima?.decisao !== "pedir_info") throw new RevisaoRecusadaError("estado_invalido");
-      await this.#efeitosDoPedidoDeInformacao(caso);
+      await this.#efeitosDoPedidoDeInformacao(caso, ultima.em);
       return;
     }
     // Um recurso aberto ainda não decidiu nada: reaplicar a primeira instância
@@ -492,6 +515,7 @@ export class ServicoDeRevisao {
       caso.motivoPublico,
       caso.estado === "decidido_final" ? "recurso" : "primeira",
       true,
+      ultima.em,
     );
   }
 
@@ -874,6 +898,7 @@ export class ServicoDeRevisao {
     motivoPublico: MotivoPublico,
     instancia: Instancia,
     reaplicar = false,
+    desde?: Date,
   ): Promise<void> {
     if (TIPOS_DE_SCREENING.includes(caso.tipo)) {
       for (const chave of chavesDeScreening(caso.evidencias)) {
@@ -888,7 +913,9 @@ export class ServicoDeRevisao {
     }
     if (caso.onboardingId === null || !TIPOS_QUE_BLOQUEIAM.includes(caso.tipo)) return;
     if (decisao === "rejeitar") {
-      await this.#d.onboardings.marcarFase(caso.onboardingId, "rejeitado");
+      if (!(await this.#faseMudouDesde(caso.onboardingId, desde))) {
+        await this.#d.onboardings.marcarFase(caso.onboardingId, "rejeitado");
+      }
       await this.#avisar(caso, instancia === "recurso" ? "recurso_decidido" : "rejeitado", motivoPublico);
       return;
     }

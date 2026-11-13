@@ -1053,7 +1053,9 @@ registar_caso(
 # monta o `CicloDaFila` com dois casos na fila — um de A e um de B, e o de B com
 # o canario no motivo e o `tenant_id` de B —, corre uma volta, e so depois pede
 # as rotas a `criarApp` com as metricas **dessa** volta. E o caminho de
-# producao menos o SQL: o que o `/metrics` serve e o que o ciclo recalculou.
+# producao menos o SQL, o servico (um duplo que nao drena nem alerta) e a casca
+# do `lote.ts`: o que se mede e que o `/metrics` serve o que o ciclo recalculou,
+# e que nada de B o atravessa. A casca mede-se no gate 8 (`tests_lote`).
 #
 # A afirmacao sobre o `/metrics` e a do `OBS-I` (`ops/metricas/catalogo.yaml`):
 # o corpo nao leva canario, `tenant_id` nem identificador de caso, e as

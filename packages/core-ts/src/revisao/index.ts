@@ -73,6 +73,7 @@ export {
 } from "./sla.ts";
 export {
   AuditoriaSql,
+  CARENCIA_DOS_EFEITOS_MS,
   ESPACO_DO_TRINCO_DA_QUOTA,
   EfeitosPorReaplicarSql,
   OnboardingsSql,

@@ -6,6 +6,8 @@
  * verificarPapeis     cada ligação é do papel que diz ser (`kamba_batch`, `kamba_app`)
  * montarProcesso      a fila sobre os adaptadores SQL, o ciclo e o gancho do KAM-092
  * criarApp            `/healthz` e `/metrics`, e mais nada
+ * arrancar            os papéis verificados, o processo montado e a app das métricas dele
+ * opcoesDoConjunto    a ligação de cada papel, com limites de tempo
  * ```
  *
  * A casca que abre as ligações, serve a porta e agenda o ciclo é o `../lote.ts`.
@@ -261,6 +263,7 @@ export function escritorHumanoDeScreening(app: ConjuntoSql): EscritorDeDecisoes 
   return {
     async gravar(linha) {
       const ligacao = await app.connect();
+      let estragada: Error | undefined;
       try {
         // A `ligacao` e não o cliente que o `comTenant` entrega: são o mesmo
         // objecto, e o tipo do `tenant_guard` só promete `Promise<unknown>`.
@@ -277,8 +280,15 @@ export function escritorHumanoDeScreening(app: ConjuntoSql): EscritorDeDecisoes 
           if (ultima !== undefined && ultima.origem === linha.origem && ultima.decisao === linha.decisao) return;
           await new EscritorSql(ligacao).gravar(linha);
         });
+      } catch (erro) {
+        // O `comTenant` engole uma falha do `ROLLBACK`, e então não se sabe se
+        // a transacção ficou fechada: a ligação devolve-se **com** o erro, e o
+        // `pg` descarta-a em vez de a dar ao próximo (achado 9 da revisão
+        // adversarial).
+        estragada = erro instanceof Error ? erro : new Error("escrita do screening falhou");
+        throw erro;
       } finally {
-        ligacao.release();
+        ligacao.release(estragada);
       }
     },
   };
@@ -290,8 +300,8 @@ export function escritorHumanoDeScreening(app: ConjuntoSql): EscritorDeDecisoes 
  * **Sobrevive a um reinício** (critério 2), e é a mesma que a consola marca
  * quando tiver o serviço montado sobre a base.
  */
-export function efeitosDoLote(lote: ConjuntoSql): EfeitosPorReaplicar {
-  return new EfeitosPorReaplicarSql(lote);
+export function efeitosDoLote(lote: ConjuntoSql, opcoes: { readonly carenciaMs?: number } = {}): EfeitosPorReaplicar {
+  return new EfeitosPorReaplicarSql(lote, opcoes);
 }
 
 export interface OpcoesDoProcesso {
@@ -385,4 +395,59 @@ export function criarApp(metricas: MetricasDaRevisao = new MetricasDaRevisao()):
     c.text(metricas.exposicao(), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" }),
   );
   return app;
+}
+
+/**
+ * A ligação de um papel, com **limites de tempo** (achado 5 da revisão
+ * adversarial). Sem eles, uma sessão presa a segurar o trinco da quota
+ * congelava o `pg_advisory_xact_lock` do lote sem limite, e o `correr()`, que
+ * devolve a volta em curso, congelava todas as seguintes com o `/healthz` verde.
+ * Com eles, a espera falha, o passo diz-se no registo, e a volta seguinte corre.
+ *
+ * *Propostas*, sem medição de carga: uma instrução da fila não passa de
+ * milissegundos, e trinta segundos é folga de duas ordens de grandeza.
+ */
+export function opcoesDoConjunto(url: string, papel: "lote" | "app") {
+  return {
+    connectionString: url,
+    // Uma volta corre em série, e o trinco empresta uma ligação de cada vez; a
+    // da `app` só serve o screening.
+    max: papel === "lote" ? 4 : 2,
+    statement_timeout: 30_000,
+    lock_timeout: 10_000,
+    idle_in_transaction_session_timeout: 60_000,
+    application_name: `onboarding-lote:${papel}`,
+  };
+}
+
+/** O que a casca precisa depois de arrancar: o processo e a app que o serve. */
+export interface Arranque {
+  readonly processo: ProcessoDeLote;
+  readonly app: Hono;
+}
+
+/**
+ * **O arranque inteiro, menos as ligações e a porta.** Verifica os papéis antes
+ * de montar o que quer que seja, monta o processo sobre a lista de efeitos da
+ * base, e devolve a app que serve as métricas **do ciclo** — a mesma instância
+ * que ele recalcula. Está aqui, e não na casca, para que os ensaios do *gate* 4
+ * o alcancem: com ele no `../lote.ts`, servir uma instância vazia ou saltar a
+ * verificação dos papéis passavam todos os ensaios (achado 6 da revisão
+ * adversarial).
+ */
+export async function arrancar(o: {
+  readonly lote: ConjuntoSql;
+  readonly app: ConjuntoSql;
+  readonly log: Pick<Logger, "warn">;
+  readonly inicioDaAmostragem: Date | null;
+}): Promise<Arranque> {
+  await verificarPapeis(o.lote, o.app);
+  const processo = montarProcesso({
+    lote: o.lote,
+    app: o.app,
+    efeitos: efeitosDoLote(o.lote),
+    log: o.log,
+    inicioDaAmostragem: o.inicioDaAmostragem,
+  });
+  return { processo, app: criarApp(processo.ciclo.metricas) };
 }

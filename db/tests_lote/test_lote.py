@@ -32,13 +32,15 @@ from tests_lote import node
 
 FICHEIROS = ("tests_bd/lote.bd.test.ts",)
 
-#: O `describe` do ficheiro. Um so: os sete cenarios partilham as sementes.
+#: O `describe` do ficheiro. Um so: os dez cenarios partilham as sementes.
 GRUPOS = ("o processo de lote contra a base",)
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
 #: criterios do bloco: o ciclo contra a base (2), o efeito por reaplicar e o
 #: screening (2), a quota entre processos (5), e a lista que sobrevive, que o
-#: servico marca e que um processo nao apaga ao outro (2).
+#: servico marca, que um processo nao apaga ao outro e que o lote so ve depois
+#: da carencia (2), a fase que a reaplicacao nao desfaz (achado 2 da revisao
+#: adversarial), e o processo inteiro a arrancar em `prod` contra a base (1 e 3).
 TESTES_OBRIGATORIOS = (
     "uma volta drena a triagem, dá o alerta atrasado uma vez e mede o que a base tem",
     "o efeito por reaplicar aplica a fase, e o aviso sem via deixa-o na lista",
@@ -47,6 +49,9 @@ TESTES_OBRIGATORIOS = (
     "a lista de efeitos por reaplicar sobrevive a um reinício do processo",
     "o serviço marca o caso na base antes dos efeitos: uma decisão cujo aviso falha fica marcada",
     "o resolver de um processo não apaga a marca que outro escreveu depois de ele a ler",
+    "a carência esconde do lote a marca de quem ainda está a correr os efeitos",
+    "reaplicar um pedir_info não desfaz a fase que mudou depois da decisão; sem mudança, aplica-a",
+    "o processo arranca em prod com as duas credenciais, serve /healthz e /metrics, e pára no SIGTERM",
 )
 
 

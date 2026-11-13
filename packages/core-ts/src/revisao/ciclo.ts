@@ -159,6 +159,12 @@ export class CicloDaFila {
             await this.efeitos.resolver(id);
           } else {
             porReaplicar++;
+            // **Para o fim da fila** (KAM-198, achado 1 da revisão adversarial):
+            // a marca renova-se, e um efeito que nunca sai — o aviso sem via —
+            // deixa de ficar à cabeça dos pendentes para sempre, à frente de
+            // todos os que vieram depois. Sobre a base, a marca nova também só
+            // volta depois da carência.
+            await this.efeitos.marcar(id);
           }
         }
       }

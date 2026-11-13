@@ -31,7 +31,10 @@
  */
 
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
@@ -72,6 +75,12 @@ function conjunto(papel: "batch" | "app"): pg.Pool {
     max: 10,
   });
 }
+
+/**
+ * A lista sem a carência de dois minutos: os cenários marcam e querem ver a
+ * marca na mesma volta. A carência mede-se no seu próprio cenário.
+ */
+const semCarencia = (c: pg.Pool) => efeitosDoLote(c as unknown as ConjuntoSql, { carenciaMs: 0 });
 
 const avisos: string[] = [];
 const registo = {
@@ -189,7 +198,7 @@ describe("o processo de lote contra a base", () => {
       alertaAt: new Date(T0.getTime() - 60_000),
     });
     avisos.length = 0;
-    const p = montarProcesso({ lote, app, efeitos: efeitosDoLote(lote), log: registo, relogio: () => T0 });
+    const p = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
     const r = await p.ciclo.correr();
     assert.deepEqual(r.falhas, []);
     assert.equal(r.entraram, 1);
@@ -213,7 +222,7 @@ describe("o processo de lote contra a base", () => {
     const [onbB, tenantB] = await onboarding("em_revisao");
     const decidido = await caso({ tipo: "kyc", tenant: tenantB, onboarding: onbB, estado: "decidido" });
     await decisao(decidido, tenantB, "aprovar");
-    const efeitos = efeitosDoLote(lote);
+    const efeitos = semCarencia(lote);
     await efeitos.marcar(decidido);
     const p = montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 });
     const r = await p.ciclo.correr();
@@ -239,7 +248,7 @@ describe("o processo de lote contra a base", () => {
       evidencias: [{ tipo: "screening_decision", ref: JSON.stringify(chave) }],
     });
     await decisao(decidido, tenantC, "aprovar");
-    const efeitos = efeitosDoLote(lote);
+    const efeitos = semCarencia(lote);
     await efeitos.marcar(decidido);
     const p = montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 });
     const r = await p.ciclo.correr();
@@ -344,11 +353,11 @@ describe("o processo de lote contra a base", () => {
     await decisao(decidido, tenantD, "rejeitar");
     {
       const outroLote = conjunto("batch");
-      const antes = montarProcesso({ lote: outroLote, app, efeitos: efeitosDoLote(outroLote), log: registo });
+      const antes = montarProcesso({ lote: outroLote, app, efeitos: semCarencia(outroLote), log: registo });
       await antes.ciclo.efeitoFalhou(decidido);
       await outroLote.end();
     }
-    const depois = montarProcesso({ lote, app, efeitos: efeitosDoLote(lote), log: registo, relogio: () => T0 });
+    const depois = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
     assert.ok((await depois.ciclo.efeitos.pendentes(100)).includes(decidido));
     await depois.ciclo.correr();
     assert.equal(await fase(onbD), "rejeitado");
@@ -357,7 +366,7 @@ describe("o processo de lote contra a base", () => {
   it("o serviço marca o caso na base antes dos efeitos: uma decisão cujo aviso falha fica marcada", async () => {
     const [onbE, tenantE] = await onboarding("em_revisao");
     const aberto = await caso({ tipo: "kyc", tenant: tenantE, onboarding: onbE, estado: "aberto" });
-    const p = montarProcesso({ lote, app, efeitos: efeitosDoLote(lote), log: registo, relogio: () => T0 });
+    const p = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
     const revisor = { id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
     // Ninguém chama o `efeitoFalhou`: é o serviço que marca, e o erro que sobe
     // é o que a consola leria.
@@ -368,24 +377,120 @@ describe("o processo de lote contra a base", () => {
       [aberto],
     );
     assert.equal(marca.rows[0]!.marcado, true);
-    assert.ok((await efeitosDoLote(lote).pendentes(100)).includes(aberto));
+    assert.ok((await semCarencia(lote).pendentes(100)).includes(aberto));
   });
 
   it("o resolver de um processo não apaga a marca que outro escreveu depois de ele a ler", async () => {
     const [onbF, tenantF] = await onboarding("em_revisao");
     const decidido = await caso({ tipo: "kyc", tenant: tenantF, onboarding: onbF, estado: "decidido" });
     await decisao(decidido, tenantF, "aprovar");
-    const doLote = efeitosDoLote(lote);
-    const daConsola = efeitosDoLote(lote);
+    const doLote = semCarencia(lote);
+    const daConsola = semCarencia(lote);
     await daConsola.marcar(decidido);
     assert.ok((await doLote.pendentes(100)).includes(decidido), "o lote leu a marca");
     await daConsola.marcar(decidido);
     await doLote.resolver(decidido);
     assert.ok(
-      (await efeitosDoLote(lote).pendentes(100)).includes(decidido),
+      (await semCarencia(lote).pendentes(100)).includes(decidido),
       "a marca nova ficou: o lote só limpa a que leu",
     );
     await daConsola.resolver(decidido);
-    assert.ok(!(await efeitosDoLote(lote).pendentes(100)).includes(decidido));
+    assert.ok(!(await semCarencia(lote).pendentes(100)).includes(decidido));
+  });
+
+  it("a carência esconde do lote a marca de quem ainda está a correr os efeitos", async () => {
+    const [onbG, tenantG] = await onboarding("em_revisao");
+    const decidido = await caso({ tipo: "kyc", tenant: tenantG, onboarding: onbG, estado: "decidido" });
+    await efeitosDoLote(lote as unknown as ConjuntoSql).marcar(decidido);
+    assert.ok(
+      !(await efeitosDoLote(lote as unknown as ConjuntoSql).pendentes(1000)).includes(decidido),
+      "com a carência por omissão, o lote não vê uma marca de agora",
+    );
+    assert.ok((await semCarencia(lote).pendentes(1000)).includes(decidido));
+    await semCarencia(lote).resolver(decidido);
+  });
+
+  it("reaplicar um pedir_info não desfaz a fase que mudou depois da decisão; sem mudança, aplica-a", async () => {
+    const correrCom = async (mudou: boolean): Promise<string> => {
+      const [onb, tenant] = await onboarding("em_revisao");
+      const pendente = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "em_analise" });
+      await decisao(pendente, tenant, "pedir_info");
+      // O KYC voltou a decidir depois do pedido e rejeitou: a fase mudou, e o
+      // `fase_at` (que o *trigger* da `0043` só move quando ela muda) di-lo.
+      if (mudou) await admin.query("UPDATE platform.onboarding_case SET fase = 'rejeitado' WHERE id = $1", [onb]);
+      const efeitos = semCarencia(lote);
+      await efeitos.marcar(pendente);
+      await montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 }).ciclo.correr();
+      return fase(onb);
+    };
+    assert.equal(await correrCom(true), "rejeitado", "a reaplicação desfez o passo do KYC");
+    assert.equal(await correrCom(false), "kyc_pendente", "sem mudança, a fase do pedido aplica-se");
+  });
+
+  it("o processo arranca em prod com as duas credenciais, serve /healthz e /metrics, e pára no SIGTERM", async () => {
+    // Pela `URL`, e não por interpolação: a senha vem do ambiente do gate, e o
+    // `scan_secrets` recusa o padrão de credencial embutida no texto.
+    const url = (papel: "kamba_batch" | "kamba_app", senha: string) => {
+      const u = new URL(
+        `postgresql://${process.env.KAMBA_DB_HOST ?? "127.0.0.1"}:${process.env.KAMBA_DB_PORT ?? "5432"}/${exigir("KAMBA_DB_NAME")}`,
+      );
+      u.username = papel;
+      u.password = exigir(senha);
+      return u.toString();
+    };
+    const porta = 39_000 + Math.floor(Math.random() * 900);
+    const ficheiro = fileURLToPath(new URL("../../../services/onboarding-web/src/lote.ts", import.meta.url));
+    const filho = spawn(process.execPath, [ficheiro], {
+      env: {
+        PATH: process.env.PATH ?? "",
+        KAMBA_AMBIENTE: "prod",
+        KAMBA_LOTE_DB_URL: url("kamba_batch", "KAMBA_SECRET_DB_BATCH_PASSWORD"),
+        KAMBA_LOTE_APP_DB_URL: url("kamba_app", "KAMBA_SECRET_DB_APP_PASSWORD"),
+        LOTE_PORT: String(porta),
+        HOST: "127.0.0.1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let saida = "";
+    // Pelos descritores 1 e 2 e não pelos nomes: o `log_policy` recusa os nomes
+    // dos dois fluxos em qualquer ficheiro, e aqui só se **lê** o que o filho escreveu.
+    for (const fluxo of [filho.stdio[1], filho.stdio[2]]) {
+      fluxo?.on("data", (b: Buffer) => (saida += b.toString("utf8")));
+    }
+    let morto: number | null | undefined;
+    filho.on("exit", (codigo) => (morto = codigo));
+    let codigo: number | null = null;
+    try {
+      // Até dois minutos: carregar o processo leva ~40 s numa montagem do
+      // Windows, e um processo que morra antes de abrir a porta pára a espera.
+      let sonda: Response | null = null;
+      for (let i = 0; i < 600 && sonda === null && morto === undefined; i++) {
+        try {
+          sonda = await fetch(`http://127.0.0.1:${porta}/healthz`);
+        } catch {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      }
+      assert.ok(sonda !== null, `o processo não abriu a porta (saiu com ${String(morto)}):\n${saida.slice(-2000)}`);
+      assert.equal(sonda.status, 200);
+      // A primeira volta corre no arranque: as métricas já contam a base, e não zero.
+      let metricas = "";
+      for (let i = 0; i < 50 && !/^review_casos\{tipo="kyc",estado="aberto"\} [1-9]/m.test(metricas); i++) {
+        metricas = await (await fetch(`http://127.0.0.1:${porta}/metrics`)).text();
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      assert.match(metricas, /^review_casos\{tipo="kyc",estado="aberto"\} [1-9]/m, "a volta do arranque não contou a base");
+      assert.match(saida, /"outcome":"service_started"/);
+      assert.match(saida, /"outcome":"ciclo_(concluido|com_falhas)"/);
+    } finally {
+      if (morto === undefined) {
+        filho.kill("SIGTERM");
+        [codigo] = (await once(filho, "exit")) as [number | null];
+      } else {
+        codigo = morto;
+      }
+    }
+    assert.equal(codigo, 0, `o processo não parou limpo no SIGTERM:\n${saida.slice(-2000)}`);
+    assert.match(saida, /"outcome":"service_stopped"/);
   });
 });

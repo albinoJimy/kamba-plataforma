@@ -14,6 +14,8 @@ import { describe, it } from "node:test";
 
 import {
   AuditoriaEmMemoria,
+  CicloDaFila,
+  RevisaoRecusadaError,
   ESPACO_DO_TRINCO_DA_QUOTA,
   FilaDeRevisaoEmMemoria,
   LIMIARES_POR_OMISSAO,
@@ -71,6 +73,14 @@ function conjuntoFalso(tratar: (texto: string, valores: readonly unknown[]) => R
 }
 
 describe("o trinco da quota no adaptador SQL", () => {
+  it("é o trinco de transacção que **espera**, na forma de dois argumentos", () => {
+    // Literal e não a constante importada: um `pg_try_advisory_xact_lock` não
+    // espera, devolve falso, e a quota passava no limite com o trinco «tomado»
+    // (achado 7 da revisão adversarial: o oráculo era o próprio alvo).
+    assert.equal(SQL_TRINCO_DA_QUOTA, "SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))");
+    assert.equal(ESPACO_DO_TRINCO_DA_QUOTA, 7198);
+  });
+
   it("sem conjunto de ligações, recusa em vez de abrir um BEGIN partilhado", async () => {
     const { conjunto, consultas } = conjuntoFalso();
     await assert.rejects(new RevisaoSql(conjunto).emTrinco("o:aa", async () => 1), TrincoSemConjuntoError);
@@ -209,6 +219,7 @@ describe("os onboardings sobre a onboarding_case", () => {
     id: "o1",
     tenant_id: "t1",
     fase: "em_revisao",
+    fase_at: new Date("2026-11-13T08:00:00Z"),
     ip_prefix_hash: Uint8Array.from([0xab, 0x01]),
     device_hash: null,
     nif_hmac: Uint8Array.from([0x0f]),
@@ -228,6 +239,7 @@ describe("os onboardings sobre a onboarding_case", () => {
       dispositivoHmac: null,
       nifHmac: "0f",
       telefoneHmac: "ff00",
+      faseEm: new Date("2026-11-13T08:00:00Z"),
     };
     assert.deepEqual(await o.porId("o1"), esperado);
     assert.deepEqual(await o.porTenant("t1"), esperado);
@@ -252,5 +264,59 @@ describe("os onboardings sobre a onboarding_case", () => {
     existe = true;
     assert.equal(await o.marcarFase("o1", "rejeitado"), true);
     assert.deepEqual(consultas.at(-1)?.valores, ["o1", "rejeitado"]);
+  });
+});
+
+describe("a reaplicação não passa fome nem desfaz a fase", () => {
+  it("um efeito que volta a falhar é remarcado, e vai para o fim da fila", async () => {
+    const marcadas: string[] = [];
+    const ciclo = new CicloDaFila({
+      servico: {
+        drenarTriagem: async () => 0,
+        alertarSla: async () => 0,
+        reaplicarEfeitos: async (id: string) => {
+          if (id === "falha") throw new Error("aviso sem via");
+          if (id === "fechado") throw new RevisaoRecusadaError("estado_invalido");
+        },
+        amostrar: async () => null,
+      },
+      leitor: { vista: async () => [], contadores: async () => [] },
+      efeitos: {
+        marcar: async (id) => void marcadas.push(id),
+        pendentes: async () => ["falha", "sai", "fechado"],
+        resolver: async () => {},
+      },
+    });
+    const r = await ciclo.correr();
+    assert.deepEqual(marcadas, ["falha"], "só o que voltou a falhar se remarca");
+    assert.equal(r.porReaplicar, 1);
+    assert.equal(r.reaplicados, 1);
+  });
+
+  it("reaplicar um pedir_info só reescreve a fase se ela não mudou depois da decisão", async () => {
+    for (const [mudou, esperado] of [
+      [true, "rejeitado"],
+      [false, "kyc_pendente"],
+    ] as const) {
+      const m = montarRevisao();
+      const o = m.onboarding();
+      const r = await m.abrir(o);
+      assert.ok(r.estado !== "nao_elegivel");
+      const casoId = r.caso.id;
+      await m.servico.decidir({ id: "rev-1", papeis: ["ts_revisor"], mfa: true, nifHmac: null, telefoneHmac: null }, casoId, "pedir_info");
+      // A fase muda depois da decisão (o KYC voltou a decidir e rejeitou), e o
+      // instante da mudança vem na porta, como o `fase_at` da base o dá.
+      m.avancar(60_000);
+      const actual = m.onboardings.casos.get(o.id)!;
+      m.onboardings.casos.set(o.id, {
+        ...actual,
+        // Sem mudança: a fase de antes do pedido, com um instante anterior à
+        // decisão — a do efeito que falhou e que a reaplicação tem de aplicar.
+        fase: mudou ? "rejeitado" : "em_revisao",
+        faseEm: mudou ? m.agora() : new Date(0),
+      });
+      await m.servico.reaplicarEfeitos(casoId);
+      assert.equal(m.onboardings.casos.get(o.id)!.fase, esperado, `mudou=${mudou}`);
+    }
   });
 });

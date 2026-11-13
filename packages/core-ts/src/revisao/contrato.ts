@@ -254,8 +254,9 @@ export interface RepositorioDeRevisao {
   /**
    * Corre `trabalho` com a chave da quota trancada **entre processos** (KAM-198).
    * O `trabalho` recebe o repositório a usar dentro do trinco — a contagem e a
-   * escrita têm de ir pela mesma transacção que o segura, senão o trinco solta-se
-   * antes de a escrita a ver.
+   * escrita têm de ir pela transacção que o segura: uma contagem feita noutra
+   * ligação não estaria serializada com as dos outros processos, e cada
+   * consulta solta tirava mais uma ligação ao conjunto enquanto esta espera.
    *
    * Opcional: o duplo em memória vive num processo só, e aí o `#emSerie` do
    * serviço chega. O adaptador SQL implementa-o com um `pg_advisory_xact_lock`.
@@ -301,6 +302,13 @@ export interface OnboardingDaRevisao {
   readonly dispositivoHmac: string | null;
   readonly nifHmac: string;
   readonly telefoneHmac: string;
+  /**
+   * Quando a fase mudou pela última vez (`onboarding_case.fase_at`, que o
+   * *trigger* da `0043` só move quando a fase muda). É o que deixa o
+   * `reaplicarEfeitos` saber se a fase mudou **depois** da decisão — e então não
+   * a reescreve (KAM-198, achado 2 da revisão adversarial). Sem ele, reescreve-a.
+   */
+  readonly faseEm?: Date;
 }
 
 /** A porta dos onboardings. Implementada pelo `RepositorioDeCasos` da inscrição. */

@@ -35,9 +35,11 @@ IMAGEM_NODE = (
     "@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66"
 )
 
-#: Segundos. O ensaio corre cinco cenarios, um deles com quarenta aberturas em
-#: paralelo. Folga para um runner lento, nao alvo.
-TEMPO_MAXIMO = 300
+#: Segundos. O ensaio corre dez cenarios, um deles com duas rondas de vinte
+#: aberturas concorrentes e outro que arranca o processo inteiro (que numa montagem do Windows
+#: leva ~40 s so a carregar). Medido: ~110 s sem o arranque. Folga para um
+#: runner lento, nao alvo.
+TEMPO_MAXIMO = 600
 
 #: O codigo de saida de um ensaio que estourou o tempo. 124 e o do `timeout(1)`,
 #: e usa-se o mesmo para que quem leia o registo o reconheca.

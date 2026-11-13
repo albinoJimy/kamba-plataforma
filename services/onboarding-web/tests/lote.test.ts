@@ -33,6 +33,8 @@ import { SQL_DECISOES, SQL_GRAVAR } from "@kamba/core-ts/screening";
 import {
   AvisoSemVia,
   ConfiguracaoDoLoteError,
+  arrancar,
+  opcoesDoConjunto,
   INTERVALO_POR_OMISSAO_MS,
   PORTA_POR_OMISSAO,
   PapelErradoError,
@@ -168,7 +170,10 @@ test("porta, intervalo e dia da amostragem inválidos recusam-se", () => {
 test("o processo, sem as credenciais de lote, sai com código 1 em prod e não abre a porta", () => {
   const ficheiro = fileURLToPath(new URL("../src/lote.ts", import.meta.url));
   const env: Record<string, string> = { PATH: process.env.PATH ?? "", KAMBA_AMBIENTE: "prod", LOTE_PORT: "3999" };
-  const r = spawnSync(process.execPath, [ficheiro], { env, encoding: "utf8", timeout: 30_000 });
+  // Dois minutos e não trinta segundos: só carregar o processo leva ~40 s numa
+  // montagem do Windows, e com os ficheiros de ensaio em paralelo mais (achado 8
+  // da revisão adversarial). Um processo que pendure falha aqui com estado nulo.
+  const r = spawnSync(process.execPath, [ficheiro], { env, encoding: "utf8", timeout: 120_000 });
   assert.equal(r.status, 1, r.stderr);
   const saida = `${r.stdout}${r.stderr}`;
   assert.match(saida, /arranque_falhou/);
@@ -256,7 +261,7 @@ test("o screening é idempotente: a mesma decisão humana não se repete, uma di
   }
 });
 
-test("uma escrita que falha reverte e devolve a ligação", async () => {
+test("uma escrita que falha reverte e devolve a ligação com o erro, para o pg a descartar", async () => {
   const app = new ConjuntoFalso((t) => {
     if (t.trim() === SQL_GRAVAR.trim()) throw new Error("rls");
     return undefined;
@@ -264,6 +269,7 @@ test("uma escrita que falha reverte e devolve a ligação", async () => {
   await assert.rejects(escritorHumanoDeScreening(app).gravar(LINHA), /rls/);
   assert.equal(app.textos().at(-1), "ROLLBACK");
   assert.equal(app.devolvidas.length, 1);
+  assert.ok(app.devolvidas[0] instanceof Error, "uma ligação de uma transacção falhada não volta ao conjunto como boa");
 });
 
 // ------------------------------------------------------------ a composição
@@ -386,4 +392,76 @@ test("registarVolta diz os passos que falharam pelo nome, e nada mais", () => {
     ["info", { outcome: "ciclo_concluido" }],
     ["error", { outcome: "ciclo_com_falhas", error_code: "drenar,reaplicar" }],
   ]);
+});
+
+// ---------------------------------------------------------------- o arranque
+
+test("arrancar verifica os papéis antes de montar, e com um papel trocado não devolve processo", async () => {
+  const comPapel = (papel: string) => new ConjuntoFalso((t) => (t.includes("current_user") ? { rows: [{ papel }] } : undefined));
+  const trocado = comPapel("kamba_app");
+  await assert.rejects(
+    arrancar({ lote: trocado, app: comPapel("kamba_app"), log: semRegisto, inicioDaAmostragem: null }),
+    PapelErradoError,
+  );
+  assert.deepEqual(trocado.textos(), ["SELECT current_user::text AS papel"], "nada correu depois da recusa");
+});
+
+test("arrancar serve as métricas do ciclo do processo, e não uma instância vazia", async () => {
+  const lote = new ConjuntoFalso((t) => (t.includes("current_user") ? { rows: [{ papel: "kamba_batch" }] } : undefined));
+  const app = new ConjuntoFalso((t) => (t.includes("current_user") ? { rows: [{ papel: "kamba_app" }] } : undefined));
+  const { processo, app: http } = await arrancar({ lote, app, log: semRegisto, inicioDaAmostragem: null });
+  processo.ciclo.metricas.actualizar(
+    [{ tipo: "trust", estado: "escalado", filaEm: new Date(), primeiraDecisaoEm: null }],
+    [],
+    { fixos: [], datas: [] },
+  );
+  const corpo = await (await http.request("/metrics")).text();
+  assert.match(corpo, /^review_casos\{tipo="trust",estado="escalado"\} 1$/m);
+  // A lista de efeitos do processo é a da base: a volta lê-a com a carência.
+  await processo.ciclo.correr();
+  const pedido = lote.consultas.find((c) => c.texto.includes("efeito_pendente_at IS NOT NULL"));
+  assert.ok(pedido !== undefined, "o ciclo não leu a lista da base");
+  assert.equal(pedido.valores[1], 120, "a carência por omissão são dois minutos");
+});
+
+test("o serviço do processo marca os efeitos na mesma lista que o ciclo reaplica", async () => {
+  const marcas: string[] = [];
+  const efeitos: EfeitosPorReaplicar = {
+    marcar: async (id) => void marcas.push(id),
+    pendentes: async () => [],
+    resolver: async () => {},
+  };
+  const caso = "44444444-4444-4444-8444-444444444444";
+  const tenant = "55555555-5555-4555-8555-555555555555";
+  const agora = new Date("2026-11-13T10:00:00Z");
+  const linhaDoCaso = {
+    id: caso, tipo: "trust", onboarding_id: null, tenant_id: tenant, motivo_codigo: "trust:x",
+    motivo_interno: "x", motivo_publico: "nao_foi_possivel_validar", evidencias: [], recomendacao: null,
+    estado: "aberto", prioridade: 5, fila_at: agora, sla_alerta_at: agora, sla_due_at: agora,
+    sla_alertado_at: null, criado_at: agora,
+  };
+  const lote = new ConjuntoFalso((t) => {
+    if (t.includes("FROM platform.review_case WHERE id = $1")) return { rows: [linhaDoCaso] };
+    if (t.startsWith("UPDATE platform.review_case SET estado")) return { rows: [{ id: caso }] };
+    if (t.includes("INSERT INTO platform.review_decision_log")) {
+      return { rows: [{ id: "d", case_id: caso, revisor_id: "r", decisao: "rejeitar", instancia: "primeira", regra: null, nota_enc: null, em: agora }] };
+    }
+    return undefined;
+  });
+  const p = montarProcesso({ lote, app: new ConjuntoFalso(), efeitos, log: semRegisto, relogio: () => agora });
+  const revisor = { id: "66666666-6666-4666-8666-666666666666", papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
+  await p.servico.decidir(revisor, caso, "rejeitar");
+  assert.deepEqual(marcas, [caso], "o serviço do processo não tem a porta `efeitos`");
+});
+
+test("cada ligação tem limites de tempo, para uma espera presa não congelar o ciclo", () => {
+  for (const papel of ["lote", "app"] as const) {
+    const o = opcoesDoConjunto("postgresql://x@y.invalid/z", papel);
+    assert.equal(o.connectionString, "postgresql://x@y.invalid/z");
+    assert.ok(o.statement_timeout > 0 && o.statement_timeout <= 60_000);
+    assert.ok(o.lock_timeout > 0 && o.lock_timeout <= o.statement_timeout);
+    assert.ok(o.idle_in_transaction_session_timeout > 0);
+  }
+  assert.equal(opcoesDoConjunto("u", "lote").max, 4);
+  assert.equal(opcoesDoConjunto("u", "app").max, 2);
 });

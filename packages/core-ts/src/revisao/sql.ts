@@ -419,10 +419,10 @@ export class RevisaoSql implements RepositorioDeRevisao {
  * Os quatro *hashes* saem em hexadecimal, que é a forma da porta: a quota
  * devolve-os à base com `Buffer.from(origem, "hex")`.
  */
-export const SQL_ONBOARDING_POR_ID = `SELECT id, tenant_id, fase, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
+export const SQL_ONBOARDING_POR_ID = `SELECT id, tenant_id, fase, fase_at, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
   FROM platform.onboarding_case WHERE id = $1`;
 
-export const SQL_ONBOARDING_POR_TENANT = `SELECT id, tenant_id, fase, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
+export const SQL_ONBOARDING_POR_TENANT = `SELECT id, tenant_id, fase, fase_at, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
   FROM platform.onboarding_case WHERE tenant_id = $1`;
 
 /** O `fase_at` mantém-no o *trigger* da `0043`. */
@@ -432,6 +432,7 @@ interface LinhaDoOnboarding {
   id: string;
   tenant_id: string;
   fase: string;
+  fase_at: Date;
   ip_prefix_hash: Uint8Array | null;
   device_hash: Uint8Array | null;
   nif_hmac: Uint8Array;
@@ -449,6 +450,7 @@ function onboardingDe(l: LinhaDoOnboarding): OnboardingDaRevisao {
     dispositivoHmac: l.device_hash === null ? null : hex(l.device_hash),
     nifHmac: hex(l.nif_hmac),
     telefoneHmac: hex(l.phone_hmac),
+    faseEm: l.fase_at instanceof Date ? l.fase_at : new Date(l.fase_at),
   };
 }
 
@@ -487,13 +489,26 @@ export class OnboardingsSql implements OnboardingsDaRevisao {
  *
  * O instante viaja como **texto** e não como `Date`: a coluna tem microssegundos
  * e o `Date` do JavaScript tem milissegundos, pelo que um `Date` relido nunca
- * era igual ao que está na base.
+ * era igual ao que está na base. Um caso cuja marca este processo não leu
+ * limpa-se sem comparar (`$2` nulo).
+ *
+ * **E os pendentes só aparecem depois de uma carência** (`$2` do
+ * `SQL_EFEITOS_PENDENTES`, dois minutos por omissão): quem decide marca
+ * **antes** de correr os efeitos, e sem carência o lote via a marca e corria os
+ * mesmos efeitos em paralelo — e o aviso, que não é idempotente, saía duas
+ * vezes (achado 3 da revisão adversarial). Uma reaplicação que falha remarca o
+ * caso, pelo que a carência é também o intervalo entre tentativas.
  */
 export const SQL_MARCAR_EFEITO = `UPDATE platform.review_case SET efeito_pendente_at = clock_timestamp()
   WHERE id = $1 RETURNING efeito_pendente_at::text AS marca`;
 
 export const SQL_EFEITOS_PENDENTES = `SELECT id, efeito_pendente_at::text AS marca FROM platform.review_case
-  WHERE efeito_pendente_at IS NOT NULL ORDER BY efeito_pendente_at, id LIMIT $1`;
+  WHERE efeito_pendente_at IS NOT NULL
+    AND efeito_pendente_at <= clock_timestamp() - make_interval(secs => $2::double precision)
+  ORDER BY efeito_pendente_at, id LIMIT $1`;
+
+/** A carência por omissão entre a marca e o lote a ver o caso. */
+export const CARENCIA_DOS_EFEITOS_MS = 120_000;
 
 /** Com `$2` nulo (uma marca que este processo não leu), limpa sem comparar. */
 export const SQL_RESOLVER_EFEITO = `UPDATE platform.review_case SET efeito_pendente_at = NULL
@@ -503,9 +518,11 @@ export class EfeitosPorReaplicarSql implements EfeitosPorReaplicar {
   readonly #c: ClienteSql;
   /** A marca que este processo escreveu ou leu, por caso: é a que o `resolver` limpa. */
   readonly #marcas = new Map<string, string>();
+  readonly #carenciaMs: number;
 
-  constructor(cliente: ClienteSql) {
+  constructor(cliente: ClienteSql, opcoes: { readonly carenciaMs?: number } = {}) {
     this.#c = cliente;
+    this.#carenciaMs = opcoes.carenciaMs ?? CARENCIA_DOS_EFEITOS_MS;
   }
 
   async marcar(casoId: string): Promise<void> {
@@ -514,7 +531,10 @@ export class EfeitosPorReaplicarSql implements EfeitosPorReaplicar {
   }
 
   async pendentes(limite: number): Promise<readonly string[]> {
-    const r = await this.#c.query<{ id: string; marca: string }>(SQL_EFEITOS_PENDENTES, [limite]);
+    const r = await this.#c.query<{ id: string; marca: string }>(SQL_EFEITOS_PENDENTES, [
+      limite,
+      this.#carenciaMs / 1000,
+    ]);
     for (const l of r.rows) this.#marcas.set(l.id, l.marca);
     return r.rows.map((l) => l.id);
   }

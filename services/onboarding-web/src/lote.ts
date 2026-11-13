@@ -35,34 +35,24 @@ import { instalar } from "@kamba/core-ts/logger";
 import pg from "pg";
 
 import { SERVICE } from "./meta.ts";
-import {
-  criarApp,
-  efeitosDoLote,
-  lerConfiguracao,
-  montarProcesso,
-  registarVolta,
-  verificarPapeis,
-} from "./lote/processo.ts";
+import { arrancar, lerConfiguracao, opcoesDoConjunto, registarVolta } from "./lote/processo.ts";
 
 const log = instalar(SERVICE);
 
 async function principal(): Promise<void> {
   const config = lerConfiguracao(process.env);
-  // `max: 4` no lote: uma volta corre em série, e o trinco da quota empresta uma
-  // ligação de cada vez. A da `app` só serve o screening.
-  const lote = new pg.Pool({ connectionString: config.urlDoLote, max: 4 });
-  const app = new pg.Pool({ connectionString: config.urlDaApp, max: 2 });
+  const lote = new pg.Pool(opcoesDoConjunto(config.urlDoLote, "lote"));
+  const app = new pg.Pool(opcoesDoConjunto(config.urlDaApp, "app"));
+  let arrancou = false;
   try {
-    await verificarPapeis(lote, app);
-    const processo = montarProcesso({
+    const { processo, app: http } = await arrancar({
       lote,
       app,
-      efeitos: efeitosDoLote(lote),
       log,
       inicioDaAmostragem: config.inicioDaAmostragem,
     });
     const servidor = serve({
-      fetch: criarApp(processo.ciclo.metricas).fetch,
+      fetch: http.fetch,
       hostname: process.env.HOST?.trim() || "127.0.0.1",
       port: config.porta,
     });
@@ -70,6 +60,7 @@ async function principal(): Promise<void> {
     // A primeira volta já, e não daqui a um intervalo: as métricas sairiam a
     // zero durante um minuto inteiro depois de cada arranque.
     void processo.ciclo.correr().then((r) => registarVolta(log, r));
+    arrancou = true;
     log.info({ outcome: "service_started" });
     await new Promise<void>((resolver) => {
       for (const sinal of ["SIGTERM", "SIGINT"] as const) process.once(sinal, () => resolver());
@@ -79,7 +70,8 @@ async function principal(): Promise<void> {
     servidor.close();
   } finally {
     await Promise.allSettled([lote.end(), app.end()]);
-    log.info({ outcome: "service_stopped" });
+    // Só quem arrancou pára: um arranque recusado diz-se pelo `arranque_falhou`.
+    if (arrancou) log.info({ outcome: "service_stopped" });
   }
 }
 
