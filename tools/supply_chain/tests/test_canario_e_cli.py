@@ -127,7 +127,9 @@ class TestRepositorioReal(unittest.TestCase):
         # servico de compose com outro nome pede a sua. Os destinos nao mudam.
         # **KAM-194: de 22 para 25.** O `idx` e as duas pontes, cada um com a
         # sua lista em `infra/egress/`, todas `destinos: []`.
-        self.assertEqual(resumo["servicos"], 25)
+        # **KAM-198: de 25 para 26.** O `onboarding-lote`, com a sua lista em
+        # `infra/egress/` e `destinos: []`: fala com a base e e raspado.
+        self.assertEqual(resumo["servicos"], 26)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a
