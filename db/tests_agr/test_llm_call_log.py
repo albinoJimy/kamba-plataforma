@@ -564,8 +564,8 @@ class TestAParticao(_ComLlm):
 
 
 
-def _anterior_a_0047() -> str:
-    """O `down_revision` da revisao do KAM-192, lido do proprio ficheiro.
+def _revisao_do_kam_192():
+    """O modulo da revisao do KAM-192, lido do proprio ficheiro.
 
     Lido e nao escrito: a revisao renumera-se na integracao (quem funde em
     segundo renumera), e um literal aqui ficava a apontar para outro passo.
@@ -575,7 +575,17 @@ def _anterior_a_0047() -> str:
     spec = importlib.util.spec_from_file_location("revisao_do_kam_192", ficheiro)
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
-    return str(modulo.down_revision)
+    return modulo
+
+
+def _anterior_a_0047() -> str:
+    """O `down_revision` da revisao do KAM-192."""
+    return str(_revisao_do_kam_192().down_revision)
+
+
+def _a_0047() -> str:
+    """A `revision` da revisao do KAM-192: e onde uma descida recusada fica."""
+    return str(_revisao_do_kam_192().revision)
 
 
 def _definicao_do_check(consultar) -> str:
@@ -609,7 +619,13 @@ class TestDowngradeDa0047(_ComLlm):
         self.assertIn("'screening'", _definicao_do_check(self.consultar))
 
     def test_com_uma_linha_screening_o_downgrade_recusa_se(self) -> None:
-        """A recusa diz a contagem e o que fazer, e a base fica na cabeca.
+        """A recusa diz a contagem e o que fazer, e a base fica na `0047`.
+
+        **Na `0047`, e nao na cabeca.** A primeira versao exigia `em_head()`, o
+        que so e verdade enquanto a `0047` for a ultima revisao: com a `0048`
+        (KAM-089) por cima, o Alembic desce primeiro a `0048` — num passo seu,
+        que fica feito — e e a `0047` que recusa. A propriedade e «a revisao que
+        recusa nao se desfaz», e mede-se pela revisao em que a base fica.
 
         A contagem corre como dono da tabela, e o pai tem `FORCE`: sem o
         `NO FORCE` da `0047`, o dono via zero linhas e a descida seguia ate ao
@@ -628,7 +644,8 @@ class TestDowngradeDa0047(_ComLlm):
             "o downgrade tem de recusar: a tabela e append-only e a linha fica",
         )
         self.assertIn("append-only", resultado.stderr + resultado.stdout)
-        self.assertTrue(em_head(), "a recusa tem de deixar a base na cabeca")
+        ((versao,),) = self.consultar("SELECT version_num FROM public.alembic_version")
+        self.assertEqual(versao, _a_0047(), "a recusa tem de deixar a base na 0047")
         self.assertIn("'screening'", _definicao_do_check(self.consultar))
 
 
