@@ -33,6 +33,12 @@ recusa sem distinguir. Os nomes sao uma lista de nomes proprios comuns em
 Angola e em Portugal, sem os que sao tambem palavras de catalogo («rosa»,
 «luz»): **nao e exaustiva**, e e por isso que o *dataset* e sintetico e nao
 reescrito — o *scanner* e a segunda barreira, nao a primeira.
+
+O que ele nao apanha, medido pela revisao adversarial: nomes fora da lista, e
+um NIF escrito de outra forma que nao nove algarismos seguidos. O que ele
+recusa a mais: um preco de nove ou mais algarismos em unidade menor (um
+produto de 1 000 000 Kz ou mais) — o gerador levanta, e o catalogo de hoje
+fica em 68 000 000.
 """
 
 from __future__ import annotations
@@ -125,11 +131,21 @@ def em_afinacao() -> bool:
 # ------------------------------------------------------------------ PII
 
 #: Nove ou mais algarismos num lance, com ate tres separadores entre dois: o
-#: telefone (`923 456 789`, `+244 923...`), o NIF e o BI. E o padrao do
-#: `services/agr/tests/golden.py` (KAM-040), que ja guarda o outro *dataset*.
-_LANCE_DE_ALGARISMOS: Final = re.compile(r"(?<![0-9])(?:[0-9][^\w\n]{0,3}){8,}[0-9](?![0-9])")
-_EMAIL: Final = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+#: telefone (`923 456 789`, com indicativo), o NIF e o BI. E o padrao do
+#: `services/agr/tests/golden.py` (KAM-040), que ja guarda o outro *dataset*,
+#: com o sublinhado contado como separador (`923_456_789`, achado 6 da revisao).
+_LANCE_DE_ALGARISMOS: Final = re.compile(
+    r"(?<![0-9])(?:[0-9](?:[^0-9A-Za-z\n]|_){0,3}){8,}[0-9](?![0-9])"
+)
+_EMAIL: Final = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+|\barroba\b")
 _NIF: Final = re.compile(r"\bnif\b")
+
+#: Os algarismos ditos um a um, que e a forma de um telefone na origem `voz`.
+_ALGARISMO_DITO: Final = (
+    r"(?:zero|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove)"
+)
+#: Sete ou mais seguidos ja nao sao uma quantidade: sao um numero ditado.
+_ALGARISMOS_DITOS: Final = re.compile(rf"\b{_ALGARISMO_DITO}(?:\s+{_ALGARISMO_DITO}){{6,}}\b")
 
 #: Nomes proprios comuns, sem acentos e em minusculas. Ficam de fora os que sao
 #: tambem palavras do catalogo ou da consulta («rosa», «luz», «gloria»).
@@ -153,13 +169,20 @@ def _sem_acentos(texto: str) -> str:
 
 
 def pii_em(texto: str) -> list[str]:
-    """Os achados de PII em `texto`, com o tipo e o excerto. Vazio = limpo."""
+    """Os achados de PII em `texto`, com o tipo e o excerto. Vazio = limpo.
+
+    O texto passa primeiro pelo NFKC: os algarismos de largura total (`９２３`)
+    ficam ASCII e nao escapam ao padrao.
+    """
     achados: list[str] = []
+    texto = unicodedata.normalize("NFKC", texto)
     for lance in _LANCE_DE_ALGARISMOS.finditer(texto):
         achados.append(f"telefone_ou_nif:{lance.group(0)}")
-    for email in _EMAIL.finditer(texto):
-        achados.append(f"email:{email.group(0)}")
     simples = _sem_acentos(texto)
+    for email in _EMAIL.finditer(simples):
+        achados.append(f"email:{email.group(0)}")
+    for dito in _ALGARISMOS_DITOS.finditer(simples):
+        achados.append(f"telefone_ditado:{dito.group(0)}")
     if _NIF.search(simples):
         achados.append("nif:menciona")
     for palavra in _PALAVRA.findall(simples):
@@ -171,6 +194,83 @@ def pii_em(texto: str) -> list[str]:
 def varrer(textos: Sequence[str]) -> list[str]:
     """Todos os achados de uma lista de textos (um ficheiro, linha a linha)."""
     return [achado for texto in textos for achado in pii_em(texto)]
+
+
+# ------------------------------------------------------------------ voz
+
+#: Numeros ditos por extenso: a forma que um STT devolve a uma quantidade. Sem
+#: «um» e «uma», que sao tambem o artigo e marcavam quase todas as consultas.
+NUMEROS_POR_EXTENSO: Final = frozenset(
+    """
+    dois duas tres quatro cinco seis sete oito nove dez onze doze quinze
+    vinte trinta quarenta cinquenta sessenta setenta oitenta noventa cem cento
+    duzentos duzentas trezentos quinhentos quinhentas mil meio meia
+    """.split()
+)
+
+#: Letras ditas pelo nome («u a te», «be te u», «pe erre erre», «eme»): a sigla
+#: ou o tamanho que o STT escreve como o ouviu. So as que nao sao palavras.
+LETRAS_DITAS: Final = frozenset(
+    "be ce efe ge aga jota ka eme ene pe erre esse ve xis ze u".split()
+)
+
+#: Hesitacoes que o STT transcreve.
+HESITACOES: Final = frozenset({"hum", "hmm", "eh", "ah"})
+
+_PALAVRA_OU_ALGARISMO: Final = re.compile(r"[a-z0-9]+")
+
+
+def vocabulario(produtos: Sequence[catalogos_mod.Produto]) -> frozenset[str]:
+    """As palavras dos nomes do catalogo, sem acentos e em minusculas."""
+    return frozenset(
+        palavra for p in produtos for palavra in _PALAVRA_OU_ALGARISMO.findall(_sem_acentos(p.nome))
+    )
+
+
+def _a_um_de_distancia(a: str, b: str) -> bool:
+    """Levenshtein <= 1 («carite» e «karite»)."""
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    curta, longa = (a, b) if len(a) < len(b) else (b, a)
+    return any(longa[:i] + longa[i + 1 :] == curta for i in range(len(longa)))
+
+
+def artefactos_stt(texto: str, vocab: frozenset[str]) -> set[str]:
+    """Os erros de STT que se leem no texto, pela forma e nao pela etiqueta.
+
+    * `extenso` — um numero dito por extenso;
+    * `letras` — uma letra dita pelo nome;
+    * `hesitacao` — «é é», «hum»;
+    * `partida` — duas palavras seguidas, nenhuma do catalogo, cuja juncao e
+      (a uma letra de distancia) uma palavra do catalogo: «tunda vala»,
+      «cari té» para «karité».
+
+    Existe porque a primeira versao do ensaio do criterio 1 contava a etiqueta
+    `voz_stt`, que o `consultas.q(voz=True)` poe sozinho: 20 das 60 consultas
+    de voz nao tinham erro nenhum, e o ensaio passava (achado 2 da revisao).
+    """
+    palavras = _PALAVRA_OU_ALGARISMO.findall(_sem_acentos(texto))
+    achados: set[str] = set()
+    if any(p in NUMEROS_POR_EXTENSO for p in palavras):
+        achados.add("extenso")
+    if any(p in LETRAS_DITAS for p in palavras):
+        achados.add("letras")
+    if any(p in HESITACOES for p in palavras) or any(
+        a == b == "e" for a, b in zip(palavras, palavras[1:])
+    ):
+        achados.add("hesitacao")
+    for a, b in zip(palavras, palavras[1:]):
+        juncao = a + b
+        if a in vocab or b in vocab or len(juncao) < 5:
+            continue
+        if any(len(v) >= 5 and _a_um_de_distancia(juncao, v) for v in vocab):
+            achados.add("partida")
+            break
+    return achados
 
 
 # ------------------------------------------------------------------ geracao

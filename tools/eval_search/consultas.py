@@ -16,6 +16,11 @@ disse. Contra o catalogo do mesmo *snapshot*:
 * **1** — um tipo da lista `substitutos` da consulta (serve, mas nao e o pedido);
 * **0** — o resto, e tambem o que o filtro de preco dito no texto exclui.
 
+**O que isto mede, dito** (achado 8 da revisao): o grau 2 vai a qualquer
+produto do tipo certo, seja qual for o atributo — o arroz basmati para «arroz
+agulha» —, pelo que o `success@3` mede «o tipo certo nos tres primeiros», e e
+o nDCG@3 que separa o grau 3 do 2. Uma anotacao por pessoa (a B) afina isto.
+
 O grau sai de uma regra escrita e nao de um juizo por linha: e a **anotacao A**.
 A anotacao B (a segunda pessoa do criterio 2) nao existe — ver o bloco do
 KAM-064, criterio 2.
@@ -112,7 +117,7 @@ MERCEARIA: Final = (
     q("leite u a te meio gordo", "leite", "uht", voz=True),
     q("fuba de mi lho", "fuba", "milho", voz=True),
     q("café so luvel", "cafe", "soluvel", voz=True),
-    q("tem atum em lata", "atum", voz=True),
+    q("tem atum em lata de cento e vinte gramas", "atum", voz=True),
     q("carapau seco quinhentas gramas", "peixe_seco", "carapau", voz=True),
     q("agua mineral um litro e meio", "agua", "1.5l", voz=True),
     q("deter gente em pó para roupa", "sabao", "po", voz=True),
@@ -123,7 +128,7 @@ MERCEARIA: Final = (
     q("pão de forma"),
     q("cerveja preta"),
     q("carregador de telemóvel"),
-    q("queria uma bilha de gás", voz=True),
+    q("é é queria uma bilha de gás", voz=True),
     q("vinho tinto"),
     # preco
     q("arroz até 2000 kz", "arroz", max_kz=2000, tags="preco"),
@@ -196,7 +201,7 @@ ELECTRO: Final = (
     q("arroz agulha"),
     q("drone com câmara"),
     q("painel solar 300 w", subs=()),
-    q("tem aspirador?", voz=True),
+    q("hum tem aspirador", voz=True),
     q("computador portátil"),
     # preco
     q("televisor até 200000 kz", "televisor", max_kz=200000, tags="preco"),
@@ -257,11 +262,11 @@ CONSTRUCAO: Final = (
     q("var ão de oito milímetros", "varao", "8mm", voz=True),
     q("tinta plástica de cinco litros", "tinta", "plastica", "5l", voz=True),
     q("tubo pe erre erre de vinte", "tubo", "ppr", voz=True),
-    q("lavatório de coluna", "lavatorio", voz=True),
+    q("lava tório de coluna", "lavatorio", voz=True),
     q("mosaico bege quarenta e cinco", "mosaico", voz=True),
-    q("pá quadrada", "pa", voz=True),
+    q("pá qua drada", "pa", voz=True),
     q("rolo de pin tura", "rolo", voz=True),
-    q("parafusos para madeira", "parafuso", "madeira", voz=True),
+    q("parafusos para ma deira", "parafuso", "madeira", voz=True),
     # nao resolvivel
     q("telha de barro"),
     q("vidro temperado"),
@@ -269,7 +274,7 @@ CONSTRUCAO: Final = (
     q("frigorífico"),
     q("betoneira eléctrica"),
     q("escada de alumínio 5 degraus"),
-    q("queria cola de contacto", voz=True),
+    q("é é queria cola de contacto", voz=True),
     q("arroz carolino"),
     # preco
     q("cimento até 7000 kz", "cimento", max_kz=7000, tags="preco"),
@@ -324,17 +329,17 @@ MODA: Final = (
     q("capulana", "pano", tags="regionalismo"),
     q("bata da escola", "bata", tags="regionalismo"),
     # voz
-    q("camisa de manga com prida branca", "camisa", "manga_comprida", voz=True),
+    q("camisa de manga comprida bran ca", "camisa", "manga_comprida", voz=True),
     q("calção de gan ga", "calcao", "ganga", voz=True),
     q("vestido curto flo ral", "vestido", "curto", "floral", voz=True),
-    q("saia comprida plissada", "saia", "comprida", voz=True),
+    q("saia comprida plis sada", "saia", "comprida", voz=True),
     q("pano africano de três jardas", "pano", "3jardas", voz=True),
-    q("sapatilhas de criança com luzes", "sapatilhas", "crianca", voz=True),
-    q("sapato de salto alto", "sapato", "salto", voz=True),
+    q("sapa tilhas de criança com luzes", "sapatilhas", "crianca", voz=True),
+    q("sapato de sal to alto", "sapato", "salto", voz=True),
     q("bolsa a tira colo", "bolsa", "tiracolo", voz=True),
-    q("boné bordado", "bone", voz=True),
-    q("meias desportivas", "meias", voz=True),
-    q("casaco de ganga", "casaco", voz=True),
+    q("boné borda do", "bone", voz=True),
+    q("meias despor tivas", "meias", voz=True),
+    q("casa co de ganga", "casaco", voz=True),
     # nao resolvivel
     q("fato de banho"),
     q("gravata de seda"),
@@ -342,7 +347,7 @@ MODA: Final = (
     q("frigorífico duas portas"),
     q("vestido de noiva"),
     q("luvas de inverno"),
-    q("queria um guarda-chuva", voz=True),
+    q("é é queria um guarda-chuva", voz=True),
     q("cimento cola"),
     # preco
     q("sapatilhas até 25000 kz", "sapatilhas", max_kz=25000, tags="preco"),
@@ -398,14 +403,14 @@ BELEZA: Final = (
     q("pensos da menstruação", "pensos", tags="regionalismo"),
     # voz
     q("creme corporal com manteiga de cari té", "creme_corpo", "karite", voz=True),
-    q("óleo de coco para o cabelo", "oleo_cabelo", voz=True),
+    q("óleo de coco para o cabe lo", "oleo_cabelo", voz=True),
     q("extensões de cabelo liso de cinquenta centímetros", "cabelo_sintetico", "extensoes", voz=True),
     q("peruca cache ada", "peruca", voz=True),
-    q("desodorizante em barra sem álcool", "desodorizante", "barra", voz=True),
+    q("deso dorizante em barra sem álcool", "desodorizante", "barra", voz=True),
     q("perfume na mibe de cem mililitros", "perfume", "namibe", voz=True),
-    q("escova de dentes", "escova_dentes", voz=True),
-    q("removedor de verniz", "removedor", voz=True),
-    q("lápis de olhos preto", "lapis_olhos", voz=True),
+    q("es cova de dentes", "escova_dentes", voz=True),
+    q("remove dor de verniz", "removedor", voz=True),
+    q("lá pis de olhos preto", "lapis_olhos", voz=True),
     q("fraldas de bebé tamanho eme", "fraldas", "m", voz=True),
     q("espuma de bar bear", "espuma_barbear", voz=True),
     # nao resolvivel
@@ -415,7 +420,7 @@ BELEZA: Final = (
     q("unhas de gel"),
     q("comprimidos para a dor de cabeça"),
     q("arroz de 5 kg"),
-    q("queria um espelho de parede", voz=True),
+    q("é é queria um espelho de parede", voz=True),
     q("ferro de alisar"),
     # preco
     q("perfume até 20000 kz", "perfume", max_kz=20000, tags="preco"),

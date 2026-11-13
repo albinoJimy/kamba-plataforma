@@ -69,6 +69,10 @@ class TestNdcg(unittest.TestCase):
         with self.assertRaises(ValueError):
             metrics.ndcg_at(["a"], {"a": 0})
 
+    def test_o_ideal_so_le_k_graus(self) -> None:
+        """Quatro relevantes de grau 3 e os tres primeiros no topo: nDCG@3 = 1."""
+        self.assertAlmostEqual(metrics.ndcg_at(["a", "b", "c"], {"a": 3, "b": 3, "c": 3, "d": 3}), 1.0)
+
     def test_repetido_nao_infla_o_dcg(self) -> None:
         self.assertAlmostEqual(metrics.ndcg_at(["a", "a", "a"], {"a": 3, "b": 3}),
                                metrics.ndcg_at(["a"], {"a": 3, "b": 3}))

@@ -72,7 +72,12 @@ MODO_HIBRIDO: Final = "hibrido"
 MODO_LEXICAL: Final = "lexical"
 
 #: O limiar do `pg_trgm` por transaccao (§6.2, nota i). **Proposta**, igual ao
-#: `db/indice.py` `LIMIAR_DE_PALAVRA`; o valor final e do dataset (KAM-064).
+#: `db/indice.py` `LIMIAR_DE_PALAVRA`. O KAM-064 varreu-o em `dev`
+#: (`eval/search/reports/1.0.0.md`): 0,40 fica a frente de 0,45 em todas as
+#: metricas, por uma a duas consultas de 197 sinteticas escritas por uma so
+#: pessoa, com o mesmo falso-positivo; 0,35 sobe-o de 17,6% para 29,4%. Fica
+#: 0,45 ate ao *dataset* 2.0.0, com consultas reais reescritas (plano de
+#: recalibracao, `docs/evidencia/KAM-064.md` §3).
 LIMIAR_DE_PALAVRA: Final = 0.45
 
 #: Quantas linhas a resposta devolve (§6.3, `LIMIT 3`).

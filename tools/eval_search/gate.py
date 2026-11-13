@@ -8,6 +8,7 @@
 * o **nDCG@3** global cai mais de **2 pontos** (0,02);
 * o **zero-result rate** global sobe mais de **1 ponto** (0,01);
 * ha **um** produto citado inexistente ou **um** preco divergente;
+* uma consulta do modo hibrido caiu em lexical;
 * o modo falta no relatorio, ou o *dataset* nao e o da linha de base, ou o
   fornecedor do modo hibrido mudou (uma troca de modelo regista linha nova).
 
@@ -73,8 +74,12 @@ def verificar(relatorio: Mapping[str, Any], linha_de_base: Mapping[str, Any]) ->
                 f"({linha_de_base.get('fornecedor_hibrido')} -> {relatorio.get('fornecedor_hibrido')}); "
                 "uma troca de modelo regista linha de base nova"
             )
+        if modo == "hibrido" and medido.get("caiu_em_lexical", 0):
+            # Um hibrido que caiu em lexical mede o lexical duas vezes, e a
+            # comparacao do §14.3 lia Δ = 0 (achado 4 da revisao).
+            falhas.append(f"hibrido: {medido['caiu_em_lexical']} consulta(s) cairam em lexical")
         antes, agora = base["global"], medido["global"]
-        # Arredondado a seis casas: 0,70 - 0,68 da 0,0200000000000000018 em
+        # Arredondado a seis casas: 0,75 - 0,73 da 0,020000000000000018 em
         # virgula flutuante, e «cai 2 pontos» nao e «cai mais de 2».
         if agora["ndcg_at_3"] is None or round(antes["ndcg_at_3"] - agora["ndcg_at_3"], 6) > QUEDA_MAXIMA_DO_NDCG:
             falhas.append(f"{modo}: nDCG@3 {antes['ndcg_at_3']} -> {agora['ndcg_at_3']} (cai > 2 pontos)")
@@ -93,12 +98,17 @@ def verificar(relatorio: Mapping[str, Any], linha_de_base: Mapping[str, Any]) ->
 
 
 def verde(relatorio: Mapping[str, Any]) -> bool:
-    """Um relatorio que pode ser linha de base: os dois modos e as asercoes a zero."""
+    """Um relatorio que pode ser linha de base: os dois modos, as asercoes a zero,
+    e o hibrido sem nenhuma consulta caida em lexical."""
     modos = relatorio.get("modos", {})
-    return set(runner.MODOS) <= set(modos) and all(
-        modos[m]["asercoes"]["produto_citado_inexistente"] == 0
-        and modos[m]["asercoes"]["preco_divergente"] == 0
-        for m in runner.MODOS
+    return (
+        set(runner.MODOS) <= set(modos)
+        and all(
+            modos[m]["asercoes"]["produto_citado_inexistente"] == 0
+            and modos[m]["asercoes"]["preco_divergente"] == 0
+            for m in runner.MODOS
+        )
+        and modos["hibrido"].get("caiu_em_lexical", 0) == 0
     )
 
 

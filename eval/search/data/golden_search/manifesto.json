@@ -49,14 +49,14 @@
   },
   "ficheiros": {
     "eval/search/data/catalogos/mercearia-v1.jsonl": "53rvs5tzfpxwgogueziesq27idds3z6a7iq6g2rrgoxon47hksvq",
-    "eval/search/data/golden_search/mercearia-v1.jsonl": "z7wbnqncdf2ryjqzmnevvmpfxrciyy2aboyl5v2vnoph6exmqfxq",
+    "eval/search/data/golden_search/mercearia-v1.jsonl": "out43kiukieuwfpqupf6qs5hpnyfqjr73l3yrtw23wcjonyfapmq",
     "eval/search/data/catalogos/electro-v1.jsonl": "e3rnwbu6zgq53ba7jxpmwezzz7wgapwrxpqkkipj5pwsvjywkhpa",
-    "eval/search/data/golden_search/electro-v1.jsonl": "dfj2pn2lgdljenyllh62u4kgezjkq3jgvszxhbylf4okeyymzwtq",
+    "eval/search/data/golden_search/electro-v1.jsonl": "v3ysk6rctuyt2bzwjoob7nrj4g7zteyi4avpggywcwrnwcngz36q",
     "eval/search/data/catalogos/construcao-v1.jsonl": "bps6tc6wfe2ydtmevjnldrbo7tpehnw2tumxvarr2aywi6hwtfgq",
-    "eval/search/data/golden_search/construcao-v1.jsonl": "7wz4shwkadcglohrw7r5aw7nflvs64eklslqo6ajzdntzvhpotxa",
+    "eval/search/data/golden_search/construcao-v1.jsonl": "zf5hgwbnpqg42igon5hbzn5pg7dvjpf5qltlvn3ne2yjhtpm3mca",
     "eval/search/data/catalogos/moda-v1.jsonl": "6lfhr7pr3x6bgm5f7c4sjml6isq2mk4sn4aas7wrcy2sz2gjvsva",
-    "eval/search/data/golden_search/moda-v1.jsonl": "grvds5n2b5lnnrwlopx4724z43xxe52qix2mb4iubmaocubucpkq",
+    "eval/search/data/golden_search/moda-v1.jsonl": "dd7qf76i5iqssfew4pludylgwduvsuceiegtxlspv5vdzfye3hgq",
     "eval/search/data/catalogos/beleza-v1.jsonl": "6alatpwiezuy3h727nksigbk5f4keu6fih5t4b5rkzowymkkjswa",
-    "eval/search/data/golden_search/beleza-v1.jsonl": "6xtlia5vj5xlgvrx7y7n4wbj7rv2jsory5s27aiygb73dv7ufjiq"
+    "eval/search/data/golden_search/beleza-v1.jsonl": "pjkhafg6owtygbuwd5tdxcpxgksm74l4oqh5ta2pthrxurfhj4va"
   }
 }

@@ -63,8 +63,14 @@ class TestCriterio1(unittest.TestCase):
         self.assertGreaterEqual(len(nr) / len(self.registos), 0.10)
         self.assertTrue(all(r.graus == {} for r in nr))
 
-    def test_quinze_por_cento_de_voz(self) -> None:
+    def test_quinze_por_cento_de_voz_com_erro_de_stt_que_se_le_no_texto(self) -> None:
+        """Conta-se a forma do texto, e nao a etiqueta, que o `q(voz=True)` poe sozinho."""
+        vocab = {
+            catalogos.snapshot(c): dataset.vocabulario(p) for c, p in catalogos.CATALOGOS.items()
+        }
         voz = [r for r in self.registos if r.origem == "voz"]
+        sem_erro = [r.qid for r in voz if not dataset.artefactos_stt(r.texto, vocab[r.catalogo])]
+        self.assertEqual(sem_erro, [])
         self.assertGreaterEqual(len(voz) / len(self.registos), 0.15)
         self.assertTrue(all("voz_stt" in r.tags for r in voz))
 
@@ -113,6 +119,31 @@ class TestGraus(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             dataset.registo("mercearia", 0, q("arroz ate 10", "arroz", max_kz=10))
+
+
+class TestArtefactosDeStt(unittest.TestCase):
+    VOCAB = frozenset({"tundavala", "karite", "frigorifico", "sumo", "manga"})
+
+    def test_cada_forma(self) -> None:
+        casos = {
+            "sumo de manga tunda vala": {"partida"},
+            "creme de cari te": {"partida"},
+            "frigorifico de duzentos litros": {"extenso"},
+            "leite u a te": {"letras"},
+            "é é sumo": {"hesitacao"},
+            "hum sumo": {"hesitacao"},
+        }
+        for texto, esperado in casos.items():
+            with self.subTest(texto=texto):
+                self.assertEqual(dataset.artefactos_stt(texto, self.VOCAB), esperado)
+
+    def test_texto_limpo_nao_tem_artefacto(self) -> None:
+        for texto in ("sumo de manga", "queria um frigorifico", "sumo manga"):
+            with self.subTest(texto=texto):
+                self.assertEqual(dataset.artefactos_stt(texto, self.VOCAB), set())
+
+    def test_duas_palavras_do_catalogo_nao_sao_uma_palavra_partida(self) -> None:
+        self.assertEqual(dataset.artefactos_stt("sumo manga", frozenset({"sumo", "manga", "sumomanga"})), set())
 
 
 class TestDivisao(unittest.TestCase):
@@ -174,14 +205,27 @@ class TestAfinacaoNaoLeOTeste(unittest.TestCase):
 
 
 class TestScannerDePii(unittest.TestCase):
-    def test_telefone_angolano_nas_formas_usuais(self) -> None:
-        # O indicativo monta-se em execucao: escrito por extenso neste ficheiro,
-        # o `meta-sim` do *gate* 7 lia-o como um numero real (licao do KAM-063).
-        indicativo = "2" + "44"
-        for texto in ("ligue 923 456 789", f"+{indicativo} 923456789", "923-456-789",
-                      f"00{indicativo}923456789"):
+    def test_telefone_nas_formas_usuais(self) -> None:
+        """Nove algarismos, com qualquer separador de ate tres caracteres.
+
+        Sem o indicativo do pais: o padrao nao depende dele (um lance de nove
+        basta), e escreve-lo aqui pedia uma linha no inventario do `meta-sim`.
+        """
+        for texto in ("ligue 923 456 789", "923-456-789", "923.456.789", "923 - 456 - 789",
+                      "923_456_789", "(923) 456 789", "９２３４５６７８９"):
             with self.subTest(texto=texto):
                 self.assertTrue(any(a.startswith("telefone_ou_nif") for a in dataset.pii_em(texto)))
+
+    def test_separador_de_quatro_caracteres_ja_nao_e_um_lance(self) -> None:
+        self.assertEqual(dataset.pii_em("923 -- 456 -- 789"), [])
+
+    def test_telefone_ditado_algarismo_a_algarismo(self) -> None:
+        self.assertTrue(any(a.startswith("telefone_ditado") for a in dataset.pii_em(
+            "ligue para nove dois três quatro cinco seis sete oito nove")))
+        self.assertEqual(dataset.pii_em("gerador de dois e meio"), [])
+
+    def test_email_dito(self) -> None:
+        self.assertTrue(dataset.pii_em("loja arroba exemplo ponto ao"))
 
     def test_nif_e_bi(self) -> None:
         self.assertTrue(dataset.pii_em("o NIF da loja"))

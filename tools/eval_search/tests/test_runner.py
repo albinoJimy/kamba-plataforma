@@ -54,6 +54,28 @@ class TestAsercoes(unittest.TestCase):
         linhas = [(_linha("a"), 0.1)] * runner.PROFUNDIDADE + [(_linha("z"), 0.0)]
         self.assertEqual(self.correr(linhas).citado_inexistente, [])
 
+    def test_o_produto_de_outro_tenant_e_inexistente_neste(self) -> None:
+        """A fuga entre tenants: o `x` existe, mas no catalogo de outro tenant."""
+        catalogos = {"c": {"a": 100}, "d": {"x": 100}}
+        execucao = runner.correr(
+            [_registo("q1", graus={"a": 3})],
+            lambda _r: runner.Resposta(((_linha("x"), 0.1),), "lexical"), catalogos, modo="lexical",
+        )
+        self.assertEqual(execucao.citado_inexistente, ["q1:x"])
+
+    def test_preco_em_falta_e_divergente(self) -> None:
+        execucao = self.correr([(_linha("a", preco=None), 0.1)])
+        self.assertEqual(execucao.preco_divergente, ["q1:a"])
+
+    def test_a_profundidade_e_a_do_recall_at_10(self) -> None:
+        """Um relevante no decimo lugar conta: com tres de profundidade, o recall caia."""
+        self.assertEqual(runner.PROFUNDIDADE, 10)
+        linhas = [(_linha("b", 200), 0.1)] * 9 + [(_linha("a"), 0.05)]
+        execucao = self.correr(linhas)
+        self.assertEqual(execucao.resultados[0].ordem[-1], "a")
+        dados = runner.relatorio({"lexical": execucao}, contexto={})
+        self.assertEqual(dados["modos"]["lexical"]["global"]["recall_at_10"], 1.0)
+
 
 class TestModos(unittest.TestCase):
     def test_hibrido_que_caiu_em_lexical_conta(self) -> None:
@@ -107,6 +129,27 @@ class TestRelatorio(unittest.TestCase):
         ])
         self.assertEqual(self.dados["modos"]["lexical"]["tokens_nao_resolvidos"], [{"token": "aros", "consultas": 2}])
 
+    def test_as_falhas_dizem_que_consultas_puxam_cada_metrica(self) -> None:
+        falhas = self.dados["modos"]["lexical"]["falhas"]
+        self.assertEqual(falhas["falso_positivo_nao_resolvivel"], [{"qid": "q3", "texto": "q3", "primeiro": "b"}])
+        self.assertEqual(falhas["zero_resultado"], [{"qid": "q2", "texto": "q2", "primeiro": None}])
+        self.assertEqual(falhas["sem_sucesso_at_3"], [])
+        self.assertEqual([f["qid"] for f in falhas["recall_at_10_abaixo_de_1"]], ["q2"])
+        self.assertEqual(self.dados["modos"]["hibrido"]["falhas"]["zero_resultado"], [])
+
+    def test_a_afinacao_entra_no_markdown(self) -> None:
+        dados = dict(self.dados)
+        dados["afinacao"] = {
+            "divisao": "dev", "consultas": 2, "limiar_pg_trgm_actual": 0.45, "limiar_do_rrf_actual": 0.3,
+            "pg_trgm": [{"limiar_pg_trgm": 0.4, **self.dados["modos"]["lexical"]["global"]}],
+            "rrf_lexical": [{"limiar": 0.3, "success_at_3": 1.0, "zero_result_rate": 0.0,
+                             "falso_positivo_nao_resolvivel": 1.0}],
+            "rrf_hibrido": [],
+        }
+        texto = runner.markdown(dados)
+        self.assertIn("## Afinação (só `dev`, 2 consultas)", texto)
+        self.assertIn("| 0.3 | 1.000 | 0.000 | 1.000 |", texto)
+
     def test_o_markdown_e_o_json_saem_lado_a_lado(self) -> None:
         with tempfile.TemporaryDirectory() as pasta:
             destino = Path(pasta) / "r.json"
@@ -139,6 +182,54 @@ class TestVarrerLimiar(unittest.TestCase):
             modo="lexical",
         )
         self.assertEqual(runner.varrer_limiar(execucao, (0.0,), lambda s: s)[0]["success_at_3"], 0.0)
+
+
+class TestAfinar(unittest.TestCase):
+    """Criterio 3, pela funcao que o executor chama: so `dev` chega a pesquisa."""
+
+    def afinar(self, ler):
+        vistos: list[str] = []
+
+        def pesquisador(registo):
+            vistos.append(registo.divisao)
+            return runner.Resposta(((_linha("a"), 0.02),), "lexical")
+
+        catalogos = {r.catalogo: {"a": 100} for r in dataset.ler()}
+        dados = runner.afinar(
+            catalogos=catalogos,
+            pesquisador_por_limiar=lambda _l: pesquisador,
+            pesquisador_lexical=pesquisador,
+            pesquisador_hibrido=lambda r: runner.Resposta(((_linha("a"), 0.02),), "hibrido"),
+            limiares_de_palavra=(0.4, 0.45),
+            limiares_do_rrf=(0.0, 0.5),
+            pontuador_lexical=lambda s: s * 10,
+            pontuador_hibrido=lambda s: s * 10,
+            actuais={"pg_trgm": 0.45, "rrf": 0.3},
+            ler=ler,
+        )
+        return dados, vistos
+
+    def test_le_so_dev_e_pesquisa_so_dev(self) -> None:
+        dados, vistos = self.afinar(dataset.ler)
+        self.assertEqual(set(vistos), {dataset.DEV})
+        self.assertEqual(dados["consultas"], len(dataset.ler(dataset.DEV)))
+        self.assertEqual([l["limiar_pg_trgm"] for l in dados["pg_trgm"]], [0.4, 0.45])
+        self.assertEqual([l["limiar"] for l in dados["rrf_lexical"]], [0.0, 0.5])
+
+    def test_um_ler_que_devolve_o_teste_levanta_antes_de_pesquisar(self) -> None:
+        teste = dataset.ler(dataset.TESTE)
+        with self.assertRaises(dataset.LeituraDoTesteProibida):
+            self.afinar(lambda _d: teste)
+
+    def test_um_ler_que_pede_o_teste_levanta_dentro_da_guarda(self) -> None:
+        with self.assertRaises(dataset.LeituraDoTesteProibida):
+            self.afinar(lambda _d: dataset.ler(dataset.TESTE))
+
+    def test_um_registo_marcado_dev_mas_do_teste_pelo_hash_levanta(self) -> None:
+        intruso = next(iter(dataset.ler(dataset.TESTE)))
+        forjado = dataset.Registo(**{**intruso.__dict__, "divisao": dataset.DEV})
+        with self.assertRaises(dataset.LeituraDoTesteProibida):
+            self.afinar(lambda _d: [forjado])
 
 
 class TestEmbeddingsFalsos(unittest.TestCase):

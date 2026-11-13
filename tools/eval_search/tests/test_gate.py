@@ -13,7 +13,7 @@ from pathlib import Path
 from eval_search import gate
 
 
-def _modo(ndcg=0.70, zero=0.05, inexistente=0, divergente=0):
+def _modo(ndcg=0.75, zero=0.05, inexistente=0, divergente=0, caiu=0):
     globais = {
         "success_at_3": 0.8, "recall_at_10": 0.8, "ndcg_at_3": ndcg,
         "success_at_3_typo_regionalismo": 0.5, "zero_result_rate": zero,
@@ -23,6 +23,7 @@ def _modo(ndcg=0.70, zero=0.05, inexistente=0, divergente=0):
         "global": globais,
         "por_divisao": {"dev": globais, "teste": globais},
         "asercoes": {"produto_citado_inexistente": inexistente, "preco_divergente": divergente},
+        "caiu_em_lexical": caiu,
     }
 
 
@@ -43,10 +44,12 @@ class TestVerificar(unittest.TestCase):
         self.assertEqual(gate.verificar(_relatorio(), BASE), [])
 
     def test_ndcg_cai_dois_pontos_ainda_e_verde(self) -> None:
-        self.assertEqual(gate.verificar(_relatorio(ndcg=0.68), BASE), [])
+        """0,75 - 0,73 da 0,020000000000000018: sem o arredondamento, ficava vermelho."""
+        self.assertGreater(0.75 - 0.73, gate.QUEDA_MAXIMA_DO_NDCG)
+        self.assertEqual(gate.verificar(_relatorio(ndcg=0.73), BASE), [])
 
     def test_regressao_artificial_do_ndcg_e_vermelha(self) -> None:
-        falhas = gate.verificar(_relatorio(ndcg=0.6799), BASE)
+        falhas = gate.verificar(_relatorio(ndcg=0.7299), BASE)
         self.assertEqual(len(falhas), 2)
         self.assertTrue(all("nDCG@3" in f for f in falhas))
 
@@ -58,6 +61,12 @@ class TestVerificar(unittest.TestCase):
 
     def test_melhorar_e_verde(self) -> None:
         self.assertEqual(gate.verificar(_relatorio(ndcg=0.9, zero=0.0), BASE), [])
+
+    def test_hibrido_que_caiu_em_lexical_e_vermelho(self) -> None:
+        relatorio = _relatorio()
+        relatorio["modos"]["hibrido"]["caiu_em_lexical"] = 3
+        self.assertEqual(gate.verificar(relatorio, BASE), ["hibrido: 3 consulta(s) cairam em lexical"])
+        self.assertFalse(gate.verde(relatorio))
 
     def test_asercao_diferente_de_zero_e_vermelha(self) -> None:
         self.assertTrue(gate.verificar(_relatorio(inexistente=1), BASE))

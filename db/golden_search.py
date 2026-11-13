@@ -1,6 +1,6 @@
 """O `golden_search` contra um PostgreSQL real (KAM-064): instrumento, fora do CI.
 
-    python db/golden_search.py [relatorio.json]
+    python db/golden_search.py [relatorio.json] [--sem-afinacao]
 
 Levanta o PostgreSQL do *gate* (a mesma imagem, por *digest*, pelo
 `gate_bd.com_contentor`), aplica os papeis e as migracoes ate a cabeca, semeia
@@ -21,6 +21,11 @@ do `retrieve` do AGR varrido sobre o `score_normalizado` real.
 
 O relatorio JSON e o Markdown saem lado a lado (`tools/eval_search/runner.py`);
 o `python -m eval_search.gate verificar` compara-o com a linha de base.
+
+**O executor passa so o texto**, e nunca as `restricoes` anotadas: o tecto de
+preco tem de sair da normalizacao do KAM-062 («ate 2000 kz»), como sai em
+producao. As `restricoes` do ficheiro sao da anotacao — os graus ja excluem o
+que fica acima do tecto dito.
 
 **Porque nao e uma suite do `gate_bd.py`**, pela razao do `db/carga.py` e do
 `db/desempenho_indice.py`: o `SUITES` e o que o CI corre, e por o *gate* de
@@ -45,6 +50,9 @@ sys.path.insert(0, str(RAIZ / "services" / "agr" / "src"))
 sys.path.insert(0, str(RAIZ / "tools"))
 
 import gate_bd  # noqa: E402
+
+#: O que o preco desce depois de indexado: 1 Kz, em unidade menor.
+AJUSTE_DE_PRECO_MINOR = 100
 
 #: Os limiares do `pg_trgm` que a afinacao varre, em dev.
 LIMIARES_DE_PALAVRA = (0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6)
@@ -135,6 +143,29 @@ def _semear(admin, bd, snapshots: list[str]) -> tuple[dict[str, str], dict[str, 
             )
         for produto in produtos:
             consumidor.consumir_evento(bd, _envelope(tenant, str(produto["sku"])))
+        # O `idx.candidatos` desempata cada ramo pelo `doc_id`, e o consumidor
+        # gera-o ao acaso (`gen_random_uuid`): duas corridas do mesmo *dataset*
+        # davam ordens diferentes nos empates — medido, o nDCG@3 de um catalogo
+        # mexia 0,016 entre corridas. Fixa-se do *snapshot* e do `product_ref`,
+        # e o relatorio passa a ser o mesmo em cada corrida: um vermelho do
+        # *gate* e uma regressao, e nao um desempate. O caminho de producao nao
+        # muda; so a semente.
+        cursor.execute(
+            "UPDATE idx.search_doc SET doc_id = md5(%s || ':' || product_ref)::uuid WHERE tenant_id = %s",
+            (snapshot, tenant),
+        )
+        # O preco muda **depois** de indexado, e sem evento: menos 1 Kz em todos.
+        # A asercao do preco divergente confere com o preco de agora, e por isso
+        # so passa se o numero da resposta vier da oferta viva no instante da
+        # pergunta — um indice, uma *cache* ou o ficheiro semeado que fossem a
+        # fonte davam o de antes (achado 3 da revisao: conferir com o semeado,
+        # sem mudar nada, era quase uma tautologia). Nenhum filtro de preco do
+        # *dataset* fica do outro lado com 1 Kz a menos (os tectos sao redondos).
+        cursor.execute(
+            "UPDATE platform.offer_terms SET preco_minor = preco_minor - %s WHERE tenant_id = %s",
+            (AJUSTE_DE_PRECO_MINOR, tenant),
+        )
+        catalogos[snapshot] = {ref: preco - AJUSTE_DE_PRECO_MINOR for ref, preco in catalogos[snapshot].items()}
     cursor.execute("ANALYZE idx.search_doc")
     cursor.execute("ANALYZE platform.offer_terms")
     return tenants, catalogos
@@ -180,40 +211,22 @@ def _pesquisador(app, tenants, *, vectorial=None, limiar=None):
 
 
 def _afinar(app, tenants, catalogos, vectorial) -> dict:
-    """Em dev, e so em dev: o `with` recusa qualquer leitura do teste."""
-    from eval_search import dataset, metrics, runner
+    """Em dev, e so em dev: o `runner.afinar` entra na guarda e confere a divisao."""
+    from eval_search import runner
     from kamba_agr.tls.idx import LIMIAR_DO_RRF, score_normalizado
     from kamba_core.idx import pesquisa
 
-    with dataset.afinacao():
-        dev = dataset.ler(dataset.DEV)
-        por_limiar = []
-        for limiar in LIMIARES_DE_PALAVRA:
-            execucao = runner.correr(
-                dev, _pesquisador(app, tenants, limiar=limiar), catalogos, modo="lexical"
-            )
-            agregado = metrics.agregar(execucao.resultados)
-            por_limiar.append(
-                {"limiar_pg_trgm": limiar, **{k: (round(v, 4) if isinstance(v, float) else v)
-                                              for k, v in agregado.items()}}
-            )
-        lexical = runner.correr(dev, _pesquisador(app, tenants), catalogos, modo="lexical")
-        hibrido = runner.correr(
-            dev, _pesquisador(app, tenants, vectorial=vectorial), catalogos, modo="hibrido"
-        )
-        return {
-            "divisao": dataset.DEV,
-            "consultas": len(dev),
-            "limiar_pg_trgm_actual": pesquisa.LIMIAR_DE_PALAVRA,
-            "pg_trgm": por_limiar,
-            "limiar_do_rrf_actual": LIMIAR_DO_RRF,
-            "rrf_lexical": runner.varrer_limiar(
-                lexical, LIMIARES_DO_RRF, lambda s: score_normalizado(s, hibrido=False)
-            ),
-            "rrf_hibrido": runner.varrer_limiar(
-                hibrido, LIMIARES_DO_RRF, lambda s: score_normalizado(s, hibrido=True)
-            ),
-        }
+    return runner.afinar(
+        catalogos=catalogos,
+        pesquisador_por_limiar=lambda limiar: _pesquisador(app, tenants, limiar=limiar),
+        pesquisador_lexical=_pesquisador(app, tenants),
+        pesquisador_hibrido=_pesquisador(app, tenants, vectorial=vectorial),
+        limiares_de_palavra=LIMIARES_DE_PALAVRA,
+        limiares_do_rrf=LIMIARES_DO_RRF,
+        pontuador_lexical=lambda s: score_normalizado(s, hibrido=False),
+        pontuador_hibrido=lambda s: score_normalizado(s, hibrido=True),
+        actuais={"pg_trgm": pesquisa.LIMIAR_DE_PALAVRA, "rrf": LIMIAR_DO_RRF},
+    )
 
 
 def _dentro(relatorio: str | None) -> int:
@@ -253,7 +266,9 @@ def _dentro(relatorio: str | None) -> int:
             registos, _pesquisador(app, tenants, vectorial=vectorial), catalogos, modo="hibrido"
         ),
     }
-    afinacao = _afinar(app, tenants, catalogos, vectorial)
+    # A afinacao e para quem afina, e nao para o *gate*: sem ela, a corrida e
+    # so a das duas passagens (criterio 9, o tempo do relatorio em CI).
+    afinacao = None if os.environ.get("KAMBA_GOLDEN_SEM_AFINACAO") else _afinar(app, tenants, catalogos, vectorial)
     manifesto = json.loads(dataset.MANIFESTO.read_text(encoding="utf-8"))
     cursor = admin.cursor()
     cursor.execute("SELECT version()")
@@ -292,12 +307,9 @@ def _dentro(relatorio: str | None) -> int:
     app.close()
     cliente_app.close()
     admin.close()
-    verde = all(
-        dados["modos"][m]["asercoes"]["produto_citado_inexistente"] == 0
-        and dados["modos"][m]["asercoes"]["preco_divergente"] == 0
-        for m in runner.MODOS
-    )
-    return 0 if verde else 1
+    from eval_search import gate
+
+    return 0 if gate.verde(dados) else 1
 
 
 def _correr(ambiente: dict[str, str], _suite: str) -> int:
@@ -310,6 +322,9 @@ def _correr(ambiente: dict[str, str], _suite: str) -> int:
 def main(argv: list[str]) -> int:
     if argv and argv[0] == "--dentro":
         return _dentro(argv[1] if len(argv) > 1 else None)
+    if "--sem-afinacao" in argv:
+        argv = [a for a in argv if a != "--sem-afinacao"]
+        os.environ["KAMBA_GOLDEN_SEM_AFINACAO"] = "1"
     if len(argv) > 1:
         print(__doc__, file=sys.stderr)
         return 2

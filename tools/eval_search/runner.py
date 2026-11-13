@@ -129,8 +129,13 @@ def correr(
     return execucao
 
 
+#: As casas do relatorio. Seis, e nao quatro: com quatro, uma queda real de
+#: 0,02004 lia-se 0,0200 e o *gate* deixava-a passar (achado 11 da revisao).
+CASAS: Final = 6
+
+
 def _arredondar(valores: Mapping[str, float | int | None]) -> dict[str, float | int | None]:
-    return {k: (round(v, 4) if isinstance(v, float) else v) for k, v in valores.items()}
+    return {k: (round(v, CASAS) if isinstance(v, float) else v) for k, v in valores.items()}
 
 
 def _fatias(execucao: Execucao) -> dict[str, dict[str, Any]]:
@@ -176,6 +181,35 @@ def _adversarial(execucao: Execucao) -> dict[str, int]:
     }
 
 
+def falhas(execucao: Execucao) -> dict[str, list[dict[str, Any]]]:
+    """As consultas que puxam cada metrica para baixo: e o que explica um desvio.
+
+    O texto e o do *dataset*, que e sintetico; o `primeiro` e o `product_ref` que
+    a pesquisa pos no topo.
+    """
+
+    def linha(resultado: metrics.Resultado) -> dict[str, Any]:
+        return {
+            "qid": resultado.qid,
+            "texto": execucao.registos[resultado.qid].texto,
+            "primeiro": resultado.ordem[0] if resultado.ordem else None,
+        }
+
+    resolviveis = [r for r in execucao.resultados if not r.nao_resolvivel and metrics.tem_relevantes(r.graus)]
+    return {
+        "falso_positivo_nao_resolvivel": [
+            linha(r) for r in execucao.resultados if r.nao_resolvivel and r.ordem
+        ],
+        "zero_resultado": [linha(r) for r in resolviveis if not r.ordem],
+        "sem_sucesso_at_3": [
+            linha(r) for r in resolviveis if r.ordem and not metrics.success_at(r.ordem, r.graus)
+        ],
+        "recall_at_10_abaixo_de_1": [
+            linha(r) for r in resolviveis if metrics.recall_at(r.ordem, r.graus) < 1
+        ],
+    }
+
+
 def tokens_nao_resolvidos(execucao: Execucao, *, minimo: int = 1) -> list[dict[str, Any]]:
     """Os *tokens* que a normalizacao nao resolveu, agregados pelo *dataset*.
 
@@ -214,6 +248,7 @@ def relatorio(
             "caiu_em_lexical": execucao.caiu_em_lexical,
             "duracao_s": execucao.duracao_s,
             "tokens_nao_resolvidos": tokens_nao_resolvidos(execucao, minimo=2)[:30],
+            "falhas": falhas(execucao),
         }
     comparacao: dict[str, Any] = {}
     if set(MODOS) <= set(execucoes):
@@ -273,6 +308,49 @@ def varrer_limiar(
     return [_arredondar(linha) for linha in saida]
 
 
+def afinar(
+    *,
+    catalogos: Mapping[str, Mapping[str, int | None]],
+    pesquisador_por_limiar: Callable[[float], Pesquisador],
+    pesquisador_lexical: Pesquisador,
+    pesquisador_hibrido: Pesquisador,
+    limiares_de_palavra: Sequence[float],
+    limiares_do_rrf: Sequence[float],
+    pontuador_lexical: Callable[[float], float],
+    pontuador_hibrido: Callable[[float], float],
+    actuais: Mapping[str, float],
+    ler: Callable[[str], Sequence[dataset_mod.Registo]] = dataset_mod.ler,
+) -> dict[str, Any]:
+    """A afinacao do criterio 3: so `dev`, e e verificado aqui e nao so no `ler`.
+
+    Corre dentro de `dataset.afinacao()`, e confere a divisao de cada consulta
+    que recebeu: um `ler` que devolvesse o teste (outra funcao, um ficheiro
+    mal marcado) levanta `LeituraDoTesteProibida` antes de pesquisar. Vive
+    aqui, e nao no `db/golden_search.py`, para ter ensaio (achado 5 da
+    revisao: sem ele, apagar o `with` no executor passava tudo).
+    """
+    with dataset_mod.afinacao():
+        dev = list(ler(dataset_mod.DEV))
+        intrusos = [r.qid for r in dev if r.divisao != dataset_mod.DEV or dataset_mod.divisao_de(r.qid) != dataset_mod.DEV]
+        if intrusos:
+            raise dataset_mod.LeituraDoTesteProibida(f"a afinacao recebeu consultas do teste: {intrusos[:5]}")
+        por_limiar = []
+        for limiar in limiares_de_palavra:
+            execucao = correr(dev, pesquisador_por_limiar(limiar), catalogos, modo="lexical")
+            por_limiar.append({"limiar_pg_trgm": limiar, **_arredondar(metrics.agregar(execucao.resultados))})
+        lexical = correr(dev, pesquisador_lexical, catalogos, modo="lexical")
+        hibrido = correr(dev, pesquisador_hibrido, catalogos, modo="hibrido")
+    return {
+        "divisao": dataset_mod.DEV,
+        "consultas": len(dev),
+        "limiar_pg_trgm_actual": actuais["pg_trgm"],
+        "pg_trgm": por_limiar,
+        "limiar_do_rrf_actual": actuais["rrf"],
+        "rrf_lexical": varrer_limiar(lexical, limiares_do_rrf, pontuador_lexical),
+        "rrf_hibrido": varrer_limiar(hibrido, limiares_do_rrf, pontuador_hibrido),
+    }
+
+
 def _celula(valor: Any) -> str:
     if valor is None:
         return "—"
@@ -313,9 +391,44 @@ def markdown(dados: Mapping[str, Any]) -> str:
             f"Caiu em lexical: {bloco['caiu_em_lexical']}. Duração: {bloco['duracao_s']} s.",
             "",
         ]
+        for nome, lista in bloco.get("falhas", {}).items():
+            if lista:
+                linhas.append(f"**{nome}** ({len(lista)}): " + "; ".join(
+                    f"`{f['qid']}` «{f['texto']}» → {f['primeiro'] or '∅'}" for f in lista
+                ))
+                linhas.append("")
     if dados.get("hibrido_menos_lexical"):
         linhas += ["## Híbrido menos lexical", "", "| Métrica | Δ |", "|---|---|"]
         linhas += [f"| {n} | {_celula(v)} |" for n, v in dados["hibrido_menos_lexical"].items()]
+        linhas.append("")
+    afinacao = dados.get("afinacao")
+    if afinacao:
+        linhas += [
+            f"## Afinação (só `{afinacao['divisao']}`, {afinacao['consultas']} consultas)",
+            "",
+            f"Limiar do `pg_trgm` (actual {afinacao['limiar_pg_trgm_actual']}), modo lexical:",
+            "",
+            "| Limiar | " + " | ".join(METRICAS) + " |",
+            "|---" * (len(METRICAS) + 1) + "|",
+        ]
+        linhas += [
+            f"| {l['limiar_pg_trgm']} | " + " | ".join(_celula(l[n]) for n in METRICAS) + " |"
+            for l in afinacao["pg_trgm"]
+        ]
+        for chave, rotulo in (("rrf_lexical", "lexical"), ("rrf_hibrido", "híbrido")):
+            linhas += [
+                "",
+                f"Limiar do `retrieve` do AGR (actual {afinacao['limiar_do_rrf_actual']}) "
+                f"sobre o `score_normalizado`, modo {rotulo}:",
+                "",
+                "| Limiar | success_at_3 | zero_result_rate | falso_positivo_nao_resolvivel |",
+                "|---|---|---|---|",
+            ]
+            linhas += [
+                f"| {l['limiar']} | {_celula(l['success_at_3'])} | {_celula(l['zero_result_rate'])} | "
+                f"{_celula(l['falso_positivo_nao_resolvivel'])} |"
+                for l in afinacao[chave]
+            ]
         linhas.append("")
     for chave in ("fornecedor_hibrido", "nota"):
         if dados.get(chave):
