@@ -2017,7 +2017,7 @@ limiar, que é do fundador. A escolha do modo e as guardas de arranque vivem no 
 medido.
 
 **As medições, nesta máquina, contra PostgreSQL 18.6 em Docker e Node 24.21 em contentor**, com a
-revisão na árvore como `0050` sobre a `0049` — **e renumerada depois para `0051`, sobre a `0050` do KAM-049**, por ordem do orquestrador do lote; e integrada sobre a `main` em `303ed1cd`, onde a `0050` já fundiu. As corridas abaixo marcadas «integrada» são dessa árvore:
+revisão na árvore como `0050` sobre a `0049` — **e renumerada depois para `0051`, sobre a `0050` do KAM-049**, por ordem do orquestrador do lote; e integrada sobre a `main` em `303ed1cd`, onde a `0050` já fundiu. **Na árvore integrada**, com a `0051` no topo: `--suite tests_pagamentos` → **`Ran 268 tests` / `OK`**, `--suite tests` → **`Ran 918 tests` / `OK`**, `--suite tests_isolamento` → **`Ran 83 tests` / `OK`**, os ensaios Node do COM → **`tests 544 / pass 544`** e os de `pagamentos.*` do core-ts → **`tests 336 / pass 336`**, com o *typecheck* de todos os pacotes a zero, e `mutacoes --aplicaveis` → **1114, 0 não aplicáveis**. Antes da integração:
 `python db/gate_bd.py --suite tests_pagamentos` → **`Ran 268 tests` / `OK`** (com os dois ensaios do `downgrade` que a revisão adversarial pediu); `--suite tests` →
 **`Ran 901 tests` / `OK`**; `--suite tests_isolamento` → **`Ran 83 tests` / `OK`**; os ensaios de `../services/com/tests/payments.*` e
 `orders.*` → **`tests 234 / pass 234 / fail 0`**, com o `typecheck` do COM a zero; os de
