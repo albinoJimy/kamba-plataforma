@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
 import { cunharReferencia, NOME_DO_COOKIE } from "@kamba/core-ts/inscricao";
@@ -260,6 +260,29 @@ describe("equipa: a porta da identidade (criterio 2)", () => {
     assert.equal((await m.pedir("/equipa/casos", cookie)).status, 401);
   });
 
+  it("o HMAC leva o separador: um texto com a forma da equipa assinado sob o do painel nao verifica", () => {
+    const chave = randomBytes(32);
+    const s = novaSessaoDaEquipa({ id: randomUUID(), mfa: true }, AGORA);
+    const texto = `v1.${s.sid}.${s.conta}.1.${s.emitida}`;
+    const comOutro = createHmac("sha256", chave).update("kamba/painel/sessao/v1").update("\u0000").update(texto).digest("base64url");
+    const semNenhum = createHmac("sha256", chave).update(texto).digest("base64url");
+    const comOProprio = createHmac("sha256", chave).update(DOMINIO_DA_SESSAO_DA_EQUIPA).update("\u0000").update(texto).digest("base64url");
+    assert.equal(lerSessaoDaEquipa(`${texto}.${comOutro}`, [chave], AGORA), null);
+    assert.equal(lerSessaoDaEquipa(`${texto}.${semNenhum}`, [chave], AGORA), null);
+    assert.notEqual(lerSessaoDaEquipa(`${texto}.${comOProprio}`, [chave], AGORA), null, "o controlo: com o separador certo verifica");
+  });
+
+  it("uma conta que o IdP devolve com outro id nao entra, nem a entrada nem a sessao", async () => {
+    const m = montar();
+    const { conta, cookie } = await m.entrar();
+    const outra = m.idp.conta_(["ts_lider"]);
+    m.idp.contas.set(conta.id, outra);
+    assert.equal((await m.pedir("/equipa/casos", cookie)).status, 401);
+    const nova = m.idp.conta_(["ts_revisor"]);
+    m.idp.contas.set(nova.id, outra);
+    assert.equal((await m.app.request(`/equipa/entrar?prova=${m.idp.prova(nova.id, true)}`)).status, 401);
+  });
+
   it("sair revoga so a sessao verificada: um sid alheio forjado nao desliga ninguem", async () => {
     const m = montar();
     const a = await m.entrar();
@@ -313,9 +336,33 @@ describe("equipa: nenhuma rota responde sem identidade com MFA (adversarial)", (
       }
       const novas = m.auditoria.linhas.slice(antes);
       assert.equal(novas.length, rotas.length);
-      assert.ok(novas.every((l) => l.accao === "review.recusa" && l.detalhe === motivo && l.actorId === conta.id));
+      // `consola`: a recusa e da barreira, antes do servico. Sem a barreira o
+      // servico tambem recusava com 403, mas com o caso no registo.
+      assert.ok(novas.every((l) => l.accao === "review.recusa" && l.detalhe === motivo && l.actorId === conta.id && l.entidadeId === "consola"));
     }
     assert.equal(m.repositorio.casos.get(caso.id)!.estado, "aberto");
+  });
+
+  it("um formulario de outra origem nao escreve: todos os POST exigem JSON (415)", async () => {
+    const m = montar();
+    const caso = await m.abrir(m.onboarding());
+    const { cookie } = await m.entrar();
+    for (const caminho of [
+      "/equipa/sair",
+      `/equipa/casos/${caso.id}/revelar`,
+      `/equipa/casos/${caso.id}/decisao`,
+      `/equipa/casos/${caso.id}/recurso`,
+      `/equipa/casos/${caso.id}/recurso/decisao`,
+    ]) {
+      const r = await m.app.request(caminho, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+        body: "decisao=rejeitar&campo=nif",
+      });
+      assert.equal(r.status, 415, caminho);
+    }
+    assert.equal(m.repositorio.casos.get(caso.id)!.estado, "aberto");
+    assert.equal((await m.pedir("/equipa/casos", cookie)).status, 200, "o sair por formulario nao revogou");
   });
 
   it("a lista nao exporta mais de uma pagina, e nao ha rota de exportacao", async () => {
@@ -384,7 +431,6 @@ describe("equipa: as rotas sobre o servico, ponta a ponta (criterio 3)", () => {
       decisao: "rejeitar",
       regra: "k1.nif_divergente",
       nota: "nota do revisor",
-      motivo_publico: "documento_expirado",
     });
     assert.equal(rejeitar.status, 200);
     assert.deepEqual(await rejeitar.json(), { estado: "decidido", caso: { id: caso.id, estado: "decidido" } });
@@ -393,7 +439,7 @@ describe("equipa: as rotas sobre o servico, ponta a ponta (criterio 3)", () => {
     assert.equal(m.sms.enviados.length, 1);
     assert.equal(m.sms.enviados[0]!.modelo, "revisao_rejeitado");
     assert.equal(m.sms.enviados[0]!.destinoHmac, cunharDestino(REGISTADO, m.pepper).hmac);
-    assert.ok(m.sms.enviados[0]!.corpo.includes(TEXTO_DO_MOTIVO_PUBLICO.documento_expirado));
+    assert.ok(m.sms.enviados[0]!.corpo.includes(TEXTO_DO_MOTIVO_PUBLICO.nao_foi_possivel_validar));
     assert.ok(!m.sms.enviados[0]!.corpo.includes("nota do revisor"));
 
     // Decidir outra vez o mesmo caso: 409.
@@ -411,6 +457,7 @@ describe("equipa: as rotas sobre o servico, ponta a ponta (criterio 3)", () => {
     assert.equal(final.status, 200);
     assert.deepEqual(await final.json(), { estado: "decidido", caso: { id: caso.id, estado: "decidido_final" } });
     assert.equal(m.sms.enviados.at(-1)!.modelo, "revisao_recurso_aprovado");
+    // O motivo do recurso mantido seria o mesmo do primeiro aviso: e o do caso.
     const detalhes = m.auditoria.linhas.map((l) => l.detalhe);
     assert.ok(detalhes.includes("recurso:abrir") && detalhes.includes("revisor_da_primeira_instancia"));
   });
@@ -442,11 +489,11 @@ describe("equipa: as rotas sobre o servico, ponta a ponta (criterio 3)", () => {
     const caso = await m.abrir(m.onboarding());
     const { cookie } = await m.entrar();
     const url = `/equipa/casos/${caso.id}/decisao`;
-    for (const corpo of [{ decisao: "aprovar_tudo" }, { decisao: "rejeitar", motivo_publico: "o seu NIF e falso" }, { decisao: "aprovar", nota: "x".repeat(2001) }, { decisao: "aprovar", regra: "Regra Livre" }]) {
+    for (const corpo of [{ decisao: "aprovar_tudo" }, { decisao: "rejeitar", motivo_publico: "o seu NIF e falso" }, { decisao: "rejeitar", motivo_publico: "documento_expirado" }, { decisao: "aprovar", nota: "x".repeat(2001) }, { decisao: "aprovar", regra: "Regra Livre" }]) {
       assert.equal((await m.pedir(url, cookie, corpo)).status, 400, JSON.stringify(corpo).slice(0, 60));
     }
     const formulario = await m.app.request(url, { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: "decisao=aprovar" });
-    assert.equal(formulario.status, 400);
+    assert.equal(formulario.status, 415);
     assert.equal((await m.pedir(`/equipa/casos/nao-e-uuid`, cookie)).status, 404);
     assert.equal((await m.pedir(`/equipa/casos/${randomUUID()}`, cookie)).status, 404);
     assert.equal(m.repositorio.casos.get(caso.id)!.estado, "aberto");
@@ -458,7 +505,8 @@ describe("equipa: as rotas sobre o servico, ponta a ponta (criterio 3)", () => {
     const caso = await m.abrir(o);
     const { cookie } = await m.entrar();
     const r = await m.pedir(`/equipa/casos/${caso.id}/decisao`, cookie, { decisao: "aprovar" });
-    assert.equal(r.status, 500);
+    assert.equal(r.status, 202, "a decisao esta feita; repeti-la dava 409");
+    assert.deepEqual(await r.json(), { estado: "efeito_por_aplicar", caso: { id: caso.id } });
     assert.equal(m.repositorio.casos.get(caso.id)!.estado, "decidido");
     assert.equal(m.onboardings.casos.get(o.id)!.fase, "aprovado");
     assert.deepEqual(await m.ciclo.efeitos.pendentes(10), [caso.id]);

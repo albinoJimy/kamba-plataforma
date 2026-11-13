@@ -8,7 +8,9 @@ import { describe, it } from "node:test";
 
 import {
   CicloDaFila,
+  EfeitoPorAplicarError,
   LeitorDaFilaSql,
+  ServicoDeRevisao,
   METRICA_CASOS,
   METRICA_P90,
   SQL_CONTADORES,
@@ -190,5 +192,154 @@ describe("ciclo da fila (criterio 6)", () => {
     const ciclo = new CicloDaFila({ servico: m.servico, leitor });
     await ciclo.correr();
     assert.match(ciclo.metricas.exposicao(), new RegExp(`${METRICA_P90} 3600`));
+  });
+});
+
+// ------------------------------------------------- os achados da revisao adversarial
+
+/** O servico sobre os duplos do apoio, com um aviso que falha quando se pede. */
+function comAvisoQueFalha(m: ReturnType<typeof montarRevisao>) {
+  const estado = { falhar: true, avisos: [] as { aviso: string; motivo: string | null }[] };
+  const servico = new ServicoDeRevisao({
+    repositorio: m.repositorio,
+    onboardings: m.onboardings,
+    auditoria: m.auditoria,
+    aviso: {
+      async avisar(p) {
+        if (estado.falhar) throw new Error("agregador em baixo");
+        estado.avisos.push({ aviso: p.aviso, motivo: p.motivoPublico });
+      },
+    },
+    alerta: () => {},
+    cifra: { cifrar: async (b) => b, decifrar: async (b) => b },
+    dados: { ler: async () => null },
+    documentos: { url: async () => "x" },
+    screening: { gravar: async () => {} },
+    relogio: () => m.agora(),
+  });
+  const ciclo = new CicloDaFila({ servico, leitor: leitorDaMemoria(m) });
+  return { servico, ciclo, estado };
+}
+
+/** O efeito por aplicar que a consola marcaria. */
+async function marcarSeFalhar(ciclo: CicloDaFila, p: Promise<unknown>): Promise<void> {
+  try {
+    await p;
+  } catch (erro) {
+    assert.ok(erro instanceof EfeitoPorAplicarError, String(erro));
+    await ciclo.efeitoFalhou(erro.casoId);
+  }
+}
+
+describe("ciclo: os achados da revisao adversarial", () => {
+  it("(1) o aviso de um pedir_info que falhou volta a sair, com o caso ainda pendente", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const { servico, ciclo, estado } = comAvisoQueFalha(m);
+    const o = m.onboarding();
+    const c = await m.abrir(o);
+    assert.ok(c.estado === "aberto");
+    await marcarSeFalhar(ciclo, servico.decidir(revisor(), c.caso.id, "pedir_info"));
+    assert.deepEqual(await ciclo.efeitos.pendentes(10), [c.caso.id]);
+    estado.falhar = false;
+    const r = await ciclo.correr();
+    assert.equal(r.reaplicados, 1);
+    assert.deepEqual(estado.avisos, [{ aviso: "pedir_info", motivo: "informacao_em_falta" }]);
+    assert.equal(m.repositorio.casos.get(c.caso.id)!.estado, "em_analise", "o caso continua pendente");
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "kyc_pendente");
+  });
+
+  it("(2) reaplicar um caso cujo onboarding outro caso aprovou depois nao manda segundo aprovado", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const { servico, ciclo, estado } = comAvisoQueFalha(m);
+    const o = m.onboarding();
+    const a = await m.abrir(o);
+    const b = await m.abrir(o, { tipo: "duplicado", motivoCodigo: "duplicado" });
+    assert.ok(a.estado === "aberto" && b.estado === "aberto");
+    // A aprova com B pendente: não aprova o onboarding, nem avisa. Simula-se
+    // a falha do efeito marcando-o à mão.
+    await servico.decidir(revisor(), a.caso.id, "aprovar");
+    await ciclo.efeitoFalhou(a.caso.id);
+    m.avancar(60_000);
+    estado.falhar = false;
+    await servico.decidir(revisor(), b.caso.id, "aprovar");
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "aprovado");
+    assert.deepEqual(estado.avisos, [{ aviso: "aprovado", motivo: null }]);
+    await ciclo.correr();
+    assert.deepEqual(estado.avisos, [{ aviso: "aprovado", motivo: null }], "B ja avisou; reaplicar A nao repete");
+  });
+
+  it("(2) e o controlo: o caso que aprovou, e cujo aviso falhou, reenvia-o", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const { servico, ciclo, estado } = comAvisoQueFalha(m);
+    const o = m.onboarding();
+    const a = await m.abrir(o);
+    assert.ok(a.estado === "aberto");
+    await marcarSeFalhar(ciclo, servico.decidir(revisor(), a.caso.id, "aprovar"));
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "aprovado");
+    estado.falhar = false;
+    await ciclo.correr();
+    assert.deepEqual(estado.avisos, [{ aviso: "aprovado", motivo: null }]);
+  });
+
+  it("(M15) reaplicar nao aprova um onboarding que a decisao original nao aprovava", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const { servico, ciclo, estado } = comAvisoQueFalha(m);
+    estado.falhar = false;
+    const o = m.onboarding({ fase: "kyc_pendente" });
+    const c = await m.abrir(o, { tipo: "categoria", motivoCodigo: "screening:x", evidencias: [] });
+    assert.ok(c.estado === "aberto");
+    await servico.decidir(revisor(), c.caso.id, "aprovar");
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "kyc_pendente");
+    await ciclo.efeitoFalhou(c.caso.id);
+    await ciclo.correr();
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "kyc_pendente", "uma categoria nao aprova com o KYC por decidir");
+    assert.deepEqual(estado.avisos, []);
+  });
+
+  it("(3) um recurso aberto nao se reaplica: o dono nao recebe outra vez o rejeitado", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const { servico, ciclo, estado } = comAvisoQueFalha(m);
+    estado.falhar = false;
+    const c = await m.abrir(m.onboarding());
+    assert.ok(c.estado === "aberto");
+    await servico.decidir(revisor(), c.caso.id, "rejeitar");
+    await servico.abrirRecurso(c.caso.id);
+    const antes = estado.avisos.length;
+    await ciclo.efeitoFalhou(c.caso.id);
+    const r = await ciclo.correr();
+    assert.equal(r.reaplicados, 0);
+    assert.equal(estado.avisos.length, antes);
+    assert.deepEqual(await ciclo.efeitos.pendentes(10), []);
+  });
+
+  it("(3) um erro antes de a decisao ficar registada nao e um efeito por aplicar", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const c = await m.abrir(m.onboarding());
+    assert.ok(c.estado === "aberto");
+    const original = m.repositorio.registarDecisao.bind(m.repositorio);
+    m.repositorio.registarDecisao = async () => {
+      throw new Error("base em baixo");
+    };
+    await assert.rejects(m.servico.decidir(revisor(), c.caso.id, "rejeitar"), (e: unknown) => !(e instanceof EfeitoPorAplicarError));
+    m.repositorio.registarDecisao = original;
+  });
+
+  it("(M18) um drenar que falha nao para o alertar, o reaplicar nem o medir", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const falso = delegado(m);
+    falso.drenarTriagem = async () => {
+      throw new Error("triagem em baixo");
+    };
+    let alertou = false;
+    falso.alertarSla = async () => {
+      alertou = true;
+      return 0;
+    };
+    await m.abrir(m.onboarding());
+    const ciclo = new CicloDaFila({ servico: falso, leitor: leitorDaMemoria(m) });
+    const r = await ciclo.correr();
+    assert.deepEqual(r.falhas, ["drenar"]);
+    assert.ok(alertou);
+    assert.match(ciclo.metricas.exposicao(), new RegExp(`${METRICA_CASOS}\\{tipo="kyc",estado="aberto"\\} 1`));
   });
 });

@@ -2805,6 +2805,9 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
 //   sonda=viva              uma sessao de equipa com papel e MFA deu o seu 2xx
 //   b=intacto               o caso de B nao mudou nem ganhou decisao
 //   sessao-viva=sim         os tres «sair» forjados nao revogaram a sessao alvo
+//
+// No `entrar`, o `sem-mfa` e a `sonda` sao de uma prova **valida**: sem MFA da
+// 403 sem cookie, e com MFA e papel cunha a sessao.
 
 const ITENS_DA_EQUIPA = [
   "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/entrar",
@@ -2987,6 +2990,23 @@ async function grupoDaEquipa(relatorio: Relatorio): Promise<void> {
     for (const prova of [doPainel, doRegisto, usada]) {
       await empurrar(ITENS_DA_EQUIPA[0], "GET", `/equipa/entrar?prova=${encodeURIComponent(prova)}`, {}, "");
     }
+    // E a rota, e nao so o IdP falso: uma prova **valida** sem MFA tem de dar
+    // 403 sem cookie, e uma valida com MFA e papel tem de cunhar a sessao. Sem
+    // estas duas marcas, um `entrar` que ignorasse a MFA, ou que respondesse
+    // sempre 401, passava (achado 6 da revisao adversarial).
+    provas.set("prova-sem-mfa-0001", { id: r1.id, mfa: false });
+    provas.set("prova-com-mfa-0001", { id: r1.id, mfa: true });
+    const semMfaNaEntrada = await app.request("/equipa/entrar?prova=prova-sem-mfa-0001");
+    const comMfaNaEntrada = await app.request("/equipa/entrar?prova=prova-com-mfa-0001");
+    const marcasDoEntrar = [
+      `sem-mfa=${semMfaNaEntrada.status === 403 && semMfaNaEntrada.headers.get("set-cookie") === null ? "403" : String(semMfaNaEntrada.status)}`,
+      comMfaNaEntrada.status === 303 && (comMfaNaEntrada.headers.get("set-cookie") ?? "").startsWith("kamba_equipa=v1.")
+        ? "sonda=viva"
+        : "sonda=morta",
+    ].join(" ");
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DA_EQUIPA[0]) entrada.nota += ` ${marcasDoEntrar}`;
+    }
 
     // ---- POST /equipa/sair: tres valores forjados com o `sid` de uma sessao viva.
     const alvo = novaDaEquipa({ id: r2.id, mfa: true }, agora);
@@ -2998,7 +3018,13 @@ async function grupoDaEquipa(relatorio: Relatorio): Promise<void> {
       alvo.sid,
     ];
     for (const valor of forjadas) {
-      await empurrar(ITENS_DA_EQUIPA[1], "POST", "/equipa/sair", { method: "POST", headers: { cookie: `kamba_equipa=${valor}` } }, "");
+      await empurrar(
+        ITENS_DA_EQUIPA[1],
+        "POST",
+        "/equipa/sair",
+        { method: "POST", headers: { cookie: `kamba_equipa=${valor}`, "content-type": "application/json" }, body: "{}" },
+        "",
+      );
     }
     const viva =
       !(await revogacoes.revogada(alvo.sid)) && (await pedir("/equipa/casos", "GET", `kamba_equipa=${textoDoAlvo}`)).status === 200;
@@ -3012,7 +3038,7 @@ async function grupoDaEquipa(relatorio: Relatorio): Promise<void> {
       [ITENS_DA_EQUIPA[3], "GET", (id) => `/equipa/casos/${id}`, undefined],
       [ITENS_DA_EQUIPA[4], "POST", (id) => `/equipa/casos/${id}/revelar`, { campo: "nif" }],
       [ITENS_DA_EQUIPA[5], "GET", (id) => `/equipa/casos/${id}/documentos/${verificacao}`, undefined],
-      [ITENS_DA_EQUIPA[6], "POST", (id) => `/equipa/casos/${id}/decisao`, { decisao: "rejeitar", motivo_publico: "documento_expirado" }],
+      [ITENS_DA_EQUIPA[6], "POST", (id) => `/equipa/casos/${id}/decisao`, { decisao: "rejeitar" }],
       [ITENS_DA_EQUIPA[7], "POST", (id) => `/equipa/casos/${id}/recurso`, {}],
       [ITENS_DA_EQUIPA[8], "POST", (id) => `/equipa/casos/${id}/recurso/decisao`, { decisao: "aprovar" }],
     ];
@@ -3058,10 +3084,7 @@ async function grupoDaEquipa(relatorio: Relatorio): Promise<void> {
     sondas.push([ITENS_DA_EQUIPA[4], revelar.status === 200 && (await revelar.text()).includes(MARCADOR_DA_EQUIPA)]);
     const doc = await pedir(`/equipa/casos/${casoDeA.id}/documentos/${verificacao}`, "GET", deR1Cookie);
     sondas.push([ITENS_DA_EQUIPA[5], doc.status === 303]);
-    const decisao = await pedir(`/equipa/casos/${outroDeA.id}/decisao`, "POST", deR1Cookie, {
-      decisao: "rejeitar",
-      motivo_publico: "documento_expirado",
-    });
+    const decisao = await pedir(`/equipa/casos/${outroDeA.id}/decisao`, "POST", deR1Cookie, { decisao: "rejeitar" });
     sondas.push([ITENS_DA_EQUIPA[6], decisao.status === 200]);
     const recurso = await pedir(`/equipa/casos/${outroDeA.id}/recurso`, "POST", deR1Cookie, {});
     sondas.push([ITENS_DA_EQUIPA[7], recurso.status === 200]);

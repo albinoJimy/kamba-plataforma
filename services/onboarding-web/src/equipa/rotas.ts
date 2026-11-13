@@ -41,15 +41,28 @@
  *
  * ## CSRF
  *
- * O cookie é `SameSite=Strict`, e as rotas que escrevem só aceitam
- * `application/json`, que um formulário de outra origem não manda sem
- * *preflight*. São as duas barreiras do painel do dono.
+ * **Todos** os `POST` — o `sair` e o `recurso` também, que não têm corpo útil —
+ * exigem `application/json`, que um formulário de outra origem não manda sem
+ * *preflight*; sem ele, 415. E o cookie é `SameSite=Lax` (ver `./sessao.ts`).
+ * A primeira versão só exigia JSON às rotas com corpo, e um formulário abria um
+ * recurso (achado 5 da revisão adversarial).
  *
- * ## Um efeito que falha depois de o caso fechar
+ * ## O motivo público é o do caso
  *
- * Uma decisão fecha o caso **antes** dos efeitos (a fase do onboarding, o
- * screening, o aviso ao dono). Se um deles falha, a rota marca o caso no *job*
- * da fila (`efeitoFalhou`), que o reaplica na volta seguinte, e responde 500.
+ * A consola **não aceita** um `motivo_publico` na decisão. O serviço sabe usá-lo
+ * no aviso dessa decisão, mas não o guarda (o `review_decision_log` não tem a
+ * coluna): o recurso e a reaplicação de um efeito voltavam ao motivo do caso, e
+ * o dono lia dois motivos diferentes para a mesma recusa (achado 4). Com o motivo
+ * fixado na abertura, todos os avisos do caso dizem o mesmo.
+ *
+ * ## Uma decisão registada cujo efeito falhou
+ *
+ * A decisão fica registada **antes** dos efeitos (a fase do onboarding, o
+ * screening, o aviso ao dono). Se um deles falha, o serviço levanta
+ * `EfeitoPorAplicarError`; a rota marca o caso no *job* da fila
+ * (`efeitoFalhou`), que o reaplica na volta seguinte, e responde **202**: a
+ * decisão está feita, e repeti-la dava 409. Qualquer outro erro é um 500 e não
+ * marca nada — um erro antes de a decisão existir não tem efeito a reaplicar.
  */
 
 import { Hono, type Context } from "hono";
@@ -59,7 +72,7 @@ import {
   CasoInexistenteError,
   DECISOES,
   ESTADOS,
-  MOTIVOS_PUBLICOS,
+  EfeitoPorAplicarError,
   PAPEIS,
   RevisaoRecusadaError,
   TIPOS_DE_CASO,
@@ -68,7 +81,6 @@ import {
   type Decisao,
   type EstadoDoCaso,
   type MotivoDeRecusa,
-  type MotivoPublico,
   type Revisor,
   type ServicoDeRevisao,
   type TipoDeCaso,
@@ -129,6 +141,11 @@ function json(corpo: unknown, estado: number, extra: Record<string, string> = {}
   return new Response(JSON.stringify(corpo), { status: estado, headers: { ...CABECALHOS, ...extra } });
 }
 
+/** O pedido diz `application/json`? É a barreira de CSRF de todos os `POST`. */
+function eJson(c: Context): boolean {
+  return (c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json");
+}
+
 /** O resultado da barreira: o revisor, ou a resposta que o recusa. */
 type Barreira = { readonly revisor: Revisor } | { readonly resposta: Response };
 
@@ -166,9 +183,8 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
     return { revisor: { ...conta, id: s.conta, mfa: true } };
   }
 
-  /** O corpo JSON de um `POST`, ou `null` se não tem forma. */
+  /** O corpo JSON de um `POST`, ou `null` se não tem forma. O tipo já foi exigido pelo `comRevisor`. */
   async function corpoDe(c: Context): Promise<Record<string, unknown> | null> {
-    if (!(c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json")) return null;
     const bruto = await c.req.text();
     if (Buffer.byteLength(bruto, "utf8") > CORPO_MAXIMO_DA_EQUIPA) return null;
     try {
@@ -179,30 +195,23 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
     }
   }
 
-  /** As opções de uma decisão, validadas. `null` se alguma não tem forma. */
-  function opcoesDaDecisao(corpo: Record<string, unknown>): { regra: string | null; nota: string | null; motivoPublico?: MotivoPublico } | null {
-    const { regra, nota, motivo_publico: motivo } = corpo;
+  /**
+   * As opções de uma decisão, validadas. `null` se alguma não tem forma — e um
+   * `motivo_publico` não tem: o motivo é o do caso (ver a nota do módulo).
+   */
+  function opcoesDaDecisao(corpo: Record<string, unknown>): { regra: string | null; nota: string | null } | null {
+    const { regra, nota } = corpo;
+    if ("motivo_publico" in corpo) return null;
     if (regra !== undefined && regra !== null && (typeof regra !== "string" || !REGRA.test(regra))) return null;
     if (nota !== undefined && nota !== null && (typeof nota !== "string" || nota.length > NOTA_MAXIMA)) return null;
-    if (motivo !== undefined && !(MOTIVOS_PUBLICOS as readonly unknown[]).includes(motivo)) return null;
-    return {
-      regra: typeof regra === "string" ? regra : null,
-      nota: typeof nota === "string" ? nota : null,
-      ...(motivo === undefined ? {} : { motivoPublico: motivo as MotivoPublico }),
-    };
+    return { regra: typeof regra === "string" ? regra : null, nota: typeof nota === "string" ? nota : null };
   }
 
-  /**
-   * Corre uma operação do serviço sobre um caso, com a barreira à frente e as
-   * recusas traduzidas. `aposFechar` marca o efeito que falhou para o *job*.
-   */
-  async function comRevisor(
-    c: Context,
-    operacao: (revisor: Revisor, casoId: string) => Promise<Response>,
-    aposFechar = false,
-  ): Promise<Response> {
+  /** Corre uma operação do serviço com a barreira à frente e as recusas traduzidas. */
+  async function comRevisor(c: Context, operacao: (revisor: Revisor, casoId: string) => Promise<Response>): Promise<Response> {
     const b = await barreira(c);
     if ("resposta" in b) return b.resposta;
+    if (c.req.method === "POST" && !eJson(c)) return json({ erro: "tipo_de_conteudo" }, 415);
     const casoId = c.req.param("id") ?? "";
     if (casoId !== "" && !UUID.test(casoId)) return json({ erro: "caso" }, 404);
     try {
@@ -213,7 +222,11 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
         return json({ erro: erro.motivo }, erro.estadoHttp);
       }
       if (erro instanceof CasoInexistenteError) return json({ erro: "caso" }, 404);
-      if (aposFechar && opcoes.efeitoFalhou !== undefined) await opcoes.efeitoFalhou(casoId);
+      if (erro instanceof EfeitoPorAplicarError) {
+        await opcoes.efeitoFalhou?.(erro.casoId);
+        log?.info({ outcome: "equipa_efeito_por_aplicar" });
+        return json({ estado: "efeito_por_aplicar", caso: { id: erro.casoId } }, 202);
+      }
       throw erro;
     }
   }
@@ -228,7 +241,7 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
     }
     if (!a.mfa) return recusarNaBarreira(a.id.toLowerCase(), "sem_mfa");
     const conta = await opcoes.identidade.conta(a.id);
-    if (conta === null) return json({ erro: "sessao" }, 401);
+    if (conta === null || conta.id.toLowerCase() !== a.id.toLowerCase()) return json({ erro: "sessao" }, 401);
     if (!conta.papeis.some((p) => (PAPEIS as readonly string[]).includes(p))) {
       return recusarNaBarreira(a.id.toLowerCase(), "sem_papel");
     }
@@ -241,6 +254,7 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
   });
 
   app.post("/equipa/sair", async (c) => {
+    if (!eJson(c)) return json({ erro: "tipo_de_conteudo" }, 415);
     // Só a sessão **verificada** se revoga: um `sid` alheio num valor forjado
     // não desliga outra pessoa.
     const s = lerSessaoDaEquipa(cookieDaEquipa(c.req.header("cookie")), opcoes.anelDaAssinatura, relogio());
@@ -292,18 +306,14 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
   );
 
   app.post("/equipa/casos/:id/decisao", (c) =>
-    comRevisor(
-      c,
-      async (revisor, id) => {
-        const corpo = await corpoDe(c);
-        const decisao = corpo?.["decisao"];
-        const extra = corpo === null ? null : opcoesDaDecisao(corpo);
-        if (!(DECISOES as readonly unknown[]).includes(decisao) || extra === null) return json({ erro: "corpo" }, 400);
-        const r = await servico.decidir(revisor, id, decisao as Decisao, extra);
-        return json({ estado: r.estado, caso: { id: r.caso.id, estado: r.caso.estado } }, 200);
-      },
-      true,
-    ),
+    comRevisor(c, async (revisor, id) => {
+      const corpo = await corpoDe(c);
+      const decisao = corpo?.["decisao"];
+      const extra = corpo === null ? null : opcoesDaDecisao(corpo);
+      if (!(DECISOES as readonly unknown[]).includes(decisao) || extra === null) return json({ erro: "corpo" }, 400);
+      const r = await servico.decidir(revisor, id, decisao as Decisao, extra);
+      return json({ estado: r.estado, caso: { id: r.caso.id, estado: r.caso.estado } }, 200);
+    }),
   );
 
   app.post("/equipa/casos/:id/recurso", (c) =>
@@ -314,20 +324,14 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
   );
 
   app.post("/equipa/casos/:id/recurso/decisao", (c) =>
-    comRevisor(
-      c,
-      async (revisor, id) => {
-        const corpo = await corpoDe(c);
-        const decisao = corpo?.["decisao"];
-        const extra = corpo === null ? null : opcoesDaDecisao(corpo);
-        if ((decisao !== "aprovar" && decisao !== "rejeitar") || extra === null || extra.motivoPublico !== undefined) {
-          return json({ erro: "corpo" }, 400);
-        }
-        const r = await servico.decidirRecurso(revisor, id, decisao, { regra: extra.regra, nota: extra.nota });
-        return json({ estado: r.estado, caso: { id: r.caso.id, estado: r.caso.estado } }, 200);
-      },
-      true,
-    ),
+    comRevisor(c, async (revisor, id) => {
+      const corpo = await corpoDe(c);
+      const decisao = corpo?.["decisao"];
+      const extra = corpo === null ? null : opcoesDaDecisao(corpo);
+      if ((decisao !== "aprovar" && decisao !== "rejeitar") || extra === null) return json({ erro: "corpo" }, 400);
+      const r = await servico.decidirRecurso(revisor, id, decisao, extra);
+      return json({ estado: r.estado, caso: { id: r.caso.id, estado: r.caso.estado } }, 200);
+    }),
   );
 
   return app;

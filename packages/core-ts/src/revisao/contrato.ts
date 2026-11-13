@@ -479,6 +479,22 @@ export class RevisaoRecusadaError extends Error {
   }
 }
 
+/**
+ * A decisão ficou registada e um efeito dela falhou depois (KAM-196): a fase do
+ * onboarding, o screening ou o aviso ao dono. O caso está onde a decisão o pôs;
+ * o efeito é que fica por aplicar, e o `reaplicarEfeitos` volta a corrê-lo. A
+ * mensagem não leva a do erro de origem, que pode trazer o que não deve sair.
+ */
+export class EfeitoPorAplicarError extends Error {
+  override readonly name = "EfeitoPorAplicarError";
+  readonly casoId: string;
+
+  constructor(casoId: string, causa: unknown) {
+    super("efeito de uma decisao de revisao por aplicar", { cause: causa });
+    this.casoId = casoId;
+  }
+}
+
 export class CasoInexistenteError extends Error {
   override readonly name = "CasoInexistenteError";
   constructor() {

@@ -51,13 +51,15 @@ export const NOME_DO_COOKIE_DA_EQUIPA = "kamba_equipa";
 export const VALIDADE_DA_EQUIPA_S = 8 * 3600;
 
 /**
- * Os atributos do cookie. `SameSite=Strict`: a consola não tem nenhuma entrada
- * a partir de outro sítio que precise do cookie — o regresso do IdP traz a
- * prova na consulta e **cunha** a sessão, não a lê. `Path=/equipa`: o cookie não
- * vai para as rotas do dono. Sem `Max-Age`: morre com o navegador, e o prazo
- * dentro da assinatura é o que conta.
+ * Os atributos do cookie. `SameSite=Lax`, e **não** `Strict`: o regresso do IdP
+ * é uma navegação vinda de outro sítio, e o `303` do `entrar` para a lista
+ * continua essa cadeia — com `Strict`, o navegador não mandava o cookie acabado
+ * de cunhar e a primeira página dava 401 (achado 9 da revisão adversarial). O
+ * CSRF fecha-se de outra forma: todos os `POST` exigem `application/json` (ver
+ * `./rotas.ts`). `Path=/equipa`: o cookie não vai para as rotas do dono. Sem
+ * `Max-Age`: morre com o navegador, e o prazo dentro da assinatura é o que conta.
  */
-export const ATRIBUTOS_DO_COOKIE_DA_EQUIPA = "HttpOnly; Secure; SameSite=Strict; Path=/equipa";
+export const ATRIBUTOS_DO_COOKIE_DA_EQUIPA = "HttpOnly; Secure; SameSite=Lax; Path=/equipa";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -81,6 +83,12 @@ export interface IdentidadeDaEquipa {
    * Troca a prova com que o IdP devolveu o navegador (o `code` de um OIDC, por
    * exemplo) pela autenticação. `null` se a prova não serve. Uma prova serve
    * **uma vez**: é o IdP que o garante.
+   *
+   * **O adaptador do IdP escolhido tem de ligar a prova ao navegador** que
+   * começou a entrada (o `state` e o `nonce` do OIDC, ou o equivalente): sem
+   * isso, um atacante entrava com a sua própria prova no navegador de um
+   * revisor (*login CSRF*). Esta porta não o pode fazer por ele, porque o
+   * mecanismo é do IdP — é uma condição do critério 1, que é do fundador.
    */
   autenticar(prova: string): Promise<Autenticacao | null>;
   /** A conta, lida agora. `null` se não existe ou está desactivada. */

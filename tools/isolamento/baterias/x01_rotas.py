@@ -955,18 +955,43 @@ def _afirmacoes_da_equipa(item: str, entradas: list[dict]) -> list[str]:
             "varrimento nao encontra o que nunca la esteve.",
         )
     )
-    if item.endswith(("GET:/equipa/entrar", "POST:/equipa/sair")):
-        if item.endswith("POST:/equipa/sair"):
-            achados.extend(
-                _exigir_marca(
-                    item,
-                    entradas,
-                    "sessao-viva",
-                    "sim",
-                    "Uma sessao forjada com o `sid` de outra pessoa revogou-a: "
-                    "quem ataca desliga um revisor da consola.",
-                )
+    if item.endswith("GET:/equipa/entrar"):
+        # Os tres 401 dizem que o IdP falso recusou provas que nao sao dele; o
+        # que diz que a **rota** funciona sao estas duas, de uma prova valida.
+        # Sem elas, um `entrar` que ignorasse a MFA, ou morto, passava (achado 6
+        # da revisao adversarial).
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sem-mfa",
+                "403",
+                "Uma prova valida do IdP sem MFA nao deu 403 sem cookie: a consola "
+                "abria sessao a quem nao provou o segundo factor.",
             )
+        )
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sonda",
+                "viva",
+                "Uma prova valida com MFA e papel nao cunhou a sessao: o 401 dos "
+                "ataques nao mediu a rota, so uma rota morta.",
+            )
+        )
+        return achados
+    if item.endswith("POST:/equipa/sair"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sessao-viva",
+                "sim",
+                "Uma sessao forjada com o `sid` de outra pessoa revogou-a: "
+                "quem ataca desliga um revisor da consola.",
+            )
+        )
         return achados
     for chave, porque in (
         (
