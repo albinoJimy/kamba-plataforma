@@ -50,7 +50,7 @@ from kamba_core import tenant_guard
 from kamba_core.eventos.ligacao import ClienteDaLigacao
 from kamba_core.health import healthz
 
-from . import consumidor
+from . import consumidor, embeddings
 from .entrega import EntregaAoIdx, Resposta
 from .metricas import METRICAS, MetricasDoIdx
 
@@ -125,7 +125,7 @@ def configuracao_inteira(
 class Reindexacao:
     """O ciclo do `reindexar` do KAM-062, uma volta de cada vez."""
 
-    __slots__ = ("_abrir_app", "_abrir_batch", "_lote", "_metricas")
+    __slots__ = ("_abrir_app", "_abrir_batch", "_lote", "_metricas", "_embeddings")
 
     def __init__(
         self,
@@ -133,6 +133,7 @@ class Reindexacao:
         abrir_batch: Callable[[], Any],
         lote: int = LOTE_POR_OMISSAO,
         metricas: MetricasDoIdx = METRICAS,
+        embeddings: "CicloDeEmbeddings | None" = None,
     ) -> None:
         if isinstance(lote, bool) or not isinstance(lote, int) or lote < 1:
             raise ValueError("lote e um inteiro >= 1")
@@ -140,6 +141,9 @@ class Reindexacao:
         self._abrir_batch = abrir_batch
         self._lote = lote
         self._metricas = metricas
+        #: O ciclo dos embeddings do KAM-063, a seguir a reindexacao de cada
+        #: *tenant*. `None` enquanto o `kamba-embed` nao tem modelo.
+        self._embeddings = embeddings
 
     def tenants(self) -> list[str]:
         ligacao = self._abrir_batch()
@@ -191,6 +195,8 @@ class Reindexacao:
         for tenant in self.tenants():
             try:
                 total += self.do_tenant(tenant)
+                if self._embeddings is not None:
+                    self._embeddings.do_tenant(tenant)
             except Exception as erro:  # noqa: BLE001 — a volta segue
                 if ao_falhar is not None:
                     ao_falhar(erro)
@@ -216,6 +222,108 @@ class Reindexacao:
                 if ao_falhar is not None:
                     ao_falhar(erro)
             parar.wait(intervalo_s)
+
+
+# ------------------------------------------------------------- os embeddings
+
+
+class CicloDeEmbeddings:
+    """O *worker* do KAM-063 (`embeddings.embeber_catalogo`), em ciclo, por *tenant*.
+
+    Corre a seguir a reindexacao do mesmo *tenant*, na mesma volta: os
+    documentos que ela reescreveu passam a ter texto novo, e o
+    `SQL_POR_EMBEBER` do KAM-063 apanha-os. Uma volta do `embeber_catalogo` le
+    um lote pelo cursor `doc_id`; este ciclo segue o cursor ate ao fim, no
+    maximo `LOTES_POR_VOLTA` lotes, e **nunca levanta pela porta**: um destino
+    negado, o tecto ou um modelo diferente no *tenant* param este *tenant* nesta
+    volta, e a seguinte tenta outra vez — e o *retry* do bloco do KAM-063.
+
+    **Um documento envenenado nao derruba o lote para sempre.** O
+    `embeber_catalogo` ja isola um a um os textos que o *lint* ou o fornecedor
+    recusam (`recusados`); o que ele nao isola e um lote cuja **chamada** falha
+    (`falha`). Aqui, um lote que falha repete-se documento a documento: os que
+    passam gravam-se, e o que falha sozinho conta como `isolado` e o cursor
+    passa-lhe a frente. Na volta seguinte o cursor recomeca, e ele e tentado
+    outra vez — nao ha tabela de mortos para documentos, e e isso que fica com
+    credor na verificacao do bloco.
+
+    So existe quando ha cliente: sem modelo no alias `kamba-embed`
+    (`llm/aliases.yaml`, `por_decidir`, credor KAM-064) o processo nao o
+    constroi e o indice fica lexical, como o AGR (`idx_embeddings`).
+    """
+
+    __slots__ = ("_abrir_app", "_cliente", "_modelo", "_lote", "_ao_isolar")
+
+    def __init__(
+        self,
+        abrir_app: Callable[[], Any],
+        cliente: Any,
+        modelo: str,
+        lote: int | None = None,
+        ao_isolar: Callable[[str], None] | None = None,
+    ) -> None:
+        self._abrir_app = abrir_app
+        self._cliente = cliente
+        self._modelo = modelo
+        self._lote = embeddings.LOTE_DE_EMBEDDINGS if lote is None else lote
+        if isinstance(self._lote, bool) or not isinstance(self._lote, int) or self._lote < 1:
+            raise ValueError("lote e um inteiro >= 1")
+        self._ao_isolar = ao_isolar
+
+    def _volta(self, ligacao: Any, tenant_id: str, cursor: str | None, lote: int) -> Any:
+        with tenant_guard.tx(ligacao, tenant_id):
+            return embeddings.embeber_catalogo(
+                ClienteDaLigacao(ligacao),
+                tenant_id,
+                self._cliente,
+                self._modelo,
+                depois_de=cursor,
+                lote=lote,
+            )
+
+    def do_tenant(self, tenant_id: str) -> tuple[int, int]:
+        """`(gravados, isolados)` de um *tenant* nesta volta."""
+        gravados = isolados = 0
+        cursor: str | None = None
+        ligacao = self._abrir_app()
+        try:
+            for _ in range(LOTES_POR_VOLTA):
+                volta = self._volta(ligacao, tenant_id, cursor, self._lote)
+                if volta.motivo == embeddings.QUEDA_FALHA and self._lote > 1:
+                    # O lote repete-se documento a documento, no mesmo intervalo.
+                    um_cursor = cursor
+                    for _ in range(volta.lidos):
+                        uma = self._volta(ligacao, tenant_id, um_cursor, 1)
+                        if uma.ultimo is None:
+                            break
+                        if uma.motivo == embeddings.QUEDA_FALHA:
+                            isolados += 1
+                            if self._ao_isolar is not None:
+                                self._ao_isolar(embeddings.QUEDA_FALHA)
+                        elif uma.motivo is not None:
+                            # Porta, tecto ou modelo: nao e do documento.
+                            return gravados, isolados
+                        gravados += uma.gravados
+                        um_cursor = uma.ultimo
+                    cursor = um_cursor
+                elif volta.motivo == embeddings.QUEDA_FALHA:
+                    # Um lote de um que falha: isola-se e o cursor segue.
+                    isolados += 1
+                    if self._ao_isolar is not None:
+                        self._ao_isolar(embeddings.QUEDA_FALHA)
+                    cursor = volta.ultimo
+                elif volta.motivo is not None:
+                    # Destino negado, tecto ou modelo diferente: nao e de um
+                    # documento, e este *tenant* para nesta volta.
+                    return gravados, isolados
+                else:
+                    gravados += volta.gravados
+                    cursor = volta.ultimo
+                if cursor is None:
+                    break
+            return gravados, isolados
+        finally:
+            ligacao.close()
 
 
 # ------------------------------------------------------------------- a rota
@@ -283,19 +391,26 @@ def tratador(
             self._json(resposta.estado, resposta.corpo(), cabecalhos)
 
         def _entregar(self) -> Resposta:
+            # **O corpo le-se antes da credencial**, e limitado ao tecto: uma
+            # resposta escrita com o corpo por ler fecha a ligacao com um RST, e
+            # quem chama le um corte de rede em vez do 401 — que se retenta pela
+            # escada em vez de falhar a primeira. Medido nos ensaios em Windows.
+            # Um corpo acima do tecto nao se le e a ligacao fecha-se.
+            try:
+                tamanho = int(self.headers.get("content-length") or "0")
+            except ValueError:
+                tamanho = -1
+            if tamanho > CORPO_MAXIMO or tamanho < 0:
+                self.close_connection = True
+                return Resposta(400, "corpo_invalido", error_code="corpo_grande")
+            cru = self.rfile.read(tamanho)
             dado = self.headers.get(CABECALHO_INTERNO) or ""
             if not dado or not hmac.compare_digest(
                 dado.encode("utf-8"), credencial().encode("utf-8")
             ):
                 return Resposta(401, "nao_autorizado")
             try:
-                tamanho = int(self.headers.get("content-length") or "0")
-            except ValueError:
-                return Resposta(400, "corpo_invalido", error_code="tamanho_invalido")
-            if tamanho > CORPO_MAXIMO or tamanho < 0:
-                return Resposta(400, "corpo_invalido", error_code="corpo_grande")
-            try:
-                corpo = json.loads(self.rfile.read(tamanho))
+                corpo = json.loads(cru)
             except (ValueError, UnicodeDecodeError):
                 return Resposta(400, "corpo_invalido", error_code="corpo_nao_e_json")
             try:

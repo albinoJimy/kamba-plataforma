@@ -601,6 +601,95 @@ class TestLigadores(unittest.TestCase):
         self.assertFalse(deve_registar("duplicado", 200))
 
 
+class TestCicloDeEmbeddings(unittest.TestCase):
+    """O *worker* do KAM-063 em ciclo: o cursor, o documento envenenado e a porta.
+
+    O `embeber_catalogo` troca-se por um falso sobre uma lista de `doc_id`s, que
+    respeita o cursor e o lote como o SQL dele e falha quando o lote contem um
+    documento envenenado — e assim que uma chamada ao fornecedor falha.
+    """
+
+    def setUp(self) -> None:
+        from kamba_core.idx import embeddings
+
+        self.embeddings = embeddings
+        self._original = embeddings.embeber_catalogo
+        self.docs = [f"d{i:03d}" for i in range(10)]
+        self.envenenados: set[str] = set()
+        self.negado = False
+        self.gravados: list[str] = []
+        self.chamadas: list[tuple[str | None, int]] = []
+
+        def falso(bd, tenant_id, cliente, modelo, *, depois_de=None, lote=64, tecto_s=20.0):
+            self.chamadas.append((depois_de, lote))
+            resto = [d for d in self.docs if depois_de is None or d > depois_de][:lote]
+            if not resto:
+                return embeddings.VoltaDoCatalogo(0, 0, 0, None)
+            if self.negado:
+                return embeddings.VoltaDoCatalogo(len(resto), 0, 0, resto[-1], embeddings.QUEDA_DESTINO)
+            if self.envenenados & set(resto):
+                return embeddings.VoltaDoCatalogo(len(resto), 0, 0, resto[-1], embeddings.QUEDA_FALHA)
+            self.gravados.extend(resto)
+            return embeddings.VoltaDoCatalogo(len(resto), len(resto), 0, resto[-1])
+
+        embeddings.embeber_catalogo = falso  # type: ignore[assignment]
+        self.app = Ligacao()
+
+    def tearDown(self) -> None:
+        self.embeddings.embeber_catalogo = self._original  # type: ignore[assignment]
+
+    def ciclo(self, lote: int = 4, isolados: list | None = None) -> processo.CicloDeEmbeddings:
+        return processo.CicloDeEmbeddings(
+            lambda: self.app, cliente=object(), modelo="m", lote=lote,
+            ao_isolar=None if isolados is None else isolados.append,
+        )
+
+    def test_segue_o_cursor_ate_ao_fim(self) -> None:
+        self.assertEqual(self.ciclo().do_tenant(TENANT), (10, 0))
+        self.assertEqual(self.gravados, self.docs)
+        contextos = [p for s, p in self.app.instrucoes if "set_config" in s]
+        self.assertTrue(contextos and all(c == (TENANT,) for c in contextos))
+        self.assertTrue(self.app.fechada)
+
+    def test_um_envenenado_isola_se_e_o_resto_do_lote_grava(self) -> None:
+        self.envenenados = {"d005"}
+        isolados: list = []
+        self.assertEqual(self.ciclo(isolados=isolados).do_tenant(TENANT), (9, 1))
+        self.assertEqual(sorted(self.gravados), [d for d in self.docs if d != "d005"])
+        self.assertEqual(isolados, ["falha"])
+
+    def test_a_porta_negada_para_o_tenant_sem_isolar_nada(self) -> None:
+        self.negado = True
+        isolados: list = []
+        self.assertEqual(self.ciclo(isolados=isolados).do_tenant(TENANT), (0, 0))
+        self.assertEqual(len(self.chamadas), 1, "nao insiste num tenant sem destino")
+        self.assertEqual(isolados, [])
+
+    def test_com_lote_de_um_o_envenenado_salta_se(self) -> None:
+        self.envenenados = {"d000"}
+        self.assertEqual(self.ciclo(lote=1).do_tenant(TENANT), (9, 1))
+
+    def test_a_reindexacao_chama_os_embeddings_de_cada_tenant(self) -> None:
+        vistos: list[str] = []
+
+        class Espiao:
+            def do_tenant(self, tenant_id: str) -> tuple[int, int]:
+                vistos.append(tenant_id)
+                return (0, 0)
+
+        original = consumidor.reindexar
+        consumidor.reindexar = lambda bd, t, lote: 0  # type: ignore[assignment]
+        try:
+            batch = Ligacao()
+            batch.responder = lambda sql, p: (["id"], [(TENANT,), (OUTRO,)], 2)  # type: ignore[method-assign]
+            processo.Reindexacao(
+                lambda: Ligacao(), lambda: batch, embeddings=Espiao()  # type: ignore[arg-type]
+            ).volta()
+        finally:
+            consumidor.reindexar = original  # type: ignore[assignment]
+        self.assertEqual(vistos, [TENANT, OUTRO])
+
+
 class TestConfiguracao(unittest.TestCase):
     def test_omissao_valor_e_recusa(self) -> None:
         self.assertEqual(processo.configuracao_inteira({}, "X", 60), 60)

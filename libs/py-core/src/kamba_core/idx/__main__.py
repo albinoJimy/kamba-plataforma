@@ -128,7 +128,14 @@ def main(ambiente: Any = None) -> int:
 
     abrir_app, abrir_batch = ligadores(ambiente)
     entrega = EntregaAoIdx(abrir_app)
-    reindexacao = Reindexacao(abrir_app, abrir_batch, lote)
+    # **Os embeddings do catalogo (KAM-063) ficam por ligar, e diz-se.** O ciclo
+    # existe (`processo.CicloDeEmbeddings`) e corre a seguir a reindexacao de
+    # cada *tenant* quando recebe um cliente; o cliente pede um modelo no alias
+    # `kamba-embed`, que esta `por_decidir` (`llm/aliases.yaml`, credor
+    # KAM-064). E o mesmo estado do AGR, que regista `so_lexical_sem_modelo`:
+    # sem esta linha, o silencio lia-se como indice hibrido.
+    log.info(outcome="idx_embeddings", error_code="so_lexical_sem_modelo")
+    reindexacao = Reindexacao(abrir_app, abrir_batch, lote, embeddings=None)
 
     def ao_responder(outcome: str, estado: int) -> None:
         # O caminho feliz nao vai a registo: uma linha por evento enchia-o. O
