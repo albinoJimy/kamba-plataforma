@@ -258,6 +258,13 @@ importers:
       hono:
         specifier: 4.13.13
         version: 4.13.13
+      pg:
+        specifier: 8.23.1
+        version: 8.23.1
+    devDependencies:
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
 
   services/worker-canal:
     dependencies:

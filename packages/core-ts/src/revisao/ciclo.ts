@@ -30,24 +30,23 @@
  * ou que não existe sai da lista, porque não há efeito a reaplicar; qualquer
  * outro erro deixa-o na lista para a volta seguinte.
  *
- * ***shortcut:*** a lista de efeitos por reaplicar é em memória, como tudo o
- * que o `onboarding-web` tem: perde-se no reinício, e então o caso fica
- * decidido com o efeito por aplicar até alguém o reaplicar à mão. Revê-se com
- * o processo de lote do onboarding (KAM-198, o `kamba_batch` sobre a
- * `RevisaoSql`), cujo critério 2 é esta lista sobreviver a um reinício.
+ * **Desde o KAM-198 o serviço marca o caso ele próprio**, antes de correr os
+ * efeitos (`efeitos` nas dependências do `ServicoDeRevisao`), e a lista vive na
+ * base (`EfeitosPorReaplicarSql`, coluna `review_case.efeito_pendente_at` da
+ * revisão `0053`): sobrevive a um reinício, e a um processo que morra entre a
+ * decisão e os efeitos. O `efeitoFalhou` fica para quem monta o serviço sem
+ * essa porta.
  *
  * ## Quem o corre
  *
- * **Ninguém, ainda.** O ciclo é o módulo; o processo que o agenda com
- * credenciais de lote, o serve em `/metrics` e dá ao KAM-092 o gancho do
- * `amostrar` é o KAM-198. O `onboarding-web` recusa `prod` e não tem os
- * adaptadores SQL, e agendar o ciclo lá era correr sobre uma fila em memória
- * que nada escreve.
+ * O processo de lote do onboarding (KAM-198,
+ * `services/onboarding-web/src/lote.ts`): agenda-o com credenciais de lote,
+ * serve as métricas em `/metrics` e dá ao KAM-092 o gancho do `amostrar`.
  */
 
 import type { Feriados } from "./sla.ts";
 import { FERIADOS_POR_OMISSAO } from "./sla.ts";
-import { CasoInexistenteError, RevisaoRecusadaError } from "./contrato.ts";
+import { CasoInexistenteError, RevisaoRecusadaError, type EfeitosPorReaplicar } from "./contrato.ts";
 import { MetricasDaRevisao, type Contador, type LinhaDaVista } from "./metricas.ts";
 import type { ResultadoDaAbertura, ServicoDeRevisao } from "./servico.ts";
 import { SQL_CONTADORES, SQL_VISTA_SLA, type ClienteSql } from "./sql.ts";
@@ -58,13 +57,11 @@ export interface LeitorDaFila {
   contadores(): Promise<readonly Contador[]>;
 }
 
-/** Os casos decididos com um efeito por aplicar. */
-export interface EfeitosPorReaplicar {
-  marcar(casoId: string): Promise<void>;
-  pendentes(limite: number): Promise<readonly string[]>;
-  resolver(casoId: string): Promise<void>;
-}
-
+/**
+ * A lista em memória: a dos ensaios, e a de quem não tem base. Num processo, a
+ * que serve é a `EfeitosPorReaplicarSql` (`./sql.ts`), que sobrevive a um
+ * reinício (KAM-198).
+ */
 export class EfeitosPorReaplicarEmMemoria implements EfeitosPorReaplicar {
   readonly #ids = new Set<string>();
 
@@ -162,6 +159,12 @@ export class CicloDaFila {
             await this.efeitos.resolver(id);
           } else {
             porReaplicar++;
+            // **Para o fim da fila** (KAM-198, achado 1 da revisão adversarial):
+            // a marca renova-se, e um efeito que nunca sai — o aviso sem via —
+            // deixa de ficar à cabeça dos pendentes para sempre, à frente de
+            // todos os que vieram depois. Sobre a base, a marca nova também só
+            // volta depois da carência.
+            await this.efeitos.marcar(id);
           }
         }
       }

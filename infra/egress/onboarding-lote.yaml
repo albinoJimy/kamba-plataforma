@@ -1,0 +1,14 @@
+# Lista de saidas de `onboarding-lote` — KAM-067 criterio 9; servico do KAM-198.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai.
+#
+# O `onboarding-lote` corre `services/onboarding-web/src/lote.ts` com a imagem do
+# `onboarding-web`, e o nome do servico nao e o de uma pasta de `services/`: o
+# `services/onboarding-web/egress.yaml` nao o cobre, e o `supply_chain` pede esta
+# lista. **Vazia**: o processo fala com a base (`data`) e e raspado pelo
+# Prometheus (`app`), as duas `internal: true`, e o servico nao tem `HTTPS_PROXY`.
+# O aviso ao dono nao sai deste processo (nao ha agregador de SMS escolhido).
+version: 1
+servico: onboarding-lote
+por_omissao: negar
+destinos: []
