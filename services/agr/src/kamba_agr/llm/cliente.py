@@ -239,19 +239,7 @@ class ClienteDeLlm:
         # 1. O *gate* de destino, para **todos** os fornecedores que o alias pode
         #    alcancar. Ver a nota do modulo: autorizar so o primeiro deixava o
         #    *fallback* sair para um destino nao autorizado.
-        try:
-            # O `finalidade_de` tambem levanta `DestinoNegado` — um papel sem
-            # finalidade declarada nao tem linha de `tenant_destinations` a
-            # consultar —, pelo que tem de estar **dentro** deste `try`: fora
-            # dele, essa recusa saia sem linha de registo e sem metrica, que e
-            # precisamente o caminho que o criterio 5 fecha.
-            finalidade = destinos_mod.finalidade_de(papel)
-            for fornecedor in alias.fornecedores:
-                self._destinos.autorizar(ctx.tenant_id, fornecedor, finalidade)
-        except ErroDeLlm as erro:
-            self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)
-            self._falhou(alias, ctx, erro, inicio)
-            raise
+        self._autorizar(alias, papel, ctx, inicio)
 
         # 2. A chamada.
         try:
@@ -336,14 +324,8 @@ class ClienteDeLlm:
             ) from None
 
         inicio = self._agora()
-        try:
-            finalidade = destinos_mod.finalidade_de(papel)
-            for fornecedor in alias.fornecedores:
-                self._destinos.autorizar(ctx.tenant_id, fornecedor, finalidade)
-        except ErroDeLlm as erro:
-            self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)
-            self._falhou(alias, ctx, erro, inicio)
-            raise
+        # A mesma porta do `chamar`, pelo mesmo metodo: uma so copia da regra.
+        self._autorizar(alias, papel, ctx, inicio)
 
         tecto = (
             alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS
@@ -405,6 +387,29 @@ class ClienteDeLlm:
         return alias.modelos[0] if alias is not None and alias.modelos else None
 
     # ------------------------------------------------------------- internos
+
+    def _autorizar(
+        self, alias: Alias, papel: str, ctx: ContextoDeChamada, inicio: float
+    ) -> None:
+        """O *gate* de destino para **todos** os fornecedores do alias, ou levanta.
+
+        Uma recusa conta na metrica e grava a sua linha antes de subir. E o
+        mesmo para o `chamar` e para o `embeber` (KAM-063), e por isso vive num
+        sitio so: duas copias da regra divergiam no dia em que uma mudasse.
+        """
+        try:
+            # O `finalidade_de` tambem levanta `DestinoNegado` — um papel sem
+            # finalidade declarada nao tem linha de `tenant_destinations` a
+            # consultar —, pelo que tem de estar **dentro** deste `try`: fora
+            # dele, essa recusa saia sem linha de registo e sem metrica, que e
+            # precisamente o caminho que o criterio 5 fecha.
+            finalidade = destinos_mod.finalidade_de(papel)
+            for fornecedor in alias.fornecedores:
+                self._destinos.autorizar(ctx.tenant_id, fornecedor, finalidade)
+        except ErroDeLlm as erro:
+            self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)
+            self._falhou(alias, ctx, erro, inicio)
+            raise
 
     def _conseguiu(
         self,

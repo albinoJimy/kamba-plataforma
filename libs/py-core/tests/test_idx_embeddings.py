@@ -418,7 +418,7 @@ class TestTextoDoCatalogo(unittest.TestCase):
         casos = {
             "Arroz 25 kg 15 000 Kz": ("dinheiro",),
             "Sapatilha, ligue 923 456 789": ("telefone",),
-            "Sapatilha +244 923456789": ("telefone",),
+            "Sapatilha +999 123456789": ("telefone",),  # indicativo ficticio (KAM-024)
             "Camisa 923.456.789": ("telefone",),
             "Bolo, encomendas loja.bolos@gmail.com": ("contacto",),
             "Bolo, ver www.bolos.co.ao": ("contacto",),

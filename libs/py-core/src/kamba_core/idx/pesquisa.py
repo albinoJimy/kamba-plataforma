@@ -223,10 +223,10 @@ def procurar(
         # ida ao fornecedor. A normalizacao vem **antes** do vector: uma
         # pergunta que normalizada fica vazia («ate 5000 kz») nao pesquisa nada,
         # e o vector dela era uma transferencia sem uso (achado 4 da revisao).
-        with tx(conexao, tenant) as cursor:
-            cursor.execute(SQL_MODELOS_DO_INDICE)
-            estado = modelo_do_indice(cursor.fetchall())
-            lexico, vocabulario = cache.entradas(cursor, tenant)
+        with tx(conexao, tenant) as previo:
+            previo.execute(SQL_MODELOS_DO_INDICE)
+            estado = modelo_do_indice(previo.fetchall())
+            lexico, vocabulario = cache.entradas(previo, tenant)
             pergunta = normalizar(
                 texto, tenant, origem, lexico=lexico, vocabulario=vocabulario
             )
