@@ -132,6 +132,17 @@ class Resposta:
         return self.resultado == RESULTADO_OK_FALLBACK
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class RespostaDeEmbeddings:
+    """O que o `embeber` devolve: um vector por texto, pela ordem dos textos."""
+
+    vectores: tuple[tuple[float, ...], ...]
+    modelo: str
+    fornecedor: str
+    custo_usd: Decimal | None
+    latencia_ms: int
+
+
 #: O `Alias` vive em `aliases.py`, com o teste de paridade que impede a copia
 #: de divergir do `tools/llm_config`. O `ler_aliases` que aqui estava **nao
 #: tinha leitor** — quem le os aliases e o `__main__.py`, pelo `aliases.ler`.
@@ -284,6 +295,114 @@ class ClienteDeLlm:
             raise erro
 
         return self._conseguiu(alias, ctx, corpo, cabecalhos, inicio)
+
+    def embeber(
+        self,
+        papel: str,
+        textos: Sequence[MinimisedText],
+        ctx: ContextoDeChamada,
+        tecto_s: float | None = None,
+    ) -> RespostaDeEmbeddings:
+        """O `/embeddings` do gateway (KAM-063). **Mesma porta, mesma linha.**
+
+        E o `chamar` para vectores: os textos sao `MinimisedText` (KAM-112), a
+        porta de destinos corre para **todos** os fornecedores do alias antes de
+        sair alguma coisa, a chave e a virtual do tenant e cada chamada grava uma
+        linha em `dat.llm_call_log` — com os *tokens* de entrada e o custo, que
+        e o «custo por tenant» do criterio 7. O `tecto_s` substitui o tecto do
+        alias no transporte: a pergunta do cliente tem 1,5 s, e nao os 62 s de
+        tres tentativas do proxy.
+
+        **Quem chama isto e so o `tls/embeddings.py`**, e por dentro do
+        `ClienteDeEmbeddings` do nucleo: o ensaio de arquitectura recusa outra
+        via (`test_embeddings_arquitectura.py`).
+        """
+        for posicao, item in enumerate(textos):
+            if not isinstance(item, MinimisedText):
+                raise TextoNaoMinimizado(
+                    f"o texto {posicao} nao e um `MinimisedText`: o gateway de "
+                    "embeddings so aceita texto que tenha passado por "
+                    "`privacidade.minimise(texto, ctx)` (KAM-112, criterio 1)"
+                )
+        if not textos:
+            raise ValueError("embeber zero textos nao e uma chamada")
+        try:
+            alias = self._aliases[papel]
+        except KeyError:
+            raise FornecedorFalhou(
+                f"papel `{papel}` nao esta em `llm/aliases.yaml` "
+                f"(ha {sorted(self._aliases)})",
+                papel,
+            ) from None
+
+        inicio = self._agora()
+        try:
+            finalidade = destinos_mod.finalidade_de(papel)
+            for fornecedor in alias.fornecedores:
+                self._destinos.autorizar(ctx.tenant_id, fornecedor, finalidade)
+        except ErroDeLlm as erro:
+            self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)
+            self._falhou(alias, ctx, erro, inicio)
+            raise
+
+        tecto = (
+            alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS
+            if tecto_s is None
+            else tecto_s
+        )
+        try:
+            estado, corpo, cabecalhos = self._transporte(
+                f"{self._url}/embeddings",
+                {
+                    "Authorization": f"Bearer {self._chave_virtual(ctx.tenant_id)}",
+                    "Content-Type": "application/json",
+                },
+                # `verificada()` e nao `.texto`, pela razao do `para_esquema`:
+                # e o ultimo ponto antes do corpo HTTP.
+                {"model": alias.nome, "input": [t.verificada() for t in textos]},
+                tecto,
+            )
+        except TimeoutError as excepcao:
+            erro: ErroDeLlm = TempoEsgotado(
+                f"o proxy nao respondeu em {tecto:.1f} s: {excepcao}", papel
+            )
+            self._falhou(alias, ctx, erro, inicio)
+            raise erro from excepcao
+        except Exception as excepcao:  # noqa: BLE001 — a razao vai na mensagem
+            erro = FornecedorFalhou(f"nao se alcancou o proxy: {excepcao}", papel)
+            self._falhou(alias, ctx, erro, inicio)
+            raise erro from excepcao
+
+        if estado >= 400:
+            erro = classificar(estado, corpo, papel)
+            self._falhou(alias, ctx, erro, inicio)
+            raise erro
+
+        vectores = _vectores(corpo, len(textos))
+        if vectores is None:
+            erro = FornecedorFalhou(
+                f"o proxy respondeu sem {len(textos)} vectores legiveis", papel
+            )
+            self._falhou(alias, ctx, erro, inicio)
+            raise erro
+        resposta = self._conseguiu(alias, ctx, corpo, cabecalhos, inicio)
+        return RespostaDeEmbeddings(
+            vectores=vectores,
+            modelo=resposta.modelo,
+            fornecedor=resposta.fornecedor,
+            custo_usd=resposta.custo_usd,
+            latencia_ms=resposta.latencia_ms,
+        )
+
+    def fornecedores_de(self, papel: str) -> tuple[str, ...]:
+        """Os fornecedores que o alias do papel pode alcancar. Vazio se nao ha."""
+        alias = self._aliases.get(papel)
+        return tuple(alias.fornecedores) if alias is not None else ()
+
+    def modelo_de(self, papel: str) -> str | None:
+        """O modelo de `ordem: 1` do papel, ou `None` se o papel nao existe."""
+        alias = self._aliases.get(papel)
+        return alias.modelos[0] if alias is not None and alias.modelos else None
 
     # ------------------------------------------------------------- internos
 
@@ -472,6 +591,33 @@ def _texto(corpo: Any) -> str:
         return ""
     mensagem = escolhas[0].get("message") or {}
     return str(mensagem.get("content") or "") if isinstance(mensagem, dict) else ""
+
+
+def _vectores(corpo: Any, quantos: int) -> tuple[tuple[float, ...], ...] | None:
+    """Os vectores do esquema OpenAI-compativel (`data[i].embedding`), por `index`.
+
+    `None` se a resposta nao traz exactamente `quantos`, com `index` de 0 a
+    `quantos - 1`, cada um uma lista de numeros. A ordem e a do `index` e nao a
+    da lista: o esquema nao promete que coincidam, e um vector trocado e o
+    documento errado com o vector certo.
+    """
+    if not isinstance(corpo, dict) or not isinstance(corpo.get("data"), list):
+        return None
+    por_indice: dict[int, tuple[float, ...]] = {}
+    for item in corpo["data"]:
+        if not isinstance(item, dict):
+            return None
+        indice, vector = item.get("index"), item.get("embedding")
+        if isinstance(indice, bool) or not isinstance(indice, int) or indice in por_indice:
+            return None
+        if not isinstance(vector, list) or not all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in vector
+        ):
+            return None
+        por_indice[indice] = tuple(float(x) for x in vector)
+    if sorted(por_indice) != list(range(quantos)):
+        return None
+    return tuple(por_indice[i] for i in range(quantos))
 
 
 def _contagens(corpo: Any) -> tuple[int, int, int, bool]:

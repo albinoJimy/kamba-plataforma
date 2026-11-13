@@ -10,7 +10,9 @@ Duas coisas, e nenhuma delas e o pipeline PT-AO do §5.1 — esse e o **KAM-062*
   primeiro acento que uma delas trate e a outra nao.
 * **`exigir_texto_de_embedding`** e a regra dura (b) do §4.2: o texto que gera um
   embedding nao leva preco nem stock, porque um preco dentro de um vector e um
-  preco que ninguem consegue citar nem corrigir (ADR-007).
+  preco que ninguem consegue citar nem corrigir (ADR-007). Desde o KAM-063
+  tambem nao leva telefone nem contacto da PME (criterio 5): o vector vai a um
+  fornecedor, e um contacto dentro dele e um dado que sai sem se ver.
 
 ## O que **nao** esta aqui
 
@@ -51,6 +53,21 @@ PALAVRAS_PROIBIDAS: Final = ("stock", "disponivel", "preco")
 
 _PALAVRA_PROIBIDA: Final = re.compile(
     r"\b(?:" + "|".join(PALAVRAS_PROIBIDAS) + r")\b"
+)
+
+#: Telefone: **nove ou mais algarismos** num lance, com um separador (espaco,
+#: ponto ou hifen) no maximo entre dois deles, e o `+` do indicativo opcional
+#: (KAM-063, criterio 5). Nove e o comprimento de um numero angolano sem
+#: indicativo (`923 456 789`), e e a forma que os tres padroes do detector do
+#: AGR com sete algarismos nao apanham. **O que isto recusa a mais, dito:** um
+#: codigo de barras de 13 algarismos no nome. O documento fica so lexical, que e
+#: o lado seguro; um telefone dentro de um vector nao se corrige.
+_TELEFONE: Final = re.compile(r"(?<!\d)\+?\d(?:[\s.\-]?\d){8,}(?!\d)")
+
+#: Contacto da PME: um e-mail ou um endereco web. Le-se no texto **com** a
+#: pontuacao, porque o `normalizar` apaga o `@` e o ponto.
+_CONTACTO: Final = re.compile(
+    r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}|\bhttps?://|\bwww\.[a-z0-9\-]"
 )
 
 
@@ -97,7 +114,7 @@ def consulta(texto: str) -> Consulta:
 
 
 class TextoDeEmbeddingProibido(ValueError):
-    """O texto levava preco ou stock. A mensagem diz **o que**, nunca o texto."""
+    """O texto levava preco, stock ou contacto. A mensagem diz **o que**, nunca o texto."""
 
     def __init__(self, motivos: tuple[str, ...]) -> None:
         super().__init__(
@@ -117,6 +134,12 @@ def motivos_de_recusa(texto: str) -> tuple[str, ...]:
     # minusculas e sem acentos mas **com** a pontuacao, que e onde o `$` esta.
     bruto = _sem_acentos(unicodedata.normalize("NFKC", texto).lower())
     motivos = ["dinheiro"] if _DINHEIRO.search(bruto) else []
+    # O telefone le-se sem o dinheiro: «2.500.000.000 kz» sao dez algarismos, e
+    # o motivo dele e o preco, nao um contacto.
+    if _TELEFONE.search(_DINHEIRO.sub(" ", bruto)):
+        motivos.append("telefone")
+    if _CONTACTO.search(bruto):
+        motivos.append("contacto")
     # Pela ordem de `PALAVRAS_PROIBIDAS` e nao pela do texto: a mesma recusa da
     # sempre os mesmos motivos, pela mesma ordem.
     encontradas = set(_PALAVRA_PROIBIDA.findall(normalizar(texto)))

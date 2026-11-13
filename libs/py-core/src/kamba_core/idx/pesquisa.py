@@ -36,20 +36,34 @@ viva** — o `max_preco_minor` e o `min_preco_minor` —, nunca o indice. Um tec
 dado pelo chamador e um tecto dito pelo cliente somam-se pelo mais apertado.
 Uma moeda estrangeira nao filtra nada: a conversao nao e nossa, e o AGR
 pergunta.
-* **O `qvec`** (embedding da pergunta) e o KAM-063. Aqui passa-se `None`, que e o
-  modo lexical do §6.5 — *fail closed* para o dado.
+## O modo hibrido e uma tentativa, e o lexical e o chao (KAM-063)
+
+Com uma `ConsultaVectorial`, o `procurar` le primeiro, numa transaccao curta, o
+modelo dos vectores do tenant; so com **um** modelo pede o vector da pergunta
+(`kamba_core.idx.embeddings`), **fora** de qualquer transaccao, e volta a ler o
+modelo na transaccao da pesquisa antes de usar o vector. Sem ela, sem vectores
+no indice, com a porta a negar, com o texto sensivel, com o tecto de 1,5 s
+passado ou com dois modelos no tenant, o `p_qvec` vai nulo: e o modo lexical do
+§6.5 — *fail closed* para o dado — e o cliente nao ve erro nenhum. O `modo` da
+`Procura` diz qual correu.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
 from kamba_core.tenant_guard import tx
 
 from . import lexico as lexico_mod
+from .embeddings import SQL_MODELOS_DO_INDICE, ConsultaVectorial, modelo_do_indice
 from .normalizacao import Normalizacao, normalizar
+
+#: Os dois modos do §6.5, com os nomes da metrica `idx_mode`.
+MODO_HIBRIDO: Final = "hibrido"
+MODO_LEXICAL: Final = "lexical"
 
 #: O limiar do `pg_trgm` por transaccao (§6.2, nota i). **Proposta**, igual ao
 #: `db/indice.py` `LIMIAR_DE_PALAVRA`; o valor final e do dataset (KAM-064).
@@ -150,11 +164,13 @@ class Procura:
 
     A `normalizacao` leva as perguntas que o AGR tem de fazer
     (`tokens_nao_resolvidos`, `desambiguacoes`, moeda estrangeira); as `linhas`
-    sao as do contrato do §6.3, cada uma com o `o_score` ao lado.
+    sao as do contrato do §6.3, cada uma com o `o_score` ao lado. O `modo` e o
+    que **correu**: `hibrido` so quando o vector foi ao `idx.candidatos`.
     """
 
     normalizacao: Normalizacao | None
     linhas: tuple[tuple[dict[str, Any], float], ...]
+    modo: str = MODO_LEXICAL
 
 
 def _mais_apertado(a: int | None, b: int | None) -> int | None:
@@ -172,6 +188,8 @@ def procurar(
     limiar: float = LIMIAR_DE_PALAVRA,
     tecto_ms: int | None = None,
     cache: lexico_mod.Cache = lexico_mod.CACHE,
+    vectorial: ConsultaVectorial | None = None,
+    relogio: Callable[[], float] = time.monotonic,
 ) -> Procura:
     """Normaliza a pergunta (§5.1) e devolve ate tres ofertas publicadas.
 
@@ -180,15 +198,42 @@ def procurar(
     normalizada fique vazia devolve vazio sem consulta: o `websearch_to_tsquery`
     de nada e um aviso, nao uma pesquisa. O `tecto_ms` poe o `statement_timeout`
     **do lado do servidor**, local a transaccao: um tecto so no cliente deixava
-    a consulta a correr na base depois de o turno desistir dela.
+    a consulta a correr na base depois de o turno desistir dela. O tempo que o
+    vector da pergunta levou **desconta-se** dele: o tecto e da pesquisa toda.
+
+    Com `vectorial`, tenta o modo hibrido (ver a nota do modulo); um `qvec`
+    dado explicitamente e usado tal como vem, e serve os ensaios da funcao.
     """
     if isinstance(max_preco_minor, bool) or (
         max_preco_minor is not None and not isinstance(max_preco_minor, int)
     ):
         raise TypeError("max_preco_minor e unidade menor inteira (dicionario §2)")
+    modelo_esperado: str | None = None
+    if qvec is None and vectorial is not None:
+        inicio = relogio()
+        # Uma transaccao curta so para o modelo: o vector pede-se **fora** de
+        # qualquer transaccao, que nao fica aberta durante a ida ao fornecedor.
+        with tx(conexao, tenant) as cursor:
+            cursor.execute(SQL_MODELOS_DO_INDICE)
+            estado = modelo_do_indice(cursor.fetchall())
+        if estado.misturado:
+            vectorial.mistura()
+        elif estado.modelo is not None:
+            resultado = vectorial.vector(str(tenant), texto, estado.modelo)
+            qvec, modelo_esperado = resultado.qvec, resultado.modelo
+        if tecto_ms is not None:
+            tecto_ms = max(1, int(tecto_ms - (relogio() - inicio) * 1000))
     with tx(conexao, tenant) as cursor:
         if tecto_ms is not None:
             cursor.execute(SQL_TECTO, (str(int(tecto_ms)),))
+        if modelo_esperado is not None:
+            # O indice pode ter mudado de modelo entre as duas transaccoes: um
+            # vector so se compara com vectores do modelo que o gerou.
+            cursor.execute(SQL_MODELOS_DO_INDICE)
+            if modelo_do_indice(cursor.fetchall()).modelo != modelo_esperado:
+                qvec = None
+                if vectorial is not None:
+                    vectorial.mistura()
         lexico, vocabulario = cache.entradas(cursor, tenant)
         pergunta = normalizar(texto, tenant, origem, lexico=lexico, vocabulario=vocabulario)
         if not pergunta.q_norm:
@@ -210,7 +255,11 @@ def procurar(
             ),
         )
         linhas = cursor.fetchall()
-    return Procura(pergunta, tuple((_linha(linha), _score(linha)) for linha in linhas))
+    return Procura(
+        pergunta,
+        tuple((_linha(linha), _score(linha)) for linha in linhas),
+        MODO_LEXICAL if qvec is None else MODO_HIBRIDO,
+    )
 
 
 def candidatos(

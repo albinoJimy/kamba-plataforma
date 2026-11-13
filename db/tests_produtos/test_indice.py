@@ -12,7 +12,10 @@ O que esta suite prova, criterio a criterio do bloco KAM-061:
 * **7** — o defeito D7;
 * **8** — a camada de resposta, pela funcao que a aplicacao chama
   (`kamba_core.idx.pesquisa.pesquisar`), com o filtro de preco na oferta viva;
-* o consumidor, idempotente com dez duplicados.
+* o consumidor, idempotente com dez duplicados;
+* **KAM-063** (`TestEmbeddings`): o *worker* dos embeddings do catalogo, o
+  vector anulado por mudar o nome e nao o preco, a escrita que confere o texto,
+  um modelo por coluna, e a pesquisa hibrida com o lexical como chao.
 
 ## O isolamento mede-se pela ligacao, e nao pelo parametro
 
@@ -39,6 +42,7 @@ import re
 import sys
 import unittest
 import uuid
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,8 +54,13 @@ _RAIZ = Path(__file__).resolve().parents[2]
 if str(_RAIZ / "libs" / "py-core" / "src") not in sys.path:
     sys.path.insert(0, str(_RAIZ / "libs" / "py-core" / "src"))
 
+import ligacao  # noqa: E402
+from kamba_core.destinos import PortaSobreDestinos  # noqa: E402
+from kamba_core.destinos import dbapi as destinos_dbapi  # noqa: E402
 from kamba_core.eventos.consumo import Resultado  # noqa: E402
-from kamba_core.idx import consumidor, pesquisa  # noqa: E402
+from kamba_core.idx import consumidor, embeddings, pesquisa  # noqa: E402
+from kamba_core.idx import metricas as metricas_mod  # noqa: E402
+from kamba_core.idx import texto as texto_mod  # noqa: E402
 
 #: O documento que declara o contrato de saida da camada de resposta.
 DOC_INDICE = _RAIZ / "docs" / "tecnica" / "05_Indice_Pesquisa_Motor_Atencao.md"
@@ -868,6 +877,291 @@ class TestLigacaoDoAgr(ComIndice):
         )
         skus = [o["sku"] for o in self.retrieve("arroz agulha", self.agr.idx.LIMIAR_DO_RRF)]
         self.assertEqual(skus, ["arroz"])
+
+
+# --------------------------------------------------------------- KAM-063
+
+
+def _por_palavras(texto: str) -> tuple[float, ...]:
+    """Um vector deterministico: um eixo por palavra normalizada.
+
+    Nao e um modelo, e nao pretende ser: e o bastante para que a pergunta
+    «frigorifico» fique mais perto do documento que tem essa palavra do que dos
+    outros, e para que o ramo `sem` do `idx.candidatos` tenha um vencedor
+    conhecido. Nunca e o vector nulo — o `<=>` de um vector nulo e `NaN`.
+    """
+    valores = [0.0] * DIMENSAO
+    for palavra in texto_mod.normalizar(texto).split() or ["vazio"]:
+        valores[zlib.crc32(palavra.encode()) % DIMENSAO] += 1.0
+    return tuple(valores)
+
+
+class _FornecedorDeEnsaio:
+    """O `FakeEmbeddingProvider` do bloco: conta chamadas e guarda os textos."""
+
+    fornecedores = ("fornecedor_de_teste",)
+
+    def __init__(self, modelo: str = "modelo-de-ensaio", durante=None) -> None:
+        self.modelo = modelo
+        self.durante = durante
+        self.chamadas: list[tuple[str, ...]] = []
+
+    def __call__(self, tenant_id: str, textos, tecto_s: float) -> embeddings.Vectores:
+        self.chamadas.append(tuple(textos))
+        if self.durante is not None:
+            self.durante()
+        return embeddings.Vectores(self.modelo, tuple(_por_palavras(t) for t in textos))
+
+
+class _Porta:
+    """Uma porta que autoriza ou nega tudo. A real, sobre a base, e a do caso
+    `test_sem_destino_na_base_zero_chamadas` — e o caso que o criterio nomeia."""
+
+    def __init__(self, autoriza: bool = True) -> None:
+        self.autoriza = autoriza
+
+    def autorizar(self, tenant_id: str, fornecedor: str, finalidade: str) -> None:
+        if not self.autoriza:
+            raise RuntimeError("destino nao autorizado (ensaio)")
+
+
+class TestEmbeddings(ComIndice):
+    """KAM-063 contra um PostgreSQL: o *worker*, o reembedding e o modo hibrido.
+
+    A porta de destinos e a do KAM-069 nos ensaios unitarios
+    (`libs/py-core/tests/test_idx_embeddings.py`); aqui a pergunta e o SQL — o
+    que o vector anula, o que a escrita confere e o que a pesquisa usa.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        cliente = self.ligar("app")
+        cliente.autocommit = True
+        self.bd = _Cliente(cliente)
+        self.registo = metricas_mod.MetricasDoIdx()
+        self.tenant = self.tenant_em("ativo")
+
+    def no_tenant(self, tenant: str | None = None) -> None:
+        """O contexto da sessao, como o processo do *worker* o poe."""
+        self.bd.executar(
+            "SELECT set_config('app.tenant_id', %s, false)", (tenant or self.tenant,)
+        )
+
+    def indexar(self, sku: str, tenant: str | None = None) -> None:
+        consumidor.consumir_evento(
+            self.bd,
+            _envelope(tenant or self.tenant, "catalog.product_changed",
+                      {"sku": sku, "estado": "publicado"}),
+        )
+
+    def cliente(self, fornecedor: _FornecedorDeEnsaio, porta=None) -> embeddings.ClienteDeEmbeddings:
+        return embeddings.ClienteDeEmbeddings(
+            porta or _Porta(), fornecedor, metricas=self.registo
+        )
+
+    def embeber(self, fornecedor: _FornecedorDeEnsaio, porta=None) -> embeddings.VoltaDoCatalogo:
+        self.no_tenant()
+        return embeddings.embeber_catalogo(
+            self.bd, self.tenant, self.cliente(fornecedor, porta), fornecedor.modelo
+        )
+
+    def vectores(self, tenant: str | None = None) -> dict[str, tuple[bool, str | None]]:
+        self.semente.execute(
+            "SELECT product_ref, embedding IS NOT NULL, embedding_modelo "
+            "  FROM idx.search_doc WHERE tenant_id = %s ORDER BY product_ref",
+            (tenant or self.tenant,),
+        )
+        return {linha[0]: (linha[1], linha[2]) for linha in self.semente.fetchall()}
+
+    def test_o_worker_grava_o_vector_e_o_modelo_e_recusa_o_contacto(self) -> None:
+        """Criterios 5 e 6: o texto passa o *lint*, e o modelo fica por linha."""
+        self.criar_oferta(self.tenant, sku="geleira", nome="Frigorífico LG 250 L")
+        self.criar_oferta(self.tenant, sku="bolo", nome="Bolo de anos, ligue 923 456 789")
+        self.indexar("geleira")
+        self.indexar("bolo")
+        fornecedor = _FornecedorDeEnsaio()
+        volta = self.embeber(fornecedor)
+        self.assertEqual((volta.lidos, volta.gravados, volta.recusados, volta.motivo), (2, 1, 1, None))
+        # O texto que saiu e o nome da oferta viva, com o acento e sem preco.
+        self.assertEqual(fornecedor.chamadas, [("Frigorífico LG 250 L",)])
+        self.assertEqual(
+            self.vectores(),
+            {"bolo": (False, None), "geleira": (True, "modelo-de-ensaio")},
+        )
+        # A volta seguinte, do cursor, ja nao tem nada; o recusado volta do
+        # inicio, sem chamada: o *lint* e local.
+        self.no_tenant()
+        seguinte = embeddings.embeber_catalogo(
+            self.bd, self.tenant, self.cliente(fornecedor), fornecedor.modelo,
+            depois_de=volta.ultimo,
+        )
+        self.assertEqual(seguinte, embeddings.VoltaDoCatalogo(0, 0, 0, None))
+        self.assertEqual(len(fornecedor.chamadas), 1)
+
+    def test_o_preco_nao_reembebe_e_o_nome_sim(self) -> None:
+        """Criterio 5: mudar o preco deixa o vector; mudar o nome anula-o."""
+        self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz")
+        self.embeber(_FornecedorDeEnsaio())
+        self.assertEqual(self.vectores(), {"arroz": (True, "modelo-de-ensaio")})
+        self.semente.execute(
+            "UPDATE platform.offer_terms SET preco_minor = preco_minor + 10000 "
+            " WHERE tenant_id = %s AND sku = 'arroz'",
+            (self.tenant,),
+        )
+        self.indexar("arroz")
+        self.assertEqual(self.vectores(), {"arroz": (True, "modelo-de-ensaio")})
+        self.semente.execute(
+            "UPDATE platform.offer_terms SET nome = 'Arroz carolino 5 kg' "
+            " WHERE tenant_id = %s AND sku = 'arroz'",
+            (self.tenant,),
+        )
+        self.indexar("arroz")
+        self.assertEqual(self.vectores(), {"arroz": (False, None)})
+        # E o *worker* volta a embebe-lo, com o nome novo.
+        fornecedor = _FornecedorDeEnsaio()
+        self.assertEqual(self.embeber(fornecedor).gravados, 1)
+        self.assertEqual(fornecedor.chamadas, [("Arroz carolino 5 kg",)])
+
+    def test_a_escrita_nao_grava_o_vector_de_um_nome_que_mudou(self) -> None:
+        """A chamada fica entre a leitura e a escrita: o nome pode mudar no meio."""
+        self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz")
+
+        def renomear() -> None:
+            self.semente.execute(
+                "UPDATE platform.offer_terms SET nome = 'Feijao manteiga' "
+                " WHERE tenant_id = %s AND sku = 'arroz'",
+                (self.tenant,),
+            )
+            self.indexar("arroz")
+
+        volta = self.embeber(_FornecedorDeEnsaio(durante=renomear))
+        self.assertEqual((volta.lidos, volta.gravados), (1, 0))
+        self.assertEqual(self.vectores(), {"arroz": (False, None)})
+
+    def test_sem_destino_na_base_zero_chamadas(self) -> None:
+        """Criterios 1 e 9: a porta real, sem linha em `tenant_destinations`."""
+        self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz")
+        porta = PortaSobreDestinos(destinos_dbapi.leitor(lambda: ligacao.ligar("app")))
+        fornecedor = _FornecedorDeEnsaio()
+        volta = self.embeber(fornecedor, porta)
+        self.assertEqual(volta.motivo, "destino_negado")
+        self.assertEqual(fornecedor.chamadas, [])
+        self.assertEqual(self.vectores(), {"arroz": (False, None)})
+
+    def test_nunca_dois_modelos_na_coluna_do_tenant(self) -> None:
+        """Criterio 6, a metade sem DDL: o segundo modelo nao escreve nem chama."""
+        self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz")
+        self.embeber(_FornecedorDeEnsaio("modelo-a"))
+        self.criar_oferta(self.tenant, sku="feijao", nome="Feijao manteiga 1 kg")
+        self.indexar("feijao")
+        outro = _FornecedorDeEnsaio("modelo-b")
+        volta = self.embeber(outro)
+        self.assertEqual(volta.motivo, "modelo_divergente")
+        self.assertEqual(outro.chamadas, [])
+        # E a instrucao de escrita recusa-o sozinha, sem a verificacao de antes.
+        self.no_tenant()
+        (linha,) = self.bd.executar(embeddings.SQL_POR_EMBEBER, (None, None, 10)).linhas
+        parametros = [
+            "modelo-b", linha["doc_id"], embeddings.em_texto(_por_palavras("x")),
+            linha["nome_norm"], linha["marca_canon"], linha["categoria_canon"],
+            linha["descr_norm"], "modelo-b",
+        ]
+        self.assertEqual(
+            self.bd.executar(embeddings.sql_gravar_embeddings(1), parametros).contagem, 0
+        )
+        self.assertEqual(
+            self.vectores(), {"arroz": (True, "modelo-a"), "feijao": (False, None)}
+        )
+
+    def test_a_pesquisa_hibrida_e_o_chao_lexical(self) -> None:
+        """Criterio 1 na pesquisa: com destino, uma chamada e `hibrido`; sem ele,
+        zero chamadas e o mesmo resultado do lexical."""
+        for sku, nome in (("geleira", "Frigorífico LG 250 L"), ("arroz", "Arroz agulha 5 kg")):
+            self.criar_oferta(self.tenant, sku=sku, nome=nome)
+            self.indexar(sku)
+        self.embeber(_FornecedorDeEnsaio())
+        conexao = self.ligar("app")
+        lexical = pesquisa.procurar(conexao, self.tenant, "frigorifico")
+        self.assertEqual(lexical.modo, "lexical")
+
+        fornecedor = _FornecedorDeEnsaio()
+        vectorial = embeddings.ConsultaVectorial(
+            self.cliente(fornecedor), lambda _t: False, metricas=self.registo
+        )
+        hibrida = pesquisa.procurar(conexao, self.tenant, "frigorifico", vectorial=vectorial)
+        self.assertEqual(hibrida.modo, "hibrido")
+        self.assertEqual(fornecedor.chamadas, [("frigorifico",)])
+        self.assertEqual(hibrida.linhas[0][0]["sku"], "geleira")
+
+        negada = embeddings.ConsultaVectorial(
+            self.cliente(fornecedor, _Porta(autoriza=False)), lambda _t: False,
+            metricas=self.registo,
+        )
+        caida = pesquisa.procurar(conexao, self.tenant, "frigorifico", vectorial=negada)
+        self.assertEqual(caida.modo, "lexical")
+        self.assertEqual(len(fornecedor.chamadas), 1)
+        self.assertEqual(caida.linhas, lexical.linhas)
+        self.assertEqual(
+            self.registo.ler()["embedding_fallback_total:destino_negado"], 1
+        )
+
+    def test_dois_modelos_no_indice_sao_lexical_sem_chamada(self) -> None:
+        for sku, nome in (("geleira", "Frigorífico LG 250 L"), ("arroz", "Arroz agulha 5 kg")):
+            self.criar_oferta(self.tenant, sku=sku, nome=nome)
+            self.indexar(sku)
+        self.embeber(_FornecedorDeEnsaio())
+        self.semente.execute(
+            "UPDATE idx.search_doc SET embedding_modelo = 'outro' "
+            " WHERE tenant_id = %s AND product_ref = 'arroz'",
+            (self.tenant,),
+        )
+        fornecedor = _FornecedorDeEnsaio()
+        vectorial = embeddings.ConsultaVectorial(
+            self.cliente(fornecedor), lambda _t: False, metricas=self.registo
+        )
+        procura = pesquisa.procurar(self.ligar("app"), self.tenant, "frigorifico",
+                                    vectorial=vectorial)
+        self.assertEqual(procura.modo, "lexical")
+        self.assertEqual(fornecedor.chamadas, [])
+        self.assertEqual(
+            self.registo.ler()["embedding_fallback_total:modelo_divergente"], 1
+        )
+
+    def test_tenant_sem_vectores_nao_chama_o_fornecedor(self) -> None:
+        self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz")
+        fornecedor = _FornecedorDeEnsaio()
+        vectorial = embeddings.ConsultaVectorial(
+            self.cliente(fornecedor), lambda _t: False, metricas=self.registo
+        )
+        procura = pesquisa.procurar(self.ligar("app"), self.tenant, "arroz", vectorial=vectorial)
+        self.assertEqual(procura.modo, "lexical")
+        self.assertEqual(fornecedor.chamadas, [])
+        self.assertEqual([l["sku"] for l, _ in procura.linhas], ["arroz"])
+
+    def test_os_vectores_de_outro_tenant_nao_contam(self) -> None:
+        """O modelo do indice le-se com o contexto do tenant, e so dele."""
+        outro = self.tenant_em("ativo")
+        self.criar_oferta(outro, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz", outro)
+        self.no_tenant(outro)
+        fornecedor = _FornecedorDeEnsaio()
+        embeddings.embeber_catalogo(
+            self.bd, outro, self.cliente(fornecedor), fornecedor.modelo
+        )
+        self.assertEqual(self.vectores(outro), {"arroz": (True, "modelo-de-ensaio")})
+        self.criar_oferta(self.tenant, sku="arroz", nome="Arroz agulha 5 kg")
+        self.indexar("arroz")
+        vectorial = embeddings.ConsultaVectorial(
+            self.cliente(fornecedor), lambda _t: False, metricas=self.registo
+        )
+        procura = pesquisa.procurar(self.ligar("app"), self.tenant, "arroz", vectorial=vectorial)
+        self.assertEqual(procura.modo, "lexical")
+        self.assertEqual(len(fornecedor.chamadas), 1)
 
 
 if __name__ == "__main__":

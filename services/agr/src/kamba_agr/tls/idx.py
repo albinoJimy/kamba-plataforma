@@ -45,8 +45,9 @@ inteira nao apanha e o `fts` com o `or` apanha, a 0,4 — e corta so a cauda do
 `fts` abaixo do posto 21, que o `LIMIT 3` da resposta ja corta. Ou seja: no modo
 lexical, «nao resolvivel» e **a resposta vazia**, e nao um limiar. **No modo
 hibrido nao e assim**: o ramo `sem` devolve sempre os vizinhos mais proximos,
-haja ou nao correspondencia, e um so posto 1 vale 0,5. O vector e o KAM-063, e
-o limiar volta a mesa com ele.
+haja ou nao correspondencia, e um so posto 1 vale 0,5. O vector chegou com o
+KAM-063 (a `LigacaoVectorial`, que so liga com modelo escolhido), e o limiar do
+modo hibrido calibra-se com o dataset do KAM-064.
 
 **E um limite que o modo lexical tem, dito:** uma pergunta que partilhe um so
 termo com um produto («quero uma bicicleta azul» e a «Camisa azul») devolve-o, e
@@ -57,11 +58,14 @@ KAM-064.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 import re
 import time
 from typing import Any, Final
 
 from kamba_core.idx import pesquisa
+from kamba_core.idx.embeddings import ConsultaVectorial
 from kamba_core.idx.metricas import METRICAS as METRICAS_DO_IDX
 
 from .erros import VALIDATION_ERROR
@@ -118,12 +122,58 @@ def _tecto_de_preco(filtros: dict[str, str]) -> int | None:
     return int(bruto)
 
 
-def executar(pedido: Pedido) -> Resposta:
+#: O que fica da pesquisa quando o vector da pergunta gasta o seu tecto, em ms.
+#: **Proposta.** O tecto de uma tool `read` e 2 s (§6.5 do `docs/tecnica/02`) e
+#: o do embedding 1,5 s (criterio 3 do KAM-063): com esta reserva os dois
+#: cabem, e com um tecto de tool menor e o embedding que encolhe, nao a
+#: pesquisa.
+RESERVA_DA_PESQUISA_MS: Final = 500
+
+
+class LigacaoVectorial:
+    """O fio entre o executor e a `ConsultaVectorial`, ligado no arranque.
+
+    Pela razao da `CredencialDoCom` do `__main__`: o catalogo da ToolLayer
+    constroi-se **antes** do cliente do gateway, e o executor nasce sem ele. Ao
+    contrario daquela, **nao levanta** sem ligacao: sem vector a pesquisa e
+    lexical, que e o estado de repouso enquanto o `kamba-embed` nao tem modelo.
+    """
+
+    __slots__ = ("_vectorial",)
+
+    def __init__(self) -> None:
+        self._vectorial: ConsultaVectorial | None = None
+
+    def ligar(self, vectorial: ConsultaVectorial | None) -> None:
+        self._vectorial = vectorial
+
+    @property
+    def actual(self) -> ConsultaVectorial | None:
+        return self._vectorial
+
+
+def _com_tecto(
+    vectorial: ConsultaVectorial | None, timeout_ms: int
+) -> ConsultaVectorial | None:
+    """A consulta vectorial com o tecto que cabe no da tool, ou `None` se nao cabe."""
+    if vectorial is None:
+        return None
+    disponivel_s = (timeout_ms - RESERVA_DA_PESQUISA_MS) / 1000
+    if disponivel_s <= 0:
+        return None
+    return dataclasses.replace(vectorial, tecto_s=min(vectorial.tecto_s, disponivel_s))
+
+
+def executar(pedido: Pedido, ligacao: LigacaoVectorial | None = None) -> Resposta:
     """`search_catalog(query, filtros)`: ate tres candidatos, com `score` em [0, 1].
 
     Cada candidato e a linha do contrato do §6.3 e o `score` normalizado. **Sem
     *facts***, como o duplo: o preco que o cliente le vem do `get_price_stock`
     do turno, e o `retrieve` so guarda `sku`, `nome` e `preco_tipo`.
+
+    Com a `ligacao` ligada, tenta o modo hibrido (KAM-063); o modo que correu
+    vem da `Procura` e decide **as duas coisas** que dependem dele: o maximo
+    teorico do pontuador e a etiqueta `modo` das metricas.
     """
     if pedido.ligacao is None:
         raise RuntimeError(
@@ -131,11 +181,9 @@ def executar(pedido: Pedido) -> Resposta:
             "de backend `idx` sem tomada e defeito de registo, nao resposta"
         )
     tecto_de_preco = _tecto_de_preco(dict(pedido.args.filtros))
-    # Sem `qvec`: o modo e o lexical (§6.5) ate o KAM-063 dar o embedding da
-    # pergunta. **Uma variavel e nao dois literais**, porque o mesmo facto decide
-    # o maximo teorico do pontuador e a etiqueta `modo` das metricas (KAM-193), e
-    # dois literais divergiam no dia em que o vector chegasse.
-    hibrido = False
+    vectorial = _com_tecto(
+        ligacao.actual if ligacao is not None else None, pedido.timeout_ms
+    )
     inicio = time.perf_counter()
     try:
         procura = pesquisa.procurar(
@@ -144,6 +192,7 @@ def executar(pedido: Pedido) -> Resposta:
             pedido.args.query,
             max_preco_minor=tecto_de_preco,
             tecto_ms=pedido.timeout_ms,
+            vectorial=vectorial,
         )
     except Exception as erro:
         # O tecto do servidor volta como `UPSTREAM_TIMEOUT`, pela razao do
@@ -153,6 +202,10 @@ def executar(pedido: Pedido) -> Resposta:
                 f"a pesquisa passou do tecto de {pedido.timeout_ms} ms"
             ) from erro
         raise
+    # **Uma variavel e nao dois literais**: o mesmo facto decide o maximo
+    # teorico do pontuador e a etiqueta `modo` das metricas (KAM-193), e e o
+    # modo que **correu**, lido da `Procura` — nao o que se pediu.
+    hibrido = procura.modo == pesquisa.MODO_HIBRIDO
     # So a pesquisa que respondeu entra na serie (KAM-193). Uma que passou do
     # tecto tinha a duracao do tecto e nao a da pesquisa, e um *gauge* com o
     # ultimo valor ficava preso ao numero que o chamador escolheu. **O limite
@@ -206,14 +259,18 @@ def pergunta_da_normalizacao(normalizacao: Any) -> str | None:
     return None
 
 
-def executores_do_idx() -> dict[str, Any]:
+def executores_do_idx(ligacao: LigacaoVectorial | None = None) -> dict[str, Any]:
     """O executor do `search_catalog`, pelo nome canonico da tool."""
-    return {"search_catalog": executar}
+    if ligacao is None:
+        return {"search_catalog": executar}
+    return {"search_catalog": functools.partial(executar, ligacao=ligacao)}
 
 
 __all__ = [
     "FILTRO_DE_PRECO",
     "LIMIAR_DO_RRF",
+    "LigacaoVectorial",
+    "RESERVA_DA_PESQUISA_MS",
     "executar",
     "executores_do_idx",
     "pergunta_da_normalizacao",
