@@ -217,6 +217,11 @@ class TestRepositorio(unittest.TestCase):
         # contagem reprovava o PR de quem acrescenta uma metrica.
         "packages/core-ts/src/provisioning/metricas.ts",
         "packages/core-ts/src/qualidade/metricas.ts",
+        # Nasceu com o KAM-089 (fila de revisao por excepcao). Quatro nomes,
+        # declarados e nao servidos: a fila nao tem processo proprio, e o
+        # `onboarding-web` nao tem rota `/metrics`. Quem a servir e o *job* que
+        # o seguimento do KAM-089 escrever.
+        "packages/core-ts/src/revisao/metricas.ts",
         # Nasceu com o KAM-116 (agregador de SMS) **depois de este ticket
         # fundir**, e e o segundo exemplo da mesma coisa que o
         # `provisioning` foi o primeiro: sete nomes que nenhum servico

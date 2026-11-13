@@ -416,6 +416,12 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # justifica um produto publicado ou recusado, e o recurso e
             # uma linha nova.
             _t("platform.screening_decision", pendencia="prova da decisao de screening"),
+            # KAM-089 (0048). A decisao humana e o caso que ela decidiu: o
+            # registo e *append-only* por *trigger*, e o caso e o que da sentido
+            # as linhas dele. A `nota_enc` do revisor pode levar dados
+            # pessoais e vai cifrada; o prazo e o da prova, por decidir.
+            _t("platform.review_case", pendencia="prova da revisao humana"),
+            _t("platform.review_decision_log", pendencia="prova da revisao humana"),
         ),
         fonte="docs/tecnica/08 §11",
     ),

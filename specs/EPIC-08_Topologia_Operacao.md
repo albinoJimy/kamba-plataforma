@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.18 |
+| Versão | 1.19 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -738,6 +738,14 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > executor do `search_catalog` escreve e a `/metrics` do AGR serve. Medido no ramo
 > do KAM-193 sobre a `publico/main` em `f7e32c84`: **25 módulos, 136 nomes**, 138
 > declaradas, e as restantes nas mesmas. Nenhuma caixa deste epic muda.
+>
+> **E o KAM-089 trouxe outro, da classe do `sms`:** o
+> `packages/core-ts/src/revisao/metricas.ts` declara **quatro** nomes (o p90 do
+> tempo útil até à primeira decisão, os casos por tipo e estado, os casos pela
+> última decisão e a taxa de falsos aprovados), que nenhum serviço importa — a
+> fila de revisão não tem processo próprio. Medido no ramo do KAM-089 com a
+> `publico/main` integrada em `ac3f9527`: **26 módulos, 140 nomes**, 142 declaradas.
+> Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
@@ -1874,3 +1882,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.16 | Novembro 2026 | **KAM-099**, e é uma emenda de **propagação** como a 1.6 e a 1.8: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `services/onboarding-web/src/painel/metricas.ts`, e a mensagem do *gate* manda levar os números novos à nota do KAM-080. Medido: `contar_metricas` passa de **23 módulos, 131 nomes** para **24 módulos, 133 nomes**, e a reconciliação `+2` do `services/com` dá **135** declaradas, eram 133. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-099 sobre a `publico/main` em `b55d2a84`; quem fundir em segundo remede. | Equipa KAMBÁ |
 | 1.17 | Novembro 2026 | **KAM-193**, e é uma emenda de **propagação** como a 1.16: o inventário fechado de módulos de métricas do `tools/obs_lint` passa a ter o `libs/py-core/src/kamba_core/idx/metricas.py`, e a nota da verificação do KAM-080 ganha a linha com os números novos — **25 módulos, 136 nomes**, 138 declaradas, medidos sobre a `publico/main` em `f7e32c84`. As três métricas são servidas pela `/metrics` do AGR. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.18 | Novembro 2026 | **KAM-191**: os Detalhes Técnicos do KAM-078 passam a nomear o agendador do `reanalisar` do screening entre os *jobs* que o deploy liga, para que a parte que falta ao critério 7 do KAM-088 (nada agenda a re-análise quando a versão da política muda) tenha credor com a caixa no próprio bloco. Só essa linha; nenhum critério novo. | Equipa KAMBÁ |
+| 1.19 | Novembro 2026 | **KAM-089**, e é uma emenda de **propagação** como a 1.6, a 1.8, a 1.16 e a 1.17: o inventário fechado de módulos de métricas do `tools/obs_lint` ficou vermelho com o `packages/core-ts/src/revisao/metricas.ts`, e a mensagem do *gate* manda levar os números novos à nota do KAM-080. Medido: `contar_metricas` passa de **25 módulos, 136 nomes** para **26 módulos, 140 nomes**, e a reconciliação `+2` do `services/com` dá **142** declaradas, eram 138. **Os números da medição do KAM-080 ficam como estavam**, pela razão da 1.6. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-089 com a `publico/main` integrada em `ac3f9527`, que já traz o módulo do KAM-193. | Equipa KAMBÁ |

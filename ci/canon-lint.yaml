@@ -523,6 +523,19 @@ dominios_historicos:
       desde a emenda 1.83 (order.refund_record, o registo manual do reembolso), e
       o downgrade repoe as onze da 0042. A segunda e a que esta entrada cobre, e
       o passo de descida recusa-se se houver linhas order.refund_record escritas.
+  - revisao: "db/migrations/versions/0048_fila_de_revisao.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-089"
+    data: "2026-11-12"
+    razao: >-
+      A 0048 (KAM-089) acrescenta ao dominio as duas accoes da fila de revisao,
+      review.acesso e review.recusa, e o dicionario §3.2 passa a declarar
+      catorze (emenda 1.86). O upgrade escreve as catorze; o downgrade repoe as
+      doze da 0046 (as onze da 0042 e o order.refund_record do KAM-050), que e o
+      que a base passa a ter quando se desce, e e essa declaracao que esta
+      entrada cobre. O passo de descida recusa-se se houver linhas review.*
+      escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

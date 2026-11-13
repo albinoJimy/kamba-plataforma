@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.61
+**Versão do conjunto:** 1.62
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **195 tickets atómicos (KAM-001 a KAM-195)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **196 tickets atómicos (KAM-001 a KAM-196)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -57,10 +57,10 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193 | 5 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189 | 14 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195 | 20 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196 | 21 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-195** | **195** | — |
+| **TOTAL** | **KAM-001 – KAM-196** | **196** | — |
 
 ### 3.2 Fases
 
@@ -283,7 +283,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-089 | Fila de revisão por excepção para T&S/T2 | feature | L | P0 | 1 | KAM-087, KAM-088 |
 | KAM-090 | Aceite contratual versionado: ToS, DPA e aviso de privacidade | feature | M | P0 | 1 | KAM-086, ext:KAM-104 |
 | KAM-091 | Saga de provisioning com idempotência, compensação e reconciliação | feature | L | P0 | 1 | KAM-009, KAM-019, KAM-030, KAM-042, KAM-016 |
-| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | 1 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007 |
+| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | 1 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
 | KAM-093 | Passo guiado do Embedded Signup: pré-voo e falhas | feature | M | P0 | 1 | KAM-016, KAM-017, KAM-086 |
 | KAM-094 | Catálogo mínimo e teste ponta a ponta automático | feature | M | P0 | 1 | KAM-049, KAM-091, KAM-088, KAM-092, KAM-093, KAM-023 |
 | KAM-095 | Lista de espera para o limite de onboarding da Meta | feature | M | P1 | 1 | KAM-093, ext:KAM-102 |
@@ -297,6 +297,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-191 | Contrato do evento `screening.violation_detected` | feature | S | P1 | 1 | KAM-088 |
 | KAM-192 | Papel do classificador de screening no dicionário e alias `screening-nano` | feature | S | P1 | 1 | KAM-088 |
 | KAM-195 | Screening: o classificador chama pelo cliente com gate de destino, registo e custo, e a finalidade de transferência | feature | L | P1 | 1 | KAM-192, KAM-069 |
+| KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | 1 | KAM-089 |
 
 ### EPIC-10 — Spikes, Validação e Gates
 
@@ -428,3 +429,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.59 | Novembro 2026 | **KAM-193** acrescentado ao **EPIC-06**, no PR do **KAM-061**, que o abre e não o implementa: é o credor das três caixas que o KAM-061 devolveu sem ticket — o processo que chama o consumidor do índice (critério 9), as métricas do IDX servidas (DoD) e a medição da latência no ambiente de referência (critério 10), que numa máquina partilhada nem fecha nem reprova o alvo. | Equipa KAMBÁ |
 | 1.60 | Novembro 2026 | **KAM-194** acrescentado ao **EPIC-01**, no PR do **KAM-193**, que o abre e não o implementa: é o credor da caixa que o KAM-193 devolve parcial — o processo que subscreve a fila e chama o consumidor do índice (critério 9 do KAM-061). O que falta não é do IDX e é infraestrutura de eventos: a casca BullMQ → HTTP para consumidores Python, que paga também a casca do `/internal/event` do AGR (credores KAM-005 e KAM-006, fechados), as linhas de `platform.evt_subscricoes` numa revisão de dados, e a quarta forma do `registry/` para um consumidor que não é vertical. Fica no EPIC-01 por ser do EVT, e por isso em `tickets/KAM-194.md`. **Superfícies:** a linha do §4, o §3.1 — o EPIC-01 com **66** e o TOTAL a `KAM-001 – KAM-194` com **194** — e o §1; e a linha dos ficheiros do EPIC-01 no §2, que dizia 64 com 65 na pasta, passa a **66**. **Dependências:** o KAM-061, cujo consumidor ele liga; o KAM-062, cuja função `reindexar` o mesmo processo corre em ciclo; e o KAM-193, cujo registo de métricas o processo do IDX serve. **Arestas recíprocas:** o `Bloqueia` do KAM-061, do KAM-062 e do KAM-193 ganha o KAM-194. Total: 194 tickets em 11 epics. | Equipa KAMBÁ |
 | 1.61 | Novembro 2026 | **KAM-195** acrescentado ao **EPIC-09**, no PR do **KAM-192**, que o abre e não o implementa: é o credor das duas metades que o KAM-192 deixou com o papel `screening` declarado e não ligado — a ligação do classificador do GOV ao cliente com *gate* de destino, registo e custo, e a finalidade de transferência do papel, que o fundador confirma antes de entrar. Depende do KAM-192 e do KAM-069. O **KAM-194** já está na `main`, pelo que a gama fica contígua. | Equipa KAMBÁ |
+| 1.62 | Novembro 2026 | **KAM-196** acrescentado ao **EPIC-09**, no PR do **KAM-089**, que o abre e não o implementa: é o credor das caixas que o KAM-089 devolveu sem ticket — a identidade da equipa com MFA (a escolha do IdP e as contas são do fundador), a consola `/equipa` no `onboarding-web` com as suas baterias X-01, os modelos de SMS e de e-mail do aviso ao dono e o *job* que corre a fila. **P0**, porque o **KAM-092** (P0) passa a depender dele: sem consola nenhum humano decide, e sem decisão nenhum caso da fila chega a `aprovado`. **Superfícies:** a linha do §4, o §3.1 — o EPIC-09 com **21** e o TOTAL a `KAM-001 – KAM-196` com **196** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-089 ganha o KAM-196 e as `Dependências` do KAM-092 também, no §4, na tabela-resumo e no bloco. | Equipa KAMBÁ |
