@@ -1,7 +1,7 @@
 """A maquina de estados de uma ingestao do Catalogo AI (KAM-049).
 
 Os nove estados sao os do `CHECK` de `platform.catalog_ingestions.estado`
-(`docs/tecnica/03` §8.3, revisao `0052`), e as transicoes sao as que o *trigger*
+(`docs/tecnica/03` §8.3, revisao `catalogo_ai`), e as transicoes sao as que o *trigger*
 `catalog_ingestions_transicao` da mesma revisao impoe. **As duas superficies
 dizem o mesmo e o ensaio de base compara-as par a par** (as 81 combinacoes):
 uma transicao que so uma delas aceitasse era um caminho que o Python recusa e a
@@ -75,7 +75,7 @@ FINAIS: Final = frozenset(e for e, destinos in TRANSICOES.items() if not destino
 
 
 class TransicaoRecusada(ValueError):
-    """Uma transicao fora da tabela. O `trigger` da `0052` recusa a mesma."""
+    """Uma transicao fora da tabela. O `trigger` da revisao `catalogo_ai` recusa a mesma."""
 
     def __init__(self, de: str, para: str) -> None:
         super().__init__(f"transicao de catalog_ingestions recusada: {de} -> {para}")

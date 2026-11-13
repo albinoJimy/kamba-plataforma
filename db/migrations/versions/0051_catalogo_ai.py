@@ -29,7 +29,10 @@ mensagem que o `alembic history` imprime.
   nem uma URL da Meta nem a chave de outro tenant cabem na coluna.
 * **`custo_llm_usd NOT NULL DEFAULT 0`**: o §8.3 deixa-o anulavel, e o
   criterio 9 soma-o «incluindo repeticoes» — um nulo numa soma e um custo que
-  desaparece.
+  desaparece. **Fica `numeric` e nao unidade menor inteira**, pelo precedente
+  do mesmo dado: o custo de LLM em USD e `dat.llm_call_log.custo_usd
+  numeric(12, 6)` desde a `0023`, e este e a soma dessas linhas. Nao e dinheiro
+  de cliente nem de tenant, que e o que a regra do `*_minor` cobre.
 * **`perguntas_feitas BETWEEN 0 AND 12`** em vez de `<= 12`: um negativo nao e
   um numero de perguntas.
 
@@ -41,8 +44,8 @@ tem `DELETE`**: uma ingestao descarta-se pelo estado, e a purga e da retencao
 
 ## A cadeia
 
-**O numero e provisorio.** A cadeia do lote e `0050` (KAM-197), `0051`
-(KAM-196) e esta, e o numero final da-o a integracao pela ordem de quem funde.
+**O numero e provisorio.** A cadeia do lote e `0050` (KAM-197), esta e `0052`
+(KAM-194), e o numero final da-o a integracao pela ordem de quem funde.
 Ate la o `down_revision` e a cabeca da `main` (`0049`), para que o ramo se
 meca sozinho. Renumerar e mudar o nome do ficheiro, o `revision` e o
 `down_revision`, e mais nada: nenhum outro ficheiro deste ticket escreve o
@@ -62,47 +65,38 @@ from alembic import op
 
 import rls
 
-revision = "0052"
+revision = "0051"
 down_revision = "0049"
 branch_labels = None
 depends_on = None
 
 TABELA = "platform.catalog_ingestions"
 
-#: Os nove estados do §8.3. Copiados de `kamba_core.catalogo.estados` e nao
-#: importados: uma revisao nao importa codigo da aplicacao.
-ESTADOS = (
-    "recebida",
-    "rejeitada_qualidade",
-    "em_extraccao",
-    "a_perguntar",
-    "rascunho",
-    "publicada",
-    "bloqueada_gate",
-    "bloqueada_categoria",
-    "descartada",
+#: Os nove estados do §8.3, como literais de SQL. Copiados de
+#: `kamba_core.catalogo.estados` e nao importados: uma revisao nao importa
+#: codigo da aplicacao. Por extenso, e nao gerados, para o gate 3b os ler.
+LITERAIS_DE_ESTADO = (
+    "'recebida', 'rejeitada_qualidade', 'em_extraccao', 'a_perguntar', "
+    "'rascunho', 'publicada', 'bloqueada_gate', 'bloqueada_categoria', "
+    "'descartada'"
 )
 
-#: A tabela de transicoes, igual a `estados.TRANSICOES` (o ensaio compara).
-TRANSICOES = {
-    "recebida": ("rejeitada_qualidade", "bloqueada_gate", "em_extraccao", "descartada"),
-    "rejeitada_qualidade": ("descartada",),
-    "bloqueada_gate": ("em_extraccao", "descartada"),
-    "em_extraccao": ("a_perguntar", "rascunho", "bloqueada_categoria", "descartada"),
-    "a_perguntar": ("rascunho", "bloqueada_categoria", "descartada"),
-    "rascunho": ("a_perguntar", "publicada", "bloqueada_categoria", "descartada"),
-    "bloqueada_categoria": ("a_perguntar", "rascunho", "descartada"),
-}
-
-
-def _lista(valores: tuple[str, ...]) -> str:
-    return ", ".join(f"'{v}'" for v in valores)
-
-
-def _transicoes_sql() -> str:
-    return "\n            OR ".join(
-        f"(OLD.estado = '{de}' AND NEW.estado IN ({_lista(para)}))" for de, para in TRANSICOES.items()
-    )
+#: A tabela de transicoes, igual a `estados.TRANSICOES`: o ensaio de base
+#: compara as 81 combinacoes com a do modulo.
+TRANSICOES_SQL = """
+               (OLD.estado = 'recebida' AND NEW.estado IN
+                 ('rejeitada_qualidade', 'bloqueada_gate', 'em_extraccao', 'descartada'))
+            OR (OLD.estado = 'rejeitada_qualidade' AND NEW.estado IN ('descartada'))
+            OR (OLD.estado = 'bloqueada_gate' AND NEW.estado IN ('em_extraccao', 'descartada'))
+            OR (OLD.estado = 'em_extraccao' AND NEW.estado IN
+                 ('a_perguntar', 'rascunho', 'bloqueada_categoria', 'descartada'))
+            OR (OLD.estado = 'a_perguntar' AND NEW.estado IN
+                 ('rascunho', 'bloqueada_categoria', 'descartada'))
+            OR (OLD.estado = 'rascunho' AND NEW.estado IN
+                 ('a_perguntar', 'publicada', 'bloqueada_categoria', 'descartada'))
+            OR (OLD.estado = 'bloqueada_categoria' AND NEW.estado IN
+                 ('a_perguntar', 'rascunho', 'descartada'))
+"""
 
 
 def upgrade() -> None:
@@ -120,7 +114,7 @@ def upgrade() -> None:
           phash              bytea
                              CONSTRAINT catalog_ingestions_phash_ck CHECK (octet_length(phash) = 8),
           estado             text NOT NULL DEFAULT 'recebida'
-                             CONSTRAINT catalog_ingestions_estado_ck CHECK (estado IN ({_lista(ESTADOS)})),
+                             CONSTRAINT catalog_ingestions_estado_ck CHECK (estado IN ({LITERAIS_DE_ESTADO})),
           extraido           jsonb NOT NULL DEFAULT '{{}}'
                              CONSTRAINT catalog_ingestions_extraido_ck CHECK (jsonb_typeof(extraido) = 'object'),
           campos_em_falta    text[] NOT NULL DEFAULT '{{}}',
@@ -185,7 +179,7 @@ def upgrade() -> None:
               OLD.perguntas_feitas, NEW.perguntas_feitas USING ERRCODE = '23514';
           END IF;
           IF NEW.estado IS DISTINCT FROM OLD.estado AND NOT (
-               {_transicoes_sql()}
+               {TRANSICOES_SQL}
           ) THEN
             RAISE EXCEPTION 'transicao de catalog_ingestions recusada: % -> %',
               OLD.estado, NEW.estado USING ERRCODE = '23514';

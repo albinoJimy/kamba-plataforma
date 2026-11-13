@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.87"
+versao_dicionario: "1.88"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15918,6 +15918,283 @@ entradas:
       - "tipo"
       - "termo"
     variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Ingestão do Catálogo AI"
+    canonico: "platform.catalog_ingestions, dezasseis colunas: id, tenant_id, media_ref, media_id_meta, phash, estado, extraido, campos_em_falta, perguntas_feitas, categoria_restrita, sku, custo_llm_usd, confirmado_at, confirmado_por, criado_at, atualizado_at"
+    literais:
+      - "platform.catalog_ingestions"
+      - "id"
+      - "tenant_id"
+      - "media_ref"
+      - "media_id_meta"
+      - "phash"
+      - "estado"
+      - "extraido"
+      - "campos_em_falta"
+      - "perguntas_feitas"
+      - "categoria_restrita"
+      - "sku"
+      - "custo_llm_usd"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "criado_at"
+      - "atualizado_at"
+    nomes:
+      - "platform.catalog_ingestions"
+      - "id"
+      - "tenant_id"
+      - "media_ref"
+      - "media_id_meta"
+      - "phash"
+      - "estado"
+      - "extraido"
+      - "campos_em_falta"
+      - "perguntas_feitas"
+      - "categoria_restrita"
+      - "sku"
+      - "custo_llm_usd"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "criado_at"
+      - "atualizado_at"
+    nomes_nota:
+      - "categoria_restrita"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "OwnerConfirmation"
+      - "publicada"
+      - "FORCE"
+      - "tenant_iso"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Estado da ingestão"
+    canonico: "catalog_ingestions.estado ∈ {recebida, rejeitada_qualidade, em_extraccao, a_perguntar, rascunho, publicada, bloqueada_gate, bloqueada_categoria, descartada}"
+    literais:
+      - "catalog_ingestions.estado"
+      - "recebida"
+      - "rejeitada_qualidade"
+      - "em_extraccao"
+      - "a_perguntar"
+      - "rascunho"
+      - "publicada"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+      - "descartada"
+    nomes:
+      - "catalog_ingestions.estado"
+      - "recebida"
+      - "rejeitada_qualidade"
+      - "em_extraccao"
+      - "a_perguntar"
+      - "rascunho"
+      - "publicada"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+      - "descartada"
+    nomes_nota:
+      - "kamba_core.catalogo.estados.TRANSICOES"
+      - "catalog_ingestions_transicao"
+      - "platform.catalog_ingestions_transicao"
+      - "publicada"
+      - "rascunho"
+      - "descartada"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Referência da foto"
+    canonico: "catalog_ingestions.media_ref"
+    literais:
+      - "catalog_ingestions.media_ref"
+    nomes:
+      - "catalog_ingestions.media_ref"
+    nomes_nota:
+      - "catalog_ingestions_media_ref_ck"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Idempotência da foto"
+    canonico: "catalog_ingestions_media_uq: UNIQUE (tenant_id, media_id_meta)"
+    literais:
+      - "catalog_ingestions_media_uq"
+      - "UNIQUE (tenant_id, media_id_meta)"
+    nomes:
+      - "catalog_ingestions_media_uq"
+      - "UNIQUE"
+      - "tenant_id"
+      - "media_id_meta"
+    nomes_nota:
+      - "media_id"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Hash perceptual"
+    canonico: "catalog_ingestions.phash, oito bytes"
+    literais:
+      - "catalog_ingestions.phash"
+    nomes:
+      - "catalog_ingestions.phash"
+    nomes_nota:
+      - "phash"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Campo extraído"
+    canonico: "catalog_ingestions.extraido: campo → {valor, confianca, fonte, confirmado, corrigido}"
+    literais:
+      - "catalog_ingestions.extraido"
+      - "valor"
+      - "confianca"
+      - "fonte"
+      - "confirmado"
+      - "corrigido"
+    nomes:
+      - "catalog_ingestions.extraido"
+      - "valor"
+      - "confianca"
+      - "fonte"
+      - "confirmado"
+      - "corrigido"
+    nomes_nota:
+      - "nome"
+      - "marca"
+      - "categoria"
+      - "cor"
+      - "tamanho"
+      - "material"
+      - "unidade"
+      - "variantes"
+      - "corrigido"
+      - "ia_visao"
+      - "preco_sugerido"
+      - "preco"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Proveniência de um campo"
+    canonico: "fonte ∈ {dono_texto, dono_voz, ia_visao, importado}"
+    literais:
+      - "fonte"
+      - "dono_texto"
+      - "dono_voz"
+      - "ia_visao"
+      - "importado"
+    nomes:
+      - "fonte"
+      - "dono_texto"
+      - "dono_voz"
+      - "ia_visao"
+      - "importado"
+    nomes_nota:
+      - "ia_visao"
+      - "confirmado"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Limiar de confiança da visão"
+    canonico: "LIMIAR_IA_VISAO = 0,8"
+    literais:
+      - "LIMIAR_IA_VISAO"
+    nomes:
+      - "LIMIAR_IA_VISAO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Perfil de completude"
+    canonico: "geral, vestuario, alimentar, electronica, servico"
+    literais:
+      - "geral"
+      - "vestuario"
+      - "alimentar"
+      - "electronica"
+      - "servico"
+    nomes:
+      - "geral"
+      - "vestuario"
+      - "alimentar"
+      - "electronica"
+      - "servico"
+    nomes_nota:
+      - "geral"
+      - "preco_tipo"
+      - "preco"
+      - "stock_modo"
+      - "stock"
+      - "garantia"
+      - "duracao"
+      - "local"
+      - "pre_aviso"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Perguntas ao dono"
+    canonico: "MAXIMO_POR_MENSAGEM = 3, MAXIMO_DE_PERGUNTAS = 12"
+    literais:
+      - "MAXIMO_POR_MENSAGEM"
+      - "MAXIMO_DE_PERGUNTAS"
+    nomes:
+      - "MAXIMO_POR_MENSAGEM"
+      - "MAXIMO_DE_PERGUNTAS"
+    nomes_nota:
+      - "catalog_ingestions_perguntas_ck"
+      - "preco_tipo"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Categoria que bloqueia"
+    canonico: "catalog_ingestions.categoria_restrita, forma ^[a-z0-9_]{1,60}$"
+    literais:
+      - "catalog_ingestions.categoria_restrita"
+      - "^[a-z0-9_]{1,60}$"
+    nomes:
+      - "catalog_ingestions.categoria_restrita"
+      - "a"
+      - "z0"
+      - "_"
+    nomes_nota:
+      - "id"
+      - "medicamentos_saude"
+      - "armas"
+      - "jogos"
+      - "tabaco"
+      - "alcool"
+      - "screening_indisponivel"
+      - "bloqueada_categoria"
+      - "catalog_ingestions_bloqueada_ck"
+      - "publicada"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Publicação confirmada"
+    canonico: "catalog_ingestions_publicada_ck"
+    literais:
+      - "catalog_ingestions_publicada_ck"
+    nomes:
+      - "catalog_ingestions_publicada_ck"
+    nomes_nota:
+      - "publicada"
+      - "sku"
+      - "confirmado_at"
+      - "confirmado_por"
+      - "categoria_restrita"
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Custo de LLM da ingestão"
+    canonico: "catalog_ingestions.custo_llm_usd, numeric(10,6), não nulo"
+    literais:
+      - "catalog_ingestions.custo_llm_usd"
+      - "numeric(10,6)"
+    nomes:
+      - "catalog_ingestions.custo_llm_usd"
+      - "numeric"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.63"
+    conceito: "Fila humana do catálogo"
+    canonico: "catalog_ingestions_fila_idx (bloqueada_gate, bloqueada_categoria)"
+    literais:
+      - "catalog_ingestions_fila_idx"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+    nomes:
+      - "catalog_ingestions_fila_idx"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+    nomes_nota:
+      - "review_case"
+      - "review_case.tipo"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -17124,6 +17401,13 @@ tabelas:
     assinatura: "idx.f_recusar_alteracao_de_versao()"
     seccao: "3.62"
     conceito: "Versão só de acrescento"
+  - nome: "numeric"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "numeric(10,6)"
+    seccao: "3.63"
+    conceito: "Custo de LLM da ingestão"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -18538,6 +18822,29 @@ dominios:
       - "investigar"
     seccao: "3.61"
     conceito: "Recomendação automática"
+    so_no_registo: false
+  - coluna: "catalog_ingestions.estado"
+    valores:
+      - "recebida"
+      - "rejeitada_qualidade"
+      - "em_extraccao"
+      - "a_perguntar"
+      - "rascunho"
+      - "publicada"
+      - "bloqueada_gate"
+      - "bloqueada_categoria"
+      - "descartada"
+    seccao: "3.63"
+    conceito: "Estado da ingestão"
+    so_no_registo: false
+  - coluna: "fonte"
+    valores:
+      - "dono_texto"
+      - "dono_voz"
+      - "ia_visao"
+      - "importado"
+    seccao: "3.63"
+    conceito: "Proveniência de um campo"
     so_no_registo: false
 
 variantes:

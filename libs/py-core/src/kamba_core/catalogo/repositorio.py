@@ -1,11 +1,11 @@
-"""A persistencia de `platform.catalog_ingestions` (KAM-049; revisao `0052`).
+"""A persistencia de `platform.catalog_ingestions` (KAM-049; revisao `catalogo_ai`).
 
 Duas implementacoes da mesma porta, e o ensaio corre o pipeline sobre as duas:
 
 * `RepositorioEmMemoria`, para as baterias unitarias. **Comporta-se**: recusa a
   segunda linha do mesmo `(tenant_id, media_id_meta)`, recusa uma transicao
   fora da tabela, recusa mais de doze perguntas e uma `publicada` sem
-  confirmacao — as mesmas recusas do `CHECK` e do *trigger* da `0052`;
+  confirmacao — as mesmas recusas do `CHECK` e do *trigger* da revisao `catalogo_ai`;
 * `RepositorioDbapi`, sobre uma ligacao DB-API por chamada, dentro do
   `tenant_guard.tx` (a disciplina do KAM-030 e do KAM-069). O `tenant_id` vem
   sempre do contexto da RLS **e** do predicado: com a `FORCE`, uma linha de
@@ -48,7 +48,7 @@ class ConflitoDeEstado(RuntimeError):
 
 
 class IngestaoInvalida(ValueError):
-    """A linha violaria uma restricao da `0052`."""
+    """A linha violaria uma restricao da revisao `catalogo_ai`."""
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ class Ingestao:
 
 
 def validar(linha: Ingestao) -> None:
-    """As restricoes de linha da `0052`, do lado de ca. Levanta `IngestaoInvalida`."""
+    """As restricoes de linha da revisao `catalogo_ai`, do lado de ca. Levanta `IngestaoInvalida`."""
     if linha.estado not in estados.ESTADOS:
         raise IngestaoInvalida(f"estado `{linha.estado}` fora do dominio")
     # O `catalog_ingestions_media_ref_ck`: a chave do STO **do proprio tenant**.

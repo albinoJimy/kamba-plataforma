@@ -1445,6 +1445,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A ingestao do Catalogo AI (KAM-049, revisao do Catalogo AI). **So a
+#: aplicacao**: o *pipeline* corre como `kamba_app`, com o contexto do tenant,
+#: e le a tabela inteira mas insere e actualiza **por coluna** (ver
+#: `COLUNAS_POR_PAPEL`) — por isso a matriz de tabela diz so `SELECT`. **Ninguem
+#: apaga**: uma ingestao descarta-se pelo estado, e a purga da retencao e
+#: trabalho de outro ticket. Nem o lote nem a auditoria a alcancam hoje.
+ESPERADO_POR_TABELA.update(
+    {
+        "catalog_ingestions": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que

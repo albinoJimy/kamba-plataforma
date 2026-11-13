@@ -500,7 +500,7 @@ class TestRepositorio(unittest.TestCase):
         primeira = repo.inserir(self._linha())
         self.assertIs(repo.inserir(self._linha(id="i2")), primeira)
         self.assertIsNone(repo.ler(B, "i1"))
-        self.assertIsNotNone(repo.inserir(self._linha(id="i3", tenant_id=B)))
+        self.assertIsNotNone(repo.inserir(self._linha(id="i3", tenant_id=B, media_ref=f"t/{B}/catalogo/2026/11/x")))
 
     def test_conflito_e_perguntas_que_nao_descem(self) -> None:
         repo = RepositorioEmMemoria()
@@ -654,6 +654,39 @@ class TestPipeline(unittest.TestCase):
         retomada = m.servico.retomar(A, r.ingestao.id)
         self.assertEqual(retomada.estado, estados.A_PERGUNTAR)
         self.assertEqual(len(m.visao.imagens), 1)
+
+    def test_com_a_porta_real_do_kam_069_so_autorizado_com_apd_ref_deixa_sair(self) -> None:
+        """A `PortaSobreDestinos` de verdade, sobre linhas de `tenant_destinations`."""
+        from kamba_core.destinos.porta import ESTADO_AUTORIZADO, PortaSobreDestinos
+
+        casos = (
+            ([], estados.BLOQUEADA_GATE),
+            ([{"especifica": True, "status": "pendente", "tem_apd_ref": False, "country": "US"}], estados.BLOQUEADA_GATE),
+            ([{"especifica": True, "status": ESTADO_AUTORIZADO, "tem_apd_ref": False, "country": "US"}], estados.BLOQUEADA_GATE),
+            # A decisao do tenant tapa a global: negado pelo tenant, autorizado globalmente.
+            (
+                [
+                    {"especifica": True, "status": "negado", "tem_apd_ref": False, "country": "US"},
+                    {"especifica": False, "status": ESTADO_AUTORIZADO, "tem_apd_ref": True, "country": "US"},
+                ],
+                estados.BLOQUEADA_GATE,
+            ),
+            ([{"especifica": True, "status": ESTADO_AUTORIZADO, "tem_apd_ref": True, "country": "US"}], estados.A_PERGUNTAR),
+        )
+        for linhas, esperado in casos:
+            with self.subTest(linhas=linhas):
+                m = montar()
+                pedidos: list[tuple[str, str, str]] = []
+
+                def ler(tenant: str, fornecedor: str, finalidade: str, _linhas=linhas):  # type: ignore[no-untyped-def]
+                    pedidos.append((tenant, fornecedor, finalidade))
+                    return _linhas
+
+                m.servico.destinos = PortaSobreDestinos(ler)
+                r = m.servico.receber(A, "m1")
+                self.assertEqual(r.estado, esperado)
+                self.assertEqual(pedidos, [(A, "anthropic", "visao")])
+                self.assertEqual(len(m.visao.imagens), 1 if esperado == estados.A_PERGUNTAR else 0)
 
     def test_porta_de_destinos_que_falha_e_bloqueio(self) -> None:
         m = montar()

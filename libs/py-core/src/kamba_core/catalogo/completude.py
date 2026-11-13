@@ -3,7 +3,7 @@
 ## As tres regras das perguntas
 
 1. **No maximo tres por mensagem** (`MAXIMO_POR_MENSAGEM`), e **doze no
-   total** (`MAXIMO_DE_PERGUNTAS`, o `CHECK (perguntas_feitas <= 12)` da `0052`).
+   total** (`MAXIMO_DE_PERGUNTAS`, o `CHECK (perguntas_feitas <= 12)` da revisao `catalogo_ai`).
    Ao chegar as doze, a ingestao deixa de perguntar e fica em `a_perguntar`
    com os campos em falta a vista: e um caso para o painel, nao para mais
    mensagens.

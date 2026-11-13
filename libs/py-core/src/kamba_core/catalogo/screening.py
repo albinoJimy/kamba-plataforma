@@ -24,7 +24,7 @@ O dominio e deste ticket (dicionario §3.40, KAM-043: «o dominio dos valores e
 do KAM-049»). E o `id` da entrada da politica que decidiu — `medicamentos_saude`,
 `armas`, `jogos`, `tabaco`, `alcool`, … — ou uma das regras sinteticas do motor
 (`classificador_indisponivel`, `nao_listada`, …), ou `screening_indisponivel`
-quando a porta nem respondeu. A forma e a do `CHECK` da `0052`; a lista nao se
+quando a porta nem respondeu. A forma e a do `CHECK` da revisao `catalogo_ai`; a lista nao se
 fecha na base porque a politica e versionada e cresce sem revisao de base.
 """
 
@@ -42,7 +42,7 @@ PERMITIDA: Final = "permitida"
 #: Quando a porta nao respondeu, ou respondeu fora do contrato.
 SCREENING_INDISPONIVEL: Final = "screening_indisponivel"
 
-#: A forma do `CHECK` de `catalog_ingestions.categoria_restrita` (`0052`).
+#: A forma do `CHECK` de `catalog_ingestions.categoria_restrita` (revisao `catalogo_ai`).
 FORMA_DA_CATEGORIA: Final = re.compile(r"^[a-z0-9_]{1,60}$")
 
 

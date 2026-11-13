@@ -29,7 +29,7 @@ desfoque (NAO VERIFICADO contra fotos de PME angolanas).
 O classico: reduzir a 32x32, DCT bidimensional, ficar com os 8x8 coeficientes
 de frequencia mais baixa, e cada bit diz se o coeficiente esta acima da mediana
 (sem o termo DC). Oito bytes, que e o `CHECK (octet_length(phash) = 8)` da
-`0052`. Duas fotos do mesmo produto, uma delas recomprimida ou reduzida, dao o
+`catalogo_ai`. Duas fotos do mesmo produto, uma delas recomprimida ou reduzida, dao o
 mesmo *hash* ou um a poucos bits; o criterio pede «`phash` igual», e e a
 igualdade que a ingestao pergunta.
 """

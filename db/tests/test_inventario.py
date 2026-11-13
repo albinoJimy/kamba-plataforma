@@ -2471,6 +2471,45 @@ INVENTARIO["review_decision_log"] = {
     "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
 }
 
+#: A ingestao do Catalogo AI (KAM-049, revisao do Catalogo AI). **A foto nao
+#: esta aqui**: a `media_ref` e a chave do objecto no STO do proprio tenant
+#: (presa a ele por `CHECK`), e o EXIF e o GPS saem antes do STO. O `extraido`
+#: guarda o que a visao leu do produto, campo a campo, e e catalogo e nao
+#: pessoa. Dezasseis colunas.
+INVENTARIO["catalog_ingestions"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "media_ref": (
+        "text",
+        NAO,
+        None,
+        "nao — a chave do objecto no STO do tenant, nunca a URL da Meta",
+    ),
+    "media_id_meta": ("text", SIM, None, "nao — identificador da midia na Meta"),
+    "phash": ("bytea", SIM, None, "nao — dHash de 64 bits da imagem"),
+    "estado": ("text", NAO, "'recebida'::text", "nao"),
+    "extraido": (
+        "jsonb",
+        NAO,
+        "'{}'::jsonb",
+        "nao — campos do produto (valor, confianca, fonte), lidos da foto",
+    ),
+    "campos_em_falta": ("ARRAY", NAO, "'{}'::text[]", "nao"),
+    "perguntas_feitas": ("smallint", NAO, "0", "nao"),
+    "categoria_restrita": ("text", SIM, None, "nao — id de regra da politica"),
+    "sku": ("text", SIM, None, "nao"),
+    "custo_llm_usd": ("numeric", NAO, "0", "nao"),
+    "confirmado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "confirmado_por": (
+        "text",
+        SIM,
+        None,
+        "nao — identificador do actor que confirmou, nunca o nome nem o telefone",
+    ),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -3195,6 +3234,11 @@ class TestInventario(ComBase):
                         # *append-only* e nao se apaga com o caso.
                         "review_case_caso_fk",
                         "review_decision_log_case_fk",
+                        # KAM-049 (revisao do Catalogo AI): a ingestao aponta o
+                        # tenant, sem cascata pela razao geral — apagar um
+                        # tenant nao apaga as fotos dele por baixo da retencao,
+                        # que e quem as purga (KAM-071).
+                        "catalog_ingestions_tenant_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3584,6 +3628,15 @@ class TestInventario(ComBase):
             # Cobre so os casos com onboarding, que sao os que a quota e o
             # desbloqueio perguntam; um caso de saga ou de *trust* nao entra.
             "review_case_onboarding_idx": False,
+            # KAM-049 (revisao do Catalogo AI): os dois da ingestao, parciais e
+            # **nao** unicos. O do `phash` cobre so as fotos ja medidas, que sao
+            # as que a pergunta «e o mesmo produto?» compara; o da fila cobre so
+            # as duas paragens humanas (`bloqueada_gate`, `bloqueada_categoria`),
+            # e uma plataforma saudavel tem poucas linhas nele. A unicidade da
+            # reentrega e a restricao `catalog_ingestions_media_uq`, nao um
+            # indice parcial.
+            "catalog_ingestions_fila_idx": False,
+            "catalog_ingestions_phash_idx": False,
             # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
             # unicos. O do contacto cobre so os enderecos utilizaveis
             # (verificados e nao invalidos), que e o conjunto que a entrega le;
@@ -3775,6 +3828,30 @@ class TestInventario(ComBase):
                     "review_decision_log_pkey",
                     "review_decision_log_recurso_ck",
                     "review_decision_log_regra_ck",
+                    # ------------------- KAM-049 (revisao do Catalogo AI)
+                    #
+                    # **Catorze.** Os nove de coluna (o dominio do `estado`, a
+                    # forma do `media_id_meta`, do `phash`, do `extraido`, da
+                    # `categoria_restrita`, do `sku` e do `confirmado_por`, as
+                    # perguntas entre zero e doze e o custo nao negativo), os
+                    # tres de linha — a `media_ref` presa ao tenant da linha, a
+                    # `bloqueada_categoria` com categoria e a `publicada` com
+                    # SKU, sem categoria e com quem confirmou e quando —, a
+                    # unicidade da reentrega e a chave primaria.
+                    "catalog_ingestions_bloqueada_ck",
+                    "catalog_ingestions_categoria_ck",
+                    "catalog_ingestions_confirmado_por_ck",
+                    "catalog_ingestions_custo_ck",
+                    "catalog_ingestions_estado_ck",
+                    "catalog_ingestions_extraido_ck",
+                    "catalog_ingestions_media_id_ck",
+                    "catalog_ingestions_media_ref_ck",
+                    "catalog_ingestions_media_uq",
+                    "catalog_ingestions_perguntas_ck",
+                    "catalog_ingestions_phash_ck",
+                    "catalog_ingestions_pkey",
+                    "catalog_ingestions_publicada_ck",
+                    "catalog_ingestions_sku_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",
