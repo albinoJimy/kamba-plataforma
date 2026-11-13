@@ -1928,16 +1928,17 @@ class TestConvencoes(ComBase):
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
         #
-        # **92 e nao 83** desde a revisao do billing (KAM-059): **nove**. Quatro
+        # **91 e nao 83** desde a revisao do billing (KAM-059): **oito**. Quatro
         # simples para `tenants(id)` (`subscriptions_`, `billing_cycles_`,
         # `commission_accruals_` e `billing_ops_approvals_tenant_fk`); a
-        # `commission_accruals_evento_fk` para `payment_events(id)` e a
         # `billing_ops_approvals_charge_fk` para `payment_charges(id)`, simples
-        # porque o gatilho e a porta conferem o tenant; e tres **compostas** pela
-        # licao ISO-58 — a `charges_billing_fk` (cobranca -> ciclo), a
+        # porque a porta confere o tenant; e tres **compostas** pela licao
+        # ISO-58 — a `charges_billing_fk` (cobranca -> ciclo), a
         # `billing_cycles_subscricao_do_mesmo_tenant_fk` e a
-        # `commission_accruals_encomenda_do_mesmo_tenant_fk`.
-        self.assertEqual(len(linhas), 92)
+        # `commission_accruals_encomenda_do_mesmo_tenant_fk`. A sombra **nao**
+        # tem FK para a `payment_events`: com ela, um `TRUNCATE` ao ledger
+        # falhava por FK antes do `payment_events_sem_truncate` (ver a revisao).
+        self.assertEqual(len(linhas), 91)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

@@ -150,13 +150,13 @@ describe("billing: validade e sombra", () => {
   });
 
   it("a sombra e o floor em bigint, e a taxa nao tem omissao", () => {
-    assert.equal(comissaoEmSombra(1_250_000n, 250), 31_250n);
-    assert.equal(comissaoEmSombra(999n, 1), 0n);
-    assert.equal(comissaoEmSombra(0n, 10_000), 0n);
-    for (const taxa of [-1, 10_001, 2.5]) {
+    assert.equal(comissaoEmSombra(1_250_000n, 250n), 31_250n);
+    assert.equal(comissaoEmSombra(999n, 1n), 0n);
+    assert.equal(comissaoEmSombra(0n, 10_000n), 0n);
+    for (const taxa of [-1n, 10_001n]) {
       assert.throws(() => comissaoEmSombra(100n, taxa), TaxaInvalida);
     }
-    assert.throws(() => comissaoEmSombra(-1n, 10), TaxaInvalida);
+    assert.throws(() => comissaoEmSombra(-1n, 10n), TaxaInvalida);
   });
 
   it("o emissor do Piloto e transferencia, sem referencia", async () => {
@@ -299,6 +299,21 @@ describe("billing: o job de abertura (criterio 2)", () => {
     assert.equal(bd.sqls.at(-1), "ROLLBACK");
   });
 
+  it("um periodo_dia que nao vem inteiro da base e uma falha dita, e nao um NaN", async () => {
+    const bd = new BaseFalsa((sql) =>
+      sql === SQL_BILLING_SUBSCRICOES
+        ? { rows: [{ id: SUB, tenant_id: TENANT, plano: "base", estado: "ativa", periodo_dia: "1" }], rowCount: 1 }
+        : vazio,
+    );
+    const relatorio = await abrirCiclos(bd, {
+      agora: AGORA,
+      conta: CONTA,
+      emissor: emissorManual,
+      gerarId: () => "x",
+    });
+    assert.match(relatorio.falhas[0]?.erro ?? "", /periodo_dia/);
+  });
+
   it("le o precario uma vez por plano", async () => {
     const bd = new BaseFalsa((sql) => {
       if (sql === SQL_BILLING_SUBSCRICOES) {
@@ -334,7 +349,7 @@ describe("billing: mudar o plano (criterio 8)", () => {
         : vazio,
     );
     const r = await mudarPlano(bd, TENANT, "base", modulos);
-    assert.deepEqual(r, { garantidos: 1, desactivados: 2 });
+    assert.deepEqual(r, { garantidos: 1, desligados: 2 });
     assert.deepEqual(bd.sqls, ["BEGIN", SQL_MUDAR_PLANO, "COMMIT"]);
     assert.deepEqual(bd.chamadas[1]?.parametros, [TENANT, "base", JSON.stringify(modulos)]);
   });
@@ -414,16 +429,16 @@ describe("billing: a sombra da comissao (criterio 7)", () => {
       if (sql === SQL_SOMBRA_GRAVAR) return { rows: [], rowCount: 1 };
       return vazio;
     });
-    const n = await acumularSombra(bd, { tenants: [TENANT], taxaBps: 250, lote: 100 });
+    const n = await acumularSombra(bd, { tenants: [TENANT], taxaBps: 250n, lote: 100 });
     assert.equal(n, 1);
     const gravar = bd.chamadas.find((c) => c.sql === SQL_SOMBRA_GRAVAR);
-    assert.deepEqual(gravar?.parametros, [TENANT, "enc-1", "71", "1250000", 250, "31250"]);
+    assert.deepEqual(gravar?.parametros, [TENANT, "enc-1", "71", "1250000", "250", "31250"]);
     assert.deepEqual(bd.chamadas.find((c) => c.sql === SQL_SOMBRA_POR_MEDIR)?.parametros, [100]);
   });
 
   it("uma taxa invalida recusa antes de abrir transaccao", async () => {
     const bd = new BaseFalsa(() => vazio);
-    await assert.rejects(acumularSombra(bd, { tenants: [TENANT], taxaBps: -5, lote: 1 }), TaxaInvalida);
+    await assert.rejects(acumularSombra(bd, { tenants: [TENANT], taxaBps: -5n, lote: 1 }), TaxaInvalida);
     assert.deepEqual(bd.sqls, []);
   });
 
@@ -433,13 +448,13 @@ describe("billing: a sombra da comissao (criterio 7)", () => {
         ? { rows: [{ id: "71", order_id: "enc-1", valor_minor: "10" }], rowCount: 1 }
         : { rows: [], rowCount: null },
     );
-    assert.equal(await acumularSombra(repetida, { tenants: [TENANT], taxaBps: 1, lote: 1 }), 0);
+    assert.equal(await acumularSombra(repetida, { tenants: [TENANT], taxaBps: 1n, lote: 1 }), 0);
 
     const falha = new BaseFalsa((sql) => {
       if (sql === SQL_SOMBRA_POR_MEDIR) throw new Error("rls");
       return vazio;
     });
-    await assert.rejects(acumularSombra(falha, { tenants: [TENANT], taxaBps: 1, lote: 1 }), /rls/);
+    await assert.rejects(acumularSombra(falha, { tenants: [TENANT], taxaBps: 1n, lote: 1 }), /rls/);
     assert.equal(falha.sqls.at(-1), "ROLLBACK");
   });
 });

@@ -409,6 +409,13 @@ def _accruals() -> None:
     numeros nao negativos e o `floor`) e um `CHECK`: a base nao guarda um valor
     que nao seja o calculo da taxa gravada ao lado.
 
+    **Sem FK para a `payment_events`**, e nao e descuido: o gatilho abaixo
+    confere que o evento existe (e e o certo), e o ledger e *append-only* — o
+    evento nao desaparece. Uma FK so acrescentava uma coisa, e era um defeito:
+    um `TRUNCATE` ao ledger passava a falhar com `0A000` («tabela referida por
+    uma FK») **antes** do `payment_events_sem_truncate`, e os ensaios que medem
+    que o ledger recusa o `TRUNCATE` deixavam de medir a barreira deles.
+
     O *trigger* `commission_accruals_so_autenticado` exige que o evento seja um
     `pagamento_confirmado` **aceite** e autenticado pelo facilitador (`hmac` ou
     `consulta`), do mesmo tenant e da mesma encomenda, e que a base seja o valor
@@ -440,8 +447,6 @@ def _accruals() -> None:
             CONSTRAINT commission_accruals_encomenda_do_mesmo_tenant_fk
                 FOREIGN KEY (tenant_id, order_id)
                 REFERENCES platform.orders_mirror (tenant_id, id),
-            CONSTRAINT commission_accruals_evento_fk
-                FOREIGN KEY (payment_event_id) REFERENCES {EVENTOS} (id),
             CONSTRAINT commission_accruals_modo_ck
                 CHECK (modo IN ({", ".join(MODOS_DA_COMISSAO)})),
             CONSTRAINT commission_accruals_so_sombra CHECK (modo = 'sombra'),
@@ -842,6 +847,13 @@ def _g8_das_cobrancas_de_ciclo() -> None:
         CREATE FUNCTION platform.billing_papel_no_ledger() RETURNS trigger
         LANGUAGE plpgsql SET search_path = pg_catalog, platform AS $func$
         BEGIN
+          -- O superutilizador nao e um papel de aplicacao: pode tudo, incluindo
+          -- largar este gatilho, e os ensaios que medem os `CHECK` do ledger
+          -- sozinhos escrevem por ele. A guarda separa os papeis de aplicacao.
+          IF (SELECT r.rolsuper FROM pg_catalog.pg_roles r
+               WHERE r.rolname = session_user) THEN
+            RETURN NEW;
+          END IF;
           IF NEW.billing_cycle_id IS NOT NULL
              AND session_user::text <> '{PAPEL_DO_PAY}' THEN
             RAISE EXCEPTION

@@ -16819,6 +16819,7 @@ entradas:
     nomes_nota:
       - "commission_accruals_evento_uq"
       - "payment_event_id"
+      - "TRUNCATE"
       - "commission_accruals_so_autenticado"
       - "platform.commission_accrual_verificar"
       - "pagamento_confirmado"

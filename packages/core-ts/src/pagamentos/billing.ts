@@ -97,15 +97,24 @@ export class PeriodoInvalido extends Error {
 
 const DATA_CIVIL = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+/**
+ * As tres partes de uma data civil, **sem `Number(`**: o `money_lint` recusa-o
+ * neste directorio por desenho, e a data le-se pelo `Date`. Uma data que nao
+ * existe (30 de Fevereiro) volta como outra, e a comparacao do texto recusa-a.
+ */
 function partes(data: DataCivil): [number, number, number] {
-  const achado = DATA_CIVIL.exec(data);
-  if (achado === null) throw new PeriodoInvalido(`'${data}' nao e uma data AAAA-MM-DD`);
-  const [ano, mes, dia] = [Number(achado[1]), Number(achado[2]), Number(achado[3])];
-  const verificada = new Date(Date.UTC(ano, mes - 1, dia));
-  if (verificada.getUTCMonth() !== mes - 1 || verificada.getUTCDate() !== dia) {
+  if (!DATA_CIVIL.test(data)) throw new PeriodoInvalido(`'${data}' nao e uma data AAAA-MM-DD`);
+  const lida = new Date(`${data}T00:00:00Z`);
+  if (Number.isNaN(lida.getTime()) || lida.toISOString().slice(0, 10) !== data) {
     throw new PeriodoInvalido(`'${data}' nao existe no calendario`);
   }
-  return [ano, mes, dia];
+  return [lida.getUTCFullYear(), lida.getUTCMonth() + 1, lida.getUTCDate()];
+}
+
+/** Um inteiro que a base devolve (`int2`, `int4`, `count(*)::int`), ou recusa. */
+function inteiroDaBase(valor: unknown, campo: string): number {
+  if (typeof valor === "number" && Number.isInteger(valor)) return valor;
+  throw new TypeError(`${campo}: esperava-se um inteiro da base, veio ${String(valor)}`);
 }
 
 function civil(ano: number, mes: number, dia: number): DataCivil {
@@ -203,6 +212,10 @@ export class TaxaInvalida extends Error {
 /**
  * A comissão **em sombra** de um pagamento: `floor(base × taxa / 10 000)`.
  *
+ * **A taxa é `bigint`, e não `number`**, pela razão do `Minor`: entra numa
+ * multiplicação de dinheiro, e o `money_lint` recusa um `number` com nome de
+ * taxa neste directório.
+ *
  * Em `bigint`, e por defeito e não por arredondamento ao mais próximo: a sombra
  * mede o que **se poderia** facturar, e um arredondamento para cima
  * sobrestimava-o em cêntimos que se somam ao longo de um mês de vendas. A taxa
@@ -210,12 +223,12 @@ export class TaxaInvalida extends Error {
  * constante aqui era um preço inventado. Quem corre a sombra passa a taxa que
  * quer medir, e ela fica gravada em cada linha (`taxa_bps`).
  */
-export function comissaoEmSombra(baseMinor: Minor, taxaBps: number): Minor {
-  if (!Number.isInteger(taxaBps) || taxaBps < 0 || taxaBps > Number(BPS_POR_UNIDADE)) {
+export function comissaoEmSombra(baseMinor: Minor, taxaBps: bigint): Minor {
+  if (taxaBps < 0n || taxaBps > BPS_POR_UNIDADE) {
     throw new TaxaInvalida(`taxa_bps ${taxaBps} fora de 0..${BPS_POR_UNIDADE}`);
   }
   if (baseMinor < 0n) throw new TaxaInvalida(`base_minor ${baseMinor} negativa`);
-  return (baseMinor * BigInt(taxaBps)) / BPS_POR_UNIDADE;
+  return (baseMinor * taxaBps) / BPS_POR_UNIDADE;
 }
 
 // --------------------------------------------------------------------------
@@ -497,7 +510,7 @@ export async function abrirCiclos(
     const tenant = texto(linha.tenant_id);
     const plano = texto(linha.plano);
     try {
-      const periodo = periodoDe(hoje, Number(linha.periodo_dia));
+      const periodo = periodoDe(hoje, inteiroDaBase(linha.periodo_dia, "periodo_dia"));
       let linhas = precarios.get(plano);
       if (linhas === undefined) {
         const { rows } = await bd.query(SQL_BILLING_PRECARIO, [plano]);
@@ -596,7 +609,7 @@ export async function mudarPlano(
   tenantId: Uuid,
   plano: string,
   modulos: readonly EntitlementDoPlano[],
-): Promise<{ readonly garantidos: number; readonly desactivados: number }> {
+): Promise<{ readonly garantidos: number; readonly desligados: number }> {
   await bd.query("BEGIN");
   try {
     const { rows } = await bd.query(SQL_MUDAR_PLANO, [
@@ -605,13 +618,16 @@ export async function mudarPlano(
       JSON.stringify(modulos),
     ]);
     const r = rows[0] ?? {};
-    if (Number(r.subscricoes) !== 1 || Number(r.tenants) !== 1) {
+    if (r.subscricoes !== 1 || r.tenants !== 1) {
       throw new SubscricaoInexistente(
         `o tenant ${tenantId} nao tem subscricao (ou nao existe): o plano nao muda`,
       );
     }
     await bd.query("COMMIT");
-    return { garantidos: Number(r.garantidos), desactivados: Number(r.desactivados) };
+    return {
+      garantidos: inteiroDaBase(r.garantidos, "garantidos"),
+      desligados: inteiroDaBase(r.desactivados, "desactivados"),
+    };
   } catch (erro) {
     await bd.query("ROLLBACK");
     throw erro;
@@ -660,7 +676,7 @@ export async function aprovarPorOps(
     await bd.query("COMMIT");
     const r = rows[0] ?? {};
     return {
-      aprovacoes: Number(r.aprovacoes),
+      aprovacoes: r.aprovacoes === undefined ? 0 : inteiroDaBase(r.aprovacoes, "aprovacoes"),
       concluida: r.concluida === true,
       repetida: r.repetida === true,
     };
@@ -679,7 +695,7 @@ export async function aprovarPorOps(
  */
 export async function acumularSombra(
   bd: ClienteSql,
-  opcoes: { readonly tenants: readonly Uuid[]; readonly taxaBps: number; readonly lote: number },
+  opcoes: { readonly tenants: readonly Uuid[]; readonly taxaBps: bigint; readonly lote: number },
 ): Promise<number> {
   comissaoEmSombra(0n, opcoes.taxaBps);
   let gravadas = 0;
@@ -695,7 +711,7 @@ export async function acumularSombra(
           texto(r.order_id),
           texto(r.id),
           base.toString(),
-          opcoes.taxaBps,
+          opcoes.taxaBps.toString(),
           comissaoEmSombra(base, opcoes.taxaBps).toString(),
         ]);
         gravadas += escrita.rowCount ?? 0;

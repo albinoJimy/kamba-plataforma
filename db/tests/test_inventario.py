@@ -3325,7 +3325,7 @@ class TestInventario(ComBase):
                         # tenant nao apaga as fotos dele por baixo da retencao,
                         # que e quem as purga (KAM-071).
                         "catalog_ingestions_tenant_fk",
-                        # KAM-059 (revisao do billing): as nove, todas sem
+                        # KAM-059 (revisao do billing): as oito, todas sem
                         # cascata. Um ciclo nao se apaga com a subscricao, nem a
                         # cobranca com o ciclo (o ledger e *append-only*), nem a
                         # sombra com o evento que a mediu.
@@ -3335,7 +3335,6 @@ class TestInventario(ComBase):
                         "charges_billing_fk",
                         "commission_accruals_tenant_fk",
                         "commission_accruals_encomenda_do_mesmo_tenant_fk",
-                        "commission_accruals_evento_fk",
                         "billing_ops_approvals_tenant_fk",
                         "billing_ops_approvals_charge_fk",
                         "refund_cases_tenant_fk",
