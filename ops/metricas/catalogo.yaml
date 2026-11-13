@@ -271,6 +271,44 @@ metricas:
           - hibrido
           - lexical
 
+  # ------------------------------------------ IDX, processo proprio (KAM-194)
+  #
+  # A quarta do mesmo modulo, e a unica que o AGR **nao** serve: escreve-a o
+  # ciclo da reindexacao, que corre no processo do IDX (`python -m
+  # kamba_core.idx`, servico `idx`, porta 8061). Sem etiquetas — o ciclo soma
+  # os documentos de todos os *tenants* numa volta, e o por-*tenant* sai de SQL.
+  # Conta sempre, mesmo zero, a partir da primeira volta: um painel que a nao
+  # visse nao distinguia «em dia» de «o ciclo nao corre».
+  - nome: idx_reindexed_total
+    tipo: counter
+    fonte: libs/py-core/src/kamba_core/idx/metricas.py
+    exposta_por:
+      - idx
+    ajuda: Documentos reescritos pelo ciclo da reindexacao do IDX.
+    etiquetas: []
+
+  # ---------------------------------------- ponte fila -> Python (KAM-194)
+  #
+  # O `ponte.ts` corre em dois servicos (um por alvo), e os dois servem a mesma
+  # serie no `job` `ponte`. O `outcome` e o desfecho do *job* e nao do consumo
+  # — esse mede-o o lado Python. O dominio esta por extenso e e o
+  # `DESFECHOS_DA_PONTE` do modulo; nenhum `consumer`, `tenant_id` nem
+  # `event_id` entra em etiqueta (`OBS-I`), pelo que e a `instance` que separa
+  # a ponte do IDX da do AGR. Sai a zero nos tres valores desde o arranque.
+  - nome: evt_ponte_total
+    tipo: counter
+    fonte: packages/core-ts/src/eventos/metricas_ponte.ts
+    exposta_por:
+      - worker-canal-ponte-idx
+      - worker-canal-ponte-agr
+    ajuda: Jobs das particoes evt.<consumer>.p<n> tratados pela ponte, por desfecho.
+    etiquetas:
+      - nome: outcome
+        dominio:
+          - entregue
+          - repetir
+          - recusado
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A
@@ -355,6 +393,9 @@ metricas:
           - agr_shim
           - publicador
           - consumidor
+          # KAM-194: a ponte (dois servicos, um `job`) e o processo do IDX.
+          - ponte
+          - idx
 
   - nome: scrape_duration_seconds
     tipo: gauge
@@ -374,6 +415,9 @@ metricas:
           - agr_shim
           - publicador
           - consumidor
+          # KAM-194: a ponte (dois servicos, um `job`) e o processo do IDX.
+          - ponte
+          - idx
 
   # ------------------------------------------ COM / pagamentos (3013)
   #

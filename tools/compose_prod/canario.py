@@ -146,6 +146,15 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
     original, um serviço desta imagem a correr o `CMD`.
     """
     casos: list[Caso] = []
+
+    def _todas(c: Copia, padrao: str) -> int:
+        """Quantas vezes o `command:` aparece. O `ponte.ts` corre em dois
+        servicos (KAM-194): trocar so o primeiro deixava o outro a corre-lo, e
+        o caso da falta ficava verde por nao ter tirado nada. Zero ocorrencias
+        da `count=0` ao `trocar`, que nao substitui nada e levanta
+        `NaoSeAplica` — a rede de seguranca do canario continua armada."""
+        return len(re.findall(padrao, c.ler(lint.PROD), flags=re.MULTILINE))
+
     for processo in lint.CONSUMIDORES:
         curto = processo.rsplit("/", 1)[1].removesuffix(".ts")
         outro = next(p for p in lint.CONSUMIDORES if p != processo)
@@ -157,7 +166,7 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
                 f"o servico de `{curto}` passa a correr outro processo, e ninguem "
                 "corre o seu",
                 lambda c, padrao=padrao, outro=outro: c.trocar(
-                    lint.PROD, padrao, f'"{outro}"'
+                    lint.PROD, padrao, f'"{outro}"', quantas=_todas(c, padrao)
                 ),
                 # O servico passa a correr outro processo com a porta, as
                 # variaveis e o alvo do seu: a ligacao fica errada por
@@ -171,7 +180,8 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
                 frozenset({"consumidor-em-falta", "consumidor-com-server-ts"}),
                 f"o servico de `{curto}` passa a correr o `server.ts`",
                 lambda c, padrao=padrao: c.trocar(
-                    lint.PROD, padrao, f'"{lint.SONDA_DO_WORKER}"'
+                    lint.PROD, padrao, f'"{lint.SONDA_DO_WORKER}"',
+                    quantas=_todas(c, padrao),
                 ),
             )
         )
@@ -259,6 +269,32 @@ def _casos_dos_consumidores() -> tuple[Caso, ...]:
                 lint.STAGING, consumidor_cmd,
                 '    deploy:\n      replicas: 2\n'
                 '    command: ["node", "services/worker-canal/src/consumidor.ts"]',
+            ),
+        ),
+        # KAM-194: o segredo que a ponte apresenta vem **nomeado** por outra
+        # variavel. Trocar o nome deixa o servico com as cinco variaveis do
+        # `exigir(...)` todas cheias — so a regra do `SEGREDO_NOMEADO` ve que
+        # o `KAMBA_SECRET_AGR_INTERNAL_TOKEN` nao esta la.
+        Caso(
+            "ponte-sem-o-segredo-que-nomeia",
+            frozenset({"consumidor-mal-ligado"}),
+            "a ponte do IDX passa a nomear o `agr_internal_token`, e so recebe o "
+            "`KAMBA_SECRET_IDX_INTERNAL_TOKEN`",
+            lambda c: c.trocar(
+                lint.PROD, r"^      KAMBA_PONTE_SEGREDO: idx_internal_token$",
+                "      KAMBA_PONTE_SEGREDO: agr_internal_token",
+            ),
+        ),
+        Caso(
+            "ponte-com-duas-replicas",
+            frozenset({"consumidor-mal-ligado"}),
+            # Em *staging*, como o do consumidor: em producao a mutacao
+            # dispara tambem `replicas-divergentes` contra o manifesto.
+            "em *staging*, a ponte do AGR ganha duas replicas e parte a ordem "
+            "por particao",
+            lambda c: c.trocar(
+                lint.STAGING, r"^    # Uma replica, pela mesma razao\.$",
+                "    deploy:\n      replicas: 2",
             ),
         ),
         Caso(

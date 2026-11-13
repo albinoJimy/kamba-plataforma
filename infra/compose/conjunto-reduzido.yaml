@@ -135,6 +135,34 @@ servicos:
       *workers* BullMQ num processo —, acima do repouso medido no anexo do
       KAM-187.
 
+  # KAM-194: a ponte fila -> consumidor Python e o processo do IDX. Tres
+  # servicos de 192 MiB, uma replica cada, que **tambem nao saem de nenhuma
+  # linha** do doc 09 §4.2, pela razao dos quatro de cima: o total do manifesto
+  # passa de 25 152 para 25 728 MiB (+576), 78,5% da RAM do *host*, dentro dos
+  # 80% do criterio 4 do KAM-076. Sobram 486 MiB ate ao tecto, e e isso que o
+  # proximo processo tem de caber ou de pagar.
+  - nome: worker-canal-ponte-idx
+    estado: presente
+    rede: app
+    memoria_mib: 192
+    razao: >-
+      O `ponte.ts` (KAM-194) com `KAMBA_PONTE_CONSUMERS=idx`: as particoes
+      `evt.idx.p<n>` para `POST /internal/event` no `idx`. Nao abre ligacao a
+      base. Uma replica: a ordem por agregado assenta em concorrencia 1 por
+      fila de particao (`docs/eventos.md` §4). 192 MiB e *proposta*, a do
+      `consumidor.ts`, que tambem sao dezasseis *workers* BullMQ num processo.
+
+  - nome: worker-canal-ponte-agr
+    estado: presente
+    rede: app
+    memoria_mib: 192
+    razao: >-
+      O mesmo `ponte.ts`, com `KAMBA_PONTE_CONSUMERS=agr_vendedor,agr_servicos`
+      e alvo o `agr`. Um servico por alvo porque cada um apresenta **um**
+      segredo. Uma replica pela mesma razao; 192 MiB e *proposta*, e sao
+      trinta e dois *workers* — se o repouso medido os nao comportar, e aqui
+      que o KAM-084 corrige.
+
   - nome: agr
     estado: presente
     rede: app
@@ -143,6 +171,17 @@ servicos:
     razao: >-
       Runtime de agentes, LangGraph como biblioteca (ADR-002). Duas replicas,
       criterio 5.
+
+  - nome: idx
+    estado: presente
+    rede: app
+    memoria_mib: 192
+    razao: >-
+      O processo do IDX (KAM-194), `python -m kamba_core.idx` com a imagem do
+      AGR: recebe a ponte em `POST /internal/event` e corre o ciclo da
+      reindexacao do KAM-062. Uma replica — duas eram duas voltas sobre os
+      mesmos documentos. 192 MiB e *proposta*, sem medicao: biblioteca padrao,
+      uma *thread* por pedido.
 
   - nome: com
     estado: presente

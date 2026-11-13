@@ -133,8 +133,25 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             - set(x01_rotas.ROTAS_INTERNAS_DO_AGR)
             - set(x01_rotas.SONDA_DO_AGR)
             - set(x01_rotas.METRICAS_DO_AGR)
+            # KAM-194: as tres do processo do IDX tambem sao Python, e tem o
+            # ensaio delas abaixo; sem a subtraccao apareciam aqui como rotas
+            # de TypeScript que ninguem declarou.
+            - set(x01_rotas.ROTA_INTERNA_DO_IDX)
+            - set(x01_rotas.SONDAS_DO_IDX)
         )
         self.assertEqual(set(declaradas), enumeradas)
+
+    def test_as_tres_rotas_do_idx(self) -> None:
+        """KAM-194: a enumeracao da biblioteca padrao da **exactamente** estas tres.
+
+        Literais pela doutrina do `x01_rotas`: uma quarta rota no `processo.py`
+        aparece aqui como item que ninguem declarou.
+        """
+        do_idx = {item for item in self.itens if item.startswith("rota:py-core:")}
+        self.assertEqual(
+            do_idx, set(x01_rotas.ROTA_INTERNA_DO_IDX) | set(x01_rotas.SONDAS_DO_IDX)
+        )
+        self.assertEqual(len(do_idx), 3)
 
     def test_as_onze_superficies_da_api_interna_do_com(self) -> None:
         """As onze (KAM-178 e KAM-099) sao **exactamente** as que a enumeracao da ao COM.

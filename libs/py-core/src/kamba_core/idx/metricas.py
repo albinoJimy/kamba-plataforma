@@ -1,8 +1,16 @@
-"""As tres metricas do IDX (KAM-193, DoD «metricas» do KAM-061).
+"""As quatro metricas do IDX (KAM-193, DoD «metricas» do KAM-061; KAM-194).
 
     idx_query_ms{ramo,modo}  gauge    duracao da ultima pesquisa, em milissegundos
     idx_results_total        counter  candidatos devolvidos pela pesquisa, somados
     idx_mode{modo}           counter  pesquisas, por modo (`hibrido` ou `lexical`)
+    idx_reindexed_total      counter  documentos reescritos pelo ciclo da
+                                      reindexacao (KAM-194), sem etiquetas
+
+As tres primeiras escreve-as quem pesquisa (o AGR); a quarta, o processo do IDX
+(`kamba_core.idx.processo`), que e o unico a correr o `reindexar` em ciclo. As
+quatro vivem no mesmo registo porque o processo que serve `/metrics` serve o
+registo inteiro — e cada serie so aparece depois de escrita, pelo que o AGR
+nunca publica a quarta nem o IDX as tres primeiras.
 
 Os nomes sao os do bloco KAM-061 (Detalhes Tecnicos) e do criterio do KAM-193. A
 forma e a das outras bibliotecas de metricas desta arvore
@@ -81,6 +89,10 @@ METRICA_RESULTADOS: Final = "idx_results_total"
 #: Pesquisas, por modo. Etiqueta: `modo`.
 METRICA_MODO: Final = "idx_mode"
 
+#: Documentos reescritos pelo ciclo da reindexacao (KAM-194). Sem etiquetas:
+#: nem *tenant*, nem lote — e o numero que mede o alvo do KAM-062.
+METRICA_REINDEXADOS: Final = "idx_reindexed_total"
+
 #: Os modos do §6.5. `lexical` e o de hoje: sem embedding da pergunta (KAM-063).
 MODOS: Final = ("hibrido", "lexical")
 
@@ -97,6 +109,10 @@ _AJUDA: Final = {
     ),
     METRICA_RESULTADOS: ("counter", "Candidatos devolvidos pela pesquisa no indice."),
     METRICA_MODO: ("counter", "Pesquisas no indice, por modo (hibrido ou lexical)."),
+    METRICA_REINDEXADOS: (
+        "counter",
+        "Documentos do indice reescritos pelo ciclo da reindexacao.",
+    ),
 }
 
 
@@ -125,6 +141,18 @@ class MetricasDoIdx:
         self._resultados = 0
         self._por_modo: dict[str, int] = {}
         self._resultados_escritos = False
+        self._reindexados: int | None = None
+
+    def registar_reindexacao(self, quantos: int) -> None:
+        """Uma volta do ciclo da reindexacao: quantos documentos reescreveu.
+
+        Zero conta — e escreve a serie: um painel que nao a visse nao
+        distinguia «em dia» de «o ciclo nao corre».
+        """
+        if isinstance(quantos, bool) or not isinstance(quantos, int) or quantos < 0:
+            raise ValueError("quantos e um inteiro nao negativo")
+        with self._trinco:
+            self._reindexados = (self._reindexados or 0) + quantos
 
     def registar_pesquisa(
         self, *, modo: str, duracao_ms: float, resultados: int, ramo: str = "todos"
@@ -156,6 +184,8 @@ class MetricasDoIdx:
             valores.update({f"{METRICA_MODO}:{m}": n for m, n in self._por_modo.items()})
             if self._resultados_escritos:
                 valores[METRICA_RESULTADOS] = self._resultados
+            if self._reindexados is not None:
+                valores[METRICA_REINDEXADOS] = self._reindexados
         return valores
 
     def repor(self) -> None:
@@ -164,6 +194,7 @@ class MetricasDoIdx:
             self._por_modo.clear()
             self._resultados = 0
             self._resultados_escritos = False
+            self._reindexados = None
 
     def exposicao(self) -> str:
         """O texto no formato do Prometheus, com `# TYPE` e `# HELP`."""
@@ -171,6 +202,7 @@ class MetricasDoIdx:
             latencia = dict(self._latencia)
             por_modo = dict(self._por_modo)
             resultados = self._resultados if self._resultados_escritos else None
+            reindexados = self._reindexados
         linhas: list[str] = []
 
         def cabecalho(metrica: str) -> None:
@@ -192,6 +224,9 @@ class MetricasDoIdx:
             cabecalho(METRICA_MODO)
             for modo in sorted(por_modo):
                 linhas.append(f'{METRICA_MODO}{{modo="{modo}"}} {por_modo[modo]}')
+        if reindexados is not None:
+            cabecalho(METRICA_REINDEXADOS)
+            linhas.append(f"{METRICA_REINDEXADOS} {reindexados}")
         return "\n".join(linhas) + ("\n" if linhas else "")
 
 

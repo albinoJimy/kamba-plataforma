@@ -109,11 +109,21 @@ RESPOSTA_SEM_ENTITLEMENT: Final = "servico_indisponivel"
 from ..metricas import METRICA_REGISTO_NEGADO, MOTIVOS_DE_NEGACAO  # noqa: E402
 
 #: A chave de topo de cada forma da superficie `registry/*.yaml`. A da vertical
-#: e a dos gates leem-se aqui; a dos planos (KAM-009) **salta-se** — e o
-#: provisionamento que a le, e o AGR nao provisiona tenants.
+#: e a dos gates leem-se aqui; a dos planos (KAM-009) e a dos consumidores que
+#: nao sao verticais (KAM-194) **saltam-se** — os planos le-os o
+#: provisionamento, e um consumidor como o `idx` nao e um grafo nem uma
+#: persona: as subscricoes dele vao para `platform.evt_subscricoes` pela revisao
+#: de dados `0052`, e quem as consome e o processo dele, nao o AGR.
 _CHAVE_DA_VERTICAL: Final = "id"
 _CHAVE_DOS_GATES: Final = "gates"
 _CHAVE_DOS_PLANOS: Final = "plans"
+_CHAVE_DO_CONSUMIDOR: Final = "consumidor"
+_CHAVES_DE_FORMA: Final = (
+    _CHAVE_DA_VERTICAL,
+    _CHAVE_DOS_GATES,
+    _CHAVE_DOS_PLANOS,
+    _CHAVE_DO_CONSUMIDOR,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,18 +398,20 @@ def _ler_pasta(
         documento = ler_yaml(caminho)
         declaradas = [
             chave
-            for chave in (_CHAVE_DA_VERTICAL, _CHAVE_DOS_GATES, _CHAVE_DOS_PLANOS)
+            for chave in _CHAVES_DE_FORMA
             if chave in documento
         ]
         if len(declaradas) != 1:
             erros.append(
                 f"`{caminho.name}` declara {declaradas or 'nenhuma'} das chaves de forma "
-                f"(`{_CHAVE_DA_VERTICAL}`, `{_CHAVE_DOS_GATES}`, `{_CHAVE_DOS_PLANOS}`): "
-                "um ficheiro do registo e exactamente uma das tres formas"
+                f"({', '.join(f'`{c}`' for c in _CHAVES_DE_FORMA)}): "
+                "um ficheiro do registo e exactamente uma das quatro formas"
             )
             continue
         if declaradas == [_CHAVE_DOS_PLANOS]:
             continue  # KAM-009: quem le os planos e o provisionamento.
+        if declaradas == [_CHAVE_DO_CONSUMIDOR]:
+            continue  # KAM-194: um consumidor que nao e vertical nao e do AGR.
         if declaradas == [_CHAVE_DOS_GATES]:
             registos.append(ler_gates(caminho, documento))
             continue

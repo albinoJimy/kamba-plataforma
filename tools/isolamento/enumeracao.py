@@ -595,9 +595,105 @@ def _rotas_python(raiz: Path) -> list[Item]:
     return itens
 
 
+#: A classe de pedido da biblioteca padrao. Quem a estende serve HTTP sem
+#: `Route`, e por isso fica fora do `_rotas_python`.
+_TRATADOR_STDLIB = "BaseHTTPRequestHandler"
+_METODO_STDLIB = re.compile(r"^do_([A-Z]+)$")
+
+
+def _rotas_python_stdlib(raiz: Path) -> list[Item]:
+    """As rotas de um `BaseHTTPRequestHandler` da biblioteca padrao (KAM-194).
+
+    NASCEU DE UMA ROTA QUE A ENUMERACAO NAO VIA. O processo do IDX
+    (`libs/py-core/src/kamba_core/idx/processo.py`) serve `POST /internal/event`
+    num `ThreadingHTTPServer`, e nao em Starlette: nao ha `Route(...)` para o
+    `_rotas_python` encontrar, e o ficheiro vive em `libs/`, que ele nem le. Uma
+    rota interna com credencial, que escreve no `idx.search_doc` de qualquer
+    *tenant*, nascia sem caso e sem que nada ficasse vermelho.
+
+    O predicado: uma classe que estende `BaseHTTPRequestHandler`; cada metodo
+    `do_<VERBO>` dela; e, dentro dele, cada comparacao `self.path == X` ou
+    `self.path != X`, com `X` literal ou constante de cadeia do modulo. A funcao
+    que monta e a que contem a **classe** (a fabrica, `tratador`), e nao o
+    `do_<VERBO>`. Uma `X` que nao se resolve da um item indeciso, como no resto
+    desta enumeracao.
+    """
+    itens: list[Item] = []
+    ficheiros = _ficheiros(raiz, "services/*/src/**/*.py") + _ficheiros(
+        raiz, "libs/*/src/**/*.py"
+    )
+    for caminho in ficheiros:
+        texto = caminho.read_text(encoding="utf-8")
+        if _TRATADOR_STDLIB not in texto:
+            continue
+        relativo = _relativo(raiz, caminho)
+        try:
+            arvore = ast.parse(texto, filename=relativo)
+        except SyntaxError as erro:
+            raise EnumeracaoInvalida(f"{relativo}: nao compila: {erro}") from erro
+        servico = _servico_de(relativo)
+        modulo = _modulo_de(relativo)
+        constantes = _constantes_python(arvore)
+        funcoes = _funcoes_python(arvore)
+        for classe in ast.walk(arvore):
+            if not isinstance(classe, ast.ClassDef):
+                continue
+            bases = {
+                base.id if isinstance(base, ast.Name) else getattr(base, "attr", None)
+                for base in classe.bases
+            }
+            if _TRATADOR_STDLIB not in bases:
+                continue
+            onde_monta = _funcao_python_em(funcoes, classe.lineno)
+            for metodo_no in classe.body:
+                if not isinstance(metodo_no, ast.FunctionDef):
+                    continue
+                verbo = _METODO_STDLIB.match(metodo_no.name)
+                if verbo is None:
+                    continue
+                for no in ast.walk(metodo_no):
+                    if not isinstance(no, ast.Compare) or len(no.comparators) != 1:
+                        continue
+                    if not isinstance(no.ops[0], ast.Eq | ast.NotEq):
+                        continue
+                    esquerda = no.left
+                    if not (
+                        isinstance(esquerda, ast.Attribute)
+                        and esquerda.attr == "path"
+                        and isinstance(esquerda.value, ast.Name)
+                        and esquerda.value.id == "self"
+                    ):
+                        continue
+                    direita = no.comparators[0]
+                    if isinstance(direita, ast.Constant) and isinstance(direita.value, str):
+                        resolvido: str | None = direita.value
+                        expressao = direita.value
+                    elif isinstance(direita, ast.Name):
+                        resolvido = constantes.get(direita.id)
+                        expressao = direita.id
+                    else:
+                        resolvido = None
+                        expressao = ast.dump(direita)[:40]
+                    caminho_da_rota = resolvido if resolvido is not None else (
+                        f"{relativo}#{expressao}"
+                    )
+                    itens.append(
+                        Item(
+                            id=f"rota:{servico}:{modulo}:{onde_monta}:"
+                            f"{verbo.group(1)}:{caminho_da_rota}",
+                            tipo="rota",
+                            camada=servico,
+                            onde=f"{relativo}:{no.lineno}",
+                            indeciso=resolvido is None,
+                        )
+                    )
+    return itens
+
+
 def rotas(raiz: Path = RAIZ) -> list[Item]:
-    """Todas as rotas dos servicos, em TypeScript (Hono) e Python (Starlette)."""
-    return _rotas_ts(raiz) + _rotas_python(raiz)
+    """Todas as rotas: TypeScript (Hono), Python (Starlette) e Python da
+    biblioteca padrao (`BaseHTTPRequestHandler`, desde o KAM-194)."""
+    return _rotas_ts(raiz) + _rotas_python(raiz) + _rotas_python_stdlib(raiz)
 
 
 # ------------------------------------------------------- o que vem do registo

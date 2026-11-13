@@ -41,6 +41,7 @@ from typing import Any
 
 from kamba_agr.eventos.consultas import SQL_ABRIR_DLQ, SQL_CONVERSA_DO_CONTACTO
 from kamba_core.eventos.consumo import SQL_MARCAR_CONSUMIDO, SQL_ULTIMO_SEQ
+from kamba_core.eventos.entrega import SQL_ENVELOPE_DO_ARQUIVO
 
 
 @dataclass
@@ -70,6 +71,9 @@ class Servidor:
     #: cresce e uma fuga de tomadas.
     abertas: int = 0
     fechadas: int = 0
+    #: O `events_log`: `event_id -> envelope` (KAM-194). Le-se com a RLS: so o
+    #: envelope do *tenant* do contexto aparece.
+    arquivo: dict[str, dict] = field(default_factory=dict)
     trinco: threading.Lock = field(default_factory=threading.Lock)
 
     def abrir(self) -> "LigacaoFalsa":
@@ -104,6 +108,11 @@ class CursorFalso:
             return
         if texto == SQL_ABRIR_DLQ.strip():
             self._dlq(parametros)
+            return
+        if texto == SQL_ENVELOPE_DO_ARQUIVO.strip():
+            envelope = self._ligacao.servidor.arquivo.get(str(parametros[0]))
+            visivel = envelope is not None and envelope.get("tenant_id") == self._ligacao.tenant
+            self._uma_linha([("envelope",)], [(envelope,)] if visivel else [])
             return
         if texto == SQL_CONVERSA_DO_CONTACTO.strip():
             self._conversa(parametros)
