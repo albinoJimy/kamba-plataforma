@@ -229,7 +229,13 @@ Implementar `normalizar(texto, tenant_id, origem)` com os 9 passos do §5.1, a t
 
 ### Verificação dos Critérios de Aceitação
 
-Medição de **2026-11-12** sobre `f7e32c84` (a `publico/main` com o KAM-061). A revisão é a **`0049`** (`db/migrations/versions/0049_normalizacao_pt_ao.py`), sobre a `0048` do KAM-089 (a cadeia do lote: `0046` KAM-050, `0047` KAM-192, `0048` KAM-089). **Mediu-se presa à `0045`**, porque a `0048` não está neste ramo, e volta a medir-se na árvore integrada. O DDL vive em `../db/indice.py` (`criar_normalizacao`), pela razão do KAM-061. **Uma adaptação dos Detalhes Técnicos, dita:** os módulos não são `services/idx/src/normalize/*.ts` mas `../libs/py-core/src/kamba_core/idx/` (`normalizacao`, `numeros`, `lexico`), ao lado do índice, da camada de resposta e do consumidor que o KAM-061 já escreveu em Python — uma normalização em TypeScript não tinha quem a chamasse. Reproduz-se nesta máquina com o `.venv` e o Docker:
+Medição de **2026-11-12** sobre `f7e32c84` (a `publico/main` com o KAM-061), com a revisão presa à `0045`, e **medida outra vez a 2026-11-13 na árvore integrada** com a `publico/main` em `32092f45` (o #187 do KAM-089 já fundido). A revisão é a **`0049`** (`db/migrations/versions/0049_normalizacao_pt_ao.py`), sobre a `0048` do KAM-089 (a cadeia do lote: `0046` KAM-050, `0047` KAM-192, `0048` KAM-089). **Na árvore integrada, com a `0049` por cima de tudo:**
+
+- *gate* 8: `tests_produtos` com **164** ensaios OK e `tests_agr` com **252** OK;
+- os ensaios de descida `TestDowngradeDa0038` (19), `TestDowngradeDa0042` (no `test_retencao_bd`, 26), `TestDowngradeDa0046` (4), `TestDowngradeDa0047` (na `tests_agr`) e o `TestDowngrade` da `0048` (no `test_revisao_schema`, 29): todos OK. O `downgrade` da `0049` não tem guarda nem recusa, pelo que nenhuma descida que o atravesse pára nele;
+- as listas fechadas `test_inventario` (12), `test_auditoria` (28), `test_catalogo` (28) e `test_migracao` (18): OK;
+- *gate* 6: 83 ensaios, com uma só falha, a do `TestCasosDeNode`, que precisa de Node e não o tem nesta máquina (a mesma da medição de base);
+- AGR com **1670** ensaios e `py-core` com **858**: OK. O DDL vive em `../db/indice.py` (`criar_normalizacao`), pela razão do KAM-061. **Uma adaptação dos Detalhes Técnicos, dita:** os módulos não são `services/idx/src/normalize/*.ts` mas `../libs/py-core/src/kamba_core/idx/` (`normalizacao`, `numeros`, `lexico`), ao lado do índice, da camada de resposta e do consumidor que o KAM-061 já escreveu em Python — uma normalização em TypeScript não tinha quem a chamasse. Reproduz-se nesta máquina com o `.venv` e o Docker:
 
 ```bash
 python db/gate_bd.py --suite tests_produtos      # gate 8: a versao, a reindexacao, o typo, a RLS, as CHECK
