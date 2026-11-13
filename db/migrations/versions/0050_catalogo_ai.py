@@ -61,10 +61,9 @@ KAM-119.
 
 ## A cadeia
 
-**O numero e provisorio.** A cadeia do lote e `0050` (KAM-197), esta e `0052`
-(KAM-194), e o numero final da-o a integracao pela ordem de quem funde.
-Ate la o `down_revision` e a cabeca da `main` (`0049`), para que o ramo se
-meca sozinho. Renumerar e mudar o nome do ficheiro, o `revision` e o
+`0050` sobre a `0049` (KAM-062), o numero que a integracao do lote lhe deu.
+As outras revisoes do lote encaixam por cima desta pelo `down_revision`
+delas. Renumerar outra vez seria mudar o nome do ficheiro, o `revision` e o
 `down_revision`, e mais nada: nenhum outro ficheiro deste ticket escreve o
 numero desta revisao como literal (os ensaios descobrem-na pelo *glob*
 `*_catalogo_ai.py`, e as listas do `db/tests/base.py` chamam-se pelo nome da
@@ -82,7 +81,7 @@ from alembic import op
 
 import rls
 
-revision = "0051"
+revision = "0050"
 down_revision = "0049"
 branch_labels = None
 depends_on = None

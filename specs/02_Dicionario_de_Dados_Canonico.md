@@ -4182,7 +4182,7 @@ isso a decisão de privacidade e de retenção do dataset (**KAM-064**).
 *Emenda 1.88, **proposta**.* Os nomes do pipeline foto → rascunho de produto do
 `../docs/tecnica/03` §8, do pacote
 [`kamba_core.catalogo`](../libs/py-core/src/kamba_core/catalogo/__init__.py) e da tabela que a
-revisão `catalogo_ai` (em [`db/migrations/versions/`](../db/migrations/versions/), número provisório) cria. É o credor que o
+revisão `0050` ([`db/migrations/versions/0050_catalogo_ai.py`](../db/migrations/versions/0050_catalogo_ai.py)) cria. É o credor que o
 §3.40 deixou escrito: «o domínio dos valores [de `categoria_restrita`] é do KAM-049».
 
 **O léxico é um só.** O §8.2 do `../docs/tecnica/03` chama `lexico_pt_ao` à tabela da
