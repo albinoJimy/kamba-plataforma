@@ -80,7 +80,20 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 #: O `guia` sao as oito rotas do passo guiado do ES (KAM-093), no mesmo
 #: `onboarding-web` e tambem **sem base**: o estado do guia vive no duplo em
 #: memoria, porque as tabelas que o bloco nomeia nao existem.
-GRUPOS = ("sondas", "webhook", "canais", "contacto", "com-interna", "inscricao", "guia", "painel")
+#: O `equipa` sao as nove rotas da consola da fila de revisao (KAM-196), tambem
+#: **sem base**: a fila corre sobre os duplos em memoria do `@kamba/core-ts`, e o
+#: que se mede e quem entra, nao o que a base filtra.
+GRUPOS = (
+    "sondas",
+    "webhook",
+    "canais",
+    "contacto",
+    "com-interna",
+    "inscricao",
+    "guia",
+    "painel",
+    "equipa",
+)
 
 #: A imagem usada quando nao ha `node` no `PATH`. A mesma versao de
 #: `.node-version`, fixada pelo digest que `ci/supply-chain/imagens.yaml`

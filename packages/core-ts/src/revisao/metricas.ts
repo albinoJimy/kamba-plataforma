@@ -21,12 +21,12 @@
  * motivo não entra como etiqueta, porque `screening:<sha256>` dava uma série
  * por caso.
  *
- * **Declaradas e não servidas**: o `onboarding-web` não tem rota `/metrics`, e
- * a fila não tem processo próprio. A exposição está pronta para o *job* que a
- * servir.
+ * **Recalculadas e não servidas**: o *job* da fila (`./ciclo.ts`, KAM-196)
+ * recalcula-as a cada volta, mas nenhum processo o corre nem serve `/metrics`.
+ * A exposição está pronta para o processo de lote do KAM-198.
  *
  * shortcut: as séries recalculam-se de uma leitura da vista e nenhum endpoint
- * as lê; revê-se quando a fila ganhar o seu *job* (credor no bloco do KAM-089).
+ * as lê; revê-se com o processo de lote que as serve (KAM-198).
  */
 
 import { DECISOES, ESTADOS, TIPOS_DE_CASO, type Decisao, type EstadoDoCaso, type TipoDeCaso } from "./contrato.ts";

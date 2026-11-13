@@ -879,6 +879,173 @@ registar_caso(
     origens=("corpo", "cabecalhos", "erro"),
 )
 
+# --------------------------------------- a consola da fila de revisao (KAM-196)
+#
+# As nove rotas do `services/onboarding-web/src/equipa/rotas.ts`. **Nao isolam
+# um tenant**: a equipa ve casos de todos os tenants, e e isso que a fila e. O
+# que elas isolam e **quem entra** — o criterio 4 do bloco: «uma sessao de
+# equipa sem papel nao le, e uma sessao de dono nao entra». O «B» e um caso de
+# outro tenant cujo motivo interno e NIF levam o canario; o «atacante» e quem
+# chega sem identidade da equipa.
+#
+# Os ataques sao tres por rota, e respondem **o mesmo estado**:
+#
+#     entrar         tres provas que nao sao do IdP: a sessao do painel de um
+#                    dono, a referencia `sessao` do registo, e uma prova ja
+#                    usada: 401
+#     sair           tres sessoes forjadas com o `sid` de uma sessao viva: 200,
+#                    e essa sessao continua dentro
+#     as sete do caso a sessao do painel do dono (`kamba_painel`), a do registo
+#                    (`kamba_onboarding`), e a do painel posta no cookie da
+#                    equipa (outro separador de dominio): 401
+#
+# **O 403 da sessao sem papel e o da sessao sem MFA medem-se fora das
+# entradas**, e voltam como marcas: a uniformidade de um item exige um estado so,
+# e o criterio 2 do bloco exige 401 para «sem sessao» e 403 para «sem MFA». Por
+# isso cada rota do caso leva `sem-papel=403` e `sem-mfa=403`, medidos contra o
+# caso de B com o corpo varrido pelo mesmo canario, e `sonda=viva`, que e um
+# pedido legitimo de uma sessao de equipa com papel e MFA a dar o seu 2xx.
+ROTAS_DA_EQUIPA = (
+    "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/entrar",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/sair",
+    "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/casos",
+    "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/casos/:id",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/revelar",
+    "rota:onboarding-web:equipa/rotas:comRevisor:GET:/equipa/casos/:id/documentos/:verificacao",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/decisao",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/recurso",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/recurso/decisao",
+)
+
+#: As rotas da consola que escrevem num caso: depois dos ataques, o caso de B
+#: tem de estar como estava (`b=intacto`).
+ROTAS_DA_EQUIPA_QUE_ESCREVEM = (
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/decisao",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/recurso",
+    "rota:onboarding-web:equipa/rotas:comRevisor:POST:/equipa/casos/:id/recurso/decisao",
+)
+
+#: Os estados de cada rota da consola. **Um so por item**, e nao o global: o
+#: criterio 2 do bloco fixa 401 para quem chega sem identidade da equipa, e um
+#: 403 ou um 404 aqui era a barreira a mudar de forma sem ninguem dar por isso.
+ACEITAVEIS_DA_EQUIPA: dict[str, tuple[int, ...]] = {
+    item: ((200,) if item.endswith("POST:/equipa/sair") else (401,))
+    for item in ROTAS_DA_EQUIPA
+}
+
+#: Ataques por rota da consola.
+ATAQUES_POR_ROTA_DA_EQUIPA = 3
+
+
+def _afirmacoes_da_equipa(item: str, entradas: list[dict]) -> list[str]:
+    """As medicoes que vem na `nota`, e que o oraculo nao ve."""
+    achados: list[str] = []
+    if len(entradas) != ATAQUES_POR_ROTA_DA_EQUIPA:
+        achados.append(
+            f"{item}: o condutor deixou {len(entradas)} entrada(s) e o caso pede "
+            f"{ATAQUES_POR_ROTA_DA_EQUIPA} ataques."
+        )
+    achados.extend(
+        _exigir_marca(
+            item,
+            entradas,
+            "canario-de-b",
+            "presente",
+            "Sem o canario de B no caso de B, o zero do oraculo prova que o "
+            "varrimento nao encontra o que nunca la esteve.",
+        )
+    )
+    if item.endswith("GET:/equipa/entrar"):
+        # Os tres 401 dizem que o IdP falso recusou provas que nao sao dele; o
+        # que diz que a **rota** funciona sao estas duas, de uma prova valida.
+        # Sem elas, um `entrar` que ignorasse a MFA, ou morto, passava (achado 6
+        # da revisao adversarial).
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sem-mfa",
+                "403",
+                "Uma prova valida do IdP sem MFA nao deu 403 sem cookie: a consola "
+                "abria sessao a quem nao provou o segundo factor.",
+            )
+        )
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sonda",
+                "viva",
+                "Uma prova valida com MFA e papel nao cunhou a sessao: o 401 dos "
+                "ataques nao mediu a rota, so uma rota morta.",
+            )
+        )
+        return achados
+    if item.endswith("POST:/equipa/sair"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sessao-viva",
+                "sim",
+                "Uma sessao forjada com o `sid` de outra pessoa revogou-a: "
+                "quem ataca desliga um revisor da consola.",
+            )
+        )
+        return achados
+    for chave, porque in (
+        (
+            "sem-papel",
+            "Uma sessao de equipa sem `ts_revisor` nem `ts_lider` nao respondeu "
+            "403 sem nada do caso: e a primeira metade do criterio 4.",
+        ),
+        (
+            "sem-mfa",
+            "Uma sessao de equipa sem MFA nao respondeu 403 sem nada do caso: e "
+            "o criterio 2 do bloco.",
+        ),
+    ):
+        achados.extend(_exigir_marca(item, entradas, chave, "403", porque))
+    achados.extend(
+        _exigir_marca(
+            item,
+            entradas,
+            "sonda",
+            "viva",
+            "Um pedido legitimo de uma sessao de equipa com papel e MFA nao deu o "
+            "seu 2xx: o 401 dos ataques nao mediu a barreira, so uma rota morta.",
+        )
+    )
+    if item in ROTAS_DA_EQUIPA_QUE_ESCREVEM:
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "b",
+                "intacto",
+                "O caso de B mudou de estado, ou ganhou uma decisao, depois de um "
+                "ataque sem identidade da equipa.",
+            )
+        )
+    return achados
+
+
+registar_caso(
+    id="X-01/ts/equipa",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DA_EQUIPA,
+    fn=_caso_ts(
+        "equipa",
+        ROTAS_DA_EQUIPA,
+        com_idor=True,
+        aceitaveis_por_item=ACEITAVEIS_DA_EQUIPA,
+        afirmacoes=_afirmacoes_da_equipa,
+    ),
+    precisa="node",
+    origens=("corpo", "cabecalhos", "erro"),
+)
+
 registar_caso(
     id="X-01/ts/com-interna",
     bateria="X-01",

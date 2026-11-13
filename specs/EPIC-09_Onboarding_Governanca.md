@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.16 |
+| Versão | 1.17 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -51,7 +51,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-089 | Fila de revisão por excepção para T&S/T2 | feature | L | P0 | KAM-087, KAM-088 |
 | KAM-090 | Aceite contratual versionado: ToS, DPA e aviso de privacidade | feature | M | P0 | KAM-086, ext:KAM-104 |
 | KAM-091 | Saga de provisioning com idempotência, compensação e reconciliação | feature | L | P0 | KAM-009, KAM-019, KAM-030, KAM-042, KAM-016 |
-| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
+| KAM-092 | Eventos `tenant.approved`, `tenant.provisioned` e `tenant.activated` | feature | M | P0 | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196, KAM-198 |
 | KAM-093 | Passo guiado do Embedded Signup: pré-voo e falhas | feature | M | P0 | KAM-016, KAM-017, KAM-086 |
 | KAM-094 | Catálogo mínimo e teste ponta a ponta automático | feature | M | P0 | KAM-049, KAM-091, KAM-088, KAM-092, KAM-093, KAM-023 |
 | KAM-095 | Lista de espera para o limite de onboarding da Meta | feature | M | P1 | KAM-093, ext:KAM-102 |
@@ -66,6 +66,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-192 | Papel do classificador de screening no dicionário e alias `screening-nano` | feature | S | P1 | KAM-088 |
 | KAM-195 | Screening: o classificador chama pelo cliente com gate de destino, registo e custo, e a finalidade de transferência | feature | L | P1 | KAM-192, KAM-069 |
 | KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | KAM-089 |
+| KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | KAM-196 |
 
 ---
 
@@ -1016,7 +1017,7 @@ Testes: idempotência 2x e crash a meio, compensação com falha no passo 4, rec
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196 |
+| Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196, KAM-198 |
 | Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127 |
 | Responsável sugerido | Arquitecto de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1, §16, §20.1 PA-GOV-1/6), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§4–§5), ADR-009, ADR-019 |
@@ -2357,7 +2358,7 @@ Testes: os do AGR, os do core-ts e os de base de dados da revisão nova.
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-089 |
-| Bloqueia | KAM-092 |
+| Bloqueia | KAM-092, KAM-198 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com o Responsável de Segurança |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-089 e a sua verificação), `02_Dicionario_de_Dados_Canonico.md` (§3.61), `../docs/revisao.md`, `../docs/tecnica/08_Seguranca_Conformidade.md` (§6, MFA no acesso humano), ADR-015 |
 
@@ -2380,10 +2381,10 @@ identidade de equipa com MFA, e os avisos ao dono pela via certa.
 ### Critérios de Aceitação
 
 - [ ] **(Fundador)** IdP da equipa escolhido e contas `ts_revisor`/`ts_lider` criadas, com MFA obrigatória; a escolha fica escrita com o subprocessador que acrescenta (KAM-069) e a sua licença.
-- [ ] Porta `IdentidadeDaEquipa` com um IdP falso nos ensaios: devolve o `Revisor` do §3.61 (identificador, papéis, MFA verificada, HMAC de NIF e telefone para a regra da parte); sem sessão válida ⇒ 401, sem MFA ⇒ 403, e nenhuma rota da consola responde sem ela.
-- [ ] Rotas `/equipa` no `onboarding-web` sobre o `ServicoDeRevisao`: lista paginada sem dados pessoais, caso mascarado, revelar um campo, abrir um documento (redirecção para a URL de ≤ 300 s), decidir, abrir e decidir recurso; **nenhuma rota de exportação**; as recusas do serviço respondem 403/409 e ficam no `audit_log`.
-- [ ] Cada rota nova tem caso real na bateria X-01 (`../tools/isolamento/baterias/x01_rotas.py` e o condutor `../tools/isolamento/tests/condutor/rotas.ts`): uma sessão de equipa sem papel não lê, e uma sessão de dono não entra.
-- [ ] Modelos de SMS (ASCII, ≤ 160 caracteres) e de e-mail para `aprovado`, `rejeitado`, `pedir_info` e `recurso_decidido`, com o texto fixo do motivo público; a via é o telefone registado ou o e-mail, **nunca** o número da loja. Nenhum número de telefone real no texto nem nos ensaios.
+- [x] Porta `IdentidadeDaEquipa` com um IdP falso nos ensaios: devolve o `Revisor` do §3.61 (identificador, papéis, MFA verificada, HMAC de NIF e telefone para a regra da parte); sem sessão válida ⇒ 401, sem MFA ⇒ 403, e nenhuma rota da consola responde sem ela.
+- [x] Rotas `/equipa` no `onboarding-web` sobre o `ServicoDeRevisao`: lista paginada sem dados pessoais, caso mascarado, revelar um campo, abrir um documento (redirecção para a URL de ≤ 300 s), decidir, abrir e decidir recurso; **nenhuma rota de exportação**; as recusas do serviço respondem 403/409 e ficam no `audit_log`.
+- [x] Cada rota nova tem caso real na bateria X-01 (`../tools/isolamento/baterias/x01_rotas.py` e o condutor `../tools/isolamento/tests/condutor/rotas.ts`): uma sessão de equipa sem papel não lê, e uma sessão de dono não entra.
+- [x] Modelos de SMS (ASCII, ≤ 160 caracteres) e de e-mail para `aprovado`, `rejeitado`, `pedir_info` e `recurso_decidido`, com o texto fixo do motivo público; a via é o telefone registado ou o e-mail, **nunca** o número da loja. Nenhum número de telefone real no texto nem nos ensaios.
 - [ ] A fila corre num *job* nomeado com credenciais de lote: `drenarTriagem` e `alertarSla` agendados, `amostrar` chamado sobre cada aprovação automática (a que o KAM-092 conhece), `reaplicarEfeitos` sobre as decisões cujo efeito falhou, e as métricas do §3.61 servidas.
 
 ### Detalhes Técnicos
@@ -2402,8 +2403,65 @@ identidade de equipa com MFA, e os avisos ao dono pela via certa.
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos, com o do fundador marcado só quando ele o fechar.
-- [ ] Sem segredos nem telefones reais no repositório; o IdP falso só existe nos ensaios.
-- [ ] Documentação actualizada (`../docs/revisao.md` §4 deixa de listar a consola e o aviso como em falta).
+- [x] Sem segredos nem telefones reais no repositório; o IdP falso só existe nos ensaios.
+- [x] Documentação actualizada (`../docs/revisao.md` §4 deixa de listar a consola e o aviso como em falta).
+
+### Verificação dos Critérios de Aceitação
+
+A consola é `../services/onboarding-web/src/equipa/` (a sessão e a porta em `sessao.ts`, as nove rotas em `rotas.ts`), montada pelo `createApp` com um quinto parâmetro; o aviso ao dono é `../packages/core-ts/src/revisao/avisos.ts` com os cinco modelos `revisao_*` do `../packages/core-ts/src/sms/modelos.ts`; o *job* é `../packages/core-ts/src/revisao/ciclo.ts`. Os nomes estão no dicionário §3.65 (emenda 1.91). **As baterias:** `revisao.avisos.test.ts` (**12**) e `revisao.ciclo.test.ts` (**14**) no `core-ts`, que com as do KAM-089 e do KAM-116 dão **244/244**; `equipa.test.ts` (**19**) no `onboarding-web`, que dá **136/136** com as outras; o caso `X-01/ts/equipa` com o grupo `equipa` do condutor (**27** ataques, **0** achados); a suite de `../tools/isolamento/tests/` **115/115**. **Sem revisão de base de dados**: a identidade da equipa é do IdP, e as revogações e os efeitos por reaplicar ficam em memória como o resto do `onboarding-web`.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. **(Fundador)** IdP escolhido e contas `ts_revisor`/`ts_lider` com MFA; a escolha escrita com o subprocessador (KAM-069) e a licença | **vazia** | Contraparte e conta: nenhuma sessão as faz. O que fica pronto é a porta que o IdP vai cumprir (`IdentidadeDaEquipa`) e uma condição para o adaptador dele: **ligar a prova ao navegador** que começou a entrada (`state`/`nonce` de OIDC), sem o que há *login CSRF*. O `../services/onboarding-web/src/server.ts` **não monta a consola** sem IdP, e di-lo no arranque (`equipa_desligada`). Credor: o fundador |
+| 2. Porta `IdentidadeDaEquipa` com IdP falso; devolve o `Revisor` do §3.61; sem sessão 401, sem MFA 403; nenhuma rota responde sem ela | **satisfeito** | A porta tem `autenticar(prova)` — a autenticação, com a MFA **dessa** autenticação — e `conta(id)`, lida **a cada pedido**: tirar o papel fecha a consola no pedido seguinte (403), desactivar a conta também (401). A sessão `kamba_equipa` leva o separador `kamba/equipa/sessao/v1`: uma do painel do dono assinada com a mesma chave não verifica, e um texto com a forma da equipa assinado sob o separador do painel também não (o ensaio de controlo verifica com o separador certo). Sem prova, prova falsa ou reusada: 401; prova sem MFA ou conta sem papel: 403, sem `Set-Cookie`, com `review.recusa` no `audit_log`. As sete rotas do caso, com cinco formas de chegar sem identidade (sem cookie, as duas sessões do dono e as duas postas no cookie da equipa): **35/35** 401 sem nada do caso; com uma sessão sem papel e uma sem MFA: **14/14** 403, **14** linhas `review.recusa` com `entidadeId = barreira` (antes do serviço). O IdP falso só existe nos ensaios e no condutor |
+| 3. Rotas `/equipa` sobre o `ServicoDeRevisao`: lista paginada sem PII, caso mascarado, revelar, documento (303 para ≤ 300 s), decidir, abrir e decidir recurso; sem exportação; recusas 403/409 no `audit_log` | **satisfeito** | Ponta a ponta com o serviço sobre os duplos: `ver` dá o NIF e o telefone mascarados e passa o caso a `em_analise`; `revelar` dá um campo e regista `revelar:nif`; o documento dá **303** com `Referrer-Policy: no-referrer` e um de outro caso **403** `evidencia_alheia`; a ordem no `audit_log` é `ver`, `revelar:nif`, `documento`, `evidencia_alheia`. Rejeitar fecha o caso e o onboarding; decidir outra vez dá **409**; o recurso regista-se (`recurso:abrir`), um segundo dá **409**, e quem decidiu a primeira recebe **403** `revisor_da_primeira_instancia`; outro revisor fecha-o em `decidido_final`. `escalado` só o líder (**403** `so_lider`), e quem é parte não lê (**403** `parte_no_caso`). **120 casos:** a página 0 dá **50** mesmo com `limite=1000`, a 2 dá **20**, e `/equipa/exportar`, `/equipa/casos.csv` e `/equipa/casos/exportar` dão **404**. A lista não leva NIF, telefone, motivo interno, tenant nem evidências. Todos os `POST` exigem JSON (**415** a um formulário, nas cinco rotas). Uma decisão cujo efeito falha depois de registada dá **202** e vai para o *job* |
+| 4. Cada rota nova com caso real na X-01, bateria e condutor: equipa sem papel não lê, dono não entra | **satisfeito** | `ROTAS_DA_EQUIPA` (**9**) em `../tools/isolamento/baterias/x01_rotas.py`, com o caso `X-01/ts/equipa`; o grupo `equipa` no `../tools/isolamento/tests/condutor/rotas.ts` e no `GRUPOS` do `ponte.py`; o `test_as_rotas_de_typescript` com a lista nova. Três ataques por rota, **uniformes**: o `entrar` com provas que não são do IdP (401), o `sair` com sessões forjadas com o `sid` de outra (200, e a sessão alvo continua viva), e as sete do caso com as sessões do dono (401). Fora das entradas, como marcas exigidas pelo caso: `sem-papel=403` e `sem-mfa=403` sem o canário, `sonda=viva` com uma sessão legítima, `b=intacto` nas três que escrevem, e no `entrar` uma prova **válida** sem MFA (403 sem cookie) e com MFA (303 com a sessão). A enumeração dá **65** rotas e **0** sem caso |
+| 5. Modelos de SMS (ASCII, ≤ 160) e de e-mail para os quatro avisos, com o texto fixo do motivo público; via telefone registado ou e-mail, nunca o número da loja; sem telefones reais | **satisfeito** | Cinco modelos de SMS (`revisao_aprovado`, `revisao_rejeitado`, `revisao_pedir_info`, `revisao_recurso_aprovado`, `revisao_recurso_mantido`) e cinco e-mails: as **14** combinações que o serviço manda rendem ASCII de um segmento, e o pior caso de cada modelo cabe nos 160. O único parâmetro é o **código** do motivo, que rende o texto fixo (`TEXTO_DO_MOTIVO_PUBLICO`) ou a primeira frase dele (`CAUSA_DO_MOTIVO_PUBLICO`, medida como prefixo exacto). O recurso aceite diz «recurso aceite» e não «aprovado» (o pedido pode esperar por outro caso), e o recurso mantido não oferece outro recurso. Um parâmetro não declarado levanta, também no OTP. O `AvisoAoDonoPorVia` lê o telefone **registado** pela porta `DadosPessoais` da fila e não recebe canal nem número da loja; o HMAC do destino é o do registado e não o da loja. Os telefones dos ensaios são nacionais a começar por zero, escritos com espaços. **A via de e-mail** existe no adaptador (`CorreioDoDono`), mas o serviço manda sempre `sms` e nenhum fornecedor de e-mail está escolhido (KAM-115) |
+| 6. Um *job* nomeado com credenciais de lote: `drenarTriagem` e `alertarSla` agendados, `amostrar` sobre cada aprovação automática, `reaplicarEfeitos` sobre os efeitos falhados, métricas servidas | **parcial** | **Medido:** o `CicloDaFila` corre os quatro passos e um que falha não pára os outros (o drenar, o alertar, o reaplicar); duas voltas pedidas ao mesmo tempo são uma; reaplica o aviso de um `pedir_info` que falhou, não repete o «aprovado» que outro caso já mandou, e não reaplica um recurso aberto. O `LeitorDaFilaSql` lê as duas consultas da `0048`. O gancho `aprovacaoAutomatica` amostra perto de 20% dentro das semanas. **O que fica por fechar:** nenhum processo corre o ciclo com credenciais de lote, o `/metrics` não está servido, e a lista de efeitos por reaplicar é em memória. Credor: **KAM-198**, aberto neste PR; a chamada do `amostrar` é do **KAM-092**, que passa a depender do KAM-198 |
+
+#### O que a revisão adversarial mudou
+
+Um agente que não viu o raciocínio desta entrega reviu o `54c53985` com **24 mutações** e levantou **onze** achados. Seis eram médios e confirmados, e mudaram código:
+
+- **O `pedir_info` perdia o aviso.** Um aviso que falhava ia para o *job*, e o `reaplicarEfeitos` largava o caso por estar pendente.
+- **O `reaplicar` mandava um segundo «aprovado».** Acontecia quando outro caso do mesmo onboarding tinha aprovado depois. A linha nova do `#efeitos` só reenvia o aviso se foi esta a última decisão.
+- **Um erro antes do registo era tratado como efeito por aplicar.** O caso ia para o *job*, e um recurso aberto reenviava ao dono o «pode recorrer». Agora só um `EfeitoPorAplicarError` marca o caso.
+- **O motivo que o dono lia mudava entre avisos.** A consola aceitava um `motivo_publico` que o serviço não guarda, e deixou de o aceitar: o motivo é o do caso.
+- **O `recurso` e o `sair` aceitavam formulários.** Agora todos os `POST` exigem JSON.
+- **O X-01 do `entrar` media o IdP falso, e não a rota.**
+
+Dos baixos, quatro levaram ensaio:
+
+- o separador de domínio;
+- a conta devolvida com outro id;
+- a barreira antes do serviço;
+- o ciclo que não pára no drenar.
+
+E um levou correcção: o cookie passou de `Strict` a `Lax`, porque o regresso do IdP é uma navegação de outro sítio. Os outros dois ficam escritos:
+
+- As revogações em memória perdem-se num reinício, como o resto do `onboarding-web`.
+- O recurso registado pela equipa não traz prova do pedido do dono, porque a rota do dono não existe; fica no `audit_log` como `recurso:abrir`.
+
+**Confirmação:** dez mutações sobre as correcções, todas mortas, das quais cinco tinham sobrevivido na primeira passagem. São elas: o ramo do `reaplicar` sempre verdadeiro, o separador tirado, a barreira sem papel, a conta com outro id, e a barreira sem JSON.
+
+#### O que este ticket tocou que não era dele, e porquê
+
+- **O `ServicoDeRevisao` do KAM-089**, em três sítios:
+  - o `registarRecurso`, porque a consola abre o recurso com identidade, auditoria e a regra «não é parte», e o `abrirRecurso` não tem revisor;
+  - o `EfeitoPorAplicarError`;
+  - o `reaplicarEfeitos`, que não reenviava o aviso de uma aprovação cuja fase já tinha passado — achado do primeiro ensaio do *job*.
+
+  O ensaio (J) do KAM-089 passa a esperar o erro embrulhado.
+- **O `construir` do KAM-116**, que valida agora os parâmetros que cada modelo declara. O `revelar()` do código continua com um só sítio de chamada.
+- **O bloco do KAM-092**, que depende agora do KAM-198.
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos, com o do fundador marcado só quando ele o fechar | **parcial** | Quatro satisfeitos (2 a 5); o 1 é do fundador e está vazio; o 6 é parcial, com o credor KAM-198 |
+| 2. Sem segredos nem telefones reais; o IdP falso só nos ensaios | **marcada** | O `scan_secrets` do *pre-commit* diz limpo nos dois *commits*; nenhum literal com forma de telefone (os dos ensaios levam espaços e começam por zero); o IdP falso vive no `equipa.test.ts` e no condutor, e o `server.ts` não monta a consola |
+| 3. `../docs/revisao.md` §4 deixa de listar a consola e o aviso como em falta | **marcada** | O §4 diz agora o que falta e a quem: o IdP e as contas (fundador), o processo de lote (KAM-198), a via de e-mail (KAM-115) e o motivo escolhido na decisão; a consola tem o seu §5 |
 
 ### Handoff para Claude Code
 
@@ -2416,6 +2474,76 @@ ServicoDeRevisao, casos X-01 das rotas novas, modelos de SMS e e-mail do aviso a
 Regras: a escolha do IdP e as contas de staff são do fundador; sem exportação; sem telefones reais;
 nenhuma rota responde sem identidade com MFA.
 Testes: unidade, integração, isolamento e adversarial.
+```
+
+---
+
+## KAM-198 — Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | M |
+| Dependências | KAM-196 |
+| Bloqueia | KAM-092 |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com SRE |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-089, KAM-196 e KAM-091), `02_Dicionario_de_Dados_Canonico.md` (§3.61), `../docs/revisao.md`, `../docs/observabilidade.md` |
+
+### Contexto
+
+O KAM-196 entregou o **ciclo** da fila de revisão (`../packages/core-ts/src/revisao/ciclo.ts`):
+uma volta que drena a triagem, dá os alertas dos 80%, reaplica os efeitos que falharam depois de
+uma decisão e recalcula as quatro métricas do §3.61, mais o gancho onde o KAM-092 amostra uma
+aprovação automática. **Nenhum processo o corre.** O `onboarding-web` recusa arrancar em `prod`
+(os repositórios dele são em memória) e não tem os adaptadores SQL; e a fila atravessa tenants por
+natureza, pelo que corre como `kamba_batch`, que é o papel com `BYPASSRLS` auditado. Este ticket é
+o credor da metade do critério 6 do KAM-196 que ficou sem dono, e nasce no PR que a devolve.
+
+**É infraestrutura de lote do onboarding, e não só da fila**: a reconciliação da saga (KAM-091)
+vai precisar do mesmo processo, e escrevê-lo só para a fila era escrever dois.
+
+### Objectivo
+
+Um processo de lote do onboarding, nomeado, que corre o ciclo da fila de revisão em `prod` com
+credenciais de lote e serve as métricas dela.
+
+### Critérios de Aceitação
+
+- [ ] Um processo nomeado corre como `kamba_batch` com os adaptadores SQL da fila (`RevisaoSql`, `AuditoriaSql`, `LeitorDaFilaSql`) e dos onboardings, e **arranca em `prod`**; sem as credenciais, não arranca.
+- [ ] O `CicloDaFila` corre agendado nele (`drenarTriagem`, `alertarSla`, `reaplicarEfeitos`, métricas), e a lista de efeitos por reaplicar **sobrevive a um reinício** (hoje é em memória).
+- [ ] `/metrics` servido com as quatro métricas do §3.61, com caso real na bateria X-01 (`../tools/isolamento/baterias/x01_rotas.py` e o condutor de Node).
+- [ ] O ponto onde o KAM-092 chama o `amostrar` sobre cada aprovação automática (`CicloDaFila.aprovacaoAutomatica`) existe neste processo.
+- [ ] A quota da abertura de casos entre processos: o `shortcut` do `ServicoDeRevisao.abrir` fecha-se com um `pg_advisory_xact_lock` sobre a chave da quota no adaptador SQL.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV, `kamba_batch`, observabilidade (ADR-018), isolamento (X-01).
+- **Fora deste ticket:** a reconciliação da saga em si (KAM-091), a emissão do `tenant.approved` (KAM-092), a consola (KAM-196).
+
+### Testes Requeridos
+
+- Integração: o ciclo contra o PostgreSQL do *gate* 8, com o caso atrasado, o da triagem e o efeito por reaplicar.
+- Isolamento: o caso X-01 do `/metrics`.
+- Arranque: em `prod` sem credenciais de lote, o processo não arranca.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos.
+- [ ] `../docs/revisao.md` §4 deixa de listar o processo da fila como em falta.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-198 da KAMBÁ (processo de lote do onboarding).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-196 e KAM-198), docs/revisao.md,
+packages/core-ts/src/revisao/ciclo.ts e packages/core-ts/src/revisao/sql.ts.
+Objectivo: um processo kamba_batch que corre o CicloDaFila em prod, serve /metrics e dá ao
+KAM-092 o gancho do amostrar.
+Regras: credenciais de lote; nada de duplos em memória em prod; o /metrics com caso X-01.
+Testes: integração contra PostgreSQL, isolamento e arranque.
 ```
 
 ---
@@ -2476,3 +2604,4 @@ Testes: unidade, integração, isolamento e adversarial.
 | 1.14 | Novembro 2026 | KAM-192: entram as duas secções de verificação do bloco do papel do classificador de screening — **três** critérios e **três** linhas de DoD, todos satisfeitos. O `screening-nano` fica declarado em `../llm/aliases.yaml` com o papel próprio `screening` (dicionário §3.29, emenda 1.85), e **com uma revisão de base de dados que o bloco não previa**: o papel é o domínio fechado de `dat.llm_call_log.papel`, e a `0047` reescreve o `CHECK` da `0023`, com o `downgrade` a recusar-se quando há linhas `screening`. A linha da DoD 2 do KAM-088 passa a apontar para esta entrega. Declarado não é ligado: o modelo fica com o KAM-040, como nos outros quatro aliases, e a finalidade de transferência e a ligação do classificador ao cliente do AGR ficam com o credor **KAM-195**, que **entra** neste PR (feature, L, P1, fase 1, dependências KAM-192 e KAM-069); o `Bloqueia` do KAM-192 ganha-o, e o do KAM-069 também. Total do epic: **20**. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | KAM-089: entram as duas secções de verificação do bloco da fila de revisão — **nove** critérios (cinco marcados, quatro parciais) e **seis** itens da DoD (três marcados, três parciais), cada parcial com o credor nomeado —, e o **KAM-196** nasce neste PR como credor da identidade da equipa com MFA, da consola `/equipa`, dos modelos do aviso ao dono e do *job* da fila; o **KAM-092** passa a depender dele, no bloco e na tabela-resumo. A revisão adversarial deu dezanove achados e mudou código: os dois bloqueadores eram o recurso de uma categoria a aprovar um onboarding rejeitado pelo KYC e a suite (a) a não medir a barreira do OTP. | Equipa KAMBÁ |
 | 1.16 | Novembro 2026 | **Credor nomeado, no PR do KAM-049:** o bloco do KAM-094 ganha, nos Detalhes Técnicos, a linha do que recebe do KAM-049 — o adaptador de visão real do Catálogo AI e o p95 e o custo medidos em staging com o eval-gate verde, com o ext:KAM-101 como condição. Sem critério novo, sem mudar estimativa nem dependências. | Equipa KAMBÁ |
+| 1.17 | Novembro 2026 | KAM-196: entram as duas secções de verificação do bloco da consola da fila de revisão — **seis** critérios (quatro satisfeitos, o do fundador vazio e o do *job* parcial) e **três** itens da DoD (dois marcados, um parcial). Entregue: a porta `IdentidadeDaEquipa` e a sessão `kamba_equipa` com separador de domínio próprio, as **nove** rotas `/equipa` no `onboarding-web` com a barreira 401/403 antes do serviço, o caso `X-01/ts/equipa` com bateria e condutor, os cinco modelos de SMS e os cinco e-mails do aviso ao dono com o adaptador da porta, e o ciclo da fila. A revisão adversarial confirmou seis achados médios e mudou código, o mais grave um `pedir_info` cujo aviso se perdia. **Entra o KAM-198** (feature, M, P0, fase 1, dependência KAM-196), credor do processo de lote que corre o ciclo e serve as métricas; o `Bloqueia` do KAM-196 e as `Dependências` do KAM-092 ganham-no, no bloco e na tabela-resumo. Total do epic: **22**. Sem revisão de base de dados. | Equipa KAMBÁ |

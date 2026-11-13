@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.90"
+versao_dicionario: "1.91"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -16350,6 +16350,108 @@ entradas:
     nomes_nota:
       - "por_abrir"
     variantes_literais: []
+  - seccao: "3.65"
+    conceito: "As rotas da consola"
+    canonico: "GET /equipa/entrar, POST /equipa/sair, GET /equipa/casos, GET /equipa/casos/:id, POST /equipa/casos/:id/revelar, GET /equipa/casos/:id/documentos/:verificacao, POST /equipa/casos/:id/decisao, POST /equipa/casos/:id/recurso, POST /equipa/casos/:id/recurso/decisao"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "review.recusa"
+      - "POST"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "A porta da identidade da equipa"
+    canonico: "IdentidadeDaEquipa: autenticar(prova) → {id, mfa}, conta(id) → o Revisor do §3.61 sem a MFA"
+    literais:
+      - "IdentidadeDaEquipa"
+      - "autenticar(prova)"
+      - "{id, mfa}"
+      - "conta(id)"
+      - "Revisor"
+    nomes:
+      - "IdentidadeDaEquipa"
+      - "autenticar"
+      - "prova"
+      - "id"
+      - "mfa"
+      - "conta"
+      - "Revisor"
+    nomes_nota:
+      - "state"
+      - "nonce"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "A sessão da equipa"
+    canonico: "cookie kamba_equipa, domínio kamba/equipa/sessao/v1, v1.<sid>.<conta>.<mfa>.<emitida>.<hmac>"
+    literais:
+      - "kamba_equipa"
+      - "v1.<sid>.<conta>.<mfa>.<emitida>.<hmac>"
+    nomes:
+      - "kamba_equipa"
+      - "v1"
+      - "sid"
+      - "conta"
+      - "mfa"
+      - "emitida"
+      - "hmac"
+    nomes_nota:
+      - "sessao"
+      - "SameSite"
+      - "Lax"
+      - "sid"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "Os modelos de SMS do aviso"
+    canonico: "revisao_aprovado, revisao_rejeitado, revisao_pedir_info, revisao_recurso_aprovado, revisao_recurso_mantido"
+    literais:
+      - "revisao_aprovado"
+      - "revisao_rejeitado"
+      - "revisao_pedir_info"
+      - "revisao_recurso_aprovado"
+      - "revisao_recurso_mantido"
+    nomes:
+      - "revisao_aprovado"
+      - "revisao_rejeitado"
+      - "revisao_pedir_info"
+      - "revisao_recurso_aprovado"
+      - "revisao_recurso_mantido"
+    nomes_nota:
+      - "aviso_de_servico"
+      - "motivo"
+      - "causa"
+      - "recurso_decidido"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "A causa de um motivo público"
+    canonico: "CAUSA_DO_MOTIVO_PUBLICO"
+    literais:
+      - "CAUSA_DO_MOTIVO_PUBLICO"
+    nomes:
+      - "CAUSA_DO_MOTIVO_PUBLICO"
+    nomes_nota:
+      - "TEXTO_DO_MOTIVO_PUBLICO"
+    variantes_literais: []
+  - seccao: "3.65"
+    conceito: "O ciclo da fila"
+    canonico: "CicloDaFila, com os passos drenar, alertar, reaplicar e medir"
+    literais:
+      - "CicloDaFila"
+      - "drenar"
+      - "alertar"
+      - "reaplicar"
+      - "medir"
+    nomes:
+      - "CicloDaFila"
+      - "drenar"
+      - "alertar"
+      - "reaplicar"
+      - "medir"
+    nomes_nota:
+      - "aprovacaoAutomatica"
+      - "amostrar"
+      - "EfeitoPorAplicarError"
+      - "prod"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -17577,6 +17679,22 @@ tabelas:
     assinatura: "platform.abrir_caso_de_reembolso(p_tenant_id, p_order_id, p_motivo, p_valor_minor, p_currency, p_pedido_evento_id)"
     seccao: "3.64"
     conceito: "Porta de abertura do caso"
+  - nome: "autenticar"
+    esquema: ""
+    colunas:
+      - "prova"
+    aberta: false
+    assinatura: "autenticar(prova)"
+    seccao: "3.65"
+    conceito: "A porta da identidade da equipa"
+  - nome: "conta"
+    esquema: ""
+    colunas:
+      - "id"
+    aberta: false
+    assinatura: "conta(id)"
+    seccao: "3.65"
+    conceito: "A porta da identidade da equipa"
 
 dominios:
   - coluna: "consent_event.purpose"

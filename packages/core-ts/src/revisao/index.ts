@@ -5,6 +5,27 @@
 
 export * from "./contrato.ts";
 export {
+  AvisoAoDonoPorVia,
+  AvisoSemDestinoError,
+  mensagemDoAviso,
+  type CorreioDoDono,
+  type EmailDoAviso,
+  type MensagemDoAviso,
+  type OpcoesDoAvisoAoDono,
+} from "./avisos.ts";
+export {
+  CicloDaFila,
+  EfeitosPorReaplicarEmMemoria,
+  LeitorDaFilaSql,
+  PASSOS_DO_CICLO,
+  type EfeitosPorReaplicar,
+  type LeitorDaFila,
+  type OpcoesDoCiclo,
+  type PassoDoCiclo,
+  type ResultadoDoCiclo,
+  type ServicoDoCiclo,
+} from "./ciclo.ts";
+export {
   CasoJaDecididoError,
   CasoNaoElegivelError,
   SCORE_DE_RISCO_ALTO,

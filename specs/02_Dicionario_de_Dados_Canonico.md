@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.90 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.91 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4243,6 +4243,31 @@ raspagem — é configuração de implantação, como a do consumidor do KAM-055
 
 ---
 
+### 3.65 A consola da fila de revisão: sessão da equipa, rotas, avisos ao dono e o ciclo (KAM-196)
+
+*Emenda 1.91, **proposta**.* Os nomes da consola `/equipa` do `onboarding-web`
+([`../services/onboarding-web/src/equipa/`](../services/onboarding-web/src/equipa/rotas.ts)), do aviso
+ao dono sobre a decisão ([`../packages/core-ts/src/revisao/avisos.ts`](../packages/core-ts/src/revisao/avisos.ts))
+e do ciclo da fila ([`../packages/core-ts/src/revisao/ciclo.ts`](../packages/core-ts/src/revisao/ciclo.ts)).
+É o seguimento que o §3.61 deixou escrito. **Nenhuma revisão de base de dados**: a identidade da
+equipa é do IdP, e os papéis `ts_revisor` e `ts_lider` continuam a não ser papéis de base de dados.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| As rotas da consola | `GET /equipa/entrar`, `POST /equipa/sair`, `GET /equipa/casos`, `GET /equipa/casos/:id`, `POST /equipa/casos/:id/revelar`, `GET /equipa/casos/:id/documentos/:verificacao`, `POST /equipa/casos/:id/decisao`, `POST /equipa/casos/:id/recurso`, `POST /equipa/casos/:id/recurso/decisao` | — | *proposta* (emenda 1.91, KAM-196). **Nove**, JSON. A lista tem página de 50 e não há exportação. Sem sessão da equipa, 401; sem MFA ou sem papel, 403 com `review.recusa`; todos os `POST` exigem `application/json` (415). Uma decisão registada cujo efeito falhou responde 202. A consola **não aceita** um motivo público na decisão: o motivo é o do caso |
+| A porta da identidade da equipa | `IdentidadeDaEquipa`: `autenticar(prova)` → `{id, mfa}`, `conta(id)` → o `Revisor` do §3.61 sem a MFA | — | *proposta* (emenda 1.91, KAM-196). A MFA é um facto **da autenticação**, e vai na sessão; os papéis e os HMAC de NIF e telefone são da **conta**, e lêem-se a cada pedido. O IdP que a cumpre é do fundador; o adaptador dele liga a prova ao navegador (`state`/`nonce`) |
+| A sessão da equipa | cookie `kamba_equipa`, domínio `kamba/equipa/sessao/v1`, `v1.<sid>.<conta>.<mfa>.<emitida>.<hmac>` | — | *proposta* (emenda 1.91, KAM-196). **Não é** a sessão do painel do dono (§3.56) nem a `sessao` do registo: outro cookie e outro separador, com a mesma chave. Cunha-se só com MFA e papel; **8 h** desde a entrada, sem renovação (*proposta*); `SameSite=Lax`, `Path=/equipa`; revoga-se por `sid` |
+| Os modelos de SMS do aviso | `revisao_aprovado`, `revisao_rejeitado`, `revisao_pedir_info`, `revisao_recurso_aprovado`, `revisao_recurso_mantido` | — | *proposta* (emenda 1.91, KAM-196). Finalidade `aviso_de_servico`; ASCII e um segmento no pior caso. O único parâmetro é o **código** do motivo público (`motivo` ou `causa`), que rende o texto fixo da fila. Os quatro avisos do §3.61 dão estes cinco porque o `recurso_decidido` se parte em aceite e mantido |
+| A causa de um motivo público | `CAUSA_DO_MOTIVO_PUBLICO` | — | *proposta* (emenda 1.91, KAM-196). A primeira frase de cada `TEXTO_DO_MOTIVO_PUBLICO`, e o começo exacto dele: o que o aviso de um recurso mantido diz, sem o passo seguinte que já não existe |
+| O ciclo da fila | `CicloDaFila`, com os passos `drenar`, `alertar`, `reaplicar` e `medir` | — | *proposta* (emenda 1.91, KAM-196). Um passo que falha não pára os outros, e diz-se pelo nome do passo. `aprovacaoAutomatica` é o gancho do `amostrar` (KAM-092). Um efeito de uma decisão já registada que falhou levanta `EfeitoPorAplicarError`, e é por ele que o caso vai para o ciclo. **Nenhum processo o corre** em `prod`: o KAM-198 |
+
+**O que esta emenda não decide, e a quem.** O IdP e as contas de staff — o fundador. O processo de
+lote que corre o ciclo com credenciais de lote, serve as métricas do §3.61 e guarda os efeitos por
+reaplicar — **KAM-198**. A chamada do `amostrar` sobre cada aprovação automática — **KAM-092**. O
+fornecedor de e-mail do aviso — KAM-115.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -4354,3 +4379,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.88 | Novembro 2026 | **Emenda (*proposta*), KAM-063: os embeddings do catálogo e da pergunta, sem DDL.** Sem nome novo de tabela, coluna ou evento: o vector e o `embedding_modelo` são os do §3.59, e os dois nomes de métrica novos vivem no `ops/metricas/catalogo.yaml`, como os do KAM-193. O que muda é **quem deve o quê**. §3.59, linha «Vector do produto»: o `halfvec(1024)` continua provisório, e a escolha do modelo e da dimensão passa do KAM-063 ao **KAM-064**, que tem o dataset com que ela se mede (critério 8 do KAM-063, devolvido com credor); o modelo grava-se por linha e um tenant não tem vectores de dois modelos, pela escrita e pela pesquisa. §3.29, linha do papel: o `embed` fica `declarada` com credor KAM-064 — o mesmo que o `llm/aliases.yaml` diz. **O que não decide:** a coluna nova e a comutação atómica numa troca de modelo (critério 6 do KAM-063), que são DDL e esperam pelo modelo escolhido; e o destino autorizado, que continua a ser o `tenant_destinations` do KAM-069 com o `apd_ref` do KAM-105 — sem ele, nada sai e a pesquisa é lexical. | Equipa KAMBÁ |
 | 1.89 | Novembro 2026 | **Emenda (*proposta*), KAM-049: o Catálogo AI.** §3.63 nova: a `platform.catalog_ingestions` com as suas **dezoito** colunas (as treze do DDL do `../docs/tecnica/03` §8.3, a `categoria_restrita` do critério 7, o par `confirmado_at`/`confirmado_por` da etapa 9, e a `versao` e a `ultima_mensagem_id` que a revisão adversarial pediu), os **nove** estados e as transições impostas por gatilho, a `media_ref` presa ao STO do próprio tenant, a idempotência por `(tenant_id, media_id_meta)`, o `phash` de oito bytes, a forma do `extraido` com a proveniência por campo (**quatro** fontes, **oito** campos da visão e o `corrigido`), o limiar 0,8, os **cinco** perfis de completude, os tectos de 3 e 12 perguntas, a publicação confirmada e o custo não nulo. **Fecha o domínio de `categoria_restrita`** que o §3.40 deixou a este ticket: o `id` da entrada da política do §3.58, uma regra sintética do motor, ou `screening_indisponivel`. **Uma divergência resolvida a favor do canon:** o `lexico_pt_ao` do §8.2 não nasce como tabela — o léxico é o `idx.termo_canonico` do §3.62, e o catálogo lê-o pelo `kamba_core.idx`. **O que não decide:** o canal do dono (D10, KAM-119), e o descodificador, a ponte do screening e o adaptador de visão reais (bloco do KAM-049). | Equipa KAMBÁ |
 | 1.90 | Novembro 2026 | **Emenda (*proposta*), KAM-197: o PAY abre a `refund_cases`.** §3.64 nova: o papel `kamba_pay` (o nono, decisão (A) do fundador de 2026-11-13), a porta `platform.abrir_caso_de_reembolso` com as suas quatro barreiras, a coluna `refund_cases.pedido_evento_id` com o índice único parcial que dá a idempotência, as duas linhas do `pagamento_duplicado` na `payment_outbox_map` (de sete a nove), o modo `reembolsos` do processo de pagamentos do COM e o `refund_case` do sinal de duplicado. A linha do caso de reembolso da §3.45 passa a onze colunas. Executa a decisão (b) do fundador de 2026-11-12, que o §3.60 já registava como por implementar. **O que não decide:** quem fecha o caso (continua o `kamba_batch`) e a implantação do processo (**KAM-080**). | Equipa KAMBÁ |
+| 1.91 | Novembro 2026 | **Emenda (*proposta*), KAM-196: a consola da fila de revisão.** §3.65 nova: as **nove** rotas `/equipa`; a porta `IdentidadeDaEquipa`; a sessão `kamba_equipa`, com separador de domínio próprio, 8 h sem renovação e a MFA da autenticação dentro da assinatura; os **cinco** modelos de SMS `revisao_*` do aviso ao dono, com o motivo pelo código; a `CAUSA_DO_MOTIVO_PUBLICO`; e o `CicloDaFila` com os seus **quatro** passos. **Nenhuma revisão de base de dados.** **O que não decide:** o IdP (fundador), o processo de lote (KAM-198), a chamada do `amostrar` (KAM-092) e o fornecedor de e-mail (KAM-115). | Equipa KAMBÁ |
