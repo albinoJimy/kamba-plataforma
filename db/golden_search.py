@@ -177,12 +177,22 @@ def _embeber(bd, tenants: dict[str, str], cliente) -> dict[str, dict[str, int]]:
 
     voltas: dict[str, dict[str, int]] = {}
     for snapshot, tenant in tenants.items():
-        bd.executar("SELECT set_config('app.tenant_id', %s, false)", (tenant,))
         cursor, gravados, recusados = None, 0, 0
         while True:
-            volta = embeddings.embeber_catalogo(
-                bd, tenant, cliente, embeddings_falsos.MODELO, depois_de=cursor
-            )
+            # Uma transaccao por volta, com o tenant em `SET LOCAL`: o contexto
+            # morre no `COMMIT` e nao passa ao tenant seguinte. O *lint* do
+            # *gate* 6 (`tools/isolamento/lints.py`) recusa o `set_config` de
+            # sessao, e com razao — foi o vermelho dos *gates* 4, 6 e 8 no #195.
+            bd.executar("BEGIN")
+            try:
+                bd.executar("SELECT set_config('app.tenant_id', %s, true)", (tenant,))
+                volta = embeddings.embeber_catalogo(
+                    bd, tenant, cliente, embeddings_falsos.MODELO, depois_de=cursor
+                )
+                bd.executar("COMMIT")
+            except BaseException:
+                bd.executar("ROLLBACK")
+                raise
             if volta.motivo is not None:
                 raise RuntimeError(f"{snapshot}: o worker parou com {volta.motivo}")
             gravados += volta.gravados
@@ -191,7 +201,6 @@ def _embeber(bd, tenants: dict[str, str], cliente) -> dict[str, dict[str, int]]:
                 break
             cursor = volta.ultimo
         voltas[snapshot] = {"gravados": gravados, "recusados": recusados}
-    bd.executar("SELECT set_config('app.tenant_id', '', false)")
     return voltas
 
 
