@@ -1303,6 +1303,19 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "p_detalhe jsonb, p_janela interval)"
     )
 
+    #: A porta que abre a `refund_cases` a partir de um pedido (KAM-197,
+    #: revisao `0051`). **O grantee e o que a distingue de um furo**, como na
+    #: de cima: e `EXECUTE` do **`kamba_pay`** e nao do `kamba_app`, por
+    #: decisao (A) do fundador de 2026-11-13 — o COM corre como `kamba_app`,
+    #: e a tabela tem um so dono. Quem o apanha se mudar e o
+    #: `test_o_papel_do_com_nao_abre_caso_pela_porta` de
+    #: `../tests_pagamentos/test_reembolsos_do_pay.py`.
+    REEMBOLSOS_NA_ALLOWLIST = (
+        "platform.abrir_caso_de_reembolso("
+        "p_tenant_id uuid, p_order_id uuid, p_motivo text, "
+        "p_valor_minor bigint, p_currency text, p_pedido_evento_id uuid)"
+    )
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1344,6 +1357,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 "platform.audit_encadear()",
                 self.APPEND_NA_ALLOWLIST,
                 self.SINAIS_NA_ALLOWLIST,
+                self.REEMBOLSOS_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST),
         )

@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.63
+**Versão do conjunto:** 1.64
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -225,7 +225,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-059 | Billing da plataforma: assinatura via PaymentProvider (beneficiário próprio) | feature | L | P1 | 1 | KAM-052, KAM-054, KAM-009 |
 | KAM-060 | Detecção de anomalias de pagamento (valor divergente, duplicados, padrões) | feature | M | P1 | 1 | KAM-053, KAM-054 |
 | KAM-175 | Um `DELETE` sem linhas no *ledger* `payment_events` não é recusado: o *trigger* por instrução só cobre o `TRUNCATE` | fix | S | P1 | 0 | KAM-053 |
-| KAM-197 | PAY: abre a `refund_cases` ao consumir `order.refund_requested` | feature | M | P1 | 1 | KAM-050, KAM-053 |
+| KAM-197 | PAY: abre a `refund_cases` ao consumir `order.refund_requested` | feature | L | P1 | 1 | KAM-050, KAM-053 |
 
 ### EPIC-06 — Índice e Pesquisa
 
@@ -432,3 +432,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.61 | Novembro 2026 | **KAM-195** acrescentado ao **EPIC-09**, no PR do **KAM-192**, que o abre e não o implementa: é o credor das duas metades que o KAM-192 deixou com o papel `screening` declarado e não ligado — a ligação do classificador do GOV ao cliente com *gate* de destino, registo e custo, e a finalidade de transferência do papel, que o fundador confirma antes de entrar. Depende do KAM-192 e do KAM-069. O **KAM-194** já está na `main`, pelo que a gama fica contígua. | Equipa KAMBÁ |
 | 1.62 | Novembro 2026 | **KAM-196** acrescentado ao **EPIC-09**, no PR do **KAM-089**, que o abre e não o implementa: é o credor das caixas que o KAM-089 devolveu sem ticket — a identidade da equipa com MFA (a escolha do IdP e as contas são do fundador), a consola `/equipa` no `onboarding-web` com as suas baterias X-01, os modelos de SMS e de e-mail do aviso ao dono e o *job* que corre a fila. **P0**, porque o **KAM-092** (P0) passa a depender dele: sem consola nenhum humano decide, e sem decisão nenhum caso da fila chega a `aprovado`. **Superfícies:** a linha do §4, o §3.1 — o EPIC-09 com **21** e o TOTAL a `KAM-001 – KAM-196` com **196** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-089 ganha o KAM-196 e as `Dependências` do KAM-092 também, no §4, na tabela-resumo e no bloco. | Equipa KAMBÁ |
 | 1.63 | Novembro 2026 | **KAM-197** acrescentado ao **EPIC-05**, no PR do **KAM-062**, que o abre e não o implementa: o PAY abre a `refund_cases` ao consumir `order.refund_requested` (decisão do fundador de 2026-11-12, opção b — um só dono da tabela, sem escritor no COM). É o credor do critério 4 do KAM-060 e das regras 3 e 4 do KAM-050. **Superfícies:** a linha do §4, o §3.1 — o EPIC-05 com **11** e o TOTAL a `KAM-001 – KAM-197` com **197** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-050 e o do KAM-053 ganham o KAM-197, nos blocos. | Equipa KAMBÁ |
+| 1.64 | Novembro 2026 | **KAM-197:** a estimativa passa de M a L, pela decisão (A) do fundador de 2026-11-13 — o consumidor do PAY corre com um papel novo, `kamba_pay`, e isso é bootstrap, ligação, segredo e as matrizes de papéis. Nenhuma dependência muda. | Equipa KAMBÁ |

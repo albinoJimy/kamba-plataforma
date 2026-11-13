@@ -1487,6 +1487,30 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
+#:
+#: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
+#: envelope no `events_log` (o `SQL_ENVELOPE_DO_EVENTO` do trabalhador), grava
+#: o recibo em `events_consumed` (que e a primeira camada da idempotencia) e
+#: escreve na DLQ quando o efeito falha — com as tres colunas de leitura que o
+#: `ON CONFLICT` do `paraDlq()` pede, no `COLUNAS_POR_PAPEL`. **Nada na
+#: `refund_cases`**: abre-a pela porta `SECURITY DEFINER`, e o `EXECUTE` dela
+#: mede-se em `tests_pagamentos/test_reembolsos_do_pay.py`, que afirma que o
+#: `kamba_app` leva `42501`.
+#:
+#: **Uma compreensao no fim e nao uma linha por tabela**, pela razao do
+#: `PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO`: o zero e a regra, e as tres excepcoes
+#: escrevem-se aqui por extenso.
+PRIVILEGIOS_DO_PAY = {
+    "events_log": {"SELECT"},
+    "events_consumed": {"SELECT", "INSERT"},
+    "events_dlq": {"INSERT"},
+}
+ESPERADO_POR_TABELA = {
+    tabela: dict(por_papel, kamba_pay=PRIVILEGIOS_DO_PAY.get(tabela, set()))
+    for tabela, por_papel in ESPERADO_POR_TABELA.items()
+}
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
@@ -1592,6 +1616,9 @@ COLUNAS_POR_PAPEL = {
     # ja limita este papel as linhas do seu tenant, e o que uma sequencia
     # revelaria e o volume do vizinho.
     ("kamba_app", "events_dlq", "SELECT"): {"consumer", "event_id", "estado"},
+    # KAM-197: o consumidor do PAY escreve na DLQ pelo mesmo `paraDlq()`, e
+    # precisa das mesmas tres colunas e de nenhuma outra.
+    ("kamba_pay", "events_dlq", "SELECT"): {"consumer", "event_id", "estado"},
     # KAM-013: uma coluna, e e a unica que o *worker* escreve depois de
     # inserir. Mudar `kind` ou `event_key` era reescrever a chave de
     # deduplicacao de um evento que ja passou — isto e, fazer com que ele
@@ -2331,7 +2358,10 @@ class TestPertencas(ComBase):
 
     def test_kamba_app_nao_assume_outro_papel(self) -> None:
         cursor = self.ligar("app").cursor()
-        for papel in ("kamba_migrator", "kamba_batch"):
+        # KAM-197: e o `kamba_pay` tambem. Um `SET ROLE kamba_pay` dava ao COM
+        # a porta que abre a `refund_cases`, que e exactamente o que o papel
+        # existe para lhe negar.
+        for papel in ("kamba_migrator", "kamba_batch", "kamba_pay"):
             with self.subTest(papel=papel):
                 self.assertErroSql(PRIVILEGIO_INSUFICIENTE, cursor, f"SET ROLE {papel}")
 

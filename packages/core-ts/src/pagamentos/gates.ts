@@ -55,6 +55,25 @@ export const ESTADOS_QUE_ACEITAM = [
  */
 export const ESTADO_TARDIO = "expirada" as const;
 
+/**
+ * Os estados em que um `duplo` é o F-08 — **a cobrança já foi paga** — e só
+ * esses escrevem `pagamento_duplicado` (KAM-197).
+ *
+ * Desde a revisão `0051` o `pagamento_duplicado` sai como `payment.confirmed`, que
+ * é o que a regra 4 do KAM-050 lê. Fora destes três estados ele mentia: o G6
+ * devolve `duplo` também em `iniciada`, `falhada` e `cancelada`, e numa
+ * `falhada` por valor divergente (F-02) a encomenda continua em
+ * `aguarda_pagamento` — um `payment.confirmed` pagava-a sem o humano que o F-02
+ * exige. Achado da revisão adversarial. **Nos outros, fica o facto**
+ * (`pagamento_recebido`) e mais nada, como no `divergente` fora de `emitida`:
+ * ops é alertado pelo veredicto, e quem decide é uma pessoa.
+ */
+export const ESTADOS_DO_DUPLICADO = [
+  "paga",
+  "reembolso_pendente",
+  "reembolsada",
+] as const;
+
 /** A cobrança, como o *worker* a lê (G3 já resolvido: ela existe). */
 export type CobrancaParaGates = {
   readonly chargeId: Uuid;
@@ -110,7 +129,16 @@ export type VeredictoDosGates =
       readonly estadoDaCobranca: string;
     }
   /** G6 num estado terminal ou já pago. */
-  | { readonly tipo: "duplo"; readonly gate: "G6" };
+  | {
+      readonly tipo: "duplo";
+      readonly gate: "G6";
+      /**
+       * O estado da cobrança, pela razão do `divergente`: o
+       * `escritasDoVeredicto` só escreve `pagamento_duplicado` nos
+       * `ESTADOS_DO_DUPLICADO` (KAM-197).
+       */
+      readonly estadoDaCobranca: string;
+    };
 
 /**
  * Os motivos, com os nomes do `payment_charges.motivo_falha` do §6.2.
@@ -214,7 +242,7 @@ export function avaliarGates(entrada: EntradaDosGates): VeredictoDosGates {
   if (cobranca.estado === ESTADO_TARDIO) {
     return { tipo: "tardio" };
   }
-  return { tipo: "duplo", gate: "G6" };
+  return { tipo: "duplo", gate: "G6", estadoDaCobranca: cobranca.estado };
 }
 
 /**
@@ -281,11 +309,17 @@ export function escritasDoVeredicto(
       // caminho de escrita, e está na dívida documental 169.
       return [];
     case "duplo":
-      // F-08: o segundo pagamento autenticado sobre uma cobrança já paga.
-      return [
-        { tipo: "pagamento_recebido", decisao: "informativo" },
-        { tipo: "pagamento_duplicado", decisao: "informativo" },
-      ];
+      // F-08: o segundo pagamento autenticado sobre uma cobrança já paga. **Só
+      // aí**: ver o `ESTADOS_DO_DUPLICADO` — o `pagamento_duplicado` chega ao
+      // COM como `payment.confirmed` desde a revisão `0051` (KAM-197).
+      return (ESTADOS_DO_DUPLICADO as readonly string[]).includes(
+        veredicto.estadoDaCobranca,
+      )
+        ? [
+            { tipo: "pagamento_recebido", decisao: "informativo" },
+            { tipo: "pagamento_duplicado", decisao: "informativo" },
+          ]
+        : [{ tipo: "pagamento_recebido", decisao: "informativo" }];
     case "duplicado":
       return [];
   }

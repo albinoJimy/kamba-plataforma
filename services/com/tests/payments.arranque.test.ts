@@ -37,7 +37,13 @@ import {
   criarApp,
   exigir,
   exigirOrdemNosPagamentos,
+  exigirSubscricaoActiva,
   exigirSubscricaoComOrdem,
+  MODOS,
+  ModoInvalidoError,
+  VARIAVEL_DA_BASE_POR_MODO,
+  VARIAVEL_DO_MODO,
+  modo,
   porta,
 } from "../src/payments/arranque.ts";
 import { LAG } from "../src/payments/metricas.ts";
@@ -216,4 +222,47 @@ test("o /healthz e o /metrics respondem, e o lag sai na exposição", async () =
   // os desfechos do consumo; sem a segunda, não dizia nada sobre o atraso.
   assert.match(texto, /evt_consumed_total/);
   assert.match(texto, /com_payment_to_paid_seconds_bucket\{le="5"\}/);
+});
+
+
+test("KAM-197: o modo por omissão é o do KAM-055, e um desconhecido levanta", () => {
+  assert.equal(modo({}), "pagamentos");
+  assert.equal(modo({ [VARIAVEL_DO_MODO]: "  " }), "pagamentos");
+  assert.equal(modo({ [VARIAVEL_DO_MODO]: "reembolsos" }), "reembolsos");
+  for (const bruto of ["reembolso", "PAGAMENTOS", "pay"]) {
+    assert.throws(
+      () => modo({ [VARIAVEL_DO_MODO]: bruto }),
+      ModoInvalidoError,
+      `${bruto} devia ser recusado`,
+    );
+  }
+  assert.deepEqual([...MODOS], ["pagamentos", "reembolsos"]);
+});
+
+test("KAM-197: cada modo liga-se pela sua variável, e não pela do COM", () => {
+  // O consumidor do PAY corre com a credencial do `kamba_pay`. Pela variável
+  // do COM, o nome dizia «COM» sobre a ligação que existe para o COM não ter.
+  assert.equal(VARIAVEL_DA_BASE_POR_MODO.pagamentos, "KAMBA_COM_DB_URL");
+  assert.equal(VARIAVEL_DA_BASE_POR_MODO.reembolsos, "KAMBA_PAY_DB_URL");
+});
+
+test("KAM-197: a subscrição dos reembolsos tem de existir e estar activa", async () => {
+  const tipo = "order.refund_requested";
+  await exigirSubscricaoActiva(
+    baseFalsa([{ tipo, exige_ordem: false, activo: true }]),
+    "pay_reembolsos",
+    [tipo],
+  );
+  await assert.rejects(
+    exigirSubscricaoActiva(baseFalsa([]), "pay_reembolsos", [tipo]),
+    SubscricaoEmFaltaError,
+  );
+  await assert.rejects(
+    exigirSubscricaoActiva(
+      baseFalsa([{ tipo, exige_ordem: false, activo: false }]),
+      "pay_reembolsos",
+      [tipo],
+    ),
+    /inactiva/,
+  );
 });

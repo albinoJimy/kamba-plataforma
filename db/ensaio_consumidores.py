@@ -81,7 +81,10 @@ JOBS = {"entrada": ENTRADA, "agr_shim": SHIM, "publicador": PUBLICADOR, "consumi
 CONSUMER = "ensaio187"
 EVENTOS_DO_PUBLICADOR = 20
 
-PAPEIS = ("MIGRATOR", "APP", "BATCH", "RESOLVER", "IDENTITY", "AUDIT", "AGR", "PAY_HOOKS")
+PAPEIS = (
+    "MIGRATOR", "APP", "BATCH", "RESOLVER", "IDENTITY", "AUDIT", "AGR", "PAY_HOOKS",
+    "PAY",
+)
 
 
 def _chave(kid: str) -> str:

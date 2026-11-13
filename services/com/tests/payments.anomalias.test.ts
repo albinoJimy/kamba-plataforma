@@ -54,6 +54,7 @@ const TENANT = "11111111-1111-4111-8111-111111111111";
 const CONTA = "22222222-2222-4222-8222-222222222222";
 const CONTACTO = "33333333-3333-4333-8333-333333333333";
 const COBRANCA = "aaaaaaaa-0000-4000-8000-000000000001";
+const CASO = "bbbbbbbb-0000-4000-8000-000000000001";
 
 /** Minutos antes de `AGORA`, em ISO. */
 function haMinutos(minutos: number): string {
@@ -76,6 +77,7 @@ function ligacao(respostas: {
   readonly recusas?: Record<string, unknown>[];
   readonly casa?: Record<string, unknown>[];
   readonly ajustes?: Record<string, unknown>[];
+  readonly reembolsos?: Record<string, unknown>[];
 }) {
   const chamadas: { sql: string; parametros: readonly unknown[] }[] = [];
   const escritos: readonly unknown[][] = [];
@@ -104,6 +106,19 @@ function ligacao(respostas: {
           "o payer_hmac tem de vir em hexadecimal: dois Uint8Array iguais nao sao ===",
         );
         return { rows: respostas.cobrancas ?? [] };
+      }
+      if (/FROM platform\.refund_cases/.test(sql)) {
+        // So os casos do consumidor do PAY, e so os de duplicado: um caso da
+        // `manual_reverter` e uma reversao, e casa-lo com um duplicado dizia a
+        // ops que o duplicado estava tratado por um caso que nao e dele.
+        assert.match(sql, /pedido_evento_id IS NOT NULL/, "so os casos abertos por pedido");
+        assert.match(sql, /motivo = 'pagamento_duplicado'/, "so os casos de duplicado");
+        assert.match(
+          sql,
+          /c\.tenant_id = r\.tenant_id AND c\.order_id = r\.order_id/,
+          "a juncao a cobranca e pela encomenda e com o tenant",
+        );
+        return { rows: respostas.reembolsos ?? [] };
       }
       if (/FROM platform\.manual_confirmations/.test(sql)) {
         return { rows: respostas.confirmacoes ?? [] };
@@ -154,10 +169,10 @@ test("desde: a janela anda para tras e nao para a frente", () => {
   assert.equal(desde(AGORA, 720), "2026-10-09T12:00:00.000Z");
 });
 
-test("a fotografia lê as cinco superfícies, e nenhuma a mais", async () => {
+test("a fotografia lê as seis superfícies, e nenhuma a mais", async () => {
   const bd = ligacao({});
   await leituraSobre(bd, TENANT, AGORA).fotografar();
-  assert.equal(bd.chamadas.length, 5);
+  assert.equal(bd.chamadas.length, 6);
   const tabelas = bd.chamadas.map((c) => /FROM (\S+)/.exec(c.sql)?.[1]);
   assert.deepEqual([...tabelas].sort(), [
     "platform.manual_confirmations",
@@ -165,6 +180,7 @@ test("a fotografia lê as cinco superfícies, e nenhuma a mais", async () => {
     "platform.payment_confirmers",
     "platform.payment_events",
     "platform.payment_inbox",
+    "platform.refund_cases",
   ]);
 });
 
@@ -228,6 +244,9 @@ test("o mapeamento de colunas põe cada valor na sua propriedade", async () => {
     ],
     recusas: [{ account_id: CONTA, recebido_at: haMinutos(5) }],
     casa: [{ contact_id: CONTACTO, phone_hmac: "deadbeef" }],
+    reembolsos: [
+      { id: CASO, tenant_id: TENANT, charge_id: COBRANCA, valor_minor: "250000" },
+    ],
   });
   const foto = await leituraSobre(bd, TENANT, AGORA).fotografar();
 
@@ -268,6 +287,14 @@ test("o mapeamento de colunas põe cada valor na sua propriedade", async () => {
   });
   assert.deepEqual(foto.recusas[0], { accountId: CONTA, instante: haMinutos(5) });
   assert.deepEqual(foto.casa[0], { contactId: CONTACTO, phoneHmac: "deadbeef" });
+  // O `id` do caso e o `charge_id` da juncao sao os dois UUID: trocados, o
+  // `refund_case` do sinal levava o identificador de uma cobranca (KAM-197).
+  assert.deepEqual(foto.reembolsos[0], {
+    casoId: CASO,
+    tenantId: TENANT,
+    chargeId: COBRANCA,
+    valorMinor: 250_000n,
+  });
   assert.equal(foto.agora, AGORA.toISOString());
 });
 
@@ -398,6 +425,36 @@ test("LIGAÇÃO — a corrida persiste os sinais pela porta, e não por INSERT",
   // **E o alerta de escrita não sai**, que é o par: ele existe para denunciar o
   // estado em que os sinais não têm onde ficar.
   assert.ok(!alertas.includes(ALERTAS_DO_MOTOR[2]), alertas.join(", "));
+});
+
+test("LIGAÇÃO — o sinal de duplicado leva o caso que o PAY abriu (KAM-197)", async () => {
+  // **O que fecha o criterio 4 do KAM-060 pela costura.** O motor mede-se no
+  // `core-ts`; aqui mede-se que o caso lido da base chega ao `detalhe` que a
+  // porta escreve. Sem a sexta leitura, ou com ela a cair no lado errado do
+  // mapeamento, o sinal saia com `por_abrir` sobre um caso que existe.
+  const duplicado = {
+    id: "9",
+    tenant_id: TENANT,
+    charge_id: COBRANCA,
+    account_id: CONTA,
+    tipo_evento: "pagamento_duplicado",
+    sequencia: 4,
+    valor_minor: "1000",
+    instante: haMinutos(30),
+  };
+  const comCaso = ligacao({
+    eventos: [duplicado],
+    reembolsos: [
+      { id: CASO, tenant_id: TENANT, charge_id: COBRANCA, valor_minor: "1000" },
+    ],
+  });
+  const semCaso = ligacao({ eventos: [duplicado] });
+  await correrMotorDeAnomalias({ bd: comCaso, tenantId: TENANT, agora: AGORA });
+  await correrMotorDeAnomalias({ bd: semCaso, tenantId: TENANT, agora: AGORA });
+  const detalhe = (bd: { escritos: readonly unknown[][] }) =>
+    JSON.parse(String(bd.escritos[0]?.[6])) as Record<string, unknown>;
+  assert.equal(detalhe(comCaso)["refund_case"], CASO);
+  assert.equal(detalhe(semCaso)["refund_case"], "por_abrir");
 });
 
 test("sem escrita, a corrida denuncia que os sinais não ficaram", async () => {

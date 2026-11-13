@@ -108,6 +108,7 @@ export {
   LIMIARES_PROPOSTOS,
   PLANO_DE_CALIBRACAO,
   PREFIXO_DO_AJUSTE,
+  REEMBOLSO_POR_ABRIR,
   REGRAS,
   REGRA_POR_ID,
   SEPARADOR_DO_EXTRACTO,
@@ -118,12 +119,14 @@ export {
   SQL_ANOMALIAS_CONFIRMACOES,
   SQL_ANOMALIAS_EVENTOS,
   SQL_ANOMALIAS_RECUSAS,
+  SQL_ANOMALIAS_REEMBOLSOS,
   SQL_REGISTAR_SINAL,
   SinalComPii,
   TERMINAIS_SEM_PAGAMENTO,
   VERSAO_DAS_REGRAS,
   type Accao,
   type AjusteProposto,
+  type CasoDeReembolsoObservado,
   type CobrancaObservada,
   type Configuracao,
   type ConfirmacaoObservada,
@@ -199,6 +202,7 @@ export {
 } from "./contas.ts";
 
 export {
+  ESTADOS_DO_DUPLICADO,
   ESTADOS_QUE_ACEITAM,
   ESTADO_TARDIO,
   GATES_DO_WORKER,
