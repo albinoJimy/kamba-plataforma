@@ -568,6 +568,27 @@ class TestSeisNegativos(unittest.TestCase):
         escrever(self.pasta, vendedor=VENDEDOR, gates=GATES, plans="version: 1.0.0\nplans: {}\n")
         registo.carregar(ambiente(), self.pasta)
 
+    def test_o_consumidor_do_kam_194_salta_se(self) -> None:
+        """A quarta forma: o `idx` nao e uma vertical, e o AGR nao o le.
+
+        Se o `load_all` o lesse como vertical, reprovava por falta de `id`.
+        """
+        escrever(
+            self.pasta,
+            vendedor=VENDEDOR,
+            gates=GATES,
+            idx="consumidor: idx\nversion: 1.0.0\nsubscriptions:\n  - tipo: tenant.suspended\n    versao: 1\n",
+        )
+        verticais, _, _ = registo.carregar(ambiente(), self.pasta)
+        self.assertNotIn("idx", verticais)
+        self.assertEqual(set(verticais), {"vendedor"})
+
+    def test_consumidor_e_vertical_no_mesmo_ficheiro_reprova(self) -> None:
+        escrever(self.pasta, vendedor=VENDEDOR, gates=GATES, misto="consumidor: idx\nid: vendedor\n")
+        with self.assertRaises(registo.RegistoInvalidoError) as capturado:
+            registo.carregar(ambiente(), self.pasta)
+        self.assertIn("quatro formas", str(capturado.exception))
+
     def test_a_mesma_vertical_duas_vezes_reprova(self) -> None:
         escrever(self.pasta, a=VENDEDOR, b=VENDEDOR, gates=GATES)
         with self.assertRaises(registo.RegistoInvalidoError) as capturado:

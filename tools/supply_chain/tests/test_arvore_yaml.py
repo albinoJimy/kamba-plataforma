@@ -148,8 +148,11 @@ class TestFicheirosReais(unittest.TestCase):
                 documento = arvore_yaml.ler((ROOT / ficheiro).read_text(encoding="utf-8"))
                 self.assertTrue(documento.raiz.filhos)
 
-    def test_o_compose_real_tem_dez_servicos_e_todos_resolvem(self) -> None:
-        """Eram sete; o KAM-187 trocou o `worker-canal` pelos quatro processos."""
+    def test_o_compose_real_tem_treze_servicos_e_todos_resolvem(self) -> None:
+        """Eram sete; o KAM-187 trocou o `worker-canal` pelos quatro processos.
+
+        O KAM-194 acrescentou tres: o `idx` (imagem do AGR) e as duas pontes.
+        """
         documento = arvore_yaml.ler(
             (ROOT / "infra/compose/docker-compose.dev.yml").read_text(encoding="utf-8")
         )
@@ -157,11 +160,14 @@ class TestFicheirosReais(unittest.TestCase):
         self.assertEqual(
             sorted(servicos),
             [
-                "agr", "com", "gwy", "onboarding-web", "postgres", "queue",
+                "agr", "com", "gwy", "idx", "onboarding-web", "postgres", "queue",
                 "worker-canal-agr-shim", "worker-canal-consumidor",
-                "worker-canal-entrada", "worker-canal-publicador",
+                "worker-canal-entrada", "worker-canal-ponte-agr",
+                "worker-canal-ponte-idx", "worker-canal-publicador",
             ],
         )
+        # O `idx` corre com a imagem do AGR e herda dele o `user` proprio.
+        self.assertEqual(documento.mapa(servicos["idx"])["user"].texto(), "nobody")
         # O `user` do AGR e proprio (`nobody`) e ganha o da ancora (`node`).
         self.assertEqual(documento.mapa(servicos["agr"])["user"].texto(), "nobody")
         self.assertEqual(documento.mapa(servicos["gwy"])["user"].texto(), "node")

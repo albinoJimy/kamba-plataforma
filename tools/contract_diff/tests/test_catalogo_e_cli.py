@@ -548,9 +548,22 @@ class TestSubscricoesDoRegisto(unittest.TestCase):
 
     def test_le_as_subscricoes_das_verticais_do_repositorio(self) -> None:
         lidas = subscricoes.ler(RAIZ)
-        self.assertEqual(len(lidas), 8, [(s.consumer, s.tipo) for s in lidas])
-        # O `consumer` vem do `id` da vertical e nao do nome do ficheiro.
-        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos"})
+        # Oito das duas verticais (KAM-027) e cinco do consumidor do indice, a
+        # quarta forma do registo (KAM-194).
+        self.assertEqual(len(lidas), 13, [(s.consumer, s.tipo) for s in lidas])
+        # O `consumer` vem do `id` da vertical, e do `consumidor` da quarta
+        # forma, e nao do nome do ficheiro.
+        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx"})
+        self.assertEqual(
+            sorted((s.tipo, s.versao_max) for s in lidas if s.consumer == "idx"),
+            [
+                ("catalog.product_changed", 1),
+                ("tenant.activated", 1),
+                ("tenant.closed", 1),
+                ("tenant.reactivated", 1),
+                ("tenant.suspended", 1),
+            ],
+        )
         # **Os dois eventos de pagamento, nas duas** (dicionario §3.4 e §3.5).
         for consumer in ("vendedor", "servicos"):
             tipos = {s.tipo for s in lidas if s.consumer == consumer}
@@ -558,6 +571,18 @@ class TestSubscricoesDoRegisto(unittest.TestCase):
             self.assertIn("payment.manual_confirmed", tipos)
         # E todas tem contrato: zero achados sobre o repositorio real.
         self.assertEqual(subscricoes.verificar(RAIZ), [])
+
+    def test_o_consumer_da_quarta_forma_vem_do_consumidor_e_nao_do_ficheiro(self) -> None:
+        import tempfile
+
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / subscricoes.PASTA_DO_REGISTO).mkdir()
+        (pasta / subscricoes.PASTA_DO_REGISTO / "indice.yaml").write_text(
+            "consumidor: idx\nversion: 1.0.0\nsubscriptions:\n  - tipo: tenant.closed\n    versao: 1\n",
+            encoding="utf-8",
+        )
+        (lida,) = subscricoes.ler(pasta)
+        self.assertEqual((lida.consumer, lida.tipo, lida.versao_max), ("idx", "tenant.closed", 1))
 
     def test_le_tambem_a_forma_da_tabela_evt_subscricoes(self) -> None:
         """A forma que este ficheiro escreveu por antecipacao continua a valer.
@@ -638,11 +663,12 @@ class TestCli(unittest.TestCase):
         Dizia «0 subscricoes declaradas» e isso era verdade enquanto `registry/`
         tinha so um `README.md`. O KAM-027 trouxe oito, e o que este teste mede
         e que a saida as **conta**: um gate que diz zero sobre oito e um gate que
-        passa vacuamente.
+        passa vacuamente. O KAM-194 acrescentou as cinco do `idx` (a quarta forma
+        do registo), e sao treze.
         """
         codigo, texto = self.correr("subscricoes")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
-        self.assertIn("8 subscricao(oes) lida(s)", texto)
+        self.assertIn("13 subscricao(oes) lida(s)", texto)
 
     def test_sem_base_diz_que_nao_correu(self) -> None:
         """Uma verificacao que se desliga tem de o dizer na saida."""

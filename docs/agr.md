@@ -1794,6 +1794,48 @@ VERIFICADAS** (L6) e não há fila em bateria nenhuma; o que cobre o risco são
 mede-se em *staging*: o ensaio de carga leve mede o caminho de decisão, que não é
 o sistema.
 
+### A casca e as linhas de `evt_subscricoes` existem desde o KAM-194
+
+As duas coisas que o KAM-038 deixou com credor fechado — o KAM-005 e o KAM-006
+fecharam o EPIC-01 sem as escrever — paga-as o **KAM-194**:
+
+- **a casca** é a `packages/core-ts/src/eventos/ponte.ts` (decisão) e
+  `ponte_bullmq.ts` (o `Worker`), corrida pelo processo
+  `services/worker-canal/src/ponte.ts`. O serviço `worker-canal-ponte-agr`
+  consome `evt.agr_vendedor.p<n>` e `evt.agr_servicos.p<n>` e faz `POST
+  /internal/event` neste processo com o `agr_internal_token`. É a mesma casca do
+  IDX (`worker-canal-ponte-idx`), e não decide nada: não abre ligação à base,
+  não marca `events_consumed`, e traduz 200/400/401/503 como o `agr/shim.ts`. O
+  503 repete ao fim do `Retry-After` que esta rota escreve;
+- **as linhas** vêm pela revisão de **dados** `0052` (*provisória*), escrita pelo
+  `kamba_migrator`: as oito que o `consumidores()` deriva das duas verticais, com
+  o `exige_ordem` dos `payment.*`. O ensaio
+  `services/agr/tests/test_subscricoes_0052.py` confronta-as com o registo, e
+  uma `subscriptions` nova numa vertical sem a linha correspondente reprova.
+
+**Um *job* do reconciliador chega com `envelope: null`.** A casca não lê a base,
+e o reconciliador (§6.5 do `06`) repõe *jobs* só com o `tenant_id`. O AGR lê o
+envelope do `events_log` com o contexto do *tenant* que a fila declarou
+(`_envelope_ou_dlq`); sem linha repete-se pela escada e, na sexta tentativa,
+abre a DLQ sem envelope com `tentativas_esgotadas` — que continua a ser o único
+motivo que vem depois da escada.
+
+**Uma vertical sem entitlement marca-se ao lado da que tem.** A regra de cima
+marcava «sem efeito» só quando **nenhum** candidato estava activo; com um
+*tenant* que só tem o Vendedor, o par `(agr_servicos, event_id)` ficava sem
+linha em `events_consumed` nem em `events_dlq`, e o reconciliador devolvia-o em
+todas as passagens da janela — o lote dele é 500. As linhas de `evt_subscricoes`
+do KAM-194 tornavam-no vivo; a marca fecha-o. E um *job* reposto sem envelope
+entra com a **reserva de pagamento**: o `tipo` só se lê do arquivo, lá dentro, e
+um `payment.*` que se perdeu não pode voltar atrás das conversas.
+
+**Duas verticais, duas entregas do mesmo evento.** A fila é por `consumer`, e
+esta rota entrega a **todos** os consumidores que subscrevem o par. Um
+`payment.confirmed` subscrito pelas duas verticais chega por duas partições, e a
+segunda entrega dá `duplicado` nos dois consumidores — a marca em
+`events_consumed` é que torna isto seguro, e é trabalho a mais e não efeito a
+mais.
+
 ## 7-I. O modo determinístico: degradar, nunca calar (KAM-037)
 
 «Falha de LLM, canal ou pagamento tem *fallback* determinístico ou fila; o
@@ -2223,3 +2265,4 @@ contexto de quem chama o `ainvoke`; medido pela bateria).
 | 1.19 | 2026-11-09 | KAM-186 | §1, §7-F, §7-G e §7-J: o credor «quem ligar a porta `grafos`» — e «quem ligar o AgentRegistry», na tabela do §7-G — passa a ter número, o **KAM-186**, aberto para isso. Nenhuma afirmação sobre o que o AGR faz muda: a porta continua a levantar até ele ser entregue. |
 | 1.20 | 2026-11-09 | KAM-186 | **A porta `grafos` está ligada.** §7-K novo: as três portas e as duas resoluções, as portas do `Dependencias` com a omissão de cada uma, a admissão do turno (contacto e `turn_id`, e o que ela não vê), e o que falta para conversar — a janela vazia, com a rota do texto devolvida ao fundador, a porta de saída sem Outbound (503 `saida_por_ligar`, para que nenhuma resposta se perca), com credor por abrir, e a resposta estática do `servico_indisponivel`, que não existe. O cabeçalho, o §1, o §7-B, o §7-F, o §7-G e o §7-J deixam de dizer que a porta está por ligar. |
 | 1.21 | 2026-11-12 | KAM-193 | §7-H: o credor da casca BullMQ → `/internal/event` passa a ser o KAM-194 (era o KAM-005/KAM-006, fechados). Sem alteração de conteúdo técnico. |
+| 1.22 | 2026-11-13 | KAM-194 | §7-H: a casca BullMQ → `/internal/event` e as linhas de `evt_subscricoes` do AGR passam a existir (revisão de dados `0052`, *provisória*), e o *job* do reconciliador sem envelope lê-se do `events_log`. Os credores escritos eram o KAM-005 e o KAM-006, fechados. |
