@@ -454,6 +454,14 @@ POLITICA: Final[tuple[Classe, ...]] = (
                 "platform.kyc_check",
                 pendencia=_RELACAO + "; casos mortos: D+30 pelo ServicoKyc.purgar, sem agendador",
             ),
+            # KAM-049 (revisao do Catalogo AI). A ingestao de uma foto e o que
+            # a visao leu dela: vive com o catalogo do tenant e sai no
+            # encerramento. A foto em si esta no STO, presa ao tenant pela
+            # `media_ref`, e expira pelo `retain_until` do objecto.
+            _t(
+                "platform.catalog_ingestions",
+                pendencia=_RELACAO + "; a foto no STO expira pelo retain_until (90 dias, proposta)",
+            ),
             _t("servicos.bookings", pendencia=_RELACAO),
         ),
         fonte="docs/tecnica/08 §7.1 e §11 (PME: relacao + fiscal)",
