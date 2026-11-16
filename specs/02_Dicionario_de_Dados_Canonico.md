@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.96 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.97 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4364,6 +4364,53 @@ factura-recibo da assinatura — processo manual com software certificado no Pil
 
 ---
 
+### 3.68 Trust & Safety: `ts_signal`, `ts_sanction` e a escada de sanções (KAM-097)
+
+*Emenda 1.97, **proposta**.* Os nomes dos sinais de burla e de auto-compra e da escada de sanções,
+do módulo [`../packages/core-ts/src/trust/`](../packages/core-ts/src/trust/index.ts) e das duas
+tabelas que a revisão [`0056`](../db/migrations/versions/0056_trust_e_sancoes.py) cria. É o credor que o §3.61 deixou escrito («as sanções que um caso `trust` decide»).
+
+**A regra que nenhuma coluna exprime: rejeitar um caso `trust` aplica a sanção.** A decisão da
+fila (§3.61) é sobre o tenant, como num caso `kyc`: `rejeitar` grava o passo proposto e, se for
+grave, suspende; `aprovar` deixa-o como está. Por isso o recurso da sanção é o recurso que a fila já
+tem — um por decisão, só de uma rejeição, decidido por quem não decidiu a primeira. Um passo
+automático recorre-se por um caso `recurso` de `motivo_codigo` `sancao:<id>`, e a fila recusa
+recorrer de um caso `recurso`.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Sinal de T&S | `platform.ts_signal`, **oito** colunas: `id`, `tenant_id`, `tipo`, `severidade`, `ref_evento`, `detalhe`, `ocorrido_em`, `criado_at` | — | *proposta* (emenda 1.97, KAM-097). *Append-only* por privilégio e por *trigger* (`ts_imutavel`, `55000`). O `ocorrido_em` fica entre ontem e agora (*trigger* `ts_signal_instante`): quem grava não data um sinal do passado para o fazer decair. Idempotente por `ts_signal_chave_uq` = `(tenant_id, tipo, ref_evento)`, a chave do bloco. **Divergências do DDL do bloco:** o `id` é `uuid` e não `bigserial` (precedente do §3.61); o `ref_evento` é o evento, ou o **agregado** quando o sinal é por agregado — a auto-compra e a não-entrega são por encomenda (`order_id`), e por isso o `order.created` e o `order.paid` da mesma encomenda dão **um** sinal; a foto repetida é por ingestão. O `detalhe` só admite as chaves de `CHAVES_DO_DETALHE` (`order_id`, `coincidencia`, `contagem`, `sku`, `versao_politica`, `pedidos`), por `CHECK`: nenhum dado pessoal |
+| Tipo de sinal | `ts_signal.tipo` ∈ {`auto_compra`, `burla_provavel`, `confirmacao_suspeita`, `foto_repetida`, `preco_anomalo`, `queixa_recorrente`, `nao_entrega`, `mudanca_de_conta`, `violacao_de_categoria`} | — | *proposta* (emenda 1.97, KAM-097). Lista **fechada**, **nove**. O `mudanca_de_conta` e o `preco_anomalo` têm regra e não têm fonte de factos (credor **KAM-200**) |
+| Severidade de um sinal | `ts_signal.severidade` ∈ {`baixa`, `media`, `alta`}, **fixa por tipo** (`SEVERIDADE_DO_TIPO`, e `ts_signal_severidade_ck` na base) | — | *proposta* (emenda 1.97, KAM-097). `alta`: auto-compra, burla provável, mudança de conta, violação de categoria; `media`: confirmação suspeita, queixa recorrente, não-entrega; `baixa`: foto repetida, preço anómalo. Quem grava não a escolhe, e é isso que torna inócuo um sinal escrito antes do consumidor com a mesma chave |
+| Risco composto | `risco_ts = min(100, Σ peso × 0,5^(idade/meia-vida))`, `POLITICA_DE_RISCO` versão `1.0.0` | — | *proposta* (emenda 1.97, KAM-097). Pesos por tipo (a foto repetida pesa 0: é informativa), meia-vida de 30 dias, `aviso` a partir de 30 e `limitacao` a partir de 60. **Todos propostas**, versionados em SemVer; a versão vai no `autor` de cada sanção automática (`sistema:<versão>`) |
+| Sanção de T&S | `platform.ts_sanction`, **quinze** colunas: `id`, `tenant_id`, `chave`, `passo`, `origem`, `motivo_interno`, `motivo_publico`, `autor`, `regra`, `sinais`, `case_id`, `justificacao_salto`, `recurso_de`, `recurso_estado`, `em` | — | *proposta* (emenda 1.97, KAM-097). *Append-only* como o sinal. Cada passo **e cada desfecho de recurso** é uma linha nova: o `recurso_estado` do bloco não se actualiza, vai numa linha com `recurso_de` a apontar a sanção recorrida. Idempotente por `ts_sanction_chave_uq` = `(tenant_id, chave)`, com a `chave` em `auto:<passo>:<sinal>`, `caso:<review_case>` ou `recurso:<ts_sanction>` — esta última faz o recurso único por sanção. FK composta `(case_id, tenant_id)` para a `review_case` e `(recurso_de, tenant_id)` para si própria |
+| Forma da chave de uma sanção | `auto:<passo>:<sinal>`, `caso:<case_id>` ou `recurso:<recurso_de>` | — | *proposta* (emenda 1.97, KAM-097). **Preso à origem** por `ts_sanction_chave_ck`: uma automática é `auto:<passo>:<sinal>` com `autor` `sistema:<versão>`; uma humana é `caso:<case_id>` com o autor de uma pessoa; um desfecho de recurso é `recurso:<recurso_de>`. Sem isto o `kamba_app` ocupava a chave `recurso:<id>` de um recurso ainda por decidir, e o desfecho real saía repetido |
+| Passo da escada | `ts_sanction.passo` ∈ {`aviso`, `limitacao`, `suspensao`, `encerramento`} | — | *proposta* (emenda 1.97, KAM-097). **Quatro**, por esta ordem. O passo em vigor é o mais alto dos passos sem recurso `provido`. Um passo que **salta** degraus sobre o que está em vigor exige `justificacao_salto`, e o *trigger* `ts_sanction_regras` recusa-o sem ela (`23514`), com um trinco consultivo por tenant para que duas inserções concorrentes não passem as duas |
+| Origem de uma sanção | `ts_sanction.origem` ∈ {`automatica`, `humana`} | — | *proposta* (emenda 1.97, KAM-097). A automática só dá `aviso` e `limitacao`, um degrau de cada vez (`ts_sanction_grave_humana_ck`); a humana leva sempre `case_id` (`ts_sanction_humana_com_caso_ck`). O `kamba_app` só escreve automáticas: uma humana ou um desfecho de recurso dele são `42501` |
+| O que o dono lê de uma sanção | `ts_sanction.motivo_publico` ∈ {`conduta_em_analise`, `actividade_limitada`, `loja_suspensa`, `loja_encerrada`, `recurso_aceite`, `recurso_mantido`} | — | *proposta* (emenda 1.97, KAM-097). Lista **fechada**, **seis**, com texto fixo (`TEXTO_DO_MOTIVO_DA_SANCAO`). O `motivo_interno`, a `regra` e os `sinais` são só de T&S, e o `kamba_app` nem os lê |
+| Desfecho de um recurso | `ts_sanction.recurso_estado` ∈ {`provido`, `negado`} | — | *proposta* (emenda 1.97, KAM-097). Um recurso provido de uma `suspensao` devolve o tenant a `ativo` se nada grave ficar em vigor; um negado de um `encerramento` passa-o a `encerrado` |
+| Os modelos de SMS da escada | `ts_aviso`, `ts_limitacao`, `ts_suspensao`, `ts_encerramento`, `ts_recurso_aceite`, `ts_recurso_mantido` | — | *proposta* (emenda 1.97, KAM-097). Finalidade `aviso_de_servico`, **sem parâmetros**: o corpo é o texto fixo do motivo público, e um ensaio prende um ao outro. Para o telefone do onboarding, nunca o número da loja |
+| A independência de um comprador | `SQL_INDEPENDENCIA` → `independente`, `nao_independente` ou `por_avaliar` | — | *proposta* (emenda 1.97, KAM-097). A marca que o KAM-096 consome, **fail-closed**: sem o `order.paid` consumido por este consumidor o pedido está `por_avaliar` e não conta; avaliado e sem `auto_compra`, é independente. Não tem coluna: lê-se do `events_consumed` e da `ts_signal` |
+
+**A auto-compra compara o contacto canónico, e é a resolução de identidade que junta os HMAC.** O
+`kamba_app` não lê o `phone_hmac` nem o `bsuid_hmac` (§3.1): o dono é o `owner_contact_id` e os
+confirmadores `dono` (§3.45), o comprador é o `contact_id` da encomenda, e cada um é levado ao
+contacto canónico pela cadeia de `merged_into`. O mesmo telefone em formatos diferentes, ou o BSUID
+do dono, resolvem-se no mesmo contacto (KAM-008), e por isso coincidem. **Uma segunda SIM
+desconhecida não é detectável** por regra local nenhuma: é limitação, escrita no
+`../docs/tecnica/10` §8.3, e a defesa é a do KAM-096.
+
+**O que esta emenda não decide, e a quem.** A transição do tenant como função única com o evento
+`tenant.suspended`, `tenant.closed` ou `tenant.reactivated`, e quem escreve o `owner_contact_id` —
+**KAM-092** (aqui a transição é um CAS do `kamba_batch` e nenhum evento sai). O adaptador do painel
+que mostra os avisos — **KAM-190**. O tecto no nível 0 por uma `limitacao` — **KAM-096**. O processo
+do consumidor e das varreduras, as métricas e os alertas de T&S, a correlação entre tenants por
+comprador, o preço anómalo, a mudança de conta ou de NIF, o bloqueio do catálogo numa limitação e o
+aviso dos passos automáticos — **KAM-200**. A base legal do tratamento cruzado — *(a confirmar por
+parecer)*.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -4481,3 +4528,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.94 | Novembro 2026 | **Emenda (*proposta*), KAM-120: a Foto de produtos AI.** §3.66 nova: a `platform.image_jobs` com as suas **dezoito** colunas, os domínios fechados de `estado` (**cinco**), `operacao` (**quatro**) e `motivo` (**quatro** por estado), a coluna gerada `gerado_por_ia`, a escolha do dono, o aviso da primeira utilização, a interface `ImageProvider`, a lista de recusa, a carta de não-treino e as duas portas da minimização local. §3.49: o domínio de `tenant_destinations.purpose` passa de treze a **catorze**, com a `imagem` — a revisão `0054` reescreve o `tenant_destinations_purpose_ck`. **Três divergências do DDL do bloco**, escritas na revisão e no §3.66: as referências do STO em vez de `asset_id`, o `custo_usd` em vez de `custo_minor` (devolvida a quem escreveu o critério 10) e as colunas que os critérios pedem. Os números (revisão `0054`, §3.66 e emenda 1.94) são os da integração do lote, depois do KAM-194 (1.92) e do KAM-198 (1.93). | Equipa KAMBÁ |
 | 1.95 | Novembro 2026 | **Emenda (*proposta*), KAM-064: a avaliação da pesquisa, sem nome novo.** O §3.59 (o vector do produto) e o §3.62 (o termo de *dataset* inactivo) passam a nomear o **KAM-199** como o credor da escolha do modelo e da soltura da CHECK: o KAM-064 entregou o *dataset* `golden_search`, o executor e o *gate* como comando, e devolveu o que pede uma decisão do fundador ou migração. Nenhuma tabela, coluna, evento ou estado novo. | Equipa KAMBÁ |
 | 1.96 | Novembro 2026 | **Emenda (*proposta*), KAM-059: o billing da plataforma.** §3.67 nova: o `price_book` (global, versionado, só de acrescentar e auditado com `price.update`), a `subscriptions` com os **quatro** estados e o `periodo_dia` de 1 a 28, a `billing_cycles` com os **cinco** estados, o grafo e o `paga` atado ao *ledger*, a `charges_billing_fk` composta, a `commission_accruals` só em sombra e só de pagamento autenticado pelo facilitador, a `billing_ops_approvals` e a porta `billing_confirmar_ops` da dupla de ops, o G8 das cobranças de ciclo ao lado do da `0032` (que não muda de corpo), o caminho do dono fechado aos ciclos, as duas políticas de leitura do `kamba_pay` e a `InvoiceProvider` sem implementação. §3.5: o quadragésimo segundo tipo, `billing.cycle_paid`. **O papel de billing que a emenda 1.48 deixou por criar é o `kamba_pay`**, que existe desde a 1.90. **O que não decide:** preços e IVA (produto e contabilista), a régua (KAM-058), o callback do facilitador sobre a conta da KAMBÁ (D4), a taxa da sombra (D8) e a factura-recibo (D7). | Equipa KAMBÁ |
+| 1.97 | Novembro 2026 | **Emenda (*proposta*), KAM-097: Trust & Safety.** §3.68 nova: a `platform.ts_signal` com as suas **oito** colunas e a `platform.ts_sanction` com as suas **quinze** (revisão `0056`), os **nove** tipos de sinal com a severidade fixa por tipo, os **quatro** passos da escada, as **duas** origens, os **seis** motivos públicos com texto fixo, os **dois** desfechos de recurso, os **seis** modelos de SMS `ts_*` sem parâmetros, o risco composto da `POLITICA_DE_RISCO` 1.0.0 e a independência de um comprador como leitura **fail-closed**. **Três divergências do DDL do bloco, todas medidas:** o `id` é `uuid` e não `bigserial`; o `ref_evento` é o agregado quando o sinal é por agregado (a auto-compra é por encomenda, para que dois eventos da mesma encomenda deem um sinal); e o `recurso_estado` não se actualiza — o desfecho de um recurso é uma linha nova, porque a tabela é *append-only*. **A decisão grave passa pela fila do §3.61:** rejeitar um caso `trust` aplica a sanção, e o recurso é o da fila. **O que não decide, com credor:** a transição do tenant com evento e o `owner_contact_id` (**KAM-092**), o painel (**KAM-190**), o tecto (**KAM-096**) e o processo, as métricas, a correlação por comprador e as fontes que faltam (**KAM-200**). | Equipa KAMBÁ |
