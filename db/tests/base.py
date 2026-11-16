@@ -279,6 +279,8 @@ VISTAS = (
     "v_h12",
     "v_module_cost_month",
     "v_oferta_viva",
+    "v_onboarding_kpis",
+    "v_onboarding_kpis_agregado",
     "v_payment_events_audit",
     "v_payment_ledger_heads",
     "v_review_sla",
@@ -586,6 +588,14 @@ TABELAS_BILLING = (
 #: (a `imagem`), sem tabela nova. A `0051` (KAM-197) nao cria tabelas no
 #: `platform`.
 TABELAS_FOTO = ("image_jobs",)
+#: O que a revisao dos eventos do tenant (KAM-092) acrescenta: os seis gates de
+#: activacao de um caso e o registo de estados do tenant.
+#:
+#: **O nome leva o assunto e nao o numero da revisao**, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`: o numero e o `0058`, e o ensaio descobre a
+#: revisao pelo *glob* `*_eventos_do_tenant.py`. As duas com RLS `FORCE` pela
+#: `tenant_iso`; o registo e *append-only* por *trigger*.
+TABELAS_EVENTOS_DO_TENANT = ("onboarding_gate", "tenant_state_log")
 
 #: O que a revisao do custo por modulo de entrada (KAM-124) acrescenta.
 #:
@@ -610,17 +620,28 @@ TABELAS = tuple(
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
+        + TABELAS_EVENTOS_DO_TENANT
     )
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a dos
+#: eventos do tenant (KAM-092). O `downgrade` dela leva a base para aqui, e
+#: **deriva do `TABELAS`** por ser o topo da cadeia: quem acrescentar uma revisao
+#: a seguir poe a sua aqui e faz esta derivar da dela. Hoje a anterior e a
+#: `0057`, a do custo dos modulos (KAM-124).
+TABELAS_ANTES_DOS_EVENTOS_DO_TENANT = tuple(
+    sorted(set(TABELAS) - set(TABELAS_EVENTOS_DO_TENANT))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: custo por modulo de entrada (KAM-124).
 #:
-#: O `downgrade` da revisao do custo dos modulos leva a base para aqui. **Deriva
-#: do `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
-#: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
-#: dela. Hoje a anterior e a `0056`, a de Trust & Safety (KAM-097).
-TABELAS_ANTES_DO_CUSTO_DOS_MODULOS = tuple(sorted(set(TABELAS) - set(TABELAS_CUSTO_DOS_MODULOS)))
+#: O `downgrade` da revisao do custo dos modulos leva a base para aqui. Deriva
+#: do `TABELAS_ANTES_DOS_EVENTOS_DO_TENANT` desde o KAM-092, que pos a sua
+#: revisao no topo. Hoje a anterior e a `0056`, a de Trust & Safety (KAM-097).
+TABELAS_ANTES_DO_CUSTO_DOS_MODULOS = tuple(
+    sorted(set(TABELAS_ANTES_DOS_EVENTOS_DO_TENANT) - set(TABELAS_CUSTO_DOS_MODULOS))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a de
 #: Trust & Safety (KAM-097).

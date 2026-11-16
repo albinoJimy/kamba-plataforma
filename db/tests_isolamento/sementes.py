@@ -2032,6 +2032,19 @@ SEM_RECEITA_COM_RAZAO = {
     # `TestPrivilegios` mede a RLS ligada e forcada e o `42501` da aplicacao.
     ("platform", "review_case"),
     ("platform", "review_decision_log"),
+    # KAM-092: os gates de activacao e o registo de estados do tenant. **A
+    # aplicacao nao escreve nenhum dos dois**: os gates sao a condicao da
+    # activacao e so o lote os escreve (com `BYPASSRLS`), e o registo e do
+    # `transition_tenant`, que corre como o lote. O registo e *append-only* por
+    # *trigger*, que recusa o `DELETE` com que as receitas limpam; e um gate
+    # pede o caso do tenant (FK composta), que e unico por tenant e colidia com
+    # a receita do `onboarding_case`. **A politica mede-se noutro sitio**: o
+    # `db/tests/test_eventos_do_tenant.py` le os gates pela ligacao da
+    # aplicacao com o contexto de A (os de A e nao os de B), recusa-lhe a
+    # escrita (`42501`), e le o registo pela auditoria com o contexto do dono
+    # (uma linha) e de outro tenant (zero).
+    ("platform", "onboarding_gate"),
+    ("platform", "tenant_state_log"),
     # KAM-097: os sinais e as sancoes de T&S, pela razao da
     # `screening_decision`: *append-only* por privilegio **e** por *trigger*
     # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as

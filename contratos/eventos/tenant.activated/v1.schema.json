@@ -122,7 +122,22 @@
       "type": "object",
       "additionalProperties": false,
       "required": [],
-      "properties": {}
+      "properties": {
+        "onboarding_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "plano": {
+          "type": "string"
+        },
+        "owner_active_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "intervencao_humana": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

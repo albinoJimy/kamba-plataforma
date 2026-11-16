@@ -277,6 +277,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "offer_terms", "tenant_id"),
                 # KAM-087: o caso de onboarding («off» < «onb» < «ord»).
                 ("platform", "onboarding_case", "tenant_id"),
+                # KAM-092: os gates de activacao («onboarding_c» < «_g»).
+                ("platform", "onboarding_gate", "tenant_id"),
                 # KAM-044: as quatro das encomendas. A ordem e a do `sorted()`
                 # por ponto de codigo, e nela o `_` (0x5F) vence o `s` (0x73):
                 # as tres `order_*` vem **antes** da `orders_mirror`, e todas
@@ -375,6 +377,8 @@ class TestCatalogoReal(ComBase):
                 # no `ANULAVEIS`, com a razao escrita.
                 ("platform", "tenant_destinations", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
+                # KAM-092: o registo de estados do tenant («d» < «s» < «u»).
+                ("platform", "tenant_state_log", "tenant_id"),
                 ("platform", "tenant_usage", "tenant_id"),
                 ("platform", "tenants", "id"),
                 # KAM-028: o registo das invocacoes da ToolLayer. Sem receita de
@@ -579,6 +583,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
                 # `tenant_id` pre-alocado.
                 ("onboarding_case", "tenant_iso", "ALL", "{public}"),
+                # KAM-092: os gates de activacao.
+                ("onboarding_gate", "tenant_iso", "ALL", "{public}"),
                 # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
                 # `_` (0x5F) vence o `s` (0x73) — as tres `order_*` vem antes da
                 # `orders_mirror`. `ALL` e `{public}` nas quatro, como em todas:
@@ -732,6 +738,8 @@ class TestCatalogoReal(ComBase):
                 # `C`, e o `::text` do `SELECT` herda-a. Por isso
                 # `tenant_usage` vem antes de `tenants`, ao contrario do que
                 # a colacao `en_US.utf8` da base daria.
+                # KAM-092: o registo de estados do tenant.
+                ("tenant_state_log", "tenant_iso", "ALL", "{public}"),
                 ("tenant_usage", "tenant_iso", "ALL", "{public}"),
                 ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenants", "tenant_iso", "ALL", "{public}"),
@@ -846,6 +854,8 @@ class TestCatalogoReal(ComBase):
              "offer_terms",
              # KAM-087: o caso de onboarding.
              "onboarding_case",
+             # KAM-092: os gates de activacao.
+             "onboarding_gate",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
              # vez — **sexta lista deste ficheiro a precisar de uma tabela
              # nova**, e as cinco anteriores ja estavam feitas quando esta
@@ -913,6 +923,8 @@ class TestCatalogoReal(ComBase):
              "tenant_destinations",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
+             # KAM-092: o registo de estados do tenant.
+             "tenant_state_log",
              "tenant_usage", "tenants",
              # KAM-028: a `tool_audit`, entre `tenants` e `usage_ledger`.
              # KAM-029: a `tool_idempotency`, logo a seguir — depois da

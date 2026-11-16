@@ -265,6 +265,11 @@ class TestConvencoes(ComBase):
                 "commission_accruals",
                 "price_book",
                 "subscriptions",
+                # KAM-092: o registo de estados do tenant. `uuid` aleatorio e
+                # nao o `bigserial` do bloco, pela regra geral: a auditoria le-o
+                # sob a `tenant_iso`, e um sequencial dizia-lhe quantas
+                # transicoes a plataforma inteira teve.
+                "tenant_state_log",
                 # KAM-097: o sinal e a sancao de T&S. `uuid` aleatorio e **nao**
                 # o `bigserial` do bloco: o `kamba_app` le-os (o `RETURNING id`
                 # e a escada), e um sequencial dizia-lhe quantos sinais e
@@ -739,6 +744,11 @@ class TestConvencoes(ComBase):
                 # KAM-087 (0043): o caso de onboarding, `uuid` gerada; entre a
                 # oferta e as encomendas («off» < «onb» < «ord»).
                 ("onboarding_case", "id", "uuid", "gen_random_uuid()"),
+                # KAM-092: o gate de activacao tem chave **natural e composta**,
+                # `(onboarding_id, gate)` — um valor por gate de cada caso, que e
+                # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
+                ("onboarding_gate", "gate", "text", None),
+                ("onboarding_gate", "onboarding_id", "uuid", None),
                 # KAM-044: as cinco das encomendas, e tres formas diferentes.
                 #
                 # O `order_intents` tem chave **natural e composta**,
@@ -871,6 +881,9 @@ class TestConvencoes(ComBase):
                 # A posicao e por `ORDER BY 1, 2`: depois de `tenant_channels`
                 # ("tenant_ch" < "tenant_de") e antes de `tenant_usage`.
                 ("tenant_destinations", "id", "uuid", "gen_random_uuid()"),
+                # KAM-092: o registo de estados do tenant, `uuid` gerada e nao o
+                # `bigserial` do bloco («tenant_d» < «tenant_s» < «tenant_u»).
+                ("tenant_state_log", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
                 # `tenant_usage` e o que torna «um contador por tenant, chave
@@ -1378,7 +1391,15 @@ class TestConvencoes(ComBase):
              # reenvio do mesmo custo) e o `module_cost_ledger_mes_idx` (o mes de
              # um modulo, que a guarda de orcamento le). **Com** FK para
              # `tenants`.
-             "module_cost_ledger"},
+             "module_cost_ledger",
+             # KAM-092 (revisao dos eventos do tenant). Os dois por indice
+             # proprio: `onboarding_gate_tenant_idx (tenant_id)`, porque a chave
+             # primaria comeca pelo `onboarding_id`; e
+             # `tenant_state_log_tenant_idx (tenant_id, em)`, que e a leitura do
+             # historico de um tenant por ordem. O gate **sem** FK para
+             # `tenants` (o caso e anterior ao tenant, como o `provisioning_step`),
+             # e o registo **com** ela: so ha transicao de um tenant que existe.
+             "onboarding_gate", "tenant_state_log"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2018,7 +2039,12 @@ class TestConvencoes(ComBase):
         # `module_cost_ledger_tenant_fk`, simples para `tenants(id)`. A `ref`
         # do ledger e texto e nao FK — aponta para tres tabelas de origem
         # diferentes —, e os precos de teste nao tem tenant.
-        self.assertEqual(len(linhas), 97)
+        #
+        # **99** desde a revisao dos eventos do tenant (KAM-092): a
+        # `onboarding_gate_caso_fk`, **composta** `(onboarding_id, tenant_id)`
+        # para o caso, e a `tenant_state_log_tenant_fk`, simples para
+        # `tenants(id)`.
+        self.assertEqual(len(linhas), 99)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

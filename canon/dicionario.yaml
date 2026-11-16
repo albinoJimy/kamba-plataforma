@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.98"
+versao_dicionario: "1.99"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1417,7 +1417,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos de payload dos eventos"
-    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim"
+    canonico: "order_id, review_id, numero_publico, sku, qty, linhas, currency, nota, motivo, entrega_modo, entrega_confirmada_por, paga_via, expira_at, autenticacao, authn_ok, provider_event_id, plano, evento_pagamento_id, subscription_id, periodo_inicio, periodo_fim, kyc_nivel, tecto_inicial_minor, intervencao_humana"
     literais:
       - "order_id"
       - "review_id"
@@ -1440,6 +1440,9 @@ entradas:
       - "subscription_id"
       - "periodo_inicio"
       - "periodo_fim"
+      - "kyc_nivel"
+      - "tecto_inicial_minor"
+      - "intervencao_humana"
     nomes:
       - "order_id"
       - "review_id"
@@ -1462,7 +1465,16 @@ entradas:
       - "subscription_id"
       - "periodo_inicio"
       - "periodo_fim"
+      - "kyc_nivel"
+      - "tecto_inicial_minor"
+      - "intervencao_humana"
     nomes_nota:
+      - "v1"
+      - "v2"
+      - "onboarding_id"
+      - "channel_id"
+      - "channel_mode"
+      - "owner_active_seconds"
       - "billing.cycle_paid"
       - "in"
       - "cio"
@@ -18025,6 +18037,309 @@ entradas:
     nomes: []
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Gate de activação"
+    canonico: "platform.onboarding_gate, seis colunas: onboarding_id, tenant_id, gate, ok, evidencia_ref, em"
+    literais:
+      - "platform.onboarding_gate"
+      - "onboarding_id"
+      - "tenant_id"
+      - "gate"
+      - "ok"
+      - "evidencia_ref"
+      - "em"
+    nomes:
+      - "platform.onboarding_gate"
+      - "onboarding_id"
+      - "tenant_id"
+      - "gate"
+      - "ok"
+      - "evidencia_ref"
+      - "em"
+    nomes_nota:
+      - "tenant_id"
+      - "FORCE"
+      - "onboarding_gate_caso_fk"
+      - "onboarding_id"
+      - "gate"
+      - "em"
+      - "onboarding_gate_em"
+      - "ok"
+      - "evidencia_ref"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Gates"
+    canonico: "onboarding_gate.gate ∈ {meta_es, meta_pagamento, catalogo_minimo, consentimento, dpa, e2e}"
+    literais:
+      - "onboarding_gate.gate"
+      - "meta_es"
+      - "meta_pagamento"
+      - "catalogo_minimo"
+      - "consentimento"
+      - "dpa"
+      - "e2e"
+    nomes:
+      - "onboarding_gate.gate"
+      - "meta_es"
+      - "meta_pagamento"
+      - "catalogo_minimo"
+      - "consentimento"
+      - "dpa"
+      - "e2e"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Gates em falta"
+    canonico: "platform.onboarding_gates_em_falta(p_onboarding_id)"
+    literais:
+      - "platform.onboarding_gates_em_falta(p_onboarding_id)"
+    nomes:
+      - "platform.onboarding_gates_em_falta"
+      - "p_onboarding_id"
+    nomes_nota:
+      - "ok"
+      - "contrato_em_falta"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Registo de estados do tenant"
+    canonico: "platform.tenant_state_log, sete colunas: id, tenant_id, de, para, motivo, actor, em"
+    literais:
+      - "platform.tenant_state_log"
+      - "id"
+      - "tenant_id"
+      - "de"
+      - "para"
+      - "motivo"
+      - "actor"
+      - "em"
+    nomes:
+      - "platform.tenant_state_log"
+      - "id"
+      - "tenant_id"
+      - "de"
+      - "para"
+      - "motivo"
+      - "actor"
+      - "em"
+    nomes_nota:
+      - "id"
+      - "uuid"
+      - "bigserial"
+      - "tenant_state_log_imutavel"
+      - "de"
+      - "para"
+      - "em"
+      - "clock_timestamp"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Arestas do tenant"
+    canonico: "platform.tenant_transicoes()"
+    literais:
+      - "platform.tenant_transicoes()"
+    nomes:
+      - "platform.tenant_transicoes"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Transição do tenant"
+    canonico: "platform.transition_tenant(p_tenant_id, p_para, p_motivo, p_actor)"
+    literais:
+      - "platform.transition_tenant(p_tenant_id, p_para, p_motivo, p_actor)"
+    nomes:
+      - "platform.transition_tenant"
+      - "p_tenant_id"
+      - "p_para"
+      - "p_motivo"
+      - "p_actor"
+    nomes_nota:
+      - "false"
+      - "app.tenant_id"
+      - "ativo"
+      - "onboarding"
+      - "aguarda_teste"
+      - "activo"
+      - "tenants_exige_aceite"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Transições da fase do caso"
+    canonico: "platform.onboarding_transicoes()"
+    literais:
+      - "platform.onboarding_transicoes()"
+    nomes:
+      - "platform.onboarding_transicoes"
+    nomes_nota:
+      - "onboarding_case.fase"
+      - "otp_enviado"
+      - "otp_confirmado"
+      - "kyc_fila"
+      - "pedir_info"
+      - "aprovar"
+      - "rejeitar"
+      - "recurso_aprovado"
+      - "saga_iniciada"
+      - "saga_concluida"
+      - "es_sem_vaga"
+      - "es_com_vaga"
+      - "es_concluido"
+      - "catalogo_minimo"
+      - "activar"
+      - "abandonar"
+      - "cancelar"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Avanço do caso"
+    canonico: "platform.advance_case(p_onboarding_id, p_evento, p_actor)"
+    literais:
+      - "platform.advance_case(p_onboarding_id, p_evento, p_actor)"
+    nomes:
+      - "platform.advance_case"
+      - "p_onboarding_id"
+      - "p_evento"
+      - "p_actor"
+    nomes_nota:
+      - "aprovado"
+      - "es_concluido"
+      - "desligado"
+      - "encerrado"
+      - "activar"
+      - "onboarding"
+      - "transition_tenant"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Prova de que um evento saiu"
+    canonico: "platform.evento_emitido(p_tenant_id, p_tipo)"
+    literais:
+      - "platform.evento_emitido(p_tenant_id, p_tipo)"
+    nomes:
+      - "platform.evento_emitido"
+      - "p_tenant_id"
+      - "p_tipo"
+    nomes_nota:
+      - "tenant"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Revisão aprovada"
+    canonico: "platform.revisao_aprovada(p_onboarding_id, p_tenant_id, p_tipo)"
+    literais:
+      - "platform.revisao_aprovada(p_onboarding_id, p_tenant_id, p_tipo)"
+    nomes:
+      - "platform.revisao_aprovada"
+      - "p_onboarding_id"
+      - "p_tenant_id"
+      - "p_tipo"
+    nomes_nota:
+      - "aprovar"
+      - "motivo_codigo"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Agregador da aprovação"
+    canonico: "platform.aprovacao_em_falta(p_onboarding_id), com os nomes kyc, screening e aceite"
+    literais:
+      - "platform.aprovacao_em_falta(p_onboarding_id)"
+      - "kyc"
+      - "screening"
+      - "aceite"
+    nomes:
+      - "platform.aprovacao_em_falta"
+      - "p_onboarding_id"
+      - "kyc"
+      - "screening"
+      - "aceite"
+    nomes_nota:
+      - "kyc"
+      - "k1_ok"
+      - "revisao_aprovada"
+      - "screening"
+      - "bloqueada"
+      - "categoria"
+      - "permitida"
+      - "humano"
+      - "aceite"
+      - "contrato_em_falta"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Nível de KYC num evento"
+    canonico: "kyc_nivel, só K1"
+    literais:
+      - "kyc_nivel"
+      - "K1"
+    nomes:
+      - "kyc_nivel"
+      - "K1"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Tecto inicial num evento"
+    canonico: "tecto_inicial_minor"
+    literais:
+      - "tecto_inicial_minor"
+    nomes:
+      - "tecto_inicial_minor"
+    nomes_nota:
+      - "currency"
+      - "AOA"
+      - "valor_max_pedido_minor"
+      - "free"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "Intervenção humana"
+    canonico: "intervencao_humana"
+    literais:
+      - "intervencao_humana"
+    nomes:
+      - "intervencao_humana"
+    nomes_nota:
+      - "review_case"
+      - "auditoria"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "KPIs por caso"
+    canonico: "platform.v_onboarding_kpis: onboarding_id, tenant_id, fase, owner_active_seconds, dias_calendario, intervencao_humana, saga_primeira_tentativa"
+    literais:
+      - "platform.v_onboarding_kpis"
+      - "onboarding_id"
+      - "tenant_id"
+      - "fase"
+      - "owner_active_seconds"
+      - "dias_calendario"
+      - "intervencao_humana"
+      - "saga_primeira_tentativa"
+    nomes:
+      - "platform.v_onboarding_kpis"
+      - "onboarding_id"
+      - "tenant_id"
+      - "fase"
+      - "owner_active_seconds"
+      - "dias_calendario"
+      - "intervencao_humana"
+      - "saga_primeira_tentativa"
+    nomes_nota:
+      - "security_invoker"
+      - "attempt"
+    variantes_literais: []
+  - seccao: "3.70"
+    conceito: "KPIs agregados"
+    canonico: "platform.v_onboarding_kpis_agregado: casos_activos, owner_active_seconds_mediana, owner_active_seconds_p90, dias_calendario_mediana, dias_calendario_p90, sem_intervencao_ratio, saga_primeira_tentativa_ratio"
+    literais:
+      - "platform.v_onboarding_kpis_agregado"
+      - "casos_activos"
+      - "owner_active_seconds_mediana"
+      - "owner_active_seconds_p90"
+      - "dias_calendario_mediana"
+      - "dias_calendario_p90"
+      - "sem_intervencao_ratio"
+      - "saga_primeira_tentativa_ratio"
+    nomes:
+      - "platform.v_onboarding_kpis_agregado"
+      - "casos_activos"
+      - "owner_active_seconds_mediana"
+      - "owner_active_seconds_p90"
+      - "dias_calendario_mediana"
+      - "dias_calendario_p90"
+      - "sem_intervencao_ratio"
+      - "saga_primeira_tentativa_ratio"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -19367,6 +19682,76 @@ tabelas:
     assinatura: "platform.v_h12(tenant_id, mes, modulo, custo_usd, custo_aoa_minor, fx_aoa_per_usd, preco_teste_minor, racio, margem_minor)"
     seccao: "3.69"
     conceito: "Vista da H12"
+  - nome: "onboarding_gates_em_falta"
+    esquema: "platform"
+    colunas:
+      - "p_onboarding_id"
+    aberta: false
+    assinatura: "platform.onboarding_gates_em_falta(p_onboarding_id)"
+    seccao: "3.70"
+    conceito: "Gates em falta"
+  - nome: "tenant_transicoes"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.tenant_transicoes()"
+    seccao: "3.70"
+    conceito: "Arestas do tenant"
+  - nome: "transition_tenant"
+    esquema: "platform"
+    colunas:
+      - "p_tenant_id"
+      - "p_para"
+      - "p_motivo"
+      - "p_actor"
+    aberta: false
+    assinatura: "platform.transition_tenant(p_tenant_id, p_para, p_motivo, p_actor)"
+    seccao: "3.70"
+    conceito: "Transição do tenant"
+  - nome: "onboarding_transicoes"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.onboarding_transicoes()"
+    seccao: "3.70"
+    conceito: "Transições da fase do caso"
+  - nome: "advance_case"
+    esquema: "platform"
+    colunas:
+      - "p_onboarding_id"
+      - "p_evento"
+      - "p_actor"
+    aberta: false
+    assinatura: "platform.advance_case(p_onboarding_id, p_evento, p_actor)"
+    seccao: "3.70"
+    conceito: "Avanço do caso"
+  - nome: "evento_emitido"
+    esquema: "platform"
+    colunas:
+      - "p_tenant_id"
+      - "p_tipo"
+    aberta: false
+    assinatura: "platform.evento_emitido(p_tenant_id, p_tipo)"
+    seccao: "3.70"
+    conceito: "Prova de que um evento saiu"
+  - nome: "revisao_aprovada"
+    esquema: "platform"
+    colunas:
+      - "p_onboarding_id"
+      - "p_tenant_id"
+      - "p_tipo"
+    aberta: false
+    assinatura: "platform.revisao_aprovada(p_onboarding_id, p_tenant_id, p_tipo)"
+    seccao: "3.70"
+    conceito: "Revisão aprovada"
+  - nome: "aprovacao_em_falta"
+    esquema: "platform"
+    colunas:
+      - "p_onboarding_id"
+    aberta: false
+    assinatura: "platform.aprovacao_em_falta(p_onboarding_id)"
+    seccao: "3.70"
+    conceito: "Agregador da aprovação"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -20958,6 +21343,17 @@ dominios:
       - "orcamento"
     seccao: "3.69"
     conceito: "Módulo do preço de teste"
+    so_no_registo: false
+  - coluna: "onboarding_gate.gate"
+    valores:
+      - "meta_es"
+      - "meta_pagamento"
+      - "catalogo_minimo"
+      - "consentimento"
+      - "dpa"
+      - "e2e"
+    seccao: "3.70"
+    conceito: "Gates"
     so_no_registo: false
 
 variantes:
