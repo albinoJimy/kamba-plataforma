@@ -1,0 +1,23 @@
+# config/templates_por_modulo.yaml — mapa template -> modulo de entrada (KAM-124)
+#
+# O custo Meta de uma mensagem do dono (push e templates) atribui-se a um
+# modulo de entrada pelo `template_name` da `platform.outbound_messages`. E o
+# `h12-export consolidar` que le este ficheiro e escreve a rubrica `mensagem`
+# do `platform.module_cost_ledger`.
+#
+# ESTA VAZIO, E DE PROPOSITO. Nenhum template dos modulos de entrada existe
+# ainda: os avisos do catalogo (KAM-119), a entrega das artes (KAM-122) e a
+# proposta do orcamento expresso (KAM-123) criam-nos. Um nome escrito aqui por
+# antecipacao seria inventado, e uma mensagem de outro template atribuida a um
+# modulo era custo no sitio errado. Quem criar um template de um modulo
+# acrescenta a linha, na forma:
+#
+#   templates:
+#     - template: <template_name da outbound_messages>
+#       modulo: catalogo | foto | social | orcamento
+#
+# Um template que nao esta aqui nao entra no ledger: o custo dele continua na
+# `v_tenant_cost_daily` (KAM-081), por tenant, sem modulo.
+
+version: 1
+templates: []

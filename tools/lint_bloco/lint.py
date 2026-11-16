@@ -301,11 +301,19 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: em `cd696baf` (o #194 do KAM-120 ja fundido): **124 medidos**, e `124 // 2`
 #: sao 62. Sobe para 62, que serve ate aos 125.
 #:
-#: **O 126.o e o do KAM-095**, medido no ramo dele sobre a `publico/main` em
-#: `970ea958`: **126 medidos**, e `126 // 2` sao 63. Sobe para 63, que serve ate
-#: aos 127. O numero e *provisorio*: o lote corre com outros tickets que tambem
-#: acrescentam seccoes de verificacao, e quem funde em segundo remede.
-MINIMO_DE_BLOCOS_MEDIDOS = 63
+#: **O 126.o e o do KAM-097**, medido na arvore integrada com a `publico/main`
+#: em `970ea958` (o #196 do KAM-059 ja fundido): **126 medidos**, e `126 // 2`
+#: sao 63. Sobe para 63, que serve ate aos 127.
+#:
+#: **O 128.o e o do KAM-124**, que funde depois do #200 (KAM-056): na arvore
+#: integrada com a `publico/main` em `e1fe2ee8` (o #197 do KAM-097 ja fundido)
+#: mede **127**, e com o bloco do KAM-056 por baixo **128** — `128 // 2` sao 64.
+#: Sobe para 64, que serve ate aos 129 e vale ja para os 127.
+#:
+#: **O 130.o e o do KAM-095**, medido na arvore integrada com a `publico/main`
+#: em `ec22756c` (o #202 do KAM-092 ja fundido): **130 medidos**, e `130 // 2`
+#: sao 65. Sobe para 65, que serve ate aos 131.
+MINIMO_DE_BLOCOS_MEDIDOS = 65
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

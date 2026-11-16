@@ -525,15 +525,23 @@ ESPERADO_POR_TABELA.update(
         # publicacao e do publicador — nem `DELETE`. O `kamba_batch` publica
         # (`SELECT`, `UPDATE`) e purga o publicado (`DELETE`, 7 dias,
         # `docs/tecnica/06` §7.4).
+        #
+        # **O `kamba_batch` insere desde a revisao dos eventos do tenant
+        # (KAM-092)**: as portas `transition_tenant` e `advance_case` correm
+        # como ele — e o unico papel com `UPDATE` em `tenants.estado` — e
+        # emitem na mesma transaccao.
         "events_outbox": _eventos(
             kamba_app={"SELECT", "INSERT"},
-            kamba_batch={"SELECT", "UPDATE", "DELETE"},
+            kamba_batch={"SELECT", "INSERT", "UPDATE", "DELETE"},
         ),
         # O contador do `evt_emitir`, que corre como quem chama: o produtor
         # precisa de `INSERT` e `SELECT` de tabela, e de `UPDATE` **so na coluna
         # `seq`** (ver `COLUNAS_POR_PAPEL`). Mudar `agregado_tipo` ou
-        # `agregado_id` era reescrever a chave de outro agregado.
-        "evt_agregado_seq": _eventos(kamba_app={"SELECT", "INSERT"}),
+        # `agregado_id` era reescrever a chave de outro agregado. O
+        # `kamba_batch` pela mesma razao do *outbox* (KAM-092).
+        "evt_agregado_seq": _eventos(
+            kamba_app={"SELECT", "INSERT"}, kamba_batch={"SELECT", "INSERT"}
+        ),
         # Configuracao de entrega. Quem a le e o publicador; quem a escreve e
         # uma revisao ou um *job* nomeado, com o privilegio pedido no ticket que
         # o criar (KAM-006 em diante).
@@ -1445,6 +1453,40 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os eventos do tenant (KAM-092). **Os gates so o lote os escreve**: sao a
+#: condicao da activacao, e um contexto de tenant que os pusesse a verde
+#: activava-se a si proprio — a aplicacao le-os (o painel do dono), e o
+#: `UPDATE` do lote e por coluna (ver `COLUNAS_POR_PAPEL`). **O registo de
+#: estados e append-only** por privilegio e por *trigger*: o lote escreve e le
+#: pela `transition_tenant`, a auditoria le sob a `tenant_iso`, e a aplicacao
+#: nao lhe chega.
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_gate": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "tenant_state_log": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: A ingestao do Catalogo AI (KAM-049, revisao do Catalogo AI). **So a
 #: aplicacao**: o *pipeline* corre como `kamba_app`, com o contexto do tenant,
 #: e le a tabela inteira mas insere e actualiza **por coluna** (ver
@@ -1477,7 +1519,9 @@ ESPERADO_POR_TABELA.update(
     {
         "image_jobs": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-124: a consolidacao do custo de imagem le a tabela (revisao
+            # do custo dos modulos). Leitura e mais nada.
+            "kamba_batch": {"SELECT"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1501,6 +1545,65 @@ ESPERADO_POR_TABELA.update(
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: Os sinais e as sancoes de Trust & Safety (KAM-097, revisao de T&S).
+#: *Append-only* por privilegio e por *trigger*: ninguem tem `UPDATE` nem
+#: `DELETE`. O **lote** escreve e le tudo (a fila de revisao grava as sancoes
+#: humanas; as varreduras gravam os sinais que atravessam tenants). A
+#: **aplicacao** e o consumidor de eventos: insere, e le **por coluna** so o que
+#: a escada precisa (ver `COLUNAS_POR_PAPEL`) — por isso a matriz de tabela diz
+#: so `INSERT`. A auditoria le.
+ESPERADO_POR_TABELA.update(
+    {
+        tabela: {
+            "kamba_app": {"INSERT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        }
+        for tabela in ("ts_signal", "ts_sanction")
+    }
+)
+
+#: O custo por modulo de entrada (KAM-124, revisao do custo dos modulos).
+#:
+#: * o **ledger** e so de acrescentar: o lote le e insere **por coluna** (ver
+#:   `COLUNAS_POR_PAPEL`), pela funcao `module_cost_gravar`; a aplicacao le o seu
+#:   tenant (a guarda de orcamento e o `get_usage`); **ninguem** actualiza nem
+#:   apaga, e os gatilhos `ENABLE ALWAYS` recusam-no tambem ao dono;
+#: * os **precos de teste** sao do lote, que os substitui inteiros (apaga e
+#:   insere); a aplicacao nao os ve.
+ESPERADO_POR_TABELA.update(
+    {
+        "module_cost_ledger": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "module_test_prices": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
             "kamba_agr": set(),
             "kamba_pay_hooks": set(),
             "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
@@ -1686,6 +1789,8 @@ COLUNAS_POR_PAPEL = {
     # e corre como quem chama. E o unico `UPDATE` de `kamba_app` nas tabelas de
     # eventos, e e **uma** coluna.
     ("kamba_app", "evt_agregado_seq", "UPDATE"): {"seq"},
+    # KAM-092: o lote emite pelas portas do tenant, pela mesma razao.
+    ("kamba_batch", "evt_agregado_seq", "UPDATE"): {"seq"},
     # KAM-006: o `once(key, fn)` fecha a accao que ele proprio abriu, e so o
     # desfecho. Mudar `consumer`, `event_id` ou `accao` era reescrever a chave
     # de idempotencia de outra accao.
@@ -2016,6 +2121,21 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "catalog_ingestions", "INSERT"): {
         "id", "tenant_id", "media_ref", "media_id_meta", "phash",
     },
+    # KAM-097: a varredura da foto repetida le tres colunas da ingestao, e so
+    # elas — o `extraido` e os media ficam fora do lote.
+    ("kamba_batch", "catalog_ingestions", "SELECT"): {"id", "tenant_id", "phash"},
+    # KAM-097: o consumidor de T&S le dos sinais e das sancoes so o que a escada
+    # e a idempotencia precisam. **Nao le** o `detalhe`, o `motivo_interno`, a
+    # `regra`, os `sinais`, o `autor`, o `case_id` nem a `justificacao_salto`: a
+    # heuristica e so do T&S, e o *trigger* da escada so precisa do passo e dos
+    # recursos.
+    ("kamba_app", "ts_signal", "SELECT"): {
+        "id", "tenant_id", "tipo", "severidade", "ref_evento", "ocorrido_em",
+    },
+    ("kamba_app", "ts_sanction", "SELECT"): {
+        "id", "tenant_id", "chave", "passo", "origem", "motivo_publico",
+        "recurso_de", "recurso_estado", "em",
+    },
     ("kamba_app", "catalog_ingestions", "UPDATE"): {
         "estado", "phash", "extraido", "campos_em_falta", "perguntas_feitas",
         "categoria_restrita", "sku", "custo_llm_usd", "confirmado_at",
@@ -2036,6 +2156,13 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "image_jobs", "UPDATE"): {
         "estado", "motivo", "provider", "versao_ref", "custo_usd",
         "latencia_ms", "escolhida",
+    },
+    # KAM-124 (revisao do custo dos modulos): o `INSERT` do lote no ledger e o
+    # da funcao `module_cost_gravar`, que e `SECURITY INVOKER` — as nove colunas
+    # que ela escreve, e **nao** o `id`, que e gerado.
+    ("kamba_batch", "module_cost_ledger", "INSERT"): {
+        "tenant_id", "modulo", "rubrica", "custo_usd", "custo_minor",
+        "fx_aoa_per_usd", "ref", "idempotency_key", "ocorrido_em",
     },
     # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
     # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
@@ -2146,6 +2273,10 @@ COLUNAS_POR_PAPEL = {
         "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
         "efeito_pendente_at",
     },
+    # KAM-092: o lote poe um gate a verde ou a vermelho com a evidencia; nao
+    # muda de que caso, de que tenant nem que gate e (a chave), e o `em` e do
+    # *trigger*.
+    ("kamba_batch", "onboarding_gate", "UPDATE"): {"ok", "evidencia_ref"},
     # KAM-095 (revisao da lista de espera): o lote move a entrada pela fila e
     # mais nada. **Fora**: a identidade (`onboarding_id`, `tenant_id`), o
     # `aprovado_em` — o facto que o *trigger* tira do `fase_at` do caso, e que
@@ -2233,6 +2364,13 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # (origem_ref)` ou `(versao)` a mais era invisivel na matriz de tabela, e o
     # primeiro trocava o original de um trabalho ja processado.
     "image_jobs",
+    # KAM-097: as duas de T&S, porque a aplicacao as le **por coluna**, e uma
+    # coluna a mais (o `motivo_interno`) era invisivel na matriz de tabela.
+    "ts_signal",
+    "ts_sanction",
+    # KAM-124: o ledger de custo, pela mesma razao. Um `GRANT INSERT (id)` ou
+    # um `GRANT UPDATE (custo_usd)` a mais era invisivel na matriz de tabela.
+    "module_cost_ledger",
     # KAM-095: a entrada da lista de espera tem `UPDATE` por coluna para o lote.
     # Um `GRANT UPDATE (aprovado_em)` a mais era invisivel na matriz de tabela, e
     # com ele o lote reescrevia o facto da aprovacao. O limite entra pela razao
@@ -2254,6 +2392,11 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # e o registo de decisoes entra pela razao das de eventos.
     "review_case",
     "review_decision_log",
+    # KAM-092: o gate tem `UPDATE` por coluna para o lote, invisivel na matriz
+    # de tabela; o registo de estados entra pela razao das de eventos — um
+    # `GRANT UPDATE (motivo)` a mais reescrevia a razao de uma suspensao.
+    "onboarding_gate",
+    "tenant_state_log",
     "contacts",
     "contact_deks",
     "contact_endpoints",
@@ -2452,6 +2595,9 @@ IMUTAVEIS_PARA_A_APP = {
         # KAM-090: so o *trigger* do gate a escreve; com ela o tenant fingia
         # que ja tinha estado activo e saltava a exigencia das versoes vigentes.
         "primeira_activacao_at",
+        # KAM-097: a auto-compra compara o comprador com o dono, e o dono
+        # anulava-o antes de comprar a si proprio. Escreve-o o provisioning.
+        "owner_contact_id",
     },
     "tenant_channels": {
         "id",         # identidade
@@ -2622,11 +2768,14 @@ class TestMatrizDePrivilegios(ComBase):
 
         **Nem do `kamba_batch`**, que seria o palpite natural para um
         varrimento. A razao e o outbox: a funcao emite `booking.cancelled` por
-        `platform.evt_emitir`, e o `EXECUTE` dessa funcao e **so** do `kamba_app`
-        desde a `0004` (ele e o produtor). Um varrimento como `kamba_batch`
-        falhava no `evt_emitir` depois de ja ter alterado o estado — e ficavam
-        holds libertados sem evento nenhum, que e exactamente o que o criterio 3
-        pede que nao aconteca.
+        `platform.evt_emitir`, e o `EXECUTE` dessa funcao foi **so** do
+        `kamba_app` desde a `0004` (ele e o produtor) ate a revisao dos eventos
+        do tenant (KAM-092), que o deu tambem ao `kamba_batch` para as portas do
+        tenant. Quando o varrimento nasceu, como `kamba_batch` falhava no
+        `evt_emitir` depois de ja ter alterado o estado — e ficavam holds
+        libertados sem evento nenhum, que e exactamente o que o criterio 3 pede
+        que nao aconteca. Corre na aplicacao, sob o contexto do tenant, e e isso
+        que este ensaio prende.
 
         **E nao do `PUBLIC`**, que e a omissao do PostgreSQL para cada funcao
         nova: deixa-la assim dava a um papel sem privilegio em `bookings` uma

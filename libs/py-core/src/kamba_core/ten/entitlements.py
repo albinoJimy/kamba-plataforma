@@ -18,7 +18,7 @@ RLS.
 
 ## As duas perguntas nao sao a mesma, e a diferenca esta no registo
 
-As onze chaves de `registry/entitlement_keys.schema.json` nao sao todas da
+As doze chaves de `registry/entitlement_keys.schema.json` nao sao todas da
 mesma especie, e o registo di-lo em `x-kamba-consumivel`:
 
 * **baldes por periodo** (`msgs_ai_mes`, `marcacoes_mes`, …) acumulam-se e
@@ -177,11 +177,11 @@ class ChaveDeLimite:
     consumivel: bool
 
 
-#: As onze chaves do registo, com a especie de cada uma.
+#: As doze chaves do registo, com a especie de cada uma.
 #:
 #: ## Porque e que isto existe
 #:
-#: O registo ja dizia, em `x-kamba-consumivel`, quais das onze chaves se
+#: O registo ja dizia, em `x-kamba-consumivel`, quais das doze chaves se
 #: consomem — e **nada lia esse campo**. A consequencia media-se: nada impedia
 #: `consume_limit(tenant, "valor_max_pedido_minor", 5_000_000, ...)`, que cria
 #: linha em `platform.tenant_usage` para um tecto que nao tem contador e, com o
@@ -220,6 +220,10 @@ CHAVES_DE_LIMITE: Mapping[str, ChaveDeLimite] = {
         ),
         # KAM-050: o prazo de reclamacao. Sem omissao, ver o registo.
         ChaveDeLimite("prazo_reclamacao_dias", CATEGORIA_TECTO_POR_PEDIDO, False),
+        # KAM-124: o orcamento mensal de custo de um modulo de entrada, em
+        # micro-dolares. Le-se na linha do proprio modulo (`kamba_core.foto.
+        # orcamento`), e nao pelo `ten_tecto`, que daria o minimo dos modulos.
+        ChaveDeLimite("custo_max_mes_micro_usd", CATEGORIA_TECTO_POR_JANELA, False),
     )
 }
 
@@ -339,7 +343,7 @@ def especie_da_chave(chave: object) -> ChaveDeLimite:
     if especie is None:
         raise ChaveDesconhecida(
             f"a chave {nome!r} nao esta no registo de chaves de limite "
-            "(`registry/entitlement_keys.schema.json`, onze chaves). O registo "
+            "(`registry/entitlement_keys.schema.json`, doze chaves). O registo "
             "recusa chaves desconhecidas na escrita; esta recusa-as na leitura."
         )
     return especie

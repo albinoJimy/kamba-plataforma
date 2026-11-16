@@ -112,6 +112,19 @@ def verificar(raiz: Path, hoje: datetime.date | None = None) -> tuple[list[Achad
     novos, estatisticas_docs = documentos.verificar(textos, saber, permitidas, hoje)
     achados += novos
 
+    # KAM-124, criterio 3: um preco de teste nao aparece em Kz num texto ao
+    # cliente. Le os precos do ficheiro de planos e varre o corpus do registo.
+    planos = _ler(raiz, "registry/plans.yaml")
+    precos = registo.precos_de_teste(planos) if planos is not None else []
+    if precos:
+        ao_cliente = {}
+        for relativo in ficheiros:
+            if registo.no_corpus_ao_cliente(relativo):
+                fonte = _ler(raiz, relativo)
+                if fonte is not None:
+                    ao_cliente[relativo] = fonte
+        achados += registo.precos_em_texto_ao_cliente(precos, ao_cliente)
+
     # Uma extensao que nada usa e uma autorizacao a espera de ser aproveitada.
     por_usar = [e for e in saber.extensoes.entradas if (e.tipo, e.nome) not in saber.extensoes.usadas]
     for extensao in por_usar:

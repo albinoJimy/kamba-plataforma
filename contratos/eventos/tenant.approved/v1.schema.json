@@ -131,6 +131,29 @@
         },
         "plano": {
           "type": "string"
+        },
+        "onboarding_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kyc_nivel": {
+          "type": "string",
+          "enum": [
+            "K1"
+          ]
+        },
+        "tecto_inicial_minor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "intervencao_humana": {
+          "type": "boolean"
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "AOA"
+          ]
         }
       }
     }

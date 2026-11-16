@@ -31,6 +31,9 @@ _COPIAR = (
     "db/kyc.py",
     # KAM-061: o quarto, pela mesma razao — a revisao chama `indice.criar()`.
     "db/indice.py",
+    # KAM-124: o quinto, pela mesma razao — a revisao do custo dos modulos chama
+    # `modulos_custo.criar_vistas()`.
+    "db/modulos_custo.py",
     "docs/tecnica",
     "tools/canon_lint/tests/fixtures",
 )

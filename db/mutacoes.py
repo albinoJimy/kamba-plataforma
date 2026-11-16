@@ -266,6 +266,10 @@ REV_REEMBOLSOS = "db/migrations/versions/0051_casos_de_reembolso_pelo_pay.py"
 #: KAM-059: o billing da plataforma, `0055` sobre a `0054` do KAM-120 (ordem da
 #: fila). Se o numero mudar, esta constante muda com ele.
 REV_BILLING = "db/migrations/versions/0055_billing_da_plataforma.py"
+#: KAM-092: os gates de activacao, as transicoes do tenant e o agregador.
+#: `0058`, sobre a `0057` do KAM-124 (ordem da fila). Se o numero mudar, esta
+#: constante muda com ele.
+REV_TENANT = "db/migrations/versions/0058_eventos_do_tenant.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 #: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila
@@ -312,6 +316,10 @@ def _revisao_por_glob(padrao: str) -> str:
 #: que e provisorio. O ensaio que a prova (`db/tests/test_catalogo_ai_schema.py`)
 #: descobre-a pelo mesmo padrao.
 REV_CATALOGO_AI = _revisao_por_glob("*_catalogo_ai.py")
+#: KAM-097: os sinais e a escada de sancoes de T&S, descoberta pelo *glob* e nao
+#: pelo numero (`0056`), que a fila pode mudar. O ensaio que a prova
+#: (`db/tests/test_trust_schema.py`) descobre-a pelo mesmo padrao.
+REV_TRUST = _revisao_por_glob("*_trust_e_sancoes.py")
 #: KAM-120: a revisao da Foto de produtos, pela razao da do Catalogo AI. O
 #: ensaio que a prova (`db/tests/test_foto_schema.py`) descobre-a pelo mesmo
 #: padrao.
@@ -7451,6 +7459,58 @@ MUTACOES = [
      " WHERE tenant_id = p_tenant_id AND order_id = p_order_id;\n"
      "            RETURN v_caso;\n",
      "tests_pagamentos"),
+    # ------------------------------------------- KAM-097 (revisao de T&S)
+    #
+    # Sete, e cada uma tira uma barreira que so a base tem. A suite e a
+    # `tests`, e o modulo que as tem de matar e o `db/tests/test_trust_schema.py`.
+    ("trust: o sinal perde o FORCE da RLS", REV_TRUST,
+     '    rls.enable_tenant_rls("ts_signal")\n',
+     '    rls.enable_tenant_rls("ts_signal")\n'
+     '    op.execute("ALTER TABLE platform.ts_signal NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # O dono da tabela via e escrevia os sinais de todos os tenants. O
+    # `test_a_rls_esta_ligada_e_forcada_nas_duas` tem de a matar.
+    ("trust: o kamba_app escreve a linha humana e o recurso", REV_TRUST,
+     "          IF current_user = 'kamba_app'\n",
+     "          IF false AND current_user = 'kamba_app'\n",
+     "tests"),
+    # O tenant levantava a propria sancao com uma linha de recurso `provido`. O
+    # `test_a_aplicacao_escreve_avisos_automaticos_e_nada_humano` tem de a matar.
+    ("trust: a suspensao automatica passa", REV_TRUST,
+     "CHECK (origem = 'humana' OR passo IN ('aviso', 'limitacao'))",
+     "CHECK (origem IN ('humana', 'automatica'))",
+     "tests"),
+    # A maquina suspendia. O
+    # `test_a_suspensao_e_o_encerramento_nunca_sao_automaticos` tem de a matar.
+    ("trust: o salto passa sem justificacao", REV_TRUST,
+     "               AND NEW.justificacao_salto IS NULL THEN\n",
+     "               AND false THEN\n",
+     "tests"),
+    # Uma suspensao sem aviso nem limitacao antes, e sem uma linha escrita a
+    # dizer porque. O `test_a_humana_leva_caso_e_o_salto_leva_justificacao` tem
+    # de a matar.
+    ("trust: a severidade deixa de ser a do tipo", REV_TRUST,
+     "                AND severidade = 'media')\n",
+     "                AND severidade IN ('baixa', 'media', 'alta'))\n",
+     "tests"),
+    # Um sinal de `confirmacao_suspeita` escrito antes do consumidor com
+    # severidade `baixa` ficava com a chave e pesava menos. O
+    # `test_a_severidade_da_base_e_a_do_modulo_tipo_a_tipo` tem de a matar.
+    ("trust: a chave deixa de estar presa a origem", REV_TRUST,
+     "                AND chave = concat('recurso:', recurso_de) AND left(autor, 8) <> 'sistema:')),\n",
+     "                AND chave = concat('recurso:', recurso_de) AND left(autor, 8) <> 'sistema:')\n"
+     "            OR true),\n",
+     "tests"),
+    # O `kamba_app` ocupava a chave `recurso:<id>` de um recurso por decidir, e
+    # o desfecho real saia repetido (achado 8 da revisao adversarial). O
+    # `test_a_chave_e_o_autor_estao_presos_a_origem` tem de a matar.
+    ("trust: o instante de um sinal recua", REV_TRUST,
+     "          NEW.ocorrido_em := greatest(least(NEW.ocorrido_em, now()), now() - interval '1 day');\n",
+     "          NEW.ocorrido_em := NEW.ocorrido_em;\n",
+     "tests"),
+    # Um sinal datado de 2000 decaia para zero no risco (achado 1). O
+    # `test_o_instante_de_um_sinal_nao_se_recua_nem_se_adianta` tem de a matar.
+
     ("consumidor: o evento do tenant ignora o estado", IDX_CONSUMIDOR,
      "SET visivel = COALESCE((SELECT t.estado = 'ativo'",
      "SET visivel = COALESCE((SELECT true", PRODUTOS),
@@ -7550,6 +7610,104 @@ MUTACOES = [
      "                WHERE a.charge_id = NEW.charge_id AND a.actor_id = NEW.actor_id\n",
      "                WHERE a.charge_id = NEW.charge_id\n",
      "tests_pagamentos"),
+    # --------------------------------------------------- KAM-092 (eventos do tenant)
+    # Uma por barreira das duas portas, e cada uma com o ensaio que a mata.
+    # Activa com um gate vermelho: `test_falta_exactamente_um_gate_nao_activa`.
+    ("tenant: activa sem os seis gates", REV_TENANT,
+     "            IF cardinality(v_falta) > 0 THEN\n"
+     "              RAISE EXCEPTION 'tenant sem os gates de activacao'",
+     "            IF false THEN\n"
+     "              RAISE EXCEPTION 'tenant sem os gates de activacao'",
+     "tests"),
+    # Aprova sem o agregador: `test_falta_exactamente_uma_condicao_nao_aprova`.
+    ("tenant: aprova sem o agregador", REV_TENANT,
+     "            IF cardinality(v_falta) > 0 THEN\n"
+     "              RAISE EXCEPTION 'aprovacao sem as condicoes do agregador'",
+     "            IF false THEN\n"
+     "              RAISE EXCEPTION 'aprovacao sem as condicoes do agregador'",
+     "tests"),
+    # Qualquer par de estados passa: `test_os_vinte_e_cinco_pares`.
+    ("tenant: qualquer transicao do tenant passa", REV_TENANT,
+     "          IF NOT EXISTS (SELECT 1 FROM {TRANSICOES_DO_TENANT} a\n",
+     "          IF false AND NOT EXISTS (SELECT 1 FROM {TRANSICOES_DO_TENANT} a\n",
+     "tests"),
+    # Um tenant transita outro: `test_o_tenant_a_nao_transita_o_b`.
+    ("tenant: a transicao fora do contexto do tenant", REV_TENANT,
+     "             OR current_setting('app.tenant_id', true) IS DISTINCT FROM p_tenant_id::text THEN",
+     "             OR false THEN",
+     "tests"),
+    # O caso de outro tenant avanca: o mesmo ensaio, pela segunda porta.
+    ("tenant: o avanco fora do contexto do caso", REV_TENANT,
+     "          IF current_setting('app.tenant_id', true) IS DISTINCT FROM v_caso.tenant_id::text THEN",
+     "          IF false THEN",
+     "tests"),
+    # A repeticao de um evento do caso e recusada em vez de devolvida:
+    # `test_aprovar_duas_vezes_da_um_evento`.
+    ("tenant: a repeticao do evento do caso deixa de ser reconhecida", REV_TENANT,
+     "            IF EXISTS (SELECT 1 FROM {TRANSICOES_DO_CASO} t\n",
+     "            IF false AND EXISTS (SELECT 1 FROM {TRANSICOES_DO_CASO} t\n",
+     "tests"),
+    # O screening `bloqueada` deixa de bloquear:
+    # `test_screening_o_mais_restritivo_e_so_a_fila_levanta_a_bloqueada`.
+    ("tenant: o screening bloqueado aprova", REV_TENANT,
+     "                            AND s.decisao = 'bloqueada')\n",
+     "                            AND s.decisao = 'nenhuma')\n",
+     "tests"),
+    # O recurso de `categoria` na fila deixa de levantar a `bloqueada`: o mesmo
+    # ensaio, no subcaso do recurso aprovado.
+    ("tenant: o recurso de categoria deixa de levantar a bloqueada", REV_TENANT,
+     "                 AND NOT platform.revisao_aprovada(p_onboarding_id, v_tenant, 'categoria'))\n",
+     "                 AND true)\n",
+     "tests"),
+    # Um caso `kyc` aprovado basta, com outro rejeitado ou por decidir:
+    # `test_um_caso_kyc_aprovado_e_outro_por_decidir_ou_rejeitado_nao_aprova`.
+    ("tenant: um caso de revisao aprovado basta", REV_TENANT,
+     "             AND NOT EXISTS (\n",
+     "             AND true OR NOT EXISTS (\n",
+     "tests"),
+    # A activacao deixa de voltar ao agregador e a ordem do tripleto:
+    # `test_a_fase_posta_a_mao_nao_activa`.
+    ("tenant: a activacao confia na fase", REV_TENANT,
+     "            IF cardinality(v_falta) > 0 THEN\n"
+     "              RAISE EXCEPTION 'tenant sem a aprovacao e o provisionamento'",
+     "            IF false THEN\n"
+     "              RAISE EXCEPTION 'tenant sem a aprovacao e o provisionamento'",
+     "tests"),
+    # Uma fase escrita por fora passa por repeticao muda:
+    # `test_uma_fase_escrita_por_fora_nao_e_repeticao`.
+    ("tenant: a repeticao nao confere o evento", REV_TENANT,
+     "              IF v_tipo IS NOT NULL\n",
+     "              IF false AND v_tipo IS NOT NULL\n",
+     "tests"),
+    # Activar levanta uma suspensao: `test_activar_nao_levanta_uma_suspensao`.
+    ("tenant: activar a partir de um tenant fora de onboarding", REV_TENANT,
+     "               IS DISTINCT FROM 'onboarding' THEN\n",
+     "               IS DISTINCT FROM (SELECT t.estado FROM platform.tenants t WHERE t.id = v_caso.tenant_id) THEN\n",
+     "tests"),
+    # Um canal desligado conta: `test_um_canal_desligado_de_outra_tentativa_nao_conta`.
+    ("tenant: o canal desligado conta", REV_TENANT,
+     "               AND ch.estado NOT IN ('desligado', 'encerrado');\n"
+     "            IF v_canais <> 1 THEN",
+     "               ;\n"
+     "            IF v_canais <> 1 THEN",
+     "tests"),
+    # A amostragem passa a contar na aprovacao: `test_a_amostragem_nao_conta_na_aprovacao`.
+    ("tenant: a aprovacao conta a amostragem como intervencao", REV_TENANT,
+     "                   WHERE r.onboarding_id = v_caso.id AND r.tipo <> 'auditoria')));",
+     "                   WHERE r.onboarding_id = v_caso.id)));",
+     "tests"),
+    # A ligacao: a activacao deixa o caso fora de `activo`:
+    # `test_com_os_seis_activa_regista_e_emite_um_evento_valido`.
+    ("tenant: a activacao nao fecha o caso", REV_TENANT,
+     "               SET fase = 'activo', activo_at = now()\n",
+     "               SET activo_at = now()\n",
+     "tests"),
+    # A amostragem do KAM-089 passa a contar como intervencao humana:
+    # `test_a_amostragem_nao_conta_como_intervencao`.
+    ("tenant: o evento conta a amostragem como intervencao", REV_TENANT,
+     "                   WHERE r.onboarding_id = v_caso.id AND r.tipo <> 'auditoria'))));",
+     "                   WHERE r.onboarding_id = v_caso.id))));",
+     "tests"),
     # ------------------------------ KAM-095 (revisao da lista de espera)
     #
     # Onze, e cada uma tira uma barreira que so a base tem. O alvo e a revisao

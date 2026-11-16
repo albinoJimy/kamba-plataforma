@@ -14,7 +14,7 @@ verticais e dos módulos de entrada, versionado em **SemVer** (`specs/01` §5).
 | `gates.yaml` | **gates** — chave de topo `gates`: o **modo** de cada validação de arranque, com o ticket que a fecha | KAM-027 |
 | `plans.yaml` | **planos** — chave de topo `plans`: `plano` → entitlements por omissão | KAM-009 |
 | `idx.yaml` | **consumidor** — chave de topo `consumidor`: um consumidor de eventos que não é vertical, com as suas `subscriptions` | KAM-194 |
-| `entitlement_keys.schema.json` | o registo das **dez** chaves de `entitlements.limites` e a categoria de cada uma | KAM-009 |
+| `entitlement_keys.schema.json` | o registo das **doze** chaves de `entitlements.limites` e a categoria de cada uma, e os quatro módulos de entrada | KAM-009, KAM-124 |
 
 **Quatro formas, e só quatro.** Um `registry/*.yaml` é uma vertical (chave de
 topo `id`), os gates (chave de topo `gates`), os planos (chave de topo `plans`)
