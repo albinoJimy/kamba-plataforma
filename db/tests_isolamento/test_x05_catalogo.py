@@ -272,6 +272,8 @@ class TestCatalogoReal(ComBase):
                 # («of» < «ou»). E a primeira tabela do esquema em que o
                 # `tenant_id` e **parte da chave primaria** e nao uma
                 # coluna ao lado dela.
+                # KAM-124: o ledger de custo por modulo («me» < «mo» < «of»).
+                ("platform", "module_cost_ledger", "tenant_id"),
                 ("platform", "offer_terms", "tenant_id"),
                 # KAM-087: o caso de onboarding («off» < «onb» < «ord»).
                 ("platform", "onboarding_case", "tenant_id"),
@@ -389,6 +391,11 @@ class TestCatalogoReal(ComBase):
                 # sementes**, ao contrario da `tool_audit`: nao e *append-only*
                 # e apaga-se com `DELETE`.
                 ("platform", "tool_idempotency", "tenant_id"),
+                # KAM-097: os sinais e as sancoes de T&S, entre a barreira de
+                # idempotencia e o livro de uso («too» < «ts_» < «usa»), a
+                # sancao antes do sinal («sa» < «si»).
+                ("platform", "ts_sanction", "tenant_id"),
+                ("platform", "ts_signal", "tenant_id"),
                 ("platform", "usage_ledger", "tenant_id"),
                 # KAM-047: as quatro da agenda, no esquema `servicos`
                 # (revisao `0025`). Vem **todas depois** das de `platform`,
@@ -569,6 +576,9 @@ class TestCatalogoReal(ComBase):
                 # `{public}` como todas as outras — o
                 # `rls.enable_tenant_rls` e o unico sitio onde a politica se
                 # escreve, e nao toma parametros de papel.
+                # KAM-124: o ledger de custo por modulo, uma politica so, a do
+                # `db/rls.py` («me» < «mo» < «of»).
+                ("module_cost_ledger", "tenant_iso", "ALL", "{public}"),
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
                 # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
                 # `tenant_id` pre-alocado.
@@ -751,6 +761,9 @@ class TestCatalogoReal(ComBase):
                 # de outro tenant — que seria desduplicar a encomenda de um
                 # cliente contra o carrinho de outro.
                 ("tool_idempotency", "tenant_iso", "ALL", "{public}"),
+                # KAM-097: T&S, pela mesma ordem da lista de cima.
+                ("ts_sanction", "tenant_iso", "ALL", "{public}"),
+                ("ts_signal", "tenant_iso", "ALL", "{public}"),
                 ("usage_ledger", "tenant_iso", "ALL", "{public}"),
             ],
         )
@@ -834,7 +847,11 @@ class TestCatalogoReal(ComBase):
              # exactamente como a nota do KAM-115 tres entradas abaixo avisa: as
              # listas sao perguntas diferentes sobre a mesma tabela, e quem
              # acrescenta uma corre o *gate* 6 **inteiro**. Medido outra vez.
-             "message_templates", "offer_terms",
+             "message_templates",
+             # KAM-124: o ledger de custo por modulo, entre os modelos de
+             # mensagem e a oferta («me» < «mo» < «of»).
+             "module_cost_ledger",
+             "offer_terms",
              # KAM-087: o caso de onboarding.
              "onboarding_case",
              # KAM-092: os gates de activacao.
@@ -913,7 +930,10 @@ class TestCatalogoReal(ComBase):
              # KAM-029: a `tool_idempotency`, logo a seguir — depois da
              # `tool_audit` porque `a` vem antes de `i`, e antes da
              # `usage_ledger` porque `t` vem antes de `u`.
-             "tool_audit", "tool_idempotency", "usage_ledger"],
+             "tool_audit", "tool_idempotency",
+             # KAM-097: os sinais e as sancoes de T&S («too» < «ts_» < «usa»).
+             "ts_sanction", "ts_signal",
+             "usage_ledger"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

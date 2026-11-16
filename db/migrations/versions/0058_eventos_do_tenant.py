@@ -64,10 +64,11 @@ from alembic import op
 
 import rls
 
-revision = "0057"
-#: **Encaixa na `0056` do KAM-097** (#197), que funde antes deste, pela ordem que
-#: o orquestrador do lote deu a 2026-11-16. O numero final da-o a integracao.
-down_revision = "0056"
+revision = "0058"
+#: **Encaixa na `0057` do KAM-124** (#199), pela ordem da fila que o orquestrador
+#: do lote deu a 2026-11-16. Foi escrita como `0057` sobre a `0056` do KAM-097 e
+#: renumerada na integracao.
+down_revision = "0057"
 branch_labels = None
 depends_on = None
 
@@ -785,7 +786,7 @@ def downgrade() -> None:
         BEGIN
           IF EXISTS (SELECT 1 FROM {REGISTO}) THEN
             RAISE EXCEPTION
-              'downgrade da 0057 recusado: o registo de estados do tenant tem '
+              'downgrade da 0058 recusado: o registo de estados do tenant tem '
               'linhas, e e append-only (KAM-092)'
               USING ERRCODE = 'object_not_in_prerequisite_state';
           END IF;

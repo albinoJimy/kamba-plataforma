@@ -1027,8 +1027,8 @@ class TestRegistoDeChaves(unittest.TestCase):
             sorted(registo.chaves_de_limite(self.saber.politica)),
         )
         self.assertEqual(
-            len(self.schema["properties"]), 11,
-            "a emenda 1.17 pos as chaves em dez, e a 1.83 (KAM-050) em onze",
+            len(self.schema["properties"]), 12,
+            "a emenda 1.17 pos as chaves em dez, a 1.83 (KAM-050) em onze e a 1.98 (KAM-124) em doze",
         )
 
     def test_uma_chave_desconhecida_e_rejeitada_na_escrita(self) -> None:
@@ -1043,7 +1043,10 @@ class TestRegistoDeChaves(unittest.TestCase):
         for nome, chave in self.schema["properties"].items():
             with self.subTest(chave=nome):
                 self.assertIn(chave["x-kamba-categoria"], categorias)
-                self.assertIn(chave["x-kamba-unidade"], ("minor", "contagem"))
+                # `micro_usd` desde o KAM-124: o orcamento de custo de um modulo, em
+                # dolares, a unidade em que os fornecedores cobram. Nao e dinheiro
+                # do cliente, e por isso nao acaba em `_minor`.
+                self.assertIn(chave["x-kamba-unidade"], ("minor", "contagem", "micro_usd"))
                 self.assertTrue(chave["x-kamba-fonte"])
 
     def test_so_um_contador_por_periodo_e_consumivel(self) -> None:
@@ -1281,6 +1284,136 @@ class TestYamlDoRegisto(unittest.TestCase):
 
     def test_documento_vazio(self) -> None:
         self.assertIsNone(yamlreg.ler("# so um comentario\n"))
+
+
+#: Um plano de entrada com preco de teste (KAM-124). A forma minima.
+PLANO_DE_ENTRADA = """\
+version: 1.0.0
+plans:
+  entrada_foto:
+    estado: hipotese_nao_validada
+    nota: "so o modulo foto"
+    entitlements:
+      - modulo: foto
+        ativo: true
+        preco_teste_minor: 1500000
+        limites:
+          imagens_mes: 40
+          custo_max_mes_micro_usd: 4000000
+"""
+
+
+class TestPrecosDeTeste(unittest.TestCase):
+    """KAM-124, criterio 3: o preco de teste e hipotese, e nao chega ao cliente.
+
+    Uma negativa por regra: o valor ilegivel, o plano que nao e hipotese, o
+    modulo que nao e de entrada, e o preco escrito em Kz num texto ao cliente.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.saber = saber()
+
+    def achados(self, fonte: str):
+        return registo.verificar("registry/plans.yaml", fonte, self.saber)
+
+    def test_a_forma_minima_passa(self) -> None:
+        self.assertEqual([str(a) for a in self.achados(PLANO_DE_ENTRADA)], [])
+
+    def test_preco_ilegivel(self) -> None:
+        # Um decimal (`15000.5`) nem chega aqui: o leitor do gate recusa-o como YAML.
+        for valor in ("-1", "true", '"1500000"'):
+            with self.subTest(valor=valor):
+                achados = self.achados(PLANO_DE_ENTRADA.replace("1500000", valor))
+                self.assertEqual([a.classe for a in achados], [ILEGIVEL], [str(a) for a in achados])
+                self.assertIn("preco_teste_minor", achados[0].mensagem)
+
+    def test_preco_num_plano_que_nao_e_hipotese(self) -> None:
+        """Duas regras e dois achados: o `estado` do plano, e o preco que o exige."""
+        achados = self.achados(PLANO_DE_ENTRADA.replace("estado: hipotese_nao_validada", "estado: decidido"))
+        self.assertEqual([a.classe for a in achados], [REGRA, REGRA], [str(a) for a in achados])
+        self.assertTrue(any("preço de teste só existe num plano" in a.mensagem for a in achados))
+
+    def test_preco_num_modulo_que_nao_e_de_entrada(self) -> None:
+        fonte = PLANO_DE_ENTRADA.replace("modulo: foto", "modulo: vendedor").replace(
+            "          imagens_mes: 40\n          custo_max_mes_micro_usd: 4000000\n", "          msgs_ai_mes: 10\n"
+        )
+        achados = self.achados(fonte)
+        self.assertEqual([a.classe for a in achados], [REGRA], [str(a) for a in achados])
+        self.assertIn("só dos módulos de entrada", achados[0].mensagem)
+
+    def test_os_precos_do_ficheiro_real(self) -> None:
+        from .base import ROOT
+
+        fonte = (ROOT / "registry/plans.yaml").read_text(encoding="utf-8")
+        self.assertEqual(registo.precos_de_teste(fonte), [1500000, 6000000, 10000000])
+        self.assertEqual(registo.precos_de_teste("nao: [e, um, plano\n"), [])
+        self.assertEqual(registo.precos_de_teste("plans: 3\n"), [])
+
+    def test_o_preco_em_kz_num_texto_ao_cliente_e_recusado(self) -> None:
+        for linha in (
+            'TEXTO = "O plano custa 15 000 Kz por mes."',
+            'TEXTO = "O plano custa 15.000 Kz por mes."',
+            'TEXTO = "O plano custa 15000 AOA por mes."',
+            'TEXTO = "O plano custa Kz 15 000."',
+            'TEXTO = "O plano custa 15 mil Kz."',
+            "TEXTO = 'O plano custa 15 000 kwanzas.'",
+            # Achado 2 da revisao adversarial: os centimos a zero e as maiusculas.
+            'TEXTO = "O plano custa 15.000,00 Kz."',
+            'TEXTO = "O plano custa Kz 15.000,00."',
+            'TEXTO = "O plano custa 15 000 kz."',
+            'TEXTO = "O plano custa 15.000 KZ."',
+            'TEXTO = "O plano custa 15 000 Kwanzas."',
+            'TEXTO = "preco: 15 000,00 AOA"',
+        ):
+            with self.subTest(linha=linha):
+                achados = registo.precos_em_texto_ao_cliente([1500000], {"services/agr/src/textos.py": linha})
+                self.assertEqual([(a.classe, a.linha) for a in achados], [(REGRA, 1)])
+                self.assertIn("hipotese_nao_validada", achados[0].mensagem)
+
+    def test_sem_moeda_ou_outro_numero_nao_e_preco(self) -> None:
+        for linha in (
+            "Uso do mes: 15 000 imagens.",
+            "O plano custa 115 000 Kz.",
+            "O plano custa 150 000 Kz.",
+            "O plano custa 15 000,50 Kz.",
+            "Kz 15 0001",
+        ):
+            with self.subTest(linha=linha):
+                self.assertEqual(registo.precos_em_texto_ao_cliente([1500000], {"x/textos.py": linha}), [])
+
+    def test_preco_com_centimos(self) -> None:
+        achados = registo.precos_em_texto_ao_cliente([1500050], {"x/textos.py": "custa 15000,50 Kz"})
+        self.assertEqual(len(achados), 1)
+
+    def test_o_corpus_ao_cliente(self) -> None:
+        for caminho, esperado in (
+            ("services/agr/src/kamba_agr/verticais/vendedor/degradado/textos.py", True),
+            ("services/com/src/servicos/reminders/template.ts", True),
+            ("libs/py-core/src/kamba_core/modulos/uso.py", True),
+            ("registry/vendedor.yaml", True),
+            ("registry/plans.yaml", False),
+            ("services/com/tests/servicos.reminders.template.test.ts", False),
+            ("libs/py-core/tests/test_textos.py", False),
+            ("services/agr/src/kamba_agr/llm/cliente.py", False),
+        ):
+            with self.subTest(caminho=caminho):
+                self.assertEqual(registo.no_corpus_ao_cliente(caminho), esperado)
+
+    def test_o_repositorio_nao_mostra_nenhum_preco_de_teste(self) -> None:
+        """O ficheiro real e o corpus real: zero achados."""
+        import subprocess
+
+        from .base import ROOT
+
+        precos = registo.precos_de_teste((ROOT / "registry/plans.yaml").read_text(encoding="utf-8"))
+        ficheiros = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        ).stdout.split("\n")
+        textos = {f: (ROOT / f).read_text(encoding="utf-8") for f in ficheiros if f and registo.no_corpus_ao_cliente(f)}
+        self.assertGreater(len(textos), 3)
+        self.assertEqual([str(a) for a in registo.precos_em_texto_ao_cliente(precos, textos)], [])
 
 
 if __name__ == "__main__":

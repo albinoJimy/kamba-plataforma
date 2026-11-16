@@ -887,7 +887,7 @@ class TestReversivel(ComOnboarding):
         try:
             resultado = alembic("downgrade", anterior)
             self.assertNotEqual(resultado.returncode, 0)
-            self.assertIn("downgrade da 0057 recusado", resultado.stderr + resultado.stdout)
+            self.assertIn("downgrade da 0058 recusado", resultado.stderr + resultado.stdout)
         finally:
             # O registo e imutavel tambem para o dono: a limpeza desliga o
             # *trigger*, apaga a linha e o tenant, e volta a liga-lo.

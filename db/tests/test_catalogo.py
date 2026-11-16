@@ -270,6 +270,18 @@ class TestConvencoes(ComBase):
                 # sob a `tenant_iso`, e um sequencial dizia-lhe quantas
                 # transicoes a plataforma inteira teve.
                 "tenant_state_log",
+                # KAM-097: o sinal e a sancao de T&S. `uuid` aleatorio e **nao**
+                # o `bigserial` do bloco: o `kamba_app` le-os (o `RETURNING id`
+                # e a escada), e um sequencial dizia-lhe quantos sinais e
+                # quantas sancoes a plataforma conta.
+                "ts_signal",
+                "ts_sanction",
+                # KAM-124: o ledger de custo por modulo. `uuid` aleatorio e
+                # **nao** o `bigserial` do bloco, pela razao da prova de aceite:
+                # o `kamba_app` le-o, e um sequencial dizia-lhe quantos factos de
+                # custo a plataforma inteira regista. A ordem e a do
+                # `ocorrido_em`.
+                "module_cost_ledger",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -706,6 +718,14 @@ class TestConvencoes(ComBase):
                 ("message_templates", "lang", "text", None),
                 ("message_templates", "name", "text", None),
                 ("message_templates", "tenant_id", "uuid", None),
+                # KAM-124 (revisao do custo dos modulos): o ledger de custo,
+                # `uuid` gerada pela regra geral, e os precos de teste, com chave
+                # **natural e composta** `(plano, modulo)` — um preco por modulo
+                # em cada plano, e e a chave que o `carregar-precos` substitui.
+                # Entre os modelos de mensagem e a oferta («me» < «mo» < «of»).
+                ("module_cost_ledger", "id", "uuid", "gen_random_uuid()"),
+                ("module_test_prices", "modulo", "text", None),
+                ("module_test_prices", "plano", "text", None),
                 # KAM-015: um `uuid` gerado, como a conversa, e pela mesma
                 # razao — a unicidade de negocio (a chave de idempotencia) e
                 # uma `UNIQUE` ao lado, e varios tickets a jusante vao referir
@@ -892,6 +912,10 @@ class TestConvencoes(ComBase):
                 # referencia por chave estrangeira: o que liga esta linha a de
                 # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
                 ("tool_idempotency", "key", "text", None),
+                # KAM-097: as duas de T&S, `uuid` gerada pela regra geral, depois
+                # das de ferramentas («too» < «ts_»).
+                ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
+                ("ts_signal", "id", "uuid", "gen_random_uuid()"),
                 ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
@@ -1345,6 +1369,11 @@ class TestConvencoes(ComBase):
              # pergunta «e o mesmo produto?») e o `fila_idx` (a fila humana).
              # **Com** FK para `tenants`: uma foto chega de um tenant ja activo.
              "catalog_ingestions",
+             # KAM-097 (revisao de T&S). Pelos indices `ts_signal_tenant_idx` e
+             # `ts_sanction_tenant_idx` (o risco e a escada leem por tenant e
+             # por instante), e pelas unicidades das chaves. **Com** FK para
+             # `tenants`: um sinal e de um tenant que ja existe.
+             "ts_signal", "ts_sanction",
              # KAM-059 (revisao do billing). A subscricao pela unicidade
              # `subscriptions_tenant_uq`; o ciclo pela `billing_cycles_tenant_id_uq`
              # `(tenant_id, id)`, que existe para a FK composta da cobranca; a
@@ -1357,6 +1386,12 @@ class TestConvencoes(ComBase):
              # repetido) e o `image_jobs_bloqueados_idx` (a fila humana). **Com**
              # FK para `tenants`, pela razao da ingestao.
              "image_jobs",
+             # KAM-124 (revisao do custo dos modulos). Os dois comecam pelo
+             # `tenant_id`: a unicidade `module_cost_ledger_idempotency_uq` (o
+             # reenvio do mesmo custo) e o `module_cost_ledger_mes_idx` (o mes de
+             # um modulo, que a guarda de orcamento le). **Com** FK para
+             # `tenants`.
+             "module_cost_ledger",
              # KAM-092 (revisao dos eventos do tenant). Os dois por indice
              # proprio: `onboarding_gate_tenant_idx (tenant_id)`, porque a chave
              # primaria comeca pelo `onboarding_id`; e
@@ -1560,6 +1595,24 @@ class TestConvencoes(ComBase):
         # ao longo do tempo numa conta de ninguem e a plataforma nao detem
         # nada por causa dele. E `_minor` e nao `_kz`, que esta proibido acima.
         ("v_tenant_cost_daily", "custo_aoa_minor"),
+        # KAM-124, o custo por modulo de entrada. **Nenhuma e saldo**, pela
+        # razao da de cima: o custo e o que a plataforma paga a terceiros por
+        # servir um modulo, e o preco de teste e uma hipotese que nenhuma
+        # cobranca le. Nada disto se soma numa conta de ninguem nem e detido.
+        #
+        # O custo de um facto, em centimos de Kz ao cambio do registo, que vai
+        # na mesma linha (`fx_aoa_per_usd`). O ledger e so de acrescentar.
+        ("module_cost_ledger", "custo_minor"),
+        # O preco de teste de um modulo num plano, `hipotese_nao_validada` por
+        # `CHECK`. Nao e precario (esse e o `price_book` do KAM-059).
+        ("module_test_prices", "preco_teste_minor"),
+        # As duas vistas, recalculadas a cada leitura ao cambio da sessao: o
+        # custo do mes, o preco de teste do plano do tenant e a margem
+        # (preco - custo), que pode ser negativa e nao e dinheiro de ninguem.
+        ("v_module_cost_month", "custo_aoa_minor"),
+        ("v_h12", "custo_aoa_minor"),
+        ("v_h12", "preco_teste_minor"),
+        ("v_h12", "margem_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -1959,7 +2012,7 @@ class TestConvencoes(ComBase):
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
         #
-        # **92 e nao 83**: **uma** desde a revisao da Foto de produtos
+        # **96 e nao 83**: **uma** desde a revisao da Foto de produtos
         # (KAM-120), a `image_jobs_tenant_fk`, simples para `tenants(id)`, pela
         # razao da de cima — as duas chaves do STO (`origem_ref`, `versao_ref`)
         # prendem-se ao tenant da linha por `CHECK` e nao por FK.
@@ -1975,11 +2028,23 @@ class TestConvencoes(ComBase):
         # tem FK para a `payment_events`: com ela, um `TRUNCATE` ao ledger
         # falhava por FK antes do `payment_events_sem_truncate` (ver a revisao).
         #
-        # **94** desde a revisao dos eventos do tenant (KAM-092): a
+        # E **quatro** desde a revisao de T&S (KAM-097). As duas
+        # `ts_*_tenant_fk`, simples para `tenants(id)`; a `ts_sanction_caso_fk`,
+        # composta `(case_id, tenant_id)` para a `review_case_id_tenant_uq` (uma
+        # sancao humana nao junta o caso de um tenant com outro); e a
+        # `ts_sanction_recurso_fk`, composta `(recurso_de, tenant_id)` para a
+        # propria tabela: o desfecho de um recurso e do tenant da sancao.
+        #
+        # **97** desde a revisao do custo dos modulos (KAM-124): a
+        # `module_cost_ledger_tenant_fk`, simples para `tenants(id)`. A `ref`
+        # do ledger e texto e nao FK — aponta para tres tabelas de origem
+        # diferentes —, e os precos de teste nao tem tenant.
+        #
+        # **99** desde a revisao dos eventos do tenant (KAM-092): a
         # `onboarding_gate_caso_fk`, **composta** `(onboarding_id, tenant_id)`
         # para o caso, e a `tenant_state_log_tenant_fk`, simples para
         # `tenants(id)`.
-        self.assertEqual(len(linhas), 94)
+        self.assertEqual(len(linhas), 99)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

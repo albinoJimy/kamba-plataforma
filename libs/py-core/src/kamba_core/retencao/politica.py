@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-13.1"
+VERSAO_DA_POLITICA: Final = "2026-11-16.1"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -431,6 +431,12 @@ POLITICA: Final[tuple[Classe, ...]] = (
             # foi activado, restringido, suspenso ou encerrado. O prazo e o da
             # prova, por decidir.
             _t("platform.tenant_state_log", pendencia="prova das transicoes do tenant"),
+            # KAM-097 (revisao de T&S). Os sinais e a escada de sancoes: o
+            # registo *append-only* do que levou a cada passo e do recurso. Sem
+            # dados pessoais (so referencias); o prazo e o da prova de uma
+            # decisao recorrivel, por decidir.
+            _t("platform.ts_signal", pendencia="prova de uma sancao recorrivel"),
+            _t("platform.ts_sanction", pendencia="prova de uma sancao recorrivel"),
         ),
         fonte="docs/tecnica/08 §11",
     ),
@@ -511,6 +517,12 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.subscriptions": "assinatura do negocio a KAMBA",
     "platform.billing_cycles": "ciclos de facturacao do negocio",
     "platform.commission_accruals": "sombra da comissao: identificadores e valores",
+    # KAM-124: o custo por modulo de entrada. O ledger guarda o tenant, o
+    # modulo, quanto custou e a referencia opaca da origem — nunca o contacto
+    # nem o conteudo —, e e so de acrescentar (nem o dono o apaga). Os precos
+    # de teste sao de plataforma.
+    "platform.module_cost_ledger": "custo do negocio por modulo: identificadores e valores",
+    "platform.module_test_prices": "precos de teste dos modulos, iguais para todos",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",

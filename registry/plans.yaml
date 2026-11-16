@@ -19,12 +19,16 @@
 # que o `specs/EPIC-11` ja fixou para este caso exacto (bloco KAM-124). O gate
 # 3b exige esse `estado` em cada plano: um plano sem ele nao passa.
 #
-# NAO HA PRECOS AQUI. A mensalidade por plano nao esta definida em documento
-# nenhum, e os precos de teste dos modulos de entrada (`preco_teste_minor`)
-# sao do KAM-124, que entra com os cinco planos `entrada_*` do `specs/EPIC-11`
-# (criterio: «`entrada_catalogo`, `entrada_foto`, `entrada_social`,
-# `entrada_orcamento` e `entrada_completo`»). Nao se escrevem aqui por
-# antecipacao: os seus limites e precos sao daquele ticket.
+# A MENSALIDADE POR PLANO NAO ESTA AQUI: nao esta definida em documento
+# nenhum, e o precario da assinatura e o `platform.price_book` (KAM-059).
+#
+# Os PRECOS DE TESTE dos modulos de entrada estao, desde o KAM-124: um
+# `preco_teste_minor` por entitlement dos cinco planos `entrada_*`. Sao
+# hipoteses para medir a H12 («custo <= 15% do preco do modulo»), e nao
+# precos de venda: o gate 3b recusa um `preco_teste_minor` num plano que nao
+# seja `hipotese_nao_validada`, e recusa o mesmo valor em Kz num texto que
+# chegue ao cliente. O `h12-export carregar-precos` le-os daqui para
+# `platform.module_test_prices`, sem deploy.
 #
 # ---------------------------------------------------------------------------
 # PORQUE E QUE SO HA UM PLANO.
@@ -85,3 +89,89 @@ plans:
           manual_daily_max_minor: 20000000
           # tecto por janela (24 h, por contacto) — sem fonte, exemplo: 2 pedidos
           manual_max_por_contacto_24h: 2
+
+  # ---------------------------------------------------------------------------
+  # Os planos de entrada (KAM-124): so modulos de entrada, SEM atendimento
+  # (`docs/tecnica/10` §21) — nenhum traz o modulo `vendedor`.
+  #
+  # Tudo aqui e hipotese, e de onde vem cada numero:
+  #   * `preco_teste_minor` — o limite de baixo de cada intervalo de teste do
+  #     bloco do KAM-124 (centimos de Kz): catalogo 15 000 Kz (Nº 4: 15–90
+  #     mil), foto 15 000 Kz (Nº 5: 15–80 mil), social 60 000 Kz (E5 sugere
+  #     testar 60–120 mil, INDICIO), orcamento 100 000 Kz/mes (Nº 3: 100–300
+  #     mil por mes). Sem fonte para a disposicao a pagar (NAO VERIFICADO);
+  #   * `imagens_mes` 40, `posts_mes` 12, `orcamentos_mes` 4 — a hipotese de
+  #     volume do `docs/tecnica/09` §21.2 (40 recortes, 12 artes, 4 propostas),
+  #     nao uma medicao;
+  #   * `custo_max_mes_micro_usd` — o orcamento mensal de custo do modulo:
+  #     30% do preco de teste ao cambio 913 (o limiar critico do alerta do
+  #     criterio 8), arredondado ao dolar de baixo. Proposta.
+  #
+  # O `entrada_completo` repete os precos dos quatro: um desconto de pacote
+  # seria um numero inventado.
+  entrada_catalogo:
+    estado: hipotese_nao_validada
+    nota: "So o modulo catalogo (KAM-119). O catalogo nao tem contador proprio de uso: o limite e o orcamento de custo."
+    entitlements:
+      - modulo: catalogo
+        ativo: true
+        preco_teste_minor: 1500000
+        limites:
+          custo_max_mes_micro_usd: 4000000
+  entrada_foto:
+    estado: hipotese_nao_validada
+    nota: "So o modulo foto (KAM-120)."
+    entitlements:
+      - modulo: foto
+        ativo: true
+        preco_teste_minor: 1500000
+        limites:
+          imagens_mes: 40
+          custo_max_mes_micro_usd: 4000000
+  entrada_social:
+    estado: hipotese_nao_validada
+    nota: "So o modulo social (KAM-121, KAM-122)."
+    entitlements:
+      - modulo: social
+        ativo: true
+        preco_teste_minor: 6000000
+        limites:
+          posts_mes: 12
+          custo_max_mes_micro_usd: 19000000
+  entrada_orcamento:
+    estado: hipotese_nao_validada
+    nota: "So o modulo orcamento (KAM-123), preco mensal e nao por orcamento."
+    entitlements:
+      - modulo: orcamento
+        ativo: true
+        preco_teste_minor: 10000000
+        limites:
+          orcamentos_mes: 4
+          custo_max_mes_micro_usd: 32000000
+  entrada_completo:
+    estado: hipotese_nao_validada
+    nota: "Os quatro modulos de entrada, sem atendimento. Precos iguais aos dos planos de um modulo: um desconto de pacote seria inventado."
+    entitlements:
+      - modulo: catalogo
+        ativo: true
+        preco_teste_minor: 1500000
+        limites:
+          custo_max_mes_micro_usd: 4000000
+      - modulo: foto
+        ativo: true
+        preco_teste_minor: 1500000
+        limites:
+          imagens_mes: 40
+          custo_max_mes_micro_usd: 4000000
+      - modulo: social
+        ativo: true
+        preco_teste_minor: 6000000
+        limites:
+          posts_mes: 12
+          custo_max_mes_micro_usd: 19000000
+      - modulo: orcamento
+        ativo: true
+        preco_teste_minor: 10000000
+        limites:
+          orcamentos_mes: 4
+          custo_max_mes_micro_usd: 32000000
