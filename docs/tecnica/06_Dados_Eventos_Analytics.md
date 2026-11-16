@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Dados, Eventos e Analytics (EVT e DAT) |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/11-arquitetura-detalhada-engenharia.md` §2, §3, §8; `../exploracao/13-big-picture-ecossistema.md` §9.5; `../exploracao/06-expansao-plataforma.md` §3, §5 |
@@ -148,6 +148,7 @@ Chave de ordem = `agregado`. Consumidores marcados «†» exigem ordem por agre
 | `payment.confirmed` | PAY, **só** por callback autenticado (ADR-013) | COM†, AGR, REP, DAT, Score (D) | order | P0 | P |
 | `payment.manual_confirmed` | PAY (`ManualProvider`; confirmação humana auditada, limite de valor) | COM†, **AGR**, DAT (contado à parte) | order | P0 | P |
 | `payment.failed` / `payment.expired` | PAY (valor ou referência divergente / TTL) | HND (humano), COM†, DAT | order | P0 | P |
+| `billing.cycle_paid` | PAY (projecção do ledger: a cobrança do ciclo da assinatura fica `paga`, por evento autenticado ou por confirmação de ops com dupla aprovação; KAM-059) | régua de cobrança (KAM-058), DAT | billing_cycle | P0 | P |
 | `review.requested` | REP (`order.delivered` + 2 h) | AGR (envia o pedido) | order | P1 | P |
 | `review.created` | AGR/REP (resposta do cliente) | REP, IDX, DAT | order | P1 | P |
 | `review.removed` | GOV/T&S (com motivo) | REP, IDX | order | P0 | C |
@@ -667,3 +668,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 | 1.5 | Outubro 2026 | KAM-159: §7.3 — as finalidades passam a ser as dez do dicionário §3.1, e o texto deixa de dizer que a escolha está por fazer. Fica dito que a **base legal** não está fixada, com o apontador para a tabela do `10` §7.2 e para o KAM-104. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | KAM-159: §7.3 — a contagem das finalidades sem base legal no `evidencia/E3` passa de cinco a **seis**. A tabela do `10` §7.2 sempre teve seis linhas com «nada»; a prosa dizia cinco e propagou-se a quatro documentos a partir dali. Encontrado pela revisão adversarial. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | KAM-050: §5 — entram `order.exception` e `order.refund_requested`, os dois eventos que o `03` §6.2 e §6.6 já davam ao COM sem contrato. O catálogo de `contratos/eventos/` passa de trinta e oito a **quarenta** tipos (oitenta ficheiros, v1 e v2). Nenhum dos dois leva PII: identificador da encomenda, um domínio fechado e, no do reembolso, o valor em unidade menor. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | KAM-059: §5 — entra `billing.cycle_paid`, o evento do ciclo de facturação da assinatura da KAMBÁ. A `0035` fechou os cinco `payment.*` às cobranças de encomenda (agregam por `order`), pelo que o pagamento de um ciclo não tinha evento; este agrega por `billing_cycle` e é emitido pela projecção do ledger, na mesma transacção do pagamento. Sem PII: identificadores, o período e o valor em unidade menor. | Equipa KAMBÁ |

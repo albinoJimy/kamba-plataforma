@@ -462,7 +462,11 @@ class TestTriggersSaoAlways(ComLedger):
                 # ela e **mais** forte: sem o `ALWAYS`, um superutilizador em
                 # `session_replication_role = replica` confirmava um pagamento
                 # por via humana sem fase nenhuma.
+                # KAM-059: os dois do billing — o papel no ledger dos ciclos e o
+                # G8 de ops —, os dois `ENABLE ALWAYS` pela mesma razao.
+                ("payment_events_billing_papel", "A"),
                 ("payment_events_g8_humano", "A"),
+                ("payment_events_g8_ops", "A"),
                 ("payment_events_imutavel", "A"),
                 ("payment_events_sem_truncate", "A"),
             ],

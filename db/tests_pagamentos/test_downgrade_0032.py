@@ -310,7 +310,10 @@ class TestDowngradeDa0032(unittest.TestCase):
         self.assertEqual(
             [nome for nome, _ in self.triggers_do_ledger()],
             [
+                # KAM-059: os dois do billing, que a cabeca tem.
+                "payment_events_billing_papel",
                 TRIGGER_DO_G8,
+                "payment_events_g8_ops",
                 "payment_events_imutavel",
                 "payment_events_sem_truncate",
             ],

@@ -203,7 +203,10 @@ class TestDowngradeDa0029(unittest.TestCase):
         self.assertEqual(self.politicas("payment_charges"), ["tenant_iso"])
         self.assertEqual(self.politicas("payment_events"), ["tenant_iso"])
         self.assertEqual(
-            self.politicas("payment_accounts"), ["pay_hooks_token", "tenant_iso"]
+            self.politicas("payment_accounts"),
+            # KAM-059: a `pay_receita_propria`, a leitura da conta da KAMBA
+            # pelo papel de billing.
+            ["pay_hooks_token", "pay_receita_propria", "tenant_iso"],
         )
         self.assertTrue(self.tem_papel())
 
@@ -274,7 +277,10 @@ class TestDowngradeDa0029(unittest.TestCase):
         self.assertEqual(self.funcoes_existentes(), sorted(FUNCOES))
         self.assertEqual(self.indices_existentes(), sorted(INDICES))
         self.assertEqual(
-            self.politicas("payment_accounts"), ["pay_hooks_token", "tenant_iso"]
+            self.politicas("payment_accounts"),
+            # KAM-059: a `pay_receita_propria`, a leitura da conta da KAMBA
+            # pelo papel de billing.
+            ["pay_hooks_token", "pay_receita_propria", "tenant_iso"],
         )
         # **O `ENABLE ALWAYS` medido onde nenhum vizinho lhe chega.**
         #
@@ -298,7 +304,11 @@ class TestDowngradeDa0029(unittest.TestCase):
             # ela e **mais** forte: sem o `ALWAYS`, um superutilizador em
             # `session_replication_role = replica` confirmava um pagamento
             # por via humana sem fase nenhuma.
+                # KAM-059: os dois do billing — o papel no ledger dos ciclos e o
+                # G8 de ops —, os dois `ENABLE ALWAYS` pela mesma razao.
+                ("payment_events_billing_papel", "A"),
                 ("payment_events_g8_humano", "A"),
+                ("payment_events_g8_ops", "A"),
                 ("payment_events_imutavel", "A"),
                 ("payment_events_sem_truncate", "A"),
             ],
@@ -318,7 +328,11 @@ class TestDowngradeDa0029(unittest.TestCase):
         self.assertEqual(
             self.triggers_sempre_activos(),
             [
+                # KAM-059: os dois do billing — o papel no ledger dos ciclos e o
+                # G8 de ops —, os dois `ENABLE ALWAYS` pela mesma razao.
+                ("payment_events_billing_papel", "A"),
                 ("payment_events_g8_humano", "A"),
+                ("payment_events_g8_ops", "A"),
                 ("payment_events_imutavel", "A"),
                 ("payment_events_sem_truncate", "A"),
             ],

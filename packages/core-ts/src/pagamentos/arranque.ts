@@ -37,10 +37,12 @@ import type { Uuid } from "./tipos.ts";
 
 export const PAYOUTS_SEM_PSP_LICENCIADO = "PAYOUTS_SEM_PSP_LICENCIADO";
 export const CONTA_DE_PME_COM_ENTIDADE_DA_KAMBA = "CONTA_DE_PME_COM_ENTIDADE_DA_KAMBA";
+export const COMISSAO_SEM_PARECER = "COMISSAO_SEM_PARECER";
 
 export type CodigoDeArranque =
   | typeof PAYOUTS_SEM_PSP_LICENCIADO
-  | typeof CONTA_DE_PME_COM_ENTIDADE_DA_KAMBA;
+  | typeof CONTA_DE_PME_COM_ENTIDADE_DA_KAMBA
+  | typeof COMISSAO_SEM_PARECER;
 
 export class ArranqueRecusado extends Error {
   readonly codigo: CodigoDeArranque;
@@ -55,10 +57,10 @@ export class ArranqueRecusado extends Error {
  * As *feature flags* de dinheiro da G-2 e do §11.1.
  *
  * `commission_enabled` entra aqui por estar na mesma linha de decisao — o §11.1
- * poe a comissao em «modo sombra» com a *flag* desligada global e por tenant —
- * mas **nao tem verificacao de arranque neste ticket**: quem a calcula e o
- * KAM-058, e uma guarda sobre uma *flag* que nenhum codigo le seria cerimonia.
- * Esta declarada para que o nome exista uma vez so.
+ * poe a comissao em «modo sombra» com a *flag* desligada global e por tenant.
+ * A guarda de arranque dela e o `verificarComissao`, do KAM-059 (o KAM-052
+ * escrevia aqui «KAM-058», que e a regua de cobranca e nao calcula comissao
+ * nenhuma).
  */
 export type FlagsDeDinheiro = {
   /** G-2. A omissao e `false`, e mudar isto exige um `psp_licenciado`. */
@@ -207,13 +209,70 @@ export function verificarG4(
   );
 }
 
-/** As duas guardas de arranque, pela ordem em que custam. */
+/**
+ * A comissao por tenant e a referencia do parecer (KAM-059, criterio 7).
+ *
+ * `porTenant` e a *flag* «por tenant» do §11.1: um tenant ausente esta
+ * **desligado**, e e essa a omissao — nao ha leitura de «ausente» como «herda a
+ * global ligada». `parecerRef` e a referencia escrita do parecer que fecha D8
+ * (`docs/tecnica/00` §13.3); enquanto D8 estiver aberta e `null`.
+ */
+export type ConfiguracaoDaComissao = {
+  readonly porTenant: Readonly<Record<Uuid, boolean>>;
+  readonly parecerRef: string | null;
+};
+
+/** A omissao do Piloto: nenhum tenant ligado, e sem parecer (D8 aberta). */
+export const COMISSAO_OMISSAO: ConfiguracaoDaComissao = {
+  porTenant: {},
+  parecerRef: null,
+};
+
+/**
+ * `commission_enabled=true` em qualquer sitio exige `parecer_ref` (D8).
+ *
+ * **Global ou por tenant, e nao so global.** Uma guarda que olhasse so para a
+ * global deixava um tenant ligado a mao passar sem parecer — e o §11.1 escreve
+ * a *flag* nos dois niveis precisamente para que um piloto de comissao num
+ * tenant seja tambem uma activacao.
+ *
+ * O que esta guarda **nao** faz e ligar a facturacao de comissao: a base so
+ * aceita `commission_accruals.modo = 'sombra'` (`commission_accruals_so_sombra`
+ * da revisao do KAM-059), pelo que mesmo com parecer o que se acumula e sombra.
+ * Passar a `facturavel` e uma revisao nova, com o parecer citado nela.
+ */
+export function verificarComissao(
+  flags: FlagsDeDinheiro,
+  comissao: ConfiguracaoDaComissao,
+): void {
+  const ligados = Object.entries(comissao.porTenant)
+    .filter(([, ligado]) => ligado)
+    .map(([tenant]) => tenant)
+    .sort();
+  if (!flags.commissionEnabled && ligados.length === 0) return;
+  if (comissao.parecerRef !== null && comissao.parecerRef.trim() !== "") return;
+  const onde = [
+    ...(flags.commissionEnabled ? ["global"] : []),
+    ...ligados.map((tenant) => `tenant ${tenant}`),
+  ].join(", ");
+  throw new ArranqueRecusado(
+    COMISSAO_SEM_PARECER,
+    `commission_enabled=true (${onde}) sem parecer_ref. A comissao sobre ` +
+      "transaccao fica desligada ate haver parecer (D8; ADR-017; " +
+      "docs/tecnica/04 §11.1): a atribuicao e inauditavel e a plataforma nao " +
+      "a pode deduzir da liquidacao (ADR-004).",
+  );
+}
+
+/** As tres guardas de arranque, pela ordem em que custam. */
 export function verificarArranque(
   flags: FlagsDeDinheiro,
   registo: RegistoDeProviders,
   contas: readonly ContaParaGuarda[],
   daKamba: EntidadesDaKamba,
+  comissao: ConfiguracaoDaComissao,
 ): void {
   verificarG2(flags, registo);
+  verificarComissao(flags, comissao);
   verificarG4(contas, daKamba);
 }

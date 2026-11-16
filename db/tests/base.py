@@ -533,6 +533,22 @@ TABELAS_0048 = ("review_case", "review_decision_log")
 #: (KAM-062) nao cria tabelas no `platform`.
 TABELAS_CATALOGO_AI = ("catalog_ingestions",)
 
+#: O que a revisao do billing da plataforma (KAM-059) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: a
+#: revisao e a `0055`, e um numero que a fila pode mudar outra vez (os ensaios
+#: descobrem-na pelo *glob* `*_billing_da_plataforma.py`).
+#:
+#: Quatro tabelas de tenant com RLS `FORCE` pela `tenant_iso` e uma global, o
+#: `price_book`, sem `tenant_id` e sem RLS (o preco de um plano e o mesmo para
+#: todos), como a `payment_outbox_map`.
+TABELAS_BILLING = (
+    "billing_cycles",
+    "billing_ops_approvals",
+    "commission_accruals",
+    "price_book",
+    "subscriptions",
+)
 #: O que a revisao da Foto de produtos (KAM-120) acrescenta: os trabalhos de
 #: melhoramento de uma foto do dono.
 #:
@@ -561,20 +577,34 @@ TABELAS = tuple(
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
+        + TABELAS_BILLING
     )
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da Foto
 #: de produtos (KAM-120).
 #:
-#: O `downgrade` da revisao da Foto de produtos leva a base para aqui. **Deriva
-#: do `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
+#: O que existe em `platform` quando a base esta na revisao anterior a do
+#: billing da plataforma (KAM-059).
+#:
+#: O `downgrade` da revisao do billing leva a base para aqui. **Deriva do
+#: `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
 #: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
-#: dela. Chama-se pela tabela e nao pelo numero, pela razao escrita no
-#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0051`, e isto **descreve tambem
-#: a revisao do Catalogo AI**: a `0051` (KAM-197) nao cria tabelas no
-#: `platform`.
-TABELAS_ANTES_DA_FOTO = tuple(sorted(set(TABELAS) - set(TABELAS_FOTO)))
+#: dela. Hoje a anterior e a `0054`, a da Foto de produtos (KAM-120).
+TABELAS_ANTES_DO_BILLING = tuple(sorted(set(TABELAS) - set(TABELAS_BILLING)))
+
+#: O que existe em `platform` quando a base esta na revisao anterior a da Foto
+#: de produtos (KAM-120).
+#:
+#: O `downgrade` da revisao da Foto de produtos leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_BILLING` desde o KAM-059, que pos a sua revisao no topo.
+#: Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0053`, e isto **descreve tambem
+#: a revisao do Catalogo AI**: nem a `0051` (KAM-197) nem as duas seguintes
+#: criam tabelas no `platform`.
+TABELAS_ANTES_DA_FOTO = tuple(
+    sorted(set(TABELAS_ANTES_DO_BILLING) - set(TABELAS_FOTO))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: Catalogo AI (KAM-049).
