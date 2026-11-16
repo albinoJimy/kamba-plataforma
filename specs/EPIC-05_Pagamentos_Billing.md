@@ -1236,21 +1236,25 @@ sem padrão novo, e as barreiras vivem na revisão
   política `pay_receita_propria` dá ao `kamba_pay`, e só a ele, a leitura da conta própria — cinco
   colunas, sem o `webhook_token` nem o `credenciais_ref`.
 
-**As medições, nesta máquina, contra PostgreSQL 18 em Docker e Node 24.21 em contentor**, com a
-revisão como `0054` sobre a `0051` (`refs/remotes/publico/main` em `aff72d29`):
-o *gate* 3b inteiro (`dict_export --check`, `canon_lint check` e o canário) → **conforme**; as suites
-do `canon_lint` (**231**) e do `contract_diff` (**117**) → **OK**, com os gerados em dia e 84
-contratos conformes; `lint_backlog`, `lint_refs`, `lint_handoff` e `lint_contagens` → **conforme**;
-`../db/tests_pagamentos/test_subscricao_e_billing.py` → **`Ran 43 tests` / `OK`**; os ensaios de
-catálogo, inventário e privilégios do *gate* 8 e os X-03/X-04 e X-05 do *gate* 6 → **verdes** (o
-último, `Ran 65 tests` / `OK`); os de `../packages/core-ts/tests/` → **2849 ensaios, 0 falhas** (medidos antes das correcções da revisão), com o
-`typecheck` do `core-ts` e do COM a zero, e os do billing e do arranque, depois da revisão, **53 de
-53**, com o `billing.ts` a **100 %** de linhas; os do `py-core` de eventos e de retenção → **`Ran 90
-tests` / `OK`**; `python db/mutacoes.py --aplicaveis` → **1129 conferidas, 0 não aplicáveis**. **O
-que não se mediu, e diz-se:** as suites **inteiras** `tests` e `tests_pagamentos` esgotaram os 900 s
-do `gate_bd.py` a meio de ensaios que não tocam no billing (o `TestConcorrencia` dos eventos e o
-`test_maquina`), com a máquina carregada por contentores de outras sessões — **não medidas** aqui;
-decide o CI.
+**As medições, nesta máquina, contra PostgreSQL 18 em Docker e Node 24.21 em contentor**, na
+árvore integrada — o ramo fundido com a `main` em `119ecf5f`, com a `0055` sobre a `0054` do
+KAM-120 no topo da cadeia: a suite **inteira** `../db/tests_pagamentos/` → **`Ran 311 tests` /
+`OK`**; os ensaios de catálogo, inventário, privilégios e migração do *gate* 8, com os de descida
+da Foto de produtos e da `0034` (`test_catalogo`, `test_inventario`, `test_privilegios`,
+`test_migracao`, `test_foto_schema`, `test_downgrade_0034`) → **`Ran 110 tests` / `OK`**; a suite
+**inteira** `../db/tests_isolamento/` do *gate* 6 → **`Ran 83 tests` / `OK`**; o *gate* 3b inteiro
+(`dict_export --check`, `canon_lint check` e o canário) → **conforme**; as suites do `canon_lint`
+(**244**), do `dict_export` (**41**), do `contract_diff` (**118**, com 84 contratos conformes) e do
+`lint_bloco` (**41**) → **OK**; `lint_backlog`, `lint_refs`, `lint_handoff`, `lint_contagens` e
+`lint_bloco` → **conforme** (125 blocos emparelhados, e o piso fica em 62); `python db/mutacoes.py
+--aplicaveis` → **1138 conferidas, 0 não aplicáveis**. Antes da integração,
+sobre a `aff72d29`: `../db/tests_pagamentos/test_subscricao_e_billing.py` → **`Ran 43 tests` /
+`OK`**; os de `../packages/core-ts/tests/` → **2849 ensaios, 0 falhas** (medidos antes das
+correcções da revisão), com o `typecheck` do `core-ts` e do COM a zero, e os do billing e do
+arranque, depois da revisão, **54 de 54**, com o `billing.ts` a **100 %** de linhas; os do
+`py-core` de eventos e de retenção → **`Ran 90 tests` / `OK`**. **O que não se mediu, e diz-se:** a suite
+inteira `../db/tests/` do *gate* 8 esgotou os 900 s do `gate_bd.py` com a máquina carregada —
+**não medida** aqui; decide o CI.
 
 | # | Critério | Estado | O que se mediu, e com que comando |
 |---|---|---|---|
