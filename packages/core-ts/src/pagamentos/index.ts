@@ -67,7 +67,14 @@
  *                   cadeias SQL que a suite de base de dados le; e a porta
  *                   `InvoiceProvider`, declarada e sem implementacao (D7)
  *
- * As FK para `orders_mirror` sao o KAM-055 e o ProxyPay e o KAM-056. O `refund`
+ * E, desde o **KAM-056**, o adaptador ProxyPay, exportado como `proxypay`:
+ *
+ *     proxypay/     o RPS (referencias, callback HMAC com janela de duas
+ *                   chaves, fila `GET`/`DELETE /payments`), o *job* de
+ *                   reconciliacao e a expiracao, e o OPG atras da segunda
+ *                   *flag*, so como dica. As duas *flags* nascem desligadas
+ *
+ * As FK para `orders_mirror` sao o KAM-055. O `refund`
  * e o `payout` devolvem `NOT_SUPPORTED` por ADR-004 e nao por estarem por
  * fazer.
  *
@@ -468,3 +475,11 @@ export {
   type Uuid,
   type VerifiedEvent,
 } from "./tipos.ts";
+
+/**
+ * O adaptador ProxyPay (KAM-056): RPS, OPG atras da segunda *flag*, a
+ * reconciliacao e a expiracao. Exporta-se como espaco de nomes para nao
+ * colidir com os nomes curtos do resto do modulo (`CABECALHO_DA_ASSINATURA`
+ * do `FakeProvider` e o `CABECALHO_X_SIGNATURE` daqui dizem o mesmo cabecalho).
+ */
+export * as proxypay from "./proxypay/index.ts";
