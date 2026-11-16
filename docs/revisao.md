@@ -98,11 +98,14 @@ A linha que esta fila acrescenta ao `tecnica/10_Onboarding_Governanca.md` §17:
   **fundador** (contraparte e conta, critério 1 do KAM-196), escritas com o subprocessador que
   acrescentam (KAM-069). O adaptador do IdP escolhido tem de ligar a prova ao navegador que começou
   a entrada (`state`/`nonce` de OIDC).
-- **O processo de lote.** O *job* da fila existe (`CicloDaFila`: drenar a triagem, dar os alertas
-  dos 80%, reaplicar os efeitos que falharam, recalcular as métricas), e nenhum processo o corre
-  com credenciais de lote nem serve `/metrics`; a lista de efeitos por reaplicar é em memória.
-  Credor: **KAM-198**. O `amostrar` sobre cada aprovação automática é do **KAM-092**, pelo gancho
-  `aprovacaoAutomatica`.
+- **O `amostrar` sobre cada aprovação automática** é do **KAM-092**: o gancho existe no processo de
+  lote (`aprovacaoAutomatica`, §6) e ninguém o chama ainda, porque quem conhece a aprovação
+  automática é ele.
+- **O aviso ao dono não sai do processo de lote.** Precisa do telefone registado em claro e de um
+  agregador de SMS, e nenhum dos dois existe em produção: o agregador não está escolhido
+  (fundador, KAM-116) e o telefone cifrado do `onboarding_case` não tem adaptador que o decifre. A
+  fase e o screening aplicam-se, o aviso levanta, e o caso fica marcado e reaplicado a cada volta
+  (§6) até haver via.
 - **A via de e-mail do aviso.** Os textos existem e o adaptador sabe usá-la (`CorreioDoDono`), mas
   o serviço manda sempre por SMS e nenhum fornecedor de e-mail está escolhido (KAM-115).
 - **O motivo escolhido na decisão.** O serviço sabe usar um motivo público diferente do do caso no
@@ -113,8 +116,6 @@ A linha que esta fila acrescenta ao `tecnica/10_Onboarding_Governanca.md` §17:
   (Carnaval, Sexta-feira Santa) entram por configuração.
 - **Os limiares** — a quota de 20, o risco alto em prioridade ≤ 2, o *score* 60, os 20% e as 8
   semanas da amostragem, as 8 h da sessão da equipa — são propostas que ninguém calibrou.
-- **A quota entre processos.** As aberturas da mesma origem correm em série **num** processo;
-  entre processos a quota pode exceder-se pelo número deles. Credor: KAM-198.
 - **Uma origem partilhada.** Num prefixo de IP móvel partilhado por muitos (CGNAT), a quota é de
   todos, e a triagem drena por ordem de chegada: um atacante constante atrasa os legítimos do
   mesmo prefixo. **PLAUSÍVEL**, por medir: o tamanho real dos prefixos das operadoras.
@@ -151,9 +152,40 @@ caso.
 
 ---
 
+## 6. O processo de lote do onboarding
+
+É o `onboarding-lote` do compose (KAM-198): a imagem do `onboarding-web` com outro `command:`
+([`../services/onboarding-web/src/lote.ts`](../services/onboarding-web/src/lote.ts)). Corre o ciclo
+da fila a cada minuto, como `kamba_batch`, e serve as quatro métricas em `/metrics` (porta 3014),
+que o Prometheus raspa. **Arranca em `prod`**; sem a `KAMBA_LOTE_DB_URL` (o `kamba_batch`) ou a
+`KAMBA_LOTE_APP_DB_URL` (o `kamba_app`, só para a decisão humana de screening), ou com uma delas de
+outro papel, sai com código 1 antes de abrir a porta.
+
+- **Uma volta**: drena a triagem até à quota do dia de cada origem, dá o alerta dos 80% uma vez
+  por caso, reaplica os efeitos marcados e recalcula as métricas. Um passo que falha não pára os
+  outros, e o registo diz quais falharam, pelo nome.
+- **Os efeitos por reaplicar vivem na base**: a coluna `review_case.efeito_pendente_at` da revisão
+  `0053`. O serviço que decide marca o caso **antes** dos efeitos e limpa-o quando correm todos; um
+  processo que morra a meio deixa a marca, e o lote reaplica-a. O lote só vê uma marca com mais de
+  **dois minutos** (a carência, *proposta*): sem ela, corria os efeitos ao mesmo tempo que quem
+  decidiu, e o aviso saía duas vezes. Uma reaplicação que falha remarca o caso e manda-o para o fim
+  da fila, pelo que um efeito sem saída não tapa os outros; a carência é o intervalo entre
+  tentativas. Reaplicar não reescreve a fase do onboarding se ela mudou depois da decisão.
+- **Quem marca, hoje: ninguém em produção.** Só decide quem tem a consola, e a consola só se monta
+  com o IdP da equipa (§4, fundador). Quando se montar sobre a base, com a mesma lista, marca.
+- **Cada ligação tem limites de tempo** (instrução 30 s, trinco 10 s, transacção parada 60 s,
+  *propostas*): uma sessão presa a segurar o trinco da quota faz falhar o passo, e não congela o
+  ciclo.
+- **A quota vale entre processos**: a contagem e a escrita de uma abertura ou de uma drenagem correm
+  na mesma transacção, sob um trinco consultivo da base sobre a chave da quota.
+- **O gancho do KAM-092**: `aprovacaoAutomatica(onboarding, tenant)` amostra uma aprovação automática
+  neste processo, a contar do dia em `ONBOARDING_LOTE_AMOSTRAGEM_DESDE`; sem esse dia, não amostra.
+- A reconciliação da saga (KAM-091) vai correr no mesmo processo.
+
 ## Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | **KAM-089**: criação — o que a fila é, o *runbook* do revisor, a linha da RACI e o que fica por fazer. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **KAM-196**: a consola `/equipa` (§5, nova), a identidade da equipa e os avisos ao dono saem do §4; entram nele o IdP e as contas (fundador), o processo de lote (KAM-198), a via de e-mail e o motivo escolhido na decisão. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-198**: o processo de lote do onboarding (§6, nova). Saem do §4 o processo de lote e a quota entre processos; entram nele o aviso ao dono, que não tem via no lote, e o `amostrar` do KAM-092 como item próprio. | Equipa KAMBÁ |

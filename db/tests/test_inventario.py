@@ -2461,6 +2461,8 @@ INVENTARIO["review_case"] = {
     "sla_due_at": ("timestamp with time zone", NAO, None, "nao"),
     "sla_alertado_at": ("timestamp with time zone", SIM, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-198 (revisao `0053`): a marca de «efeito por aplicar». Um instante.
+    "efeito_pendente_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: A decisao do revisor (KAM-089, revisao `0048`). A `nota_enc` e texto livre
@@ -2557,6 +2559,110 @@ INVENTARIO["ts_sanction"] = {
     "recurso_de": ("uuid", SIM, None, "nao"),
     "recurso_estado": ("text", SIM, None, "nao"),
     "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
+#: O billing da plataforma (KAM-059, revisao do billing). **Nenhuma destas
+#: colunas guarda dado pessoal**: o precario e de plataforma, a subscricao e o
+#: ciclo sao de um tenant (uma loja), a sombra guarda identificadores e valores,
+#: e o `actor_id` da aprovacao e de staff da KAMBA, nao de um titular.
+INVENTARIO["price_book"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "plano": ("text", NAO, None, "nao"),
+    "valor_minor": (
+        "bigint", NAO, None,
+        "nao — o preco do plano em unidade menor. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+    ),
+    "currency": (
+        "character", NAO, "'AOA'::bpchar",
+        "nao — dominio de um valor. `char(3)` com `CHECK`, como a `payment_charges`: e o DDL do §11.2",
+    ),
+    "iva_pct": ("numeric", NAO, "14.00", "nao — NAO VERIFICADO, a confirmar com contabilista"),
+    "valido_de": ("date", NAO, None, "nao"),
+    "valido_ate": ("date", SIM, None, "nao"),
+    "nota": ("text", SIM, None, "nao — nota de produto sobre o preco, nunca de uma pessoa"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["subscriptions"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "plano": ("text", NAO, None, "nao"),
+    "estado": ("text", NAO, "'ativa'::text", "nao"),
+    "periodo_dia": ("smallint", NAO, "1", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["billing_cycles"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "subscription_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "periodo": ("daterange", NAO, None, "nao"),
+    "valor_minor": (
+        "bigint", NAO, None,
+        "nao — o preco do ciclo, fixo desde que abriu. Ver `EM_UNIDADE_MENOR`",
+    ),
+    "estado": ("text", NAO, "'aberto'::text", "nao"),
+}
+
+INVENTARIO["commission_accruals"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "order_id": ("uuid", NAO, None, "nao"),
+    "payment_event_id": ("bigint", NAO, None, "nao"),
+    "base_minor": ("bigint", NAO, None, "nao — sombra, nunca facturada. Ver `EM_UNIDADE_MENOR`"),
+    "taxa_bps": ("integer", NAO, None, "nao"),
+    "comissao_minor": (
+        "bigint", NAO, None, "nao — sombra, nunca facturada. Ver `EM_UNIDADE_MENOR`",
+    ),
+    "modo": ("text", NAO, "'sombra'::text", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["billing_ops_approvals"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "charge_id": ("uuid", NAO, None, "nao"),
+    "actor_id": ("uuid", NAO, None, "nao — identificador de staff, nao do titular"),
+    "motivo": (
+        "text", NAO, None,
+        "nao — a razao de ops (o extracto que leu), nunca dados do pagador",
+    ),
+    "valor_minor": (
+        "bigint", NAO, None, "nao — o valor aprovado, igual ao da cobranca. Ver `EM_UNIDADE_MENOR`",
+    ),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O trabalho de melhoramento de uma foto (KAM-120, revisao da Foto de
+#: produtos). **A foto nao esta aqui**: a `origem_ref` e a `versao_ref` sao
+#: chaves do STO do proprio tenant (presas a ele por `CHECK`), e o original e a
+#: versao vivem la e expiram pelo `retain_until`. Dezoito colunas. O
+#: `information_schema` da a coluna gerada `gerado_por_ia` sem omissao: a
+#: expressao vive no `generation_expression`, nao no `column_default`.
+INVENTARIO["image_jobs"] = {
+    "image_job_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "origem_ref": (
+        "text",
+        NAO,
+        None,
+        "nao — a chave do original no STO do tenant, nunca a imagem",
+    ),
+    "versao_ref": ("text", SIM, None, "nao — a chave da versao no STO do tenant"),
+    "operacao": ("text", NAO, None, "nao"),
+    "provider": ("text", NAO, None, "nao — identificador do fornecedor"),
+    "estado": ("text", NAO, "'pendente'::text", "nao"),
+    "motivo": ("text", SIM, None, "nao — codigo de lista fechada"),
+    "idempotency_key": ("text", NAO, None, "nao — chave opaca do pedido"),
+    "sintetica": ("boolean", NAO, "false", "nao"),
+    "gerado_por_ia": ("boolean", NAO, None, "nao — gerada da operacao"),
+    "escolhida": ("boolean", NAO, "false", "nao"),
+    "custo_usd": ("numeric", NAO, "0", "nao"),
+    "latencia_ms": ("integer", SIM, None, "nao"),
+    "aviso_at": ("timestamp with time zone", SIM, None, "nao"),
+    "versao": ("integer", NAO, "0", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
@@ -3288,6 +3394,23 @@ class TestInventario(ComBase):
                         # tenant nao apaga as fotos dele por baixo da retencao,
                         # que e quem as purga (KAM-071).
                         "catalog_ingestions_tenant_fk",
+                        # KAM-120 (revisao da Foto de produtos): o trabalho de
+                        # imagem aponta o tenant, sem cascata pela mesma razao —
+                        # o original e a versao saem do STO pelo
+                        # `retain_until`, e a linha com a relacao do tenant.
+                        "image_jobs_tenant_fk",
+                        # KAM-059 (revisao do billing): as oito, todas sem
+                        # cascata. Um ciclo nao se apaga com a subscricao, nem a
+                        # cobranca com o ciclo (o ledger e *append-only*), nem a
+                        # sombra com o evento que a mediu.
+                        "subscriptions_tenant_fk",
+                        "billing_cycles_tenant_fk",
+                        "billing_cycles_subscricao_do_mesmo_tenant_fk",
+                        "charges_billing_fk",
+                        "commission_accruals_tenant_fk",
+                        "commission_accruals_encomenda_do_mesmo_tenant_fk",
+                        "billing_ops_approvals_tenant_fk",
+                        "billing_ops_approvals_charge_fk",
                         # KAM-097 (revisao de T&S): os sinais e as sancoes
                         # apontam o tenant, a sancao humana aponta o caso de
                         # revisao pelo par, e o desfecho de um recurso aponta a
@@ -3686,6 +3809,10 @@ class TestInventario(ComBase):
             # Cobre so os casos com onboarding, que sao os que a quota e o
             # desbloqueio perguntam; um caso de saga ou de *trust* nao entra.
             "review_case_onboarding_idx": False,
+            # KAM-198 (0053): o dos casos com um efeito por aplicar, parcial e
+            # **nao** unico. Cobre so os marcados, que sao os que o lote pergunta;
+            # um caso cujos efeitos correram sai do indice.
+            "review_case_efeito_pendente_idx": False,
             # KAM-049 (revisao do Catalogo AI): os dois da ingestao, parciais e
             # **nao** unicos. O do `phash` cobre so as fotos ja medidas, que sao
             # as que a pergunta «e o mesmo produto?» compara; o da fila cobre so
@@ -3695,6 +3822,15 @@ class TestInventario(ComBase):
             # indice parcial.
             "catalog_ingestions_fila_idx": False,
             "catalog_ingestions_phash_idx": False,
+            # KAM-120 (revisao da Foto de produtos): parcial e **nao** unico.
+            # Cobre so os trabalhos `bloqueada_gate`, a fila humana do que
+            # espera por um destino, uma carta ou o detector. A unicidade do
+            # pedido e a restricao `image_jobs_idempotency_uq`.
+            "image_jobs_bloqueados_idx": False,
+            # E o segundo, **unico**: uma versao escolhida por original (o
+            # botao do dono). Sem ele, duas versoes do mesmo original ficavam
+            # escolhidas ao mesmo tempo.
+            "image_jobs_escolhida_uq": True,
             # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
             # unicos. O do contacto cobre so os enderecos utilizaveis
             # (verificados e nao invalidos), que e o conjunto que a entrega le;
@@ -3952,6 +4088,68 @@ class TestInventario(ComBase):
                     "catalog_ingestions_publicada_ck",
                     "catalog_ingestions_sku_ck",
                     "catalog_ingestions_ultima_mensagem_ck",
+                    # ------------- KAM-120 (revisao da Foto de produtos)
+                    #
+                    # **Catorze.** Os sete de coluna (a `operacao`, o
+                    # `provider`, o `estado`, o dominio do `motivo`, a
+                    # `idempotency_key`, o custo e a latencia nao negativos),
+                    # os cinco de linha — a `origem_ref` e a
+                    # `versao_ref` presas ao tenant da linha, o `motivo` amarrado
+                    # ao estado, o `concluido` com versao e latencia e a
+                    # `escolhida` so num `concluido` —, a unicidade do pedido e
+                    # a chave primaria.
+                    "image_jobs_concluido_ck",
+                    "image_jobs_custo_ck",
+                    "image_jobs_escolhida_ck",
+                    "image_jobs_estado_ck",
+                    "image_jobs_idempotency_key_ck",
+                    "image_jobs_idempotency_uq",
+                    "image_jobs_latencia_ck",
+                    "image_jobs_motivo_ck",
+                    "image_jobs_motivo_dominio_ck",
+                    "image_jobs_operacao_ck",
+                    "image_jobs_origem_ref_ck",
+                    "image_jobs_pkey",
+                    "image_jobs_provider_ck",
+                    "image_jobs_versao_ref_ck",
+                    # ------------------- KAM-059 (revisao do billing)
+                    #
+                    # **Trinta.** O precario (sete: chave, unicidade por plano e
+                    # `valido_de`, a forma do plano, o valor nao negativo, a
+                    # moeda, o IVA e a validade), a subscricao (seis), o ciclo
+                    # (seis: o periodo unico por subscricao e o par para a FK da
+                    # cobranca), a sombra (sete, com o `so_sombra` e o calculo da
+                    # taxa) e a aprovacao de ops (quatro).
+                    "billing_cycles_estado_ck",
+                    "billing_cycles_periodo_ck",
+                    "billing_cycles_periodo_uq",
+                    "billing_cycles_pkey",
+                    "billing_cycles_tenant_id_uq",
+                    "billing_cycles_valor_ck",
+                    "billing_ops_approvals_motivo_ck",
+                    "billing_ops_approvals_pessoa_uq",
+                    "billing_ops_approvals_pkey",
+                    "billing_ops_approvals_valor_ck",
+                    "commission_accruals_base_ck",
+                    "commission_accruals_calculo_ck",
+                    "commission_accruals_evento_uq",
+                    "commission_accruals_modo_ck",
+                    "commission_accruals_pkey",
+                    "commission_accruals_so_sombra",
+                    "commission_accruals_taxa_ck",
+                    "price_book_currency_ck",
+                    "price_book_iva_ck",
+                    "price_book_pkey",
+                    "price_book_plano_ck",
+                    "price_book_plano_valido_de_uq",
+                    "price_book_valor_ck",
+                    "price_book_validade_ck",
+                    "subscriptions_estado_ck",
+                    "subscriptions_periodo_dia_ck",
+                    "subscriptions_pkey",
+                    "subscriptions_plano_ck",
+                    "subscriptions_tenant_id_uq",
+                    "subscriptions_tenant_uq",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

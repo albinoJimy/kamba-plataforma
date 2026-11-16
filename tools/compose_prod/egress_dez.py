@@ -253,6 +253,9 @@ MARCADORES = {
     "KAMBA_DB_NAME": "marcador",
     "KAMBA_SECRET_DB_APP_PASSWORD": "marcador",
     "KAMBA_SECRET_DB_BATCH_PASSWORD": "marcador",
+    # KAM-198: as duas ligacoes do processo de lote do onboarding. Mesma razao.
+    "KAMBA_LOTE_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
+    "KAMBA_LOTE_APP_DB_URL": "postgresql://marcador@marcador.invalid:5432/marcador",
 }
 
 

@@ -49,7 +49,7 @@
 #   pais_hipotese     o destino **como hipotese**; nunca uma afirmacao
 #   pais_verificado   `false` enquanto o contrato nao o fixar
 #   estado            `pendente`, `autorizado`, `revogado` ou `negado`
-#   finalidades       as de `tenant_destinations.purpose` (treze no dominio)
+#   finalidades       as de `tenant_destinations.purpose` (catorze no dominio)
 #   contrato_ref      referencia do contrato arquivado; `null` se nao ha
 #   retencao_zero     o fornecedor confirmou retencao zero por escrito
 #   sem_treino        o fornecedor confirmou nao-treino por escrito

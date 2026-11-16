@@ -11,7 +11,7 @@
  * * **`kamba_app`** — o consumidor de eventos. Corre na transacção do
  *   `consumir`, com o `app.tenant_id` do envelope, e lê só o seu tenant. Na
  *   `ts_signal` e na `ts_sanction` lê **as colunas que a escada precisa** e não
- *   o motivo interno, a regra, os sinais nem o `detalhe` (revisão `0053`): por
+ *   o motivo interno, a regra, os sinais nem o `detalhe` (revisão `0056`): por
  *   isso o modo `app` devolve esses campos vazios.
  * * **`kamba_batch`** — a fila de revisão e as varreduras. Lê tudo, e é o único
  *   que muda o estado do tenant (`0007`).

@@ -1467,6 +1467,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O trabalho de imagem da Foto de produtos (KAM-120, revisao da Foto de
+#: produtos). **So a aplicacao**, pela razao da ingestao: o trabalhador corre
+#: como `kamba_app`, com o contexto do tenant, le a tabela inteira e insere e
+#: actualiza **por coluna** (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: o
+#: original e a versao vivem no STO e expiram pelo `retain_until`, e a linha
+#: sai com a relacao do tenant (KAM-071).
+ESPERADO_POR_TABELA.update(
+    {
+        "image_jobs": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
@@ -1511,6 +1533,57 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O billing da plataforma (KAM-059, revisao do billing). Quem escreve e o
+#: `kamba_pay`, que nao aparece aqui: o papel do PAY declara-se de uma vez, no
+#: `PRIVILEGIOS_DO_PAY` abaixo.
+#:
+#: * o **precario** so se acrescenta: o lote insere (com o actor da sessao, que
+#:   o gatilho manda para o `audit_log`), a auditoria le, e ninguem actualiza
+#:   nem apaga;
+#: * a **subscricao** e do lote — e quem muda o plano, com os `entitlements` —, e
+#:   a aplicacao e a auditoria leem sob a `tenant_iso`;
+#: * o **ciclo**, a **sombra** e as **aprovacoes de ops**: a aplicacao e a
+#:   auditoria leem, e o lote le e apaga (o semeador das baterias de isolamento
+#:   e a retencao), sem escrever. Nenhum papel tem `UPDATE` na sombra nem nas
+#:   aprovacoes: as duas sao *append-only* por privilegio.
+def _billing(**por_papel: set[str]) -> dict[str, set[str]]:
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": set(),
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_agr": set(),
+        "kamba_pay_hooks": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        "price_book": _billing(
+            kamba_batch={"SELECT", "INSERT"}, kamba_audit={"SELECT"}
+        ),
+        "subscriptions": _billing(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT", "INSERT", "UPDATE", "DELETE"},
+            kamba_audit={"SELECT"},
+        ),
+        "billing_cycles": _billing(
+            kamba_app={"SELECT"}, kamba_batch={"SELECT", "DELETE"}, kamba_audit={"SELECT"}
+        ),
+        "commission_accruals": _billing(
+            kamba_app={"SELECT"}, kamba_batch={"SELECT", "DELETE"}, kamba_audit={"SELECT"}
+        ),
+        "billing_ops_approvals": _billing(
+            kamba_app={"SELECT"}, kamba_batch={"SELECT", "DELETE"}, kamba_audit={"SELECT"}
+        ),
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -1529,6 +1602,18 @@ PRIVILEGIOS_DO_PAY = {
     "events_log": {"SELECT"},
     "events_consumed": {"SELECT", "INSERT"},
     "events_dlq": {"INSERT"},
+    # KAM-059: o billing. Le o precario e as subscricoes de todos (a politica
+    # `pay_billing_subscricoes`), abre ciclos e cobrancas sob a `tenant_iso`,
+    # le o ledger (a sombra e o G8 de ops) e escreve a sombra e as aprovacoes.
+    # O `UPDATE` do ciclo e **so** do `estado`, no `COLUNAS_POR_PAPEL`; e da
+    # `payment_accounts` le **cinco** colunas, tambem la.
+    "price_book": {"SELECT"},
+    "subscriptions": {"SELECT"},
+    "billing_cycles": {"SELECT", "INSERT"},
+    "commission_accruals": {"SELECT", "INSERT"},
+    "billing_ops_approvals": {"SELECT", "INSERT"},
+    "payment_charges": {"SELECT"},
+    "payment_events": {"SELECT"},
 }
 ESPERADO_POR_TABELA = {
     tabela: dict(por_papel, kamba_pay=PRIVILEGIOS_DO_PAY.get(tabela, set()))
@@ -1941,6 +2026,22 @@ COLUNAS_POR_PAPEL = {
         "categoria_restrita", "sku", "custo_llm_usd", "confirmado_at",
         "confirmado_por", "ultima_mensagem_id",
     },
+    # KAM-120 (revisao da Foto de produtos): o `INSERT` da aplicacao e so a
+    # identidade do pedido — um trabalho nasce `pendente`, e um `INSERT
+    # (estado)` deixava-o nascer `concluido` sem passar pelo fornecedor; o
+    # `gerado_por_ia` e gerado e nao se insere. O `UPDATE` e o resultado,
+    # **menos a identidade** (`image_job_id`, `tenant_id`, `origem_ref`,
+    # `operacao`, `idempotency_key`, `sintetica`), o `aviso_at`, o `criado_at`
+    # e **a `versao` e o `atualizado_at`, que sao do *trigger***, pela razao da
+    # ingestao.
+    ("kamba_app", "image_jobs", "INSERT"): {
+        "image_job_id", "tenant_id", "origem_ref", "operacao", "provider",
+        "idempotency_key", "sintetica", "aviso_at",
+    },
+    ("kamba_app", "image_jobs", "UPDATE"): {
+        "estado", "motivo", "provider", "versao_ref", "custo_usd",
+        "latencia_ms", "escolhida",
+    },
     # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
     # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
     # — o `kamba_pay_hooks` marca o desfecho do que acabou de receber e o
@@ -2012,6 +2113,27 @@ COLUNAS_POR_PAPEL = {
     ("kamba_pay_hooks", "payment_accounts", "SELECT"): {
         "id", "tenant_id", "provider", "entidade", "pos_id", "estado",
     },
+    # KAM-059: o billing le **cinco** colunas da conta — as que o
+    # `assert_beneficiary` (`INVOKER`) compara e as que o *job* escolhe. Sem o
+    # `webhook_token`, o `credenciais_ref`, os identificadores EMIS e as
+    # `manual_instrucoes`, pela licao da `0029`: uma coluna a mais era o
+    # segredo de callback de todas as PMEs.
+    ("kamba_pay", "payment_accounts", "SELECT"): {
+        "id", "beneficiary_kind", "tenant_id", "provider", "estado",
+    },
+    # KAM-059: o ciclo muda de estado e de mais nada. O grafo e o `paga` atado
+    # ao ledger sao do gatilho `billing_cycles_transicao`; esta linha prende que
+    # o valor e o periodo nem sequer se podem tentar.
+    ("kamba_pay", "billing_cycles", "UPDATE"): {"estado"},
+    # KAM-059: o billing cria cobrancas **de ciclo** e de mais nada. O `INSERT`
+    # e por coluna e **sem `order_id`**: com o de tabela, o papel criava uma
+    # cobranca de encomenda na conta de uma PME de qualquer tenant (revisao
+    # adversarial). O `payment_charges_um_sujeito` faz o resto — sem `order_id`,
+    # o `billing_cycle_id` e obrigatorio.
+    ("kamba_pay", "payment_charges", "INSERT"): {
+        "id", "tenant_id", "billing_cycle_id", "tentativa", "account_id", "provider",
+        "metodo", "referencia", "amount_minor", "currency", "valid_until",
+    },
     # KAM-089 (0048): o lote muda o estado e o prazo de um caso, e reforca um
     # caso pendente com o que a porta sabe agora — a prioridade, o motivo
     # interno, as evidencias e a recomendacao (um KYC que volta a decidir depois
@@ -2021,9 +2143,13 @@ COLUNAS_POR_PAPEL = {
     # publico, que e o que o dono le. **A prioridade so fica mais urgente**, e
     # quem o impoe e o *trigger* e nao esta matriz: e ela que decide se aprovar
     # pede dois revisores, e baixa-la era tirar um.
+    #
+    # KAM-198 (0053): e a marca de «efeito por aplicar», que o servico escreve
+    # antes dos efeitos e o lote limpa depois de os reaplicar.
     ("kamba_batch", "review_case", "UPDATE"): {
         "estado", "prioridade", "motivo_interno", "evidencias", "recomendacao",
         "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
+        "efeito_pendente_at",
     },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
@@ -2095,6 +2221,14 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # `GRANT UPDATE (versao)` ou `(media_ref)` a mais era invisivel na matriz de
     # tabela, e qualquer um dos dois desfazia uma garantia da revisao.
     "catalog_ingestions",
+    # KAM-059: o ciclo, pela razao do `provisioning_step`. Um
+    # `GRANT UPDATE (valor_minor)` a mais era invisivel na matriz de tabela; o
+    # gatilho recusava-o, mas a matriz e quem diz que ele nao foi concedido.
+    "billing_cycles",
+    # KAM-120: o trabalho de imagem, pela mesma razao. Um `GRANT UPDATE
+    # (origem_ref)` ou `(versao)` a mais era invisivel na matriz de tabela, e o
+    # primeiro trocava o original de um trabalho ja processado.
+    "image_jobs",
     # KAM-097: as duas de T&S, porque a aplicacao as le **por coluna**, e uma
     # coluna a mais (o `motivo_interno`) era invisivel na matriz de tabela.
     "ts_signal",

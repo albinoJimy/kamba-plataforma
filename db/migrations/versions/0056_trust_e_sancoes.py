@@ -3,9 +3,10 @@
 A primeira linha e **sem acentos**, pela razao das revisoes anteriores: e a
 mensagem que o `alembic history` imprime.
 
-**O numero e provisorio.** A cadeia deste lote e 0052 (KAM-194), 0053 (este),
-0054 (KAM-059) e 0055 (KAM-120); o numero final da-o a integracao, pela ordem
-de quem fica pronto.
+**O numero e o da integracao.** A revisao nasceu como 0053 e ficou 0056, por
+cima da 0053 (KAM-198), da 0054 (KAM-120) e da 0055 (KAM-059), pela ordem da
+fila. Os ensaios e o `db/mutacoes.py` descobrem-na pelo *glob*
+`*_trust_e_sancoes.py`, e nao pelo numero.
 
 ## O que esta revisao cria
 
@@ -86,8 +87,8 @@ from alembic import op
 
 import rls
 
-revision = "0053"
-down_revision = "0052"
+revision = "0056"
+down_revision = "0055"
 branch_labels = None
 depends_on = None
 

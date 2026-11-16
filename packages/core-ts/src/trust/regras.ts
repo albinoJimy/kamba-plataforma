@@ -45,7 +45,7 @@ export type Severidade = (typeof SEVERIDADES)[number];
 
 /**
  * A severidade de cada tipo, **fixa**. Quem escreve um sinal não a escolhe: a
- * base impõe o mesmo par por `CHECK` (revisão `0053`), e é isso que torna
+ * base impõe o mesmo par por `CHECK` (revisão `0056`), e é isso que torna
  * inócuo um sinal escrito antes do consumidor com a mesma chave — sai igual.
  */
 export const SEVERIDADE_DO_TIPO: Readonly<Record<TipoDeSinal, Severidade>> = {

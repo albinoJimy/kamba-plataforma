@@ -191,6 +191,10 @@ class TestAQuintaVia(ComLedger):
             [(str(a), str(b)) for a, b in self.semente.fetchall()],
             [
                 ("payment_charges_beneficiario", "O"),
+                # KAM-059: o ciclo pago pela projeccao do ledger, e a cobranca
+                # nova so num ciclo vivo. Os dois `ENABLE ALWAYS`.
+                ("payment_charges_ciclo_pago", "A"),
+                ("payment_charges_ciclo_vivo", "A"),
                 ("payment_charges_nasce_iniciada", "A"),
             ],
             "o do nascimento e ALWAYS; o do beneficiario e da 0027 e fica como "

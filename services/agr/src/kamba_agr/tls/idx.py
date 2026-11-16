@@ -37,6 +37,14 @@ passa ao grafo junto com o executor. **Os dois estao aqui e mudam juntos.** A
 calibracao dos dois e do **KAM-064**, com o *dataset* `golden_search`, pela
 letra do bloco KAM-061 («afina so o limiar `pg_trgm` com o dataset»).
 
+**O que o KAM-064 mediu** (divisao `dev`, `eval/search/reports/1.0.0.md`): no
+modo lexical, de 0,0 a 0,35 o limiar nao corta nada; a 0,4 corta o posto 1 so
+do `fts` e troca falso-positivo em «nao resolvivel» (17,6% -> 5,9%) por
+success@3 (0,954 -> 0,883) e zero-result (3% -> 11%, acima do alvo de 8%). O
+0,3 fica. **No modo hibrido o 0,3 nao serve**: o ramo `sem` da sempre um posto
+1, que normalizado vale 0,5, e nenhuma pergunta fica vazia (falso-positivo
+100%). Calibra-se com o modelo real, antes de o vector se ligar: **KAM-199**.
+
 ## O que o limiar *proposta* faz, e o que nao faz
 
 **0,3** deixa passar todo o candidato que o indice devolveu no topo — incluindo

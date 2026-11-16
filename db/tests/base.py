@@ -536,16 +536,49 @@ TABELAS_CATALOGO_AI = ("catalog_ingestions",)
 #: O que a revisao de Trust & Safety (KAM-097) acrescenta: sinais e sancoes.
 #:
 #: **O nome leva o assunto e nao o numero da revisao**, pela razao do
-#: `TABELAS_CATALOGO_AI`: o numero (`0053`) e provisorio e da-o a integracao.
+#: `TABELAS_CATALOGO_AI`: a revisao e a `0056`, e os ensaios descobrem-na pelo
+#: *glob* `*_trust_e_sancoes.py`.
 #:
 #: **Duas tabelas, ambas com RLS `FORCE` pela `tenant_iso`**, *append-only* por
 #: privilegio **e** por *trigger* (`ts_imutavel`), com FK simples para
 #: `tenants(id)`. A `ts_sanction` tem FK composta `(case_id, tenant_id)` para a
 #: `review_case` e `(recurso_de, tenant_id)` para si propria, e um *trigger* de
 #: insercao (`ts_sanction_regras`) que recusa ao `kamba_app` as linhas humanas e
-#: um passo que salta degraus sem justificacao. A `0051` (KAM-197) e a `0052`
-#: (KAM-194) nao criam tabelas no `platform`.
+#: um passo que salta degraus sem justificacao.
 TABELAS_TRUST = ("ts_sanction", "ts_signal")
+
+#: O que a revisao do billing da plataforma (KAM-059) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: a
+#: revisao e a `0055`, e um numero que a fila pode mudar outra vez (os ensaios
+#: descobrem-na pelo *glob* `*_billing_da_plataforma.py`).
+#:
+#: Quatro tabelas de tenant com RLS `FORCE` pela `tenant_iso` e uma global, o
+#: `price_book`, sem `tenant_id` e sem RLS (o preco de um plano e o mesmo para
+#: todos), como a `payment_outbox_map`.
+TABELAS_BILLING = (
+    "billing_cycles",
+    "billing_ops_approvals",
+    "commission_accruals",
+    "price_book",
+    "subscriptions",
+)
+#: O que a revisao da Foto de produtos (KAM-120) acrescenta: os trabalhos de
+#: melhoramento de uma foto do dono.
+#:
+#: **O nome leva a tabela e nao o numero da revisao**, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`: o numero e provisorio, e os ensaios descobrem a
+#: revisao pelo *glob* `*_foto_de_produtos.py`.
+#:
+#: **Uma tabela, com RLS `FORCE` pela `tenant_iso`**, FK simples
+#: `image_jobs_tenant_fk` para `tenants(id)` e uma funcao de *trigger*
+#: (`image_jobs_transicao`) que impoe as transicoes de `estado`, congela o
+#: `falhado`, so deixa mudar a `escolhida` num `concluido` e recusa que o
+#: `custo_usd` desca. O `kamba_app` le, insere e actualiza por coluna, e nao
+#: apaga. A revisao alarga tambem o dominio da `tenant_destinations.purpose`
+#: (a `imagem`), sem tabela nova. A `0051` (KAM-197) nao cria tabelas no
+#: `platform`.
+TABELAS_FOTO = ("image_jobs",)
 
 TABELAS = tuple(
     sorted(
@@ -557,7 +590,8 @@ TABELAS = tuple(
         + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
-        + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_TRUST
+        + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
+        + TABELAS_BILLING + TABELAS_TRUST
     )
 )
 
@@ -566,19 +600,43 @@ TABELAS = tuple(
 #:
 #: O `downgrade` dessa revisao leva a base para aqui. **Deriva do `TABELAS`**, e
 #: e a unica da cadeia que o faz, porque e o topo dela: quem acrescentar uma
-#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. Descreve
-#: tambem a revisao do Catalogo AI, a `0051` e a `0052`, que nao criam tabelas
-#: depois da `catalog_ingestions`.
+#: revisao a seguir poe a sua aqui e faz **esta** derivar da dela. Hoje a
+#: anterior e a `0055`, a do billing da plataforma (KAM-059).
 TABELAS_ANTES_DO_TRUST = tuple(sorted(set(TABELAS) - set(TABELAS_TRUST)))
+
+#: O que existe em `platform` quando a base esta na revisao anterior a do
+#: billing da plataforma (KAM-059).
+#:
+#: O `downgrade` da revisao do billing leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_TRUST` desde o KAM-097, que pos a sua revisao no topo. Hoje
+#: a anterior e a `0054`, a da Foto de produtos (KAM-120).
+TABELAS_ANTES_DO_BILLING = tuple(
+    sorted(set(TABELAS_ANTES_DO_TRUST) - set(TABELAS_BILLING))
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a da Foto
+#: de produtos (KAM-120).
+#:
+#: O `downgrade` da revisao da Foto de produtos leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_BILLING` desde o KAM-059, que pos a sua revisao no topo.
+#: Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0053`, e isto **descreve tambem
+#: a revisao do Catalogo AI**: nem a `0051` (KAM-197) nem as duas seguintes
+#: criam tabelas no `platform`.
+TABELAS_ANTES_DA_FOTO = tuple(
+    sorted(set(TABELAS_ANTES_DO_BILLING) - set(TABELAS_FOTO))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: Catalogo AI (KAM-049).
 #:
 #: O `downgrade` da revisao do Catalogo AI leva a base para aqui. Deriva do
-#: `TABELAS_ANTES_DO_TRUST` desde o KAM-097, que pos a sua revisao no topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
-#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0049`, e isto **descreve tambem
-#: a `0048`**: a `0049` (KAM-062) nao cria tabelas no `platform`.
-TABELAS_ANTES_DO_CATALOGO_AI = tuple(sorted(set(TABELAS_ANTES_DO_TRUST) - set(TABELAS_CATALOGO_AI)))
+#: `TABELAS_ANTES_DA_FOTO` desde o KAM-120, que pos a sua revisao no topo.
+#: Hoje a anterior e a `0049`, e isto **descreve tambem a `0048`**: a `0049`
+#: (KAM-062) nao cria tabelas no `platform`.
+TABELAS_ANTES_DO_CATALOGO_AI = tuple(
+    sorted(set(TABELAS_ANTES_DA_FOTO) - set(TABELAS_CATALOGO_AI))
+)
 
 #: O que existe em `platform` quando a base esta na revisao `0047`.
 #:

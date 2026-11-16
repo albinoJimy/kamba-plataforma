@@ -1,0 +1,71 @@
+{
+  "versao": "1.0.0",
+  "dataset": "1.0.0",
+  "fornecedor_hibrido": "falso-trigramas-v1",
+  "registada_de": "golden_search 1.0.0, 2026-11-13",
+  "nota": "Medida com o golden_search 100% sintetico e, no modo hibrido, com o fornecedor de embeddings falso: compara regressoes, nao mede um modelo. Os alvos do Piloto (§14.2) sao propostas; os desvios estao no relatorio.",
+  "modos": {
+    "lexical": {
+      "global": {
+        "consultas": 320,
+        "success_at_3": 0.948148,
+        "recall_at_10": 0.888272,
+        "ndcg_at_3": 0.883125,
+        "success_at_3_typo_regionalismo": 0.830986,
+        "zero_result_rate": 0.040741,
+        "falso_positivo_nao_resolvivel": 0.26
+      },
+      "por_divisao": {
+        "dev": {
+          "consultas": 231,
+          "success_at_3": 0.954315,
+          "recall_at_10": 0.898477,
+          "ndcg_at_3": 0.890026,
+          "success_at_3_typo_regionalismo": 0.862745,
+          "zero_result_rate": 0.030457,
+          "falso_positivo_nao_resolvivel": 0.176471
+        },
+        "teste": {
+          "consultas": 89,
+          "success_at_3": 0.931507,
+          "recall_at_10": 0.860731,
+          "ndcg_at_3": 0.864502,
+          "success_at_3_typo_regionalismo": 0.75,
+          "zero_result_rate": 0.068493,
+          "falso_positivo_nao_resolvivel": 0.4375
+        }
+      }
+    },
+    "hibrido": {
+      "global": {
+        "consultas": 320,
+        "success_at_3": 0.955556,
+        "recall_at_10": 0.941358,
+        "ndcg_at_3": 0.908529,
+        "success_at_3_typo_regionalismo": 0.873239,
+        "zero_result_rate": 0.0,
+        "falso_positivo_nao_resolvivel": 1.0
+      },
+      "por_divisao": {
+        "dev": {
+          "consultas": 231,
+          "success_at_3": 0.964467,
+          "recall_at_10": 0.953469,
+          "ndcg_at_3": 0.917013,
+          "success_at_3_typo_regionalismo": 0.901961,
+          "zero_result_rate": 0.0,
+          "falso_positivo_nao_resolvivel": 1.0
+        },
+        "teste": {
+          "consultas": 89,
+          "success_at_3": 0.931507,
+          "recall_at_10": 0.908676,
+          "ndcg_at_3": 0.885635,
+          "success_at_3_typo_regionalismo": 0.8,
+          "zero_result_rate": 0.0,
+          "falso_positivo_nao_resolvivel": 1.0
+        }
+      }
+    }
+  }
+}

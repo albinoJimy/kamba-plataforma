@@ -32,9 +32,9 @@ porque sao dois erros e nao um: o `DestinoNegado` e o contrato entre o grafo e o
 **modelo**, e a `TransferenciaNegada` e a recusa de uma porta que nao sabe que
 existe um modelo do outro lado.
 
-## As tres finalidades deste servico, e as treze da coluna
+## As tres finalidades deste servico, e as catorze da coluna
 
-A coluna `tenant_destinations.purpose` tem **treze** valores (dicionario §3.49),
+A coluna `tenant_destinations.purpose` tem **catorze** valores (dicionario §3.49),
 porque o *gate* corre em sete pontos e so um e o *gateway* de modelos. Deste
 lado interessam **tres**, e os literais vem do nucleo: duas copias das mesmas
 cadeias divergiam no dia em que uma delas mudasse, e foi para evitar isso que o
@@ -62,7 +62,7 @@ AMBIENTE_PROD: Final = "prod"
 AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
-#: As finalidades que **este servico** usa: tres das treze de
+#: As finalidades que **este servico** usa: tres das catorze de
 #: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.49).
 #:
 #: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
@@ -76,7 +76,7 @@ FINALIDADES: Final = (FINALIDADE_CONVERSA, FINALIDADE_EMBEDDINGS, FINALIDADE_VIS
 #: diferentes porque o inventario as separa, e porque um dia uma pode estar
 #: autorizada e a outra nao.
 #:
-#: **O `screening` (KAM-192) nao esta aqui, de proposito.** Nenhuma das treze
+#: **O `screening` (KAM-192) nao esta aqui, de proposito.** Nenhuma das catorze
 #: finalidades do dicionario §3.49 serve o classificador de categorias, e uma
 #: finalidade nova e uma revisao de base de dados: ate la, o `finalidade_de`
 #: nega o papel e uma chamada sai em `destino_negado`, com a sua linha.

@@ -251,6 +251,33 @@ export interface RepositorioDeRevisao {
   marcarAlertado(id: string, em: Date): Promise<void>;
   /** Uma página da vista humana, por prioridade e prazo. */
   pagina(filtro: FiltroDaFila, limite: number, depoisDe: number): Promise<readonly CasoDeRevisao[]>;
+  /**
+   * Corre `trabalho` com a chave da quota trancada **entre processos** (KAM-198).
+   * O `trabalho` recebe o repositório a usar dentro do trinco — a contagem e a
+   * escrita têm de ir pela transacção que o segura: uma contagem feita noutra
+   * ligação não estaria serializada com as dos outros processos, e cada
+   * consulta solta tirava mais uma ligação ao conjunto enquanto esta espera.
+   *
+   * Opcional: o duplo em memória vive num processo só, e aí o `#emSerie` do
+   * serviço chega. O adaptador SQL implementa-o com um `pg_advisory_xact_lock`.
+   */
+  emTrinco?<T>(chave: string, trabalho: (repositorio: RepositorioDeRevisao) => Promise<T>): Promise<T>;
+}
+
+/**
+ * Os casos com um efeito da decisão por aplicar (KAM-196, KAM-198).
+ *
+ * A decisão e os efeitos não são uma transacção: o caso fecha primeiro, e a
+ * fase, o screening e o aviso vêm depois e podem falhar. O serviço **marca** o
+ * caso antes de correr os efeitos e **resolve-o** quando correm todos; o ciclo
+ * do processo de lote reaplica os marcados. Sobre a base (`EfeitosPorReaplicarSql`)
+ * a marca é a coluna `review_case.efeito_pendente_at` da revisão `0053`, e
+ * sobrevive a um reinício e a um processo que morra entre a decisão e os efeitos.
+ */
+export interface EfeitosPorReaplicar {
+  marcar(casoId: string): Promise<void>;
+  pendentes(limite: number): Promise<readonly string[]>;
+  resolver(casoId: string): Promise<void>;
 }
 
 export interface FiltroDaFila {
@@ -275,6 +302,13 @@ export interface OnboardingDaRevisao {
   readonly dispositivoHmac: string | null;
   readonly nifHmac: string;
   readonly telefoneHmac: string;
+  /**
+   * Quando a fase mudou pela última vez (`onboarding_case.fase_at`, que o
+   * *trigger* da `0043` só move quando a fase muda). É o que deixa o
+   * `reaplicarEfeitos` saber se a fase mudou **depois** da decisão — e então não
+   * a reescreve (KAM-198, achado 2 da revisão adversarial). Sem ele, reescreve-a.
+   */
+  readonly faseEm?: Date;
 }
 
 /** A porta dos onboardings. Implementada pelo `RepositorioDeCasos` da inscrição. */

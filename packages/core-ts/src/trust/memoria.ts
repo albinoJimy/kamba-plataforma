@@ -2,7 +2,7 @@
  * Os duplos de Trust & Safety para os ensaios (KAM-097).
  *
  * O repositório em memória **impõe as mesmas regras que a base** (revisão
- * `0053`): a chave de cada linha, a severidade fixa, a sanção grave só humana e
+ * `0056`): a chave de cada linha, a severidade fixa, a sanção grave só humana e
  * com caso, o desfecho de recurso só humano, o salto sem justificação recusado,
  * e o `kamba_app` sem linhas humanas. Um duplo mais permissivo do que a base
  * deixava passar nos ensaios o que a base recusa.
