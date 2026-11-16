@@ -201,6 +201,11 @@ class TestRepositorio(unittest.TestCase):
         "libs/py-core/src/kamba_core/ten/metricas.py",
         "packages/core-ts/src/agr/metricas.ts",
         "packages/core-ts/src/avisos/metricas.ts",
+        # Nasceu com o KAM-095 (lista de espera do limite de onboarding). Cinco
+        # nomes, **importados** pelo `onboarding-web` (a lista e o
+        # `CapacityGate` do guia) e nao servidos: aquele processo nao tem rota
+        # `/metrics`, e o adaptador SQL vai ligar no processo de lote (KAM-092).
+        "packages/core-ts/src/capacidade/metricas.ts",
         "packages/core-ts/src/chr/metricas.ts",
         "packages/core-ts/src/coexistencia/metricas.ts",
         "packages/core-ts/src/consentimento/metricas.ts",

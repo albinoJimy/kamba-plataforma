@@ -140,10 +140,42 @@ const GUIAO = `
     if(d.event==='CANCEL'){api('/api/es/cancelar',{}).then(actualizar);return;}
     if(d.data){ids.phone_number_id=d.data.phone_number_id;ids.waba_id=d.data.waba_id;ids.evento=d.event;}
   });
+  // O convite da lista de espera (KAM-095) vem na ligacao do SMS. Tira-se do
+  // endereco ja e so se confere: gasta-se quando o servidor da a vaga, no
+  // clique em Ligar, e nao ao abrir a pagina.
+  var convite=new URLSearchParams(location.search).get('convite');
+  if(convite){
+    history.replaceState(null,'',location.pathname);
+    api('/api/lista/convite',{c:convite}).then(function(r){
+      if(r.estado===200){document.getElementById('recusar').hidden=false;mostrar('Tem um convite: pode ligar o WhatsApp agora.');}
+      else{convite=null;mostrar('Este convite ja nao e valido.');}
+    });
+  }
+  function posicao(){
+    return api('/api/lista/posicao').then(function(r){
+      var p=r.estado===200&&r.corpo?r.corpo.posicao:null;
+      if(!p){mostrar('Lista de espera: avisamos por SMS quando houver vaga.');return;}
+      document.getElementById('desistir').hidden=p.estado!=='aguardando'&&p.estado!=='convidado';
+      if(p.estado==='aguardando'){
+        var e=p.estimativa,quando=e.minimo_dias===null?'sem estimativa por agora':'estimativa, nao e promessa: entre '+e.minimo_dias+' e '+e.maximo_dias+' dias';
+        mostrar('Lista de espera: posicao '+p.posicao+' ('+quando+'). Avisamos por SMS quando houver vaga.');return;
+      }
+      if(p.estado==='convidado'){mostrar('Tem um convite: pode ligar o WhatsApp agora.');return;}
+      mostrar('Lista de espera: '+p.estado+'.');
+    });
+  }
+  document.getElementById('desistir').addEventListener('click',function(){
+    api('/api/lista/desistir',{}).then(function(r){mostrar(r.estado===200?'Saiu da lista de espera. Pode voltar a pedir quando quiser.':'Nao foi possivel sair da lista.');});
+  });
+  document.getElementById('recusar').addEventListener('click',function(){
+    api('/api/lista/recusar',{c:convite}).then(function(r){convite=null;document.getElementById('recusar').hidden=true;
+      mostrar(r.estado===200?'Convite recusado: a vaga passou ao seguinte, e voltou para o fim da lista.':'Este convite ja nao e valido.');});
+  });
   document.getElementById('ligar').addEventListener('click',function(){
     api('/api/es/iniciar',{}).then(function(r){
+      convite=null;document.getElementById('recusar').hidden=true;
       if(r.estado!==200){mostrar('Ainda não pode ligar: '+(r.corpo.erro||''));return;}
-      if(r.corpo.desfecho==='lista_espera'){mostrar('Lista de espera: avisamos por SMS quando houver vaga.');return;}
+      if(r.corpo.desfecho==='lista_espera'){posicao();return;}
       var cfg=r.corpo.configuracao;
       carregarSdk(function(){
         FB.login(function(resposta){
@@ -196,6 +228,8 @@ export function paginaDaLigacao(dados: DadosDaLigacao): string {
 <p>${AVISO_DO_BOT}</p>
 <button id="ligar" type="button">Ligar o WhatsApp</button>
 <button id="pagamento" type="button">Verificar o pagamento</button>
+<button id="recusar" type="button" hidden>Recusar o convite</button>
+<button id="desistir" type="button" hidden>Sair da lista de espera</button>
 <script nonce="${nonce}">${GUIAO}</script>
 </body></html>`;
 }

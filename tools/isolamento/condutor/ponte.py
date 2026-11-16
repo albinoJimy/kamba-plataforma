@@ -77,9 +77,9 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 #: segundo grupo que corre **sem base**: as rotas da inscricao correm antes de
 #: existir tenant, e o repositorio de casos e o duplo em memoria. O que elas
 #: isolam e o `onboarding_id` e nao o `tenant_id`.
-#: O `guia` sao as oito rotas do passo guiado do ES (KAM-093), no mesmo
-#: `onboarding-web` e tambem **sem base**: o estado do guia vive no duplo em
-#: memoria, porque as tabelas que o bloco nomeia nao existem.
+#: O `guia` sao as doze rotas do passo guiado do ES — as oito do KAM-093 e as
+#: quatro da lista de espera do KAM-095 —, no mesmo `onboarding-web` e tambem
+#: **sem base**: o estado do guia e a fila vivem nos duplos em memoria.
 #: O `equipa` sao as nove rotas da consola da fila de revisao (KAM-196), tambem
 #: **sem base**: a fila corre sobre os duplos em memoria do `@kamba/core-ts`, e o
 #: que se mede e quem entra, nao o que a base filtra.

@@ -386,6 +386,11 @@ class TestCatalogoReal(ComBase):
                 # e apaga-se com `DELETE`.
                 ("platform", "tool_idempotency", "tenant_id"),
                 ("platform", "usage_ledger", "tenant_id"),
+                # KAM-095: a lista de espera, a ultima do `platform` («us» <
+                # «wa»). **Sem receita de sementes**, pela razao da fila de
+                # revisao (ver `sementes.SEM_RECEITA_COM_RAZAO`). A
+                # `onboarding_capacity` nao tem `tenant_id` e nao entra.
+                ("platform", "waitlist_entry", "tenant_id"),
                 # KAM-047: as quatro da agenda, no esquema `servicos`
                 # (revisao `0025`). Vem **todas depois** das de `platform`,
                 # porque o `ORDER BY 1, 2` da descoberta ordena primeiro por
@@ -744,6 +749,9 @@ class TestCatalogoReal(ComBase):
                 # cliente contra o carrinho de outro.
                 ("tool_idempotency", "tenant_iso", "ALL", "{public}"),
                 ("usage_ledger", "tenant_iso", "ALL", "{public}"),
+                # KAM-095: a lista de espera, uma politica so, a do `db/rls.py`
+                # («us» < «wa»).
+                ("waitlist_entry", "tenant_iso", "ALL", "{public}"),
             ],
         )
 
@@ -901,7 +909,9 @@ class TestCatalogoReal(ComBase):
              # KAM-029: a `tool_idempotency`, logo a seguir — depois da
              # `tool_audit` porque `a` vem antes de `i`, e antes da
              # `usage_ledger` porque `t` vem antes de `u`.
-             "tool_audit", "tool_idempotency", "usage_ledger"],
+             "tool_audit", "tool_idempotency", "usage_ledger",
+             # KAM-095: a lista de espera, a ultima («us» < «wa»).
+             "waitlist_entry"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

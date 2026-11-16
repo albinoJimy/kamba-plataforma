@@ -119,6 +119,10 @@
       "types": "./dist/guia/index.d.ts",
       "default": "./dist/guia/index.js"
     },
+    "./capacidade": {
+      "types": "./dist/capacidade/index.d.ts",
+      "default": "./dist/capacidade/index.js"
+    },
     "./inscricao": {
       "types": "./dist/inscricao/index.d.ts",
       "default": "./dist/inscricao/index.js"

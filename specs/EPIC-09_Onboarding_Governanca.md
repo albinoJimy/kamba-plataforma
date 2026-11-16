@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.18 |
+| Versão | 1.19 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -1307,15 +1307,15 @@ Substituir o contador simples do `CapacityGate` (KAM-093) por uma lista de esper
 
 ### Critérios de Aceitação
 
-- [ ] Só casos em `aprovado/aguarda_es` entram em `waitlist_entry`; um caso sem KYC/aceite não consegue entrar (teste com 1.000 registos de bot ⇒ 0 entradas).
-- [ ] Ordem FIFO por `aprovado_em`; não há prioridade paga nem manual; a posição é calculada, nunca editável pelo dono.
-- [ ] A capacidade vem de configuração (`es_max_por_7d`, 10 por defeito; 200 só quando a Meta o confirmar por escrito, NÃO VERIFICADO); alterar o valor não requer *deploy*.
+- [x] Só casos em `aprovado/aguarda_es` entram em `waitlist_entry`; um caso sem KYC/aceite não consegue entrar (teste com 1.000 registos de bot ⇒ 0 entradas).
+- [x] Ordem FIFO por `aprovado_em`; não há prioridade paga nem manual; a posição é calculada, nunca editável pelo dono.
+- [x] A capacidade vem de configuração (`es_max_por_7d`, 10 por defeito; 200 só quando a Meta o confirmar por escrito, NÃO VERIFICADO); alterar o valor não requer *deploy*.
 - [ ] Contagem em janela deslizante de 7 dias sobre ES concluídos; vaga livre ⇒ convite ao primeiro da fila por SMS/e-mail, com ligação de uso único válida 48 h (*proposta*).
-- [ ] Convite expirado ou recusado passa a vaga ao seguinte e reencaminha o caso uma só vez para o fim da fila; 2 expiradas ⇒ `abandonado` (compensação em KAM-091).
-- [ ] O dono vê posição e uma **estimativa rotulada como estimativa** (intervalo, nunca promessa); nunca se mostra um prazo da Meta que não foi confirmado.
-- [ ] Desistência do dono liberta a posição de imediato; reentrada exige novo pedido sem perder o KYC válido (validade do KYC *a definir*, 90 dias proposta).
+- [x] Convite expirado ou recusado passa a vaga ao seguinte e reencaminha o caso uma só vez para o fim da fila; 2 expiradas ⇒ `abandonado` (compensação em KAM-091).
+- [x] O dono vê posição e uma **estimativa rotulada como estimativa** (intervalo, nunca promessa); nunca se mostra um prazo da Meta que não foi confirmado.
+- [x] Desistência do dono liberta a posição de imediato; reentrada exige novo pedido sem perder o KYC válido (validade do KYC *a definir*, 90 dias proposta).
 - [ ] Métricas: tamanho da fila, tempo médio de espera, taxa de convites aceites, ES por semana vs limite (alvo ≤ 10 antes de Access Verification).
-- [ ] Concorrência: dois convites simultâneos para a última vaga ⇒ apenas um é concedido (reserva transaccional); o outro mantém a posição.
+- [x] Concorrência: dois convites simultâneos para a última vaga ⇒ apenas um é concedido (reserva transaccional); o outro mantém a posição.
 
 ### Detalhes Técnicos
 
@@ -1340,10 +1340,64 @@ CREATE TABLE platform.waitlist_entry (
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; teste de concorrência estável no CI.
-- [ ] Idempotência de convites e de promoção (ADR-009); isolamento por caso coberto (ADR-015).
-- [ ] O limite é configuração, com origem registada (CONFIRMADO vs NÃO VERIFICADO); nada inventado sobre prazos da Meta.
+- [x] Idempotência de convites e de promoção (ADR-009); isolamento por caso coberto (ADR-015).
+- [x] O limite é configuração, com origem registada (CONFIRMADO vs NÃO VERIFICADO); nada inventado sobre prazos da Meta.
 - [ ] Sem PII em logs; links de uso único com *hash* em BD; métricas e alertas nascem com o código.
-- [ ] Migração reversível; documentação actualizada; sem segredos.
+- [x] Migração reversível; documentação actualizada; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-095-lista-de-espera`: o módulo
+[`../packages/core-ts/src/capacidade/`](../packages/core-ts/src/capacidade/index.ts) — a
+`ListaDeEspera`, que implementa o `CapacityGate` do KAM-093 à letra e o substitui no
+`onboarding-web` —, as quatro rotas `/api/lista/*` de
+[`../services/onboarding-web/src/guia.ts`](../services/onboarding-web/src/guia.ts), a revisão
+[`0059`](../db/migrations/versions/0059_lista_de_espera.py) (*provisória*, sobre a `0058` de outro
+PR) com a `waitlist_entry` e a `onboarding_capacity`, e o dicionário §3.68 (emenda 1.97,
+*provisória*). **Nada contra a Meta real**: o limite e a resposta dela são *fixtures*, e nenhuma
+mensagem sai — o aviso do convite tem só o fornecedor falso. **Seis critérios satisfeitos e três
+parciais; três linhas da DoD de cinco.**
+
+**A revisão adversarial correu numa passagem e confirmou dez achados, todos fechados neste ramo**,
+e um PLAUSÍVEL que se fechou de passagem (o caso que a revisão tira das fases da fila enquanto espera
+deixa a fila em vez de receber convites). Os de mais peso: o `release` devolvia à fila vagas que a
+Meta pode já ter contado, e mandava um SMS de convite a quem acabara de fechar o popup — agora a vaga
+fica com o caso até sair da janela; aceitar o convite antes do `iniciar` prendia a vaga sete dias a
+quem a página recusasse — agora o convite gasta-se na reserva; um aviso que falhava sempre parava a
+fila — agora o caso vai para o fim; e a corrida contra a base não exercitava o código TypeScript —
+agora a bateria `tests_bd/capacidade.bd.test.ts` corre o `ListaSql` verdadeiro, com o controlo sem
+tranca. Os menores: a segunda expiração pela reserva era desfeita pelo `ROLLBACK` da excepção,
+desistir com um convite na mão contornava as duas expirações, e duas métricas contavam mal.
+
+**Três divergências do bloco, todas no §3.68.** (1) A tranca é um `pg_advisory_xact_lock` da fila
+e **não** o `SKIP LOCKED` dos Detalhes Técnicos: esse distribui linhas, e o recurso disputado aqui é
+a vaga, uma conta sobre a tabela inteira — com ele, dois trabalhadores convidavam duas cabeças para
+uma vaga e o segundo furava a ordem. (2) A janela conta **vagas dadas** (o popup abriu) e não «ES
+concluídos»: é o que a Meta pode contar, e contar de menos custa um cliente recusado. (3) O
+`aprovado_em` é o `onboarding_case.fase_at` no instante da entrada, escrito pelo *trigger*: a data
+da aprovação em si não tem coluna no caso.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — só casos `aprovado`/`aguarda_es` entram; 1.000 registos de bot ⇒ 0 entradas | **satisfeito** | **Pela base, e não por um `if`**: o *trigger* `waitlist_entry_do_caso` recusa com `23514` um caso fora das duas fases, mesmo numa inserção directa (`test_o_trigger_recusa_uma_insercao_directa_de_caso_nao_aprovado`). Mil casos de bot em cinco fases pelo SQL do módulo dão zero linhas (`test_adversarial_a_mil_registos_de_bot_dao_zero_entradas`), e o mesmo pelo serviço (`(a) 1.000 registos de bot sem KYC ⇒ 0 entradas`) |
+| 2 — FIFO por `aprovado_em`; sem prioridade paga nem manual; posição calculada | **satisfeito** | A vaga só se dá à cabeça ou a quem tem convite vivo; a posição conta os `aguardando` à frente pela ordem `(na_fila_desde, onboarding_id)` e **não se guarda** (`a ordem é FIFO pelo aprovado_em, e repetir o pedido não muda o lugar`). O `aprovado_em` não se escolhe: quem insere `2000-01-01` leva o `fase_at` do caso (`test_adversarial_c_…`), e o `kamba_batch` não o tem no `UPDATE`. Não há campo nem rota de prioridade |
+| 3 — capacidade de configuração, 10 por omissão, 200 só confirmado por escrito; sem *deploy* | **satisfeito** | A `onboarding_capacity` nasce com 10, `confirmado`, fundamento o E1 §3; acima de 10 a base exige `confirmado` (`test_acima_de_10_o_limite_exige_confirmado_e_ha_uma_linha_so`). Mudar o limite é um `UPDATE` da linha, que o `ListaSql` relê em cada transacção; sem a linha, a fila **fecha** em vez de inventar um 10 (`o limite a zero (linha em falta) fecha a fila`). No duplo, subir o limite convida logo (`a capacidade é configuração…`). O processo do `onboarding-web` corre sobre o duplo, como o resto do guia |
+| 4 — janela deslizante de 7 dias; vaga livre ⇒ convite ao primeiro por SMS/e-mail, ligação de uso único, 48 h (*proposta*) | **parcial** | Janela e convite medidos: a vaga só volta quando a dada faz sete dias, e então convida-se a cabeça (`a janela é deslizante…`); o convite guarda-se em SHA-256, a ligação `/ligar?convite=` leva-o em claro, expira às 48 h e gasta-se quando a vaga se dá, ao abrir o popup — conferi-lo não o gasta (`o convite guarda-se em hash…`, e pela rota `o segundo caso espera…`). **Falta:** o aviso real — a porta `AvisoDaLista` só tem o fornecedor falso, e o texto do SMS é lista fechada em `../packages/core-ts/src/sms/modelos.ts` (credor **KAM-116**); e a janela conta vagas dadas e não ES concluídos (divergência 2, acima) |
+| 5 — convite expirado ou recusado passa a vaga e põe o caso no fim uma vez; 2 expiradas ⇒ `abandonado` | **satisfeito** | `convite expirado: passa a vaga ao seguinte e põe o caso no fim, uma vez; à segunda, abandonado` — a entrada fica `expirado`, o caso `abandonado` e a reserva seguinte é recusada; `recusar conta como uma expiração…`. A compensação do caso abandonado é do KAM-091. Um aviso que falha a sair desfaz o convite **sem** gastar tentativa e põe o caso no fim, para a fila não parar (`um aviso que falha desfaz o convite…`); desistir com um convite na mão conta como uma recusa |
+| 6 — posição e estimativa rotulada como estimativa; nunca um prazo da Meta | **satisfeito** | `Estimativa` com `rotulo` = `estimativa` e um intervalo em dias, simulado sobre a **nossa** janela — não lê nada da Meta (`é um intervalo rotulado…`, `a posição do dono traz a estimativa`). Com limite a zero diz «sem estimativa» em vez de um número. A página escreve «estimativa, não é promessa» |
+| 7 — desistência liberta a posição de imediato; reentrada sem perder o KYC válido (90 dias, *proposta*) | **satisfeito** | `a desistência liberta a posição já; a reentrada é um pedido novo, no fim, sem refazer o KYC`; um convidado que desiste liberta o convite para o seguinte; passados 90 dias a reentrada dá `kyc_caducado` |
+| 8 — métricas: tamanho da fila, espera média, taxa de aceites, ES por semana vs limite | **parcial** | As cinco séries do §3.68 em `../packages/core-ts/src/capacidade/metricas.ts`, com etiquetas fechadas e o limite com a origem (`as etiquetas são domínios fechados…`), e o inventário do `obs_lint` emendado. **Falta servi-las**: o `onboarding-web` importa-as e recalcula-as a cada minuto, mas não tem rota `/metrics`; quem as serve é o processo de lote, onde o `ListaSql` tem de correr (credor **KAM-092**) |
+| 9 — dois pedidos para a última vaga ⇒ um concedido; o outro mantém a posição | **satisfeito** | Com o `ListaSql` e a `ListaDeEspera` verdadeiros contra o PostgreSQL (`tests_bd/capacidade.bd.test.ts`, na suite `tests_lote`): vinte reservas de casos novos ao mesmo tempo dão uma vaga, e **sem** a tranca do adaptador dão vinte (medido: `[KAM-095] reserva: com tranca 1 concedida(s), sem tranca 20`). Pelo SQL do módulo em Python, vinte casos novos a pedir uma vaga ao mesmo tempo dão **uma** (`test_reservar_vinte_casos_novos_uma_vaga_uma_concedida`) — e **sem** a tranca a mesma corrida dá mais do que uma (`test_sem_a_tranca_…`), que é o que prova que o resultado vem dela. Vinte a convidar dão um convite (`test_promover_vinte_trabalhadores_uma_vaga_um_convite`); no duplo, o perdedor fica na posição 1 (`dois pedidos para a última vaga…`) |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; teste de concorrência estável no CI | **parcial** | Critérios 4 e 8 parciais. A concorrência corre no *gate* 8 com uma pausa de 0,2 s entre ler e escrever, para as vinte leituras caírem na mesma janela; a estabilidade no CI só se diz depois de correr lá |
+| Idempotência de convites e de promoção (ADR-009); isolamento por caso (ADR-015) | **satisfeito** | Um convite só se manda na transição `aguardando → convidado`: três promoções concorrentes dão um aviso (`(d) a promoção repetida (redelivery) manda um aviso só`). Isolamento: as rotas só aceitam o caso da sessão; o convite de B com a sessão de A dá o mesmo 403 que um forjado (`ADVERSARIAL b: o convite de B com a sessão de A…`); o X-01 ataca as quatro rotas novas (caso `X-01/ts/guia`, agora com doze); RLS `FORCE` na `waitlist_entry` e o `kamba_audit` só vê o seu tenant |
+| O limite é configuração, com origem registada; nada inventado sobre prazos da Meta | **satisfeito** | `onboarding_capacity.origem` ∈ {`confirmado`, `nao_verificado`} e o `fundamento`; o 200 e a «Access Verification» ficam NÃO VERIFICADOS. **Caixa devolvida:** o limite real medido é do **`ext:KAM-102`** — a linha só sobe acima de 10 com `confirmado` |
+| Sem PII em logs; links de uso único com *hash* em BD; métricas e alertas nascem com o código | **parcial** | Os registos levam só `outcome` e `error_code` de lista fechada; a base guarda o SHA-256 do convite (`waitlist_entry_convite_hash_ck`, 32 octetos). **Falta o alerta**: uma regra sobre séries que nenhum processo serve nunca dispara, e o `../ops/metricas/catalogo.yaml` recusa-as por isso — nasce com o `/metrics` do processo de lote (credor **KAM-092**) |
+| Migração reversível; documentação actualizada; sem segredos | **satisfeito** | `TestDowngradeDaListaDeEspera` desce até à revisão anterior e volta; dicionário §3.68, este bloco e as quatro superfícies das métricas (`../docs/observabilidade.md`, EPIC-08) |
 
 ### Handoff para Claude Code
 
@@ -2655,3 +2709,4 @@ Testes: integração contra PostgreSQL, isolamento e arranque.
 | 1.16 | Novembro 2026 | **Credor nomeado, no PR do KAM-049:** o bloco do KAM-094 ganha, nos Detalhes Técnicos, a linha do que recebe do KAM-049 — o adaptador de visão real do Catálogo AI e o p95 e o custo medidos em staging com o eval-gate verde, com o ext:KAM-101 como condição. Sem critério novo, sem mudar estimativa nem dependências. | Equipa KAMBÁ |
 | 1.17 | Novembro 2026 | KAM-196: entram as duas secções de verificação do bloco da consola da fila de revisão — **seis** critérios (quatro satisfeitos, o do fundador vazio e o do *job* parcial) e **três** itens da DoD (dois marcados, um parcial). Entregue: a porta `IdentidadeDaEquipa` e a sessão `kamba_equipa` com separador de domínio próprio, as **nove** rotas `/equipa` no `onboarding-web` com a barreira 401/403 antes do serviço, o caso `X-01/ts/equipa` com bateria e condutor, os cinco modelos de SMS e os cinco e-mails do aviso ao dono com o adaptador da porta, e o ciclo da fila. A revisão adversarial confirmou seis achados médios e mudou código, o mais grave um `pedir_info` cujo aviso se perdia. **Entra o KAM-198** (feature, M, P0, fase 1, dependência KAM-196), credor do processo de lote que corre o ciclo e serve as métricas; o `Bloqueia` do KAM-196 e as `Dependências` do KAM-092 ganham-no, no bloco e na tabela-resumo. Total do epic: **22**. Sem revisão de base de dados. | Equipa KAMBÁ |
 | 1.18 | Novembro 2026 | KAM-198: entram as duas secções de verificação do bloco do processo de lote do onboarding — **cinco** critérios e **duas** linhas de DoD, todos satisfeitos. Entregue: o processo `onboarding-lote` (a imagem do `onboarding-web` com outro `command:`) sobre os adaptadores SQL da fila, como `kamba_batch`, com o `kamba_app` só para o screening; o `/metrics` com o caso `X-01/ts/lote`; o gancho do KAM-092; e a quota entre processos com `pg_advisory_xact_lock`. **Com uma revisão de base de dados que o bloco não previa:** a `0053`, decisão (A) do fundador de 2026-11-13, com a `review_case.efeito_pendente_at` que guarda a lista de efeitos por reaplicar. A revisão adversarial confirmou oito achados e mudou código, o mais grave a lista a passar fome atrás de um aviso sem via. A célula do critério 6 do KAM-196 aponta para esta entrega. | Equipa KAMBÁ |
+| 1.19 | Novembro 2026 | KAM-095: entram as duas secções de verificação do bloco da lista de espera — **seis** critérios satisfeitos e **três** parciais (o aviso real por SMS, credor KAM-116; as métricas servidas, credor KAM-092), e **três** linhas da DoD de cinco. Entregue: o módulo `../packages/core-ts/src/capacidade/` como `CapacityGate` do guia, as quatro rotas `/api/lista/*`, a revisão `0059` (*provisória*) com a `waitlist_entry` e a `onboarding_capacity`, e o dicionário §3.68. O limite real medido fica como caixa devolvida ao **`ext:KAM-102`**. Número de versão *provisório*: o lote corre com o KAM-092, que também escreve neste ficheiro. | Equipa KAMBÁ |

@@ -316,6 +316,13 @@ REV_CATALOGO_AI = _revisao_por_glob("*_catalogo_ai.py")
 #: ensaio que a prova (`db/tests/test_foto_schema.py`) descobre-a pelo mesmo
 #: padrao.
 REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
+#: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
+#: numero (`0059`) e provisorio. O ensaio que a prova e o
+#: `db/tests/test_lista_espera_schema.py`.
+REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
+#: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
+#: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
+CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7543,6 +7550,91 @@ MUTACOES = [
      "                WHERE a.charge_id = NEW.charge_id AND a.actor_id = NEW.actor_id\n",
      "                WHERE a.charge_id = NEW.charge_id\n",
      "tests_pagamentos"),
+    # ------------------------------ KAM-095 (revisao da lista de espera)
+    #
+    # Onze, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_LISTA_DE_ESPERA`), porque o numero e
+    # provisorio. A suite e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_lista_espera_schema.py`, com o ensaio nomeado em cada uma.
+    #
+    # O dono da tabela le e escreve as entradas de todos os tenants:
+    # `test_a_rls_esta_forcada_na_fila`.
+    ("lista de espera: a entrada perde o FORCE da RLS", REV_LISTA_DE_ESPERA,
+     '    rls.enable_tenant_rls("waitlist_entry")\n',
+     '    rls.enable_tenant_rls("waitlist_entry")\n'
+     '    op.execute("ALTER TABLE platform.waitlist_entry NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # Um caso em `kyc_pendente` entra na fila por um `INSERT` directo (o SQL do
+    # modulo filtra a fase, e por isso o que mata e o `INSERT` sem ele):
+    # `test_o_trigger_recusa_uma_insercao_directa_de_caso_nao_aprovado`.
+    ("lista de espera: o trigger aceita um caso nao aprovado", REV_LISTA_DE_ESPERA,
+     "          IF NOT FOUND OR caso.fase NOT IN ('aprovado', 'aguarda_es') THEN\n",
+     "          IF NOT FOUND THEN\n",
+     "tests"),
+    # Quem insere escolhe a chave FIFO e salta a fila (adversarial c):
+    # `test_adversarial_c_a_chave_fifo_e_o_fase_at_do_caso_e_nao_a_de_quem_insere`.
+    ("lista de espera: a chave FIFO e a de quem insere", REV_LISTA_DE_ESPERA,
+     "          NEW.na_fila_desde := caso.fase_at;\n",
+     "",
+     "tests"),
+    # Dois casos com o mesmo convite, e o primeiro a usa-lo leva a vaga do
+    # outro: `test_o_convite_so_existe_em_convidado_e_e_unico`.
+    ("lista de espera: o convite deixa de ser unico", REV_LISTA_DE_ESPERA,
+     "          CONSTRAINT waitlist_entry_convite_uq UNIQUE (convite_hash),\n",
+     "",
+     "tests"),
+    # Um `convidado` sem convite, que nenhum link alcanca e que ocupa a vaga
+    # ate expirar: o mesmo ensaio, na segunda recusa.
+    ("lista de espera: um convidado sem convite passa", REV_LISTA_DE_ESPERA,
+     "            (estado = 'convidado') = (convite_hash IS NOT NULL)\n"
+     "            AND (convite_hash IS NULL)",
+     "            (convite_hash IS NULL)",
+     "tests"),
+    # A terceira expiracao devolve o caso a fila em vez de o abandonar:
+    # `test_o_concluido_em_so_em_concluido_e_as_tentativas_ate_duas`.
+    ("lista de espera: tres expiracoes", REV_LISTA_DE_ESPERA,
+     "CHECK (tentativas BETWEEN 0 AND 2)",
+     "CHECK (tentativas BETWEEN 0 AND 3)",
+     "tests"),
+    # O limite sobe acima de 10 com uma origem `nao_verificado` (E1 Q9):
+    # `test_acima_de_10_o_limite_exige_confirmado_e_ha_uma_linha_so`.
+    ("lista de espera: acima de 10 sem confirmacao", REV_LISTA_DE_ESPERA,
+     "            CHECK (es_max_por_7d <= 10 OR origem = 'confirmado')\n",
+     "            CHECK (true)\n",
+     "tests"),
+    # Uma segunda linha de limite, e a leitura escolhe uma ao acaso: o mesmo
+    # ensaio, no `INSERT` com `unica = false`.
+    ("lista de espera: o limite deixa de ter uma linha so", REV_LISTA_DE_ESPERA,
+     "                         CONSTRAINT onboarding_capacity_unica_ck CHECK (unica),\n",
+     "",
+     "tests"),
+    # O lote reescreve o facto da aprovacao:
+    # `test_o_lote_nao_reescreve_a_chave_fifo_nem_apaga_nem_muda_o_limite`.
+    ("lista de espera: o lote reescreve o aprovado_em", REV_LISTA_DE_ESPERA,
+     '"GRANT SELECT, INSERT, UPDATE (estado, na_fila_desde, ',
+     '"GRANT SELECT, INSERT, UPDATE (estado, aprovado_em, na_fila_desde, ',
+     "tests"),
+    # O lote apaga uma entrada, e com ela a vaga dada na janela de 7 dias: o
+    # mesmo ensaio, no `DELETE`.
+    ("lista de espera: o lote apaga entradas", REV_LISTA_DE_ESPERA,
+     '"GRANT SELECT, INSERT, UPDATE (',
+     '"GRANT SELECT, INSERT, DELETE, UPDATE (',
+     "tests"),
+    # A aplicacao le a fila, que atravessa tenants pela posicao:
+    # `test_a_aplicacao_nao_le_nem_a_fila_nem_o_limite`.
+    ("lista de espera: a aplicacao le a fila", REV_LISTA_DE_ESPERA,
+     '    op.execute("GRANT SELECT ON platform.waitlist_entry TO kamba_audit")\n',
+     '    op.execute("GRANT SELECT ON platform.waitlist_entry TO kamba_audit")\n'
+     '    op.execute("GRANT SELECT ON platform.waitlist_entry TO kamba_app")\n',
+     "tests"),
+    # O adaptador deixa de trancar a fila: duas reservas para a ultima vaga
+    # dao duas. `vinte reservas de casos novos com uma vaga dao uma…` (suite
+    # `tests_lote`) tem de a matar — e a razao de esse ensaio existir, porque
+    # o `TestConcorrencia` do `test_lista_espera_schema.py` nao corre o TS.
+    ("lista de espera: o adaptador nao tranca a fila", CAPACIDADE_SQL,
+     "      await c.query(SQL_TRANCAR);\n",
+     "",
+     "tests_lote"),
 ]
 
 

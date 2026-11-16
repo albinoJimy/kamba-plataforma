@@ -566,6 +566,21 @@ TABELAS_BILLING = (
 #: `platform`.
 TABELAS_FOTO = ("image_jobs",)
 
+#: O que a revisao da lista de espera do limite de onboarding (KAM-095)
+#: acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0059`) e provisorio e da-o a integracao pela ordem de quem funde.
+#:
+#: Uma tabela de tenant, a `waitlist_entry`, com RLS `FORCE` pela `tenant_iso`,
+#: FK composta `(onboarding_id, tenant_id)` para a `onboarding_case` e uma
+#: funcao de *trigger* (`waitlist_entry_do_caso`) que so admite casos em
+#: `aprovado` ou `aguarda_es` e escreve a chave FIFO a partir do `fase_at` do
+#: caso. E uma global, a `onboarding_capacity`, sem `tenant_id` e sem RLS: o
+#: limite de clientes novos por 7 dias e da plataforma, numa linha so. Ninguem
+#: apaga nenhuma das duas; o `kamba_app` nao tem nada em nenhuma.
+TABELAS_LISTA_DE_ESPERA = ("onboarding_capacity", "waitlist_entry")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -577,21 +592,33 @@ TABELAS = tuple(
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
-        + TABELAS_BILLING
+        + TABELAS_BILLING + TABELAS_LISTA_DE_ESPERA
     )
 )
 
-#: O que existe em `platform` quando a base esta na revisao anterior a da Foto
-#: de produtos (KAM-120).
+#: O que existe em `platform` quando a base esta na revisao anterior a da lista
+#: de espera (KAM-095).
 #:
+#: O `downgrade` da revisao da lista de espera leva a base para aqui. **Deriva
+#: do `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
+#: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
+#: dela. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Nesta arvore a anterior e a `0055`, a do billing
+#: (KAM-059); as revisoes que a integracao puser entre as duas e que nao criem
+#: tabelas no `platform` nao mudam esta tupla.
+TABELAS_ANTES_DA_LISTA_DE_ESPERA = tuple(
+    sorted(set(TABELAS) - set(TABELAS_LISTA_DE_ESPERA))
+)
+
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: billing da plataforma (KAM-059).
 #:
-#: O `downgrade` da revisao do billing leva a base para aqui. **Deriva do
-#: `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
-#: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
-#: dela. Hoje a anterior e a `0054`, a da Foto de produtos (KAM-120).
-TABELAS_ANTES_DO_BILLING = tuple(sorted(set(TABELAS) - set(TABELAS_BILLING)))
+#: O `downgrade` da revisao do billing leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DA_LISTA_DE_ESPERA` desde o KAM-095, que pos a sua revisao no
+#: topo. Hoje a anterior e a `0054`, a da Foto de produtos (KAM-120).
+TABELAS_ANTES_DO_BILLING = tuple(
+    sorted(set(TABELAS_ANTES_DA_LISTA_DE_ESPERA) - set(TABELAS_BILLING))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da Foto
 #: de produtos (KAM-120).
