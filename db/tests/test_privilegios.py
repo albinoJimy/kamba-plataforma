@@ -1697,6 +1697,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os episodios de churn e de dormente (KAM-117, revisao dos KPIs de churn).
+#: **So o lote escreve e a auditoria le**: o *job* corre como `kamba_batch` e a
+#: T2 le os sinais pela auditoria; o `kamba_app` nao tem nada. O `UPDATE` e
+#: **por coluna** (ver `COLUNAS_POR_PAPEL`): o fecho, o aviso e as duas marcas
+#: do orcamento, e nunca o sinal, o tenant ou o instante da abertura. **Ninguem
+#: apaga.**
+ESPERADO_POR_TABELA.update(
+    {
+        "churn_signal_episode": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2286,6 +2308,12 @@ COLUNAS_POR_PAPEL = {
         "estado", "na_fila_desde", "convite_hash", "convidado_em",
         "convite_expira_em", "tentativas", "concluido_em",
     },
+    # KAM-117: o *job* fecha o episodio e marca o orcamento. **Fora**: o sinal,
+    # o tenant e o `aberto_at` — reescrever qualquer um mudava de que episodio
+    # se fala, e o indice unico parcial deixava de dizer «um por tenant e sinal».
+    ("kamba_batch", "churn_signal_episode", "UPDATE"): {
+        "fechado_at", "avisado_at", "orcamento_zerado_at", "orcamento_reposto_at",
+    },
 }
 PRIVILEGIOS_DE_COLUNA =("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -2378,6 +2406,9 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # ao lote mudava o limite sem passar pelo dono do esquema.
     "waitlist_entry",
     "onboarding_capacity",
+    # KAM-117: o episodio de churn tem `UPDATE` por coluna para o lote. Um
+    # `GRANT UPDATE (sinal)` a mais era invisivel na matriz de tabela.
+    "churn_signal_episode",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

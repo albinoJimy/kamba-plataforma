@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.21 |
+| Versão | 1.22 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -2089,11 +2089,11 @@ Instrumentar as métricas de onboarding, os sinais de churn e a detecção de te
 
 - [ ] Onboarding: o painel mostra, por semana e acumulado, tempo entrada → activo (mediana ≤ 60 min de actividade do dono e ≤ 3 dias de calendário), activações sem intervenção humana (≥ 80%), saga concluída à 1.ª tentativa (≥ 95%, de `provisioning_step`), recursos órfãos (0, da reconciliação nocturna) e fila de excepções (1.ª decisão ≤ 1 dia útil p90, de `review_case`); valores de uma *fixture* de 20 casos batem exactamente com o cálculo à mão.
 - [ ] Sinais de churn calculados 1×/dia por tenant `ativo` (vista `v_churn_signals`, nome *proposta*): 7 dias sem actividade do dono, 14 dias sem `order.created`, canal `desligado` (imediato, de `channel.updated`), falta de pagamento da subscrição há 5 dias e catálogo desactualizado (28 dias sem `price.update` nem `stock.adjust` no `audit_log`, aproximação de H8).
-- [ ] Fronteiras exactas com relógio fixo: 6 d 23 h não dispara e 7 d dispara; cada sinal é emitido 1× por episódio (re-execução idempotente) e fecha-se com a primeira actividade posterior.
+- [x] Fronteiras exactas com relógio fixo: 6 d 23 h não dispara e 7 d dispara; cada sinal é emitido 1× por episódio (re-execução idempotente) e fecha-se com a primeira actividade posterior.
 - [ ] Cada sinal gera alerta P3 com runbook a T2 (sem runbook o alerta é removido, `../docs/tecnica/09` §9.2) e, quando existir KAM-115, aviso ao dono; os alertas são por tenant e não contêm `contact_id`, telefone nem conteúdo.
 - [ ] Tenant dormente (*proposta*): > 60 dias sem actividade do dono, sem pedidos e sem mensagens de clientes nos últimos 30 dias; aviso ao dono 7 dias antes; depois o orçamento da chave virtual LiteLLM (KAM-030) passa a 0 e as automações suspendem-se. Um tenant com mensagens de clientes recentes nunca é posto a zero (teste).
 - [ ] Reactivação: nova actividade do dono repõe o orçamento em ≤ 1 min; com orçamento a 0 o AGR degrada para o modo determinístico (KAM-037) e não deixa o cliente sem resposta; ambas as acções são idempotentes (2 execuções, 1 efeito) e registadas em `audit_log`.
-- [ ] Modo de ensaio: nos primeiros 14 dias do Piloto o job só regista (*dry-run*) e produz a lista de dormentes e de sinais para revisão; os falsos positivos observados entram no registo de calibração dos limiares.
+- [x] Modo de ensaio: nos primeiros 14 dias do Piloto o job só regista (*dry-run*) e produz a lista de dormentes e de sinais para revisão; os falsos positivos observados entram no registo de calibração dos limiares.
 - [ ] O job nocturno termina em ≤ 60 s para 100 tenants (*proposta*); as métricas respeitam a política de logs sem conteúdo (KAM-068) e o acesso aos painéis é por papel.
 
 ### Detalhes Técnicos
@@ -2113,11 +2113,61 @@ Instrumentar as métricas de onboarding, os sinais de churn e a detecção de te
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar.
-- [ ] **Isolamento de tenant** — vistas com RLS ou funções com `tenant_id` do contexto; teste cruzado.
-- [ ] **Idempotência** — job e acções sobre o orçamento com teste de repetição.
-- [ ] **Privacidade** — métricas por tenant, sem `contact_id`, telefone nem conteúdo.
+- [x] **Isolamento de tenant** — vistas com RLS ou funções com `tenant_id` do contexto; teste cruzado.
+- [x] **Idempotência** — job e acções sobre o orçamento com teste de repetição.
+- [x] **Privacidade** — métricas por tenant, sem `contact_id`, telefone nem conteúdo.
 - [ ] **Custo e observabilidade** — métricas e alertas nascem com o código (ADR-018); limiares em `config/kpis.yaml`, revistos no fim do Piloto.
-- [ ] **Migrações reversíveis** — `downgrade` testado; documentação (`docs/kpis.md`, runbook `docs/runbooks/churn.md`).
+- [x] **Migrações reversíveis** — `downgrade` testado; documentação (`docs/kpis.md`, runbook `docs/runbooks/churn.md`).
+
+### Verificação dos Critérios de Aceitação
+
+A entrega é a revisão `0063_kpis_de_churn.py` (*provisória*, encaixa na do KAM-096), o módulo `../libs/py-core/src/kamba_core/kpis/` (o *job* `churn-daily`, os limiares e as três métricas), os limiares em `../config/kpis.yaml`, dois painéis em `../ops/paineis/`, o `../docs/kpis.md` e o esboço `../docs/runbooks/churn.md`. Os ensaios são o `../db/tests/test_kpis_churn_schema.py` (gate 8, PostgreSQL) e o `../libs/py-core/tests/test_kpis.py` (gate 4).
+
+**Três desvios ao texto do bloco, todos medidos antes de escrever.** (1) O *job* é Python sobre o `kamba_batch`, como a purga do KAM-071, e não BullMQ: não há agendador no repositório para nenhum dos dois, e o SQL corre melhor perto da base. (2) As fontes são as tabelas e não os eventos: o canal lê a `tenant_channels.estado` (o `channel.updated` não traz o estado), o pagamento lê a `billing_cycles` (o `payment.confirmed` não existe para um ciclo de subscrição desde a `0035`), e os pedidos a `orders_mirror`. (3) A `v_onboarding_kpis` do KAM-092 é **lida** pela vista semanal e não alterada: acrescentar-lhe colunas obrigava a descida a recriá-la e à agregada.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Painel de onboarding por semana e acumulado, com recursos órfãos e fila; *fixture* de 20 casos exacta | **parcial** | A `v_onboarding_kpis_semanal` dá, por semana de activação em Luanda e acumulado (`GROUPING SETS`), a mediana dos minutos do dono e dos dias de calendário, a razão sem intervenção humana, a saga à 1.ª tentativa e a fila de excepções (`fila_no_sla_ratio` sobre a `v_review_sla`, cujo prazo já é de um dia útil). O `TestSemanal.test_vinte_casos_batem_com_o_calculo_a_mao` compara as três linhas com um oráculo feito em Python sobre a *fixture* (`statistics.median`), sem ler o alvo. **Falta:** os recursos órfãos — a reconciliação do KAM-091 só os conta num *gauge* em memória (`saga_orfaos`), e nenhuma tabela os guarda (credor KAM-091). O painel é JSON versionado; o Grafana não corre (KAM-080) |
+| 2. Sinais calculados 1×/dia por tenant `ativo`, vista `v_churn_signals`, os cinco sinais | **parcial** | `platform.churn_sinais(agora, limiares)` calcula os cinco sinais para todo o tenant `ativo`, e a `v_churn_signals` mostra os abertos; um ensaio por sinal no `TestFronteiras`. **Falta:** o «1×/dia» — o `executar` existe e nada o agenda (credor KAM-078, o mesmo da purga) |
+| 3. Fronteiras com relógio fixo; 1× por episódio; fecha com a primeira actividade | **satisfeito** | `test_dono_seis_dias_e_vinte_e_tres_horas_nao_sete_dias_sim`, `test_pedidos_catorze_dias`, `test_catalogo_vinte_e_oito_dias_e_a_actualizacao_o_fecha`, `test_pagamento_cinco_dias_de_calendario_de_luanda`, `test_dormente_aviso_aos_cinquenta_e_tres_e_pleno_depois_dos_sessenta`; `test_duas_corridas_um_episodio_e_o_fecho_com_a_primeira_actividade` (duas corridas, um episódio; fecha no instante da corrida seguinte à actividade). O índice único parcial é a rede, e uma mutação que o tira morre |
+| 4. Alerta P3 com runbook a T2, por tenant, sem PII | **parcial** | O alerta por tenant é a linha aberta da `v_churn_signals` (sem contacto, telefone nem conteúdo, `test_as_vistas_nao_tem_colunas_de_pessoa`), com o esboço `../docs/runbooks/churn.md` a T2. **Falta:** uma regra Prometheus agregada — as métricas não têm processo que as sirva, e a entrada está em `regras_por_escrever` do catálogo; o aviso ao dono é do KAM-115 |
+| 5. Dormente > 60 d, aviso 7 d antes, orçamento a 0, automações suspensas; clientes recentes nunca a zero | **parcial** | A marca abre aos 53 dias e é plena acima de 60; o aviso sai pela porta `AvisoAoDono` e o orçamento só vai a zero sete dias depois de ele ter saído, uma vez — a base recusa o zero sem aviso, e sem porta nada vai a zero (`test_sem_porta_de_aviso_nada_vai_a_zero`) (`test_o_dormente_e_zerado_depois_do_aviso_uma_vez_e_reposto_uma_vez`). `test_com_mensagens_de_clientes_recentes_nunca_e_posto_a_zero` e `test_clientes_ou_pedidos_na_janela_tiram_a_marca`; a guarda repete-se dentro da transacção que zera. **Falta:** a porta real do LiteLLM (o `OrcamentoLlm` só tem o duplo; credor KAM-030), a porta real do aviso (KAM-115) e a suspensão das automações: os lembretes do KAM-048 continuam a sair, e suspendê-los é decisão de produto |
+| 6. Reactivação ≤ 1 min; AGR determinístico com orçamento a 0; idempotente e no `audit_log` | **parcial** | O `reactivar` repõe, fecha o episódio e escreve `llm.orcamento_reposto`; duas execuções, um efeito (o mesmo ensaio do critério 5). O ensaio de integração da degradação não se acrescentou: o comportamento é o do KAM-037 e está medido lá. Com o orçamento a 0 o LiteLLM responde `budget_exceeded` e o AGR já degrada com o motivo `budget` (KAM-037, `../services/agr/tests/test_degradacao.py`). **Falta:** o «≤ 1 min» depende de um agendador que chame o `reactivar` a cada minuto (KAM-078) |
+| 7. Modo de ensaio nos primeiros 14 dias; lista para revisão; registo de calibração | **satisfeito** | `Execucao.ensaio` (sem início do Piloto, ou nos primeiros `modo_ensaio_dias`); `test_em_ensaio_regista_e_nao_zera` e `TestEnsaio`. A lista é o `Relatorio.sinais` e os episódios marcados `ensaio`; o registo de calibração é o §5 do `../docs/kpis.md` |
+| 8. ≤ 60 s para 100 tenants; métricas sem conteúdo; painéis por papel | **parcial** | `test_cem_tenants_em_menos_de_sessenta_segundos`; a primeira versão levou 161 s, todos de idas e voltas à base, e abrir e fechar episódios passou a uma instrução cada. As três métricas não têm etiqueta de tenant (`test_nenhuma_etiqueta_e_um_identificador`, `test_as_metricas_publicam_sem_tenant`); o `kamba_app` não lê nenhuma das vistas (`test_a_aplicacao_nao_le_nada`). **Falta:** um papel só de leitura para os painéis — entre tenants só o `kamba_batch` lê, e tem escrita a mais para credencial de Grafana (KAM-080) |
+
+#### O que a revisão adversarial mudou
+
+Um agente que não viu o raciocínio desta entrega reviu a árvore com o diff inteiro e levantou **onze** achados. Verificados contra o código, mudaram isto:
+
+- **Zerava-se sem aviso.** O bloco põe o aviso ao dono antes do zero, e não havia aviso nenhum: um dormente aberto em ensaio ia a zero no 15.º dia. Agora há uma porta `AvisoAoDono` e uma coluna `avisado_at`, a base recusa um orçamento zerado sem ela, e sem a porta do KAM-115 **nada vai a zero**.
+- **Uma falha depois da porta deixava o orçamento a zero sem rasto.** Se a marca ou o `COMMIT` falham depois de a porta ter zerado, o *job* repõe logo. A morte do processo entre os dois fica como atalho escrito no código.
+- **O ensaio dos clientes recentes passava pela razão errada:** a mensagem era posterior a todas as corridas, e a guarda do *job* não tinha limite superior. A guarda passou a ser a janela (início e agora), o ensaio corre depois da mensagem, e a ligação roteirizada decide pela janela e não pelo tenant.
+- **Sair de `ativo` repunha o orçamento**, e a volta de `restrito` reiniciava os relógios. A reposição exige actividade do dono ou o tenant ainda `ativo`, e o piso da actividade é a **primeira** entrada em `ativo`.
+- **A fila contava como a tempo uma primeira decisão tardia de um caso em recurso**, porque o recurso reescreve o `sla_due_at`. Os casos em recurso saem da razão.
+- **A métrica de dormentes e a vista contavam coisas diferentes.** Contam agora o mesmo: a marca, com a fase de aviso.
+- **A semana de Luanda não estava medida:** uma activação de domingo às 23:30 UTC entrou na *fixture*, e três mutações novas (a semana em UTC, os sinais fora de `ativo`, o zero sem aviso).
+- **A prosa dizia que o `kamba_audit` lia os painéis**, e ele não lê a vista semanal nem vê os tenants sem contexto. O papel de leitura entre tenants é só o `kamba_batch`, e um papel só de leitura fica com o KAM-080. Também: os lembretes do KAM-048 existem e não se suspendem, e o `config/kpis.yaml` citava uma variável que ninguém lia.
+
+**Plausível, e entregue à integração:** o domínio do `audit_log.action` está escrito sobre o da `0048`. A `0062` do KAM-096 acrescenta-lhe uma acção, e esta revisão, encaixada sobre ela, tem de a incluir nas duas listas (subida e descida), no `../ci/canon-lint.yaml`, no `test_auditoria` e na contagem do dicionário §3.2. Não se faz aqui porque a `0062` não está nesta base. **Morto:** nenhum achado de PII nem de conflito de nomes no `plpgsql`.
+
+#### O que este ticket tocou que não era dele, e porquê
+
+- **O domínio do `audit_log.action`** passa a dezasseis, com as duas acções do critério 6, pela mesma extensão por migração da `0048` (recusa da descida com linhas escritas, entrada no `../ci/canon-lint.yaml`).
+- **As listas fechadas do gate 8 e do gate 6:** o `base.py` (a cadeia passa a derivar do topo novo), o inventário, os privilégios, o catálogo, as accões da auditoria, a política de retenção (`SEM_DADOS_PESSOAIS`, versão `2026-11-16.3`), as listas do X-05 e a isenção de receita do isolamento (pela razão da lista de espera: sem texto livre para o canário).
+- **O inventário do `obs_lint`** e as quatro superfícies de prosa: 29 módulos, 152 nomes, 154 declaradas.
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Todos os Critérios de Aceitação satisfeitos | **vazia** | Dois satisfeitos e seis parciais, na tabela acima |
+| 2. Revisto por ≥ 1 revisor; testes verdes; cobertura | **parcial** | Uma revisão adversarial por um agente que não viu o raciocínio (acima). Os ensaios do ticket verdes localmente; o gate 8 inteiro fica vermelho no CI até a `0062` fundir, porque a cadeia não a tem |
+| 3. Isolamento de tenant | **satisfeito** | RLS `FORCE` na tabela, vistas `security_invoker`; `test_os_sinais_de_a_nao_afectam_b` corre o *job* sobre A e B e lê pela auditoria com o contexto de B |
+| 4. Idempotência | **satisfeito** | Duas corridas, um episódio; duas execuções de zerar e de repor, um efeito |
+| 5. Privacidade | **satisfeito** | Nenhuma coluna de pessoa nas três vistas; métricas sem etiqueta de tenant; o `payload_hash` das acções resume a acção, o tenant e o instante |
+| 6. Custo e observabilidade | **parcial** | As métricas e os limiares nascem com o código; o alerta agregado não, por falta de processo que sirva as métricas |
+| 7. Migrações reversíveis; documentação | **satisfeito** | `TestDowngradeDosKpis.test_desce_e_volta`, pelo número lido da revisão e sem exigir a cabeça; `../docs/kpis.md` e `../docs/runbooks/churn.md` |
 
 ### Handoff para Claude Code
 
@@ -2934,3 +2984,4 @@ Testes: integração, a cache do CHR e isolamento.
 | 1.19 | Novembro 2026 | **KAM-097**: secção de verificação no bloco (com a revisão adversarial), e o **KAM-200** acrescentado, no mesmo PR, como credor das caixas que o KAM-097 deixa parciais — o processo do consumidor e das varreduras, as métricas e os alertas de T&S, e as quatro fontes de sinal que faltam. Linhas «Recebido do KAM-097» nos blocos KAM-092, KAM-096 e KAM-190. O EPIC-09 passa a **23** tickets. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | KAM-092: entram as duas secções de verificação do bloco dos eventos do tenant — **oito** critérios (cinco satisfeitos, três parciais: a idempotência pela letra e a DLQ, os sub-estados só pela porta e a cache do CHR) e **seis** linhas de DoD (quatro marcadas). E o **KAM-201**, acrescentado no mesmo PR como credor das caixas 4, 6 e 7: ligar ao TypeScript as portas da base, o `amostrar` e a cache do CHR. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | KAM-095: entram as duas secções de verificação do bloco da lista de espera — **seis** critérios satisfeitos e **três** parciais (o aviso real por SMS, credor KAM-116; as métricas servidas, credor KAM-092), e **três** linhas da DoD de cinco. Entregue: o módulo `../packages/core-ts/src/capacidade/` como `CapacityGate` do guia, as quatro rotas `/api/lista/*`, a revisão `0059` (*provisória*) com a `waitlist_entry` e a `onboarding_capacity`, e o dicionário §3.71. O limite real medido fica como caixa devolvida ao **`ext:KAM-102`**. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | KAM-117: entram as duas secções de verificação do bloco dos KPIs de onboarding, churn e dormentes — **dois** critérios satisfeitos e **seis** parciais, com credor (o agendador, a porta do LiteLLM, o aviso ao dono, os recursos órfãos e um papel só de leitura para os painéis); quatro itens da DoD marcados. | Equipa KAMBÁ |

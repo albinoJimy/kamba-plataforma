@@ -544,6 +544,20 @@ dominios_historicos:
       que a base passa a ter quando se desce, e e essa declaracao que esta
       entrada cobre. O passo de descida recusa-se se houver linhas review.*
       escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0063_kpis_de_churn.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-117"
+    data: "2026-11-16"
+    razao: >-
+      A revisao dos KPIs de churn (KAM-117) acrescenta ao dominio as duas
+      accoes sobre o orcamento LLM de um dormente, llm.orcamento_zerado e
+      llm.orcamento_reposto, e o dicionario §3.2 passa a declarar dezasseis. O
+      upgrade escreve as dezasseis; o downgrade repoe as catorze da 0048, e e
+      essa declaracao que esta entrada cobre. O passo de descida recusa-se se
+      houver linhas llm.orcamento_* escritas, porque o audit_log e append-only e
+      nenhum papel tem DELETE. Renumerar a revisao e mudar tambem o caminho
+      desta entrada.
   - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"
     tabela: "tenant_destinations"
     coluna: "purpose"

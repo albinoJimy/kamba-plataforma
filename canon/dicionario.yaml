@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.100"
+versao_dicionario: "1.101"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -707,7 +707,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto}"
     literais:
       - "action"
       - "price.update"
@@ -724,6 +724,8 @@ entradas:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
     nomes:
       - "action"
       - "price.update"
@@ -740,6 +742,8 @@ entradas:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
     nomes_nota:
       - "order.refund_record"
       - "audit.read"
@@ -18584,6 +18588,133 @@ entradas:
       - "desfecho"
       - "origem"
     variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Episódio de sinal"
+    canonico: "platform.churn_signal_episode, nove colunas"
+    literais:
+      - "platform.churn_signal_episode"
+    nomes:
+      - "platform.churn_signal_episode"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "sinal"
+      - "aberto_at"
+      - "fechado_at"
+      - "ensaio"
+      - "avisado_at"
+      - "orcamento_zerado_at"
+      - "orcamento_reposto_at"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Sinal"
+    canonico: "churn_signal_episode.sinal ∈ {dono_inactivo, sem_pedidos, canal_desligado, pagamento_em_atraso, catalogo_desactualizado, dormente}"
+    literais:
+      - "churn_signal_episode.sinal"
+      - "dono_inactivo"
+      - "sem_pedidos"
+      - "canal_desligado"
+      - "pagamento_em_atraso"
+      - "catalogo_desactualizado"
+      - "dormente"
+    nomes:
+      - "churn_signal_episode.sinal"
+      - "dono_inactivo"
+      - "sem_pedidos"
+      - "canal_desligado"
+      - "pagamento_em_atraso"
+      - "catalogo_desactualizado"
+      - "dormente"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Sinais que valem agora"
+    canonico: "platform.churn_sinais, com o relógio e os limiares"
+    literais:
+      - "platform.churn_sinais"
+    nomes:
+      - "platform.churn_sinais"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Última actividade do dono"
+    canonico: "platform.churn_dono_at, por tenant e relógio"
+    literais:
+      - "platform.churn_dono_at"
+    nomes:
+      - "platform.churn_dono_at"
+    nomes_nota:
+      - "channel_coexistence.ultimo_echo_em"
+      - "audit_log"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Sinais abertos"
+    canonico: "platform.v_churn_signals"
+    literais:
+      - "platform.v_churn_signals"
+    nomes:
+      - "platform.v_churn_signals"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Marca de dormente"
+    canonico: "platform.v_tenant_dormente"
+    literais:
+      - "platform.v_tenant_dormente"
+    nomes:
+      - "platform.v_tenant_dormente"
+    nomes_nota:
+      - "avisado_at"
+      - "orcamento_zerado_at"
+      - "orcamento_a_zero"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "KPIs de onboarding por semana"
+    canonico: "platform.v_onboarding_kpis_semanal"
+    literais:
+      - "platform.v_onboarding_kpis_semanal"
+    nomes:
+      - "platform.v_onboarding_kpis_semanal"
+    nomes_nota:
+      - "acumulado"
+      - "semana"
+      - "v_onboarding_kpis"
+      - "v_review_sla"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Acções sobre o orçamento"
+    canonico: "llm.orcamento_zerado, llm.orcamento_reposto no audit_log.action (§3.2)"
+    literais:
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "audit_log.action"
+    nomes:
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "audit_log.action"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Limiares"
+    canonico: "config/kpis.yaml"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Métricas dos KPIs"
+    canonico: "onboarding_activation_minutes, churn_signal{sinal}, tenants_dormentes"
+    literais:
+      - "onboarding_activation_minutes"
+      - "churn_signal{sinal}"
+      - "tenants_dormentes"
+    nomes:
+      - "onboarding_activation_minutes"
+      - "churn_signal"
+      - "sinal"
+      - "tenants_dormentes"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -20073,6 +20204,8 @@ dominios:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -21624,6 +21757,17 @@ dominios:
       - "convite_invalido"
     seccao: "3.71"
     conceito: "Recusas da lista"
+    so_no_registo: false
+  - coluna: "churn_signal_episode.sinal"
+    valores:
+      - "dono_inactivo"
+      - "sem_pedidos"
+      - "canal_desligado"
+      - "pagamento_em_atraso"
+      - "catalogo_desactualizado"
+      - "dormente"
+    seccao: "3.72"
+    conceito: "Sinal"
     so_no_registo: false
 
 variantes:

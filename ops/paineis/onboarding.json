@@ -1,0 +1,92 @@
+{
+  "uid": "kamba-onboarding",
+  "title": "KAMBA - Onboarding",
+  "tags": [
+    "kamba",
+    "kam-117",
+    "onboarding"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "O que este painel e",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Configuracao versionada, ainda sem Grafana a correr\n\nEste painel le as vistas do KAM-117 por uma fonte PostgreSQL com o uid `kamba-kpis`, que **nao esta provisionada**: o Grafana esta `pendente` pela licenca AGPL (KAM-080), e a fonte e o acesso por VPN sao do deploy. **A leitura entre tenants so a faz o `kamba_batch`**, que tem escrita a mais para ser credencial de painel: um papel so de leitura e do KAM-080. O `kamba_app` nao le nenhuma das vistas. Nenhuma consulta le contacto, telefone, nome ou conteudo. Os alvos e os limiares sao *proposta* (`config/kpis.yaml`, `docs/kpis.md`).\n\nAlvos (*proposta*, `docs/tecnica/10` §16): mediana <= 60 min de actividade do dono, <= 3 dias de calendario, >= 80% sem intervencao humana, >= 95% saga a primeira tentativa, >= 90% da fila com a primeira decisao ate ao prazo de 1 dia util. Os recursos orfaos nao estao aqui: a reconciliacao do KAM-091 so os conta em memoria."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Acumulado",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-kpis"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-kpis"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT casos_activados, owner_active_minutos_mediana, dias_calendario_mediana,\n       sem_intervencao_ratio, saga_primeira_tentativa_ratio, fila_casos, fila_no_sla_ratio\n  FROM platform.v_onboarding_kpis_semanal\n WHERE acumulado"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Por semana de activacao (Africa/Luanda)",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-kpis"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-kpis"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT semana, casos_activados, owner_active_minutos_mediana, dias_calendario_mediana,\n       sem_intervencao_ratio, saga_primeira_tentativa_ratio, fila_casos, fila_no_sla_ratio\n  FROM platform.v_onboarding_kpis_semanal\n WHERE NOT acumulado\n ORDER BY semana DESC"
+        }
+      ]
+    }
+  ]
+}

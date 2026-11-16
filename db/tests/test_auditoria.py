@@ -98,6 +98,12 @@ ACCOES = (
     # migracao, com a mesma recusa no `downgrade` se houver linhas escritas.
     "review.acesso",
     "review.recusa",
+    # A decima quinta e a decima sexta, da revisao dos KPIs de churn (KAM-117,
+    # criterio 6): zerar e repor o orcamento da chave LiteLLM de um dormente. A
+    # mesma extensao por migracao, com a mesma recusa no `downgrade` se houver
+    # linhas escritas.
+    "llm.orcamento_zerado",
+    "llm.orcamento_reposto",
 )
 
 #: O dominio de `actor_type`.

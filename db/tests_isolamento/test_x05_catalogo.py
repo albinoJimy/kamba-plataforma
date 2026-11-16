@@ -184,6 +184,10 @@ class TestCatalogoReal(ComBase):
                 # «channel_o» vence «channel_q» porque 'o' < 'q'.
                 ("platform", "channel_onboarding", "tenant_id"),
                 ("platform", "channel_quality_log", "tenant_id"),
+                # KAM-117: os episodios de churn («cha» < «chu» < «co»).
+                # **Sem receita de sementes**, pela razao da lista de espera
+                # (ver `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "churn_signal_episode", "tenant_id"),
                 # KAM-022: a prova de consentimento. A `consent_texts`
                 # **nao** esta aqui e nao e esquecimento: nao tem
                 # `tenant_id`, porque um aviso de privacidade e um texto
@@ -513,6 +517,8 @@ class TestCatalogoReal(ComBase):
                 ("channel_onboarding", "tenant_iso", "ALL", "{public}"),
                 # KAM-021: o registo das transicoes de qualidade.
                 ("channel_quality_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-117: os episodios de churn («cha» < «chu» < «co»).
+                ("churn_signal_episode", "tenant_iso", "ALL", "{public}"),
                 # KAM-059: a sombra da comissao («com» < «con»).
                 ("commission_accruals", "tenant_iso", "ALL", "{public}"),
                 # KAM-022: a prova de consentimento.
@@ -806,6 +812,8 @@ class TestCatalogoReal(ComBase):
              "channel_onboarding",
              # KAM-021: o registo das transicoes de qualidade.
              "channel_quality_log",
+             # KAM-117: os episodios de churn («cha» < «chu» < «co»).
+             "churn_signal_episode",
              # KAM-022: a prova de consentimento.
              # KAM-059: a sombra da comissao («com» < «con»).
              "commission_accruals",

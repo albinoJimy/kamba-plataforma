@@ -328,6 +328,10 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
 REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
+#: KAM-117: a revisao dos KPIs de churn, pela razao da do Catalogo AI — o numero
+#: (`0063`) e provisorio. O ensaio que a prova e o
+#: `db/tests/test_kpis_churn_schema.py`.
+REV_KPIS_DE_CHURN = _revisao_por_glob("*_kpis_de_churn.py")
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
@@ -7793,6 +7797,79 @@ MUTACOES = [
      "      await c.query(SQL_TRANCAR);\n",
      "",
      "tests_lote"),
+    # ------------------------------ KAM-117 (revisao dos KPIs de churn)
+    #
+    # Onze, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_KPIS_DE_CHURN`), porque o numero e
+    # provisorio. A suite e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_kpis_churn_schema.py`, com o ensaio nomeado em cada uma.
+    #
+    # Sem RLS, a auditoria com o contexto de B le os episodios de A:
+    # `test_os_sinais_de_a_nao_afectam_b`.
+    ("kpis: os episodios perdem a RLS", REV_KPIS_DE_CHURN,
+     '    rls.enable_tenant_rls("churn_signal_episode")\n',
+     "",
+     "tests"),
+    # A fronteira dos 7 dias passa a estrita, e 7 d deixa de disparar:
+    # `test_dono_seis_dias_e_vinte_e_tres_horas_nao_sete_dias_sim`.
+    ("kpis: sete dias exactos nao disparam", REV_KPIS_DE_CHURN,
+     "           WHERE a.dono_at <= p_agora - make_interval(days => v_dono)\n",
+     "           WHERE a.dono_at < p_agora - make_interval(days => v_dono)\n",
+     "tests"),
+    # Sem o indice unico parcial, dois episodios abertos do mesmo sinal (e o
+    # `ON CONFLICT` do *job* deixa de ter arbitro):
+    # `test_um_episodio_aberto_por_tenant_e_sinal`.
+    ("kpis: dois episodios abertos do mesmo sinal", REV_KPIS_DE_CHURN,
+     '"CREATE UNIQUE INDEX churn_signal_episode_aberto_uq ON {EPISODIOS} "',
+     '"CREATE INDEX churn_signal_episode_aberto_uq ON {EPISODIOS} "',
+     "tests"),
+    # As mensagens de clientes deixam de tirar a marca de dormente:
+    # `test_clientes_ou_pedidos_na_janela_tiram_a_marca`.
+    ("kpis: um tenant com clientes recentes fica dormente", REV_KPIS_DE_CHURN,
+     "             AND coalesce(a.cliente_at, '-infinity') <= p_agora - make_interval(days => v_janela);\n",
+     "             AND true;\n",
+     "tests"),
+    # Um limiar a zero passa, e a funcao devolve sinais em vez de falhar:
+    # `test_um_limiar_invalido_falha_fechado`.
+    ("kpis: o limiar zero e aceite", REV_KPIS_DE_CHURN,
+     "::int <= 0 THEN",
+     "::int < 0 THEN",
+     "tests"),
+    # «> 60 dias» passa a «>= 60»: `test_dormente_aviso_aos_cinquenta_e_tres_e_pleno_depois_dos_sessenta`.
+    ("kpis: o dormente e pleno aos sessenta dias exactos", REV_KPIS_DE_CHURN,
+     "                 a.dono_at < p_agora - make_interval(days => v_dormente) FROM a\n",
+     "                 a.dono_at <= p_agora - make_interval(days => v_dormente) FROM a\n",
+     "tests"),
+    # A aplicacao passa a ler os episodios: `test_a_aplicacao_nao_le_nada`.
+    ("kpis: a aplicacao le os episodios", REV_KPIS_DE_CHURN,
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO {PAPEL_DE_AUDITORIA}")\n',
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO {PAPEL_DE_AUDITORIA}")\n'
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO kamba_app")\n',
+     "tests"),
+    # A semana de activacao passa a ser a de UTC, e a activacao de domingo as
+    # 23:30 UTC (segunda em Luanda) muda de semana:
+    # `test_vinte_casos_batem_com_o_calculo_a_mao`.
+    ("kpis: a semana de activacao em UTC", REV_KPIS_DE_CHURN,
+     "          SELECT date_trunc('week', c.activo_at AT TIME ZONE 'Africa/Luanda')::date AS semana,\n",
+     "          SELECT date_trunc('week', c.activo_at AT TIME ZONE 'UTC')::date AS semana,\n",
+     "tests"),
+    # Um tenant suspenso conta sinais: `test_fora_de_ativo_nao_ha_sinais`.
+    ("kpis: os sinais contam tenants fora de ativo", REV_KPIS_DE_CHURN,
+     "             WHERE tn.estado = 'ativo'\n",
+     "             WHERE tn.estado IS NOT NULL\n",
+     "tests"),
+    # O orcamento vai a zero sem aviso:
+    # `test_as_restricoes_do_orcamento_e_do_fecho`.
+    ("kpis: o orcamento vai a zero sem aviso", REV_KPIS_DE_CHURN,
+     "                   OR (sinal = 'dormente' AND avisado_at IS NOT NULL\n",
+     "                   OR (sinal = 'dormente'\n",
+     "tests"),
+    # O lote reescreve o sinal de um episodio:
+    # `test_o_lote_nao_apaga_nem_reescreve_o_sinal`.
+    ("kpis: o lote reescreve o sinal", REV_KPIS_DE_CHURN,
+     'f"GRANT UPDATE (fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     'f"GRANT UPDATE (sinal, fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     "tests"),
 ]
 
 

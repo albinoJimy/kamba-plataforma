@@ -282,6 +282,10 @@ class TestConvencoes(ComBase):
                 # custo a plataforma inteira regista. A ordem e a do
                 # `ocorrido_em`.
                 "module_cost_ledger",
+                # KAM-117: o episodio de churn. `uuid` aleatorio pela regra
+                # geral: a auditoria le-o sob a `tenant_iso`, e um sequencial
+                # dizia-lhe quantos sinais a plataforma inteira abre.
+                "churn_signal_episode",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -548,6 +552,8 @@ class TestConvencoes(ComBase):
                 ("channel_coexistence", "id", "uuid", "gen_random_uuid()"),
                 ("channel_onboarding", "id", "uuid", "gen_random_uuid()"),
                 ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
+                # KAM-117: o episodio de churn («cha» < «chu»).
+                ("churn_signal_episode", "id", "uuid", "gen_random_uuid()"),
                 # KAM-115: as duas do aviso ao dono. A posicao e **depois** da
                 # `message_templates` e antes da `tenant_channels`, porque a
                 # lista esta ordenada e 'o' fica entre 'm' e 't'. As duas tem
@@ -1202,6 +1208,11 @@ class TestConvencoes(ComBase):
              # `(tenant_id, ocorrido_em DESC)`, e a segunda coluna e por onde
              # se le um historico.
              "channel_quality_log",
+             # KAM-117. O episodio de churn, pela mesma razao: a chave primaria
+             # e o `id` aleatorio. Levou `churn_signal_episode_tenant_idx
+             # (tenant_id, aberto_at)`, e o indice unico parcial dos abertos
+             # tambem comeca pelo `tenant_id`. **Com** FK para `tenants`.
+             "churn_signal_episode",
              # KAM-022. A **quarta** desta classe, e pela mesma razao: a chave
              # primaria e o `id` aleatorio. Levou indice proprio,
              # `(tenant_id, contact_id, purpose, ocorrido_em DESC)`, que e a
@@ -2066,7 +2077,10 @@ class TestConvencoes(ComBase):
         # a `onboarding_case_id_tenant_uq`, pela razao da `0048`: uma entrada
         # nao junta o caso de um com o tenant de outro. A `onboarding_capacity`
         # nao tem FK nenhuma.
-        self.assertEqual(len(linhas), 100)
+        #
+        # **101** desde a revisao dos KPIs de churn (KAM-117): a
+        # `churn_signal_episode_tenant_fk`, simples para `tenants(id)`.
+        self.assertEqual(len(linhas), 101)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

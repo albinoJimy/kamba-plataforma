@@ -1,0 +1,92 @@
+{
+  "uid": "kamba-churn-e-dormentes",
+  "title": "KAMBA - Churn e dormentes",
+  "tags": [
+    "kamba",
+    "kam-117",
+    "churn"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "O que este painel e",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Configuracao versionada, ainda sem Grafana a correr\n\nEste painel le as vistas do KAM-117 por uma fonte PostgreSQL com o uid `kamba-kpis`, que **nao esta provisionada**: o Grafana esta `pendente` pela licenca AGPL (KAM-080), e a fonte e o acesso por VPN sao do deploy. **A leitura entre tenants so a faz o `kamba_batch`**, que tem escrita a mais para ser credencial de painel: um papel so de leitura e do KAM-080. O `kamba_app` nao le nenhuma das vistas. Nenhuma consulta le contacto, telefone, nome ou conteudo. Os alvos e os limiares sao *proposta* (`config/kpis.yaml`, `docs/kpis.md`).\n\nOs sinais por tenant sao o alerta P3 da T2 (`docs/runbooks/churn.md`); este painel so conta. `ensaio` marca os episodios abertos nos primeiros 14 dias do Piloto, em que nada e zerado."
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Sinais abertos, por sinal",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-kpis"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-kpis"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT sinal, ensaio, count(*) AS tenants\n  FROM platform.v_churn_signals\n GROUP BY sinal, ensaio\n ORDER BY sinal, ensaio"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Dormentes",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "kamba-kpis"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "kamba-kpis"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT ensaio, orcamento_a_zero, count(*) AS tenants\n  FROM platform.v_tenant_dormente\n GROUP BY ensaio, orcamento_a_zero\n ORDER BY ensaio, orcamento_a_zero"
+        }
+      ]
+    }
+  ]
+}
