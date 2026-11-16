@@ -72,7 +72,12 @@ MODO_HIBRIDO: Final = "hibrido"
 MODO_LEXICAL: Final = "lexical"
 
 #: O limiar do `pg_trgm` por transaccao (§6.2, nota i). **Proposta**, igual ao
-#: `db/indice.py` `LIMIAR_DE_PALAVRA`; o valor final e do dataset (KAM-064).
+#: `db/indice.py` `LIMIAR_DE_PALAVRA`. O KAM-064 varreu-o em `dev`
+#: (`eval/search/reports/1.0.0.md`): 0,40 fica a frente de 0,45 em todas as
+#: metricas, por uma a duas consultas de 197 sinteticas escritas por uma so
+#: pessoa, com o mesmo falso-positivo; 0,35 sobe-o de 17,6% para 29,4%. Fica
+#: 0,45 ate ao *dataset* 2.0.0, com consultas reais reescritas (plano de
+#: recalibracao, `docs/evidencia/KAM-064.md` §3).
 LIMIAR_DE_PALAVRA: Final = 0.45
 
 #: Quantas linhas a resposta devolve (§6.3, `LIMIT 3`).
@@ -127,6 +132,26 @@ SQL_RESPOSTA: Final = """
             v.preco_minor ASC NULLS LAST, v.sku
    LIMIT 3
 """
+
+
+#: O maior `limite` que a avaliacao pode pedir: o `p_k` por omissao do
+#: `idx.candidatos` (§6.2). Acima dele a lista ja vem cortada pela funcao.
+LIMITE_MAXIMO: Final = 40
+
+
+def sql_resposta(limite: int = LIMITE_DA_RESPOSTA) -> str:
+    """O `SQL_RESPOSTA` com outro `LIMIT`, **so** para a avaliacao (KAM-064).
+
+    A resposta ao cliente sao tres linhas (§6.3) e e sempre o `SQL_RESPOSTA`,
+    o mesmo objecto. O executor do `golden_search` pede dez, para o
+    `recall@10`, pela **mesma** consulta: a ordem e total (acaba no `sku`), e as
+    tres primeiras de dez sao as tres da resposta.
+    """
+    if isinstance(limite, bool) or not isinstance(limite, int) or not 1 <= limite <= LIMITE_MAXIMO:
+        raise ValueError(f"limite fora de 1..{LIMITE_MAXIMO}: {limite!r}")
+    if limite == LIMITE_DA_RESPOSTA:
+        return SQL_RESPOSTA
+    return SQL_RESPOSTA.replace(f"LIMIT {LIMITE_DA_RESPOSTA}\n", f"LIMIT {limite}\n")
 
 
 def _vector(qvec: Sequence[float] | None) -> str | None:
@@ -196,8 +221,12 @@ def procurar(
     cache: lexico_mod.Cache = lexico_mod.CACHE,
     vectorial: ConsultaVectorial | None = None,
     relogio: Callable[[], float] = time.monotonic,
+    limite: int = LIMITE_DA_RESPOSTA,
 ) -> Procura:
     """Normaliza a pergunta (§5.1) e devolve ate tres ofertas publicadas.
+
+    O `limite` so serve a avaliacao do KAM-064 (`sql_resposta`); quem responde
+    ao cliente nao o passa.
 
     O `tenant` so serve para abrir a transaccao (`tenant_guard.tx`), que recusa
     `None`, vazio e o que nao for UUID antes de tocar na base. Uma pergunta que
@@ -214,6 +243,7 @@ def procurar(
         max_preco_minor is not None and not isinstance(max_preco_minor, int)
     ):
         raise TypeError("max_preco_minor e unidade menor inteira (dicionario §2)")
+    sql = sql_resposta(limite)
     modelo_esperado: str | None = None
     pergunta: Normalizacao | None = None
     if qvec is None and vectorial is not None:
@@ -270,7 +300,7 @@ def procurar(
         tecto = _mais_apertado(max_preco_minor, restricoes.max_preco_minor)
         cursor.execute(SQL_LIMIAR, (str(limiar),))
         cursor.execute(
-            SQL_RESPOSTA,
+            sql,
             (
                 pergunta.q_norm,
                 pergunta.q_or,

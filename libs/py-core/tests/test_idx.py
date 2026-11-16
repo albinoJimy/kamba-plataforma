@@ -151,6 +151,28 @@ class TestPesquisar(unittest.TestCase):
         self.assertIn(self.TENANT, ligacao.chamadas[0][1])
         self.assertTrue(ligacao.confirmada)
 
+    def test_a_resposta_ao_cliente_continua_a_ser_de_tres(self) -> None:
+        """KAM-064: o `limite` e da avaliacao; sem ele, o `SQL_RESPOSTA` e o mesmo objecto."""
+        self.assertIs(pesquisa.sql_resposta(), pesquisa.SQL_RESPOSTA)
+        self.assertIn("LIMIT 3\n", pesquisa.SQL_RESPOSTA)
+        ligacao = _Ligacao()
+        pesquisa.procurar(ligacao, self.TENANT, "arroz")
+        self.assertIs(ligacao.chamadas[-1][0], pesquisa.SQL_RESPOSTA)
+
+    def test_a_avaliacao_pede_dez_pela_mesma_consulta(self) -> None:
+        dez = pesquisa.sql_resposta(10)
+        self.assertEqual(dez, pesquisa.SQL_RESPOSTA.replace("LIMIT 3\n", "LIMIT 10\n"))
+        self.assertNotIn("LIMIT 3", dez)
+        ligacao = _Ligacao()
+        pesquisa.procurar(ligacao, self.TENANT, "arroz", limite=10)
+        self.assertEqual(ligacao.chamadas[-1][0], dez)
+
+    def test_o_limite_e_um_inteiro_ate_ao_p_k(self) -> None:
+        for errado in (0, 41, True, 2.0, "10"):
+            with self.subTest(limite=errado):
+                with self.assertRaises(ValueError):
+                    pesquisa.sql_resposta(errado)
+
     def test_o_limiar_e_local_a_transaccao(self) -> None:
         ligacao = _Ligacao()
         pesquisa.pesquisar(ligacao, self.TENANT, "arroz", limiar=0.5)
