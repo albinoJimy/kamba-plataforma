@@ -119,6 +119,10 @@
       "types": "./dist/guia/index.d.ts",
       "default": "./dist/guia/index.js"
     },
+    "./capacidade": {
+      "types": "./dist/capacidade/index.d.ts",
+      "default": "./dist/capacidade/index.js"
+    },
     "./inscricao": {
       "types": "./dist/inscricao/index.d.ts",
       "default": "./dist/inscricao/index.js"
@@ -138,6 +142,10 @@
     "./revisao": {
       "types": "./dist/revisao/index.d.ts",
       "default": "./dist/revisao/index.js"
+    },
+    "./trust": {
+      "types": "./dist/trust/index.d.ts",
+      "default": "./dist/trust/index.js"
     },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",

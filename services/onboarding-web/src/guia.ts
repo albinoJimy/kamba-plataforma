@@ -11,6 +11,16 @@
  *     POST /api/es/pagamento      repete a verificação do `meta_pagamento`
  *     POST /api/es/retoma         sem sessão: manda o OTP ao telefone
  *                                 **registado** e devolve um bilhete
+ *     GET  /api/lista/posicao     a posição na lista de espera e a
+ *                                 estimativa rotulada (KAM-095)
+ *     POST /api/lista/convite     o convite `{c}` ainda vale para o caso da
+ *                                 sessão? Só lê: gasta-se ao abrir o popup
+ *     POST /api/lista/recusar     recusa-o: conta como uma expiração
+ *     POST /api/lista/desistir    sai da lista; a posição liberta-se já
+ *
+ * As quatro da lista (KAM-095) só existem se o arranque lhes der uma
+ * `ListaDeEspera`; sem ela respondem 404 **depois** da sessão, para que a
+ * superfície e a recusa sejam as mesmas com e sem lista.
  *
  * ## A sessão é a única fonte do caso
  *
@@ -30,6 +40,7 @@
 import { Hono } from "hono";
 import { randomBytes } from "node:crypto";
 
+import { type ListaDeEspera, ListaRecusadaError, type Posicao } from "@kamba/core-ts/capacidade";
 import { GuiaRecusadoError, type PassoGuiado } from "@kamba/core-ts/guia";
 import {
   type Otp,
@@ -46,6 +57,8 @@ import { cabecalhosDaLigacao, paginaDaLigacao, paginaDeRecusaDaLigacao } from ".
 /** O que as rotas do guia precisam. */
 export interface OpcoesDoGuia {
   readonly guia: PassoGuiado;
+  /** A lista de espera (KAM-095), se o arranque a montou. */
+  readonly lista?: ListaDeEspera | undefined;
   readonly registo: Registo;
   readonly otp: Otp;
   readonly anelDaAssinatura: readonly (Uint8Array | null)[];
@@ -87,6 +100,47 @@ function estadoHttp(erro: GuiaRecusadoError): 404 | 409 {
   return erro.motivo === "sem_caso" ? 404 : 409;
 }
 
+/**
+ * O estado HTTP de uma recusa da lista. O convite inválido é **403**, e o
+ * mesmo para forjado, usado, vencido ou de outro caso (adversarial b).
+ */
+function estadoDaLista(erro: ListaRecusadaError): 403 | 409 {
+  return erro.motivo === "convite_invalido" ? 403 : 409;
+}
+
+/**
+ * A lista, ou a recusa de quem não a tem. Chama-se **dentro** do `comSessao`,
+ * para que a sessão seja verificada primeiro.
+ *
+ * Fica no topo do módulo, e não ao lado do `comSessao`, por uma razão que não
+ * é de estilo: a enumeração do X-01 (`tools/isolamento/enumeracao.py`) dá a
+ * cada rota, como actor, a última função declarada antes dela — uma função
+ * nova dentro do `rotasDoGuia` mudava o identificador das oito rotas do guia.
+ */
+function exigirLista(lista: ListaDeEspera | undefined): ListaDeEspera {
+  if (lista === undefined) throw new GuiaRecusadoError("sem_caso");
+  return lista;
+}
+
+/** A posição em JSON: datas em ISO, e o «sem estimativa» (infinito) a `null`. */
+function posicaoEmJson(p: Posicao | null): unknown {
+  if (p === null) return null;
+  if (p.estado === "aguardando") {
+    const finito = (n: number): number | null => (Number.isFinite(n) ? n : null);
+    return {
+      estado: p.estado,
+      posicao: p.posicao,
+      estimativa: {
+        rotulo: p.estimativa.rotulo,
+        minimo_dias: finito(p.estimativa.minimoDias),
+        maximo_dias: finito(p.estimativa.maximoDias),
+      },
+    };
+  }
+  if (p.estado === "convidado") return { estado: p.estado, expira_em: p.expiraEm.toISOString() };
+  return { estado: p.estado };
+}
+
 /** Monta as rotas do guia. */
 export function rotasDoGuia(opcoes: OpcoesDoGuia): Hono {
   const app = new Hono();
@@ -108,6 +162,11 @@ export function rotasDoGuia(opcoes: OpcoesDoGuia): Hono {
     try {
       return { estado: 200, corpo: await fazer(id) };
     } catch (erro) {
+      // A reserva do `iniciar` passa pela lista: a recusa dela chega aqui.
+      if (erro instanceof ListaRecusadaError) {
+        log?.info({ outcome: "lista_espera_recusada", error_code: erro.motivo });
+        return { estado: estadoDaLista(erro), corpo: { erro: erro.motivo === "convite_invalido" ? "token" : erro.motivo } };
+      }
       if (!(erro instanceof GuiaRecusadoError)) throw erro;
       log?.info({ outcome: "es_recusado", error_code: erro.motivo });
       return { estado: estadoHttp(erro), corpo: { erro: erro.motivo } };
@@ -212,6 +271,39 @@ export function rotasDoGuia(opcoes: OpcoesDoGuia): Hono {
     const envio = await opcoes.otp.enviar(id, telefone);
     if (!envio.enviado) return c.json({ erro: "limite" }, 429);
     return c.json({ referencia: cunharReferencia("ticket", id, chave, relogio) }, 200);
+  });
+
+  app.get("/api/lista/posicao", async (c) => {
+    const r = await comSessao(c.req.header("cookie"), async (id) => ({
+      posicao: posicaoEmJson(await exigirLista(opcoes.lista).posicao(id)),
+    }));
+    return c.json(r.corpo, r.estado);
+  });
+
+  app.post("/api/lista/convite", async (c) => {
+    const corpo = await corpoJson(c.req.raw);
+    const r = await comSessao(c.req.header("cookie"), async (id) => {
+      const { expiraEm } = await exigirLista(opcoes.lista).validarConvite(id, corpo.c);
+      return { valido: true, expira_em: expiraEm.toISOString() };
+    });
+    return c.json(r.corpo, r.estado);
+  });
+
+  app.post("/api/lista/recusar", async (c) => {
+    const corpo = await corpoJson(c.req.raw);
+    const r = await comSessao(c.req.header("cookie"), async (id) => {
+      await exigirLista(opcoes.lista).recusar(id, corpo.c);
+      return { recusado: true };
+    });
+    return c.json(r.corpo, r.estado);
+  });
+
+  app.post("/api/lista/desistir", async (c) => {
+    const r = await comSessao(c.req.header("cookie"), async (id) => {
+      await exigirLista(opcoes.lista).desistir(id);
+      return { desistiu: true };
+    });
+    return c.json(r.corpo, r.estado);
   });
 
   return app;

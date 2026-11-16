@@ -8,6 +8,9 @@
  *     adversarial   ligação de retoma forjada ⇒ 403; `FINISH` repetido 2× ⇒ 1
  *                   chamada ao GWY; `tenant_id` no corpo ignorado
  *     critério 1    a página só abre com caso `aguarda_es` **e** sessão
+ *     KAM-095       a lista de espera como `CapacityGate` real do guia, e as
+ *                   quatro rotas `/api/lista/*`: posição, convite de uso único,
+ *                   recusa, desistência — e o convite de outro caso dá 403
  *
  * Os números são os do `packages/core-ts/tests/guia.test.ts`: `+244 9` e zeros,
  * declarados no inventário do *gate* 7.
@@ -15,6 +18,13 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+
+import {
+  AvisosDaListaEmMemoria,
+  LIMITE_POR_OMISSAO,
+  ListaDeEspera,
+  ListaEmMemoria,
+} from "@kamba/core-ts/capacidade";
 
 import {
   AvisosEmMemoria,
@@ -74,7 +84,12 @@ class LigadorFalso implements LigadorDeCanal {
   }
 }
 
-async function montar() {
+/**
+ * Monta o serviço. Com `maximoDaLista`, o `CapacityGate` é a lista de espera
+ * do KAM-095 com esse limite, e as rotas `/api/lista/*` têm onde ler; sem ele,
+ * é o contador do KAM-093 e as rotas da lista respondem 404 depois da sessão.
+ */
+async function montar(maximoDaLista?: number) {
   let agora = new Date("2026-11-10T10:00:00.000Z").getTime();
   const relogio = (): Date => new Date(agora);
   const casos = new CasosEmMemoria(relogio);
@@ -99,10 +114,20 @@ async function montar() {
   });
   const ligador = new LigadorFalso();
   const repositorio = new GuiaEmMemoria(relogio);
+  const avisosDaLista = new AvisosDaListaEmMemoria();
+  const lista =
+    maximoDaLista === undefined
+      ? undefined
+      : new ListaDeEspera({
+          repositorio: new ListaEmMemoria(casos, relogio, { ...LIMITE_POR_OMISSAO, maximo: maximoDaLista }),
+          aviso: avisosDaLista,
+          origem: "https://onboarding.exemplo.test",
+          relogio,
+        });
   const guia = new PassoGuiado({
     casos,
     repositorio,
-    capacidade: new CapacidadeEmMemoria({ relogio }),
+    capacidade: lista ?? new CapacidadeEmMemoria({ relogio }),
     ligador,
     gates: new GatesEmMemoria(),
     revisao: new RevisaoEmMemoria(),
@@ -127,6 +152,7 @@ async function montar() {
     },
     {
       guia,
+      lista,
       registo,
       otp,
       anelDaAssinatura: [ASSINATURA, null],
@@ -168,7 +194,27 @@ async function montar() {
     });
     return { estado: r.status, corpo: (await r.json()) as Record<string, unknown> };
   }
-  return { app, casos, guia, repositorio, ligador, sms, caso, cookie, retoma, post, relogio, avancar: (ms: number) => (agora += ms) };
+  async function get(caminho: string, id?: string) {
+    const r = await app.request(caminho, { headers: id === undefined ? {} : { cookie: cookie(id) } });
+    return { estado: r.status, corpo: (await r.json()) as Record<string, unknown> };
+  }
+  return {
+    app,
+    casos,
+    guia,
+    lista,
+    avisosDaLista,
+    repositorio,
+    ligador,
+    sms,
+    caso,
+    cookie,
+    retoma,
+    post,
+    get,
+    relogio,
+    avancar: (ms: number) => (agora += ms),
+  };
 }
 
 describe("KAM-093 HTTP: /ligar so abre com sessao e caso aguarda_es (criterio 1)", () => {
@@ -425,4 +471,107 @@ describe("KAM-093: o LigadorPorHttp traduz os codigos do GWY", () => {
       assert.equal(r.tentativaId, estado === 200 || estado === 201 ? "t-9" : null);
     });
   }
+});
+
+// --------------------------------------------------------------- KAM-095
+
+const DIA_MS = 86_400_000;
+
+/** O convite em claro do último aviso mandado a este caso. */
+function conviteDe(avisos: AvisosDaListaEmMemoria, id: string): string {
+  const aviso = [...avisos.enviados].reverse().find((e) => e.onboardingId === id);
+  assert.ok(aviso !== undefined, "nenhum convite foi mandado a este caso");
+  const url = new URL(aviso.ligacao);
+  assert.equal(url.pathname, "/ligar", "o convite abre a pagina do guia, que exige a sessao");
+  const c = url.searchParams.get("convite");
+  assert.ok(c !== null);
+  return c;
+}
+
+describe("KAM-095 HTTP: a lista de espera como CapacityGate do guia", () => {
+  it("o segundo caso espera, ve a posicao e a estimativa rotulada, e e convidado quando a vaga volta", async () => {
+    const m = await montar(1);
+    const a = await m.caso();
+    const b = await m.caso();
+    for (const id of [a.id, b.id]) await m.post("/api/es/preflight", ATESTADOS, id);
+    assert.equal((await m.post("/api/es/iniciar", {}, a.id)).corpo.desfecho, "popup");
+    assert.equal((await m.post("/api/es/iniciar", {}, b.id)).corpo.desfecho, "lista_espera");
+    const p = await m.get("/api/lista/posicao", b.id);
+    assert.equal(p.estado, 200);
+    assert.deepEqual((p.corpo.posicao as Record<string, unknown>).estado, "aguardando");
+    assert.equal((p.corpo.posicao as Record<string, unknown>).posicao, 1);
+    assert.equal(((p.corpo.posicao as Record<string, unknown>).estimativa as Record<string, unknown>).rotulo, "estimativa");
+    // A vaga de A sai da janela de 7 dias: o temporizador convida B.
+    m.avancar(7 * DIA_MS + 1);
+    assert.equal(await m.lista?.promover(), 1);
+    const c = conviteDe(m.avisosDaLista, b.id);
+    const valido = await m.post("/api/lista/convite", { c }, b.id);
+    assert.equal(valido.estado, 200);
+    assert.equal(valido.corpo.valido, true);
+    // Conferir nao gasta: o convite so se gasta quando a vaga se da.
+    assert.equal((await m.post("/api/lista/convite", { c }, b.id)).estado, 200);
+    assert.equal((await m.post("/api/es/iniciar", {}, b.id)).corpo.desfecho, "popup");
+    // Uso unico (adversarial b): depois de dada a vaga, a ligacao ja nao vale.
+    const outra = await m.post("/api/lista/convite", { c }, b.id);
+    assert.equal(outra.estado, 403);
+    assert.deepEqual(outra.corpo, { erro: "token" });
+  });
+
+  it("ADVERSARIAL b: o convite de B com a sessao de A da 403, com o corpo do token forjado", async () => {
+    const m = await montar(1);
+    const [a, b, x] = [await m.caso(), await m.caso(), await m.caso()];
+    for (const id of [x.id, a.id, b.id]) {
+      await m.post("/api/es/preflight", ATESTADOS, id);
+      await m.post("/api/es/iniciar", {}, id);
+    }
+    m.avancar(7 * DIA_MS + 1);
+    await m.lista?.promover();
+    const deA = conviteDe(m.avisosDaLista, a.id);
+    const alheio = await m.post("/api/lista/convite", { c: deA }, b.id);
+    const forjado = await m.post("/api/lista/convite", { c: "forjado" }, b.id);
+    assert.equal(alheio.estado, 403);
+    assert.deepEqual(alheio.corpo, forjado.corpo, "alheio e forjado nao se distinguem");
+    assert.equal((await m.post("/api/lista/recusar", { c: deA }, b.id)).estado, 403);
+    // O convite de A continua vivo para A.
+    assert.equal((await m.post("/api/lista/convite", { c: deA }, a.id)).estado, 200);
+  });
+
+  it("isolamento: a posicao que A le e a de A, e um onboarding_id na consulta nao muda nada", async () => {
+    const m = await montar(1);
+    const [x, a, b] = [await m.caso(), await m.caso(), await m.caso()];
+    for (const id of [x.id, a.id, b.id]) {
+      await m.post("/api/es/preflight", ATESTADOS, id);
+      await m.post("/api/es/iniciar", {}, id);
+    }
+    const deA = await m.get(`/api/lista/posicao?onboarding_id=${b.id}`, a.id);
+    assert.equal((deA.corpo.posicao as Record<string, unknown>).posicao, 1);
+    const deB = await m.get("/api/lista/posicao", b.id);
+    assert.equal((deB.corpo.posicao as Record<string, unknown>).posicao, 2);
+  });
+
+  it("recusar passa a vaga ao seguinte; desistir sai da lista e liberta a posicao", async () => {
+    const m = await montar(1);
+    const [x, a, b] = [await m.caso(), await m.caso(), await m.caso()];
+    for (const id of [x.id, a.id, b.id]) {
+      await m.post("/api/es/preflight", ATESTADOS, id);
+      await m.post("/api/es/iniciar", {}, id);
+    }
+    m.avancar(7 * DIA_MS + 1);
+    await m.lista?.promover();
+    assert.equal((await m.post("/api/lista/recusar", { c: conviteDe(m.avisosDaLista, a.id) }, a.id)).estado, 200);
+    assert.equal(((await m.get("/api/lista/posicao", b.id)).corpo.posicao as Record<string, unknown>).estado, "convidado");
+    assert.equal((await m.post("/api/lista/desistir", {}, a.id)).estado, 200);
+    assert.equal(((await m.get("/api/lista/posicao", a.id)).corpo.posicao as Record<string, unknown>).estado, "desistiu");
+  });
+
+  it("sem sessao, as quatro dao 403; com sessao e sem lista montada, 404", async () => {
+    const m = await montar();
+    const a = await m.caso();
+    assert.equal((await m.get("/api/lista/posicao")).estado, 403);
+    for (const rota of ["/api/lista/convite", "/api/lista/recusar", "/api/lista/desistir"]) {
+      assert.equal((await m.post(rota, { c: "x" })).estado, 403, rota);
+      assert.equal((await m.post(rota, { c: "x" }, a.id)).estado, 404, rota);
+    }
+    assert.equal((await m.get("/api/lista/posicao", a.id)).estado, 404);
+  });
 });

@@ -2032,6 +2032,43 @@ SEM_RECEITA_COM_RAZAO = {
     # `TestPrivilegios` mede a RLS ligada e forcada e o `42501` da aplicacao.
     ("platform", "review_case"),
     ("platform", "review_decision_log"),
+    # KAM-092: os gates de activacao e o registo de estados do tenant. **A
+    # aplicacao nao escreve nenhum dos dois**: os gates sao a condicao da
+    # activacao e so o lote os escreve (com `BYPASSRLS`), e o registo e do
+    # `transition_tenant`, que corre como o lote. O registo e *append-only* por
+    # *trigger*, que recusa o `DELETE` com que as receitas limpam; e um gate
+    # pede o caso do tenant (FK composta), que e unico por tenant e colidia com
+    # a receita do `onboarding_case`. **A politica mede-se noutro sitio**: o
+    # `db/tests/test_eventos_do_tenant.py` le os gates pela ligacao da
+    # aplicacao com o contexto de A (os de A e nao os de B), recusa-lhe a
+    # escrita (`42501`), e le o registo pela auditoria com o contexto do dono
+    # (uma linha) e de outro tenant (zero).
+    ("platform", "onboarding_gate"),
+    ("platform", "tenant_state_log"),
+    # KAM-097: os sinais e as sancoes de T&S, pela razao da
+    # `screening_decision`: *append-only* por privilegio **e** por *trigger*
+    # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
+    # receitas limpam, e ninguem tem `UPDATE`. **A politica mede-se noutro
+    # sitio**: o `TestIsolamento` do `db/tests/test_trust_schema.py` escreve e le
+    # pela ligacao da aplicacao com o contexto de A e de B (zero linhas de A, e
+    # `42501` a escrever no tenant de outro), e o `TestPrivilegios` mede a RLS
+    # ligada e forcada.
+    ("platform", "ts_signal"),
+    ("platform", "ts_sanction"),
+    # KAM-095: a lista de espera, pela razao da fila de revisao. **A aplicacao
+    # nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na tabela, e quem
+    # escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita nao tinha onde
+    # guardar o canario: o *trigger* `waitlist_entry_do_caso` reescreve no `INSERT`
+    # todas as colunas menos o `onboarding_id` e o `tenant_id`, e o
+    # `onboarding_id` tem de ser o de um caso do tenant em `aprovado` ou
+    # `aguarda_es` — o caso que a receita do `onboarding_case` semeia nasce em
+    # `registo`, com um `id` gerado. **A politica mede-se noutro sitio**: o
+    # `TestPrivilegios` do `db/tests/test_lista_espera_schema.py` le pela
+    # ligacao da auditoria uma entrada com o contexto do tenant dono (uma
+    # linha), com o de outro tenant (zero) e sem contexto (zero), mede a RLS
+    # ligada e forcada e o `42501` da aplicacao. A `onboarding_capacity` nao tem
+    # `tenant_id` e nao entra na descoberta.
+    ("platform", "waitlist_entry"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo
@@ -2188,6 +2225,20 @@ SEM_RECEITA_COM_RAZAO = {
     # concedido a papel nenhum. Declara-la nesta lista nomeava uma tabela que a
     # suite nao considera isolada, e a asercao `SEM_RECEITA_COM_RAZAO <= todas`
     # falhava. Uma excepcao morta e pior do que nenhuma.
+    #
+    # KAM-124: o ledger de custo por modulo, pela razao do `order_state_log` — e
+    # so por essa. Tem RLS `FORCE` e politica `tenant_iso`, mas os gatilhos
+    # `module_cost_ledger_imutavel` e `module_cost_ledger_sem_truncate`, os dois
+    # `ENABLE ALWAYS`, recusam `UPDATE`, `DELETE` e `TRUNCATE` a todos,
+    # superutilizador incluido: uma receita semeava e nao limpava, e o `DELETE`
+    # do `apagar_tenant` envenenava a transaccao da bateria. E nenhum papel
+    # sujeito a RLS lhe escreve (so o `kamba_batch`, pela funcao). O isolamento
+    # prova-se em `db/tests/test_modulos_custo_schema.py` sem apagar nada: o
+    # ledger e a `v_module_cost_month` de A nao se leem do contexto de B nem sem
+    # contexto, com a sonda positiva ao lado
+    # (`test_o_ledger_de_a_e_invisivel_a_b`), e o `kamba_app` nao insere nem
+    # executa a funcao de escrita (`test_a_aplicacao_nao_escreve`).
+    ("platform", "module_cost_ledger"),
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As

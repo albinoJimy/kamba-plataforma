@@ -27,9 +27,9 @@ Esta em `db/indice.py` (`criar_activacao` e `remover_activacao`), pela razao da
 
 ## A cadeia
 
-**O numero e provisorio.** `down_revision = "0059"`: a base do ramo acaba na
-`0055`, e a `0056` a `0059` sao de outros PRs em voo. O numero final e o pai
-dao-se na integracao. Os ensaios descobrem esta revisao pelo *glob*
+`down_revision = "0059"`, a `0059_lista_de_espera` do KAM-095. O numero
+escreveu-se provisorio, com a base do ramo na `0055`, e a integracao sobre a
+`publico/main` em `0c393555` confirmou-o. Os ensaios descobrem esta revisao pelo *glob*
 `*_activacao_do_lexico_de_dataset.py`, e nao pelo numero.
 """
 

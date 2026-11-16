@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contratos.kamba.ao/registry/entitlement_keys.schema.json",
   "title": "Entitlement: chaves de limites (TEN, KAM-009)",
-  "description": "O registo de chaves de `entitlements.limites` (e do mesmo mapa em `registry/plans.yaml`). As onze chaves sao as do dicionario canonico §3.2, linha «Entitlement (chaves)», depois da emenda 1.17. Uma chave desconhecida e REJEITADA NA ESCRITA: `additionalProperties` e `false`, e e isso que o criterio 1 do bloco do KAM-009 pede. A ausencia de uma chave NAO e «sem limite»: `platform.ten_consumir` (revisao 0007) nega quando nenhum entitlement activo a declara, que e a falha fechada do criterio 2.",
+  "description": "O registo de chaves de `entitlements.limites` (e do mesmo mapa em `registry/plans.yaml`). As doze chaves sao as do dicionario canonico §3.2, linha «Entitlement (chaves)», depois da emenda 1.98 (KAM-124). Uma chave desconhecida e REJEITADA NA ESCRITA: `additionalProperties` e `false`, e e isso que o criterio 1 do bloco do KAM-009 pede. A ausencia de uma chave NAO e «sem limite»: `platform.ten_consumir` (revisao 0007) nega quando nenhum entitlement activo a declara, que e a falha fechada do criterio 2.",
   "type": "object",
   "additionalProperties": false,
   "x-kamba-fonte": "specs/02_Dicionario_de_Dados_Canonico.md §3.2, «Entitlement (chaves)» (emenda 1.17, KAM-009). O bloco do ticket lista quatro chaves e esta desactualizado; o dicionario e a fonte.",
@@ -13,6 +13,11 @@
   },
   "x-kamba-nota-de-unidade": "Dinheiro em unidades menores, `bigint`, 1 Kz = 100 centimos (`docs/tecnica/03` §5.1 n.o 2; dicionario §2). As chaves de dinheiro sao as que acabam em `_minor`, e a moeda e `AOA`. `manual_max_por_contacto_24h` NAO acaba em `_minor` e por isso NAO e dinheiro: e uma contagem. O `docs/tecnica/04` §4.2 M-3 nomeia-a ao lado de um valor e nao diz a unidade; a convencao de nomes do conjunto diz, e e a unica fonte que ha.",
   "$defs": {
+    "modulo_de_entrada": {
+      "type": "string",
+      "enum": ["catalogo", "foto", "social", "orcamento"],
+      "description": "Os quatro modulos de entrada (ADR-020), valores de `entitlements.modulo` (dicionario §3.7). A coluna tem `CHECK` de FORMA e nao de dominio — um modulo novo entra por configuracao —, pelo que a lista fechada vive aqui, no `registry/plans.yaml` (gate 3b) e nos `CHECK` do `platform.module_cost_ledger` e do `platform.module_test_prices` (KAM-124). O `kamba_core.modulos.MODULOS_DE_ENTRADA` e confrontado com este enum por ensaio."
+    },
     "bigint_nao_negativo": {
       "type": "integer",
       "minimum": 0,
@@ -110,6 +115,17 @@
       "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.17); `docs/tecnica/04` §4.2 M-3.",
       "x-kamba-razao-da-categoria": "A chave de `platform.tenant_usage` e `(tenant_id, chave_limite, periodo)` e nao tem a dimensao do contacto: um contador por tenant nao sabe responder «quantos para ESTE contacto». A janela e tambem movel (24 h, nao um dia de calendario). O agregado calcula-se de `manual_confirmations` por `contact_id`.",
       "x-kamba-nao-verificado": "A unidade. O `docs/tecnica/04` §4.2 M-3 nomeia esta chave ao lado de `manual_daily_max_minor` e nao diz se e uma contagem de pedidos ou uma soma de dinheiro. Le-se como contagem porque o nome NAO acaba em `_minor`, e essa e a convencao do conjunto para dinheiro (`docs/tecnica/03` §5.1 n.o 2). Forma de validar: uma frase em `docs/tecnica/04` §4.2 M-3 que o diga, ou o nome passa a `manual_max_minor_por_contacto_24h`."
+    },
+    "custo_max_mes_micro_usd": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Orcamento mensal de CUSTO de um modulo de entrada, em micro-dolares (1 USD = 1 000 000). Vale na linha de `entitlements` do proprio modulo: e o tecto que a guarda de imagem (KAM-124, `kamba_core.foto.orcamento`) compara com o custo do modulo no mes, e o que o orcamento do LiteLLM para texto deve espelhar. Sem a chave, nenhum trabalho de imagem nasce (falha fechada).",
+      "x-kamba-categoria": "tecto_por_janela",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "micro_usd",
+      "x-kamba-janela": "mes",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.98, KAM-124); `specs/EPIC-11_Modulos_Entrada.md`, bloco KAM-124, criterio 7.",
+      "x-kamba-razao-da-categoria": "Compara-se um agregado (o custo do modulo no mes de `platform.ten_periodo`) com o tecto, e nao se consome: o custo nao e um contador de `platform.tenant_usage`. E POR MODULO e nao pelo minimo dos modulos activos, ao contrario do `platform.ten_tecto`: o orcamento da foto e o da linha `modulo = foto`, e o minimo entre os quatro do `entrada_completo` dava a foto o orcamento do catalogo.",
+      "x-kamba-nao-dinheiro-do-cliente": "Nao acaba em `_minor` e nao e AOA: e custo nosso a terceiros (fornecedores de modelo e de imagem), em dolares, a unidade em que eles cobram. O `micro_usd` e inteiro pela razao do `bigint` das outras chaves."
     },
     "prazo_reclamacao_dias": {
       "$ref": "#/$defs/bigint_nao_negativo",

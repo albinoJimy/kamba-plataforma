@@ -553,22 +553,40 @@ export interface PayloadStockReservedV2 {
 
 /** Payload de `tenant.activated` v1. */
 export interface PayloadTenantActivated {
+  readonly onboarding_id?: string;
+  readonly plano?: string;
+  readonly owner_active_seconds?: number;
+  readonly intervencao_humana?: boolean;
 }
 
 /** Payload de `tenant.activated` v2. */
 export interface PayloadTenantActivatedV2 {
+  readonly onboarding_id?: string;
+  readonly plano?: string;
+  readonly owner_active_seconds?: number;
+  readonly intervencao_humana?: boolean;
 }
 
 /** Payload de `tenant.approved` v1. */
 export interface PayloadTenantApproved {
   readonly vertical: string;
   readonly plano: string;
+  readonly onboarding_id?: string;
+  readonly kyc_nivel?: "K1";
+  readonly tecto_inicial_minor?: number;
+  readonly intervencao_humana?: boolean;
+  readonly currency?: "AOA";
 }
 
 /** Payload de `tenant.approved` v2. */
 export interface PayloadTenantApprovedV2 {
   readonly vertical: string;
   readonly plano: string;
+  readonly onboarding_id?: string;
+  readonly kyc_nivel?: "K1";
+  readonly tecto_inicial_minor?: number;
+  readonly intervencao_humana?: boolean;
+  readonly currency?: "AOA";
 }
 
 /** Payload de `tenant.closed` v1. */
@@ -584,11 +602,17 @@ export interface PayloadTenantClosedV2 {
 /** Payload de `tenant.provisioned` v1. */
 export interface PayloadTenantProvisioned {
   readonly vertical: string;
+  readonly onboarding_id?: string;
+  readonly channel_id?: string;
+  readonly channel_mode?: "coexistencia" | "cloud_only";
 }
 
 /** Payload de `tenant.provisioned` v2. */
 export interface PayloadTenantProvisionedV2 {
   readonly vertical: string;
+  readonly onboarding_id?: string;
+  readonly channel_id?: string;
+  readonly channel_mode?: "coexistencia" | "cloud_only";
 }
 
 /** Payload de `tenant.reactivated` v1. */
@@ -802,12 +826,12 @@ export const CATALOGO = {
   "tenant.activated": {
     versoes: [1, 2],
     obrigatorios: [],
-    permitidos: [],
+    permitidos: ["intervencao_humana", "onboarding_id", "owner_active_seconds", "plano"],
   },
   "tenant.approved": {
     versoes: [1, 2],
     obrigatorios: ["plano", "vertical"],
-    permitidos: ["plano", "vertical"],
+    permitidos: ["currency", "intervencao_humana", "kyc_nivel", "onboarding_id", "plano", "tecto_inicial_minor", "vertical"],
   },
   "tenant.closed": {
     versoes: [1, 2],
@@ -817,7 +841,7 @@ export const CATALOGO = {
   "tenant.provisioned": {
     versoes: [1, 2],
     obrigatorios: ["vertical"],
-    permitidos: ["vertical"],
+    permitidos: ["channel_id", "channel_mode", "onboarding_id", "vertical"],
   },
   "tenant.reactivated": {
     versoes: [1, 2],

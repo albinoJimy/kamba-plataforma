@@ -18,7 +18,7 @@
  *
  * ## As duas perguntas nao sao a mesma, e a diferenca esta no registo
  *
- * As onze chaves de `registry/entitlement_keys.schema.json` nao sao todas da
+ * As doze chaves de `registry/entitlement_keys.schema.json` nao sao todas da
  * mesma especie, e o registo di-lo em `x-kamba-consumivel`:
  *
  * * **baldes por periodo** (`msgs_ai_mes`, `marcacoes_mes`, …) acumulam-se e
@@ -193,11 +193,11 @@ export interface ChaveDeLimite {
 }
 
 /**
- * As onze chaves do registo, com a especie de cada uma.
+ * As doze chaves do registo, com a especie de cada uma.
  *
  * ## Porque e que isto existe
  *
- * O registo ja dizia, em `x-kamba-consumivel`, quais das onze chaves se
+ * O registo ja dizia, em `x-kamba-consumivel`, quais das doze chaves se
  * consomem — e **nada lia esse campo**. A consequencia media-se: nada impedia
  * `consumeLimit(tenant, "valor_max_pedido_minor", 5_000_000, …)`, que cria
  * linha em `platform.tenant_usage` para um tecto que nao tem contador e, com o
@@ -264,6 +264,15 @@ export const CHAVES_DE_LIMITE: Readonly<Record<string, ChaveDeLimite>> = {
   prazo_reclamacao_dias: {
     nome: "prazo_reclamacao_dias",
     categoria: CATEGORIA_TECTO_POR_PEDIDO,
+    consumivel: false,
+  },
+  // KAM-124, criterio 7: o orcamento mensal de custo de um modulo de entrada,
+  // em micro-dolares. Tecto por janela (o mes): compara-se com o custo do
+  // modulo e nao se consome. Le-se na linha do proprio modulo, e nao pelo
+  // `ten_tecto`, que daria o minimo dos modulos activos (ver o registo).
+  custo_max_mes_micro_usd: {
+    nome: "custo_max_mes_micro_usd",
+    categoria: CATEGORIA_TECTO_POR_JANELA,
     consumivel: false,
   },
 };
@@ -339,7 +348,7 @@ export class ChaveDesconhecidaError extends Error {
   constructor(nome: string) {
     super(
       `a chave ${JSON.stringify(nome)} nao esta no registo de chaves de limite ` +
-        "(`registry/entitlement_keys.schema.json`, onze chaves). O registo recusa " +
+        "(`registry/entitlement_keys.schema.json`, doze chaves). O registo recusa " +
         "chaves desconhecidas na escrita; esta recusa-as na leitura.",
     );
     this.name = "ChaveDesconhecidaError";

@@ -39,9 +39,9 @@
 
 import { serve } from "@hono/node-server";
 import { port } from "@kamba/core-ts";
+import { AvisosDaListaEmMemoria, ListaDeEspera, ListaEmMemoria, MetricasDaLista } from "@kamba/core-ts/capacidade";
 import {
   AvisosEmMemoria,
-  CapacidadeEmMemoria,
   GatesEmMemoria,
   GuiaEmMemoria,
   PassoGuiado,
@@ -224,10 +224,21 @@ function montarGuia(): OpcoesDoGuia | undefined {
     log.info({ outcome: "es_guia_desligado" });
     return undefined;
   }
+  // **A lista de espera (KAM-095) é o `CapacityGate`**, em memória como o
+  // resto do guia: o adaptador SQL (`ListaSql`) corre como `kamba_batch` e o
+  // processo onde vai ligar é o de lote (credor KAM-092). O limite em memória
+  // é o 10 CONFIRMADO; a origem dele está na `onboarding_capacity` da base.
+  const lista = new ListaDeEspera({
+    repositorio: new ListaEmMemoria(casos),
+    aviso: new AvisosDaListaEmMemoria(),
+    origem: valores.origem,
+    metricas: new MetricasDaLista(),
+    log,
+  });
   const guia = new PassoGuiado({
     casos,
     repositorio: new GuiaEmMemoria(),
-    capacidade: new CapacidadeEmMemoria(),
+    capacidade: lista,
     ligador: new LigadorPorHttp(valores.gwy),
     gates: new GatesEmMemoria(),
     revisao: new RevisaoEmMemoria(),
@@ -243,9 +254,17 @@ function montarGuia(): OpcoesDoGuia | undefined {
   // meia hora, e o erro máximo é um minuto a mais.
   setInterval(() => {
     guia.abandonarVencidos().catch((erro: unknown) => log.excepcao(erro, "abandono_falhou"));
+    // Os convites vencidos e a promocao (criterios 4 e 5). Um minuto de erro
+    // num prazo de 48 h.
+    lista
+      .expirarVencidos()
+      .then(() => lista.promover())
+      .then(() => lista.medir())
+      .catch((erro: unknown) => log.excepcao(erro, "lista_espera_falhou"));
   }, 60_000).unref();
   return {
     guia,
+    lista,
     registo,
     otp,
     anelDaAssinatura: [assinatura, assinaturaAnterior],

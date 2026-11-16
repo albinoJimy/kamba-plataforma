@@ -2526,6 +2526,41 @@ INVENTARIO["catalog_ingestions"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: Os sinais de Trust & Safety (KAM-097). **Sem dados pessoais**: o `detalhe` so
+#: admite chaves de referencia (`order_id`, `sku`, contagens), fechadas por
+#: `CHECK`, e o `ref_evento` e um evento ou um agregado. Oito colunas.
+INVENTARIO["ts_signal"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "tipo": ("text", NAO, None, "nao"),
+    "severidade": ("text", NAO, None, "nao"),
+    "ref_evento": ("uuid", NAO, None, "nao — o evento, ou o agregado do sinal"),
+    "detalhe": ("jsonb", NAO, "'{}'::jsonb", "nao — so chaves de referencia, por CHECK"),
+    "ocorrido_em": ("timestamp with time zone", NAO, None, "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A escada de sancoes de Trust & Safety (KAM-097). O `motivo_interno` e texto de
+#: T&S sobre o comportamento de uma loja, nao sobre uma pessoa; o `autor` e um
+#: identificador de staff ou `sistema:<versao>`. Quinze colunas.
+INVENTARIO["ts_sanction"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "chave": ("text", NAO, None, "nao"),
+    "passo": ("text", NAO, None, "nao"),
+    "origem": ("text", NAO, None, "nao"),
+    "motivo_interno": ("text", NAO, None, "nao — so para T&S; o kamba_app nao o le"),
+    "motivo_publico": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "autor": ("text", NAO, None, "nao — identificador de staff ou do sistema"),
+    "regra": ("text", SIM, None, "nao"),
+    "sinais": ("jsonb", NAO, "'[]'::jsonb", "nao — identificadores de ts_signal"),
+    "case_id": ("uuid", SIM, None, "nao"),
+    "justificacao_salto": ("text", SIM, None, "nao — texto de T&S sobre a loja"),
+    "recurso_de": ("uuid", SIM, None, "nao"),
+    "recurso_estado": ("text", SIM, None, "nao"),
+    "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
 #: O billing da plataforma (KAM-059, revisao do billing). **Nenhuma destas
 #: colunas guarda dado pessoal**: o precario e de plataforma, a subscricao e o
 #: ciclo sao de um tenant (uma loja), a sombra guarda identificadores e valores,
@@ -2630,6 +2665,99 @@ INVENTARIO["image_jobs"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: Os seis gates de activacao de um caso (KAM-092). O `evidencia_ref` e uma
+#: referencia opaca ao que verificou o gate (o motivo do guia), nunca dado
+#: pessoal; o `em` e do *trigger*.
+INVENTARIO["onboarding_gate"] = {
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "gate": ("text", NAO, None, "nao"),
+    "ok": ("boolean", NAO, None, "nao"),
+    "evidencia_ref": ("text", SIM, None, "nao — referencia opaca, nao texto do dono"),
+    "em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O registo de estados do tenant (KAM-092), *append-only*. O `motivo` e o
+#: `actor` sao escritos pela retaguarda (o lote, a T&S), e nao pelo dono.
+INVENTARIO["tenant_state_log"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "de": ("text", NAO, None, "nao"),
+    "para": ("text", NAO, None, "nao"),
+    "motivo": ("text", NAO, None, "nao — razao da transicao, escrita pela retaguarda"),
+    "actor": ("text", NAO, None, "nao — o processo ou o papel, nao uma pessoa nomeada"),
+    "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
+#: O custo por modulo de entrada (KAM-124, revisao do custo dos modulos).
+#: **Nenhuma coluna e de pessoa**: o ledger guarda o tenant, o modulo, quanto
+#: custou e a referencia **opaca** da linha de origem (a chamada ao modelo, o
+#: trabalho de imagem, a mensagem — o identificador, nunca o conteudo nem o
+#: contacto); os precos de teste sao de plataforma.
+INVENTARIO["module_cost_ledger"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "modulo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "rubrica": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "custo_usd": ("numeric", NAO, None, "nao"),
+    "custo_minor": (
+        "bigint", NAO, None,
+        "nao — custo a terceiros em centimos de Kz. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+    ),
+    "fx_aoa_per_usd": ("numeric", NAO, None, "nao"),
+    "ref": ("text", SIM, None, "nao — identificador opaco da linha de origem, nunca o contacto"),
+    "idempotency_key": ("text", NAO, None, "nao — chave opaca do custo"),
+    "ocorrido_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["module_test_prices"] = {
+    "plano": ("text", NAO, None, "nao"),
+    "modulo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "preco_teste_minor": (
+        "bigint", NAO, None,
+        "nao — hipotese de preco em unidade menor. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+    ),
+    "estado": ("text", NAO, None, "nao — so `hipotese_nao_validada`"),
+    "carregado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: A lista de espera do limite de onboarding (KAM-095, revisao da lista de
+#: espera). **Nenhum dado pessoal**: a entrada e um caso de onboarding (que e
+#: onde o NIF e o telefone vivem, cifrados), um estado e instantes. O convite
+#: guarda-se **em hash** (SHA-256 de 32 octetos): o valor em claro so existe na
+#: resposta a quem o pediu. Onze colunas; o *trigger* `waitlist_entry_do_caso`
+#: escreve as omissoes de novo no `INSERT`, mas o catalogo ve as da coluna.
+INVENTARIO["waitlist_entry"] = {
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "aprovado_em": ("timestamp with time zone", NAO, None, "nao — o fase_at do caso"),
+    "na_fila_desde": ("timestamp with time zone", NAO, None, "nao — a chave FIFO"),
+    "estado": ("text", NAO, "'aguardando'::text", "nao"),
+    "convite_hash": (
+        "bytea",
+        SIM,
+        None,
+        "nao — SHA-256 do convite de uso unico, nunca o convite em claro",
+    ),
+    "convidado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "convite_expira_em": ("timestamp with time zone", SIM, None, "nao"),
+    "tentativas": ("smallint", NAO, "0", "nao"),
+    "concluido_em": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O limite de clientes novos por 7 dias (KAM-095, revisao da lista de espera).
+#: **Sem `tenant_id`**: e da plataforma, numa linha so (`unica` booleano com
+#: `CHECK (unica)`). O `fundamento` e a referencia documental do valor, nunca de uma
+#: pessoa.
+INVENTARIO["onboarding_capacity"] = {
+    "unica": ("boolean", NAO, "true", "nao — a chave de uma tabela de uma linha so"),
+    "es_max_por_7d": ("integer", NAO, None, "nao"),
+    "origem": ("text", NAO, None, "nao"),
+    "fundamento": ("text", NAO, None, "nao — referencia documental do limite"),
+    "alterado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -2723,6 +2851,28 @@ INVENTARIO["v_review_sla"] = {
     "dentro_do_sla": ("boolean", SIM, None, "nao"),
 }
 
+#: Os KPIs de onboarding por caso e o agregado (KAM-092). Numeros e *flags*,
+#: sem identificador de pessoa.
+INVENTARIO["v_onboarding_kpis"] = {
+    "onboarding_id": ("uuid", SIM, None, "nao"),
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "fase": ("text", SIM, None, "nao"),
+    "owner_active_seconds": ("integer", SIM, None, "nao"),
+    "dias_calendario": ("numeric", SIM, None, "nao"),
+    "intervencao_humana": ("boolean", SIM, None, "nao"),
+    "saga_primeira_tentativa": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_onboarding_kpis_agregado"] = {
+    "casos_activos": ("bigint", SIM, None, "nao — uma contagem"),
+    "owner_active_seconds_mediana": ("double precision", SIM, None, "nao"),
+    "owner_active_seconds_p90": ("double precision", SIM, None, "nao"),
+    "dias_calendario_mediana": ("double precision", SIM, None, "nao"),
+    "dias_calendario_p90": ("double precision", SIM, None, "nao"),
+    "sem_intervencao_ratio": ("numeric", SIM, None, "nao"),
+    "saga_primeira_tentativa_ratio": ("numeric", SIM, None, "nao"),
+}
+
 INVENTARIO["v_tenant_cost_daily"] = {
     "tenant_id": ("uuid", SIM, None, "nao"),
     "dia": ("date", SIM, None, "nao — o dia no fuso do tenant, sem hora"),
@@ -2732,6 +2882,32 @@ INVENTARIO["v_tenant_cost_daily"] = {
     "custo_usd": ("numeric", SIM, None, "nao"),
     "custo_aoa_minor": ("bigint", SIM, None, "nao"),
     "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+}
+
+#: As duas vistas do custo por modulo de entrada (KAM-124, revisao do custo dos
+#: modulos). **Nenhuma coluna e de pessoa**: tenant, mes, modulo e numeros. Uma
+#: vista nao tem `NOT NULL` nem omissao, pelo que tudo e anulavel.
+INVENTARIO["v_module_cost_month"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "mes": ("date", SIM, None, "nao — o primeiro dia do mes em Africa/Luanda"),
+    "modulo": ("text", SIM, None, "nao"),
+    "rubrica": ("text", SIM, None, "nao"),
+    "unidades": ("bigint", SIM, None, "nao — uma contagem"),
+    "custo_usd": ("numeric", SIM, None, "nao"),
+    "custo_aoa_minor": ("bigint", SIM, None, "nao"),
+    "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+}
+
+INVENTARIO["v_h12"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "mes": ("date", SIM, None, "nao — o primeiro dia do mes em Africa/Luanda"),
+    "modulo": ("text", SIM, None, "nao"),
+    "custo_usd": ("numeric", SIM, None, "nao"),
+    "custo_aoa_minor": ("bigint", SIM, None, "nao"),
+    "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+    "preco_teste_minor": ("bigint", SIM, None, "nao — hipotese de preco do plano do tenant"),
+    "racio": ("numeric", SIM, None, "nao"),
+    "margem_minor": ("bigint", SIM, None, "nao"),
 }
 
 #: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
@@ -3387,6 +3563,10 @@ class TestInventario(ComBase):
                         # o original e a versao saem do STO pelo
                         # `retain_until`, e a linha com a relacao do tenant.
                         "image_jobs_tenant_fk",
+                        # KAM-124 (revisao do custo dos modulos): o ledger de
+                        # custo aponta o tenant, sem cascata — e so de
+                        # acrescentar, e um custo nao se apaga com o tenant.
+                        "module_cost_ledger_tenant_fk",
                         # KAM-059 (revisao do billing): as oito, todas sem
                         # cascata. Um ciclo nao se apaga com a subscricao, nem a
                         # cobranca com o ciclo (o ledger e *append-only*), nem a
@@ -3399,6 +3579,27 @@ class TestInventario(ComBase):
                         "commission_accruals_encomenda_do_mesmo_tenant_fk",
                         "billing_ops_approvals_tenant_fk",
                         "billing_ops_approvals_charge_fk",
+                        # KAM-092 (revisao dos eventos do tenant): o gate aponta
+                        # o caso (composta com o `tenant_id`) e o registo aponta
+                        # o tenant, os dois sem cascata — um registo de estados
+                        # nao se apaga com o tenant, e um caso com gates nao se
+                        # apaga por baixo deles.
+                        "onboarding_gate_caso_fk",
+                        "tenant_state_log_tenant_fk",
+                        # KAM-097 (revisao de T&S): os sinais e as sancoes
+                        # apontam o tenant, a sancao humana aponta o caso de
+                        # revisao pelo par, e o desfecho de um recurso aponta a
+                        # sancao recorrida pelo par. Sem cascata: e tudo
+                        # *append-only*.
+                        "ts_signal_tenant_fk",
+                        "ts_sanction_tenant_fk",
+                        "ts_sanction_caso_fk",
+                        "ts_sanction_recurso_fk",
+                        # KAM-095 (revisao da lista de espera): a entrada aponta
+                        # o caso pelo par, sem cascata. Um caso nao se apaga com
+                        # a vaga dada dentro: o `concluido_em` e o que conta na
+                        # janela de 7 dias.
+                        "waitlist_entry_caso_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3921,6 +4122,21 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ----------------------- KAM-092 (eventos do tenant)
+                    #
+                    # O gate: o dominio dos seis, a forma da evidencia e a
+                    # chave natural. O registo: os dois estados no dominio do
+                    # tenant, o motivo e o actor nao vazios, o `de <> para` e a
+                    # chave primaria.
+                    "onboarding_gate_evidencia_ck",
+                    "onboarding_gate_gate_ck",
+                    "onboarding_gate_pkey",
+                    "tenant_state_log_actor_ck",
+                    "tenant_state_log_de_ck",
+                    "tenant_state_log_motivo_ck",
+                    "tenant_state_log_mudanca_ck",
+                    "tenant_state_log_para_ck",
+                    "tenant_state_log_pkey",
                     # --------------------------------------- KAM-090 (0040)
                     #
                     # **Treze: nove da versao publicada e quatro da prova.** Na
@@ -4006,6 +4222,42 @@ class TestInventario(ComBase):
                     "review_decision_log_pkey",
                     "review_decision_log_recurso_ck",
                     "review_decision_log_regra_ck",
+                    # ------------------------- KAM-097 (revisao de T&S)
+                    #
+                    # **Vinte e quatro.** No sinal: o tipo, o dominio e o par
+                    # tipo/severidade (a severidade fixa), o `detalhe` fechado a
+                    # chaves de referencia, a chave do bloco, a unicidade
+                    # composta das FK e a chave primaria. Na sancao: os
+                    # dominios (passo, origem, motivo publico, desfecho), as
+                    # formas (chave, autor, motivo interno, regra, sinais,
+                    # justificacao), as quatro coerencias (a chave e o autor presos a
+                    # origem, grave so humana, humana
+                    # com caso, recurso humano e com desfecho), a chave, a
+                    # unicidade composta e a chave primaria.
+                    "ts_signal_chave_uq",
+                    "ts_signal_detalhe_ck",
+                    "ts_signal_id_tenant_uq",
+                    "ts_signal_pkey",
+                    "ts_signal_severidade_ck",
+                    "ts_signal_severidade_dominio_ck",
+                    "ts_signal_tipo_ck",
+                    "ts_sanction_autor_ck",
+                    "ts_sanction_chave_ck",
+                    "ts_sanction_chave_forma_ck",
+                    "ts_sanction_chave_uq",
+                    "ts_sanction_grave_humana_ck",
+                    "ts_sanction_humana_com_caso_ck",
+                    "ts_sanction_id_tenant_uq",
+                    "ts_sanction_justificacao_ck",
+                    "ts_sanction_motivo_interno_ck",
+                    "ts_sanction_motivo_publico_ck",
+                    "ts_sanction_origem_ck",
+                    "ts_sanction_passo_ck",
+                    "ts_sanction_pkey",
+                    "ts_sanction_recurso_ck",
+                    "ts_sanction_recurso_estado_ck",
+                    "ts_sanction_regra_ck",
+                    "ts_sanction_sinais_ck",
                     # ------------------- KAM-049 (revisao do Catalogo AI)
                     #
                     # **Catorze.** Os nove de coluna (o dominio do `estado`, a
@@ -4055,6 +4307,29 @@ class TestInventario(ComBase):
                     "image_jobs_pkey",
                     "image_jobs_provider_ck",
                     "image_jobs_versao_ref_ck",
+                    # ------------- KAM-124 (revisao do custo dos modulos)
+                    #
+                    # **Catorze.** Nove no ledger — a chave primaria, os
+                    # dominios do `modulo` e da `rubrica`, os dois custos e o
+                    # cambio nao negativos, o comprimento da `ref` e da chave,
+                    # e a unicidade do custo por `(tenant_id, idempotency_key)`
+                    # — e cinco nos precos de teste: a chave `(plano, modulo)`,
+                    # a forma do plano, o dominio do modulo, o preco nao
+                    # negativo e o `estado` de um so valor.
+                    "module_cost_ledger_custo_minor_ck",
+                    "module_cost_ledger_custo_usd_ck",
+                    "module_cost_ledger_fx_ck",
+                    "module_cost_ledger_idempotency_key_ck",
+                    "module_cost_ledger_idempotency_uq",
+                    "module_cost_ledger_modulo_ck",
+                    "module_cost_ledger_pkey",
+                    "module_cost_ledger_ref_ck",
+                    "module_cost_ledger_rubrica_ck",
+                    "module_test_prices_estado_ck",
+                    "module_test_prices_modulo_ck",
+                    "module_test_prices_pkey",
+                    "module_test_prices_plano_ck",
+                    "module_test_prices_preco_ck",
                     # ------------------- KAM-059 (revisao do billing)
                     #
                     # **Trinta.** O precario (sete: chave, unicidade por plano e
@@ -4093,6 +4368,28 @@ class TestInventario(ComBase):
                     "subscriptions_plano_ck",
                     "subscriptions_tenant_id_uq",
                     "subscriptions_tenant_uq",
+                    # ---------- KAM-095 (revisao da lista de espera)
+                    #
+                    # **Treze.** A entrada (sete): a chave, o dominio do
+                    # `estado`, a forma do hash, as tentativas ate duas, o
+                    # convite unico, o convite amarrado ao `convidado` (com a
+                    # expiracao depois do envio) e o `concluido_em` amarrado ao
+                    # `concluido`. O limite (seis): a chave, a linha unica, o
+                    # valor nao negativo, o dominio da `origem`, a forma da
+                    # `fundamento` e o acima de 10 so `confirmado`.
+                    "waitlist_entry_concluido_ck",
+                    "waitlist_entry_convite_ck",
+                    "waitlist_entry_convite_hash_ck",
+                    "waitlist_entry_convite_uq",
+                    "waitlist_entry_estado_ck",
+                    "waitlist_entry_pkey",
+                    "waitlist_entry_tentativas_ck",
+                    "onboarding_capacity_confirmacao_ck",
+                    "onboarding_capacity_es_max_por_7d_ck",
+                    "onboarding_capacity_fundamento_ck",
+                    "onboarding_capacity_origem_ck",
+                    "onboarding_capacity_pkey",
+                    "onboarding_capacity_unica_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

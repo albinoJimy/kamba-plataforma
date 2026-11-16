@@ -18,7 +18,7 @@ que aqui se mede:
 * a descida da revisao: a `CHECK` antiga volta, e **recusa** com uma entrada
   de *dataset* activa.
 
-A revisao descobre-se pelo *glob* e nao pelo numero, que e provisorio.
+A revisao descobre-se pelo *glob* e nao pelo numero, que se escreveu provisorio.
 """
 
 from __future__ import annotations
