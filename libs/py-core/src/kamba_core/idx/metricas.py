@@ -1,14 +1,20 @@
-"""As cinco metricas do IDX (KAM-193 e KAM-063, DoD «metricas» do KAM-061).
+"""As seis metricas do IDX (KAM-193, KAM-063 e KAM-194; DoD «metricas» do KAM-061).
 
     idx_query_ms{ramo,modo}           gauge    duracao da ultima pesquisa, em ms
     idx_results_total                 counter  candidatos devolvidos, somados
     idx_mode{modo}                    counter  pesquisas, por modo (`hibrido` ou `lexical`)
     embedding_latency_ms{uso}         gauge    duracao da ultima chamada de embeddings
     embedding_fallback_total{motivo}  counter  consultas que cairam em lexical, por motivo
+    idx_reindexed_total               counter  documentos reescritos pelo ciclo da
+                                               reindexacao (KAM-194), sem etiquetas
 
 As tres primeiras sao do bloco KAM-061 (Detalhes Tecnicos) e do criterio do
-KAM-193; as duas ultimas, do DoD do KAM-063 («metricas `idx_mode`,
-`embedding_latency_ms`, `embedding_fallback_total`»). A
+KAM-193; a quarta e a quinta, do DoD do KAM-063 («metricas `idx_mode`,
+`embedding_latency_ms`, `embedding_fallback_total`»); a sexta, do KAM-194, que
+so o processo do IDX (`kamba_core.idx.processo`) escreve — e o unico a correr o
+`reindexar` em ciclo. Vivem no mesmo registo porque quem serve `/metrics` serve
+o registo inteiro, e cada serie so aparece depois de escrita: o AGR nunca
+publica a sexta. A
 forma e a das outras bibliotecas de metricas desta arvore
 (`kamba_core.ten.metricas`, `kamba_agr.metricas`): numeros em memoria, com um
 trinco, sem dependencias, e **sem porta** — quem serve `/metrics` e o processo
@@ -96,6 +102,10 @@ METRICA_RESULTADOS: Final = "idx_results_total"
 #: Pesquisas, por modo. Etiqueta: `modo`.
 METRICA_MODO: Final = "idx_mode"
 
+#: Documentos reescritos pelo ciclo da reindexacao (KAM-194). Sem etiquetas:
+#: nem *tenant*, nem lote — e o numero que mede o alvo do KAM-062.
+METRICA_REINDEXADOS: Final = "idx_reindexed_total"
+
 #: Os modos do §6.5. `lexical` e o de hoje: sem embedding da pergunta (KAM-063).
 MODOS: Final = ("hibrido", "lexical")
 
@@ -131,6 +141,10 @@ _AJUDA: Final = {
     ),
     METRICA_RESULTADOS: ("counter", "Candidatos devolvidos pela pesquisa no indice."),
     METRICA_MODO: ("counter", "Pesquisas no indice, por modo (hibrido ou lexical)."),
+    METRICA_REINDEXADOS: (
+        "counter",
+        "Documentos do indice reescritos pelo ciclo da reindexacao.",
+    ),
     METRICA_EMBEDDING_LATENCIA: (
         "gauge",
         "Duracao da ultima chamada ao fornecedor de embeddings, em ms, por uso.",
@@ -167,8 +181,20 @@ class MetricasDoIdx:
         self._resultados = 0
         self._por_modo: dict[str, int] = {}
         self._resultados_escritos = False
+        self._reindexados: int | None = None
         self._embedding_latencia: dict[str, float] = {}
         self._quedas: dict[str, int] = {}
+
+    def registar_reindexacao(self, quantos: int) -> None:
+        """Uma volta do ciclo da reindexacao: quantos documentos reescreveu.
+
+        Zero conta — e escreve a serie: um painel que nao a visse nao
+        distinguia «em dia» de «o ciclo nao corre».
+        """
+        if isinstance(quantos, bool) or not isinstance(quantos, int) or quantos < 0:
+            raise ValueError("quantos e um inteiro nao negativo")
+        with self._trinco:
+            self._reindexados = (self._reindexados or 0) + quantos
 
     def registar_embedding(self, *, uso: str, duracao_ms: float) -> None:
         """Uma chamada ao fornecedor de embeddings que respondeu, e quanto levou."""
@@ -215,6 +241,8 @@ class MetricasDoIdx:
             valores.update({f"{METRICA_MODO}:{m}": n for m, n in self._por_modo.items()})
             if self._resultados_escritos:
                 valores[METRICA_RESULTADOS] = self._resultados
+            if self._reindexados is not None:
+                valores[METRICA_REINDEXADOS] = self._reindexados
             valores.update(
                 {
                     f"{METRICA_EMBEDDING_LATENCIA}:{u}": v
@@ -232,6 +260,7 @@ class MetricasDoIdx:
             self._por_modo.clear()
             self._resultados = 0
             self._resultados_escritos = False
+            self._reindexados = None
             self._embedding_latencia.clear()
             self._quedas.clear()
 
@@ -241,6 +270,7 @@ class MetricasDoIdx:
             latencia = dict(self._latencia)
             por_modo = dict(self._por_modo)
             resultados = self._resultados if self._resultados_escritos else None
+            reindexados = self._reindexados
             embedding_latencia = dict(self._embedding_latencia)
             quedas = dict(self._quedas)
         linhas: list[str] = []
@@ -264,6 +294,9 @@ class MetricasDoIdx:
             cabecalho(METRICA_MODO)
             for modo in sorted(por_modo):
                 linhas.append(f'{METRICA_MODO}{{modo="{modo}"}} {por_modo[modo]}')
+        if reindexados is not None:
+            cabecalho(METRICA_REINDEXADOS)
+            linhas.append(f"{METRICA_REINDEXADOS} {reindexados}")
         if embedding_latencia:
             cabecalho(METRICA_EMBEDDING_LATENCIA)
             for uso in sorted(embedding_latencia):

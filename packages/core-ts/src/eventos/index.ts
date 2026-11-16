@@ -18,6 +18,7 @@
  *     accoes.ts              o `once(key, fn)` dos efeitos externos
  *     dlq.ts                 a fila de mortos, e a severidade pelo tipo
  *     reconciliador.ts       a reposição do que a fila perdeu
+ *     metricas_ponte.ts      a métrica da ponte fila → consumidor Python (KAM-194)
  *
  * O **envelope constrói-se em SQL** (`platform.evt_emitir`): não há construtor
  * aqui, de propósito, para não haver duas fontes para a mesma forma. O catálogo
@@ -27,6 +28,9 @@
  * O `filas_bullmq.ts` **não** é reexportado daqui: importa `bullmq`, e quem só
  * quer ler um envelope ou validar um nome de fila não tem de pagar essa
  * dependência. Importa-se pelo caminho (`@kamba/core-ts/eventos/filas_bullmq`).
+ * O mesmo vale para a ponte do KAM-194: a decisão (`ponte.ts`) e a casca
+ * (`ponte_bullmq.ts`) importam `bullmq` e importam-se pelo caminho; daqui sai
+ * só a métrica, que não tem dependência nenhuma.
  */
 
 export {
@@ -234,3 +238,12 @@ export {
   esperar,
   motivoDoErro,
 } from "./publicador.ts";
+
+export {
+  DESFECHOS_DA_PONTE,
+  type DesfechoDaPonte,
+  DesfechoDaPonteInvalidoError,
+  METRICAS_DA_PONTE,
+  METRICA_PONTE,
+  MetricasDaPonte,
+} from "./metricas_ponte.ts";

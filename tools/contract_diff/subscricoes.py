@@ -79,7 +79,16 @@ def ler(raiz: Path) -> list[Subscricao]:
     for caminho in sorted(pasta.glob("*.yaml")):
         documento = kamba_yaml.load_file(caminho)
         relativo = caminho.relative_to(raiz).as_posix()
-        consumer = str(documento.get("consumer") or documento.get("id") or caminho.stem)
+        # O `consumidor` e a chave da quarta forma do registo (KAM-194): um
+        # consumidor que nao e vertical, como o `idx`. Lia-se pelo nome do
+        # ficheiro, que acertava por coincidencia — um `registry/indice.yaml`
+        # com `consumidor: idx` dava `indice`.
+        consumer = str(
+            documento.get("consumer")
+            or documento.get("id")
+            or documento.get("consumidor")
+            or caminho.stem
+        )
         # A forma da tabela `evt_subscricoes` (`docs/tecnica/06` §6.1), que este
         # ficheiro escreveu por antecipacao, e a forma da **vertical**
         # (`docs/tecnica/02` §5.1), que e a que existe no disco. Ver a docstring:

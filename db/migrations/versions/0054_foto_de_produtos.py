@@ -70,11 +70,12 @@ no STO e expiram pelo `retain_until`; a linha sai com a relacao do tenant
 
 ## A cadeia
 
-`0055` sobre a `0051`, que e a cabeca da `main` quando este ramo nasceu: o
-numero e **provisorio** e e o da integracao do lote, que o da por extenso (a
-`0052`, a `0053` e a `0054` sao de tres PR abertos). Renumerar e mudar o nome
-do ficheiro, o `revision` e o `down_revision`, e mais nada: os ensaios
-encontram esta revisao pelo *glob* `*_foto_de_produtos.py`.
+`0054` sobre a `0053` (KAM-198), o numero que a integracao do lote lhe deu: o
+ramo nasceu como `0055` sobre a `0051`, e a `0052` (KAM-194) e a `0053` fundiram
+primeiro. Renumerar outra vez e mudar o nome do ficheiro, o `revision`, o
+`down_revision` e as duas entradas desta revisao em `ci/canon-lint.yaml`
+(`dominios_historicos`), que levam o caminho: os ensaios encontram-na pelo
+*glob* `*_foto_de_produtos.py`.
 
 ## O `downgrade`
 
@@ -91,8 +92,8 @@ from alembic import op
 
 import rls
 
-revision = "0055"
-down_revision = "0051"
+revision = "0054"
+down_revision = "0053"
 branch_labels = None
 depends_on = None
 

@@ -11,7 +11,7 @@ as respostas a identificadores de B sao indistinguiveis entre si.
 
 ```text
 14 rotas levam identificadores   o IDOR e possivel, e e o que se ataca
-16 rotas sao sonda ou metricas   nao recebem identificador nenhum; o que se
+18 rotas sao sonda ou metricas   nao recebem identificador nenhum; o que se
                                  prova e que a resposta nao leva canario nem
                                  `tenant_id`, e que o oraculo morderia se levasse
 ```
@@ -43,6 +43,12 @@ tenant e o dia em que esta bateria tem de ficar vermelha.
   `com-interna` e a excepcao**: os duplos substituem a porta do COM, pelo que
   ele corre sem base nenhuma — o que se mede nele e a construcao do `ctx`, e nao
   a filtragem.
+
+* **As tres rotas do processo do IDX** (KAM-194) sao a excepcao a frase
+  seguinte: um `BaseHTTPRequestHandler` nao tem chamavel para conduzir em
+  processo, e o caso (`_idx.py`) levanta o servidor do proprio processo em
+  `127.0.0.1:0`. Corre em `db/tests_isolamento/`, onde estao o oraculo e os
+  dois tenants.
 
 Nenhuma das duas metades e um servidor levantado: sao as aplicacoes em processo.
 Isso nao e so velocidade — e o que torna o caso determinista e o que permite
@@ -140,6 +146,11 @@ SONDAS_TS = (
     "rota:worker-canal:consumidor:criarApp:GET:/metrics",
     "rota:worker-canal:entrada:criarApp:GET:/healthz",
     "rota:worker-canal:entrada:criarApp:GET:/metrics",
+    # KAM-194: a ponte fila -> consumidor Python. O `/metrics` serve o
+    # `evt_ponte_total{outcome}`, sem `consumer` nem tenant; e aqui que um
+    # rotulo por tenant ficaria vermelho.
+    "rota:worker-canal:ponte:criarApp:GET:/healthz",
+    "rota:worker-canal:ponte:criarApp:GET:/metrics",
     "rota:worker-canal:publicador:criarApp:GET:/healthz",
     "rota:worker-canal:publicador:criarApp:GET:/metrics",
 )
@@ -382,6 +393,58 @@ registar_caso(
     fn=_conduzir_metricas_do_agr,
     precisa="agr",
     origens=("corpo", "cabecalhos"),
+)
+
+# ------------------------------------------------- o processo do IDX (KAM-194)
+#
+# Tres rotas de um `BaseHTTPRequestHandler` da biblioteca padrao, em `libs/`, que
+# a enumeracao passou a ver com o `_rotas_python_stdlib`. O ataque esta em
+# `_idx.py`, que levanta o servidor do proprio processo numa porta efemera.
+# Correm em `db/tests_isolamento/` (`precisa="postgres"`) porque e la que o
+# contexto tem os dois tenants e o oraculo; a base em si nao e tocada.
+
+#: A rota de entrega. Credencial da instancia; o tenant vem do envelope.
+ROTA_INTERNA_DO_IDX = (
+    "rota:py-core:kamba_core/idx/processo:tratador:POST:/internal/event",
+)
+
+#: A sonda e as metricas do IDX. Sem identificadores a entrada.
+SONDAS_DO_IDX = (
+    "rota:py-core:kamba_core/idx/processo:tratador:GET:/healthz",
+    "rota:py-core:kamba_core/idx/processo:tratador:GET:/metrics",
+)
+
+
+def _conduzir_idx(ctx) -> list[str]:  # noqa: ANN001
+    from ._idx import atacar_rota_interna  # noqa: PLC0415
+
+    return atacar_rota_interna(ctx)
+
+
+def _conduzir_sondas_do_idx(ctx) -> list[str]:  # noqa: ANN001
+    from ._idx import atacar_sonda_e_metricas  # noqa: PLC0415
+
+    return atacar_sonda_e_metricas(ctx)
+
+
+registar_caso(
+    id="X-01/idx/rota-interna",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTA_INTERNA_DO_IDX,
+    fn=_conduzir_idx,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos", "logs"),
+)
+
+registar_caso(
+    id="X-01/idx/sondas",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=SONDAS_DO_IDX,
+    fn=_conduzir_sondas_do_idx,
+    precisa="postgres",
+    origens=("corpo", "cabecalhos", "logs"),
 )
 
 registar_caso(
@@ -1044,6 +1107,71 @@ registar_caso(
     ),
     precisa="node",
     origens=("corpo", "cabecalhos", "erro"),
+)
+
+# ------------------------------------- o processo de lote do onboarding (KAM-198)
+#
+# As duas rotas do `services/onboarding-web/src/lote/processo.ts`: a sonda e o
+# `/metrics` da fila de revisao. **Caso real, e nao sonda vazia**: o condutor
+# monta o `CicloDaFila` com dois casos na fila — um de A e um de B, e o de B com
+# o canario no motivo e o `tenant_id` de B —, corre uma volta, e so depois pede
+# as rotas a `criarApp` com as metricas **dessa** volta. E o caminho de
+# producao menos o SQL, o servico (um duplo que nao drena nem alerta) e a casca
+# do `lote.ts`: o que se mede e que o `/metrics` serve o que o ciclo recalculou,
+# e que nada de B o atravessa. A casca mede-se no gate 8 (`tests_lote`).
+#
+# A afirmacao sobre o `/metrics` e a do `OBS-I` (`ops/metricas/catalogo.yaml`):
+# o corpo nao leva canario, `tenant_id` nem identificador de caso, e as
+# etiquetas sao dominios fechados. O oraculo varre o corpo; as marcas dizem que
+# havia o que encontrar (`canario-de-b=presente`), que a volta contou os dois
+# casos (`casos=contados`, e entao o zero de fugas nao e uma exposicao vazia) e
+# que as quatro series do dicionario §3.61 la estao (`series=4`).
+ROTAS_DO_LOTE = (
+    "rota:onboarding-web:lote/processo:criarApp:GET:/healthz",
+    "rota:onboarding-web:lote/processo:criarApp:GET:/metrics",
+)
+
+ITEM_DAS_METRICAS_DO_LOTE = "rota:onboarding-web:lote/processo:criarApp:GET:/metrics"
+
+
+def _afirmacoes_do_lote(item: str, entradas: list[dict]) -> list[str]:
+    """As medicoes do `/metrics` que vem na `nota`, e que o oraculo nao ve."""
+    if item != ITEM_DAS_METRICAS_DO_LOTE:
+        return []
+    achados: list[str] = []
+    for chave, esperado, porque in (
+        (
+            "canario-de-b",
+            "presente",
+            "Sem o canario de B no caso de B, o zero do oraculo prova que o "
+            "varrimento nao encontra o que nunca la esteve.",
+        ),
+        (
+            "casos",
+            "contados",
+            "A volta do ciclo nao contou os dois casos na serie `review_casos`: "
+            "o `/metrics` nao serviu as metricas que o ciclo recalculou, e o zero "
+            "de fugas mediu uma exposicao vazia.",
+        ),
+        (
+            "series",
+            "4",
+            "As quatro series do dicionario §3.61 nao estao todas no `/metrics` "
+            "(criterio 3 do KAM-198).",
+        ),
+    ):
+        achados.extend(_exigir_marca(item, entradas, chave, esperado, porque))
+    return achados
+
+
+registar_caso(
+    id="X-01/ts/lote",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTAS_DO_LOTE,
+    fn=_caso_ts("lote", ROTAS_DO_LOTE, com_idor=False, afirmacoes=_afirmacoes_do_lote),
+    precisa="node",
+    origens=("corpo", "cabecalhos"),
 )
 
 registar_caso(

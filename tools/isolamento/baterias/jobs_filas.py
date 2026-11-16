@@ -22,6 +22,7 @@ job:agr-inbound   `FILA_AGR`      o turno do AGR; o job chama-se `turno`
 job:wa-inbound    `FILA_ENTRADA`  a entrada do canal; o job chama-se `wa`
 job:…/filas_bullmq.ts#nome      `new Queue(nome)` — as filas de evento
 job:…/trabalhador_bullmq.ts#fila `new Worker(fila)` — idem, do lado do consumo
+job:…/ponte_bullmq.ts#fila      `new Worker(fila)` — a ponte para o Python (KAM-194)
 ```
 
 ## O que se prova numa fila, e nao e o que se prova numa rota
@@ -62,11 +63,22 @@ RAIZ = Path(__file__).resolve().parents[3]
 #: As duas filas com nome literal.
 FILAS_NOMEADAS = ("job:agr-inbound", "job:wa-inbound")
 
-#: Os dois sitios em que o nome e calculado: as filas de evento.
+#: Os sitios em que o nome e calculado: as filas de evento. O terceiro e o
+#: `new Worker(fila)` da ponte fila -> consumidor Python (KAM-194): consome as
+#: mesmas particoes `evt.<consumer>.p<n>`, com o nome derivado pelo mesmo
+#: `particao.ts` (`filasDe`, chamado do `filasDaPonte`) — e isso que o caso
+#: verifica, alem da derivacao.
 FILAS_DE_EVENTO = (
     "job:packages/core-ts/src/eventos/filas_bullmq.ts#nome",
     "job:packages/core-ts/src/eventos/trabalhador_bullmq.ts#fila",
+    "job:packages/core-ts/src/eventos/ponte_bullmq.ts#fila",
 )
+
+#: Os modulos que dao os nomes de fila a ponte. Um `filasDaPonte` que deixasse
+#: de chamar o `filasDe` do `particao.ts` construia os nomes a mao — e um nome
+#: construido a mao e uma fila que o publicador nao enche.
+PONTE = "packages/core-ts/src/eventos/ponte.ts"
+PONTE_BULLMQ = "packages/core-ts/src/eventos/ponte_bullmq.ts"
 
 #: Fila -> `(contrato, constante do job, campo que o corpo tem de levar,
 #: campo que o corpo **nao** pode levar)`.
@@ -161,6 +173,32 @@ def _de_evento(ctx) -> list[str]:  # noqa: ANN001
             "32 filas de evento ficam sem cobertura nenhuma."
         )
         return achados
+
+    ponte = ctx.raiz / PONTE
+    ponte_bullmq = ctx.raiz / PONTE_BULLMQ
+    if not ponte.is_file() or not ponte_bullmq.is_file():
+        achados.append(
+            f"job (evento): {PONTE} ou {PONTE_BULLMQ} nao existe. O item da "
+            "ponte ficou a apontar para o vazio."
+        )
+    else:
+        texto_da_ponte = ponte.read_text(encoding="utf-8")
+        importa_filas_de = re.search(
+            r"import\s*\{[^}]*\bfilasDe\b[^}]*\}\s*from\s*[\"']\./particao",
+            texto_da_ponte,
+        )
+        if not importa_filas_de:
+            achados.append(
+                f"job (evento): {PONTE} nao importa o `filasDe` do `particao.ts`. "
+                "A ponte construia os nomes das filas a mao, e um nome que nao e "
+                "o do publicador e uma fila que ninguem enche."
+            )
+        if "filasDaPonte(" not in ponte_bullmq.read_text(encoding="utf-8"):
+            achados.append(
+                f"job (evento): {PONTE_BULLMQ} nao deriva as filas pelo "
+                "`filasDaPonte`. O `new Worker(fila)` deixou de consumir as "
+                "particoes que o caso cobre."
+            )
 
     esperados = sorted({item.id.split(":")[1] for item in consumidores(ctx.raiz)})
     if not esperados:

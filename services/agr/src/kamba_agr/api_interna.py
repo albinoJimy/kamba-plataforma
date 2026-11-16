@@ -578,9 +578,17 @@ def rotas(
         # dentro (criterio 4). Usa-se este porque a vaga tem de ser tomada antes
         # de se ler o envelope — e a leitura ja e trabalho.
         try:
+            # **Um envelope nulo entra com a reserva** (KAM-194). E o *job* do
+            # reconciliador, que a casca passa sem envelope: o `tipo` so se le
+            # do arquivo, la dentro, e sem ele um `payment.*` reposto — que e
+            # precisamente um pagamento que se perdeu — entrava na vaga normal
+            # e esperava atras de conversas. O risco e o da nota de
+            # `_tipo_da_entrega`: **uma** vaga a mais num *tenant*, para as
+            # reposicoes, que sao raras. Achado da revisao adversarial.
             async with admissao.vaga_de(
                 entrega.tenant_id,
-                prioritario=eventos.e_prioritario(_tipo_da_entrega(entrega)),
+                prioritario=entrega.envelope is None
+                or eventos.e_prioritario(_tipo_da_entrega(entrega)),
             ):
                 desfecho = await eventos.entregar(corpo)
         except TectoDoTenantCheioError:

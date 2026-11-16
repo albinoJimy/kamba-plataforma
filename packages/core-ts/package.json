@@ -47,6 +47,14 @@
       "types": "./dist/eventos/trabalhador_bullmq.d.ts",
       "default": "./dist/eventos/trabalhador_bullmq.js"
     },
+    "./eventos/ponte": {
+      "types": "./dist/eventos/ponte.d.ts",
+      "default": "./dist/eventos/ponte.js"
+    },
+    "./eventos/ponte_bullmq": {
+      "types": "./dist/eventos/ponte_bullmq.d.ts",
+      "default": "./dist/eventos/ponte_bullmq.js"
+    },
     "./ten": {
       "types": "./dist/ten/index.d.ts",
       "default": "./dist/ten/index.js"
