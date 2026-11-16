@@ -1389,6 +1389,25 @@ def _ingestao_do_catalogo(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _trabalho_de_imagem(cursor, tenant_id: str, canario: str) -> None:
+    """Um trabalho da Foto de produtos (KAM-120). O canario vai na `idempotency_key`.
+
+    So as colunas do `GRANT INSERT` do `kamba_app`, pela razao da ingestao do
+    Catalogo AI. A `origem_ref` leva o tenant da linha, que e o que a
+    `image_jobs_origem_ref_ck` exige; a `operacao` e o `provider` respeitam os
+    seus `CHECK`, para que a recusa medida seja a da politica.
+
+    Semeia o administrador: o `kamba_batch` nao tem privilegio nenhum nesta
+    tabela, e o `kamba_app` nao tem `DELETE`, com que estas receitas limpam.
+    """
+    cursor.execute(
+        "INSERT INTO platform.image_jobs "
+        "(tenant_id, origem_ref, operacao, provider, idempotency_key) "
+        "VALUES (%s, 't/' || %s || '/catalogo/semente', 'cutout', 'semente', %s)",
+        (tenant_id, tenant_id, canario),
+    )
+
+
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
@@ -1489,6 +1508,14 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # olha para o `estado`, para as perguntas e para as linhas finais).
     ("platform", "catalog_ingestions"): Receita(
         _ingestao_do_catalogo, "media_id_meta", "sku", "sku-alterado",
+        semeador="admin",
+    ),
+    # KAM-120: o trabalho de imagem, pela razao da ingestao — o trabalhador
+    # corre como `kamba_app`, que insere e actualiza por coluna. A coluna
+    # alteravel e o `provider`, que esta no `GRANT UPDATE`, cuja forma o valor
+    # respeita e que o *trigger* deixa mudar num trabalho `pendente`.
+    ("platform", "image_jobs"): Receita(
+        _trabalho_de_imagem, "idempotency_key", "provider", "fornecedor_alterado",
         semeador="admin",
     ),
     # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
@@ -2251,6 +2278,9 @@ ORDEM = (
     # KAM-049: a ingestao so tem FK para `tenants`, e ninguem a aponta. A
     # posicao e indiferente e a escolhida e a dos numeros dos tickets.
     ("platform", "catalog_ingestions"),
+    # KAM-120: o trabalho de imagem so tem FK para `tenants`, e ninguem o
+    # aponta. A posicao e indiferente pela razao da ingestao.
+    ("platform", "image_jobs"),
 )
 
 #: As identidades com que as receitas semeiam.

@@ -6,7 +6,7 @@
 aqui para o resto — cada regra de validacao com o seu caso negativo —, porque
 nenhuma delas se pode medir sobre um ficheiro conforme.
 
-**E a paridade com `kamba_core.destinos` prova-se, e tem de ser.** As treze
+**E a paridade com `kamba_core.destinos` prova-se, e tem de ser.** As catorze
 finalidades estao escritas duas vezes: aqui, porque `tools/` corre antes de
 qualquer instalacao e nao depende de `libs/`, e la, porque e o codigo que decide
 com elas. Duas copias sem teste divergem no dia em que uma delas mudar.
@@ -262,7 +262,7 @@ class TestValidacao(unittest.TestCase):
 
 
 class TestDominios(unittest.TestCase):
-    def test_as_treze_finalidades_sao_as_do_nucleo(self) -> None:
+    def test_as_finalidades_sao_as_do_nucleo(self) -> None:
         """A paridade entre `tools/` e `libs/`, nos dois sentidos.
 
         `tools/` nao importa `libs/` — as ferramentas correm antes de qualquer
@@ -280,8 +280,8 @@ class TestDominios(unittest.TestCase):
         self.assertEqual(set(FINALIDADES), set(FINALIDADES_DO_NUCLEO))
         self.assertEqual(set(ESTADOS), set(ESTADOS_DO_NUCLEO))
 
-    def test_sao_treze_e_estao_ordenadas(self) -> None:
-        self.assertEqual(len(FINALIDADES), 13)
+    def test_sao_catorze_e_estao_ordenadas(self) -> None:
+        self.assertEqual(len(FINALIDADES), 14)
         self.assertEqual(list(FINALIDADES), sorted(FINALIDADES))
 
     def test_o_caminho_do_inventario_e_o_que_o_canon_declara(self) -> None:

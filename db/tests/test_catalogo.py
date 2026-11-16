@@ -641,6 +641,11 @@ class TestConvencoes(ComBase):
                 # indireccao a mais.
                 ("handoffs", "handoff_id", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
+                # KAM-120 (revisao da Foto de produtos): o trabalho de imagem,
+                # `uuid` gerado pela regra geral, com o nome da coluna do bloco
+                # (`image_job_id`) e nao `id`. Entre as chaves HMAC e a
+                # deduplicacao de entrada («hm» < «im» < «in»).
+                ("image_jobs", "image_job_id", "uuid", "gen_random_uuid()"),
                 # KAM-013: `uuid` aleatorio, pela razao escrita no teste da
                 # coluna de identidade. A chave de deduplicacao **nao** e esta:
                 # e o `UNIQUE (kind, event_key)`, que e uma restricao propria.
@@ -1301,7 +1306,12 @@ class TestConvencoes(ComBase):
              # reentrega do mesmo `media_id` da Meta), o `phash_idx` (a
              # pergunta «e o mesmo produto?») e o `fila_idx` (a fila humana).
              # **Com** FK para `tenants`: uma foto chega de um tenant ja activo.
-             "catalog_ingestions"},
+             "catalog_ingestions",
+             # KAM-120 (revisao da Foto de produtos). Os dois comecam pelo
+             # `tenant_id`: a unicidade `image_jobs_idempotency_uq` (o pedido
+             # repetido) e o `image_jobs_bloqueados_idx` (a fila humana). **Com**
+             # FK para `tenants`, pela razao da ingestao.
+             "image_jobs"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1873,7 +1883,12 @@ class TestConvencoes(ComBase):
         # composta porque nao aponta para nada de um tenant: a tabela nao tem
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
-        self.assertEqual(len(linhas), 83)
+        #
+        # **84 e nao 83** desde a revisao da Foto de produtos (KAM-120): **uma**,
+        # a `image_jobs_tenant_fk`, simples para `tenants(id)`, pela razao da de
+        # cima — as duas chaves do STO (`origem_ref`, `versao_ref`) prendem-se ao
+        # tenant da linha por `CHECK` e nao por FK.
+        self.assertEqual(len(linhas), 84)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

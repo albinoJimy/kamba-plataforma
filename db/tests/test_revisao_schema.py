@@ -53,7 +53,15 @@ CASO = "platform.review_case"
 LOG = "platform.review_decision_log"
 #: O `RAISE` do *trigger* de imutabilidade (`object_not_in_prerequisite_state`).
 RECUSADO_PELO_TRIGGER = "55000"
-AGORA = datetime(2026, 11, 13, 9, 0, tzinfo=timezone.utc)
+#: **Relativo ao relogio, e nao uma data escrita.** Os prazos dos casos
+#: (`sla_due_at = AGORA + 24 h`) sao comparados pela vista `v_review_sla` com o
+#: instante da decisao, que o `decidir` grava com o `now()` da base. Com uma
+#: data fixa (era 2026-11-13 09:00 UTC), o caso «a tempo» passou a ser decidido
+#: depois do prazo a partir de 2026-11-14, e o gate 8 da `main` ficou vermelho
+#: para todos (corrigido no PR do KAM-120). Uma hora atras, para que os prazos
+#: em `AGORA + n h` fiquem no futuro e os de `AGORA - n` no passado. Nenhum
+#: ensaio deste modulo depende do dia da semana nem do mes.
+AGORA = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=1)
 
 
 def _lista_ts(nome: str) -> tuple[str, ...]:
