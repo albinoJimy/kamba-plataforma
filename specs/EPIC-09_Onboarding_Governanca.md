@@ -69,6 +69,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | KAM-196 |
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | KAM-092 |
+| KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | KAM-096, KAM-198 |
 
 ---
 
@@ -1473,7 +1474,7 @@ Testes: unit, integração, concorrência, isolamento e adversarial (bot, convit
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-054, KAM-087, KAM-009, KAM-044, KAM-055, KAM-097 |
-| Bloqueia | — |
+| Bloqueia | KAM-203 |
 | Responsável sugerido | Engenheiro de Pagamentos com Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 «Controlo de risco compensatório», §9, §8.3), `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` (M-2, M-3), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.1), ADR-013, ADR-017, ADR-019 |
 
@@ -1541,8 +1542,7 @@ tranca consultiva da transacção, e a corrida mede-se com duas ligações reais
 **O que este ticket não entrega, dito uma vez:** nenhum processo corre o recálculo — nem todos os dias,
 nem em `order.delivered`, nem na aprovação do tenant. O `ServicoDeConfianca.recalcular` existe, é
 idempotente e corre como `kamba_batch`, mas não há agendador nem consumidor que o chame, e o KAM-200 diz por
-escrito que o tecto não é dele. O credor fica por nomear: é um ticket novo, cujo número só o orquestrador
-dá. Até lá, a sanção do KAM-097 manda no tecto **só na guarda** — o `ManualProvider` lê o
+escrito que o tecto não é dele. O credor é o **KAM-203**, aberto neste PR. Até lá, a sanção do KAM-097 manda no tecto **só na guarda** — o `ManualProvider` lê o
 `tectoNoNivelZero` em cada cobrança —, e **não na base**, que só lê a `trust_level`; e nenhum código de
 `src` constrói ainda o `ManualProvider` com a guarda, nem os adaptadores do ProxyPay a chamam. A disputa
 aceite, o sinal alto e a própria sanção só chegam à barreira quando o recálculo correr.
@@ -1550,10 +1550,10 @@ aceite, o sinal alto e a própria sanção só chegam à barreira quando o recá
 | Critério | Estado | Evidência |
 |---|---|---|
 | 1. Níveis 0/1/2 (50 000 / 150 000 / 500 000 Kz em unidade menor), o 2 não atribuível no Piloto; valores em `entitlements.limites.tecto_pedido_minor` e configuráveis | **parcial** | **Medido:** os três níveis em `trust_level.nivel` (`CHECK` 0, 1, 2) com o 2 recusado pela base (`trust_level_piloto_ck`, `test_o_nivel_2_existe_e_nao_se_atribui_no_piloto`) e pela configuração (`validarConfiguracao`); os três tectos em unidade menor contra o `minorDeInteiroKz` (`os tres niveis do criterio 1, em unidade menor`). Configuráveis pela `CONFIGURACAO_DA_CONFIANCA` versionada, e uma recalibração muda o tecto sem mudar o nível nem o `desde`. **Não está em `entitlements.limites`**: o `registry/plans.yaml` já decidiu que o tecto de confiança sobe por histórico e não por plano (o do plano é o `valor_max_pedido_minor`), e o tecto vive na `trust_level.tecto_pedido_minor`. A leitura diverge da letra e devolve-se a quem escreveu o critério |
-| 2. Tenant novo nasce no nível 0 com `kyc_check.resultado = k1_ok`; sem K1 não há nível (nem produção) | **parcial** | **Medido:** o `trust_level_guardar` recusa o nascimento sem o K1 completo — o mesmo predicado do gate `kyc` do KAM-092, a `aprovacao_em_falta` (`TestNascimento`: sem caso, com o último lote por decidir, e com o K1 a nascer); sem nível, nenhuma cobrança de encomenda entra (`test_sem_nivel_nenhuma_cobranca_de_encomenda_entra`); o `decidirNivel` dá o nível 0 com `k1_completo` e nada sem K1 (`sem K1 nao ha nivel; com K1 nasce no 0…`). **Falta quem o chame na aprovação**: o processo (credor por nomear) |
+| 2. Tenant novo nasce no nível 0 com `kyc_check.resultado = k1_ok`; sem K1 não há nível (nem produção) | **parcial** | **Medido:** o `trust_level_guardar` recusa o nascimento sem o K1 completo — o mesmo predicado do gate `kyc` do KAM-092, a `aprovacao_em_falta` (`TestNascimento`: sem caso, com o último lote por decidir, e com o K1 a nascer); sem nível, nenhuma cobrança de encomenda entra (`test_sem_nivel_nenhuma_cobranca_de_encomenda_entra`); o `decidirNivel` dá o nível 0 com `k1_completo` e nada sem K1 (`sem K1 nao ha nivel; com K1 nasce no 0…`). **Falta quem o chame na aprovação**: o processo (**KAM-203**) |
 | 3. Conta para subir: entregue com confirmação do cliente, sem disputa na janela de 14 dias, ≥ 10 000 Kz e comprador `independente` pelo KAM-097; sem a marca não conta | **parcial** | **Medido:** `avaliarPedido`, com as fronteiras dos dois lados (o mínimo inclusivo, os 14 dias exactos, a janela móvel), e a marca do KAM-097 lida pelo `RepositorioDeTrustSql.independencia` — `por_avaliar` não conta (adversarial (e)). Os pedidos lêem-se pelo `SQL_PEDIDOS_ENTREGUES` contra encomendas levadas a cada estado pelo grafo, com o comprador canónico e a disputa na janela (`test_entregues_do_tenant_com_o_comprador_canonico_e_a_disputa_na_janela`), e uma disputa fora dela não marca (`test_uma_disputa_depois_da_janela_nao_marca_o_pedido`). **O que não está garantido é a origem do facto**: o `entrega_confirmada_por = 'cliente'` e o `entregue_at` escreve-os quem transita a encomenda (`../services/com/src/orders/transition.ts` aceita qualquer `entregaConfirmadaPor`, e o `kamba_app` tem `UPDATE` nas duas colunas), pelo que um dono que marque `cliente` nas suas encomendas passa esta regra. Amarrar o `cliente` ao tipo de actor e o `entregue_at` ao instante da transição é do COM (KAM-044), com credor por nomear |
-| 4. Subida ao nível 1 com ≥ 5 pedidos elegíveis em 30 dias de ≥ 3 compradores distintos; recálculo diário e em `order.delivered` | **parcial** | **Medido:** `contar` e `cumpreSubida` (5 de 3 sobe, 5 de 2 não, a rajada um por comprador e dia de Luanda) e o ciclo `0 → 1` sobre o repositório em memória. **O recálculo diário e em `order.delivered` não existe**: credor por nomear |
-| 5. Descida automática ao 0 por disputa aceite, sinal alto ou sanção; uma descida não se reverte sem nova elegibilidade completa | **parcial** | **Medido:** o `decidirNivel` desce por cada uma das três (`o sinal alto e a sancao descem do 1…`, o ciclo com a disputa), e os pedidos só contam depois do marco — o início do nível ou o último facto negativo (`uma descida nao se reverte sem nova elegibilidade completa`); os dois factos lêem-se pelo `SQL_FACTOS_NEGATIVOS`, o sinal pelo `criado_at`. A sanção já baixa o tecto na guarda antes do recálculo. **«Automática» pede o processo**: credor por nomear |
+| 4. Subida ao nível 1 com ≥ 5 pedidos elegíveis em 30 dias de ≥ 3 compradores distintos; recálculo diário e em `order.delivered` | **parcial** | **Medido:** `contar` e `cumpreSubida` (5 de 3 sobe, 5 de 2 não, a rajada um por comprador e dia de Luanda) e o ciclo `0 → 1` sobre o repositório em memória. **O recálculo diário e em `order.delivered` não existe**: **KAM-203** |
+| 5. Descida automática ao 0 por disputa aceite, sinal alto ou sanção; uma descida não se reverte sem nova elegibilidade completa | **parcial** | **Medido:** o `decidirNivel` desce por cada uma das três (`o sinal alto e a sancao descem do 1…`, o ciclo com a disputa), e os pedidos só contam depois do marco — o início do nível ou o último facto negativo (`uma descida nao se reverte sem nova elegibilidade completa`); os dois factos lêem-se pelo `SQL_FACTOS_NEGATIVOS`, o sinal pelo `criado_at`. A sanção já baixa o tecto na guarda antes do recálculo. **«Automática» pede o processo**: **KAM-203** |
 | 6. `assertWithinTrustCeiling` chamado pelo `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)`; acima recusa com mensagem fixa sem números | **marcada** | A guarda é `GuardaDeConfianca` (a porta `GuardaDoTecto`, obrigatória no `ManualProvider`), chamada depois do `manual_max_minor` (`o ManualProvider chama a guarda: efectivo = min(...)`); `tectoEfectivoManual` mede o mínimo; a `MENSAGEM_ACIMA_DO_TECTO` não tem dígitos (`a mensagem e fixa e nao tem numeros`). Exposta pela porta `GuardaDoTecto`: os adaptadores do ProxyPay ainda não a chamam, e para eles a barreira é o *trigger* da cobrança, que vale para qualquer facilitador (`test_o_tecto_e_do_pedido_e_nao_da_cobranca`) |
 | 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
 | 8. Tabela de limites com `origem = proposta` e `calibrado_em`; relatório do Piloto compara o previsto com o observado | **parcial** | **Medido:** cada valor da configuração guarda `origem` e `calibradoEm`, e a `tabelaDeLimites` devolve as oito linhas, todas `proposta` (`a tabela de limites diz a origem e o calibrado_em de cada valor`). **O relatório não existe**: precisa de dados do Piloto. Credor: **Responsável de Produto** |
@@ -2692,7 +2692,7 @@ Testes: unidade, integração, isolamento e adversarial.
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-196 |
-| Bloqueia | KAM-092 |
+| Bloqueia | KAM-092, KAM-203 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com SRE |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-089, KAM-196 e KAM-091), `02_Dicionario_de_Dados_Canonico.md` (§3.61), `../docs/revisao.md`, `../docs/observabilidade.md` |
 
@@ -2874,6 +2874,76 @@ Testes: integração, isolamento e o anel de tenants.
 
 ---
 
+## KAM-203 — Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-096, KAM-198 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Engenheiro de Pagamentos |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-096, KAM-097 e KAM-198), `02_Dicionario_de_Dados_Canonico.md` (§3.72), `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1, §9) |
+
+### Contexto
+
+O KAM-096 pôs na base o nível de confiança de cada tenant (`platform.trust_level`) e a barreira que recusa
+uma cobrança de encomenda acima do tecto, e em TypeScript o recálculo que decide subir ou descer
+(`ServicoDeConfianca.recalcular`, `../packages/core-ts/src/confianca/`), idempotente e a correr como
+`kamba_batch`. **Ninguém o chama ainda.** Sem isso, um tenant aprovado não nasce no nível 0 — e sem nível
+nenhuma cobrança de encomenda entra —, nenhum sobe por histórico, e uma disputa aceite ou um sinal alto não
+descem o tecto na base (a sanção do KAM-097 só pesa na guarda do `ManualProvider`). Este ticket é o credor
+das caixas 2, 4 e 5 do KAM-096, e nasce no PR que as devolve. O KAM-200 diz por escrito que o tecto não é
+dele.
+
+### Objectivo
+
+O recálculo da confiança a correr em `prod`: todos os dias para cada tenant activo, em cada
+`order.delivered` e na aprovação do tenant, com a sanção do KAM-097 a chegar à base sem esperar pelo dia
+seguinte.
+
+### Critérios de Aceitação
+
+- [ ] O processo de lote do onboarding (KAM-198) corre o `recalcular` uma vez por dia para cada tenant com caso aprovado, numa transacção por tenant em `READ COMMITTED`, como `kamba_batch`; cada corrida fica no `audit_log` (`batch.run`).
+- [ ] Um consumidor do `order.delivered`, declarado em `platform.evt_subscricoes`, corre o `recalcular` do tenant do evento, idempotente na reentrega.
+- [ ] A aprovação do tenant (o `tenant.approved` do KAM-092) corre o `recalcular`, e o tenant nasce no nível 0 antes da primeira cobrança.
+- [ ] Uma sanção `limitacao` ou acima gravada pelo KAM-097 desce o nível na base na mesma transacção, ou o recálculo corre logo a seguir, sem esperar pela volta diária.
+- [ ] O `recalcular` recebe o nome do consumidor de T&S que marca a independência (`events_consumed.consumer`), lido da configuração do processo e não escrito à mão.
+- [ ] Métricas do recálculo (tenants recalculados, subidas e descidas por motivo), sem `tenant_id` nas etiquetas (`OBS-I`).
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (lote), PAY (o tecto), EVT (o consumidor), T&S (a sanção).
+- **Fora deste ticket:** a regra de elegibilidade e a barreira (KAM-096); as sanções e a marca de independência (KAM-097); o consumidor de T&S em si (KAM-200).
+
+### Testes Requeridos
+
+- Integração: o processo contra o PostgreSQL do *gate* 8 sobe um tenant com cinco pedidos elegíveis e desce-o com uma disputa aceite; reexecutar não escreve outra linha no `audit_log`.
+- O `order.delivered` repetido dá um recálculo; o `tenant.approved` deixa o tenant no nível 0.
+- Isolamento: o recálculo de A nunca escreve o nível de B.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 2, 4 e 5 do KAM-096 revistas com a evidência.
+- [ ] Métricas e alertas nascem com o processo; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-203 da KAMBÁ (recálculo da confiança gradual a correr).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-096, KAM-097, KAM-198 e KAM-203), o dicionário §3.72,
+packages/core-ts/src/confianca/ e services/onboarding-web/src/lote/.
+Objectivo: o recalcular diário no processo de lote, num consumidor do order.delivered e na aprovação;
+a sanção a chegar à base sem esperar pelo dia seguinte.
+Regras: uma transacção por tenant, kamba_batch, READ COMMITTED; idempotente; sem tenant_id nas métricas.
+Testes: integração, reentrega, isolamento.
+```
+
+---
+
 ## KAM-201 — Portas do tenant ligadas: aprovação, amostragem e cache do CHR
 
 | Campo | Valor |
@@ -2995,4 +3065,4 @@ Testes: integração, a cache do CHR e isolamento.
 | 1.19 | Novembro 2026 | **KAM-097**: secção de verificação no bloco (com a revisão adversarial), e o **KAM-200** acrescentado, no mesmo PR, como credor das caixas que o KAM-097 deixa parciais — o processo do consumidor e das varreduras, as métricas e os alertas de T&S, e as quatro fontes de sinal que faltam. Linhas «Recebido do KAM-097» nos blocos KAM-092, KAM-096 e KAM-190. O EPIC-09 passa a **23** tickets. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | KAM-092: entram as duas secções de verificação do bloco dos eventos do tenant — **oito** critérios (cinco satisfeitos, três parciais: a idempotência pela letra e a DLQ, os sub-estados só pela porta e a cache do CHR) e **seis** linhas de DoD (quatro marcadas). E o **KAM-201**, acrescentado no mesmo PR como credor das caixas 4, 6 e 7: ligar ao TypeScript as portas da base, o `amostrar` e a cache do CHR. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | KAM-095: entram as duas secções de verificação do bloco da lista de espera — **seis** critérios satisfeitos e **três** parciais (o aviso real por SMS, credor KAM-116; as métricas servidas, credor KAM-092), e **três** linhas da DoD de cinco. Entregue: o módulo `../packages/core-ts/src/capacidade/` como `CapacityGate` do guia, as quatro rotas `/api/lista/*`, a revisão `0059` (*provisória*) com a `waitlist_entry` e a `onboarding_capacity`, e o dicionário §3.71. O limite real medido fica como caixa devolvida ao **`ext:KAM-102`**. | Equipa KAMBÁ |
-| 1.22 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas). O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor fica por nomear, porque o KAM-200 diz que o tecto não é dele. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas). O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor é o **KAM-203**, aberto neste PR, porque o KAM-200 diz que o tecto não é dele. O EPIC-09 passa a **25** tickets. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |
