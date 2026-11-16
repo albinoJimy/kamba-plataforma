@@ -10,16 +10,20 @@
  */
 
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 
 import { PREFIXO_DA_ASSINATURA, assinaturaValida } from "../src/entrada/assinatura.ts";
 import {
+  ACCAO_DE_REVOGAR,
+  ACCAO_DE_RODAR,
   type Anel,
   AnelInexistenteError,
+  AuditoriaDeRotacaoSql,
   AnelJaIniciadoError,
   ChavePartilhadaEntreAmbientesError,
   ChaveVaziaError,
+  type ClienteSqlDeAuditoria,
   type CofreDeAneis,
   CofreEmMemoria,
   DIA_MS,
@@ -32,6 +36,7 @@ import {
   RegistoEmMemoria,
   RotacaoConcorrenteError,
   Rotador,
+  SQL_AUDITAR_ROTACAO,
   ValorRepetidoError,
   amostras,
   anelInicial,
@@ -43,6 +48,7 @@ import {
   janelaDe,
   novoKid,
   recifrarToken,
+  resumoDaAccao,
   revogarAnterior,
   rodar,
   valoresVivos,
@@ -659,5 +665,88 @@ describe("keyring/tokens: com kid estável, rodar a KEK mantém a leitura e não
     const anelDepois = await comoOOnboardingLe(depois);
     assert.equal(anelDepois.actual === undefined, false, "o rótulo «actual» passou a ser a KEK nova");
     assert.throws(() => decifrarToken(anelDepois, TENANT, guardado), /autenticação falhou/);
+  });
+});
+
+// --- O audit_log ----------------------------------------------------------------
+
+describe("keyring/auditoria: cada acção no audit_log, com o identificador e a versão, nunca o valor (critério 7)", () => {
+  function clienteQueGuarda(): { cliente: ClienteSqlDeAuditoria; pedidos: { texto: string; valores: readonly unknown[] }[] } {
+    const pedidos: { texto: string; valores: readonly unknown[] }[] = [];
+    return { pedidos, cliente: { query: async (texto, valores) => void pedidos.push({ texto, valores }) } };
+  }
+
+  it("rotação, revogação e emergência: a acção, o segredo e a versão certos, pela audit_append da plataforma", async () => {
+    const { cliente, pedidos } = clienteQueGuarda();
+    const relogio = { agora: T0 };
+    const registo = new RegistoEmMemoria();
+    const rotador = new Rotador({
+      cofre: new CofreEmMemoria(),
+      registo,
+      auditoria: new AuditoriaDeRotacaoSql(cliente),
+      actor: "seguranca",
+      agora: () => relogio.agora,
+    });
+    const valores = [gerarValor(), gerarValor(), gerarValor()];
+    await rotador.iniciar("meta_app_secret", { kid: "k1", valor: valores[0] as string });
+    await rotador.rotate("meta_app_secret", { kid: "k2", valor: valores[1] as string });
+    await rotador.revogar("meta_app_secret");
+    await rotador.emergencia("meta_app_secret", { kid: "k3", valor: valores[2] as string });
+
+    assert.ok(pedidos.every((p) => p.texto === SQL_AUDITAR_ROTACAO));
+    assert.match(SQL_AUDITAR_ROTACAO, /platform\.audit_append\(NULL, 'staff'/);
+    assert.deepEqual(
+      pedidos.map((p) => p.valores.slice(0, 4)),
+      [
+        ["seguranca", ACCAO_DE_RODAR, "meta_app_secret", "k1"],
+        ["seguranca", ACCAO_DE_RODAR, "meta_app_secret", "k2"],
+        ["seguranca", ACCAO_DE_REVOGAR, "meta_app_secret", "k1"],
+        ["seguranca", ACCAO_DE_RODAR, "meta_app_secret", "k3"],
+      ],
+    );
+    assert.deepEqual([ACCAO_DE_RODAR, ACCAO_DE_REVOGAR], ["secret.rotate", "secret.revoke"]);
+
+    // O resumo é dos metadados: nem o valor, nem um resumo dele, em nenhum parâmetro.
+    const resumosDosValores = valores.flatMap((v) => [
+      createHash("sha256").update(v, "utf8").digest("hex"),
+      createHash("sha256").update(Buffer.from(v, "base64")).digest("hex"),
+    ]);
+    for (const { valores: parametros } of pedidos) {
+      const resumo = (parametros[4] as Buffer).toString("hex");
+      assert.equal((parametros[4] as Buffer).length, 32);
+      assert.ok(!resumosDosValores.includes(resumo), "o payload_hash é o resumo de um valor");
+      const emTexto = JSON.stringify(parametros.slice(0, 4));
+      for (const valor of valores) assert.ok(!emTexto.includes(valor));
+    }
+    assert.deepEqual(pedidos[1]?.valores[4], resumoDaAccao(registo.todas()[1] as never));
+  });
+
+  it("o audit_log escreve-se antes do registo: um audit_log em baixo não deixa entrada no registo", async () => {
+    const registo = new RegistoEmMemoria();
+    const rotador = new Rotador({
+      cofre: new CofreEmMemoria(),
+      registo,
+      auditoria: { gravar: async () => Promise.reject(new Error("audit_log em baixo")) },
+      actor: "seguranca",
+      agora: () => T0,
+    });
+    await assert.rejects(rotador.iniciar("meta_app_secret", { kid: "k1", valor: gerarValor() }), /audit_log em baixo/);
+    assert.equal(registo.todas().length, 0, "sem auditoria, a repetição ainda vê a acção por registar");
+  });
+
+  it("uma revogação sem versão retirada não se audita", async () => {
+    const { cliente } = clienteQueGuarda();
+    await assert.rejects(
+      new AuditoriaDeRotacaoSql(cliente).gravar({
+        segredo: "meta_app_secret",
+        accao: "revogacao",
+        kid: "k2",
+        kidAnterior: null,
+        em: T0,
+        criadaEm: null,
+        actor: "seguranca",
+      }),
+      RangeError,
+    );
   });
 });

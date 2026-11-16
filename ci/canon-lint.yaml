@@ -544,6 +544,18 @@ dominios_historicos:
       que a base passa a ter quando se desce, e e essa declaracao que esta
       entrada cobre. O passo de descida recusa-se se houver linhas review.*
       escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0066_rotacao_de_chaves.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-072"
+    data: "2026-11-17"
+    razao: >-
+      A 0066 (KAM-072) acrescenta ao dominio as duas accoes do rotador de
+      chaves, e o dicionario §3.2 passa a declarar dezasseis (emenda 1.102). O
+      upgrade escreve as dezasseis; o downgrade repoe as catorze da 0048, que e
+      o que a base passa a ter quando se desce, e e essa declaracao que esta
+      entrada cobre. O passo de descida recusa-se se houver linhas secret.*
+      escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
   - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"
     tabela: "tenant_destinations"
     coluna: "purpose"

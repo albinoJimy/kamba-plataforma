@@ -4,12 +4,13 @@
  *
  * Duas portas e um relógio. O **cofre de anéis** guarda o anel de cada segredo
  * (`anel.ts`); o **registo de rotação** guarda o que aconteceu — o
- * identificador do segredo, a acção, o `kid` e a hora, **nunca o valor**. O
- * critério 7 do bloco pede esse registo no `audit_log`, e o adaptador para lá
- * precisa de uma acção nova no domínio fechado `audit_log_action` (revisão
- * `0048`), que é migração e emenda ao dicionário: não está neste ticket, e o
- * credor é o fundador. Até lá, a porta é a fronteira e o `RegistoEmMemoria`
- * deste ficheiro é o que os ensaios usam.
+ * identificador do segredo, a acção, o `kid` e a hora, **nunca o valor**, e é
+ * dele que o rotador lê o que já aconteceu (a reparação, o histórico de `kid`,
+ * a idade). O critério 7 do bloco pede, além disso, a linha no `audit_log`: é a
+ * terceira porta, opcional, `AuditoriaDeRotacao` (`auditoria.ts`), com as duas
+ * acções que a revisão `0066` acrescenta ao domínio fechado `audit_log_action`.
+ * O `audit_log` só guarda o resumo dos metadados, e por isso não serve de
+ * registo de onde se lê: são duas portas e não uma.
  *
  * ## A ordem: cofre primeiro, registo depois, e repetir repara
  *
@@ -42,6 +43,8 @@
  */
 
 import { validarRef } from "../secrets/port.ts";
+
+import type { AuditoriaDeRotacao } from "./auditoria.ts";
 
 import {
   type Anel,
@@ -181,6 +184,12 @@ export interface OpcoesDoRotador {
   readonly cofre: CofreDeAneis;
   readonly registo: RegistoDeRotacao;
   readonly actor: string;
+  /**
+   * O `audit_log` (critério 7). Escreve-se **antes** do registo: se o registo
+   * falhar depois, a repetição repara-o e escreve a linha de auditoria outra
+   * vez — duas linhas da mesma acção, que é melhor do que nenhuma.
+   */
+  readonly auditoria?: AuditoriaDeRotacao;
   /** O relógio. Por omissão, o do sistema; os ensaios avançam-no à mão. */
   readonly agora?: () => Date;
 }
@@ -237,6 +246,7 @@ function ultimaVersao(entradas: readonly EntradaDeRotacao[]): EntradaDeRotacao |
 export class Rotador {
   readonly #cofre: CofreDeAneis;
   readonly #registo: RegistoDeRotacao;
+  readonly #auditoria: AuditoriaDeRotacao | null;
   readonly #actor: string;
   readonly #agora: () => Date;
 
@@ -246,6 +256,7 @@ export class Rotador {
     }
     this.#cofre = opcoes.cofre;
     this.#registo = opcoes.registo;
+    this.#auditoria = opcoes.auditoria ?? null;
     this.#actor = opcoes.actor;
     this.#agora = opcoes.agora ?? (() => new Date());
   }
@@ -414,7 +425,7 @@ export class Rotador {
     kidAnterior: string | null,
     criadaEm: Date | null,
   ): Promise<void> {
-    await this.#registo.gravar({
+    const entrada: EntradaDeRotacao = {
       segredo,
       accao,
       kid,
@@ -422,7 +433,9 @@ export class Rotador {
       em: this.#agora(),
       criadaEm,
       actor: this.#actor,
-    });
+    };
+    if (this.#auditoria !== null) await this.#auditoria.gravar(entrada);
+    await this.#registo.gravar(entrada);
   }
 }
 

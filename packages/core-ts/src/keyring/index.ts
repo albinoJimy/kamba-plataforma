@@ -62,3 +62,12 @@ export {
   verificarSeparacaoDeAmbientes,
 } from "./separacao.ts";
 export { type Recifra, anelPorKid, recifrarToken } from "./tokens.ts";
+export {
+  ACCAO_DE_REVOGAR,
+  ACCAO_DE_RODAR,
+  type AuditoriaDeRotacao,
+  AuditoriaDeRotacaoSql,
+  type ClienteSqlDeAuditoria,
+  SQL_AUDITAR_ROTACAO,
+  resumoDaAccao,
+} from "./auditoria.ts";

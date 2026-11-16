@@ -98,6 +98,12 @@ ACCOES = (
     # migracao, com a mesma recusa no `downgrade` se houver linhas escritas.
     "review.acesso",
     "review.recusa",
+    # A decima quinta e a decima sexta, da revisao `0066` (KAM-072): uma versao
+    # nova de um segredo passou a actual, e a anterior foi retirada do anel. Na
+    # cadeia de plataforma, com o identificador do segredo e a versao, nunca o
+    # valor. A mesma extensao por migracao, com a mesma recusa no `downgrade`.
+    "secret.rotate",
+    "secret.revoke",
 )
 
 #: O dominio de `actor_type`.

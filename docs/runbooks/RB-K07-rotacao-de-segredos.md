@@ -25,13 +25,14 @@
 
 ## 0. Antes de começar
 
-- **A rotação não fica registada no `audit_log`.** O critério 5 do bloco e o doc 09 §13
-  pedem-no, e o domínio de `action` tem nove valores e **nenhum** de rotação (revisões
-  0006 e 0038; dicionário §3). Um `INSERT` com uma acção nova seria recusado pela
-  restrição `audit_log_action`. **Regista-se na linha temporal** (incidente) ou no registo
-  de operações, com o identificador do segredo e a hora — **nunca o valor**. A acção nova é
-  emenda ao dicionário e migração: credor **o fundador** (o `secrets-export.md` §4 tem a
-  mesma falta para `access.secrets_export`).
+- **A rotação fica no `audit_log` só se correr pelo `Rotador` com a auditoria ligada**
+  (KAM-072): a revisão `0066` acrescenta as duas acções ao domínio, e o
+  `AuditoriaDeRotacaoSql` (`packages/core-ts/src/keyring/auditoria.ts`) escreve cada uma
+  na cadeia de plataforma com o papel `kamba_batch` — identificador e versão, nunca o
+  valor. **Uma rotação feita à mão no cofre não passa por lá**: essa regista-se na linha
+  temporal (incidente) ou no registo de operações, com o identificador do segredo e a hora —
+  **nunca o valor**. A exportação do cofre continua sem acção no domínio
+  (`secrets-export.md` §4, `access.secrets_export`): credor **o fundador**.
 - **A ferramenta é uma biblioteca, não um comando.** O `Rotador` de
   `packages/core-ts/src/keyring/rotacao.ts` (KAM-072) faz a rotação com janela, a
   revogação, a revogação no fim da janela e a rotação de emergência, sobre uma porta de
@@ -198,7 +199,7 @@ Com um `kid` estável, a ordem seria:
 - o *anterior* foi retirado no fim da janela, e o consumidor recriado outra vez;
 - `python -m secrets_inventory --root .. esquema` continua verde (se a entrada mudou);
 - a rotação ficou registada (identificador e hora) no registo de operações ou na linha
-  temporal — não no `audit_log`, pelo §0.
+  temporal; no `audit_log` só se a rotação correu pelo `Rotador` com a auditoria ligada (§0).
 
 ## 5. Escalamento
 
@@ -224,5 +225,5 @@ RB-K01 ou o RB-K02, e comunica-se por esses.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial); o credor da divergência do destino passa a ser o fundador | KAM-072 |
+| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial); o credor da divergência do destino passa a ser o fundador; o §0 e o §4 dizem quando a rotação fica no `audit_log` (revisão `0066`) | KAM-072 |
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): os dois caminhos e a ordem de incidente, a janela por segredo (com os 7 dias da Meta no `meta_app_secret`), o «recriar e não reiniciar», o procedimento proposto da cópia offline da passphrase do backup, e as faltas medidas no §0 — sem acção de rotação no `audit_log`, sem data de última rotação no inventário | KAM-083 |
