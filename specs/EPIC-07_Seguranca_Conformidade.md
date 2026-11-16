@@ -1467,7 +1467,7 @@ Implementar do lado do consumidor o suporte a duas chaves (anel `[actual, anteri
 
 **9 critérios; 2 marcados, 4 parciais, 3 não satisfeitos. 6 caixas de DoD; 2
 marcadas, 4 por satisfazer.** Medido no ramo `feature/KAM-072-rotacao-de-chaves`,
-sobre a árvore de `publico/main` em `0c393555`. Nesta máquina não há `make`, `node`
+sobre a árvore de `publico/main` em `0c393555` e outra vez depois de integrar a `23b54a3e` (KAM-199, #203). Nesta máquina não há `make`, `node`
 nem `pnpm`: os ensaios de TypeScript correram num contentor
 `node:24.21.0-trixie-slim` com o *worktree* montado, e os *linters* directamente
 (`python -m <lint> --root .. check`). **Sem migração e sem chaves reais**: todas as
@@ -2383,4 +2383,4 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.36 | Novembro 2026 | KAM-198 (acrescentado ao EPIC-09 no PR do KAM-196): a contagem viva do backlog na nota do `assert` passa a **198**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | KAM-199 (acrescentado ao EPIC-06 no PR do KAM-064): a contagem viva do backlog na nota do `assert` passa a **199**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | KAM-200 (acrescentado ao EPIC-09 no PR do KAM-097): a contagem viva do backlog na nota do `assert` passa a **200**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
-| 1.39 | Novembro 2026 | KAM-072 (rotação de chaves Meta, facilitador e HMAC): os critérios 1 e 9 e as caixas de DoD 2 e 3 marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 2, 3, 7 e 8 ficam parciais e o 4, o 5 e o 6 não satisfeitos, com o credor escrito. Entregue o módulo `../packages/core-ts/src/keyring/` (anel com `kid` e janela, rotador com registo sem valor, idade dos segredos, separação por ambiente, re-cifra dos *tokens*), sem migração. **Um defeito medido e devolvido:** o `kid` dos *tokens* de cliente é posicional no `EnvSecretProvider`, e rodar a `kek_token_cliente` no Piloto parte os *tokens* guardados (critério 4). Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | KAM-072 (rotação de chaves Meta, facilitador e HMAC): os critérios 1 e 9 e as caixas de DoD 2 e 3 marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 2, 3, 7 e 8 ficam parciais e o 4, o 5 e o 6 não satisfeitos, com o credor escrito. Entregue o módulo `../packages/core-ts/src/keyring/` (anel com `kid` e janela, rotador com registo sem valor, idade dos segredos, separação por ambiente, re-cifra dos *tokens*), sem migração. **Um defeito medido e devolvido:** o `kid` dos *tokens* de cliente é posicional no `EnvSecretProvider`, e rodar a `kek_token_cliente` no Piloto parte os *tokens* guardados (critério 4). O piso do `lint_bloco` sobe de 65 para **66** (132 blocos medidos na árvore integrada). Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
