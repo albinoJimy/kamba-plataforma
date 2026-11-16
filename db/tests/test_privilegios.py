@@ -1697,6 +1697,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: As tentativas do teste ponta a ponta (KAM-094, revisao do catalogo minimo).
+#: **A aplicacao abre e so o lote fecha**: o `kamba_app` tem `INSERT` **por
+#: coluna** (o caso, o tenant e a janela; ver `COLUNAS_POR_PAPEL`), sem o
+#: `resultado`, que nasce `pendente`; o `kamba_batch` tem `UPDATE` por coluna no
+#: fecho, porque o mesmo passo marca o gate `e2e`, que so o lote escreve.
+#: **Ninguem apaga**.
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_smoke": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2286,6 +2308,15 @@ COLUNAS_POR_PAPEL = {
         "estado", "na_fila_desde", "convite_hash", "convidado_em",
         "convite_expira_em", "tentativas", "concluido_em",
     },
+    # KAM-094 (revisao do catalogo minimo): a pagina do dono abre a tentativa
+    # com o caso, o tenant e a janela, e mais nada — **fora** o `resultado`, que
+    # e o que activava a loja se a aplicacao o escrevesse. O lote fecha-a.
+    ("kamba_app", "onboarding_smoke", "INSERT"): {
+        "onboarding_id", "tenant_id", "iniciada_em", "expira_em",
+    },
+    ("kamba_batch", "onboarding_smoke", "UPDATE"): {
+        "resultado", "causa", "fechada_em", "levou_a_fila",
+    },
 }
 PRIVILEGIOS_DE_COLUNA =("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -2378,6 +2409,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # ao lote mudava o limite sem passar pelo dono do esquema.
     "waitlist_entry",
     "onboarding_capacity",
+    # KAM-094: a tentativa do teste tem `INSERT` por coluna para a aplicacao e
+    # `UPDATE` por coluna para o lote. Um `GRANT INSERT (resultado)` a mais era
+    # invisivel na matriz de tabela, e com ele a loja testava-se a si propria.
+    "onboarding_smoke",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

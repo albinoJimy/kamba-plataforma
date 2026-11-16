@@ -328,6 +328,12 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
 REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
+#: KAM-094: a revisao do catalogo minimo e do teste ponta a ponta, pela razao da
+#: do Catalogo AI — o numero e provisorio. O ensaio que a prova e o
+#: `db/tests/test_catalogo_minimo_schema.py`.
+REV_CATALOGO_MINIMO = _revisao_por_glob("*_catalogo_minimo_e_teste.py")
+#: KAM-094: o SQL das tentativas do teste, que o mesmo ensaio executa.
+ACTIVACAO_SQL = "packages/core-ts/src/activacao/sql.ts"
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
@@ -7793,6 +7799,87 @@ MUTACOES = [
      "      await c.query(SQL_TRANCAR);\n",
      "",
      "tests_lote"),
+    # ------------------------------ KAM-094 (revisao do catalogo minimo)
+    #
+    # 15, e cada uma tira uma barreira que so a base tem. O alvo e a
+    # revisao descoberta pelo *glob* (`REV_CATALOGO_MINIMO`), e o modulo que as
+    # tem de matar e o `db/tests/test_catalogo_minimo_schema.py`, com o ensaio
+    # nomeado em cada uma.
+    # O trigger deixa de perguntar pela decisao, e um produto sem screening publica: `test_sem_decisao_zero_linhas_e_continua_rascunho`.
+    ('catalogo minimo: o trigger nao pergunta pela decisao', REV_CATALOGO_MINIMO,
+     '          v_motivo := platform.oferta_publicavel(NEW.tenant_id, NEW.sku, NEW.nome);\n',
+     '          v_motivo := NULL;\n',
+     "tests"),
+    # A condicional deixa de recusar, e um produto por rever publica: `test_bloqueada_ou_condicional_nao_publicam_mesmo_com_uma_permitida_ao_lado`.
+    ('catalogo minimo: a condicional publica', REV_CATALOGO_MINIMO,
+     "AND d.decisao <> 'permitida') THEN",
+     "AND d.decisao = 'bloqueada') THEN",
+     "tests"),
+    # O conteudo da base deixa de ser o do KAM-088 por um espaco: `test_o_sha256_da_base_e_o_do_kam088_byte_a_byte`.
+    ('catalogo minimo: o conteudo da base leva um espaco', REV_CATALOGO_MINIMO,
+     "to_json(p_categoria)::text || ',[' || to_json(p_nome)::text",
+     "to_json(p_categoria)::text || ', [' || to_json(p_nome)::text",
+     "tests"),
+    # A decisao deixa de ser do sku, e a de outro produto com o mesmo nome publica este: `test_a_decisao_de_outro_nome_de_outro_sku_ou_de_outro_tenant_nao_serve`.
+    ('catalogo minimo: a decisao de outro sku serve', REV_CATALOGO_MINIMO,
+     '             AND d.sujeito_ref = p_sku AND d.conteudo_sha256 = v_sha\n           ORDER BY d.criado_at DESC, d.id DESC\n           LIMIT 1;\n          IF NOT FOUND THEN\n',
+     '             AND d.conteudo_sha256 = v_sha\n           ORDER BY d.criado_at DESC, d.id DESC\n           LIMIT 1;\n          IF NOT FOUND THEN\n',
+     "tests"),
+    # O nome novo num publicado sem decisao deixa-o publicado (criterio 3): `test_um_nome_novo_sem_decisao_tira_de_publicado_sem_erro`.
+    ('catalogo minimo: a edicao posterior fica publicada', REV_CATALOGO_MINIMO,
+     "            NEW.estado := 'rascunho';\n",
+     "            NEW.estado := 'publicado';\n",
+     "tests"),
+    # A transicao recusada levanta 23514, que o COM nao espera, em vez de dar zero linhas: `test_sem_decisao_zero_linhas_e_continua_rascunho`.
+    ('catalogo minimo: a publicacao recusada levanta', REV_CATALOGO_MINIMO,
+     '          -- como recusa de dominio.\n          RETURN NULL;\n',
+     "          -- como recusa de dominio.\n          RAISE EXCEPTION 'recusada' USING ERRCODE = 'check_violation';\n",
+     "tests"),
+    # A excepcao do dono passa a valer para todos os papeis: `test_um_insert_ja_publicado_de_um_papel_de_servico_sem_decisao_recusa`.
+    ('catalogo minimo: todos os papeis ficam de fora', REV_CATALOGO_MINIMO,
+     '                        AND (r.rolsuper OR r.oid = c.relowner)) THEN\n',
+     '                        ) THEN\n',
+     "tests"),
+    # O trigger deixa de estar sempre ligado: `test_o_trigger_esta_sempre_ligado`.
+    ('catalogo minimo: o trigger nao e ALWAYS', REV_CATALOGO_MINIMO,
+     '    op.execute(f"ALTER TABLE {OFERTAS} ENABLE ALWAYS TRIGGER offer_terms_publicacao_segura")\n',
+     '',
+     "tests"),
+    # A conversa nasce de teste, e sai tudo das metricas: `test_a_coluna_nasce_falsa_e_nao_nula`.
+    ('catalogo minimo: a conversa nasce de teste', REV_CATALOGO_MINIMO,
+     'ADD COLUMN is_test boolean NOT NULL DEFAULT false',
+     'ADD COLUMN is_test boolean NOT NULL DEFAULT true',
+     "tests"),
+    # A aplicacao escreve o resultado da propria tentativa: `test_a_aplicacao_abre_pendente_e_nao_escreve_o_resultado`.
+    ('catalogo minimo: a aplicacao fecha o teste', REV_CATALOGO_MINIMO,
+     '        f"GRANT SELECT, INSERT (onboarding_id, tenant_id, iniciada_em, expira_em) "\n',
+     '        f"GRANT SELECT, INSERT (onboarding_id, tenant_id, iniciada_em, expira_em, resultado, fechada_em) "\n',
+     "tests"),
+    # Uma tentativa fechada muda de resultado: `test_o_lote_fecha_e_a_tentativa_fechada_nao_muda`.
+    ('catalogo minimo: a tentativa fechada muda', REV_CATALOGO_MINIMO,
+     "          IF OLD.resultado <> 'pendente'\n",
+     '          IF false\n',
+     "tests"),
+    # A janela passa dos dez minutos: `test_as_restricoes`.
+    ('catalogo minimo: a janela sem tecto', REV_CATALOGO_MINIMO,
+     "CHECK (expira_em > iniciada_em AND expira_em <= iniciada_em + interval '10 minutes'),",
+     'CHECK (expira_em > iniciada_em),',
+     "tests"),
+    # O dono da tabela le e escreve as tentativas de todos os tenants: `test_rls_forcada_e_b_nao_ve_nem_escreve_a_tentativa_de_a`.
+    ('catalogo minimo: a tentativa perde o FORCE da RLS', REV_CATALOGO_MINIMO,
+     '    rls.enable_tenant_rls("onboarding_smoke")\n',
+     '    rls.enable_tenant_rls("onboarding_smoke")\n    op.execute("ALTER TABLE platform.onboarding_smoke NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # A ida a fila desfaz-se, e o caso volta a contar falhas ja levadas: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    ('catalogo minimo: a ida a fila desfaz-se', REV_CATALOGO_MINIMO,
+     '          IF OLD.levou_a_fila AND NOT NEW.levou_a_fila THEN\n',
+     '          IF false THEN\n',
+     "tests"),
+    # O SQL das falhas seguidas esquece a ida a fila, e a quarta falha abre outro caso: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
+     "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
+     "WHERE b.resultado = 'ok')",
+     "tests"),
 ]
 
 

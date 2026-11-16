@@ -623,6 +623,20 @@ TABELAS_CUSTO_DOS_MODULOS = ("module_cost_ledger", "module_test_prices")
 #: apaga nenhuma das duas; o `kamba_app` nao tem nada em nenhuma.
 TABELAS_LISTA_DE_ESPERA = ("onboarding_capacity", "waitlist_entry")
 
+#: O que a revisao do catalogo minimo e do teste ponta a ponta (KAM-094)
+#: acrescenta: as tentativas do teste assistido pelo dono.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero e provisorio e os ensaios descobrem a revisao pelo *glob*
+#: `*_catalogo_minimo_e_teste.py`.
+#:
+#: Uma tabela de tenant com RLS `FORCE` pela `tenant_iso`, FK composta
+#: `(onboarding_id, tenant_id)` para a `onboarding_case` e uma funcao de
+#: *trigger* (`onboarding_smoke_transicao`) que congela a tentativa fechada. A
+#: revisao acrescenta tambem a coluna `conversations.is_test` e o *trigger* de
+#: publicacao segura da `offer_terms`, sem tabela nova.
+TABELAS_CATALOGO_MINIMO = ("onboarding_smoke",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -636,19 +650,30 @@ TABELAS = tuple(
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
+        + TABELAS_CATALOGO_MINIMO
     )
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a do
+#: catalogo minimo (KAM-094).
+#:
+#: O `downgrade` dessa revisao leva a base para aqui. **Deriva do `TABELAS`**,
+#: por ser o topo da cadeia: quem acrescentar uma revisao a seguir poe a sua
+#: aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao pelo numero,
+#: pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e a da lista de
+#: espera (KAM-095).
+TABELAS_ANTES_DO_CATALOGO_MINIMO = tuple(
+    sorted(set(TABELAS) - set(TABELAS_CATALOGO_MINIMO))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da lista
 #: de espera (KAM-095).
 #:
-#: O `downgrade` da revisao da lista de espera leva a base para aqui. **Deriva
-#: do `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a
-#: seguir poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e
-#: nao pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a
-#: anterior e a `0058`, a dos eventos do tenant (KAM-092).
+#: O `downgrade` da revisao da lista de espera leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CATALOGO_MINIMO` desde o KAM-094, que pos a sua revisao no
+#: topo. Hoje a anterior e a `0058`, a dos eventos do tenant (KAM-092).
 TABELAS_ANTES_DA_LISTA_DE_ESPERA = tuple(
-    sorted(set(TABELAS) - set(TABELAS_LISTA_DE_ESPERA))
+    sorted(set(TABELAS_ANTES_DO_CATALOGO_MINIMO) - set(TABELAS_LISTA_DE_ESPERA))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a dos

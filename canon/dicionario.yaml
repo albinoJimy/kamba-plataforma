@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.100"
+versao_dicionario: "1.101"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -18584,6 +18584,151 @@ entradas:
       - "desfecho"
       - "origem"
     variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Resumo do conteúdo de um produto"
+    canonico: "platform.conteudo_sha256_do_produto(categoria, nome)"
+    literais:
+      - "platform.conteudo_sha256_do_produto(categoria, nome)"
+    nomes:
+      - "platform.conteudo_sha256_do_produto"
+      - "categoria"
+      - "nome"
+    nomes_nota:
+      - "conteudoSha256"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Publicável na base"
+    canonico: "platform.oferta_publicavel(tenant_id, sku, nome), nulo ou um motivo ∈ {sem_decisao, bloqueada, por_rever}"
+    literais:
+      - "platform.oferta_publicavel(tenant_id, sku, nome)"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    nomes:
+      - "platform.oferta_publicavel"
+      - "tenant_id"
+      - "sku"
+      - "nome"
+      - "sem_decisao"
+      - "bloqueada"
+      - "por_rever"
+    nomes_nota:
+      - "NaoPublicavelError"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Publicação segura"
+    canonico: "trigger offer_terms_publicacao_segura, sempre ligado"
+    literais:
+      - "offer_terms_publicacao_segura"
+    nomes:
+      - "offer_terms_publicacao_segura"
+    nomes_nota:
+      - "publicado"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Conversa de teste"
+    canonico: "conversations.is_test, booleano não nulo, falso por omissão"
+    literais:
+      - "conversations.is_test"
+    nomes:
+      - "conversations.is_test"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Tentativa do teste"
+    canonico: "platform.onboarding_smoke, nove colunas"
+    literais:
+      - "platform.onboarding_smoke"
+    nomes:
+      - "platform.onboarding_smoke"
+    nomes_nota:
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "iniciada_em"
+      - "expira_em"
+      - "resultado"
+      - "causa"
+      - "fechada_em"
+      - "levou_a_fila"
+      - "FORCE"
+      - "onboarding_case"
+      - "kamba_app"
+      - "kamba_batch"
+      - "e2e"
+      - "onboarding_smoke_transicao"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Resultado de uma tentativa"
+    canonico: "onboarding_smoke.resultado ∈ {pendente, ok, falhou}"
+    literais:
+      - "onboarding_smoke.resultado"
+      - "pendente"
+      - "ok"
+      - "falhou"
+    nomes:
+      - "onboarding_smoke.resultado"
+      - "pendente"
+      - "ok"
+      - "falhou"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Causa de um teste falhado"
+    canonico: "onboarding_smoke.causa ∈ {sem_inbound, sem_resposta, sem_entrega, sem_consentimento}"
+    literais:
+      - "onboarding_smoke.causa"
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    nomes:
+      - "onboarding_smoke.causa"
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Falha que foi à fila"
+    canonico: "onboarding_smoke.levou_a_fila"
+    literais:
+      - "onboarding_smoke.levou_a_fila"
+    nomes:
+      - "onboarding_smoke.levou_a_fila"
+    nomes_nota:
+      - "review_case"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Porta do teste"
+    canonico: "SmokeProbe, com o início e a verificação; remetente ∈ {owner_assisted, prober_number}"
+    literais:
+      - "SmokeProbe"
+      - "owner_assisted"
+      - "prober_number"
+    nomes:
+      - "SmokeProbe"
+      - "owner_assisted"
+      - "prober_number"
+    nomes_nota:
+      - "owner_assisted"
+      - "prober_number"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Limiares da activação"
+    canonico: "CATALOGO_MINIMO = 5, PRAZO_DO_TESTE_S = 60, FALHAS_ATE_A_FILA = 3"
+    literais:
+      - "CATALOGO_MINIMO"
+      - "PRAZO_DO_TESTE_S"
+      - "FALHAS_ATE_A_FILA"
+    nomes:
+      - "CATALOGO_MINIMO"
+      - "PRAZO_DO_TESTE_S"
+      - "FALHAS_ATE_A_FILA"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -19996,6 +20141,25 @@ tabelas:
     assinatura: "platform.aprovacao_em_falta(p_onboarding_id)"
     seccao: "3.70"
     conceito: "Agregador da aprovação"
+  - nome: "conteudo_sha256_do_produto"
+    esquema: "platform"
+    colunas:
+      - "categoria"
+      - "nome"
+    aberta: false
+    assinatura: "platform.conteudo_sha256_do_produto(categoria, nome)"
+    seccao: "3.72"
+    conceito: "Resumo do conteúdo de um produto"
+  - nome: "oferta_publicavel"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "sku"
+      - "nome"
+    aberta: false
+    assinatura: "platform.oferta_publicavel(tenant_id, sku, nome)"
+    seccao: "3.72"
+    conceito: "Publicável na base"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -21624,6 +21788,23 @@ dominios:
       - "convite_invalido"
     seccao: "3.71"
     conceito: "Recusas da lista"
+    so_no_registo: false
+  - coluna: "onboarding_smoke.resultado"
+    valores:
+      - "pendente"
+      - "ok"
+      - "falhou"
+    seccao: "3.72"
+    conceito: "Resultado de uma tentativa"
+    so_no_registo: false
+  - coluna: "onboarding_smoke.causa"
+    valores:
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    seccao: "3.72"
+    conceito: "Causa de um teste falhado"
     so_no_registo: false
 
 variantes:

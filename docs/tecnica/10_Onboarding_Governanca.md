@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Onboarding e Governação (GOV e TEN/onboarding) |
-| Versão | 1.11 |
+| Versão | 1.12 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/13-big-picture-ecossistema.md` (§5, §9.3), `../exploracao/11-arquitetura-detalhada-engenharia.md` (§5.3), `../exploracao/05-estrategia-loja-no-whatsapp.md`, `../exploracao/06-expansao-plataforma.md`, `../exploracao/07-pontos-cegos-2.md` (§2, §8, §9, §11), `../exploracao/14-tese-minima-e-plano-de-validacao.md` |
@@ -150,7 +150,7 @@ sequenceDiagram
 | 6 | Provisioning | Saga (§5), disparada por `tenant.approved` | Passo falhado 3 vezes (§5.2) | ≤ 2 min |
 | 7 | Ligar o número (ES v4) | Página guiada com pré-voo automático onde possível (§6.3); o **dono tem de fazer a autenticação na Meta e a confirmação na app**: não é automatizável por nós | ES falhado ou sincronização > 24 h (§6.4) | 20–30 min |
 | 8 | Catálogo mínimo | O dono fotografa produtos (web ou, depois da ligação, por WhatsApp); o Catálogo AI propõe ficha e pergunta o que falta; classificador publica ou rejeita; ≥ 5 produtos | Produto marcado como categoria condicional | 20 min |
-| 9 | Teste ponta a ponta | O sistema envia uma mensagem de teste ao número da loja e valida a resposta (*smoke test*) | Resposta incorrecta repetida | 2 min |
+| 9 | Teste ponta a ponta | **O dono** envia «teste» de outro telefone ao número da loja, e o sistema valida em ≤ 60 s (*proposta*) a entrada, a resposta do assistente com a identificação da loja, a entrega e o aviso de 1.º contacto com consentimento gravado (*smoke test*). A KAMBÁ não tem número operacional (D10) e o tenant `platform` não envia: o remetente por omissão é o dono, e um número da plataforma fica desligado até o D10 o permitir (KAM-094) | Três falhas seguidas | 2 min |
 | 10 | Activação | Todos os gates verdes ⇒ `tenant.provisioned` e `tenant.activated`; estado `ativo` (`00` §6.2) | — | imediato |
 
 **Meta de caminho feliz:** entrada → loja activa em ≤ 60 min de actividade do dono (*proposta*), sem qualquer toque da equipa.
@@ -841,3 +841,4 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | 1.9 | Novembro 2026 | KAM-088: o §8.1 passa a dizer onde a lista vive como *policy-as-code* e que o resto da lista da Meta do E1 §4 também bloqueia. Sem alteração de nenhuma decisão da tabela. | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | KAM-089: o §17 ganha a linha da fila de revisão por excepção, que a DoD do bloco pede — T2/Ops executa os casos `es_falhado` e `saga`, T&S executa os outros e responde pela fila, Produto é consultado nos limiares e Segurança no acesso e na auditoria. O *runbook* do revisor vive em `../revisao.md`. Nenhuma outra linha muda. | Equipa KAMBÁ |
 | 1.11 | Novembro 2026 | KAM-097: o §8.3 escreve a limitação da auto-compra que o ensaio adversarial (b) do bloco manda documentar — a segunda SIM desconhecida não é detectável, e a defesa é a do KAM-096 —, e o credor da correlação entre tenants por comprador. Sem alteração da escada nem da tabela de ameaças. | Equipa KAMBÁ |
+| 1.12 | Novembro 2026 | KAM-094: o passo 9 do §4.1 passa a dizer quem manda a mensagem de teste — o dono, de outro telefone — porque a KAMBÁ não tem número operacional (D10); um número da plataforma fica desligado até o D10 o permitir. A falha que vai à fila passa a ser a terceira seguida. | Equipa KAMBÁ |

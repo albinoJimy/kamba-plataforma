@@ -282,6 +282,10 @@ class TestConvencoes(ComBase):
                 # custo a plataforma inteira regista. A ordem e a do
                 # `ocorrido_em`.
                 "module_cost_ledger",
+                # KAM-094: a tentativa do teste ponta a ponta. `uuid` aleatorio
+                # pela regra geral: o `kamba_app` le-a, e um sequencial dizia-lhe
+                # quantos testes a plataforma inteira corre.
+                "onboarding_smoke",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -753,6 +757,9 @@ class TestConvencoes(ComBase):
                 # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
                 ("onboarding_gate", "gate", "text", None),
                 ("onboarding_gate", "onboarding_id", "uuid", None),
+                # KAM-094 (revisao do catalogo minimo): a tentativa do teste,
+                # `uuid` gerada — um caso tem muitas. Depois do gate («_g» < «_s»).
+                ("onboarding_smoke", "id", "uuid", "gen_random_uuid()"),
                 # KAM-044: as cinco das encomendas, e tres formas diferentes.
                 #
                 # O `order_intents` tem chave **natural e composta**,
@@ -1415,7 +1422,12 @@ class TestConvencoes(ComBase):
              # `onboarding_id`, que nao leva o tenant. Sem FK para `tenants`,
              # pela razao da fila de revisao: o caso tem o tenant pre-alocado.
              # A `onboarding_capacity` nao tem `tenant_id` e nao entra.
-             "waitlist_entry"},
+             "waitlist_entry",
+             # KAM-094 (revisao do catalogo minimo). Pelo indice
+             # `onboarding_smoke_tenant_idx`: o `onboarding_smoke_caso_idx`
+             # comeca pelo caso. Sem FK para `tenants`, pela razao da lista de
+             # espera: o caso tem o tenant pre-alocado.
+             "onboarding_smoke"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2066,7 +2078,11 @@ class TestConvencoes(ComBase):
         # a `onboarding_case_id_tenant_uq`, pela razao da `0048`: uma entrada
         # nao junta o caso de um com o tenant de outro. A `onboarding_capacity`
         # nao tem FK nenhuma.
-        self.assertEqual(len(linhas), 100)
+        #
+        # **101** desde a revisao do catalogo minimo (KAM-094): a
+        # `onboarding_smoke_caso_fk`, composta `(onboarding_id, tenant_id)` para
+        # o caso, pela mesma razao.
+        self.assertEqual(len(linhas), 101)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

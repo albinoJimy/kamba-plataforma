@@ -467,6 +467,11 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.onboarding_case", pendencia=_RELACAO),
             # KAM-092. Os gates de activacao vivem com o caso, e saem com ele.
             _t("platform.onboarding_gate", pendencia=_RELACAO),
+            # KAM-094 (revisao do catalogo minimo). As tentativas do teste
+            # ponta a ponta vivem com o caso, que as aponta por FK composta, e
+            # saem com ele. Nenhuma coluna de pessoa: o telefone de onde o dono
+            # mandou o «teste» e o texto da resposta nao se guardam.
+            _t("platform.onboarding_smoke", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             _t(
                 "platform.kyc_check",
                 pendencia=_RELACAO + "; casos mortos: D+30 pelo ServicoKyc.purgar, sem agendador",

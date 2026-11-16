@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.100 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.101 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4570,6 +4570,40 @@ lista fechada (**KAM-116**) — a porta `AvisoDaLista` só tem o duplo. O adapta
 processo que corra em `prod`: o `onboarding-web` corre sobre a lista em memória, como o resto do
 guia, e o processo de lote é onde ela vai (**KAM-092**, que liga esse processo).
 
+### 3.72 Catálogo mínimo e teste ponta a ponta: a publicação segura, `is_test` e `onboarding_smoke` (KAM-094)
+
+*Emenda 1.101, **proposta**.* Os nomes do último troço antes da activação: o módulo
+[`../packages/core-ts/src/activacao/`](../packages/core-ts/src/activacao/index.ts) e o que a revisão
+[`0065`](../db/migrations/versions/0065_catalogo_minimo_e_teste.py) acrescenta à base. A revisão é
+provisória e encaixa, na integração, depois das que a fila tiver à frente.
+
+**A regra que nenhuma coluna exprime: um produto só fica publicado com uma decisão de screening para
+o conteúdo que o cliente vai ler.** A base recalcula o resumo do conteúdo a partir do nome da oferta
+e da categoria declarada do tenant — a mesma entrada da re-análise do KAM-088 (§3.58) — e aplica a
+regra do `assertPublishable`. Um nome novo num produto publicado sem decisão tira-o de publicado; a
+publicação sem decisão não escreve linha nenhuma, que o COM já lê como recusa de domínio. O dono da
+tabela fica de fora: pode desligar o *trigger*, e medi-lo não acrescentava barreira.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Resumo do conteúdo de um produto | `platform.conteudo_sha256_do_produto(categoria, nome)` | — | *proposta* (emenda 1.101, KAM-094). **Byte a byte** o `conteudoSha256` do KAM-088 sobre a entrada de um produto: o sha256 do JSON da categoria e de uma lista com o nome, sem espaços. Imutável e estrita. Um ensaio compara as duas implementações sobre a mesma fixture, com os casos difíceis do escape |
+| Publicável na base | `platform.oferta_publicavel(tenant_id, sku, nome)`, nulo ou um motivo ∈ {`sem_decisao`, `bloqueada`, `por_rever`} | — | *proposta* (emenda 1.101, KAM-094). Os motivos são os do `NaoPublicavelError` (§3.58). Lê as decisões do conteúdo de agora na versão de política mais recente que as tem: a versão corrente está no código, e a re-análise do KAM-088 é quem grava a nova |
+| Publicação segura | *trigger* `offer_terms_publicacao_segura`, sempre ligado | — | *proposta* (emenda 1.101, KAM-094). A caixa da DoD «publicação protegida por restrição de BD». Só olha para a entrada em `publicado` e para a mudança de nome de um publicado; o stock, o preço e os termos com o mesmo nome passam sem pergunta. Um `INSERT` já publicado de um papel de serviço sem decisão recusa com o código 23514 |
+| Conversa de teste | `conversations.is_test`, booleano não nulo, falso por omissão | — | *proposta* (emenda 1.101, KAM-094). A conversa do teste ponta a ponta, fora das métricas, da golden e do Score. Escreve-a o lote; a aplicação não tem a coluna |
+| Tentativa do teste | `platform.onboarding_smoke`, **nove** colunas | — | *proposta* (emenda 1.101, KAM-094). `id`, `onboarding_id`, `tenant_id`, `iniciada_em`, `expira_em`, `resultado`, `causa`, `fechada_em`, `levou_a_fila`. RLS `FORCE` e FK composta para a `onboarding_case`. **A aplicação abre e só o lote fecha**: o `kamba_app` insere o caso, o tenant e a janela; o `kamba_batch` escreve o fecho, porque o mesmo passo marca o gate `e2e`. Uma tentativa fechada não muda (*trigger* `onboarding_smoke_transicao`). A janela não passa de dez minutos |
+| Resultado de uma tentativa | `onboarding_smoke.resultado` ∈ {`pendente`, `ok`, `falhou`} | — | *proposta* (emenda 1.101, KAM-094). Lista **fechada**, **três** |
+| Causa de um teste falhado | `onboarding_smoke.causa` ∈ {`sem_inbound`, `sem_resposta`, `sem_entrega`, `sem_consentimento`} | — | *proposta* (emenda 1.101, KAM-094). Lista **fechada**, **quatro**, a da porta do bloco e pela ordem em que se verificam. O dono vê uma mensagem genérica, igual para as quatro |
+| Falha que foi à fila | `onboarding_smoke.levou_a_fila` | — | *proposta* (emenda 1.101, KAM-094). Marca a terceira falha seguida, a que abriu o `review_case`; a contagem recomeça depois dela, e a marca não se desfaz |
+| Porta do teste | `SmokeProbe`, com o início e a verificação; remetente ∈ {`owner_assisted`, `prober_number`} | — | *proposta* (emenda 1.101, KAM-094). A interface dos Detalhes Técnicos do bloco, à letra. `owner_assisted` por omissão; `prober_number` recusa sempre, porque a KAMBÁ não tem número operacional (D10) |
+| Limiares da activação | `CATALOGO_MINIMO` = 5, `PRAZO_DO_TESTE_S` = 60, `FALHAS_ATE_A_FILA` = 3 | — | *proposta* (emenda 1.101, KAM-094). Os do bloco; o primeiro é configurável por quem constrói o serviço |
+
+**O que esta emenda não decide, e a quem.** O observador de produção do teste: as tabelas da conversa
+não guardam o texto do «teste» nem o da resposta, e sem eles não se confere a palavra nem a
+identificação da loja (credor no bloco do KAM-094). O caminho de escrita do COM que grave a decisão
+antes de publicar: hoje o `publishProduct` não chama o screening, e uma publicação sem decisão
+recusa (credor no bloco do KAM-094). A desconfiança da origem humana que a aplicação pode inserir na
+`screening_decision`, que vale para o produto como vale para a categoria (achado do KAM-094).
+
 ---
 
 ---
@@ -4695,3 +4729,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.98 | Novembro 2026 | **Emenda (*proposta*), KAM-124: o custo por módulo de entrada.** Sobre a 1.97 do KAM-097. §3.69 nova: o `module_cost_ledger` (dez colunas, só de acrescentar, escrito pela `module_cost_gravar`), os domínios fechados de `modulo` (**quatro**) e de `rubrica` (**três**), a `module_test_prices` com o `estado` de um só valor, as vistas `v_module_cost_month` e `v_h12`, o `preco_teste_minor` dos cinco planos `entrada_*`, a guarda de orçamento da imagem com os seus dois motivos, o `get_usage`, o `h12-export` com o *job* `ops_h12_export`, o pseudónimo, os quatro alertas e o mapa *template* → módulo. §3.2: a décima segunda chave de limite, `custo_max_mes_micro_usd`. **O que não decide:** os preços (KAM-127), a reconciliação em *staging*, o custo LLM do orçamento expresso e o orçamento do texto no LiteLLM (KAM-030). | Equipa KAMBÁ |
 | 1.99 | Novembro 2026 | **Emenda (*proposta*), KAM-092: os eventos do tenant.** Sobre a 1.98 do KAM-124. §3.70 nova: a `onboarding_gate` com os **seis** gates de activação, escrita só pelo lote; a `tenant_state_log` *append-only*; as **oito** arestas do tenant e o `transition_tenant`, que só emite na entrada em `ativo`; a tabela de transições da fase do caso (PA-GOV-6) e o `advance_case`; o agregador `aprovacao_em_falta`; as vistas `v_onboarding_kpis` e `v_onboarding_kpis_agregado`. §3.5: três campos de payload novos (`kyc_nivel`, `tecto_inicial_minor`, `intervencao_humana`), opcionais nos contratos `v1` e `v2` porque um obrigatório novo num `v<N>` publicado é quebrante. Revisão `0058`, sobre a `0057` do KAM-124. | Equipa KAMBÁ |
 | 1.100 | Novembro 2026 | **Emenda (*proposta*), KAM-095: a lista de espera do limite de onboarding.** Sobre a 1.99 do KAM-092. §3.71 nova: a `platform.waitlist_entry` com as suas **onze** colunas e os **cinco** estados, o *trigger* que só deixa entrar casos aprovados e escreve a chave FIFO, o convite de uso único em *hash*, as duas expirações até abandonar, a validade do KYC na reentrada, a `platform.onboarding_capacity` com o limite em vigor e a **origem** (acima de 10 só `confirmado`), a estimativa rotulada, as quatro rotas do dono e as cinco métricas. O §3.21 e o §3.54 passam a apontar para ela. **O que não decide:** o limite real da Meta (`ext:KAM-102`), o texto do SMS do convite (KAM-116) e o processo onde o adaptador SQL corre em `prod` (KAM-092). | Equipa KAMBÁ |
+| 1.101 | Novembro 2026 | **Emenda (*proposta*), KAM-094: o catálogo mínimo e o teste ponta a ponta.** Sobre a 1.100 do KAM-095. §3.72 nova: a função do resumo do conteúdo de um produto, byte a byte a do KAM-088; a função que diz se uma oferta é publicável e o *trigger* da publicação segura na `offer_terms`; a coluna `conversations.is_test`; a `platform.onboarding_smoke` com as suas **nove** colunas, os **três** resultados e as **quatro** causas; a porta `SmokeProbe` e os três limiares. **O que não decide:** o observador de produção do teste, o caminho de escrita do COM que grave a decisão antes de publicar, e a origem humana que a aplicação pode inserir. | Equipa KAMBÁ |
