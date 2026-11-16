@@ -145,6 +145,16 @@ export async function criarTenant(admin: pg.Client, rotulo: string): Promise<str
  * gémeo do `aceitar_contratos_vigentes` de `db/tests/factories.py`.
  */
 export async function activarTenant(admin: pg.Client, tenant: string): Promise<void> {
+  await aceitarVigentes(admin, tenant);
+  await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [tenant]);
+}
+
+/**
+ * O aceite das versões vigentes dos quatro documentos, **sem** activar: a
+ * metade do `activarTenant` de que o agregador da aprovação precisa (KAM-092,
+ * condição `aceite`). Publica a versão de ensaio de um tipo sem vigente.
+ */
+export async function aceitarVigentes(admin: pg.Client, tenant: string): Promise<void> {
   for (const tipo of ["dpa", "privacidade", "subprocessadores", "tos"]) {
     const conteudo = `Documento de ensaio (${tipo}). [A CONFIRMAR POR PARECER]\n`;
     await admin.query(
@@ -169,7 +179,6 @@ export async function activarTenant(admin: pg.Client, tenant: string): Promise<v
       "ON CONFLICT ON CONSTRAINT contract_acceptance_aceite_uq DO NOTHING",
     [tenant, randomUUID(), randomUUID()],
   );
-  await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [tenant]);
 }
 
 /**

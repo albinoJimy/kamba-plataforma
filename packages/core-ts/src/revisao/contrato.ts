@@ -320,7 +320,55 @@ export interface OnboardingsDaRevisao {
    * produto do catálogo — e de onde vêm os dados dele.
    */
   porTenant(tenantId: string): Promise<OnboardingDaRevisao | null>;
-  marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean>;
+  /**
+   * As fases que a fila escreve **sem** porta da base. O `aprovado` não está
+   * aqui: escreve-se só pelo `aprovar`, que passa pelo agregador e emite o
+   * `tenant.approved` na mesma transacção (KAM-092, dicionário §3.70).
+   */
+  marcarFase(id: string, fase: "rejeitado" | "kyc_pendente"): Promise<boolean>;
+  /**
+   * Aprova o onboarding pela porta da base, `platform.advance_case`, com o
+   * evento `aprovar` (ou `recurso_aprovado`, se a fase é `rejeitado`). Só passa
+   * a `aprovado` com o agregador vazio — KYC, screening e aceite (§3.70) —, e
+   * com ele por preencher devolve o que falta **sem escrever nada**: um K1
+   * aprovado antes do aceite não é um onboarding aprovado. Repetida sobre um
+   * onboarding já aprovado pela porta, devolve `aprovado` sem segundo evento.
+   *
+   * `actor` vai para o registo da porta; é o identificador de quem decidiu
+   * (`revisor:<uuid>`, `kyc:k1_ok`), e nunca um dado pessoal.
+   */
+  aprovar(id: string, actor: string): Promise<ResultadoDaAprovacao>;
+}
+
+/**
+ * O que a porta da aprovação respondeu. `falta` são os nomes do agregador
+ * (`kyc`, `screening`, `aceite`), pela ordem dele, e `revisao` no fim quando há
+ * um caso de revisão bloqueante por decidir (que o agregador não vê).
+ *
+ * `intervencaoHumana` é a do evento (`tenant.approved`): há um caso de revisão
+ * do onboarding que não é `auditoria`. É o que diz ao KYC se a aprovação foi
+ * **automática** e entra na amostragem do KAM-089.
+ */
+export type ResultadoDaAprovacao =
+  | { readonly estado: "aprovado"; readonly intervencaoHumana: boolean }
+  | { readonly estado: "em_falta"; readonly falta: readonly string[] };
+
+/**
+ * A fila decidiu aprovar e a base não aprovou: falta uma condição do agregador
+ * (o aceite contratual vem depois do KYC), ou há outro caso de revisão
+ * bloqueante por decidir (`revisao`). **É um efeito por aplicar, e não um
+ * silêncio** (KAM-201, critério 1): o serviço marca o caso, o lote reaplica-o a
+ * cada carência, e a aprovação sai quando a última condição chegar. A
+ * mensagem leva só os nomes do que falta, que são de domínio fechado.
+ */
+export class AprovacaoEmFaltaError extends Error {
+  override readonly name = "AprovacaoEmFaltaError";
+  readonly falta: readonly string[];
+
+  constructor(falta: readonly string[]) {
+    super(`aprovacao recusada pela base: falta ${falta.join(",")}`);
+    this.falta = falta;
+  }
 }
 
 /**

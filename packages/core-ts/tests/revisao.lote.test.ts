@@ -13,8 +13,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  AprovacaoSemConjuntoError,
   AuditoriaEmMemoria,
   CicloDaFila,
+  OnboardingInexistenteError,
+  SQL_APROVACAO_EM_FALTA,
+  SQL_AVANCAR_CASO,
+  SQL_INTERVENCAO_HUMANA,
+  SQL_REVISAO_PENDENTE,
+  SQL_TENANT_DO_CASO,
+  SQL_TRANCAR_CASO,
   RevisaoRecusadaError,
   ESPACO_DO_TRINCO_DA_QUOTA,
   FilaDeRevisaoEmMemoria,
@@ -260,10 +268,89 @@ describe("os onboardings sobre a onboarding_case", () => {
     const o = new OnboardingsSql(conjunto);
     assert.equal(await o.porId("o9"), null);
     assert.equal(await o.porTenant("t9"), null);
-    assert.equal(await o.marcarFase("o1", "aprovado"), false);
+    assert.equal(await o.marcarFase("o1", "kyc_pendente"), false);
     existe = true;
     assert.equal(await o.marcarFase("o1", "rejeitado"), true);
     assert.deepEqual(consultas.at(-1)?.valores, ["o1", "rejeitado"]);
+  });
+});
+
+describe("a aprovação pela porta da base (KAM-092)", () => {
+  const TENANT = "3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60";
+  /** Um conjunto que responde ao tenant, à fase, ao agregador e à intervenção. */
+  const base = (fase: string, falta: string[] = [], humana = false, avancar?: Error, pendente = false) =>
+    conjuntoFalso((t) => {
+      if (t === SQL_TENANT_DO_CASO) return { rows: [{ tenant_id: TENANT }] };
+      if (t === SQL_REVISAO_PENDENTE) return { rows: [{ pendente }] };
+      if (t === SQL_TRANCAR_CASO) return { rows: [{ fase }] };
+      if (t === SQL_APROVACAO_EM_FALTA) return { rows: [{ falta }] };
+      if (t === SQL_INTERVENCAO_HUMANA) return { rows: [{ humana }] };
+      if (t === SQL_AVANCAR_CASO && avancar !== undefined) throw avancar;
+      return undefined;
+    });
+  const daLigacao = (consultas: { ligacao: string; texto: string; valores: readonly unknown[] }[]) =>
+    consultas.filter((c) => c.ligacao === "ligacao-1").map((c) => [c.texto, c.valores]);
+
+  it("aprova numa transacção com o contexto do tenant, trancando o caso antes de perguntar", async () => {
+    const { conjunto, consultas, devolvidas } = base("em_revisao", [], true);
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "revisor:r1"), {
+      estado: "aprovado",
+      intervencaoHumana: true,
+    });
+    assert.deepEqual(daLigacao(consultas), [
+      ["BEGIN", []],
+      ["SELECT set_config('app.tenant_id', $1, true)", [TENANT]],
+      [SQL_TRANCAR_CASO, ["o1"]],
+      [SQL_APROVACAO_EM_FALTA, ["o1"]],
+      [SQL_REVISAO_PENDENTE, ["o1"]],
+      [SQL_AVANCAR_CASO, ["o1", "aprovar", "revisor:r1"]],
+      [SQL_INTERVENCAO_HUMANA, ["o1"]],
+      ["COMMIT", []],
+    ]);
+    assert.deepEqual(devolvidas, [undefined]);
+  });
+
+  it("com o agregador por preencher, não avança e devolve o que falta", async () => {
+    const { conjunto, consultas } = base("kyc_pendente", ["screening", "aceite"]);
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "kyc:k1_ok"), {
+      estado: "em_falta",
+      falta: ["screening", "aceite"],
+    });
+    assert.ok(!consultas.some((c) => c.texto === SQL_AVANCAR_CASO));
+  });
+
+  it("um caso de revisão bloqueante por decidir também falta, depois do agregador", async () => {
+    const { conjunto, consultas } = base("kyc_pendente", [], false, undefined, true);
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "kyc:k1_ok"), {
+      estado: "em_falta",
+      falta: ["revisao"],
+    });
+    assert.ok(!consultas.some((c) => c.texto === SQL_AVANCAR_CASO));
+  });
+
+  it("de rejeitado avança pelo recurso; já aprovado, repete sem perguntar ao agregador", async () => {
+    const r = base("rejeitado");
+    await new OnboardingsSql(r.conjunto).aprovar("o1", "revisor:r2");
+    assert.deepEqual(r.consultas.find((c) => c.texto === SQL_AVANCAR_CASO)?.valores, ["o1", "recurso_aprovado", "revisor:r2"]);
+    const a = base("aprovado", ["aceite"]);
+    assert.equal((await new OnboardingsSql(a.conjunto).aprovar("o1", "kyc:k1_ok")).estado, "aprovado");
+    assert.ok(!a.consultas.some((c) => c.texto === SQL_APROVACAO_EM_FALTA), "a repetição é da porta");
+  });
+
+  it("uma porta que recusa desfaz a transacção e devolve a ligação com o erro", async () => {
+    const recusa = new Error("aprovacao sem as condicoes do agregador");
+    const { conjunto, consultas, devolvidas } = base("em_revisao", [], false, recusa);
+    await assert.rejects(new OnboardingsSql(conjunto).aprovar("o1", "x"), recusa);
+    assert.equal(consultas.at(-1)?.texto, "ROLLBACK");
+    assert.deepEqual(devolvidas, [recusa]);
+  });
+
+  it("sem conjunto de ligações, ou sem caso, recusa antes de abrir transacção", async () => {
+    const solto = { query: async () => ({ rows: [] }) };
+    await assert.rejects(new OnboardingsSql(solto).aprovar("o1", "x"), AprovacaoSemConjuntoError);
+    const { conjunto, consultas } = conjuntoFalso();
+    await assert.rejects(new OnboardingsSql(conjunto).aprovar("o9", "x"), OnboardingInexistenteError);
+    assert.deepEqual(consultas.map((c) => c.ligacao), ["conjunto"]);
   });
 });
 

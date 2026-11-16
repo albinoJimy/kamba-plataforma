@@ -22,6 +22,12 @@
 
 export { CanalIlegivelError, ResolvedorDeCanal, canalDaLinha } from "./canal.ts";
 export type { CanalResolvido, LeituraDoCanal } from "./canal.ts";
+export {
+  TIPO_DA_ACTIVACAO,
+  VERSOES_DA_ACTIVACAO,
+  VersaoDaActivacaoError,
+  efeitoDaActivacao,
+} from "./activacao.ts";
 
 export { Chr } from "./chr.ts";
 export type {

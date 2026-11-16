@@ -4517,13 +4517,22 @@ teste ponta a ponta, e não depois deles como diz a tabela do `../docs/tecnica/1
 consumidor do evento é o KAM-094, que é quem faz o catálogo e o teste — esperar por eles era
 esperar pelo próprio consumidor.
 
-**O que esta emenda não decide, e a quem.** Quem chama as duas portas: o `ServicoDeRevisao` ainda
-escreve `aprovado` com um `UPDATE` directo, o `decidir` do KYC não muda a fase num `k1_ok`, e o
-`amostrar` do KAM-089 continua sem chamador — ligá-los é TypeScript sobre suites de outros
-tickets, e fica no bloco do KAM-092 com esse credor. Os eventos das outras arestas do tenant — a
-suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. A invalidação da
-cache do CHR por evento (o CHR já não encaminha um tenant em `onboarding`). O plano e o tecto por
+**O que esta emenda não decide, e a quem.** Os eventos das outras arestas do tenant — a
+suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. O plano e o tecto por
 caso — **KAM-109** e **KAM-096**.
+
+**Quem chama as portas (KAM-201).** O `aprovado` do `ServicoDeRevisao` e o `k1_ok` do KYC passam
+pelo `advance_case` (`aprovar`, ou `recurso_aprovado` de `rejeitado`), como `kamba_batch` sob o
+`app.tenant_id` do caso: o adaptador é o `OnboardingsSql.aprovar`, e o `SQL_MARCAR_FASE` recusa
+`aprovado`. Com o agregador por preencher nada se escreve e o dono não ouve «aprovado» — o aceite
+contratual vem depois do KYC, e **ninguém volta a pedir a aprovação quando ele chega** (o escritor
+do aceite não chama a porta). Uma aprovação do KYC sem intervenção humana passa ao `amostrar` do
+KAM-089. As outras fases que a fila e o KYC escrevem (`rejeitado`, `kyc_pendente`, `em_revisao`)
+continuam por `UPDATE` directo. O CHR esquece o tenant na *cache* com o efeito do consumidor
+`chr` do `tenant.activated` (`invalidarTenant`), e uma versão que não conhece vai à DLQ; **falta a
+subscrição** `chr` em `platform.evt_subscricoes`, que só uma revisão de dados escreve, e o
+trabalhador que a sirva no processo do CHR — até lá, a *cache* velha atrasa a activação até 60 s,
+no sentido que falha fechado.
 
 ---
 

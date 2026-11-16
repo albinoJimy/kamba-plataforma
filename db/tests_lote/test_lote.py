@@ -32,7 +32,7 @@ from tests_lote import node
 
 FICHEIROS = ("tests_bd/lote.bd.test.ts",)
 
-#: O `describe` do ficheiro. Um so: os dez cenarios partilham as sementes.
+#: O `describe` do ficheiro. Um so: os dezasseis cenarios partilham as sementes.
 GRUPOS = ("o processo de lote contra a base",)
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -52,6 +52,15 @@ TESTES_OBRIGATORIOS = (
     "a carência esconde do lote a marca de quem ainda está a correr os efeitos",
     "reaplicar um pedir_info não desfaz a fase que mudou depois da decisão; sem mudança, aplica-a",
     "o processo arranca em prod com as duas credenciais, serve /healthz e /metrics, e pára no SIGTERM",
+    # KAM-092: as duas portas da aprovacao, ligadas. A decisao humana e o
+    # `k1_ok` passam a `aprovado` so pelo `advance_case`, com o agregador; e a
+    # aprovacao automatica entra na amostra do KAM-089.
+    "a decisão humana aprova pela porta: a fase passa a aprovado e sai um tenant.approved, uma vez",
+    "com o aceite em falta a decisão fica por aplicar, à vista, e o lote aprova quando o aceite chega",
+    "um k1_ok com um caso de categoria por decidir não aprova: o screening condicional não é bloqueada",
+    "o marcarFase não escreve aprovado, nem com o tipo contornado",
+    "um k1_ok aprova pela porta e, sem humano, entra na amostra uma vez",
+    "um k1_ok com intervenção humana não é amostrado, e com o screening em falta não aprova",
 )
 
 

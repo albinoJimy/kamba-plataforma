@@ -16,6 +16,7 @@ import { describe, it } from "node:test";
 
 import { criarStorageFake, type StorageProvider } from "../src/storage/index.ts";
 import {
+  AprovacaoEmMemoria,
   CasosEmMemoria,
   CifraAesGcm,
   FilaEmMemoria,
@@ -66,6 +67,7 @@ function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Ra
   const casos = new CasosEmMemoria(verificacoes, relogio);
   const sto = criarStorageFake({ agora: relogio });
   const fila = new FilaEmMemoria();
+  const aprovacao = new AprovacaoEmMemoria(casos);
   const antivirus = o.antivirus ?? new AntivirusFalso();
   const servico = new ServicoKyc({
     verificacoes,
@@ -76,6 +78,7 @@ function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Ra
     ocr: o.ocr ?? new OcrLocal(new MotorDeGrelha()),
     cifra,
     fila,
+    aprovacao,
     anelDoNif: ANEL,
     relogio,
   });
@@ -88,7 +91,7 @@ function montar(o: { ocr?: OcrProvider; antivirus?: AntivirusFalso; isolado?: Ra
       nomeNegocio: "negocio",
       categoriaDeclarada: c.categoria,
     });
-  return { servico, verificacoes, casos, sto, fila, antivirus, cifra, juntar, avancar: (ms: number) => (agora = new Date(agora.getTime() + ms)) };
+  return { servico, verificacoes, casos, sto, fila, aprovacao, antivirus, cifra, juntar, avancar: (ms: number) => (agora = new Date(agora.getTime() + ms)) };
 }
 
 async function carregarTodos(m: ReturnType<typeof montar>, c: CasoSintetico) {
@@ -112,6 +115,46 @@ describe("o caminho completo", () => {
       assert.equal(v.versaoRegras, VERSAO_DAS_REGRAS);
       assert.match(v.docRef, new RegExp(`^t/${GENUINO.tenantId}/kyc_documento/`));
     }
+  });
+
+  it("um k1_ok pede a aprovação à porta, com o tenant do caso, e a fase passa a aprovado (KAM-092)", async () => {
+    const m = montar();
+    await carregarTodos(m, GENUINO);
+    const d = await m.servico.decidir(GENUINO.id);
+    assert.ok(d.estado === "decidido");
+    assert.deepEqual(d.aprovacao, { estado: "aprovado", amostrado: false });
+    assert.deepEqual(m.aprovacao.pedidos, [{ onboardingId: GENUINO.id, tenantId: GENUINO.tenantId }]);
+    assert.equal((await m.casos.porId(GENUINO.id))!.fase, "aprovado");
+    // Aprovado, o caso já não se decide: a segunda chamada não volta à porta.
+    assert.equal((await m.servico.decidir(GENUINO.id)).estado, "fora_de_fase");
+    assert.equal(m.aprovacao.pedidos.length, 1);
+  });
+
+  it("com o agregador por preencher, o caso fica em kyc_pendente e o decidir seguinte volta a pedir (KAM-092)", async () => {
+    const m = montar();
+    await carregarTodos(m, GENUINO);
+    m.aprovacao.emFalta.set(GENUINO.id, ["screening", "aceite"]);
+    const d1 = await m.servico.decidir(GENUINO.id);
+    assert.ok(d1.estado === "decidido");
+    assert.deepEqual(d1.aprovacao, { estado: "em_falta", falta: ["screening", "aceite"] });
+    assert.equal((await m.casos.porId(GENUINO.id))!.fase, "kyc_pendente");
+    // O aceite chegou; as verificações já dizem `k1_ok` (`igual`), e o pedido repete-se.
+    m.aprovacao.emFalta.delete(GENUINO.id);
+    const d2 = await m.servico.decidir(GENUINO.id);
+    assert.ok(d2.estado === "decidido");
+    assert.deepEqual(d2.aprovacao, { estado: "aprovado", amostrado: false });
+    assert.equal(m.aprovacao.pedidos.length, 2);
+    assert.equal((await m.casos.porId(GENUINO.id))!.fase, "aprovado");
+  });
+
+  it("um caso que vai à fila não pede a aprovação", async () => {
+    const m = montar();
+    await carregarTodos(m, ADULTERADO);
+    const d = await m.servico.decidir(ADULTERADO.id);
+    assert.ok(d.estado === "decidido");
+    assert.equal(d.avaliacao.resultado, "fila");
+    assert.equal(d.aprovacao, null);
+    assert.equal(m.aprovacao.pedidos.length, 0);
   });
 
   it("os campos extraidos ficam cifrados: o NIF em claro nao esta na linha", async () => {

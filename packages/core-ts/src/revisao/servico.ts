@@ -54,6 +54,7 @@ import type {
   TipoDeCaso,
 } from "./contrato.ts";
 import {
+  AprovacaoEmFaltaError,
   CasoInexistenteError,
   DECISOES,
   EfeitoPorAplicarError,
@@ -703,10 +704,10 @@ export class ServicoDeRevisao {
    * Amostra uma aprovação **automática**: nas primeiras semanas (8, *proposta*)
    * desde o início da amostragem, 20% (*proposta*) geram um caso `auditoria`
    * de prioridade baixa. O resultado desses casos é a taxa de falsos aprovados.
-   * Sem `inicioDaAmostragem`, não se amostra. **Ninguém a chama ainda**: quem
-   * conhece a aprovação automática é o KAM-092; o gancho é o
-   * `CicloDaFila.aprovacaoAutomatica` (KAM-196), servido pelo processo de lote do
-   * onboarding (KAM-198, `aprovacaoAutomatica` do `ProcessoDeLote`).
+   * Sem `inicioDaAmostragem`, não se amostra. Chama-a o KYC, depois de um `k1_ok`
+   * que a porta da base aprovou sem intervenção humana, pelo gancho
+   * `CicloDaFila.aprovacaoAutomatica` (KAM-196) que o processo de lote do
+   * onboarding serve (KAM-198, `aprovacaoDoKyc` do `ProcessoDeLote`).
    */
   async amostrar(onboardingId: string, tenantId: string): Promise<ResultadoDaAbertura | null> {
     const inicio = this.#d.inicioDaAmostragem ?? null;
@@ -991,10 +992,22 @@ export class ServicoDeRevisao {
       (caso.tipo === "kyc" && fase === "kyc_pendente") ||
       (instancia === "recurso" && fase === "rejeitado" && kycAprovado) ||
       (reaplicar && fase === "aprovado" && !aprovadoPorOutro);
-    const aprovou = !pendente && !rejeitadoPorOutro && desbloqueavel;
-    if (aprovou) await this.#d.onboardings.marcarFase(caso.onboardingId, "aprovado");
+    // **A fila diz que pode; a base decide se aprova** (KAM-092). A fase só
+    // passa a `aprovado` pela porta, que pergunta ao agregador — KYC, screening
+    // e aceite — e emite o `tenant.approved` na mesma transacção. Com o
+    // agregador por preencher (o aceite contratual vem depois do KYC), a fase
+    // fica onde está, o dono não recebe «aprovado», e o efeito **falha**: o
+    // caso fica marcado e o lote volta a pedir a aprovação a cada carência,
+    // até a última condição chegar (KAM-201, critério 1). O recurso decidido
+    // não chega a ser avisado nessa volta — avisa-se quando a aprovação sair.
+    let aprovado = false;
+    if (!pendente && !rejeitadoPorOutro && desbloqueavel) {
+      const r = await this.#d.onboardings.aprovar(caso.onboardingId, `revisor:${revisor.id}`);
+      if (r.estado === "em_falta") throw new AprovacaoEmFaltaError(r.falta);
+      aprovado = true;
+    }
     if (instancia === "recurso") await this.#avisar(caso, "recurso_decidido", null);
-    else if (aprovou) await this.#avisar(caso, "aprovado", null);
+    else if (aprovado) await this.#avisar(caso, "aprovado", null);
   }
 
   async #avisar(caso: CasoDeRevisao, aviso: Aviso, motivo: MotivoPublico | null): Promise<void> {

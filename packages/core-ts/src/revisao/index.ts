@@ -25,9 +25,11 @@ export {
   type ServicoDoCiclo,
 } from "./ciclo.ts";
 export {
+  ACTOR_DO_KYC,
   CasoJaDecididoError,
   CasoNaoElegivelError,
   SCORE_DE_RISCO_ALTO,
+  aprovacaoDoKyc,
   decisaoHumanaDeScreening,
   escritorComFila,
   filaDoGuia,
@@ -72,8 +74,16 @@ export {
   type Feriados,
 } from "./sla.ts";
 export {
+  AprovacaoSemConjuntoError,
   AuditoriaSql,
   CARENCIA_DOS_EFEITOS_MS,
+  OnboardingInexistenteError,
+  SQL_APROVACAO_EM_FALTA,
+  SQL_AVANCAR_CASO,
+  SQL_INTERVENCAO_HUMANA,
+  SQL_REVISAO_PENDENTE,
+  SQL_TENANT_DO_CASO,
+  SQL_TRANCAR_CASO,
   ESPACO_DO_TRINCO_DA_QUOTA,
   EfeitosPorReaplicarSql,
   OnboardingsSql,

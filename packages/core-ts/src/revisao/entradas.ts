@@ -5,6 +5,7 @@
  *
  * ```text
  * kyc/contrato.ts       FilaDeRevisao.enviar(onboardingId, score, marcas, recomendacao)
+ * kyc/contrato.ts       AprovacaoDoKyc.aprovar(onboardingId, tenantId) — o k1_ok pela base (KAM-092)
  * guia/contrato.ts      FilaDeRevisao.abrir(onboardingId, "es_falhado", motivo)
  * screening/motor.ts    EscritorDeDecisoes.gravar(linha) — uma `condicional` abre caso
  * screening (credor)    DecisaoHumanaDeScreening — a linha `origem = 'humano'`
@@ -18,7 +19,13 @@
  * chave por **conteúdo** decidido.
  */
 
-import type { FilaDeRevisao as FilaDoKyc, Marca, Recomendacao as RecomendacaoDoKyc, RepositorioDeVerificacoes } from "../kyc/contrato.ts";
+import type {
+  AprovacaoDoKyc,
+  FilaDeRevisao as FilaDoKyc,
+  Marca,
+  Recomendacao as RecomendacaoDoKyc,
+  RepositorioDeVerificacoes,
+} from "../kyc/contrato.ts";
 import { REGRAS_DURAS } from "../kyc/contrato.ts";
 import type { FilaDeRevisao as FilaDoGuia, MotivoDeFalha } from "../guia/contrato.ts";
 import type { EscritorDeDecisoes, LinhaDeDecisao } from "../screening/motor.ts";
@@ -101,6 +108,37 @@ export function filaDoKyc(
           prioridade: prioridadeDoKyc(p.marcas, p.score),
         }),
       );
+    },
+  };
+}
+
+/** O `actor` que a porta regista para uma aprovação do KYC automático. */
+export const ACTOR_DO_KYC = "kyc:k1_ok";
+
+/**
+ * A porta da aprovação do KYC (`../kyc/contrato.ts`, `AprovacaoDoKyc`), cumprida
+ * (KAM-092): o `k1_ok` aprova pela porta da base, e uma aprovação **sem
+ * intervenção humana** — nenhum caso de revisão do onboarding que não seja de
+ * `auditoria`, a mesma pergunta do `tenant.approved` — passa à amostragem do
+ * KAM-089 pelo `amostrar` dado, que é o gancho
+ * `CicloDaFila.aprovacaoAutomatica`.
+ *
+ * **A amostragem corre depois da aprovação confirmada**, e não dentro dela: o
+ * caso `auditoria` é da fila, noutra transacção. Uma falha dela sobe a quem
+ * chamou com a aprovação já feita, e o `decidir` seguinte já não chega aqui
+ * (`fora_de_fase`) — essa aprovação fica fora da amostra. O custo, dito: a taxa
+ * de falsos aprovados mede sobre uma amostra a que falta essa aprovação.
+ */
+export function aprovacaoDoKyc(
+  onboardings: Pick<OnboardingsDaRevisao, "aprovar">,
+  amostrar: (onboardingId: string, tenantId: string) => Promise<ResultadoDaAbertura | null>,
+): AprovacaoDoKyc {
+  return {
+    async aprovar(onboardingId, tenantId) {
+      const r = await onboardings.aprovar(onboardingId, ACTOR_DO_KYC);
+      if (r.estado === "em_falta") return r;
+      const amostra = r.intervencaoHumana ? null : await amostrar(onboardingId, tenantId);
+      return { estado: "aprovado", amostrado: amostra !== null && amostra.estado !== "nao_elegivel" };
     },
   };
 }

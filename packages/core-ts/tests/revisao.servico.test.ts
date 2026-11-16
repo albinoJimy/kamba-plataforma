@@ -17,6 +17,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
+  AprovacaoEmMemoria,
   CasosEmMemoria,
   CifraAesGcm,
   OcrLocal,
@@ -27,7 +28,9 @@ import {
 } from "../src/kyc/index.ts";
 import { criarStorageFake } from "../src/storage/index.ts";
 import {
+  AprovacaoEmFaltaError,
   CasoNaoElegivelError,
+  EfeitoPorAplicarError,
   RevisaoRecusadaError,
   ServicoDeRevisao,
   decisaoHumanaDeScreening,
@@ -143,6 +146,14 @@ function montarComKyc() {
       casos.casos.set(id, { ...c, fase });
       return true;
     },
+    // O agregador da base não existe aqui: aprovar é escrever a fase, como a
+    // porta faz com ele vazio. O que ele recusa mede-se no `lote.bd.test.ts`.
+    async aprovar(id) {
+      const c = casos.casos.get(id);
+      if (c === undefined) throw new Error("caso inexistente");
+      casos.casos.set(id, { ...c, fase: "aprovado" });
+      return { estado: "aprovado", intervencaoHumana: true };
+    },
   };
   const servico = new ServicoDeRevisao({
     repositorio: m.repositorio,
@@ -167,6 +178,7 @@ function montarComKyc() {
     ocr: new OcrLocal(new MotorDeGrelha()),
     cifra: new CifraAesGcm(randomBytes(32)),
     fila: filaDoKyc(servico, ponte, verificacoes),
+    aprovacao: new AprovacaoEmMemoria(casos),
     anelDoNif: ANEL,
     relogio,
   });
@@ -198,7 +210,7 @@ describe("a partir do KYC (KAM-087): abertura, decisao e recurso", () => {
     const m = montarComKyc();
     await m.carregar(ADULTERADO);
     await m.kyc.decidir(ADULTERADO.id);
-    const fila = filaDoKyc(m.servico, { porId: async () => ({ id: ADULTERADO.id, tenantId: ADULTERADO.tenantId, fase: "em_revisao", redeHmac: null, dispositivoHmac: null, nifHmac: "", telefoneHmac: "" }), porTenant: async () => null, marcarFase: async () => true }, m.verificacoes);
+    const fila = filaDoKyc(m.servico, { porId: async () => ({ id: ADULTERADO.id, tenantId: ADULTERADO.tenantId, fase: "em_revisao", redeHmac: null, dispositivoHmac: null, nifHmac: "", telefoneHmac: "" }), porTenant: async () => null, marcarFase: async () => true, aprovar: async () => ({ estado: "aprovado", intervencaoHumana: true }) }, m.verificacoes);
     for (let i = 0; i < 3; i++) await fila.enviar({ onboardingId: ADULTERADO.id, score: 40, marcas: ["nif_divergente"], recomendacao: "investigar" });
     assert.equal(m.repositorio.casos.size, 1);
   });
@@ -307,6 +319,39 @@ describe("quem decide (criterio 3 e 6)", () => {
     assert.ok(r.estado === "aberto");
     assert.equal((await m.servico.decidir(revisor(), r.caso.id, "aprovar")).estado, "decidido");
     assert.equal(m.onboardings.casos.get(o.id)!.fase, "aprovado");
+  });
+
+  it("a aprovação passa pela porta, com o revisor como actor, e nunca pelo marcarFase (KAM-092)", async () => {
+    const m = montarRevisao();
+    const o = m.onboarding();
+    const r = await m.abrir(o, { prioridade: 5 });
+    assert.ok(r.estado === "aberto");
+    const quem = revisor();
+    await m.servico.decidir(quem, r.caso.id, "aprovar");
+    assert.deepEqual(m.onboardings.aprovacoes, [{ id: o.id, actor: `revisor:${quem.id}` }]);
+    assert.deepEqual(m.onboardings.fases, [{ id: o.id, fase: "aprovado" }]);
+  });
+
+  it("com o agregador por preencher, o efeito falha à vista, a fase fica, e a reaplicação aprova quando chega (KAM-201)", async () => {
+    const m = montarRevisao();
+    const o = m.onboarding();
+    // O aceite contratual vem depois do KYC: a fila aprova o caso, a base não.
+    m.onboardings.emFalta.set(o.id, ["aceite"]);
+    const r = await m.abrir(o, { prioridade: 5 });
+    assert.ok(r.estado === "aberto");
+    await assert.rejects(
+      m.servico.decidir(revisor(), r.caso.id, "aprovar"),
+      (e: unknown) => e instanceof EfeitoPorAplicarError && e.cause instanceof AprovacaoEmFaltaError && e.cause.falta.join() === "aceite",
+    );
+    assert.equal(m.repositorio.casos.get(r.caso.id)!.estado, "decidido", "a decisão ficou registada");
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "em_revisao");
+    assert.ok(!m.avisos.some((a) => a.aviso === "aprovado"), "o aviso diz o que aconteceu");
+    // O aceite chegou; a reaplicação do lote volta a pedir, e agora aprova.
+    m.onboardings.emFalta.delete(o.id);
+    await m.servico.reaplicarEfeitos(r.caso.id);
+    assert.equal(m.onboardings.casos.get(o.id)!.fase, "aprovado");
+    assert.equal(m.onboardings.aprovacoes.length, 2);
+    assert.deepEqual(m.avisos.at(-1)?.aviso, "aprovado");
   });
 
   it("risco alto: o mesmo revisor duas vezes recusa, e um pedir_info no meio recomeca a contagem", async () => {

@@ -30,8 +30,10 @@ import type {
   OnboardingsDaRevisao,
   RegistoDeAuditoria,
   RepositorioDeRevisao,
+  ResultadoDaAprovacao,
   Sla,
 } from "./contrato.ts";
+import { comTenant } from "../tenant_guard/index.ts";
 
 export interface ClienteSql {
   query<T = Record<string, unknown>>(
@@ -425,8 +427,64 @@ export const SQL_ONBOARDING_POR_ID = `SELECT id, tenant_id, fase, fase_at, ip_pr
 export const SQL_ONBOARDING_POR_TENANT = `SELECT id, tenant_id, fase, fase_at, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
   FROM platform.onboarding_case WHERE tenant_id = $1`;
 
-/** O `fase_at` mantém-no o *trigger* da `0043`. */
-export const SQL_MARCAR_FASE = `UPDATE platform.onboarding_case SET fase = $2 WHERE id = $1 RETURNING id`;
+/**
+ * O `fase_at` mantém-no o *trigger* da `0043`. **Nunca `aprovado`**: essa fase
+ * escreve-se só pela porta da base (`SQL_AVANCAR_CASO`). A guarda está na
+ * própria instrução — sem linha devolvida, nada mudou —, e não só no tipo do
+ * `marcarFase`, que um `as` contorna.
+ */
+export const SQL_MARCAR_FASE = `UPDATE platform.onboarding_case SET fase = $2 WHERE id = $1 AND $2 <> 'aprovado' RETURNING id`;
+
+/**
+ * A aprovação pela porta da base (KAM-092, dicionário §3.70), em **uma**
+ * transacção com o `app.tenant_id` do caso, que é o que o `advance_case` exige
+ * (`42501` sem ele).
+ *
+ * 1. `SQL_TENANT_DO_CASO`, fora da transacção: o `tenant_id` de um caso não muda.
+ * 2. `SQL_TRANCAR_CASO` tranca o caso **antes** de tudo, pela mesma ordem que o
+ *    `advance_case` e o `transition_tenant` (o caso antes do tenant), e lê a fase
+ *    que escolhe o evento: de `rejeitado` só sai pelo `recurso_aprovado`.
+ * 3. `SQL_APROVACAO_EM_FALTA` pergunta ao agregador — salvo numa repetição, que
+ *    a porta resolve sem lhe perguntar. Com ele por preencher, nada se escreve.
+ *    E `SQL_REVISAO_PENDENTE` acrescenta o que o agregador não vê: um caso de
+ *    revisão que bloqueia (`kyc`, `categoria`, `duplicado`) por decidir. O
+ *    screening `condicional` não é `bloqueada`, e o agregador passava-o; quem o
+ *    decide é o caso de `categoria` que ele abriu, e um `k1_ok` não o salta.
+ * 4. `SQL_AVANCAR_CASO` avança e emite; `SQL_INTERVENCAO_HUMANA` é a mesma
+ *    pergunta que o evento leva.
+ */
+export const SQL_TENANT_DO_CASO = `SELECT tenant_id::text AS tenant_id FROM platform.onboarding_case WHERE id = $1`;
+
+export const SQL_TRANCAR_CASO = `SELECT fase FROM platform.onboarding_case WHERE id = $1 FOR UPDATE`;
+
+export const SQL_APROVACAO_EM_FALTA = `SELECT platform.aprovacao_em_falta($1) AS falta`;
+
+export const SQL_REVISAO_PENDENTE = `SELECT EXISTS (SELECT 1 FROM platform.review_case r
+   WHERE r.onboarding_id = $1 AND r.tipo IN ('kyc', 'categoria', 'duplicado')
+     AND r.estado IN ('em_triagem_automatica', 'aberto', 'em_analise', 'escalado', 'recurso_aberto')) AS pendente`;
+
+export const SQL_AVANCAR_CASO = `SELECT platform.advance_case($1, $2, $3) AS fase`;
+
+export const SQL_INTERVENCAO_HUMANA = `SELECT EXISTS (SELECT 1 FROM platform.review_case r
+   WHERE r.onboarding_id = $1 AND r.tipo <> 'auditoria') AS humana`;
+
+/** Pediu-se a porta da aprovação a uma ligação solta: a transacção precisa de uma dedicada. */
+export class AprovacaoSemConjuntoError extends Error {
+  override readonly name = "AprovacaoSemConjuntoError";
+
+  constructor() {
+    super("a aprovacao pela porta precisa de um conjunto de ligacoes (pg.Pool): o contexto do tenant vive numa transaccao");
+  }
+}
+
+/** O caso de onboarding a aprovar não existe. */
+export class OnboardingInexistenteError extends Error {
+  override readonly name = "OnboardingInexistenteError";
+
+  constructor() {
+    super("caso de onboarding inexistente");
+  }
+}
 
 interface LinhaDoOnboarding {
   id: string;
@@ -471,8 +529,42 @@ export class OnboardingsSql implements OnboardingsDaRevisao {
     return r.rows[0] === undefined ? null : onboardingDe(r.rows[0]);
   }
 
-  async marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean> {
+  async marcarFase(id: string, fase: "rejeitado" | "kyc_pendente"): Promise<boolean> {
     return (await this.#c.query(SQL_MARCAR_FASE, [id, fase])).rows.length === 1;
+  }
+
+  async aprovar(id: string, actor: string): Promise<ResultadoDaAprovacao> {
+    if (typeof (this.#c as Partial<ConjuntoSql>).connect !== "function") throw new AprovacaoSemConjuntoError();
+    const tenant = (await this.#c.query<{ tenant_id: string }>(SQL_TENANT_DO_CASO, [id])).rows[0]?.tenant_id;
+    if (tenant === undefined) throw new OnboardingInexistenteError();
+    const ligacao = await (this.#c as ConjuntoSql).connect();
+    let estragada: Error | undefined;
+    try {
+      // A `ligacao` e não o cliente que o `comTenant` entrega: são o mesmo
+      // objecto, e o tipo do `tenant_guard` só promete `Promise<unknown>`.
+      return await comTenant(ligacao, tenant, async (): Promise<ResultadoDaAprovacao> => {
+        const fase = (await ligacao.query<{ fase: string }>(SQL_TRANCAR_CASO, [id])).rows[0]?.fase;
+        if (fase === undefined) throw new OnboardingInexistenteError();
+        if (fase !== "aprovado") {
+          const falta = [...((await ligacao.query<{ falta: string[] }>(SQL_APROVACAO_EM_FALTA, [id])).rows[0]?.falta ?? [])];
+          if ((await ligacao.query<{ pendente: boolean }>(SQL_REVISAO_PENDENTE, [id])).rows[0]?.pendente === true) {
+            falta.push("revisao");
+          }
+          if (falta.length > 0) return { estado: "em_falta", falta };
+        }
+        await ligacao.query(SQL_AVANCAR_CASO, [id, fase === "rejeitado" ? "recurso_aprovado" : "aprovar", actor]);
+        const humana = (await ligacao.query<{ humana: boolean }>(SQL_INTERVENCAO_HUMANA, [id])).rows[0]?.humana;
+        return { estado: "aprovado", intervencaoHumana: humana === true };
+      });
+    } catch (erro) {
+      // O `comTenant` engole uma falha do `ROLLBACK`: a ligação devolve-se com o
+      // erro, e o `pg` descarta-a em vez de a dar ao próximo (o padrão do
+      // `escritorHumanoDeScreening` do KAM-198).
+      estragada = erro instanceof Error ? erro : new Error("aprovacao pela porta falhou");
+      throw erro;
+    } finally {
+      ligacao.release(estragada);
+    }
   }
 }
 

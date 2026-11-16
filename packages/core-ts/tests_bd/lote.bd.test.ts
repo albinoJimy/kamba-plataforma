@@ -40,10 +40,11 @@ import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
 
-import { BASE_DESCARTAVEL, ligar } from "./apoio.ts";
+import { BASE_DESCARTAVEL, aceitarVigentes, ligar } from "./apoio.ts";
 import {
   LIMIARES_POR_OMISSAO,
   OnboardingsSql,
+  baldeDaAmostra,
   RevisaoSql,
   ServicoDeRevisao,
   type ConjuntoSql,
@@ -93,15 +94,65 @@ let lote: pg.Pool;
 let app: pg.Pool;
 
 /** Um `onboarding_case` de ensaio, como administrador. Devolve `[id, tenant]`. */
-async function onboarding(fase: string, origem: Buffer | null = randomBytes(32)): Promise<[string, string]> {
+async function onboarding(
+  fase: string,
+  origem: Buffer | null = randomBytes(32),
+  id: string = randomUUID(),
+): Promise<[string, string]> {
   const r = await admin.query<{ id: string; tenant_id: string }>(
     `INSERT INTO platform.onboarding_case
-       (fase, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, ip_prefix_hash)
-     VALUES ($1, 'convite', 'Loja de ensaio', 'alimentar', $2, $3, $2, $4, $5)
+       (id, fase, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac, ip_prefix_hash)
+     VALUES ($6, $1, 'convite', 'Loja de ensaio', 'alimentar', $2, $3, $2, $4, $5)
      RETURNING id, tenant_id`,
-    [fase, randomBytes(40), randomBytes(32), randomBytes(32), origem],
+    [fase, randomBytes(40), randomBytes(32), randomBytes(32), origem, id],
   );
   return [r.rows[0]!.id, r.rows[0]!.tenant_id];
+}
+
+/**
+ * As condições do agregador da aprovação (KAM-092, dicionário §3.70), como
+ * administrador: um `kyc_check` `k1_ok` (se `kyc`), uma decisão de screening
+ * de categoria `permitida` e o aceite das vigentes. Cada uma pode faltar.
+ */
+async function condicoes(
+  onb: string,
+  tenant: string,
+  o: { readonly kyc?: boolean; readonly screening?: boolean; readonly aceite?: boolean } = {},
+): Promise<void> {
+  if (o.kyc ?? true) {
+    await admin.query(
+      `INSERT INTO platform.kyc_check (onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, resultado, versao_regras)
+       VALUES ($1, $2, 'bi', $3, $4, 'k1_ok', '1.0.0')`,
+      [onb, tenant, `t/${tenant}/kyc_documento/2026/11/${randomUUID()}`, randomBytes(32)],
+    );
+  }
+  if (o.screening ?? true) {
+    await admin.query(
+      `INSERT INTO platform.screening_decision (tenant_id, onboarding_id, sujeito_tipo, sujeito_ref, decisao,
+         regras, versao_politica, origem, conteudo_sha256)
+       VALUES ($1, $2, 'categoria', 'alimentar', 'permitida', ARRAY['alimentar'], '1.0.0+ensaio', 'regra', $3)`,
+      [tenant, onb, randomBytes(32)],
+    );
+  }
+  if (o.aceite ?? true) await aceitarVigentes(admin, tenant);
+}
+
+/** Os `tenant.approved` de um tenant no *outbox*, pelo payload. */
+async function aprovacoes(tenant: string): Promise<{ intervencao_humana: boolean; onboarding_id: string }[]> {
+  const r = await admin.query<{ payload: { intervencao_humana: boolean; onboarding_id: string } }>(
+    `SELECT envelope -> 'payload' AS payload FROM platform.events_outbox
+      WHERE tenant_id = $1 AND tipo = 'tenant.approved' ORDER BY agregado_seq`,
+    [tenant],
+  );
+  return r.rows.map((l) => l.payload);
+}
+
+/** Um identificador cuja aprovação cai (ou não) na amostra de 20%. */
+function idNaAmostra(dentro: boolean): string {
+  for (;;) {
+    const id = randomUUID();
+    if (baldeDaAmostra(id) < LIMIARES_POR_OMISSAO.fracaoDaAmostra === dentro) return id;
+  }
 }
 
 /** Um `review_case` de ensaio, como administrador. */
@@ -221,6 +272,9 @@ describe("o processo de lote contra a base", () => {
 
   it("o efeito por reaplicar aplica a fase, e o aviso sem via deixa-o na lista", async () => {
     const [onbB, tenantB] = await onboarding("em_revisao");
+    // KAM-092: a fase passa a `aprovado` pela porta, que pergunta ao agregador.
+    // O KYC é o humano deste caso; o screening e o aceite têm de estar lá.
+    await condicoes(onbB, tenantB, { kyc: false });
     const decidido = await caso({ tipo: "kyc", tenant: tenantB, onboarding: onbB, estado: "decidido" });
     await decisao(decidido, tenantB, "aprovar");
     const efeitos = semCarencia(lote);
@@ -426,6 +480,122 @@ describe("o processo de lote contra a base", () => {
     };
     assert.equal(await correrCom(true), "rejeitado", "a reaplicação desfez o passo do KYC");
     assert.equal(await correrCom(false), "kyc_pendente", "sem mudança, a fase do pedido aplica-se");
+  });
+
+  // ------------------------------------------------- as portas do KAM-092
+
+  it("a decisão humana aprova pela porta: a fase passa a aprovado e sai um tenant.approved, uma vez", async () => {
+    const [onb, tenant] = await onboarding("em_revisao");
+    await condicoes(onb, tenant, { kyc: false });
+    const aberto = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "aberto" });
+    const efeitos = semCarencia(lote);
+    const p = montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 });
+    const quem = { id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
+    // O aviso não tem via (`AvisoSemVia`): a aprovação aplica-se e o efeito fica marcado.
+    await assert.rejects(p.servico.decidir(quem, aberto, "aprovar"), { name: "EfeitoPorAplicarError" });
+    assert.equal(await fase(onb), "aprovado");
+    const emitidos = await aprovacoes(tenant);
+    assert.equal(emitidos.length, 1);
+    assert.equal(emitidos[0]!.onboarding_id, onb);
+    assert.equal(emitidos[0]!.intervencao_humana, true);
+    // A reaplicação do lote volta a pedir a aprovação: a porta responde pela
+    // repetição, sem segundo evento.
+    await p.ciclo.correr();
+    assert.equal((await aprovacoes(tenant)).length, 1, "a repetição não emite");
+    assert.equal(await fase(onb), "aprovado");
+  });
+
+  it("com o aceite em falta a decisão fica por aplicar, à vista, e o lote aprova quando o aceite chega", async () => {
+    const [onb, tenant] = await onboarding("em_revisao");
+    await condicoes(onb, tenant, { kyc: false, aceite: false });
+    const aberto = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "aberto" });
+    const efeitos = semCarencia(lote);
+    const p = montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 });
+    const quem = { id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
+    // KAM-201, critério 1: a base recusa, e isso é um efeito por aplicar — não
+    // uma fase escrita, nem um silêncio.
+    await assert.rejects(p.servico.decidir(quem, aberto, "aprovar"), (e: unknown) => {
+      const causa = (e as { cause?: { name?: string; falta?: string[] } }).cause;
+      return (e as Error).name === "EfeitoPorAplicarError" && causa?.name === "AprovacaoEmFaltaError" && causa.falta?.join() === "aceite";
+    });
+    assert.equal(await fase(onb), "em_revisao");
+    assert.deepEqual(await aprovacoes(tenant), []);
+    assert.ok((await efeitos.pendentes(100)).includes(aberto), "fica na lista do lote");
+    // Uma volta sem o aceite não aprova; com ele, a reaplicação aprova e emite uma vez.
+    await p.ciclo.correr();
+    assert.equal(await fase(onb), "em_revisao");
+    await aceitarVigentes(admin, tenant);
+    await p.ciclo.correr();
+    assert.equal(await fase(onb), "aprovado");
+    assert.equal((await aprovacoes(tenant)).length, 1);
+  });
+
+  it("um k1_ok com um caso de categoria por decidir não aprova: o screening condicional não é bloqueada", async () => {
+    const [onb, tenant] = await onboarding("kyc_pendente");
+    await condicoes(onb, tenant);
+    await caso({ tipo: "categoria", tenant, onboarding: onb, estado: "aberto" });
+    const p = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(onb, tenant), { estado: "em_falta", falta: ["revisao"] });
+    assert.equal(await fase(onb), "kyc_pendente");
+    assert.deepEqual(await aprovacoes(tenant), []);
+  });
+
+  it("o marcarFase não escreve aprovado, nem com o tipo contornado", async () => {
+    const [onb, tenant] = await onboarding("em_revisao");
+    await condicoes(onb, tenant);
+    const o = new OnboardingsSql(lote as unknown as ConjuntoSql);
+    assert.equal(await o.marcarFase(onb, "aprovado" as never), false);
+    assert.equal(await fase(onb), "em_revisao");
+    assert.deepEqual(await aprovacoes(tenant), []);
+  });
+
+  it("um k1_ok aprova pela porta e, sem humano, entra na amostra uma vez", async () => {
+    const [onb, tenant] = await onboarding("kyc_pendente", randomBytes(32), idNaAmostra(true));
+    await condicoes(onb, tenant);
+    const p = montarProcesso({
+      lote,
+      app,
+      efeitos: semCarencia(lote),
+      log: registo,
+      relogio: () => T0,
+      inicioDaAmostragem: new Date(T0.getTime() - 86_400_000),
+    });
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(onb, tenant), { estado: "aprovado", amostrado: true });
+    assert.equal(await fase(onb), "aprovado");
+    const [evento] = await aprovacoes(tenant);
+    assert.equal(evento?.intervencao_humana, false, "a auditoria da amostra não conta como intervenção");
+    // Repetir não emite nem abre segunda auditoria.
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(onb, tenant), { estado: "aprovado", amostrado: true });
+    assert.equal((await aprovacoes(tenant)).length, 1);
+    const auditorias = await admin.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM platform.review_case WHERE tipo = 'auditoria' AND motivo_codigo = $1",
+      [`amostra:${onb}`],
+    );
+    assert.equal(auditorias.rows[0]!.n, 1);
+  });
+
+  it("um k1_ok com intervenção humana não é amostrado, e com o screening em falta não aprova", async () => {
+    const [humano, tenantH] = await onboarding("kyc_pendente", randomBytes(32), idNaAmostra(true));
+    await condicoes(humano, tenantH);
+    // Um caso de categoria decidido por um humano: a aprovação não é automática.
+    const categoria = await caso({ tipo: "categoria", tenant: tenantH, onboarding: humano, estado: "decidido" });
+    await decisao(categoria, tenantH, "aprovar");
+    const p = montarProcesso({
+      lote,
+      app,
+      efeitos: semCarencia(lote),
+      log: registo,
+      relogio: () => T0,
+      inicioDaAmostragem: new Date(T0.getTime() - 86_400_000),
+    });
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(humano, tenantH), { estado: "aprovado", amostrado: false });
+    assert.equal((await aprovacoes(tenantH))[0]?.intervencao_humana, true);
+
+    const [semScreening, tenantS] = await onboarding("kyc_pendente");
+    await condicoes(semScreening, tenantS, { screening: false });
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(semScreening, tenantS), { estado: "em_falta", falta: ["screening"] });
+    assert.equal(await fase(semScreening), "kyc_pendente");
+    assert.deepEqual(await aprovacoes(tenantS), []);
   });
 
   it("o processo arranca em prod com as duas credenciais, serve /healthz e /metrics, e pára no SIGTERM", async () => {
