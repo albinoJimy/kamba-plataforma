@@ -1208,7 +1208,7 @@ no KAM-052 a KAM-055.
 **Onde vive o billing.** Não há `services/pay/` (dívidas 148 e 213). O módulo é
 `../packages/core-ts/src/pagamentos/billing.ts`, no estrato `critico` do `../ci/thresholds.yaml`
 sem padrão novo, e as barreiras vivem na revisão
-[`0054_billing_da_plataforma.py`](../db/migrations/versions/0054_billing_da_plataforma.py)
+[`0055_billing_da_plataforma.py`](../db/migrations/versions/0055_billing_da_plataforma.py)
 (número **provisório**, sobre a `0051`; o final dá-o a integração). O papel de billing que o
 `../docs/tecnica/04` §6.2 nomeia é o **`kamba_pay`** do KAM-197 — a dívida 154 fica paga.
 

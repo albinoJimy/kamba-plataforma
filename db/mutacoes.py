@@ -263,9 +263,9 @@ REV_SINAIS = "db/migrations/versions/0039_escritor_de_sinais_de_anomalia.py"
 #: final da-o quem integra, e esta constante muda com ele — o `--aplicaveis`
 #: apanha quem se esqueca dela.
 REV_REEMBOLSOS = "db/migrations/versions/0051_casos_de_reembolso_pelo_pay.py"
-#: KAM-059: o billing da plataforma. **Numero provisorio** (`0054`): o final
-#: da-o quem integra, e esta constante muda com ele.
-REV_BILLING = "db/migrations/versions/0054_billing_da_plataforma.py"
+#: KAM-059: o billing da plataforma, `0055` sobre a `0054` do KAM-120 (ordem da
+#: fila). Se o numero mudar, esta constante muda com ele.
+REV_BILLING = "db/migrations/versions/0055_billing_da_plataforma.py"
 #: KAM-090: o aceite contratual versionado e o gate de activacao.
 REV40 = "db/migrations/versions/0040_aceite_contratual.py"
 #: KAM-071: o registo da purga e as duas accoes do hold. O numero e o que a fila

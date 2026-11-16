@@ -118,12 +118,13 @@ from alembic import op
 
 import rls
 
-revision = "0054"
-#: **Provisorio.** Escrita sobre a cabeca da `publico/main` (`0051`) para que o
-#: *gate* 8 corra; o numero final e o `down_revision` da-os o orquestrador na
-#: integracao, pela ordem de quem fica pronto (a cadeia prevista e #193 `0052`,
-#: KAM-097 `0053`, este `0054`).
-down_revision = "0051"
+revision = "0055"
+#: **Encaixa na `0054_foto_de_produtos.py` do KAM-120**, pela ordem da fila que o
+#: orquestrador do lote deu a 2026-11-16: #193 `0052`, KAM-198 `0053`, KAM-120
+#: `0054`, este `0055`. Escreveu-se como `0054` sobre a `0051` e renumerou-se
+#: antes da integracao, pela regra da casa: um ramo nao reserva a linha de
+#: versoes para outro.
+down_revision = "0054"
 branch_labels = None
 depends_on = None
 

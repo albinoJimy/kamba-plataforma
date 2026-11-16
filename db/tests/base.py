@@ -536,7 +536,7 @@ TABELAS_CATALOGO_AI = ("catalog_ingestions",)
 #: O que a revisao do billing da plataforma (KAM-059) acrescenta.
 #:
 #: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: a
-#: revisao e `0054` provisoria e o numero final da-o a integracao (os ensaios
+#: revisao e a `0055`, e um numero que a fila pode mudar outra vez (os ensaios
 #: descobrem-na pelo *glob* `*_billing_da_plataforma.py`).
 #:
 #: Quatro tabelas de tenant com RLS `FORCE` pela `tenant_iso` e uma global, o

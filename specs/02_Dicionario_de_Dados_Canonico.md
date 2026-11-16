@@ -4272,7 +4272,7 @@ fornecedor de e-mail do aviso — KAM-115.
 ### 3.66 Billing da plataforma: precário, subscrições, ciclos, sombra da comissão e a dupla de ops (KAM-059)
 
 *Emenda 1.92, **proposta**.* Os nomes do `../docs/tecnica/04` §11.2 que a revisão do billing
-([`db/migrations/versions/0054_billing_da_plataforma.py`](../db/migrations/versions/0054_billing_da_plataforma.py),
+([`db/migrations/versions/0055_billing_da_plataforma.py`](../db/migrations/versions/0055_billing_da_plataforma.py),
 número provisório; o final dá-o a integração) cria, e do módulo
 [`packages/core-ts/src/pagamentos/billing.ts`](../packages/core-ts/src/pagamentos/billing.ts). A
 KAMBÁ cobra a assinatura às PMEs com a mesma interface de pagamento, numa conta de
