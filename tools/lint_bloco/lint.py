@@ -301,7 +301,7 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: em `cd696baf` (o #194 do KAM-120 ja fundido): **124 medidos**, e `124 // 2`
 #: sao 62. Sobe para 62, que serve ate aos 125.
 #:
-#: **O 126.o e o do KAM-056**, medido na arvore do ramo sobre a `publico/main`
+#: **O 126.o e o do KAM-097**, medido na arvore integrada com a `publico/main`
 #: em `970ea958` (o #196 do KAM-059 ja fundido): **126 medidos**, e `126 // 2`
 #: sao 63. Sobe para 63, que serve ate aos 127.
 MINIMO_DE_BLOCOS_MEDIDOS = 63

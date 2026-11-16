@@ -435,7 +435,9 @@ test("o serviço do processo marca os efeitos na mesma lista que o ciclo reaplic
   const tenant = "55555555-5555-4555-8555-555555555555";
   const agora = new Date("2026-11-13T10:00:00Z");
   const linhaDoCaso = {
-    id: caso, tipo: "trust", onboarding_id: null, tenant_id: tenant, motivo_codigo: "trust:x",
+    // Um caso `saga` e nao `trust`: desde o KAM-097, rejeitar um `trust` aplica uma
+    // sancao, pede a regra e precisa de T&S ligado; o que se mede aqui e a marca.
+    id: caso, tipo: "saga", onboarding_id: null, tenant_id: tenant, motivo_codigo: "saga:x",
     motivo_interno: "x", motivo_publico: "nao_foi_possivel_validar", evidencias: [], recomendacao: null,
     estado: "aberto", prioridade: 5, fila_at: agora, sla_alerta_at: agora, sla_due_at: agora,
     sla_alertado_at: null, criado_at: agora,
