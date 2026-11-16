@@ -513,3 +513,196 @@ def criar() -> None:
 def remover() -> None:
     """O `downgrade`: tudo o que `criar()` fez, menos as extensoes."""
     op.execute(SQL_REMOVER)
+
+
+# ------------------------------------------------------------------ KAM-199
+#
+# A revisao da activacao do lexico de *dataset* (metade do criterio 7 do
+# KAM-062). A `0049` deixou uma entrada `origem = 'dataset'` sempre inactiva
+# (`termo_canonico_dataset_inactivo_ck`), a espera do *gate* do KAM-064. O
+# *gate* existe (`tools/eval_search/gate.py`) e corre no CI como aviso
+# (ADR-L012), e esta revisao troca a `CHECK` por uma activacao **que o *gate*
+# mediu**:
+#
+# 1. **`idx.eval_relatorio`**, um relatorio do *gate* por linha: o `sha256` do
+#    ficheiro, a linha de base e o *dataset* contra que se mediu, o nDCG@3 e o
+#    zero-result do modo lexical (o do Piloto, ADR-L012), da linha de base e do
+#    relatorio, e os **termos** do lexico candidato que a corrida semeou
+#    (`golden_search --lexico`). **So aceita um relatorio verde**: a
+#    `eval_relatorio_verde_ck` e a regra do §14.3 escrita na base — o nDCG@3 nao
+#    cai mais de 2 pontos e o zero-result nao sobe mais de 1. Em `numeric`,
+#    pelo que «cai 2 pontos» nao e «cai mais de 2», sem o arredondamento que o
+#    `gate.py` precisa em virgula flutuante. **E imutavel**
+#    (`eval_relatorio_imutavel`): um relatorio anexado nao se reescreve, nem
+#    para vermelho nem para acrescentar um termo que nao mediu. Sem `tenant_id`
+#    e sem pessoa, como a `norm_versao`: sem RLS.
+# 2. **`termo_canonico.eval_relatorio_id`**, a FK para o relatorio, e o
+#    gatilho **`termo_canonico_dataset_medido`** no lugar da `..._inactivo_ck`:
+#    uma entrada de *dataset* so fica `activo` com um relatorio anexado **que a
+#    mediu** — o `(tipo, termo, canonico)` dela esta nos `termos` do relatorio.
+#    Sem a segunda metade, um relatorio verde qualquer (o da propria linha de
+#    base, que nao semeou lexico nenhum) soltava todas as entradas, e o «so
+#    ficam activo depois de passarem o *gate*» do criterio era so de nome
+#    (achado 2 da revisao adversarial). **Sem `CHECK` ao lado**: o gatilho ja
+#    recusa a entrada sem relatorio, e uma `CHECK` que nada pode apanhar era uma
+#    mutacao sobrevivente por construcao.
+#
+# **Quem escreve.** O dono, como o resto do lexico (a curadoria de *ops*): corre
+# o `golden_search --lexico <candidatos.jsonl>`, e o
+# `python -m eval_search.gate anexo <relatorio.json>` da a linha de um relatorio
+# que o *gate* deu verde; o `SQL_ANEXAR_RELATORIO` insere-a. O `kamba_app` nao le
+# nem escreve a tabela.
+#
+# **A descida recusa** se houver uma entrada de *dataset* activa: a `CHECK`
+# antiga volta e valida as linhas, e a transaccao da revisao desfaz-se. E a
+# falha fechada certa — descer nao desactiva lexico em silencio.
+
+#: A tabela dos relatorios.
+EVAL_RELATORIO: Final = "idx.eval_relatorio"
+
+SQL_EVAL_RELATORIO: Final = """
+CREATE TABLE idx.eval_relatorio (
+  id               bigint      GENERATED ALWAYS AS IDENTITY,
+  -- O sha256 do ficheiro do relatorio, em hexadecimal minusculo.
+  relatorio_sha256 text        NOT NULL,
+  -- A versao da linha de base e a do dataset contra que se mediu.
+  linha_de_base    text        NOT NULL,
+  dataset          text        NOT NULL,
+  -- O modo lexical, o do Piloto: o da linha de base e o do relatorio.
+  ndcg_at_3_base   numeric     NOT NULL,
+  ndcg_at_3        numeric     NOT NULL,
+  zero_result_base numeric     NOT NULL,
+  zero_result      numeric     NOT NULL,
+  -- O lexico candidato que a corrida semeou: uma lista de
+  -- {tipo, termo, canonico}. Vazia num relatorio que nao mediu lexico.
+  termos           jsonb       NOT NULL,
+  registado_por    text        NOT NULL,
+  criado_at        timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT eval_relatorio_pkey PRIMARY KEY (id),
+  CONSTRAINT eval_relatorio_sha256_uq UNIQUE (relatorio_sha256),
+  CONSTRAINT eval_relatorio_sha256_ck CHECK (relatorio_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT eval_relatorio_metricas_ck
+    CHECK (ndcg_at_3_base BETWEEN 0 AND 1 AND ndcg_at_3 BETWEEN 0 AND 1
+           AND zero_result_base BETWEEN 0 AND 1 AND zero_result BETWEEN 0 AND 1),
+  CONSTRAINT eval_relatorio_verde_ck
+    CHECK (ndcg_at_3_base - ndcg_at_3 <= 0.02 AND zero_result - zero_result_base <= 0.01),
+  CONSTRAINT eval_relatorio_termos_ck CHECK (jsonb_typeof(termos) = 'array'),
+  CONSTRAINT eval_relatorio_registado_ck CHECK (btrim(registado_por) <> '')
+)
+"""
+
+#: O relatorio anexado e prova: nao se reescreve. Recusa-se a toda a gente,
+#: dono incluido (`BEFORE UPDATE`, por linha). O `DELETE` de um anexado ja o
+#: recusa a FK; o de um que ninguem anexou fica livre, que e corrigir um engano.
+SQL_RELATORIO_IMUTAVEL: Final = """
+CREATE FUNCTION idx.f_recusar_alteracao_de_relatorio() RETURNS trigger
+  LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'idx.eval_relatorio nao se reescreve'
+    USING ERRCODE = 'check_violation';
+END
+$$;
+CREATE TRIGGER eval_relatorio_imutavel
+  BEFORE UPDATE ON idx.eval_relatorio
+  FOR EACH ROW EXECUTE FUNCTION idx.f_recusar_alteracao_de_relatorio()
+"""
+
+#: A FK, e a `CHECK` antiga sai. A tabela da `0049` pode ter entradas de
+#: *dataset*, todas inactivas (a `CHECK` antiga garantia-o), e o gatilho abaixo
+#: so olha para as activas.
+SQL_ACTIVACAO_DO_DATASET: Final = """
+ALTER TABLE idx.termo_canonico
+  ADD COLUMN eval_relatorio_id bigint,
+  ADD CONSTRAINT termo_canonico_eval_relatorio_fk
+    FOREIGN KEY (eval_relatorio_id) REFERENCES idx.eval_relatorio (id),
+  DROP CONSTRAINT termo_canonico_dataset_inactivo_ck
+"""
+
+#: Uma entrada de *dataset* activa so com um relatorio que a mediu. `BEFORE
+#: INSERT OR UPDATE`, por linha; sem relatorio (`eval_relatorio_id` nulo, ou um
+#: que nao existe) o `NOT EXISTS` tambem recusa. O erro e `23514`, o da `CHECK`
+#: que substitui. `SECURITY INVOKER` (a omissao): quem escreve o lexico e o
+#: dono, que le o relatorio.
+SQL_DATASET_MEDIDO: Final = """
+CREATE FUNCTION idx.f_exigir_termo_medido() RETURNS trigger
+  LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.origem = 'dataset' AND NEW.activo AND NOT EXISTS (
+       SELECT 1 FROM idx.eval_relatorio r
+        WHERE r.id = NEW.eval_relatorio_id
+          AND r.termos @> jsonb_build_array(jsonb_build_object(
+                'tipo', NEW.tipo, 'termo', NEW.termo, 'canonico', NEW.canonico)))
+  THEN
+    RAISE EXCEPTION 'o relatorio % nao mediu o termo % (%)',
+      NEW.eval_relatorio_id, NEW.termo, NEW.tipo
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER termo_canonico_dataset_medido
+  BEFORE INSERT OR UPDATE ON idx.termo_canonico
+  FOR EACH ROW EXECUTE FUNCTION idx.f_exigir_termo_medido()
+"""
+
+SQL_COMENTAR_ACTIVACAO: Final = """
+COMMENT ON TABLE idx.eval_relatorio IS
+  'Relatorios verdes do gate de avaliacao da pesquisa (docs/tecnica/05 secao 14.3; KAM-199), com os termos do lexico candidato que cada um mediu. Uma entrada de lexico de dataset so fica activa com um destes anexado, e se ele a mediu. Imutavel. Sem tenant_id e sem pessoa.';
+COMMENT ON COLUMN idx.termo_canonico.eval_relatorio_id IS
+  'O relatorio verde do gate que mediu e solta uma entrada origem = dataset (KAM-199).';
+COMMENT ON FUNCTION idx.f_exigir_termo_medido() IS
+  'Gatilho do idx.termo_canonico: uma entrada de dataset activa so com um relatorio que a mediu.';
+COMMENT ON FUNCTION idx.f_recusar_alteracao_de_relatorio() IS
+  'Gatilho do idx.eval_relatorio: recusa UPDATE. Um relatorio anexado e prova.'
+"""
+
+SQL_CONCEDER_ACTIVACAO: Final = """
+REVOKE ALL ON FUNCTION idx.f_exigir_termo_medido() FROM PUBLIC;
+REVOKE ALL ON FUNCTION idx.f_recusar_alteracao_de_relatorio() FROM PUBLIC
+"""
+
+#: O que o dono corre para anexar um relatorio. Os valores saem do
+#: `python -m eval_search.gate anexo`, que recusa um relatorio vermelho; os
+#: `termos` vao em JSON (texto, convertido pela coluna).
+SQL_ANEXAR_RELATORIO: Final = """
+INSERT INTO idx.eval_relatorio
+  (relatorio_sha256, linha_de_base, dataset, ndcg_at_3_base, ndcg_at_3,
+   zero_result_base, zero_result, termos, registado_por)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+RETURNING id
+"""
+
+#: A ordem das colunas do `SQL_ANEXAR_RELATORIO`, para quem o chama com a linha
+#: do `gate anexo` (os `termos` em JSON).
+COLUNAS_DO_ANEXO: Final = (
+    "relatorio_sha256", "linha_de_base", "dataset", "ndcg_at_3_base", "ndcg_at_3",
+    "zero_result_base", "zero_result", "termos", "registado_por",
+)
+
+SQL_REMOVER_ACTIVACAO: Final = """
+DROP TRIGGER termo_canonico_dataset_medido ON idx.termo_canonico;
+DROP FUNCTION idx.f_exigir_termo_medido();
+ALTER TABLE idx.termo_canonico
+  DROP CONSTRAINT termo_canonico_eval_relatorio_fk,
+  DROP COLUMN eval_relatorio_id,
+  ADD CONSTRAINT termo_canonico_dataset_inactivo_ck
+    CHECK (origem <> 'dataset' OR NOT activo);
+DROP TRIGGER eval_relatorio_imutavel ON idx.eval_relatorio;
+DROP FUNCTION idx.f_recusar_alteracao_de_relatorio();
+DROP TABLE idx.eval_relatorio
+"""
+
+
+def criar_activacao() -> None:
+    """O `upgrade` da revisao do KAM-199: o relatorio, a activacao e o gatilho."""
+    op.execute(SQL_EVAL_RELATORIO)
+    op.execute(SQL_RELATORIO_IMUTAVEL)
+    op.execute(SQL_ACTIVACAO_DO_DATASET)
+    op.execute(SQL_DATASET_MEDIDO)
+    op.execute(SQL_COMENTAR_ACTIVACAO)
+    op.execute(SQL_CONCEDER_ACTIVACAO)
+
+
+def remover_activacao() -> None:
+    """O `downgrade`: recusa (`23514`) com uma entrada de *dataset* activa."""
+    op.execute(SQL_REMOVER_ACTIVACAO)

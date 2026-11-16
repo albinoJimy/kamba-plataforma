@@ -89,14 +89,18 @@ aliases:
     papel: embed
     timeout: 20
     estado: declarada
-    credor: KAM-199
+    credor: KAM-063
     razao: >-
       Embeddings do catalogo e da pergunta, no IDX (§13.2, «A decidir em 05»).
       O KAM-063 entregou o caminho (porta de destinos antes de cada chamada,
       modo lexical, `/embeddings` do proxy) e devolveu a escolha do modelo, que
-      se mede com o dataset `golden_search` do KAM-064, que entregou o
-      executor e passou a decisao ao KAM-199 (uma decisao do fundador, com as
-      opcoes em docs/evidencia/KAM-064.md). Enquanto o modelo for
+      se mede com o dataset `golden_search` do KAM-064. O fundador decidiu a
+      2026-11-16 (docs/adr/ADR-L012-pesquisa-no-piloto.md) que o Piloto fica
+      so lexical: o modelo, o hibrido e a sua calibracao ficam para depois do
+      Piloto. O credor e o KAM-063, que fica aberto com o criterio 8 (o
+      documento de decisao do modelo) e as outras caixas do modelo; o
+      gatilho e a linha da pesquisa hibrida do specs/INDICE.md §6, que
+      espera pelo gate do Piloto (KAM-110). Enquanto o modelo for
       `por_decidir`, o AGR nao liga o vector e a pesquisa e lexical.
   - nome: screening-nano
     papel: screening
@@ -153,7 +157,7 @@ fornecedores:
     fornecedor: google
     modelo: por_decidir
     chave_env: LLM_KEY_P3
-    credor: KAM-199
+    credor: KAM-063
   - alias: screening-nano
     ordem: 1
     fornecedor: anthropic
