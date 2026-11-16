@@ -2461,6 +2461,8 @@ INVENTARIO["review_case"] = {
     "sla_due_at": ("timestamp with time zone", NAO, None, "nao"),
     "sla_alertado_at": ("timestamp with time zone", SIM, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-198 (revisao `0053`): a marca de «efeito por aplicar». Um instante.
+    "efeito_pendente_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: A decisao do revisor (KAM-089, revisao `0048`). A `nota_enc` e texto livre
@@ -3642,6 +3644,10 @@ class TestInventario(ComBase):
             # Cobre so os casos com onboarding, que sao os que a quota e o
             # desbloqueio perguntam; um caso de saga ou de *trust* nao entra.
             "review_case_onboarding_idx": False,
+            # KAM-198 (0053): o dos casos com um efeito por aplicar, parcial e
+            # **nao** unico. Cobre so os marcados, que sao os que o lote pergunta;
+            # um caso cujos efeitos correram sai do indice.
+            "review_case_efeito_pendente_idx": False,
             # KAM-049 (revisao do Catalogo AI): os dois da ingestao, parciais e
             # **nao** unicos. O do `phash` cobre so as fotos ja medidas, que sao
             # as que a pergunta «e o mesmo produto?» compara; o da fila cobre so

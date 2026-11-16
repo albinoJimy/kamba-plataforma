@@ -1982,9 +1982,13 @@ COLUNAS_POR_PAPEL = {
     # publico, que e o que o dono le. **A prioridade so fica mais urgente**, e
     # quem o impoe e o *trigger* e nao esta matriz: e ela que decide se aprovar
     # pede dois revisores, e baixa-la era tirar um.
+    #
+    # KAM-198 (0053): e a marca de «efeito por aplicar», que o servico escreve
+    # antes dos efeitos e o lote limpa depois de os reaplicar.
     ("kamba_batch", "review_case", "UPDATE"): {
         "estado", "prioridade", "motivo_interno", "evidencias", "recomendacao",
         "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
+        "efeito_pendente_at",
     },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")

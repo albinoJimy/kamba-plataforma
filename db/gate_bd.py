@@ -9,6 +9,7 @@
     python db/gate_bd.py --suite tests_media         # gate 8, a midia (KAM-020)
     python db/gate_bd.py --suite tests_modos         # gate 8, os modos (KAM-018)
     python db/gate_bd.py --suite tests_avisos        # gate 8, o aviso ao dono (KAM-115)
+    python db/gate_bd.py --suite tests_lote          # gate 8, o processo de lote do onboarding (KAM-198)
     python db/gate_bd.py --suite tests_agr           # gate 8, o AGR (KAM-025)
     python db/gate_bd.py --suite tests_pagamentos    # gate 8, o ledger (KAM-053)
     python db/gate_bd.py --suite tests --bd-existente
@@ -275,6 +276,14 @@ SUITES = (
     # emissao reverte **as duas** escritas, porque o `evt_emitir` corre na
     # transaccao de quem chama.
     "tests_encomendas",
+    # KAM-198: o processo de lote do onboarding. O que so aqui se prova e o que
+    # o objecto da prova obriga — o servidor: uma volta do ciclo da fila com os
+    # adaptadores SQL sobre a `0048`, o screening gravado como `kamba_app` no
+    # tenant do caso (o `kamba_batch` so le a `screening_decision`), a quota de
+    # uma origem contra vinte aberturas concorrentes com o `pg_advisory_xact_lock`
+    # e o controlo sem ele, e a lista de efeitos por reaplicar que sobrevive a um
+    # processo novo. TypeScript contra a base, sem fila.
+    "tests_lote",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
