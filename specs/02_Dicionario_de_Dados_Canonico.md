@@ -4521,19 +4521,19 @@ esperar pelo próprio consumidor.
 suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. O plano e o tecto por
 caso — **KAM-109** e **KAM-096**.
 
-**Quem chama as portas (KAM-201).** O `aprovado` do `ServicoDeRevisao` e o `k1_ok` do KYC passam
-pelo `advance_case` (`aprovar`, ou `recurso_aprovado` de `rejeitado`), como `kamba_batch` sob o
-`app.tenant_id` do caso: o adaptador é o `OnboardingsSql.aprovar`, e o `SQL_MARCAR_FASE` recusa
-`aprovado`. Com o agregador por preencher nada se escreve e o dono não ouve «aprovado»: na fila é
-um efeito por aplicar, que o lote reaplica até o aceite chegar (ele vem depois do KYC); no KYC, o
-`decidir` seguinte volta a pedir. Um caso de revisão que bloqueia, por decidir, também falta — o
-screening `condicional` não é `bloqueada`, e o agregador não o via. Uma aprovação do KYC sem
-intervenção humana passa ao `amostrar` do KAM-089. As outras fases que a fila e o KYC escrevem (`rejeitado`, `kyc_pendente`, `em_revisao`)
-continuam por `UPDATE` directo. O CHR esquece o tenant na *cache* com o efeito do consumidor
-`chr` do `tenant.activated` (`invalidarTenant`), e uma versão que não conhece vai à DLQ; **falta a
-subscrição** `chr` em `platform.evt_subscricoes`, que só uma revisão de dados escreve, e o
-trabalhador que a sirva no processo do CHR — até lá, a *cache* velha atrasa a activação até 60 s,
-no sentido que falha fechado.
+**Quem chama as portas (KAM-201).** O `aprovado` do `ServicoDeRevisao`, o `k1_ok` do KYC e um
+varrimento do ciclo do lote passam pelo `advance_case`, como `kamba_batch` sob o `app.tenant_id` do
+caso, com o evento escolhido por quem chama (`aprovar`, ou `recurso_aprovado` num recurso sobre
+`rejeitado`): o adaptador é o `OnboardingsSql.aprovar`, e o `SQL_MARCAR_FASE` recusa `aprovado`.
+Além do agregador, a porta recusa com um caso de revisão que bloqueia por decidir (o screening
+`condicional` não é `bloqueada`, e o agregador não o via) e com o `tenant.approved` já emitido
+(uma fase escrita para trás por fora da porta não volta a aprovar). Com o que falta, nada se
+escreve e o dono não ouve «aprovado»; quem aprova quando a última condição chega — o aceite vem
+depois do KYC — é o varrimento. Uma aprovação sem intervenção humana passa ao `amostrar` do
+KAM-089. As fases `rejeitado` e `kyc_pendente` que a fila escreve continuam por `UPDATE` directo;
+as do KYC e da inscrição não têm adaptador SQL. O CHR esquece o tenant na *cache* com o consumidor
+`chr` do `tenant.activated` (`invalidarTenant`); uma versão que não conhece vai à DLQ, e cada
+evento chega a uma réplica do processo do CHR.
 
 ---
 
