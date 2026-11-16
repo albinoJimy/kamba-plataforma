@@ -18585,55 +18585,14 @@ entradas:
       - "origem"
     variantes_literais: []
   - seccao: "3.72"
-    conceito: "Resumo do conteúdo de um produto"
-    canonico: "platform.conteudo_sha256_do_produto(categoria, nome)"
-    literais:
-      - "platform.conteudo_sha256_do_produto(categoria, nome)"
-    nomes:
-      - "platform.conteudo_sha256_do_produto"
-      - "categoria"
-      - "nome"
-    nomes_nota:
-      - "conteudoSha256"
-    variantes_literais: []
-  - seccao: "3.72"
-    conceito: "Publicável na base"
-    canonico: "platform.oferta_publicavel(tenant_id, sku, nome), nulo ou um motivo ∈ {sem_decisao, bloqueada, por_rever}"
-    literais:
-      - "platform.oferta_publicavel(tenant_id, sku, nome)"
-      - "sem_decisao"
-      - "bloqueada"
-      - "por_rever"
-    nomes:
-      - "platform.oferta_publicavel"
-      - "tenant_id"
-      - "sku"
-      - "nome"
-      - "sem_decisao"
-      - "bloqueada"
-      - "por_rever"
-    nomes_nota:
-      - "NaoPublicavelError"
-    variantes_literais: []
-  - seccao: "3.72"
-    conceito: "Publicação segura"
-    canonico: "trigger offer_terms_publicacao_segura, sempre ligado"
-    literais:
-      - "offer_terms_publicacao_segura"
-    nomes:
-      - "offer_terms_publicacao_segura"
-    nomes_nota:
-      - "publicado"
-      - "INSERT"
-    variantes_literais: []
-  - seccao: "3.72"
     conceito: "Conversa de teste"
     canonico: "conversations.is_test, booleano não nulo, falso por omissão"
     literais:
       - "conversations.is_test"
     nomes:
       - "conversations.is_test"
-    nomes_nota: []
+    nomes_nota:
+      - "conversations_is_test_nasce_falso"
     variantes_literais: []
   - seccao: "3.72"
     conceito: "Tentativa do teste"
@@ -18656,7 +18615,6 @@ entradas:
       - "onboarding_case"
       - "kamba_app"
       - "kamba_batch"
-      - "e2e"
       - "onboarding_smoke_transicao"
     variantes_literais: []
   - seccao: "3.72"
@@ -20141,25 +20099,6 @@ tabelas:
     assinatura: "platform.aprovacao_em_falta(p_onboarding_id)"
     seccao: "3.70"
     conceito: "Agregador da aprovação"
-  - nome: "conteudo_sha256_do_produto"
-    esquema: "platform"
-    colunas:
-      - "categoria"
-      - "nome"
-    aberta: false
-    assinatura: "platform.conteudo_sha256_do_produto(categoria, nome)"
-    seccao: "3.72"
-    conceito: "Resumo do conteúdo de um produto"
-  - nome: "oferta_publicavel"
-    esquema: "platform"
-    colunas:
-      - "tenant_id"
-      - "sku"
-      - "nome"
-    aberta: false
-    assinatura: "platform.oferta_publicavel(tenant_id, sku, nome)"
-    seccao: "3.72"
-    conceito: "Publicável na base"
 
 dominios:
   - coluna: "consent_event.purpose"

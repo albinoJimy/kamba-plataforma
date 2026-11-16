@@ -1,26 +1,15 @@
-"""A revisao do catalogo minimo contra a base: publicacao segura, is_test e onboarding_smoke (KAM-094).
+"""A revisao do teste ponta a ponta contra a base: is_test e onboarding_smoke (KAM-094).
 
 O que so uma base prova, e por isso este ficheiro existe:
 
-1. **O `conteudo_sha256` da base e o do KAM-088**, byte a byte: a funcao SQL
-   da os valores da fixture que o `conteudoSha256` de TypeScript tambem tem de
-   dar (`packages/core-ts/tests/activacao.test.ts`), com os casos dificeis do
-   escape de JSON.
-2. **A publicacao e protegida pela base**, com o SQL do COM tal como esta
-   escrito e pela ligacao da aplicacao: sem decisao, com `bloqueada`, com
-   `condicional`, com a decisao de outro nome, de outro `sku` ou de outro
-   tenant, o `SQL_PUBLICAR` afecta zero linhas — e com `permitida`, ou com o
-   recurso humano, publica.
-3. **Cada caminho de escrita do COM continua a passar**: o rascunho, os termos
-   com o mesmo nome, o stock, o preco, a republicacao. E o nome novo num
-   publicado sem decisao tira-o de `publicado` (criterio 3), sem `23514`.
-4. **O dono da tabela fica de fora**, e as sementes dele continuam a inserir
-   ofertas ja publicadas.
-5. **A `conversations.is_test`**, e quem a pode escrever.
-6. **A `onboarding_smoke`**: a aplicacao abre e so o lote fecha; a tentativa
+1. **A `conversations.is_test`**, e quem a pode escrever.
+2. **A `onboarding_smoke`**: a aplicacao abre e so o lote fecha; a tentativa
    fechada nao muda; as restricoes; o SQL do `activacao/sql.ts`; RLS.
-7. **O SQL dos gates e da maquina** do `activacao/sql.ts`.
-8. **O `downgrade`.**
+3. **O SQL dos gates, da maquina, do catalogo e da categoria** do
+   `activacao/sql.ts`, como esta escrito.
+4. **O `downgrade`.**
+
+A restricao de BD na publicacao da `offer_terms` nao esta aqui: e do KAM-202.
 """
 
 from __future__ import annotations
@@ -47,10 +36,8 @@ from tests.base import (
 )
 
 RAIZ = Path(__file__).resolve().parents[2]
-FIXTURE = RAIZ / "packages" / "core-ts" / "tests" / "fixtures" / "conteudo_sha256.json"
 CONTRATO = RAIZ / "packages" / "core-ts" / "src" / "activacao" / "contrato.ts"
 SQL_TS = RAIZ / "packages" / "core-ts" / "src" / "activacao" / "sql.ts"
-COM = RAIZ / "services" / "com" / "src" / "produtos" / "consultas.ts"
 #: Por *glob* e nao pelo numero: o numero e *provisorio* e da-se na integracao.
 REVISAO = next((RAIZ / "db" / "migrations" / "versions").glob("*_catalogo_minimo_e_teste.py"))
 
@@ -79,11 +66,6 @@ def _lista_ts(nome: str) -> tuple[str, ...]:
     return tuple(re.findall(r'"([a-z0-9_]+)"', achado.group(1)))
 
 
-def sha(cursor, categoria: str, nome: str) -> bytes:
-    cursor.execute("SELECT platform.conteudo_sha256_do_produto(%s, %s)", (categoria, nome))
-    return bytes(cursor.fetchone()[0])
-
-
 def decidir(cursor, tenant: str, sujeito_tipo: str, ref: str, decisao: str, *,
             origem: str = "regra", conteudo: bytes | None = None) -> None:
     cursor.execute(
@@ -100,19 +82,6 @@ def oferta(cursor, tenant: str, sku: str, nome: str, estado: str = "rascunho") -
         "VALUES (%s, %s, %s, 'fixo', 100000, %s)",
         (tenant, sku, nome, estado),
     )
-
-
-def estado_de(cursor, tenant: str, sku: str) -> tuple[str, str]:
-    cursor.execute(f"SELECT estado, nome FROM {OFERTA} WHERE tenant_id = %s AND sku = %s", (tenant, sku))
-    linha = cursor.fetchone()
-    return linha[0], linha[1]
-
-
-def com(cursor, nome: str, *valores) -> int:
-    """Corre a constante `nome` do COM, tal como esta escrita, e devolve as linhas afectadas."""
-    q = ConsultaDoTypeScript(nome, COM)
-    cursor.execute(q.sql, q.args(*valores))
-    return cursor.rowcount
 
 
 def activacao(cursor, nome: str, *valores):
@@ -133,168 +102,26 @@ def caso(cursor, fase: str = "aguarda_teste") -> tuple[str, str]:
     return linha[0], linha[1]
 
 
-class TestConteudo(ComBase):
-    def test_o_sha256_da_base_e_o_do_kam088_byte_a_byte(self) -> None:
-        casos = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        self.assertGreaterEqual(len(casos), 9)
-        cursor = self.ligar("admin").cursor()
-        for c in casos:
-            with self.subTest(nome=c["nome"]):
-                self.assertEqual(sha(cursor, c["categoria"], c["nome"]).hex(), c["sha256"])
-
-    def test_e_estrita_e_imutavel(self) -> None:
-        cursor = self.ligar("admin").cursor()
-        cursor.execute("SELECT platform.conteudo_sha256_do_produto(NULL, 'x')")
-        self.assertIsNone(cursor.fetchone()[0])
-        cursor.execute("SELECT provolatile, proisstrict FROM pg_proc WHERE proname = 'conteudo_sha256_do_produto'")
-        self.assertEqual(tuple(cursor.fetchone()), ("i", True))
-
-
-class _Oferta(ComBase):
-    """Um tenant com a categoria `moda` decidida, numa transaccao so, que o ensaio desfaz."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.admin = self.ligar("admin").cursor()
-        self.tenant = factories.tenant(self.admin)
-        decidir(self.admin, self.tenant, "categoria", "moda", "permitida")
-
-    def produto(self, decisao: str | None, *, sku: str = "sku-1", nome: str = "Camisola de malha",
-                estado: str = "rascunho", origem: str = "regra") -> str:
-        oferta(self.admin, self.tenant, sku, nome, estado)
-        if decisao is not None:
-            decidir(self.admin, self.tenant, "produto", sku, decisao, origem=origem,
-                    conteudo=sha(self.admin, "moda", nome))
-        return sku
-
-    def como(self, papel: str):
-        """A mesma transaccao, com o papel e o contexto do tenant: ve o que o admin semeou."""
-        self.admin.execute(f"SET LOCAL ROLE {papel}")
-        factories.contexto(self.admin, self.tenant)
-        return self.admin
-
-
-class TestPublicacao(_Oferta):
-    """O `SQL_PUBLICAR` do COM, pela aplicacao."""
-
-    def test_sem_decisao_zero_linhas_e_continua_rascunho(self) -> None:
-        sku = self.produto(None)
-        app = self.como("kamba_app")
-        self.assertEqual(com(app, "SQL_PUBLICAR", self.tenant, sku), 0)
-        self.assertEqual(estado_de(app, self.tenant, sku)[0], "rascunho")
-
-    def test_com_permitida_publica(self) -> None:
-        sku = self.produto("permitida")
-        app = self.como("kamba_app")
-        self.assertEqual(com(app, "SQL_PUBLICAR", self.tenant, sku), 1)
-        self.assertEqual(estado_de(app, self.tenant, sku)[0], "publicado")
-
-    def test_bloqueada_ou_condicional_nao_publicam_mesmo_com_uma_permitida_ao_lado(self) -> None:
-        for decisao in ("bloqueada", "condicional"):
-            with self.subTest(decisao=decisao):
-                sku = self.produto("permitida", sku=f"sku-{decisao}")
-                decidir(self.admin, self.tenant, "produto", sku, decisao,
-                        conteudo=sha(self.admin, "moda", "Camisola de malha"))
-                self.admin.execute("SAVEPOINT p")
-                app = self.como("kamba_app")
-                self.assertEqual(com(app, "SQL_PUBLICAR", self.tenant, sku), 0)
-                self.admin.execute("ROLLBACK TO SAVEPOINT p")
-                self.admin.execute("RESET ROLE")
-
-    def test_o_recurso_humano_levanta_a_bloqueada_como_no_assert_publishable(self) -> None:
-        sku = self.produto("bloqueada")
-        decidir(self.admin, self.tenant, "produto", sku, "permitida", origem="humano",
-                conteudo=sha(self.admin, "moda", "Camisola de malha"))
-        self.assertEqual(com(self.como("kamba_app"), "SQL_PUBLICAR", self.tenant, sku), 1)
-
-    def test_a_decisao_de_outro_nome_de_outro_sku_ou_de_outro_tenant_nao_serve(self) -> None:
-        sku = self.produto(None)
-        # Outro nome (o titulo neutro que se decidiu, e nao o que se publica).
-        decidir(self.admin, self.tenant, "produto", sku, "permitida",
-                conteudo=sha(self.admin, "moda", "Camisola"))
-        # Outro sku, com o mesmo conteudo.
-        decidir(self.admin, self.tenant, "produto", "outro-sku", "permitida",
-                conteudo=sha(self.admin, "moda", "Camisola de malha"))
-        # Outro tenant, com o mesmo sku e o mesmo conteudo.
-        outro = factories.tenant(self.admin)
-        decidir(self.admin, outro, "produto", sku, "permitida",
-                conteudo=sha(self.admin, "moda", "Camisola de malha"))
-        self.admin.execute("SELECT set_config('app.tenant_id', %s, true)", (self.tenant,))
-        self.assertEqual(com(self.como("kamba_app"), "SQL_PUBLICAR", self.tenant, sku), 0)
-
-    def test_mudar_a_categoria_declarada_muda_o_conteudo_e_a_decisao_antiga_deixa_de_valer(self) -> None:
-        sku = self.produto("permitida")
-        decidir(self.admin, self.tenant, "categoria", "bebidas", "permitida")
-        self.assertEqual(com(self.como("kamba_app"), "SQL_PUBLICAR", self.tenant, sku), 0)
-
-    def test_republicar_um_publicado_com_o_mesmo_nome_passa(self) -> None:
-        sku = self.produto(None, estado="publicado")
-        self.assertEqual(com(self.como("kamba_app"), "SQL_PUBLICAR", self.tenant, sku), 1)
-
-
-class TestCaminhosDoCom(_Oferta):
-    """Os caminhos de escrita do COM, pela aplicacao, sobre um publicado."""
-
-    def test_os_termos_com_o_mesmo_nome_o_stock_e_o_preco_nao_tiram_de_publicado(self) -> None:
-        sku = self.produto("permitida")
-        app = self.como("kamba_app")
-        self.assertEqual(com(app, "SQL_PUBLICAR", self.tenant, sku), 1)
-        self.assertEqual(com(app, "SQL_ACTUALIZAR_TERMOS", self.tenant, sku, "Camisola de malha", "fixo",
-                             150000, None, "indicativo", AGORA), 1)
-        self.assertEqual(com(app, "SQL_AJUSTAR_STOCK", self.tenant, sku, "garantido"), 1)
-        app.execute(f"SELECT atualizado_at FROM {OFERTA} WHERE tenant_id = %s AND sku = %s", (self.tenant, sku))
-        versao = app.fetchone()[0]
-        self.assertEqual(com(app, "SQL_ALTERAR_OFERTA", self.tenant, sku, "fixo", 160000,
-                             versao.isoformat(), True), 1)
-        self.assertEqual(estado_de(app, self.tenant, sku), ("publicado", "Camisola de malha"))
-
-    def test_um_nome_novo_sem_decisao_tira_de_publicado_sem_erro(self) -> None:
-        sku = self.produto("permitida")
-        app = self.como("kamba_app")
-        com(app, "SQL_PUBLICAR", self.tenant, sku)
-        self.assertEqual(com(app, "SQL_ACTUALIZAR_TERMOS", self.tenant, sku, "Whisky velho 12 anos", "fixo",
-                             100000, None, "indicativo", AGORA), 1, "a escrita do COM passa")
-        self.assertEqual(estado_de(app, self.tenant, sku), ("rascunho", "Whisky velho 12 anos"))
-
-    def test_um_nome_novo_com_decisao_permitida_continua_publicado(self) -> None:
-        sku = self.produto("permitida")
-        decidir(self.admin, self.tenant, "produto", sku, "permitida",
-                conteudo=sha(self.admin, "moda", "Camisola de malha azul"))
-        app = self.como("kamba_app")
-        com(app, "SQL_PUBLICAR", self.tenant, sku)
-        com(app, "SQL_ACTUALIZAR_TERMOS", self.tenant, sku, "Camisola de malha azul", "fixo",
-            100000, None, "indicativo", AGORA)
-        self.assertEqual(estado_de(app, self.tenant, sku), ("publicado", "Camisola de malha azul"))
-
-    def test_o_rascunho_do_com_nasce_rascunho_sem_decisao(self) -> None:
-        app = self.como("kamba_app")
-        app.execute(
-            f"INSERT INTO {OFERTA} (tenant_id, sku, nome, preco_tipo, preco_minor) "
-            "VALUES (%s, 'sku-novo', 'Saia', 'fixo', 1000)", (self.tenant,))
-        self.assertEqual(estado_de(app, self.tenant, "sku-novo")[0], "rascunho")
-
-    def test_um_insert_ja_publicado_de_um_papel_de_servico_sem_decisao_recusa(self) -> None:
-        app = self.como("kamba_app")
-        self.assertErroSql(VIOLACAO_DE_CHECK, app,
-                           f"INSERT INTO {OFERTA} (tenant_id, sku, nome, preco_tipo, preco_minor, estado) "
-                           "VALUES (%s, 'sku-x', 'Vodka', 'fixo', 1000, 'publicado')", (self.tenant,))
-
-    def test_o_dono_da_tabela_semeia_publicados_sem_decisao(self) -> None:
-        oferta(self.admin, self.tenant, "semente", "produto semente", "publicado")
-        self.assertEqual(estado_de(self.admin, self.tenant, "semente")[0], "publicado")
-
-    def test_o_trigger_esta_sempre_ligado(self) -> None:
-        self.admin.execute(
-            "SELECT tgenabled FROM pg_trigger WHERE tgname = 'offer_terms_publicacao_segura'")
-        self.assertEqual(self.admin.fetchone()[0], "A")
-
-
 class TestConversaDeTeste(ComBase):
     def test_a_coluna_nasce_falsa_e_nao_nula(self) -> None:
         [(tipo, anulavel, omissao)] = self.consultar(
             "SELECT data_type, is_nullable, column_default FROM information_schema.columns "
             "WHERE table_schema = 'platform' AND table_name = 'conversations' AND column_name = 'is_test'")
         self.assertEqual((tipo, anulavel, omissao), ("boolean", "NO", "false"))
+
+    def test_a_aplicacao_nao_cria_uma_conversa_ja_marcada(self) -> None:
+        # Achado 5 da revisao adversarial: o `kamba_app` tem `INSERT` na tabela
+        # inteira, e uma conversa criada com `is_test = true` saia das metricas.
+        admin = self.ligar("admin").cursor()
+        tenant = factories.tenant(admin)
+        canal = factories.canal(admin, tenant)
+        contacto = factories.contacto(admin, tenant)
+        admin.execute("SET LOCAL ROLE kamba_app")
+        factories.contexto(admin, tenant)
+        admin.execute(
+            "INSERT INTO platform.conversations (tenant_id, contact_id, channel_id, is_test) "
+            "VALUES (%s, %s, %s, true) RETURNING is_test", (tenant, contacto, canal))
+        self.assertIs(admin.fetchone()[0], False)
 
     def test_o_lote_marca_e_a_aplicacao_nao(self) -> None:
         admin = self.ligar("admin").cursor()
@@ -341,9 +168,9 @@ class TestTentativas(ComBase):
         self.admin.execute("RESET ROLE")
         return n
 
-    def _falhas(self) -> int:
+    def _falhas(self, agora: datetime = AGORA + timedelta(hours=1)) -> int:
         self._papel("kamba_batch")
-        n = int(activacao(self.admin, "SQL_FALHAS_SEGUIDAS", self.onb).fetchone()[0])
+        n = int(activacao(self.admin, "SQL_FALHAS_SEGUIDAS", self.onb, agora).fetchone()[0])
         self.admin.execute("RESET ROLE")
         return n
 
@@ -408,6 +235,21 @@ class TestTentativas(ComBase):
         lote = self._papel("kamba_batch")
         self.assertErroSql(ESTADO_INVALIDO, lote,
                            f"UPDATE {TENTATIVA} SET levou_a_fila = false WHERE onboarding_id = %s", (self.onb,))
+
+    def test_as_pendentes_vencidas_contam_como_falhas_e_as_vivas_nao(self) -> None:
+        # Achado 6 da revisao adversarial: verificar so dentro da janela e
+        # recomecar deixava pendentes que nunca contavam.
+        self._iniciar(AGORA)
+        self._iniciar(AGORA + timedelta(minutes=2))
+        self.assertEqual(self._falhas(AGORA + timedelta(seconds=30)), 0, "as duas ainda vivas")
+        self.assertEqual(self._falhas(AGORA + timedelta(seconds=90)), 1, "a primeira vencida")
+        self.assertEqual(self._falhas(AGORA + timedelta(minutes=5)), 2, "as duas vencidas")
+
+    def test_o_fecho_diz_se_fechou(self) -> None:
+        self._iniciar(AGORA)
+        self._papel("kamba_batch")
+        self.assertEqual(len(activacao(self.admin, "SQL_FECHAR_TENTATIVA", self.onb, "falhou", "sem_inbound").fetchall()), 1)
+        self.assertEqual(len(activacao(self.admin, "SQL_FECHAR_TENTATIVA", self.onb, "falhou", "sem_inbound").fetchall()), 0)
 
     def test_a_corrente_e_a_mais_recente(self) -> None:
         self._iniciar(AGORA)
@@ -499,8 +341,8 @@ class TestDowngradeDoCatalogoMinimo(unittest.TestCase):
             c = conexao.cursor()
             c.execute("SELECT count(*) FROM pg_tables WHERE schemaname = 'platform' AND tablename = 'onboarding_smoke'")
             n = int(c.fetchone()[0])
-            c.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('conteudo_sha256_do_produto', "
-                      "'oferta_publicavel', 'offer_terms_publicacao_segura', 'onboarding_smoke_transicao')")
+            c.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('onboarding_smoke_transicao', "
+                      "'conversations_is_test_nasce_falso')")
             n += int(c.fetchone()[0])
             c.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'platform' "
                       "AND table_name = 'conversations' AND column_name = 'is_test'")
@@ -514,7 +356,7 @@ class TestDowngradeDoCatalogoMinimo(unittest.TestCase):
             self.assertEqual(self._objectos(), 0)
         finally:
             alembic_ok("upgrade", "head")
-        self.assertEqual(self._objectos(), 6)
+        self.assertEqual(self._objectos(), 4)
 
 
 if __name__ == "__main__":

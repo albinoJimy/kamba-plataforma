@@ -59,6 +59,7 @@ export {
 export type { DependenciasDoTeste } from "./smoke.ts";
 
 export { ACTOR_DA_ACTIVACAO, Activacao } from "./gates.ts";
+export { filaDoTeste } from "./fila.ts";
 export type { DependenciasDaActivacao } from "./gates.ts";
 
 export {

@@ -184,13 +184,19 @@ export interface TentativaDoTeste {
   readonly causa: CausaDoTeste | null;
 }
 
-/** Onde as tentativas vivem. Conta as falhas desde o último sucesso ou a última ida à fila. */
+/**
+ * Onde as tentativas vivem. Conta as falhas desde o último sucesso ou a última
+ * ida à fila — e **uma pendente cuja janela já fechou conta como falha**: sem
+ * isso, uma página que só verificasse dentro da janela e depois recomeçasse
+ * nunca chegava às três (achado 6 da revisão adversarial).
+ */
 export interface RegistoDoTeste {
   iniciar(onboardingId: string, iniciadaEm: Date, expiraEm: Date): Promise<TentativaDoTeste>;
   corrente(onboardingId: string): Promise<TentativaDoTeste | null>;
-  fechar(onboardingId: string, resultado: "ok" | "falhou", causa: CausaDoTeste | null): Promise<void>;
-  /** Falhas seguidas desde a última tentativa `ok` ou o último `zerar`. */
-  falhasSeguidas(onboardingId: string): Promise<number>;
+  /** `true` se fechou a pendente; `false` se outra chamada a fechou primeiro. */
+  fechar(onboardingId: string, resultado: "ok" | "falhou", causa: CausaDoTeste | null): Promise<boolean>;
+  /** Falhas seguidas desde a última `ok` ou o último `zerar`, com as pendentes vencidas em `agora`. */
+  falhasSeguidas(onboardingId: string, agora: Date): Promise<number>;
   /** Recomeça a contagem depois de o caso ir à fila: repetir não tem custo. */
   zerar(onboardingId: string): Promise<void>;
 }

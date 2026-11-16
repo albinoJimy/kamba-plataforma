@@ -46,8 +46,15 @@ function objecto(v: unknown): Record<string, unknown> | null {
   return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
-function resumo(texto: string): string {
-  return createHash("sha256").update(texto, "utf8").digest("hex").slice(0, 32);
+/**
+ * Um identificador de conversa com a forma de UUID, estável para o par (loja,
+ * remetente). **Tem de ser UUID**: o `MarcadorSql` escreve-o na
+ * `conversations.id`, e um texto qualquer dava `22P02` e partia o `verify`
+ * (achado 4 da revisão adversarial).
+ */
+function conversaDe(texto: string): string {
+  const h = createHash("sha256").update(texto, "utf8").digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
 export class ObservadorPorWebhook implements ObservadorDoTeste {
@@ -80,7 +87,7 @@ export class ObservadorPorWebhook implements ObservadorDoTeste {
           if (msg?.type !== "text" || !eMensagemDeTeste(objecto(msg.text)?.body)) continue;
           const de = typeof msg.from === "string" ? msg.from : typeof msg.from_user_id === "string" ? msg.from_user_id : "";
           if (de === "") continue;
-          this.#inbound.push({ pnid, conversa: `teste:${resumo(`${pnid}|${de}`)}`, em });
+          this.#inbound.push({ pnid, conversa: conversaDe(`${pnid}|${de}`), em });
         }
         for (const s of Array.isArray(valor?.statuses) ? valor.statuses : []) {
           const st = objecto(s);

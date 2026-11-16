@@ -20,7 +20,6 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { Gerador, canalDe, estado, interlocutorDe, valorDe } from "@kamba/meta-sim";
@@ -45,6 +44,7 @@ import {
   SmokeOwnerAssisted,
   TesteNaoIniciadoError,
   causaDosFactos,
+  filaDoTeste,
   eMensagemDeTeste,
   identificaAssistenteELoja,
   mensagemAoDono,
@@ -54,7 +54,6 @@ import {
   type ProdutoDoCatalogo,
 } from "../src/activacao/index.ts";
 import {
-  conteudoSha256,
   type ClassificadorDeCategorias,
   type EscritorDeDecisoes,
   type LeitorDeDecisoes,
@@ -148,22 +147,6 @@ async function publicarModa(m: ReturnType<typeof montar>, tenantId = A, nomes = 
 }
 
 // ------------------------------------------------------------------ unit
-
-describe("o conteudo_sha256 de um produto, partilhado com a base", () => {
-  it("o conteudoSha256 do KAM-088 da os valores da fixture que a funcao SQL tambem tem de dar", () => {
-    // A mesma fixture e lida por `db/tests/test_catalogo_minimo_schema.py`
-    // contra `platform.conteudo_sha256_do_produto`: os dois lados presos aos
-    // mesmos bytes, com os casos dificeis do escape de JSON.
-    const casos = JSON.parse(
-      readFileSync(new URL("./fixtures/conteudo_sha256.json", import.meta.url), "utf8"),
-    ) as { categoria: string; nome: string; sha256: string }[];
-    assert.ok(casos.length >= 9);
-    for (const c of casos) {
-      const sha = Buffer.from(conteudoSha256({ categoria_declarada: c.categoria, textos: [c.nome] })).toString("hex");
-      assert.equal(sha, c.sha256, JSON.stringify(c.nome));
-    }
-  });
-});
 
 describe("contagem de publicados e elegiveis", () => {
   it("cada razao de exclusao, e o produto completo nao e excluido", () => {
@@ -389,7 +372,7 @@ describe("integracao: rascunhos, screening, publicacao, teste e activacao unica"
     assert.deepEqual(await t.probe.verify(CASO_A), { ok: false, causa: "sem_inbound" });
     t.observador.aplicar(inbound("teste"), t.relogio());
     assert.deepEqual(await t.probe.verify(CASO_A), { ok: false, causa: "sem_resposta" });
-    assert.equal(await t.registo.falhasSeguidas(CASO_A), 0);
+    assert.equal(await t.registo.falhasSeguidas(CASO_A, t.relogio()), 0);
     t.observador.respondeu(CASO_A, "wamid.r", RESPOSTA, t.relogio());
     assert.deepEqual(await t.probe.verify(CASO_A), { ok: false, causa: "sem_entrega" });
     t.observador.aplicar(estadoDaResposta("wamid.r", "sent"), t.relogio());
@@ -469,6 +452,59 @@ describe("integracao: rascunhos, screening, publicacao, teste e activacao unica"
     assert.equal(await t.activacao.activar(CASO_A), "activo");
   });
 
+  it("achado 6: verificar so dentro da janela e recomecar conta as pendentes vencidas", async () => {
+    const t = montarTeste();
+    await emAguardaTeste(t);
+    for (let i = 0; i < FALHAS_ATE_A_FILA - 1; i++) {
+      await t.probe.start(CASO_A);
+      t.avancar(5);
+      assert.deepEqual(await t.probe.verify(CASO_A), { ok: false, causa: "sem_inbound" }, "dentro da janela");
+      t.avancar(60);
+    }
+    // A terceira e verificada depois do prazo: as duas pendentes vencidas contam.
+    await t.probe.start(CASO_A);
+    t.avancar(61);
+    assert.deepEqual(await t.probe.verify(CASO_A), { ok: false, causa: "sem_inbound" });
+    assert.deepEqual(t.fila.abertos, [{ onboardingId: CASO_A, tipo: "es_falhado", causa: "sem_inbound" }]);
+  });
+
+  it("achado 11: dois verify depois do prazo fecham uma vez e abrem um caso", async () => {
+    const t = montarTeste();
+    await emAguardaTeste(t);
+    for (let i = 0; i < FALHAS_ATE_A_FILA - 1; i++) {
+      await t.probe.start(CASO_A);
+      t.avancar(61);
+      await t.probe.verify(CASO_A);
+    }
+    await t.probe.start(CASO_A);
+    t.avancar(61);
+    await Promise.all([t.probe.verify(CASO_A), t.probe.verify(CASO_A)]);
+    assert.equal(t.fila.abertos.length, 1);
+  });
+
+  it("a fila de producao abre o caso pelo servico da revisao, com o tenant do caso, e encadeia depois de decidido", async () => {
+    const m = montar();
+    const pedidos: { tipo: string; tenantId: string; motivoCodigo: string; motivoPublico: string }[] = [];
+    let decidido = true;
+    const servico = {
+      abrir: async (p: { tipo: string; tenantId: string; motivoCodigo: string; motivoPublico: string }) => {
+        pedidos.push(p);
+        const estado = decidido ? "ja_decidido" : "aberto";
+        decidido = false;
+        return { estado, caso: { id: "c0ffee00-0000-4000-8000-000000000001" }, repetido: false } as never;
+      },
+    };
+    await filaDoTeste(servico as never, m.maquina).abrir(CASO_A, "saga", "sem_resposta");
+    assert.deepEqual(
+      pedidos.map((p) => [p.tipo, p.tenantId, p.motivoCodigo, p.motivoPublico]),
+      [
+        ["saga", A, "smoke:sem_resposta", "nao_foi_possivel_validar"],
+        ["saga", A, "smoke:sem_resposta:c0ffee00", "nao_foi_possivel_validar"],
+      ],
+    );
+    await assert.rejects(filaDoTeste(servico as never, m.maquina).abrir("nao-existe", "saga", "sem_resposta"));
+  });
+
   it("um sucesso pelo meio recomeca a contagem das falhas", async () => {
     const r = new RegistoDoTesteEmMemoria();
     const d = new Date(0);
@@ -476,7 +512,7 @@ describe("integracao: rascunhos, screening, publicacao, teste e activacao unica"
       await r.iniciar(CASO_A, d, d);
       await r.fechar(CASO_A, res, res === "ok" ? null : "sem_resposta");
     }
-    assert.equal(await r.falhasSeguidas(CASO_A), 1);
+    assert.equal(await r.falhasSeguidas(CASO_A, d), 1);
   });
 
   it("uma falha com resposta mas sem consentimento vai a saga, e a conversa fica marcada", async () => {
@@ -663,6 +699,26 @@ describe("adversarial", () => {
     await assert.rejects(t.maquina.avancar(CASO_A, "activar", "atacante"), /gates de activacao: e2e/);
     assert.deepEqual(t.maquina.eventos, []);
     assert.equal((await t.maquina.ler(CASO_A))!.fase, "aguarda_teste");
+  });
+
+  it("achado 3: activar reconta o catalogo, e um produto retirado depois do gate impede a activacao", async () => {
+    const t = montarTeste();
+    await emAguardaTeste(t);
+    await t.probe.start(CASO_A);
+    tudoCerto(t);
+    assert.deepEqual(await t.probe.verify(CASO_A), { ok: true });
+    // Depois de o caso sair de aguarda_catalogo, um produto sai de publicado.
+    await t.catalogo.retirar(A, "sku-4");
+    await assert.rejects(
+      t.activacao.activar(CASO_A),
+      (e: unknown) =>
+        e instanceof ActivacaoRecusadaError && e.motivo === "gates_em_falta" && e.emFalta.join() === "catalogo_minimo",
+    );
+    assert.deepEqual(t.gates.ler(CASO_A, "catalogo_minimo"), { ok: false, evidencia: "elegiveis:4/5" });
+    assert.deepEqual(t.maquina.eventos, []);
+    // Republicado, activa.
+    assert.deepEqual(await t.minimo.publicar(A, "sku-4"), { publicado: true });
+    assert.equal(await t.activacao.activar(CASO_A), "activo");
   });
 
   it("(d) activar com outro gate em falta, e fora de aguarda_teste", async () => {

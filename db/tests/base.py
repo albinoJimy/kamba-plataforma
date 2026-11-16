@@ -633,8 +633,7 @@ TABELAS_LISTA_DE_ESPERA = ("onboarding_capacity", "waitlist_entry")
 #: Uma tabela de tenant com RLS `FORCE` pela `tenant_iso`, FK composta
 #: `(onboarding_id, tenant_id)` para a `onboarding_case` e uma funcao de
 #: *trigger* (`onboarding_smoke_transicao`) que congela a tentativa fechada. A
-#: revisao acrescenta tambem a coluna `conversations.is_test` e o *trigger* de
-#: publicacao segura da `offer_terms`, sem tabela nova.
+#: revisao acrescenta tambem a coluna `conversations.is_test`.
 TABELAS_CATALOGO_MINIMO = ("onboarding_smoke",)
 
 TABELAS = tuple(

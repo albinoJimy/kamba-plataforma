@@ -7801,50 +7801,10 @@ MUTACOES = [
      "tests_lote"),
     # ------------------------------ KAM-094 (revisao do catalogo minimo)
     #
-    # 15, e cada uma tira uma barreira que so a base tem. O alvo e a
+    # 9, e cada uma tira uma barreira que so a base tem. O alvo e a
     # revisao descoberta pelo *glob* (`REV_CATALOGO_MINIMO`), e o modulo que as
     # tem de matar e o `db/tests/test_catalogo_minimo_schema.py`, com o ensaio
     # nomeado em cada uma.
-    # O trigger deixa de perguntar pela decisao, e um produto sem screening publica: `test_sem_decisao_zero_linhas_e_continua_rascunho`.
-    ('catalogo minimo: o trigger nao pergunta pela decisao', REV_CATALOGO_MINIMO,
-     '          v_motivo := platform.oferta_publicavel(NEW.tenant_id, NEW.sku, NEW.nome);\n',
-     '          v_motivo := NULL;\n',
-     "tests"),
-    # A condicional deixa de recusar, e um produto por rever publica: `test_bloqueada_ou_condicional_nao_publicam_mesmo_com_uma_permitida_ao_lado`.
-    ('catalogo minimo: a condicional publica', REV_CATALOGO_MINIMO,
-     "AND d.decisao <> 'permitida') THEN",
-     "AND d.decisao = 'bloqueada') THEN",
-     "tests"),
-    # O conteudo da base deixa de ser o do KAM-088 por um espaco: `test_o_sha256_da_base_e_o_do_kam088_byte_a_byte`.
-    ('catalogo minimo: o conteudo da base leva um espaco', REV_CATALOGO_MINIMO,
-     "to_json(p_categoria)::text || ',[' || to_json(p_nome)::text",
-     "to_json(p_categoria)::text || ', [' || to_json(p_nome)::text",
-     "tests"),
-    # A decisao deixa de ser do sku, e a de outro produto com o mesmo nome publica este: `test_a_decisao_de_outro_nome_de_outro_sku_ou_de_outro_tenant_nao_serve`.
-    ('catalogo minimo: a decisao de outro sku serve', REV_CATALOGO_MINIMO,
-     '             AND d.sujeito_ref = p_sku AND d.conteudo_sha256 = v_sha\n           ORDER BY d.criado_at DESC, d.id DESC\n           LIMIT 1;\n          IF NOT FOUND THEN\n',
-     '             AND d.conteudo_sha256 = v_sha\n           ORDER BY d.criado_at DESC, d.id DESC\n           LIMIT 1;\n          IF NOT FOUND THEN\n',
-     "tests"),
-    # O nome novo num publicado sem decisao deixa-o publicado (criterio 3): `test_um_nome_novo_sem_decisao_tira_de_publicado_sem_erro`.
-    ('catalogo minimo: a edicao posterior fica publicada', REV_CATALOGO_MINIMO,
-     "            NEW.estado := 'rascunho';\n",
-     "            NEW.estado := 'publicado';\n",
-     "tests"),
-    # A transicao recusada levanta 23514, que o COM nao espera, em vez de dar zero linhas: `test_sem_decisao_zero_linhas_e_continua_rascunho`.
-    ('catalogo minimo: a publicacao recusada levanta', REV_CATALOGO_MINIMO,
-     '          -- como recusa de dominio.\n          RETURN NULL;\n',
-     "          -- como recusa de dominio.\n          RAISE EXCEPTION 'recusada' USING ERRCODE = 'check_violation';\n",
-     "tests"),
-    # A excepcao do dono passa a valer para todos os papeis: `test_um_insert_ja_publicado_de_um_papel_de_servico_sem_decisao_recusa`.
-    ('catalogo minimo: todos os papeis ficam de fora', REV_CATALOGO_MINIMO,
-     '                        AND (r.rolsuper OR r.oid = c.relowner)) THEN\n',
-     '                        ) THEN\n',
-     "tests"),
-    # O trigger deixa de estar sempre ligado: `test_o_trigger_esta_sempre_ligado`.
-    ('catalogo minimo: o trigger nao e ALWAYS', REV_CATALOGO_MINIMO,
-     '    op.execute(f"ALTER TABLE {OFERTAS} ENABLE ALWAYS TRIGGER offer_terms_publicacao_segura")\n',
-     '',
-     "tests"),
     # A conversa nasce de teste, e sai tudo das metricas: `test_a_coluna_nasce_falsa_e_nao_nula`.
     ('catalogo minimo: a conversa nasce de teste', REV_CATALOGO_MINIMO,
      'ADD COLUMN is_test boolean NOT NULL DEFAULT false',
@@ -7876,6 +7836,18 @@ MUTACOES = [
      '          IF false THEN\n',
      "tests"),
     # O SQL das falhas seguidas esquece a ida a fila, e a quarta falha abre outro caso: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    # Uma conversa criada ja marcada como teste sai das metricas sem passar pelo
+    # teste: `test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`.
+    ('catalogo minimo: a conversa nasce marcada', REV_CATALOGO_MINIMO,
+     '          NEW.is_test := false;\n',
+     '',
+     "tests"),
+    # As pendentes vencidas deixam de contar, e quem so verifica dentro da
+    # janela nunca chega a fila: `test_as_pendentes_vencidas_contam_como_falhas_e_as_vivas_nao`.
+    ('catalogo minimo: as pendentes vencidas nao contam', ACTIVACAO_SQL,
+     "(t.resultado = 'falhou' OR (t.resultado = 'pendente' AND t.expira_em <= $2))",
+     "t.resultado = 'falhou'",
+     "tests"),
     ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
      "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
      "WHERE b.resultado = 'ok')",

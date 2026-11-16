@@ -75,13 +75,13 @@ INSERT INTO platform.onboarding_gate (onboarding_id, tenant_id, gate, ok, eviden
 SELECT c.id, c.tenant_id, $2, $3, $4 FROM platform.onboarding_case c WHERE c.id = $1
 ON CONFLICT (onboarding_id, gate) DO UPDATE SET ok = EXCLUDED.ok, evidencia_ref = EXCLUDED.evidencia_ref`;
 
-export const SQL_GATES_EM_FALTA = "SELECT platform.onboarding_gates_em_falta($1) AS em_falta";
+export const SQL_GATES_EM_FALTA = `SELECT platform.onboarding_gates_em_falta($1) AS em_falta`;
 
 export const SQL_LER_CASO = `
 SELECT c.id::text AS onboarding_id, c.tenant_id::text AS tenant_id, c.fase
   FROM platform.onboarding_case c WHERE c.id = $1`;
 
-export const SQL_AVANCAR = "SELECT platform.advance_case($1, $2, $3) AS fase";
+export const SQL_AVANCAR = `SELECT platform.advance_case($1, $2, $3) AS fase`;
 
 /**
  * Abre uma tentativa. Corre como `kamba_app` (a página do dono): a aplicação
@@ -105,17 +105,19 @@ UPDATE platform.onboarding_smoke
    SET resultado = $2, causa = $3, fechada_em = clock_timestamp()
  WHERE id = (SELECT s.id FROM platform.onboarding_smoke s WHERE s.onboarding_id = $1
               ORDER BY s.iniciada_em DESC, s.id DESC LIMIT 1)
-   AND resultado = 'pendente'`;
+   AND resultado = 'pendente'
+RETURNING id`;
 
 /**
- * As falhas desde a última tentativa `ok` ou a última que levou o caso à fila.
- * Um `$1` só, pela CTE: um marcador repetido é o que a suite do gate 8 lê pior.
+ * As falhas desde a última tentativa `ok` ou a última que levou o caso à fila,
+ * com as pendentes cuja janela fechou antes de `$2`. Um `$1` só, pela CTE: um
+ * marcador repetido é o que a suite do gate 8 lê pior.
  */
 export const SQL_FALHAS_SEGUIDAS = `
-WITH t AS (SELECT resultado, levou_a_fila, iniciada_em FROM platform.onboarding_smoke
+WITH t AS (SELECT resultado, levou_a_fila, iniciada_em, expira_em FROM platform.onboarding_smoke
             WHERE onboarding_id = $1)
 SELECT count(*)::int AS falhas FROM t
- WHERE t.resultado = 'falhou'
+ WHERE (t.resultado = 'falhou' OR (t.resultado = 'pendente' AND t.expira_em <= $2))
    AND t.iniciada_em > coalesce((SELECT max(b.iniciada_em) FROM t b
                                   WHERE b.resultado = 'ok' OR b.levou_a_fila), '-infinity')`;
 
@@ -235,12 +237,13 @@ export class RegistoDoTesteSql implements RegistoDoTeste {
     return rows[0] === undefined ? null : tentativa(rows[0]);
   }
 
-  async fechar(onboardingId: string, resultado: "ok" | "falhou", causa: CausaDoTeste | null): Promise<void> {
-    await this.#cliente.query(SQL_FECHAR_TENTATIVA, [onboardingId, resultado, causa]);
+  async fechar(onboardingId: string, resultado: "ok" | "falhou", causa: CausaDoTeste | null): Promise<boolean> {
+    const { rows } = await this.#cliente.query(SQL_FECHAR_TENTATIVA, [onboardingId, resultado, causa]);
+    return rows.length > 0;
   }
 
-  async falhasSeguidas(onboardingId: string): Promise<number> {
-    const { rows } = await this.#cliente.query<{ falhas: number }>(SQL_FALHAS_SEGUIDAS, [onboardingId]);
+  async falhasSeguidas(onboardingId: string, agora: Date): Promise<number> {
+    const { rows } = await this.#cliente.query<{ falhas: number }>(SQL_FALHAS_SEGUIDAS, [onboardingId, agora]);
     return Number(rows[0]?.falhas ?? 0);
   }
 

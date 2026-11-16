@@ -186,9 +186,12 @@ export class SmokeOwnerAssisted implements SmokeProbe {
     }
     if (agora < t.expiraEm) return { ok: false, causa };
 
-    await this.#d.registo.fechar(onboardingId, "falhou", causa);
+    // **Só quem fechou segue.** Dois `verify` depois do prazo leem os dois a
+    // pendente; o segundo `fechar` não afecta linha nenhuma e não abre outro
+    // caso na fila (achado 11 da revisão adversarial).
+    if (!(await this.#d.registo.fechar(onboardingId, "falhou", causa))) return { ok: false, causa };
     await this.#d.gates.marcar(onboardingId, "e2e", false, `smoke:${causa}`);
-    if ((await this.#d.registo.falhasSeguidas(onboardingId)) >= FALHAS_ATE_A_FILA) {
+    if ((await this.#d.registo.falhasSeguidas(onboardingId, agora)) >= FALHAS_ATE_A_FILA) {
       await this.#d.fila.abrir(onboardingId, tipoDaFila(causa), causa);
       await this.#d.registo.zerar(onboardingId);
     }

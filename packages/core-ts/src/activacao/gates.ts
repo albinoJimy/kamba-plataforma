@@ -50,18 +50,22 @@ export class Activacao {
     this.#d = dependencias;
   }
 
-  async fecharCatalogo(onboardingId: string): Promise<{ contagem: Contagem; fase: FaseDoCaso }> {
-    const caso = await this.#d.maquina.ler(onboardingId);
-    if (caso === null) throw new ActivacaoRecusadaError("sem_caso");
-    const contagem = await this.#d.catalogo.contar(caso.tenantId);
-    // O gate segue a contagem nos dois sentidos: um produto retirado depois de
-    // o gate ficar verde volta a pô-lo vermelho, e a activação pergunta-lhe.
+  /** Conta e grava o gate `catalogo_minimo` com o valor de agora, nos dois sentidos. */
+  async #recontar(onboardingId: string, tenantId: string): Promise<Contagem> {
+    const contagem = await this.#d.catalogo.contar(tenantId);
     await this.#d.gates.marcar(
       onboardingId,
       "catalogo_minimo",
       contagem.cumprido,
       `elegiveis:${contagem.elegiveis}/${contagem.minimo}`,
     );
+    return contagem;
+  }
+
+  async fecharCatalogo(onboardingId: string): Promise<{ contagem: Contagem; fase: FaseDoCaso }> {
+    const caso = await this.#d.maquina.ler(onboardingId);
+    if (caso === null) throw new ActivacaoRecusadaError("sem_caso");
+    const contagem = await this.#recontar(onboardingId, caso.tenantId);
     if (!contagem.cumprido || caso.fase !== "aguarda_catalogo") return { contagem, fase: caso.fase };
     const fase = await this.#d.maquina.avancar(onboardingId, "catalogo_minimo", ACTOR_DA_ACTIVACAO);
     return { contagem, fase };
@@ -72,6 +76,10 @@ export class Activacao {
     if (caso === null) throw new ActivacaoRecusadaError("sem_caso");
     if (caso.fase === "activo") return "activo";
     if (caso.fase !== "aguarda_teste") throw new ActivacaoRecusadaError("fase_errada");
+    // **Reconta antes de activar.** O gate gravado é o de quando o caso saiu de
+    // `aguarda_catalogo`; um produto retirado depois (a re-análise, um nome novo)
+    // deixava activar uma loja com quatro. A contagem de agora volta a escrevê-lo.
+    await this.#recontar(onboardingId, caso.tenantId);
     const emFalta = await this.#d.gates.emFalta(onboardingId);
     if (emFalta.includes("e2e")) throw new ActivacaoRecusadaError("teste_por_fazer", emFalta);
     if (emFalta.length > 0) throw new ActivacaoRecusadaError("gates_em_falta", emFalta);

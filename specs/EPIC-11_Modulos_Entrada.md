@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Módulos de Entrada |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, §13.3 D13), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21), `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` (H10–H12) |
@@ -148,7 +148,7 @@ Testes: unit, integração, isolamento e adversarial (promoção, SIM swap, repl
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-118, KAM-049, KAM-043 |
-| Bloqueia | KAM-125, KAM-127 |
+| Bloqueia | KAM-125, KAM-127, KAM-202 |
 | Responsável sugerido | Engenheiro de Comércio com Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.3), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§8, §17), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§7), `specs/EPIC-04_Core_Comercio.md` (KAM-049), ADR-007, ADR-020 |
 
@@ -1138,3 +1138,4 @@ Não implementes os módulos nem os custos (KAM-124). Testes: vistas, CI de esco
 | 1.5 | Novembro 2026 | **Credor nomeado, no PR do KAM-049:** o bloco do KAM-119 ganha, nos Detalhes Técnicos, a linha da montagem real do Catálogo AI que recebe do KAM-049 — a `FonteDeMedia` sobre o MED, o descodificador de imagem, a ponte Python→TypeScript para o `screen` do KAM-088 e a `PortaDoRegisto` sobre o COM. Sem critério novo, sem mudar estimativa nem dependências. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-120 entregue em parte: a Foto de produtos AI.** Bloco do KAM-120: as decisões do executor (biblioteca `kamba_core.foto`; o adaptador recebe bytes e não a referência; finalidade `imagem` nova; recusa em vez de desfoque; `custo_usd` em vez de `custo_minor`, devolvida) e as secções «Verificação dos Critérios de Aceitação» e «Verificação da Definition of Done»: **um critério marcado de dez** (a lista de recusa) e **nenhuma caixa de cinco** na DoD, e a secção «Verificação da revisão adversarial» (dois defeitos da revisão `0054` apanhados pelo gate 8 e doze achados da revisão, um deles bloqueante — o *bake-off* enviava a foto crua —, todos os confirmados fechados). As vazias têm credor: o detector local e a biblioteca de imagem (ticket a abrir na integração), o botão de escolha (KAM-119), a fila (KAM-194), o *bake-off* e as cartas de não-treino (o fundador) e as três leituras devolvidas (critérios 1, 5 e 10). Revisão `0054` e emenda 1.94 do dicionário, os números da integração do lote. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-124 entregue em parte: planos, entitlements e metering de custo dos módulos de entrada.** Revisão `0057`, emenda 1.98. Bloco do KAM-124: as decisões do executor (o TEN do KAM-009 sem alteração, provado para os quatro módulos; a consolidação e não um evento; o *ledger* com `custo_usd` e `custo_minor`; os preços de teste no plano e na base; a guarda de orçamento composta por cima da quota), a verificação dos critérios (**cinco de dez** marcados) e do DoD, e a revisão adversarial. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | O bloco do KAM-119 passa a bloquear o **KAM-202** (EPIC-04), aberto no PR do KAM-094: a restrição de BD na publicação da `offer_terms` liga-se depois de o KAM-119 pôr o COM a gravar a decisão de screening antes do `publishProduct`. | Equipa KAMBÁ |

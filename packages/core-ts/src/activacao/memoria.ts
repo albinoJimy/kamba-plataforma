@@ -161,7 +161,11 @@ export class FilaDoTesteEmMemoria implements FilaDoTeste {
 export class MarcadorEmMemoria implements MarcadorDeTeste {
   readonly marcadas = new Set<string>();
 
+  /** Recusa o que a base recusaria: a `conversations.id` é `uuid`. */
   async marcar(tenantId: string, conversationId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(conversationId)) {
+      throw new Error("conversation_id nao e um uuid (22P02 na base)");
+    }
     this.marcadas.add(`${tenantId}|${conversationId}`);
   }
 }
@@ -182,19 +186,21 @@ export class RegistoDoTesteEmMemoria implements RegistoDoTeste {
     return this.#tentativas.get(onboardingId)?.at(-1) ?? null;
   }
 
-  async fechar(onboardingId: string, resultado: "ok" | "falhou", causa: CausaDoTeste | null): Promise<void> {
+  async fechar(onboardingId: string, resultado: "ok" | "falhou", causa: CausaDoTeste | null): Promise<boolean> {
     const lista = this.#tentativas.get(onboardingId);
     const ultima = lista?.at(-1);
-    if (lista === undefined || ultima === undefined || ultima.resultado !== "pendente") return;
+    if (lista === undefined || ultima === undefined || ultima.resultado !== "pendente") return false;
     lista[lista.length - 1] = { ...ultima, resultado, causa };
+    return true;
   }
 
-  async falhasSeguidas(onboardingId: string): Promise<number> {
+  async falhasSeguidas(onboardingId: string, agora: Date): Promise<number> {
     const lista = (this.#tentativas.get(onboardingId) ?? []).slice(this.#zeradoEm.get(onboardingId) ?? 0);
     let n = 0;
     for (let i = lista.length - 1; i >= 0; i--) {
-      if (lista[i]!.resultado === "falhou") n += 1;
-      else if (lista[i]!.resultado === "ok") break;
+      const t = lista[i]!;
+      if (t.resultado === "ok") break;
+      if (t.resultado === "falhou" || t.expiraEm <= agora) n += 1;
     }
     return n;
   }
