@@ -19,7 +19,9 @@ import {
   OnboardingInexistenteError,
   SQL_APROVACAO_EM_FALTA,
   SQL_AVANCAR_CASO,
+  SQL_INTERVENCAO_DO_EVENTO,
   SQL_INTERVENCAO_HUMANA,
+  SQL_JA_APROVADO,
   SQL_REVISAO_PENDENTE,
   SQL_TENANT_DO_CASO,
   SQL_TRANCAR_CASO,
@@ -275,25 +277,35 @@ describe("os onboardings sobre a onboarding_case", () => {
   });
 });
 
-describe("a aprovação pela porta da base (KAM-092)", () => {
+describe("a aprovação pela porta da base (KAM-092, KAM-201)", () => {
   const TENANT = "3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60";
-  /** Um conjunto que responde ao tenant, à fase, ao agregador e à intervenção. */
-  const base = (fase: string, falta: string[] = [], humana = false, avancar?: Error, pendente = false) =>
+  /** Um conjunto que responde ao tenant, à fase, ao agregador, à revisão pendente e ao evento. */
+  const base = (o: {
+    fase: string;
+    falta?: string[];
+    pendente?: boolean;
+    jaAprovado?: boolean;
+    doEvento?: boolean | null;
+    humana?: boolean;
+    avancar?: Error;
+  }) =>
     conjuntoFalso((t) => {
       if (t === SQL_TENANT_DO_CASO) return { rows: [{ tenant_id: TENANT }] };
-      if (t === SQL_REVISAO_PENDENTE) return { rows: [{ pendente }] };
-      if (t === SQL_TRANCAR_CASO) return { rows: [{ fase }] };
-      if (t === SQL_APROVACAO_EM_FALTA) return { rows: [{ falta }] };
-      if (t === SQL_INTERVENCAO_HUMANA) return { rows: [{ humana }] };
-      if (t === SQL_AVANCAR_CASO && avancar !== undefined) throw avancar;
+      if (t === SQL_TRANCAR_CASO) return { rows: [{ fase: o.fase }] };
+      if (t === SQL_APROVACAO_EM_FALTA) return { rows: [{ falta: o.falta ?? [] }] };
+      if (t === SQL_REVISAO_PENDENTE) return { rows: [{ pendente: o.pendente ?? false }] };
+      if (t === SQL_JA_APROVADO) return { rows: [{ emitido: o.jaAprovado ?? false }] };
+      if (t === SQL_INTERVENCAO_DO_EVENTO) return { rows: o.doEvento === undefined ? [] : [{ humana: o.doEvento }] };
+      if (t === SQL_INTERVENCAO_HUMANA) return { rows: [{ humana: o.humana ?? false }] };
+      if (t === SQL_AVANCAR_CASO && o.avancar !== undefined) throw o.avancar;
       return undefined;
     });
   const daLigacao = (consultas: { ligacao: string; texto: string; valores: readonly unknown[] }[]) =>
     consultas.filter((c) => c.ligacao === "ligacao-1").map((c) => [c.texto, c.valores]);
 
   it("aprova numa transacção com o contexto do tenant, trancando o caso antes de perguntar", async () => {
-    const { conjunto, consultas, devolvidas } = base("em_revisao", [], true);
-    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "revisor:r1"), {
+    const { conjunto, consultas, devolvidas } = base({ fase: "em_revisao", doEvento: true });
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "aprovar", "revisor:r1"), {
       estado: "aprovado",
       intervencaoHumana: true,
     });
@@ -303,16 +315,32 @@ describe("a aprovação pela porta da base (KAM-092)", () => {
       [SQL_TRANCAR_CASO, ["o1"]],
       [SQL_APROVACAO_EM_FALTA, ["o1"]],
       [SQL_REVISAO_PENDENTE, ["o1"]],
+      [SQL_JA_APROVADO, [TENANT]],
       [SQL_AVANCAR_CASO, ["o1", "aprovar", "revisor:r1"]],
-      [SQL_INTERVENCAO_HUMANA, ["o1"]],
+      [SQL_INTERVENCAO_DO_EVENTO, [TENANT]],
       ["COMMIT", []],
     ]);
     assert.deepEqual(devolvidas, [undefined]);
   });
 
+  it("a intervenção humana é a do evento emitido; sem linha no outbox, cai na pergunta à revisão", async () => {
+    // O evento diz `false` e a revisão diria `true`: vale o evento (achado 6).
+    const doEvento = base({ fase: "em_revisao", doEvento: false, humana: true });
+    assert.deepEqual(await new OnboardingsSql(doEvento.conjunto).aprovar("o1", "aprovar", "x"), {
+      estado: "aprovado",
+      intervencaoHumana: false,
+    });
+    assert.ok(!doEvento.consultas.some((c) => c.texto === SQL_INTERVENCAO_HUMANA));
+    const semLinha = base({ fase: "aprovado", humana: true });
+    assert.deepEqual(await new OnboardingsSql(semLinha.conjunto).aprovar("o1", "aprovar", "x"), {
+      estado: "aprovado",
+      intervencaoHumana: true,
+    });
+  });
+
   it("com o agregador por preencher, não avança e devolve o que falta", async () => {
-    const { conjunto, consultas } = base("kyc_pendente", ["screening", "aceite"]);
-    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "kyc:k1_ok"), {
+    const { conjunto, consultas } = base({ fase: "kyc_pendente", falta: ["screening", "aceite"] });
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "aprovar", "kyc:k1_ok"), {
       estado: "em_falta",
       falta: ["screening", "aceite"],
     });
@@ -320,36 +348,59 @@ describe("a aprovação pela porta da base (KAM-092)", () => {
   });
 
   it("um caso de revisão bloqueante por decidir também falta, depois do agregador", async () => {
-    const { conjunto, consultas } = base("kyc_pendente", [], false, undefined, true);
-    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "kyc:k1_ok"), {
+    const { conjunto, consultas } = base({ fase: "kyc_pendente", pendente: true });
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "aprovar", "kyc:k1_ok"), {
       estado: "em_falta",
       falta: ["revisao"],
     });
     assert.ok(!consultas.some((c) => c.texto === SQL_AVANCAR_CASO));
   });
 
-  it("de rejeitado avança pelo recurso; já aprovado, repete sem perguntar ao agregador", async () => {
-    const r = base("rejeitado");
-    await new OnboardingsSql(r.conjunto).aprovar("o1", "revisor:r2");
+  it("um tenant já aprovado com a fase escrita para trás não volta a aprovar (achado 2)", async () => {
+    const { conjunto, consultas } = base({ fase: "rejeitado", jaAprovado: true });
+    assert.deepEqual(await new OnboardingsSql(conjunto).aprovar("o1", "recurso_aprovado", "revisor:r2"), {
+      estado: "em_falta",
+      falta: ["ja_aprovado"],
+    });
+    assert.ok(!consultas.some((c) => c.texto === SQL_AVANCAR_CASO), "um segundo tenant.approved não sai");
+  });
+
+  it("o evento é o de quem chama, e não o da fase lida; já aprovado, repete sem perguntar ao agregador", async () => {
+    const r = base({ fase: "rejeitado" });
+    await new OnboardingsSql(r.conjunto).aprovar("o1", "recurso_aprovado", "revisor:r2");
     assert.deepEqual(r.consultas.find((c) => c.texto === SQL_AVANCAR_CASO)?.valores, ["o1", "recurso_aprovado", "revisor:r2"]);
-    const a = base("aprovado", ["aceite"]);
-    assert.equal((await new OnboardingsSql(a.conjunto).aprovar("o1", "kyc:k1_ok")).estado, "aprovado");
+    // Um `aprovar` sobre um `rejeitado` vai à base como `aprovar`, que o recusa:
+    // a porta não o converte num recurso que ninguém decidiu (achado 3).
+    const k = base({ fase: "rejeitado" });
+    await new OnboardingsSql(k.conjunto).aprovar("o1", "aprovar", "kyc:k1_ok");
+    assert.deepEqual(k.consultas.find((c) => c.texto === SQL_AVANCAR_CASO)?.valores, ["o1", "aprovar", "kyc:k1_ok"]);
+    const a = base({ fase: "aprovado", falta: ["aceite"], jaAprovado: true });
+    assert.equal((await new OnboardingsSql(a.conjunto).aprovar("o1", "aprovar", "kyc:k1_ok")).estado, "aprovado");
     assert.ok(!a.consultas.some((c) => c.texto === SQL_APROVACAO_EM_FALTA), "a repetição é da porta");
   });
 
   it("uma porta que recusa desfaz a transacção e devolve a ligação com o erro", async () => {
-    const recusa = new Error("aprovacao sem as condicoes do agregador");
-    const { conjunto, consultas, devolvidas } = base("em_revisao", [], false, recusa);
-    await assert.rejects(new OnboardingsSql(conjunto).aprovar("o1", "x"), recusa);
+    const recusa = new Error("evento aprovar recusado na fase rejeitado");
+    const { conjunto, consultas, devolvidas } = base({ fase: "em_revisao", avancar: recusa });
+    await assert.rejects(new OnboardingsSql(conjunto).aprovar("o1", "aprovar", "x"), recusa);
     assert.equal(consultas.at(-1)?.texto, "ROLLBACK");
     assert.deepEqual(devolvidas, [recusa]);
   });
 
-  it("sem conjunto de ligações, ou sem caso, recusa antes de abrir transacção", async () => {
+  it("sem conjunto de ligações — ou com um cliente cujo connect não empresta nada —, ou sem caso, recusa", async () => {
     const solto = { query: async () => ({ rows: [] }) };
-    await assert.rejects(new OnboardingsSql(solto).aprovar("o1", "x"), AprovacaoSemConjuntoError);
+    await assert.rejects(new OnboardingsSql(solto).aprovar("o1", "aprovar", "x"), AprovacaoSemConjuntoError);
+    // Um `pg.Client` também tem `connect`, e resolve sem ligação (achado 9).
+    const cliente = {
+      query: async () => ({ rows: [{ tenant_id: TENANT }] }),
+      connect: async () => undefined,
+    };
+    await assert.rejects(
+      new OnboardingsSql(cliente as unknown as ConjuntoSql).aprovar("o1", "aprovar", "x"),
+      AprovacaoSemConjuntoError,
+    );
     const { conjunto, consultas } = conjuntoFalso();
-    await assert.rejects(new OnboardingsSql(conjunto).aprovar("o9", "x"), OnboardingInexistenteError);
+    await assert.rejects(new OnboardingsSql(conjunto).aprovar("o9", "aprovar", "x"), OnboardingInexistenteError);
     assert.deepEqual(consultas.map((c) => c.ligacao), ["conjunto"]);
   });
 });

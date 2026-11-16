@@ -26,6 +26,9 @@ export {
 } from "./ciclo.ts";
 export {
   ACTOR_DO_KYC,
+  ACTOR_DO_VARRIMENTO,
+  VarrimentoComFalhasError,
+  varrerAprovacoes,
   CasoJaDecididoError,
   CasoNaoElegivelError,
   SCORE_DE_RISCO_ALTO,
@@ -80,7 +83,10 @@ export {
   OnboardingInexistenteError,
   SQL_APROVACAO_EM_FALTA,
   SQL_AVANCAR_CASO,
+  SQL_APROVAVEIS,
+  SQL_INTERVENCAO_DO_EVENTO,
   SQL_INTERVENCAO_HUMANA,
+  SQL_JA_APROVADO,
   SQL_REVISAO_PENDENTE,
   SQL_TENANT_DO_CASO,
   SQL_TRANCAR_CASO,

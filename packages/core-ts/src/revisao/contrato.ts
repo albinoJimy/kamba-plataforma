@@ -335,15 +335,25 @@ export interface OnboardingsDaRevisao {
    * onboarding já aprovado pela porta, devolve `aprovado` sem segundo evento.
    *
    * `actor` vai para o registo da porta; é o identificador de quem decidiu
-   * (`revisor:<uuid>`, `kyc:k1_ok`), e nunca um dado pessoal.
+   * (`revisor:<uuid>`, `kyc:k1_ok`, `lote:varrimento`), e nunca um dado pessoal.
+   *
+   * **O evento é de quem chama, e não da fase que a porta lê** (achado 3 da
+   * revisão adversarial): um `aprovar` que encontre o onboarding `rejeitado`
+   * por outro caminho é recusado pela base (`23514`), em vez de virar um
+   * `recurso_aprovado` que ninguém decidiu.
    */
-  aprovar(id: string, actor: string): Promise<ResultadoDaAprovacao>;
+  aprovar(id: string, evento: EventoDeAprovacao, actor: string): Promise<ResultadoDaAprovacao>;
 }
+
+/** Os dois eventos da tabela do `advance_case` que entram em `aprovado` (§3.70). */
+export type EventoDeAprovacao = "aprovar" | "recurso_aprovado";
 
 /**
  * O que a porta da aprovação respondeu. `falta` são os nomes do agregador
- * (`kyc`, `screening`, `aceite`), pela ordem dele, e `revisao` no fim quando há
- * um caso de revisão bloqueante por decidir (que o agregador não vê).
+ * (`kyc`, `screening`, `aceite`), pela ordem dele; `revisao` quando há um caso
+ * de revisão bloqueante por decidir (que o agregador não vê); e `ja_aprovado`
+ * quando o `tenant.approved` deste tenant já saiu e a fase foi escrita para trás
+ * por fora da porta — aprovar outra vez emitia um segundo (achado 2).
  *
  * `intervencaoHumana` é a do evento (`tenant.approved`): há um caso de revisão
  * do onboarding que não é `auditoria`. É o que diz ao KYC se a aprovação foi
@@ -356,10 +366,12 @@ export type ResultadoDaAprovacao =
 /**
  * A fila decidiu aprovar e a base não aprovou: falta uma condição do agregador
  * (o aceite contratual vem depois do KYC), ou há outro caso de revisão
- * bloqueante por decidir (`revisao`). **É um efeito por aplicar, e não um
- * silêncio** (KAM-201, critério 1): o serviço marca o caso, o lote reaplica-o a
- * cada carência, e a aprovação sai quando a última condição chegar. A
- * mensagem leva só os nomes do que falta, que são de domínio fechado.
+ * bloqueante por decidir (`revisao`). **É um erro visível, e não um silêncio
+ * nem uma fase escrita** (KAM-201, critério 1): sobe a quem decidiu — a consola
+ * responde-o como tal —, mas **não** fica na lista do lote, porque esperar pelo
+ * aceite não é uma avaria a repetir a cada carência (achado 4). Quem aprova
+ * quando a última condição chegar é o varrimento do ciclo (`varrerAprovacoes`).
+ * A mensagem leva só os nomes do que falta, que são de domínio fechado.
  */
 export class AprovacaoEmFaltaError extends Error {
   override readonly name = "AprovacaoEmFaltaError";

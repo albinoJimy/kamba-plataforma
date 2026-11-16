@@ -328,20 +328,22 @@ describe("quem decide (criterio 3 e 6)", () => {
     assert.ok(r.estado === "aberto");
     const quem = revisor();
     await m.servico.decidir(quem, r.caso.id, "aprovar");
-    assert.deepEqual(m.onboardings.aprovacoes, [{ id: o.id, actor: `revisor:${quem.id}` }]);
+    assert.deepEqual(m.onboardings.aprovacoes, [{ id: o.id, evento: "aprovar", actor: `revisor:${quem.id}` }]);
     assert.deepEqual(m.onboardings.fases, [{ id: o.id, fase: "aprovado" }]);
   });
 
-  it("com o agregador por preencher, o efeito falha à vista, a fase fica, e a reaplicação aprova quando chega (KAM-201)", async () => {
+  it("com o agregador por preencher, a decisão sobe como erro, a fase fica, e uma reaplicação aprova quando chega (KAM-201)", async () => {
     const m = montarRevisao();
     const o = m.onboarding();
     // O aceite contratual vem depois do KYC: a fila aprova o caso, a base não.
     m.onboardings.emFalta.set(o.id, ["aceite"]);
     const r = await m.abrir(o, { prioridade: 5 });
     assert.ok(r.estado === "aberto");
+    // Um erro à vista, e **não** um efeito por aplicar: não fica na lista do
+    // lote (achado 4 da revisão adversarial); o varrimento aprova depois.
     await assert.rejects(
       m.servico.decidir(revisor(), r.caso.id, "aprovar"),
-      (e: unknown) => e instanceof EfeitoPorAplicarError && e.cause instanceof AprovacaoEmFaltaError && e.cause.falta.join() === "aceite",
+      (e: unknown) => e instanceof AprovacaoEmFaltaError && !(e instanceof EfeitoPorAplicarError) && e.falta.join() === "aceite",
     );
     assert.equal(m.repositorio.casos.get(r.caso.id)!.estado, "decidido", "a decisão ficou registada");
     assert.equal(m.onboardings.casos.get(o.id)!.fase, "em_revisao");

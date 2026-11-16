@@ -36,6 +36,7 @@ import type {
   Recomendacao,
 } from "./contrato.ts";
 import { PRIORIDADES } from "./contrato.ts";
+import { SQL_APROVAVEIS, type ClienteSql } from "./sql.ts";
 import type { ResultadoDaAbertura, ServicoDeRevisao } from "./servico.ts";
 
 /** O *score* a partir do qual um caso de KYC sem regra dura é risco alto. *Proposta*. */
@@ -128,6 +129,9 @@ export const ACTOR_DO_KYC = "kyc:k1_ok";
  * chamou com a aprovação já feita, e o `decidir` seguinte já não chega aqui
  * (`fora_de_fase`) — essa aprovação fica fora da amostra. O custo, dito: a taxa
  * de falsos aprovados mede sobre uma amostra a que falta essa aprovação.
+ *
+ * Com o agregador por preencher, devolve o que falta e não escreve nada: quem
+ * aprova quando a última condição chegar é o `varrerAprovacoes`.
  */
 export function aprovacaoDoKyc(
   onboardings: Pick<OnboardingsDaRevisao, "aprovar">,
@@ -135,12 +139,68 @@ export function aprovacaoDoKyc(
 ): AprovacaoDoKyc {
   return {
     async aprovar(onboardingId, tenantId) {
-      const r = await onboardings.aprovar(onboardingId, ACTOR_DO_KYC);
+      const r = await onboardings.aprovar(onboardingId, "aprovar", ACTOR_DO_KYC);
       if (r.estado === "em_falta") return r;
       const amostra = r.intervencaoHumana ? null : await amostrar(onboardingId, tenantId);
       return { estado: "aprovado", amostrado: amostra !== null && amostra.estado !== "nao_elegivel" };
     },
   };
+}
+
+/** O `actor` das aprovações do varrimento. */
+export const ACTOR_DO_VARRIMENTO = "lote:varrimento";
+
+/** Uma volta do varrimento acabou com aprovações por fazer. Só conta; os casos ficam para a seguinte. */
+export class VarrimentoComFalhasError extends Error {
+  override readonly name = "VarrimentoComFalhasError";
+  readonly aprovados: number;
+  readonly falhados: number;
+
+  constructor(aprovados: number, falhados: number) {
+    super(`varrimento de aprovacoes: ${aprovados} aprovado(s), ${falhados} por aprovar com erro`);
+    this.aprovados = aprovados;
+    this.falhados = falhados;
+  }
+}
+
+/**
+ * **O varrimento das aprovações** (KAM-201, achado 1 da revisão adversarial):
+ * aprova os onboardings que já podem ser aprovados e não o foram, pela mesma
+ * porta (`aprovar`), e passa ao `amostrar` os que saem sem intervenção humana.
+ *
+ * Existe porque a última condição do agregador nem sempre chega por quem chama
+ * a porta: o aceite contratual vem depois do KYC e o escritor dele não a
+ * chama; e um `k1_ok` ao lado de uma categoria condicional por decidir deixa a
+ * fase em `kyc_pendente`, que a aprovação da categoria não desbloqueia. Sem
+ * isto, esses onboardings ficavam parados para sempre.
+ *
+ * Os candidatos são os do `SQL_APROVAVEIS`; a porta volta a perguntar tudo
+ * dentro da sua transacção, e um candidato que entretanto deixou de o ser
+ * devolve `em_falta` e não conta. Um erro num não pára os outros: no fim, a
+ * volta lança `VarrimentoComFalhasError`, e o ciclo di-lo pelo nome do passo.
+ * Devolve quantos aprovou.
+ */
+export async function varrerAprovacoes(o: {
+  readonly cliente: ClienteSql;
+  readonly onboardings: Pick<OnboardingsDaRevisao, "aprovar">;
+  readonly amostrar: (onboardingId: string, tenantId: string) => Promise<ResultadoDaAbertura | null>;
+  readonly limite: number;
+}): Promise<number> {
+  const candidatos = (await o.cliente.query<{ id: string; tenant_id: string }>(SQL_APROVAVEIS, [o.limite])).rows;
+  let aprovados = 0;
+  let falhados = 0;
+  for (const c of candidatos) {
+    try {
+      const r = await o.onboardings.aprovar(c.id, "aprovar", ACTOR_DO_VARRIMENTO);
+      if (r.estado === "em_falta") continue;
+      aprovados++;
+      if (!r.intervencaoHumana) await o.amostrar(c.id, c.tenant_id);
+    } catch {
+      falhados++;
+    }
+  }
+  if (falhados > 0) throw new VarrimentoComFalhasError(aprovados, falhados);
+  return aprovados;
 }
 
 /** Quantas falhas de ES decididas se encadeiam antes de desistir. */

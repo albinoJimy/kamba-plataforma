@@ -548,12 +548,16 @@ class TestSubscricoesDoRegisto(unittest.TestCase):
 
     def test_le_as_subscricoes_das_verticais_do_repositorio(self) -> None:
         lidas = subscricoes.ler(RAIZ)
-        # Oito das duas verticais (KAM-027) e cinco do consumidor do indice, a
-        # quarta forma do registo (KAM-194).
-        self.assertEqual(len(lidas), 13, [(s.consumer, s.tipo) for s in lidas])
+        # Oito das duas verticais (KAM-027), cinco do consumidor do indice, a
+        # quarta forma do registo (KAM-194), e uma do consumidor do CHR (KAM-201).
+        self.assertEqual(len(lidas), 14, [(s.consumer, s.tipo) for s in lidas])
         # O `consumer` vem do `id` da vertical, e do `consumidor` da quarta
         # forma, e nao do nome do ficheiro.
-        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx"})
+        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos", "idx", "chr"})
+        self.assertEqual(
+            [(s.tipo, s.versao_max) for s in lidas if s.consumer == "chr"],
+            [("tenant.activated", 1)],
+        )
         self.assertEqual(
             sorted((s.tipo, s.versao_max) for s in lidas if s.consumer == "idx"),
             [
@@ -664,11 +668,11 @@ class TestCli(unittest.TestCase):
         tinha so um `README.md`. O KAM-027 trouxe oito, e o que este teste mede
         e que a saida as **conta**: um gate que diz zero sobre oito e um gate que
         passa vacuamente. O KAM-194 acrescentou as cinco do `idx` (a quarta forma
-        do registo), e sao treze.
+        do registo), e o KAM-201 a do `chr`: sao catorze.
         """
         codigo, texto = self.correr("subscricoes")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
-        self.assertIn("13 subscricao(oes) lida(s)", texto)
+        self.assertIn("14 subscricao(oes) lida(s)", texto)
 
     def test_sem_base_diz_que_nao_correu(self) -> None:
         """Uma verificacao que se desliga tem de o dizer na saida."""

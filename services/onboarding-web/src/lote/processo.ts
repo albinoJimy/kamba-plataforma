@@ -60,6 +60,7 @@ import {
   ServicoDeRevisao,
   aprovacaoDoKyc,
   decisaoHumanaDeScreening,
+  varrerAprovacoes,
   type Aviso,
   type AvisoAoDono,
   type Cifra,
@@ -370,6 +371,15 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     leitor: new LeitorDaFilaSql(o.lote),
     efeitos: o.efeitos,
     feriados: FERIADOS_POR_OMISSAO,
+    // KAM-201: aprova o que já pode ser aprovado e ninguém aprovou — a última
+    // condição do agregador (o aceite) não chama a porta.
+    aprovar: (limite) =>
+      varrerAprovacoes({
+        cliente: o.lote,
+        onboardings,
+        amostrar: (onboardingId, tenantId) => servico.amostrar(onboardingId, tenantId),
+        limite,
+      }),
     ...(o.limite === undefined ? {} : { limite: o.limite }),
   });
   const aprovacaoAutomatica = (onboardingId: string, tenantId: string) =>

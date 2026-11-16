@@ -23,6 +23,7 @@ import {
   type OnboardingsDaRevisao,
   type Recomendacao,
   type RegistoDeAuditoria,
+  type EventoDeAprovacao,
   type RepositorioDeRevisao,
   type ResultadoDaAprovacao,
   type Sla,
@@ -177,7 +178,7 @@ export class OnboardingsEmMemoria implements OnboardingsDaRevisao {
    */
   readonly emFalta = new Map<string, readonly string[]>();
   /** As aprovações pedidas, com o actor, pela ordem. */
-  readonly aprovacoes: { readonly id: string; readonly actor: string }[] = [];
+  readonly aprovacoes: { readonly id: string; readonly evento: EventoDeAprovacao; readonly actor: string }[] = [];
 
   async marcarFase(id: string, fase: "rejeitado" | "kyc_pendente"): Promise<boolean> {
     const c = this.casos.get(id);
@@ -187,10 +188,10 @@ export class OnboardingsEmMemoria implements OnboardingsDaRevisao {
     return true;
   }
 
-  async aprovar(id: string, actor: string): Promise<ResultadoDaAprovacao> {
+  async aprovar(id: string, evento: EventoDeAprovacao, actor: string): Promise<ResultadoDaAprovacao> {
     const c = this.casos.get(id);
     if (c === undefined) throw new Error("caso de onboarding inexistente");
-    this.aprovacoes.push({ id, actor });
+    this.aprovacoes.push({ id, evento, actor });
     const falta = this.emFalta.get(id) ?? [];
     if (c.fase !== "aprovado" && falta.length > 0) return { estado: "em_falta", falta };
     if (c.fase !== "aprovado") {

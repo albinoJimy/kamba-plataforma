@@ -505,39 +505,126 @@ describe("o processo de lote contra a base", () => {
     assert.equal(await fase(onb), "aprovado");
   });
 
-  it("com o aceite em falta a decisão fica por aplicar, à vista, e o lote aprova quando o aceite chega", async () => {
+  it("com o aceite em falta a decisão sobe como erro, sem ficar na lista, e o varrimento aprova quando o aceite chega", async () => {
     const [onb, tenant] = await onboarding("em_revisao");
     await condicoes(onb, tenant, { kyc: false, aceite: false });
     const aberto = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "aberto" });
     const efeitos = semCarencia(lote);
     const p = montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 });
     const quem = { id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
-    // KAM-201, critério 1: a base recusa, e isso é um efeito por aplicar — não
-    // uma fase escrita, nem um silêncio.
+    // KAM-201, critério 1: a base recusa, e isso é um erro à vista — não uma
+    // fase escrita, nem um efeito a repetir a cada carência (achado 4).
     await assert.rejects(p.servico.decidir(quem, aberto, "aprovar"), (e: unknown) => {
-      const causa = (e as { cause?: { name?: string; falta?: string[] } }).cause;
-      return (e as Error).name === "EfeitoPorAplicarError" && causa?.name === "AprovacaoEmFaltaError" && causa.falta?.join() === "aceite";
+      const erro = e as { name?: string; falta?: string[] };
+      return erro.name === "AprovacaoEmFaltaError" && erro.falta?.join() === "aceite";
     });
     assert.equal(await fase(onb), "em_revisao");
     assert.deepEqual(await aprovacoes(tenant), []);
-    assert.ok((await efeitos.pendentes(100)).includes(aberto), "fica na lista do lote");
-    // Uma volta sem o aceite não aprova; com ele, a reaplicação aprova e emite uma vez.
+    assert.ok(!(await efeitos.pendentes(100)).includes(aberto), "não fica na lista do lote");
+    // Uma volta sem o aceite não aprova; com ele, o varrimento aprova e emite uma vez.
     await p.ciclo.correr();
     assert.equal(await fase(onb), "em_revisao");
     await aceitarVigentes(admin, tenant);
+    const r = await p.ciclo.correr();
+    assert.ok(r.aprovados >= 1);
+    assert.ok(!r.falhas.includes("aprovar"), `falhas: ${r.falhas.join()}`);
+    assert.equal(await fase(onb), "aprovado");
+    const emitidos = await aprovacoes(tenant);
+    assert.equal(emitidos.length, 1);
+    assert.equal(emitidos[0]!.intervencao_humana, true, "houve revisor");
+    await p.ciclo.correr();
+    assert.equal((await aprovacoes(tenant)).length, 1, "a volta seguinte não emite outra vez");
+  });
+
+  it("um k1_ok antes do aceite fica por aprovar, e o varrimento aprova e amostra quando ele chega", async () => {
+    const [onb, tenant] = await onboarding("kyc_pendente", randomBytes(32), idNaAmostra(true));
+    await condicoes(onb, tenant, { aceite: false });
+    const p = montarProcesso({
+      lote,
+      app,
+      efeitos: semCarencia(lote),
+      log: registo,
+      relogio: () => T0,
+      inicioDaAmostragem: new Date(T0.getTime() - 86_400_000),
+    });
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(onb, tenant), { estado: "em_falta", falta: ["aceite"] });
+    assert.equal(await fase(onb), "kyc_pendente");
+    await aceitarVigentes(admin, tenant);
+    await p.ciclo.correr();
+    assert.equal(await fase(onb), "aprovado");
+    const emitidos = await aprovacoes(tenant);
+    assert.equal(emitidos.length, 1);
+    assert.equal(emitidos[0]!.intervencao_humana, false);
+    const auditorias = await admin.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM platform.review_case WHERE tipo = 'auditoria' AND motivo_codigo = $1",
+      [`amostra:${onb}`],
+    );
+    assert.equal(auditorias.rows[0]!.n, 1, "a aprovação do varrimento sem humano entra na amostra");
+  });
+
+  it("um k1_ok com um caso de categoria por decidir não aprova, e a aprovação da categoria chega pelo varrimento", async () => {
+    const [onb, tenant] = await onboarding("kyc_pendente");
+    await condicoes(onb, tenant);
+    const categoria = await caso({ tipo: "categoria", tenant, onboarding: onb, estado: "aberto" });
+    const p = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
+    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(onb, tenant), { estado: "em_falta", falta: ["revisao"] });
+    assert.equal(await fase(onb), "kyc_pendente");
+    assert.deepEqual(await aprovacoes(tenant), []);
+    // O revisor aprova a categoria com a fase ainda em `kyc_pendente`: o
+    // `#efeitos` não a desbloqueia (só um caso `kyc` sai dessa fase), e era aqui
+    // que o onboarding ficava parado (achado 1). O varrimento aprova-o.
+    const quem = { id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
+    await p.servico.decidir(quem, categoria, "aprovar").catch(() => {});
+    assert.equal(await fase(onb), "kyc_pendente");
     await p.ciclo.correr();
     assert.equal(await fase(onb), "aprovado");
     assert.equal((await aprovacoes(tenant)).length, 1);
   });
 
-  it("um k1_ok com um caso de categoria por decidir não aprova: o screening condicional não é bloqueada", async () => {
-    const [onb, tenant] = await onboarding("kyc_pendente");
-    await condicoes(onb, tenant);
-    await caso({ tipo: "categoria", tenant, onboarding: onb, estado: "aberto" });
+  it("o recurso aprovado sai de rejeitado pela porta, e emite uma vez", async () => {
+    const [onb, tenant] = await onboarding("em_revisao");
+    await condicoes(onb, tenant, { kyc: false });
+    const aberto = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "aberto" });
     const p = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
-    assert.deepEqual(await p.aprovacaoDoKyc.aprovar(onb, tenant), { estado: "em_falta", falta: ["revisao"] });
-    assert.equal(await fase(onb), "kyc_pendente");
-    assert.deepEqual(await aprovacoes(tenant), []);
+    const revisor = () => ({ id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null });
+    // O aviso não tem via: cada efeito acaba em `EfeitoPorAplicarError`, com a fase já aplicada.
+    await p.servico.decidir(revisor(), aberto, "rejeitar").catch(() => {});
+    assert.equal(await fase(onb), "rejeitado");
+    await p.servico.abrirRecurso(aberto);
+    await p.servico.decidirRecurso(revisor(), aberto, "aprovar").catch(() => {});
+    assert.equal(await fase(onb), "aprovado");
+    assert.equal((await aprovacoes(tenant)).length, 1);
+    const log = await admin.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.approved'",
+      [tenant],
+    );
+    assert.equal(log.rows[0]!.n, 1);
+  });
+
+  it("uma rejeição depois de aprovado e um recurso aprovado não emitem um segundo tenant.approved", async () => {
+    const [onb, tenant] = await onboarding("em_revisao");
+    await condicoes(onb, tenant, { kyc: false });
+    const kyc = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "aberto" });
+    const p = montarProcesso({ lote, app, efeitos: semCarencia(lote), log: registo, relogio: () => T0 });
+    const revisor = () => ({ id: randomUUID(), papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null });
+    // O aviso não tem via: cada efeito acaba em `EfeitoPorAplicarError`, com a fase já aplicada.
+    await p.servico.decidir(revisor(), kyc, "aprovar").catch(() => {});
+    assert.equal(await fase(onb), "aprovado");
+    // Um caso de duplicado aberto depois da aprovação (o `FASES_ELEGIVEIS` vai
+    // até `activo`), rejeitado: o `marcarFase` escreve `rejeitado` por cima.
+    const duplicado = await caso({ tipo: "duplicado", tenant, onboarding: onb, estado: "aberto" });
+    await p.servico.decidir(revisor(), duplicado, "rejeitar").catch(() => {});
+    assert.equal(await fase(onb), "rejeitado");
+    // O recurso aprovado pede `recurso_aprovado`, e a porta recusa: o
+    // `tenant.approved` já saiu (achado 2 da revisão adversarial).
+    await p.servico.abrirRecurso(duplicado);
+    await p.servico.decidirRecurso(revisor(), duplicado, "aprovar").catch(() => {});
+    assert.equal((await aprovacoes(tenant)).length, 1, "a saga não dispara outra vez");
+    assert.equal(await fase(onb), "rejeitado");
+    assert.deepEqual(
+      await new OnboardingsSql(lote as unknown as ConjuntoSql).aprovar(onb, "recurso_aprovado", "ensaio"),
+      { estado: "em_falta", falta: ["ja_aprovado"] },
+    );
   });
 
   it("o marcarFase não escreve aprovado, nem com o tipo contornado", async () => {

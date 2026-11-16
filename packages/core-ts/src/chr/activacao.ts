@@ -19,16 +19,27 @@
  * recua pela escada e, esgotadas as tentativas, põe o evento na DLQ. Uma versão
  * nova engolida em silêncio era uma activação que o CHR nunca via.
  *
- * ## O que este módulo não faz
+ * ## Quem entrega o evento, e a quem
  *
- * Não entrega o evento a este processo: isso é a subscrição `chr` em
- * `platform.evt_subscricoes`, que só uma revisão de dados escreve (o padrão da
- * `0052`). E só a activação invalida: a suspensão e o encerramento — o sentido
- * em que a *cache* falha **aberta** — não são emitidos ainda (dicionário §3.70).
+ * A subscrição `chr`/`tenant.activated` v1 em `platform.evt_subscricoes` (a
+ * revisão de dados do KAM-201, declarada em `registry/chr.yaml`) faz o
+ * publicador pôr o evento nas dezasseis filas `evt.chr.p<n>`, e o processo do
+ * CHR (`services/worker-canal/src/entrada.ts`) serve-as com este efeito.
+ *
+ * **Uma réplica, e só uma, recebe cada evento**: as filas são de consumidores
+ * concorrentes. Com o processo do CHR em mais de uma réplica, as outras
+ * continuam com a *cache* velha até ao TTL — no sentido que falha fechado. Uma
+ * invalidação em todas pedia difusão (*pub/sub*), e não existe.
+ *
+ * E só a activação invalida: a suspensão e o encerramento — o sentido em que a
+ * *cache* falha **aberta** — não são emitidos ainda (dicionário §3.70).
  */
 
 import type { Efeito } from "../eventos/consumo.ts";
 import type { ResolvedorDeCanal } from "./canal.ts";
+
+/** O `consumer` da subscrição: o nome das filas `evt.chr.p<n>` e da marca de consumo. */
+export const CONSUMIDOR_DO_CHR = "chr";
 
 /** O evento que este consumidor subscreve. */
 export const TIPO_DA_ACTIVACAO = "tenant.activated";
