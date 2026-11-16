@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import tempfile
@@ -114,6 +115,50 @@ class TestRegistar(unittest.TestCase):
         self.assertEqual(BASE["fornecedor_hibrido"], "falso-trigramas-v1")
 
 
+class TestAnexo(unittest.TestCase):
+    """A linha do `idx.eval_relatorio` (KAM-199): so de um relatorio verde."""
+
+    SHA = "a" * 64
+
+    def test_um_verde_da_a_linha_do_modo_lexical(self) -> None:
+        relatorio = _relatorio(ndcg=0.74, zero=0.055)
+        relatorio["modos"]["hibrido"] = _modo()
+        linha = gate.anexo_de(relatorio, BASE, self.SHA, "ops-ensaio")
+        self.assertEqual(
+            linha,
+            {
+                "relatorio_sha256": self.SHA,
+                "linha_de_base": "1.0.0",
+                "dataset": "1.0.0",
+                "ndcg_at_3_base": 0.75,
+                "ndcg_at_3": 0.74,
+                "zero_result_base": 0.05,
+                "zero_result": 0.055,
+                "termos": [],
+                "registado_por": "ops-ensaio",
+            },
+        )
+
+    def test_os_termos_sao_os_do_lexico_que_a_corrida_semeou(self) -> None:
+        relatorio = _relatorio()
+        relatorio["lexico"] = [
+            {"tipo": "sinonimo", "termo": "geleira", "canonico": "frigorifico", "peso": 0.8},
+        ]
+        linha = gate.anexo_de(relatorio, BASE, self.SHA, "ops")
+        self.assertEqual(linha["termos"], [{"tipo": "sinonimo", "termo": "geleira", "canonico": "frigorifico"}])
+
+    def test_um_vermelho_nao_se_anexa(self) -> None:
+        # Vermelho em qualquer modo, e nao so no lexical: o anexo e do *gate*.
+        for relatorio in (_relatorio(ndcg=0.5), _relatorio(caiu=1), _relatorio(divergente=1)):
+            with self.subTest(relatorio=relatorio["modos"]["lexical"]["global"]["ndcg_at_3"]):
+                with self.assertRaises(ValueError):
+                    gate.anexo_de(relatorio, BASE, self.SHA, "ops")
+
+    def test_sem_quem_regista_nao_se_anexa(self) -> None:
+        with self.assertRaises(ValueError):
+            gate.anexo_de(_relatorio(), BASE, self.SHA, "   ")
+
+
 class TestCli(unittest.TestCase):
     def correr(self, *argumentos) -> int:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -130,6 +175,22 @@ class TestCli(unittest.TestCase):
             relatorio.write_text(json.dumps(pior), encoding="utf-8")
             self.assertEqual(self.correr("verificar", str(relatorio), "--linha-de-base", str(base)), 1)
             self.assertEqual(self.correr("registar", str(relatorio), "--versao", "1.0.0", "--linha-de-base", str(base)), 1)
+            self.assertEqual(
+                self.correr("anexo", str(relatorio), "--registado-por", "ops", "--linha-de-base", str(base)), 1
+            )
+
+    def test_o_anexo_leva_o_sha256_do_ficheiro(self) -> None:
+        with tempfile.TemporaryDirectory() as pasta:
+            relatorio = Path(pasta) / "r.json"
+            base = Path(pasta) / "baseline.json"
+            relatorio.write_text(json.dumps(_relatorio()), encoding="utf-8")
+            base.write_text(json.dumps(BASE), encoding="utf-8")
+            saida = io.StringIO()
+            with redirect_stdout(saida), redirect_stderr(io.StringIO()):
+                codigo = gate.main(["anexo", str(relatorio), "--registado-por", "ops", "--linha-de-base", str(base)])
+            self.assertEqual(codigo, 0)
+            linha = json.loads(saida.getvalue())
+            self.assertEqual(linha["relatorio_sha256"], hashlib.sha256(relatorio.read_bytes()).hexdigest())
 
     def test_a_linha_de_base_versionada_passa_no_seu_relatorio(self) -> None:
         """A linha de base do repositorio e o relatorio de que nasceu concordam."""

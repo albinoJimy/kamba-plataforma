@@ -96,7 +96,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         obs-lint obs-promtool \
         bloco-lint \
         subprocessadores \
-        ordem-dos-ensaios isolamento-a-seco
+        ordem-dos-ensaios isolamento-a-seco ci-13-pesquisa
 
 ## help: lista os comandos disponiveis
 help:
@@ -1560,6 +1560,32 @@ ci-8:
 	@# de efeitos por reaplicar que sobrevive a um processo novo.
 	@echo "==> gate 8: processo de lote do onboarding contra PostgreSQL 18.6 (KAM-198)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_lote
+
+# --- Gate 13, a parte da pesquisa: o eval-gate do golden_search (KAM-199) ----
+#
+# **Corre como aviso, e nao bloqueia**: decisao do fundador de 2026-11-16
+# (`docs/adr/ADR-L012-pesquisa-no-piloto.md`). O *job* `gate-13-pesquisa` tem
+# `continue-on-error` e nao entra no `needs` do agregador, enquanto o *dataset*
+# for 100% sintetico; a promocao a exigido volta ao fundador.
+#
+# Dois passos, os do criterio 6 do KAM-064: o `golden_search` contra o
+# PostgreSQL do gate (sem a afinacao, que e trabalho de `dev` e nao de CI), e o
+# `gate verificar` contra a linha de base versionada. O relatorio fica em
+# `ci/eval-pesquisa/` (no `.gitignore`), e o CI arquiva-o: e ele que se anexa
+# para soltar o lexico de *dataset* (`gate anexo`).
+
+## ci-13-pesquisa: gate 13 — eval da pesquisa contra a linha de base (aviso; KAM-199)
+ci-13-pesquisa:
+	@echo "==> gate 13 (aviso): golden_search contra a linha de base (KAM-199)"
+	@if [ ! -x "$(VENV_PYTHON)" ]; then \
+	  echo "    ERRO: $(VENV) nao existe. Corra 'make bootstrap'." >&2; exit 1; \
+	fi
+	@mkdir -p ci/eval-pesquisa
+	@$(VENV_PYTHON) db/golden_search.py ci/eval-pesquisa/relatorio.json --sem-afinacao
+	@# `$(ROOT)/` e nao o caminho relativo: o `VENV_PYTHON` e relativo a raiz, e
+	@# depois do `cd tools` apontava para um `tools/.venv` que nao existe (achado 1
+	@# da revisao adversarial: o *job* ficava vermelho em todo o PR, sem regressao).
+	@cd tools && $(ROOT)/$(VENV_PYTHON) -m eval_search.gate verificar ../ci/eval-pesquisa/relatorio.json
 
 # -----------------------------------------------------------------------------
 # Limpeza

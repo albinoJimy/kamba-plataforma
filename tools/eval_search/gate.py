@@ -2,6 +2,7 @@
 
     python -m eval_search.gate verificar <relatorio.json> [--linha-de-base X]
     python -m eval_search.gate registar <relatorio.json> --versao 1.0.0
+    python -m eval_search.gate anexo <relatorio.json> --registado-por <ops>
 
 `verificar` sai com 1 se, em algum modo que a linha de base tem:
 
@@ -12,20 +13,27 @@
 * o modo falta no relatorio, ou o *dataset* nao e o da linha de base, ou o
   fornecedor do modo hibrido mudou (uma troca de modelo regista linha nova).
 
-**O que o comando nao faz, e e decisao do fundador:** correr como *job* de CI
-nas alteracoes de dicionario, pesos, modelo, limiar e `idx.candidatos`, e
-juntar-lhe os testes de isolamento do §6.4 e do §7.3 (*gate* 6). Um *job* novo
-e um contexto exigido novo no *ruleset* de `main`. Ver o bloco do KAM-064,
-criterio 6.
+**No CI corre como aviso** (`make ci-13-pesquisa`, *job* `gate-13-pesquisa`),
+por decisao do fundador de 2026-11-16 (ADR-L012): nao e contexto exigido
+enquanto o *dataset* for 100% sintetico, e a promocao a exigido volta ao
+fundador.
 
 `registar` escreve `eval/search/baseline.json` **so** com um relatorio verde
 (as asercoes a zero e os dois modos medidos) e com uma versao SemVer maior do
 que a registada.
+
+`anexo` da, em JSON, a linha do `idx.eval_relatorio` (KAM-199) de um relatorio
+**verde** contra a linha de base: o `sha256` do ficheiro, o nDCG@3 e o
+zero-result do modo lexical, e os `termos` do lexico candidato que a corrida
+semeou (`golden_search --lexico`). Recusa um vermelho, como a `CHECK` da base. O
+dono insere-a pelo `indice.SQL_ANEXAR_RELATORIO`, e so entao uma entrada de
+lexico de *dataset* **que esteja nos `termos`** pode ficar activa.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -136,6 +144,42 @@ def linha_de_base_de(relatorio: Mapping[str, Any], versao: str, anterior: Mappin
     }
 
 
+#: O modo do Piloto (ADR-L012): o vector nao se liga, e e o lexical que solta
+#: o lexico de *dataset*.
+MODO_DO_PILOTO: Final = "lexical"
+
+
+def anexo_de(
+    relatorio: Mapping[str, Any], linha_de_base: Mapping[str, Any], sha256: str, registado_por: str
+) -> dict[str, Any]:
+    """A linha do `idx.eval_relatorio`, ou `ValueError` se o *gate* nao da verde."""
+    falhas = verificar(relatorio, linha_de_base)
+    if falhas:
+        raise ValueError("so um relatorio verde se anexa: " + "; ".join(falhas))
+    if not registado_por.strip():
+        raise ValueError("o anexo precisa de quem o regista")
+    base = linha_de_base["modos"][MODO_DO_PILOTO]["global"]
+    medido = relatorio["modos"][MODO_DO_PILOTO]["global"]
+    # So as tres chaves que a base compara (`tipo`, `termo`, `canonico`): o
+    # `peso` mede-se, mas a entrada activada pode leva-lo diferente sem mudar
+    # o que a corrida provou sobre o termo.
+    termos = [
+        {"tipo": t["tipo"], "termo": t["termo"], "canonico": t["canonico"]}
+        for t in relatorio.get("lexico", [])
+    ]
+    return {
+        "relatorio_sha256": sha256,
+        "linha_de_base": str(linha_de_base["versao"]),
+        "dataset": str(relatorio["dataset"]),
+        "ndcg_at_3_base": base["ndcg_at_3"],
+        "ndcg_at_3": medido["ndcg_at_3"],
+        "zero_result_base": base["zero_result_rate"],
+        "zero_result": medido["zero_result_rate"],
+        "termos": termos,
+        "registado_por": registado_por,
+    }
+
+
 def _ler(caminho: Path) -> dict[str, Any]:
     return json.loads(Path(caminho).read_text(encoding="utf-8"))
 
@@ -150,8 +194,21 @@ def main(argv: Sequence[str]) -> int:
     r.add_argument("relatorio", type=Path)
     r.add_argument("--versao", required=True)
     r.add_argument("--linha-de-base", type=Path, default=LINHA_DE_BASE)
+    a = sub.add_parser("anexo")
+    a.add_argument("relatorio", type=Path)
+    a.add_argument("--registado-por", required=True)
+    a.add_argument("--linha-de-base", type=Path, default=LINHA_DE_BASE)
     argumentos = analisador.parse_args(list(argv))
     relatorio = _ler(argumentos.relatorio)
+    if argumentos.comando == "anexo":
+        sha256 = hashlib.sha256(Path(argumentos.relatorio).read_bytes()).hexdigest()
+        try:
+            linha = anexo_de(relatorio, _ler(argumentos.linha_de_base), sha256, argumentos.registado_por)
+        except ValueError as erro:
+            print(f"gate golden_search: {erro}", file=sys.stderr)
+            return 1
+        print(json.dumps(linha, ensure_ascii=False, indent=2))
+        return 0
     if argumentos.comando == "verificar":
         falhas = verificar(relatorio, _ler(argumentos.linha_de_base))
         for falha in falhas:

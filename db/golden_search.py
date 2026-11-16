@@ -1,6 +1,6 @@
-"""O `golden_search` contra um PostgreSQL real (KAM-064): instrumento, fora do CI.
+"""O `golden_search` contra um PostgreSQL real (KAM-064), e o eval-gate no CI (KAM-199).
 
-    python db/golden_search.py [relatorio.json] [--sem-afinacao]
+    python db/golden_search.py [relatorio.json] [--sem-afinacao] [--lexico candidatos.jsonl]
 
 Levanta o PostgreSQL do *gate* (a mesma imagem, por *digest*, pelo
 `gate_bd.com_contentor`), aplica os papeis e as migracoes ate a cabeca, semeia
@@ -28,8 +28,18 @@ producao. As `restricoes` do ficheiro sao da anotacao — os graus ja excluem o
 que fica acima do tecto dito.
 
 **Porque nao e uma suite do `gate_bd.py`**, pela razao do `db/carga.py` e do
-`db/desempenho_indice.py`: o `SUITES` e o que o CI corre, e por o *gate* de
-qualidade a correr em CI e decisao do fundador (bloco do KAM-064, criterio 6).
+`db/desempenho_indice.py`: o `SUITES` e o que o *gate* 8 corre, e o *gate* de
+qualidade corre no seu *job* proprio, de aviso (`make ci-13-pesquisa`, KAM-199;
+decisao do fundador de 2026-11-16, ADR-L012).
+
+**O lexico candidato** (`--lexico`, KAM-199): as entradas do ficheiro
+(`eval_search.dataset.ler_lexico`) entram no `idx.termo_canonico` desta base
+descartavel **antes** de indexar — marca e unidade escrevem no indice —, como
+entradas globais com `origem = 'ops'`: aqui sao o objecto da medicao, e uma de
+*dataset* activa exigia um relatorio que ainda nao existe. O relatorio leva-as
+no campo `lexico`, e o `gate anexo` passa-as aos `termos` do
+`idx.eval_relatorio`: so uma entrada que a corrida mediu se pode activar em
+producao.
 """
 
 from __future__ import annotations
@@ -171,6 +181,17 @@ def _semear(admin, bd, snapshots: list[str]) -> tuple[dict[str, str], dict[str, 
     return tenants, catalogos
 
 
+def _semear_lexico(admin, lexico: list[dict]) -> None:
+    """O lexico candidato, global, antes de indexar (ver a nota do modulo)."""
+    cursor = admin.cursor()
+    for entrada in lexico:
+        cursor.execute(
+            "INSERT INTO idx.termo_canonico (tenant_id, tipo, termo, canonico, peso, origem, aprovado_por) "
+            "VALUES (NULL, %s, %s, %s, %s, 'ops', 'golden_search')",
+            (entrada["tipo"], entrada["termo"], entrada["canonico"], entrada.get("peso", 1.0)),
+        )
+
+
 def _embeber(bd, tenants: dict[str, str], cliente) -> dict[str, dict[str, int]]:
     from eval_search import embeddings_falsos
     from kamba_core.idx import embeddings
@@ -257,6 +278,8 @@ def _dentro(relatorio: str | None) -> int:
     bd = _Cliente(cliente_app)
     registos = dataset.ler()
     snapshots = sorted({r.catalogo for r in registos})
+    lexico = dataset.ler_lexico(Path(os.environ["KAMBA_GOLDEN_LEXICO"])) if os.environ.get("KAMBA_GOLDEN_LEXICO") else []
+    _semear_lexico(admin, lexico)
     t0 = time.perf_counter()
     tenants, catalogos = _semear(admin, bd, snapshots)
     semeadura_s = round(time.perf_counter() - t0, 1)
@@ -292,10 +315,15 @@ def _dentro(relatorio: str | None) -> int:
             "fornecedor_hibrido": embeddings_falsos.MODELO,
             "nota": (
                 "Hibrido medido com o fornecedor FALSO (trigramas locais): mede o caminho e "
-                "da linha de base de regressao; nao mede modelo de embeddings nenhum. O lexico "
-                "PT-AO do KAM-062 nao tem entradas activas na base do gate, pelo que os "
-                "regionalismos so contam com o pg_trgm."
+                "da linha de base de regressao; nao mede modelo de embeddings nenhum. "
+                + (
+                    f"Lexico candidato semeado: {len(lexico)} entrada(s), no campo lexico."
+                    if lexico
+                    else "O lexico PT-AO do KAM-062 nao tem entradas activas na base do gate, "
+                    "pelo que os regionalismos so contam com o pg_trgm."
+                )
             ),
+            "lexico": lexico,
             "embeddings_do_catalogo": voltas,
             "chamadas_ao_fornecedor_falso": fornecedor.chamadas,
             "custo": {"chamadas_pagas": 0, "custo_usd": 0.0},
@@ -334,6 +362,17 @@ def main(argv: list[str]) -> int:
     if "--sem-afinacao" in argv:
         argv = [a for a in argv if a != "--sem-afinacao"]
         os.environ["KAMBA_GOLDEN_SEM_AFINACAO"] = "1"
+    if "--lexico" in argv:
+        i = argv.index("--lexico")
+        if i + 1 >= len(argv):
+            print(__doc__, file=sys.stderr)
+            return 2
+        from eval_search import dataset
+
+        caminho = Path(argv[i + 1]).resolve()
+        dataset.ler_lexico(caminho)  # recusa antes de levantar o contentor
+        os.environ["KAMBA_GOLDEN_LEXICO"] = str(caminho)
+        argv = argv[:i] + argv[i + 2:]
     if len(argv) > 1:
         print(__doc__, file=sys.stderr)
         return 2

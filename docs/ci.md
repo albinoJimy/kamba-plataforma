@@ -56,7 +56,8 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 9 | Segredos (árvore **e** história do PR) | `make ci-9` | Segurança | **proposta** |
 | 10 | SAST | — | — | **lacuna**: sem ticket |
 | 11 | SCA, licenças, vulnerabilidades e SBOM | `make ci-11` | Segurança | `docs/tecnica/09` §7 |
-| 12–18 | Categorias, *eval*, imagem, deploy, aprovação, tag | — | ver KAM-067, KAM-078, KAM-088 | — |
+| 13 (pesquisa) | *Eval* da pesquisa: o `golden_search` contra a linha de base (§14.3 do `docs/tecnica/05`). **Aviso, não bloqueia** | `make ci-13-pesquisa` | Engenheiro de Dados/Pesquisa | KAM-199; aviso por decisão do fundador de 2026-11-16 ([ADR-L012](adr/ADR-L012-pesquisa-no-piloto.md)) |
+| 12, 13 (agente), 14–18 | Categorias, *eval* do agente, imagem, deploy, aprovação, tag | — | ver KAM-067, KAM-078, KAM-088 | — |
 
 `make ci` corre os **onze** activos: os seis do KAM-002 (1, 2, 3, 4, 9 e 11), o 8 do KAM-003, o 6 do KAM-004, o 7 do KAM-007, o 3b do KAM-111 e o 3c do KAM-138. A frase dizia «nove» e depois «dez» — o 7 estava a faltar na conta desde que o KAM-007 o ligou, e o KAM-138 limitou-se a incrementar. `make ci-waivers` valida as excepções.
 
@@ -2175,6 +2176,45 @@ destino não está na *allowlist* de `services/agr/egress.yaml`, que é a
 propriedade que existe hoje. A aplicação na rede é o KAM-076, e isso está dito
 em [`agr.md`](agr.md) §5 em vez de ficar por dizer.
 
+### Gate 13, a parte da pesquisa — o *eval* do `golden_search`, em aviso (KAM-199)
+
+O alvo `make ci-13-pesquisa` corre os dois passos do critério 6 do KAM-064: o
+`python db/golden_search.py ci/eval-pesquisa/relatorio.json --sem-afinacao`,
+contra o PostgreSQL do *gate* (a mesma imagem por *digest*), e o
+`python -m eval_search.gate verificar` contra `eval/search/baseline.json`. Sai com
+1 se o nDCG@3 cair mais de 2 pontos, se o zero-result subir mais de 1, se houver
+um produto citado inexistente ou um preço divergente, ou se o *dataset* ou o
+fornecedor do modo híbrido não forem os da linha de base.
+
+**Não bloqueia, e é uma decisão e não um esquecimento.** O fundador decidiu a
+2026-11-16 ([ADR-L012](adr/ADR-L012-pesquisa-no-piloto.md)) que, enquanto o
+*dataset* for 100% sintético, o *job* `gate-13-pesquisa` é de aviso: tem
+`continue-on-error`, não entra no `needs` do agregador `gates do KAM-002` e não é
+contexto exigido do *ruleset*. Não entra também no alvo `ci:`, pela mesma razão.
+**A promoção a exigido volta ao fundador**, quando houver dados reais.
+
+Três escolhas do *job*, cada uma com a razão:
+
+- **Corre em todo o PR**, e não só nos que tocam no dicionário, nos pesos, no
+  modelo, no limiar do `pg_trgm` ou no `idx.candidatos`. O critério nomeia essas
+  alterações, e correr em todas é um superconjunto delas. Um filtro por caminhos
+  num contexto que um dia será exigido deixa-o pendente nos PRs que não corre
+  (a lacuna da opção B do anexo do KAM-064).
+- **`needs: gate-6-isolamento` com `if: always()`.** O critério 6 do KAM-064 pede
+  que o *job* falhe também quando falha um teste de isolamento. O *job* mede na
+  mesma, e o último passo dá-lhe a falha do *gate* 6.
+- **O relatório é arquivado** (`eval-pesquisa`, 90 dias), com o tempo, o custo e
+  os *tokens* não resolvidos do *dataset*.
+
+**É a parte da pesquisa do *gate* 13, e só essa.** O *eval* do agente (KAM-040),
+que é o resto do *gate* 13 do §4, continua sem alvo `ci-13` e sem *job*.
+
+**Soltar léxico de *dataset* não é este *job*.** Corre-se à mão, com o
+léxico candidato: `python db/golden_search.py r.json --sem-afinacao --lexico
+candidatos.jsonl`, e o `python -m eval_search.gate anexo` dá a linha do
+`idx.eval_relatorio` com os termos que a corrida mediu. A revisão do KAM-199 só
+deixa activar uma entrada `origem = 'dataset'` que esse relatório mediu.
+
 ---
 
 ## 4. Gates reservados (5)
@@ -2971,3 +3011,4 @@ sobrevivem ao PR.
 | 1.69 | Novembro 2026 | **KAM-183**: **lacuna 31** — a coerência interna de um bloco de ticket passa a ter instrumento (`tools/lint_bloco`, alvo `make bloco-lint`, 33 testes, canário de 4 negativas e 4 positivas) e **não** a ter *gate*, pela razão do `obs_lint` do KAM-080. A regra compara a caixa com a coluna `Estado` **par a par** e não em contagem. **A medição decidiu a forma:** a regra tal como pedida punha **121 dos 125** blocos a vermelho, porque a coluna de `Estado` usa **52** primeiras-palavras distintas e **19** tabelas não a têm. Devolvem-se três regras com a taxa de alarme de cada uma — a estrutural (23% dos blocos emparelhados) e a dos números (**25%** dos pares com números), que é a que teria apanhado o escape que custou uma fusão. | Equipa KAMBÁ |
 | 1.70 | Novembro 2026 | **KAM-137: a lacuna 29 muda de natureza, e o `id` do público fica escrito.** O *ruleset* do `albinoJimy/kamba-plataforma` **existe** desde 2026-10-18 (`id` **25359475**), criado pelo fundador — e a lacuna 29 continuava a dizer que o repositório «não tem *ruleset* nenhum». Era o espelho de um facto a envelhecer em silêncio, que é o modo de falha que este ticket existe para fechar, desta vez na prosa e não no `main.json`. **Medido a 2026-11-07 em duas superfícies que se cruzam** — `gh api` cru e o `make ruleset`: os **sete** contextos exigidos, `bypass_actors` **vazio**, `enforcement: active`, `conditions`, `name`, `target` e as quatro regras são **exactamente** os do espelho nos dois alvos; diverge **um** parâmetro, `rules.pull_request.require_extra_approval_for_unattributed_changes`, a `true` no espelho e no privado e a **`false`** no público. **O lado fraco está no repositório onde os PR são abertos**, e com `required_approving_review_count` a 0 nos dois (lacuna 16) é **hoje** o único parâmetro do bloco `pull_request` em que os dois alvos não dizem o mesmo — frase datada de propósito, porque deixa de valer no instante em que o fundador repuser o GitHub. **Ninguém encenou esta divergência**, e o crédito do achado **não é deste ticket**: a revisão adversarial do KAM-164 mediu-a a 2026-11-03 e registou-a na **dívida 171** de [`dividas-documentais.md`](dividas-documentais.md), que nomeava o KAM-137 como dono do espelho e da lista de alvos. O que este ticket fez foi confirmá-la por execução, pagar os três passos que a dívida pedia e riscá-la. Fechar a divergência é **acto do fundador** nos dois sentidos possíveis, e **não se baixa o espelho para calar o vermelho**. O `ruleset_id` do público passa a estar declarado em [`../ci/ruleset.yaml`](../ci/ruleset.yaml): sem ele a resolução é só pelo `name` e um `delete`+`create` ficava invisível. O [`README.md`](../.github/rulesets/README.md) do *ruleset* leva agora os **dois** `id`, e **três** testes exigem que concordem com os declarados: os comandos de exportação (`/rulesets/NNN`), a **tabela** de cabeçalho e as **ligações de reposição** (`/rules/NNN`). **Um custo nos testes, medido e não previsto:** as *fixtures* tinham o `id` do público escrito à mão (`99`), e declarar o verdadeiro punha `tudo_conforme()` a valer como **recriação** do *ruleset* — os `id` passam a ser **lidos da configuração** e não copiados. **E a revisão adversarial deste ticket reprovou a primeira versão dessa emenda, com três achados que valem mais do que o ticket:** (1) o teste novo que dizia «prender as duas superfícies» era **tautológico** — os dois lados eram `config.ler(ROOT)` —, e foi substituído pelos dois que prendem a tabela e as ligações, cada um provado por mutação; (2) uma **isenção dirigida** ao único parâmetro divergente, no `_parametros` do comparador, **passava as 130 provas**, porque a bateria que havia prova a *ausência* de parâmetros iterando sobre `PARAMETROS_DE_POLITICA` — oráculo importado do alvo; fecha-a uma lista **escrita à mão** dos oito parâmetros de `pull_request` com um valor divergente para cada, mais a asserção de que a lista cobre o espelho inteiro; (3) a nota de fecho da **lacuna 15**, cinco linhas acima da 29, continuava a dizer em presente que o público «não tem *ruleset* nenhum» — a quarta superfície da mesma afirmação, e a dívida 171 tinha sido riscada como paga sem ela. **133** testes, de 129. As caixas 3 e 7 dos critérios e as quatro linhas de DoD do bloco continuam **abertas, com o credor nomeado**: dependem de actos do fundador, e nenhuma se marca por este trabalho. | Equipa KAMBÁ |
 | 1.71 | Novembro 2026 | **KAM-069**: o *gate* 2 ganha **duas** verificações do *gate* de transferência do ADR-008, e **nenhuma é um *job* novo** — o inventário de clientes de saída, dentro do `structure.check` que o `lint-arch` já corria, e `make subprocessadores`, que recusa se a lista pública de subprocessadores ou o mapa de tratamentos divergirem de `../gov/subprocessadores.yaml`. **A leitura literal do critério 4 do ticket seria um portão que passa por vazio, e isso foi medido:** não há **nenhum** SDK de fornecedor no repositório, pelo que um *lint* que só recusasse esse *import* nascia verde e ficava verde — o que se entrega é um inventário fechado, nas duas direcções, e a que tem valor hoje é a que apanha a chamada **retirada** (sete entradas, **uma** a consultar o *gate*). O `esperados` continua em **11** e os `needs:` não mudam. O *gate* 8 ganha `db/tests/test_destinos_schema.py` (25 ensaios) na suite `tests` que já corria, e o `db/mutacoes.py` ganha **cinco** mutações da revisão `0036`. | Equipa KAMBÁ |
+| 1.72 | Novembro 2026 | **KAM-199: o *eval* da pesquisa entra no CI como aviso.** *Job* `gate-13-pesquisa` e alvo `make ci-13-pesquisa`: o `golden_search` contra a linha de base, com `needs` no *gate* 6 para falhar também com o isolamento, e o relatório arquivado. **Não bloqueia** (decisão do fundador de 2026-11-16, [ADR-L012](adr/ADR-L012-pesquisa-no-piloto.md)): `continue-on-error`, fora do `needs` do agregador, fora dos contextos exigidos e fora do alvo `ci:`. A promoção a exigido volta ao fundador. Os onze activos do `make ci` não mudam. | Equipa KAMBÁ |

@@ -94,9 +94,12 @@ aliases:
       Embeddings do catalogo e da pergunta, no IDX (§13.2, «A decidir em 05»).
       O KAM-063 entregou o caminho (porta de destinos antes de cada chamada,
       modo lexical, `/embeddings` do proxy) e devolveu a escolha do modelo, que
-      se mede com o dataset `golden_search` do KAM-064, que entregou o
-      executor e passou a decisao ao KAM-199 (uma decisao do fundador, com as
-      opcoes em docs/evidencia/KAM-064.md). Enquanto o modelo for
+      se mede com o dataset `golden_search` do KAM-064. O fundador decidiu a
+      2026-11-16 (docs/adr/ADR-L012-pesquisa-no-piloto.md) que o Piloto fica
+      so lexical: o modelo, o hibrido e a sua calibracao ficam para depois do
+      Piloto. O KAM-199 devolveu a caixa a linha da pesquisa hibrida do
+      specs/INDICE.md §6, cujo gatilho e o gate do Piloto (KAM-110), e fica
+      aqui como o credor que a escreveu. Enquanto o modelo for
       `por_decidir`, o AGR nao liga o vector e a pesquisa e lexical.
   - nome: screening-nano
     papel: screening

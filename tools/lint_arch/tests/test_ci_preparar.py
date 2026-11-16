@@ -2,9 +2,10 @@
 
 Isto existe pela razao de sempre neste repositorio: **nao ha *lint* de
 *workflows*** (`docs/ci.md` §7, lacuna 15), e a accao
-`.github/actions/preparar/action.yaml` e o arranque de **treze** *jobs* — os
-sete *gates* do `ci.yaml` mais as seis fatias do `mutacoes.yaml`, que sao um
-bloco so e uma matriz de seis. Uma alteracao de uma linha ali apaga o arranque
+`.github/actions/preparar/action.yaml` e o arranque de **catorze** *jobs* — os
+oito *gates* do `ci.yaml` (o oitavo, o aviso do eval da pesquisa, entrou com o
+KAM-199) mais as seis fatias do `mutacoes.yaml`, que sao um bloco so e uma
+matriz de seis. Uma alteracao de uma linha ali apaga o arranque
 de todos eles e nada o acusa.
 
 **O escape que o paga, medido a 2026-11-03 na corrida `41636240093`.** A chave
@@ -72,11 +73,12 @@ CONSUMIDORES: dict[str, dict[str, int]] = {
         "gate-7-contratos": 1,
         "gate-8-migracoes": 1,
         "gate-11-supply-chain": 1,
+        "gate-13-pesquisa": 1,
     },
     ".github/workflows/mutacoes.yaml": {"fatias": 6},
 }
 
-TOTAL_DE_JOBS = 13
+TOTAL_DE_JOBS = 14
 
 
 def _blocos_de_jobs(texto: str) -> dict[str, str]:

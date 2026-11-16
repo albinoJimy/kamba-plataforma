@@ -174,10 +174,12 @@ class TestEsquema(ComIndice):
             " WHERE n.nspname = 'idx' AND c.relkind = 'r' ORDER BY 1"
         )
         # A `norm_versao` (KAM-062, `0049`) nao tem `tenant_id` nem RLS: a versao
-        # e global (§4.4), e o *gate* 6 pergunta por RLS a quem tem a coluna.
+        # e global (§4.4), e o *gate* 6 pergunta por RLS a quem tem a coluna. A
+        # `eval_relatorio` (KAM-199) tambem nao: um relatorio do *gate* e global.
         self.assertEqual(
             [tuple(linha) for linha in linhas],
             [
+                ("eval_relatorio", False, False),
                 ("norm_versao", False, False),
                 ("search_doc", True, True),
                 ("termo_canonico", True, True),
@@ -247,6 +249,11 @@ class TestEsquema(ComIndice):
             ("norm_versao", "INSERT"): False,
             ("norm_versao", "UPDATE"): False,
             ("norm_versao", "DELETE"): False,
+            # KAM-199: o relatorio do *gate* e do dono; a aplicacao nao o ve.
+            ("eval_relatorio", "SELECT"): False,
+            ("eval_relatorio", "INSERT"): False,
+            ("eval_relatorio", "UPDATE"): False,
+            ("eval_relatorio", "DELETE"): False,
         }
         for (tabela, privilegio), tem in esperado.items():
             with self.subTest(tabela=tabela, privilegio=privilegio):
