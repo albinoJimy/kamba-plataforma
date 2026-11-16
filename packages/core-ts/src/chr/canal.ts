@@ -214,6 +214,24 @@ export class ResolvedorDeCanal {
     return this.#esquecer(phoneNumberId);
   }
 
+  /**
+   * Esquece todos os canais de um tenant. É a entrada da invalidação pela
+   * activação (KAM-092, `./activacao.ts`): o `tenant.activated` traz o
+   * `tenant_id` e nenhum `phone_number_id`. Percorre a *cache* — limitada a
+   * `MAXIMO_DE_CANAIS` entradas, e uma activação é rara —, em vez de manter um
+   * segundo índice inverso que cada `#guardar` e `#esquecer` teriam de acertar.
+   *
+   * Devolve quantas entradas esqueceu; zero não é erro (o tenant não estava em
+   * *cache* neste processo).
+   */
+  invalidarTenant(tenantId: string): number {
+    const doTenant = [...this.#cache]
+      .filter(([, e]) => e.resolvido.contexto.tenant_id === tenantId)
+      .map(([chave]) => chave);
+    for (const chave of doTenant) this.#esquecer(chave);
+    return doTenant.length;
+  }
+
   /** Esvazia a *cache*. Para os testes e para uma paragem limpa. */
   esquecerTudo(): void {
     this.#cache.clear();

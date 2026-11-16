@@ -23,7 +23,9 @@ import {
   type OnboardingsDaRevisao,
   type Recomendacao,
   type RegistoDeAuditoria,
+  type EventoDeAprovacao,
   type RepositorioDeRevisao,
+  type ResultadoDaAprovacao,
   type Sla,
 } from "./contrato.ts";
 import { ESTADOS_PENDENTES } from "./contrato.ts";
@@ -169,12 +171,34 @@ export class OnboardingsEmMemoria implements OnboardingsDaRevisao {
     return [...this.casos.values()].find((c) => c.tenantId === tenantId) ?? null;
   }
 
-  async marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean> {
+  /**
+   * O que o agregador da base diria, por onboarding: os ensaios põem aqui o que
+   * falta. Sem entrada, nada falta — o duplo não conhece o KYC, o screening nem
+   * o aceite, que são da porta da base (`OnboardingsSql.aprovar`).
+   */
+  readonly emFalta = new Map<string, readonly string[]>();
+  /** As aprovações pedidas, com o actor, pela ordem. */
+  readonly aprovacoes: { readonly id: string; readonly evento: EventoDeAprovacao; readonly actor: string }[] = [];
+
+  async marcarFase(id: string, fase: "rejeitado" | "kyc_pendente"): Promise<boolean> {
     const c = this.casos.get(id);
     if (c === undefined) return false;
     this.casos.set(id, { ...c, fase });
     this.fases.push({ id, fase });
     return true;
+  }
+
+  async aprovar(id: string, evento: EventoDeAprovacao, actor: string): Promise<ResultadoDaAprovacao> {
+    const c = this.casos.get(id);
+    if (c === undefined) throw new Error("caso de onboarding inexistente");
+    this.aprovacoes.push({ id, evento, actor });
+    const falta = this.emFalta.get(id) ?? [];
+    if (c.fase !== "aprovado" && falta.length > 0) return { estado: "em_falta", falta };
+    if (c.fase !== "aprovado") {
+      this.casos.set(id, { ...c, fase: "aprovado" });
+      this.fases.push({ id, fase: "aprovado" });
+    }
+    return { estado: "aprovado", intervencaoHumana: false };
   }
 }
 

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.101 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.102 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4526,13 +4526,25 @@ teste ponta a ponta, e não depois deles como diz a tabela do `../docs/tecnica/1
 consumidor do evento é o KAM-094, que é quem faz o catálogo e o teste — esperar por eles era
 esperar pelo próprio consumidor.
 
-**O que esta emenda não decide, e a quem.** Quem chama as duas portas: o `ServicoDeRevisao` ainda
-escreve `aprovado` com um `UPDATE` directo, o `decidir` do KYC não muda a fase num `k1_ok`, e o
-`amostrar` do KAM-089 continua sem chamador — ligá-los é TypeScript sobre suites de outros
-tickets, e fica no bloco do KAM-092 com esse credor. Os eventos das outras arestas do tenant — a
-suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. A invalidação da
-cache do CHR por evento (o CHR já não encaminha um tenant em `onboarding`). O plano e o tecto por
+**O que esta emenda não decide, e a quem.** Os eventos das outras arestas do tenant — a
+suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. O plano e o tecto por
 caso — **KAM-109** e **KAM-096**.
+
+**Quem chama as portas (KAM-201).** O `aprovado` do `ServicoDeRevisao`, o `k1_ok` do KYC e um
+varrimento do ciclo do lote passam pelo `advance_case`, como `kamba_batch` sob o `app.tenant_id` do
+caso, com o evento escolhido por quem chama (`aprovar`, ou `recurso_aprovado` num recurso sobre
+`rejeitado`): o adaptador é o `OnboardingsSql.aprovar`, e o `SQL_MARCAR_FASE` recusa `aprovado`.
+Além do agregador, a porta recusa com um caso de revisão que bloqueia por decidir (o screening
+`condicional` não é `bloqueada`, e o agregador não o via) e com o `tenant.approved` já emitido
+(uma fase escrita para trás por fora da porta não volta a aprovar). Com o que falta, nada se
+escreve e o dono não ouve «aprovado»; quem aprova quando a última condição chega — o aceite vem
+depois do KYC — é o varrimento. Uma aprovação sem intervenção humana passa ao `amostrar` do
+KAM-089. As fases `rejeitado` e `kyc_pendente` que a fila escreve continuam por `UPDATE` directo;
+as do KYC e da inscrição não têm adaptador SQL. O CHR esquece o tenant na *cache* com o consumidor
+`chr` do `tenant.activated` (`invalidarTenant`); uma versão que não conhece vai à DLQ, e cada
+evento chega a uma réplica do processo do CHR.
+
+---
 
 ### 3.71 Lista de espera do limite de onboarding: `waitlist_entry`, `onboarding_capacity` e os convites (KAM-095)
 
@@ -4707,3 +4719,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.99 | Novembro 2026 | **Emenda (*proposta*), KAM-092: os eventos do tenant.** Sobre a 1.98 do KAM-124. §3.70 nova: a `onboarding_gate` com os **seis** gates de activação, escrita só pelo lote; a `tenant_state_log` *append-only*; as **oito** arestas do tenant e o `transition_tenant`, que só emite na entrada em `ativo`; a tabela de transições da fase do caso (PA-GOV-6) e o `advance_case`; o agregador `aprovacao_em_falta`; as vistas `v_onboarding_kpis` e `v_onboarding_kpis_agregado`. §3.5: três campos de payload novos (`kyc_nivel`, `tecto_inicial_minor`, `intervencao_humana`), opcionais nos contratos `v1` e `v2` porque um obrigatório novo num `v<N>` publicado é quebrante. Revisão `0058`, sobre a `0057` do KAM-124. | Equipa KAMBÁ |
 | 1.100 | Novembro 2026 | **Emenda (*proposta*), KAM-095: a lista de espera do limite de onboarding.** Sobre a 1.99 do KAM-092. §3.71 nova: a `platform.waitlist_entry` com as suas **onze** colunas e os **cinco** estados, o *trigger* que só deixa entrar casos aprovados e escreve a chave FIFO, o convite de uso único em *hash*, as duas expirações até abandonar, a validade do KYC na reentrada, a `platform.onboarding_capacity` com o limite em vigor e a **origem** (acima de 10 só `confirmado`), a estimativa rotulada, as quatro rotas do dono e as cinco métricas. O §3.21 e o §3.54 passam a apontar para ela. **O que não decide:** o limite real da Meta (`ext:KAM-102`), o texto do SMS do convite (KAM-116) e o processo onde o adaptador SQL corre em `prod` (KAM-092). | Equipa KAMBÁ |
 | 1.101 | Novembro 2026 | **Emenda (*proposta*), KAM-199: a activação do léxico de *dataset* e as decisões da pesquisa no Piloto.** Sobre a 1.100 do KAM-095. §3.62 emendada: a `idx.eval_relatorio` (**onze** colunas, sem `tenant_id`, só aceita um relatório verde pela `eval_relatorio_verde_ck`, guarda os termos que a corrida mediu e não se reescreve), a coluna `termo_canonico.eval_relatorio_id` com a sua FK, e o gatilho `termo_canonico_dataset_medido`, que substitui a `termo_canonico_dataset_inactivo_ck` da emenda 1.87 e só deixa activar uma entrada que o relatório anexado mediu. O §3.59 passa a contar **onze** colunas no `idx.termo_canonico`. O §3.59 (o vector do produto) passa a dizer que o modelo fica para depois do Piloto. Regista as três decisões do fundador de 2026-11-16 (ADR-L012): *eval-gate* em aviso, relatório de *tokens* só do *dataset* sem nada em produção, e Piloto só lexical. **O que não decide:** o modelo do `kamba-embed` (PROP-IDX-4), a coluna da dimensão dele e o conteúdo do léxico, que continua NÃO VERIFICADO. | Equipa KAMBÁ |
+| 1.102 | Novembro 2026 | **Emenda (*proposta*), KAM-201: quem chama as portas do §3.70.** Sobre a 1.101 do KAM-199. Nenhum nome novo: o §3.70 ganha o parágrafo «Quem chama as portas», que substitui a parte do «O que esta emenda não decide» que dizia que ninguém as chamava. O `aprovado` da fila, o `k1_ok` do KYC e um varrimento do ciclo do lote passam pelo `advance_case`, com o evento de quem chama; a porta recusa com um caso de revisão bloqueante por decidir e com o `tenant.approved` já emitido; e o CHR esquece o tenant na *cache* com o consumidor `chr` do `tenant.activated` (revisão de dados `0061`). | Equipa KAMBÁ |

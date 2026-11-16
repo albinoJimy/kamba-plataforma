@@ -64,6 +64,7 @@ GRUPOS = (
     "critério 7 — uma conversa que não está em `bot` não vai ao AGR",
     "critério 8 — latência de `resolve`",
     "privacidade — nada do interlocutor chega ao job nem à conversa",
+    "KAM-092 — o tenant.activated esquece o tenant na cache do CHR",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -87,6 +88,9 @@ TESTES_OBRIGATORIOS = (
     "`kamba_app` não consegue reescrever a identidade da conversa",
     "p95 de 40 resoluções: sem cache ≤ 50 ms, com cache ≤ 5 ms",
     "o BSUID e o telefone não aparecem no job, nem na linha de `conversations`",
+    # KAM-092, criterio 7: a activacao emitida pelas portas da base, consumida
+    # pelo `consumir` do KAM-006 com o efeito do CHR, esquece o tenant na cache.
+    "a activação pelas portas chega ao consumidor do CHR, e a primeira mensagem seguinte chega ao AGR",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
@@ -98,6 +102,7 @@ TESTES_OBRIGATORIOS = (
 #: parte que pode errar em silencio — a forma do `jobId` — e o `invocacao.ts`, e
 #: tem bateria propria no gate 4.
 FICHEIROS_DO_MODULO = (
+    "activacao.ts",
     "canal.ts",
     "chr.ts",
     "consultas.ts",

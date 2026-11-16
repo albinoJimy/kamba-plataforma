@@ -384,6 +384,7 @@ test("registarVolta diz os passos que falharam pelo nome, e nada mais", () => {
     alertas: 0,
     reaplicados: 0,
     porReaplicar: 0,
+    aprovados: 0,
     falhas,
   });
   registarVolta(log as never, volta([]));

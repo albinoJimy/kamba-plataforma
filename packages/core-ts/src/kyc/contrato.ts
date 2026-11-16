@@ -386,6 +386,30 @@ export interface CasosDoKyc {
 }
 
 /**
+ * O que um `k1_ok` faz ao onboarding (KAM-092). **Não é deste módulo**: o KYC
+ * não escreve `aprovado`. A porta passa pela base (`platform.advance_case` com
+ * o evento `aprovar`), que só aprova com o agregador vazio — o KYC é uma das
+ * três condições, e o screening e o aceite também contam — e emite o
+ * `tenant.approved` na mesma transacção. Aprovado sem intervenção humana, a
+ * porta passa a aprovação à amostragem do KAM-089.
+ *
+ * Cumpre-a o `aprovacaoDoKyc` da fila (`../revisao/entradas.ts`), servido pelo
+ * processo de lote do onboarding (KAM-198).
+ */
+export interface AprovacaoDoKyc {
+  aprovar(onboardingId: string, tenantId: string): Promise<AprovacaoDoK1>;
+}
+
+/**
+ * `em_falta` traz os nomes do agregador (`kyc`, `screening`, `aceite`): a fase
+ * fica em `kyc_pendente`, e o `decidir` seguinte volta a pedir. `amostrado` diz
+ * se a aprovação abriu um caso `auditoria`.
+ */
+export type AprovacaoDoK1 =
+  | { readonly estado: "aprovado"; readonly amostrado: boolean }
+  | { readonly estado: "em_falta"; readonly falta: readonly string[] };
+
+/**
  * A fila de revisão (KAM-089). **Não é deste ticket**: o que está aqui é a
  * porta, com o motivo interno e a recomendação. Credor: KAM-089.
  */
