@@ -265,6 +265,10 @@ class TestConvencoes(ComBase):
                 "commission_accruals",
                 "price_book",
                 "subscriptions",
+                # KAM-058: os passos da regua de cobranca. `uuid` aleatorio pela
+                # regra geral: a auditoria le-os sob a `tenant_iso`, e um
+                # sequencial dizia-lhe quantos passos a plataforma inteira deu.
+                "billing_dunning_steps",
                 # KAM-092: o registo de estados do tenant. `uuid` aleatorio e
                 # nao o `bigserial` do bloco, pela regra geral: a auditoria le-o
                 # sob a `tenant_iso`, e um sequencial dizia-lhe quantas
@@ -520,6 +524,9 @@ class TestConvencoes(ComBase):
                 # `uuid` gerada pela regra geral. Entre a auditoria e o
                 # Catalogo AI («au» < «bi» < «ca»).
                 ("billing_cycles", "id", "uuid", "gen_random_uuid()"),
+                # KAM-058 (revisao da regua de cobranca): o passo, `uuid` gerada
+                # pela regra geral («billing_c» < «billing_d» < «billing_o»).
+                ("billing_dunning_steps", "id", "uuid", "gen_random_uuid()"),
                 ("billing_ops_approvals", "id", "uuid", "gen_random_uuid()"),
                 # KAM-049 (revisao do Catalogo AI): a ingestao, `uuid` gerada
                 # pela regra geral. Entre a auditoria e os canais («au» < «ca»
@@ -1415,7 +1422,12 @@ class TestConvencoes(ComBase):
              # `onboarding_id`, que nao leva o tenant. Sem FK para `tenants`,
              # pela razao da fila de revisao: o caso tem o tenant pre-alocado.
              # A `onboarding_capacity` nao tem `tenant_id` e nao entra.
-             "waitlist_entry"},
+             "waitlist_entry",
+             # KAM-058 (revisao da regua de cobranca). Pelo indice
+             # `billing_dunning_steps_tenant_idx (tenant_id, executado_at)`, que
+             # e a leitura da lista diaria de ops. Sem FK para `tenants`: a FK
+             # composta para o ciclo ja o prende a um tenant que existe.
+             "billing_dunning_steps"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2066,7 +2078,12 @@ class TestConvencoes(ComBase):
         # a `onboarding_case_id_tenant_uq`, pela razao da `0048`: uma entrada
         # nao junta o caso de um com o tenant de outro. A `onboarding_capacity`
         # nao tem FK nenhuma.
-        self.assertEqual(len(linhas), 100)
+        #
+        # **101** desde a revisao da regua de cobranca (KAM-058): a
+        # `billing_dunning_steps_ciclo_fk`, composta `(tenant_id,
+        # billing_cycle_id)` para a `billing_cycles_tenant_id_uq`, pela licao
+        # ISO-58 da `0030`: o passo de um tenant nao aponta para o ciclo de outro.
+        self.assertEqual(len(linhas), 101)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

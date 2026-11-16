@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Pagamentos e Billing |
-| Versão | 1.17 |
+| Versão | 1.18 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` |
@@ -1180,14 +1180,14 @@ A régua é a sequência de cobrança da **assinatura da KAMBÁ às PMEs** (`../
 Implementar o motor da régua sobre `billing_cycles`, idempotente por passo, com relógio injectável, canal de notificação por porta (`OwnerNotifier`), suspensão e reactivação do tenant, e métricas.
 
 ### Critérios de Aceitação
-- [ ] Para um ciclo `cobranca_emitida` não paga, o motor produz exactamente os passos D+3, D+7 e D+10; reexecutar o motor 5 vezes no mesmo dia não duplica nenhum passo (unicidade `(billing_cycle_id, passo)`).
+- [x] Para um ciclo `cobranca_emitida` não paga, o motor produz exactamente os passos D+3, D+7 e D+10; reexecutar o motor 5 vezes no mesmo dia não duplica nenhum passo (unicidade `(billing_cycle_id, passo)`).
 - [ ] No D+10 o tenant passa `ativo → suspenso` uma única vez, com `audit_log` e evento `tenant.suspended`; o CHR passa a rejeitar o tenant antes do AGR (teste fim-a-fim).
 - [ ] Pagamento autenticado no D+9 cancela os passos pendentes e o tenant não é suspenso; pagamento no D+11 repõe `suspenso → ativo` em p95 ≤ 60 s após `payment.confirmed`.
-- [ ] Os dias (3, 7, 10) e o texto vêm de configuração versionada; mudar um valor aplica-se apenas a ciclos abertos depois (aviso prévio, Art. 16.º da Lei 15/03 em INDÍCIO, a confirmar por parecer).
-- [ ] Cada lembrete é *template* parametrizado (valor, referência, prazo vêm da cobrança no `ledger`, nunca do LLM) com aviso anti-*phishing* fixo; um teste falha se o texto contiver um número que não seja campo da cobrança.
-- [ ] O motor entrega por `OwnerNotifier`; até D10 fechar, o adaptador por omissão cria tarefas de ops numa lista diária (*fallback* manual) e nenhuma mensagem sai pelo número de um tenant para outro assunto que não seja o dele.
+- [x] Os dias (3, 7, 10) e o texto vêm de configuração versionada; mudar um valor aplica-se apenas a ciclos abertos depois (aviso prévio, Art. 16.º da Lei 15/03 em INDÍCIO, a confirmar por parecer).
+- [x] Cada lembrete é *template* parametrizado (valor, referência, prazo vêm da cobrança no `ledger`, nunca do LLM) com aviso anti-*phishing* fixo; um teste falha se o texto contiver um número que não seja campo da cobrança.
+- [x] O motor entrega por `OwnerNotifier`; até D10 fechar, o adaptador por omissão cria tarefas de ops numa lista diária (*fallback* manual) e nenhuma mensagem sai pelo número de um tenant para outro assunto que não seja o dele.
 - [ ] A suspensão nunca apaga dados, nunca bloqueia o titular de exportar os seus dados e respeita o estado `restrito` da Meta (não o sobrepõe).
-- [ ] O relógio é injectável: o teste de 11 dias corre em < 5 s.
+- [x] O relógio é injectável: o teste de 11 dias corre em < 5 s.
 
 ### Detalhes Técnicos
 - **Componentes:** PAY, TEN, GOV. Módulos `services/pay/src/dunning/{engine,steps,config}.ts`; tabela `billing_dunning_steps(billing_cycle_id, passo, executado_at, resultado)` com `UNIQUE (billing_cycle_id, passo)` (proposta).
@@ -1205,11 +1205,115 @@ Implementar o motor da régua sobre `billing_cycles`, idempotente por passo, com
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Idempotência: cada passo tem chave e teste de repetição.
-- [ ] Números só de tools: valores e referências dos lembretes vêm da cobrança.
-- [ ] Privacidade: nenhum telefone nem texto de mensagem em logs ou eventos; contacto do dono por `contact_id`.
+- [x] Idempotência: cada passo tem chave e teste de repetição.
+- [x] Números só de tools: valores e referências dos lembretes vêm da cobrança.
+- [x] Privacidade: nenhum telefone nem texto de mensagem em logs ou eventos; contacto do dono por `contact_id`.
 - [ ] Observabilidade: `dunning_step_total{passo}`, `tenants_suspended_by_dunning_total`; alerta se > N suspensões/dia (N proposta).
-- [ ] Sem comissão: a régua só trata assinatura (ADR-017); canal D10 documentado como decisão aberta.
+- [x] Sem comissão: a régua só trata assinatura (ADR-017); canal D10 documentado como decisão aberta.
+
+### Verificação dos Critérios de Aceitação
+
+**Cinco caixas de oito nos critérios, e quatro de seis na Definition of Done.** As três que ficam
+abertas ficam **parciais** pela mesma razão: o mecanismo está medido contra a base e um pedaço da
+letra não está — o CHR inteiro no critério 2, um processo que corra a régua em produção no 3, e um
+ensaio da exportação do titular no 7. Cada um tem a falta dita na linha dele.
+
+**Onde vive a régua.** Não há `services/pay/` (dívidas 148 e 213), e o bloco escreve
+`services/pay/src/dunning/{engine,steps,config}.ts`. O motor é
+`../packages/core-ts/src/pagamentos/regua.ts` e o processo que o agenda é
+`../packages/core-ts/src/pagamentos/processo.ts`, no estrato `critico` do `../ci/thresholds.yaml`
+sem padrão novo. A tabela é a `billing_dunning_steps` da revisão
+[`0064_regua_de_cobranca.py`](../db/migrations/versions/0064_regua_de_cobranca.py) (número
+provisório; dá-o a integração), com os nomes no dicionário §3.72.
+
+**Quatro decisões de desenho que os critérios não escreviam, e a razão de cada uma.**
+
+* **A régua não tem grafo de estados.** Suspende e repõe pela porta `transition_tenant` da `0058`
+  (KAM-092), como `kamba_batch`, e emite o evento de suspensão e o de reactivação na mesma
+  transacção, só quando a porta devolve verdadeiro — repetir dá falso, e não há segundo evento.
+  Reescrever a porta para os emitir copiava o corpo da `0058`, e as mutações sobre ela deixavam de
+  morder.
+* **O D+0 é a emissão da primeira cobrança do ciclo** (o «D+0 referência» do bloco), em Luanda, e
+  **a suspensão nunca salta o aviso**: um motor que volta atrasado executa o aviso e espera os dias
+  que a versão dá entre os dois. Foi a revisão adversarial que o pediu (abaixo).
+* **`restrito` e `suspenso` adiam a suspensão, e não a gravam.** Uma suspensão por cima de um
+  `restrito` seguida de uma reposição a `ativo` apagava a restrição da Meta; gravá-la como «sem
+  transição» deixava o tenant `ativo` e em dívida para sempre quando a restrição saísse.
+* **Nenhuma mensagem sai, e a tarefa de ops é o passo gravado.** Com `canal = 'ops'`, a lista
+  diária lê-se da tabela (`listaDeOps`) e a mensagem refaz-se do *ledger*: o texto não se guarda.
+
+**As medições, nesta máquina, contra PostgreSQL 18 em Docker e Node 24.21 em contentor**, com a
+revisão da régua sobre a `0059` da `publico/main` (`0c393555`): os ensaios de
+`../packages/core-ts/tests/pagamentos.regua.test.ts` → **42 de 42**, com os do billing e do arranque
+→ **88 de 88**; `../db/tests_pagamentos/test_regua_de_cobranca.py` → **`Ran 17 tests` / `OK`**; a
+suite `tests_lote` do *gate* 8 — que corre o `correrRegua` verdadeiro, como `kamba_batch`, em
+`../packages/core-ts/tests_bd/regua.bd.test.ts` — → **`Ran 7 tests` / `OK`** (dezassete ensaios TypeScript, cinco da régua), a imprimir os onze dias com
+cinco voltas por dia em **626 ms** e a reposição de vinte tenants numa volta de **380 ms**;
+o *gate* 3b inteiro → **conforme**; `money_lint`, `log_policy`, `lint_arch`, `lint_backlog`,
+`lint_refs`, `lint_handoff`, `lint_contagens` e `lint_bloco` → **conforme**; `python
+db/mutacoes.py --aplicaveis` → **1180 conferidas, 0 não aplicáveis**. **O que não se mediu, e
+diz-se:** a suite inteira `../db/tests/` do *gate* 8 e o `../db/tests_isolamento/` do *gate* 6 não
+cabem nos 900 s do `gate_bd.py` com a máquina carregada — correram os módulos das listas fechadas
+(`test_catalogo`, `test_inventario`, `test_privilegios` e `test_migracao` → **`Ran 81 tests` /
+`OK`**; `test_x05_catalogo` → **`Ran 34 tests` / `OK`**) e o resto decide o CI; o `typecheck`
+correu dirigido aos ficheiros tocados (zero erros), e o do `core-ts` inteiro decide o CI; a suite
+`supply_chain` não correu (o diff não toca em dependências, compose, Dockerfile nem `ci/`).
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Exactamente D+3, D+7 e D+10; cinco execuções no mesmo dia não duplicam (`UNIQUE (billing_cycle_id, passo)`) | **satisfeito** | `onze dias pelo motor verdadeiro…` (suite `tests_lote`): cinco voltas por dia do D+0 ao D+10, e três passos, um de cada. `test_um_passo_por_ciclo` (`23505`) e `test_o_gravar_do_modulo_absorve_a_repeticao`; `o UNIQUE (billing_cycle_id, passo) recusa um passo repetido escrito à mão pelo lote`. Na base falsa, o critério 8 abaixo, com as datas de cada passo |
+| 2 | D+10 `ativo → suspenso` uma vez, com `audit_log` e evento de suspensão; o CHR rejeita antes do AGR (fim-a-fim) | **parcial** — o CHR mede-se pelo resolvedor e pela matriz, e não pelo *pipeline* inteiro | `onze dias…`: uma linha no `tenant_state_log`, **um** evento no *outbox* com `motivo = falta_de_pagamento`, uma `batch.run` no `audit_log` pela `audit_append` da `0006`, e repetir não emite. `test_criterio_2_a_suspensao_pela_porta_do_kam_092_uma_vez_com_registo_e_evento` valida o envelope contra o contrato v1 (`jsonschema`) e lê o `SQL_CANAL` do CHR como `kamba_resolver`. **A falta:** o ensaio corre o `ResolvedorDeCanal` contra a base e a `tenantGate` — que nega `processar_entrada` a um `suspenso` —, e não o `Chr` com um AGR espião; e a *cache* do resolvedor (`TTL_MS` = 60 s) serve o estado antigo até expirar, porque ninguém a invalida por evento (credor **KAM-092**, já escrito no bloco dele) |
+| 3 | Pagamento no D+9 cancela os passos pendentes; no D+11 repõe `ativo` em p95 ≤ 60 s | **parcial** — o mecanismo está medido; nenhum processo de produção corre o `agendar` | `o pagamento no D+9 cancela o passo pendente e o tenant não é suspenso` e, no D+11, `onze dias…` (o pagamento autenticado pelo *ledger*, o gatilho da `0055` põe o ciclo em `paga`, a volta seguinte repõe e emite a reactivação). O p95: a reposição corre em **cada** volta, de `INTERVALO_DA_REGUA_MS` = 30 s (*proposta*) em 30 s, e a volta de vinte reposições mede **380 ms** — o pior caso é o intervalo mais a volta. **Lido sobre o facto do *ledger***, e não sobre o envelope `payment.confirmed`, que uma cobrança de ciclo não emite (dívida 213). **A falta:** o `ProcessoDaCobranca` e o `agendar` são as funções que um processo chama, e não há processo do PAY que as corra (dívidas 148 e 213) |
+| 4 | Dias e texto de configuração versionada; uma mudança só vale para ciclos abertos depois; prazo legal em INDÍCIO | **satisfeito** | `VERSOES_DA_REGUA`, validada ao carregar (`recusa versões sem ordem, repetidas, com dígitos ou com campos desconhecidos`); `mudar um valor aplica-se só aos ciclos que abrem depois` (a versão escolhe-se pelo D+0, e o passo grava a `config_versao`). O Art. 16.º da Lei 15/03 fica INDÍCIO, **a confirmar por parecer**, no dicionário §3.72 e no `../docs/billing.md` §5 |
+| 5 | *Template* com valor, referência e prazo da cobrança, nunca do LLM; aviso anti-*phishing* fixo; um teste falha com um número que não seja campo | **satisfeito** | `os números de cada mensagem são todos campos da cobrança, e o aviso anti-phishing vai em todas` (três formas de pagamento × três passos), `o valor, a referência e o prazo saem da cobrança e da versão` e o controlo `o detector morde num número que não é campo`. O motor não tem dependência de LLM nenhuma; os textos não levam dígitos (a validação recusa-os) |
+| 6 | Entrega por `OwnerNotifier`; até D10 fechar, tarefas de ops numa lista diária; nenhuma mensagem pelo número de um tenant para outro assunto | **satisfeito** | `o notificador por omissão é o de ops e não sai mensagem nenhuma`; `o caminho pelo OwnerNotifier não se constrói sem a decisão D10` (`CanalD10Fechado`); `a lista diária de ops refaz a mensagem do ledger`, e contra a base a tarefa da suspensão no D+10 (`onze dias…`) |
+| 7 | A suspensão não apaga dados, não bloqueia a exportação do titular e respeita `restrito` | **parcial** — a exportação mede-se por leitura | `test_criterio_7_a_suspensao_nao_apaga_dados` (cinco tabelas, as mesmas contagens) e `o motor não apaga nada: nenhuma instrução dele é um DELETE ou um TRUNCATE`; `um tenant restrito não é suspenso nem sai do restrito` (base e base falsa, com a suspensão a chegar quando a restrição sai). **A falta:** o módulo da exportação (`../libs/py-core/src/kamba_core/direitos/exportacao.py`) não lê o estado do tenant — lido, e não ensaiado |
+| 8 | Relógio injectável: o teste de 11 dias corre em < 5 s | **satisfeito** | `critério 8 — onze dias com o relógio injectado, cinco voltas por dia, em menos de 5 s`: **49 ms**, e contra a base **626 ms** |
+
+| # | Definition of Done | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Todos os critérios satisfeitos e demonstráveis | **parcial** | Cinco de oito; o 2, o 3 e o 7 ficam parciais, com a falta dita em cada linha |
+| 2 | Idempotência: cada passo tem chave e teste de repetição | **satisfeito** | A chave é `(billing_cycle_id, passo)`, com o trinco por ciclo e a pergunta antes do efeito; `idempotência — uma falha a meio da suspensão reverte tudo, e a volta seguinte faz o passo uma vez` (o «*crash* a meio» dos testes requeridos) e as cinco voltas por dia contra a base |
+| 3 | Números só de tools: valores e referências vêm da cobrança | **satisfeito** | Critério 5 |
+| 4 | Privacidade: nenhum telefone nem texto de mensagem em logs ou eventos; contacto por `contact_id` | **satisfeito** | O evento leva só o `motivo` (`{}` na reactivação); o `audit_log` leva o SHA-256 de `de>para:motivo`; o texto não se guarda (refaz-se do *ledger*); o `notificadorPeloDono` passa o `contactId` ao `OwnerNotifier`. O `log_policy` dá zero achados |
+| 5 | Observabilidade: as duas métricas; alerta acima de N suspensões por dia | **parcial** | `dunning_step_total{passo,resultado}` e `tenants_suspended_by_dunning_total` contadas pela porta `MetricasDaRegua` (ensaio `onze dias…` na base falsa), e o `alertaDeSuspensoes` acima de `LIMIAR_DE_SUSPENSOES_POR_DIA` = 5 (*proposta*) no relatório que o `agendar` entrega (`o alerta dispara acima do limiar de suspensões do dia`). **A falta:** nenhum processo serve as séries num `/metrics`, pelo que a regra de alerta no Prometheus fica com o credor da observabilidade (**KAM-080**) |
+| 6 | Sem comissão; canal D10 documentado como decisão aberta | **satisfeito** | A régua só lê ciclos de assinatura; D10 no dicionário §3.72, no `../docs/billing.md` §5 e na guarda `CanalD10Fechado` |
+
+**Recebido do KAM-059.** O **agendamento** dos dois *jobs* é o `ProcessoDaCobranca`: a abertura e a
+sombra uma vez por dia de Luanda, a régua em cada volta, e uma falha da abertura não pára a régua
+(`achado 4 — uma abertura que falha não pára a régua, e repete-se na volta seguinte`). A sombra só
+corre com uma taxa, que continua sem omissão (D8). As transições de `subscriptions.estado` para
+`em_atraso` (em qualquer passo executado) e `suspensa` (na suspensão), e de volta a `ativa`, estão
+medidas contra a base. O `verificarArranque` corre no construtor do processo, com a guarda da
+comissão (`o arranque recusa-se com a comissão ligada sem parecer`) — o que fecha a metade «falha no
+arranque» do critério 7 do KAM-059 **como função**; o processo que a corre em produção continua por
+existir. **Fica aberto:** cancelar a cobrança em aberto quando um ciclo se anula — nenhum código anula
+ciclos hoje, e a primeira escrita desse caminho é a que a deve trazer.
+
+**O que a revisão adversarial mudou.** Uma revisão independente — sem o raciocínio de quem escreveu —
+levantou doze achados, cinco CONFIRMADOS: quatro fecharam-se com ensaio, e o terceiro fica dito. **(1)** A reposição
+levantava uma sanção de T&S: o Trust (KAM-097) suspende por um `UPDATE` que não passa pelo registo de
+estados e, sobre um tenant já suspenso pela régua, não muda nada — pagar a assinatura repunha `ativo`
+por cima da sanção. Fecha-se com a pergunta à `ts_sanction` no `SQL_REGUA_POR_REPOR`
+(`test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`, contra a base, e o recurso provido a soltá-la).
+**(2)** A suspensão podia sair sem aviso prévio nenhum (um ciclo aberto tarde, ou o motor em baixo
+do D+2 ao D+10): o D+0 passou a ser a emissão da cobrança e a suspensão passou a esperar o aviso.
+**(3)** O cancelamento da cobrança de um ciclo anulado não estava feito — dito acima. **(4)** Uma falha
+da abertura parava a régua, e o relatório perdia-se: os *jobs* correm em `try` e o `agendar` entrega
+o relatório. **(5)** Um pagamento entre a leitura dos ciclos e o passo suspendia quem acabara de pagar:
+o estado do ciclo relê-se sob o trinco. Dos **PLAUSÍVEIS**, fecharam-se dois: o `restrito` passou a
+adiar (7), e a ordem das trancas passou a ser a do `transition_tenant`, com a transição de outro estado
+a reverter (9). **Ficam ditos:** com o `notificadorPeloDono`, um *crash* depois da entrega e antes do
+`COMMIT` repete o aviso, e a chave de idempotência não chega ao `OwnerNotifier` (6, só morde quando a
+D10 fechar); a referência expira às 72 h e nada emite a tentativa 2 — o texto diz «peça uma nova no
+painel» (8); o Trust levanta uma suspensão da régua num recurso provido, porque escreve o estado por
+`UPDATE` e não pela porta do KAM-092 (o inverso do 1, e do lado do Trust).
+
+**Mutações.** **Sete, em `../db/mutacoes.py`**, cada uma com o ensaio que a mata nomeado ao lado: o
+passo deixa de ser único, a tabela perde o `FORCE`, o lote ganha `UPDATE`, o canal solta-se do
+resultado (as quatro da revisão, suite `tests_pagamentos`); e, no motor, deixar de adiar a suspensão
+de um `restrito` (suite `tests_lote`), a reposição a ignorar o motivo da suspensão e a ignorar as
+sanções de T&S (suite `tests_pagamentos`). **Não corridas aqui**: a nocturna decide.
 
 ### Handoff para Claude Code
 
@@ -2337,3 +2441,4 @@ Testes: as regras 3 e 4 de ponta a ponta, duplicados x10, e o ledger sem linha n
 | 1.15 | Novembro 2026 | **KAM-197 entregue.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, com os cinco critérios e as três caixas da DoD, **as oito marcadas**. Regista as duas decisões do fundador que deram a forma ao ticket — a (b) de 2026-11-12 (o PAY abre o caso, sem reversão no *ledger*, com um só dono da tabela) e a **(A) de 2026-11-13**: o papel é novo, `kamba_pay`, e só ele tem `EXECUTE` na porta, pelo que o COM leva `42501`. **A estimativa passa de M a L** por causa do papel, no bloco, na tabela-resumo e no §4 do índice. O critério 4 do **KAM-060** passa a `satisfeito` no bloco dele, com o registo do estado anterior intacto. A revisão é a `0051`, provisória. | Equipa KAMBÁ |
 | 1.16 | Novembro 2026 | **KAM-059 entregue, com nove dos dez critérios e quatro das seis caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, uma linha de evidência por caixa. A revisão do billing é a `0055`, sobre a `0054` do KAM-120 (a ordem da fila). O critério 7 fica **parcial** na metade do arranque (nenhum processo do PAY lê as *flags* de dinheiro), e os dois revisores são do fundador. O bloco do **KAM-058** ganha a linha «Recebido do KAM-059» (o agendamento dos dois *jobs*, as transições da subscrição, o cancelamento da cobrança ao anular um ciclo e a guarda de arranque da comissão). Uma revisão adversarial reprovou o ramo com dois achados altos — a PME pagava o próprio ciclo com um `hmac` escrito à mão no *ledger*, e o `kamba_pay` escrevia no *ledger* das encomendas —, fechados com o gatilho `payment_events_billing_papel` e o `INSERT` por coluna. | Equipa KAMBÁ |
 | 1.17 | Novembro 2026 | **KAM-056 entregue, com quatro dos nove critérios e três das seis caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, uma linha de evidência por caixa. O adaptador vive em `../packages/core-ts/src/pagamentos/proxypay/` (dívidas 148 e 213), atrás da `PaymentProvider` sem lhe mudar um tipo, e sem migração. Os ensaios correm contra um servidor ProxyPay falso local, e nenhum toca no fornecedor: os critérios 3 e 7 ficam **parciais** à espera do *sandbox* (`ext:KAM-103`), o 4 à espera do processo do serviço `pay` que arranca o *job*, o 8 numa divergência devolvida (a consulta OPG depois dos 5 min não está documentada; o §7.2 F-09 já prevê `criacao_incerta`) e o 9 na decisão do fundador. A revisão adversarial rendeu quinze achados, e os três mais graves eram do *job* de reconciliação: a fila sem cursor tapada por órfãos, a expiração de uma encomenda paga quando o `processar` falhava, e uma conta com erro a parar as seguintes. | Equipa KAMBÁ |
+| 1.18 | Novembro 2026 | **KAM-058 entregue, com cinco dos oito critérios e quatro das seis caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, uma linha de evidência por caixa. A régua vive em `packages/core-ts/src/pagamentos/regua.ts` e o processo em `processo.ts`; a revisão é a `0064` (provisória, sobre a `0063`; dá-a a integração). Os critérios 2, 3 e 7 ficam **parciais**: o CHR mede-se pelo resolvedor e pela matriz, nenhum processo de produção corre o agendamento, e a exportação do titular mede-se por leitura. Uma revisão adversarial levantou cinco achados confirmados — a reposição levantava uma sanção de T&S, a suspensão podia sair sem aviso prévio, o cancelamento da cobrança de um ciclo anulado faltava, uma falha da abertura parava a régua, e um pagamento a meio suspendia quem pagou —, quatro fechados com ensaio e o terceiro dito. | Equipa KAMBÁ |

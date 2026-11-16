@@ -2604,6 +2604,21 @@ INVENTARIO["billing_cycles"] = {
     "estado": ("text", NAO, "'aberto'::text", "nao"),
 }
 
+#: Os passos da regua de cobranca (KAM-058, revisao da regua). **Nenhum dado
+#: pessoal**: um ciclo, um passo, um resultado e um instante. O texto da
+#: mensagem **nao** se guarda (DoD: nenhum texto de mensagem em logs nem
+#: eventos) — a lista de ops refaz-o do ledger.
+INVENTARIO["billing_dunning_steps"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "billing_cycle_id": ("uuid", NAO, None, "nao"),
+    "passo": ("text", NAO, None, "nao"),
+    "executado_at": ("timestamp with time zone", NAO, None, "nao"),
+    "resultado": ("text", NAO, None, "nao"),
+    "canal": ("text", SIM, None, "nao — o canal e um nome (`ops`, `dono`), nunca um endereco"),
+    "config_versao": ("text", NAO, None, "nao"),
+}
+
 INVENTARIO["commission_accruals"] = {
     "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
     "tenant_id": ("uuid", NAO, None, "nao"),
@@ -3577,6 +3592,10 @@ class TestInventario(ComBase):
                         # a vaga dada dentro: o `concluido_em` e o que conta na
                         # janela de 7 dias.
                         "waitlist_entry_caso_fk",
+                        # KAM-058 (revisao da regua de cobranca): o passo aponta
+                        # o ciclo pelo par, sem cascata. Um ciclo nao se apaga
+                        # com a historia da cobranca dentro.
+                        "billing_dunning_steps_ciclo_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4367,6 +4386,21 @@ class TestInventario(ComBase):
                     "onboarding_capacity_origem_ck",
                     "onboarding_capacity_pkey",
                     "onboarding_capacity_unica_ck",
+                    # ---------- KAM-058 (revisao da regua de cobranca)
+                    #
+                    # **Oito.** A chave, um passo por ciclo, o dominio do
+                    # `passo`, o do `resultado` e o `resultado` amarrado ao
+                    # passo, o dominio do `canal`, o `canal` amarrado ao
+                    # resultado e a forma da `config_versao`. A FK composta
+                    # conta-se no bloco das FK.
+                    "billing_dunning_steps_canal_ck",
+                    "billing_dunning_steps_canal_do_resultado_ck",
+                    "billing_dunning_steps_config_versao_ck",
+                    "billing_dunning_steps_passo_ck",
+                    "billing_dunning_steps_passo_uq",
+                    "billing_dunning_steps_pkey",
+                    "billing_dunning_steps_resultado_ck",
+                    "billing_dunning_steps_resultado_do_passo_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

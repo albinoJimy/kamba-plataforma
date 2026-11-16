@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-16.2"
+VERSAO_DA_POLITICA: Final = "2026-11-16.3"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -522,6 +522,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.subscriptions": "assinatura do negocio a KAMBA",
     "platform.billing_cycles": "ciclos de facturacao do negocio",
     "platform.commission_accruals": "sombra da comissao: identificadores e valores",
+    # KAM-058: os passos da regua de cobranca. Um ciclo, um passo, um resultado
+    # e um instante; o texto da mensagem nao se guarda.
+    "platform.billing_dunning_steps": "passos da regua de cobranca do negocio",
     # KAM-124: o custo por modulo de entrada. O ledger guarda o tenant, o
     # modulo, quanto custou e a referencia opaca da origem — nunca o contacto
     # nem o conteudo —, e e so de acrescentar (nem o dono o apaga). Os precos
