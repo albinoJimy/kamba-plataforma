@@ -2188,6 +2188,20 @@ SEM_RECEITA_COM_RAZAO = {
     # concedido a papel nenhum. Declara-la nesta lista nomeava uma tabela que a
     # suite nao considera isolada, e a asercao `SEM_RECEITA_COM_RAZAO <= todas`
     # falhava. Uma excepcao morta e pior do que nenhuma.
+    #
+    # KAM-124: o ledger de custo por modulo, pela razao do `order_state_log` — e
+    # so por essa. Tem RLS `FORCE` e politica `tenant_iso`, mas os gatilhos
+    # `module_cost_ledger_imutavel` e `module_cost_ledger_sem_truncate`, os dois
+    # `ENABLE ALWAYS`, recusam `UPDATE`, `DELETE` e `TRUNCATE` a todos,
+    # superutilizador incluido: uma receita semeava e nao limpava, e o `DELETE`
+    # do `apagar_tenant` envenenava a transaccao da bateria. E nenhum papel
+    # sujeito a RLS lhe escreve (so o `kamba_batch`, pela funcao). O isolamento
+    # prova-se em `db/tests/test_modulos_custo_schema.py` sem apagar nada: o
+    # ledger e a `v_module_cost_month` de A nao se leem do contexto de B nem sem
+    # contexto, com a sonda positiva ao lado
+    # (`test_o_ledger_de_a_e_invisivel_a_b`), e o `kamba_app` nao insere nem
+    # executa a funcao de escrita (`test_a_aplicacao_nao_escreve`).
+    ("platform", "module_cost_ledger"),
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As

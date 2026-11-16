@@ -8,6 +8,7 @@
 | `repositorio` | a persistencia de `platform.image_jobs` (revisao `foto_de_produtos`) |
 | `servico` | o `enhance_image` e o trabalhador do pipeline assincrono |
 | `bakeoff` | o *harness* do *bake-off* de fornecedores |
+| `orcamento` | a guarda de orcamento de custo do modulo (KAM-124), por cima da quota |
 
 E uma biblioteca, pela razao do Catalogo AI (KAM-049): as dependencias que a
 fazem — a porta de destinos do KAM-069, a limpeza de EXIF do KAM-049 e o STO do

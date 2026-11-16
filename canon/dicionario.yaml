@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.96"
+versao_dicionario: "1.97"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -243,7 +243,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Entitlement (chaves)"
-    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor, prazo_reclamacao_dias"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor, prazo_reclamacao_dias, custo_max_mes_micro_usd"
     literais:
       - "msgs_ai_mes"
       - "marcacoes_mes"
@@ -257,6 +257,7 @@ entradas:
       - "manual_max_por_contacto_24h"
       - "manual_dupla_acima_minor"
       - "prazo_reclamacao_dias"
+      - "custo_max_mes_micro_usd"
     nomes:
       - "msgs_ai_mes"
       - "marcacoes_mes"
@@ -270,6 +271,7 @@ entradas:
       - "manual_max_por_contacto_24h"
       - "manual_dupla_acima_minor"
       - "prazo_reclamacao_dias"
+      - "custo_max_mes_micro_usd"
     nomes_nota:
       - "valor_max_pedido_minor"
       - "ManualProvider"
@@ -278,6 +280,7 @@ entradas:
       - "entitlements"
       - "limites"
       - "prazo_reclamacao_dias"
+      - "custo_max_mes_micro_usd"
     variantes_literais:
       - "valor_max_pedido_kz"
   - seccao: "3.2"
@@ -17334,6 +17337,376 @@ entradas:
     nomes_nota:
       - "billing.ts"
     variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Ledger de custo por módulo"
+    canonico: "platform.module_cost_ledger, dez colunas: id, tenant_id, modulo, rubrica, custo_usd, custo_minor, fx_aoa_per_usd, ref, idempotency_key, ocorrido_em"
+    literais:
+      - "platform.module_cost_ledger"
+      - "id"
+      - "tenant_id"
+      - "modulo"
+      - "rubrica"
+      - "custo_usd"
+      - "custo_minor"
+      - "fx_aoa_per_usd"
+      - "ref"
+      - "idempotency_key"
+      - "ocorrido_em"
+    nomes:
+      - "platform.module_cost_ledger"
+      - "id"
+      - "tenant_id"
+      - "modulo"
+      - "rubrica"
+      - "custo_usd"
+      - "custo_minor"
+      - "fx_aoa_per_usd"
+      - "ref"
+      - "idempotency_key"
+      - "ocorrido_em"
+    nomes_nota:
+      - "module_cost_ledger_imutavel"
+      - "UPDATE"
+      - "DELETE"
+      - "module_cost_ledger_sem_truncate"
+      - "ENABLE"
+      - "ALWAYS"
+      - "platform.module_cost_ledger_recusar"
+      - "FORCE"
+      - "tenant_iso"
+      - "module_cost_ledger_idempotency_uq"
+      - "tenant_id"
+      - "idempotency_key"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Módulo do custo"
+    canonico: "module_cost_ledger.modulo ∈ {catalogo, foto, social, orcamento}"
+    literais:
+      - "module_cost_ledger.modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    nomes:
+      - "module_cost_ledger.modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    nomes_nota:
+      - "CHECK"
+      - "entitlements.modulo"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Rubrica do custo"
+    canonico: "module_cost_ledger.rubrica ∈ {llm, imagem, mensagem}"
+    literais:
+      - "module_cost_ledger.rubrica"
+      - "llm"
+      - "imagem"
+      - "mensagem"
+    nomes:
+      - "module_cost_ledger.rubrica"
+      - "llm"
+      - "imagem"
+      - "mensagem"
+    nomes_nota:
+      - "v_tenant_cost_daily"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Custo em cêntimos de Kz no ledger"
+    canonico: "module_cost_ledger.custo_minor, bigint, e module_cost_ledger.fx_aoa_per_usd"
+    literais:
+      - "module_cost_ledger.custo_minor"
+      - "bigint"
+      - "module_cost_ledger.fx_aoa_per_usd"
+    nomes:
+      - "module_cost_ledger.custo_minor"
+      - "bigint"
+      - "module_cost_ledger.fx_aoa_per_usd"
+    nomes_nota:
+      - "EM_UNIDADE_MENOR"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Referência e instante do custo"
+    canonico: "module_cost_ledger.ref e module_cost_ledger.ocorrido_em"
+    literais:
+      - "module_cost_ledger.ref"
+      - "module_cost_ledger.ocorrido_em"
+    nomes:
+      - "module_cost_ledger.ref"
+      - "module_cost_ledger.ocorrido_em"
+    nomes_nota:
+      - "ref"
+      - "criado_at"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Escrita no ledger"
+    canonico: "platform.module_cost_gravar(p_tenant, p_modulo, p_rubrica, p_custo_usd, p_ref, p_idempotency_key, p_ocorrido_em, p_fx_aoa_per_usd) → (gravado, id)"
+    literais:
+      - "platform.module_cost_gravar(p_tenant, p_modulo, p_rubrica, p_custo_usd, p_ref, p_idempotency_key, p_ocorrido_em, p_fx_aoa_per_usd)"
+      - "(gravado, id)"
+    nomes:
+      - "platform.module_cost_gravar"
+      - "p_tenant"
+      - "p_modulo"
+      - "p_rubrica"
+      - "p_custo_usd"
+      - "p_ref"
+      - "p_idempotency_key"
+      - "p_ocorrido_em"
+      - "p_fx_aoa_per_usd"
+      - "gravado"
+      - "id"
+    nomes_nota:
+      - "gravado"
+      - "false"
+      - "EXECUTE"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Chave de idempotência do custo"
+    canonico: "prefixo da rubrica e identificador da linha de origem: llm:, imagem:, mensagem:"
+    literais:
+      - "llm:"
+      - "imagem:"
+      - "mensagem:"
+    nomes:
+      - "llm"
+      - "imagem"
+      - "mensagem"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Preço de teste de um módulo"
+    canonico: "platform.module_test_prices, cinco colunas: plano, modulo, preco_teste_minor, estado, carregado_em; chave (plano, modulo)"
+    literais:
+      - "platform.module_test_prices"
+      - "plano"
+      - "modulo"
+      - "preco_teste_minor"
+      - "estado"
+      - "carregado_em"
+      - "(plano, modulo)"
+    nomes:
+      - "platform.module_test_prices"
+      - "plano"
+      - "modulo"
+      - "preco_teste_minor"
+      - "estado"
+      - "carregado_em"
+    nomes_nota:
+      - "tenant_id"
+      - "price_book"
+      - "h12"
+      - "export"
+      - "carregar"
+      - "precos"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Estado do preço de teste"
+    canonico: "module_test_prices.estado ∈ {hipotese_nao_validada}"
+    literais:
+      - "module_test_prices.estado"
+      - "hipotese_nao_validada"
+    nomes:
+      - "module_test_prices.estado"
+      - "hipotese_nao_validada"
+    nomes_nota:
+      - "price_book"
+      - "estado"
+      - "preco_teste_minor"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Módulo do preço de teste"
+    canonico: "module_test_prices.modulo ∈ {catalogo, foto, social, orcamento}"
+    literais:
+      - "module_test_prices.modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    nomes:
+      - "module_test_prices.modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Valor do preço de teste"
+    canonico: "preco_teste_minor, bigint, cêntimos de Kz"
+    literais:
+      - "preco_teste_minor"
+      - "bigint"
+    nomes:
+      - "preco_teste_minor"
+      - "bigint"
+    nomes_nota:
+      - "entrada_catalogo"
+      - "entrada_foto"
+      - "entrada_social"
+      - "entrada_orcamento"
+      - "entrada_completo"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Custo mensal por módulo"
+    canonico: "platform.v_module_cost_month(tenant_id, mes, modulo, rubrica, unidades, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    literais:
+      - "platform.v_module_cost_month(tenant_id, mes, modulo, rubrica, unidades, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    nomes:
+      - "platform.v_module_cost_month"
+      - "tenant_id"
+      - "mes"
+      - "modulo"
+      - "rubrica"
+      - "unidades"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    nomes_nota:
+      - "security_invoker"
+      - "SELECT"
+      - "kamba_batch"
+      - "kamba_app"
+      - "app.fx_aoa_per_usd"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Vista da H12"
+    canonico: "platform.v_h12(tenant_id, mes, modulo, custo_usd, custo_aoa_minor, fx_aoa_per_usd, preco_teste_minor, racio, margem_minor)"
+    literais:
+      - "platform.v_h12(tenant_id, mes, modulo, custo_usd, custo_aoa_minor, fx_aoa_per_usd, preco_teste_minor, racio, margem_minor)"
+    nomes:
+      - "platform.v_h12"
+      - "tenant_id"
+      - "mes"
+      - "modulo"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+      - "preco_teste_minor"
+      - "racio"
+      - "margem_minor"
+    nomes_nota:
+      - "tenants.plano"
+      - "racio"
+      - "margem_minor"
+      - "SELECT"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Rácio e margem da H12"
+    canonico: "v_h12.racio (custo em Kz ÷ preço de teste, seis casas) e v_h12.margem_minor (preço − custo, cêntimos)"
+    literais:
+      - "v_h12.racio"
+      - "v_h12.margem_minor"
+    nomes:
+      - "v_h12.racio"
+      - "v_h12.margem_minor"
+    nomes_nota:
+      - "racio"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Orçamento mensal de custo de um módulo"
+    canonico: "custo_max_mes_micro_usd, chave de entitlements.limites"
+    literais:
+      - "custo_max_mes_micro_usd"
+      - "entitlements.limites"
+    nomes:
+      - "custo_max_mes_micro_usd"
+      - "entitlements.limites"
+    nomes_nota:
+      - "platform.ten_tecto"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Guarda de orçamento da imagem"
+    canonico: "kamba_core.foto.orcamento.QuotaComOrcamento"
+    literais:
+      - "kamba_core.foto.orcamento.QuotaComOrcamento"
+    nomes:
+      - "kamba_core.foto.orcamento.QuotaComOrcamento"
+    nomes_nota:
+      - "imagens_mes"
+      - "orcamento_esgotado"
+      - "sem_orcamento"
+      - "image_jobs"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Motivos da guarda de orçamento"
+    canonico: "orcamento_esgotado, sem_orcamento"
+    literais:
+      - "orcamento_esgotado"
+      - "sem_orcamento"
+    nomes:
+      - "orcamento_esgotado"
+      - "sem_orcamento"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Uso do mês"
+    canonico: "get_usage (read), kamba_core.modulos.get_usage"
+    literais:
+      - "get_usage"
+      - "kamba_core.modulos.get_usage"
+    nomes:
+      - "get_usage"
+      - "kamba_core.modulos.get_usage"
+    nomes_nota:
+      - "mensagem_orcamento_esgotado"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Exportação da H12"
+    canonico: "h12-export (../db/h12_export.py), job ops_h12_export"
+    literais:
+      - "h12-export"
+      - "ops_h12_export"
+    nomes:
+      - "h12"
+      - "export"
+      - "ops_h12_export"
+    nomes_nota:
+      - "consolidar"
+      - "carregar"
+      - "precos"
+      - "exportar"
+      - "alertas"
+      - "reconciliar"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Pseudónimo do tenant"
+    canonico: "HMAC-SHA256 do tenant_id com a chave KAMBA_H12_PSEUDONIMO_CHAVE, vinte caracteres de base32"
+    literais:
+      - "tenant_id"
+      - "KAMBA_H12_PSEUDONIMO_CHAVE"
+    nomes:
+      - "tenant_id"
+      - "KAMBA_H12_PSEUDONIMO_CHAVE"
+    nomes_nota:
+      - "exportar"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Alertas de custo dos módulos"
+    canonico: "custo_acima_do_preco (aviso acima de 15%, crítico acima de 30%), custo_diario_anomalo (acima de 3 vezes a mediana de 28 dias, com 7 dias ou mais), imagem_sem_custo, mensagem_sem_tarifa"
+    literais:
+      - "custo_acima_do_preco"
+      - "custo_diario_anomalo"
+      - "imagem_sem_custo"
+      - "mensagem_sem_tarifa"
+    nomes:
+      - "custo_acima_do_preco"
+      - "custo_diario_anomalo"
+      - "imagem_sem_custo"
+      - "mensagem_sem_tarifa"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Mapa template → módulo"
+    canonico: "config/templates_por_modulo.yaml"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -18630,6 +19003,52 @@ tabelas:
     assinatura: "platform.exigir_dupla_de_ops()"
     seccao: "3.67"
     conceito: "O G8 das cobranças de ciclo"
+  - nome: "module_cost_gravar"
+    esquema: "platform"
+    colunas:
+      - "p_tenant"
+      - "p_modulo"
+      - "p_rubrica"
+      - "p_custo_usd"
+      - "p_ref"
+      - "p_idempotency_key"
+      - "p_ocorrido_em"
+      - "p_fx_aoa_per_usd"
+    aberta: false
+    assinatura: "platform.module_cost_gravar(p_tenant, p_modulo, p_rubrica, p_custo_usd, p_ref, p_idempotency_key, p_ocorrido_em, p_fx_aoa_per_usd)"
+    seccao: "3.68"
+    conceito: "Escrita no ledger"
+  - nome: "v_module_cost_month"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "mes"
+      - "modulo"
+      - "rubrica"
+      - "unidades"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+    aberta: false
+    assinatura: "platform.v_module_cost_month(tenant_id, mes, modulo, rubrica, unidades, custo_usd, custo_aoa_minor, fx_aoa_per_usd)"
+    seccao: "3.68"
+    conceito: "Custo mensal por módulo"
+  - nome: "v_h12"
+    esquema: "platform"
+    colunas:
+      - "tenant_id"
+      - "mes"
+      - "modulo"
+      - "custo_usd"
+      - "custo_aoa_minor"
+      - "fx_aoa_per_usd"
+      - "preco_teste_minor"
+      - "racio"
+      - "margem_minor"
+    aberta: false
+    assinatura: "platform.v_h12(tenant_id, mes, modulo, custo_usd, custo_aoa_minor, fx_aoa_per_usd, preco_teste_minor, racio, margem_minor)"
+    seccao: "3.68"
+    conceito: "Vista da H12"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -20134,6 +20553,38 @@ dominios:
     seccao: "3.67"
     conceito: "Modo da comissão"
     so_no_registo: false
+  - coluna: "module_cost_ledger.modulo"
+    valores:
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    seccao: "3.68"
+    conceito: "Módulo do custo"
+    so_no_registo: false
+  - coluna: "module_cost_ledger.rubrica"
+    valores:
+      - "llm"
+      - "imagem"
+      - "mensagem"
+    seccao: "3.68"
+    conceito: "Rubrica do custo"
+    so_no_registo: false
+  - coluna: "module_test_prices.estado"
+    valores:
+      - "hipotese_nao_validada"
+    seccao: "3.68"
+    conceito: "Estado do preço de teste"
+    so_no_registo: false
+  - coluna: "module_test_prices.modulo"
+    valores:
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    seccao: "3.68"
+    conceito: "Módulo do preço de teste"
+    so_no_registo: false
 
 variantes:
   - nome: "lookup_hmac"
@@ -20165,7 +20616,7 @@ variantes:
     tipo: "nome"
     seccao: "3.2"
     conceito: "Entitlement (chaves)"
-    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor, prazo_reclamacao_dias"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor, prazo_reclamacao_dias, custo_max_mes_micro_usd"
   - nome: "kamba_ops"
     tipo: "nome"
     seccao: "3.2"

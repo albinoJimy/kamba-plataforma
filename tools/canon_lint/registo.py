@@ -167,7 +167,40 @@ CHAVES_DE_PLANO = {"estado", "nota", "entitlements"}
 #: `entitlements(tenant_id, modulo, limites jsonb, ativo boolean)` que nao sao
 #: do tenant (dicionario §3.2, «Entitlement (tabela)»). O `ativo` nao esta em
 #: `CHAVES_DE_ENTITLEMENTS` porque a forma da vertical nao o tem.
-CHAVES_DE_ENTITLEMENT_DE_PLANO = {"modulo", "ativo", "limites"}
+CHAVES_DE_ENTITLEMENT_DE_PLANO = {"modulo", "ativo", "limites", "preco_teste_minor"}
+
+#: O estado que um `preco_teste_minor` exige do seu plano (KAM-124, criterio 3).
+#: **Separado de `ESTADOS_DE_PLANO` de proposito**: no dia em que um plano
+#: passar a decidido e `ESTADOS_DE_PLANO` ganhar um segundo valor, um preco de
+#: teste continua a so poder existir num plano que e hipotese. Um preco
+#: decidido e o precario do KAM-059 (`platform.price_book`), e nao isto.
+ESTADO_DO_PRECO_DE_TESTE = "hipotese_nao_validada"
+
+#: Os ficheiros cujo texto chega ao cliente (KAM-124, criterio 3: «um lint
+#: falha se um preco [...] aparecer em texto ao cliente»). Padroes `fnmatch`
+#: sobre o caminho relativo, como os de `ci/thresholds.yaml`. **Lista fechada,
+#: e a parte fraca da regra, dita:** um texto ao cliente num ficheiro que
+#: nenhum padrao apanhe passa. Sao os sitios onde o repositorio guarda hoje
+#: texto estatico ao cliente ou ao dono: os textos da degradacao do Vendedor,
+#: os moldes de lembrete do COM, as personas e as verticais do registo, a
+#: mensagem estatica do orcamento esgotado (KAM-124) e qualquer ficheiro de
+#: `textos`, `mensagens` ou `template` nos servicos e bibliotecas.
+CORPUS_AO_CLIENTE = (
+    "services/*/src/*textos*",
+    "services/*/src/*mensage*",
+    "services/*/src/*template*",
+    "packages/*/src/*textos*",
+    "packages/*/src/*mensage*",
+    "packages/*/src/*template*",
+    "libs/*/src/*textos*",
+    "libs/*/src/*mensage*",
+    "libs/*/src/*/modulos/uso.py",
+    "registry/*.yaml",
+)
+
+#: O que nao entra no corpus mesmo casando um padrao: o proprio ficheiro de
+#: planos (e onde os precos vivem) e os ensaios.
+FORA_DO_CORPUS = ("registry/plans.yaml", "*/tests/*", "*.test.ts", "*/test_*.py")
 
 #: O unico `estado` que o canon escreve para uma entrada de `plans.yaml`
 #: (dicionario §4, «Lista de planos e os seus limites»; `specs/EPIC-11`,
@@ -555,6 +588,30 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                 else:
                     modulo_de(modulo)
 
+                if "preco_teste_minor" in item:
+                    preco = item["preco_teste_minor"]
+                    if isinstance(preco, bool) or not isinstance(preco, int) or preco < 0:
+                        achados.append(
+                            Achado(ficheiro, _linha_de(fonte, "preco_teste_minor"), ILEGIVEL,
+                                   f"`preco_teste_minor` {onde} vale {preco!r}: tem de ser um inteiro "
+                                   "nao negativo, em centimos de Kz (dicionário §2)")
+                        )
+                    if estado != ESTADO_DO_PRECO_DE_TESTE:
+                        achados.append(
+                            Achado(ficheiro, _linha_de(fonte, "preco_teste_minor"), REGRA,
+                                   f"`preco_teste_minor` {onde}, que tem `estado: {estado}`: um preço de "
+                                   f"teste só existe num plano `{ESTADO_DO_PRECO_DE_TESTE}` "
+                                   "(`specs/EPIC-11`, KAM-124, critério 3). Um preço decidido é o "
+                                   "precário da assinatura (KAM-059), e não este campo")
+                        )
+                    modulos_de_entrada = dicionario.dominios.get("modulo", {}).get("valores", [])
+                    if isinstance(modulo, str) and modulo not in modulos_de_entrada:
+                        achados.append(
+                            Achado(ficheiro, _linha_de(fonte, "preco_teste_minor"), REGRA,
+                                   f"`preco_teste_minor` no módulo `{modulo}` {onde}: preços de teste são "
+                                   "só dos módulos de entrada (dicionário §3.7, KAM-124)")
+                        )
+
                 ativo = item.get("ativo")
                 if ativo is not None and not isinstance(ativo, bool):
                     achados.append(
@@ -819,4 +876,90 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                     fora(ficheiro, _linha_de(fonte, identificador), "identificador de confirmacao",
                          identificador, f"`{origem['canonico']}`, dicionário §{origem['seccao']}")
                 )
+    return achados
+
+
+# --- os precos de teste nao chegam ao cliente (KAM-124, criterio 3) -----------------
+
+#: Como um valor em Kz se escreve num texto: o numero com ou sem separador de
+#: milhares (espaco, espaco fino, ponto), ou em «mil», seguido ou precedido da
+#: moeda. **Com a moeda e so com ela**: um «15 000» solto e uma quantidade
+#: qualquer, e o lint que o recusasse avermelhava por coincidencia.
+_MOEDA = r"(?:Kz|AOA|kwanzas?)"
+
+
+def _formas_em_kz(preco_minor: int) -> list[re.Pattern[str]]:
+    """Os padroes de um preco em centimos, escrito em Kz num texto."""
+    kz, centimos = divmod(preco_minor, 100)
+    if centimos:
+        numeros = [f"{kz},{centimos:02d}", f"{kz}.{centimos:02d}"]
+    else:
+        agrupado = f"{kz:,}"
+        numeros = sorted(
+            {str(kz), agrupado.replace(",", " "), agrupado.replace(",", "."),
+             agrupado.replace(",", " "), agrupado.replace(",", " ")},
+            key=len, reverse=True,
+        )
+        if kz % 1000 == 0:
+            numeros.append(f"{kz // 1000} mil")
+    alternativas = "|".join(re.escape(n) for n in numeros)
+    zeros = "" if centimos else r"(?:[.,]00)?"
+    return [
+        # Nem algarismo nem separador seguido de algarismo a volta: «115 000» e
+        # «15 000,50» sao outros numeros; um ponto final de frase nao e. Os
+        # centimos a zero («15.000,00 Kz», a forma angolana mais comum) sao o
+        # mesmo preco, e a moeda le-se sem olhar a maiusculas («KZ», «kz»):
+        # as duas lacunas sao achados da revisao adversarial.
+        re.compile(rf"(?<!\d)(?<!\d[.,])(?:{alternativas}){zeros}\s*{_MOEDA}\b", re.IGNORECASE),
+        re.compile(rf"\b{_MOEDA}\s*(?:{alternativas}){zeros}(?!\d)(?![.,]\d)", re.IGNORECASE),
+    ]
+
+
+def precos_de_teste(fonte: str) -> list[int]:
+    """Os `preco_teste_minor` de um ficheiro de planos, sem repeticoes."""
+    try:
+        documento = ler(fonte)
+    except YamlIlegivel:
+        return []  # a superficie do registo ja reporta o ficheiro ilegivel
+    precos: set[int] = set()
+    planos = documento.get(CHAVE_DOS_PLANOS) if isinstance(documento, dict) else None
+    if not isinstance(planos, dict):
+        return []
+    for plano in planos.values():
+        entitlements = plano.get("entitlements") if isinstance(plano, dict) else None
+        for item in entitlements if isinstance(entitlements, list) else ():
+            preco = item.get("preco_teste_minor") if isinstance(item, dict) else None
+            if isinstance(preco, int) and not isinstance(preco, bool) and preco > 0:
+                precos.add(preco)
+    return sorted(precos)
+
+
+def no_corpus_ao_cliente(relativo: str) -> bool:
+    from fnmatch import fnmatch
+
+    caminho = relativo.replace("\\", "/")
+    if any(fnmatch(caminho, padrao) for padrao in FORA_DO_CORPUS):
+        return False
+    return any(fnmatch(caminho, padrao) for padrao in CORPUS_AO_CLIENTE)
+
+
+def precos_em_texto_ao_cliente(precos: list[int], textos: dict[str, str]) -> list[Achado]:
+    """Um preco de teste escrito em Kz num texto que chega ao cliente.
+
+    `textos` e `{caminho: conteudo}` dos ficheiros do corpus. O preco e hipotese
+    (`hipotese_nao_validada`), e mostra-lo ao cliente fazia dele uma oferta.
+    """
+    achados: list[Achado] = []
+    for relativo in sorted(textos):
+        linhas = textos[relativo].split("\n")
+        for preco in precos:
+            padroes = _formas_em_kz(preco)
+            for numero, linha in enumerate(linhas, start=1):
+                if any(p.search(linha) for p in padroes):
+                    achados.append(
+                        Achado(relativo, numero, REGRA,
+                               f"o preço de teste {preco} (centimos) aparece em Kz num texto ao "
+                               "cliente: é `hipotese_nao_validada` (`registry/plans.yaml`) e não se "
+                               "mostra como preço (`specs/EPIC-11`, KAM-124, critério 3)")
+                    )
     return achados

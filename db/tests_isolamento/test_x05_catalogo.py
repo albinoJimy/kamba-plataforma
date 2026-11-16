@@ -272,6 +272,8 @@ class TestCatalogoReal(ComBase):
                 # («of» < «ou»). E a primeira tabela do esquema em que o
                 # `tenant_id` e **parte da chave primaria** e nao uma
                 # coluna ao lado dela.
+                # KAM-124: o ledger de custo por modulo («me» < «mo» < «of»).
+                ("platform", "module_cost_ledger", "tenant_id"),
                 ("platform", "offer_terms", "tenant_id"),
                 # KAM-087: o caso de onboarding («off» < «onb» < «ord»).
                 ("platform", "onboarding_case", "tenant_id"),
@@ -565,6 +567,9 @@ class TestCatalogoReal(ComBase):
                 # `{public}` como todas as outras — o
                 # `rls.enable_tenant_rls` e o unico sitio onde a politica se
                 # escreve, e nao toma parametros de papel.
+                # KAM-124: o ledger de custo por modulo, uma politica so, a do
+                # `db/rls.py` («me» < «mo» < «of»).
+                ("module_cost_ledger", "tenant_iso", "ALL", "{public}"),
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
                 # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
                 # `tenant_id` pre-alocado.
@@ -826,7 +831,11 @@ class TestCatalogoReal(ComBase):
              # exactamente como a nota do KAM-115 tres entradas abaixo avisa: as
              # listas sao perguntas diferentes sobre a mesma tabela, e quem
              # acrescenta uma corre o *gate* 6 **inteiro**. Medido outra vez.
-             "message_templates", "offer_terms",
+             "message_templates",
+             # KAM-124: o ledger de custo por modulo, entre os modelos de
+             # mensagem e a oferta («me» < «mo» < «of»).
+             "module_cost_ledger",
+             "offer_terms",
              # KAM-087: o caso de onboarding.
              "onboarding_case",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
