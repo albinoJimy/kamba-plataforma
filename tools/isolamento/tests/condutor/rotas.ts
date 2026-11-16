@@ -2307,7 +2307,8 @@ async function grupoDaInscricao(relatorio: Relatorio): Promise<void> {
 
 // ------------------------------------------------------------------- o guia
 //
-// As oito rotas do passo guiado do Embedded Signup (KAM-093), no mesmo
+// As doze rotas do passo guiado do Embedded Signup — as oito do KAM-093 e as
+// quatro da lista de espera do KAM-095 —, no mesmo
 // `onboarding-web`. A lista e **literal** e a ordem e a do `ROTAS_DO_GUIA` do
 // caso.
 //
@@ -2336,6 +2337,10 @@ const ITENS_DO_GUIA = [
   "rota:onboarding-web:guia:comSessao:POST:/api/es/concluir",
   "rota:onboarding-web:guia:comSessao:POST:/api/es/pagamento",
   "rota:onboarding-web:guia:comSessao:POST:/api/es/retoma",
+  "rota:onboarding-web:guia:comSessao:GET:/api/lista/posicao",
+  "rota:onboarding-web:guia:comSessao:POST:/api/lista/convite",
+  "rota:onboarding-web:guia:comSessao:POST:/api/lista/recusar",
+  "rota:onboarding-web:guia:comSessao:POST:/api/lista/desistir",
 ] as const;
 
 /** O telefone de A no guia. `+244 0…`, que nenhum E.164 nacional e. */
@@ -2368,11 +2373,13 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
   let insc: Record<string, unknown>;
   let sms: Record<string, unknown>;
   let guiaModulo: Record<string, unknown>;
+  let capacidadeModulo: Record<string, unknown>;
   let appModulo: Record<string, unknown>;
   try {
     insc = await importarDoRepo("packages/core-ts/dist/inscricao/index.js");
     sms = await importarDoRepo("packages/core-ts/dist/sms/index.js");
     guiaModulo = await importarDoRepo("packages/core-ts/dist/guia/index.js");
+    capacidadeModulo = await importarDoRepo("packages/core-ts/dist/capacidade/index.js");
     appModulo = await importarDoRepo("services/onboarding-web/src/app.ts");
   } catch (erro) {
     falhar(`nao se conseguiu importar o onboarding-web: ${razao(erro)}`);
@@ -2423,10 +2430,22 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       anelDaSessao: [assinatura, null],
       relogio,
     });
+    // A lista de espera (KAM-095) como `CapacityGate`, como no arranque: as
+    // quatro rotas `/api/lista/*` leem dela, e sem ela respondiam 404.
+    const lista = novo<{ reserve(id: string): Promise<string> }>(capacidadeModulo, "ListaDeEspera", {
+      repositorio: novo<object>(capacidadeModulo, "ListaEmMemoria", casos, relogio, {
+        maximo: 0,
+        origem: "confirmado",
+        fundamento: "ensaio X-01",
+      }),
+      aviso: novo<object>(capacidadeModulo, "AvisosDaListaEmMemoria"),
+      origem: "https://onboarding.exemplo.test",
+      relogio,
+    });
     const guia = novo<object>(guiaModulo, "PassoGuiado", {
       casos,
       repositorio: novo<object>(guiaModulo, "GuiaEmMemoria", relogio),
-      capacidade: novo<object>(guiaModulo, "CapacidadeEmMemoria", { relogio }),
+      capacidade: lista,
       ligador: { ligar: async () => ({ desfecho: "criado", tentativaId: null }) },
       gates: novo<object>(guiaModulo, "GatesEmMemoria"),
       revisao: novo<object>(guiaModulo, "RevisaoEmMemoria"),
@@ -2453,6 +2472,7 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       } as never,
       {
         guia,
+        lista,
         registo,
         otp,
         anelDaAssinatura: [assinatura, null],
@@ -2487,6 +2507,8 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
     const idDeA = await criar(2, "Loja de quem ataca", TELEFONE_DE_A_NO_GUIA);
     // B tem estado de guia, com pre-voo gravado: e o que uma fuga mostraria.
     await (guia as { preflight(id: string, a: unknown): Promise<unknown> }).preflight(idDeB, {});
+    // E esta na lista de espera (o limite e zero): uma fuga da posicao seria dela.
+    await lista.reserve(idDeB);
     const temCanario = canario !== "" && canario !== "sem-canario-no-ambiente";
 
     const sessaoDeA = cunharReferencia("sessao" as never, idDeA as never, assinatura as never, relogio as never);
@@ -2498,7 +2520,13 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       ["bilhete-como-sessao", `kamba_onboarding=${bilheteDeB}`],
       ["id-de-b-no-corpo", `kamba_onboarding=${idDeB}`],
     ];
-    const corpoComB = JSON.stringify({ onboarding_id: idDeB, code: "c", waba_id: "w", phone_number_id: "p" });
+    const corpoComB = JSON.stringify({
+      onboarding_id: idDeB,
+      code: "c",
+      waba_id: "w",
+      phone_number_id: "p",
+      c: "convite-de-b",
+    });
 
     // ---- GET /ligar: os tres, mais a retoma de B com a sessao valida de A.
     const retomaDeB = encodeURIComponent(
@@ -2515,7 +2543,7 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       });
     }
 
-    // ---- As seis rotas de sessao: os tres ataques a cada uma.
+    // ---- As dez rotas de sessao: os tres ataques a cada uma.
     const deSessao = [
       ["GET", "/api/es/estado", ITENS_DO_GUIA[1]],
       ["POST", "/api/es/preflight", ITENS_DO_GUIA[2]],
@@ -2523,6 +2551,10 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
       ["POST", "/api/es/cancelar", ITENS_DO_GUIA[4]],
       ["POST", "/api/es/concluir", ITENS_DO_GUIA[5]],
       ["POST", "/api/es/pagamento", ITENS_DO_GUIA[6]],
+      ["GET", "/api/lista/posicao", ITENS_DO_GUIA[8]],
+      ["POST", "/api/lista/convite", ITENS_DO_GUIA[9]],
+      ["POST", "/api/lista/recusar", ITENS_DO_GUIA[10]],
+      ["POST", "/api/lista/desistir", ITENS_DO_GUIA[11]],
     ] as const;
     for (const [verbo, caminho, item] of deSessao) {
       for (const [rotulo, cookie] of ataques) {

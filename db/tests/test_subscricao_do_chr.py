@@ -6,8 +6,8 @@ desce e volta a subir com as linhas **exactas** da constante `LINHAS`; o
 e uma linha ja presente faz falhar o `upgrade`. Que a constante diz o mesmo que
 o `registry/chr.yaml` prova-o o `services/agr/tests/test_subscricoes_0052.py`.
 
-O numero e o `down_revision` leem-se do ficheiro: a revisao nasceu com numero
-provisorio (`0061` sobre a `0060`), e renumera-se na integracao.
+O numero e o `down_revision` leem-se do ficheiro, e nao se escrevem aqui: um
+ensaio preso a `"0061"` partia-se no dia de uma renumeracao sem nada errado.
 """
 
 from __future__ import annotations

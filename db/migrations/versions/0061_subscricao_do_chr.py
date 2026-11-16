@@ -30,10 +30,10 @@ Pela chave primaria `(consumer, tipo)`. **E o `upgrade` nao usa `ON
 CONFLICT`**, pela razao da `0052`: uma linha ja presente com a mesma chave e
 uma subscricao que esta revisao nao criou, e o `downgrade` apaga-la-ia.
 
-## Numero provisorio
+## Numero
 
-`0061` sobre a `0060`, dados pelo orquestrador do lote: a `0059` (KAM-095) e a
-`0060` (KAM-199) estao por fundir. O numero final decide-se na integracao.
+`0061` sobre a `0060` (KAM-199), dado pelo orquestrador do lote na integracao,
+com a `0059` (KAM-095) e a `0060` ja fundidas.
 """
 
 from __future__ import annotations

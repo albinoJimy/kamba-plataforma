@@ -397,6 +397,11 @@ class TestCatalogoReal(ComBase):
                 ("platform", "ts_sanction", "tenant_id"),
                 ("platform", "ts_signal", "tenant_id"),
                 ("platform", "usage_ledger", "tenant_id"),
+                # KAM-095: a lista de espera, a ultima do `platform` («us» <
+                # «wa»). **Sem receita de sementes**, pela razao da fila de
+                # revisao (ver `sementes.SEM_RECEITA_COM_RAZAO`). A
+                # `onboarding_capacity` nao tem `tenant_id` e nao entra.
+                ("platform", "waitlist_entry", "tenant_id"),
                 # KAM-047: as quatro da agenda, no esquema `servicos`
                 # (revisao `0025`). Vem **todas depois** das de `platform`,
                 # porque o `ORDER BY 1, 2` da descoberta ordena primeiro por
@@ -765,6 +770,9 @@ class TestCatalogoReal(ComBase):
                 ("ts_sanction", "tenant_iso", "ALL", "{public}"),
                 ("ts_signal", "tenant_iso", "ALL", "{public}"),
                 ("usage_ledger", "tenant_iso", "ALL", "{public}"),
+                # KAM-095: a lista de espera, uma politica so, a do `db/rls.py`
+                # («us» < «wa»).
+                ("waitlist_entry", "tenant_iso", "ALL", "{public}"),
             ],
         )
 
@@ -933,7 +941,9 @@ class TestCatalogoReal(ComBase):
              "tool_audit", "tool_idempotency",
              # KAM-097: os sinais e as sancoes de T&S («too» < «ts_» < «usa»).
              "ts_sanction", "ts_signal",
-             "usage_ledger"],
+             "usage_ledger",
+             # KAM-095: a lista de espera, a ultima («us» < «wa»).
+             "waitlist_entry"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

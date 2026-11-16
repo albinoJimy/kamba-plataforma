@@ -2721,6 +2721,43 @@ INVENTARIO["module_test_prices"] = {
     "carregado_em": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: A lista de espera do limite de onboarding (KAM-095, revisao da lista de
+#: espera). **Nenhum dado pessoal**: a entrada e um caso de onboarding (que e
+#: onde o NIF e o telefone vivem, cifrados), um estado e instantes. O convite
+#: guarda-se **em hash** (SHA-256 de 32 octetos): o valor em claro so existe na
+#: resposta a quem o pediu. Onze colunas; o *trigger* `waitlist_entry_do_caso`
+#: escreve as omissoes de novo no `INSERT`, mas o catalogo ve as da coluna.
+INVENTARIO["waitlist_entry"] = {
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "aprovado_em": ("timestamp with time zone", NAO, None, "nao — o fase_at do caso"),
+    "na_fila_desde": ("timestamp with time zone", NAO, None, "nao — a chave FIFO"),
+    "estado": ("text", NAO, "'aguardando'::text", "nao"),
+    "convite_hash": (
+        "bytea",
+        SIM,
+        None,
+        "nao — SHA-256 do convite de uso unico, nunca o convite em claro",
+    ),
+    "convidado_em": ("timestamp with time zone", SIM, None, "nao"),
+    "convite_expira_em": ("timestamp with time zone", SIM, None, "nao"),
+    "tentativas": ("smallint", NAO, "0", "nao"),
+    "concluido_em": ("timestamp with time zone", SIM, None, "nao"),
+    "criado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O limite de clientes novos por 7 dias (KAM-095, revisao da lista de espera).
+#: **Sem `tenant_id`**: e da plataforma, numa linha so (`unica` booleano com
+#: `CHECK (unica)`). O `fundamento` e a referencia documental do valor, nunca de uma
+#: pessoa.
+INVENTARIO["onboarding_capacity"] = {
+    "unica": ("boolean", NAO, "true", "nao — a chave de uma tabela de uma linha so"),
+    "es_max_por_7d": ("integer", NAO, None, "nao"),
+    "origem": ("text", NAO, None, "nao"),
+    "fundamento": ("text", NAO, None, "nao — referencia documental do limite"),
+    "alterado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -3144,6 +3181,27 @@ INVENTARIO_SERVICOS = {
 #: omissao (a expressao vive no `generation_expression`, nao no
 #: `column_default`).
 INVENTARIO_IDX = {
+    # KAM-199: os relatorios verdes do *gate* de avaliacao que soltam o lexico
+    # de *dataset*. Sem `tenant_id`; o `registado_por` e texto livre de *ops*,
+    # como o `aprovado_por` do lexico.
+    "eval_relatorio": {
+        "id": ("bigint", NAO, None, "nao"),
+        "relatorio_sha256": ("text", NAO, None, "nao; resumo do ficheiro do relatorio"),
+        "linha_de_base": ("text", NAO, None, "nao"),
+        "dataset": ("text", NAO, None, "nao"),
+        "ndcg_at_3_base": ("numeric", NAO, None, "nao"),
+        "ndcg_at_3": ("numeric", NAO, None, "nao"),
+        "zero_result_base": ("numeric", NAO, None, "nao"),
+        "zero_result": ("numeric", NAO, None, "nao"),
+        "termos": ("jsonb", NAO, None, "nao; termos de lexico que a corrida mediu"),
+        "registado_por": (
+            "text",
+            NAO,
+            None,
+            "nao; texto livre de ops, nunca contacto de cliente",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     # KAM-062 (revisao `0049`): a versao do lexico. Sem `tenant_id` e sem pessoa.
     "norm_versao": {
         "versao": ("bigint", NAO, None, "nao"),
@@ -3193,6 +3251,8 @@ INVENTARIO_IDX = {
             "nao; texto livre de ops, nunca contacto de cliente",
         ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        # KAM-199: o relatorio verde que solta uma entrada de *dataset*.
+        "eval_relatorio_id": ("bigint", SIM, None, "nao"),
     },
 }
 
@@ -3535,6 +3595,11 @@ class TestInventario(ComBase):
                         "ts_sanction_tenant_fk",
                         "ts_sanction_caso_fk",
                         "ts_sanction_recurso_fk",
+                        # KAM-095 (revisao da lista de espera): a entrada aponta
+                        # o caso pelo par, sem cascata. Um caso nao se apaga com
+                        # a vaga dada dentro: o `concluido_em` e o que conta na
+                        # janela de 7 dias.
+                        "waitlist_entry_caso_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4303,6 +4368,28 @@ class TestInventario(ComBase):
                     "subscriptions_plano_ck",
                     "subscriptions_tenant_id_uq",
                     "subscriptions_tenant_uq",
+                    # ---------- KAM-095 (revisao da lista de espera)
+                    #
+                    # **Treze.** A entrada (sete): a chave, o dominio do
+                    # `estado`, a forma do hash, as tentativas ate duas, o
+                    # convite unico, o convite amarrado ao `convidado` (com a
+                    # expiracao depois do envio) e o `concluido_em` amarrado ao
+                    # `concluido`. O limite (seis): a chave, a linha unica, o
+                    # valor nao negativo, o dominio da `origem`, a forma da
+                    # `fundamento` e o acima de 10 so `confirmado`.
+                    "waitlist_entry_concluido_ck",
+                    "waitlist_entry_convite_ck",
+                    "waitlist_entry_convite_hash_ck",
+                    "waitlist_entry_convite_uq",
+                    "waitlist_entry_estado_ck",
+                    "waitlist_entry_pkey",
+                    "waitlist_entry_tentativas_ck",
+                    "onboarding_capacity_confirmacao_ck",
+                    "onboarding_capacity_es_max_por_7d_ck",
+                    "onboarding_capacity_fundamento_ck",
+                    "onboarding_capacity_origem_ck",
+                    "onboarding_capacity_pkey",
+                    "onboarding_capacity_unica_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

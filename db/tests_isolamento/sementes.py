@@ -2055,6 +2055,20 @@ SEM_RECEITA_COM_RAZAO = {
     # ligada e forcada.
     ("platform", "ts_signal"),
     ("platform", "ts_sanction"),
+    # KAM-095: a lista de espera, pela razao da fila de revisao. **A aplicacao
+    # nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na tabela, e quem
+    # escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita nao tinha onde
+    # guardar o canario: o *trigger* `waitlist_entry_do_caso` reescreve no `INSERT`
+    # todas as colunas menos o `onboarding_id` e o `tenant_id`, e o
+    # `onboarding_id` tem de ser o de um caso do tenant em `aprovado` ou
+    # `aguarda_es` — o caso que a receita do `onboarding_case` semeia nasce em
+    # `registo`, com um `id` gerado. **A politica mede-se noutro sitio**: o
+    # `TestPrivilegios` do `db/tests/test_lista_espera_schema.py` le pela
+    # ligacao da auditoria uma entrada com o contexto do tenant dono (uma
+    # linha), com o de outro tenant (zero) e sem contexto (zero), mede a RLS
+    # ligada e forcada e o `42501` da aplicacao. A `onboarding_capacity` nao tem
+    # `tenant_id` e nao entra na descoberta.
+    ("platform", "waitlist_entry"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo

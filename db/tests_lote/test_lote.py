@@ -17,6 +17,12 @@ credenciais, a recusa de um papel trocado, o aviso sem via e as rotas sao do
 *gate* 4 (`services/onboarding-web/tests/lote.test.ts`); a forma do trinco e
 dos onboardings sobre duplos, tambem (`packages/core-ts/tests/revisao.lote.test.ts`);
 o `/metrics` sem fuga e do caso `X-01/ts/lote` do *gate* 6.
+
+**E a lista de espera do KAM-095** (`packages/core-ts/tests_bd/capacidade.bd.test.ts`)
+corre aqui tambem: o adaptador SQL dela (`capacidade/sql.ts`) corre como
+`kamba_batch` e e no processo de lote que vai ligar (credor KAM-092). E um
+ficheiro a mais na mesma suite, e nao uma suite nova: uma suite nova e uma linha
+do alvo do *gate* 8 no `Makefile`.
 """
 
 from __future__ import annotations
@@ -30,10 +36,11 @@ from pathlib import Path
 from tests.base import ComBase
 from tests_lote import node
 
-FICHEIROS = ("tests_bd/lote.bd.test.ts",)
+FICHEIROS = ("tests_bd/lote.bd.test.ts", "tests_bd/capacidade.bd.test.ts")
 
-#: O `describe` do ficheiro. Um so: os dezanove cenarios partilham as sementes.
-GRUPOS = ("o processo de lote contra a base",)
+#: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
+#: sementes, e a lista de espera (KAM-095) tem o seu.
+GRUPOS = ("o processo de lote contra a base", "a lista de espera contra a base")
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
 #: criterios do bloco: o ciclo contra a base (2), o efeito por reaplicar e o
@@ -64,6 +71,10 @@ TESTES_OBRIGATORIOS = (
     "o marcarFase não escreve aprovado, nem com o tipo contornado",
     "um k1_ok aprova pela porta e, sem humano, entra na amostra uma vez",
     "um k1_ok com intervenção humana não é amostrado, e com o screening em falta não aprova",
+    # KAM-095: o `ListaSql` verdadeiro contra a base (criterio 9, com o
+    # controlo sem tranca) e a ordem dos parametros do `transitar`.
+    "vinte reservas de casos novos com uma vaga dão uma; sem a tranca do adaptador, mais",
+    "convite, expiração e desistência pelo serviço escrevem cada coluna no sítio dela",
 )
 
 
@@ -128,6 +139,12 @@ class TestProcessoDeLote(ComBase):
     def test_a_quota_imprime_a_medicao(self) -> None:
         """O numero do controlo sai no registo: e o que a seccao de verificacao cita."""
         medida = re.search(r"\[KAM-198\] quota (\d+): com trinco (\d+) abertos, sem trinco (\d+)", self.escrito)
+        self.assertIsNotNone(medida, self.escrito[-2000:])
+        print(f"    {medida.group(0)}")
+
+    def test_a_reserva_da_lista_imprime_a_medicao(self) -> None:
+        """O controlo sem tranca do KAM-095: o numero que a seccao de verificacao cita."""
+        medida = re.search(r"\[KAM-095\] reserva: com tranca (\d+) concedida\(s\), sem tranca (\d+)", self.escrito)
         self.assertIsNotNone(medida, self.escrito[-2000:])
         print(f"    {medida.group(0)}")
 

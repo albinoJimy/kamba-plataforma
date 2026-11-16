@@ -76,6 +76,9 @@ ci/pii/
 # §6 e no corpo do PR.
 ci/reuso.json
 ci/nucleo.json
+# O relatorio do eval-gate da pesquisa (KAM-199): o CI arquiva-o, e um relatorio
+# local regenera-se com `make ci-13-pesquisa`.
+ci/eval-pesquisa/
 
 # Dados brutos do `coverage.py`. Nasceram na raiz e em `tools/` ao correr os
 # alvos de cobertura e apareceram num `git add -A` — a mesma classe de defeito
