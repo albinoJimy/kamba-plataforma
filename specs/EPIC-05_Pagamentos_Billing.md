@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Pagamentos e Billing |
-| Versão | 1.16 |
+| Versão | 1.17 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` |
@@ -905,12 +905,12 @@ O ProxyPay RPS v2 é o facilitador preferido pela arquitectura: HMAC-SHA256 em `
 Implementar o adaptador ProxyPay RPS (referência) com `createCharge`, `verifyCallback`, `listUnacknowledged`/`acknowledge`, `cancelCharge`, o *job* de reconciliação e a expiração, e, por detrás de uma segunda *flag*, o OPG (Express) tratado como dica com `status_pull`.
 
 ### Critérios de Aceitação
-- [ ] `createCharge(referencia)` faz `POST /reference_ids` e `PUT /references/{id}` com `amount` em `decimal2` convertido de `Minor`, `end_datetime = valid_until` e `custom_fields = {charge: chargeId}` sem PII; repetir o `PUT` com o mesmo `id` não cria 2.ª referência.
-- [ ] `verifyCallback` valida `X-Signature = hex(HMAC-SHA256(API_KEY, corpo cru))` em tempo constante com chave corrente ou anterior (janela de duas chaves); 1 byte alterado devolve 401 e `hmac_invalido`.
+- [x] `createCharge(referencia)` faz `POST /reference_ids` e `PUT /references/{id}` com `amount` em `decimal2` convertido de `Minor`, `end_datetime = valid_until` e `custom_fields = {charge: chargeId}` sem PII; repetir o `PUT` com o mesmo `id` não cria 2.ª referência.
+- [x] `verifyCallback` valida `X-Signature = hex(HMAC-SHA256(API_KEY, corpo cru))` em tempo constante com chave corrente ou anterior (janela de duas chaves); 1 byte alterado devolve 401 e `hmac_invalido`.
 - [ ] A suite de conformidade (§3.5) passa 10/10 no *sandbox*, incluindo callback ×10 → 1 efeito, valor ± 1 cêntimo, referência desconhecida → `pagamento_orfao`, pagamento após `valid_until`, *timeout* com resposta perdida e HTTP 429.
 - [ ] O *job* de reconciliação corre de 5 em 5 min por conta activa e antes de expirar uma reserva; só chama `DELETE /payments/{id}` **depois** do *commit* e só para cobranças nossas; um pagamento desconhecido gera alerta e não é reconhecido.
-- [ ] O lag de reconciliação p99 ≤ 10 min (`reconciliation_lag`) num teste com 100 pagamentos perdidos; se o `DELETE` falhar, o pagamento reaparece e G7 absorve-o.
-- [ ] Sem *timestamp* assinado, a janela «±5 min» não é aplicada; a defesa de *replay* é G7 e um teste prova que reentregar um corpo válido não repete o efeito.
+- [x] O lag de reconciliação p99 ≤ 10 min (`reconciliation_lag`) num teste com 100 pagamentos perdidos; se o `DELETE` falhar, o pagamento reaparece e G7 absorve-o.
+- [x] Sem *timestamp* assinado, a janela «±5 min» não é aplicada; a defesa de *replay* é G7 e um teste prova que reentregar um corpo válido não repete o efeito.
 - [ ] Um `fee` do evento é guardado em `payload.fee` em 100% dos pagamentos do *sandbox*.
 - [ ] OPG (se activado): `Idempotency-Key = chargeId`; resposta perdida repete o POST só até 5 min e depois consulta `status()`; sem `statusQuery` confirmado por escrito, o callback é dica e nunca confirma sozinho; códigos 2001/2003/2004/3000 mapeiam as mensagens de `../docs/tecnica/04` §3.3.
 - [ ] Saída para NÃO VERIFICADO: sem contrato à data de fim da Fase 1 o adaptador permanece com `proxypay_enabled=false` e regista-se a decisão (gatilho H5); preços e rate limit só entram em configuração depois de recebidos por escrito.
@@ -930,11 +930,97 @@ Implementar o adaptador ProxyPay RPS (referência) com `createCharge`, `verifyCa
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (ou *flag* desligada com decisão registada).
-- [ ] Pagamento só por evento autenticado: confirmação só por HMAC ou `status_pull`; o OPG sem assinatura não confirma sozinho.
-- [ ] Plataforma sem fundos: credenciais da PME, liquidação directa; `payout`/`refund` `NOT_SUPPORTED`.
-- [ ] Idempotência: `PUT` por `id`, G7 e `Idempotency-Key` testados.
+- [x] Pagamento só por evento autenticado: confirmação só por HMAC ou `status_pull`; o OPG sem assinatura não confirma sozinho.
+- [x] Plataforma sem fundos: credenciais da PME, liquidação directa; `payout`/`refund` `NOT_SUPPORTED`.
+- [x] Idempotência: `PUT` por `id`, G7 e `Idempotency-Key` testados.
 - [ ] Sem segredos: chaves no cofre; rotação coordenada com KAM-072.
 - [ ] Suite de conformidade verde antes da activação em produção; dois revisores.
+
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-11-16**, contra o Node **24.21.0** em contentor, fixado pelo mesmo
+*digest* que o `.node-version` escolhe, e contra um **servidor ProxyPay falso** que
+escuta em `127.0.0.1` ([`../packages/core-ts/tests/pagamentos.proxypay.servidor.ts`](../packages/core-ts/tests/pagamentos.proxypay.servidor.ts)).
+**Nenhum ensaio tocou no fornecedor**: sem contrato não há chaves, e o *sandbox* é o
+`ext:KAM-103`. Reproduz-se com:
+
+```text
+node --test tests/pagamentos.proxypay.rps.test.ts \
+  tests/pagamentos.proxypay.reconcile.test.ts \
+  tests/pagamentos.proxypay.opg.test.ts          -> tests 76, pass 76, fail 0
+python -m money_lint --root .. lint              -> 21 ficheiros, 0 achados
+python -m log_policy --root .. lint              -> 0 achados
+```
+
+**Onde vive o adaptador.** Não há `services/pay/` (dívidas 148 e 213): os quatro módulos
+do bloco têm os nomes dele, mas em
+[`../packages/core-ts/src/pagamentos/proxypay/`](../packages/core-ts/src/pagamentos/proxypay/index.ts),
+exportados como `proxypay` de `@kamba/core-ts/pagamentos`, com um quinto, o `http.ts`, que
+é o transporte que os outros partilham. Atrás da `PaymentProvider` do KAM-052, **sem mudar
+um tipo dela**, e sem migração: a reserva `chargeId → referência` que torna o
+`createCharge` idempotente é uma porta (`ReferenciasEmitidas`), e em produção é a coluna
+`referencia` da `payment_charges`, escrita pelo serviço `pay`.
+
+**O que a árvore não fixa, e o adaptador lê como hipótese que falha fechada.** O `E2` §1.2
+confirma as rotas, o `Token`/`Bearer`, a assinatura e os seis campos de conciliação, e
+**não** confirma: o nome `datetime` do instante do pagamento, que o corpo do callback é o
+objecto do pagamento sem envelope, que a fila `GET /payments` é uma lista JSON, a forma da
+resposta do `POST /reference_ids`, o `Accept` da versão 2 e a rota `DELETE /references/{id}`
+do `cancelCharge`. Cada uma recusa com `VALIDATION` o que não tiver a forma esperada — um
+`amount` como número JSON, por exemplo, é recusado em vez de convertido, porque o
+`JSON.parse` já o passou por vírgula flutuante. Confirmam-se na primeira corrida no
+*sandbox*.
+
+**O que a revisão adversarial mudou.** Quinze achados, todos verificados contra o código, e
+os três mais graves eram do *job* e nenhum avermelhava ensaio nenhum: (1) a fila
+`GET /payments` não tem cursor, e **cem órfãos à cabeça** — que a regra b proíbe apagar —
+tapavam para sempre o resto da fila; o *job* passa a detectá-lo (`filaBloqueada`) e a
+dizê-lo, porque destapar é decisão de ops sobre um pagamento que não é nosso; (2) o
+`antesDeExpirar` **expirava uma encomenda paga** quando o `processar` falhava ou a fila
+estava tapada, e passa a levantar `ExpiracaoAdiada` em vez de decidir sobre uma volta suja,
+e a pedir uma volta que comece **depois** do pedido; (3) uma conta com a chave revogada
+**parava a volta de todas as seguintes**, em silêncio, e passa a ficar nas `falhas` da
+volta, entregues ao `aoFalhar`. E quatro do contrato: um pagamento **sem** `charge` nos
+`custom_fields` era tratado como nosso — nós enviamo-lo sempre, e o `E2` dá como CONFIRMADO
+que passa para o pagamento, pelo que a ausência é de outra integração da PME e o `DELETE`
+roubava-lho; o `status()` dizia `pendente` ou `expirada` sobre uma cobrança paga e já
+reconhecida, e passa a dizer `desconhecida` fora da fila; repetir um `chargeId` com outro
+montante **reescrevia** a referência já dada ao cliente, e passa a recusar; e uma chave
+vazia no cofre deixava forjar o HMAC, e passa a não contar. O `cancelCharge` deixou de ler
+um 404 como sucesso numa rota por confirmar, a chave anterior revogada deixou de derrubar a
+corrente, e um 5xx no `POST` do OPG passou a `TIMEOUT_UNKNOWN`, porque pode chegar depois de
+o push ter saído. **E um canário passava pela razão errada:** o da chave anterior ficava
+vermelho pela pré-condição do *harness*, sem chamar o adaptador; o canário passou a ser o
+cofre a resolver a anterior na corrente, e fica vermelho dentro do adaptador.
+
+| # | Critério | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | `createCharge` faz `POST /reference_ids` e `PUT /references/{id}` com `amount` `decimal2`, `end_datetime = valid_until` e `custom_fields = {charge}` sem PII; repetir o `PUT` não cria 2.ª referência | **satisfeito** | `proxypay/rps: criterio 1` em `pagamentos.proxypay.rps.test.ts`: a sequência exacta dos dois pedidos e o corpo guardado pelo servidor (`"1024.09"` de `102409n`, o `end_datetime`, `{charge: chargeId}`); o mesmo `chargeId` duas vezes dá **um** `POST`, dois `PUT` ao mesmo id e uma referência; a resposta do `PUT` perdida dá `TIMEOUT_UNKNOWN` e a repetição reutiliza o id. **Sem PII por construção:** qualquer campo além de `charge` recusa sem sair pedido nenhum. Os limites 0,01 e 99.999.999,99 aceitam, 0 e 100.000.000,00 recusam |
+| 2 | `verifyCallback` valida `X-Signature` em tempo constante, chave corrente ou anterior; 1 byte alterado → 401 e `hmac_invalido` | **satisfeito** | `proxypay/rps: criterio 2`: o HMAC é o do `node:crypto` (oráculo fora do alvo); **cada** byte do corpo alterado, um a um, e **cada** caractere da assinatura levantam `AuthError`, tal como a chave de outra conta, o cabeçalho em falta e a assinatura truncada; a chave anterior verifica e deixa de verificar sem a `credenciais_ref` anterior. A comparação é `timingSafeEqual` sobre os 32 bytes, calculada com **as duas** chaves antes de decidir. O 401 e o `hmac_invalido` são o `hooks.ts` do KAM-053 a traduzir o `AuthError`, e estão medidos lá |
+| 3 | A suite de conformidade do §3.5 passa 10/10 **no *sandbox*** | **parcial** — 10/10 contra o servidor falso; o *sandbox* é do `ext:KAM-103` | `proxypay/rps: criterio 3`: o `correr` do KAM-052, sem mudar uma linha, dá `proxypay_rps: os 10 casos passam`, com o 429, a resposta perdida e o callback de outra conta por HTTP verdadeiro. **E morde**: quatro canários estragam uma ligação do adaptador cada — a memória das referências, a chave partilhada entre PMEs, o 429 trocado por 503, a chave anterior resolvida na corrente — e o caso de cada um fica vermelho. A corrida no *sandbox* precisa das chaves, que se pedem à TimeBoxed, e isso é acto do fundador |
+| 4 | O *job* corre de 5 em 5 min por conta activa e antes de expirar; só `DELETE` depois do *commit* e só para cobranças nossas; desconhecido → alerta, sem reconhecer | **parcial** — o *job* e as duas regras medem-se; não há processo que o arranque | `proxypay/reconcile: criterio 4`: a ordem `commit → delete` lê-se do registo intercalado dos dois lados; um `processar` que levante não deixa sair `DELETE` e o pagamento volta na volta seguinte; um órfão passa pelo *ledger*, gera alerta e fica na fila do servidor; **a mesma referência com o `charge` de outra integração, ou sem `charge` nenhum, também é órfã**. O `Reconciliador` agenda a 5 min, salta contas que não estão `activa`, não sobrepõe voltas da mesma conta, e **uma conta que falhe não pára as outras**; o `antesDeExpirar` reconcilia numa volta que começa depois do pedido e **não decide** sobre uma volta com falhas ou com a fila tapada por cem órfãos (`ExpiracaoAdiada`, os dois casos medidos). **O que falta:** o processo que chame o `agendar` é do serviço `pay`, que não existe (dívidas 148 e 213) — a mesma fronteira que o KAM-053 e o KAM-054 escreveram para as métricas |
+| 5 | `reconciliation_lag` p99 ≤ 10 min com 100 pagamentos perdidos; `DELETE` falhado → reaparece e G7 absorve | **satisfeito** | `proxypay/reconcile: criterio 5`: cem pagamentos sem callback, espalhados por 25 min, cinco voltas de relógio falso; os cem entram no *ledger* uma vez cada, a fila fica vazia, e o p99 do lag fica dentro do alvo. **O alvo cumpre-se por construção do período**, e é isso que o ensaio mede: com voltas de 5 min, nenhum pagamento espera mais do que uma volta, e o que perde o `DELETE` espera duas (10 min, no limite). Na terceira volta o servidor devolve 503 a um `DELETE`: a volta conta-o, a seguinte lê-o outra vez (21 lidos, 21 reconhecidos) e o G7 do duplo não lhe dá segundo efeito. O G7 da base é o `UNIQUE` do KAM-053; aqui mede-se que o adaptador lhe dá **a mesma chave** pelas duas vias (`rps:<id>` no callback e na fila) |
+| 6 | Sem *timestamp* assinado não há janela de ±5 min; reentregar um corpo válido não repete o efeito | **satisfeito** | `criterio 6: sem janela de tempo, e o replay da sempre a mesma chave do G7`: um corpo de há um ano verifica, e dez entregas dele dão **uma** chave. Não há código de janela nenhum no adaptador |
+| 7 | O `fee` é guardado em `payload.fee` em 100% dos pagamentos **do *sandbox*** | **parcial** — 100% contra o servidor falso | O `payloadDoPagamento` põe o `fee` em unidade menor, como texto (`"1500"` de `"15.00"`), e o `verifyCallback` devolve-o no evento; no ensaio dos cem, os cem têm-no — porque o servidor falso o põe em todos, que é precisamente o que só o *sandbox* pode dizer. Um `fee` como número JSON recusa. A medição no *sandbox* é do `ext:KAM-103` |
+| 8 | OPG: `Idempotency-Key = chargeId`; resposta perdida repete o POST só até 5 min e depois consulta `status()`; callback é dica; códigos 2001/2003/2004/3000 | **parcial** — tudo menos a consulta depois dos 5 min, que a API documentada não mostra | `pagamentos.proxypay.opg.test.ts`: o cabeçalho é o `chargeId`; a resposta perdida repete pela mesma chave aos 4 min e o servidor cria **uma** transacção; aos 5 min e 1 ms não sai `POST` e levanta `CriacaoIncerta` com a hora da nova tentativa (30 min, F-09); uma ligação recusada não conta como primeira tentativa, e um 5xx no `POST` é `TIMEOUT_UNKNOWN`; o callback **nunca** dá evento — o valor vem do `status()`, autenticado — e sem consulta confirmada por escrito o registo recusa activar o OPG com `ADAPTER_CANNOT_CONFIRM`; os sete códigos dão as mensagens do §3.3, todas com o aviso anti-*phishing*. **A divergência:** o critério diz «depois consulta `status()`», e a consulta OPG que se conhece é pelo id da transacção, que se perdeu com a resposta — uma consulta por `chargeId` não está documentada no `E2` (NÃO VERIFICADO que exista); o §7.2 F-09 já prevê o desfecho `criacao_incerta`. Devolvida ao Engenheiro de Pagamentos, com a pergunta à TimeBoxed (consulta por `Idempotency-Key`?) |
+| 9 | Sem contrato no fim da Fase 1 fica `proxypay_enabled=false` e regista-se a decisão (H5); preços e *rate limit* só por escrito | **parcial** — o mecanismo está; a decisão é do fundador no fim da Fase 1 | As duas *flags* nascem desligadas, e com a primeira desligada o `activarProxyPay` **recusa** em vez de ignorar; ligada, o registo continua a exigir a suite verde (`CONFORMANCE_REQUIRED`). Nenhum preço nem limite do facilitador está no código: o `RECUO_PROPOSTO` é o recuo **nosso** ao 429, marcado proposta |
+
+| # | Definition of Done | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Todos os critérios satisfeitos (ou *flag* desligada com decisão registada) | **parcial** | Quatro dos nove; os cinco parciais dependem do *sandbox* (3, 7), do serviço `pay` (4), de uma resposta da TimeBoxed (8) e de uma decisão do fundador (9) |
+| 2 | Pagamento só por evento autenticado; o OPG sem assinatura não confirma sozinho | **satisfeito** | O RPS só devolve evento com HMAC verificado (`hmac`) ou da fila autenticada (`consulta`); o OPG nunca devolve evento do callback e não se activa sem consulta confirmada (critério 8) |
+| 3 | Plataforma sem fundos: credenciais da PME, liquidação directa; `payout`/`refund` `NOT_SUPPORTED` | **satisfeito** | `refund` e `payout` devolvem `NOT_SUPPORTED` nos dois adaptadores e as capacidades declaram `false`, que o `_coerencia` do registo exige; as credenciais são a `credenciais_ref` de cada conta de PME |
+| 4 | Idempotência: `PUT` por `id`, G7 e `Idempotency-Key` testados | **satisfeito** | Critérios 1, 5, 6 e 8 |
+| 5 | Sem segredos: chaves no cofre; rotação coordenada com KAM-072 | **parcial** | A chave resolve-se pela `credenciais_ref` em cada chamada e não sai para mensagem nenhuma (ensaio próprio); a janela de duas chaves está medida. A rotação coordenada é o KAM-072 |
+| 6 | Suite verde antes da activação em produção; dois revisores | **parcial** | A activação exige a suite verde por construção; a verde no *sandbox* é do `ext:KAM-103`, e os dois revisores de dinheiro são do fundador |
+
+**O que fica devolvido, com credor:**
+
+- **A corrida no *sandbox*** (critérios 3 e 7, e as seis formas de corpo acima) — `ext:KAM-103`: o fundador pede as chaves; o Engenheiro de Pagamentos corre a suite e confirma as formas.
+- **O processo que arranca o *job*** a cada 5 min e que liga as portas `cobrancaNossa`, `processar` e `alertarOrfao` ao *worker* do §5.1 — o serviço `pay` (dívidas 148 e 213).
+- **A consulta OPG depois dos 5 min** (critério 8) — Engenheiro de Pagamentos, com a pergunta à TimeBoxed.
+- **A decisão de H5 no fim da Fase 1** (critério 9) e os dois revisores — o fundador.
+- **A rotação coordenada** — KAM-072.
 
 ### Handoff para Claude Code
 
@@ -2250,3 +2336,4 @@ Testes: as regras 3 e 4 de ponta a ponta, duplicados x10, e o ledger sem linha n
 | 1.14 | Novembro 2026 | **KAM-197** acrescentado, no PR do **KAM-062**, que o abre e não o implementa: o PAY abre a `refund_cases` ao consumir `order.refund_requested` (decisão do fundador de 2026-11-12, opção b — um só dono da tabela, sem escritor no COM). É o credor do critério 4 do KAM-060, que passa a dizê-lo, e das regras 3 e 4 do KAM-050. O `Bloqueia` do KAM-053 ganha a aresta recíproca. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | **KAM-197 entregue.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, com os cinco critérios e as três caixas da DoD, **as oito marcadas**. Regista as duas decisões do fundador que deram a forma ao ticket — a (b) de 2026-11-12 (o PAY abre o caso, sem reversão no *ledger*, com um só dono da tabela) e a **(A) de 2026-11-13**: o papel é novo, `kamba_pay`, e só ele tem `EXECUTE` na porta, pelo que o COM leva `42501`. **A estimativa passa de M a L** por causa do papel, no bloco, na tabela-resumo e no §4 do índice. O critério 4 do **KAM-060** passa a `satisfeito` no bloco dele, com o registo do estado anterior intacto. A revisão é a `0051`, provisória. | Equipa KAMBÁ |
 | 1.16 | Novembro 2026 | **KAM-059 entregue, com nove dos dez critérios e quatro das seis caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, uma linha de evidência por caixa. A revisão do billing é a `0055`, sobre a `0054` do KAM-120 (a ordem da fila). O critério 7 fica **parcial** na metade do arranque (nenhum processo do PAY lê as *flags* de dinheiro), e os dois revisores são do fundador. O bloco do **KAM-058** ganha a linha «Recebido do KAM-059» (o agendamento dos dois *jobs*, as transições da subscrição, o cancelamento da cobrança ao anular um ciclo e a guarda de arranque da comissão). Uma revisão adversarial reprovou o ramo com dois achados altos — a PME pagava o próprio ciclo com um `hmac` escrito à mão no *ledger*, e o `kamba_pay` escrevia no *ledger* das encomendas —, fechados com o gatilho `payment_events_billing_papel` e o `INSERT` por coluna. | Equipa KAMBÁ |
+| 1.17 | Novembro 2026 | **KAM-056 entregue, com quatro dos nove critérios e três das seis caixas da DoD.** Secção «Verificação dos Critérios de Aceitação» nova no bloco, uma linha de evidência por caixa. O adaptador vive em `../packages/core-ts/src/pagamentos/proxypay/` (dívidas 148 e 213), atrás da `PaymentProvider` sem lhe mudar um tipo, e sem migração. Os ensaios correm contra um servidor ProxyPay falso local, e nenhum toca no fornecedor: os critérios 3 e 7 ficam **parciais** à espera do *sandbox* (`ext:KAM-103`), o 4 à espera do processo do serviço `pay` que arranca o *job*, o 8 numa divergência devolvida (a consulta OPG depois dos 5 min não está documentada; o §7.2 F-09 já prevê `criacao_incerta`) e o 9 na decisão do fundador. A revisão adversarial rendeu quinze achados, e os três mais graves eram do *job* de reconciliação: a fila sem cursor tapada por órfãos, a expiração de uma encomenda paga quando o `processar` falhava, e uma conta com erro a parar as seguintes. | Equipa KAMBÁ |
