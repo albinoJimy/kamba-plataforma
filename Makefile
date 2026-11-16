@@ -1552,6 +1552,14 @@ ci-8:
 	@# verde.
 	@echo "==> gate 8: encomendas, grafo de estados e CAS (KAM-044)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_encomendas
+	@#
+	@# KAM-198: o processo de lote do onboarding. TypeScript contra a base: uma
+	@# volta do ciclo da fila de revisao com os adaptadores SQL, o screening
+	@# gravado como `kamba_app` no tenant do caso, a quota de uma origem contra
+	@# vinte aberturas concorrentes (com o trinco e o controlo sem ele) e a lista
+	@# de efeitos por reaplicar que sobrevive a um processo novo.
+	@echo "==> gate 8: processo de lote do onboarding contra PostgreSQL 18.6 (KAM-198)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_lote
 
 # -----------------------------------------------------------------------------
 # Limpeza

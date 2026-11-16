@@ -94,7 +94,11 @@ class TestRepositorioReal(unittest.TestCase):
         # **KAM-194: de 53 para 62.** O `idx` (imagem do AGR) e as duas pontes
         # (imagem do `worker-canal`), **+3 em cada um dos tres composes** — em
         # desenvolvimento atras do perfil `consumidores`.
-        self.assertEqual(resumo["servicos"], 62)
+        #
+        # **KAM-198: de 62 para 65.** O processo de lote do onboarding (imagem
+        # do `onboarding-web`), **+1 em cada um dos tres composes** — em
+        # desenvolvimento atras do perfil `consumidores`.
+        self.assertEqual(resumo["servicos"], 65)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -123,7 +127,9 @@ class TestRepositorioReal(unittest.TestCase):
         # servico de compose com outro nome pede a sua. Os destinos nao mudam.
         # **KAM-194: de 22 para 25.** O `idx` e as duas pontes, cada um com a
         # sua lista em `infra/egress/`, todas `destinos: []`.
-        self.assertEqual(resumo["servicos"], 25)
+        # **KAM-198: de 25 para 26.** O `onboarding-lote`, com a sua lista em
+        # `infra/egress/` e `destinos: []`: fala com a base e e raspado.
+        self.assertEqual(resumo["servicos"], 26)
         # **E os destinos de 3 para 8**, que e a conta que importa ler devagar:
         # os 3 do `litellm` continuam, o `gwy` passa a declarar
         # `graph.facebook.com` (ADR-001 faz dele o unico servico que fala com a

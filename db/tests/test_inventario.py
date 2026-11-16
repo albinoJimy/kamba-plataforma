@@ -2461,6 +2461,8 @@ INVENTARIO["review_case"] = {
     "sla_due_at": ("timestamp with time zone", NAO, None, "nao"),
     "sla_alertado_at": ("timestamp with time zone", SIM, None, "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    # KAM-198 (revisao `0053`): a marca de «efeito por aplicar». Um instante.
+    "efeito_pendente_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: A decisao do revisor (KAM-089, revisao `0048`). A `nota_enc` e texto livre
@@ -2519,6 +2521,38 @@ INVENTARIO["catalog_ingestions"] = {
         None,
         "nao — identificador da ultima mensagem do dono processada, nunca o texto",
     ),
+    "versao": ("integer", NAO, "0", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O trabalho de melhoramento de uma foto (KAM-120, revisao da Foto de
+#: produtos). **A foto nao esta aqui**: a `origem_ref` e a `versao_ref` sao
+#: chaves do STO do proprio tenant (presas a ele por `CHECK`), e o original e a
+#: versao vivem la e expiram pelo `retain_until`. Dezoito colunas. O
+#: `information_schema` da a coluna gerada `gerado_por_ia` sem omissao: a
+#: expressao vive no `generation_expression`, nao no `column_default`.
+INVENTARIO["image_jobs"] = {
+    "image_job_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "origem_ref": (
+        "text",
+        NAO,
+        None,
+        "nao — a chave do original no STO do tenant, nunca a imagem",
+    ),
+    "versao_ref": ("text", SIM, None, "nao — a chave da versao no STO do tenant"),
+    "operacao": ("text", NAO, None, "nao"),
+    "provider": ("text", NAO, None, "nao — identificador do fornecedor"),
+    "estado": ("text", NAO, "'pendente'::text", "nao"),
+    "motivo": ("text", SIM, None, "nao — codigo de lista fechada"),
+    "idempotency_key": ("text", NAO, None, "nao — chave opaca do pedido"),
+    "sintetica": ("boolean", NAO, "false", "nao"),
+    "gerado_por_ia": ("boolean", NAO, None, "nao — gerada da operacao"),
+    "escolhida": ("boolean", NAO, "false", "nao"),
+    "custo_usd": ("numeric", NAO, "0", "nao"),
+    "latencia_ms": ("integer", SIM, None, "nao"),
+    "aviso_at": ("timestamp with time zone", SIM, None, "nao"),
     "versao": ("integer", NAO, "0", "nao"),
     "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
@@ -3253,6 +3287,11 @@ class TestInventario(ComBase):
                         # tenant nao apaga as fotos dele por baixo da retencao,
                         # que e quem as purga (KAM-071).
                         "catalog_ingestions_tenant_fk",
+                        # KAM-120 (revisao da Foto de produtos): o trabalho de
+                        # imagem aponta o tenant, sem cascata pela mesma razao —
+                        # o original e a versao saem do STO pelo
+                        # `retain_until`, e a linha com a relacao do tenant.
+                        "image_jobs_tenant_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3642,6 +3681,10 @@ class TestInventario(ComBase):
             # Cobre so os casos com onboarding, que sao os que a quota e o
             # desbloqueio perguntam; um caso de saga ou de *trust* nao entra.
             "review_case_onboarding_idx": False,
+            # KAM-198 (0053): o dos casos com um efeito por aplicar, parcial e
+            # **nao** unico. Cobre so os marcados, que sao os que o lote pergunta;
+            # um caso cujos efeitos correram sai do indice.
+            "review_case_efeito_pendente_idx": False,
             # KAM-049 (revisao do Catalogo AI): os dois da ingestao, parciais e
             # **nao** unicos. O do `phash` cobre so as fotos ja medidas, que sao
             # as que a pergunta «e o mesmo produto?» compara; o da fila cobre so
@@ -3651,6 +3694,15 @@ class TestInventario(ComBase):
             # indice parcial.
             "catalog_ingestions_fila_idx": False,
             "catalog_ingestions_phash_idx": False,
+            # KAM-120 (revisao da Foto de produtos): parcial e **nao** unico.
+            # Cobre so os trabalhos `bloqueada_gate`, a fila humana do que
+            # espera por um destino, uma carta ou o detector. A unicidade do
+            # pedido e a restricao `image_jobs_idempotency_uq`.
+            "image_jobs_bloqueados_idx": False,
+            # E o segundo, **unico**: uma versao escolhida por original (o
+            # botao do dono). Sem ele, duas versoes do mesmo original ficavam
+            # escolhidas ao mesmo tempo.
+            "image_jobs_escolhida_uq": True,
             # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
             # unicos. O do contacto cobre so os enderecos utilizaveis
             # (verificados e nao invalidos), que e o conjunto que a entrega le;
@@ -3872,6 +3924,30 @@ class TestInventario(ComBase):
                     "catalog_ingestions_publicada_ck",
                     "catalog_ingestions_sku_ck",
                     "catalog_ingestions_ultima_mensagem_ck",
+                    # ------------- KAM-120 (revisao da Foto de produtos)
+                    #
+                    # **Catorze.** Os sete de coluna (a `operacao`, o
+                    # `provider`, o `estado`, o dominio do `motivo`, a
+                    # `idempotency_key`, o custo e a latencia nao negativos),
+                    # os cinco de linha — a `origem_ref` e a
+                    # `versao_ref` presas ao tenant da linha, o `motivo` amarrado
+                    # ao estado, o `concluido` com versao e latencia e a
+                    # `escolhida` so num `concluido` —, a unicidade do pedido e
+                    # a chave primaria.
+                    "image_jobs_concluido_ck",
+                    "image_jobs_custo_ck",
+                    "image_jobs_escolhida_ck",
+                    "image_jobs_estado_ck",
+                    "image_jobs_idempotency_key_ck",
+                    "image_jobs_idempotency_uq",
+                    "image_jobs_latencia_ck",
+                    "image_jobs_motivo_ck",
+                    "image_jobs_motivo_dominio_ck",
+                    "image_jobs_operacao_ck",
+                    "image_jobs_origem_ref_ck",
+                    "image_jobs_pkey",
+                    "image_jobs_provider_ck",
+                    "image_jobs_versao_ref_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

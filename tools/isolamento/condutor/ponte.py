@@ -83,6 +83,9 @@ GUIAO = "tools/isolamento/tests/condutor/rotas.ts"
 #: O `equipa` sao as nove rotas da consola da fila de revisao (KAM-196), tambem
 #: **sem base**: a fila corre sobre os duplos em memoria do `@kamba/core-ts`, e o
 #: que se mede e quem entra, nao o que a base filtra.
+#: O `lote` sao as duas do processo de lote do onboarding (KAM-198): a sonda e o
+#: `/metrics` da fila, servido das metricas que uma volta do ciclo recalculou
+#: sobre um leitor em memoria com um caso de B.
 GRUPOS = (
     "sondas",
     "webhook",
@@ -93,6 +96,7 @@ GRUPOS = (
     "guia",
     "painel",
     "equipa",
+    "lote",
 )
 
 #: A imagem usada quando nao ha `node` no `PATH`. A mesma versao de
