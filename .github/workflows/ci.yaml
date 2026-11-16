@@ -420,6 +420,54 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
+  # Gate 13, a parte da pesquisa — KAM-199 (aviso)
+  # ---------------------------------------------------------------------------
+  #
+  # O eval-gate do `golden_search` (KAM-064) contra a linha de base versionada.
+  # **Nao bloqueia**, por decisao do fundador de 2026-11-16 (ADR-L012): enquanto
+  # o *dataset* for 100% sintetico, uma regressao fica vermelha no PR e nao
+  # impede a fusao. Por isso `continue-on-error` e fora do `needs` do
+  # agregador, como a vigia acima, e fora dos contextos exigidos do *ruleset*.
+  # A promocao a exigido volta ao fundador.
+  #
+  # O `needs` no gate 6 e o criterio 6 do KAM-064: o *job* falha tambem quando
+  # falha um teste de isolamento. O `!cancelled()` deixa-o medir na mesma com o
+  # gate 6 vermelho, e o ultimo passo da a falha do gate 6 a este *job*. Nao e
+  # `always()`: com o `cancel-in-progress` dos PRs, um *push* novo cancela a
+  # execucao, e `always()` levantava na mesma um PostgreSQL por seis minutos.
+  gate-13-pesquisa:
+    name: "gate 13 — eval da pesquisa (aviso, nao bloqueia)"
+    runs-on: ubuntu-latest
+    needs:
+      - gate-6-isolamento
+    if: ${{ !cancelled() }}
+    continue-on-error: true
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-13-pesquisa
+        run: make ci-13-pesquisa
+      - name: arquivar o relatorio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-pesquisa
+          path: ci/eval-pesquisa/
+          retention-days: 90
+      - name: o gate 6 passou?
+        if: always()
+        run: |
+          resultado='${{ needs.gate-6-isolamento.result }}'
+          echo "gate 6: $resultado"
+          if [ "$resultado" != "success" ]; then
+            echo "O gate 6 nao passou: o eval-gate da pesquisa tambem falha." >&2
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
   # Resumo
   # ---------------------------------------------------------------------------
 

@@ -248,7 +248,7 @@ class CicloDeEmbeddings:
     credor na verificacao do bloco.
 
     So existe quando ha cliente: sem modelo no alias `kamba-embed`
-    (`llm/aliases.yaml`, `por_decidir`, credor KAM-064) o processo nao o
+    (`llm/aliases.yaml`, `por_decidir`, credor KAM-063) o processo nao o
     constroi e o indice fica lexical, como o AGR (`idx_embeddings`).
     """
 
