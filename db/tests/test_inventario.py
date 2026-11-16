@@ -2746,6 +2746,23 @@ INVENTARIO["waitlist_entry"] = {
     "criado_em": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O nivel de confianca de cada tenant (KAM-096, revisao da confianca gradual).
+#: **Nenhum dado pessoal**: um nivel, um tecto em unidade menor e quem o
+#: decidiu, que e `sistema:<versao>` ou `revisor:<id>` — um identificador de
+#: equipa e nao uma pessoa por nome. As duas datas escreve-as o *trigger*
+#: `trust_level_guardar`, mas o catalogo ve as omissoes da coluna.
+INVENTARIO["trust_level"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "nivel": ("smallint", NAO, None, "nao"),
+    "tecto_pedido_minor": ("bigint", NAO, None, "nao — um limite por pedido, nao um saldo"),
+    "currency": ("text", NAO, "'AOA'::text", "nao"),
+    "motivo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "actor": ("text", NAO, None, "nao — sistema:<versao> ou revisor:<id>"),
+    "versao_config": ("text", NAO, None, "nao"),
+    "desde": ("timestamp with time zone", NAO, "now()", "nao"),
+    "alterado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: O limite de clientes novos por 7 dias (KAM-095, revisao da lista de espera).
 #: **Sem `tenant_id`**: e da plataforma, numa linha so (`unica` booleano com
 #: `CHECK (unica)`). O `fundamento` e a referencia documental do valor, nunca de uma
@@ -3577,6 +3594,10 @@ class TestInventario(ComBase):
                         # a vaga dada dentro: o `concluido_em` e o que conta na
                         # janela de 7 dias.
                         "waitlist_entry_caso_fk",
+                        # KAM-096 (revisao da confianca gradual): o nivel aponta
+                        # o tenant, sem cascata. Um tenant com nivel nao se apaga
+                        # por arrasto.
+                        "trust_level_tenant_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4367,6 +4388,19 @@ class TestInventario(ComBase):
                     "onboarding_capacity_origem_ck",
                     "onboarding_capacity_pkey",
                     "onboarding_capacity_unica_ck",
+                    # ---------- KAM-096 (revisao da confianca gradual)
+                    #
+                    # **Oito.** A chave; os dominios do `nivel` e do `motivo`;
+                    # o nivel 2 que nao se atribui no Piloto; o tecto positivo;
+                    # a moeda `AOA`; a forma do `actor` e a da `versao_config`.
+                    "trust_level_actor_ck",
+                    "trust_level_currency_ck",
+                    "trust_level_motivo_ck",
+                    "trust_level_nivel_ck",
+                    "trust_level_piloto_ck",
+                    "trust_level_pkey",
+                    "trust_level_tecto_pedido_minor_ck",
+                    "trust_level_versao_config_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

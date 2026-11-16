@@ -19,6 +19,7 @@ transaccao e o do tenant dessa linha.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 
@@ -249,4 +250,63 @@ def aceitar_vigentes(cursor, tenant_id: str) -> None:
         ON CONFLICT ON CONSTRAINT contract_acceptance_aceite_uq DO NOTHING
         """,
         (tenant_id, tenant_id, str(uuid.uuid4()), str(uuid.uuid4())),
+    )
+
+
+#: O tecto do nivel 0 da configuracao do KAM-096 (50 000 Kz), em unidade menor.
+TECTO_DO_NIVEL_ZERO = 5_000_000
+
+#: A versao da configuracao que as sementes declaram. Tem a forma do
+#: `trust_level_versao_config_ck`; o valor e de ensaio.
+VERSAO_DA_CONFIGURACAO_DE_ENSAIO = "2026-11-16.1"
+
+
+def _sha(texto: str) -> bytes:
+    return hashlib.sha256(texto.encode("utf-8")).digest()
+
+
+def confianca(cursor, tenant_id: str, nivel: int = 0, tecto: int = TECTO_DO_NIVEL_ZERO) -> None:
+    """O K1 completo e o nivel de confianca de um tenant (KAM-096).
+
+    Sem nivel, a `payment_charges_dentro_do_tecto` recusa qualquer cobranca de
+    encomenda do tenant; e o `trust_level_guardar` so deixa nascer o nivel com
+    o K1 completo. Esta semente e o caminho de escrita que as duas restricoes
+    exigem: o caso de onboarding do tenant, uma verificacao `k1_ok` e a linha
+    de nivel, pelo papel do `cursor` (o administrador, nas suites). Repetida
+    sobre o mesmo tenant nao faz nada.
+
+    **Abaixo da revisao da confianca tambem nao faz nada**: os ensaios de
+    `downgrade` de outras revisoes (a `0051`, a `0055`) semeiam tenants com a base
+    descida, onde nao ha tabela nem *trigger* que a exija.
+    """
+    cursor.execute("SELECT to_regclass('platform.trust_level') IS NULL")
+    if cursor.fetchone()[0]:
+        return
+    cursor.execute("SELECT 1 FROM platform.trust_level WHERE tenant_id = %s", (tenant_id,))
+    if cursor.fetchone() is not None:
+        return
+    cursor.execute("SELECT id::text FROM platform.onboarding_case WHERE tenant_id = %s", (tenant_id,))
+    linha = cursor.fetchone()
+    if linha is None:
+        cursor.execute(
+            "INSERT INTO platform.onboarding_case "
+            "(tenant_id, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, "
+            " phone_enc, phone_hmac, fase) "
+            "VALUES (%s, 'convite', 'negocio de ensaio', 'moda', %s, %s, %s, %s, "
+            " 'activo') RETURNING id::text",
+            (tenant_id, b"\x01", _sha(str(uuid.uuid4())), b"\x02", _sha(str(uuid.uuid4()))),
+        )
+        linha = cursor.fetchone()
+    cursor.execute(
+        "INSERT INTO platform.kyc_check "
+        "(onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, resultado, versao_regras) "
+        "VALUES (%s, %s, 'bi', %s, %s, 'k1_ok', '1.0.0')",
+        (linha[0], tenant_id, f"t/{tenant_id}/kyc_documento/2026/11/{uuid.uuid4()}",
+         _sha(str(uuid.uuid4()))),
+    )
+    cursor.execute(
+        "INSERT INTO platform.trust_level "
+        "(tenant_id, nivel, tecto_pedido_minor, motivo, actor, versao_config) "
+        "VALUES (%s, %s, %s, 'k1_completo', 'sistema:ensaio', %s)",
+        (tenant_id, nivel, tecto, VERSAO_DA_CONFIGURACAO_DE_ENSAIO),
     )

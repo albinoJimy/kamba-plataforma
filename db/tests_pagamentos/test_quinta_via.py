@@ -195,6 +195,8 @@ class TestAQuintaVia(ComLedger):
                 # nova so num ciclo vivo. Os dois `ENABLE ALWAYS`.
                 ("payment_charges_ciclo_pago", "A"),
                 ("payment_charges_ciclo_vivo", "A"),
+                # KAM-096: a cobranca de encomenda dentro do tecto de confianca.
+                ("payment_charges_dentro_do_tecto", "A"),
                 ("payment_charges_nasce_iniciada", "A"),
             ],
             "o do nascimento e ALWAYS; o do beneficiario e da 0027 e fica como "

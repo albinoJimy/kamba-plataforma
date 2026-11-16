@@ -544,6 +544,20 @@ dominios_historicos:
       que a base passa a ter quando se desce, e e essa declaracao que esta
       entrada cobre. O passo de descida recusa-se se houver linhas review.*
       escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0062_confianca_gradual.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-096"
+    data: "2026-11-16"
+    razao: >-
+      A revisao da confianca gradual (KAM-096) acrescenta ao dominio a accao
+      trust.tecto, cada alteracao do nivel ou do tecto de um tenant, e o
+      dicionario §3.2 passa a declarar quinze (emenda 1.101). O upgrade escreve
+      as quinze; o downgrade repoe as catorze da 0048, que e o que a base passa a
+      ter quando se desce, e e essa declaracao que esta entrada cobre. O passo de
+      descida recusa-se se houver linhas trust.tecto escritas, porque o audit_log
+      e append-only e nenhum papel tem DELETE. O numero da revisao e provisorio:
+      a integracao renumera o ficheiro e esta linha com ele.
   - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"
     tabela: "tenant_destinations"
     coluna: "purpose"

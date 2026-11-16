@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-16.2"
+VERSAO_DA_POLITICA: Final = "2026-11-16.3"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -530,6 +530,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.module_test_prices": "precos de teste dos modulos, iguais para todos",
     # KAM-095: o limite de clientes novos por 7 dias, uma linha da plataforma.
     "platform.onboarding_capacity": "limite de onboarding da plataforma, sem tenant",
+    # KAM-096: o nivel de confianca e o tecto por pedido, uma linha por tenant.
+    # O historico das alteracoes vive no `audit_log` (`trust.tecto`).
+    "platform.trust_level": "nivel e tecto por pedido do tenant: um limite, sem pessoa",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",

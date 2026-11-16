@@ -331,6 +331,12 @@ REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
+#: KAM-096: a revisao da confianca gradual, pela razao da do Catalogo AI — o
+#: numero (`0062`) e provisorio. Os ensaios que a provam sao o
+#: `db/tests/test_confianca_schema.py`, o
+#: `db/tests_pagamentos/test_tecto_de_confianca.py` e o
+#: `db/tests_lote/test_confianca_concorrencia.py`.
+REV_CONFIANCA = _revisao_por_glob("*_confianca_gradual.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7792,6 +7798,54 @@ MUTACOES = [
     ("lista de espera: o adaptador nao tranca a fila", CAPACIDADE_SQL,
      "      await c.query(SQL_TRANCAR);\n",
      "",
+     "tests_lote"),
+    # ------------------------------ KAM-096 (revisao da confianca gradual)
+    #
+    # Sete, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_CONFIANCA`), porque o numero e provisorio.
+    #
+    # A cobranca deixa de comparar com o tecto, e 50 000,01 Kz entram no nivel
+    # 0 (adversarial g): `test_adversarial_g_no_limite_entra_e_um_centimo_acima_nao`.
+    ("confianca: a cobranca deixa de ler o tecto", REV_CONFIANCA,
+     "          IF NEW.amount_minor > v_tecto THEN\n",
+     "          IF false THEN\n",
+     "tests_pagamentos"),
+    # Um tenant sem nivel cobra sem limite (criterio 2):
+    # `test_sem_nivel_nenhuma_cobranca_de_encomenda_entra`.
+    ("confianca: sem nivel a cobranca entra", REV_CONFIANCA,
+     "          IF v_tecto IS NULL THEN\n",
+     "          IF false THEN\n",
+     "tests_pagamentos"),
+    # O nivel nasce sem K1: `test_sem_caso_de_onboarding_nao_ha_nivel`.
+    ("confianca: o nivel nasce sem K1", REV_CONFIANCA,
+     "            IF v_caso IS NULL OR 'kyc' = ANY (platform.aprovacao_em_falta(v_caso)) THEN\n",
+     "            IF false THEN\n",
+     "tests"),
+    # Uma descida deixa de ficar no registo (criterio 6):
+    # `test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`.
+    ("confianca: a alteracao do tecto nao e auditada", REV_CONFIANCA,
+     "          AFTER INSERT OR UPDATE ON platform.trust_level\n",
+     "          AFTER INSERT ON platform.trust_level\n",
+     "tests"),
+    # O nivel 2 atribui-se no Piloto: `test_o_nivel_2_existe_e_nao_se_atribui_no_piloto`.
+    ("confianca: o nivel 2 atribui-se no Piloto", REV_CONFIANCA,
+     "          CONSTRAINT trust_level_piloto_ck CHECK (nivel < 2),\n",
+     "",
+     "tests"),
+    # A aplicacao muda o proprio tecto (adversarial f):
+    # `test_a_aplicacao_nao_escreve_nem_le_o_motivo`.
+    ("confianca: a aplicacao escreve o tecto", REV_CONFIANCA,
+     '    op.execute("GRANT SELECT ON platform.trust_level TO kamba_audit")\n',
+     '    op.execute("GRANT SELECT ON platform.trust_level TO kamba_audit")\n'
+     '    op.execute("GRANT UPDATE (tecto_pedido_minor) ON platform.trust_level TO kamba_app")\n',
+     "tests"),
+    # A cobranca tranca uma chave que a descida nao toma, deixa de esperar por
+    # ela e passa com o tecto velho:
+    # `test_a_descida_primeiro_as_cobrancas_esperam_e_o_limite_e_o_novo` (suite
+    # `tests_lote`, a unica que pode fazer *commit* da descida).
+    ("confianca: a cobranca tranca a chave errada", REV_CONFIANCA,
+     "          PERFORM pg_advisory_xact_lock_shared(\n",
+     "          PERFORM pg_advisory_xact_lock_shared(0), (\n",
      "tests_lote"),
 ]
 

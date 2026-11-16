@@ -208,11 +208,20 @@ class ComLedger(ComBase):
                 # `db/tests_encomendas/base.py` ja faz desde o KAM-044, com a
                 # razao dela: «nao acumula lixo que conte: a base e descartavel
                 # e cada teste tem o seu tenant».
+                # E o nivel de confianca (KAM-096) prende-o tambem, quando a
+                # tabela existe: os ensaios de descida desta suite limpam com a
+                # base abaixo da revisao dela.
+                self.semente.execute("SELECT to_regclass('platform.trust_level') IS NOT NULL")
+                com_nivel = (
+                    "  AND id NOT IN (SELECT tenant_id FROM platform.trust_level)"
+                    if self.semente.fetchone()[0]
+                    else ""
+                )
                 self.semente.execute(
                     "DELETE FROM platform.tenants WHERE id = %s "
                     "  AND id NOT IN (SELECT tenant_id FROM platform.payment_charges) "
                     "  AND id NOT IN (SELECT tenant_id FROM platform.orders_mirror) "
-                    "  AND id NOT IN (SELECT tenant_id FROM platform.contacts)",
+                    "  AND id NOT IN (SELECT tenant_id FROM platform.contacts)" + com_nivel,
                     (tenant,),
                 )
         finally:
@@ -226,6 +235,11 @@ class ComLedger(ComBase):
     def criar_tenant(self) -> str:
         tenant = factories.tenant(self.semente)
         self._tenants.append(tenant)
+        # Desde a revisao da confianca gradual (KAM-096) uma cobranca de
+        # encomenda so entra com o tenant num nivel e dentro do tecto dele: o
+        # *trigger* `payment_charges_dentro_do_tecto` recusa-a sem linha em
+        # `trust_level`. O nivel 0 (50 000 Kz) cobre o `VALOR` das sementes.
+        factories.confianca(self.semente, tenant)
         return tenant
 
     def criar_encomenda(self, tenant: str, total_minor: int = VALOR) -> str:

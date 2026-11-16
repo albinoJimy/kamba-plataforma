@@ -1697,6 +1697,29 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O nivel de confianca (KAM-096, revisao da confianca gradual). **So o lote
+#: escreve**, e o `UPDATE` e por coluna (ver `COLUNAS_POR_PAPEL`), sem o
+#: `tenant_id` nem a `currency`. A **aplicacao** le por coluna so o tecto do seu
+#: tenant — e o que o *trigger* `payment_charges_dentro_do_tecto` le quando ela
+#: escreve uma cobranca —, e por isso a matriz de tabela lhe diz vazio. **Sem
+#: `INSERT` nem `UPDATE` para a aplicacao**: o tenant nao muda o proprio tecto
+#: por nenhuma via (criterio 7, adversarial f). Ninguem apaga.
+ESPERADO_POR_TABELA.update(
+    {
+        "trust_level": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2282,6 +2305,23 @@ COLUNAS_POR_PAPEL = {
     # `aprovado_em` — o facto que o *trigger* tira do `fase_at` do caso, e que
     # reescrito saltava a fila (adversarial c) — e o `criado_em`, que e a base
     # do tempo medio de espera do criterio 8.
+    # KAM-096 (revisao da confianca gradual): o lote muda o nivel, o tecto e
+    # quem e porque. **Fora**: o `tenant_id` (a chave) e a `currency`, que e
+    # `AOA` por `CHECK`. As datas estao na lista, mas quem as escreve e o
+    # *trigger* `trust_level_guardar`, que ignora o que o lote mandar.
+    ("kamba_batch", "trust_level", "UPDATE"): {
+        "nivel", "tecto_pedido_minor", "motivo", "actor", "versao_config",
+        "desde", "alterado_em",
+    },
+    # A aplicacao le so o tecto do seu tenant: o motivo, o actor e a versao sao
+    # da T&S e do lote.
+    ("kamba_app", "trust_level", "SELECT"): {
+        "tenant_id", "nivel", "tecto_pedido_minor", "currency",
+    },
+    # KAM-096: o recalculo junta os pedidos de um comprador pela cadeia de
+    # fusoes, e pede as tres colunas dela. Nenhuma e dado pessoal; o
+    # `phone_hmac` e o `hmac_kid` continuam fora.
+    ("kamba_batch", "contacts", "SELECT"): {"tenant_id", "contact_id", "merged_into"},
     ("kamba_batch", "waitlist_entry", "UPDATE"): {
         "estado", "na_fila_desde", "convite_hash", "convidado_em",
         "convite_expira_em", "tentativas", "concluido_em",
@@ -2378,6 +2418,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # ao lote mudava o limite sem passar pelo dono do esquema.
     "waitlist_entry",
     "onboarding_capacity",
+    # KAM-096: o nivel tem `UPDATE` por coluna para o lote e `SELECT` por coluna
+    # para a aplicacao. Um `GRANT UPDATE (tenant_id)` ou um `GRANT SELECT
+    # (motivo)` a aplicacao era invisivel na matriz de tabela.
+    "trust_level",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

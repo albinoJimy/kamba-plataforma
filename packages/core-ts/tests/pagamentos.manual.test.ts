@@ -85,10 +85,18 @@ const LEITOR_DE_INSTRUCOES: LeitorDeInstrucoes = {
   instrucoesDaConta: async () => INSTRUCOES,
 };
 
+/**
+ * A guarda do tecto de confianca (KAM-096) que deixa passar tudo: estes casos
+ * medem o M-2 e o M-5, e o tecto de confianca mede-se em
+ * `confianca.test.ts`.
+ */
+const SEM_TECTO_DE_CONFIANCA = { assertWithinTrustCeiling: async () => {} };
+
 function provider(limites: Partial<LimitesDoManual> = {}): ManualProvider {
   return new ManualProvider({
     limites: leitorDeLimites(limites),
     instrucoes: LEITOR_DE_INSTRUCOES,
+    confianca: SEM_TECTO_DE_CONFIANCA,
   });
 }
 

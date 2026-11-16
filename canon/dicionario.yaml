@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.100"
+versao_dicionario: "1.101"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -707,7 +707,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, trust.tecto}"
     literais:
       - "action"
       - "price.update"
@@ -724,6 +724,7 @@ entradas:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "trust.tecto"
     nomes:
       - "action"
       - "price.update"
@@ -740,7 +741,9 @@ entradas:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "trust.tecto"
     nomes_nota:
+      - "trust.tecto"
       - "order.refund_record"
       - "audit.read"
     variantes_literais: []
@@ -18584,6 +18587,235 @@ entradas:
       - "desfecho"
       - "origem"
     variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Nível de um tenant"
+    canonico: "platform.trust_level, nove colunas"
+    literais:
+      - "platform.trust_level"
+    nomes:
+      - "platform.trust_level"
+    nomes_nota:
+      - "tenant_id"
+      - "nivel"
+      - "tecto_pedido_minor"
+      - "currency"
+      - "motivo"
+      - "actor"
+      - "versao_config"
+      - "desde"
+      - "alterado_em"
+      - "FORCE"
+      - "kamba_batch"
+      - "kamba_app"
+      - "trust_order_eligibility"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Os níveis"
+    canonico: "trust_level.nivel ∈ {0, 1, 2}; o 2 não se atribui no Piloto (trust_level_piloto_ck)"
+    literais:
+      - "trust_level.nivel"
+      - "trust_level_piloto_ck"
+    nomes:
+      - "trust_level.nivel"
+      - "trust_level_piloto_ck"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Tecto por pedido"
+    canonico: "trust_level.tecto_pedido_minor, bigint positivo, em unidade menor, com a currency AOA"
+    literais:
+      - "trust_level.tecto_pedido_minor"
+      - "bigint"
+      - "currency"
+      - "AOA"
+    nomes:
+      - "trust_level.tecto_pedido_minor"
+      - "bigint"
+      - "currency"
+      - "AOA"
+    nomes_nota:
+      - "entitlements.limites"
+      - "valor_max_pedido_minor"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Porque está no nível"
+    canonico: "trust_level.motivo ∈ {k1_completo, historico_independente, disputa_aceite, sinal_alto, sancao, recalibracao}"
+    literais:
+      - "trust_level.motivo"
+      - "k1_completo"
+      - "historico_independente"
+      - "disputa_aceite"
+      - "sinal_alto"
+      - "sancao"
+      - "recalibracao"
+    nomes:
+      - "trust_level.motivo"
+      - "k1_completo"
+      - "historico_independente"
+      - "disputa_aceite"
+      - "sinal_alto"
+      - "sancao"
+      - "recalibracao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Quem decidiu"
+    canonico: "trust_level.actor, sistema:<versão> ou revisor:<id>"
+    literais:
+      - "trust_level.actor"
+      - "sistema:<versão>"
+      - "revisor:<id>"
+    nomes:
+      - "trust_level.actor"
+      - "sistema"
+      - "vers"
+      - "o"
+      - "revisor"
+      - "id"
+    nomes_nota:
+      - "CHECK"
+      - "audit_log"
+      - "system"
+      - "staff"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Desde quando"
+    canonico: "trust_level.desde e trust_level.alterado_em"
+    literais:
+      - "trust_level.desde"
+      - "trust_level.alterado_em"
+    nomes:
+      - "trust_level.desde"
+      - "trust_level.alterado_em"
+    nomes_nota:
+      - "trust_level_guardar"
+      - "desde"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Barreira da escrita"
+    canonico: "trigger trust_level_guardar"
+    literais:
+      - "trust_level_guardar"
+    nomes:
+      - "trust_level_guardar"
+    nomes_nota:
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Auditoria"
+    canonico: "acção trust.tecto no audit_log.action (§3.2), pelo trigger trust_level_auditado"
+    literais:
+      - "trust.tecto"
+      - "audit_log.action"
+      - "trust_level_auditado"
+    nomes:
+      - "trust.tecto"
+      - "audit_log.action"
+      - "trust_level_auditado"
+    nomes_nota:
+      - "ON"
+      - "CONFLICT"
+      - "WHERE"
+      - "trust.tecto"
+      - "downgrade"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Barreira da cobrança"
+    canonico: "trigger payment_charges_dentro_do_tecto"
+    literais:
+      - "payment_charges_dentro_do_tecto"
+    nomes:
+      - "payment_charges_dentro_do_tecto"
+    nomes_nota:
+      - "BEFORE"
+      - "INSERT"
+      - "ENABLE"
+      - "ALWAYS"
+      - "total_minor"
+      - "trust_level"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "A guarda"
+    canonico: "assertWithinTrustCeiling(tenantId, amountMinor), em GuardaDeConfianca; recusa com ForaDoTectoDeConfiancaError"
+    literais:
+      - "assertWithinTrustCeiling(tenantId, amountMinor)"
+      - "GuardaDeConfianca"
+      - "ForaDoTectoDeConfiancaError"
+    nomes:
+      - "assertWithinTrustCeiling"
+      - "tenantId"
+      - "amountMinor"
+      - "GuardaDeConfianca"
+      - "ForaDoTectoDeConfiancaError"
+    nomes_nota:
+      - "ManualProvider.createCharge"
+      - "manual_max_minor"
+      - "limitacao"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Mensagem ao agente"
+    canonico: "MENSAGEM_ACIMA_DO_TECTO"
+    literais:
+      - "MENSAGEM_ACIMA_DO_TECTO"
+    nomes:
+      - "MENSAGEM_ACIMA_DO_TECTO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Configuração versionada"
+    canonico: "CONFIGURACAO_DA_CONFIANCA, com versao AAAA-MM-DD.N; cada valor com origem (proposta ou calibrado) e calibradoEm"
+    literais:
+      - "CONFIGURACAO_DA_CONFIANCA"
+      - "versao"
+      - "AAAA-MM-DD.N"
+      - "origem"
+      - "proposta"
+      - "calibrado"
+      - "calibradoEm"
+    nomes:
+      - "CONFIGURACAO_DA_CONFIANCA"
+      - "versao"
+      - "AAAA"
+      - "MM"
+      - "DD.N"
+      - "origem"
+      - "proposta"
+      - "calibrado"
+      - "calibradoEm"
+    nomes_nota:
+      - "versao_config"
+      - "tabelaDeLimites"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Quem conta para subir"
+    canonico: "avaliarPedido, com MOTIVOS_DE_EXCLUSAO"
+    literais:
+      - "avaliarPedido"
+      - "MOTIVOS_DE_EXCLUSAO"
+    nomes:
+      - "avaliarPedido"
+      - "MOTIVOS_DE_EXCLUSAO"
+    nomes_nota:
+      - "independente"
+      - "por_avaliar"
+      - "merged_into"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "O recálculo"
+    canonico: "ServicoDeConfianca.recalcular, sobre o decidirNivel puro"
+    literais:
+      - "ServicoDeConfianca.recalcular"
+      - "decidirNivel"
+    nomes:
+      - "ServicoDeConfianca.recalcular"
+      - "decidirNivel"
+    nomes_nota:
+      - "kamba_batch"
+      - "contacts"
+      - "tenant_id"
+      - "contact_id"
+      - "merged_into"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -20073,6 +20305,7 @@ dominios:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "trust.tecto"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false
@@ -21624,6 +21857,17 @@ dominios:
       - "convite_invalido"
     seccao: "3.71"
     conceito: "Recusas da lista"
+    so_no_registo: false
+  - coluna: "trust_level.motivo"
+    valores:
+      - "k1_completo"
+      - "historico_independente"
+      - "disputa_aceite"
+      - "sinal_alto"
+      - "sancao"
+      - "recalibracao"
+    seccao: "3.72"
+    conceito: "Porque está no nível"
     so_no_registo: false
 
 variantes:

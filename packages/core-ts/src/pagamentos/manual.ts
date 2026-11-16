@@ -95,6 +95,11 @@ import {
   type Uuid,
   type VerifiedEvent,
 } from "./tipos.ts";
+import {
+  ForaDoTectoDeConfiancaError,
+  type GuardaDoTecto,
+  MENSAGEM_ACIMA_DO_TECTO,
+} from "../confianca/guard.ts";
 
 /**
  * O `id` do adaptador, e **tem** de ser este.
@@ -576,6 +581,12 @@ export type LeitorDeInstrucoes = {
 export type OpcoesDoManual = {
   readonly limites: LeitorDeLimites;
   readonly instrucoes: LeitorDeInstrucoes;
+  /**
+   * O tecto de confianca do tenant (KAM-096). **Obrigatorio**: um
+   * `ManualProvider` sem ele cobrava ate ao `manual_max_minor` a um tenant que
+   * desceu ao nivel 0 por uma sancao.
+   */
+  readonly confianca: GuardaDoTecto;
 };
 
 /**
@@ -598,6 +609,13 @@ export type OpcoesDoManual = {
  * Duas barreiras para a mesma regra nao e redundancia: a de aplicacao da uma
  * mensagem util ao agente que tem de propor outro meio de pagamento, e a da
  * base e a que vale quando alguem escrever um segundo caminho de codigo.
+ *
+ * ## E o tecto de confianca (KAM-096) morde a seguir
+ *
+ * Depois do `manual_max_minor`, o `assertWithinTrustCeiling` da guarda: o
+ * efectivo e `min(tecto_pedido_minor, manual_max_minor)` (criterio 6). Acima
+ * dele a recusa e `REJECTED` com a `MENSAGEM_ACIMA_DO_TECTO`, **fixa e sem
+ * numeros**; e a barreira e o *trigger* `payment_charges_dentro_do_tecto`.
  */
 export class ManualProvider implements PaymentProvider {
   readonly id = PROVIDER_MANUAL;
@@ -605,10 +623,12 @@ export class ManualProvider implements PaymentProvider {
 
   readonly #limites: LeitorDeLimites;
   readonly #instrucoes: LeitorDeInstrucoes;
+  readonly #confianca: GuardaDoTecto;
 
   constructor(opcoes: OpcoesDoManual) {
     this.#limites = opcoes.limites;
     this.#instrucoes = opcoes.instrucoes;
+    this.#confianca = opcoes.confianca;
   }
 
   /**
@@ -663,6 +683,14 @@ export class ManualProvider implements PaymentProvider {
           "o ManualProvider recusa criar a cobranca e o agente propoe outro " +
           "meio ou espera pelo facilitador (docs/tecnica/04 secao 4.2 M-2)",
       );
+    }
+    try {
+      await this.#confianca.assertWithinTrustCeiling(req.tenantId, req.amount);
+    } catch (erro) {
+      if (erro instanceof ForaDoTectoDeConfiancaError) {
+        throw new ProviderError("REJECTED", MENSAGEM_ACIMA_DO_TECTO);
+      }
+      throw erro;
     }
 
     return {
@@ -855,11 +883,18 @@ export const IMPORTACOES_PROIBIDAS = [
  * que o adaptador **pode** vir a importar sem que a regra mude de sitio, e o
  * `dinheiro.ts` e o unico candidato natural a tocar num montante lido de uma
  * imagem. Apanhado pela revisao adversarial.
+ *
+ * **Desde o KAM-096 o bloco de `import` tem duas fontes**: o `./tipos.ts` e a
+ * guarda do tecto de confianca, `../confianca/guard.ts`. A guarda entra na
+ * varredura pela razao da frase de cima — e um modulo que o adaptador importa,
+ * e por onde um leitor de imagem podia entrar sem a regra mudar de sitio. O
+ * caminho e relativo a `pagamentos/`, como os outros tres.
  */
 export const MODULOS_DO_MANUAL = [
   "manual.ts",
   "tipos.ts",
   "dinheiro.ts",
+  "../confianca/guard.ts",
 ] as const;
 
 // **A `janelaDeSilencioSegundos` foi retirada, e nao substituida.**

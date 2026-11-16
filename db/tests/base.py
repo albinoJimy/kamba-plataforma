@@ -623,6 +623,17 @@ TABELAS_CUSTO_DOS_MODULOS = ("module_cost_ledger", "module_test_prices")
 #: apaga nenhuma das duas; o `kamba_app` nao tem nada em nenhuma.
 TABELAS_LISTA_DE_ESPERA = ("onboarding_capacity", "waitlist_entry")
 
+#: O que a revisao da confianca gradual (KAM-096) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0062`) e provisorio e da-o a integracao pela ordem de quem funde.
+#:
+#: Uma tabela de tenant, a `trust_level`: o nivel e o tecto por pedido, uma
+#: linha por tenant, com RLS `FORCE` pela `tenant_iso` e FK para `tenants`. So o
+#: `kamba_batch` escreve; o `kamba_app` le as colunas do tecto do seu tenant,
+#: que e o que o *trigger* da cobranca precisa. Ninguem apaga.
+TABELAS_CONFIANCA = ("trust_level",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -636,19 +647,29 @@ TABELAS = tuple(
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
+        + TABELAS_CONFIANCA
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao anterior a da
+#: confianca gradual (KAM-096).
+#:
+#: O `downgrade` da revisao da confianca leva a base para aqui. **Deriva do
+#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
+#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
+#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`.
+TABELAS_ANTES_DA_CONFIANCA = tuple(sorted(set(TABELAS) - set(TABELAS_CONFIANCA)))
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da lista
 #: de espera (KAM-095).
 #:
-#: O `downgrade` da revisao da lista de espera leva a base para aqui. **Deriva
-#: do `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a
-#: seguir poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e
-#: nao pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a
+#: O `downgrade` da revisao da lista de espera leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DA_CONFIANCA` desde o KAM-096, que pos a sua revisao no topo.
+#: Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a
 #: anterior e a `0058`, a dos eventos do tenant (KAM-092).
 TABELAS_ANTES_DA_LISTA_DE_ESPERA = tuple(
-    sorted(set(TABELAS) - set(TABELAS_LISTA_DE_ESPERA))
+    sorted(set(TABELAS_ANTES_DA_CONFIANCA) - set(TABELAS_LISTA_DE_ESPERA))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a dos
