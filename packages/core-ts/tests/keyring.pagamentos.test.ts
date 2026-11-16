@@ -9,6 +9,13 @@
  * ele trazia **não se perde**: o reconciliador lê-o da fila `GET /payments` com
  * a chave nova.
  *
+ * **O que este ensaio não prova:** que haja em produção quem transforme o anel
+ * nas duas `credenciais_ref` da conta. O `resolver` de baixo — e a referência
+ * `proxypay_api_key/anterior` que ele inventa — é do ensaio; nenhum serviço
+ * corre hoje o adaptador (RB-K07 §0). O que se prova é o `verifyCallback` e o
+ * `listUnacknowledged` do KAM-056 a comportarem-se certo quando a lista de
+ * chaves muda pela rotação.
+ *
  * Se o facilitador aceita duas chaves em simultâneo é **NÃO VERIFICADO**
  * (`evidencia/E2` Q10): o servidor falso modela o pior caso — troca, sem
  * sobreposição do lado dele. O ensaio contra o *sandbox* real é a caixa

@@ -15,7 +15,7 @@
  * (`ok`, `a_expirar` a partir de 80%, `vencido` a partir de 100%) e as duas
  * séries que uma regra de alerta precisa — `secret_age_days` e
  * `secret_rotation_period_days`, ambas com a etiqueta `segredo`. A etiqueta é
- * de domínio fechado: os `id` do inventário (41 hoje), abaixo do tecto de 64 da
+ * de domínio fechado: os `id` do inventário (43 hoje), abaixo do tecto de 64 da
  * política do `ops/metricas/catalogo.yaml`.
  *
  * **Não** as expõe num `/metrics` e **não** escreve a regra do Prometheus: o
@@ -44,7 +44,7 @@ export type EstadoDaIdade =
   | "vencido"
   /** Rotação por evento: não há prazo, logo não há alerta de idade. */
   | "por_evento"
-  /** Nunca rodou pelo rotador: a idade não se sabe, e isso alerta. */
+  /** Nunca rodou pelo rotador, ou foi importado sem data: a idade não se sabe, e isso alerta. */
   | "sem_registo";
 
 /** A idade de um segredo. */
@@ -68,7 +68,8 @@ export function estadoDa(idadeDias: number | null, prazoDias: number | null): Es
  * A idade de cada segredo em `agora`, a partir da última rotação registada.
  *
  * Uma revogação **não** rejuvenesce o segredo: retirar a anterior não muda a
- * idade da actual. Contam a rotação planeada e a de emergência.
+ * idade da actual. Contam a rotação planeada, a de emergência e o `inicio`
+ * quando diz quando a versão nasceu.
  */
 export async function idadesDosSegredos(
   politicas: readonly PoliticaDeRotacao[],
@@ -80,14 +81,14 @@ export async function idadesDosSegredos(
     if (rotacaoDias !== null && (!Number.isFinite(rotacaoDias) || rotacaoDias <= 0)) {
       throw new RangeError(`o prazo de ${segredo} tem de ser um número de dias positivo`);
     }
-    const rotacoes = (await registo.entradas(segredo)).filter(
+    const versoes = (await registo.entradas(segredo)).filter(
       (entrada) => entrada.accao !== "revogacao",
     );
-    const ultima = rotacoes[rotacoes.length - 1];
+    // `criadaEm` e não `em`: um segredo importado por `iniciar` tem a idade da
+    // versão, e não a da importação — e sem ela a idade não se sabe.
+    const nascida = versoes[versoes.length - 1]?.criadaEm ?? null;
     const idadeDias =
-      ultima === undefined
-        ? null
-        : Math.max(0, (agora.getTime() - ultima.em.getTime()) / DIA_MS);
+      nascida === null ? null : Math.max(0, (agora.getTime() - nascida.getTime()) / DIA_MS);
     idades.push({ segredo, idadeDias, prazoDias: rotacaoDias, estado: estadoDa(idadeDias, rotacaoDias) });
   }
   return idades;

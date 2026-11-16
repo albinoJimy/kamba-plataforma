@@ -4,29 +4,32 @@
  * Os Detalhes Técnicos do bloco dizem a forma: «`ring = [current, previous]`
  * com `kid`; operações `verify(any)` e `sign(current)`; revogar remove
  * `previous` e regista no `audit_log`». Este ficheiro é a metade **pura** disso:
- * o valor de um anel, as duas operações criptográficas e as transições. Quem
- * guarda o anel e quem regista a transição é o `rotacao.ts`.
+ * o valor de um anel, a assinatura com a actual e as transições. Quem guarda o
+ * anel e quem regista a transição é o `rotacao.ts`.
+ *
+ * **O `verify(any)` não está aqui, e é de propósito.** Os dois consumidores já
+ * o têm, em tempo constante e com ensaio: o `assinaturaValida` do GWY
+ * (`entrada/assinatura.ts`, KAM-013) e o `assinaturaVerifica` do PAY
+ * (`pagamentos/proxypay/verify.ts`, KAM-056). O próprio `assinatura.ts` diz que
+ * uma segunda implementação desta comparação é a duplicação que se paga com um
+ * defeito de segurança. O que este anel lhes dá é a lista: `valoresVivos`.
  *
  * ## O que já existia, e porque é que este ficheiro não o substitui
  *
- * Os dois consumidores de HMAC do Piloto já aceitam duas chaves: o GWY com
- * `assinaturaValida` (`entrada/assinatura.ts`, KAM-013) e o PAY com
- * `assinaturaVerifica` (`pagamentos/proxypay/verify.ts`, KAM-056). Recebem
- * **valores** e não sabem de `kid` nem de janelas, e está certo que assim seja:
- * um consumidor verifica, não decide quando uma chave deixa de valer. O que
- * faltava era quem decide — e é isso que este módulo traz. `valoresVivos` é a
- * ponte: devolve a lista que esses dois já sabem consumir.
+ * Os dois consumidores recebem **valores** e não sabem de `kid` nem de
+ * janelas, e está certo que assim seja: um consumidor verifica, não decide
+ * quando uma chave deixa de valer. O que faltava era quem decide — e é isso que
+ * este módulo traz.
  *
- * ## Três regras
+ * ## Duas regras
  *
- * 1. **Tempo constante, sem sair ao primeiro acerto.** Calcula-se o HMAC com
- *    todas as chaves vivas antes de decidir, e o acumulador é um número: um `||`
- *    curto-circuitava e dizia, pelo tempo de resposta, qual das duas acertou.
- * 2. **Um `kid` nunca volta.** Rodar para o `kid` da anterior, ou reutilizar o
- *    da actual com outro valor, é recusado: duas chaves com o mesmo `kid`
- *    tornavam ambíguo tudo o que guarda o `kid` ao lado do dado (o
- *    `hmac_key_ver` dos contactos, o criptograma dos *tokens* de cliente).
- * 3. **Nenhum erro, nenhum registo e nenhum `toString` leva um valor.** As
+ * 1. **Dentro do anel, um `kid` não se repete.** Rodar para o `kid` da
+ *    anterior, ou reutilizar o da actual com outro valor, é recusado: duas
+ *    chaves com o mesmo `kid` tornavam ambíguo tudo o que guarda o `kid` ao lado
+ *    do dado (a `hmac_kid` dos contactos, o criptograma dos *tokens* de
+ *    cliente). O anel só se lembra de duas versões; as anteriores a essas são o
+ *    `Rotador` que as recusa, pelo registo.
+ * 2. **Nenhum erro, nenhum registo e nenhum `toString` leva um valor.** As
  *    classes de erro deste ficheiro recebem o `kid`, nunca a chave.
  */
 
@@ -170,10 +173,13 @@ export function revogarAnterior(anel: Anel): Anel {
   return { actual: anel.actual, anterior: null, anteriorAte: null };
 }
 
-/** Igualdade de dois valores sem revelar, pelo tempo, onde diferem. */
-function valoresIguais(a: string, b: string): boolean {
-  // Compara-se o resumo e não os textos: o `timingSafeEqual` exige o mesmo
-  // comprimento, e recusar antes pelo comprimento dizia-o pelo tempo.
+/**
+ * Igualdade de dois valores sem revelar, pelo tempo, onde diferem.
+ *
+ * Compara-se o resumo e não os textos: o `timingSafeEqual` exige o mesmo
+ * comprimento, e recusar antes pelo comprimento dizia-o pelo tempo.
+ */
+export function valoresIguais(a: string, b: string): boolean {
   const ra = createHmac("sha256", "kamba-keyring-igualdade").update(a, "utf8").digest();
   const rb = createHmac("sha256", "kamba-keyring-igualdade").update(b, "utf8").digest();
   return timingSafeEqual(ra, rb);
@@ -185,38 +191,13 @@ export function assinar(anel: Anel, dados: Uint8Array): { kid: string; mac: Buff
   return { kid, mac: createHmac("sha256", valor).update(dados).digest() };
 }
 
-/** O que `verificar` devolve: se acertou e com que versão. */
-export interface Verificacao {
-  readonly valida: boolean;
-  /** O `kid` que acertou, ou `null`. Calculado depois de todas as comparações. */
-  readonly kid: string | null;
-}
-
 /**
- * `mac` é o HMAC-SHA256 de `dados` com alguma chave viva em `agora`?
- *
- * Um `mac` com comprimento diferente de 32 octetos recusa-se antes de
- * qualquer HMAC: o comprimento de um resumo SHA-256 é público, e o
- * `timingSafeEqual` **levanta** com buffers de tamanhos diferentes.
+ * Um valor novo de 32 octetos em base64, para os segredos que **nós** geramos
+ * (*pepper*, KEK, segredos de assinatura internos). O App Secret da Meta e a
+ * chave do facilitador não nascem aqui: geram-se nos painéis deles.
  */
-export function verificar(anel: Anel, dados: Uint8Array, mac: Uint8Array, agora: Date): Verificacao {
-  if (mac.byteLength !== 32) return { valida: false, kid: null };
-  const recebido = Buffer.from(mac);
-  let acertos = 0;
-  let indice = -1;
-  const vivas = chavesVivas(anel, agora);
-  for (let i = 0; i < vivas.length; i += 1) {
-    const chave = vivas[i] as ChaveDoAnel;
-    const esperado = createHmac("sha256", chave.valor).update(dados).digest();
-    const acertou = timingSafeEqual(esperado, recebido) ? 1 : 0;
-    acertos |= acertou;
-    // Sem ramo: o índice guarda-se por aritmética, para não haver um `if`
-    // cujo corpo só corre num dos casos.
-    indice = acertou * i + (1 - acertou) * indice;
-  }
-  return acertos === 1
-    ? { valida: true, kid: (vivas[indice] as ChaveDoAnel).kid }
-    : { valida: false, kid: null };
+export function gerarValor(): string {
+  return randomBytes(32).toString("base64");
 }
 
 /** Alfabeto do base32 em minúsculas (RFC 4648 sem preenchimento). */

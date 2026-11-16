@@ -6,7 +6,7 @@
 | Versão | 1.1 |
 | Cenário | Um segredo do inventário chega ao fim do seu período de rotação, ou há suspeita de fuga |
 | Severidade | **P3** (planeada); em incidente, **P1** pelo [RB-K10](RB-K10-incidente-de-seguranca.md) |
-| Alertas que o activam | **Nenhum, hoje.** O cálculo existe desde o KAM-072 — `secret_age_days{segredo}` e `secret_rotation_period_days{segredo}` em `packages/core-ts/src/keyring/idade.ts`, com a idade lida do registo de rotação e o estado `a_expirar` a 80% do prazo —, mas **nenhum processo o expõe** e a regra do Prometheus está por escrever (o `obs_lint` recusa uma regra sobre uma métrica que ninguém serve). Credor: **KAM-078**, o agendador que corre o rotador (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
+| Alertas que o activam | **Nenhum, hoje.** O cálculo existe desde o KAM-072 — `secret_age_days{segredo}` e `secret_rotation_period_days{segredo}` em `packages/core-ts/src/keyring/idade.ts`, com a idade lida do registo de rotação e o estado `a_expirar` a 80% do prazo —, mas **nenhum processo o expõe** e a regra do Prometheus está por escrever (o `obs_lint` recusa uma regra sobre uma métrica que ninguém serve). Credor: **o fundador** — nenhum ticket do *backlog* liga o rotador a um processo (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
 | Gatilho manual | O calendário de rotação (hoje de uma pessoa: não há agendador, KAM-071); o RB-K10 (suspeita de fuga); o RB-K02 §3.3 (*callbacks* inválidos depois de uma troca de chave) |
 | Nível de degradação | — (uma rotação bem feita não degrada nada; mal feita, o consumidor recusa: 401 no GWY, falha de autenticação no facilitador) |
 | Dono | Plataforma/SRE; executa com o `owner` da entrada no inventário (`eng_canais`, `eng_pagamentos`, `sre`…), e com o Responsável de Segurança em incidente |
@@ -171,15 +171,24 @@ O `specs/EPIC-08` (bloco KAM-079, critério 6 e DoD 2) põe este procedimento no
 
 ### 3.7 `kek_token_cliente` (anel: sim; `kid`: sim)
 
-A DEK por tenant dos *tokens* de cliente é **derivada** da KEK (`onboarding/cifra.ts`,
-KAM-016), pelo que rodar a KEK não re-embrulha nada: re-cifra o criptograma.
+**Não rodar no Piloto.** O `kid` que vai dentro de cada criptograma é o que o
+`cofre.versions()` devolve, e o `EnvSecretProvider` devolve os rótulos **posicionais**
+`actual` e `anterior`: depois de uma rotação, um criptograma com `kid actual` é aberto com
+a KEK nova, a autenticação falha e o *token* perde-se — e um *token* de cliente só volta
+com o dono a repetir o Embedded Signup. Achado da revisão adversarial do KAM-072; a
+correcção é pôr o `kid` dentro do valor da KEK (`<kid>:<base64>`, como o
+`identity/chaves.ts`) e o credor é **o fundador**, porque o código é do KAM-016.
 
-1. Actual → anterior, nova → actual, no cofre. A leitura continua: o `kid` vai dentro de
-   cada criptograma e o `decifrarToken` escolhe a versão pelo anel.
+Com um `kid` estável, a ordem seria:
+
+1. Actual → anterior, nova → actual, no cofre. A leitura continua durante a janela.
 2. Re-cifrar **todos** os criptogramas com `recifrarToken` (`keyring/tokens.ts`). O
-   *token* não muda; o criptograma sim, e volta ao cofre sob a mesma referência.
+   *token* não muda; o criptograma sim. A porta de escrita do cofre (`secrets/escrita.ts`)
+   só **cunha** referências novas, pelo que cada criptograma re-cifrado entra numa
+   referência nova e o `tenant_channels.token_ref` tem de a acompanhar — passo que nenhum
+   código faz hoje.
 3. Só depois retirar a anterior. Um criptograma que tenha ficado por re-cifrar deixa de
-   abrir, e o *token* só volta com o dono a repetir o Embedded Signup.
+   abrir.
 
 ## 4. Critério de recuperação
 
@@ -215,5 +224,5 @@ RB-K01 ou o RB-K02, e comunica-se por esses.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e quem a expõe (KAM-078); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo trata a KEK dos *tokens* de cliente; o credor da divergência do destino passa a ser o fundador | KAM-072 |
+| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial); o credor da divergência do destino passa a ser o fundador | KAM-072 |
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): os dois caminhos e a ordem de incidente, a janela por segredo (com os 7 dias da Meta no `meta_app_secret`), o «recriar e não reiniciar», o procedimento proposto da cópia offline da passphrase do backup, e as faltas medidas no §0 — sem acção de rotação no `audit_log`, sem data de última rotação no inventário | KAM-083 |

@@ -24,15 +24,19 @@
 import { Buffer } from "node:buffer";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-import type { Ambiente, SecretProvider } from "../secrets/index.ts";
+import { type Ambiente, SecretAusenteError, type SecretProvider } from "../secrets/index.ts";
 
 /**
  * As referências que o critério 8 nomeia: as chaves da Meta e do facilitador.
- * Os `id` são os do `ops/secrets-inventory.yaml`.
+ * Os `id` são os do `ops/secrets-inventory.yaml`. **Fica de fora o
+ * `meta_client_token`**: é um segredo por tenant (`meta_client_token/<sufixo>`),
+ * cunhado pela Meta para cada cliente, e não há referência fixa a comparar
+ * entre dois ambientes.
  */
 export const REFS_SEPARADAS_POR_AMBIENTE: readonly string[] = [
   "meta_app_secret",
   "meta_verify_token",
+  "meta_pin_2fa",
   "proxypay_api_key",
   "appypay_client_secret",
 ];
@@ -69,8 +73,12 @@ export async function verificarSeparacaoDeAmbientes(
       let anel: readonly (string | null)[];
       try {
         anel = await provedor.getRing(ref); // kamba:secrets-inventory dinamico as refs sao as de REFS_SEPARADAS_POR_AMBIENTE, todas no inventario
-      } catch {
-        continue;
+      } catch (erro) {
+        // Só a ausência se tolera. Um cofre em baixo, um provedor de outro
+        // ambiente ou uma referência inválida levantam: uma verificação que
+        // engolisse esses dava verde sem ter lido nada.
+        if (erro instanceof SecretAusenteError) continue;
+        throw erro;
       }
       for (const valor of anel) {
         if (typeof valor !== "string" || valor === "") continue;

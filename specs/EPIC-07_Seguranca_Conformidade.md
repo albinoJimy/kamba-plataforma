@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.38 |
+| Versão | 1.39 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1432,7 +1432,7 @@ O Piloto usa Doppler (Developer grátis até 3 utilizadores); o OpenBao é Clust
 Implementar do lado do consumidor o suporte a duas chaves (anel `[actual, anterior]`) no GWY e em PAY, a rotação do pepper do HMAC de contactos com `kid`, os procedimentos ensaiados em staging para cada segredo do calendário de `../docs/tecnica/08` §5 e o alerta de idade de cada segredo.
 
 ### Critérios de Aceitação
-- [ ] O GWY mantém o anel `[actual, anterior]` do Meta App Secret: durante a janela aceita assinaturas de ambas; após revogar a anterior rejeita a antiga (401), e a Meta recupera os eventos por re-entrega (teste com webhooks simulados e relógio avançado).
+- [x] O GWY mantém o anel `[actual, anterior]` do Meta App Secret: durante a janela aceita assinaturas de ambas; após revogar a anterior rejeita a antiga (401), e a Meta recupera os eventos por re-entrega (teste com webhooks simulados e relógio avançado).
 - [ ] PAY aceita `X-Signature` com a chave corrente ou anterior da conta (`credenciais_ref` corrente e anterior) e rejeita a revogada; em *staging* com o *sandbox* do ProxyPay, a rotação trimestral não perde pagamentos: o reconciliador `GET /payments` recupera os que chegaram assinados com a chave que o facilitador deixou de aceitar (F-16).
 - [ ] A rotação do pepper do HMAC de contactos incrementa `hmac_key_ver`; a pesquisa tenta a versão corrente e a anterior; 10 000 contactos sintéticos são re-chaveados por *job* em lotes com 0 respostas 5xx e 0 contactos perdidos, e no fim 0 contactos na versão antiga.
 - [ ] Tokens de cliente (Embedded Signup) cifrados com AES-256-GCM, DEK por tenant, KEK no cofre e `kid` versionado; rodar a KEK re-cifra as DEK sem tocar nos tokens e a leitura mantém-se.
@@ -1440,7 +1440,7 @@ Implementar do lado do consumidor o suporte a duas chaves (anel `[actual, anteri
 - [ ] Rotação de emergência: com um segredo marcado comprometido, a revogação e a substituição completam-se em ≤ 24 h (alvo P2 de `../docs/tecnica/08` §10) num simulacro cronometrado; o resultado fica registado.
 - [ ] A métrica `secret_age_days{segredo}` existe e alerta a 80% do prazo; cada rotação escreve no `audit_log` o identificador e a hora, nunca o valor.
 - [ ] Chaves distintas por ambiente (`dev`/`staging`/`prod`): um teste de configuração falha se uma chave Meta ou do facilitador de `prod` estiver presente em `staging`.
-- [ ] O procedimento das chaves virtuais do LiteLLM documenta o que a edição MIT permite; o que não permitir fica como passo manual com dono e data (critério de saída do NÃO VERIFICADO).
+- [x] O procedimento das chaves virtuais do LiteLLM documenta o que a edição MIT permite; o que não permitir fica como passo manual com dono e data (critério de saída do NÃO VERIFICADO).
 
 ### Detalhes Técnicos
 - **Componentes:** GWY, PAY, LLM, TEN, GOV. Módulos `libs/keyring` (anel de chaves), `services/*/secrets/`, `ops/runbooks/rotacao_*.md`; o orquestrador `rotate(secret_id)` pertence à abstracção de KAM-010.
@@ -1457,11 +1457,82 @@ Implementar do lado do consumidor o suporte a duas chaves (anel `[actual, anteri
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Sem segredos em código, logs ou traces; *scan* de segredos limpo.
-- [ ] Idempotência: a rotação repetida é segura (mesma `kid`, mesmo resultado).
+- [x] Sem segredos em código, logs ou traces; *scan* de segredos limpo.
+- [x] Idempotência: a rotação repetida é segura (mesma `kid`, mesmo resultado).
 - [ ] Privacidade: o *job* de re-chaveamento não regista identificadores; lookup mantém-se.
 - [ ] Observabilidade: `secret_age_days`, alerta de expiração, registo no `audit_log`.
 - [ ] Runbooks ensaiados e assinados pelo Responsável de Segurança; dois revisores.
+
+### Verificação dos Critérios de Aceitação
+
+**9 critérios; 2 marcados, 4 parciais, 3 não satisfeitos. 6 caixas de DoD; 2
+marcadas, 4 por satisfazer.** Medido no ramo `feature/KAM-072-rotacao-de-chaves`,
+sobre a árvore de `publico/main` em `0c393555`. Nesta máquina não há `make`, `node`
+nem `pnpm`: os ensaios de TypeScript correram num contentor
+`node:24.21.0-trixie-slim` com o *worktree* montado, e os *linters* directamente
+(`python -m <lint> --root .. check`). **Sem migração e sem chaves reais**: todas as
+chaves dos ensaios saem do `gerarValor()` em tempo de execução, e nada contacta a
+Meta nem o facilitador.
+
+**O que este ticket entrega, numa frase:** o anel `[actual, anterior]` com `kid` e
+janela de sobreposição, e o orquestrador que roda, revoga, revoga no fim da janela e
+faz a rotação de emergência, gravando identificador e hora e nunca o valor —
+[`../packages/core-ts/src/keyring/`](../packages/core-ts/src/keyring/) —, mais a
+idade de cada segredo, a verificação de separação por ambiente, a re-cifra dos
+*tokens* de cliente e os ensaios de rotação contra o GWY e contra o servidor falso
+do ProxyPay. **O que não entrega:** quem corra o rotador contra o cofre real, o
+registo no `audit_log`, a exposição da métrica, e tudo o que só se prova em
+*staging* ou no painel da Meta e do facilitador.
+
+**O módulo não vive onde o bloco o pôs.** O bloco nomeia `libs/keyring`; o código
+está em `packages/core-ts/src/keyring/`, pela razão que o KAM-010 registou para
+`secrets/`: os dois consumidores (GWY e PAY) são TypeScript, e um módulo fora do
+`rootDir: src` não compila. **E o `verify(any)` dos Detalhes Técnicos não está no
+anel**: o GWY e o PAY já têm o deles, em tempo constante e com ensaio
+(`assinaturaValida` do KAM-013 e `assinaturaVerifica` do KAM-056), e uma segunda
+comparação foi o que a revisão adversarial apontou como duplicação sem consumidor.
+O anel dá-lhes a lista das chaves vivas (`valoresVivos`).
+
+| # | Critério | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | O GWY mantém o anel do App Secret: na janela aceita as duas; revogada a anterior, 401; a Meta recupera por re-entrega | **satisfeito** | [`../services/gwy/tests/rotacao.test.ts`](../services/gwy/tests/rotacao.test.ts), três casos contra o `createApp` verdadeiro. **Pelo caminho de produção** — o anel do `EnvSecretProvider` que o `server.ts` relê: com `_ANTERIOR` as duas assinaturas dão 200; sem ela a antiga dá 401, e o mesmo corpo re-entregue com a nova dá 200. **Pelo rotador**, com relógio avançado: na janela as duas dão 200; revogada, a antiga dá 401 e não entra na fila, e a re-entrega três dias depois entra; sem revogação, a anterior vale a `7 d − 1 ms` e dá 401 aos `7 d`. **Duas ressalvas:** em produção o fim da janela é do operador — o ambiente não guarda `anteriorAte`, e revogar é recriar o contentor sem a variável (RB-K07 §3.1); e que a Meta re-assine a re-entrega com o segredo novo é **NÃO VERIFICADO** (RB-K07 §7), pelo que o ensaio modela o caso em que sim | — |
+| 2 | PAY aceita a chave corrente ou a anterior e rejeita a revogada; em *staging* com o *sandbox*, a rotação trimestral não perde pagamentos (F-16) | **parcial** | **A primeira metade está, do KAM-056 e daqui.** [`../packages/core-ts/tests/keyring.pagamentos.test.ts`](../packages/core-ts/tests/keyring.pagamentos.test.ts), contra o servidor falso do KAM-056 e com o pior caso do facilitador — troca sem sobreposição do lado dele: na janela, *callbacks* assinados com as duas verificam; revogada a anterior, o assinado com ela levanta `AuthError`, **e o pagamento que ele trazia chega pelo `GET /payments` com a chave nova**, como `consulta` e com o valor exacto. **A segunda metade não**: não há *sandbox* nem *staging*, que é o que o critério pede — os Detalhes Técnicos já previam o *fake*. **E o resolvedor que transforma o anel nas duas `credenciais_ref` é do ensaio**: nenhum serviço corre o adaptador | **ext:KAM-103** (o *sandbox*); **KAM-077** (o *staging*) |
+| 3 | A rotação do *pepper* incrementa a versão; a pesquisa tenta a corrente e a anterior; 10 000 contactos re-chaveados em lotes com 0 5xx e 0 perdidos, e 0 na versão antiga | **parcial** | **O comportamento está provado pelo KAM-008, e não se reescreveu:** `../packages/core-ts/tests_bd/identity.bd.test.ts` cria 10 000 contactos, roda para `k2`, interrompe o `rekeyLookup` ao fim de três lotes de 500 e retoma, resolve 100 a meio e 500 no fim sem diferenças, e termina com **10 000 de 10 000** linhas sob a versão nova e o HMAC conferido contra a chave nova. Não foi re-corrido neste ramo: é o *gate* 8 (`tests_identidade`), e este ramo não toca no módulo de identidade. **Duas diferenças da letra:** não há superfície HTTP sobre o re-chaveamento, pelo que «0 respostas 5xx» não tem o que medir; e a coluna é `hmac_kid` e não a que o critério nomeia (dívida 13 de `../docs/dividas-documentais.md`). A ordem da rotação ficou escrita no RB-K07 §3.5 | o fundador (a leitura de «0 5xx» sem HTTP) |
+| 4 | *Tokens* de cliente com AES-256-GCM, DEK por tenant, KEK no cofre e `kid`; rodar a KEK re-cifra as DEK sem tocar nos *tokens*, e a leitura mantém-se | **não satisfeito** | **A cifra existe (KAM-016) e a re-cifra está escrita** — `recifrarToken` em [`../packages/core-ts/src/keyring/tokens.ts`](../packages/core-ts/src/keyring/tokens.ts): abre com a versão antiga e fecha com a actual, o *token* sai igual, e depois de revogar a anterior a leitura continua; é idempotente e recusa um criptograma alterado. **Mas não se cumpre no Piloto, por um defeito medido pela revisão adversarial:** o `#tokenEmClaro` do `../packages/core-ts/src/onboarding/onboarding.ts` tira o `kid` de `cofre.versions()`, e o `EnvSecretProvider` devolve os rótulos posicionais `actual` e `anterior`. Depois de uma rotação, `actual` é a KEK nova e o *token* guardado não abre — o ensaio «o defeito medido» em `../packages/core-ts/tests/keyring.test.ts` reproduz o caminho e exige a falha de autenticação. **E a letra não cabe no desenho do KAM-016**: a DEK é derivada da KEK por HKDF, não guardada, pelo que não há DEK a re-cifrar — muda o criptograma. O RB-K07 §3.7 manda não rodar esta KEK até o `kid` ir dentro do valor da KEK | **o fundador** (o defeito é do código do KAM-016, fundido) |
+| 5 | Um runbook ensaiado em *staging* por segredo do calendário | **não satisfeito** | O `../docs/runbooks/RB-K07-rotacao-de-segredos.md` (versão 1.1) tem a ordem e a janela para o App Secret, a chave do ProxyPay, as chaves de LLM, a passphrase do backup, o *pepper* (§3.5, novo) e a KEK dos *tokens* (§3.7, novo). **Faltam secções** para o `verify_token`, o PIN 2FA, as chaves AppyPay, as credenciais de BD e os *tokens* do Chatwoot, e **nenhum foi ensaiado**: não há *staging* | **KAM-077** (o *staging*); o fundador (as secções em falta) |
+| 6 | Rotação de emergência em ≤ 24 h num simulacro cronometrado, com o resultado registado | **não satisfeito** | O caminho existe: `Rotador.emergencia` retira a anterior que houver, roda e retira a comprometida no mesmo passo, regista as duas acções, recusa o mesmo valor com outro `kid`, e repetida depois de uma falha repara o registo com o `kid` comprometido (`../packages/core-ts/tests/keyring.test.ts`, cinco casos). **O simulacro não** — é cronómetro numa infra-estrutura que não existe | **KAM-077** (o *staging*) |
+| 7 | `secret_age_days{segredo}` existe e alerta a 80% do prazo; cada rotação escreve no `audit_log` o identificador e a hora, nunca o valor | **parcial** | **O cálculo e o registo estão; a exposição e o `audit_log` não.** [`../packages/core-ts/src/keyring/idade.ts`](../packages/core-ts/src/keyring/idade.ts) dá a idade pela última versão registada — e um segredo importado tem a idade da versão, não a da importação —, o estado `a_expirar` a 80% e `vencido` a 100% (limites exactos ensaiados), e as amostras `secret_age_days` e `secret_rotation_period_days`. O `Rotador` grava cada acção com segredo, acção, `kid`, `kid` anterior, hora e actor, e o ensaio serializa o registo e procura cada valor em três codificações. **O `audit_log` exige uma acção nova no domínio fechado `audit_log_action` (revisão `0048`)**, que é migração e emenda ao dicionário, e **nenhum processo expõe as séries** — o `../ops/metricas/catalogo.yaml` diz porquê em `regras_por_escrever` | **o fundador** (a acção do `audit_log` e quem corre o rotador) |
+| 8 | Chaves distintas por ambiente: um teste de configuração falha se uma chave Meta ou do facilitador de `prod` estiver em `staging` | **parcial** | `verificarSeparacaoDeAmbientes` em [`../packages/core-ts/src/keyring/separacao.ts`](../packages/core-ts/src/keyring/separacao.ts) compara por resumo com chave descartável, nas duas versões de cada anel, e o erro nomeia a referência e os ambientes e nunca o valor. Quatro casos: a chave Meta de `prod` em `staging` falha, a do facilitador como **anterior** de `staging` falha, chaves distintas passam, e um cofre em baixo **levanta** em vez de dar verde. **Não corre contra a configuração real**: não há projectos Doppler nem credenciais de leitura dos dois | **KAM-010** (critério 2: a conta Doppler) |
+| 9 | O procedimento das chaves virtuais do LiteLLM documenta o que a edição MIT permite; o resto fica manual com dono e data | **satisfeito** | `../docs/runbooks/rotacao-de-chaves-de-llm.md` §6: o que é MIT e o que é Enterprise, com o estado herdado do `E4` §2.7 (a divisão é CONFIRMADO em resumo; `/key/generate`, `/key/update` e `/key/list` foram medidos pelo KAM-030; o `/key/delete` é NÃO VERIFICADO), e os três passos manuais com dono (`eng_runtime`, do inventário) e data. **A data é proposta** — 2027-02-14, a primeira rotação de 90 dias —, e a secção diz que quem a fixa é o dono | — |
+
+#### Verificação do Definition of Done
+
+| # | Linha | Estado | Evidência | Credor |
+|---|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **não satisfeito** | **2 de 9** satisfeitos (1, 9), **4 parciais** (2, 3, 7, 8) e **3 não satisfeitos** (4, 5, 6) | os credores de cada critério |
+| 2 | Sem segredos em código, logs ou traces; *scan* limpo | **satisfeito** | *Gate* 9 neste ramo: `scan_secrets tree` limpo nos ficheiros seguidos pelo `git`, e `history` limpo no intervalo. Nenhuma chave é literal; nenhuma classe de erro recebe um valor; o registo de rotação não tem campo para ele | — |
+| 3 | Idempotência: a rotação repetida é segura | **satisfeito** | Repetir `rotate` com a mesma versão não muda o cofre nem recomeça a janela; repetir `iniciar`, `rotate`, `revogar` e `emergencia` depois de uma falha entre o cofre e o registo escreve a entrada que faltou, uma vez só. Um `kid` que já existiu nunca volta, e duas acções concorrentes dão uma vitória e um `RotacaoConcorrenteError` — também a revogação no fim da janela, que não retira a anterior de uma rotação que entrou entre a leitura e a escrita | — |
+| 4 | Privacidade: o re-chaveamento não regista identificadores; o *lookup* mantém-se | **parcial** | O *lookup* mantém-se (critério 3). Que os parâmetros e os erros do `rekeyLookup` não levam identificadores em claro está no ensaio de canários do KAM-008; **os registos do *job*** não foram medidos neste ramo | o fundador |
+| 5 | Observabilidade: `secret_age_days`, alerta de expiração, registo no `audit_log` | **parcial** | Ver o critério 7 | **o fundador** |
+| 6 | Runbooks ensaiados e assinados pelo Responsável de Segurança; dois revisores | **não satisfeito** | Nenhum ensaio (critério 5), nenhuma assinatura. Uma revisão adversarial independente — não os dois revisores humanos que a linha pede | **KAM-077**; o fundador |
+
+#### A revisão adversarial: o que mudou por causa dela
+
+Uma revisão, sem ver o raciocínio de quem escreveu, sobre o primeiro *commit*. Os
+achados corrigidos neste ramo: **a revogação no fim da janela corria contra uma
+rotação concorrente** e retirava a anterior que ela acabara de abrir (a escrita passou
+a ser condicional ao par de `kid` lido, e há ensaio que intercala a rotação); **um
+`kid` de há duas rotações, ou já revogado, voltava** (o rotador recusa-o pelo
+registo); **a revogação, o início e a emergência não se reparavam** ao repetir, e a
+emergência reparada perdia o `kid` comprometido; **o mesmo valor com outro `kid`
+passava**, numa emergência inclusive; **uma rotação com a anterior viva tirava-a
+antes do fim da janela, sem registo** (passou a recusar com `JanelaAbertaError`, ou a
+revogar primeiro se a janela venceu); **um segredo importado tinha idade zero**; **a
+separação por ambiente dava verde com o cofre em baixo**; e a prosa que dizia mais do
+que o código — o RB-K07 §3.7 mandava rodar uma KEK que parte os *tokens*, um credor
+que não sabia que o era, um *endpoint* do LiteLLM que ninguém usa, e 41 segredos onde
+há 43. **O achado que não se corrige aqui** é o do critério 4: o `kid` posicional dos
+*tokens* de cliente é código do KAM-016, e fica devolvido.
 
 ### Handoff para Claude Code
 
@@ -2312,3 +2383,4 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.36 | Novembro 2026 | KAM-198 (acrescentado ao EPIC-09 no PR do KAM-196): a contagem viva do backlog na nota do `assert` passa a **198**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | KAM-199 (acrescentado ao EPIC-06 no PR do KAM-064): a contagem viva do backlog na nota do `assert` passa a **199**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | KAM-200 (acrescentado ao EPIC-09 no PR do KAM-097): a contagem viva do backlog na nota do `assert` passa a **200**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | KAM-072 (rotação de chaves Meta, facilitador e HMAC): os critérios 1 e 9 e as caixas de DoD 2 e 3 marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 2, 3, 7 e 8 ficam parciais e o 4, o 5 e o 6 não satisfeitos, com o credor escrito. Entregue o módulo `../packages/core-ts/src/keyring/` (anel com `kid` e janela, rotador com registo sem valor, idade dos segredos, separação por ambiente, re-cifra dos *tokens*), sem migração. **Um defeito medido e devolvido:** o `kid` dos *tokens* de cliente é posicional no `EnvSecretProvider`, e rodar a `kek_token_cliente` no Piloto parte os *tokens* guardados (critério 4). Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |

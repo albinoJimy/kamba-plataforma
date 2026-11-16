@@ -2,10 +2,15 @@
  * A rotação do Meta App Secret no GWY (KAM-072, critério 1), com *webhooks*
  * simulados e o relógio avançado.
  *
- * O `createApp` recebe o anel por função (`anel: () => …`), e em produção o
- * `server.ts` relê-o do cofre de 60 em 60 s. Aqui a função lê o anel do
- * `CofreEmMemoria` através de `valoresVivos`, com um relógio que o ensaio
- * avança: é a mesma ligação, sem o laço.
+ * O `createApp` recebe o anel por função (`anel: () => …`). Há duas fontes, e
+ * o ensaio passa pelas duas:
+ *
+ * * **a de produção**: o `server.ts` relê `getRing` do `EnvSecretProvider` de
+ *   60 em 60 s. Aí não há `anteriorAte` — a anterior vale enquanto existir
+ *   `KAMBA_SECRET_META_APP_SECRET_ANTERIOR`, e revogar é tirá-la e recriar o
+ *   contentor (RB-K07 §3.1). O fim da janela é do operador;
+ * * **a do rotador**: o `CofreEmMemoria` com `valoresVivos`, onde a janela
+ *   fecha sozinha. Nenhum processo a liga ao GWY hoje.
  *
  * O que se prova, pela ordem de uma rotação real (RB-K07 §3.1):
  *
@@ -37,6 +42,7 @@ import {
   valoresVivos,
 } from "@kamba/core-ts/keyring";
 import { Logger } from "@kamba/core-ts/logger";
+import { EnvSecretProvider } from "@kamba/core-ts/secrets";
 
 import { createApp } from "../src/app.ts";
 import { SERVICE } from "../src/meta.ts";
@@ -129,11 +135,42 @@ describe("GWY: rotação do Meta App Secret com webhooks simulados (KAM-072, cri
     assert.deepEqual(
       registo.todas().map((e) => [e.segredo, e.accao, e.kid]),
       [
-        ["meta_app_secret", "rotacao", "k1"],
+        ["meta_app_secret", "inicio", "k1"],
         ["meta_app_secret", "rotacao", "k2"],
         ["meta_app_secret", "revogacao", "k2"],
       ],
     );
+  });
+
+  it("o caminho de produção: o anel do EnvSecretProvider aceita as duas, e sem a _ANTERIOR dá 401", async () => {
+    const antigo = gerarValor();
+    const novo = gerarValor();
+    const comAnterior = new EnvSecretProvider({
+      ambiente: "staging",
+      env: { KAMBA_SECRET_META_APP_SECRET: novo, KAMBA_SECRET_META_APP_SECRET_ANTERIOR: antigo },
+    });
+    // Revogar, em produção, é recriar o contentor sem a variável da anterior.
+    const revogado = new EnvSecretProvider({ ambiente: "staging", env: { KAMBA_SECRET_META_APP_SECRET: novo } });
+    let anel: readonly (string | null)[] = await comAnterior.getRing(REF_DO_APP_SECRET); // kamba:secrets-inventory dinamico REF_DO_APP_SECRET e o meta_app_secret do inventario
+    const filas = new FilasEmMemoria();
+    const app = createApp(new Logger(SERVICE, { destino: { write: () => {} } }), {
+      anel: () => anel,
+      verifyToken: () => VERIFICACAO,
+      filas,
+      profundidade: () => null,
+    });
+    const enviar = (bytes: Uint8Array, segredo: string) =>
+      app.request(CAMINHO, {
+        method: "POST",
+        body: bytes,
+        headers: { "content-type": "application/json", "x-hub-signature-256": assinar(bytes, segredo) },
+      });
+    assert.equal((await enviar(corpo("wamid.PROD1"), antigo)).status, 200);
+    assert.equal((await enviar(corpo("wamid.PROD2"), novo)).status, 200);
+    anel = await revogado.getRing(REF_DO_APP_SECRET); // kamba:secrets-inventory dinamico REF_DO_APP_SECRET e o meta_app_secret do inventario
+    const perdido = corpo("wamid.PROD3");
+    assert.equal((await enviar(perdido, antigo)).status, 401);
+    assert.equal((await enviar(perdido, novo)).status, 200);
   });
 
   it("sem revogação, a anterior deixa de valer quando a janela de 7 dias fecha", async () => {

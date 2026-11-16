@@ -857,7 +857,9 @@ regras_por_escrever:
       criterio 7, e nao os 14 dias desta linha), mas nenhum processo corre o
       rotador nem expoe as duas series, pelo que a regra citaria uma metrica
       que ninguem serve
-    credor: KAM-078 (o agendador que corre o rotador e expoe as series)
+    credor: >-
+      o fundador. Nenhum ticket do backlog liga o rotador a um processo: o
+      bloco do KAM-078 so leva o `reanalisar` ao agendador
 
   - alerta: memoria (> 80% sustentada)
     severidade: P3
