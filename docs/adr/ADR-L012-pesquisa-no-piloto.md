@@ -78,9 +78,13 @@ KAM-199:
 §6 (o que fica fora e quando entra), com o gatilho escrito: o *gate* do Piloto
 (KAM-110) verde, um destino de transferência autorizado com `apd_ref` (ADR-008)
 ou um modelo servido em Luanda, e a decisão do modelo. O `credor` do
-`kamba-embed` em `llm/aliases.yaml` continua a ser o **KAM-199**, que é onde a
-caixa está devolvida com essa linha do §6 escrita (o campo só aceita um
-`KAM-NNN`, e um ticket que não soubesse da caixa era um credor de nome).
+`kamba-embed` em `llm/aliases.yaml` é o **KAM-063**, que fica aberto com as
+caixas do modelo, a começar pelo critério 8 (o documento de decisão do
+modelo, que é o que tira o *alias* de `por_decidir`). O campo só aceita um
+`KAM-NNN`, e o KAM-199 fecha com a sua fusão. Escolha do orquestrador do lote
+a 2026-11-16, depois de recusados o KAM-110 (dar-lhe a caixa mudava os
+critérios de um *gate*, que são do fundador) e um ticket novo (o §1 do
+backlog mestre só escreve a Fase 2 com o KAM-110 verde).
 
 **Porque não as outras.** B e C pediam chamadas pagas ou infraestrutura antes de
 haver um número sobre um modelo real, e o que o *dataset* mostra do modo híbrido
