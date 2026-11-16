@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.99"
+versao_dicionario: "1.100"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -18340,6 +18340,250 @@ entradas:
       - "saga_primeira_tentativa_ratio"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Entrada na lista"
+    canonico: "platform.waitlist_entry, onze colunas"
+    literais:
+      - "platform.waitlist_entry"
+    nomes:
+      - "platform.waitlist_entry"
+    nomes_nota:
+      - "onboarding_id"
+      - "tenant_id"
+      - "aprovado_em"
+      - "na_fila_desde"
+      - "estado"
+      - "convite_hash"
+      - "convidado_em"
+      - "convite_expira_em"
+      - "tentativas"
+      - "concluido_em"
+      - "criado_em"
+      - "FORCE"
+      - "onboarding_case"
+      - "review_case"
+      - "kamba_batch"
+      - "UPDATE"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Estado de uma entrada"
+    canonico: "waitlist_entry.estado ∈ {aguardando, convidado, concluido, expirado, desistiu}"
+    literais:
+      - "waitlist_entry.estado"
+      - "aguardando"
+      - "convidado"
+      - "concluido"
+      - "expirado"
+      - "desistiu"
+    nomes:
+      - "waitlist_entry.estado"
+      - "aguardando"
+      - "convidado"
+      - "concluido"
+      - "expirado"
+      - "desistiu"
+    nomes_nota:
+      - "concluido"
+      - "es_onboardings_7d"
+      - "expirado"
+      - "abandonado"
+      - "desistiu"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Chave FIFO"
+    canonico: "waitlist_entry.aprovado_em, escrito pelo trigger waitlist_entry_do_caso a partir do onboarding_case.fase_at"
+    literais:
+      - "waitlist_entry.aprovado_em"
+      - "waitlist_entry_do_caso"
+      - "onboarding_case.fase_at"
+    nomes:
+      - "waitlist_entry.aprovado_em"
+      - "waitlist_entry_do_caso"
+      - "onboarding_case.fase_at"
+    nomes_nota:
+      - "fase_at"
+      - "aprovado"
+      - "aguarda_es"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Ordem da fila"
+    canonico: "waitlist_entry.na_fila_desde, e a ordem (na_fila_desde, onboarding_id)"
+    literais:
+      - "waitlist_entry.na_fila_desde"
+      - "(na_fila_desde, onboarding_id)"
+    nomes:
+      - "waitlist_entry.na_fila_desde"
+      - "na_fila_desde"
+      - "onboarding_id"
+    nomes_nota:
+      - "aprovado_em"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Barreira da entrada"
+    canonico: "trigger waitlist_entry_do_caso"
+    literais:
+      - "waitlist_entry_do_caso"
+    nomes:
+      - "waitlist_entry_do_caso"
+    nomes_nota:
+      - "aprovado"
+      - "aguarda_es"
+      - "if"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Convite de uso único"
+    canonico: "waitlist_entry.convite_hash, SHA-256 de 32 octetos, UNIQUE"
+    literais:
+      - "waitlist_entry.convite_hash"
+      - "UNIQUE"
+    nomes:
+      - "waitlist_entry.convite_hash"
+      - "UNIQUE"
+    nomes_nota:
+      - "estado"
+      - "convidado"
+      - "waitlist_entry_convite_ck"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Validade do convite"
+    canonico: "VALIDADE_DO_CONVITE_H = 48"
+    literais:
+      - "VALIDADE_DO_CONVITE_H"
+    nomes:
+      - "VALIDADE_DO_CONVITE_H"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Expirações até abandonar"
+    canonico: "EXPIRACOES_ATE_ABANDONO = 2, em waitlist_entry.tentativas (0 a 2)"
+    literais:
+      - "EXPIRACOES_ATE_ABANDONO"
+      - "waitlist_entry.tentativas"
+    nomes:
+      - "EXPIRACOES_ATE_ABANDONO"
+      - "waitlist_entry.tentativas"
+    nomes_nota:
+      - "expirado"
+      - "abandonado"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Validade do KYC na reentrada"
+    canonico: "VALIDADE_DO_KYC_DIAS = 90"
+    literais:
+      - "VALIDADE_DO_KYC_DIAS"
+    nomes:
+      - "VALIDADE_DO_KYC_DIAS"
+    nomes_nota:
+      - "aprovado_em"
+      - "kyc_caducado"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Limite em vigor"
+    canonico: "platform.onboarding_capacity, uma linha: unica, es_max_por_7d, origem, fundamento, alterado_em"
+    literais:
+      - "platform.onboarding_capacity"
+      - "unica"
+      - "es_max_por_7d"
+      - "origem"
+      - "fundamento"
+      - "alterado_em"
+    nomes:
+      - "platform.onboarding_capacity"
+      - "unica"
+      - "es_max_por_7d"
+      - "origem"
+      - "fundamento"
+      - "alterado_em"
+    nomes_nota:
+      - "fundamento"
+      - "UPDATE"
+      - "confirmado"
+      - "onboarding_capacity_confirmacao_ck"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Origem do limite"
+    canonico: "onboarding_capacity.origem ∈ {confirmado, nao_verificado}"
+    literais:
+      - "onboarding_capacity.origem"
+      - "confirmado"
+      - "nao_verificado"
+    nomes:
+      - "onboarding_capacity.origem"
+      - "confirmado"
+      - "nao_verificado"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Estimativa de espera"
+    canonico: "Estimativa, com rotulo = estimativa, minimoDias e maximoDias"
+    literais:
+      - "Estimativa"
+      - "rotulo"
+      - "estimativa"
+      - "minimoDias"
+      - "maximoDias"
+    nomes:
+      - "Estimativa"
+      - "rotulo"
+      - "estimativa"
+      - "minimoDias"
+      - "maximoDias"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Recusas da lista"
+    canonico: "ListaRecusadaError.motivo ∈ {nao_elegivel, kyc_caducado, fora_da_lista, convite_invalido}"
+    literais:
+      - "ListaRecusadaError.motivo"
+      - "nao_elegivel"
+      - "kyc_caducado"
+      - "fora_da_lista"
+      - "convite_invalido"
+    nomes:
+      - "ListaRecusadaError.motivo"
+      - "nao_elegivel"
+      - "kyc_caducado"
+      - "fora_da_lista"
+      - "convite_invalido"
+    nomes_nota:
+      - "convite_invalido"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Rotas do dono"
+    canonico: "GET /api/lista/posicao, POST /api/lista/convite, POST /api/lista/recusar, POST /api/lista/desistir"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "sessao"
+      - "onboarding_id"
+    variantes_literais: []
+  - seccao: "3.71"
+    conceito: "Métricas da lista"
+    canonico: "es_lista_espera_entradas{estado}, es_lista_espera_espera_media_segundos, es_lista_espera_convites_total{desfecho}, es_vagas_concedidas_7d, es_limite_7d{origem}"
+    literais:
+      - "es_lista_espera_entradas{estado}"
+      - "es_lista_espera_espera_media_segundos"
+      - "es_lista_espera_convites_total{desfecho}"
+      - "es_vagas_concedidas_7d"
+      - "es_limite_7d{origem}"
+    nomes:
+      - "es_lista_espera_entradas"
+      - "estado"
+      - "es_lista_espera_espera_media_segundos"
+      - "es_lista_espera_convites_total"
+      - "desfecho"
+      - "es_vagas_concedidas_7d"
+      - "es_limite_7d"
+      - "origem"
+    nomes_nota:
+      - "estado"
+      - "aguardando"
+      - "desfecho"
+      - "origem"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -21354,6 +21598,32 @@ dominios:
       - "e2e"
     seccao: "3.70"
     conceito: "Gates"
+    so_no_registo: false
+  - coluna: "waitlist_entry.estado"
+    valores:
+      - "aguardando"
+      - "convidado"
+      - "concluido"
+      - "expirado"
+      - "desistiu"
+    seccao: "3.71"
+    conceito: "Estado de uma entrada"
+    so_no_registo: false
+  - coluna: "onboarding_capacity.origem"
+    valores:
+      - "confirmado"
+      - "nao_verificado"
+    seccao: "3.71"
+    conceito: "Origem do limite"
+    so_no_registo: false
+  - coluna: "ListaRecusadaError.motivo"
+    valores:
+      - "nao_elegivel"
+      - "kyc_caducado"
+      - "fora_da_lista"
+      - "convite_invalido"
+    seccao: "3.71"
+    conceito: "Recusas da lista"
     so_no_registo: false
 
 variantes:

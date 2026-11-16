@@ -81,7 +81,8 @@ ROTAS_DA_INSCRICAO = (
     "rota:onboarding-web:rotas:ligacao:POST:/api/actividade",
 )
 
-#: As oito rotas do passo guiado do Embedded Signup (KAM-093). Como as da
+#: As doze rotas do passo guiado do Embedded Signup: as oito do KAM-093 e as
+#: quatro da lista de espera do KAM-095 (`/api/lista/*`). Como as da
 #: inscricao, isolam o **caso** e nao o tenant, e o caso sai **so** da sessao:
 #: nenhuma aceita um `onboarding_id` no corpo nem na consulta. O `comSessao` no
 #: identificador e o nome do auxiliar que a enumeracao encontra antes de cada
@@ -96,6 +97,10 @@ ROTAS_DO_GUIA = (
     "rota:onboarding-web:guia:comSessao:POST:/api/es/concluir",
     "rota:onboarding-web:guia:comSessao:POST:/api/es/pagamento",
     "rota:onboarding-web:guia:comSessao:POST:/api/es/retoma",
+    "rota:onboarding-web:guia:comSessao:GET:/api/lista/posicao",
+    "rota:onboarding-web:guia:comSessao:POST:/api/lista/convite",
+    "rota:onboarding-web:guia:comSessao:POST:/api/lista/recusar",
+    "rota:onboarding-web:guia:comSessao:POST:/api/lista/desistir",
 )
 
 #: O `POST /api/registo` responde **200** aos dois ataques, e isso nao e uma

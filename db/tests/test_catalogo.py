@@ -743,6 +743,10 @@ class TestConvencoes(ComBase):
                 ("offer_terms", "tenant_id", "uuid", None),
                 # KAM-087 (0043): o caso de onboarding, `uuid` gerada; entre a
                 # oferta e as encomendas («off» < «onb» < «ord»).
+                # KAM-095 (revisao da lista de espera): o limite, de uma linha
+                # so, pela razao escrita no teste da coluna `id`. Antes do caso
+                # («onboarding_cap» < «onboarding_cas»).
+                ("onboarding_capacity", "unica", "boolean", "true"),
                 ("onboarding_case", "id", "uuid", "gen_random_uuid()"),
                 # KAM-092: o gate de activacao tem chave **natural e composta**,
                 # `(onboarding_id, gate)` — um valor por gate de cada caso, que e
@@ -920,6 +924,12 @@ class TestConvencoes(ComBase):
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
                 ("usage_ledger", "tenant_id", "uuid", None),
+                # KAM-095 (revisao da lista de espera): a entrada tem por chave
+                # o proprio caso, sem omissao — uma entrada por caso, e e a
+                # chave que torna o pedido repetido um `ON CONFLICT DO
+                # NOTHING`. Um `uuid` gerado ao lado era um segundo
+                # identificador para a mesma coisa. A ultima («us» < «wa»).
+                ("waitlist_entry", "onboarding_id", "uuid", None),
             ],
         )
 
@@ -1399,7 +1409,13 @@ class TestConvencoes(ComBase):
              # historico de um tenant por ordem. O gate **sem** FK para
              # `tenants` (o caso e anterior ao tenant, como o `provisioning_step`),
              # e o registo **com** ela: so ha transicao de um tenant que existe.
-             "onboarding_gate", "tenant_state_log"},
+             "onboarding_gate", "tenant_state_log",
+             # KAM-095 (revisao da lista de espera). Pelo indice
+             # `waitlist_entry_tenant_idx`: a chave primaria e o
+             # `onboarding_id`, que nao leva o tenant. Sem FK para `tenants`,
+             # pela razao da fila de revisao: o caso tem o tenant pre-alocado.
+             # A `onboarding_capacity` nao tem `tenant_id` e nao entra.
+             "waitlist_entry"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2044,7 +2060,13 @@ class TestConvencoes(ComBase):
         # `onboarding_gate_caso_fk`, **composta** `(onboarding_id, tenant_id)`
         # para o caso, e a `tenant_state_log_tenant_fk`, simples para
         # `tenants(id)`.
-        self.assertEqual(len(linhas), 99)
+        #
+        # **100** desde a revisao da lista de espera (KAM-095): a
+        # `waitlist_entry_caso_fk`, composta `(onboarding_id, tenant_id)` para
+        # a `onboarding_case_id_tenant_uq`, pela razao da `0048`: uma entrada
+        # nao junta o caso de um com o tenant de outro. A `onboarding_capacity`
+        # nao tem FK nenhuma.
+        self.assertEqual(len(linhas), 100)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

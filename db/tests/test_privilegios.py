@@ -1663,6 +1663,40 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: A lista de espera do limite de onboarding (KAM-095, revisao da lista de
+#: espera). **So o lote e a auditoria**, pela razao da fila de revisao: a vaga e
+#: a posicao sao contas sobre a fila inteira, que atravessa tenants, e correm
+#: como `kamba_batch`; o `kamba_app` nao tem nada. A entrada tem `UPDATE` **por
+#: coluna** (ver `COLUNAS_POR_PAPEL`), sem o `aprovado_em` nem o `tenant_id`.
+#: **Ninguem apaga** nenhuma das duas: a desistencia e um estado. O limite
+#: le-se pelo lote e pela auditoria, e muda-o o dono do esquema.
+ESPERADO_POR_TABELA.update(
+    {
+        "waitlist_entry": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "onboarding_capacity": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2243,8 +2277,17 @@ COLUNAS_POR_PAPEL = {
     # muda de que caso, de que tenant nem que gate e (a chave), e o `em` e do
     # *trigger*.
     ("kamba_batch", "onboarding_gate", "UPDATE"): {"ok", "evidencia_ref"},
+    # KAM-095 (revisao da lista de espera): o lote move a entrada pela fila e
+    # mais nada. **Fora**: a identidade (`onboarding_id`, `tenant_id`), o
+    # `aprovado_em` — o facto que o *trigger* tira do `fase_at` do caso, e que
+    # reescrito saltava a fila (adversarial c) — e o `criado_em`, que e a base
+    # do tempo medio de espera do criterio 8.
+    ("kamba_batch", "waitlist_entry", "UPDATE"): {
+        "estado", "na_fila_desde", "convite_hash", "convidado_em",
+        "convite_expira_em", "tentativas", "concluido_em",
+    },
 }
-PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+PRIVILEGIOS_DE_COLUNA =("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
 #: Em que esquema vive cada tabela da matriz. **Omissao `platform`**, porque era
 #: onde viviam todas: o KAM-030 trouxe a primeira de outro esquema
@@ -2328,6 +2371,13 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # KAM-124: o ledger de custo, pela mesma razao. Um `GRANT INSERT (id)` ou
     # um `GRANT UPDATE (custo_usd)` a mais era invisivel na matriz de tabela.
     "module_cost_ledger",
+    # KAM-095: a entrada da lista de espera tem `UPDATE` por coluna para o lote.
+    # Um `GRANT UPDATE (aprovado_em)` a mais era invisivel na matriz de tabela, e
+    # com ele o lote reescrevia o facto da aprovacao. O limite entra pela razao
+    # das de eventos: ninguem o actualiza, e um `GRANT UPDATE (es_max_por_7d)`
+    # ao lote mudava o limite sem passar pelo dono do esquema.
+    "waitlist_entry",
+    "onboarding_capacity",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

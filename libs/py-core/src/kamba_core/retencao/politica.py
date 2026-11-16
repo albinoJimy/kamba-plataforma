@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-16.1"
+VERSAO_DA_POLITICA: Final = "2026-11-16.2"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -488,6 +488,11 @@ POLITICA: Final[tuple[Classe, ...]] = (
                 "platform.image_jobs",
                 pendencia=_RELACAO + "; o original e a versao no STO expiram pelo retain_until",
             ),
+            # KAM-095 (revisao da lista de espera). A entrada de um caso na
+            # fila do limite de onboarding: vive com o caso, que a aponta por
+            # FK composta e nao sai antes dela. Nenhuma coluna de pessoa; o
+            # convite esta em hash.
+            _t("platform.waitlist_entry", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             _t("servicos.bookings", pendencia=_RELACAO),
         ),
         fonte="docs/tecnica/08 §7.1 e §11 (PME: relacao + fiscal)",
@@ -523,6 +528,8 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # de teste sao de plataforma.
     "platform.module_cost_ledger": "custo do negocio por modulo: identificadores e valores",
     "platform.module_test_prices": "precos de teste dos modulos, iguais para todos",
+    # KAM-095: o limite de clientes novos por 7 dias, uma linha da plataforma.
+    "platform.onboarding_capacity": "limite de onboarding da plataforma, sem tenant",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",
