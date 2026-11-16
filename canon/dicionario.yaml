@@ -16661,7 +16661,6 @@ entradas:
     variantes_literais:
       - "origem_asset_id"
       - "versao_asset_id"
-      - "custo_minor"
   - seccao: "3.66"
     conceito: "Estado do trabalho"
     canonico: "image_jobs.estado ∈ {pendente, a_processar, concluido, bloqueada_gate, falhado}"
@@ -16788,8 +16787,7 @@ entradas:
       - "numeric"
     nomes_nota:
       - "imagens_mes"
-    variantes_literais:
-      - "custo_minor"
+    variantes_literais: []
   - seccao: "3.66"
     conceito: "Aviso da primeira utilização"
     canonico: "image_jobs.aviso_at e AVISO_ESTRANGEIRO"
@@ -19728,11 +19726,6 @@ variantes:
     conceito: "Trabalho de imagem"
     canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
   - nome: "versao_asset_id"
-    tipo: "nome"
-    seccao: "3.66"
-    conceito: "Trabalho de imagem"
-    canonico: "platform.image_jobs, dezoito colunas: image_job_id, tenant_id, origem_ref, versao_ref, operacao, provider, estado, motivo, idempotency_key, sintetica, gerado_por_ia, escolhida, custo_usd, latencia_ms, aviso_at, versao, criado_at, atualizado_at"
-  - nome: "custo_minor"
     tipo: "nome"
     seccao: "3.66"
     conceito: "Trabalho de imagem"
