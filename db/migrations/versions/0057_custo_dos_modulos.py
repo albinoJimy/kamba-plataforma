@@ -65,9 +65,10 @@ esta tabela nao e precario e nenhuma cobranca a le.
 
 ## A cadeia
 
-`0058` sobre a `0057` (KAM-092), numeros provisorios do orquestrador; a `0056`
-e do KAM-097. O ramo foi medido localmente sobre a `0055`. Os ensaios
-encontram esta revisao pelo *glob* `*_custo_dos_modulos.py`.
+`0057` sobre a `0056` (KAM-097, Trust & Safety), o numero da integracao: o
+ramo nasceu como `0058` sobre a `0057` do KAM-092, e ficou com a `0057` por
+estar pronto primeiro. Os ensaios encontram esta revisao pelo *glob*
+`*_custo_dos_modulos.py`.
 
 ## O `downgrade`
 
@@ -83,8 +84,8 @@ from alembic import op
 import modulos_custo
 import rls
 
-revision = "0058"
-down_revision = "0057"
+revision = "0057"
+down_revision = "0056"
 branch_labels = None
 depends_on = None
 

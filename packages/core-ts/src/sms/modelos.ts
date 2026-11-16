@@ -32,6 +32,12 @@
  * Quem revê não escreve para o dono, e por isso nenhum revisor consegue pôr num
  * SMS um nome, um número ou um juízo.
  *
+ * Os seis `ts_*` são o aviso ao dono de um passo da escada de sanções de Trust &
+ * Safety (KAM-097, `../trust/avisos.ts`). **Não têm parâmetro nenhum**: cada um
+ * é o texto fixo do seu motivo público (`TEXTO_DO_MOTIVO_DA_SANCAO`), e um
+ * ensaio prende os dois ao mesmo texto. A heurística que levou à sanção não tem
+ * por onde entrar.
+ *
  * ## Sem acentos no corpo, e a razão é o tamanho do segmento
  *
  * O conjunto escreve-se em português europeu com acentos; **o corpo de um SMS é
@@ -75,6 +81,12 @@ export const NOMES_DE_MODELO = [
   "revisao_pedir_info",
   "revisao_recurso_aprovado",
   "revisao_recurso_mantido",
+  "ts_aviso",
+  "ts_limitacao",
+  "ts_suspensao",
+  "ts_encerramento",
+  "ts_recurso_aceite",
+  "ts_recurso_mantido",
 ] as const;
 
 export type NomeDeModelo = (typeof NOMES_DE_MODELO)[number];
@@ -185,6 +197,44 @@ export const MODELOS: Readonly<Record<NomeDeModelo, Modelo>> = {
     finalidade: "aviso_de_servico",
     corpo: "KAMBA: o seu recurso foi analisado e a decisao mantem-se. {causa} Esta decisao e final.",
     parametros: ["causa"],
+  },
+  // Os seis avisos da escada de T&S (KAM-097): o texto fixo do motivo público,
+  // sem parâmetros. O `trust.test.ts` prende cada corpo ao seu texto.
+  ts_aviso: {
+    nome: "ts_aviso",
+    finalidade: "aviso_de_servico",
+    corpo: "KAMBA: A actividade da sua loja esta em analise pela equipa KAMBA. Pode recorrer uma vez.",
+    parametros: [],
+  },
+  ts_limitacao: {
+    nome: "ts_limitacao",
+    finalidade: "aviso_de_servico",
+    corpo: "KAMBA: A sua loja nao pode publicar produtos novos ate nova analise. Pode recorrer uma vez.",
+    parametros: [],
+  },
+  ts_suspensao: {
+    nome: "ts_suspensao",
+    finalidade: "aviso_de_servico",
+    corpo: "KAMBA: A sua loja foi suspensa pela equipa KAMBA. Pode recorrer uma vez.",
+    parametros: [],
+  },
+  ts_encerramento: {
+    nome: "ts_encerramento",
+    finalidade: "aviso_de_servico",
+    corpo: "KAMBA: A equipa KAMBA decidiu encerrar a sua loja. Pode recorrer uma vez.",
+    parametros: [],
+  },
+  ts_recurso_aceite: {
+    nome: "ts_recurso_aceite",
+    finalidade: "aviso_de_servico",
+    corpo: "KAMBA: O seu recurso foi aceite e a medida foi levantada.",
+    parametros: [],
+  },
+  ts_recurso_mantido: {
+    nome: "ts_recurso_mantido",
+    finalidade: "aviso_de_servico",
+    corpo: "KAMBA: O seu recurso foi analisado e a medida mantem-se. Esta decisao e final.",
+    parametros: [],
   },
 };
 

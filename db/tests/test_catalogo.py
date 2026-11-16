@@ -265,6 +265,12 @@ class TestConvencoes(ComBase):
                 "commission_accruals",
                 "price_book",
                 "subscriptions",
+                # KAM-097: o sinal e a sancao de T&S. `uuid` aleatorio e **nao**
+                # o `bigserial` do bloco: o `kamba_app` le-os (o `RETURNING id`
+                # e a escada), e um sequencial dizia-lhe quantos sinais e
+                # quantas sancoes a plataforma conta.
+                "ts_signal",
+                "ts_sanction",
                 # KAM-124: o ledger de custo por modulo. `uuid` aleatorio e
                 # **nao** o `bigserial` do bloco, pela razao da prova de aceite:
                 # o `kamba_app` le-o, e um sequencial dizia-lhe quantos factos de
@@ -893,6 +899,10 @@ class TestConvencoes(ComBase):
                 # referencia por chave estrangeira: o que liga esta linha a de
                 # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
                 ("tool_idempotency", "key", "text", None),
+                # KAM-097: as duas de T&S, `uuid` gerada pela regra geral, depois
+                # das de ferramentas («too» < «ts_»).
+                ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
+                ("ts_signal", "id", "uuid", "gen_random_uuid()"),
                 ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
@@ -1346,6 +1356,11 @@ class TestConvencoes(ComBase):
              # pergunta «e o mesmo produto?») e o `fila_idx` (a fila humana).
              # **Com** FK para `tenants`: uma foto chega de um tenant ja activo.
              "catalog_ingestions",
+             # KAM-097 (revisao de T&S). Pelos indices `ts_signal_tenant_idx` e
+             # `ts_sanction_tenant_idx` (o risco e a escada leem por tenant e
+             # por instante), e pelas unicidades das chaves. **Com** FK para
+             # `tenants`: um sinal e de um tenant que ja existe.
+             "ts_signal", "ts_sanction",
              # KAM-059 (revisao do billing). A subscricao pela unicidade
              # `subscriptions_tenant_uq`; o ciclo pela `billing_cycles_tenant_id_uq`
              # `(tenant_id, id)`, que existe para a FK composta da cobranca; a
@@ -1976,7 +1991,7 @@ class TestConvencoes(ComBase):
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
         #
-        # **92 e nao 83**: **uma** desde a revisao da Foto de produtos
+        # **96 e nao 83**: **uma** desde a revisao da Foto de produtos
         # (KAM-120), a `image_jobs_tenant_fk`, simples para `tenants(id)`, pela
         # razao da de cima — as duas chaves do STO (`origem_ref`, `versao_ref`)
         # prendem-se ao tenant da linha por `CHECK` e nao por FK.
@@ -1992,11 +2007,18 @@ class TestConvencoes(ComBase):
         # tem FK para a `payment_events`: com ela, um `TRUNCATE` ao ledger
         # falhava por FK antes do `payment_events_sem_truncate` (ver a revisao).
         #
-        # **93** desde a revisao do custo dos modulos (KAM-124): a
+        # E **quatro** desde a revisao de T&S (KAM-097). As duas
+        # `ts_*_tenant_fk`, simples para `tenants(id)`; a `ts_sanction_caso_fk`,
+        # composta `(case_id, tenant_id)` para a `review_case_id_tenant_uq` (uma
+        # sancao humana nao junta o caso de um tenant com outro); e a
+        # `ts_sanction_recurso_fk`, composta `(recurso_de, tenant_id)` para a
+        # propria tabela: o desfecho de um recurso e do tenant da sancao.
+        #
+        # **97** desde a revisao do custo dos modulos (KAM-124): a
         # `module_cost_ledger_tenant_fk`, simples para `tenants(id)`. A `ref`
         # do ledger e texto e nao FK — aponta para tres tabelas de origem
         # diferentes —, e os precos de teste nao tem tenant.
-        self.assertEqual(len(linhas), 93)
+        self.assertEqual(len(linhas), 97)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

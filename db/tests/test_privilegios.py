@@ -1511,6 +1511,30 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os sinais e as sancoes de Trust & Safety (KAM-097, revisao de T&S).
+#: *Append-only* por privilegio e por *trigger*: ninguem tem `UPDATE` nem
+#: `DELETE`. O **lote** escreve e le tudo (a fila de revisao grava as sancoes
+#: humanas; as varreduras gravam os sinais que atravessam tenants). A
+#: **aplicacao** e o consumidor de eventos: insere, e le **por coluna** so o que
+#: a escada precisa (ver `COLUNAS_POR_PAPEL`) — por isso a matriz de tabela diz
+#: so `INSERT`. A auditoria le.
+ESPERADO_POR_TABELA.update(
+    {
+        tabela: {
+            "kamba_app": {"INSERT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        }
+        for tabela in ("ts_signal", "ts_sanction")
+    }
+)
+
 #: O custo por modulo de entrada (KAM-124, revisao do custo dos modulos).
 #:
 #: * o **ledger** e so de acrescentar: o lote le e insere **por coluna** (ver
@@ -2019,6 +2043,21 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "catalog_ingestions", "INSERT"): {
         "id", "tenant_id", "media_ref", "media_id_meta", "phash",
     },
+    # KAM-097: a varredura da foto repetida le tres colunas da ingestao, e so
+    # elas — o `extraido` e os media ficam fora do lote.
+    ("kamba_batch", "catalog_ingestions", "SELECT"): {"id", "tenant_id", "phash"},
+    # KAM-097: o consumidor de T&S le dos sinais e das sancoes so o que a escada
+    # e a idempotencia precisam. **Nao le** o `detalhe`, o `motivo_interno`, a
+    # `regra`, os `sinais`, o `autor`, o `case_id` nem a `justificacao_salto`: a
+    # heuristica e so do T&S, e o *trigger* da escada so precisa do passo e dos
+    # recursos.
+    ("kamba_app", "ts_signal", "SELECT"): {
+        "id", "tenant_id", "tipo", "severidade", "ref_evento", "ocorrido_em",
+    },
+    ("kamba_app", "ts_sanction", "SELECT"): {
+        "id", "tenant_id", "chave", "passo", "origem", "motivo_publico",
+        "recurso_de", "recurso_estado", "em",
+    },
     ("kamba_app", "catalog_ingestions", "UPDATE"): {
         "estado", "phash", "extraido", "campos_em_falta", "perguntas_feitas",
         "categoria_restrita", "sku", "custo_llm_usd", "confirmado_at",
@@ -2234,6 +2273,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # (origem_ref)` ou `(versao)` a mais era invisivel na matriz de tabela, e o
     # primeiro trocava o original de um trabalho ja processado.
     "image_jobs",
+    # KAM-097: as duas de T&S, porque a aplicacao as le **por coluna**, e uma
+    # coluna a mais (o `motivo_interno`) era invisivel na matriz de tabela.
+    "ts_signal",
+    "ts_sanction",
     # KAM-124: o ledger de custo, pela mesma razao. Um `GRANT INSERT (id)` ou
     # um `GRANT UPDATE (custo_usd)` a mais era invisivel na matriz de tabela.
     "module_cost_ledger",
@@ -2449,6 +2492,9 @@ IMUTAVEIS_PARA_A_APP = {
         # KAM-090: so o *trigger* do gate a escreve; com ela o tenant fingia
         # que ja tinha estado activo e saltava a exigencia das versoes vigentes.
         "primeira_activacao_at",
+        # KAM-097: a auto-compra compara o comprador com o dono, e o dono
+        # anulava-o antes de comprar a si proprio. Escreve-o o provisioning.
+        "owner_contact_id",
     },
     "tenant_channels": {
         "id",         # identidade

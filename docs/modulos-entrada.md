@@ -6,7 +6,7 @@
 | Ticket | KAM-124 — Planos, entitlements e metering de custo dos módulos de entrada |
 | Estado | **Proposta.** Os preços de teste são `hipotese_nao_validada`; o *ledger*, as vistas, a guarda de orçamento e o `h12-export` estão medidos em `db/tests/test_modulos_custo_schema.py`, `db/tests_ten/test_modulos_de_entrada.py` e `libs/py-core/tests/test_modulos.py`. A reconciliação em *staging* com 7 dias de tráfego sintético **não foi feita** |
 | Âmbito | Como se vende um módulo de entrada em teste (catálogo, foto, redes sociais, orçamentos), quanto custa servi-lo, e como se trava o custo antes de ele passar o preço. Não a assinatura real, que é do KAM-059 |
-| Fontes | `specs/EPIC-11_Modulos_Entrada.md` (KAM-124); `specs/02` §3.7, §3.53 e §3.68; `docs/tecnica/09` §21.2; `docs/tecnica/evidencia/E5_Modulos_Entrada.md` (B12); ADR-018, ADR-020 |
+| Fontes | `specs/EPIC-11_Modulos_Entrada.md` (KAM-124); `specs/02` §3.7, §3.53 e §3.69; `docs/tecnica/09` §21.2; `docs/tecnica/evidencia/E5_Modulos_Entrada.md` (B12); ADR-018, ADR-020 |
 
 | Aprovação | Nome | Data |
 |---|---|---|

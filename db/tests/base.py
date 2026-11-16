@@ -540,6 +540,20 @@ TABELAS_0048 = ("review_case", "review_decision_log")
 #: (KAM-062) nao cria tabelas no `platform`.
 TABELAS_CATALOGO_AI = ("catalog_ingestions",)
 
+#: O que a revisao de Trust & Safety (KAM-097) acrescenta: sinais e sancoes.
+#:
+#: **O nome leva o assunto e nao o numero da revisao**, pela razao do
+#: `TABELAS_CATALOGO_AI`: a revisao e a `0056`, e os ensaios descobrem-na pelo
+#: *glob* `*_trust_e_sancoes.py`.
+#:
+#: **Duas tabelas, ambas com RLS `FORCE` pela `tenant_iso`**, *append-only* por
+#: privilegio **e** por *trigger* (`ts_imutavel`), com FK simples para
+#: `tenants(id)`. A `ts_sanction` tem FK composta `(case_id, tenant_id)` para a
+#: `review_case` e `(recurso_de, tenant_id)` para si propria, e um *trigger* de
+#: insercao (`ts_sanction_regras`) que recusa ao `kamba_app` as linhas humanas e
+#: um passo que salta degraus sem justificacao.
+TABELAS_TRUST = ("ts_sanction", "ts_signal")
+
 #: O que a revisao do billing da plataforma (KAM-059) acrescenta.
 #:
 #: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: a
@@ -595,7 +609,7 @@ TABELAS = tuple(
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
-        + TABELAS_BILLING + TABELAS_CUSTO_DOS_MODULOS
+        + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
     )
 )
 
@@ -605,18 +619,27 @@ TABELAS = tuple(
 #: O `downgrade` da revisao do custo dos modulos leva a base para aqui. **Deriva
 #: do `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
 #: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
-#: dela. As revisoes que fundirem entre o billing e esta, e nao criem tabelas no
-#: `platform`, ficam descritas por ela tambem.
+#: dela. Hoje a anterior e a `0056`, a de Trust & Safety (KAM-097).
 TABELAS_ANTES_DO_CUSTO_DOS_MODULOS = tuple(sorted(set(TABELAS) - set(TABELAS_CUSTO_DOS_MODULOS)))
+
+#: O que existe em `platform` quando a base esta na revisao anterior a de
+#: Trust & Safety (KAM-097).
+#:
+#: O `downgrade` dessa revisao leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CUSTO_DOS_MODULOS` desde o KAM-124, que pos a sua revisao
+#: no topo. Hoje a anterior e a `0055`, a do billing da plataforma (KAM-059).
+TABELAS_ANTES_DO_TRUST = tuple(
+    sorted(set(TABELAS_ANTES_DO_CUSTO_DOS_MODULOS) - set(TABELAS_TRUST))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: billing da plataforma (KAM-059).
 #:
 #: O `downgrade` da revisao do billing leva a base para aqui. Deriva do
-#: `TABELAS_ANTES_DO_CUSTO_DOS_MODULOS` desde o KAM-124, que pos a sua revisao
-#: no topo. Hoje a anterior e a `0054`, a da Foto de produtos (KAM-120).
+#: `TABELAS_ANTES_DO_TRUST` desde o KAM-097, que pos a sua revisao no topo. Hoje
+#: a anterior e a `0054`, a da Foto de produtos (KAM-120).
 TABELAS_ANTES_DO_BILLING = tuple(
-    sorted(set(TABELAS_ANTES_DO_CUSTO_DOS_MODULOS) - set(TABELAS_BILLING))
+    sorted(set(TABELAS_ANTES_DO_TRUST) - set(TABELAS_BILLING))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da Foto
