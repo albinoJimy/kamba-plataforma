@@ -329,6 +329,14 @@ auxiliares_de_migracao:
       sitio so, e os ensaios de base de dados importam-nos daqui em vez de os
       copiar. A revisao chama `indice.criar()`/`indice.remover()`, e o lint
       segue o corpo com as constantes literais que elas executam.
+  - modulo: modulos_custo
+    ficheiro: db/modulos_custo.py
+    razao: >-
+      KAM-124: o SQL da `platform.v_module_cost_month`, da `platform.v_h12` e
+      da consolidacao do ledger de custo por modulo vive num sitio so, e o
+      `h12-export` e os ensaios de base de dados importam-no daqui. A revisao
+      chama `modulos_custo.criar_vistas()`/`modulos_custo.remover_vistas()`, e
+      o lint segue o corpo com as constantes literais que elas executam.
 
 # ------------------------------------------- dominios dados por conceito no §3
 #

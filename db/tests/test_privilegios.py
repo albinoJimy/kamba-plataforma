@@ -1477,7 +1477,9 @@ ESPERADO_POR_TABELA.update(
     {
         "image_jobs": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": set(),
+            # KAM-124: a consolidacao do custo de imagem le a tabela (revisao
+            # do custo dos modulos). Leitura e mais nada.
+            "kamba_batch": {"SELECT"},
             "kamba_resolver": set(),
             "kamba_identity": set(),
             "kamba_audit": set(),
@@ -1530,6 +1532,41 @@ ESPERADO_POR_TABELA.update(
             "public": set(),
         }
         for tabela in ("ts_signal", "ts_sanction")
+    }
+)
+
+#: O custo por modulo de entrada (KAM-124, revisao do custo dos modulos).
+#:
+#: * o **ledger** e so de acrescentar: o lote le e insere **por coluna** (ver
+#:   `COLUNAS_POR_PAPEL`), pela funcao `module_cost_gravar`; a aplicacao le o seu
+#:   tenant (a guarda de orcamento e o `get_usage`); **ninguem** actualiza nem
+#:   apaga, e os gatilhos `ENABLE ALWAYS` recusam-no tambem ao dono;
+#: * os **precos de teste** sao do lote, que os substitui inteiros (apaga e
+#:   insere); a aplicacao nao os ve.
+ESPERADO_POR_TABELA.update(
+    {
+        "module_cost_ledger": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "module_test_prices": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT", "DELETE"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
     }
 )
 
@@ -2042,6 +2079,13 @@ COLUNAS_POR_PAPEL = {
         "estado", "motivo", "provider", "versao_ref", "custo_usd",
         "latencia_ms", "escolhida",
     },
+    # KAM-124 (revisao do custo dos modulos): o `INSERT` do lote no ledger e o
+    # da funcao `module_cost_gravar`, que e `SECURITY INVOKER` — as nove colunas
+    # que ela escreve, e **nao** o `id`, que e gerado.
+    ("kamba_batch", "module_cost_ledger", "INSERT"): {
+        "tenant_id", "modulo", "rubrica", "custo_usd", "custo_minor",
+        "fx_aoa_per_usd", "ref", "idempotency_key", "ocorrido_em",
+    },
     # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
     # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
     # — o `kamba_pay_hooks` marca o desfecho do que acabou de receber e o
@@ -2233,6 +2277,9 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # coluna a mais (o `motivo_interno`) era invisivel na matriz de tabela.
     "ts_signal",
     "ts_sanction",
+    # KAM-124: o ledger de custo, pela mesma razao. Um `GRANT INSERT (id)` ou
+    # um `GRANT UPDATE (custo_usd)` a mais era invisivel na matriz de tabela.
+    "module_cost_ledger",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

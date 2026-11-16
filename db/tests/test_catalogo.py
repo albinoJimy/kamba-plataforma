@@ -271,6 +271,12 @@ class TestConvencoes(ComBase):
                 # quantas sancoes a plataforma conta.
                 "ts_signal",
                 "ts_sanction",
+                # KAM-124: o ledger de custo por modulo. `uuid` aleatorio e
+                # **nao** o `bigserial` do bloco, pela razao da prova de aceite:
+                # o `kamba_app` le-o, e um sequencial dizia-lhe quantos factos de
+                # custo a plataforma inteira regista. A ordem e a do
+                # `ocorrido_em`.
+                "module_cost_ledger",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -707,6 +713,14 @@ class TestConvencoes(ComBase):
                 ("message_templates", "lang", "text", None),
                 ("message_templates", "name", "text", None),
                 ("message_templates", "tenant_id", "uuid", None),
+                # KAM-124 (revisao do custo dos modulos): o ledger de custo,
+                # `uuid` gerada pela regra geral, e os precos de teste, com chave
+                # **natural e composta** `(plano, modulo)` — um preco por modulo
+                # em cada plano, e e a chave que o `carregar-precos` substitui.
+                # Entre os modelos de mensagem e a oferta («me» < «mo» < «of»).
+                ("module_cost_ledger", "id", "uuid", "gen_random_uuid()"),
+                ("module_test_prices", "modulo", "text", None),
+                ("module_test_prices", "plano", "text", None),
                 # KAM-015: um `uuid` gerado, como a conversa, e pela mesma
                 # razao — a unicidade de negocio (a chave de idempotencia) e
                 # uma `UNIQUE` ao lado, e varios tickets a jusante vao referir
@@ -1358,7 +1372,13 @@ class TestConvencoes(ComBase):
              # `tenant_id`: a unicidade `image_jobs_idempotency_uq` (o pedido
              # repetido) e o `image_jobs_bloqueados_idx` (a fila humana). **Com**
              # FK para `tenants`, pela razao da ingestao.
-             "image_jobs"},
+             "image_jobs",
+             # KAM-124 (revisao do custo dos modulos). Os dois comecam pelo
+             # `tenant_id`: a unicidade `module_cost_ledger_idempotency_uq` (o
+             # reenvio do mesmo custo) e o `module_cost_ledger_mes_idx` (o mes de
+             # um modulo, que a guarda de orcamento le). **Com** FK para
+             # `tenants`.
+             "module_cost_ledger"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1554,6 +1574,24 @@ class TestConvencoes(ComBase):
         # ao longo do tempo numa conta de ninguem e a plataforma nao detem
         # nada por causa dele. E `_minor` e nao `_kz`, que esta proibido acima.
         ("v_tenant_cost_daily", "custo_aoa_minor"),
+        # KAM-124, o custo por modulo de entrada. **Nenhuma e saldo**, pela
+        # razao da de cima: o custo e o que a plataforma paga a terceiros por
+        # servir um modulo, e o preco de teste e uma hipotese que nenhuma
+        # cobranca le. Nada disto se soma numa conta de ninguem nem e detido.
+        #
+        # O custo de um facto, em centimos de Kz ao cambio do registo, que vai
+        # na mesma linha (`fx_aoa_per_usd`). O ledger e so de acrescentar.
+        ("module_cost_ledger", "custo_minor"),
+        # O preco de teste de um modulo num plano, `hipotese_nao_validada` por
+        # `CHECK`. Nao e precario (esse e o `price_book` do KAM-059).
+        ("module_test_prices", "preco_teste_minor"),
+        # As duas vistas, recalculadas a cada leitura ao cambio da sessao: o
+        # custo do mes, o preco de teste do plano do tenant e a margem
+        # (preco - custo), que pode ser negativa e nao e dinheiro de ninguem.
+        ("v_module_cost_month", "custo_aoa_minor"),
+        ("v_h12", "custo_aoa_minor"),
+        ("v_h12", "preco_teste_minor"),
+        ("v_h12", "margem_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -1975,7 +2013,12 @@ class TestConvencoes(ComBase):
         # sancao humana nao junta o caso de um tenant com outro); e a
         # `ts_sanction_recurso_fk`, composta `(recurso_de, tenant_id)` para a
         # propria tabela: o desfecho de um recurso e do tenant da sancao.
-        self.assertEqual(len(linhas), 96)
+        #
+        # **97** desde a revisao do custo dos modulos (KAM-124): a
+        # `module_cost_ledger_tenant_fk`, simples para `tenants(id)`. A `ref`
+        # do ledger e texto e nao FK — aponta para tres tabelas de origem
+        # diferentes —, e os precos de teste nao tem tenant.
+        self.assertEqual(len(linhas), 97)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

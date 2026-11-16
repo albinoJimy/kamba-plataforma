@@ -2665,6 +2665,38 @@ INVENTARIO["image_jobs"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: O custo por modulo de entrada (KAM-124, revisao do custo dos modulos).
+#: **Nenhuma coluna e de pessoa**: o ledger guarda o tenant, o modulo, quanto
+#: custou e a referencia **opaca** da linha de origem (a chamada ao modelo, o
+#: trabalho de imagem, a mensagem — o identificador, nunca o conteudo nem o
+#: contacto); os precos de teste sao de plataforma.
+INVENTARIO["module_cost_ledger"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "modulo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "rubrica": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "custo_usd": ("numeric", NAO, None, "nao"),
+    "custo_minor": (
+        "bigint", NAO, None,
+        "nao — custo a terceiros em centimos de Kz. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+    ),
+    "fx_aoa_per_usd": ("numeric", NAO, None, "nao"),
+    "ref": ("text", SIM, None, "nao — identificador opaco da linha de origem, nunca o contacto"),
+    "idempotency_key": ("text", NAO, None, "nao — chave opaca do custo"),
+    "ocorrido_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+INVENTARIO["module_test_prices"] = {
+    "plano": ("text", NAO, None, "nao"),
+    "modulo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "preco_teste_minor": (
+        "bigint", NAO, None,
+        "nao — hipotese de preco em unidade menor. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+    ),
+    "estado": ("text", NAO, None, "nao — so `hipotese_nao_validada`"),
+    "carregado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -2767,6 +2799,32 @@ INVENTARIO["v_tenant_cost_daily"] = {
     "custo_usd": ("numeric", SIM, None, "nao"),
     "custo_aoa_minor": ("bigint", SIM, None, "nao"),
     "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+}
+
+#: As duas vistas do custo por modulo de entrada (KAM-124, revisao do custo dos
+#: modulos). **Nenhuma coluna e de pessoa**: tenant, mes, modulo e numeros. Uma
+#: vista nao tem `NOT NULL` nem omissao, pelo que tudo e anulavel.
+INVENTARIO["v_module_cost_month"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "mes": ("date", SIM, None, "nao — o primeiro dia do mes em Africa/Luanda"),
+    "modulo": ("text", SIM, None, "nao"),
+    "rubrica": ("text", SIM, None, "nao"),
+    "unidades": ("bigint", SIM, None, "nao — uma contagem"),
+    "custo_usd": ("numeric", SIM, None, "nao"),
+    "custo_aoa_minor": ("bigint", SIM, None, "nao"),
+    "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+}
+
+INVENTARIO["v_h12"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "mes": ("date", SIM, None, "nao — o primeiro dia do mes em Africa/Luanda"),
+    "modulo": ("text", SIM, None, "nao"),
+    "custo_usd": ("numeric", SIM, None, "nao"),
+    "custo_aoa_minor": ("bigint", SIM, None, "nao"),
+    "fx_aoa_per_usd": ("numeric", SIM, None, "nao — o cambio da sessao"),
+    "preco_teste_minor": ("bigint", SIM, None, "nao — hipotese de preco do plano do tenant"),
+    "racio": ("numeric", SIM, None, "nao"),
+    "margem_minor": ("bigint", SIM, None, "nao"),
 }
 
 #: **A sexta vista do esquema** (KAM-051, revisao `0037`): o contrato de leitura
@@ -3399,6 +3457,10 @@ class TestInventario(ComBase):
                         # o original e a versao saem do STO pelo
                         # `retain_until`, e a linha com a relacao do tenant.
                         "image_jobs_tenant_fk",
+                        # KAM-124 (revisao do custo dos modulos): o ledger de
+                        # custo aponta o tenant, sem cascata — e so de
+                        # acrescentar, e um custo nao se apaga com o tenant.
+                        "module_cost_ledger_tenant_fk",
                         # KAM-059 (revisao do billing): as oito, todas sem
                         # cascata. Um ciclo nao se apaga com a subscricao, nem a
                         # cobranca com o ciclo (o ledger e *append-only*), nem a
@@ -4112,6 +4174,29 @@ class TestInventario(ComBase):
                     "image_jobs_pkey",
                     "image_jobs_provider_ck",
                     "image_jobs_versao_ref_ck",
+                    # ------------- KAM-124 (revisao do custo dos modulos)
+                    #
+                    # **Catorze.** Nove no ledger — a chave primaria, os
+                    # dominios do `modulo` e da `rubrica`, os dois custos e o
+                    # cambio nao negativos, o comprimento da `ref` e da chave,
+                    # e a unicidade do custo por `(tenant_id, idempotency_key)`
+                    # — e cinco nos precos de teste: a chave `(plano, modulo)`,
+                    # a forma do plano, o dominio do modulo, o preco nao
+                    # negativo e o `estado` de um so valor.
+                    "module_cost_ledger_custo_minor_ck",
+                    "module_cost_ledger_custo_usd_ck",
+                    "module_cost_ledger_fx_ck",
+                    "module_cost_ledger_idempotency_key_ck",
+                    "module_cost_ledger_idempotency_uq",
+                    "module_cost_ledger_modulo_ck",
+                    "module_cost_ledger_pkey",
+                    "module_cost_ledger_ref_ck",
+                    "module_cost_ledger_rubrica_ck",
+                    "module_test_prices_estado_ck",
+                    "module_test_prices_modulo_ck",
+                    "module_test_prices_pkey",
+                    "module_test_prices_plano_ck",
+                    "module_test_prices_preco_ck",
                     # ------------------- KAM-059 (revisao do billing)
                     #
                     # **Trinta.** O precario (sete: chave, unicidade por plano e
