@@ -129,6 +129,21 @@
       "properties": {
         "vertical": {
           "type": "string"
+        },
+        "onboarding_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "channel_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "channel_mode": {
+          "type": "string",
+          "enum": [
+            "coexistencia",
+            "cloud_only"
+          ]
         }
       }
     }

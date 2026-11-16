@@ -272,6 +272,8 @@ VISTAS = (
     "consent_actual",
     "v_draft_metrics",
     "v_oferta_viva",
+    "v_onboarding_kpis",
+    "v_onboarding_kpis_agregado",
     "v_payment_events_audit",
     "v_payment_ledger_heads",
     "v_review_sla",
@@ -565,6 +567,14 @@ TABELAS_BILLING = (
 #: (a `imagem`), sem tabela nova. A `0051` (KAM-197) nao cria tabelas no
 #: `platform`.
 TABELAS_FOTO = ("image_jobs",)
+#: O que a revisao dos eventos do tenant (KAM-092) acrescenta: os seis gates de
+#: activacao de um caso e o registo de estados do tenant.
+#:
+#: **O nome leva o assunto e nao o numero da revisao**, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`: o numero e provisorio (`0057`), e o ensaio descobre a
+#: revisao pelo *glob* `*_eventos_do_tenant.py`. As duas com RLS `FORCE` pela
+#: `tenant_iso`; o registo e *append-only* por *trigger*.
+TABELAS_EVENTOS_DO_TENANT = ("onboarding_gate", "tenant_state_log")
 
 TABELAS = tuple(
     sorted(
@@ -577,13 +587,18 @@ TABELAS = tuple(
         + TABELAS_0032 + TABELAS_0033 + TABELAS_0034 + TABELAS_0036
         + TABELAS_0038 + TABELAS_0040 + TABELAS_0042 + TABELAS_0043
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
-        + TABELAS_BILLING
+        + TABELAS_BILLING + TABELAS_EVENTOS_DO_TENANT
     )
 )
 
-#: O que existe em `platform` quando a base esta na revisao anterior a da Foto
-#: de produtos (KAM-120).
-#:
+#: O que existe em `platform` quando a base esta na revisao anterior a dos
+#: eventos do tenant (KAM-092). O `downgrade` dela leva a base para aqui, e
+#: **deriva do `TABELAS`** por ser o topo da cadeia: quem acrescentar uma revisao
+#: a seguir poe a sua aqui e faz esta derivar da dela.
+TABELAS_ANTES_DOS_EVENTOS_DO_TENANT = tuple(
+    sorted(set(TABELAS) - set(TABELAS_EVENTOS_DO_TENANT))
+)
+
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: billing da plataforma (KAM-059).
 #:
@@ -591,7 +606,11 @@ TABELAS = tuple(
 #: `TABELAS`**, e e a unica da cadeia que o faz, porque e o topo dela: quem
 #: acrescentar uma revisao a seguir poe a sua aqui e faz **esta** derivar da
 #: dela. Hoje a anterior e a `0054`, a da Foto de produtos (KAM-120).
-TABELAS_ANTES_DO_BILLING = tuple(sorted(set(TABELAS) - set(TABELAS_BILLING)))
+#: **Desde o KAM-092 deriva do `TABELAS_ANTES_DOS_EVENTOS_DO_TENANT`**, que pos a
+#: sua revisao no topo.
+TABELAS_ANTES_DO_BILLING = tuple(
+    sorted(set(TABELAS_ANTES_DOS_EVENTOS_DO_TENANT) - set(TABELAS_BILLING))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da Foto
 #: de produtos (KAM-120).

@@ -2630,6 +2630,30 @@ INVENTARIO["image_jobs"] = {
     "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: Os seis gates de activacao de um caso (KAM-092). O `evidencia_ref` e uma
+#: referencia opaca ao que verificou o gate (o motivo do guia), nunca dado
+#: pessoal; o `em` e do *trigger*.
+INVENTARIO["onboarding_gate"] = {
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "gate": ("text", NAO, None, "nao"),
+    "ok": ("boolean", NAO, None, "nao"),
+    "evidencia_ref": ("text", SIM, None, "nao — referencia opaca, nao texto do dono"),
+    "em": ("timestamp with time zone", NAO, "now()", "nao"),
+}
+
+#: O registo de estados do tenant (KAM-092), *append-only*. O `motivo` e o
+#: `actor` sao escritos pela retaguarda (o lote, a T&S), e nao pelo dono.
+INVENTARIO["tenant_state_log"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "de": ("text", NAO, None, "nao"),
+    "para": ("text", NAO, None, "nao"),
+    "motivo": ("text", NAO, None, "nao — razao da transicao, escrita pela retaguarda"),
+    "actor": ("text", NAO, None, "nao — o processo ou o papel, nao uma pessoa nomeada"),
+    "em": ("timestamp with time zone", NAO, "clock_timestamp()", "nao"),
+}
+
 #: As versoes publicadas dos quatro documentos (KAM-090, revisao `0040`).
 #: **Sem `tenant_id`**: texto de plataforma, como a `consent_texts`. O
 #: `conteudo` e o texto juridico (com marcadores ate ao parecer do KAM-104), e
@@ -2721,6 +2745,28 @@ INVENTARIO["v_review_sla"] = {
     "sla_due_at": ("timestamp with time zone", SIM, None, "nao"),
     "primeira_decisao_at": ("timestamp with time zone", SIM, None, "nao"),
     "dentro_do_sla": ("boolean", SIM, None, "nao"),
+}
+
+#: Os KPIs de onboarding por caso e o agregado (KAM-092). Numeros e *flags*,
+#: sem identificador de pessoa.
+INVENTARIO["v_onboarding_kpis"] = {
+    "onboarding_id": ("uuid", SIM, None, "nao"),
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "fase": ("text", SIM, None, "nao"),
+    "owner_active_seconds": ("integer", SIM, None, "nao"),
+    "dias_calendario": ("numeric", SIM, None, "nao"),
+    "intervencao_humana": ("boolean", SIM, None, "nao"),
+    "saga_primeira_tentativa": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_onboarding_kpis_agregado"] = {
+    "casos_activos": ("bigint", SIM, None, "nao — uma contagem"),
+    "owner_active_seconds_mediana": ("double precision", SIM, None, "nao"),
+    "owner_active_seconds_p90": ("double precision", SIM, None, "nao"),
+    "dias_calendario_mediana": ("double precision", SIM, None, "nao"),
+    "dias_calendario_p90": ("double precision", SIM, None, "nao"),
+    "sem_intervencao_ratio": ("numeric", SIM, None, "nao"),
+    "saga_primeira_tentativa_ratio": ("numeric", SIM, None, "nao"),
 }
 
 INVENTARIO["v_tenant_cost_daily"] = {
@@ -3376,6 +3422,13 @@ class TestInventario(ComBase):
                         "commission_accruals_encomenda_do_mesmo_tenant_fk",
                         "billing_ops_approvals_tenant_fk",
                         "billing_ops_approvals_charge_fk",
+                        # KAM-092 (revisao dos eventos do tenant): o gate aponta
+                        # o caso (composta com o `tenant_id`) e o registo aponta
+                        # o tenant, os dois sem cascata — um registo de estados
+                        # nao se apaga com o tenant, e um caso com gates nao se
+                        # apaga por baixo deles.
+                        "onboarding_gate_caso_fk",
+                        "tenant_state_log_tenant_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -3898,6 +3951,21 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ----------------------- KAM-092 (eventos do tenant)
+                    #
+                    # O gate: o dominio dos seis, a forma da evidencia e a
+                    # chave natural. O registo: os dois estados no dominio do
+                    # tenant, o motivo e o actor nao vazios, o `de <> para` e a
+                    # chave primaria.
+                    "onboarding_gate_evidencia_ck",
+                    "onboarding_gate_gate_ck",
+                    "onboarding_gate_pkey",
+                    "tenant_state_log_actor_ck",
+                    "tenant_state_log_de_ck",
+                    "tenant_state_log_motivo_ck",
+                    "tenant_state_log_mudanca_ck",
+                    "tenant_state_log_para_ck",
+                    "tenant_state_log_pkey",
                     # --------------------------------------- KAM-090 (0040)
                     #
                     # **Treze: nove da versao publicada e quatro da prova.** Na

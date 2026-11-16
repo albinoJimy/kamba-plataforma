@@ -528,24 +528,40 @@ class PayloadStockReservedV2(TypedDict):
 
 class PayloadTenantActivated(TypedDict):
     """Payload de `tenant.activated` v1."""
-    # Sem campos: o envelope ja diz tudo o que este evento diz.
+    onboarding_id: NotRequired[str]
+    plano: NotRequired[str]
+    owner_active_seconds: NotRequired[int]
+    intervencao_humana: NotRequired[bool]
 
 
 class PayloadTenantActivatedV2(TypedDict):
     """Payload de `tenant.activated` v2."""
-    # Sem campos: o envelope ja diz tudo o que este evento diz.
+    onboarding_id: NotRequired[str]
+    plano: NotRequired[str]
+    owner_active_seconds: NotRequired[int]
+    intervencao_humana: NotRequired[bool]
 
 
 class PayloadTenantApproved(TypedDict):
     """Payload de `tenant.approved` v1."""
     vertical: str
     plano: str
+    onboarding_id: NotRequired[str]
+    kyc_nivel: NotRequired[str]
+    tecto_inicial_minor: NotRequired[int]
+    intervencao_humana: NotRequired[bool]
+    currency: NotRequired[str]
 
 
 class PayloadTenantApprovedV2(TypedDict):
     """Payload de `tenant.approved` v2."""
     vertical: str
     plano: str
+    onboarding_id: NotRequired[str]
+    kyc_nivel: NotRequired[str]
+    tecto_inicial_minor: NotRequired[int]
+    intervencao_humana: NotRequired[bool]
+    currency: NotRequired[str]
 
 
 class PayloadTenantClosed(TypedDict):
@@ -561,11 +577,17 @@ class PayloadTenantClosedV2(TypedDict):
 class PayloadTenantProvisioned(TypedDict):
     """Payload de `tenant.provisioned` v1."""
     vertical: str
+    onboarding_id: NotRequired[str]
+    channel_id: NotRequired[str]
+    channel_mode: NotRequired[str]
 
 
 class PayloadTenantProvisionedV2(TypedDict):
     """Payload de `tenant.provisioned` v2."""
     vertical: str
+    onboarding_id: NotRequired[str]
+    channel_id: NotRequired[str]
+    channel_mode: NotRequired[str]
 
 
 class PayloadTenantReactivated(TypedDict):
@@ -773,12 +795,12 @@ CATALOGO: dict[str, dict[str, object]] = {
     "tenant.activated": {
         "versoes": [1, 2],
         "obrigatorios": [],
-        "permitidos": [],
+        "permitidos": ['intervencao_humana', 'onboarding_id', 'owner_active_seconds', 'plano'],
     },
     "tenant.approved": {
         "versoes": [1, 2],
         "obrigatorios": ['plano', 'vertical'],
-        "permitidos": ['plano', 'vertical'],
+        "permitidos": ['currency', 'intervencao_humana', 'kyc_nivel', 'onboarding_id', 'plano', 'tecto_inicial_minor', 'vertical'],
     },
     "tenant.closed": {
         "versoes": [1, 2],
@@ -788,7 +810,7 @@ CATALOGO: dict[str, dict[str, object]] = {
     "tenant.provisioned": {
         "versoes": [1, 2],
         "obrigatorios": ['vertical'],
-        "permitidos": ['vertical'],
+        "permitidos": ['channel_id', 'channel_mode', 'onboarding_id', 'vertical'],
     },
     "tenant.reactivated": {
         "versoes": [1, 2],

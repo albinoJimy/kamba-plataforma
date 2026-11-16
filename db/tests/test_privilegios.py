@@ -525,15 +525,23 @@ ESPERADO_POR_TABELA.update(
         # publicacao e do publicador — nem `DELETE`. O `kamba_batch` publica
         # (`SELECT`, `UPDATE`) e purga o publicado (`DELETE`, 7 dias,
         # `docs/tecnica/06` §7.4).
+        #
+        # **O `kamba_batch` insere desde a revisao dos eventos do tenant
+        # (KAM-092)**: as portas `transition_tenant` e `advance_case` correm
+        # como ele — e o unico papel com `UPDATE` em `tenants.estado` — e
+        # emitem na mesma transaccao.
         "events_outbox": _eventos(
             kamba_app={"SELECT", "INSERT"},
-            kamba_batch={"SELECT", "UPDATE", "DELETE"},
+            kamba_batch={"SELECT", "INSERT", "UPDATE", "DELETE"},
         ),
         # O contador do `evt_emitir`, que corre como quem chama: o produtor
         # precisa de `INSERT` e `SELECT` de tabela, e de `UPDATE` **so na coluna
         # `seq`** (ver `COLUNAS_POR_PAPEL`). Mudar `agregado_tipo` ou
-        # `agregado_id` era reescrever a chave de outro agregado.
-        "evt_agregado_seq": _eventos(kamba_app={"SELECT", "INSERT"}),
+        # `agregado_id` era reescrever a chave de outro agregado. O
+        # `kamba_batch` pela mesma razao do *outbox* (KAM-092).
+        "evt_agregado_seq": _eventos(
+            kamba_app={"SELECT", "INSERT"}, kamba_batch={"SELECT", "INSERT"}
+        ),
         # Configuracao de entrega. Quem a le e o publicador; quem a escreve e
         # uma revisao ou um *job* nomeado, com o privilegio pedido no ticket que
         # o criar (KAM-006 em diante).
@@ -1445,6 +1453,40 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os eventos do tenant (KAM-092). **Os gates so o lote os escreve**: sao a
+#: condicao da activacao, e um contexto de tenant que os pusesse a verde
+#: activava-se a si proprio — a aplicacao le-os (o painel do dono), e o
+#: `UPDATE` do lote e por coluna (ver `COLUNAS_POR_PAPEL`). **O registo de
+#: estados e append-only** por privilegio e por *trigger*: o lote escreve e le
+#: pela `transition_tenant`, a auditoria le sob a `tenant_iso`, e a aplicacao
+#: nao lhe chega.
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_gate": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "tenant_state_log": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: A ingestao do Catalogo AI (KAM-049, revisao do Catalogo AI). **So a
 #: aplicacao**: o *pipeline* corre como `kamba_app`, com o contexto do tenant,
 #: e le a tabela inteira mas insere e actualiza **por coluna** (ver
@@ -1652,6 +1694,8 @@ COLUNAS_POR_PAPEL = {
     # e corre como quem chama. E o unico `UPDATE` de `kamba_app` nas tabelas de
     # eventos, e e **uma** coluna.
     ("kamba_app", "evt_agregado_seq", "UPDATE"): {"seq"},
+    # KAM-092: o lote emite pelas portas do tenant, pela mesma razao.
+    ("kamba_batch", "evt_agregado_seq", "UPDATE"): {"seq"},
     # KAM-006: o `once(key, fn)` fecha a accao que ele proprio abriu, e so o
     # desfecho. Mudar `consumer`, `event_id` ou `accao` era reescrever a chave
     # de idempotencia de outra accao.
@@ -2112,6 +2156,10 @@ COLUNAS_POR_PAPEL = {
         "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
         "efeito_pendente_at",
     },
+    # KAM-092: o lote poe um gate a verde ou a vermelho com a evidencia; nao
+    # muda de que caso, de que tenant nem que gate e (a chave), e o `em` e do
+    # *trigger*.
+    ("kamba_batch", "onboarding_gate", "UPDATE"): {"ok", "evidencia_ref"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -2204,6 +2252,11 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # e o registo de decisoes entra pela razao das de eventos.
     "review_case",
     "review_decision_log",
+    # KAM-092: o gate tem `UPDATE` por coluna para o lote, invisivel na matriz
+    # de tabela; o registo de estados entra pela razao das de eventos — um
+    # `GRANT UPDATE (motivo)` a mais reescrevia a razao de uma suspensao.
+    "onboarding_gate",
+    "tenant_state_log",
     "contacts",
     "contact_deks",
     "contact_endpoints",
@@ -2572,11 +2625,14 @@ class TestMatrizDePrivilegios(ComBase):
 
         **Nem do `kamba_batch`**, que seria o palpite natural para um
         varrimento. A razao e o outbox: a funcao emite `booking.cancelled` por
-        `platform.evt_emitir`, e o `EXECUTE` dessa funcao e **so** do `kamba_app`
-        desde a `0004` (ele e o produtor). Um varrimento como `kamba_batch`
-        falhava no `evt_emitir` depois de ja ter alterado o estado — e ficavam
-        holds libertados sem evento nenhum, que e exactamente o que o criterio 3
-        pede que nao aconteca.
+        `platform.evt_emitir`, e o `EXECUTE` dessa funcao foi **so** do
+        `kamba_app` desde a `0004` (ele e o produtor) ate a revisao dos eventos
+        do tenant (KAM-092), que o deu tambem ao `kamba_batch` para as portas do
+        tenant. Quando o varrimento nasceu, como `kamba_batch` falhava no
+        `evt_emitir` depois de ja ter alterado o estado — e ficavam holds
+        libertados sem evento nenhum, que e exactamente o que o criterio 3 pede
+        que nao aconteca. Corre na aplicacao, sob o contexto do tenant, e e isso
+        que este ensaio prende.
 
         **E nao do `PUBLIC`**, que e a omissao do PostgreSQL para cada funcao
         nova: deixa-la assim dava a um papel sem privilegio em `bookings` uma
