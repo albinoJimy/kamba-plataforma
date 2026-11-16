@@ -3,10 +3,10 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K07** |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Cenário | Um segredo do inventário chega ao fim do seu período de rotação, ou há suspeita de fuga |
 | Severidade | **P3** (planeada); em incidente, **P1** pelo [RB-K10](RB-K10-incidente-de-seguranca.md) |
-| Alertas que o activam | **Nenhum, hoje.** A regra «segredo a expirar < 14 dias» está por escrever: o `ops/secrets-inventory.yaml` tem o `rotacao_dias` e **não tem a data da última rotação**, e nada publica a idade de um segredo. Credor: **KAM-072** (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
+| Alertas que o activam | **Nenhum, hoje.** O cálculo existe desde o KAM-072 — `secret_age_days{segredo}` e `secret_rotation_period_days{segredo}` em `packages/core-ts/src/keyring/idade.ts`, com a idade lida do registo de rotação e o estado `a_expirar` a 80% do prazo —, mas **nenhum processo o expõe** e a regra do Prometheus está por escrever (o `obs_lint` recusa uma regra sobre uma métrica que ninguém serve). Credor: **KAM-078**, o agendador que corre o rotador (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
 | Gatilho manual | O calendário de rotação (hoje de uma pessoa: não há agendador, KAM-071); o RB-K10 (suspeita de fuga); o RB-K02 §3.3 (*callbacks* inválidos depois de uma troca de chave) |
 | Nível de degradação | — (uma rotação bem feita não degrada nada; mal feita, o consumidor recusa: 401 no GWY, falha de autenticação no facilitador) |
 | Dono | Plataforma/SRE; executa com o `owner` da entrada no inventário (`eng_canais`, `eng_pagamentos`, `sre`…), e com o Responsável de Segurança em incidente |
@@ -32,7 +32,13 @@
   de operações, com o identificador do segredo e a hora — **nunca o valor**. A acção nova é
   emenda ao dicionário e migração: credor **o fundador** (o `secrets-export.md` §4 tem a
   mesma falta para `access.secrets_export`).
-- **Não há ferramenta de rotação.** Cada passo é manual, no cofre e no fornecedor.
+- **A ferramenta é uma biblioteca, não um comando.** O `Rotador` de
+  `packages/core-ts/src/keyring/rotacao.ts` (KAM-072) faz a rotação com janela, a
+  revogação, a revogação no fim da janela e a rotação de emergência, sobre uma porta de
+  cofre de anéis e uma de registo — mas **nenhum processo o corre** contra o cofre real:
+  não há adaptador Doppler da porta de anéis, e a escrita no cofre não está na porta de
+  leitura do KAM-010. Cada passo no cofre e no fornecedor continua manual, e a ordem é
+  a que o `Rotador` segue: cofre primeiro, registo depois, e repetir repara.
 - **Os segredos entram por variável de ambiente** (`KAMBA_SECRET_<ID>` e
   `KAMBA_SECRET_<ID>_ANTERIOR`, [`../adr/ADR-L002-injeccao-de-segredos.md`](../adr/ADR-L002-injeccao-de-segredos.md)),
   e **o ambiente de um processo não muda depois do arranque**: o laço de 60 s do GWY relê
@@ -41,7 +47,9 @@
 - **O GWY do compose de produção não recebe os segredos da Meta** — o bloco `environment`
   não os passa (RB-K01 §0). A primeira rotação do `meta_app_secret` tem esse defeito por
   baixo.
-- **O `proxypay_api_key` não tem consumidor** no código (não há adaptador, RB-K02 §0).
+- **O `proxypay_api_key` tem adaptador e não tem serviço.** O adaptador e o reconciliador
+  existem desde o KAM-056 (`packages/core-ts/src/pagamentos/proxypay/`), e nenhum serviço
+  do compose os corre contra o facilitador (o *sandbox* é o `ext:KAM-103`).
 
 ## 1. Cenário e gatilho
 
@@ -94,9 +102,12 @@ docker exec kamba-prod-prometheus-1 \
 
 1. O ProxyPay não tem janela dupla confirmada (`E2`); o anel é nosso. **O reconciliador
    tem de estar activo durante a troca**, para que os pagamentos cujos *callbacks* falhem a
-   autenticação sejam apanhados por consulta. Hoje não há reconciliador (KAM-056) nem
-   adaptador: **este passo não se executa**, e uma rotação agora perderia *callbacks* sem
-   rede.
+   autenticação sejam apanhados por consulta. O adaptador aceita a chave corrente e a
+   anterior da conta (`credenciais_ref` e `credenciais_ref` anterior), e a consulta
+   `GET /payments` recupera um pagamento cujo *callback* chegou com a chave revogada —
+   **ensaiado contra o servidor falso** do KAM-056 (`packages/core-ts/tests/keyring.pagamentos.test.ts`,
+   KAM-072), não contra o *sandbox*. Enquanto nenhum serviço correr o reconciliador em
+   produção, **este passo não se executa**: uma rotação agora perderia *callbacks* sem rede.
 2. Quando houver: actual → anterior, novo → actual, recriar os consumidores (PAY, GWY),
    trocar no painel do ProxyPay, manter o anterior até a consulta do RB-K02 §2 (ponto 2)
    mostrar 0 falhas de autenticação durante 24 h (proposta).
@@ -120,8 +131,22 @@ saírem da retenção (35 dias, `infra/backup/cobertura.yaml`). Logo:
 
 ### 3.5 `pepper_contact_hmac` (anel: sim; `kid`: sim)
 
-Não se roda sem o *job* de re-chaveamento, que é do **KAM-072**. Em incidente, o RB-K10
-decide; o procedimento fica por escrever com o *job*.
+O *job* de re-chaveamento existe desde o KAM-008 (`Identidade.rekeyLookup`, por tenant,
+em lotes, retomável e idempotente), e o ensaio dele corre sobre 10 000 contactos
+(`packages/core-ts/tests_bd/identity.bd.test.ts`). A ordem, que este runbook fixa
+(**proposta**, não ensaiada fora do ensaio):
+
+1. Gerar a versão nova com `gerarChaveVersionada(kid)` (`identity/chaves.ts`) — a forma
+   é `<kid>:<base64>` — e pô-la como actual no cofre, com a anterior em `_ANTERIOR`.
+2. `iniciarRotacao(kid)`: regista a versão nova em `platform.hmac_key_versions`. Daí em
+   diante a pesquisa tenta as duas versões, e quem é visto sobe para a nova.
+3. `rekeyLookup(tenant, kid)` para cada tenant, até `completo: true` em todos.
+4. `concluirRotacao()`: a anterior passa a `retirada`.
+5. Só agora retirar a anterior do cofre e recriar os consumidores.
+
+Retirar a anterior do cofre antes do passo 4 deixa sem chave as linhas por re-chavear:
+é o erro que esta ordem existe para evitar. Em incidente, o RB-K10 decide se se aceita
+esse custo.
 
 ### 3.6 A cópia offline da `backup_repo_cifra_passphrase`
 
@@ -141,7 +166,20 @@ O `specs/EPIC-08` (bloco KAM-079, critério 6 e DoD 2) põe este procedimento no
 5. **Divergência por resolver**, que este runbook não decide: o
    `infra/backup/cobertura.yaml` escreve que o destino da exportação do cofre é o `repo1`,
    e o `secrets-export.md` §4 que é um volume offline com dois detentores (RB-K08, anexo A,
-   linha 12). Credor: **KAM-072**.
+   linha 12). Credor: **o fundador** — era o KAM-072, que não a decide: é uma escolha
+   sobre o destino da exportação do cofre, e não sobre a rotação de uma chave.
+
+### 3.7 `kek_token_cliente` (anel: sim; `kid`: sim)
+
+A DEK por tenant dos *tokens* de cliente é **derivada** da KEK (`onboarding/cifra.ts`,
+KAM-016), pelo que rodar a KEK não re-embrulha nada: re-cifra o criptograma.
+
+1. Actual → anterior, nova → actual, no cofre. A leitura continua: o `kid` vai dentro de
+   cada criptograma e o `decifrarToken` escolhe a versão pelo anel.
+2. Re-cifrar **todos** os criptogramas com `recifrarToken` (`keyring/tokens.ts`). O
+   *token* não muda; o criptograma sim, e volta ao cofre sob a mesma referência.
+3. Só depois retirar a anterior. Um criptograma que tenha ficado por re-cifrar deixa de
+   abrir, e o *token* só volta com o dono a repetir o Embedded Signup.
 
 ## 4. Critério de recuperação
 
@@ -177,4 +215,5 @@ RB-K01 ou o RB-K02, e comunica-se por esses.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
+| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e quem a expõe (KAM-078); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo trata a KEK dos *tokens* de cliente; o credor da divergência do destino passa a ser o fundador | KAM-072 |
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): os dois caminhos e a ordem de incidente, a janela por segredo (com os 7 dias da Meta no `meta_app_secret`), o «recriar e não reiniciar», o procedimento proposto da cópia offline da passphrase do backup, e as faltas medidas no §0 — sem acção de rotação no `audit_log`, sem data de última rotação no inventário | KAM-083 |

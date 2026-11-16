@@ -130,3 +130,35 @@ abaixo de 1.83.0 — em manifestos, em imagens, e (desde o KAM-030) num
   e nenhuma das onze linhas do inventário está autorizada — o `ext:KAM-105`
   fechou com **0 de 14** destinos com `apd_ref`. Uma chave nova não abre
   essa porta, e quem a abre é a APD.
+
+---
+
+## 6. O que a edição MIT permite, e o que fica manual (KAM-072, critério 9)
+
+O critério pede que esta página diga o que a parte MIT do LiteLLM permite, e que o
+resto fique como **passo manual com dono e data** — a data é o critério de saída do
+NÃO VERIFICADO. A fonte é o `E4` §2.7, que herda o seu estado: a licença é
+**CONFIRMADO**; a divisão de funcionalidades entre MIT e Enterprise é
+**CONFIRMADO em resumo** (página de preços, não o código).
+
+| Capacidade | Edição | Estado | O que se faz no Piloto |
+|---|---|---|---|
+| Criar, actualizar e apagar chaves virtuais (`/key/generate`, `/key/update`, `/key/delete`) | MIT | CONFIRMADO em resumo (`E4` §2.7: «virtual keys/users/teams»); os nomes dos *endpoints* são os que o `infra/llm/chaves.py` usa, **NÃO VERIFICADO** contra uma instância real | §3 desta página |
+| Orçamentos e *rate limits* por chave | MIT | CONFIRMADO em resumo | §3 (corte por `max_budget: 0`) |
+| **Rotação automática de chaves** (*key rotation*) | Enterprise | CONFIRMADO em resumo | **manual**: §1, §2 e §3 |
+| ***Secret managers*** (ler as chaves de fornecedor de um cofre) | Enterprise | CONFIRMADO em resumo | **manual**: o valor entra por variável de ambiente no arranque (`ADR-L002`) e muda recriando o contentor |
+| ***Audit logs*** do proxy | Enterprise | CONFIRMADO em resumo | **manual**: a rotação regista-se pelo `Rotador` do `packages/core-ts/src/keyring/` (identificador e hora, nunca o valor), e o registo no `audit_log` é a caixa devolvida do critério 7 do KAM-072 |
+
+**Os passos manuais, com dono e data.** O dono é o `owner` das três entradas no
+`ops/secrets-inventory.yaml` (`eng_runtime`). A data é **proposta**: a primeira
+rotação de 90 dias a contar da data deste bloco, e é nela que os NÃO VERIFICADOS
+da tabela se confirmam numa instância real ou se reescreve esta secção.
+
+| Passo manual | Dono | Data (proposta) | Sai do NÃO VERIFICADO quando |
+|---|---|---|---|
+| Rodar a `litellm_master_key` (§1) | `eng_runtime` | 2027-02-14 | o passo 4 do §1 correr contra o proxy implantado (KAM-078) e devolver 0 |
+| Rodar as `llm_provider_key/<fornecedor>` (§2) | `eng_runtime` | 2027-02-14 | a consola de cada fornecedor confirmar duas chaves vivas em simultâneo |
+| Rodar as `litellm_virtual_key/<tenant_id>` (§3) | `eng_runtime` | 2027-02-14 | os três *endpoints* da primeira linha responderem como o `chaves.py` espera |
+
+**A data não é compromisso de ninguém.** É a que esta página propõe, e quem a fixa
+é o dono — uma data que ninguém aceitou é uma data que passa sem nada acontecer.

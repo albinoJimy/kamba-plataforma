@@ -19,6 +19,10 @@
       "types": "./dist/secrets/index.d.ts",
       "default": "./dist/secrets/index.js"
     },
+    "./keyring": {
+      "types": "./dist/keyring/index.d.ts",
+      "default": "./dist/keyring/index.js"
+    },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
       "default": "./dist/storage/index.js"

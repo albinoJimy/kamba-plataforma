@@ -851,9 +851,13 @@ regras_por_escrever:
     severidade: P3
     runbook: RB-K07
     falta: >-
-      o `ops/secrets-inventory.yaml` tem o `rotacao_dias` e nao ha nada que o
-      leia e publique a idade de cada segredo
-    credor: KAM-072
+      o calculo existe desde o KAM-072 (`packages/core-ts/src/keyring/idade.ts`:
+      `secret_age_days{segredo}` e `secret_rotation_period_days{segredo}`, com a
+      idade lida do registo de rotacao e o estado `a_expirar` a 80% do prazo do
+      criterio 7, e nao os 14 dias desta linha), mas nenhum processo corre o
+      rotador nem expoe as duas series, pelo que a regra citaria uma metrica
+      que ninguem serve
+    credor: KAM-078 (o agendador que corre o rotador e expoe as series)
 
   - alerta: memoria (> 80% sustentada)
     severidade: P3
