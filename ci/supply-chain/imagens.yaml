@@ -327,6 +327,10 @@ fontes_adicionais:
     constante: IMAGEM_NODE
   - ficheiro: db/tests_avisos/node.py
     constante: IMAGEM_NODE
+  # KAM-198: o processo de lote do onboarding, TypeScript contra a base, num
+  # contentor Node na rede do gate quando a maquina nao tem `node`.
+  - ficheiro: db/tests_lote/node.py
+    constante: IMAGEM_NODE
   # KAM-005: o publicador e TypeScript e corre num contentor Node quando a
   # maquina nao tem `node`, na rede do gate.
   - ficheiro: db/tests_eventos/node.py
@@ -400,6 +404,13 @@ fontes_adicionais:
   # de staging inteiro, e as imagens e os digests sao os desse ficheiro. Nao e
   # dispensa: e a mesma declaracao do spike do Chatwoot, logo abaixo.
   - ficheiro: db/ensaio_consumidores.py
+    sem_imagem: >-
+      Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
+      onde as imagens e os digests estao declarados. O ensaio nao constroi nem
+      puxa nada por conta propria.
+  # KAM-194: o ensaio da ponte e do IDX numa pilha levantada. Mesma forma do de
+  # cima, e o mesmo compose de staging (a constante `COMPOSE` vem de la).
+  - ficheiro: db/ensaio_idx.py
     sem_imagem: >-
       Chama `docker compose -f infra/compose/docker-compose.staging.yml`, que e
       onde as imagens e os digests estao declarados. O ensaio nao constroi nem

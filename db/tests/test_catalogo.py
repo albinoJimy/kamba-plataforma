@@ -662,6 +662,11 @@ class TestConvencoes(ComBase):
                 # indireccao a mais.
                 ("handoffs", "handoff_id", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
+                # KAM-120 (revisao da Foto de produtos): o trabalho de imagem,
+                # `uuid` gerado pela regra geral, com o nome da coluna do bloco
+                # (`image_job_id`) e nao `id`. Entre as chaves HMAC e a
+                # deduplicacao de entrada («hm» < «im» < «in»).
+                ("image_jobs", "image_job_id", "uuid", "gen_random_uuid()"),
                 # KAM-013: `uuid` aleatorio, pela razao escrita no teste da
                 # coluna de identidade. A chave de deduplicacao **nao** e esta:
                 # e o `UNIQUE (kind, event_key)`, que e uma restricao propria.
@@ -1333,7 +1338,12 @@ class TestConvencoes(ComBase):
              # sombra e a aprovacao de ops pelos indices `_tenant_idx`. As
              # quatro com FK para `tenants`.
              "subscriptions", "billing_cycles", "commission_accruals",
-             "billing_ops_approvals"},
+             "billing_ops_approvals",
+             # KAM-120 (revisao da Foto de produtos). Os dois comecam pelo
+             # `tenant_id`: a unicidade `image_jobs_idempotency_uq` (o pedido
+             # repetido) e o `image_jobs_bloqueados_idx` (a fila humana). **Com**
+             # FK para `tenants`, pela razao da ingestao.
+             "image_jobs"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1928,8 +1938,13 @@ class TestConvencoes(ComBase):
         # outra FK, e a chave do STO prende-se ao tenant da linha por `CHECK`
         # (`catalog_ingestions_media_ref_ck`) e nao por FK.
         #
-        # **91 e nao 83** desde a revisao do billing (KAM-059): **oito**. Quatro
-        # simples para `tenants(id)` (`subscriptions_`, `billing_cycles_`,
+        # **92 e nao 83**: **uma** desde a revisao da Foto de produtos
+        # (KAM-120), a `image_jobs_tenant_fk`, simples para `tenants(id)`, pela
+        # razao da de cima — as duas chaves do STO (`origem_ref`, `versao_ref`)
+        # prendem-se ao tenant da linha por `CHECK` e nao por FK.
+        #
+        # E **oito** desde a revisao do billing (KAM-059). Quatro simples para
+        # `tenants(id)` (`subscriptions_`, `billing_cycles_`,
         # `commission_accruals_` e `billing_ops_approvals_tenant_fk`); a
         # `billing_ops_approvals_charge_fk` para `payment_charges(id)`, simples
         # porque a porta confere o tenant; e tres **compostas** pela licao
@@ -1938,7 +1953,7 @@ class TestConvencoes(ComBase):
         # `commission_accruals_encomenda_do_mesmo_tenant_fk`. A sombra **nao**
         # tem FK para a `payment_events`: com ela, um `TRUNCATE` ao ledger
         # falhava por FK antes do `payment_events_sem_truncate` (ver a revisao).
-        self.assertEqual(len(linhas), 91)
+        self.assertEqual(len(linhas), 92)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

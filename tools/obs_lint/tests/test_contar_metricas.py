@@ -206,6 +206,13 @@ class TestRepositorio(unittest.TestCase):
         "packages/core-ts/src/consentimento/metricas.ts",
         "packages/core-ts/src/entrada/metricas.ts",
         "packages/core-ts/src/eventos/metricas.ts",
+        # Nasceu com o KAM-194 (a ponte fila -> consumidor Python). Um nome,
+        # `evt_ponte_total{outcome}`, **servido e alcancavel**: o `ponte.ts`
+        # serve-o na 3194 e o `job` `ponte` raspa-o. Modulo proprio, e nao uma
+        # linha no `eventos/metricas.ts` ao lado, porque esse e servido pelo
+        # publicador e pelo consumidor TypeScript, e juntar-lhe esta serie punha
+        # tres processos a publicar zeros que nao sao deles.
+        "packages/core-ts/src/eventos/metricas_ponte.ts",
         "packages/core-ts/src/hnd/metricas.ts",
         "packages/core-ts/src/med/metricas.ts",
         "packages/core-ts/src/metering/metricas.ts",

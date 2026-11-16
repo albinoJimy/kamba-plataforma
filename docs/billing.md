@@ -6,7 +6,7 @@
 | Ticket | KAM-059 — Billing da plataforma: assinatura via PaymentProvider (beneficiário próprio) |
 | Estado | **Proposta.** O ciclo, a cobrança e as barreiras estão na revisão do billing e medidos em `db/tests_pagamentos/test_subscricao_e_billing.py`; o processo da factura-recibo é manual e está **a confirmar por parecer** (D7) |
 | Âmbito | Como a KAMBÁ cobra a assinatura às PMEs: o ciclo mensal, quem confirma um pagamento por transferência, e como se emite a factura-recibo. Não a régua de cobrança (KAM-058) nem a comissão, que no Piloto é só sombra |
-| Fontes | `docs/tecnica/04` §9, §10.4, §11, §12 e §13; `specs/02` §3.66; ADR-004, ADR-013, ADR-017; D2, D4, D7, D8 |
+| Fontes | `docs/tecnica/04` §9, §10.4, §11, §12 e §13; `specs/02` §3.67; ADR-004, ADR-013, ADR-017; D2, D4, D7, D8 |
 
 | Aprovação | Nome | Data |
 |---|---|---|

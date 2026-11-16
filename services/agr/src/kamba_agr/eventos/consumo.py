@@ -71,7 +71,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
+from kamba_core import tenant_guard
 from kamba_core.eventos import (
+    ADIAMENTO_POR_OMISSAO,
     TENTATIVAS,
     Adiar,
     OpcoesDoConsumo,
@@ -79,6 +81,7 @@ from kamba_core.eventos import (
     atraso_da_tentativa_do_consumidor,
     consumir,
 )
+from kamba_core.eventos.entrega import SQL_ENVELOPE_DO_ARQUIVO
 from kamba_core.eventos.contratos import (
     PayloadInvalidoError,
     TipoDesconhecidoError,
@@ -454,6 +457,20 @@ class ConsumidorDeEventos:
             desfechos.append(
                 (consumidor.nome, await self._um(consumidor, envelope, entrega))
             )
+        # **Os candidatos sem entitlement marcam-se tambem quando ha outros
+        # activos** (KAM-194). A regra de cima so os marcava quando **nenhum**
+        # estava activo: um `payment.confirmed` de um *tenant* que so tem o
+        # Vendedor deixava o par `(agr_servicos, event_id)` sem linha em
+        # `events_consumed` nem em `events_dlq`, e o reconciliador devolvia-o
+        # em todas as passagens da janela de 24 h — o lote dele e 500, e
+        # enchia-se com eventos tratados em vez dos perdidos. Inofensivo
+        # enquanto `evt_subscricoes` nao tinha linhas do AGR; a revisao de
+        # dados do KAM-194 torna-o vivo. Achado da revisao adversarial.
+        # Depois dos activos, e nao antes: uma falha deles sobe antes desta
+        # marca, a entrega repete-se, e e na repeticao que estes se marcam.
+        for candidato in candidatos:
+            if candidato not in activos:
+                await self._marcar_sem_efeito(candidato, envelope, entrega)
         return DesfechoDaEntrega(
             desfecho=_agregar(tuple(d for _, d in desfechos)),
             por_consumidor=tuple(desfechos),
@@ -515,9 +532,39 @@ class ConsumidorDeEventos:
     # ------------------------------------------------------------ o envelope
 
     async def _envelope_ou_dlq(self, entrega: Entrega) -> Envelope | None:
-        """O envelope validado, ou `None` depois de abrir entrada na DLQ."""
+        """O envelope validado, ou `None` depois de abrir entrada na DLQ.
+
+        **Um envelope nulo le-se do arquivo** (KAM-194). E o *job* do
+        reconciliador (§6.5), que repoe so com o `tenant_id`: a casca da fila
+        (`eventos/ponte.ts`) nao abre ligacao a base e passa-o como veio. Sem
+        esta leitura, todo o evento reposto ia para a DLQ como envelope
+        invalido — o reconciliador existe precisamente para os que se
+        perderam. O arquivo le-se com o contexto do *tenant* que a fila
+        declarou; um envelope de outro *tenant* nao se ve (RLS) e, se se visse,
+        os ponteiros recusavam-no abaixo. Sem linha, pode ser cedo (o
+        publicador enfileira antes do `COMMIT` que arquiva): repete-se, e na
+        ultima tentativa abre-se a DLQ sem envelope — com
+        `tentativas_esgotadas`, que e o unico motivo que vem depois da escada:
+        o envelope nao e invalido, nao chegou.
+        """
+        cru = entrega.envelope
+        if cru is None:
+            cru = await asyncio.to_thread(self._do_arquivo, entrega)
+            if cru is None:
+                if entrega.tentativas >= TENTATIVAS:
+                    if self._tabela:
+                        await self._dlq.abrir_sem_envelope(
+                            consumidor=self._tabela[0].nome,
+                            event_id=entrega.event_id,
+                            tenant_id=entrega.tenant_id,
+                            motivo=TENTATIVAS_ESGOTADAS,
+                            tentativas=entrega.tentativas,
+                        )
+                    return None
+                self._contado_so("adiado")
+                raise EntregaPorRepetir(ADIAMENTO_POR_OMISSAO * 1_000, "adiado")
         try:
-            envelope = ler_envelope(entrega.envelope)
+            envelope = ler_envelope(cru)
         except EnvelopeInvalidoError:
             await self._dlq_sem_envelope(entrega)
             return None
@@ -532,6 +579,20 @@ class ConsumidorDeEventos:
             await self._dlq_sem_envelope(entrega)
             return None
         return envelope
+
+    def _do_arquivo(self, entrega: Entrega) -> Any:
+        """O envelope do `events_log`, na *thread*, ou `None` se nao houver linha."""
+        ligacao = self._abrir()
+        try:
+            with tenant_guard.tx(ligacao, entrega.tenant_id) as cursor:
+                cursor.execute(SQL_ENVELOPE_DO_ARQUIVO, (entrega.event_id,))
+                linha = cursor.fetchone()
+        finally:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — o desfecho e o que importa
+                pass
+        return None if linha is None else linha[0]
 
     # **O `ForaDeOrdem` do KAM-006 nao se apanha aqui, e nao e esquecimento.**
     # Ele e levantado dentro da pre-condicao de estado, que este consumidor nao

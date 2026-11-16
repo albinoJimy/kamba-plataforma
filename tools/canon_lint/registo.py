@@ -1,17 +1,22 @@
-"""Superficie 3 — `registry/*.yaml`: verticais, planos, gates, entitlements e tools.
+"""Superficie 3 — `registry/*.yaml`: verticais, planos, gates, consumidores, entitlements e tools.
 
-## Tres formas, e so tres
+## Quatro formas, e so quatro
 
-Um ficheiro desta superficie e uma de tres coisas, e a forma distingue-se por
+Um ficheiro desta superficie e uma de quatro coisas, e a forma distingue-se por
 uma **chave de topo propria**, nunca pelo nome do ficheiro:
 
 1. **vertical** — a chave `id`. A forma e a de `docs/tecnica/02` §5.1;
 2. **planos** — a chave `plans`. E o `registry/plans.yaml` do KAM-009:
    `plano` -> entitlements por omissao;
 3. **gates** — a chave `gates`. E o `registry/gates.yaml` do KAM-027: o **modo**
-   de cada validacao de arranque do §5.2, com o ticket que a desbloqueia.
+   de cada validacao de arranque do §5.2, com o ticket que a desbloqueia;
+4. **consumidor** — a chave `consumidor`. E o `registry/idx.yaml` do KAM-194:
+   um consumidor de eventos que **nao** e vertical (sem persona, grafo nem
+   tools), com as suas `subscriptions`. As linhas de `platform.evt_subscricoes`
+   que lhe correspondem vem por revisao de dados, e um ensaio do AGR
+   confronta-as com esta declaracao.
 
-Um ficheiro que nao tenha nenhuma das tres **falha**, e um que tenha mais do
+Um ficheiro que nao tenha nenhuma das quatro **falha**, e um que tenha mais do
 que uma tambem: nao se adivinha qual das verificacoes se lhe aplica. Antes do
 KAM-009 havia uma so forma, a lista fechada de chaves de topo era a dela, e o
 `id` tinha de ser uma vertical — um `plans.yaml` falhava as duas coisas e nao
@@ -56,6 +61,20 @@ havia como o escrever.
   `KAM-NNN`: um atalho sem o ticket que o fecha nao e atalho. Que o ticket
   exista no backlog e do *gate* 3, que le os `KAM-NNN` deste ficheiro como os
   de qualquer outro.
+
+## So no consumidor
+
+* `consumidor` — o nome do `consumer` nas tabelas de eventos, em `snake_case`,
+  e **nunca** com o prefixo `agr_`, que e o do AGR (dicionario §3.33): um
+  consumidor com ele colidia com o de uma vertical;
+* `subscriptions[]` com `tipo` e `versao` e mais nada. O `tipo` valida-se como o
+  de uma vertical — um evento do dicionario — **e** contra o catalogo de
+  contratos: a `versao` tem de ter o seu `contratos/eventos/<tipo>/
+  v<versao>.schema.json`. Uma vertical e validada contra o catalogo pelo
+  arranque do AGR (a validacao (4) do §5.2); um consumidor que o AGR salta nao
+  tem arranque que o faca, e e por isso que aqui se faz;
+* o mesmo `tipo` duas vezes falha: a chave de `evt_subscricoes` e
+  `(consumer, tipo)`, e a segunda linha nao se escreve.
 
 ## So nos planos
 
@@ -125,6 +144,18 @@ DESTINATARIOS_DA_NOTIFICACAO = ("cliente", "dono")
 CHAVE_DA_VERTICAL = "id"
 CHAVE_DOS_PLANOS = "plans"
 CHAVE_DOS_GATES = "gates"
+CHAVE_DO_CONSUMIDOR = "consumidor"
+CHAVES_DE_FORMA = (CHAVE_DA_VERTICAL, CHAVE_DOS_PLANOS, CHAVE_DOS_GATES, CHAVE_DO_CONSUMIDOR)
+
+#: A quarta forma (`registry/idx.yaml`, KAM-194). Listas fechadas, como as das
+#: outras tres.
+CHAVES_DE_TOPO_DE_CONSUMIDOR = {"consumidor", "version", "subscriptions"}
+CHAVES_DE_SUBSCRICAO_DE_CONSUMIDOR = {"tipo", "versao"}
+#: O nome de um `consumer`: a gramatica das filas `evt.<consumer>.p<n>`.
+_FORMA_DE_CONSUMIDOR = re.compile(r"^[a-z][a-z0-9_]*$")
+#: O prefixo do AGR (`kamba_agr/eventos/subscricoes.py`, dicionario §3.33).
+PREFIXO_DO_AGR = "agr_"
+_SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 
 #: A segunda forma (`registry/plans.yaml`, KAM-009). `version` e o SemVer que a
 #: regra 1 do `registry/README.md` impoe a um ficheiro deste directorio.
@@ -660,16 +691,84 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                                "por que esperar, e a linha so sobrevive a quem a devia ter apagado")
                     )
 
-    # --- qual das tres formas e esta -------------------------------------------------
+    # --- quarta forma: um consumidor que nao e vertical (KAM-194) -------------------
+
+    def forma_de_consumidor() -> None:
+        """`consumidor: <nome>`, `version` e `subscriptions: [{tipo, versao}]`."""
+        chaves(documento, CHAVES_DE_TOPO_DE_CONSUMIDOR, "no topo do ficheiro de consumidor")
+        nome = documento.get(CHAVE_DO_CONSUMIDOR)
+        linha_do_nome = _linha_de(fonte, CHAVE_DO_CONSUMIDOR)
+        if not isinstance(nome, str) or not _FORMA_DE_CONSUMIDOR.match(nome):
+            achados.append(
+                Achado(ficheiro, linha_do_nome, REGRA,
+                       f"`{CHAVE_DO_CONSUMIDOR}: {nome!r}` nao e um nome de consumidor: "
+                       "`snake_case`, a gramatica das filas `evt.<consumer>.p<n>`")
+            )
+        elif nome.startswith(PREFIXO_DO_AGR):
+            achados.append(
+                Achado(ficheiro, linha_do_nome, REGRA,
+                       f"`{CHAVE_DO_CONSUMIDOR}: {nome}` usa o prefixo `{PREFIXO_DO_AGR}`, que e o do "
+                       "consumidor de uma vertical (dicionario §3.33): as duas linhas de "
+                       "`evt_subscricoes` colidiam")
+            )
+        versao_do_ficheiro = documento.get("version")
+        if not isinstance(versao_do_ficheiro, str) or not _SEMVER.match(versao_do_ficheiro):
+            achados.append(
+                Achado(ficheiro, _linha_de(fonte, "version"), REGRA,
+                       "o consumidor nao declara `version` em SemVer (`registry/README.md`, regra 1)")
+            )
+        subscricoes = documento.get("subscriptions")
+        if not isinstance(subscricoes, list) or not subscricoes:
+            achados.append(
+                Achado(ficheiro, _linha_de(fonte, "subscriptions"), ILEGIVEL,
+                       "`subscriptions` tem de ser uma lista com pelo menos uma subscricao: um "
+                       "consumidor que nao subscreve nada nao recebe evento nenhum")
+            )
+            return
+        vistos: set[str] = set()
+        for item in subscricoes:
+            if not isinstance(item, dict):
+                achados.append(Achado(ficheiro, 0, ILEGIVEL, f"subscricao de forma desconhecida: {item!r}"))
+                continue
+            chaves(item, CHAVES_DE_SUBSCRICAO_DE_CONSUMIDOR, "numa subscricao do consumidor")
+            tipo, versao = item.get("tipo"), item.get("versao")
+            if not isinstance(tipo, str) or not tipo:
+                achados.append(Achado(ficheiro, 0, ILEGIVEL, f"subscricao sem `tipo`: {item!r}"))
+                continue
+            linha = _linha_de(fonte, tipo)
+            if tipo in vistos:
+                achados.append(
+                    Achado(ficheiro, linha, REGRA,
+                           f"`{tipo}` subscrito duas vezes: a chave de `evt_subscricoes` e "
+                           "`(consumer, tipo)`, e a segunda linha nao se escreve")
+                )
+                continue
+            vistos.add(tipo)
+            antes = len(achados)
+            nivel2("evento", tipo)
+            if len(achados) > antes:
+                # Um tipo fora do dicionario nao tem contrato que se procure: o
+                # segundo achado so repetia o primeiro com outras palavras.
+                continue
+            if isinstance(versao, bool) or not isinstance(versao, int) or versao < 1:
+                achados.append(
+                    Achado(ficheiro, linha, REGRA, f"`{tipo}` sem `versao` inteira >= 1 (recebido: {versao!r})")
+                )
+                continue
+            contrato = f"contratos/eventos/{tipo}/v{versao}.schema.json"
+            if saber.carregar(contrato) is None:
+                achados.append(
+                    Achado(ficheiro, linha, REGRA,
+                           f"`{tipo}` v{versao} nao tem contrato publicado (`{contrato}`): o publicador "
+                           "entregava um envelope que nenhum contrato descreve")
+                )
+
+    # --- qual das quatro formas e esta -----------------------------------------------
     #
     # Pela chave de topo, e nunca pelo nome do ficheiro: um `planos.yaml`, um
     # `plans-piloto.yaml` ou um `tarifas.yaml` sao o mesmo ficheiro, e adivinhar
     # pelo nome punha a verificacao a depender de como alguem lhe chamou.
-    declaradas = [
-        chave
-        for chave in (CHAVE_DA_VERTICAL, CHAVE_DOS_PLANOS, CHAVE_DOS_GATES)
-        if chave in documento
-    ]
+    declaradas = [chave for chave in CHAVES_DE_FORMA if chave in documento]
     vertical = ""
     if len(declaradas) > 1:
         achados.append(
@@ -682,14 +781,17 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
         forma_de_planos()
     elif declaradas == [CHAVE_DOS_GATES]:
         forma_de_gates()
+    elif declaradas == [CHAVE_DO_CONSUMIDOR]:
+        forma_de_consumidor()
     elif declaradas == [CHAVE_DA_VERTICAL]:
         vertical = forma_de_vertical()
     else:
         achados.append(
             Achado(ficheiro, 0, REGRA,
                    f"ficheiro do registo sem `{CHAVE_DA_VERTICAL}` (vertical, `docs/tecnica/02` §5.1), sem "
-                   f"`{CHAVE_DOS_PLANOS}` (planos, `registry/plans.yaml`) e sem `{CHAVE_DOS_GATES}` "
-                   "(gates, `registry/gates.yaml`): sao as tres unicas formas desta superficie, e um "
+                   f"`{CHAVE_DOS_PLANOS}` (planos, `registry/plans.yaml`), sem `{CHAVE_DOS_GATES}` "
+                   f"(gates, `registry/gates.yaml`) e sem `{CHAVE_DO_CONSUMIDOR}` (consumidor, "
+                   "`registry/idx.yaml`): sao as quatro unicas formas desta superficie, e um "
                    "ficheiro que nao e nenhuma delas nao passa por nao ter sido lido")
         )
 

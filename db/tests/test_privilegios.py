@@ -1467,6 +1467,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O trabalho de imagem da Foto de produtos (KAM-120, revisao da Foto de
+#: produtos). **So a aplicacao**, pela razao da ingestao: o trabalhador corre
+#: como `kamba_app`, com o contexto do tenant, le a tabela inteira e insere e
+#: actualiza **por coluna** (ver `COLUNAS_POR_PAPEL`). **Ninguem apaga**: o
+#: original e a versao vivem no STO e expiram pelo `retain_until`, e a linha
+#: sai com a relacao do tenant (KAM-071).
+ESPERADO_POR_TABELA.update(
+    {
+        "image_jobs": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O registo da purga (KAM-071, revisao `0042`). **Append-only por privilegio,
 #: e por mais nada**: o lote escreve e le, a auditoria le, e ninguem tem
 #: `UPDATE` nem `DELETE` — nem o lote, que e quem purga e por isso o ultimo que
@@ -1965,6 +1987,22 @@ COLUNAS_POR_PAPEL = {
         "categoria_restrita", "sku", "custo_llm_usd", "confirmado_at",
         "confirmado_por", "ultima_mensagem_id",
     },
+    # KAM-120 (revisao da Foto de produtos): o `INSERT` da aplicacao e so a
+    # identidade do pedido — um trabalho nasce `pendente`, e um `INSERT
+    # (estado)` deixava-o nascer `concluido` sem passar pelo fornecedor; o
+    # `gerado_por_ia` e gerado e nao se insere. O `UPDATE` e o resultado,
+    # **menos a identidade** (`image_job_id`, `tenant_id`, `origem_ref`,
+    # `operacao`, `idempotency_key`, `sintetica`), o `aviso_at`, o `criado_at`
+    # e **a `versao` e o `atualizado_at`, que sao do *trigger***, pela razao da
+    # ingestao.
+    ("kamba_app", "image_jobs", "INSERT"): {
+        "image_job_id", "tenant_id", "origem_ref", "operacao", "provider",
+        "idempotency_key", "sintetica", "aviso_at",
+    },
+    ("kamba_app", "image_jobs", "UPDATE"): {
+        "estado", "motivo", "provider", "versao_ref", "custo_usd",
+        "latencia_ms", "escolhida",
+    },
     # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
     # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
     # — o `kamba_pay_hooks` marca o desfecho do que acabou de receber e o
@@ -2066,9 +2104,13 @@ COLUNAS_POR_PAPEL = {
     # publico, que e o que o dono le. **A prioridade so fica mais urgente**, e
     # quem o impoe e o *trigger* e nao esta matriz: e ela que decide se aprovar
     # pede dois revisores, e baixa-la era tirar um.
+    #
+    # KAM-198 (0053): e a marca de «efeito por aplicar», que o servico escreve
+    # antes dos efeitos e o lote limpa depois de os reaplicar.
     ("kamba_batch", "review_case", "UPDATE"): {
         "estado", "prioridade", "motivo_interno", "evidencias", "recomendacao",
         "fila_at", "sla_alerta_at", "sla_due_at", "sla_alertado_at",
+        "efeito_pendente_at",
     },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
@@ -2144,6 +2186,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # `GRANT UPDATE (valor_minor)` a mais era invisivel na matriz de tabela; o
     # gatilho recusava-o, mas a matriz e quem diz que ele nao foi concedido.
     "billing_cycles",
+    # KAM-120: o trabalho de imagem, pela mesma razao. Um `GRANT UPDATE
+    # (origem_ref)` ou `(versao)` a mais era invisivel na matriz de tabela, e o
+    # primeiro trocava o original de um trabalho ja processado.
+    "image_jobs",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

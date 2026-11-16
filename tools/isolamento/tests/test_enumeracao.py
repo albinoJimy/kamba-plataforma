@@ -320,6 +320,69 @@ class TestNaoCala(ComArvore):
             enumeracao.consumidores(self.raiz)
 
 
+class TestBibliotecaPadrao(ComArvore):
+    """KAM-194: as rotas de um `BaseHTTPRequestHandler`, em `libs/` tambem.
+
+    Escreve o modulo **dentro do teste**, e nao no `apoio.arvore`, para que o
+    predicado se leia aqui: a classe que estende a da biblioteca padrao, o
+    `do_<VERBO>`, e a comparacao com `self.path` por literal ou constante.
+    """
+
+    MODULO = """
+from http.server import BaseHTTPRequestHandler
+
+CAMINHO = "/internal/ensaio"
+
+def fabrica(outro):
+    class Tratador(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                return
+            if outro.path == "/nao-e-rota":
+                return
+
+        def do_POST(self):
+            if self.path != CAMINHO:
+                return
+            if self.path == calculado():
+                return
+
+        def _ajuda(self):
+            if self.path == "/escondida":
+                return
+
+    return Tratador
+"""
+
+    def escrever(self) -> None:
+        alvo = self.raiz / "libs" / "py-ensaio" / "src" / "pacote" / "servidor.py"
+        alvo.parent.mkdir(parents=True, exist_ok=True)
+        alvo.write_text(self.MODULO, encoding="utf-8")
+
+    def test_encontra_por_literal_e_por_constante(self) -> None:
+        self.escrever()
+        ids = self.ids(enumeracao.rotas(self.raiz))
+        self.assertIn("rota:py-ensaio:pacote/servidor:fabrica:GET:/healthz", ids)
+        self.assertIn(
+            "rota:py-ensaio:pacote/servidor:fabrica:POST:/internal/ensaio", ids
+        )
+
+    def test_nao_inventa_fora_de_do_verbo_nem_fora_de_self(self) -> None:
+        self.escrever()
+        ids = self.ids(enumeracao.rotas(self.raiz))
+        self.assertFalse([i for i in ids if "/escondida" in i or "/nao-e-rota" in i])
+
+    def test_o_caminho_calculado_fica_indeciso(self) -> None:
+        self.escrever()
+        indecisos = [
+            item
+            for item in enumeracao.rotas(self.raiz)
+            if item.indeciso and item.id.startswith("rota:py-ensaio:")
+        ]
+        self.assertEqual(len(indecisos), 1, indecisos)
+        self.assertIn("#", indecisos[0].id)
+
+
 class TestORepositorio(unittest.TestCase):
     """A regressao: a arvore real esta conforme, e as contagens sao estas."""
 
@@ -344,8 +407,10 @@ class TestORepositorio(unittest.TestCase):
                     f"rota:agr:kamba_agr/api_interna:rotas:POST:{caminho}", ids
                 )
 
-    def test_as_cinco_sondas_do_worker_canal_nao_colapsam_numa(self) -> None:
-        """Cinco apps do mesmo servico servem `/healthz`, e sao cinco itens.
+    def test_as_seis_sondas_do_worker_canal_nao_colapsam_numa(self) -> None:
+        """Seis apps do mesmo servico servem `/healthz`, e sao seis itens.
+
+        Eram cinco ate ao KAM-194, que trouxe a do `ponte.ts`.
 
         Mediu-se: com a chave sem o modulo, as cinco colapsavam numa e
         dezassete rotas de TypeScript apareciam como doze — um caso escrito
@@ -358,7 +423,7 @@ class TestORepositorio(unittest.TestCase):
             if identificador.startswith("rota:worker-canal:")
             and identificador.endswith(":GET:/healthz")
         }
-        self.assertEqual(len(sondas), 5, sorted(sondas))
+        self.assertEqual(len(sondas), 6, sorted(sondas))
 
 
 if __name__ == "__main__":

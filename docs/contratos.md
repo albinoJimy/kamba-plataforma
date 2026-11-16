@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/contratos.md` |
 | Ticket | KAM-007 — Catálogo de eventos: schemas versionados e teste de compatibilidade |
-| Estado | 42 tipos em `contratos/eventos/`, com `v1` e `v2` cada (84 contratos; o `screening.violation_detected` é do KAM-191 e o `billing.cycle_paid` do KAM-059); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.92 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
+| Estado | 42 tipos em `contratos/eventos/`, com `v1` e `v2` cada (84 contratos; o `screening.violation_detected` é do KAM-191 e o `billing.cycle_paid` do KAM-059); gate 7 **activo** (`make ci-7`); tipos TS e modelos Python gerados; emendas 1.11, 1.83 e 1.96 do dicionário. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco |
 | Âmbito | O **contrato** de um evento: o que um produtor pode emitir e o que um consumidor pode esperar, e o que impede isso de mudar sem versão. Não o laço de publicação (`docs/eventos.md`) nem o de consumo (`docs/consumo.md`) |
 | Fontes | `docs/tecnica/06` §4, §5, §6.6, §7.1, §7.3; `docs/tecnica/01` §6.3, §7.2; `specs/02` §3.5 (emenda 1.11); ADR-009, ADR-010, ADR-013 |
 
@@ -126,7 +126,7 @@ produto e emitir duas violações com `id` diferentes: a deduplicação por
 
 ### O `billing.cycle_paid`, e porque não é um `payment.confirmed`
 
-O tipo do KAM-059 (emenda 1.92 do dicionário) é o pagamento de um ciclo da
+O tipo do KAM-059 (emenda 1.96 do dicionário) é o pagamento de um ciclo da
 assinatura que a KAMBÁ cobra às PMEs. Os cinco eventos `payment.*` agregam por
 `order` e exigem `order_id`, e a revisão `0035` fechou-os às cobranças de
 encomenda — uma cobrança de ciclo não tem encomenda. Este agrega por

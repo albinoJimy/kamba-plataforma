@@ -852,7 +852,8 @@ class TestCriterio3VersaoDesconhecida(unittest.TestCase):
         adversarial mediu-o, e a mutacao que os apagava nao mudava comportamento
         nenhum. O que se mede agora e a estrutura: os quatro deterministicos
         aparecem nos caminhos que **nao** contam tentativas, e o
-        `tentativas_esgotadas` so nos dois que as contam.
+        `tentativas_esgotadas` so nos tres que as contam — o terceiro e o do
+        arquivo (KAM-194): o *job* do reconciliador sem linha no `events_log`.
         """
         fonte = Path(consumo.__file__).read_text(encoding="utf-8")
         for motivo in (
@@ -863,8 +864,8 @@ class TestCriterio3VersaoDesconhecida(unittest.TestCase):
         ):
             with self.subTest(motivo=motivo):
                 self.assertIn(motivo, fonte)
-        self.assertEqual(fonte.count("TENTATIVAS_ESGOTADAS"), 3)
-        self.assertEqual(fonte.count("if entrega.tentativas >= TENTATIVAS:"), 2)
+        self.assertEqual(fonte.count("TENTATIVAS_ESGOTADAS"), 4)
+        self.assertEqual(fonte.count("if entrega.tentativas >= TENTATIVAS:"), 3)
 
     def test_um_motivo_fora_da_lista_fechada_levanta(self) -> None:
         servidor = Servidor()
@@ -1584,6 +1585,98 @@ class TestCorpoDaEntrega(unittest.TestCase):
         )
 
 
+def corpo_do_reconciliador(tentativas: int = 1) -> dict:
+    """O *job* do reconciliador pela casca (KAM-194): o envelope vem nulo."""
+    pedido = corpo(tentativas=tentativas)
+    pedido["envelope"] = None
+    return pedido
+
+
+class TestArquivoDoReconciliador(unittest.TestCase):
+    """KAM-194: um envelope nulo le-se do `events_log`, com o contexto da fila."""
+
+    def setUp(self) -> None:
+        m.METRICAS.repor()
+
+    def test_o_envelope_le_se_do_arquivo_e_aplica(self) -> None:
+        servidor = com_conversa()
+        servidor.arquivo[EVENTO] = envelope_cru()
+        outbound = OutboundEspiao()
+        desfecho = asyncio.run(
+            monta(servidor, outbound=outbound).entregar(corpo_do_reconciliador())
+        )
+        self.assertEqual(desfecho.desfecho, "aplicado")
+        self.assertEqual(len(outbound.chamadas), 1)
+        self.assertEqual(servidor.dlq, [])
+        # O leitor de conversas guarda **uma** tomada (`ConsumidorDeEventos.conversas`);
+        # todas as outras — a do arquivo incluida — fecham-se.
+        self.assertEqual(servidor.abertas - servidor.fechadas, 1, "a tomada do arquivo fecha-se")
+
+    def test_sem_linha_no_arquivo_repete_e_nao_abre_dlq(self) -> None:
+        servidor = com_conversa()
+        with self.assertRaises(EntregaPorRepetir) as repetir:
+            asyncio.run(monta(servidor).entregar(corpo_do_reconciliador()))
+        self.assertEqual(repetir.exception.atraso_ms, 5_000)
+        self.assertEqual(servidor.dlq, [])
+
+    def test_na_ultima_tentativa_sem_linha_abre_a_dlq_sem_envelope(self) -> None:
+        servidor = com_conversa()
+        desfecho = asyncio.run(
+            monta(servidor).entregar(corpo_do_reconciliador(tentativas=TENTATIVAS))
+        )
+        self.assertEqual(desfecho.desfecho, "para_dlq")
+        self.assertEqual(servidor.dlq[0]["erro"], "tentativas_esgotadas")
+        self.assertEqual(servidor.dlq[0]["tipo"], dlq.TIPO_ILEGIVEL)
+
+    def test_o_arquivo_de_outro_tenant_nao_se_ve(self) -> None:
+        """A RLS: o ponteiro diz TENANT e o evento e de outro — zero linhas."""
+        servidor = com_conversa()
+        servidor.arquivo[EVENTO] = envelope_cru(tenant_id=OUTRO_TENANT)
+        with self.assertRaises(EntregaPorRepetir):
+            asyncio.run(monta(servidor).entregar(corpo_do_reconciliador()))
+        self.assertEqual(servidor.consumidos, {})
+
+
+class TestParidadeDaEntrega(unittest.TestCase):
+    """O AGR e o IDX leem o mesmo corpo e traduzem as mesmas instrucoes (KAM-194).
+
+    As duas copias existem porque as receitas de mutacao apontam para o texto
+    do `consumo.py` do AGR; este ensaio e o que as impede de divergir.
+    """
+
+    def test_os_campos_e_as_recusas_sao_os_mesmos(self) -> None:
+        from kamba_core.eventos import entrega as nucleo
+
+        self.assertEqual(consumo.CAMPOS_DA_ENTREGA, nucleo.CAMPOS_DA_ENTREGA)
+        casos = [
+            corpo(),
+            corpo(extra=1),
+            corpo(tentativas=0),
+            corpo(tentativas=True),
+            corpo(event_id=""),
+            corpo(tenant_id=3),
+            [1, 2],
+            {k: v for k, v in corpo().items() if k != "tentativas"},
+        ]
+        for caso in casos:
+            with self.subTest(caso=caso):
+                try:
+                    do_agr = ("ok", consumo.ler_entrega(caso).tentativas)
+                except consumo.EntregaInvalidaError as erro:
+                    do_agr = ("recusa", erro.codigo)
+                try:
+                    do_nucleo = ("ok", nucleo.ler_entrega(caso).tentativas)
+                except nucleo.EntregaInvalidaError as erro:
+                    do_nucleo = ("recusa", erro.codigo)
+                self.assertEqual(do_agr, do_nucleo)
+
+    def test_o_adaptador_traduz_e_proibe_as_mesmas_palavras(self) -> None:
+        from kamba_core.eventos import ligacao as nucleo
+
+        self.assertEqual(consumo.LigacaoDoConsumo.TRADUZIDAS, nucleo.TRADUZIDAS)
+        self.assertEqual(consumo.LigacaoDoConsumo.PROIBIDAS, nucleo.PROIBIDAS)
+
+
 class TestRoteamentoPorEntitlement(unittest.TestCase):
     def setUp(self) -> None:
         m.METRICAS.repor()
@@ -1601,6 +1694,27 @@ class TestRoteamentoPorEntitlement(unittest.TestCase):
         self.assertEqual(desfecho.desfecho, "aplicado")
         self.assertEqual(len(outbound.chamadas), 1)
         self.assertEqual([n for n, _ in desfecho.por_consumidor], ["agr_vendedor"])
+
+    def test_a_vertical_inactiva_fica_marcada_sem_efeito_ao_lado_da_activa(self) -> None:
+        """KAM-194: sem a marca, o reconciliador repunha o par para sempre.
+
+        A vertical inactiva nao tem efeito nem desfecho, mas tem a linha em
+        `events_consumed` — e a resposta a pergunta do reconciliador («foi
+        visto?»). Com as linhas de `evt_subscricoes` da revisao de dados, este
+        caso passou a acontecer em todo o pagamento de um *tenant* so com o
+        Vendedor.
+        """
+        servidor = com_conversa()
+        servidor.entitlements[(TENANT, "servicos")] = False
+        outbound = OutboundEspiao()
+        asyncio.run(
+            monta(servidor, outbound=outbound, tabela=tabela_do_registo()).entregar(corpo())
+        )
+        self.assertEqual(
+            {c for c, _ in servidor.consumidos}, {"agr_vendedor", "agr_servicos"}
+        )
+        self.assertEqual(len(outbound.chamadas), 1, "a inactiva nao notifica")
+        self.assertEqual(servidor.dlq, [])
 
     def test_sem_vertical_activa_nao_se_consome_nem_se_abre_dlq(self) -> None:
         servidor = com_conversa()
@@ -2519,6 +2633,40 @@ class TestRotaDoEvento(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(estado, 503)
         self.assertIn("retry-after", cabecalhos)
         self.assertEqual(json.loads(resposta)["outcome"], "tecto_do_tenant")
+
+    async def test_o_job_do_reconciliador_entra_com_a_reserva(self) -> None:
+        """KAM-194: um `payment.*` reposto sem envelope nao espera atras de conversas.
+
+        Com o tecto normal cheio e a reserva livre, a entrega do reconciliador
+        passa pela reserva. Sem isto, o `tipo` lia-se `""` (o envelope e nulo e
+        so se le do arquivo la dentro), e o pagamento que se perdeu levava 503.
+        """
+        from kamba_agr.admissao import Admissao, Tectos
+        from kamba_agr.api_interna import rotas
+        from kamba_agr.app import create_app
+
+        admissao = Admissao(tectos=Tectos(tecto_por_tenant=1))
+        servidor = com_conversa()
+        servidor.arquivo[EVENTO] = envelope_cru()
+
+        async def executar(_invocacao):  # pragma: no cover
+            raise AssertionError("nao se usa")
+
+        app = create_app(
+            rotas_internas=rotas(
+                credencial=lambda: "um-segredo-de-ensaio",
+                executar=executar,
+                admissao=admissao,
+                trancas=TrancaFalsa(),
+                eventos=monta(servidor),
+            )
+        )
+        pedido = corpo()
+        pedido["envelope"] = None
+        async with admissao.vaga_de(TENANT):
+            estado, _, resposta = await self._entregar(pedido, app=app)
+        self.assertEqual(estado, 200, resposta)
+        self.assertEqual(json.loads(resposta)["outcome"], "aplicado")
 
     async def _app_com(self, outbound):
         from kamba_agr.api_interna import rotas

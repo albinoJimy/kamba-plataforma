@@ -86,7 +86,23 @@ class TestRepositorio(unittest.TestCase):
             for caminho, cliente in destinos.CLIENTES_DE_SAIDA.items()
             if cliente.consulta_o_gate
         ]
-        self.assertEqual(consultam, ["services/agr/src/kamba_agr/llm/cliente.py"])
+        # **Desde o KAM-120 sao tres a consultar**, e os dois novos nao sao dos
+        # sete pontos do criterio 4: sao a Foto AI e o *bake-off* dela, com a
+        # finalidade `imagem`. Entre os sete, o cliente de LLM continua unico.
+        dos_sete = [
+            caminho
+            for caminho in consultam
+            if "imagem" not in destinos.CLIENTES_DE_SAIDA[caminho].finalidades
+        ]
+        self.assertEqual(dos_sete, ["services/agr/src/kamba_agr/llm/cliente.py"])
+        self.assertEqual(
+            sorted(consultam),
+            [
+                "libs/py-core/src/kamba_core/foto/bakeoff.py",
+                "libs/py-core/src/kamba_core/foto/servico.py",
+                "services/agr/src/kamba_agr/llm/cliente.py",
+            ],
+        )
 
     def test_cada_entrada_sem_gate_tem_credor(self) -> None:
         for caminho, cliente in destinos.CLIENTES_DE_SAIDA.items():
@@ -107,7 +123,7 @@ class TestRepositorio(unittest.TestCase):
             with self.subTest(finalidade=finalidade):
                 self.assertIn(finalidade, FINALIDADES)
 
-    def test_as_finalidades_sem_cliente_sao_as_treze_menos_as_declaradas(self) -> None:
+    def test_as_finalidades_sem_cliente_sao_as_do_dominio_menos_as_declaradas(self) -> None:
         """Nos dois sentidos, e e o achado 6 da revisao adversarial.
 
         A versao anterior comparava so a interseccao — «nenhuma das sem cliente
@@ -116,7 +132,7 @@ class TestRepositorio(unittest.TestCase):
         nao dizia `canal`, `pagamentos`, `facturacao` nem `segredos`. A conta do
         criterio 4 fechava por acidente.
 
-        Agora exige-se a **igualdade** com as treze menos as declaradas: uma
+        Agora exige-se a **igualdade** com as do dominio menos as declaradas: uma
         entrada nova que cubra uma finalidade da lista reprova aqui, e uma
         finalidade que deixe de ser coberta tambem.
         """

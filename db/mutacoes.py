@@ -312,6 +312,10 @@ def _revisao_por_glob(padrao: str) -> str:
 #: que e provisorio. O ensaio que a prova (`db/tests/test_catalogo_ai_schema.py`)
 #: descobre-a pelo mesmo padrao.
 REV_CATALOGO_AI = _revisao_por_glob("*_catalogo_ai.py")
+#: KAM-120: a revisao da Foto de produtos, pela razao da do Catalogo AI. O
+#: ensaio que a prova (`db/tests/test_foto_schema.py`) descobre-a pelo mesmo
+#: padrao.
+REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7241,6 +7245,75 @@ MUTACOES = [
     # quem confirmou e quando: o criterio da confirmacao ficava so no Python.
     # O `test_restricoes_de_linha` tem de a matar.
 
+    # ---------------------------- KAM-120 (revisao da Foto de produtos)
+    #
+    # Nove, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_FOTO`), porque o numero e provisorio. A suite
+    # e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_foto_schema.py`.
+    ('foto: o trabalho de imagem perde o FORCE da RLS', REV_FOTO,
+     '    rls.enable_tenant_rls("image_jobs")\n',
+     '    rls.enable_tenant_rls("image_jobs")\n'
+     '    op.execute(f"ALTER TABLE {TABELA} NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # A politica continuava la, mas o dono da tabela (`kamba_migrator`) via e
+    # escrevia os trabalhos de todos os tenants. O
+    # `test_a_rls_esta_ligada_e_forcada` tem de a matar.
+    ('foto: um trabalho falhado deixa de ser final', REV_FOTO,
+     "          IF OLD.estado = 'falhado' THEN\n",
+     "          IF false THEN\n",
+     "tests"),
+    # A tabela de transicoes continuava a recusar sair do `falhado`, mas o resto
+    # da linha (fornecedor, latencia, custo) mudava por baixo do motivo. O
+    # `test_um_falhado_nao_muda` tem de a matar.
+    ('foto: um concluido deixa trocar a versao', REV_FOTO,
+     "               OR NEW.versao_ref IS DISTINCT FROM OLD.versao_ref\n",
+     "",
+     "tests"),
+    # A versao que o dono ja viu (e talvez escolheu) era trocada por outra sem
+    # transicao nenhuma. O `test_um_concluido_so_muda_a_escolha` tem de a matar.
+    ('foto: o custo pode descer', REV_FOTO,
+     "          IF NEW.custo_usd < OLD.custo_usd THEN\n",
+     "          IF false AND NEW.custo_usd < OLD.custo_usd THEN\n",
+     "tests"),
+    # Um segundo trabalhador apagava o custo do primeiro, e a conta do
+    # fornecedor deixava de bater com a soma. O `test_o_custo_nao_desce` tem de
+    # a matar.
+    ('foto: um bloqueio salta para concluido', REV_FOTO,
+     "OR (OLD.estado = 'bloqueada_gate' AND NEW.estado IN ('a_processar', 'falhado'))",
+     "OR (OLD.estado = 'bloqueada_gate' AND NEW.estado IN ('a_processar', 'falhado', 'concluido'))",
+     "tests"),
+    # Um trabalho parado no gate (sem destino, sem carta) aparecia concluido sem
+    # ter passado pelo `a_processar`, isto e, sem a verificacao do gate. O
+    # `test_a_maquina_do_trigger_nas_25_combinacoes` tem de a matar.
+    ('foto: escolher um trabalho que nao concluiu', REV_FOTO,
+     ",\n          CONSTRAINT image_jobs_escolhida_ck\n"
+     "            CHECK (NOT escolhida OR estado = 'concluido')",
+     "",
+     "tests"),
+    # O dono escolhia uma versao que nao existe, e a vitrine mostrava um
+    # `versao_ref` nulo. O `test_so_um_concluido_se_escolhe` tem de a matar.
+    ('foto: a aplicacao passa a escrever a versao', REV_FOTO,
+     '"UPDATE (estado, motivo, provider, versao_ref, custo_usd, latencia_ms, escolhida) "',
+     '"UPDATE (estado, motivo, provider, versao_ref, custo_usd, latencia_ms, escolhida, versao) "',
+     "tests"),
+    # Uma aplicacao que repusesse a `versao` lida desfazia o controlo optimista
+    # e dois trabalhadores sobrepunham-se em silencio. O
+    # `test_a_versao_e_o_atualizado_at_sao_do_gatilho` tem de a matar.
+    ('foto: um bloqueio sem motivo passa', REV_FOTO,
+     "              (estado = 'bloqueada_gate' AND motivo IS NOT NULL\n",
+     "              (estado = 'bloqueada_gate'\n",
+     "tests"),
+    # `NULL IN (...)` e NULL, e um `CHECK` que da NULL passa: sem a guarda, o
+    # dono recebia um bloqueio sem saber porque. O
+    # `test_um_bloqueio_ou_uma_falha_sem_motivo_e_recusado` tem de a matar.
+    ('foto: duas versoes escolhidas do mesmo original', REV_FOTO,
+     'f"CREATE UNIQUE INDEX image_jobs_escolhida_uq ON {TABELA} (tenant_id, origem_ref) "',
+     'f"CREATE INDEX image_jobs_escolhida_uq ON {TABELA} (tenant_id, origem_ref) "',
+     "tests"),
+    # O botao do dono deixava duas versoes marcadas, e a vitrine escolhia uma ao
+    # acaso. O `test_so_uma_versao_escolhida_por_original` tem de a matar.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -7860,7 +7933,8 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     # chegou a correr. O `subscricoes.py` le `registry/*.yaml` por caminho
     # relativo, e o seu docstring ainda diz que a pasta «tem so um README.md»:
     # quatro YAML entraram depois, e o `test_catalogo_e_cli.py` passou a exigir
-    # «8 subscricao(oes) lida(s)». Sem a pasta, a copia lia zero.
+    # «8 subscricao(oes) lida(s)» — treze desde o KAM-194, com as cinco do `idx`
+    # (a quarta forma do registo). Sem a pasta, a copia lia zero.
     shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
     (destino / "ci").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "ci" / "contratos-allow.yaml", destino / "ci" / "contratos-allow.yaml")

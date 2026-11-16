@@ -13,14 +13,36 @@ verticais e dos módulos de entrada, versionado em **SemVer** (`specs/01` §5).
 | `servicos.yaml` | **vertical** — a outra metade da regra de dois | KAM-027 |
 | `gates.yaml` | **gates** — chave de topo `gates`: o **modo** de cada validação de arranque, com o ticket que a fecha | KAM-027 |
 | `plans.yaml` | **planos** — chave de topo `plans`: `plano` → entitlements por omissão | KAM-009 |
+| `idx.yaml` | **consumidor** — chave de topo `consumidor`: um consumidor de eventos que não é vertical, com as suas `subscriptions` | KAM-194 |
 | `entitlement_keys.schema.json` | o registo das **dez** chaves de `entitlements.limites` e a categoria de cada uma | KAM-009 |
 
-**Três formas, e só três.** Um `registry/*.yaml` é uma vertical (chave de topo
-`id`), os gates (chave de topo `gates`) ou os planos (chave de topo `plans`). O
-gate 3b distingue-as pela chave de topo e **nunca** pelo nome do ficheiro, as
-chaves de topo de cada forma são listas fechadas, e um ficheiro que não seja
-nenhuma das três **falha** (`tools/canon_lint/registo.py`). O `load_all` do AGR
-segue a mesma regra, e **salta** os planos: quem os lê é o provisionamento.
+**Quatro formas, e só quatro.** Um `registry/*.yaml` é uma vertical (chave de
+topo `id`), os gates (chave de topo `gates`), os planos (chave de topo `plans`)
+ou um consumidor que não é vertical (chave de topo `consumidor`, desde o
+KAM-194). O gate 3b distingue-as pela chave de topo e **nunca** pelo nome do
+ficheiro, as chaves de topo de cada forma são listas fechadas, e um ficheiro que
+não seja nenhuma das quatro **falha** (`tools/canon_lint/registo.py`). O
+`load_all` do AGR segue a mesma regra, e **salta** os planos e os consumidores:
+os planos lê-os o provisionamento, e um consumidor como o `idx` corre num
+processo próprio (`python -m kamba_core.idx`).
+
+## O `idx.yaml`, e porque é que ele e uma revisão dizem o mesmo
+
+O consumidor do índice (KAM-061) não tem persona, grafo nem tools: subscreve
+`catalog.product_changed` e os quatro `tenant.*`, e só isso. O gate 3b valida cada
+`tipo` contra o dicionário e a `versao` contra o
+`contratos/eventos/<tipo>/v<versao>.schema.json`, e recusa o prefixo `agr_`, que é
+o dos consumidores das verticais.
+
+**As linhas de `platform.evt_subscricoes` não se escrevem a partir daqui em
+execução.** Só o dono das tabelas (`kamba_migrator`) lhes escreve, e por isso vêm
+por uma revisão de **dados** (`db/migrations/versions/0052_subscricoes_idx_e_agr.py`,
+número *provisório*) — com as do `idx` e as oito que o `consumidores()` do AGR
+deriva das `subscriptions` das verticais. O
+`services/agr/tests/test_subscricoes_0052.py` confronta a revisão com este
+directório: uma `subscriptions` nova aqui sem a linha correspondente lá **reprova**,
+em vez de ficar um evento que o publicador nunca entrega. O `exige_ordem` não se
+escreve: sai do prefixo `payment.`, nas duas formas.
 
 ## O `gates.yaml`, e porque é que apagar uma linha é que fecha um gate
 

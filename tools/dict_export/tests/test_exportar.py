@@ -341,6 +341,14 @@ class TestDicionarioReal(unittest.TestCase):
                     # cliente em Kz com um *fact* em `preco_minor` falha
                     # **sempre**, por um factor de cem. Divida 106.
                     ("value_kz", "nome"),
+                    # Emenda 1.94 (KAM-120): as duas referencias do DDL
+                    # *proposta* do bloco, que o §3.66 substitui por chaves do
+                    # STO (`origem_ref`, `versao_ref`): a unica tabela com
+                    # `asset_id` e a `media_assets`, presa a uma mensagem do
+                    # WhatsApp. O `custo_minor` do mesmo DDL **nao** entra, de
+                    # proposito: e o nome do *ledger* do KAM-124, e a escolha
+                    # entre ele e o `custo_usd` esta devolvida.
+                    ("origem_asset_id", "nome"), ("versao_asset_id", "nome"),
                 ]
             ),
         )

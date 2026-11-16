@@ -91,8 +91,21 @@ class TestArvoreReal(unittest.TestCase):
         )
         self.assertEqual(do_worker_agora, 1344, "2x256 + 2x192 + 2x128 + 192")
         self.assertNotIn("worker-canal", dados.manifesto, "o `server.ts` saiu")
-        self.assertEqual(soma, do_bloco - do_worker_antes + do_worker_agora)
-        self.assertEqual(soma, 25152)
+        # KAM-194: as duas pontes e o `idx`, 192 MiB cada, tambem sem linha no
+        # bloco — somam-se como os quatro de cima, com a razao no manifesto.
+        do_kam_194 = sum(
+            dados.manifesto[nome].memoria_mib
+            for nome in ("worker-canal-ponte-idx", "worker-canal-ponte-agr", "idx")
+        )
+        self.assertEqual(do_kam_194, 576, "3x192")
+        # KAM-198: o processo de lote do onboarding, 128 MiB, uma replica —
+        # tambem sem linha no bloco, pela mesma razao.
+        do_kam_198 = dados.manifesto["onboarding-lote"].memoria_mib
+        self.assertEqual(do_kam_198, 128)
+        self.assertEqual(
+            soma, do_bloco - do_worker_antes + do_worker_agora + do_kam_194 + do_kam_198
+        )
+        self.assertEqual(soma, 25856)
 
     def test_a_soma_cabe_nos_80_por_cento_da_ram_do_host(self) -> None:
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
@@ -157,9 +170,16 @@ class TestArvoreReal(unittest.TestCase):
         # processos (1 344 MiB). Aqui o total do manifesto **muda** — ao
         # contrario do que o KAM-080 fez —, porque nenhum dos quatro estava
         # orcamentado como `pendente`.
-        self.assertEqual(do_compose, 22080, "a reserva real dos 18 presentes, em MiB")
-        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 22080)
-        self.assertEqual(len(presentes), 18)
+        #
+        # **KAM-194: de 18 para 21 presentes, e de 22 080 para 22 656 MiB.** As
+        # duas pontes e o `idx` (3x192 MiB), uma replica cada; tambem aqui o
+        # total do manifesto muda, porque nenhum estava orcamentado.
+        #
+        # **KAM-198: de 21 para 22 presentes, e de 22 656 para 22 784 MiB.** O
+        # processo de lote do onboarding (128 MiB, uma replica), pela mesma razao.
+        self.assertEqual(do_compose, 22784, "a reserva real dos 22 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 22784)
+        self.assertEqual(len(presentes), 22)
         self.assertLessEqual(do_compose, 26214.4)
 
     def test_cada_variavel_obrigatoria_tem_marcador(self) -> None:
