@@ -68,6 +68,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-196 | Consola da fila de revisão: identidade da equipa com MFA, rotas `/equipa` e avisos ao dono | feature | L | P0 | KAM-089 |
 | KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | KAM-196 |
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
+| KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | KAM-092 |
 
 ---
 
@@ -1019,7 +1020,7 @@ Testes: idempotência 2x e crash a meio, compensação com falha no passo 4, rec
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196, KAM-198 |
-| Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127, KAM-200 |
+| Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127, KAM-200, KAM-201 |
 | Responsável sugerido | Arquitecto de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1, §16, §20.1 PA-GOV-1/6), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§4–§5), ADR-009, ADR-019 |
 
@@ -1075,7 +1076,7 @@ CREATE TABLE platform.tenant_state_log ( -- append-only
 
 ### Verificação dos Critérios de Aceitação
 
-A revisão é a [`0058`](../db/migrations/versions/0058_eventos_do_tenant.py) (sobre a `0057` do KAM-124), os nomes estão no dicionário §3.70 (emenda 1.99) e a bateria é `../db/tests/test_eventos_do_tenant.py`, no gate 8. **Tudo vive na base**: duas portas, `platform.transition_tenant` e `platform.advance_case`, que correm como o `kamba_batch` sob o `app.tenant_id` do próprio tenant e emitem pelo `evt_emitir` na mesma transacção. **O que este ticket não entrega, e diz-se uma vez para as linhas abaixo: ninguém chama ainda as portas.** O `ServicoDeRevisao` escreve `aprovado` com um `UPDATE` directo, o `decidir` do KYC não muda a fase num `k1_ok`, e o `amostrar` do KAM-089 continua sem chamador — ligá-los é TypeScript sobre suites do KAM-087, do KAM-089 e do KAM-198, e é o seguimento deste ticket.
+A revisão é a [`0058`](../db/migrations/versions/0058_eventos_do_tenant.py) (sobre a `0057` do KAM-124), os nomes estão no dicionário §3.70 (emenda 1.99) e a bateria é `../db/tests/test_eventos_do_tenant.py`, no gate 8. **Tudo vive na base**: duas portas, `platform.transition_tenant` e `platform.advance_case`, que correm como o `kamba_batch` sob o `app.tenant_id` do próprio tenant e emitem pelo `evt_emitir` na mesma transacção. **O que este ticket não entrega, e diz-se uma vez para as linhas abaixo: ninguém chama ainda as portas.** O `ServicoDeRevisao` escreve `aprovado` com um `UPDATE` directo, o `decidir` do KYC não muda a fase num `k1_ok`, e o `amostrar` do KAM-089 continua sem chamador — ligá-los é TypeScript sobre suites do KAM-087, do KAM-089 e do KAM-198, e é o **KAM-201**.
 
 | Critério | Estado | Evidência |
 |---|---|---|
@@ -2758,6 +2759,66 @@ Testes: integração, isolamento e o anel de tenants.
 
 ---
 
+## KAM-201 — Portas do tenant ligadas: aprovação, amostragem e cache do CHR
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-092 |
+| Bloqueia | — |
+| Responsável sugerido | Arquitecto de Plataforma |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-092, KAM-089, KAM-198 e KAM-014), `02_Dicionario_de_Dados_Canonico.md` (§3.70), `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1) |
+
+### Contexto
+
+O KAM-092 pôs na base as portas do ciclo de vida do tenant — `platform.advance_case`, `platform.transition_tenant` e o agregador `platform.aprovacao_em_falta` — e as emissões de `tenant.approved`, `tenant.provisioned` e `tenant.activated` pelo *outbox*. **Ninguém as chama ainda.** O `ServicoDeRevisao` escreve `aprovado` com um `UPDATE` directo (`../packages/core-ts/src/revisao/sql.ts`), pelo que um caso aprovado por um revisor nunca emite a aprovação; o `decidir` do KYC (`../packages/core-ts/src/kyc/servico.ts`) não muda a fase num `k1_ok`, pelo que a aprovação automática não existe; e o `amostrar` do KAM-089 continua sem chamador, à espera do gancho que o KAM-198 deixou no processo de lote. E a cache do `ResolvedorDeCanal` (60 s por `phone_number_id`) não tem invalidação por tenant nem consumidor. Este ticket é o credor das caixas 4, 6 e 7 que o KAM-092 deixou parciais, e nasce no PR que as devolve.
+
+### Objectivo
+
+As portas do KAM-092 chamadas pelos fluxos que hoje escrevem por fora delas, a amostragem ligada à aprovação automática, e o CHR a encaminhar no momento da activação.
+
+### Critérios de Aceitação
+
+- [ ] A decisão `aprovar` (e o recurso aprovado) do `ServicoDeRevisao` passa a `platform.advance_case`, como `kamba_batch` e sob o `app.tenant_id` do caso, e o `tenant.approved` sai uma vez por caso; uma aprovação que o agregador recusa fica como erro visível, não como fase escrita.
+- [ ] Um `k1_ok` no `decidir` do KYC chama o `advance_case('aprovar')` e, quando aprova, o `amostrar` do KAM-089 pelo `ProcessoDeLote.aprovacaoAutomatica` do KAM-198.
+- [ ] Os escritores da `onboarding_case.fase` em TypeScript passam todos pela tabela do `advance_case`, ou ficam nomeados, com a razão, como os que não passam (o critério 6 do KAM-092).
+- [ ] A cache do CHR invalida-se pelo tenant quando chega o `tenant.activated`, por um consumidor declarado em `platform.evt_subscricoes`; antes dele, as mensagens ao número não chegam ao AGR (o critério 7 do KAM-092).
+- [ ] Um consumidor do `tenant.*` perante uma versão desconhecida falha de forma visível (DLQ) — a metade do critério 4 do KAM-092 que é do consumidor.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (revisão, KYC, lote), TEN (as portas), CHR (a cache), EVT (as subscrições).
+- **Fora deste ticket:** as portas e o agregador (KAM-092); os eventos das outras arestas do tenant, que saem com a escada de T&S (KAM-200).
+
+### Testes Requeridos
+
+- Integração: uma aprovação humana e uma automática emitem um `tenant.approved` cada, contra o PostgreSQL do *gate* 8; repetir a decisão não emite outro.
+- A cache do CHR: a primeira mensagem depois do `tenant.activated` chega ao AGR sem esperar o TTL.
+- Isolamento: o consumidor do CHR não invalida o tenant de outro.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 4, 6 e 7 do KAM-092 revistas com a evidência.
+- [ ] Sem segredos; dependências fixadas.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-201 da KAMBÁ (portas do tenant ligadas).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-092 e KAM-201), o dicionário §3.70,
+packages/core-ts/src/revisao/, packages/core-ts/src/kyc/ e packages/core-ts/src/chr/.
+Objectivo: advance_case no ServicoDeRevisao e no decidir do KYC, amostrar pelo processo de lote,
+e a cache do CHR invalidada pelo tenant.activated.
+Regras: as portas correm como kamba_batch sob o app.tenant_id do tenant; nenhuma fase escrita por fora.
+Testes: integração, a cache do CHR e isolamento.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -2817,4 +2878,4 @@ Testes: integração, isolamento e o anel de tenants.
 | 1.17 | Novembro 2026 | KAM-196: entram as duas secções de verificação do bloco da consola da fila de revisão — **seis** critérios (quatro satisfeitos, o do fundador vazio e o do *job* parcial) e **três** itens da DoD (dois marcados, um parcial). Entregue: a porta `IdentidadeDaEquipa` e a sessão `kamba_equipa` com separador de domínio próprio, as **nove** rotas `/equipa` no `onboarding-web` com a barreira 401/403 antes do serviço, o caso `X-01/ts/equipa` com bateria e condutor, os cinco modelos de SMS e os cinco e-mails do aviso ao dono com o adaptador da porta, e o ciclo da fila. A revisão adversarial confirmou seis achados médios e mudou código, o mais grave um `pedir_info` cujo aviso se perdia. **Entra o KAM-198** (feature, M, P0, fase 1, dependência KAM-196), credor do processo de lote que corre o ciclo e serve as métricas; o `Bloqueia` do KAM-196 e as `Dependências` do KAM-092 ganham-no, no bloco e na tabela-resumo. Total do epic: **22**. Sem revisão de base de dados. | Equipa KAMBÁ |
 | 1.18 | Novembro 2026 | KAM-198: entram as duas secções de verificação do bloco do processo de lote do onboarding — **cinco** critérios e **duas** linhas de DoD, todos satisfeitos. Entregue: o processo `onboarding-lote` (a imagem do `onboarding-web` com outro `command:`) sobre os adaptadores SQL da fila, como `kamba_batch`, com o `kamba_app` só para o screening; o `/metrics` com o caso `X-01/ts/lote`; o gancho do KAM-092; e a quota entre processos com `pg_advisory_xact_lock`. **Com uma revisão de base de dados que o bloco não previa:** a `0053`, decisão (A) do fundador de 2026-11-13, com a `review_case.efeito_pendente_at` que guarda a lista de efeitos por reaplicar. A revisão adversarial confirmou oito achados e mudou código, o mais grave a lista a passar fome atrás de um aviso sem via. A célula do critério 6 do KAM-196 aponta para esta entrega. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | **KAM-097**: secção de verificação no bloco (com a revisão adversarial), e o **KAM-200** acrescentado, no mesmo PR, como credor das caixas que o KAM-097 deixa parciais — o processo do consumidor e das varreduras, as métricas e os alertas de T&S, e as quatro fontes de sinal que faltam. Linhas «Recebido do KAM-097» nos blocos KAM-092, KAM-096 e KAM-190. O EPIC-09 passa a **23** tickets. | Equipa KAMBÁ |
-| 1.20 | Novembro 2026 | KAM-092: entram as duas secções de verificação do bloco dos eventos do tenant — **oito** critérios (cinco satisfeitos, três parciais: a idempotência pela letra e a DLQ, os sub-estados só pela porta e a cache do CHR) e **seis** linhas de DoD (quatro marcadas). | Equipa KAMBÁ |
+| 1.20 | Novembro 2026 | KAM-092: entram as duas secções de verificação do bloco dos eventos do tenant — **oito** critérios (cinco satisfeitos, três parciais: a idempotência pela letra e a DLQ, os sub-estados só pela porta e a cache do CHR) e **seis** linhas de DoD (quatro marcadas). E o **KAM-201**, acrescentado no mesmo PR como credor das caixas 4, 6 e 7: ligar ao TypeScript as portas da base, o `amostrar` e a cache do CHR. | Equipa KAMBÁ |
