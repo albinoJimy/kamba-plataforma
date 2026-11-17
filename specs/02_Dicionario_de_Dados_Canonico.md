@@ -4609,7 +4609,7 @@ predicado do gate `kyc` do §3.70 (`aprovacao_em_falta`).
 **O que esta emenda não decide, e a quem.** O processo que corre o recálculo todos os dias, em
 `order.delivered` e na aprovação: o módulo não tem agendador nem consumidor, e o KAM-200 diz por escrito
 que o tecto não é dele — o credor é o **KAM-203**. Quem escreve o `entrega_confirmada_por` e o
-`entregue_at` em que a elegibilidade confia, que hoje é quem transita a encomenda (COM). O relatório do Piloto que compara o previsto com o observado, que precisa de dados que
+`entregue_at` em que a elegibilidade confia, que hoje é quem transita a encomenda (COM) — o credor é o **KAM-204**. O relatório do Piloto que compara o previsto com o observado, que precisa de dados que
 ainda não existem (**Responsável de Produto**, com a `tabelaDeLimites` como fonte do previsto). Os
 valores, que se calibram com o Piloto.
 
