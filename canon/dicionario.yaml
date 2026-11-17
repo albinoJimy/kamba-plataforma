@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.102"
+versao_dicionario: "1.103"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -18698,6 +18698,142 @@ entradas:
       - "desfecho"
       - "origem"
     variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Passo da régua"
+    canonico: "platform.billing_dunning_steps, oito colunas"
+    literais:
+      - "platform.billing_dunning_steps"
+    nomes:
+      - "platform.billing_dunning_steps"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "billing_cycle_id"
+      - "passo"
+      - "executado_at"
+      - "resultado"
+      - "canal"
+      - "config_versao"
+      - "UNIQUE"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Os passos"
+    canonico: "billing_dunning_steps.passo ∈ {lembrete, aviso, suspensao}"
+    literais:
+      - "billing_dunning_steps.passo"
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes:
+      - "billing_dunning_steps.passo"
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Resultado de um passo"
+    canonico: "billing_dunning_steps.resultado ∈ {notificado, saltado, cancelado, suspenso, sem_transicao}"
+    literais:
+      - "billing_dunning_steps.resultado"
+      - "notificado"
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+    nomes:
+      - "billing_dunning_steps.resultado"
+      - "notificado"
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+    nomes_nota:
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+      - "suspensao"
+      - "ativo"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Canal de um passo"
+    canonico: "billing_dunning_steps.canal ∈ {ops, dono}, anulável"
+    literais:
+      - "billing_dunning_steps.canal"
+      - "ops"
+      - "dono"
+    nomes:
+      - "billing_dunning_steps.canal"
+      - "ops"
+      - "dono"
+    nomes_nota:
+      - "ops"
+      - "dono"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Instante do passo"
+    canonico: "billing_dunning_steps.executado_at"
+    literais:
+      - "billing_dunning_steps.executado_at"
+    nomes:
+      - "billing_dunning_steps.executado_at"
+    nomes_nota:
+      - "owner_notices.criado_at"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Versão da régua"
+    canonico: "billing_dunning_steps.config_versao, e VERSOES_DA_REGUA no módulo"
+    literais:
+      - "billing_dunning_steps.config_versao"
+      - "VERSOES_DA_REGUA"
+    nomes:
+      - "billing_dunning_steps.config_versao"
+      - "VERSOES_DA_REGUA"
+    nomes_nota:
+      - "validaDe"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Dias da régua"
+    canonico: "lembrete = 3, aviso = 7, suspensao = 10, em dias civis de Luanda desde a emissão da primeira cobrança do ciclo (o «D+0 referência» do bloco)"
+    literais:
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes:
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Motivo da suspensão"
+    canonico: "regua_de_cobranca, no registo de estados do tenant; regua_de_cobranca_regularizada na reposição"
+    literais:
+      - "regua_de_cobranca"
+      - "regua_de_cobranca_regularizada"
+    nomes:
+      - "regua_de_cobranca"
+      - "regua_de_cobranca_regularizada"
+    nomes_nota:
+      - "falta_de_pagamento"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Métricas da régua"
+    canonico: "dunning_step_total{passo,resultado}, tenants_suspended_by_dunning_total"
+    literais:
+      - "dunning_step_total{passo,resultado}"
+      - "tenants_suspended_by_dunning_total"
+    nomes:
+      - "dunning_step_total"
+      - "passo"
+      - "resultado"
+      - "tenants_suspended_by_dunning_total"
+    nomes_nota:
+      - "MetricasDaRegua"
+      - "LIMIAR_DE_SUSPENSOES_POR_DIA"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -21752,6 +21888,31 @@ dominios:
       - "convite_invalido"
     seccao: "3.71"
     conceito: "Recusas da lista"
+    so_no_registo: false
+  - coluna: "billing_dunning_steps.passo"
+    valores:
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    seccao: "3.72"
+    conceito: "Os passos"
+    so_no_registo: false
+  - coluna: "billing_dunning_steps.resultado"
+    valores:
+      - "notificado"
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+    seccao: "3.72"
+    conceito: "Resultado de um passo"
+    so_no_registo: false
+  - coluna: "billing_dunning_steps.canal"
+    valores:
+      - "ops"
+      - "dono"
+    seccao: "3.72"
+    conceito: "Canal de um passo"
     so_no_registo: false
 
 variantes:

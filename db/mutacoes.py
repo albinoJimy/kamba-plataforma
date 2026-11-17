@@ -328,6 +328,13 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
 REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
+#: KAM-058: a revisao da regua de cobranca, pela razao da do Catalogo AI — o
+#: numero e provisorio. O ensaio que a prova e o
+#: `db/tests_pagamentos/test_regua_de_cobranca.py`.
+REV_REGUA = _revisao_por_glob("*_regua_de_cobranca.py")
+#: KAM-058: o motor da regua. So o `tests_bd/regua.bd.test.ts` (suite
+#: `tests_lote`) o corre contra a base.
+REGUA_TS = "packages/core-ts/src/pagamentos/regua.ts"
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
@@ -7808,6 +7815,60 @@ MUTACOES = [
      "      await c.query(SQL_TRANCAR);\n",
      "",
      "tests_lote"),
+    # ------------------------------ KAM-058 (revisao da regua de cobranca)
+    #
+    # Sete. As quatro da revisao tiram uma barreira que so a base tem, e matam-
+    # nas os ensaios nomeados do `db/tests_pagamentos/test_regua_de_cobranca.py`.
+    # As tres do motor (`REGUA_TS`) tiram uma guarda do `correrRegua`, e matam-
+    # nas os ensaios que correm o motor ou o SQL dele contra a base.
+    #
+    # Dois passos iguais no mesmo ciclo — o criterio 1:
+    # `test_um_passo_por_ciclo`.
+    ("regua: o passo deixa de ser unico por ciclo", REV_REGUA,
+     "          CONSTRAINT billing_dunning_steps_passo_uq UNIQUE (billing_cycle_id, passo),\n",
+     "",
+     "tests_pagamentos"),
+    # O dono da tabela le os passos de todos os tenants:
+    # `test_a_rls_esta_ligada_e_forcada`.
+    ("regua: a tabela perde o FORCE da RLS", REV_REGUA,
+     '    rls.enable_tenant_rls("billing_dunning_steps")\n',
+     '    rls.enable_tenant_rls("billing_dunning_steps")\n'
+     '    op.execute("ALTER TABLE platform.billing_dunning_steps NO FORCE ROW LEVEL SECURITY")\n',
+     "tests_pagamentos"),
+    # O lote reescreve um passo `cancelado` como `notificado`:
+    # `test_o_lote_so_insere_e_a_aplicacao_nada`.
+    ("regua: o lote actualiza passos", REV_REGUA,
+     '"GRANT SELECT, INSERT ON platform.billing_dunning_steps TO kamba_batch"',
+     '"GRANT SELECT, INSERT, UPDATE ON platform.billing_dunning_steps TO kamba_batch"',
+     "tests_pagamentos"),
+    # Um passo que diz ter avisado sem dizer por onde:
+    # `test_so_a_suspensao_suspende_e_so_um_aviso_que_saiu_tem_canal`.
+    ("regua: o canal solta-se do resultado", REV_REGUA,
+     "              CHECK ((canal IS NOT NULL) = (resultado IN ('notificado', 'suspenso'))),\n",
+     "              CHECK (true),\n",
+     "tests_pagamentos"),
+    # A regua deixa de adiar a suspensao de um tenant `restrito` e grava-a como
+    # `sem_transicao`: quando a Meta levantar a restricao com a divida por
+    # pagar, ninguem suspende (criterio 7, achado 7 da revisao adversarial):
+    # `um tenant restrito não é suspenso nem sai do restrito`, que exige que
+    # nada se grave enquanto adia.
+    ("regua: deixa de adiar a suspensao de um restrito", REGUA_TS,
+     '        if (estado === "restrito" || estado === "suspenso") {\n',
+     '        if (estado === "suspenso") {\n',
+     "tests_lote"),
+    # Pagar a assinatura levanta uma sancao de T&S que chegou depois da
+    # suspensao da regua (achado 1 da revisao adversarial):
+    # `test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`.
+    ("regua: a reposicao ignora as sancoes de T&S", REGUA_TS,
+     "              AND s.passo IN ('suspensao', 'encerramento')\n",
+     "              AND false\n",
+     "tests_pagamentos"),
+    # A reposicao levanta uma suspensao que nao e dela (uma sancao):
+    # `test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`.
+    ("regua: a reposicao ignora o motivo da suspensao", REGUA_TS,
+     "           ORDER BY l.em DESC LIMIT 1) = $1\n",
+     "           ORDER BY l.em DESC LIMIT 1) IS NOT NULL AND $1::text IS NOT NULL\n",
+     "tests_pagamentos"),
 ]
 
 

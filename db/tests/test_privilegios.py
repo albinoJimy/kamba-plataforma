@@ -1697,6 +1697,29 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os passos da regua de cobranca (KAM-058, revisao da regua). **So o lote
+#: escreve, e so `INSERT`**: um passo e um facto, nao se edita nem se apaga, e a
+#: unicidade `(billing_cycle_id, passo)` so vale se ninguem o reescrever. A
+#: auditoria le. O `kamba_app` **nao tem nada**: o painel do dono nao mostra a
+#: regua no Piloto, e um privilegio que ninguem usa e uma superficie. Entra na
+#: matriz de coluna pela mesma razao: um `GRANT UPDATE (resultado)` ao lote
+#: transformava um passo `cancelado` num `notificado` sem rasto.
+ESPERADO_POR_TABELA.update(
+    {
+        "billing_dunning_steps": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2378,6 +2401,8 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # ao lote mudava o limite sem passar pelo dono do esquema.
     "waitlist_entry",
     "onboarding_capacity",
+    # KAM-058: os passos da regua, so `INSERT`. Ver o `ESPERADO_POR_TABELA`.
+    "billing_dunning_steps",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

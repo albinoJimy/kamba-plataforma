@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.102 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.103 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4593,6 +4593,42 @@ lista fechada (**KAM-116**) — a porta `AvisoDaLista` só tem o duplo. O adapta
 processo que corra em `prod`: o `onboarding-web` corre sobre a lista em memória, como o resto do
 guia, e o processo de lote é onde ela vai (**KAM-092**, que liga esse processo).
 
+### 3.72 Régua de cobrança da assinatura: `billing_dunning_steps` e os passos (KAM-058)
+
+*Emenda 1.103, **proposta**.* Os nomes da régua que cobra a assinatura da KAMBÁ às PMEs
+(`../docs/tecnica/04` §11.2), do módulo [`../packages/core-ts/src/pagamentos/regua.ts`](../packages/core-ts/src/pagamentos/regua.ts)
+e da tabela que a revisão [`0062`](../db/migrations/versions/0062_regua_de_cobranca.py) cria.
+
+**A régua não tem grafo de estados próprio.** Suspende e repõe pela porta de transição do tenant da
+revisão `0058` (KAM-092, §3.70), que devolve falso quando o tenant já está no destino; o evento de
+suspensão e o de reactivação emitem-se na mesma transacção, e só quando a porta devolve verdadeiro.
+**Só suspende um tenant `ativo`**: num `restrito` ou num `suspenso` por outra razão a suspensão
+**espera**, sem se gravar, e vem quando o tenant voltar a `ativo` com a dívida por pagar — uma
+suspensão por cima de um `restrito` seguida de uma reposição a `ativo` apagava a restrição da Meta.
+**Nunca suspende sem aviso prévio**: a suspensão só é devida com o `aviso` notificado há pelo menos
+a diferença entre os dois dias da versão. **Só repõe o que ela suspendeu**: a última transição
+registada do tenant tem de ser a dela, com o motivo `regua_de_cobranca`, e nenhuma sanção de T&S de
+suspensão ou encerramento (§3.68) pode ter chegado depois dela sem recurso provido — o Trust suspende
+sem passar pela porta de transição, e sem esta pergunta pagar a assinatura levantava a sanção.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Passo da régua | `platform.billing_dunning_steps`, **oito** colunas | — | *proposta* (emenda 1.103, KAM-058). `id`, `tenant_id`, `billing_cycle_id`, `passo`, `executado_at`, `resultado`, `canal`, `config_versao`. O DDL do bloco tinha quatro; o `tenant_id` entra pela RLS e pela FK composta para o ciclo, o `canal` e a `config_versao` pelos critérios 4 e 6. `UNIQUE (billing_cycle_id, passo)`: o critério 1. Só o `kamba_batch` escreve, e só insere |
+| Os passos | `billing_dunning_steps.passo` ∈ {`lembrete`, `aviso`, `suspensao`} | «D+3», «D+7», «D+10» | *proposta* (emenda 1.103, KAM-058). Lista **fechada**, **três**. O nome não leva o dia: o dia é configuração, e um passo chamado pelo dia mentia no dia em que o valor mudasse |
+| Resultado de um passo | `billing_dunning_steps.resultado` ∈ {`notificado`, `saltado`, `cancelado`, `suspenso`, `sem_transicao`} | — | *proposta* (emenda 1.103, KAM-058). Lista **fechada**, **cinco**. `saltado`: um motor que esteve em baixo só executa o último passo devido. `cancelado`: o ciclo foi pago ou anulado antes. `suspenso` e `sem_transicao` só na `suspensao`, e o segundo quer dizer que o tenant não estava `ativo` |
+| Canal de um passo | `billing_dunning_steps.canal` ∈ {`ops`, `dono`}, anulável | — | *proposta* (emenda 1.103, KAM-058). Só um aviso que saiu tem canal. **`ops` é a omissão até a D10 fechar**: o passo gravado é a tarefa, e a lista diária de ops lê-se desta tabela, com a mensagem refeita do *ledger*. `dono` exige a referência escrita da decisão D10 |
+| Instante do passo | `billing_dunning_steps.executado_at` | — | *proposta* (emenda 1.103, KAM-058). **Do relógio de quem chama**, pela razão do `owner_notices.criado_at` (§3.25) |
+| Versão da régua | `billing_dunning_steps.config_versao`, e `VERSOES_DA_REGUA` no módulo | — | *proposta* (emenda 1.103, KAM-058). Uma versão vale para os ciclos que **abrem** no dia `validaDe` ou depois (critério 4); mudar um valor acrescenta uma versão e não edita a anterior |
+| Dias da régua | `lembrete` = 3, `aviso` = 7, `suspensao` = 10, em dias civis de Luanda desde a emissão da primeira cobrança do ciclo (o «D+0 referência» do bloco) | — | ***Propostas***, as três, a calibrar no Piloto. O aviso prévio que a lei pede para suspender um serviço pago é INDÍCIO (Art. 16.º da Lei 15/03; a confirmar por parecer) |
+| Motivo da suspensão | `regua_de_cobranca`, no registo de estados do tenant; `regua_de_cobranca_regularizada` na reposição | — | *proposta* (emenda 1.103, KAM-058). É por este motivo que a reposição reconhece o que a régua suspendeu. No *payload* do evento de suspensão o motivo é `falta_de_pagamento`, o do `../docs/tecnica/00` §6.2 |
+| Métricas da régua | `dunning_step_total{passo,resultado}`, `tenants_suspended_by_dunning_total` | — | *proposta* (emenda 1.103, KAM-058). As duas do DoD, contadas por porta (`MetricasDaRegua`), sem identificador em etiqueta. O limiar do alerta, `LIMIAR_DE_SUSPENSOES_POR_DIA` = 5, é ***proposta*** |
+
+**O que esta emenda não decide, e a quem.** O canal da KAMBÁ com o dono — a decisão aberta **D10** —
+e a categoria Meta de um aviso de cobrança, NÃO VERIFICADA (D2, **KAM-101**). O prazo legal de aviso
+prévio — **parecer**. A regra de alerta no Prometheus: a série não é servida por nenhum processo com
+`/metrics` (o processo da cobrança corre em lote), pelo que a contagem do alerta sai no relatório da
+volta e a regra fica com o credor da observabilidade (**KAM-080**).
+
 ---
 
 ---
@@ -4720,3 +4756,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.100 | Novembro 2026 | **Emenda (*proposta*), KAM-095: a lista de espera do limite de onboarding.** Sobre a 1.99 do KAM-092. §3.71 nova: a `platform.waitlist_entry` com as suas **onze** colunas e os **cinco** estados, o *trigger* que só deixa entrar casos aprovados e escreve a chave FIFO, o convite de uso único em *hash*, as duas expirações até abandonar, a validade do KYC na reentrada, a `platform.onboarding_capacity` com o limite em vigor e a **origem** (acima de 10 só `confirmado`), a estimativa rotulada, as quatro rotas do dono e as cinco métricas. O §3.21 e o §3.54 passam a apontar para ela. **O que não decide:** o limite real da Meta (`ext:KAM-102`), o texto do SMS do convite (KAM-116) e o processo onde o adaptador SQL corre em `prod` (KAM-092). | Equipa KAMBÁ |
 | 1.101 | Novembro 2026 | **Emenda (*proposta*), KAM-199: a activação do léxico de *dataset* e as decisões da pesquisa no Piloto.** Sobre a 1.100 do KAM-095. §3.62 emendada: a `idx.eval_relatorio` (**onze** colunas, sem `tenant_id`, só aceita um relatório verde pela `eval_relatorio_verde_ck`, guarda os termos que a corrida mediu e não se reescreve), a coluna `termo_canonico.eval_relatorio_id` com a sua FK, e o gatilho `termo_canonico_dataset_medido`, que substitui a `termo_canonico_dataset_inactivo_ck` da emenda 1.87 e só deixa activar uma entrada que o relatório anexado mediu. O §3.59 passa a contar **onze** colunas no `idx.termo_canonico`. O §3.59 (o vector do produto) passa a dizer que o modelo fica para depois do Piloto. Regista as três decisões do fundador de 2026-11-16 (ADR-L012): *eval-gate* em aviso, relatório de *tokens* só do *dataset* sem nada em produção, e Piloto só lexical. **O que não decide:** o modelo do `kamba-embed` (PROP-IDX-4), a coluna da dimensão dele e o conteúdo do léxico, que continua NÃO VERIFICADO. | Equipa KAMBÁ |
 | 1.102 | Novembro 2026 | **Emenda (*proposta*), KAM-201: quem chama as portas do §3.70.** Sobre a 1.101 do KAM-199. Nenhum nome novo: o §3.70 ganha o parágrafo «Quem chama as portas», que substitui a parte do «O que esta emenda não decide» que dizia que ninguém as chamava. O `aprovado` da fila, o `k1_ok` do KYC e um varrimento do ciclo do lote passam pelo `advance_case`, com o evento de quem chama; a porta recusa com um caso de revisão bloqueante por decidir e com o `tenant.approved` já emitido; e o CHR esquece o tenant na *cache* com o consumidor `chr` do `tenant.activated` (revisão de dados `0061`). | Equipa KAMBÁ |
+| 1.103 | Novembro 2026 | **Emenda (*proposta*), KAM-058: a régua de cobrança da assinatura.** Sobre a 1.102 do KAM-201. §3.72 nova: a `billing_dunning_steps` com as suas **oito** colunas, um passo por ciclo, os três passos, os cinco resultados e os dois canais, a versão da régua, os dias propostos, o motivo da suspensão e as duas métricas do DoD. A régua suspende e repõe pela porta de transição do KAM-092 e não tem grafo próprio. Revisão `0062`, sobre a `0061` do KAM-201. | Equipa KAMBÁ |

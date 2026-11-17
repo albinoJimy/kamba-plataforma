@@ -624,6 +624,17 @@ TABELAS_CUSTO_DOS_MODULOS = ("module_cost_ledger", "module_test_prices")
 #: apaga nenhuma das duas; o `kamba_app` nao tem nada em nenhuma.
 TABELAS_LISTA_DE_ESPERA = ("onboarding_capacity", "waitlist_entry")
 
+#: O que a revisao da regua de cobranca (KAM-058) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero e provisorio e da-o a integracao pela ordem de quem funde.
+#:
+#: Uma tabela de tenant, a `billing_dunning_steps`, com RLS `FORCE` pela
+#: `tenant_iso`, `UNIQUE (billing_cycle_id, passo)` e FK composta
+#: `(tenant_id, billing_cycle_id)` para a `billing_cycles`. So o `kamba_batch`
+#: escreve, e so `INSERT`; o `kamba_app` nao tem nada.
+TABELAS_REGUA_DE_COBRANCA = ("billing_dunning_steps",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -637,19 +648,31 @@ TABELAS = tuple(
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
+        + TABELAS_REGUA_DE_COBRANCA
     )
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a da regua
+#: de cobranca (KAM-058).
+#:
+#: O `downgrade` da revisao da regua leva a base para aqui. **Deriva do
+#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
+#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
+#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`.
+TABELAS_ANTES_DA_REGUA_DE_COBRANCA = tuple(
+    sorted(set(TABELAS) - set(TABELAS_REGUA_DE_COBRANCA))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da lista
 #: de espera (KAM-095).
 #:
-#: O `downgrade` da revisao da lista de espera leva a base para aqui. **Deriva
-#: do `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a
-#: seguir poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e
-#: nao pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a
-#: anterior e a `0058`, a dos eventos do tenant (KAM-092).
+#: O `downgrade` da revisao da lista de espera leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DA_REGUA_DE_COBRANCA` desde o KAM-058, que pos a sua revisao
+#: no topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0058`, a dos eventos do tenant
+#: (KAM-092).
 TABELAS_ANTES_DA_LISTA_DE_ESPERA = tuple(
-    sorted(set(TABELAS) - set(TABELAS_LISTA_DE_ESPERA))
+    sorted(set(TABELAS_ANTES_DA_REGUA_DE_COBRANCA) - set(TABELAS_LISTA_DE_ESPERA))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a dos
