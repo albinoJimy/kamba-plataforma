@@ -222,8 +222,9 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: esquema vem **entre** o `dat` e o `lg`.
 #:
 #: KAM-062 (revisao `0049`) acrescenta a `norm_versao`, que vem primeiro pela
-#: ordem alfabetica.
-TABELAS_IDX = ("norm_versao", "search_doc", "termo_canonico")
+#: ordem alfabetica. KAM-199 (a revisao da activacao do lexico de *dataset*)
+#: acrescenta a `eval_relatorio`, que passa a ser a primeira.
+TABELAS_IDX = ("eval_relatorio", "norm_versao", "search_doc", "termo_canonico")
 #: As vistas do esquema. Separadas das tabelas porque a descoberta do catalogo
 #: tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — tem aqui o
@@ -272,19 +273,27 @@ TABELAS_IDX = ("norm_versao", "search_doc", "termo_canonico")
 #: `module_cost_ledger`; a segunda junta o plano do tenant e os precos de teste,
 #: e so o `kamba_batch` a le. O SQL vive em `db/modulos_custo.py`.
 #:
+#: A `v_churn_signals`, a `v_tenant_dormente` e a `v_onboarding_kpis_semanal`
+#: sao do KAM-117: os episodios de churn e de dormente abertos, e os KPIs de
+#: onboarding por semana e acumulados, sobre a `v_onboarding_kpis` e a
+#: `v_review_sla`. A aplicacao nao le nenhuma.
+#:
 #: **Por ordem alfabetica**, que e a que o `_vistas` devolve.
 VISTAS = (
     "consent_actual",
+    "v_churn_signals",
     "v_draft_metrics",
     "v_h12",
     "v_module_cost_month",
     "v_oferta_viva",
     "v_onboarding_kpis",
     "v_onboarding_kpis_agregado",
+    "v_onboarding_kpis_semanal",
     "v_payment_events_audit",
     "v_payment_ledger_heads",
     "v_review_sla",
     "v_tenant_cost_daily",
+    "v_tenant_dormente",
     "v_transfer_audit",
 )
 
@@ -623,6 +632,28 @@ TABELAS_CUSTO_DOS_MODULOS = ("module_cost_ledger", "module_test_prices")
 #: apaga nenhuma das duas; o `kamba_app` nao tem nada em nenhuma.
 TABELAS_LISTA_DE_ESPERA = ("onboarding_capacity", "waitlist_entry")
 
+#: O que a revisao da regua de cobranca (KAM-058) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero e provisorio e da-o a integracao pela ordem de quem funde.
+#:
+#: Uma tabela de tenant, a `billing_dunning_steps`, com RLS `FORCE` pela
+#: `tenant_iso`, `UNIQUE (billing_cycle_id, passo)` e FK composta
+#: `(tenant_id, billing_cycle_id)` para a `billing_cycles`. So o `kamba_batch`
+#: escreve, e so `INSERT`; o `kamba_app` nao tem nada.
+TABELAS_REGUA_DE_COBRANCA = ("billing_dunning_steps",)
+
+#: O que a revisao dos KPIs de churn (KAM-117) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0063`) e provisorio e da-o a integracao pela ordem de quem funde.
+#:
+#: Os episodios de sinal de churn e de dormente, com RLS `FORCE` pela
+#: `tenant_iso` e um indice unico parcial (um aberto por tenant e sinal). So o
+#: `kamba_batch` escreve, e so as tres colunas do fecho e do orcamento; ninguem
+#: apaga; o `kamba_app` nao tem nada.
+TABELAS_KPIS_DE_CHURN = ("churn_signal_episode",)
+
 #: O que a revisao do catalogo minimo e do teste ponta a ponta (KAM-094)
 #: acrescenta: as tentativas do teste assistido pelo dono.
 #:
@@ -649,6 +680,7 @@ TABELAS = tuple(
         + TABELAS_0044 + TABELAS_0048 + TABELAS_CATALOGO_AI + TABELAS_FOTO
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
+        + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
         + TABELAS_CATALOGO_MINIMO
     )
 )
@@ -659,20 +691,43 @@ TABELAS = tuple(
 #: O `downgrade` dessa revisao leva a base para aqui. **Deriva do `TABELAS`**,
 #: por ser o topo da cadeia: quem acrescentar uma revisao a seguir poe a sua
 #: aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao pelo numero,
-#: pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e a da lista de
-#: espera (KAM-095).
+#: pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e a dos KPIs de
+#: churn (KAM-117).
 TABELAS_ANTES_DO_CATALOGO_MINIMO = tuple(
     sorted(set(TABELAS) - set(TABELAS_CATALOGO_MINIMO))
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a dos
+#: KPIs de churn (KAM-117).
+#:
+#: O `downgrade` da revisao dos KPIs leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CATALOGO_MINIMO` desde o KAM-094, que pos a sua revisao no
+#: topo. Hoje a anterior e a da regua de cobranca (KAM-058).
+TABELAS_ANTES_DOS_KPIS_DE_CHURN = tuple(
+    sorted(set(TABELAS_ANTES_DO_CATALOGO_MINIMO) - set(TABELAS_KPIS_DE_CHURN))
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a da regua
+#: de cobranca (KAM-058).
+#:
+#: O `downgrade` da revisao da regua leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DOS_KPIS_DE_CHURN` desde o KAM-117, que pos a sua revisao no
+#: topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`.
+TABELAS_ANTES_DA_REGUA_DE_COBRANCA = tuple(
+    sorted(set(TABELAS_ANTES_DOS_KPIS_DE_CHURN) - set(TABELAS_REGUA_DE_COBRANCA))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da lista
 #: de espera (KAM-095).
 #:
 #: O `downgrade` da revisao da lista de espera leva a base para aqui. Deriva do
-#: `TABELAS_ANTES_DO_CATALOGO_MINIMO` desde o KAM-094, que pos a sua revisao no
-#: topo. Hoje a anterior e a `0058`, a dos eventos do tenant (KAM-092).
+#: `TABELAS_ANTES_DA_REGUA_DE_COBRANCA` desde o KAM-058, que pos a sua revisao
+#: no topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a `0058`, a dos eventos do tenant
+#: (KAM-092).
 TABELAS_ANTES_DA_LISTA_DE_ESPERA = tuple(
-    sorted(set(TABELAS_ANTES_DO_CATALOGO_MINIMO) - set(TABELAS_LISTA_DE_ESPERA))
+    sorted(set(TABELAS_ANTES_DA_REGUA_DE_COBRANCA) - set(TABELAS_LISTA_DE_ESPERA))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a dos

@@ -12,7 +12,8 @@ medir, porque precisa da base:
 * **criterio 6** — o termo do tenant prevalece, e um termo de B nunca chega ao
   lexico de A — pela RLS, lido como `kamba_app` com o contexto de A;
 * **criterio 7** — `aprovado_por` obrigatorio, e nenhuma entrada de *dataset*
-  activa.
+  activa sem o relatorio verde do *gate* (a activacao com relatorio e do
+  KAM-199, em `test_activacao_do_lexico.py`).
 
 O lexico destes ensaios e o **ilustrativo** do §5.1 (NAO VERIFICADO), e so
 existe durante cada ensaio.
@@ -374,7 +375,7 @@ class TestPrecedencia(ComLexico):
 
 
 class TestRegrasDoLexico(ComLexico):
-    """Criterio 7: `aprovado_por` obrigatorio; *dataset* nunca activo.
+    """Criterio 7: `aprovado_por` obrigatorio; *dataset* nunca activo sem relatorio.
 
     Numa ligacao de administrador **com** transaccao, e nao na `semente` (que e
     `autocommit`): o `assertErroSql` precisa de um `SAVEPOINT`, e o que se

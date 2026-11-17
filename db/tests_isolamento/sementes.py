@@ -2077,6 +2077,24 @@ SEM_RECEITA_COM_RAZAO = {
     # ligada e forcada e o `42501` da aplicacao. A `onboarding_capacity` nao tem
     # `tenant_id` e nao entra na descoberta.
     ("platform", "waitlist_entry"),
+    # KAM-058: os passos da regua de cobranca, pela razao da lista de espera.
+    # **A aplicacao nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na
+    # tabela, e quem escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita
+    # precisava de um ciclo com cobranca, que so o ledger escreve, e o ledger
+    # nao se apaga na limpeza. **A politica mede-se noutro sitio**: o
+    # `db/tests_pagamentos/test_regua_de_cobranca.py` le pela auditoria um passo
+    # com o contexto do tenant dono (uma linha), com o de outro (zero) e sem
+    # contexto (zero), mede a RLS ligada e forcada e o `42501` da aplicacao.
+    ("platform", "billing_dunning_steps"),
+    # KAM-117: os episodios de churn, pela razao da lista de espera. **A
+    # aplicacao nao os alcanca**: o `kamba_app` nao tem privilegio nenhum na
+    # tabela, e quem escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita
+    # nao tinha onde guardar o canario: as colunas sao o tenant, um sinal de
+    # dominio fechado e instantes, sem texto livre. **A politica mede-se noutro
+    # sitio**: o `TestJob` do `db/tests/test_kpis_churn_schema.py` corre o *job*
+    # sobre A e B e le pela auditoria com o contexto de B (zero episodios de A),
+    # e o `TestPrivilegios` mede o `42501` da aplicacao nas vistas e na tabela.
+    ("platform", "churn_signal_episode"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo

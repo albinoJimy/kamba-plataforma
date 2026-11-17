@@ -22,14 +22,17 @@
  *                   recusa-se a correr com um papel que não vê tudo (critério 5);
  *   quarentena      um `phone_number_id` desconhecido deixa **uma** linha, e a
  *                   re-entrega do mesmo evento não deixa uma segunda (critério 2);
- *   latência        p95 de `resolve` com e sem *cache* (critério 8).
+ *   latência        p95 de `resolve` com e sem *cache* (critério 8);
+ *   activação       o `tenant.activated` que as portas do KAM-092 emitem,
+ *                   consumido pelo `consumir` do KAM-006 com o efeito do CHR,
+ *                   esquece o tenant na *cache* — e só esse (critério 7 do KAM-092).
  *
  * Nada aqui é um dado real: os BSUID são `AO.ENSAIO…` e os telefones usam o
  * indicativo `999`, que a UIT não atribui a nenhum país.
  */
 
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 
 import type pg from "pg";
@@ -47,6 +50,7 @@ import {
   ResolvedorDeCanal,
   SQL_CANAL,
   VARIAVEL_DA_FASE,
+  efeitoDaActivacao,
   emitirContactMerged,
   payloadDaFusao,
   repontarConversas,
@@ -54,11 +58,14 @@ import {
 } from "../src/chr/index.ts";
 import type { AgentInvocation } from "../src/chr/index.ts";
 import type { EventoDeEntrada } from "../src/entrada/index.ts";
+import { consumir, type Envelope } from "../src/eventos/index.ts";
+import { processar } from "../src/eventos/trabalho.ts";
 import { porEmQuarentena } from "../src/entrada/index.ts";
 import type { Identidade } from "../src/identity/index.ts";
 import { comTenant as comTenantReal } from "../src/tenant_guard/index.ts";
 import {
   ChavesDeTeste,
+  aceitarVigentes,
   activarTenant,
   apagarTenant,
   bsuidDeEnsaio,
@@ -933,6 +940,141 @@ describe("privacidade — nada do interlocutor chega ao job nem à conversa", ()
       assert.ok(!linha.includes(telefone));
     } finally {
       await apagarTenant(admin, tenant);
+    }
+  });
+});
+
+describe("KAM-092 — o tenant.activated esquece o tenant na cache do CHR", () => {
+  /**
+   * Um caso que chega a `aguarda_teste` **pelas portas da base**, como o
+   * `activavel` do `db/tests/test_eventos_do_tenant.py`: as três condições do
+   * agregador, a aprovação, a saga falsa, um canal e o provisionamento, o
+   * catálogo e os seis gates. Devolve o caso, o tenant e o canal.
+   */
+  async function activavel(
+    batch: pg.Client,
+  ): Promise<{ caso: string; tenant: string; phoneNumberId: string }> {
+    const { rows } = await admin.query(
+      `INSERT INTO platform.onboarding_case
+         (fase, origem, nome_negocio, categoria_declarada, nif_enc, nif_hmac, phone_enc, phone_hmac)
+       VALUES ('kyc_pendente', 'convite', 'Loja de ensaio', 'alimentar', $1, $2, $1, $3)
+       RETURNING id::text AS id, tenant_id::text AS tenant_id`,
+      [randomBytes(40), randomBytes(32), randomBytes(32)],
+    );
+    const { id: caso, tenant_id: tenant } = rows[0] as { id: string; tenant_id: string };
+    await admin.query("INSERT INTO platform.tenants (id, tipo, nome) VALUES ($1, 'pme', $2)", [
+      tenant,
+      `Loja de ensaio activacao ${tenant.slice(0, 8)}`,
+    ]);
+    await admin.query(
+      `INSERT INTO platform.kyc_check (onboarding_id, tenant_id, doc_tipo, doc_ref, sha256, resultado, versao_regras)
+       VALUES ($1, $2, 'bi', $3, $4, 'k1_ok', '1.0.0')`,
+      [caso, tenant, `t/${tenant}/kyc_documento/2026/11/${randomUUID()}`, randomBytes(32)],
+    );
+    await admin.query(
+      `INSERT INTO platform.screening_decision (tenant_id, onboarding_id, sujeito_tipo, sujeito_ref, decisao,
+         regras, versao_politica, origem, conteudo_sha256)
+       VALUES ($1, $2, 'categoria', 'alimentar', 'permitida', ARRAY['alimentar'], '1.0.0+ensaio', 'regra', $3)`,
+      [tenant, caso, randomBytes(32)],
+    );
+    await aceitarVigentes(admin, tenant);
+    const canal = await criarCanal(admin, tenant);
+    for (const evento of ["aprovar", "saga_iniciada", "saga_concluida", "es_concluido", "catalogo_minimo"]) {
+      await avancar(batch, caso, tenant, evento);
+    }
+    for (const gate of ["meta_es", "meta_pagamento", "catalogo_minimo", "consentimento", "dpa", "e2e"]) {
+      await batch.query(
+        `INSERT INTO platform.onboarding_gate (onboarding_id, tenant_id, gate, ok, evidencia_ref)
+         VALUES ($1, $2, $3, true, 'ensaio')`,
+        [caso, tenant, gate],
+      );
+    }
+    return { caso, tenant, phoneNumberId: canal.phoneNumberId };
+  }
+
+  /** O `advance_case` como `kamba_batch`, sob o `app.tenant_id` do caso. */
+  async function avancar(batch: pg.Client, caso: string, tenant: string, evento: string): Promise<void> {
+    await comTenantReal(batch, tenant, () =>
+      batch.query("SELECT platform.advance_case($1, $2, 'ensaio')", [caso, evento]),
+    );
+  }
+
+  it("a activação pelas portas chega ao consumidor do CHR, e a primeira mensagem seguinte chega ao AGR", async () => {
+    const batch = await ligar("batch");
+    try {
+      const { caso, tenant, phoneNumberId } = await activavel(batch);
+      // Um tenant B já activo, com o seu canal em cache: a activação de A não lhe toca.
+      const tenantB = await criarTenant(admin, "activacao-b");
+      await activarTenant(admin, tenantB);
+      const canalB = await criarCanal(admin, tenantB);
+
+      await identidade.iniciarRotacao(identityBd, KID).catch(() => {});
+      const m = montar();
+      const resolvedor = m.resolvedor;
+      const ao = () => m.entrega.aoAgr.filter((i) => JSON.stringify(i).includes(tenant)).length;
+      const escrever = () =>
+        m.chr.tratar(mensagem(phoneNumberId, { bsuid: bsuidDeEnsaio("ACTIVACAO"), telefone: telefoneDeEnsaio() }));
+      // Em `onboarding` a mensagem não chega ao AGR (o regime `pendente`), e o
+      // contexto fica em cache.
+      await escrever();
+      assert.equal(ao(), 0);
+      const antes = await resolvedor.resolver(phoneNumberId);
+      assert.equal(antes.daCache, true);
+      assert.equal(antes.resolvido?.contexto.estado_tenant, "onboarding");
+      assert.equal((await resolvedor.resolver(canalB.phoneNumberId)).daCache, false);
+
+      await avancar(batch, caso, tenant, "activar");
+      const { rows } = await admin.query(
+        "SELECT envelope FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.activated'",
+        [tenant],
+      );
+      assert.equal(rows.length, 1, "a porta emitiu uma activação");
+      const envelope = (rows[0] as { envelope: Envelope }).envelope;
+
+      // O controlo: a base já diz `ativo`, e a cache ainda diz `onboarding`. É
+      // o atraso de até 60 s que o consumidor tira.
+      const velha = await resolvedor.resolver(phoneNumberId);
+      assert.equal(velha.daCache, true);
+      assert.equal(velha.resolvido?.contexto.estado_tenant, "onboarding");
+      await escrever();
+      assert.equal(ao(), 0, "com a cache velha, a mensagem ainda não chega ao AGR");
+
+      const efeito = efeitoDaActivacao(resolvedor);
+      const opcoes = { bd: appBd, consumer: "chr", envelope, exigeOrdem: false };
+      assert.equal((await consumir(opcoes, efeito)).desfecho, "aplicado");
+      // A primeira mensagem depois do consumo chega ao AGR, sem esperar o TTL.
+      await escrever();
+      assert.equal(ao(), 1, "a primeira mensagem depois da activação chega ao AGR");
+      const nova = await resolvedor.resolver(phoneNumberId);
+      assert.equal(nova.resolvido?.contexto.estado_tenant, "ativo");
+      assert.equal((await resolvedor.resolver(canalB.phoneNumberId)).daCache, true, "o tenant B ficou");
+
+      // A reentrega é duplicada: a marca e o efeito partilham a transacção.
+      assert.equal((await consumir(opcoes, efeito)).desfecho, "duplicado");
+      assert.equal((await resolvedor.resolver(phoneNumberId)).daCache, true);
+
+      // **Uma versão que o consumidor não conhece falha de forma visível**
+      // (critério 4 do KAM-092): relança enquanto há tentativas, e na última
+      // abre a DLQ — sem marcar consumido e sem tocar na cache.
+      const v2: Envelope = { ...envelope, id: randomUUID(), versao: 2 };
+      const opcoesV2 = { bd: appBd, consumer: "chr", envelope: v2, exigeOrdem: false };
+      await assert.rejects(processar({ ...opcoesV2, tentativa: 1 }, efeito), { name: "VersaoDaActivacaoError" });
+      const ultima = await processar({ ...opcoesV2, tentativa: 6 }, efeito);
+      assert.equal(ultima.desfecho, "dlq");
+      assert.match(ultima.erro ?? "", /^VersaoDaActivacaoError: /);
+      const dlq = await admin.query(
+        "SELECT tipo, versao, estado FROM platform.events_dlq WHERE consumer = 'chr' AND event_id = $1",
+        [v2.id],
+      );
+      assert.deepEqual(dlq.rows, [{ tipo: "tenant.activated", versao: 2, estado: "aberta" }]);
+      const marcados = await admin.query(
+        "SELECT count(*)::int AS n FROM platform.events_consumed WHERE consumer = 'chr' AND event_id = $1",
+        [v2.id],
+      );
+      assert.equal((marcados.rows[0] as { n: number }).n, 0);
+      assert.equal((await resolvedor.resolver(phoneNumberId)).daCache, true);
+    } finally {
+      await batch.end();
     }
   });
 });

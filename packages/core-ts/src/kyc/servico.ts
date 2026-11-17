@@ -29,6 +29,8 @@ import {
   VERSAO_DAS_REGRAS,
   VisaoNaoAutorizadaError,
   type Antivirus,
+  type AprovacaoDoK1,
+  type AprovacaoDoKyc,
   type Campos,
   type CasosDoKyc,
   type Cifra,
@@ -88,6 +90,8 @@ export type Decidido =
       readonly avaliacao: Avaliacao;
       /** `null` quando `k1_ok`. */
       readonly motivoPublico: MotivoPublico | null;
+      /** O que a porta da aprovação respondeu a um `k1_ok`; `null` na fila. */
+      readonly aprovacao: AprovacaoDoK1 | null;
     };
 
 /** Quem abre um documento na revisão. Ver `urlParaRevisao`. */
@@ -143,6 +147,8 @@ export interface DependenciasDoKyc {
   readonly ocr: OcrProvider;
   readonly cifra: Cifra;
   readonly fila: FilaDeRevisao;
+  /** Quem aprova um `k1_ok` pela base (KAM-092). Ver `AprovacaoDoKyc`. */
+  readonly aprovacao: AprovacaoDoKyc;
   /** O anel do HMAC do NIF da inscrição (KAM-086), a chave actual primeiro. */
   readonly anelDoNif: readonly (Uint8Array | null)[];
   readonly relogio?: Relogio;
@@ -362,10 +368,18 @@ export class ServicoKyc {
         await d.casos.marcarFase(onboardingId, "em_revisao");
       }
     }
+    // **Um `k1_ok` pede a aprovação à base, sempre** (KAM-092) — também quando
+    // as verificações já diziam `k1_ok` (`igual`): o agregador pode ter faltado
+    // da vez anterior (o aceite contratual vem depois do KYC), e é este
+    // `decidir` que volta a pedir. Com o agregador vazio a fase passa a
+    // `aprovado` e o `decidir` seguinte já não chega aqui (`fora_de_fase`).
+    const aprovacao =
+      avaliacao.resultado === "k1_ok" ? await d.aprovacao.aprovar(onboardingId, caso.tenantId) : null;
     return {
       estado: "decidido",
       avaliacao,
       motivoPublico: avaliacao.resultado === "fila" ? motivoPublico(avaliacao.marcas) : null,
+      aprovacao,
     };
   }
 

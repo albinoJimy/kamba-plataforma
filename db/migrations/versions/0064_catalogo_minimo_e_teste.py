@@ -48,12 +48,10 @@ from alembic import op
 
 import rls
 
-revision = "0065"
-#: **Provisoria.** O orquestrador do lote deu a `0065` sobre a `0064` (KAM-058),
-#: com a `0060` a `0063` por fundir a frente. A base deste ramo vai na `0059`, e
-#: os ensaios locais correram com a revisao encadeada nela; o numero final da-o
-#: a integracao.
-down_revision = "0064"
+revision = "0064"
+#: Sobre a `0063`, a dos KPIs de churn (KAM-117): o numero deu-o a integracao,
+#: pela ordem de quem fundiu.
+down_revision = "0063"
 branch_labels = None
 depends_on = None
 

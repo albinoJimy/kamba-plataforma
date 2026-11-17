@@ -2998,7 +2998,7 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | Dependências | KAM-094, KAM-119, KAM-198 |
 | Bloqueia | — |
 | Responsável sugerido | Engenheiro de Comércio com Engenheiro de Plataforma (TEN) |
-| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-094 e KAM-198), `EPIC-11_Modulos_Entrada.md` (bloco KAM-119), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.40, §3.58, §3.72), `../db/migrations/versions/0028_offer_terms_e_price_quotes.py`, `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 8–10), ADR-015 |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-094 e KAM-198), `EPIC-11_Modulos_Entrada.md` (bloco KAM-119), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.40, §3.58, §3.74), `../db/migrations/versions/0028_offer_terms_e_price_quotes.py`, `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 8–10), ADR-015 |
 
 ### Contexto
 
@@ -3097,7 +3097,7 @@ produto imposta pela base.
 És o executor do ticket KAM-202 da KAMBÁ (o KAM-094 em produção).
 Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), os blocos KAM-094 e KAM-198 de
 specs/EPIC-09_Onboarding_Governanca.md, o bloco KAM-119 de specs/EPIC-11_Modulos_Entrada.md, o
-dicionário §3.72, e o primeiro commit do ramo do KAM-094 (990d6437), que tem o rascunho medido do
+dicionário §3.74, e o primeiro commit do ramo do KAM-094 (990d6437), que tem o rascunho medido do
 trigger da offer_terms.
 Objectivo: observador de produção do teste, activação e verify no lote do KAM-198, filtro de
 is_test nas métricas, golden e Score, e a restrição de BD na publicação — esta só depois de o

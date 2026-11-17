@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.2 |
+| Versão | 1.3 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -32,13 +32,14 @@
 | RB-K09 | [`RB-K09-flood-e-denial-of-wallet.md`](RB-K09-flood-e-denial-of-wallet.md) | Pico de um contacto ou IP; custo de LLM anómalo | P3 → P1 | `llm_sem_budget` (via RB-K03); manual | N2 |
 | RB-K10 | [`RB-K10-incidente-de-seguranca.md`](RB-K10-incidente-de-seguranca.md) | Incidente de segurança | P1 | **manual**, por desenho | — |
 
-Fora da lista fechada do §13 há mais cinco: dois que alertas reais apontam,
+Fora da lista fechada do §13 há mais seis: dois que alertas reais apontam,
 [`degradacao-do-agr.md`](degradacao-do-agr.md) (KAM-037) e
-[`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082), e três procedimentos sem
+[`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082), três procedimentos sem
 alerta, [`rotacao-de-chaves-de-llm.md`](rotacao-de-chaves-de-llm.md) (KAM-030),
 [`simulacro-de-dr.md`](simulacro-de-dr.md) (KAM-085) e
 [`../../ops/runbooks/secrets-export.md`](../../ops/runbooks/secrets-export.md)
-(KAM-010). **Não foram reescritos aqui:** o bloco do KAM-083 pede os dez do §13, e
+(KAM-010), e um cujo alerta é uma linha de uma vista e não uma regra Prometheus,
+[`churn.md`](churn.md) (KAM-117). **Não foram reescritos aqui:** o bloco do KAM-083 pede os dez do §13, e
 estes têm dono próprio. Entram nas duas listas do §5 porque a regra do §9.2 vale
 para eles também.
 
@@ -253,3 +254,4 @@ procedimento.
 | 1.0 | Novembro 2026 | Criado pelo **KAM-083**: índice dos dez runbooks, o modelo único, as convenções de marca dos comandos, as duas listas alerta ↔ runbook medidas, e o estado do sistema que todos herdam | KAM-083 |
 | 1.1 | Novembro 2026 | **KAM-186**: a linha «O AGR responde 503 a todos os turnos» passa a dizer o 503 que fica — o `saida_por_ligar` — e que a porta `grafos` está ligada. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a linha «nenhum consumidor lê a `wa-inbound`» passa a dizer porquê — o compose corre os quatro processos, e em `prod` o `entrada.ts` não arranca | Equipa KAMBÁ |
+| 1.3 | Novembro 2026 | **KAM-117**: o esboço [`churn.md`](churn.md) entra na lista dos que estão fora do §13 (passam a seis). O alerta dele é a linha aberta da `v_churn_signals`, por tenant, e não uma regra Prometheus. | Equipa KAMBÁ |

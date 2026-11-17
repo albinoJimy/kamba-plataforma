@@ -18,7 +18,7 @@ export {
   type Validado,
 } from "./extracao.ts";
 export { EDITORES, detectarFormato, dhash, hamming, softwareDeEdicao, softwareDoJpeg } from "./forense.ts";
-export { CasosEmMemoria, FilaEmMemoria, VerificacoesEmMemoria, type CasoEmMemoria } from "./memoria.ts";
+export { AprovacaoEmMemoria, CasosEmMemoria, FilaEmMemoria, VerificacoesEmMemoria, type CasoEmMemoria } from "./memoria.ts";
 export {
   ASSINATURA_PNG,
   FicheiroInvalidoError,

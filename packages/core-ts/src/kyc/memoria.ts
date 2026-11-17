@@ -13,6 +13,8 @@ import { randomUUID } from "node:crypto";
 
 import { hamming } from "./forense.ts";
 import type {
+  AprovacaoDoK1,
+  AprovacaoDoKyc,
   CasoDoKyc,
   CasosDoKyc,
   FilaDeRevisao,
@@ -113,6 +115,32 @@ export class CasosEmMemoria implements CasosDoKyc, CasosMortos {
 
   async esquecer(ids: readonly string[]): Promise<void> {
     this.#verificacoes.esquecer(ids);
+  }
+}
+
+/**
+ * A porta da aprovação, sem base: escreve `aprovado` no caso em memória, ou
+ * devolve o que os ensaios puserem em `emFalta`. O agregador verdadeiro — e a
+ * emissão do `tenant.approved` — só existem na porta da base, e medem-se no
+ * `tests_bd/lote.bd.test.ts`.
+ */
+export class AprovacaoEmMemoria implements AprovacaoDoKyc {
+  readonly pedidos: { readonly onboardingId: string; readonly tenantId: string }[] = [];
+  readonly emFalta = new Map<string, readonly string[]>();
+  readonly #casos: CasosEmMemoria;
+
+  constructor(casos: CasosEmMemoria) {
+    this.#casos = casos;
+  }
+
+  async aprovar(onboardingId: string, tenantId: string): Promise<AprovacaoDoK1> {
+    this.pedidos.push({ onboardingId, tenantId });
+    const falta = this.emFalta.get(onboardingId) ?? [];
+    if (falta.length > 0) return { estado: "em_falta", falta };
+    const c = this.#casos.casos.get(onboardingId);
+    if (c === undefined) throw new Error("caso inexistente");
+    if (c.fase !== "aprovado") this.#casos.casos.set(onboardingId, { ...c, fase: "aprovado" });
+    return { estado: "aprovado", amostrado: false };
   }
 }
 

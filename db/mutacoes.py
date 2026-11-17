@@ -328,6 +328,17 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
 REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
+#: KAM-058: a revisao da regua de cobranca, pela razao da do Catalogo AI — o
+#: numero e provisorio. O ensaio que a prova e o
+#: `db/tests_pagamentos/test_regua_de_cobranca.py`.
+REV_REGUA = _revisao_por_glob("*_regua_de_cobranca.py")
+#: KAM-058: o motor da regua. So o `tests_bd/regua.bd.test.ts` (suite
+#: `tests_lote`) o corre contra a base.
+REGUA_TS = "packages/core-ts/src/pagamentos/regua.ts"
+#: KAM-117: a revisao dos KPIs de churn, pela razao da do Catalogo AI — o numero
+#: (`0063`) e provisorio. O ensaio que a prova e o
+#: `db/tests/test_kpis_churn_schema.py`.
+REV_KPIS_DE_CHURN = _revisao_por_glob("*_kpis_de_churn.py")
 #: KAM-094: a revisao do catalogo minimo e do teste ponta a ponta, pela razao da
 #: do Catalogo AI — o numero e provisorio. O ensaio que a prova e o
 #: `db/tests/test_catalogo_minimo_schema.py`.
@@ -7409,6 +7420,21 @@ MUTACOES = [
      "     AND norm_versao < %s\n", PRODUTOS),
     ("consumidor: o visivel ignora a oferta", IDX_CONSUMIDOR,
      'bool(linha["publicado"])', "True", PRODUTOS),
+    # KAM-199: a activacao do lexico de *dataset*. A tolerancia do §14.3 na
+    # base afrouxada de 2 para 3 pontos (o `test_os_dois_limites_do_verde`); o
+    # gatilho desligado (o `test_sem_relatorio_a_entrada_continua_presa`); e a
+    # **ligacao** cortada — o relatorio anexado basta, meca ele a entrada ou
+    # nao (o `test_o_relatorio_versionado_anexa_se_e_nao_solta_nada` e o
+    # `test_uma_entrada_que_o_relatorio_nao_mediu_fica_presa`).
+    ("indice: um relatorio vermelho entra no eval_relatorio", INDICE,
+     "CHECK (ndcg_at_3_base - ndcg_at_3 <= 0.02 AND",
+     "CHECK (ndcg_at_3_base - ndcg_at_3 <= 0.03 AND", PRODUTOS),
+    ("indice: o lexico de dataset solta-se sem relatorio", INDICE,
+     "  IF NEW.origem = 'dataset' AND NEW.activo AND NOT EXISTS (",
+     "  IF false AND NOT EXISTS (", PRODUTOS),
+    ("indice: qualquer relatorio verde solta qualquer entrada", INDICE,
+     "          AND r.termos @> jsonb_build_array(jsonb_build_object(",
+     "          AND true OR r.termos @> jsonb_build_array(jsonb_build_object(", PRODUTOS),
     # --------------------------------------------------- KAM-197 (0051)
     # A repeticao com **outra encomenda** deixa de ser recusada (o `AND` liga
     # antes do `OR`, pelo que so a comparacao do `order_id` se desliga): o mesmo
@@ -7799,6 +7825,133 @@ MUTACOES = [
      "      await c.query(SQL_TRANCAR);\n",
      "",
      "tests_lote"),
+    # ------------------------------ KAM-058 (revisao da regua de cobranca)
+    #
+    # Sete. As quatro da revisao tiram uma barreira que so a base tem, e matam-
+    # nas os ensaios nomeados do `db/tests_pagamentos/test_regua_de_cobranca.py`.
+    # As tres do motor (`REGUA_TS`) tiram uma guarda do `correrRegua`, e matam-
+    # nas os ensaios que correm o motor ou o SQL dele contra a base.
+    #
+    # Dois passos iguais no mesmo ciclo — o criterio 1:
+    # `test_um_passo_por_ciclo`.
+    ("regua: o passo deixa de ser unico por ciclo", REV_REGUA,
+     "          CONSTRAINT billing_dunning_steps_passo_uq UNIQUE (billing_cycle_id, passo),\n",
+     "",
+     "tests_pagamentos"),
+    # O dono da tabela le os passos de todos os tenants:
+    # `test_a_rls_esta_ligada_e_forcada`.
+    ("regua: a tabela perde o FORCE da RLS", REV_REGUA,
+     '    rls.enable_tenant_rls("billing_dunning_steps")\n',
+     '    rls.enable_tenant_rls("billing_dunning_steps")\n'
+     '    op.execute("ALTER TABLE platform.billing_dunning_steps NO FORCE ROW LEVEL SECURITY")\n',
+     "tests_pagamentos"),
+    # O lote reescreve um passo `cancelado` como `notificado`:
+    # `test_o_lote_so_insere_e_a_aplicacao_nada`.
+    ("regua: o lote actualiza passos", REV_REGUA,
+     '"GRANT SELECT, INSERT ON platform.billing_dunning_steps TO kamba_batch"',
+     '"GRANT SELECT, INSERT, UPDATE ON platform.billing_dunning_steps TO kamba_batch"',
+     "tests_pagamentos"),
+    # Um passo que diz ter avisado sem dizer por onde:
+    # `test_so_a_suspensao_suspende_e_so_um_aviso_que_saiu_tem_canal`.
+    ("regua: o canal solta-se do resultado", REV_REGUA,
+     "              CHECK ((canal IS NOT NULL) = (resultado IN ('notificado', 'suspenso'))),\n",
+     "              CHECK (true),\n",
+     "tests_pagamentos"),
+    # A regua deixa de adiar a suspensao de um tenant `restrito` e grava-a como
+    # `sem_transicao`: quando a Meta levantar a restricao com a divida por
+    # pagar, ninguem suspende (criterio 7, achado 7 da revisao adversarial):
+    # `um tenant restrito não é suspenso nem sai do restrito`, que exige que
+    # nada se grave enquanto adia.
+    ("regua: deixa de adiar a suspensao de um restrito", REGUA_TS,
+     '        if (estado === "restrito" || estado === "suspenso") {\n',
+     '        if (estado === "suspenso") {\n',
+     "tests_lote"),
+    # Pagar a assinatura levanta uma sancao de T&S que chegou depois da
+    # suspensao da regua (achado 1 da revisao adversarial):
+    # `test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`.
+    ("regua: a reposicao ignora as sancoes de T&S", REGUA_TS,
+     "              AND s.passo IN ('suspensao', 'encerramento')\n",
+     "              AND false\n",
+     "tests_pagamentos"),
+    # A reposicao levanta uma suspensao que nao e dela (uma sancao):
+    # `test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`.
+    ("regua: a reposicao ignora o motivo da suspensao", REGUA_TS,
+     "           ORDER BY l.em DESC LIMIT 1) = $1\n",
+     "           ORDER BY l.em DESC LIMIT 1) IS NOT NULL AND $1::text IS NOT NULL\n",
+     "tests_pagamentos"),
+    # ------------------------------ KAM-117 (revisao dos KPIs de churn)
+    #
+    # Onze, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_KPIS_DE_CHURN`), porque o numero e
+    # provisorio. A suite e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_kpis_churn_schema.py`, com o ensaio nomeado em cada uma.
+    #
+    # Sem RLS, a auditoria com o contexto de B le os episodios de A:
+    # `test_os_sinais_de_a_nao_afectam_b`.
+    ("kpis: os episodios perdem a RLS", REV_KPIS_DE_CHURN,
+     '    rls.enable_tenant_rls("churn_signal_episode")\n',
+     "",
+     "tests"),
+    # A fronteira dos 7 dias passa a estrita, e 7 d deixa de disparar:
+    # `test_dono_seis_dias_e_vinte_e_tres_horas_nao_sete_dias_sim`.
+    ("kpis: sete dias exactos nao disparam", REV_KPIS_DE_CHURN,
+     "           WHERE a.dono_at <= p_agora - make_interval(days => v_dono)\n",
+     "           WHERE a.dono_at < p_agora - make_interval(days => v_dono)\n",
+     "tests"),
+    # Sem o indice unico parcial, dois episodios abertos do mesmo sinal (e o
+    # `ON CONFLICT` do *job* deixa de ter arbitro):
+    # `test_um_episodio_aberto_por_tenant_e_sinal`.
+    ("kpis: dois episodios abertos do mesmo sinal", REV_KPIS_DE_CHURN,
+     '"CREATE UNIQUE INDEX churn_signal_episode_aberto_uq ON {EPISODIOS} "',
+     '"CREATE INDEX churn_signal_episode_aberto_uq ON {EPISODIOS} "',
+     "tests"),
+    # As mensagens de clientes deixam de tirar a marca de dormente:
+    # `test_clientes_ou_pedidos_na_janela_tiram_a_marca`.
+    ("kpis: um tenant com clientes recentes fica dormente", REV_KPIS_DE_CHURN,
+     "             AND coalesce(a.cliente_at, '-infinity') <= p_agora - make_interval(days => v_janela);\n",
+     "             AND true;\n",
+     "tests"),
+    # Um limiar a zero passa, e a funcao devolve sinais em vez de falhar:
+    # `test_um_limiar_invalido_falha_fechado`.
+    ("kpis: o limiar zero e aceite", REV_KPIS_DE_CHURN,
+     "::int <= 0 THEN",
+     "::int < 0 THEN",
+     "tests"),
+    # «> 60 dias» passa a «>= 60»: `test_dormente_aviso_aos_cinquenta_e_tres_e_pleno_depois_dos_sessenta`.
+    ("kpis: o dormente e pleno aos sessenta dias exactos", REV_KPIS_DE_CHURN,
+     "                 a.dono_at < p_agora - make_interval(days => v_dormente) FROM a\n",
+     "                 a.dono_at <= p_agora - make_interval(days => v_dormente) FROM a\n",
+     "tests"),
+    # A aplicacao passa a ler os episodios: `test_a_aplicacao_nao_le_nada`.
+    ("kpis: a aplicacao le os episodios", REV_KPIS_DE_CHURN,
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO {PAPEL_DE_AUDITORIA}")\n',
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO {PAPEL_DE_AUDITORIA}")\n'
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO kamba_app")\n',
+     "tests"),
+    # A semana de activacao passa a ser a de UTC, e a activacao de domingo as
+    # 23:30 UTC (segunda em Luanda) muda de semana:
+    # `test_vinte_casos_batem_com_o_calculo_a_mao`.
+    ("kpis: a semana de activacao em UTC", REV_KPIS_DE_CHURN,
+     "          SELECT date_trunc('week', c.activo_at AT TIME ZONE 'Africa/Luanda')::date AS semana,\n",
+     "          SELECT date_trunc('week', c.activo_at AT TIME ZONE 'UTC')::date AS semana,\n",
+     "tests"),
+    # Um tenant suspenso conta sinais: `test_fora_de_ativo_nao_ha_sinais`.
+    ("kpis: os sinais contam tenants fora de ativo", REV_KPIS_DE_CHURN,
+     "             WHERE tn.estado = 'ativo'\n",
+     "             WHERE tn.estado IS NOT NULL\n",
+     "tests"),
+    # O orcamento vai a zero sem aviso:
+    # `test_as_restricoes_do_orcamento_e_do_fecho`.
+    ("kpis: o orcamento vai a zero sem aviso", REV_KPIS_DE_CHURN,
+     "                   OR (sinal = 'dormente' AND avisado_at IS NOT NULL\n",
+     "                   OR (sinal = 'dormente'\n",
+     "tests"),
+    # O lote reescreve o sinal de um episodio:
+    # `test_o_lote_nao_apaga_nem_reescreve_o_sinal`.
+    ("kpis: o lote reescreve o sinal", REV_KPIS_DE_CHURN,
+     'f"GRANT UPDATE (fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     'f"GRANT UPDATE (sinal, fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     "tests"),
     # ------------------------------ KAM-094 (revisao do catalogo minimo)
     #
     # 9, e cada uma tira uma barreira que so a base tem. O alvo e a

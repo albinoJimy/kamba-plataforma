@@ -107,6 +107,11 @@ class TestRevisaoDasSubscricoes(unittest.TestCase):
         self.assertEqual(self._nossas(), esperadas)
 
     def test_o_downgrade_nao_toca_numa_subscricao_alheia(self) -> None:
+        # Primeiro **na propria revisao**: uma revisao de dados por cima (a
+        # subscricao do CHR do KAM-201 sobre a do KAM-194) escreve linhas que a
+        # descida tambem apaga, e o «antes» medido na cabeca contava-as como
+        # alheias. A licao dos ensaios de descida presos a cabeca.
+        alembic_ok("downgrade", REVISAO)
         conexao = base.ligacao.ligar("admin")
         try:
             cursor = conexao.cursor()

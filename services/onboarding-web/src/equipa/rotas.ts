@@ -68,6 +68,7 @@
 import { Hono, type Context } from "hono";
 
 import {
+  AprovacaoEmFaltaError,
   CAMPOS_PESSOAIS,
   CasoInexistenteError,
   DECISOES,
@@ -222,6 +223,15 @@ export function rotasDaEquipa(opcoes: OpcoesDaEquipa): Hono {
         return json({ erro: erro.motivo }, erro.estadoHttp);
       }
       if (erro instanceof CasoInexistenteError) return json({ erro: "caso" }, 404);
+      // KAM-201: a decisão está feita, e a base não aprovou — falta uma
+      // condição do agregador (o aceite vem depois do KYC) ou outro caso por
+      // decidir. **Não** se marca para o *job*: quem aprova quando a condição
+      // chegar é o varrimento do ciclo. Os nomes do que falta são de domínio
+      // fechado, e nenhum é dado pessoal.
+      if (erro instanceof AprovacaoEmFaltaError) {
+        log?.info({ outcome: "equipa_aprovacao_em_falta" });
+        return json({ estado: "aprovacao_em_falta", falta: erro.falta, caso: { id: casoId } }, 202);
+      }
       if (erro instanceof EfeitoPorAplicarError) {
         await opcoes.efeitoFalhou?.(erro.casoId);
         log?.info({ outcome: "equipa_efeito_por_aplicar" });
