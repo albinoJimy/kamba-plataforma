@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.108"
+versao_dicionario: "1.109"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -14711,6 +14711,9 @@ entradas:
       - "encomenda"
       - "canal"
       - "sair"
+      - "codigo"
+      - "verificar"
+      - "ligar"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -14718,8 +14721,7 @@ entradas:
       - "conflito"
       - "confirmacao"
       - "indisponivel"
-      - "onboarding"
-      - "web"
+      - "limite"
     variantes_literais: []
   - seccao: "3.56"
     conceito: "O estado do canal no painel"
@@ -14736,9 +14738,7 @@ entradas:
       - "a_sincronizar"
       - "desligado"
       - "sem_canal"
-    nomes_nota:
-      - "platform.channels"
-      - "sem_canal"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.56"
     conceito: "A configuração do painel"
@@ -14754,6 +14754,139 @@ entradas:
       - "web"
       - "painel_desligado"
       - "com_internal_token"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "As duas leituras do painel no COM"
+    canonico: "obterOferta e vistaDoCanal, servidas por POST /internal/get-offer e POST /internal/channel-view"
+    literais:
+      - "obterOferta"
+      - "vistaDoCanal"
+    nomes:
+      - "obterOferta"
+      - "vistaDoCanal"
+    nomes_nota:
+      - "OperacoesDoCom"
+      - "get"
+      - "offer"
+      - "NOT_FOUND"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A vista do canal"
+    canonico: "VistaDoCanal com estado, restrito, qualidade, escalao, nivel, tectoPedidoMinor e avisos, e no COM também a currency do tecto"
+    literais:
+      - "VistaDoCanal"
+      - "estado"
+      - "restrito"
+      - "qualidade"
+      - "escalao"
+      - "nivel"
+      - "tectoPedidoMinor"
+      - "avisos"
+      - "currency"
+    nomes:
+      - "VistaDoCanal"
+      - "estado"
+      - "restrito"
+      - "qualidade"
+      - "escalao"
+      - "nivel"
+      - "tectoPedidoMinor"
+      - "avisos"
+      - "currency"
+    nomes_nota:
+      - "restrito"
+      - "suspenso"
+      - "encerrado"
+      - "tenant_channels"
+      - "tenant_id"
+      - "origem"
+      - "pme"
+      - "channel_coexistence"
+      - "trust_level"
+      - "kamba_app"
+      - "ServicoDeTrust.avisosDoPainel"
+      - "onboarding"
+      - "web"
+      - "tenant_channels.estado"
+      - "a_sincronizar"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "O intervalo de criação das encomendas"
+    canonico: "OrderFilter.criadoDesde (inclusive) e OrderFilter.criadoAte (exclusive), instantes ISO 8601 em UTC com no máximo milissegundos; no corpo do list-orders, criado_desde e criado_ate"
+    literais:
+      - "OrderFilter.criadoDesde"
+      - "OrderFilter.criadoAte"
+      - "list-orders"
+      - "criado_desde"
+      - "criado_ate"
+    nomes:
+      - "OrderFilter.criadoDesde"
+      - "OrderFilter.criadoAte"
+      - "list"
+      - "orders"
+      - "criado_desde"
+      - "criado_ate"
+    nomes_nota:
+      - "SQL_LISTAR"
+      - "LIMIT"
+      - "VALIDATION_ERROR"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A reentrada no painel"
+    canonico: "POST /painel/codigo (o telefone) e POST /painel/verificar (o bilhete e o código)"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "verificar"
+      - "codigo"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "O bilhete da reentrada"
+    canonico: "domínio kamba/painel/bilhete/v2, b2.<iv>.<cifra>.<etiqueta> (AES-256-GCM sobre o caso e o prazo), 10 minutos (proposta)"
+    literais:
+      - "b2.<iv>.<cifra>.<etiqueta>"
+    nomes:
+      - "b2"
+      - "iv"
+      - "cifra"
+      - "etiqueta"
+    nomes_nota:
+      - "ticket"
+      - "sem_desafio"
+      - "errou"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A ponte para a reconexão"
+    canonico: "GET /painel/ligar"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "aguarda_es"
+      - "destino"
+      - "ligar"
+      - "sessao"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "As métricas do painel, servidas"
+    canonico: "GET /metrics do onboarding-web, job onboarding_web"
+    literais:
+      - "onboarding-web"
+      - "job"
+      - "onboarding_web"
+    nomes:
+      - "onboarding"
+      - "web"
+      - "job"
+      - "onboarding_web"
+    nomes_nota:
+      - "rota"
+      - "codigo"
+      - "verificar"
+      - "ligar"
+      - "motivo"
+      - "limite"
+      - "proxy"
+      - "tls"
     variantes_literais: []
   - seccao: "3.57"
     conceito: "Caso de onboarding"

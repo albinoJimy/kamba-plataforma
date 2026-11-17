@@ -23,6 +23,12 @@
  * servidor responder que a variação passa de 50% (critério 5), pede uma segunda
  * confirmação e reenvia com `confirmar_variacao` — e com **outra** chave de
  * idempotência, porque é outro pedido.
+ *
+ * ## As datas são de Luanda (KAM-190)
+ *
+ * O `criadoAt` vem em UTC; a página mostra o dia de `Africa/Luanda` (§2), que é
+ * o mesmo dia por que o filtro procura. Mostrar o dia UTC punha uma encomenda
+ * das 23h30 de Luanda no dia seguinte da lista e no dia certo do filtro.
  */
 
 import { cabecalhos } from "../pagina.ts";
@@ -69,6 +75,25 @@ const NOMES_DOS_ESTADOS: Readonly<Record<string, string>> = {
   reembolso_pendente: "Reembolso pendente",
   reembolsada: "Reembolsada",
   cancelada: "Cancelada",
+};
+
+/** O dia de `Africa/Luanda` (UTC+1, sem hora de Verão) de um instante UTC. */
+export function diaEmLuanda(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? new Date(ms + 3_600_000).toISOString().slice(0, 10) : iso.slice(0, 10);
+}
+
+/**
+ * O texto de cada código público de T&S (dicionário §3.68). O código é o que o
+ * COM devolve; o dono lê a frase. Um código fora da lista sai tal e qual,
+ * escapado: é melhor do que esconder um aviso. Os dois de recurso não estão: o
+ * `emVigor` do KAM-097 tira as linhas de recurso dos avisos, e não chegam aqui.
+ */
+const TEXTOS_DOS_AVISOS: Readonly<Record<string, string>> = {
+  conduta_em_analise: "A actividade da loja está em análise.",
+  actividade_limitada: "A actividade da loja está limitada.",
+  loja_suspensa: "A loja está suspensa.",
+  loja_encerrada: "A loja foi encerrada.",
 };
 
 const NOMES_DO_CANAL: Readonly<Record<string, string>> = {
@@ -185,7 +210,12 @@ export interface FiltroDasEncomendas {
 }
 
 /** A lista de encomendas, só leitura (critério 6). Nenhum telefone. */
-export function paginaDeEncomendas(nonce: string, f: FiltroDasEncomendas, itens: readonly Encomenda[]): string {
+export function paginaDeEncomendas(
+  nonce: string,
+  f: FiltroDasEncomendas,
+  itens: readonly Encomenda[],
+  proximo: string | null = null,
+): string {
   const opcoes = ESTADOS_DA_ENCOMENDA.map(
     (e) => `<option value="${e}"${e === f.estado ? " selected" : ""}>${escapar(NOMES_DOS_ESTADOS[e] ?? e)}</option>`,
   ).join("");
@@ -197,14 +227,21 @@ export function paginaDeEncomendas(nonce: string, f: FiltroDasEncomendas, itens:
   const linhas = itens
     .map(
       (e) => `<tr><td><a href="/painel/encomendas/${encodeURIComponent(e.orderId)}">${escapar(e.numeroPublico)}</a></td>
-<td>${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</td><td>${escapar(kz(e.totalMinor))}</td><td>${escapar(e.criadoAt.slice(0, 10))}</td></tr>`,
+<td>${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</td><td>${escapar(kz(e.totalMinor))}</td><td>${escapar(diaEmLuanda(e.criadoAt))}</td></tr>`,
     )
     .join("\n");
   const tabela =
     itens.length === 0
       ? "<p>Não há encomendas com este filtro.</p>"
       : `<table><thead><tr><th>Referência</th><th>Estado</th><th>Valor</th><th>Data</th></tr></thead><tbody>${linhas}</tbody></table>`;
-  return moldura(nonce, "Encomendas", `${filtro}${tabela}`);
+  // A página seguinte leva o **mesmo** filtro: o COM prende o intervalo ao
+  // cursor, e um cursor com outro intervalo é recusado (KAM-190).
+  const consulta = new URLSearchParams({ estado: f.estado });
+  if (f.desde !== null) consulta.set("desde", f.desde);
+  if (f.ate !== null) consulta.set("ate", f.ate);
+  if (proximo !== null) consulta.set("cursor", proximo);
+  const seguinte = proximo === null ? "" : `<p><a href="/painel/encomendas?${escapar(consulta.toString())}">Mais antigas</a></p>`;
+  return moldura(nonce, "Encomendas", `${filtro}${tabela}${seguinte}`);
 }
 
 /** Uma encomenda. O contacto **não** aparece: ver a verificação do bloco. */
@@ -213,35 +250,136 @@ export function paginaDaEncomenda(nonce: string, e: Encomenda): string {
     nonce,
     `Encomenda ${e.numeroPublico}`,
     `<div class="cartao"><p>Estado: ${escapar(NOMES_DOS_ESTADOS[e.estado] ?? e.estado)}</p>
-<p>Valor: ${escapar(kz(e.totalMinor))}</p><p>Data: ${escapar(e.criadoAt.slice(0, 10))}</p></div>`,
+<p>Valor: ${escapar(kz(e.totalMinor))}</p><p>Data: ${escapar(diaEmLuanda(e.criadoAt))}</p></div>`,
   );
 }
 
-/** O estado do canal (critério 7). */
+/**
+ * O estado do canal (critério 7).
+ *
+ * **A ligação de reconexão é o `/painel/ligar`** (KAM-190), e não o `/ligar` do
+ * KAM-093: este exige a sessão do registo, de 24 h, e um dono que só tinha a do
+ * painel recebia 403. A rota do painel cunha a do registo e reencaminha.
+ */
 export function paginaDoCanal(nonce: string, v: VistaDoCanal): string {
   const religar =
-    v.estado === "desligado" || v.estado === "sem_canal"
-      ? '<p><a href="/ligar">Ligar o número de WhatsApp</a></p>'
+    (v.estado === "desligado" || v.estado === "sem_canal") && !v.restrito
+      ? '<p><a href="/painel/ligar">Ligar o número de WhatsApp</a></p>'
       : "";
   const avisos =
     v.avisos.length === 0
       ? "<p>Sem avisos em vigor.</p>"
-      : `<ul>${v.avisos.map((a) => `<li class="aviso">${escapar(a)}</li>`).join("")}</ul>`;
+      : `<ul>${v.avisos.map((a) => `<li class="aviso">${escapar(TEXTOS_DOS_AVISOS[a] ?? a)}</li>`).join("")}</ul>`;
+  const restrito = !v.restrito
+    ? ""
+    : v.estado === "desligado"
+      ? '<p class="aviso">O número está suspenso. Não o volte a ligar sem falar com a equipa KAMBÁ.</p>'
+      : '<p class="aviso">O número está ligado, mas com envio limitado.</p>';
   return moldura(
     nonce,
     "Canal",
-    `<div class="cartao"><p>Estado: ${escapar(NOMES_DO_CANAL[v.estado] ?? v.estado)}</p>
-<p>Nível de confiança: ${escapar(v.nivel ?? "—")}</p>
-<p>Tecto diário de conversas: ${v.tecto === null ? "—" : escapar(String(v.tecto))}</p>${religar}</div>
+    `<div class="cartao"><p>Estado: ${escapar(NOMES_DO_CANAL[v.estado] ?? v.estado)}</p>${restrito}
+<p>Qualidade do número: ${escapar(v.qualidade ?? "—")}</p>
+<p>Escalão de conversas: ${escapar(v.escalao ?? "—")}</p>
+<p>Nível de confiança: ${v.nivel === null ? "—" : escapar(String(v.nivel))}</p>
+<p>Tecto por pedido: ${v.tectoPedidoMinor === null ? "—" : escapar(kz(v.tectoPedidoMinor))}</p>${religar}</div>
 <h2>Avisos</h2>${avisos}`,
   );
 }
 
-/** A página de quem não tem sessão. Não diz se a sessão existiu. */
+/**
+ * O guião da reentrada (KAM-190). **Literal**, pela razão do dos produtos: pede
+ * o código, confere-o, e vai para os produtos. Não guarda nada no navegador além
+ * do bilhete numa variável, que morre com a página.
+ */
+const GUIAO_DA_REENTRADA = [
+  "var bilhete = null;",
+  "var saida = document.getElementById('saida');",
+  "async function enviar(rota, corpo) {",
+  "  var r = await fetch(rota, { method: 'POST', credentials: 'same-origin',",
+  "    headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo) });",
+  "  var j = await r.json().catch(function () { return {}; });",
+  "  return { r: r, j: j };",
+  "}",
+  "document.getElementById('pedir').addEventListener('submit', async function (ev) {",
+  "  ev.preventDefault();",
+  "  var x = await enviar('/painel/codigo', { telefone: ev.target.elements.telefone.value });",
+  "  if (x.r.status === 429) { saida.textContent = 'Muitos pedidos desta rede. Tente daqui a uma hora.'; return; }",
+  "  if (!x.r.ok) { saida.textContent = 'Verifique o numero de telefone.'; return; }",
+  "  bilhete = x.j.referencia;",
+  "  document.getElementById('conferir').hidden = false;",
+  "  saida.textContent = 'Se o numero tiver painel, recebe um codigo por SMS.';",
+  "});",
+  "document.getElementById('conferir').addEventListener('submit', async function (ev) {",
+  "  ev.preventDefault();",
+  "  var x = await enviar('/painel/verificar', { referencia: bilhete, codigo: ev.target.elements.codigo.value });",
+  "  if (x.r.ok) { window.location.assign('/painel/produtos'); return; }",
+  "  saida.textContent = 'O codigo nao serve. Peca outro.';",
+  "});",
+].join("\n");
+
+/**
+ * A página de quem não tem sessão. Não diz se a sessão existiu.
+ *
+ * **Com a reentrada** (KAM-190): o telefone, e o código que chega por SMS. Não
+ * depende da sessão do registo — ver a nota do `./rotas.ts`.
+ */
 export function paginaSemSessao(nonce: string): string {
   return `<!doctype html><html lang="pt-AO"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Entrar — KAMBÁ</title>${estilo(nonce)}</head>
-<body><h1>Entrar no painel</h1><p>A sua sessão terminou ou não existe. Entre outra vez com o código que recebe por SMS.</p></body></html>`;
+<body><h1>Entrar no painel</h1><p>A sua sessão terminou ou não existe. Entre outra vez com o código que recebe por SMS.</p>
+<form id="pedir" class="cartao"><label>Telefone <input name="telefone" type="tel" inputmode="tel" autocomplete="tel" required></label>
+<button type="submit">Receber código</button></form>
+<form id="conferir" class="cartao" hidden><label>Código <input name="codigo" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required></label>
+<button type="submit">Entrar</button></form>
+<p id="saida" role="status"></p>
+<script nonce="${escapar(nonce)}">${GUIAO_DA_REENTRADA}</script></body></html>`;
+}
+
+/**
+ * O guião do código da ligação (KAM-190). Literal, pela razão do dos produtos.
+ * O bilhete vem num atributo `data-` (escapado), e o código certo leva ao
+ * `/ligar` do KAM-093.
+ */
+const GUIAO_DA_LIGACAO = [
+  "var f = document.getElementById('conferir');",
+  "var saida = document.getElementById('saida');",
+  "f.addEventListener('submit', async function (ev) {",
+  "  ev.preventDefault();",
+  "  var r = await fetch('/painel/verificar', { method: 'POST', credentials: 'same-origin',",
+  "    headers: { 'content-type': 'application/json' },",
+  "    body: JSON.stringify({ referencia: f.dataset.bilhete, codigo: f.elements.codigo.value, destino: 'ligar' }) });",
+  "  var j = await r.json().catch(function () { return {}; });",
+  "  if (r.ok && j.seguinte === '/ligar') { window.location.assign('/ligar'); return; }",
+  "  saida.textContent = r.status === 429 ? 'Muitas tentativas desta rede. Tente daqui a uma hora.' : 'O codigo nao serve. Recarregue a pagina para receber outro.';",
+  "});",
+].join("\n");
+
+/**
+ * O passo do código antes da ligação (KAM-190). O código foi mandado ao telefone
+ * registado no onboarding; a página não diz qual é.
+ */
+export function paginaDoCodigoDaLigacao(nonce: string, bilhete: string): string {
+  return moldura(
+    nonce,
+    "Ligar o número",
+    `<p>Mandámos um código por SMS para o telefone com que se registou. Escreva-o para continuar.</p>
+<form id="conferir" class="cartao" data-bilhete="${escapar(bilhete)}"><label>Código <input name="codigo" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required></label>
+<button type="submit">Continuar</button></form><p id="saida" role="status"></p>`,
+    `<script nonce="${escapar(nonce)}">${GUIAO_DA_LIGACAO}</script>`,
+  );
+}
+
+/**
+ * A ligação fechada: o caso já não está no passo do ES, que é o único em que o
+ * `/ligar` do KAM-093 abre. **Não manda SMS nem mostra o formulário.**
+ */
+export function paginaDaLigacaoFechada(nonce: string): string {
+  return moldura(
+    nonce,
+    "Ligar o número",
+    "<p>O passo de ligação do número não está disponível para a sua loja neste momento. Contacte a equipa KAMBÁ.</p>",
+  );
 }
 
 /** A página de um recurso que não existe — ou que não é deste dono. A mesma. */

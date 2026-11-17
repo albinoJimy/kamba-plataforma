@@ -334,7 +334,7 @@ export const SQL_FOTOS_REPETIDAS = `
 
 /**
  * Os sinais `mudanca_de_conta` que ainda não têm caso `trust` (KAM-200,
- * critério 5). Os sinais nascem nos *triggers* da revisão `0069`, sobre a
+ * critério 5). Os sinais nascem nos *triggers* da revisão `0067`, sobre a
  * `payment_accounts` e o `tenants.nif`; o caso abre-o a varredura, pela fila. A
  * chave do caso leva o sinal (`sancao_suspensao:conta.<id>`), e é ela que faz
  * esta pergunta e a abertura idempotentes: um sinal com caso não volta à cabeça

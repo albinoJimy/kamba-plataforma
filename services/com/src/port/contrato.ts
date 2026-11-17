@@ -391,6 +391,15 @@ export interface OrderFilter {
   /** Cursor opaco. Um cursor forjado é `VALIDATION_ERROR` (ISO-10). */
   readonly cursor?: string | null;
   readonly limite?: number;
+  /**
+   * O intervalo de criação (KAM-190): `criadoDesde` **inclusive** e `criadoAte`
+   * **exclusive**, instantes ISO 8601 em UTC. Não conta como filtro de domínio —
+   * um intervalo sem `estado` nem `contactId` continua a ser filtro vazio. O
+   * cursor leva o intervalo na assinatura: com outro intervalo, é
+   * `VALIDATION_ERROR`.
+   */
+  readonly criadoDesde?: string | null;
+  readonly criadoAte?: string | null;
 }
 
 export interface Page<T> {

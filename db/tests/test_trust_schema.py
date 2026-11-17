@@ -607,7 +607,7 @@ def _conta_da_pme(cursor, tenant: str, **campos) -> str:
 
 
 class TestMudancaDeConta(Base):
-    """KAM-200, criterio 5: os *triggers* da `0069`, pelo caminho real de escrita.
+    """KAM-200, criterio 5: os *triggers* da `0067`, pelo caminho real de escrita.
 
     O NIF escreve-o o `kamba_app` (`0001`); a conta de pagamento, o `kamba_batch`
     (`0027`). Antes da activacao nenhum dos dois e sinal; depois, cada mudanca e

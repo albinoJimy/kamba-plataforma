@@ -74,17 +74,16 @@ gravados pelos *triggers* ficam: a `ts_signal` e *append-only* e e da `0056`.
 
 ## Numero
 
-`0069`, dado pelo orquestrador do lote 10 como provisorio, com a `0067`
-(KAM-098) e a `0068` (KAM-118) por fundir. **O `down_revision` aponta a `0066`**,
-a cabeca da `main` em que este ramo nasceu, para a cadeia correr no CI deste
-PR; reaponta-se na integracao, pela ordem da fila, como o numero.
+`0067` sobre a `0066` (KAM-072), dado pelo orquestrador do lote 10 na
+integracao, com o #210 (KAM-190) ja fundido e sem revisao: foi escrita como
+`0069` provisoria e renumerada aqui.
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision = "0069"
+revision = "0067"
 down_revision = "0066"
 branch_labels = None
 depends_on = None

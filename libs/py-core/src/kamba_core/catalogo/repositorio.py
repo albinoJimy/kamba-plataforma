@@ -57,7 +57,7 @@ class IngestaoInvalida(ValueError):
     """A linha violaria uma restricao da revisao `catalogo_ai`."""
 
 
-#: A mensagem do *trigger* `catalog_ingestions_ts_limitacao` (revisao `0069`,
+#: A mensagem do *trigger* `catalog_ingestions_ts_limitacao` (revisao `0067`,
 #: KAM-200). E por ela, e pelo `23514`, que se distingue a limitacao de T&S das
 #: outras violacoes de `CHECK` desta tabela, que sao defeitos e sobem como tal.
 MENSAGEM_DA_LIMITACAO: str = "limitacao de Trust & Safety em vigor"
@@ -290,7 +290,7 @@ class RepositorioDbapi:
                 linha = cursor.fetchone()
                 return _de_linha(linha) if linha else None
         except Exception as erro:
-            # O `23514` do *trigger* da limitacao de T&S (revisao `0069`) e uma
+            # O `23514` do *trigger* da limitacao de T&S (revisao `0067`) e uma
             # recusa de dominio. Os outros `23514` desta tabela sao defeitos e
             # sobem inalterados.
             if sqlstate_de(erro) == "23514" and MENSAGEM_DA_LIMITACAO in str(erro):

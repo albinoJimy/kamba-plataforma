@@ -897,7 +897,7 @@ test("criterio 8: um termo vazio devolve nada, e nao o catalogo inteiro", async 
 // ------------------------------------------ KAM-200: a limitação de T&S na base
 
 /**
- * O *trigger* da revisão `0069` recusa com `23514` um produto novo e a primeira
+ * O *trigger* da revisão `0067` recusa com `23514` um produto novo e a primeira
  * publicação de uma loja com `limitacao` de T&S em vigor. O COM é um dos dois
  * escritores do catálogo, e tem de devolver uma **recusa de domínio** — e não
  * uma excepção, que o agente leria como avaria. A recusa da base mede-se no

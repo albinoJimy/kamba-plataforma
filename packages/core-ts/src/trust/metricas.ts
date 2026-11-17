@@ -12,7 +12,7 @@
  * evento, a mesma decisão reaplicada) não contam: a chave da base diz que já
  * existiam, e é o `ServicoDeTrust` que conta. O desfecho de um recurso **não**
  * é um passo, e não conta aqui. O sinal `mudanca_de_conta` nasce num *trigger*
- * (revisão `0069`) e conta-se na varredura que lhe abre o caso.
+ * (revisão `0067`) e conta-se na varredura que lhe abre o caso.
  *
  * **O limite, dito:** as varreduras contam depois do `COMMIT`; o consumidor
  * conta **dentro** da transacção do `consumir`, que não tem gancho depois dela.

@@ -139,6 +139,7 @@ export {
   getOfferView,
   getValidQuote,
   listarOfertas,
+  obterOferta,
   publishProduct,
   searchOffers,
   upsertProductDraft,

@@ -1435,7 +1435,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "p_valor_minor bigint, p_currency text, p_pedido_evento_id uuid)"
     )
 
-    #: O *trigger* da mudanca de conta (KAM-200, revisao `0069`). Da privilegio e
+    #: O *trigger* da mudanca de conta (KAM-200, revisao `0067`). Da privilegio e
     #: nao da isolamento, como as outras: poe o contexto no tenant **da linha**
     #: que disparou, e e por respeitar o `FORCE` que o poe. Quem o mede e o
     #: `TestMudancaDeConta` de `../tests/test_trust_schema.py`.

@@ -3,7 +3,7 @@
  * transição do tenant pela porta do KAM-092 e o ciclo das varreduras.
  *
  * O que só a base prova — a porta verdadeira, o `tenant_state_log`, o evento no
- * *outbox*, os *triggers* da `0069` — está em `../tests_bd/trust.bd.test.ts`
+ * *outbox*, os *triggers* da `0067` — está em `../tests_bd/trust.bd.test.ts`
  * (suite `tests_lote` do *gate* 8). Aqui mede-se a forma: que instruções saem,
  * por que ordem, com que argumentos, e o que se recusa antes de chegar à base.
  */

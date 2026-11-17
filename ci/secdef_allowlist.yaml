@@ -196,7 +196,7 @@ funcoes:
     adr: ADR-015
     razao: >-
       O *trigger* que grava o sinal `mudanca_de_conta` quando o NIF ou a conta
-      de pagamento de uma PME muda depois da activacao (KAM-200, revisao `0069`).
+      de pagamento de uma PME muda depois da activacao (KAM-200, revisao `0067`).
       Ha dois escritores com papeis diferentes — o `kamba_app` escreve o
       `tenants.nif`, o `kamba_batch` a `payment_accounts`, este sem contexto de
       tenant —, e como `SECURITY INVOKER` o sinal dependia de quem escreveu:

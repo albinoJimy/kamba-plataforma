@@ -15,7 +15,7 @@
  *    `ativo` com um `tenant.reactivated`.
  * 3. **As varreduras** (critérios 2 e 5): uma volta do `CicloDoTrust` deixa uma
  *    linha `batch.run` por varredura no `audit_log`, e uma mudança de NIF depois
- *    da activação (o *trigger* da `0069`) abre **um** caso `trust` — no tenant
+ *    da activação (o *trigger* da `0067`) abre **um** caso `trust` — no tenant
  *    dele e em mais nenhum —, que a volta seguinte não repete.
  *
  * O que **não** se mede aqui: a forma das instruções e as recusas antes da base

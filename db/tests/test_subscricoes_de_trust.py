@@ -7,7 +7,7 @@ e uma linha ja presente faz falhar o `upgrade`. Que a constante diz o mesmo que
 o `registry/trust.yaml` prova-o o `services/agr/tests/test_subscricoes_0052.py`.
 
 O numero e o `down_revision` leem-se do ficheiro, e nao se escrevem aqui: um
-ensaio preso a `"0069"` partia-se no dia de uma renumeracao sem nada errado.
+ensaio preso a `"0067"` partia-se no dia de uma renumeracao sem nada errado.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ class TestRevisaoDasSubscricoesDeTrust(unittest.TestCase):
             cursor = conexao.cursor()
             cursor.execute(
                 "INSERT INTO platform.evt_subscricoes (consumer, tipo, finalidade) "
-                "VALUES ('ensaio_0069', 'catalog.product_changed', 'transacao'), "
+                "VALUES ('ensaio_0067', 'catalog.product_changed', 'transacao'), "
                 "       ('trust', 'catalog.price_changed', 'transacao') "
                 "ON CONFLICT DO NOTHING"
             )
@@ -121,11 +121,11 @@ class TestRevisaoDasSubscricoesDeTrust(unittest.TestCase):
             conexao.close()
         self.addCleanup(
             self._consultar_e_confirmar,
-            "DELETE FROM platform.evt_subscricoes WHERE consumer = 'ensaio_0069' "
+            "DELETE FROM platform.evt_subscricoes WHERE consumer = 'ensaio_0067' "
             "OR (consumer = 'trust' AND tipo = 'catalog.price_changed')",
         )
         antes = self._alheias()
-        self.assertIn(("ensaio_0069", "catalog.product_changed"), antes)
+        self.assertIn(("ensaio_0067", "catalog.product_changed"), antes)
         self.assertIn(("trust", "catalog.price_changed"), antes)
         alembic_ok("downgrade", ANTERIOR)
         self.assertEqual(self._alheias(), antes)

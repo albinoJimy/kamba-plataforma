@@ -466,7 +466,7 @@ export async function publishProduct(
   if (antes.categoriaRestrita !== null) return erro("VALIDATION_ERROR");
 
   // KAM-200: a primeira publicação de uma loja com `limitacao` de T&S em vigor é
-  // recusada pela base (`23514`, revisão `0069`), como a inserção de um produto
+  // recusada pela base (`23514`, revisão `0067`), como a inserção de um produto
   // novo — e chega ao agente como a mesma recusa de domínio.
   const publicada = await comRecusaDeDominio(() => r.repo.noTenant(SQL_PUBLICAR, [ref.sku]));
   if (publicada.tipo === "erro") return erro(publicada.erro);
@@ -907,6 +907,23 @@ export async function listarOfertas(r: Registo): Promise<Resultado<ListaDoPainel
     itens: linhas.slice(0, LIMITE_DO_PAINEL).map(lerOferta),
     truncada: linhas.length > LIMITE_DO_PAINEL,
   });
+}
+
+/**
+ * Uma oferta do tenant, para o painel (KAM-190): a leitura que o `PATCH` do
+ * painel precisa para o critério dos 50%, sem ir à lista inteira.
+ *
+ * **Uma arquivada é `NOT_FOUND`**, como na lista e no `alterarOferta`: o painel
+ * não a mostra e não a deixa gravar, e uma leitura que a devolvesse dizia ao dono
+ * que ela existe para um `PATCH` que a recusa. Um `sku` de outro tenant é o mesmo
+ * `NOT_FOUND`, pelo repo-base: o tenant é o do `ctx`, e não há argumento por onde
+ * o pedido escolha outro.
+ */
+export async function obterOferta(r: Registo, sku: string): Promise<Resultado<OfertaDoPainel>> {
+  if (typeof sku !== "string" || sku.trim().length === 0) return erro("VALIDATION_ERROR");
+  const oferta = await lerOfertaDoPainel(r, sku);
+  if (oferta === null || oferta.estado === "arquivado") return erro("NOT_FOUND");
+  return ok(oferta);
 }
 
 /**
