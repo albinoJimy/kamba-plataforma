@@ -61,7 +61,7 @@ def _no_app(tenant: str, consulta, *argumentos) -> list[dict]:
     argumentos dao-se pela numeracao do documento (`$1`, `$2`, …): o `pg8000`
     nao tem `$n` — tem `%s` e liga-os pela ordem em que aparecem no texto —, e e
     aquela classe que reordena. O `SQL_LISTAR` e o primeiro desta suite onde a
-    diferenca morde, porque tem o `$6` do `LIMIT` depois dos quatro filtros.
+    diferenca morde, porque tem o `$8` do `LIMIT` depois dos seis filtros.
     (Medido: passar a cadeia directamente da
     `TypeError: 'ConsultaDoTypeScript' object is not iterable`.)
 
@@ -165,7 +165,15 @@ class TestAListagemDeEncomendas(ComEncomendas):
         self.tenant = self.criar_tenant()
         self.contacto = self.criar_contacto(self.tenant)
 
-    def _listar(self, estado=None, contacto=None, cursor=None, limite=LIMITE_POR_OMISSAO):
+    def _listar(
+        self,
+        estado=None,
+        contacto=None,
+        cursor=None,
+        limite=LIMITE_POR_OMISSAO,
+        desde=None,
+        ate=None,
+    ):
         at, ident = cursor if cursor is not None else (None, None)
         return _no_app(
             self.tenant,
@@ -175,6 +183,8 @@ class TestAListagemDeEncomendas(ComEncomendas):
             contacto,
             at,
             ident,
+            desde,
+            ate,
             limite,
         )
 
@@ -278,8 +288,63 @@ class TestAListagemDeEncomendas(ComEncomendas):
         )
         self.assertEqual(int(linhas[0]["acima"]), 0)
 
+    def test_o_intervalo_de_criacao_filtra_no_motor(self) -> None:
+        """KAM-190: `$6` inclusive e `$7` exclusive, aplicados pela base.
+
+        O painel filtrava a pagina que esta consulta devolvia; com o predicado
+        aqui, o `LIMIT` conta so as linhas do intervalo. As duas pontas medem-se
+        no instante exacto, que e onde um `<=` trocado por `<` se ve.
+        """
+        antes = self.criar_encomenda(self.tenant, self.contacto, criado_at="2026-11-09T22:59:59+00:00")
+        na_ponta = self.criar_encomenda(self.tenant, self.contacto, criado_at="2026-11-09T23:00:00+00:00")
+        dentro = self.criar_encomenda(self.tenant, self.contacto, criado_at="2026-11-10T12:00:00+00:00")
+        no_fim = self.criar_encomenda(self.tenant, self.contacto, criado_at="2026-11-10T23:00:00+00:00")
+        ids = {
+            str(l["id"])
+            for l in self._listar(desde="2026-11-09T23:00:00Z", ate="2026-11-10T23:00:00Z")
+        }
+        self.assertEqual(ids, {na_ponta, dentro})
+        self.assertNotIn(antes, ids)
+        self.assertNotIn(no_fim, ids)
+        # Uma ponta so: a outra fica aberta pelo `COALESCE`.
+        self.assertEqual(
+            {str(l["id"]) for l in self._listar(desde="2026-11-10T00:00:00Z")}, {dentro, no_fim}
+        )
+        self.assertEqual(
+            {str(l["id"]) for l in self._listar(ate="2026-11-09T23:00:00Z")}, {antes}
+        )
+
+    def test_o_intervalo_conta_antes_do_limite(self) -> None:
+        """O defeito que o KAM-099 deixou: a linha do intervalo fora da primeira pagina.
+
+        Tres encomendas mais recentes do que o intervalo e uma dentro dele: com
+        `LIMIT 2` e o filtro na pagina, a do intervalo nunca aparecia.
+        """
+        alvo = self.criar_encomenda(self.tenant, self.contacto, criado_at="2026-11-01T10:00:00+00:00")
+        for dia in ("05", "06", "07"):
+            self.criar_encomenda(self.tenant, self.contacto, criado_at=f"2026-11-{dia}T10:00:00+00:00")
+        pagina = self._listar(limite=2, desde="2026-11-01T00:00:00Z", ate="2026-11-02T00:00:00Z")
+        self.assertEqual([str(l["id"]) for l in pagina], [alvo])
+
+    def test_o_cursor_continua_dentro_do_intervalo(self) -> None:
+        """A segunda pagina com o mesmo intervalo nao sai dele."""
+        dentro = [
+            self.criar_encomenda(self.tenant, self.contacto, criado_at=f"2026-11-0{d}T10:00:00+00:00")
+            for d in (2, 3)
+        ]
+        fora = self.criar_encomenda(self.tenant, self.contacto, criado_at="2026-11-01T10:00:00+00:00")
+        intervalo = {"desde": "2026-11-02T00:00:00Z", "ate": "2026-11-04T00:00:00Z"}
+        primeira = self._listar(limite=1, **intervalo)
+        self.assertEqual(len(primeira), 1)
+        segunda = self._listar(
+            cursor=(str(primeira[0]["criado_at"]), str(primeira[0]["id"])), limite=5, **intervalo
+        )
+        ids = {str(primeira[0]["id"])} | {str(l["id"]) for l in segunda}
+        self.assertEqual(ids, set(dentro))
+        self.assertNotIn(fora, ids)
+
     def test_a_listagem_respeita_o_limite(self) -> None:
-        """O `LIMIT $6` parametrizado, que e o que o modulo usa para pedir N+1."""
+        """O `LIMIT $8` parametrizado, que e o que o modulo usa para pedir N+1."""
         for _ in range(3):
             self.criar_encomenda(self.tenant, self.contacto)
         self.assertEqual(len(self._listar(limite=2)), 2)

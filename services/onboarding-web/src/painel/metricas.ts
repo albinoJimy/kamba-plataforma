@@ -8,29 +8,44 @@
  * ```
  *
  * **Duas etiquetas, os dois domínios fechados**, e nenhuma leva tenant, `sku`,
- * `orderId` ou contacto (`OBS-I`): `rota` tem sete valores e `motivo` seis, pelo
- * que o tecto é de 7 + 42 séries. As séries aparecem sempre, mesmo a zero — um
- * painel que mostre «sem dados» não distingue «ninguém errou» de «o processo
- * não arrancou».
+ * `orderId`, telefone ou contacto (`OBS-I`): `rota` tem dez valores e `motivo`
+ * sete, pelo que o tecto é de 10 + 70 séries. As séries aparecem sempre, mesmo a
+ * zero — um painel que mostre «sem dados» não distingue «ninguém errou» de «o
+ * processo não arrancou».
  *
- * **Declaradas e não servidas**: o `onboarding-web` não tem rota `/metrics`, e
- * abri-la é uma superfície HTTP nova com o seu caso no *gate* 6. A exposição
- * está pronta (`exposicao()`) para o ticket que lha der — o mesmo estado em que
- * o KAM-042 deixou as do repo-base do COM, até o KAM-178 as servir.
- *
- * shortcut: as séries vivem em memória e nenhum endpoint as lê; revê-se quando
- * o onboarding-web ganhar a rota /metrics (credor no bloco do KAM-099).
+ * **Servidas pelo `GET /metrics` do `onboarding-web`** desde o KAM-190 (ver o
+ * `../app.ts`), que o Prometheus raspa na 3003. As três rotas da reentrada e da
+ * reconexão (`codigo`, `verificar`, `ligar`) e o motivo `limite` entram com elas.
  */
 
 export const METRICA_PEDIDOS = "painel_pedidos_total";
 export const METRICA_ERROS = "painel_erros_total";
 
 /** As rotas do painel, como etiqueta. Lista fechada. */
-export const ROTAS_DO_PAINEL = ["entrar", "produtos", "gravar", "encomendas", "encomenda", "canal", "sair"] as const;
+export const ROTAS_DO_PAINEL = [
+  "entrar",
+  "produtos",
+  "gravar",
+  "encomendas",
+  "encomenda",
+  "canal",
+  "sair",
+  "codigo",
+  "verificar",
+  "ligar",
+] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 
 /** Os motivos de erro, como etiqueta. Lista fechada. */
-export const MOTIVOS_DE_ERRO = ["sem_sessao", "nao_encontrado", "invalido", "conflito", "confirmacao", "indisponivel"] as const;
+export const MOTIVOS_DE_ERRO = [
+  "sem_sessao",
+  "nao_encontrado",
+  "invalido",
+  "conflito",
+  "confirmacao",
+  "indisponivel",
+  "limite",
+] as const;
 export type MotivoDeErro = (typeof MOTIVOS_DE_ERRO)[number];
 
 /** O `Content-Type` do formato de exposição. */
