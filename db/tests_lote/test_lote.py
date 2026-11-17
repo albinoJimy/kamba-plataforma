@@ -23,6 +23,10 @@ corre aqui tambem: o adaptador SQL dela (`capacidade/sql.ts`) corre como
 `kamba_batch` e e no processo de lote que vai ligar (credor KAM-092). E um
 ficheiro a mais na mesma suite, e nao uma suite nova: uma suite nova e uma linha
 do alvo do *gate* 8 no `Makefile`.
+
+**E a regua de cobranca do KAM-058** (`packages/core-ts/tests_bd/regua.bd.test.ts`),
+pela mesma razao: o motor corre como `kamba_batch` e suspende pelo
+`transition_tenant` da `0058`, e so a base verdadeira prova a funcao.
 """
 
 from __future__ import annotations
@@ -36,10 +40,20 @@ from pathlib import Path
 from tests.base import ComBase
 from tests_lote import node
 
-FICHEIROS = ("tests_bd/lote.bd.test.ts", "tests_bd/capacidade.bd.test.ts")
+FICHEIROS = (
+    "tests_bd/lote.bd.test.ts",
+    "tests_bd/capacidade.bd.test.ts",
+    "tests_bd/regua.bd.test.ts",
+)
 
-#: O `describe` do ficheiro. Um so: os dez cenarios partilham as sementes.
-GRUPOS = ("o processo de lote contra a base", "a lista de espera contra a base")
+#: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
+#: sementes, e a lista de espera (KAM-095) e a regua de cobranca (KAM-058) tem
+#: cada uma o seu.
+GRUPOS = (
+    "o processo de lote contra a base",
+    "a lista de espera contra a base",
+    "a régua de cobrança contra a base",
+)
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
 #: criterios do bloco: o ciclo contra a base (2), o efeito por reaplicar e o
@@ -58,10 +72,29 @@ TESTES_OBRIGATORIOS = (
     "a carência esconde do lote a marca de quem ainda está a correr os efeitos",
     "reaplicar um pedir_info não desfaz a fase que mudou depois da decisão; sem mudança, aplica-a",
     "o processo arranca em prod com as duas credenciais, serve /healthz e /metrics, e pára no SIGTERM",
+    # KAM-092: as duas portas da aprovacao, ligadas. A decisao humana e o
+    # `k1_ok` passam a `aprovado` so pelo `advance_case`, com o agregador; e a
+    # aprovacao automatica entra na amostra do KAM-089.
+    "a decisão humana aprova pela porta: a fase passa a aprovado e sai um tenant.approved, uma vez",
+    "com o aceite em falta a decisão sobe como erro, sem ficar na lista, e o varrimento aprova quando o aceite chega",
+    "um k1_ok antes do aceite fica por aprovar, e o varrimento aprova e amostra quando ele chega",
+    "um k1_ok com um caso de categoria por decidir não aprova, e a aprovação da categoria chega pelo varrimento",
+    "o recurso aprovado sai de rejeitado pela porta, e emite uma vez",
+    "uma rejeição depois de aprovado e um recurso aprovado não emitem um segundo tenant.approved",
+    "o marcarFase não escreve aprovado, nem com o tipo contornado",
+    "um k1_ok aprova pela porta e, sem humano, entra na amostra uma vez",
+    "um k1_ok com intervenção humana não é amostrado, e com o screening em falta não aprova",
     # KAM-095: o `ListaSql` verdadeiro contra a base (criterio 9, com o
     # controlo sem tranca) e a ordem dos parametros do `transitar`.
     "vinte reservas de casos novos com uma vaga dão uma; sem a tranca do adaptador, mais",
     "convite, expiração e desistência pelo serviço escrevem cada coluna no sítio dela",
+    # KAM-058: a regua de cobranca, pelo `correrRegua` verdadeiro como
+    # `kamba_batch` sobre o `transition_tenant` da `0058` (criterios 1, 2, 3 e 7).
+    "onze dias pelo motor verdadeiro: três passos, uma suspensão com registo e evento, o CHR recusa, e o pagamento repõe",
+    "o UNIQUE (billing_cycle_id, passo) recusa um passo repetido escrito à mão pelo lote",
+    "o pagamento no D+9 cancela o passo pendente e o tenant não é suspenso",
+    "um tenant restrito não é suspenso nem sai do restrito",
+    "vinte tenants pagos repõem-se numa volta, e a volta dura menos do que o intervalo",
 )
 
 
@@ -134,6 +167,17 @@ class TestProcessoDeLote(ComBase):
         medida = re.search(r"\[KAM-095\] reserva: com tranca (\d+) concedida\(s\), sem tranca (\d+)", self.escrito)
         self.assertIsNotNone(medida, self.escrito[-2000:])
         print(f"    {medida.group(0)}")
+
+    def test_a_regua_imprime_as_medicoes(self) -> None:
+        """O KAM-058: os onze dias contra a base e a volta da reposicao de vinte."""
+        for padrao in (
+            r"\[KAM-058\] onze dias, cinco voltas por dia, contra a base: \d+ ms",
+            r"\[KAM-058\] reposicao: vinte tenants numa volta de \d+ ms \(intervalo \d+ ms\)",
+        ):
+            with self.subTest(padrao=padrao):
+                medida = re.search(padrao, self.escrito)
+                self.assertIsNotNone(medida, self.escrito[-2000:])
+                print(f"    {medida.group(0)}")
 
 
 if __name__ == "__main__":

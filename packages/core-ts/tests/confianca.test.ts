@@ -501,29 +501,33 @@ describe("adaptador SQL (sobre um cliente falso; o SQL corre contra a base nas s
   it("le o nivel pelo dominio, e um nivel fora dele falha fechado", async () => {
     const desde = new Date("2026-11-01T00:00:00.000Z");
     const { bd } = cliente(new Map([[SQL_NIVEL_DO_TENANT, [{ nivel: 1, tecto_pedido_minor: "15000000", motivo: "historico_independente", desde }]]]));
-    assert.deepEqual(await new RepositorioDeConfiancaSql(bd).nivel(A), {
+    assert.deepEqual(await new RepositorioDeConfiancaSql(bd, bd).nivel(A), {
       nivel: 1,
       tectoPedidoMinor: 15_000_000n,
       motivo: "historico_independente",
       desde,
     });
     const { bd: mau } = cliente(new Map([[SQL_NIVEL_DO_TENANT, [{ nivel: 7, tecto_pedido_minor: "1", motivo: "x", desde }]]]));
-    await assert.rejects(new RepositorioDeConfiancaSql(mau).nivel(A), /fora do dominio/);
-    assert.equal(await new RepositorioDeConfiancaSql(cliente(new Map()).bd).nivel(A), null);
+    await assert.rejects(new RepositorioDeConfiancaSql(mau, mau).nivel(A), /fora do dominio/);
+    const vazio = cliente(new Map()).bd;
+    assert.equal(await new RepositorioDeConfiancaSql(vazio, vazio).nivel(A), null);
   });
 
   it("tranca, le os pedidos e grava com os parametros pela ordem das cadeias", async () => {
     const entregue = new Date("2026-10-20T10:00:00.000Z");
-    const c = cliente(
+    // Os pedidos vem **so** da aplicacao (o cofre de identidade nao e do
+    // lote): o cliente do lote nao tem a cadeia, e uma leitura que fosse por
+    // ele dava zero pedidos e uma chamada a mais na lista do lote.
+    const c = cliente(new Map([[SQL_DEFINIR_NIVEL, [{ nivel: 1 }]]]));
+    const app = cliente(
       new Map([
         [SQL_PEDIDOS_ENTREGUES, [{
           order_id: "o1", comprador_ref: "c1", valor_minor: "1200000", criado_at: entregue,
           entregue_at: entregue, confirmado_pelo_cliente: true, disputa_na_janela: false,
         }]],
-        [SQL_DEFINIR_NIVEL, [{ nivel: 1 }]],
       ]),
     );
-    const r = new RepositorioDeConfiancaSql(c.bd);
+    const r = new RepositorioDeConfiancaSql(c.bd, app.bd);
     await r.trancar(A);
     const pedidos = await r.pedidosEntregues(A, AGORA, 1_000_000n, 14);
     assert.deepEqual(pedidos, [{
@@ -531,9 +535,10 @@ describe("adaptador SQL (sobre um cliente falso; o SQL corre contra a base nas s
       entregueEm: entregue, confirmadoPeloCliente: true, disputaNaJanela: false,
     }]);
     assert.equal(await r.definir(A, { nivel: 1, tectoPedidoMinor: 15_000_000n, motivo: "historico_independente" }, "sistema:x", C.versao), true);
-    assert.deepEqual(c.chamadas.map((x) => x.sql), [SQL_TRANCAR, SQL_PEDIDOS_ENTREGUES, SQL_DEFINIR_NIVEL]);
-    assert.deepEqual(c.chamadas[1]?.parametros, [A, AGORA, "1000000", 14]);
-    assert.deepEqual(c.chamadas[2]?.parametros, [A, 1, "15000000", "historico_independente", "sistema:x", C.versao]);
+    assert.deepEqual(c.chamadas.map((x) => x.sql), [SQL_TRANCAR, SQL_DEFINIR_NIVEL]);
+    assert.deepEqual(app.chamadas.map((x) => x.sql), [SQL_PEDIDOS_ENTREGUES]);
+    assert.deepEqual(app.chamadas[0]?.parametros, [A, AGORA, "1000000", 14]);
+    assert.deepEqual(c.chamadas[1]?.parametros, [A, 1, "15000000", "historico_independente", "sistema:x", C.versao]);
   });
 
   it("o leitor do tecto devolve bigint, ou null sem linha", async () => {

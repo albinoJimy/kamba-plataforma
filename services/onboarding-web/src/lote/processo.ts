@@ -4,7 +4,7 @@
  * ```text
  * lerConfiguracao     as variáveis de arranque; sem as credenciais de lote, não arranca
  * verificarPapeis     cada ligação é do papel que diz ser (`kamba_batch`, `kamba_app`)
- * montarProcesso      a fila sobre os adaptadores SQL, o ciclo e o gancho do KAM-092
+ * montarProcesso      a fila sobre os adaptadores SQL, o ciclo e as duas portas do KAM-092
  * criarApp            `/healthz` e `/metrics`, e mais nada
  * arrancar            os papéis verificados, o processo montado e a app das métricas dele
  * opcoesDoConjunto    a ligação de cada papel, com limites de tempo
@@ -58,7 +58,9 @@ import {
   OnboardingsSql,
   RevisaoSql,
   ServicoDeRevisao,
+  aprovacaoDoKyc,
   decisaoHumanaDeScreening,
+  varrerAprovacoes,
   type Aviso,
   type AvisoAoDono,
   type Cifra,
@@ -72,6 +74,7 @@ import {
   type ResultadoDoCiclo,
   type ViaDoAviso,
 } from "@kamba/core-ts/revisao";
+import type { AprovacaoDoKyc } from "@kamba/core-ts/kyc";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
@@ -329,6 +332,13 @@ export interface ProcessoDeLote {
    * `inicioDaAmostragem`.
    */
   aprovacaoAutomatica(onboardingId: string, tenantId: string): Promise<ResultadoDaAbertura | null>;
+  /**
+   * **A porta do `k1_ok`** (KAM-092): o `aprovacao` das dependências do
+   * `ServicoKyc`. Aprova pela porta da base (`platform.advance_case`, como
+   * `kamba_batch` sob o `app.tenant_id` do caso) e, sem intervenção humana,
+   * passa a aprovação ao `aprovacaoAutomatica` acima.
+   */
+  readonly aprovacaoDoKyc: AprovacaoDoKyc;
 }
 
 /**
@@ -338,9 +348,10 @@ export interface ProcessoDeLote {
  * fingir, e o aviso levanta (ver a nota do módulo).
  */
 export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
+  const onboardings = new OnboardingsSql(o.lote);
   const servico = new ServicoDeRevisao({
     repositorio: new RevisaoSql(o.lote, { conjunto: o.lote }),
-    onboardings: new OnboardingsSql(o.lote),
+    onboardings,
     auditoria: new AuditoriaSql(o.lote),
     aviso: new AvisoSemVia(),
     // Só o motivo: o caso e o tipo não estão na *allowlist* do registo, e quem
@@ -360,12 +371,24 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     leitor: new LeitorDaFilaSql(o.lote),
     efeitos: o.efeitos,
     feriados: FERIADOS_POR_OMISSAO,
+    // KAM-201: aprova o que já pode ser aprovado e ninguém aprovou — a última
+    // condição do agregador (o aceite) não chama a porta.
+    aprovar: (limite) =>
+      varrerAprovacoes({
+        cliente: o.lote,
+        onboardings,
+        amostrar: (onboardingId, tenantId) => servico.amostrar(onboardingId, tenantId),
+        limite,
+      }),
     ...(o.limite === undefined ? {} : { limite: o.limite }),
   });
+  const aprovacaoAutomatica = (onboardingId: string, tenantId: string) =>
+    ciclo.aprovacaoAutomatica(onboardingId, tenantId);
   return {
     servico,
     ciclo,
-    aprovacaoAutomatica: (onboardingId, tenantId) => ciclo.aprovacaoAutomatica(onboardingId, tenantId),
+    aprovacaoAutomatica,
+    aprovacaoDoKyc: aprovacaoDoKyc(onboardings, aprovacaoAutomatica),
   };
 }
 

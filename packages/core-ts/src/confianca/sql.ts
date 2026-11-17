@@ -7,12 +7,17 @@
  *
  * ## Dois papéis
  *
- * * **`kamba_batch`** — o recálculo (`RepositorioDeConfiancaSql`). Lê a
- *   encomenda, o registo de estados, os sinais e o K1, e é o único que escreve
- *   `trust_level`. Tem `BYPASSRLS`, e por isso **toda** a leitura filtra pelo
- *   tenant em `$1`.
- * * **`kamba_app`** — o caminho de cobrança (`LeitorDoTectoSql`). Lê só as
- *   colunas do tecto, e só do tenant do contexto (RLS).
+ * * **`kamba_batch`** — o recálculo (`RepositorioDeConfiancaSql`). Tranca,
+ *   lê o nível, os sinais e o K1, e é o único que escreve `trust_level`. Tem
+ *   `BYPASSRLS`, e por isso **toda** a leitura filtra pelo tenant em `$1`.
+ * * **`kamba_app`** — duas leituras, as duas só do tenant do contexto (RLS):
+ *   o tecto no caminho de cobrança (`LeitorDoTectoSql`) e os pedidos entregues
+ *   do recálculo (`SQL_PEDIDOS_ENTREGUES`). Os pedidos **não** se lêem como
+ *   `kamba_batch` porque o comprador canónico sai da cadeia de `merged_into`
+ *   da `contacts`, que é o cofre de identidade: um `kamba_batch` com
+ *   `BYPASSRLS` e `SELECT` no cofre lia os contactos de todos os tenants de
+ *   uma vez, e o `test_identidade_schema` recusa-o. É o mesmo caminho do T&S
+ *   do KAM-097, que lê a cadeia como `kamba_app` com o `app.tenant_id`.
  */
 
 import type { ClienteSql } from "../eventos/publicador.ts";
@@ -151,12 +156,19 @@ function dataOuNula(v: unknown): Date | null {
   return v === null || v === undefined ? null : data(v);
 }
 
-/** O recálculo, como `kamba_batch`. */
+/**
+ * O recálculo: `lote` é o `kamba_batch` da transacção do tenant (a tranca, as
+ * leituras e a escrita); `aplicacao` é um `kamba_app` com o `app.tenant_id` do
+ * mesmo tenant, aberto por quem chama, e só lê os pedidos entregues. Sem o
+ * contexto, a RLS dá zero pedidos, e zero pedidos não sobem ninguém.
+ */
 export class RepositorioDeConfiancaSql implements RepositorioDeConfianca {
   readonly #bd: ClienteSql;
+  readonly #aplicacao: ClienteSql;
 
-  constructor(bd: ClienteSql) {
-    this.#bd = bd;
+  constructor(lote: ClienteSql, aplicacao: ClienteSql) {
+    this.#bd = lote;
+    this.#aplicacao = aplicacao;
   }
 
   async trancar(tenantId: string): Promise<void> {
@@ -184,7 +196,7 @@ export class RepositorioDeConfiancaSql implements RepositorioDeConfianca {
     valorMinimoMinor: bigint,
     janelaAntiFraudeDias: number,
   ): Promise<readonly PedidoLido[]> {
-    const r = await this.#bd.query(SQL_PEDIDOS_ENTREGUES, [
+    const r = await this.#aplicacao.query(SQL_PEDIDOS_ENTREGUES, [
       tenantId,
       desde,
       valorMinimoMinor.toString(),

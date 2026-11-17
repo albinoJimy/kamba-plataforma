@@ -30,7 +30,7 @@ mensagem que o `alembic history` imprime.
 
 O `audit_log` e *append-only* e o dominio da `action` e fechado. Uma linha
 `trust.tecto` *committed* torna impossivel descer abaixo desta revisao — e abaixo
-da `0048`, da `0046`, da `0042` e da `0038`, que repoem o `CHECK` antigo
+da `0063`, da `0048`, da `0046`, da `0042` e da `0038`, que repoem o `CHECK` antigo
 validado. As sementes das suites de base (`factories.confianca`) escrevem o
 nivel com o administrador, que e superutilizador, e *committed* (a
 `tests_pagamentos` e `autocommit`): com a auditoria do nascimento, o
@@ -72,9 +72,11 @@ sob `REPEATABLE READ` a fotografia e a do inicio da transaccao.
 
 ## Os privilegios
 
-O `kamba_batch` passa a ler tres colunas da `contacts` (`tenant_id`,
-`contact_id`, `merged_into`): o recalculo junta os pedidos de um comprador pela
-cadeia de fusoes, e a tabela de identidade nao lhe dava nada.
+O `kamba_batch` **nao** ganha nada na `contacts`, que e o cofre de identidade:
+com `BYPASSRLS`, um `SELECT` la era ler os contactos de todos os tenants de uma
+vez. O recalculo le os pedidos entregues (e o comprador canonico, pela cadeia
+de `merged_into`) como `kamba_app` com o contexto do tenant, como o T&S do
+KAM-097, e o `kamba_app` ja le essas colunas desde a `0003`.
 
 So o `kamba_batch` escreve, e por coluna: o `tenant_id` e a `currency` nao
 estao no `UPDATE`. O `kamba_app` le **so** as colunas do tecto (`tenant_id`,
@@ -85,7 +87,7 @@ Ninguem apaga: uma descida e um `UPDATE` auditado.
 ## O `downgrade`
 
 **Recusa** se o `audit_log` ja tem linhas `trust.tecto`: o registo e
-*append-only*, nenhum papel tem `DELETE`, e o dominio da `0048` nao as aceita.
+*append-only*, nenhum papel tem `DELETE`, e o dominio da `0063` nao as aceita.
 Sem elas, larga o *trigger* da cobranca, os dois da tabela, a tabela e as tres
 funcoes, sem `CASCADE`.
 """
@@ -96,34 +98,37 @@ from alembic import op
 
 import rls
 
-revision = "0062"
-down_revision = "0061"
+revision = "0065"
+down_revision = "0064"
 branch_labels = None
 depends_on = None
 
 AUDIT_LOG = "platform.audit_log"
 RESTRICAO_DA_ACCAO = "audit_log_action"
 
-#: O dominio da accao depois desta revisao: o da `0048` e o `trust.tecto`.
-#: Copiado e nao importado: uma revisao nao importa outra.
-LITERAIS_DE_ACCAO_0062 = (
+#: O dominio da accao depois desta revisao: o da `0063` (o da `0048` e as duas
+#: do orcamento LLM do KAM-117) e o `trust.tecto`. Copiado e nao importado: uma
+#: revisao nao importa outra.
+LITERAIS_DE_ACCAO_0065 = (
     "'price.update', 'stock.adjust', 'payment.manual_confirm', "
     "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read', "
     "'privacy.dsar_recusado', 'privacy.dsar_rectificado', "
     "'retention.hold_aplicado', 'retention.hold_levantado', "
     "'order.refund_record', "
     "'review.acesso', 'review.recusa', "
+    "'llm.orcamento_zerado', 'llm.orcamento_reposto', "
     "'trust.tecto'"
 )
 
-#: O que o `downgrade` repoe: o dominio da `0048`.
-LITERAIS_DE_ACCAO_0048 = (
+#: O que o `downgrade` repoe: o dominio da `0063`.
+LITERAIS_DE_ACCAO_0063 = (
     "'price.update', 'stock.adjust', 'payment.manual_confirm', "
     "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read', "
     "'privacy.dsar_recusado', 'privacy.dsar_rectificado', "
     "'retention.hold_aplicado', 'retention.hold_levantado', "
     "'order.refund_record', "
-    "'review.acesso', 'review.recusa'"
+    "'review.acesso', 'review.recusa', "
+    "'llm.orcamento_zerado', 'llm.orcamento_reposto'"
 )
 
 
@@ -179,11 +184,6 @@ def upgrade() -> None:
         "ON platform.trust_level TO kamba_app"
     )
     op.execute("GRANT SELECT ON platform.trust_level TO kamba_audit")
-    # O recalculo junta os pedidos do mesmo comprador pela cadeia de fusoes
-    # (`merged_into`), como o T&S do KAM-097. O `kamba_batch` nao tinha nada na
-    # `contacts`; pede-se por revisao, e so as tres colunas da cadeia — nenhuma
-    # delas e dado pessoal.
-    op.execute("GRANT SELECT (tenant_id, contact_id, merged_into) ON platform.contacts TO kamba_batch")
 
 
 def _guardar() -> None:
@@ -353,7 +353,7 @@ def _alargar_o_dominio_da_accao() -> None:
         f"""
         ALTER TABLE {AUDIT_LOG}
           ADD CONSTRAINT {RESTRICAO_DA_ACCAO}
-          CHECK (action IN ({LITERAIS_DE_ACCAO_0062}))
+          CHECK (action IN ({LITERAIS_DE_ACCAO_0065}))
         """
     )
     op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
@@ -369,8 +369,8 @@ def downgrade() -> None:
     )
     if linhas:
         raise RuntimeError(
-            f"downgrade da 0062 recusado: ha {linhas} linha(s) de audit_log com "
-            "accao trust.tecto e o dominio da 0048 nao as aceita. O audit_log e "
+            f"downgrade da 0065 recusado: ha {linhas} linha(s) de audit_log com "
+            "accao trust.tecto e o dominio da 0063 nao as aceita. O audit_log e "
             "append-only e nenhum papel tem DELETE: exporte a cadeia e decida o que "
             "fazer a essas linhas antes de descer."
         )
@@ -379,12 +379,11 @@ def downgrade() -> None:
         f"""
         ALTER TABLE {AUDIT_LOG}
           ADD CONSTRAINT {RESTRICAO_DA_ACCAO}
-          CHECK (action IN ({LITERAIS_DE_ACCAO_0048}))
+          CHECK (action IN ({LITERAIS_DE_ACCAO_0063}))
         """
     )
     op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
 
-    op.execute("REVOKE SELECT (tenant_id, contact_id, merged_into) ON platform.contacts FROM kamba_batch")
     op.execute("DROP TRIGGER payment_charges_dentro_do_tecto ON platform.payment_charges")
     op.execute("DROP FUNCTION platform.payment_charge_dentro_do_tecto()")
     rls.disable_tenant_rls("trust_level")

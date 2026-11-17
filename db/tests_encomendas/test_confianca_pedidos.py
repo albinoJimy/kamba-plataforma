@@ -40,8 +40,15 @@ class TestPedidosEntregues(ComEncomendas):
         return encomenda
 
     def ler(self, sql: str, *args) -> list[list]:
+        # Os pedidos lem-se como `kamba_app` com o contexto do tenant (o `$1`):
+        # o comprador canonico sai do cofre de identidade, que o `kamba_batch`
+        # nao le. Os factos negativos sao do lote.
         q = ConsultaDoTypeScript(sql, SQL_TS)
-        self.ensaio.execute("SET LOCAL ROLE kamba_batch")
+        if sql == "SQL_PEDIDOS_ENTREGUES":
+            self.ensaio.execute("SET LOCAL ROLE kamba_app")
+            self.ensaio.execute("SELECT set_config('app.tenant_id', %s, true)", (args[0],))
+        else:
+            self.ensaio.execute("SET LOCAL ROLE kamba_batch")
         self.ensaio.execute(q.sql, q.args(*args))
         linhas = [list(x) for x in self.ensaio.fetchall()]
         self._ensaio.rollback()

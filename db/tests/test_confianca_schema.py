@@ -353,7 +353,7 @@ class TestDowngradeDaConfianca(unittest.TestCase):
         if not em_head():
             alembic_ok("upgrade", "head")
 
-    def _objectos(self) -> tuple[int, int, int, bool, bool]:
+    def _objectos(self) -> tuple[int, int, int, bool]:
         conexao = ligacao.ligar("admin")
         try:
             c = conexao.cursor()
@@ -367,18 +367,16 @@ class TestDowngradeDaConfianca(unittest.TestCase):
             c.execute("SELECT pg_get_constraintdef(oid) LIKE '%trust.tecto%' FROM pg_constraint "
                       "WHERE conname = 'audit_log_action'")
             accao = bool(c.fetchone()[0])
-            c.execute("SELECT has_column_privilege('kamba_batch', 'platform.contacts', 'merged_into', 'SELECT')")
-            contactos = bool(c.fetchone()[0])
-            return tabelas, funcoes, gatilhos, accao, contactos
+            return tabelas, funcoes, gatilhos, accao
         finally:
             conexao.close()
 
     def test_desce_e_volta(self) -> None:
-        self.assertEqual(self._objectos(), (1, 3, 1, True, True))
+        self.assertEqual(self._objectos(), (1, 3, 1, True))
         alembic_ok("downgrade", _anterior())
-        self.assertEqual(self._objectos(), (0, 0, 0, False, False))
+        self.assertEqual(self._objectos(), (0, 0, 0, False))
         alembic_ok("upgrade", "head")
-        self.assertEqual(self._objectos(), (1, 3, 1, True, True))
+        self.assertEqual(self._objectos(), (1, 3, 1, True))
 
 
 if __name__ == "__main__":

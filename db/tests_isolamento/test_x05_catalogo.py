@@ -167,6 +167,10 @@ class TestCatalogoReal(ComBase):
                 ("platform", "audit_log", "tenant_id"),
                 # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
                 ("platform", "billing_cycles", "tenant_id"),
+                # KAM-058: os passos da regua («billing_c» < «billing_d» <
+                # «billing_o»). Sem receita de sementes: ver
+                # `sementes.SEM_RECEITA_COM_RAZAO`.
+                ("platform", "billing_dunning_steps", "tenant_id"),
                 ("platform", "billing_ops_approvals", "tenant_id"),
                 # KAM-049: a ingestao do Catalogo AI, entre a auditoria e os
                 # canais («au» < «ca» < «ch»).
@@ -184,6 +188,10 @@ class TestCatalogoReal(ComBase):
                 # «channel_o» vence «channel_q» porque 'o' < 'q'.
                 ("platform", "channel_onboarding", "tenant_id"),
                 ("platform", "channel_quality_log", "tenant_id"),
+                # KAM-117: os episodios de churn («cha» < «chu» < «co»).
+                # **Sem receita de sementes**, pela razao da lista de espera
+                # (ver `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "churn_signal_episode", "tenant_id"),
                 # KAM-022: a prova de consentimento. A `consent_texts`
                 # **nao** esta aqui e nao e esquecimento: nao tem
                 # `tenant_id`, porque um aviso de privacidade e um texto
@@ -279,6 +287,10 @@ class TestCatalogoReal(ComBase):
                 ("platform", "onboarding_case", "tenant_id"),
                 # KAM-092: os gates de activacao («onboarding_c» < «_g»).
                 ("platform", "onboarding_gate", "tenant_id"),
+                # KAM-094: as tentativas do teste ponta a ponta («_g» < «_s»).
+                # **Sem receita de sementes**, pela razao dos gates (ver
+                # `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "onboarding_smoke", "tenant_id"),
                 # KAM-044: as quatro das encomendas. A ordem e a do `sorted()`
                 # por ponto de codigo, e nela o `_` (0x5F) vence o `s` (0x73):
                 # as tres `order_*` vem **antes** da `orders_mirror`, e todas
@@ -506,6 +518,8 @@ class TestCatalogoReal(ComBase):
                 ("availability_rules", "tenant_iso", "ALL", "{public}"),
                 # KAM-059: o ciclo e as aprovacoes de ops («bi» < «bo»).
                 ("billing_cycles", "tenant_iso", "ALL", "{public}"),
+                # KAM-058: os passos da regua, a do `db/rls.py`.
+                ("billing_dunning_steps", "tenant_iso", "ALL", "{public}"),
                 ("billing_ops_approvals", "tenant_iso", "ALL", "{public}"),
                 ("bookings", "tenant_iso", "ALL", "{public}"),
                 # KAM-049: a ingestao do Catalogo AI, entre a agenda e os
@@ -517,6 +531,8 @@ class TestCatalogoReal(ComBase):
                 ("channel_onboarding", "tenant_iso", "ALL", "{public}"),
                 # KAM-021: o registo das transicoes de qualidade.
                 ("channel_quality_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-117: os episodios de churn («cha» < «chu» < «co»).
+                ("churn_signal_episode", "tenant_iso", "ALL", "{public}"),
                 # KAM-059: a sombra da comissao («com» < «con»).
                 ("commission_accruals", "tenant_iso", "ALL", "{public}"),
                 # KAM-022: a prova de consentimento.
@@ -594,6 +610,8 @@ class TestCatalogoReal(ComBase):
                 ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-092: os gates de activacao.
                 ("onboarding_gate", "tenant_iso", "ALL", "{public}"),
+                # KAM-094: as tentativas do teste ponta a ponta.
+                ("onboarding_smoke", "tenant_iso", "ALL", "{public}"),
                 # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
                 # `_` (0x5F) vence o `s` (0x73) — as tres `order_*` vem antes da
                 # `orders_mirror`. `ALL` e `{public}` nas quatro, como em todas:
@@ -795,6 +813,8 @@ class TestCatalogoReal(ComBase):
              "audit_log",
              # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
              "billing_cycles",
+             # KAM-058: os passos da regua («billing_c» < «billing_d»).
+             "billing_dunning_steps",
              "billing_ops_approvals",
              # KAM-049: a ingestao do Catalogo AI («au» < «ca» < «ch»).
              "catalog_ingestions",
@@ -812,6 +832,8 @@ class TestCatalogoReal(ComBase):
              "channel_onboarding",
              # KAM-021: o registo das transicoes de qualidade.
              "channel_quality_log",
+             # KAM-117: os episodios de churn («cha» < «chu» < «co»).
+             "churn_signal_episode",
              # KAM-022: a prova de consentimento.
              # KAM-059: a sombra da comissao («com» < «con»).
              "commission_accruals",
@@ -870,6 +892,8 @@ class TestCatalogoReal(ComBase):
              "onboarding_case",
              # KAM-092: os gates de activacao.
              "onboarding_gate",
+             # KAM-094: as tentativas do teste ponta a ponta.
+             "onboarding_smoke",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
              # vez — **sexta lista deste ficheiro a precisar de uma tabela
              # nova**, e as cinco anteriores ja estavam feitas quando esta

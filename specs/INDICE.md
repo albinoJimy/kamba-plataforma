@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.70
+**Versão do conjunto:** 1.71
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -52,7 +52,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194 | 66 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186 | 19 | 0–1 |
-| EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179, KAM-204 | 15 | 0–1 |
+| EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179, KAM-202, KAM-204 | 16 | 0–1 |
 | EPIC-05 Pagamentos e Billing | KAM-052 – KAM-060, KAM-175, KAM-197 | 11 | 0–1 |
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199 | 6 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189 | 14 | 0–1 |
@@ -210,6 +210,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | 0 | KAM-044 |
 | KAM-178 | API interna do COM, ligação dos doze métodos da porta e os executores das tools de comércio | feature | L | P0 | 0 | KAM-042, KAM-046, KAM-031 |
 | KAM-179 | A cotação do dono não tem predicado de contacto: X recebe o preço negociado para Y dentro do mesmo tenant | fix | S | P0 | 0 | KAM-043 |
+| KAM-202 | KAM-094 em produção: observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms` | feature | L | P1 | 1 | KAM-094, KAM-119, KAM-198 |
 | KAM-204 | A entrega confirmada pelo cliente não se prova: o papel e o instante escrevem-se à mão | fix | M | P1 | 1 | KAM-044, KAM-096 |
 
 ### EPIC-05 — Pagamentos e Billing
@@ -363,6 +364,7 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | Langfuse em produção | 2 | ADR-018; recursos |
 | Publicação automática em Instagram/Facebook (Social AI), Arquivo AI, Compras AI, consignação, clube digital | 2+ | D13 (App Review da Meta, E5); procura validada pelos módulos de entrada (H10–H12) |
 | Factura AI com parceiro AGT | 2 | Resultado do spike KAM-126 e D7 |
+| Pesquisa híbrida: o modelo do `kamba-embed` (PROP-IDX-4), o limiar do `retrieve` calibrado para o híbrido, a coluna com a dimensão do modelo e a comutação atómica, o p95 do embedding em *staging*, os 2 000 produtos com o fornecedor real, a fila de mortos persistida e o *eval-gate* na troca de modelo | 2 | Gate do Piloto verde (**KAM-110**); um destino autorizado com `apd_ref` (ADR-008) ou um modelo servido em Luanda; ≥ 2 candidatos medidos na `dev`. O Piloto fica só lexical por decisão do fundador de 2026-11-16 ([`ADR-L012`](../docs/adr/ADR-L012-pesquisa-no-piloto.md)); as caixas vêm do KAM-063 e do KAM-194, pelo KAM-064 e pelo **KAM-199** |
 
 ---
 
@@ -443,5 +445,6 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.66 | Novembro 2026 | **KAM-199** acrescentado ao **EPIC-06**, no PR do **KAM-064**, que o abre e não o implementa: é o credor do que o KAM-064 recebeu do KAM-062, do KAM-063 e do KAM-194 e não fecha sem uma decisão do fundador ou sem migração — o *job* de CI do *eval-gate* (critério 6 do KAM-064), a soltura da `termo_canonico_dataset_inactivo_ck` (critério 7 do KAM-062), o relatório semanal de *tokens* não resolvidos em produção (critério 8 do KAM-062), e, com o modelo escolhido, a coluna nova e a comutação atómica, o p95 com o fornecedor real, a DLQ persistida e o *eval-gate* verde na troca de modelo (critérios 3, 6, 7 e 8 do KAM-063). **L, P1, fase 1.** **Superfícies:** a linha do §4, o §3.1 — o EPIC-06 com **6** e o TOTAL a `KAM-001 – KAM-199` com **199** — e o §1. **Dependências:** o KAM-064, cujo executor e *gate* ele liga, e o KAM-194, cujo processo corre o *worker* dos embeddings que ele mede. **Arestas recíprocas:** o `Bloqueia` do KAM-064 e do KAM-194 ganha o KAM-199, nos blocos. Número provisório: a fila dá o definitivo na integração. | Equipa KAMBÁ |
 | 1.67 | Novembro 2026 | **KAM-200** acrescentado ao **EPIC-09**, no PR do **KAM-097**, que o abre e não o implementa: é o credor das caixas que o KAM-097 deixa parciais — o processo que consome os sete tipos de evento com o efeito de T&S, o agendamento das varreduras e do fecho dos encerramentos, as métricas e os alertas de T&S, e as quatro fontes de sinal cuja regra existe e cujos factos não (preço por categoria, mudança de conta ou de NIF, correlação entre tenants por comprador, coincidência por HMAC). Depende do KAM-097 e do KAM-092 (a `transition_tenant`). **200** tickets. | Equipa KAMBÁ |
 | 1.68 | Novembro 2026 | **KAM-201** acrescentado ao **EPIC-09**, no PR do **KAM-092**, que o abre e não o implementa: é o credor das caixas que o KAM-092 deixa parciais — ligar ao TypeScript as portas da base (`advance_case` no `ServicoDeRevisao` e no `decidir` do KYC, o `amostrar` pelo processo de lote) e a invalidação da cache do CHR pelo `tenant.activated`. Depende do KAM-092. **201** tickets. | Equipa KAMBÁ |
-| 1.69 | Novembro 2026 | **KAM-203** acrescentado ao **EPIC-09**, no PR do **KAM-096**, que o abre e não o implementa: é o credor das caixas 2, 4 e 5 que o KAM-096 deixa parciais, e do alerta da caixa 7 — o processo que corre o recálculo da confiança todos os dias, em `order.delivered` e na aprovação, e a sanção do KAM-097 a chegar à base. Depende do KAM-096 e do KAM-198. **203** tickets, contando o KAM-202, que o #207 (KAM-094) abre e que funde antes deste. | Equipa KAMBÁ |
-| 1.70 | Novembro 2026 | **KAM-204** acrescentado ao **EPIC-04**, no mesmo PR do **KAM-096**, que o abre e não o implementa: é o credor do critério 3 do KAM-096 — o `entrega_confirmada_por = 'cliente'` e o `entregue_at` presos, na base, ao actor e ao instante da transição. Depende do KAM-044 e do KAM-096. **204** tickets. | Equipa KAMBÁ |
+| 1.69 | Novembro 2026 | **KAM-199:** o §6 ganha a linha da **pesquisa híbrida**, que é o credor do que o fundador adiou para depois do Piloto a 2026-11-16 ([`ADR-L012`](../docs/adr/ADR-L012-pesquisa-no-piloto.md)): o modelo do `kamba-embed`, a calibração do limiar do `retrieve`, a coluna da dimensão, o p95, os 2 000 produtos com o fornecedor real, a fila de mortos persistida e o *eval-gate* na troca de modelo. Nenhum ticket novo e nenhuma contagem muda: o §6 é o que fica fora do backlog e o gatilho para o escrever. | Equipa KAMBÁ |
+| 1.70 | Novembro 2026 | **KAM-202** acrescentado ao **EPIC-04**, no PR do **KAM-094**, que o abre e não o implementa: é o credor das caixas que o KAM-094 deixa parciais — observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms`. Total: **202** tickets. A versão é provisória: a `main` já tem uma 1.69, e a final dá-a a integração. | Equipa KAMBÁ |
+| 1.71 | Novembro 2026 | **KAM-203** acrescentado ao **EPIC-09** e **KAM-204** ao **EPIC-04**, os dois no PR do **KAM-096**, que os abre e não os implementa. O KAM-203 é o credor das caixas 2, 4 e 5 que o KAM-096 deixa parciais, e do alerta da caixa 7: o processo que corre o recálculo da confiança todos os dias, em `order.delivered` e na aprovação, e a sanção do KAM-097 a chegar à base; depende do KAM-096 e do KAM-198. O KAM-204 é o credor do critério 3: o `entrega_confirmada_por = 'cliente'` e o `entregue_at` presos, na base, ao actor e ao instante da transição; depende do KAM-044 e do KAM-096. **204** tickets. | Equipa KAMBÁ |

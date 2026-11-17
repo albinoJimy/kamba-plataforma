@@ -119,6 +119,10 @@
       "types": "./dist/guia/index.d.ts",
       "default": "./dist/guia/index.js"
     },
+    "./activacao": {
+      "types": "./dist/activacao/index.d.ts",
+      "default": "./dist/activacao/index.js"
+    },
     "./capacidade": {
       "types": "./dist/capacidade/index.d.ts",
       "default": "./dist/capacidade/index.js"

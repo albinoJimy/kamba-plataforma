@@ -21,6 +21,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
+  AprovacaoEmMemoria,
   CasosEmMemoria,
   CifraAesGcm,
   OcrLocal,
@@ -65,6 +66,7 @@ describe("(a) 500 registos de lixo nao chegam a humano", () => {
       },
       porTenant: async () => null,
       marcarFase: async () => true,
+      aprovar: async () => ({ estado: "aprovado", intervencaoHumana: true }),
     };
     const m = montarRevisao({ agora: HOJE, onboardings: ponte });
     relogio = () => m.agora();
@@ -77,6 +79,7 @@ describe("(a) 500 registos de lixo nao chegam a humano", () => {
       ocr: new OcrLocal(new MotorDeGrelha()),
       cifra: new CifraAesGcm(randomBytes(32)),
       fila: filaDoKyc(m.servico, ponte, verificacoes),
+      aprovacao: new AprovacaoEmMemoria(casos),
       anelDoNif: ANEL,
       relogio,
     });

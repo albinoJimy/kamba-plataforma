@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.38 |
+| Versão | 1.39 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -2312,3 +2312,4 @@ Medido sobre `publico/main` em `a66354d6` com o ramo `fix/KAM-189-achados-redtea
 | 1.36 | Novembro 2026 | KAM-198 (acrescentado ao EPIC-09 no PR do KAM-196): a contagem viva do backlog na nota do `assert` passa a **198**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.37 | Novembro 2026 | KAM-199 (acrescentado ao EPIC-06 no PR do KAM-064): a contagem viva do backlog na nota do `assert` passa a **199**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | KAM-200 (acrescentado ao EPIC-09 no PR do KAM-097): a contagem viva do backlog na nota do `assert` passa a **200**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | KAM-203 (EPIC-09) e KAM-204 (EPIC-04), acrescentados no PR do KAM-096: a contagem viva do backlog na nota do `assert` passa a **204**, e conta o KAM-201 e o KAM-202, que entraram sem linha aqui. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

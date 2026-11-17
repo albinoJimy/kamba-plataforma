@@ -132,7 +132,7 @@ def main(ambiente: Any = None) -> int:
     # existe (`processo.CicloDeEmbeddings`) e corre a seguir a reindexacao de
     # cada *tenant* quando recebe um cliente; o cliente pede um modelo no alias
     # `kamba-embed`, que esta `por_decidir` (`llm/aliases.yaml`, credor
-    # KAM-064). E o mesmo estado do AGR, que regista `so_lexical_sem_modelo`:
+    # KAM-063: o Piloto fica so lexical, ADR-L012). E o mesmo estado do AGR, que regista `so_lexical_sem_modelo`:
     # sem esta linha, o silencio lia-se como indice hibrido.
     log.info(outcome="idx_embeddings", error_code="so_lexical_sem_modelo")
     reindexacao = Reindexacao(abrir_app, abrir_batch, lote, embeddings=None)

@@ -118,5 +118,53 @@ class TestRevisaoContraORegisto(unittest.TestCase):
         self.assertNotEqual(da_revisao, do_registo)
 
 
+#: A revisao de dados do consumidor do CHR (KAM-201) e a sua declaracao.
+SUFIXO_DO_CHR = "_subscricao_do_chr.py"
+
+
+def linhas_do_chr() -> list[tuple[str, str, str, str, str]]:
+    [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DO_CHR}"))
+    arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
+    for no in arvore.body:
+        if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
+            return [tuple(linha) for linha in ast.literal_eval(no.value)]
+    raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+
+
+class TestRevisaoDoChrContraORegisto(unittest.TestCase):
+    """A mesma confrontacao para o consumidor do CHR (KAM-201): `registry/chr.yaml`."""
+
+    def test_as_linhas_sao_as_da_declaracao(self) -> None:
+        declaracao = load_file(RAIZ / "registry" / "chr.yaml")
+        nome = declaracao["consumidor"]
+        declaradas = {
+            (nome, s["tipo"], int(s["versao"]), subscricoes.e_de_pagamento(s["tipo"]))
+            for s in declaracao["subscriptions"]
+        }
+        da_revisao = {
+            (consumer, tipo, int(versao), _bool(ordem))
+            for consumer, tipo, versao, _finalidade, ordem in linhas_do_chr()
+        }
+        self.assertEqual(da_revisao, declaradas)
+
+    def test_o_nome_e_o_do_efeito(self) -> None:
+        """O `consumer` das filas e da marca de consumo e a constante do efeito."""
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "chr" / "activacao.ts").read_text(encoding="utf-8")
+        self.assertIn('export const CONSUMIDOR_DO_CHR = "chr";', fonte)
+        self.assertEqual({c for c, *_ in linhas_do_chr()}, {"chr"})
+
+    def test_a_finalidade_esta_nas_do_contrato(self) -> None:
+        for _consumer, tipo, _versao, finalidade, _ordem in linhas_do_chr():
+            with self.subTest(tipo=tipo):
+                exemplo = json.loads(
+                    (RAIZ / "contratos" / "eventos" / tipo / "exemplo.json").read_text(encoding="utf-8")
+                )
+                self.assertIn(finalidade, exemplo["finalidades"])
+
+    def test_nenhuma_chave_repete_uma_da_0052(self) -> None:
+        da_0052 = {(c, t) for c, t, *_ in linhas_da_revisao()}
+        self.assertFalse(da_0052 & {(c, t) for c, t, *_ in linhas_do_chr()})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2045,6 +2045,14 @@ SEM_RECEITA_COM_RAZAO = {
     # (uma linha) e de outro tenant (zero).
     ("platform", "onboarding_gate"),
     ("platform", "tenant_state_log"),
+    # KAM-094: as tentativas do teste ponta a ponta, pela razao dos gates: a
+    # tentativa pede o caso do tenant (FK composta), que e unico por tenant e
+    # colidia com a receita do `onboarding_case`. **A politica mede-se noutro
+    # sitio**: o `test_rls_forcada_e_b_nao_ve_nem_escreve_a_tentativa_de_a` do
+    # `db/tests/test_catalogo_minimo_schema.py` escreve pela aplicacao com o
+    # contexto de A, le com o de A (uma linha) e com o de B (zero), recusa a
+    # escrita no tenant de outro e mede a RLS ligada e forcada.
+    ("platform", "onboarding_smoke"),
     # KAM-097: os sinais e as sancoes de T&S, pela razao da
     # `screening_decision`: *append-only* por privilegio **e** por *trigger*
     # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
@@ -2080,6 +2088,24 @@ SEM_RECEITA_COM_RAZAO = {
     # ligada e forcada e o `42501` da aplicacao. A `onboarding_capacity` nao tem
     # `tenant_id` e nao entra na descoberta.
     ("platform", "waitlist_entry"),
+    # KAM-058: os passos da regua de cobranca, pela razao da lista de espera.
+    # **A aplicacao nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na
+    # tabela, e quem escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita
+    # precisava de um ciclo com cobranca, que so o ledger escreve, e o ledger
+    # nao se apaga na limpeza. **A politica mede-se noutro sitio**: o
+    # `db/tests_pagamentos/test_regua_de_cobranca.py` le pela auditoria um passo
+    # com o contexto do tenant dono (uma linha), com o de outro (zero) e sem
+    # contexto (zero), mede a RLS ligada e forcada e o `42501` da aplicacao.
+    ("platform", "billing_dunning_steps"),
+    # KAM-117: os episodios de churn, pela razao da lista de espera. **A
+    # aplicacao nao os alcanca**: o `kamba_app` nao tem privilegio nenhum na
+    # tabela, e quem escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita
+    # nao tinha onde guardar o canario: as colunas sao o tenant, um sinal de
+    # dominio fechado e instantes, sem texto livre. **A politica mede-se noutro
+    # sitio**: o `TestJob` do `db/tests/test_kpis_churn_schema.py` corre o *job*
+    # sobre A e B e le pela auditoria com o contexto de B (zero episodios de A),
+    # e o `TestPrivilegios` mede o `42501` da aplicacao nas vistas e na tabela.
+    ("platform", "churn_signal_episode"),
     # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
     # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
     # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo
