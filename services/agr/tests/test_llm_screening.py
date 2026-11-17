@@ -2,14 +2,16 @@
 
 Tres coisas, e cada classe tem o seu canario:
 
-* **com o destino negado, nada sai e a linha grava-se** — o papel `screening`
-  nao tem finalidade de transferencia (criterio 2, a espera do fundador), pelo
-  que e o estado real de hoje. Canario: o controlo `router` do mesmo cliente,
-  que sai; sem ele, um transporte partido passava o «nada sai»;
-* **com o destino autorizado, a linha leva o custo** — a finalidade e um duplo
-  (`patch.dict` sobre o `FINALIDADE_DO_PAPEL`), porque a real espera pela
-  revisao de base de dados que o fundador confirma. O resto e o caminho de
-  producao: o `ClienteDeLlm`, o `minimise`, a tabela de precos e o registo;
+* **sem destino autorizado para a `classificacao_de_catalogo`, nada sai e a
+  linha grava-se** — o fornecedor tem `conversa` autorizada e nao a finalidade
+  do screening, que e o caso que separa as duas. Canario: o controlo `router`
+  do mesmo cliente, que sai; sem ele, um transporte partido passava o «nada
+  sai»;
+* **com o destino autorizado, a chamada passa o *gate* e a linha leva o custo**
+  — a finalidade e a real (`FINALIDADE_DO_PAPEL`, KAM-195, criterio 2) e a
+  porta e a do nucleo (`PortaSobreDestinos`); so o leitor da tabela e um duplo.
+  O resto e o caminho de producao: o `ClienteDeLlm`, o `minimise`, a tabela de
+  precos e o registo;
 * **a rota** autentica antes de ler o corpo, le-o por forma fechada com o tecto
   do contrato, nao chama o modelo quando ja nao ha tempo, e nunca devolve 200
   sem texto.
@@ -31,7 +33,6 @@ import re
 import unittest
 from decimal import Decimal
 from typing import Any
-from unittest import mock
 
 from apoio import pedir
 from kamba_agr import metricas as metricas_mod
@@ -42,6 +43,8 @@ from kamba_agr.llm import precos as precos_mod
 from kamba_agr.llm import screening
 from kamba_agr.llm.cliente import ClienteDeLlm
 from kamba_agr.llm.erros import RESULTADO_DESTINO, RESULTADO_OK, DestinoNegado
+from kamba_core.destinos import FINALIDADE_CLASSIFICACAO, FINALIDADE_CONVERSA
+from kamba_core.destinos import PortaSobreDestinos
 from kamba_yaml import load_file
 from test_llm_cliente import _Ligacao, _Transporte
 
@@ -80,13 +83,39 @@ PEDIDO = screening.PedidoDeScreening(
 )
 
 
-def _cliente(transporte: _Transporte) -> tuple[ClienteDeLlm, _Ligacao, Any]:
+#: Os pares `(fornecedor, finalidade)` com destino autorizado e `apd_ref`.
+SO_CONVERSA = frozenset({("anthropic", FINALIDADE_CONVERSA)})
+COM_A_CLASSIFICACAO = SO_CONVERSA | {("anthropic", FINALIDADE_CLASSIFICACAO)}
+
+
+def _porta(autorizados: frozenset[tuple[str, str]]) -> destinos_mod.PortaDoNucleo:
+    """A porta do nucleo, com um leitor que devolve uma linha global por par.
+
+    Um par autorizado devolve uma linha `autorizado` com `apd_ref`; um par fora
+    da lista devolve zero linhas — que a porta nega, como «destino nao
+    registado». E a mesma forma do `test_llm_destinos.py`.
+    """
+
+    def ler(_tenant: str, fornecedor: str, finalidade: str) -> list[dict[str, Any]]:
+        if (fornecedor, finalidade) not in autorizados:
+            return []
+        return [
+            {"especifica": False, "status": "autorizado", "tem_apd_ref": True, "country": "US"}
+        ]
+
+    return destinos_mod.PortaDoNucleo(PortaSobreDestinos(ler))
+
+
+def _cliente(
+    transporte: _Transporte,
+    autorizados: frozenset[tuple[str, str]] = COM_A_CLASSIFICACAO,
+) -> tuple[ClienteDeLlm, _Ligacao, Any]:
     lig = _Ligacao()
     met = metricas_mod.MetricasDoAgr()
     cliente = ClienteDeLlm(
         aliases={"screening": ALIAS, "router": ROUTER},
         tabela_de_precos=PRECOS,
-        porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
+        porta_de_destinos=_porta(autorizados),
         abrir_ligacao=lambda: lig,
         chave_virtual=lambda _t: "chave-de-ensaio-do-screening",
         url_do_proxy="http://litellm:4000",
@@ -105,15 +134,22 @@ def _resposta_do_modelo() -> dict[str, Any]:
 
 
 class TestComODestinoNegado(unittest.TestCase):
-    """O estado de hoje: o papel nao tem finalidade, e o *gate* nega.
+    """Sem destino autorizado para a finalidade do screening, o *gate* nega.
+
+    O fornecedor tem a `conversa` autorizada: e isso que prova que a recusa vem
+    da finalidade do papel, e nao de o fornecedor estar todo negado.
 
     Canario: `test_o_controlo_router_sai`. Sem ele, um transporte que nunca
     chamasse nada passava o «nada sai para o proxy».
     """
 
+    def test_a_finalidade_do_papel_e_a_classificacao(self) -> None:
+        """A decisao do fundador (2026-11-18): finalidade propria."""
+        self.assertEqual(destinos_mod.finalidade_de("screening"), "classificacao_de_catalogo")
+
     def test_nada_sai_e_grava_a_linha(self) -> None:
         transporte = _Transporte()
-        cliente, lig, met = _cliente(transporte)
+        cliente, lig, met = _cliente(transporte, SO_CONVERSA)
         with self.assertRaises(DestinoNegado):
             screening.ClassificadorDeScreening(cliente, ALIAS)(PEDIDO)
         self.assertEqual(transporte.chamadas, [])
@@ -130,13 +166,13 @@ class TestComODestinoNegado(unittest.TestCase):
 
     def test_o_controlo_router_sai(self) -> None:
         transporte = _Transporte()
-        cliente, _, _ = _cliente(transporte)
+        cliente, _, _ = _cliente(transporte, SO_CONVERSA)
         cliente.chamar("router", [], screening_ctx())
         self.assertEqual(len(transporte.chamadas), 1)
 
     def test_a_rota_responde_503_com_o_resultado(self) -> None:
         transporte = _Transporte()
-        cliente, lig, _ = _cliente(transporte)
+        cliente, lig, _ = _cliente(transporte, SO_CONVERSA)
         app = _app(screening.ClassificadorDeScreening(cliente, ALIAS))
         estado, _, corpo = _pedir(app, _corpo_valido())
         self.assertEqual(estado, 503)
@@ -151,15 +187,8 @@ def screening_ctx():  # noqa: ANN201 — so para o controlo
     return ContextoDeChamada(tenant_id=TENANT, trace_id=TRACE)
 
 
-@mock.patch.dict(
-    destinos_mod.FINALIDADE_DO_PAPEL,
-    # **O duplo da finalidade.** A real espera pela revisao de base de dados
-    # que o fundador confirma (criterio 2); `conversa` e so uma das tres que o
-    # `NegaTudoAteKam069` reconhece em `staging`.
-    {"screening": destinos_mod.FINALIDADE_CONVERSA},
-)
 class TestComODestinoAutorizado(unittest.TestCase):
-    """O caminho de producao com a finalidade ligada.
+    """Com o destino autorizado para a `classificacao_de_catalogo`, a chamada sai.
 
     Canario: `test_a_linha_leva_o_custo`. Sem a tabela de precos, o custo
     sairia nulo e a linha continuava a existir.

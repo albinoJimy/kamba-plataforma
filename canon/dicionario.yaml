@@ -12986,11 +12986,12 @@ entradas:
     variantes_literais: []
   - seccao: "3.49"
     conceito: "Finalidade de uma transferência"
-    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
+    canonico: "tenant_destinations.purpose ∈ {alojamento, canal, classificacao_de_catalogo, conversa, copias_de_seguranca, embeddings, entrega_de_conteudo, facturacao, imagem, observabilidade, otp_e_avisos_de_servico, pagamentos, segredos, transcricao, visao}"
     literais:
       - "tenant_destinations.purpose"
       - "alojamento"
       - "canal"
+      - "classificacao_de_catalogo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13007,6 +13008,7 @@ entradas:
       - "tenant_destinations.purpose"
       - "alojamento"
       - "canal"
+      - "classificacao_de_catalogo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"
@@ -13021,6 +13023,11 @@ entradas:
       - "visao"
     nomes_nota:
       - "imagem"
+      - "classificacao_de_catalogo"
+      - "foto_de_produtos"
+      - "screening"
+      - "nano"
+      - "embeddings"
       - "FINALIDADES"
       - "otp_e_avisos_de_servico"
       - "FINALIDADE"
@@ -21842,6 +21849,7 @@ dominios:
     valores:
       - "alojamento"
       - "canal"
+      - "classificacao_de_catalogo"
       - "conversa"
       - "copias_de_seguranca"
       - "embeddings"

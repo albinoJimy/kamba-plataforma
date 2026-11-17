@@ -563,20 +563,29 @@ class TestOGateDeDestino(unittest.TestCase):
         cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(consultados, ["anthropic", "openai"])
 
-    def test_o_screening_nega_antes_de_sair_e_grava_a_linha(self) -> None:
-        """O papel do KAM-192, com os aliases do repositorio e em `staging`.
+    def test_o_screening_sem_destino_de_classificacao_nega_e_grava_a_linha(self) -> None:
+        """O papel do KAM-192, com os aliases do repositorio.
 
-        `staging` autoriza `conversa`, pelo que a recusa so pode vir da falta de
-        finalidade do papel — e nao de o ambiente negar tudo. Nada sai para o
-        proxy, e a recusa fica registada com o papel `screening`, que o `CHECK`
-        da `0047` aceita.
+        Desde o KAM-195 o papel tem finalidade (`classificacao_de_catalogo`), e
+        a recusa vem do destino: a porta do nucleo, com a `conversa` autorizada
+        e a classificacao nao, nega o `screening` e deixa sair o `router`. Nada
+        sai para o proxy, e a recusa fica registada com o papel `screening`, que
+        o `CHECK` da `0047` aceita.
         """
+        from kamba_core.destinos import PortaSobreDestinos
+
+        def ler(_tenant, _fornecedor, finalidade):  # noqa: ANN001, ANN202
+            if finalidade != "conversa":
+                return []
+            return [{"especifica": False, "status": "autorizado",
+                     "tem_apd_ref": True, "country": "US"}]
+
         lig = _Ligacao()
         met = metricas_mod.MetricasDoAgr()
         transporte = _Transporte()
         cliente = ClienteDeLlm(
             aliases=REAIS, tabela_de_precos=PRECOS,
-            porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
+            porta_de_destinos=destinos_mod.PortaDoNucleo(PortaSobreDestinos(ler)),
             abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
             metricas=met, transporte=transporte,
         )

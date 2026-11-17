@@ -277,13 +277,13 @@ class TestOGateDeDestinoPorSi(unittest.TestCase):
             porta.autorizar("t", "anthropic", "finalidade_inventada")
 
     def test_cada_papel_tem_finalidade(self) -> None:
-        """Todos menos o `screening`, e o `screening` por nome.
+        """Todos, desde o KAM-195.
 
         O papel do classificador entrou (KAM-192) sem finalidade de
-        transferencia: nenhuma das treze do dicionario §3.49 o serve, e
-        acrescentar uma e uma revisao de base de dados. Sem finalidade, o
-        `finalidade_de` nega — falha fechada. A excepcao e **um nome**, e nao um
-        filtro: um sexto papel sem finalidade avermelha este ensaio.
+        transferencia, e foi a excepcao deste ensaio, **por nome**. O KAM-195
+        deu-lhe a `classificacao_de_catalogo` (revisao `finalidade_do_screening`,
+        decisao do fundador a 2026-11-18), e a excepcao saiu: um sexto papel sem
+        finalidade avermelha este ensaio.
         """
         sem_finalidade = set()
         for papel in servico.PAPEIS:
@@ -294,7 +294,7 @@ class TestOGateDeDestinoPorSi(unittest.TestCase):
                 continue
             with self.subTest(papel=papel):
                 self.assertIn(finalidade, destinos.FINALIDADES)
-        self.assertEqual(sem_finalidade, {"screening"})
+        self.assertEqual(sem_finalidade, set())
 
     def test_um_papel_sem_finalidade_levanta(self) -> None:
         with self.assertRaises(destinos.DestinoNegado):

@@ -31,9 +31,10 @@ import { DECISOES, type Decisao } from "./tipos.ts";
  * §3.29, emenda 1.85, KAM-192): aquele ficheiro tem um alias por papel e o
  * cliente do AGR indexa-os por papel, pelo que com um papel existente tomava o
  * lugar de outro alias. **Não sai daqui para o proxy** (KAM-195): o AGR chama-o
- * pelo papel, e este nome fica como referência. O modelo é `por_decidir` e o
- * papel não tem finalidade de transferência, pelo que uma chamada pelo AGR sai
- * em `destino_negado` e o `screen` lê `condicional`.
+ * pelo papel, e este nome fica como referência. O modelo é `por_decidir`, e a
+ * finalidade de transferência do papel é a `classificacao_de_catalogo` (KAM-195):
+ * sem destino autorizado para ela, a chamada pelo AGR sai em `destino_negado` e
+ * o `screen` lê `condicional`.
  */
 export const ALIAS_DO_CLASSIFICADOR = "screening-nano";
 

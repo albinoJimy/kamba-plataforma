@@ -119,29 +119,33 @@ class TestTraducaoDoErro(unittest.TestCase):
 
 
 class TestFinalidades(unittest.TestCase):
-    def test_as_tres_deste_servico_sao_tres_das_do_nucleo(self) -> None:
+    def test_as_quatro_deste_servico_sao_quatro_das_do_nucleo(self) -> None:
         """O dominio e da coluna e nao do servico (dicionario §3.49).
 
-        Deste lado interessam tres; a coluna tem catorze, porque o *gate* corre em
+        Deste lado interessam quatro (a `classificacao_de_catalogo` do screening
+        desde o KAM-195); a coluna tem quinze, porque o *gate* corre em
         sete pontos e so um e o *gateway* de modelos. **Subconjunto proprio**, e
         afirma-se nos dois sentidos: um valor daqui que a coluna nao conheca
-        nunca teria linha a consultar, e a coluna ter mais do que estes tres e o
+        nunca teria linha a consultar, e a coluna ter mais do que estes quatro e o
         desenho.
         """
-        self.assertEqual(len(destinos_mod.FINALIDADES), 3)
+        self.assertEqual(len(destinos_mod.FINALIDADES), 4)
         self.assertTrue(set(destinos_mod.FINALIDADES) < set(FINALIDADES_DO_NUCLEO))
 
     def test_cada_papel_tem_finalidade_e_um_papel_estranho_nao(self) -> None:
-        for papel in ("router", "chat", "vision", "embed"):
+        for papel in ("router", "chat", "vision", "embed", "screening"):
             with self.subTest(papel=papel):
                 self.assertIn(
                     destinos_mod.finalidade_de(papel), destinos_mod.FINALIDADES
                 )
         with self.assertRaises(DestinoNegado):
             destinos_mod.finalidade_de("papel_que_nao_existe")
-        # O `screening` (KAM-192) e um papel do cliente sem finalidade: nega.
-        with self.assertRaises(DestinoNegado):
-            destinos_mod.finalidade_de("screening")
+        # O `screening` (KAM-192) tem a sua desde o KAM-195, e e so dele.
+        self.assertEqual(destinos_mod.finalidade_de("screening"), "classificacao_de_catalogo")
+        self.assertNotIn(
+            "classificacao_de_catalogo",
+            [destinos_mod.finalidade_de(p) for p in ("router", "chat", "vision", "embed")],
+        )
 
 
 if __name__ == "__main__":

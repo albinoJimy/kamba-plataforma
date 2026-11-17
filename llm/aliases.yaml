@@ -117,10 +117,11 @@ aliases:
       plataforma; o tecto de 5 s e por tentativa, e as duas tentativas do
       proxy cabem no orcamento do GOV (`tecto_s` do `llm/screening.py`). O
       `max_tokens` cobre o `{decisao, confianca}` que o esquema fechado
-      aceita. **Sem finalidade de transferencia**: o `finalidade_de` do AGR
-      nega o papel, e uma chamada sai em `destino_negado` ate haver finalidade
-      e destino autorizado — a revisao da finalidade espera pela confirmacao
-      do fundador (KAM-195, criterio 2). O `credor` e o do modelo (KAM-040),
+      aceita. **A finalidade de transferencia e a `classificacao_de_catalogo`**
+      (revisao `finalidade_do_screening`, KAM-195, decisao do fundador a
+      2026-11-18): uma chamada so sai com destino `autorizado` para ela, e
+      sem ele sai em `destino_negado`, com a sua linha. O `credor` e o do
+      modelo (KAM-040),
       como nos outros quatro, porque `ligada` quer dizer modelo escolhido.
 
 # Fornecedores por alias, em lista propria e nao aninhada: o leitor de YAML

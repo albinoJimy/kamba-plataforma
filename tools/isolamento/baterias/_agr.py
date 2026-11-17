@@ -545,8 +545,9 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
     responde 503 `destino_negado`. Quem ve essa diferenca e quem tem a
     `agr_screening_token`, que e o GOV — o mesmo nivel de confianca do
     `/internal/turn`, cujo `tenant_id` do corpo tambem e autoridade. Fica
-    declarado em vez de medido; hoje nenhum destino tem a finalidade do
-    screening, pelo que a diferenca nao existe ainda.
+    declarado em vez de medido. A finalidade do screening existe desde o
+    KAM-195 (`classificacao_de_catalogo`), e a diferenca aparece no dia em que
+    um destino lhe for autorizado.
     """
     _no_caminho()
     from kamba_agr.app import create_app  # noqa: PLC0415

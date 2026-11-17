@@ -49,7 +49,7 @@
 #   pais_hipotese     o destino **como hipotese**; nunca uma afirmacao
 #   pais_verificado   `false` enquanto o contrato nao o fixar
 #   estado            `pendente`, `autorizado`, `revogado` ou `negado`
-#   finalidades       as de `tenant_destinations.purpose` (catorze no dominio)
+#   finalidades       as de `tenant_destinations.purpose` (quinze no dominio)
 #   contrato_ref      referencia do contrato arquivado; `null` se nao ha
 #   retencao_zero     o fornecedor confirmou retencao zero por escrito
 #   sem_treino        o fornecedor confirmou nao-treino por escrito
@@ -130,6 +130,7 @@ subprocessadores:
     pais_verificado: false
     estado: pendente
     finalidades:
+      - classificacao_de_catalogo
       - conversa
       - visao
     contrato_ref: null
@@ -140,7 +141,11 @@ subprocessadores:
     nota: >-
       A lista de saidas `infra/egress/litellm.yaml` declara `api.anthropic.com`
       com a razao escrita: destino de transferencia `pendente` ate o KAM-069 lhe
-      dar `apd_ref`. Esta linha e o outro lado dessa frase.
+      dar `apd_ref`. Esta linha e o outro lado dessa frase. A
+      `classificacao_de_catalogo` e a do classificador de screening do GOV
+      (KAM-195, decisao do fundador a 2026-11-18): categorias declaradas e
+      textos de produto, sem contactos nem sequencias longas de digitos, pelo
+      `screening-nano`.
 
   - nome: groq
     designacao: Groq

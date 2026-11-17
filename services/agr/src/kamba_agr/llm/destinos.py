@@ -32,11 +32,11 @@ porque sao dois erros e nao um: o `DestinoNegado` e o contrato entre o grafo e o
 **modelo**, e a `TransferenciaNegada` e a recusa de uma porta que nao sabe que
 existe um modelo do outro lado.
 
-## As tres finalidades deste servico, e as catorze da coluna
+## As quatro finalidades deste servico, e as quinze da coluna
 
-A coluna `tenant_destinations.purpose` tem **catorze** valores (dicionario §3.49),
+A coluna `tenant_destinations.purpose` tem **quinze** valores (dicionario §3.49),
 porque o *gate* corre em sete pontos e so um e o *gateway* de modelos. Deste
-lado interessam **tres**, e os literais vem do nucleo: duas copias das mesmas
+lado interessam **quatro**, e os literais vem do nucleo: duas copias das mesmas
 cadeias divergiam no dia em que uma delas mudasse, e foi para evitar isso que o
 dominio saiu daqui para a revisao que cria a coluna.
 """
@@ -46,6 +46,7 @@ from __future__ import annotations
 from typing import Any, Final, Protocol, runtime_checkable
 
 from kamba_core.destinos import (
+    FINALIDADE_CLASSIFICACAO,
     FINALIDADE_CONVERSA,
     FINALIDADE_EMBEDDINGS,
     FINALIDADE_VISAO,
@@ -62,29 +63,37 @@ AMBIENTE_PROD: Final = "prod"
 AMBIENTE_STAGING: Final = "staging"
 AMBIENTE_DEV: Final = "dev"
 
-#: As finalidades que **este servico** usa: tres das catorze de
+#: As finalidades que **este servico** usa: quatro das quinze de
 #: `tenant_destinations.purpose` (revisao `0036`, dicionario §3.49).
 #:
 #: Os literais vem de `kamba_core.destinos` e nao se reescrevem aqui — ver a
 #: nota do modulo. Lista **fechada** deste lado: uma finalidade nova no AGR e um
 #: papel novo em `llm/aliases.yaml`, e uma finalidade nova na coluna e uma
 #: revisao de base de dados.
-FINALIDADES: Final = (FINALIDADE_CONVERSA, FINALIDADE_EMBEDDINGS, FINALIDADE_VISAO)
+FINALIDADES: Final = (
+    FINALIDADE_CLASSIFICACAO,
+    FINALIDADE_CONVERSA,
+    FINALIDADE_EMBEDDINGS,
+    FINALIDADE_VISAO,
+)
 
 #: Papel -> finalidade. O `router` e o `chat` tratam conteudo de conversa; o
 #: `embed` indexa catalogo e o `vision` le fotos de produto. Sao finalidades
 #: diferentes porque o inventario as separa, e porque um dia uma pode estar
 #: autorizada e a outra nao.
 #:
-#: **O `screening` (KAM-192) nao esta aqui, de proposito.** Nenhuma das catorze
-#: finalidades do dicionario §3.49 serve o classificador de categorias, e uma
-#: finalidade nova e uma revisao de base de dados: ate la, o `finalidade_de`
-#: nega o papel e uma chamada sai em `destino_negado`, com a sua linha.
+#: **O `screening` (KAM-192) tem finalidade propria desde o KAM-195**: a
+#: `classificacao_de_catalogo`, da revisao `finalidade_do_screening`, por decisao
+#: do fundador a 2026-11-18. Nenhuma das outras servia o classificador de
+#: categorias do GOV, e notificar a APD de um tratamento com o nome de outro e o
+#: que o ADR-008 impede. Antes dela, o `finalidade_de` negava o papel e cada
+#: chamada saia em `destino_negado`; agora quem decide e o destino registado.
 FINALIDADE_DO_PAPEL: Final = {
     "router": FINALIDADE_CONVERSA,
     "chat": FINALIDADE_CONVERSA,
     "vision": FINALIDADE_VISAO,
     "embed": FINALIDADE_EMBEDDINGS,
+    "screening": FINALIDADE_CLASSIFICACAO,
 }
 
 

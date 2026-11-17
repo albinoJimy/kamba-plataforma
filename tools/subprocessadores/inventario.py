@@ -73,7 +73,7 @@ LINHAS_ESPERADAS = 11
 #: As finalidades de `platform.tenant_destinations.purpose` (revisao `0036`, e a
 #: `imagem` da revisao `foto_de_produtos`, KAM-120).
 #:
-#: **Catorze, e a lista nao se importa de `kamba_core`**: as ferramentas correm
+#: **Quinze, e a lista nao se importa de `kamba_core`**: as ferramentas correm
 #: antes de qualquer instalacao (ver `kamba_yaml`), e `tools/` nao depende de
 #: `libs/`. A paridade entre as duas copias e um teste
 #: (`test_as_finalidades_sao_as_do_nucleo`), que e a forma desta casa para
@@ -81,6 +81,7 @@ LINHAS_ESPERADAS = 11
 FINALIDADES = (
     "alojamento",
     "canal",
+    "classificacao_de_catalogo",
     "conversa",
     "copias_de_seguranca",
     "embeddings",

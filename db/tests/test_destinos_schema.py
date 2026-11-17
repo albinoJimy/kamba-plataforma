@@ -81,14 +81,17 @@ VISTA = "platform.v_transfer_audit"
 #: Os **quatro** estados do dominio da `0036`.
 ESTADOS = ("pendente", "autorizado", "revogado", "negado")
 
-#: As **catorze** finalidades do dominio na cabeca: as treze da `0036` e a
+#: As **quinze** finalidades do dominio na cabeca: as treze da `0036`, a
 #: `imagem`, que a revisao da Foto de produtos (KAM-120) acrescenta — o
 #: melhoramento de imagem nao cabe em nenhuma das treze, e a `visao` e a
-#: extraccao de campos do Catalogo AI. O dominio de treze, depois da descida
-#: dessa revisao, mede-o o `db/tests/test_foto_schema.py`.
+#: extraccao de campos do Catalogo AI —, e a `classificacao_de_catalogo`, que a
+#: revisao `finalidade_do_screening` (KAM-195) acrescenta. Os dominios de treze e
+#: de catorze, depois das descidas dessas revisoes, medem-nos o
+#: `db/tests/test_foto_schema.py` e o `db/tests/test_finalidade_do_screening_schema.py`.
 FINALIDADES = (
     "alojamento",
     "canal",
+    "classificacao_de_catalogo",
     "conversa",
     "copias_de_seguranca",
     "embeddings",
