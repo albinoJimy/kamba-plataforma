@@ -1,7 +1,7 @@
 """O `AgentRegistry`: verticais como configuracao (ADR-012, KAM-027).
 
     AgentRegistry.load_all(env)   valida e registra; falha o arranque se invalido
-    AgentRegistry.resolve(ctx)    a vertical, por `ctx.vertical` + entitlement activo
+    AgentRegistry.resolve(ctx)    a vertical, pela chave do turno + entitlement activo
 
 E o contrato de `docs/tecnica/02` §5.2, e o ADR-012 diz o que ele e: uma
 vertical e um tuplo de configuracao `(grafo, tools autorizadas, persona,
@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
 
+from ..contexto import chave_do_registo
 from .esquema import (
     FicheiroIlegivelError,
     GateDaVertical,
@@ -193,7 +194,7 @@ class Resolucao:
 
 
 class ContextoDeResolucao(Protocol):
-    """O que `resolve` le do contexto: o tenant e a vertical, e nada mais.
+    """O que `resolve` le do contexto: o tenant, a vertical e a persona.
 
     O §5.2 chama-lhe `ChannelContext`, que e o contrato do CHR; o que chega ao
     AGR e uma `InvocacaoDoAgente` (`contexto.py`). As duas satisfazem isto
@@ -208,6 +209,9 @@ class ContextoDeResolucao(Protocol):
 
     tenant_id: str
     vertical: str
+    #: KAM-118. Quem escreve: `cliente` ou `dono`. A chave sai das duas pela
+    #: `contexto.chave_do_registo`, e nao por um `if` aqui.
+    persona: str
 
 
 class _Entitlement(Protocol):
@@ -280,13 +284,20 @@ class AgentRegistry:
         Nao ha agregacao nem *front-door router* — isso e Fase C, e um registo
         que escolhesse entre duas verticais para o mesmo numero estaria a
         implementa-lo por acidente.
+
+        **A unica excepcao e quem escreve, e nao e escolha entre verticais**
+        (KAM-118): o CHR so poe `persona: dono` quando o remetente e o contacto
+        `papel='dono'` do tenant do canal, e entao a chave e a persona `dono`.
+        Quem decide e o CHR, contra a base; o registo so le o veredicto. O
+        entitlement que se le e o do registo resolvido — o do Assistente do
+        Dono, e nao o do canal.
         """
         if not self._carregado:
             raise RegistoInvalidoError(
                 "`resolve` antes de `load_all`: o registo esta vazio. Um AGR que resolvesse "
                 "aqui estaria a responder como se estivesse pronto"
             )
-        vertical = self._verticais.get(ctx.vertical)
+        vertical = self._verticais.get(chave_do_registo(ctx.persona, ctx.vertical))
         if vertical is None:
             return self._negar("vertical_desconhecida")
         entitlement = self._ler_entitlement(ctx.tenant_id, vertical.entitlements.modulo)

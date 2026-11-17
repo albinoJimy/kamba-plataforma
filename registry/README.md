@@ -11,6 +11,7 @@ verticais e dos módulos de entrada, versionado em **SemVer** (`specs/01` §5).
 |---|---|---|
 | `vendedor.yaml` | **vertical** — chave de topo `id`: o tuplo do ADR-012 | KAM-027 |
 | `servicos.yaml` | **vertical** — a outra metade da regra de dois | KAM-027 |
+| `dono.yaml` | **vertical** (a mesma forma) — a persona Assistente do Dono, que **não** é vertical de canal | KAM-118 |
 | `gates.yaml` | **gates** — chave de topo `gates`: o **modo** de cada validação de arranque, com o ticket que a fecha | KAM-027 |
 | `plans.yaml` | **planos** — chave de topo `plans`: `plano` → entitlements por omissão | KAM-009 |
 | `idx.yaml` | **consumidor** — chave de topo `consumidor`: um consumidor de eventos que não é vertical, com as suas `subscriptions` | KAM-194 |
@@ -43,6 +44,21 @@ deriva das `subscriptions` das verticais. O
 directório: uma `subscriptions` nova aqui sem a linha correspondente lá **reprova**,
 em vez de ficar um evento que o publicador nunca entrega. O `exige_ordem` não se
 escreve: sai do prefixo `payment.`, nas duas formas.
+
+## O `dono.yaml`, e porque é que tem a forma de uma vertical sem o ser
+
+O `../docs/tecnica/02` §21.4 manda a persona do dono seguir «o mesmo esquema do
+§5», e a validação do arranque aplica-se-lhe sem excepções: é um `id` com grafo,
+tools, persona e entitlement, como as outras. **Não é vertical de canal**: o
+`tenant_channels.vertical` continua `vendedor` ou `servicos`, e a chave `dono` só
+se usa quando o CHR escreve `persona: dono` no `agent_invocation` — o que ele faz
+se e só se o remetente é o contacto `papel='dono'` do tenant. A regra vive num
+sítio só, a `chave_do_registo` de `services/agr/src/kamba_agr/contexto.py`.
+
+As quatro tools do módulo `catalogo` estão no catálogo da ToolLayer como
+**declaradas** (credor KAM-119), o `entitlements.modulo: catalogo` é *proposta*,
+e não há `subscriptions` (uma subscrição numa vertical exige a linha da revisão
+`0052`). A linha `dono` do `gates.yaml` adia o `golden` para o **KAM-125**.
 
 ## O `gates.yaml`, e porque é que apagar uma linha é que fecha um gate
 
@@ -117,7 +133,8 @@ limites»; dono KAM-109), o gate exige essa marca, e **não se escrevem preços*
 2. **Os `id` de vertical são os do dicionário canónico.**
    `specs/02_Dicionario_de_Dados_Canonico.md` §3 fixa
    `id ∈ {vendedor, servicos, catalogo, social, orcamento}`. Um `id` novo entra
-   no dicionário — marcado como proposta — antes de entrar num ficheiro aqui.
+   no dicionário — marcado como proposta — antes de entrar num ficheiro aqui. O
+   `dono` (KAM-118) entra pela emenda do dicionário do mesmo ticket.
 
 O núcleo conversacional é **LangGraph como biblioteca MIT** (ADR-002). O
 `langgraph-api` e o `langgraph-runtime-inmem` são Elastic-2.0 e estão na lista de

@@ -154,6 +154,25 @@ export const SQL_ABRIR_CONVERSA = `
 `;
 
 /**
+ * O papel do contacto que escreveu (KAM-118). Como `kamba_app`, com contexto.
+ *
+ * Lê-se na **mesma** transacção que abre a conversa, e com o mesmo contexto: o
+ * `tenant_id` é o do canal e o `contact_id` o que a identidade acabou de
+ * resolver nesse tenant, pelo que o dono do tenant A a escrever para a loja B lê
+ * aqui o papel do **seu contacto em B**, que é `cliente`. O `tenant_id` vai no
+ * `WHERE` além da RLS, como em todas as consultas do CHR: a política é a rede,
+ * e a consulta diz o que quer.
+ *
+ * Zero linhas (o contacto foi fundido entre a resolução e esta leitura) dá
+ * `cliente`, que é a omissão segura: ver o `personaDe`.
+ */
+export const SQL_PAPEL = `
+  SELECT papel
+    FROM platform.contacts
+   WHERE tenant_id = $1 AND contact_id = $2
+`;
+
+/**
  * As conversas do contacto absorvido numa fusão. Como `kamba_identity`, dentro
  * da transacção da fusão.
  *

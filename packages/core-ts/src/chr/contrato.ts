@@ -15,6 +15,7 @@
  * o escrever.
  */
 
+import type { Persona } from "../dono/contrato.ts";
 import type { EstadoDoCanal, EstadoDoTenant } from "../ten/estados.ts";
 
 /**
@@ -39,9 +40,11 @@ export interface ClienteDoChr {
  * O que a resolução de canal devolve. Dicionário §3.13.
  *
  * Os oito campos do critério 1 do KAM-014, e **só** esses oito. O `persona`
- * que `docs/tecnica/01` §7.2 põe neste contexto não está aqui: depende de
- * `contacts.papel`, que o §3.2 do dicionário nomeia e nenhuma revisão criou.
- * Está em `docs/dividas-documentais.md`.
+ * que `docs/tecnica/01` §7.2 põe neste contexto **não está aqui, e não por
+ * falta da coluna**: desde o KAM-118 o `contacts.papel` existe, mas a persona é
+ * de quem escreve e este contexto é do **canal** — vive 60 s em *cache* e serve
+ * todas as mensagens desse número, de clientes e do dono. A persona vai na
+ * invocação (`AgentInvocation.persona`), lida por mensagem.
  */
 export interface ChannelContext {
   readonly tenant_id: string;
@@ -200,6 +203,14 @@ export interface AgentInvocation {
   /** `{tenant_id}:{contact_id}` — dicionário §3.1. */
   readonly thread_id: string;
   readonly vertical: string;
+  /**
+   * Quem escreve: `dono` se e só se o contacto é o `papel='dono'` do tenant do
+   * canal, senão `cliente` (KAM-118, critério 1). **Não muda o `vertical`**,
+   * que continua a ser o do canal: a persona não é uma vertical (dicionário
+   * §3.2). No esquema é opcional — campo aditivo da v1 —, e o CHR escreve-o
+   * sempre.
+   */
+  readonly persona: Persona;
 }
 
 /** `thread_id` de um par (tenant, contacto). Dicionário §3.1. */

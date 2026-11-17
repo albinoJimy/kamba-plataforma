@@ -213,7 +213,10 @@ class TestContacts(_ComAdmin):
             "WHERE table_schema = 'platform' AND table_name = 'contacts' "
             "AND data_type IN ('text', 'character varying', 'jsonb', 'json')"
         )
-        self.assertEqual(linhas, [("hmac_kid",)])
+        # KAM-118: o `papel` e `text`, e nao e texto livre: e um dominio fechado
+        # de dois valores (`contacts_papel_ck`, `cliente` ou `dono`), e so a
+        # porta `definir_dono` o escreve.
+        self.assertEqual(linhas, [("hmac_kid",), ("papel",)])
 
 
 class TestEndpoints(_ComAdmin):
@@ -887,7 +890,17 @@ class TestDowngradeDa0003(unittest.TestCase):
         # **A contagem e de concessoes de tabela e nao de colunas**, pelo que o
         # terceiro numero (24) nao muda: a `0038` nao da privilegio por coluna
         # nenhum ao `kamba_identity`.
-        self.assertEqual(em_head["identidade"], (True, 12, 24, 6))
+        #
+        # **(11, 27, 8) e nao (12, 24, 6) desde o KAM-118.** A revisao do canal
+        # do dono troca o `INSERT` de tabela do `kamba_identity` na `contacts`
+        # por um `INSERT` por coluna sem o `papel` nem o `papel_mudou_at` (um
+        # contacto nao nasce `dono` por fora da `definir_dono`): sai uma
+        # concessao de tabela (12 -> 11), e entram em ACL por coluna as tres
+        # colunas do `INSERT` que nao estavam ja no `UPDATE` por coluna —
+        # `contact_id`, `tenant_id` e `criado_at` (24 -> 27). O `kamba_app` passa
+        # a ler o `papel` e o `papel_mudou_at` (6 -> 8). Nada disto e da `0003`:
+        # em baixo, depois da descida dela, as contagens sao as mesmas.
+        self.assertEqual(em_head["identidade"], (True, 11, 27, 8))
         self.assertEqual(
             em_head["politicas"],
             [

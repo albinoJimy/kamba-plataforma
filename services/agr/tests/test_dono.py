@@ -1,0 +1,686 @@
+"""O canal do dono no AGR (KAM-118): porta, registo, grafo, allowlist, ritmo e botoes.
+
+    TestPorta              `persona` opcional: ausente e `cliente`, fora da lista recusa
+    TestChaveDoRegisto     a matriz papel x vertical do canal, no `resolve` e na `da_thread`
+    TestAllowlistDoDono    50 tentativas de um cliente: 0 sucessos, erro tipado, auditoria
+    TestGrafoDoDono        compila, seis nos, reaproveitamento >= 70%, um turno ponta a ponta
+    TestRitmoDoDono        60/h pelo mesmo mecanismo do ritmo, so para a persona `dono`
+    TestAccoesSensiveis    o botao `confirm:{action_id}`, contra um duplo da base
+
+A suite contra PostgreSQL das accoes esta em `db/tests_agr/test_owner_actions.py`:
+o `UPDATE ... RETURNING` concorrente e a RLS nao se provam com um duplo.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import datetime
+import re
+import unittest
+import uuid
+from typing import Any
+
+from apoio import Relogio, invocacao_crua
+from kamba_agr import grafos as grafos_mod
+from kamba_agr import registo
+from kamba_agr.admissao import JANELA_DO_DONO_S, RITMO_DO_DONO_POR_HORA, Admissao, Tectos
+from kamba_agr.contexto import (
+    CAMPOS,
+    CHAVE_DO_DONO,
+    PERSONA_POR_OMISSAO,
+    InvocacaoInvalidaError,
+    chave_do_registo,
+    ler_invocacao,
+)
+from kamba_agr.dono import accoes
+from kamba_agr.estado import estado_inicial
+from kamba_agr.metricas import METRICAS
+from kamba_agr.registo.validar import NOS_OBRIGATORIOS, nos_do_grafo
+from kamba_agr.tls import auditoria, erros
+from kamba_agr.tls.catalogo import ESPECIFICACOES_DO_PILOTO, catalogo_do_piloto
+from kamba_agr.tls.contexto import Confirmation
+from kamba_agr.verticais.dono import arestas as tabela_do_dono
+from kamba_agr.verticais.dono import encaminhadores as enc_do_dono
+from kamba_agr.verticais.dono import nos as nos_do_dono
+from kamba_agr.verticais.vendedor import encaminhadores as enc_do_vendedor
+from kamba_agr.verticais.vendedor import nos as nos_do_vendedor
+from test_grafos import PASTA, RAIZ, _config, _estado_com_texto, _porta
+from test_tls import CONTACTO, _Base, contexto
+
+TOOLS_DO_DONO_SO = ("create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status")
+
+
+def _inv(**sobrepor: Any):
+    return ler_invocacao(invocacao_crua(**sobrepor))
+
+
+# ------------------------------------------------------------------ a porta
+
+
+class TestPorta(unittest.TestCase):
+    def test_sem_o_campo_a_persona_e_cliente(self) -> None:
+        """O corpo de um CHR anterior ao KAM-118 continua a ler-se, como cliente."""
+        corpo = invocacao_crua()
+        self.assertNotIn("persona", corpo)
+        invocacao = ler_invocacao(corpo)
+        self.assertEqual(invocacao.persona, "cliente")
+        self.assertEqual(PERSONA_POR_OMISSAO, "cliente")
+        self.assertEqual(invocacao.chave_do_registo, invocacao.vertical)
+
+    def test_com_o_campo_le_se_as_duas(self) -> None:
+        for persona in ("cliente", "dono"):
+            with self.subTest(persona=persona):
+                self.assertEqual(_inv(persona=persona).persona, persona)
+
+    def test_um_valor_fora_da_lista_recusa_com_o_codigo_do_campo(self) -> None:
+        for valor in ("DONO", "admin", "", " dono", None, 1, True, ["dono"], {"x": 1}):
+            with self.subTest(valor=valor), self.assertRaises(InvocacaoInvalidaError) as apanhado:
+                ler_invocacao(invocacao_crua(persona=valor))
+            self.assertEqual(apanhado.exception.codigo, "campo_invalido_persona")
+
+    def test_a_persona_nao_e_campo_obrigatorio_nem_abre_a_porta_a_outros(self) -> None:
+        self.assertNotIn("persona", CAMPOS)
+        corpo = invocacao_crua(persona="dono")
+        corpo["papel"] = "dono"
+        with self.assertRaises(InvocacaoInvalidaError) as apanhado:
+            ler_invocacao(corpo)
+        self.assertEqual(apanhado.exception.codigo, "campo_desconhecido")
+
+    def test_a_vertical_dono_continua_recusada(self) -> None:
+        """A persona nao e vertical de canal: `vertical: dono` nao passa a porta."""
+        with self.assertRaises(InvocacaoInvalidaError) as apanhado:
+            ler_invocacao(invocacao_crua(vertical="dono"))
+        self.assertEqual(apanhado.exception.codigo, "campo_invalido_vertical")
+
+    def test_a_persona_e_imutavel_e_vai_para_o_estado(self) -> None:
+        invocacao = _inv(persona="dono")
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            invocacao.persona = "cliente"  # type: ignore[misc]
+        estado = estado_inicial(invocacao)
+        self.assertEqual(estado["persona"], "dono")
+        # A vertical do estado e a do canal, e nao a persona.
+        self.assertEqual(estado["vertical"], "vendedor")
+
+
+# --------------------------------------------------------- a chave do registo
+
+
+def _agentes_com(permitidos: set[str]) -> registo.AgentRegistry:
+    def ler(_tenant_id: str, modulo: str) -> Any:
+        return type("E", (), {"permitido": modulo in permitidos})()
+
+    agentes = registo.AgentRegistry(ler)
+    agentes.load_all(
+        registo.AmbienteDoRegisto.do_repositorio(
+            RAIZ,
+            {"KAMBA_FASE": "piloto"},
+            catalogo=catalogo_do_piloto(),
+            construir_grafo=grafos_mod.para_validar,
+        ),
+        PASTA,
+    )
+    return agentes
+
+
+class TestChaveDoRegisto(unittest.TestCase):
+    #: (persona, vertical do canal) -> chave. A persona ausente e a omissao.
+    MATRIZ = {
+        (None, "vendedor"): "vendedor",
+        (None, "servicos"): "servicos",
+        ("cliente", "vendedor"): "vendedor",
+        ("cliente", "servicos"): "servicos",
+        ("dono", "vendedor"): "dono",
+        ("dono", "servicos"): "dono",
+    }
+
+    def test_a_matriz_papel_por_vertical(self) -> None:
+        for (persona, vertical), esperada in self.MATRIZ.items():
+            with self.subTest(persona=persona, vertical=vertical):
+                sobrepor = {"vertical": vertical}
+                if persona is not None:
+                    sobrepor["persona"] = persona
+                invocacao = _inv(**sobrepor)
+                self.assertEqual(invocacao.chave_do_registo, esperada)
+                self.assertEqual(chave_do_registo(persona, vertical), esperada)
+
+    def test_um_checkpoint_sem_persona_da_a_vertical(self) -> None:
+        self.assertEqual(chave_do_registo(None, "servicos"), "servicos")
+        self.assertEqual(chave_do_registo("dono", None), CHAVE_DO_DONO)
+        self.assertEqual(chave_do_registo(None, None), "")
+
+    def test_o_resolve_da_ao_dono_o_registo_dele_e_le_o_entitlement_dele(self) -> None:
+        agentes = _agentes_com({"vendedor", "servicos", "catalogo"})
+        for vertical in ("vendedor", "servicos"):
+            with self.subTest(vertical=vertical):
+                self.assertEqual(
+                    agentes.resolve(_inv(vertical=vertical, persona="dono")).vertical.id, "dono"
+                )
+                self.assertEqual(
+                    agentes.resolve(_inv(vertical=vertical, persona="cliente")).vertical.id,
+                    vertical,
+                )
+
+    def test_sem_o_modulo_do_dono_a_persona_e_recusada_e_o_cliente_nao(self) -> None:
+        agentes = _agentes_com({"vendedor", "servicos"})
+        recusa = agentes.resolve(_inv(persona="dono"))
+        self.assertIsNone(recusa.vertical)
+        self.assertEqual(recusa.motivo, "sem_entitlement")
+        self.assertEqual(agentes.resolve(_inv(persona="cliente")).vertical.id, "vendedor")
+
+    def test_o_turno_e_a_thread_do_dono_resolvem_o_grafo_do_dono(self) -> None:
+        """A `da_thread` reencontra o grafo pela persona do *checkpoint*."""
+        porta, compilados, saida = _porta(permitidos={"vendedor", "servicos", "catalogo"})
+        dono = _inv(persona="dono")
+        grafo = asyncio.run(porta.do_turno(dono))
+        self.assertIs(grafo._grafo, compilados["dono"])
+        asyncio.run(grafo.ainvoke(_estado_com_texto(dono, "ola"), _config(dono)))
+        self.assertIs(asyncio.run(porta.da_thread(dono.thread_id)), compilados["dono"])
+
+        # O mesmo par (tenant, contacto) como cliente cai no grafo do canal.
+        cliente = _inv(
+            tenant_id=dono.tenant_id, contact_id=dono.contact_id, persona="cliente"
+        )
+        grafo = asyncio.run(porta.do_turno(cliente))
+        self.assertIs(grafo._grafo, compilados["vendedor"])
+
+
+# ------------------------------------------------- a allowlist, 50 tentativas
+
+
+class TestAllowlistDoDono(_Base):
+    """Criterio 6: um cliente que injecte o nome de uma tool do dono."""
+
+    def test_cinquenta_tentativas_de_um_cliente_dao_zero_sucessos_e_cinquenta_linhas(self) -> None:
+        camada, ligacao, _ = self.camada(especificacoes=ESPECIFICACOES_DO_PILOTO)
+        allowed_do_vendedor = tuple(
+            registo.esquema.ler_vertical(
+                RAIZ / "registry" / "vendedor.yaml",
+                registo.esquema.ler_yaml(RAIZ / "registry" / "vendedor.yaml"),
+            ).tools
+        )
+        allowed_de_servicos = tuple(
+            registo.esquema.ler_vertical(
+                RAIZ / "registry" / "servicos.yaml",
+                registo.esquema.ler_yaml(RAIZ / "registry" / "servicos.yaml"),
+            ).tools
+        )
+        sucessos = 0
+        codigos: set[str] = set()
+        for n in range(50):
+            nome = TOOLS_DO_DONO_SO[n % len(TOOLS_DO_DONO_SO)]
+            vertical, allowed = (
+                ("vendedor", allowed_do_vendedor) if n % 2 else ("servicos", allowed_de_servicos)
+            )
+            resultado = self.invocar(
+                camada,
+                ctx=contexto(vertical=vertical, turn_id=f"t-{n}"),
+                name=nome,
+                args={"product_id": "p-1", "tenant_id": "outro"},
+                allowed=allowed,
+                confirmation=Confirmation(
+                    botao=f"confirm:{uuid.uuid4()}", contact_id=CONTACTO, turn_id=f"t-{n}"
+                ),
+                idempotency_key=f"k-{n}",
+            )
+            sucessos += int(resultado.ok)
+            codigos.add(resultado.error.codigo)
+        self.assertEqual(sucessos, 0)
+        self.assertEqual(codigos, {erros.TOOL_NOT_ALLOWED})
+        linhas = ligacao.linhas_de_auditoria()
+        self.assertEqual(len(linhas), 50)
+        for parametros in linhas:
+            por_nome = dict(zip(auditoria.COLUNAS, parametros, strict=True))
+            self.assertIn(por_nome["tool"], TOOLS_DO_DONO_SO)
+            self.assertEqual(por_nome["status"], auditoria.STATUS_ERRO)
+            self.assertEqual(por_nome["error_code"], erros.TOOL_NOT_ALLOWED)
+        # Nenhuma tentativa passou do passo 1: nem o entitlement foi lido.
+        self.assertNotIn("entitlement", ligacao.instrucoes())
+
+    def test_as_quatro_do_dono_estao_declaradas_com_o_credor_e_a_classe_do_documento(self) -> None:
+        catalogo = catalogo_do_piloto()
+        declaradas = catalogo.declaradas()
+        for nome in TOOLS_DO_DONO_SO:
+            with self.subTest(tool=nome):
+                self.assertEqual(declaradas[nome], "KAM-119")
+        self.assertEqual(catalogo["publish_product"].klass, "write")
+        self.assertEqual(catalogo["create_product_draft"].klass, "write")
+        self.assertEqual(catalogo["ask_missing_fields"].klass, "read")
+        self.assertEqual(catalogo["get_catalog_status"].klass, "read")
+
+    def test_nenhuma_tool_do_dono_esta_na_lista_de_um_cliente(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(RAIZ / "tools"))
+        import kamba_yaml
+
+        do_dono = set(kamba_yaml.load_file(RAIZ / "registry" / "dono.yaml")["tools"])
+        for vertical in ("vendedor", "servicos"):
+            with self.subTest(vertical=vertical):
+                do_cliente = set(kamba_yaml.load_file(RAIZ / "registry" / f"{vertical}.yaml")["tools"])
+                self.assertEqual((do_dono & do_cliente) - {"get_store_info"}, set())
+
+
+# ------------------------------------------------------------------ o grafo
+
+
+class TestGrafoDoDono(unittest.TestCase):
+    def _compilado(self) -> Any:
+        from kamba_agr.verticais.dono import build_graph
+
+        deps = nos_do_vendedor.Dependencias(tools=None, saida=grafos_mod.SaidaPorLigar())
+        return build_graph(deps)
+
+    def test_compila_com_os_seis_nos_obrigatorios(self) -> None:
+        compilado = self._compilado()
+        self.assertEqual(set(NOS_OBRIGATORIOS) - nos_do_grafo(compilado), set())
+        self.assertEqual(nos_do_grafo(compilado), frozenset(tabela_do_dono.NOS))
+
+    def test_as_arestas_compiladas_sao_as_da_tabela(self) -> None:
+        self.assertEqual(
+            tabela_do_dono.pares_do_compilado(self._compilado()), tabela_do_dono.pares()
+        )
+
+    def test_o_reaproveitamento_e_de_pelo_menos_setenta_por_cento(self) -> None:
+        """Criterio 10: reutilizados / total >= 0,70, sem excepcoes no core."""
+        self.assertGreaterEqual(
+            tabela_do_dono.reaproveitamento(), tabela_do_dono.REAPROVEITAMENTO_MINIMO
+        )
+        self.assertEqual(tabela_do_dono.REAPROVEITAMENTO_MINIMO, 0.70)
+        self.assertEqual((len(tabela_do_dono.NOS_REUTILIZADOS), len(tabela_do_dono.NOS)), (12, 16))
+
+    def test_os_reutilizados_sao_os_mesmos_objectos_do_vendedor(self) -> None:
+        """Pela identidade, e nao pelo nome: uma copia contava como reuso."""
+        for nome in tabela_do_dono.NOS_REUTILIZADOS:
+            with self.subTest(no=nome):
+                self.assertIs(nos_do_dono.NOS_DO_GRAFO[nome], nos_do_vendedor.NOS_DO_GRAFO[nome])
+        proprios = set(tabela_do_dono.NOS) - set(tabela_do_dono.NOS_REUTILIZADOS)
+        self.assertEqual(proprios, {"classify", "compose", "safe_reply", "ask_repeat"})
+        for nome in proprios:
+            with self.subTest(no=nome):
+                self.assertIsNot(nos_do_dono.NOS_DO_GRAFO[nome], nos_do_vendedor.NOS_DO_GRAFO[nome])
+        do_vendedor = [v for v in vars(enc_do_vendedor).values() if callable(v)]
+        for encaminhador in enc_do_dono.REUTILIZADOS:
+            self.assertIn(encaminhador, do_vendedor)
+
+    def test_o_registo_do_dono_passa_a_validacao_do_arranque(self) -> None:
+        verticais, gates, adiadas = registo.carregar(
+            registo.AmbienteDoRegisto.do_repositorio(
+                RAIZ,
+                {"KAMBA_FASE": "piloto"},
+                catalogo=catalogo_do_piloto(),
+                construir_grafo=grafos_mod.para_validar,
+            ),
+            PASTA,
+        )
+        self.assertIn("dono", verticais)
+        self.assertEqual(gates["dono"].golden, verticais["dono"].golden.dataset)
+        self.assertIn(("golden", "dono", "KAM-125"), {(a.validacao, a.vertical, a.credor) for a in adiadas})
+
+    def test_nenhum_texto_do_dono_leva_digitos(self) -> None:
+        textos = [
+            valor
+            for nome, valor in vars(nos_do_dono).items()
+            if nome.startswith("MSG_") and isinstance(valor, str)
+        ] + list(nos_do_dono.FRASE_DO_AVISO.values())
+        self.assertGreaterEqual(len(textos), 5)
+        for texto in textos:
+            with self.subTest(texto=texto[:30]):
+                self.assertIsNone(re.search(r"\d", texto))
+
+    def _turno(self, texto: str) -> list[str]:
+        porta, _compilados, saida = _porta(permitidos={"vendedor", "servicos", "catalogo"})
+        invocacao = _inv(persona="dono")
+        grafo = asyncio.run(porta.do_turno(invocacao))
+        asyncio.run(grafo.ainvoke(_estado_com_texto(invocacao, texto), _config(invocacao)))
+        return [t for t, _, _ in saida.enviadas]
+
+    def test_um_pedido_do_catalogo_diz_que_os_modulos_nao_estao_activos(self) -> None:
+        enviados = self._turno("quero publicar um produto novo no catalogo")
+        self.assertEqual(len(enviados), 1)
+        self.assertIn(nos_do_dono.MSG_MODULOS_INACTIVOS, enviados[0])
+
+    def test_um_sim_por_texto_nao_chama_tool_nenhuma(self) -> None:
+        import test_grafos
+
+        enviados = self._turno("sim, confirmo")
+        self.assertEqual(len(enviados), 1)
+        backend = test_grafos._ULTIMO_BACKEND[0]
+        self.assertEqual(backend.chamadas, {})
+
+    def test_o_classify_nao_aceita_intencao_fora_da_lista(self) -> None:
+        deps = nos_do_vendedor.Dependencias(
+            tools=None, saida=grafos_mod.SaidaPorLigar(), classificador=lambda _t: "comprar"
+        )
+        no = nos_do_dono.classify(deps)
+        estado = {"messages": [{"role": "user", "content": "bla"}], "input_kind": "text"}
+        self.assertEqual(asyncio.run(no(estado))["intent"], "outro")
+        self.assertEqual(enc_do_dono.r_intent({"intent": "comprar"}), "other")
+
+
+# ------------------------------------------------------------------ o ritmo
+
+
+class TestRitmoDoDono(unittest.TestCase):
+    def setUp(self) -> None:
+        METRICAS.repor()
+        self.relogio = Relogio()
+        self.admissao = Admissao(tectos=Tectos(), relogio=self.relogio)
+
+    def _sessenta_em_tres_minutos(self, **sobrepor: Any) -> tuple[str, str, list[bool]]:
+        tenant, contacto = str(uuid.uuid4()), str(uuid.uuid4())
+        aceites = []
+        for minuto in range(3):
+            for _ in range(20):
+                aceites.append(
+                    self.admissao.aceita_o_ritmo(
+                        _inv(tenant_id=tenant, contact_id=contacto, **sobrepor)
+                    )
+                )
+            self.relogio.avancar(60.5)
+        return tenant, contacto, aceites
+
+    def test_o_dono_passa_sessenta_numa_hora_e_a_seguinte_e_descartada(self) -> None:
+        self.assertEqual(RITMO_DO_DONO_POR_HORA, 60)
+        tenant, contacto, aceites = self._sessenta_em_tres_minutos(persona="dono")
+        self.assertEqual(aceites, [True] * 60)
+        self.assertFalse(
+            self.admissao.aceita_o_ritmo(_inv(tenant_id=tenant, contact_id=contacto, persona="dono"))
+        )
+        # Passada a hora desde a primeira, volta a haver quota.
+        self.relogio.avancar(JANELA_DO_DONO_S)
+        self.assertTrue(
+            self.admissao.aceita_o_ritmo(_inv(tenant_id=tenant, contact_id=contacto, persona="dono"))
+        )
+
+    def test_um_cliente_nao_paga_a_janela_da_hora(self) -> None:
+        tenant, contacto, aceites = self._sessenta_em_tres_minutos(persona="cliente")
+        self.assertEqual(aceites, [True] * 60)
+        self.assertTrue(
+            self.admissao.aceita_o_ritmo(_inv(tenant_id=tenant, contact_id=contacto))
+        )
+
+    def test_o_dono_continua_a_pagar_a_janela_do_minuto(self) -> None:
+        tenant, contacto = str(uuid.uuid4()), str(uuid.uuid4())
+        aceites = [
+            self.admissao.aceita_o_ritmo(_inv(tenant_id=tenant, contact_id=contacto, persona="dono"))
+            for _ in range(21)
+        ]
+        self.assertEqual(aceites, [True] * 20 + [False])
+
+    def test_a_reentrega_do_mesmo_turno_nao_gasta_quota_da_hora(self) -> None:
+        corpo = invocacao_crua(persona="dono")
+        for _ in range(100):
+            self.relogio.avancar(61)
+            self.assertTrue(self.admissao.aceita_o_ritmo(ler_invocacao(corpo)))
+
+    def test_o_tecto_le_se_do_ambiente_e_zero_e_sem_tecto(self) -> None:
+        self.assertEqual(
+            Tectos.do_ambiente({"AGR_RITMO_DO_DONO_POR_HORA": "5"}).ritmo_do_dono_por_hora, 5
+        )
+        admissao = Admissao(tectos=Tectos(ritmo_do_dono_por_hora=0), relogio=self.relogio)
+        tenant, contacto = str(uuid.uuid4()), str(uuid.uuid4())
+        for _ in range(4):
+            for _ in range(20):
+                self.assertTrue(
+                    admissao.aceita_o_ritmo(
+                        _inv(tenant_id=tenant, contact_id=contacto, persona="dono")
+                    )
+                )
+            self.relogio.avancar(60.5)
+
+
+# -------------------------------------------------------- as accoes sensiveis
+
+
+AGORA = datetime.datetime(2026, 11, 17, 12, 0, tzinfo=datetime.UTC)
+
+
+class BaseDeAccoes:
+    """`platform.contacts` e `platform.owner_actions` em memoria.
+
+    **Executa as instrucoes do modulo, e nao respostas enlatadas**: cada
+    `SQL_*` de `accoes.py` tem aqui a semantica do PostgreSQL — a `UNIQUE` do
+    `ON CONFLICT`, os quatro predicados do *compare-and-set*. E por identidade
+    da constante, para que uma instrucao nova sem semantica aqui levante.
+    """
+
+    def __init__(self) -> None:
+        self.autocommit = False
+        self.contactos: dict[tuple[str, str], dict[str, Any]] = {}
+        self.accoes: dict[str, dict[str, Any]] = {}
+        self.instrucoes: list[str] = []
+
+    def contacto(self, tenant: str, papel: str = "dono", mudou: Any = None) -> str:
+        contact_id = str(uuid.uuid4())
+        self.contactos[(tenant, contact_id)] = {"papel": papel, "papel_mudou_at": mudou}
+        return contact_id
+
+    def cursor(self) -> "_CursorDeAccoes":
+        return _CursorDeAccoes(self)
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
+
+    def confirmadas(self) -> int:
+        return sum(1 for a in self.accoes.values() if a["estado"] == "confirmada")
+
+
+class _CursorDeAccoes:
+    def __init__(self, base: BaseDeAccoes) -> None:
+        self.base = base
+        self.linhas: list[tuple[Any, ...]] = []
+
+    def execute(self, sql: str, p: tuple = ()) -> None:
+        b = self.base
+        b.instrucoes.append(sql)
+        self.linhas = []
+        if sql.startswith("SELECT set_config"):
+            self.linhas = [(p[0],)]
+        elif sql is accoes.SQL_PAPEL_DO_CONTACTO:
+            c = b.contactos.get((p[0], p[1]))
+            self.linhas = [] if c is None else [(c["papel"], c["papel_mudou_at"])]
+        elif sql is accoes.SQL_PROPOR:
+            tenant, contacto, tipo, ref, expira = p
+            if any(a["tenant"] == tenant and a["tipo"] == tipo and a["ref"] == ref for a in b.accoes.values()):
+                return
+            action_id = str(uuid.uuid4())
+            b.accoes[action_id] = {
+                "tenant": tenant, "contacto": contacto, "tipo": tipo, "ref": ref,
+                "estado": "pendente", "expira_at": expira, "confirmada_at": None,
+            }
+            self.linhas = [(uuid.UUID(action_id),)]
+        elif sql is accoes.SQL_ACCAO_DA_REF:
+            self.linhas = [
+                (uuid.UUID(i),) for i, a in b.accoes.items()
+                if (a["tenant"], a["tipo"], a["ref"]) == p
+            ]
+        elif sql is accoes.SQL_CONFIRMAR:
+            quando, tenant, action_id, contacto, agora = p
+            a = b.accoes.get(action_id)
+            # **Cada predicado so vale se estiver no texto da instrucao**: um
+            # duplo que decidisse pelos argumentos ficava verde com o
+            # `AND estado = 'pendente'` apagado do SQL.
+            predicados = {
+                "tenant_id = %s": lambda: a["tenant"] == tenant,
+                "contact_id = %s": lambda: a["contacto"] == contacto,
+                "estado = 'pendente'": lambda: a["estado"] == "pendente",
+                "expira_at > %s": lambda: a["expira_at"] > agora,
+            }
+            if a is not None and all(
+                cumpre() for texto, cumpre in predicados.items() if texto in sql
+            ):
+                a["estado"], a["confirmada_at"] = "confirmada", quando
+                self.linhas = [(uuid.UUID(action_id),)]
+        elif sql is accoes.SQL_DIAGNOSTICO:
+            a = b.accoes.get(p[1])
+            if a is not None and a["tenant"] == p[0]:
+                self.linhas = [(a["estado"], uuid.UUID(a["contacto"]), a["expira_at"])]
+        elif sql is accoes.SQL_EXPIRAR:
+            a = b.accoes.get(p[1])
+            if a is not None and a["tenant"] == p[0] and a["estado"] == "pendente" and a["expira_at"] <= p[2]:
+                a["estado"] = "expirada"
+        else:
+            raise AssertionError(f"instrucao sem semantica no duplo: {sql[:60]}")
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.linhas[0] if self.linhas else None
+
+    def close(self) -> None:
+        return None
+
+
+class TestAccoesSensiveis(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base = BaseDeAccoes()
+        self.tenant = str(uuid.uuid4())
+        self.dono = self.base.contacto(self.tenant)
+
+    def _propor(self, ref: str = "rascunho-1", contacto: str | None = None) -> str:
+        return accoes.propor(
+            self.base, self.tenant, contacto or self.dono, "preco_stock_em_massa", ref, AGORA
+        )
+
+    def _confirmar(self, botao: object, contacto: str | None = None, agora=AGORA) -> str:
+        return accoes.confirmar(self.base, self.tenant, contacto or self.dono, botao, agora)
+
+    def test_propor_tres_vezes_da_uma_accao(self) -> None:
+        ids = {self._propor() for _ in range(3)}
+        self.assertEqual(len(ids), 1)
+        self.assertEqual(len(self.base.accoes), 1)
+        accao = self.base.accoes[ids.pop()]
+        self.assertEqual(accao["expira_at"], AGORA + accoes.VALIDADE_DO_BOTAO)
+
+    def test_so_o_dono_propoe(self) -> None:
+        cliente = self.base.contacto(self.tenant, papel="cliente")
+        with self.assertRaises(accoes.AccaoRecusadaError) as apanhado:
+            self._propor(contacto=cliente)
+        self.assertEqual(apanhado.exception.codigo, accoes.NAO_E_DONO)
+        self.assertEqual(self.base.accoes, {})
+        with self.assertRaises(ValueError):
+            accoes.propor(self.base, self.tenant, self.dono, "apagar_tudo", "r", AGORA)
+
+    def test_o_botao_confirma_e_o_duplo_toque_executa_uma_vez(self) -> None:
+        action_id = self._propor()
+        desfechos = [self._confirmar(f"confirm:{action_id}") for _ in range(2)]
+        self.assertEqual(desfechos, [accoes.CONFIRMADA, accoes.JA_CONFIRMADA])
+        self.assertEqual(desfechos.count(accoes.CONFIRMADA), 1)
+        self.assertEqual(self.base.confirmadas(), 1)
+
+    def test_vinte_textos_nao_confirmam_nada_nem_tocam_na_base(self) -> None:
+        action_id = self._propor()
+        textos = (
+            "sim", "Sim", "SIM", "ok", "OK", "confirmo", "confirmar", "sim confirmo",
+            "pode", "podes publicar", "esta bem", "ta bem", "claro", "yes", "1",
+            f"sim {action_id}", f"confirmo {action_id}", f"confirm: {action_id}",
+            f"confirm:{action_id.upper()}", "confirm:",
+        )
+        self.assertEqual(len(textos), 20)
+        antes = len(self.base.instrucoes)
+        for texto in textos:
+            with self.subTest(texto=texto):
+                self.assertEqual(self._confirmar(texto), accoes.NAO_E_BOTAO)
+        self.assertEqual(len(self.base.instrucoes), antes)
+        self.assertEqual(self.base.confirmadas(), 0)
+
+    def test_o_botao_com_mais_de_quinze_minutos_expira(self) -> None:
+        action_id = self._propor()
+        depois = AGORA + accoes.VALIDADE_DO_BOTAO
+        self.assertEqual(self._confirmar(f"confirm:{action_id}", agora=depois), accoes.EXPIRADA)
+        self.assertEqual(self.base.accoes[action_id]["estado"], "expirada")
+        self.assertEqual(self.base.confirmadas(), 0)
+        # Um segundo antes do prazo, um outro botao ainda vale.
+        outro = self._propor(ref="rascunho-2")
+        quase = AGORA + accoes.VALIDADE_DO_BOTAO - datetime.timedelta(seconds=1)
+        self.assertEqual(self._confirmar(f"confirm:{outro}", agora=quase), accoes.CONFIRMADA)
+
+    def test_o_botao_de_outro_contacto_nao_confirma(self) -> None:
+        action_id = self._propor()
+        # Um cliente com o botao do dono: nem chega a accao.
+        cliente = self.base.contacto(self.tenant, papel="cliente")
+        self.assertEqual(self._confirmar(f"confirm:{action_id}", contacto=cliente), accoes.NAO_E_DONO)
+        # Depois de uma troca de telefone ja fora do bloqueio, o dono novo com o
+        # botao que o antigo recebeu: e de outro contacto, e nao confirma.
+        self.base.contactos[(self.tenant, self.dono)]["papel"] = "cliente"
+        novo = self.base.contacto(self.tenant, mudou=AGORA - datetime.timedelta(days=2))
+        self.assertEqual(self._confirmar(f"confirm:{action_id}", contacto=novo), accoes.OUTRO_CONTACTO)
+        # E o antigo, agora cliente, tambem nao.
+        self.assertEqual(self._confirmar(f"confirm:{action_id}"), accoes.NAO_E_DONO)
+        self.assertEqual(self.base.confirmadas(), 0)
+
+    def test_um_botao_de_outro_tenant_e_desconhecido(self) -> None:
+        action_id = self._propor()
+        outro_tenant = str(uuid.uuid4())
+        dono_b = self.base.contacto(outro_tenant)
+        desfecho = accoes.confirmar(self.base, outro_tenant, dono_b, f"confirm:{action_id}", AGORA)
+        self.assertEqual(desfecho, accoes.DESCONHECIDA)
+        self.assertEqual(self.base.confirmadas(), 0)
+
+    def test_depois_da_troca_de_telefone_ha_vinte_e_quatro_horas_de_bloqueio(self) -> None:
+        trocou = AGORA - datetime.timedelta(hours=1)
+        novo = self.base.contacto(self.tenant, mudou=trocou)
+        action_id = accoes.propor(self.base, self.tenant, novo, "enviar_proposta", "p-1", AGORA)
+        self.assertEqual(
+            accoes.confirmar(self.base, self.tenant, novo, f"confirm:{action_id}", AGORA),
+            accoes.BLOQUEADA_PELA_TROCA,
+        )
+        self.assertEqual(self.base.confirmadas(), 0)
+        passado = trocou + accoes.BLOQUEIO_DEPOIS_DA_TROCA
+        action_id = accoes.propor(self.base, self.tenant, novo, "enviar_proposta", "p-2", passado)
+        self.assertEqual(
+            accoes.confirmar(self.base, self.tenant, novo, f"confirm:{action_id}", passado),
+            accoes.CONFIRMADA,
+        )
+
+    def test_tirar_um_predicado_do_compare_and_set_e_apanhado(self) -> None:
+        """A prova de que o duplo le o texto: cada predicado e o unico que para
+        um cenario, e sem ele o cenario confirma."""
+
+        def segundo_toque(base, dono, _outro, botao):
+            accoes.confirmar(base, self.tenant, dono, botao, AGORA)
+            return accoes.confirmar(base, self.tenant, dono, botao, AGORA)
+
+        def de_outro_dono(base, _dono, outro, botao):
+            return accoes.confirmar(base, self.tenant, outro, botao, AGORA)
+
+        def fora_de_prazo(base, dono, _outro, botao):
+            return accoes.confirmar(base, self.tenant, dono, botao, AGORA + accoes.VALIDADE_DO_BOTAO)
+
+        cenarios = {
+            "AND estado = 'pendente' ": segundo_toque,
+            "AND contact_id = %s ": de_outro_dono,
+            "AND expira_at > %s ": fora_de_prazo,
+        }
+        original = accoes.SQL_CONFIRMAR
+        for predicado, cenario in cenarios.items():
+            for sql, esperado_confirma in ((original, False), (original.replace(predicado, ""), True)):
+                with self.subTest(predicado=predicado, mutado=esperado_confirma):
+                    accoes.SQL_CONFIRMAR = sql
+                    try:
+                        base = BaseDeAccoes()
+                        dono = base.contacto(self.tenant)
+                        outro = base.contacto(self.tenant, mudou=AGORA - datetime.timedelta(days=2))
+                        action_id = accoes.propor(base, self.tenant, dono, "aprovar_conteudo", "r", AGORA)
+                        desfecho = cenario(base, dono, outro, f"confirm:{action_id}")
+                    finally:
+                        accoes.SQL_CONFIRMAR = original
+                    self.assertEqual(desfecho == accoes.CONFIRMADA, esperado_confirma, desfecho)
+
+    def test_os_limiares_sao_os_da_proposta(self) -> None:
+        self.assertEqual(accoes.VALIDADE_DO_BOTAO, datetime.timedelta(minutes=15))
+        self.assertEqual(accoes.BLOQUEIO_DEPOIS_DA_TROCA, datetime.timedelta(hours=24))
+
+    def test_um_nome_registar_nao_existe_no_modulo(self) -> None:
+        """O `log_policy` reserva `registar`; o modulo nao escreve logs."""
+        import inspect
+
+        fonte = inspect.getsource(accoes)
+        self.assertNotIn(".registar(", fonte)
+        self.assertNotIn("logger", fonte)
+
+
+if __name__ == "__main__":
+    unittest.main()

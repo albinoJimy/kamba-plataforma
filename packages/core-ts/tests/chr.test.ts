@@ -328,15 +328,18 @@ describe("criterio 3 — a matriz de estados, linha a linha", () => {
 });
 
 describe("criterio 6 — o job entregue ao AGR", () => {
-  it("leva os sete campos, o `thread_id` e o `vertical`", async () => {
+  it("leva os sete campos, o `thread_id`, o `vertical` e a `persona`", async () => {
+    // A `persona` e do KAM-118: campo aditivo da v1, que o CHR escreve sempre.
     const m = montar();
     const resultado = await m.chr.tratar(mensagemDe());
     assert.deepEqual(resultado.invocacao, m.entrega.aoAgr[0]);
+    assert.equal(m.entrega.aoAgr[0]?.persona, "cliente");
     assert.deepEqual(Object.keys(m.entrega.aoAgr[0] ?? {}).sort(), [
       "channel_id",
       "contact_id",
       "conversation_id",
       "modo",
+      "persona",
       "tenant_id",
       "thread_id",
       "type",

@@ -55,7 +55,7 @@ import importlib
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Final
 
-from .contexto import InvocacaoDoAgente
+from .contexto import InvocacaoDoAgente, chave_do_registo
 from .turno import (
     Grafo,
     GrafoNaoRegistadoError,
@@ -275,12 +275,20 @@ class PortaDeGrafos:
         Sem *checkpoint*, ou com uma vertical que o registo nao tem, levanta
         `GrafoNaoRegistadoError` — que a rota traduz em 503 **sem escrever
         nada**, porque quem chama resolve o grafo antes do CAS.
+
+        **A chave e a do turno que interrompeu, e nao so a vertical** (KAM-118):
+        um *handoff* aberto pelo Assistente do Dono tem `persona: dono` no
+        *checkpoint*, e retoma-lo pela `vertical` do canal acordava o grafo do
+        Vendedor sobre o estado do outro. Um *checkpoint* anterior ao campo nao o
+        tem, e a `chave_do_registo` da-lhe a vertical — que e o que ele era.
         """
         tupla = await self._checkpointer.aget_tuple(
             {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
         )
         valores = {} if tupla is None else tupla.checkpoint.get("channel_values", {})
-        return self._grafo(valores.get("vertical"))
+        return self._grafo(
+            chave_do_registo(valores.get("persona"), valores.get("vertical"))
+        )
 
 
 class SaidaPorLigar:

@@ -678,6 +678,19 @@ TABELAS_CATALOGO_MINIMO = ("onboarding_smoke",)
 #: que e o que o *trigger* da cobranca precisa. Ninguem apaga.
 TABELAS_CONFIANCA = ("trust_level",)
 
+#: O que a revisao do canal do dono (KAM-118) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0068`) e provisorio, e na integracao assenta na `0067` do KAM-098.
+#:
+#: Uma tabela de tenant, a `owner_actions`: as accoes sensiveis do dono a espera
+#: do botao `confirm:{action_id}`, com RLS `FORCE` pela `tenant_iso`, `UNIQUE
+#: (tenant_id, tipo, ref)` e FK composta para a `contacts`. O `kamba_app` cria,
+#: le e fecha (`UPDATE` por coluna, so o desfecho); ninguem apaga. A revisao
+#: acrescenta tambem `contacts.papel`, `contacts.papel_mudou_at`, o indice
+#: `contacts_um_dono` e a porta `definir_dono`.
+TABELAS_CANAL_DO_DONO = ("owner_actions",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -692,19 +705,32 @@ TABELAS = tuple(
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
         + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
-        + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA
+        + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA + TABELAS_CANAL_DO_DONO
     )
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a do canal
+#: do dono (KAM-118).
+#:
+#: O `downgrade` da revisao do canal do dono leva a base para aqui. **Deriva do
+#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
+#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
+#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e
+#: a da rotacao de chaves (KAM-072), que nao cria tabela nenhuma.
+TABELAS_ANTES_DO_CANAL_DO_DONO = tuple(
+    sorted(set(TABELAS) - set(TABELAS_CANAL_DO_DONO))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da
 #: confianca gradual (KAM-096).
 #:
-#: O `downgrade` da revisao da confianca leva a base para aqui. **Deriva do
-#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
-#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
-#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e
-#: a do catalogo minimo (KAM-094).
-TABELAS_ANTES_DA_CONFIANCA = tuple(sorted(set(TABELAS) - set(TABELAS_CONFIANCA)))
+#: O `downgrade` da revisao da confianca leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CANAL_DO_DONO` desde o KAM-118, que pos a sua revisao no
+#: topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a do catalogo minimo (KAM-094).
+TABELAS_ANTES_DA_CONFIANCA = tuple(
+    sorted(set(TABELAS_ANTES_DO_CANAL_DO_DONO) - set(TABELAS_CONFIANCA))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: catalogo minimo (KAM-094).

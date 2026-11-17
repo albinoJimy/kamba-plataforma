@@ -348,7 +348,9 @@ class TestCriterioAAsDuasNoMesmoRuntime(unittest.TestCase):
             raiz, catalogo=catalogo_do_piloto(), construir_grafo=para_validar
         )
         verticais, _, _ = carregar(ambiente, raiz / "registry")
-        self.assertEqual(sorted(verticais), ["servicos", "vendedor"])
+        # A regra de dois e das duas verticais de canal; a persona `dono`
+        # (KAM-118) carrega-se do mesmo directorio e nao conta para ela (§21.1).
+        self.assertEqual(sorted(verticais), ["dono", "servicos", "vendedor"])
         # E cada uma aponta para o **seu** `build_graph` pelo registo, sem que
         # nenhum codigo do nucleo escolha qual.
         self.assertEqual(

@@ -92,3 +92,12 @@ gates:
       golden:
         modo: aviso
         credor: KAM-040
+  # KAM-118. A persona do dono tem dataset proprio (`golden/dono/v1`) e o
+  # credor e o KAM-125, que pede o eval no gate para os modulos de entrada —
+  # nao o KAM-040, cujo harness e baseline sao das duas verticais do Piloto.
+  dono:
+    golden: golden/dono/v1
+    validacoes:
+      golden:
+        modo: aviso
+        credor: KAM-125

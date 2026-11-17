@@ -304,6 +304,11 @@ class TestCatalogoReal(ComBase):
                 ("platform", "order_state_log", "tenant_id"),
                 ("platform", "orders_mirror", "tenant_id"),
                 ("platform", "outbound_messages", "tenant_id"),
+                # KAM-118: as fichas das accoes sensiveis do dono, antes das do
+                # aviso ao dono («owner_a» < «owner_c»). Chave primaria
+                # `action_id` sem `tenant_id`; o indice a comecar por ele e a
+                # `owner_actions_uq (tenant_id, tipo, ref)`.
+                ("platform", "owner_actions", "tenant_id"),
                 # KAM-115: as duas do aviso ao dono, e a posicao e **depois**
                 # de `outbound_messages`: no `sorted()` por ponto de codigo,
                 # «ou» vence «ow» porque 'u' (0x75) < 'w' (0x77). Entre as duas,
@@ -623,6 +628,8 @@ class TestCatalogoReal(ComBase):
                 ("order_state_log", "tenant_iso", "ALL", "{public}"),
                 ("orders_mirror", "tenant_iso", "ALL", "{public}"),
                 ("outbound_messages", "tenant_iso", "ALL", "{public}"),
+                # KAM-118: as fichas do dono, uma politica so, a do `db/rls.py`.
+                ("owner_actions", "tenant_iso", "ALL", "{public}"),
                 # KAM-115: as duas do aviso ao dono, depois de
                 # `outbound_messages` («ou» < «ow»).
                 ("owner_contacts", "tenant_iso", "ALL", "{public}"),
@@ -903,6 +910,9 @@ class TestCatalogoReal(ComBase):
              "order_intents", "order_reconciliation_issues",
              "order_state_log", "orders_mirror",
              "outbound_messages",
+             # KAM-118: as fichas das accoes sensiveis do dono, antes das do
+             # aviso ao dono («owner_a» < «owner_c»).
+             "owner_actions",
              # KAM-115: as duas do aviso ao dono. **Quarta lista deste ficheiro
              # a precisar delas**, e as outras tres ja estavam feitas quando esta
              # falhou — exactamente como o KAM-017 avisou duas notas acima. A
@@ -1435,6 +1445,13 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "p_valor_minor bigint, p_currency text, p_pedido_evento_id uuid)"
     )
 
+    #: KAM-118: a porta que muda o `contacts.papel`. Nenhum papel tem `UPDATE
+    #: (papel)` nem `INSERT (papel)`, e o `EXECUTE` e so do `kamba_identity`; o
+    #: `kamba_app`, que serve o turno onde chega o «sou o dono», leva `42501` —
+    #: `test_so_a_identidade_executa_a_porta` de
+    #: `../tests/test_canal_do_dono_schema.py`.
+    DONO_NA_ALLOWLIST = "platform.definir_dono(p_contact_id uuid, p_origem text)"
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1477,6 +1494,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 self.APPEND_NA_ALLOWLIST,
                 self.SINAIS_NA_ALLOWLIST,
                 self.REEMBOLSOS_NA_ALLOWLIST,
+                self.DONO_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST),
         )

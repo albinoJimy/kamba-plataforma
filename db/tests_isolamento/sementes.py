@@ -806,6 +806,28 @@ def _prova_de_consentimento(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _accao_do_dono(cursor, tenant_id: str, canario: str) -> None:
+    """Uma ficha de accao sensivel do dono, a espera do botao (KAM-118).
+
+    **O canario vai na `ref`**, que e a unica coluna de texto livre: o `tipo` e
+    o `estado` sao dominios fechados, e o resto sao UUID e tempos. A `ref` esta
+    na `owner_actions_uq (tenant_id, tipo, ref)`, que **leva o `tenant_id`**: os
+    dois tenants podem semear o mesmo canario sem colidir, que e o que o X-03
+    precisa. O contacto e o do tenant, pelo `_UM_CONTACTO` (FK composta).
+
+    A coluna alteravel e o `estado` para `cancelada`, e nao `confirmada`: o
+    `owner_actions_confirmada_ck` liga a `confirmada` ao `confirmada_at`, e um
+    `UPDATE` de uma coluna so levantava `23514` antes de a politica ser
+    avaliada. Semeia o administrador: o `kamba_batch` nao tem nada nesta
+    tabela, e o `kamba_app` nao tem `DELETE`, com que estas receitas limpam.
+    """
+    cursor.execute(
+        "INSERT INTO platform.owner_actions (tenant_id, contact_id, tipo, ref, expira_at) "
+        f"VALUES (%s, {_UM_CONTACTO}, 'aprovar_conteudo', %s, now() + interval '15 minutes')",
+        (tenant_id, tenant_id, canario),
+    )
+
+
 def _tentativa_de_onboarding(cursor, tenant_id: str, canario: str) -> None:
     """Uma tentativa de onboarding de canal do tenant (KAM-016).
 
@@ -1805,6 +1827,12 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "owner_notices"): Receita(
         _aviso_ao_dono, "episodio", "tentativas", 7,
     ),
+    # KAM-118: as fichas das accoes sensiveis do dono. O canario vai na `ref`;
+    # a coluna alteravel e o `estado`, que esta no `GRANT UPDATE` por coluna do
+    # `kamba_app` (ver a receita).
+    ("platform", "owner_actions"): Receita(
+        _accao_do_dono, "ref", "estado", "cancelada", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -2338,6 +2366,10 @@ ORDEM = (
     # apagar e nenhuma delas e apontada por ninguem.
     ("platform", "owner_contacts"),
     ("platform", "owner_notices"),
+    # KAM-118: a ficha do dono tem FK para `tenants` e a composta para
+    # `contacts`, pelo que vem depois do contacto. Fica aqui, a seguir as do
+    # aviso ao dono, porque a ordem inversa e a de apagar e ninguem a aponta.
+    ("platform", "owner_actions"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

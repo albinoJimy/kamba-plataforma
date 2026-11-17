@@ -1,0 +1,75 @@
+# registry/dono.yaml — a persona Assistente do Dono (KAM-118, ADR-020)
+#
+# A PRIMEIRA FORMA dos ficheiros de `registry/` (chave de topo `id`), a mesma
+# do `vendedor.yaml` e do `servicos.yaml`: o §21.4 de `docs/tecnica/02` manda a
+# persona do dono seguir «o mesmo esquema do §5», e a validacao do arranque
+# (§5.2) aplica-se-lhe sem excepcoes. As razoes comuns — o `graph` e o processo
+# que o serve, o estilo de bloco, a chave de limite em `_minor` — estao no
+# `registry/vendedor.yaml` e nao se repetem aqui.
+#
+# ---------------------------------------------------------------------------
+# UMA PERSONA, E NAO UMA VERTICAL DE CANAL.
+#
+# O `id` e a chave do `AgentRegistry` quando o CHR escreve `persona: dono` no
+# `agent_invocation` — o que ele so faz quando o remetente e o contacto
+# `papel='dono'` do tenant do canal. O `tenant_channels.vertical` NAO muda: o
+# dono de uma loja escreve no canal do Vendedor, e o de um salao no de
+# Servicos. A regra vive num sitio so, a `chave_do_registo` de
+# `services/agr/src/kamba_agr/contexto.py`.
+#
+# ---------------------------------------------------------------------------
+# AS QUATRO TOOLS DO CATALOGO ESTAO DECLARADAS, E SO A `get_store_info` RESPONDE.
+#
+# Sao as do modulo `catalogo` do §21.3. O nome e a classe estao no catalogo da
+# ToolLayer (`tls/catalogo.py`) como entradas `declaradas`, com o KAM-119 como
+# credor: o modelo de argumentos, o executor e o campo que o botao `confirm:{…}`
+# do `publish_product` cita sao dele. Ate la a ToolLayer recusa-as a todos com
+# `TOOL_NOT_ALLOWED`, e o grafo diz ao dono que os modulos ainda nao estao
+# activos — que e verdade.
+#
+# ---------------------------------------------------------------------------
+# `entitlements.modulo: catalogo` E *PROPOSTA*.
+#
+# O catalogo e o pre-requisito do onboarding (o modulo de entrada que os outros
+# tres usam), e e um dos quatro modulos que o
+# `registry/entitlement_keys.schema.json` ja conhece. Um tenant sem o modulo
+# activo recebe a recusa do criterio 6 do KAM-027 (`servico_indisponivel`) —
+# o `resolve` le o entitlement do registo resolvido, que e este, e nao o do
+# canal. A decisao de qual modulo abre a porta do dono e do fundador.
+#
+# ---------------------------------------------------------------------------
+# SEM `subscriptions`, DE PROPOSITO.
+#
+# Uma subscricao numa vertical vira uma linha de `platform.evt_subscricoes`
+# pela revisao de dados `0052`, e o `services/agr/tests/test_subscricoes_0052.py`
+# confronta as duas: uma subscricao aqui sem a linha la reprova. O dono nao
+# consome eventos neste ticket (as proactivas sao politica por ligar, credor no
+# bloco do KAM-118).
+
+id: dono
+version: 1.0.0
+phase: P
+persona:
+  nome: "Assistente do Dono"
+  idioma: pt
+  tom: "directo e respeitoso, portugues de Angola; fala com o dono da loja, nao com um cliente"
+  apresentacao: "Sou o Assistente do Dono de {loja}. Ajudo a gerir a loja por aqui."
+graph: kamba_agr.verticais.dono:build_graph
+# Lista FECHADA, como nas verticais: a ToolLayer recusa qualquer outra (passo 1
+# do `invoke`). E e a lista que um cliente nunca tem — um cliente que injecte o
+# nome de uma destas recebe `TOOL_NOT_ALLOWED` e uma linha de `tool_audit`.
+tools:
+  - get_store_info
+  - create_product_draft
+  - ask_missing_fields
+  - publish_product
+  - get_catalog_status
+entitlements:
+  modulo: catalogo
+  limites:
+    - msgs_ai_mes
+models:
+  router: kamba-router
+  chat: kamba-chat
+golden:
+  dataset: "golden/dono/v1"

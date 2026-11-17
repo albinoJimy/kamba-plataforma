@@ -53,9 +53,11 @@ describe("canalDaLinha", () => {
   });
 
   it("nao devolve o `persona` do docs/tecnica/01 §7.2", () => {
-    // O §7.2 poe `persona` no `ChannelContext`; o criterio 1 do ticket nao, e
-    // `contacts.papel` — de onde a persona viria — nao existe em revisao
-    // nenhuma. Esta a afirmacao de que a divergencia e deliberada.
+    // O §7.2 poe `persona` no `ChannelContext`; o criterio 1 do ticket nao. O
+    // `contacts.papel` existe desde o KAM-118, e a persona vai na invocacao
+    // (`AgentInvocation.persona`): o contexto e do canal e fica 60 s em cache
+    // para todos os remetentes. Esta a afirmacao de que a divergencia e
+    // deliberada.
     const { contexto } = canalDaLinha(linhaDeCanal());
     assert.ok(!("persona" in contexto));
   });

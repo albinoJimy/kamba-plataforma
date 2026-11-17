@@ -1,11 +1,12 @@
-"""O catalogo de tools do Piloto: as **onze** de `docs/tecnica/02` §6.2.
+"""O catalogo de tools do Piloto: as **onze** de `docs/tecnica/02` §6.2, e as
+**quatro** do modulo `catalogo` do §21.3 (KAM-118).
 
 Os nomes, as classes e os botoes de confirmacao desta lista nao se decidem aqui:
 sao canon desde a emenda **1.35** do dicionario (§3.26), que os transcreve do
 §6.2 e escreve, por cada um, «as especificacoes sao do KAM-028 e do KAM-031; o
 que entra aqui e o **nome**».
 
-## Uma esta `ligada`, dez estao `declaradas`
+## Uma esta `ligada`, catorze estao `declaradas`
 
 | Tool | Vertical | `klass` | Estado | Credor |
 |---|---|---|---|---|
@@ -14,12 +15,30 @@ que entra aqui e o **nome**».
 | `propose_cart` | Vendedor | `read` | declarada | KAM-031 |
 | `criar_pedido` | Vendedor | **`money`** | declarada | KAM-031 |
 | `get_order_status` | Vendedor | `read` | declarada | KAM-031 |
-| `get_store_info` | ambas | `read` | **ligada** | — |
+| `get_store_info` | todas | `read` | **ligada** | — |
 | `list_services` | Servicos | `read` | declarada | KAM-035 |
 | `get_availability` | Servicos | `read` | declarada | KAM-035 |
 | `book_slot` | Servicos | **`write`** | declarada | KAM-035 |
 | `cancel_booking` | Servicos | `write` | declarada | KAM-035 |
 | `reschedule_booking` | Servicos | `write` | declarada | KAM-035 |
+| `create_product_draft` | Dono | **`write`** | declarada | KAM-119 |
+| `ask_missing_fields` | Dono | `read` | declarada | KAM-119 |
+| `publish_product` | Dono | **`write`** | declarada | KAM-119 |
+| `get_catalog_status` | Dono | `read` | declarada | KAM-119 |
+
+## As quatro do dono entram declaradas, e e o que o KAM-118 pode fazer
+
+O `registry/dono.yaml` lista-as, e a validacao (1) do §5.2 recusa uma tool que
+nao esteja aqui: sem estas quatro linhas a persona do dono nao arrancava. O
+nome e a classe sao do §21.3 (`publish_product` e escrita **com confirmacao**);
+o modelo de argumentos, o executor e o campo que o botao `confirm:{…}` cita
+sao do **KAM-119**, que escreve o modulo — uma entrada declarada nao pode dizer
+que campo o botao cita, porque o campo e do modelo. Ate la o `invoke` recusa-as
+com `TOOL_NOT_ALLOWED`, a todos, e o `for_context` nao as mostra ao modelo.
+
+O `backend` e `plataforma` (*proposta*): o catalogo minimo do KAM-094 vive em
+`platform.catalog_ingestions`, na nossa base. Quem o confirma contra o executor
+real e o KAM-119.
 
 A `especificacoes.py` explica porque e que os dois estados existem e porque e
 que e isso que deixa a validacao (1) do §5.2 passar de `aviso` a `bloqueio`
@@ -101,7 +120,39 @@ _AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR: Final = (
     ),
 )
 
-#: As onze do §6.2, pela ordem em que esse documento as escreve. **As cinco do
+#: O credor das quatro tools do modulo `catalogo` do §21.3: o ticket que as liga.
+CREDOR_DO_DONO: Final = "KAM-119"
+
+#: As quatro do Assistente do Dono, `declaradas` (KAM-118). Ver o cabecalho.
+_AS_QUATRO_DO_DONO: Final = (
+    EspecificacaoDeTool(
+        nome="create_product_draft",
+        klass="write",
+        backend="plataforma",
+        credor=CREDOR_DO_DONO,
+    ),
+    EspecificacaoDeTool(
+        nome="ask_missing_fields",
+        klass="read",
+        backend="plataforma",
+        credor=CREDOR_DO_DONO,
+    ),
+    EspecificacaoDeTool(
+        nome="publish_product",
+        klass="write",
+        backend="plataforma",
+        credor=CREDOR_DO_DONO,
+    ),
+    EspecificacaoDeTool(
+        nome="get_catalog_status",
+        klass="read",
+        backend="plataforma",
+        credor=CREDOR_DO_DONO,
+    ),
+)
+
+#: As onze do §6.2, pela ordem em que esse documento as escreve, e as quatro do
+#: §21.3 no fim. **As cinco do
 #: Vendedor `declaradas`**, que e o estado sem os executores do KAM-178 — e e o
 #: que a bateria do registo compara contra o `registry/*.yaml`.
 ESPECIFICACOES_DO_PILOTO: Final = (
@@ -119,6 +170,7 @@ ESPECIFICACOES_DO_PILOTO: Final = (
         for nome in vendedor.MODELOS
     ),
     *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR,
+    *_AS_QUATRO_DO_DONO,
 )
 
 
@@ -175,7 +227,7 @@ def especificacoes_do_piloto(
     # Servicos. **Reconstroi-se em vez de se filtrar o `ESPECIFICACOES_DO_PILOTO`**
     # porque uma entrada `ligada` e uma `declarada` sao objectos diferentes, e
     # filtrar uma tupla fixa dava duas listas a manter em sincronia.
-    return (*do_vendedor, *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR)
+    return (*do_vendedor, *_AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR, *_AS_QUATRO_DO_DONO)
 
 
 def catalogo_do_piloto(
