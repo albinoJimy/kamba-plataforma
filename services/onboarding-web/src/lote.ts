@@ -105,8 +105,13 @@ async function principal(): Promise<void> {
     log.info({ outcome: "service_stopping" });
     parar();
     pararTrust();
-    // Os *workers* e as ligações que cada fila abriu.
-    await consumo.fechar().catch(() => {});
+    // Os *workers* e as ligações que cada fila abriu — **com tecto**: com a fila
+    // em baixo, fechar um *worker* espera por uma ligação que não vem, e um
+    // `SIGTERM` que pendura é um contentor que o orquestrador mata à força.
+    await Promise.race([
+      consumo.fechar().catch(() => {}),
+      new Promise<void>((pronto) => setTimeout(pronto, 10_000).unref()),
+    ]);
     servidor.close();
   } finally {
     await Promise.allSettled([lote.end(), app.end()]);

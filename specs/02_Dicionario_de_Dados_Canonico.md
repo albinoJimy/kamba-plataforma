@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.107 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.108 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4420,6 +4420,24 @@ parecer)*.
 
 ---
 
+**T&S em produção (KAM-200).** *Emenda 1.108, **proposta**.* O consumidor, as varreduras, a fonte da
+mudança de conta e a limitação no catálogo, da revisão
+[`0069`](../db/migrations/versions/0069_subscricoes_de_trust.py) e do processo de lote do onboarding.
+A transição do tenant da escada passa a ser a porta do §3.70, com o evento dela: o «aqui a transição é
+um CAS do `kamba_batch` e nenhum evento sai» do parágrafo de cima deixou de ser verdade.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Consumidor de T&S | `trust`, em `platform.evt_subscricoes` | — | *proposta* (emenda 1.108, KAM-200). Os sete tipos do critério 1 do KAM-097, declarados no [registo do consumidor](../registry/trust.yaml) e escritos pela revisão `0069`, com `versao_max` 2 e a ordem exigida nos dois de pagamento. É o `events_consumed.consumer` que a independência do comprador lê. Corre no processo de lote do onboarding, como `kamba_app` |
+| Motivo da transição de T&S | `decisao_ts` na suspensão e no encerramento; `decisao_ts_recurso_provido` no regresso a `ativo` | — | *proposta* (emenda 1.108, KAM-200). No registo de estados do tenant (§3.70), pela porta; o `decisao_ts` é também o motivo no *payload* da suspensão e do encerramento, a «decisão T&S» do `../docs/tecnica/00` §6.2. Um recurso provido **não** levanta uma suspensão cujo último motivo é o da régua (§3.72) |
+| A fonte da mudança de conta | `platform.ts_mudanca_de_conta()`, nos *triggers* `payment_accounts_mudanca_de_conta` e `tenants_mudanca_de_nif` | — | *proposta* (emenda 1.108, KAM-200). Grava um sinal `mudanca_de_conta` (alto) quando o NIF ou um campo da conta de pagamento de uma PME que diz para onde vai o dinheiro muda, ou nasce uma conta, **depois** da activação. `SECURITY DEFINER`, com o contexto do tenant da linha (`ci/secdef_allowlist.yaml`). O caso `trust` abre-o a varredura `mudancas_de_conta`, com o sinal na chave do caso |
+| A limitação no catálogo | `platform.ts_limitacao_do_catalogo()`, nos *triggers* `offer_terms_ts_limitacao_nova`, `offer_terms_ts_limitacao_publicada` e `catalog_ingestions_ts_limitacao` | — | *proposta* (emenda 1.108, KAM-200). Recusa (`23514`) um produto novo, a primeira publicação e uma ingestão nova do catálogo de um tenant com `limitacao` ou acima em vigor sem recurso provido. `SECURITY INVOKER` |
+| Corrida de uma varredura de T&S | `ts_varredura`, a entidade da acção `batch.run` (§3.2) | — | *proposta* (emenda 1.108, KAM-200). Uma linha por corrida, na cadeia da plataforma, com o nome da varredura no `entity_id`: `nao_entrega`, `fotos`, `encerramentos`, `mudancas_de_conta` |
+
+**O que esta emenda não decide, e a quem.** A correlação entre tenants por comprador e o pseudónimo sem
+tenant que ela pede — **KAM-206**, com a base legal *(a confirmar por parecer)*. A categoria do produto e
+as referências do preço anómalo — **KAM-207**.
+
 ### 3.69 Custo por módulo de entrada: o *ledger*, os preços de teste, a H12 e o orçamento (KAM-124)
 
 *Emenda 1.98, **proposta**.* Os nomes do *metering* dos módulos de entrada: a revisão `0057`
@@ -4867,3 +4885,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.105 | Novembro 2026 | **Emenda (*proposta*), KAM-094: o catálogo mínimo e o teste ponta a ponta.** Sobre a 1.104 do KAM-117. §3.74 nova: a coluna `conversations.is_test`; a `platform.onboarding_smoke` com as suas **nove** colunas, os **três** resultados e as **quatro** causas; a porta `SmokeProbe` e os três limiares. **O que não decide:** a restrição de BD na publicação e o caminho de escrita do COM (KAM-202), e o observador de produção do teste. | Equipa KAMBÁ |
 | 1.106 | Novembro 2026 | **Emenda (*proposta*), KAM-096: a confiança gradual.** Sobre a 1.105 do KAM-094. §3.75 nova: a `platform.trust_level` com as suas **nove** colunas, os níveis (o 2 não atribuível no Piloto), o tecto por pedido em unidade menor, os **seis** motivos, o actor, as duas datas que o *trigger* escreve, as barreiras da escrita e da cobrança, a tranca partilhada entre elas, a acção `trust.tecto` no `audit_log` (o §3.2 passa a **dezassete**), a guarda e a mensagem fixa, a configuração versionada com origem e data de calibração, e a regra de quem conta para subir. **O que não decide:** o processo do recálculo diário e em `order.delivered` (KAM-203), e quem escreve a confirmação do cliente (KAM-204), o relatório do Piloto (Responsável de Produto) e os valores, que se calibram com o Piloto. | Equipa KAMBÁ |
 | 1.107 | Novembro 2026 | **Emenda (*proposta*), KAM-072: a rotação de chaves no registo de auditoria.** Sobre a 1.106 do KAM-096. §3.2: o domínio de `action` do `audit_log` passa de dezassete a **dezanove**, com as duas acções do rotador, pela revisão `0066` — rodar uma versão nova e revogar a anterior, na cadeia de plataforma. **O que não decide:** quem corre o rotador contra o cofre real, nem a métrica da idade dos segredos, que não é nome deste dicionário. | Equipa KAMBÁ |
+| 1.108 | Novembro 2026 | **Emenda (*proposta*), KAM-200: Trust & Safety em produção.** Sobre a 1.107 do KAM-072. §3.68: o consumidor `trust` e as suas sete subscrições, o motivo da transição de T&S no registo de estados do tenant e no evento, a fonte da mudança de conta (a função e os dois *triggers* da revisão `0069`), a limitação no catálogo (a função e os três *triggers*) e a entidade `ts_varredura` da acção `batch.run`. A escada deixa de transitar por um CAS directo e passa pela porta do §3.70. **O que não decide:** a correlação entre tenants (KAM-206) e a categoria do produto (KAM-207). | Equipa KAMBÁ |

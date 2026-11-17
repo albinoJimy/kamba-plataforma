@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.25 |
+| Versão | 1.26 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -70,6 +70,8 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | KAM-092 |
 | KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | KAM-096, KAM-198 |
+| KAM-206 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | KAM-200 |
+| KAM-207 | Preço anómalo: a categoria do produto e os preços de referência por categoria | feature | M | P2 | KAM-200 |
 
 ---
 
@@ -2950,7 +2952,7 @@ Testes: integração contra PostgreSQL, isolamento e arranque.
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-097, KAM-092 |
-| Bloqueia | — |
+| Bloqueia | KAM-206, KAM-207 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com SRE e o Responsável de Produto (T&S) |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-097, KAM-092 e KAM-198), `02_Dicionario_de_Dados_Canonico.md` (§3.68), `../docs/tecnica/10_Onboarding_Governanca.md` (§8.3), `../docs/observabilidade.md` |
 
@@ -2972,14 +2974,14 @@ T&S a correr em `prod`, medido e alertado, com as quatro fontes de sinal que fal
 
 ### Critérios de Aceitação
 
-- [ ] Um processo consome os sete tipos do critério 1 do KAM-097 com o `efeitoDeTrust`, como `kamba_app`, com as subscrições declaradas em `platform.evt_subscricoes`, e arranca em `prod` com `/healthz` e `/metrics`.
-- [ ] As varreduras (`varrerNaoEntregas`, `varrerFotos`) e o `fecharEncerramentos` correm agendados como `kamba_batch`, e cada corrida fica no `audit_log` (`batch.run`).
-- [ ] Métricas de T&S servidas, com domínio fechado e sem tenant (`OBS-I`): sinais por tipo e sanções por passo e origem; e um alerta para uma `suspensao` decidida e para a escada automática acima de um ritmo (*proposta*).
+- [x] Um processo consome os sete tipos do critério 1 do KAM-097 com o `efeitoDeTrust`, como `kamba_app`, com as subscrições declaradas em `platform.evt_subscricoes`, e arranca em `prod` com `/healthz` e `/metrics`.
+- [x] As varreduras (`varrerNaoEntregas`, `varrerFotos`) e o `fecharEncerramentos` correm agendados como `kamba_batch`, e cada corrida fica no `audit_log` (`batch.run`).
+- [x] Métricas de T&S servidas, com domínio fechado e sem tenant (`OBS-I`): sinais por tipo e sanções por passo e origem; e um alerta para uma `suspensao` decidida e para a escada automática acima de um ritmo (*proposta*).
 - [ ] Preço anómalo: os preços de referência por categoria (≥ 20 produtos) vêm de uma fonte nomeada, e o `avaliarPreco` corre sobre cada produto publicado.
-- [ ] Mudança de conta bancária ou de NIF depois da activação gera `mudanca_de_conta` e um `review_case` `trust`, a partir de um evento ou de um histórico que hoje não existe.
+- [x] Mudança de conta bancária ou de NIF depois da activação gera `mudanca_de_conta` e um `review_case` `trust`, a partir de um evento ou de um histórico que hoje não existe.
 - [ ] Correlação entre tenants por comprador (o mesmo número a comprar em tenants do mesmo dono) por um identificador de comprador que não dependa do tenant, só por papel auditado e só como sinal; a base legal fica *(a confirmar por parecer)*.
 - [ ] A `limitacao` em vigor bloqueia produtos e listas novos no caminho do catálogo, e os passos automáticos são avisados ao dono por SMS (o consumidor não envia: só o painel os mostra).
-- [ ] A transição do tenant da escada passa pela `transition_tenant` do KAM-092, e o `tenant.suspended`, o `tenant.closed` e o `tenant.reactivated` saem com ela.
+- [x] A transição do tenant da escada passa pela `transition_tenant` do KAM-092, e o `tenant.suspended`, o `tenant.closed` e o `tenant.reactivated` saem com ela.
 - [ ] O processo de lote do onboarding (KAM-198) e a consola `/equipa` (KAM-196) ligam o `ServicoDeTrust` ao `ServicoDeRevisao` (`DependenciasDaRevisao.trust`). Hoje nenhum dos dois o liga, e decidir um caso `trust` ou `recurso` neles falha fechado: o efeito fica por aplicar (`EfeitoPorAplicarError`) e o caso marcado para reaplicar.
 
 ### Detalhes Técnicos
@@ -2996,7 +2998,30 @@ T&S a correr em `prod`, medido e alertado, com as quatro fontes de sinal que fal
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; base legal do tratamento cruzado marcada *(a confirmar por parecer)*.
-- [ ] Métricas e alertas de T&S nascem com o processo; sem segredos.
+- [x] Métricas e alertas de T&S nascem com o processo; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+O código vive em `../packages/core-ts/src/trust/` (`lote.ts` e `metricas.ts` novos; `sql.ts`, `servico.ts` e `efeito.ts` emendados) e é servido pelo processo de lote do onboarding (`../services/onboarding-web/src/lote/processo.ts` e `../services/onboarding-web/src/lote.ts`). A revisão `0069` (`../db/migrations/versions/0069_subscricoes_de_trust.py`, provisória, sobre a `0066`) escreve as subscrições e os *triggers*. As baterias contra a base são a `tests_lote` (`../packages/core-ts/tests_bd/trust.bd.test.ts`) e, no gate 8, `../db/tests/test_trust_schema.py` e `../db/tests/test_subscricoes_de_trust.py`; as unitárias são `../packages/core-ts/tests/trust.producao.test.ts` e `../services/onboarding-web/tests/lote.test.ts`, no gate 4.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Um processo consome os sete tipos com o `efeitoDeTrust`, como `kamba_app`, subscrições em `platform.evt_subscricoes`, e arranca em `prod` com `/healthz` e `/metrics` | **satisfeito** | **O processo** é o de lote do onboarding, que já arrancava em `prod` com as duas ligações (KAM-198): o `consumidorDoTrust` levanta as dezasseis filas `evt.trust.p<n>` sobre ligações do `kamba_app`, com `exigeOrdem` (dois dos sete são de pagamento) e a máquina de estados das encomendas, que o `consumir` exige para eles (`o consumidor de T&S: as dezasseis filas do trust…`). A `KAMBA_QUEUE_URL` passou a obrigatória, e o compose de `dev`, `staging` e `prod` passa-a. **As subscrições:** as sete linhas da `0069`, iguais às do `../registry/trust.yaml` (`TestRevisaoDeTrustContraORegisto` em `../services/agr/tests/test_subscricoes_0052.py`), e a revisão sobe, desce e volta a subir com as linhas exactas (`test_sobe_desce_e_volta_a_subir_com_as_linhas_exactas`). **Contra a base:** a encomenda criada pelo próprio dono dá um `auto_compra` e o `aviso`, e a reentrega é duplicada (`o consumidor como kamba_app: …`). **O limite, dito:** os 128 MiB do contentor não foram medidos com os dezasseis *workers* (`shortcut:` no compose de `prod`) |
+| 2. As varreduras e o `fecharEncerramentos` agendados como `kamba_batch`, cada corrida no `audit_log` (`batch.run`) | **satisfeito** | O `CicloDoTrust` corre quatro varreduras (`nao_entrega`, `fotos`, `encerramentos`, `mudancas_de_conta`) a cada hora (*proposta*, `LOTE_TRUST_INTERVALO_MS`), e cada corrida deixa **uma** linha `batch.run` sobre `ts_varredura`, na cadeia da plataforma; as duas primeiras na mesma transacção que a sua linha (`a varredura e a sua auditoria correm na mesma transacção…`). Uma que falha não pára as outras (`uma que falha não pára as outras, e diz-se pelo nome`). Contra a base: `uma volta das varreduras deixa uma linha batch.run por varredura…` |
+| 3. Métricas sem tenant, e um alerta para a suspensão decidida e para a escada automática acima de um ritmo | **satisfeito** | `ts_sinais_total{tipo}`, `ts_sancoes_total{passo,origem}` e `ts_varreduras_total{varredura,desfecho}`, contadas no `ServicoDeTrust` (só o que é novo) e servidas pelo `/metrics` do processo de lote (`/metrics serve as séries de T&S…`); nascem a zero e nenhuma etiqueta é um identificador (`nascem a zero em todo o domínio…`). As regras `ts_suspensao_decidida` (P3) e `ts_escada_automatica_acima_do_ritmo` (P2, mais de 5 por hora, *proposta*) estão em `../infra/compose/prometheus/regras/kamba-trust.yml`, com o runbook `../docs/runbooks/trust-e-safety.md`; o `promtool test rules` mede o disparo e o controlo, e o `obs_lint` dá zero achados |
+| 4. Preço anómalo: referências por categoria de uma fonte nomeada, e o `avaliarPreco` sobre cada produto publicado | **não satisfeito** | **O produto não tem categoria**: a `offer_terms` só tem a `categoria_restrita` do *screening*, e a categoria da extracção por IA não chega à oferta. Sem categoria não há mediana por categoria. Credor: **KAM-207**, aberto neste PR |
+| 5. Mudança de conta bancária ou de NIF depois da activação gera `mudanca_de_conta` e um `review_case` `trust` | **satisfeito** | **A fonte, que não existia:** dois *triggers* da `0069`, um na `payment_accounts` (os campos que dizem para onde vai o dinheiro, e uma conta nova) e outro no `tenants.nif`, só depois da activação. Medidos pelos dois escritores reais — o NIF pelo `kamba_app`, a conta pelo `kamba_batch` — antes e depois da activação (`TestMudancaDeConta`). **O caso:** a varredura `mudancas_de_conta` abre uma proposta de suspensão por sinal, com a justificação do salto escrita, e não a repete (`uma mudança de conta sem caso abre uma proposta…`; contra a base, `… a mudança de NIF abre um caso, uma vez, no tenant dela`) |
+| 6. Correlação entre tenants por comprador, só por papel auditado e só como sinal | **não satisfeito** | **Não há identificador de comprador independente do tenant**: o `phone_hmac` leva o tenant na mensagem (`hmacDePesquisa`), e é isso que impede um tenant de reconhecer os clientes de outro. Correlacionar pede um pseudónimo novo, sem tenant, e a base legal do tratamento cruzado *(a confirmar por parecer)*. Credor: **KAM-206**, aberto neste PR. O ensaio adversarial do anel fica com ele |
+| 7. A `limitacao` bloqueia produtos e listas novos no catálogo, e os passos automáticos são avisados ao dono por SMS | **parcial** | **O catálogo:** um *trigger* da `0069` recusa (`23514`) um produto novo, a primeira publicação e uma ingestão nova do catálogo por IA a um tenant com `limitacao` ou acima em vigor sem recurso provido — na base, porque há dois escritores (o COM e o catálogo por IA); o publicado continua a vender e o preço muda (`TestLimitacaoDoCatalogo`). O COM devolve-a como recusa de domínio também na publicação. **O SMS não**: o processo de lote não tem agregador nem o telefone em claro (o mesmo `AvisoSemVia` do KAM-198), e a escolha do agregador é do fundador (KAM-116). O painel mostra os passos (`avisosDoPainel`) |
+| 8. A transição do tenant passa pela `transition_tenant`, e o `tenant.suspended`, o `tenant.closed` e o `tenant.reactivated` saem com ela | **satisfeito** | O `EstadoDosTenantsSql` deixou o `UPDATE` directo: cada transição é uma transacção sob o tenant, com a porta, a confirmação de onde veio e o evento (`a transição do tenant pela porta do KAM-092`, sete casos, no gate 4). O motivo no registo é `decisao_ts`, o do *payload* também, e um recurso provido **não** levanta uma suspensão da régua de cobrança (`um recurso de T&S não levanta a suspensão da régua de cobrança`; `test_a_suspensao_da_regua_nao_e_de_trust`). Contra a base, com a fila verdadeira: `a escada humana suspende pela porta, com registo e evento, e o recurso provido reactiva` |
+| 9. O processo de lote e a consola `/equipa` ligam o `ServicoDeTrust` ao `ServicoDeRevisao` | **parcial** | **O processo de lote liga-o**: o `montarProcesso` passa o T&S do lado do lote como `trust` das dependências da fila, e a fila como a do T&S (`o T&S está ligado à fila: rejeitar um caso trust grava a sanção no lote…`). **A consola não**: não está montada em processo nenhum, porque o IdP da equipa é do fundador (critério 1 do KAM-196), e quem a montar usa a mesma composição |
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos; base legal do tratamento cruzado *(a confirmar por parecer)* | **parcial** | Cinco satisfeitos (1, 2, 3, 5, 8), dois parciais (7 e 9) e dois por satisfazer (4 e 6), com os credores KAM-206 e KAM-207. A base legal está marcada *(a confirmar por parecer)* no bloco do KAM-206, que é onde o tratamento cruzado vai acontecer |
+| 2. Métricas e alertas nascem com o processo; sem segredos | **marcada** | As três métricas e as duas regras no mesmo PR que o processo; nenhum segredo no diff (o `scan_secrets` dos *commits* está limpo) |
 
 ### Handoff para Claude Code
 
@@ -3177,6 +3202,119 @@ Testes: integração, a cache do CHR e isolamento.
 
 ---
 
+## KAM-206 — Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-200 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Engenheiro de Identidade e o DPO |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-097 e KAM-200), `02_Dicionario_de_Dados_Canonico.md` (§3.1, §3.68), `../docs/tecnica/10_Onboarding_Governanca.md` (§8.3) |
+
+### Contexto
+
+O KAM-200 pôs Trust & Safety a correr e deixou por fazer o critério 6: a correlação entre tenants por comprador — o mesmo número a comprar em tenants do mesmo dono, o anel do ensaio adversarial (c) do KAM-097. **Não há hoje identificador que o permita.** O `contacts.phone_hmac` é calculado com o tenant dentro da mensagem (`hmacDePesquisa`: domínio, tipo, **tenant**, valor; `../packages/core-ts/src/identity/cripto.ts`), pelo que o mesmo telefone dá HMAC diferentes em tenants diferentes — e é de propósito: é o que impede que um tenant reconheça os clientes de outro. Correlacionar exige um segundo pseudónimo, sem tenant, com domínio e chave próprios, calculado pela resolução de identidade (KAM-008) e lido só pelo papel auditado. É tratamento cruzado de dados pessoais entre responsáveis diferentes, e a base legal é *(a confirmar por parecer)*.
+
+### Objectivo
+
+O anel de tenants do mesmo dono a comprar entre si dá sinal, sem que nenhum tenant passe a ver os clientes de outro.
+
+### Critérios de Aceitação
+
+- [ ] A base legal do tratamento cruzado está escrita, com o parecer que a sustenta; sem ele, nada deste ticket corre em `prod` *(a confirmar por parecer)*.
+- [ ] Um pseudónimo do telefone **sem tenant**, com domínio e chave próprios e rotação, é calculado pela resolução de identidade ao resolver o contacto; o `kamba_app` não o lê, e só o `kamba_batch` o compara, por uma função que devolve o tenant e uma contagem e nunca o pseudónimo nem o outro tenant.
+- [ ] Uma varredura do processo de lote dá um sinal (só sinal, informativo ou de peso *proposta*) por tenant cujo comprador compra noutro tenant do mesmo dono; cada corrida no `audit_log` (`batch.run`).
+- [ ] O dicionário e o DPIA nomeiam o pseudónimo novo, a finalidade e a retenção.
+
+### Detalhes Técnicos
+
+- **Componentes:** IDN (o pseudónimo), GOV (a varredura), base de dados (a coluna e a função), DPO (o parecer).
+- **Fora deste ticket:** as regras e a escada (KAM-097); o processo e as outras varreduras (KAM-200).
+
+### Testes Requeridos
+
+- **Adversarial:** o anel de três tenants do mesmo dono a comprar entre si dá sinal; o mesmo número em tenants de donos diferentes não dá.
+- Isolamento: o `kamba_app` de um tenant não lê o pseudónimo; a função não devolve o outro tenant.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; parecer anexado.
+- [ ] O critério 6 e a caixa 1 da DoD do KAM-200 revistos com a evidência.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-206 da KAMBÁ (correlação entre tenants por comprador).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-097, KAM-200 e KAM-206), o dicionário §3.1 e §3.68,
+packages/core-ts/src/identity/ e packages/core-ts/src/trust/.
+Objectivo: um pseudónimo do telefone sem tenant, lido só pelo lote, e a varredura do anel.
+Regras: só sinal; só kamba_batch; nenhum tenant vê o outro; sem o parecer, nada corre em prod.
+Testes: o anel de três tenants, e o isolamento do pseudónimo.
+```
+
+---
+
+## KAM-207 — Preço anómalo: a categoria do produto e os preços de referência por categoria
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-200 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Responsável de Produto (catálogo) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-097 e KAM-200), `EPIC-04_Core_Comercio.md` (bloco KAM-043), `02_Dicionario_de_Dados_Canonico.md` (§3.68) |
+
+### Contexto
+
+O KAM-097 escreveu a regra do preço anómalo (`avaliarPreco`: fora de 1% a 100× da mediana da categoria, só com ≥ 20 referências) e o KAM-200 deixou por fazer o critério 4, porque **o produto não tem categoria**. A `offer_terms` tem só a `categoria_restrita` do *screening*, que diz se a categoria é proibida e não qual é; a extracção do catálogo por IA traz uma categoria no `catalog_ingestions.extraido`, mas não chega à oferta. Sem categoria por produto não há mediana por categoria, e sem fonte nomeada não há referência.
+
+### Objectivo
+
+Cada produto publicado tem categoria, e o preço dele avalia-se contra referências de uma fonte nomeada.
+
+### Critérios de Aceitação
+
+- [ ] Cada oferta publicada tem uma categoria de uma lista fechada, escrita por quem cria o produto (o dono ou o catálogo por IA, confirmada pelo dono).
+- [ ] Os preços de referência por categoria (≥ 20 produtos) vêm de uma fonte nomeada e versionada — a própria plataforma, por categoria e entre tenants, só pelo papel auditado, ou outra fonte com a origem escrita.
+- [ ] Uma varredura do processo de lote corre o `avaliarPreco` sobre cada produto publicado e grava `preco_anomalo` (informativo, peso *proposta*), sem repetir o que já sinalizou; cada corrida no `audit_log` (`batch.run`).
+
+### Detalhes Técnicos
+
+- **Componentes:** COM (a categoria da oferta), catálogo por IA (a categoria extraída), GOV (a varredura), base de dados (a coluna).
+- **Fora deste ticket:** a regra (KAM-097); o processo e as outras varreduras (KAM-200).
+
+### Testes Requeridos
+
+- 19 referências não avaliam; 20 avaliam; 1% e 100× nas fronteiras, contra a base.
+- Isolamento: a mediana atravessa tenants só pelo `kamba_batch`, e o sinal só diz a contagem.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; o critério 4 do KAM-200 revisto com a evidência.
+- [ ] Sem segredos; migração reversível.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-207 da KAMBÁ (preço anómalo por categoria).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-097, KAM-200 e KAM-207), o dicionário §3.68,
+packages/core-ts/src/trust/regras.ts (avaliarPreco) e services/com/src/produtos/.
+Objectivo: a categoria de cada produto publicado, as referências de uma fonte nomeada, e a varredura.
+Regras: limiares são propostas; o sinal é informativo; a mediana entre tenants só pelo kamba_batch.
+Testes: as fronteiras, contra a base, e o isolamento.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -3242,3 +3380,4 @@ Testes: integração, a cache do CHR e isolamento.
 | 1.23 | Novembro 2026 | KAM-117: entram as duas secções de verificação do bloco dos KPIs de onboarding, churn e dormentes — **dois** critérios satisfeitos e **seis** parciais, com credor (o agendador, a porta do LiteLLM, o aviso ao dono, os recursos órfãos e um papel só de leitura para os painéis); quatro itens da DoD marcados. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | KAM-094: entram as duas secções de verificação do bloco do catálogo mínimo e do teste ponta a ponta — **oito** critérios (seis parciais e dois por fazer) e **duas** linhas de DoD de seis. Entregue: o módulo `activacao/` e a revisão `0065` (`conversations.is_test` e `onboarding_smoke`). O que fica por ligar — o observador do teste, a activação no lote, o filtro de `is_test` e a restrição de BD na `offer_terms` — tem credor o **KAM-202** (EPIC-04), que entra no campo «Bloqueia» do bloco, e o KAM-198 também o bloqueia. | Equipa KAMBÁ |
 | 1.25 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas), e a revisão `0065`. O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor é o **KAM-203**, aberto neste PR, porque o KAM-200 diz que o tecto não é dele; o KAM-203 é também o credor do alerta da caixa 7, e o **KAM-204** (EPIC-04) o da caixa 3. O EPIC-09 passa a **25** tickets. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | KAM-200 (Trust & Safety em produção): os critérios 1, 2, 3, 5 e 8 e a caixa 2 da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 7 e 9 ficam parciais e o 4 e o 6 por satisfazer, com o credor escrito. O consumidor, as varreduras auditadas e as métricas correm no processo de lote do onboarding; a escada passa pela `transition_tenant` e emite os eventos do tenant; a revisão `0069` (provisória) escreve as subscrições, a fonte da mudança de conta e a limitação no catálogo. **E o KAM-206 e o KAM-207**, acrescentados no mesmo PR como credores dos critérios 6 e 4. **27** tickets. | Equipa KAMBÁ |

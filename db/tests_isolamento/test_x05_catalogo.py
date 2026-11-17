@@ -1435,6 +1435,12 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "p_valor_minor bigint, p_currency text, p_pedido_evento_id uuid)"
     )
 
+    #: O *trigger* da mudanca de conta (KAM-200, revisao `0069`). Da privilegio e
+    #: nao da isolamento, como as outras: poe o contexto no tenant **da linha**
+    #: que disparou, e e por respeitar o `FORCE` que o poe. Quem o mede e o
+    #: `TestMudancaDeConta` de `../tests/test_trust_schema.py`.
+    MUDANCA_DE_CONTA_NA_ALLOWLIST = "platform.ts_mudanca_de_conta()"
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1477,6 +1483,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 self.APPEND_NA_ALLOWLIST,
                 self.SINAIS_NA_ALLOWLIST,
                 self.REEMBOLSOS_NA_ALLOWLIST,
+                self.MUDANCA_DE_CONTA_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST),
         )

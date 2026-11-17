@@ -244,6 +244,13 @@ class TestRepositorio(unittest.TestCase):
         # `provisioning` foi o primeiro: sete nomes que nenhum servico
         # importa, porque quem vai ligar a porta e o KAM-086.
         "packages/core-ts/src/sms/metricas.ts",
+        # Nasceu com o KAM-200 (Trust & Safety em producao). Tres contadores,
+        # **servidos e alcancaveis** no mesmo PR: o processo de lote do
+        # onboarding serve-os na 3014 (`job` `onboarding_lote`), ao lado das
+        # quatro da fila de revisao, e duas regras do `kamba-trust.yml` citam o
+        # `ts_sancoes_total`. Modulo proprio porque a fonte e o `ServicoDeTrust`,
+        # que corre tambem no consumidor, e a fila nao o conhece.
+        "packages/core-ts/src/trust/metricas.ts",
         "packages/core-ts/src/ten/metricas.ts",
         "services/agr/src/kamba_agr/metricas.py",
         # Conta **zero** nomes, e esta aqui por isso: e um modulo de exposicao

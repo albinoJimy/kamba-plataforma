@@ -17,7 +17,6 @@
  *   que muda o estado do tenant (`0007`).
  */
 
-import type { ClienteSql } from "../eventos/publicador.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
 import { comTenant } from "../tenant_guard/index.ts";
 import type {
@@ -34,7 +33,15 @@ import type {
 } from "./contrato.ts";
 import { SEVERIDADE_DO_TIPO, type Passo, type Severidade, type TipoDeSinal } from "./regras.ts";
 
-export type { ClienteSql };
+/**
+ * O que o T&S pede a uma ligação: uma consulta que devolve linhas. **O mais
+ * largo dos três `ClienteSql` do pacote**, e de propósito: o do publicador
+ * (que o `consumir` entrega ao efeito) e o da revisão (o `pg.Pool` do processo
+ * de lote) cumprem-no os dois, e o T&S só lê `rows`.
+ */
+export interface ClienteSql {
+  query(sql: string, parametros?: readonly unknown[]): Promise<{ readonly rows: readonly Record<string, unknown>[] }>;
+}
 
 /** Grava um sinal; zero linhas quando a chave já existe. */
 export const SQL_GRAVAR_SINAL = `
@@ -307,6 +314,26 @@ export const SQL_FOTOS_REPETIDAS = `
    GROUP BY a.tenant_id, a.id
    ORDER BY a.tenant_id, a.id
    LIMIT 1000
+`;
+
+/**
+ * Os sinais `mudanca_de_conta` que ainda não têm caso `trust` (KAM-200,
+ * critério 5). Os sinais nascem nos *triggers* da revisão `0069`, sobre a
+ * `payment_accounts` e o `tenants.nif`; o caso abre-o a varredura, pela fila. A
+ * chave do caso leva o sinal (`sancao_suspensao:conta.<id>`), e é ela que faz
+ * esta pergunta e a abertura idempotentes: um sinal com caso não volta à cabeça
+ * do `LIMIT` (a lição do achado 11 do KAM-097).
+ */
+export const SQL_MUDANCAS_DE_CONTA_SEM_CASO = `
+  SELECT s.id::text AS id, s.tenant_id::text AS tenant_id, s.ref_evento::text AS ref_evento,
+         s.ocorrido_em
+    FROM platform.ts_signal s
+   WHERE s.tipo = 'mudanca_de_conta'
+     AND NOT EXISTS (SELECT 1 FROM platform.review_case c
+                      WHERE c.tenant_id = s.tenant_id AND c.tipo = 'trust'
+                        AND c.motivo_codigo = concat('sancao_suspensao:conta.', s.id::text))
+   ORDER BY s.ocorrido_em, s.id
+   LIMIT 500
 `;
 
 // ------------------------------------------------------------------ adaptadores

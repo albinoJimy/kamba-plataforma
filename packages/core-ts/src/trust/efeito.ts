@@ -34,7 +34,6 @@
 import { createHash } from "node:crypto";
 
 import type { Efeito } from "../eventos/consumo.ts";
-import type { ClienteSql } from "../eventos/publicador.ts";
 import type { SinalNovo } from "./contrato.ts";
 import type { ContadoresDoTrust } from "./metricas.ts";
 import {
@@ -51,6 +50,7 @@ import {
 import { ServicoDeTrust } from "./servico.ts";
 import {
   RepositorioDeTrustSql,
+  type ClienteSql,
   SQL_COMPRADORES_PAGOS,
   SQL_CONTACTOS_DO_DONO,
   SQL_FOTOS_REPETIDAS,

@@ -6,6 +6,7 @@
  * nao_entrega     varrerNaoEntregas    pedidos pagos sem entrega há mais de N dias
  * fotos           varrerFotos          o mesmo phash noutro tenant (informativo)
  * encerramentos   fecharEncerramentos  o encerrado de quem não recorreu no prazo
+ * mudancas_de_conta                    o caso `trust` de cada mudança de conta ou NIF
  * ```
  *
  * ## Uma corrida, uma linha no `audit_log`
@@ -28,13 +29,13 @@
  */
 
 import { comBatch } from "../tenant_guard/index.ts";
-import type { ClienteSql } from "../eventos/publicador.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
 import { varrerFotos, varrerNaoEntregas } from "./efeito.ts";
 import type { MetricasDoTrust, Varredura } from "./metricas.ts";
 import { POLITICA_DE_RISCO, type PoliticaDeRisco } from "./regras.ts";
+import type { SinalGravado } from "./contrato.ts";
 import type { ServicoDeTrust } from "./servico.ts";
-import { RepositorioDeTrustSql } from "./sql.ts";
+import { RepositorioDeTrustSql, SQL_MUDANCAS_DE_CONTA_SEM_CASO, type ClienteSql } from "./sql.ts";
 
 /** O actor das linhas de auditoria das varreduras: o processo, e não uma pessoa. */
 export const ACTOR_DAS_VARREDURAS = "onboarding-lote";
@@ -45,6 +46,11 @@ export const SQL_AUDITAR_VARREDURA = `
            NULL, 'system', $1, 'batch.run', 'ts_varredura', $2, NULL,
            sha256(convert_to($3, 'UTF8')))
 `;
+
+/** O motivo interno e a justificação da proposta de uma mudança de conta. Só para T&S. */
+export const MOTIVO_DA_MUDANCA_DE_CONTA = "mudanca de conta de pagamento ou de NIF depois da activacao";
+export const JUSTIFICACAO_DA_MUDANCA_DE_CONTA =
+  "o destino do dinheiro de uma loja activa mudou; suspender ate a mudanca se confirmar e decisao do revisor";
 
 /** Uma volta a cada hora: o prazo mais curto que estas regras medem é de dias (*proposta*). */
 export const INTERVALO_DO_TRUST_POR_OMISSAO_MS = 3_600_000;
@@ -104,6 +110,7 @@ export class CicloDoTrust {
       ["nao_entrega", () => this.#numaTransaccao("nao_entrega", (bd) => varrerNaoEntregas(bd, opcoes))],
       ["fotos", () => this.#numaTransaccao("fotos", (bd) => varrerFotos(bd, opcoes))],
       ["encerramentos", () => this.#encerramentos()],
+      ["mudancas_de_conta", () => this.#mudancasDeConta()],
     ];
     for (const [nome, passo] of passos) {
       try {
@@ -133,6 +140,40 @@ export class CicloDoTrust {
     } finally {
       ligacao.release(estragada);
     }
+  }
+
+  /**
+   * Um caso `trust` para cada `mudanca_de_conta` sem caso, e a escada
+   * automática sobre o sinal (o *trigger* grava-o sem a correr). A proposta é a
+   * `suspensao`, com a justificação do salto escrita: o dinheiro de uma loja
+   * activa passou a ir para outro sítio, e quem decide se a loja continua a
+   * vender até a mudança se confirmar é um revisor, não a máquina (*proposta*).
+   */
+  async #mudancasDeConta(): Promise<number> {
+    let n = 0;
+    for (const l of (await this.#o.lote.query(SQL_MUDANCAS_DE_CONTA_SEM_CASO)).rows) {
+      const sinal: SinalGravado = {
+        id: String(l["id"]),
+        tenantId: String(l["tenant_id"]),
+        tipo: "mudanca_de_conta",
+        severidade: "alta",
+        refEvento: String(l["ref_evento"]),
+        detalhe: {},
+        ocorridoEm: l["ocorrido_em"] instanceof Date ? l["ocorrido_em"] : new Date(String(l["ocorrido_em"])),
+      };
+      await this.#o.servico.avaliarEscada(sinal.tenantId, sinal);
+      const r = await this.#o.servico.proporSancao({
+        tenantId: sinal.tenantId,
+        passo: "suspensao",
+        motivoInterno: MOTIVO_DA_MUDANCA_DE_CONTA,
+        sinais: [sinal.id],
+        justificacaoDoSalto: JUSTIFICACAO_DA_MUDANCA_DE_CONTA,
+        chave: `conta.${sinal.id}`,
+      });
+      if (r.estado !== "nao_elegivel" && !r.repetido) n++;
+    }
+    await this.#o.lote.query(SQL_AUDITAR_VARREDURA, [ACTOR_DAS_VARREDURAS, "mudancas_de_conta", `mudancas_de_conta:${n}`]);
+    return n;
   }
 
   async #encerramentos(): Promise<number> {

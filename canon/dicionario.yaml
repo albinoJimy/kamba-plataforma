@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.107"
+versao_dicionario: "1.108"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -17794,6 +17794,86 @@ entradas:
       - "events_consumed"
       - "ts_signal"
     variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Consumidor de T&S"
+    canonico: "trust, em platform.evt_subscricoes"
+    literais:
+      - "trust"
+      - "platform.evt_subscricoes"
+    nomes:
+      - "trust"
+      - "platform.evt_subscricoes"
+    nomes_nota:
+      - "versao_max"
+      - "events_consumed.consumer"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Motivo da transição de T&S"
+    canonico: "decisao_ts na suspensão e no encerramento; decisao_ts_recurso_provido no regresso a ativo"
+    literais:
+      - "decisao_ts"
+      - "decisao_ts_recurso_provido"
+      - "ativo"
+    nomes:
+      - "decisao_ts"
+      - "decisao_ts_recurso_provido"
+      - "ativo"
+    nomes_nota:
+      - "decisao_ts"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A fonte da mudança de conta"
+    canonico: "platform.ts_mudanca_de_conta(), nos triggers payment_accounts_mudanca_de_conta e tenants_mudanca_de_nif"
+    literais:
+      - "platform.ts_mudanca_de_conta()"
+      - "payment_accounts_mudanca_de_conta"
+      - "tenants_mudanca_de_nif"
+    nomes:
+      - "platform.ts_mudanca_de_conta"
+      - "payment_accounts_mudanca_de_conta"
+      - "tenants_mudanca_de_nif"
+    nomes_nota:
+      - "mudanca_de_conta"
+      - "SECURITY"
+      - "DEFINER"
+      - "trust"
+      - "mudancas_de_conta"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A limitação no catálogo"
+    canonico: "platform.ts_limitacao_do_catalogo(), nos triggers offer_terms_ts_limitacao_nova, offer_terms_ts_limitacao_publicada e catalog_ingestions_ts_limitacao"
+    literais:
+      - "platform.ts_limitacao_do_catalogo()"
+      - "offer_terms_ts_limitacao_nova"
+      - "offer_terms_ts_limitacao_publicada"
+      - "catalog_ingestions_ts_limitacao"
+    nomes:
+      - "platform.ts_limitacao_do_catalogo"
+      - "offer_terms_ts_limitacao_nova"
+      - "offer_terms_ts_limitacao_publicada"
+      - "catalog_ingestions_ts_limitacao"
+    nomes_nota:
+      - "limitacao"
+      - "SECURITY"
+      - "INVOKER"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Corrida de uma varredura de T&S"
+    canonico: "ts_varredura, a entidade da acção batch.run (§3.2)"
+    literais:
+      - "ts_varredura"
+      - "batch.run"
+    nomes:
+      - "ts_varredura"
+      - "batch.run"
+    nomes_nota:
+      - "entity_id"
+      - "nao_entrega"
+      - "fotos"
+      - "encerramentos"
+      - "mudancas_de_conta"
+    variantes_literais: []
   - seccao: "3.69"
     conceito: "Ledger de custo por módulo"
     canonico: "platform.module_cost_ledger, dez colunas: id, tenant_id, modulo, rubrica, custo_usd, custo_minor, fx_aoa_per_usd, ref, idempotency_key, ocorrido_em"
@@ -20614,6 +20694,20 @@ tabelas:
     assinatura: "platform.exigir_dupla_de_ops()"
     seccao: "3.67"
     conceito: "O G8 das cobranças de ciclo"
+  - nome: "ts_mudanca_de_conta"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.ts_mudanca_de_conta()"
+    seccao: "3.68"
+    conceito: "A fonte da mudança de conta"
+  - nome: "ts_limitacao_do_catalogo"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.ts_limitacao_do_catalogo()"
+    seccao: "3.68"
+    conceito: "A limitação no catálogo"
   - nome: "module_cost_gravar"
     esquema: "platform"
     colunas:

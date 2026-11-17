@@ -29,10 +29,20 @@ import {
   type ResultadoDoCiclo,
 } from "@kamba/core-ts/revisao";
 import { SQL_DECISOES, SQL_GRAVAR } from "@kamba/core-ts/screening";
+import {
+  AvisoDeSancaoSemDestinoError,
+  INTERVALO_DO_TRUST_POR_OMISSAO_MS,
+  MetricasDoTrust,
+  SQL_GRAVAR_SANCAO,
+  TIPOS_CONSUMIDOS,
+} from "@kamba/core-ts/trust";
 
 import {
+  AvisoDeSancaoSemVia,
   AvisoSemVia,
   ConfiguracaoDoLoteError,
+  consumidorDoTrust,
+  registarVoltaDoTrust,
   arrancar,
   opcoesDoConjunto,
   INTERVALO_POR_OMISSAO_MS,
@@ -49,11 +59,13 @@ import {
 
 const URL_LOTE = "postgresql://kamba_batch@lote.invalid:5432/kamba";
 const URL_APP = "postgresql://kamba_app@app.invalid:5432/kamba";
+const URL_FILA = "redis://fila.invalid:6379";
 
 const BASE = {
   [VARIAVEIS_DO_LOTE.ambiente]: "prod",
   [VARIAVEIS_DO_LOTE.lote]: URL_LOTE,
   [VARIAVEIS_DO_LOTE.app]: URL_APP,
+  [VARIAVEIS_DO_LOTE.fila]: URL_FILA,
 };
 
 // --------------------------------------------------------------- um duplo de pg
@@ -115,10 +127,12 @@ test("lerConfiguracao arranca em prod com as duas credenciais e as omissões", (
   assert.equal(c.porta, PORTA_POR_OMISSAO);
   assert.equal(c.intervaloMs, INTERVALO_POR_OMISSAO_MS);
   assert.equal(c.inicioDaAmostragem, null);
+  assert.equal(c.urlDaFila, URL_FILA);
+  assert.equal(c.intervaloDoTrustMs, INTERVALO_DO_TRUST_POR_OMISSAO_MS);
 });
 
 test("sem a credencial de lote, ou a da app, não arranca — e o valor da outra não sai", () => {
-  for (const falta of [VARIAVEIS_DO_LOTE.lote, VARIAVEIS_DO_LOTE.app, VARIAVEIS_DO_LOTE.ambiente]) {
+  for (const falta of [VARIAVEIS_DO_LOTE.lote, VARIAVEIS_DO_LOTE.app, VARIAVEIS_DO_LOTE.ambiente, VARIAVEIS_DO_LOTE.fila]) {
     for (const valor of [undefined, "", "   "]) {
       const env = { ...BASE, [falta]: valor };
       assert.throws(
@@ -145,6 +159,8 @@ test("porta, intervalo e dia da amostragem inválidos recusam-se", () => {
     [VARIAVEIS_DO_LOTE.porta, "3014.5"],
     [VARIAVEIS_DO_LOTE.intervalo, "999"],
     [VARIAVEIS_DO_LOTE.intervalo, "abc"],
+    [VARIAVEIS_DO_LOTE.intervaloDoTrust, "999"],
+    [VARIAVEIS_DO_LOTE.intervaloDoTrust, "1h"],
     [VARIAVEIS_DO_LOTE.amostragem, "2026-02-30"],
     [VARIAVEIS_DO_LOTE.amostragem, "2026-11-13T00:00:00Z"],
     [VARIAVEIS_DO_LOTE.amostragem, "13/11/2026"],
@@ -467,4 +483,95 @@ test("cada ligação tem limites de tempo, para uma espera presa não congelar o
   }
   assert.equal(opcoesDoConjunto("u", "lote").max, 4);
   assert.equal(opcoesDoConjunto("u", "app").max, 2);
+});
+
+// ------------------------------------------------------------ Trust & Safety (KAM-200)
+
+test("o T&S está ligado à fila: rejeitar um caso trust grava a sanção no lote, e o aviso sem via fica por reaplicar", async () => {
+  const marcas: string[] = [];
+  const efeitos: EfeitosPorReaplicar = {
+    marcar: async (id) => void marcas.push(id),
+    pendentes: async () => [],
+    resolver: async () => {},
+  };
+  const caso = "77777777-7777-4777-8777-777777777777";
+  const tenant = "88888888-8888-4888-8888-888888888888";
+  const agora = new Date("2026-11-17T10:00:00Z");
+  const linhaDoCaso = {
+    id: caso, tipo: "trust", onboarding_id: null, tenant_id: tenant, motivo_codigo: "sancao_limitacao:p1",
+    motivo_interno: "queixas", motivo_publico: "nao_foi_possivel_validar",
+    evidencias: [{ tipo: "ts_proposta", ref: JSON.stringify({ passo: "limitacao", justificacao: null }) }],
+    recomendacao: "rejeitar", estado: "aberto", prioridade: 3, fila_at: agora, sla_alerta_at: agora,
+    sla_due_at: agora, sla_alertado_at: null, criado_at: agora,
+  };
+  const lote = new ConjuntoFalso((t) => {
+    if (t.includes("FROM platform.review_case WHERE id = $1")) return { rows: [linhaDoCaso] };
+    if (t.startsWith("UPDATE platform.review_case SET estado")) return { rows: [{ id: caso }] };
+    if (t.includes("INSERT INTO platform.review_decision_log")) {
+      return { rows: [{ id: "d", case_id: caso, revisor_id: "r", decisao: "rejeitar", instancia: "primeira", regra: "R1", nota_enc: null, em: agora }] };
+    }
+    if (t === SQL_GRAVAR_SANCAO) return { rows: [{ id: "99999999-9999-4999-8999-999999999999", em: agora }] };
+    return undefined;
+  });
+  const p = montarProcesso({ lote, app: new ConjuntoFalso(), efeitos, log: semRegisto, relogio: () => agora });
+  const revisor = { id: "66666666-6666-4666-8666-666666666666", papeis: ["ts_revisor" as const], mfa: true, nifHmac: null, telefoneHmac: null };
+  // A sanção grava-se, e o aviso — o último efeito — falha sem via: a decisão
+  // sobe como efeito por aplicar, com a causa, e o caso fica marcado.
+  await assert.rejects(
+    p.servico.decidir(revisor, caso, "rejeitar", { regra: "R1" }),
+    (e: unknown) => e instanceof Error && e.name === "EfeitoPorAplicarError" && e.cause instanceof AvisoDeSancaoSemDestinoError,
+  );
+  const sancao = lote.consultas.find((c) => c.texto === SQL_GRAVAR_SANCAO);
+  assert.ok(sancao !== undefined, "a decisao nao chegou ao T&S: o `trust` das dependencias da fila nao esta ligado");
+  assert.deepEqual(sancao.valores.slice(0, 4), [tenant, `caso:${caso}`, "limitacao", "humana"]);
+  assert.deepEqual(marcas, [caso], "o aviso sem via deixa o efeito por reaplicar");
+  assert.match(p.metricasDoTrust.exposicao(), /^ts_sancoes_total\{passo="limitacao",origem="humana"\} 1$/m);
+});
+
+test("o aviso de uma sanção não tem via neste processo: levanta", async () => {
+  await assert.rejects(
+    new AvisoDeSancaoSemVia().avisar({ tenantId: "t", motivo: "loja_suspensa" }),
+    AvisoDeSancaoSemDestinoError,
+  );
+});
+
+test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquina das encomendas e as métricas do processo", () => {
+  let pedido: Parameters<NonNullable<Parameters<typeof consumidorDoTrust>[0]["criar"]>>[0] | undefined;
+  const metricasDoTrust = new MetricasDoTrust();
+  consumidorDoTrust({
+    urlDaApp: URL_APP,
+    urlDaFila: URL_FILA,
+    metricasDoTrust,
+    log: semRegisto,
+    criar: (o) => {
+      pedido = o;
+      return { fechar: async () => {} } as never;
+    },
+  });
+  assert.ok(pedido !== undefined);
+  assert.deepEqual(pedido.subscricao, { consumer: "trust", exigeOrdem: true });
+  assert.deepEqual(pedido.filas, Array.from({ length: 16 }, (_, i) => `evt.trust.p${i}`));
+  assert.equal(pedido.url, URL_FILA);
+  assert.ok(pedido.maquina !== undefined, "sem maquina, o consumir lanca nos payment.*");
+  assert.equal(TIPOS_CONSUMIDOS.length, 7);
+});
+
+test("/metrics serve as séries de T&S da instância do processo", async () => {
+  const metricasDoTrust = new MetricasDoTrust();
+  metricasDoTrust.sancao("suspensao", "humana");
+  const corpo = await (await criarApp(new MetricasDaRevisao(), metricasDoTrust).request("/metrics")).text();
+  assert.match(corpo, /^# TYPE ts_sinais_total counter$/m);
+  assert.match(corpo, /^ts_sancoes_total\{passo="suspensao",origem="humana"\} 1$/m);
+  assert.match(corpo, /^# TYPE ts_varreduras_total counter$/m);
+});
+
+test("registarVoltaDoTrust diz as varreduras que falharam pelo nome, e nada mais", () => {
+  const linhas: unknown[] = [];
+  const log = { info: (c: unknown) => linhas.push(["info", c]), error: (c: unknown) => linhas.push(["error", c]) };
+  registarVoltaDoTrust(log as never, { feitas: {}, falhas: [] });
+  registarVoltaDoTrust(log as never, { feitas: {}, falhas: ["fotos", "encerramentos"] });
+  assert.deepEqual(linhas, [
+    ["info", { outcome: "trust_varreduras_concluidas" }],
+    ["error", { outcome: "trust_varreduras_com_falhas", error_code: "fotos,encerramentos" }],
+  ]);
 });

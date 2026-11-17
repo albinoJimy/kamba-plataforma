@@ -1,0 +1,59 @@
+# Regras de alerta de Trust & Safety — KAM-200, criterio 3.
+#
+# Validado por `make obs-promtool`: `promtool check rules` (sintaxe) e
+# `promtool test rules` (comportamento, em `testes/kamba_trust_test.yml`).
+#
+# **Ficheiro proprio, e nao duas regras no `kamba.yml`**, porque a prosa daquele
+# conta as suas regras («8 regras neste ficheiro») e o `docs/observabilidade.md`
+# cita a mesma contagem. Duas regras la dentro tornavam falsas tres frases que
+# nenhum linter le.
+#
+# ## As series
+#
+# `ts_sancoes_total{passo,origem}`, do `packages/core-ts/src/trust/metricas.ts`,
+# servida pelo processo de lote do onboarding (`onboarding_lote` no
+# `prometheus.yml`), onde correm o consumidor, as varreduras e as decisoes da
+# fila. **Nasce a zero** em todo o dominio, pelo que o `increase` ve a primeira
+# ocorrencia sem o remedio do cabecalho do `kamba.yml` («serie que nasce a 1 nao
+# e serie que subiu»); o ensaio mede-o.
+#
+# **Sem tenant** (`OBS-I`): qual loja foi suspensa le-se da `ts_sanction`, por
+# quem tem papel para isso. O runbook diz como.
+#
+# ## Os dois numeros sao *proposta*
+#
+# A janela de 10 min da suspensao e o ritmo de 5 passos automaticos por hora da
+# escada nao foram calibrados: nao ha Piloto. A calibracao e a da politica de
+# risco (`POLITICA_DE_RISCO`, critério de saida do EPIC-09).
+
+groups:
+  - name: kamba-trust
+    interval: 30s
+    rules:
+      # Uma suspensao decidida por um revisor: a loja deixou de vender. P3 e nao
+      # mais: a decisao ja foi humana e com MFA, e o alerta existe para que a
+      # equipa saiba que aconteceu, nao para a reverter.
+      - alert: ts_suspensao_decidida
+        expr: 'increase(ts_sancoes_total{passo="suspensao"}[10m]) > 0'
+        for: 0m
+        labels:
+          severity: P3
+          componente: gov
+        annotations:
+          resumo: Uma loja foi suspensa por decisao de Trust & Safety.
+          qual_tenant: Le-se da platform.ts_sanction pelo lote; a metrica nao leva tenant (OBS-I).
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # A escada automatica (aviso e limitacao) a subir acima de um ritmo: ou ha
+      # um ataque em curso, ou a politica de risco esta mal calibrada e esta a
+      # limitar lojas honestas. As duas pedem um humano a olhar.
+      - alert: ts_escada_automatica_acima_do_ritmo
+        expr: 'sum(increase(ts_sancoes_total{origem="automatica"}[1h])) > 5'
+        for: 0m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: A escada automatica de Trust & Safety deu mais de 5 passos na ultima hora.
+          limite: O ritmo e proposta, sem calibracao.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md

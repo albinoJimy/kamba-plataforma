@@ -675,16 +675,18 @@ obs-promtool:
 	@# linha: com o `docker run` numa e a imagem na continuacao, ele ve um
 	@# lancador sem digest e o achado `lancador-nao-declarado` esta certo. E a
 	@# mesma forma do lancador do `mermaid_lint` neste ficheiro.
-	@# **Os tres ficheiros de regras numa chamada**, e nao um alvo por ficheiro:
+	@# **Os quatro ficheiros de regras numa chamada** (o `kamba-trust.yml` do
+	@# KAM-200 e o quarto), e nao um alvo por ficheiro:
 	@# o `promtool` aceita varios caminhos e e preciso que aceite, porque um
 	@# ficheiro de regras novo que ninguem acrescente aqui fica **sem validacao
 	@# nenhuma** e o `check rules` continua a dizer SUCCESS sobre os outros. Um
 	@# glob nao serve: ele expandia-se no *host* e os caminhos tem de ser os de
 	@# dentro do contentor (`/w/...`).
-	@docker run --rm --entrypoint promtool -v "$(ROOT)":/w prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /w/infra/compose/prometheus/regras/kamba.yml /w/infra/compose/prometheus/regras/kamba-slo.yml /w/infra/compose/prometheus/regras/kamba-manutencao.yml
+	@docker run --rm --entrypoint promtool -v "$(ROOT)":/w prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 check rules /w/infra/compose/prometheus/regras/kamba.yml /w/infra/compose/prometheus/regras/kamba-slo.yml /w/infra/compose/prometheus/regras/kamba-manutencao.yml /w/infra/compose/prometheus/regras/kamba-trust.yml
 	@echo "==> promtool: comportamento das regras (o que o check rules nao ve)"
-	@# **Cinco ficheiros de ensaio, e cada um com o seu `evaluation_interval`.**
-	@# E por isso que sao cinco e nao um: o `evaluation_interval` e por
+	@# **Seis ficheiros de ensaio, e cada um com o seu `evaluation_interval`.**
+	@# (O sexto e o `kamba_trust_test.yml`, do KAM-200.)
+	@# E por isso que sao varios e nao um: o `evaluation_interval` e por
 	@# ficheiro, e a janela de 30 dias do orcamento precisa de uma cadencia
 	@# grossa (30 min) enquanto as fronteiras dos alertas de *burn rate*
 	@# precisam de uma fina (1 min). Sao requisitos incompativeis no mesmo
@@ -695,7 +697,7 @@ obs-promtool:
 	@# `kamba-manutencao.yml` nao estava sob ensaio nenhum: po-lo a `vector(1)`
 	@# isentava toda a indisponibilidade nocturna e os outros ensaios ficavam
 	@# verdes. Medido pela revisao adversarial do KAM-082.
-	@docker run --rm --entrypoint promtool -v "$(ROOT)":/w prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 test rules /w/infra/compose/prometheus/regras/testes/kamba_test.yml /w/infra/compose/prometheus/regras/testes/kamba_slo_test.yml /w/infra/compose/prometheus/regras/testes/kamba_slo_burn_test.yml /w/infra/compose/prometheus/regras/testes/kamba_manutencao_test.yml /w/infra/compose/prometheus/regras/testes/kamba_slo_producao_test.yml
+	@docker run --rm --entrypoint promtool -v "$(ROOT)":/w prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038 test rules /w/infra/compose/prometheus/regras/testes/kamba_test.yml /w/infra/compose/prometheus/regras/testes/kamba_slo_test.yml /w/infra/compose/prometheus/regras/testes/kamba_slo_burn_test.yml /w/infra/compose/prometheus/regras/testes/kamba_manutencao_test.yml /w/infra/compose/prometheus/regras/testes/kamba_slo_producao_test.yml /w/infra/compose/prometheus/regras/testes/kamba_trust_test.yml
 
 ## compose-prod-egress: egress default-deny com dez destinos reais (KAM-076)
 compose-prod-egress:
