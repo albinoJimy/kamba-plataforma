@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **204 tickets atómicos (KAM-001 a KAM-204)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **205 tickets atómicos (KAM-001 a KAM-205)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -55,12 +55,12 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179 | 14 | 0–1 |
 | EPIC-05 Pagamentos e Billing | KAM-052 – KAM-060, KAM-175, KAM-197 | 11 | 0–1 |
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199 | 6 | 1 |
-| EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-204 | 15 | 0–1 |
+| EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201 | 24 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-204** | **204** | — |
+| **TOTAL** | **KAM-001 – KAM-205** | **205** | — |
 
 ### 3.2 Fases
 
@@ -256,7 +256,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-113 | Resposta a incidentes e notificação de violação de dados | chore | S | P0 | 1 | KAM-065, KAM-068 |
 | KAM-149 | `docs/seguranca/validar.py` aborta com a contagem do canon fixada | fix | S | P1 | 0 | KAM-065 |
 | KAM-189 | Achados P3/P4 do red-team do AGR sem dono natural: regras de entrada e tecto de resposta do modelo | fix | M | P1 | 1 | KAM-073 |
-| KAM-204 | `kid` estável por versão nos *tokens* de cliente e re-cifra dos existentes | fix | M | P1 | 1 | KAM-072, KAM-016 |
+| KAM-205 | `kid` estável por versão nos *tokens* de cliente e re-cifra dos existentes | fix | M | P1 | 1 | KAM-072, KAM-016 |
 
 ### EPIC-08 — Topologia e Operação
 
@@ -444,4 +444,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.67 | Novembro 2026 | **KAM-200** acrescentado ao **EPIC-09**, no PR do **KAM-097**, que o abre e não o implementa: é o credor das caixas que o KAM-097 deixa parciais — o processo que consome os sete tipos de evento com o efeito de T&S, o agendamento das varreduras e do fecho dos encerramentos, as métricas e os alertas de T&S, e as quatro fontes de sinal cuja regra existe e cujos factos não (preço por categoria, mudança de conta ou de NIF, correlação entre tenants por comprador, coincidência por HMAC). Depende do KAM-097 e do KAM-092 (a `transition_tenant`). **200** tickets. | Equipa KAMBÁ |
 | 1.68 | Novembro 2026 | **KAM-201** acrescentado ao **EPIC-09**, no PR do **KAM-092**, que o abre e não o implementa: é o credor das caixas que o KAM-092 deixa parciais — ligar ao TypeScript as portas da base (`advance_case` no `ServicoDeRevisao` e no `decidir` do KYC, o `amostrar` pelo processo de lote) e a invalidação da cache do CHR pelo `tenant.activated`. Depende do KAM-092. **201** tickets. | Equipa KAMBÁ |
 | 1.69 | Novembro 2026 | **KAM-199:** o §6 ganha a linha da **pesquisa híbrida**, que é o credor do que o fundador adiou para depois do Piloto a 2026-11-16 ([`ADR-L012`](../docs/adr/ADR-L012-pesquisa-no-piloto.md)): o modelo do `kamba-embed`, a calibração do limiar do `retrieve`, a coluna da dimensão, o p95, os 2 000 produtos com o fornecedor real, a fila de mortos persistida e o *eval-gate* na troca de modelo. Nenhum ticket novo e nenhuma contagem muda: o §6 é o que fica fora do backlog e o gatilho para o escrever. | Equipa KAMBÁ |
-| 1.70 | Novembro 2026 | **KAM-204** acrescentado ao **EPIC-07**, no PR do **KAM-072**, que o abre e não o implementa: é o credor do critério 4 do KAM-072, um defeito medido na revisão adversarial — o `kid` dos *tokens* de cliente é o rótulo posicional do `EnvSecretProvider`, e rodar a `kek_token_cliente` parte os *tokens* guardados. Pede `kid` estável por versão, compatibilidade com os criptogramas gravados com `actual`, a re-cifra dos existentes e o RB-K07 §3.7 a deixar de proibir a rotação. Depende do KAM-072 e do KAM-016, e entra no `Bloqueia` dos dois. **204** tickets; o §4 fica contíguo quando os dois números abaixo dele, reclamados por PRs abertos, fundirem. Número de versão provisório: a fila dá o definitivo na integração. | Equipa KAMBÁ |
+| 1.70 | Novembro 2026 | **KAM-205** acrescentado ao **EPIC-07**, no PR do **KAM-072**, que o abre e não o implementa: é o credor do critério 4 do KAM-072, um defeito medido na revisão adversarial — o `kid` dos *tokens* de cliente é o rótulo posicional do `EnvSecretProvider`, e rodar a `kek_token_cliente` parte os *tokens* guardados. Pede `kid` estável por versão, compatibilidade com os criptogramas gravados com `actual`, a re-cifra dos existentes e o RB-K07 §3.7 a deixar de proibir a rotação. Depende do KAM-072 e do KAM-016, e entra no `Bloqueia` dos dois. **205** tickets; o §4 fica contíguo quando os números abaixo dele, reclamados por PRs abertos, fundirem. Número de versão provisório: a fila dá o definitivo na integração. | Equipa KAMBÁ |

@@ -178,7 +178,7 @@ O `specs/EPIC-08` (bloco KAM-079, critério 6 e DoD 2) põe este procedimento no
 a KEK nova, a autenticação falha e o *token* perde-se — e um *token* de cliente só volta
 com o dono a repetir o Embedded Signup. Achado da revisão adversarial do KAM-072; a
 correcção é pôr o `kid` dentro do valor da KEK (`<kid>:<base64>`, como o
-`identity/chaves.ts`) e o credor é o **KAM-204**, porque o código é do KAM-016.
+`identity/chaves.ts`) e o credor é o **KAM-205**, porque o código é do KAM-016.
 
 Com um `kid` estável, a ordem seria:
 
@@ -225,5 +225,5 @@ RB-K01 ou o RB-K02, e comunica-se por esses.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial; credor o KAM-204); o credor da divergência do destino passa a ser o fundador; o §0 e o §4 dizem quando a rotação fica no `audit_log` (revisão `0066`) | KAM-072 |
+| 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial; credor o KAM-205); o credor da divergência do destino passa a ser o fundador; o §0 e o §4 dizem quando a rotação fica no `audit_log` (revisão `0066`) | KAM-072 |
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): os dois caminhos e a ordem de incidente, a janela por segredo (com os 7 dias da Meta no `meta_app_secret`), o «recriar e não reiniciar», o procedimento proposto da cópia offline da passphrase do backup, e as faltas medidas no §0 — sem acção de rotação no `audit_log`, sem data de última rotação no inventário | KAM-083 |
