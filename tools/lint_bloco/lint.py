@@ -321,7 +321,11 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: **O 133.o e o do KAM-058**, medido na arvore integrada com a `publico/main`
 #: em `8d507a9d` (o #204 do KAM-201 ja fundido): **133 medidos**, e `133 // 2`
 #: sao 66. Fica em 66, e o 134.o sobe-o para 67.
-MINIMO_DE_BLOCOS_MEDIDOS = 66
+#:
+#: **O 134.o e o do KAM-117**, medido na arvore integrada com a `publico/main`
+#: em `8b8f2057` (o #206 do KAM-058 ja fundido): **134 medidos**, e `134 // 2`
+#: sao 67. Sobe para 67, que serve ate aos 135.
+MINIMO_DE_BLOCOS_MEDIDOS = 67
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

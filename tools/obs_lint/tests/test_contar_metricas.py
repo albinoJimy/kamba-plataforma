@@ -198,6 +198,11 @@ class TestRepositorio(unittest.TestCase):
         # registo dele. Tem um eixo de dois nomes (`idx_query_ms{ramo,modo}`),
         # que a biblioteca do AGR nao sabe escrever.
         "libs/py-core/src/kamba_core/idx/metricas.py",
+        # Nasceu com o KAM-117 (KPIs de onboarding, churn e dormentes). Tres
+        # nomes, todos *gauges* e nenhum com etiqueta de tenant, e **nao
+        # servidos**, pela razao do `backup`: os valores saem do *job*
+        # `churn-daily`, que corre em lote e nao tem `/metrics`.
+        "libs/py-core/src/kamba_core/kpis/metricas.py",
         "libs/py-core/src/kamba_core/ten/metricas.py",
         "packages/core-ts/src/agr/metricas.ts",
         "packages/core-ts/src/avisos/metricas.ts",

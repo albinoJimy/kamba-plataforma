@@ -2888,6 +2888,51 @@ INVENTARIO["v_onboarding_kpis_agregado"] = {
     "saga_primeira_tentativa_ratio": ("numeric", SIM, None, "nao"),
 }
 
+#: Os episodios de sinal de churn e de dormente (KAM-117, revisao dos KPIs de
+#: churn). **Nenhum dado pessoal**: um tenant, um sinal de dominio fechado e
+#: instantes. O orcamento LLM e uma marca temporal, nao um valor.
+INVENTARIO["churn_signal_episode"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "sinal": ("text", NAO, None, "nao — dominio fechado de seis"),
+    "aberto_at": ("timestamp with time zone", NAO, None, "nao"),
+    "fechado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "ensaio": ("boolean", NAO, None, "nao"),
+    "avisado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "orcamento_zerado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "orcamento_reposto_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
+INVENTARIO["v_churn_signals"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "sinal": ("text", SIM, None, "nao"),
+    "aberto_at": ("timestamp with time zone", SIM, None, "nao"),
+    "ensaio": ("boolean", SIM, None, "nao"),
+}
+
+INVENTARIO["v_tenant_dormente"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "aberto_at": ("timestamp with time zone", SIM, None, "nao"),
+    "avisado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "orcamento_zerado_at": ("timestamp with time zone", SIM, None, "nao"),
+    "orcamento_a_zero": ("boolean", SIM, None, "nao"),
+    "ensaio": ("boolean", SIM, None, "nao"),
+}
+
+#: Por semana de activacao e acumulado (KAM-117). So contagens, medianas e
+#: razoes: nenhuma coluna aponta para um caso, um tenant ou uma pessoa.
+INVENTARIO["v_onboarding_kpis_semanal"] = {
+    "acumulado": ("boolean", SIM, None, "nao"),
+    "semana": ("date", SIM, None, "nao — segunda-feira da semana, em Luanda"),
+    "casos_activados": ("bigint", SIM, None, "nao — uma contagem"),
+    "owner_active_minutos_mediana": ("double precision", SIM, None, "nao"),
+    "dias_calendario_mediana": ("double precision", SIM, None, "nao"),
+    "sem_intervencao_ratio": ("numeric", SIM, None, "nao"),
+    "saga_primeira_tentativa_ratio": ("numeric", SIM, None, "nao"),
+    "fila_casos": ("bigint", SIM, None, "nao — uma contagem"),
+    "fila_no_sla_ratio": ("numeric", SIM, None, "nao"),
+}
+
 INVENTARIO["v_tenant_cost_daily"] = {
     "tenant_id": ("uuid", SIM, None, "nao"),
     "dia": ("date", SIM, None, "nao — o dia no fuso do tenant, sem hora"),
@@ -3594,6 +3639,9 @@ class TestInventario(ComBase):
                         "commission_accruals_encomenda_do_mesmo_tenant_fk",
                         "billing_ops_approvals_tenant_fk",
                         "billing_ops_approvals_charge_fk",
+                        # KAM-117 (revisao dos KPIs de churn): o episodio aponta
+                        # o tenant, sem cascata.
+                        "churn_signal_episode_tenant_fk",
                         # KAM-092 (revisao dos eventos do tenant): o gate aponta
                         # o caso (composta com o `tenant_id`) e o registo aponta
                         # o tenant, os dois sem cascata — um registo de estados
@@ -3903,6 +3951,10 @@ class TestInventario(ComBase):
         """
         parciais = {
             "contact_endpoints_telefone_uq": True,
+            # KAM-117: um episodio **aberto** por tenant e sinal. Perder o
+            # `UNIQUE` deixava duas corridas abrir dois, e o `ON CONFLICT` do
+            # *job* deixava de ter arbitro.
+            "churn_signal_episode_aberto_uq": True,
             "contacts_phone_hmac_uq": True,
             "hmac_key_versions_actual_uq": True,
             "hmac_key_versions_anterior_uq": True,
@@ -4367,6 +4419,12 @@ class TestInventario(ComBase):
                     "billing_ops_approvals_pessoa_uq",
                     "billing_ops_approvals_pkey",
                     "billing_ops_approvals_valor_ck",
+                    "churn_signal_episode_aviso_ck",
+                    "churn_signal_episode_fecho_ck",
+                    "churn_signal_episode_orcamento_ck",
+                    "churn_signal_episode_pkey",
+                    "churn_signal_episode_reposicao_ck",
+                    "churn_signal_episode_sinal_ck",
                     "commission_accruals_base_ck",
                     "commission_accruals_calculo_ck",
                     "commission_accruals_evento_uq",
