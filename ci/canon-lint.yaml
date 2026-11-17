@@ -558,6 +558,20 @@ dominios_historicos:
       houver linhas llm.orcamento_* escritas, porque o audit_log e append-only e
       nenhum papel tem DELETE. Renumerar a revisao e mudar tambem o caminho
       desta entrada.
+  - revisao: "db/migrations/versions/0065_confianca_gradual.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-096"
+    data: "2026-11-17"
+    razao: >-
+      A revisao da confianca gradual (KAM-096) acrescenta ao dominio a accao
+      trust.tecto, cada alteracao do nivel ou do tecto de um tenant, e o
+      dicionario §3.2 passa a declarar dezassete (emenda 1.106). O upgrade
+      escreve as dezassete; o downgrade repoe as dezasseis da 0063 (KAM-117),
+      que e o que a base passa a ter quando se desce, e e essa declaracao que
+      esta entrada cobre. O passo de descida recusa-se se houver linhas
+      trust.tecto escritas, porque o audit_log e append-only e nenhum papel tem
+      DELETE. Renumerar a revisao e mudar tambem o caminho desta entrada.
   - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"
     tabela: "tenant_destinations"
     coluna: "purpose"

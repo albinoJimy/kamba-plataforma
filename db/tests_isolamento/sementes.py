@@ -2063,6 +2063,17 @@ SEM_RECEITA_COM_RAZAO = {
     # ligada e forcada.
     ("platform", "ts_signal"),
     ("platform", "ts_sanction"),
+    # KAM-096: o nivel de confianca. **A aplicacao nao o escreve**: so le, por
+    # coluna, o tecto do seu tenant, e quem escreve e o `kamba_batch`, com
+    # `BYPASSRLS`. E uma receita nao tinha onde guardar o canario sem pagar o K1
+    # inteiro: o *trigger* `trust_level_guardar` so deixa nascer a linha com o
+    # caso de onboarding do tenant e uma verificacao `k1_ok`, e as colunas de
+    # texto sao dominios fechados ou tem forma por `CHECK`. **A politica mede-se
+    # noutro sitio**: o `TestIsolamento` do `db/tests/test_confianca_schema.py`
+    # le o nivel pela ligacao da aplicacao com o contexto do tenant dono (uma
+    # linha), com o de outro tenant (zero) e sem contexto (zero), e mede a RLS
+    # ligada e forcada e o `42501` da aplicacao a escrever.
+    ("platform", "trust_level"),
     # KAM-095: a lista de espera, pela razao da fila de revisao. **A aplicacao
     # nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na tabela, e quem
     # escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita nao tinha onde

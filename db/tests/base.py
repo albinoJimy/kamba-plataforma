@@ -667,6 +667,17 @@ TABELAS_KPIS_DE_CHURN = ("churn_signal_episode",)
 #: revisao acrescenta tambem a coluna `conversations.is_test`.
 TABELAS_CATALOGO_MINIMO = ("onboarding_smoke",)
 
+#: O que a revisao da confianca gradual (KAM-096) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0065`) e da integracao, pela ordem de quem funde.
+#:
+#: Uma tabela de tenant, a `trust_level`: o nivel e o tecto por pedido, uma
+#: linha por tenant, com RLS `FORCE` pela `tenant_iso` e FK para `tenants`. So o
+#: `kamba_batch` escreve; o `kamba_app` le as colunas do tecto do seu tenant,
+#: que e o que o *trigger* da cobranca precisa. Ninguem apaga.
+TABELAS_CONFIANCA = ("trust_level",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -681,20 +692,29 @@ TABELAS = tuple(
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
         + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
-        + TABELAS_CATALOGO_MINIMO
+        + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao anterior a da
+#: confianca gradual (KAM-096).
+#:
+#: O `downgrade` da revisao da confianca leva a base para aqui. **Deriva do
+#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
+#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
+#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e
+#: a do catalogo minimo (KAM-094).
+TABELAS_ANTES_DA_CONFIANCA = tuple(sorted(set(TABELAS) - set(TABELAS_CONFIANCA)))
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: catalogo minimo (KAM-094).
 #:
-#: O `downgrade` dessa revisao leva a base para aqui. **Deriva do `TABELAS`**,
-#: por ser o topo da cadeia: quem acrescentar uma revisao a seguir poe a sua
-#: aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao pelo numero,
-#: pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e a dos KPIs de
-#: churn (KAM-117).
+#: O `downgrade` dessa revisao leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DA_CONFIANCA` desde o KAM-096, que pos a sua revisao no topo.
+#: Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a dos KPIs de churn (KAM-117).
 TABELAS_ANTES_DO_CATALOGO_MINIMO = tuple(
-    sorted(set(TABELAS) - set(TABELAS_CATALOGO_MINIMO))
+    sorted(set(TABELAS_ANTES_DA_CONFIANCA) - set(TABELAS_CATALOGO_MINIMO))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a dos

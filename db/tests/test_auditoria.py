@@ -104,6 +104,11 @@ ACCOES = (
     # linhas escritas.
     "llm.orcamento_zerado",
     "llm.orcamento_reposto",
+    # A decima setima, da revisao da confianca gradual (KAM-096): cada
+    # alteracao do nivel ou do tecto de um tenant, escrita pelo *trigger*
+    # `trust_level_auditado`. A mesma extensao por migracao, com a mesma recusa
+    # no `downgrade` se houver linhas escritas.
+    "trust.tecto",
 )
 
 #: O dominio de `actor_type`.

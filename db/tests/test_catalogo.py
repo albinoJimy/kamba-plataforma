@@ -936,6 +936,11 @@ class TestConvencoes(ComBase):
                 # referencia por chave estrangeira: o que liga esta linha a de
                 # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
                 ("tool_idempotency", "key", "text", None),
+                # KAM-096 (revisao da confianca gradual): o nivel tem por chave
+                # o proprio tenant, sem omissao — uma linha por tenant, e e a
+                # chave do `ON CONFLICT` do recalculo. Entre as de ferramentas
+                # e as de T&S («too» < «tru» < «ts_»).
+                ("trust_level", "tenant_id", "uuid", None),
                 # KAM-097: as duas de T&S, `uuid` gerada pela regra geral, depois
                 # das de ferramentas («too» < «ts_»).
                 ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
@@ -1450,7 +1455,11 @@ class TestConvencoes(ComBase):
              # `onboarding_smoke_tenant_idx`: o `onboarding_smoke_caso_idx`
              # comeca pelo caso. Sem FK para `tenants`, pela razao da lista de
              # espera: o caso tem o tenant pre-alocado.
-             "onboarding_smoke"},
+             "onboarding_smoke",
+             # KAM-096 (revisao da confianca gradual). O `tenant_id` **e** a
+             # chave primaria, que e o indice que a serve. **Com** FK para
+             # `tenants`: so tem nivel um tenant que existe.
+             "trust_level"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1664,6 +1673,11 @@ class TestConvencoes(ComBase):
         ("v_h12", "custo_aoa_minor"),
         ("v_h12", "preco_teste_minor"),
         ("v_h12", "margem_minor"),
+        # KAM-096, o tecto de confianca. **Nao e saldo**: e o valor maximo de
+        # **um** pedido que o tenant pode cobrar no nivel em que esta, um
+        # limite e nao uma quantia de ninguem. Nao se soma no tempo nem a
+        # plataforma detem nada por causa dele (ADR-004).
+        ("trust_level", "tecto_pedido_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -2113,7 +2127,10 @@ class TestConvencoes(ComBase):
         # **103** desde a revisao do catalogo minimo (KAM-094): a
         # `onboarding_smoke_caso_fk`, composta `(onboarding_id, tenant_id)` para
         # o caso, pela razao da lista de espera.
-        self.assertEqual(len(linhas), 103)
+        #
+        # **104** desde a revisao da confianca gradual (KAM-096): a
+        # `trust_level_tenant_fk`, simples para `tenants(id)`.
+        self.assertEqual(len(linhas), 104)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

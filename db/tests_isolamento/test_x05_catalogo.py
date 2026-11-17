@@ -403,6 +403,10 @@ class TestCatalogoReal(ComBase):
                 # sementes**, ao contrario da `tool_audit`: nao e *append-only*
                 # e apaga-se com `DELETE`.
                 ("platform", "tool_idempotency", "tenant_id"),
+                # KAM-096: o nivel de confianca, entre a barreira de
+                # idempotencia e T&S («too» < «tru» < «ts_»). **Sem receita de
+                # sementes** (ver `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "trust_level", "tenant_id"),
                 # KAM-097: os sinais e as sancoes de T&S, entre a barreira de
                 # idempotencia e o livro de uso («too» < «ts_» < «usa»), a
                 # sancao antes do sinal («sa» < «si»).
@@ -784,6 +788,8 @@ class TestCatalogoReal(ComBase):
                 # de outro tenant — que seria desduplicar a encomenda de um
                 # cliente contra o carrinho de outro.
                 ("tool_idempotency", "tenant_iso", "ALL", "{public}"),
+                # KAM-096: o nivel de confianca, uma politica so, a do `db/rls.py`.
+                ("trust_level", "tenant_iso", "ALL", "{public}"),
                 # KAM-097: T&S, pela mesma ordem da lista de cima.
                 ("ts_sanction", "tenant_iso", "ALL", "{public}"),
                 ("ts_signal", "tenant_iso", "ALL", "{public}"),
@@ -963,6 +969,8 @@ class TestCatalogoReal(ComBase):
              # `tool_audit` porque `a` vem antes de `i`, e antes da
              # `usage_ledger` porque `t` vem antes de `u`.
              "tool_audit", "tool_idempotency",
+             # KAM-096: o nivel de confianca («too» < «tru» < «ts_»).
+             "trust_level",
              # KAM-097: os sinais e as sancoes de T&S («too» < «ts_» < «usa»).
              "ts_sanction", "ts_signal",
              "usage_ledger",
