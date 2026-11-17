@@ -1,0 +1,355 @@
+"""A fase `exportacao` do off-boarding (KAM-098, criterio 4).
+
+O pacote do titular: clientes, encomendas, conversas, consentimentos, a lista
+dos ficheiros no STO e o catalogo (quando ha fonte), em **JSON e CSV**, com um
+manifesto que leva o `sha256` de cada ficheiro, num ZIP reproduzivel que fica no
+STO. A ligacao ao titular vale 24 h (*proposta*) e cada geracao e auditada; uma
+geracao nova faz-se a pedido.
+
+## As consultas correm com o papel da aplicacao e o contexto do tenant
+
+O bloco: «consulta sob `app.tenant_id`». A ligacao e a do `kamba_app`, a
+transaccao e o `tenant_guard.tx` (que define o contexto), e **cada consulta
+filtra tambem pelo tenant** no texto: com a RLS `FORCE`, a politica `tenant_iso`
+ja da zero linhas de outro tenant, e o predicado no texto e a segunda barreira,
+a que vale se alguem correr isto com o papel errado (o `kamba_batch` contorna a
+RLS). O isolamento mede-se pelo ensaio cruzado (exportacao de A sem nada de B).
+
+## O que nao sai, e e lacuna declarada
+
+* **O telefone e o BSUID dos clientes.** Vivem cifrados no `contact_endpoints`,
+  que so o `kamba_identity` le, e decifra-los exige a DEK — a mesma lacuna da
+  exportacao do titular do KAM-070, com o mesmo credor. O bloco pede «telefones
+  decifrados so para campos exportaveis, com auditoria»: fica por fazer.
+* **O catalogo**, quando nao ha fonte: vive na Medusa (D3, KAM-042), e nao ha
+  adaptador. Com `fonte_do_catalogo`, entra; sem ela, o manifesto diz
+  `indisponivel` com a razao, em vez de um ficheiro vazio que parecia um
+  catalogo sem produtos.
+* **Os ficheiros em si**: o pacote leva a **lista** dos objectos do tenant no
+  STO (chave e tamanho), e nao os bytes — um pacote com as fotos todas dentro
+  nao cabia num pedido, e cada objecto continua a ter `retain_until` proprio.
+
+## A suspensao nao bloqueia a exportacao (KAM-058, criterio 7)
+
+Esta funcao **nao le o estado do tenant**: exporta de um tenant `ativo`,
+`suspenso` ou `encerrado`, porque o que a autoriza e o pedido verificado e os
+pendentes fechados, e nao o estado. E o que o encerramento por decisao de T&S
+(`suspenso -> encerrado`) precisa, e e o que o KAM-058 deixou por ensaiar.
+"""
+
+from __future__ import annotations
+
+import base64
+import csv
+import hashlib
+import hmac
+import io
+import json
+import zipfile
+from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime, timedelta
+from typing import Any, Final
+
+from .. import tenant_guard
+from ..direitos.exportacao import CLASSE_DA_EXPORTACAO, documento, resumo
+from ..storage.chave import nova_chave
+from ..storage.port import TTL_MAXIMO_S, Ctx, ObjectMeta, ObjectRef, StorageProvider
+from .contrato import (
+    FaseForaDeOrdem,
+    LigacaoRecusada,
+    auditar,
+    exigir_concluida,
+    exigir_pedido_vivo,
+    ler_fases,
+    marcar,
+)
+
+#: A versao do manifesto, em SemVer (bloco: «formato estruturado estavel»). Sobe
+#: o *major* quando um campo muda de sentido ou sai; o *minor* quando entra um.
+VERSAO_DO_MANIFESTO: Final = "1.0.0"
+
+#: Quanto vale a ligacao ao titular. *Proposta* (bloco: «24 h»).
+VALIDADE_DA_LIGACAO: Final = timedelta(hours=24)
+
+#: O instante dentro do ZIP. Fixo, para o mesmo conteudo dar o mesmo `sha256`.
+_INSTANTE_DO_ZIP: Final = (1980, 1, 1, 0, 0, 0)
+
+#: As coleccoes que vem da base, pela ordem do manifesto, com a consulta de cada
+#: uma. **Cada consulta filtra pelo tenant no texto** (ver a nota do modulo), e
+#: um ensaio itera este mapa e exige o predicado em todas.
+COLECCOES: Final[Mapping[str, str]] = {
+    "clientes": """
+      SELECT contact_id, criado_at, erased_at, merged_into, merged_at
+        FROM platform.contacts
+       WHERE tenant_id = %s::uuid
+       ORDER BY criado_at, contact_id
+    """,
+    "encomendas": """
+      SELECT id, contact_id, numero_publico, estado, total_minor, currency,
+             lines_snapshot, entrega_modo, paga_at, paga_via, entregue_at,
+             deleted_at, criado_at
+        FROM platform.orders_mirror
+       WHERE tenant_id = %s::uuid
+       ORDER BY criado_at, id
+    """,
+    "conversas": """
+      SELECT id, contact_id, channel_id, mode, last_inbound_at, window_expires_at
+        FROM platform.conversations
+       WHERE tenant_id = %s::uuid
+       ORDER BY id
+    """,
+    "consentimentos": """
+      SELECT contact_id, purpose, accepted, text_version, ocorrido_em
+        FROM platform.consent_actual
+       WHERE tenant_id = %s::uuid
+       ORDER BY contact_id, purpose
+    """,
+}
+
+#: A razao do catalogo em falta, quando nao ha fonte.
+RAZAO_SEM_CATALOGO: Final = "o catalogo vive na Medusa e nao ha adaptador (D3, KAM-042)"
+
+#: A fonte do catalogo: o tenant, e as linhas. Nenhuma implementacao ainda.
+FonteDoCatalogo = Callable[[str], Sequence[Mapping[str, Any]]]
+AbrirLigacao = Callable[[], Any]
+
+
+def _linhas(cursor: Any) -> list[dict[str, Any]]:
+    colunas = [d[0] for d in cursor.description]
+    return [dict(zip(colunas, linha, strict=True)) for linha in cursor.fetchall()]
+
+
+def _valor_csv(valor: Any) -> str:
+    if valor is None:
+        return ""
+    if isinstance(valor, (dict, list)):
+        return json.dumps(valor, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(valor, datetime):
+        return valor.isoformat()
+    if isinstance(valor, (bytes, bytearray, memoryview)):
+        return bytes(valor).hex()
+    return str(valor)
+
+
+def _csv(linhas: Sequence[Mapping[str, Any]]) -> bytes:
+    colunas = sorted({c for linha in linhas for c in linha})
+    saida = io.StringIO()
+    escritor = csv.writer(saida, lineterminator="\n")
+    escritor.writerow(colunas)
+    for linha in linhas:
+        escritor.writerow([_valor_csv(linha.get(c)) for c in colunas])
+    return saida.getvalue().encode("utf-8")
+
+
+def montar_pacote(
+    tenant_id: str,
+    coleccoes: Mapping[str, Sequence[Mapping[str, Any]]],
+    objectos: Sequence[ObjectRef],
+    gerado_at: datetime,
+    *,
+    indisponiveis: Mapping[str, str] | None = None,
+) -> tuple[bytes, dict[str, Any]]:
+    """O ZIP e o manifesto. Puro e reproduzivel: o mesmo conteudo da o mesmo `sha256`.
+
+    Cada coleccao sai em `<nome>.json` (documento canonico) e `<nome>.csv`; a
+    lista dos objectos do STO em `ficheiros.json`. O manifesto leva, por
+    ficheiro, o nome, o `sha256` e os bytes, e por coleccao o numero de linhas.
+    O `sha256` do pacote calcula quem o recebe sobre o ZIP inteiro; o do
+    manifesto vai no `resultado` da fase.
+    """
+    ficheiros: dict[str, bytes] = {}
+    contagens: dict[str, int] = {}
+    for nome, linhas in coleccoes.items():
+        ficheiros[f"{nome}.json"] = documento({"coleccao": nome, "linhas": list(linhas)})
+        ficheiros[f"{nome}.csv"] = _csv(linhas)
+        contagens[nome] = len(linhas)
+    lista = [{"chave": str(o.key), "bytes": o.tamanho} for o in sorted(objectos, key=lambda o: str(o.key))]
+    ficheiros["ficheiros.json"] = documento({"coleccao": "ficheiros", "linhas": lista})
+    contagens["ficheiros"] = len(lista)
+    manifesto = {
+        "versao": VERSAO_DO_MANIFESTO,
+        "tenant_id": tenant_id,
+        "gerado_at": gerado_at.isoformat(),
+        "coleccoes": contagens,
+        "indisponiveis": [
+            {"coleccao": c, "razao": r} for c, r in sorted((indisponiveis or {}).items())
+        ],
+        "ficheiros": [
+            {"nome": n, "sha256": resumo(b), "bytes": len(b)} for n, b in sorted(ficheiros.items())
+        ],
+    }
+    corpo = io.BytesIO()
+    with zipfile.ZipFile(corpo, "w", compression=zipfile.ZIP_DEFLATED) as zipado:
+        for nome, conteudo in [("manifesto.json", documento(manifesto)), *sorted(ficheiros.items())]:
+            info = zipfile.ZipInfo(nome, date_time=_INSTANTE_DO_ZIP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            zipado.writestr(info, conteudo)
+    return corpo.getvalue(), manifesto
+
+
+def exportar(
+    abrir_batch: AbrirLigacao,
+    abrir_app: AbrirLigacao,
+    tenant_id: str,
+    armazenamento: StorageProvider,
+    agora: datetime,
+    *,
+    fonte_do_catalogo: FonteDoCatalogo | None = None,
+) -> dict[str, Any]:
+    """Gera o pacote do tenant e conclui a fase `exportacao` (uma geracao nova a cada chamada).
+
+    Exige o pedido vivo e os pendentes concluidos («sem pendentes, a exportacao
+    arranca»), e recusa depois da purga (ja nao ha o que exportar). Devolve a
+    referencia do pacote, o `sha256` do pacote e o do manifesto.
+    """
+    tenant_id = tenant_guard.normalizar_tenant(tenant_id)
+
+    def antes(cursor: Any) -> Any:
+        fases = ler_fases(cursor, tenant_id)
+        exigir_pedido_vivo(fases, "exportacao")
+        exigir_concluida(fases, "pendentes", "exportacao")
+        if fases["purga"].estado == "concluida":
+            raise FaseForaDeOrdem("a fase exportacao nao pode correr: a purga ja correu")
+        return fases["purga"].prazo_at
+
+    expira = _em_batch(abrir_batch, "offboarding_exportacao", antes)
+
+    ligacao = abrir_app()
+    try:
+        with tenant_guard.tx(ligacao, tenant_id) as cursor:
+            coleccoes: dict[str, list[dict[str, Any]]] = {}
+            for nome, sql in COLECCOES.items():
+                cursor.execute(sql, (tenant_id,))
+                coleccoes[nome] = _linhas(cursor)
+    finally:
+        ligacao.close()
+
+    indisponiveis: dict[str, str] = {}
+    if fonte_do_catalogo is None:
+        indisponiveis["catalogo"] = RAZAO_SEM_CATALOGO
+    else:
+        coleccoes["catalogo"] = [dict(linha) for linha in fonte_do_catalogo(tenant_id)]
+
+    ctx = Ctx(tenant_id)
+    objectos = [
+        o for o in armazenamento.list(ctx, f"t/{tenant_id}/")
+        # Os pacotes de geracoes anteriores nao entram no seguinte.
+        if f"/{CLASSE_DA_EXPORTACAO}/" not in str(o.key)
+    ]
+    pacote, manifesto = montar_pacote(
+        tenant_id, coleccoes, objectos, agora, indisponiveis=indisponiveis
+    )
+    ref = armazenamento.put(
+        ctx,
+        nova_chave(ctx, CLASSE_DA_EXPORTACAO, agora),
+        pacote,
+        # O pacote nao sobrevive a purga: expira no prazo dela.
+        ObjectMeta("application/zip", CLASSE_DA_EXPORTACAO, expira),
+    )
+    sha_pacote = resumo(pacote)
+    sha_manifesto = resumo(documento(manifesto))
+
+    def depois(cursor: Any) -> int:
+        fases = ler_fases(cursor, tenant_id)
+        anterior = fases["exportacao"].resultado
+        geracao = int(anterior.get("geracoes", 0)) + 1
+        marcar(cursor, tenant_id, "exportacao", "concluida", {
+            "geracoes": geracao,
+            "versao_do_manifesto": VERSAO_DO_MANIFESTO,
+            "sha256": sha_pacote,
+            "manifesto_sha256": sha_manifesto,
+            "chave": str(ref.key),
+            "gerado_at": agora.isoformat(),
+        })
+        auditar(cursor, tenant_id, "exportacao", f"geracao:{geracao}:{sha_pacote}")
+        return geracao
+
+    geracao = _em_batch(abrir_batch, "offboarding_exportacao", depois)
+    return {
+        "ref": ref,
+        "sha256": sha_pacote,
+        "manifesto_sha256": sha_manifesto,
+        "geracao": geracao,
+        "manifesto": manifesto,
+    }
+
+
+def _em_batch(abrir: AbrirLigacao, job: str, trabalho: Callable[[Any], Any]) -> Any:
+    ligacao = abrir()
+    try:
+        with tenant_guard.tx_batch(ligacao, job) as cursor:
+            return trabalho(cursor)
+    finally:
+        ligacao.close()
+
+
+# ------------------------------------------------------------------ a ligacao
+
+
+def _b64(dados: bytes) -> str:
+    return base64.urlsafe_b64encode(dados).rstrip(b"=").decode("ascii")
+
+
+def _de_b64(texto: str) -> bytes:
+    return base64.urlsafe_b64decode(texto + "=" * (-len(texto) % 4))
+
+
+def ligacao_assinada(chave_hmac: bytes, tenant_id: str, chave_do_objecto: str, agora: datetime) -> str:
+    """A ligacao de 24 h ao pacote: um *token* HMAC-SHA256 com o tenant, o objecto e a validade.
+
+    **Nao e o URL do STO**, que o `sign_url` limita a `TTL_MAXIMO_S` (5 min) e
+    bem: o *token* e o que o titular guarda por 24 h, e cada abertura assina um
+    URL novo de 5 min (`abrir_ligacao`). Gerar outra ligacao e chamar isto outra
+    vez; a anterior continua ate expirar.
+    """
+    if len(chave_hmac) < 32:
+        raise ValueError("a chave da ligacao tem pelo menos 32 bytes")
+    corpo = documento({
+        "t": tenant_guard.normalizar_tenant(tenant_id),
+        "k": chave_do_objecto,
+        "e": int((agora + VALIDADE_DA_LIGACAO).timestamp()),
+    })
+    mac = hmac.new(chave_hmac, corpo, hashlib.sha256).digest()
+    return f"{_b64(corpo)}.{_b64(mac)}"
+
+
+def abrir_ligacao(
+    chave_hmac: bytes,
+    token: str,
+    tenant_do_pedido: str,
+    agora: datetime,
+    armazenamento: StorageProvider,
+) -> str:
+    """O URL do STO para um *token* valido; `LigacaoRecusada` (403) para todos os outros.
+
+    Recusa, sem dizer qual das razoes: a assinatura nao confere, o *token* e de
+    outro tenant, ou expirou. Dizer qual ensinava a quem forja o que mudar.
+    """
+    try:
+        corpo_b64, mac_b64 = token.split(".", 1)
+        corpo, mac = _de_b64(corpo_b64), _de_b64(mac_b64)
+        esperado = hmac.new(chave_hmac, corpo, hashlib.sha256).digest()
+        if not hmac.compare_digest(mac, esperado):
+            raise LigacaoRecusada("ligacao recusada")
+        dados = json.loads(corpo)
+        tenant = tenant_guard.normalizar_tenant(tenant_do_pedido)
+        if dados["t"] != tenant or int(dados["e"]) <= int(agora.timestamp()):
+            raise LigacaoRecusada("ligacao recusada")
+    except LigacaoRecusada:
+        raise
+    except Exception as erro:  # noqa: BLE001 — um token ilegivel e um 403, nao um 500
+        raise LigacaoRecusada("ligacao recusada") from erro
+    return armazenamento.sign_url(Ctx(tenant), ObjectRef(dados["k"], 0), ttl_seconds=TTL_MAXIMO_S)
+
+
+__all__ = [
+    "COLECCOES",
+    "RAZAO_SEM_CATALOGO",
+    "VALIDADE_DA_LIGACAO",
+    "VERSAO_DO_MANIFESTO",
+    "abrir_ligacao",
+    "exportar",
+    "ligacao_assinada",
+    "montar_pacote",
+]

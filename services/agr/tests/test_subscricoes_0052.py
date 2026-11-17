@@ -118,17 +118,24 @@ class TestRevisaoContraORegisto(unittest.TestCase):
         self.assertNotEqual(da_revisao, do_registo)
 
 
-#: A revisao de dados do consumidor do CHR (KAM-201) e a sua declaracao.
-SUFIXO_DO_CHR = "_subscricao_do_chr.py"
+#: As revisoes que escrevem linhas do consumidor do CHR: a da activacao
+#: (KAM-201) e a do off-boarding (KAM-098), que lhe acrescenta a suspensao e o
+#: encerramento. A declaracao e uma so, o `registry/chr.yaml`.
+SUFIXOS_DO_CHR = ("_subscricao_do_chr.py", "_offboarding.py")
 
 
 def linhas_do_chr() -> list[tuple[str, str, str, str, str]]:
-    [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DO_CHR}"))
-    arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
-    for no in arvore.body:
-        if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
-            return [tuple(linha) for linha in ast.literal_eval(no.value)]
-    raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+    linhas: list[tuple[str, str, str, str, str]] = []
+    for sufixo in SUFIXOS_DO_CHR:
+        [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{sufixo}"))
+        arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
+        for no in arvore.body:
+            if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
+                linhas.extend(tuple(linha) for linha in ast.literal_eval(no.value))
+                break
+        else:
+            raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+    return linhas
 
 
 class TestRevisaoDoChrContraORegisto(unittest.TestCase):
@@ -152,6 +159,20 @@ class TestRevisaoDoChrContraORegisto(unittest.TestCase):
         fonte = (RAIZ / "packages" / "core-ts" / "src" / "chr" / "activacao.ts").read_text(encoding="utf-8")
         self.assertIn('export const CONSUMIDOR_DO_CHR = "chr";', fonte)
         self.assertEqual({c for c, *_ in linhas_do_chr()}, {"chr"})
+
+    def test_o_efeito_trata_os_tipos_subscritos(self) -> None:
+        """A terceira fonte: o efeito do CHR esquece o tenant em cada tipo subscrito.
+
+        Um tipo subscrito que o efeito nao conhecesse ia a DLQ em cada entrega,
+        e a *cache* continuava com o estado velho ate ao TTL (KAM-098).
+        """
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "chr" / "activacao.ts").read_text(encoding="utf-8")
+        inicio = fonte.index("export const TIPOS_QUE_ESQUECEM_O_TENANT")
+        lista = fonte[inicio : fonte.index("];", inicio)]
+        for _consumer, tipo, *_ in linhas_do_chr():
+            with self.subTest(tipo=tipo):
+                self.assertTrue(f'"{tipo}"' in lista or tipo == "tenant.activated", tipo)
+        self.assertEqual(len(linhas_do_chr()), 3)
 
     def test_a_finalidade_esta_nas_do_contrato(self) -> None:
         for _consumer, tipo, _versao, finalidade, _ordem in linhas_do_chr():

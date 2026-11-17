@@ -31,8 +31,20 @@
  * continuam com a *cache* velha até ao TTL — no sentido que falha fechado. Uma
  * invalidação em todas pedia difusão (*pub/sub*), e não existe.
  *
- * E só a activação invalida: a suspensão e o encerramento — o sentido em que a
- * *cache* falha **aberta** — não são emitidos ainda (dicionário §3.70).
+ * ## A suspensão e o encerramento também esquecem (KAM-098)
+ *
+ * Desde a régua de cobrança (KAM-058) a suspensão por falta de pagamento emite
+ * o `tenant.suspended`, e desde o off-boarding (KAM-098) o encerramento emite o
+ * `tenant.closed`. São o sentido em que a *cache* falha **aberta**: com o
+ * contexto guardado 60 s, o CHR continuava a pôr no AGR as mensagens de um
+ * tenant que a base já diz `suspenso` ou `encerrado`. A revisão do off-boarding
+ * (`*_offboarding.py`) acrescenta as duas subscrições, e o efeito é o mesmo —
+ * esquecer o tenant — porque a decisão de encaminhar é da matriz de estados
+ * (`tenantGate`), lida da base na resolução seguinte, e não do evento.
+ *
+ * O nome do efeito e do erro ficaram os da activação: o `VersaoDaActivacaoError`
+ * é citado por nome nas verificações do KAM-092 e do KAM-201, e trocá-lo
+ * deixava essas linhas a descrever um erro que não existe.
  */
 
 import type { Efeito } from "../eventos/consumo.ts";
@@ -41,10 +53,22 @@ import type { ResolvedorDeCanal } from "./canal.ts";
 /** O `consumer` da subscrição: o nome das filas `evt.chr.p<n>` e da marca de consumo. */
 export const CONSUMIDOR_DO_CHR = "chr";
 
-/** O evento que este consumidor subscreve. */
+/** O evento da activação, o primeiro que este consumidor subscreveu (KAM-201). */
 export const TIPO_DA_ACTIVACAO = "tenant.activated";
 
-/** As versões do contrato que este consumidor conhece. A da subscrição é a 1. */
+/**
+ * Os eventos que esquecem o tenant na *cache*: a activação (KAM-201), a
+ * suspensão (KAM-058) e o encerramento (KAM-098). São as linhas `chr` da
+ * `platform.evt_subscricoes` e do `registry/chr.yaml`, e um ensaio confronta as
+ * três fontes.
+ */
+export const TIPOS_QUE_ESQUECEM_O_TENANT: readonly string[] = [
+  TIPO_DA_ACTIVACAO,
+  "tenant.suspended",
+  "tenant.closed",
+];
+
+/** As versões do contrato que este consumidor conhece, nos três tipos. A da subscrição é a 1. */
 export const VERSOES_DA_ACTIVACAO: readonly number[] = [1];
 
 /** Chegou ao consumidor um evento que ele não sabe tratar. Vai à DLQ pela escada. */
@@ -54,7 +78,7 @@ export class VersaoDaActivacaoError extends Error {
   constructor(tipo: string, versao: number) {
     // O tipo e a versão vêm do envelope e são de domínio fechado no arquivo; o
     // `tenant_id` não entra na mensagem.
-    super(`o consumidor da activacao do CHR nao trata ${tipo} v${versao}`);
+    super(`o consumidor do estado do tenant no CHR nao trata ${tipo} v${versao}`);
   }
 }
 
@@ -65,7 +89,7 @@ export class VersaoDaActivacaoError extends Error {
  */
 export function efeitoDaActivacao(resolvedor: Pick<ResolvedorDeCanal, "invalidarTenant">): Efeito {
   return async (_bd, envelope) => {
-    if (envelope.tipo !== TIPO_DA_ACTIVACAO || !VERSOES_DA_ACTIVACAO.includes(envelope.versao)) {
+    if (!TIPOS_QUE_ESQUECEM_O_TENANT.includes(envelope.tipo) || !VERSOES_DA_ACTIVACAO.includes(envelope.versao)) {
       throw new VersaoDaActivacaoError(envelope.tipo, envelope.versao);
     }
     resolvedor.invalidarTenant(envelope.tenant_id);
