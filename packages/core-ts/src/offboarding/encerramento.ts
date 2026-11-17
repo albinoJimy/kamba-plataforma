@@ -468,15 +468,16 @@ export async function desligarCanal(
 
   let desligados = 0;
   for (const c of ligados) {
-    for (const accao of accoesDoCanalDoCliente(texto(c.waba_id))) {
+    const canal = { id: texto(c.id), waba_id: texto(c.waba_id), de: texto(c.estado) };
+    for (const accao of accoesDoCanalDoCliente(canal.waba_id)) {
       await executarNoCanalDoCliente(opcoes.canal, accao, PASSO_DO_CANAL);
     }
     await emTransaccao(bd, tenantId, async () => {
-      const r = await bd.query(SQL_DESLIGAR_CANAL, [c.id, tenantId, c.estado]);
+      const r = await bd.query(SQL_DESLIGAR_CANAL, [canal.id, tenantId, canal.de]);
       if ((r.rowCount ?? 0) === 0) return;
       desligados += 1;
       const linha = (await fases(bd, tenantId)).get("canal");
-      const canais = [...((linha?.resultado.canais ?? []) as unknown[]), { id: c.id, waba_id: c.waba_id, de: c.estado }];
+      const canais = [...((linha?.resultado.canais ?? []) as unknown[]), canal];
       await marcar(bd, tenantId, "canal", "em_curso", { ...linha?.resultado, canais });
     });
   }

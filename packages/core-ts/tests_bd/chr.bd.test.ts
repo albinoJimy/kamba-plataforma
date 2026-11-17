@@ -25,7 +25,12 @@
  *   latência        p95 de `resolve` com e sem *cache* (critério 8);
  *   activação       o `tenant.activated` que as portas do KAM-092 emitem,
  *                   consumido pelo `consumir` do KAM-006 com o efeito do CHR,
- *                   esquece o tenant na *cache* — e só esse (critério 7 do KAM-092).
+ *                   esquece o tenant na *cache* — e só esse (critério 7 do KAM-092);
+ *   suspensão e     o `tenant.suspended` que a régua do KAM-058 emite e o
+ *   encerramento    `tenant.closed` do off-boarding (KAM-098), consumidos pelo
+ *                   mesmo efeito: o `Chr` com um AGR espião deixa de encaminhar
+ *                   na mensagem seguinte, sem esperar o TTL (critério 2 do
+ *                   KAM-058, critério 3 do KAM-098).
  *
  * Nada aqui é um dado real: os BSUID são `AO.ENSAIO…` e os telefones usam o
  * indicativo `999`, que a UIT não atribui a nenhum país.
@@ -64,6 +69,19 @@ import { porEmQuarentena } from "../src/entrada/index.ts";
 import type { Identidade } from "../src/identity/index.ts";
 import { comTenant as comTenantReal } from "../src/tenant_guard/index.ts";
 import {
+  ACTOR_DA_REGUA,
+  MOTIVO_DA_SUSPENSAO,
+  MOTIVO_NO_EVENTO,
+  SQL_REGUA_EMITIR,
+  SQL_REGUA_TRANSITAR,
+} from "../src/pagamentos/index.ts";
+import {
+  ACTOR_DO_ENCERRAMENTO,
+  MOTIVO_DO_ENCERRAMENTO,
+  SQL_EMITIR as SQL_EMITIR_DO_ENCERRAMENTO,
+  SQL_TRANSITAR as SQL_TRANSITAR_DO_ENCERRAMENTO,
+} from "../src/offboarding/index.ts";
+import {
   ChavesDeTeste,
   aceitarVigentes,
   activarTenant,
@@ -100,7 +118,20 @@ before(async () => {
   });
 });
 
+/** Os tenants que este ficheiro transita: o `tenant_state_log` deles limpa-se no fim. */
+const transitados: string[] = [];
+
 after(async () => {
+  // A limpeza do KAM-092: o registo de estados é *append-only* também para o
+  // dono. Desliga-se o gatilho, apagam-se só as linhas destes tenants, e liga-se.
+  if (transitados.length > 0) {
+    await admin.query("ALTER TABLE platform.tenant_state_log DISABLE TRIGGER USER");
+    try {
+      await admin.query("DELETE FROM platform.tenant_state_log WHERE tenant_id = ANY($1::uuid[])", [transitados]);
+    } finally {
+      await admin.query("ALTER TABLE platform.tenant_state_log ENABLE ALWAYS TRIGGER tenant_state_log_imutavel");
+    }
+  }
   for (const cliente of [identityBd, appBd, resolverBd, admin]) {
     await cliente.end().catch(() => {});
   }
@@ -1077,4 +1108,95 @@ describe("KAM-092 — o tenant.activated esquece o tenant na cache do CHR", () =
       await batch.end();
     }
   });
+});
+
+describe("KAM-058 e KAM-098 — a suspensão e o encerramento esquecem o tenant na cache do CHR", () => {
+  /**
+   * A transição e o evento como o lote os escreve, numa transacção com o
+   * contexto do tenant: as **cadeias** da régua (`SQL_REGUA_TRANSITAR` e
+   * `SQL_REGUA_EMITIR`) e as do encerramento, e não cópias delas — o envelope
+   * que chega ao consumidor é o que cada uma emite.
+   */
+  async function transitar(
+    batch: pg.Client,
+    tenant: string,
+    sqls: { transitar: string; emitir: string },
+    parametros: readonly unknown[],
+    evento: { tipo: string; payload: object },
+  ): Promise<Envelope> {
+    transitados.push(tenant);
+    await batch.query("BEGIN");
+    try {
+      await batch.query("SELECT set_config('app.tenant_id', $1, true)", [tenant]);
+      const t = await batch.query(sqls.transitar, [tenant, ...parametros]);
+      assert.equal(t.rows[0]?.mudou, true);
+      await batch.query(sqls.emitir, [evento.tipo, 1, tenant, "tenant", tenant, JSON.stringify(evento.payload)]);
+      await batch.query("COMMIT");
+    } catch (erro) {
+      await batch.query("ROLLBACK");
+      throw erro;
+    }
+    const { rows } = await admin.query(
+      "SELECT envelope FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = $2",
+      [tenant, evento.tipo],
+    );
+    assert.equal(rows.length, 1);
+    return (rows[0] as { envelope: Envelope }).envelope;
+  }
+
+  for (const caso of [
+    {
+      nome: "a suspensão pela régua (KAM-058, critério 2)",
+      tipo: "tenant.suspended",
+      sqls: { transitar: SQL_REGUA_TRANSITAR, emitir: SQL_REGUA_EMITIR },
+      parametros: ["suspenso", MOTIVO_DA_SUSPENSAO, ACTOR_DA_REGUA],
+      payload: { motivo: MOTIVO_NO_EVENTO },
+      estado: "suspenso",
+    },
+    {
+      nome: "o encerramento pelo off-boarding (KAM-098, critério 3)",
+      tipo: "tenant.closed",
+      sqls: { transitar: SQL_TRANSITAR_DO_ENCERRAMENTO, emitir: SQL_EMITIR_DO_ENCERRAMENTO },
+      parametros: [MOTIVO_DO_ENCERRAMENTO.titular, ACTOR_DO_ENCERRAMENTO],
+      payload: { motivo: MOTIVO_DO_ENCERRAMENTO.titular },
+      estado: "encerrado",
+    },
+  ]) {
+    it(`${caso.nome}: chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião`, async () => {
+      const batch = await ligar("batch");
+      try {
+        const tenant = await tenantComChave(`esquecer-${caso.estado}`);
+        const { phoneNumberId } = await criarCanal(admin, tenant);
+        const m = montar();
+        const ao = () => m.entrega.aoAgr.filter((i) => JSON.stringify(i).includes(tenant)).length;
+        const escrever = () =>
+          m.chr.tratar(mensagem(phoneNumberId, { bsuid: bsuidDeEnsaio("ESQUECER"), telefone: telefoneDeEnsaio() }));
+        await escrever();
+        assert.equal(ao(), 1, "ativo: a mensagem chega ao AGR, e o contexto fica em cache");
+
+        const envelope = await transitar(batch, tenant, caso.sqls, caso.parametros, {
+          tipo: caso.tipo,
+          payload: caso.payload,
+        });
+        assert.deepEqual(envelope.payload, caso.payload);
+
+        // O controlo: a base já diz o estado novo, e a cache ainda diz `ativo`.
+        // É a janela de até 60 s em que a cache falha **aberta**.
+        const velha = await m.resolvedor.resolver(phoneNumberId);
+        assert.equal(velha.daCache, true);
+        assert.equal(velha.resolvido?.contexto.estado_tenant, "ativo");
+        await escrever();
+        assert.equal(ao(), 2, "com a cache velha, o AGR ainda recebe");
+
+        const opcoes = { bd: appBd, consumer: "chr", envelope, exigeOrdem: false };
+        assert.equal((await consumir(opcoes, efeitoDaActivacao(m.resolvedor))).desfecho, "aplicado");
+        await escrever();
+        assert.equal(ao(), 2, "depois do consumo, o CHR rejeita o tenant antes do AGR");
+        const nova = await m.resolvedor.resolver(phoneNumberId);
+        assert.equal(nova.resolvido?.contexto.estado_tenant, caso.estado);
+      } finally {
+        await batch.end();
+      }
+    });
+  }
 });

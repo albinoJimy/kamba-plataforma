@@ -2797,6 +2797,19 @@ INVENTARIO["trust_level"] = {
     "alterado_em": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: As fases do encerramento de um tenant (KAM-098, revisao do off-boarding).
+#: **Nenhum dado pessoal**: uma fase, um estado, um prazo e um resultado que
+#: leva contagens, resumos `sha256` e instantes — as provas do pedido nao se
+#: guardam, so que as duas passaram; a referencia de uma decisao de T&S vai so
+#: como resumo no `audit_log`.
+INVENTARIO["offboarding_run"] = {
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "fase": ("text", NAO, None, "nao"),
+    "estado": ("text", NAO, "'pendente'::text", "nao"),
+    "prazo_at": ("timestamp with time zone", NAO, None, "nao"),
+    "resultado": ("jsonb", NAO, "'{}'::jsonb", "nao — contagens, resumos e instantes, sem pessoa"),
+}
+
 #: O limite de clientes novos por 7 dias (KAM-095, revisao da lista de espera).
 #: **Sem `tenant_id`**: e da plataforma, numa linha so (`unica` booleano com
 #: `CHECK (unica)`). O `fundamento` e a referencia documental do valor, nunca de uma
@@ -3710,6 +3723,10 @@ class TestInventario(ComBase):
                         # o tenant, sem cascata. Um tenant com nivel nao se apaga
                         # por arrasto.
                         "trust_level_tenant_fk",
+                        # KAM-098 (revisao do off-boarding): as fases apontam o
+                        # tenant, sem cascata. Um tenant encerrado fica, e as
+                        # fases sao a prova do encerramento.
+                        "offboarding_run_tenant_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4551,6 +4568,15 @@ class TestInventario(ComBase):
                     "trust_level_pkey",
                     "trust_level_tecto_pedido_minor_ck",
                     "trust_level_versao_config_ck",
+                    # ---------- KAM-098 (revisao do off-boarding)
+                    #
+                    # **Quatro.** A chave `(tenant_id, fase)`, o dominio da
+                    # `fase`, o do `estado` e a forma do `resultado`. A FK
+                    # conta-se no bloco das FK.
+                    "offboarding_run_estado_ck",
+                    "offboarding_run_fase_ck",
+                    "offboarding_run_pkey",
+                    "offboarding_run_resultado_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

@@ -756,6 +756,12 @@ class TestConvencoes(ComBase):
                 # poe o `sku` antes do `tenant_id` ("sk" < "te"), e nao a
                 # ordem da chave; e poe a tabela antes de `outbound_messages`
                 # ("of" < "ou").
+                # KAM-098 (revisao do off-boarding): a chave e o par do bloco,
+                # `(tenant_id, fase)`, sem `uuid` nenhum — uma linha por fase,
+                # e e ela que torna a repeticao de uma fase impossivel de
+                # duplicar. Antes da oferta («offb» < «offe»).
+                ("offboarding_run", "fase", "text", None),
+                ("offboarding_run", "tenant_id", "uuid", None),
                 ("offer_terms", "sku", "text", None),
                 ("offer_terms", "tenant_id", "uuid", None),
                 # KAM-087 (0043): o caso de onboarding, `uuid` gerada; entre a
@@ -1459,7 +1465,11 @@ class TestConvencoes(ComBase):
              # KAM-096 (revisao da confianca gradual). O `tenant_id` **e** a
              # chave primaria, que e o indice que a serve. **Com** FK para
              # `tenants`: so tem nivel um tenant que existe.
-             "trust_level"},
+             "trust_level",
+             # KAM-098 (revisao do off-boarding). O `tenant_id` e a primeira
+             # coluna da chave primaria, que e o indice que o serve. **Com** FK
+             # para `tenants`: so se encerra um tenant que existe.
+             "offboarding_run"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2130,7 +2140,10 @@ class TestConvencoes(ComBase):
         #
         # **104** desde a revisao da confianca gradual (KAM-096): a
         # `trust_level_tenant_fk`, simples para `tenants(id)`.
-        self.assertEqual(len(linhas), 104)
+        #
+        # **105** desde a revisao do off-boarding (KAM-098): a
+        # `offboarding_run_tenant_fk`, simples para `tenants(id)`.
+        self.assertEqual(len(linhas), 105)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
