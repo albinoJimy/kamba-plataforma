@@ -25,6 +25,7 @@ import {
   SQL_MARCAR_FASE,
   SQL_PENDENTES,
   SQL_RECURSOS_DA_SAGA,
+  SQL_SANCAO_DE_ENCERRAMENTO,
   SQL_TRANSITAR,
   abrirPedido,
   cancelavel,
@@ -74,6 +75,9 @@ class BaseFalsa implements ClienteSql {
   estadoDoTenant = "ativo";
   eventos = 0;
   pendentes = { encomendas: 0, disputas: 0, reservas: 0, reembolsos: 0 };
+  sancoes = new Set<string>();
+  /** Chamado quando a Meta é tocada: o ensaio da corrida cancela aqui. */
+  aoTocarNaMeta: () => void = () => {};
 
   constructor(estados: Record<string, string> = {}) {
     for (const f of FASES) {
@@ -104,6 +108,7 @@ class BaseFalsa implements ClienteSql {
     if (sql === SQL_PENDENTES) return { rows: [{ ...this.pendentes }] };
     if (sql === SQL_RECURSOS_DA_SAGA) return { rows: [{ step: "chave_llm", external_id: "llm-1" }] };
     if (sql === SQL_ESTADO_DO_TENANT) return { rows: [{ estado: this.estadoDoTenant }] };
+    if (sql === SQL_SANCAO_DE_ENCERRAMENTO) return { rows: this.sancoes.has(String(p[0])) ? [{ "?column?": 1 }] : [] };
     if (sql === SQL_TRANSITAR) {
       const mudou = this.estadoDoTenant !== "encerrado";
       this.estadoDoTenant = "encerrado";
@@ -136,10 +141,15 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
     const bd = new BaseFalsa();
     const provas = { otpConfere: async () => true, ligacaoDoEmailConfere: async () => false };
     await assert.rejects(
-      abrirPedido(bd, { tenantId: T, origem: "titular", otp: "1", tokenDoEmail: "x", provas, agora: D0 }),
+      abrirPedido(bd, { tenantId: T, origem: "titular", otp: "1", tokenDoEmail: "x", agora: D0 }, provas),
       ConfirmacaoIncompletaError,
     );
     assert.deepEqual(bd.instrucoes, []);
+    // Sem a porta, também não: as provas verifica-as o processo, não o pedido.
+    await assert.rejects(
+      abrirPedido(bd, { tenantId: T, origem: "titular", otp: "1", tokenDoEmail: "x", agora: D0 }),
+      ConfirmacaoIncompletaError,
+    );
   });
 
   it("o canal cancela a subscrição pelo guarda, e nunca chama o que apaga", async () => {
@@ -170,7 +180,7 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
   });
 
   it("a revogação corre os passos uma vez, encerra com um evento, e o recurso sem saga é sem_recurso", async () => {
-    const bd = new BaseFalsa({ exportacao: "concluida" });
+    const bd = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
     const chamadas: string[] = [];
     const portas = {
       chaveDeLlm: { revogar: async (id: string) => void chamadas.push(`revogar:${id}`) },
@@ -201,8 +211,52 @@ describe("o pedido, o canal e a revogação sobre a base falsa", () => {
       canalDeComercio: { arquivar: async () => {} },
       inbox: { desligar: async () => {} },
     };
-    await assert.rejects(revogar(new BaseFalsa({ exportacao: "concluida" }), { tenantId: T, portas, agora: dia(6) }), FaseForaDeOrdemError);
-    await assert.rejects(revogar(new BaseFalsa(), { tenantId: T, portas, agora: dia(7) }), FaseForaDeOrdemError);
+    await assert.rejects(revogar(new BaseFalsa({ exportacao: "concluida", canal: "concluida" }), { tenantId: T, portas, agora: dia(6) }), FaseForaDeOrdemError);
+    await assert.rejects(revogar(new BaseFalsa({ canal: "concluida" }), { tenantId: T, portas, agora: dia(7) }), FaseForaDeOrdemError);
+    // Sem o canal desligado (achado 2 da revisão adversarial).
+    await assert.rejects(revogar(new BaseFalsa({ exportacao: "concluida" }), { tenantId: T, portas, agora: dia(7) }), /canal/);
+    // Um tenant restrito não se encerra, e recusa-se antes de qualquer porta (achado 3).
+    const restrito = new BaseFalsa({ exportacao: "concluida", canal: "concluida" });
+    restrito.estadoDoTenant = "restrito";
+    let tocadas = 0;
+    const contadas = {
+      chaveDeLlm: { revogar: async () => void (tocadas += 1) },
+      canalDeComercio: { arquivar: async () => void (tocadas += 1) },
+      inbox: { desligar: async () => void (tocadas += 1) },
+    };
+    await assert.rejects(revogar(restrito, { tenantId: T, portas: contadas, agora: dia(7) }), /restrito/);
+    assert.equal(tocadas, 0);
+  });
+
+  it("um cancelamento que ganha a corrida depois da Meta desfaz a dessubscrição (achado 5)", async () => {
+    const bd = new BaseFalsa();
+    const meta = metaEspia();
+    const cancelar = meta.canal.cancelarSubscricao;
+    meta.canal.cancelarSubscricao = async (w) => {
+      await cancelar(w);
+      // O titular cancela entre a Meta e a escrita.
+      bd.fases.get("verificacao")!.resultado = { origem: "titular", cancelado_at: "x" };
+    };
+    await assert.rejects(desligarCanal(bd, { tenantId: T, canal: meta.canal, agora: D0 }), FaseForaDeOrdemError);
+    assert.deepEqual(meta.chamadas, ["cancelar:waba-1", "subscrever:waba-1"]);
+    assert.equal(bd.canais[0]?.estado, "ativo", "o canal não ficou desligado");
+  });
+
+  it("T&S precisa de uma sanção de encerramento em vigor, com o tenant suspenso", async () => {
+    const bd = new BaseFalsa();
+    bd.fases.clear();
+    bd.estadoDoTenant = "suspenso";
+    const sancao = "22222222-2222-4222-8222-222222222222";
+    await assert.rejects(
+      abrirPedido(bd, { tenantId: T, origem: "trust_safety", decisaoRef: "texto", agora: D0 }),
+      ConfirmacaoIncompletaError,
+    );
+    await assert.rejects(
+      abrirPedido(bd, { tenantId: T, origem: "trust_safety", decisaoRef: sancao, agora: D0 }),
+      /sancao_de_encerramento/,
+    );
+    bd.sancoes.add(sancao);
+    assert.equal((await abrirPedido(bd, { tenantId: T, origem: "trust_safety", decisaoRef: sancao, agora: D0 })).aberto, true);
   });
 
   it("um pedido que não existe não se cancela nem revoga", async () => {

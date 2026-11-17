@@ -19431,15 +19431,19 @@ entradas:
     variantes_literais: []
   - seccao: "3.76"
     conceito: "Motivo do encerramento"
-    canonico: "pedido_do_titular, decisao_trust_safety"
+    canonico: "pedido_do_titular, decisao_trust_safety, reaplicacao_apos_restauro"
     literais:
       - "pedido_do_titular"
       - "decisao_trust_safety"
+      - "reaplicacao_apos_restauro"
     nomes:
       - "pedido_do_titular"
       - "decisao_trust_safety"
+      - "reaplicacao_apos_restauro"
     nomes_nota:
       - "tenant_state_log"
+      - "ativo"
+      - "encerramento"
     variantes_literais: []
   - seccao: "3.76"
     conceito: "O pacote do titular"

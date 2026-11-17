@@ -25,6 +25,10 @@ RLS). O isolamento mede-se pelo ensaio cruzado (exportacao de A sem nada de B).
   adaptador. Com `fonte_do_catalogo`, entra; sem ela, o manifesto diz
   `indisponivel` com a razao, em vez de um ficheiro vazio que parecia um
   catalogo sem produtos.
+* **O texto das conversas**: esta base guarda de cada conversa o canal, o
+  modo e as janelas, e nao o texto — o CHR nao o guarda, e as mensagens vivem
+  no Chatwoot (o espelho do KAM-019). A coleccao `conversas` sai com os
+  metadados, e o texto e do credor (KAM-210, criterio 4).
 * **Os ficheiros em si**: o pacote leva a **lista** dos objectos do tenant no
   STO (chave e tamanho), e nao os bytes — um pacote com as fotos todas dentro
   nao cabia num pedido, e cada objecto continua a ter `retain_until` proprio.
@@ -252,6 +256,9 @@ def exportar(
 
     def depois(cursor: Any) -> int:
         fases = ler_fases(cursor, tenant_id)
+        # Um cancelamento que acabou enquanto o pacote se montava ganha: nao se
+        # marca concluida uma fase de um pedido cancelado (achado 5).
+        exigir_pedido_vivo(fases, "exportacao")
         anterior = fases["exportacao"].resultado
         geracao = int(anterior.get("geracoes", 0)) + 1
         marcar(cursor, tenant_id, "exportacao", "concluida", {

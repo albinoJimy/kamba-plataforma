@@ -13,7 +13,8 @@ nenhuma). As classes fiscais nao se tocam: ficam pelo prazo do CGT, que esta
 `kamba_batch` tem `DELETE` e que nenhum gatilho recusa, pela ordem das FK (os
 filhos primeiro). As `antes` de cada uma sao as que lhe apontam por FK sem
 cascata e saem com ela: as mensagens, os *handoffs* e a midia de uma conversa;
-o registo de qualidade de um canal.
+o registo de qualidade de um canal. **As linhas da midia saem, e os bytes no
+STO nao**: expiram pelo `retain_until` de cada objecto, e o certificado di-lo.
 
 **O que fica de fora, e porque**, cada tabela com `recusada`/`sem_caminho` no
 `purge_log` e no certificado — nunca com um `ok` que nao aconteceu:
@@ -24,6 +25,9 @@ o registo de qualidade de um canal.
   criterio 6). Com `apagar_contactos`, a purga chama-o e regista o que ele
   devolve; sem ele, ficam `sem_caminho`. Dar `DELETE` ao lote nestas tabelas
   afrouxava o desenho do cofre a partir de outro ticket;
+* **o contacto do dono** (`owner_contacts`): e o canal por onde o certificado
+  chega ao titular. Sai **depois** da entrega, pelo `emitir_certificado` (achado
+  4 da revisao adversarial: apagado antes, o certificado nao tinha por onde ir);
 * **o tenant e as contas de pagamento**: as tabelas fiscais (encomendas,
   pagamentos) apontam-nas por FK, e ficam enquanto o prazo fiscal ficar;
 * **os casos de onboarding e o que deles depende** (`onboarding_case`, os
@@ -39,6 +43,8 @@ dele (o `audit_log` do KAM-071), ou uma encomenda `em_disputa`, a fase fica
 no `purge_log`. A letra diz «suspende a purga dessa classe»; a leitura e a
 conservadora — uma disputa sobre uma encomenda envolve o contacto, a conversa e
 o canal por onde ela passou, e escolher quais ficam e decidir a disputa.
+**A pergunta repete-se em cada unidade**, na transaccao dela: um *hold*
+aplicado a meio da corrida para-a na unidade seguinte (achado 14).
 
 ## Reexecutar nao duplica, e um *crash* a meio retoma
 
@@ -46,13 +52,19 @@ Criterio 9. Cada `DELETE` e por `tenant_id`: repetir apaga zero e escreve um
 `ok` com zero linhas (a corrida e auditada, nao saltada — a licao do
 `purge_log`: um restauro traz as linhas de volta, e quem saltasse por ja ter
 corrido nao as apagava). A fase so conclui no fim; um *crash* a meio deixa-a
-`em_curso` e a corrida seguinte refaz o que faltar.
+`em_curso` e a corrida seguinte refaz o que faltar. **Cada corrida guarda o seu
+`execucao_id`** na lista do resultado, e o certificado le-as todas: com so a
+ultima, o que a primeira apagou aparecia com zero linhas (achado 7). **Duas
+corridas do mesmo tenant nao correm juntas**: um trinco consultivo de sessao,
+por tenant, recusa a segunda.
 """
 
 from __future__ import annotations
 
+import contextlib
+import json
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -60,6 +72,7 @@ from typing import Any, Final
 from .. import tenant_guard
 from ..retencao import hold, politica, purge_log
 from .contrato import (
+    ACTOR,
     FaseForaDeOrdem,
     auditar,
     exigir_concluida,
@@ -70,6 +83,9 @@ from .contrato import (
 
 #: A classe da politica que o encerramento purga, e o nome que vai no `purge_log`.
 CLASSE: Final = "relacao"
+
+#: O canal do titular, que sai depois da entrega do certificado.
+CANAL_DO_TITULAR: Final = "platform.owner_contacts"
 
 
 @dataclass(frozen=True)
@@ -88,7 +104,6 @@ class Caminho:
 #: tem `DELETE` e nenhum gatilho recusa); um ensaio confronta-o com o catalogo.
 CAMINHOS_DO_ENCERRAMENTO: Final[tuple[Caminho, ...]] = (
     Caminho("platform.owner_notices"),
-    Caminho("platform.owner_contacts"),
     Caminho("platform.handoff_accounts"),
     Caminho("platform.channel_onboarding"),
     Caminho("platform.channel_coexistence"),
@@ -102,7 +117,7 @@ CAMINHOS_DO_ENCERRAMENTO: Final[tuple[Caminho, ...]] = (
     Caminho("platform.tenant_channels", ("platform.channel_quality_log",)),
 )
 
-#: As do cofre. Saem pelo `apagar_contactos` (o `Identidade.apagar` do KAM-008).
+#: As do cofre. Saem pelo `apagar_contactos` (o apagamento do KAM-008).
 TABELAS_DOS_CONTACTOS: Final = (
     "platform.contact_endpoints",
     "platform.contact_deks",
@@ -126,6 +141,21 @@ SQL_PURGADOS: Final = """
    ORDER BY 2, 1
 """
 
+#: O trinco de uma corrida, por tenant, de sessao (vale para as varias
+#: transaccoes da corrida). `hashtextextended` e estavel entre processos.
+SQL_TRANCAR: Final = "SELECT pg_try_advisory_lock(hashtextextended('offboarding_purga:' || %s, 0))"
+SQL_DESTRANCAR: Final = "SELECT pg_advisory_unlock(hashtextextended('offboarding_purga:' || %s, 0))"
+
+#: O motivo do encerramento que a reaplicacao escreve, quando a copia o trouxe
+#: de volta a `ativo` ou `suspenso` (achado 10 da revisao adversarial).
+MOTIVO_DA_REAPLICACAO: Final = "reaplicacao_apos_restauro"
+SQL_ESTADO: Final = "SELECT estado FROM platform.tenants WHERE id = %s FOR UPDATE"
+SQL_TRANSITAR: Final = "SELECT platform.transition_tenant(%s::uuid, 'encerrado', %s, %s)"
+SQL_EMITIR: Final = "SELECT platform.evt_emitir(%s, %s::smallint, %s::uuid, %s, %s, %s::jsonb)"
+SQL_DESLIGAR_ENTITLEMENTS: Final = (
+    "UPDATE platform.entitlements SET ativo = false WHERE tenant_id = %s AND ativo"
+)
+
 
 def _relacao() -> tuple[str, ...]:
     return tuple(t.nome for t in politica.classe(CLASSE).tabelas)
@@ -146,13 +176,56 @@ def _em_batch(abrir: AbrirLigacao, job: str, trabalho: Callable[[Any], Any]) -> 
         ligacao.close()
 
 
+@contextlib.contextmanager
+def _trinco(abrir: AbrirLigacao, tenant_id: str) -> Iterator[None]:
+    """Uma corrida de cada vez por tenant. Recusa, e nao espera."""
+    ligacao = abrir()
+    try:
+        with tenant_guard.tx_batch(ligacao, "offboarding_trinco") as cursor:
+            cursor.execute(SQL_TRANCAR, (tenant_id,))
+            tomado = bool(cursor.fetchone()[0])
+        if not tomado:
+            raise FaseForaDeOrdem("a fase purga nao pode correr: ja ha uma corrida deste tenant")
+        try:
+            yield
+        finally:
+            with tenant_guard.tx_batch(ligacao, "offboarding_trinco") as cursor:
+                cursor.execute(SQL_DESTRANCAR, (tenant_id,))
+                cursor.fetchone()
+    finally:
+        ligacao.close()
+
+
+def _disputa(cursor: Any, tenant_id: str, holds_externos: hold.Holds | None) -> dict[str, Any]:
+    holds = hold.ler(cursor)
+    if holds_externos is not None:
+        holds = holds.unir(holds_externos)
+    cursor.execute(SQL_EM_DISPUTA, (tenant_id,))
+    encomendas = int(cursor.fetchone()[0])
+    motivos = {
+        "hold_tenant": holds.do_tenant(tenant_id),
+        "hold_contacto": bool(holds.contactos_de(tenant_id)),
+        "encomenda_em_disputa": encomendas > 0,
+    }
+    return {k: v for k, v in motivos.items() if v}
+
+
+class _Suspensa(Exception):
+    def __init__(self, motivos: dict[str, Any]) -> None:
+        super().__init__("disputa")
+        self.motivos = motivos
+
+
 class _Corrida:
-    def __init__(self, abrir: AbrirLigacao, tenant_id: str, agora: datetime) -> None:
+    def __init__(self, abrir: AbrirLigacao, tenant_id: str, agora: datetime,
+                 holds_externos: hold.Holds | None) -> None:
         self.abrir = abrir
         self.tenant_id = tenant_id
         self.agora = agora
+        self.holds_externos = holds_externos
         self.execucao_id = str(uuid.uuid4())
         self.registos: list[purge_log.Registo] = []
+        self.suspensa: dict[str, Any] = {}
 
     def registo(self, tabela: str, resultado: str, motivo: str | None = None, linhas: int = 0):
         return purge_log.Registo(
@@ -165,9 +238,16 @@ class _Corrida:
         purge_log.escrever(cursor, r)
         self.registos.append(r)
 
+    def reter(self, cursor: Any) -> None:
+        for c in CAMINHOS_DO_ENCERRAMENTO:
+            self.anotar(cursor, c.tabela, purge_log.RESULTADO_RETIDA, purge_log.MOTIVO_HOLD_TENANT)
+
     def apagar(self, caminho: Caminho) -> None:
-        """Uma unidade: os `DELETE` e as linhas do `purge_log`, numa transaccao."""
+        """Uma unidade: a pergunta da disputa, os `DELETE` e o `purge_log`, numa transaccao."""
         def corpo(cursor: Any) -> list[purge_log.Registo]:
+            disputa = _disputa(cursor, self.tenant_id, self.holds_externos)
+            if disputa:
+                raise _Suspensa(disputa)
             feitos = []
             for tabela in caminho.tabelas:
                 cursor.execute(f"DELETE FROM {tabela} WHERE tenant_id = %s", (self.tenant_id,))
@@ -178,6 +258,9 @@ class _Corrida:
 
         try:
             self.registos.extend(_em_batch(self.abrir, "offboarding_purga", corpo))
+        except _Suspensa as suspensa:
+            self.suspensa = suspensa.motivos
+            _em_batch(self.abrir, "offboarding_purga", self.reter)
         except Exception:  # noqa: BLE001 — uma unidade que falha fica escrita, e a fase nao conclui
             _em_batch(self.abrir, "offboarding_purga", lambda cur: self.anotar(
                 cur, caminho.tabela, purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO))
@@ -206,6 +289,8 @@ class _Corrida:
     def apagar_tudo(self, apagar_contactos: ApagarContactos | None) -> None:
         for caminho in CAMINHOS_DO_ENCERRAMENTO:
             self.apagar(caminho)
+            if self.suspensa:
+                return
         self.contactos(apagar_contactos)
         _em_batch(self.abrir, "offboarding_purga", lambda cur: [
             self.anotar(cur, t, purge_log.RESULTADO_RECUSADA, purge_log.MOTIVO_SEM_CAMINHO)
@@ -216,32 +301,19 @@ class _Corrida:
     def falhas(self) -> list[str]:
         return [r.tabela for r in self.registos if r.resultado == purge_log.RESULTADO_FALHOU]
 
-    def resumo(self) -> dict[str, Any]:
+    def resumo(self, anteriores: Sequence[str] = ()) -> dict[str, Any]:
         apagadas: dict[str, int] = {}
         for r in self.registos:
             if r.resultado == purge_log.RESULTADO_OK:
                 apagadas[r.tabela] = apagadas.get(r.tabela, 0) + r.linhas
         return {
             "execucao_id": self.execucao_id,
+            "execucoes": [*anteriores, self.execucao_id],
             "apagadas": apagadas,
             "retidas": sorted({r.tabela for r in self.registos
                                if r.resultado == purge_log.RESULTADO_RECUSADA}),
             "falhas": sorted(set(self.falhas)),
         }
-
-
-def _disputa(cursor: Any, tenant_id: str, fases: Any, holds_externos: hold.Holds | None) -> dict[str, Any]:
-    holds = hold.ler(cursor)
-    if holds_externos is not None:
-        holds = holds.unir(holds_externos)
-    cursor.execute(SQL_EM_DISPUTA, (tenant_id,))
-    encomendas = int(cursor.fetchone()[0])
-    motivos = {
-        "hold_tenant": holds.do_tenant(tenant_id),
-        "hold_contacto": bool(holds.contactos_de(tenant_id)),
-        "encomenda_em_disputa": encomendas > 0,
-    }
-    return {k: v for k, v in motivos.items() if v}
 
 
 def purgar(
@@ -254,40 +326,42 @@ def purgar(
 ) -> dict[str, Any]:
     """A fase `purga`. Devolve o `resultado` que gravou (ou o que ja la estava)."""
     tenant_id = tenant_guard.normalizar_tenant(tenant_id)
+    with _trinco(abrir_batch, tenant_id):
+        return _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos)
 
-    def antes(cursor: Any) -> dict[str, Any] | None:
+
+def _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos) -> dict[str, Any]:
+    def antes(cursor: Any) -> tuple[dict[str, Any] | None, list[str]]:
         fases = ler_fases(cursor, tenant_id)
         exigir_pedido_vivo(fases, "purga")
         exigir_concluida(fases, "revogacao", "purga")
         purga = fases["purga"]
         if purga.estado == "concluida":
-            return {"ja": dict(purga.resultado)}
+            return {"ja": dict(purga.resultado)}, []
         if agora < purga.prazo_at:
             raise FaseForaDeOrdem("a fase purga nao pode correr: antes do D30")
-        disputa = _disputa(cursor, tenant_id, fases, holds_externos)
-        if disputa:
-            corrida = _Corrida(abrir_batch, tenant_id, agora)
-            for c in CAMINHOS_DO_ENCERRAMENTO:
-                corrida.anotar(cursor, c.tabela, purge_log.RESULTADO_RETIDA, purge_log.MOTIVO_HOLD_TENANT)
-            resultado = {"disputa": sorted(disputa), "verificado_at": agora.isoformat()}
-            marcar(cursor, tenant_id, "purga", "suspensa_disputa", resultado)
-            auditar(cursor, tenant_id, "purga", f"suspensa:{','.join(sorted(disputa))}")
-            return {"suspensa": resultado}
+        anteriores = list(purga.resultado.get("execucoes", []))
         marcar(cursor, tenant_id, "purga", "em_curso", dict(purga.resultado))
-        return None
+        return None, anteriores
 
-    feito = _em_batch(abrir_batch, "offboarding_purga", antes)
+    feito, anteriores = _em_batch(abrir_batch, "offboarding_purga", antes)
     if feito is not None:
-        return feito.get("ja") or feito["suspensa"]
+        return feito["ja"]
 
-    corrida = _Corrida(abrir_batch, tenant_id, agora)
+    corrida = _Corrida(abrir_batch, tenant_id, agora, holds_externos)
     corrida.apagar_tudo(apagar_contactos)
-    resultado = {**corrida.resumo(), "purgado_at": agora.isoformat()}
+    if corrida.suspensa:
+        resultado = {"disputa": sorted(corrida.suspensa), "verificado_at": agora.isoformat(),
+                     "execucoes": [*anteriores, corrida.execucao_id]}
+        estado, resumo = "suspensa_disputa", f"suspensa:{','.join(sorted(corrida.suspensa))}"
+    else:
+        resultado = {**corrida.resumo(anteriores), "purgado_at": agora.isoformat()}
+        estado = "falhada" if corrida.falhas else "concluida"
+        resumo = f"{estado}:{corrida.execucao_id}"
 
     def depois(cursor: Any) -> None:
-        estado = "falhada" if corrida.falhas else "concluida"
         marcar(cursor, tenant_id, "purga", estado, resultado)
-        auditar(cursor, tenant_id, "purga", f"{estado}:{corrida.execucao_id}")
+        auditar(cursor, tenant_id, "purga", resumo)
 
     _em_batch(abrir_batch, "offboarding_purga", depois)
     return resultado
@@ -297,6 +371,29 @@ def tenants_purgados(cursor: Any) -> list[tuple[str, datetime]]:
     """Os tenants purgados e quando. E o que se exporta para fora da copia."""
     cursor.execute(SQL_PURGADOS)
     return [(str(t), em) for t, em in cursor.fetchall()]
+
+
+def _encerrar_o_restaurado(cursor: Any, tenant_id: str) -> str:
+    """Uma copia de antes do encerramento traz o tenant `ativo`: encerra-o outra vez.
+
+    Pela porta do KAM-092, com o evento do encerramento e os entitlements
+    desligados. De `restrito` nao ha aresta para `encerrado`: fica, e devolve-se
+    o estado para quem chama o tratar.
+    """
+    cursor.execute(tenant_guard.SQL_DEFINIR_CONTEXTO, (tenant_id,))
+    cursor.fetchone()
+    cursor.execute(SQL_ESTADO, (tenant_id,))
+    linha = cursor.fetchone()
+    estado = str(linha[0]) if linha else "inexistente"
+    if estado in ("ativo", "suspenso"):
+        cursor.execute(SQL_TRANSITAR, (tenant_id, MOTIVO_DA_REAPLICACAO, ACTOR))
+        if cursor.fetchone()[0] is True:
+            cursor.execute(SQL_EMITIR, ("tenant.closed", 1, tenant_id, "tenant", tenant_id,
+                                        json.dumps({"motivo": MOTIVO_DA_REAPLICACAO})))
+            cursor.fetchone()
+            estado = "encerrado"
+    cursor.execute(SQL_DESLIGAR_ENTITLEMENTS, (tenant_id,))
+    return estado
 
 
 def reaplicar_apos_restauro(
@@ -318,8 +415,11 @@ def reaplicar_apos_restauro(
     vem de fora, pela razao do `retencao.jobs.reaplicar_apos_restauro`: um hold
     aplicado depois da copia desapareceu com o restauro.
 
-    Corre os mesmos caminhos da purga, com o `purge_log`, e volta a marcar a
-    fase `concluida`. Devolve os tenants reapagados. Um tenant em disputa nao
+    Corre os mesmos caminhos da purga, com o `purge_log`; **e se a copia for de
+    antes do encerramento**, o tenant voltou `ativo`, com os entitlements
+    ligados: encerra-o outra vez pela porta do KAM-092, com o evento, e desliga
+    os entitlements (achado 10 da revisao adversarial). Marca a fase `concluida`
+    se a copia a tiver. Devolve os tenants reapagados. Um tenant em disputa nao
     se reapaga: fica para quando a disputa fechar.
     """
     if purgados_externos is None or holds_externos is None:
@@ -330,28 +430,32 @@ def reaplicar_apos_restauro(
             continue
         tenant = tenant_guard.normalizar_tenant(tenant)
         disputa = _em_batch(abrir_batch, "offboarding_restauro",
-                            lambda cur, t=tenant: _disputa(cur, t, None, holds_externos))
+                            lambda cur, t=tenant: _disputa(cur, t, holds_externos))
         if disputa:
             continue
-        corrida = _Corrida(abrir_batch, tenant, agora)
-        corrida.apagar_tudo(apagar_contactos)
-        resultado = {**corrida.resumo(), "purgado_at": purgado_at.isoformat(),
-                     "reaplicado_at": agora.isoformat()}
+        with _trinco(abrir_batch, tenant):
+            corrida = _Corrida(abrir_batch, tenant, agora, holds_externos)
+            corrida.apagar_tudo(apagar_contactos)
+            resultado = {**corrida.resumo(), "purgado_at": purgado_at.isoformat(),
+                         "reaplicado_at": agora.isoformat()}
 
-        def depois(cursor: Any, t: str = tenant, r: dict[str, Any] = resultado,
-                   falhou: bool = bool(corrida.falhas)) -> None:
-            marcar(cursor, t, "purga", "falhada" if falhou else "concluida", r)
-            auditar(cursor, t, "purga", f"reaplicada:{r['execucao_id']}")
+            def depois(cursor: Any, t: str = tenant, r: dict[str, Any] = resultado,
+                       falhou: bool = bool(corrida.falhas)) -> None:
+                r["estado_do_tenant"] = _encerrar_o_restaurado(cursor, t)
+                marcar(cursor, t, "purga", "falhada" if falhou else "concluida", r)
+                auditar(cursor, t, "purga", f"reaplicada:{r['execucao_id']}")
 
-        _em_batch(abrir_batch, "offboarding_restauro", depois)
+            _em_batch(abrir_batch, "offboarding_restauro", depois)
         reapagados.append(tenant)
     return reapagados
 
 
 __all__ = [
     "CAMINHOS_DO_ENCERRAMENTO",
+    "CANAL_DO_TITULAR",
     "CLASSE",
     "Caminho",
+    "MOTIVO_DA_REAPLICACAO",
     "TABELAS_DOS_CONTACTOS",
     "purgar",
     "reaplicar_apos_restauro",

@@ -65,6 +65,11 @@ class BaseFalsa:
         self.apagadas: dict[str, int] = {}
         self.falhar_em: str | None = None
         self.linhas = {"clientes": [(A, D0)]}
+        self.trancados: set[str] = set()
+        self.estados: dict[str, str] = {}
+        self.eventos: list[tuple] = []
+        self.hold_a_meio_em: str | None = None
+        self.holds: set[str] = set()
 
 
 class Cursor:
@@ -91,7 +96,26 @@ class Cursor:
         elif "audit_append" in sql:
             self._linhas = [(1,)]
         elif "retention.hold_aplicado" in sql:
-            self._linhas = []
+            self._linhas = [(t, "retention_hold_tenant", t) for t in sorted(b.holds)]
+        elif "pg_try_advisory_lock" in sql:
+            livre = parametros[0] not in b.trancados
+            b.trancados.add(parametros[0])
+            self._linhas = [(livre,)]
+        elif "pg_advisory_unlock" in sql:
+            b.trancados.discard(parametros[0])
+            self._linhas = [(True,)]
+        elif "FROM platform.tenants WHERE id" in sql:
+            self._linhas = [(b.estados.get(parametros[0], "encerrado"),)]
+        elif "transition_tenant" in sql:
+            mudou = b.estados.get(parametros[0]) in ("ativo", "suspenso")
+            if mudou:
+                b.estados[parametros[0]] = "encerrado"
+            self._linhas = [(mudou,)]
+        elif "evt_emitir" in sql:
+            b.eventos.append(tuple(parametros))
+            self._linhas = [("e",)]
+        elif sql.startswith("UPDATE platform.entitlements"):
+            self.rowcount = 1
         elif "estado = 'em_disputa'" in sql:
             self._linhas = [(b.disputas,)]
         elif sql.startswith("DELETE FROM"):
@@ -102,11 +126,15 @@ class Cursor:
             if b.falhar_em == tabela:
                 b.falhar_em = None
                 raise RuntimeError("falha simulada")
+            if b.hold_a_meio_em == tabela:
+                # Um hold aplicado enquanto a corrida vai a meio.
+                b.hold_a_meio_em = None
+                b.holds.add(A)
             self.rowcount = 2
             b.apagadas[tabela] = b.apagadas.get(tabela, 0) + 2
         elif "FROM platform.purge_log" in sql:
-            execucao, t = parametros
-            self._linhas = [(p[2], p[5], p[6], p[7]) for p in b.purge_log if p[0] == execucao and p[3] == t]
+            execucoes, t = parametros
+            self._linhas = [(p[2], p[5], p[6], p[7]) for p in b.purge_log if p[0] in execucoes and p[3] == t]
         elif "INSERT INTO platform.purge_log" in sql:
             b.purge_log.append(tuple(parametros))
         elif "FROM platform.contacts" in sql:
@@ -314,6 +342,30 @@ class TestPurga(unittest.TestCase):
         self.correr(base, agora=D0 + timedelta(days=32))
         self.assertEqual(base.fases[A]["purga"].estado, "concluida")
 
+    def test_duas_corridas_do_mesmo_tenant_nao_correm_juntas(self) -> None:
+        base = BaseFalsa({A: ate_a_purga()})
+        base.trancados.add(A)
+        with self.assertRaises(FaseForaDeOrdem):
+            self.correr(base)
+        self.assertEqual(base.apagadas, {})
+        base.trancados.clear()
+        self.correr(base)
+        self.assertEqual(base.trancados, set(), "o trinco solta-se no fim")
+
+    def test_um_hold_aplicado_a_meio_para_a_corrida(self) -> None:
+        base = BaseFalsa({A: ate_a_purga()})
+        base.hold_a_meio_em = "platform.handoff_accounts"
+        r = self.correr(base)
+        self.assertEqual(r["disputa"], ["hold_tenant"])
+        self.assertEqual(base.fases[A]["purga"].estado, "suspensa_disputa")
+        self.assertNotIn("platform.conversations", base.apagadas, "parou na unidade seguinte")
+
+    def test_o_canal_do_titular_nao_sai_na_purga(self) -> None:
+        base = BaseFalsa({A: ate_a_purga()})
+        r = self.correr(base)
+        self.assertNotIn("platform.owner_contacts", base.apagadas)
+        self.assertIn("platform.owner_contacts", r["retidas"])
+
     def test_o_cofre_que_falha_fica_escrito(self) -> None:
         base = BaseFalsa({A: ate_a_purga()})
 
@@ -345,6 +397,17 @@ class TestPurga(unittest.TestCase):
             holds_externos=hold.Holds())
         self.assertEqual(r, [A])
         self.assertEqual(base.fases[A]["purga"].estado, "concluida")
+        self.assertEqual(base.eventos, [], "um tenant ja encerrado na copia nao emite outra vez")
+        # Uma copia de antes do encerramento trouxe-o ativo: volta a encerrar-se,
+        # com o evento, e os entitlements desligam-se (achado 10).
+        restaurada = BaseFalsa({A: ate_a_purga()})
+        restaurada.estados[A] = "ativo"
+        reaplicar_apos_restauro(
+            lambda: Ligacao(restaurada), purgado_em - timedelta(days=40), D0 + timedelta(days=40),
+            purgados_externos=[(A, purgado_em)], holds_externos=hold.Holds())
+        self.assertEqual(restaurada.estados[A], "encerrado")
+        self.assertEqual([e[0] for e in restaurada.eventos], ["tenant.closed"])
+        self.assertEqual(restaurada.fases[A]["purga"].resultado["estado_do_tenant"], "encerrado")
         self.assertEqual(base.fases[B]["purga"].estado, "pendente")
         with self.assertRaises(ValueError):
             reaplicar_apos_restauro(lambda: Ligacao(base), D0, D0, purgados_externos=[],
@@ -439,9 +502,34 @@ class TestCertificado(unittest.TestCase):
         cert = json.loads(entregues[0])
         self.assertTrue(verificar_certificado(cert, CHAVE))
         self.assertIn({"tabela": "platform.conversations", "linhas": 2}, cert["apagadas"])
+        # O que fica fora da base declara-se, com fundamento (achado 6).
+        escopos = {x.get("escopo") for x in cert["retidas"]}
+        self.assertTrue({"sto", "chatwoot", "traces", "caches", "fornecedores_llm_stt"} <= escopos)
+        # O canal do titular sai depois da entrega, e fica no purge_log (achado 4).
+        self.assertTrue(any("DELETE FROM platform.owner_contacts" in s for s, _ in base.instrucoes))
+        self.assertIn("platform.owner_contacts", [p[2] for p in base.purge_log if p[5] == "ok"])
         # Concluido, repetir devolve o que foi emitido sem entregar outra vez.
         self.assertTrue(emitir_certificado(abrir, A, D0 + timedelta(days=33), chave=CHAVE, kid="k1",
                                            copias_expiram_em_dias=35, entregar=None)["entregue"])  # type: ignore[arg-type]
+
+    def test_depois_de_uma_falha_o_certificado_soma_as_duas_execucoes(self) -> None:
+        """Achado 7: com so a ultima execucao, o que a primeira apagou aparecia a zero."""
+        base = BaseFalsa({A: ate_a_purga()})
+        abrir = lambda: Ligacao(base)  # noqa: E731
+        base.falhar_em = "platform.channel_quality_log"
+        purgar(abrir, A, D0 + timedelta(days=31))
+        self.assertEqual(base.fases[A]["purga"].estado, "falhada")
+        purgar(abrir, A, D0 + timedelta(days=32))
+        self.assertEqual(len(base.fases[A]["purga"].resultado["execucoes"]), 2)
+        entregues: list[bytes] = []
+        emitir_certificado(abrir, A, D0 + timedelta(days=32), chave=CHAVE, kid="k1",
+                           copias_expiram_em_dias=35,
+                           entregar=lambda t, corpo: (entregues.append(corpo), True)[1])
+        cert = json.loads(entregues[0])
+        # As conversas sairam nas duas corridas (2 + 2 no duplo), e somam-se.
+        self.assertIn({"tabela": "platform.conversations", "linhas": 4}, cert["apagadas"])
+        self.assertNotIn("platform.channel_quality_log", {x.get("tabela") for x in cert["retidas"]},
+                         "uma tabela que saiu numa execucao nao fica retida pela que falhou")
 
     def test_a_assinatura_nao_sobrevive_a_uma_alteracao(self) -> None:
         cert = assinar(self.doc(), CHAVE, "k1")

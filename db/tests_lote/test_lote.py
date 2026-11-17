@@ -107,7 +107,8 @@ TESTES_OBRIGATORIOS = (
     # saga (3), o cancelamento em D3 (adversarial b) e a revogacao com o
     # `tenant.closed` e o crash a meio (5 e 9).
     "o pedido exige as duas confirmações: só com a sessão é recusado e nada se escreve",
-    "T&S só encerra um tenant suspenso, e com a referência da decisão",
+    "T&S só encerra um tenant suspenso com uma sanção de encerramento, e o titular não a cancela",
+    "um pedido de T&S toma o pedido vivo do titular, que deixa de se poder cancelar",
     "o canal: cancela a subscrição, desliga o canal, e nenhuma chamada toca no WABA nem no número; o CHR deixa de encaminhar",
     "cancelado em D3: o canal volta ao que era, e nenhuma fase seguinte corre",
     "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui",

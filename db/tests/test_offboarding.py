@@ -66,6 +66,7 @@ from tests.base import (  # noqa: E402
     PRIVILEGIO_INSUFICIENTE,
     VIOLACAO_DE_CHECK,
     ComBase,
+    alembic,
     sqlstate,
 )
 
@@ -202,16 +203,17 @@ class TestEsquema(ComOffboarding):
                 self.assertEqual(sqlstate(erro.exception), VIOLACAO_DE_CHECK)
                 self.cur.execute("ROLLBACK TO SAVEPOINT s")
 
-    def test_o_lote_muda_o_estado_e_o_resultado_e_nao_o_prazo(self) -> None:
+    def test_o_lote_muda_o_estado_o_prazo_e_o_resultado_e_nao_a_fase(self) -> None:
+        """O prazo reescreve-o a reabertura de um pedido cancelado; a fase e o tenant, ninguem."""
         t = self.tenant()
         self.pedido(t)
         self.cur.execute("SET ROLE kamba_batch")
         self.cur.execute(
-            "UPDATE platform.offboarding_run SET estado = 'em_curso', resultado = '{\"a\":1}' "
-            "WHERE tenant_id = %s AND fase = 'purga'", (t,))
+            "UPDATE platform.offboarding_run SET estado = 'em_curso', resultado = '{\"a\":1}', "
+            "prazo_at = now() WHERE tenant_id = %s AND fase = 'purga'", (t,))
         self.assertEqual(self.cur.rowcount, 1)
         for instrucao in (
-            "UPDATE platform.offboarding_run SET prazo_at = now() + interval '1 year' "
+            "UPDATE platform.offboarding_run SET fase = 'certificado' "
             "WHERE tenant_id = %s AND fase = 'purga'",
             "DELETE FROM platform.offboarding_run WHERE tenant_id = %s",
         ):
@@ -262,6 +264,26 @@ class TestEsquema(ComOffboarding):
             [("tenant.activated", 1, False, True), ("tenant.closed", 1, False, True),
              ("tenant.suspended", 1, False, True)],
         )
+
+    def test_o_downgrade_recusa_com_fases_escritas(self) -> None:
+        """Achado 11: a tabela e o registo das purgas. Nao exige estar na cabeca."""
+        revisao = next((_RAIZ / "db" / "migrations" / "versions").glob("*_offboarding.py"))
+        anterior = re.search(r'(?m)^down_revision = "([^"]+)"', revisao.read_text(encoding="utf-8")).group(1)
+        ligacao_propria = self.ligar("admin")
+        cur = ligacao_propria.cursor()
+        tenant = factories.tenant(cur)
+        cur.execute(
+            "INSERT INTO platform.offboarding_run (tenant_id, fase, prazo_at) VALUES (%s, 'verificacao', now())",
+            (tenant,))
+        ligacao_propria.commit()
+        try:
+            resultado = alembic("downgrade", anterior)
+            self.assertNotEqual(resultado.returncode, 0)
+            self.assertIn("downgrade da 0067 recusado", resultado.stderr + resultado.stdout)
+        finally:
+            cur.execute("DELETE FROM platform.offboarding_run WHERE tenant_id = %s", (tenant,))
+            cur.execute("DELETE FROM platform.tenants WHERE id = %s", (tenant,))
+            ligacao_propria.commit()
 
     def test_os_caminhos_da_purga_sao_os_que_o_lote_pode_apagar(self) -> None:
         """Os caminhos foram medidos contra a base; isto mantem-nos medidos."""
@@ -325,6 +347,30 @@ class TestExportacao(ComOffboarding):
         self.assertEqual(self.fase(a, "exportacao")[0], "concluida")
         self.cur.execute("SELECT estado FROM platform.tenants WHERE id = %s", (a,))
         self.assertEqual(self.cur.fetchone()[0], "suspenso", "exportar nao muda o estado")
+
+    def test_o_titular_exporta_os_seus_dados_de_um_tenant_suspenso(self) -> None:
+        """KAM-058, criterio 7, pela exportacao do titular do KAM-070 (achado 9).
+
+        A exportacao dos direitos (`direitos.exportacao.exportar`) nao le o estado
+        do tenant: um contacto de uma loja suspensa recebe os seus dados como o de
+        uma activa, sem pedido de encerramento nenhum.
+        """
+        from kamba_core import tenant_guard
+        from kamba_core.direitos.contrato import Pedido, TIPO_EXPORTACAO
+        from kamba_core.direitos.exportacao import exportar as exportar_do_titular
+
+        t = self.tenant(estado="suspenso")
+        s = self.semear(t)
+        pedido = Pedido(str(uuid.uuid4()), t, s["contacto"], TIPO_EXPORTACAO, "recebido",
+                        "subcontratante", D0, 30, D0 + timedelta(days=30))
+        ligacao = self.app()
+        with tenant_guard.tx(ligacao, t) as cursor:
+            exportado = exportar_do_titular(cursor, pedido)
+        self.assertEqual(exportado["contact_id"], s["contacto"])
+        self.assertEqual([str(c["contact_id"]) for c in exportado["coleccoes"]["contacto"]], [s["contacto"]])
+        self.assertEqual([str(c["id"]) for c in exportado["coleccoes"]["conversas"]], [s["conversa"]])
+        self.cur.execute("SELECT estado FROM platform.tenants WHERE id = %s", (t,))
+        self.assertEqual(self.cur.fetchone()[0], "suspenso")
 
     def test_cada_geracao_e_auditada(self) -> None:
         a = self.tenant()
@@ -500,6 +546,13 @@ class TestPurga(ComOffboarding):
         self.assertEqual(reapagados, [a])
         self.assertEqual(self.contar("platform.conversations", a), 0)
         self.assertEqual(self.contar("platform.tenant_channels", a), 0)
+        # A copia era de antes do encerramento: o tenant voltou `ativo`, e a
+        # reaplicacao encerra-o outra vez pela porta, com o evento (achado 10).
+        self.cur.execute("SELECT estado FROM platform.tenants WHERE id = %s", (a,))
+        self.assertEqual(self.cur.fetchone()[0], "encerrado")
+        self.cur.execute(
+            "SELECT count(*) FROM platform.events_outbox WHERE tenant_id = %s AND tipo = 'tenant.closed'", (a,))
+        self.assertEqual(self.cur.fetchone()[0], 1)
         self.assertTrue(s)
 
     def test_a_reaplicacao_exige_as_fontes_de_fora(self) -> None:

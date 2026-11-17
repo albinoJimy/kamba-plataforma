@@ -30,9 +30,10 @@ uma fase que parou a meio retoma no passo seguinte.
 
 ## 2. Cancelar
 
-O titular cancela até ao D7. O canal volta ao estado de antes (a subscrição refaz-se), as fases
-por fazer ficam `cancelada`, e nada se apaga. Um pedido cancelado **não se reabre** nesta versão: o
-prazo de uma fase não se reescreve. Se o titular voltar a pedir, é ops que trata.
+O titular cancela até ao D7 — **só o pedido dele**: um encerramento por T&S não o cancela o dono, e um
+pedido de T&S sobre um pedido vivo do titular toma-o. O canal volta ao estado de antes (a subscrição
+refaz-se), as fases por fazer ficam `cancelada`, e nada se apaga. Um pedido novo, verificado de novo,
+**reabre** um cancelado, e o calendário recomeça do novo D0.
 
 ## 3. O que fica, e porquê
 
@@ -45,6 +46,10 @@ prazo de uma fase não se reescreve. Se o titular voltar a pedir, é ops que tra
 * **O que ainda não tem caminho**: os contactos (só o cofre lhes toca), os casos de onboarding e o
   que deles depende, as ingestões do catálogo e os trabalhos de foto. Ficam `recusada` /
   `sem_caminho` no `purge_log` e no certificado, nunca como apagados.
+* **O que vive fora da base**: os objectos do STO (as fotos, os bytes da mídia cujas linhas saíram, os
+  pacotes de exportação), o Chatwoot, os *traces*, as *caches* e os fornecedores de LLM e STT. Não têm
+  caminho de eliminação nesta versão, e o certificado lista-os como retidos, com o fundamento.
+* **O contacto do dono** fica até o certificado lhe ser entregue, e sai logo a seguir.
 
 ## 4. As cópias de segurança
 
@@ -74,4 +79,4 @@ Medusa. A assinatura do certificado é HMAC, e não assimétrica.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.0 | Novembro 2026 | KAM-098: emissão inicial — as sete fases, o cancelamento, o que fica, as cópias de segurança e o que fazer quando uma fase pára. | Equipa KAMBÁ |
+| 1.0 | Novembro 2026 | KAM-098: emissão inicial — as sete fases, o cancelamento e a reabertura, o que fica (incluindo o que vive fora da base), as cópias de segurança e o que fazer quando uma fase pára. Um tenant `restrito` não se encerra: o grafo da `0058` não tem a aresta. | Equipa KAMBÁ |

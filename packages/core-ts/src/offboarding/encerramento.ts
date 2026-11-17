@@ -249,14 +249,16 @@ export type PedidoDoTitular = {
   readonly otp: string | null;
   /** O *token* da ligação mandada ao e-mail registado. */
   readonly tokenDoEmail: string | null;
-  readonly provas: ProvasDoTitular;
   readonly agora: Date;
 };
 
 export type PedidoDeTrustSafety = {
   readonly tenantId: string;
   readonly origem: "trust_safety";
-  /** A referência da decisão de T&S. Guarda-se só o SHA-256 (pode nomear pessoas). */
+  /**
+   * O `id` da sanção `encerramento` do KAM-097 (`platform.ts_sanction`), que tem
+   * de existir para o tenant e não ter recurso provido. Guarda-se só o SHA-256.
+   */
   readonly decisaoRef: string;
   readonly agora: Date;
 };
@@ -269,49 +271,95 @@ export type RespostaDoPedido = {
 };
 
 /**
+ * A sanção de encerramento do KAM-097, para o tenant, sem recurso provido. É o
+ * que faz de um pedido de T&S uma decisão de T&S, e não uma referência qualquer
+ * (achado 8 da revisão adversarial).
+ */
+export const SQL_SANCAO_DE_ENCERRAMENTO = `
+  SELECT 1 FROM platform.ts_sanction s
+   WHERE s.id = $1::uuid AND s.tenant_id = $2 AND s.passo = 'encerramento'
+     AND s.recurso_de IS NULL
+     AND NOT EXISTS (SELECT 1 FROM platform.ts_sanction r
+                      WHERE r.recurso_de = s.id AND r.recurso_estado = 'provido')
+`;
+
+/**
+ * Reabre uma fase de um pedido cancelado, com o prazo do calendário novo. É a
+ * única escrita do `prazo_at` depois do pedido (a revisão concede o `UPDATE`
+ * dele por isso), e só a faz um pedido verificado de novo.
+ */
+export const SQL_REABRIR_FASE = `
+  UPDATE platform.offboarding_run
+     SET estado = $3, prazo_at = $4, resultado = $5::jsonb
+   WHERE tenant_id = $1 AND fase = $2
+`;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
  * Abre o pedido de encerramento (fase `verificacao`, critério 1).
  *
  * **Pelo titular**: exige as duas provas, e as duas são perguntadas — uma falta
- * não deixa a outra por perguntar, e o erro diz quais faltaram. O tenant tem
- * de estar `ativo` ou `suspenso`. **Por T&S**: exige o tenant `suspenso` (a
- * aresta `suspenso -> encerrado` do bloco) e a referência da decisão.
+ * não deixa a outra por perguntar, e o erro diz quais faltaram. As provas
+ * verifica-as a porta que o processo injecta (`provas`), e não o pedido: o
+ * pedido traz só os códigos. O tenant tem de estar `ativo` ou `suspenso`.
+ * **Por T&S**: exige o tenant `suspenso` (a aresta `suspenso -> encerrado` do
+ * bloco) e uma sanção `encerramento` do KAM-097 em vigor para ele.
  *
- * Escreve as sete fases de uma vez, com os prazos do calendário: a
- * `verificacao` concluída, as outras pendentes. Repetir devolve o pedido que
- * existe. Um pedido cancelado **não se reabre** nesta revisão: o `prazo_at` não
- * se reescreve (o privilégio da revisão), e reabrir com os prazos velhos punha
- * a purga mais cedo do que o calendário de um pedido novo.
+ * **Um tenant `restrito` não se encerra**: o grafo da `0058` não tem a aresta
+ * `restrito -> encerrado`, e acrescentá-la é decidir o que a restrição da Meta
+ * permite — volta ao fundador.
+ *
+ * Escreve as sete fases de uma vez, com os prazos do calendário. Repetir devolve
+ * o pedido que existe. **Um pedido cancelado reabre-se** com um pedido novo
+ * verificado, e o calendário recomeça do novo D0. **Um pedido de T&S sobre um
+ * pedido vivo do titular toma-o**: a origem passa a T&S, e deixa de se poder
+ * cancelar — senão um titular que previsse a sanção pedia e cancelava, e
+ * ficava fora do alcance dela (achado 1 da revisão adversarial).
  */
 export async function abrirPedido(
   bd: ClienteSql,
   pedido: PedidoDoTitular | PedidoDeTrustSafety,
+  provas: ProvasDoTitular | null = null,
 ): Promise<RespostaDoPedido> {
   let prova: Resultado;
   if (pedido.origem === "titular") {
+    if (provas === null) throw new ConfirmacaoIncompletaError(["otp", "email"]);
     const falta: string[] = [];
-    const otp = pedido.otp !== null && pedido.otp !== "" && (await pedido.provas.otpConfere(pedido.tenantId, pedido.otp));
+    const otp = pedido.otp !== null && pedido.otp !== "" && (await provas.otpConfere(pedido.tenantId, pedido.otp));
     if (!otp) falta.push("otp");
     const email =
       pedido.tokenDoEmail !== null &&
       pedido.tokenDoEmail !== "" &&
-      (await pedido.provas.ligacaoDoEmailConfere(pedido.tenantId, pedido.tokenDoEmail));
+      (await provas.ligacaoDoEmailConfere(pedido.tenantId, pedido.tokenDoEmail));
     if (!email) falta.push("email");
     if (falta.length > 0) throw new ConfirmacaoIncompletaError(falta);
     prova = { confirmacoes: ["otp", "email"] };
   } else {
-    if (pedido.decisaoRef.trim() === "") throw new ConfirmacaoIncompletaError(["decisao_ref"]);
+    if (!UUID.test(pedido.decisaoRef)) throw new ConfirmacaoIncompletaError(["decisao_ref"]);
     prova = { decisao: true };
   }
   const origem: Origem = pedido.origem;
 
   return emTransaccao(bd, pedido.tenantId, async () => {
     const estado = texto((await bd.query(SQL_ESTADO_DO_TENANT, [pedido.tenantId])).rows[0]?.estado);
+    if (pedido.origem === "trust_safety") {
+      const s = await bd.query(SQL_SANCAO_DE_ENCERRAMENTO, [pedido.decisaoRef, pedido.tenantId]);
+      if (s.rows.length === 0) throw new ConfirmacaoIncompletaError(["sancao_de_encerramento"]);
+    }
     const aceites = origem === "titular" ? ["ativo", "suspenso"] : ["suspenso"];
     const existentes = await fases(bd, pedido.tenantId);
-    if (existentes.size > 0) {
-      const v = existentes.get("verificacao");
-      if (v?.resultado.cancelado_at !== undefined) {
-        throw new PedidoError("o pedido deste tenant foi cancelado e nao se reabre nesta revisao");
+    const v = existentes.get("verificacao");
+    const resumo = pedido.origem === "titular" ? `pedido:${origem}` : `pedido:${origem}:${pedido.decisaoRef}`;
+    if (v !== undefined && v.resultado.cancelado_at === undefined) {
+      if (origem === "trust_safety" && v.resultado.origem !== "trust_safety") {
+        await marcar(bd, pedido.tenantId, "verificacao", v.estado, {
+          ...v.resultado,
+          origem,
+          ...prova,
+          tomado_por_ts_at: pedido.agora.toISOString(),
+        });
+        await auditar(bd, pedido.tenantId, "verificacao", resumo);
       }
       return { aberto: false, d0: d0De(existentes), aviso: AVISO_DA_APP_BUSINESS };
     }
@@ -319,18 +367,25 @@ export async function abrirPedido(
     const p = prazos(pedido.agora);
     for (const fase of FASES) {
       const resultado =
-        fase === "verificacao" ? { origem, ...prova, d0: pedido.agora.toISOString(), aviso: true } : {};
-      await bd.query(SQL_ABRIR_FASE, [
+        fase === "verificacao"
+          ? {
+              origem,
+              ...prova,
+              d0: pedido.agora.toISOString(),
+              aviso: true,
+              ...(v === undefined ? {} : { reaberto_de: texto(v.resultado.d0) }),
+            }
+          : {};
+      const parametros = [
         pedido.tenantId,
         fase,
         fase === "verificacao" ? "concluida" : "pendente",
         p[fase],
         JSON.stringify(resultado),
-      ]);
+      ];
+      await bd.query(v === undefined ? SQL_ABRIR_FASE : SQL_REABRIR_FASE, parametros);
     }
-    const resumo =
-      pedido.origem === "titular" ? `pedido:${origem}` : `pedido:${origem}:${pedido.decisaoRef}`;
-    await auditar(bd, pedido.tenantId, "verificacao", resumo);
+    await auditar(bd, pedido.tenantId, "verificacao", v === undefined ? resumo : `reaberto:${resumo}`);
     return { aberto: true, d0: pedido.agora, aviso: AVISO_DA_APP_BUSINESS };
   });
 }
@@ -338,24 +393,33 @@ export async function abrirPedido(
 /**
  * Cancela o pedido até D7 (critério 1; adversarial b: «nada apagado»).
  *
+ * **Só o do titular.** Uma decisão de T&S não a cancela o dono (achado 1 da
+ * revisão adversarial).
+ *
  * Religa primeiro os canais que este pedido desligou — a subscrição de
  * *webhooks* volta a fazer-se e o canal volta ao estado de antes —, e só depois
- * marca as fases `cancelada`, numa transacção. A ordem é a do critério 9: um
- * *crash* entre as duas deixa o pedido por cancelar com o canal religado, e
- * repetir religa nada e cancela. Depois de cancelado, nenhuma fase corre.
+ * marca as fases por fazer `cancelada`, numa transacção que volta a verificar
+ * o prazo e a revogação. O canal fica `cancelada` também, porque foi desfeito;
+ * uma exportação já gerada fica `concluida`, porque aconteceu. Um *crash* entre
+ * as duas deixa o pedido por cancelar com o canal religado, e repetir cancela.
  */
 export async function cancelarPedido(
   bd: ClienteSql,
   opcoes: { readonly tenantId: string; readonly canal: CanalDaMeta; readonly agora: Date },
 ): Promise<{ readonly religados: number }> {
   const { tenantId, agora } = opcoes;
-  const canalFeito = await emTransaccao(bd, tenantId, async () => {
-    const linhas = await fases(bd, tenantId);
+  const verificarCancelavel = (linhas: Map<Fase, LinhaDaFase>): boolean => {
     const v = linhas.get("verificacao");
     if (v === undefined) throw new PedidoError("nao ha pedido de encerramento para este tenant");
-    if (v.resultado.cancelado_at !== undefined) return null;
+    if (v.resultado.cancelado_at !== undefined) return false;
+    if (v.resultado.origem === "trust_safety") throw new PedidoError("um encerramento de T&S nao o cancela o titular");
     if (!cancelavel(d0De(linhas), agora)) throw new PedidoError("o pedido ja nao se cancela: passou o D7");
     if (linhas.get("revogacao")?.estado === "concluida") throw new PedidoError("a revogacao ja correu");
+    return true;
+  };
+  const canalFeito = await emTransaccao(bd, tenantId, async () => {
+    const linhas = await fases(bd, tenantId);
+    if (!verificarCancelavel(linhas)) return null;
     return (linhas.get("canal")?.resultado.canais ?? []) as { id: string; waba_id: string; de: string }[];
   });
   if (canalFeito === null) return { religados: 0 };
@@ -371,10 +435,11 @@ export async function cancelarPedido(
 
   await emTransaccao(bd, tenantId, async () => {
     const linhas = await fases(bd, tenantId);
+    if (!verificarCancelavel(linhas)) return;
     for (const [fase, linha] of linhas) {
       if (fase === "verificacao") {
         await marcar(bd, tenantId, fase, linha.estado, { ...linha.resultado, cancelado_at: agora.toISOString() });
-      } else if (linha.estado !== "cancelada") {
+      } else if (fase === "canal" || linha.estado !== "concluida") {
         await marcar(bd, tenantId, fase, "cancelada", linha.resultado);
       }
     }
@@ -469,10 +534,20 @@ export async function desligarCanal(
   let desligados = 0;
   for (const c of ligados) {
     const canal = { id: texto(c.id), waba_id: texto(c.waba_id), de: texto(c.estado) };
+    // **Antes da Meta**, o pedido tem de estar vivo: um cancelamento que acabou
+    // entre a leitura e aqui não pode ser seguido de uma dessubscrição (achado 5
+    // da revisão adversarial).
+    await emTransaccao(bd, tenantId, async () => exigirPedidoVivo(await fases(bd, tenantId), "canal"));
     for (const accao of accoesDoCanalDoCliente(canal.waba_id)) {
       await executarNoCanalDoCliente(opcoes.canal, accao, PASSO_DO_CANAL);
     }
+    let cancelado = false;
     await emTransaccao(bd, tenantId, async () => {
+      const vivo = await fases(bd, tenantId);
+      if (vivo.get("verificacao")?.resultado.cancelado_at !== undefined) {
+        cancelado = true;
+        return;
+      }
       const r = await bd.query(SQL_DESLIGAR_CANAL, [canal.id, tenantId, canal.de]);
       if ((r.rowCount ?? 0) === 0) return;
       desligados += 1;
@@ -480,10 +555,18 @@ export async function desligarCanal(
       const canais = [...((linha?.resultado.canais ?? []) as unknown[]), canal];
       await marcar(bd, tenantId, "canal", "em_curso", { ...linha?.resultado, canais });
     });
+    if (cancelado) {
+      // O cancelamento ganhou a corrida depois da Meta: desfaz-se a dessubscrição,
+      // e o canal fica como o cancelamento o deixou.
+      await opcoes.canal.subscreverWebhooks(canal.waba_id);
+      throw new FaseForaDeOrdemError("canal", "o pedido foi cancelado a meio");
+    }
   }
 
   await emTransaccao(bd, tenantId, async () => {
-    const linha = (await fases(bd, tenantId)).get("canal");
+    const vivo = await fases(bd, tenantId);
+    exigirPedidoVivo(vivo, "canal");
+    const linha = vivo.get("canal");
     await marcar(bd, tenantId, "canal", "concluida", {
       canais: [],
       ...linha?.resultado,
@@ -539,6 +622,18 @@ export async function revogar(
     }
     if (linhas.get("exportacao")?.estado !== "concluida") {
       throw new FaseForaDeOrdemError("revogacao", "a exportacao nao foi concluida");
+    }
+    // O canal tem de estar desligado: sem isso a subscricao na Meta ficava viva
+    // e o aviso ao dono mentia (achado 2 da revisao adversarial).
+    if (linhas.get("canal")?.estado !== "concluida") {
+      throw new FaseForaDeOrdemError("revogacao", "o canal nao foi desligado");
+    }
+    // **Antes de qualquer porta**: um tenant que ficou `restrito` depois do
+    // pedido nao tem aresta para `encerrado`, e revogar a chave e a Medusa para
+    // depois falhar a transicao deixava-o a meio para sempre (achado 3).
+    const estado = texto((await bd.query(SQL_ESTADO_DO_TENANT, [tenantId])).rows[0]?.estado);
+    if (!["ativo", "suspenso", "encerrado"].includes(estado)) {
+      throw new FaseForaDeOrdemError("revogacao", `o tenant esta ${estado}, e dai nao se encerra`);
     }
     const linha = linhas.get("revogacao");
     const origem = texto(linhas.get("verificacao")?.resultado.origem) as Origem;

@@ -5,7 +5,8 @@
  *
  * 1. **O pedido** exige as duas confirmações do titular, e com só a sessão
  *    (adversarial a) nada se escreve; escreve as sete fases com os prazos D0–D30
- *    numa transacção, e repetir não abre outro. T&S só encerra um `suspenso`.
+ *    numa transacção, e repetir não abre outro. T&S só encerra um `suspenso` com
+ *    uma sanção de encerramento do KAM-097, e toma um pedido vivo do titular.
  * 2. **O canal** cancela a subscrição de *webhooks* pelo guarda da saga, desliga
  *    o canal na base, e **nenhuma chamada** toca no WABA nem no número; o CHR lê
  *    `desligado` e a matriz não deixa chegar ao AGR (critério 3).
@@ -98,7 +99,26 @@ async function fases(tenant: string): Promise<Record<string, { estado: string; p
 }
 
 async function pedidoVerificado(tenant: string): Promise<void> {
-  await abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", provas, agora: D0 });
+  await abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", agora: D0 }, provas);
+}
+
+/** Uma sanção `encerramento` do KAM-097, humana e com caso, como o Trust a grava. */
+async function sancionar(tenant: string): Promise<string> {
+  const caso = await admin.query(
+    "INSERT INTO platform.review_case (tipo, tenant_id, motivo_codigo, motivo_interno, motivo_publico, " +
+      "recomendacao, sla_alerta_at, sla_due_at) VALUES ('trust', $1, $2, 'ensaio do off-boarding', " +
+      "'nao_foi_possivel_validar', 'rejeitar', now() + interval '19 hours', now() + interval '24 hours') " +
+      "RETURNING id::text AS id",
+    [tenant, `sancao_encerramento:${randomUUID().slice(0, 12)}`],
+  );
+  const id = String(caso.rows[0]?.id);
+  const s = await admin.query(
+    "INSERT INTO platform.ts_sanction (tenant_id, chave, passo, origem, motivo_interno, motivo_publico, " +
+      "autor, case_id, justificacao_salto) VALUES ($1, $2, 'encerramento', 'humana', 'ensaio do off-boarding', " +
+      "'loja_encerrada', $3, $4, 'ensaio do off-boarding: salto directo ao encerramento') RETURNING id::text AS id",
+    [tenant, `caso:${id}`, randomUUID(), id],
+  );
+  return String(s.rows[0]?.id);
 }
 
 before(async () => {
@@ -116,6 +136,14 @@ after(async () => {
       await admin.query("ALTER TABLE platform.tenant_state_log ENABLE ALWAYS TRIGGER tenant_state_log_imutavel");
     }
     await admin.query("DELETE FROM platform.offboarding_run WHERE tenant_id = ANY($1::uuid[])", [meus]);
+    await admin.query("ALTER TABLE platform.ts_sanction DISABLE TRIGGER USER");
+    try {
+      await admin.query("DELETE FROM platform.ts_sanction WHERE tenant_id = ANY($1::uuid[])", [meus]);
+    } finally {
+      // Os dois gatilhos da `ts_sanction` estao em modo de origem (`O`), e nao `ALWAYS`.
+      await admin.query("ALTER TABLE platform.ts_sanction ENABLE TRIGGER ts_sanction_imutavel");
+      await admin.query("ALTER TABLE platform.ts_sanction ENABLE TRIGGER ts_sanction_regras");
+    }
   }
   await lote?.end();
   await admin?.end();
@@ -131,13 +159,18 @@ describe("o off-boarding contra a base", () => {
       ["000000", "tok", /otp/],
     ] as const) {
       await assert.rejects(
-        abrirPedido(lote, { tenantId: tenant, origem: "titular", otp, tokenDoEmail: token, provas, agora: D0 }),
+        abrirPedido(lote, { tenantId: tenant, origem: "titular", otp, tokenDoEmail: token, agora: D0 }, provas),
         (e: Error) => e instanceof ConfirmacaoIncompletaError && falta.test(e.message),
       );
     }
     assert.deepEqual(await fases(tenant), {}, "nada se escreveu");
 
-    const r = await abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", provas, agora: D0 });
+    // Sem a porta das provas, nem com os códigos certos.
+    await assert.rejects(
+      abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", agora: D0 }),
+      ConfirmacaoIncompletaError,
+    );
+    const r = await abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", agora: D0 }, provas);
     assert.equal(r.aberto, true);
     assert.equal(r.aviso, AVISO_DA_APP_BUSINESS);
     const f = await fases(tenant);
@@ -148,25 +181,48 @@ describe("o off-boarding contra a base", () => {
       assert.equal(f[fase]?.prazo.getTime(), dia(d).getTime(), fase);
     }
     // Repetir devolve o pedido que existe, e não abre outro.
-    const outra = await abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", provas, agora: dia(1) });
+    const outra = await abrirPedido(lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", agora: dia(1) }, provas);
     assert.equal(outra.aberto, false);
     assert.equal(outra.d0.getTime(), D0.getTime());
   });
 
-  it("T&S só encerra um tenant suspenso, e com a referência da decisão", async () => {
+  it("T&S só encerra um tenant suspenso com uma sanção de encerramento, e o titular não a cancela", async () => {
     const { tenant } = await tenantAtivo("off-ts");
+    const sancao = await sancionar(tenant);
     await assert.rejects(
-      abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: "sancao-ensaio", agora: D0 }),
+      abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: sancao, agora: D0 }),
       EstadoDoTenantError,
     );
     await admin.query("UPDATE platform.tenants SET estado = 'suspenso' WHERE id = $1", [tenant]);
-    await assert.rejects(
-      abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: " ", agora: D0 }),
-      ConfirmacaoIncompletaError,
-    );
-    const r = await abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: "sancao-ensaio", agora: D0 });
+    for (const ref of ["sancao-ensaio", randomUUID()]) {
+      await assert.rejects(
+        abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: ref, agora: D0 }),
+        ConfirmacaoIncompletaError,
+        "sem uma sanção de encerramento em vigor, T&S não encerra",
+      );
+    }
+    const r = await abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: sancao, agora: D0 });
     assert.equal(r.aberto, true);
     assert.equal((await fases(tenant)).verificacao?.resultado.origem, "trust_safety");
+    await assert.rejects(
+      cancelarPedido(lote, { tenantId: tenant, canal: metaEspia().canal, agora: dia(1) }),
+      PedidoError,
+    );
+  });
+
+  it("um pedido de T&S toma o pedido vivo do titular, que deixa de se poder cancelar", async () => {
+    const { tenant } = await tenantAtivo("off-ts-toma");
+    await pedidoVerificado(tenant);
+    await admin.query("UPDATE platform.tenants SET estado = 'suspenso' WHERE id = $1", [tenant]);
+    const sancao = await sancionar(tenant);
+    const r = await abrirPedido(lote, { tenantId: tenant, origem: "trust_safety", decisaoRef: sancao, agora: dia(1) });
+    assert.equal(r.aberto, false);
+    assert.equal(r.d0.getTime(), D0.getTime(), "o calendário é o do pedido que já corria");
+    assert.equal((await fases(tenant)).verificacao?.resultado.origem, "trust_safety");
+    await assert.rejects(
+      cancelarPedido(lote, { tenantId: tenant, canal: metaEspia().canal, agora: dia(2) }),
+      PedidoError,
+    );
   });
 
   it("o canal: cancela a subscrição, desliga o canal, e nenhuma chamada toca no WABA nem no número; o CHR deixa de encaminhar", async () => {
@@ -206,8 +262,15 @@ describe("o off-boarding contra a base", () => {
     await assert.rejects(desligarCanal(lote, { tenantId: tenant, canal: meta.canal, agora: dia(4) }), FaseForaDeOrdemError);
     // Repetir o cancelamento não religa nada outra vez.
     assert.equal((await cancelarPedido(lote, { tenantId: tenant, canal: meta.canal, agora: dia(4) })).religados, 0);
-    // E um pedido cancelado não se reabre.
-    await assert.rejects(pedidoVerificado(tenant), PedidoError);
+    // Um pedido novo, verificado de novo, reabre-o: o calendário recomeça do D0 novo.
+    const reaberto = await abrirPedido(
+      lote, { tenantId: tenant, origem: "titular", otp: "123456", tokenDoEmail: "tok", agora: dia(5) }, provas);
+    assert.equal(reaberto.aberto, true);
+    const depois = await fases(tenant);
+    assert.equal(depois.purga?.prazo.getTime(), dia(35).getTime());
+    assert.equal(depois.canal?.estado, "pendente");
+    assert.equal(depois.verificacao?.resultado.cancelado_at, undefined);
+    assert.equal(depois.verificacao?.resultado.reaberto_de, D0.toISOString());
     // Depois do D7 já não se cancela.
     const outro = await tenantAtivo("off-tarde");
     await pedidoVerificado(outro.tenant);
@@ -255,6 +318,13 @@ describe("o off-boarding contra a base", () => {
     await assert.rejects(revogar(lote, { tenantId: tenant, portas, agora: dia(7) }), FaseForaDeOrdemError, "sem exportação");
     // A exportação é do lado Python; aqui marca-se como ele a marca.
     await admin.query("UPDATE platform.offboarding_run SET estado = 'concluida' WHERE tenant_id = $1 AND fase = 'exportacao'", [tenant]);
+    await assert.rejects(revogar(lote, { tenantId: tenant, portas, agora: dia(7) }), /o canal nao foi desligado/);
+    await desligarCanal(lote, { tenantId: tenant, canal: metaEspia().canal, agora: D0 });
+    // Um tenant que ficou restrito: recusa **antes** de qualquer porta.
+    await admin.query("UPDATE platform.tenants SET estado = 'restrito' WHERE id = $1", [tenant]);
+    await assert.rejects(revogar(lote, { tenantId: tenant, portas, agora: dia(7) }), /restrito/);
+    assert.deepEqual(chamadas, [], "nada revogado num tenant que não se pode encerrar");
+    await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [tenant]);
 
     await assert.rejects(revogar(lote, { tenantId: tenant, portas, agora: dia(7) }), /a Medusa caiu a meio/);
     assert.deepEqual((await fases(tenant)).revogacao?.resultado.passos, { chave_llm: "concluido" });

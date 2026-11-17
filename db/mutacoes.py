@@ -8073,7 +8073,7 @@ MUTACOES = [
      "tests"),
     # ------------------------------------- KAM-098 (revisao do off-boarding)
     #
-    # Cinco, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # Seis, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
     # descoberta pelo *glob* (`REV_OFFBOARDING`).
     #
     # Uma fase repetida entra (criterio 9): `test_uma_linha_por_tenant_e_por_fase`.
@@ -8081,10 +8081,15 @@ MUTACOES = [
      "          CONSTRAINT offboarding_run_pkey PRIMARY KEY (tenant_id, fase),\n",
      "          CONSTRAINT offboarding_run_pkey PRIMARY KEY (tenant_id, fase, prazo_at),\n",
      "tests"),
-    # O lote reescreve o prazo e adia a purga: `test_o_lote_muda_o_estado_e_o_resultado_e_nao_o_prazo`.
-    ("offboarding: o lote reescreve o prazo", REV_OFFBOARDING,
-     '    op.execute("GRANT UPDATE (estado, resultado) ON platform.offboarding_run TO kamba_batch")\n',
-     '    op.execute("GRANT UPDATE (estado, resultado, prazo_at) ON platform.offboarding_run TO kamba_batch")\n',
+    # O lote muda a fase de uma linha: `test_o_lote_muda_o_estado_o_prazo_e_o_resultado_e_nao_a_fase`.
+    ("offboarding: o lote reescreve a fase", REV_OFFBOARDING,
+     '    op.execute("GRANT UPDATE (estado, prazo_at, resultado) ON platform.offboarding_run TO kamba_batch")\n',
+     '    op.execute("GRANT UPDATE (estado, prazo_at, resultado, fase) ON platform.offboarding_run TO kamba_batch")\n',
+     "tests"),
+    # A descida larga as fases escritas: `test_o_downgrade_recusa_com_fases_escritas`.
+    ("offboarding: a descida larga as fases", REV_OFFBOARDING,
+     "          IF EXISTS (SELECT 1 FROM platform.offboarding_run) THEN\n",
+     "          IF false THEN\n",
      "tests"),
     # A aplicacao le as fases de todos: `test_a_aplicacao_nao_le_nada`.
     ("offboarding: a aplicacao le as fases", REV_OFFBOARDING,

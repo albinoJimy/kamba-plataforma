@@ -15,6 +15,15 @@ qual uma copia ainda pode ter os dados, e mais nada. O prazo entra por
 argumento, sem omissao: um numero escrito aqui era uma segunda leitora do
 ciclo, e um ensaio confronta o que se passa com o do ficheiro.
 
+## O que fica fora da base tambem se declara
+
+O `purge_log` so conhece esta base. O que vive fora dela e nao tem caminho de
+eliminacao nesta versao — os objectos do STO (incluindo os bytes da midia cujas
+linhas a purga apagou), o Chatwoot, os *traces*, as *caches* e os fornecedores de
+LLM e STT — vai na lista do que ficou, **com o fundamento**, e nunca calado
+(achado 6 da revisao adversarial). E o canal do titular sai depois da entrega:
+o certificado di-lo.
+
 ## A assinatura e HMAC, e diz-se
 
 O bloco diz «assinado digitalmente». Nao ha assinatura assimetrica nesta
@@ -30,13 +39,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Final
 
 from .. import tenant_guard
 from ..direitos.exportacao import documento, resumo
-from ..retencao import politica
+from ..retencao import politica, purge_log
 from .contrato import FaseForaDeOrdem, auditar, exigir_pedido_vivo, ler_fases, marcar
 
 #: A versao do formato do certificado, em SemVer.
@@ -57,6 +67,20 @@ FUNDAMENTO_SEM_CAMINHO: Final = (
 FUNDAMENTO_REFERENCIADA: Final = (
     "referenciada pelos registos fiscais, que ficam; sai com eles"
 )
+FUNDAMENTO_CANAL_DO_TITULAR: Final = (
+    "o contacto por onde este certificado chega ao titular; apaga-se logo a seguir a entrega"
+)
+
+#: O que vive fora da base e nao tem caminho de eliminacao nesta versao, com o
+#: fundamento. Sai da lista quando o credor (KAM-210, criterio 5) lhe der caminho.
+ESCOPOS_SEM_CAMINHO: Final[tuple[tuple[str, str], ...]] = (
+    ("sto", "objectos no armazenamento (fotos, midia recebida, pacotes de exportacao): "
+            "expiram pelo prazo de retencao de cada objecto, sem eliminacao antecipada nesta versao"),
+    ("chatwoot", "conversas espelhadas no atendimento: sem caminho de eliminacao nesta versao"),
+    ("traces", "registos tecnicos: expiram pelo prazo de retencao deles, sem eliminacao antecipada"),
+    ("caches", "memoria de processos: expira pelo prazo de cada uma"),
+    ("fornecedores_llm_stt", "pedido de eliminacao aos fornecedores ainda nao enviado nesta versao"),
+)
 
 #: As tabelas que ficam por serem referenciadas pelo que e fiscal.
 REFERENCIADAS_PELO_FISCAL: Final = frozenset({"platform.tenants", "platform.payment_accounts"})
@@ -65,12 +89,16 @@ REFERENCIADAS_PELO_FISCAL: Final = frozenset({"platform.tenants", "platform.paym
 EntregarAoTitular = Callable[[str, bytes], bool]
 AbrirLigacao = Callable[[], Any]
 
+#: As linhas de **todas** as execucoes da purga deste encerramento (achado 7).
 SQL_REGISTOS_DA_EXECUCAO: Final = """
   SELECT tabela, resultado, motivo, linhas
     FROM platform.purge_log
-   WHERE execucao_id = %s::uuid AND tenant_id = %s::uuid
+   WHERE execucao_id = ANY(%s::uuid[]) AND tenant_id = %s::uuid
    ORDER BY tabela, resultado
 """
+
+#: O canal do titular sai depois da entrega, com a sua linha no `purge_log`.
+SQL_APAGAR_CANAL_DO_TITULAR: Final = "DELETE FROM platform.owner_contacts WHERE tenant_id = %s"
 
 
 def _em_batch(abrir: AbrirLigacao, job: str, trabalho: Callable[[Any], Any]) -> Any:
@@ -98,6 +126,12 @@ def montar(
     for tabela, resultado, _motivo, linhas in registos:
         if resultado == "ok":
             apagadas[tabela] = apagadas.get(tabela, 0) + int(linhas)
+    for tabela, resultado, _motivo, _linhas in registos:
+        # Uma tabela que saiu numa execucao nao fica retida por outra.
+        if resultado == "ok" or tabela in apagadas:
+            continue
+        if tabela == "platform.owner_contacts":
+            retidas[tabela] = FUNDAMENTO_CANAL_DO_TITULAR
         elif tabela in REFERENCIADAS_PELO_FISCAL:
             retidas[tabela] = FUNDAMENTO_REFERENCIADA
         else:
@@ -111,6 +145,7 @@ def montar(
         "retidas": [
             *({"classe": c.nome, "fundamento": FUNDAMENTO_FISCAL} for c in fiscais),
             *({"tabela": t, "fundamento": f} for t, f in sorted(retidas.items())),
+            *({"escopo": e, "fundamento": f} for e, f in ESCOPOS_SEM_CAMINHO),
         ],
         "prazo_fiscal": {"fiscal_retention_years": anos_fiscais, "estado": "NAO VERIFICADO"},
         "copias_de_seguranca": {
@@ -175,7 +210,8 @@ def emitir_certificado(
         purga = fases["purga"]
         if purga.estado != "concluida":
             raise FaseForaDeOrdem("a fase certificado nao pode correr: a purga nao foi concluida")
-        cursor.execute(SQL_REGISTOS_DA_EXECUCAO, (purga.resultado["execucao_id"], tenant_id))
+        execucoes = list(purga.resultado.get("execucoes") or [purga.resultado["execucao_id"]])
+        cursor.execute(SQL_REGISTOS_DA_EXECUCAO, (execucoes, tenant_id))
         return dict(fases["certificado"].resultado), [tuple(r) for r in cursor.fetchall()]
 
     anterior, registos = _em_batch(abrir_batch, "offboarding_certificado", ler)
@@ -198,6 +234,14 @@ def emitir_certificado(
     }
 
     def gravar(cursor: Any) -> None:
+        if entregue:
+            # O canal do titular ja serviu: sai agora, com a sua linha no `purge_log`.
+            cursor.execute(SQL_APAGAR_CANAL_DO_TITULAR, (tenant_id,))
+            purge_log.escrever(cursor, purge_log.Registo(
+                str(uuid.uuid4()), "relacao", "platform.owner_contacts", tenant_id,
+                purge_log.MODO_EFECTIVA, purge_log.RESULTADO_OK, None, max(cursor.rowcount, 0), 0,
+                None, politica.VERSAO_DA_POLITICA, agora,
+            ))
         marcar(cursor, tenant_id, "certificado", "concluida" if entregue else "em_curso", resultado)
         auditar(cursor, tenant_id, "certificado", f"{certificado['sha256']}:{entregue}")
 

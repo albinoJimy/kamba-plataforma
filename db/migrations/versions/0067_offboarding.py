@@ -52,17 +52,21 @@ duas fontes (`services/agr/tests/test_subscricoes_0052.py`).
 
 ## Os privilegios
 
-So o `kamba_batch` escreve: `INSERT`, e `UPDATE` **so** do `estado` e do
-`resultado` — a fase e o prazo de uma linha nao se reescrevem, e quem quisesse
-adiar a purga mudava o `prazo_at` sem rasto. Ninguem apaga: a tabela e a
-historia do encerramento, e o certificado le-se dela. O `kamba_audit` le. O
+So o `kamba_batch` escreve: `INSERT`, e `UPDATE` **so** do `estado`, do
+`prazo_at` e do `resultado` — o tenant e a fase de uma linha nao se reescrevem.
+O `prazo_at` escreve-o o pedido, e reescreve-o so a reabertura de um pedido
+cancelado, que recomeca o calendario do D0 novo e fica no `audit_log`. Ninguem
+apaga: a tabela e a historia do encerramento, e o certificado le-se dela. O `kamba_audit` le. O
 `kamba_app` **nao tem nada**, pela razao da regua: nao ha painel do dono para o
 encerramento, e um privilegio que ninguem usa e uma superficie.
 
 ## O `downgrade`
 
-Apaga as duas linhas de subscricao pela chave primaria `(consumer, tipo)` e
-larga a tabela, sem `CASCADE`. O `upgrade` nao usa `ON CONFLICT`, pela razao da
+**Recusa-se com fases escritas.** A tabela e o registo dos encerramentos e das
+purgas — e dela que sai a lista dos tenants purgados que a reaplicacao depois de
+um restauro precisa —, e larga-la em silencio apagava essa prova. Esvazia-se
+primeiro, de proposito, ou nao se desce. Sem linhas, apaga as duas subscricoes
+pela chave primaria `(consumer, tipo)` e larga a tabela, sem `CASCADE`. O `upgrade` nao usa `ON CONFLICT`, pela razao da
 `0052`: uma linha ja presente com a mesma chave e uma subscricao que esta
 revisao nao criou, e o `downgrade` apaga-la-ia.
 
@@ -124,7 +128,7 @@ def upgrade() -> None:
     rls.enable_tenant_rls("offboarding_run")
     op.execute("REVOKE ALL ON platform.offboarding_run FROM PUBLIC")
     op.execute("GRANT SELECT, INSERT ON platform.offboarding_run TO kamba_batch")
-    op.execute("GRANT UPDATE (estado, resultado) ON platform.offboarding_run TO kamba_batch")
+    op.execute("GRANT UPDATE (estado, prazo_at, resultado) ON platform.offboarding_run TO kamba_batch")
     op.execute("GRANT SELECT ON platform.offboarding_run TO kamba_audit")
 
     for consumer, tipo, versao_max, finalidade, exige_ordem in LINHAS:
@@ -138,6 +142,22 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # **A contagem corre com o `FORCE` desligado**, pela licao do KAM-050 e a forma
+    # da `0058`: sob `FORCE` e sem contexto, o dono le zero linhas e a guarda
+    # deixava passar uma tabela cheia. A transaccao da descida reverte o `NO
+    # FORCE` se a guarda recusar; se passar, a tabela sai a seguir.
+    op.execute("ALTER TABLE platform.offboarding_run NO FORCE ROW LEVEL SECURITY")
+    op.execute(
+        """
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM platform.offboarding_run) THEN
+            RAISE EXCEPTION 'downgrade da 0067 recusado: a offboarding_run tem fases escritas, e larga-la apagava o registo dos encerramentos e das purgas. Esvazie-a primeiro.';
+          END IF;
+        END
+        $$
+        """
+    )
     for consumer, tipo, _versao_max, _finalidade, _exige_ordem in LINHAS:
         op.execute(
             f"""

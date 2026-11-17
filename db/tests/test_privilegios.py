@@ -1789,8 +1789,8 @@ ESPERADO_POR_TABELA.update(
 
 #: As fases do off-boarding (KAM-098, revisao do off-boarding). **So o lote
 #: escreve**: `INSERT`, e `UPDATE` por coluna (ver `COLUNAS_POR_PAPEL`), so do
-#: `estado` e do `resultado` — a fase e o prazo de uma linha nao se reescrevem,
-#: e quem quisesse adiar a purga mudava o `prazo_at` sem rasto. A auditoria le.
+#: `estado`, do `prazo_at` (a reabertura de um pedido cancelado) e do
+#: `resultado` — o tenant e a fase de uma linha nao se reescrevem. A auditoria le.
 #: O `kamba_app` **nao tem nada**: nao ha painel do encerramento. Ninguem apaga.
 ESPERADO_POR_TABELA.update(
     {
@@ -2399,7 +2399,7 @@ COLUNAS_POR_PAPEL = {
     # *trigger* `trust_level_guardar`, que ignora o que o lote mandar.
     # KAM-098 (revisao do off-boarding): o lote muda o estado e o resultado de
     # uma fase, e mais nada.
-    ("kamba_batch", "offboarding_run", "UPDATE"): {"estado", "resultado"},
+    ("kamba_batch", "offboarding_run", "UPDATE"): {"estado", "prazo_at", "resultado"},
     ("kamba_batch", "trust_level", "UPDATE"): {
         "nivel", "tecto_pedido_minor", "motivo", "actor", "versao_config",
         "desde", "alterado_em",
@@ -2534,7 +2534,7 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # (motivo)` a aplicacao era invisivel na matriz de tabela.
     "trust_level",
     # KAM-098: as fases do off-boarding, com `UPDATE` por coluna para o lote. Um
-    # `GRANT UPDATE (prazo_at)` adiava a purga e era invisivel na matriz.
+    # `GRANT UPDATE (fase)` mudava a fase de uma linha e era invisivel na matriz.
     "offboarding_run",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
