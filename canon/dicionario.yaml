@@ -19614,16 +19614,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.76"
     conceito: "Persona no estado do grafo"
-    canonico: "chave persona do ConversaState, e campo_invalido_persona na porta"
+    canonico: "ConversaState.persona, e campo_invalido_persona na porta"
     literais:
-      - "persona"
-      - "ConversaState"
+      - "ConversaState.persona"
       - "campo_invalido_persona"
     nomes:
-      - "persona"
-      - "ConversaState"
+      - "ConversaState.persona"
       - "campo_invalido_persona"
     nomes_nota:
+      - "tenant_channels.persona"
       - "vertical"
       - "tool_audit"
       - "chave_do_registo"

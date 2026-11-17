@@ -219,6 +219,37 @@ class TestDefinirDono(ComDono):
                 self.recusa(VIOLACAO_DE_FK, tenant, contacto)
         self.assertEqual(self.donos(tenant), [])
 
+    def test_um_dono_apagado_ou_fundido_nao_prende_o_lugar(self) -> None:
+        """A lapide do dono passa a `cliente`, e o provisionamento seguinte entra.
+
+        O `#fundir` nao leva o papel para o contacto que fica, e um apagamento
+        a pedido do titular deixa a linha. O estado de lapide escreve-se aqui
+        como administrador, porque o caminho que o escreve e de outro ticket; o
+        `papel` so muda pela porta.
+        """
+        for coluna in ("erased_at", "merged_into"):
+            with self.subTest(lapide=coluna):
+                tenant = factories.tenant(self.cur)
+                antigo = factories.contacto(self.cur, tenant)
+                novo = factories.contacto(self.cur, tenant)
+                self.definir(tenant, antigo)
+                if coluna == "erased_at":
+                    self.cur.execute(
+                        "UPDATE platform.contacts SET erased_at = now() "
+                        "WHERE tenant_id = %s AND contact_id = %s",
+                        (tenant, antigo),
+                    )
+                else:
+                    self.cur.execute(
+                        "UPDATE platform.contacts SET merged_into = %s, merged_at = now() "
+                        "WHERE tenant_id = %s AND contact_id = %s",
+                        (novo, tenant, antigo),
+                    )
+                self.assertEqual(self.definir(tenant, novo), antigo)
+                self.assertEqual(self.donos(tenant), [novo])
+                self.assertEqual(self.estado(tenant)[antigo], ("cliente", True))
+                self.assertEqual(self.dono_do_tenant(tenant), novo)
+
     def test_uma_origem_desconhecida_e_recusada(self) -> None:
         tenant = factories.tenant(self.cur)
         contacto = factories.contacto(self.cur, tenant)

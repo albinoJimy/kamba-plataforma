@@ -7837,7 +7837,7 @@ MUTACOES = [
      "tests_lote"),
     # ------------------------------ KAM-118 (revisao do canal do dono)
     #
-    # Sete, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # Oito, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
     # descoberta pelo *glob* (`REV_CANAL_DO_DONO`), porque o numero e
     # provisorio. A suite e a `tests`, e o modulo que as tem de matar e o
     # `db/tests/test_canal_do_dono_schema.py`, com o ensaio nomeado em cada uma.
@@ -7873,8 +7873,15 @@ MUTACOES = [
     # Uma reentrega da saga com outro contacto troca o dono sem OTP (criterio 3):
     # `test_o_provisionamento_de_outro_contacto_nao_troca_o_dono`.
     ("canal do dono: o provisionamento troca o dono", REV_CANAL_DO_DONO,
-     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' THEN\n",
+     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' AND NOT v_lapide THEN\n",
      "          IF false THEN\n",
+     "tests"),
+    # Um dono apagado ou fundido prende o lugar, e a saga recusa para sempre
+    # (achado da revisao adversarial):
+    # `test_um_dono_apagado_ou_fundido_nao_prende_o_lugar`.
+    ("canal do dono: a lapide prende o lugar do dono", REV_CANAL_DO_DONO,
+     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' AND NOT v_lapide THEN\n",
+     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' THEN\n",
      "tests"),
     # A aplicacao abre a porta: `test_so_a_identidade_executa_a_porta`.
     ("canal do dono: a aplicacao executa a porta", REV_CANAL_DO_DONO,

@@ -10,7 +10,7 @@
  *
  *     pedir        OTP enviado ao número novo; nada muda na base
  *     verificar    o OTP falha → nada muda; o número novo continua `cliente`
- *                  o OTP acerta → `platform.trocar_dono` move o papel numa
+ *                  o OTP acerta → `platform.definir_dono` move o papel numa
  *                  transacção só, marca `papel_mudou_at` e avisa
  *
  * **O papel só se move depois do OTP, e só por esta porta.** Até lá, uma
@@ -51,7 +51,9 @@ export interface ContactoDoNumero {
 }
 
 /**
- * A troca na base: `platform.trocar_dono(tenant, contacto)`.
+ * A troca na base: `platform.definir_dono(contacto, 'troca_de_telefone')`,
+ * chamada como `kamba_identity` com o tenant no `app.tenant_id` — o `tenantId`
+ * do pedido vai para o contexto da transacção, e não para a função.
  *
  * Devolve o contacto que deixou de ser dono, ou `null` se não havia nenhum.
  */

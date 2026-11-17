@@ -207,6 +207,7 @@ class TestAllowlistDoDono(_Base):
         )
         sucessos = 0
         codigos: set[str] = set()
+        detalhes: set[str] = set()
         for n in range(50):
             nome = TOOLS_DO_DONO_SO[n % len(TOOLS_DO_DONO_SO)]
             vertical, allowed = (
@@ -225,8 +226,14 @@ class TestAllowlistDoDono(_Base):
             )
             sucessos += int(resultado.ok)
             codigos.add(resultado.error.codigo)
+            detalhes.add(resultado.error.detalhe.split("`")[2])
         self.assertEqual(sucessos, 0)
         self.assertEqual(codigos, {erros.TOOL_NOT_ALLOWED})
+        # **A recusa e a da lista, e nao a do estado `declarada`.** As quatro
+        # estao por ligar e o passo 1 recusava-as tambem ao dono, com o mesmo
+        # codigo: sem afirmar o motivo, o ensaio ficava verde com a comparacao
+        # com o `allowed` apagada (achado da revisao adversarial).
+        self.assertEqual(detalhes, {" nao esta na lista "})
         linhas = ligacao.linhas_de_auditoria()
         self.assertEqual(len(linhas), 50)
         for parametros in linhas:
@@ -236,6 +243,35 @@ class TestAllowlistDoDono(_Base):
             self.assertEqual(por_nome["error_code"], erros.TOOL_NOT_ALLOWED)
         # Nenhuma tentativa passou do passo 1: nem o entitlement foi lido.
         self.assertNotIn("entitlement", ligacao.instrucoes())
+
+    def test_o_dono_passa_a_lista_e_para_no_estado_declarada(self) -> None:
+        """O contraponto: com a lista do `dono.yaml`, a mesma tool passa a lista.
+
+        Para no estado `declarada` — que e o que o KAM-119 liga. Prova que a
+        lista do dono e outra, e nao que todas as listas recusam.
+        """
+        camada, _ligacao, _ = self.camada(especificacoes=ESPECIFICACOES_DO_PILOTO)
+        allowed_do_dono = tuple(
+            registo.esquema.ler_vertical(
+                RAIZ / "registry" / "dono.yaml",
+                registo.esquema.ler_yaml(RAIZ / "registry" / "dono.yaml"),
+            ).tools
+        )
+        for n, nome in enumerate(TOOLS_DO_DONO_SO):
+            with self.subTest(tool=nome):
+                resultado = self.invocar(
+                    camada,
+                    ctx=contexto(vertical="vendedor", turn_id=f"d-{n}"),
+                    name=nome,
+                    args={"product_id": "p-1"},
+                    allowed=allowed_do_dono,
+                    confirmation=Confirmation(
+                        botao=f"confirm:{uuid.uuid4()}", contact_id=CONTACTO, turn_id=f"d-{n}"
+                    ),
+                    idempotency_key=f"d-{n}",
+                )
+                self.assertFalse(resultado.ok)
+                self.assertIn("declarada e por ligar", resultado.error.detalhe)
 
     def test_as_quatro_do_dono_estao_declaradas_com_o_credor_e_a_classe_do_documento(self) -> None:
         catalogo = catalogo_do_piloto()

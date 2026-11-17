@@ -60,6 +60,11 @@ encontra, e recusa com `23503`.
                reentrega da saga, criterio 3: 3x -> 1 dono)
     saga       ja ha **outro** dono e a origem e `provisionamento` -> `23505`:
                uma reentrega do `tenant.provisioned` nao troca o dono
+    lapide     o dono que la esta foi apagado ou fundido -> **nao** recusa: a
+               lapide passa a `cliente` e o lugar fica livre. Sem isto, um dono
+               absorvido pelo `#fundir` (que nao leva o papel) ou apagado a
+               pedido do titular prendia o `contacts_um_dono` para sempre, e a
+               saga recusava com `23505` (achado da revisao adversarial)
 
 ## A concorrencia
 
@@ -273,6 +278,7 @@ def _porta() -> None:
         DECLARE
           v_tenant   uuid := NULLIF(current_setting('app.tenant_id', true), '')::uuid;
           v_anterior uuid;
+          v_lapide   boolean;
         BEGIN
           IF p_origem IS NULL OR p_origem NOT IN ('provisionamento', 'troca_de_telefone') THEN
             RAISE EXCEPTION
@@ -305,13 +311,15 @@ def _porta() -> None:
               USING ERRCODE = 'foreign_key_violation';
           END IF;
 
-          SELECT c.contact_id INTO v_anterior FROM {CONTACTOS} c
+          SELECT c.contact_id, (c.erased_at IS NOT NULL OR c.merged_into IS NOT NULL)
+            INTO v_anterior, v_lapide
+            FROM {CONTACTOS} c
            WHERE c.tenant_id = v_tenant AND c.papel = 'dono'
            FOR UPDATE;
           IF v_anterior = p_contact_id THEN
             RETURN NULL;
           END IF;
-          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' THEN
+          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' AND NOT v_lapide THEN
             RAISE EXCEPTION
               'definir_dono: o tenant ja tem outro dono; uma reentrega da saga nao '
               'troca o dono, so a troca de telefone com OTP o faz'
