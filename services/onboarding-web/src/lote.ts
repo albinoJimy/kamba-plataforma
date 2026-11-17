@@ -35,7 +35,14 @@ import { instalar } from "@kamba/core-ts/logger";
 import pg from "pg";
 
 import { SERVICE } from "./meta.ts";
-import { arrancar, lerConfiguracao, opcoesDoConjunto, registarVolta } from "./lote/processo.ts";
+import {
+  arrancar,
+  consumidorDoTrust,
+  lerConfiguracao,
+  opcoesDoConjunto,
+  registarVolta,
+  registarVoltaDoTrust,
+} from "./lote/processo.ts";
 
 const log = instalar(SERVICE);
 
@@ -80,6 +87,16 @@ async function principal(): Promise<void> {
     // A primeira volta já, e não daqui a um intervalo: as métricas sairiam a
     // zero durante um minuto inteiro depois de cada arranque.
     void processo.ciclo.correr().then((r) => registarVolta(log, r));
+    // KAM-200: as varreduras de T&S, a primeira volta também já.
+    const pararTrust = processo.cicloDoTrust.agendar(config.intervaloDoTrustMs, (r) => registarVoltaDoTrust(log, r));
+    void processo.cicloDoTrust.correr().then((r) => registarVoltaDoTrust(log, r));
+    // E o consumidor dos sete tipos de evento de T&S, como `kamba_app`.
+    const consumo = consumidorDoTrust({
+      urlDaApp: config.urlDaApp,
+      urlDaFila: config.urlDaFila,
+      metricasDoTrust: processo.metricasDoTrust,
+      log,
+    });
     arrancou = true;
     log.info({ outcome: "service_started" });
     await new Promise<void>((resolver) => {
@@ -87,6 +104,9 @@ async function principal(): Promise<void> {
     });
     log.info({ outcome: "service_stopping" });
     parar();
+    pararTrust();
+    // Os *workers* e as ligações que cada fila abriu.
+    await consumo.fechar().catch(() => {});
     servidor.close();
   } finally {
     await Promise.allSettled([lote.end(), app.end()]);

@@ -1,0 +1,101 @@
+/**
+ * As métricas de Trust & Safety (KAM-200, critério 3; DoD do KAM-097: «métricas
+ * e alertas nascem com o código», ADR-018).
+ *
+ * ```text
+ * ts_sinais_total{tipo}             counter  sinais novos gravados, por tipo
+ * ts_sancoes_total{passo,origem}    counter  passos novos da escada, por passo e origem
+ * ts_varreduras_total{varredura,desfecho}  counter  corridas das varreduras do lote
+ * ```
+ *
+ * **Contam o que é novo.** Um sinal ou uma sanção repetidos (a reentrega de um
+ * evento, a mesma decisão reaplicada) não contam: a chave da base diz que já
+ * existiam, e é o `ServicoDeTrust` que conta, no único ponto por onde todos os
+ * sinais e sanções passam. O desfecho de um recurso **não** é um passo, e não
+ * conta aqui.
+ *
+ * **As etiquetas são domínios fechados** (`tipo` 9, `passo` 4, `origem` 2,
+ * `varredura` 4, `desfecho` 2), e nenhuma leva tenant, sinal nem caso
+ * (`OBS-I`). Qual tenant é lê-se da `ts_sanction`, por quem tem papel para isso.
+ *
+ * **Nascem a zero**: todas as séries saem desde o arranque, e uma regra de
+ * alerta com `increase(...)` vê a primeira ocorrência (a lição do cabeçalho do
+ * `infra/compose/prometheus/regras/kamba.yml`). Servidas pelo processo de lote
+ * do onboarding (`services/onboarding-web/src/lote.ts`), onde correm o
+ * consumidor, as varreduras e as decisões da fila.
+ */
+
+import { ORIGENS, type Origem } from "./contrato.ts";
+import { PASSOS, TIPOS_DE_SINAL, type Passo, type TipoDeSinal } from "./regras.ts";
+
+export const METRICA_SINAIS = "ts_sinais_total";
+export const METRICA_SANCOES = "ts_sancoes_total";
+export const METRICA_VARREDURAS = "ts_varreduras_total";
+
+/** As varreduras do lote. Domínio da etiqueta `varredura`. */
+export const VARREDURAS = ["nao_entrega", "fotos", "encerramentos", "mudancas_de_conta"] as const;
+export type Varredura = (typeof VARREDURAS)[number];
+
+/** O desfecho de uma corrida. Uma falha não pára as outras varreduras. */
+export const DESFECHOS_DA_VARREDURA = ["concluida", "falhou"] as const;
+export type DesfechoDaVarredura = (typeof DESFECHOS_DA_VARREDURA)[number];
+
+const AJUDA: Readonly<Record<string, readonly [string, string]>> = {
+  [METRICA_SINAIS]: ["counter", "Sinais de Trust & Safety novos, por tipo."],
+  [METRICA_SANCOES]: ["counter", "Passos novos da escada de sancoes, por passo e origem."],
+  [METRICA_VARREDURAS]: ["counter", "Corridas das varreduras de Trust & Safety, por desfecho."],
+};
+
+/** O que o `ServicoDeTrust` e as varreduras contam. A `MetricasDoTrust` cumpre-a. */
+export interface ContadoresDoTrust {
+  sinal(tipo: TipoDeSinal): void;
+  sancao(passo: Passo, origem: Origem): void;
+}
+
+export class MetricasDoTrust implements ContadoresDoTrust {
+  readonly #sinais = new Map<string, number>(TIPOS_DE_SINAL.map((t) => [t, 0]));
+  readonly #sancoes = new Map<string, number>(PASSOS.flatMap((p) => ORIGENS.map((o) => [`${p}|${o}`, 0] as const)));
+  readonly #varreduras = new Map<string, number>(
+    VARREDURAS.flatMap((v) => DESFECHOS_DA_VARREDURA.map((d) => [`${v}|${d}`, 0] as const)),
+  );
+
+  sinal(tipo: TipoDeSinal): void {
+    // Um valor fora do domínio não abre série nova: a etiqueta é fechada.
+    if (!this.#sinais.has(tipo)) return;
+    this.#sinais.set(tipo, (this.#sinais.get(tipo) ?? 0) + 1);
+  }
+
+  sancao(passo: Passo, origem: Origem): void {
+    const k = `${passo}|${origem}`;
+    if (!this.#sancoes.has(k)) return;
+    this.#sancoes.set(k, (this.#sancoes.get(k) ?? 0) + 1);
+  }
+
+  varredura(v: Varredura, desfecho: DesfechoDaVarredura): void {
+    const k = `${v}|${desfecho}`;
+    if (!this.#varreduras.has(k)) return;
+    this.#varreduras.set(k, (this.#varreduras.get(k) ?? 0) + 1);
+  }
+
+  /** O formato de exposição do Prometheus. */
+  exposicao(): string {
+    const linhas: string[] = [];
+    for (const [nome, [tipo, ajuda]] of Object.entries(AJUDA)) {
+      linhas.push(`# HELP ${nome} ${ajuda}`, `# TYPE ${nome} ${tipo}`);
+      if (nome === METRICA_SINAIS) {
+        for (const [t, n] of this.#sinais) linhas.push(`${nome}{tipo="${t}"} ${n}`);
+      } else if (nome === METRICA_SANCOES) {
+        for (const [k, n] of this.#sancoes) {
+          const [p, o] = k.split("|");
+          linhas.push(`${nome}{passo="${p}",origem="${o}"} ${n}`);
+        }
+      } else {
+        for (const [k, n] of this.#varreduras) {
+          const [v, d] = k.split("|");
+          linhas.push(`${nome}{varredura="${v}",desfecho="${d}"} ${n}`);
+        }
+      }
+    }
+    return `${linhas.join("\n")}\n`;
+  }
+}

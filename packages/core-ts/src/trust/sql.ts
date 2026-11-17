@@ -18,6 +18,8 @@
  */
 
 import type { ClienteSql } from "../eventos/publicador.ts";
+import type { ConjuntoSql } from "../revisao/sql.ts";
+import { comTenant } from "../tenant_guard/index.ts";
 import type {
   DesfechoDoRecurso,
   EstadoDosTenants,
@@ -105,16 +107,64 @@ export const SQL_ENCERRAMENTOS_POR_FECHAR = `
    LIMIT 500
 `;
 
+/**
+ * O estado do tenant, **sem trinco**: quem tranca é o `transition_tenant`, pela
+ * ordem dele (o caso e depois o tenant). Trancar aqui antes invertia essa ordem
+ * e dava `40P01` contra uma activação concorrente (a lição da régua do KAM-058).
+ * A janela entre esta leitura e a transição fecha-a o `SQL_TRUST_DE_ONDE_VEIO`.
+ */
 export const SQL_ESTADO_DO_TENANT = `
   SELECT estado FROM platform.tenants WHERE id = $1
 `;
 
-/** O CAS do estado do tenant. Só o `kamba_batch` tem `UPDATE` no `estado` (`0007`). */
-export const SQL_TRANSITAR_TENANT = `
-  UPDATE platform.tenants SET estado = $3
-   WHERE id = $1 AND estado = ANY ($2::text[])
-  RETURNING id
+/**
+ * O motivo que T&S escreve no `tenant_state_log` numa suspensão ou num
+ * encerramento, e o de um regresso a `ativo` por recurso provido. É também o
+ * `payload.motivo` do `tenant.suspended` e do `tenant.closed`: a «decisão T&S»
+ * do `docs/tecnica/00` §6.2. **Um código, e não o motivo interno**: o *payload*
+ * é lido por consumidores, e o motivo interno é só de T&S.
+ */
+export const MOTIVO_DO_TRUST = "decisao_ts";
+export const MOTIVO_DO_RECURSO_PROVIDO = "decisao_ts_recurso_provido";
+
+/** A porta do KAM-092. O grafo das arestas é dela, e repetir devolve `false`. */
+export const SQL_TRUST_TRANSITAR = `
+  SELECT platform.transition_tenant($1::uuid, $2, $3, $4) AS mudou
 `;
+
+/** De onde a transição acabou de vir: a última linha do registo do tenant. */
+export const SQL_TRUST_DE_ONDE_VEIO = `
+  SELECT de FROM platform.tenant_state_log
+   WHERE tenant_id = $1 ORDER BY em DESC LIMIT 1
+`;
+
+/**
+ * **A suspensão em vigor é de T&S?** A última passagem a `suspenso` do registo
+ * tem o motivo de T&S, ou não há nenhuma (uma suspensão anterior ao KAM-200,
+ * escrita sem registo). Uma suspensão da régua de cobrança (KAM-058) não se
+ * levanta com um recurso de T&S: o tenant continua a dever. `$2` é o motivo.
+ */
+export const SQL_TRUST_SUSPENSAO_E_DO_TRUST = `
+  SELECT coalesce(
+           (SELECT l.motivo FROM platform.tenant_state_log l
+             WHERE l.tenant_id = $1 AND l.para = 'suspenso'
+             ORDER BY l.em DESC LIMIT 1),
+           $2) = $2 AS do_trust
+`;
+
+/** O evento da transição, na transacção dela. A forma do `SQL_REGUA_EMITIR`. */
+export const SQL_TRUST_EMITIR = `
+  SELECT platform.evt_emitir(
+    $1, 1::smallint, $2::uuid, 'tenant', $2::text, $3::jsonb
+  ) AS event_id
+`;
+
+/** O evento de cada destino, e o *payload* dele (contratos `tenant.*` v1). */
+export const EVENTO_DA_TRANSICAO: Readonly<Record<string, { readonly tipo: string; readonly payload: Readonly<Record<string, string>> }>> = {
+  suspenso: { tipo: "tenant.suspended", payload: { motivo: MOTIVO_DO_TRUST } },
+  encerrado: { tipo: "tenant.closed", payload: { motivo: MOTIVO_DO_TRUST } },
+  ativo: { tipo: "tenant.reactivated", payload: {} },
+};
 
 /**
  * A independência de um pedido, como o KAM-096 a lê. **Fail-closed**: sem o
@@ -377,20 +427,61 @@ function sancaoDaLinha(l: Linha, lote: boolean): SancaoGravada {
   };
 }
 
-/** O estado do tenant pelo `kamba_batch`. */
+/** A transição veio de um estado que quem a pediu não aceitava: desfaz-se. */
+export class TransicaoDeOutroEstadoError extends Error {
+  override readonly name = "TransicaoDeOutroEstadoError";
+}
+
+/**
+ * O estado do tenant pelo `kamba_batch`, **pela porta do KAM-092** (critério 8
+ * do KAM-200). Até aqui era um `UPDATE` directo, sem `tenant_state_log` nem
+ * evento: uma suspensão de T&S não chegava ao IDX nem ao CHR, e a régua de
+ * cobrança não a distinguia da sua.
+ *
+ * Cada transição é uma transacção numa ligação dedicada, sob o `app.tenant_id`
+ * do tenant (o `transition_tenant` recusa `42501` fora dele): a leitura do
+ * estado, a porta, a confirmação de onde veio, e o evento. Se o evento falhar,
+ * a transição desfaz-se com ele.
+ */
 export class EstadoDosTenantsSql implements EstadoDosTenants {
-  readonly #bd: ClienteSql;
-  constructor(bd: ClienteSql) {
-    this.#bd = bd;
+  readonly #c: ConjuntoSql;
+  constructor(conjunto: ConjuntoSql) {
+    this.#c = conjunto;
   }
 
   async estado(tenantId: string): Promise<string | null> {
-    const l = (await this.#bd.query(SQL_ESTADO_DO_TENANT, [tenantId])).rows[0];
+    const l = (await this.#c.query(SQL_ESTADO_DO_TENANT, [tenantId])).rows[0];
     return l === undefined ? null : String(l["estado"]);
   }
 
-  async transitar(tenantId: string, de: readonly string[], para: string): Promise<boolean> {
-    const r = await this.#bd.query(SQL_TRANSITAR_TENANT, [tenantId, [...de], para]);
-    return r.rows.length === 1;
+  async transitar(tenantId: string, de: readonly string[], para: string, actor: string): Promise<boolean> {
+    const evento = EVENTO_DA_TRANSICAO[para];
+    if (evento === undefined) throw new RangeError(`transicao de trust para ${para} nao existe`);
+    const ligacao = await this.#c.connect();
+    let estragada: Error | undefined;
+    try {
+      return await comTenant(ligacao, tenantId, async () => {
+        const actual = (await ligacao.query(SQL_ESTADO_DO_TENANT, [tenantId])).rows[0]?.["estado"];
+        if (actual === undefined || !de.includes(String(actual))) return false;
+        if (para === "ativo") {
+          const l = (await ligacao.query(SQL_TRUST_SUSPENSAO_E_DO_TRUST, [tenantId, MOTIVO_DO_TRUST])).rows[0];
+          if (l?.["do_trust"] !== true) return false;
+        }
+        const motivo = para === "ativo" ? MOTIVO_DO_RECURSO_PROVIDO : MOTIVO_DO_TRUST;
+        const t = await ligacao.query(SQL_TRUST_TRANSITAR, [tenantId, para, motivo, actor]);
+        if (t.rows[0]?.["mudou"] !== true) return false;
+        const veio = String((await ligacao.query(SQL_TRUST_DE_ONDE_VEIO, [tenantId])).rows[0]?.["de"]);
+        if (!de.includes(veio)) throw new TransicaoDeOutroEstadoError(`o tenant passou a ${para} de ${veio}`);
+        await ligacao.query(SQL_TRUST_EMITIR, [evento.tipo, tenantId, JSON.stringify(evento.payload)]);
+        return true;
+      });
+    } catch (erro) {
+      // O `comTenant` engole uma falha do `ROLLBACK`: a ligação devolve-se com o
+      // erro, e o `pg` descarta-a (o padrão do `OnboardingsSql.aprovar`).
+      estragada = erro instanceof Error ? erro : new Error("transicao do tenant falhou");
+      throw erro;
+    } finally {
+      ligacao.release(estragada);
+    }
   }
 }
