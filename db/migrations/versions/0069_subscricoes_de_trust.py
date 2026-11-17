@@ -233,6 +233,7 @@ def _mudanca_de_conta() -> None:
         DECLARE
           v_tenant  uuid;
           v_antes   text;
+          v_repor   text;
           v_activo  boolean;
         BEGIN
           IF TG_TABLE_NAME = 'tenants' THEN
@@ -264,7 +265,8 @@ def _mudanca_de_conta() -> None:
                     '{{}}'::jsonb, now());
           END IF;
 
-          PERFORM set_config('app.tenant_id', coalesce(v_antes, ''), true);
+          v_repor := coalesce(v_antes, '');
+          PERFORM set_config('app.tenant_id', v_repor, true);
           RETURN NULL;
         END
         $$

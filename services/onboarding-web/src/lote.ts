@@ -126,8 +126,15 @@ async function principal(): Promise<void> {
 // `import.meta.main` (Node 24): o módulo também é importado pelos testes, e
 // então não arranca nada.
 if (import.meta.main) {
-  principal().catch((erro: unknown) => {
-    log.excepcao(erro, "arranque_falhou");
-    process.exitCode = 1;
-  });
+  principal()
+    .catch((erro: unknown) => {
+      log.excepcao(erro, "arranque_falhou");
+      process.exitCode = 1;
+    })
+    // **Sai, e não espera que o *event loop* esvazie** (KAM-200): com a fila em
+    // baixo, as tentativas de religação do `ioredis` dos *workers* que não
+    // fecharam a tempo mantinham o processo vivo depois do `service_stopped`, e
+    // um `SIGTERM` que não termina é um contentor morto à força. O código de
+    // saída é o que ficou no `exitCode`.
+    .finally(() => process.exit());
 }

@@ -535,7 +535,7 @@ test("o aviso de uma sanção não tem via neste processo: levanta", async () =>
   );
 });
 
-test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquina das encomendas e as métricas do processo", () => {
+test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquina das encomendas e as métricas do processo", async () => {
   let pedido: Parameters<NonNullable<Parameters<typeof consumidorDoTrust>[0]["criar"]>>[0] | undefined;
   const metricasDoTrust = new MetricasDoTrust();
   consumidorDoTrust({
