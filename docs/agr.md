@@ -39,6 +39,7 @@ esqueleto do serviço. Não há agente nenhum.
 | Modo determinístico e `agr_degraded_turns_total` | **KAM-037** |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
 | As três portas `grafos` ligadas ao registo, e o `Dependencias` com as portas reais | **KAM-186** (§7-K) |
+| `POST /internal/screening`: o classificador de screening do GOV pelo *gateway* de LLM, com credencial e chave próprias ([`llm/screening.py`](../services/agr/src/kamba_agr/llm/screening.py); o desenho está no bloco do KAM-195) | **KAM-195** |
 
 **`/internal/turn` com uma invocação válida corre o grafo da vertical desde o
 KAM-186**: a porta `grafos` resolve-a pelo registo e pelo entitlement. Com uma
@@ -2266,3 +2267,4 @@ contexto de quem chama o `ainvoke`; medido pela bateria).
 | 1.20 | 2026-11-09 | KAM-186 | **A porta `grafos` está ligada.** §7-K novo: as três portas e as duas resoluções, as portas do `Dependencias` com a omissão de cada uma, a admissão do turno (contacto e `turn_id`, e o que ela não vê), e o que falta para conversar — a janela vazia, com a rota do texto devolvida ao fundador, a porta de saída sem Outbound (503 `saida_por_ligar`, para que nenhuma resposta se perca), com credor por abrir, e a resposta estática do `servico_indisponivel`, que não existe. O cabeçalho, o §1, o §7-B, o §7-F, o §7-G e o §7-J deixam de dizer que a porta está por ligar. |
 | 1.21 | 2026-11-12 | KAM-193 | §7-H: o credor da casca BullMQ → `/internal/event` passa a ser o KAM-194 (era o KAM-005/KAM-006, fechados). Sem alteração de conteúdo técnico. |
 | 1.22 | 2026-11-13 | KAM-194 | §7-H: a casca BullMQ → `/internal/event` e as linhas de `evt_subscricoes` do AGR passam a existir (revisão de dados `0052`, *provisória*), e o *job* do reconciliador sem envelope lê-se do `events_log`. Os credores escritos eram o KAM-005 e o KAM-006, fechados. |
+| 1.23 | 2026-11-17 | KAM-195 | §1: a quinta rota interna, `POST /internal/screening`, que serve o classificador de screening do GOV pelo `ClienteDeLlm` — o *gate* de destino, a linha de `dat.llm_call_log` e o custo dos outros papéis —, com a credencial `agr_screening_token` e a chave virtual da plataforma `litellm_screening_key`. O desenho e a razão estão no bloco do KAM-195 (EPIC-09). |

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.107"
+versao_dicionario: "1.108"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7173,7 +7173,6 @@ entradas:
       - "embed"
       - "screening"
       - "nano"
-      - "classificadorPorProxy"
     variantes_literais: []
   - seccao: "3.29"
     conceito: "Tecto de resposta de um alias"
@@ -15281,6 +15280,58 @@ entradas:
       - "declarada"
       - "modelo"
       - "por_decidir"
+      - "destino_negado"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Rota do classificador"
+    canonico: "POST /internal/screening, no AGR (services/agr/src/kamba_agr/llm/screening.py)"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "tenant_id"
+      - "trace_id"
+      - "categoria_declarada"
+      - "textos"
+      - "LIMITES_DO_PEDIDO"
+      - "classificador.ts"
+      - "resultado"
+      - "dat.llm_call_log"
+      - "screen"
+      - "condicional"
+      - "ClienteDeLlm"
+      - "classificadorPeloAgr"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Credencial da rota do classificador"
+    canonico: "agr_screening_token (§3.9 dá a forma)"
+    literais:
+      - "agr_screening_token"
+    nomes:
+      - "agr_screening_token"
+    nomes_nota:
+      - "agr_internal_token"
+      - "obrigatorio_em"
+    variantes_literais: []
+  - seccao: "3.58"
+    conceito: "Chave virtual do classificador"
+    canonico: "litellm_screening_key, com o key_alias plataforma-screening e models só o screening-nano"
+    literais:
+      - "litellm_screening_key"
+      - "key_alias"
+      - "plataforma-screening"
+      - "models"
+      - "screening-nano"
+    nomes:
+      - "litellm_screening_key"
+      - "key_alias"
+      - "plataforma"
+      - "screening"
+      - "models"
+      - "nano"
+    nomes_nota:
+      - "litellm_virtual_key"
+      - "tenant.approved"
+      - "dat.llm_call_log"
     variantes_literais: []
   - seccao: "3.59"
     conceito: "Documento do índice"

@@ -1,6 +1,7 @@
 """Chaves virtuais e orcamentos por tenant (KAM-030, criterio 4).
 
     python infra/llm/chaves.py provisionar <tenant_id> <plano>
+    python infra/llm/chaves.py provisionar-screening
     python infra/llm/chaves.py orcamentos
 
 Na Fase 0 isto corre **a mao**, e o bloco di-lo: «chave virtual criada no
@@ -91,6 +92,20 @@ DURACAO: Final = "30d"
 #: `.venv` — a depender do leitor de YAML de `tools/`. Em troca, ha um teste que
 #: a confronta com os grupos que o gerador produz (`test_llm_chaves.py`).
 MODELOS_DA_CHAVE: Final = ("kamba-router", "kamba-chat", "kamba-chat-fallback2")
+
+#: **A chave do screening e da plataforma, e nao de um tenant** (KAM-195). A do
+#: tenant nasce no `tenant.approved` e o screening do GOV corre antes dele — e a
+#: aprovacao do KYC que espera pelo screening. Uma chave so, com `models` so o
+#: `screening-nano`: quem a tiver nao alcanca nenhum papel de conversa. O AGR le
+#: o valor do cofre (`litellm_screening_key`, `ops/secrets-inventory.yaml`).
+#: O custo por tenant nao se perde: e a linha de `dat.llm_call_log`.
+ALIAS_DA_CHAVE_DO_SCREENING: Final = "plataforma-screening"
+MODELOS_DA_CHAVE_DO_SCREENING: Final = ("screening-nano",)
+
+#: O orcamento mensal da chave do screening, em USD. **Sem valor, o comando
+#: recusa-se**, pela razao da mensalidade: nao se inventa um tecto de custo. O
+#: custo por decisao calibra-se com o modelo escolhido (KAM-040).
+VAR_ORCAMENTO_DO_SCREENING: Final = "KAMBA_LLM_ORCAMENTO_USD_SCREENING"
 
 #: O nome da chave virtual de um tenant. `tenant-<uuid>`, como o §13.1.
 def alias_do_tenant(tenant_id: str) -> str:
@@ -292,6 +307,48 @@ def provisionar(proxy: Proxy, tenant_id: str, plano: str, ambiente: Any = None) 
     return "actualizada"
 
 
+def orcamento_do_screening(ambiente: Any = None) -> float:
+    """O orcamento da chave do screening, do ambiente. Levanta se nao houver."""
+    env = os.environ if ambiente is None else ambiente
+    bruto = env.get(VAR_ORCAMENTO_DO_SCREENING)
+    try:
+        valor = float(bruto) if bruto else 0.0
+    except ValueError:
+        valor = 0.0
+    if valor <= 0:
+        raise ErroDeProvisionamento(
+            f"{VAR_ORCAMENTO_DO_SCREENING} nao esta definido como numero positivo: "
+            "o orcamento da chave do screening nao se inventa (KAM-195)"
+        )
+    return valor
+
+
+def provisionar_screening(proxy: Proxy, ambiente: Any = None) -> str:
+    """Cria **ou actualiza** a chave da plataforma do screening (KAM-195).
+
+    O mesmo desenho do `provisionar`: procurar, e depois `/key/update` ou
+    `/key/generate`, com o 400 «already exists» a cair para o `actualizar`.
+    """
+    comum: dict[str, Any] = {
+        "key_alias": ALIAS_DA_CHAVE_DO_SCREENING,
+        "models": list(MODELOS_DA_CHAVE_DO_SCREENING),
+        "max_budget": orcamento_do_screening(ambiente),
+        "budget_duration": DURACAO,
+        "metadata": {"papel": "screening"},
+    }
+    if proxy.procurar(ALIAS_DA_CHAVE_DO_SCREENING) is not None:
+        proxy.actualizar(comum)
+        return "actualizada"
+    try:
+        proxy.gerar(comum)
+    except ErroDeProvisionamento as excepcao:
+        if "already exists" not in str(excepcao):
+            raise
+        proxy.actualizar(comum)
+        return "actualizada"
+    return "criada"
+
+
 def orcamentos(proxy: Proxy) -> list[tuple[str, float, float]]:
     """As chaves que passaram os 80% do orcamento: `(alias, gasto, tecto)`.
 
@@ -333,6 +390,13 @@ def main(argv: list[str] | None = None) -> int:
             # devolveu — e por isso o que sai daqui e so o desfecho.
             feito = provisionar(_proxy_do_ambiente(), args[1], args[2])
             print(f"chave virtual {feito}: {alias_do_tenant(args[1])}")
+            return 0
+        if args[0] == "provisionar-screening":
+            if len(args) != 1:
+                print("uso: provisionar-screening", file=sys.stderr)
+                return 2
+            feito = provisionar_screening(_proxy_do_ambiente())
+            print(f"chave virtual {feito}: {ALIAS_DA_CHAVE_DO_SCREENING}")
             return 0
         if args[0] == "orcamentos":
             acima = orcamentos(_proxy_do_ambiente())

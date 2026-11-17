@@ -1,0 +1,383 @@
+"""O classificador de screening do GOV pelo cliente do AGR (KAM-195), criterio 1.
+
+Tres coisas, e cada classe tem o seu canario:
+
+* **com o destino negado, nada sai e a linha grava-se** — o papel `screening`
+  nao tem finalidade de transferencia (criterio 2, a espera do fundador), pelo
+  que e o estado real de hoje. Canario: o controlo `router` do mesmo cliente,
+  que sai; sem ele, um transporte partido passava o «nada sai»;
+* **com o destino autorizado, a linha leva o custo** — a finalidade e um duplo
+  (`patch.dict` sobre o `FINALIDADE_DO_PAPEL`), porque a real espera pela
+  revisao de base de dados que o fundador confirma. O resto e o caminho de
+  producao: o `ClienteDeLlm`, o `minimise`, a tabela de precos e o registo;
+* **a rota** autentica antes de ler o corpo, le-o por forma fechada, e nunca
+  devolve 200 sem texto.
+
+E dois ensaios de paridade com o TypeScript, que leem o `classificador.ts`: o
+orcamento de tempo do GOV tem de caber as duas tentativas do proxy, e os tectos
+do pedido sao os mesmos dos dois lados.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import pathlib
+import re
+import unittest
+from decimal import Decimal
+from typing import Any
+from unittest import mock
+
+from apoio import pedir
+from kamba_agr import metricas as metricas_mod
+from kamba_agr.app import create_app
+from kamba_agr.llm import aliases as aliases_mod
+from kamba_agr.llm import destinos as destinos_mod
+from kamba_agr.llm import precos as precos_mod
+from kamba_agr.llm import screening
+from kamba_agr.llm.cliente import ClienteDeLlm
+from kamba_agr.llm.erros import RESULTADO_DESTINO, RESULTADO_OK, DestinoNegado
+from kamba_yaml import load_file
+from test_llm_cliente import _Ligacao, _Transporte
+
+RAIZ = pathlib.Path(__file__).resolve().parents[3]
+REAIS = aliases_mod.ler(RAIZ / "llm")
+
+TENANT = "22222222-2222-2222-2222-222222222222"
+TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+#: O alias real do papel, com um modelo inventado (o ficheiro diz `por_decidir`)
+#: para a tabela de precos ter linha. O `timeout` e o `max_tokens` sao os do
+#: ficheiro: sao eles que o tecto e o corpo leem.
+ALIAS = aliases_mod.Alias(
+    nome=REAIS["screening"].nome,
+    papel="screening",
+    timeout=REAIS["screening"].timeout,
+    fornecedores=("anthropic",),
+    modelos=("claude-haiku-5-5",),
+    max_tokens=REAIS["screening"].max_tokens,
+)
+ROUTER = aliases_mod.Alias(
+    "kamba-router", "router", 8, ("anthropic",), ("claude-haiku-5-5",), 16
+)
+PRECOS = {
+    ("anthropic", "claude-haiku-5-5"): precos_mod.Preco(
+        "anthropic", "claude-haiku-5-5",
+        Decimal("0.10"), Decimal("0.01"), Decimal("0.50"), "CONFIRMADO", "E4 3.1",
+    ),
+}
+
+PEDIDO = screening.PedidoDeScreening(
+    tenant_id=TENANT,
+    trace_id=TRACE,
+    categoria_declarada="moda",
+    textos=("camisola de algodao", "liga 999000111 para encomendar"),
+)
+
+
+def _cliente(transporte: _Transporte) -> tuple[ClienteDeLlm, _Ligacao, Any]:
+    lig = _Ligacao()
+    met = metricas_mod.MetricasDoAgr()
+    cliente = ClienteDeLlm(
+        aliases={"screening": ALIAS, "router": ROUTER},
+        tabela_de_precos=PRECOS,
+        porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
+        abrir_ligacao=lambda: lig,
+        chave_virtual=lambda _t: "chave-de-ensaio-do-screening",
+        url_do_proxy="http://litellm:4000",
+        metricas=met,
+        transporte=transporte,
+    )
+    return cliente, lig, met
+
+
+def _resposta_do_modelo() -> dict[str, Any]:
+    return {
+        "model": "anthropic/claude-haiku-5-5",
+        "choices": [{"message": {"content": '{"decisao":"permitida","confianca":0.9}'}}],
+        "usage": {"prompt_tokens": 400, "completion_tokens": 12},
+    }
+
+
+class TestComODestinoNegado(unittest.TestCase):
+    """O estado de hoje: o papel nao tem finalidade, e o *gate* nega.
+
+    Canario: `test_o_controlo_router_sai`. Sem ele, um transporte que nunca
+    chamasse nada passava o «nada sai para o proxy».
+    """
+
+    def test_nada_sai_e_grava_a_linha(self) -> None:
+        transporte = _Transporte()
+        cliente, lig, met = _cliente(transporte)
+        with self.assertRaises(DestinoNegado):
+            screening.ClassificadorDeScreening(cliente, ALIAS)(PEDIDO)
+        self.assertEqual(transporte.chamadas, [])
+        (linha,) = lig.linhas()
+        self.assertEqual(linha["papel"], "screening")
+        self.assertEqual(linha["resultado"], RESULTADO_DESTINO)
+        self.assertEqual(linha["tenant_id"], TENANT)
+        self.assertEqual(linha["trace_id"], TRACE)
+        self.assertEqual(linha["no_grafo"], screening.NO_DO_GRAFO)
+        # O `CHECK llm_call_log_negado_sem_consumo` da `0023`: os quatro nulos.
+        for coluna in ("tokens_in", "tokens_out", "tokens_cache", "custo_usd"):
+            self.assertIsNone(linha[coluna], coluna)
+        self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_DESTINO_NEGADO), 1)
+
+    def test_o_controlo_router_sai(self) -> None:
+        transporte = _Transporte()
+        cliente, _, _ = _cliente(transporte)
+        cliente.chamar("router", [], screening_ctx())
+        self.assertEqual(len(transporte.chamadas), 1)
+
+    def test_a_rota_responde_503_com_o_resultado(self) -> None:
+        transporte = _Transporte()
+        cliente, lig, _ = _cliente(transporte)
+        app = _app(screening.ClassificadorDeScreening(cliente, ALIAS))
+        estado, _, corpo = _pedir(app, _corpo_valido())
+        self.assertEqual(estado, 503)
+        self.assertEqual(json.loads(corpo), {"outcome": RESULTADO_DESTINO})
+        self.assertEqual(transporte.chamadas, [])
+        self.assertEqual(len(lig.linhas()), 1)
+
+
+def screening_ctx():  # noqa: ANN201 — so para o controlo
+    from kamba_agr.llm.cliente import ContextoDeChamada
+
+    return ContextoDeChamada(tenant_id=TENANT, trace_id=TRACE)
+
+
+@mock.patch.dict(
+    destinos_mod.FINALIDADE_DO_PAPEL,
+    # **O duplo da finalidade.** A real espera pela revisao de base de dados
+    # que o fundador confirma (criterio 2); `conversa` e so uma das tres que o
+    # `NegaTudoAteKam069` reconhece em `staging`.
+    {"screening": destinos_mod.FINALIDADE_CONVERSA},
+)
+class TestComODestinoAutorizado(unittest.TestCase):
+    """O caminho de producao com a finalidade ligada.
+
+    Canario: `test_a_linha_leva_o_custo`. Sem a tabela de precos, o custo
+    sairia nulo e a linha continuava a existir.
+    """
+
+    def _chamar(self) -> tuple[_Transporte, _Ligacao, str]:
+        transporte = _Transporte((200, _resposta_do_modelo(), {}))
+        cliente, lig, _ = _cliente(transporte)
+        texto = screening.ClassificadorDeScreening(cliente, ALIAS)(PEDIDO)
+        return transporte, lig, texto
+
+    def test_a_linha_leva_o_custo(self) -> None:
+        _, lig, _ = self._chamar()
+        (linha,) = lig.linhas()
+        self.assertEqual(linha["papel"], "screening")
+        self.assertEqual(linha["resultado"], RESULTADO_OK)
+        self.assertEqual(linha["tokens_in"], 400)
+        self.assertEqual(linha["tokens_out"], 12)
+        # 400 x 0,10 / 1M + 12 x 0,50 / 1M = 0,000040 + 0,000006.
+        self.assertEqual(linha["custo_usd"], Decimal("0.000046"))
+
+    def test_devolve_o_texto_do_modelo(self) -> None:
+        _, _, texto = self._chamar()
+        self.assertEqual(texto, '{"decisao":"permitida","confianca":0.9}')
+
+    def test_o_corpo_leva_o_alias_o_esquema_e_o_tecto(self) -> None:
+        transporte, _, _ = self._chamar()
+        ((url, cabecalhos, corpo, timeout),) = transporte.chamadas
+        self.assertTrue(url.endswith("/chat/completions"))
+        self.assertEqual(cabecalhos["Authorization"], "Bearer chave-de-ensaio-do-screening")
+        self.assertEqual(corpo["model"], "screening-nano")
+        self.assertEqual(corpo["max_tokens"], REAIS["screening"].max_tokens)
+        self.assertEqual(corpo["temperature"], 0)
+        self.assertEqual(corpo["response_format"], screening.ESQUEMA_DA_RESPOSTA)
+        self.assertEqual(timeout, screening.tecto_s(ALIAS))
+
+    def test_o_texto_do_produto_vai_como_dado_e_minimizado(self) -> None:
+        transporte, _, _ = self._chamar()
+        ((_, _, corpo, _),) = transporte.chamadas
+        sistema, utilizador = corpo["messages"]
+        self.assertEqual(sistema, {"role": "system", "content": screening.INSTRUCOES})
+        self.assertNotIn("camisola", sistema["content"])
+        self.assertEqual(utilizador["role"], "user")
+        dados = json.loads(utilizador["content"])
+        self.assertEqual(sorted(dados), ["categoria_declarada", "textos"])
+        self.assertIn("camisola de algodao", dados["textos"][0])
+        # O telefone passou pelo `minimise` (KAM-112), e o tenant nao vai.
+        self.assertNotIn("999000111", utilizador["content"])
+        self.assertNotIn(TENANT, utilizador["content"])
+
+    def test_a_rota_devolve_200_com_o_texto(self) -> None:
+        transporte = _Transporte((200, _resposta_do_modelo(), {}))
+        cliente, lig, _ = _cliente(transporte)
+        app = _app(screening.ClassificadorDeScreening(cliente, ALIAS))
+        estado, _, corpo = _pedir(app, _corpo_valido())
+        self.assertEqual(estado, 200)
+        self.assertEqual(
+            json.loads(corpo),
+            {"outcome": "classificado", "conteudo": '{"decisao":"permitida","confianca":0.9}'},
+        )
+        self.assertEqual(len(lig.linhas()), 1)
+
+
+class TestOCorpoExtraEFechado(unittest.TestCase):
+    """O `corpo_extra` nao reescreve o alias nem as mensagens."""
+
+    def test_um_campo_fora_da_lista_levanta_e_nada_sai(self) -> None:
+        transporte = _Transporte()
+        cliente, lig, _ = _cliente(transporte)
+        for campo in ("model", "messages", "max_tokens", "tools"):
+            with self.subTest(campo=campo), self.assertRaises(ValueError):
+                cliente.chamar("router", [], screening_ctx(), corpo_extra={campo: "x"})
+        self.assertEqual(transporte.chamadas, [])
+        self.assertEqual(lig.linhas(), [])
+
+
+# ------------------------------------------------------------------- a rota
+
+CREDENCIAL = "credencial-do-ensaio-do-screening"
+
+
+class _Registador:
+    def __init__(self, devolver: str = '{"decisao":"condicional","confianca":0.5}') -> None:
+        self.pedidos: list[screening.PedidoDeScreening] = []
+        self._devolver = devolver
+
+    def __call__(self, pedido: screening.PedidoDeScreening) -> str:
+        self.pedidos.append(pedido)
+        return self._devolver
+
+
+def _app(classificar: Any, credencial: Any = lambda: CREDENCIAL) -> Any:
+    return create_app(rotas_internas=screening.rotas(credencial, classificar))
+
+
+def _corpo_valido(**sobrepor: Any) -> dict[str, Any]:
+    corpo = {
+        "tenant_id": TENANT,
+        "trace_id": TRACE,
+        "categoria_declarada": "moda",
+        "textos": ["camisola"],
+    }
+    corpo.update(sobrepor)
+    return corpo
+
+
+def _pedir(app: Any, corpo: Any, cabecalhos: dict[str, str] | None = None) -> tuple[int, dict, bytes]:
+    return asyncio.run(
+        pedir(
+            app,
+            screening.ROTA,
+            "POST",
+            json.dumps(corpo).encode(),
+            {"x-kamba-interno": CREDENCIAL} if cabecalhos is None else cabecalhos,
+        )
+    )
+
+
+class TestARota(unittest.TestCase):
+    """Canario: `test_um_corpo_valido_chega_ao_classificador`. Sem ele, as
+    recusas abaixo passavam com uma rota que recusa tudo."""
+
+    def test_um_corpo_valido_chega_ao_classificador(self) -> None:
+        duplo = _Registador()
+        estado, _, corpo = _pedir(_app(duplo), _corpo_valido())
+        self.assertEqual(estado, 200)
+        self.assertEqual(json.loads(corpo)["outcome"], "classificado")
+        self.assertEqual(
+            duplo.pedidos,
+            [screening.PedidoDeScreening(TENANT, TRACE, "moda", ("camisola",))],
+        )
+
+    def test_sem_credencial_ou_errada_e_401_e_nao_le_o_corpo(self) -> None:
+        duplo = _Registador()
+        for cabecalhos in ({}, {"x-kamba-interno": "outra"}):
+            with self.subTest(cabecalhos=cabecalhos):
+                estado, _, _ = _pedir(_app(duplo), _corpo_valido(), cabecalhos)
+                self.assertEqual(estado, 401)
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_uma_credencial_por_configurar_fecha_a_porta(self) -> None:
+        def sem_segredo() -> str:
+            raise KeyError("agr_screening_token")
+
+        duplo = _Registador()
+        estado, _, _ = _pedir(_app(duplo, sem_segredo), _corpo_valido())
+        self.assertEqual(estado, 401)
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_corpos_fora_da_forma_sao_400(self) -> None:
+        duplo = _Registador()
+        casos = {
+            "campo_a_mais": _corpo_valido(model="outro-alias"),
+            "campo_a_menos": {k: v for k, v in _corpo_valido().items() if k != "trace_id"},
+            "tenant_nao_uuid": _corpo_valido(tenant_id="tenant-a"),
+            "trace_curto": _corpo_valido(trace_id="abc"),
+            "categoria_grande": _corpo_valido(categoria_declarada="x" * 201),
+            "textos_a_mais": _corpo_valido(textos=["x"] * 21),
+            "texto_grande": _corpo_valido(textos=["x" * 1001]),
+            "texto_nao_cadeia": _corpo_valido(textos=[1]),
+            "lista": [],
+        }
+        for nome, corpo in casos.items():
+            with self.subTest(nome=nome):
+                estado, _, resposta = _pedir(_app(duplo), corpo)
+                self.assertEqual(estado, 400, resposta)
+                self.assertEqual(json.loads(resposta)["outcome"], "corpo_invalido")
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_sem_classificador_e_503(self) -> None:
+        estado, _, corpo = _pedir(_app(None), _corpo_valido())
+        self.assertEqual(estado, 503)
+        self.assertEqual(json.loads(corpo), {"outcome": "classificador_por_ligar"})
+
+
+# --------------------------------------------------------------- paridade
+
+CLASSIFICADOR_TS = RAIZ / "packages/core-ts/src/screening/classificador.ts"
+TIPOS_TS = RAIZ / "packages/core-ts/src/screening/tipos.ts"
+
+
+class TestOTectoCabeAsDuasTentativas(unittest.TestCase):
+    """Detalhes Tecnicos do KAM-195: «a nova tentativa cabe no orcamento de quem chama».
+
+    Canario: baixar o `TEMPO_MAXIMO_MS` do TypeScript para 5000 avermelha
+    `test_o_orcamento_do_gov_e_maior_do_que_o_tecto`.
+    """
+
+    def test_as_premissas_do_tecto_estao_no_ficheiro(self) -> None:
+        dados = load_file(RAIZ / "llm" / "aliases.yaml")
+        self.assertEqual(dados["router_settings"]["num_retries"], screening.TENTATIVAS - 1)
+        fornecedores = [f for f in dados["fornecedores"] if f["alias"] == "screening-nano"]
+        self.assertEqual(len(fornecedores), 1, "um grupo de fallback e uma terceira tentativa")
+
+    def test_o_tecto_sao_duas_tentativas_mais_a_margem(self) -> None:
+        self.assertEqual(screening.tecto_s(REAIS["screening"]), 12.0)
+
+    def test_o_orcamento_do_gov_e_maior_do_que_o_tecto(self) -> None:
+        texto = CLASSIFICADOR_TS.read_text(encoding="utf-8")
+        (valor,) = re.findall(r"export const TEMPO_MAXIMO_MS = ([\d_]+);", texto)
+        self.assertGreater(int(valor.replace("_", "")), screening.tecto_s(REAIS["screening"]) * 1000)
+
+
+class TestParidadeComOTypeScript(unittest.TestCase):
+    def test_os_tectos_do_pedido_sao_os_mesmos(self) -> None:
+        texto = CLASSIFICADOR_TS.read_text(encoding="utf-8")
+        (linha,) = re.findall(r"export const LIMITES_DO_PEDIDO = \{([^}]*)\}", texto)
+        valores = dict(re.findall(r"(\w+): (\d+)", linha))
+        self.assertEqual(
+            valores,
+            {
+                "textos": str(screening.TEXTOS_MAXIMOS),
+                "caracteresPorTexto": str(screening.CARACTERES_POR_TEXTO),
+                "caracteresDaCategoria": str(screening.CARACTERES_DA_CATEGORIA),
+            },
+        )
+
+    def test_as_decisoes_sao_as_mesmas(self) -> None:
+        texto = TIPOS_TS.read_text(encoding="utf-8")
+        (lista,) = re.findall(r"export const DECISOES = \[([^\]]*)\]", texto)
+        self.assertEqual(tuple(re.findall(r'"(\w+)"', lista)), screening.DECISOES)
+
+
+if __name__ == "__main__":
+    unittest.main()

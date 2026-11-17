@@ -121,6 +121,13 @@ ROTAS_INTERNAS_DO_AGR = (
     "rota:agr:kamba_agr/api_interna:rotas:POST:/internal/draft-decision",
 )
 
+#: A rota do classificador de screening do GOV (KAM-195). Leva o `tenant_id`
+#: no corpo, mas como atribuicao da linha de custo e do *gate* de destino, e nao
+#: como chave de uma leitura: o caso diz o que isso muda no ataque.
+ROTA_DO_SCREENING_DO_AGR = (
+    "rota:agr:kamba_agr/llm/screening:rotas:POST:/internal/screening",
+)
+
 #: A sonda do AGR. Sem identificadores.
 SONDA_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/healthz",)
 
@@ -247,6 +254,12 @@ def _conduzir_agr(ctx) -> list[str]:  # noqa: ANN001 — Contexto, sem importar 
     from ._agr import atacar_rotas_internas  # noqa: PLC0415
 
     return atacar_rotas_internas(ctx)
+
+
+def _conduzir_screening_do_agr(ctx) -> list[str]:  # noqa: ANN001
+    from ._agr import atacar_rota_do_screening  # noqa: PLC0415
+
+    return atacar_rota_do_screening(ctx)
 
 
 def _conduzir_sonda_do_agr(ctx) -> list[str]:  # noqa: ANN001
@@ -376,6 +389,16 @@ registar_caso(
     camada="rotas",
     enumeravel=ROTAS_INTERNAS_DO_AGR,
     fn=_conduzir_agr,
+    precisa="agr",
+    origens=("corpo", "cabecalhos", "logs"),
+)
+
+registar_caso(
+    id="X-01/agr/screening",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTA_DO_SCREENING_DO_AGR,
+    fn=_conduzir_screening_do_agr,
     precisa="agr",
     origens=("corpo", "cabecalhos", "logs"),
 )

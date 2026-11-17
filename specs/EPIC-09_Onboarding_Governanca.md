@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.25 |
+| Versão | 1.26 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -541,7 +541,7 @@ PostgreSQL tal como está escrito.
 | DoD | Estado | Evidência |
 |---|---|---|
 | Critérios satisfeitos; gate 12 configurado e verde | **não satisfeito** | Cinco em aberto: 3, 5, 6, 7 e 8 (o 7 já só pelo agendador, KAM-078, e pelo consumidor, KAM-097: o contrato do evento é do KAM-191) |
-| Política e alias como artefactos comportamentais: SemVer, eval no gate, versão em cada decisão | **parcial** | A política sim: SemVer fixado por `sha256`, casos no gate 4 e a `versao_politica` em cada linha — com a versão do **motor** como metadado (`1.0.0+m.2`), presa a uma impressão das leituras de um corpus fixo, porque a mesma política lida por outro motor decidia outra coisa (achado F06; medido: tirar o `0` do *leet* põe a impressão vermelha). **O alias está declarado e não ligado**: o **KAM-192** deu-lhe o papel próprio `screening` (dicionário §3.29, emenda 1.85, revisão `0047`), porque com um papel existente tomava o lugar de outro alias — medido: um segundo `router` avermelhava três ensaios do AGR. Continua sem modelo (`por_decidir`) e sem eval no gate — credor **KAM-040**, como nos outros quatro aliases —, e sem finalidade de transferência, com o classificador a chamar o proxy sem passar pelo cliente do AGR — credor **KAM-195** |
+| Política e alias como artefactos comportamentais: SemVer, eval no gate, versão em cada decisão | **parcial** | A política sim: SemVer fixado por `sha256`, casos no gate 4 e a `versao_politica` em cada linha — com a versão do **motor** como metadado (`1.0.0+m.2`), presa a uma impressão das leituras de um corpus fixo, porque a mesma política lida por outro motor decidia outra coisa (achado F06; medido: tirar o `0` do *leet* põe a impressão vermelha). **O alias está declarado e não ligado**: o **KAM-192** deu-lhe o papel próprio `screening` (dicionário §3.29, emenda 1.85, revisão `0047`), porque com um papel existente tomava o lugar de outro alias — medido: um segundo `router` avermelhava três ensaios do AGR. Continua sem modelo (`por_decidir`) e sem eval no gate — credor **KAM-040**, como nos outros quatro aliases —, e sem finalidade de transferência — credor **KAM-195**, critério 2, que espera pela confirmação do fundador. O classificador já não chama o proxy directamente: desde o **KAM-195** chama pela rota `POST /internal/screening` do AGR, com o *gate* de destino, a linha de `dat.llm_call_log` e o custo do cliente |
 | Facto jurídico *(a confirmar por parecer)*; estado de evidência por entrada | **satisfeito** | Cada `fonte_lei` não nula tem a marca, e o gerador **recusa** a que não a tenha (`test_fonte_lei_sem_parecer`); `estado_evidencia` obrigatório e na escala de três; uma `bloqueada` sem fonte nenhuma é recusada. As leis NÃO VERIFICADAS (armas, venda online de medicamentos) ficam como estado da fonte, e o bloqueio dessas categorias assenta na Meta, que é CONFIRMADO |
 | Nenhum dado pessoal ao LLM; custo por decisão medido | **parcial** | Contactos e números sim, nomes não (critério 5). **O custo não se mede** sem o alias ligado a um modelo com destino autorizado (KAM-069) — credor **KAM-040** |
 | Decisões *append-only* com `INSERT`; isolamento pelo teste cruzado | **satisfeito** | O `kamba_app` tem `SELECT` e `INSERT` e mais nada; o lote e a auditoria leem; um *trigger* recusa `UPDATE` e `DELETE` também ao dono (`55000`), e a aplicação recebe `42501` (`test_ninguem_emenda_nem_apaga`, e a matriz do `test_privilegios.py`). RLS `FORCE` pela `tenant_iso`, no catálogo do X-05; a ligação da aplicação com o contexto de B lê zero linhas de A e não escreve uma linha de A (`42501`, `test_a_aplicacao_escreve_no_seu_tenant_e_nao_ve_o_dos_outros`). **Fora das receitas do gate 6, pela razão da `contract_acceptance`**: sem coluna alterável e sem `DELETE` para limpar, e uma receita fazia daquela bateria o único sítio onde uma decisão se apagava — escrito em `db/tests_isolamento/sementes.py` |
@@ -2656,7 +2656,7 @@ destino, registo e custo — e dar ao papel a finalidade de transferência que o
 
 ### Critérios de Aceitação
 
-- [ ] O classificador do GOV chama o modelo por um caminho que aplica o *gate* de destino do KAM-069, grava a linha em `dat.llm_call_log` com o papel `screening` e calcula o custo. O caminho pode ser uma rota HTTP no AGR que o GOV chama, ou um cliente em TypeScript com as mesmas três garantias, e o desenho escolhido fica escrito neste bloco com a razão. Nenhuma chamada do classificador sai sem passar pelo *gate*, e há ensaio que o prova com o destino negado.
+- [x] O classificador do GOV chama o modelo por um caminho que aplica o *gate* de destino do KAM-069, grava a linha em `dat.llm_call_log` com o papel `screening` e calcula o custo. O caminho pode ser uma rota HTTP no AGR que o GOV chama, ou um cliente em TypeScript com as mesmas três garantias, e o desenho escolhido fica escrito neste bloco com a razão. Nenhuma chamada do classificador sai sem passar pelo *gate*, e há ensaio que o prova com o destino negado.
 - [ ] A finalidade de transferência do papel entra no domínio de `tenant_destinations.purpose` por emenda ao §3.49 e por revisão de base de dados sobre a `0036`, e o `FINALIDADE_DO_PAPEL` do AGR passa a mapear o `screening`. **A finalidade nova é confirmada pelo fundador antes de entrar**, porque abre um destino de transferência e o procedimento da APD (ADR-008, KAM-069) é dele.
 
 ### Detalhes Técnicos
@@ -2675,7 +2675,59 @@ destino, registo e custo — e dar ao papel a finalidade de transferência que o
 
 - [ ] Critérios de Aceitação satisfeitos, com o desenho da ligação escrito neste bloco.
 - [ ] A confirmação do fundador sobre a finalidade registada, com a data.
-- [ ] Nenhuma chave nem chamada a modelo real no repositório nem nos ensaios.
+- [x] Nenhuma chave nem chamada a modelo real no repositório nem nos ensaios.
+
+### Desenho da ligação
+
+**Uma rota HTTP no AGR, e não um cliente em TypeScript.** O GOV chama `POST /internal/screening`
+([`../services/agr/src/kamba_agr/llm/screening.py`](../services/agr/src/kamba_agr/llm/screening.py)),
+e a rota chama o papel `screening` pelo `ClienteDeLlm` — o mesmo *gate* de destino, o mesmo registo e
+a mesma tabela de preços dos outros quatro papéis. A razão é a lição do KAM-069: duas leitoras da
+mesma tabela divergiram, e nenhum portão o viu. Um cliente em TypeScript com as três garantias era uma
+segunda cópia de cada uma — a precedência e a conjunção de `platform.tenant_destinations` (546 linhas
+em `../libs/py-core/src/kamba_core/destinos/porta.py`), a tabela de preços com a subtracção do
+*cache*, e a classificação dos erros do proxy. Com a rota há **uma** cópia, e o TypeScript fica com o
+que já era dele: preparar o pedido sem dados pessoais e ler o veredicto contra o esquema fechado.
+
+- **O adaptador do GOV é o `classificadorPeloAgr`** (`../packages/core-ts/src/screening/classificador.ts`).
+  Manda o tenant, um `trace_id` do W3C, a categoria e os textos, e lê o veredicto do texto que o AGR
+  devolve. O adaptador do KAM-088 que chamava o proxy directamente **saiu**: era o caminho sem *gate*,
+  sem registo e sem custo, e um ensaio recusa a volta dele (`chat/completions` em `src/screening/`).
+  A porta `ClassificadorDeCategorias` ganhou o tenant, que o `screen` já tinha no sujeito.
+- **O *prompt* e o esquema da resposta mudaram-se para o AGR**, com o alias: vivem do lado de quem
+  chama o modelo. O texto do produto vai como valor de um JSON na mensagem do utilizador, minimizado
+  pelo `minimise` do KAM-112 como todo o texto que sai pelo cliente.
+- **A chave é da plataforma** (`litellm_screening_key`, `key_alias` `plataforma-screening`, `models`
+  só o `screening-nano`), e vive no cofre. A do tenant nasce no `tenant.approved` (KAM-091) e o
+  screening corre antes dele — é a aprovação do KYC que espera pelo screening. O custo por tenant
+  continua na linha de `dat.llm_call_log`. Provisiona-se com
+  `python infra/llm/chaves.py provisionar-screening`, que recusa sem `KAMBA_LLM_ORCAMENTO_USD_SCREENING`.
+- **A credencial da rota é própria** (`agr_screening_token`), e não a `agr_internal_token`: quem a
+  tivesse corria o `/internal/turn` de qualquer tenant. Não é obrigatória no arranque, porque nenhum
+  serviço chama a rota ainda — e a ausência fecha: uma credencial que não se lê dá 401.
+- **Os tectos de tempo.** O proxy tenta duas vezes (`timeout: 5` e `num_retries: 1`, sem grupo de
+  *fallback*), e o AGR espera `2 × 5 + 2 = 12` s (`tecto_s`). O GOV espera **15 s**
+  (`TEMPO_MAXIMO_MS`). A segunda tentativa cabe no orçamento de quem chama, e um ensaio do AGR lê o
+  número do TypeScript e confere a desigualdade.
+- **Quem chama a rota em produção ainda não existe.** Nenhum serviço liga hoje o classificador do
+  `screen` — o `catalogo_minimo` e a re-análise recebem-no por injecção, e quem os monta passa `null`.
+  Ligar o `classificadorPeloAgr` num serviço do GOV é o dia em que a `agr_screening_token` passa a
+  obrigatória e entra nos três *compose*; não há serviço que o faça neste ticket.
+
+### Verificação dos Critérios de Aceitação
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — o classificador chama por um caminho com *gate* de destino, linha com o papel `screening` e custo; desenho escrito; nenhuma chamada sai sem o *gate*, com ensaio do destino negado | **satisfeito** | O desenho está na secção anterior. **Destino negado**, que é o estado real de hoje: `TestComODestinoNegado` em `../services/agr/tests/test_llm_screening.py` — nada sai para o proxy, grava uma linha `papel = 'screening'` em `destino_negado` com os quatro nulos do `CHECK llm_call_log_negado_sem_consumo`, conta a métrica, e a rota responde 503 com o `resultado`; o `router` do mesmo cliente sai, como controlo. Do lado do GOV, `com o destino negado no AGR, o screen fica condicional e so a rota do AGR e chamada` (`../packages/core-ts/tests/screening.test.ts`). **Destino autorizado**, com a finalidade num duplo (a real é o critério 2): `TestComODestinoAutorizado` — a linha leva o custo (400 e 12 *tokens* a 0,10 e 0,50 USD por milhão dão `0.000046`), o corpo leva o `screening-nano`, o esquema fechado, a temperatura zero, o tecto de resposta do alias e o tecto de 12 s, e o texto do produto vai como dado e minimizado. A rota: `TestARota`, e o X-01 da bateria de isolamento (`X-01/agr/screening`) |
+| 2 — a finalidade de transferência entra no §3.49 e numa revisão sobre a `0036`, e o `FINALIDADE_DO_PAPEL` mapeia o `screening`; confirmada pelo fundador antes de entrar | **por fazer** | **Espera pela confirmação do fundador**, como o critério manda. Não há revisão de base de dados, emenda ao §3.49 nem mapeamento neste ramo: o `FINALIDADE_DO_PAPEL` continua sem o `screening`, e é por isso que o critério 1 se mede com o destino negado. A pergunta, com as opções e o custo de cada uma, foi entregue ao orquestrador do lote para a levar ao fundador |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos, com o desenho da ligação escrito neste bloco | **parcial** | O critério 1 e o desenho sim; o critério 2 espera pelo fundador |
+| A confirmação do fundador sobre a finalidade registada, com a data | **por fazer** | Pedida ao orquestrador do lote; nenhuma confirmação foi dada neste ramo |
+| Nenhuma chave nem chamada a modelo real no repositório nem nos ensaios | **satisfeito** | A chave e a credencial são **nomes** no inventário (`../ops/secrets-inventory.yaml`); os valores vivem no cofre. Os ensaios do AGR usam o transporte falso; os do GOV, um `fetch` falso. Nenhum ensaio abre ligação a um proxy nem a um fornecedor |
 
 ### Handoff para Claude Code
 
@@ -3242,3 +3294,4 @@ Testes: integração, a cache do CHR e isolamento.
 | 1.23 | Novembro 2026 | KAM-117: entram as duas secções de verificação do bloco dos KPIs de onboarding, churn e dormentes — **dois** critérios satisfeitos e **seis** parciais, com credor (o agendador, a porta do LiteLLM, o aviso ao dono, os recursos órfãos e um papel só de leitura para os painéis); quatro itens da DoD marcados. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | KAM-094: entram as duas secções de verificação do bloco do catálogo mínimo e do teste ponta a ponta — **oito** critérios (seis parciais e dois por fazer) e **duas** linhas de DoD de seis. Entregue: o módulo `activacao/` e a revisão `0065` (`conversations.is_test` e `onboarding_smoke`). O que fica por ligar — o observador do teste, a activação no lote, o filtro de `is_test` e a restrição de BD na `offer_terms` — tem credor o **KAM-202** (EPIC-04), que entra no campo «Bloqueia» do bloco, e o KAM-198 também o bloqueia. | Equipa KAMBÁ |
 | 1.25 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas), e a revisão `0065`. O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor é o **KAM-203**, aberto neste PR, porque o KAM-200 diz que o tecto não é dele; o KAM-203 é também o credor do alerta da caixa 7, e o **KAM-204** (EPIC-04) o da caixa 3. O EPIC-09 passa a **25** tickets. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | KAM-195: entram o desenho da ligação e as duas secções de verificação do bloco do classificador de screening pelo cliente do AGR — **um** critério satisfeito (a rota `POST /internal/screening`, com o *gate* de destino, o registo e o custo) e **um** por fazer (a finalidade de transferência, que espera pela confirmação do fundador), e **três** linhas de DoD (uma satisfeita, uma parcial e uma por fazer). A linha da DoD 2 do KAM-088 deixa de dizer que o classificador chama o proxy directamente | Equipa KAMBÁ |

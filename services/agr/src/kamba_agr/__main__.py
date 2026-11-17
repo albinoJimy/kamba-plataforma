@@ -98,6 +98,7 @@ from .llm import aliases as llm_aliases
 from .llm import destinos as llm_destinos
 from .llm import precos as llm_precos
 from .llm import registo as llm_registo
+from .llm import screening as llm_screening
 from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
 from .tls.embeddings import consulta_vectorial
@@ -628,6 +629,26 @@ def main() -> int:
         outcome="llm_gateway_pronto",
         error_code=f"papeis_{len(cliente_de_llm.papeis())}",
     )
+    # **O classificador de screening do GOV (KAM-195)**: o mesmo gateway — a
+    # mesma porta de destinos, o mesmo registo e a mesma tabela de precos —,
+    # com a chave da **plataforma** e nao a do tenant. A do tenant nasce no
+    # `tenant.approved` e o screening corre antes dele. A chave nao e
+    # obrigatoria no arranque: sem ela no cofre, o `chamar` falha, grava a linha
+    # e o GOV le `condicional`.
+    classificador_de_screening = llm_screening.ClassificadorDeScreening(
+        ClienteDeLlm(
+            aliases=aliases,
+            tabela_de_precos=precos,
+            porta_de_destinos=destinos,
+            abrir_ligacao=ligar_para_llm,
+            chave_virtual=lambda _tenant_id: segredos.get(
+                llm_screening.REF_CHAVE_DO_SCREENING
+            ),
+            url_do_proxy=os.environ.get(VARIAVEL_DO_PROXY, PROXY_POR_OMISSAO),
+            metricas=METRICAS,
+        ),
+        aliases[llm_screening.PAPEL],
+    )
     # **O vector da pergunta (KAM-063)**, pela mesma porta de destinos que o
     # gateway. Sem modelo no `kamba-embed` fica por ligar e a pesquisa e lexical
     # — e diz-se no arranque, que o silencio lia-se como modo hibrido.
@@ -796,33 +817,41 @@ def main() -> int:
         substituir_rascunhos=substituidor_de_rascunhos.substituir,
     )
     aplicacao = create_app(
-        rotas_internas=rotas(
-            credencial=lambda: segredos.get(SEGREDO_DA_API),
-            executar=executor.correr,
-            admissao=admissao,
-            trancas=trancas,
-            retomar=retomador.retomar,
-            # O `secret` do *agent bot* do HND (KAM-034, criterio 4). E **por
-            # *tenant*** — uma conta Chatwoot por PME, logo um bot e um segredo
-            # por PME —, e por isso a referencia leva a instancia no nome, como
-            # a `litellm_virtual_key` do KAM-030. Nao e obrigatoria no arranque
-            # pela mesma razao: ela existe por *tenant* e o arranque nao sabe
-            # que *tenants* ha. Uma referencia que nao existe faz o
-            # `verificador` recusar com `secret_errado`, que e a falha fechada.
-            verificar_bot=verificador(
-                lambda tenant_id: segredos.get(f"{REF_SEGREDO_DO_BOT}/{tenant_id}")
+        rotas_internas=[
+            *rotas(
+                credencial=lambda: segredos.get(SEGREDO_DA_API),
+                executar=executor.correr,
+                admissao=admissao,
+                trancas=trancas,
+                retomar=retomador.retomar,
+                # O `secret` do *agent bot* do HND (KAM-034, criterio 4). E **por
+                # *tenant*** — uma conta Chatwoot por PME, logo um bot e um segredo
+                # por PME —, e por isso a referencia leva a instancia no nome, como
+                # a `litellm_virtual_key` do KAM-030. Nao e obrigatoria no arranque
+                # pela mesma razao: ela existe por *tenant* e o arranque nao sabe
+                # que *tenants* ha. Uma referencia que nao existe faz o
+                # `verificador` recusar com `secret_errado`, que e a falha fechada.
+                verificar_bot=verificador(
+                    lambda tenant_id: segredos.get(f"{REF_SEGREDO_DO_BOT}/{tenant_id}")
+                ),
+                aviso=lambda motivo: log.warn(outcome="admissao", error_code=motivo),
+                # A terceira rota (KAM-038). Sem ela, `/internal/event` responde 503
+                # e o evento fica na fila — e o que a omissao de `rotas` faz.
+                eventos=consumidor_de_eventos,
+                # A quarta rota (KAM-114). Sem ela, `/internal/draft-decision`
+                # levanta `DecisaoNaoImplementadaError` — e **nao** devolve 200 a
+                # fingir que decidiu, que ali e o pior desfecho possivel: o HND
+                # marcava o rascunho como tratado, nenhuma mensagem saia e nem um
+                # `expirado` ficava registado.
+                decidir=decisor_de_rascunhos.decidir,
             ),
-            aviso=lambda motivo: log.warn(outcome="admissao", error_code=motivo),
-            # A terceira rota (KAM-038). Sem ela, `/internal/event` responde 503
-            # e o evento fica na fila — e o que a omissao de `rotas` faz.
-            eventos=consumidor_de_eventos,
-            # A quarta rota (KAM-114). Sem ela, `/internal/draft-decision`
-            # levanta `DecisaoNaoImplementadaError` — e **nao** devolve 200 a
-            # fingir que decidiu, que ali e o pior desfecho possivel: o HND
-            # marcava o rascunho como tratado, nenhuma mensagem saia e nem um
-            # `expirado` ficava registado.
-            decidir=decisor_de_rascunhos.decidir,
-        ),
+            # A quinta rota (KAM-195), com credencial propria: ver a nota do
+            # `llm/screening.py`. Sem a credencial no cofre, responde 401.
+            *llm_screening.rotas(
+                credencial=lambda: segredos.get(llm_screening.SEGREDO_DA_ROTA),
+                classificar=classificador_de_screening,
+            ),
+        ],
         # As duas ligacoes fecham-se no encerramento do processo, e **havia aqui
         # uma lacuna**: o `TrancaDeConversas.fechar()` existia e nao tinha
         # chamador nenhum em producao (achado da revisao adversarial). Corre no
