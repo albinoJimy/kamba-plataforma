@@ -1,0 +1,31 @@
+# registry/chr.yaml — o consumidor do CHR (KAM-201)
+#
+# A QUARTA FORMA dos ficheiros de `registry/` (a do `registry/idx.yaml`,
+# KAM-194), distinguida pela chave de topo `consumidor`: um consumidor de
+# eventos que NAO e vertical. Nao tem persona, grafo, tools nem entitlements.
+# O efeito corre no processo do CHR (`services/worker-canal/src/entrada.ts`),
+# porque o que ele faz e esquecer o tenant na cache do `ResolvedorDeCanal`
+# desse processo (`packages/core-ts/src/chr/activacao.ts`).
+#
+# O *gate* 3b (`tools/canon_lint/registo.py`) valida-o como valida o
+# `registry/idx.yaml`: o `tipo` e um evento do dicionario e do catalogo de
+# contratos, e a `versao` tem o seu `contratos/eventos/<tipo>/
+# v<versao>.schema.json`.
+#
+# ---------------------------------------------------------------------------
+# ESTE FICHEIRO E A REVISAO DE DADOS `*_subscricao_do_chr.py` DIZEM O MESMO, e
+# um ensaio confronta-os (`services/agr/tests/test_subscricoes_0052.py`). As
+# linhas de `platform.evt_subscricoes` so as escreve o dono das tabelas: em
+# producao nao ha escritor, e por isso vem por uma revisao de dados.
+#
+# O `exige_ordem` nao se escreve: deriva-se do prefixo `payment.`, como no AGR.
+# O efeito e idempotente e nao le estado, e a ordem nao importa.
+#
+# ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
+# estilo de fluxo.
+
+consumidor: chr
+version: 1.0.0
+subscriptions:
+  - tipo: tenant.activated
+    versao: 1

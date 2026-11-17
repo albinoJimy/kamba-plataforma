@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-16.3"
+VERSAO_DA_POLITICA: Final = "2026-11-17.1"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -522,6 +522,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.subscriptions": "assinatura do negocio a KAMBA",
     "platform.billing_cycles": "ciclos de facturacao do negocio",
     "platform.commission_accruals": "sombra da comissao: identificadores e valores",
+    # KAM-058: os passos da regua de cobranca. Um ciclo, um passo, um resultado
+    # e um instante; o texto da mensagem nao se guarda.
+    "platform.billing_dunning_steps": "passos da regua de cobranca do negocio",
     # KAM-124: o custo por modulo de entrada. O ledger guarda o tenant, o
     # modulo, quanto custou e a referencia opaca da origem — nunca o contacto
     # nem o conteudo —, e e so de acrescentar (nem o dono o apaga). Os precos
@@ -544,6 +547,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # KAM-062 (0049). Uma linha por alteracao do lexico: um numero, um booleano
     # e uma data, sem tenant e sem pessoa.
     "idx.norm_versao": "versao do lexico PT-AO, sem tenant nem pessoas",
+    # KAM-199. Um relatorio do *gate* de avaliacao por linha: um resumo do
+    # ficheiro, versoes e quatro metricas, sem tenant e sem pessoa.
+    "idx.eval_relatorio": "relatorio do gate de avaliacao, sem tenant nem pessoas",
 }
 
 

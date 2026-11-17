@@ -2604,6 +2604,21 @@ INVENTARIO["billing_cycles"] = {
     "estado": ("text", NAO, "'aberto'::text", "nao"),
 }
 
+#: Os passos da regua de cobranca (KAM-058, revisao da regua). **Nenhum dado
+#: pessoal**: um ciclo, um passo, um resultado e um instante. O texto da
+#: mensagem **nao** se guarda (DoD: nenhum texto de mensagem em logs nem
+#: eventos) — a lista de ops refaz-o do ledger.
+INVENTARIO["billing_dunning_steps"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "billing_cycle_id": ("uuid", NAO, None, "nao"),
+    "passo": ("text", NAO, None, "nao"),
+    "executado_at": ("timestamp with time zone", NAO, None, "nao"),
+    "resultado": ("text", NAO, None, "nao"),
+    "canal": ("text", SIM, None, "nao — o canal e um nome (`ops`, `dono`), nunca um endereco"),
+    "config_versao": ("text", NAO, None, "nao"),
+}
+
 INVENTARIO["commission_accruals"] = {
     "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
     "tenant_id": ("uuid", NAO, None, "nao"),
@@ -3226,6 +3241,27 @@ INVENTARIO_SERVICOS = {
 #: omissao (a expressao vive no `generation_expression`, nao no
 #: `column_default`).
 INVENTARIO_IDX = {
+    # KAM-199: os relatorios verdes do *gate* de avaliacao que soltam o lexico
+    # de *dataset*. Sem `tenant_id`; o `registado_por` e texto livre de *ops*,
+    # como o `aprovado_por` do lexico.
+    "eval_relatorio": {
+        "id": ("bigint", NAO, None, "nao"),
+        "relatorio_sha256": ("text", NAO, None, "nao; resumo do ficheiro do relatorio"),
+        "linha_de_base": ("text", NAO, None, "nao"),
+        "dataset": ("text", NAO, None, "nao"),
+        "ndcg_at_3_base": ("numeric", NAO, None, "nao"),
+        "ndcg_at_3": ("numeric", NAO, None, "nao"),
+        "zero_result_base": ("numeric", NAO, None, "nao"),
+        "zero_result": ("numeric", NAO, None, "nao"),
+        "termos": ("jsonb", NAO, None, "nao; termos de lexico que a corrida mediu"),
+        "registado_por": (
+            "text",
+            NAO,
+            None,
+            "nao; texto livre de ops, nunca contacto de cliente",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     # KAM-062 (revisao `0049`): a versao do lexico. Sem `tenant_id` e sem pessoa.
     "norm_versao": {
         "versao": ("bigint", NAO, None, "nao"),
@@ -3275,6 +3311,8 @@ INVENTARIO_IDX = {
             "nao; texto livre de ops, nunca contacto de cliente",
         ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        # KAM-199: o relatorio verde que solta uma entrada de *dataset*.
+        "eval_relatorio_id": ("bigint", SIM, None, "nao"),
     },
 }
 
@@ -3625,6 +3663,10 @@ class TestInventario(ComBase):
                         # a vaga dada dentro: o `concluido_em` e o que conta na
                         # janela de 7 dias.
                         "waitlist_entry_caso_fk",
+                        # KAM-058 (revisao da regua de cobranca): o passo aponta
+                        # o ciclo pelo par, sem cascata. Um ciclo nao se apaga
+                        # com a historia da cobranca dentro.
+                        "billing_dunning_steps_ciclo_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4425,6 +4467,21 @@ class TestInventario(ComBase):
                     "onboarding_capacity_origem_ck",
                     "onboarding_capacity_pkey",
                     "onboarding_capacity_unica_ck",
+                    # ---------- KAM-058 (revisao da regua de cobranca)
+                    #
+                    # **Oito.** A chave, um passo por ciclo, o dominio do
+                    # `passo`, o do `resultado` e o `resultado` amarrado ao
+                    # passo, o dominio do `canal`, o `canal` amarrado ao
+                    # resultado e a forma da `config_versao`. A FK composta
+                    # conta-se no bloco das FK.
+                    "billing_dunning_steps_canal_ck",
+                    "billing_dunning_steps_canal_do_resultado_ck",
+                    "billing_dunning_steps_config_versao_ck",
+                    "billing_dunning_steps_passo_ck",
+                    "billing_dunning_steps_passo_uq",
+                    "billing_dunning_steps_pkey",
+                    "billing_dunning_steps_resultado_ck",
+                    "billing_dunning_steps_resultado_do_passo_ck",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

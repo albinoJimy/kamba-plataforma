@@ -29,9 +29,12 @@ import type {
   OnboardingDaRevisao,
   OnboardingsDaRevisao,
   RegistoDeAuditoria,
+  EventoDeAprovacao,
   RepositorioDeRevisao,
+  ResultadoDaAprovacao,
   Sla,
 } from "./contrato.ts";
+import { comTenant } from "../tenant_guard/index.ts";
 
 export interface ClienteSql {
   query<T = Record<string, unknown>>(
@@ -425,8 +428,100 @@ export const SQL_ONBOARDING_POR_ID = `SELECT id, tenant_id, fase, fase_at, ip_pr
 export const SQL_ONBOARDING_POR_TENANT = `SELECT id, tenant_id, fase, fase_at, ip_prefix_hash, device_hash, nif_hmac, phone_hmac
   FROM platform.onboarding_case WHERE tenant_id = $1`;
 
-/** O `fase_at` mantém-no o *trigger* da `0043`. */
-export const SQL_MARCAR_FASE = `UPDATE platform.onboarding_case SET fase = $2 WHERE id = $1 RETURNING id`;
+/**
+ * O `fase_at` mantém-no o *trigger* da `0043`. **Nunca `aprovado`**: essa fase
+ * escreve-se só pela porta da base (`SQL_AVANCAR_CASO`). A guarda está na
+ * própria instrução — sem linha devolvida, nada mudou —, e não só no tipo do
+ * `marcarFase`, que um `as` contorna.
+ */
+export const SQL_MARCAR_FASE = `UPDATE platform.onboarding_case SET fase = $2 WHERE id = $1 AND $2 <> 'aprovado' RETURNING id`;
+
+/**
+ * A aprovação pela porta da base (KAM-092, dicionário §3.70), em **uma**
+ * transacção com o `app.tenant_id` do caso, que é o que o `advance_case` exige
+ * (`42501` sem ele).
+ *
+ * 1. `SQL_TENANT_DO_CASO`, fora da transacção: o `tenant_id` de um caso não muda.
+ * 2. `SQL_TRANCAR_CASO` tranca o caso **antes** de tudo, pela mesma ordem que o
+ *    `advance_case` e o `transition_tenant` (o caso antes do tenant), e lê a fase
+ *    que escolhe o evento: de `rejeitado` só sai pelo `recurso_aprovado`.
+ * 3. `SQL_APROVACAO_EM_FALTA` pergunta ao agregador — salvo numa repetição, que
+ *    a porta resolve sem lhe perguntar. Com ele por preencher, nada se escreve.
+ *    E `SQL_REVISAO_PENDENTE` acrescenta o que o agregador não vê: um caso de
+ *    revisão que bloqueia (`kyc`, `categoria`, `duplicado`) por decidir. O
+ *    screening `condicional` não é `bloqueada`, e o agregador passava-o; quem o
+ *    decide é o caso de `categoria` que ele abriu, e um `k1_ok` não o salta.
+ * 4. `SQL_JA_APROVADO`: o `tenant.approved` já saiu, e a fase foi escrita para
+ *    trás por fora da porta (uma rejeição depois da aprovação) — não se aprova
+ *    outra vez, que era um segundo evento e uma segunda saga.
+ * 5. `SQL_AVANCAR_CASO` avança com o evento de quem chama e emite; a
+ *    intervenção humana lê-se do *payload* emitido (`SQL_INTERVENCAO_DO_EVENTO`).
+ */
+export const SQL_TENANT_DO_CASO = `SELECT tenant_id::text AS tenant_id FROM platform.onboarding_case WHERE id = $1`;
+
+export const SQL_TRANCAR_CASO = `SELECT fase FROM platform.onboarding_case WHERE id = $1 FOR UPDATE`;
+
+export const SQL_APROVACAO_EM_FALTA = `SELECT platform.aprovacao_em_falta($1) AS falta`;
+
+export const SQL_REVISAO_PENDENTE = `SELECT EXISTS (SELECT 1 FROM platform.review_case r
+   WHERE r.onboarding_id = $1 AND r.tipo IN ('kyc', 'categoria', 'duplicado')
+     AND r.estado IN ('em_triagem_automatica', 'aberto', 'em_analise', 'escalado', 'recurso_aberto')) AS pendente`;
+
+export const SQL_AVANCAR_CASO = `SELECT platform.advance_case($1, $2, $3) AS fase`;
+
+export const SQL_INTERVENCAO_HUMANA = `SELECT EXISTS (SELECT 1 FROM platform.review_case r
+   WHERE r.onboarding_id = $1 AND r.tipo <> 'auditoria') AS humana`;
+
+/**
+ * A intervenção humana **que o evento leva**, lida do *payload* acabado de
+ * emitir (achado 6 da revisão adversarial): uma segunda pergunta à
+ * `review_case` podia ver um caso confirmado entre as duas instruções e
+ * divergir do evento. Sem linha no *outbox* (publicado e limpo, numa
+ * repetição), cai no `SQL_INTERVENCAO_HUMANA`.
+ */
+export const SQL_INTERVENCAO_DO_EVENTO = `SELECT (o.envelope -> 'payload' ->> 'intervencao_humana')::boolean AS humana
+  FROM platform.events_outbox o
+ WHERE o.tenant_id = $1 AND o.tipo = 'tenant.approved' AND o.agregado_tipo = 'tenant'
+ ORDER BY o.agregado_seq DESC LIMIT 1`;
+
+/** O `tenant.approved` deste tenant já saiu? A pergunta da `0058`. */
+export const SQL_JA_APROVADO = `SELECT platform.evento_emitido($1::uuid, 'tenant.approved') AS emitido`;
+
+/**
+ * Os onboardings que **já podem** ser aprovados e não o foram: em `kyc_pendente`
+ * ou `em_revisao`, sem caso de revisão bloqueante por decidir e com o agregador
+ * vazio. É o varrimento do ciclo (`varrerAprovacoes`, achado 1 da revisão
+ * adversarial): a última condição a chegar — o aceite, que vem depois do KYC, ou
+ * a decisão de uma categoria condicional com a fase ainda em `kyc_pendente` —
+ * não chama a porta, e sem isto o onboarding ficava parado para sempre.
+ */
+export const SQL_APROVAVEIS = `SELECT c.id::text AS id, c.tenant_id::text AS tenant_id
+  FROM platform.onboarding_case c
+ WHERE c.fase IN ('kyc_pendente', 'em_revisao')
+   AND NOT EXISTS (SELECT 1 FROM platform.review_case r
+                    WHERE r.onboarding_id = c.id AND r.tipo IN ('kyc', 'categoria', 'duplicado')
+                      AND r.estado IN ('em_triagem_automatica', 'aberto', 'em_analise', 'escalado', 'recurso_aberto'))
+   AND cardinality(platform.aprovacao_em_falta(c.id)) = 0
+ ORDER BY c.fase_at, c.id
+ LIMIT $1`;
+
+/** Pediu-se a porta da aprovação a uma ligação solta: a transacção precisa de uma dedicada. */
+export class AprovacaoSemConjuntoError extends Error {
+  override readonly name = "AprovacaoSemConjuntoError";
+
+  constructor() {
+    super("a aprovacao pela porta precisa de um conjunto de ligacoes (pg.Pool): o contexto do tenant vive numa transaccao");
+  }
+}
+
+/** O caso de onboarding a aprovar não existe. */
+export class OnboardingInexistenteError extends Error {
+  override readonly name = "OnboardingInexistenteError";
+
+  constructor() {
+    super("caso de onboarding inexistente");
+  }
+}
 
 interface LinhaDoOnboarding {
   id: string;
@@ -471,8 +566,52 @@ export class OnboardingsSql implements OnboardingsDaRevisao {
     return r.rows[0] === undefined ? null : onboardingDe(r.rows[0]);
   }
 
-  async marcarFase(id: string, fase: "aprovado" | "rejeitado" | "kyc_pendente"): Promise<boolean> {
+  async marcarFase(id: string, fase: "rejeitado" | "kyc_pendente"): Promise<boolean> {
     return (await this.#c.query(SQL_MARCAR_FASE, [id, fase])).rows.length === 1;
+  }
+
+  async aprovar(id: string, evento: EventoDeAprovacao, actor: string): Promise<ResultadoDaAprovacao> {
+    if (typeof (this.#c as Partial<ConjuntoSql>).connect !== "function") throw new AprovacaoSemConjuntoError();
+    const tenant = (await this.#c.query<{ tenant_id: string }>(SQL_TENANT_DO_CASO, [id])).rows[0]?.tenant_id;
+    if (tenant === undefined) throw new OnboardingInexistenteError();
+    // Um `pg.Client` também tem `connect`, que resolve sem ligação nenhuma: sem
+    // `release`, não é um conjunto (achado 9 da revisão adversarial).
+    const ligacao = (await (this.#c as ConjuntoSql).connect()) as
+      | (ClienteSql & { release(erro?: Error | boolean): void })
+      | undefined;
+    if (ligacao === undefined || typeof ligacao.release !== "function") throw new AprovacaoSemConjuntoError();
+    let estragada: Error | undefined;
+    try {
+      // A `ligacao` e não o cliente que o `comTenant` entrega: são o mesmo
+      // objecto, e o tipo do `tenant_guard` só promete `Promise<unknown>`.
+      return await comTenant(ligacao, tenant, async (): Promise<ResultadoDaAprovacao> => {
+        const fase = (await ligacao.query<{ fase: string }>(SQL_TRANCAR_CASO, [id])).rows[0]?.fase;
+        if (fase === undefined) throw new OnboardingInexistenteError();
+        if (fase !== "aprovado") {
+          const falta = [...((await ligacao.query<{ falta: string[] }>(SQL_APROVACAO_EM_FALTA, [id])).rows[0]?.falta ?? [])];
+          if ((await ligacao.query<{ pendente: boolean }>(SQL_REVISAO_PENDENTE, [id])).rows[0]?.pendente === true) {
+            falta.push("revisao");
+          }
+          if ((await ligacao.query<{ emitido: boolean }>(SQL_JA_APROVADO, [tenant])).rows[0]?.emitido === true) {
+            falta.push("ja_aprovado");
+          }
+          if (falta.length > 0) return { estado: "em_falta", falta };
+        }
+        await ligacao.query(SQL_AVANCAR_CASO, [id, evento, actor]);
+        const doEvento = (await ligacao.query<{ humana: boolean | null }>(SQL_INTERVENCAO_DO_EVENTO, [tenant])).rows[0];
+        const humana =
+          doEvento?.humana ?? (await ligacao.query<{ humana: boolean }>(SQL_INTERVENCAO_HUMANA, [id])).rows[0]?.humana;
+        return { estado: "aprovado", intervencaoHumana: humana === true };
+      });
+    } catch (erro) {
+      // O `comTenant` engole uma falha do `ROLLBACK`: a ligação devolve-se com o
+      // erro, e o `pg` descarta-a em vez de a dar ao próximo (o padrão do
+      // `escritorHumanoDeScreening` do KAM-198).
+      estragada = erro instanceof Error ? erro : new Error("aprovacao pela porta falhou");
+      throw erro;
+    } finally {
+      ligacao.release(estragada);
+    }
   }
 }
 

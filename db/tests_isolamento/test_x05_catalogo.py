@@ -167,6 +167,10 @@ class TestCatalogoReal(ComBase):
                 ("platform", "audit_log", "tenant_id"),
                 # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
                 ("platform", "billing_cycles", "tenant_id"),
+                # KAM-058: os passos da regua («billing_c» < «billing_d» <
+                # «billing_o»). Sem receita de sementes: ver
+                # `sementes.SEM_RECEITA_COM_RAZAO`.
+                ("platform", "billing_dunning_steps", "tenant_id"),
                 ("platform", "billing_ops_approvals", "tenant_id"),
                 # KAM-049: a ingestao do Catalogo AI, entre a auditoria e os
                 # canais («au» < «ca» < «ch»).
@@ -506,6 +510,8 @@ class TestCatalogoReal(ComBase):
                 ("availability_rules", "tenant_iso", "ALL", "{public}"),
                 # KAM-059: o ciclo e as aprovacoes de ops («bi» < «bo»).
                 ("billing_cycles", "tenant_iso", "ALL", "{public}"),
+                # KAM-058: os passos da regua, a do `db/rls.py`.
+                ("billing_dunning_steps", "tenant_iso", "ALL", "{public}"),
                 ("billing_ops_approvals", "tenant_iso", "ALL", "{public}"),
                 ("bookings", "tenant_iso", "ALL", "{public}"),
                 # KAM-049: a ingestao do Catalogo AI, entre a agenda e os
@@ -795,6 +801,8 @@ class TestCatalogoReal(ComBase):
              "audit_log",
              # KAM-059: o ciclo e as aprovacoes de ops («au» < «bi» < «ca»).
              "billing_cycles",
+             # KAM-058: os passos da regua («billing_c» < «billing_d»).
+             "billing_dunning_steps",
              "billing_ops_approvals",
              # KAM-049: a ingestao do Catalogo AI («au» < «ca» < «ch»).
              "catalog_ingestions",

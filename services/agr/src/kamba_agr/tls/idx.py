@@ -43,7 +43,9 @@ do `fts` e troca falso-positivo em «nao resolvivel» (17,6% -> 5,9%) por
 success@3 (0,954 -> 0,883) e zero-result (3% -> 11%, acima do alvo de 8%). O
 0,3 fica. **No modo hibrido o 0,3 nao serve**: o ramo `sem` da sempre um posto
 1, que normalizado vale 0,5, e nenhuma pergunta fica vazia (falso-positivo
-100%). Calibra-se com o modelo real, antes de o vector se ligar: **KAM-199**.
+100%). Calibra-se com o modelo real, antes de o vector se ligar: depois do
+Piloto, que fica so lexical (ADR-L012), pela linha da pesquisa hibrida do
+`specs/INDICE.md` §6.
 
 ## O que o limiar *proposta* faz, e o que nao faz
 

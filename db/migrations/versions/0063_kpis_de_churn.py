@@ -62,8 +62,8 @@ from alembic import op
 import rls
 
 revision = "0063"
-#: **Provisorio**: encaixa na `0062` do KAM-096, que corre em paralelo. O numero
-#: final e a ordem da cadeia da-os a integracao.
+#: Sobre a `0062`, a da regua de cobranca (KAM-058). O numero e a ordem da cadeia
+#: deu-os a integracao.
 down_revision = "0062"
 branch_labels = None
 depends_on = None
