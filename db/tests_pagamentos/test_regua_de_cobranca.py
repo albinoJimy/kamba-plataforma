@@ -87,12 +87,36 @@ class ComRegua(ComBilling):
 
     def setUp(self) -> None:
         super().setUp()
+        self.addCleanup(self._limpar_registo_de_estados)
         # Desde a `0040` um tenant so fica `ativo` com o aceite dos contratos.
         factories.aceitar_contratos_vigentes(self.semente, self.tenant)
         self.semente.execute("UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (self.tenant,))
         self.ciclo = self.abrir()
         self.cobranca = self.cobranca_do_ciclo(self.ciclo)
         self.lote = self.cursor_papel("batch", self.tenant)
+
+    def _limpar_registo_de_estados(self) -> None:
+        """Apaga as transicoes que estes ensaios escreveram, como o dono.
+
+        **A suite tem descidas que passam pela `0058`**, e o `downgrade` dela
+        recusa-se com o registo de estados com linhas — que e a guarda certa. Sem
+        esta limpeza, uma suspensao deixada aqui fazia o `TestReversivel` do
+        KAM-059 recusar na `0058`, e nao na `0055` que ele mede (medido no gate 8
+        do #206). O registo e imutavel tambem para o dono, pelo que a limpeza e a
+        do `test_eventos_do_tenant` do KAM-092: desliga o gatilho, apaga so os
+        tenants deste ensaio e volta a liga-lo como a `0058` o deixa.
+        """
+        self.semente.execute("ALTER TABLE platform.tenant_state_log DISABLE TRIGGER USER")
+        try:
+            self.semente.execute(
+                "DELETE FROM platform.tenant_state_log WHERE tenant_id = ANY(%s::uuid[])",
+                (list(self._tenants),),
+            )
+        finally:
+            self.semente.execute(
+                "ALTER TABLE platform.tenant_state_log ENABLE ALWAYS TRIGGER "
+                "tenant_state_log_imutavel"
+            )
 
     def gravar(self, passo: str, resultado: str, canal: str | None, cursor=None) -> None:
         cursor = self.lote if cursor is None else cursor
