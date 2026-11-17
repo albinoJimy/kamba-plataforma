@@ -83,7 +83,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-003, KAM-008, KAM-116 |
-| Bloqueia | KAM-087, KAM-088, KAM-090, KAM-093, KAM-099, KAM-118 |
+| Bloqueia | KAM-087, KAM-088, KAM-090, KAM-093, KAM-099, KAM-118, KAM-211 |
 | Responsável sugerido | Engenheiro de Plataforma (onboarding) com Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 1–2, §12), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3.1), `../docs/tecnica/08_Seguranca_Conformidade.md` (§4.7), ADR-019, ADR-002, ADR-010, ADR-015 |
 
@@ -1021,7 +1021,7 @@ Testes: idempotência 2x e crash a meio, compensação com falha no passo 4, rec
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-091, KAM-006, KAM-087, KAM-088, KAM-089, KAM-090, KAM-007, KAM-196, KAM-198 |
-| Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127, KAM-200, KAM-201 |
+| Bloqueia | KAM-094, KAM-098, KAM-117, KAM-118, KAM-127, KAM-200, KAM-201, KAM-211 |
 | Responsável sugerido | Arquitecto de Plataforma |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§5.1, §15.1, §16, §20.1 PA-GOV-1/6), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§4–§5), ADR-009, ADR-019 |
 
@@ -1903,7 +1903,7 @@ disputa, restauro de backup).
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-086, KAM-043, KAM-044, KAM-012 |
-| Bloqueia | KAM-117, KAM-190 |
+| Bloqueia | KAM-117, KAM-190, KAM-211 |
 | Responsável sugerido | Engenheiro de Plataforma (frontend) |
 | Documentos de referência | `../docs/tecnica/00_Arquitectura_Solucao.md` (§13.2), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3.1), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§7), `../docs/tecnica/10_Onboarding_Governanca.md` (§13), ADR-019, ADR-007, ADR-015 |
 

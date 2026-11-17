@@ -34,7 +34,7 @@ uma segunda fonte para o mesmo contrato.
 
 **Hoje nenhum `id` de botao chega ao AGR** (o `estado_inicial` nasce com
 `messages: []`, decisao do KAM-186). O portao entrega-se e ensaia-se; ligar o
-botao ao turno e do mesmo credor que liga o texto.
+botao ao turno e do KAM-211.
 
 ## O `tenant_id` vem do contexto, e vai nas duas barreiras
 

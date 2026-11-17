@@ -4896,7 +4896,7 @@ forma independente.
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-027, KAM-031, KAM-035, KAM-178 |
-| Bloqueia | KAM-108, KAM-188 |
+| Bloqueia | KAM-108, KAM-188, KAM-211 |
 | Responsável sugerido | Engenheiro de Runtime/IA |
 | Documentos de referência | `../services/agr/src/kamba_agr/__main__.py`, `../services/agr/src/kamba_agr/turno.py`, `../services/agr/src/kamba_agr/guardas/entrada.py`, `../registry/vendedor.yaml`, `../registry/servicos.yaml`, `../docs/agr.md` (§1, §7-F, §7-G, §7-J), `../docs/concierge.md` (§7), `../docs/adr/ADR-L005-degradacao-e-concierge.md`, `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§5.3, §11, §12, §14), dicionário §3.13, ADR-002, ADR-007, ADR-015 |
 

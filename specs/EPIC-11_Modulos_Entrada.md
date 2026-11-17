@@ -54,6 +54,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | KAM-125 | Golden PT-AO e guardrails dos módulos do dono (catálogo, social, orçamento) | feature | M | P1 | KAM-040, KAM-119, KAM-121, KAM-123 |
 | KAM-126 | Spike Factura AI: parceiro certificado AGT, API e custo | spike | S | P2 | — |
 | KAM-127 | Experimento dos módulos de entrada: hipóteses H10–H12, regra de escopo e critérios de abate | chore | M | P1 | KAM-119, KAM-120, KAM-122, KAM-123, KAM-124, KAM-092, KAM-117, KAM-125 |
+| KAM-211 | Canal do dono: ligações de produção — painel, troca de telefone, provisionamento e botão | feature | L | P1 | KAM-118, KAM-086, KAM-092, KAM-099, KAM-186 |
 
 ---
 
@@ -67,7 +68,7 @@ Estado da evidência (E5): **CONFIRMADO** — preços e termos publicados dos fo
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-014, KAM-008, KAM-027, KAM-086, KAM-028, KAM-015, KAM-018, KAM-092 |
-| Bloqueia | KAM-119, KAM-121, KAM-123 |
+| Bloqueia | KAM-119, KAM-121, KAM-123, KAM-211 |
 | Responsável sugerido | Engenheiro de Runtime/IA (CHR, AGR) com Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§21.2–21.4), `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-020, ADR-011, §4 CHR, D10), `../docs/tecnica/08_Seguranca_Conformidade.md` (§18), `../docs/tecnica/10_Onboarding_Governanca.md` (§21), `../docs/tecnica/evidencia/E5_Modulos_Entrada.md` (§4), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §2), ADR-010, ADR-015 |
 
@@ -156,13 +157,13 @@ Os ensaios: `packages/core-ts/tests/dono.test.ts` e `chr.persona.test.ts` (gate 
 |---|---|---|
 | 1 | marcado | 200 mensagens sintéticas — dono de A, dono de B, clientes nos dois e o BSUID do dono de A no número de B — com 100% de encaminhamento certo e **0** mensagens do dono de A tratadas como dono em B (`chr.persona.test.ts`, «encaminhamento 100% correcto»). A base falsa **lê o texto da instrução** e filtra pelas igualdades que o `WHERE` nomeia: com o `AND contact_id = $2` apagado, o ensaio dá vermelho (medido). Contra a base, a RLS do `kamba_app` só deixa ler o papel do seu tenant (`test_a_aplicacao_le_o_papel_do_seu_tenant_e_nao_o_de_outro`); a persona não muda o `vertical` («a persona nao muda o `vertical`») |
 | 2 | marcado | 20 textos adversariais → **0** escritas e persona `cliente` (`chr.persona.test.ts`, critério 2; e `test_um_sim_por_texto_nao_chama_tool_nenhuma` no grafo). Nenhum papel de aplicação escreve o `papel` (`test_nenhum_papel_de_aplicacao_escreve_o_papel`), o `kamba_identity` não insere um contacto já dono (`test_a_identidade_nao_insere_um_contacto_ja_dono`), só ele executa a porta (`test_so_a_identidade_executa_a_porta`). No máximo um dono: `contacts_um_dono`, com dois clientes e um dono em cada tenant a passar (`test_dois_clientes_no_mesmo_tenant_e_um_dono_em_cada_tenant_passam`) e duas trocas concorrentes a deixar um (`test_duas_trocas_concorrentes_nao_deixam_dois_donos`); sete mutações no `db/mutacoes.py`. **A porta não tem chamador em produção**: o papel não muda por caminho nenhum até o critério 3 ou 4 a ligarem — o que a caixa pede é que não mude por outro |
-| 3 | **parcial — caixa vazia** | **O efeito está; o evento não chega.** `efeitoDoProvisionamento`: reentrega 3× pede sempre o mesmo contacto com a origem `provisionamento`, e a porta 3× deixa um dono (`test_o_provisionamento_tres_vezes_deixa_um_dono_sem_data_de_mudanca`); o tenant é o do envelope; outra versão vai para a DLQ; sem telefone legível não há dono (`dono.test.ts`, critério 3). Sem o evento, o remetente é `cliente` (critério 1). **Falta**: ninguém emite `tenant.provisioned` em produção (ninguém chama o `advance_case('es_concluido')`), e o `onboarding_case.phone_enc` não tem adaptador nem KEK que o decifre — sem eles o consumidor não se subscreve. Credor: **ticket a abrir** (as ligações de produção do canal do dono) |
-| 4 | **parcial — caixa vazia** | **A regra está, com portas falsas.** `TrocaDeTelefone`: até o OTP acertar, o número novo é `cliente` e o antigo mantém o papel; o OTP certo move o papel e avisa o número antigo e o e-mail (ganchos `DESTINOS_DO_AVISO` para o KAM-115); o pedido gasta-se; o pedido de um tenant não se verifica de outro (`dono.test.ts`, critério 4). A porta com `troca_de_telefone` despromove o anterior e marca os dois (`test_a_troca_de_telefone_despromove_o_anterior_e_marca_os_dois`), e as acções sensíveis ficam bloqueadas 24 h (`test_depois_da_troca_de_telefone_ha_vinte_e_quatro_horas_de_bloqueio`, `test_depois_da_troca_ha_bloqueio`). **Falta a rota** que liga o OTP do KAM-086 à `TrocaDeTelefone` e o adaptador da porta. Credor: o mesmo **ticket a abrir** do critério 3 |
-| 5 | **parcial — caixa vazia** | **A ficha e a confirmação estão; o botão não chega ao AGR.** `propor`/`confirmar` sobre a `owner_actions`: duplo toque → **1** confirmação, também em duas sessões concorrentes (`test_duplo_toque_concorrente_em_duas_sessoes_da_uma_confirmacao`); mais de 15 min expira; outro contacto não confirma; um botão de outro tenant é desconhecido; «sim»/«ok» por texto → 0/20 (`test_vinte_textos_nao_confirmam_nada_nem_tocam_na_base`, `test_vinte_textos_nao_confirmam`). **Falta**: nenhum texto nem id de botão chega ao AGR (KAM-186), e as acções sensíveis em si são do KAM-119, KAM-121 e KAM-123 |
+| 3 | **parcial — caixa vazia** | **O efeito está; o evento não chega.** `efeitoDoProvisionamento`: reentrega 3× pede sempre o mesmo contacto com a origem `provisionamento`, e a porta 3× deixa um dono (`test_o_provisionamento_tres_vezes_deixa_um_dono_sem_data_de_mudanca`); o tenant é o do envelope; outra versão vai para a DLQ; sem telefone legível não há dono (`dono.test.ts`, critério 3). Sem o evento, o remetente é `cliente` (critério 1). **Falta**: ninguém emite `tenant.provisioned` em produção (ninguém chama o `advance_case('es_concluido')`), e o `onboarding_case.phone_enc` não tem adaptador nem KEK que o decifre — sem eles o consumidor não se subscreve. Credor: **KAM-211**, aberto neste PR |
+| 4 | **parcial — caixa vazia** | **A regra está, com portas falsas.** `TrocaDeTelefone`: até o OTP acertar, o número novo é `cliente` e o antigo mantém o papel; o OTP certo move o papel e avisa o número antigo e o e-mail (ganchos `DESTINOS_DO_AVISO` para o KAM-115); o pedido gasta-se; o pedido de um tenant não se verifica de outro (`dono.test.ts`, critério 4). A porta com `troca_de_telefone` despromove o anterior e marca os dois (`test_a_troca_de_telefone_despromove_o_anterior_e_marca_os_dois`), e as acções sensíveis ficam bloqueadas 24 h (`test_depois_da_troca_de_telefone_ha_vinte_e_quatro_horas_de_bloqueio`, `test_depois_da_troca_ha_bloqueio`). **Falta a rota** que liga o OTP do KAM-086 à `TrocaDeTelefone` e o adaptador da porta. Credor: **KAM-211** |
+| 5 | **parcial — caixa vazia** | **A ficha e a confirmação estão; o botão não chega ao AGR.** `propor`/`confirmar` sobre a `owner_actions`: duplo toque → **1** confirmação, também em duas sessões concorrentes (`test_duplo_toque_concorrente_em_duas_sessoes_da_uma_confirmacao`); mais de 15 min expira; outro contacto não confirma; um botão de outro tenant é desconhecido; «sim»/«ok» por texto → 0/20 (`test_vinte_textos_nao_confirmam_nada_nem_tocam_na_base`, `test_vinte_textos_nao_confirmam`). **Falta**: nenhum texto nem id de botão chega ao estado do turno, e ligá-lo é do **KAM-211**; as acções sensíveis em si são do KAM-119, KAM-121 e KAM-123 |
 | 6 | marcado | 50 tentativas de um `cliente` com o nome de uma tool do dono → **0** sucessos, 50 `TOOL_NOT_ALLOWED` e 50 linhas de `tool_audit` (`test_cinquenta_tentativas_de_um_cliente_dao_zero_sucessos_e_cinquenta_linhas`); nenhuma tool do dono está na lista de um cliente (`test_nenhuma_tool_do_dono_esta_na_lista_de_um_cliente`) |
-| 7 | **parcial — caixa vazia** | **A decisão está, com os dois cenários; ninguém a lê.** `canalDoDono`: telefone igual ao número da loja → `owner_channel_wa=false` e painel; diferente → WhatsApp activo; número ausente ou ilegível → painel (`dono.test.ts`, critério 7). **Falta** quem a consuma: o leitor do `GET /painel/canal` só existe em memória e nenhuma tabela guarda o número da loja. Credor: **KAM-190** (o adaptador do estado do canal do painel) |
+| 7 | **parcial — caixa vazia** | **A decisão está, com os dois cenários; ninguém a lê.** `canalDoDono`: telefone igual ao número da loja → `owner_channel_wa=false` e painel; diferente → WhatsApp activo; número ausente ou ilegível → painel (`dono.test.ts`, critério 7). **Falta** quem a consuma: o leitor do `GET /painel/canal` só existe em memória e nenhuma tabela guarda o número da loja. Credor: **KAM-211** |
 | 8 | **parcial — caixa vazia** | **A política está, como função pura; não está ligada a envio nenhum.** `decidirProactiva`: dentro da janela, *service message* sem *template*; fora, só com opt-in de marketing; sem opt-in, 0 *templates* em 100; «PARAR» suprime na primeira a seguir (o `ConsentGate` grava `accepted=false`); tecto de 1/semana e 4/mês; contagem inválida suprime (`dono.test.ts`, critério 8). **Devolvida ao fundador**: o Outbound recusa a categoria `marketing` no Piloto (`CATEGORIAS_DO_PILOTO`) e o `docs/tecnica/01` §11.4 (regra 2) diz que a notificação ao dono nunca usa o número da loja — as duas contradizem o *push* por *template* que a caixa pede |
-| 9 | não satisfeito — caixa vazia | O painel não ganhou rota nova: a `OwnerPort` (*proposta*) e o mesmo `thread_id` do dono no painel não existem. O que este ticket deixa é a entrada a que ela chega — a persona `dono` no AGR, pela mesma ToolLayer. Credor: o mesmo **ticket a abrir** do critério 3 |
+| 9 | não satisfeito — caixa vazia | O painel não ganhou rota nova: a `OwnerPort` (*proposta*) e o mesmo `thread_id` do dono no painel não existem. O que este ticket deixa é a entrada a que ela chega — a persona `dono` no AGR, pela mesma ToolLayer. Credor: **KAM-211** |
 | 10 | marcado | `registry/dono.yaml` passa a validação do arranque (`test_o_registo_do_dono_passa_a_validacao_do_arranque`); reaproveitamento de 12 nós em 16, **75%**, os mesmos objectos do Vendedor (`test_o_reaproveitamento_e_de_pelo_menos_setenta_por_cento`, `test_os_reutilizados_sao_os_mesmos_objectos_do_vendedor`); nenhum texto do dono leva dígitos (`test_nenhum_texto_do_dono_leva_digitos`) e os módulos novos passam o `log_policy` do gate 4; 60 mensagens/hora do dono, e a 61.ª descartada (`test_o_dono_passa_sessenta_numa_hora_e_a_seguinte_e_descartada`), sem custo para um cliente (`test_um_cliente_nao_paga_a_janela_da_hora`) |
 
 ### Verificação da Definition of Done
@@ -1132,6 +1133,68 @@ Não implementes os módulos nem os custos (KAM-124). Testes: vistas, CI de esco
 
 ---
 
+## KAM-211 — Canal do dono: ligações de produção — painel, troca de telefone, provisionamento e botão
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-11 — Módulos de Entrada |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-118, KAM-086, KAM-092, KAM-099, KAM-186 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Runtime/IA (CHR, AGR) com Responsável de Segurança |
+| Documentos de referência | `EPIC-11_Modulos_Entrada.md` (bloco KAM-118, critérios 3, 4, 5, 7 e 9), `EPIC-09_Onboarding_Governanca.md` (blocos KAM-086, KAM-092 e KAM-099), `EPIC-03_Agent_Runtime_Verticais.md` (bloco KAM-186), `02_Dicionario_de_Dados_Canonico.md` (§3.76) |
+
+### Contexto
+
+O KAM-118 entregou o reconhecimento do dono no CHR, a persona `dono` no AGR, a porta única `platform.definir_dono`, a ficha `owner_actions` com o `propor`/`confirmar`, e quatro peças como portas sem ligação: o efeito do `tenant.provisioned` (`efeitoDoProvisionamento`), a troca de telefone (`TrocaDeTelefone`), a decisão do canal do dono (`canalDoDono`, o `owner_channel_wa`) e a confirmação por botão. Ficaram por ligar porque lhes faltam peças de produção que o KAM-118 não tinha: ninguém emite o `tenant.provisioned` (ninguém chama o `advance_case('es_concluido')`), o `onboarding_case.phone_enc` não tem adaptador nem KEK que o decifre, o OTP do KAM-086 não tem rota para a troca, o leitor do canal do painel só existe em memória e nenhuma tabela guarda o número da loja, e nenhum texto nem identificador de botão chega ao estado do turno do AGR. O painel do dono — a `OwnerPort` (*proposta*) com o mesmo `thread_id` do WhatsApp — não existe.
+
+### Objectivo
+
+Ligar ao caminho de produção as cinco peças que o KAM-118 deixou entregues e por ligar, e fechar com evidência os critérios 3, 4, 5, 7 e 9 do bloco dele.
+
+### Critérios de Aceitação
+
+- [ ] **Provisionamento:** o `tenant.provisioned` sai em produção quando o caso chega a `es_concluido`; um adaptador decifra o `onboarding_case.phone_enc` com a KEK do cofre; o consumidor `dono` subscreve o evento; contra o PostgreSQL, a reentrega 3× deixa **1** dono, e sem o evento o remetente é `cliente`.
+- [ ] **Troca de telefone:** uma rota liga o OTP do KAM-086 à `TrocaDeTelefone`, com o adaptador da `TrocaNaBase` sobre a `platform.definir_dono(…, 'troca_de_telefone')` como `kamba_identity`; até o OTP acertar, o número novo é `cliente`; o aviso ao número antigo e ao e-mail sai pelos ganchos do KAM-115; ensaiado pelo caminho real, sem superutilizador.
+- [ ] **Botão:** o identificador `confirm:{action_id}` de uma resposta interactiva chega ao estado do turno do dono e chama o `confirmar`; pelo caminho CHR → AGR, duplo toque ×2 → **1** execução e «sim»/«ok» por texto → **0**/20.
+- [ ] **Canal do dono no painel:** o número da loja lê-se de fonte persistida, e o `GET /painel/canal` mostra o `owner_channel_wa` pela `canalDoDono`; os dois cenários (telefone igual e diferente) ensaiados contra a base.
+- [ ] **Painel do dono:** a `OwnerPort` no `onboarding-web`, com sessão por OTP e `tenant_id` do cookie assinado, entrega à mesma entrada interna do AGR com persona `dono` e o mesmo `thread_id` do dono no WhatsApp, pela mesma ToolLayer; a sessão do tenant A com um recurso do tenant B → 404.
+
+### Detalhes Técnicos
+
+- **Componentes:** `onboarding-web` (painel e rota do OTP), `worker-canal` e CHR (resposta interactiva), AGR (estado do turno), IDN (`kamba_identity`, adaptador do `phone_enc`), EVT (subscrição do `tenant.provisioned`).
+- **Sem esquema novo previsto:** a `0068` do KAM-118 já tem o `papel`, a `owner_actions` e a porta. Uma coluna para o número da loja, se for preciso, entra pelo dicionário.
+- **Fora deste ticket:** a política de proactivas ao dono (critério 8 do KAM-118), devolvida ao fundador; as acções sensíveis em si (KAM-119, KAM-121, KAM-123); o aviso por canal alternativo (KAM-115).
+
+### Testes Requeridos
+
+- Integração: saga → `tenant.provisioned` → contacto `dono`, contra o PostgreSQL; troca de telefone com OTP falso e com OTP certo; a mesma tool pelo painel e pelo WhatsApp.
+- Isolamento: dono A vs tenant B no painel e na troca; botão de outro tenant.
+- **Adversarial:** replay de botão antigo; mensagem do número novo antes do OTP; sessão do painel de outro tenant; texto que imita um botão.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 3, 4, 5, 7 e 9 do KAM-118 revistas com a evidência.
+- [ ] Isolamento de tenant e contacto coberto pelo teste cruzado (ADR-015); `tenant_id` só do contexto.
+- [ ] Telefone nunca em claro em logs, URLs ou eventos (ADR-010); sem segredos; nenhuma chave real nos ensaios.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-211 da KAMBÁ (ligações de produção do canal do dono).
+Lê specs/EPIC-11_Modulos_Entrada.md (blocos KAM-118 e KAM-211), o §3.76 de specs/02_Dicionario_de_Dados_Canonico.md,
+packages/core-ts/src/dono/, services/agr/src/kamba_agr/dono/accoes.py e db/migrations/versions/0068_canal_do_dono.py.
+Objectivo: ligar ao caminho de produção o tenant.provisioned, a troca de telefone, o botão confirm, o owner_channel_wa
+no painel e a OwnerPort do painel do dono.
+Regras: o papel só muda pela platform.definir_dono; tenant_id só do contexto; texto nunca confirma; nenhuma chave real.
+Testes: integração contra a base, isolamento e adversarial (replay, SIM swap, sessão cruzada).
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -1179,4 +1242,4 @@ Não implementes os módulos nem os custos (KAM-124). Testes: vistas, CI de esco
 | 1.6 | Novembro 2026 | **KAM-120 entregue em parte: a Foto de produtos AI.** Bloco do KAM-120: as decisões do executor (biblioteca `kamba_core.foto`; o adaptador recebe bytes e não a referência; finalidade `imagem` nova; recusa em vez de desfoque; `custo_usd` em vez de `custo_minor`, devolvida) e as secções «Verificação dos Critérios de Aceitação» e «Verificação da Definition of Done»: **um critério marcado de dez** (a lista de recusa) e **nenhuma caixa de cinco** na DoD, e a secção «Verificação da revisão adversarial» (dois defeitos da revisão `0054` apanhados pelo gate 8 e doze achados da revisão, um deles bloqueante — o *bake-off* enviava a foto crua —, todos os confirmados fechados). As vazias têm credor: o detector local e a biblioteca de imagem (ticket a abrir na integração), o botão de escolha (KAM-119), a fila (KAM-194), o *bake-off* e as cartas de não-treino (o fundador) e as três leituras devolvidas (critérios 1, 5 e 10). Revisão `0054` e emenda 1.94 do dicionário, os números da integração do lote. | Equipa KAMBÁ |
 | 1.7 | Novembro 2026 | **KAM-124 entregue em parte: planos, entitlements e metering de custo dos módulos de entrada.** Revisão `0057`, emenda 1.98. Bloco do KAM-124: as decisões do executor (o TEN do KAM-009 sem alteração, provado para os quatro módulos; a consolidação e não um evento; o *ledger* com `custo_usd` e `custo_minor`; os preços de teste no plano e na base; a guarda de orçamento composta por cima da quota), a verificação dos critérios (**cinco de dez** marcados) e do DoD, e a revisão adversarial. | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | O bloco do KAM-119 passa a bloquear o **KAM-202** (EPIC-04), aberto no PR do KAM-094: a restrição de BD na publicação da `offer_terms` liga-se depois de o KAM-119 pôr o COM a gravar a decisão de screening antes do `publishProduct`. | Equipa KAMBÁ |
-| 1.9 | Novembro 2026 | **KAM-118 entregue em parte: o canal do dono.** Revisão `0068` (provisória, sobre a `0066`), emenda 1.108 do dicionário (§3.76). Bloco do KAM-118: as decisões do executor (a porta única `definir_dono`, que escreve o `papel` e o `tenants.owner_contact_id`; o `INSERT` por coluna do `kamba_identity`; a persona no campo aditivo `agent_invocation.persona` e não no `ChannelContext`; o `dono.yaml` pelo módulo `catalogo`, com 75% de reaproveitamento; o `owner_channel_wa` calculado e não coluna), a verificação dos critérios (**quatro de dez** marcados) e do DoD (**três de seis**), e a revisão adversarial. As vazias têm credor: as ligações de produção (ticket a abrir), o painel (KAM-190), o botão (KAM-186) e a política de proactivas, devolvida ao fundador. | Equipa KAMBÁ |
+| 1.9 | Novembro 2026 | **KAM-118 entregue em parte: o canal do dono.** Revisão `0068` (provisória, sobre a `0066`), emenda 1.108 do dicionário (§3.76). Bloco do KAM-118: as decisões do executor (a porta única `definir_dono`, que escreve o `papel` e o `tenants.owner_contact_id`; o `INSERT` por coluna do `kamba_identity`; a persona no campo aditivo `agent_invocation.persona` e não no `ChannelContext`; o `dono.yaml` pelo módulo `catalogo`, com 75% de reaproveitamento; o `owner_channel_wa` calculado e não coluna), a verificação dos critérios (**quatro de dez** marcados) e do DoD (**três de seis**), e a revisão adversarial. As vazias têm credor: as ligações de produção — o provisionamento, a troca de telefone, o botão e o painel — no **KAM-211**, aberto neste PR (o bloco, a linha do §3 e o `Bloqueia` do KAM-118), e a política de proactivas, devolvida ao fundador. | Equipa KAMBÁ |

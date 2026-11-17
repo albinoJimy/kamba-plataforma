@@ -4782,8 +4782,8 @@ com `cliente`, é o `vertical`.
 **O que esta emenda não decide, e a quem.** Três coisas ficam entregues e por ligar, cada uma com a razão.
 (1) O **consumidor do `tenant.provisioned`** não tem subscrição: o evento não sai em produção (nenhum
 serviço chama o `advance_case` do §3.70 com `es_concluido`) e o telefone verificado do caso não se lê em
-claro (sem adaptador da `onboarding_case` nem KEK). (2) O **botão** não chega ao AGR: nenhum texto nem
-identificador de botão entra hoje no estado do grafo, e isso é do KAM-186. (3) A **proactiva por
+claro (sem adaptador da `onboarding_case` nem KEK) — ligá-lo é do **KAM-211**. (2) O **botão** não chega ao AGR: nenhum texto nem
+identificador de botão entra hoje no estado do grafo, e ligá-lo é do **KAM-211**. (3) A **proactiva por
 *template*** ao dono contradiz duas regras escritas — o Outbound recusa a categoria `marketing` no
 Piloto, e o `../docs/tecnica/01` §11.4 (regra 2) diz que a notificação ao dono nunca usa o número da
 própria loja —, e conciliá-las é do **fundador**.
