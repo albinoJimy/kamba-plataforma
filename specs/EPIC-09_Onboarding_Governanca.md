@@ -1555,14 +1555,14 @@ aceite, o sinal alto e a própria sanção só chegam à barreira quando o recá
 | 4. Subida ao nível 1 com ≥ 5 pedidos elegíveis em 30 dias de ≥ 3 compradores distintos; recálculo diário e em `order.delivered` | **parcial** | **Medido:** `contar` e `cumpreSubida` (5 de 3 sobe, 5 de 2 não, a rajada um por comprador e dia de Luanda) e o ciclo `0 → 1` sobre o repositório em memória. **O recálculo diário e em `order.delivered` não existe**: **KAM-203** |
 | 5. Descida automática ao 0 por disputa aceite, sinal alto ou sanção; uma descida não se reverte sem nova elegibilidade completa | **parcial** | **Medido:** o `decidirNivel` desce por cada uma das três (`o sinal alto e a sancao descem do 1…`, o ciclo com a disputa), e os pedidos só contam depois do marco — o início do nível ou o último facto negativo (`uma descida nao se reverte sem nova elegibilidade completa`); os dois factos lêem-se pelo `SQL_FACTOS_NEGATIVOS`, o sinal pelo `criado_at`. A sanção já baixa o tecto na guarda antes do recálculo. **«Automática» pede o processo**: **KAM-203** |
 | 6. `assertWithinTrustCeiling` chamado pelo `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)`; acima recusa com mensagem fixa sem números | **marcada** | A guarda é `GuardaDeConfianca` (a porta `GuardaDoTecto`, obrigatória no `ManualProvider`), chamada depois do `manual_max_minor` (`o ManualProvider chama a guarda: efectivo = min(...)`); `tectoEfectivoManual` mede o mínimo; a `MENSAGEM_ACIMA_DO_TECTO` não tem dígitos (`a mensagem e fixa e nao tem numeros`). Exposta pela porta `GuardaDoTecto`: os adaptadores do ProxyPay ainda não a chamam, e para eles a barreira é o *trigger* da cobrança, que vale para qualquer facilitador (`test_o_tecto_e_do_pedido_e_nao_da_cobranca`) |
-| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
+| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes; credor: **KAM-203**, que o liga à recusa `42501` —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
 | 8. Tabela de limites com `origem = proposta` e `calibrado_em`; relatório do Piloto compara o previsto com o observado | **parcial** | **Medido:** cada valor da configuração guarda `origem` e `calibradoEm`, e a `tabelaDeLimites` devolve as oito linhas, todas `proposta` (`a tabela de limites diz a origem e o calibrado_em de cada valor`). **O relatório não existe**: precisa de dados do Piloto. Credor: **Responsável de Produto** |
 
 ### Verificação da Definition of Done
 
 | Item | Estado | Evidência |
 |---|---|---|
-| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, **sem o alerta**. Sete critérios parciais, cada um com a parte que falta |
+| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, **sem o alerta** (credor: **KAM-203**). Sete critérios parciais, cada um com a parte que falta |
 | 2. Idempotência do recálculo e da subida (ADR-013) | **marcada** | `idempotente: reexecutar o recalculo nao escreve outra vez` (uma escrita em três corridas) e, na base, o `SQL_DEFINIR_NIVEL` que não reescreve uma linha igual nem escreve no `audit_log` |
 | 3. Nenhum caminho marca `paga` nem altera o ledger; plataforma sem fundos; `payout` intacto | **marcada** | O módulo não escreve em `payment_*` nem em `orders_mirror`; o *trigger* da cobrança só recusa. O `tecto_pedido_minor` está no `EM_UNIDADE_MENOR` do `test_catalogo` com a razão pela qual não é saldo |
 | 4. Alterações auditadas e imutáveis; RLS `FORCE` e teste cruzado (ADR-015); dois revisores (dinheiro) | **parcial** | Auditadas pelo *trigger* (com a excepção do superutilizador, escrita na revisão); RLS ligada e forçada; o teste cruzado pela aplicação (`test_a_aplicacao_le_so_o_tecto_do_seu_tenant`, `test_o_tecto_de_b_nao_vale_para_a`) e sobre o repositório. **Dois revisores: devolvida**, pela decisão do fundador de uma revisão adversarial por ticket |
@@ -2896,7 +2896,7 @@ uma cobrança de encomenda acima do tecto, e em TypeScript o recálculo que deci
 `kamba_batch`. **Ninguém o chama ainda.** Sem isso, um tenant aprovado não nasce no nível 0 — e sem nível
 nenhuma cobrança de encomenda entra —, nenhum sobe por histórico, e uma disputa aceite ou um sinal alto não
 descem o tecto na base (a sanção do KAM-097 só pesa na guarda do `ManualProvider`). Este ticket é o credor
-das caixas 2, 4 e 5 do KAM-096, e nasce no PR que as devolve. O KAM-200 diz por escrito que o tecto não é
+das caixas 2, 4 e 5 do KAM-096 e do alerta que falta à caixa 7 (o adversarial (f)), e nasce no PR que as devolve. O KAM-200 diz por escrito que o tecto não é
 dele.
 
 ### Objectivo
@@ -2913,6 +2913,7 @@ seguinte.
 - [ ] Uma sanção `limitacao` ou acima gravada pelo KAM-097 desce o nível na base na mesma transacção, ou o recálculo corre logo a seguir, sem esperar pela volta diária.
 - [ ] O `recalcular` recebe o nome do consumidor de T&S que marca a independência (`events_consumed.consumer`), lido da configuração do processo e não escrito à mão.
 - [ ] Métricas do recálculo (tenants recalculados, subidas e descidas por motivo), sem `tenant_id` nas etiquetas (`OBS-I`).
+- [ ] Uma escrita em `platform.trust_level` recusada a um papel que não é o `kamba_batch` (o `42501` do adversarial (f) do KAM-096) dispara um alerta; a recusa já é da base, e o que falta é vê-la.
 
 ### Detalhes Técnicos
 
@@ -2923,11 +2924,12 @@ seguinte.
 
 - Integração: o processo contra o PostgreSQL do *gate* 8 sobe um tenant com cinco pedidos elegíveis e desce-o com uma disputa aceite; reexecutar não escreve outra linha no `audit_log`.
 - O `order.delivered` repetido dá um recálculo; o `tenant.approved` deixa o tenant no nível 0.
+- Adversarial: o `kamba_app` tenta mudar o tecto ⇒ `42501` e o alerta dispara.
 - Isolamento: o recálculo de A nunca escreve o nível de B.
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; as caixas 2, 4 e 5 do KAM-096 revistas com a evidência.
+- [ ] Critérios de Aceitação satisfeitos; as caixas 2, 4, 5 e 7 do KAM-096 revistas com a evidência.
 - [ ] Métricas e alertas nascem com o processo; sem segredos.
 
 ### Handoff para Claude Code
