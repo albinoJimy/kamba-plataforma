@@ -290,6 +290,10 @@ class TestConvencoes(ComBase):
                 # geral: a auditoria le-o sob a `tenant_iso`, e um sequencial
                 # dizia-lhe quantos sinais a plataforma inteira abre.
                 "churn_signal_episode",
+                # KAM-094: a tentativa do teste ponta a ponta. `uuid` aleatorio
+                # pela regra geral: o `kamba_app` le-a, e um sequencial dizia-lhe
+                # quantos testes a plataforma inteira corre.
+                "onboarding_smoke",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -766,6 +770,9 @@ class TestConvencoes(ComBase):
                 # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
                 ("onboarding_gate", "gate", "text", None),
                 ("onboarding_gate", "onboarding_id", "uuid", None),
+                # KAM-094 (revisao do catalogo minimo): a tentativa do teste,
+                # `uuid` gerada — um caso tem muitas. Depois do gate («_g» < «_s»).
+                ("onboarding_smoke", "id", "uuid", "gen_random_uuid()"),
                 # KAM-044: as cinco das encomendas, e tres formas diferentes.
                 #
                 # O `order_intents` tem chave **natural e composta**,
@@ -1438,7 +1445,12 @@ class TestConvencoes(ComBase):
              # `billing_dunning_steps_tenant_idx (tenant_id, executado_at)`, que
              # e a leitura da lista diaria de ops. Sem FK para `tenants`: a FK
              # composta para o ciclo ja o prende a um tenant que existe.
-             "billing_dunning_steps"},
+             "billing_dunning_steps",
+             # KAM-094 (revisao do catalogo minimo). Pelo indice
+             # `onboarding_smoke_tenant_idx`: o `onboarding_smoke_caso_idx`
+             # comeca pelo caso. Sem FK para `tenants`, pela razao da lista de
+             # espera: o caso tem o tenant pre-alocado.
+             "onboarding_smoke"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2097,7 +2109,11 @@ class TestConvencoes(ComBase):
         #
         # **102** desde a revisao dos KPIs de churn (KAM-117): a
         # `churn_signal_episode_tenant_fk`, simples para `tenants(id)`.
-        self.assertEqual(len(linhas), 102)
+        #
+        # **103** desde a revisao do catalogo minimo (KAM-094): a
+        # `onboarding_smoke_caso_fk`, composta `(onboarding_id, tenant_id)` para
+        # o caso, pela razao da lista de espera.
+        self.assertEqual(len(linhas), 103)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

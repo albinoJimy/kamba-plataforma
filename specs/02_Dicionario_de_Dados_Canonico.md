@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.104 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.105 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4663,6 +4663,34 @@ Angola — NÃO VERIFICADOS, calibram-se no Piloto (registo de calibração em
 [`../docs/kpis.md`](../docs/kpis.md)). O vencimento de um ciclo de billing (**KAM-058**). A porta real
 do orçamento LiteLLM (**KAM-030**), o aviso ao dono (**KAM-115**) e o agendador do job. Os recursos
 órfãos da reconciliação nocturna, que nenhuma tabela guarda (**KAM-091**).
+### 3.74 Catálogo mínimo e teste ponta a ponta: `is_test` e `onboarding_smoke` (KAM-094)
+
+*Emenda 1.105, **proposta**.* Os nomes do último troço antes da activação: o módulo
+[`../packages/core-ts/src/activacao/`](../packages/core-ts/src/activacao/index.ts) e o que a revisão
+[`0064`](../db/migrations/versions/0064_catalogo_minimo_e_teste.py) acrescenta à base. A revisão é
+provisória e encaixa, na integração, depois das que a fila tiver à frente.
+
+**A regra que nenhuma coluna exprime: o teste só passa com os quatro factos dentro da janela, e só o
+lote o dá por passado.** A página do dono abre a tentativa; quem a fecha é o mesmo passo que marca o
+gate `e2e`, e um contexto de tenant que fechasse o próprio teste activava-se a si próprio. **A
+publicação de um produto passa pelo `assertPublishable` em TypeScript**, antes de escrever; a
+restrição da base na `offer_terms` não é desta emenda (KAM-202).
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Conversa de teste | `conversations.is_test`, booleano não nulo, falso por omissão | — | *proposta* (emenda 1.105, KAM-094). A conversa do teste ponta a ponta, fora das métricas, da golden e do Score. **Nasce sempre falsa** (*trigger* `conversations_is_test_nasce_falso`), porque a aplicação insere na tabela inteira; só o lote a marca, por actualização |
+| Tentativa do teste | `platform.onboarding_smoke`, **nove** colunas | — | *proposta* (emenda 1.105, KAM-094). `id`, `onboarding_id`, `tenant_id`, `iniciada_em`, `expira_em`, `resultado`, `causa`, `fechada_em`, `levou_a_fila`. RLS `FORCE` e FK composta para a `onboarding_case`. **A aplicação abre e só o lote fecha**: o `kamba_app` insere o caso, o tenant e a janela; o `kamba_batch` escreve o fecho. Uma tentativa fechada não muda (*trigger* `onboarding_smoke_transicao`). A janela não passa de dez minutos |
+| Resultado de uma tentativa | `onboarding_smoke.resultado` ∈ {`pendente`, `ok`, `falhou`} | — | *proposta* (emenda 1.105, KAM-094). Lista **fechada**, **três** |
+| Causa de um teste falhado | `onboarding_smoke.causa` ∈ {`sem_inbound`, `sem_resposta`, `sem_entrega`, `sem_consentimento`} | — | *proposta* (emenda 1.105, KAM-094). Lista **fechada**, **quatro**, a da porta do bloco e pela ordem em que se verificam. O dono vê uma mensagem genérica, igual para as quatro |
+| Falha que foi à fila | `onboarding_smoke.levou_a_fila` | — | *proposta* (emenda 1.105, KAM-094). Marca a terceira falha seguida, a que abriu o `review_case`; a contagem recomeça depois dela, e a marca não se desfaz |
+| Porta do teste | `SmokeProbe`, com o início e a verificação; remetente ∈ {`owner_assisted`, `prober_number`} | — | *proposta* (emenda 1.105, KAM-094). A interface dos Detalhes Técnicos do bloco, à letra. `owner_assisted` por omissão; `prober_number` recusa sempre, porque a KAMBÁ não tem número operacional (D10) |
+| Limiares da activação | `CATALOGO_MINIMO` = 5, `PRAZO_DO_TESTE_S` = 60, `FALHAS_ATE_A_FILA` = 3 | — | *proposta* (emenda 1.105, KAM-094). Os do bloco; o primeiro é configurável por quem constrói o serviço |
+
+**O que esta emenda não decide, e a quem.** A restrição de BD na publicação da `offer_terms` e o
+caminho de escrita do COM que grave a decisão de screening antes de publicar (**KAM-202**). O
+observador de produção do teste: as tabelas da conversa não guardam o texto do «teste» nem o da
+resposta, e sem eles não se confere a palavra nem a identificação da loja (credor no bloco do
+KAM-094).
 
 ---
 
@@ -4793,3 +4821,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.102 | Novembro 2026 | **Emenda (*proposta*), KAM-201: quem chama as portas do §3.70.** Sobre a 1.101 do KAM-199. Nenhum nome novo: o §3.70 ganha o parágrafo «Quem chama as portas», que substitui a parte do «O que esta emenda não decide» que dizia que ninguém as chamava. O `aprovado` da fila, o `k1_ok` do KYC e um varrimento do ciclo do lote passam pelo `advance_case`, com o evento de quem chama; a porta recusa com um caso de revisão bloqueante por decidir e com o `tenant.approved` já emitido; e o CHR esquece o tenant na *cache* com o consumidor `chr` do `tenant.activated` (revisão de dados `0061`). | Equipa KAMBÁ |
 | 1.103 | Novembro 2026 | **Emenda (*proposta*), KAM-058: a régua de cobrança da assinatura.** Sobre a 1.102 do KAM-201. §3.72 nova: a `billing_dunning_steps` com as suas **oito** colunas, um passo por ciclo, os três passos, os cinco resultados e os dois canais, a versão da régua, os dias propostos, o motivo da suspensão e as duas métricas do DoD. A régua suspende e repõe pela porta de transição do KAM-092 e não tem grafo próprio. Revisão `0062`, sobre a `0061` do KAM-201. | Equipa KAMBÁ |
 | 1.104 | Novembro 2026 | **Emenda (*proposta*), KAM-117: os KPIs de onboarding, os sinais de churn e os tenants dormentes.** Sobre a 1.103 do KAM-058. §3.73 nova: a `platform.churn_signal_episode` com as suas **nove** colunas e o domínio fechado de **seis** sinais, as funções `platform.churn_sinais` e `platform.churn_dono_at`, as duas vistas que o §3.8 reservava e a vista semanal sobre a do KAM-092, os limiares em ficheiro e as três métricas. §3.2: as duas acções sobre o orçamento LLM no `audit_log.action`, que passa a **dezasseis**. | Equipa KAMBÁ |
+| 1.105 | Novembro 2026 | **Emenda (*proposta*), KAM-094: o catálogo mínimo e o teste ponta a ponta.** Sobre a 1.104 do KAM-117. §3.74 nova: a coluna `conversations.is_test`; a `platform.onboarding_smoke` com as suas **nove** colunas, os **três** resultados e as **quatro** causas; a porta `SmokeProbe` e os três limiares. **O que não decide:** a restrição de BD na publicação e o caminho de escrita do COM (KAM-202), e o observador de produção do teste. | Equipa KAMBÁ |

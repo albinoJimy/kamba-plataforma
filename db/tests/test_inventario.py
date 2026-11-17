@@ -352,6 +352,9 @@ INVENTARIO = {
         "last_inbound_at": ("timestamp with time zone", SIM, None, "nao"),
         "window_expires_at": ("timestamp with time zone", SIM, None, "nao"),
         "last_human_activity_at": ("timestamp with time zone", SIM, None, "nao"),
+        # KAM-094 (revisao do catalogo minimo): a conversa do teste ponta a
+        # ponta, fora das metricas, da golden e do Score.
+        "is_test": ("boolean", NAO, "false", "nao"),
     },
     # KAM-015. As duas tabelas da saida de canal.
     #
@@ -2761,6 +2764,22 @@ INVENTARIO["waitlist_entry"] = {
     "criado_em": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: As tentativas do teste ponta a ponta assistido pelo dono (KAM-094, revisao
+#: do catalogo minimo). **Nenhum dado pessoal**: um caso, uma janela, um
+#: resultado e a causa em lista fechada — nem o telefone de onde o dono mandou
+#: o «teste», nem o texto da resposta. Nove colunas.
+INVENTARIO["onboarding_smoke"] = {
+    "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+    "onboarding_id": ("uuid", NAO, None, "nao"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "iniciada_em": ("timestamp with time zone", NAO, "now()", "nao"),
+    "expira_em": ("timestamp with time zone", NAO, None, "nao"),
+    "resultado": ("text", NAO, "'pendente'::text", "nao"),
+    "causa": ("text", SIM, None, "nao — lista fechada de quatro causas"),
+    "fechada_em": ("timestamp with time zone", SIM, None, "nao"),
+    "levou_a_fila": ("boolean", NAO, "false", "nao"),
+}
+
 #: O limite de clientes novos por 7 dias (KAM-095, revisao da lista de espera).
 #: **Sem `tenant_id`**: e da plataforma, numa linha so (`unica` booleano com
 #: `CHECK (unica)`). O `fundamento` e a referencia documental do valor, nunca de uma
@@ -3667,6 +3686,9 @@ class TestInventario(ComBase):
                         # o ciclo pelo par, sem cascata. Um ciclo nao se apaga
                         # com a historia da cobranca dentro.
                         "billing_dunning_steps_ciclo_fk",
+                        # KAM-094 (revisao do catalogo minimo): a tentativa do
+                        # teste aponta o caso pelo par, sem cascata.
+                        "onboarding_smoke_caso_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4454,6 +4476,19 @@ class TestInventario(ComBase):
                     # `concluido`. O limite (seis): a chave, a linha unica, o
                     # valor nao negativo, o dominio da `origem`, a forma da
                     # `fundamento` e o acima de 10 so `confirmado`.
+                    # ---------- KAM-094 (revisao do catalogo minimo)
+                    #
+                    # **Sete**: a chave, o dominio do `resultado` e o da
+                    # `causa`, a janela ate dez minutos, a causa so numa falha,
+                    # o `fechada_em` so fora de `pendente` e a ida a fila so
+                    # numa falha.
+                    "onboarding_smoke_causa_ck",
+                    "onboarding_smoke_causa_do_resultado_ck",
+                    "onboarding_smoke_fecho_ck",
+                    "onboarding_smoke_fila_ck",
+                    "onboarding_smoke_janela_ck",
+                    "onboarding_smoke_pkey",
+                    "onboarding_smoke_resultado_ck",
                     "waitlist_entry_concluido_ck",
                     "waitlist_entry_convite_ck",
                     "waitlist_entry_convite_hash_ck",

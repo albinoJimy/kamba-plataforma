@@ -339,6 +339,12 @@ REGUA_TS = "packages/core-ts/src/pagamentos/regua.ts"
 #: (`0063`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_kpis_churn_schema.py`.
 REV_KPIS_DE_CHURN = _revisao_por_glob("*_kpis_de_churn.py")
+#: KAM-094: a revisao do catalogo minimo e do teste ponta a ponta, pela razao da
+#: do Catalogo AI — o numero e provisorio. O ensaio que a prova e o
+#: `db/tests/test_catalogo_minimo_schema.py`.
+REV_CATALOGO_MINIMO = _revisao_por_glob("*_catalogo_minimo_e_teste.py")
+#: KAM-094: o SQL das tentativas do teste, que o mesmo ensaio executa.
+ACTIVACAO_SQL = "packages/core-ts/src/activacao/sql.ts"
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
@@ -7945,6 +7951,59 @@ MUTACOES = [
     ("kpis: o lote reescreve o sinal", REV_KPIS_DE_CHURN,
      'f"GRANT UPDATE (fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
      'f"GRANT UPDATE (sinal, fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     "tests"),
+    # ------------------------------ KAM-094 (revisao do catalogo minimo)
+    #
+    # 9, e cada uma tira uma barreira que so a base tem. O alvo e a
+    # revisao descoberta pelo *glob* (`REV_CATALOGO_MINIMO`), e o modulo que as
+    # tem de matar e o `db/tests/test_catalogo_minimo_schema.py`, com o ensaio
+    # nomeado em cada uma.
+    # A conversa nasce de teste, e sai tudo das metricas: `test_a_coluna_nasce_falsa_e_nao_nula`.
+    ('catalogo minimo: a conversa nasce de teste', REV_CATALOGO_MINIMO,
+     'ADD COLUMN is_test boolean NOT NULL DEFAULT false',
+     'ADD COLUMN is_test boolean NOT NULL DEFAULT true',
+     "tests"),
+    # A aplicacao escreve o resultado da propria tentativa: `test_a_aplicacao_abre_pendente_e_nao_escreve_o_resultado`.
+    ('catalogo minimo: a aplicacao fecha o teste', REV_CATALOGO_MINIMO,
+     '        f"GRANT SELECT, INSERT (onboarding_id, tenant_id, iniciada_em, expira_em) "\n',
+     '        f"GRANT SELECT, INSERT (onboarding_id, tenant_id, iniciada_em, expira_em, resultado, fechada_em) "\n',
+     "tests"),
+    # Uma tentativa fechada muda de resultado: `test_o_lote_fecha_e_a_tentativa_fechada_nao_muda`.
+    ('catalogo minimo: a tentativa fechada muda', REV_CATALOGO_MINIMO,
+     "          IF OLD.resultado <> 'pendente'\n",
+     '          IF false\n',
+     "tests"),
+    # A janela passa dos dez minutos: `test_as_restricoes`.
+    ('catalogo minimo: a janela sem tecto', REV_CATALOGO_MINIMO,
+     "CHECK (expira_em > iniciada_em AND expira_em <= iniciada_em + interval '10 minutes'),",
+     'CHECK (expira_em > iniciada_em),',
+     "tests"),
+    # O dono da tabela le e escreve as tentativas de todos os tenants: `test_rls_forcada_e_b_nao_ve_nem_escreve_a_tentativa_de_a`.
+    ('catalogo minimo: a tentativa perde o FORCE da RLS', REV_CATALOGO_MINIMO,
+     '    rls.enable_tenant_rls("onboarding_smoke")\n',
+     '    rls.enable_tenant_rls("onboarding_smoke")\n    op.execute("ALTER TABLE platform.onboarding_smoke NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # A ida a fila desfaz-se, e o caso volta a contar falhas ja levadas: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    ('catalogo minimo: a ida a fila desfaz-se', REV_CATALOGO_MINIMO,
+     '          IF OLD.levou_a_fila AND NOT NEW.levou_a_fila THEN\n',
+     '          IF false THEN\n',
+     "tests"),
+    # O SQL das falhas seguidas esquece a ida a fila, e a quarta falha abre outro caso: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    # Uma conversa criada ja marcada como teste sai das metricas sem passar pelo
+    # teste: `test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`.
+    ('catalogo minimo: a conversa nasce marcada', REV_CATALOGO_MINIMO,
+     '          NEW.is_test := false;\n',
+     '',
+     "tests"),
+    # As pendentes vencidas deixam de contar, e quem so verifica dentro da
+    # janela nunca chega a fila: `test_as_pendentes_vencidas_contam_como_falhas_e_as_vivas_nao`.
+    ('catalogo minimo: as pendentes vencidas nao contam', ACTIVACAO_SQL,
+     "(t.resultado = 'falhou' OR (t.resultado = 'pendente' AND t.expira_em <= $2))",
+     "t.resultado = 'falhou'",
+     "tests"),
+    ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
+     "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
+     "WHERE b.resultado = 'ok')",
      "tests"),
 ]
 

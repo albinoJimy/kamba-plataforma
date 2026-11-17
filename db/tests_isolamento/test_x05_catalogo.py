@@ -287,6 +287,10 @@ class TestCatalogoReal(ComBase):
                 ("platform", "onboarding_case", "tenant_id"),
                 # KAM-092: os gates de activacao («onboarding_c» < «_g»).
                 ("platform", "onboarding_gate", "tenant_id"),
+                # KAM-094: as tentativas do teste ponta a ponta («_g» < «_s»).
+                # **Sem receita de sementes**, pela razao dos gates (ver
+                # `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "onboarding_smoke", "tenant_id"),
                 # KAM-044: as quatro das encomendas. A ordem e a do `sorted()`
                 # por ponto de codigo, e nela o `_` (0x5F) vence o `s` (0x73):
                 # as tres `order_*` vem **antes** da `orders_mirror`, e todas
@@ -602,6 +606,8 @@ class TestCatalogoReal(ComBase):
                 ("onboarding_case", "tenant_iso", "ALL", "{public}"),
                 # KAM-092: os gates de activacao.
                 ("onboarding_gate", "tenant_iso", "ALL", "{public}"),
+                # KAM-094: as tentativas do teste ponta a ponta.
+                ("onboarding_smoke", "tenant_iso", "ALL", "{public}"),
                 # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
                 # `_` (0x5F) vence o `s` (0x73) — as tres `order_*` vem antes da
                 # `orders_mirror`. `ALL` e `{public}` nas quatro, como em todas:
@@ -880,6 +886,8 @@ class TestCatalogoReal(ComBase):
              "onboarding_case",
              # KAM-092: os gates de activacao.
              "onboarding_gate",
+             # KAM-094: as tentativas do teste ponta a ponta.
+             "onboarding_smoke",
              # KAM-044: as quatro das encomendas, e a nota de cima vale outra
              # vez — **sexta lista deste ficheiro a precisar de uma tabela
              # nova**, e as cinco anteriores ja estavam feitas quando esta

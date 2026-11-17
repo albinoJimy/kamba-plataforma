@@ -654,6 +654,19 @@ TABELAS_REGUA_DE_COBRANCA = ("billing_dunning_steps",)
 #: apaga; o `kamba_app` nao tem nada.
 TABELAS_KPIS_DE_CHURN = ("churn_signal_episode",)
 
+#: O que a revisao do catalogo minimo e do teste ponta a ponta (KAM-094)
+#: acrescenta: as tentativas do teste assistido pelo dono.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero e provisorio e os ensaios descobrem a revisao pelo *glob*
+#: `*_catalogo_minimo_e_teste.py`.
+#:
+#: Uma tabela de tenant com RLS `FORCE` pela `tenant_iso`, FK composta
+#: `(onboarding_id, tenant_id)` para a `onboarding_case` e uma funcao de
+#: *trigger* (`onboarding_smoke_transicao`) que congela a tentativa fechada. A
+#: revisao acrescenta tambem a coluna `conversations.is_test`.
+TABELAS_CATALOGO_MINIMO = ("onboarding_smoke",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -668,18 +681,30 @@ TABELAS = tuple(
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
         + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
+        + TABELAS_CATALOGO_MINIMO
     )
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a do
+#: catalogo minimo (KAM-094).
+#:
+#: O `downgrade` dessa revisao leva a base para aqui. **Deriva do `TABELAS`**,
+#: por ser o topo da cadeia: quem acrescentar uma revisao a seguir poe a sua
+#: aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao pelo numero,
+#: pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e a dos KPIs de
+#: churn (KAM-117).
+TABELAS_ANTES_DO_CATALOGO_MINIMO = tuple(
+    sorted(set(TABELAS) - set(TABELAS_CATALOGO_MINIMO))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a dos
 #: KPIs de churn (KAM-117).
 #:
-#: O `downgrade` da revisao dos KPIs leva a base para aqui. **Deriva do
-#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
-#: poe a sua aqui e faz **esta** derivar da dela. Hoje a anterior e a da regua
-#: de cobranca (KAM-058).
+#: O `downgrade` da revisao dos KPIs leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CATALOGO_MINIMO` desde o KAM-094, que pos a sua revisao no
+#: topo. Hoje a anterior e a da regua de cobranca (KAM-058).
 TABELAS_ANTES_DOS_KPIS_DE_CHURN = tuple(
-    sorted(set(TABELAS) - set(TABELAS_KPIS_DE_CHURN))
+    sorted(set(TABELAS_ANTES_DO_CATALOGO_MINIMO) - set(TABELAS_KPIS_DE_CHURN))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da regua

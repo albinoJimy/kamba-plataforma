@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.25 |
+| Versão | 1.26 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Core de Comércio (COM)** é o registo de produtos, encomendas, stock e rese
 
 O epic abre com um **spike de 5 dias** (KAM-041) com critérios de aceitação numéricos e uma matriz de 60 testes de isolamento entre vendedores, porque o Medusa v2 não é multi-tenant nativo (NÃO VERIFICADO) e o Mercur teve falhas de autorização entre vendedores corrigidas a 2026-10-08 (CONFIRMADO, E4). O Mercur fica fora do Piloto. O resto do epic constrói sobre a decisão D3: porta e adaptador (KAM-042), preço opaco e stock não-garantido (KAM-043), encomendas (KAM-044), reservas com expiração (KAM-045), criação idempotente de pedido (KAM-046), módulo `servicos` (KAM-047), lembretes (KAM-048), Catálogo AI (KAM-049), estados adicionais (KAM-050) e o contrato de leitura para o índice (KAM-051). Nunca há fundos de terceiros no COM (ADR-004): reembolsos são manuais.
 
-Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **14 tickets**: 10 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, o KAM-178 e o KAM-179, acrescentados depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
+Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **15 tickets**: 10 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, o KAM-178 e o KAM-179, acrescentados depois) e 5 na **Fase 1** (KAM-048 a KAM-051, e o KAM-202, acrescentado depois). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
 
 ---
 
@@ -54,6 +54,7 @@ Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-01
 | KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | KAM-044 |
 | KAM-178 | API interna do COM, ligação dos doze métodos da porta e os executores das tools de comércio | feature | L | P0 | KAM-042, KAM-046, KAM-031 |
 | KAM-179 | A cotação do dono não tem predicado de contacto: X recebe o preço negociado para Y dentro do mesmo tenant | fix | S | P0 | KAM-043 |
+| KAM-202 | KAM-094 em produção: observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms` | feature | L | P1 | KAM-094, KAM-119, KAM-198 |
 
 ---
 
@@ -2985,6 +2986,129 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 
 ---
 
+## KAM-202 — KAM-094 em produção: observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-04 — Core de Comércio |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-094, KAM-119, KAM-198 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Comércio com Engenheiro de Plataforma (TEN) |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-094 e KAM-198), `EPIC-11_Modulos_Entrada.md` (bloco KAM-119), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.40, §3.58, §3.74), `../db/migrations/versions/0028_offer_terms_e_price_quotes.py`, `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 8–10), ADR-015 |
+
+### Contexto
+
+O KAM-094 entrega o último troço da activação **ao nível do módulo e da base**: o
+[`../packages/core-ts/src/activacao/`](../packages/core-ts/src/activacao/index.ts) (catálogo mínimo,
+`SmokeProbe` `owner_assisted`, gates `catalogo_minimo` e `e2e`, activação única pelo `advance_case`
+do KAM-092), os adaptadores SQL, a `conversations.is_test` e a `platform.onboarding_smoke`. **Nada
+disso corre num processo**, e quatro peças ficam por ligar; este ticket é o credor delas.
+
+1. **O observador de produção do teste.** As tabelas da conversa guardam o `last_inbound_at`, o
+   `delivered_at` e o `consent_event`, mas não o texto do «teste» nem o da resposta (ADR-010), e sem
+   eles não se confere a palavra nem a identificação da loja. O `ObservadorPorWebhook` do KAM-094 só
+   serve aos ensaios com o simulador.
+2. **A `Activacao` e o `verify` no processo de lote do KAM-198**, com as portas SQL do KAM-094 e dois
+   papéis: a leitura do catálogo pela ligação da aplicação (o `kamba_batch` não lê a
+   `catalog_ingestions`), os gates, o fecho das tentativas e a marca `is_test` como `kamba_batch`.
+3. **O filtro de `conversations.is_test`** nas métricas, na golden e no Score: a coluna existe e
+   nasce falsa, e nenhum leitor a filtra ainda.
+4. **A restrição de BD na publicação da `offer_terms`**, a caixa da DoD do KAM-094 «publicação
+   protegida por restrição de BD». Ficou de fora do KAM-094 por decisão do orquestrador do lote,
+   pelo que foi medido na base dele (`publico/main` em `0c393555`):
+   - o `publishProduct` de `../services/com/src/produtos/produtos.ts` **não chama o screening**;
+   - **16 ficheiros** semeiam a `offer_terms` e **11 sítios** publicam, e nenhum grava decisão antes;
+   - o caminho real de publicação (foto → ingestão do KAM-049 → `publishProduct`) grava a decisão com
+     **outra chave**: o screening de `../libs/py-core/src/kamba_core/catalogo/pipeline.py` usa o id da
+     ingestão como referência, a categoria do produto e todos os campos lidos como textos, e o resumo
+     nunca casa com o do `assertPublishable` de um `sku`;
+   - o nome de um publicado muda pelo `SQL_ACTUALIZAR_TERMOS` do COM **sem screening**, e o
+     `SQL_POR_REANALISAR` do KAM-088 não volta a ver um `sku` que já tem decisão na versão corrente,
+     qualquer que seja o conteúdo.
+
+   **Liga-se depois de o KAM-119 pôr o COM a gravar a decisão antes do `publishProduct`**, e de as
+   sementes e os ensaios a gravarem: uma restrição sem o caminho de escrita que a satisfaça
+   inutilizava a publicação do COM. O desenho foi rascunhado e medido no PR do KAM-094 (o primeiro
+   *commit* do ramo, `990d6437`): uma função imutável que recalcula na base o resumo do conteúdo do
+   KAM-088 — byte a byte o do `conteudoSha256`, provado sobre uma fixture com os casos difíceis do
+   escape de JSON — e um *trigger* só nas transições de `UPDATE`, que salta a linha numa publicação
+   sem decisão (zero linhas, que o `publishProduct` já lê como recusa) e tira para `rascunho` um
+   publicado cujo nome mudou sem decisão.
+
+### Objectivo
+
+Que a activação de uma loja corra de ponta a ponta num processo real, com o teste verificado sobre
+as conversas de verdade, sem que a conversa de teste conte nas métricas, e com a publicação de um
+produto imposta pela base.
+
+### Critérios de Aceitação
+
+- [ ] Um observador de produção do `SmokeProbe` lê os quatro factos (entrada com «teste», resposta
+  que identifica o assistente e a loja, entrega, aviso de 1.º contacto com `consent_event`) a partir
+  de um sinal emitido pelo `worker-canal`, sem guardar o texto da mensagem nem o telefone.
+- [ ] O processo de lote do KAM-198 corre a `Activacao` (contagem, gate `catalogo_minimo`, activação)
+  e o `verify` do teste, com os adaptadores SQL do KAM-094 e a `filaDoTeste` sobre o serviço da fila;
+  a página do dono abre a tentativa pela ligação da aplicação.
+- [ ] As métricas, a golden e o Score excluem as conversas com `is_test`, cada leitor com um ensaio
+  que o prova.
+- [ ] A base recusa a entrada em `publicado` sem decisão `permitida` para o conteúdo de agora, e tira
+  de `publicado` um nome novo sem decisão; cada caminho de escrita da `offer_terms` continua a
+  passar, provado com os ensaios dos módulos que os têm; nenhum 23514 aparece onde o COM não o
+  espera.
+- [ ] A chave da decisão do KAM-049 e a do `assertPublishable` de um `sku` passam a ser a mesma, e a
+  mudança de nome pelo COM repete o screening.
+- [ ] A origem `humano`, e a `permitida` de `regra`, que a aplicação pode inserir na
+  `screening_decision` deixam de levantar uma recusa de produto — ou fica escrita a decisão de as
+  aceitar.
+
+### Detalhes Técnicos
+
+- **Componentes:** COM, CHR, GOV, DAT, DB.
+- **Revisão de base:** o número dá-o o orquestrador do lote. Paga as listas fechadas do gate 8.
+- **A versão da política** está no código e não na base: o *trigger* lê a versão mais recente que
+  tem decisões para o conteúdo, e a re-análise do KAM-088 grava a nova. Decidir se isto chega é
+  parte do ticket.
+- **O que pede conta real** — o custo e o p95 da visão em staging — não é deste ticket: fica com o
+  `ext:KAM-101` e o KAM-109.
+
+### Testes Requeridos
+
+- Integração: o lote do KAM-198 activa um caso de ponta a ponta contra a base, com o simulador de
+  webhooks a alimentar o sinal do `worker-canal`.
+- Contrato de BD: sem decisão, `bloqueada`, `condicional`, decisão de outro nome, de outro `sku` e de
+  outro tenant ⇒ zero linhas; `permitida` e o recurso humano ⇒ publica.
+- Regressão: as suites `tests_produtos`, `tests_encomendas`, `tests_isolamento` e a golden do índice
+  verdes com o *trigger* ligado; cada leitor de métricas com uma conversa `is_test` que não conta.
+- Mutação: cada barreira nova com uma mutação que um ensaio nomeado mata.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas que o KAM-094 deixou com este credor marcadas
+  com a evidência deste ticket.
+- [ ] Migração reversível; nenhuma suite de outro ticket vermelha; documentação actualizada.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-202 da KAMBÁ (o KAM-094 em produção).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-202), os blocos KAM-094 e KAM-198 de
+specs/EPIC-09_Onboarding_Governanca.md, o bloco KAM-119 de specs/EPIC-11_Modulos_Entrada.md, o
+dicionário §3.74, e o primeiro commit do ramo do KAM-094 (990d6437), que tem o rascunho medido do
+trigger da offer_terms.
+Objectivo: observador de produção do teste, activação e verify no lote do KAM-198, filtro de
+is_test nas métricas, golden e Score, e a restrição de BD na publicação — esta só depois de o
+KAM-119 pôr o COM a gravar a decisão.
+Regras: nenhum caminho legítimo de escrita da offer_terms pode partir; o resumo do conteúdo da base
+é byte a byte o do KAM-088; sem texto de mensagem nem telefone guardados. O número da revisão é do
+orquestrador do lote.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -3046,3 +3170,4 @@ execução; nenhuma caixa é marcada por memória do trabalho feito.
 | 1.23 | Novembro 2026 | **Credor nomeado, no PR do KAM-062:** o bloco do KAM-050 troca «o consumidor fica num ticket do EPIC-05 que o orquestrador abre no fim do lote» por **credor KAM-197** (EPIC-05), no resumo da verificação e na linha do critério 4, e o `Bloqueia` passa a nomear o KAM-197 (aresta recíproca). Nenhuma caixa muda. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | **KAM-049 entregue em parte: o pipeline do Catálogo AI.** Bloco do KAM-049: a decisão que os Detalhes Técnicos pediam registada (uma biblioteca do `kamba-core`, `kamba_core.catalogo`, e não um grafo nem uma rota do COM; a rota e o grafo são do KAM-119), o screening do KAM-088 por porta com falha fechada, e o `lexico_pt_ao` resolvido para o `idx.termo_canonico` do KAM-062; secções de verificação com **seis** critérios marcados de nove e **quatro** caixas da DoD de sete, e as vazias com credor — **KAM-119** (a montagem de produção: fonte da Meta, descodificador, ponte do screening, Registo; critérios 1 e 2), **KAM-094** (p95 e custo em staging, com o ext:KAM-101) e **KAM-040** (o eval-gate da visão). Secção da revisão adversarial (onze achados, dois `must fix`, 38 mutações). Revisão `0050` (`catalogo_ai`), e dicionário §3.63 (emenda 1.89). | Equipa KAMBÁ |
 | 1.25 | Novembro 2026 | **KAM-197 fecha o critério 4 do KAM-050.** As regras 3 e 4 terminam com o caso de reembolso aberto pelo PAY (revisão `0051`, papel `kamba_pay`), e o `pagamento_duplicado` da mesma cobrança passa a chegar ao COM. A caixa marca-se e a linha da verificação passa a `satisfeito`, com o registo anterior intacto. | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | **KAM-202 acrescentado**, no PR do **KAM-094**, que o abre e não o implementa: é o credor das caixas que o KAM-094 deixa parciais — o observador de produção do teste, a activação e o *verify* no lote do KAM-198, o filtro de `is_test` nas métricas, na golden e no Score, e a restrição de BD na publicação da `offer_terms`, que se liga depois de o KAM-119 pôr o COM a gravar a decisão. Dependências KAM-094, KAM-119 e KAM-198. | Equipa KAMBÁ |

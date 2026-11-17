@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.104"
+versao_dicionario: "1.105"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -18965,6 +18965,109 @@ entradas:
       - "tenants_dormentes"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Conversa de teste"
+    canonico: "conversations.is_test, booleano não nulo, falso por omissão"
+    literais:
+      - "conversations.is_test"
+    nomes:
+      - "conversations.is_test"
+    nomes_nota:
+      - "conversations_is_test_nasce_falso"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Tentativa do teste"
+    canonico: "platform.onboarding_smoke, nove colunas"
+    literais:
+      - "platform.onboarding_smoke"
+    nomes:
+      - "platform.onboarding_smoke"
+    nomes_nota:
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "iniciada_em"
+      - "expira_em"
+      - "resultado"
+      - "causa"
+      - "fechada_em"
+      - "levou_a_fila"
+      - "FORCE"
+      - "onboarding_case"
+      - "kamba_app"
+      - "kamba_batch"
+      - "onboarding_smoke_transicao"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Resultado de uma tentativa"
+    canonico: "onboarding_smoke.resultado ∈ {pendente, ok, falhou}"
+    literais:
+      - "onboarding_smoke.resultado"
+      - "pendente"
+      - "ok"
+      - "falhou"
+    nomes:
+      - "onboarding_smoke.resultado"
+      - "pendente"
+      - "ok"
+      - "falhou"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Causa de um teste falhado"
+    canonico: "onboarding_smoke.causa ∈ {sem_inbound, sem_resposta, sem_entrega, sem_consentimento}"
+    literais:
+      - "onboarding_smoke.causa"
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    nomes:
+      - "onboarding_smoke.causa"
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Falha que foi à fila"
+    canonico: "onboarding_smoke.levou_a_fila"
+    literais:
+      - "onboarding_smoke.levou_a_fila"
+    nomes:
+      - "onboarding_smoke.levou_a_fila"
+    nomes_nota:
+      - "review_case"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Porta do teste"
+    canonico: "SmokeProbe, com o início e a verificação; remetente ∈ {owner_assisted, prober_number}"
+    literais:
+      - "SmokeProbe"
+      - "owner_assisted"
+      - "prober_number"
+    nomes:
+      - "SmokeProbe"
+      - "owner_assisted"
+      - "prober_number"
+    nomes_nota:
+      - "owner_assisted"
+      - "prober_number"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Limiares da activação"
+    canonico: "CATALOGO_MINIMO = 5, PRAZO_DO_TESTE_S = 60, FALHAS_ATE_A_FILA = 3"
+    literais:
+      - "CATALOGO_MINIMO"
+      - "PRAZO_DO_TESTE_S"
+      - "FALHAS_ATE_A_FILA"
+    nomes:
+      - "CATALOGO_MINIMO"
+      - "PRAZO_DO_TESTE_S"
+      - "FALHAS_ATE_A_FILA"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -22057,6 +22160,23 @@ dominios:
       - "dormente"
     seccao: "3.73"
     conceito: "Sinal"
+    so_no_registo: false
+  - coluna: "onboarding_smoke.resultado"
+    valores:
+      - "pendente"
+      - "ok"
+      - "falhou"
+    seccao: "3.74"
+    conceito: "Resultado de uma tentativa"
+    so_no_registo: false
+  - coluna: "onboarding_smoke.causa"
+    valores:
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    seccao: "3.74"
+    conceito: "Causa de um teste falhado"
     so_no_registo: false
 
 variantes:

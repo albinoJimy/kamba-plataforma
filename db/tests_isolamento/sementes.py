@@ -2045,6 +2045,14 @@ SEM_RECEITA_COM_RAZAO = {
     # (uma linha) e de outro tenant (zero).
     ("platform", "onboarding_gate"),
     ("platform", "tenant_state_log"),
+    # KAM-094: as tentativas do teste ponta a ponta, pela razao dos gates: a
+    # tentativa pede o caso do tenant (FK composta), que e unico por tenant e
+    # colidia com a receita do `onboarding_case`. **A politica mede-se noutro
+    # sitio**: o `test_rls_forcada_e_b_nao_ve_nem_escreve_a_tentativa_de_a` do
+    # `db/tests/test_catalogo_minimo_schema.py` escreve pela aplicacao com o
+    # contexto de A, le com o de A (uma linha) e com o de B (zero), recusa a
+    # escrita no tenant de outro e mede a RLS ligada e forcada.
+    ("platform", "onboarding_smoke"),
     # KAM-097: os sinais e as sancoes de T&S, pela razao da
     # `screening_decision`: *append-only* por privilegio **e** por *trigger*
     # (`ts_imutavel`), que recusa tambem ao administrador o `DELETE` com que as
