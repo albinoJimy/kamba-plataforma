@@ -486,6 +486,16 @@ export const SQL_VISTA = `
  * o desempate pelo `id` lê-se da *heap* — é o preço de uma paginação que não
  * perde linhas.
  *
+ * ## O intervalo de criação é da base e não da página (KAM-190)
+ *
+ * `$6` inclusive e `$7` exclusive, com a mesma forma dos `COALESCE`: sem
+ * intervalo, `-infinity` e `infinity` deixam passar todas as linhas. O painel do
+ * dono filtrava por data **a página que esta consulta devolvia** (até cem), e
+ * uma encomenda do dia pedido que estivesse na página seguinte não aparecia; com
+ * o predicado aqui, o `LIMIT` conta só as linhas do intervalo. O índice
+ * `orders_mirror_estado_idx` — `(tenant_id, estado, criado_at DESC)` — serve o
+ * intervalo pelo mesmo prefixo.
+ *
  * O `tenant_id = $1` imediatamente depois do `WHERE` é o que o repo-base exige;
  * sem ele a consulta não chega à base (`com_repo_filtro_em_falta_total`).
  */
@@ -501,6 +511,8 @@ export const SQL_LISTAR = `
            COALESCE($4::timestamptz, 'infinity'::timestamptz),
            COALESCE($5::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)
          )
+     AND criado_at >= COALESCE($6::timestamptz, '-infinity'::timestamptz)
+     AND criado_at < COALESCE($7::timestamptz, 'infinity'::timestamptz)
    ORDER BY criado_at DESC, id DESC
-   LIMIT $6
+   LIMIT $8
 `;

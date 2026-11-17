@@ -111,6 +111,12 @@ function baseDeEnsaio(linhas: readonly ReturnType<typeof linha>[]) {
       const contacto = parametros[2];
       const cursorAt = parametros[3];
       const cursorId = parametros[4];
+      // O intervalo do KAM-190: `$6` inclusive e `$7` exclusive. As linhas do
+      // duplo têm `criado_at` com milissegundos e `Z`, como o `toISOString`.
+      const desde = parametros[5];
+      const ate = parametros[6];
+      if (typeof desde === "string") saida = saida.filter((l) => l.criado_at >= desde);
+      if (typeof ate === "string") saida = saida.filter((l) => l.criado_at < ate);
       if (typeof estado === "string") {
         saida = saida.filter((l) => l.estado === estado);
       }
@@ -136,7 +142,7 @@ function baseDeEnsaio(linhas: readonly ReturnType<typeof linha>[]) {
             ? 1
             : -1,
       );
-      const limite = parametros[5];
+      const limite = parametros[7];
       if (typeof limite === "number") saida = saida.slice(0, limite);
       return { rows: saida.map(({ _tenant, ...resto }) => resto) };
     },
@@ -314,7 +320,78 @@ test("sem limite, o pedido a base pede o de omissao mais um", async () => {
   const { cliente, vistos } = baseDeEnsaio([linha(1)]);
   await listOrders(leitura(cliente), ANEL, { estado: "criada" });
   const listagem = vistos.find((v) => v.sql === SQL_LISTAR);
-  assert.equal(listagem?.parametros[5], LIMITE_POR_OMISSAO + 1);
+  assert.equal(listagem?.parametros[7], LIMITE_POR_OMISSAO + 1);
+});
+
+// ------------------------------------------------ KAM-190: o intervalo de criação
+
+test("KAM-190: o intervalo vai a base, normalizado, e o limite conta so as linhas dele", async () => {
+  const { cliente, vistos } = baseDeEnsaio([linha(1), linha(2), linha(3), linha(4)]);
+  const r = await listOrders(leitura(cliente), ANEL, {
+    estado: "criada",
+    limite: 1,
+    criadoDesde: "2026-11-01T00:00:00Z",
+    criadoAte: "2026-11-02T00:00:00.000Z",
+  });
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  // A encomenda do dia 1 é a **mais antiga**: com o filtro sobre a página, o
+  // `limite: 1` devolvia a do dia 4 e o filtro tirava-a — zero linhas.
+  assert.deepEqual(r.valor.itens.map((i) => i.orderId), [linha(1).id]);
+  const listagem = vistos.find((v) => v.sql === SQL_LISTAR);
+  assert.equal(listagem?.parametros[5], "2026-11-01T00:00:00.000Z");
+  assert.equal(listagem?.parametros[6], "2026-11-02T00:00:00.000Z");
+});
+
+test("KAM-190: o cursor leva o intervalo, e com outro intervalo e VALIDATION_ERROR", async () => {
+  const todas = [linha(1), linha(2), linha(3), linha(4)];
+  const intervalo = { criadoDesde: "2026-11-02T00:00:00Z", criadoAte: "2026-11-05T00:00:00Z" };
+  const { cliente } = baseDeEnsaio(todas);
+  const primeira = await listOrders(leitura(cliente), ANEL, { estado: "criada", limite: 2, ...intervalo });
+  assert.equal(primeira.tipo, "ok");
+  if (primeira.tipo !== "ok") return;
+  const cursor = primeira.valor.proximo;
+  assert.notEqual(cursor, null);
+
+  const segunda = await listOrders(leitura(cliente), ANEL, { estado: "criada", limite: 2, cursor, ...intervalo });
+  assert.equal(segunda.tipo, "ok");
+  if (segunda.tipo !== "ok") return;
+  const ids = [...primeira.valor.itens, ...segunda.valor.itens].map((i) => i.orderId);
+  assert.deepEqual(new Set(ids), new Set([linha(2).id, linha(3).id, linha(4).id]));
+  assert.equal(segunda.valor.proximo, null);
+
+  // Sem intervalo, com outro, ou com uma ponta só: o cursor não é desta listagem.
+  for (const outro of [{}, { criadoDesde: "2026-11-01T00:00:00Z", criadoAte: "2026-11-05T00:00:00Z" }, { criadoDesde: intervalo.criadoDesde }]) {
+    const r = await listOrders(leitura(CLIENTE_PROIBIDO), ANEL, { estado: "criada", cursor, ...outro });
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, JSON.stringify(outro));
+  }
+});
+
+test("KAM-190: um cursor sem intervalo continua a valer sem intervalo", () => {
+  const posicao = { criadoAt: "2026-11-03T10:00:00.000Z", id: linha(3).id };
+  const cursor = cifrarCursor(ANEL, TENANT_A, posicao);
+  assert.deepEqual(lerCursor(ANEL, TENANT_A, cursor), posicao);
+  assert.equal(lerCursor(ANEL, TENANT_A, cursor, { desde: "2026-11-01T00:00:00.000Z", ate: null }), null);
+});
+
+test("KAM-190: um intervalo mal escrito, invertido ou vazio recusa sem ir a base", async () => {
+  const maus = [
+    { criadoDesde: "2026-11-01" },
+    { criadoDesde: "2026-11-01T00:00:00+01:00" },
+    { criadoAte: "ontem" },
+    { criadoAte: "" },
+    { criadoDesde: "2026-11-01T00:00:00.123456Z" },
+    { criadoDesde: "2026-13-01T00:00:00Z" },
+    { criadoDesde: "2026-11-02T00:00:00Z", criadoAte: "2026-11-01T00:00:00Z" },
+    { criadoDesde: "2026-11-02T00:00:00Z", criadoAte: "2026-11-02T00:00:00.000Z" },
+  ];
+  for (const m of maus) {
+    const r = await listOrders(leitura(CLIENTE_PROIBIDO), ANEL, { estado: "criada", ...m });
+    assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" }, JSON.stringify(m));
+  }
+  // E o intervalo sozinho não é filtro de domínio.
+  const r = await listOrders(leitura(CLIENTE_PROIBIDO), ANEL, { criadoDesde: "2026-11-01T00:00:00Z" });
+  assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
 });
 
 // ------------------------------------------------------------------- o cursor

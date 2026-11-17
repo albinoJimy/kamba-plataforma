@@ -133,6 +133,7 @@ import {
 } from "../../repo-base/index.ts";
 import { SQL_TECTO } from "@kamba/core-ts/ten";
 
+import { vistaDoCanal as vistaDoCanalDoModulo, type VistaDoCanal } from "../../canal/vista.ts";
 import { SQL_GRAFO } from "../../orders/consultas.ts";
 import type { ClienteSql as ClienteSqlDoModulo } from "../../orders/contrato.ts";
 import {
@@ -143,6 +144,7 @@ import {
   confirmacaoValida,
   getOfferView as getOfferViewDoModulo,
   listarOfertas as listarOfertasDoModulo,
+  obterOferta as obterOfertaDoModulo,
   publishProduct as publishProductDoModulo,
   upsertProductDraft as upsertProductDraftDoModulo,
   type AlteracaoDeOferta,
@@ -943,6 +945,13 @@ export interface OperacoesDoCom {
    * doze, e a lista de edição é de um consumidor só, o painel.
    */
   listarOfertas(ctx: Ctx): Promise<Resultado<ListaDoPainel>>;
+  /** Uma oferta do tenant, para o painel (KAM-190). Lê e não escreve. */
+  obterOferta(ctx: Ctx, sku: string): Promise<Resultado<OfertaDoPainel>>;
+  /**
+   * O estado do canal do tenant, para o painel (KAM-190). Lê e não escreve. A
+   * razão de viver no COM está na nota do `../../canal/vista.ts`.
+   */
+  vistaDoCanal(ctx: Ctx): Promise<Resultado<VistaDoCanal>>;
   /** Preço e stock de uma oferta, com CAS sobre o `atualizado_at` (KAM-099). */
   alterarOferta(ctx: Ctx, a: AlteracaoDeOferta): Promise<Resultado<OfertaDoPainel>>;
 }
@@ -1014,6 +1023,14 @@ export function operacoesDoCom(
 
     async listarOfertas(ctx: Ctx) {
       return comRegisto(deps, ctx, (r) => listarOfertasDoModulo(r));
+    },
+
+    async obterOferta(ctx: Ctx, sku: string) {
+      return comRegisto(deps, ctx, (r) => obterOfertaDoModulo(r, sku));
+    },
+
+    async vistaDoCanal(ctx: Ctx) {
+      return comRegisto(deps, ctx, (r) => vistaDoCanalDoModulo(r));
     },
 
     async alterarOferta(ctx: Ctx, a: AlteracaoDeOferta) {

@@ -69,6 +69,10 @@ interface Chamadas {
 const alteracoes: AlteracaoDeOferta[] = [];
 /** O tenant do `ctx` de cada `listarOfertas`. */
 const tenantsDasOfertas: string[] = [];
+/** O `ctx` e o `sku` de cada leitura do KAM-190. */
+const leiturasDoPainel: { metodo: string; tenantId: string; sku?: string }[] = [];
+/** Os filtros que chegaram ao `listOrders`. */
+const filtrosDasEncomendas: unknown[] = [];
 
 function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } {
   const contagem = new Map<string, number>();
@@ -103,8 +107,9 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
         criadoAt: "2026-11-04T10:00:00.000Z",
       });
     },
-    async listOrders() {
+    async listOrders(_ctx: Ctx, filtro: unknown) {
       contar("listOrders");
+      filtrosDasEncomendas.push(filtro);
       return ok({ itens: [], proximo: null });
     },
     async transition(_ctx: Ctx, orderId: string) {
@@ -183,6 +188,38 @@ function operacoesDeEnsaio(): { operacoes: OperacoesDoCom; chamadas: Chamadas } 
       tenantsDasOfertas.push(ctx.tenantId);
       return ok({ itens: [], truncada: false });
     },
+    async obterOferta(ctx: Ctx, sku: string) {
+      contar("obterOferta");
+      leiturasDoPainel.push({ metodo: "obterOferta", tenantId: ctx.tenantId, sku });
+      return ok({
+        sku,
+        nome: "Arroz 5 kg",
+        precoTipo: "fixo" as const,
+        precoMinor: 9_007_199_254_740_993n,
+        currency: "AOA",
+        precoValidoAte: null,
+        stockModo: "indicativo" as const,
+        stockQuantidade: null,
+        stockReservada: 0,
+        stockVerificadoAt: null,
+        estado: "publicado" as const,
+        versao: "2026-11-02T11:00:00.000001Z",
+      });
+    },
+    async vistaDoCanal(ctx: Ctx) {
+      contar("vistaDoCanal");
+      leiturasDoPainel.push({ metodo: "vistaDoCanal", tenantId: ctx.tenantId });
+      return ok({
+        estado: "ativo" as const,
+        restrito: false,
+        qualidade: "verde",
+        escalao: "TIER_1K",
+        nivel: 1,
+        tectoPedidoMinor: 5_000_000n,
+        currency: "AOA",
+        avisos: ["conduta_em_analise"],
+      });
+    },
     async alterarOferta(_ctx: Ctx, a) {
       contar("alterarOferta");
       alteracoes.push(a);
@@ -240,7 +277,8 @@ const BONS = {
 
 // ------------------------------------------------------------------- a credencial
 
-test("criterio 2: as nove rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+test("criterio 2: as onze rotas sem credencial dao 401, e nenhuma operacao corre", async () => {
+  assert.equal(ROTAS.length, 11);
   const { aplicacao, chamadas } = app();
   for (const rota of ROTAS) {
     const r = await aplicacao.fetch(
@@ -543,7 +581,7 @@ test("um corpo com caracteres multi-octeto conta em octetos e nao em UTF-16", as
 });
 
 test("um GET numa rota /internal/* nao e servido, e nao devolve 200", async () => {
-  // As nove rotas são `POST`. Um `GET` que respondesse era uma superfície que
+  // As onze rotas são `POST`. Um `GET` que respondesse era uma superfície que
   // ninguém desenhou — e um `GET` é o que um *crawler* tenta primeiro.
   const { aplicacao } = app();
   for (const rota of ROTAS) {
@@ -689,4 +727,63 @@ test("KAM-099: o update-offer sem versao, com preco fracionario ou stock nao int
     assert.equal(r.status, 400, JSON.stringify(corpo));
     assert.equal(chamadas.contagem.get("alterarOferta"), undefined);
   }
+});
+
+// ------------------------------------------------ KAM-190: as leituras do painel
+
+test("KAM-190: o get-offer chama a operacao com o tenant do cabecalho e o sku, e o preco sai como cadeia", async () => {
+  leiturasDoPainel.length = 0;
+  const { aplicacao } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/get-offer",
+      { actor: { kind: "dono", id: "dono-1" }, trace_id: "t", sku: "arroz-5kg", tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  const corpo = (await r.json()) as { valor: { precoMinor: unknown } };
+  assert.equal(corpo.valor.precoMinor, "9007199254740993");
+  assert.deepEqual(leiturasDoPainel, [{ metodo: "obterOferta", tenantId: TENANT, sku: "arroz-5kg" }]);
+});
+
+test("KAM-190: o get-offer sem sku, ou com um sku que nao e cadeia, e 400 e nao chama nada", async () => {
+  for (const sku of [undefined, "", 7, null]) {
+    const { aplicacao, chamadas } = app();
+    const r = await aplicacao.fetch(pedido("/internal/get-offer", { actor: { kind: "dono", id: "d" }, trace_id: "t", sku }, BONS));
+    assert.equal(r.status, 400, JSON.stringify(sku));
+    assert.equal(chamadas.contagem.get("obterOferta"), undefined);
+  }
+});
+
+test("KAM-190: o channel-view chama a operacao com o tenant do cabecalho, e um tenant no corpo nao a desloca", async () => {
+  leiturasDoPainel.length = 0;
+  const { aplicacao } = app();
+  const r = await aplicacao.fetch(
+    pedido(
+      "/internal/channel-view",
+      { actor: { kind: "dono", id: "dono-1" }, trace_id: "t", tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
+      BONS,
+    ),
+  );
+  assert.equal(r.status, 200);
+  const corpo = (await r.json()) as { valor: Record<string, unknown> };
+  assert.equal(corpo.valor["tectoPedidoMinor"], "5000000");
+  assert.deepEqual(corpo.valor["avisos"], ["conduta_em_analise"]);
+  assert.deepEqual(leiturasDoPainel, [{ metodo: "vistaDoCanal", tenantId: TENANT }]);
+});
+
+test("KAM-190: o list-orders passa o intervalo do corpo ao filtro, e um valor que nao e cadeia passa vazio", async () => {
+  filtrosDasEncomendas.length = 0;
+  const { aplicacao } = app();
+  const base = { actor: { kind: "dono", id: "d" }, trace_id: "t", estado: "paga" };
+  await aplicacao.fetch(pedido("/internal/list-orders", { ...base, criado_desde: "2026-11-01T00:00:00Z", criado_ate: "2026-11-02T00:00:00Z" }, BONS));
+  await aplicacao.fetch(pedido("/internal/list-orders", { ...base, criado_desde: 17 }, BONS));
+  await aplicacao.fetch(pedido("/internal/list-orders", base, BONS));
+  assert.deepEqual(filtrosDasEncomendas, [
+    { estado: "paga", criadoDesde: "2026-11-01T00:00:00Z", criadoAte: "2026-11-02T00:00:00Z" },
+    // Ignora-lo devolvia o historico inteiro a quem pediu um intervalo mal escrito.
+    { estado: "paga", criadoDesde: "" },
+    { estado: "paga" },
+  ]);
 });

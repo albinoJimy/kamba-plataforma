@@ -4,7 +4,7 @@
  * A forma é a do `/internal/turn` e `/internal/resume` do AGR (KAM-025):
  * credencial no cabeçalho, comparação em **tempo constante**, autenticação
  * **antes** de se ler o corpo, e o segredo no inventário. «Mínima» é o
- * adjectivo, e cumpre-se: nove rotas, nenhuma de administração, nenhuma que
+ * adjectivo, e cumpre-se: onze rotas, nenhuma de administração, nenhuma que
  * exista «para depois». A `/healthz` fica onde estava e **não** leva credencial
  * — é a sonda do *rolling deploy*, e uma sonda que precisa de segredo é uma
  * sonda que falha no dia em que o segredo roda.
@@ -107,8 +107,9 @@ export const SEGREDO_DA_API = "com_internal_token";
 export const CORPO_MAXIMO = 8 * 1024;
 
 /**
- * As nove rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as toca, e
- * as duas do painel do dono (KAM-099) no fim.
+ * As onze rotas: as sete pela ordem em que a cadeia grafo → TLS → COM as toca,
+ * as duas do painel do dono (KAM-099), e as duas leituras que o KAM-190 lhe
+ * acrescenta no fim — uma oferta só, e o estado do canal.
  *
  * **As duas do painel não são administração**, e é a distinção que o «nenhuma
  * de administração» acima defende: servem um dono a ler e a corrigir o **seu**
@@ -126,6 +127,8 @@ export const ROTAS = [
   "/internal/request-owner-confirmation",
   "/internal/list-offers",
   "/internal/update-offer",
+  "/internal/get-offer",
+  "/internal/channel-view",
 ] as const;
 
 /**
@@ -329,6 +332,8 @@ function filtroDoCorpo(corpo: Record<string, unknown>): OrderFilter {
     contactId?: string;
     cursor?: string | null;
     limite?: number;
+    criadoDesde?: string;
+    criadoAte?: string;
   } = {};
   if (typeof corpo["estado"] === "string") {
     filtro.estado = corpo["estado"] as OrderState;
@@ -338,6 +343,13 @@ function filtroDoCorpo(corpo: Record<string, unknown>): OrderFilter {
   }
   if (typeof corpo["cursor"] === "string") filtro.cursor = corpo["cursor"];
   if (typeof corpo["limite"] === "number") filtro.limite = corpo["limite"];
+  // O intervalo do painel (KAM-190). Um valor que não é cadeia passa como cadeia
+  // vazia, que o módulo recusa: ignorá-lo devolvia o histórico inteiro a quem
+  // pediu um intervalo mal escrito.
+  for (const [campo, chave] of [["criado_desde", "criadoDesde"], ["criado_ate", "criadoAte"]] as const) {
+    const valor = corpo[campo];
+    if (valor !== undefined) filtro[chave] = typeof valor === "string" ? valor : "";
+  }
   return filtro;
 }
 
@@ -354,8 +366,8 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   /**
    * A autenticação, **antes** de o corpo ser lido.
    *
-   * Um `app.use` e não uma linha em cada rota: nove rotas e nove verificações
-   * era a décima a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
+   * Um `app.use` e não uma linha em cada rota: onze rotas e onze verificações
+   * era a duodécima a nascer sem ela. O `/metrics` não passa por aqui — ver a nota
    * da rota.
    */
   api.use("/internal/*", async (c, next) => {
@@ -435,7 +447,7 @@ function responder(
   );
 }
 
-/** As nove rotas, uma a uma. O despacho é por igualdade e não por padrão. */
+/** As onze rotas, uma a uma. O despacho é por igualdade e não por padrão. */
 async function despachar(
   rota: (typeof ROTAS)[number],
   ctx: Ctx,
@@ -521,6 +533,18 @@ async function despachar(
 
   if (rota === "/internal/list-offers") {
     return responder(await deps.operacoes.listarOfertas(ctx));
+  }
+
+  if (rota === "/internal/get-offer") {
+    const sku = corpo["sku"];
+    if (typeof sku !== "string" || sku.length === 0) {
+      return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
+    }
+    return responder(await deps.operacoes.obterOferta(ctx, sku));
+  }
+
+  if (rota === "/internal/channel-view") {
+    return responder(await deps.operacoes.vistaDoCanal(ctx));
   }
 
   if (rota === "/internal/update-offer") {

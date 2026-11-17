@@ -10,6 +10,35 @@
  *     GET   /painel/encomendas      só leitura, por estado e data (critério 6)
  *     GET   /painel/encomendas/:id  uma encomenda
  *     GET   /painel/canal           o estado do canal (critério 7)
+ *     POST  /painel/codigo          a reentrada (KAM-190): o telefone, e o código
+ *                                   vai por SMS ao telefone registado
+ *     POST  /painel/verificar       o código: acertou, e a sessão do painel é
+ *                                   cunhada sem passar pela do registo
+ *     GET   /painel/ligar           a reconexão (KAM-190): a sessão do painel
+ *                                   abre o `/ligar` do KAM-093
+ *
+ * ## A reentrada não depende da sessão de 24 h do registo (KAM-190)
+ *
+ * O dono que só tem a sessão do painel — ou nenhuma, num telemóvel novo — entra
+ * outra vez pelo telefone: `POST /painel/codigo` procura o caso **pelo HMAC do
+ * telefone** e manda o código ao número **registado** (que é o submetido, por
+ * construção do HMAC); `POST /painel/verificar` confere-o e cunha a sessão do
+ * painel. As duas respostas não dizem se o telefone tem painel:
+ *
+ * ```text
+ * /painel/codigo     200 com um bilhete, sempre — o de um telefone sem painel
+ *                    aponta para um caso que não existe; o envio corre fora do
+ *                    pedido, para o tempo de resposta não o denunciar
+ * /painel/verificar  401 {"erro":"codigo"} a qualquer falha — errado, expirado,
+ *                    sem desafio, tentativas a mais, ou caso sem painel
+ * ```
+ *
+ * O bilhete tem separador próprio (`./sessao.ts`), e não serve no
+ * `/api/otp/verificar` do registo, que distingue `sem_desafio` de `errou`. O que
+ * **não** fecha, e é o mesmo do critério 8 do KAM-086: o SMS chega ou não chega
+ * ao telefone, e isso vive fora da resposta. O limite por rede (`LIMITE_POR_REDE`)
+ * é o que torna a sonda de telefones cara; os limites por destino e o orçamento
+ * diário são os do `Otp`.
  *
  * ## O tenant é o da sessão, e não há outro sítio de onde ele venha
  *
@@ -37,9 +66,24 @@
 import { Hono } from "hono";
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { cabecalhoQueApaga, cookieDoCabecalho, lerReferencia, ReferenciaInvalidaError } from "@kamba/core-ts/inscricao";
+import {
+  cabecalhoDoCookie,
+  cabecalhoQueApaga,
+  cookieDoCabecalho,
+  cunharReferencia,
+  DOMINIOS,
+  hmacDe,
+  IdentificadorInvalidoError,
+  lerReferencia,
+  prefixoDeIp,
+  ReferenciaInvalidaError,
+  Telefone,
+  type Contadores,
+  type Otp,
+} from "@kamba/core-ts/inscricao";
 import type { Logger } from "@kamba/core-ts/logger";
 
+import { enderecoDoPedido } from "../rotas.ts";
 import type { LeitorDoCanal } from "./canal.ts";
 import { ESTADOS_DA_ENCOMENDA, type Comercio, type EstadoDaEncomenda } from "./comercio.ts";
 import { FORMA_DA_CHAVE, Idempotencia, type Guardada } from "./idempotencia.ts";
@@ -57,7 +101,9 @@ import {
   cabecalhoDaSessao,
   cabecalhoQueApagaASessao,
   cookieDoPainel,
+  cunharBilhete,
   cunharSessao,
+  lerBilhete,
   lerSessao,
   novaSessao,
   renovacao,
@@ -79,6 +125,43 @@ export const FASES_COM_PAINEL = ["aguarda_es", "lista_espera", "aguarda_catalogo
 /** O tecto do corpo de um `PATCH`, em octetos. */
 export const CORPO_MAXIMO_DO_PAINEL = 4 * 1024;
 
+/**
+ * Quantos pedidos de código por rede (o prefixo do IP do `inscricao`) numa janela.
+ * ***Proposta***: 10 por hora — mais do que um dono com rede partilhada precisa, e
+ * pouco para quem sonda telefones.
+ */
+export const LIMITE_POR_REDE = 10;
+export const JANELA_DO_LIMITE_MS = 3_600_000;
+
+/** O fuso de apresentação (§2): `Africa/Luanda`, UTC+1 sem hora de Verão. */
+export const DESVIO_DE_LUANDA_MS = 3_600_000;
+
+/**
+ * O início, em UTC, de um dia de calendário de Luanda (`AAAA-MM-DD`), ou `null`
+ * se o dia não existe (`2026-02-31`). O filtro do dono é por dias **dele**, e o
+ * COM recebe instantes.
+ */
+export function inicioDoDiaEmLuanda(dia: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia);
+  if (m === null) return null;
+  const [a, me, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const utc = new Date(Date.UTC(a, me - 1, d));
+  if (utc.getUTCFullYear() !== a || utc.getUTCMonth() !== me - 1 || utc.getUTCDate() !== d) return null;
+  return new Date(utc.getTime() - DESVIO_DE_LUANDA_MS);
+}
+
+/** O que a reentrada por código precisa (KAM-190). Sem ela, as duas rotas respondem 503. */
+export interface OpcoesDaReentrada {
+  readonly otp: Pick<Otp, "enviar" | "verificar">;
+  /** Os casos vivos com este HMAC de telefone (`RepositorioDeCasos.porTelefoneHmac`). */
+  readonly casosPorTelefone: (hmac: string) => Promise<readonly { readonly id: string; readonly fase: string }[]>;
+  /** O anel do `pepper_onboarding_ident`: cunha o HMAC do telefone e o da rede. */
+  readonly anelDoPepper: readonly (Uint8Array | null)[];
+  readonly contadores: Pick<Contadores, "anotar">;
+  /** Quantos *proxies* de confiança há à frente. Zero por omissão (ver `../rotas.ts`). */
+  readonly proxiesDeConfianca?: number | undefined;
+}
+
 /** O que as rotas do painel precisam. */
 export interface OpcoesDoPainel {
   readonly comercio: Comercio;
@@ -90,6 +173,7 @@ export interface OpcoesDoPainel {
   readonly anelDaAssinatura: readonly (Uint8Array | null)[];
   readonly idempotencia?: Idempotencia | undefined;
   readonly metricas?: MetricasDoPainel | undefined;
+  readonly reentrada?: OpcoesDaReentrada | undefined;
   /** O preço máximo em Kz (critério 5). */
   readonly precoMaximoKz?: bigint | undefined;
   readonly relogio?: (() => Date) | undefined;
@@ -131,6 +215,19 @@ function canonico(valor: unknown): string {
 /** Um `bigint` sai como cadeia de dígitos. */
 function semBigInt(valor: unknown): unknown {
   return JSON.parse(JSON.stringify(valor, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+}
+
+/** O corpo JSON de um `POST` da reentrada, ou `null`. O tecto é o do `PATCH`. */
+async function corpoDaReentrada(c: { req: { header(n: string): string | undefined; text(): Promise<string> } }): Promise<Corpo | null> {
+  if (!(c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json")) return null;
+  const texto = await c.req.text();
+  if (Buffer.byteLength(texto, "utf8") > CORPO_MAXIMO_DO_PAINEL) return null;
+  try {
+    const lido: unknown = JSON.parse(texto);
+    return typeof lido === "object" && lido !== null && !Array.isArray(lido) ? (lido as Corpo) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Monta as rotas do painel. */
@@ -273,13 +370,14 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     const impressao = `${sku}\u0000${canonico(corpo)}`;
 
     const desfecho = await idempotencia.uma(s.tenantId, chave, impressao, async (): Promise<Guardada> => {
-      const lista = await comercio.listarOfertas(s.tenantId, actor(s));
-      if (lista.tipo !== "ok") return { estado: 503, corpo: { erro: "indisponivel" } };
-      // shortcut: o preco anterior le-se da lista (tecto de 200 ofertas), pelo que
-      // uma oferta para la da 200.a da 404 aqui como na pagina, que tambem nao a
-      // mostra; reve-se quando o COM servir a leitura de uma oferta so.
-      const antes = lista.valor.itens.find((o) => o.sku === sku);
-      if (antes === undefined) return { estado: 404, corpo: { erro: "nao_encontrado" } };
+      // **Uma oferta, e não a lista** (KAM-190): o preço anterior lê-se pelo
+      // `get-offer` do COM, e uma oferta para lá da 200.ª deixou de dar 404.
+      const lida = await comercio.obterOferta(s.tenantId, actor(s), sku);
+      if (lida.tipo === "erro" && (lida.erro === "NOT_FOUND" || lida.erro === "VALIDATION_ERROR")) {
+        return { estado: 404, corpo: { erro: "nao_encontrado" } };
+      }
+      if (lida.tipo !== "ok") return { estado: 503, corpo: { erro: "indisponivel" } };
+      const antes = lida.valor;
       if (!pedido.confirmarVariacao && pedeConfirmacao(antes.precoMinor, pedido.precoMinor)) {
         return {
           estado: 422,
@@ -325,27 +423,40 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     const estado = c.req.query("estado") ?? "aguarda_pagamento";
     const desde = c.req.query("desde") || null;
     const ate = c.req.query("ate") || null;
-    const data = /^\d{4}-\d{2}-\d{2}$/;
+    const cursor = c.req.query("cursor") || null;
+    // Os dias são de **Luanda** e o COM recebe instantes: `desde` é o início do
+    // dia, e `ate` o início do dia seguinte (exclusive), pelo que o dia de `ate`
+    // entra inteiro. O filtro aplica-se no COM, na consulta, e não à página que
+    // ele devolve (KAM-190).
+    const inicio = desde === null ? null : inicioDoDiaEmLuanda(desde);
+    const fimDoDia = ate === null ? null : inicioDoDiaEmLuanda(ate);
+    const fim = fimDoDia === null ? null : new Date(fimDoDia.getTime() + 86_400_000);
     if (
       !(ESTADOS_DA_ENCOMENDA as readonly string[]).includes(estado) ||
-      (desde !== null && !data.test(desde)) ||
-      (ate !== null && !data.test(ate))
+      (desde !== null && inicio === null) ||
+      (ate !== null && fim === null) ||
+      (inicio !== null && fim !== null && inicio >= fim) ||
+      (cursor !== null && !/^[A-Za-z0-9_.-]{1,512}$/.test(cursor))
     ) {
       falhou("encomendas", "invalido");
       return html(paginaNaoEncontrada(n), 400, n, sessao.renovar);
     }
-    const r = await comercio.listarEncomendas(sessao.s.tenantId, actor(sessao.s), { estado: estado as EstadoDaEncomenda });
+    const r = await comercio.listarEncomendas(sessao.s.tenantId, actor(sessao.s), {
+      estado: estado as EstadoDaEncomenda,
+      ...(cursor === null ? {} : { cursor }),
+      ...(inicio === null ? {} : { criadoDesde: inicio.toISOString() }),
+      ...(fim === null ? {} : { criadoAte: fim.toISOString() }),
+    });
+    if (r.tipo === "erro" && r.erro === "VALIDATION_ERROR") {
+      // Um cursor que não é deste filtro: o COM prende o intervalo ao cursor.
+      falhou("encomendas", "invalido");
+      return html(paginaNaoEncontrada(n), 400, n, sessao.renovar);
+    }
     if (r.tipo !== "ok") {
       falhou("encomendas", "indisponivel");
       return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
     }
-    // O filtro de data é sobre a página que o COM devolveu (até 100), e não
-    // sobre o histórico inteiro: o `listOrders` do KAM-044 não filtra por data.
-    const itens = r.valor.itens.filter((e) => {
-      const dia = e.criadoAt.slice(0, 10);
-      return (desde === null || dia >= desde) && (ate === null || dia <= ate);
-    });
-    return html(paginaDeEncomendas(n, { estado, desde, ate }, itens), 200, n, sessao.renovar);
+    return html(paginaDeEncomendas(n, { estado, desde, ate }, r.valor.itens, r.valor.proximo), 200, n, sessao.renovar);
   });
 
   app.get("/painel/encomendas/:id", async (c) => {
@@ -374,7 +485,120 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       falhou("canal", "sem_sessao");
       return html(paginaSemSessao(n), 401, n);
     }
-    return html(paginaDoCanal(n, await opcoes.canal.ler(sessao.s.tenantId)), 200, n, sessao.renovar);
+    const vista = await opcoes.canal.ler(sessao.s.tenantId, actor(sessao.s));
+    if (vista === null) {
+      // Não se sabe: e «não se sabe» não é «desligado» (ver o `./canal.ts`).
+      falhou("canal", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    return html(paginaDoCanal(n, vista), 200, n, sessao.renovar);
+  });
+
+  // ------------------------------------------- a reconexão e a reentrada (KAM-190)
+
+  app.get("/painel/ligar", async (c) => {
+    metricas.pedido("ligar");
+    const n = nonce();
+    const sessao = await sessaoDe(c.req.header("cookie"));
+    const chave = opcoes.anelDaAssinatura[0];
+    if (sessao === null || !(chave instanceof Uint8Array)) {
+      falhou("ligar", "sem_sessao");
+      return html(paginaSemSessao(n), 401, n);
+    }
+    // **A sessão do painel abre o `/ligar` do KAM-093**, que exige a do registo:
+    // cunha-se uma do registo **para o caso da sessão** (`dono`), com as 24 h
+    // dela, e o `/ligar` faz o resto — incluindo recusar um caso que não está no
+    // passo do ES. Não se alarga a sessão do registo nem se ensina o guia a ler a
+    // do painel: a ponte é esta rota, e só ela.
+    log?.info({ outcome: "painel_ligar" });
+    const r = new Response(null, { status: 303, headers: { location: "/ligar" } });
+    r.headers.append("set-cookie", cabecalhoDoCookie(cunharReferencia("sessao", sessao.s.dono, chave, relogio)));
+    for (const [k, v] of Object.entries(sessao.renovar)) r.headers.append(k, v);
+    return r;
+  });
+
+  app.post("/painel/codigo", async (c) => {
+    metricas.pedido("codigo");
+    const r = opcoes.reentrada;
+    const chave = opcoes.anelDaAssinatura[0];
+    const pepper = r?.anelDoPepper[0];
+    if (r === undefined || !(chave instanceof Uint8Array) || !(pepper instanceof Uint8Array)) {
+      falhou("codigo", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const corpo = await corpoDaReentrada(c);
+    if (corpo === null) {
+      falhou("codigo", "invalido");
+      return json({ erro: "corpo" }, 400);
+    }
+    // **O limite por rede vem antes de tudo**, e é o mesmo para um telefone que
+    // existe e para um que não existe: um 429 que dependesse do telefone era o
+    // oráculo que o resto desta rota fecha.
+    // Sem `const x = (` aqui dentro: a enumeração do *gate* 6 nomeia cada rota
+    // pela última função antes dela, e estas três são do `actor` como as outras.
+    const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
+    const ligacao = env?.incoming?.socket?.remoteAddress;
+    const prefixo = prefixoDeIp(enderecoDoPedido(c.req.header("x-forwarded-for"), ligacao, r.proxiesDeConfianca ?? 0));
+    const rede = prefixo === null ? "sem-rede" : hmacDe(pepper, DOMINIOS.rede, prefixo).toString("hex");
+    if ((await r.contadores.anotar(`painel:codigo:${rede}`, relogio(), JANELA_DO_LIMITE_MS)) > LIMITE_POR_REDE) {
+      falhou("codigo", "limite");
+      return json({ erro: "limite" }, 429);
+    }
+    let telefone: Telefone;
+    try {
+      telefone = new Telefone(corpo["telefone"], r.anelDoPepper);
+    } catch (erro) {
+      if (!(erro instanceof IdentificadorInvalidoError)) throw erro;
+      falhou("codigo", "invalido");
+      return json({ erro: "campo", campo: "telefone" }, 400);
+    }
+    let casoId: string | null = null;
+    for (const hmac of telefone.hmacs) {
+      for (const caso of await r.casosPorTelefone(hmac)) {
+        if ((FASES_COM_PAINEL as readonly string[]).includes(caso.fase)) casoId ??= caso.id;
+      }
+    }
+    if (casoId !== null) {
+      // **Fora do pedido**: o envio é o único trabalho que só um telefone com
+      // painel faz, e esperar por ele punha a diferença no tempo de resposta. Os
+      // limites por destino do `Otp` recusam em silêncio, como no registo.
+      void r.otp
+        .enviar(casoId, telefone)
+        .then((e) => {
+          if (!e.enviado) log?.info({ outcome: "painel_codigo_nao_enviado", error_code: e.recusa });
+        })
+        .catch((erro: unknown) => log?.excepcao(erro, "painel_codigo_falhou"));
+    }
+    log?.info({ outcome: "painel_codigo_pedido" });
+    return json({ referencia: cunharBilhete(casoId ?? randomUUID(), chave, relogio()) }, 200);
+  });
+
+  app.post("/painel/verificar", async (c) => {
+    metricas.pedido("verificar");
+    const r = opcoes.reentrada;
+    const chave = opcoes.anelDaAssinatura[0];
+    if (r === undefined || !(chave instanceof Uint8Array)) {
+      falhou("verificar", "indisponivel");
+      return json({ erro: "indisponivel" }, 503);
+    }
+    const corpo = await corpoDaReentrada(c);
+    if (corpo === null) {
+      falhou("verificar", "invalido");
+      return json({ erro: "corpo" }, 400);
+    }
+    const casoId = lerBilhete(corpo["referencia"], opcoes.anelDaAssinatura, relogio());
+    const veredicto = casoId === null ? null : await r.otp.verificar(casoId, corpo["codigo"]);
+    const caso = casoId === null || veredicto !== "acertou" ? null : await opcoes.casos.porId(casoId);
+    // Uma falha, uma resposta: bilhete que não serve, código errado, expirado,
+    // sem desafio, tentativas a mais, ou caso que já não tem painel. Ver a nota
+    // do módulo.
+    if (casoId === null || caso === null || !(FASES_COM_PAINEL as readonly string[]).includes(caso.fase)) {
+      falhou("verificar", "sem_sessao");
+      return json({ erro: "codigo" }, 401);
+    }
+    const s = novaSessao(caso.tenantId, casoId, relogio());
+    log?.info({ outcome: "painel_sessao_aberta" });
+    return json({ ok: true }, 200, { "set-cookie": cabecalhoDaSessao(cunharSessao(s, chave)) });
   });
 
   return app;

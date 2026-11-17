@@ -55,7 +55,10 @@ test("o SHA do commit vem do ambiente quando o CI o injecta", async () => {
 });
 
 test("uma rota desconhecida não responde 200", async () => {
-  for (const path of ["/", "/healthz/", "/metrics", "/admin"]) {
+  // O `/metrics` saiu desta lista com o KAM-190, que o pôs a servir as séries do
+  // painel: o ensaio dele está no `painel.test.ts`. Os vizinhos continuam
+  // recusados, para uma rota a mais não nascer por engano ao lado dele.
+  for (const path of ["/", "/healthz/", "/metrics/", "/metrics/x", "/admin"]) {
     const response = await sonda(path);
     assert.notEqual(response.status, 200, `${path} devia recusar`);
   }

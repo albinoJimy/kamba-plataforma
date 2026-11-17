@@ -11,8 +11,10 @@
  * revoga e diz **de que caso** é, não de que tenant. Alargá-la a 30 dias era
  * mudar o registo inteiro por causa do painel. Por isso o painel tem a sua
  * referência, com o seu **separador de domínio** (`kamba/painel/sessao/v1`), e
- * só se cunha **a partir** de uma `sessao` válida — isto é, depois de o OTP ter
- * acertado. A barreira é a mesma do bilhete do KAM-086: um separador diferente
+ * só se cunha **depois de o OTP ter acertado**: a partir de uma `sessao` válida
+ * do registo (`GET /painel/entrar`), ou do código da reentrada
+ * (`POST /painel/verificar`, KAM-190), que confere o OTP sem passar pela
+ * sessão do registo. A barreira é a mesma do bilhete do KAM-086: um separador diferente
  * faz de uma `sessao` de registo um valor que este verificador recusa, e
  * vice-versa.
  *
@@ -220,4 +222,51 @@ export function cookieDoPainel(cabecalho: unknown): string | null {
     if (valor !== "") return valor;
   }
   return null;
+}
+
+// ------------------------------------------------- o bilhete da reentrada (KAM-190)
+
+/**
+ * O separador de domínio do bilhete da reentrada. **Não é o `ticket` do
+ * KAM-086**, e a diferença fecha um oráculo: o bilhete de um telefone que não
+ * tem painel aponta para um caso que não existe, e o `/api/otp/verificar` do
+ * registo responde `sem_desafio` a esse e `errou` a um verdadeiro. Com um
+ * separador próprio, o bilhete do painel só serve no `POST /painel/verificar`,
+ * que responde o mesmo 401 a todas as falhas.
+ */
+export const DOMINIO_DO_BILHETE_DO_PAINEL = "kamba/painel/bilhete/v1";
+
+/**
+ * Validade do bilhete, em segundos. ***Proposta***: 10 min — o dobro dos 5 min de
+ * vida do código (`TTL_MINUTOS` do `inscricao/otp.ts`), para um reenvio caber.
+ */
+export const VALIDADE_DO_BILHETE_S = 10 * 60;
+
+function assinarBilhete(chave: Uint8Array, texto: string): Buffer {
+  return createHmac("sha256", chave).update(DOMINIO_DO_BILHETE_DO_PAINEL).update("\u0000").update(texto).digest();
+}
+
+/** O bilhete de um caso: `b1.<caso>.<expira>.<hmac>`. Não autentica: só diz de que caso é o código. */
+export function cunharBilhete(casoId: string, chave: Uint8Array, agora: Date): string {
+  if (!UUID.test(casoId)) throw new Error("bilhete do painel mal formado");
+  const texto = `b1.${casoId}.${Math.floor(agora.getTime() / 1000) + VALIDADE_DO_BILHETE_S}`;
+  return `${texto}.${assinarBilhete(chave, texto).toString("base64url")}`;
+}
+
+/** O caso de um bilhete válido e dentro do prazo, ou `null`. Contra as duas chaves do anel. */
+export function lerBilhete(bruto: unknown, anel: readonly (Uint8Array | null)[], agora: Date): string | null {
+  if (typeof bruto !== "string" || bruto.length > 160) return null;
+  const partes = bruto.split(".");
+  if (partes.length !== 4 || partes[0] !== "b1") return null;
+  const [, casoId, expiraT, assinatura] = partes as [string, string, string, string];
+  if (!UUID.test(casoId) || !/^[0-9]{1,12}$/.test(expiraT) || !/^[A-Za-z0-9_-]{43}$/.test(assinatura)) return null;
+  const apresentada = Buffer.from(assinatura, "base64url");
+  let casou = false;
+  for (const chave of anel) {
+    if (!(chave instanceof Uint8Array)) continue;
+    const esperada = assinarBilhete(chave, `b1.${casoId}.${expiraT}`);
+    if (esperada.length === apresentada.length && timingSafeEqual(esperada, apresentada)) casou = true;
+  }
+  if (!casou || Number(expiraT) < Math.floor(agora.getTime() / 1000)) return null;
+  return casoId;
 }

@@ -905,6 +905,23 @@ export async function listarOfertas(r: Registo): Promise<Resultado<ListaDoPainel
 }
 
 /**
+ * Uma oferta do tenant, para o painel (KAM-190): a leitura que o `PATCH` do
+ * painel precisa para o critério dos 50%, sem ir à lista inteira.
+ *
+ * **Uma arquivada é `NOT_FOUND`**, como na lista e no `alterarOferta`: o painel
+ * não a mostra e não a deixa gravar, e uma leitura que a devolvesse dizia ao dono
+ * que ela existe para um `PATCH` que a recusa. Um `sku` de outro tenant é o mesmo
+ * `NOT_FOUND`, pelo repo-base: o tenant é o do `ctx`, e não há argumento por onde
+ * o pedido escolha outro.
+ */
+export async function obterOferta(r: Registo, sku: string): Promise<Resultado<OfertaDoPainel>> {
+  if (typeof sku !== "string" || sku.trim().length === 0) return erro("VALIDATION_ERROR");
+  const oferta = await lerOfertaDoPainel(r, sku);
+  if (oferta === null || oferta.estado === "arquivado") return erro("NOT_FOUND");
+  return ok(oferta);
+}
+
+/**
  * A forma de uma versão: o `to_char` do `SQL_OFERTA_DO_PAINEL`, e nada mais.
  *
  * Uma cadeia qualquer chegava ao `$5::timestamptz` e o PostgreSQL recusava-a

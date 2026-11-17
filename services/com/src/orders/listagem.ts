@@ -88,6 +88,31 @@ export interface PosicaoDaPagina {
   readonly id: string;
 }
 
+/**
+ * O intervalo de criação de uma listagem (KAM-190), já normalizado: `null` nas
+ * duas pontas quando não há.
+ *
+ * **Entra na assinatura do cursor**, e é o que faz o cursor «respeitar o
+ * intervalo»: um cursor emitido para um intervalo e apresentado com outro — ou
+ * sem nenhum — não é nosso para aquela listagem, e é `VALIDATION_ERROR`. Sem
+ * isto, um cliente que esquecesse o intervalo na segunda chamada recebia a página
+ * seguinte do histórico inteiro, a partir de uma posição dentro do intervalo.
+ */
+export interface IntervaloDaListagem {
+  readonly desde: string | null;
+  readonly ate: string | null;
+}
+
+/** Sem intervalo. A assinatura de um cursor destes é a de antes do KAM-190. */
+export const SEM_INTERVALO: IntervaloDaListagem = { desde: null, ate: null };
+
+/**
+ * A forma de um instante do intervalo: ISO 8601 em UTC, com `Z`, e no máximo
+ * milissegundos — a precisão do `toISOString` que o normaliza. Microssegundos
+ * cortavam-se em silêncio, e o intervalo pedido não era o aplicado.
+ */
+const FORMA_DO_INSTANTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+
 /** A base64 sem *padding* e sem `+` nem `/`: um cursor viaja em JSON e em URL. */
 function emBase64Url(bruto: Buffer): string {
   return bruto.toString("base64url");
@@ -103,15 +128,24 @@ function assinar(
   valorDoSegredo: string,
   tenantId: string,
   posicao: PosicaoDaPagina,
+  intervalo: IntervaloDaListagem,
 ): Buffer {
   const { chave } = lerSegredo(valorDoSegredo);
+  // **Sem intervalo, as partes são as de antes do KAM-190**: um cursor emitido
+  // antes desta versão continua a valer para a mesma listagem. Com intervalo,
+  // as duas pontas entram — a vazia como cadeia vazia, que o `concatenar`
+  // distingue pelo comprimento.
+  const partes = [DOMINIO_DO_CURSOR, tenantId, posicao.criadoAt, posicao.id];
+  if (intervalo.desde !== null || intervalo.ate !== null) {
+    partes.push("intervalo", intervalo.desde ?? "", intervalo.ate ?? "");
+  }
   return createHmac("sha256", chave)
     .update(
       // **Pelo `concatenar` e não por um `join`**, e é a razão do `intents.ts`:
       // com um separador literal, duas partições diferentes das mesmas partes
       // dão a mesma assinatura — aqui, a posição de um tenant a servir de
       // posição a outro.
-      concatenar([DOMINIO_DO_CURSOR, tenantId, posicao.criadoAt, posicao.id]),
+      concatenar(partes),
     )
     .digest()
     .subarray(0, OCTETOS_DA_ASSINATURA);
@@ -127,9 +161,10 @@ export function cifrarCursor(
   anel: AnelDoSegredo,
   tenantId: string,
   posicao: PosicaoDaPagina,
+  intervalo: IntervaloDaListagem = SEM_INTERVALO,
 ): string {
   const corpo = Buffer.from(`${posicao.criadoAt}|${posicao.id}`, "utf8");
-  const mac = assinar(anel[0], tenantId, posicao);
+  const mac = assinar(anel[0], tenantId, posicao, intervalo);
   return `${emBase64Url(corpo)}.${emBase64Url(mac)}`;
 }
 
@@ -150,6 +185,7 @@ export function lerCursor(
   anel: AnelDoSegredo,
   tenantId: string,
   cursor: string,
+  intervalo: IntervaloDaListagem = SEM_INTERVALO,
 ): PosicaoDaPagina | null {
   const partes = cursor.split(".");
   if (partes.length !== 2) return null;
@@ -170,7 +206,7 @@ export function lerCursor(
     if (valor === null) continue;
     let esperado: Buffer;
     try {
-      esperado = assinar(valor, tenantId, posicao);
+      esperado = assinar(valor, tenantId, posicao, intervalo);
     } catch {
       // Um elemento do anel mal formado não invalida o outro: é a letra do
       // `SecretRing` do `secrets/port.ts` — quem lê aceita as duas versões.
@@ -273,6 +309,19 @@ export interface FiltroLido {
   readonly contactId: string | null;
   readonly limite: number;
   readonly posicao: PosicaoDaPagina | null;
+  readonly intervalo: IntervaloDaListagem;
+}
+
+/**
+ * Uma ponta do intervalo, normalizada pelo `toISOString`, ou `undefined` se não
+ * é um instante. A normalização é o que faz `…00Z` e `…00.000Z` assinarem o
+ * mesmo cursor.
+ */
+function instanteDoFiltro(valor: unknown): string | null | undefined {
+  if (valor === undefined || valor === null) return null;
+  if (typeof valor !== "string" || !FORMA_DO_INSTANTE.test(valor)) return undefined;
+  const ms = Date.parse(valor);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
 }
 
 /**
@@ -315,16 +364,24 @@ export function filtroLido(
     return erro("VALIDATION_ERROR");
   }
 
+  const desde = instanteDoFiltro(filtro.criadoDesde);
+  const ate = instanteDoFiltro(filtro.criadoAte);
+  if (desde === undefined || ate === undefined) return erro("VALIDATION_ERROR");
+  // Um intervalo vazio ou invertido é um pedido errado e não «zero encomendas»:
+  // devolver uma página vazia dizia ao dono que não vendeu nada naqueles dias.
+  if (desde !== null && ate !== null && desde >= ate) return erro("VALIDATION_ERROR");
+  const intervalo: IntervaloDaListagem = { desde, ate };
+
   let posicao: PosicaoDaPagina | null = null;
   if (filtro.cursor !== undefined && filtro.cursor !== null) {
-    posicao = lerCursor(anel, tenantId, filtro.cursor);
+    posicao = lerCursor(anel, tenantId, filtro.cursor, intervalo);
     // **Um cursor que não é nosso é `VALIDATION_ERROR` e não uma primeira
     // página.** Servir a primeira página a quem mandou um cursor forjado dizia
     // «este cursor vale» a quem o forjou.
     if (posicao === null) return erro("VALIDATION_ERROR");
   }
 
-  return ok({ estado, contactId, limite, posicao });
+  return ok({ estado, contactId, limite, posicao, intervalo });
 }
 
 /**
@@ -340,7 +397,7 @@ export async function listOrders(
 ): Promise<ResultadoFinal<Page<OrderView>>> {
   const lido = filtroLido(anel, l.ctx.tenantId, f);
   if (lido.tipo === "erro") return lido;
-  const { estado, contactId, limite, posicao } = lido.valor;
+  const { estado, contactId, limite, posicao, intervalo } = lido.valor;
 
   // **Pede-se uma linha a mais do que o limite**, e é o que distingue «a página
   // acabou» de «há mais»: com exactamente `limite` linhas não se sabe qual dos
@@ -351,6 +408,8 @@ export async function listOrders(
     contactId,
     posicao === null ? null : posicao.criadoAt,
     posicao === null ? null : posicao.id,
+    intervalo.desde,
+    intervalo.ate,
     limite + 1,
   ]);
 
@@ -361,10 +420,12 @@ export async function listOrders(
     itens: pagina,
     proximo:
       haMais && ultima !== undefined
-        ? cifrarCursor(anel, l.ctx.tenantId, {
-            criadoAt: ultima.criadoAt,
-            id: ultima.orderId,
-          })
+        ? cifrarCursor(
+            anel,
+            l.ctx.tenantId,
+            { criadoAt: ultima.criadoAt, id: ultima.orderId },
+            intervalo,
+          )
         : null,
   });
 }
