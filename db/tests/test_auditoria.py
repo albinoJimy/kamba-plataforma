@@ -98,7 +98,18 @@ ACCOES = (
     # migracao, com a mesma recusa no `downgrade` se houver linhas escritas.
     "review.acesso",
     "review.recusa",
-    # A decima quinta e a decima sexta, da revisao `0066` (KAM-072): uma versao
+    # A decima quinta e a decima sexta, da revisao dos KPIs de churn (KAM-117,
+    # criterio 6): zerar e repor o orcamento da chave LiteLLM de um dormente. A
+    # mesma extensao por migracao, com a mesma recusa no `downgrade` se houver
+    # linhas escritas.
+    "llm.orcamento_zerado",
+    "llm.orcamento_reposto",
+    # A decima setima, da revisao da confianca gradual (KAM-096): cada
+    # alteracao do nivel ou do tecto de um tenant, escrita pelo *trigger*
+    # `trust_level_auditado`. A mesma extensao por migracao, com a mesma recusa
+    # no `downgrade` se houver linhas escritas.
+    "trust.tecto",
+    # A decima oitava e a decima nona, da revisao `0066` (KAM-072): uma versao
     # nova de um segredo passou a actual, e a anterior foi retirada do anel. Na
     # cadeia de plataforma, com o identificador do segredo e a versao, nunca o
     # valor. A mesma extensao por migracao, com a mesma recusa no `downgrade`.

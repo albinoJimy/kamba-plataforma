@@ -1,0 +1,40 @@
+# config/kpis.yaml — limiares dos KPIs de onboarding, churn e dormentes (KAM-117)
+#
+# TODOS OS VALORES SAO *PROPOSTA*, a calibrar no Piloto e a rever no fim dele.
+# Vem do `docs/tecnica/10` §13 e §16 e do bloco do KAM-117 em
+# `specs/EPIC-09_Onboarding_Governanca.md`; nenhum foi medido. A mortalidade de
+# PMEs em Angola e NAO VERIFICADA, e o desenho assume-a alta.
+#
+# Quem le este ficheiro e o `kamba_core.kpis.limiares` (o *job* `churn-daily`),
+# e so este formato: `chave: inteiro`, uma por linha, com comentarios. O leitor
+# **recusa** uma chave que nao conhece, uma chave em falta e um valor que nao seja
+# inteiro positivo — um limiar ilegivel nao cai para um valor por omissao.
+#
+# Mudar um limiar e mudar este ficheiro, num PR: os limiares sao configuracao
+# versionada, e o registo de calibracao (`docs/kpis.md` §5) diz porque mudou.
+
+version: 1
+
+# --- sinais de churn (doc 10 §13), em dias -------------------------------------
+# 7 dias sem actividade do dono (painel ou *echo* da app do dono).
+dono_sem_actividade_dias: 7
+# 14 dias sem `order.created`.
+sem_pedidos_dias: 14
+# Subscricao da plataforma por pagar ha 5 dias depois do vencimento.
+pagamento_em_atraso_dias: 5
+# 28 dias sem `price.update` nem `stock.adjust` (aproximacao de H8).
+catalogo_desactualizado_dias: 28
+
+# --- tenant dormente (doc 10 §13), em dias -------------------------------------
+# Mais de 60 dias sem actividade do dono...
+dormente_dias: 60
+# ...e sem pedidos nem mensagens de clientes nesta janela.
+dormente_janela_clientes_dias: 30
+# O aviso ao dono sai este numero de dias antes de o orcamento ir a zero.
+dormente_aviso_dias: 7
+
+# --- modo de ensaio ------------------------------------------------------------
+# Nos primeiros N dias do Piloto o *job* so regista: nao avisa nem zera
+# orcamentos. O inicio do Piloto e o `piloto_inicio` da `Execucao`, que quem
+# agendar o *job* le de configuracao; sem ele, o *job* corre sempre em ensaio.
+modo_ensaio_dias: 14

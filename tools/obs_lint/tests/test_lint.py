@@ -597,6 +597,8 @@ class TestRepositorio(_ComCopia):
         "orcamento-de-erro": "KAM-082",
         "custo-por-tenant": "KAM-081",
         "unit-economics": "KAM-081",
+        "onboarding": "KAM-117",
+        "churn-e-dormentes": "KAM-117",
     }
 
     def test_os_quatro_paineis_do_criterio_6_existem(self) -> None:

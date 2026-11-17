@@ -6,7 +6,7 @@ mensagem que o `alembic history` imprime.
 ## O que esta revisao faz
 
 So uma coisa: alarga o dominio fechado `audit_log_action` (revisao `0006`,
-ultima alteracao na `0048`) com as duas accoes do rotador do KAM-072:
+ultima alteracao na `0065`) com as duas accoes do rotador do KAM-072:
 
 * `secret.rotate` — uma versao nova de um segredo passou a actual (o inicio, a
   rotacao planeada e a de emergencia);
@@ -24,14 +24,14 @@ quem escreve essa cadeia e o `kamba_batch`, que tem `BYPASSRLS` e `EXECUTE` em
 
 ## Numero provisorio
 
-`0066` sobre `0065`, dados pelo orquestrador do lote (a `0062` a `0065` sao de
-outros quatro tickets, por fundir). O numero final da-se na integracao.
+`0066` sobre `0065`, confirmados pelo orquestrador do lote na integracao com
+a `main` em `1869a0c2`.
 
 ## Downgrade
 
 Recusa se houver linhas de `audit_log` com as duas accoes: o `audit_log` e
 *append-only* e o dominio anterior nao as aceita. Senao, repoe o dominio da
-`0048` (catorze).
+`0065` (dezassete).
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ depends_on = None
 AUDIT_LOG = "platform.audit_log"
 RESTRICAO_DA_ACCAO = "audit_log_action"
 
-#: O dominio da accao depois desta revisao: as catorze da `0048` e as duas do
+#: O dominio da accao depois desta revisao: as dezassete da `0065` e as duas do
 #: rotador. Copiado e nao importado: uma revisao nao importa outra.
 LITERAIS_DE_ACCAO_0066 = (
     "'price.update', 'stock.adjust', 'payment.manual_confirm', "
@@ -55,17 +55,21 @@ LITERAIS_DE_ACCAO_0066 = (
     "'retention.hold_aplicado', 'retention.hold_levantado', "
     "'order.refund_record', "
     "'review.acesso', 'review.recusa', "
+    "'llm.orcamento_zerado', 'llm.orcamento_reposto', "
+    "'trust.tecto', "
     "'secret.rotate', 'secret.revoke'"
 )
 
-#: O que o `downgrade` repoe: o dominio da `0048`.
-LITERAIS_DE_ACCAO_0048 = (
+#: O que o `downgrade` repoe: o dominio da `0065`.
+LITERAIS_DE_ACCAO_0065 = (
     "'price.update', 'stock.adjust', 'payment.manual_confirm', "
     "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read', "
     "'privacy.dsar_recusado', 'privacy.dsar_rectificado', "
     "'retention.hold_aplicado', 'retention.hold_levantado', "
     "'order.refund_record', "
-    "'review.acesso', 'review.recusa'"
+    "'review.acesso', 'review.recusa', "
+    "'llm.orcamento_zerado', 'llm.orcamento_reposto', "
+    "'trust.tecto'"
 )
 
 
@@ -111,8 +115,8 @@ def downgrade() -> None:
         op.execute(f"ALTER TABLE {AUDIT_LOG} FORCE ROW LEVEL SECURITY")
         raise RuntimeError(
             f"downgrade da 0066 recusado: ha {linhas} linha(s) de audit_log com "
-            "accao secret.* e o dominio da 0048 nao as aceita. O audit_log e "
+            "accao secret.* e o dominio da 0065 nao as aceita. O audit_log e "
             "append-only e nenhum papel tem DELETE: exporte a cadeia e decida o que "
             "fazer a essas linhas antes de descer."
         )
-    _trocar_o_dominio(LITERAIS_DE_ACCAO_0048)
+    _trocar_o_dominio(LITERAIS_DE_ACCAO_0065)

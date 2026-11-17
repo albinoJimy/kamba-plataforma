@@ -861,6 +861,19 @@ regras_por_escrever:
       o fundador. Nenhum ticket do backlog liga o rotador a um processo: o
       bloco do KAM-078 so leva o `reanalisar` ao agendador
 
+  # KAM-117: nao e uma das doze do §9.2, e entra aqui pela mesma razao. O
+  # alerta por tenant e a linha aberta da `v_churn_signals`, que a T2 le; o
+  # que falta e o agregado.
+  - alerta: sinais de churn e dormentes (agregado por sinal)
+    severidade: P3
+    runbook: churn.md (fora da serie RB-K, como o orcamento-de-erro.md)
+    falta: >-
+      ha `churn_signal{sinal}` e `tenants_dormentes` declaradas
+      (`libs/py-core/src/kamba_core/kpis/metricas.py`) e nenhum processo as
+      serve: os valores saem do job `churn-daily`, que corre em lote como
+      kamba_batch e nao tem `/metrics`, e nao ha agendador que o corra
+    credor: quem ligar o job a um processo com `/metrics` (o agendador e o KAM-078)
+
   - alerta: memoria (> 80% sustentada)
     severidade: P3
     runbook: >-

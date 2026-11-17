@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.70
+**Versão do conjunto:** 1.72
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -52,12 +52,12 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194 | 66 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186 | 19 | 0–1 |
-| EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179 | 14 | 0–1 |
+| EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179, KAM-202, KAM-204 | 16 | 0–1 |
 | EPIC-05 Pagamentos e Billing | KAM-052 – KAM-060, KAM-175, KAM-197 | 11 | 0–1 |
 | EPIC-06 Índice e Pesquisa | KAM-061 – KAM-064, KAM-193, KAM-199 | 6 | 1 |
 | EPIC-07 Segurança e Conformidade | KAM-065 – KAM-074, KAM-112, KAM-113, KAM-149, KAM-189, KAM-205 | 15 | 0–1 |
 | EPIC-08 Topologia e Operação | KAM-075 – KAM-085, KAM-187, KAM-188 | 13 | 0–1 |
-| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201 | 24 | 1 |
+| EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203 | 25 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
 | **TOTAL** | **KAM-001 – KAM-205** | **205** | — |
@@ -210,6 +210,8 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | 0 | KAM-044 |
 | KAM-178 | API interna do COM, ligação dos doze métodos da porta e os executores das tools de comércio | feature | L | P0 | 0 | KAM-042, KAM-046, KAM-031 |
 | KAM-179 | A cotação do dono não tem predicado de contacto: X recebe o preço negociado para Y dentro do mesmo tenant | fix | S | P0 | 0 | KAM-043 |
+| KAM-202 | KAM-094 em produção: observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms` | feature | L | P1 | 1 | KAM-094, KAM-119, KAM-198 |
+| KAM-204 | A entrega confirmada pelo cliente não se prova: o papel e o instante escrevem-se à mão | fix | M | P1 | 1 | KAM-044, KAM-096 |
 
 ### EPIC-05 — Pagamentos e Billing
 
@@ -304,6 +306,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | 1 | KAM-196 |
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | 1 | KAM-097, KAM-092 |
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | 1 | KAM-092 |
+| KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | 1 | KAM-096, KAM-198 |
 
 ### EPIC-10 — Spikes, Validação e Gates
 
@@ -444,4 +447,6 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.67 | Novembro 2026 | **KAM-200** acrescentado ao **EPIC-09**, no PR do **KAM-097**, que o abre e não o implementa: é o credor das caixas que o KAM-097 deixa parciais — o processo que consome os sete tipos de evento com o efeito de T&S, o agendamento das varreduras e do fecho dos encerramentos, as métricas e os alertas de T&S, e as quatro fontes de sinal cuja regra existe e cujos factos não (preço por categoria, mudança de conta ou de NIF, correlação entre tenants por comprador, coincidência por HMAC). Depende do KAM-097 e do KAM-092 (a `transition_tenant`). **200** tickets. | Equipa KAMBÁ |
 | 1.68 | Novembro 2026 | **KAM-201** acrescentado ao **EPIC-09**, no PR do **KAM-092**, que o abre e não o implementa: é o credor das caixas que o KAM-092 deixa parciais — ligar ao TypeScript as portas da base (`advance_case` no `ServicoDeRevisao` e no `decidir` do KYC, o `amostrar` pelo processo de lote) e a invalidação da cache do CHR pelo `tenant.activated`. Depende do KAM-092. **201** tickets. | Equipa KAMBÁ |
 | 1.69 | Novembro 2026 | **KAM-199:** o §6 ganha a linha da **pesquisa híbrida**, que é o credor do que o fundador adiou para depois do Piloto a 2026-11-16 ([`ADR-L012`](../docs/adr/ADR-L012-pesquisa-no-piloto.md)): o modelo do `kamba-embed`, a calibração do limiar do `retrieve`, a coluna da dimensão, o p95, os 2 000 produtos com o fornecedor real, a fila de mortos persistida e o *eval-gate* na troca de modelo. Nenhum ticket novo e nenhuma contagem muda: o §6 é o que fica fora do backlog e o gatilho para o escrever. | Equipa KAMBÁ |
-| 1.70 | Novembro 2026 | **KAM-205** acrescentado ao **EPIC-07**, no PR do **KAM-072**, que o abre e não o implementa: é o credor do critério 4 do KAM-072, um defeito medido na revisão adversarial — o `kid` dos *tokens* de cliente é o rótulo posicional do `EnvSecretProvider`, e rodar a `kek_token_cliente` parte os *tokens* guardados. Pede `kid` estável por versão, compatibilidade com os criptogramas gravados com `actual`, a re-cifra dos existentes e o RB-K07 §3.7 a deixar de proibir a rotação. Depende do KAM-072 e do KAM-016, e entra no `Bloqueia` dos dois. **205** tickets; o §4 fica contíguo quando os números abaixo dele, reclamados por PRs abertos, fundirem. Número de versão provisório: a fila dá o definitivo na integração. | Equipa KAMBÁ |
+| 1.70 | Novembro 2026 | **KAM-202** acrescentado ao **EPIC-04**, no PR do **KAM-094**, que o abre e não o implementa: é o credor das caixas que o KAM-094 deixa parciais — observador do teste, activação no lote, exclusão de `is_test` e restrição de BD na `offer_terms`. Total: **202** tickets. A versão é provisória: a `main` já tem uma 1.69, e a final dá-a a integração. | Equipa KAMBÁ |
+| 1.71 | Novembro 2026 | **KAM-203** acrescentado ao **EPIC-09** e **KAM-204** ao **EPIC-04**, os dois no PR do **KAM-096**, que os abre e não os implementa. O KAM-203 é o credor das caixas 2, 4 e 5 que o KAM-096 deixa parciais, e do alerta da caixa 7: o processo que corre o recálculo da confiança todos os dias, em `order.delivered` e na aprovação, e a sanção do KAM-097 a chegar à base; depende do KAM-096 e do KAM-198. O KAM-204 é o credor do critério 3: o `entrega_confirmada_por = 'cliente'` e o `entregue_at` presos, na base, ao actor e ao instante da transição; depende do KAM-044 e do KAM-096. **204** tickets. | Equipa KAMBÁ |
+| 1.72 | Novembro 2026 | **KAM-205** acrescentado ao **EPIC-07**, no PR do **KAM-072**, que o abre e não o implementa: é o credor do critério 4 do KAM-072, um defeito medido na revisão adversarial — o `kid` dos *tokens* de cliente é o rótulo posicional do `EnvSecretProvider`, e rodar a `kek_token_cliente` parte os *tokens* guardados. Pede `kid` estável por versão, compatibilidade com os criptogramas gravados com `actual`, a re-cifra dos existentes e o RB-K07 §3.7 a deixar de proibir a rotação. Depende do KAM-072 e do KAM-016, e entra no `Bloqueia` dos dois. **205** tickets. | Equipa KAMBÁ |

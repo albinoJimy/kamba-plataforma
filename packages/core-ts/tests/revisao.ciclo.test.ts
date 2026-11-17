@@ -7,19 +7,24 @@ import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
+  ACTOR_DO_VARRIMENTO,
+  AprovacaoEmFaltaError,
   CicloDaFila,
   EfeitoPorAplicarError,
   LeitorDaFilaSql,
   ServicoDeRevisao,
   METRICA_CASOS,
   METRICA_P90,
+  SQL_APROVAVEIS,
   SQL_CONTADORES,
   SQL_VISTA_SLA,
+  VarrimentoComFalhasError,
   type ClienteSql,
   type Contador,
   type LeitorDaFila,
   type LinhaDaVista,
   type ServicoDoCiclo,
+  varrerAprovacoes,
 } from "../src/revisao/index.ts";
 
 import { SEXTA, montarRevisao, revisor } from "./apoio/revisao.ts";
@@ -341,5 +346,112 @@ describe("ciclo: os achados da revisao adversarial", () => {
     assert.deepEqual(r.falhas, ["drenar"]);
     assert.ok(alertou);
     assert.match(ciclo.metricas.exposicao(), new RegExp(`${METRICA_CASOS}\\{tipo="kyc",estado="aberto"\\} 1`));
+  });
+});
+
+describe("o varrimento das aprovações (KAM-201)", () => {
+  /** Um cliente que devolve os candidatos dados, e regista o limite. */
+  const candidatos = (linhas: { id: string; tenant_id: string }[]) => {
+    const limites: unknown[] = [];
+    const cliente: ClienteSql = {
+      async query<T>(texto: string, valores: readonly unknown[] = []) {
+        assert.equal(texto, SQL_APROVAVEIS);
+        limites.push(valores[0]);
+        return { rows: linhas as unknown as readonly T[] };
+      },
+    };
+    return { cliente, limites };
+  };
+
+  it("aprova os candidatos pela porta, e só amostra os sem intervenção humana", async () => {
+    const { cliente, limites } = candidatos([
+      { id: "o1", tenant_id: "t1" },
+      { id: "o2", tenant_id: "t2" },
+      { id: "o3", tenant_id: "t3" },
+    ]);
+    const pedidos: unknown[] = [];
+    const amostrados: string[] = [];
+    const n = await varrerAprovacoes({
+      cliente,
+      onboardings: {
+        async aprovar(id, evento, actor) {
+          pedidos.push([id, evento, actor]);
+          if (id === "o3") return { estado: "em_falta", falta: ["aceite"] };
+          return { estado: "aprovado", intervencaoHumana: id === "o2" };
+        },
+      },
+      amostrar: async (o) => (amostrados.push(o), null),
+      limite: 7,
+    });
+    assert.equal(n, 2, "o em falta não conta");
+    assert.deepEqual(limites, [7]);
+    assert.deepEqual(pedidos, [
+      ["o1", "aprovar", ACTOR_DO_VARRIMENTO],
+      ["o2", "aprovar", ACTOR_DO_VARRIMENTO],
+      ["o3", "aprovar", ACTOR_DO_VARRIMENTO],
+    ]);
+    assert.deepEqual(amostrados, ["o1"], "o humano não entra na amostra");
+  });
+
+  it("um erro num não pára os outros, e a volta di-lo no fim", async () => {
+    const { cliente } = candidatos([
+      { id: "o1", tenant_id: "t1" },
+      { id: "o2", tenant_id: "t2" },
+    ]);
+    await assert.rejects(
+      varrerAprovacoes({
+        cliente,
+        onboardings: {
+          async aprovar(id) {
+            if (id === "o1") throw new Error("evento aprovar recusado");
+            return { estado: "aprovado", intervencaoHumana: true };
+          },
+        },
+        amostrar: async () => null,
+        limite: 10,
+      }),
+      (e: unknown) => e instanceof VarrimentoComFalhasError && e.aprovados === 1 && e.falhados === 1,
+    );
+  });
+
+  it("o ciclo corre o varrimento depois da reaplicação, e uma falha dele diz-se pelo nome", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const ordem: string[] = [];
+    const servico: ServicoDoCiclo = {
+      ...delegado(m),
+      reaplicarEfeitos: async (id) => void ordem.push(`reaplicar:${id}`),
+    };
+    const ciclo = new CicloDaFila({
+      servico,
+      leitor: leitorDaMemoria(m),
+      aprovar: async (limite) => {
+        ordem.push(`aprovar:${limite}`);
+        throw new VarrimentoComFalhasError(3, 1);
+      },
+      limite: 9,
+    });
+    await ciclo.efeitoFalhou("c1");
+    const r = await ciclo.correr();
+    assert.deepEqual(ordem, ["reaplicar:c1", "aprovar:9"]);
+    assert.equal(r.aprovados, 3);
+    assert.deepEqual(r.falhas, ["aprovar"]);
+  });
+
+  it("uma aprovação em falta na reaplicação sai da lista em vez de se repetir para sempre", async () => {
+    const m = montarRevisao({ agora: SEXTA });
+    const ciclo = new CicloDaFila({
+      servico: {
+        ...delegado(m),
+        reaplicarEfeitos: async () => {
+          throw new AprovacaoEmFaltaError(["aceite"]);
+        },
+      },
+      leitor: leitorDaMemoria(m),
+    });
+    await ciclo.efeitoFalhou("c1");
+    const r = await ciclo.correr();
+    assert.deepEqual(r.falhas, []);
+    assert.equal(r.porReaplicar, 0);
+    assert.deepEqual(await ciclo.efeitos.pendentes(10), []);
   });
 });

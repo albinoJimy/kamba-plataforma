@@ -70,7 +70,12 @@ MINOR = "minor"
 ILEGIVEL = "ilegivel"
 
 #: As raizes varridas. Enumeradas de proposito — ver o cabecalho.
-RAIZES = ("packages/core-ts/src/pagamentos",)
+#:
+#: **O `confianca/` entra com o KAM-096**: os tectos de confianca sao dinheiro
+#: em unidade menor (`tectoPedidoMinor`, `valorMinimoMinor`) e decidem se uma
+#: cobranca entra, pelo que um `Number(...)` ou um `0.5` la dentro era o defeito
+#: deste lint num sitio que ele nao via.
+RAIZES = ("packages/core-ts/src/pagamentos", "packages/core-ts/src/confianca")
 
 EXTENSOES = (".ts", ".mts", ".cts")
 

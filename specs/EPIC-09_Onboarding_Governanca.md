@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.21 |
+| Versão | 1.25 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -69,6 +69,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-198 | Processo de lote do onboarding (`kamba_batch`): corre o ciclo da fila de revisão e serve `/metrics` | feature | M | P0 | KAM-196 |
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | KAM-092 |
+| KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | KAM-096, KAM-198 |
 
 ---
 
@@ -668,7 +669,7 @@ O módulo é `../packages/core-ts/src/revisao/`, as tabelas são a `platform.rev
 | 4. Aprovar `kyc`/`categoria` desbloqueia (`aprovado` para o KAM-092); rejeição com o motivo público genérico; um recurso por decisão, por revisor diferente | **marcada** | Aprovar passa o onboarding a `aprovado` **só** se nenhum outro caso que bloqueie estiver pendente ou rejeitado — um K1 aprovado não aprova uma categoria por decidir —, e o dono só recebe «aprovado» quando isso acontece. Rejeitar põe-no em `rejeitado` e avisa com o motivo público escolhido (um dos quatro). O recurso é **um**, só **de uma rejeição**, decidido por quem não decidiu a primeira instância (e por um `ts_lider` se o caso foi escalado), e um recurso aprovado só tira o onboarding de `rejeitado` se mais nada o rejeitou — os outros casos aprovados e um K1 aprovado (`(A)`, `(A2)`). Com o KYC verdadeiro: dois revisores aprovam um adulterado e o onboarding fica `aprovado`; um `pedir_info` devolve-o a `kyc_pendente` e o reenvio do KYC cai no **mesmo** caso, reforçado (`(B)`) |
 | 5. Só entram casos com OTP validado e anti-bot passado; máximo por origem/prefixo/dia; ilegível e duplicado exacto resolvidos no KAM-087 sem humano | **marcada** | A abertura recusa um onboarding fora das fases depois do OTP, e as três portas (KYC, guia, screening) falham fechadas — **250 registos com o OTP por validar dão 750 recusas que dizem a fase**, e a mutação que tira a barreira faz a suite (a) falhar (na primeira versão sobrevivia: o serviço não via os onboardings das portas). A quota é de **20 por origem e dia de Luanda** (*proposta*): o `ip_prefix_hash`, ou o `device_hash`, com as nulas a partilhar uma; um caso **sem** onboarding conta contra o tenant (`(C)`). **200 aberturas concorrentes dão 20 abertas e 180 em triagem** (`(E)`). Ilegíveis (150) e duplicados exactos (90 ilegíveis e 10 casos genuínos com os quatro documentos reenviados) não abrem caso nenhum. ***shortcut:*** a série por origem é por processo; entre processos, a quota excede-se pelo número deles — revê-se com o *job* do KAM-196 |
 | 6. Papéis `ts_revisor` e `ts_lider` com MFA; documentos por URL de ≤ 5 min; cada visualização registada; NIF/BI mascarados; sem exportação | **parcial** | **Medido:** sem papel ou sem MFA nada se lê nem se decide, e a recusa fica no `audit_log` — também a da lista; `escalado` só o `ts_lider`. A URL vem do `ServicoKyc.urlParaRevisao` (TTL ≤ 300 s): abre aos 0 s e devolve **403** aos 300 s; o acesso fica no `audit_log` **antes** de a URL existir, uma linha por visualização, e um documento que não é do caso recusa (`evidencia_alheia`). Ver um caso também se regista. NIF, BI e telefone saem `*******261`; revelar é um campo de cada vez, registado antes. A lista tem página de 50 e nenhum dado pessoal, e não há operação de exportação. **O que fica por fechar:** **não há identidade de equipa** — os papéis e a MFA chegam como factos da porta `Revisor` e a fila recusa quem chega sem eles, mas ninguém os emite. Credor: KAM-196 e o fundador (o IdP) |
-| 7. Amostragem: 20% das aprovações automáticas nas primeiras 8 semanas geram caso `auditoria` de baixa prioridade; o resultado alimenta a taxa de falsos aprovados | **parcial** | **Medido:** `amostrar` escolhe pelo SHA-256 do `onboarding_id` (determinístico, e perto de 20% em 10 000 identificadores sequenciais), abre `auditoria` de prioridade 9, fora da quota, só dentro das 8 semanas, e não abre dois para a mesma aprovação. O caso mostra os dados mascarados do onboarding amostrado e abre os documentos dele (`(L)`), e o dono desse onboarding não o decide (`(D)`). A taxa é a `review_falsos_aprovados_ratio`. **O que fica por fechar:** **ninguém chama `amostrar`** — quem conhece a aprovação automática é o KAM-092, e o *job* é o KAM-196 |
+| 7. Amostragem: 20% das aprovações automáticas nas primeiras 8 semanas geram caso `auditoria` de baixa prioridade; o resultado alimenta a taxa de falsos aprovados | **parcial** | **Medido:** `amostrar` escolhe pelo SHA-256 do `onboarding_id` (determinístico, e perto de 20% em 10 000 identificadores sequenciais), abre `auditoria` de prioridade 9, fora da quota, só dentro das 8 semanas, e não abre dois para a mesma aprovação. O caso mostra os dados mascarados do onboarding amostrado e abre os documentos dele (`(L)`), e o dono desse onboarding não o decide (`(D)`). A taxa é a `review_falsos_aprovados_ratio`. **Chamado desde o KAM-201:** uma aprovação que a porta da base faz sem intervenção humana — a do `k1_ok` (`aprovacaoDoKyc`) e a do varrimento do ciclo (`varrerAprovacoes`) — passa ao `amostrar` (`um k1_ok aprova pela porta e, sem humano, entra na amostra uma vez`; `um k1_ok antes do aceite fica por aprovar, e o varrimento aprova e amostra quando ele chega`; com um caso de revisão humano, não amostra). **O que fica:** uma falha do `amostrar` depois de a aprovação confirmar deixa essa aprovação fora da amostra, porque nada volta a passar por ela |
 | 8. Vista `v_review_sla` e contadores por tipo, motivo e decisão; notificações ao dono por SMS/e-mail, nunca pelo número da loja | **parcial** | **Medido:** a `v_review_sla` (`security_invoker`) dá a primeira decisão e o `dentro_do_sla` da instância em curso, medidos contra a base com o caso atrasado, o a tempo e o recurso; o `SQL_CONTADORES` conta por tipo, família de motivo e **última** decisão (a de recurso por cima da primeira — a primeira versão contava ao contrário, e o ensaio de base apanhou-o). O aviso sai pela porta `AvisoAoDono`, cujo tipo de via só tem `sms` e `email`, com o motivo público e nada mais. **O que fica por fechar:** **o texto do SMS e do e-mail não existe**, nem o adaptador da porta. Credor: KAM-196 |
 | 9. Idempotência: reentregar o mesmo evento não cria dois casos (`(tipo, onboarding_id, motivo_codigo)`) | **marcada** | A chave é `UNIQUE NULLS NOT DISTINCT (tipo, tenant_id, onboarding_id, motivo_codigo)`: com onboarding é a do bloco; sem ele o `NULLS NOT DISTINCT` impede reentregar sem limite (mutação na `0048` morta pelo `test_a_chave_e_idempotente_com_e_sem_onboarding`). Reentregar não gasta quota. Um envio repetido sobre um caso **decidido** diz `ja_decidido` — e não `aberto` —, e o guia abre então um caso novo para a falha nova |
 
@@ -1076,17 +1077,17 @@ CREATE TABLE platform.tenant_state_log ( -- append-only
 
 ### Verificação dos Critérios de Aceitação
 
-A revisão é a [`0058`](../db/migrations/versions/0058_eventos_do_tenant.py) (sobre a `0057` do KAM-124), os nomes estão no dicionário §3.70 (emenda 1.99) e a bateria é `../db/tests/test_eventos_do_tenant.py`, no gate 8. **Tudo vive na base**: duas portas, `platform.transition_tenant` e `platform.advance_case`, que correm como o `kamba_batch` sob o `app.tenant_id` do próprio tenant e emitem pelo `evt_emitir` na mesma transacção. **O que este ticket não entrega, e diz-se uma vez para as linhas abaixo: ninguém chama ainda as portas.** O `ServicoDeRevisao` escreve `aprovado` com um `UPDATE` directo, o `decidir` do KYC não muda a fase num `k1_ok`, e o `amostrar` do KAM-089 continua sem chamador — ligá-los é TypeScript sobre suites do KAM-087, do KAM-089 e do KAM-198, e é o **KAM-201**.
+A revisão é a [`0058`](../db/migrations/versions/0058_eventos_do_tenant.py) (sobre a `0057` do KAM-124), os nomes estão no dicionário §3.70 (emenda 1.99) e a bateria é `../db/tests/test_eventos_do_tenant.py`, no gate 8. **Tudo vive na base**: duas portas, `platform.transition_tenant` e `platform.advance_case`, que correm como o `kamba_batch` sob o `app.tenant_id` do próprio tenant e emitem pelo `evt_emitir` na mesma transacção. **O que este ticket não entregou, e diz-se uma vez para as linhas abaixo: ninguém chamava as portas.** O `ServicoDeRevisao` escrevia `aprovado` com um `UPDATE` directo, o `decidir` do KYC não mudava a fase num `k1_ok`, e o `amostrar` do KAM-089 não tinha chamador. **O seguimento, KAM-201, liga-as em TypeScript**: o `aprovado` da fila, o `k1_ok` do KYC e um varrimento do ciclo do lote passam pelo `advance_case` (`OnboardingsSql.aprovar`, `../packages/core-ts/src/revisao/sql.ts`), a aprovação automática passa ao `amostrar` (`aprovacaoDoKyc` e `varrerAprovacoes`, servidos pelo `ProcessoDeLote` do KAM-198), e o CHR esquece o tenant na *cache* com o consumidor `chr` do `tenant.activated` (`../packages/core-ts/src/chr/activacao.ts`, a revisão de dados `0061`). As baterias contra a base são a `tests_lote` (`../packages/core-ts/tests_bd/lote.bd.test.ts`) e a `tests_chr` (`../packages/core-ts/tests_bd/chr.bd.test.ts`), as duas no gate 8; as caixas 4, 6 e 7 dizem o que cada uma mede.
 
 | Critério | Estado | Evidência |
 |---|---|---|
 | 1. Schemas v1 com `additionalProperties:false`, sem PII, no catálogo com teste de compatibilidade | **satisfeito** | Os contratos `v1` e `v2` dos três já existiam desde o KAM-007, fechados; os campos do bloco entram **como opcionais**, porque um campo novo obrigatório num `v<N>` publicado é quebrante e o gate 7 recusa-o. Gate 7 (`contract_diff check`): 84 contratos, 24 diferenças **aditivas** e 0 quebrantes, 0 nomes proibidos de PII, exemplos válidos, tipos gerados actualizados. Os nomes do provisionamento são o `channel_id` e o `channel_mode` do §3.2 e do §3.13, e não o canal_id e o modo_canal deste bloco (§3.70) |
 | 2. `tenant.approved` só com KYC, screening ≠ `bloqueada` e aceite das vigentes; 3 testes | **satisfeito** | O agregador é a `platform.aprovacao_em_falta`, e o `advance_case` só entra em `aprovado` com ele vazio. `test_falta_exactamente_uma_condicao_nao_aprova` (três subcasos, um por condição, sem fase nem evento); `test_com_as_tres_aprova_e_emite_um_evento_valido` (o envelope valida contra o `v1`). O KYC humano conta só se **todos** os casos `kyc` do onboarding acabarem em `aprovar` (`test_um_caso_kyc_aprovado_e_outro_por_decidir_ou_rejeitado_nao_aprova`); no screening conta o mais restritivo e só o recurso de `categoria` da fila levanta uma `bloqueada` — uma linha `permitida` ou `humano` da aplicação não a tapa (`test_screening_o_mais_restritivo_e_so_a_fila_levanta_a_bloqueada`) |
 | 3. `tenant.activated` só com os 6 gates; com um em falta, falha e fica `onboarding` | **satisfeito** | `test_falta_exactamente_um_gate_nao_activa` (seis subcasos, pelas duas portas: `23514`, estado `onboarding`, fase `aguarda_teste`, nenhum evento); `test_gate_ausente_conta_como_vermelho`. A activação volta também ao agregador e exige a aprovação e o provisionamento já emitidos (`test_a_fase_posta_a_mao_nao_activa`, `test_o_aceite_volta_a_contar_na_activacao`). **O que a base não impede:** um `UPDATE` directo do `kamba_batch` a `tenants.estado`, que passa por baixo das portas (§3.70) |
-| 4. 2× a mesma transição dá 1 evento (unicidade `(agregado, seq)`); versão desconhecida vai à DLQ | **parcial** | **Medido:** a segunda aprovação, o segundo `es_concluido` e a segunda activação devolvem o destino sem evento (`test_aprovar_duas_vezes_da_um_evento`, `test_activar_duas_vezes_da_um_evento`, `test_com_canal_emite_o_canal`), e uma fase escrita por outro caminho não passa por repetição (`test_uma_fase_escrita_por_fora_nao_e_repeticao`). **A leitura diverge da letra**, e devolve-se: o `evt_emitir` dá um `seq` novo a cada chamada, pelo que a unicidade `(agregado, seq)` não impede o segundo evento — quem o impede é o `FOR UPDATE` sobre o caso ou o tenant e a `platform.evento_emitido`. **Falta:** a DLQ de uma versão desconhecida de `tenant.*`, que é do consumidor e não deste produtor (o IDX consome o `tenant.activated` `v1`) — não medida aqui |
+| 4. 2× a mesma transição dá 1 evento (unicidade `(agregado, seq)`); versão desconhecida vai à DLQ | **parcial** | **Medido:** a segunda aprovação, o segundo `es_concluido` e a segunda activação devolvem o destino sem evento (`test_aprovar_duas_vezes_da_um_evento`, `test_activar_duas_vezes_da_um_evento`, `test_com_canal_emite_o_canal`), e uma fase escrita por outro caminho não passa por repetição (`test_uma_fase_escrita_por_fora_nao_e_repeticao`). **A leitura diverge da letra**, e devolve-se: o `evt_emitir` dá um `seq` novo a cada chamada, pelo que a unicidade `(agregado, seq)` não impede o segundo evento — quem o impede é o `FOR UPDATE` sobre o caso ou o tenant e a `platform.evento_emitido`. **Medido no KAM-201, pelo lado dos chamadores:** a reaplicação de uma decisão humana, o `k1_ok` repetido e as voltas do varrimento devolvem `aprovado` pela repetição da porta, com **um** `tenant.approved` no *outbox*; e uma rejeição escrita por cima de `aprovado`, seguida de um recurso aprovado, não emite o segundo — a porta recusa com `ja_aprovado` (`uma rejeição depois de aprovado e um recurso aprovado não emitem um segundo tenant.approved`, na `tests_lote`). A DLQ de uma versão desconhecida, num consumidor: o do CHR recusa um `tenant.activated` `v2` (`VersaoDaActivacaoError`), relança na primeira tentativa e abre a `events_dlq` na sexta, sem o marcar consumido nem tocar na *cache* (na `tests_chr`). **Falta:** a letra devolvida acima, que é do fundador; e o consumidor do IDX perante uma versão desconhecida, não medido |
 | 5. `transition_tenant` só aceita as arestas do doc 00 §6.2 e grava `tenant_state_log` *append-only* | **satisfeito** | `test_os_vinte_e_cinco_pares`: os 25 pares de estados contra uma lista escrita no ensaio a partir do diagrama — oito passam e gravam uma linha, os do próprio estado devolvem `false`, os outros dão `23514`. O registo é *append-only* por privilégio e por *trigger* (`test_append_only_ate_ao_dono`). Fora do contexto do tenant, `42501` (`test_o_tenant_a_nao_transita_o_b`) |
-| 6. Sub-estados avançam por `advance_case(case, evento)` com tabela testada | **parcial** | **Medido:** a tabela (PA-GOV-6, *proposta*) contra uma lista escrita no ensaio, e os 14 × 12 pares sem pré-condição contra a função (`test_os_pares_sem_pre_condicao`), mais os quatro eventos que emitem fora da fase (`test_os_eventos_com_pre_condicao_fora_da_fase_sao_recusados`). **Falta:** que os sub-estados avancem **só** por ela — a `fase` continua escrevível pelo `kamba_app` e pelo `ServicoDeRevisao` (ver acima) |
-| 7. CHR só encaminha depois de `tenant.activated`, com a cache invalidada por evento | **parcial** | **O que já valia antes deste ticket:** o CHR não encaminha um tenant em `onboarding` — a matriz do KAM-014 dá-lhe o regime `pendente`, sem `processar_entrada` (`../db/tests_chr/`). **Falta:** a invalidação da cache por evento. O `ResolvedorDeCanal` guarda o contexto 60 s por `phone_number_id` e não tem invalidação por tenant nem consumidor ligado; com a activação, a cache velha só atrasa até 60 s, no sentido que falha fechado |
+| 6. Sub-estados avançam por `advance_case(case, evento)` com tabela testada | **parcial** | **Medido:** a tabela (PA-GOV-6, *proposta*) contra uma lista escrita no ensaio, e os 14 × 12 pares sem pré-condição contra a função (`test_os_pares_sem_pre_condicao`), mais os quatro eventos que emitem fora da fase (`test_os_eventos_com_pre_condicao_fora_da_fase_sao_recusados`). **Ligado no KAM-201:** o `aprovado` escreve-se só pela porta. A fila (`ServicoDeRevisao`), o KYC e o varrimento do ciclo chamam o `advance_case` com o evento escolhido por quem chama (`aprovar`, ou `recurso_aprovado` num recurso sobre `rejeitado`), como `kamba_batch` sob o `app.tenant_id` do caso; o `SQL_MARCAR_FASE` recusa `aprovado` mesmo com o tipo contornado (`o marcarFase não escreve aprovado, nem com o tipo contornado`). Com o agregador por preencher, a fase fica, nada se emite, o dono não ouve «aprovado» e a decisão sobe como erro; o varrimento aprova quando o aceite chega (`com o aceite em falta a decisão sobe como erro, sem ficar na lista, e o varrimento aprova quando o aceite chega`). **Falta:** as outras fases escritas por `UPDATE` directo — os escritores estão nomeados, com a razão, na verificação do KAM-201 —, e o `kamba_app` continua a poder escrever a `fase` (emenda 1.80) |
+| 7. CHR só encaminha depois de `tenant.activated`, com a cache invalidada por evento | **parcial** | **O que já valia antes deste ticket:** o CHR não encaminha um tenant em `onboarding` — a matriz do KAM-014 dá-lhe o regime `pendente`, sem `processar_entrada` (`../db/tests_chr/`). **Medido no KAM-201:** o `ResolvedorDeCanal` ganhou `invalidarTenant`, e o consumidor `chr` do `tenant.activated` chama-o. É declarado em `registry/chr.yaml` e na revisão de dados `0061` (`platform.evt_subscricoes`), e servido no processo do CHR (`../services/worker-canal/src/entrada.ts`). Contra a base, o evento sai das portas verdadeiras, a *cache* ainda diz `onboarding` com a base já em `ativo` e a mensagem não chega ao AGR (o controlo); depois do `consumir` do KAM-006, a primeira mensagem chega sem esperar o TTL, e o canal de outro tenant continua em *cache* (`a activação pelas portas chega ao consumidor do CHR, e a primeira mensagem seguinte chega ao AGR`). **O que fica:** cada evento chega a **uma** réplica — as filas são de consumidores concorrentes —, e com o processo do CHR em mais de uma, as outras continuam com a *cache* velha até 60 s, no sentido que falha fechado |
 | 8. `v_onboarding_kpis` por caso e agregado, com mediana e p90 | **satisfeito** | `platform.v_onboarding_kpis` e `platform.v_onboarding_kpis_agregado`, as duas `security_invoker`. `test_por_caso_e_agregado` com três casos activos e o oráculo exacto (mediana 2000, p90 2800, rácios de 2/3); a amostragem do KAM-089 não conta como intervenção (`test_a_amostragem_nao_conta_como_intervencao`) |
 
 #### O que a revisão adversarial mudou
@@ -1265,7 +1266,7 @@ simulador, contrato, isolamento e adversarial (número alheio, FINISH repetido, 
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-049, KAM-091, KAM-088, KAM-092, KAM-093, KAM-023 |
-| Bloqueia | KAM-109 |
+| Bloqueia | KAM-109, KAM-202 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN) com Engenheiro de Agentes |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passos 8–10), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§8), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§13.2), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.2), ADR-019, ADR-007 |
 
@@ -1313,8 +1314,95 @@ interface SmokeProbe { start(onboardingId: string): Promise<{ instrucoes: string
 - [ ] Publicação protegida por restrição de BD (não só por convenção) e coberta por teste de isolamento (ADR-015).
 - [ ] Activação idempotente (ADR-009); eventos sem PII; conversa de teste fora das métricas.
 - [ ] Números só de tools; custo por tenant medido (ADR-007, ADR-018).
-- [ ] D10 e o remetente do teste documentados; `prober_number` desligado por defeito.
-- [ ] Migração reversível; documentação actualizada; sem segredos.
+- [x] D10 e o remetente do teste documentados; `prober_number` desligado por defeito.
+- [x] Migração reversível; documentação actualizada; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-094-catalogo-minimo`:
+
+- o módulo [`../packages/core-ts/src/activacao/`](../packages/core-ts/src/activacao/index.ts), com
+  o `CatalogoMinimo` (contagem, publicação segura e renomear), o `SmokeOwnerAssisted` (a porta
+  `SmokeProbe` dos Detalhes Técnicos, à letra), a `Activacao`, a `filaDoTeste` sobre o serviço da fila
+  do KAM-089, os adaptadores SQL e os duplos;
+- a revisão [`0064`](../db/migrations/versions/0064_catalogo_minimo_e_teste.py), com a
+  `conversations.is_test` e a `platform.onboarding_smoke`, sobre a `0063` dos KPIs de churn (KAM-117);
+- o dicionário §3.74 (emenda 1.105) e o passo 9 do `../docs/tecnica/10_Onboarding_Governanca.md`
+  §4.1, que diz quem manda o «teste».
+
+**Nada contra a Meta real**: o teste ponta a ponta corre sobre o simulador de webhooks do KAM-024
+(`../tools/meta-sim/`).
+
+**O que fica por ligar tem um credor só, o KAM-202** (EPIC-04), e é a razão de nenhum critério
+estar satisfeito à letra. O módulo e a base estão feitos e medidos, e nada os corre num processo:
+
+- o observador de produção do teste;
+- a activação e o `verify` no lote do KAM-198;
+- o filtro de `is_test` nas métricas, na golden e no Score;
+- a restrição de BD na `offer_terms`.
+
+A restrição de BD ficou fora por decisão do orquestrador do lote: o `publishProduct` do COM não
+chama o screening, e 16 ficheiros de sementes e 11 sítios publicam sem decisão. Liga-se depois de o
+KAM-119 pôr o COM a gravar a decisão. **Zero critérios satisfeitos, seis parciais e dois por fazer;
+duas linhas da DoD de seis.**
+
+**A revisão adversarial correu numa passagem, sobre o primeiro *commit*.** Achou 14 defeitos, dos
+quais 12 CONFIRMADOS e 2 PLAUSÍVEIS.
+
+Sete foram fechados neste ramo:
+
+- (3) o `activar` não recontava o catálogo, e uma loja com quatro produtos activava-se. Agora
+  reconta antes de activar: `achado 3: activar reconta o catalogo…`.
+- (4) o identificador da conversa do observador não era um `uuid`, e o `MarcadorSql` dava 22P02.
+  Faltava também uma fila de produção. Agora há o identificador com forma de UUID, o duplo do
+  marcador recusa o que a base recusa, e há a `filaDoTeste`.
+- (5) a aplicação podia criar conversas já marcadas como teste. Agora a conversa nasce sempre falsa,
+  pelo *trigger* `conversations_is_test_nasce_falso`.
+- (6) verificar só dentro da janela e recomeçar nunca contava falhas. Agora as pendentes vencidas
+  contam.
+- (11) dois `verify` concorrentes abriam dois casos. Agora só quem fecha a tentativa segue.
+- (13) o passo 10 do `docs/tecnica/10` dizia que os dois eventos saíam juntos.
+- (14) um comentário apontava para uma classe que não existe.
+
+Cinco morreram com a saída do *trigger* da revisão: (1), (7), (9), (10) e (12). Os factos que
+trouxeram foram para o Contexto do KAM-202. O mais pesado é o (1): o KAM-049 grava a decisão com o
+id da ingestão e outros textos, e a chave nunca casaria com a do `assertPublishable` de um `sku`.
+
+Dois passaram para o KAM-202:
+
+- (2) a mudança de nome pelo COM não repete o screening;
+- (8) a aplicação pode gravar decisões.
+
+**Duas divergências do bloco.**
+
+1. O `tenant.provisioned` **não** sai deste ticket. O KAM-092 emite-o no fim do ES, com o canal
+   ligado, e um segundo produtor do mesmo evento eram dois sítios a decidir quando ele sai. A
+   activação usa o `advance_case` `activar`, que exige os seis gates e os dois eventos anteriores.
+2. A entrada do screening de um produto é a do `SQL_POR_REANALISAR` do KAM-088: a categoria
+   declarada do tenant e o nome do produto. Outra entrada dava outro resumo, e a re-análise e a
+   publicação deixavam de se ver uma à outra.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — ≥ 5 publicados (`catalogo_minimo = 5`, configurável), cada um com `preco_modo`, nome, categoria e confirmação do dono; fotografia por web ou por WhatsApp | **parcial** | **Feito:** a contagem exige a oferta publicada, o `preco_tipo`, o nome, a categoria e a confirmação, que é a ingestão do KAM-049 em `publicada` (`motivoDeExclusao`, `cinco publicados e permitidos cumprem; quatro nao`). Exige também o `assertPublishable` para o conteúdo actual (`publicado sem decisao para o conteudo de agora nao conta…`). O mínimo é configurável e nunca zero. O `SQL_PRODUTOS` corre contra a base (`test_os_produtos_com_a_confirmacao_da_ingestao_e_a_categoria_declarada`). **Falta:** os dois canais de fotografia, que são do KAM-119 (D10), e a contagem num processo, que é do **KAM-202** |
+| 2 — `screen` antes de publicar; `permitida` publica, `bloqueada` rejeita com motivo, `condicional` abre `review_case` `catalogo`; a transição de `offer_terms` chama `assert_publishable` e falha fechado | **parcial** | **Feito:** o `CatalogoMinimo.publicar` corre o `screen` do KAM-088 quando ainda não há decisão para o conteúdo, e depois o `assertPublishable`. Só então escreve. A `bloqueada` devolve o motivo e a escrita não acontece (`(a) cinco moda com um alcool disfarcado…`). A `condicional` abre o `review_case` `catalogo` pelo `escritorComFila` do KAM-089, que entra como escritor. **Falta:** a restrição na base e o screening no `publishProduct` do COM, credor **KAM-202**. Hoje o COM publica sem decisão |
+| 3 — mudar o título ou a categoria de um publicado repete o screening antes de continuar visível; publicar com título neutro e editar depois é apanhado | **parcial** | **Feito:** o `CatalogoMinimo.renomear` avalia o nome novo **antes** de ele ficar visível. Se não passar, o produto sai de `publicado` e só depois muda de nome (`(b) editar o titulo…`, `(b) a ordem…`, `(b) uma edicao inocente…`). Uma categoria declarada nova muda o resumo, e o produto deixa de contar até ser reavaliado. **Falta:** a mudança de nome pelo `SQL_ACTUALIZAR_TERMOS` do COM, que não passa por aqui, e a re-análise do KAM-088, que não volta a ver um `sku` que já tem decisão. Credor **KAM-202** |
+| 4 — `SmokeProbe.owner_assisted`: o dono manda «teste»; validação em ≤ 60 s de `inbound`, resposta identificada, `delivered` e aviso de 1.º contacto com `consent_event`; conversa `is_test` fora de métricas, golden e Score | **parcial** | **Feito:** a porta à letra, a janela de 60 s (*proposta*) e os quatro factos pela ordem do bloco, sobre corpos do simulador. O «ainda não» dentro da janela não conta como falha, e factos fora da janela não contam (`dentro da janela…`, `factos fora da janela…`, `uma resposta sem a identificacao…`, `o «teste» noutro numero…`). A conversa marca-se `is_test` quando houve entrada. A coluna nasce falsa e só o lote a escreve (`test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`, `test_o_lote_marca_e_a_aplicacao_nao`). **Falta:** o observador de produção, porque a base não guarda o texto do «teste» nem o da resposta (ADR-010), e o filtro de `is_test` nos leitores. Credor **KAM-202** |
+| 5 — 3 falhas ⇒ `review_case` `es_falhado`/`saga` e caso em `aguarda_teste`; o dono vê a causa genérica e repete sem custo | **parcial** | **Feito:** à terceira falha seguida abre-se o caso, `es_falhado` quando nada chegou e `saga` nos outros. O caso fica em `aguarda_teste` e a contagem recomeça (`3 falhas seguidas vao a fila…`). As pendentes vencidas contam como falhas (achado 6), e dois `verify` abrem um caso (achado 11). A `filaDoTeste` abre-o pelo serviço do KAM-089 e encadeia depois de decidido. A base guarda as tentativas: a aplicação abre, só o lote fecha, e uma fechada não muda (`TestTentativas`, oito ensaios). O dono lê uma mensagem igual para as quatro causas. **Falta:** um processo que o corra, credor **KAM-202** |
+| 6 — gates `catalogo_minimo` e `e2e` em `onboarding_gate`; com os 6 verdes, `tenant.provisioned` e depois `tenant.activated`, **uma vez** | **parcial** | **Feito:** o gate `catalogo_minimo` segue a contagem nos dois sentidos e o `e2e` grava-se no `verify`. O `GatesSql` e o `MaquinaSql` correm contra a base até `aguarda_teste` (`test_gates_e_maquina_ate_aguarda_teste`). A activação passa pelo `advance_case` do KAM-092 e reconta antes (achado 3). Repetir o clique não duplica o evento (`o caminho feliz emite tenant.activated uma vez`). O `tenant.provisioned` é do KAM-092 (divergência 1). **Falta:** a ligação ao lote do KAM-198, credor **KAM-202** |
+| 7 — custo LLM ≤ US$ 0,02 por produto com *virtual key*; até 12 perguntas | **por fazer** | O tecto das 12 perguntas é do KAM-049 (`catalog_ingestions_perguntas_ck`). O custo por produto mede-se com o modelo de visão real em staging, e isso pede as respostas da Meta sobre AI Provider. Credores **`ext:KAM-101`** e **KAM-109**, a caixa que o critério 9 do KAM-049 já deixou |
+| 8 — preço e stock mostrados ao dono vêm de *facts* da ToolLayer; o resumo cita-os (ADR-007) | **por fazer** | O resumo de confirmação é o do KAM-049 (`kamba_core.catalogo.pipeline.resumo`) e não passa por aqui. Ligá-lo aos *facts* é da montagem de produção do Catálogo AI, credor **KAM-119** |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| Critérios satisfeitos; gate 12 e golden do Catálogo AI verdes | **por fazer** | Nenhum critério satisfeito à letra. O *eval-gate* e a golden da visão pedem o modelo real (`ext:KAM-101`, KAM-040) |
+| Publicação protegida por restrição de BD e teste de isolamento (ADR-015) | **devolvida** | Credor **KAM-202**, por decisão do orquestrador do lote. O desenho foi medido no primeiro *commit* deste ramo. Hoje a protecção é o `assertPublishable` em TypeScript. O isolamento está feito: a contagem é do tenant do caso, e um adaptador que devolva um produto de outro tenant não o faz contar (`isolamento`, quatro ensaios). A `onboarding_smoke` tem RLS `FORCE` (`test_rls_forcada_e_b_nao_ve…`) |
+| Activação idempotente (ADR-009); eventos sem PII; conversa de teste fora das métricas | **parcial** | A idempotência é a do `advance_case` (KAM-092). Os eventos são os do KAM-092, e este ticket não acrescenta nenhum. A exclusão das métricas é do **KAM-202** |
+| Números só de tools; custo por tenant medido | **por fazer** | Critérios 7 e 8 |
+| D10 e o remetente do teste documentados; `prober_number` desligado por defeito | **satisfeito** | O passo 9 do `docs/tecnica/10` §4.1 diz quem manda o «teste» e porquê (D10). O `remetenteDoTeste` dá `owner_assisted` por omissão e recusa o `prober_number` com `RemetenteVedadoError` (`D10: owner_assisted por omissao e prober_number vedado`) |
+| Migração reversível; documentação actualizada; sem segredos | **satisfeito** | `TestDowngradeDoCatalogoMinimo` desce até à revisão anterior e volta, com a tabela, as duas funções de *trigger* e a coluna. Actualizados o dicionário §3.72, o `docs/tecnica/10` e este bloco. O `scan_secrets` dá limpo no *commit* |
 
 ### Handoff para Claude Code
 
@@ -1473,7 +1561,7 @@ Testes: unit, integração, concorrência, isolamento e adversarial (bot, convit
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-054, KAM-087, KAM-009, KAM-044, KAM-055, KAM-097 |
-| Bloqueia | — |
+| Bloqueia | KAM-203, KAM-204 |
 | Responsável sugerido | Engenheiro de Pagamentos com Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 «Controlo de risco compensatório», §9, §8.3), `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` (M-2, M-3), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.1), ADR-013, ADR-017, ADR-019 |
 
@@ -1492,7 +1580,7 @@ Implementar os níveis de confiança do tenant, o cálculo automático de subida
 - [ ] Pedido conta para subida se: `entregue` com confirmação do cliente, **sem disputa durante a janela anti-fraude de 14 dias** (*proposta*), valor ≥ 10.000 Kz (*proposta*) e comprador marcado `independente` por KAM-097. Sem a marca, **não conta** (fail-closed).
 - [ ] Subida ao nível 1 exige ≥ 5 pedidos elegíveis em janela móvel de 30 dias **de ≥ 3 compradores distintos** (endurecimento proposto face à regra base); recalculo diário e em `order.delivered`.
 - [ ] Descida automática ao nível 0 por disputa aceite contra o dono, sinal de severidade alta de KAM-097 ou sanção; uma descida não se reverte sem nova elegibilidade completa.
-- [ ] `assertWithinTrustCeiling(tenantId, amountMinor)` é chamado por `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)` em cobranças manuais; acima do tecto a cobrança é recusada e o agente propõe outro meio ou espera pelo facilitador (mensagem fixa, sem números do modelo).
+- [x] `assertWithinTrustCeiling(tenantId, amountMinor)` é chamado por `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)` em cobranças manuais; acima do tecto a cobrança é recusada e o agente propõe outro meio ou espera pelo facilitador (mensagem fixa, sem números do modelo).
 - [ ] O tenant não consegue alterar o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` (dinheiro, KAM-012) com motivo e actor `sistema` ou revisor.
 - [ ] Tabela de limites com origem: cada valor guarda `origem = proposta` e `calibrado_em`; relatório do Piloto compara o previsto com o observado (fraudes, disputas).
 
@@ -1521,10 +1609,72 @@ CREATE TABLE platform.trust_order_eligibility ( -- escrita por função
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; suite adversarial (a)–(g) verde.
-- [ ] Idempotência do recálculo e da subida (reexecutar o *job* não duplica efeitos) (ADR-013).
-- [ ] Nenhum caminho marca `paga` ou altera o ledger; plataforma sem fundos (ADR-004); `payout` intacto.
+- [x] Idempotência do recálculo e da subida (reexecutar o *job* não duplica efeitos) (ADR-013).
+- [x] Nenhum caminho marca `paga` ou altera o ledger; plataforma sem fundos (ADR-004); `payout` intacto.
 - [ ] Alterações de tecto auditadas e imutáveis; RLS `FORCE` e teste cruzado (ADR-015); dois revisores (dinheiro).
 - [ ] Limiares registados como *proposta* com plano de calibração no Piloto; migração reversível; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+O módulo é `../packages/core-ts/src/confianca/` (configuração versionada, elegibilidade pura, a decisão do
+nível e o recálculo, a guarda do caminho de cobrança e o adaptador SQL), a tabela é a `platform.trust_level`
+da revisão `0065` e os nomes estão no dicionário §3.75 (emenda 1.106). **A barreira é da base**:
+o *trigger* `payment_charges_dentro_do_tecto` recusa, na mesma instrução que a escreve, uma cobrança de
+encomenda cujo **pedido** (o `total_minor`) ou cujo montante passe o tecto, ou de um tenant sem nível, para
+qualquer facilitador — uma encomenda acima do tecto não se cobra às prestações; a guarda do TypeScript é a
+mensagem fixa e a recusa antes de se falar com o facilitador. A cobrança e a escrita do nível tomam a mesma
+tranca consultiva da transacção, e a corrida mede-se com duas ligações reais e com o controlo sem a tranca
+(`db/tests_lote/test_confianca_concorrencia.py`).
+
+**O que este ticket não entrega, dito uma vez:** nenhum processo corre o recálculo — nem todos os dias,
+nem em `order.delivered`, nem na aprovação do tenant. O `ServicoDeConfianca.recalcular` existe, é
+idempotente e corre como `kamba_batch`, mas não há agendador nem consumidor que o chame, e o KAM-200 diz por
+escrito que o tecto não é dele. O credor é o **KAM-203**, aberto neste PR. Até lá, a sanção do KAM-097 manda no tecto **só na guarda** — o `ManualProvider` lê o
+`tectoNoNivelZero` em cada cobrança —, e **não na base**, que só lê a `trust_level`; e nenhum código de
+`src` constrói ainda o `ManualProvider` com a guarda, nem os adaptadores do ProxyPay a chamam. A disputa
+aceite, o sinal alto e a própria sanção só chegam à barreira quando o recálculo correr.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Níveis 0/1/2 (50 000 / 150 000 / 500 000 Kz em unidade menor), o 2 não atribuível no Piloto; valores em `entitlements.limites.tecto_pedido_minor` e configuráveis | **parcial** | **Medido:** os três níveis em `trust_level.nivel` (`CHECK` 0, 1, 2) com o 2 recusado pela base (`trust_level_piloto_ck`, `test_o_nivel_2_existe_e_nao_se_atribui_no_piloto`) e pela configuração (`validarConfiguracao`); os três tectos em unidade menor contra o `minorDeInteiroKz` (`os tres niveis do criterio 1, em unidade menor`). Configuráveis pela `CONFIGURACAO_DA_CONFIANCA` versionada, e uma recalibração muda o tecto sem mudar o nível nem o `desde`. **Não está em `entitlements.limites`**: o `registry/plans.yaml` já decidiu que o tecto de confiança sobe por histórico e não por plano (o do plano é o `valor_max_pedido_minor`), e o tecto vive na `trust_level.tecto_pedido_minor`. A leitura diverge da letra e devolve-se a quem escreveu o critério |
+| 2. Tenant novo nasce no nível 0 com `kyc_check.resultado = k1_ok`; sem K1 não há nível (nem produção) | **parcial** | **Medido:** o `trust_level_guardar` recusa o nascimento sem o K1 completo — o mesmo predicado do gate `kyc` do KAM-092, a `aprovacao_em_falta` (`TestNascimento`: sem caso, com o último lote por decidir, e com o K1 a nascer); sem nível, nenhuma cobrança de encomenda entra (`test_sem_nivel_nenhuma_cobranca_de_encomenda_entra`); o `decidirNivel` dá o nível 0 com `k1_completo` e nada sem K1 (`sem K1 nao ha nivel; com K1 nasce no 0…`). **Falta quem o chame na aprovação**: o processo (**KAM-203**) |
+| 3. Conta para subir: entregue com confirmação do cliente, sem disputa na janela de 14 dias, ≥ 10 000 Kz e comprador `independente` pelo KAM-097; sem a marca não conta | **parcial** | **Medido:** `avaliarPedido`, com as fronteiras dos dois lados (o mínimo inclusivo, os 14 dias exactos, a janela móvel), e a marca do KAM-097 lida pelo `RepositorioDeTrustSql.independencia` — `por_avaliar` não conta (adversarial (e)). Os pedidos lêem-se pelo `SQL_PEDIDOS_ENTREGUES` contra encomendas levadas a cada estado pelo grafo, com o comprador canónico e a disputa na janela (`test_entregues_do_tenant_com_o_comprador_canonico_e_a_disputa_na_janela`), e uma disputa fora dela não marca (`test_uma_disputa_depois_da_janela_nao_marca_o_pedido`). **O que não está garantido é a origem do facto**: o `entrega_confirmada_por = 'cliente'` e o `entregue_at` escreve-os quem transita a encomenda (`../services/com/src/orders/transition.ts` aceita qualquer `entregaConfirmadaPor`, e o `kamba_app` tem `UPDATE` nas duas colunas), pelo que um dono que marque `cliente` nas suas encomendas passa esta regra. Amarrar o `cliente` ao tipo de actor e o `entregue_at` ao instante da transição é do COM: credor **KAM-204** (EPIC-04), aberto neste PR |
+| 4. Subida ao nível 1 com ≥ 5 pedidos elegíveis em 30 dias de ≥ 3 compradores distintos; recálculo diário e em `order.delivered` | **parcial** | **Medido:** `contar` e `cumpreSubida` (5 de 3 sobe, 5 de 2 não, a rajada um por comprador e dia de Luanda) e o ciclo `0 → 1` sobre o repositório em memória. **O recálculo diário e em `order.delivered` não existe**: **KAM-203** |
+| 5. Descida automática ao 0 por disputa aceite, sinal alto ou sanção; uma descida não se reverte sem nova elegibilidade completa | **parcial** | **Medido:** o `decidirNivel` desce por cada uma das três (`o sinal alto e a sancao descem do 1…`, o ciclo com a disputa), e os pedidos só contam depois do marco — o início do nível ou o último facto negativo (`uma descida nao se reverte sem nova elegibilidade completa`); os dois factos lêem-se pelo `SQL_FACTOS_NEGATIVOS`, o sinal pelo `criado_at`. A sanção já baixa o tecto na guarda antes do recálculo. **«Automática» pede o processo**: **KAM-203** |
+| 6. `assertWithinTrustCeiling` chamado pelo `ManualProvider.createCharge` e exposto a futuros `PaymentProvider`; efectivo = `min(tecto_pedido_minor, manual_max_minor)`; acima recusa com mensagem fixa sem números | **marcada** | A guarda é `GuardaDeConfianca` (a porta `GuardaDoTecto`, obrigatória no `ManualProvider`), chamada depois do `manual_max_minor` (`o ManualProvider chama a guarda: efectivo = min(...)`); `tectoEfectivoManual` mede o mínimo; a `MENSAGEM_ACIMA_DO_TECTO` não tem dígitos (`a mensagem e fixa e nao tem numeros`). Exposta pela porta `GuardaDoTecto`: os adaptadores do ProxyPay ainda não a chamam, e para eles a barreira é o *trigger* da cobrança, que vale para qualquer facilitador (`test_o_tecto_e_do_pedido_e_nao_da_cobranca`) |
+| 7. O tenant não altera o próprio tecto por nenhuma API (403); toda a alteração grava `audit_log` com motivo e actor | **parcial** | **Medido:** o `kamba_app` não tem `INSERT`, `UPDATE` nem `DELETE` em `trust_level` e não lê o motivo — `42501` (`test_a_aplicacao_nao_escreve_nem_le_o_motivo`, adversarial (f)); nenhuma rota escreve o tecto, pelo que não há 403 a medir. Cada alteração escreve `trust.tecto` com o actor (`system` ou `staff`) e o *hash* do nível, tecto, motivo e versão; a repetição não escreve (`test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`). **Duas faltas**: o **alerta** do adversarial (f) — não há tentativa que o produza, porque a base recusa antes; credor: **KAM-203**, que o liga à recusa `42501` —, e o nascimento pelo superutilizador, que a revisão não audita, pela razão escrita nela |
+| 8. Tabela de limites com `origem = proposta` e `calibrado_em`; relatório do Piloto compara o previsto com o observado | **parcial** | **Medido:** cada valor da configuração guarda `origem` e `calibradoEm`, e a `tabelaDeLimites` devolve as oito linhas, todas `proposta` (`a tabela de limites diz a origem e o calibrado_em de cada valor`). **O relatório não existe**: precisa de dados do Piloto. Credor: **Responsável de Produto** |
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos; suite adversarial (a)–(g) verde | **parcial** | Verdes: (a) auto-compra, (b) comprador único, (c) rajada, (d) disputa na janela, (e) sinal ausente, (g) 50 000,01 Kz no nível 0 (na guarda e na base). (f) recusado pela base, **sem o alerta** (credor: **KAM-203**). Sete critérios parciais, cada um com a parte que falta |
+| 2. Idempotência do recálculo e da subida (ADR-013) | **marcada** | `idempotente: reexecutar o recalculo nao escreve outra vez` (uma escrita em três corridas) e, na base, o `SQL_DEFINIR_NIVEL` que não reescreve uma linha igual nem escreve no `audit_log` |
+| 3. Nenhum caminho marca `paga` nem altera o ledger; plataforma sem fundos; `payout` intacto | **marcada** | O módulo não escreve em `payment_*` nem em `orders_mirror`; o *trigger* da cobrança só recusa. O `tecto_pedido_minor` está no `EM_UNIDADE_MENOR` do `test_catalogo` com a razão pela qual não é saldo |
+| 4. Alterações auditadas e imutáveis; RLS `FORCE` e teste cruzado (ADR-015); dois revisores (dinheiro) | **parcial** | Auditadas pelo *trigger* (com a excepção do superutilizador, escrita na revisão); RLS ligada e forçada; o teste cruzado pela aplicação (`test_a_aplicacao_le_so_o_tecto_do_seu_tenant`, `test_o_tecto_de_b_nao_vale_para_a`) e sobre o repositório. **Dois revisores: devolvida**, pela decisão do fundador de uma revisão adversarial por ticket |
+| 5. Limiares *proposta* com plano de calibração no Piloto; migração reversível; sem segredos | **parcial** | Todos *proposta*, com a fonte de cada um; a revisão desce e volta (`TestDowngradeDaConfianca`); sem segredos. **O plano de calibração é uma frase** (no §3.72): calibra-se com os dados do Piloto, que ainda não existem |
+
+#### A revisão adversarial
+
+Um agente que não viu o raciocínio desta entrega reviu o diff e levantou **treze** achados. **Corrigidos, com
+ensaio:** (1) o tecto limitava a **cobrança** e não o **pedido** — uma encomenda de 200 000 Kz cobrava-se em
+quatro tentativas de 50 000, porque a `payment_charges_activa_uq` só cobre os estados activos; o *trigger*
+passou a ler o `total_minor` (`test_o_tecto_e_do_pedido_e_nao_da_cobranca`); (2) o *trigger* novo faltava na
+lista fechada do `test_quinta_via`; (5) o recálculo lia os factos antes de tomar a tranca, e um sinal que
+chegasse a meio ficava para trás de um `desde` posterior — a tranca é agora a primeira coisa
+(`SQL_TRANCAR`); (8) a corrida media cobranças entre os dois tectos e não **no** limite do tecto novo —
+agora o exacto entra e um cêntimo acima não, com a descida a meio; (9) o predicado da janela da disputa não
+tinha ensaio que o matasse (`test_uma_disputa_depois_da_janela_nao_marca_o_pedido`). **Corrigidos no
+texto:** (3) a sanção manda só na guarda e não na base; (4) a confirmação do cliente é declarada por quem
+transita a encomenda, e o critério 3 desceu a parcial; (7) o dicionário dava o recálculo ao KAM-200; (12)
+números de critério errados em comentários; (13) uma transacção por tenant no recálculo, escrito na porta.
+**Ficam, com razão:** (6) a numeração provisória (revisão `0062`, emenda 1.101) colidia com a `main`, e a integração deu-lhe a `0065` e a 1.106;
+(10) a base deixa nascer uma linha num nível acima do 0 — recusá-lo partia as sementes que escrevem o nível
+1 directamente e *committed*, e só o `kamba_batch` escreve; (11) o `actor` é texto que o `kamba_batch`
+escreve, e não há caminho de revisor que o prenda à sessão.
+
+**Apanhado na integração**, pela suite `tests` inteira e não pela revisão: a revisão dava ao `kamba_batch` `SELECT` em três colunas da `contacts` para a cadeia de fusões, e o `kamba_batch` tem `BYPASSRLS` — lia o cofre de identidade de todos os tenants de uma vez, que é o que o `test_kamba_batch_e_kamba_resolver_nao_tocam_no_cofre` recusa. O grant saiu, e os pedidos entregues lêem-se como `kamba_app` no contexto do tenant, como o T&S do KAM-097 já fazia (`RepositorioDeConfiancaSql(lote, aplicacao)`).
 
 ### Handoff para Claude Code
 
@@ -2089,11 +2239,11 @@ Instrumentar as métricas de onboarding, os sinais de churn e a detecção de te
 
 - [ ] Onboarding: o painel mostra, por semana e acumulado, tempo entrada → activo (mediana ≤ 60 min de actividade do dono e ≤ 3 dias de calendário), activações sem intervenção humana (≥ 80%), saga concluída à 1.ª tentativa (≥ 95%, de `provisioning_step`), recursos órfãos (0, da reconciliação nocturna) e fila de excepções (1.ª decisão ≤ 1 dia útil p90, de `review_case`); valores de uma *fixture* de 20 casos batem exactamente com o cálculo à mão.
 - [ ] Sinais de churn calculados 1×/dia por tenant `ativo` (vista `v_churn_signals`, nome *proposta*): 7 dias sem actividade do dono, 14 dias sem `order.created`, canal `desligado` (imediato, de `channel.updated`), falta de pagamento da subscrição há 5 dias e catálogo desactualizado (28 dias sem `price.update` nem `stock.adjust` no `audit_log`, aproximação de H8).
-- [ ] Fronteiras exactas com relógio fixo: 6 d 23 h não dispara e 7 d dispara; cada sinal é emitido 1× por episódio (re-execução idempotente) e fecha-se com a primeira actividade posterior.
+- [x] Fronteiras exactas com relógio fixo: 6 d 23 h não dispara e 7 d dispara; cada sinal é emitido 1× por episódio (re-execução idempotente) e fecha-se com a primeira actividade posterior.
 - [ ] Cada sinal gera alerta P3 com runbook a T2 (sem runbook o alerta é removido, `../docs/tecnica/09` §9.2) e, quando existir KAM-115, aviso ao dono; os alertas são por tenant e não contêm `contact_id`, telefone nem conteúdo.
 - [ ] Tenant dormente (*proposta*): > 60 dias sem actividade do dono, sem pedidos e sem mensagens de clientes nos últimos 30 dias; aviso ao dono 7 dias antes; depois o orçamento da chave virtual LiteLLM (KAM-030) passa a 0 e as automações suspendem-se. Um tenant com mensagens de clientes recentes nunca é posto a zero (teste).
 - [ ] Reactivação: nova actividade do dono repõe o orçamento em ≤ 1 min; com orçamento a 0 o AGR degrada para o modo determinístico (KAM-037) e não deixa o cliente sem resposta; ambas as acções são idempotentes (2 execuções, 1 efeito) e registadas em `audit_log`.
-- [ ] Modo de ensaio: nos primeiros 14 dias do Piloto o job só regista (*dry-run*) e produz a lista de dormentes e de sinais para revisão; os falsos positivos observados entram no registo de calibração dos limiares.
+- [x] Modo de ensaio: nos primeiros 14 dias do Piloto o job só regista (*dry-run*) e produz a lista de dormentes e de sinais para revisão; os falsos positivos observados entram no registo de calibração dos limiares.
 - [ ] O job nocturno termina em ≤ 60 s para 100 tenants (*proposta*); as métricas respeitam a política de logs sem conteúdo (KAM-068) e o acesso aos painéis é por papel.
 
 ### Detalhes Técnicos
@@ -2113,11 +2263,61 @@ Instrumentar as métricas de onboarding, os sinais de churn e a detecção de te
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar.
-- [ ] **Isolamento de tenant** — vistas com RLS ou funções com `tenant_id` do contexto; teste cruzado.
-- [ ] **Idempotência** — job e acções sobre o orçamento com teste de repetição.
-- [ ] **Privacidade** — métricas por tenant, sem `contact_id`, telefone nem conteúdo.
+- [x] **Isolamento de tenant** — vistas com RLS ou funções com `tenant_id` do contexto; teste cruzado.
+- [x] **Idempotência** — job e acções sobre o orçamento com teste de repetição.
+- [x] **Privacidade** — métricas por tenant, sem `contact_id`, telefone nem conteúdo.
 - [ ] **Custo e observabilidade** — métricas e alertas nascem com o código (ADR-018); limiares em `config/kpis.yaml`, revistos no fim do Piloto.
-- [ ] **Migrações reversíveis** — `downgrade` testado; documentação (`docs/kpis.md`, runbook `docs/runbooks/churn.md`).
+- [x] **Migrações reversíveis** — `downgrade` testado; documentação (`docs/kpis.md`, runbook `docs/runbooks/churn.md`).
+
+### Verificação dos Critérios de Aceitação
+
+A entrega é a revisão `0063_kpis_de_churn.py` (sobre a `0062` da régua de cobrança do KAM-058), o módulo `../libs/py-core/src/kamba_core/kpis/` (o *job* `churn-daily`, os limiares e as três métricas), os limiares em `../config/kpis.yaml`, dois painéis em `../ops/paineis/`, o `../docs/kpis.md` e o esboço `../docs/runbooks/churn.md`. Os ensaios são o `../db/tests/test_kpis_churn_schema.py` (gate 8, PostgreSQL) e o `../libs/py-core/tests/test_kpis.py` (gate 4).
+
+**Três desvios ao texto do bloco, todos medidos antes de escrever.** (1) O *job* é Python sobre o `kamba_batch`, como a purga do KAM-071, e não BullMQ: não há agendador no repositório para nenhum dos dois, e o SQL corre melhor perto da base. (2) As fontes são as tabelas e não os eventos: o canal lê a `tenant_channels.estado` (o `channel.updated` não traz o estado), o pagamento lê a `billing_cycles` (o `payment.confirmed` não existe para um ciclo de subscrição desde a `0035`), e os pedidos a `orders_mirror`. (3) A `v_onboarding_kpis` do KAM-092 é **lida** pela vista semanal e não alterada: acrescentar-lhe colunas obrigava a descida a recriá-la e à agregada.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Painel de onboarding por semana e acumulado, com recursos órfãos e fila; *fixture* de 20 casos exacta | **parcial** | A `v_onboarding_kpis_semanal` dá, por semana de activação em Luanda e acumulado (`GROUPING SETS`), a mediana dos minutos do dono e dos dias de calendário, a razão sem intervenção humana, a saga à 1.ª tentativa e a fila de excepções (`fila_no_sla_ratio` sobre a `v_review_sla`, cujo prazo já é de um dia útil). O `TestSemanal.test_vinte_casos_batem_com_o_calculo_a_mao` compara as três linhas com um oráculo feito em Python sobre a *fixture* (`statistics.median`), sem ler o alvo. **Falta:** os recursos órfãos — a reconciliação do KAM-091 só os conta num *gauge* em memória (`saga_orfaos`), e nenhuma tabela os guarda (credor KAM-091). O painel é JSON versionado; o Grafana não corre (KAM-080) |
+| 2. Sinais calculados 1×/dia por tenant `ativo`, vista `v_churn_signals`, os cinco sinais | **parcial** | `platform.churn_sinais(agora, limiares)` calcula os cinco sinais para todo o tenant `ativo`, e a `v_churn_signals` mostra os abertos; um ensaio por sinal no `TestFronteiras`. **Falta:** o «1×/dia» — o `executar` existe e nada o agenda (credor KAM-078, o mesmo da purga) |
+| 3. Fronteiras com relógio fixo; 1× por episódio; fecha com a primeira actividade | **satisfeito** | `test_dono_seis_dias_e_vinte_e_tres_horas_nao_sete_dias_sim`, `test_pedidos_catorze_dias`, `test_catalogo_vinte_e_oito_dias_e_a_actualizacao_o_fecha`, `test_pagamento_cinco_dias_de_calendario_de_luanda`, `test_dormente_aviso_aos_cinquenta_e_tres_e_pleno_depois_dos_sessenta`; `test_duas_corridas_um_episodio_e_o_fecho_com_a_primeira_actividade` (duas corridas, um episódio; fecha no instante da corrida seguinte à actividade). O índice único parcial é a rede, e uma mutação que o tira morre |
+| 4. Alerta P3 com runbook a T2, por tenant, sem PII | **parcial** | O alerta por tenant é a linha aberta da `v_churn_signals` (sem contacto, telefone nem conteúdo, `test_as_vistas_nao_tem_colunas_de_pessoa`), com o esboço `../docs/runbooks/churn.md` a T2. **Falta:** uma regra Prometheus agregada — as métricas não têm processo que as sirva, e a entrada está em `regras_por_escrever` do catálogo; o aviso ao dono é do KAM-115 |
+| 5. Dormente > 60 d, aviso 7 d antes, orçamento a 0, automações suspensas; clientes recentes nunca a zero | **parcial** | A marca abre aos 53 dias e é plena acima de 60; o aviso sai pela porta `AvisoAoDono` e o orçamento só vai a zero sete dias depois de ele ter saído, uma vez — a base recusa o zero sem aviso, e sem porta nada vai a zero (`test_sem_porta_de_aviso_nada_vai_a_zero`) (`test_o_dormente_e_zerado_depois_do_aviso_uma_vez_e_reposto_uma_vez`). `test_com_mensagens_de_clientes_recentes_nunca_e_posto_a_zero` e `test_clientes_ou_pedidos_na_janela_tiram_a_marca`; a guarda repete-se dentro da transacção que zera. **Falta:** a porta real do LiteLLM (o `OrcamentoLlm` só tem o duplo; credor KAM-030), a porta real do aviso (KAM-115) e a suspensão das automações: os lembretes do KAM-048 continuam a sair, e suspendê-los é decisão de produto |
+| 6. Reactivação ≤ 1 min; AGR determinístico com orçamento a 0; idempotente e no `audit_log` | **parcial** | O `reactivar` repõe, fecha o episódio e escreve `llm.orcamento_reposto`; duas execuções, um efeito (o mesmo ensaio do critério 5). O ensaio de integração da degradação não se acrescentou: o comportamento é o do KAM-037 e está medido lá. Com o orçamento a 0 o LiteLLM responde `budget_exceeded` e o AGR já degrada com o motivo `budget` (KAM-037, `../services/agr/tests/test_degradacao.py`). **Falta:** o «≤ 1 min» depende de um agendador que chame o `reactivar` a cada minuto (KAM-078) |
+| 7. Modo de ensaio nos primeiros 14 dias; lista para revisão; registo de calibração | **satisfeito** | `Execucao.ensaio` (sem início do Piloto, ou nos primeiros `modo_ensaio_dias`); `test_em_ensaio_regista_e_nao_zera` e `TestEnsaio`. A lista é o `Relatorio.sinais` e os episódios marcados `ensaio`; o registo de calibração é o §5 do `../docs/kpis.md` |
+| 8. ≤ 60 s para 100 tenants; métricas sem conteúdo; painéis por papel | **parcial** | `test_cem_tenants_em_menos_de_sessenta_segundos`; a primeira versão levou 161 s, todos de idas e voltas à base, e abrir e fechar episódios passou a uma instrução cada. As três métricas não têm etiqueta de tenant (`test_nenhuma_etiqueta_e_um_identificador`, `test_as_metricas_publicam_sem_tenant`); o `kamba_app` não lê nenhuma das vistas (`test_a_aplicacao_nao_le_nada`). **Falta:** um papel só de leitura para os painéis — entre tenants só o `kamba_batch` lê, e tem escrita a mais para credencial de Grafana (KAM-080) |
+
+#### O que a revisão adversarial mudou
+
+Um agente que não viu o raciocínio desta entrega reviu a árvore com o diff inteiro e levantou **onze** achados. Verificados contra o código, mudaram isto:
+
+- **Zerava-se sem aviso.** O bloco põe o aviso ao dono antes do zero, e não havia aviso nenhum: um dormente aberto em ensaio ia a zero no 15.º dia. Agora há uma porta `AvisoAoDono` e uma coluna `avisado_at`, a base recusa um orçamento zerado sem ela, e sem a porta do KAM-115 **nada vai a zero**.
+- **Uma falha depois da porta deixava o orçamento a zero sem rasto.** Se a marca ou o `COMMIT` falham depois de a porta ter zerado, o *job* repõe logo. A morte do processo entre os dois fica como atalho escrito no código.
+- **O ensaio dos clientes recentes passava pela razão errada:** a mensagem era posterior a todas as corridas, e a guarda do *job* não tinha limite superior. A guarda passou a ser a janela (início e agora), o ensaio corre depois da mensagem, e a ligação roteirizada decide pela janela e não pelo tenant.
+- **Sair de `ativo` repunha o orçamento**, e a volta de `restrito` reiniciava os relógios. A reposição exige actividade do dono ou o tenant ainda `ativo`, e o piso da actividade é a **primeira** entrada em `ativo`.
+- **A fila contava como a tempo uma primeira decisão tardia de um caso em recurso**, porque o recurso reescreve o `sla_due_at`. Os casos em recurso saem da razão.
+- **A métrica de dormentes e a vista contavam coisas diferentes.** Contam agora o mesmo: a marca, com a fase de aviso.
+- **A semana de Luanda não estava medida:** uma activação de domingo às 23:30 UTC entrou na *fixture*, e três mutações novas (a semana em UTC, os sinais fora de `ativo`, o zero sem aviso).
+- **A prosa dizia que o `kamba_audit` lia os painéis**, e ele não lê a vista semanal nem vê os tenants sem contexto. O papel de leitura entre tenants é só o `kamba_batch`, e um papel só de leitura fica com o KAM-080. Também: os lembretes do KAM-048 existem e não se suspendem, e o `config/kpis.yaml` citava uma variável que ninguém lia.
+
+**Plausível, e fechado na integração:** o domínio do `audit_log.action` está escrito sobre o da `0048`, e uma revisão que lhe acrescentasse uma acção por baixo desta perdia-a. Na integração mediu-se a `main`: nenhuma revisão depois da `0048` mexe no domínio (a `0062` que ficou por baixo é a da régua de cobrança, e não lhe toca), e as dezasseis do `test_auditoria` são as da subida. Quem acrescentar acções depois junta-as a estas. **Morto:** nenhum achado de PII nem de conflito de nomes no `plpgsql`.
+
+#### O que este ticket tocou que não era dele, e porquê
+
+- **O domínio do `audit_log.action`** passa a dezasseis, com as duas acções do critério 6, pela mesma extensão por migração da `0048` (recusa da descida com linhas escritas, entrada no `../ci/canon-lint.yaml`).
+- **As listas fechadas do gate 8 e do gate 6:** o `base.py` (a cadeia passa a derivar do topo novo), o inventário, os privilégios, o catálogo, as accões da auditoria, a política de retenção (`SEM_DADOS_PESSOAIS`, versão `2026-11-17.1`), as listas do X-05 e a isenção de receita do isolamento (pela razão da lista de espera: sem texto livre para o canário).
+- **O inventário do `obs_lint`** e as quatro superfícies de prosa: 29 módulos, 152 nomes, 154 declaradas.
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Todos os Critérios de Aceitação satisfeitos | **vazia** | Dois satisfeitos e seis parciais, na tabela acima |
+| 2. Revisto por ≥ 1 revisor; testes verdes; cobertura | **parcial** | Uma revisão adversarial por um agente que não viu o raciocínio (acima). Os ensaios do ticket verdes localmente; o gate 8 inteiro fica vermelho no CI até a `0062` fundir, porque a cadeia não a tem |
+| 3. Isolamento de tenant | **satisfeito** | RLS `FORCE` na tabela, vistas `security_invoker`; `test_os_sinais_de_a_nao_afectam_b` corre o *job* sobre A e B e lê pela auditoria com o contexto de B |
+| 4. Idempotência | **satisfeito** | Duas corridas, um episódio; duas execuções de zerar e de repor, um efeito |
+| 5. Privacidade | **satisfeito** | Nenhuma coluna de pessoa nas três vistas; métricas sem etiqueta de tenant; o `payload_hash` das acções resume a acção, o tenant e o instante |
+| 6. Custo e observabilidade | **parcial** | As métricas e os limiares nascem com o código; o alerta agregado não, por falta de processo que sirva as métricas |
+| 7. Migrações reversíveis; documentação | **satisfeito** | `TestDowngradeDosKpis.test_desce_e_volta`, pelo número lido da revisão e sem exigir a cabeça; `../docs/kpis.md` e `../docs/runbooks/churn.md` |
 
 ### Handoff para Claude Code
 
@@ -2631,7 +2831,7 @@ Testes: unidade, integração, isolamento e adversarial.
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-196 |
-| Bloqueia | KAM-092 |
+| Bloqueia | KAM-092, KAM-202, KAM-203 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com SRE |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-089, KAM-196 e KAM-091), `02_Dicionario_de_Dados_Canonico.md` (§3.61), `../docs/revisao.md`, `../docs/observabilidade.md` |
 
@@ -2813,6 +3013,78 @@ Testes: integração, isolamento e o anel de tenants.
 
 ---
 
+## KAM-203 — Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | M |
+| Dependências | KAM-096, KAM-198 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (GOV), com o Engenheiro de Pagamentos |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-096, KAM-097 e KAM-198), `02_Dicionario_de_Dados_Canonico.md` (§3.75), `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1, §9) |
+
+### Contexto
+
+O KAM-096 pôs na base o nível de confiança de cada tenant (`platform.trust_level`) e a barreira que recusa
+uma cobrança de encomenda acima do tecto, e em TypeScript o recálculo que decide subir ou descer
+(`ServicoDeConfianca.recalcular`, `../packages/core-ts/src/confianca/`), idempotente e a correr como
+`kamba_batch`. **Ninguém o chama ainda.** Sem isso, um tenant aprovado não nasce no nível 0 — e sem nível
+nenhuma cobrança de encomenda entra —, nenhum sobe por histórico, e uma disputa aceite ou um sinal alto não
+descem o tecto na base (a sanção do KAM-097 só pesa na guarda do `ManualProvider`). Este ticket é o credor
+das caixas 2, 4 e 5 do KAM-096 e do alerta que falta à caixa 7 (o adversarial (f)), e nasce no PR que as devolve. O KAM-200 diz por escrito que o tecto não é
+dele.
+
+### Objectivo
+
+O recálculo da confiança a correr em `prod`: todos os dias para cada tenant activo, em cada
+`order.delivered` e na aprovação do tenant, com a sanção do KAM-097 a chegar à base sem esperar pelo dia
+seguinte.
+
+### Critérios de Aceitação
+
+- [ ] O processo de lote do onboarding (KAM-198) corre o `recalcular` uma vez por dia para cada tenant com caso aprovado, numa transacção por tenant em `READ COMMITTED`, como `kamba_batch`; cada corrida fica no `audit_log` (`batch.run`).
+- [ ] Um consumidor do `order.delivered`, declarado em `platform.evt_subscricoes`, corre o `recalcular` do tenant do evento, idempotente na reentrega.
+- [ ] A aprovação do tenant (o `tenant.approved` do KAM-092) corre o `recalcular`, e o tenant nasce no nível 0 antes da primeira cobrança.
+- [ ] Uma sanção `limitacao` ou acima gravada pelo KAM-097 desce o nível na base na mesma transacção, ou o recálculo corre logo a seguir, sem esperar pela volta diária.
+- [ ] O `recalcular` recebe o nome do consumidor de T&S que marca a independência (`events_consumed.consumer`), lido da configuração do processo e não escrito à mão.
+- [ ] Métricas do recálculo (tenants recalculados, subidas e descidas por motivo), sem `tenant_id` nas etiquetas (`OBS-I`).
+- [ ] Uma escrita em `platform.trust_level` recusada a um papel que não é o `kamba_batch` (o `42501` do adversarial (f) do KAM-096) dispara um alerta; a recusa já é da base, e o que falta é vê-la.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (lote), PAY (o tecto), EVT (o consumidor), T&S (a sanção).
+- **Fora deste ticket:** a regra de elegibilidade e a barreira (KAM-096); as sanções e a marca de independência (KAM-097); o consumidor de T&S em si (KAM-200).
+
+### Testes Requeridos
+
+- Integração: o processo contra o PostgreSQL do *gate* 8 sobe um tenant com cinco pedidos elegíveis e desce-o com uma disputa aceite; reexecutar não escreve outra linha no `audit_log`.
+- O `order.delivered` repetido dá um recálculo; o `tenant.approved` deixa o tenant no nível 0.
+- Adversarial: o `kamba_app` tenta mudar o tecto ⇒ `42501` e o alerta dispara.
+- Isolamento: o recálculo de A nunca escreve o nível de B.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 2, 4, 5 e 7 do KAM-096 revistas com a evidência.
+- [ ] Métricas e alertas nascem com o processo; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-203 da KAMBÁ (recálculo da confiança gradual a correr).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-096, KAM-097, KAM-198 e KAM-203), o dicionário §3.75,
+packages/core-ts/src/confianca/ e services/onboarding-web/src/lote/.
+Objectivo: o recalcular diário no processo de lote, num consumidor do order.delivered e na aprovação;
+a sanção a chegar à base sem esperar pelo dia seguinte.
+Regras: uma transacção por tenant, kamba_batch, READ COMMITTED; idempotente; sem tenant_id nas métricas.
+Testes: integração, reentrega, isolamento.
+```
+
+---
+
 ## KAM-201 — Portas do tenant ligadas: aprovação, amostragem e cache do CHR
 
 | Campo | Valor |
@@ -2837,11 +3109,11 @@ As portas do KAM-092 chamadas pelos fluxos que hoje escrevem por fora delas, a a
 
 ### Critérios de Aceitação
 
-- [ ] A decisão `aprovar` (e o recurso aprovado) do `ServicoDeRevisao` passa a `platform.advance_case`, como `kamba_batch` e sob o `app.tenant_id` do caso, e o `tenant.approved` sai uma vez por caso; uma aprovação que o agregador recusa fica como erro visível, não como fase escrita.
-- [ ] Um `k1_ok` no `decidir` do KYC chama o `advance_case('aprovar')` e, quando aprova, o `amostrar` do KAM-089 pelo `ProcessoDeLote.aprovacaoAutomatica` do KAM-198.
-- [ ] Os escritores da `onboarding_case.fase` em TypeScript passam todos pela tabela do `advance_case`, ou ficam nomeados, com a razão, como os que não passam (o critério 6 do KAM-092).
-- [ ] A cache do CHR invalida-se pelo tenant quando chega o `tenant.activated`, por um consumidor declarado em `platform.evt_subscricoes`; antes dele, as mensagens ao número não chegam ao AGR (o critério 7 do KAM-092).
-- [ ] Um consumidor do `tenant.*` perante uma versão desconhecida falha de forma visível (DLQ) — a metade do critério 4 do KAM-092 que é do consumidor.
+- [x] A decisão `aprovar` (e o recurso aprovado) do `ServicoDeRevisao` passa a `platform.advance_case`, como `kamba_batch` e sob o `app.tenant_id` do caso, e o `tenant.approved` sai uma vez por caso; uma aprovação que o agregador recusa fica como erro visível, não como fase escrita.
+- [x] Um `k1_ok` no `decidir` do KYC chama o `advance_case('aprovar')` e, quando aprova, o `amostrar` do KAM-089 pelo `ProcessoDeLote.aprovacaoAutomatica` do KAM-198.
+- [x] Os escritores da `onboarding_case.fase` em TypeScript passam todos pela tabela do `advance_case`, ou ficam nomeados, com a razão, como os que não passam (o critério 6 do KAM-092).
+- [x] A cache do CHR invalida-se pelo tenant quando chega o `tenant.activated`, por um consumidor declarado em `platform.evt_subscricoes`; antes dele, as mensagens ao número não chegam ao AGR (o critério 7 do KAM-092).
+- [x] Um consumidor do `tenant.*` perante uma versão desconhecida falha de forma visível (DLQ) — a metade do critério 4 do KAM-092 que é do consumidor.
 
 ### Detalhes Técnicos
 
@@ -2856,8 +3128,40 @@ As portas do KAM-092 chamadas pelos fluxos que hoje escrevem por fora delas, a a
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; as caixas 4, 6 e 7 do KAM-092 revistas com a evidência.
-- [ ] Sem segredos; dependências fixadas.
+- [x] Critérios de Aceitação satisfeitos; as caixas 4, 6 e 7 do KAM-092 revistas com a evidência.
+- [x] Sem segredos; dependências fixadas.
+
+### Verificação dos Critérios de Aceitação
+
+O código vive em `../packages/core-ts/src/`. A porta da aprovação é o adaptador da fila (`OnboardingsSql.aprovar`, `revisao/sql.ts`); as suas composições são a do KYC (`aprovacaoDoKyc`) e o varrimento do ciclo (`varrerAprovacoes`), as duas em `revisao/entradas.ts` e servidas pelo `ProcessoDeLote` (`../services/onboarding-web/src/lote/processo.ts`). O consumidor do CHR é o `chr/activacao.ts`, com o `invalidarTenant` do `chr/canal.ts`, servido no `../services/worker-canal/src/entrada.ts`. A subscrição dele é a revisão de dados `0061` (sobre a `0060` do KAM-199), declarada em `../registry/chr.yaml`. As baterias contra a base são a `tests_lote` (`../packages/core-ts/tests_bd/lote.bd.test.ts`, dezanove cenários), a `tests_chr` (`../packages/core-ts/tests_bd/chr.bd.test.ts`) e, no gate 8, `../db/tests/test_subscricao_do_chr.py`; as três verdes nesta máquina, sobre a árvore integrada com a `main` em `23b54a3e`. As unitárias estão no gate 4.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. A aprovação da fila passa ao `advance_case`, um `tenant.approved` por caso, e a recusa do agregador é erro visível | **satisfeito** | O `#efeitos` do `ServicoDeRevisao` chama o `aprovar` da porta com o evento que **ele** escolhe (`recurso_aprovado` só num recurso sobre `rejeitado`) e `revisor:<id>` como actor. O adaptador corre o `advance_case` como `kamba_batch` dentro do `comTenant` do caso, trancando o caso antes de perguntar. Contra a base: `a decisão humana aprova pela porta: a fase passa a aprovado e sai um tenant.approved, uma vez`; `o recurso aprovado sai de rejeitado pela porta, e emite uma vez`; e uma rejeição escrita por cima de `aprovado`, com recurso aprovado, não emite o segundo (`ja_aprovado`, `uma rejeição depois de aprovado e um recurso aprovado não emitem um segundo tenant.approved`). A recusa é `AprovacaoEmFaltaError`: sobe a quem decidiu — a consola responde 202 com `aprovacao_em_falta` e o que falta —, a fase fica, e **não** fica na lista do lote; o varrimento aprova quando o aceite chega (`com o aceite em falta a decisão sobe como erro, sem ficar na lista, e o varrimento aprova quando o aceite chega`). O `SQL_MARCAR_FASE` recusa `aprovado` na própria instrução (`o marcarFase não escreve aprovado, nem com o tipo contornado`) |
+| 2. Um `k1_ok` chama o `advance_case('aprovar')` e, quando aprova, o `amostrar` pelo `ProcessoDeLote` | **satisfeito** | O `decidir` do KYC pede a aprovação a cada `k1_ok` e devolve a resposta (`kyc.servico.test.ts`); a porta é obrigatória nas dependências do `ServicoKyc`. A composição de produção é o `aprovacaoDoKyc` do `ProcessoDeLote`, que passa ao `aprovacaoAutomatica` só sem intervenção humana — lida do *payload* do `tenant.approved` emitido, e não de uma segunda pergunta. Contra a base: `um k1_ok aprova pela porta e, sem humano, entra na amostra uma vez`; `um k1_ok com intervenção humana não é amostrado, e com o screening em falta não aprova`. **O `k1_ok` antes do aceite** fica em `kyc_pendente`, e o varrimento aprova-o e amostra-o quando o aceite chega (`um k1_ok antes do aceite fica por aprovar, e o varrimento aprova e amostra quando ele chega`). **E com uma categoria condicional por decidir**, a porta recusa com `revisao`, e a aprovação da categoria chega pelo varrimento (`um k1_ok com um caso de categoria por decidir não aprova, e a aprovação da categoria chega pelo varrimento`). **O que não existe:** um adaptador SQL do `CasosDoKyc`; o `ServicoKyc` não está montado em processo nenhum, e o elo `decidir → porta` mede-se no gate 4 |
+| 3. Os escritores da fase em TypeScript passam pela tabela, ou ficam nomeados com a razão | **satisfeito** | Passa pela tabela: o `aprovado` (critérios 1 e 2). **Nomeados, e porquê:** (a) o `OnboardingsSql.marcarFase` da fila escreve `rejeitado` e `kyc_pendente` por `UPDATE` directo. A fila decide casos abertos em fases que a tabela PA-GOV-6 não cobre (o `FASES_ELEGIVEIS` vai até `activo`, e não há aresta de `aprovado` para `rejeitado`): passá-los pela tabela tornava essas decisões efeitos que falham para sempre, e o que acontece a uma rejeição depois da aprovação é decisão por tomar. A porta não aprova outra vez um tenant já aprovado. (b) O `marcarFase` do KYC (`rejeitado`, `em_revisao`) e o da inscrição (`otp_pendente`, `kyc_pendente`, `abandonado`) **não têm adaptador SQL**: só os duplos em memória, e o `onboarding-web` recusa `prod` por correr sobre eles. Quem escrever esse adaptador tem os pares na tabela (`kyc_fila`, `rejeitar`, `otp_enviado`, `otp_confirmado`, `abandonar`). O `SET fase` do `../packages/core-ts/src/onboarding/consultas.ts` é da `channel_onboarding`, outra tabela |
+| 4. A cache do CHR invalida-se pelo tenant no `tenant.activated`, por um consumidor declarado em `platform.evt_subscricoes` | **satisfeito** | **Declarado:** a revisão de dados `0061` escreve a linha `chr`/`tenant.activated` v1, igual à do `../registry/chr.yaml`. Confrontam-nas o `../services/agr/tests/test_subscricoes_0052.py` e, contra a base, o `../db/tests/test_subscricao_do_chr.py` (sobe, desce e volta a subir com a linha exacta; a descida não toca numa linha alheia do mesmo `consumer`). **Servido:** o processo do CHR levanta os trabalhadores das dezasseis filas `evt.chr.p<n>` com o efeito. **Medido:** `invalidarTenant` esquece os canais do tenant e só esses (`chr.canal.test.ts`). Contra a base, com o evento das portas verdadeiras e o `consumir` do KAM-006 como `kamba_app`: em `onboarding`, e depois com a *cache* velha, a mensagem não chega ao AGR; depois do consumo, a primeira chega sem esperar o TTL, e o canal de outro tenant continua em *cache* (`a activação pelas portas chega ao consumidor do CHR, e a primeira mensagem seguinte chega ao AGR`). **O limite, dito:** cada evento chega a **uma** réplica do processo do CHR; com mais de uma, as outras esperam o TTL, no sentido que falha fechado. |
+| 5. Um consumidor do `tenant.*` perante versão desconhecida falha de forma visível (DLQ) | **satisfeito** | O efeito do CHR conhece só a `v1` e lança `VersaoDaActivacaoError` para tudo o resto. Contra a base, um `tenant.activated` `v2` relança na primeira tentativa e abre a `events_dlq` na sexta, aberta, sem marca de consumo e sem tocar na *cache* (no mesmo ensaio da `tests_chr`). O consumidor do IDX não foi medido |
+
+#### O que a revisão adversarial mudou
+
+Um agente que não viu o raciocínio desta entrega reviu o diff e levantou **dez** achados. Corrigidos os que tinham dentes:
+
+- **O caminho feliz automático nunca aprovava.** Um `k1_ok` antes do aceite ficava em `kyc_pendente`, e uma categoria aprovada com a fase em `kyc_pendente` não a desbloqueava. Entrou o varrimento do ciclo.
+- **Um recurso sobre uma rejeição posterior à aprovação emitia um segundo `tenant.approved`**, e disparava a saga outra vez. A porta recusa com `ja_aprovado`.
+- **A porta escolhia o evento pela fase que lia**, e um `aprovar` que encontrasse `rejeitado` virava um recurso que ninguém decidiu. O evento passou para quem chama.
+- **Esperar pelo aceite era uma falha perpétua do lote**, que punha a lista a repetir a cada carência. Passou a erro que sobe a quem decidiu, sem marca.
+- **A intervenção humana era uma segunda pergunta**, que podia divergir do evento. Lê-se do *payload* emitido.
+- **O recurso aprovado não se media contra a base**, e um `pg.Client` passava a guarda do conjunto de ligações. Os dois foram corrigidos.
+
+**O que fica, e dito:** um `aprovado` escrito por fora da porta antes deste ticket repete o `55000` na reaplicação, até alguém o corrigir à mão; a *cache* de uma réplica que não recebe o evento; e a docstring da `0058`, já fundida, que ainda diz que ninguém chama as portas.
+
+### Verificação da Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| 1. Critérios satisfeitos; as caixas 4, 6 e 7 do KAM-092 revistas com a evidência | **marcada** | Os cinco critérios satisfeitos. As três caixas do KAM-092 estão revistas no bloco dele e continuam **parciais**, com o que falta em cada uma: a letra da caixa 4 é do fundador, as outras fases da caixa 6 estão nomeadas, e a caixa 7 tem o limite das réplicas. A caixa 7 do KAM-089 deixou de dizer «ninguém chama o `amostrar`» |
+| 2. Sem segredos; dependências fixadas | **marcada** | Nenhuma dependência nova; o `scan_secrets` dos *commits* está limpo |
 
 ### Handoff para Claude Code
 
@@ -2934,3 +3238,7 @@ Testes: integração, a cache do CHR e isolamento.
 | 1.19 | Novembro 2026 | **KAM-097**: secção de verificação no bloco (com a revisão adversarial), e o **KAM-200** acrescentado, no mesmo PR, como credor das caixas que o KAM-097 deixa parciais — o processo do consumidor e das varreduras, as métricas e os alertas de T&S, e as quatro fontes de sinal que faltam. Linhas «Recebido do KAM-097» nos blocos KAM-092, KAM-096 e KAM-190. O EPIC-09 passa a **23** tickets. | Equipa KAMBÁ |
 | 1.20 | Novembro 2026 | KAM-092: entram as duas secções de verificação do bloco dos eventos do tenant — **oito** critérios (cinco satisfeitos, três parciais: a idempotência pela letra e a DLQ, os sub-estados só pela porta e a cache do CHR) e **seis** linhas de DoD (quatro marcadas). E o **KAM-201**, acrescentado no mesmo PR como credor das caixas 4, 6 e 7: ligar ao TypeScript as portas da base, o `amostrar` e a cache do CHR. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | KAM-095: entram as duas secções de verificação do bloco da lista de espera — **seis** critérios satisfeitos e **três** parciais (o aviso real por SMS, credor KAM-116; as métricas servidas, credor KAM-092), e **três** linhas da DoD de cinco. Entregue: o módulo `../packages/core-ts/src/capacidade/` como `CapacityGate` do guia, as quatro rotas `/api/lista/*`, a revisão `0059` (*provisória*) com a `waitlist_entry` e a `onboarding_capacity`, e o dicionário §3.71. O limite real medido fica como caixa devolvida ao **`ext:KAM-102`**. | Equipa KAMBÁ |
+| 1.22 | Novembro 2026 | **KAM-201**, o seguimento do KAM-092 em TypeScript: entram as duas secções de verificação do bloco — **cinco** critérios, todos satisfeitos, e **duas** linhas de DoD —, e as caixas 4, 6 e 7 do KAM-092 e a 7 do KAM-089 revistas com a evidência das baterias `tests_lote` e `tests_chr`. Entregue: o `aprovado` da fila, o `k1_ok` do KYC e um varrimento do ciclo do lote passam pelo `advance_case`; a aprovação automática passa ao `amostrar`; o CHR esquece o tenant na *cache* com o consumidor `chr` do `tenant.activated`, declarado no `registry/chr.yaml` e na revisão de dados `0061`. As três caixas do KAM-092 continuam **parciais**, com o que falta dito em cada uma. | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | KAM-117: entram as duas secções de verificação do bloco dos KPIs de onboarding, churn e dormentes — **dois** critérios satisfeitos e **seis** parciais, com credor (o agendador, a porta do LiteLLM, o aviso ao dono, os recursos órfãos e um papel só de leitura para os painéis); quatro itens da DoD marcados. | Equipa KAMBÁ |
+| 1.24 | Novembro 2026 | KAM-094: entram as duas secções de verificação do bloco do catálogo mínimo e do teste ponta a ponta — **oito** critérios (seis parciais e dois por fazer) e **duas** linhas de DoD de seis. Entregue: o módulo `activacao/` e a revisão `0065` (`conversations.is_test` e `onboarding_smoke`). O que fica por ligar — o observador do teste, a activação no lote, o filtro de `is_test` e a restrição de BD na `offer_terms` — tem credor o **KAM-202** (EPIC-04), que entra no campo «Bloqueia» do bloco, e o KAM-198 também o bloqueia. | Equipa KAMBÁ |
+| 1.25 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas), e a revisão `0065`. O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor é o **KAM-203**, aberto neste PR, porque o KAM-200 diz que o tecto não é dele; o KAM-203 é também o credor do alerta da caixa 7, e o **KAM-204** (EPIC-04) o da caixa 3. O EPIC-09 passa a **25** tickets. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |

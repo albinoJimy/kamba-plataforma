@@ -26,6 +26,7 @@ import { before, describe, it } from "node:test";
 
 import { criarStorageFake } from "../src/storage/index.ts";
 import {
+  AprovacaoEmMemoria,
   CasosEmMemoria,
   CifraAesGcm,
   FilaEmMemoria,
@@ -76,6 +77,7 @@ function montar() {
       ocr: new OcrLocal(new MotorDeGrelha()),
       cifra: new CifraAesGcm(randomBytes(32)),
       fila: new FilaEmMemoria(),
+      aprovacao: new AprovacaoEmMemoria(casos),
       anelDoNif: ANEL,
       relogio,
     }),

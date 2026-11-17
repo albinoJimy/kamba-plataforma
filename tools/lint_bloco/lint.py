@@ -314,10 +314,26 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: em `ec22756c` (o #202 do KAM-092 ja fundido): **130 medidos**, e `130 // 2`
 #: sao 65. Sobe para 65, que serve ate aos 131.
 #:
-#: **O 132.o e o do KAM-072**, medido na arvore integrada com a `publico/main`
-#: em `23b54a3e` (o #203 do KAM-199 ja fundido): **132 medidos**, e `132 // 2`
-#: sao 66. Sobe para 66, que serve ate aos 133.
-MINIMO_DE_BLOCOS_MEDIDOS = 66
+#: **O 132.o e o do KAM-201**, medido na arvore integrada com a `publico/main`
+#: em `23b54a3e` (o #201 do KAM-095 e o #203 do KAM-199 ja fundidos): **132
+#: medidos**, e `132 // 2` sao 66. Sobe para 66, que serve ate aos 133.
+#:
+#: **O 133.o e o do KAM-058**, medido na arvore integrada com a `publico/main`
+#: em `8d507a9d` (o #204 do KAM-201 ja fundido): **133 medidos**, e `133 // 2`
+#: sao 66. Fica em 66, e o 134.o sobe-o para 67.
+#:
+#: **O 134.o e o do KAM-117**, medido na arvore integrada com a `publico/main`
+#: em `8b8f2057` (o #206 do KAM-058 ja fundido): **134 medidos**, e `134 // 2`
+#: sao 67. Sobe para 67, que serve ate aos 135.
+#:
+#: **O 136.o e o do KAM-096**, medido na arvore integrada com a `publico/main`
+#: em `7382be01` (o #207 do KAM-094 ja fundido): **136 medidos**, e `136 // 2`
+#: sao 68. Sobe para 68, que serve ate aos 137.
+#:
+#: **O 137.o e o do KAM-072**, medido na arvore integrada com a `publico/main`
+#: em `1869a0c2` (o #209 do KAM-096 ja fundido): **137 medidos**, e `137 // 2`
+#: sao 68. Fica em 68, e o 138.o sobe-o para 69.
+MINIMO_DE_BLOCOS_MEDIDOS = 68
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

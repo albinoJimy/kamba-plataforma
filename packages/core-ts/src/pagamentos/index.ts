@@ -67,6 +67,17 @@
  *                   cadeias SQL que a suite de base de dados le; e a porta
  *                   `InvoiceProvider`, declarada e sem implementacao (D7)
  *
+ * E, desde o **KAM-058**, a regua de cobranca da assinatura e o processo que a
+ * corre com os dois *jobs* do billing:
+ *
+ *     regua         a configuracao versionada (D+3/D+7/D+10, proposta), o
+ *                   *template* com os numeros da cobranca e o aviso
+ *                   anti-*phishing*, o canal por porta (ops por omissao, D10
+ *                   aberta), a suspensao e a reposicao pelo `transition_tenant`
+ *                   do KAM-092, e as cadeias SQL que a suite de base de dados le
+ *     processo      a guarda de arranque e o agendamento da abertura, da
+ *                   sombra e da regua
+ *
  * E, desde o **KAM-056**, o adaptador ProxyPay, exportado como `proxypay`:
  *
  *     proxypay/     o RPS (referencias, callback HMAC com janela de duas
@@ -423,6 +434,81 @@ export {
   precoEmVigor,
   validadeDaCobranca,
 } from "./billing.ts";
+
+export {
+  ACTOR_DA_REGUA,
+  ACTOR_NO_AUDIT_LOG,
+  AVISO_ANTI_PHISHING,
+  CAMPOS_DO_TEXTO,
+  CANAIS_DA_REGUA,
+  CanalD10Fechado,
+  ConfiguracaoDaReguaInvalida,
+  LIMIAR_DE_SUSPENSOES_POR_DIA,
+  METRICA_PASSOS,
+  METRICA_SUSPENSOES,
+  MOTIVO_DA_REPOSICAO,
+  MOTIVO_DA_SUSPENSAO,
+  MOTIVO_NO_EVENTO,
+  PASSOS_DA_REGUA,
+  REFERENCIA_EXPIRADA,
+  RESULTADOS_DO_PASSO,
+  SEM_REFERENCIA,
+  SQL_REGUA_AUDITAR,
+  SQL_REGUA_CICLOS,
+  SQL_REGUA_COBRANCA,
+  SQL_REGUA_DE_ONDE_VEIO,
+  SQL_REGUA_EMITIR,
+  SQL_REGUA_EM_ATRASO,
+  SQL_REGUA_ESTADO_DO_CICLO,
+  SQL_REGUA_ESTADO_DO_TENANT,
+  SQL_REGUA_GRAVAR_PASSO,
+  SQL_REGUA_LISTA_DE_OPS,
+  SQL_REGUA_PASSO_GRAVADO,
+  SQL_REGUA_POR_REPOR,
+  SQL_REGUA_SUBSCRICAO_REPOSTA,
+  SQL_REGUA_SUBSCRICOES_EM_DIA,
+  SQL_REGUA_SUSPENSA,
+  SQL_REGUA_SUSPENSOES_NO_DIA,
+  SQL_REGUA_TRANCAR,
+  SQL_REGUA_TRANSITAR,
+  TransicaoDeOutroEstado,
+  VERSOES_DA_REGUA,
+  type AccaoDaRegua,
+  type CanalDaRegua,
+  type CobrancaDoCiclo,
+  type MetricasDaRegua,
+  type NotificadorDaRegua,
+  type OpcoesDaRegua,
+  type PassoDaRegua,
+  type PassoFeito,
+  type PedidoDaRegua,
+  type RelatorioDaRegua,
+  type ResultadoDoPasso,
+  type TarefaDeOps,
+  type VersaoDaRegua,
+  accoesDoCiclo,
+  camposDaCobranca,
+  correrRegua,
+  diasDeAvisoPrevio,
+  diasEntre,
+  listaDeOps,
+  mensagemDoPasso,
+  notificadorDeOps,
+  notificadorPeloDono,
+  numerosForaDosCampos,
+  validarVersoes,
+  versaoDoCiclo,
+} from "./regua.ts";
+
+export {
+  INTERVALO_DA_REGUA_MS,
+  ProcessoDaCobranca,
+  type Arranque,
+  type ConfiguracaoDaSombra,
+  type OpcoesDoProcesso,
+  type RelatorioDaVolta,
+  agendar,
+} from "./processo.ts";
 
 export {
   ADAPTADORES_COM_LICENCA_BNA,

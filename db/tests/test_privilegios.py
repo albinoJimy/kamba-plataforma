@@ -1697,6 +1697,96 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: Os passos da regua de cobranca (KAM-058, revisao da regua). **So o lote
+#: escreve, e so `INSERT`**: um passo e um facto, nao se edita nem se apaga, e a
+#: unicidade `(billing_cycle_id, passo)` so vale se ninguem o reescrever. A
+#: auditoria le. O `kamba_app` **nao tem nada**: o painel do dono nao mostra a
+#: regua no Piloto, e um privilegio que ninguem usa e uma superficie. Entra na
+#: matriz de coluna pela mesma razao: um `GRANT UPDATE (resultado)` ao lote
+#: transformava um passo `cancelado` num `notificado` sem rasto.
+ESPERADO_POR_TABELA.update(
+    {
+        "billing_dunning_steps": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: Os episodios de churn e de dormente (KAM-117, revisao dos KPIs de churn).
+#: **So o lote escreve e a auditoria le**: o *job* corre como `kamba_batch` e a
+#: T2 le os sinais pela auditoria; o `kamba_app` nao tem nada. O `UPDATE` e
+#: **por coluna** (ver `COLUNAS_POR_PAPEL`): o fecho, o aviso e as duas marcas
+#: do orcamento, e nunca o sinal, o tenant ou o instante da abertura. **Ninguem
+#: apaga.**
+ESPERADO_POR_TABELA.update(
+    {
+        "churn_signal_episode": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: As tentativas do teste ponta a ponta (KAM-094, revisao do catalogo minimo).
+#: **A aplicacao abre e so o lote fecha**: o `kamba_app` tem `INSERT` **por
+#: coluna** (o caso, o tenant e a janela; ver `COLUNAS_POR_PAPEL`), sem o
+#: `resultado`, que nasce `pendente`; o `kamba_batch` tem `UPDATE` por coluna no
+#: fecho, porque o mesmo passo marca o gate `e2e`, que so o lote escreve.
+#: **Ninguem apaga**.
+ESPERADO_POR_TABELA.update(
+    {
+        "onboarding_smoke": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
+#: O nivel de confianca (KAM-096, revisao da confianca gradual). **So o lote
+#: escreve**, e o `UPDATE` e por coluna (ver `COLUNAS_POR_PAPEL`), sem o
+#: `tenant_id` nem a `currency`. A **aplicacao** le por coluna so o tecto do seu
+#: tenant — e o que o *trigger* `payment_charges_dentro_do_tecto` le quando ela
+#: escreve uma cobranca —, e por isso a matriz de tabela lhe diz vazio. **Sem
+#: `INSERT` nem `UPDATE` para a aplicacao**: o tenant nao muda o proprio tecto
+#: por nenhuma via (criterio 7, adversarial f). Ninguem apaga.
+ESPERADO_POR_TABELA.update(
+    {
+        "trust_level": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2282,9 +2372,37 @@ COLUNAS_POR_PAPEL = {
     # `aprovado_em` — o facto que o *trigger* tira do `fase_at` do caso, e que
     # reescrito saltava a fila (adversarial c) — e o `criado_em`, que e a base
     # do tempo medio de espera do criterio 8.
+    # KAM-096 (revisao da confianca gradual): o lote muda o nivel, o tecto e
+    # quem e porque. **Fora**: o `tenant_id` (a chave) e a `currency`, que e
+    # `AOA` por `CHECK`. As datas estao na lista, mas quem as escreve e o
+    # *trigger* `trust_level_guardar`, que ignora o que o lote mandar.
+    ("kamba_batch", "trust_level", "UPDATE"): {
+        "nivel", "tecto_pedido_minor", "motivo", "actor", "versao_config",
+        "desde", "alterado_em",
+    },
+    # A aplicacao le so o tecto do seu tenant: o motivo, o actor e a versao sao
+    # da T&S e do lote.
+    ("kamba_app", "trust_level", "SELECT"): {
+        "tenant_id", "nivel", "tecto_pedido_minor", "currency",
+    },
     ("kamba_batch", "waitlist_entry", "UPDATE"): {
         "estado", "na_fila_desde", "convite_hash", "convidado_em",
         "convite_expira_em", "tentativas", "concluido_em",
+    },
+    # KAM-117: o *job* fecha o episodio e marca o orcamento. **Fora**: o sinal,
+    # o tenant e o `aberto_at` — reescrever qualquer um mudava de que episodio
+    # se fala, e o indice unico parcial deixava de dizer «um por tenant e sinal».
+    ("kamba_batch", "churn_signal_episode", "UPDATE"): {
+        "fechado_at", "avisado_at", "orcamento_zerado_at", "orcamento_reposto_at",
+    },
+    # KAM-094 (revisao do catalogo minimo): a pagina do dono abre a tentativa
+    # com o caso, o tenant e a janela, e mais nada — **fora** o `resultado`, que
+    # e o que activava a loja se a aplicacao o escrevesse. O lote fecha-a.
+    ("kamba_app", "onboarding_smoke", "INSERT"): {
+        "onboarding_id", "tenant_id", "iniciada_em", "expira_em",
+    },
+    ("kamba_batch", "onboarding_smoke", "UPDATE"): {
+        "resultado", "causa", "fechada_em", "levou_a_fila",
     },
 }
 PRIVILEGIOS_DE_COLUNA =("SELECT", "INSERT", "UPDATE", "REFERENCES")
@@ -2378,6 +2496,19 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # ao lote mudava o limite sem passar pelo dono do esquema.
     "waitlist_entry",
     "onboarding_capacity",
+    # KAM-058: os passos da regua, so `INSERT`. Ver o `ESPERADO_POR_TABELA`.
+    "billing_dunning_steps",
+    # KAM-117: o episodio de churn tem `UPDATE` por coluna para o lote. Um
+    # `GRANT UPDATE (sinal)` a mais era invisivel na matriz de tabela.
+    "churn_signal_episode",
+    # KAM-094: a tentativa do teste tem `INSERT` por coluna para a aplicacao e
+    # `UPDATE` por coluna para o lote. Um `GRANT INSERT (resultado)` a mais era
+    # invisivel na matriz de tabela, e com ele a loja testava-se a si propria.
+    "onboarding_smoke",
+    # KAM-096: o nivel tem `UPDATE` por coluna para o lote e `SELECT` por coluna
+    # para a aplicacao. Um `GRANT UPDATE (tenant_id)` ou um `GRANT SELECT
+    # (motivo)` a aplicacao era invisivel na matriz de tabela.
+    "trust_level",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

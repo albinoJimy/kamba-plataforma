@@ -50,7 +50,7 @@ from typing import Final
 #: A versao desta configuracao. Sobe a cada alteracao de prazo, de mecanismo ou
 #: de tabela, e vai em cada linha do `purge_log`: uma purga que nao diz com que
 #: politica correu nao se audita.
-VERSAO_DA_POLITICA: Final = "2026-11-16.2"
+VERSAO_DA_POLITICA: Final = "2026-11-17.2"
 
 #: O unico estado aceite. Ver a nota do modulo.
 ESTADO_PROPOSTA: Final = "proposta"
@@ -467,6 +467,11 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.onboarding_case", pendencia=_RELACAO),
             # KAM-092. Os gates de activacao vivem com o caso, e saem com ele.
             _t("platform.onboarding_gate", pendencia=_RELACAO),
+            # KAM-094 (revisao do catalogo minimo). As tentativas do teste
+            # ponta a ponta vivem com o caso, que as aponta por FK composta, e
+            # saem com ele. Nenhuma coluna de pessoa: o telefone de onde o dono
+            # mandou o «teste» e o texto da resposta nao se guardam.
+            _t("platform.onboarding_smoke", pendencia=_RELACAO + "; sai com o caso de onboarding"),
             _t(
                 "platform.kyc_check",
                 pendencia=_RELACAO + "; casos mortos: D+30 pelo ServicoKyc.purgar, sem agendador",
@@ -522,6 +527,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.subscriptions": "assinatura do negocio a KAMBA",
     "platform.billing_cycles": "ciclos de facturacao do negocio",
     "platform.commission_accruals": "sombra da comissao: identificadores e valores",
+    # KAM-058: os passos da regua de cobranca. Um ciclo, um passo, um resultado
+    # e um instante; o texto da mensagem nao se guarda.
+    "platform.billing_dunning_steps": "passos da regua de cobranca do negocio",
     # KAM-124: o custo por modulo de entrada. O ledger guarda o tenant, o
     # modulo, quanto custou e a referencia opaca da origem — nunca o contacto
     # nem o conteudo —, e e so de acrescentar (nem o dono o apaga). Os precos
@@ -530,6 +538,12 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     "platform.module_test_prices": "precos de teste dos modulos, iguais para todos",
     # KAM-095: o limite de clientes novos por 7 dias, uma linha da plataforma.
     "platform.onboarding_capacity": "limite de onboarding da plataforma, sem tenant",
+    # KAM-096: o nivel de confianca e o tecto por pedido, uma linha por tenant.
+    # O historico das alteracoes vive no `audit_log` (`trust.tecto`).
+    "platform.trust_level": "nivel e tecto por pedido do tenant: um limite, sem pessoa",
+    # KAM-117: os episodios de churn e de dormente. Um tenant, um sinal de
+    # dominio fechado e instantes; recalculaveis pelo *job* a qualquer altura.
+    "platform.churn_signal_episode": "sinais de churn do negocio: um sinal e instantes",
     "servicos.services": "catalogo de servicos",
     "servicos.resources": "recursos do negocio",
     "servicos.availability_rules": "horarios do negocio",

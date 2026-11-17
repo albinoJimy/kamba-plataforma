@@ -544,6 +544,34 @@ dominios_historicos:
       que a base passa a ter quando se desce, e e essa declaracao que esta
       entrada cobre. O passo de descida recusa-se se houver linhas review.*
       escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
+  - revisao: "db/migrations/versions/0063_kpis_de_churn.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-117"
+    data: "2026-11-16"
+    razao: >-
+      A revisao dos KPIs de churn (KAM-117) acrescenta ao dominio as duas
+      accoes sobre o orcamento LLM de um dormente, llm.orcamento_zerado e
+      llm.orcamento_reposto, e o dicionario §3.2 passa a declarar dezasseis. O
+      upgrade escreve as dezasseis; o downgrade repoe as catorze da 0048, e e
+      essa declaracao que esta entrada cobre. O passo de descida recusa-se se
+      houver linhas llm.orcamento_* escritas, porque o audit_log e append-only e
+      nenhum papel tem DELETE. Renumerar a revisao e mudar tambem o caminho
+      desta entrada.
+  - revisao: "db/migrations/versions/0065_confianca_gradual.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-096"
+    data: "2026-11-17"
+    razao: >-
+      A revisao da confianca gradual (KAM-096) acrescenta ao dominio a accao
+      trust.tecto, cada alteracao do nivel ou do tecto de um tenant, e o
+      dicionario §3.2 passa a declarar dezassete (emenda 1.106). O upgrade
+      escreve as dezassete; o downgrade repoe as dezasseis da 0063 (KAM-117),
+      que e o que a base passa a ter quando se desce, e e essa declaracao que
+      esta entrada cobre. O passo de descida recusa-se se houver linhas
+      trust.tecto escritas, porque o audit_log e append-only e nenhum papel tem
+      DELETE. Renumerar a revisao e mudar tambem o caminho desta entrada.
   - revisao: "db/migrations/versions/0066_rotacao_de_chaves.py"
     tabela: "audit_log"
     coluna: "action"
@@ -551,9 +579,9 @@ dominios_historicos:
     data: "2026-11-17"
     razao: >-
       A 0066 (KAM-072) acrescenta ao dominio as duas accoes do rotador de
-      chaves, e o dicionario §3.2 passa a declarar dezasseis (emenda 1.102). O
-      upgrade escreve as dezasseis; o downgrade repoe as catorze da 0048, que e
-      o que a base passa a ter quando se desce, e e essa declaracao que esta
+      chaves, e o dicionario §3.2 passa a declarar dezanove (emenda 1.107). O
+      upgrade escreve as dezanove; o downgrade repoe as dezassete da 0065
+      (KAM-096), que e o que a base passa a ter quando se desce, e e essa declaracao que esta
       entrada cobre. O passo de descida recusa-se se houver linhas secret.*
       escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
   - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"

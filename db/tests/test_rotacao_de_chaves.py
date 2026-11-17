@@ -34,7 +34,7 @@ from tests.base import (
     em_head,
     exigir_base_descartavel,
 )
-from tests.test_auditoria import CHAVE_DA_PLATAFORMA, _desligar, _religar
+from tests.test_auditoria import ACCOES, CHAVE_DA_PLATAFORMA, _desligar, _religar
 
 RAIZ = Path(__file__).resolve().parents[2]
 AUDITORIA_TS = RAIZ / "packages" / "core-ts" / "src" / "keyring" / "auditoria.ts"
@@ -86,11 +86,14 @@ class TestAccoesDaRotacao(ComBase):
             q.args("seguranca", "secret.export", "meta_app_secret", "k1", _sha("x")),
         )
 
-    def test_o_dominio_tem_as_dezasseis(self) -> None:
+    def test_o_dominio_tem_as_dezanove(self) -> None:
         [(definicao,)] = self.consultar(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'audit_log_action'"
         )
-        for accao in ("secret.rotate", "secret.revoke", "review.recusa", "price.update"):
+        for accao in (
+            "secret.rotate", "secret.revoke", "trust.tecto", "llm.orcamento_zerado",
+            "review.recusa", "price.update",
+        ):
             self.assertIn(f"'{accao}'", definicao)
 
 
@@ -113,10 +116,26 @@ class TestDowngradeDaRotacao(unittest.TestCase):
         self.addCleanup(conexao.close)
         return conexao
 
-    def _tem_as_accoes(self) -> bool:
+    def _definicao(self) -> str:
         c = self._admin().cursor()
         c.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'audit_log_action'")
-        return "secret.rotate" in c.fetchone()[0]
+        return c.fetchone()[0]
+
+    def _tem_as_accoes(self) -> bool:
+        return "secret.rotate" in self._definicao()
+
+    def _e_o_dominio_de_baixo(self) -> None:
+        """Descida feita: o dominio e o da bateria sem as duas do rotador.
+
+        O oraculo e a lista fechada do `test_auditoria.py`, e nao os literais
+        da revisao: uma descida que repusesse o dominio sem uma accao de outro
+        ticket (o `trust.tecto` da `0065`) passava o `_tem_as_accoes`.
+        """
+        definicao = self._definicao()
+        esperadas = [a for a in ACCOES if not a.startswith("secret.")]
+        for accao in esperadas:
+            self.assertIn(f"'{accao}'", definicao)
+        self.assertEqual(definicao.count("'::text"), len(esperadas))
 
     def _cabeca(self, cursor):
         cursor.execute(
@@ -161,7 +180,7 @@ class TestDowngradeDaRotacao(unittest.TestCase):
             conexao.commit()
         alembic_ok("downgrade", abaixo)
         try:
-            self.assertFalse(self._tem_as_accoes())
+            self._e_o_dominio_de_baixo()
         finally:
             alembic_ok("upgrade", "head")
         self.assertTrue(self._tem_as_accoes())

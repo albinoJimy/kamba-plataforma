@@ -328,9 +328,32 @@ REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
 REV_LISTA_DE_ESPERA = _revisao_por_glob("*_lista_de_espera.py")
+#: KAM-058: a revisao da regua de cobranca, pela razao da do Catalogo AI — o
+#: numero e provisorio. O ensaio que a prova e o
+#: `db/tests_pagamentos/test_regua_de_cobranca.py`.
+REV_REGUA = _revisao_por_glob("*_regua_de_cobranca.py")
+#: KAM-058: o motor da regua. So o `tests_bd/regua.bd.test.ts` (suite
+#: `tests_lote`) o corre contra a base.
+REGUA_TS = "packages/core-ts/src/pagamentos/regua.ts"
+#: KAM-117: a revisao dos KPIs de churn, pela razao da do Catalogo AI — o numero
+#: (`0063`) e provisorio. O ensaio que a prova e o
+#: `db/tests/test_kpis_churn_schema.py`.
+REV_KPIS_DE_CHURN = _revisao_por_glob("*_kpis_de_churn.py")
+#: KAM-094: a revisao do catalogo minimo e do teste ponta a ponta, pela razao da
+#: do Catalogo AI — o numero e provisorio. O ensaio que a prova e o
+#: `db/tests/test_catalogo_minimo_schema.py`.
+REV_CATALOGO_MINIMO = _revisao_por_glob("*_catalogo_minimo_e_teste.py")
+#: KAM-094: o SQL das tentativas do teste, que o mesmo ensaio executa.
+ACTIVACAO_SQL = "packages/core-ts/src/activacao/sql.ts"
 #: KAM-095: o adaptador SQL da lista. A tranca vive no `emTransaccao`, e so a
 #: bateria `tests_bd/capacidade.bd.test.ts` (suite `tests_lote`) o corre.
 CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
+#: KAM-096: a revisao da confianca gradual, pela razao da do Catalogo AI — o
+#: numero (`0065`) e da integracao. Os ensaios que a provam sao o
+#: `db/tests/test_confianca_schema.py`, o
+#: `db/tests_pagamentos/test_tecto_de_confianca.py` e o
+#: `db/tests_lote/test_confianca_concorrencia.py`.
+REV_CONFIANCA = _revisao_por_glob("*_confianca_gradual.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -7808,6 +7831,241 @@ MUTACOES = [
      "      await c.query(SQL_TRANCAR);\n",
      "",
      "tests_lote"),
+    # ------------------------------ KAM-096 (revisao da confianca gradual)
+    #
+    # Oito, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_CONFIANCA`), pela razao da do Catalogo AI.
+    #
+    # A cobranca deixa de comparar com o tecto, e 50 000,01 Kz entram no nivel
+    # 0 (adversarial g): `test_adversarial_g_no_limite_entra_e_um_centimo_acima_nao`.
+    ("confianca: a cobranca deixa de ler o tecto", REV_CONFIANCA,
+     "          IF NEW.amount_minor > v_tecto OR coalesce(v_total, 0) > v_tecto THEN\n",
+     "          IF false THEN\n",
+     "tests_pagamentos"),
+    # O tecto volta a limitar a cobranca e nao o pedido, e uma encomenda acima
+    # do tecto cobra-se as prestacoes (achado 1 da revisao adversarial):
+    # `test_o_tecto_e_do_pedido_e_nao_da_cobranca`.
+    ("confianca: o tecto deixa de ler o pedido", REV_CONFIANCA,
+     "          IF NEW.amount_minor > v_tecto OR coalesce(v_total, 0) > v_tecto THEN\n",
+     "          IF NEW.amount_minor > v_tecto THEN\n",
+     "tests_pagamentos"),
+    # Um tenant sem nivel cobra sem limite (criterio 2):
+    # `test_sem_nivel_nenhuma_cobranca_de_encomenda_entra`.
+    ("confianca: sem nivel a cobranca entra", REV_CONFIANCA,
+     "          IF v_tecto IS NULL THEN\n",
+     "          IF false THEN\n",
+     "tests_pagamentos"),
+    # O nivel nasce sem K1: `test_sem_caso_de_onboarding_nao_ha_nivel`.
+    ("confianca: o nivel nasce sem K1", REV_CONFIANCA,
+     "            IF v_caso IS NULL OR 'kyc' = ANY (platform.aprovacao_em_falta(v_caso)) THEN\n",
+     "            IF false THEN\n",
+     "tests"),
+    # Uma descida deixa de ficar no registo (criterio 6):
+    # `test_o_nascimento_e_cada_mudanca_pelo_lote_vao_ao_registo_e_a_repeticao_nao`.
+    ("confianca: a alteracao do tecto nao e auditada", REV_CONFIANCA,
+     "          AFTER INSERT OR UPDATE ON platform.trust_level\n",
+     "          AFTER INSERT ON platform.trust_level\n",
+     "tests"),
+    # O nivel 2 atribui-se no Piloto: `test_o_nivel_2_existe_e_nao_se_atribui_no_piloto`.
+    ("confianca: o nivel 2 atribui-se no Piloto", REV_CONFIANCA,
+     "          CONSTRAINT trust_level_piloto_ck CHECK (nivel < 2),\n",
+     "",
+     "tests"),
+    # A aplicacao muda o proprio tecto (adversarial f):
+    # `test_a_aplicacao_nao_escreve_nem_le_o_motivo`.
+    ("confianca: a aplicacao escreve o tecto", REV_CONFIANCA,
+     '    op.execute("GRANT SELECT ON platform.trust_level TO kamba_audit")\n',
+     '    op.execute("GRANT SELECT ON platform.trust_level TO kamba_audit")\n'
+     '    op.execute("GRANT UPDATE (tecto_pedido_minor) ON platform.trust_level TO kamba_app")\n',
+     "tests"),
+    # A cobranca tranca uma chave que a descida nao toma, deixa de esperar por
+    # ela e passa com o tecto velho:
+    # `test_a_descida_primeiro_as_cobrancas_esperam_e_o_limite_e_o_novo` (suite
+    # `tests_lote`, a unica que pode fazer *commit* da descida).
+    ("confianca: a cobranca tranca a chave errada", REV_CONFIANCA,
+     "          PERFORM pg_advisory_xact_lock_shared(\n",
+     "          PERFORM pg_advisory_xact_lock_shared(0), (\n",
+     "tests_lote"),
+    # ------------------------------ KAM-058 (revisao da regua de cobranca)
+    #
+    # Sete. As quatro da revisao tiram uma barreira que so a base tem, e matam-
+    # nas os ensaios nomeados do `db/tests_pagamentos/test_regua_de_cobranca.py`.
+    # As tres do motor (`REGUA_TS`) tiram uma guarda do `correrRegua`, e matam-
+    # nas os ensaios que correm o motor ou o SQL dele contra a base.
+    #
+    # Dois passos iguais no mesmo ciclo — o criterio 1:
+    # `test_um_passo_por_ciclo`.
+    ("regua: o passo deixa de ser unico por ciclo", REV_REGUA,
+     "          CONSTRAINT billing_dunning_steps_passo_uq UNIQUE (billing_cycle_id, passo),\n",
+     "",
+     "tests_pagamentos"),
+    # O dono da tabela le os passos de todos os tenants:
+    # `test_a_rls_esta_ligada_e_forcada`.
+    ("regua: a tabela perde o FORCE da RLS", REV_REGUA,
+     '    rls.enable_tenant_rls("billing_dunning_steps")\n',
+     '    rls.enable_tenant_rls("billing_dunning_steps")\n'
+     '    op.execute("ALTER TABLE platform.billing_dunning_steps NO FORCE ROW LEVEL SECURITY")\n',
+     "tests_pagamentos"),
+    # O lote reescreve um passo `cancelado` como `notificado`:
+    # `test_o_lote_so_insere_e_a_aplicacao_nada`.
+    ("regua: o lote actualiza passos", REV_REGUA,
+     '"GRANT SELECT, INSERT ON platform.billing_dunning_steps TO kamba_batch"',
+     '"GRANT SELECT, INSERT, UPDATE ON platform.billing_dunning_steps TO kamba_batch"',
+     "tests_pagamentos"),
+    # Um passo que diz ter avisado sem dizer por onde:
+    # `test_so_a_suspensao_suspende_e_so_um_aviso_que_saiu_tem_canal`.
+    ("regua: o canal solta-se do resultado", REV_REGUA,
+     "              CHECK ((canal IS NOT NULL) = (resultado IN ('notificado', 'suspenso'))),\n",
+     "              CHECK (true),\n",
+     "tests_pagamentos"),
+    # A regua deixa de adiar a suspensao de um tenant `restrito` e grava-a como
+    # `sem_transicao`: quando a Meta levantar a restricao com a divida por
+    # pagar, ninguem suspende (criterio 7, achado 7 da revisao adversarial):
+    # `um tenant restrito não é suspenso nem sai do restrito`, que exige que
+    # nada se grave enquanto adia.
+    ("regua: deixa de adiar a suspensao de um restrito", REGUA_TS,
+     '        if (estado === "restrito" || estado === "suspenso") {\n',
+     '        if (estado === "suspenso") {\n',
+     "tests_lote"),
+    # Pagar a assinatura levanta uma sancao de T&S que chegou depois da
+    # suspensao da regua (achado 1 da revisao adversarial):
+    # `test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`.
+    ("regua: a reposicao ignora as sancoes de T&S", REGUA_TS,
+     "              AND s.passo IN ('suspensao', 'encerramento')\n",
+     "              AND false\n",
+     "tests_pagamentos"),
+    # A reposicao levanta uma suspensao que nao e dela (uma sancao):
+    # `test_a_reposicao_so_levanta_o_que_a_regua_suspendeu`.
+    ("regua: a reposicao ignora o motivo da suspensao", REGUA_TS,
+     "           ORDER BY l.em DESC LIMIT 1) = $1\n",
+     "           ORDER BY l.em DESC LIMIT 1) IS NOT NULL AND $1::text IS NOT NULL\n",
+     "tests_pagamentos"),
+    # ------------------------------ KAM-117 (revisao dos KPIs de churn)
+    #
+    # Onze, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_KPIS_DE_CHURN`), porque o numero e
+    # provisorio. A suite e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_kpis_churn_schema.py`, com o ensaio nomeado em cada uma.
+    #
+    # Sem RLS, a auditoria com o contexto de B le os episodios de A:
+    # `test_os_sinais_de_a_nao_afectam_b`.
+    ("kpis: os episodios perdem a RLS", REV_KPIS_DE_CHURN,
+     '    rls.enable_tenant_rls("churn_signal_episode")\n',
+     "",
+     "tests"),
+    # A fronteira dos 7 dias passa a estrita, e 7 d deixa de disparar:
+    # `test_dono_seis_dias_e_vinte_e_tres_horas_nao_sete_dias_sim`.
+    ("kpis: sete dias exactos nao disparam", REV_KPIS_DE_CHURN,
+     "           WHERE a.dono_at <= p_agora - make_interval(days => v_dono)\n",
+     "           WHERE a.dono_at < p_agora - make_interval(days => v_dono)\n",
+     "tests"),
+    # Sem o indice unico parcial, dois episodios abertos do mesmo sinal (e o
+    # `ON CONFLICT` do *job* deixa de ter arbitro):
+    # `test_um_episodio_aberto_por_tenant_e_sinal`.
+    ("kpis: dois episodios abertos do mesmo sinal", REV_KPIS_DE_CHURN,
+     '"CREATE UNIQUE INDEX churn_signal_episode_aberto_uq ON {EPISODIOS} "',
+     '"CREATE INDEX churn_signal_episode_aberto_uq ON {EPISODIOS} "',
+     "tests"),
+    # As mensagens de clientes deixam de tirar a marca de dormente:
+    # `test_clientes_ou_pedidos_na_janela_tiram_a_marca`.
+    ("kpis: um tenant com clientes recentes fica dormente", REV_KPIS_DE_CHURN,
+     "             AND coalesce(a.cliente_at, '-infinity') <= p_agora - make_interval(days => v_janela);\n",
+     "             AND true;\n",
+     "tests"),
+    # Um limiar a zero passa, e a funcao devolve sinais em vez de falhar:
+    # `test_um_limiar_invalido_falha_fechado`.
+    ("kpis: o limiar zero e aceite", REV_KPIS_DE_CHURN,
+     "::int <= 0 THEN",
+     "::int < 0 THEN",
+     "tests"),
+    # «> 60 dias» passa a «>= 60»: `test_dormente_aviso_aos_cinquenta_e_tres_e_pleno_depois_dos_sessenta`.
+    ("kpis: o dormente e pleno aos sessenta dias exactos", REV_KPIS_DE_CHURN,
+     "                 a.dono_at < p_agora - make_interval(days => v_dormente) FROM a\n",
+     "                 a.dono_at <= p_agora - make_interval(days => v_dormente) FROM a\n",
+     "tests"),
+    # A aplicacao passa a ler os episodios: `test_a_aplicacao_nao_le_nada`.
+    ("kpis: a aplicacao le os episodios", REV_KPIS_DE_CHURN,
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO {PAPEL_DE_AUDITORIA}")\n',
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO {PAPEL_DE_AUDITORIA}")\n'
+     '    op.execute(f"GRANT SELECT ON {EPISODIOS} TO kamba_app")\n',
+     "tests"),
+    # A semana de activacao passa a ser a de UTC, e a activacao de domingo as
+    # 23:30 UTC (segunda em Luanda) muda de semana:
+    # `test_vinte_casos_batem_com_o_calculo_a_mao`.
+    ("kpis: a semana de activacao em UTC", REV_KPIS_DE_CHURN,
+     "          SELECT date_trunc('week', c.activo_at AT TIME ZONE 'Africa/Luanda')::date AS semana,\n",
+     "          SELECT date_trunc('week', c.activo_at AT TIME ZONE 'UTC')::date AS semana,\n",
+     "tests"),
+    # Um tenant suspenso conta sinais: `test_fora_de_ativo_nao_ha_sinais`.
+    ("kpis: os sinais contam tenants fora de ativo", REV_KPIS_DE_CHURN,
+     "             WHERE tn.estado = 'ativo'\n",
+     "             WHERE tn.estado IS NOT NULL\n",
+     "tests"),
+    # O orcamento vai a zero sem aviso:
+    # `test_as_restricoes_do_orcamento_e_do_fecho`.
+    ("kpis: o orcamento vai a zero sem aviso", REV_KPIS_DE_CHURN,
+     "                   OR (sinal = 'dormente' AND avisado_at IS NOT NULL\n",
+     "                   OR (sinal = 'dormente'\n",
+     "tests"),
+    # O lote reescreve o sinal de um episodio:
+    # `test_o_lote_nao_apaga_nem_reescreve_o_sinal`.
+    ("kpis: o lote reescreve o sinal", REV_KPIS_DE_CHURN,
+     'f"GRANT UPDATE (fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     'f"GRANT UPDATE (sinal, fechado_at, avisado_at, orcamento_zerado_at, orcamento_reposto_at) "',
+     "tests"),
+    # ------------------------------ KAM-094 (revisao do catalogo minimo)
+    #
+    # 9, e cada uma tira uma barreira que so a base tem. O alvo e a
+    # revisao descoberta pelo *glob* (`REV_CATALOGO_MINIMO`), e o modulo que as
+    # tem de matar e o `db/tests/test_catalogo_minimo_schema.py`, com o ensaio
+    # nomeado em cada uma.
+    # A conversa nasce de teste, e sai tudo das metricas: `test_a_coluna_nasce_falsa_e_nao_nula`.
+    ('catalogo minimo: a conversa nasce de teste', REV_CATALOGO_MINIMO,
+     'ADD COLUMN is_test boolean NOT NULL DEFAULT false',
+     'ADD COLUMN is_test boolean NOT NULL DEFAULT true',
+     "tests"),
+    # A aplicacao escreve o resultado da propria tentativa: `test_a_aplicacao_abre_pendente_e_nao_escreve_o_resultado`.
+    ('catalogo minimo: a aplicacao fecha o teste', REV_CATALOGO_MINIMO,
+     '        f"GRANT SELECT, INSERT (onboarding_id, tenant_id, iniciada_em, expira_em) "\n',
+     '        f"GRANT SELECT, INSERT (onboarding_id, tenant_id, iniciada_em, expira_em, resultado, fechada_em) "\n',
+     "tests"),
+    # Uma tentativa fechada muda de resultado: `test_o_lote_fecha_e_a_tentativa_fechada_nao_muda`.
+    ('catalogo minimo: a tentativa fechada muda', REV_CATALOGO_MINIMO,
+     "          IF OLD.resultado <> 'pendente'\n",
+     '          IF false\n',
+     "tests"),
+    # A janela passa dos dez minutos: `test_as_restricoes`.
+    ('catalogo minimo: a janela sem tecto', REV_CATALOGO_MINIMO,
+     "CHECK (expira_em > iniciada_em AND expira_em <= iniciada_em + interval '10 minutes'),",
+     'CHECK (expira_em > iniciada_em),',
+     "tests"),
+    # O dono da tabela le e escreve as tentativas de todos os tenants: `test_rls_forcada_e_b_nao_ve_nem_escreve_a_tentativa_de_a`.
+    ('catalogo minimo: a tentativa perde o FORCE da RLS', REV_CATALOGO_MINIMO,
+     '    rls.enable_tenant_rls("onboarding_smoke")\n',
+     '    rls.enable_tenant_rls("onboarding_smoke")\n    op.execute("ALTER TABLE platform.onboarding_smoke NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # A ida a fila desfaz-se, e o caso volta a contar falhas ja levadas: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    ('catalogo minimo: a ida a fila desfaz-se', REV_CATALOGO_MINIMO,
+     '          IF OLD.levou_a_fila AND NOT NEW.levou_a_fila THEN\n',
+     '          IF false THEN\n',
+     "tests"),
+    # O SQL das falhas seguidas esquece a ida a fila, e a quarta falha abre outro caso: `test_as_falhas_seguidas_recomecam_num_ok_e_na_ida_a_fila`.
+    # Uma conversa criada ja marcada como teste sai das metricas sem passar pelo
+    # teste: `test_a_aplicacao_nao_cria_uma_conversa_ja_marcada`.
+    ('catalogo minimo: a conversa nasce marcada', REV_CATALOGO_MINIMO,
+     '          NEW.is_test := false;\n',
+     '',
+     "tests"),
+    # As pendentes vencidas deixam de contar, e quem so verifica dentro da
+    # janela nunca chega a fila: `test_as_pendentes_vencidas_contam_como_falhas_e_as_vivas_nao`.
+    ('catalogo minimo: as pendentes vencidas nao contam', ACTIVACAO_SQL,
+     "(t.resultado = 'falhou' OR (t.resultado = 'pendente' AND t.expira_em <= $2))",
+     "t.resultado = 'falhou'",
+     "tests"),
+    ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
+     "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
+     "WHERE b.resultado = 'ok')",
+     "tests"),
 ]
 
 

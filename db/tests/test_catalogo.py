@@ -265,6 +265,10 @@ class TestConvencoes(ComBase):
                 "commission_accruals",
                 "price_book",
                 "subscriptions",
+                # KAM-058: os passos da regua de cobranca. `uuid` aleatorio pela
+                # regra geral: a auditoria le-os sob a `tenant_iso`, e um
+                # sequencial dizia-lhe quantos passos a plataforma inteira deu.
+                "billing_dunning_steps",
                 # KAM-092: o registo de estados do tenant. `uuid` aleatorio e
                 # nao o `bigserial` do bloco, pela regra geral: a auditoria le-o
                 # sob a `tenant_iso`, e um sequencial dizia-lhe quantas
@@ -282,6 +286,14 @@ class TestConvencoes(ComBase):
                 # custo a plataforma inteira regista. A ordem e a do
                 # `ocorrido_em`.
                 "module_cost_ledger",
+                # KAM-117: o episodio de churn. `uuid` aleatorio pela regra
+                # geral: a auditoria le-o sob a `tenant_iso`, e um sequencial
+                # dizia-lhe quantos sinais a plataforma inteira abre.
+                "churn_signal_episode",
+                # KAM-094: a tentativa do teste ponta a ponta. `uuid` aleatorio
+                # pela regra geral: o `kamba_app` le-a, e um sequencial dizia-lhe
+                # quantos testes a plataforma inteira corre.
+                "onboarding_smoke",
                 # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
@@ -520,6 +532,9 @@ class TestConvencoes(ComBase):
                 # `uuid` gerada pela regra geral. Entre a auditoria e o
                 # Catalogo AI («au» < «bi» < «ca»).
                 ("billing_cycles", "id", "uuid", "gen_random_uuid()"),
+                # KAM-058 (revisao da regua de cobranca): o passo, `uuid` gerada
+                # pela regra geral («billing_c» < «billing_d» < «billing_o»).
+                ("billing_dunning_steps", "id", "uuid", "gen_random_uuid()"),
                 ("billing_ops_approvals", "id", "uuid", "gen_random_uuid()"),
                 # KAM-049 (revisao do Catalogo AI): a ingestao, `uuid` gerada
                 # pela regra geral. Entre a auditoria e os canais («au» < «ca»
@@ -548,6 +563,8 @@ class TestConvencoes(ComBase):
                 ("channel_coexistence", "id", "uuid", "gen_random_uuid()"),
                 ("channel_onboarding", "id", "uuid", "gen_random_uuid()"),
                 ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
+                # KAM-117: o episodio de churn («cha» < «chu»).
+                ("churn_signal_episode", "id", "uuid", "gen_random_uuid()"),
                 # KAM-115: as duas do aviso ao dono. A posicao e **depois** da
                 # `message_templates` e antes da `tenant_channels`, porque a
                 # lista esta ordenada e 'o' fica entre 'm' e 't'. As duas tem
@@ -753,6 +770,9 @@ class TestConvencoes(ComBase):
                 # o «ultimo valor» do bloco. Depois do caso («_c» < «_g»).
                 ("onboarding_gate", "gate", "text", None),
                 ("onboarding_gate", "onboarding_id", "uuid", None),
+                # KAM-094 (revisao do catalogo minimo): a tentativa do teste,
+                # `uuid` gerada — um caso tem muitas. Depois do gate («_g» < «_s»).
+                ("onboarding_smoke", "id", "uuid", "gen_random_uuid()"),
                 # KAM-044: as cinco das encomendas, e tres formas diferentes.
                 #
                 # O `order_intents` tem chave **natural e composta**,
@@ -916,6 +936,11 @@ class TestConvencoes(ComBase):
                 # referencia por chave estrangeira: o que liga esta linha a de
                 # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
                 ("tool_idempotency", "key", "text", None),
+                # KAM-096 (revisao da confianca gradual): o nivel tem por chave
+                # o proprio tenant, sem omissao — uma linha por tenant, e e a
+                # chave do `ON CONFLICT` do recalculo. Entre as de ferramentas
+                # e as de T&S («too» < «tru» < «ts_»).
+                ("trust_level", "tenant_id", "uuid", None),
                 # KAM-097: as duas de T&S, `uuid` gerada pela regra geral, depois
                 # das de ferramentas («too» < «ts_»).
                 ("ts_sanction", "id", "uuid", "gen_random_uuid()"),
@@ -1202,6 +1227,11 @@ class TestConvencoes(ComBase):
              # `(tenant_id, ocorrido_em DESC)`, e a segunda coluna e por onde
              # se le um historico.
              "channel_quality_log",
+             # KAM-117. O episodio de churn, pela mesma razao: a chave primaria
+             # e o `id` aleatorio. Levou `churn_signal_episode_tenant_idx
+             # (tenant_id, aberto_at)`, e o indice unico parcial dos abertos
+             # tambem comeca pelo `tenant_id`. **Com** FK para `tenants`.
+             "churn_signal_episode",
              # KAM-022. A **quarta** desta classe, e pela mesma razao: a chave
              # primaria e o `id` aleatorio. Levou indice proprio,
              # `(tenant_id, contact_id, purpose, ocorrido_em DESC)`, que e a
@@ -1415,7 +1445,21 @@ class TestConvencoes(ComBase):
              # `onboarding_id`, que nao leva o tenant. Sem FK para `tenants`,
              # pela razao da fila de revisao: o caso tem o tenant pre-alocado.
              # A `onboarding_capacity` nao tem `tenant_id` e nao entra.
-             "waitlist_entry"},
+             "waitlist_entry",
+             # KAM-058 (revisao da regua de cobranca). Pelo indice
+             # `billing_dunning_steps_tenant_idx (tenant_id, executado_at)`, que
+             # e a leitura da lista diaria de ops. Sem FK para `tenants`: a FK
+             # composta para o ciclo ja o prende a um tenant que existe.
+             "billing_dunning_steps",
+             # KAM-094 (revisao do catalogo minimo). Pelo indice
+             # `onboarding_smoke_tenant_idx`: o `onboarding_smoke_caso_idx`
+             # comeca pelo caso. Sem FK para `tenants`, pela razao da lista de
+             # espera: o caso tem o tenant pre-alocado.
+             "onboarding_smoke",
+             # KAM-096 (revisao da confianca gradual). O `tenant_id` **e** a
+             # chave primaria, que e o indice que a serve. **Com** FK para
+             # `tenants`: so tem nivel um tenant que existe.
+             "trust_level"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -1629,6 +1673,11 @@ class TestConvencoes(ComBase):
         ("v_h12", "custo_aoa_minor"),
         ("v_h12", "preco_teste_minor"),
         ("v_h12", "margem_minor"),
+        # KAM-096, o tecto de confianca. **Nao e saldo**: e o valor maximo de
+        # **um** pedido que o tenant pode cobrar no nivel em que esta, um
+        # limite e nao uma quantia de ninguem. Nao se soma no tempo nem a
+        # plataforma detem nada por causa dele (ADR-004).
+        ("trust_level", "tecto_pedido_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -2066,7 +2115,22 @@ class TestConvencoes(ComBase):
         # a `onboarding_case_id_tenant_uq`, pela razao da `0048`: uma entrada
         # nao junta o caso de um com o tenant de outro. A `onboarding_capacity`
         # nao tem FK nenhuma.
-        self.assertEqual(len(linhas), 100)
+        #
+        # **101** desde a revisao da regua de cobranca (KAM-058): a
+        # `billing_dunning_steps_ciclo_fk`, composta `(tenant_id,
+        # billing_cycle_id)` para a `billing_cycles_tenant_id_uq`, pela licao
+        # ISO-58 da `0030`: o passo de um tenant nao aponta para o ciclo de outro.
+        #
+        # **102** desde a revisao dos KPIs de churn (KAM-117): a
+        # `churn_signal_episode_tenant_fk`, simples para `tenants(id)`.
+        #
+        # **103** desde a revisao do catalogo minimo (KAM-094): a
+        # `onboarding_smoke_caso_fk`, composta `(onboarding_id, tenant_id)` para
+        # o caso, pela razao da lista de espera.
+        #
+        # **104** desde a revisao da confianca gradual (KAM-096): a
+        # `trust_level_tenant_fk`, simples para `tenants(id)`.
+        self.assertEqual(len(linhas), 104)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

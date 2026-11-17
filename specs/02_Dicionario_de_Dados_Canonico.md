@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.102 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.107 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -76,7 +76,7 @@ Os documentos técnicos e os epics foram escritos em paralelo e **divergem em no
 | Vertical | No registo (`registry/*.yaml`): `id` ∈ {`vendedor`, `servicos`, `catalogo`, `social`, `orcamento`}. Em `tenant_channels.vertical`: só as de **atendimento** (`vendedor`, `servicos`). A **persona** `dono` é resolvida pelo CHR a partir de `contacts.papel` e agrega os módulos de entrada; os módulos activos de um tenant vivem em `entitlements.modulo` | «persona» usada como sinónimo de vertical | `../docs/tecnica/00 §11` (Terminologia) |
 | Registo de auditoria | `audit_log(id, criado_at, tenant_id, actor_type, actor_id, action, entity, entity_id, turn_id, payload_hash, prev_hash, row_hash)` | — | *proposta* (emenda 1.14, KAM-012). Forma do `../docs/tecnica/08` §6, com **duas** diferenças: a coluna de tempo é `criado_at` e não ts, pelo §2 («sufixo `_at`»); **ts não entra na coluna «Substitui»** porque é nome canónico de campo de *log* no §3.10, e registá-lo aqui criava uma contradição do tipo que a emenda 1.13 acabou de fechar — a divergência é só nesta tabela e diz-se aqui, e o `tenant_id` é **nulável** — as acções de plataforma têm cadeia própria, e é a excepção à regra multi-tenant do §2, declarada em `../ci/rls_exceptions.yaml`. *Append-only*: `REVOKE UPDATE, DELETE, TRUNCATE` **e** um *trigger*, porque o `REVOKE` não prende o dono da tabela (medido) |
 | Ator de uma linha de auditoria | `actor_type` ∈ {`contact`, `owner`, `staff`, `agent`, `system`} | — | *proposta* (emenda 1.14, KAM-012). Do `../docs/tecnica/08` §6 |
-| Acções auditadas | `action` ∈ {`price.update`, `stock.adjust`, `payment.manual_confirm`, `access.conversation`, `batch.run`, `breakglass.open`, `audit.read`, `privacy.dsar_recusado`, `privacy.dsar_rectificado`, `retention.hold_aplicado`, `retention.hold_levantado`, `order.refund_record`, `review.acesso`, `review.recusa`, `secret.rotate`, `secret.revoke`} | — | *proposta* (emenda 1.102, KAM-072: as duas últimas, pela revisão [`0066`](../db/migrations/versions/0066_rotacao_de_chaves.py) — uma versão nova de um segredo passou a actual, e a anterior foi retirada do anel; na cadeia de plataforma, com o identificador do segredo em `entity` e a versão em `entity_id`, nunca o valor nem um resumo dele. São **dezasseis**). *proposta* (emenda 1.86, KAM-089: as duas últimas, pela revisão [`0048`](../db/migrations/versions/0048_fila_de_revisao.py) — cada documento visto e cada operação recusada da fila de revisão, §3.61. São **catorze**). *proposta* (emenda 1.83, KAM-050: a décima segunda, `order.refund_record`, pela revisão `0046` — o registo manual de um reembolso por dono ou ops, que o critério 5 do bloco manda auditar; são **doze**). *proposta* (emenda 1.78, KAM-071: as duas últimas, pela revisão [`0042`](../db/migrations/versions/0042_retencao_e_purga.py) — o *hold* legal vive no registo, §3.55. São **onze**). *proposta* (emenda 1.69, KAM-070: as duas anteriores, pela revisão [`0038`](../db/migrations/versions/0038_direitos_do_titular.py), que é a extensão por migração que esta linha já autorizava; eram **nove**). *proposta* (emenda 1.14, KAM-012) para as sete primeiras. O §6 do `../docs/tecnica/08` dá quatro e reticências; o bloco do KAM-012 fecha em seis e nomeia um sétimo — `audit.read` — no seu último critério, sem o pôr na lista. São **sete**: ler o registo de auditoria é acção auditada, e um domínio que não a contém torna o critério impossível de cumprir. Estende-se por migração |
+| Acções auditadas | `action` ∈ {`price.update`, `stock.adjust`, `payment.manual_confirm`, `access.conversation`, `batch.run`, `breakglass.open`, `audit.read`, `privacy.dsar_recusado`, `privacy.dsar_rectificado`, `retention.hold_aplicado`, `retention.hold_levantado`, `order.refund_record`, `review.acesso`, `review.recusa`, `llm.orcamento_zerado`, `llm.orcamento_reposto`, `trust.tecto`, `secret.rotate`, `secret.revoke`} | — | *proposta* (emenda 1.107, KAM-072: as duas últimas, pela revisão [`0066`](../db/migrations/versions/0066_rotacao_de_chaves.py) — uma versão nova de um segredo passou a actual, e a anterior foi retirada do anel; na cadeia de plataforma, com o identificador do segredo em `entity` e a versão em `entity_id`, nunca o valor nem um resumo dele. São **dezanove**). *proposta* (emenda 1.106, KAM-096: a décima sétima, `trust.tecto`, pela revisão [`0065`](../db/migrations/versions/0065_confianca_gradual.py) — cada alteração do nível ou do tecto de um tenant, §3.75. São **dezassete**). *proposta* (emenda 1.104, KAM-117: as duas últimas, pela revisão dos KPIs de churn — zerar e repor o orçamento LLM de um tenant dormente, §3.73. São **dezasseis**). *proposta* (emenda 1.86, KAM-089: as duas últimas, pela revisão [`0048`](../db/migrations/versions/0048_fila_de_revisao.py) — cada documento visto e cada operação recusada da fila de revisão, §3.61. São **catorze**). *proposta* (emenda 1.83, KAM-050: a décima segunda, `order.refund_record`, pela revisão `0046` — o registo manual de um reembolso por dono ou ops, que o critério 5 do bloco manda auditar; são **doze**). *proposta* (emenda 1.78, KAM-071: as duas últimas, pela revisão [`0042`](../db/migrations/versions/0042_retencao_e_purga.py) — o *hold* legal vive no registo, §3.55. São **onze**). *proposta* (emenda 1.69, KAM-070: as duas anteriores, pela revisão [`0038`](../db/migrations/versions/0038_direitos_do_titular.py), que é a extensão por migração que esta linha já autorizava; eram **nove**). *proposta* (emenda 1.14, KAM-012) para as sete primeiras. O §6 do `../docs/tecnica/08` dá quatro e reticências; o bloco do KAM-012 fecha em seis e nomeia um sétimo — `audit.read` — no seu último critério, sem o pôr na lista. São **sete**: ler o registo de auditoria é acção auditada, e um domínio que não a contém torna o critério impossível de cumprir. Estende-se por migração |
 | Cabeça da cadeia de auditoria | `audit_heads(tenant_id, chave, last_hash)` | — | *proposta* (emenda 1.14, KAM-012). Uma linha por tenant, com `last_hash` igual ao `row_hash` da última linha desse tenant. O `chave` é coluna **gerada** — `coalesce(tenant_id, zero)` — e é o alvo do `ON CONFLICT`, porque uma chave primária recusa `NULL` e a cadeia de plataforma precisa dele (medido contra o PostgreSQL 18.6) |
 | Papel de auditoria | `kamba_audit` — `NOBYPASSRLS`, sem DDL; único com `SELECT` em `audit_log` | — | *proposta* (emenda 1.14, KAM-012). O §3.3 do `../docs/tecnica/08` lista três papéis e a auditoria não tinha nenhum; `kamba_app` escreve e **não lê** |
 
@@ -4526,13 +4526,25 @@ teste ponta a ponta, e não depois deles como diz a tabela do `../docs/tecnica/1
 consumidor do evento é o KAM-094, que é quem faz o catálogo e o teste — esperar por eles era
 esperar pelo próprio consumidor.
 
-**O que esta emenda não decide, e a quem.** Quem chama as duas portas: o `ServicoDeRevisao` ainda
-escreve `aprovado` com um `UPDATE` directo, o `decidir` do KYC não muda a fase num `k1_ok`, e o
-`amostrar` do KAM-089 continua sem chamador — ligá-los é TypeScript sobre suites de outros
-tickets, e fica no bloco do KAM-092 com esse credor. Os eventos das outras arestas do tenant — a
-suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. A invalidação da
-cache do CHR por evento (o CHR já não encaminha um tenant em `onboarding`). O plano e o tecto por
+**O que esta emenda não decide, e a quem.** Os eventos das outras arestas do tenant — a
+suspensão, a reactivação e o encerramento —, porque o `motivo` é texto livre. O plano e o tecto por
 caso — **KAM-109** e **KAM-096**.
+
+**Quem chama as portas (KAM-201).** O `aprovado` do `ServicoDeRevisao`, o `k1_ok` do KYC e um
+varrimento do ciclo do lote passam pelo `advance_case`, como `kamba_batch` sob o `app.tenant_id` do
+caso, com o evento escolhido por quem chama (`aprovar`, ou `recurso_aprovado` num recurso sobre
+`rejeitado`): o adaptador é o `OnboardingsSql.aprovar`, e o `SQL_MARCAR_FASE` recusa `aprovado`.
+Além do agregador, a porta recusa com um caso de revisão que bloqueia por decidir (o screening
+`condicional` não é `bloqueada`, e o agregador não o via) e com o `tenant.approved` já emitido
+(uma fase escrita para trás por fora da porta não volta a aprovar). Com o que falta, nada se
+escreve e o dono não ouve «aprovado»; quem aprova quando a última condição chega — o aceite vem
+depois do KYC — é o varrimento. Uma aprovação sem intervenção humana passa ao `amostrar` do
+KAM-089. As fases `rejeitado` e `kyc_pendente` que a fila escreve continuam por `UPDATE` directo;
+as do KYC e da inscrição não têm adaptador SQL. O CHR esquece o tenant na *cache* com o consumidor
+`chr` do `tenant.activated` (`invalidarTenant`); uma versão que não conhece vai à DLQ, e cada
+evento chega a uma réplica do processo do CHR.
+
+---
 
 ### 3.71 Lista de espera do limite de onboarding: `waitlist_entry`, `onboarding_capacity` e os convites (KAM-095)
 
@@ -4580,6 +4592,148 @@ onboardings — NÃO VERIFICADOS, credor **`ext:KAM-102`**; o valor da linha só
 lista fechada (**KAM-116**) — a porta `AvisoDaLista` só tem o duplo. O adaptador SQL ligado num
 processo que corra em `prod`: o `onboarding-web` corre sobre a lista em memória, como o resto do
 guia, e o processo de lote é onde ela vai (**KAM-092**, que liga esse processo).
+
+### 3.72 Régua de cobrança da assinatura: `billing_dunning_steps` e os passos (KAM-058)
+
+*Emenda 1.103, **proposta**.* Os nomes da régua que cobra a assinatura da KAMBÁ às PMEs
+(`../docs/tecnica/04` §11.2), do módulo [`../packages/core-ts/src/pagamentos/regua.ts`](../packages/core-ts/src/pagamentos/regua.ts)
+e da tabela que a revisão [`0062`](../db/migrations/versions/0062_regua_de_cobranca.py) cria.
+
+**A régua não tem grafo de estados próprio.** Suspende e repõe pela porta de transição do tenant da
+revisão `0058` (KAM-092, §3.70), que devolve falso quando o tenant já está no destino; o evento de
+suspensão e o de reactivação emitem-se na mesma transacção, e só quando a porta devolve verdadeiro.
+**Só suspende um tenant `ativo`**: num `restrito` ou num `suspenso` por outra razão a suspensão
+**espera**, sem se gravar, e vem quando o tenant voltar a `ativo` com a dívida por pagar — uma
+suspensão por cima de um `restrito` seguida de uma reposição a `ativo` apagava a restrição da Meta.
+**Nunca suspende sem aviso prévio**: a suspensão só é devida com o `aviso` notificado há pelo menos
+a diferença entre os dois dias da versão. **Só repõe o que ela suspendeu**: a última transição
+registada do tenant tem de ser a dela, com o motivo `regua_de_cobranca`, e nenhuma sanção de T&S de
+suspensão ou encerramento (§3.68) pode ter chegado depois dela sem recurso provido — o Trust suspende
+sem passar pela porta de transição, e sem esta pergunta pagar a assinatura levantava a sanção.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Passo da régua | `platform.billing_dunning_steps`, **oito** colunas | — | *proposta* (emenda 1.103, KAM-058). `id`, `tenant_id`, `billing_cycle_id`, `passo`, `executado_at`, `resultado`, `canal`, `config_versao`. O DDL do bloco tinha quatro; o `tenant_id` entra pela RLS e pela FK composta para o ciclo, o `canal` e a `config_versao` pelos critérios 4 e 6. `UNIQUE (billing_cycle_id, passo)`: o critério 1. Só o `kamba_batch` escreve, e só insere |
+| Os passos | `billing_dunning_steps.passo` ∈ {`lembrete`, `aviso`, `suspensao`} | «D+3», «D+7», «D+10» | *proposta* (emenda 1.103, KAM-058). Lista **fechada**, **três**. O nome não leva o dia: o dia é configuração, e um passo chamado pelo dia mentia no dia em que o valor mudasse |
+| Resultado de um passo | `billing_dunning_steps.resultado` ∈ {`notificado`, `saltado`, `cancelado`, `suspenso`, `sem_transicao`} | — | *proposta* (emenda 1.103, KAM-058). Lista **fechada**, **cinco**. `saltado`: um motor que esteve em baixo só executa o último passo devido. `cancelado`: o ciclo foi pago ou anulado antes. `suspenso` e `sem_transicao` só na `suspensao`, e o segundo quer dizer que o tenant não estava `ativo` |
+| Canal de um passo | `billing_dunning_steps.canal` ∈ {`ops`, `dono`}, anulável | — | *proposta* (emenda 1.103, KAM-058). Só um aviso que saiu tem canal. **`ops` é a omissão até a D10 fechar**: o passo gravado é a tarefa, e a lista diária de ops lê-se desta tabela, com a mensagem refeita do *ledger*. `dono` exige a referência escrita da decisão D10 |
+| Instante do passo | `billing_dunning_steps.executado_at` | — | *proposta* (emenda 1.103, KAM-058). **Do relógio de quem chama**, pela razão do `owner_notices.criado_at` (§3.25) |
+| Versão da régua | `billing_dunning_steps.config_versao`, e `VERSOES_DA_REGUA` no módulo | — | *proposta* (emenda 1.103, KAM-058). Uma versão vale para os ciclos que **abrem** no dia `validaDe` ou depois (critério 4); mudar um valor acrescenta uma versão e não edita a anterior |
+| Dias da régua | `lembrete` = 3, `aviso` = 7, `suspensao` = 10, em dias civis de Luanda desde a emissão da primeira cobrança do ciclo (o «D+0 referência» do bloco) | — | ***Propostas***, as três, a calibrar no Piloto. O aviso prévio que a lei pede para suspender um serviço pago é INDÍCIO (Art. 16.º da Lei 15/03; a confirmar por parecer) |
+| Motivo da suspensão | `regua_de_cobranca`, no registo de estados do tenant; `regua_de_cobranca_regularizada` na reposição | — | *proposta* (emenda 1.103, KAM-058). É por este motivo que a reposição reconhece o que a régua suspendeu. No *payload* do evento de suspensão o motivo é `falta_de_pagamento`, o do `../docs/tecnica/00` §6.2 |
+| Métricas da régua | `dunning_step_total{passo,resultado}`, `tenants_suspended_by_dunning_total` | — | *proposta* (emenda 1.103, KAM-058). As duas do DoD, contadas por porta (`MetricasDaRegua`), sem identificador em etiqueta. O limiar do alerta, `LIMIAR_DE_SUSPENSOES_POR_DIA` = 5, é ***proposta*** |
+
+**O que esta emenda não decide, e a quem.** O canal da KAMBÁ com o dono — a decisão aberta **D10** —
+e a categoria Meta de um aviso de cobrança, NÃO VERIFICADA (D2, **KAM-101**). O prazo legal de aviso
+prévio — **parecer**. A regra de alerta no Prometheus: a série não é servida por nenhum processo com
+`/metrics` (o processo da cobrança corre em lote), pelo que a contagem do alerta sai no relatório da
+volta e a regra fica com o credor da observabilidade (**KAM-080**).
+
+---
+
+### 3.73 KPIs de onboarding, sinais de churn e tenants dormentes (KAM-117)
+
+*Emenda 1.104, **proposta**.* Os nomes da revisão dos KPIs de churn (a `0063`, sobre a da régua de
+cobrança do KAM-058), do módulo [`../libs/py-core/src/kamba_core/kpis/`](../libs/py-core/src/kamba_core/kpis/__init__.py)
+e do ficheiro de limiares [`../config/kpis.yaml`](../config/kpis.yaml). Materializa as duas vistas que
+o §3.8 já reservava ao KAM-117, e estende a do KAM-092 (§3.70) sem a duplicar: a vista semanal lê-a.
+
+**A regra que nenhuma coluna exprime: «dormente» é uma marca calculada, e não um estado do tenant.**
+Os cinco estados do §3.2 continuam os únicos. O sinal abre-se como episódio quando a condição passa
+a valer e fecha-se na primeira corrida em que deixa de valer; um tenant fora de ativo não tem
+sinais. **Um tenant com mensagens de clientes na janela nunca fica com o orçamento a zero**: a
+condição está na função e repete-se dentro da transacção que zera. Os limiares são todos
+*proposta*, vivem no ficheiro e não no código, e o leitor falha fechado.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Episódio de sinal | `platform.churn_signal_episode`, **nove** colunas | — | *proposta* (emenda 1.104, KAM-117). `id`, `tenant_id`, `sinal`, `aberto_at`, `fechado_at`, `ensaio`, `avisado_at`, `orcamento_zerado_at`, `orcamento_reposto_at`. RLS FORCE pela tenant_iso; um aberto por tenant e sinal (índice único parcial); só o kamba_batch escreve, e só as quatro colunas do fecho, do aviso e do orçamento; ninguém apaga. **Sem aviso não há orçamento a zero**: a base recusa um orçamento zerado sem `avisado_at` |
+| Sinal | `churn_signal_episode.sinal` ∈ {`dono_inactivo`, `sem_pedidos`, `canal_desligado`, `pagamento_em_atraso`, `catalogo_desactualizado`, `dormente`} | — | *proposta* (emenda 1.104, KAM-117). Lista **fechada**, **seis**: os cinco do critério 2 do bloco, pela ordem do docs/tecnica/10 §13, e a marca de dormente |
+| Sinais que valem agora | `platform.churn_sinais`, com o relógio e os limiares | — | *proposta* (emenda 1.104, KAM-117). Devolve tenant, sinal, instante de referência e, no dormente, se é pleno. O relógio e os limiares são parâmetros (relógio fixo nos ensaios); um limiar em falta, nulo, não inteiro ou não positivo levanta 22023 |
+| Última actividade do dono | `platform.churn_dono_at`, por tenant e relógio | — | *proposta* (emenda 1.104, KAM-117). O maior de três: o último echo da app do dono (`channel_coexistence.ultimo_echo_em`), qualquer linha owner do `audit_log` (o painel do KAM-099 escreve price.update e stock.adjust como owner) e, como piso, a primeira entrada em ativo. A origem «painel» vive só no hash do payload e não se separa em SQL |
+| Sinais abertos | `platform.v_churn_signals` | — | *proposta* (§3.8, materializada na emenda 1.104). Tenant, sinal, abertura e ensaio, sem contacto nem conteúdo. Lida pelo lote e pela auditoria |
+| Marca de dormente | `platform.v_tenant_dormente` | — | *proposta* (§3.8, materializada na emenda 1.104). Tenant, abertura (a fase de aviso, aos 53 dias), `avisado_at` (quando o aviso saiu), `orcamento_zerado_at`, `orcamento_a_zero` e ensaio. Inclui a fase de aviso, e a métrica tenants_dormentes conta o mesmo |
+| KPIs de onboarding por semana | `platform.v_onboarding_kpis_semanal` | — | *proposta* (emenda 1.104, KAM-117). Por semana de activação em Africa/Luanda e acumulado (`acumulado` verdadeiro e `semana` nula): casos activados, mediana dos minutos de actividade do dono e dos dias de calendário, razão sem intervenção humana e de saga à primeira tentativa, sobre a `v_onboarding_kpis` (§3.70); e a fila de excepções, sobre a `v_review_sla` (§3.61): casos decididos ou vencidos, sem os que estão em recurso (o recurso reescreve o prazo), e a razão com a primeira decisão até ao prazo, que é de um dia útil enquanto a fila o tiver configurado assim |
+| Acções sobre o orçamento | `llm.orcamento_zerado`, `llm.orcamento_reposto` no `audit_log.action` (§3.2) | — | *proposta* (emenda 1.104, KAM-117). Actor system, entidade o episódio. Zerar só sete dias depois de o aviso ter saído; repor com actividade nova do dono, ou com o episódio fechado e o tenant ainda ativo, mesmo em modo de ensaio. Um tenant que sai de ativo fica a zero |
+| Limiares | `config/kpis.yaml` | — | *proposta* (emenda 1.104, KAM-117). Em dias: 7 sem actividade do dono, 14 sem pedidos, 5 de atraso no pagamento (contados do início do ciclo, que não tem coluna de vencimento), 28 de catálogo, 60 de dormente, 30 de janela de clientes e pedidos, 7 de aviso e 14 de modo de ensaio. Todos a calibrar no Piloto |
+| Métricas dos KPIs | `onboarding_activation_minutes`, `churn_signal{sinal}`, `tenants_dormentes` | — | *proposta* (emenda 1.104, KAM-117). Três gauges sem etiqueta de tenant; o sinal com os cinco valores do critério 2. Declaradas e não servidas: o job de lote não tem rota de métricas |
+
+**O que esta emenda não decide, e a quem.** Os valores dos limiares e a mortalidade de PMEs em
+Angola — NÃO VERIFICADOS, calibram-se no Piloto (registo de calibração em
+[`../docs/kpis.md`](../docs/kpis.md)). O vencimento de um ciclo de billing (**KAM-058**). A porta real
+do orçamento LiteLLM (**KAM-030**), o aviso ao dono (**KAM-115**) e o agendador do job. Os recursos
+órfãos da reconciliação nocturna, que nenhuma tabela guarda (**KAM-091**).
+### 3.74 Catálogo mínimo e teste ponta a ponta: `is_test` e `onboarding_smoke` (KAM-094)
+
+*Emenda 1.105, **proposta**.* Os nomes do último troço antes da activação: o módulo
+[`../packages/core-ts/src/activacao/`](../packages/core-ts/src/activacao/index.ts) e o que a revisão
+[`0064`](../db/migrations/versions/0064_catalogo_minimo_e_teste.py) acrescenta à base. A revisão é
+provisória e encaixa, na integração, depois das que a fila tiver à frente.
+
+**A regra que nenhuma coluna exprime: o teste só passa com os quatro factos dentro da janela, e só o
+lote o dá por passado.** A página do dono abre a tentativa; quem a fecha é o mesmo passo que marca o
+gate `e2e`, e um contexto de tenant que fechasse o próprio teste activava-se a si próprio. **A
+publicação de um produto passa pelo `assertPublishable` em TypeScript**, antes de escrever; a
+restrição da base na `offer_terms` não é desta emenda (KAM-202).
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Conversa de teste | `conversations.is_test`, booleano não nulo, falso por omissão | — | *proposta* (emenda 1.105, KAM-094). A conversa do teste ponta a ponta, fora das métricas, da golden e do Score. **Nasce sempre falsa** (*trigger* `conversations_is_test_nasce_falso`), porque a aplicação insere na tabela inteira; só o lote a marca, por actualização |
+| Tentativa do teste | `platform.onboarding_smoke`, **nove** colunas | — | *proposta* (emenda 1.105, KAM-094). `id`, `onboarding_id`, `tenant_id`, `iniciada_em`, `expira_em`, `resultado`, `causa`, `fechada_em`, `levou_a_fila`. RLS `FORCE` e FK composta para a `onboarding_case`. **A aplicação abre e só o lote fecha**: o `kamba_app` insere o caso, o tenant e a janela; o `kamba_batch` escreve o fecho. Uma tentativa fechada não muda (*trigger* `onboarding_smoke_transicao`). A janela não passa de dez minutos |
+| Resultado de uma tentativa | `onboarding_smoke.resultado` ∈ {`pendente`, `ok`, `falhou`} | — | *proposta* (emenda 1.105, KAM-094). Lista **fechada**, **três** |
+| Causa de um teste falhado | `onboarding_smoke.causa` ∈ {`sem_inbound`, `sem_resposta`, `sem_entrega`, `sem_consentimento`} | — | *proposta* (emenda 1.105, KAM-094). Lista **fechada**, **quatro**, a da porta do bloco e pela ordem em que se verificam. O dono vê uma mensagem genérica, igual para as quatro |
+| Falha que foi à fila | `onboarding_smoke.levou_a_fila` | — | *proposta* (emenda 1.105, KAM-094). Marca a terceira falha seguida, a que abriu o `review_case`; a contagem recomeça depois dela, e a marca não se desfaz |
+| Porta do teste | `SmokeProbe`, com o início e a verificação; remetente ∈ {`owner_assisted`, `prober_number`} | — | *proposta* (emenda 1.105, KAM-094). A interface dos Detalhes Técnicos do bloco, à letra. `owner_assisted` por omissão; `prober_number` recusa sempre, porque a KAMBÁ não tem número operacional (D10) |
+| Limiares da activação | `CATALOGO_MINIMO` = 5, `PRAZO_DO_TESTE_S` = 60, `FALHAS_ATE_A_FILA` = 3 | — | *proposta* (emenda 1.105, KAM-094). Os do bloco; o primeiro é configurável por quem constrói o serviço |
+
+**O que esta emenda não decide, e a quem.** A restrição de BD na publicação da `offer_terms` e o
+caminho de escrita do COM que grave a decisão de screening antes de publicar (**KAM-202**). O
+observador de produção do teste: as tabelas da conversa não guardam o texto do «teste» nem o da
+resposta, e sem eles não se confere a palavra nem a identificação da loja (credor no bloco do
+KAM-094).
+
+### 3.75 Confiança gradual: `trust_level`, o tecto na cobrança e a configuração versionada (KAM-096)
+
+*Emenda 1.106, **proposta**.* Os nomes do nível de confiança de cada tenant, do módulo
+[`../packages/core-ts/src/confianca/`](../packages/core-ts/src/confianca/index.ts) e da revisão
+[`0065`](../db/migrations/versions/0065_confianca_gradual.py). É o credor que o §3.68 (a marca de
+independência e o tecto no nível 0 por uma `limitacao`) e o §3.70 (o `tecto_inicial_minor` do
+`tenant.approved`) deixaram escrito.
+
+**A regra que nenhuma coluna exprime: a barreira é da base, e a guarda do TypeScript é a mensagem.**
+Uma cobrança de **encomenda** cujo pedido (o `total_minor`) ou montante passe o tecto do tenant, ou de um
+tenant sem nível, não entra — o
+*trigger* `payment_charges_dentro_do_tecto` recusa-a na mesma instrução que a escreve, para qualquer
+facilitador. A cobrança de um ciclo de *billing* não lê o tecto: é receita da plataforma, e o tecto
+limita o dano de um registo falso a **vender**. As duas pontas tomam a mesma tranca consultiva da
+transacção, chaveada pelo tenant — a cobrança em modo partilhado, a escrita do nível em exclusivo —,
+pelo que uma descida confirmada nunca é atravessada por uma cobrança que lê o tecto depois dela, e uma
+cobrança em curso faz a descida esperar. **Sem K1 não há nível**: a linha só nasce com o mesmo
+predicado do gate `kyc` do §3.70 (`aprovacao_em_falta`).
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Nível de um tenant | `platform.trust_level`, **nove** colunas | — | *proposta* (emenda 1.106, KAM-096). `tenant_id`, `nivel`, `tecto_pedido_minor`, `currency`, `motivo`, `actor`, `versao_config`, `desde`, `alterado_em`. O DDL do bloco com quatro colunas a mais: a moeda explícita (§2), quem decidiu, a versão da configuração de onde o tecto veio e o instante da última alteração — o tecto muda sem o nível numa recalibração. Uma linha por tenant, RLS `FORCE`. **Só o `kamba_batch` escreve**, por coluna; o `kamba_app` lê só o `tenant_id`, o `nivel`, o `tecto_pedido_minor` e a `currency` do seu tenant, e não escreve nada (critério 6). Ninguém apaga. **Sem a `trust_order_eligibility` do bloco**: a elegibilidade calcula-se a cada recálculo a partir das fontes, e uma segunda cópia do mesmo facto divergia da primeira |
+| Os níveis | `trust_level.nivel` ∈ {0, 1, 2}; o 2 **não se atribui no Piloto** (`trust_level_piloto_ck`) | — | *proposta* (emenda 1.106, KAM-096). Os do critério 1. O 2 é do K2/selo, que é das Clusters; cai com uma revisão |
+| Tecto por pedido | `trust_level.tecto_pedido_minor`, `bigint` positivo, em unidade menor, com a `currency` `AOA` | — | *proposta* (emenda 1.106, KAM-096). **Não é saldo**: é o valor máximo de um pedido (ADR-004, ADR-L008). O critério 1 escreve-o em `entitlements.limites`; fica aqui porque o `registry/plans.yaml` já decidiu que o tecto de **confiança** sobe por histórico e não por plano, e o do plano é o `valor_max_pedido_minor` |
+| Porque está no nível | `trust_level.motivo` ∈ {`k1_completo`, `historico_independente`, `disputa_aceite`, `sinal_alto`, `sancao`, `recalibracao`} | — | *proposta* (emenda 1.106, KAM-096). Lista **fechada**, **seis**: o nascimento, a subida, as três descidas do critério 5 e a mudança só do tecto. Não sai para o dono |
+| Quem decidiu | `trust_level.actor`, `sistema:<versão>` ou `revisor:<id>` | — | *proposta* (emenda 1.106, KAM-096). Forma por `CHECK`. Vai ao `audit_log` como `system` ou `staff` |
+| Desde quando | `trust_level.desde` e `trust_level.alterado_em` | — | *proposta* (emenda 1.106, KAM-096). **Escreve-as o *trigger*** `trust_level_guardar`, e não quem escreve: o `desde` só anda quando o **nível** muda. É o marco a partir do qual os pedidos contam para subir |
+| Barreira da escrita | *trigger* `trust_level_guardar` | — | *proposta* (emenda 1.106, KAM-096). Recusa com 23514 o nascimento sem K1 completo, e a mudança do `tenant_id`; toma a tranca exclusiva |
+| Auditoria | acção `trust.tecto` no `audit_log.action` (§3.2), pelo *trigger* `trust_level_auditado` | — | *proposta* (emenda 1.106, KAM-096). Cada alteração, com o actor da linha; o recálculo que não muda nada não escreve (o `ON CONFLICT ... WHERE`). **O nascimento pelo superutilizador não se audita**: as sementes das suites de base escrevem com ele e *committed*, e uma linha `trust.tecto` tirava a descida a qualquer suite com ensaios de `downgrade`. O superutilizador desliga qualquer *trigger*, pelo que nenhuma auditoria por *trigger* o prende |
+| Barreira da cobrança | *trigger* `payment_charges_dentro_do_tecto` | — | *proposta* (emenda 1.106, KAM-096). `BEFORE INSERT`, `ENABLE ALWAYS`. Recusa com 23514 uma cobrança de encomenda cujo `total_minor` ou montante passe o tecto, ou de um tenant sem nível — o tecto é **por pedido**, e uma encomenda acima dele não se cobra às prestações. Lê só a `trust_level`: a sanção chega-lhe pelo recálculo |
+| A guarda | `assertWithinTrustCeiling(tenantId, amountMinor)`, em `GuardaDeConfianca`; recusa com `ForaDoTectoDeConfiancaError` | — | *proposta* (emenda 1.106, KAM-096). Chamada pelo `ManualProvider.createCharge` depois do `manual_max_minor`: o efectivo é o menor dos dois. Lê o tecto gravado e, com uma `limitacao` ou acima em vigor (§3.68), o do nível 0 — antes de o recálculo gravar a descida. **No limite exacto aceita** |
+| Mensagem ao agente | `MENSAGEM_ACIMA_DO_TECTO` | — | *proposta* (emenda 1.106, KAM-096). Fixa e **sem números**: um número dizia a quem ensaia valores onde está a fronteira |
+| Configuração versionada | `CONFIGURACAO_DA_CONFIANCA`, com `versao` `AAAA-MM-DD.N`; cada valor com `origem` (`proposta` ou `calibrado`) e `calibradoEm` | — | *proposta* (emenda 1.106, KAM-096). Os tectos (50 000, 150 000 e 500 000 Kz) e os patamares — 5 pedidos, 3 compradores distintos, janela móvel de 30 dias, janela anti-fraude de 14, valor mínimo de 10 000 Kz —, **todos *proposta***. A versão vai em cada linha (`versao_config`). A `tabelaDeLimites` devolve-os em linhas, para o relatório do Piloto |
+| Quem conta para subir | `avaliarPedido`, com `MOTIVOS_DE_EXCLUSAO` | — | *proposta* (emenda 1.106, KAM-096). Entregue com confirmação do **cliente**, depois do marco, janela anti-fraude passada sem disputa, amadurecido nos últimos 30 dias, acima do mínimo, e comprador `independente` pelo §3.68 — `por_avaliar` **não conta**. Um por comprador e por dia de Luanda (a rajada); o comprador é o contacto canónico (`merged_into`) |
+| O recálculo | `ServicoDeConfianca.recalcular`, sobre o `decidirNivel` puro | — | *proposta* (emenda 1.106, KAM-096). Idempotente: o mesmo estado decide nada e não escreve. Corre como `kamba_batch`, e lê os pedidos entregues (com a cadeia de fusões da `contacts`) como `kamba_app` no contexto do tenant, como o T&S do KAM-097: o `kamba_batch` não lê o cofre de identidade |
+
+**O que esta emenda não decide, e a quem.** O processo que corre o recálculo todos os dias, em
+`order.delivered` e na aprovação: o módulo não tem agendador nem consumidor, e o KAM-200 diz por escrito
+que o tecto não é dele — o credor é o **KAM-203**. Quem escreve o `entrega_confirmada_por` e o
+`entregue_at` em que a elegibilidade confia, que hoje é quem transita a encomenda (COM) — o credor é o **KAM-204**. O relatório do Piloto que compara o previsto com o observado, que precisa de dados que
+ainda não existem (**Responsável de Produto**, com a `tabelaDeLimites` como fonte do previsto). Os
+valores, que se calibram com o Piloto.
 
 ---
 
@@ -4707,4 +4861,9 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.99 | Novembro 2026 | **Emenda (*proposta*), KAM-092: os eventos do tenant.** Sobre a 1.98 do KAM-124. §3.70 nova: a `onboarding_gate` com os **seis** gates de activação, escrita só pelo lote; a `tenant_state_log` *append-only*; as **oito** arestas do tenant e o `transition_tenant`, que só emite na entrada em `ativo`; a tabela de transições da fase do caso (PA-GOV-6) e o `advance_case`; o agregador `aprovacao_em_falta`; as vistas `v_onboarding_kpis` e `v_onboarding_kpis_agregado`. §3.5: três campos de payload novos (`kyc_nivel`, `tecto_inicial_minor`, `intervencao_humana`), opcionais nos contratos `v1` e `v2` porque um obrigatório novo num `v<N>` publicado é quebrante. Revisão `0058`, sobre a `0057` do KAM-124. | Equipa KAMBÁ |
 | 1.100 | Novembro 2026 | **Emenda (*proposta*), KAM-095: a lista de espera do limite de onboarding.** Sobre a 1.99 do KAM-092. §3.71 nova: a `platform.waitlist_entry` com as suas **onze** colunas e os **cinco** estados, o *trigger* que só deixa entrar casos aprovados e escreve a chave FIFO, o convite de uso único em *hash*, as duas expirações até abandonar, a validade do KYC na reentrada, a `platform.onboarding_capacity` com o limite em vigor e a **origem** (acima de 10 só `confirmado`), a estimativa rotulada, as quatro rotas do dono e as cinco métricas. O §3.21 e o §3.54 passam a apontar para ela. **O que não decide:** o limite real da Meta (`ext:KAM-102`), o texto do SMS do convite (KAM-116) e o processo onde o adaptador SQL corre em `prod` (KAM-092). | Equipa KAMBÁ |
 | 1.101 | Novembro 2026 | **Emenda (*proposta*), KAM-199: a activação do léxico de *dataset* e as decisões da pesquisa no Piloto.** Sobre a 1.100 do KAM-095. §3.62 emendada: a `idx.eval_relatorio` (**onze** colunas, sem `tenant_id`, só aceita um relatório verde pela `eval_relatorio_verde_ck`, guarda os termos que a corrida mediu e não se reescreve), a coluna `termo_canonico.eval_relatorio_id` com a sua FK, e o gatilho `termo_canonico_dataset_medido`, que substitui a `termo_canonico_dataset_inactivo_ck` da emenda 1.87 e só deixa activar uma entrada que o relatório anexado mediu. O §3.59 passa a contar **onze** colunas no `idx.termo_canonico`. O §3.59 (o vector do produto) passa a dizer que o modelo fica para depois do Piloto. Regista as três decisões do fundador de 2026-11-16 (ADR-L012): *eval-gate* em aviso, relatório de *tokens* só do *dataset* sem nada em produção, e Piloto só lexical. **O que não decide:** o modelo do `kamba-embed` (PROP-IDX-4), a coluna da dimensão dele e o conteúdo do léxico, que continua NÃO VERIFICADO. | Equipa KAMBÁ |
-| 1.102 | Novembro 2026 | **Emenda (*proposta*), KAM-072: a rotação de chaves no registo de auditoria.** Sobre a 1.101 do KAM-199. §3.2: o domínio de `action` do `audit_log` passa de catorze a **dezasseis**, com as duas acções do rotador, pela revisão `0066` — rodar uma versão nova e revogar a anterior, na cadeia de plataforma. **O que não decide:** quem corre o rotador contra o cofre real, nem a métrica da idade dos segredos, que não é nome deste dicionário. | Equipa KAMBÁ |
+| 1.102 | Novembro 2026 | **Emenda (*proposta*), KAM-201: quem chama as portas do §3.70.** Sobre a 1.101 do KAM-199. Nenhum nome novo: o §3.70 ganha o parágrafo «Quem chama as portas», que substitui a parte do «O que esta emenda não decide» que dizia que ninguém as chamava. O `aprovado` da fila, o `k1_ok` do KYC e um varrimento do ciclo do lote passam pelo `advance_case`, com o evento de quem chama; a porta recusa com um caso de revisão bloqueante por decidir e com o `tenant.approved` já emitido; e o CHR esquece o tenant na *cache* com o consumidor `chr` do `tenant.activated` (revisão de dados `0061`). | Equipa KAMBÁ |
+| 1.103 | Novembro 2026 | **Emenda (*proposta*), KAM-058: a régua de cobrança da assinatura.** Sobre a 1.102 do KAM-201. §3.72 nova: a `billing_dunning_steps` com as suas **oito** colunas, um passo por ciclo, os três passos, os cinco resultados e os dois canais, a versão da régua, os dias propostos, o motivo da suspensão e as duas métricas do DoD. A régua suspende e repõe pela porta de transição do KAM-092 e não tem grafo próprio. Revisão `0062`, sobre a `0061` do KAM-201. | Equipa KAMBÁ |
+| 1.104 | Novembro 2026 | **Emenda (*proposta*), KAM-117: os KPIs de onboarding, os sinais de churn e os tenants dormentes.** Sobre a 1.103 do KAM-058. §3.73 nova: a `platform.churn_signal_episode` com as suas **nove** colunas e o domínio fechado de **seis** sinais, as funções `platform.churn_sinais` e `platform.churn_dono_at`, as duas vistas que o §3.8 reservava e a vista semanal sobre a do KAM-092, os limiares em ficheiro e as três métricas. §3.2: as duas acções sobre o orçamento LLM no `audit_log.action`, que passa a **dezasseis**. | Equipa KAMBÁ |
+| 1.105 | Novembro 2026 | **Emenda (*proposta*), KAM-094: o catálogo mínimo e o teste ponta a ponta.** Sobre a 1.104 do KAM-117. §3.74 nova: a coluna `conversations.is_test`; a `platform.onboarding_smoke` com as suas **nove** colunas, os **três** resultados e as **quatro** causas; a porta `SmokeProbe` e os três limiares. **O que não decide:** a restrição de BD na publicação e o caminho de escrita do COM (KAM-202), e o observador de produção do teste. | Equipa KAMBÁ |
+| 1.106 | Novembro 2026 | **Emenda (*proposta*), KAM-096: a confiança gradual.** Sobre a 1.105 do KAM-094. §3.75 nova: a `platform.trust_level` com as suas **nove** colunas, os níveis (o 2 não atribuível no Piloto), o tecto por pedido em unidade menor, os **seis** motivos, o actor, as duas datas que o *trigger* escreve, as barreiras da escrita e da cobrança, a tranca partilhada entre elas, a acção `trust.tecto` no `audit_log` (o §3.2 passa a **dezassete**), a guarda e a mensagem fixa, a configuração versionada com origem e data de calibração, e a regra de quem conta para subir. **O que não decide:** o processo do recálculo diário e em `order.delivered` (KAM-203), e quem escreve a confirmação do cliente (KAM-204), o relatório do Piloto (Responsável de Produto) e os valores, que se calibram com o Piloto. | Equipa KAMBÁ |
+| 1.107 | Novembro 2026 | **Emenda (*proposta*), KAM-072: a rotação de chaves no registo de auditoria.** Sobre a 1.106 do KAM-096. §3.2: o domínio de `action` do `audit_log` passa de dezassete a **dezanove**, com as duas acções do rotador, pela revisão `0066` — rodar uma versão nova e revogar a anterior, na cadeia de plataforma. **O que não decide:** quem corre o rotador contra o cofre real, nem a métrica da idade dos segredos, que não é nome deste dicionário. | Equipa KAMBÁ |

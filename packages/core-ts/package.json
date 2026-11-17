@@ -123,6 +123,10 @@
       "types": "./dist/guia/index.d.ts",
       "default": "./dist/guia/index.js"
     },
+    "./activacao": {
+      "types": "./dist/activacao/index.d.ts",
+      "default": "./dist/activacao/index.js"
+    },
     "./capacidade": {
       "types": "./dist/capacidade/index.d.ts",
       "default": "./dist/capacidade/index.js"
@@ -150,6 +154,10 @@
     "./trust": {
       "types": "./dist/trust/index.d.ts",
       "default": "./dist/trust/index.js"
+    },
+    "./confianca": {
+      "types": "./dist/confianca/index.d.ts",
+      "default": "./dist/confianca/index.js"
     },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",

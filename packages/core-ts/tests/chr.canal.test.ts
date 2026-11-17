@@ -16,9 +16,13 @@ import {
   CanalIlegivelError,
   ResolvedorDeCanal,
   SQL_CANAL,
+  TIPO_DA_ACTIVACAO,
   TTL_MS,
+  VersaoDaActivacaoError,
   canalDaLinha,
+  efeitoDaActivacao,
 } from "../src/chr/index.ts";
+import type { Envelope } from "../src/eventos/envelope.ts";
 import { BaseFalsa, linhaDeCanal } from "./apoio/chr-base-falsa.ts";
 
 /** Um relógio que avança quando se lhe manda. */
@@ -180,6 +184,54 @@ describe("ResolvedorDeCanal", () => {
     // cache nenhuma, e nao ha nada a invalidar.
     const resolvedor = new ResolvedorDeCanal(new BaseFalsa());
     assert.equal(resolvedor.invalidarCanal("33333333-3333-4333-8333-333333333333"), false);
+  });
+
+  it("`invalidarTenant` esquece os canais do tenant e só esses (KAM-092)", async () => {
+    // O `tenant.activated` traz o `tenant_id` no envelope e nenhum
+    // `phone_number_id`. Dois canais de A e um de B em cache: a activacao de A
+    // esquece os dois de A, e o de B continua a responder da cache.
+    const A = "11111111-1111-4111-8111-111111111111";
+    const B = "55555555-5555-4555-8555-555555555555";
+    const linhas: Record<string, Readonly<Record<string, unknown>>> = {
+      "pnid-a1": linhaDeCanal({ tenant_id: A, channel_id: "a1a1a1a1-2222-4222-8222-222222222222" }),
+      "pnid-a2": linhaDeCanal({ tenant_id: A, channel_id: "a2a2a2a2-2222-4222-8222-222222222222" }),
+      "pnid-b1": linhaDeCanal({ tenant_id: B, channel_id: "b1b1b1b1-2222-4222-8222-222222222222" }),
+    };
+    let idas = 0;
+    const resolvedor = new ResolvedorDeCanal({
+      async query(_sql: string, parametros: readonly unknown[] = []) {
+        idas += 1;
+        return { rows: [linhas[String(parametros[0])]!] };
+      },
+    });
+    for (const p of Object.keys(linhas)) await resolvedor.resolver(p);
+    assert.equal(idas, 3);
+
+    assert.equal(resolvedor.invalidarTenant(A), 2);
+    assert.equal(resolvedor.tamanho, 1);
+    assert.equal((await resolvedor.resolver("pnid-b1")).daCache, true, "o tenant B nao foi tocado");
+    assert.equal((await resolvedor.resolver("pnid-a1")).daCache, false, "o tenant A volta a base");
+    assert.equal(idas, 4);
+    // O indice inverso tambem esqueceu: o `channel.updated` de um canal de A ja nao encontra nada.
+    assert.equal(resolvedor.invalidarCanal("a2a2a2a2-2222-4222-8222-222222222222"), false);
+    assert.equal(resolvedor.invalidarTenant("99999999-9999-4999-8999-999999999999"), 0);
+  });
+
+  it("o efeito da activacao esquece o tenant do envelope, e uma versao desconhecida lanca", async () => {
+    const pedidos: string[] = [];
+    const efeito = efeitoDaActivacao({ invalidarTenant: (t) => (pedidos.push(t), 3) });
+    const envelope = (tipo: string, versao: number) =>
+      ({ tipo, versao, tenant_id: "11111111-1111-4111-8111-111111111111" }) as unknown as Envelope;
+    let consultas = 0;
+    const bd = { query: async () => (consultas++, { rows: [], rowCount: 0 }) };
+    await efeito(bd, envelope(TIPO_DA_ACTIVACAO, 1));
+    assert.equal(consultas, 0, "o efeito nao toca na base");
+    assert.deepEqual(pedidos, ["11111111-1111-4111-8111-111111111111"]);
+    // Uma versao nova engolida era uma activacao que o CHR nunca via: lanca, e o
+    // `consumir` leva-a pela escada ate a DLQ.
+    await assert.rejects(efeito(bd, envelope(TIPO_DA_ACTIVACAO, 2)), VersaoDaActivacaoError);
+    await assert.rejects(efeito(bd, envelope("tenant.suspended", 1)), VersaoDaActivacaoError);
+    assert.equal(pedidos.length, 1);
   });
 
   it("o tecto de entradas expulsa a mais antiga", async () => {

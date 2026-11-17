@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.102"
+versao_dicionario: "1.107"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -707,7 +707,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, secret.rotate, secret.revoke}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke}"
     literais:
       - "action"
       - "price.update"
@@ -724,6 +724,9 @@ entradas:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "trust.tecto"
       - "secret.rotate"
       - "secret.revoke"
     nomes:
@@ -742,11 +745,15 @@ entradas:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "trust.tecto"
       - "secret.rotate"
       - "secret.revoke"
     nomes_nota:
       - "entity"
       - "entity_id"
+      - "trust.tecto"
       - "order.refund_record"
       - "audit.read"
     variantes_literais: []
@@ -18704,6 +18711,599 @@ entradas:
       - "desfecho"
       - "origem"
     variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Passo da régua"
+    canonico: "platform.billing_dunning_steps, oito colunas"
+    literais:
+      - "platform.billing_dunning_steps"
+    nomes:
+      - "platform.billing_dunning_steps"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "billing_cycle_id"
+      - "passo"
+      - "executado_at"
+      - "resultado"
+      - "canal"
+      - "config_versao"
+      - "UNIQUE"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Os passos"
+    canonico: "billing_dunning_steps.passo ∈ {lembrete, aviso, suspensao}"
+    literais:
+      - "billing_dunning_steps.passo"
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes:
+      - "billing_dunning_steps.passo"
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Resultado de um passo"
+    canonico: "billing_dunning_steps.resultado ∈ {notificado, saltado, cancelado, suspenso, sem_transicao}"
+    literais:
+      - "billing_dunning_steps.resultado"
+      - "notificado"
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+    nomes:
+      - "billing_dunning_steps.resultado"
+      - "notificado"
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+    nomes_nota:
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+      - "suspensao"
+      - "ativo"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Canal de um passo"
+    canonico: "billing_dunning_steps.canal ∈ {ops, dono}, anulável"
+    literais:
+      - "billing_dunning_steps.canal"
+      - "ops"
+      - "dono"
+    nomes:
+      - "billing_dunning_steps.canal"
+      - "ops"
+      - "dono"
+    nomes_nota:
+      - "ops"
+      - "dono"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Instante do passo"
+    canonico: "billing_dunning_steps.executado_at"
+    literais:
+      - "billing_dunning_steps.executado_at"
+    nomes:
+      - "billing_dunning_steps.executado_at"
+    nomes_nota:
+      - "owner_notices.criado_at"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Versão da régua"
+    canonico: "billing_dunning_steps.config_versao, e VERSOES_DA_REGUA no módulo"
+    literais:
+      - "billing_dunning_steps.config_versao"
+      - "VERSOES_DA_REGUA"
+    nomes:
+      - "billing_dunning_steps.config_versao"
+      - "VERSOES_DA_REGUA"
+    nomes_nota:
+      - "validaDe"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Dias da régua"
+    canonico: "lembrete = 3, aviso = 7, suspensao = 10, em dias civis de Luanda desde a emissão da primeira cobrança do ciclo (o «D+0 referência» do bloco)"
+    literais:
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes:
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Motivo da suspensão"
+    canonico: "regua_de_cobranca, no registo de estados do tenant; regua_de_cobranca_regularizada na reposição"
+    literais:
+      - "regua_de_cobranca"
+      - "regua_de_cobranca_regularizada"
+    nomes:
+      - "regua_de_cobranca"
+      - "regua_de_cobranca_regularizada"
+    nomes_nota:
+      - "falta_de_pagamento"
+    variantes_literais: []
+  - seccao: "3.72"
+    conceito: "Métricas da régua"
+    canonico: "dunning_step_total{passo,resultado}, tenants_suspended_by_dunning_total"
+    literais:
+      - "dunning_step_total{passo,resultado}"
+      - "tenants_suspended_by_dunning_total"
+    nomes:
+      - "dunning_step_total"
+      - "passo"
+      - "resultado"
+      - "tenants_suspended_by_dunning_total"
+    nomes_nota:
+      - "MetricasDaRegua"
+      - "LIMIAR_DE_SUSPENSOES_POR_DIA"
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Episódio de sinal"
+    canonico: "platform.churn_signal_episode, nove colunas"
+    literais:
+      - "platform.churn_signal_episode"
+    nomes:
+      - "platform.churn_signal_episode"
+    nomes_nota:
+      - "id"
+      - "tenant_id"
+      - "sinal"
+      - "aberto_at"
+      - "fechado_at"
+      - "ensaio"
+      - "avisado_at"
+      - "orcamento_zerado_at"
+      - "orcamento_reposto_at"
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Sinal"
+    canonico: "churn_signal_episode.sinal ∈ {dono_inactivo, sem_pedidos, canal_desligado, pagamento_em_atraso, catalogo_desactualizado, dormente}"
+    literais:
+      - "churn_signal_episode.sinal"
+      - "dono_inactivo"
+      - "sem_pedidos"
+      - "canal_desligado"
+      - "pagamento_em_atraso"
+      - "catalogo_desactualizado"
+      - "dormente"
+    nomes:
+      - "churn_signal_episode.sinal"
+      - "dono_inactivo"
+      - "sem_pedidos"
+      - "canal_desligado"
+      - "pagamento_em_atraso"
+      - "catalogo_desactualizado"
+      - "dormente"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Sinais que valem agora"
+    canonico: "platform.churn_sinais, com o relógio e os limiares"
+    literais:
+      - "platform.churn_sinais"
+    nomes:
+      - "platform.churn_sinais"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Última actividade do dono"
+    canonico: "platform.churn_dono_at, por tenant e relógio"
+    literais:
+      - "platform.churn_dono_at"
+    nomes:
+      - "platform.churn_dono_at"
+    nomes_nota:
+      - "channel_coexistence.ultimo_echo_em"
+      - "audit_log"
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Sinais abertos"
+    canonico: "platform.v_churn_signals"
+    literais:
+      - "platform.v_churn_signals"
+    nomes:
+      - "platform.v_churn_signals"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Marca de dormente"
+    canonico: "platform.v_tenant_dormente"
+    literais:
+      - "platform.v_tenant_dormente"
+    nomes:
+      - "platform.v_tenant_dormente"
+    nomes_nota:
+      - "avisado_at"
+      - "orcamento_zerado_at"
+      - "orcamento_a_zero"
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "KPIs de onboarding por semana"
+    canonico: "platform.v_onboarding_kpis_semanal"
+    literais:
+      - "platform.v_onboarding_kpis_semanal"
+    nomes:
+      - "platform.v_onboarding_kpis_semanal"
+    nomes_nota:
+      - "acumulado"
+      - "semana"
+      - "v_onboarding_kpis"
+      - "v_review_sla"
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Acções sobre o orçamento"
+    canonico: "llm.orcamento_zerado, llm.orcamento_reposto no audit_log.action (§3.2)"
+    literais:
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "audit_log.action"
+    nomes:
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "audit_log.action"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Limiares"
+    canonico: "config/kpis.yaml"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.73"
+    conceito: "Métricas dos KPIs"
+    canonico: "onboarding_activation_minutes, churn_signal{sinal}, tenants_dormentes"
+    literais:
+      - "onboarding_activation_minutes"
+      - "churn_signal{sinal}"
+      - "tenants_dormentes"
+    nomes:
+      - "onboarding_activation_minutes"
+      - "churn_signal"
+      - "sinal"
+      - "tenants_dormentes"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Conversa de teste"
+    canonico: "conversations.is_test, booleano não nulo, falso por omissão"
+    literais:
+      - "conversations.is_test"
+    nomes:
+      - "conversations.is_test"
+    nomes_nota:
+      - "conversations_is_test_nasce_falso"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Tentativa do teste"
+    canonico: "platform.onboarding_smoke, nove colunas"
+    literais:
+      - "platform.onboarding_smoke"
+    nomes:
+      - "platform.onboarding_smoke"
+    nomes_nota:
+      - "id"
+      - "onboarding_id"
+      - "tenant_id"
+      - "iniciada_em"
+      - "expira_em"
+      - "resultado"
+      - "causa"
+      - "fechada_em"
+      - "levou_a_fila"
+      - "FORCE"
+      - "onboarding_case"
+      - "kamba_app"
+      - "kamba_batch"
+      - "onboarding_smoke_transicao"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Resultado de uma tentativa"
+    canonico: "onboarding_smoke.resultado ∈ {pendente, ok, falhou}"
+    literais:
+      - "onboarding_smoke.resultado"
+      - "pendente"
+      - "ok"
+      - "falhou"
+    nomes:
+      - "onboarding_smoke.resultado"
+      - "pendente"
+      - "ok"
+      - "falhou"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Causa de um teste falhado"
+    canonico: "onboarding_smoke.causa ∈ {sem_inbound, sem_resposta, sem_entrega, sem_consentimento}"
+    literais:
+      - "onboarding_smoke.causa"
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    nomes:
+      - "onboarding_smoke.causa"
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Falha que foi à fila"
+    canonico: "onboarding_smoke.levou_a_fila"
+    literais:
+      - "onboarding_smoke.levou_a_fila"
+    nomes:
+      - "onboarding_smoke.levou_a_fila"
+    nomes_nota:
+      - "review_case"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Porta do teste"
+    canonico: "SmokeProbe, com o início e a verificação; remetente ∈ {owner_assisted, prober_number}"
+    literais:
+      - "SmokeProbe"
+      - "owner_assisted"
+      - "prober_number"
+    nomes:
+      - "SmokeProbe"
+      - "owner_assisted"
+      - "prober_number"
+    nomes_nota:
+      - "owner_assisted"
+      - "prober_number"
+    variantes_literais: []
+  - seccao: "3.74"
+    conceito: "Limiares da activação"
+    canonico: "CATALOGO_MINIMO = 5, PRAZO_DO_TESTE_S = 60, FALHAS_ATE_A_FILA = 3"
+    literais:
+      - "CATALOGO_MINIMO"
+      - "PRAZO_DO_TESTE_S"
+      - "FALHAS_ATE_A_FILA"
+    nomes:
+      - "CATALOGO_MINIMO"
+      - "PRAZO_DO_TESTE_S"
+      - "FALHAS_ATE_A_FILA"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Nível de um tenant"
+    canonico: "platform.trust_level, nove colunas"
+    literais:
+      - "platform.trust_level"
+    nomes:
+      - "platform.trust_level"
+    nomes_nota:
+      - "tenant_id"
+      - "nivel"
+      - "tecto_pedido_minor"
+      - "currency"
+      - "motivo"
+      - "actor"
+      - "versao_config"
+      - "desde"
+      - "alterado_em"
+      - "FORCE"
+      - "kamba_batch"
+      - "kamba_app"
+      - "trust_order_eligibility"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Os níveis"
+    canonico: "trust_level.nivel ∈ {0, 1, 2}; o 2 não se atribui no Piloto (trust_level_piloto_ck)"
+    literais:
+      - "trust_level.nivel"
+      - "trust_level_piloto_ck"
+    nomes:
+      - "trust_level.nivel"
+      - "trust_level_piloto_ck"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Tecto por pedido"
+    canonico: "trust_level.tecto_pedido_minor, bigint positivo, em unidade menor, com a currency AOA"
+    literais:
+      - "trust_level.tecto_pedido_minor"
+      - "bigint"
+      - "currency"
+      - "AOA"
+    nomes:
+      - "trust_level.tecto_pedido_minor"
+      - "bigint"
+      - "currency"
+      - "AOA"
+    nomes_nota:
+      - "entitlements.limites"
+      - "valor_max_pedido_minor"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Porque está no nível"
+    canonico: "trust_level.motivo ∈ {k1_completo, historico_independente, disputa_aceite, sinal_alto, sancao, recalibracao}"
+    literais:
+      - "trust_level.motivo"
+      - "k1_completo"
+      - "historico_independente"
+      - "disputa_aceite"
+      - "sinal_alto"
+      - "sancao"
+      - "recalibracao"
+    nomes:
+      - "trust_level.motivo"
+      - "k1_completo"
+      - "historico_independente"
+      - "disputa_aceite"
+      - "sinal_alto"
+      - "sancao"
+      - "recalibracao"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Quem decidiu"
+    canonico: "trust_level.actor, sistema:<versão> ou revisor:<id>"
+    literais:
+      - "trust_level.actor"
+      - "sistema:<versão>"
+      - "revisor:<id>"
+    nomes:
+      - "trust_level.actor"
+      - "sistema"
+      - "vers"
+      - "o"
+      - "revisor"
+      - "id"
+    nomes_nota:
+      - "CHECK"
+      - "audit_log"
+      - "system"
+      - "staff"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Desde quando"
+    canonico: "trust_level.desde e trust_level.alterado_em"
+    literais:
+      - "trust_level.desde"
+      - "trust_level.alterado_em"
+    nomes:
+      - "trust_level.desde"
+      - "trust_level.alterado_em"
+    nomes_nota:
+      - "trust_level_guardar"
+      - "desde"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Barreira da escrita"
+    canonico: "trigger trust_level_guardar"
+    literais:
+      - "trust_level_guardar"
+    nomes:
+      - "trust_level_guardar"
+    nomes_nota:
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Auditoria"
+    canonico: "acção trust.tecto no audit_log.action (§3.2), pelo trigger trust_level_auditado"
+    literais:
+      - "trust.tecto"
+      - "audit_log.action"
+      - "trust_level_auditado"
+    nomes:
+      - "trust.tecto"
+      - "audit_log.action"
+      - "trust_level_auditado"
+    nomes_nota:
+      - "ON"
+      - "CONFLICT"
+      - "WHERE"
+      - "trust.tecto"
+      - "downgrade"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Barreira da cobrança"
+    canonico: "trigger payment_charges_dentro_do_tecto"
+    literais:
+      - "payment_charges_dentro_do_tecto"
+    nomes:
+      - "payment_charges_dentro_do_tecto"
+    nomes_nota:
+      - "BEFORE"
+      - "INSERT"
+      - "ENABLE"
+      - "ALWAYS"
+      - "total_minor"
+      - "trust_level"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "A guarda"
+    canonico: "assertWithinTrustCeiling(tenantId, amountMinor), em GuardaDeConfianca; recusa com ForaDoTectoDeConfiancaError"
+    literais:
+      - "assertWithinTrustCeiling(tenantId, amountMinor)"
+      - "GuardaDeConfianca"
+      - "ForaDoTectoDeConfiancaError"
+    nomes:
+      - "assertWithinTrustCeiling"
+      - "tenantId"
+      - "amountMinor"
+      - "GuardaDeConfianca"
+      - "ForaDoTectoDeConfiancaError"
+    nomes_nota:
+      - "ManualProvider.createCharge"
+      - "manual_max_minor"
+      - "limitacao"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Mensagem ao agente"
+    canonico: "MENSAGEM_ACIMA_DO_TECTO"
+    literais:
+      - "MENSAGEM_ACIMA_DO_TECTO"
+    nomes:
+      - "MENSAGEM_ACIMA_DO_TECTO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Configuração versionada"
+    canonico: "CONFIGURACAO_DA_CONFIANCA, com versao AAAA-MM-DD.N; cada valor com origem (proposta ou calibrado) e calibradoEm"
+    literais:
+      - "CONFIGURACAO_DA_CONFIANCA"
+      - "versao"
+      - "AAAA-MM-DD.N"
+      - "origem"
+      - "proposta"
+      - "calibrado"
+      - "calibradoEm"
+    nomes:
+      - "CONFIGURACAO_DA_CONFIANCA"
+      - "versao"
+      - "AAAA"
+      - "MM"
+      - "DD.N"
+      - "origem"
+      - "proposta"
+      - "calibrado"
+      - "calibradoEm"
+    nomes_nota:
+      - "versao_config"
+      - "tabelaDeLimites"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "Quem conta para subir"
+    canonico: "avaliarPedido, com MOTIVOS_DE_EXCLUSAO"
+    literais:
+      - "avaliarPedido"
+      - "MOTIVOS_DE_EXCLUSAO"
+    nomes:
+      - "avaliarPedido"
+      - "MOTIVOS_DE_EXCLUSAO"
+    nomes_nota:
+      - "independente"
+      - "por_avaliar"
+      - "merged_into"
+    variantes_literais: []
+  - seccao: "3.75"
+    conceito: "O recálculo"
+    canonico: "ServicoDeConfianca.recalcular, sobre o decidirNivel puro"
+    literais:
+      - "ServicoDeConfianca.recalcular"
+      - "decidirNivel"
+    nomes:
+      - "ServicoDeConfianca.recalcular"
+      - "decidirNivel"
+    nomes_nota:
+      - "kamba_batch"
+      - "contacts"
+      - "kamba_app"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -20207,6 +20807,9 @@ dominios:
       - "order.refund_record"
       - "review.acesso"
       - "review.recusa"
+      - "llm.orcamento_zerado"
+      - "llm.orcamento_reposto"
+      - "trust.tecto"
       - "secret.rotate"
       - "secret.revoke"
     seccao: "3.2"
@@ -21760,6 +22363,70 @@ dominios:
       - "convite_invalido"
     seccao: "3.71"
     conceito: "Recusas da lista"
+    so_no_registo: false
+  - coluna: "billing_dunning_steps.passo"
+    valores:
+      - "lembrete"
+      - "aviso"
+      - "suspensao"
+    seccao: "3.72"
+    conceito: "Os passos"
+    so_no_registo: false
+  - coluna: "billing_dunning_steps.resultado"
+    valores:
+      - "notificado"
+      - "saltado"
+      - "cancelado"
+      - "suspenso"
+      - "sem_transicao"
+    seccao: "3.72"
+    conceito: "Resultado de um passo"
+    so_no_registo: false
+  - coluna: "billing_dunning_steps.canal"
+    valores:
+      - "ops"
+      - "dono"
+    seccao: "3.72"
+    conceito: "Canal de um passo"
+    so_no_registo: false
+  - coluna: "churn_signal_episode.sinal"
+    valores:
+      - "dono_inactivo"
+      - "sem_pedidos"
+      - "canal_desligado"
+      - "pagamento_em_atraso"
+      - "catalogo_desactualizado"
+      - "dormente"
+    seccao: "3.73"
+    conceito: "Sinal"
+    so_no_registo: false
+  - coluna: "onboarding_smoke.resultado"
+    valores:
+      - "pendente"
+      - "ok"
+      - "falhou"
+    seccao: "3.74"
+    conceito: "Resultado de uma tentativa"
+    so_no_registo: false
+  - coluna: "onboarding_smoke.causa"
+    valores:
+      - "sem_inbound"
+      - "sem_resposta"
+      - "sem_entrega"
+      - "sem_consentimento"
+    seccao: "3.74"
+    conceito: "Causa de um teste falhado"
+    so_no_registo: false
+  - coluna: "trust_level.motivo"
+    valores:
+      - "k1_completo"
+      - "historico_independente"
+      - "disputa_aceite"
+      - "sinal_alto"
+      - "sancao"
+      - "recalibracao"
+    seccao: "3.75"
+    conceito: "Porque está no nível"
     so_no_registo: false
 
 variantes:

@@ -5,8 +5,8 @@
 | Documento | `docs/billing.md` |
 | Ticket | KAM-059 — Billing da plataforma: assinatura via PaymentProvider (beneficiário próprio) |
 | Estado | **Proposta.** O ciclo, a cobrança e as barreiras estão na revisão do billing e medidos em `db/tests_pagamentos/test_subscricao_e_billing.py`; o processo da factura-recibo é manual e está **a confirmar por parecer** (D7) |
-| Âmbito | Como a KAMBÁ cobra a assinatura às PMEs: o ciclo mensal, quem confirma um pagamento por transferência, e como se emite a factura-recibo. Não a régua de cobrança (KAM-058) nem a comissão, que no Piloto é só sombra |
-| Fontes | `docs/tecnica/04` §9, §10.4, §11, §12 e §13; `specs/02` §3.67; ADR-004, ADR-013, ADR-017; D2, D4, D7, D8 |
+| Âmbito | Como a KAMBÁ cobra a assinatura às PMEs: o ciclo mensal, quem confirma um pagamento por transferência, como se emite a factura-recibo, e a régua de cobrança (§5, KAM-058). Não a comissão, que no Piloto é só sombra |
+| Fontes | `docs/tecnica/04` §9, §10.4, §11, §12 e §13; `specs/02` §3.67 e §3.72; ADR-004, ADR-013, ADR-017; D2, D4, D7, D8, D10 |
 
 | Aprovação | Nome | Data |
 |---|---|---|
@@ -32,8 +32,10 @@ Uma cobrança que já existia quando o ciclo foi anulado, se for paga, fica paga
 dinheiro chegou — e o ciclo continua `anulado`, sem evento: cancelar a cobrança ao anular o ciclo,
 e tratar o que chegar depois, é da régua.
 
-**O agendamento do *job* não está ligado** a processo nenhum, nem a guarda de arranque da comissão
-(§4): é do KAM-058, que é também quem põe uma subscrição em `em_atraso` e `suspensa`. Uma PME `em_atraso` **mantém os limites** até a
+**O agendamento** é o `ProcessoDaCobranca` (`../packages/core-ts/src/pagamentos/processo.ts`,
+KAM-058): recusa o arranque pela guarda da comissão (§4) e pelas G-2 e G-4, corre a abertura uma vez
+por dia de Luanda e a régua (§5) em cada volta. É a função que um processo de lote chama; o
+processo que a corre em produção ainda não existe. Uma PME `em_atraso` **mantém os limites** até a
 régua a suspender.
 
 **Sem conta EMIS própria (D4, NÃO VERIFICADO)**, a cobrança do Piloto é por transferência: o
@@ -104,8 +106,35 @@ revisão nova que cite o parecer, e nunca uma *flag*. A sombra mede *unit econom
 pagamentos autenticados pelo facilitador — nunca se factura e nunca se retém (ADR-004, ADR-017).
 A taxa da sombra não tem omissão: é «por contrato» e não está decidida.
 
-## 5. Controlo de versões
+## 5. A régua de cobrança
+
+Um ciclo que fica por pagar segue a régua (`../packages/core-ts/src/pagamentos/regua.ts`, como
+`kamba_batch`), contada em dias civis de Luanda desde a emissão da primeira cobrança do ciclo:
+
+| Dia (*proposta*) | Passo | O que acontece |
+|---|---|---|
+| D+3 | `lembrete` | Aviso ao dono; a subscrição passa a `em_atraso` |
+| D+7 | `aviso` | Aviso de que a loja será suspensa |
+| D+10 | `suspensao` | O tenant passa `ativo → suspenso` pela porta de transição do KAM-092, com o evento de suspensão na mesma transacção; a subscrição passa a `suspensa` |
+
+Um pagamento antes do D+10 cancela o passo que falta; um pagamento depois dele repõe o tenant em
+`ativo` na volta seguinte da régua (a volta corre de 30 s em 30 s, *proposta*). Um motor que
+volta atrasado salta os lembretes em atraso, mas **nunca suspende sem aviso prévio**: executa o
+aviso e espera os dias que a versão dá entre o aviso e a suspensão. A régua **só suspende um tenant
+`ativo`** — num `restrito` da Meta, ou num suspenso por outra razão, a suspensão espera — e **só
+repõe o que ela suspendeu**: uma sanção de T&S que tenha chegado depois prende a reposição até ao
+recurso. Suspender não apaga dados nem impede o titular de exportar os seus.
+
+**Nenhuma mensagem sai.** O canal da KAMBÁ com o dono é a decisão aberta D10, e até ela fechar cada
+aviso é uma tarefa de ops: a lista do dia lê-se com `listaDeOps`, que refaz o texto a partir da
+cobrança. O texto leva só o valor, a forma de pagamento e o prazo da cobrança, e um aviso fixo
+contra *phishing*. Os dias e os textos são configuração versionada (`VERSOES_DA_REGUA`): mudar um
+valor acrescenta uma versão, que só vale para os ciclos que abrem depois. O aviso prévio que a lei
+exige para suspender é INDÍCIO (Art. 16.º da Lei 15/03), **a confirmar por parecer**.
+
+## 6. Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | KAM-059: emissão inicial — o ciclo, a dupla de ops, o processo manual da factura-recibo e a comissão em sombra. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-058: a régua de cobrança (§5) e o agendamento pelo `ProcessoDaCobranca` (§1). | Equipa KAMBÁ |
