@@ -30,12 +30,33 @@ tests:
               passo: suspensao
               origem: humana
             exp_annotations:
-              resumo: Uma loja foi suspensa por decisao de Trust & Safety.
+              resumo: Trust & Safety decidiu suspender ou encerrar uma loja.
               qual_tenant: Le-se da platform.ts_sanction pelo lote; a metrica nao leva tenant (OBS-I).
               runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
       - eval_time: 35m
         alertname: ts_suspensao_decidida
         exp_alerts: []
+
+  - interval: 1m
+    name: "encerramento: um encerramento decidido tambem dispara"
+    input_series:
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="encerramento",origem="humana"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ts_suspensao_decidida
+        exp_alerts:
+          - exp_labels:
+              severity: P3
+              componente: gov
+              job: onboarding_lote
+              instance: onboarding-lote:3014
+              passo: encerramento
+              origem: humana
+            exp_annotations:
+              resumo: Trust & Safety decidiu suspender ou encerrar uma loja.
+              qual_tenant: Le-se da platform.ts_sanction pelo lote; a metrica nao leva tenant (OBS-I).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
 
   - interval: 1m
     name: "suspensao: um aviso ou uma limitacao nao e uma suspensao"

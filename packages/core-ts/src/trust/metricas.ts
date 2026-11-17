@@ -10,9 +10,17 @@
  *
  * **Contam o que é novo.** Um sinal ou uma sanção repetidos (a reentrega de um
  * evento, a mesma decisão reaplicada) não contam: a chave da base diz que já
- * existiam, e é o `ServicoDeTrust` que conta, no único ponto por onde todos os
- * sinais e sanções passam. O desfecho de um recurso **não** é um passo, e não
- * conta aqui.
+ * existiam, e é o `ServicoDeTrust` que conta. O desfecho de um recurso **não**
+ * é um passo, e não conta aqui. O sinal `mudanca_de_conta` nasce num *trigger*
+ * (revisão `0069`) e conta-se na varredura que lhe abre o caso.
+ *
+ * **O limite, dito:** as varreduras contam depois do `COMMIT`; o consumidor
+ * conta **dentro** da transacção do `consumir`, que não tem gancho depois dela.
+ * Um efeito que grava e depois falha (outro sinal, o `COMMIT`) conta, desfaz-se,
+ * e a reentrega conta outra vez. É raro — só uma falha a meio do efeito o
+ * produz — e infla o alerta da escada no sentido que pede um humano a olhar.
+ * shortcut: contagem antes do COMMIT no consumidor; revê-se quando o `consumir`
+ * ganhar um gancho depois da transacção (ou um contador por `events_consumed`).
  *
  * **As etiquetas são domínios fechados** (`tipo` 9, `passo` 4, `origem` 2,
  * `varredura` 4, `desfecho` 2), e nenhuma leva tenant, sinal nem caso

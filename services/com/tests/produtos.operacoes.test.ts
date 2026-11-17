@@ -893,3 +893,66 @@ test("criterio 8: um termo vazio devolve nada, e nao o catalogo inteiro", async 
     );
   }
 });
+
+// ------------------------------------------ KAM-200: a limitação de T&S na base
+
+/**
+ * O *trigger* da revisão `0069` recusa com `23514` um produto novo e a primeira
+ * publicação de uma loja com `limitacao` de T&S em vigor. O COM é um dos dois
+ * escritores do catálogo, e tem de devolver uma **recusa de domínio** — e não
+ * uma excepção, que o agente leria como avaria. A recusa da base mede-se no
+ * `db/tests/test_trust_schema.py` (`TestLimitacaoDoCatalogo`).
+ */
+function comLimitacao(cliente: ClienteSql): ClienteSql {
+  return {
+    async query(sql: string, parametros: readonly unknown[] = []) {
+      if (/INSERT INTO platform\.offer_terms/.test(sql) || /SET estado = 'publicado'/.test(sql)) {
+        throw Object.assign(
+          new Error("loja com limitacao de Trust & Safety em vigor: sem produtos nem listas novos"),
+          { code: "23514" },
+        );
+      }
+      return cliente.query(sql, parametros);
+    },
+  } as ClienteSql;
+}
+
+test("KAM-200: com limitação de T&S, um produto novo é recusa de domínio, sem evento", async () => {
+  const { cliente, visto } = base({ oferta: null });
+  const porta = adaptadorMedusa(deps(comLimitacao(cliente)), () => AGORA);
+  const resultado = await porta.upsertProductDraft(ctx(), {
+    sku: "novo-sob-limitacao",
+    nome: "Produto novo",
+    atributos: { preco_tipo: "fixo", preco_minor: 1000, stock_modo: "garantido" },
+  });
+  assert.deepEqual(resultado, { tipo: "erro", erro: "VALIDATION_ERROR" });
+  assert.deepEqual(visto.eventos, []);
+});
+
+test("KAM-200: com limitação de T&S, a primeira publicação é recusa de domínio, sem evento", async () => {
+  const { cliente, visto } = base({
+    oferta: {
+      sku: SKU,
+      nome: "Rascunho",
+      preco_tipo: "fixo",
+      preco_minor: "1000",
+      currency: "AOA",
+      preco_atualizado_at: null,
+      preco_valido_ate: null,
+      stock_modo: "garantido",
+      stock_verificado_at: null,
+      estado: "rascunho",
+      categoria_restrita: null,
+      atualizado_at: "x",
+    },
+  });
+  const porta = adaptadorMedusa(deps(comLimitacao(cliente)), () => AGORA);
+  const resultado = await porta.publishProduct(
+    ctx(),
+    { sku: SKU, registoId: null },
+    { actor: { kind: "dono", id: "msg-1" }, em: "2026-11-01T10:00:00Z" },
+  );
+  assert.deepEqual(resultado, { tipo: "erro", erro: "VALIDATION_ERROR" });
+  assert.deepEqual(visto.eventos, []);
+  assert.deepEqual(visto.auditorias, []);
+});

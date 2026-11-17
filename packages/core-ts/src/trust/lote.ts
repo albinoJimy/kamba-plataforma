@@ -31,7 +31,9 @@
 import { comBatch } from "../tenant_guard/index.ts";
 import type { ConjuntoSql } from "../revisao/sql.ts";
 import { varrerFotos, varrerNaoEntregas } from "./efeito.ts";
-import type { MetricasDoTrust, Varredura } from "./metricas.ts";
+import type { ContadoresDoTrust, MetricasDoTrust, Varredura } from "./metricas.ts";
+import type { Origem } from "./contrato.ts";
+import type { Passo, TipoDeSinal } from "./regras.ts";
 import { POLITICA_DE_RISCO, type PoliticaDeRisco } from "./regras.ts";
 import type { SinalGravado } from "./contrato.ts";
 import type { ServicoDeTrust } from "./servico.ts";
@@ -72,6 +74,25 @@ export interface OpcoesDoCicloDoTrust {
   readonly relogio?: () => Date;
 }
 
+/** Contadores que guardam e só contam quando a transacção confirma. */
+class ContadoresAdiados implements ContadoresDoTrust {
+  readonly #sinais: TipoDeSinal[] = [];
+  readonly #sancoes: (readonly [Passo, Origem])[] = [];
+
+  sinal(tipo: TipoDeSinal): void {
+    this.#sinais.push(tipo);
+  }
+
+  sancao(passo: Passo, origem: Origem): void {
+    this.#sancoes.push([passo, origem]);
+  }
+
+  despejar(em: ContadoresDoTrust): void {
+    for (const t of this.#sinais) em.sinal(t);
+    for (const [p, o] of this.#sancoes) em.sancao(p, o);
+  }
+}
+
 export class CicloDoTrust {
   readonly #o: OpcoesDoCicloDoTrust;
   #aCorrer: Promise<ResultadoDoCicloDoTrust> | null = null;
@@ -101,14 +122,14 @@ export class CicloDoTrust {
   async #volta(): Promise<ResultadoDoCicloDoTrust> {
     const feitas: Partial<Record<Varredura, number>> = {};
     const falhas: Varredura[] = [];
-    const opcoes = {
+    const opcoes = (contadores: ContadoresDoTrust) => ({
       politica: this.#o.politica ?? POLITICA_DE_RISCO,
-      contadores: this.#o.metricas,
+      contadores,
       ...(this.#o.relogio === undefined ? {} : { relogio: this.#o.relogio }),
-    };
+    });
     const passos: readonly (readonly [Varredura, () => Promise<number>])[] = [
-      ["nao_entrega", () => this.#numaTransaccao("nao_entrega", (bd) => varrerNaoEntregas(bd, opcoes))],
-      ["fotos", () => this.#numaTransaccao("fotos", (bd) => varrerFotos(bd, opcoes))],
+      ["nao_entrega", () => this.#numaTransaccao("nao_entrega", (bd, c) => varrerNaoEntregas(bd, opcoes(c)))],
+      ["fotos", () => this.#numaTransaccao("fotos", (bd, c) => varrerFotos(bd, opcoes(c)))],
       ["encerramentos", () => this.#encerramentos()],
       ["mudancas_de_conta", () => this.#mudancasDeConta()],
     ];
@@ -124,16 +145,27 @@ export class CicloDoTrust {
     return { feitas, falhas };
   }
 
-  /** A varredura e a sua linha de auditoria, na mesma transacção, numa ligação dedicada. */
-  async #numaTransaccao(nome: Varredura, varrer: (bd: ClienteSql) => Promise<number>): Promise<number> {
+  /**
+   * A varredura e a sua linha de auditoria, na mesma transacção, numa ligação
+   * dedicada. **Os contadores só contam depois do `COMMIT`**: uma corrida
+   * desfeita não grava os sinais, e contá-los era contá-los outra vez na volta
+   * seguinte (achado 5 da revisão adversarial).
+   */
+  async #numaTransaccao(
+    nome: Varredura,
+    varrer: (bd: ClienteSql, contadores: ContadoresDoTrust) => Promise<number>,
+  ): Promise<number> {
     const ligacao = await this.#o.lote.connect();
+    const adiados = new ContadoresAdiados();
     let estragada: Error | undefined;
     try {
-      return await comBatch(ligacao, `ts_varredura_${nome}`, async () => {
-        const n = await varrer(ligacao);
+      const n = await comBatch(ligacao, `ts_varredura_${nome}`, async () => {
+        const n = await varrer(ligacao, adiados);
         await ligacao.query(SQL_AUDITAR_VARREDURA, [ACTOR_DAS_VARREDURAS, nome, `${nome}:${n}`]);
         return n;
       });
+      adiados.despejar(this.#o.metricas);
+      return n;
     } catch (erro) {
       estragada = erro instanceof Error ? erro : new Error("varredura de trust falhou");
       throw erro;
@@ -146,33 +178,49 @@ export class CicloDoTrust {
    * Um caso `trust` para cada `mudanca_de_conta` sem caso, e a escada
    * automática sobre o sinal (o *trigger* grava-o sem a correr). A proposta é a
    * `suspensao`, com a justificação do salto escrita: o dinheiro de uma loja
-   * activa passou a ir para outro sítio, e quem decide se a loja continua a
-   * vender até a mudança se confirmar é um revisor, não a máquina (*proposta*).
+   * activa passou a ir para outro sítio, e a **suspensão** é de um revisor
+   * (*proposta*). A escada automática corre sobre este sinal como sobre
+   * qualquer outro, com os pesos da `POLITICA_DE_RISCO` do KAM-097: duas
+   * mudanças (peso 30 cada) chegam à `limitacao` antes de o revisor ver o caso.
+   * É a política, *proposta*, e calibra-se com ela.
    */
   async #mudancasDeConta(): Promise<number> {
     let n = 0;
+    let primeiraFalha: unknown;
     for (const l of (await this.#o.lote.query(SQL_MUDANCAS_DE_CONTA_SEM_CASO)).rows) {
-      const sinal: SinalGravado = {
-        id: String(l["id"]),
-        tenantId: String(l["tenant_id"]),
-        tipo: "mudanca_de_conta",
-        severidade: "alta",
-        refEvento: String(l["ref_evento"]),
-        detalhe: {},
-        ocorridoEm: l["ocorrido_em"] instanceof Date ? l["ocorrido_em"] : new Date(String(l["ocorrido_em"])),
-      };
-      await this.#o.servico.avaliarEscada(sinal.tenantId, sinal);
-      const r = await this.#o.servico.proporSancao({
-        tenantId: sinal.tenantId,
-        passo: "suspensao",
-        motivoInterno: MOTIVO_DA_MUDANCA_DE_CONTA,
-        sinais: [sinal.id],
-        justificacaoDoSalto: JUSTIFICACAO_DA_MUDANCA_DE_CONTA,
-        chave: `conta.${sinal.id}`,
-      });
-      if (r.estado !== "nao_elegivel" && !r.repetido) n++;
+      // Um sinal que falha não tapa os seguintes (achado 6 da revisão
+      // adversarial): a volta tenta-os todos, audita, e só depois se diz falhada.
+      try {
+        const sinal: SinalGravado = {
+          id: String(l["id"]),
+          tenantId: String(l["tenant_id"]),
+          tipo: "mudanca_de_conta",
+          severidade: "alta",
+          refEvento: String(l["ref_evento"]),
+          detalhe: {},
+          ocorridoEm: l["ocorrido_em"] instanceof Date ? l["ocorrido_em"] : new Date(String(l["ocorrido_em"])),
+        };
+        await this.#o.servico.avaliarEscada(sinal.tenantId, sinal);
+        const r = await this.#o.servico.proporSancao({
+          tenantId: sinal.tenantId,
+          passo: "suspensao",
+          motivoInterno: MOTIVO_DA_MUDANCA_DE_CONTA,
+          sinais: [sinal.id],
+          justificacaoDoSalto: JUSTIFICACAO_DA_MUDANCA_DE_CONTA,
+          chave: `conta.${sinal.id}`,
+        });
+        if (r.estado !== "nao_elegivel" && !r.repetido) {
+          n++;
+          // O sinal nasceu no *trigger*, fora do serviço: conta-se aqui, uma vez,
+          // quando o caso dele abre (achado 6 da segunda revisão).
+          this.#o.metricas.sinal("mudanca_de_conta");
+        }
+      } catch (erro) {
+        primeiraFalha ??= erro;
+      }
     }
     await this.#o.lote.query(SQL_AUDITAR_VARREDURA, [ACTOR_DAS_VARREDURAS, "mudancas_de_conta", `mudancas_de_conta:${n}`]);
+    if (primeiraFalha !== undefined) throw primeiraFalha;
     return n;
   }
 

@@ -96,7 +96,9 @@ import {
 } from "@kamba/core-ts/revisao";
 import type { AprovacaoDoKyc } from "@kamba/core-ts/kyc";
 import { METRICAS, MaquinaNaBase, filasDe } from "@kamba/core-ts/eventos";
-import { criarTrabalhadores, type Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
+// Só os tipos: o `bullmq` e o `ioredis` carregam-se na casca, **depois** de a
+// porta abrir (ver o `consumidorDoTrust`).
+import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
@@ -511,16 +513,19 @@ function exigirRevisao(s: ServicoDeRevisao | undefined): ServicoDeRevisao {
  * não tem **adia**, e sobre uma já paga vai ao efeito como excepção (KAM-050).
  *
  * Aqui, e não na casca, para que o *gate* 4 veja o nome, as filas, o papel e as
- * métricas com que ele nasce.
+ * métricas com que ele nasce. **O `criar` é obrigatório**, e é o
+ * `criarTrabalhadores` que a casca importa dinamicamente depois de abrir a
+ * porta: carregar o `bullmq` e o `ioredis` numa montagem do Windows leva dezenas
+ * de segundos, e à cabeça do módulo atrasava a sonda do `/healthz`.
  */
 export function consumidorDoTrust(o: {
   readonly urlDaApp: string;
   readonly urlDaFila: string;
   readonly metricasDoTrust: MetricasDoTrust;
   readonly log: Pick<Logger, "info">;
-  readonly criar?: typeof criarTrabalhadores;
+  readonly criar: typeof criarTrabalhadores;
 }): Trabalhadores {
-  return (o.criar ?? criarTrabalhadores)({
+  return o.criar({
     ligar: async () => {
       const cliente = new pg.Client({ connectionString: o.urlDaApp, application_name: "onboarding-lote:trust" });
       await cliente.connect();

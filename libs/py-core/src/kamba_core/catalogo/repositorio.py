@@ -42,6 +42,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from .. import tenant_guard
+from ..ten.entitlements import sqlstate_de
 from . import estados
 from .completude import MAXIMO_DE_PERGUNTAS
 from .extraccao import Campo
@@ -54,6 +55,21 @@ class ConflitoDeEstado(RuntimeError):
 
 class IngestaoInvalida(ValueError):
     """A linha violaria uma restricao da revisao `catalogo_ai`."""
+
+
+#: A mensagem do *trigger* `catalog_ingestions_ts_limitacao` (revisao `0069`,
+#: KAM-200). E por ela, e pelo `23514`, que se distingue a limitacao de T&S das
+#: outras violacoes de `CHECK` desta tabela, que sao defeitos e sobem como tal.
+MENSAGEM_DA_LIMITACAO: str = "limitacao de Trust & Safety em vigor"
+
+
+class LojaLimitada(ValueError):
+    """A loja tem uma `limitacao` de T&S em vigor: sem ingestoes nem publicacoes novas.
+
+    E uma recusa de **dominio**, e nao uma falha: quem recebe a foto ou a
+    confirmacao diz ao dono porque, e nao repete — repetir da a mesma recusa
+    ate um revisor levantar a limitacao (KAM-200, criterio 7).
+    """
 
 
 @dataclass(frozen=True)
@@ -273,6 +289,13 @@ class RepositorioDbapi:
                 cursor.execute(sql, parametros)
                 linha = cursor.fetchone()
                 return _de_linha(linha) if linha else None
+        except Exception as erro:
+            # O `23514` do *trigger* da limitacao de T&S (revisao `0069`) e uma
+            # recusa de dominio. Os outros `23514` desta tabela sao defeitos e
+            # sobem inalterados.
+            if sqlstate_de(erro) == "23514" and MENSAGEM_DA_LIMITACAO in str(erro):
+                raise LojaLimitada("a loja tem uma limitacao de T&S em vigor") from erro
+            raise
         finally:
             ligacao.close()
 

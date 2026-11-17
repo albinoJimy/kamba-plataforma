@@ -97,7 +97,11 @@ export const SQL_SANCOES_DO_TENANT_LOTE = `
 /**
  * Os encerramentos cujo prazo de recurso passou: passo `encerramento`, sem
  * desfecho de recurso, e com o caso ainda em `decidido` — um caso em
- * `recurso_aberto` está a ser recorrido e não fecha.
+ * `recurso_aberto` está a ser recorrido e não fecha. **E com o tenant ainda
+ * `suspenso`** (KAM-200): agendada, a varredura corre de hora a hora, e sem isto
+ * os já encerrados ocupavam a cabeça do `LIMIT` para sempre e os novos nunca
+ * chegavam a ser lidos (achado 4 da revisão adversarial; a lição do achado 11
+ * do KAM-097).
  */
 export const SQL_ENCERRAMENTOS_POR_FECHAR = `
   SELECT s.id::text AS id, s.tenant_id::text AS tenant_id, s.chave, s.passo, s.origem,
@@ -108,6 +112,8 @@ export const SQL_ENCERRAMENTOS_POR_FECHAR = `
     JOIN platform.review_case c ON c.id = s.case_id AND c.tenant_id = s.tenant_id
    WHERE s.passo = 'encerramento' AND s.recurso_de IS NULL AND s.em <= $1
      AND c.estado = 'decidido'
+     AND EXISTS (SELECT 1 FROM platform.tenants t
+                  WHERE t.id = s.tenant_id AND t.estado = 'suspenso')
      AND NOT EXISTS (SELECT 1 FROM platform.ts_sanction r
                       WHERE r.tenant_id = s.tenant_id AND r.recurso_de = s.id)
    ORDER BY s.em, s.id
@@ -146,17 +152,27 @@ export const SQL_TRUST_DE_ONDE_VEIO = `
 `;
 
 /**
- * **A suspensão em vigor é de T&S?** A última passagem a `suspenso` do registo
- * tem o motivo de T&S, ou não há nenhuma (uma suspensão anterior ao KAM-200,
- * escrita sem registo). Uma suspensão da régua de cobrança (KAM-058) não se
- * levanta com um recurso de T&S: o tenant continua a dever. `$2` é o motivo.
+ * **A suspensão em vigor é de T&S, e partiu de `ativo`?** A última passagem a
+ * `suspenso` do registo tem o motivo de T&S **e** veio de `ativo`. Fecha três
+ * casos, e falha fechado nos três — o tenant fica `suspenso` e o recurso não o
+ * levanta:
+ *
+ * * uma suspensão da régua de cobrança (KAM-058): o tenant continua a dever;
+ * * uma suspensão de T&S que partiu de `restrito` (a restrição da Meta): voltar
+ *   a `ativo` apagava-a, e o grafo da `0058` não tem `suspenso → restrito` (a
+ *   razão do critério 7 da régua; achado 1 da revisão adversarial);
+ * * uma suspensão sem linha no registo (escrita por fora da porta): não se sabe
+ *   de quem é, e o `kamba_batch` ainda tem `UPDATE` directo no estado.
+ *
+ * `$2` é o motivo de T&S.
  */
 export const SQL_TRUST_SUSPENSAO_E_DO_TRUST = `
-  SELECT coalesce(
-           (SELECT l.motivo FROM platform.tenant_state_log l
-             WHERE l.tenant_id = $1 AND l.para = 'suspenso'
-             ORDER BY l.em DESC LIMIT 1),
-           $2) = $2 AS do_trust
+  SELECT EXISTS (
+           SELECT 1
+             FROM (SELECT l.motivo, l.de FROM platform.tenant_state_log l
+                    WHERE l.tenant_id = $1 AND l.para = 'suspenso'
+                    ORDER BY l.em DESC LIMIT 1) u
+            WHERE u.motivo = $2 AND u.de = 'ativo') AS do_trust
 `;
 
 /** O evento da transição, na transacção dela. A forma do `SQL_REGUA_EMITIR`. */

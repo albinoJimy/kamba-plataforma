@@ -37,7 +37,9 @@ mesma linha são só de T&S: não se copiam para um canal de conversa, e nunca p
 ## 2. Uma suspensão decidida (`ts_suspensao_decidida`)
 
 A decisão já foi humana, com papel e MFA, na fila de revisão (KAM-089). O alerta existe para que a
-equipa saiba que aconteceu, e não para a reverter. Confirmar três coisas:
+equipa saiba que aconteceu, e não para a reverter. **Conta a decisão, e não a transição**: dispara
+numa suspensão e num encerramento (que suspende até o prazo do recurso passar), e também sobre uma
+loja que já estava suspensa — pela régua de cobrança, por exemplo. Confirmar três coisas:
 
 1. **O estado mudou pela porta.** A suspensão passa pelo `platform.transition_tenant` (KAM-092): há
    uma linha no `platform.tenant_state_log` com o motivo `decisao_ts` e o actor do revisor, e um
@@ -49,7 +51,9 @@ equipa saiba que aconteceu, e não para a reverter. Confirmar três coisas:
    deste alerta.
 3. **O recurso.** O dono pode recorrer uma vez; o recurso é outro caso da fila, decidido por outro
    revisor. Um recurso provido devolve a loja a `ativo` pela mesma porta (`tenant.reactivated`) — a
-   menos que a suspensão em vigor seja a da régua de cobrança (KAM-058), que T&S não levanta.
+   menos que a suspensão em vigor seja a da régua de cobrança (KAM-058), tenha partido de `restrito`
+   (a restrição da Meta), ou não tenha registo: nesses três casos a loja fica `suspenso`, e quem a
+   repõe decide-o à mão.
 
 ## 3. A escada automática acima do ritmo (`ts_escada_automatica_acima_do_ritmo`)
 

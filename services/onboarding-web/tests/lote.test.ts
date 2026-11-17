@@ -552,8 +552,38 @@ test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquin
   assert.deepEqual(pedido.subscricao, { consumer: "trust", exigeOrdem: true });
   assert.deepEqual(pedido.filas, Array.from({ length: 16 }, (_, i) => `evt.trust.p${i}`));
   assert.equal(pedido.url, URL_FILA);
-  assert.ok(pedido.maquina !== undefined, "sem maquina, o consumir lanca nos payment.*");
   assert.equal(TIPOS_CONSUMIDOS.length, 7);
+  // **A máquina é a das encomendas da réplica**, e não a da omissão
+  // (`platform.orders`, que não existe): com a outra, cada `payment.*` dava
+  // erro de relação até à DLQ (achado 1 da segunda revisão adversarial).
+  const lidas: string[] = [];
+  const leitor = {
+    query: async (sql: string) => {
+      lidas.push(sql);
+      return { rows: [{ estado: "paga" }] };
+    },
+  };
+  assert.ok(pedido.maquina !== undefined, "sem maquina, o consumir lanca nos payment.*");
+  assert.equal(await pedido.maquina.estadoDe("order", "o-1", leitor), "paga");
+  assert.match(lidas[0] ?? "", /FROM platform\.orders_mirror WHERE/);
+  // **E o efeito é o de T&S**: um `screening.violation_detected` grava um sinal
+  // pela ligação do consumo, e não é um efeito vazio.
+  const escritas: string[] = [];
+  const bd = {
+    query: async (sql: string) => {
+      escritas.push(sql);
+      return { rows: /INSERT INTO platform\.ts_signal/.test(sql) ? [{ id: "s-1" }] : [], rowCount: 1 };
+    },
+  };
+  await pedido.efeito(bd, {
+    id: "e-1",
+    tipo: "screening.violation_detected",
+    versao: 2,
+    tenant_id: "99999999-9999-4999-8999-999999999999",
+    ocorrido_em: new Date().toISOString(),
+    payload: { sku: "sku-1", versao_politica: "1.0.0" },
+  } as never);
+  assert.ok(escritas.some((s) => /INSERT INTO platform\.ts_signal/.test(s)), "o efeito do consumidor nao grava sinais");
 });
 
 test("/metrics serve as séries de T&S da instância do processo", async () => {

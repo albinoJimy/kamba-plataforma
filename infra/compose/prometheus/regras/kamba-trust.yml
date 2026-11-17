@@ -30,17 +30,20 @@ groups:
   - name: kamba-trust
     interval: 30s
     rules:
-      # Uma suspensao decidida por um revisor: a loja deixou de vender. P3 e nao
-      # mais: a decisao ja foi humana e com MFA, e o alerta existe para que a
-      # equipa saiba que aconteceu, nao para a reverter.
+      # Uma suspensao ou um encerramento decididos por um revisor: os dois
+      # suspendem a loja (o encerramento so passa a `encerrado` no fim do prazo do
+      # recurso). P3 e nao mais: a decisao ja foi humana e com MFA, e o alerta
+      # existe para que a equipa saiba, nao para a reverter. **Conta a decisao, e
+      # nao a transicao**: dispara tambem sobre uma loja que ja estava suspensa
+      # (pela regua, por exemplo), e o runbook diz como o distinguir.
       - alert: ts_suspensao_decidida
-        expr: 'increase(ts_sancoes_total{passo="suspensao"}[10m]) > 0'
+        expr: 'increase(ts_sancoes_total{passo=~"suspensao|encerramento"}[10m]) > 0'
         for: 0m
         labels:
           severity: P3
           componente: gov
         annotations:
-          resumo: Uma loja foi suspensa por decisao de Trust & Safety.
+          resumo: Trust & Safety decidiu suspender ou encerrar uma loja.
           qual_tenant: Le-se da platform.ts_sanction pelo lote; a metrica nao leva tenant (OBS-I).
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
 

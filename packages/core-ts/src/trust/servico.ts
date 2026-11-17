@@ -332,12 +332,20 @@ export class ServicoDeTrust implements EfeitosDeTrust {
   async fecharEncerramentos(porFechar: (ate: Date) => Promise<readonly SancaoGravada[]>): Promise<number> {
     const ate = new Date(this.#agora().getTime() - this.#l.diasDoRecurso * 86_400_000);
     let n = 0;
+    let primeiraFalha: unknown;
     for (const s of await porFechar(ate)) {
       if (s.passo !== "encerramento" || s.recursoDe !== null) continue;
-      const vivas = emVigor(await this.#d.repositorio.sancoesDoTenant(s.tenantId)).sancoes;
-      if (!vivas.some((x) => x.id === s.id)) continue;
-      if (await this.#exigirTenants().transitar(s.tenantId, ["suspenso"], "encerrado", autorDoSistema(this.#p))) n++;
+      // Uma falha num tenant não pára os outros (KAM-200): sobe no fim, para a
+      // corrida se dizer falhada, depois de os restantes terem sido tentados.
+      try {
+        const vivas = emVigor(await this.#d.repositorio.sancoesDoTenant(s.tenantId)).sancoes;
+        if (!vivas.some((x) => x.id === s.id)) continue;
+        if (await this.#exigirTenants().transitar(s.tenantId, ["suspenso"], "encerrado", autorDoSistema(this.#p))) n++;
+      } catch (erro) {
+        primeiraFalha ??= erro;
+      }
     }
+    if (primeiraFalha !== undefined) throw primeiraFalha;
     return n;
   }
 

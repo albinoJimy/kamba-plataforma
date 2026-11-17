@@ -526,9 +526,22 @@ class TestConsultas(Base):
         q = ConsultaDoTypeScript("SQL_TRUST_SUSPENSAO_E_DO_TRUST", SQL_TS)
         self.cursor.execute(q.sql, q.args(self.tenant, "decisao_ts"))
         self.assertIs(self.cursor.fetchone()[0], False)
-        # Sem linha nenhuma (uma suspensao anterior ao KAM-200), e de T&S.
+        # Sem linha nenhuma (escrita por fora da porta), nao se sabe de quem e:
+        # falha fechado, e o recurso de T&S nao a levanta.
         self.cursor.execute(q.sql, q.args(str(uuid.uuid4()), "decisao_ts"))
-        self.assertIs(self.cursor.fetchone()[0], True)
+        self.assertIs(self.cursor.fetchone()[0], False)
+
+    def test_a_suspensao_de_ts_vinda_de_restrito_nao_volta_a_ativo(self) -> None:
+        """Achado 1 da revisao adversarial: voltar a `ativo` apagava a restricao da Meta."""
+        _activar(self.cursor, self.tenant)
+        self.como("kamba_batch", self.tenant)
+        self.cursor.execute("SELECT platform.transition_tenant(%s, 'restrito', 'meta_quality', 'meta')",
+                            (self.tenant,))
+        self.cursor.execute("SELECT platform.transition_tenant(%s, 'suspenso', 'decisao_ts', 'rev')",
+                            (self.tenant,))
+        q = ConsultaDoTypeScript("SQL_TRUST_SUSPENSAO_E_DO_TRUST", SQL_TS)
+        self.cursor.execute(q.sql, q.args(self.tenant, "decisao_ts"))
+        self.assertIs(self.cursor.fetchone()[0], False)
 
     def test_a_independencia_e_fail_closed(self) -> None:
         pedido = str(uuid.uuid4())
@@ -543,6 +556,8 @@ class TestConsultas(Base):
     def test_os_encerramentos_por_fechar_sao_os_sem_recurso_e_com_caso_decidido(self) -> None:
         caso = _caso(self.cursor, self.tenant)
         self.cursor.execute("UPDATE platform.review_case SET estado = 'decidido' WHERE id = %s", (caso,))
+        # O tenant suspenso: um ja encerrado sai da lista (achado 4 da revisao do KAM-200).
+        self.cursor.execute("UPDATE platform.tenants SET estado = 'suspenso' WHERE id = %s", (self.tenant,))
         self.como("kamba_batch")
         self.cursor.execute(*self.sancao(origem="humana", passo="encerramento", case_id=caso,
                                          autor=str(uuid.uuid4()), chave=f"caso:{caso}",
@@ -551,6 +566,12 @@ class TestConsultas(Base):
         self.cursor.execute(q.sql, q.args(datetime.now(timezone.utc) + timedelta(days=1)))
         self.assertEqual(len([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant]), 1)
         self.cursor.execute(q.sql, q.args(datetime.now(timezone.utc) - timedelta(days=1)))
+        self.assertEqual([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant], [])
+        # Ja encerrado, sai da lista: nao ocupa a cabeca do LIMIT para sempre.
+        self.como(None, self.tenant)
+        self.cursor.execute("UPDATE platform.tenants SET estado = 'encerrado' WHERE id = %s", (self.tenant,))
+        self.como("kamba_batch")
+        self.cursor.execute(q.sql, q.args(datetime.now(timezone.utc) + timedelta(days=1)))
         self.assertEqual([l for l in self.cursor.fetchall() if str(l[1]) == self.tenant], [])
 
 

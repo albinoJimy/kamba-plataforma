@@ -24,6 +24,8 @@
 # v2 dos sete contratos, e uma subscricao a v2 recebe a v1 sem conversao.
 #
 # O `exige_ordem` nao se escreve: deriva-se do prefixo `payment.`, como no AGR.
+# A subscricao declara-o nos dois de pagamento; o consumidor corre com a ordem
+# exigida nos sete (`consumidorDoTrust`), o que so a torna mais estrita.
 #
 # ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
 # estilo de fluxo.

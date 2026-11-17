@@ -90,12 +90,15 @@ async function principal(): Promise<void> {
     // KAM-200: as varreduras de T&S, a primeira volta também já.
     const pararTrust = processo.cicloDoTrust.agendar(config.intervaloDoTrustMs, (r) => registarVoltaDoTrust(log, r));
     void processo.cicloDoTrust.correr().then((r) => registarVoltaDoTrust(log, r));
-    // E o consumidor dos sete tipos de evento de T&S, como `kamba_app`.
+    // E o consumidor dos sete tipos de evento de T&S, como `kamba_app`. O
+    // `bullmq` carrega-se aqui, com a porta já aberta (ver o `consumidorDoTrust`).
+    const { criarTrabalhadores } = await import("@kamba/core-ts/eventos/trabalhador_bullmq");
     const consumo = consumidorDoTrust({
       urlDaApp: config.urlDaApp,
       urlDaFila: config.urlDaFila,
       metricasDoTrust: processo.metricasDoTrust,
       log,
+      criar: criarTrabalhadores,
     });
     arrancou = true;
     log.info({ outcome: "service_started" });

@@ -17821,6 +17821,8 @@ entradas:
       - "ativo"
     nomes_nota:
       - "decisao_ts"
+      - "ativo"
+      - "restrito"
     variantes_literais: []
   - seccao: "3.68"
     conceito: "A fonte da mudança de conta"

@@ -568,11 +568,13 @@ export const SQL_REGUA_GRAVAR_PASSO = `
  * Os tenants que a régua suspendeu e que já não devem nada que a suspensão
  * tenha apanhado. **Só os que ela suspendeu**: a última transição registada do
  * tenant tem de ser a dela. **E nenhuma sanção de T&S de suspensão ou
- * encerramento depois dela, sem recurso provido**: o Trust (KAM-097) suspende
- * por um `UPDATE` que não passa pelo registo, e sobre um tenant já suspenso
- * não muda nada — sem esta pergunta, pagar a assinatura levantava a sanção
- * (achado 1 da revisão adversarial). `$1` é o motivo da suspensão; `$2` um
- * tenant, ou `NULL` para todos.
+ * encerramento depois dela, sem recurso provido**: sobre um tenant que a régua
+ * já suspendeu, a suspensão de T&S não muda o estado e não escreve linha no
+ * registo (a porta devolve `false`) — sem esta pergunta, pagar a assinatura
+ * levantava a sanção (achado 1 da revisão adversarial). Desde o KAM-200 o T&S
+ * passa pela porta (`transition_tenant`, motivo `decisao_ts`); até lá suspendia
+ * por um `UPDATE` directo. `$1` é o motivo da suspensão; `$2` um tenant, ou
+ * `NULL` para todos.
  */
 export const SQL_REGUA_POR_REPOR = `
   SELECT t.id AS tenant_id
