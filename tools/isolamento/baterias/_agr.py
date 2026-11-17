@@ -600,7 +600,14 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
 
     from .x01_rotas import _uniformidade  # noqa: PLC0415
 
-    achados.extend(_uniformidade(ITEM_DO_SCREENING, estados))
+    # **`aceitaveis=(200,)`, e nao as recusas por omissao.** O corpo de A com o
+    # canario de B em texto livre e um pedido legitimo de A — nao ha recurso de
+    # B a pedir, e uma rota que o recusasse estava errada. O que se mede e que
+    # as tentativas respondem todas 200 e que nada de B volta; um estado fora de
+    # 200 quer dizer que a rota nao respondeu, e o caso nao mediu nada. E o
+    # mesmo uso que o `aceitaveis_por_item` faz para o `GET /metrics` do COM.
+    # Medido no gate 6: com as recusas por omissao, o caso acusava o 200.
+    achados.extend(_uniformidade(ITEM_DO_SCREENING, estados, aceitaveis=(200,)))
     estado_de_controlo, _, _, _ = _pedir_com_logs(
         app, "POST", screening.ROTA, _corpo(str(uuid.uuid4()), "moda", ["camisola"]), cabecalhos
     )
