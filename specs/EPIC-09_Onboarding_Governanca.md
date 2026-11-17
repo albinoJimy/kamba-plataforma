@@ -70,6 +70,8 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | KAM-092 |
 | KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | KAM-096, KAM-198 |
+| KAM-206 | Painel light: o contacto da encomenda ao dono, mascarado e auditado | feature | M | P2 | KAM-190 |
+| KAM-207 | Religar o número de um tenant activo cujo canal caiu, a partir do painel | feature | M | P2 | KAM-190, KAM-093 |
 
 ---
 
@@ -1147,7 +1149,7 @@ Não reimplementes KYC, saga nem catálogo. Testes: unit, integração, contrato
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-016, KAM-017, KAM-086 |
-| Bloqueia | KAM-094, KAM-095 |
+| Bloqueia | KAM-094, KAM-095, KAM-207 |
 | Responsável sugerido | Engenheiro de Canais (WhatsApp) |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§4.1 passo 7, §6.2–§6.4), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§4.3, §10.4–§10.5, §13), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md`, ADR-001, ADR-019 |
 
@@ -2004,8 +2006,8 @@ revogação em memória (critério 1) e as métricas não servidas (DoD 5).
 | 3 — toda a escrita pela porta `CommerceRegistry`/ToolLayer, nunca por SQL directo; `audit_log` com valor anterior, novo, actor e hora; `catalog.price_changed`/`stock.adjusted` | **parcial** | O painel não tem cliente de base de dados: grava pelo `update-offer` do COM, que corre o `alterarOferta` na transacção do `comRegisto` — repo-base com o filtro de tenant, `audit_log` (`price.update`, origem `painel_do_dono`, actor `owner` com o `onboarding_id`) e `catalog.price_changed`, e o `stock.adjusted` pelo `ajustarStock` (`produtos.painel.test.ts`). **Duas diferenças à letra:** a escrita passa pelas `OperacoesDoCom` e não por um dos doze métodos da porta, que o §3.39 fecha; e o `audit_log` guarda o **hash** do antes e do depois e não os valores — é o desenho do KAM-043 sobre o `audit_append` do KAM-012, e o valor novo segue no evento. O valor anterior em claro não fica em lado nenhum (credor **KAM-012**) |
 | 4 — preço e stock que o bot cita vêm do Registo; editar o painel altera o *fact* seguinte; nada em *prompt* nem *embedding* | **parcial** | O preço: o `getOfferView` — a leitura que o agente cita — lê a mesma linha que o `alterarOferta` escreve, sem cache (`criterio 4: o preco gravado no painel e o que o getOfferView da a seguir`, 12 500 Kz e depois 15 000 Kz), e gravar um preço vencido renova-o (`a_partir_de` passa a `fixo`). O stock não, pela razão do critério 2. O ensaio ponta a ponta com o AGR («o bot cita o novo preço no turno seguinte») não corre aqui |
 | 5 — preço inteiro em Kz ≥ 0 e ≤ máximo configurável; > ±50% pede confirmação extra; stock ≥ 0; a mesma chave não duplica a gravação | **parcial** | `lerPedido`: `preco_minor` múltiplo de 100 (Kz inteiros), ≤ `PAINEL_PRECO_MAXIMO_KZ` (omissão de 100 000 000 Kz, *proposta*), e um valor ilegível na variável falha o arranque. **O «stock ≥ 0» não se valida no painel porque o painel não grava stock** (critério 2): um `stock` no corpo é 400 `stock_por_ligar`; o `alterarOferta` do COM recusa um nível negativo ou fraccionário. Acima de 50% a resposta é 422 `confirmacao` e só grava com `confirmar_variacao` (a fronteira exacta não pede, e a descida conta). A `Idempotency-Key` vale por tenant: duas vezes, e três em simultâneo, dão **uma** gravação; a mesma chave com outro corpo dá 422, e com o mesmo corpo noutra ordem de chaves é repetição; uma resposta 5xx não fica guardada. O COM repete a validação (`VALIDATION_ERROR` sem ir à base) |
-| 6 — encomendas só leitura, com o estado canónico, valor, data e referência; filtros por estado e data; nenhum telefone em claro | **parcial** | A lista lê pelo `list-orders` do KAM-044, com os doze estados da porta (um ensaio confronta a lista do painel com o texto do `ORDER_STATES` do COM), valor, data e referência; o filtro por estado vai ao COM. **O filtro por data é sobre a página que o COM devolve** (até 100 encomendas): o `listOrders` não filtra por data, e alargá-lo é do dono do `listOrders`. **O contacto nunca aparece** — nem o `contact_id` —, pelo que o telefone também não; o «mostrar o contacto quando o dono é o responsável, com auditoria» não está feito. Credor das duas faltas: **KAM-190**. **O KAM-190 fechou o filtro de data**, que passou para o `listOrders` do COM e para a assinatura do cursor; **o contacto continua por fazer**, pela razão escrita na verificação do KAM-190 |
-| 7 — estado do canal (`ativo`, `a_sincronizar`, `desligado`) e o nível de confiança/tecto, com ligação à reconexão do KAM-093 e aos avisos de T&S do KAM-097 | **parcial** | A página mostra o estado, o nível, o tecto e os avisos, com a ligação a `/ligar` quando o canal está desligado ou por ligar. **A fonte é um duplo** (`CanalEmMemoria`, que responde `sem_canal`): o `onboarding-web` não tem cliente de base de dados nem rota de outro serviço que sirva `platform.channels` e a qualidade do canal. O adaptador é do **KAM-190**; a fonte dos avisos de T&S é o **KAM-097**. **E a ligação de reconexão só serve nas primeiras 24 h:** o `/ligar` do KAM-093 exige a sessão do registo, e um dono que só tem a do painel recebe 403; reentrar depois disso é refazer o OTP pelo registo (credor **KAM-190**). **O KAM-190 fechou** o adaptador (o canal, o nível e os avisos lidos pelo COM) e a reentrada por código sem a sessão do registo; a ligação pede o código e serve o caso em `aguarda_es`, e **não** o caso `activo` cujo canal caiu — ver a verificação do KAM-190 |
+| 6 — encomendas só leitura, com o estado canónico, valor, data e referência; filtros por estado e data; nenhum telefone em claro | **parcial** | A lista lê pelo `list-orders` do KAM-044, com os doze estados da porta (um ensaio confronta a lista do painel com o texto do `ORDER_STATES` do COM), valor, data e referência; o filtro por estado vai ao COM. **O filtro por data é sobre a página que o COM devolve** (até 100 encomendas): o `listOrders` não filtra por data, e alargá-lo é do dono do `listOrders`. **O contacto nunca aparece** — nem o `contact_id` —, pelo que o telefone também não; o «mostrar o contacto quando o dono é o responsável, com auditoria» não está feito. Credor das duas faltas: **KAM-190**. **O KAM-190 fechou o filtro de data**, que passou para o `listOrders` do COM e para a assinatura do cursor; **o contacto continua por fazer**, pela razão escrita na verificação do KAM-190, e o credor dele é o **KAM-206** |
+| 7 — estado do canal (`ativo`, `a_sincronizar`, `desligado`) e o nível de confiança/tecto, com ligação à reconexão do KAM-093 e aos avisos de T&S do KAM-097 | **parcial** | A página mostra o estado, o nível, o tecto e os avisos, com a ligação a `/ligar` quando o canal está desligado ou por ligar. **A fonte é um duplo** (`CanalEmMemoria`, que responde `sem_canal`): o `onboarding-web` não tem cliente de base de dados nem rota de outro serviço que sirva `platform.channels` e a qualidade do canal. O adaptador é do **KAM-190**; a fonte dos avisos de T&S é o **KAM-097**. **E a ligação de reconexão só serve nas primeiras 24 h:** o `/ligar` do KAM-093 exige a sessão do registo, e um dono que só tem a do painel recebe 403; reentrar depois disso é refazer o OTP pelo registo (credor **KAM-190**). **O KAM-190 fechou** o adaptador (o canal, o nível e os avisos lidos pelo COM) e a reentrada por código sem a sessão do registo; a ligação pede o código e serve o caso em `aguarda_es`, e **não** o caso `activo` cujo canal caiu — credor **KAM-207** |
 | 8 — isolamento: o dono de A não vê nem altera dados de B por nenhum endpoint (404, não 403); RLS `FORCE` activa | **satisfeito** | **O tenant vem só da sessão.** Nenhuma rota lê tenant do caminho, da consulta, do corpo ou de cabeçalho, e o adaptador HTTP põe o da sessão no `x-kamba-tenant` do COM. Ensaios: o `sku` de B no `PATCH` dá 404 e B não muda; a encomenda de B dá o mesmo 404, com o mesmo corpo, que uma que não existe, e a de A abre; o tenant de B na consulta, no corpo e no cabeçalho é ignorado. *Gate* 6: o caso `X-01/ts/painel` ataca as **sete** rotas três vezes cada (21 ataques; **dez** rotas e 30 ataques desde o KAM-190, canário de B nos dados de B), com o `PATCH` e o detalhe a aceitar **só 404**, e com as marcas `sonda=viva` (os dados de A chegam, ou um pedido legítimo de A dá 200), `b=intacto` e `sessao-de-b=viva`, e as duas rotas novas do COM entram no `X-01/ts/com-interna` com `ctx=a` nos três ataques; `gate_bd.py --suite tests_isolamento` → **83 ensaios, OK** (medido antes dos achados da revisão; o condutor foi re-corrido depois deles). O CAS mede-se contra o motor em `db/tests_produtos/test_painel.py` (*gate* 8). A RLS `FORCE` da `offer_terms` e do `orders_mirror` é das revisões `0028` e `0030`, e o X-05 do mesmo *gate* confirma-a no catálogo |
 | 9 — telemóvel de gama baixa: página inicial ≤ 200 KB comprimida e interactiva em ≤ 3 s em 3G simulado; sem scripts de terceiros; português de Angola | **parcial** | A página dos produtos tem **3 757 octetos** comprimida com 200 produtos (139 764 sem comprimir; 1 475 vazia), medido com `gzipSync`; um ensaio prende o tecto de 200 KB. Sem scripts de terceiros: um guião próprio, com o `nonce` da CSP `default-src 'none'`. `lang="pt-AO"`. **Os 3 s em 3G simulado não estão medidos**: o repositório não tem navegador com limitação de rede (credor **KAM-190**, que também não os mediu — ver a verificação dele) |
 
@@ -2345,7 +2347,7 @@ Não expandas escopo: sem unit economics (KAM-081), sem encerramento (KAM-098). 
 | Prioridade | P2 |
 | Estimativa | M |
 | Dependências | KAM-099, KAM-097 |
-| Bloqueia | — |
+| Bloqueia | KAM-206, KAM-207 |
 | Responsável sugerido | Engenheiro de Plataforma (frontend), com o dono do COM |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-099 e a sua verificação), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§3.1), `../docs/tecnica/03_Core_Comercio_Medusa.md` (§7), `../docs/observabilidade.md` |
 
@@ -2408,8 +2410,8 @@ cabeçalho, que o repo-base injecta e a RLS confirma. A leitura é de quatro fon
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1 — critério 6 do KAM-099: filtro de data no COM com o cursor a respeitar o intervalo; contacto da encomenda ao dono responsável, com `audit_log`, sem telefone em claro | **parcial** | **O filtro está no COM**: `OrderFilter.criadoDesde` (inclusive) e `criadoAte` (exclusive) entram no `SQL_LISTAR` como `$6` e `$7`, antes do `LIMIT`, e **na assinatura do cursor** — um cursor de um intervalo apresentado com outro, ou sem nenhum, é `VALIDATION_ERROR`; sem intervalo, a assinatura é a de antes. Contra o motor, em `db/tests_encomendas/test_leitura.py`: as duas pontas no instante exacto, o intervalo a contar **antes** do `LIMIT` (a encomenda do intervalo fora da primeira página, que era o defeito do KAM-099) e a segunda página dentro do intervalo. No COM, `orders.listagem.test.ts` (quatro casos). O painel converte os dias de `Africa/Luanda` em instantes, mostra o dia de Luanda, e dá a ligação «Mais antigas» com o mesmo filtro (`painel.test.ts`). **O contacto não está feito**: o domínio de `audit_log.action` é fechado (`CHECK` da `0066`, dezanove valores) e nenhum descreve «o dono viu o contacto de uma encomenda» — `access.conversation` mentia —, pelo que a linha de auditoria pede uma revisão de base de dados que este lote não tem; e a `contacts` não guarda nome nem telefone, só o `phone_hmac`: o telefone existe cifrado na `contact_endpoints`, e decifrá-lo num serviço público é um caminho de PII que pede decisão. **Devolvido**, com a decisão pedida ao orquestrador |
-| 2 — critério 7 do KAM-099: estado, nível e tecto de um adaptador real, com os avisos de T&S; reentrada sem a sessão de 24 h, com a ligação de reconexão | **parcial** | **O adaptador**: `CanalPeloCom` chama o `channel-view`, que lê a `tenant_channels` (o canal de `origem = 'pme'`, o ligado primeiro), a sincronização do canal na `channel_coexistence` (uma por canal, KAM-017), as quatro colunas da `trust_level` que o `kamba_app` lê (KAM-096) e os códigos do `ServicoDeTrust.avisosDoPainel` (KAM-097), sobre um cliente que **só** aceita o tenant do `ctx`, e **sem** passar pelo `merchant` do Medusa (o caso em `aguarda_es` pode não ter loja). Contra o motor, como `kamba_app`, em `db/tests/test_canal_do_painel.py`: as quatro consultas leem o que pedem, o tenant de B com o contexto de A dá zero linhas, a sincronização é a do canal pedido, o canal da plataforma não entra. No COM, `canal.vista.test.ts`: a tabela dos quatro estados, o `suspenso` e o `encerrado` como `desligado` **e** `restrito` (a página não oferece religá-los), o recurso provido a tirar o aviso, e o outro tenant a levantar. **Uma falha do COM é 503 e não «sem canal»**. **A reentrada**: `POST /painel/codigo` procura o caso pelo HMAC do telefone e manda o código ao número registado **fora do pedido**; `POST /painel/verificar` cunha a sessão do painel **sem** a do registo. A resposta não diz se o telefone tem painel: 200 com um bilhete **cifrado** (AES-256-GCM, IV aleatório, domínio `kamba/painel/bilhete/v2`) a qualquer telefone — dois pedidos do mesmo telefone dão bilhetes diferentes, e nenhum leva o caso —, e 401 `codigo` a qualquer falha. Limite por rede (10 por hora, *proposta*) nas duas rotas, antes de se olhar para o telefone ou para o bilhete. **A ligação**: `GET /painel/ligar` manda o código ao telefone registado e pede-o; só o código certo cunha a `sessao` do registo e leva ao `/ligar` do KAM-093. A sessão do painel **nunca** cunha a do registo sozinha — era um ciclo que a renovava para sempre, por cima do tecto de 90 dias e das duas revogações. Ensaios em `painel.test.ts`; *gate* 6 no `X-01/ts/painel`. **Parcial por uma razão:** o `/ligar` do KAM-093 só abre com o caso em `aguarda_es` (`fase_errada` em qualquer outra), pelo que a ligação serve o dono que ainda não ligou o número e **não** o dono `activo` cujo canal caiu (`desligado`). A página desse diz-lhe que o passo não está disponível e não manda SMS. Religar um canal de um caso já activo é um caminho que o KAM-093 não tem; credor por atribuir, pedido ao orquestrador |
+| 1 — critério 6 do KAM-099: filtro de data no COM com o cursor a respeitar o intervalo; contacto da encomenda ao dono responsável, com `audit_log`, sem telefone em claro | **parcial** | **O filtro está no COM**: `OrderFilter.criadoDesde` (inclusive) e `criadoAte` (exclusive) entram no `SQL_LISTAR` como `$6` e `$7`, antes do `LIMIT`, e **na assinatura do cursor** — um cursor de um intervalo apresentado com outro, ou sem nenhum, é `VALIDATION_ERROR`; sem intervalo, a assinatura é a de antes. Contra o motor, em `db/tests_encomendas/test_leitura.py`: as duas pontas no instante exacto, o intervalo a contar **antes** do `LIMIT` (a encomenda do intervalo fora da primeira página, que era o defeito do KAM-099) e a segunda página dentro do intervalo. No COM, `orders.listagem.test.ts` (quatro casos). O painel converte os dias de `Africa/Luanda` em instantes, mostra o dia de Luanda, e dá a ligação «Mais antigas» com o mesmo filtro (`painel.test.ts`). **O contacto não está feito**: o domínio de `audit_log.action` é fechado (`CHECK` da `0066`, dezanove valores) e nenhum descreve «o dono viu o contacto de uma encomenda» — `access.conversation` mentia —, pelo que a linha de auditoria pede uma revisão de base de dados que este lote não tem; e a `contacts` não guarda nome nem telefone, só o `phone_hmac`: o telefone existe cifrado na `contact_endpoints`, e decifrá-lo num serviço público é um caminho de PII que pede decisão. **Devolvido ao KAM-206**, aberto neste PR: a acção nova por migração e o telefone mascarado vindo da `contact_endpoints` |
+| 2 — critério 7 do KAM-099: estado, nível e tecto de um adaptador real, com os avisos de T&S; reentrada sem a sessão de 24 h, com a ligação de reconexão | **parcial** | **O adaptador**: `CanalPeloCom` chama o `channel-view`, que lê a `tenant_channels` (o canal de `origem = 'pme'`, o ligado primeiro), a sincronização do canal na `channel_coexistence` (uma por canal, KAM-017), as quatro colunas da `trust_level` que o `kamba_app` lê (KAM-096) e os códigos do `ServicoDeTrust.avisosDoPainel` (KAM-097), sobre um cliente que **só** aceita o tenant do `ctx`, e **sem** passar pelo `merchant` do Medusa (o caso em `aguarda_es` pode não ter loja). Contra o motor, como `kamba_app`, em `db/tests/test_canal_do_painel.py`: as quatro consultas leem o que pedem, o tenant de B com o contexto de A dá zero linhas, a sincronização é a do canal pedido, o canal da plataforma não entra. No COM, `canal.vista.test.ts`: a tabela dos quatro estados, o `suspenso` e o `encerrado` como `desligado` **e** `restrito` (a página não oferece religá-los), o recurso provido a tirar o aviso, e o outro tenant a levantar. **Uma falha do COM é 503 e não «sem canal»**. **A reentrada**: `POST /painel/codigo` procura o caso pelo HMAC do telefone e manda o código ao número registado **fora do pedido**; `POST /painel/verificar` cunha a sessão do painel **sem** a do registo. A resposta não diz se o telefone tem painel: 200 com um bilhete **cifrado** (AES-256-GCM, IV aleatório, domínio `kamba/painel/bilhete/v2`) a qualquer telefone — dois pedidos do mesmo telefone dão bilhetes diferentes, e nenhum leva o caso —, e 401 `codigo` a qualquer falha. Limite por rede (10 por hora, *proposta*) nas duas rotas, antes de se olhar para o telefone ou para o bilhete. **A ligação**: `GET /painel/ligar` manda o código ao telefone registado e pede-o; só o código certo cunha a `sessao` do registo e leva ao `/ligar` do KAM-093. A sessão do painel **nunca** cunha a do registo sozinha — era um ciclo que a renovava para sempre, por cima do tecto de 90 dias e das duas revogações. Ensaios em `painel.test.ts`; *gate* 6 no `X-01/ts/painel`. **Parcial por uma razão:** o `/ligar` do KAM-093 só abre com o caso em `aguarda_es` (`fase_errada` em qualquer outra), pelo que a ligação serve o dono que ainda não ligou o número e **não** o dono `activo` cujo canal caiu (`desligado`). A página desse diz-lhe que o passo não está disponível e não manda SMS. Religar um canal de um caso já activo é um caminho que o KAM-093 não tem: **devolvido ao KAM-207**, aberto neste PR |
 | 3 — critério 9 do KAM-099: interactiva em ≤ 3 s em 3G simulado, num navegador com limitação de rede e com o comando registado | **não satisfeito** | **Não medido.** Esta máquina não tem navegador com limitação de rede; instalar o `chromium` num contentor descartável é uma transferência que pede autorização, e foi pedida ao orquestrador. O tecto de 200 KB do KAM-099 continua preso pelo ensaio dele |
 | 4 — DoD 5 do KAM-099: `GET /metrics` do `onboarding-web` com as duas séries, caso no *gate* 6 e alvo no `prometheus.yml` | **satisfeito** | `GET /metrics` no `createApp`, sempre montado e sem credencial, servindo a **mesma** instância de `MetricasDoPainel` que as rotas contam: o ensaio faz subir as séries pelo caminho real e lê-as na exposição, com valor e sem tenant. *Gate* 6: `rota:onboarding-web:app:createApp:GET:/metrics` no `SONDAS_TS` e no condutor. `prometheus.yml`: `job` `onboarding_web`, `onboarding-web:3003`. **Não é barreira de rede**, e fica dito: o `proxy-tls` só encaminha `/onboarding/*` para este serviço |
 | 5 — o COM serve a leitura de uma oferta, e o `PATCH /painel/produtos/:id` deixa de procurar o preço anterior na lista | **satisfeito** | `obterOferta` (uma arquivada, ou de outro tenant, é `NOT_FOUND`) pelo `POST /internal/get-offer`. O `PATCH` lê-a pelo `ComercioPorHttp.obterOferta` e **não chama a lista**: o ensaio semeia 201 ofertas, grava a 201.ª e conta zero chamadas ao `listarOfertas`. O `shortcut:` do tecto de 200 saiu do `rotas.ts` |
@@ -3212,6 +3214,139 @@ Testes: integração, a cache do CHR e isolamento.
 
 ---
 
+## KAM-206 — Painel light: o contacto da encomenda ao dono, mascarado e auditado
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-190 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (frontend), com o dono do COM e o da identidade de contacto |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-099 e KAM-190 e as suas verificações), `02_Dicionario_de_Dados_Canonico.md` (§3.2, `audit_log.action`; §3.56 e §3.76), `../docs/tecnica/08_Seguranca_Conformidade.md` (§6) |
+
+### Contexto
+
+O critério 6 do KAM-099 pede que o contacto de uma encomenda se mostre ao dono «só quando ele é o
+responsável e o dado é necessário, com auditoria», e nunca o telefone em claro. O KAM-190 fechou a outra
+metade desse critério (o filtro de data no COM) e devolveu esta, com duas razões medidas: o domínio de
+`audit_log.action` é fechado (`CHECK` da revisão `0066`, dezanove valores) e nenhum descreve «o dono viu o
+contacto de uma encomenda» — `access.conversation` mentia —, pelo que a linha de auditoria pede uma revisão
+de base de dados; e a `contacts` só guarda o `phone_hmac`, estando o telefone cifrado na
+`contact_endpoints` (KAM-008), com a sua chave por contacto. Este ticket nasce no PR do KAM-190, para que a
+caixa devolvida tenha credor.
+
+### Objectivo
+
+O dono vê, numa encomenda sua e quando precisa dele, o telefone do cliente **mascarado**, e cada vez que o
+vê fica uma linha no `audit_log`.
+
+### Critérios de Aceitação
+
+- [ ] Uma acção nova no domínio de `audit_log.action` (por exemplo `order.contact_view`, *proposta*), por revisão de base de dados, no dicionário e nas três superfícies que repetem o domínio.
+- [ ] O COM serve o contacto de **uma** encomenda do tenant do `ctx` (rota interna nova, com credencial e `x-kamba-tenant`): o telefone decifrado da `contact_endpoints` só dentro do COM, e para fora **só mascarado** (os últimos três dígitos, *proposta*); a linha de auditoria escreve-se na mesma transacção, **antes** de a resposta sair.
+- [ ] O contacto só se mostra quando o dono é o responsável e o dado é necessário: a regra (estados da encomenda em que o dono age — confirmação, entrega, falha de entrega —, *proposta*) fica escrita no bloco e no dicionário, e fora dela a resposta é 404 igual à de uma encomenda que não existe.
+- [ ] No painel, o contacto pede-se por acção explícita do dono (um botão), e não vem na lista nem no detalhe por omissão.
+- [ ] Isolamento: o contacto de uma encomenda de outro tenant dá 404, no X-01 do *gate* 6; nenhum telefone em claro sai do COM, nem em *logs*, nem em métricas.
+
+### Detalhes Técnicos
+
+- **Componentes:** COM (leitura do contacto e auditoria), identidade de contacto (decifra), `onboarding-web` (rota do painel).
+- **Fora deste ticket:** o filtro de data das encomendas (KAM-190); a cifra dos contactos em si (KAM-008).
+
+### Testes Requeridos
+
+- Integração: a decifra e a máscara contra o PostgreSQL do *gate* 8, com a linha de `audit_log` na mesma transacção.
+- Isolamento: o contacto de B com a sessão de A ⇒ 404; fora dos estados da regra ⇒ o mesmo 404.
+- Adversarial: o telefone em claro não aparece na resposta, no *log*, nem na exposição de métricas.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a verificação do KAM-099 (critério 6) e a do KAM-190 (critério 1) a apontar para este ticket.
+- [ ] Migração reversível, com ensaio de `downgrade`; sem telefone em claro em *logs*.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-206 da KAMBÁ (o contacto da encomenda ao dono, mascarado e auditado).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-099, KAM-190 e KAM-206), o dicionário §3.2 (audit_log.action),
+§3.56 e §3.76, e services/com/src/canal/vista.ts como exemplo de leitura do painel no COM.
+Objectivo: o telefone do cliente de uma encomenda, mascarado, ao dono responsável, com uma linha de audit_log.
+Regras: tenant só da sessão; 404 e não 403; telefone em claro nunca sai do COM; acção nova por migração.
+Testes: integração, isolamento no X-01, adversarial do telefone em claro.
+```
+
+---
+
+## KAM-207 — Religar o número de um tenant activo cujo canal caiu, a partir do painel
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P2 |
+| Estimativa | M |
+| Dependências | KAM-190, KAM-093 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (onboarding), com o dono do GWY |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-093, KAM-099 e KAM-190 e as suas verificações), `02_Dicionario_de_Dados_Canonico.md` (§3.21 e §3.76), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§13) |
+
+### Contexto
+
+O critério 7 do KAM-099 pede a ligação ao passo de reconexão do KAM-093 a partir do painel. O KAM-190
+entregou-a — a sessão do painel pede o código por SMS e só ele abre o `/ligar` —, mas o `/ligar` do KAM-093
+só abre com o caso em `aguarda_es` (`fase_errada` em qualquer outra). Serve o dono que ainda não ligou o
+número e **não** o dono cujo caso já está `activo` e cujo canal caiu (`desligado`, por `PARTNER_REMOVED`
+ou por o número ter sido levado para outra conta): para esse, o painel diz que o passo não está
+disponível. O KAM-093 está fundido e não tem este caminho, e nenhum ticket aberto o recebe. Este nasce no
+PR do KAM-190.
+
+### Objectivo
+
+O dono de um tenant activo cujo canal ficou desligado volta a ligar o número a partir do painel, sem
+registo novo e sem passar pela equipa.
+
+### Critérios de Aceitação
+
+- [ ] Um caso `activo` com o canal `desligado` abre o passo do Embedded Signup a partir do painel, depois do código por SMS (o mesmo bilhete do KAM-190), e só esse: `suspenso` e `encerrado` não reabrem.
+- [ ] A religação volta por `iniciado` na `channel_onboarding` (§3.21) para o **mesmo** tenant, e o GWY recusa um `phone_number_id` já ligado a outro tenant (o 409 do KAM-016).
+- [ ] O caso não recua de fase: a religação não volta a pôr um caso `activo` em `aguarda_es`, nem lhe tira o tenant.
+- [ ] O painel mostra a ligação a um canal `desligado` de um caso `activo`, e o `GET /painel/ligar` deixa de responder 409 a esse caso.
+- [ ] Isolamento: a religação de A nunca toca no canal de B, no X-01 do *gate* 6.
+
+### Detalhes Técnicos
+
+- **Componentes:** `onboarding-web` (guia e painel), GWY (`/internal/channels`).
+- **Fora deste ticket:** a reentrada e o código da ligação (KAM-190); o passo do ES de um caso novo (KAM-093).
+
+### Testes Requeridos
+
+- Integração: um tenant activo com o canal desligado religa o mesmo número e o canal volta a `ativo`.
+- Adversarial: o caso em `suspenso` não reabre; o número de outro tenant dá 409.
+- Isolamento: a sessão de A não religa o canal de B.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; a verificação do KAM-099 (critério 7) e a do KAM-190 (critério 2) a apontar para este ticket.
+- [ ] Métricas do passo guiado a contar a religação; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-207 da KAMBÁ (religar o número de um tenant activo cujo canal caiu).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-093, KAM-099, KAM-190 e KAM-207), o dicionário §3.21
+e §3.76, services/onboarding-web/src/guia.ts e services/onboarding-web/src/painel/rotas.ts (GET /painel/ligar).
+Objectivo: o passo do ES a partir do painel para um caso activo com o canal desligado, depois do código.
+Regras: tenant só da sessão; o caso não recua de fase; suspenso e encerrado não reabrem.
+Testes: integração, adversarial, isolamento no X-01.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -3277,4 +3412,4 @@ Testes: integração, a cache do CHR e isolamento.
 | 1.23 | Novembro 2026 | KAM-117: entram as duas secções de verificação do bloco dos KPIs de onboarding, churn e dormentes — **dois** critérios satisfeitos e **seis** parciais, com credor (o agendador, a porta do LiteLLM, o aviso ao dono, os recursos órfãos e um papel só de leitura para os painéis); quatro itens da DoD marcados. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | KAM-094: entram as duas secções de verificação do bloco do catálogo mínimo e do teste ponta a ponta — **oito** critérios (seis parciais e dois por fazer) e **duas** linhas de DoD de seis. Entregue: o módulo `activacao/` e a revisão `0065` (`conversations.is_test` e `onboarding_smoke`). O que fica por ligar — o observador do teste, a activação no lote, o filtro de `is_test` e a restrição de BD na `offer_terms` — tem credor o **KAM-202** (EPIC-04), que entra no campo «Bloqueia» do bloco, e o KAM-198 também o bloqueia. | Equipa KAMBÁ |
 | 1.25 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas), e a revisão `0065`. O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor é o **KAM-203**, aberto neste PR, porque o KAM-200 diz que o tecto não é dele; o KAM-203 é também o credor do alerta da caixa 7, e o **KAM-204** (EPIC-04) o da caixa 3. O EPIC-09 passa a **25** tickets. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |
-| 1.26 | Novembro 2026 | KAM-190: entram as duas secções de verificação do bloco das caixas devolvidas pelo KAM-099 — **cinco** critérios (dois satisfeitos: o `/metrics` do `onboarding-web` e a leitura de uma oferta; três parciais ou por fechar: o filtro de data no COM com o contacto por fazer, o adaptador e a reentrada com a ligação a servir só o caso em `aguarda_es`, e os 3 s em 3G por medir) e **duas** caixas da DoD de três. As linhas 6, 7 e 9 e a DoD 5 da verificação do KAM-099 passam a dizer o que o KAM-190 fechou. **Sem revisão de base de dados.** | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | KAM-190: entram as duas secções de verificação do bloco das caixas devolvidas pelo KAM-099 — **cinco** critérios (dois satisfeitos: o `/metrics` do `onboarding-web` e a leitura de uma oferta; três parciais ou por fechar: o filtro de data no COM com o contacto por fazer, o adaptador e a reentrada com a ligação a servir só o caso em `aguarda_es`, e os 3 s em 3G por medir) e **duas** caixas da DoD de três. As linhas 6, 7 e 9 e a DoD 5 da verificação do KAM-099 passam a dizer o que o KAM-190 fechou. Entram o **KAM-206** (o contacto da encomenda, mascarado e auditado) e o **KAM-207** (religar o número de um tenant activo), credores do que o KAM-190 devolve; o `Bloqueia` do KAM-190 ganha os dois e o do KAM-093 o KAM-207. O EPIC-09 passa a **27** tickets. **Sem revisão de base de dados.** | Equipa KAMBÁ |
