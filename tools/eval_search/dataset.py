@@ -464,6 +464,44 @@ def ler_catalogo(snapshot: str, *, pasta: Path = PASTA_DOS_CATALOGOS) -> list[di
     return _ler_linhas(pasta / f"{snapshot}.jsonl")
 
 
+#: Os tipos do `idx.termo_canonico` (a `termo_canonico_tipo_ck` da `0045`).
+TIPOS_DE_TERMO: Final = ("marca", "unidade", "sinonimo", "erro_comum", "stopword")
+
+
+def ler_lexico(caminho: Path) -> list[dict[str, object]]:
+    """O lexico candidato que o `golden_search --lexico` semeia (KAM-199).
+
+    Uma entrada por linha: `{"tipo", "termo", "canonico"}` e, opcional, o
+    `peso` em ]0, 1]. Sao as entradas globais que a corrida mede e que o
+    relatorio leva nos `termos` — e so essas o `idx.termo_canonico` deixa
+    activar com ele anexado. Recusa-se, **antes** de semear: um tipo fora dos
+    cinco, um termo ou canonico vazio, dois `(tipo, termo)` iguais (o indice
+    unico do §4.4 recusava a segunda) e qualquer achado do `pii_em` — um
+    lexico e texto de catalogo, nunca de cliente. Ordenado por
+    `(tipo, termo)`, para o relatorio nao depender da ordem do ficheiro.
+    """
+    entradas: dict[tuple[str, str], dict[str, object]] = {}
+    for numero, dados in enumerate(_ler_linhas(Path(caminho)), start=1):
+        tipo, termo, canonico = (str(dados.get(c, "")).strip() for c in ("tipo", "termo", "canonico"))
+        if tipo not in TIPOS_DE_TERMO:
+            raise ValueError(f"linha {numero}: tipo {tipo!r} fora de {TIPOS_DE_TERMO}")
+        if not termo or not canonico:
+            raise ValueError(f"linha {numero}: termo e canonico sao obrigatorios")
+        achados = pii_em(f"{termo} {canonico}")
+        if achados:
+            raise ValueError(f"linha {numero}: PII no lexico ({', '.join(achados)})")
+        if (tipo, termo) in entradas:
+            raise ValueError(f"linha {numero}: ({tipo}, {termo}) repetido")
+        entrada: dict[str, object] = {"tipo": tipo, "termo": termo, "canonico": canonico}
+        if "peso" in dados:
+            peso = float(dados["peso"])  # type: ignore[arg-type]
+            if not 0 < peso <= 1:
+                raise ValueError(f"linha {numero}: peso {peso} fora de ]0, 1]")
+            entrada["peso"] = peso
+        entradas[(tipo, termo)] = entrada
+    return [entradas[chave] for chave in sorted(entradas)]
+
+
 # ------------------------------------------------------------------ CLI
 
 

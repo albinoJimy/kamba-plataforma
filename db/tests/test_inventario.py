@@ -3196,6 +3196,27 @@ INVENTARIO_SERVICOS = {
 #: omissao (a expressao vive no `generation_expression`, nao no
 #: `column_default`).
 INVENTARIO_IDX = {
+    # KAM-199: os relatorios verdes do *gate* de avaliacao que soltam o lexico
+    # de *dataset*. Sem `tenant_id`; o `registado_por` e texto livre de *ops*,
+    # como o `aprovado_por` do lexico.
+    "eval_relatorio": {
+        "id": ("bigint", NAO, None, "nao"),
+        "relatorio_sha256": ("text", NAO, None, "nao; resumo do ficheiro do relatorio"),
+        "linha_de_base": ("text", NAO, None, "nao"),
+        "dataset": ("text", NAO, None, "nao"),
+        "ndcg_at_3_base": ("numeric", NAO, None, "nao"),
+        "ndcg_at_3": ("numeric", NAO, None, "nao"),
+        "zero_result_base": ("numeric", NAO, None, "nao"),
+        "zero_result": ("numeric", NAO, None, "nao"),
+        "termos": ("jsonb", NAO, None, "nao; termos de lexico que a corrida mediu"),
+        "registado_por": (
+            "text",
+            NAO,
+            None,
+            "nao; texto livre de ops, nunca contacto de cliente",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     # KAM-062 (revisao `0049`): a versao do lexico. Sem `tenant_id` e sem pessoa.
     "norm_versao": {
         "versao": ("bigint", NAO, None, "nao"),
@@ -3245,6 +3266,8 @@ INVENTARIO_IDX = {
             "nao; texto livre de ops, nunca contacto de cliente",
         ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        # KAM-199: o relatorio verde que solta uma entrada de *dataset*.
+        "eval_relatorio_id": ("bigint", SIM, None, "nao"),
     },
 }
 

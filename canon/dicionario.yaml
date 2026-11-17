@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.101"
+versao_dicionario: "1.103"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -15377,7 +15377,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.59"
     conceito: "Dicionário PT-AO"
-    canonico: "idx.termo_canonico, dez colunas"
+    canonico: "idx.termo_canonico, onze colunas"
     literais:
       - "idx.termo_canonico"
     nomes:
@@ -15393,6 +15393,7 @@ entradas:
       - "activo"
       - "aprovado_por"
       - "criado_at"
+      - "eval_relatorio_id"
       - "tenant_destinations"
       - "tenant_iso"
       - "termos_globais"
@@ -16079,6 +16080,119 @@ entradas:
       - "origem"
       - "dataset"
       - "activo"
+      - "termo_canonico_dataset_medido"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Termo de dataset activo só se medido"
+    canonico: "idx.f_exigir_termo_medido(), gatilho termo_canonico_dataset_medido"
+    literais:
+      - "idx.f_exigir_termo_medido()"
+      - "termo_canonico_dataset_medido"
+    nomes:
+      - "idx.f_exigir_termo_medido"
+      - "termo_canonico_dataset_medido"
+    nomes_nota:
+      - "origem"
+      - "dataset"
+      - "activo"
+      - "termo_canonico.eval_relatorio_id"
+      - "termos"
+      - "tipo"
+      - "termo"
+      - "canonico"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Relatório anexado a um termo"
+    canonico: "termo_canonico.eval_relatorio_id, FK termo_canonico_eval_relatorio_fk"
+    literais:
+      - "termo_canonico.eval_relatorio_id"
+      - "termo_canonico_eval_relatorio_fk"
+    nomes:
+      - "termo_canonico.eval_relatorio_id"
+      - "termo_canonico_eval_relatorio_fk"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Relatório verde do gate de avaliação"
+    canonico: "idx.eval_relatorio, onze colunas: id, relatorio_sha256, linha_de_base, dataset, ndcg_at_3_base, ndcg_at_3, zero_result_base, zero_result, termos, registado_por, criado_at"
+    literais:
+      - "idx.eval_relatorio"
+      - "id"
+      - "relatorio_sha256"
+      - "linha_de_base"
+      - "dataset"
+      - "ndcg_at_3_base"
+      - "ndcg_at_3"
+      - "zero_result_base"
+      - "zero_result"
+      - "termos"
+      - "registado_por"
+      - "criado_at"
+    nomes:
+      - "idx.eval_relatorio"
+      - "id"
+      - "relatorio_sha256"
+      - "linha_de_base"
+      - "dataset"
+      - "ndcg_at_3_base"
+      - "ndcg_at_3"
+      - "zero_result_base"
+      - "zero_result"
+      - "termos"
+      - "registado_por"
+      - "criado_at"
+    nomes_nota:
+      - "tenant_id"
+      - "idx.norm_versao"
+      - "registado_por"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Colunas do relatório"
+    canonico: "eval_relatorio.relatorio_sha256, eval_relatorio.linha_de_base, eval_relatorio.ndcg_at_3_base, eval_relatorio.ndcg_at_3, eval_relatorio.zero_result_base, eval_relatorio.zero_result, eval_relatorio.termos, eval_relatorio.registado_por"
+    literais:
+      - "eval_relatorio.relatorio_sha256"
+      - "eval_relatorio.linha_de_base"
+      - "eval_relatorio.ndcg_at_3_base"
+      - "eval_relatorio.ndcg_at_3"
+      - "eval_relatorio.zero_result_base"
+      - "eval_relatorio.zero_result"
+      - "eval_relatorio.termos"
+      - "eval_relatorio.registado_por"
+    nomes:
+      - "eval_relatorio.relatorio_sha256"
+      - "eval_relatorio.linha_de_base"
+      - "eval_relatorio.ndcg_at_3_base"
+      - "eval_relatorio.ndcg_at_3"
+      - "eval_relatorio.zero_result_base"
+      - "eval_relatorio.zero_result"
+      - "eval_relatorio.termos"
+      - "eval_relatorio.registado_por"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.62"
+    conceito: "Só um relatório verde entra, e não se reescreve"
+    canonico: "eval_relatorio_verde_ck, eval_relatorio_metricas_ck, eval_relatorio_sha256_ck, eval_relatorio_sha256_uq, eval_relatorio_termos_ck, eval_relatorio_registado_ck; idx.f_recusar_alteracao_de_relatorio(), gatilho eval_relatorio_imutavel"
+    literais:
+      - "eval_relatorio_verde_ck"
+      - "eval_relatorio_metricas_ck"
+      - "eval_relatorio_sha256_ck"
+      - "eval_relatorio_sha256_uq"
+      - "eval_relatorio_termos_ck"
+      - "eval_relatorio_registado_ck"
+      - "idx.f_recusar_alteracao_de_relatorio()"
+      - "eval_relatorio_imutavel"
+    nomes:
+      - "eval_relatorio_verde_ck"
+      - "eval_relatorio_metricas_ck"
+      - "eval_relatorio_sha256_ck"
+      - "eval_relatorio_sha256_uq"
+      - "eval_relatorio_termos_ck"
+      - "eval_relatorio_registado_ck"
+      - "idx.f_recusar_alteracao_de_relatorio"
+      - "eval_relatorio_imutavel"
+    nomes_nota:
+      - "registado_por"
     variantes_literais: []
   - seccao: "3.62"
     conceito: "Pergunta da normalização"
@@ -19927,6 +20041,20 @@ tabelas:
     assinatura: "idx.f_recusar_alteracao_de_versao()"
     seccao: "3.62"
     conceito: "Versão só de acrescento"
+  - nome: "f_exigir_termo_medido"
+    esquema: "idx"
+    colunas: []
+    aberta: false
+    assinatura: "idx.f_exigir_termo_medido()"
+    seccao: "3.62"
+    conceito: "Termo de dataset activo só se medido"
+  - nome: "f_recusar_alteracao_de_relatorio"
+    esquema: "idx"
+    colunas: []
+    aberta: false
+    assinatura: "idx.f_recusar_alteracao_de_relatorio()"
+    seccao: "3.62"
+    conceito: "Só um relatório verde entra, e não se reescreve"
   - nome: "numeric"
     esquema: ""
     colunas: []

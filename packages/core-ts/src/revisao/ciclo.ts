@@ -46,7 +46,13 @@
 
 import type { Feriados } from "./sla.ts";
 import { FERIADOS_POR_OMISSAO } from "./sla.ts";
-import { CasoInexistenteError, RevisaoRecusadaError, type EfeitosPorReaplicar } from "./contrato.ts";
+import {
+  AprovacaoEmFaltaError,
+  CasoInexistenteError,
+  RevisaoRecusadaError,
+  type EfeitosPorReaplicar,
+} from "./contrato.ts";
+import { VarrimentoComFalhasError } from "./entradas.ts";
 import { MetricasDaRevisao, type Contador, type LinhaDaVista } from "./metricas.ts";
 import type { ResultadoDaAbertura, ServicoDeRevisao } from "./servico.ts";
 import { SQL_CONTADORES, SQL_VISTA_SLA, type ClienteSql } from "./sql.ts";
@@ -79,7 +85,7 @@ export class EfeitosPorReaplicarEmMemoria implements EfeitosPorReaplicar {
 }
 
 /** Os passos de uma volta. É por estes nomes que uma falha se diz. */
-export const PASSOS_DO_CICLO = ["drenar", "alertar", "reaplicar", "medir"] as const;
+export const PASSOS_DO_CICLO = ["drenar", "alertar", "reaplicar", "aprovar", "medir"] as const;
 export type PassoDoCiclo = (typeof PASSOS_DO_CICLO)[number];
 
 export interface ResultadoDoCiclo {
@@ -88,6 +94,8 @@ export interface ResultadoDoCiclo {
   readonly reaplicados: number;
   /** Casos cujo efeito voltou a falhar e ficam para a volta seguinte. */
   readonly porReaplicar: number;
+  /** Onboardings que o varrimento aprovou nesta volta (KAM-201). */
+  readonly aprovados: number;
   readonly falhas: readonly PassoDoCiclo[];
 }
 
@@ -102,6 +110,11 @@ export interface OpcoesDoCiclo {
   readonly feriados?: Feriados;
   /** Quantos casos da triagem, e quantos efeitos, numa volta. */
   readonly limite?: number;
+  /**
+   * O varrimento das aprovações (KAM-201, `varrerAprovacoes`): corre depois da
+   * reaplicação e devolve quantos aprovou. Sem ele, o passo não faz nada.
+   */
+  readonly aprovar?: (limite: number) => Promise<number>;
 }
 
 export class CicloDaFila {
@@ -135,6 +148,7 @@ export class CicloDaFila {
     let alertas = 0;
     let reaplicados = 0;
     let porReaplicar = 0;
+    let aprovados = 0;
     try {
       entraram = await this.#o.servico.drenarTriagem(limite);
     } catch {
@@ -154,6 +168,9 @@ export class CicloDaFila {
         } catch (erro) {
           if (
             erro instanceof CasoInexistenteError ||
+            // Esperar pelo aceite não é efeito a repetir: o varrimento aprova
+            // quando ele chegar (KAM-201, achado 4).
+            erro instanceof AprovacaoEmFaltaError ||
             (erro instanceof RevisaoRecusadaError && erro.motivo === "estado_invalido")
           ) {
             await this.efeitos.resolver(id);
@@ -173,12 +190,18 @@ export class CicloDaFila {
       falhas.push("reaplicar");
     }
     try {
+      if (this.#o.aprovar !== undefined) aprovados = await this.#o.aprovar(limite);
+    } catch (erro) {
+      if (erro instanceof VarrimentoComFalhasError) aprovados = erro.aprovados;
+      falhas.push("aprovar");
+    }
+    try {
       const [vista, contadores] = await Promise.all([this.#o.leitor.vista(), this.#o.leitor.contadores()]);
       this.metricas.actualizar(vista, contadores, this.#o.feriados ?? FERIADOS_POR_OMISSAO);
     } catch {
       falhas.push("medir");
     }
-    return { entraram, alertas, reaplicados, porReaplicar, falhas };
+    return { entraram, alertas, reaplicados, porReaplicar, aprovados, falhas };
   }
 
   /** Marca um caso cujo efeito falhou depois de ele fechar. */

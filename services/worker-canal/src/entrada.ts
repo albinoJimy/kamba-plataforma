@@ -56,10 +56,12 @@
 import { serve } from "@hono/node-server";
 import { healthz } from "@kamba/core-ts";
 import {
+  CONSUMIDOR_DO_CHR,
   Chr,
   type EntregaDoChr,
   METRICAS_DO_CHR,
   ResolvedorDeCanal,
+  efeitoDaActivacao,
   emitirContactMerged,
   repontarConversas,
   verificarArranque,
@@ -79,6 +81,8 @@ import {
   sha256Hex,
   tratarCorpo,
 } from "@kamba/core-ts/entrada";
+import { METRICAS, filasDe } from "@kamba/core-ts/eventos";
+import { criarTrabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
 import { type Ambiente, isAmbiente } from "@kamba/core-ts/secrets";
@@ -308,6 +312,24 @@ async function principal(): Promise<void> {
   });
 
   const resolvedor = new ResolvedorDeCanal(resolvedorBd);
+  // **O consumidor `chr` do `tenant.activated`** (KAM-201): corre aqui, e não
+  // no `consumidor.ts`, porque a *cache* que ele esquece é a deste processo. O
+  // consumo é `kamba_app` (a marca em `events_consumed` sob a RLS do tenant do
+  // envelope), numa ligação por fila, como no `consumidor.ts`. Cada evento
+  // chega a **uma** réplica: ver a nota do `chr/activacao.ts`.
+  const activacoes = criarTrabalhadores({
+    ligar: async () => {
+      const cliente = new Client({ connectionString: urlDaBase });
+      await cliente.connect();
+      return cliente;
+    },
+    subscricao: { consumer: CONSUMIDOR_DO_CHR, exigeOrdem: false },
+    filas: filasDe(CONSUMIDOR_DO_CHR),
+    efeito: efeitoDaActivacao(resolvedor),
+    metricas: METRICAS,
+    url: urlDaFila,
+    log: (dados) => log.info({ outcome: `activacao_${String(dados.desfecho)}` }),
+  });
   const filaDoAgr = criarFilaDoAgr(urlDaFila);
   const entrega = new EntregaDoCanal((invocacao) => filaDoAgr.publicar(invocacao));
 
@@ -427,6 +449,7 @@ async function principal(): Promise<void> {
   // a escrita dele morrer a meio, e o evento voltava à fila. É a mesma ordem do
   // `trabalhador_bullmq.ts`, e pela mesma razão.
   await consumo.fechar();
+  await activacoes.fechar();
   servidor.close();
   await filaDoAgr.fechar().catch(() => {});
   await bd.end().catch(() => {});

@@ -270,5 +270,43 @@ class TestScannerDePii(unittest.TestCase):
             self.assertEqual(dataset.pii_em(dataset.impressao(f"texto {i}")), [])
 
 
+class TestLexico(unittest.TestCase):
+    """O lexico candidato do `golden_search --lexico` (KAM-199)."""
+
+    def ler(self, *linhas: str) -> list:
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = Path(pasta) / "lexico.jsonl"
+            caminho.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+            return dataset.ler_lexico(caminho)
+
+    def test_le_ordena_e_guarda_o_peso(self) -> None:
+        self.assertEqual(
+            self.ler(
+                '{"tipo": "sinonimo", "termo": "geleira", "canonico": "frigorifico", "peso": 0.8}',
+                '{"tipo": "marca", "termo": "niker", "canonico": "nike"}',
+            ),
+            [
+                {"tipo": "marca", "termo": "niker", "canonico": "nike"},
+                {"tipo": "sinonimo", "termo": "geleira", "canonico": "frigorifico", "peso": 0.8},
+            ],
+        )
+
+    def test_recusa_o_que_a_base_ou_a_privacidade_recusariam(self) -> None:
+        casos = {
+            "tipo fora dos cinco": '{"tipo": "regiao", "termo": "a", "canonico": "b"}',
+            "termo vazio": '{"tipo": "sinonimo", "termo": " ", "canonico": "b"}',
+            "peso fora": '{"tipo": "sinonimo", "termo": "a", "canonico": "b", "peso": 1.5}',
+            "nome de pessoa": '{"tipo": "sinonimo", "termo": "loja", "canonico": "loja do domingos"}',
+        }
+        for nome, linha in casos.items():
+            with self.subTest(nome), self.assertRaises(ValueError):
+                self.ler(linha)
+        with self.assertRaises(ValueError):
+            self.ler(
+                '{"tipo": "sinonimo", "termo": "geleira", "canonico": "frigorifico"}',
+                '{"tipo": "sinonimo", "termo": "geleira", "canonico": "arca"}',
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

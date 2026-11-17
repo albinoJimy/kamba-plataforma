@@ -57,11 +57,12 @@ from alembic import op
 
 import rls
 
-revision = "0064"
-#: **Provisoria**: o numero e o `down_revision` da-os o orquestrador na
-#: integracao, pela ordem da fila. Os ensaios encontram esta revisao pelo nome
-#: do ficheiro (`*_regua_de_cobranca.py`), e nao pelo numero.
-down_revision = "0063"
+revision = "0062"
+#: **Encaixa na `0061_subscricao_do_chr.py` do KAM-201** (#204), pela ordem da
+#: fila que o orquestrador do lote deu a 2026-11-17. Foi escrita como `0064`
+#: sobre a `0063` e renumerada na integracao. Os ensaios encontram esta revisao
+#: pelo nome do ficheiro (`*_regua_de_cobranca.py`), e nao pelo numero.
+down_revision = "0061"
 branch_labels = None
 depends_on = None
 

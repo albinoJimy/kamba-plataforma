@@ -7410,6 +7410,21 @@ MUTACOES = [
      "     AND norm_versao < %s\n", PRODUTOS),
     ("consumidor: o visivel ignora a oferta", IDX_CONSUMIDOR,
      'bool(linha["publicado"])', "True", PRODUTOS),
+    # KAM-199: a activacao do lexico de *dataset*. A tolerancia do §14.3 na
+    # base afrouxada de 2 para 3 pontos (o `test_os_dois_limites_do_verde`); o
+    # gatilho desligado (o `test_sem_relatorio_a_entrada_continua_presa`); e a
+    # **ligacao** cortada — o relatorio anexado basta, meca ele a entrada ou
+    # nao (o `test_o_relatorio_versionado_anexa_se_e_nao_solta_nada` e o
+    # `test_uma_entrada_que_o_relatorio_nao_mediu_fica_presa`).
+    ("indice: um relatorio vermelho entra no eval_relatorio", INDICE,
+     "CHECK (ndcg_at_3_base - ndcg_at_3 <= 0.02 AND",
+     "CHECK (ndcg_at_3_base - ndcg_at_3 <= 0.03 AND", PRODUTOS),
+    ("indice: o lexico de dataset solta-se sem relatorio", INDICE,
+     "  IF NEW.origem = 'dataset' AND NEW.activo AND NOT EXISTS (",
+     "  IF false AND NOT EXISTS (", PRODUTOS),
+    ("indice: qualquer relatorio verde solta qualquer entrada", INDICE,
+     "          AND r.termos @> jsonb_build_array(jsonb_build_object(",
+     "          AND true OR r.termos @> jsonb_build_array(jsonb_build_object(", PRODUTOS),
     # --------------------------------------------------- KAM-197 (0051)
     # A repeticao com **outra encomenda** deixa de ser recusada (o `AND` liga
     # antes do `OR`, pelo que so a comparacao do `order_id` se desliga): o mesmo

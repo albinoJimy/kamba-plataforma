@@ -544,6 +544,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # KAM-062 (0049). Uma linha por alteracao do lexico: um numero, um booleano
     # e uma data, sem tenant e sem pessoa.
     "idx.norm_versao": "versao do lexico PT-AO, sem tenant nem pessoas",
+    # KAM-199. Um relatorio do *gate* de avaliacao por linha: um resumo do
+    # ficheiro, versoes e quatro metricas, sem tenant e sem pessoa.
+    "idx.eval_relatorio": "relatorio do gate de avaliacao, sem tenant nem pessoas",
 }
 
 
