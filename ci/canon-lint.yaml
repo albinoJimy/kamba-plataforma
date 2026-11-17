@@ -572,6 +572,18 @@ dominios_historicos:
       esta entrada cobre. O passo de descida recusa-se se houver linhas
       trust.tecto escritas, porque o audit_log e append-only e nenhum papel tem
       DELETE. Renumerar a revisao e mudar tambem o caminho desta entrada.
+  - revisao: "db/migrations/versions/0066_rotacao_de_chaves.py"
+    tabela: "audit_log"
+    coluna: "action"
+    ticket: "KAM-072"
+    data: "2026-11-17"
+    razao: >-
+      A 0066 (KAM-072) acrescenta ao dominio as duas accoes do rotador de
+      chaves, e o dicionario §3.2 passa a declarar dezanove (emenda 1.107). O
+      upgrade escreve as dezanove; o downgrade repoe as dezassete da 0065
+      (KAM-096), que e o que a base passa a ter quando se desce, e e essa declaracao que esta
+      entrada cobre. O passo de descida recusa-se se houver linhas secret.*
+      escritas, porque o audit_log e append-only e nenhum papel tem DELETE.
   - revisao: "db/migrations/versions/0036_destinos_de_transferencia.py"
     tabela: "tenant_destinations"
     coluna: "purpose"

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.106"
+versao_dicionario: "1.107"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -707,7 +707,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Acções auditadas"
-    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto}"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read, privacy.dsar_recusado, privacy.dsar_rectificado, retention.hold_aplicado, retention.hold_levantado, order.refund_record, review.acesso, review.recusa, llm.orcamento_zerado, llm.orcamento_reposto, trust.tecto, secret.rotate, secret.revoke}"
     literais:
       - "action"
       - "price.update"
@@ -727,6 +727,8 @@ entradas:
       - "llm.orcamento_zerado"
       - "llm.orcamento_reposto"
       - "trust.tecto"
+      - "secret.rotate"
+      - "secret.revoke"
     nomes:
       - "action"
       - "price.update"
@@ -746,7 +748,11 @@ entradas:
       - "llm.orcamento_zerado"
       - "llm.orcamento_reposto"
       - "trust.tecto"
+      - "secret.rotate"
+      - "secret.revoke"
     nomes_nota:
+      - "entity"
+      - "entity_id"
       - "trust.tecto"
       - "order.refund_record"
       - "audit.read"
@@ -20804,6 +20810,8 @@ dominios:
       - "llm.orcamento_zerado"
       - "llm.orcamento_reposto"
       - "trust.tecto"
+      - "secret.rotate"
+      - "secret.revoke"
     seccao: "3.2"
     conceito: "Acções auditadas"
     so_no_registo: false

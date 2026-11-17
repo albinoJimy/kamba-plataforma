@@ -941,7 +941,7 @@ Testes: matriz de decisão, idempotência, estados, rate limit, 130429. Abre PR 
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-013, KAM-003, ext:KAM-102, KAM-010, KAM-024 |
-| Bloqueia | KAM-017, KAM-091, KAM-093 |
+| Bloqueia | KAM-017, KAM-091, KAM-093, KAM-205 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§4.2–§4.4, §13), `../docs/tecnica/10_Onboarding_Governanca.md` (§6), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§2, §3), `../docs/tecnica/08_Seguranca_Conformidade.md` (§5), ADR-001, ADR-019 |
 
