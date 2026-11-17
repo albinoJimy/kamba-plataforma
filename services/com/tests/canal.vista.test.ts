@@ -10,8 +10,8 @@
  * Pela razão do `produtos.painel.test.ts`: uma base que decidisse pelo argumento
  * ficava verde com o `tenant_id = $1` apagado. Aqui ela só devolve as linhas do
  * tenant de `$1` se o texto tiver o predicado, e só filtra pelo `origem = 'pme'`
- * se o texto o tiver. A ordem, o `LIMIT` e as colunas medem-se contra o motor, em
- * `db/tests_produtos/test_painel.py`.
+ * se o texto o tiver. A ordem, o `LIMIT`, as colunas e os privilégios do
+ * `kamba_app` medem-se contra o motor, em `db/tests/test_canal_do_painel.py`.
  */
 
 import assert from "node:assert/strict";
@@ -20,7 +20,7 @@ import { test } from "node:test";
 import { SQL_SANCOES_DO_TENANT_APP } from "@kamba/core-ts/trust";
 
 import type { ClienteSql, Ctx } from "../src/port/index.ts";
-import { comRegisto, type Dependencias } from "../src/adapters/medusa/index.ts";
+import { comRegisto, operacoesDoCom, type Dependencias } from "../src/adapters/medusa/index.ts";
 import {
   SQL_CANAL_DO_PAINEL,
   SQL_NIVEL_DO_TENANT,
@@ -176,6 +176,30 @@ test("KAM-190: um recurso provido tira a sancao dos avisos", async () => {
   const { cliente } = base(tabelas({ sancoes: [...tabelas().sancoes, provido] }));
   const r = await comRegisto(deps(cliente), ctx(), (reg) => vistaDoCanal(reg));
   assert.deepEqual(r.tipo === "ok" && r.valor.avisos, ["conduta_em_analise"]);
+});
+
+test("KAM-190: pelas operacoes, o channel-view nao pede o merchant do Medusa", async () => {
+  // Um tenant em `aguarda_es` pode ainda nao ter loja no Medusa, e e o que mais
+  // precisa da pagina do canal. O `comRegisto` levantava `MerchantEmFaltaError`.
+  const { cliente } = base(tabelas());
+  const semMerchant: ClienteSql = {
+    async query(sql: string, parametros?: readonly unknown[]) {
+      if (sql.includes("platform.tenants")) throw new Error("a leitura do canal foi ao merchant");
+      return cliente.query(sql, parametros);
+    },
+  };
+  const r = await operacoesDoCom(deps(semMerchant)).vistaDoCanal(ctx());
+  assert.equal(r.tipo, "ok");
+  assert.equal(r.tipo === "ok" && r.valor.escalao, "TIER_250");
+});
+
+test("KAM-190: suspenso e encerrado sao desligados e restritos, para a pagina nao oferecer religar", async () => {
+  for (const estado of ["suspenso", "encerrado"]) {
+    const { cliente } = base(tabelas({ canais: [{ tenant_id: TENANT_A, channel_id: CANAL_A, estado, quality_rating: null, messaging_limit: null, origem: "pme" }] }));
+    const r = await comRegisto(deps(cliente), ctx(), (reg) => vistaDoCanal(reg));
+    assert.equal(r.tipo === "ok" && r.valor.estado, "desligado", estado);
+    assert.equal(r.tipo === "ok" && r.valor.restrito, true, estado);
+  }
 });
 
 test("KAM-190: a tabela dos quatro estados do painel", () => {

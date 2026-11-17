@@ -780,10 +780,13 @@ test("KAM-190: o list-orders passa o intervalo do corpo ao filtro, e um valor qu
   await aplicacao.fetch(pedido("/internal/list-orders", { ...base, criado_desde: "2026-11-01T00:00:00Z", criado_ate: "2026-11-02T00:00:00Z" }, BONS));
   await aplicacao.fetch(pedido("/internal/list-orders", { ...base, criado_desde: 17 }, BONS));
   await aplicacao.fetch(pedido("/internal/list-orders", base, BONS));
+  await aplicacao.fetch(pedido("/internal/list-orders", { ...base, criado_desde: null, criado_ate: null }, BONS));
   assert.deepEqual(filtrosDasEncomendas, [
     { estado: "paga", criadoDesde: "2026-11-01T00:00:00Z", criadoAte: "2026-11-02T00:00:00Z" },
     // Ignora-lo devolvia o historico inteiro a quem pediu um intervalo mal escrito.
     { estado: "paga", criadoDesde: "" },
+    { estado: "paga" },
+    // O `null` e «sem esta ponta», que e o contrato (`string | null`).
     { estado: "paga" },
   ]);
 });

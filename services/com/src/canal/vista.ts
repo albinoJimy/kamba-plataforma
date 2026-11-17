@@ -3,7 +3,7 @@
  *
  * ```text
  * vistaDoCanal(r)   SQL_CANAL_DO_PAINEL         platform.tenant_channels
- *                   SQL_SINCRONIZACAO_DO_CANAL  platform.channel_coexistence
+ *                   SQL_SINCRONIZACAO_DO_CANAL  platform.channel_coexistence (uma por canal)
  *                   SQL_NIVEL_DO_TENANT         platform.trust_level   (KAM-096)
  *                   ServicoDeTrust.avisosDoPainel                      (KAM-097)
  * ```
@@ -42,7 +42,8 @@
  *
  * O `restrito` não vira um estado do painel: o canal continua ligado, e o que o
  * dono precisa de saber é que está limitado — vai no `restrito`, com a qualidade
- * ao lado.
+ * ao lado. O `suspenso` e o `encerrado` são `desligado` **e** `restrito`: o
+ * número não funciona, e religá-lo não é o que o dono deve fazer.
  */
 
 import type { ClienteSql } from "@kamba/core-ts/eventos";
@@ -58,7 +59,12 @@ export type EstadoDoCanalNoPainel = (typeof ESTADOS_DO_CANAL_NO_PAINEL)[number];
 /** O que o painel mostra. Nenhum telefone, nenhum `phone_number_id`, nenhum identificador da Meta. */
 export interface VistaDoCanal {
   readonly estado: EstadoDoCanalNoPainel;
-  /** O canal está ligado e limitado (`tenant_channels.estado = 'restrito'`). */
+  /**
+   * O canal está limitado ou suspenso, e **religá-lo não é o passo**:
+   * `tenant_channels.estado` em `restrito`, `suspenso` ou `encerrado`. A página
+   * não oferece a ligação a um canal destes — repetir o ES sobre uma suspensão
+   * da Meta ou de T&S era o dano que o `sem_canal` existe para evitar.
+   */
   readonly restrito: boolean;
   /** A qualidade canónica do KAM-021 (`tenant_channels.quality_rating`), ou `null`. */
   readonly qualidade: string | null;
@@ -93,13 +99,15 @@ export const SQL_CANAL_DO_PAINEL = `
    LIMIT 1
 `;
 
-/** A sincronização mais recente de um canal (KAM-017). */
+/**
+ * A sincronização de um canal (KAM-017). **Uma por canal**, pela
+ * `channel_coexistence_canal_uq` da `0018`: o predicado que decide é o
+ * `channel_id`, e é ele que o *gate* 8 mede.
+ */
 export const SQL_SINCRONIZACAO_DO_CANAL = `
   SELECT estado
     FROM platform.channel_coexistence
    WHERE tenant_id = $1 AND channel_id = $2::uuid
-   ORDER BY iniciado_em DESC, id DESC
-   LIMIT 1
 `;
 
 /** O nível e o tecto do tenant (KAM-096). Só as quatro colunas que o `kamba_app` lê. */
@@ -141,7 +149,7 @@ function texto(valor: unknown): string | null {
 }
 
 /** O estado do canal do tenant do `ctx`. Lê e não escreve. */
-export async function vistaDoCanal(r: Registo): Promise<Resultado<VistaDoCanal>> {
+export async function vistaDoCanal(r: Pick<Registo, "repo">): Promise<Resultado<VistaDoCanal>> {
   const canal = (await r.repo.noTenant(SQL_CANAL_DO_PAINEL))[0];
   const channelId = canal === undefined ? null : String(canal["channel_id"]);
   const sincronizacao =
@@ -152,7 +160,7 @@ export async function vistaDoCanal(r: Registo): Promise<Resultado<VistaDoCanal>>
   const estadoDoCanal = texto(canal?.["estado"]);
   return ok({
     estado: estadoNoPainel(estadoDoCanal, texto(sincronizacao?.["estado"])),
-    restrito: estadoDoCanal === "restrito",
+    restrito: estadoDoCanal === "restrito" || estadoDoCanal === "suspenso" || estadoDoCanal === "encerrado",
     qualidade: texto(canal?.["quality_rating"]),
     escalao: texto(canal?.["messaging_limit"]),
     nivel: nivel === undefined ? null : Number(nivel["nivel"]),

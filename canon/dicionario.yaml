@@ -14772,7 +14772,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.76"
     conceito: "A vista do canal"
-    canonico: "VistaDoCanal com estado, restrito, qualidade, escalao, nivel, tectoPedidoMinor e avisos"
+    canonico: "VistaDoCanal com estado, restrito, qualidade, escalao, nivel, tectoPedidoMinor e avisos, e no COM também a currency do tecto"
     literais:
       - "VistaDoCanal"
       - "estado"
@@ -14782,6 +14782,7 @@ entradas:
       - "nivel"
       - "tectoPedidoMinor"
       - "avisos"
+      - "currency"
     nomes:
       - "VistaDoCanal"
       - "estado"
@@ -14791,11 +14792,15 @@ entradas:
       - "nivel"
       - "tectoPedidoMinor"
       - "avisos"
+      - "currency"
     nomes_nota:
+      - "restrito"
+      - "suspenso"
+      - "encerrado"
+      - "tenant_channels"
       - "tenant_id"
       - "origem"
       - "pme"
-      - "tenant_channels"
       - "channel_coexistence"
       - "trust_level"
       - "kamba_app"
@@ -14804,7 +14809,6 @@ entradas:
       - "web"
       - "tenant_channels.estado"
       - "a_sincronizar"
-      - "restrito"
     variantes_literais: []
   - seccao: "3.76"
     conceito: "O intervalo de criação das encomendas"
@@ -14838,14 +14842,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.76"
     conceito: "O bilhete da reentrada"
-    canonico: "domínio kamba/painel/bilhete/v1, b1.<caso>.<expira>.<hmac>, 10 minutos (proposta)"
+    canonico: "domínio kamba/painel/bilhete/v2, b2.<iv>.<cifra>.<etiqueta> (AES-256-GCM sobre o caso e o prazo), 10 minutos (proposta)"
     literais:
-      - "b1.<caso>.<expira>.<hmac>"
+      - "b2.<iv>.<cifra>.<etiqueta>"
     nomes:
-      - "b1"
-      - "caso"
-      - "expira"
-      - "hmac"
+      - "b2"
+      - "iv"
+      - "cifra"
+      - "etiqueta"
     nomes_nota:
       - "ticket"
       - "sem_desafio"
@@ -14857,6 +14861,9 @@ entradas:
     literais: []
     nomes: []
     nomes_nota:
+      - "aguarda_es"
+      - "destino"
+      - "ligar"
       - "sessao"
     variantes_literais: []
   - seccao: "3.76"

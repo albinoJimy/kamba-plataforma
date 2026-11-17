@@ -302,6 +302,7 @@ async function montarPainel(): Promise<OpcoesDoPainel | undefined> {
     precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
     reentrada: {
       otp,
+      telefoneDoCaso: (id) => registo.telefoneDoCaso(id),
       casosPorTelefone: (hmac) => casos.porTelefoneHmac(hmac),
       anelDoPepper: [pepper, pepperAnterior],
       contadores,

@@ -14,7 +14,8 @@
  *                                   vai por SMS ao telefone registado
  *     POST  /painel/verificar       o código: acertou, e a sessão do painel é
  *                                   cunhada sem passar pela do registo
- *     GET   /painel/ligar           a reconexão (KAM-190): a sessão do painel
+ *     GET   /painel/ligar           a reconexão (KAM-190): manda o código ao
+ *                                   telefone registado e pede-o; o código certo
  *                                   abre o `/ligar` do KAM-093
  *
  * ## A reentrada não depende da sessão de 24 h do registo (KAM-190)
@@ -93,7 +94,9 @@ import {
   paginaDaEncomenda,
   paginaDeEncomendas,
   paginaDeProdutos,
+  paginaDaLigacaoFechada,
   paginaDoCanal,
+  paginaDoCodigoDaLigacao,
   paginaNaoEncontrada,
   paginaSemSessao,
 } from "./pagina.ts";
@@ -153,6 +156,8 @@ export function inicioDoDiaEmLuanda(dia: string): Date | null {
 /** O que a reentrada por código precisa (KAM-190). Sem ela, as duas rotas respondem 503. */
 export interface OpcoesDaReentrada {
   readonly otp: Pick<Otp, "enviar" | "verificar">;
+  /** O telefone registado de um caso (`Registo.telefoneDoCaso`), para o código da ligação. */
+  readonly telefoneDoCaso: (id: string) => Promise<Telefone | null>;
   /** Os casos vivos com este HMAC de telefone (`RepositorioDeCasos.porTelefoneHmac`). */
   readonly casosPorTelefone: (hmac: string) => Promise<readonly { readonly id: string; readonly fase: string }[]>;
   /** O anel do `pepper_onboarding_ident`: cunha o HMAC do telefone e o da rede. */
@@ -215,6 +220,22 @@ function canonico(valor: unknown): string {
 /** Um `bigint` sai como cadeia de dígitos. */
 function semBigInt(valor: unknown): unknown {
   return JSON.parse(JSON.stringify(valor, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+}
+
+/**
+ * O HMAC da rede de quem pede (o prefixo do IP, pela regra do `../rotas.ts`), para
+ * a chave dos limites da reentrada. Função do módulo e não `const x = (` dentro
+ * das rotas: a enumeração do *gate* 6 nomeia cada rota pela última função antes
+ * dela, e as do painel são todas do `actor`.
+ */
+function redeDoPedido(
+  c: { req: { header(n: string): string | undefined }; env?: unknown },
+  r: Pick<OpcoesDaReentrada, "proxiesDeConfianca">,
+  pepper: Uint8Array,
+): string {
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
+  const prefixo = prefixoDeIp(enderecoDoPedido(c.req.header("x-forwarded-for"), env?.incoming?.socket?.remoteAddress, r.proxiesDeConfianca ?? 0));
+  return prefixo === null ? "sem-rede" : hmacDe(pepper, DOMINIOS.rede, prefixo).toString("hex");
 }
 
 /** O corpo JSON de um `POST` da reentrada, ou `null`. O tecto é o do `PATCH`. */
@@ -500,21 +521,45 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     metricas.pedido("ligar");
     const n = nonce();
     const sessao = await sessaoDe(c.req.header("cookie"));
+    const r = opcoes.reentrada;
     const chave = opcoes.anelDaAssinatura[0];
-    if (sessao === null || !(chave instanceof Uint8Array)) {
+    if (sessao === null) {
       falhou("ligar", "sem_sessao");
       return html(paginaSemSessao(n), 401, n);
     }
-    // **A sessão do painel abre o `/ligar` do KAM-093**, que exige a do registo:
-    // cunha-se uma do registo **para o caso da sessão** (`dono`), com as 24 h
-    // dela, e o `/ligar` faz o resto — incluindo recusar um caso que não está no
-    // passo do ES. Não se alarga a sessão do registo nem se ensina o guia a ler a
-    // do painel: a ponte é esta rota, e só ela.
+    if (r === undefined || !(chave instanceof Uint8Array)) {
+      falhou("ligar", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    // **A sessão do painel não cunha a do registo.** A primeira versão desta
+    // rota fazia-o, e a revisão adversarial mediu o ciclo que isso abria: painel
+    // → `sessao` do registo → `/painel/entrar` → painel novo, com `sid` novo e
+    // `emitida` de agora — o tecto de 90 dias e as duas revogações deixavam de
+    // valer, e um cookie roubado vivia para sempre. Agora a ponte pede o código:
+    // a sessão do painel diz **de que caso** é, e o OTP ao telefone registado
+    // prova a posse, como na entrada.
+    //
+    // **E só para um caso no passo do ES** (`aguarda_es`), que é o único em que
+    // o `/ligar` do KAM-093 abre (`fase_errada` em qualquer outro): mandar um
+    // SMS para uma página que recusa era gastar o código do dono.
+    const caso = await opcoes.casos.porId(sessao.s.dono);
+    if (caso === null || caso.fase !== "aguarda_es") {
+      falhou("ligar", "conflito");
+      return html(paginaDaLigacaoFechada(n), 409, n, sessao.renovar);
+    }
+    const telefone = await r.telefoneDoCaso(sessao.s.dono);
+    if (telefone === null) {
+      falhou("ligar", "indisponivel");
+      return html(paginaNaoEncontrada(n), 503, n, sessao.renovar);
+    }
+    void r.otp
+      .enviar(sessao.s.dono, telefone)
+      .then((e) => {
+        if (!e.enviado) log?.info({ outcome: "painel_codigo_nao_enviado", error_code: e.recusa });
+      })
+      .catch((erro: unknown) => log?.excepcao(erro, "painel_codigo_falhou"));
     log?.info({ outcome: "painel_ligar" });
-    const r = new Response(null, { status: 303, headers: { location: "/ligar" } });
-    r.headers.append("set-cookie", cabecalhoDoCookie(cunharReferencia("sessao", sessao.s.dono, chave, relogio)));
-    for (const [k, v] of Object.entries(sessao.renovar)) r.headers.append(k, v);
-    return r;
+    return html(paginaDoCodigoDaLigacao(n, cunharBilhete(sessao.s.dono, chave, relogio())), 200, n, sessao.renovar);
   });
 
   app.post("/painel/codigo", async (c) => {
@@ -534,13 +579,7 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     // **O limite por rede vem antes de tudo**, e é o mesmo para um telefone que
     // existe e para um que não existe: um 429 que dependesse do telefone era o
     // oráculo que o resto desta rota fecha.
-    // Sem `const x = (` aqui dentro: a enumeração do *gate* 6 nomeia cada rota
-    // pela última função antes dela, e estas três são do `actor` como as outras.
-    const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
-    const ligacao = env?.incoming?.socket?.remoteAddress;
-    const prefixo = prefixoDeIp(enderecoDoPedido(c.req.header("x-forwarded-for"), ligacao, r.proxiesDeConfianca ?? 0));
-    const rede = prefixo === null ? "sem-rede" : hmacDe(pepper, DOMINIOS.rede, prefixo).toString("hex");
-    if ((await r.contadores.anotar(`painel:codigo:${rede}`, relogio(), JANELA_DO_LIMITE_MS)) > LIMITE_POR_REDE) {
+    if ((await r.contadores.anotar(`painel:codigo:${redeDoPedido(c, r, pepper)}`, relogio(), JANELA_DO_LIMITE_MS)) > LIMITE_POR_REDE) {
       falhou("codigo", "limite");
       return json({ erro: "limite" }, 429);
     }
@@ -586,19 +625,39 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       falhou("verificar", "invalido");
       return json({ erro: "corpo" }, 400);
     }
+    // **Também com limite por rede.** Com um bilhete na mão, quem não tem o
+    // telefone gastava as tentativas do desafio vivo do dono (`TENTATIVAS_MAXIMAS`
+    // do `Otp`) sem tecto nenhum. O limite é o mesmo número, noutra chave.
+    const pepper = r.anelDoPepper[0];
+    const rede = pepper instanceof Uint8Array ? redeDoPedido(c, r, pepper) : "sem-pepper";
+    if ((await r.contadores.anotar(`painel:verificar:${rede}`, relogio(), JANELA_DO_LIMITE_MS)) > LIMITE_POR_REDE) {
+      falhou("verificar", "limite");
+      return json({ erro: "limite" }, 429);
+    }
+    const ligar = corpo["destino"] === "ligar";
     const casoId = lerBilhete(corpo["referencia"], opcoes.anelDaAssinatura, relogio());
     const veredicto = casoId === null ? null : await r.otp.verificar(casoId, corpo["codigo"]);
     const caso = casoId === null || veredicto !== "acertou" ? null : await opcoes.casos.porId(casoId);
     // Uma falha, uma resposta: bilhete que não serve, código errado, expirado,
-    // sem desafio, tentativas a mais, ou caso que já não tem painel. Ver a nota
-    // do módulo.
-    if (casoId === null || caso === null || !(FASES_COM_PAINEL as readonly string[]).includes(caso.fase)) {
+    // sem desafio, tentativas a mais, ou caso que já não tem painel (ou, para a
+    // ligação, que já não está no passo do ES). Ver a nota do módulo.
+    if (
+      casoId === null ||
+      caso === null ||
+      !(FASES_COM_PAINEL as readonly string[]).includes(caso.fase) ||
+      (ligar && caso.fase !== "aguarda_es")
+    ) {
       falhou("verificar", "sem_sessao");
       return json({ erro: "codigo" }, 401);
     }
     const s = novaSessao(caso.tenantId, casoId, relogio());
     log?.info({ outcome: "painel_sessao_aberta" });
-    return json({ ok: true }, 200, { "set-cookie": cabecalhoDaSessao(cunharSessao(s, chave)) });
+    const resposta = json(ligar ? { ok: true, seguinte: "/ligar" } : { ok: true }, 200);
+    resposta.headers.append("set-cookie", cabecalhoDaSessao(cunharSessao(s, chave)));
+    // A ligação (KAM-093) exige a `sessao` do registo, e cunha-se **aqui**, depois
+    // de o código acertar — nunca a partir da sessão do painel.
+    if (ligar) resposta.headers.append("set-cookie", cabecalhoDoCookie(cunharReferencia("sessao", casoId, chave, relogio)));
+    return resposta;
   });
 
   return app;

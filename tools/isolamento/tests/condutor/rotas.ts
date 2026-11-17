@@ -2634,12 +2634,18 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //   sonda=viva              a resposta com a sessao de A trouxe os dados de A
 //   b=intacto               depois dos tres PATCH, a oferta de B nao mudou
 //   sessao-de-b=viva        depois dos tres «sair» forjados, B continua dentro
-//   caso=a                  (KAM-190) a sessao do registo que o /painel/ligar
-//                           cunha e a do caso da sessao de A, nunca a de B
-//   uniforme=sim            (KAM-190) o /painel/codigo responde o mesmo ao
-//                           telefone de B e a um que nao existe
+//   caso=a                  (KAM-190) o /painel/ligar, com o tenant e o caso de B
+//                           no pedido, manda o codigo so ao caso de A, o bilhete
+//                           da pagina abre-se no caso de A, e nenhuma sessao do
+//                           registo sai sem o codigo
+//   uniforme=sim            (KAM-190) o /painel/codigo responde a mesma forma ao
+//                           telefone de B e a um que nao existe, nenhum bilhete
+//                           leva o caso de B, e os dois de B sao diferentes
+//   envio=so-b              (KAM-190) o codigo do telefone de B foi para o caso
+//                           de B, e o telefone sem painel nao mandou nada
 //   sessao=nenhuma          (KAM-190) nenhum ataque ao /painel/verificar cunhou
-//                           sessao, e o codigo de B nunca chegou ao OTP de B
+//                           sessao, e so o bilhete do painel chegou ao OTP (o
+//                           `ticket` do registo e o id nu ficam a porta)
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2761,9 +2767,13 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     for (const h of hmacsDe(TELEFONE_DE_A_NO_PAINEL)) porHmac.set(h, { id: CASO_DE_A_NO_PAINEL, fase: "activo" });
     for (const h of hmacsDe(TELEFONE_DE_B_NO_PAINEL)) porHmac.set(h, { id: CASO_DE_B_NO_PAINEL, fase: "activo" });
     const verificados: string[] = [];
+    const enviados: string[] = [];
     const reentrada = {
+      telefoneDoCaso: async (id: string) =>
+        id === CASO_DE_A_NO_PAINEL ? new Telefone(TELEFONE_DE_A_NO_PAINEL, [pepper, null]) : null,
       otp: {
-        async enviar() {
+        async enviar(id: string) {
+          enviados.push(id);
           return { enviado: true, expiraEm: new Date(agora.getTime() + 300_000) };
         },
         async verificar(id: string, codigo: unknown) {
@@ -2783,7 +2793,9 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       revogada(s: unknown): Promise<boolean>;
     })();
     const casos = new Map([
-      [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "activo" }],
+      // `aguarda_es` (uma das `FASES_COM_PAINEL`): e o unico passo em que a
+      // ligacao do KAM-190 abre, e o resto do painel serve-o igual.
+      [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_es" }],
       [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
     ]);
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
@@ -2906,24 +2918,27 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       await empurrar(ITENS_DO_PAINEL[5], "GET", c, { headers }, () => sondaDoDetalhe);
     }
 
-    // ---- GET /painel/ligar (KAM-190): a sessao de A com o tenant de B no pedido.
-    // A sessao do registo que se cunha tem de ser a do caso de A — e e ela que
-    // abre o `/ligar` do KAM-093.
-    const lerReferencia = insc["lerReferencia"] as (...a: unknown[]) => string | null;
+    // ---- GET /painel/ligar (KAM-190): a sessao de A com o tenant **e o caso** de B
+    // no pedido. O codigo vai ao caso da sessao, e a sessao do registo so sai
+    // depois dele — nunca daqui.
+    const lerBilhete = sessaoModulo["lerBilhete"] as (b: unknown, a: readonly (Uint8Array | null)[], d: Date) => string | null;
+    enviados.length = 0;
     for (let vez = 0; vez < 3; vez += 1) {
-      const [c, headers] = comTenantDeB(`/painel/ligar`, vez);
+      const [c, headers] = comTenantDeB(`/painel/ligar?caso=${CASO_DE_B_NO_PAINEL}&onboarding_id=${CASO_DE_B_NO_PAINEL}`, vez);
       await empurrar(ITENS_DO_PAINEL[7], "GET", c, { headers }, () => "");
     }
-    const casosDoLigar = relatorio.rotas
-      .filter((e) => e.item === ITENS_DO_PAINEL[7])
-      .map((e) => {
-        const cookie = String(e.cabecalhos["set-cookie"] ?? "");
-        const valor = /kamba_onboarding=([^;,]+)/.exec(cookie)?.[1] ?? "";
-        return lerReferencia("sessao", valor, [chave, null], relogio);
-      });
-    const marcaDoLigar = casosDoLigar.every((id) => id === CASO_DE_A_NO_PAINEL) ? "caso=a" : "caso=outro";
-    for (const entrada of relatorio.rotas) {
-      if (entrada.item === ITENS_DO_PAINEL[7]) entrada.nota += ` ${marcaDoLigar} sonda=${marcaDoLigar === "caso=a" ? "viva" : "morta"}`;
+    await new Promise((resolver) => setImmediate(resolver));
+    const entradasDoLigar = relatorio.rotas.filter((e) => e.item === ITENS_DO_PAINEL[7]);
+    const bilhetesDoLigar = entradasDoLigar.map((e) => lerBilhete(/data-bilhete="([^"]+)"/.exec(e.corpo)?.[1], [chave, null], agora));
+    const semRegisto = entradasDoLigar.every((e) => !String(e.cabecalhos["set-cookie"] ?? "").includes("kamba_onboarding="));
+    const doCasoDeA =
+      bilhetesDoLigar.length === 3 &&
+      bilhetesDoLigar.every((id) => id === CASO_DE_A_NO_PAINEL) &&
+      enviados.length === 3 &&
+      enviados.every((id) => id === CASO_DE_A_NO_PAINEL);
+    const marcaDoLigar = doCasoDeA && semRegisto ? "caso=a" : "caso=outro";
+    for (const entrada of entradasDoLigar) {
+      entrada.nota += ` ${marcaDoLigar} sonda=${bilhetesDoLigar.every((id) => id === CASO_DE_A_NO_PAINEL) ? "viva" : "morta"}`;
     }
 
     // ---- POST /painel/codigo (KAM-190): o telefone de B, com e sem o tenant de
@@ -2933,6 +2948,7 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(corpo),
     });
+    enviados.length = 0;
     for (const corpo of [
       { telefone: TELEFONE_DE_B_NO_PAINEL },
       { telefone: TELEFONE_DE_B_NO_PAINEL, tenant_id: TENANT_DE_B_NO_PAINEL, nota: canario },
@@ -2940,19 +2956,35 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     ]) {
       await empurrar(ITENS_DO_PAINEL[8], "POST", "/painel/codigo", comoJson(corpo), () => "");
     }
+    await new Promise((resolver) => setImmediate(resolver));
+    const entradasDoCodigo = relatorio.rotas.filter((e) => e.item === ITENS_DO_PAINEL[8]);
     const formas = new Set(
-      relatorio.rotas
-        .filter((e) => e.item === ITENS_DO_PAINEL[8])
-        .map((e) => {
-          try {
-            return `${e.estado}:${Object.keys(JSON.parse(e.corpo) as object).sort().join(",")}`;
-          } catch {
-            return `${e.estado}:?`;
-          }
-        }),
+      entradasDoCodigo.map((e) => {
+        try {
+          return `${e.estado}:${Object.keys(JSON.parse(e.corpo) as object).sort().join(",")}`;
+        } catch {
+          return `${e.estado}:?`;
+        }
+      }),
     );
-    for (const entrada of relatorio.rotas) {
-      if (entrada.item === ITENS_DO_PAINEL[8]) entrada.nota += formas.size === 1 ? " uniforme=sim" : " uniforme=nao";
+    // **A forma nao chega** (achado 1 da revisao adversarial do KAM-190): o
+    // bilhete de um telefone com painel levava o caso em claro, e o mesmo a cada
+    // pedido. Exige-se tambem que nenhum corpo leve o caso de B e que os dois
+    // bilhetes do telefone de B sejam diferentes.
+    const referencias = entradasDoCodigo.map((e) => {
+      try {
+        return String((JSON.parse(e.corpo) as { referencia?: unknown }).referencia ?? "");
+      } catch {
+        return "";
+      }
+    });
+    const opacos =
+      entradasDoCodigo.every((e) => !e.corpo.includes(CASO_DE_B_NO_PAINEL)) &&
+      referencias.length === 3 &&
+      referencias[0] !== referencias[1];
+    const marcaDoEnvio = enviados.length === 2 && enviados.every((id) => id === CASO_DE_B_NO_PAINEL) ? "envio=so-b" : "envio=outro";
+    for (const entrada of entradasDoCodigo) {
+      entrada.nota += `${formas.size === 1 && opacos ? " uniforme=sim" : " uniforme=nao"} ${marcaDoEnvio}`;
     }
 
     // ---- POST /painel/verificar (KAM-190): o bilhete do caso de B com um codigo
@@ -2968,7 +3000,8 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const semSessao = relatorio.rotas
       .filter((e) => e.item === ITENS_DO_PAINEL[9])
       .every((e) => !String(e.cabecalhos["set-cookie"] ?? "").includes("kamba_painel="));
-    // So o bilhete do painel chega ao OTP; o `ticket` do registo e o id nu nao.
+    // So o bilhete do painel chega ao OTP (uma verificacao, do caso de B, com o
+    // codigo errado); o `ticket` do registo e o id nu ficam a porta.
     const soOBilhete = verificados.length === 1 && verificados[0] === CASO_DE_B_NO_PAINEL;
     for (const entrada of relatorio.rotas) {
       if (entrada.item === ITENS_DO_PAINEL[9]) entrada.nota += semSessao && soOBilhete ? " sessao=nenhuma" : " sessao=cunhada-ou-otp-alheio";

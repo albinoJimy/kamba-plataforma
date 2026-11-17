@@ -348,7 +348,8 @@ function filtroDoCorpo(corpo: Record<string, unknown>): OrderFilter {
   // pediu um intervalo mal escrito.
   for (const [campo, chave] of [["criado_desde", "criadoDesde"], ["criado_ate", "criadoAte"]] as const) {
     const valor = corpo[campo];
-    if (valor !== undefined) filtro[chave] = typeof valor === "string" ? valor : "";
+    // O `null` é «sem esta ponta», como o contrato escreve (`string | null`).
+    if (valor !== undefined && valor !== null) filtro[chave] = typeof valor === "string" ? valor : "";
   }
   return filtro;
 }

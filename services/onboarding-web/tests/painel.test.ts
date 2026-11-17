@@ -562,7 +562,7 @@ test("criterio 7: o canal mostra estado, qualidade, escalao, nivel e tecto, com 
   m.canal.vistas.set(TENANT_A, {
     ...SEM_CANAL,
     estado: "desligado",
-    restrito: true,
+    restrito: false,
     qualidade: "amarelo",
     escalao: "TIER_250",
     nivel: 1,
@@ -571,7 +571,6 @@ test("criterio 7: o canal mostra estado, qualidade, escalao, nivel e tecto, com 
   });
   const corpo = await (await m.app.fetch(get("/painel/canal", cookieDe(sessaoA())))).text();
   assert.match(corpo, /Desligado/);
-  assert.match(corpo, /envio limitado/);
   assert.match(corpo, /amarelo/);
   assert.match(corpo, /TIER_250/);
   assert.match(corpo, /Nível de confiança: 1/);
@@ -849,20 +848,6 @@ test("KAM-190: o get-offer pede uma oferta com o tenant da sessao", async () => 
   assert.equal(pedidos[0]?.corpo["sku"], "arroz");
 });
 
-test("KAM-190: /painel/ligar cunha a sessao do registo do caso da sessao e vai para o /ligar", async () => {
-  const m = montar();
-  const r = await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())));
-  assert.equal(r.status, 303);
-  assert.equal(r.headers.get("location"), "/ligar");
-  const cookie = r.headers.getSetCookie().find((c) => c.startsWith(`${NOME_DO_COOKIE}=`)) ?? "";
-  const valor = cookie.slice(NOME_DO_COOKIE.length + 1).split(";")[0] ?? "";
-  assert.equal(lerReferencia("sessao", valor, [CHAVE, null], () => m.agora), CASO_A);
-  // Sem a sessao do painel, nada se cunha.
-  const sem = await m.app.fetch(get("/painel/ligar", ""));
-  assert.equal(sem.status, 401);
-  assert.equal(sem.headers.getSetCookie().some((c) => c.startsWith(`${NOME_DO_COOKIE}=`)), false);
-});
-
 // ------------------------------------------------- KAM-190: a reentrada
 
 const TELEFONE_A = "+244 999 000 111";
@@ -886,6 +871,7 @@ function reentrada(): Reentrada {
     opcoes: undefined as unknown as OpcoesDaReentrada,
   };
   (r as { opcoes: OpcoesDaReentrada }).opcoes = {
+    telefoneDoCaso: async (id: string) => (id === CASO_A ? telA : null),
     otp: {
       async enviar(id: string) {
         r.enviados.push(id);
@@ -946,9 +932,16 @@ test("KAM-190: reentrada — um telefone sem painel tem a mesma resposta, e o co
   const ca = (await a.json()) as Record<string, string>;
   const cb = (await b.json()) as Record<string, string>;
   assert.deepEqual(Object.keys(ca), Object.keys(cb));
-  assert.match(cb["referencia"] ?? "", /^b1\./);
+  assert.match(cb["referencia"] ?? "", /^b2\./);
+  // **O bilhete nao diz de que caso e** (achado 1 da revisao adversarial): o de A
+  // nao leva o caso de A, e dois pedidos do mesmo telefone dao bilhetes diferentes,
+  // como dois de um telefone sem painel.
+  assert.doesNotMatch(ca["referencia"] ?? "", new RegExp(CASO_A));
+  const outraVezA = (await (await m.app.fetch(post("/painel/codigo", { telefone: TELEFONE_A }))).json()) as Record<string, string>;
+  assert.notEqual(outraVezA["referencia"], ca["referencia"]);
+  assert.equal(lerBilhete(outraVezA["referencia"], [CHAVE, null], m.agora), CASO_A);
   await new Promise((resolver) => setImmediate(resolver));
-  assert.deepEqual(re.enviados, [CASO_A], "mandou SMS a um telefone sem painel");
+  assert.deepEqual(re.enviados, [CASO_A, CASO_A], "mandou SMS a um telefone sem painel");
   // As falhas sao todas o mesmo 401: errado num caso real, e qualquer um no falso.
   const errado = await m.app.fetch(post("/painel/verificar", { referencia: ca["referencia"], codigo: "000000" }));
   const falso = await m.app.fetch(post("/painel/verificar", { referencia: cb["referencia"], codigo: "123456" }));
@@ -1073,4 +1066,90 @@ test("KAM-190: o /metrics do onboarding-web serve as series do painel que as rot
   // E sem painel montado, as series saem a zero.
   const vazio = await (await createApp().fetch(new Request("http://127.0.0.1/metrics"))).text();
   assert.match(vazio, /painel_pedidos_total\{rota="entrar"\} 0/);
+});
+
+test("KAM-190: a ligacao pede o codigo e so abre o /ligar depois dele, e a sessao do painel sozinha nao cunha a do registo", async () => {
+  const re = reentrada();
+  const m = montar({ reentrada: re.opcoes });
+  m.casos.set(CASO_A, { tenantId: TENANT_A, fase: "aguarda_es" });
+  const r = await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())));
+  assert.equal(r.status, 200);
+  // **Nenhuma sessao do registo sai daqui**: era o ciclo painel -> registo ->
+  // painel novo que tornava a sessao perpetua (achado 2 da revisao adversarial).
+  assert.equal(r.headers.getSetCookie().some((c) => c.startsWith(`${NOME_DO_COOKIE}=`)), false);
+  const pagina = await r.text();
+  const bilhete = /data-bilhete="([^"]+)"/.exec(pagina)?.[1] ?? "";
+  assert.equal(lerBilhete(bilhete, [CHAVE, null], m.agora), CASO_A);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.deepEqual(re.enviados, [CASO_A]);
+  // O codigo errado nao cunha nada; o certo cunha as duas e manda para o /ligar.
+  const errado = await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "000000", destino: "ligar" }));
+  assert.equal(errado.status, 401);
+  assert.equal(errado.headers.getSetCookie().length, 0);
+  const certo = await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "123456", destino: "ligar" }));
+  assert.equal(certo.status, 200);
+  assert.deepEqual(await certo.json(), { ok: true, seguinte: "/ligar" });
+  const registo = certo.headers.getSetCookie().find((c) => c.startsWith(`${NOME_DO_COOKIE}=`)) ?? "";
+  assert.equal(lerReferencia("sessao", registo.slice(NOME_DO_COOKIE.length + 1).split(";")[0] ?? "", [CHAVE, null], () => m.agora), CASO_A);
+});
+
+test("KAM-190: a ligacao de um caso fora do passo do ES e 409, sem SMS e sem formulario", async () => {
+  const re = reentrada();
+  const m = montar({ reentrada: re.opcoes });
+  const r = await m.app.fetch(get("/painel/ligar", cookieDe(sessaoA())));
+  assert.equal(r.status, 409);
+  assert.doesNotMatch(await r.text(), /data-bilhete/);
+  await new Promise((resolver) => setImmediate(resolver));
+  assert.deepEqual(re.enviados, []);
+  // E um codigo certo com destino «ligar» num caso activo nao cunha o registo.
+  const bilhete = cunharBilhete(CASO_A, CHAVE, m.agora);
+  const v = await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "123456", destino: "ligar" }));
+  assert.equal(v.status, 401);
+  assert.equal(v.headers.getSetCookie().length, 0);
+  // Sem sessao, 401; sem reentrada montada, 503.
+  assert.equal((await m.app.fetch(get("/painel/ligar", ""))).status, 401);
+  assert.equal((await montar().app.fetch(get("/painel/ligar", cookieDe(sessaoA())))).status, 503);
+});
+
+test("KAM-190: o verificar tem limite por rede, e um bilhete na mao nao gasta as tentativas do dono sem tecto", async () => {
+  const re = reentrada();
+  const m = montar({ reentrada: re.opcoes });
+  const bilhete = cunharBilhete(CASO_A, CHAVE, m.agora);
+  for (let i = 0; i < LIMITE_POR_REDE; i += 1) {
+    assert.equal((await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "000000" }))).status, 401);
+  }
+  assert.equal((await m.app.fetch(post("/painel/verificar", { referencia: bilhete, codigo: "123456" }))).status, 429);
+  assert.equal(re.verificados.length, LIMITE_POR_REDE);
+});
+
+test("KAM-190: os nomes do intervalo no fio sao os que o COM le", async () => {
+  const corpos: Record<string, unknown>[] = [];
+  const com = new ComercioPorHttp("http://com:3002", "c", async (_url, init) => {
+    corpos.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ tipo: "ok", valor: { itens: [], proximo: null } }));
+  });
+  await com.listarEncomendas(TENANT_A, { id: CASO_A, traceId: "t" }, {
+    estado: "paga",
+    criadoDesde: "2026-11-01T00:00:00.000Z",
+    criadoAte: "2026-11-02T00:00:00.000Z",
+  });
+  assert.equal(corpos[0]?.["criado_desde"], "2026-11-01T00:00:00.000Z");
+  assert.equal(corpos[0]?.["criado_ate"], "2026-11-02T00:00:00.000Z");
+  // E sao os que a API interna do COM le: o painel nao importa codigo do COM
+  // (`lint_arch`), e confronta-se o texto, como o `ORDER_STATES`.
+  const interna = readFileSync(new URL("../../com/src/api/interna.ts", import.meta.url), "utf8");
+  assert.match(interna, /\["criado_desde", "criadoDesde"\]/);
+  assert.match(interna, /\["criado_ate", "criadoAte"\]/);
+});
+
+test("KAM-190: um canal suspenso nao convida a religar, e um activo limitado di-lo", async () => {
+  const m = montar();
+  m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "desligado", restrito: true });
+  const corpo = await (await m.app.fetch(get("/painel/canal", cookieDe(sessaoA())))).text();
+  assert.match(corpo, /suspenso/);
+  assert.doesNotMatch(corpo, /href="\/painel\/ligar"/);
+  m.canal.vistas.set(TENANT_A, { ...SEM_CANAL, estado: "ativo", restrito: true });
+  const limitado = await (await m.app.fetch(get("/painel/canal", cookieDe(sessaoA())))).text();
+  assert.match(limitado, /envio limitado/);
+  assert.doesNotMatch(limitado, /href="\/painel\/ligar"/);
 });

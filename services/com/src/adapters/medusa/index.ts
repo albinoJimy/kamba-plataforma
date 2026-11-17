@@ -957,6 +957,13 @@ export interface OperacoesDoCom {
 }
 
 /**
+ * O `merchant` do repo-base da leitura do canal (KAM-190). **Não é um
+ * identificador**: o `vistaDoCanal` só chama o `noTenant`, e um `noMerchant` com
+ * este valor não casava nenhuma linha do Registo.
+ */
+const MERCHANT_QUE_O_CANAL_NAO_LE = "sem-merchant:leitura-do-canal";
+
+/**
  * As operações do COM, montadas sobre o adaptador da opção B.
  *
  * **O `abrir` da *saga* é `comRegisto` chamado outra vez**, e é o que lhe dá as
@@ -1030,7 +1037,17 @@ export function operacoesDoCom(
     },
 
     async vistaDoCanal(ctx: Ctx) {
-      return comRegisto(deps, ctx, (r) => vistaDoCanalDoModulo(r));
+      // **Pelo `comTenant` e não pelo `comRegisto`**: este resolve o
+      // `medusa_merchant_id`, e levanta `MerchantEmFaltaError` sem ele — e o
+      // caso que mais precisa da página do canal (`aguarda_es`, antes de ligar o
+      // número) é o que ainda pode não ter loja no Medusa. A leitura do canal não
+      // toca no Registo: o repo-base daqui recebe um `merchant` que nenhuma
+      // consulta usa, e o `noMerchant` não é chamado. Achado 4 da revisão
+      // adversarial.
+      const validado = exigirCtx(ctx);
+      return deps.comTenant(validado.tenantId, (cliente) =>
+        vistaDoCanalDoModulo({ repo: repoBase(cliente, validado.tenantId, MERCHANT_QUE_O_CANAL_NAO_LE) }),
+      );
     },
 
     async alterarOferta(ctx: Ctx, a: AlteracaoDeOferta) {

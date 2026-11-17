@@ -27,7 +27,10 @@
  * montado, saem a zero — o que distingue «ninguém pediu» de «o processo não
  * arrancou» é a série existir. **Não é barreira de rede**: o `proxy-tls` só
  * encaminha `/onboarding/*` para este serviço (`infra/compose/caddy/Caddyfile`),
- * e o `/metrics` fica na rede `app`, onde o Prometheus o raspa na 3003.
+ * e o `/metrics` fica na rede `app`, onde o Prometheus o raspa na 3003. **Aviso
+ * a quem mexer no Caddy:** trocar aquele `handle` por um `handle_path` (que
+ * corta o prefixo) põe o `/onboarding/metrics` na Internet; a borda tem de
+ * recusar esse caminho no mesmo PR.
  */
 
 import { Hono } from "hono";

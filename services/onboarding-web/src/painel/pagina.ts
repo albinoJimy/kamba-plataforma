@@ -86,15 +86,14 @@ export function diaEmLuanda(iso: string): string {
 /**
  * O texto de cada código público de T&S (dicionário §3.68). O código é o que o
  * COM devolve; o dono lê a frase. Um código fora da lista sai tal e qual,
- * escapado: é melhor do que esconder um aviso.
+ * escapado: é melhor do que esconder um aviso. Os dois de recurso não estão: o
+ * `emVigor` do KAM-097 tira as linhas de recurso dos avisos, e não chegam aqui.
  */
 const TEXTOS_DOS_AVISOS: Readonly<Record<string, string>> = {
   conduta_em_analise: "A actividade da loja está em análise.",
   actividade_limitada: "A actividade da loja está limitada.",
   loja_suspensa: "A loja está suspensa.",
   loja_encerrada: "A loja foi encerrada.",
-  recurso_aceite: "O seu recurso foi aceite.",
-  recurso_mantido: "O seu recurso foi analisado e a decisão mantém-se.",
 };
 
 const NOMES_DO_CANAL: Readonly<Record<string, string>> = {
@@ -264,14 +263,18 @@ export function paginaDaEncomenda(nonce: string, e: Encomenda): string {
  */
 export function paginaDoCanal(nonce: string, v: VistaDoCanal): string {
   const religar =
-    v.estado === "desligado" || v.estado === "sem_canal"
+    (v.estado === "desligado" || v.estado === "sem_canal") && !v.restrito
       ? '<p><a href="/painel/ligar">Ligar o número de WhatsApp</a></p>'
       : "";
   const avisos =
     v.avisos.length === 0
       ? "<p>Sem avisos em vigor.</p>"
       : `<ul>${v.avisos.map((a) => `<li class="aviso">${escapar(TEXTOS_DOS_AVISOS[a] ?? a)}</li>`).join("")}</ul>`;
-  const restrito = v.restrito ? '<p class="aviso">O número está ligado, mas com envio limitado.</p>' : "";
+  const restrito = !v.restrito
+    ? ""
+    : v.estado === "desligado"
+      ? '<p class="aviso">O número está suspenso. Não o volte a ligar sem falar com a equipa KAMBÁ.</p>'
+      : '<p class="aviso">O número está ligado, mas com envio limitado.</p>';
   return moldura(
     nonce,
     "Canal",
@@ -331,6 +334,52 @@ export function paginaSemSessao(nonce: string): string {
 <button type="submit">Entrar</button></form>
 <p id="saida" role="status"></p>
 <script nonce="${escapar(nonce)}">${GUIAO_DA_REENTRADA}</script></body></html>`;
+}
+
+/**
+ * O guião do código da ligação (KAM-190). Literal, pela razão do dos produtos.
+ * O bilhete vem num atributo `data-` (escapado), e o código certo leva ao
+ * `/ligar` do KAM-093.
+ */
+const GUIAO_DA_LIGACAO = [
+  "var f = document.getElementById('conferir');",
+  "var saida = document.getElementById('saida');",
+  "f.addEventListener('submit', async function (ev) {",
+  "  ev.preventDefault();",
+  "  var r = await fetch('/painel/verificar', { method: 'POST', credentials: 'same-origin',",
+  "    headers: { 'content-type': 'application/json' },",
+  "    body: JSON.stringify({ referencia: f.dataset.bilhete, codigo: f.elements.codigo.value, destino: 'ligar' }) });",
+  "  var j = await r.json().catch(function () { return {}; });",
+  "  if (r.ok && j.seguinte === '/ligar') { window.location.assign('/ligar'); return; }",
+  "  saida.textContent = r.status === 429 ? 'Muitas tentativas desta rede. Tente daqui a uma hora.' : 'O codigo nao serve. Recarregue a pagina para receber outro.';",
+  "});",
+].join("\n");
+
+/**
+ * O passo do código antes da ligação (KAM-190). O código foi mandado ao telefone
+ * registado no onboarding; a página não diz qual é.
+ */
+export function paginaDoCodigoDaLigacao(nonce: string, bilhete: string): string {
+  return moldura(
+    nonce,
+    "Ligar o número",
+    `<p>Mandámos um código por SMS para o telefone com que se registou. Escreva-o para continuar.</p>
+<form id="conferir" class="cartao" data-bilhete="${escapar(bilhete)}"><label>Código <input name="codigo" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required></label>
+<button type="submit">Continuar</button></form><p id="saida" role="status"></p>`,
+    `<script nonce="${escapar(nonce)}">${GUIAO_DA_LIGACAO}</script>`,
+  );
+}
+
+/**
+ * A ligação fechada: o caso já não está no passo do ES, que é o único em que o
+ * `/ligar` do KAM-093 abre. **Não manda SMS nem mostra o formulário.**
+ */
+export function paginaDaLigacaoFechada(nonce: string): string {
+  return moldura(
+    nonce,
+    "Ligar o número",
+    "<p>O passo de ligação do número não está disponível para a sua loja neste momento. Contacte a equipa KAMBÁ.</p>",
+  );
 }
 
 /** A página de um recurso que não existe — ou que não é deste dono. A mesma. */

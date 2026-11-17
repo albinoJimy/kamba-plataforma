@@ -847,10 +847,12 @@ registar_caso(
 #                             o bilhete de B e o id de B nu: 401 uniforme
 #     sair                    sessoes forjadas com o `sid` e o tenant de B: 200,
 #                             e a sessao de B continua viva
-#     ligar (KAM-190)         a sessao de A com o tenant de B no pedido: 303, e
-#                             a sessao do registo cunhada e a do caso de A
+#     ligar (KAM-190)         a sessao de A com o tenant e o caso de B no pedido:
+#                             200 com o codigo pedido, so ao caso de A, e nenhuma
+#                             sessao do registo cunhada sem o codigo
 #     codigo (KAM-190)        o telefone de B, com o tenant de B no corpo, e um
-#                             sem painel: 200 com a **mesma** forma nos tres
+#                             sem painel: 200 com a **mesma** forma nos tres, sem
+#                             o caso de B em nenhum, e o codigo so ao caso de B
 #     verificar (KAM-190)     o bilhete de B com codigo errado, o `ticket` do
 #                             registo de B e o id nu: 401 uniforme, nenhuma
 #                             sessao, e so o bilhete do painel chega ao OTP
@@ -884,10 +886,10 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal": (200,),
-    # KAM-190. O `ligar` reencaminha **sempre** com 303 a sessao de A; o
+    # KAM-190. O `ligar` responde **sempre** 200 com o codigo do caso de A; o
     # `codigo` responde 200 a qualquer telefone (e a recusa de enumeracao); o
     # `verificar` responde **so** 401 a qualquer falha.
-    "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar": (303,),
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar": (200,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/codigo": (200,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/verificar": (401,),
 }
@@ -957,8 +959,10 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 entradas,
                 "caso",
                 "a",
-                "A sessao do registo que o `/painel/ligar` cunhou nao e a do caso "
-                "da sessao de A: o tenant de B no pedido escolheu o caso.",
+                "O `/painel/ligar` mandou o codigo, ou abriu o bilhete, noutro caso "
+                "que nao o da sessao de A, ou cunhou a sessao do registo sem o "
+                "codigo: o pedido escolheu o caso, ou a sessao do painel voltou a "
+                "renovar-se sozinha.",
             )
         )
     if item.endswith("POST:/painel/codigo"):
@@ -969,8 +973,19 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "uniforme",
                 "sim",
                 "O `/painel/codigo` respondeu de forma diferente ao telefone de B "
-                "e a um telefone sem painel: e a enumeracao de donos que a rota "
-                "existe para nao dar.",
+                "e a um telefone sem painel, ou um bilhete levou o caso de B, ou os "
+                "dois de B foram iguais: e a enumeracao de donos que a rota existe "
+                "para nao dar.",
+            )
+        )
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "envio",
+                "so-b",
+                "O codigo do telefone de B nao foi para o caso de B, ou o telefone "
+                "sem painel mandou um SMS: a sonda positiva da reentrada.",
             )
         )
     if item.endswith("POST:/painel/verificar"):

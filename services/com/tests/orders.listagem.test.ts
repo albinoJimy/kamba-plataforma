@@ -382,6 +382,10 @@ test("KAM-190: um intervalo mal escrito, invertido ou vazio recusa sem ir a base
     { criadoAte: "" },
     { criadoDesde: "2026-11-01T00:00:00.123456Z" },
     { criadoDesde: "2026-13-01T00:00:00Z" },
+    // O `Date.parse` normaliza estes dois em silencio (3 de Marco, e o dia 2):
+    // o intervalo aplicado nao era o pedido. Achado 9 da revisao adversarial.
+    { criadoDesde: "2026-02-31T00:00:00Z" },
+    { criadoAte: "2026-01-01T24:00:00Z" },
     { criadoDesde: "2026-11-02T00:00:00Z", criadoAte: "2026-11-01T00:00:00Z" },
     { criadoDesde: "2026-11-02T00:00:00Z", criadoAte: "2026-11-02T00:00:00.000Z" },
   ];

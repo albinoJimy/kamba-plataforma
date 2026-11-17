@@ -321,7 +321,12 @@ function instanteDoFiltro(valor: unknown): string | null | undefined {
   if (valor === undefined || valor === null) return null;
   if (typeof valor !== "string" || !FORMA_DO_INSTANTE.test(valor)) return undefined;
   const ms = Date.parse(valor);
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
+  if (!Number.isFinite(ms)) return undefined;
+  const normal = new Date(ms).toISOString();
+  // **O `Date.parse` normaliza o impossível em silêncio**: `2026-02-31` vira 3 de
+  // Março e `24:00:00` o dia seguinte. Um instante que não volta igual não é o
+  // que se pediu. Achado 9 da revisão adversarial.
+  return normal.slice(0, 19) === valor.slice(0, 19) ? normal : undefined;
 }
 
 /**

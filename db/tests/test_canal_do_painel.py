@@ -109,6 +109,25 @@ class TestCanalDoPainel(ComBase):
         self.assertEqual(self.linhas(SQL_NIVEL, self.b), [])
         self.assertEqual(self.linhas(SQL_SANCOES, self.b), [])
 
+    def test_a_sincronizacao_e_a_do_canal_pedido(self) -> None:
+        """O `channel_id = $2`: a sincronizacao de **outro** canal do mesmo tenant nao sai.
+
+        Ha uma por canal (`channel_coexistence_canal_uq`), pelo que e este o
+        predicado que decide. Com ele apagado, a consulta devolvia as duas.
+        Achado 8 da revisao adversarial.
+        """
+        outro = factories.canal(self.cursor, self.a, estado="desligado")
+        self.cursor.execute(
+            "INSERT INTO platform.channel_coexistence (tenant_id, channel_id, estado, prazo_em) "
+            "VALUES (%s, %s, 'falhado', now() + interval '1 day')",
+            (self.a, outro),
+        )
+        self.como_app(self.a)
+        self.assertEqual(
+            [l["estado"] for l in self.linhas(SQL_SINCRONIZACAO, self.a, self.canal_a)], ["a_sincronizar"]
+        )
+        self.assertEqual([l["estado"] for l in self.linhas(SQL_SINCRONIZACAO, self.a, outro)], ["falhado"])
+
     def test_o_canal_da_plataforma_nao_e_o_do_dono_e_o_ligado_vem_primeiro(self) -> None:
         self.cursor.execute("RESET ROLE")
         factories.canal(self.cursor, self.a, estado="desligado", quality_rating="vermelho")
