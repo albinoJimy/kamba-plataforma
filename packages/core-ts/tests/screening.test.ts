@@ -280,6 +280,13 @@ describe("classificador", () => {
     assert.equal(pedido.textos.length, 20);
     assert.equal(pedido.textos[0]!.length, 1000);
   });
+  it("o corte nao parte um emoji ao meio", () => {
+    const pedido = prepararPedido("moda", ["a".repeat(999) + "\u{1F600}"]);
+    assert.equal(pedido.textos[0], "a".repeat(999));
+    assert.doesNotMatch(pedido.textos[0]!, /[\uD800-\uDBFF]$/);
+    // Um emoji que cabe inteiro fica.
+    assert.equal(prepararPedido("moda", ["a".repeat(998) + "\u{1F600}"]).textos[0]!.length, 1000);
+  });
   it("o adaptador do AGR manda o pedido com o tenant e a credencial, e le o veredicto", async () => {
     let url = "";
     let cabecalhos: Record<string, string> = {};

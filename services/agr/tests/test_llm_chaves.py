@@ -225,7 +225,9 @@ class TestAChaveDoScreening(unittest.TestCase):
 
     def test_sem_orcamento_nao_cria_chave_nenhuma(self) -> None:
         for ambiente in ({}, {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "x"},
-                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "0"}):
+                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "0"},
+                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "nan"},
+                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "inf"}):
             with self.subTest(ambiente=ambiente):
                 duplo = _Proxy()
                 with self.assertRaises(chaves.ErroDeProvisionamento):

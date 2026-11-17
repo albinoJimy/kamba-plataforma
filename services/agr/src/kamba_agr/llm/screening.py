@@ -44,6 +44,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import time
 import uuid
 from collections.abc import Callable
 from typing import Any, Final
@@ -132,16 +133,46 @@ ESQUEMA_DA_RESPOSTA: Final = {
 }
 
 
+#: O orcamento de quem chama, em segundos: o `TEMPO_MAXIMO_MS` do
+#: `classificador.ts`. Um ensaio le o numero do TypeScript e exige igualdade.
+PRAZO_DO_GOV_S: Final = 15.0
+
+#: O que fica do prazo para alem do tecto do transporte: a leitura do *gate* de
+#: destino com a *cache* fria, o `minimise`, a escrita da linha e a resposta.
+#: *Proposta*: nao medido sob carga.
+MARGEM_DE_RESPOSTA_S: Final = 1.0
+
+#: O corpo maximo desta rota, em bytes. **Nao e o `CORPO_MAXIMO` de 8 KiB das
+#: outras rotas internas**, e a revisao adversarial mostrou porque: o contrato do
+#: `LIMITES_DO_PEDIDO` sao 20 textos de 1000 caracteres e 200 de categoria, e
+#: oito textos cheios ja passavam os 8 KiB. O pedido levava 400, o `screen` lia
+#: `condicional`, e o `cabeNoPedido` dizia que o classificador o tinha lido. O
+#: tecto cobre o pior caso do JSON, seis octetos por caracter (o escape de
+#: quatro digitos hexadecimais), mais os nomes dos campos.
+CORPO_MAXIMO: Final = 128 * 1024
+
+
 def tecto_s(alias: Alias) -> float:
     """O tecto do transporte: as duas tentativas do proxy, mais a margem.
 
     E o que faz a nova tentativa caber no orcamento de quem chama (Detalhes
-    Tecnicos do KAM-195): com `timeout: 5` sao 12 s, e o `TEMPO_MAXIMO_MS` do
-    `classificador.ts` tem de ser maior do que isto — senao o GOV desiste
-    enquanto o proxy ainda tenta, e a segunda tentativa paga-se sem ninguem
-    ler a resposta. Um ensaio confere a desigualdade lendo o ficheiro TS.
+    Tecnicos do KAM-195): com `timeout: 5` sao 12 s, abaixo dos 15 s do
+    `PRAZO_DO_GOV_S`. **Nao e um tecto rigido**, e diz-se: o `httpx` aplica o
+    valor a cada fase (ligar, escrever, ler) e nao ao total. Na rede interna as
+    duas primeiras sao de milissegundos, e a leitura acaba quando o proxy
+    responde, que e o que os 5 s por tentativa do proxy limitam.
     """
     return alias.timeout * TENTATIVAS + MARGEM_SEGUNDOS
+
+
+def folga_de_fila_s(alias: Alias) -> float:
+    """Quanto um pedido pode esperar pela sua *thread* antes de chamar o modelo.
+
+    Um pedido que comece depois disto ja nao acaba dentro do prazo do GOV: o
+    GOV desistiu, e chamar o modelo era pagar uma resposta que ninguem le. E o
+    defeito dos Detalhes Tecnicos do KAM-195, pela fila em vez do proxy.
+    """
+    return PRAZO_DO_GOV_S - tecto_s(alias) - MARGEM_DE_RESPOSTA_S
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -158,6 +189,19 @@ class PedidoInvalido(ValueError):
     def __init__(self, codigo: str) -> None:
         super().__init__(codigo)
         self.codigo = codigo
+
+
+def _utf8(texto: str) -> bool:
+    """`False` para um sucedaneo solto, que o `httpx` recusaria ao codificar.
+
+    Sem esta guarda o pedido chegava ao `chamar` e saia como `erro_fornecedor`:
+    uma linha a dizer que o fornecedor falhou quando nada saiu do processo.
+    """
+    try:
+        texto.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def ler_pedido(corpo: Any) -> PedidoDeScreening:
@@ -181,6 +225,8 @@ def ler_pedido(corpo: Any) -> PedidoDeScreening:
         or not all(isinstance(t, str) and len(t) <= CARACTERES_POR_TEXTO for t in textos)
     ):
         raise PedidoInvalido("textos_invalidos")
+    if not _utf8(categoria) or not all(_utf8(t) for t in textos):
+        raise PedidoInvalido("texto_nao_utf8")
     return PedidoDeScreening(tenant_id, trace_id, categoria, tuple(textos))
 
 
@@ -237,8 +283,15 @@ def _resposta(outcome: str, estado: int, **mais: Any) -> JSONResponse:
 def rotas(
     credencial: Callable[[], str],
     classificar: Callable[[PedidoDeScreening], str] | None,
+    *,
+    folga_s: float,
 ) -> list[Route]:
     """A rota do screening. `classificar` e o `ClassificadorDeScreening`.
+
+    `folga_s` e o `folga_de_fila_s` do alias: um pedido que espere mais do que
+    isto pela sua *thread* responde 503 `sem_tempo` **sem chamar o modelo**.
+    Obrigatorio e sem omissao: uma omissao que desligasse a guarda era a
+    guarda desligada no dia em que alguem se esquecesse dela.
 
     **Os codigos dizem ao GOV so uma coisa: se ha texto para ler.** O 200 leva o
     texto; tudo o resto — 400, 401, 503 — e falha do classificador, e o `screen`
@@ -251,15 +304,24 @@ def rotas(
     | corpo fora da forma | 400 `corpo_invalido` |
     | sem credencial, credencial errada, ou credencial por configurar | 401 |
     | classificador por ligar | 503 `classificador_por_ligar` |
+    | esperou pela *thread* mais do que a folga | 503 `sem_tempo`, sem chamada |
     | o `chamar` levantou (`destino_negado`, `timeout`, ...) | 503 com o `resultado` |
+    | o modelo respondeu sem texto | 503 `sem_conteudo` (a linha ja esta escrita) |
     """
     # Dentro da funcao: o `api_interna` arrasta o grafo e o registo das
     # verticais, e importar este modulo (o `ClassificadorDeScreening`) nao os
     # precisa. A autenticacao e a leitura do corpo sao as das outras rotas.
-    from ..api_interna import _corpo, _nao_autorizado, autenticado
-    from ..contexto import InvocacaoInvalidaError
+    from ..api_interna import _nao_autorizado, autenticado
+
+    def _dentro_do_prazo(chegada: float, corpo: PedidoDeScreening) -> str | None:
+        # Na *thread*, imediatamente antes de chamar: e aqui, e nao no ciclo de
+        # eventos, que a espera pela vaga do *threadpool* ja aconteceu.
+        if time.monotonic() - chegada > folga_s:
+            return None
+        return classificar(corpo)  # type: ignore[misc]
 
     async def screening(pedido: Request) -> JSONResponse:
+        chegada = time.monotonic()
         # **Uma credencial que nao se le e uma recusa**, e nao um 500: a
         # `agr_screening_token` nao e obrigatoria no arranque (nenhum servico
         # chama esta rota ainda), e uma referencia em falta no cofre tem de
@@ -270,20 +332,29 @@ def rotas(
             dentro = False
         if not dentro:
             return _nao_autorizado()
+        cru = await pedido.body()
+        if len(cru) > CORPO_MAXIMO:
+            return _resposta("corpo_invalido", 400, error_code="corpo_grande")
         try:
-            corpo = ler_pedido(await _corpo(pedido))
-        except InvocacaoInvalidaError as erro:
-            return _resposta("corpo_invalido", 400, error_code=erro.codigo)
-        except PedidoInvalido as erro:
+            corpo = ler_pedido(json.loads(cru))
+        except (ValueError, UnicodeDecodeError) as erro:
+            codigo = erro.codigo if isinstance(erro, PedidoInvalido) else "corpo_nao_e_json"
+            return _resposta("corpo_invalido", 400, error_code=codigo)
             return _resposta("corpo_invalido", 400, error_code=erro.codigo)
         if classificar is None:
             return _resposta("classificador_por_ligar", 503)
         try:
             # O `chamar` e sincrono (httpx) e pode levar o tecto inteiro: corre
             # fora do ciclo de eventos, para nao parar os turnos do processo.
-            texto = await run_in_threadpool(classificar, corpo)
+            texto = await run_in_threadpool(_dentro_do_prazo, chegada, corpo)
         except ErroDeLlm as erro:
             return _resposta(erro.resultado, 503)
+        if texto is None:
+            return _resposta("sem_tempo", 503)
+        if not texto:
+            # O `_texto` do cliente devolve "" quando o `content` vem nulo. Um
+            # 200 sem texto era um 200 que o GOV nao consegue ler.
+            return _resposta("sem_conteudo", 503)
         return _resposta("classificado", 200, conteudo=texto)
 
     return [Route(ROTA, screening, methods=["POST"])]

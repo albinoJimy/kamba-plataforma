@@ -529,13 +529,24 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
 
     Tres medicoes, e a terceira e a que faz o caso valer alguma coisa:
 
-    1. os ataques nao devolvem nada de B, e respondem todos o mesmo estado;
-    2. um tenant que **nao existe** responde esse mesmo estado — a rota nao
-       consulta a existencia do tenant, e e isso que se prova, porque uma
-       diferenca aqui era um oraculo de existencia;
+    1. os ataques nao devolvem nada de B, nem na resposta, nem nos cabecalhos,
+       nem nos *logs* — isto e, a **rota** nao acrescenta nada ao que o
+       classificador devolve, e nao escreve os textos num erro;
+    2. um tenant que **nao existe** responde o mesmo estado **na rota**: ela
+       nao le nada por tenant antes de chamar o classificador;
     3. a sonda positiva chega ao duplo, e um pedido sem credencial **nao**
        chega — sem isto, as duas primeiras passavam com uma rota que recusa
        tudo ou que aceita tudo.
+
+    **O que este caso nao mede, dito pela revisao adversarial:** o classificador
+    e um duplo, pelo que o *gate* de destino nao corre aqui. Em producao ele
+    consulta `platform.tenant_destinations` pelo `tenant_id` do corpo, e um
+    tenant com linha propria autorizada responde 200 onde um UUID inventado
+    responde 503 `destino_negado`. Quem ve essa diferenca e quem tem a
+    `agr_screening_token`, que e o GOV — o mesmo nivel de confianca do
+    `/internal/turn`, cujo `tenant_id` do corpo tambem e autoridade. Fica
+    declarado em vez de medido; hoje nenhum destino tem a finalidade do
+    screening, pelo que a diferenca nao existe ainda.
     """
     _no_caminho()
     from kamba_agr.app import create_app  # noqa: PLC0415
@@ -548,7 +559,13 @@ def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
         return _VEREDICTO_DO_DUPLO
 
     app = create_app(
-        rotas_internas=screening.rotas(credencial=lambda: CREDENCIAL, classificar=classificar)
+        rotas_internas=screening.rotas(
+            credencial=lambda: CREDENCIAL,
+            classificar=classificar,
+            # Uma folga larga: a guarda da fila nao e o que este caso mede, e
+            # numa maquina carregada a de producao (2 s) faria a sonda falhar.
+            folga_s=3600.0,
+        )
     )
     canario_de_b = next(iter(ctx.oraculo.proibidos.values()))
     cabecalhos = {"content-type": "application/json", "x-kamba-interno": CREDENCIAL}

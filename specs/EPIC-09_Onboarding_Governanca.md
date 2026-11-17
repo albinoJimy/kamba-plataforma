@@ -2707,8 +2707,22 @@ que já era dele: preparar o pedido sem dados pessoais e ler o veredicto contra 
   serviço chama a rota ainda — e a ausência fecha: uma credencial que não se lê dá 401.
 - **Os tectos de tempo.** O proxy tenta duas vezes (`timeout: 5` e `num_retries: 1`, sem grupo de
   *fallback*), e o AGR espera `2 × 5 + 2 = 12` s (`tecto_s`). O GOV espera **15 s**
-  (`TEMPO_MAXIMO_MS`). A segunda tentativa cabe no orçamento de quem chama, e um ensaio do AGR lê o
-  número do TypeScript e confere a desigualdade.
+  (`TEMPO_MAXIMO_MS`, igual ao `PRAZO_DO_GOV_S` do AGR). A segunda tentativa cabe no orçamento de
+  quem chama, e um ensaio do AGR lê o número do TypeScript e confere a igualdade e a desigualdade.
+  **E a fila também conta:** um pedido que espere mais de 2 s pela sua *thread* (15 − 12 − 1 de
+  margem para o *gate*, o registo e a resposta) responde 503 `sem_tempo` **sem chamar o modelo**,
+  porque já não acabava dentro do prazo do GOV. **Os 12 s não são um tecto rígido:** o `httpx`
+  aplica-os a cada fase (ligar, escrever, ler) e não ao total; na rede interna as duas primeiras são
+  de milissegundos, e a leitura acaba quando o proxy responde.
+- **O corpo da rota tem tecto próprio, 128 KiB**, e não os 8 KiB das outras rotas internas: o
+  contrato do `LIMITES_DO_PEDIDO` são 20 textos de 1000 caracteres, e oito textos cheios já
+  passavam os 8 KiB. O GOV corta sem partir um emoji ao meio; um sucedâneo solto que chegue mesmo
+  assim é 400 e não uma linha `erro_fornecedor`.
+- **O que fica NÃO VERIFICADO até haver modelo** (`por_decidir`, credor KAM-040): se o LiteLLM
+  devolve a saída estruturada de um modelo da Anthropic no `content` ou numa chamada de ferramenta,
+  e se o fornecedor aceita o `minimum`/`maximum` num esquema `strict`. Um modelo que responda sem
+  `content` dá 503 `sem_conteudo`, e o `screen` lê `condicional`: falha fechada, e o *golden* do
+  screening é que o mede.
 - **Quem chama a rota em produção ainda não existe.** Nenhum serviço liga hoje o classificador do
   `screen` — o `catalogo_minimo` e a re-análise recebem-no por injecção, e quem os monta passa `null`.
   Ligar o `classificadorPeloAgr` num serviço do GOV é o dia em que a `agr_screening_token` passa a
@@ -2718,7 +2732,7 @@ que já era dele: preparar o pedido sem dados pessoais e ler o veredicto contra 
 
 | Critério | Estado | Evidência |
 |---|---|---|
-| 1 — o classificador chama por um caminho com *gate* de destino, linha com o papel `screening` e custo; desenho escrito; nenhuma chamada sai sem o *gate*, com ensaio do destino negado | **satisfeito** | O desenho está na secção anterior. **Destino negado**, que é o estado real de hoje: `TestComODestinoNegado` em `../services/agr/tests/test_llm_screening.py` — nada sai para o proxy, grava uma linha `papel = 'screening'` em `destino_negado` com os quatro nulos do `CHECK llm_call_log_negado_sem_consumo`, conta a métrica, e a rota responde 503 com o `resultado`; o `router` do mesmo cliente sai, como controlo. Do lado do GOV, `com o destino negado no AGR, o screen fica condicional e so a rota do AGR e chamada` (`../packages/core-ts/tests/screening.test.ts`). **Destino autorizado**, com a finalidade num duplo (a real é o critério 2): `TestComODestinoAutorizado` — a linha leva o custo (400 e 12 *tokens* a 0,10 e 0,50 USD por milhão dão `0.000046`), o corpo leva o `screening-nano`, o esquema fechado, a temperatura zero, o tecto de resposta do alias e o tecto de 12 s, e o texto do produto vai como dado e minimizado. A rota: `TestARota`, e o X-01 da bateria de isolamento (`X-01/agr/screening`) |
+| 1 — o classificador chama por um caminho com *gate* de destino, linha com o papel `screening` e custo; desenho escrito; nenhuma chamada sai sem o *gate*, com ensaio do destino negado | **satisfeito** | O desenho está na secção anterior. **Destino negado**, que é o estado real de hoje: `TestComODestinoNegado` em `../services/agr/tests/test_llm_screening.py` — nada sai para o proxy, grava uma linha `papel = 'screening'` em `destino_negado` com os quatro nulos do `CHECK llm_call_log_negado_sem_consumo`, conta a métrica, e a rota responde 503 com o `resultado`; o `router` do mesmo cliente sai, como controlo. Do lado do GOV, `com o destino negado no AGR, o screen fica condicional e so a rota do AGR e chamada` (`../packages/core-ts/tests/screening.test.ts`). **Destino autorizado**, com a finalidade num duplo (a real é o critério 2): `TestComODestinoAutorizado` — a linha leva o custo (400 e 12 *tokens* a 0,10 e 0,50 USD por milhão dão `0.000046`), o corpo leva o `screening-nano`, o esquema fechado, a temperatura zero, o tecto de resposta do alias e o tecto de 12 s, e o texto do produto vai como dado e minimizado. A rota: `TestARota` — com o pedido no tecto do contrato a chegar ao classificador, a fila sem tempo a não chamar o modelo, e um modelo sem texto a não dar 200 —, e o X-01 da bateria de isolamento (`X-01/agr/screening`), que mede a rota com o classificador num duplo e diz o que isso deixa por medir. O arranque: `TestALigacaoDoArranque` lê o `__main__` e recusa a credencial do turno nesta rota e a chave do tenant no classificador. **Revisão adversarial:** sete achados, nenhum bloqueante, os sete corrigidos neste ramo |
 | 2 — a finalidade de transferência entra no §3.49 e numa revisão sobre a `0036`, e o `FINALIDADE_DO_PAPEL` mapeia o `screening`; confirmada pelo fundador antes de entrar | **por fazer** | **Espera pela confirmação do fundador**, como o critério manda. Não há revisão de base de dados, emenda ao §3.49 nem mapeamento neste ramo: o `FINALIDADE_DO_PAPEL` continua sem o `screening`, e é por isso que o critério 1 se mede com o destino negado. A pergunta, com as opções e o custo de cada uma, foi entregue ao orquestrador do lote para a levar ao fundador |
 
 ### Verificação da Definition of Done

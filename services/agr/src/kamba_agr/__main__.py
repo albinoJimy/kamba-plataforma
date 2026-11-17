@@ -850,6 +850,7 @@ def main() -> int:
             *llm_screening.rotas(
                 credencial=lambda: segredos.get(llm_screening.SEGREDO_DA_ROTA),
                 classificar=classificador_de_screening,
+                folga_s=llm_screening.folga_de_fila_s(aliases[llm_screening.PAPEL]),
             ),
         ],
         # As duas ligacoes fecham-se no encerramento do processo, e **havia aqui

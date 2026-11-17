@@ -10,8 +10,12 @@ Tres coisas, e cada classe tem o seu canario:
   (`patch.dict` sobre o `FINALIDADE_DO_PAPEL`), porque a real espera pela
   revisao de base de dados que o fundador confirma. O resto e o caminho de
   producao: o `ClienteDeLlm`, o `minimise`, a tabela de precos e o registo;
-* **a rota** autentica antes de ler o corpo, le-o por forma fechada, e nunca
-  devolve 200 sem texto.
+* **a rota** autentica antes de ler o corpo, le-o por forma fechada com o tecto
+  do contrato, nao chama o modelo quando ja nao ha tempo, e nunca devolve 200
+  sem texto.
+
+E o arranque (`TestALigacaoDoArranque`): a credencial e a chave que o
+`__main__` liga, que os ensaios da rota nao veem porque as injectam.
 
 E dois ensaios de paridade com o TypeScript, que leem o `classificador.ts`: o
 orcamento de tempo do GOV tem de caber as duas tentativas do proxy, e os tectos
@@ -247,8 +251,16 @@ class _Registador:
         return self._devolver
 
 
-def _app(classificar: Any, credencial: Any = lambda: CREDENCIAL) -> Any:
-    return create_app(rotas_internas=screening.rotas(credencial, classificar))
+def _app(
+    classificar: Any,
+    credencial: Any = lambda: CREDENCIAL,
+    # Larga de proposito: a guarda da fila tem os seus ensaios, e numa maquina
+    # carregada os 2 s de producao punham os outros a falhar por tempo.
+    folga_s: float = 3600.0,
+) -> Any:
+    return create_app(
+        rotas_internas=screening.rotas(credencial, classificar, folga_s=folga_s)
+    )
 
 
 def _corpo_valido(**sobrepor: Any) -> dict[str, Any]:
@@ -330,6 +342,102 @@ class TestARota(unittest.TestCase):
         self.assertEqual(estado, 503)
         self.assertEqual(json.loads(corpo), {"outcome": "classificador_por_ligar"})
 
+    def test_o_pedido_no_tecto_do_contrato_chega_ao_classificador(self) -> None:
+        """Achado 1 da revisao adversarial: o `CORPO_MAXIMO` de 8 KiB recusava-o.
+
+        Vinte textos de mil caracteres e a categoria de duzentos, com o pior
+        caso de octetos que o `json.dumps` produz (um caracter de controlo e o
+        escape de seis octetos). Com o tecto das outras rotas, dava 400.
+        """
+        duplo = _Registador()
+        corpo = _corpo_valido(
+            categoria_declarada="\x01" * screening.CARACTERES_DA_CATEGORIA,
+            textos=["\x01" * screening.CARACTERES_POR_TEXTO] * screening.TEXTOS_MAXIMOS,
+        )
+        self.assertGreater(len(json.dumps(corpo).encode()), 8 * 1024)
+        estado, _, resposta = _pedir(_app(duplo), corpo)
+        self.assertEqual(estado, 200, resposta)
+        self.assertEqual(len(duplo.pedidos), 1)
+
+    def test_um_corpo_acima_do_tecto_e_400(self) -> None:
+        duplo = _Registador()
+        cru = b'{"x": "' + b"a" * screening.CORPO_MAXIMO + b'"}'
+        estado, _, resposta = asyncio.run(
+            pedir(_app(duplo), screening.ROTA, "POST", cru, {"x-kamba-interno": CREDENCIAL})
+        )
+        self.assertEqual(estado, 400)
+        self.assertEqual(json.loads(resposta)["error_code"], "corpo_grande")
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_um_sucedaneo_solto_e_400_e_nao_chega_ao_classificador(self) -> None:
+        """Achado 6: um emoji partido pelo `slice` do TypeScript."""
+        duplo = _Registador()
+        estado, _, resposta = _pedir(_app(duplo), _corpo_valido(textos=["camisola \ud83d"]))
+        self.assertEqual(estado, 400)
+        self.assertEqual(json.loads(resposta)["error_code"], "texto_nao_utf8")
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_sem_tempo_na_fila_nao_chama_o_modelo(self) -> None:
+        """Achado 4: um pedido que ja nao acaba no prazo do GOV nao paga chamada."""
+        duplo = _Registador()
+        estado, _, resposta = _pedir(_app(duplo, folga_s=-1.0), _corpo_valido())
+        self.assertEqual(estado, 503)
+        self.assertEqual(json.loads(resposta), {"outcome": "sem_tempo"})
+        self.assertEqual(duplo.pedidos, [])
+
+    def test_a_folga_e_o_prazo_menos_o_tecto_e_a_margem(self) -> None:
+        self.assertEqual(screening.folga_de_fila_s(REAIS["screening"]), 15.0 - 12.0 - 1.0)
+        self.assertGreater(screening.folga_de_fila_s(REAIS["screening"]), 0)
+
+    def test_um_modelo_sem_texto_nao_da_200(self) -> None:
+        """Achado 5: o `_texto` do cliente devolve "" com o `content` nulo."""
+        estado, _, resposta = _pedir(_app(_Registador(devolver="")), _corpo_valido())
+        self.assertEqual(estado, 503)
+        self.assertEqual(json.loads(resposta), {"outcome": "sem_conteudo"})
+
+
+class TestALigacaoDoArranque(unittest.TestCase):
+    """Achado 2: os ensaios da rota injectam a credencial e a chave, e por isso
+    nenhum deles via o `__main__` ligar a credencial do turno a esta rota, ou a
+    chave do tenant ao classificador. Estes leem o que o arranque passa.
+
+    Canario: trocar `llm_screening.SEGREDO_DA_ROTA` por `SEGREDO_DA_API` na
+    ligacao da rota avermelha `test_a_rota_le_a_sua_credencial`.
+    """
+
+    MAIN = RAIZ / "services/agr/src/kamba_agr/__main__.py"
+
+    def _chamada(self, inicio: str, fecho: str) -> str:
+        """Os argumentos de uma chamada, ate a linha que a fecha (`fecho`)."""
+        texto = self.MAIN.read_text(encoding="utf-8")
+        (trecho,) = re.findall(re.escape(inicio + "(") + "(.*?)" + re.escape(fecho), texto, re.S)
+        return trecho
+
+    def test_a_rota_le_a_sua_credencial(self) -> None:
+        trecho = self._chamada("*llm_screening.rotas", "\n            ),")
+        self.assertIn("segredos.get(llm_screening.SEGREDO_DA_ROTA)", trecho)
+        self.assertNotIn("SEGREDO_DA_API", trecho)
+
+    def test_o_classificador_usa_a_chave_da_plataforma(self) -> None:
+        trecho = self._chamada("llm_screening.ClassificadorDeScreening", "\n    )")
+        self.assertIn("segredos.get(\n                llm_screening.REF_CHAVE_DO_SCREENING", trecho)
+        self.assertNotIn("REF_CHAVE_VIRTUAL", trecho)
+
+    def test_as_duas_referencias_sao_outras_e_estao_no_inventario(self) -> None:
+        from kamba_agr.api_interna import SEGREDO_DA_API
+        from kamba_agr.llm.cliente import REF_CHAVE_VIRTUAL
+
+        self.assertNotEqual(screening.SEGREDO_DA_ROTA, SEGREDO_DA_API)
+        self.assertNotEqual(screening.REF_CHAVE_DO_SCREENING, REF_CHAVE_VIRTUAL)
+        # Por expressao regular e nao pelo `kamba_yaml`: o inventario usa listas
+        # em estilo de fluxo que o subconjunto desta casa nao le, e quem o le a
+        # serio e o `tools/secrets_inventory`, com o seu leitor.
+        texto = (RAIZ / "ops" / "secrets-inventory.yaml").read_text(encoding="utf-8")
+        ids = set(re.findall(r"^  - id: (\w+)$", texto, re.M))
+        self.assertIn("agr_internal_token", ids)  # o controlo: a leitura le
+        self.assertIn(screening.SEGREDO_DA_ROTA, ids)
+        self.assertIn(screening.REF_CHAVE_DO_SCREENING, ids)
+
 
 # --------------------------------------------------------------- paridade
 
@@ -356,6 +464,9 @@ class TestOTectoCabeAsDuasTentativas(unittest.TestCase):
     def test_o_orcamento_do_gov_e_maior_do_que_o_tecto(self) -> None:
         texto = CLASSIFICADOR_TS.read_text(encoding="utf-8")
         (valor,) = re.findall(r"export const TEMPO_MAXIMO_MS = ([\d_]+);", texto)
+        # Igualdade com o `PRAZO_DO_GOV_S`, de que a folga da fila depende, e
+        # desigualdade com o tecto, que e o que o criterio pede.
+        self.assertEqual(int(valor.replace("_", "")), screening.PRAZO_DO_GOV_S * 1000)
         self.assertGreater(int(valor.replace("_", "")), screening.tecto_s(REAIS["screening"]) * 1000)
 
 

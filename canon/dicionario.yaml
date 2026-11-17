@@ -15296,6 +15296,8 @@ entradas:
       - "classificador.ts"
       - "resultado"
       - "dat.llm_call_log"
+      - "sem_tempo"
+      - "sem_conteudo"
       - "screen"
       - "condicional"
       - "ClienteDeLlm"

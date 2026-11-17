@@ -109,12 +109,23 @@ export function semDadosPessoais(texto: string): string {
   return CONTACTOS.reduce((t, padrao) => t.replace(padrao, "[removido]"), compativel);
 }
 
+/**
+ * Corta em unidades UTF-16 sem partir um par de sucedâneos (KAM-195). Um emoji
+ * partido ao meio deixava um sucedâneo solto, que o AGR recusa por não ser
+ * UTF-8: o produto ia a revisão por um corte, e não pelo que diz.
+ */
+function cortar(texto: string, maximo: number): string {
+  const cortado = texto.slice(0, maximo);
+  const ultimo = cortado.charCodeAt(cortado.length - 1);
+  return ultimo >= 0xd800 && ultimo <= 0xdbff ? cortado.slice(0, -1) : cortado;
+}
+
 export function prepararPedido(categoriaDeclarada: string, textos: readonly string[]): PedidoAoClassificador {
   return {
-    categoria_declarada: semDadosPessoais(categoriaDeclarada).slice(0, LIMITES_DO_PEDIDO.caracteresDaCategoria),
+    categoria_declarada: cortar(semDadosPessoais(categoriaDeclarada), LIMITES_DO_PEDIDO.caracteresDaCategoria),
     textos: textos
       .slice(0, LIMITES_DO_PEDIDO.textos)
-      .map((t) => semDadosPessoais(t).slice(0, LIMITES_DO_PEDIDO.caracteresPorTexto)),
+      .map((t) => cortar(semDadosPessoais(t), LIMITES_DO_PEDIDO.caracteresPorTexto)),
   };
 }
 

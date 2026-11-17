@@ -56,6 +56,7 @@ para que um `cron` o possa usar sem interpretar texto.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import urllib.error
@@ -315,7 +316,9 @@ def orcamento_do_screening(ambiente: Any = None) -> float:
         valor = float(bruto) if bruto else 0.0
     except ValueError:
         valor = 0.0
-    if valor <= 0:
+    # `math.isfinite` e nao so `> 0`: `float("nan") <= 0` e falso, e um `nan` ou
+    # um `inf` passavam como orcamento (achado 7 da revisao adversarial).
+    if not math.isfinite(valor) or valor <= 0:
         raise ErroDeProvisionamento(
             f"{VAR_ORCAMENTO_DO_SCREENING} nao esta definido como numero positivo: "
             "o orcamento da chave do screening nao se inventa (KAM-195)"
