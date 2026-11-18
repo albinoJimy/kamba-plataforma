@@ -235,6 +235,11 @@ GRUPOS = (
     "o token e o PIN: o dump grep nao os encontra (criterio 3)",
     "o contador es_onboardings_7d (criterio 8)",
     "isolamento (Testes Requeridos: X-03 sobre channel_onboarding)",
+    # KAM-205, do mesmo `tests_bd/onboarding.bd.test.ts`: rodar, re-cifrar e
+    # revogar sobre tokens gravados, a RLS a esconder os canais do kamba_app, e
+    # duas re-cifras ao mesmo tempo. Escreve a `tenant_channels.token_ref`, que e
+    # a razao de viver nesta suite e nao noutra.
+    "a re-cifra dos tokens guardados contra a base (KAM-205)",
     # KAM-017, dos tres ficheiros da coexistencia. Os primeiros sao de unidade
     # (os dominios, a decisao de cada criterio, as fixtures do simulador); os
     # ultimos sao os que **so** uma base real prova.
