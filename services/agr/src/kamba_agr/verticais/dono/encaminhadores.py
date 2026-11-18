@@ -27,6 +27,7 @@ CHAVE_DA_INTENCAO: Final = {
     "modulos": "modulos",
     "info_loja": "info",
     "humano": "human",
+    "confirmar": "confirm",
 }
 
 

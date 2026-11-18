@@ -194,6 +194,27 @@ export type WaType = (typeof WA_TYPES)[number] | "outro";
 
 const WA_TYPES_CONHECIDOS: readonly string[] = WA_TYPES;
 
+/**
+ * O tecto do `id` de um botão ou de uma linha de lista na Cloud API (KAM-211).
+ *
+ * É o `reply.id` que **nós** emitimos e que a Meta devolve quando o cliente
+ * toca (`docs/tecnica/01` §5.4: «o AGR confia no `id` que emitiu, não no
+ * título»). INDÍCIO: o tecto de 256 é o da documentação dos botões
+ * interactivos; a forma é a dos `id` que a plataforma emite (`confirm:{uuid}`,
+ * os `id` do aviso do §3.19), e por isso o alfabeto é fechado e sem espaço.
+ */
+export const BOTAO_MAXIMO = 256;
+
+/**
+ * A forma de um `reply.id` que passa ao AGR. **Espelho exacto** do `_BOTAO` de
+ * `services/agr/src/kamba_agr/contexto.py`: um `id` fora desta forma não é um
+ * que nós emitimos, e não segue — a mensagem segue sem ele.
+ */
+export const FORMA_DO_BOTAO = /^[A-Za-z0-9_.:-]{1,256}$/;
+
+/** As variantes de `interactive` que trazem um `id` escolhido pelo cliente. */
+export const RESPOSTAS_INTERACTIVAS = ["button_reply", "list_reply"] as const;
+
 /** O `wa_type` registável de um valor que veio do corpo. */
 export function waType(valor: unknown): WaType {
   return typeof valor === "string" && WA_TYPES_CONHECIDOS.includes(valor)

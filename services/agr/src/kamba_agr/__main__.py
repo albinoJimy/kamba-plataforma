@@ -61,7 +61,8 @@ from .admissao import Admissao, Tectos
 from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
-from .conversa import leitor, leitor_de_contacto
+from .conversa import leitor, leitor_de_contacto, leitor_de_papel
+from .dono.accoes import PortaDeConfirmacao
 from .handoff.autenticacao import verificador
 from .concierge.politica import PoliticaDeConcierge
 from .concierge.portas import ProvedorDeRascunhoPorLigar
@@ -82,6 +83,7 @@ from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .metricas import METRICAS
 from .ligacao import (
+    ligar_para_accoes,
     ligar_para_checkpoint,
     ligar_para_concierge,
     ligar_para_eventos,
@@ -707,6 +709,10 @@ def main() -> int:
             metricas=METRICAS,
         ),
         "degradacao": DetectorDeDegradacao(admissao=admissao, metricas=METRICAS),
+        # KAM-211, criterio «Botao»: o no `confirm` do grafo do dono chama o
+        # portao das accoes sensiveis, uma ligacao `kamba_app` por confirmacao,
+        # com nome proprio porque escreve.
+        "accoes_do_dono": PortaDeConfirmacao(ligar_para_accoes),
         # O limiar do `retrieve` e o do pontuador que o `search_catalog` usa.
         # Ligado o indice real (KAM-061), e o `LIMIAR_DO_RRF` de `tls/idx.py`, e
         # nao o `LIMIAR_IDX` do duplo — que comparado com um RRF mandava toda a
@@ -723,6 +729,8 @@ def main() -> int:
         grafos=grafos_do_processo,
         checkpointer=checkpointer,
         contacto_bloqueado=leitor_de_contacto(ligar_para_leitura),
+        # KAM-211, «Retoma»: a retoma resolve o grafo pelo papel de agora.
+        papel_do_contacto=leitor_de_papel(ligar_para_leitura),
         politica=portas_do_grafo["concierge"],
     )
     log.info(outcome="grafos_ligados", error_code=f"verticais_{len(grafos_do_processo)}")

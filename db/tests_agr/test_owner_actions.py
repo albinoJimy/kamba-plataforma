@@ -15,9 +15,12 @@ modulo — nao uma copia do SQL.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import threading
 import uuid
+
+import ligacao
 
 from tests import factories
 from tests_agr.base import ComAgr
@@ -187,3 +190,56 @@ class TestOwnerActions(ComAgr):
             ),
             accoes.DESCONHECIDA,
         )
+
+
+class TestPortaDeConfirmacao(TestOwnerActions):
+    """KAM-211, criterio «Botao»: a porta que o no `confirm` do dono chama, com
+    uma ligacao `kamba_app` aberta e fechada por confirmacao — a forma do
+    `__main__` (`PortaDeConfirmacao(ligar_para_leitura)`)."""
+
+    def _porta(self, abertas: list) -> accoes.PortaDeConfirmacao:
+        def abrir():
+            nova = ligacao.ligar("app")
+            abertas.append(nova)
+            return nova
+
+        return accoes.PortaDeConfirmacao(abrir)
+
+    def test_duplo_toque_pela_porta_da_uma_confirmacao(self) -> None:
+        action_id = accoes.propor(
+            self.app, self.tenant, self.dono, "preco_stock_em_massa", "lote-porta", _agora()
+        )
+        self.app.commit()
+        abertas: list = []
+        porta = self._porta(abertas)
+        botao = f"confirm:{action_id}"
+        desfechos = [
+            asyncio.run(porta.confirmar(self.tenant, self.dono, botao)) for _ in range(2)
+        ]
+        self.assertEqual(desfechos, [accoes.CONFIRMADA, accoes.JA_CONFIRMADA])
+        [(_, estado, _)] = self._linhas(self.tenant)
+        self.assertEqual(estado, "confirmada")
+        self.assertEqual(len(abertas), 2)
+
+    def test_um_texto_pela_porta_nao_abre_ligacao(self) -> None:
+        abertas: list = []
+        porta = self._porta(abertas)
+        for texto in ("sim", "ok", "confirmo"):
+            self.assertEqual(
+                asyncio.run(porta.confirmar(self.tenant, self.dono, texto)), accoes.NAO_E_BOTAO
+            )
+        self.assertEqual(abertas, [])
+
+    def test_o_botao_de_outro_tenant_pela_porta_e_desconhecido(self) -> None:
+        action_id = accoes.propor(
+            self.app, self.tenant, self.dono, "preco_stock_em_massa", "lote-alheio", _agora()
+        )
+        self.app.commit()
+        outra = self.criar_conversa()
+        porta = self._porta([])
+        desfecho = asyncio.run(
+            porta.confirmar(outra.tenant_id, outra.contact_id, f"confirm:{action_id}")
+        )
+        self.assertIn(desfecho, (accoes.NAO_E_DONO, accoes.DESCONHECIDA))
+        [(_, estado, _)] = self._linhas(self.tenant)
+        self.assertEqual(estado, "pendente")

@@ -2,10 +2,14 @@
 
     TestPorta              `persona` opcional: ausente e `cliente`, fora da lista recusa
     TestChaveDoRegisto     a matriz papel x vertical do canal, no `resolve` e na `da_thread`
+    TestRetomaPeloPapel    a retoma pelo papel de agora, e nao pelo do *checkpoint* (KAM-211)
     TestAllowlistDoDono    50 tentativas de um cliente: 0 sucessos, erro tipado, auditoria
     TestGrafoDoDono        compila, seis nos, reaproveitamento >= 70%, um turno ponta a ponta
     TestRitmoDoDono        60/h pelo mesmo mecanismo do ritmo, so para a persona `dono`
     TestAccoesSensiveis    o botao `confirm:{action_id}`, contra um duplo da base
+    TestBotaoNaInvocacao   o `agent_invocation.botao` (KAM-211): forma, e so em `interactive`
+    TestBotaoNoGrafoDoDono o botao pelo turno do dono ate ao `confirmar` (KAM-211)
+    TestBotaoPeloContrato  o corpo que o CHR monta, lido pelo AGR ate ao `confirmar` (KAM-211)
 
 A suite contra PostgreSQL das accoes esta em `db/tests_agr/test_owner_actions.py`:
 o `UPDATE ... RETURNING` concorrente e a RLS nao se provam com um duplo.
@@ -46,7 +50,7 @@ from kamba_agr.verticais.dono import encaminhadores as enc_do_dono
 from kamba_agr.verticais.dono import nos as nos_do_dono
 from kamba_agr.verticais.vendedor import encaminhadores as enc_do_vendedor
 from kamba_agr.verticais.vendedor import nos as nos_do_vendedor
-from test_grafos import PASTA, RAIZ, _config, _estado_com_texto, _porta
+from test_grafos import PASTA, RAIZ, _config, _estado_com_texto, _papeis, _porta
 from test_tls import (
     CONTACTO,
     ArgumentosDeEnsaio,
@@ -207,9 +211,12 @@ class TestChaveDoRegisto(unittest.TestCase):
         self.assertIsNone(do_dono.entitlements.modulo)
 
     def test_o_turno_e_a_thread_do_dono_resolvem_o_grafo_do_dono(self) -> None:
-        """A `da_thread` reencontra o grafo pela persona do *checkpoint*."""
-        porta, compilados, saida = _porta(permitidos={"vendedor", "servicos", "catalogo"})
+        """A `da_thread` reencontra o grafo do dono enquanto o contacto o e."""
         dono = _inv(persona="dono")
+        porta, compilados, saida = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"},
+            papel=_papeis({(dono.tenant_id, dono.contact_id): "dono"}),
+        )
         grafo = asyncio.run(porta.do_turno(dono))
         self.assertIs(grafo._grafo, compilados["dono"])
         asyncio.run(grafo.ainvoke(_estado_com_texto(dono, "ola"), _config(dono)))
@@ -221,6 +228,160 @@ class TestChaveDoRegisto(unittest.TestCase):
         )
         grafo = asyncio.run(porta.do_turno(cliente))
         self.assertIs(grafo._grafo, compilados["vendedor"])
+
+
+class TestRetomaPeloPapel(unittest.TestCase):
+    """KAM-211, criterio «Retoma» (achado 4 da revisao do KAM-118).
+
+    Uma *thread* interrompida retoma no grafo do papel **actual** do contacto, e
+    nao no da persona guardada no *checkpoint*: depois de uma troca de telefone,
+    o *handoff* do dono antigo retoma como `cliente`.
+    """
+
+    def _dono_em_handoff(self, papeis: dict):
+        """Um turno do dono que para em `handoff_wait`; o papel le-se de `papeis`."""
+        from test_vendedor import Handoff
+
+        dono = _inv(persona="dono")
+        papeis[(dono.tenant_id, dono.contact_id)] = "dono"
+        porta, compilados, _ = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"},
+            papel=_papeis_vivos(papeis),
+            hnd=Handoff(),
+        )
+        grafo = asyncio.run(porta.do_turno(dono))
+        self.assertIs(grafo._grafo, compilados["dono"])
+        asyncio.run(
+            grafo.ainvoke(_estado_com_texto(dono, "quero falar com um humano"), _config(dono))
+        )
+        foto = asyncio.run(compilados["dono"].aget_state(_config(dono)))
+        self.assertEqual(foto.next, ("handoff_wait",))
+        self.assertEqual(foto.values["persona"], "dono")
+        return dono, porta, compilados
+
+    def test_depois_da_troca_o_handoff_do_dono_antigo_retoma_como_cliente(self) -> None:
+        from kamba_agr.handoff.retoma import Retomador
+        from test_handoff import BaseFalsa
+
+        papeis: dict = {}
+        dono, porta, compilados = self._dono_em_handoff(papeis)
+        # A troca de telefone: a `definir_dono` passou o contacto a `cliente`.
+        papeis[(dono.tenant_id, dono.contact_id)] = "cliente"
+
+        base = BaseFalsa(
+            {"h1": {"tenant": dono.tenant_id, "status": "waiting"}},
+            {"h1": dono.contact_id},
+        )
+        resolvidos: list[Any] = []
+
+        async def grafos(thread_id: str):
+            grafo = await porta.da_thread(thread_id)
+            resolvidos.append(grafo)
+            return grafo
+
+        retomador = Retomador(abrir_ligacao=lambda: base, grafos=grafos)
+        self.assertEqual(
+            asyncio.run(retomador.retomar(dono.thread_id, "h1", "resolved")), "retomado"
+        )
+        self.assertEqual(resolvidos, [compilados["vendedor"]])
+        self.assertEqual(asyncio.run(compilados["vendedor"].aget_state(_config(dono))).next, ())
+
+    def test_sem_troca_o_handoff_do_dono_retoma_no_grafo_do_dono(self) -> None:
+        papeis: dict = {}
+        dono, porta, compilados = self._dono_em_handoff(papeis)
+        self.assertIs(asyncio.run(porta.da_thread(dono.thread_id)), compilados["dono"])
+
+    def test_o_cliente_que_passou_a_dono_retoma_no_grafo_do_dono(self) -> None:
+        """O sentido contrario: o *checkpoint* diz `cliente`, e o contacto ja foi
+        promovido pelo OTP. O grafo e o do papel de agora."""
+        cliente = _inv(persona="cliente")
+        papeis: dict = {}
+        porta, compilados, _ = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"}, papel=_papeis_vivos(papeis)
+        )
+        grafo = asyncio.run(porta.do_turno(cliente))
+        asyncio.run(grafo.ainvoke(_estado_com_texto(cliente, "ola"), _config(cliente)))
+        self.assertIs(asyncio.run(porta.da_thread(cliente.thread_id)), compilados["vendedor"])
+        papeis[(cliente.tenant_id, cliente.contact_id)] = "dono"
+        self.assertIs(asyncio.run(porta.da_thread(cliente.thread_id)), compilados["dono"])
+
+    def test_so_o_papel_exacto_dono_da_o_grafo_do_dono(self) -> None:
+        """Lista de permitidos: `None` (apagado, fundido, ou que a RLS esconde) e
+        qualquer outro valor dao a vertical do canal."""
+        papeis: dict = {}
+        dono, porta, compilados = self._dono_em_handoff(papeis)
+        for papel in (None, "", "Dono", "DONO", "admin", "dono ", 1, True):
+            with self.subTest(papel=papel):
+                papeis[(dono.tenant_id, dono.contact_id)] = papel
+                self.assertIs(asyncio.run(porta.da_thread(dono.thread_id)), compilados["vendedor"])
+
+    def test_o_papel_le_se_com_o_par_da_thread(self) -> None:
+        lidos: list[tuple[str, str]] = []
+
+        async def papel(tenant_id: str, contact_id: str) -> str:
+            lidos.append((tenant_id, contact_id))
+            return "cliente"
+
+        dono = _inv(persona="dono")
+        porta, _, _ = _porta(permitidos={"vendedor", "servicos", "catalogo"}, papel=papel)
+        grafo = asyncio.run(porta.do_turno(dono))
+        asyncio.run(grafo.ainvoke(_estado_com_texto(dono, "ola"), _config(dono)))
+        asyncio.run(porta.da_thread(dono.thread_id))
+        self.assertEqual(lidos, [(dono.tenant_id, dono.contact_id)])
+
+    def test_uma_leitura_do_papel_que_falha_nao_abre_a_base_do_cas(self) -> None:
+        """A leitura do papel e antes do CAS: falhando, sobe, e a retoma nao
+        escreve nada — a rota responde 503 e o *handoff* fica `waiting`."""
+        from kamba_agr.handoff.retoma import Retomador
+
+        class BaseEmBaixo(RuntimeError):
+            pass
+
+        async def papel(_tenant_id: str, _contact_id: str) -> str:
+            raise BaseEmBaixo("ligacao_recusada")
+
+        dono = _inv(persona="dono")
+        porta, _, _ = _porta(permitidos={"vendedor", "servicos", "catalogo"}, papel=papel)
+        grafo = asyncio.run(porta.do_turno(dono))
+        asyncio.run(grafo.ainvoke(_estado_com_texto(dono, "ola"), _config(dono)))
+        aberturas: list[int] = []
+        retomador = Retomador(abrir_ligacao=lambda: aberturas.append(1), grafos=porta.da_thread)
+        with self.assertRaises(BaseEmBaixo):
+            asyncio.run(retomador.retomar(dono.thread_id, "h1", "resolved"))
+        self.assertEqual(aberturas, [])
+
+    def test_um_thread_id_que_nao_e_um_par_nao_le_o_papel(self) -> None:
+        from kamba_agr.turno import GrafoNaoRegistadoError
+
+        lidos: list[Any] = []
+
+        async def papel(*par: str) -> str:
+            lidos.append(par)
+            return "dono"
+
+        porta, compilados, _ = _porta(papel=papel)
+        for thread_id in ("sem-separador", ":so-contacto", "so-tenant:", "a:b:c"):
+            # Um *checkpoint* com esse `thread_id`, para a recusa ser do par e
+            # nao da falta de *checkpoint*.
+            asyncio.run(
+                compilados["vendedor"].aupdate_state(
+                    {"configurable": {"thread_id": thread_id}},
+                    {"vertical": "vendedor", "persona": "dono"},
+                )
+            )
+            with self.subTest(thread_id=thread_id):
+                with self.assertRaises(GrafoNaoRegistadoError):
+                    asyncio.run(porta.da_thread(thread_id))
+        self.assertEqual(lidos, [])
+
+
+def _papeis_vivos(papeis: dict):
+    """Como `_papeis`, mas le o dicionario em cada chamada: o ensaio muda-o a meio."""
+
+    async def papel(tenant_id: str, contact_id: str) -> object:
+        return papeis.get((tenant_id, contact_id))
+
+    return papel
 
 
 # --------------------------------- as tools do dono, pelo modulo de cada uma
@@ -471,7 +632,9 @@ class TestGrafoDoDono(unittest.TestCase):
             tabela_do_dono.reaproveitamento(), tabela_do_dono.REAPROVEITAMENTO_MINIMO
         )
         self.assertEqual(tabela_do_dono.REAPROVEITAMENTO_MINIMO, 0.70)
-        self.assertEqual((len(tabela_do_dono.NOS_REUTILIZADOS), len(tabela_do_dono.NOS)), (12, 16))
+        # KAM-211: o `confirm` e o quinto proprio, e o reaproveitamento passa a
+        # doze em dezassete (70,6%), ainda acima do piso.
+        self.assertEqual((len(tabela_do_dono.NOS_REUTILIZADOS), len(tabela_do_dono.NOS)), (12, 17))
 
     def test_os_reutilizados_sao_os_mesmos_objectos_do_vendedor(self) -> None:
         """Pela identidade, e nao pelo nome: uma copia contava como reuso."""
@@ -479,10 +642,10 @@ class TestGrafoDoDono(unittest.TestCase):
             with self.subTest(no=nome):
                 self.assertIs(nos_do_dono.NOS_DO_GRAFO[nome], nos_do_vendedor.NOS_DO_GRAFO[nome])
         proprios = set(tabela_do_dono.NOS) - set(tabela_do_dono.NOS_REUTILIZADOS)
-        self.assertEqual(proprios, {"classify", "compose", "safe_reply", "ask_repeat"})
+        self.assertEqual(proprios, {"classify", "confirm", "compose", "safe_reply", "ask_repeat"})
         for nome in proprios:
             with self.subTest(no=nome):
-                self.assertIsNot(nos_do_dono.NOS_DO_GRAFO[nome], nos_do_vendedor.NOS_DO_GRAFO[nome])
+                self.assertIsNot(nos_do_dono.NOS_DO_GRAFO[nome], nos_do_vendedor.NOS_DO_GRAFO.get(nome))
         do_vendedor = [v for v in vars(enc_do_vendedor).values() if callable(v)]
         for encaminhador in enc_do_dono.REUTILIZADOS:
             self.assertIn(encaminhador, do_vendedor)
@@ -864,6 +1027,297 @@ class TestAccoesSensiveis(unittest.TestCase):
         fonte = inspect.getsource(accoes)
         self.assertNotIn(".registar(", fonte)
         self.assertNotIn("logger", fonte)
+
+
+
+# ------------------------------------------- o botao ate ao estado do turno (KAM-211)
+
+
+class TestBotaoNaInvocacao(unittest.TestCase):
+    """KAM-211, criterio «Botao»: o `agent_invocation.botao`, aditivo e opcional."""
+
+    BOTAO = "confirm:3f2a1c4e-0b7d-4e8a-9c61-2d5f8e7a9b10"
+
+    def test_sem_o_campo_o_botao_e_nenhum(self) -> None:
+        self.assertIsNone(_inv().botao)
+        self.assertIsNone(estado_inicial(_inv())["botao"])
+
+    def test_numa_resposta_interactiva_o_botao_chega_ao_estado(self) -> None:
+        invocacao = _inv(type="interactive", botao=self.BOTAO)
+        self.assertEqual(invocacao.botao, self.BOTAO)
+        estado = estado_inicial(invocacao)
+        self.assertEqual(estado["botao"], self.BOTAO)
+        self.assertEqual(estado["input_kind"], "interactive")
+        # Nao entra na janela: e um identificador, nao texto do cliente.
+        self.assertEqual(estado["messages"], [])
+
+    def test_um_texto_com_botao_e_recusado(self) -> None:
+        """O «texto que imita um botao»: o CHR nao lhe da `botao`, e um corpo
+        que o traga num `text` e incoerente."""
+        for tipo in ("text", "button", "outro", "image"):
+            with self.subTest(type=tipo):
+                with self.assertRaises(InvocacaoInvalidaError) as capturado:
+                    _inv(type=tipo, botao=self.BOTAO)
+                self.assertEqual(capturado.exception.codigo, "campo_invalido_botao")
+
+    def test_um_botao_sem_a_forma_de_um_id_e_recusado(self) -> None:
+        for botao in (None, "", " ", "sim confirmo", "confirm: x", "a" * 257, 7, ["x"], "olá"):
+            with self.subTest(botao=botao):
+                with self.assertRaises(InvocacaoInvalidaError) as capturado:
+                    _inv(type="interactive", botao=botao)
+                self.assertEqual(capturado.exception.codigo, "campo_invalido_botao")
+
+    def test_o_tecto_do_botao_e_o_da_cloud_api(self) -> None:
+        self.assertEqual(_inv(type="interactive", botao="a" * 256).botao, "a" * 256)
+
+    def test_o_campo_e_o_unico_opcional_alem_da_persona(self) -> None:
+        from kamba_agr.contexto import CAMPOS_OPCIONAIS
+
+        self.assertEqual(CAMPOS_OPCIONAIS, ("persona", "botao"))
+        self.assertNotIn("botao", CAMPOS)
+
+
+class TestBotaoNoGrafoDoDono(unittest.TestCase):
+    """KAM-211, criterio «Botao»: o `confirm:{action_id}` pelo turno do dono ate
+    ao `confirmar`, com a porta real sobre a base em memoria das accoes."""
+
+    def setUp(self) -> None:
+        self.base = BaseDeAccoes()
+        self.tenant = str(uuid.uuid4())
+        self.dono = self.base.contacto(self.tenant)
+        self.aberturas = 0
+
+        def abrir():
+            self.aberturas += 1
+            return self.base
+
+        self.agora = AGORA
+        self.porta_de_accoes = accoes.PortaDeConfirmacao(abrir, relogio=lambda: self.agora)
+        self.porta, self.compilados, self.saida = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"},
+            accoes_do_dono=self.porta_de_accoes,
+        )
+
+    def _propor(self, ref: str = "lote-1") -> str:
+        return accoes.propor(
+            self.base, self.tenant, self.dono, "preco_stock_em_massa", ref, AGORA
+        )
+
+    def _tocar(self, botao: str, contacto: str | None = None) -> dict[str, Any]:
+        """Um turno `interactive` do dono, com um `wamid` novo — um toque."""
+        invocacao = _inv(
+            tenant_id=self.tenant,
+            contact_id=contacto or self.dono,
+            persona="dono",
+            type="interactive",
+            botao=botao,
+        )
+        grafo = asyncio.run(self.porta.do_turno(invocacao))
+        self.assertIs(grafo._grafo, self.compilados["dono"])
+        return asyncio.run(grafo.ainvoke(estado_inicial(invocacao), _config(invocacao)))
+
+    def _escrever(self, texto: str) -> dict[str, Any]:
+        invocacao = _inv(tenant_id=self.tenant, contact_id=self.dono, persona="dono")
+        grafo = asyncio.run(self.porta.do_turno(invocacao))
+        return asyncio.run(grafo.ainvoke(_estado_com_texto(invocacao, texto), _config(invocacao)))
+
+    def test_o_botao_confirma_pelo_turno(self) -> None:
+        action_id = self._propor()
+        estado = self._tocar(f"confirm:{action_id}")
+        self.assertEqual(estado["intent"], "confirmar")
+        self.assertEqual(estado["draft"]["texto"], nos_do_dono.MSG_CONFIRMADA)
+        self.assertEqual(self.base.confirmadas(), 1)
+        self.assertEqual(self.base.accoes[action_id]["estado"], "confirmada")
+
+    def test_duplo_toque_por_dois_turnos_da_uma_confirmacao(self) -> None:
+        """Dois `wamid` diferentes com o mesmo botao — dois turnos — e **1**."""
+        action_id = self._propor()
+        textos = [self._tocar(f"confirm:{action_id}")["draft"]["texto"] for _ in range(2)]
+        self.assertEqual(textos, [nos_do_dono.MSG_CONFIRMADA, nos_do_dono.MSG_JA_CONFIRMADA])
+        self.assertEqual(self.base.confirmadas(), 1)
+
+    def test_vinte_textos_pelo_turno_nao_confirmam_nem_abrem_a_base(self) -> None:
+        """«sim»/«ok» por texto -> **0**/20, e o texto que imita um botao tambem:
+        um turno de texto nao tem `botao`, e o `confirm` nunca corre."""
+        action_id = self._propor()
+        textos = (
+            "sim", "Sim", "SIM", "ok", "OK", "confirmo", "confirmar", "sim confirmo",
+            "pode", "podes publicar", "esta bem", "ta bem", "claro", "yes", "1",
+            f"confirm:{action_id}", f"sim {action_id}", f"confirm: {action_id}",
+            f"confirm:{action_id.upper()}", "confirm:",
+        )
+        self.assertEqual(len(textos), 20)
+        for texto in textos:
+            with self.subTest(texto=texto):
+                estado = self._escrever(texto)
+                self.assertNotEqual(estado.get("intent"), "confirmar")
+        self.assertEqual(self.base.confirmadas(), 0)
+        self.assertEqual(self.aberturas, 0)
+
+    def test_o_replay_de_um_botao_antigo_expira(self) -> None:
+        action_id = self._propor()
+        self.agora = AGORA + accoes.VALIDADE_DO_BOTAO
+        estado = self._tocar(f"confirm:{action_id}")
+        self.assertEqual(estado["draft"]["texto"], nos_do_dono.MSG_EXPIRADA)
+        self.assertEqual(self.base.confirmadas(), 0)
+
+    def test_o_botao_de_outro_tenant_nao_confirma_e_nao_diz_porque(self) -> None:
+        outro_tenant = str(uuid.uuid4())
+        outro_dono = self.base.contacto(outro_tenant)
+        alheia = accoes.propor(
+            self.base, outro_tenant, outro_dono, "preco_stock_em_massa", "lote-b", AGORA
+        )
+        estado = self._tocar(f"confirm:{alheia}")
+        self.assertEqual(estado["draft"]["texto"], nos_do_dono.MSG_PEDIDO_NAO_ENCONTRADO)
+        self.assertEqual(self.base.accoes[alheia]["estado"], "pendente")
+
+    def test_o_botao_de_outro_contacto_diz_o_mesmo_que_o_desconhecido(self) -> None:
+        """Sem oraculo: `outro_contacto`, `desconhecida` e `nao_e_dono` dao a
+        mesma frase."""
+        action_id = self._propor()
+        self.base.contactos[(self.tenant, self.dono)]["papel"] = "cliente"
+        intruso = self.base.contacto(self.tenant)
+        frases = {
+            self._tocar(f"confirm:{action_id}", contacto=intruso)["draft"]["texto"],
+            self._tocar(f"confirm:{uuid.uuid4()}")["draft"]["texto"],
+        }
+        self.assertEqual(frases, {nos_do_dono.MSG_PEDIDO_NAO_ENCONTRADO})
+        self.assertEqual(self.base.confirmadas(), 0)
+
+    def test_um_botao_que_nao_e_confirm_nao_chama_o_portao(self) -> None:
+        estado = self._tocar("continuar")
+        self.assertNotEqual(estado.get("intent"), "confirmar")
+        self.assertEqual(self.aberturas, 0)
+
+    def test_o_botao_de_um_turno_nao_vale_no_seguinte(self) -> None:
+        """O `botao` e do turno: um texto depois de um toque nao herda o toque."""
+        action_id = self._propor()
+        self._tocar(f"confirm:{uuid.uuid4()}")
+        estado = self._escrever("ok")
+        self.assertIsNone(estado["botao"])
+        self.assertEqual(self.base.accoes[action_id]["estado"], "pendente")
+
+    def test_sem_porta_ligada_nada_se_confirma(self) -> None:
+        porta, compilados, _ = _porta(permitidos={"vendedor", "servicos", "catalogo"})
+        action_id = self._propor()
+        invocacao = _inv(
+            tenant_id=self.tenant, contact_id=self.dono, persona="dono",
+            type="interactive", botao=f"confirm:{action_id}",
+        )
+        grafo = asyncio.run(porta.do_turno(invocacao))
+        estado = asyncio.run(grafo.ainvoke(estado_inicial(invocacao), _config(invocacao)))
+        self.assertEqual(estado["draft"]["texto"], nos_do_dono.MSG_CONFIRMACAO_INDISPONIVEL)
+        self.assertEqual(self.base.confirmadas(), 0)
+
+    def test_o_portao_recebe_o_tenant_e_o_contacto_do_estado(self) -> None:
+        vistos: list[tuple] = []
+
+        class Espiao:
+            async def confirmar(self, *argumentos: Any) -> str:
+                vistos.append(argumentos)
+                return accoes.CONFIRMADA
+
+        porta, _, _ = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"}, accoes_do_dono=Espiao()
+        )
+        botao = f"confirm:{uuid.uuid4()}"
+        invocacao = _inv(
+            tenant_id=self.tenant, contact_id=self.dono, persona="dono",
+            type="interactive", botao=botao,
+        )
+        grafo = asyncio.run(porta.do_turno(invocacao))
+        asyncio.run(grafo.ainvoke(estado_inicial(invocacao), _config(invocacao)))
+        self.assertEqual(vistos, [(self.tenant, self.dono, botao)])
+
+    def test_as_frases_da_confirmacao_nao_levam_digitos(self) -> None:
+        frases = (
+            nos_do_dono.MSG_CONFIRMADA, nos_do_dono.MSG_JA_CONFIRMADA,
+            nos_do_dono.MSG_EXPIRADA, nos_do_dono.MSG_BLOQUEADA_PELA_TROCA,
+            nos_do_dono.MSG_PEDIDO_NAO_ENCONTRADO, nos_do_dono.MSG_CONFIRMACAO_INDISPONIVEL,
+        )
+        for frase in frases:
+            with self.subTest(frase=frase):
+                self.assertIsNone(re.search(r"\d", frase))
+
+    def test_o_classify_so_le_o_botao_num_turno_interactivo(self) -> None:
+        """A barreira do proprio no, sem a guarda de entrada a frente: um texto
+        com a forma `confirm:{uuid}` nao da a intencao `confirmar`, e um `botao`
+        num turno que nao e `interactive` tambem nao."""
+        from kamba_agr.verticais.vendedor.nos import Dependencias
+
+        no = nos_do_dono.classify(Dependencias(tools=None, saida=None))
+        botao = f"confirm:{uuid.uuid4()}"
+        texto = estado_inicial(_inv(persona="dono"))
+        texto["messages"] = [{"role": "user", "content": botao}]
+        self.assertNotEqual(asyncio.run(no(texto))["intent"], "confirmar")
+        forjado = dict(estado_inicial(_inv(persona="dono")), botao=botao)
+        self.assertNotEqual(asyncio.run(no(forjado))["intent"], "confirmar")
+        tocado = estado_inicial(_inv(persona="dono", type="interactive", botao=botao))
+        self.assertEqual(asyncio.run(no(tocado))["intent"], "confirmar")
+        # Um `interactive` sem `botao` (um `id` fora da forma, um `nfm_reply`)
+        # com um `confirm:{uuid}` escrito num turno anterior na janela: nao e um
+        # toque (achado 2 da revisao adversarial).
+        sem_botao = estado_inicial(_inv(persona="dono", type="interactive"))
+        sem_botao["messages"] = [
+            {"role": "user", "content": botao},
+            {"role": "assistant", "content": "resposta"},
+        ]
+        self.assertNotEqual(asyncio.run(no(sem_botao))["intent"], "confirmar")
+
+    def test_a_porta_nao_abre_a_base_para_um_texto(self) -> None:
+        self.assertEqual(
+            asyncio.run(self.porta_de_accoes.confirmar(self.tenant, self.dono, "sim")),
+            accoes.NAO_E_BOTAO,
+        )
+        self.assertEqual(self.aberturas, 0)
+
+
+class TestBotaoPeloContrato(unittest.TestCase):
+    """KAM-211, criterio «Botao», pelo caminho CHR -> AGR.
+
+    O corpo de `packages/core-ts/tests/fixtures/invocacao_do_botao.json` e o que
+    o `chr.botao.test.ts` prova sair do `Chr.tratar` para um toque no botao do
+    dono. Aqui o mesmo ficheiro entra pelo `ler_invocacao` e corre o turno ate
+    ao `confirmar`: duplo toque x2 -> **1** confirmacao.
+    """
+
+    def setUp(self) -> None:
+        import json
+
+        caminho = RAIZ / "packages" / "core-ts" / "tests" / "fixtures" / "invocacao_do_botao.json"
+        self.fixture = json.loads(caminho.read_text(encoding="utf-8"))
+        corpo = self.fixture["corpo"]
+        self.base = BaseDeAccoes()
+        self.tenant, self.dono = corpo["tenant_id"], corpo["contact_id"]
+        self.base.contactos[(self.tenant, self.dono)] = {"papel": "dono", "papel_mudou_at": None}
+        self.base.accoes[self.fixture["action_id"]] = {
+            "tenant": self.tenant, "contacto": self.dono, "tipo": "preco_stock_em_massa",
+            "ref": "lote-fixture", "estado": "pendente",
+            "expira_at": AGORA + accoes.VALIDADE_DO_BOTAO, "confirmada_at": None,
+        }
+        self.porta, self.compilados, _ = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"},
+            accoes_do_dono=accoes.PortaDeConfirmacao(lambda: self.base, relogio=lambda: AGORA),
+        )
+
+    def _turno(self, wamid: str) -> dict[str, Any]:
+        invocacao = ler_invocacao(dict(self.fixture["corpo"], wamid=wamid))
+        grafo = asyncio.run(self.porta.do_turno(invocacao))
+        self.assertIs(grafo._grafo, self.compilados["dono"])
+        return asyncio.run(grafo.ainvoke(estado_inicial(invocacao), _config(invocacao)))
+
+    def test_o_corpo_do_chr_le_se_e_o_botao_chega_ao_estado(self) -> None:
+        invocacao = ler_invocacao(self.fixture["corpo"])
+        self.assertEqual(invocacao.botao, f"confirm:{self.fixture['action_id']}")
+        self.assertEqual(invocacao.persona, "dono")
+
+    def test_duplo_toque_pelo_contrato_da_uma_confirmacao(self) -> None:
+        textos = [
+            self._turno(self.fixture["corpo"]["wamid"])["draft"]["texto"],
+            self._turno(self.fixture["corpo"]["wamid"] + "B")["draft"]["texto"],
+        ]
+        self.assertEqual(textos, [nos_do_dono.MSG_CONFIRMADA, nos_do_dono.MSG_JA_CONFIRMADA])
+        self.assertEqual(self.base.confirmadas(), 1)
 
 
 if __name__ == "__main__":

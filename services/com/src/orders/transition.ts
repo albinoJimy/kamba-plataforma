@@ -71,6 +71,7 @@ import {
   CAUSAS_QUE_PAGAM,
   CHAVE_DO_TECTO_MANUAL,
   EVENTO_POR_ESTADO,
+  PAPEL_POR_ACTOR,
   VIA_POR_CAUSA,
   type CausaDaTransicao,
   type CausaQuePaga,
@@ -157,8 +158,6 @@ export interface PedidoDeTransicao {
   readonly para: OrderState;
   readonly expectedVersion: number;
   readonly causa: CausaDaTransicao;
-  /** Obrigatório para `entregue`: o contrato do `order.delivered` exige-o. */
-  readonly entregaConfirmadaPor?: string | null;
   /** Fixa ou prolonga o fim da reserva. Obrigatório para `expirada` se faltar. */
   readonly expiraAt?: string | null;
   /**
@@ -254,23 +253,25 @@ export async function transition(
   ) {
     return recusar("VALIDATION_ERROR");
   }
-  if (
-    pedido.para === "entregue" &&
-    (pedido.entregaConfirmadaPor ?? null) === null
-  ) {
-    // O contrato do `order.delivered` exige `entrega_confirmada_por`, e o
-    // `orders_mirror_entregue_exige_quem_ck` exige-o na coluna: recusar aqui
-    // dá-lhe um erro de domínio em vez de um `23514`. **Também no fim de uma
-    // disputa** (KAM-050), e antes de ler a base: quem decide a disputa a favor
-    // da PME passa o valor que a encomenda já tem, e o `COALESCE` do
-    // `SQL_TRANSITAR` mantém o da coluna — ver o `fimDeDisputa` abaixo.
-    return recusar("VALIDATION_ERROR");
-  }
 
   const antes = await lerEncomenda(e, pedido.orderId);
   if (antes === null) return recusar("NOT_FOUND");
   const de = String(antes["estado"]) as OrderState;
   const fimDeDisputa = eFimDeDisputa(de, pedido.para);
+  // **O papel da entrega vem do `ctx`, e não do chamador** (KAM-204, critério
+  // 4). O contrato do `order.delivered` e o `orders_mirror_entregue_exige_quem_ck`
+  // exigem-no; um actor sem papel (o `ops`) recusa-se aqui com um erro de
+  // domínio, e a barreira real é o `order_entrega_exige_papel` da `0071`, que no
+  // `COMMIT` compara o papel com o `actor_kind` do registo. No fim de uma disputa
+  // (KAM-050) não se pede papel nenhum: o *trigger* `order_entrega_presa` repõe
+  // o da entrega que houve.
+  const papel =
+    pedido.para === "entregue" && !fimDeDisputa
+      ? (PAPEL_POR_ACTOR[e.ctx.actor.kind] ?? null)
+      : null;
+  if (pedido.para === "entregue" && !fimDeDisputa && papel === null) {
+    return recusar("VALIDATION_ERROR");
+  }
   // **A aprovação humana do §6.2** (KAM-050): o pedido de reembolso e a decisão
   // de uma disputa são de dono ou ops identificado. Ver o `exigeHumano`.
   if (
@@ -356,12 +357,10 @@ export async function transition(
     pedido.para === "paga"
       ? VIA_POR_CAUSA[pedido.causa.causa as CausaQuePaga]
       : null,
-    // No fim de uma disputa, os dois ficam como estavam: o `entregue_at` é o da
-    // entrega que houve, e não o da decisão.
-    pedido.para === "entregue" && !fimDeDisputa ? instante : null,
-    pedido.para === "entregue" && !fimDeDisputa
-      ? pedido.entregaConfirmadaPor
-      : null,
+    // O `entregue_at` não vai: escreve-o a base (`order_entrega_presa`, revisão
+    // `0071`), com o instante da transacção, e no fim de uma disputa repõe o da
+    // entrega que houve.
+    papel,
     expiraAt,
   ]);
   const depois = linhas[0];

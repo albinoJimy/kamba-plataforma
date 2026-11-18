@@ -59,7 +59,7 @@ export const SQL_LER = `
  * ordem das colunas da tabela, e a revisão `0030` acrescenta-lhe colunas.
  *
  * Os campos derivados do estado entram todos na mesma instrução, e não num
- * `UPDATE` a seguir: `paga_at`/`paga_via` para `paga`, `entregue_at` e
+ * `UPDATE` a seguir: `paga_at`/`paga_via` para `paga`,
  * `entrega_confirmada_por` para `entregue`, `expira_at` para quem o fixa. Um
  * segundo `UPDATE` seria uma segunda transição do ponto de vista do *trigger* —
  * e o `BEFORE UPDATE` exige que a `version` suba de um em cada mudança de
@@ -74,6 +74,14 @@ export const SQL_LER = `
  * colunas que não mexe, e o `COALESCE` preserva o que lá estava. O que impede
  * um chamador distraído de levar a encomenda a `paga` sem via é o
  * `orders_mirror_paga_exige_via_ck`, na coluna, e não a forma desta cadeia.
+ *
+ * **O `entregue_at` não está aqui, e não é esquecimento** (KAM-204): escreve-o o
+ * *trigger* `order_entrega_presa` da revisão `0071`, com o `now()` da
+ * transacção, em cada entrada em `entregue` — e no fim de uma disputa repõe o
+ * da entrega que houve. O `kamba_app` deixou de ter `UPDATE` na coluna, pelo
+ * que uma cadeia que a nomeasse levantava `42501`. O `entrega_confirmada_por`
+ * fica, mas é o `transition` que o tira do `ctx` (`PAPEL_POR_ACTOR`), e o
+ * `order_entrega_exige_papel` confirma-o no `COMMIT` contra o actor do registo.
  */
 export const SQL_TRANSITAR = `
   UPDATE platform.orders_mirror
@@ -82,9 +90,8 @@ export const SQL_TRANSITAR = `
          atualizado_at = now(),
          paga_at = COALESCE($6::timestamptz, paga_at),
          paga_via = COALESCE($7, paga_via),
-         entregue_at = COALESCE($8::timestamptz, entregue_at),
-         entrega_confirmada_por = COALESCE($9, entrega_confirmada_por),
-         expira_at = COALESCE($10::timestamptz, expira_at)
+         entrega_confirmada_por = COALESCE($8, entrega_confirmada_por),
+         expira_at = COALESCE($9::timestamptz, expira_at)
    WHERE tenant_id = $1 AND id = $2 AND version = $3 AND estado = $4
      AND deleted_at IS NULL
   RETURNING id, numero_publico, estado, version, total_minor, currency,

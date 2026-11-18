@@ -80,11 +80,25 @@ MODO_DO_BOT: Final = "bot"
 #: vertical.
 VERTICAIS: Final = ("vendedor", "servicos")
 
-#: O campo opcional do contrato (KAM-118). **Aditivo da v1**: um CHR anterior
-#: nao o escreve, e a porta le entao a omissao. Fica fora do `CAMPOS` de
-#: proposito — o `CAMPOS` e a lista dos **obrigatorios**, e ha ensaios que a
-#: percorrem a apagar um campo de cada vez e a esperar `campo_em_falta`.
-CAMPOS_OPCIONAIS: Final = ("persona",)
+#: Os campos opcionais do contrato: a `persona` (KAM-118) e o `botao`
+#: (KAM-211). **Aditivos da v1**: um CHR anterior nao os escreve, e a porta le
+#: entao a omissao. Ficam fora do `CAMPOS` de proposito — o `CAMPOS` e a lista
+#: dos **obrigatorios**, e ha ensaios que a percorrem a apagar um campo de cada
+#: vez e a esperar `campo_em_falta`.
+CAMPOS_OPCIONAIS: Final = ("persona", "botao")
+
+#: O `wa_type` da resposta a um botao ou a uma lista (`button_reply`,
+#: `list_reply`). So ele leva `botao`.
+TIPO_INTERACTIVO: Final = "interactive"
+
+#: A forma do `botao`: o `reply.id` que **nos** emitimos — `confirm:{uuid}`,
+#: `falar_com_humano`, os `id` do aviso do §3.19 —, e nunca o titulo. Alfabeto
+#: fechado e sem espaco: um `id` nao e texto do cliente, e um valor com outra
+#: forma e um CHR a escrever mal o campo. O tecto e o do `id` de um botao na
+#: Cloud API (256), pela razao do `WAMID_MAXIMO`. Espelho de `FORMA_DO_BOTAO`
+#: em `packages/core-ts/src/entrada/contrato.ts`.
+BOTAO_MAXIMO: Final = 256
+_BOTAO = re.compile(r"\A[A-Za-z0-9_.:-]{1,%d}\Z" % BOTAO_MAXIMO)
 
 #: Quem escreve: o `CHECK` de `contacts.papel` e o `enum` do campo `persona` do
 #: `agent_invocation.v1.json`. Lista **fechada**, pela razao do `VERTICAIS`.
@@ -156,6 +170,10 @@ class InvocacaoDoAgente:
     #: os nove campos — os ensaios, o `golden.py` — continua a construir a de um
     #: cliente sem saber que o campo existe.
     persona: str = PERSONA_POR_OMISSAO
+    #: KAM-211. O `reply.id` de uma resposta interactiva, ou `None`. So existe
+    #: num `type` `interactive`: um texto que imite um botao chega como texto, e
+    #: o CHR nao lhe da `botao` nenhum.
+    botao: str | None = None
 
     @property
     def chave_do_registo(self) -> str:
@@ -243,17 +261,33 @@ def ler_invocacao(corpo: Any) -> InvocacaoDoAgente:
     if not isinstance(persona, str) or persona not in PERSONAS:
         raise InvocacaoInvalidaError("campo_invalido_persona")
 
-    return InvocacaoDoAgente(**valores, persona=persona)
+    # **O `botao` so vem com `type: interactive`, e so com a forma de um `id`.**
+    # Um `botao` num texto e o que o criterio do KAM-211 chama «texto que imita
+    # um botao»: o CHR nao o escreve, e um corpo que o traga e incoerente — o
+    # mesmo raciocinio do `thread_id_incoerente`. Recusa-se em vez de se
+    # ignorar, pela razao da `persona`: um `null` e um CHR a escrever mal.
+    botao = None
+    if "botao" in corpo:
+        botao = corpo["botao"]
+        if (
+            not isinstance(botao, str)
+            or not _BOTAO.fullmatch(botao)
+            or valores["type"] != TIPO_INTERACTIVO
+        ):
+            raise InvocacaoInvalidaError("campo_invalido_botao")
+
+    return InvocacaoDoAgente(**valores, persona=persona, botao=botao)
 
 
 def chave_do_registo(persona: object, vertical: object) -> str:
     """A chave do `AgentRegistry`: `dono` se quem escreve e o dono, senao a vertical.
 
     **E o unico sitio onde a regra vive** (KAM-118), e tem dois leitores: o
-    `AgentRegistry.resolve`, no turno, e a `PortaDeGrafos.da_thread`, que le a
-    `persona` e a `vertical` do *checkpoint* para reencontrar o grafo de uma
-    *thread* interrompida. Escrita duas vezes, a retoma de um *handoff* do dono
-    podia acordar o grafo do Vendedor.
+    `AgentRegistry.resolve`, no turno, e a `PortaDeGrafos.da_thread`, que da a
+    esta funcao a `vertical` do *checkpoint* e a persona do papel **actual** do
+    contacto, lido da base (KAM-211) — e nao a persona do *checkpoint*, que e a
+    de quem era dono quando a *thread* parou. Escrita duas vezes, a retoma de
+    um *handoff* do dono podia acordar o grafo do Vendedor.
 
     So a igualdade exacta a `dono` muda a chave. Qualquer outro valor — a
     omissao, um `None` de um *checkpoint* anterior ao campo — da a vertical, que

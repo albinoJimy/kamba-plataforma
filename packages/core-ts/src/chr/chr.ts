@@ -430,6 +430,7 @@ export class Chr {
       type: evento.waType ?? "outro",
       modo: conversa.mode,
       persona,
+      botao: evento.botao ?? null,
     });
     await this.#entrega.agr(invocacao);
     this.#metricas.contar(METRICA_RESOLUCOES, "encaminhado");

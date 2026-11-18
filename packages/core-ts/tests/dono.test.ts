@@ -124,7 +124,8 @@ class OtpFalso implements OtpDaTroca {
 
   async enviar(chave: string): Promise<{ readonly enviado: true; readonly expiraEm: Date }> {
     this.enviados.push(chave);
-    return { enviado: true, expiraEm: new Date(0) };
+    // Longe no futuro: desde o KAM-211 a troca esquece os pedidos expirados.
+    return { enviado: true, expiraEm: new Date("2999-01-01T00:00:00.000Z") };
   }
 
   async verificar(_chave: string, codigo: string): Promise<Veredicto> {
@@ -233,6 +234,74 @@ function envelope(troca: Partial<Envelope> = {}): Envelope {
     ...troca,
   } as Envelope;
 }
+
+describe("KAM-211 — o mapa de pedidos da troca", () => {
+  it("dois `pedir` concorrentes do mesmo pedido: o segundo recusa, e o telefone fica o do primeiro", async () => {
+    // Um OTP lento, que grava o desafio antes de esperar pelo fornecedor, como o
+    // real: sem a exclusao, o segundo sobrescrevia o desafio e o registo do
+    // primeiro chegava por ultimo (achado 8 da revisao).
+    let soltar: () => void = () => {};
+    const parado = new Promise<void>((r) => {
+      soltar = r;
+    });
+    const desafios: string[] = [];
+    const trocas: { tenantId: string; contactId: string }[] = [];
+    const contactos: string[] = [];
+    const troca = new TrocaDeTelefone({
+      otp: {
+        async enviar(_chave: string, telefone: Telefone) {
+          desafios.push(telefone.hmac);
+          if (desafios.length === 1) await parado;
+          return { enviado: true, expiraEm: new Date("2999-01-01T00:00:00.000Z") };
+        },
+        async verificar() {
+          return "acertou";
+        },
+      },
+      contacto: async ({ telefone }) => {
+        contactos.push(telefone.hmac);
+        return { contactId: "novo" };
+      },
+      trocar: async (pedido) => {
+        trocas.push(pedido);
+        return { anterior: null };
+      },
+      avisar: async () => {},
+    });
+    const x = new Telefone(OUTRO, PEPPER);
+    const primeiro = troca.pedir("p1", TENANT_A, x);
+    const segundo = await troca.pedir("p1", TENANT_A, new Telefone("+244 999 000 777", PEPPER));
+    assert.deepEqual(segundo, { enviado: false, recusa: "intervalo" });
+    soltar();
+    assert.equal((await primeiro).enviado, true);
+    assert.equal(desafios.length, 1);
+    await troca.verificar("p1", TENANT_A, "123456");
+    assert.deepEqual(contactos, [x.hmac]);
+  });
+
+  it("um pedido cujo desafio expirou sai do mapa no `pedir` seguinte", async () => {
+    let agora = new Date("2026-11-18T10:00:00.000Z");
+    const troca = new TrocaDeTelefone({
+      relogio: () => agora,
+      otp: {
+        async enviar() {
+          return { enviado: true, expiraEm: new Date(agora.getTime() + 300_000) };
+        },
+        async verificar() {
+          return "errou";
+        },
+      },
+      contacto: async () => ({ contactId: "x" }),
+      trocar: async () => ({ anterior: null }),
+      avisar: async () => {},
+    });
+    for (const id of ["p1", "p2", "p3"]) await troca.pedir(id, TENANT_A, new Telefone(OUTRO, PEPPER));
+    assert.equal(troca.pedidosGuardados, 3);
+    agora = new Date(agora.getTime() + 300_001);
+    await troca.pedir("p4", TENANT_A, new Telefone(OUTRO, PEPPER));
+    assert.equal(troca.pedidosGuardados, 1);
+  });
+});
 
 describe("KAM-118 criterio 3 — o dono nasce do `tenant.provisioned`", () => {
   function montar(telefone: Telefone | null = new Telefone(DONO, PEPPER)) {

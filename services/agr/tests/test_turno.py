@@ -192,6 +192,78 @@ class TestCoalescenciaNoExecutor(unittest.IsolatedAsyncioTestCase):
         self.assertIn(segunda.turn_id, grafo.turnos)
 
 
+class TestUmToqueNaoCoalesce(unittest.IsolatedAsyncioTestCase):
+    """KAM-211, achado 1 da revisao adversarial: o estado do lote sai da
+    `primeira` invocacao, e um toque coalescido atras de um texto perdia o
+    `botao` sem o `confirmar` ser chamado. Um toque corre sozinho."""
+
+    async def asyncSetUp(self) -> None:
+        METRICAS.repor()
+
+    def _do_dono(self, tenant: str, contacto: str, **sobrepor):
+        return ler_invocacao(
+            invocacao_crua(tenant_id=tenant, contact_id=contacto, persona="dono", **sobrepor)
+        )
+
+    async def _correr(self, ordem: list[str]) -> tuple[list[tuple[str, object]], list]:
+        vistos: list[tuple[str, object]] = []
+
+        class GrafoQueVe(GrafoEspia):
+            async def ainvoke(self, estado, config):
+                vistos.append((estado["input_kind"], estado.get("botao")))
+                return await super().ainvoke(estado, config)
+
+        exec_, _, _ = executor(
+            grafo=GrafoQueVe(atraso=0.02), tectos=Tectos(coalescencia_ms=1_500)
+        )
+        tenant, contacto = str(uuid.uuid4()), str(uuid.uuid4())
+        botao = f"confirm:{uuid.uuid4()}"
+        invocacoes = [
+            self._do_dono(tenant, contacto, type="interactive", botao=botao)
+            if tipo == "toque"
+            else self._do_dono(tenant, contacto)
+            for tipo in ordem
+        ]
+        # A primeira abre o dreno; as outras chegam durante o turno dela, todas
+        # dentro da janela de coalescencia.
+        desfechos = await asyncio.wait_for(
+            asyncio.gather(*(exec_.correr(i) for i in invocacoes)), timeout=10
+        )
+        return vistos, [(d.turn_id, botao) for d in desfechos]
+
+    async def test_um_toque_atras_de_textos_chega_ao_grafo_com_o_botao(self) -> None:
+        vistos, _ = await self._correr(["texto", "texto", "toque", "texto"])
+        toques = [b for k, b in vistos if k == "interactive"]
+        self.assertEqual(len(toques), 1, vistos)
+        self.assertIsNotNone(toques[0])
+        # E nenhum lote de texto levou um botao.
+        self.assertTrue(all(b is None for k, b in vistos if k != "interactive"), vistos)
+
+    async def test_dois_toques_seguidos_sao_dois_turnos(self) -> None:
+        vistos, _ = await self._correr(["texto", "toque", "toque"])
+        self.assertEqual([k for k, _ in vistos].count("interactive"), 2, vistos)
+
+    def test_o_coalescer_corta_antes_e_depois_de_um_toque(self) -> None:
+        from kamba_agr.admissao import Pendente
+
+        tenant, contacto = str(uuid.uuid4()), str(uuid.uuid4())
+        botao = f"confirm:{uuid.uuid4()}"
+        texto = self._do_dono(tenant, contacto)
+        toque = self._do_dono(tenant, contacto, type="interactive", botao=botao)
+        admissao = Admissao(tectos=Tectos(coalescencia_ms=1_500))
+
+        async def partir(ordem):
+            pendentes = [Pendente(invocacao=i, chegou_em=10.0 + n * 0.1) for n, i in enumerate(ordem)]
+            lote, resto = admissao.coalescer(pendentes)
+            return [p.invocacao for p in lote], [p.invocacao for p in resto]
+
+        lote, resto = asyncio.run(partir([texto, texto, toque, texto]))
+        self.assertEqual(lote, [texto, texto])
+        self.assertEqual(resto[0], toque)
+        lote, resto = asyncio.run(partir([toque, texto]))
+        self.assertEqual((lote, resto), ([toque], [texto]))
+
+
 class TestQuemTemAPalavra(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         METRICAS.repor()

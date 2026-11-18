@@ -47,7 +47,11 @@ FICHEIROS = (
     "tests/chr.invocacao.test.ts",
     "tests/chr.metricas.test.ts",
     "tests/chr.test.ts",
+    # KAM-211: o `reply.id` do botao ate ao `agent_invocation`, e a troca de
+    # telefone do dono pela `definir_dono` como `kamba_identity`.
+    "tests/chr.botao.test.ts",
     "tests_bd/chr.bd.test.ts",
+    "tests_bd/dono.bd.test.ts",
 )
 
 #: Os grupos de `tests_bd/chr.bd.test.ts`: um por propriedade que **so** se
@@ -67,6 +71,8 @@ GRUPOS = (
     "KAM-092 — o tenant.activated esquece o tenant na cache do CHR",
     # KAM-098: a suspensao (o criterio 2 do KAM-058) e o encerramento.
     "KAM-058 e KAM-098 — a suspensão e o encerramento esquecem o tenant na cache do CHR",
+    # KAM-211, criterio «Troca de telefone»: `tests_bd/dono.bd.test.ts`.
+    "KAM-211 — a troca de telefone pelo caminho real",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -97,6 +103,9 @@ TESTES_OBRIGATORIOS = (
     # AGR espiao, pelos envelopes que a regua e o encerramento emitem.
     "a suspensão pela régua (KAM-058, critério 2): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião",
     "o encerramento pelo off-boarding (KAM-098, critério 3): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião",
+    # KAM-211: a troca pelo caminho real, e a porta fechada ao `kamba_app`.
+    "até o código acertar o número novo é cliente e o antigo é dono; depois, o contrário",
+    "com o papel da aplicação, a porta não executa",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

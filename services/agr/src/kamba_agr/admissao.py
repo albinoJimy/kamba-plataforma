@@ -225,6 +225,11 @@ class Pendente:
     )
 
 
+def _e_toque(pendente: Pendente) -> bool:
+    """O pendente e um toque num botao: a invocacao traz `botao` (KAM-211)."""
+    return getattr(pendente.invocacao, "botao", None) is not None
+
+
 class Admissao:
     """Ritmo, coalescencia, tecto por *tenant* e contrapressao, num objecto.
 
@@ -466,8 +471,15 @@ class Admissao:
         if janela <= 0:
             return pendentes[:1], pendentes[1:]
         lote = [pendentes[0]]
+        # **Um toque num botao nao coalesce** (KAM-211). O estado do turno sai da
+        # `primeira` invocacao do lote, e o `botao` e dela: um toque que entrasse
+        # num lote atras de um texto perdia-se sem o `confirmar` ser chamado, e
+        # um texto atras de um toque corria como se fosse o toque. Por isso um
+        # toque corre sozinho, e fecha o lote de quem vem antes.
+        if _e_toque(pendentes[0]):
+            return lote, pendentes[1:]
         for pendente in pendentes[1:]:
-            if pendente.chegou_em - lote[-1].chegou_em >= janela:
+            if _e_toque(pendente) or pendente.chegou_em - lote[-1].chegou_em >= janela:
                 break
             lote.append(pendente)
         if len(lote) > 1:

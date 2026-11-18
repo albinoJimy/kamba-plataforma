@@ -179,7 +179,7 @@ MUTACOES: tuple[tuple[str, str, str, str], ...] = (
     # **E 72 -> 73 com o KAM-210** (146 medidos, na arvore integrada); o literal
     # tinha ficado em 71 quando o piso subiu a 72, e a mutacao nao se aplicava.
     ("o piso de emparelhados a zero", "lint.py",
-     "MINIMO_DE_BLOCOS_MEDIDOS = 73", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
+     "MINIMO_DE_BLOCOS_MEDIDOS = 74", "MINIMO_DE_BLOCOS_MEDIDOS = 0"),
 )
 
 

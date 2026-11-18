@@ -118,6 +118,9 @@ NOME_DO_HANDOFF: Final = "kamba-agr:handoff"
 NOME_DOS_EVENTOS: Final = "kamba-agr:eventos"
 #: A oitava, do modo concierge (KAM-114): so `platform.draft_decisions`.
 NOME_DO_CONCIERGE: Final = "kamba-agr:concierge"
+#: A nona, do portao das accoes sensiveis do dono (KAM-211): so
+#: `platform.owner_actions` e a leitura do `papel` em `platform.contacts`.
+NOME_DAS_ACCOES: Final = "kamba-agr:accoes"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -296,3 +299,20 @@ def ligar_para_concierge(ambiente: Any = None) -> Any:
     `ligar_para_handoff` escreveu, e pela mesma razao.
     """
     return _ligar(ambiente, autocommit=False, nome=NOME_DO_CONCIERGE)
+
+
+def ligar_para_accoes(ambiente: Any = None) -> Any:
+    """A ligacao do portao das accoes sensiveis do dono (KAM-211). `kamba_app`.
+
+    **A nona tomada, e nao a de leitura**: o `confirmar` **escreve** — o
+    `UPDATE ... RETURNING` da `owner_actions` —, e uma tomada com o nome da
+    leitura a escrever partia em silencio no dia em que a leitura apontasse para
+    uma replica ou ganhasse `default_transaction_read_only` (achado 10 da
+    revisao adversarial do KAM-211). A `PortaDeConfirmacao` abre uma por
+    confirmacao e fecha-a.
+
+    Papel `kamba_app`: e a quem a revisao `0070` concede `SELECT, INSERT` e o
+    `UPDATE (estado, confirmada_at)` na `owner_actions`, e o `SELECT (papel,
+    papel_mudou_at)` na `contacts`.
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DAS_ACCOES)
