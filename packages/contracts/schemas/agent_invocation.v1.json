@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.kamba.ao/agent_invocation.v1.json",
   "title": "Invocacao do Agent Runtime",
-  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
+  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos obrigatorios e um opcional (`persona`, aditivo do KAM-118), e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -74,9 +74,13 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "vertical": {
-      "description": "A vertical de atendimento do canal, que e a chave do AgentRegistry (ADR-012). Em producao do Piloto so `vendedor` e `servicos` passam a guarda do ADR-011; a forma e a do dicionario §3.2 (`^[a-z][a-z0-9_]*$`) e nao uma lista fechada, porque as verticais sao configuracao.",
+      "description": "A vertical de atendimento do canal, que e a chave do AgentRegistry (ADR-012) quando a persona e `cliente`. Em producao do Piloto so `vendedor` e `servicos` passam a guarda do ADR-011; a forma e a do dicionario §3.2 (`^[a-z][a-z0-9_]*$`) e nao uma lista fechada, porque as verticais sao configuracao. Nao muda quando quem escreve e o dono: a persona nao e uma vertical.",
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "persona": {
+      "description": "Quem escreve (KAM-118): `dono` se e so se o contacto e o `contacts.papel = 'dono'` do tenant do canal, senao `cliente`. Com `dono`, a chave do AgentRegistry e a persona `dono` (Assistente do Dono); com `cliente`, e o `vertical`. Campo ADITIVO da v1 e por isso opcional: um consumidor que o nao receba le `cliente`, que e a omissao segura. O CHR escreve-o sempre. Lista fechada, igual ao `CHECK` de `contacts.papel`.",
+      "enum": ["cliente", "dono"]
     }
   }
 }

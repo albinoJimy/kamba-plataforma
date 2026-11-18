@@ -393,15 +393,16 @@ class TestToolsNoArranque(unittest.TestCase):
                 return json.loads(linha)["error_code"]
         self.fail("sem linha toollayer_pronta")
 
-    def test_com_o_com_ligam_se_seis_de_onze(self) -> None:
+    def test_com_o_com_ligam_se_seis_de_quinze(self) -> None:
         # Quatro do COM, a `get_store_info` e, desde o KAM-061, o
-        # `search_catalog` do IDX.
-        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_6_de_11")
+        # `search_catalog` do IDX. O catalogo tem quinze desde o KAM-118: as
+        # quatro do dono entram declaradas (credor KAM-119).
+        self.assertEqual(self._linha(KAMBA_COM_URL="http://com.interno:3000"), "ligadas_6_de_15")
 
     def test_sem_o_com_a_da_plataforma_e_a_do_indice(self) -> None:
         # O `search_catalog` liga-se sem `KAMBA_COM_URL`: o indice vive na base
         # da plataforma, e nao depende do COM (KAM-061).
-        self.assertEqual(self._linha(), "ligadas_2_de_11")
+        self.assertEqual(self._linha(), "ligadas_2_de_15")
 
 
 class TestPesquisaSemExecutor(unittest.TestCase):
@@ -533,7 +534,9 @@ class TestPortaDoTurno(unittest.TestCase):
         uma que o registo nao tem, recusa-a pelo `resolve` e nao levanta outra
         coisa — que seria um 500 e seis tentativas."""
         porta, _, _ = _porta()
-        estranha = SimpleNamespace(tenant_id=_invocacao().tenant_id, vertical="assistente")
+        estranha = SimpleNamespace(
+            tenant_id=_invocacao().tenant_id, vertical="assistente", persona="cliente"
+        )
         with self.assertRaises(grafos_mod.VerticalRecusadaError) as capturado:
             asyncio.run(porta.do_turno(estranha))
         self.assertEqual(capturado.exception.motivo, "vertical_desconhecida")
@@ -774,7 +777,8 @@ class TestCompilar(unittest.TestCase):
                     recebidas[tuple(vertical.tools)],
                     vertical.persona.model_dump(exclude_none=True),
                 )
-        self.assertEqual(len(recebidas), 2)
+        # Tres: as duas verticais e a persona do dono (KAM-118).
+        self.assertEqual(len(recebidas), 3)
 
 
 class TestFicaForaDaEventLoop(unittest.TestCase):

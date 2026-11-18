@@ -810,6 +810,13 @@ class TestConvencoes(ComBase):
                 ("order_state_log", "id", "uuid", "gen_random_uuid()"),
                 ("orders_mirror", "id", "uuid", "gen_random_uuid()"),
                 ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
+                # KAM-118 (revisao do canal do dono): a ficha da accao sensivel,
+                # `uuid` gerada pela regra geral e com o nome do bloco
+                # (`action_id`): e o que vai no botao `confirm:{action_id}`, e
+                # um sequencial deixava adivinhar a ficha seguinte. Entre as
+                # mensagens de saida e o aviso ao dono («ou» < «owner_a» <
+                # «owner_c»).
+                ("owner_actions", "action_id", "uuid", "gen_random_uuid()"),
                 ("owner_contacts", "id", "uuid", "gen_random_uuid()"),
                 ("owner_notices", "id", "uuid", "gen_random_uuid()"),
                 # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
@@ -1469,7 +1476,12 @@ class TestConvencoes(ComBase):
              # KAM-098 (revisao do off-boarding). O `tenant_id` e a primeira
              # coluna da chave primaria, que e o indice que o serve. **Com** FK
              # para `tenants`: so se encerra um tenant que existe.
-             "offboarding_run"},
+             "offboarding_run",
+             # KAM-118 (revisao do canal do dono). Pela `owner_actions_uq
+             # (tenant_id, tipo, ref)`, que e a idempotencia da criacao e o
+             # indice que a RLS precisa. **Com** FK para `tenants` e FK
+             # composta para o contacto.
+             "owner_actions"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -2143,7 +2155,13 @@ class TestConvencoes(ComBase):
         #
         # **105** desde a revisao do off-boarding (KAM-098): a
         # `offboarding_run_tenant_fk`, simples para `tenants(id)`.
-        self.assertEqual(len(linhas), 105)
+        #
+        # **107** desde a revisao do canal do dono (KAM-118): a
+        # `owner_actions_tenant_fk`, simples para `tenants(id)`, e a
+        # `owner_actions_contact_fk`, composta `(tenant_id, contact_id)` para a
+        # `contacts_tenant_contact_uq`, pela regra da `0030`: a ficha de um
+        # tenant nao aponta para o contacto de outro.
+        self.assertEqual(len(linhas), 107)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

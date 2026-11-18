@@ -13,6 +13,10 @@ O §5.3 e um bloco de canon citado: as chaves do `ConversaState` sao as dele, co
 os mesmos nomes. **Nao se acrescenta nenhuma** — e o §3 do dicionario a valer: um
 nome novo entra no dicionario antes de entrar em codigo.
 
+A excepcao e a `persona` (KAM-118), e entra pelo mesmo caminho: o nome e o do
+campo do `agent_invocation`, e a emenda do dicionario que o fixa e do mesmo
+ticket.
+
 **O `estado_inicial` tem MENOS chaves do que o `ConversaState`, e isso e
 desenho.** Tres — o `turn_seq` (KAM-114), o `slots` e o `stage` (KAM-035) — nao
 nascem aqui, porque esta funcao corre em **cada** turno e o que ela devolve
@@ -106,6 +110,14 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "contact_id": invocacao.contact_id,
         "conversation_id": invocacao.conversation_id,
         "vertical": invocacao.vertical,
+        # KAM-118. **Nasce aqui, e em cada turno, de proposito**: e da invocacao
+        # e nao da conversa, e e o que o *checkpoint* guarda para a
+        # `PortaDeGrafos.da_thread` reencontrar o grafo de uma *thread*
+        # interrompida (`contexto.chave_do_registo`). A `vertical` continua a
+        # ser a do canal, e e ela que vai ao `ToolContext`, as metricas do
+        # validador e a `tool_audit`: o dono de uma loja escreve num canal do
+        # Vendedor, e a linha de auditoria diz o canal por onde a tool correu.
+        "persona": invocacao.persona,
         "turn_id": invocacao.turn_id,
         "thread_id": invocacao.thread_id,
         "input_kind": tipo_de_entrada(invocacao.type),
@@ -326,6 +338,9 @@ class ConversaState(TypedDict, total=False):
     contact_id: str
     conversation_id: str
     vertical: str
+    #: KAM-118. `cliente` ou `dono` — quem escreve, e nao o canal. Ver o
+    #: `estado_inicial`.
+    persona: str
     turn_id: str
     thread_id: str
     input_kind: str

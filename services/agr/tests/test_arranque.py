@@ -422,8 +422,9 @@ class TestRegistoNoArranque(unittest.TestCase):
             # **Um e nao quatro**: a validacao (1) (`tools`) fechou com o
             # KAM-028 e a (3) (`grafo`) com o KAM-186 — o `registry/gates.yaml`
             # deixou de as nomear. Um `aviso` que sobrevivesse ao credor seria,
-            # ele proprio, erro de arranque.
-            ["golden_kam_040"],
+            # ele proprio, erro de arranque. O segundo codigo e o da persona do
+            # dono (KAM-118), cujo golden espera pelo KAM-125.
+            ["golden_kam_040", "golden_kam_125"],
         )
 
 

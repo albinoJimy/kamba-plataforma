@@ -91,7 +91,12 @@ ESPERADO_POR_TABELA = {tabela: _ESPERADO_0001 for tabela in TABELAS_0001}
 ESPERADO_POR_TABELA.update(
     {
         "entitlements": _ESPERADO_ENTITLEMENTS,
-        "contacts": _identidade("SELECT", "INSERT"),
+        # KAM-118: o `INSERT` do `kamba_identity` na `contacts` passou a ser
+        # **por coluna** (ver `COLUNAS_POR_PAPEL`), sem o `papel` nem o
+        # `papel_mudou_at`: com o de tabela, um contacto podia nascer `dono`
+        # por fora da `definir_dono`. Por isso a matriz de tabela diz so
+        # `SELECT`.
+        "contacts": _identidade("SELECT"),
         "contact_deks": _identidade("SELECT", "INSERT"),
         # O unico `DELETE` fora do `kamba_batch`: o apagamento a pedido do
         # titular e um `DELETE` verdadeiro (doc 06 §7.6), e so aqui.
@@ -1787,6 +1792,28 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: As accoes sensiveis do dono (KAM-118, revisao do canal do dono). A
+#: **aplicacao** cria a ficha e le-a; fecha-a por coluna (ver
+#: `COLUNAS_POR_PAPEL`), so o desfecho. **Ninguem apaga**: uma ficha fecha-se
+#: pelo `estado`. O `kamba_resolver` **nao lhe toca** — e o teste de isolamento
+#: do bloco —, e o `kamba_audit` tambem nao: le o `audit_log` de quem executa a
+#: accao.
+ESPERADO_POR_TABELA.update(
+    {
+        "owner_actions": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": set(),
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: As fases do off-boarding (KAM-098, revisao do off-boarding). **So o lote
 #: escreve**: `INSERT`, e `UPDATE` por coluna (ver `COLUNAS_POR_PAPEL`), so do
 #: `estado`, do `prazo_at` (a reabertura de um pedido cancelado) e do
@@ -1882,8 +1909,19 @@ COLUNAS_POR_PAPEL = {
     ("kamba_batch", "refund_cases", "UPDATE"): {
         "estado", "prova_ref", "fechado_at",
     },
+    # KAM-118: mais o `papel` e o `papel_mudou_at`. O CHR decide a persona pelo
+    # `papel`, e o portao das accoes sensiveis le o `papel_mudou_at` (o bloqueio
+    # de 24 h depois de uma troca). Ler, e nada mais: o papel so muda pela
+    # `definir_dono`, que o `kamba_app` nao executa.
     ("kamba_app", "contacts", "SELECT"): {
         "contact_id", "tenant_id", "criado_at", "erased_at", "merged_into", "merged_at",
+        "papel", "papel_mudou_at",
+    },
+    # KAM-118: o `INSERT` e por coluna, e as duas que faltam sao a propriedade.
+    # Um contacto nasce `cliente` pelo `DEFAULT`, e so a porta o promove.
+    ("kamba_identity", "contacts", "INSERT"): {
+        "contact_id", "tenant_id", "phone_hmac", "hmac_kid", "criado_at",
+        "erased_at", "merged_into", "merged_at",
     },
     ("kamba_identity", "contacts", "UPDATE"): {
         "phone_hmac", "hmac_kid", "erased_at", "merged_into", "merged_at",
@@ -2428,6 +2466,11 @@ COLUNAS_POR_PAPEL = {
     ("kamba_batch", "onboarding_smoke", "UPDATE"): {
         "resultado", "causa", "fechada_em", "levou_a_fila",
     },
+    # KAM-118 (revisao do canal do dono): a aplicacao fecha a ficha, e so o
+    # desfecho. **Fora**: o `contact_id` (confirmava-se a ficha de outro
+    # contacto), o `tipo` e a `ref` (confirmava-se outra accao) e o `expira_at`
+    # (empurrava-se o prazo de 15 min do botao, *proposta*).
+    ("kamba_app", "owner_actions", "UPDATE"): {"estado", "confirmada_at"},
 }
 PRIVILEGIOS_DE_COLUNA =("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -2536,6 +2579,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # KAM-098: as fases do off-boarding, com `UPDATE` por coluna para o lote. Um
     # `GRANT UPDATE (fase)` mudava a fase de uma linha e era invisivel na matriz.
     "offboarding_run",
+    # KAM-118: a ficha tem `UPDATE` por coluna para a aplicacao. Um `GRANT
+    # UPDATE (expira_at)` a mais era invisivel na matriz de tabela, e com ele o
+    # botao nunca expirava.
+    "owner_actions",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

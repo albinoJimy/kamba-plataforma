@@ -301,10 +301,21 @@ class TestMigracoes(unittest.TestCase):
         )
 
     def test_o_ddl_de_tenant_channels_do_doc_03_seria_recusado(self) -> None:
-        """A segunda divergencia que o KAM-003 deixou registada: tres estados."""
+        """A segunda divergencia que o KAM-003 deixou registada: tres estados.
+
+        O DDL do documento 03 tem uma coluna `persona`, e era ela o achado
+        `fora-do-dicionario`. **Desde a emenda 1.112 (KAM-118) `persona` e
+        nome conhecido** — `agent_invocation.persona` e `ConversaState.persona`
+        —, e o `dicionario.py` aceita a ultima parte de um nome qualificado como
+        coluna de qualquer tabela (o `vertical` ja o era). A coluna da fixture
+        passa a `persona_do_canal`: o que o ensaio prende e que uma coluna que
+        o dicionario nao tem continua recusada. **O que se perde, escrito:** uma
+        `tenant_channels.persona` ja nao e recusada pelo 3b; fecha-lo e mudar o
+        criterio do linter, que nao e deste ticket.
+        """
         achados = self.achados(
             migracao(
-                "CREATE TABLE platform.tenant_channels (id uuid, persona text, "
+                "CREATE TABLE platform.tenant_channels (id uuid, persona_do_canal text, "
                 "estado text CHECK (estado IN ('ativo','pausado','revogado')))"
             )
         )
@@ -1224,12 +1235,17 @@ class TestGates(unittest.TestCase):
         **E passaram a uma com o KAM-186**: o `__main__` compila os dois grafos
         no arranque e passa o `construir_grafo` ao `load_all`, pelo que a (3)
         `grafo` corre em `bloqueio` e as duas linhas dela sairam.
+
+        **E ganhou uma entrada com o KAM-118**: a persona `dono` tem dataset
+        golden proprio e a linha dela espera pelo KAM-125 (o eval dos modulos
+        de entrada), e nao pelo KAM-040.
         """
         from .base import ROOT
 
         documento = yamlreg.ler((ROOT / "registry/gates.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(sorted(documento["gates"]), ["servicos", "vendedor"])
-        for vertical in ("vendedor", "servicos"):
+        credores = {"vendedor": "KAM-040", "servicos": "KAM-040", "dono": "KAM-125"}
+        self.assertEqual(sorted(documento["gates"]), sorted(credores))
+        for vertical, credor_do_golden in credores.items():
             validacoes = documento["gates"][vertical]["validacoes"]
             self.assertEqual(sorted(validacoes), ["golden"])
             self.assertEqual({v["modo"] for v in validacoes.values()}, {"aviso"})
@@ -1240,7 +1256,7 @@ class TestGates(unittest.TestCase):
                     f"a validacao `{fechada}` fechou com o {credor}; um `aviso` que "
                     "sobreviva ao credor e erro de arranque",
                 )
-            self.assertEqual(validacoes["golden"]["credor"], "KAM-040")
+            self.assertEqual(validacoes["golden"]["credor"], credor_do_golden)
 
 
 class TestYamlDoRegisto(unittest.TestCase):

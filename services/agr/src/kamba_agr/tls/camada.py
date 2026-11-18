@@ -837,13 +837,21 @@ class ToolLayer:
         )
 
     def verificar_entitlement(self, inv: Invocacao) -> ErroDeTool | None:
-        """O passo 2, dentro de uma transaccao com `app.tenant_id`."""
+        """O passo 2, dentro de uma transaccao com `app.tenant_id`.
+
+        **O modulo e o da tool, se ela o declarar, e so depois o da vertical do
+        turno** (KAM-118, decisao do fundador de 2026-11-18). O dono escreve no
+        canal do Vendedor ou de Servicos, e o `ctx.vertical` e esse: fechar as
+        tools do catalogo pelo modulo do canal abria-as a todo o tenant que
+        vende, tenha ou nao o `catalogo`.
+        """
+        assert inv.especificacao is not None  # o passo 1 guarda-a antes de passar
         chave, valor = (inv.tecto if inv.tecto is not None else (None, None))
         with tenant_guard.tx(inv.ligacao, inv.ctx.tenant_id) as cursor:
             erro = hook_de_tool(
                 _ClienteDeCursor(cursor),
                 inv.ctx,
-                modulo=inv.ctx.vertical,
+                modulo=inv.especificacao.modulo or inv.ctx.vertical,
                 idempotency_key=inv.idempotency_key,
                 tecto_chave=chave,
                 tecto_valor=valor,
