@@ -607,7 +607,22 @@ dominios_historicos:
       segunda e a que esta entrada cobre. O passo de descida recusa-se se houver
       destinos com purpose imagem, porque sao registos de uma decisao de
       transferencia e nao se apagam para descer. Renumerar a revisao e mudar
-      tambem o caminho desta entrada.
+      tambem o caminho desta entrada. Desde o KAM-195 o upgrade tambem e
+      historico: escreve catorze, e o dicionario declara quinze.
+  - revisao: "db/migrations/versions/0069_finalidade_do_screening.py"
+    tabela: "tenant_destinations"
+    coluna: "purpose"
+    ticket: "KAM-195"
+    data: "2026-11-18"
+    razao: >-
+      A revisao finalidade_do_screening (KAM-195, decisao do fundador a
+      2026-11-18) acrescenta a classificacao_de_catalogo, a finalidade do
+      classificador de screening do GOV, por DROP CONSTRAINT mais ADD
+      CONSTRAINT com o mesmo nome, e o dicionario §3.49 passa a declarar quinze
+      (emenda 1.111). O upgrade escreve as quinze e o downgrade repoe as catorze
+      da foto_de_produtos; esta entrada cobre a segunda. O passo de descida
+      recusa-se se houver destinos com essa finalidade. Renumerar a revisao
+      e mudar tambem o caminho desta entrada.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

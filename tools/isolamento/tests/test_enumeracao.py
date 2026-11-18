@@ -406,6 +406,11 @@ class TestORepositorio(unittest.TestCase):
                 self.assertIn(
                     f"rota:agr:kamba_agr/api_interna:rotas:POST:{caminho}", ids
                 )
+        # A do classificador de screening (KAM-195) vive noutro modulo, e o
+        # `Route(ROTA, ...)` le o caminho de uma constante: e o que se confere.
+        self.assertIn(
+            "rota:agr:kamba_agr/llm/screening:rotas:POST:/internal/screening", ids
+        )
 
     def test_as_seis_sondas_do_worker_canal_nao_colapsam_numa(self) -> None:
         """Seis apps do mesmo servico servem `/healthz`, e sao seis itens.

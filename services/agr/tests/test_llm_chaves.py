@@ -198,6 +198,65 @@ class TestAIdempotencia(unittest.TestCase):
         self.assertEqual(duplo.chaves, [])
 
 
+class TestAChaveDoScreening(unittest.TestCase):
+    """A chave da plataforma do classificador de screening (KAM-195).
+
+    Canário: `test_so_alcanca_o_screening_nano`. Uma chave do screening que
+    alcançasse o `kamba-chat` dava a quem a tivesse uma conversa paga pela
+    plataforma, fora do orçamento de qualquer *tenant*.
+    """
+
+    AMBIENTE = {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "5"}
+
+    def test_so_alcanca_o_screening_nano(self) -> None:
+        duplo = _Proxy()
+        chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE)
+        corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
+        self.assertEqual(corpo["models"], ["screening-nano"])
+        self.assertEqual(corpo["key_alias"], "plataforma-screening")
+        self.assertEqual(corpo["max_budget"], 5.0)
+        self.assertNotIn("tenant_id", corpo["metadata"])
+
+    def test_e_idempotente(self) -> None:
+        duplo = _Proxy()
+        self.assertEqual(chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE), "criada")
+        self.assertEqual(chaves.provisionar_screening(duplo.proxy(), self.AMBIENTE), "actualizada")
+        self.assertEqual(len(duplo.chaves), 1)
+
+    def test_sem_orcamento_nao_cria_chave_nenhuma(self) -> None:
+        for ambiente in ({}, {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "x"},
+                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "0"},
+                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "nan"},
+                         {"KAMBA_LLM_ORCAMENTO_USD_SCREENING": "inf"}):
+            with self.subTest(ambiente=ambiente):
+                duplo = _Proxy()
+                with self.assertRaises(chaves.ErroDeProvisionamento):
+                    chaves.provisionar_screening(duplo.proxy(), ambiente)
+                self.assertEqual(duplo.chaves, [])
+
+    def test_o_grupo_e_o_que_o_gerador_produz_para_o_papel(self) -> None:
+        import importlib.util
+        import sys
+
+        raiz = pathlib.Path(__file__).resolve().parents[3]
+        ferramentas = str(raiz / "tools")
+        if ferramentas not in sys.path:
+            sys.path.insert(0, ferramentas)
+        spec = importlib.util.spec_from_file_location(
+            "llm_config_para_chaves_do_screening", raiz / "tools" / "llm_config" / "__init__.py"
+        )
+        gerador = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gerador)
+        dados = gerador.ler(raiz)
+        de_papel = {str(a["nome"]): str(a["papel"]) for a in dados["aliases"]}
+        esperados = {
+            gerador.nome_do_grupo(str(f["alias"]), int(f["ordem"]))
+            for f in dados["fornecedores"]
+            if de_papel[str(f["alias"])] == "screening"
+        }
+        self.assertEqual(set(chaves.MODELOS_DA_CHAVE_DO_SCREENING), esperados)
+
+
 class TestOAlertaDos80(unittest.TestCase):
     """O «alertas a 80%» do §13.3."""
 

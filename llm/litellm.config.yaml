@@ -1,6 +1,6 @@
 # GERADO por `python -m llm_config --root . escrever`. NAO EDITAR A MAO.
 #
-# Fonte: llm/aliases.yaml versao 1.2.0. Quem muda o comportamento e a
+# Fonte: llm/aliases.yaml versao 1.2.1. Quem muda o comportamento e a
 # fonte; este ficheiro e a traducao dela para o esquema do proxy LiteLLM.
 # O passo `aliases` do `lint_arch` falha se este ficheiro nao estiver em dia.
 

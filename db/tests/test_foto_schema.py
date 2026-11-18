@@ -72,14 +72,33 @@ OPERACOES = ("cutout", "fundo_simples", "luz_basica", "variacao_lifestyle")
 MOTIVOS_DO_BLOQUEIO = ("sem_destino", "so_sinteticas", "sem_carta", "minimizacao")
 MOTIVOS_DA_FALHA = ("dados_pessoais", "formato", "fornecedor", "resultado_invalido")
 
-#: As catorze finalidades na cabeca, e as treze da `0036` a que o `downgrade`
-#: volta. Por extenso, pela razao da `TRANSICOES`.
+#: As catorze finalidades da `foto_de_produtos`, e as treze da `0036` a que o
+#: `downgrade` volta. Por extenso, pela razao da `TRANSICOES`.
+#:
+#: **Na cabeca ha mais**: a revisao `finalidade_do_screening` (KAM-195)
+#: acrescenta a `classificacao_de_catalogo` por cima desta. Os ensaios daqui
+#: afirmam o que esta revisao escreve — as catorze estao todas, e a `imagem` e
+#: aceite — e contam a cabeca pelo `FINALIDADES` do nucleo (`_na_cabeca`), que
+#: tem paridade com a revisao da cabeca (`libs/py-core/tests/test_destinos.py`).
+#: Assim a proxima revisao que acrescente uma finalidade nao parte este ficheiro.
 FINALIDADES_DA_0036 = (
     "alojamento", "canal", "conversa", "copias_de_seguranca", "embeddings",
     "entrega_de_conteudo", "facturacao", "observabilidade",
     "otp_e_avisos_de_servico", "pagamentos", "segredos", "transcricao", "visao",
 )
 FINALIDADES = tuple(sorted((*FINALIDADES_DA_0036, "imagem")))
+
+
+def _na_cabeca() -> int:
+    """Quantas finalidades tem o dominio da cabeca: as do nucleo."""
+    import sys
+
+    pasta = str(RAIZ / "libs" / "py-core" / "src")
+    if pasta not in sys.path:
+        sys.path.insert(0, pasta)
+    from kamba_core.destinos import FINALIDADES as DO_NUCLEO
+
+    return len(DO_NUCLEO)
 
 #: As mensagens do *trigger*: cada recusa diz qual das quatro regras a deu.
 FINAL = "falhado e final"
@@ -511,6 +530,7 @@ class TestPrivilegios(ComBase):
 
 class TestFinalidadeImagem(ComBase):
     def test_o_dominio_tem_as_catorze_e_a_imagem_e_aceite(self) -> None:
+        """As catorze desta revisao estao todas na cabeca, que tem mais uma."""
         admin = self.ligar("admin").cursor()
         admin.execute(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
@@ -519,7 +539,7 @@ class TestFinalidadeImagem(ComBase):
         definicao = admin.fetchone()[0]
         for finalidade in FINALIDADES:
             self.assertIn(f"'{finalidade}'", definicao)
-        self.assertEqual(definicao.count("'::text"), 14)
+        self.assertEqual(definicao.count("'::text"), _na_cabeca())
         tenant = factories.tenant(admin)
         sql = (
             f"INSERT INTO {DESTINOS} (tenant_id, provider, country, purpose, status, "
@@ -717,7 +737,11 @@ class TestDowngrade(unittest.TestCase):
             self.assertIn("purpose imagem", recusa.stdout + recusa.stderr)
             tabelas, funcoes, destinos, definicao = self._estado()
             self.assertEqual((tabelas, funcoes, destinos), (1, 1, 1))
+            # Catorze e nao quinze: com `transaction_per_migration`, a descida
+            # da `finalidade_do_screening` (por cima desta) ja confirmou quando
+            # esta recusa. O que se afirma e que **esta** nao desceu.
             self.assertEqual(definicao.count("'::text"), 14)
+            self.assertIn("'imagem'", definicao)
         finally:
             self._executar(f"DELETE FROM {DESTINOS} WHERE id = %s", (destino,))
 
@@ -731,7 +755,7 @@ class TestDowngrade(unittest.TestCase):
         alembic_ok("upgrade", "head")
         tabelas, funcoes, _, definicao = self._estado()
         self.assertEqual((tabelas, funcoes), (1, 1))
-        self.assertEqual(definicao.count("'::text"), 14)
+        self.assertEqual(definicao.count("'::text"), _na_cabeca())
 
 
 if __name__ == "__main__":

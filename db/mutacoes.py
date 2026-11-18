@@ -324,6 +324,10 @@ REV_TRUST = _revisao_por_glob("*_trust_e_sancoes.py")
 #: ensaio que a prova (`db/tests/test_foto_schema.py`) descobre-a pelo mesmo
 #: padrao.
 REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
+#: KAM-195: a revisao da finalidade do screening, pela razao da da Foto — o
+#: numero (`0069`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_finalidade_do_screening_schema.py`.
+REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -7356,6 +7360,27 @@ MUTACOES = [
      "tests"),
     # O botao do dono deixava duas versoes marcadas, e a vitrine escolhia uma ao
     # acaso. O `test_so_uma_versao_escolhida_por_original` tem de a matar.
+
+    # ------------------------ KAM-195 (revisao da finalidade do screening)
+    #
+    # Duas, uma por direccao. O alvo e a revisao descoberta pelo *glob*
+    # (`REV_FINALIDADE_DO_SCREENING`), porque o numero e provisorio.
+    ('finalidade do screening: o dominio nao a ganha', REV_FINALIDADE_DO_SCREENING,
+     "    \"'classificacao_de_catalogo'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as catorze: um destino da
+    # finalidade do classificador nao cabia, e o *gate* negava para sempre por
+    # «destino nao registado». O
+    # `test_o_dominio_tem_as_quinze_e_a_classificacao_e_aceite` tem de a matar.
+    ('finalidade do screening: a descida apaga a decisao', REV_FINALIDADE_DO_SCREENING,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_catalogo`,
+    # e o `ADD CONSTRAINT` das catorze rebentava a meio — ou, sem a linha,
+    # apagava-se em silencio um registo de transferencia. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
 
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de

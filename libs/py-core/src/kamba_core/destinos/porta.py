@@ -17,8 +17,8 @@ duas leituras da mesma tabela que discordam no dia em que uma delas mudar.
 Para um pedido `(tenant, fornecedor, finalidade)`:
 
 1. **Se a finalidade nao esta no dominio, nega.** Nao e zelo: a coluna `purpose`
-   da `0036` tem `CHECK` fechado com catorze valores desde a revisao
-   `foto_de_produtos` (KAM-120), pelo que uma finalidade fora
+   da `0036` tem `CHECK` fechado com quinze valores desde a revisao
+   `finalidade_do_screening` (KAM-195), pelo que uma finalidade fora
    deles **nao tem linha onde caiba** — a consulta devolveria sempre vazio, e um
    erro do chamador lia-se como «destino nao registado».
 2. **Se o tenant tem linha propria para esse par, so as dele contam.** As
@@ -83,8 +83,10 @@ from typing import Final, Protocol
 
 from ..tenant_guard import normalizar_tenant
 
-#: As **catorze** finalidades de transferencia, por ordem alfabetica: as treze
-#: da `0036` e a `imagem`, que a revisao `foto_de_produtos` (KAM-120) acrescenta.
+#: As **quinze** finalidades de transferencia, por ordem alfabetica: as treze
+#: da `0036`, a `imagem`, que a revisao `foto_de_produtos` (KAM-120) acrescenta,
+#: e a `classificacao_de_catalogo`, que a revisao `finalidade_do_screening`
+#: (KAM-195) acrescenta para o classificador de screening do GOV.
 #:
 #: **E o dominio de `platform.tenant_destinations.purpose`**, e a lista vive
 #: aqui e no `CHECK` da revisao `0036`; o `test_dominio_de_purpose_bate_com_o_codigo`
@@ -98,6 +100,7 @@ from ..tenant_guard import normalizar_tenant
 #: `packages/core-ts/src/sms/fornecedor.ts` (KAM-116).
 FINALIDADE_ALOJAMENTO: Final = "alojamento"
 FINALIDADE_CANAL: Final = "canal"
+FINALIDADE_CLASSIFICACAO: Final = "classificacao_de_catalogo"
 FINALIDADE_CONVERSA: Final = "conversa"
 FINALIDADE_COPIAS: Final = "copias_de_seguranca"
 FINALIDADE_EMBEDDINGS: Final = "embeddings"
@@ -114,6 +117,7 @@ FINALIDADE_VISAO: Final = "visao"
 FINALIDADES: Final = (
     FINALIDADE_ALOJAMENTO,
     FINALIDADE_CANAL,
+    FINALIDADE_CLASSIFICACAO,
     FINALIDADE_CONVERSA,
     FINALIDADE_COPIAS,
     FINALIDADE_EMBEDDINGS,
@@ -495,8 +499,8 @@ class PortaSobreDestinos:
         if finalidade not in FINALIDADES:
             raise FinalidadeDesconhecida(
                 f"finalidade `{finalidade}` fora do dominio de "
-                f"`tenant_destinations.purpose` (revisoes `0036` e `foto_de_produtos`, "
-                "catorze valores): "
+                f"`tenant_destinations.purpose` (revisoes `0036`, `foto_de_produtos` "
+                "e `finalidade_do_screening`, quinze valores): "
                 "nao ha linha onde ela caiba, e um erro de quem chama nao se "
                 "pode ler como «destino nao registado» (KAM-069)"
             )
