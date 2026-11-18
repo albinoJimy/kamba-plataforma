@@ -97,17 +97,17 @@ export class RepositorioDeTrustEmMemoria implements RepositorioDeTrust {
 /** O estado dos tenants em memória, com o CAS da base. */
 export class EstadoDosTenantsEmMemoria implements EstadoDosTenants {
   readonly estados = new Map<string, string>();
-  readonly transicoes: { readonly tenantId: string; readonly de: string; readonly para: string }[] = [];
+  readonly transicoes: { readonly tenantId: string; readonly de: string; readonly para: string; readonly actor: string }[] = [];
 
   async estado(tenantId: string): Promise<string | null> {
     return this.estados.get(tenantId) ?? null;
   }
 
-  async transitar(tenantId: string, de: readonly string[], para: string): Promise<boolean> {
+  async transitar(tenantId: string, de: readonly string[], para: string, actor: string): Promise<boolean> {
     const actual = this.estados.get(tenantId);
     if (actual === undefined || !de.includes(actual)) return false;
     this.estados.set(tenantId, para);
-    this.transicoes.push({ tenantId, de: actual, para });
+    this.transicoes.push({ tenantId, de: actual, para, actor });
     return true;
   }
 }

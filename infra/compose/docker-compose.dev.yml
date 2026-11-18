@@ -647,6 +647,8 @@ services:
       LOTE_PORT: "3014"
       KAMBA_LOTE_DB_URL: postgresql://kamba_batch:${KAMBA_SECRET_DB_BATCH_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
       KAMBA_LOTE_APP_DB_URL: postgresql://kamba_app:${KAMBA_SECRET_DB_APP_PASSWORD:-}@postgres:5432/${KAMBA_DB_NAME:-kamba_platform}
+      # KAM-200: o consumidor de T&S le as filas `evt.trust.p<n>`.
+      KAMBA_QUEUE_URL: redis://queue:6379
     healthcheck:
       test:
         - CMD
@@ -665,6 +667,8 @@ services:
       - data
     depends_on:
       postgres:
+        condition: service_healthy
+      queue:
         condition: service_healthy
 
 networks:

@@ -11,8 +11,10 @@
  * revoga e diz **de que caso** é, não de que tenant. Alargá-la a 30 dias era
  * mudar o registo inteiro por causa do painel. Por isso o painel tem a sua
  * referência, com o seu **separador de domínio** (`kamba/painel/sessao/v1`), e
- * só se cunha **a partir** de uma `sessao` válida — isto é, depois de o OTP ter
- * acertado. A barreira é a mesma do bilhete do KAM-086: um separador diferente
+ * só se cunha **depois de o OTP ter acertado**: a partir de uma `sessao` válida
+ * do registo (`GET /painel/entrar`), ou do código da reentrada
+ * (`POST /painel/verificar`, KAM-190), que confere o OTP sem passar pela
+ * sessão do registo. A barreira é a mesma do bilhete do KAM-086: um separador diferente
  * faz de uma `sessao` de registo um valor que este verificador recusa, e
  * vice-versa.
  *
@@ -46,7 +48,7 @@
  * ```
  */
 
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 /** O separador de domínio. Versionado: mudá-lo invalida todas as sessões. */
 export const DOMINIO_DA_SESSAO_DO_PAINEL = "kamba/painel/sessao/v1";
@@ -218,6 +220,78 @@ export function cookieDoPainel(cabecalho: unknown): string | null {
     // Um homónimo vazio não encerra a procura: é o achado do KAM-086 no
     // `cookieDoCabecalho`, e vale igual aqui.
     if (valor !== "") return valor;
+  }
+  return null;
+}
+
+// ------------------------------------------------- o bilhete da reentrada (KAM-190)
+
+/**
+ * O separador de domínio do bilhete da reentrada. **Não é o `ticket` do
+ * KAM-086**, e a diferença fecha um oráculo: o bilhete de um telefone que não
+ * tem painel aponta para um caso que não existe, e o `/api/otp/verificar` do
+ * registo responde `sem_desafio` a esse e `errou` a um verdadeiro. Com um
+ * separador próprio, o bilhete do painel só serve no `POST /painel/verificar`,
+ * que responde o mesmo 401 a todas as falhas.
+ *
+ * ## O caso vai **cifrado**, e não só assinado
+ *
+ * A primeira versão escrevia `b1.<caso>.<expira>.<hmac>`, e a revisão
+ * adversarial mediu o oráculo que isso abria: um telefone com painel recebia
+ * sempre o **mesmo** caso, e um sem painel um UUID novo a cada pedido — dois
+ * pedidos por telefone diziam quem é dono, e entregavam o `onboarding_id` a
+ * quem não se autenticou. Agora o caso e o prazo vão em AES-256-GCM, com IV
+ * aleatório: dois bilhetes do mesmo telefone são diferentes, e nenhum mostra o
+ * caso. A etiqueta do GCM é a autenticação; a chave deriva-se da do anel com
+ * este separador, e nunca é a da assinatura.
+ */
+export const DOMINIO_DO_BILHETE_DO_PAINEL = "kamba/painel/bilhete/v2";
+
+/**
+ * Validade do bilhete, em segundos. ***Proposta***: 10 min — o dobro dos 5 min de
+ * vida do código (`TTL_MINUTOS` do `inscricao/otp.ts`), para um reenvio caber.
+ */
+export const VALIDADE_DO_BILHETE_S = 10 * 60;
+
+function chaveDoBilhete(chave: Uint8Array): Buffer {
+  return createHmac("sha256", chave).update(DOMINIO_DO_BILHETE_DO_PAINEL).update("\u0000cifra").digest();
+}
+
+/**
+ * O bilhete de um caso: `b2.<iv>.<cifra>.<etiqueta>`, em base64url. Não
+ * autentica: só diz, a quem o sabe abrir, de que caso é o código.
+ */
+export function cunharBilhete(casoId: string, chave: Uint8Array, agora: Date): string {
+  if (!UUID.test(casoId)) throw new Error("bilhete do painel mal formado");
+  const iv = randomBytes(12);
+  const cifra = createCipheriv("aes-256-gcm", chaveDoBilhete(chave), iv);
+  const texto = `${casoId}.${Math.floor(agora.getTime() / 1000) + VALIDADE_DO_BILHETE_S}`;
+  const corpo = Buffer.concat([cifra.update(texto, "utf8"), cifra.final()]);
+  return `b2.${iv.toString("base64url")}.${corpo.toString("base64url")}.${cifra.getAuthTag().toString("base64url")}`;
+}
+
+/** O caso de um bilhete válido e dentro do prazo, ou `null`. Contra as duas chaves do anel. */
+export function lerBilhete(bruto: unknown, anel: readonly (Uint8Array | null)[], agora: Date): string | null {
+  if (typeof bruto !== "string" || bruto.length > 200) return null;
+  const partes = bruto.split(".");
+  if (partes.length !== 4 || partes[0] !== "b2") return null;
+  const [, ivT, corpoT, etiquetaT] = partes as [string, string, string, string];
+  if (!/^[A-Za-z0-9_-]{16}$/.test(ivT) || !/^[A-Za-z0-9_-]{1,120}$/.test(corpoT) || !/^[A-Za-z0-9_-]{22}$/.test(etiquetaT)) {
+    return null;
+  }
+  for (const chave of anel) {
+    if (!(chave instanceof Uint8Array)) continue;
+    let texto: string;
+    try {
+      const decifra = createDecipheriv("aes-256-gcm", chaveDoBilhete(chave), Buffer.from(ivT, "base64url"));
+      decifra.setAuthTag(Buffer.from(etiquetaT, "base64url"));
+      texto = Buffer.concat([decifra.update(Buffer.from(corpoT, "base64url")), decifra.final()]).toString("utf8");
+    } catch {
+      continue;
+    }
+    const m = /^([0-9a-f-]{36})\.([0-9]{1,12})$/.exec(texto);
+    if (m === null || !UUID.test(m[1] as string)) return null;
+    return Number(m[2]) < Math.floor(agora.getTime() / 1000) ? null : (m[1] as string);
   }
   return null;
 }

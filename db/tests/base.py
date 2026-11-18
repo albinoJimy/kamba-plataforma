@@ -678,6 +678,17 @@ TABELAS_CATALOGO_MINIMO = ("onboarding_smoke",)
 #: que e o que o *trigger* da cobranca precisa. Ninguem apaga.
 TABELAS_CONFIANCA = ("trust_level",)
 
+#: O que a revisao do off-boarding (KAM-098) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero e provisorio e da-o a integracao pela ordem de quem funde.
+#:
+#: Uma tabela de tenant, a `offboarding_run`: uma linha por tenant e por fase do
+#: encerramento, com chave `(tenant_id, fase)`, RLS `FORCE` pela `tenant_iso` e
+#: FK para `tenants`. So o `kamba_batch` escreve (`INSERT`, e `UPDATE` so do
+#: `estado` e do `resultado`); o `kamba_app` nao tem nada. Ninguem apaga.
+TABELAS_OFFBOARDING = ("offboarding_run",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -692,19 +703,30 @@ TABELAS = tuple(
         + TABELAS_BILLING + TABELAS_TRUST + TABELAS_CUSTO_DOS_MODULOS
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
         + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
-        + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA
+        + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA + TABELAS_OFFBOARDING
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao anterior a do
+#: off-boarding (KAM-098).
+#:
+#: O `downgrade` da revisao do off-boarding leva a base para aqui. **Deriva do
+#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
+#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
+#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. A `0066` do KAM-072
+#: (a anterior) nao cria tabela, pelo que isto descreve tambem a base dela.
+TABELAS_ANTES_DO_OFFBOARDING = tuple(sorted(set(TABELAS) - set(TABELAS_OFFBOARDING)))
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da
 #: confianca gradual (KAM-096).
 #:
-#: O `downgrade` da revisao da confianca leva a base para aqui. **Deriva do
-#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
-#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
-#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. Hoje a anterior e
-#: a do catalogo minimo (KAM-094).
-TABELAS_ANTES_DA_CONFIANCA = tuple(sorted(set(TABELAS) - set(TABELAS_CONFIANCA)))
+#: O `downgrade` da revisao da confianca leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_OFFBOARDING` desde o KAM-098, que pos a sua revisao no
+#: topo. Chama-se pela tabela e nao pelo numero, pela razao escrita no
+#: `TABELAS_CATALOGO_AI`. Hoje a anterior e a do catalogo minimo (KAM-094).
+TABELAS_ANTES_DA_CONFIANCA = tuple(
+    sorted(set(TABELAS_ANTES_DO_OFFBOARDING) - set(TABELAS_CONFIANCA))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: catalogo minimo (KAM-094).

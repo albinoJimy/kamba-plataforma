@@ -1,0 +1,97 @@
+# Testes de comportamento das regras de Trust & Safety — KAM-200.
+#
+# `promtool test rules`, corrido por `make obs-promtool`. Cada teste prende um
+# caso e o seu controlo: a primeira ocorrencia de uma serie que nasce a zero
+# dispara, e o silencio nao dispara.
+
+rule_files:
+  - ../kamba-trust.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: "suspensao: a primeira suspensao dispara, e passada a janela resolve"
+    input_series:
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="suspensao",origem="humana"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ts_suspensao_decidida
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ts_suspensao_decidida
+        exp_alerts:
+          - exp_labels:
+              severity: P3
+              componente: gov
+              job: onboarding_lote
+              instance: onboarding-lote:3014
+              passo: suspensao
+              origem: humana
+            exp_annotations:
+              resumo: Trust & Safety decidiu suspender ou encerrar uma loja.
+              qual_tenant: Le-se da platform.ts_sanction pelo lote; a metrica nao leva tenant (OBS-I).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+      - eval_time: 35m
+        alertname: ts_suspensao_decidida
+        exp_alerts: []
+
+  - interval: 1m
+    name: "encerramento: um encerramento decidido tambem dispara"
+    input_series:
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="encerramento",origem="humana"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ts_suspensao_decidida
+        exp_alerts:
+          - exp_labels:
+              severity: P3
+              componente: gov
+              job: onboarding_lote
+              instance: onboarding-lote:3014
+              passo: encerramento
+              origem: humana
+            exp_annotations:
+              resumo: Trust & Safety decidiu suspender ou encerrar uma loja.
+              qual_tenant: Le-se da platform.ts_sanction pelo lote; a metrica nao leva tenant (OBS-I).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+  - interval: 1m
+    name: "suspensao: um aviso ou uma limitacao nao e uma suspensao"
+    input_series:
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="limitacao",origem="automatica"}'
+        values: '0x5 1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ts_suspensao_decidida
+        exp_alerts: []
+
+  - interval: 1m
+    name: "escada: oito passos automaticos numa hora disparam, tres nao, e os humanos nao contam"
+    # Longe do limiar dos dois lados: o `increase` extrapola para as pontas da
+    # janela, e um ensaio a 5 contra 6 media a extrapolacao e nao a regra.
+    input_series:
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="aviso",origem="automatica"}'
+        values: '0x10 3x60'
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="limitacao",origem="automatica"}'
+        values: '0x40 5x40'
+      - series: 'ts_sancoes_total{job="onboarding_lote",instance="onboarding-lote:3014",passo="suspensao",origem="humana"}'
+        values: '0x10 9x60'
+    alert_rule_test:
+      # Aos 30 min: 3 avisos; as 9 suspensoes humanas nao contam.
+      - eval_time: 30m
+        alertname: ts_escada_automatica_acima_do_ritmo
+        exp_alerts: []
+      # Aos 45 min: 3 avisos e 5 limitacoes.
+      - eval_time: 45m
+        alertname: ts_escada_automatica_acima_do_ritmo
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+            exp_annotations:
+              resumo: A escada automatica de Trust & Safety deu mais de 5 passos na ultima hora.
+              limite: O ritmo e proposta, sem calibracao.
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md

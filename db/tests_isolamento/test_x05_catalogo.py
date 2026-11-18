@@ -282,6 +282,9 @@ class TestCatalogoReal(ComBase):
                 # coluna ao lado dela.
                 # KAM-124: o ledger de custo por modulo («me» < «mo» < «of»).
                 ("platform", "module_cost_ledger", "tenant_id"),
+                # KAM-098: as fases do off-boarding («me» < «offb» < «offe»).
+                # Sem receita de sementes (ver `sementes.SEM_RECEITA_COM_RAZAO`).
+                ("platform", "offboarding_run", "tenant_id"),
                 ("platform", "offer_terms", "tenant_id"),
                 # KAM-087: o caso de onboarding («off» < «onb» < «ord»).
                 ("platform", "onboarding_case", "tenant_id"),
@@ -604,6 +607,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-124: o ledger de custo por modulo, uma politica so, a do
                 # `db/rls.py` («me» < «mo» < «of»).
                 ("module_cost_ledger", "tenant_iso", "ALL", "{public}"),
+                # KAM-098: as fases do off-boarding, a do `db/rls.py`.
+                ("offboarding_run", "tenant_iso", "ALL", "{public}"),
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
                 # KAM-087: o caso de onboarding, com a `tenant_iso` sobre o
                 # `tenant_id` pre-alocado.
@@ -887,6 +892,8 @@ class TestCatalogoReal(ComBase):
              # KAM-124: o ledger de custo por modulo, entre os modelos de
              # mensagem e a oferta («me» < «mo» < «of»).
              "module_cost_ledger",
+             # KAM-098: as fases do off-boarding («offb» < «offe»).
+             "offboarding_run",
              "offer_terms",
              # KAM-087: o caso de onboarding.
              "onboarding_case",
@@ -1435,6 +1442,12 @@ class TestFicheirosDePolitica(unittest.TestCase):
         "p_valor_minor bigint, p_currency text, p_pedido_evento_id uuid)"
     )
 
+    #: O *trigger* da mudanca de conta (KAM-200, revisao `0067`). Da privilegio e
+    #: nao da isolamento, como as outras: poe o contexto no tenant **da linha**
+    #: que disparou, e e por respeitar o `FORCE` que o poe. Quem o mede e o
+    #: `TestMudancaDeConta` de `../tests/test_trust_schema.py`.
+    MUDANCA_DE_CONTA_NA_ALLOWLIST = "platform.ts_mudanca_de_conta()"
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -1477,6 +1490,7 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 self.APPEND_NA_ALLOWLIST,
                 self.SINAIS_NA_ALLOWLIST,
                 self.REEMBOLSOS_NA_ALLOWLIST,
+                self.MUDANCA_DE_CONTA_NA_ALLOWLIST,
             }
             | set(self.MANUAIS_NA_ALLOWLIST),
         )

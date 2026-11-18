@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.108"
+versao_dicionario: "1.111"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -14720,6 +14720,9 @@ entradas:
       - "encomenda"
       - "canal"
       - "sair"
+      - "codigo"
+      - "verificar"
+      - "ligar"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -14727,8 +14730,7 @@ entradas:
       - "conflito"
       - "confirmacao"
       - "indisponivel"
-      - "onboarding"
-      - "web"
+      - "limite"
     variantes_literais: []
   - seccao: "3.56"
     conceito: "O estado do canal no painel"
@@ -14745,9 +14747,7 @@ entradas:
       - "a_sincronizar"
       - "desligado"
       - "sem_canal"
-    nomes_nota:
-      - "platform.channels"
-      - "sem_canal"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.56"
     conceito: "A configuração do painel"
@@ -14763,6 +14763,139 @@ entradas:
       - "web"
       - "painel_desligado"
       - "com_internal_token"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "As duas leituras do painel no COM"
+    canonico: "obterOferta e vistaDoCanal, servidas por POST /internal/get-offer e POST /internal/channel-view"
+    literais:
+      - "obterOferta"
+      - "vistaDoCanal"
+    nomes:
+      - "obterOferta"
+      - "vistaDoCanal"
+    nomes_nota:
+      - "OperacoesDoCom"
+      - "get"
+      - "offer"
+      - "NOT_FOUND"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A vista do canal"
+    canonico: "VistaDoCanal com estado, restrito, qualidade, escalao, nivel, tectoPedidoMinor e avisos, e no COM também a currency do tecto"
+    literais:
+      - "VistaDoCanal"
+      - "estado"
+      - "restrito"
+      - "qualidade"
+      - "escalao"
+      - "nivel"
+      - "tectoPedidoMinor"
+      - "avisos"
+      - "currency"
+    nomes:
+      - "VistaDoCanal"
+      - "estado"
+      - "restrito"
+      - "qualidade"
+      - "escalao"
+      - "nivel"
+      - "tectoPedidoMinor"
+      - "avisos"
+      - "currency"
+    nomes_nota:
+      - "restrito"
+      - "suspenso"
+      - "encerrado"
+      - "tenant_channels"
+      - "tenant_id"
+      - "origem"
+      - "pme"
+      - "channel_coexistence"
+      - "trust_level"
+      - "kamba_app"
+      - "ServicoDeTrust.avisosDoPainel"
+      - "onboarding"
+      - "web"
+      - "tenant_channels.estado"
+      - "a_sincronizar"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "O intervalo de criação das encomendas"
+    canonico: "OrderFilter.criadoDesde (inclusive) e OrderFilter.criadoAte (exclusive), instantes ISO 8601 em UTC com no máximo milissegundos; no corpo do list-orders, criado_desde e criado_ate"
+    literais:
+      - "OrderFilter.criadoDesde"
+      - "OrderFilter.criadoAte"
+      - "list-orders"
+      - "criado_desde"
+      - "criado_ate"
+    nomes:
+      - "OrderFilter.criadoDesde"
+      - "OrderFilter.criadoAte"
+      - "list"
+      - "orders"
+      - "criado_desde"
+      - "criado_ate"
+    nomes_nota:
+      - "SQL_LISTAR"
+      - "LIMIT"
+      - "VALIDATION_ERROR"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A reentrada no painel"
+    canonico: "POST /painel/codigo (o telefone) e POST /painel/verificar (o bilhete e o código)"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "verificar"
+      - "codigo"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "O bilhete da reentrada"
+    canonico: "domínio kamba/painel/bilhete/v2, b2.<iv>.<cifra>.<etiqueta> (AES-256-GCM sobre o caso e o prazo), 10 minutos (proposta)"
+    literais:
+      - "b2.<iv>.<cifra>.<etiqueta>"
+    nomes:
+      - "b2"
+      - "iv"
+      - "cifra"
+      - "etiqueta"
+    nomes_nota:
+      - "ticket"
+      - "sem_desafio"
+      - "errou"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "A ponte para a reconexão"
+    canonico: "GET /painel/ligar"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "aguarda_es"
+      - "destino"
+      - "ligar"
+      - "sessao"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "As métricas do painel, servidas"
+    canonico: "GET /metrics do onboarding-web, job onboarding_web"
+    literais:
+      - "onboarding-web"
+      - "job"
+      - "onboarding_web"
+    nomes:
+      - "onboarding"
+      - "web"
+      - "job"
+      - "onboarding_web"
+    nomes_nota:
+      - "rota"
+      - "codigo"
+      - "verificar"
+      - "ligar"
+      - "motivo"
+      - "limite"
+      - "proxy"
+      - "tls"
     variantes_literais: []
   - seccao: "3.57"
     conceito: "Caso de onboarding"
@@ -17859,6 +17992,88 @@ entradas:
       - "events_consumed"
       - "ts_signal"
     variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Consumidor de T&S"
+    canonico: "trust, em platform.evt_subscricoes"
+    literais:
+      - "trust"
+      - "platform.evt_subscricoes"
+    nomes:
+      - "trust"
+      - "platform.evt_subscricoes"
+    nomes_nota:
+      - "versao_max"
+      - "events_consumed.consumer"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Motivo da transição de T&S"
+    canonico: "decisao_ts na suspensão e no encerramento; decisao_ts_recurso_provido no regresso a ativo"
+    literais:
+      - "decisao_ts"
+      - "decisao_ts_recurso_provido"
+      - "ativo"
+    nomes:
+      - "decisao_ts"
+      - "decisao_ts_recurso_provido"
+      - "ativo"
+    nomes_nota:
+      - "decisao_ts"
+      - "ativo"
+      - "restrito"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A fonte da mudança de conta"
+    canonico: "platform.ts_mudanca_de_conta(), nos triggers payment_accounts_mudanca_de_conta e tenants_mudanca_de_nif"
+    literais:
+      - "platform.ts_mudanca_de_conta()"
+      - "payment_accounts_mudanca_de_conta"
+      - "tenants_mudanca_de_nif"
+    nomes:
+      - "platform.ts_mudanca_de_conta"
+      - "payment_accounts_mudanca_de_conta"
+      - "tenants_mudanca_de_nif"
+    nomes_nota:
+      - "mudanca_de_conta"
+      - "SECURITY"
+      - "DEFINER"
+      - "trust"
+      - "mudancas_de_conta"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "A limitação no catálogo"
+    canonico: "platform.ts_limitacao_do_catalogo(), nos triggers offer_terms_ts_limitacao_nova, offer_terms_ts_limitacao_publicada e catalog_ingestions_ts_limitacao"
+    literais:
+      - "platform.ts_limitacao_do_catalogo()"
+      - "offer_terms_ts_limitacao_nova"
+      - "offer_terms_ts_limitacao_publicada"
+      - "catalog_ingestions_ts_limitacao"
+    nomes:
+      - "platform.ts_limitacao_do_catalogo"
+      - "offer_terms_ts_limitacao_nova"
+      - "offer_terms_ts_limitacao_publicada"
+      - "catalog_ingestions_ts_limitacao"
+    nomes_nota:
+      - "limitacao"
+      - "SECURITY"
+      - "INVOKER"
+    variantes_literais: []
+  - seccao: "3.68"
+    conceito: "Corrida de uma varredura de T&S"
+    canonico: "ts_varredura, a entidade da acção batch.run (§3.2)"
+    literais:
+      - "ts_varredura"
+      - "batch.run"
+    nomes:
+      - "ts_varredura"
+      - "batch.run"
+    nomes_nota:
+      - "entity_id"
+      - "nao_entrega"
+      - "fotos"
+      - "encerramentos"
+      - "mudancas_de_conta"
+    variantes_literais: []
   - seccao: "3.69"
     conceito: "Ledger de custo por módulo"
     canonico: "platform.module_cost_ledger, dez colunas: id, tenant_id, modulo, rubrica, custo_usd, custo_minor, fx_aoa_per_usd, ref, idempotency_key, ocorrido_em"
@@ -19369,6 +19584,206 @@ entradas:
       - "contacts"
       - "kamba_app"
     variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Fases do encerramento"
+    canonico: "platform.offboarding_run, cinco colunas"
+    literais:
+      - "platform.offboarding_run"
+    nomes:
+      - "platform.offboarding_run"
+    nomes_nota:
+      - "tenant_id"
+      - "fase"
+      - "estado"
+      - "prazo_at"
+      - "resultado"
+      - "UNIQUE"
+      - "tenants"
+      - "FORCE"
+      - "kamba_batch"
+      - "INSERT"
+      - "UPDATE"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "As fases"
+    canonico: "offboarding_run.fase ∈ {verificacao, pendentes, canal, exportacao, revogacao, purga, certificado}"
+    literais:
+      - "offboarding_run.fase"
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "exportacao"
+      - "revogacao"
+      - "purga"
+      - "certificado"
+    nomes:
+      - "offboarding_run.fase"
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "exportacao"
+      - "revogacao"
+      - "purga"
+      - "certificado"
+    nomes_nota:
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "revogacao"
+      - "exportacao"
+      - "purga"
+      - "certificado"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Estado de uma fase"
+    canonico: "offboarding_run.estado ∈ {pendente, em_curso, concluida, suspensa_disputa, falhada, cancelada}"
+    literais:
+      - "offboarding_run.estado"
+      - "pendente"
+      - "em_curso"
+      - "concluida"
+      - "suspensa_disputa"
+      - "falhada"
+      - "cancelada"
+    nomes:
+      - "offboarding_run.estado"
+      - "pendente"
+      - "em_curso"
+      - "concluida"
+      - "suspensa_disputa"
+      - "falhada"
+      - "cancelada"
+    nomes_nota:
+      - "cancelada"
+      - "falhada"
+      - "concluida"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Calendário"
+    canonico: "DIA_DA_FASE: verificação D0, canal D1, pendentes, exportação e revogação D7, purga e certificado D30; DIAS_DE_CANCELAMENTO = 7"
+    literais:
+      - "DIA_DA_FASE"
+      - "DIAS_DE_CANCELAMENTO"
+    nomes:
+      - "DIA_DA_FASE"
+      - "DIAS_DE_CANCELAMENTO"
+    nomes_nota:
+      - "prazo_at"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Sub-estados de encerrado"
+    canonico: "em_exportacao, em_retencao, purgado"
+    literais:
+      - "em_exportacao"
+      - "em_retencao"
+      - "purgado"
+    nomes:
+      - "encerrado"
+      - "em_exportacao"
+      - "em_retencao"
+      - "purgado"
+    nomes_nota:
+      - "subestado"
+      - "em_retencao"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A dupla confirmação"
+    canonico: "ProvasDoTitular: otpConfere e ligacaoDoEmailConfere"
+    literais:
+      - "ProvasDoTitular"
+      - "otpConfere"
+      - "ligacaoDoEmailConfere"
+    nomes:
+      - "ProvasDoTitular"
+      - "otpConfere"
+      - "ligacaoDoEmailConfere"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O aviso ao dono"
+    canonico: "AVISO_DA_APP_BUSINESS"
+    literais:
+      - "AVISO_DA_APP_BUSINESS"
+    nomes:
+      - "AVISO_DA_APP_BUSINESS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Motivo do encerramento"
+    canonico: "pedido_do_titular, decisao_trust_safety, reaplicacao_apos_restauro"
+    literais:
+      - "pedido_do_titular"
+      - "decisao_trust_safety"
+      - "reaplicacao_apos_restauro"
+    nomes:
+      - "pedido_do_titular"
+      - "decisao_trust_safety"
+      - "reaplicacao_apos_restauro"
+    nomes_nota:
+      - "tenant_state_log"
+      - "ativo"
+      - "encerramento"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O pacote do titular"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.0.0, num ZIP reproduzível na classe dsar do STO"
+    literais:
+      - "VERSAO_DO_MANIFESTO"
+      - "1.0.0"
+      - "dsar"
+    nomes:
+      - "VERSAO_DO_MANIFESTO"
+      - "dsar"
+    nomes_nota:
+      - "sha256"
+      - "audit_log"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A ligação de 24 h"
+    canonico: "ligacao_assinada, com VALIDADE_DA_LIGACAO = 24 h"
+    literais:
+      - "ligacao_assinada"
+      - "VALIDADE_DA_LIGACAO"
+    nomes:
+      - "ligacao_assinada"
+      - "VALIDADE_DA_LIGACAO"
+    nomes_nota:
+      - "LigacaoRecusada"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os caminhos da purga"
+    canonico: "CAMINHOS_DO_ENCERRAMENTO"
+    literais:
+      - "CAMINHOS_DO_ENCERRAMENTO"
+    nomes:
+      - "CAMINHOS_DO_ENCERRAMENTO"
+    nomes_nota:
+      - "relacao"
+      - "kamba_batch"
+      - "DELETE"
+      - "purge_log"
+      - "recusada"
+      - "sem_caminho"
+      - "ok"
+      - "apagar_contactos"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O certificado de eliminação"
+    canonico: "VERSAO_DO_CERTIFICADO = 1.0.0, assinado HMAC-SHA256 com o kid"
+    literais:
+      - "VERSAO_DO_CERTIFICADO"
+      - "1.0.0"
+      - "HMAC-SHA256"
+      - "kid"
+    nomes:
+      - "VERSAO_DO_CERTIFICADO"
+      - "HMAC"
+      - "SHA256"
+      - "kid"
+    nomes_nota:
+      - "purge_log"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -20679,6 +21094,20 @@ tabelas:
     assinatura: "platform.exigir_dupla_de_ops()"
     seccao: "3.67"
     conceito: "O G8 das cobranças de ciclo"
+  - nome: "ts_mudanca_de_conta"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.ts_mudanca_de_conta()"
+    seccao: "3.68"
+    conceito: "A fonte da mudança de conta"
+  - nome: "ts_limitacao_do_catalogo"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.ts_limitacao_do_catalogo()"
+    seccao: "3.68"
+    conceito: "A limitação no catálogo"
   - nome: "module_cost_gravar"
     esquema: "platform"
     colunas:
@@ -22493,6 +22922,29 @@ dominios:
       - "recalibracao"
     seccao: "3.75"
     conceito: "Porque está no nível"
+    so_no_registo: false
+  - coluna: "offboarding_run.fase"
+    valores:
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "exportacao"
+      - "revogacao"
+      - "purga"
+      - "certificado"
+    seccao: "3.77"
+    conceito: "As fases"
+    so_no_registo: false
+  - coluna: "offboarding_run.estado"
+    valores:
+      - "pendente"
+      - "em_curso"
+      - "concluida"
+      - "suspensa_disputa"
+      - "falhada"
+      - "cancelada"
+    seccao: "3.77"
+    conceito: "Estado de uma fase"
     so_no_registo: false
 
 variantes:

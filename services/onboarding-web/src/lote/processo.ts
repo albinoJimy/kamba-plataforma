@@ -4,7 +4,9 @@
  * ```text
  * lerConfiguracao     as variáveis de arranque; sem as credenciais de lote, não arranca
  * verificarPapeis     cada ligação é do papel que diz ser (`kamba_batch`, `kamba_app`)
- * montarProcesso      a fila sobre os adaptadores SQL, o ciclo e as duas portas do KAM-092
+ * montarProcesso      a fila sobre os adaptadores SQL, o ciclo, as duas portas do KAM-092,
+ *                     e o T&S ligado à fila com as suas varreduras (KAM-200)
+ * consumidorDoTrust   o consumidor dos sete tipos de evento de T&S, como `kamba_app`
  * criarApp            `/healthz` e `/metrics`, e mais nada
  * arrancar            os papéis verificados, o processo montado e a app das métricas dele
  * opcoesDoConjunto    a ligação de cada papel, com limites de tempo
@@ -33,6 +35,24 @@
  * de dar ao lote um privilégio novo — uma revisão de base de dados —, o processo
  * abre uma segunda ligação, como `kamba_app`, e grava dentro do `comTenant` do
  * tenant do caso. A RLS dessa tabela continua a ser a guarda.
+ *
+ * ## Trust & Safety corre aqui (KAM-200)
+ *
+ * Três coisas, e as três são do lote porque atravessam tenants ou mudam o estado
+ * de um tenant:
+ *
+ * * **O efeito de uma decisão** sobre um caso `trust` ou `recurso`: o
+ *   `ServicoDeTrust` do lado do lote é o `trust` das dependências do
+ *   `ServicoDeRevisao`. Sem ele, decidir um desses casos falhava fechado
+ *   (`EfeitoPorAplicarError`) e o caso ficava para reaplicar para sempre.
+ * * **As varreduras**, agendadas (`CicloDoTrust`), cada corrida no `audit_log`.
+ * * **O consumidor** dos sete tipos do critério 1 do KAM-097, com o
+ *   `efeitoDeTrust`, sobre ligações do `kamba_app` (a marca de consumo e os
+ *   sinais sob a RLS do tenant do envelope). As subscrições estão declaradas em
+ *   `registry/trust.yaml`.
+ *
+ * O aviso de uma sanção ao dono é o mesmo caso do aviso da fila, abaixo: sem
+ * agregador nem telefone em claro, levanta, e o efeito fica por reaplicar.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *
@@ -75,10 +95,29 @@ import {
   type ViaDoAviso,
 } from "@kamba/core-ts/revisao";
 import type { AprovacaoDoKyc } from "@kamba/core-ts/kyc";
+import { METRICAS, MaquinaNaBase, filasDe } from "@kamba/core-ts/eventos";
+// Só os tipos: o `bullmq` e o `ioredis` carregam-se na casca, **depois** de a
+// porta abrir (ver o `consumidorDoTrust`).
+import type { criarTrabalhadores, Trabalhadores } from "@kamba/core-ts/eventos/trabalhador_bullmq";
 import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/screening";
 import { isAmbiente } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
+import {
+  AvisoDeSancaoSemDestinoError,
+  CONSUMIDOR_DE_TRUST,
+  CicloDoTrust,
+  EstadoDosTenantsSql,
+  INTERVALO_DO_TRUST_POR_OMISSAO_MS,
+  MetricasDoTrust,
+  RepositorioDeTrustSql,
+  ServicoDeTrust,
+  efeitoDeTrust,
+  type AvisoDeSancao,
+  type MotivoPublicoDaSancao,
+  type ResultadoDoCicloDoTrust,
+} from "@kamba/core-ts/trust";
 import { Hono } from "hono";
+import pg from "pg";
 
 import { SERVICE, VERSION } from "../meta.ts";
 
@@ -91,6 +130,10 @@ export const VARIAVEIS_DO_LOTE = {
   app: "KAMBA_LOTE_APP_DB_URL",
   porta: "LOTE_PORT",
   intervalo: "LOTE_INTERVALO_MS",
+  /** A fila de eventos (Valkey), de onde o consumidor de T&S lê (KAM-200). */
+  fila: "KAMBA_QUEUE_URL",
+  /** O intervalo das varreduras de T&S. */
+  intervaloDoTrust: "LOTE_TRUST_INTERVALO_MS",
   /** O dia em que a amostragem das aprovações automáticas começou (`AAAA-MM-DD`). */
   amostragem: "ONBOARDING_LOTE_AMOSTRAGEM_DESDE",
 } as const;
@@ -111,6 +154,8 @@ export interface ConfiguracaoDoLote {
   readonly porta: number;
   readonly intervaloMs: number;
   readonly inicioDaAmostragem: Date | null;
+  readonly urlDaFila: string;
+  readonly intervaloDoTrustMs: number;
 }
 
 /**
@@ -159,8 +204,18 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
   if (!isAmbiente(ambiente)) throw new ConfiguracaoDoLoteError(VARIAVEIS_DO_LOTE.ambiente, "invalida");
   const urlDoLote = exigir(env, VARIAVEIS_DO_LOTE.lote);
   const urlDaApp = exigir(env, VARIAVEIS_DO_LOTE.app);
+  // **Obrigatória**, como as credenciais: sem a fila o consumidor de T&S não
+  // consome, e um processo verde que não consome é o defeito do KAM-187.
+  const urlDaFila = exigir(env, VARIAVEIS_DO_LOTE.fila);
   const porta = inteiro(env, VARIAVEIS_DO_LOTE.porta, PORTA_POR_OMISSAO, 1, 65_535);
   const intervaloMs = inteiro(env, VARIAVEIS_DO_LOTE.intervalo, INTERVALO_POR_OMISSAO_MS, 1_000, 86_400_000);
+  const intervaloDoTrustMs = inteiro(
+    env,
+    VARIAVEIS_DO_LOTE.intervaloDoTrust,
+    INTERVALO_DO_TRUST_POR_OMISSAO_MS,
+    1_000,
+    86_400_000,
+  );
   const bruto = (env[VARIAVEIS_DO_LOTE.amostragem] ?? "").trim();
   let inicioDaAmostragem: Date | null = null;
   if (bruto !== "") {
@@ -172,7 +227,7 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     }
     inicioDaAmostragem = dia;
   }
-  return { ambiente, urlDoLote, urlDaApp, porta, intervaloMs, inicioDaAmostragem };
+  return { ambiente, urlDoLote, urlDaApp, porta, intervaloMs, inicioDaAmostragem, urlDaFila, intervaloDoTrustMs };
 }
 
 /** Uma ligação que não é do papel que a variável promete. */
@@ -217,6 +272,16 @@ export class AvisoSemVia implements AvisoAoDono {
     readonly motivoPublico: MotivoPublico | null;
   }): Promise<void> {
     throw new AvisoSemDestinoError(pedido.via);
+  }
+}
+
+/**
+ * O aviso de uma sanção ao dono, **sem via**, pela razão do `AvisoSemVia`: o
+ * `ServicoDeTrust` avisa por último, e o efeito fica por reaplicar.
+ */
+export class AvisoDeSancaoSemVia implements AvisoDeSancao {
+  async avisar(_pedido: { readonly tenantId: string; readonly motivo: MotivoPublicoDaSancao }): Promise<void> {
+    throw new AvisoDeSancaoSemDestinoError();
   }
 }
 
@@ -318,12 +383,21 @@ export interface OpcoesDoProcesso {
   readonly relogio?: Relogio;
   /** Quantos casos da triagem, e quantos efeitos, numa volta. */
   readonly limite?: number;
+  /** As métricas de T&S. Por omissão, uma instância nova. */
+  readonly metricasDoTrust?: MetricasDoTrust;
+  /** O aviso de uma sanção. Por omissão, o que não tem via (ver a nota do módulo). */
+  readonly avisoDeSancao?: AvisoDeSancao;
 }
 
 /** O processo montado: o ciclo, o serviço da fila e o gancho do KAM-092. */
 export interface ProcessoDeLote {
   readonly servico: ServicoDeRevisao;
   readonly ciclo: CicloDaFila;
+  /** O T&S do lado do lote: o efeito das decisões da fila e o `fecharEncerramentos`. */
+  readonly trust: ServicoDeTrust;
+  /** As varreduras de T&S, para a casca agendar (KAM-200, critério 2). */
+  readonly cicloDoTrust: CicloDoTrust;
+  readonly metricasDoTrust: MetricasDoTrust;
   /**
    * **O ponto onde o KAM-092 chama o `amostrar`** sobre cada aprovação
    * automática, que é ele quem conhece (critério 4). Corre neste processo, com
@@ -349,6 +423,22 @@ export interface ProcessoDeLote {
  */
 export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
   const onboardings = new OnboardingsSql(o.lote);
+  const metricasDoTrust = o.metricasDoTrust ?? new MetricasDoTrust();
+  // O T&S propõe sanções **à** fila e a fila aplica as decisões **pelo** T&S: um
+  // precisa do outro. A fila do T&S é o serviço de revisão, lido quando é
+  // chamada — antes de ele existir não há proposta nenhuma a abrir.
+  let revisao: ServicoDeRevisao | undefined;
+  const trust = new ServicoDeTrust({
+    repositorio: new RepositorioDeTrustSql(o.lote, "lote"),
+    tenants: new EstadoDosTenantsSql(o.lote),
+    aviso: o.avisoDeSancao ?? new AvisoDeSancaoSemVia(),
+    fila: {
+      abrir: (p) => exigirRevisao(revisao).abrir(p),
+      abrirRecurso: (casoId) => exigirRevisao(revisao).abrirRecurso(casoId),
+    },
+    contadores: metricasDoTrust,
+    ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
+  });
   const servico = new ServicoDeRevisao({
     repositorio: new RevisaoSql(o.lote, { conjunto: o.lote }),
     onboardings,
@@ -363,7 +453,16 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     screening: decisaoHumanaDeScreening(escritorHumanoDeScreening(o.app)),
     // A mesma lista que o ciclo reaplica: o serviço marca antes dos efeitos.
     efeitos: o.efeitos,
+    // KAM-200, critério 9: decidir um caso `trust` ou `recurso` aplica a sanção.
+    trust,
     inicioDaAmostragem: o.inicioDaAmostragem ?? null,
+    ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
+  });
+  revisao = servico;
+  const cicloDoTrust = new CicloDoTrust({
+    lote: o.lote,
+    servico: trust,
+    metricas: metricasDoTrust,
     ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
   });
   const ciclo = new CicloDaFila({
@@ -387,9 +486,60 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
   return {
     servico,
     ciclo,
+    trust,
+    cicloDoTrust,
+    metricasDoTrust,
     aprovacaoAutomatica,
     aprovacaoDoKyc: aprovacaoDoKyc(onboardings, aprovacaoAutomatica),
   };
+}
+
+function exigirRevisao(s: ServicoDeRevisao | undefined): ServicoDeRevisao {
+  if (s === undefined) throw new Error("a fila de revisao ainda nao esta montada");
+  return s;
+}
+
+/**
+ * **O consumidor de T&S** (KAM-200, critério 1): as dezasseis filas
+ * `evt.trust.p<n>`, com o `efeitoDeTrust`, numa ligação `kamba_app` por fila —
+ * a marca de consumo e os sinais confirmam juntos, sob a RLS do tenant do
+ * envelope. `exigeOrdem`, porque dois dos sete tipos são `payment.*` (a
+ * restrição `evt_subscricoes_payment_exige_ordem` da `0005`).
+ *
+ * **E com a máquina de estados das encomendas** (`orders_mirror`, a do
+ * consumidor de pagamentos do COM): o `consumir` exige-a para os `payment.*`,
+ * que têm estado pretendido, e lança sem ela. T&S não transita nada, mas a
+ * pré-condição é a mesma: um pagamento sobre uma encomenda que a réplica ainda
+ * não tem **adia**, e sobre uma já paga vai ao efeito como excepção (KAM-050).
+ *
+ * Aqui, e não na casca, para que o *gate* 4 veja o nome, as filas, o papel e as
+ * métricas com que ele nasce. **O `criar` é obrigatório**, e é o
+ * `criarTrabalhadores` que a casca importa dinamicamente depois de abrir a
+ * porta: carregar o `bullmq` e o `ioredis` numa montagem do Windows leva dezenas
+ * de segundos, e à cabeça do módulo atrasava a sonda do `/healthz`.
+ */
+export function consumidorDoTrust(o: {
+  readonly urlDaApp: string;
+  readonly urlDaFila: string;
+  readonly metricasDoTrust: MetricasDoTrust;
+  readonly log: Pick<Logger, "info">;
+  readonly criar: typeof criarTrabalhadores;
+}): Trabalhadores {
+  return o.criar({
+    ligar: async () => {
+      const cliente = new pg.Client({ connectionString: o.urlDaApp, application_name: "onboarding-lote:trust" });
+      await cliente.connect();
+      return cliente;
+    },
+    subscricao: { consumer: CONSUMIDOR_DE_TRUST, exigeOrdem: true },
+    filas: filasDe(CONSUMIDOR_DE_TRUST),
+    efeito: efeitoDeTrust({ contadores: o.metricasDoTrust }),
+    maquina: new MaquinaNaBase("orders_mirror"),
+    metricas: METRICAS,
+    url: o.urlDaFila,
+    // Só o desfecho: o `event_id` e a fila não estão na *allowlist* do registo.
+    log: (dados) => o.log.info({ outcome: `trust_${String(dados["desfecho"])}` }),
+  });
 }
 
 /**
@@ -401,21 +551,34 @@ export function registarVolta(log: Pick<Logger, "info" | "error">, r: ResultadoD
   else log.error({ outcome: "ciclo_com_falhas", error_code: r.falhas.join(",") });
 }
 
+/** A linha de registo de uma volta das varreduras de T&S: pelo nome da varredura. */
+export function registarVoltaDoTrust(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDoTrust): void {
+  if (r.falhas.length === 0) log.info({ outcome: "trust_varreduras_concluidas" });
+  else log.error({ outcome: "trust_varreduras_com_falhas", error_code: r.falhas.join(",") });
+}
+
 /**
  * A aplicação HTTP do processo: a sonda e as métricas da fila, e mais nada.
  *
  * `/metrics` serve as quatro séries do dicionário §3.61 da **mesma** instância
- * que o ciclo recalcula. Sem argumento, uma instância vazia: é como o condutor
- * da bateria X-01 a levanta nas sondas. As etiquetas são domínios fechados e
- * nenhuma leva tenant nem caso (`OBS-I`); o caso X-01 do `/metrics` mede-o com
- * um caso de outro tenant na fila.
+ * que o ciclo recalcula; as de T&S (KAM-200) da mesma instância que o serviço,
+ * o consumidor e as varreduras contam; e as do consumo de eventos (`METRICAS`
+ * do KAM-006), que aqui são as do consumidor de T&S. Sem argumento, instâncias
+ * vazias: é como o condutor da bateria X-01 a levanta nas sondas. As etiquetas
+ * são domínios fechados e nenhuma leva tenant nem caso (`OBS-I`); o caso X-01
+ * do `/metrics` mede-o com um caso de outro tenant na fila.
  */
-export function criarApp(metricas: MetricasDaRevisao = new MetricasDaRevisao()): Hono {
+export function criarApp(
+  metricas: MetricasDaRevisao = new MetricasDaRevisao(),
+  metricasDoTrust: MetricasDoTrust = new MetricasDoTrust(),
+): Hono {
   const app = new Hono();
   app.onError((_erro, c) => c.json({ error: "internal" }, 500));
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   app.get("/metrics", (c) =>
-    c.text(metricas.exposicao(), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" }),
+    c.text(metricas.exposicao() + metricasDoTrust.exposicao() + METRICAS.exposicao(), 200, {
+      "content-type": "text/plain; version=0.0.4; charset=utf-8",
+    }),
   );
   return app;
 }
@@ -472,5 +635,5 @@ export async function arrancar(o: {
     log: o.log,
     inicioDaAmostragem: o.inicioDaAmostragem,
   });
-  return { processo, app: criarApp(processo.ciclo.metricas) };
+  return { processo, app: criarApp(processo.ciclo.metricas, processo.metricasDoTrust) };
 }

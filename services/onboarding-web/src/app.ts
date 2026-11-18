@@ -18,6 +18,19 @@
  * chaves não existirem, em vez de subir um serviço que responde `200` no
  * `/healthz` e `503` em tudo o que é registo. Um serviço meio montado que
  * responde à sonda é um serviço que um balanceador manda tráfego para.
+ *
+ * ## O `/metrics` serve as séries do painel (KAM-190)
+ *
+ * Sempre montado, como o `/healthz`, e sem credencial: o *scraper* do Prometheus
+ * não tem segredo nosso, e as duas séries são contagens por rota e motivo, de
+ * domínios fechados e sem tenant (`./painel/metricas.ts`, `OBS-I`). Sem painel
+ * montado, saem a zero — o que distingue «ninguém pediu» de «o processo não
+ * arrancou» é a série existir. **Não é barreira de rede**: o `proxy-tls` só
+ * encaminha `/onboarding/*` para este serviço (`infra/compose/caddy/Caddyfile`),
+ * e o `/metrics` fica na rede `app`, onde o Prometheus o raspa na 3003. **Aviso
+ * a quem mexer no Caddy:** trocar aquele `handle` por um `handle_path` (que
+ * corta o prefixo) põe o `/onboarding/metrics` na Internet; a borda tem de
+ * recusar esse caminho no mesmo PR.
  */
 
 import { Hono } from "hono";
@@ -27,6 +40,7 @@ import type { Logger } from "@kamba/core-ts/logger";
 import { SERVICE, VERSION } from "./meta.ts";
 import { rotasDaEquipa, type OpcoesDaEquipa } from "./equipa/rotas.ts";
 import { rotasDoGuia, type OpcoesDoGuia } from "./guia.ts";
+import { MetricasDoPainel, TIPO_DE_CONTEUDO } from "./painel/metricas.ts";
 import { rotasDoPainel, type OpcoesDoPainel } from "./painel/rotas.ts";
 import { rotasDeInscricao, type OpcoesDasRotas } from "./rotas.ts";
 
@@ -50,13 +64,23 @@ export function createApp(
 
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
 
+  // As séries do painel, partilhadas com as rotas dele: a instância é uma só, e
+  // é a que o `/metrics` lê. Ver a nota do módulo.
+  const metricasDoPainel = painel?.metricas ?? new MetricasDoPainel();
+  app.get(
+    "/metrics",
+    () => new Response(metricasDoPainel.exposicao(), { status: 200, headers: { "content-type": TIPO_DE_CONTEUDO } }),
+  );
+
   if (inscricao !== undefined) app.route("/", rotasDeInscricao({ ...inscricao, log }));
   // O passo guiado do ES (KAM-093) monta-se ao lado, e só com a inscrição: a
   // página exige a sessão que o OTP cunha.
   if (inscricao !== undefined && guia !== undefined) app.route("/", rotasDoGuia({ ...guia, log }));
   // O painel do dono (KAM-099) também só com a inscrição: entra-se nele com a
   // sessão que o OTP cunha.
-  if (inscricao !== undefined && painel !== undefined) app.route("/", rotasDoPainel({ ...painel, log }));
+  if (inscricao !== undefined && painel !== undefined) {
+    app.route("/", rotasDoPainel({ ...painel, metricas: metricasDoPainel, log }));
+  }
   // A consola da fila de revisão (KAM-196) **não** depende da inscrição: entra-se
   // nela pela identidade da equipa, e não pelo OTP de um dono.
   if (equipa !== undefined) app.route("/", rotasDaEquipa({ ...equipa, log }));

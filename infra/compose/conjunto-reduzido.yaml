@@ -208,7 +208,10 @@ servicos:
       da fila de revisao como `kamba_batch` e serve as metricas dela; e onde a
       reconciliacao da saga (KAM-091) vai correr. Uma replica. 128 MiB e
       *proposta*, igual a uma replica do publicador: um laco por minuto sobre a
-      base e um `/metrics`, sem fila nem cache.
+      base e um `/metrics`. Desde o KAM-200 corre tambem o consumidor de T&S
+      (dezasseis *workers* BullMQ) e as varreduras de hora a hora, e os 128 MiB
+      nao foram medidos com eles: reve-se com a primeira medicao de repouso em
+      `staging`.
 
   - nome: chatwoot
     estado: presente

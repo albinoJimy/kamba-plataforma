@@ -3,9 +3,8 @@
 A primeira linha e **sem acentos**, pela razao das revisoes anteriores: e a
 mensagem que o `alembic history` imprime.
 
-**Revisao provisoria.** O numero `0070` e o `down_revision = "0066"` sao os do
-ramo: a `0067`, a `0068` e a `0069` sao de outros tickets do mesmo lote, e o
-numero final da-o a fila de integracao. Os ensaios descobrem esta revisao por
+**Numero dado pela fila de integracao.** A `0069` assenta na `0068` do
+off-boarding (KAM-098), e o numero mudou na integracao com a `main`. Os ensaios descobrem esta revisao por
 *glob* (`*_finalidade_do_screening.py`) e leem o `revision` e o
 `down_revision` do ficheiro, pelo que renumerar nao toca em nenhum literal deles.
 
@@ -59,8 +58,8 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0070"
-down_revision = "0066"
+revision = "0069"
+down_revision = "0068"
 branch_labels = None
 depends_on = None
 
