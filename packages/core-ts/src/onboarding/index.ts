@@ -64,12 +64,17 @@ export {
   OCTETOS_DE_CHAVE,
   OCTETOS_DE_ETIQUETA,
   OCTETOS_DE_IV,
+  KID_LEGADO,
+  KekSemKidEstavelError,
   TokenCifradoInvalidoError,
   VERSAO_DO_FORMATO,
+  type VersaoDaKek,
+  anelDaKek,
   cifrarToken,
   contextoDaCifra,
   decifrarToken,
   dekDoTenant,
+  kekParaCifrar,
   kidDoCriptograma,
 } from "./cifra.ts";
 

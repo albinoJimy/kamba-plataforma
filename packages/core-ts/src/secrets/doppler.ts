@@ -36,6 +36,7 @@ import {
   validarRef,
 } from "./port.ts";
 import { SUFIXO_ANTERIOR, nomeDaVariavel } from "./env.ts";
+import { kidsDasVersoes } from "./kid.ts";
 
 /**
  * O que falta confirmar, e onde.
@@ -219,9 +220,10 @@ export class DopplerSecretProvider implements SecretProvider {
     return [actual, anterior === undefined || anterior.trim() === "" ? null : anterior];
   }
 
+  /** O `kid` de cada versão, lido do valor, como no `EnvSecretProvider` (KAM-205). */
   async versions(ref: SecretRef): Promise<readonly string[]> {
-    const [, anterior] = await this.getRing(ref);
-    return anterior === null ? ["actual"] : ["actual", "anterior"];
+    const [actual, anterior] = await this.getRing(ref);
+    return kidsDasVersoes(validarRef(ref), actual, anterior);
   }
 
   async #descarregar(): Promise<Readonly<Record<string, string>>> {

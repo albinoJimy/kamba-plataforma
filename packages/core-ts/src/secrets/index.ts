@@ -46,6 +46,17 @@ export {
 } from "./env.ts";
 export type { EnvSecretProviderOpcoes, ProcessEnv } from "./env.ts";
 
+export {
+  KidRepetidoNoCofreError,
+  OCTETOS_DA_CHAVE_VERSIONADA,
+  ROTULOS_POSICIONAIS,
+  chaveDoValor,
+  kidDoValor,
+  kidsDasVersoes,
+  rotuloPosicional,
+  separarKid,
+} from "./kid.ts";
+
 export { OpenBaoFakeProvider } from "./openbao-fake.ts";
 export type { OpenBaoFakeOpcoes } from "./openbao-fake.ts";
 

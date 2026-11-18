@@ -34,6 +34,13 @@ from .env import (
     EnvSecretProvider,
     nome_da_variavel,
 )
+from .kid import (
+    ROTULOS_POSICIONAIS,
+    KidRepetidoNoCofreError,
+    kid_do_valor,
+    kids_das_versoes,
+    separar_kid,
+)
 from .openbao_fake import OpenBaoFakeProvider
 from .port import (
     AMBIENTES,
@@ -52,6 +59,7 @@ __all__ = [
     "AMBIENTES",
     "A_CONFIRMAR",
     "PREFIXO",
+    "ROTULOS_POSICIONAIS",
     "SUFIXO_ANTERIOR",
     "TTL_ULTIMO_VALOR_S",
     "VERSOES",
@@ -61,6 +69,7 @@ __all__ = [
     "DopplerSecretProvider",
     "EnvSecretProvider",
     "Interpretar",
+    "KidRepetidoNoCofreError",
     "OpenBaoFakeProvider",
     "RespostaHttp",
     "SecretAusenteError",
@@ -72,6 +81,9 @@ __all__ = [
     "e_ambiente",
     "familia_da_ref",
     "interpretar_descarga_plana",
+    "kid_do_valor",
+    "kids_das_versoes",
     "nome_da_variavel",
+    "separar_kid",
     "validar_ref",
 ]

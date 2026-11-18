@@ -61,7 +61,20 @@ export {
   REFS_SEPARADAS_POR_AMBIENTE,
   verificarSeparacaoDeAmbientes,
 } from "./separacao.ts";
-export { type Recifra, anelPorKid, recifrarToken } from "./tokens.ts";
+export {
+  type DependenciasDaRecifra,
+  LOTE_DA_RECIFRA,
+  type Recifra,
+  RecifraSemPapelDeLoteError,
+  type ResultadoDaRecifra,
+  SQL_CANAIS_A_RECIFRAR,
+  SQL_PAPEL_ATRAVESSA_TENANTS,
+  SQL_TROCAR_TOKEN_REF,
+  anelDaKekNoCofre,
+  anelPorKid,
+  recifrarToken,
+  recifrarTokensGuardados,
+} from "./tokens.ts";
 export {
   ACCAO_DE_REVOGAR,
   ACCAO_DE_RODAR,

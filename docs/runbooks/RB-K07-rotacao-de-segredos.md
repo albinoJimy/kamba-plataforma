@@ -3,14 +3,14 @@
 | Campo | Valor |
 |---|---|
 | ID | **RB-K07** |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Cenário | Um segredo do inventário chega ao fim do seu período de rotação, ou há suspeita de fuga |
 | Severidade | **P3** (planeada); em incidente, **P1** pelo [RB-K10](RB-K10-incidente-de-seguranca.md) |
 | Alertas que o activam | **Nenhum, hoje.** O cálculo existe desde o KAM-072 — `secret_age_days{segredo}` e `secret_rotation_period_days{segredo}` em `packages/core-ts/src/keyring/idade.ts`, com a idade lida do registo de rotação e o estado `a_expirar` a 80% do prazo —, mas **nenhum processo o expõe** e a regra do Prometheus está por escrever (o `obs_lint` recusa uma regra sobre uma métrica que ninguém serve). Credor: **o fundador** — nenhum ticket do *backlog* liga o rotador a um processo (`ops/metricas/catalogo.yaml`, `regras_por_escrever`) |
 | Gatilho manual | O calendário de rotação (hoje de uma pessoa: não há agendador, KAM-071); o RB-K10 (suspeita de fuga); o RB-K02 §3.3 (*callbacks* inválidos depois de uma troca de chave) |
 | Nível de degradação | — (uma rotação bem feita não degrada nada; mal feita, o consumidor recusa: 401 no GWY, falha de autenticação no facilitador) |
 | Dono | Plataforma/SRE; executa com o `owner` da entrada no inventário (`eng_canais`, `eng_pagamentos`, `sre`…), e com o Responsável de Segurança em incidente |
-| Última revisão | 2026-11-09 (KAM-083) |
+| Última revisão | 2026-11-18 (KAM-205) |
 | Último ensaio | **Nunca.** O critério 5 do bloco exige ensaio em *staging*; roteiro de mesa-redonda em [`folha-de-ensaio.md`](folha-de-ensaio.md) §3.3. Credor: o fundador; o *staging* com *host* é o KAM-077 |
 | Linha canónica | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13, linha RB-K07; [`../tecnica/08_Seguranca_Conformidade.md`](../tecnica/08_Seguranca_Conformidade.md) §5 |
 | Estado | **Proposta**, não ensaiada |
@@ -172,24 +172,58 @@ O `specs/EPIC-08` (bloco KAM-079, critério 6 e DoD 2) põe este procedimento no
 
 ### 3.7 `kek_token_cliente` (anel: sim; `kid`: sim)
 
-**Não rodar no Piloto.** O `kid` que vai dentro de cada criptograma é o que o
-`cofre.versions()` devolve, e o `EnvSecretProvider` devolve os rótulos **posicionais**
-`actual` e `anterior`: depois de uma rotação, um criptograma com `kid actual` é aberto com
-a KEK nova, a autenticação falha e o *token* perde-se — e um *token* de cliente só volta
-com o dono a repetir o Embedded Signup. Achado da revisão adversarial do KAM-072; a
-correcção é pôr o `kid` dentro do valor da KEK (`<kid>:<base64>`, como o
-`identity/chaves.ts`) e o credor é o **KAM-205**, porque o código é do KAM-016.
+**Roda-se, desde o KAM-205, pela ordem abaixo — e só por ela.** Até ao KAM-205 o `kid`
+gravado em cada criptograma era o rótulo **posicional** que o `EnvSecretProvider` dava
+(`actual`), e uma rotação partia todos os *tokens* guardados (achado da revisão adversarial
+do KAM-072). Agora:
 
-Com um `kid` estável, a ordem seria:
+- o valor da KEK leva o `kid`: **`<kid>:<base64 de 32 octetos>`**, a forma do
+  `identity/chaves.ts`. O `kid` vai com o valor quando ele passa a `_ANTERIOR`, e é isso que
+  o torna estável (`packages/core-ts/src/secrets/kid.ts`). Um `kid` novo gera-se com o
+  `novoKid` do `keyring/anel.ts` (`AAAAMMDD.<base32>`); `actual` e `anterior` não são `kid`;
+- o onboarding **recusa cifrar** com uma KEK sem `kid` no valor (`KekSemKidEstavelError`):
+  enquanto a KEK de um ambiente estiver na forma antiga, um onboarding novo falha antes de
+  guardar o *token*. A primeira rotação abaixo é o que o desbloqueia;
+- os criptogramas gravados antes, com `kid` `actual`, abrem pela versão **sem** `kid` no
+  valor, em qualquer posição (`KID_LEGADO`, no `onboarding/cifra.ts`). Duas versões sem `kid`
+  ao mesmo tempo são recusadas: não se sabe com qual foi feito um criptograma antigo.
 
-1. Actual → anterior, nova → actual, no cofre. A leitura continua durante a janela.
-2. Re-cifrar **todos** os criptogramas com `recifrarToken` (`keyring/tokens.ts`). O
-   *token* não muda; o criptograma sim. A porta de escrita do cofre (`secrets/escrita.ts`)
-   só **cunha** referências novas, pelo que cada criptograma re-cifrado entra numa
-   referência nova e o `tenant_channels.token_ref` tem de a acompanhar — passo que nenhum
-   código faz hoje.
-3. Só depois retirar a anterior. Um criptograma que tenha ficado por re-cifrar deixa de
-   abrir.
+**Nunca acrescentar um prefixo `<kid>:` ao valor que já está no cofre.** Os criptogramas
+antigos dizem `actual`, e uma KEK que passe a dizer outro `kid` deixa-os sem versão no anel.
+A forma antiga sai do cofre **rodando**, como qualquer outra.
+
+1. **Rodar.** Actual → `KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR`, nova (`<kid>:<base64>`) →
+   `KAMBA_SECRET_KEK_TOKEN_CLIENTE`, no cofre, e recriar os consumidores (GWY, TEN). A
+   leitura continua: cada criptograma escolhe a versão pelo `kid` que leva.
+2. **Re-cifrar.** Correr o `recifrarTokensGuardados` (`packages/core-ts/src/keyring/tokens.ts`)
+   com uma ligação **`kamba_batch`** — é o único papel com `BYPASSRLS`; com outro, a
+   `tenant_channels` lê-se vazia, e o *job* recusa (`RecifraSemPapelDeLoteError`) em vez de
+   dizer «zero por re-cifrar». Para cada canal: abre o criptograma, cifra-o com a actual, cunha
+   uma referência nova, troca o `tenant_channels.token_ref` **só se ainda for a lida**, e
+   revoga a antiga. O *token* não muda; o criptograma e a referência sim. Sem esquema.
+3. **Confirmar.** Correr o *job* **outra vez**: tem de devolver `recifrados: 0` e
+   `falhados: []`. Um `falhados` não vazio dá os `tenant_channels.id` dos canais que não
+   abrem — **não se revoga** enquanto houver um; o *token* desse canal só volta com o dono a
+   repetir o Embedded Signup (RB-K06).
+4. **Revogar.** Só então retirar `KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR` e recriar os
+   consumidores. Um criptograma que tenha ficado por re-cifrar deixa de abrir.
+
+O *job* é idempotente e retomável: cair a meio deixa cada canal na referência antiga ou na
+nova, e a passagem seguinte faz o resto. O que pode ficar é uma referência **órfã** no cofre
+(a nova, se caiu entre cunhar e trocar; a antiga, se caiu entre trocar e revogar) — não dá o
+*token* a ninguém sem a KEK, e a antiga deixa de abrir no passo 4. **A ligação tem de estar
+em *autocommit*** — nunca dentro de `BEGIN … COMMIT`: a antiga revoga-se logo a seguir à troca,
+e uma transacção revertida deixava canais a apontar para referências já revogadas. Corre-se uma
+passagem de cada vez: duas ao mesmo tempo não perdem nenhum *token* (ensaiado); a que perde uma
+troca conta o canal em `concorrentes`, ou em `falhados` se o leu depois de a outra ter revogado
+a referência antiga — e o passo 3 resolve os dois.
+
+**O que continua por fazer, e não é do KAM-205** (que o diz em «Fora deste ticket»): nenhum
+processo corre o *job* contra o cofre real — o critério 7 do KAM-072 —, e a porta de escrita
+do cofre (`cunhar`, `revogar`, em `secrets/escrita.ts`) só tem a implementação de ensaio do
+`OpenBaoFakeProvider`: o `EnvSecretProvider` não escreve, e não há adaptador Doppler de
+escrita. É a mesma lacuna que impede o onboarding de guardar um *token* fora dos ensaios. O
+ensaio em *staging* (critério 5 do KAM-072) está por fazer.
 
 ## 4. Critério de recuperação
 
@@ -225,5 +259,6 @@ RB-K01 ou o RB-K02, e comunica-se por esses.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
+| 1.2 | Novembro 2026 | **KAM-205**: o §3.7 deixa de proibir a rotação da `kek_token_cliente` e escreve a ordem — rodar, re-cifrar, confirmar, revogar. O `kid` vai dentro do valor da KEK (`<kid>:<base64>`) e o `EnvSecretProvider` lê-o de lá; o onboarding recusa cifrar com uma KEK sem `kid`; os criptogramas antigos, com `kid` `actual`, abrem pela versão sem `kid`; a re-cifra é o `recifrarTokensGuardados`, com o `kamba_batch`, e só se revoga com `falhados` vazio. O que falta para correr contra o cofre real continua com o KAM-072 (critérios 5 e 7) | KAM-205 |
 | 1.1 | Novembro 2026 | **KAM-072**: o §0 passa a nomear o `Rotador` do `packages/core-ts/src/keyring/` e o que lhe falta para correr contra o cofre real; o cabeçalho diz que a idade dos segredos já se calcula e que ninguém a expõe (credor: o fundador); o §3.5 ganha a ordem da rotação do *pepper* sobre o *job* do KAM-008; o §3.2 e o §0 deixam de dizer que o ProxyPay não tem adaptador (o KAM-056 fundiu) e citam o ensaio da rotação contra o servidor falso; o §3.7 novo manda **não** rodar a KEK dos *tokens* de cliente no Piloto, porque o `kid` do `EnvSecretProvider` é posicional e a rotação parte os *tokens* guardados (achado da revisão adversarial; credor o KAM-205); o credor da divergência do destino passa a ser o fundador; o §0 e o §4 dizem quando a rotação fica no `audit_log` (revisão `0066`) | KAM-072 |
 | 1.0 | Novembro 2026 | O *stub* do KAM-080 passa a runbook no modelo comum (**KAM-083**): os dois caminhos e a ordem de incidente, a janela por segredo (com os 7 dias da Meta no `meta_app_secret`), o «recriar e não reiniciar», o procedimento proposto da cópia offline da passphrase do backup, e as faltas medidas no §0 — sem acção de rotação no `audit_log`, sem data de última rotação no inventário | KAM-083 |
