@@ -40,7 +40,7 @@ import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
 
-import { BASE_DESCARTAVEL, aceitarVigentes, activarTenant, criarTenant, ligar } from "./apoio.ts";
+import { BASE_DESCARTAVEL, aceitarVigentes, activarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
 import type { ConjuntoSql } from "../src/revisao/index.ts";
 import { SQL_TENANTS_A_DESCER } from "../src/confianca/index.ts";
 import { RepositorioDeTrustSql } from "../src/trust/index.ts";
@@ -143,6 +143,34 @@ async function paidConsumidoPeloTrust(tenant: string, pedido: string): Promise<s
   return evento;
 }
 
+/**
+ * O actor de cada transição da semente. A entrega é do `agente`: desde a revisão
+ * `0071` (KAM-204) o `cliente` só entra de um actor `agente` com a janela de 24 h
+ * aberta na conversa do contacto (`abrirJanela`), e é a entrega confirmada pelo
+ * cliente que conta para subir (KAM-096, critério 3). O `ops` não declara papel.
+ */
+const ACTOR_DA_TRANSICAO = (para: string): readonly [string, string] =>
+  para === "paga" ? ["sistema", "ops-1"] : para === "entregue" ? ["agente", "grafo-vendedor"] : ["ops", "ops-1"];
+
+/** O canal de cada tenant, onde as conversas da semente abrem a janela. */
+const canais = new Map<string, string>();
+
+/** O cliente escreveu agora: a janela de 24 h da conversa do contacto fica aberta. */
+async function abrirJanela(tenant: string, comprador: string): Promise<void> {
+  let canal = canais.get(tenant);
+  if (canal === undefined) {
+    canal = (await criarCanal(admin, tenant)).id;
+    canais.set(tenant, canal);
+  }
+  await admin.query(
+    "INSERT INTO platform.conversations (tenant_id, contact_id, channel_id, last_inbound_at, window_expires_at) " +
+      "VALUES ($1, $2, $3, now(), now() + interval '24 hours') " +
+      "ON CONFLICT (tenant_id, contact_id, channel_id) DO UPDATE " +
+      "SET last_inbound_at = EXCLUDED.last_inbound_at, window_expires_at = EXCLUDED.window_expires_at",
+    [tenant, comprador, canal],
+  );
+}
+
 /** Uma transição pelo caminho do módulo: CAS e registo, numa transacção que confirma. */
 async function transitar(
   tenant: string,
@@ -171,8 +199,8 @@ async function transitar(
     if (nova === undefined) throw new Error(`a semente nao transitou ${de} -> ${para}`);
     await admin.query(
       `INSERT INTO platform.order_state_log (tenant_id, order_id, de, para, version, causa, evento_id, actor_kind, actor_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ops-1')`,
-      [tenant, pedido, de, para, nova, causa, eventoId, para === "paga" ? "sistema" : "ops"],
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [tenant, pedido, de, para, nova, causa, eventoId, ...ACTOR_DA_TRANSICAO(para)],
     );
     await admin.query("COMMIT");
     return Number(nova);
@@ -193,6 +221,7 @@ async function entregue(tenant: string, comprador: string): Promise<[string, num
   ).rows[0]!.id;
   let v = await transitar(tenant, pedido, "criada", "aguarda_pagamento", 1, "charge.issued");
   v = await transitar(tenant, pedido, "aguarda_pagamento", "paga", v, "payment.confirmed", await paidConsumidoPeloTrust(tenant, pedido));
+  await abrirJanela(tenant, comprador);
   v = await transitar(tenant, pedido, "paga", "entregue", v, "levantamento");
   return [pedido, v];
 }
