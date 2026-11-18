@@ -148,8 +148,8 @@ export const SQL_CANAIS_A_RECIFRAR = `
  * Troca a referência, **só se ainda for a que se leu**.
  *
  * O `AND token_ref = $2` é o que torna seguras duas re-cifras ao mesmo tempo, ou
- * uma re-cifra e um *offboarding*: quem perde não escreve, e revoga a referência
- * que acabou de cunhar.
+ * uma re-cifra e qualquer outro escritor da `token_ref`: quem perde não escreve,
+ * e revoga a referência que acabou de cunhar.
  */
 export const SQL_TROCAR_TOKEN_REF = `
   UPDATE platform.tenant_channels
@@ -213,6 +213,19 @@ export interface DependenciasDaRecifra {
  *
  * Um cofre em baixo propaga: não é um *token* perdido, é uma passagem por
  * repetir.
+ *
+ * **A ligação tem de estar em *autocommit*.** A antiga revoga-se logo a seguir
+ * ao `UPDATE`, e isso só é seguro se o `UPDATE` já estiver confirmado: dentro de
+ * um `BEGIN … COMMIT`, uma queda a meio reverte as trocas e deixa os canais a
+ * apontar para referências já revogadas — *tokens* perdidos. Por isso cada canal
+ * é uma instrução própria, e o *job* não abre transacção.
+ *
+ * **Um limite que não é alcançável hoje:** a `channel_onboarding.recursos_criados`
+ * guarda a referência que o onboarding cunhou, e a re-cifra não a acompanha. Uma
+ * compensação posterior leria uma referência revogada. Hoje a compensação só
+ * corre dentro da transacção do `ligar`, cuja linha o *job* não vê antes do
+ * `COMMIT`; se um dia correr fora dela, este passo tem de passar a actualizar a
+ * lista.
  */
 export async function recifrarTokensGuardados(d: DependenciasDaRecifra): Promise<ResultadoDaRecifra> {
   const { rows: papel } = await d.sql.query<{ atravessa: boolean }>(SQL_PAPEL_ATRAVESSA_TENANTS);

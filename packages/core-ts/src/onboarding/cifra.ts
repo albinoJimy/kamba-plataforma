@@ -79,7 +79,7 @@
 import { Buffer } from "node:buffer";
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 
-import { chaveDoValor, rotuloPosicional } from "../secrets/kid.ts";
+import { chaveDoValor, kidDoValor, rotuloPosicional } from "../secrets/kid.ts";
 
 /** Octetos de uma DEK e de uma KEK: AES-256. */
 export const OCTETOS_DE_CHAVE = 32;
@@ -329,7 +329,25 @@ export class KekSemKidEstavelError extends Error {
  */
 export function kekParaCifrar(kid: string, valor: string): VersaoDaKek {
   if (rotuloPosicional(kid)) throw new KekSemKidEstavelError();
+  exigirKidDoValor(kid, valor);
   return { kid, chave: chaveDoValor(valor) };
+}
+
+/**
+ * O `kid` e o valor chegam em duas leituras do cofre (`versions()` e `get()`, ou
+ * `getRing()`). Se o cofre rodar entre as duas — a *cache* do Doppler a expirar
+ * no intervalo —, o par sai trocado: o `kid` de uma versão com a chave de
+ * outra, e um criptograma rotulado com um `kid` que nunca o abre. Quando o valor
+ * traz o seu `kid`, os dois têm de bater; quando não traz (OpenBao), não há o
+ * que comparar.
+ */
+function exigirKidDoValor(kid: string, valor: string): void {
+  const doValor = kidDoValor(valor);
+  if (doValor !== null && doValor !== kid) {
+    throw new TokenCifradoInvalidoError(
+      `o kid ${kid} não é o da versão lida (${doValor}); o cofre rodou entre as duas leituras`,
+    );
+  }
 }
 
 /**
@@ -351,6 +369,7 @@ export function anelDaKek(
   ];
   for (const [kid, valor] of entradas) {
     if (kid === undefined || valor === null) continue;
+    if (!rotuloPosicional(kid)) exigirKidDoValor(kid, valor);
     const chave = rotuloPosicional(kid) ? KID_LEGADO : kid;
     if (Object.hasOwn(anel, chave)) {
       throw new TokenCifradoInvalidoError(

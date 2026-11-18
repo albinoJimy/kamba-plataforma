@@ -1218,4 +1218,32 @@ describe("a re-cifra dos tokens guardados contra a base (KAM-205)", () => {
     kek = ambienteDaKek(nova);
     await todosAbrem(ids);
   });
+
+  it("outro escritor muda a token_ref a meio: a re-cifra nao a pisa, e revoga so o que cunhou", async () => {
+    // Mede o `AND token_ref = $2` contra a tabela real: sem ele, o `UPDATE` do
+    // job escrevia por cima da troca do outro escritor.
+    const ids = await semearLegados("recifra-outro");
+    kek = ambienteDaKek(nova, legada);
+    const alvo = ids[0] as string;
+    const antes = (await refs([alvo])).get(alvo) as string;
+    const [tenant, token] = meus.get(alvo) as readonly [string, string];
+    const doOutro = await bao.cunhar(FAMILIA_DO_TOKEN, cifrarToken(legada, KID_LEGADO, tenant, token));
+    const comOutroEscritor: Cofre = {
+      ...cofreDaRecifra,
+      get: async (ref) => {
+        const valor = await cofreDaRecifra.get(ref);
+        if (ref === antes) {
+          await admin.query("UPDATE platform.tenant_channels SET token_ref = $2 WHERE id = $1", [alvo, doOutro]);
+        }
+        return valor;
+      },
+    };
+    const r = await recifrarTokensGuardados({ cofre: comOutroEscritor, sql: batch });
+    assert.ok(r.concorrentes >= 1, "a troca perdida conta-se em concorrentes");
+    assert.equal((await refs([alvo])).get(alvo), doOutro, "a troca do outro escritor ficou");
+    // As duas continuam no cofre: o job revogou so a que cunhou, e a antiga nao
+    // se revoga quando a troca nao aconteceu. `get` rejeita uma revogada.
+    await bao.get(doOutro);
+    await bao.get(antes);
+  });
 });

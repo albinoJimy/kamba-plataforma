@@ -211,9 +211,12 @@ A forma antiga sai do cofre **rodando**, como qualquer outra.
 O *job* é idempotente e retomável: cair a meio deixa cada canal na referência antiga ou na
 nova, e a passagem seguinte faz o resto. O que pode ficar é uma referência **órfã** no cofre
 (a nova, se caiu entre cunhar e trocar; a antiga, se caiu entre trocar e revogar) — não dá o
-*token* a ninguém sem a KEK, e a antiga deixa de abrir no passo 4. Corre-se uma passagem de
-cada vez: duas ao mesmo tempo não perdem nenhum *token* (ensaiado), mas a que perde uma troca
-conta o canal em `falhados`, e o passo 3 resolve-o.
+*token* a ninguém sem a KEK, e a antiga deixa de abrir no passo 4. **A ligação tem de estar
+em *autocommit*** — nunca dentro de `BEGIN … COMMIT`: a antiga revoga-se logo a seguir à troca,
+e uma transacção revertida deixava canais a apontar para referências já revogadas. Corre-se uma
+passagem de cada vez: duas ao mesmo tempo não perdem nenhum *token* (ensaiado); a que perde uma
+troca conta o canal em `concorrentes`, ou em `falhados` se o leu depois de a outra ter revogado
+a referência antiga — e o passo 3 resolve os dois.
 
 **O que continua por fazer, e não é do KAM-205** (que o diz em «Fora deste ticket»): nenhum
 processo corre o *job* contra o cofre real — o critério 7 do KAM-072 —, e a porta de escrita

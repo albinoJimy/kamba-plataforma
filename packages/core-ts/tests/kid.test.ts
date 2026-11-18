@@ -220,6 +220,28 @@ describe("a KEK com kid estável: um rótulo posicional nunca chega ao criptogra
     await assert.rejects(anelDaKekNoCofre(ambiente(gerarValor())), KekSemKidEstavelError);
   });
 
+  it("a regra não é tentativa: com a chave certa no anel sob outro kid, o criptograma antigo não abre", async () => {
+    // É o erro que o RB-K07 §3.7 proíbe: prefixar `k1:` à KEK legada em vez de
+    // rodar. A chave que abriria o criptograma está no anel — sob `k1`, e não
+    // sob `actual`. Uma implementação que tentasse as chaves do anel abria-o.
+    const legada = gerarValor();
+    const t = token();
+    const antigo = cifrarToken(legada, "actual", TENANT, t);
+    const prefixada = ambiente(`k1:${legada}`);
+    const anel = await anelComoOOnboarding(prefixada);
+    assert.equal(anel.k1, legada, "a chave que o abriria está lá");
+    assert.throws(() => decifrarToken(anel, TENANT, antigo), /versão actual da KEK, que não está no anel/);
+  });
+
+  it("um kid que não bate com o do valor é recusado: o cofre rodou entre as duas leituras", () => {
+    const k2 = `k2:${gerarValor()}`;
+    assert.throws(() => kekParaCifrar("k1", k2), /não é o da versão lida/);
+    assert.throws(() => anelDaKek([k2, null], ["k1"]), /não é o da versão lida/);
+    assert.throws(() => anelDaKek([k2, `k1:${gerarValor()}`], ["k3", "k2"]), /não é o da versão lida/);
+    // Sem `kid` no valor (o OpenBao, de inteiros) não há o que comparar.
+    assert.deepEqual(Object.keys(anelDaKek([gerarValor(), null], ["7"])), ["7"]);
+  });
+
   it("privacidade: nenhum erro leva o valor da KEK nem o token", async () => {
     const legada = gerarValor();
     const k1 = `k1:${gerarValor()}`;

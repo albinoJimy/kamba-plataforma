@@ -816,9 +816,12 @@ describe("a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criteri
       return this.env.versions(REF_DA_KEK);
     }
 
+    /** Troca o que se guarda: é como se simula um *token* gravado antes do KAM-205. */
+    substituir: (valor: string) => string = (valor) => valor;
+
     override async cunhar(familia: string, valor: string): Promise<string> {
       this.valoresCunhados.push(valor);
-      return super.cunhar(familia, valor);
+      return super.cunhar(familia, this.substituir(valor));
     }
   }
 
@@ -878,6 +881,30 @@ describe("a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criteri
     assert.equal(cofre.valoresCunhados.length, 1);
     assert.equal(kidDoCriptograma(cofre.valoresCunhados[0] ?? ""), "k1");
     assert.deepEqual(graph.tokensDaAnulacao, [graph.token], "o token abriu com o k1 em anterior");
+  });
+
+  it("KAM-205: um token gravado antes da correcao (kid actual) abre pelo servico depois da rotacao", async () => {
+    // A KEK legada nao tem `kid` no valor; o criptograma guardado diz `actual`,
+    // como o codigo do KAM-016 o gravava. A rotacao poe a legada em anterior, e
+    // o `#tokenEmClaro` tem de a encontrar pelo `KID_LEGADO` — um anel montado a
+    // mao com o rotulo `anterior` nao a encontrava.
+    const legada = KEK;
+    const cofre = new CofreDeAmbiente(ambienteDaKek(`k1:${KEK_NOVA}`));
+    const graph = new GraphQueRoda();
+    cofre.substituir = () => cifrarToken(legada, "actual", TENANT, graph.token);
+    graph.confirmacao = CAMPOS_DE_WEBHOOK.filter((c) => c !== "history");
+    graph.aoLer = () => {
+      cofre.env = ambienteDaKek(`k2:${Buffer.alloc(32, 5).toString("base64")}`, legada);
+    };
+    const servico = new Onboarding({
+      sql: new BaseFalsa(),
+      graph,
+      cofre,
+      vertical: "vendedor",
+      metricas: new Metricas(),
+    });
+    await assert.rejects(() => servico.ligar(entradaDeEnsaio()), SubscricaoIncompletaError);
+    assert.deepEqual(graph.tokensDaAnulacao, [graph.token], "o token legado abriu pela versao sem kid");
   });
 });
 
