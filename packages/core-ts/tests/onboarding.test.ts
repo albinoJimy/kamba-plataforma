@@ -74,6 +74,7 @@ import {
   SQL_VOLTAR_AO_PONTO,
   SubscricaoIncompletaError,
   TRANSICOES,
+  KekSemKidEstavelError,
   TokenCifradoInvalidoError,
   TransicaoInvalidaError,
   VARIAVEL_DA_VERSAO_DA_GRAPH,
@@ -99,6 +100,7 @@ import type {
   ResultadoDoEs,
   Tentativa,
 } from "../src/onboarding/index.ts";
+import { EnvSecretProvider } from "../src/secrets/env.ts";
 import { cunharRef } from "../src/secrets/escrita.ts";
 
 /** Uma KEK de ensaio: 32 octetos em base64, a forma que o `cifra.ts` exige. */
@@ -783,6 +785,99 @@ describe("a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criteri
     assert.equal(FAMILIA_DO_TOKEN, "meta_client_token");
     assert.equal(FAMILIA_DO_PIN, "meta_pin_2fa");
     assert.equal(REF_DA_KEK, "kek_token_cliente");
+  });
+
+  // --- KAM-205: o `kid` estável, pelo serviço e não só pelas funções ----------
+  //
+  // Os dois casos passam pelo `Onboarding` com a KEK lida de um
+  // `EnvSecretProvider`, que é o provedor do Piloto: é a **ligação** que se
+  // prova, e não só o `kekParaCifrar` e o `anelDaKek` — um `#trocarEGuardar` ou
+  // um `#tokenEmClaro` que voltasse a montar o anel à mão ficava vermelho aqui.
+
+  /** O cofre falso com a KEK de um `EnvSecretProvider`, e os valores cunhados guardados. */
+  class CofreDeAmbiente extends CofreFalso {
+    env: EnvSecretProvider;
+    readonly valoresCunhados: string[] = [];
+
+    constructor(env: EnvSecretProvider) {
+      super();
+      this.env = env;
+    }
+
+    override async get(ref: string): Promise<string> {
+      return ref === REF_DA_KEK ? this.env.get(ref) : super.get(ref);
+    }
+
+    override async getRing(): Promise<readonly [string, string | null]> {
+      return this.env.getRing(REF_DA_KEK);
+    }
+
+    override async versions(): Promise<readonly string[]> {
+      return this.env.versions(REF_DA_KEK);
+    }
+
+    override async cunhar(familia: string, valor: string): Promise<string> {
+      this.valoresCunhados.push(valor);
+      return super.cunhar(familia, valor);
+    }
+  }
+
+  /** A Graph falsa que roda a KEK ao ler as subscrições, e guarda o *token* da anulação. */
+  class GraphQueRoda extends GraphFalsa {
+    aoLer: () => void = () => undefined;
+    readonly tokensDaAnulacao: string[] = [];
+
+    override async lerSubscricoes(): Promise<readonly string[]> {
+      this.aoLer();
+      return super.lerSubscricoes();
+    }
+
+    override async anularSubscricao(_waba?: string, token?: string): Promise<void> {
+      this.tokensDaAnulacao.push(token ?? "");
+      return super.anularSubscricao();
+    }
+  }
+
+  function ambienteDaKek(actual: string, anterior?: string): EnvSecretProvider {
+    const env: Record<string, string> = { KAMBA_SECRET_KEK_TOKEN_CLIENTE: actual };
+    if (anterior !== undefined) env.KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR = anterior;
+    return new EnvSecretProvider({ ambiente: "staging", env });
+  }
+
+  it("KAM-205: com a KEK sem kid no valor, o servico recusa cifrar e nao cunha o token", async () => {
+    const cofre = new CofreDeAmbiente(ambienteDaKek(KEK));
+    const servico = new Onboarding({
+      sql: new BaseFalsa(),
+      graph: new GraphFalsa(),
+      cofre,
+      vertical: "vendedor",
+      metricas: new Metricas(),
+    });
+    await assert.rejects(() => servico.ligar(entradaDeEnsaio()), KekSemKidEstavelError);
+    assert.equal(cofre.cunhados.length, 0, "um rotulo posicional nunca chega a um criptograma");
+  });
+
+  it("KAM-205: o criptograma leva o kid do valor, e uma rotacao a meio da saga nao parte a compensacao", async () => {
+    const k1 = `k1:${KEK}`;
+    const cofre = new CofreDeAmbiente(ambienteDaKek(k1));
+    const graph = new GraphQueRoda();
+    // A confirmação incompleta obriga a compensar, e a compensação abre o
+    // *token* para anular a subscrição — **depois** da rotação.
+    graph.confirmacao = CAMPOS_DE_WEBHOOK.filter((c) => c !== "history");
+    graph.aoLer = () => {
+      cofre.env = ambienteDaKek(`k2:${KEK_NOVA}`, k1);
+    };
+    const servico = new Onboarding({
+      sql: new BaseFalsa(),
+      graph,
+      cofre,
+      vertical: "vendedor",
+      metricas: new Metricas(),
+    });
+    await assert.rejects(() => servico.ligar(entradaDeEnsaio()), SubscricaoIncompletaError);
+    assert.equal(cofre.valoresCunhados.length, 1);
+    assert.equal(kidDoCriptograma(cofre.valoresCunhados[0] ?? ""), "k1");
+    assert.deepEqual(graph.tokensDaAnulacao, [graph.token], "o token abriu com o k1 em anterior");
   });
 });
 

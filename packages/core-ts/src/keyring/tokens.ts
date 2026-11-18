@@ -20,26 +20,46 @@
  * * **depois de a anterior ser revogada a leitura continua**, desde que a
  *   re-cifra tenha corrido sobre todos os criptogramas antes.
  *
- * ## O defeito que a revisão adversarial encontrou, e que este ticket não corrige
+ * ## O `kid` estável, e os criptogramas de antes dele (KAM-205)
  *
- * **No Piloto o `kid` não é estável.** O `#tokenEmClaro` do
- * `onboarding/onboarding.ts` tira o `kid` das versões que o cofre lista para a KEK, e o
- * `EnvSecretProvider` — o provedor do Piloto, `ADR-L002` — devolve os rótulos
- * **posicionais** `"actual"` e `"anterior"`. Um criptograma feito antes da
- * rotação diz `kid "actual"`; depois dela, `"actual"` é a KEK nova, a
- * autenticação do GCM falha e o *token* não abre. **Rodar a `kek_token_cliente`
- * com o `EnvSecretProvider` parte todos os *tokens* guardados.** A correcção é
- * no KAM-016 — o `kid` dentro do valor da KEK, na forma `<kid>:<base64>` que o
- * `identity/chaves.ts` já usa —, e fica devolvida no bloco do KAM-072 com o
- * fundador como credor. Até lá, o RB-K07 §3.7 manda **não** rodar esta KEK.
+ * A revisão adversarial do KAM-072 mediu que, no Piloto, o `kid` **não era
+ * estável**: o `EnvSecretProvider` dava os rótulos posicionais `actual` e
+ * `anterior`, e rodar a `kek_token_cliente` partia todos os *tokens* guardados.
+ * O KAM-205 fecha-o em três sítios:
+ *
+ * * o provedor lê o `kid` do valor, `<kid>:<base64>` (`secrets/kid.ts`), e esse
+ *   `kid` vai com a versão quando ela passa a anterior;
+ * * o `onboarding` recusa cifrar com um rótulo posicional (`kekParaCifrar`);
+ * * os criptogramas gravados antes, com `kid` `actual`, abrem pela versão **sem**
+ *   `kid` no valor (`KID_LEGADO`, no `onboarding/cifra.ts`), em qualquer
+ *   posição — é essa regra que deixa rodar uma vez para um `kid` estável e
+ *   re-cifrar o que ficou para trás.
+ *
+ * O `recifrarTokensGuardados`, no fim deste ficheiro, é o *job* que faz a
+ * re-cifra sobre a `tenant_channels`. A ordem está no RB-K07 §3.7: rodar,
+ * re-cifrar, revogar.
  *
  * A re-cifra é **idempotente**: um criptograma que já está na versão actual
  * devolve-se tal como veio, pelo que repetir o *job* não cifra outra vez.
  */
 
-import { cifrarToken, decifrarToken, kidDoCriptograma } from "../onboarding/cifra.ts";
+import {
+  KID_LEGADO,
+  KekSemKidEstavelError,
+  TokenCifradoInvalidoError,
+  anelDaKek,
+  cifrarToken,
+  decifrarToken,
+  kekParaCifrar,
+  kidDoCriptograma,
+} from "../onboarding/cifra.ts";
+import type { ClienteSql, Cofre } from "../onboarding/contrato.ts";
+// Os `id` de segredo vêm do ficheiro estreito que o *gate* 9 dispensa.
+import { FAMILIA_DO_TOKEN, REF_DA_KEK } from "../onboarding/segredos.ts";
+import { rotuloPosicional } from "../secrets/kid.ts";
+import { SecretAusenteError, SecretRefInvalidaError } from "../secrets/port.ts";
 
-import type { Anel } from "./anel.ts";
+import type { Anel, ChaveDoAnel } from "./anel.ts";
 
 /** O anel na forma `{kid: valor}` que o `decifrarToken` recebe. */
 export function anelPorKid(anel: Anel): Readonly<Record<string, string>> {
@@ -73,4 +93,189 @@ export function recifrarToken(anel: Anel, tenantId: string, criptograma: string)
     criptograma: cifrarToken(anel.actual.valor, anel.actual.kid, tenantId, token),
     mudou: true,
   };
+}
+
+// --- A re-cifra dos tokens guardados (KAM-205) ----------------------------------
+
+/**
+ * O anel da `kek_token_cliente` tal como o cofre o dá, na forma do `keyring`.
+ *
+ * A actual tem de trazer `kid` estável — re-cifrar para um rótulo posicional era
+ * recriar o defeito, e o `kekParaCifrar` recusa-o. A anterior pode ser a versão
+ * sem `kid` de antes do KAM-205, e então responde por `KID_LEGADO`.
+ */
+export async function anelDaKekNoCofre(cofre: Pick<Cofre, "getRing" | "versions">): Promise<Anel> {
+  const valores = await cofre.getRing(REF_DA_KEK);
+  const kids = await cofre.versions(REF_DA_KEK);
+  const [kidActual, kidAnterior] = kids;
+  if (kidActual === undefined) throw new KekSemKidEstavelError();
+  const actual = kekParaCifrar(kidActual, valores[0]);
+  const porKid = anelDaKek(valores, kids);
+  let anterior: ChaveDoAnel | null = null;
+  if (valores[1] !== null && kidAnterior !== undefined) {
+    const kid = rotuloPosicional(kidAnterior) ? KID_LEGADO : kidAnterior;
+    const valor = porKid[kid];
+    if (valor !== undefined) anterior = { kid, valor };
+  }
+  return { actual: { kid: actual.kid, valor: actual.chave }, anterior, anteriorAte: null };
+}
+
+/**
+ * Pergunta se o papel da ligação atravessa a RLS.
+ *
+ * A `tenant_channels` tem RLS por *tenant*. Com o `kamba_app` e sem tenant na
+ * sessão a leitura devolve **zero linhas sem erro**, e a re-cifra acabava com
+ * «0 por re-cifrar» — o sinal exacto que o RB-K07 §3.7 manda esperar antes de
+ * revogar a anterior. Revogar a seguir perdia todos os *tokens*. Só o
+ * `kamba_batch` tem `BYPASSRLS` (`db/rls.py`).
+ */
+export const SQL_PAPEL_ATRAVESSA_TENANTS = `
+  SELECT rolbypassrls AS atravessa
+    FROM pg_roles
+   WHERE rolname = current_user
+`;
+
+/** Os canais por re-cifrar, por páginas de chave: retoma onde a última parou. */
+export const SQL_CANAIS_A_RECIFRAR = `
+  SELECT id::text AS id, tenant_id::text AS tenant_id, token_ref
+    FROM platform.tenant_channels
+   WHERE id > $1::uuid
+   ORDER BY id
+   LIMIT $2
+`;
+
+/**
+ * Troca a referência, **só se ainda for a que se leu**.
+ *
+ * O `AND token_ref = $2` é o que torna seguras duas re-cifras ao mesmo tempo, ou
+ * uma re-cifra e um *offboarding*: quem perde não escreve, e revoga a referência
+ * que acabou de cunhar.
+ */
+export const SQL_TROCAR_TOKEN_REF = `
+  UPDATE platform.tenant_channels
+     SET token_ref = $3
+   WHERE id = $1::uuid
+     AND token_ref = $2
+  RETURNING id::text AS id
+`;
+
+/** Linhas por página. */
+export const LOTE_DA_RECIFRA = 100;
+
+/** O primeiro `id` de todos, para a primeira página. */
+const ANTES_DO_PRIMEIRO = "00000000-0000-0000-0000-000000000000";
+
+/** A ligação não atravessa a RLS: a re-cifra veria zero canais e diria que acabou. */
+export class RecifraSemPapelDeLoteError extends Error {
+  override readonly name = "RecifraSemPapelDeLoteError";
+
+  constructor() {
+    super(
+      "a re-cifra dos tokens de cliente corre como kamba_batch (BYPASSRLS); " +
+        "com outro papel a tenant_channels lê-se vazia e a re-cifra parecia acabada",
+    );
+  }
+}
+
+/** O que uma passagem fez. Os `falhados` são `tenant_channels.id`, nunca valores. */
+export interface ResultadoDaRecifra {
+  readonly vistos: number;
+  readonly recifrados: number;
+  readonly jaNaActual: number;
+  readonly concorrentes: number;
+  readonly falhados: readonly string[];
+}
+
+/** As portas do *job*: o cofre de leitura e escrita, e uma ligação `kamba_batch`. */
+export interface DependenciasDaRecifra {
+  readonly cofre: Cofre;
+  readonly sql: ClienteSql;
+  readonly lote?: number;
+}
+
+/**
+ * Re-cifra todos os *tokens* de cliente guardados com a versão actual da KEK.
+ *
+ * Para cada canal: lê o criptograma, re-cifra-o (`recifrarToken`), cunha uma
+ * referência nova com o criptograma novo, troca a `token_ref` se ainda for a
+ * lida, e só então revoga a antiga. **Sem esquema**: a coluna é a que já existe.
+ *
+ * * **Idempotente.** Um criptograma que já está no `kid` actual não se toca: a
+ *   segunda passagem dá `recifrados: 0`.
+ * * **Retomável.** Cair a meio deixa cada canal ou na referência antiga ou na
+ *   nova, nunca sem nenhuma; a passagem seguinte faz o que faltou. O que pode
+ *   ficar é uma referência **órfã** no cofre — a nova, se a queda foi entre o
+ *   `cunhar` e o `UPDATE`; a antiga, se foi entre o `UPDATE` e o `revogar`. Não
+ *   dá o *token* a ninguém sem a KEK, e a antiga deixa de abrir quando a anterior
+ *   for revogada.
+ * * **Não pára num canal que não abre.** Regista-o em `falhados` e segue: o
+ *   RB-K07 §3.7 só deixa revogar a anterior com `falhados` vazio.
+ *
+ * Um cofre em baixo propaga: não é um *token* perdido, é uma passagem por
+ * repetir.
+ */
+export async function recifrarTokensGuardados(d: DependenciasDaRecifra): Promise<ResultadoDaRecifra> {
+  const { rows: papel } = await d.sql.query<{ atravessa: boolean }>(SQL_PAPEL_ATRAVESSA_TENANTS);
+  if (papel[0]?.atravessa !== true) throw new RecifraSemPapelDeLoteError();
+  const anel = await anelDaKekNoCofre(d.cofre);
+  const lote = d.lote ?? LOTE_DA_RECIFRA;
+  let vistos = 0;
+  let recifrados = 0;
+  let jaNaActual = 0;
+  let concorrentes = 0;
+  const falhados: string[] = [];
+  let ultimo = ANTES_DO_PRIMEIRO;
+  for (;;) {
+    const { rows } = await d.sql.query<{ id: string; tenant_id: string; token_ref: string }>(
+      SQL_CANAIS_A_RECIFRAR,
+      [ultimo, lote],
+    );
+    for (const canal of rows) {
+      vistos += 1;
+      let recifra: Recifra;
+      try {
+        recifra = recifrarToken(anel, canal.tenant_id, await d.cofre.get(canal.token_ref));
+      } catch (erro) {
+        // Um canal que não abre — versão fora do anel, criptograma alterado,
+        // referência sem segredo ou mal formada — é deste canal, e não da
+        // passagem: regista-se e segue.
+        if (
+          erro instanceof TokenCifradoInvalidoError ||
+          erro instanceof SecretAusenteError ||
+          erro instanceof SecretRefInvalidaError
+        ) {
+          falhados.push(canal.id);
+          continue;
+        }
+        throw erro;
+      }
+      if (!recifra.mudou) {
+        jaNaActual += 1;
+        continue;
+      }
+      const novo = await d.cofre.cunhar(FAMILIA_DO_TOKEN, recifra.criptograma);
+      let trocadas: readonly { id: string }[];
+      try {
+        ({ rows: trocadas } = await d.sql.query<{ id: string }>(SQL_TROCAR_TOKEN_REF, [
+          canal.id,
+          canal.token_ref,
+          novo,
+        ]));
+      } catch (erro) {
+        await d.cofre.revogar(novo);
+        throw erro;
+      }
+      if (trocadas.length === 1) {
+        await d.cofre.revogar(canal.token_ref);
+        recifrados += 1;
+      } else {
+        await d.cofre.revogar(novo);
+        concorrentes += 1;
+      }
+    }
+    const fim = rows.at(-1);
+    if (rows.length < lote || fim === undefined) break;
+    ultimo = fim.id;
+  }
+  return { vistos, recifrados, jaNaActual, concorrentes, falhados };
 }

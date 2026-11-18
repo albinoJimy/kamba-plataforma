@@ -54,8 +54,15 @@
  *
  * O comprimento do `kid` num octeto limita-o a 255 caracteres, que é muito mais
  * do que qualquer provedor usa (o OpenBao KV v2 usa inteiros; o `EnvSecretProvider`
- * usa rótulos). Um `kid` mais longo do que isso é recusado ao cifrar, e não
- * truncado: um `kid` truncado produz um criptograma que não abre e nada o diz.
+ * lê-o do valor, `<kid>:<base64>`, desde o KAM-205). Um `kid` mais longo do que
+ * isso é recusado ao cifrar, e não truncado: um `kid` truncado produz um
+ * criptograma que não abre e nada o diz.
+ *
+ * **O `kid` tem de ser estável**: o mesmo para a mesma versão da KEK antes e
+ * depois de ela passar a anterior. Até ao KAM-205 o `EnvSecretProvider` dava o
+ * rótulo posicional `actual`, e rodar a KEK partia os *tokens* guardados. O
+ * `kekParaCifrar` recusa agora um rótulo posicional, e o `anelDaKek` abre os
+ * criptogramas antigos pela regra do `KID_LEGADO` (fim deste ficheiro).
  *
  * ## O contexto autenticado prende a cifra ao tenant
  *
@@ -71,6 +78,8 @@
 
 import { Buffer } from "node:buffer";
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+
+import { chaveDoValor, rotuloPosicional } from "../secrets/kid.ts";
 
 /** Octetos de uma DEK e de uma KEK: AES-256. */
 export const OCTETOS_DE_CHAVE = 32;
@@ -265,4 +274,91 @@ export function decifrarToken(
     // existe. É a mesma escolha do `CifraInvalidaError` do KAM-008.
     throw new TokenCifradoInvalidoError("a autenticação falhou");
   }
+}
+
+// --- O `kid` estável da KEK (KAM-205) ------------------------------------------
+
+/**
+ * O `kid` que levam os criptogramas gravados **antes** do KAM-205.
+ *
+ * Até ao KAM-205 o `kid` saía do `versions()[0]` de um cofre de ambiente, que
+ * devolvia o rótulo posicional `actual` para a KEK sem `kid` no valor. Esses
+ * criptogramas têm `actual` no cabeçalho **e** no contexto autenticado, pelo que
+ * não se reescrevem sem os abrir.
+ *
+ * **A regra, que é escrita e não tentativa:** um criptograma com o `kid`
+ * `actual` foi feito pela versão da KEK **sem `kid` no valor**. Nunca houve duas
+ * — o RB-K07 §3.7 proibia rodar esta KEK, e uma rotação sem `kid` deixava duas
+ * versões sem identidade, que o `anelDaKek` recusa. Por isso, no anel, a versão
+ * sem `kid` responde por `actual` **esteja em que posição estiver**: passa a
+ * anterior quando se roda para uma versão `<kid>:<base64>`, e os criptogramas
+ * antigos continuam a abrir até a re-cifra os levar ao `kid` novo.
+ */
+export const KID_LEGADO = "actual";
+
+/** A versão da KEK com que se cifra: o `kid` estável e a chave sem ele. */
+export interface VersaoDaKek {
+  readonly kid: string;
+  readonly chave: string;
+}
+
+/**
+ * A versão actual da KEK não traz `kid` estável.
+ *
+ * Cifrar com um rótulo posicional era gravar no criptograma um `kid` que a
+ * próxima rotação faz apontar para outra chave — o defeito do KAM-205. Recusa-se
+ * antes de cifrar, e o *token* não chega a ser guardado.
+ */
+export class KekSemKidEstavelError extends Error {
+  override readonly name = "KekSemKidEstavelError";
+
+  constructor() {
+    super(
+      "a versão actual da KEK dos tokens de cliente não traz kid estável " +
+        "(esperava <kid>:<base64>); um rótulo posicional não se grava num criptograma",
+    );
+  }
+}
+
+/**
+ * A versão com que se cifra, de `versions()[0]` e do valor de `get()`.
+ *
+ * Recusa um `kid` que seja um rótulo posicional (`actual`, `anterior`): é o
+ * único sítio onde um `kid` entra num criptograma, e é por isso que é aqui que
+ * se fecha a porta.
+ */
+export function kekParaCifrar(kid: string, valor: string): VersaoDaKek {
+  if (rotuloPosicional(kid)) throw new KekSemKidEstavelError();
+  return { kid, chave: chaveDoValor(valor) };
+}
+
+/**
+ * O anel `kid → chave` com que se abre, de `getRing()` e de `versions()`.
+ *
+ * Cada posição entra pelo seu `kid`; a versão sem `kid` (rótulo posicional)
+ * entra por `KID_LEGADO`, pela regra escrita acima. Duas versões sem `kid` são
+ * recusadas: um criptograma `actual` teria duas chaves possíveis, e escolher uma
+ * seria a tentativa às cegas que o critério 2 do KAM-205 proíbe.
+ */
+export function anelDaKek(
+  [actual, anterior]: readonly [string, string | null],
+  kids: readonly string[],
+): Readonly<Record<string, string>> {
+  const anel: Record<string, string> = {};
+  const entradas: readonly (readonly [string | undefined, string | null])[] = [
+    [kids[0], actual],
+    [kids[1], anterior],
+  ];
+  for (const [kid, valor] of entradas) {
+    if (kid === undefined || valor === null) continue;
+    const chave = rotuloPosicional(kid) ? KID_LEGADO : kid;
+    if (Object.hasOwn(anel, chave)) {
+      throw new TokenCifradoInvalidoError(
+        "as duas versões da KEK respondem pelo mesmo kid; uma rotação sem kid estável " +
+          "não deixa saber com que versão foi feito um criptograma antigo",
+      );
+    }
+    anel[chave] = chaveDoValor(valor);
+  }
+  return anel;
 }

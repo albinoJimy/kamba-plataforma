@@ -99,7 +99,7 @@ import {
   TransicaoInvalidaError,
   transicaoValida,
 } from "./contrato.ts";
-import { cifrarToken, decifrarToken } from "./cifra.ts";
+import { anelDaKek, cifrarToken, decifrarToken, kekParaCifrar } from "./cifra.ts";
 // Os três `id` de segredo vêm do ficheiro estreito que o *gate* 9 dispensa; ver
 // a nota do `contrato.ts`.
 import { FAMILIA_DO_PIN, FAMILIA_DO_TOKEN, REF_DA_KEK } from "./segredos.ts";
@@ -365,12 +365,16 @@ export class Onboarding {
     // garantia que faz o par (chave, kid) ser coerente. Ler o `getRing` aqui
     // dava o valor sem o identificador, e o identificador é o que torna a
     // rotação possível (ver o `cifra.ts`).
+    //
+    // **O `kid` tem de ser estável** (KAM-205): o `kekParaCifrar` recusa um
+    // rótulo posicional, que a próxima rotação faria apontar para outra chave.
     const [kid] = await this.#d.cofre.versions(REF_DA_KEK);
-    const kek = await this.#d.cofre.get(REF_DA_KEK);
+    const valor = await this.#d.cofre.get(REF_DA_KEK);
     if (kid === undefined) {
       throw new EsNaoEV4Error("a KEK do token de cliente não tem versão viva");
     }
-    const criptograma = cifrarToken(kek, kid, t.tenant_id, claro);
+    const kek = kekParaCifrar(kid, valor);
+    const criptograma = cifrarToken(kek.chave, kek.kid, t.tenant_id, claro);
     const ref = await this.#d.cofre.cunhar(FAMILIA_DO_TOKEN, criptograma);
     await this.#registar(t, { recurso: "token", ref });
     return { ref, claro };
@@ -623,15 +627,15 @@ export class Onboarding {
   /** O *token* em claro, do cofre e da KEK. Nunca sai deste objecto. */
   async #tokenEmClaro(tenantId: string, ref: string): Promise<string> {
     const criptograma = await this.#d.cofre.get(ref);
-    const [actual, anterior] = await this.#d.cofre.getRing(REF_DA_KEK);
-    const versoes = await this.#d.cofre.versions(REF_DA_KEK);
-    const anel: Record<string, string> = {};
     // O anel liga `kid → chave` pela ordem que a porta garante: `versions()[0]`
     // é a actual. Com uma versão só, `anterior` é `null` e o anel tem uma
     // entrada — é o caso de um cofre que nunca rodou, e o KAM-013 já trata esse
-    // `null` da mesma maneira.
-    if (versoes[0] !== undefined) anel[versoes[0]] = actual;
-    if (versoes[1] !== undefined && anterior !== null) anel[versoes[1]] = anterior;
+    // `null` da mesma maneira. A versão sem `kid` responde por `KID_LEGADO`, que
+    // é o que abre os criptogramas anteriores ao KAM-205 (ver o `cifra.ts`).
+    const anel = anelDaKek(
+      await this.#d.cofre.getRing(REF_DA_KEK),
+      await this.#d.cofre.versions(REF_DA_KEK),
+    );
     return decifrarToken(anel, tenantId, criptograma);
   }
 
