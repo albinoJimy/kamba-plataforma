@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.4 |
+| Versão | 1.5 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -144,12 +144,13 @@ sentidos a 2026-11-09 sobre as regras de `infra/compose/prometheus/regras/`
 `regras_por_escrever` de [`../../ops/metricas/catalogo.yaml`](../../ops/metricas/catalogo.yaml).
 O comando e a saída estão em [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §3. O
 KAM-200 acrescentou o `kamba-trust.yml`, com as duas regras de Trust & Safety, a
-2026-11-17; o `obs_lint` verifica o `runbook_url` das doze.
+2026-11-17, e o KAM-203 a do recálculo da confiança no mesmo ficheiro; o `obs_lint`
+verifica o `runbook_url` das treze.
 
 **Nenhum alerta foi removido nem alterado aqui.** Mudar o que dispara, ou para
 onde aponta, é do fundador; o que se entrega é a medição.
 
-### 5.1 As doze regras que existem, e para onde apontam
+### 5.1 As treze regras que existem, e para onde apontam
 
 | Regra | Sev. | Aponta para | O runbook fala dela? | Nota |
 |---|---|---|---|---|
@@ -165,10 +166,11 @@ onde aponta, é do fundador; o que se entrega é a medição.
 | `orcamento_de_erro_burn_lento` | P3 | `orcamento-de-erro.md` | sim | — |
 | `ts_suspensao_decidida` | P3 | `trust-e-safety.md` | sim | KAM-200. Não é do §9.2 |
 | `ts_escada_automatica_acima_do_ritmo` | P2 | `trust-e-safety.md` | sim | KAM-200. Não é do §9.2; o ritmo é *proposta* |
+| `confianca_recalculo_com_falhas` | P2 | `trust-e-safety.md` | sim | KAM-203. Não é do §9.2; a janela é *proposta* |
 
 ### 5.2 Lista A — alertas sem runbook
 
-**Entre as regras escritas: nenhuma.** As doze têm `runbook_url`, e o
+**Entre as regras escritas: nenhuma.** As treze têm `runbook_url`, e o
 `tools/obs_lint` exige que o ficheiro exista.
 
 **Entre os alertas que o §9.2 pede e não estão escritos: um.** A linha
@@ -261,3 +263,4 @@ procedimento.
 | 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a linha «nenhum consumidor lê a `wa-inbound`» passa a dizer porquê — o compose corre os quatro processos, e em `prod` o `entrada.ts` não arranca | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | **KAM-117**: o esboço [`churn.md`](churn.md) entra na lista dos que estão fora do §13 (passam a seis). O alerta dele é a linha aberta da `v_churn_signals`, por tenant, e não uma regra Prometheus. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | **KAM-200**: o esboço [`trust-e-safety.md`](trust-e-safety.md) entra na lista dos que estão fora do §13 (passam a sete), e as duas regras do `kamba-trust.yml` na tabela do §5.1 (passam a doze). | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **KAM-203**: a regra `confianca_recalculo_com_falhas` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a treze), com o §4 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |

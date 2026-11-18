@@ -53,6 +53,10 @@ FICHEIROS = (
     # KAM-200: o T&S corre no processo de lote (o consumidor, as varreduras e as
     # decisoes da fila), e so a base prova a porta, o registo e os triggers.
     "tests_bd/trust.bd.test.ts",
+    # KAM-203: o recalculo da confianca a correr no processo de lote. **Por
+    # ultimo**: a volta diaria recalcula todos os tenants da base, e os dos
+    # ficheiros de cima ganhariam um nivel 0 a meio dos ensaios deles.
+    "tests_bd/confianca.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -64,6 +68,7 @@ GRUPOS = (
     "a régua de cobrança contra a base",
     "o off-boarding contra a base",
     "Trust & Safety em produção contra a base",
+    "a confiança gradual a correr contra a base",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -122,6 +127,14 @@ TESTES_OBRIGATORIOS = (
     "o consumidor como kamba_app: a encomenda do próprio dono dá um auto_compra e o aviso, e a reentrega é duplicada",
     "a escada humana suspende pela porta, com registo e evento, e o recurso provido reactiva",
     "uma volta das varreduras deixa uma linha batch.run por varredura, e a mudança de NIF abre um caso, uma vez, no tenant dela",
+    # KAM-203: a volta diaria sobe e desce (1), a sancao chega a base sem
+    # esperar pelo dia (4), a aprovacao da o nivel 0 (3), a reentrega do
+    # `order.delivered` (2) e o isolamento.
+    "a volta diária dá o nível 0, sobe com cinco pedidos elegíveis, a disputa aceite desce, e reexecutar não escreve",
+    "uma limitacao da escada automática desce o tenant na varredura seguinte, sem esperar pelo dia",
+    "um k1_ok aprova pela porta e o tenant fica no nível 0, como kamba_batch",
+    "o order.delivered repetido recalcula duas vezes e escreve uma",
+    "o recálculo de A nunca escreve o nível de B: nem o faz nascer, nem o desce",
 )
 
 

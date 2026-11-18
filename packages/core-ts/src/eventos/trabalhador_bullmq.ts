@@ -116,6 +116,36 @@ export interface OpcoesDoTrabalhador {
    * provam-se noutro lado (`TestEscada`, nos dois idiomas).
    */
   readonly escada?: readonly number[];
+  /**
+   * O que corre **depois** de a transacção do consumo confirmar, com o envelope
+   * consumido — só nos desfechos `aplicado` e `duplicado` (`correrDepois`).
+   *
+   * Existe porque um efeito corre **dentro** da transacção que marca o
+   * `events_consumed`, e há trabalho que precisa de ver o que ela gravou: o
+   * recálculo da confiança (KAM-203) corre como `kamba_batch` noutra ligação e
+   * lê os sinais e as sanções que o efeito de T&S acabou de escrever.
+   *
+   * **Uma falha relança**, e isso é a retentativa: o BullMQ repete o *job*, o
+   * `processar` dá `duplicado` (a marca já está confirmada) e o `depois` corre
+   * outra vez. Por isso tem de ser idempotente. Esgotadas as tentativas, o *job*
+   * falha sem entrada na DLQ — o evento foi consumido —, e quem o passa tem de
+   * ter outra via que repare o que ficou por fazer.
+   */
+  readonly depois?: (envelope: Envelope) => Promise<void>;
+}
+
+/**
+ * O `depois` de um *job*, se o desfecho o pede. Um `adiado` e uma entrada na
+ * DLQ não consumiram nada, e não há o que ver depois deles.
+ */
+export async function correrDepois(
+  depois: ((envelope: Envelope) => Promise<void>) | undefined,
+  envelope: Envelope,
+  desfecho: DesfechoDoTrabalho,
+): Promise<boolean> {
+  if (depois === undefined || (desfecho !== 'aplicado' && desfecho !== 'duplicado')) return false;
+  await depois(envelope);
+  return true;
 }
 
 /**
@@ -212,7 +242,7 @@ export interface Trabalhadores {
  * reinício.
  */
 export function criarTrabalhadores(opcoes: OpcoesDoTrabalhador): Trabalhadores {
-  const { ligar, subscricao, filas, efeito, maquina, metricas, url, log, escada } = opcoes;
+  const { ligar, subscricao, filas, efeito, maquina, metricas, url, log, escada, depois } = opcoes;
   // `LIGACAO_QUE_ESPERA`, e **não** a do publicador: o BullMQ recusa um
   // `Worker` cujo cliente tenha `maxRetriesPerRequest` diferente de `null`, e
   // tem razão — um *worker* fica bloqueado à espera do próximo *job*, e uma
@@ -351,6 +381,9 @@ export function criarTrabalhadores(opcoes: OpcoesDoTrabalhador): Trabalhadores {
           // diz ao BullMQ para não gastar as tentativas que sobram.
           throw new UnrecoverableError(`dlq: ${resultado.erro ?? 'sem motivo'}`);
         }
+        // Depois do `COMMIT`: uma falha aqui relança, e a repetição chega como
+        // `duplicado` e volta a correr o `depois` (ver a opção).
+        await correrDepois(depois, envelope, resultado.desfecho);
         return resultado.desfecho satisfies DesfechoDoTrabalho;
       },
       {

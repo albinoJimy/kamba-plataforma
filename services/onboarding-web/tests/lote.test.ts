@@ -36,6 +36,13 @@ import {
   SQL_GRAVAR_SANCAO,
   TIPOS_CONSUMIDOS,
 } from "@kamba/core-ts/trust";
+import {
+  MetricasDaConfianca,
+  SQL_DEFINIR_NIVEL,
+  SQL_K1_COMPLETO,
+  SQL_TRANCAR,
+  type OrigemDoRecalculo,
+} from "@kamba/core-ts/confianca";
 
 import {
   AvisoDeSancaoSemVia,
@@ -54,7 +61,11 @@ import {
   lerConfiguracao,
   montarProcesso,
   registarVolta,
+  registarVoltaDaConfianca,
   verificarPapeis,
+  OnboardingsQueRecalculam,
+  SUBSCRICAO_DO_TRUST,
+  depoisDoTrust,
 } from "../src/lote/processo.ts";
 
 const URL_LOTE = "postgresql://kamba_batch@lote.invalid:5432/kamba";
@@ -482,7 +493,9 @@ test("cada ligação tem limites de tempo, para uma espera presa não congelar o
     assert.ok(o.idle_in_transaction_session_timeout > 0);
   }
   assert.equal(opcoesDoConjunto("u", "lote").max, 4);
-  assert.equal(opcoesDoConjunto("u", "app").max, 2);
+  // KAM-203: o recálculo da confiança toma uma ligação de cada conjunto por
+  // tenant, e o da aplicação deixou de servir só o screening.
+  assert.equal(opcoesDoConjunto("u", "app").max, 4);
 });
 
 // ------------------------------------------------------------ Trust & Safety (KAM-200)
@@ -542,6 +555,7 @@ test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquin
     urlDaApp: URL_APP,
     urlDaFila: URL_FILA,
     metricasDoTrust,
+    recalculo: { recalcular: async () => ({ tenantId: "", nivel: null, mudou: false, motivo: null }) },
     log: semRegisto,
     criar: (o) => {
       pedido = o;
@@ -550,6 +564,7 @@ test("o consumidor de T&S: as dezasseis filas do trust, por ordem, com a máquin
   });
   assert.ok(pedido !== undefined);
   assert.deepEqual(pedido.subscricao, { consumer: "trust", exigeOrdem: true });
+  assert.equal(pedido.subscricao, SUBSCRICAO_DO_TRUST, "a subscricao e a do processo, e nao uma copia");
   assert.deepEqual(pedido.filas, Array.from({ length: 16 }, (_, i) => `evt.trust.p${i}`));
   assert.equal(pedido.url, URL_FILA);
   assert.equal(TIPOS_CONSUMIDOS.length, 7);
@@ -603,5 +618,181 @@ test("registarVoltaDoTrust diz as varreduras que falharam pelo nome, e nada mais
   assert.deepEqual(linhas, [
     ["info", { outcome: "trust_varreduras_concluidas" }],
     ["error", { outcome: "trust_varreduras_com_falhas", error_code: "fotos,encerramentos" }],
+  ]);
+});
+
+// ------------------------------------------------- a confiança gradual (KAM-203)
+
+const TENANT_DA_CONFIANCA = "99999999-9999-4999-8999-999999999999";
+const CASO_DA_CONFIANCA = "88888888-8888-4888-8888-888888888888";
+
+/**
+ * Uma base falsa para a aprovação pela porta e o recálculo a seguir: o caso
+ * existe, o agregador diz `falta` (vazio aprova), e o tenant tem K1 e nenhum
+ * nível. Devolve os dois conjuntos.
+ */
+function baseDaAprovacao(falta: string[]) {
+  const tratar: Tratador = (texto, valores) => {
+    if (/AS tenant_id FROM platform\.onboarding_case WHERE id = \$1/.test(texto)) return { rows: [{ tenant_id: TENANT_DA_CONFIANCA }] };
+    if (/FOR UPDATE/.test(texto)) return { rows: [{ fase: "em_revisao" }] };
+    if (/aprovacao_em_falta\(\$1\) AS falta/.test(texto)) return { rows: [{ falta }] };
+    if (/AS pendente/.test(texto)) return { rows: [{ pendente: false }] };
+    if (/evento_emitido/.test(texto)) return { rows: [{ emitido: false }] };
+    if (/advance_case/.test(texto)) return { rows: [{ fase: "aprovado" }] };
+    if (/intervencao_humana/.test(texto)) return { rows: [{ humana: false }] };
+    if (/SELECT id, tenant_id, fase, fase_at/.test(texto) && valores[0] === CASO_DA_CONFIANCA) {
+      return {
+        rows: [
+          {
+            id: CASO_DA_CONFIANCA,
+            tenant_id: TENANT_DA_CONFIANCA,
+            fase: "aprovado",
+            fase_at: new Date(),
+            ip_prefix_hash: null,
+            device_hash: null,
+            nif_hmac: new Uint8Array(32),
+            phone_hmac: new Uint8Array(32),
+          },
+        ],
+      };
+    }
+    if (texto === SQL_K1_COMPLETO) return { rows: [{ completo: true }] };
+    if (texto === SQL_DEFINIR_NIVEL) return { rows: [{ nivel: valores[1] }] };
+    return undefined;
+  };
+  return { lote: new ConjuntoFalso(tratar), app: new ConjuntoFalso(tratar) };
+}
+
+test("a aprovação pela porta recalcula o tenant a seguir: nasce no nível 0, como kamba_batch", async () => {
+  const { lote, app } = baseDaAprovacao([]);
+  const metricasDaConfianca = new MetricasDaConfianca();
+  const p = montarProcesso({ lote, app, efeitos: efeitosVazios(), log: semRegisto, metricasDaConfianca });
+  const r = await p.aprovacaoDoKyc.aprovar(CASO_DA_CONFIANCA, TENANT_DA_CONFIANCA);
+  assert.equal(r.estado, "aprovado");
+  const definir = lote.consultas.filter((c) => c.texto === SQL_DEFINIR_NIVEL);
+  assert.equal(definir.length, 1, "a aprovacao nao recalculou");
+  assert.deepEqual(definir[0]!.valores.slice(0, 4), [TENANT_DA_CONFIANCA, 0, "5000000", "k1_completo"]);
+  // A tranca e a escrita são da mesma ligação do lote, e não do conjunto solto.
+  const tranca = lote.consultas.find((c) => c.texto === SQL_TRANCAR);
+  assert.ok(tranca !== undefined && tranca.ligacao !== "conjunto");
+  assert.equal(tranca.ligacao, definir[0]!.ligacao);
+  assert.match(metricasDaConfianca.exposicao(), /^confianca_recalculos_total\{origem="aprovacao",desfecho="mudou"\} 1$/m);
+});
+
+test("uma aprovação por preencher não recalcula nada", async () => {
+  const { lote, app } = baseDaAprovacao(["aceite"]);
+  const p = montarProcesso({ lote, app, efeitos: efeitosVazios(), log: semRegisto });
+  assert.equal((await p.aprovacaoDoKyc.aprovar(CASO_DA_CONFIANCA, TENANT_DA_CONFIANCA)).estado, "em_falta");
+  assert.equal(lote.consultas.filter((c) => c.texto === SQL_TRANCAR).length, 0);
+});
+
+test("um recálculo que falha depois da aprovação não a faz parecer recusada: regista-se e conta", async () => {
+  const { lote, app } = baseDaAprovacao([]);
+  const original = lote.tratar;
+  const falhada = new ConjuntoFalso((texto, valores) => {
+    if (texto === SQL_TRANCAR) throw new Error("tranca presa");
+    return original(texto, valores);
+  });
+  const avisos: unknown[] = [];
+  const metricasDaConfianca = new MetricasDaConfianca();
+  const p = montarProcesso({
+    lote: falhada,
+    app,
+    efeitos: efeitosVazios(),
+    log: { warn: (c?: object) => void avisos.push(c) },
+    metricasDaConfianca,
+  });
+  assert.equal((await p.aprovacaoDoKyc.aprovar(CASO_DA_CONFIANCA, TENANT_DA_CONFIANCA)).estado, "aprovado");
+  assert.deepEqual(avisos, [{ outcome: "confianca_aprovacao_falhou" }]);
+  assert.match(metricasDaConfianca.exposicao(), /^confianca_recalculos_total\{origem="aprovacao",desfecho="falhou"\} 1$/m);
+});
+
+test("o aoAprovar dos onboardings só corre no aprovado, com o caso aprovado", async () => {
+  const vistos: string[] = [];
+  const { lote } = baseDaAprovacao(["kyc"]);
+  const o = new OnboardingsQueRecalculam(lote, async (id) => void vistos.push(id));
+  assert.equal((await o.aprovar(CASO_DA_CONFIANCA, "aprovar", "ensaio")).estado, "em_falta");
+  assert.equal(vistos.length, 0, "uma aprovacao por preencher nao chama o aoAprovar");
+  const aprova = new OnboardingsQueRecalculam(baseDaAprovacao([]).lote, async (id) => void vistos.push(id));
+  assert.equal((await aprova.aprovar(CASO_DA_CONFIANCA, "aprovar", "ensaio")).estado, "aprovado");
+  assert.deepEqual(vistos, [CASO_DA_CONFIANCA]);
+});
+
+test("o recálculo lê a independência com o consumidor da subscrição do processo, e não com um literal", () => {
+  const p = montarProcesso({ lote: new ConjuntoFalso(), app: new ConjuntoFalso(), efeitos: efeitosVazios(), log: semRegisto });
+  assert.equal(p.recalculo.consumidorDeTrust, SUBSCRICAO_DO_TRUST.consumer);
+});
+
+test("o depois do consumidor de T&S recalcula o tenant do order.delivered, e só dele", async () => {
+  const pedidos: [string, OrigemDoRecalculo][] = [];
+  const depois = depoisDoTrust({
+    recalcular: async (t, origem) => {
+      pedidos.push([t, origem]);
+      return { tenantId: t, nivel: 0, mudou: false, motivo: null };
+    },
+  });
+  for (const tipo of TIPOS_CONSUMIDOS) {
+    await depois({ tipo, tenant_id: TENANT_DA_CONFIANCA } as never);
+  }
+  assert.deepEqual(pedidos, [[TENANT_DA_CONFIANCA, "entrega"]]);
+  // Uma falha sobe, para o BullMQ repetir.
+  const falha = depoisDoTrust({
+    recalcular: async () => {
+      throw new Error("base em baixo");
+    },
+  });
+  await assert.rejects(falha({ tipo: "order.delivered", tenant_id: TENANT_DA_CONFIANCA } as never), /base em baixo/);
+});
+
+test("o consumidor de T&S passa o depois ao trabalhador, ligado ao recálculo do processo", async () => {
+  let pedido: Parameters<NonNullable<Parameters<typeof consumidorDoTrust>[0]["criar"]>>[0] | undefined;
+  const pedidos: string[] = [];
+  consumidorDoTrust({
+    urlDaApp: URL_APP,
+    urlDaFila: URL_FILA,
+    metricasDoTrust: new MetricasDoTrust(),
+    recalculo: {
+      recalcular: async (t) => {
+        pedidos.push(t);
+        return { tenantId: t, nivel: 0, mudou: false, motivo: null };
+      },
+    },
+    log: semRegisto,
+    criar: (o) => {
+      pedido = o;
+      return { fechar: async () => {} } as never;
+    },
+  });
+  assert.ok(pedido?.depois !== undefined, "sem depois, o order.delivered nao recalcula ninguem");
+  await pedido.depois({ tipo: "order.delivered", tenant_id: TENANT_DA_CONFIANCA } as never);
+  assert.deepEqual(pedidos, [TENANT_DA_CONFIANCA]);
+});
+
+test("/metrics serve as séries da confiança da instância do processo, a zero desde o arranque", async () => {
+  const p = montarProcesso({ lote: new ConjuntoFalso(), app: new ConjuntoFalso(), efeitos: efeitosVazios(), log: semRegisto });
+  p.metricasDaConfianca.mudanca("historico_independente");
+  const corpo = await (await criarApp(new MetricasDaRevisao(), new MetricasDoTrust(), p.metricasDaConfianca).request("/metrics")).text();
+  assert.match(corpo, /^# TYPE confianca_recalculos_total counter$/m);
+  assert.match(corpo, /^confianca_recalculos_total\{origem="diario",desfecho="mudou"\} 0$/m);
+  assert.match(corpo, /^confianca_mudancas_total\{motivo="historico_independente"\} 1$/m);
+  assert.doesNotMatch(corpo, new RegExp(TENANT_DA_CONFIANCA));
+});
+
+test("arrancar serve as métricas da confiança do processo, e não uma instância vazia", async () => {
+  const papel = (nome: string) => new ConjuntoFalso((texto) => (/current_user/.test(texto) ? { rows: [{ papel: nome }] } : undefined));
+  const { processo, app } = await arrancar({ lote: papel("kamba_batch"), app: papel("kamba_app"), log: semRegisto, inicioDaAmostragem: null });
+  processo.metricasDaConfianca.recalculo("descida", "mudou");
+  const corpo = await (await app.request("/metrics")).text();
+  assert.match(corpo, /^confianca_recalculos_total\{origem="descida",desfecho="mudou"\} 1$/m);
+});
+
+test("registarVoltaDaConfianca diz se houve falhas, em números e nunca com tenant", () => {
+  const linhas: unknown[] = [];
+  const log = { info: (c: unknown) => linhas.push(["info", c]), error: (c: unknown) => linhas.push(["error", c]) };
+  registarVoltaDaConfianca(log, "diaria", { tenants: 3, mudaram: 1, falhas: 0 });
+  registarVoltaDaConfianca(log, "descida", { tenants: 2, mudaram: 0, falhas: 1 });
+  assert.deepEqual(linhas, [
+    ["info", { outcome: "confianca_diaria_concluida" }],
+    ["error", { outcome: "confianca_descida_com_falhas", error_code: "recalculo_falhou" }],
   ]);
 });

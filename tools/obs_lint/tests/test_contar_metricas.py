@@ -213,6 +213,10 @@ class TestRepositorio(unittest.TestCase):
         "packages/core-ts/src/capacidade/metricas.ts",
         "packages/core-ts/src/chr/metricas.ts",
         "packages/core-ts/src/coexistencia/metricas.ts",
+        # Nasceu com o KAM-203 (o recalculo da confianca a correr). Dois
+        # contadores servidos pelo processo de lote na 3014, ao lado dos de
+        # T&S, e citados pela regra `confianca_recalculo_com_falhas`.
+        "packages/core-ts/src/confianca/metricas.ts",
         "packages/core-ts/src/consentimento/metricas.ts",
         "packages/core-ts/src/entrada/metricas.ts",
         "packages/core-ts/src/eventos/metricas.ts",

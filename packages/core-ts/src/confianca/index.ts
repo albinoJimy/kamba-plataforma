@@ -6,6 +6,8 @@
  * guarda que o caminho de cobrança chama. Os valores são todos *proposta* e
  * vêm da configuração versionada (`./config.ts`). A barreira na base é o
  * *trigger* `payment_charges_dentro_do_tecto` (revisão da confiança gradual).
+ * O recálculo a correr — a volta diária, e os três sítios que o pedem fora
+ * dela — é o `./lote.ts` (KAM-203), com as métricas do `./metricas.ts`.
  */
 
 export {
@@ -79,3 +81,25 @@ export {
   SQL_TRANCAR,
 } from "./sql.ts";
 export type { ClienteSql } from "./sql.ts";
+
+export {
+  ACTOR_DO_RECALCULO,
+  CicloDaConfianca,
+  INTERVALO_DA_CONFIANCA_POR_OMISSAO_MS,
+  JOB_DO_RECALCULO,
+  RecalculoDaConfianca,
+  SQL_AUDITAR_RECALCULO,
+  SQL_READ_COMMITTED,
+  SQL_TENANTS_A_DESCER,
+  SQL_TENANTS_A_RECALCULAR,
+} from "./lote.ts";
+export type { OpcoesDoRecalculo, ResultadoDoCicloDaConfianca } from "./lote.ts";
+
+export {
+  DESFECHOS_DO_RECALCULO,
+  METRICA_MUDANCAS,
+  METRICA_RECALCULOS,
+  MetricasDaConfianca,
+  ORIGENS_DO_RECALCULO,
+} from "./metricas.ts";
+export type { ContadoresDaConfianca, DesfechoDoRecalculo, OrigemDoRecalculo } from "./metricas.ts";

@@ -1,4 +1,5 @@
-# Regras de alerta de Trust & Safety — KAM-200, criterio 3.
+# Regras de alerta de Trust & Safety — KAM-200, criterio 3; e a do recalculo
+# da confianca gradual, que corre no mesmo processo — KAM-203.
 #
 # Validado por `make obs-promtool`: `promtool check rules` (sintaxe) e
 # `promtool test rules` (comportamento, em `testes/kamba_trust_test.yml`).
@@ -59,4 +60,21 @@ groups:
         annotations:
           resumo: A escada automatica de Trust & Safety deu mais de 5 passos na ultima hora.
           limite: O ritmo e proposta, sem calibracao.
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
+
+      # KAM-203: o recalculo da confianca gradual falhou para pelo menos um
+      # tenant. Os dois lados custam: um tenant aprovado que nao nasce no nivel 0
+      # nao cobra (o trigger da cobranca recusa sem nivel, KAM-096), e um que nao
+      # desce fica com o tecto do nivel 1 depois de uma sancao. A volta diaria
+      # repara, mas so no dia seguinte, e por isso e P2 e nao P3. A janela de 15
+      # min e *proposta*: a varredura das descidas corre a cada minuto.
+      - alert: confianca_recalculo_com_falhas
+        expr: 'sum(increase(confianca_recalculos_total{desfecho="falhou"}[15m])) > 0'
+        for: 0m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: O recalculo da confianca gradual falhou para pelo menos um tenant.
+          qual_tenant: A metrica e o registo nao levam tenant (OBS-I); os tenants sem nivel leem-se da platform.trust_level contra os casos aprovados, pelo lote.
           runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/trust-e-safety.md
