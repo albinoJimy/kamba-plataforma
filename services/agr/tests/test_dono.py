@@ -9,6 +9,7 @@
     TestAccoesSensiveis    o botao `confirm:{action_id}`, contra um duplo da base
     TestBotaoNaInvocacao   o `agent_invocation.botao` (KAM-211): forma, e so em `interactive`
     TestBotaoNoGrafoDoDono o botao pelo turno do dono ate ao `confirmar` (KAM-211)
+    TestBotaoPeloContrato  o corpo que o CHR monta, lido pelo AGR ate ao `confirmar` (KAM-211)
 
 A suite contra PostgreSQL das accoes esta em `db/tests_agr/test_owner_actions.py`:
 o `UPDATE ... RETURNING` concorrente e a RLS nao se provam com um duplo.
@@ -1260,6 +1261,54 @@ class TestBotaoNoGrafoDoDono(unittest.TestCase):
             accoes.NAO_E_BOTAO,
         )
         self.assertEqual(self.aberturas, 0)
+
+
+class TestBotaoPeloContrato(unittest.TestCase):
+    """KAM-211, criterio «Botao», pelo caminho CHR -> AGR.
+
+    O corpo de `packages/core-ts/tests/fixtures/invocacao_do_botao.json` e o que
+    o `chr.botao.test.ts` prova sair do `Chr.tratar` para um toque no botao do
+    dono. Aqui o mesmo ficheiro entra pelo `ler_invocacao` e corre o turno ate
+    ao `confirmar`: duplo toque x2 -> **1** confirmacao.
+    """
+
+    def setUp(self) -> None:
+        import json
+
+        caminho = RAIZ / "packages" / "core-ts" / "tests" / "fixtures" / "invocacao_do_botao.json"
+        self.fixture = json.loads(caminho.read_text(encoding="utf-8"))
+        corpo = self.fixture["corpo"]
+        self.base = BaseDeAccoes()
+        self.tenant, self.dono = corpo["tenant_id"], corpo["contact_id"]
+        self.base.contactos[(self.tenant, self.dono)] = {"papel": "dono", "papel_mudou_at": None}
+        self.base.accoes[self.fixture["action_id"]] = {
+            "tenant": self.tenant, "contacto": self.dono, "tipo": "preco_stock_em_massa",
+            "ref": "lote-fixture", "estado": "pendente",
+            "expira_at": AGORA + accoes.VALIDADE_DO_BOTAO, "confirmada_at": None,
+        }
+        self.porta, self.compilados, _ = _porta(
+            permitidos={"vendedor", "servicos", "catalogo"},
+            accoes_do_dono=accoes.PortaDeConfirmacao(lambda: self.base, relogio=lambda: AGORA),
+        )
+
+    def _turno(self, wamid: str) -> dict[str, Any]:
+        invocacao = ler_invocacao(dict(self.fixture["corpo"], wamid=wamid))
+        grafo = asyncio.run(self.porta.do_turno(invocacao))
+        self.assertIs(grafo._grafo, self.compilados["dono"])
+        return asyncio.run(grafo.ainvoke(estado_inicial(invocacao), _config(invocacao)))
+
+    def test_o_corpo_do_chr_le_se_e_o_botao_chega_ao_estado(self) -> None:
+        invocacao = ler_invocacao(self.fixture["corpo"])
+        self.assertEqual(invocacao.botao, f"confirm:{self.fixture['action_id']}")
+        self.assertEqual(invocacao.persona, "dono")
+
+    def test_duplo_toque_pelo_contrato_da_uma_confirmacao(self) -> None:
+        textos = [
+            self._turno(self.fixture["corpo"]["wamid"])["draft"]["texto"],
+            self._turno(self.fixture["corpo"]["wamid"] + "B")["draft"]["texto"],
+        ]
+        self.assertEqual(textos, [nos_do_dono.MSG_CONFIRMADA, nos_do_dono.MSG_JA_CONFIRMADA])
+        self.assertEqual(self.base.confirmadas(), 1)
 
 
 if __name__ == "__main__":

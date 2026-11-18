@@ -84,6 +84,8 @@ export function montarInvocacao(pedido: {
   readonly type: string;
   readonly modo: Modo;
   readonly persona: Persona;
+  /** O `reply.id` de uma resposta interactiva, já com a forma conferida. */
+  readonly botao?: string | null;
 }): AgentInvocation {
   if (pedido.contactId === "") throw new InvocacaoIncompletaError("`contact_id`");
   if (pedido.conversationId === "") {
@@ -101,5 +103,12 @@ export function montarInvocacao(pedido: {
     thread_id: threadIdDe(pedido.contexto.tenant_id, pedido.contactId),
     vertical: pedido.contexto.vertical,
     persona: pedido.persona,
+    // KAM-211. **Só num `interactive`**: o AGR recusa um `botao` noutro tipo
+    // (`campo_invalido_botao`), e um `job` recusado é um turno perdido. A
+    // explosão já só o tira de uma resposta interactiva; esta é a segunda
+    // barreira, para quem monte a invocação por outro caminho.
+    ...(typeof pedido.botao === "string" && pedido.type === "interactive"
+      ? { botao: pedido.botao }
+      : {}),
   };
 }

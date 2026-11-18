@@ -43,7 +43,9 @@ import { createHash } from "node:crypto";
 
 import {
   CAMPO_DAS_MENSAGENS,
+  FORMA_DO_BOTAO,
   KIND_POR_CAMPO,
+  RESPOSTAS_INTERACTIVAS,
   type KindDeEntrada,
   type KindDeQuarentena,
   type Motivo,
@@ -140,6 +142,14 @@ export interface EventoDeEntrada {
    * KAM-017.
    */
   readonly interlocutor: Interlocutor | null;
+  /**
+   * O `reply.id` de uma resposta interactiva (`button_reply` ou `list_reply`),
+   * só numa `message` de `waType` `interactive` e só com a `FORMA_DO_BOTAO`
+   * (KAM-211). **Ausente** em tudo o resto: um texto que imite um botão chega
+   * como texto, e nenhum campo dele vem para aqui. O título do botão não sai —
+   * é texto que o cliente vê, e o `id` é o que nós emitimos.
+   */
+  readonly botao?: string;
 }
 
 /** Um evento que não se conseguiu encaminhar, a registar em `unrouted_events`. */
@@ -214,6 +224,30 @@ function objecto(valor: unknown): Record<string, unknown> | null {
 
 function lista(valor: unknown): readonly unknown[] {
   return Array.isArray(valor) ? valor : [];
+}
+
+/**
+ * O `reply.id` de uma resposta interactiva, ou `null` (KAM-211).
+ *
+ * Lê **só** `interactive.button_reply.id` e `interactive.list_reply.id`, numa
+ * mensagem com `type: "interactive"`. Um `id` que não tenha a `FORMA_DO_BOTAO`
+ * fica de fora: a mensagem segue, e o AGR vê um toque sem botão — que não
+ * confirma nada. O tipo legado `button` (resposta rápida de *template*) não
+ * entra: chega como `outro`, e não há *template* com botões no Piloto.
+ */
+function botaoDaResposta(mensagem: Record<string, unknown>): string | null {
+  if (mensagem.type !== "interactive") return null;
+  const interactiva = objecto(mensagem.interactive);
+  if (interactiva === null) return null;
+  const variante = interactiva.type;
+  if (
+    typeof variante !== "string" ||
+    !(RESPOSTAS_INTERACTIVAS as readonly string[]).includes(variante)
+  ) {
+    return null;
+  }
+  const id = objecto(interactiva[variante])?.id;
+  return typeof id === "string" && FORMA_DO_BOTAO.test(id) ? id : null;
 }
 
 /**
@@ -385,6 +419,7 @@ function explodirMensagens(
     const mensagem = objecto(bruta);
     if (mensagem === null) continue;
     const wamid = texto(mensagem.id, EVENT_KEY_MAXIMO);
+    const botao = botaoDaResposta(mensagem);
     eventos.push({
       kind: "message",
       eventKey: wamid ?? resumoCanonico("message", wabaId, mensagem),
@@ -399,6 +434,7 @@ function explodirMensagens(
         bsuid: texto(mensagem.from_user_id, ID_META_MAXIMO),
         telefone: texto(mensagem.from, ID_META_MAXIMO),
       },
+      ...(botao === null ? {} : { botao }),
     });
     quantos += 1;
   }
