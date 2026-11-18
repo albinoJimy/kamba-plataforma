@@ -814,15 +814,17 @@ export function adaptadorMedusa(
      * que torna o §6.2 («falha de CAS ⇒ reler e reavaliar, nunca forçar»)
      * observável do lado de quem chama a porta.
      *
-     * **Duas transições não são alcançáveis por aqui, e é do tipo e não do
-     * módulo:** o `entregue` exige `entrega_confirmada_por` (o contrato do
-     * `order.delivered` e o `orders_mirror_entregue_exige_quem_ck`) e o
-     * `expirada` exige um instante quando a encomenda não tem `expira_at`. O
-     * `Cause` do §3.2 é `{causa, eventoId}` e não leva nenhum dos dois, pelo que
-     * as duas respondem `VALIDATION_ERROR` por esta via. É o mesmo credor do
-     * `createOrder` — uma decisão sobre o §3.39 — e está escrito na verificação
-     * do bloco; as duas alcançam-se pelo módulo, que é por onde o KAM-050 e o
-     * varrimento de expiração as vão chamar.
+     * **O `expirada` não é alcançável por aqui, e é do tipo e não do módulo:**
+     * exige um instante quando a encomenda não tem `expira_at`, e o `Cause` do
+     * §3.2 é `{causa, eventoId}` e não o leva, pelo que responde
+     * `VALIDATION_ERROR` por esta via. É o mesmo credor do `createOrder` — uma
+     * decisão sobre o §3.39 — e está escrito na verificação do bloco; alcança-se
+     * pelo módulo, que é por onde o varrimento de expiração o chama.
+     *
+     * O `entregue` **passou a ser alcançável** pelo KAM-204: o papel deixou de
+     * vir do chamador e vem do `ctx` (`PAPEL_POR_ACTOR`), pelo que o `Cause`
+     * chega. Um `ctx` de `ops` continua a responder `VALIDATION_ERROR`, porque
+     * o `ops` não declara entregas.
      */
     async transition(
       ctx: Ctx,

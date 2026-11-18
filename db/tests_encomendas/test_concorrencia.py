@@ -87,7 +87,6 @@ def _transitar_noutra_ligacao(tenant: str, encomenda: str, versao: int):
                 None,
                 None,
                 None,
-                None,
             ),
         )
         linha = cursor.fetchone()
