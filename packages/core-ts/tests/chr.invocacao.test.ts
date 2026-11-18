@@ -21,6 +21,7 @@ import { AGENT_INVOCATION_V1_PATH } from "@kamba/contracts";
 
 import { jobIdDe, montarInvocacao } from "../src/chr/index.ts";
 import { InvocacaoIncompletaError } from "../src/chr/invocacao.ts";
+import { PERSONAS } from "../src/dono/index.ts";
 import { linhaDeCanal } from "./apoio/chr-base-falsa.ts";
 import { canalDaLinha } from "../src/chr/index.ts";
 
@@ -40,16 +41,29 @@ function invocacao(troca: Partial<Pedido> = {}) {
     wamid: "wamid.HBgLMjQ0OTIz",
     type: "text",
     modo: "bot",
+    persona: "cliente",
     ...troca,
   });
 }
 
 describe("o contrato agent_invocation", () => {
-  it("o esquema exige exactamente os campos que o codigo escreve", () => {
+  it("o esquema exige exactamente os campos que o codigo escreve, menos a `persona`", () => {
+    // A `persona` (KAM-118) e campo **aditivo** da v1: o codigo escreve-o
+    // sempre e o esquema nao o exige, para que um consumidor de antes do
+    // KAM-118 nao recuse e um produtor de antes nao seja recusado.
     assert.deepEqual(
       [...esquema.required].sort(),
+      Object.keys(invocacao()).filter((c) => c !== "persona").sort(),
+    );
+    assert.deepEqual(
+      Object.keys(esquema.properties).sort(),
       Object.keys(invocacao()).sort(),
     );
+  });
+
+  it("o dominio da `persona` e o de `contacts.papel`", () => {
+    assert.deepEqual([...esquema.properties.persona.enum].sort(), [...PERSONAS].sort());
+    assert.ok(![...esquema.required].includes("persona"));
   });
 
   it("o esquema fecha-se a campos novos", () => {
@@ -120,6 +134,12 @@ describe("montarInvocacao", () => {
     const montada = invocacao();
     assert.equal(montada.channel_id, linhaDeCanal().channel_id);
     assert.ok(!JSON.stringify(montada).includes("pnid"));
+  });
+
+  it("a `persona` passa tal como o CHR a leu, e o `vertical` nao muda com ela", () => {
+    const doDono = invocacao({ persona: "dono" });
+    assert.equal(doDono.persona, "dono");
+    assert.equal(doDono.vertical, invocacao().vertical);
   });
 
   it("o `vertical` vem do contexto, que e o que o AgentRegistry usa", () => {

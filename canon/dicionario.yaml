@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.111"
+versao_dicionario: "1.112"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -631,7 +631,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Vertical"
-    canonico: "No registo (registry/.yaml): id ∈ {vendedor, servicos, catalogo, social, orcamento}. Em tenant_channels.vertical: só as de atendimento (vendedor, servicos). A persona dono é resolvida pelo CHR a partir de contacts.papel e agrega os módulos de entrada; os módulos activos de um tenant vivem em entitlements.modulo"
+    canonico: "No registo (registry/.yaml): id ∈ {vendedor, servicos, catalogo, social, orcamento, dono} — o dono é o ficheiro da persona e não uma vertical de canal (emenda 1.112, §3.78). Em tenant_channels.vertical: só as de atendimento (vendedor, servicos). A persona dono é resolvida pelo CHR a partir de contacts.papel e viaja no agent_invocation.persona (§3.78); agrega os módulos de entrada; os módulos activos de um tenant vivem em entitlements.modulo"
     literais:
       - "id"
       - "vendedor"
@@ -639,11 +639,14 @@ entradas:
       - "catalogo"
       - "social"
       - "orcamento"
+      - "dono"
+      - "dono"
       - "tenant_channels.vertical"
       - "vendedor"
       - "servicos"
       - "dono"
       - "contacts.papel"
+      - "agent_invocation.persona"
       - "entitlements.modulo"
     nomes:
       - "id"
@@ -652,9 +655,10 @@ entradas:
       - "catalogo"
       - "social"
       - "orcamento"
-      - "tenant_channels.vertical"
       - "dono"
+      - "tenant_channels.vertical"
       - "contacts.papel"
+      - "agent_invocation.persona"
       - "entitlements.modulo"
     nomes_nota: []
     variantes_literais: []
@@ -888,16 +892,22 @@ entradas:
       - "expires_at"
   - seccao: "3.3"
     conceito: "Identificador de confirmação"
-    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta)"
+    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta), confirm:{action_id} (acções sensíveis da persona dono, owner_actions; emenda 1.112, §3.78)"
     literais:
       - "confirm:{cart_id}"
       - "confirm:{hold_id}"
       - "confirm:{item_id}"
+      - "confirm:{action_id}"
+      - "dono"
+      - "owner_actions"
     nomes:
       - "confirm"
       - "cart_id"
       - "hold_id"
       - "item_id"
+      - "action_id"
+      - "dono"
+      - "owner_actions"
     nomes_nota: []
     variantes_literais:
       - "confirm:{cart_id}"
@@ -5488,14 +5498,18 @@ entradas:
     variantes_literais: []
   - seccao: "3.24"
     conceito: "Tectos do AGR, por variável de ambiente"
-    canonico: "AGR_RITMO_POR_CONTACTO (20), AGR_TECTO_POR_TENANT (3), AGR_COALESCENCIA_MS (1500), AGR_LIMIAR_DE_CONTRAPRESSAO (100)"
+    canonico: "AGR_RITMO_POR_CONTACTO (20), AGR_RITMO_DO_DONO_POR_HORA (60, a janela de uma hora que a persona dono paga além da do minuto; emenda 1.112, KAM-118), AGR_TECTO_POR_TENANT (3), AGR_COALESCENCIA_MS (1500), AGR_LIMIAR_DE_CONTRAPRESSAO (100)"
     literais:
       - "AGR_RITMO_POR_CONTACTO"
+      - "AGR_RITMO_DO_DONO_POR_HORA"
+      - "dono"
       - "AGR_TECTO_POR_TENANT"
       - "AGR_COALESCENCIA_MS"
       - "AGR_LIMIAR_DE_CONTRAPRESSAO"
     nomes:
       - "AGR_RITMO_POR_CONTACTO"
+      - "AGR_RITMO_DO_DONO_POR_HORA"
+      - "dono"
       - "AGR_TECTO_POR_TENANT"
       - "AGR_COALESCENCIA_MS"
       - "AGR_LIMIAR_DE_CONTRAPRESSAO"
@@ -19784,6 +19798,359 @@ entradas:
     nomes_nota:
       - "purge_log"
     variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Papel do contacto"
+    canonico: "contacts.papel ∈ {cliente, dono}, NOT NULL, omissão cliente (contacts_papel_ck)"
+    literais:
+      - "contacts.papel"
+      - "cliente"
+      - "dono"
+      - "NOT NULL"
+      - "cliente"
+      - "contacts_papel_ck"
+    nomes:
+      - "contacts.papel"
+      - "cliente"
+      - "dono"
+      - "NOT"
+      - "NULL"
+      - "contacts_papel_ck"
+    nomes_nota:
+      - "tenant.provisioned"
+      - "cliente"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Um dono por tenant"
+    canonico: "índice único parcial contacts_um_dono, em (tenant_id) WHERE papel = 'dono'"
+    literais:
+      - "contacts_um_dono"
+      - "(tenant_id) WHERE papel = 'dono'"
+    nomes:
+      - "contacts_um_dono"
+      - "tenant_id"
+      - "WHERE"
+      - "papel"
+      - "dono"
+    nomes_nota:
+      - "definir_dono"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Quando o papel mudou"
+    canonico: "contacts.papel_mudou_at"
+    literais:
+      - "contacts.papel_mudou_at"
+    nomes:
+      - "contacts.papel_mudou_at"
+    nomes_nota:
+      - "definir_dono"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A escritora do papel"
+    canonico: "platform.definir_dono(p_contact_id, p_origem), SECURITY DEFINER"
+    literais:
+      - "platform.definir_dono(p_contact_id, p_origem)"
+      - "SECURITY DEFINER"
+    nomes:
+      - "platform.definir_dono"
+      - "p_contact_id"
+      - "p_origem"
+      - "SECURITY"
+      - "DEFINER"
+    nomes_nota:
+      - "p_origem"
+      - "provisionamento"
+      - "troca_de_telefone"
+      - "app.tenant_id"
+      - "cliente"
+      - "EXECUTE"
+      - "kamba_identity"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Acções sensíveis do dono"
+    canonico: "platform.owner_actions(action_id, tenant_id, contact_id, tipo, ref, estado, criado_at, expira_at, confirmada_at)"
+    literais:
+      - "platform.owner_actions(action_id, tenant_id, contact_id, tipo, ref, estado, criado_at, expira_at, confirmada_at)"
+    nomes:
+      - "platform.owner_actions"
+      - "action_id"
+      - "tenant_id"
+      - "contact_id"
+      - "tipo"
+      - "ref"
+      - "estado"
+      - "criado_at"
+      - "expira_at"
+      - "confirmada_at"
+    nomes_nota:
+      - "criado_at"
+      - "FORCE"
+      - "kamba_app"
+      - "estado"
+      - "confirmada_at"
+      - "kamba_resolver"
+      - "tenant_id"
+      - "tipo"
+      - "ref"
+      - "owner_actions_uq"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Tipo de acção sensível"
+    canonico: "owner_actions.tipo ∈ {preco_stock_em_massa, aprovar_conteudo, enviar_proposta}"
+    literais:
+      - "owner_actions.tipo"
+      - "preco_stock_em_massa"
+      - "aprovar_conteudo"
+      - "enviar_proposta"
+    nomes:
+      - "owner_actions.tipo"
+      - "preco_stock_em_massa"
+      - "aprovar_conteudo"
+      - "enviar_proposta"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Estado de uma acção"
+    canonico: "owner_actions.estado ∈ {pendente, confirmada, expirada, cancelada}"
+    literais:
+      - "owner_actions.estado"
+      - "pendente"
+      - "confirmada"
+      - "expirada"
+      - "cancelada"
+    nomes:
+      - "owner_actions.estado"
+      - "pendente"
+      - "confirmada"
+      - "expirada"
+      - "cancelada"
+    nomes_nota:
+      - "confirmada"
+      - "confirmada_at"
+      - "owner_actions_confirmada_ck"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Botão de uma acção do dono"
+    canonico: "confirm:{action_id}"
+    literais:
+      - "confirm:{action_id}"
+    nomes:
+      - "confirm"
+      - "action_id"
+    nomes_nota:
+      - "contact_id"
+      - "pendente"
+    variantes_literais:
+      - "confirm:{item_id}"
+  - seccao: "3.78"
+    conceito: "Persona na invocação"
+    canonico: "agent_invocation.persona ∈ {cliente, dono}"
+    literais:
+      - "agent_invocation.persona"
+      - "cliente"
+      - "dono"
+    nomes:
+      - "agent_invocation.persona"
+      - "cliente"
+      - "dono"
+    nomes_nota:
+      - "cliente"
+      - "ChannelContext"
+    variantes_literais:
+      - "ChannelContext"
+  - seccao: "3.78"
+    conceito: "Registo da persona"
+    canonico: "registry/dono.yaml, id: dono, sem entitlements.modulo"
+    literais:
+      - "id: dono"
+      - "entitlements.modulo"
+    nomes:
+      - "id"
+      - "dono"
+      - "entitlements.modulo"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Canal do dono"
+    canonico: "owner_channel_wa, no CanalDoDono de canalDoDono"
+    literais:
+      - "owner_channel_wa"
+      - "CanalDoDono"
+      - "canalDoDono"
+    nomes:
+      - "owner_channel_wa"
+      - "CanalDoDono"
+      - "canalDoDono"
+    nomes_nota:
+      - "false"
+      - "numeroCoincide"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Política de proactivas"
+    canonico: "decidirProactiva, com MOTIVOS_DE_SUPRESSAO ∈ {fora_da_janela}"
+    literais:
+      - "decidirProactiva"
+      - "MOTIVOS_DE_SUPRESSAO"
+      - "fora_da_janela"
+    nomes:
+      - "decidirProactiva"
+      - "MOTIVOS_DE_SUPRESSAO"
+      - "fora_da_janela"
+    nomes_nota:
+      - "marketing"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Módulo de uma tool"
+    canonico: "EspecificacaoDeTool.modulo; as quatro do catálogo com MODULO_DO_DONO (catalogo)"
+    literais:
+      - "EspecificacaoDeTool.modulo"
+      - "MODULO_DO_DONO"
+      - "catalogo"
+    nomes:
+      - "EspecificacaoDeTool.modulo"
+      - "MODULO_DO_DONO"
+      - "catalogo"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Troca de telefone"
+    canonico: "TrocaDeTelefone, com DESTINOS_DO_AVISO ∈ {numero_antigo, email}"
+    literais:
+      - "TrocaDeTelefone"
+      - "DESTINOS_DO_AVISO"
+      - "numero_antigo"
+      - "email"
+    nomes:
+      - "TrocaDeTelefone"
+      - "DESTINOS_DO_AVISO"
+      - "numero_antigo"
+      - "email"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "O dono do provisionamento"
+    canonico: "efeitoDoProvisionamento, consumidor CONSUMIDOR_DO_DONO (dono)"
+    literais:
+      - "efeitoDoProvisionamento"
+      - "CONSUMIDOR_DO_DONO"
+      - "dono"
+    nomes:
+      - "efeitoDoProvisionamento"
+      - "CONSUMIDOR_DO_DONO"
+      - "dono"
+    nomes_nota:
+      - "tenant.provisioned"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Tool de rascunho de produto do dono"
+    canonico: "create_product_draft (tool create_product_draft)"
+    literais:
+      - "create_product_draft"
+    nomes:
+      - "create_product_draft"
+    nomes_nota:
+      - "write"
+      - "plataforma"
+      - "TOOL_NOT_ALLOWED"
+      - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Tool de campos em falta do dono"
+    canonico: "ask_missing_fields (tool ask_missing_fields)"
+    literais:
+      - "ask_missing_fields"
+    nomes:
+      - "ask_missing_fields"
+    nomes_nota:
+      - "read"
+      - "plataforma"
+      - "TOOL_NOT_ALLOWED"
+      - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Tool de publicação de produto do dono"
+    canonico: "publish_product (tool publish_product)"
+    literais:
+      - "publish_product"
+    nomes:
+      - "publish_product"
+    nomes_nota:
+      - "write"
+      - "plataforma"
+      - "TOOL_NOT_ALLOWED"
+      - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Tool do estado do catálogo do dono"
+    canonico: "get_catalog_status (tool get_catalog_status)"
+    literais:
+      - "get_catalog_status"
+    nomes:
+      - "get_catalog_status"
+    nomes_nota:
+      - "read"
+      - "plataforma"
+      - "TOOL_NOT_ALLOWED"
+      - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Persona no estado do grafo"
+    canonico: "ConversaState.persona, e campo_invalido_persona na porta"
+    literais:
+      - "ConversaState.persona"
+      - "campo_invalido_persona"
+    nomes:
+      - "ConversaState.persona"
+      - "campo_invalido_persona"
+    nomes_nota:
+      - "tenant_channels.persona"
+      - "vertical"
+      - "tool_audit"
+      - "chave_do_registo"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Intenções do Assistente do Dono"
+    canonico: "intent ∈ {modulos, info_loja, humano, outro}"
+    literais:
+      - "intent"
+      - "modulos"
+      - "info_loja"
+      - "humano"
+      - "outro"
+    nomes:
+      - "intent"
+      - "modulos"
+      - "info_loja"
+      - "humano"
+      - "outro"
+    nomes_nota:
+      - "kamba_agr.verticais.dono"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Desfecho de uma confirmação"
+    canonico: "confirmada, ja_confirmada, expirada, outro_contacto, nao_e_botao, bloqueada_pela_troca, nao_e_dono, desconhecida"
+    literais:
+      - "confirmada"
+      - "ja_confirmada"
+      - "expirada"
+      - "outro_contacto"
+      - "nao_e_botao"
+      - "bloqueada_pela_troca"
+      - "nao_e_dono"
+      - "desconhecida"
+    nomes:
+      - "confirmada"
+      - "ja_confirmada"
+      - "expirada"
+      - "outro_contacto"
+      - "nao_e_botao"
+      - "bloqueada_pela_troca"
+      - "nao_e_dono"
+      - "desconhecida"
+    nomes_nota:
+      - "confirmar"
+      - "VALIDADE_DO_BOTAO"
+      - "BLOQUEIO_DEPOIS_DA_TROCA"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -21224,6 +21591,31 @@ tabelas:
     assinatura: "platform.aprovacao_em_falta(p_onboarding_id)"
     seccao: "3.70"
     conceito: "Agregador da aprovação"
+  - nome: "definir_dono"
+    esquema: "platform"
+    colunas:
+      - "p_contact_id"
+      - "p_origem"
+    aberta: false
+    assinatura: "platform.definir_dono(p_contact_id, p_origem)"
+    seccao: "3.78"
+    conceito: "A escritora do papel"
+  - nome: "owner_actions"
+    esquema: "platform"
+    colunas:
+      - "action_id"
+      - "tenant_id"
+      - "contact_id"
+      - "tipo"
+      - "ref"
+      - "estado"
+      - "criado_at"
+      - "expira_at"
+      - "confirmada_at"
+    aberta: false
+    assinatura: "platform.owner_actions(action_id, tenant_id, contact_id, tipo, ref, estado, criado_at, expira_at, confirmada_at)"
+    seccao: "3.78"
+    conceito: "Acções sensíveis do dono"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -21272,6 +21664,7 @@ dominios:
       - "catalogo"
       - "social"
       - "orcamento"
+      - "dono"
     seccao: "3.2"
     conceito: "Vertical"
     so_no_registo: true
@@ -22945,6 +23338,59 @@ dominios:
       - "cancelada"
     seccao: "3.77"
     conceito: "Estado de uma fase"
+    so_no_registo: false
+  - coluna: "contacts.papel"
+    valores:
+      - "cliente"
+      - "dono"
+    seccao: "3.78"
+    conceito: "Papel do contacto"
+    so_no_registo: false
+  - coluna: "owner_actions.tipo"
+    valores:
+      - "preco_stock_em_massa"
+      - "aprovar_conteudo"
+      - "enviar_proposta"
+    seccao: "3.78"
+    conceito: "Tipo de acção sensível"
+    so_no_registo: false
+  - coluna: "owner_actions.estado"
+    valores:
+      - "pendente"
+      - "confirmada"
+      - "expirada"
+      - "cancelada"
+    seccao: "3.78"
+    conceito: "Estado de uma acção"
+    so_no_registo: false
+  - coluna: "agent_invocation.persona"
+    valores:
+      - "cliente"
+      - "dono"
+    seccao: "3.78"
+    conceito: "Persona na invocação"
+    so_no_registo: false
+  - coluna: "MOTIVOS_DE_SUPRESSAO"
+    valores:
+      - "fora_da_janela"
+    seccao: "3.78"
+    conceito: "Política de proactivas"
+    so_no_registo: false
+  - coluna: "DESTINOS_DO_AVISO"
+    valores:
+      - "numero_antigo"
+      - "email"
+    seccao: "3.78"
+    conceito: "Troca de telefone"
+    so_no_registo: false
+  - coluna: "intent"
+    valores:
+      - "modulos"
+      - "info_loja"
+      - "humano"
+      - "outro"
+    seccao: "3.78"
+    conceito: "Intenções do Assistente do Dono"
     so_no_registo: false
 
 variantes:

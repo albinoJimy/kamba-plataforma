@@ -320,10 +320,12 @@ Quatro decisões que este ticket tomou para poder avançar e que **não são del
 Estão implementadas como *proposta*; inverter qualquer uma é uma revisão nova.
 
 1. **O `persona` sai do `ChannelContext`.** O `docs/tecnica/01` §7.2 põe-no lá e
-   o dicionário §3.2 diz que vem de `contacts.papel` — uma coluna que **nenhuma
-   revisão criou**. Os oito campos do critério 1 não a incluem. Quem decide onde
-   vive o papel de um contacto é o ticket que criar a coluna
-   (`docs/dividas-documentais.md`, linha 47).
+   o dicionário §3.2 diz que vem de `contacts.papel`. Desde o KAM-118 a coluna
+   existe (revisão `0070`), e a persona **continua** fora do contexto, agora por
+   decisão: o contexto é do canal e vive 60 s em *cache* para todos os
+   remetentes, e a persona é de quem escreve. O CHR lê o papel na transacção que
+   abre a conversa e escreve-a na invocação (`agent_invocation.persona`,
+   dicionário §3.78); a linha 47 de `docs/dividas-documentais.md` está paga.
 2. **A recusa do Fluxo B não deixa linha de quarentena.** O critério 5 pede «0
    *jobs*, alerta», e um valor de domínio que nenhum caminho escreve é peso
    morto. O alerta é a métrica e a linha de registo. Quem quiser rastreio
@@ -342,3 +344,4 @@ Estão implementadas como *proposta*; inverter qualquer uma é uma revisão nova
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial (KAM-014): os seis passos, os três papéis, a *cache* de 60 s, a matriz aplicada, `platform.conversations` (revisão `0009`), o contrato `agent_invocation`, as quatro métricas, os números medidos e as quatro decisões devolvidas. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-118: a decisão 1 deixa de esperar pela coluna. O `contacts.papel` existe (revisão `0070`), o CHR lê-o na transacção que abre a conversa e escreve a persona na invocação, e o `ChannelContext` continua com os oito campos, agora por decisão (dicionário §3.78). | Equipa KAMBÁ |

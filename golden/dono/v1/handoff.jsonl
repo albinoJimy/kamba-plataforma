@@ -1,0 +1,2 @@
+{"id": "don-hnd-001", "vertical": "dono", "categoria": "handoff", "origem": "sintetico", "turnos": [{"texto": "quero falar com uma pessoa", "tipo": "text"}], "fixtures": {"catalogo": "base"}, "esperado": {"handoff": true}}
+{"id": "don-hnd-002", "vertical": "dono", "categoria": "handoff", "origem": "sintetico", "turnos": [{"texto": "passa-me a um humano", "tipo": "text"}], "fixtures": {"catalogo": "base"}, "esperado": {"handoff": true}}

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.42 |
+| Versão | 1.43 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -2064,7 +2064,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 210 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 211 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2468,3 +2468,4 @@ Testes: unitários, integração contra a base, privacidade.
 | 1.40 | Novembro 2026 | KAM-072 (rotação de chaves Meta, facilitador e HMAC): os critérios 1 e 9 e as caixas de DoD 2 e 3 marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 2, 3, 7 e 8 ficam parciais e o 4, o 5 e o 6 não satisfeitos, com o credor escrito. Entregue o módulo `../packages/core-ts/src/keyring/` (anel com `kid` e janela, rotador com registo sem valor, idade dos segredos, separação por ambiente, re-cifra dos *tokens*, auditoria) e a revisão `0066` (provisória), que alarga o domínio da acção do `audit_log` com as duas acções do rotador (emenda 1.107 do dicionário). **Um defeito medido e devolvido:** o `kid` dos *tokens* de cliente é posicional no `EnvSecretProvider`, e rodar a `kek_token_cliente` no Piloto parte os *tokens* guardados (critério 4). O piso do `lint_bloco` fica em **68**: são 137 blocos medidos na árvore integrada com a `main` em `1869a0c2`, e `137 // 2` são 68. **E o KAM-205**, acrescentado no mesmo PR como credor do critério 4: `kid` estável por versão nos *tokens* de cliente e re-cifra dos existentes; entra no `Bloqueia` do KAM-072 e do KAM-016, e a contagem viva da nota do `assert` passa a **205**. | Equipa KAMBÁ |
 | 1.41 | Novembro 2026 | KAM-200: a contagem viva da nota do `assert` passa a **209**, com o KAM-208 e o KAM-209 acrescentados ao EPIC-09 no mesmo PR (os dois que o KAM-190 abriu antes já a tinham posto em 207). Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.42 | Novembro 2026 | KAM-210 (EPIC-09), acrescentado no PR do KAM-098 (escrito como provisório e confirmado na integração, depois do KAM-200 que trouxe o 208 e o 209): a contagem viva do backlog na nota do `assert` passa a **210**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
+| 1.43 | Novembro 2026 | KAM-211 (EPIC-11), acrescentado no PR do KAM-118 (escrito como provisório e confirmado na integração, depois do KAM-098 que trouxe o 210): a contagem viva do backlog na nota do `assert` passa a **211**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

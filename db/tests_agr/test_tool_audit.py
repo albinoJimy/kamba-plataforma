@@ -548,13 +548,15 @@ class TestPipelineReal(_ComTls):
     def test_as_declaradas_nao_correm(self) -> None:
         """Uma entrada `declarada` esta no catalogo e o `invoke` recusa-a.
 
-        **Nove e nao dez**, e a diferenca e o catalogo de ensaio: ele liga a
-        `criar_pedido` (para exercitar o caminho `money` sem o COM) alem da
-        `get_store_info`, pelo que das onze sobram nove declaradas. No catalogo
-        real sao dez, e isso mede-se na bateria de unidade.
+        **Treze e nao catorze**, e a diferenca e o catalogo de ensaio: ele liga
+        a `criar_pedido` (para exercitar o caminho `money` sem o COM) alem da
+        `get_store_info`, pelo que das quinze sobram treze declaradas. No
+        catalogo real sao catorze, e isso mede-se na bateria de unidade. Eram
+        nove antes do KAM-118, que declara as quatro tools do dono com credor
+        KAM-119.
         """
         declaradas = sorted(self.catalogo().declaradas())
-        self.assertEqual(len(declaradas), 9)
+        self.assertEqual(len(declaradas), 13)
         for nome in declaradas:
             with self.subTest(tool=nome):
                 resultado = self.invocar(nome, {})

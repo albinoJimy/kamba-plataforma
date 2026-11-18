@@ -37,6 +37,7 @@
 
 import { createHash } from "node:crypto";
 
+import type { Persona } from "../dono/contrato.ts";
 import type { ChannelContext } from "./contrato.ts";
 import {
   type AgentInvocation,
@@ -82,6 +83,7 @@ export function montarInvocacao(pedido: {
   readonly wamid: string;
   readonly type: string;
   readonly modo: Modo;
+  readonly persona: Persona;
 }): AgentInvocation {
   if (pedido.contactId === "") throw new InvocacaoIncompletaError("`contact_id`");
   if (pedido.conversationId === "") {
@@ -98,5 +100,6 @@ export function montarInvocacao(pedido: {
     modo: pedido.modo,
     thread_id: threadIdDe(pedido.contexto.tenant_id, pedido.contactId),
     vertical: pedido.contexto.vertical,
+    persona: pedido.persona,
   };
 }

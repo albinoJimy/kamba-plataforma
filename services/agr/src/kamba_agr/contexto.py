@@ -41,9 +41,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Final
 
-#: Os nove campos do contrato `agent_invocation` (dicionario §3.13), pela ordem
-#: em que o dicionario os escreve. E lista **fechada**: um campo a mais no
-#: corpo e um corpo que nao conhecemos, e recusa-se.
+#: Os nove campos **obrigatorios** do contrato `agent_invocation` (dicionario
+#: §3.13), pela ordem em que o dicionario os escreve. E lista **fechada**: um
+#: campo a mais no corpo e um corpo que nao conhecemos, e recusa-se. O unico
+#: opcional — a `persona`, do KAM-118 — esta no `CAMPOS_OPCIONAIS`.
 CAMPOS: Final = (
     "tenant_id",
     "contact_id",
@@ -68,7 +69,37 @@ MODO_DO_BOT: Final = "bot"
 #: `chr/contrato.ts` e de `fluxo_piloto.py`; lista de **permitidas**, pela
 #: razao do criterio 5 do KAM-014 — `assistente` por igualdade nao via
 #: `assistente_v2`.
+#:
+#: **O `dono` nao entra aqui, e e a decisao do KAM-118 e nao um esquecimento.**
+#: A divida 98 previa que a persona do dono chegasse pela `vertical`, e a lista
+#: tivesse de crescer. Chega pela `persona`, que e outro campo: a vertical e do
+#: **canal** (`tenant_channels.vertical`, que nao muda quando quem escreve e o
+#: dono) e a persona e de **quem escreve** (`contacts.papel`). Pondo o `dono`
+#: aqui, o CHR podia escrever `vertical: dono` num canal e a porta aceitava um
+#: canal que nao existe; e o dicionario recusa «persona» como sinonimo de
+#: vertical.
 VERTICAIS: Final = ("vendedor", "servicos")
+
+#: O campo opcional do contrato (KAM-118). **Aditivo da v1**: um CHR anterior
+#: nao o escreve, e a porta le entao a omissao. Fica fora do `CAMPOS` de
+#: proposito — o `CAMPOS` e a lista dos **obrigatorios**, e ha ensaios que a
+#: percorrem a apagar um campo de cada vez e a esperar `campo_em_falta`.
+CAMPOS_OPCIONAIS: Final = ("persona",)
+
+#: Quem escreve: o `CHECK` de `contacts.papel` e o `enum` do campo `persona` do
+#: `agent_invocation.v1.json`. Lista **fechada**, pela razao do `VERTICAIS`.
+PERSONAS: Final = ("cliente", "dono")
+PERSONA_CLIENTE, PERSONA_DONO = PERSONAS
+
+#: A persona de uma invocacao sem o campo. **`cliente` e a omissao segura**: um
+#: corpo de um CHR que nao saiba do dono e o de um cliente, e o contrario — ler
+#: a ausencia como `dono` — dava as tools do dono a quem nao provou ser dono.
+PERSONA_POR_OMISSAO: Final = PERSONA_CLIENTE
+
+#: A chave do `AgentRegistry` quando quem escreve e o dono: o `id` de
+#: `registry/dono.yaml`. Um so registo para a persona, seja qual for a vertical
+#: do canal — o Assistente do Dono e o mesmo numa loja e num salao.
+CHAVE_DO_DONO: Final = "dono"
 
 _UUID = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 
@@ -121,6 +152,15 @@ class InvocacaoDoAgente:
     modo: str
     thread_id: str
     vertical: str
+    #: KAM-118. Com omissao, e por isso o ultimo: quem constroi a invocacao com
+    #: os nove campos — os ensaios, o `golden.py` — continua a construir a de um
+    #: cliente sem saber que o campo existe.
+    persona: str = PERSONA_POR_OMISSAO
+
+    @property
+    def chave_do_registo(self) -> str:
+        """A chave do `AgentRegistry` para este turno. Ver `chave_do_registo`."""
+        return chave_do_registo(self.persona, self.vertical)
 
     @property
     def turn_id(self) -> str:
@@ -169,7 +209,7 @@ def ler_invocacao(corpo: Any) -> InvocacaoDoAgente:
         raise InvocacaoInvalidaError("corpo_nao_e_objecto")
 
     chaves = set(corpo)
-    if chaves - set(CAMPOS):
+    if chaves - set(CAMPOS) - set(CAMPOS_OPCIONAIS):
         # O nome do campo a mais **nao** entra no codigo: vem de fora, e um
         # dicionario espalhado em argumentos trazia conteudo nas chaves (e a
         # razao do `MOTIVO_DESCONHECIDO` de `logger/politica.py`).
@@ -195,7 +235,33 @@ def ler_invocacao(corpo: Any) -> InvocacaoDoAgente:
         # que vem ao lado e um contrato incoerente, e a tranca depende dele.
         raise InvocacaoInvalidaError("thread_id_incoerente")
 
-    return InvocacaoDoAgente(**valores)
+    # **Presente, tem de ser um dos dois; ausente, e `cliente`.** Um `null` ou
+    # um `""` nao sao ausencia: sao um CHR a escrever o campo mal, e recusar
+    # faz o defeito aparecer no primeiro turno em vez de o tornar num cliente
+    # que era dono.
+    persona = corpo.get("persona", PERSONA_POR_OMISSAO)
+    if not isinstance(persona, str) or persona not in PERSONAS:
+        raise InvocacaoInvalidaError("campo_invalido_persona")
+
+    return InvocacaoDoAgente(**valores, persona=persona)
+
+
+def chave_do_registo(persona: object, vertical: object) -> str:
+    """A chave do `AgentRegistry`: `dono` se quem escreve e o dono, senao a vertical.
+
+    **E o unico sitio onde a regra vive** (KAM-118), e tem dois leitores: o
+    `AgentRegistry.resolve`, no turno, e a `PortaDeGrafos.da_thread`, que le a
+    `persona` e a `vertical` do *checkpoint* para reencontrar o grafo de uma
+    *thread* interrompida. Escrita duas vezes, a retoma de um *handoff* do dono
+    podia acordar o grafo do Vendedor.
+
+    So a igualdade exacta a `dono` muda a chave. Qualquer outro valor — a
+    omissao, um `None` de um *checkpoint* anterior ao campo — da a vertical, que
+    e o comportamento de antes do KAM-118.
+    """
+    if persona == PERSONA_DONO:
+        return CHAVE_DO_DONO
+    return vertical if isinstance(vertical, str) else ""
 
 
 def thread_id_de(tenant_id: str, contact_id: str) -> str:

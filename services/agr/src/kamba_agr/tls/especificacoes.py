@@ -212,6 +212,12 @@ class EspecificacaoDeTool:
     campo_de_confirmacao: str | None = None
     #: O ticket que liga esta entrada. Obrigatorio numa entrada `declarada`.
     credor: str | None = None
+    #: O modulo cujo entitlement fecha esta tool no passo 2, ou `None` para o da
+    #: vertical do turno (`ctx.vertical`). **Decisao do fundador (2026-11-18,
+    #: KAM-118):** o Assistente do Dono atende qualquer dono, e cada tool fica
+    #: fechada pelo entitlement do **seu** modulo — as quatro do catalogo pelo
+    #: `catalogo`, e nao pelo modulo do canal por onde o dono escreve.
+    modulo: str | None = None
 
     def __post_init__(self) -> None:
         if not NOME_DE_TOOL.match(self.nome):
@@ -223,6 +229,11 @@ class EspecificacaoDeTool:
             raise EspecificacaoInvalidaError(
                 f"a tool `{self.nome}` tem `klass` {self.klass!r}, que nao e uma das "
                 f"tres de `docs/tecnica/02` §6.1: {list(CLASSES)}"
+            )
+        if self.modulo is not None and not NOME_DE_TOOL.match(self.modulo):
+            raise EspecificacaoInvalidaError(
+                f"a tool `{self.nome}` tem `modulo` {self.modulo!r}, que nao e um nome "
+                f"de modulo ({NOME_DE_TOOL.pattern}); e a chave do entitlement do passo 2"
             )
         if self.backend not in BACKENDS:
             raise EspecificacaoInvalidaError(

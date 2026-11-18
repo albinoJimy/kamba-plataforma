@@ -363,6 +363,11 @@ REV_CONFIANCA = _revisao_por_glob("*_confianca_gradual.py")
 #: `db/tests/test_offboarding.py`, e o fim-a-fim do CHR o
 #: `packages/core-ts/tests_bd/chr.bd.test.ts` (suite `tests_chr`).
 REV_OFFBOARDING = _revisao_por_glob("*_offboarding.py")
+
+#: KAM-118: a revisao do canal do dono, pela razao da do Catalogo AI — o numero
+#: (`0070`, sobre a `0069` do KAM-195) fixou-o a integracao. O ensaio que a
+#: prova e o `db/tests/test_canal_do_dono_schema.py`.
+REV_CANAL_DO_DONO = _revisao_por_glob("*_canal_do_dono.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -5388,8 +5393,8 @@ MUTACOES = [
      '        if foto.values.get("turn_id") == invocacao.turn_id:',
      AGR_UNIT),
     ('grafos: a thread resolve sempre o Vendedor', AG_GRAFOS,
-     '        return self._grafo(valores.get("vertical"))',
-     '        return self._grafo("vendedor")',
+     '            chave_do_registo(valores.get("persona"), valores.get("vertical"))',
+     '            "vendedor"',
      AGR_UNIT),
     # No turno: a recusa da vertical volta a ser uma excepcao, que a rota
     # traduz em 500 e seis tentativas.
@@ -7861,6 +7866,67 @@ MUTACOES = [
      "      await c.query(SQL_TRANCAR);\n",
      "",
      "tests_lote"),
+    # ------------------------------ KAM-118 (revisao do canal do dono)
+    #
+    # Oito, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_CANAL_DO_DONO`), porque o numero e
+    # provisorio. A suite e a `tests`, e o modulo que as tem de matar e o
+    # `db/tests/test_canal_do_dono_schema.py`, com o ensaio nomeado em cada uma.
+    #
+    # O indice deixa de ser parcial e passa a dizer «um contacto por tenant»: o
+    # segundo contacto do tenant, criado pelo `kamba_identity`, ja nao nasce:
+    # `test_dois_clientes_no_mesmo_tenant_e_um_dono_em_cada_tenant_passam`.
+    ("canal do dono: o indice do dono perde o predicado", REV_CANAL_DO_DONO,
+     "(tenant_id) WHERE papel = 'dono'\"\n",
+     "(tenant_id)\"\n",
+     "tests"),
+    # O dono da tabela le as fichas de todos os tenants:
+    # `test_a_rls_esta_ligada_e_forcada`.
+    ("canal do dono: as fichas perdem o FORCE da RLS", REV_CANAL_DO_DONO,
+     '    rls.enable_tenant_rls("owner_actions")\n',
+     '    rls.enable_tenant_rls("owner_actions")\n'
+     '    op.execute("ALTER TABLE platform.owner_actions NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # A aplicacao, que serve o turno onde chega o «sou o dono», promove-se a si
+    # propria (criterio 2): `test_nenhum_papel_de_aplicacao_escreve_o_papel`.
+    ("canal do dono: a aplicacao escreve o papel", REV_CANAL_DO_DONO,
+     "ON {CONTACTOS} TO kamba_app\")\n",
+     "ON {CONTACTOS} TO kamba_app\")\n"
+     '    op.execute(f"GRANT UPDATE (papel) ON {CONTACTOS} TO kamba_app")\n',
+     "tests"),
+    # Um contacto nasce `dono` pelo `INSERT` de tabela da `0003`, por fora da
+    # porta: `test_a_identidade_nao_insere_um_contacto_ja_dono`.
+    ("canal do dono: a identidade insere o papel", REV_CANAL_DO_DONO,
+     '    op.execute(f"REVOKE INSERT ON {CONTACTOS} FROM {PAPEL_DA_IDENTIDADE}")\n'
+     "    op.execute(\n",
+     "    op.execute(\n",
+     "tests"),
+    # Uma reentrega da saga com outro contacto troca o dono sem OTP (criterio 3):
+    # `test_o_provisionamento_de_outro_contacto_nao_troca_o_dono`.
+    ("canal do dono: o provisionamento troca o dono", REV_CANAL_DO_DONO,
+     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' AND NOT v_lapide THEN\n",
+     "          IF false THEN\n",
+     "tests"),
+    # Um dono apagado ou fundido prende o lugar, e a saga recusa para sempre
+    # (achado da revisao adversarial):
+    # `test_um_dono_apagado_ou_fundido_nao_prende_o_lugar`.
+    ("canal do dono: a lapide prende o lugar do dono", REV_CANAL_DO_DONO,
+     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' AND NOT v_lapide THEN\n",
+     "          IF v_anterior IS NOT NULL AND p_origem = 'provisionamento' THEN\n",
+     "tests"),
+    # A aplicacao abre a porta: `test_so_a_identidade_executa_a_porta`.
+    ("canal do dono: a aplicacao executa a porta", REV_CANAL_DO_DONO,
+     '    op.execute(f"GRANT EXECUTE ON FUNCTION {ASSINATURA} TO {PAPEL_DA_IDENTIDADE}")\n',
+     '    op.execute(f"GRANT EXECUTE ON FUNCTION {ASSINATURA} TO {PAPEL_DA_IDENTIDADE}")\n'
+     '    op.execute(f"GRANT EXECUTE ON FUNCTION {ASSINATURA} TO kamba_app")\n',
+     "tests"),
+    # Sem a tranca do tenant, a segunda de duas trocas concorrentes nao ve o
+    # dono que a primeira deixou e perde-se com `23505`:
+    # `test_duas_trocas_concorrentes_nao_deixam_dois_donos`.
+    ("canal do dono: a porta nao tranca o tenant", REV_CANAL_DO_DONO,
+     "          PERFORM 1 FROM {TENANTS} t WHERE t.id = v_tenant FOR UPDATE;\n",
+     "          PERFORM 1 FROM {TENANTS} t WHERE t.id = v_tenant;\n",
+     "tests"),
     # ------------------------------ KAM-096 (revisao da confianca gradual)
     #
     # Oito, e cada uma tira uma barreira que so a base tem. O alvo e a revisao

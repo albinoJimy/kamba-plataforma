@@ -209,3 +209,26 @@ funcoes:
       sem `detalhe`. Nao contorna o `FORCE`: e por o respeitar que poe o
       contexto. `db/tests/test_trust_schema.py` mede os dois escritores, o
       antes e o depois da activacao, e que o contexto do lote volta ao que era.
+  - funcao: platform.definir_dono(p_contact_id uuid, p_origem text)
+    adr: ADR-010
+    razao: >-
+      E a unica porta que muda `platform.contacts.papel` (KAM-118, criterio 2:
+      o papel so muda por OTP validado ou pela saga, e 20 textos adversariais
+      dao zero alteracoes). Nenhum papel tem `UPDATE (papel)`, e o `INSERT` do
+      `kamba_identity` na `contacts` passou a ser por coluna, sem o `papel`,
+      para que um contacto nao possa **nascer** `dono` por fora da porta. Com
+      `SECURITY INVOKER` a excepcao nao desaparecia — mudava de sitio e ficava
+      maior: era preciso conceder `UPDATE (papel)` a quem a chama, e com esse
+      privilegio promove-se qualquer contacto sem passar pelas recusas abaixo.
+      O grantee e so o **`kamba_identity`**, que e quem valida o OTP e consome
+      a saga; o `kamba_app`, que serve os turnos de conversa onde o texto
+      adversarial chega, leva `42501`.
+      A excepcao e **estreita, e nao cega**: o tenant vem so do
+      `app.tenant_id` e nao e argumento; o `DEFINER` nao contorna o `FORCE`
+      (`db/rls.py`), pelo que um contacto de outro tenant nao se encontra e
+      recusa com `23503`; a origem e uma lista fechada de duas; a reentrega do
+      provisionamento e idempotente e nao troca um dono existente (`23505`); e
+      a tranca da linha do tenant serializa duas trocas concorrentes, com o
+      indice `contacts_um_dono` como segunda barreira.
+      `db/tests/test_canal_do_dono_schema.py` mede as recusas, o isolamento e o
+      `42501` dos outros papeis.
