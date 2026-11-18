@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Índice e Pesquisa |
-| Versão | 1.9 |
+| Versão | 1.10 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` |
@@ -46,6 +46,7 @@ Concretiza os ADRs **ADR-006**, **ADR-007**, **ADR-008**, **ADR-003** (o IDX rec
 | KAM-064 | Avaliação de qualidade da pesquisa e dataset | feature | M | P1 | KAM-061, KAM-040, KAM-062, KAM-063 |
 | KAM-193 | IDX: processo do consumidor, métricas servidas e latência no ambiente de referência | feature | M | P1 | KAM-061 |
 | KAM-199 | Activação do *eval-gate* de pesquisa e troca do modelo de embeddings | feature | L | P1 | KAM-064, KAM-194 |
+| KAM-212 | O ensaio do desconto do tecto lê o relógio real, e avermelha o *gate* 4 ao acaso | fix | S | P1 | KAM-063 |
 
 ---
 
@@ -314,7 +315,7 @@ Testes: unit (tabelas de casos), integração (versionamento), dataset, RLS. PR 
 | Prioridade | P1 |
 | Estimativa | M |
 | Dependências | KAM-061, KAM-030, ext:KAM-069 |
-| Bloqueia | KAM-064 |
+| Bloqueia | KAM-064, KAM-212 |
 | Responsável sugerido | Engenheiro de Dados/Pesquisa |
 | Documentos de referência | `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` (§6.5, §7.4, §14.3, §17, PROP-IDX-3, PROP-IDX-4), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.4, §8.3), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§2), `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§3.5), ADR-005, ADR-008 |
 
@@ -759,6 +760,104 @@ Testes: migração, integração do gate no CI, desempenho em staging.
 
 ---
 
+## KAM-212 — O ensaio do desconto do tecto lê o relógio real, e avermelha o *gate* 4 ao acaso
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-06 — Índice e Pesquisa |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-063 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Dados/Pesquisa, com o dono do gate 4 |
+| Documentos de referência | `../libs/py-core/tests/test_idx_embeddings.py`, `../libs/py-core/src/kamba_core/idx/pesquisa.py`, `../libs/py-core/src/kamba_core/idx/embeddings.py`, `../services/agr/src/kamba_agr/tls/idx.py`, bloco KAM-063 |
+
+### Contexto
+
+**O *gate* 4 ficou vermelho num PR que não toca no IDX.** Medido a 2026-11-18, no PR `#214`
+(KAM-118), corrida `44231070696`, *job* `134555980081`: o alvo `ordem-dos-ensaios` falhou em
+`test_idx_embeddings.TestProcurarHibrido.test_o_tempo_do_vector_desconta_se_do_tecto_da_pesquisa`,
+porque a asserção esperava `(SQL_TECTO, ("1700",))` e a ligação recebeu `("1699",)`.
+
+**O ensaio injectava o relógio, mas construía os dois instantes sobre o relógio real.** Lia
+`inicio = time.monotonic()` e entregava `inicio` e `inicio + 0.3` ao `procurar`. A diferença
+`(inicio + 0.3) - inicio` em vírgula flutuante depende do valor de `inicio`. Com
+`inicio = 844422.0071031966` sai `0.30000000004656613`, e o `procurar` desconta-a com
+`max(1, int(tecto_ms - (relogio() - inicio) * 1000))` (`../libs/py-core/src/kamba_core/idx/pesquisa.py`,
+linha 280). O `int()` trunca o 1699,99… para **1699**. O `time.monotonic()` de um *runner* é o
+tempo desde o arranque da máquina, e por isso o mesmo *commit* passa numa máquina e falha noutra.
+
+**O defeito é do ensaio, e o código fica como está.** O truncamento do `procurar` é conservador:
+com um tempo real, arredondar para baixo dá ao servidor menos tempo, nunca mais do que sobra. Os
+dois relógios de produção estão no mesmo referencial, porque o AGR (`../services/agr/src/kamba_agr/tls/idx.py`)
+não passa `relogio` ao `procurar`, e o `ClienteDeEmbeddings` lê o `time.monotonic` por omissão. A
+asserção também está certa: mede um valor determinado. O que não era determinado era a entrada que
+o ensaio lhe dava.
+
+### Objectivo
+
+O ensaio dá o mesmo resultado em qualquer máquina, e continua a avermelhar se o desconto do tecto
+se partir.
+
+### Critérios de Aceitação
+
+- [x] 1. A falha reproduz-se de forma determinística, com a linha que a causa apontada. O comando e a base do relógio ficam escritos.
+- [x] 2. O ensaio não lê o relógio real. O `procurar` e o cliente de embeddings recebem relógios injectados, e a diferença entre os dois instantes é exacta em vírgula flutuante.
+- [x] 3. A asserção continua a ser de igualdade, sem `assertAlmostEqual` e sem aceitar dois valores. Cada mutação que parte o desconto do tecto põe o ensaio vermelho.
+- [x] 4. O código de produção não muda, e a razão fica escrita.
+- [x] 5. A suite `libs/py-core` fica verde, e o alvo `ordem-dos-ensaios` também, nas duas ordens.
+
+### Detalhes Técnicos
+
+- **Componentes:** IDX (ensaio), CI (*gate* 4).
+- **Os instantes são `1000.0` e `1000.25`.** Um inteiro mais 0,25 é exacto, porque 0,25 é uma potência de dois e o inteiro está muito abaixo de 2⁵⁰. Logo o desconto dá 250 ms e o tecto **1750**, que se faz de cabeça. Não fica `inicio + 0.3` sobre uma base fixa: `1000.3 - 1000.0` dá `0.2999999999999545`, e o 1700 sairia por o arredondamento cair para o lado certo.
+- **O cliente leva um relógio também.** O `prazo` que o `procurar` passa ao vector conta-se no relógio do `procurar`, e o cliente compara-o com o dele (`ClienteDeEmbeddings.vectores`). Com o `procurar` num relógio fixo e o cliente no real, o prazo ficava no passado, e o fornecedor não era chamado. O ensaio constrói o cliente com `relogio=lambda: inicio`.
+- **Fica uma dívida, e não é deste ticket.** O `procurar` e o cliente aceitam relógios separados, e nada obriga a que estejam no mesmo referencial. Hoje nenhum chamador de produção injecta nenhum dos dois.
+
+### Testes Requeridos
+
+- Unidade: o ensaio corrigido, verde com o relógio real deslocado para quatro bases, entre elas a que falha.
+- Mutação: cinco mutações à linha do desconto, todas vermelhas, e uma equivalente (`round` em vez de `int`), verde.
+- Suite: `libs/py-core` e o `ordem_dos_ensaios check` sobre ela.
+
+### Definition of Done
+
+- [x] Critérios de Aceitação satisfeitos, com a verificação escrita neste bloco.
+- [x] Nenhuma asserção afrouxada, e nenhum ensaio novo com relógio real.
+- [x] Documentação actualizada (este bloco, o `INDICE.md` e as contagens); sem migração.
+
+### Verificação dos Critérios de Aceitação
+
+Ramo `feature/KAM-212-tecto-do-vector-deterministico`, base `5ef99f83` (`publico/main`). Python 3.13 do Windows, com o `PYTHONPATH` em caminhos separados por `;`.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Reprodução determinística e linha | satisfeito | **Nesta máquina o ensaio antigo falhava sempre**: o `time.monotonic()` dava `807413.83`, e `python -m unittest test_idx_embeddings.TestProcurarHibrido` dava `FAILED (failures=1)` com `('1699',)`. Para fixar a base, um guião põe o relógio real a começar em `b` (`mock.patch.object(t.time, "monotonic", lambda: b + (real() - zero))`). Com `b = 3600.123` e `b = 844422.0071031966`, o ensaio antigo dá `1699`. A aritmética isolada, sobre 100 000 bases uniformes em [1, 10⁶], dá `int(2000 - ((i + 0.3) - i) * 1000) != 1700` em **58 067**. A linha é a 280 do `pesquisa.py`, o `int()` do desconto, sobre os instantes da linha 756 do ensaio |
+| 2 | Sem relógio real, e diferença exacta | satisfeito | O ensaio não chama `time.monotonic` (procurado no corpo dele: zero chamadas). Os instantes são `1000.0` e `1000.25`, e o cliente é construído com `relogio=lambda: inicio`. O mesmo guião, com as quatro bases (`1000.0`, `3600.123`, `12345.6789` e `844422.0071031966`), dá **OK** nas quatro |
+| 3 | Asserção exacta, e as mutações mordem | satisfeito | A asserção é `assertIn((pesquisa.SQL_TECTO, ("1750",)), ...)`, de igualdade. As mutações à linha 280 foram corridas uma a uma, com o ficheiro reposto no fim. Ficam **vermelhas** as cinco que partem o desconto: sem desconto, o relógio real no fim em vez do injectado, o sinal trocado, o desconto em segundos e não em milissegundos, e o desconto da reserva em vez do tempo gasto. A sexta, `round` em vez de `int`, é equivalente nestes instantes e fica **verde** |
+| 4 | Código de produção intacto, e a razão | satisfeito | `git diff --stat publico/main -- libs/py-core/src services` dá vazio. A razão está no Contexto: o truncamento é conservador, e os dois relógios de produção são o `time.monotonic` por omissão |
+| 5 | Suite e as duas ordens | satisfeito | `python -m unittest discover -s libs/py-core/tests -t libs/py-core/tests` deu **Ran 1216 tests**, `OK (skipped=1)`. O `python -m ordem_dos_ensaios --root . check --suite libs/py-core/tests --nome libs/py-core` deu RESULTADO_ORDEM |
+
+**Portões, medidos nesta árvore:** RESULTADO_PORTOES
+
+**A revisão adversarial**, independente e sem acesso ao raciocínio de quem escreveu: RESULTADO_REVISAO
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-212 da KAMBÁ (um ensaio intermitente do gate 4).
+Lê specs/EPIC-06_Indice_Pesquisa.md (bloco KAM-212) e o ensaio
+test_o_tempo_do_vector_desconta_se_do_tecto_da_pesquisa em libs/py-core/tests/test_idx_embeddings.py.
+Objectivo: o ensaio dá o mesmo resultado em qualquer máquina, e continua a morder o desconto do tecto.
+Regras: mede antes de corrigir; nenhuma asserção afrouxada; nenhum relógio real no ensaio; o código
+de produção só muda se a causa for dele.
+Testes: o ensaio com o relógio deslocado, as mutações à linha do desconto, e a suite libs/py-core.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação ou critério de saída | Decisão |
@@ -800,3 +899,4 @@ Testes: migração, integração do gate no CI, desempenho em staging.
 | 1.7 | Novembro 2026 | KAM-194: a verificação de três blocos aponta para ele nas caixas que fechou — o critério 9 do KAM-061, o critério 4 do KAM-062 e o critério 1 do KAM-193, as três medidas numa pilha levantada —, e o critério 7 do KAM-063 fica parcial com o que o KAM-194 ligou e o resto com credor **KAM-064**, que o recebe no seu bloco. | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | KAM-064: secção de verificação do bloco, com **seis** caixas de nove nos critérios e **três** de seis na DoD, sem migração. Ficam vazio o 2 (a anotação B e o κ) e parciais o 6 (o *gate* existe como comando; o *job* de CI é decisão do fundador) e o 9 (o tempo em CI, sem *job*). O bloco ganha a tabela do que recebeu do KAM-061, do KAM-062, do KAM-063 e do KAM-194, e o que aconteceu a cada linha. **Entra o KAM-199**, credor do que pede decisão do fundador ou migração, e o `Bloqueia` do KAM-064 ganha-o; as verificações do KAM-062 e do KAM-063 passam a apontar para ele nas caixas que davam ao KAM-064. As três decisões, com as opções, estão em `../docs/evidencia/KAM-064.md`. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | KAM-199: secção de verificação do bloco, com **duas** caixas de dez nos critérios (a activação do léxico de *dataset* e o relatório de *tokens*) e **uma** de duas na DoD. Regista as três decisões do fundador de 2026-11-16 (`../docs/adr/ADR-L012-pesquisa-no-piloto.md`): o *eval-gate* corre no CI como aviso, o relatório de *tokens* só sobre o *dataset*, e o Piloto fica só lexical — o modelo, o híbrido, a calibração, a coluna, o p95 e a fila de mortos ficam para depois do Piloto, com credor na linha da pesquisa híbrida do `INDICE.md` §6. **O critério 8 do KAM-062 é reescrito** nessa forma, e as caixas 7 e 8 dele marcam-se; o critério 4 deste bloco também. As verificações do KAM-062 e do KAM-064 apontam para o KAM-199 nas caixas que ele fechou ou passou. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | **KAM-212** acrescentado e entregue no mesmo PR: o ensaio `test_o_tempo_do_vector_desconta_se_do_tecto_da_pesquisa` construía os instantes injectados sobre o `time.monotonic()` real, e a diferença `(inicio + 0.3) - inicio` em vírgula flutuante saía acima de 0,3 para muitas bases do relógio. O `int()` do `procurar` truncava então o tecto para 1699, e o *gate* 4 avermelhava ao acaso (PR `#214`, corrida `44231070696`). O ensaio passa a instantes fixos e exactos (`1000.0` e `1000.25`, tecto **1750**), com o cliente de embeddings no mesmo relógio. O código de produção não muda, e o `Bloqueia` do KAM-063 ganha o KAM-212. | Equipa KAMBÁ |

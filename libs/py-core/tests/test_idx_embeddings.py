@@ -752,16 +752,29 @@ class TestProcurarHibrido(ComRegisto):
         self.assertEqual(procura.linhas, ())
 
     def test_o_tempo_do_vector_desconta_se_do_tecto_da_pesquisa(self) -> None:
-        inicio = time.monotonic()
-        instantes = iter((inicio, inicio + 0.3))
+        # KAM-212: nenhum relogio real, e uma diferenca exacta em virgula
+        # flutuante. Com `inicio = time.monotonic()` e `inicio + 0.3`, a
+        # diferenca dependia do valor do relogio da maquina: sai
+        # `0.30000000004656613` com `inicio = 844422.0071031966`, e o `int()`
+        # do `procurar` trunca 1699,99... para 1699 — o vermelho ao acaso do
+        # gate 4. Um inteiro mais 0,25 e exacto (0,25 e uma potencia de dois).
+        # O cliente leva o mesmo relogio, porque o `prazo` le-se no relogio dele.
+        inicio = 1_000.0
+        instantes = iter((inicio, inicio + 0.25))
         ligacao = _LigacaoComModelos([(MODELO,)], [(MODELO,)])
         fornecedor = FakeEmbeddingProvider()
+        cliente = ClienteDeEmbeddings(
+            PortaSobreDestinos(Leitor({"openai": [destino()]}), relogio=self.relogio),
+            fornecedor,
+            metricas=self.registo,
+            relogio=lambda: inicio,
+        )
         pesquisa.procurar(
             ligacao, TENANT, "arroz", tecto_ms=2_000,
-            vectorial=self.consulta_autorizada(fornecedor),
+            vectorial=ConsultaVectorial(cliente, nunca_sensivel, metricas=self.registo),
             relogio=lambda: next(instantes),
         )
-        self.assertIn((pesquisa.SQL_TECTO, ("1700",)), ligacao.chamadas)
+        self.assertIn((pesquisa.SQL_TECTO, ("1750",)), ligacao.chamadas)
         # E o vector teve o prazo do tecto menos a reserva da pesquisa.
         self.assertLessEqual(
             fornecedor.chamadas[0][2], (2_000 - pesquisa.RESERVA_DA_PESQUISA_MS) / 1000
