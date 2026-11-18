@@ -34,6 +34,7 @@ from typing import NamedTuple
 from urllib.parse import quote
 
 from .env import PREFIXO, SUFIXO_ANTERIOR, nome_da_variavel
+from .kid import kids_das_versoes
 from .port import (
     AmbienteErradoError,
     CofreInacessivelError,
@@ -166,8 +167,9 @@ class DopplerSecretProvider:
         return actual, (None if anterior.strip() == "" else anterior)
 
     def versions(self, ref: SecretRef) -> tuple[str, ...]:
-        _, anterior = self.get_ring(ref)
-        return ("actual",) if anterior is None else ("actual", "anterior")
+        """O `kid` de cada versao, lido do valor, como no `EnvSecretProvider` (KAM-205)."""
+        actual, anterior = self.get_ring(ref)
+        return kids_das_versoes(validar_ref(ref), actual, anterior)
 
     def _descarregar(self) -> Mapping[str, str]:
         if self._cache is not None:

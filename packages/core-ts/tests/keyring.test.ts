@@ -54,7 +54,13 @@ import {
   valoresVivos,
   verificarSeparacaoDeAmbientes,
 } from "../src/keyring/index.ts";
-import { cifrarToken, decifrarToken, kidDoCriptograma } from "../src/onboarding/cifra.ts";
+import {
+  anelDaKek,
+  cifrarToken,
+  decifrarToken,
+  kekParaCifrar,
+  kidDoCriptograma,
+} from "../src/onboarding/cifra.ts";
 import { EnvSecretProvider } from "../src/secrets/env.ts";
 import { CofreInacessivelError, type SecretProvider } from "../src/secrets/port.ts";
 
@@ -642,29 +648,30 @@ describe("keyring/tokens: com kid estável, rodar a KEK mantém a leitura e não
     assert.throws(() => decifrarToken({ k2: kek2.valor }, OUTRO, criptograma), /autenticação falhou/);
   });
 
-  it("o defeito medido: com o kid posicional do EnvSecretProvider, a rotação parte o token guardado", async () => {
-    // É o caminho do `#tokenEmClaro` do `onboarding.ts`: o anel `kid → chave`
-    // monta-se com `versions()`, que no Env devolve `actual` e `anterior`.
-    const comoOOnboardingLe = async (env: EnvSecretProvider): Promise<Record<string, string>> => {
-      const [actual, anterior] = await env.getRing("kek_token_cliente");
-      const versoes = await env.versions("kek_token_cliente");
-      const anel: Record<string, string> = {};
-      if (versoes[0] !== undefined) anel[versoes[0]] = actual;
-      if (versoes[1] !== undefined && anterior !== null) anel[versoes[1]] = anterior;
-      return anel;
-    };
-    const kek1 = gerarValor();
+  it("o defeito medido, corrigido no KAM-205: rodar a KEK no EnvSecretProvider já não parte o token guardado", async () => {
+    // É o caminho do onboarding: cifra com o `kekParaCifrar` sobre o
+    // `versions()[0]` e o `get()`, e abre com o `anelDaKek` sobre o `getRing()` e
+    // o `versions()`. Até ao KAM-205 o `versions()` do Env dava `actual` e
+    // `anterior`, e depois da rotação `actual` era a KEK nova: o token não abria.
+    const comoOOnboardingLe = async (env: EnvSecretProvider): Promise<Readonly<Record<string, string>>> =>
+      anelDaKek(await env.getRing("kek_token_cliente"), await env.versions("kek_token_cliente"));
+    const token = `EAAG${gerarValor()}`;
+    const kek1 = `k1:${gerarValor()}`;
     const antes = new EnvSecretProvider({ ambiente: "staging", env: { KAMBA_SECRET_KEK_TOKEN_CLIENTE: kek1 } });
     const [kidAntes] = await antes.versions("kek_token_cliente");
-    const guardado = cifrarToken(kek1, kidAntes as string, TENANT, `EAAG${gerarValor()}`);
+    const versao = kekParaCifrar(kidAntes as string, await antes.get("kek_token_cliente"));
+    const guardado = cifrarToken(versao.chave, versao.kid, TENANT, token);
     const depois = new EnvSecretProvider({
       ambiente: "staging",
-      env: { KAMBA_SECRET_KEK_TOKEN_CLIENTE: gerarValor(), KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: kek1 },
+      env: {
+        KAMBA_SECRET_KEK_TOKEN_CLIENTE: `k2:${gerarValor()}`,
+        KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR: kek1,
+      },
     });
-    assert.equal(kidAntes, "actual");
-    const anelDepois = await comoOOnboardingLe(depois);
-    assert.equal(anelDepois.actual === undefined, false, "o rótulo «actual» passou a ser a KEK nova");
-    assert.throws(() => decifrarToken(anelDepois, TENANT, guardado), /autenticação falhou/);
+    assert.equal(kidAntes, "k1");
+    assert.deepEqual(await depois.versions("kek_token_cliente"), ["k2", "k1"], "o k1 foi com o valor");
+    assert.equal(kidDoCriptograma(guardado), "k1", "nenhum rótulo posicional no criptograma");
+    assert.equal(decifrarToken(await comoOOnboardingLe(depois), TENANT, guardado), token);
   });
 });
 
