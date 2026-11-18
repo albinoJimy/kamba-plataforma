@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.27 |
+| Versão | 1.28 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -3176,6 +3176,21 @@ nem um dono escrevem qualquer valor.
   escrita. As sementes das suites que escrevem `entregue` directamente (`tests_encomendas`, `tests_pagamentos`)
   passam a escrever um `actor_kind` coerente.
 - **Fora deste ticket:** a regra de elegibilidade e o tecto (KAM-096); o recálculo (KAM-203).
+- **Decisão do fundador, 2026-11-18 (critério 1, opção A).** O actor que fala pelo cliente é o **`agente`**,
+  e a base exige mais do que o tipo: a conversa do contacto da encomenda tem a janela de 24 h aberta
+  (`conversations.window_expires_at > now()`), isto é, o cliente escreveu nas últimas 24 h. O `actor_id` do
+  agente (`grafo-<vertical>`) não diz de que turno vem, e a janela é o que a base consegue ler. O `sistema` com
+  evento ancorado ficou de fora porque o catálogo não tem contrato de evento de «o cliente confirmou a
+  entrega» a que se ancorar. **Segunda decisão do fundador, na mesma data:** o mapa completo é **um papel por actor** — `agente` → `cliente`, `dono` →
+  `dono`, `sistema` → `estafeta` (sem produtor hoje; Fase C), `ops` → nenhum, porque o fim de uma disputa mantém o
+  papel e o instante da entrega —, e é ele que deixa o `transition` pedir o papel ao `ctx`
+  (`PAPEL_POR_ACTOR` em `../services/com/src/orders/contrato.ts`, os mesmos três pares na revisão).
+- **Quem grava cada coluna (critério 4).** O `entrega_confirmada_por` grava-o o `transition`, com o papel do
+  `ctx`, e a base confirma-o no `COMMIT` (`order_entrega_exige_papel`, `CONSTRAINT TRIGGER` diferido da revisão
+  `0071`, `23514`). O `entregue_at` grava-o a base (`order_entrega_presa`, `BEFORE INSERT OR UPDATE` da mesma
+  revisão), com o `now()` da transacção; o `SQL_TRANSITAR` deixou de o nomear e o `kamba_app` deixou de ter
+  `UPDATE` na coluna. Os dois *triggers* são `ENABLE ALWAYS` e `SECURITY INVOKER`, como o
+  `order_estado_exige_log`.
 
 ### Testes Requeridos
 

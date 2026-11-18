@@ -368,6 +368,10 @@ REV_OFFBOARDING = _revisao_por_glob("*_offboarding.py")
 #: (`0070`, sobre a `0069` do KAM-195) fixou-o a integracao. O ensaio que a
 #: prova e o `db/tests/test_canal_do_dono_schema.py`.
 REV_CANAL_DO_DONO = _revisao_por_glob("*_canal_do_dono.py")
+#: KAM-204: a revisao da entrega presa ao actor, pela razao da do Catalogo AI —
+#: o numero (`0071`) e provisorio. O ensaio que a prova e o
+#: `db/tests_encomendas/test_entrega_presa.py`.
+REV_ENTREGA_PRESA = _revisao_por_glob("*_entrega_presa_ao_actor.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -6373,6 +6377,42 @@ MUTACOES = [
      '_criar("TRUNCATE OR DELETE OR UPDATE")',
      '_criar("TRUNCATE OR DELETE")',
      "tests_encomendas"),
+    # ---------------------------------- KAM-204, a entrega presa ao actor
+    #
+    # Cinco, uma por barreira da revisao, pela ordem do que custa mais se nao
+    # morder: o papel que o actor nao declara, o instante da aplicacao, a
+    # imutabilidade, a janela do cliente e o fim da disputa. Correm na suite
+    # `tests_encomendas`, e o `test_entrega_presa.py` e quem as mata.
+    ("entrega presa: o papel deixa de ser comparado com o actor", REV_ENTREGA_PRESA,
+     "             NOT IN ({\", \".join(PARES_ACTOR_PAPEL)}) THEN",
+     "             NOT IN ({\", \".join(PARES_ACTOR_PAPEL)}) AND false THEN",
+     "tests_encomendas"),
+    # Com a comparacao desligada, um dono escreve `cliente` e a confianca
+    # gradual do KAM-096 sobe com vendas que ninguem confirmou. O
+    # `test_um_dono_nao_declara_cliente` tem de morder.
+    ("entrega presa: o instante da aplicacao passa", REV_ENTREGA_PRESA,
+     "              NEW.entregue_at := now();",
+     "              NULL;",
+     "tests_encomendas"),
+    # Sem a reescrita, o `entregue_at` e o que a aplicacao manda. O
+    # `test_um_instante_no_passado_vindo_da_aplicacao_e_ignorado` tem de morder.
+    ("entrega presa: as duas colunas mudam fora de uma entrega", REV_ENTREGA_PRESA,
+     "          IF NEW.entregue_at IS DISTINCT FROM OLD.entregue_at",
+     "          IF false AND NEW.entregue_at IS DISTINCT FROM OLD.entregue_at",
+     "tests_encomendas"),
+    # O criterio 3: o `TestDepoisDeGravadosNaoSeMudam` tem de morder.
+    ("entrega presa: o cliente deixa de exigir a janela", REV_ENTREGA_PRESA,
+     "                  AND c.window_expires_at > now()) THEN",
+     "                  ) THEN",
+     "tests_encomendas"),
+    # Sem a janela, qualquer conversa do contacto serve, aberta ou fechada. O
+    # `test_a_janela_fechada_nao_serve` tem de morder.
+    ("entrega presa: o fim de uma disputa reescreve o instante", REV_ENTREGA_PRESA,
+     "              NEW.entregue_at := OLD.entregue_at;",
+     "              NULL;",
+     "tests_encomendas"),
+    # O KAM-050: o fim de uma disputa nao e entrega nova. O
+    # `test_o_instante_e_o_papel_ficam_os_da_entrega` tem de morder.
     # ------------------------------------------- KAM-053, o ledger de pagamentos
     #
     # Nove, e cada uma ataca **uma** barreira do ticket. A ordem e a do que custa

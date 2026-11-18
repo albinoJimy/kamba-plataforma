@@ -372,17 +372,59 @@ test("o CAS sem linhas relê e devolve `conflito` (nunca força)", async () => {
   assert.equal(repo.vistas[1]?.sql, SQL_TRANSITAR);
 });
 
-test("`entregue` sem quem confirmou é recusado antes da base", async () => {
-  const { e, repo } = encomendas([]);
+// ---------------------------------------- KAM-204: o papel vem do `ctx`
+
+const PAGA = {
+  id: ENCOMENDA,
+  numero_publico: "K7H3Q9",
+  estado: "paga",
+  version: 4,
+  total_minor: "1250000",
+  currency: "AOA",
+  entregue_at: null,
+  expira_at: null,
+  paga_via: "provider_autenticado",
+  entrega_confirmada_por: null,
+};
+
+test("`entregue` por `ops` é recusado antes do CAS: o ops não declara entregas", async () => {
+  const { e, repo } = encomendas([[PAGA]]);
   const r = await transition(e, {
     orderId: ENCOMENDA,
     para: "entregue",
-    expectedVersion: 1,
+    expectedVersion: 4,
     causa: { causa: "levantamento" },
   });
   assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
-  assert.deepEqual(repo.vistas, []);
+  assert.ok(!repo.vistas.some((v) => v.sql === SQL_TRANSITAR), "nao chegou ao CAS");
 });
+
+for (const [kind, papel] of [
+  ["dono", "dono"],
+  ["agente", "cliente"],
+  ["sistema", "estafeta"],
+] as const) {
+  test(`\`entregue\` por ${kind} grava o papel ${papel}, e o instante não vai`, async () => {
+    const { e, repo } = encomendas(
+      [[PAGA], [{ ...PAGA, estado: "entregue", version: 5, entrega_confirmada_por: papel }]],
+      [[{ de: "paga", para: "entregue", flag: null }], [{ event_id: "ev-entregue" }]],
+      kind,
+    );
+    const r = await transition(e, {
+      orderId: ENCOMENDA,
+      para: "entregue",
+      expectedVersion: 4,
+      causa: { causa: "levantamento" },
+    });
+    assert.equal(r.tipo, "ok");
+    const cas = repo.vistas.find((v) => v.sql === SQL_TRANSITAR);
+    assert.ok(cas, "chegou ao CAS");
+    // `$8` é o papel; não há parâmetro do instante, que é da base (`0071`).
+    assert.equal(cas.valores[7], papel);
+    assert.equal(cas.valores.length, 9);
+    assert.ok(!SQL_TRANSITAR.includes("entregue_at"));
+  });
+}
 
 test("`pendente_confirmacao` lê o tecto manual do entitlement, e recusa sem ele", async () => {
   const linha = {

@@ -153,6 +153,17 @@ REGISTO_EM_FALTA = "KA005"
 PAGA_SEM_EVENTO = "KA006"
 #: O mesmo codigo, desde a `0046`, para `reembolsada` sem dono ou ops (KAM-050).
 REEMBOLSO_SEM_ACTOR = "KA006"
+#: As recusas da revisao `0071` (KAM-204): o papel que o actor nao declara, e o
+#: `entregue_at` ou o `entrega_confirmada_por` mudados fora de uma entrega.
+ENTREGA_RECUSADA = "23514"
+
+#: O papel que cada actor declara numa entrega, copiado da `0071` (e do
+#: `PAPEL_POR_ACTOR` do `services/com/src/orders/contrato.ts`) e nao importado:
+#: um ensaio que lesse a regra do alvo nao a media. O `ops` nao declara nenhum.
+PAPEL_POR_ACTOR = {"agente": "cliente", "dono": "dono", "sistema": "estafeta"}
+
+#: O actor que fala pelo cliente.
+ACTOR_DO_CLIENTE = "agente"
 
 #: As duas causas autenticadas do §12 que levam a `paga`.
 CAUSA_PROVIDER = "payment.confirmed"
@@ -192,6 +203,10 @@ class ComEncomendas(ComBase):
                     # existir, e foi isso que a terceira corrida da suite
                     # mediu — 36 erros, **todos** na limpeza.
                     "entitlements",
+                    # A janela do cliente que o `abrir_janela` semeia (KAM-204):
+                    # a conversa prende o contacto e o canal, e sai antes deles.
+                    "conversations",
+                    "tenant_channels",
                 ):
                     self.semente.execute(
                         f"DELETE FROM platform.{tabela} WHERE tenant_id = %s",
@@ -341,6 +356,60 @@ class ComEncomendas(ComBase):
             versao = self.transitar(tenant, encomenda, de, para, versao, causa)
         return versao
 
+    def abrir_janela(self, tenant: str, encomenda: str) -> None:
+        """Abre a janela de 24 h na conversa do contacto da encomenda (KAM-204).
+
+        E o que o `order_entrega_exige_papel` da revisao `0071` le para aceitar
+        `cliente`: o cliente escreveu nas ultimas 24 h. Idempotente pela
+        unicidade `(tenant_id, contact_id, channel_id)` da conversa, que aqui e
+        um canal por chamada — pelo que a segunda chamada abre outra conversa,
+        o que nao muda a resposta.
+        """
+        canal = factories.canal(self.semente, tenant)
+        self.semente.execute(
+            "INSERT INTO platform.conversations "
+            "       (tenant_id, contact_id, channel_id, last_inbound_at, "
+            "        window_expires_at) "
+            "SELECT tenant_id, contact_id, %s, now(), now() + interval '24 hours' "
+            "  FROM platform.orders_mirror WHERE tenant_id = %s AND id = %s",
+            (canal, tenant, encomenda),
+        )
+
+    def recuar_entrega(self, tenant: str, encomenda: str, intervalo: str) -> None:
+        """Recua o `entregue_at` de uma encomenda entregue, so para o ensaio.
+
+        **Com o *trigger* do instante desligado, e so nesta transaccao.** Desde a
+        revisao `0071` (KAM-204) o `entregue_at` nao muda fora de uma entrada em
+        `entregue`, a ninguem — e e isso que se quer. Um ensaio que precise de
+        uma entrega antiga (a janela da disputa do KAM-096) desliga-o como dono,
+        recua, e liga-o outra vez `ALWAYS`, na mesma transaccao: um erro a meio
+        reverte os tres.
+
+        **O `SET CONSTRAINTS ALL IMMEDIATE` nao e enfeite:** o `UPDATE` dispara os
+        dois *triggers* diferidos da tabela, e com eventos pendentes o segundo
+        `ALTER TABLE` recusa (`55006`). A transaccao abortada ficava entao com o
+        trinco exclusivo da tabela ate a limpeza, que pendurava a suite inteira —
+        e por isso a falha desfaz-se aqui, antes de levantar.
+        """
+        try:
+            self.ensaio.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            self.ensaio.execute(
+                "ALTER TABLE platform.orders_mirror DISABLE TRIGGER order_entrega_presa"
+            )
+            self.ensaio.execute(
+                "UPDATE platform.orders_mirror SET entregue_at = now() - %s::interval "
+                " WHERE tenant_id = %s AND id = %s",
+                (intervalo, tenant, encomenda),
+            )
+            self.ensaio.execute(
+                "ALTER TABLE platform.orders_mirror "
+                "ENABLE ALWAYS TRIGGER order_entrega_presa"
+            )
+            self._ensaio.commit()
+        except Exception:
+            self._ensaio.rollback()
+            raise
+
     def ligar_bandeira(self) -> None:
         """Liga a `COM_DELIVERY_ENABLED` **so nesta transaccao** (`set_config(..., true)`)."""
         self.ensaio.execute("SELECT set_config(%s, 'on', true)", (GUC_DA_ENTREGA,))
@@ -360,6 +429,8 @@ class ComEncomendas(ComBase):
         evento_id: str | None = None,
         cursor=None,
         confirmar: bool = True,
+        papel: str | None = None,
+        janela: bool = True,
     ) -> int:
         """Uma transicao pelo caminho do modulo: CAS, registo, na mesma transaccao.
 
@@ -370,10 +441,23 @@ class ComEncomendas(ComBase):
 
         Devolve a versao nova. Levanta se o CAS nao escrever linha nenhuma — num
         ensaio de semente isso e um defeito do ensaio e nao um conflito.
+
+        Numa entrega (KAM-204), o `papel` e o do actor (`PAPEL_POR_ACTOR`) e, se
+        for `cliente`, a janela da conversa abre-se antes. Os ensaios da `0071`
+        forcam um `papel` que o actor nao declara, ou `janela=False`.
         """
         alvo = self.ensaio if cursor is None else cursor
+        entrega = para == "entregue" and de != "em_disputa"
         if actor_kind is None:
-            actor_kind = "sistema" if para == "paga" else "ops"
+            # A entrega e do actor que fala pelo cliente (KAM-204): e o que as
+            # suites da confianca gradual precisam, `cliente`.
+            actor_kind = (
+                "sistema" if para == "paga" else ACTOR_DO_CLIENTE if entrega else "ops"
+            )
+        if papel is None and entrega:
+            papel = PAPEL_POR_ACTOR.get(actor_kind)
+        if papel == "cliente" and entrega and janela:
+            self.abrir_janela(tenant, encomenda)
         if evento_id is None and para == "paga":
             # **Um evento com recibo de consumo**, e nao uma cadeia qualquer: o
             # *trigger* diferido exige que o `evento_id` exista em
@@ -386,10 +470,7 @@ class ComEncomendas(ComBase):
             "   SET estado = %s, version = version + 1, atualizado_at = now(), "
             "       paga_at = CASE WHEN %s = 'paga' THEN now() ELSE paga_at END, "
             "       paga_via = CASE WHEN %s = 'paga' THEN %s ELSE paga_via END, "
-            "       entregue_at = CASE WHEN %s = 'entregue' THEN now() "
-            "                          ELSE entregue_at END, "
-            "       entrega_confirmada_por = CASE WHEN %s = 'entregue' THEN 'cliente' "
-            "                                     ELSE entrega_confirmada_por END, "
+            "       entrega_confirmada_por = COALESCE(%s, entrega_confirmada_por), "
             "       expira_at = COALESCE(expira_at, now() + interval '48 hours') "
             " WHERE tenant_id = %s AND id = %s AND version = %s AND estado = %s "
             "RETURNING version",
@@ -398,8 +479,7 @@ class ComEncomendas(ComBase):
                 para,
                 para,
                 "provider_autenticado" if causa == CAUSA_PROVIDER else "manual_auditado",
-                para,
-                para,
+                papel,
                 tenant,
                 encomenda,
                 versao,

@@ -212,6 +212,24 @@ export const VIA_POR_CAUSA: Readonly<Record<CausaQuePaga, string>> = {
 export const ACTOR_DO_PAGAMENTO: ActorKind = "sistema";
 
 /**
+ * O papel que cada actor declara numa entrega (KAM-204). **Um por actor**, e é
+ * o que deixa o `transition` pedir o papel ao `ctx` em vez de o aceitar do
+ * chamador: um dono que passasse `cliente` em todas as suas encomendas subia a
+ * confiança gradual do KAM-096 com vendas que ninguém confirmou.
+ *
+ * A barreira real é o `order_entrega_exige_papel` da revisão `0071`, com os
+ * mesmos três pares, que no `COMMIT` lê o `actor_kind` do `order_state_log`; e,
+ * para o `cliente`, exige a janela de 24 h aberta na conversa do contacto da
+ * encomenda. O `ops` não está aqui: decide disputas, e o fim de uma disputa
+ * mantém o papel da entrega que houve.
+ */
+export const PAPEL_POR_ACTOR: Readonly<Partial<Record<ActorKind, string>>> = {
+  agente: "cliente",
+  dono: "dono",
+  sistema: "estafeta",
+};
+
+/**
  * A chave de entitlement que guarda o `pendente_confirmacao` (§6.2).
  *
  * «`total_minor <= limite_manual` do tenant», e o `limite_manual` é o
@@ -255,7 +273,11 @@ export const SQLSTATE_AUTENTICIDADE = "KA006";
 export const SQLSTATE_TECTO_MANUAL = "KA007";
 /** `23505`: violação de unicidade. É o `numero_publico` e o `intent_key`. */
 export const SQLSTATE_UNICIDADE = "23505";
-/** `23514`: violação de `CHECK`. É o `total_minor >= 0` e os domínios. */
+/**
+ * `23514`: violação de `CHECK`. É o `total_minor >= 0` e os domínios, e — desde
+ * a revisão `0071` — o papel da entrega que o actor não declara, e o
+ * `entregue_at` ou o `entrega_confirmada_por` mudados fora de uma entrega.
+ */
 export const SQLSTATE_CHECK = "23514";
 /** `23503`: violação de FK. É a FK **composta** do contacto (ISO-58). */
 export const SQLSTATE_FK = "23503";
