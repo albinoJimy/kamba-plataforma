@@ -679,6 +679,20 @@ test("a aprovação pela porta recalcula o tenant a seguir: nasce no nível 0, c
   assert.match(metricasDaConfianca.exposicao(), /^confianca_recalculos_total\{origem="aprovacao",desfecho="mudou"\} 1$/m);
 });
 
+test("uma aprovação repetida de um tenant que já tem nível não recalcula: só o nascimento é da aprovação", async () => {
+  const { lote, app } = baseDaAprovacao([]);
+  const original = lote.tratar;
+  const comNivel = new ConjuntoFalso((texto, valores) =>
+    /FROM platform\.trust_level/.test(texto) && /SELECT nivel/.test(texto)
+      ? { rows: [{ nivel: 0, tecto_pedido_minor: "5000000", motivo: "k1_completo", desde: new Date() }] }
+      : original(texto, valores),
+  );
+  const p = montarProcesso({ lote: comNivel, app, efeitos: efeitosVazios(), log: semRegisto });
+  assert.equal((await p.aprovacaoDoKyc.aprovar(CASO_DA_CONFIANCA, TENANT_DA_CONFIANCA)).estado, "aprovado");
+  assert.equal(comNivel.consultas.filter((c) => c.texto === SQL_TRANCAR).length, 0);
+  assert.equal(comNivel.consultas.filter((c) => c.texto === SQL_DEFINIR_NIVEL).length, 0);
+});
+
 test("uma aprovação por preencher não recalcula nada", async () => {
   const { lote, app } = baseDaAprovacao(["aceite"]);
   const p = montarProcesso({ lote, app, efeitos: efeitosVazios(), log: semRegisto });

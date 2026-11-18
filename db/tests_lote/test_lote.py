@@ -132,6 +132,7 @@ TESTES_OBRIGATORIOS = (
     # `order.delivered` (2) e o isolamento.
     "a volta diária dá o nível 0, sobe com cinco pedidos elegíveis, a disputa aceite desce, e reexecutar não escreve",
     "uma limitacao da escada automática desce o tenant na varredura seguinte, sem esperar pelo dia",
+    "a varredura desce por sinal alto, e nem um aviso só nem uma limitacao com recurso provido fazem candidato",
     "um k1_ok aprova pela porta e o tenant fica no nível 0, como kamba_batch",
     "o order.delivered repetido recalcula duas vezes e escreve uma",
     "o recálculo de A nunca escreve o nível de B: nem o faz nascer, nem o desce",

@@ -108,6 +108,7 @@ import {
   CicloDaConfianca,
   MetricasDaConfianca,
   RecalculoDaConfianca,
+  SQL_NIVEL_DO_TENANT,
   type ResultadoDoCicloDaConfianca,
 } from "@kamba/core-ts/confianca";
 import { METRICAS, MaquinaNaBase, filasDe, type Envelope } from "@kamba/core-ts/eventos";
@@ -400,9 +401,13 @@ export function efeitosDoLote(lote: ConjuntoSql, opcoes: { readonly carenciaMs?:
  * Os onboardings da fila, com o recálculo da confiança **depois** de cada
  * aprovação (KAM-203, critério 3).
  *
- * O `aprovar` é a porta por onde passam as três aprovações deste processo — a
- * decisão humana da fila, o `k1_ok` do KYC e o varrimento do ciclo —, e é a
- * mesma transacção que emite o `tenant.approved`. Quando devolve `aprovado` a
+ * O `aprovar` é a porta por onde passam as aprovações deste processo — a
+ * decisão humana da fila e o varrimento do ciclo, e o `k1_ok` do KYC quando um
+ * `ServicoKyc` for montado sobre o `aprovacaoDoKyc` daqui (hoje nenhum `src` o
+ * monta) —, e é a mesma transacção que emite o `tenant.approved`. **Quem
+ * aprovar por outro `OnboardingsSql`** (a consola `/equipa`, quando for ligada
+ * à base) não passa por aqui: o tenant nasce na volta diária, e até lá não
+ * cobra. Quando devolve `aprovado` a
  * transacção já confirmou, e o recálculo dá ao tenant o nível 0 antes de
  * qualquer cobrança: até ele correr não há nível, e sem nível o *trigger* da
  * cobrança recusa (KAM-096) — falha fechada, e nunca um tecto por omissão.
@@ -516,6 +521,12 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     try {
       const ob = await onboardings.porId(onboardingId);
       if (ob === null) return;
+      // **Só faz nascer.** A aprovação repete-se — a fila reaplica a decisão de
+      // um caso já `aprovado` em cada volta enquanto o aviso ao dono não tiver
+      // via —, e um recálculo por minuto e por caso só para dizer «sem mudança»
+      // era tranca e duas ligações por nada (achado 5 da revisão adversarial).
+      // Quem já tem nível é da volta diária e da varredura das descidas.
+      if ((await o.lote.query(SQL_NIVEL_DO_TENANT, [ob.tenantId])).rows.length > 0) return;
       await recalculo.recalcular(ob.tenantId, "aprovacao");
     } catch {
       // A falha do recálculo já contou (`desfecho="falhou"`); só o nome do

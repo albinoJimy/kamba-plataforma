@@ -84,7 +84,8 @@ de um onboarding aprovado), `entrega` (depois de um `order.delivered`, e o BullM
   (`SQL_TENANTS_A_DESCER`): esses continuam com o tecto do nível 1.
 - **Porquê.** O registo do `onboarding-lote` diz o passo (`confianca_aprovacao_falhou`,
   `confianca_descida_com_falhas`, `confianca_diaria_com_falhas`, `confianca_volta_falhou`) e nunca o
-  tenant. As causas prováveis são as da ligação: a base em baixo, ou a tranca do tenant presa por uma
+  tenant. A origem `entrega` não tem linha própria: a falha sobe ao BullMQ, que repete o *job*, e o
+  registo do consumidor diz o desfecho dele. As causas prováveis são as da ligação: a base em baixo, ou a tranca do tenant presa por uma
   cobrança longa (o `lock_timeout` do processo é 10 s).
 - **O que fazer.** Nada à mão no nível: a volta seguinte — a das descidas num minuto, a diária no dia
   seguinte — recalcula o mesmo tenant, e o recálculo é idempotente. Se a falha persistir, reiniciar o

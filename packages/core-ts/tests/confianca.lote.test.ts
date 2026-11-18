@@ -29,7 +29,8 @@ import {
   SQL_TENANTS_A_RECALCULAR,
   SQL_TRANCAR,
 } from "../src/confianca/index.ts";
-import { correrDepois } from "../src/eventos/trabalhador_bullmq.ts";
+import { concluirJob, correrDepois } from "../src/eventos/trabalhador_bullmq.ts";
+import { Adiar } from "../src/eventos/consumo.ts";
 import type { Envelope } from "../src/eventos/envelope.ts";
 import type { ConjuntoSql } from "../src/revisao/sql.ts";
 import { SQL_DEFINIR_CONTEXTO } from "../src/tenant_guard/index.ts";
@@ -158,23 +159,23 @@ function serie(metricas: MetricasDaConfianca, linha: RegExp): number {
 }
 
 describe("o recálculo de um tenant: a transacção", () => {
-  it("o READ COMMITTED é a primeira instrução do lote, e o lote confirma antes da aplicação", async () => {
+  it("o READ COMMITTED é a primeira instrução do lote, e o lote, que escreve, confirma por último", async () => {
     const { base, recalculo } = montar();
     base.k1.add(A);
     const r = await recalculo.recalcular(A, "aprovacao");
     assert.deepEqual(r, { tenantId: A, nivel: 0, mudou: true, motivo: "k1_completo" });
     assert.deepEqual(base.diario, [
-      "app:BEGIN",
-      "app:CONTEXTO",
       "lote:BEGIN",
       "lote:READ_COMMITTED",
+      "app:BEGIN",
+      "app:CONTEXTO",
       "lote:TRANCAR",
       "lote:NIVEL",
       "lote:K1",
       "lote:SANCOES",
       "lote:DEFINIR",
-      "lote:COMMIT",
       "app:COMMIT",
+      "lote:COMMIT",
     ]);
     // O contexto da aplicação é o tenant, e a tranca também.
     assert.deepEqual(base.parametros.find((p) => p.nome === "CONTEXTO")?.valores, [A]);
@@ -194,11 +195,21 @@ describe("o recálculo de um tenant: a transacção", () => {
     base.k1.add(A);
     base.falhar = { nome: "DEFINIR" };
     await assert.rejects(recalculo.recalcular(A, "diario"), /falha de ensaio em DEFINIR/);
-    assert.deepEqual(base.diario.slice(-2), ["lote:ROLLBACK", "app:ROLLBACK"]);
+    assert.deepEqual(base.diario.slice(-2), ["app:ROLLBACK", "lote:ROLLBACK"]);
     assert.ok(lote.ligacoes[0]!.libertada instanceof Error);
     assert.ok(app.ligacoes[0]!.libertada instanceof Error);
     assert.equal(serie(metricas, /origem="diario",desfecho="falhou"/), 1);
     assert.equal(serie(metricas, /motivo="k1_completo"/), 0, "uma mudança desfeita não conta");
+  });
+
+  it("um COMMIT da aplicação que falha desfaz a escrita do lote: o falhou não deixou nível", async () => {
+    const { base, metricas, recalculo } = montar();
+    base.k1.add(A);
+    base.falhar = { nome: "COMMIT" };
+    await assert.rejects(recalculo.recalcular(A, "entrega"), /falha de ensaio em COMMIT/);
+    assert.deepEqual(base.diario.slice(-3), ["app:COMMIT", "app:ROLLBACK", "lote:ROLLBACK"]);
+    assert.ok(!base.diario.includes("lote:COMMIT"), "o lote confirmou depois de a aplicacao falhar");
+    assert.equal(serie(metricas, /origem="entrega",desfecho="falhou"/), 1);
   });
 
   it("a ligação do lote devolve-se mesmo quando a da aplicação não se obtém", async () => {
@@ -284,6 +295,17 @@ describe("a volta diária e a varredura das descidas", () => {
     assert.equal(serie(metricas, /origem="diario",desfecho="falhou"/), 1);
   });
 
+  it("uma volta que não lista os tenants, ou não audita, conta como falhou e sobe", async () => {
+    const { base, lote, metricas, recalculo } = montar();
+    const ciclo = new CicloDaConfianca({ lote: lote as unknown as ConjuntoSql, recalculo });
+    base.falhar = { nome: "A_DESCER" };
+    await assert.rejects(ciclo.descer(), /falha de ensaio em A_DESCER/);
+    assert.equal(serie(metricas, /origem="descida",desfecho="falhou"/), 1);
+    base.falhar = { nome: "AUDITAR" };
+    await assert.rejects(ciclo.correr(), /falha de ensaio em AUDITAR/);
+    assert.equal(serie(metricas, /origem="diario",desfecho="falhou"/), 1);
+  });
+
   it("a varredura vazia não audita; com candidatos, audita uma linha sua", async () => {
     const { base, lote, recalculo } = montar();
     const ciclo = new CicloDaConfianca({ lote: lote as unknown as ConjuntoSql, recalculo });
@@ -360,6 +382,20 @@ describe("o depois do consumo", () => {
     assert.equal(await correrDepois(depois, evento, "dlq"), false);
     assert.equal(await correrDepois(undefined, evento, "aplicado"), false);
     assert.deepEqual(vistos, ["order.delivered", "order.delivered"]);
+  });
+
+  it("o job conclui pelo desfecho: o depois corre no aplicado e no duplicado, e o adiado e a DLQ lançam sem ele", async () => {
+    const vistos: string[] = [];
+    const depois = async (e: Envelope) => void vistos.push(e.tipo);
+    assert.equal(await concluirJob({ desfecho: "aplicado" }, evento, depois), "aplicado");
+    assert.equal(await concluirJob({ desfecho: "duplicado" }, evento, depois), "duplicado");
+    await assert.rejects(concluirJob({ desfecho: "adiado", adiamento: 7 }, evento, depois), (e: unknown) => e instanceof Adiar && e.atrasoMs === 7_000);
+    await assert.rejects(concluirJob({ desfecho: "dlq", erro: "x" }, evento, depois), (e: unknown) => e instanceof Error && e.name === "UnrecoverableError" && /dlq: x/.test(e.message));
+    assert.deepEqual(vistos, ["order.delivered", "order.delivered"]);
+    assert.equal(await concluirJob({ desfecho: "aplicado" }, evento), "aplicado", "sem depois, conclui na mesma");
+    await assert.rejects(concluirJob({ desfecho: "aplicado" }, evento, async () => {
+      throw new Error("base em baixo");
+    }), /base em baixo/);
   });
 
   it("uma falha do depois sobe, para o BullMQ repetir", async () => {

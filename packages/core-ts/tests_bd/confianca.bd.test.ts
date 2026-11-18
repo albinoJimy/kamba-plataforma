@@ -12,7 +12,10 @@
  * 2. **A sanção chega à base sem esperar pelo dia seguinte.** Quatro queixas
  *    pela escada automática de T&S dão a `limitacao`, e a varredura das descidas
  *    — que corre a cada volta do processo — desce o tenant com o motivo
- *    `sancao`.
+ *    `sancao`. E o predicado dela, cláusula a cláusula: o sinal alto desce, e
+ *    nem um `aviso` só nem uma `limitacao` com recurso provido fazem candidato
+ *    (a revisão adversarial mediu que quatro cláusulas sobreviviam a ser
+ *    apagadas).
  * 3. **A aprovação deixa o tenant no nível 0.** O `k1_ok` aprova pela porta
  *    (`platform.advance_case`, que emite o `tenant.approved`) e o recálculo corre
  *    a seguir, como `kamba_batch`.
@@ -39,6 +42,8 @@ import pg from "pg";
 
 import { BASE_DESCARTAVEL, aceitarVigentes, activarTenant, criarTenant, ligar } from "./apoio.ts";
 import type { ConjuntoSql } from "../src/revisao/index.ts";
+import { SQL_TENANTS_A_DESCER } from "../src/confianca/index.ts";
+import { RepositorioDeTrustSql } from "../src/trust/index.ts";
 import {
   depoisDoTrust,
   efeitosDoLote,
@@ -214,6 +219,58 @@ const corridas = (entidade: string) =>
     [entidade],
   );
 
+/** O tenant no nível 1, escrito pelo lote como o recálculo o escreve. */
+async function noNivel1(tenant: string): Promise<void> {
+  await lote.query(
+    `INSERT INTO platform.trust_level (tenant_id, nivel, tecto_pedido_minor, motivo, actor, versao_config)
+     VALUES ($1, 1, 15000000, 'historico_independente', 'sistema:2026-11-16.1', '2026-11-16.1')`,
+    [tenant],
+  );
+}
+
+/** O tenant é candidato da varredura das descidas? A consulta do módulo, como `kamba_batch`. */
+async function candidato(tenant: string): Promise<boolean> {
+  return (await lote.query<{ tenant_id: string }>(SQL_TENANTS_A_DESCER)).rows.some((l) => l.tenant_id === tenant);
+}
+
+/**
+ * O recurso da sanção em vigor no passo dado, provido por um revisor: o caso
+ * `recurso` e a linha nova da `ts_sanction`, pelo repositório do lote — a forma
+ * do desfecho do `ServicoDeTrust`, sem a fila.
+ */
+async function recursoProvido(tenant: string, passo: string): Promise<void> {
+  const sancao = (
+    await admin.query<{ id: string }>(
+      "SELECT id::text AS id FROM platform.ts_sanction WHERE tenant_id = $1 AND passo = $2 AND recurso_de IS NULL",
+      [tenant, passo],
+    )
+  ).rows[0]!.id;
+  const casoId = (
+    await admin.query<{ id: string }>(
+      "INSERT INTO platform.review_case (tipo, tenant_id, motivo_codigo, motivo_interno, motivo_publico, " +
+        "recomendacao, sla_alerta_at, sla_due_at) VALUES ('recurso', $1, $2, 'ensaio do recurso', " +
+        "'nao_foi_possivel_validar', 'aprovar', now() + interval '19 hours', now() + interval '24 hours') " +
+        "RETURNING id::text AS id",
+      [tenant, `sancao:${sancao}`],
+    )
+  ).rows[0]!.id;
+  await new RepositorioDeTrustSql(lote, "lote").gravarSancao({
+    tenantId: tenant,
+    chave: `recurso:${sancao}`,
+    passo: passo as "limitacao",
+    origem: "humana",
+    motivoInterno: `recurso provido sobre ${passo}`,
+    motivoPublico: "recurso_aceite",
+    autor: randomUUID(),
+    regra: "TS-1",
+    sinais: [],
+    casoId,
+    justificacaoDoSalto: null,
+    recursoDe: sancao,
+    recursoEstado: "provido",
+  });
+}
+
 before(async () => {
   admin = await ligar("admin");
   lote = conjunto("batch");
@@ -266,10 +323,8 @@ describe("a confiança gradual a correr contra a base", () => {
     await p.cicloDaConfianca.correr();
     assert.deepEqual(await nivel(tenant), { nivel: 0, motivo: "disputa_aceite" });
     assert.equal(await linhasDoTecto(tenant), 3);
-    // E a varredura vazia já não tem este tenant, nem audita.
-    const depois = await corridas("recalculo_descida");
-    await p.cicloDaConfianca.descer();
-    assert.equal(await corridas("recalculo_descida"), depois);
+    // E o tenant já não é candidato da varredura: no 0 não há o que descer.
+    assert.equal(await candidato(tenant), false);
     // O outro tenant nasceu na volta e nunca subiu.
     assert.deepEqual(await nivel(outro), { nivel: 0, motivo: "k1_completo" });
   });
@@ -278,12 +333,7 @@ describe("a confiança gradual a correr contra a base", () => {
     const tenant = await tenantComK1("sancao");
     const p = processo();
     const metricas = p.metricasDaConfianca;
-    // O tenant no nível 1, escrito pelo lote como o recálculo o escreve.
-    await lote.query(
-      `INSERT INTO platform.trust_level (tenant_id, nivel, tecto_pedido_minor, motivo, actor, versao_config)
-       VALUES ($1, 1, 15000000, 'historico_independente', 'sistema:2026-11-16.1', '2026-11-16.1')`,
-      [tenant],
-    );
+    await noNivel1(tenant);
     // Quatro queixas (peso 20, severidade média): o aviso aos ~40 e a limitação
     // aos ~80. Nenhuma é um sinal alto, pelo que a descida é pela sanção.
     for (let i = 0; i < 4; i++) {
@@ -293,8 +343,40 @@ describe("a confiança gradual a correr contra a base", () => {
     assert.deepEqual(await nivel(tenant), { nivel: 1, motivo: "historico_independente" }, "a sanção ainda não chegou à base");
     await p.cicloDaConfianca.descer();
     assert.deepEqual(await nivel(tenant), { nivel: 0, motivo: "sancao" });
-    assert.match(metricas.exposicao(), /^confianca_recalculos_total\{origem="descida",desfecho="mudou"\} 1$/m);
-    assert.match(metricas.exposicao(), /^confianca_mudancas_total\{motivo="sancao"\} 1$/m);
+    // Os contadores são da base partilhada: outro candidato da varredura também
+    // conta, e por isso «pelo menos um» e não «exactamente um».
+    assert.match(metricas.exposicao(), /^confianca_recalculos_total\{origem="descida",desfecho="mudou"\} [1-9]/m);
+    assert.match(metricas.exposicao(), /^confianca_mudancas_total\{motivo="sancao"\} [1-9]/m);
+  });
+
+  it("a varredura desce por sinal alto, e nem um aviso só nem uma limitacao com recurso provido fazem candidato", async () => {
+    const alto = await tenantComK1("descida-sinal");
+    const avisado = await tenantComK1("descida-aviso");
+    const provido = await tenantComK1("descida-provido");
+    const p = processo();
+    for (const t of [alto, avisado, provido]) await noNivel1(t);
+
+    // Um sinal alto depois do nível: é candidato, e desce pelo sinal.
+    await p.trust.sinalizar({ tenantId: alto, tipo: "mudanca_de_conta", refEvento: randomUUID(), detalhe: {}, ocorridoEm: new Date() });
+    // Duas queixas: um aviso, e nenhum sinal alto.
+    for (let i = 0; i < 2; i++) {
+      await p.trust.sinalizar({ tenantId: avisado, tipo: "queixa_recorrente", refEvento: randomUUID(), detalhe: {}, ocorridoEm: new Date() });
+    }
+    assert.equal((await p.trust.restricoes(avisado)).passo, "aviso");
+    // Quatro queixas, a limitação, e o recurso dela provido por um revisor.
+    for (let i = 0; i < 4; i++) {
+      await p.trust.sinalizar({ tenantId: provido, tipo: "queixa_recorrente", refEvento: randomUUID(), detalhe: {}, ocorridoEm: new Date() });
+    }
+    await recursoProvido(provido, "limitacao");
+    assert.equal((await p.trust.restricoes(provido)).passo, "aviso", "o recurso provido tira a limitacao de vigor");
+
+    assert.equal(await candidato(alto), true);
+    assert.equal(await candidato(avisado), false, "um aviso nao desce ninguem");
+    assert.equal(await candidato(provido), false, "uma limitacao com recurso provido nao esta em vigor");
+    await p.cicloDaConfianca.descer();
+    assert.deepEqual(await nivel(alto), { nivel: 0, motivo: "sinal_alto" });
+    assert.deepEqual(await nivel(avisado), { nivel: 1, motivo: "historico_independente" });
+    assert.deepEqual(await nivel(provido), { nivel: 1, motivo: "historico_independente" });
   });
 
   it("um k1_ok aprova pela porta e o tenant fica no nível 0, como kamba_batch", async () => {
@@ -342,12 +424,10 @@ describe("a confiança gradual a correr contra a base", () => {
   it("o recálculo de A nunca escreve o nível de B: nem o faz nascer, nem o desce", async () => {
     const a = await tenantComK1("isolamento-a");
     const b = await tenantComK1("isolamento-b");
+    // C tem o K1 e nenhum nível: o recálculo dele fazia-o nascer.
+    const c = await tenantComK1("isolamento-c");
     const p = processo();
-    await lote.query(
-      `INSERT INTO platform.trust_level (tenant_id, nivel, tecto_pedido_minor, motivo, actor, versao_config)
-       VALUES ($1, 1, 15000000, 'historico_independente', 'sistema:2026-11-16.1', '2026-11-16.1')`,
-      [b],
-    );
+    await noNivel1(b);
     // Um sinal alto em B, que o desceria no seu próprio recálculo.
     await p.trust.sinalizar({ tenantId: b, tipo: "mudanca_de_conta", refEvento: randomUUID(), detalhe: {}, ocorridoEm: new Date() });
     const r = await p.recalculo.recalcular(a, "entrega");
@@ -355,5 +435,7 @@ describe("a confiança gradual a correr contra a base", () => {
     assert.deepEqual(await nivel(a), { nivel: 0, motivo: "k1_completo" });
     assert.deepEqual(await nivel(b), { nivel: 1, motivo: "historico_independente" });
     assert.equal(await linhasDoTecto(b), 1, "só o nascimento de B pelo ensaio");
+    assert.equal(await nivel(c), null, "o recalculo de A fez nascer C");
+    assert.equal(await linhasDoTecto(c), 0);
   });
 });

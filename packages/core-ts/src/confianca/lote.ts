@@ -36,13 +36,22 @@
  * `kamba_batch`, que é o único papel que escreve `trust_level`. Os pedidos
  * entregues e a independência de cada um lêem-se como `kamba_app`, com o
  * `app.tenant_id` do tenant (a nota do `./sql.ts` diz porquê: o comprador
- * canónico sai do cofre de identidade). As duas transacções abrem-se juntas e
- * fecham-se pela ordem inversa: o `COMMIT` do `kamba_batch`, que é o que
- * escreve, vem primeiro, e uma falha em qualquer ponto desfaz as duas.
+ * canónico sai do cofre de identidade). A do lote abre por fora e a da
+ * aplicação por dentro, pelo que a da aplicação — que só lê — confirma
+ * **primeiro**, e o `COMMIT` do lote, que é o que escreve, é a última
+ * instrução: uma falha em qualquer ponto antes dele desfaz a escrita, e um
+ * recálculo contado como `falhou` não deixou nível escrito (achado 6 da
+ * revisão adversarial; com a ordem inversa, o lote confirmava e uma falha do
+ * `COMMIT` da aplicação contava como falhada uma mudança que ficou).
  *
  * O `READ COMMITTED` é explícito (`SQL_READ_COMMITTED`, a primeira instrução da
  * transacção do lote) e não a omissão da base: uma `default_transaction_isolation`
- * mudada no servidor não muda o que o critério 1 pede.
+ * mudada no servidor não muda o que o critério 1 pede. **Só na do lote**, que é
+ * a que tranca, lê os factos e escreve: na da aplicação a primeira instrução é
+ * o `set_config` do `comTenant`, e depois dela já não se muda o nível. Com a
+ * omissão do servidor em `REPEATABLE READ`, a aplicação leria os pedidos numa
+ * fotografia de antes da tranca — o que só atrasa uma subida para a volta
+ * seguinte, e nunca a faz acontecer a mais.
  *
  * ## Uma linha `batch.run` por volta, e não por tenant
  *
@@ -93,9 +102,27 @@ export const SQL_TENANTS_A_RECALCULAR = `
 
 /**
  * Os tenants que têm de descer: acima do nível 0, com um dos três factos
- * negativos de `decidirNivel` gravado depois do `desde` do nível. A sanção conta
- * sem recurso provido — um recurso negado não a tira de vigor —, e o sinal pelo
- * `criado_at`, como no `SQL_FACTOS_NEGATIVOS`.
+ * negativos de `decidirNivel`. **O predicado é o de `decidirNivel`, e não um
+ * mais largo**: um candidato que o recálculo não desce era um recálculo por
+ * minuto para sempre (achado 3 da revisão adversarial).
+ *
+ * * **A sanção conta em vigor, sem olhar ao `desde`** — como no
+ *   `decidirNivel`, que desce com `sancaoEmVigor` sem comparar datas. Em vigor
+ *   é `limitacao` ou acima, sem recurso provido (`emVigor` do `ServicoDeTrust`;
+ *   um recurso negado não a tira de vigor). Um tenant não sobe com uma sanção
+ *   em vigor, pelo que uma sanção anterior ao `desde` e ainda em vigor só pode
+ *   ser uma gravada em corrida com a subida — e essa tem de descer.
+ * * **O sinal alto e a disputa aceite contam depois do `desde`, ao
+ *   milissegundo**: a base guarda microssegundos e o `decidirNivel` compara o
+ *   `Date` do `pg`, que tem milissegundos. Sem o `date_trunc`, um facto no mesmo
+ *   milissegundo do `desde` era candidato aqui e não descia lá (achado 4).
+ *
+ * shortcut: um sinal alto ou uma disputa aceite gravados por uma transacção que
+ * começou antes de uma subida e confirmou depois dela ficam com a data **antes**
+ * do `desde` (o `now()` é o início da transacção), e nem esta varredura nem o
+ * `decidirNivel` os vêem. Os escritores desses factos (o consumidor de T&S e a
+ * transição de encomendas do COM) não tomam a tranca do tenant. Revê-se quando
+ * tomarem, ou quando o facto guardar o instante em que confirmou (achado 1).
  */
 export const SQL_TENANTS_A_DESCER = `
   SELECT l.tenant_id::text AS tenant_id
@@ -103,15 +130,16 @@ export const SQL_TENANTS_A_DESCER = `
    WHERE l.nivel > 0
      AND (EXISTS (SELECT 1 FROM platform.ts_sanction s
                    WHERE s.tenant_id = l.tenant_id AND s.recurso_de IS NULL
-                     AND s.passo IN ('limitacao', 'suspensao', 'encerramento') AND s.em > l.desde
+                     AND s.passo IN ('limitacao', 'suspensao', 'encerramento')
                      AND NOT EXISTS (SELECT 1 FROM platform.ts_sanction r
                                       WHERE r.tenant_id = s.tenant_id AND r.recurso_de = s.id
                                         AND r.recurso_estado = 'provido'))
           OR EXISTS (SELECT 1 FROM platform.ts_signal g
-                      WHERE g.tenant_id = l.tenant_id AND g.severidade = 'alta' AND g.criado_at > l.desde)
+                      WHERE g.tenant_id = l.tenant_id AND g.severidade = 'alta'
+                        AND date_trunc('milliseconds', g.criado_at) > date_trunc('milliseconds', l.desde))
           OR EXISTS (SELECT 1 FROM platform.order_state_log o
                       WHERE o.tenant_id = l.tenant_id AND o.de = 'em_disputa' AND o.para = 'reembolso_pendente'
-                        AND o.em > l.desde))
+                        AND date_trunc('milliseconds', o.em) > date_trunc('milliseconds', l.desde)))
    ORDER BY 1
 `;
 
@@ -147,6 +175,11 @@ export class RecalculoDaConfianca {
     // valida o nome e a configuração.
     this.#servico(o, o.lote, o.lote);
     this.#o = o;
+  }
+
+  /** Conta uma falha que não foi de um tenant: a volta que não listou ou não auditou. */
+  contarFalha(origem: OrigemDoRecalculo): void {
+    this.#o.metricas.recalculo(origem, "falhou");
   }
 
   /** O nome do consumidor de T&S com que este recálculo lê a independência. */
@@ -199,14 +232,12 @@ export class RecalculoDaConfianca {
     try {
       app = await this.#o.app.connect();
       const aplicacao = app;
-      // O `comTenant` por fora: o `COMMIT` do lote (a escrita) vem primeiro, e
-      // uma falha nele desfaz também a leitura da aplicação.
-      return await comTenant(aplicacao, tenantId, () =>
-        comBatch(lote, JOB_DO_RECALCULO, async () => {
-          await lote.query(SQL_READ_COMMITTED);
-          return this.#servico(this.#o, lote, aplicacao).recalcular(tenantId);
-        }),
-      );
+      // O `comBatch` por fora: a escrita confirma por último (ver a nota do
+      // módulo), e o `READ COMMITTED` é a primeira instrução dela.
+      return await comBatch(lote, JOB_DO_RECALCULO, async () => {
+        await lote.query(SQL_READ_COMMITTED);
+        return comTenant(aplicacao, tenantId, () => this.#servico(this.#o, lote, aplicacao).recalcular(tenantId));
+      });
     } catch (erro) {
       // O `comTenant` e o `comBatch` engolem uma falha do `ROLLBACK`, e então
       // não se sabe se a transacção ficou fechada: as ligações devolvem-se com
@@ -229,7 +260,7 @@ export interface ResultadoDoCicloDaConfianca {
   readonly falhas: number;
 }
 
-/** A volta diária (critério 1). */
+/** A volta diária (critério 1) e a varredura das descidas (critério 4). */
 export class CicloDaConfianca {
   readonly #lote: ConjuntoSql;
   readonly #recalculo: RecalculoDaConfianca;
@@ -285,7 +316,16 @@ export class CicloDaConfianca {
     entidade: string,
     auditarSempre: boolean,
   ): Promise<ResultadoDoCicloDaConfianca> {
-    const tenants = (await this.#lote.query(consulta)).rows.map((l) => String(l["tenant_id"]));
+    let tenants: string[];
+    try {
+      tenants = (await this.#lote.query(consulta)).rows.map((l) => String(l["tenant_id"]));
+    } catch (erro) {
+      // Uma volta que nem lista os tenants também é um recálculo que falhou, e
+      // conta como tal: sem isto, um privilégio em falta deixava a volta a
+      // falhar todos os minutos sem a regra de alerta ver nada (achado 8).
+      this.#recalculo.contarFalha(origem);
+      throw erro;
+    }
     let mudaram = 0;
     let falhas = 0;
     for (const tenantId of tenants) {
@@ -298,11 +338,16 @@ export class CicloDaConfianca {
       }
     }
     if (auditarSempre || tenants.length > 0) {
-      await this.#lote.query(SQL_AUDITAR_RECALCULO, [
-        ACTOR_DO_RECALCULO,
-        entidade,
-        `${entidade}:${tenants.length}:${mudaram}:${falhas}`,
-      ]);
+      try {
+        await this.#lote.query(SQL_AUDITAR_RECALCULO, [
+          ACTOR_DO_RECALCULO,
+          entidade,
+          `${entidade}:${tenants.length}:${mudaram}:${falhas}`,
+        ]);
+      } catch (erro) {
+        this.#recalculo.contarFalha(origem);
+        throw erro;
+      }
     }
     return { tenants: tenants.length, mudaram, falhas };
   }
