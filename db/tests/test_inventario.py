@@ -101,6 +101,11 @@ INVENTARIO = {
         "erased_at": ("timestamp with time zone", SIM, None, "nao"),
         "merged_into": ("uuid", SIM, None, "referencia opaca ao contacto que absorveu este"),
         "merged_at": ("timestamp with time zone", SIM, None, "nao"),
+        # KAM-118 (revisao do canal do dono): o papel do contacto no tenant.
+        # Nao e dado pessoal por si: diz que este `contact_id` e o dono, e o
+        # dono identifica-se pelo `contact_id`, como qualquer contacto.
+        "papel": ("text", NAO, "'cliente'::text", "nao — cliente ou dono, lista fechada"),
+        "papel_mudou_at": ("timestamp with time zone", SIM, None, "nao"),
     },
     "contact_deks": {
         "dek_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
@@ -2797,6 +2802,23 @@ INVENTARIO["trust_level"] = {
     "alterado_em": ("timestamp with time zone", NAO, "now()", "nao"),
 }
 
+#: As accoes sensiveis do dono a espera do botao (KAM-118, revisao do canal do
+#: dono). **Nenhum dado pessoal**: o dono e o `contact_id`, uma referencia
+#: opaca (ADR-010), e a `ref` e o identificador da coisa sobre que se age (um
+#: lote de precos, um conteudo, uma proposta), nunca o texto nem o telefone de
+#: quem a recebe.
+INVENTARIO["owner_actions"] = {
+    "action_id": ("uuid", NAO, "gen_random_uuid()", "nao — vai no botao confirm:{action_id}"),
+    "tenant_id": ("uuid", NAO, None, "nao"),
+    "contact_id": ("uuid", NAO, None, "referencia opaca a contacts (KAM-008, ADR-010)"),
+    "tipo": ("text", NAO, None, "nao — codigo de lista fechada"),
+    "ref": ("text", NAO, None, "nao — identificador da coisa sobre que se age, nunca texto nem telefone"),
+    "estado": ("text", NAO, "'pendente'::text", "nao"),
+    "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    "expira_at": ("timestamp with time zone", NAO, None, "nao"),
+    "confirmada_at": ("timestamp with time zone", SIM, None, "nao"),
+}
+
 #: As fases do encerramento de um tenant (KAM-098, revisao do off-boarding).
 #: **Nenhum dado pessoal**: uma fase, um estado, um prazo e um resultado que
 #: leva contagens, resumos `sha256` e instantes — as provas do pedido nao se
@@ -3727,6 +3749,12 @@ class TestInventario(ComBase):
                         # tenant, sem cascata. Um tenant encerrado fica, e as
                         # fases sao a prova do encerramento.
                         "offboarding_run_tenant_fk",
+                        # KAM-118 (revisao do canal do dono): a ficha aponta o
+                        # tenant e, pelo par, o contacto, sem cascata. Apagar um
+                        # contacto nao apaga a prova de que lhe foi pedida uma
+                        # confirmacao.
+                        "owner_actions_tenant_fk",
+                        "owner_actions_contact_fk",
                         "refund_cases_tenant_fk",
                         "refund_cases_charge_fk",
                         "fraud_signals_tenant_fk",
@@ -4016,6 +4044,11 @@ class TestInventario(ComBase):
             # *job* deixava de ter arbitro.
             "churn_signal_episode_aberto_uq": True,
             "contacts_phone_hmac_uq": True,
+            # KAM-118: **no maximo um** `dono` por tenant (criterio 2). Unico, e
+            # o predicado e a regra: sem o `WHERE papel = 'dono'` o indice
+            # recusava o segundo **cliente** do tenant; sem o `UNIQUE`, dois
+            # donos passavam. O escritor e a `definir_dono`.
+            "contacts_um_dono": True,
             "hmac_key_versions_actual_uq": True,
             "hmac_key_versions_anterior_uq": True,
             "tenants_nif_uq": True,
@@ -4577,6 +4610,19 @@ class TestInventario(ComBase):
                     "offboarding_run_fase_ck",
                     "offboarding_run_pkey",
                     "offboarding_run_resultado_ck",
+                    # ---------- KAM-118 (revisao do canal do dono)
+                    #
+                    # **Sete.** O dominio do `papel` na `contacts`; e na ficha a
+                    # chave, a idempotencia, os dominios do `tipo` e do
+                    # `estado`, o tamanho da `ref` e a coerencia `confirmada` <->
+                    # `confirmada_at`.
+                    "contacts_papel_ck",
+                    "owner_actions_confirmada_ck",
+                    "owner_actions_estado_ck",
+                    "owner_actions_pkey",
+                    "owner_actions_ref_ck",
+                    "owner_actions_tipo_ck",
+                    "owner_actions_uq",
                     "purge_log_classe_ck",
                     "purge_log_linhas_ck",
                     "purge_log_modo_ck",

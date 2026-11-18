@@ -63,6 +63,17 @@ no mesmo ficheiro que a nomeia. A limpeza faz-se na propria passagem da janela,
 que e quando ja se esta a olhar para a chave; um varrimento periodico era um
 temporizador a mais para a mesma coisa.
 
+**Ritmo do dono — 60 msgs/hora, *proposta* (KAM-118).** Pelo **mesmo**
+mecanismo, e nao por um caminho ao lado: a mesma janela deslizante por
+`thread_id`, a mesma desduplicacao por `turn_id`, o mesmo descarte silencioso
+com o mesmo motivo (`ritmo`, dicionario §3.30). O que muda e que um turno com
+`persona: dono` passa por **duas** janelas e nao uma — a do minuto, que todos
+pagam, e a da hora, que e so do dono. Sao duas e nao uma trocada, porque o
+tecto do dono nao e um alivio do do cliente: sessenta numa hora com vinte num
+minuto e o que o criterio 10 do KAM-118 pede, e trocar a janela deixava o dono
+escrever sessenta mensagens no mesmo minuto. A memoria por contacto passa a
+guardar a hora inteira so para os contactos que sao dono — um por *tenant*.
+
 **Tecto de concorrencia por *tenant* — 3 (criterio 5).** E o anti-vizinho-ruidoso
 da regra 2 do §15.2. **E por processo**, e isso fica dito: com N replicas do
 AGR o tecto efectivo e 3xN. Um tecto verdadeiramente distribuido pede um
@@ -87,7 +98,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Final
 
-from .contexto import InvocacaoDoAgente
+from .contexto import PERSONA_DONO, InvocacaoDoAgente
 from .metricas import (
     METRICA_COALESCIDAS,
     METRICA_CONTRAPRESSAO,
@@ -101,6 +112,13 @@ from .metricas import (
 RITMO_POR_CONTACTO: Final = 20
 #: A janela do ritmo, em segundos. Um minuto, que e a unidade do criterio.
 JANELA_DO_RITMO_S: Final = 60.0
+
+#: Mensagens por hora do dono (persona `dono`). *Proposta* — o criterio 10 do
+#: KAM-118 escreve «limite de 60 mensagens/hora do dono (*proposta*)», e o
+#: bloco manda os limiares ser configuraveis.
+RITMO_DO_DONO_POR_HORA: Final = 60
+#: A janela do tecto do dono, em segundos. Uma hora, a unidade do criterio.
+JANELA_DO_DONO_S: Final = 3_600.0
 #: Turnos em curso por *tenant*, neste processo. *Proposta* (criterio 5).
 TECTO_POR_TENANT: Final = 3
 #: Distancia maxima entre duas mensagens para se juntarem. *Proposta*
@@ -130,6 +148,8 @@ VAR_TECTO: Final = "AGR_TECTO_POR_TENANT"
 VAR_COALESCENCIA: Final = "AGR_COALESCENCIA_MS"
 VAR_LIMIAR: Final = "AGR_LIMIAR_DE_CONTRAPRESSAO"
 VAR_RESERVA: Final = "AGR_RESERVA_DE_PAGAMENTO"
+#: KAM-118. O tecto do dono. Nome a fixar no dicionario §3.24 pelo mesmo ticket.
+VAR_RITMO_DO_DONO: Final = "AGR_RITMO_DO_DONO_POR_HORA"
 
 
 class RitmoExcedidoError(RuntimeError):
@@ -162,13 +182,15 @@ def _inteiro(variavel: str, omissao: int, ambiente: dict[str, str] | None = None
 
 @dataclass(frozen=True, slots=True)
 class Tectos:
-    """Os cinco numeros, lidos uma vez no arranque."""
+    """Os seis numeros, lidos uma vez no arranque."""
 
     ritmo_por_contacto: int = RITMO_POR_CONTACTO
     tecto_por_tenant: int = TECTO_POR_TENANT
     coalescencia_ms: int = COALESCENCIA_MS
     limiar_de_contrapressao: int = LIMIAR_DE_CONTRAPRESSAO
     reserva_de_pagamento: int = RESERVA_DE_PAGAMENTO
+    #: KAM-118. Zero e **sem tecto**, como o `ritmo_por_contacto`.
+    ritmo_do_dono_por_hora: int = RITMO_DO_DONO_POR_HORA
 
     @classmethod
     def do_ambiente(cls, ambiente: dict[str, str] | None = None) -> Tectos:
@@ -180,6 +202,9 @@ class Tectos:
                 VAR_LIMIAR, LIMIAR_DE_CONTRAPRESSAO, ambiente
             ),
             reserva_de_pagamento=_inteiro(VAR_RESERVA, RESERVA_DE_PAGAMENTO, ambiente),
+            ritmo_do_dono_por_hora=_inteiro(
+                VAR_RITMO_DO_DONO, RITMO_DO_DONO_POR_HORA, ambiente
+            ),
         )
 
 
@@ -235,12 +260,14 @@ class Admissao:
         contacto em dois canais do mesmo *tenant* partilha-a — que e o que «por
         contacto» quer dizer.
         """
-        if self._tectos.ritmo_por_contacto == 0:
+        janelas = self._janelas_de(invocacao)
+        if not janelas:
             return True
         agora = self._agora()
         chave = invocacao.thread_id
-        limite = agora - JANELA_DO_RITMO_S
-
+        # A memoria guarda a janela **mais longa** deste contacto: e a unica
+        # forma de a da hora contar o que a do minuto ja esqueceu.
+        limite = agora - max(janela for janela, _ in janelas)
         chegadas = self._chegadas.get(chave) or collections.deque()
         while chegadas and chegadas[0] <= limite:
             chegadas.popleft()
@@ -249,21 +276,34 @@ class Admissao:
             for turn_id, visto in (self._contados.get(chave) or {}).items()
             if visto > limite
         }
-
         # A re-entrega do mesmo *job* nao gasta quota nova: ja a gastou.
         if invocacao.turn_id in contados:
             self._guardar_ritmo(chave, chegadas, contados)
             return True
-
-        if len(chegadas) >= self._tectos.ritmo_por_contacto:
-            METRICAS.contar(METRICA_RECUSADOS, "ritmo")
-            self._guardar_ritmo(chave, chegadas, contados)
-            return False
-
+        for janela, tecto in janelas:
+            dentro = sum(1 for chegada in chegadas if chegada > agora - janela)
+            if dentro >= tecto:
+                METRICAS.contar(METRICA_RECUSADOS, "ritmo")
+                self._guardar_ritmo(chave, chegadas, contados)
+                return False
         chegadas.append(agora)
         contados[invocacao.turn_id] = agora
         self._guardar_ritmo(chave, chegadas, contados)
         return True
+
+    def _janelas_de(self, invocacao: InvocacaoDoAgente) -> list[tuple[float, int]]:
+        """As janelas `(segundos, tecto)` que este turno paga. Zero e sem tecto.
+
+        **A persona le-se da invocacao, que e o veredicto do CHR** contra
+        `contacts.papel` — nunca do texto. Um cliente que escreva «sou o dono»
+        continua a ser `cliente` aqui, e paga so a janela do minuto.
+        """
+        janelas: list[tuple[float, int]] = []
+        if self._tectos.ritmo_por_contacto:
+            janelas.append((JANELA_DO_RITMO_S, self._tectos.ritmo_por_contacto))
+        if invocacao.persona == PERSONA_DONO and self._tectos.ritmo_do_dono_por_hora:
+            janelas.append((JANELA_DO_DONO_S, self._tectos.ritmo_do_dono_por_hora))
+        return janelas
 
     def _guardar_ritmo(self, chave: str, chegadas, contados: dict[str, float]) -> None:
         """Guarda o estado da janela, **ou apaga a chave quando esvazia**.

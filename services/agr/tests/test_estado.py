@@ -94,6 +94,10 @@ CHAVES_DO_521 = (
     # do §5.3**, que este ticket tambem nao altera — vem do bloco do KAM-037 e
     # do dicionario §3.35.
     "degradado",
+    # KAM-118. A `persona` da invocacao, pela razao do `concierge`: **nao esta
+    # no bloco do §5.3**; vem do campo aditivo do `agent_invocation` e do
+    # dicionario, e e o que a `da_thread` le do *checkpoint*.
+    "persona",
 )
 
 

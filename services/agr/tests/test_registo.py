@@ -671,9 +671,11 @@ class MetricasEspia:
 
 
 class ContextoFalso:
-    def __init__(self, tenant_id: str, vertical: str) -> None:
+    def __init__(self, tenant_id: str, vertical: str, persona: str = "cliente") -> None:
         self.tenant_id = tenant_id
         self.vertical = vertical
+        # KAM-118: o `resolve` le a persona pela `contexto.chave_do_registo`.
+        self.persona = persona
 
 
 TENANT = "6f9a1a1e-1111-4b2c-8888-000000000001"
@@ -831,11 +833,14 @@ class TestFicheirosReais(unittest.TestCase):
             ),
             RAIZ / "registry",
         )
-        self.assertEqual(sorted(verticais), ["servicos", "vendedor"])
-        self.assertEqual(sorted(gates), ["servicos", "vendedor"])
+        # KAM-118: a persona `dono` e um registo como os outros dois, com o
+        # golden adiado para o KAM-125.
+        self.assertEqual(sorted(verticais), ["dono", "servicos", "vendedor"])
+        self.assertEqual(sorted(gates), ["dono", "servicos", "vendedor"])
         self.assertEqual(
             sorted((a.validacao, a.vertical, a.credor) for a in adiadas),
             [
+                ("golden", "dono", "KAM-125"),
                 ("golden", "servicos", "KAM-040"),
                 ("golden", "vendedor", "KAM-040"),
             ],
@@ -899,7 +904,12 @@ class TestFicheirosReais(unittest.TestCase):
             ),
             RAIZ / "registry",
         )
-        for vertical in verticais.values():
+        # As verticais **de canal**: a persona `dono` (KAM-118) nao subscreve
+        # eventos, e a regra do §3.5 e de quem subscreve pagamentos.
+        from kamba_agr.contexto import VERTICAIS
+
+        self.assertEqual(set(VERTICAIS) - set(verticais), set())
+        for vertical in (verticais[v] for v in VERTICAIS):
             tipos = {s.tipo for s in vertical.subscriptions}
             self.assertIn("payment.confirmed", tipos)
             self.assertIn("payment.manual_confirmed", tipos)
@@ -997,7 +1007,10 @@ class TestFicheirosReais(unittest.TestCase):
             RAIZ / "registry",
         )[0].values():
             do_registo.update(vertical.tools)
-        self.assertEqual(len(do_registo), 11, sorted(do_registo))
+        # Quinze desde o KAM-118: as quatro do modulo `catalogo` (§21.3) que o
+        # `registry/dono.yaml` lista. Entram no dicionario pela emenda do mesmo
+        # ticket.
+        self.assertEqual(len(do_registo), 15, sorted(do_registo))
         for tool in sorted(do_registo):
             self.assertTrue(
                 saber.conhecido(tool, "tool"),
@@ -1168,6 +1181,11 @@ class TestArquitectura(unittest.TestCase):
             # conhecer para os contar (o `contar` levanta para um contador que
             # nao esteja registado la). Nao traz mais nada: so biblioteca padrao.
             "..metricas",
+            # KAM-118: a `chave_do_registo`, a regra de quem escreve (persona)
+            # contra o canal (vertical). Vive no `contexto.py` porque tem dois
+            # leitores — o `resolve` e a `da_thread` — e escrita duas vezes
+            # divergia. O `contexto.py` so importa biblioteca padrao.
+            "..contexto",
         }
         for ficheiro in self.modulos():
             for linha in ficheiro.read_text(encoding="utf-8").splitlines():

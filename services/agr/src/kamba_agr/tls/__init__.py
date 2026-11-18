@@ -5,7 +5,7 @@
 | `contexto.py` | o `ToolContext` e a `Confirmation` — a fronteira do que o modelo pode influenciar |
 | `erros.py` | os dez erros do §6.5, o `Fact` e o `ToolResult` |
 | `especificacoes.py` | a forma de uma especificacao e o `Catalogo` |
-| `catalogo.py` | as **onze** tools do Piloto (§6.2): uma `ligada`, dez `declaradas` |
+| `catalogo.py` | as **onze** tools do Piloto (§6.2) e as **quatro** do dono (§21.3): uma `ligada`, catorze `declaradas` |
 | `get_store_info.py` | a primeira tool real |
 | `disjuntor.py` | o *circuit breaker* por backend |
 | `auditoria.py` | a linha de `tool_audit` |

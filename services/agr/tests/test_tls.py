@@ -786,8 +786,9 @@ class TestCatalogo(_Base):
     def setUp(self) -> None:
         self.catalogo = catalogo_do_piloto()
 
-    def test_tem_as_onze_tools_do_catalogo_do_piloto(self) -> None:
-        self.assertEqual(len(self.catalogo.nomes()), 11)
+    def test_tem_as_onze_tools_do_piloto_e_as_quatro_do_dono(self) -> None:
+        # KAM-118: as quatro do modulo `catalogo` do `docs/tecnica/02` §21.3.
+        self.assertEqual(len(self.catalogo.nomes()), 15)
         self.assertEqual(
             self.catalogo.nomes(),
             frozenset(
@@ -796,14 +797,20 @@ class TestCatalogo(_Base):
                     "criar_pedido", "get_order_status", "get_store_info",
                     "list_services", "get_availability", "book_slot",
                     "cancel_booking", "reschedule_booking",
+                    "create_product_draft", "ask_missing_fields",
+                    "publish_product", "get_catalog_status",
                 }
             ),
         )
 
-    def test_uma_esta_ligada_e_dez_estao_declaradas_com_credor(self) -> None:
+    def test_uma_esta_ligada_e_catorze_estao_declaradas_com_credor(self) -> None:
         self.assertEqual(self.catalogo.ligadas(), ("get_store_info",))
         declaradas = self.catalogo.declaradas()
-        self.assertEqual(len(declaradas), 10)
+        self.assertEqual(len(declaradas), 14)
+        self.assertEqual(
+            {nome for nome, credor in declaradas.items() if credor == "KAM-119"},
+            {"create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status"},
+        )
         # **Os credores das cinco do Vendedor sao os tickets que ligam o
         # backend, e nao o KAM-031.** Eram `KAM-031` e o proprio KAM-031
         # corrigiu-os: o credor de uma entrada `declarada` e «o ticket que a
@@ -841,10 +848,14 @@ class TestCatalogo(_Base):
                 for nome, klass in por_nome.items()
                 if klass == "write"
             },
-            {"book_slot", "cancel_booking", "reschedule_booking"},
+            {
+                "book_slot", "cancel_booking", "reschedule_booking",
+                # KAM-118, §21.3: a publicacao e escrita com confirmacao.
+                "create_product_draft", "publish_product",
+            },
         )
-        # As restantes sete sao `read`.
-        self.assertEqual(sum(1 for k in por_nome.values() if k == "read"), 7)
+        # As restantes nove sao `read`: as sete do §6.2 e as duas do §21.3.
+        self.assertEqual(sum(1 for k in por_nome.values() if k == "read"), 9)
 
     def test_nenhum_esquema_do_catalogo_expoe_parametro_proibido(self) -> None:
         for nome in sorted(self.catalogo.nomes()):
@@ -1564,7 +1575,9 @@ class TestImportacaoIsolada(unittest.TestCase):
             _valores_derivados,
         )
 
-        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 11)
+        # Quinze desde o KAM-118 (as quatro do dono), e o numero segue o
+        # catalogo sem ninguem tocar no `metricas.py`.
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 15)
         # Onze desde o KAM-029, e derivados: confronta-se com `CODIGOS` e nao
         # com um numero, que e o que «continuam derivadas» quer dizer.
         self.assertEqual(

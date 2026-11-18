@@ -45,7 +45,8 @@ from ..casos import registar_caso
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: As onze tools do REG, pela ordem do catalogo. Literais de proposito (ver o
+#: As tools do REG, pela ordem do catalogo: as onze do §6.2 e, desde o
+#: KAM-118, as quatro do dono. Literais de proposito (ver o
 #: comentario das listas em `x01_rotas.py`).
 #: O `search_catalog` passou a ligada com o KAM-061: o `__main__` liga-o
 #: **sempre** ao indice (`tls/idx.py`), e o X-02 ataca-o pela camada real, com o
@@ -62,6 +63,13 @@ TOOLS_DECLARADAS = (
     "tool:book_slot",
     "tool:cancel_booking",
     "tool:reschedule_booking",
+    # KAM-118: as quatro do modulo `catalogo` (`registry/dono.yaml`),
+    # declaradas com o KAM-119 como credor. Atacam-se como as outras: a camada
+    # tem de as recusar sem repetir nada de B.
+    "tool:create_product_draft",
+    "tool:ask_missing_fields",
+    "tool:publish_product",
+    "tool:get_catalog_status",
 )
 
 

@@ -160,6 +160,8 @@ class TestOEstadoNaoTemOutraPorta(unittest.TestCase):
                 "vertical",
                 "type",
                 "modo",
+                # KAM-118.
+                "persona",
             )
         }
         for chave, valor in estado.items():

@@ -90,6 +90,10 @@ from test_tls import _Ligacao  # noqa: E402
 GOLDEN: Final = RAIZ / "golden"
 GATES: Final = RAIZ / "gates"
 BASELINES: Final = GOLDEN / "baselines"
+#: As verticais que o harness corre e o gate decide. **A persona `dono` nao esta
+#: aqui** (KAM-118): o dataset dela carrega-se pelo `carregar`, e corre-lo pede
+#: um `Mundo` com as tools do modulo `catalogo`, que sao do KAM-119 — o credor do
+#: gate dela e o KAM-125.
 VERTICAIS: Final = ("vendedor", "servicos")
 
 #: As dez categorias de `docs/tecnica/02` §16.1, pelos nomes curtos que o
@@ -524,7 +528,11 @@ _OPCIONAIS_DO_CASO: Final = frozenset({"consentimento"})
 #: O que um caso pode esperar. `handoff` e obrigatorio — e dele que o H7 se
 #: conta, e um caso que nao o declara nao entra na taxa.
 _ESPERADO: Final = frozenset({"handoff", "recusa", "escritas", "cita", "nao_cita", "critico"})
-_ID_DO_CASO: Final = re.compile(r"^(?:ven|srv)-[a-z]{3}-[0-9]{3}$")
+#: O `don` e o da persona do dono (KAM-118): o dataset `golden/dono/v1` le-se por
+#: este carregador, com o mesmo esquema, mas **nao** esta no `VERTICAIS` — o
+#: gate, o harness por vertical (`Mundo`) e a baseline sao do KAM-125, o credor
+#: da linha `dono` do `registry/gates.yaml`.
+_ID_DO_CASO: Final = re.compile(r"^(?:ven|srv|don)-[a-z]{3}-[0-9]{3}$")
 #: Dados que nao podem estar num caso sintetico: um numero de telefone (nove
 #: digitos seguidos, com ou sem separadores), um NIF ou BI (dez digitos ou mais),
 #: um e-mail. O `invocacao_crua` gera os identificadores; nenhum caso os escreve.

@@ -456,6 +456,12 @@ POLITICA: Final[tuple[Classe, ...]] = (
             _t("platform.conversations", pendencia=_RELACAO),
             _t("platform.owner_contacts", pendencia=_RELACAO),
             _t("platform.owner_notices", pendencia=_RELACAO),
+            # KAM-118 (revisao do canal do dono). As fichas das accoes
+            # sensiveis a espera do botao: vivem com o contacto dono, que elas
+            # apontam por FK composta, e saem no encerramento. Uma ficha tem
+            # 15 min de vida (*proposta*), mas a linha fecha-se pelo `estado` e
+            # nao se apaga: e a prova de que a confirmacao foi pedida e por quem.
+            _t("platform.owner_actions", pendencia=_RELACAO),
             _t("platform.handoff_accounts", pendencia=_RELACAO),
             _t("platform.channel_onboarding", pendencia=_RELACAO),
             _t("platform.channel_coexistence", pendencia=_RELACAO),

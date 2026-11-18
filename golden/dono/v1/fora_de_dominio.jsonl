@@ -1,0 +1,3 @@
+{"id": "don-fdd-001", "vertical": "dono", "categoria": "fora_de_dominio", "origem": "sintetico", "turnos": [{"texto": "quem ganhou o girabola?", "tipo": "text"}], "fixtures": {"catalogo": "base"}, "esperado": {"recusa": true, "handoff": false}}
+{"id": "don-fdd-002", "vertical": "dono", "categoria": "fora_de_dominio", "origem": "sintetico", "turnos": [{"texto": "escreve-me um poema sobre o mar", "tipo": "text"}], "fixtures": {"catalogo": "base"}, "esperado": {"recusa": true, "handoff": false}}
+{"id": "don-fdd-003", "vertical": "dono", "categoria": "fora_de_dominio", "origem": "sintetico", "turnos": [{"texto": "qual e a capital de franca?", "tipo": "text"}], "fixtures": {"catalogo": "base"}, "esperado": {"recusa": true, "handoff": false}}

@@ -39,6 +39,8 @@ from typing import Annotated, Final, Literal, get_args
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from ..contexto import CHAVE_DO_DONO
+
 #: SemVer de um artefacto comportamental (`specs/01` §5). Sem pre-release nem
 #: metadados de *build*: um `1.0.0-rc1` num registo de vertical e uma versao que
 #: o *gate* golden nao sabe comparar.
@@ -104,7 +106,11 @@ class EntitlementsDaVertical(_Fechado):
     nao quais sao.
     """
 
-    modulo: Nome
+    #: `None` so na persona do dono, que herda o modulo do canal por onde o dono
+    #: escreve (decisao do fundador de 2026-11-18, KAM-118). Uma vertical de canal
+    #: sem modulo era uma vertical que nenhum entitlement fecha: o
+    #: `VerticalDoRegisto` recusa-a.
+    modulo: Nome | None = None
     limites: tuple[Nome, ...] = ()
 
 
@@ -233,6 +239,16 @@ class VerticalDoRegisto(_Fechado):
                 "lista com repeticoes e uma lista que ninguem contou"
             )
         return valor
+
+    def model_post_init(self, _contexto: object) -> None:
+        # So a persona do dono herda o modulo do canal; uma vertical sem modulo
+        # nao seria fechada por entitlement nenhum.
+        if self.entitlements.modulo is None and self.id != CHAVE_DO_DONO:
+            raise ValueError(
+                f"`entitlements.modulo` em falta na vertical `{self.id}`. So a persona "
+                f"`{CHAVE_DO_DONO}` herda o modulo do canal (KAM-118); uma vertical de "
+                "canal sem modulo nao e fechada por entitlement nenhum"
+            )
 
 
 class ModoDaValidacao(_Fechado):

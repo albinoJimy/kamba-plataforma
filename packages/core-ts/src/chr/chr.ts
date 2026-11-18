@@ -55,9 +55,12 @@
  * autoriza (`saida`) para quem enviar a usar.
  */
 
+import type { Persona } from "../dono/contrato.ts";
+import { personaDe } from "../dono/persona.ts";
 import type { EventoDeEntrada, Interlocutor } from "../entrada/explosao.ts";
 import { type Accao, type DecisaoDoGate, tenantGate } from "../ten/estados.ts";
 import type { ResolvedorDeCanal } from "./canal.ts";
+import { SQL_PAPEL } from "./consultas.ts";
 import { abrirConversa, type Conversa } from "./conversas.ts";
 import {
   type AgentInvocation,
@@ -372,9 +375,17 @@ export class Chr {
       contactId,
       channelId: contexto.channel_id,
     };
-    const conversa: Conversa = await this.#comTenant(
+    // **A persona lê-se na mesma transacção que abre a conversa** (KAM-118,
+    // critério 1). É o papel do contacto resolvido **neste** tenant, e mais
+    // nada: o texto da mensagem não chega aqui, pelo que «sou o dono» não tem
+    // por onde mudar coisa nenhuma (critério 2). Ver `SQL_PAPEL`.
+    const { conversa, persona } = await this.#comTenant(
       contexto.tenant_id,
-      async (cliente) => abrirConversa(cliente, alvo, this.#agora()),
+      async (cliente): Promise<{ conversa: Conversa; persona: Persona }> => {
+        const aberta = await abrirConversa(cliente, alvo, this.#agora());
+        const linhas = await cliente.query(SQL_PAPEL, [contexto.tenant_id, contactId]);
+        return { conversa: aberta, persona: personaDe(linhas.rows[0]?.["papel"]) };
+      },
     );
 
     // --------------------------------------------------------- 6. entregar
@@ -418,6 +429,7 @@ export class Chr {
       wamid: evento.eventKey,
       type: evento.waType ?? "outro",
       modo: conversa.mode,
+      persona,
     });
     await this.#entrega.agr(invocacao);
     this.#metricas.contar(METRICA_RESOLUCOES, "encaminhado");

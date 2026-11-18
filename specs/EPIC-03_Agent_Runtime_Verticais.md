@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.22 |
+| Versão | 1.23 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -4896,7 +4896,7 @@ forma independente.
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-027, KAM-031, KAM-035, KAM-178 |
-| Bloqueia | KAM-108, KAM-188 |
+| Bloqueia | KAM-108, KAM-188, KAM-211 |
 | Responsável sugerido | Engenheiro de Runtime/IA |
 | Documentos de referência | `../services/agr/src/kamba_agr/__main__.py`, `../services/agr/src/kamba_agr/turno.py`, `../services/agr/src/kamba_agr/guardas/entrada.py`, `../registry/vendedor.yaml`, `../registry/servicos.yaml`, `../docs/agr.md` (§1, §7-F, §7-G, §7-J), `../docs/concierge.md` (§7), `../docs/adr/ADR-L005-degradacao-e-concierge.md`, `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§5.3, §11, §12, §14), dicionário §3.13, ADR-002, ADR-007, ADR-015 |
 
@@ -5289,3 +5289,4 @@ Nao expandas escopo: corrigir falhas encontradas e ticket novo. PR com o templat
 | 1.20 | Novembro 2026 | **KAM-040 entregue em parte: o golden PT-AO e o *eval harness* existem, e o gate 13 ainda não bloqueia.** O bloco ganha a secção «Verificação dos Critérios de Aceitação»: **quatro critérios satisfeitos** (1, 2, 4 e 7), três parciais (3, 5 e 8) e o 6 devolvido ao fundador, que é quem torna o gate bloqueante. Medido no grafo que o processo serve, sem modelo: o Vendedor reprova o gate duro na recusa (43/50) e os Serviços passam, com **zero** violações duras nas duas verticais. Fica registado o achado de a compra do Vendedor não fechar pelo caminho do processo. | Equipa KAMBÁ |
 | 1.21 | Novembro 2026 | **KAM-193**, que abre o KAM-194, e é uma correcção de **credor**, não de conteúdo: na verificação do KAM-038, a casca BullMQ → `POST /internal/event` e as linhas de `evt_subscricoes` do AGR apontavam para o KAM-005 e o KAM-006, que estão fechados. Passam ao **KAM-194**, que o KAM-193 abre como a ponte fila → consumidor Python e que serve o AGR e o IDX com a mesma casca. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.22 | Novembro 2026 | **KAM-192**: os Detalhes Técnicos do bloco do KAM-030 passam a nomear o quinto papel do cliente, `screening` — o do classificador de categorias do GOV (KAM-088), com o alias `screening-nano`. A lista fechada vive no dicionário §3.29 (emenda 1.85) e no `CHECK` da revisão `0047`. A secção de verificação do KAM-030 não muda: «os quatro em `llm/aliases.yaml`» continua verdadeiro, e era a evidência daquela entrega. | Equipa KAMBÁ |
+| 1.23 | Novembro 2026 | KAM-118 (EPIC-11): o KAM-211, credor das ligações de produção do canal do dono, entra no `Bloqueia` do KAM-186: o botão `confirm:{action_id}` só chega ao estado do turno pelo processo do AGR que serve turnos. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

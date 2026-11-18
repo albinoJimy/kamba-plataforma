@@ -689,6 +689,19 @@ TABELAS_CONFIANCA = ("trust_level",)
 #: `estado` e do `resultado`); o `kamba_app` nao tem nada. Ninguem apaga.
 TABELAS_OFFBOARDING = ("offboarding_run",)
 
+#: O que a revisao do canal do dono (KAM-118) acrescenta.
+#:
+#: **Pelo nome e nao pelo numero**, pela razao do `TABELAS_CATALOGO_AI`: o
+#: numero (`0070`, sobre a `0069` do KAM-195) fixou-o a integracao.
+#:
+#: Uma tabela de tenant, a `owner_actions`: as accoes sensiveis do dono a espera
+#: do botao `confirm:{action_id}`, com RLS `FORCE` pela `tenant_iso`, `UNIQUE
+#: (tenant_id, tipo, ref)` e FK composta para a `contacts`. O `kamba_app` cria,
+#: le e fecha (`UPDATE` por coluna, so o desfecho); ninguem apaga. A revisao
+#: acrescenta tambem `contacts.papel`, `contacts.papel_mudou_at`, o indice
+#: `contacts_um_dono` e a porta `definir_dono`.
+TABELAS_CANAL_DO_DONO = ("owner_actions",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -704,18 +717,34 @@ TABELAS = tuple(
         + TABELAS_EVENTOS_DO_TENANT + TABELAS_LISTA_DE_ESPERA
         + TABELAS_REGUA_DE_COBRANCA + TABELAS_KPIS_DE_CHURN
         + TABELAS_CATALOGO_MINIMO + TABELAS_CONFIANCA + TABELAS_OFFBOARDING
+        + TABELAS_CANAL_DO_DONO
     )
+)
+
+#: O que existe em `platform` quando a base esta na revisao anterior a do canal
+#: do dono (KAM-118).
+#:
+#: O `downgrade` da revisao do canal do dono leva a base para aqui. **Deriva do
+#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
+#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
+#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. A anterior e a
+#: da finalidade do screening (KAM-195), que nao cria tabela nenhuma.
+TABELAS_ANTES_DO_CANAL_DO_DONO = tuple(
+    sorted(set(TABELAS) - set(TABELAS_CANAL_DO_DONO))
 )
 
 #: O que existe em `platform` quando a base esta na revisao anterior a do
 #: off-boarding (KAM-098).
 #:
-#: O `downgrade` da revisao do off-boarding leva a base para aqui. **Deriva do
-#: `TABELAS`**, por ser o topo da cadeia: quem acrescentar uma revisao a seguir
-#: poe a sua aqui e faz **esta** derivar da dela. Chama-se pela tabela e nao
-#: pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. A `0066` do KAM-072
-#: (a anterior) nao cria tabela, pelo que isto descreve tambem a base dela.
-TABELAS_ANTES_DO_OFFBOARDING = tuple(sorted(set(TABELAS) - set(TABELAS_OFFBOARDING)))
+#: O `downgrade` da revisao do off-boarding leva a base para aqui. Deriva do
+#: `TABELAS_ANTES_DO_CANAL_DO_DONO` desde o KAM-118, que pos a sua revisao no
+#: topo (a `0069` do KAM-195, entre as duas, nao cria tabela). Chama-se pela
+#: tabela e nao pelo numero, pela razao escrita no `TABELAS_CATALOGO_AI`. A
+#: `0066` do KAM-072 (a anterior) nao cria tabela, pelo que isto descreve
+#: tambem a base dela.
+TABELAS_ANTES_DO_OFFBOARDING = tuple(
+    sorted(set(TABELAS_ANTES_DO_CANAL_DO_DONO) - set(TABELAS_OFFBOARDING))
+)
 
 #: O que existe em `platform` quando a base esta na revisao anterior a da
 #: confianca gradual (KAM-096).
