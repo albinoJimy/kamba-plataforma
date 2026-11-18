@@ -2646,6 +2646,12 @@ async function grupoDoGuia(relatorio: Relatorio): Promise<void> {
 //   sessao=nenhuma          (KAM-190) nenhum ataque ao /painel/verificar cunhou
 //                           sessao, e so o bilhete do painel chegou ao OTP (o
 //                           `ticket` do registo e o id nu ficam a porta)
+//   pedido=a                (KAM-211) os tres pedidos de troca do /painel/telefone,
+//                           com o tenant de B no corpo, na consulta e no
+//                           cabecalho, ficaram no tenant e na sessao de A
+//   troca=nenhuma           (KAM-211) o codigo certo do pedido de B, com a sessao
+//                           de A, nao trocou o dono: a verificacao chegou a troca
+//                           so com o pedido e o tenant de A
 
 const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/entrar",
@@ -2658,6 +2664,9 @@ const ITENS_DO_PAINEL = [
   "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/codigo",
   "rota:onboarding-web:painel/rotas:actor:POST:/painel/verificar",
+  // KAM-211: a troca de telefone do dono.
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
+  "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
 ] as const;
 
 /** Os telefones da reentrada (KAM-190). Ficticios, com 999. */
@@ -2798,6 +2807,39 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       [CASO_DE_A_NO_PAINEL, { tenantId: TENANT_DE_A_NO_PAINEL, fase: "aguarda_es" }],
       [CASO_DE_B_NO_PAINEL, { tenantId: TENANT_DE_B_NO_PAINEL, fase: "activo" }],
     ]);
+    const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
+    const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
+    const cunharReferencia = insc["cunharReferencia"] as (...a: unknown[]) => string;
+    const sessaoDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_DE_A_NO_PAINEL, agora);
+    const sessaoDeB = novaSessao(TENANT_DE_B_NO_PAINEL, CASO_DE_B_NO_PAINEL, agora);
+
+    // A troca de telefone (KAM-211): uma `TrocaDeTelefone` de duplo que regista o
+    // pedido e o tenant de cada chamada. O pedido de B acerta com o codigo de B,
+    // e e esse o codigo que os ataques levam — com a sessao de A.
+    const pedidoDaTroca = rotas["pedidoDaTroca"] as (s: unknown) => string;
+    const pedidoDeA = pedidoDaTroca(sessaoDeA);
+    const pedidoDeB = pedidoDaTroca(sessaoDeB);
+    const pedidosDaTroca: { pedido: string; tenant: string }[] = [];
+    const verificacoesDaTroca: { pedido: string; tenant: string }[] = [];
+    let trocasFeitas = 0;
+    const troca = {
+      troca: {
+        async pedir(pedido: string, tenant: string) {
+          pedidosDaTroca.push({ pedido, tenant });
+          return { enviado: true, expiraEm: new Date(agora.getTime() + 300_000) };
+        },
+        async verificar(pedido: string, tenant: string, codigo: string) {
+          verificacoesDaTroca.push({ pedido, tenant });
+          if (pedido === pedidoDeB && tenant === TENANT_DE_B_NO_PAINEL && codigo === "424242") {
+            trocasFeitas += 1;
+            return { trocado: true, contactId: "0000000b-0000-4000-8000-0000000000e1", anterior: null };
+          }
+          return { trocado: false, veredicto: "sem_pedido" };
+        },
+      },
+      anelDoPepper: [pepper, null],
+    };
+
     const app = (rotas["rotasDoPainel"] as (o: unknown) => AppHono)({
       comercio,
       canal,
@@ -2806,13 +2848,8 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
       anelDaAssinatura: [chave, null],
       relogio,
       reentrada,
+      troca,
     });
-
-    const novaSessao = sessaoModulo["novaSessao"] as (t: string, d: string, a: Date) => Record<string, unknown>;
-    const cunharSessao = sessaoModulo["cunharSessao"] as (s: unknown, c: Uint8Array) => string;
-    const cunharReferencia = insc["cunharReferencia"] as (...a: unknown[]) => string;
-    const sessaoDeA = novaSessao(TENANT_DE_A_NO_PAINEL, CASO_DE_A_NO_PAINEL, agora);
-    const sessaoDeB = novaSessao(TENANT_DE_B_NO_PAINEL, CASO_DE_B_NO_PAINEL, agora);
     const cookieDeA = `kamba_painel=${cunharSessao(sessaoDeA, chave)}`;
 
     const empurrar = async (
@@ -3005,6 +3042,53 @@ async function grupoDoPainel(relatorio: Relatorio): Promise<void> {
     const soOBilhete = verificados.length === 1 && verificados[0] === CASO_DE_B_NO_PAINEL;
     for (const entrada of relatorio.rotas) {
       if (entrada.item === ITENS_DO_PAINEL[9]) entrada.nota += semSessao && soOBilhete ? " sessao=nenhuma" : " sessao=cunhada-ou-otp-alheio";
+    }
+
+    // ---- POST /painel/telefone (KAM-211): a sessao de A com o tenant de B no
+    // corpo, na consulta e no cabecalho. O pedido fica no tenant e na sessao de A.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/telefone", vez);
+      await empurrar(
+        ITENS_DO_PAINEL[10],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ telefone: TELEFONE_DE_B_NO_PAINEL, tenant_id: TENANT_DE_B_NO_PAINEL, pedido: pedidoDeB }),
+        },
+        () => "",
+      );
+    }
+    const soDeA =
+      pedidosDaTroca.length === 3 &&
+      pedidosDaTroca.every((p) => p.pedido === pedidoDeA && p.tenant === TENANT_DE_A_NO_PAINEL);
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[10]) entrada.nota += soDeA ? " pedido=a" : " pedido=alheio";
+    }
+
+    // ---- POST /painel/telefone/verificar (KAM-211): o codigo certo do pedido de
+    // B, com o pedido e o tenant de B no corpo, com a sessao de A.
+    for (let vez = 0; vez < 3; vez += 1) {
+      const [c, headers] = comTenantDeB("/painel/telefone/verificar", vez);
+      await empurrar(
+        ITENS_DO_PAINEL[11],
+        "POST",
+        c,
+        {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ codigo: "424242", tenant_id: TENANT_DE_B_NO_PAINEL, pedido: pedidoDeB }),
+        },
+        () => "",
+      );
+    }
+    const semTroca =
+      trocasFeitas === 0 &&
+      verificacoesDaTroca.length === 3 &&
+      verificacoesDaTroca.every((v) => v.pedido === pedidoDeA && v.tenant === TENANT_DE_A_NO_PAINEL);
+    for (const entrada of relatorio.rotas) {
+      if (entrada.item === ITENS_DO_PAINEL[11]) entrada.nota += semTroca ? " troca=nenhuma" : " troca=alheia";
     }
   } catch (erro) {
     falhar(`a montagem do painel levantou: ${razao(erro)}`);
