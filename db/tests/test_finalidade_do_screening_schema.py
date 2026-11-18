@@ -123,6 +123,7 @@ class TestDowngradeDaFinalidadeDoScreening(unittest.TestCase):
             conexao.commit()
         finally:
             conexao.close()
+        self.addCleanup(self._executar, "DELETE FROM platform.tenants WHERE id = %s", (tenant,))
         destino = self._executar(
             f"INSERT INTO {DESTINOS} (tenant_id, provider, country, purpose, status, "
             "retencao_zero, sem_treino) VALUES (%s, 'anthropic', 'US', %s, 'pendente', "
@@ -155,7 +156,6 @@ class TestDowngradeDaFinalidadeDoScreening(unittest.TestCase):
         definicao = self._definicao()
         self.assertIn(f"'{FINALIDADE}'", definicao)
         self.assertEqual(definicao.count("'::text"), 15)
-        self._executar("DELETE FROM platform.tenants WHERE id = %s", (tenant,))
 
 
 if __name__ == "__main__":

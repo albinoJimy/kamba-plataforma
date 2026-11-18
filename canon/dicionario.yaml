@@ -13101,6 +13101,9 @@ entradas:
       - "embeddings"
       - "visao"
       - "FINALIDADES"
+      - "classificacao_de_catalogo"
+      - "screening"
+      - "finalidade_do_screening"
       - "segredos"
       - "papel"
       - "finalidade"
@@ -15287,6 +15290,8 @@ entradas:
       - "declarada"
       - "modelo"
       - "por_decidir"
+      - "classificacao_de_catalogo"
+      - "autorizado"
       - "destino_negado"
     variantes_literais: []
   - seccao: "3.58"

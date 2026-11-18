@@ -30,15 +30,29 @@ opcoes estao no bloco do KAM-195). O **nome** e *proposta* do executor.
 **Nao recria a `platform.v_transfer_audit` da `0036`**, e o `FINALIDADES_DE_MODELO`
 dela continua com tres. A vista nao discrimina **qual** finalidade cobre uma
 chamada — a `0036` escreveu porque, e o credor da versao exacta (o ticket que
-trouxer o `papel` para o canon do lado da base). A consequencia, que fica
-declarada: uma chamada de `screening` le-se na vista contra os destinos de
-`conversa`, `embeddings` e `visao` do mesmo fornecedor, e **nao** contra os de
-`classificacao_de_catalogo`. Um fornecedor so autorizado para a classificacao
-aparece la como violacao — o erro e para o lado de mais alarmes, e nao de menos.
+trouxer o `papel` para o canon do lado da base; hoje nenhum o reclama). A
+consequencia fica declarada, e **erra nos dois sentidos** (achado 2 da revisao
+adversarial; a primeira versao desta nota dizia que so errava para mais
+alarmes, e nao e verdade): uma chamada de `screening` le-se na vista contra os
+destinos de `conversa`, `embeddings` e `visao` do mesmo fornecedor, e **nao**
+contra os de `classificacao_de_catalogo`. Logo:
+
+* **mais frouxa do que a porta** — com a `conversa` autorizada e a
+  classificacao `pendente` ou `revogada`, uma chamada de `screening` que
+  saisse (um defeito do *gate*, ou a *cache* de 60 s depois de uma revogacao)
+  le-se como conforme. E a mesma classe de folga que a vista ja aceita entre as
+  tres (uma chamada de `chat` coberta por um destino so de `visao`);
+* **mais estrita do que a porta** — com o fornecedor autorizado **so** para a
+  classificacao, cada chamada legitima de `screening` aparece como violacao, e
+  o alvo de zero linhas do criterio 7 do KAM-069 fica inalcancavel.
+
 Acrescentar a finalidade a lista da vista nao era a correccao: com a conjuncao
 da vista (todas as aplicaveis tem de autorizar), um destino de classificacao
 `pendente` punha **todas** as chamadas de conversa do fornecedor em violacao.
-Quem decide a transferencia e o *gate*, que discrimina pela finalidade do papel.
+Separar o `screening` pelo `c.papel` era a versao exacta para este papel, e e
+o mapa `papel` -> finalidade escrito uma segunda vez em SQL, que a `0036`
+recusou. Quem decide a transferencia e o *gate*, que discrimina pela finalidade
+do papel; a vista fica com o credor que a `0036` lhe deu.
 """
 
 from __future__ import annotations

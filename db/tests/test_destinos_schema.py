@@ -620,9 +620,10 @@ class TestVistaDeAuditoriaDeTransferencias(ComBase):
 
         Uma juncao que exigisse `conversa` sozinha passava o caso negativo e
         deixava uma chamada de `embed` ou de `vision` eternamente em violacao —
-        o inverso do defeito, e igualmente errado. As tres sao as do
-        `FINALIDADES` do AGR, e a asercao de que sao essas tres esta em
-        `services/agr/tests/test_llm_destinos.py`.
+        o inverso do defeito, e igualmente errado. As tres sao as de modelo da
+        `0036`; o `FINALIDADES` do AGR tem quatro desde o KAM-195 (a
+        `classificacao_de_catalogo` do `screening`), que a vista nao le — a
+        revisao `finalidade_do_screening` escreve o que isso custa.
         """
         from kamba_core.destinos import (
             FINALIDADE_CONVERSA,

@@ -641,7 +641,7 @@ def main() -> int:
             tabela_de_precos=precos,
             porta_de_destinos=destinos,
             abrir_ligacao=ligar_para_llm,
-            chave_virtual=lambda _tenant_id: segredos.get(
+            chave_virtual=lambda _tenant_id: segredos.get(  # kamba:secrets-inventory dinamico a constante REF_CHAVE_DO_SCREENING do llm/screening.py e o dono do nome em codigo
                 llm_screening.REF_CHAVE_DO_SCREENING
             ),
             url_do_proxy=os.environ.get(VARIAVEL_DO_PROXY, PROXY_POR_OMISSAO),
@@ -848,7 +848,7 @@ def main() -> int:
             # A quinta rota (KAM-195), com credencial propria: ver a nota do
             # `llm/screening.py`. Sem a credencial no cofre, responde 401.
             *llm_screening.rotas(
-                credencial=lambda: segredos.get(llm_screening.SEGREDO_DA_ROTA),
+                credencial=lambda: segredos.get(llm_screening.SEGREDO_DA_ROTA),  # kamba:secrets-inventory dinamico a constante SEGREDO_DA_ROTA do llm/screening.py e o dono do nome em codigo
                 classificar=classificador_de_screening,
                 folga_s=llm_screening.folga_de_fila_s(aliases[llm_screening.PAPEL]),
             ),

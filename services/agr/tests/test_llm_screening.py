@@ -444,12 +444,12 @@ class TestALigacaoDoArranque(unittest.TestCase):
 
     def test_a_rota_le_a_sua_credencial(self) -> None:
         trecho = self._chamada("*llm_screening.rotas", "\n            ),")
-        self.assertIn("segredos.get(llm_screening.SEGREDO_DA_ROTA)", trecho)
+        self.assertIn("segredos.get(llm_screening.SEGREDO_DA_ROTA)", trecho)  # kamba:secrets-inventory dinamico o texto do __main__ que o ensaio procura, e nao um pedido
         self.assertNotIn("SEGREDO_DA_API", trecho)
 
     def test_o_classificador_usa_a_chave_da_plataforma(self) -> None:
         trecho = self._chamada("llm_screening.ClassificadorDeScreening", "\n    )")
-        self.assertIn("segredos.get(\n                llm_screening.REF_CHAVE_DO_SCREENING", trecho)
+        self.assertIn("llm_screening.REF_CHAVE_DO_SCREENING", trecho)
         self.assertNotIn("REF_CHAVE_VIRTUAL", trecho)
 
     def test_as_duas_referencias_sao_outras_e_estao_no_inventario(self) -> None:

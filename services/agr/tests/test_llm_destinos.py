@@ -140,6 +140,16 @@ class TestFinalidades(unittest.TestCase):
                 )
         with self.assertRaises(DestinoNegado):
             destinos_mod.finalidade_de("papel_que_nao_existe")
+        # A porta sem base deixa-a sair fora de `prod` e nega-a em `prod`, como
+        # as outras: com a finalidade, o `screening` deixou de ser negado em
+        # `staging` pelo `finalidade_de` (achado da revisao adversarial).
+        destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING).autorizar(
+            "t", "anthropic", "classificacao_de_catalogo"
+        )
+        with self.assertRaises(DestinoNegado):
+            destinos_mod.arrancar(destinos_mod.AMBIENTE_PROD).autorizar(
+                "t", "anthropic", "classificacao_de_catalogo"
+            )
         # O `screening` (KAM-192) tem a sua desde o KAM-195, e e so dele.
         self.assertEqual(destinos_mod.finalidade_de("screening"), "classificacao_de_catalogo")
         self.assertNotIn(
