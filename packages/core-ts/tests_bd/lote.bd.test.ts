@@ -210,6 +210,31 @@ async function fase(onboardingId: string): Promise<string> {
   return r.rows[0]!.fase;
 }
 
+/**
+ * Espera que o relógio da base passe o instante que `sql` devolve (KAM-213).
+ *
+ * Ao reaplicar, o serviço decide se a fase mudou depois da decisão comparando o
+ * `fase_at` com o `em` dela em `Date` — ao milissegundo —, e um empate conta
+ * como «mudou» (`#faseMudouDesde`). Um caso, um `review_case` e uma decisão
+ * inseridos seguidos cabem às vezes no mesmo milissegundo, e então a reaplicação
+ * não escreve a fase: o ensaio media o desempate e não a ordem. A espera é sobre
+ * o `clock_timestamp()` da base, porque é o `now()` da instrução seguinte que tem
+ * de passar, e não o relógio do Node. Dois milissegundos são folga sobre o um
+ * que o `Date` distingue. Pára com erro se o instante não chegar, em vez de
+ * pendurar o ensaio (um `NULL` nunca passa).
+ */
+async function depoisDe(sql: string, id: string): Promise<void> {
+  const limite = Date.now() + 5_000;
+  for (;;) {
+    const r = await admin.query<{ passou: boolean | null }>(
+      `SELECT clock_timestamp() >= (${sql}) + interval '2 milliseconds' AS passou`,
+      [id],
+    );
+    if (r.rows[0]?.passou === true) return;
+    if (Date.now() > limite) throw new Error(`o relógio da base não passou o instante de ${id} em 5 s`);
+  }
+}
+
 async function limpar(): Promise<void> {
   // Pela ordem das chaves estrangeiras.
   // As duas tabelas *append-only* têm *trigger* de imutabilidade que recusa
@@ -405,6 +430,8 @@ describe("o processo de lote contra a base", () => {
   it("a lista de efeitos por reaplicar sobrevive a um reinício do processo", async () => {
     const [onbD, tenantD] = await onboarding("em_revisao");
     const decidido = await caso({ tipo: "kyc", tenant: tenantD, onboarding: onbD, estado: "decidido" });
+    // KAM-213: a reaplicação de um `rejeitar` passa pelo mesmo desempate.
+    await depoisDe("SELECT fase_at FROM platform.onboarding_case WHERE id = $1", onbD);
     await decisao(decidido, tenantD, "rejeitar");
     {
       const outroLote = conjunto("batch");
@@ -466,13 +493,19 @@ describe("o processo de lote contra a base", () => {
   });
 
   it("reaplicar um pedir_info não desfaz a fase que mudou depois da decisão; sem mudança, aplica-a", async () => {
+    // KAM-213: sem o `depoisDe`, o «sem mudança» lia-se como mudança uma vez por
+    // outra no runner — `em_revisao` em vez de `kyc_pendente`. Ver a nota dele.
     const correrCom = async (mudou: boolean): Promise<string> => {
       const [onb, tenant] = await onboarding("em_revisao");
       const pendente = await caso({ tipo: "kyc", tenant, onboarding: onb, estado: "em_analise" });
+      await depoisDe("SELECT fase_at FROM platform.onboarding_case WHERE id = $1", onb);
       await decisao(pendente, tenant, "pedir_info");
       // O KYC voltou a decidir depois do pedido e rejeitou: a fase mudou, e o
       // `fase_at` (que o *trigger* da `0043` só move quando ela muda) di-lo.
-      if (mudou) await admin.query("UPDATE platform.onboarding_case SET fase = 'rejeitado' WHERE id = $1", [onb]);
+      if (mudou) {
+        await depoisDe("SELECT max(em) FROM platform.review_decision_log WHERE case_id = $1", pendente);
+        await admin.query("UPDATE platform.onboarding_case SET fase = 'rejeitado' WHERE id = $1", [onb]);
+      }
       const efeitos = semCarencia(lote);
       await efeitos.marcar(pendente);
       await montarProcesso({ lote, app, efeitos, log: registo, relogio: () => T0 }).ciclo.correr();

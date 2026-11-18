@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.29 |
+| Versão | 1.30 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -3029,7 +3029,7 @@ Testes: unidade, integração, isolamento e adversarial.
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-196 |
-| Bloqueia | KAM-092, KAM-202, KAM-203 |
+| Bloqueia | KAM-092, KAM-202, KAM-203, KAM-213 |
 | Responsável sugerido | Engenheiro de Plataforma (GOV), com SRE |
 | Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (blocos KAM-089, KAM-196 e KAM-091), `02_Dicionario_de_Dados_Canonico.md` (§3.61), `../docs/revisao.md`, `../docs/observabilidade.md` |
 
@@ -3800,3 +3800,4 @@ Testes: integração com duplos, contrato por adaptador, e o simulacro em stagin
 | 1.27 | Novembro 2026 | KAM-200 (Trust & Safety em produção): os critérios 1, 2, 3, 5 e 8 e a caixa 2 da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 7 e 9 ficam parciais e o 4 e o 6 por satisfazer, com o credor escrito. O consumidor, as varreduras auditadas e as métricas correm no processo de lote do onboarding; a escada passa pela `transition_tenant` e emite os eventos do tenant; a revisão `0067` escreve as subscrições, a fonte da mudança de conta e a limitação no catálogo. **E o KAM-208 e o KAM-209**, acrescentados no mesmo PR como credores dos critérios 6 e 4 (escritos como KAM-206 e KAM-207 e renumerados na integração, depois do KAM-190 que os tomou). **29** tickets. | Equipa KAMBÁ |
 | 1.28 | Novembro 2026 | KAM-098: entra a secção de verificação do bloco do off-boarding — **três dos dez critérios e três das seis caixas da DoD**. O mecanismo das sete fases está medido contra a base; ficam parciais as portas para fora e o processo que as corre, com o credor **KAM-210**. Três leituras que divergem da letra voltam a quem escreveu os critérios: o fecho dos pendentes, o estado `encerrado` do canal em vez de `revogado`, e a assinatura HMAC do certificado. Escrita como 1.26, com a revisão `0067` e o dicionário §3.76, e renumerada na integração depois do KAM-190 e do KAM-200: a revisão é a `0068`, a secção do dicionário a §3.77 e o credor fica KAM-210. | Equipa KAMBÁ |
 | 1.29 | Novembro 2026 | KAM-195: entram a decisão do fundador sobre a finalidade (opção A, 2026-11-18), o desenho da ligação e as duas secções de verificação do bloco do classificador de screening pelo cliente do AGR — **dois** critérios satisfeitos (a rota `POST /internal/screening`, com o *gate* de destino, o registo e o custo; e a finalidade `classificacao_de_catalogo`, pela revisão `0069`) e **três** linhas de DoD, todas satisfeitas. A linha da DoD 2 do KAM-088 deixa de dizer que o classificador chama o proxy directamente | Equipa KAMBÁ |
+| 1.30 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-198 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «reaplicar um pedir_info não desfaz a fase que mudou depois da decisão» do `lote.bd.test.ts`: cada passo espera que o relógio da base passe o anterior, e o ensaio deixa de depender do desempate ao milissegundo do `#faseMudouDesde`. | Equipa KAMBÁ |

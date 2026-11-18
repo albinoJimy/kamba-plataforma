@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.75
+**Versão do conjunto:** 1.76
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **210 tickets atómicos (KAM-001 a KAM-210)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **211 tickets atómicos (KAM-001 a KAM-213)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -39,7 +39,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | **EPIC-09 Onboarding e Governação** | Epic | onboarding-web, KYC K1 automático, screening, fila de excepções, saga, T&S, off-boarding | [EPIC-09_Onboarding_Governanca.md](EPIC-09_Onboarding_Governanca.md) |
 | **EPIC-10 Spikes, Validação e Gates** | Epic | Spikes (coexistência, voz), pedidos à Meta/bancos/jurídico, entrevistas, gates da Fase 0 e do Piloto | [EPIC-10_Spikes_Validacao_Gates.md](EPIC-10_Spikes_Validacao_Gates.md) |
 | **EPIC-11 Módulos de Entrada** | Epic | Canal do dono, Catálogo AI conversacional, Foto de produtos AI, Social AI (publicação manual), Orçamento expresso, planos e metering, experimento H10–H12 (ADR-020) | [EPIC-11_Modulos_Entrada.md](EPIC-11_Modulos_Entrada.md) |
-| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (66 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
+| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (67 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
 
 ---
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194 | 66 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-174, KAM-177, KAM-180 – KAM-183, KAM-185, KAM-194, KAM-213 | 67 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114, KAM-184, KAM-186 | 19 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051, KAM-176, KAM-178, KAM-179, KAM-202, KAM-204 | 16 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117, KAM-190 – KAM-192, KAM-195, KAM-196, KAM-198, KAM-200, KAM-201, KAM-203, KAM-206 – KAM-210 | 30 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-210** | **210** | — |
+| **TOTAL** | **KAM-001 – KAM-210, KAM-213** | **211** | — |
 
 ### 3.2 Fases
 
@@ -149,6 +149,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-183 | As duas superfícies de um bloco de ticket podem discordar, e nenhum portão as compara | feature | M | P1 | 0 | KAM-002 |
 | KAM-185 | A escolha do lote e a ordem de fecho fazem-se à mão, e as três superfícies que serializam a fusão atravessam os epics | feature | M | P1 | 0 | — |
 | KAM-194 | Ponte fila → consumidor Python: casca BullMQ → HTTP e registo de subscrições | feature | L | P1 | 1 | KAM-061, KAM-062, KAM-193 |
+| KAM-213 | Dois ensaios de base de dados do `core-ts` ficam vermelhos ao acaso: uma ordem ao milissegundo e uma corrida que o ensaio não forçava | fix | S | P1 | 1 | KAM-019, KAM-198 |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -458,3 +459,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.73 | Novembro 2026 | **KAM-206** e **KAM-207** acrescentados ao **EPIC-09**, no PR do **KAM-190**, que os abre e não os implementa: o KAM-206 é o credor do contacto da encomenda ao dono, mascarado e auditado (metade do critério 6 do KAM-099, que pede uma acção nova no `audit_log.action`), e da lista de produtos em 3G (o critério 9, medido pelo KAM-190 e não cumprido), e o KAM-207 o da religação do número de um tenant activo cujo canal caiu (o `/ligar` do KAM-093 só abre em `aguarda_es`). **Superfícies:** as duas linhas do §4, o §3.1 — o EPIC-09 com **27** e o TOTAL a `KAM-001 – KAM-207` com **207** — e o §1. **Arestas recíprocas:** o `Bloqueia` do KAM-190 ganha os dois, e o do KAM-093 o KAM-207. Total: 207 tickets em 11 epics. | Equipa KAMBÁ |
 | 1.74 | Novembro 2026 | **KAM-208** e **KAM-209** acrescentados ao **EPIC-09**, os dois no PR do **KAM-200**, que os abre e não os implementa (escritos como KAM-206 e KAM-207 e renumerados na integração, depois do KAM-190 que os tomou). O KAM-208 é o credor do critério 6 do KAM-200: a correlação entre tenants por comprador pede um pseudónimo do telefone sem tenant (o `phone_hmac` leva-o na mensagem) e a base legal do tratamento cruzado *(a confirmar por parecer)*. O KAM-209 é o credor do critério 4: o produto não tem categoria, e sem ela não há mediana por categoria. Os dois dependem só do KAM-200 e entram no `Bloqueia` dele. **209** tickets. | Equipa KAMBÁ |
 | 1.75 | Novembro 2026 | **KAM-210** acrescentado ao **EPIC-09**, no PR do **KAM-098**, que o abre e não o implementa: é o credor das caixas 1, 4, 5, 6 e 8 do KAM-098 e de duas da DoD — o processo que corre as fases, um adaptador por cada porta (as provas do titular, a Meta, o LiteLLM, a Medusa, o Chatwoot, o cofre, a entrega do certificado) e o simulacro em *staging*. Depende do KAM-098, e entra no `Bloqueia` dele. O número foi dado pelo orquestrador do lote: do **206** ao **209** estão reservados para o KAM-200 e o KAM-190, e a gama do §1 só fica contígua quando eles entrarem. **206** tickets nesta árvore. | Equipa KAMBÁ |
+| 1.76 | Novembro 2026 | **KAM-213** acrescentado ao **EPIC-01** **e entregue no mesmo PR**, como o KAM-181: o bloco vive em `tickets/KAM-213.md`, pela convenção do KAM-155. São dois ensaios de base de dados do `core-ts` que ficavam vermelhos ao acaso e verdes ao correr outra vez a mesma ponta, e **nenhum dos dois era defeito do produto**: o «reaplicar um pedir_info» do `lote.bd.test.ts` construía o «antes» e o «depois» no mesmo milissegundo, que o serviço compara em `Date` e desempata como «mudou»; o «ON CONFLICT da conta» do `handoff.bd.test.ts` media uma corrida que o `Promise.all` não forçava. **O que o orquestrador contou como três ensaios são dois:** o caso que estava na linha 414 do `lote.bd.test.ts` no run `43848110530` é o mesmo que está na 468 no run `44204997685`, com a mesma mensagem — o ficheiro cresceu entre os dois. Vai para o EPIC-01 pela razão do KAM-181 (o eixo é o CI, e `tickets/` só existe neste epic); depende do KAM-019 e do KAM-198, que escreveram os dois ensaios, e entra no `Bloqueia` de cada um. **Superfícies:** a linha do §4, a gama e a contagem do §1, a linha do EPIC-01 (**67**) e o TOTAL do §3.1, a contagem de `tickets/` do §2, a «Tabela Resumo» do EPIC-01, o `../README.md` e a prosa do `EPIC-07`. **O número foi dado pelo orquestrador do lote, e é provisório:** o 211 e o 212 não estão nesta árvore, pelo que a gama do §1 só fica contígua quando entrarem, e quem fundir em segundo renumera; até lá o TOTAL do §3.1 diz `KAM-001 – KAM-210, KAM-213`, que é o que o `lint_backlog` mede nesta árvore. **211** tickets nesta árvore. | Equipa KAMBÁ |
