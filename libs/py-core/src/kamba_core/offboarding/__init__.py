@@ -33,15 +33,20 @@ from .purga import (
     tenants_purgados,
 )
 from .certificado import VERSAO_DO_CERTIFICADO, emitir_certificado, verificar_certificado
+from .processo import PortaSemAdaptador, PortasDosDados, correr_fase, correr_volta
 
 __all__ = [
     "CAMINHOS_DO_ENCERRAMENTO",
     "FaseForaDeOrdem",
     "LigacaoRecusada",
+    "PortaSemAdaptador",
+    "PortasDosDados",
     "TABELAS_DOS_CONTACTOS",
     "VERSAO_DO_CERTIFICADO",
     "VERSAO_DO_MANIFESTO",
     "abrir_ligacao",
+    "correr_fase",
+    "correr_volta",
     "emitir_certificado",
     "exportar",
     "ler_fases",

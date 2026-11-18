@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Topologia e Operação |
-| Versão | 1.25 |
+| Versão | 1.26 |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/09_Topologia_Operacao_Escala.md` |
@@ -779,6 +779,11 @@ subprocessadores (critério 4), e a **ausência de *staging* e de produção**
 > `kamba-trust.yml` citam. Medido no ramo do KAM-200 sobre a `publico/main` em
 > `234e4739`: **30 módulos, 155 nomes**, 157 declaradas, e as restantes nas
 > mesmas. Nenhuma caixa deste epic muda.
+> **E o KAM-210 trouxe outro:** o `packages/core-ts/src/offboarding/metricas.ts`,
+> com **dois** *gauges* e **um** contador do off-boarding que o processo de lote
+> do onboarding serve e a regra do `kamba-offboarding.yml` cita. Medido no ramo
+> do KAM-210 sobre a `publico/main` em `94502bc6`: **31 módulos, 158 nomes**,
+> 160 declaradas, e as restantes nas mesmas. Nenhuma caixa deste epic muda.
 >
 > É por isso que **8 das 12 linhas do §9.2 não se escreveram**. Um alerta sobre
 > uma série que ninguém produz nunca dispara, e um alerta que nunca dispara
@@ -1922,3 +1927,4 @@ Nao expandas escopo: ajustar limites no compose e um PR de seguimento. PR com o 
 | 1.23 | Novembro 2026 | **KAM-117**, emenda de **propagação** como a 1.22: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `libs/py-core/src/kamba_core/kpis/metricas.py`, com três *gauges* (`onboarding_activation_minutes`, `churn_signal{sinal}`, `tenants_dormentes`) que um *job* de lote calcula e nenhum processo serve. Medido: `contar_metricas` passa de **28 módulos, 149 nomes** para **29 módulos, 152 nomes**, e a reconciliação `+2` do `services/com` dá **154** declaradas, eram 151. Nenhuma caixa deste epic muda. **A ponta onde isto foi medido:** o ramo do KAM-117 sobre a `publico/main` em `0c393555`. | Equipa KAMBÁ |
 | 1.24 | Novembro 2026 | **KAM-190**, emenda de propagação: a nota do KAM-099 sobre o `painel` do `onboarding-web` dizia que nenhum processo servia as duas séries; o KAM-190 deu-lhe o `GET /metrics` e o `job` `onboarding_web` no Prometheus. Os nomes não mudaram, e as contagens do inventário também não. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.25 | Novembro 2026 | **KAM-200**, emenda de **propagação** como a 1.23: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/trust/metricas.ts`, e a nota do bloco do KAM-080 passa a **30 módulos, 155 nomes** e 157 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |
+| 1.26 | Novembro 2026 | **KAM-210**, emenda de **propagação** como a 1.25: o inventário fechado de módulos de métricas do `tools/obs_lint` ganha o `packages/core-ts/src/offboarding/metricas.ts`, e a nota do bloco do KAM-080 passa a **31 módulos, 158 nomes** e 160 declaradas. Nenhuma caixa muda. | Equipa KAMBÁ |

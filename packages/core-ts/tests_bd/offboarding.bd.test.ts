@@ -31,6 +31,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 
 import type pg from "pg";
+import pgModulo from "pg";
 
 import { ResolvedorDeCanal } from "../src/chr/canal.ts";
 import {
@@ -44,12 +45,18 @@ import {
   desligarCanal,
   revogar,
   verificarPendentes,
+  CicloDoOffboarding,
+  MetricasDoOffboarding,
+  PortaSemAdaptadorError,
+  REVOGACAO_SEM_ADAPTADOR,
+  SQL_CONTAGEM_DAS_FASES,
   type CanalDaMeta,
   type PortasDaRevogacao,
   type ProvasDoTitular,
 } from "../src/offboarding/index.ts";
+import type { ConjuntoSql } from "../src/revisao/sql.ts";
 import { tenantGate } from "../src/ten/estados.ts";
-import { activarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
+import { BASE_DESCARTAVEL, activarTenant, criarCanal, criarTenant, ligar } from "./apoio.ts";
 
 const MS_POR_DIA = 86_400_000;
 const D0 = new Date(Date.now() - 10 * MS_POR_DIA);
@@ -353,5 +360,164 @@ describe("o off-boarding contra a base", () => {
     assert.equal(chamadas.length, 3);
     const depois = await admin.query("SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.closed'", [tenant]);
     assert.equal(depois.rows[0]?.n, 1);
+  });
+});
+
+// ------------------------------------------------- o ciclo do processo (KAM-210)
+
+/** Um `pg.Pool` do `kamba_batch`, só sobre a base descartável: o conjunto do processo de lote. */
+function conjuntoDoLote(): pg.Pool {
+  const base = process.env.KAMBA_DB_NAME ?? "";
+  if (base !== BASE_DESCARTAVEL) throw new Error(`KAMBA_DB_NAME nao e ${BASE_DESCARTAVEL}`);
+  return new pgModulo.Pool({
+    host: process.env.KAMBA_DB_HOST ?? "127.0.0.1",
+    port: Number(process.env.KAMBA_DB_PORT ?? "5432"),
+    database: base,
+    user: "kamba_batch",
+    password: process.env.KAMBA_SECRET_DB_BATCH_PASSWORD ?? "",
+    application_name: "kamba-offboarding-teste:lote",
+    max: 4,
+  });
+}
+
+function paradas(texto: string, fase: string): number {
+  const linha = texto.split("\n").find((l) => l.startsWith(`offboarding_fases_paradas{fase="${fase}"} `));
+  return Number(linha?.split(" ").at(-1) ?? "NaN");
+}
+
+describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
+  it("leva um tenant do pedido à revogação pelo calendário, e duas voltas seguidas não repetem efeitos", async () => {
+    const { tenant, waba } = await tenantAtivo("off-ciclo");
+    await pedidoVerificado(tenant);
+    const meta = metaEspia();
+    const chamadas: string[] = [];
+    const portas: PortasDaRevogacao = {
+      chaveDeLlm: { revogar: async (id) => void chamadas.push(`revogar:${id}`) },
+      canalDeComercio: { arquivar: async (id) => void chamadas.push(`arquivar:${id}`) },
+      inbox: { desligar: async (id) => void chamadas.push(`desligar:${id}`) },
+    };
+    await admin.query(
+      "INSERT INTO platform.provisioning_step (onboarding_id, tenant_id, step, status, attempt, external_id) " +
+        "VALUES ($1, $2, 'chave_llm', 'concluido', 1, 'llm-ciclo')",
+      [randomUUID(), tenant],
+    );
+    const pool = conjuntoDoLote();
+    try {
+      let agora = dia(1);
+      const metricas = new MetricasDoOffboarding();
+      const ciclo = new CicloDoOffboarding({
+        lote: pool as unknown as ConjuntoSql,
+        portas: { canal: meta.canal, revogacao: portas },
+        metricas,
+        relogio: () => agora,
+      });
+
+      // Volta 1, no D1: o canal e os pendentes. A revogação não entra (antes do D7, e sem a exportação).
+      await ciclo.correr();
+      let f = await fases(tenant);
+      assert.equal(f.canal?.estado, "concluida");
+      assert.equal(f.pendentes?.estado, "concluida");
+      assert.equal(f.revogacao?.estado, "pendente");
+      assert.deepEqual(meta.chamadas.filter((c) => c.endsWith(waba)), [`cancelar:${waba}`]);
+      assert.equal(meta.chamadas.filter((c) => c.startsWith("APAGAR")).length, 0);
+      assert.deepEqual(chamadas, []);
+
+      // Volta 2, no D8 sem a exportação: a revogação continua de fora.
+      agora = dia(8);
+      await ciclo.correr();
+      assert.equal((await fases(tenant)).revogacao?.estado, "pendente");
+
+      // A exportação é do lado dos dados; marca-se como o Python a marca.
+      await admin.query(
+        "UPDATE platform.offboarding_run SET estado = 'concluida' WHERE tenant_id = $1 AND fase = 'exportacao'",
+        [tenant],
+      );
+      await ciclo.correr();
+      f = await fases(tenant);
+      assert.equal(f.revogacao?.estado, "concluida");
+      assert.deepEqual(chamadas, ["revogar:llm-ciclo"]);
+      const estado = await admin.query("SELECT estado FROM platform.tenants WHERE id = $1", [tenant]);
+      assert.equal(estado.rows[0]?.estado, "encerrado");
+
+      // Mais duas voltas: nenhuma chamada nova à Meta nem às portas, e um só tenant.closed.
+      await ciclo.correr();
+      await ciclo.correr();
+      assert.deepEqual(meta.chamadas.filter((c) => c.endsWith(waba)), [`cancelar:${waba}`]);
+      assert.deepEqual(chamadas, ["revogar:llm-ciclo"]);
+      const ev = await admin.query(
+        "SELECT count(*)::int AS n FROM platform.events_outbox WHERE tenant_id = $1 AND tipo = 'tenant.closed'",
+        [tenant],
+      );
+      assert.equal(ev.rows[0]?.n, 1);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("um pedido cancelado não corre; uma fase sem adaptador falha pelo nome e, passado o prazo e a folga, conta como parada", async () => {
+    const cancelado = await tenantAtivo("off-ciclo-cancelado");
+    await pedidoVerificado(cancelado.tenant);
+    await cancelarPedido(lote, { tenantId: cancelado.tenant, canal: metaEspia().canal, agora: dia(1) });
+    const parado = await tenantAtivo("off-ciclo-parado");
+    await pedidoVerificado(parado.tenant);
+
+    const pool = conjuntoDoLote();
+    try {
+      const metricas = new MetricasDoOffboarding();
+      const meta = metaEspia();
+      // A Meta só falha no WABA do tenant parado: os outros tenants da base (de outros ensaios) seguem.
+      const canal: CanalDaMeta = {
+        ...meta.canal,
+        cancelarSubscricao: async (w) => {
+          if (w === parado.waba) throw new PortaSemAdaptadorError("meta");
+          await meta.canal.cancelarSubscricao(w);
+        },
+      };
+      const r = await new CicloDoOffboarding({
+        lote: pool as unknown as ConjuntoSql,
+        portas: { canal, revogacao: REVOGACAO_SEM_ADAPTADOR },
+        metricas,
+        relogio: () => dia(3),
+      }).correr();
+      assert.ok(r.falhas.includes("canal"));
+      assert.doesNotMatch(JSON.stringify(r), new RegExp(parado.tenant));
+      assert.equal(meta.chamadas.filter((c) => c.endsWith(cancelado.waba)).length, 0, "o cancelado não correu");
+      assert.equal((await fases(cancelado.tenant)).canal?.estado, "cancelada");
+      assert.equal((await fases(parado.tenant)).canal?.estado, "pendente", "a fase ficou onde estava");
+      // O prazo do canal é o D1; no D3, com a folga de 24 h, está parada.
+      assert.ok(paradas(metricas.exposicao(), "canal") >= 1);
+      assert.match(metricas.exposicao(), /offboarding_execucoes_total\{fase="canal",desfecho="falhou"\} [1-9]/);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("a contagem das paradas: a fase que espera outra não conta, e a que podia correr e não correu conta", async () => {
+    const tenant = (await tenantAtivo("off-ciclo-contagem")).tenant;
+    await pedidoVerificado(tenant);
+    const contar = async (): Promise<Record<string, number>> => {
+      const { rows } = await admin.query(SQL_CONTAGEM_DAS_FASES, [dia(40), 24]);
+      const total: Record<string, number> = {};
+      for (const r of rows) total[String(r.fase)] = (total[String(r.fase)] ?? 0) + Number(r.paradas);
+      return total;
+    };
+    const marcar = (fase: string, estado: string) =>
+      admin.query("UPDATE platform.offboarding_run SET estado = $3 WHERE tenant_id = $1 AND fase = $2", [tenant, fase, estado]);
+    // Uma purga suspensa por disputa, e o certificado atrás dela: nenhum dos dois está parado.
+    for (const fase of ["canal", "pendentes", "exportacao", "revogacao"]) await marcar(fase, "concluida");
+    const antes = await contar();
+    await marcar("purga", "suspensa_disputa");
+    const comDisputa = await contar();
+    // Antes, a purga pendente com a revogação concluída podia correr e não correu: contava.
+    assert.equal((comDisputa.purga ?? 0) - (antes.purga ?? 0), -1, "a disputa não é paragem");
+    assert.equal(comDisputa.certificado ?? 0, antes.certificado ?? 0,
+      "o certificado pendente atrás de uma purga por concluir não conta");
+    // Com a purga concluída, o certificado podia correr e não correu: conta.
+    await marcar("purga", "concluida");
+    const semEntrega = await contar();
+    assert.equal((semEntrega.certificado ?? 0) - (comDisputa.certificado ?? 0), 1);
+    // E uma falhada conta sempre.
+    await marcar("certificado", "falhada");
+    assert.equal((await contar()).certificado, semEntrega.certificado);
   });
 });

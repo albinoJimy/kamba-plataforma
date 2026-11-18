@@ -1,0 +1,49 @@
+# Testes de comportamento da regra do off-boarding — KAM-210.
+#
+# `promtool test rules`, corrido por `make obs-promtool`. Cada teste prende um
+# caso e o seu controlo: uma fase parada dispara depois do `for`, por fase, e
+# deixa de disparar quando a contagem volta a zero; o silencio nao dispara.
+
+rule_files:
+  - ../kamba-offboarding.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: "fase parada: dispara passados os 30 min, e resolve quando a volta a conta a zero"
+    input_series:
+      - series: 'offboarding_fases_paradas{job="onboarding_lote",instance="onboarding-lote:3014",fase="canal"}'
+        values: '0x10 1x60 0x30'
+      - series: 'offboarding_fases_paradas{job="onboarding_lote",instance="onboarding-lote:3014",fase="purga"}'
+        values: '0x100'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: offboarding_fase_parada
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: offboarding_fase_parada
+        exp_alerts:
+          - exp_labels:
+              severity: P2
+              componente: gov
+              fase: canal
+            exp_annotations:
+              resumo: Um encerramento de tenant esta parado numa fase do off-boarding.
+              qual_tenant: Le-se da platform.offboarding_run pelo lote; a metrica nao leva tenant (OBS-I).
+              runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/offboarding.md
+      - eval_time: 80m
+        alertname: offboarding_fase_parada
+        exp_alerts: []
+
+  - interval: 1m
+    name: "silencio: as sete fases a zero nao disparam"
+    input_series:
+      - series: 'offboarding_fases_paradas{job="onboarding_lote",instance="onboarding-lote:3014",fase="exportacao"}'
+        values: '0x60'
+      - series: 'offboarding_fases_paradas{job="onboarding_lote",instance="onboarding-lote:3014",fase="certificado"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: offboarding_fase_parada
+        exp_alerts: []

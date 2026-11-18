@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.47 |
+| Versão | 1.48 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -2066,7 +2066,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 217 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 218 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -2512,3 +2512,4 @@ Testes: unitários, integração contra a base, privacidade.
 | 1.45 | Novembro 2026 | KAM-213 (EPIC-01), acrescentado com número provisório dado pelo orquestrador do lote (integrado depois do KAM-211 e do KAM-212): a contagem viva do backlog na nota do `assert` passa a **213**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.46 | Novembro 2026 | KAM-214 (EPIC-03), acrescentado no próprio PR com o número dado pela coordenação e confirmado na integração, depois do KAM-212 e do KAM-213: a contagem viva do backlog na nota do `assert` passa a **214**. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |
 | 1.47 | Novembro 2026 | KAM-205 (`kid` estável nos *tokens* de cliente e re-cifra dos existentes): os **cinco** critérios e as **três** caixas de DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; o critério 1 com a leitura que o fundador decidiu a 2026-11-18 — o `kid` estável vale para as versões que o trazem no valor (`kid: true`), e as `kid: false` ficam com o rótulo posicional. Entregues: o `kid` lido do valor da KEK (`<kid>:<base64>`) no `EnvSecretProvider` e no `DopplerSecretProvider`, e no gémeo Python; a recusa de cifrar com um rótulo posicional ou com um `kid` que não bate com o valor; a regra do `KID_LEGADO` para os criptogramas antigos; e o *job* `recifrarTokensGuardados`, sem esquema. No KAM-072, a letra do critério 4 é reescrita por decisão do fundador de 2026-11-18 — rodar a KEK re-cifra os criptogramas sem mudar os *tokens*, porque a DEK é derivada por HKDF e não guardada —, a decisão fica registada no bloco, e a caixa 4 passa de **não satisfeito** a **satisfeito** com a evidência do KAM-205: o DoD 1 do KAM-072 conta agora 3 de 9 satisfeitos, 4 parciais e 2 não satisfeitos. RB-K07 1.2. Sem alteração aos outros tickets nem às contagens do *backlog*. | Equipa KAMBÁ |
+| 1.48 | Novembro 2026 | KAM-218 (EPIC-09), acrescentado no PR do KAM-210 com o número provisório dado pela coordenação do lote (escrito como 1.47 e renumerado na integração, depois do KAM-205): a contagem viva do backlog na nota do `assert` passa a **215**, e acerta-se na integração. Nenhuma caixa deste epic muda. | Equipa KAMBÁ |

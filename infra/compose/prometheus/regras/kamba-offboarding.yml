@@ -1,0 +1,45 @@
+# Regra de alerta do off-boarding — KAM-210, criterio 1.
+#
+# Validado por `make obs-promtool`: `promtool check rules` (sintaxe) e
+# `promtool test rules` (comportamento, em `testes/kamba_offboarding_test.yml`).
+#
+# **Ficheiro proprio**, pela razao do `kamba-trust.yml`: a prosa do `kamba.yml`
+# conta as suas regras, e o `docs/observabilidade.md` cita a mesma contagem.
+#
+# ## A serie
+#
+# `offboarding_fases_paradas{fase}`, do `packages/core-ts/src/offboarding/metricas.ts`,
+# servida pelo processo de lote do onboarding (`onboarding_lote` no
+# `prometheus.yml`). E um *gauge* recalculado a cada volta do ciclo, a partir da
+# `platform.offboarding_run`: conta, por fase, as `falhada` e as `pendente` ou
+# `em_curso` com o prazo passado ha mais do que a folga (24 h, *proposta*). Cobre
+# as **sete** fases, tambem as tres do lado dos dados, que corre outro processo.
+# A `suspensa_disputa` nao conta: espera uma disputa, e e o que deve fazer.
+#
+# **Sem tenant** (`OBS-I`): qual encerramento esta parado le-se da
+# `platform.offboarding_run`, pelo lote. O runbook diz como.
+#
+# ## O numero e *proposta*
+#
+# Os 30 min do `for` cobrem duas voltas do ciclo (15 min, *proposta*) e evitam
+# disparar sobre uma fase que a volta seguinte ia concluir. Nao ha Piloto para os
+# calibrar.
+
+groups:
+  - name: kamba-offboarding
+    interval: 30s
+    rules:
+      # Um encerramento parado numa fase. P2: o titular espera a exportacao, a
+      # revogacao ou o certificado, e os prazos D7 e D30 sao os que o aviso lhe
+      # prometeu. O mais comum hoje e uma porta sem adaptador (a Meta, a entrega
+      # do certificado), e o runbook diz como o distinguir.
+      - alert: offboarding_fase_parada
+        expr: 'sum by (fase) (offboarding_fases_paradas) > 0'
+        for: 30m
+        labels:
+          severity: P2
+          componente: gov
+        annotations:
+          resumo: Um encerramento de tenant esta parado numa fase do off-boarding.
+          qual_tenant: Le-se da platform.offboarding_run pelo lote; a metrica nao leva tenant (OBS-I).
+          runbook_url: https://github.com/albinoJimy/kamba-plataforma/blob/main/docs/runbooks/offboarding.md
