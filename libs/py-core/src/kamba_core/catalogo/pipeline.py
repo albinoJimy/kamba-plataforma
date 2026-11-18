@@ -74,7 +74,7 @@ from .extraccao import (
 )
 from .imagem import Descodificador, ImagemIlegivel, analisar
 from .normalizacao import ler_preco, normalizar
-from .repositorio import Ingestao, Repositorio, novo_id
+from .repositorio import Ingestao, LojaLimitada, Repositorio, novo_id
 from .screening import PortaDeScreening, ResultadoDoScreen, categoria_restrita
 
 #: A classe da chave no STO (`t/{tenant}/{classe}/…`).
@@ -510,16 +510,21 @@ class ServicoDeIngestao:
         confirmados = {
             nome: c if nome == SUGESTAO else confirmar_campo(c) for nome, c in linha.campos.items()
         }
-        publicada = self._mudar(
-            linha,
-            replace(
+        try:
+            publicada = self._mudar(
                 linha,
-                estado=estados.PUBLICADA,
-                campos=confirmados,
-                confirmado_at=confirmacao.em,
-                confirmado_por=confirmacao.actor,
-            ),
-        )
+                replace(
+                    linha,
+                    estado=estados.PUBLICADA,
+                    campos=confirmados,
+                    confirmado_at=confirmacao.em,
+                    confirmado_por=confirmacao.actor,
+                ),
+            )
+        except LojaLimitada as erro:
+            # KAM-200: a limitacao de T&S em vigor recusa a publicacao na base. E
+            # a mesma recusa de dominio das outras: a linha fica em `rascunho`.
+            raise ConfirmacaoRecusada("a loja tem uma limitacao de T&S em vigor") from erro
         self._sincronizar_registo(publicada.ingestao, confirmacao)
         return publicada
 

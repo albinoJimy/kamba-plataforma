@@ -158,8 +158,11 @@ caso.
 ([`../services/onboarding-web/src/lote.ts`](../services/onboarding-web/src/lote.ts)). Corre o ciclo
 da fila a cada minuto, como `kamba_batch`, e serve as quatro métricas em `/metrics` (porta 3014),
 que o Prometheus raspa. **Arranca em `prod`**; sem a `KAMBA_LOTE_DB_URL` (o `kamba_batch`) ou a
-`KAMBA_LOTE_APP_DB_URL` (o `kamba_app`, só para a decisão humana de screening), ou com uma delas de
-outro papel, sai com código 1 antes de abrir a porta.
+`KAMBA_LOTE_APP_DB_URL` (o `kamba_app`, para a decisão humana de screening e o consumidor de T&S),
+ou com uma delas de outro papel, sai com código 1 antes de abrir a porta. Desde o KAM-200 exige
+também a `KAMBA_QUEUE_URL`, e corre o T&S: o consumidor dos sete tipos de evento, as varreduras de
+hora a hora (cada corrida no `audit_log`), as decisões dos casos `trust` e `recurso`, e as três
+métricas `ts_*` no mesmo `/metrics`.
 
 - **Uma volta**: drena a triagem até à quota do dia de cada origem, dá o alerta dos 80% uma vez
   por caso, reaplica os efeitos marcados e recalcula as métricas. Um passo que falha não pára os

@@ -465,7 +465,12 @@ export async function publishProduct(
   // predicado do `UPDATE` continua a ser quem a impõe.
   if (antes.categoriaRestrita !== null) return erro("VALIDATION_ERROR");
 
-  const linhas = await r.repo.noTenant(SQL_PUBLICAR, [ref.sku]);
+  // KAM-200: a primeira publicação de uma loja com `limitacao` de T&S em vigor é
+  // recusada pela base (`23514`, revisão `0067`), como a inserção de um produto
+  // novo — e chega ao agente como a mesma recusa de domínio.
+  const publicada = await comRecusaDeDominio(() => r.repo.noTenant(SQL_PUBLICAR, [ref.sku]));
+  if (publicada.tipo === "erro") return erro(publicada.erro);
+  const linhas = publicada.valor;
   if (linhas.length === 0) {
     // Zero linhas com a oferta a existir e sem categoria restrita: sobra o
     // `estado <> 'arquivado'` do predicado. Arquivar é terminal.

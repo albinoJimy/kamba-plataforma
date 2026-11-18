@@ -340,6 +340,51 @@ metricas:
           - repetir
           - recusado
 
+  # ------------------------------------------ Trust & Safety (KAM-200)
+  #
+  # Servidas pelo processo de lote do onboarding (`onboarding-lote`, `job`
+  # `onboarding_lote`), onde correm o consumidor de T&S, as varreduras e as
+  # decisoes da fila. Contam o que e **novo** (a reentrega nao conta), e o
+  # `ServicoDeTrust` e o unico sitio onde se contam. Nascem a zero em todo o
+  # dominio. Nenhuma etiqueta leva tenant, sinal nem caso (`OBS-I`): qual loja
+  # le-se da `platform.ts_sanction`. As regras estao no `kamba-trust.yml`.
+  - nome: ts_sancoes_total
+    tipo: counter
+    fonte: packages/core-ts/src/trust/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Passos novos da escada de sancoes de Trust & Safety, por passo e origem.
+    etiquetas:
+      - nome: passo
+        dominio:
+          - aviso
+          - limitacao
+          - suspensao
+          - encerramento
+      - nome: origem
+        dominio:
+          - automatica
+          - humana
+
+  - nome: ts_sinais_total
+    tipo: counter
+    fonte: packages/core-ts/src/trust/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Sinais de Trust & Safety novos, por tipo.
+    etiquetas:
+      - nome: tipo
+        dominio:
+          - auto_compra
+          - burla_provavel
+          - confirmacao_suspeita
+          - foto_repetida
+          - preco_anomalo
+          - queixa_recorrente
+          - nao_entrega
+          - mudanca_de_conta
+          - violacao_de_categoria
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A

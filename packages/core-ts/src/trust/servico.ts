@@ -30,6 +30,7 @@ import {
   type SinalGravado,
   type SinalNovo,
 } from "./contrato.ts";
+import type { ContadoresDoTrust } from "./metricas.ts";
 import {
   PASSOS,
   POLITICA_DE_RISCO,
@@ -53,6 +54,12 @@ export interface DependenciasDoTrust extends ConfiguracaoDoTrust {
   readonly tenants?: EstadoDosTenants;
   readonly aviso?: AvisoDeSancao;
   readonly fila?: FilaDoTrust;
+  /**
+   * Conta os sinais e os passos **novos** (KAM-200, critério 3). Aqui, e não em
+   * quem chama: é o único ponto por onde passam o consumidor, as varreduras e as
+   * decisões da fila, e só aqui se sabe se a linha já existia.
+   */
+  readonly contadores?: ContadoresDoTrust;
 }
 
 /** O que uma decisão da fila entrega a T&S. É a forma do gancho do `ServicoDeRevisao`. */
@@ -117,6 +124,7 @@ export class ServicoDeTrust implements EfeitosDeTrust {
       if (!(CHAVES_DO_DETALHE as readonly string[]).includes(chave)) throw new TrustRecusadoError("detalhe_invalido");
     }
     const g = await this.#d.repositorio.gravarSinal(novo);
+    if (!g.repetido) this.#d.contadores?.sinal(novo.tipo);
     return { ...g, sancoes: await this.avaliarEscada(novo.tenantId, g.sinal) };
   }
 
@@ -148,6 +156,7 @@ export class ServicoDeTrust implements EfeitosDeTrust {
         recursoEstado: null,
       });
       if (g.repetido) break;
+      this.#d.contadores?.sancao(passo, "automatica");
       novas.push(g.sancao);
     }
     return novas;
@@ -267,8 +276,9 @@ export class ServicoDeTrust implements EfeitosDeTrust {
         recursoDe: null,
         recursoEstado: null,
       });
+      if (!g.repetido) this.#d.contadores?.sancao(proposta.passo, "humana");
       if (proposta.passo === "suspensao" || proposta.passo === "encerramento") {
-        await this.#exigirTenants().transitar(caso.tenantId, SUSPENDIVEIS, "suspenso");
+        await this.#exigirTenants().transitar(caso.tenantId, SUSPENDIVEIS, "suspenso", d.revisorId);
       }
       await this.#avisar(caso.tenantId, g.sancao.motivoPublico);
       return;
@@ -307,9 +317,9 @@ export class ServicoDeTrust implements EfeitosDeTrust {
     if (grave && provido) {
       // Levanta a suspensão só se mais nada grave ficou em vigor.
       const vigor = emVigor(await this.#d.repositorio.sancoesDoTenant(sancao.tenantId)).passo;
-      if (ordem(vigor) < ordem("suspensao")) await this.#exigirTenants().transitar(sancao.tenantId, ["suspenso"], "ativo");
+      if (ordem(vigor) < ordem("suspensao")) await this.#exigirTenants().transitar(sancao.tenantId, ["suspenso"], "ativo", d.revisorId);
     } else if (sancao.passo === "encerramento" && !provido) {
-      await this.#exigirTenants().transitar(sancao.tenantId, ["suspenso"], "encerrado");
+      await this.#exigirTenants().transitar(sancao.tenantId, ["suspenso"], "encerrado", d.revisorId);
     }
     await this.#avisar(sancao.tenantId, motivo);
   }
@@ -322,12 +332,20 @@ export class ServicoDeTrust implements EfeitosDeTrust {
   async fecharEncerramentos(porFechar: (ate: Date) => Promise<readonly SancaoGravada[]>): Promise<number> {
     const ate = new Date(this.#agora().getTime() - this.#l.diasDoRecurso * 86_400_000);
     let n = 0;
+    let primeiraFalha: unknown;
     for (const s of await porFechar(ate)) {
       if (s.passo !== "encerramento" || s.recursoDe !== null) continue;
-      const vivas = emVigor(await this.#d.repositorio.sancoesDoTenant(s.tenantId)).sancoes;
-      if (!vivas.some((x) => x.id === s.id)) continue;
-      if (await this.#exigirTenants().transitar(s.tenantId, ["suspenso"], "encerrado")) n++;
+      // Uma falha num tenant não pára os outros (KAM-200): sobe no fim, para a
+      // corrida se dizer falhada, depois de os restantes terem sido tentados.
+      try {
+        const vivas = emVigor(await this.#d.repositorio.sancoesDoTenant(s.tenantId)).sancoes;
+        if (!vivas.some((x) => x.id === s.id)) continue;
+        if (await this.#exigirTenants().transitar(s.tenantId, ["suspenso"], "encerrado", autorDoSistema(this.#p))) n++;
+      } catch (erro) {
+        primeiraFalha ??= erro;
+      }
     }
+    if (primeiraFalha !== undefined) throw primeiraFalha;
     return n;
   }
 

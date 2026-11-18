@@ -1,0 +1,49 @@
+# registry/trust.yaml — o consumidor de Trust & Safety (KAM-200)
+#
+# A QUARTA FORMA dos ficheiros de `registry/` (a do `registry/idx.yaml`,
+# KAM-194, e do `registry/chr.yaml`, KAM-201), distinguida pela chave de topo
+# `consumidor`: um consumidor de eventos que NAO e vertical. Nao tem persona,
+# grafo, tools nem entitlements.
+#
+# O efeito e o `efeitoDeTrust` (`packages/core-ts/src/trust/efeito.ts`), e
+# corre no processo de lote do onboarding (`services/onboarding-web/src/lote.ts`)
+# sobre ligacoes do `kamba_app`: a marca de consumo e os sinais confirmam juntos,
+# sob a RLS do tenant do envelope. Os sete tipos sao os do criterio 1 do
+# KAM-097 (`TIPOS_CONSUMIDOS`); o `order.delivered` e o `payment.confirmed` nao
+# dao sinal, consomem-se para que a independencia do KAM-096 se leia.
+#
+# O nome `trust` e o `events_consumed.consumer` que o `SQL_INDEPENDENCIA` le.
+#
+# ---------------------------------------------------------------------------
+# ESTE FICHEIRO E A REVISAO DE DADOS `*_subscricoes_de_trust.py` DIZEM O MESMO,
+# e um ensaio confronta-os (`services/agr/tests/test_subscricoes_0052.py`). As
+# linhas de `platform.evt_subscricoes` so as escreve o dono das tabelas: em
+# producao nao ha escritor, e por isso vem por uma revisao de dados.
+#
+# A `versao` e a 2 em todos: o *payload* que o efeito le e o mesmo na v1 e na
+# v2 dos sete contratos, e uma subscricao a v2 recebe a v1 sem conversao.
+#
+# O `exige_ordem` nao se escreve: deriva-se do prefixo `payment.`, como no AGR.
+# A subscricao declara-o nos dois de pagamento; o consumidor corre com a ordem
+# exigida nos sete (`consumidorDoTrust`), o que so a torna mais estrita.
+#
+# ESTILO DE BLOCO, E NAO DE FLUXO: o `tools/kamba_yaml.py` nao le mapas em
+# estilo de fluxo.
+
+consumidor: trust
+version: 1.0.0
+subscriptions:
+  - tipo: order.created
+    versao: 2
+  - tipo: order.paid
+    versao: 2
+  - tipo: order.delivered
+    versao: 2
+  - tipo: payment.manual_confirmed
+    versao: 2
+  - tipo: payment.confirmed
+    versao: 2
+  - tipo: query.handoff
+    versao: 2
+  - tipo: screening.violation_detected
+    versao: 2
