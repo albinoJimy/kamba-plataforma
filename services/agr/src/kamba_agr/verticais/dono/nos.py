@@ -23,13 +23,14 @@ nao estao activos. O que responde e a `get_store_info`, pelo `tools_info`
 reutilizado. **Nenhum texto deste ficheiro leva digitos** (o `_resposta_estatica`
 nao passa pelo validador), e ha ensaio que o mede.
 
-## O que este grafo nao ve, e nao e dele
+## O botao chega; o texto ainda nao
 
-Hoje nenhum texto nem `id` de botao chega ao AGR (o `estado_inicial` nasce com
-`messages: []`, decisao do KAM-186). As regras do `classify` leem a janela
-`messages` como todas as verticais; no processo, o turno do dono cai em
-`outro` pela mesma razao que o de um cliente. O portao das accoes sensiveis
-(`kamba_agr/dono/accoes.py`) entrega-se e ensaia-se sem caminho de producao.
+O `id` de um botao chega ao estado pelo `agent_invocation.botao` (KAM-211), e o
+`confirm` — o quinto no proprio — chama o portao das accoes sensiveis
+(`kamba_agr/dono/accoes.py`) com ele. **O texto continua a nao chegar** (o
+`estado_inicial` nasce com `messages: []`, decisao do KAM-186): as regras do
+`classify` leem a janela `messages` como todas as verticais, e no processo um
+turno de texto do dono cai em `outro` pela mesma razao que o de um cliente.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ import unicodedata
 from collections.abc import Mapping
 from typing import Any, Final
 
+from ...dono import accoes
 from ...tls.erros import LIMIT_EXCEEDED, UPSTREAM_DOWN, UPSTREAM_TIMEOUT
 from ..vendedor.nos import (
     BOTAO_HUMANO,
@@ -114,9 +116,15 @@ def intencao_por_regras(texto: str) -> str | None:
 
 
 def _botao_do_turno(estado: Mapping[str, Any]) -> str:
+    """O `id` do botao deste turno: o `botao` do estado (KAM-211), e so num turno
+    `interactive`. **Nunca o texto da janela**: a janela acumula as mensagens de
+    turnos anteriores pelo *checkpoint*, e um `confirm:{uuid}` escrito antes
+    valia como toque num `interactive` sem `botao` — o «texto que imita um
+    botao» do criterio (achado 2 da revisao adversarial do KAM-211)."""
     if estado.get("input_kind") != "interactive":
         return ""
-    return _texto_do_cliente(estado).strip()
+    botao = estado.get("botao")
+    return botao if isinstance(botao, str) else ""
 
 
 # ---------------------------------------------------------------- o classify
@@ -132,7 +140,13 @@ def classify(deps: Dependencias):
     """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        if _botao_do_turno(estado) == BOTAO_HUMANO:
+        botao = _botao_do_turno(estado)
+        # **So a forma de um botao `confirm:{uuid}` da a intencao `confirmar`**,
+        # e so num turno `interactive`: um texto com a mesma forma nao passa
+        # pelo `_botao_do_turno` (KAM-211, «texto que imita um botao»).
+        if accoes.accao_do_botao(botao) is not None:
+            return {"intent": "confirmar"}
+        if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
         texto = _texto_do_cliente(estado)
         intencao = intencao_por_regras(texto)
@@ -146,6 +160,37 @@ def classify(deps: Dependencias):
         if resolvida == "humano":
             delta["handoff_motivo"] = MOTIVO_PEDIDO
         return delta
+
+    return no
+
+
+# ---------------------------------------------------------------- o confirm
+
+
+def confirm(deps: Dependencias):
+    """Transicoes 33 -> 34 (KAM-211): o botao `confirm:{action_id}` ate ao portao.
+
+    Chama o `confirmar` pela porta `accoes_do_dono`, com o tenant e o contacto
+    **do estado** — os da invocacao — e o `id` do botao. O portao faz o resto: a
+    forma, o papel, o bloqueio de vinte e quatro horas depois de uma troca, o
+    mesmo contacto, a validade e o *compare-and-set* que faz o duplo toque dar
+    uma confirmacao. Este no **nao decide nada** sobre a accao.
+
+    **A resposta nao distingue o que um estranho nao deve saber.** `desconhecida`,
+    `outro_contacto`, `nao_e_dono` e `nao_e_botao` dizem a mesma frase: dizer
+    «esse botao e de outro contacto» era um oraculo sobre as accoes de outros.
+
+    Sem porta ligada, nada se confirma e o dono e avisado — o lado seguro.
+    """
+
+    async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        porta = deps.accoes_do_dono
+        if porta is None:
+            return _resposta_estatica(MSG_CONFIRMACAO_INDISPONIVEL)
+        desfecho = await porta.confirmar(
+            estado["tenant_id"], estado["contact_id"], _botao_do_turno(estado)
+        )
+        return _resposta_estatica(FRASE_DA_CONFIRMACAO.get(desfecho, MSG_PEDIDO_NAO_ENCONTRADO))
 
     return no
 
@@ -231,6 +276,34 @@ MSG_NAO_ENTENDI: Final = (
 )
 MSG_NAO_CONSEGUI: Final = "Nao consegui tratar esse pedido por aqui."
 
+#: As frases do `confirm` (KAM-211). Sem digitos, pela razao dos outros textos.
+#: **A confirmacao regista-se; a accao em si e do modulo** (KAM-119, KAM-121,
+#: KAM-123), e por isso a frase nao diz que a accao foi feita.
+MSG_CONFIRMADA: Final = "Confirmacao registada."
+MSG_JA_CONFIRMADA: Final = "Este pedido ja estava confirmado."
+MSG_EXPIRADA: Final = (
+    "Este botao ja nao vale. Peca outra vez e confirme no botao novo."
+)
+MSG_BLOQUEADA_PELA_TROCA: Final = (
+    "Por seguranca, depois de mudar o telefone as accoes sensiveis ficam "
+    "bloqueadas durante um dia."
+)
+MSG_PEDIDO_NAO_ENCONTRADO: Final = (
+    "Nao encontrei esse pedido. Peca outra vez e confirme no botao novo."
+)
+MSG_CONFIRMACAO_INDISPONIVEL: Final = (
+    "Nao consigo confirmar pedidos neste momento. Tente outra vez daqui a pouco."
+)
+
+#: O desfecho do `confirmar` -> a frase. Os que um estranho nao deve distinguir
+#: ficam de fora e caem no `MSG_PEDIDO_NAO_ENCONTRADO` — ver o `confirm`.
+FRASE_DA_CONFIRMACAO: Final = {
+    accoes.CONFIRMADA: MSG_CONFIRMADA,
+    accoes.JA_CONFIRMADA: MSG_JA_CONFIRMADA,
+    accoes.EXPIRADA: MSG_EXPIRADA,
+    accoes.BLOQUEADA_PELA_TROCA: MSG_BLOQUEADA_PELA_TROCA,
+}
+
 #: Os avisos que o `tools_info` pode deixar (o `_aviso_do_erro` do Vendedor).
 FRASE_DO_AVISO: Final = {
     UPSTREAM_TIMEOUT: "O sistema demorou a responder. Tente outra vez daqui a pouco.",
@@ -239,7 +312,7 @@ FRASE_DO_AVISO: Final = {
 }
 
 
-#: Os dezasseis nos pelo nome. E a tabela que o `build_graph` percorre.
+#: Os dezassete nos pelo nome. E a tabela que o `build_graph` percorre.
 NOS_DO_GRAFO: Final = {
     # Reutilizados sem uma linha nova (ADR-012, §21.4).
     "ingest": ingest,
@@ -256,6 +329,7 @@ NOS_DO_GRAFO: Final = {
     "draft_wait": draft_wait,
     # Proprios desta persona.
     "classify": classify,
+    "confirm": confirm,
     "compose": compose,
     "safe_reply": safe_reply,
     "ask_repeat": ask_repeat,

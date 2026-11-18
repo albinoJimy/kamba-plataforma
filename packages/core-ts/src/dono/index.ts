@@ -11,3 +11,4 @@ export * from "./persona.ts";
 export * from "./proactivas.ts";
 export * from "./provisionamento.ts";
 export * from "./troca.ts";
+export * from "./sql.ts";

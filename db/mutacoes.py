@@ -5397,8 +5397,14 @@ MUTACOES = [
      '        if foto.values.get("turn_id") == invocacao.turn_id:',
      AGR_UNIT),
     ('grafos: a thread resolve sempre o Vendedor', AG_GRAFOS,
-     '            chave_do_registo(valores.get("persona"), valores.get("vertical"))',
-     '            "vendedor"',
+     '        return self._grafo(chave_do_registo(persona, valores.get("vertical")))',
+     '        return self._grafo("vendedor")',
+     AGR_UNIT),
+    # KAM-211, criterio «Retoma»: a persona do *checkpoint* volta a decidir a
+    # retoma, e o dono antigo retoma no grafo do dono depois de uma troca.
+    ('grafos: a retoma volta a ler a persona do checkpoint', AG_GRAFOS,
+     '        persona = PERSONA_DONO if papel == PERSONA_DONO else PERSONA_CLIENTE',
+     '        persona = valores.get("persona")',
      AGR_UNIT),
     # No turno: a recusa da vertical volta a ser uma excepcao, que a rota
     # traduz em 500 e seis tentativas.

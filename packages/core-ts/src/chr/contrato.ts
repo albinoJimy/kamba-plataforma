@@ -211,6 +211,13 @@ export interface AgentInvocation {
    * sempre.
    */
   readonly persona: Persona;
+  /**
+   * O `reply.id` de uma resposta interactiva (KAM-211, critério «Botão»): o
+   * `confirm:{action_id}` de uma acção sensível do dono, ou outro `id` que a
+   * plataforma emitiu. **Só** com `type: "interactive"`, e ausente em tudo o
+   * resto. Campo aditivo e opcional da v1, como a `persona`.
+   */
+  readonly botao?: string;
 }
 
 /** `thread_id` de um par (tenant, contacto). Dicionário §3.1. */
