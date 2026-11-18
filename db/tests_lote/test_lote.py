@@ -53,9 +53,10 @@ FICHEIROS = (
     # KAM-200: o T&S corre no processo de lote (o consumidor, as varreduras e as
     # decisoes da fila), e so a base prova a porta, o registo e os triggers.
     "tests_bd/trust.bd.test.ts",
-    # KAM-203: o recalculo da confianca a correr no processo de lote. **Por
-    # ultimo**: a volta diaria recalcula todos os tenants da base, e os dos
-    # ficheiros de cima ganhariam um nivel 0 a meio dos ensaios deles.
+    # KAM-203: o recalculo da confianca a correr no processo de lote. O Node
+    # corre os ficheiros pela ordem do nome, nao pela desta lista: este corre
+    # depois do capacidade e antes do lote, e o `after` dele apaga os casos de
+    # recurso que abriu, que o `limpar` do lote.bd nao sabe apagar.
     "tests_bd/confianca.bd.test.ts",
 )
 

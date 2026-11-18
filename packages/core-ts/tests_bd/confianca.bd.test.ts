@@ -234,6 +234,14 @@ async function candidato(tenant: string): Promise<boolean> {
 }
 
 /**
+ * Os casos `recurso` que este ficheiro abriu. O Node corre os ficheiros pela
+ * ordem do nome, e este corre antes do `lote.bd.test.ts`: o `limpar` dele apaga
+ * a `review_case` inteira, e a `ts_sanction` que referencia um destes casos
+ * recusa-o pela `ts_sanction_caso_fk`. O `after` apaga-os, e às sanções deles.
+ */
+const casosDeRecurso: string[] = [];
+
+/**
  * O recurso da sanção em vigor no passo dado, provido por um revisor: o caso
  * `recurso` e a linha nova da `ts_sanction`, pelo repositório do lote — a forma
  * do desfecho do `ServicoDeTrust`, sem a fila.
@@ -254,6 +262,7 @@ async function recursoProvido(tenant: string, passo: string): Promise<void> {
       [tenant, `sancao:${sancao}`],
     )
   ).rows[0]!.id;
+  casosDeRecurso.push(casoId);
   await new RepositorioDeTrustSql(lote, "lote").gravarSancao({
     tenantId: tenant,
     chave: `recurso:${sancao}`,
@@ -278,8 +287,23 @@ before(async () => {
 });
 
 after(async () => {
-  await Promise.allSettled([lote?.end(), app?.end()]);
-  await admin?.end();
+  try {
+    if (casosDeRecurso.length > 0) {
+      // A `ts_sanction` é *append-only* (o trigger recusa também ao dono): o
+      // administrador desliga-o só para limpar a base de ensaio, como o `limpar`
+      // do `lote.bd.test.ts` faz à `review_decision_log`.
+      await admin.query("ALTER TABLE platform.ts_sanction DISABLE TRIGGER USER");
+      try {
+        await admin.query("DELETE FROM platform.ts_sanction WHERE case_id = ANY($1::uuid[])", [casosDeRecurso]);
+      } finally {
+        await admin.query("ALTER TABLE platform.ts_sanction ENABLE TRIGGER USER");
+      }
+      await admin.query("DELETE FROM platform.review_case WHERE id = ANY($1::uuid[])", [casosDeRecurso]);
+    }
+  } finally {
+    await Promise.allSettled([lote?.end(), app?.end()]);
+    await admin?.end();
+  }
 });
 
 describe("a confiança gradual a correr contra a base", () => {
