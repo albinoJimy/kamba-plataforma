@@ -140,8 +140,10 @@ class Cursor:
             self._linhas = [(p[2], p[5], p[6], p[7] + (p[8] if soma else 0))
                             for p in b.purge_log if p[0] in execucoes and p[3] == t]
         elif "array_position(ARRAY['exportacao', 'purga', 'certificado']" in sql:
-            # A listagem do ciclo dos dados: o que o ensaio pos, com o limite do texto.
-            self._linhas = list(b.por_correr)[: parametros[-1]]
+            # A listagem do ciclo dos dados: o que o ensaio pos. O SQL mede-se contra
+            # a base em `db/tests/test_offboarding.py`; aqui so se exige que nao limite.
+            assert "LIMIT" not in sql
+            self._linhas = list(b.por_correr)
         elif "INSERT INTO platform.purge_log" in sql:
             b.purge_log.append(tuple(parametros))
         elif "FROM platform.contacts" in sql:
@@ -617,6 +619,54 @@ class TestPurgaDoSto(unittest.TestCase):
         self.assertEqual([(p[5], p[7], p[8]) for p in linhas], [("ok", 0, 3)])
         self.assertEqual(r["apagadas"][UNIDADE_DO_STO], 3)
         self.assertEqual(base.fases[A]["purga"].estado, "concluida")
+
+    def test_mais_objectos_do_que_o_limite_por_omissao_saem_todos(self) -> None:
+        """Achado 1: com o lote a 500, um tenant de 501 objectos nunca se purgava."""
+        from kamba_core.storage.port import Ctx
+
+        sto, _ = _sto_com_objectos(*((A, bytes([i % 256])) for i in range(1001)))
+        base = BaseFalsa({A: ate_a_purga()})
+        purgar(lambda: Ligacao(base), A, D0 + timedelta(days=31), armazenamento=sto)
+        self.assertEqual(sto.list(Ctx(A), f"t/{A}/"), [])
+        self.assertEqual(base.fases[A]["purga"].estado, "concluida")
+
+    def test_acima_do_lote_a_unidade_falha_e_nada_sai(self) -> None:
+        from kamba_core.offboarding import purga as modulo
+        from kamba_core.offboarding.purga import UNIDADE_DO_STO
+        from kamba_core.storage.port import Ctx
+
+        sto, _ = _sto_com_objectos((A, b"1"), (A, b"2"), (A, b"3"))
+        base = BaseFalsa({A: ate_a_purga()})
+        antes = modulo.LOTE_DO_STO
+        modulo.LOTE_DO_STO = 2
+        try:
+            purgar(lambda: Ligacao(base), A, D0 + timedelta(days=31), armazenamento=sto)
+        finally:
+            modulo.LOTE_DO_STO = antes
+        self.assertEqual(len(sto.list(Ctx(A), f"t/{A}/")), 3)
+        self.assertEqual([(p[5], p[8]) for p in base.purge_log if p[2] == UNIDADE_DO_STO], [("falhou", 0)])
+        self.assertEqual(base.fases[A]["purga"].estado, "falhada")
+
+    def test_o_que_saiu_antes_de_uma_falha_fica_no_purge_log(self) -> None:
+        """Achado 4: a linha `falhou` nao pode contar objectos, e os ja apagados sumiam."""
+        from kamba_core.offboarding.purga import UNIDADE_DO_STO
+
+        sto, _ = _sto_com_objectos((A, b"1"), (A, b"2"), (A, b"3"))
+        apagar = sto.delete
+        feitos = []
+
+        def delete(ctx, ref):
+            if len(feitos) == 2:
+                raise RuntimeError("o STO caiu a meio")
+            apagar(ctx, ref)
+            feitos.append(ref)
+
+        sto.delete = delete  # type: ignore[method-assign]
+        base = BaseFalsa({A: ate_a_purga()})
+        purgar(lambda: Ligacao(base), A, D0 + timedelta(days=31), armazenamento=sto)
+        self.assertEqual([(p[5], p[8]) for p in base.purge_log if p[2] == UNIDADE_DO_STO],
+                         [("ok", 2), ("falhou", 0)])
+        self.assertEqual(base.fases[A]["purga"].estado, "falhada")
 
     def test_um_hold_aplicado_antes_do_sto_retem_os_objectos(self) -> None:
         from kamba_core.offboarding.purga import UNIDADE_DO_STO

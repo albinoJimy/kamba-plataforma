@@ -16,8 +16,8 @@
  *   revogacao   a partir do D7, com a exportação e o canal concluídos
  *
  * A `exportacao`, a `purga` e o `certificado` são do lado dos dados
- * (`libs/py-core/src/kamba_core/offboarding/`), que corre no processo Python do
- * off-boarding (`python -m kamba_core.offboarding`). **As métricas são das sete**:
+ * (`libs/py-core/src/kamba_core/offboarding/`), que as corre pelo `correr_volta`
+ * — e esse ainda não tem processo que o chame (credor KAM-218). **As métricas são das sete**:
  * a contagem lê a tabela inteira, e o alerta de uma fase parada vê-a onde ela
  * estiver, seja qual for o processo que a corre.
  *
@@ -54,9 +54,6 @@ import { FASES_DO_CICLO, type FaseDoCiclo, type MetricasDoOffboarding } from "./
 /** Uma volta a cada 15 minutos: o prazo mais curto que este ciclo mede é de um dia (*proposta*). */
 export const INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS = 900_000;
 
-/** Quantas chamadas de fase numa volta. O resto fica para a seguinte, pela ordem do D0. */
-export const LIMITE_POR_VOLTA = 100;
-
 /**
  * Quanto uma fase pode passar do prazo antes de contar como parada, em horas.
  * Cobre a volta deste ciclo e a do lado dos dados com folga larga. *Proposta*.
@@ -68,8 +65,11 @@ export const FOLGA_DA_FASE_HORAS = 24;
  *
  * A revogação só entra a partir do D7 (`$2` dias depois do D0) e com a exportação
  * e o canal concluídos — as condições do `revogar`, que as volta a perguntar sob
- * trinco. Sem elas aqui, um tenant à espera do D7 entrava em todas as voltas e,
- * acima do limite, tapava os pedidos novos.
+ * trinco. **Sem `LIMIT`**: uma fase que falha em todas as voltas (uma porta sem
+ * adaptador) continua a ser listada, e com um limite os pedidos mais antigos
+ * tapavam os novos para sempre (achado 2 da revisão adversarial). Os
+ * encerramentos em curso são poucos por natureza, e uma porta sem adaptador falha
+ * sem rede.
  */
 export const SQL_FASES_POR_CORRER = `
   SELECT o.tenant_id::text AS tenant_id, o.fase
@@ -87,22 +87,45 @@ export const SQL_FASES_POR_CORRER = `
            AND EXISTS (SELECT 1 FROM platform.offboarding_run c
                         WHERE c.tenant_id = o.tenant_id AND c.fase = 'canal' AND c.estado = 'concluida')))
    ORDER BY v.prazo_at, o.tenant_id, array_position(ARRAY['canal', 'pendentes', 'revogacao'], o.fase)
-   LIMIT $3
 `;
 
 /**
- * A contagem das sete fases, por estado, e quantas estão **paradas**: `falhada`,
- * ou `pendente`/`em_curso` com o prazo passado há mais do que a folga. A
- * `suspensa_disputa` não está parada: espera uma disputa, e é o que deve fazer.
+ * A contagem das sete fases, por estado, e quantas estão **paradas**:
+ *
+ *   falhada                       sempre
+ *   em_curso                      com o prazo passado há mais do que a folga (a letra do critério)
+ *   pendente                      idem, **e só se as anteriores concluíram** — a fase podia
+ *                                 correr e não correu (uma porta sem adaptador falha antes
+ *                                 de a pôr `em_curso`, e sem esta linha o caso mais comum
+ *                                 não dava alerta). A fase que espera outra não conta: conta
+ *                                 a que está à frente dela, e não a cascata inteira.
+ *
+ * A `suspensa_disputa` não está parada: espera uma disputa, e é o que deve fazer — e
+ * o certificado atrás dela também não (achado 3 da revisão adversarial). As
+ * anteriores de cada fase são as do calendário: o canal e os pendentes depois da
+ * verificação, a exportação depois dos pendentes, a revogação depois da exportação
+ * e do canal, a purga depois da revogação, o certificado depois da purga.
  */
 export const SQL_CONTAGEM_DAS_FASES = `
-  SELECT fase, estado, count(*)::int AS n,
+  SELECT o.fase, o.estado, count(*)::int AS n,
          count(*) FILTER (
-           WHERE estado = 'falhada'
-              OR (estado IN ('pendente', 'em_curso') AND prazo_at + make_interval(hours => $2) < $1)
+           WHERE o.estado = 'falhada'
+              OR (o.estado = 'em_curso' AND o.prazo_at + make_interval(hours => $2) < $1)
+              OR (o.estado = 'pendente' AND o.prazo_at + make_interval(hours => $2) < $1
+                  AND NOT EXISTS (
+                    SELECT 1 FROM platform.offboarding_run a
+                     WHERE a.tenant_id = o.tenant_id AND a.estado <> 'concluida'
+                       AND a.fase = ANY (CASE o.fase
+                             WHEN 'canal' THEN ARRAY['verificacao']
+                             WHEN 'pendentes' THEN ARRAY['verificacao']
+                             WHEN 'exportacao' THEN ARRAY['pendentes']
+                             WHEN 'revogacao' THEN ARRAY['exportacao', 'canal']
+                             WHEN 'purga' THEN ARRAY['revogacao']
+                             WHEN 'certificado' THEN ARRAY['purga']
+                             ELSE ARRAY[]::text[] END)))
          )::int AS paradas
-    FROM platform.offboarding_run
-   GROUP BY fase, estado
+    FROM platform.offboarding_run o
+   GROUP BY o.fase, o.estado
 `;
 
 /**
@@ -161,7 +184,6 @@ export interface OpcoesDoCicloDoOffboarding {
   readonly portas: PortasDoCiclo;
   readonly metricas: MetricasDoOffboarding;
   readonly relogio?: () => Date;
-  readonly limite?: number;
 }
 
 export interface ResultadoDoCicloDoOffboarding {
@@ -211,11 +233,7 @@ export class CicloDoOffboarding {
     const agora = this.#agora();
     let porCorrer: { tenant: string; fase: FaseDoCiclo }[] = [];
     try {
-      const { rows } = await this.#o.lote.query(SQL_FASES_POR_CORRER, [
-        agora,
-        DIAS_DE_CANCELAMENTO,
-        this.#o.limite ?? LIMITE_POR_VOLTA,
-      ]);
+      const { rows } = await this.#o.lote.query(SQL_FASES_POR_CORRER, [agora, DIAS_DE_CANCELAMENTO]);
       porCorrer = rows.flatMap((r) => {
         const fase = String(r.fase);
         return eDoCiclo(fase) ? [{ tenant: String(r.tenant_id), fase }] : [];

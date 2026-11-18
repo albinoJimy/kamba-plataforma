@@ -62,7 +62,8 @@
  * agendado, como `kamba_batch` (`CicloDoOffboarding`). As métricas dele contam as
  * **sete** fases, lidas da base, e são as do alerta da fase parada
  * (`infra/compose/prometheus/regras/kamba-offboarding.yml`). As três do lado dos
- * dados correm pelo `kamba_core.offboarding.processo`.
+ * dados correm pelo `correr_volta` do `kamba_core.offboarding.processo`, que
+ * ainda não tem processo que o chame (credor KAM-218).
  *
  * **As portas para fora montam-se sem adaptador** (`CANAL_SEM_ADAPTADOR`,
  * `REVOGACAO_SEM_ADAPTADOR`): o adaptador da Meta existe (`CanalDaMetaPelaGraph`)

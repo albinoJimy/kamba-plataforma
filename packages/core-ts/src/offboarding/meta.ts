@@ -25,7 +25,13 @@
  * a subscrição de um WABA que já não a tem responde, na Graph, com um erro que
  * não está CONFIRMADO (os caminhos da Graph são *proposta*, ver o cabeçalho do
  * `graph.ts`); aqui trata-se como sucesso o **404** — o recurso não está lá —, e
- * qualquer outro erro sobe e a fase fica por concluir. Refazer a subscrição é
+ * qualquer outro erro sobe e a fase fica por concluir. **NÃO VERIFICADO** que a
+ * Graph real responda 404 a uma subscrição que já não existe: o `graph.ts` manda
+ * ramificar pelo código da Meta, e o código de «já não subscrito» não está lido.
+ * Errar para este lado faz a repetição falhar (a fase fica parada, com alerta), e
+ * nunca dá por desligado um canal com a subscrição viva — a menos que um 404 venha
+ * de outro sítio (um *proxy* mal encaminhado). Confirmar é do credor (KAM-218),
+ * antes de ligar o adaptador. Refazer a subscrição é
  * idempotente pela própria Graph (o simulador do KAM-024 modela-o assim).
  *
  * ## O *token* de cada WABA vem de fora

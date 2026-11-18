@@ -129,12 +129,13 @@ describe("o ciclo do off-boarding", () => {
       portas: { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
       metricas: m,
       relogio: () => AGORA,
-      limite: 7,
     }).correr();
     const lista = f.instrucoes.find((i) => i.sql === SQL_FASES_POR_CORRER);
-    assert.deepEqual(lista?.parametros, [AGORA, DIAS_DE_CANCELAMENTO, 7]);
+    assert.deepEqual(lista?.parametros, [AGORA, DIAS_DE_CANCELAMENTO]);
     const conta = f.instrucoes.find((i) => i.sql === SQL_CONTAGEM_DAS_FASES);
-    assert.deepEqual(conta?.parametros, [AGORA, FOLGA_DA_FASE_HORAS]);
+    assert.deepEqual(conta?.parametros, [AGORA, 24]);
+    // O número, e não a constante: a folga é *proposta*, e mudá-la é mudar o alerta.
+    assert.equal(FOLGA_DA_FASE_HORAS, 24);
   });
 
   it("a listagem só traz fases deste lado de um pedido vivo, e a revogação só no D7 com a exportação e o canal concluídos", () => {
@@ -146,9 +147,14 @@ describe("o ciclo do off-boarding", () => {
     assert.match(SQL_FASES_POR_CORRER, /make_interval\(days => \$2\) <= \$1/);
     assert.match(SQL_FASES_POR_CORRER, /x\.fase = 'exportacao' AND x\.estado = 'concluida'/);
     assert.match(SQL_FASES_POR_CORRER, /c\.fase = 'canal' AND c\.estado = 'concluida'/);
+    // Sem limite: uma fase que falha sempre não pode tapar os pedidos novos (achado 2).
+    assert.doesNotMatch(SQL_FASES_POR_CORRER, /LIMIT/);
     // E a suspensão por disputa não é paragem: espera uma decisão.
-    assert.match(SQL_CONTAGEM_DAS_FASES, /estado = 'falhada'/);
-    assert.match(SQL_CONTAGEM_DAS_FASES, /estado IN \('pendente', 'em_curso'\) AND prazo_at \+ make_interval\(hours => \$2\) < \$1/);
+    assert.match(SQL_CONTAGEM_DAS_FASES, /o\.estado = 'falhada'/);
+    assert.match(SQL_CONTAGEM_DAS_FASES, /o\.estado = 'em_curso' AND o\.prazo_at \+ make_interval\(hours => \$2\) < \$1/);
+    assert.match(SQL_CONTAGEM_DAS_FASES, /o\.estado = 'pendente' AND o\.prazo_at \+ make_interval\(hours => \$2\) < \$1\s+AND NOT EXISTS/);
+    assert.match(SQL_CONTAGEM_DAS_FASES, /WHEN 'certificado' THEN ARRAY\['purga'\]/);
+    assert.match(SQL_CONTAGEM_DAS_FASES, /WHEN 'revogacao' THEN ARRAY\['exportacao', 'canal'\]/);
     assert.doesNotMatch(SQL_CONTAGEM_DAS_FASES, /suspensa_disputa/);
   });
 

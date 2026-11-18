@@ -54,12 +54,11 @@ AbrirLigacao = Callable[[], Any]
 #: As fases deste lado, pela ordem do calendario.
 FASES_DOS_DADOS: Final = ("exportacao", "purga", "certificado")
 
-#: Quantas chamadas de fase numa volta. O resto fica para a seguinte, pela ordem do D0.
-LIMITE_POR_VOLTA: Final = 50
-
 #: As fases deste lado que ja podem correr, pela ordem do D0 e do calendario. So
 #: de um pedido vivo (`verificacao` concluida e sem `cancelado_at`): a fase volta a
-#: pergunta-lo sob trinco.
+#: pergunta-lo sob trinco. **Sem `LIMIT`**: uma fase que falha em todas as voltas
+#: (a entrega sem adaptador) continua listada, e com um limite os pedidos mais
+#: antigos tapavam os novos para sempre (achado 2 da revisao adversarial).
 SQL_FASES_POR_CORRER: Final = """
   SELECT o.tenant_id::text, o.fase
     FROM platform.offboarding_run o
@@ -79,7 +78,6 @@ SQL_FASES_POR_CORRER: Final = """
                      WHERE g.tenant_id = o.tenant_id AND g.fase = 'purga' AND g.estado = 'concluida'))
      )
    ORDER BY v.prazo_at, o.tenant_id, array_position(ARRAY['exportacao', 'purga', 'certificado'], o.fase)
-   LIMIT %s
 """
 
 
@@ -117,12 +115,12 @@ class ResultadoDaVolta:
     falhas: list[str] = field(default_factory=list)
 
 
-def fases_por_correr(abrir_batch: AbrirLigacao, agora: datetime, limite: int = LIMITE_POR_VOLTA) -> list[tuple[str, str]]:
+def fases_por_correr(abrir_batch: AbrirLigacao, agora: datetime) -> list[tuple[str, str]]:
     """`(tenant, fase)` por correr, como `kamba_batch`."""
     ligacao = abrir_batch()
     try:
         with tenant_guard.tx_batch(ligacao, "offboarding_dados") as cursor:
-            cursor.execute(SQL_FASES_POR_CORRER, (agora, limite))
+            cursor.execute(SQL_FASES_POR_CORRER, (agora,))
             return [(str(t), str(f)) for t, f in cursor.fetchall()]
     finally:
         ligacao.close()
@@ -158,13 +156,11 @@ def correr_volta(
     abrir_app: AbrirLigacao,
     portas: PortasDosDados,
     agora: datetime,
-    *,
-    limite: int = LIMITE_POR_VOLTA,
 ) -> ResultadoDaVolta:
     """Uma volta: as fases deste lado que ja podem correr, cada uma no seu `try`."""
     r = ResultadoDaVolta()
     try:
-        por_correr = fases_por_correr(abrir_batch, agora, limite)
+        por_correr = fases_por_correr(abrir_batch, agora)
     except Exception:  # noqa: BLE001 — a listagem que falha diz-se pelo nome
         r.falhas.append("listagem")
         return r
@@ -182,7 +178,6 @@ def correr_volta(
 
 __all__ = [
     "FASES_DOS_DADOS",
-    "LIMITE_POR_VOLTA",
     "PortaSemAdaptador",
     "PortasDosDados",
     "ResultadoDaVolta",

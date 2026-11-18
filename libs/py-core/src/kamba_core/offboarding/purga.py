@@ -75,6 +75,7 @@ from typing import Any, Final
 
 from .. import tenant_guard
 from ..retencao import hold, politica, purge_log
+from ..storage.guarda import LIMITE_MAXIMO_DE_LISTAGEM
 from ..storage.port import Ctx, StorageProvider
 from .contrato import (
     ACTOR,
@@ -134,8 +135,19 @@ TABELAS_DOS_CONTACTOS: Final = (
     "platform.contacts",
 )
 
-#: Quantos objectos se listam de cada vez na eliminacao do STO.
-LOTE_DO_STO: Final = 500
+#: Quantos objectos se listam de cada vez na eliminacao do STO: o maximo que a
+#: guarda do KAM-011 aceita. A listagem **recusa** acima do limite em vez de
+#: truncar (achado 1 da revisao adversarial: com 500, um tenant de 501 objectos
+#: nunca se purgava).
+#: shortcut: um tenant com mais de 10 000 objectos falha a unidade do STO (fica
+#: `falhou` no `purge_log`, e a fase parada da o alerta); revê-se quando a porta
+#: do armazenamento ganhar paginacao, ou no primeiro tenant que la chegue.
+LOTE_DO_STO: Final = LIMITE_MAXIMO_DE_LISTAGEM
+
+#: Quantas listagens a unidade do STO faz. A primeira apaga o que listou; a
+#: segunda tem de vir vazia — senao alguem escreveu entretanto, e a unidade falha
+#: em vez de girar.
+VOLTAS_DO_STO: Final = 2
 
 #: Quem apaga os contactos do tenant, e devolve quantos. O cofre, em producao.
 ApagarContactos = Callable[[str], int]
@@ -322,16 +334,27 @@ class _Corrida:
         ctx = Ctx(self.tenant_id)
         apagados = 0
         try:
-            while True:
+            for _ in range(VOLTAS_DO_STO):
                 refs = list(armazenamento.list(ctx, f"t/{self.tenant_id}/", limite=LOTE_DO_STO))
                 if not refs:
                     break
                 for ref in refs:
                     armazenamento.delete(ctx, ref)
                     apagados += 1
+            else:
+                raise RuntimeError("o armazenamento continua com objectos do tenant")
         except Exception:  # noqa: BLE001 — a unidade que falha fica escrita, e a fase nao conclui
-            _em_batch(self.abrir, "offboarding_purga", lambda cur: self.anotar(
-                cur, UNIDADE_DO_STO, purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO))
+            def falhou(cursor: Any) -> None:
+                # **O que saiu antes da falha fica escrito** (achado 4): o
+                # `purge_log_so_ok_apaga_ck` nao deixa uma linha `falhou` contar
+                # objectos, e sem a linha `ok` estes nao apareciam em lado nenhum.
+                if apagados:
+                    r = self.registo(UNIDADE_DO_STO, purge_log.RESULTADO_OK, objectos=apagados)
+                    purge_log.escrever(cursor, r)
+                    self.registos.append(r)
+                self.anotar(cursor, UNIDADE_DO_STO, purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO)
+
+            _em_batch(self.abrir, "offboarding_purga", falhou)
             return
 
         def corpo(cursor: Any) -> None:

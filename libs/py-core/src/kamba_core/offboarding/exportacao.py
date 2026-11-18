@@ -60,6 +60,7 @@ from typing import Any, Final
 from .. import tenant_guard
 from ..direitos.exportacao import CLASSE_DA_EXPORTACAO, documento, resumo
 from ..storage.chave import nova_chave
+from ..storage.guarda import LIMITE_MAXIMO_DE_LISTAGEM
 from ..storage.port import TTL_MAXIMO_S, Ctx, ObjectMeta, ObjectRef, StorageProvider
 from .contrato import (
     FaseForaDeOrdem,
@@ -256,7 +257,11 @@ def exportar(
 
     ctx = Ctx(tenant_id)
     objectos = [
-        o for o in armazenamento.list(ctx, f"t/{tenant_id}/")
+        # Ate ao maximo da guarda, e nao o limite por omissao de 1 000 (achado 5):
+        # a listagem recusa acima dele, e a exportacao falhava em todas as voltas.
+        # shortcut: acima de 10 000 objectos a exportacao falha e a fase fica
+        # parada, com alerta; revê-se com a paginacao da porta do armazenamento.
+        o for o in armazenamento.list(ctx, f"t/{tenant_id}/", limite=LIMITE_MAXIMO_DE_LISTAGEM)
         # Os pacotes de geracoes anteriores nao entram no seguinte.
         if f"/{CLASSE_DA_EXPORTACAO}/" not in str(o.key)
     ]

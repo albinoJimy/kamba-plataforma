@@ -49,6 +49,7 @@ import {
   MetricasDoOffboarding,
   PortaSemAdaptadorError,
   REVOGACAO_SEM_ADAPTADOR,
+  SQL_CONTAGEM_DAS_FASES,
   type CanalDaMeta,
   type PortasDaRevogacao,
   type ProvasDoTitular,
@@ -409,7 +410,6 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
         portas: { canal: meta.canal, revogacao: portas },
         metricas,
         relogio: () => agora,
-        limite: 1000,
       });
 
       // Volta 1, no D1: o canal e os pendentes. A revogação não entra (antes do D7, e sem a exportação).
@@ -478,7 +478,6 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
         portas: { canal, revogacao: REVOGACAO_SEM_ADAPTADOR },
         metricas,
         relogio: () => dia(3),
-        limite: 1000,
       }).correr();
       assert.ok(r.falhas.includes("canal"));
       assert.doesNotMatch(JSON.stringify(r), new RegExp(parado.tenant));
@@ -491,5 +490,34 @@ describe("o ciclo do processo de lote (KAM-210, critério 1)", () => {
     } finally {
       await pool.end();
     }
+  });
+
+  it("a contagem das paradas: a fase que espera outra não conta, e a que podia correr e não correu conta", async () => {
+    const tenant = (await tenantAtivo("off-ciclo-contagem")).tenant;
+    await pedidoVerificado(tenant);
+    const contar = async (): Promise<Record<string, number>> => {
+      const { rows } = await admin.query(SQL_CONTAGEM_DAS_FASES, [dia(40), 24]);
+      const total: Record<string, number> = {};
+      for (const r of rows) total[String(r.fase)] = (total[String(r.fase)] ?? 0) + Number(r.paradas);
+      return total;
+    };
+    const marcar = (fase: string, estado: string) =>
+      admin.query("UPDATE platform.offboarding_run SET estado = $3 WHERE tenant_id = $1 AND fase = $2", [tenant, fase, estado]);
+    // Uma purga suspensa por disputa, e o certificado atrás dela: nenhum dos dois está parado.
+    for (const fase of ["canal", "pendentes", "exportacao", "revogacao"]) await marcar(fase, "concluida");
+    const antes = await contar();
+    await marcar("purga", "suspensa_disputa");
+    const comDisputa = await contar();
+    // Antes, a purga pendente com a revogação concluída podia correr e não correu: contava.
+    assert.equal((comDisputa.purga ?? 0) - (antes.purga ?? 0), -1, "a disputa não é paragem");
+    assert.equal(comDisputa.certificado ?? 0, antes.certificado ?? 0,
+      "o certificado pendente atrás de uma purga por concluir não conta");
+    // Com a purga concluída, o certificado podia correr e não correu: conta.
+    await marcar("purga", "concluida");
+    const semEntrega = await contar();
+    assert.equal((semEntrega.certificado ?? 0) - (comDisputa.certificado ?? 0), 1);
+    // E uma falhada conta sempre.
+    await marcar("certificado", "falhada");
+    assert.equal((await contar()).certificado, semEntrega.certificado);
   });
 });

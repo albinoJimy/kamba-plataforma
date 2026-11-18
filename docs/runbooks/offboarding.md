@@ -10,7 +10,7 @@ no bloco do KAM-098; o processo que as corre, no bloco do KAM-210.
 
 | Campo | Valor |
 |---|---|
-| Cenário | Uma fase do encerramento de um tenant está `falhada`, ou `pendente`/`em_curso` com o prazo passado há mais de 24 h |
+| Cenário | Uma fase do encerramento de um tenant está `falhada`; ou `em_curso` com o prazo passado há mais de 24 h; ou `pendente` nas mesmas 24 h **com as fases anteriores concluídas** — podia correr e não correu |
 | Severidade | **P2** |
 | Quem age | **T2**, com o engenheiro de plataforma (TEN) |
 | Alerta que aponta para aqui | `offboarding_fase_parada`, em [`../../infra/compose/prometheus/regras/kamba-offboarding.yml`](../../infra/compose/prometheus/regras/kamba-offboarding.yml) |
@@ -32,6 +32,10 @@ SELECT tenant_id, fase, estado, prazo_at, resultado
  ORDER BY prazo_at;
 ```
 
+Esta consulta é mais larga do que o alerta: traz também as fases `pendente` que esperam uma anterior
+por concluir. A que conta é a **primeira** de cada tenant pela ordem do calendário; as seguintes
+esperam por ela.
+
 **Não corrido** contra uma base com dados do Piloto. O `resultado` de cada fase leva contagens,
 passos e instantes, e nada do dono.
 
@@ -41,12 +45,14 @@ passos e instantes, e nada do dono.
 |---|---|---|---|
 | `canal` | `onboarding-lote` | **A porta da Meta não tem adaptador** neste processo (`PortaSemAdaptadorError`): o adaptador existe, mas o *token* de cada WABA vive no cofre, e o cofre não tem leitor no lote | Até ao credor (KAM-218), cancelar a subscrição à mão no Business Manager e marcar a fase com o resultado, como o código a marca. **Nunca** apagar o WABA nem o número: são do cliente (E1) |
 | `pendentes` | `onboarding-lote` | Uma encomenda em curso, uma reserva activa ou um reembolso aberto depois do D7 | O `resultado` tem as contagens. Fechar cada uma pelo caminho dela (o dono, ou ops); a volta seguinte conclui |
-| `exportacao` | o lado dos dados | Os pendentes não concluíram (a cascata da linha anterior), ou o armazenamento falhou | Resolver os pendentes; ou, com o STO de volta, chamar `correr_fase` para `exportacao` |
+| `exportacao` | o lado dos dados | O armazenamento falhou, ou o tenant tem mais de 10 000 objectos (o tecto da listagem do KAM-011) | Resolver os pendentes; ou, com o STO de volta, chamar `correr_fase` para `exportacao` |
 | `revogacao` | `onboarding-lote` | Uma porta da saga sem adaptador (LiteLLM, Medusa, Chatwoot) **para um recurso que a saga criou**; ou o tenant ficou `restrito` | O `resultado.passos` diz quais já correram, e os feitos não se repetem. Um tenant `restrito` não tem aresta para `encerrado` (decisão do fundador) |
 | `purga` | o lado dos dados | `falhada`: uma unidade levantou, e o `purge_log` tem a linha `falhou` | Corrigir a causa e chamar `correr_fase` para `purga`. **Não se repete sozinha**: cada corrida escreve no `purge_log`, que é *append-only* |
 | `certificado` | o lado dos dados | **A entrega não tem adaptador** (`PortaSemAdaptador`): não há agregador de SMS nem fornecedor de e-mail escolhidos | Até ao credor (KAM-218), a entrega é manual. O documento é o mesmo em cada tentativa; o canal do titular só sai depois de entregue |
 
-Uma purga `suspensa_disputa` **não** dispara este alerta: espera a disputa, e é o que deve fazer.
+Uma purga `suspensa_disputa` **não** dispara este alerta, e o certificado atrás dela também não:
+espera a disputa, e é o que deve fazer. Uma fase que espera outra por concluir também não: conta a
+que está à frente.
 
 ## 3. Correr uma fase do lado dos dados à mão
 
