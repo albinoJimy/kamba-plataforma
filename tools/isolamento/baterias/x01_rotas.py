@@ -962,6 +962,7 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
             "/painel/codigo",
             "/painel/verificar",
             "/painel/telefone",
+            "/painel/telefone/verificar",
         )
     ):
         achados.extend(
