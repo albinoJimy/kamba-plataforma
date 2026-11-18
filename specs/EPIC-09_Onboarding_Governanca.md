@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Onboarding e Governação |
-| Versão | 1.27 |
+| Versão | 1.28 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/10_Onboarding_Governanca.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` (ADR-019) |
@@ -70,6 +70,7 @@ Fora deste epic (Clusters): estafetas, revendedores, rede de agentes de activaç
 | KAM-200 | Trust & Safety em produção: o consumidor, as varreduras, as métricas e as fontes de sinal que faltam | feature | L | P1 | KAM-097, KAM-092 |
 | KAM-201 | Portas do tenant ligadas: aprovação, amostragem e cache do CHR | feature | M | P1 | KAM-092 |
 | KAM-203 | Recálculo da confiança gradual a correr: diário, em `order.delivered` e na aprovação | feature | M | P1 | KAM-096, KAM-198 |
+| KAM-210 | KAM-098 em produção: o processo que corre as fases, os adaptadores das portas e o cofre no encerramento | feature | L | P1 | KAM-098 |
 | KAM-206 | Painel light: o contacto da encomenda ao dono, mascarado e auditado, e a lista de produtos em 3G | feature | M | P2 | KAM-190 |
 | KAM-207 | Religar o número de um tenant activo cujo canal caiu, a partir do painel | feature | M | P2 | KAM-190, KAM-093 |
 | KAM-208 | Correlação entre tenants por comprador: um identificador de comprador que não dependa do tenant | feature | M | P2 | KAM-200 |
@@ -1825,7 +1826,7 @@ Testes: unit, integração, isolamento e adversarial (formatos de telefone, anel
 | Prioridade | P1 |
 | Estimativa | L |
 | Dependências | KAM-070, KAM-091, KAM-071, KAM-011, KAM-092 |
-| Bloqueia | — |
+| Bloqueia | KAM-210 |
 | Responsável sugerido | Engenheiro de Plataforma (TEN) com Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§15.2, §13), `../docs/tecnica/08_Seguranca_Conformidade.md` (§8.4, §8.8, §11), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§6), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md`, ADR-010, ADR-014 |
 
@@ -1841,14 +1842,14 @@ Implementar o ciclo de saída com verificação de identidade, fecho de pendente
 
 - [ ] Pedido de encerramento exige dupla confirmação do titular (OTP ao telefone provado + ligação ao e-mail registado) e fica **cancelável** até D7; bloqueia novas encomendas no D0 e informa que a app WhatsApp Business volta a funcionar normalmente.
 - [ ] Fecho de pendentes D0–D7: encomendas em curso entregues ou canceladas, reservas libertadas, reembolsos manuais registados; sem pendentes, a exportação arranca; com disputa aberta aplica-se retenção por disputa (suspende a purga dessa classe).
-- [ ] Canal desligado em D0–D1: CHR deixa de encaminhar, subscrição de webhooks cancelada, WABA e número intactos; teste prova que nenhuma chamada tenta apagar o WABA.
+- [x] Canal desligado em D0–D1: CHR deixa de encaminhar, subscrição de webhooks cancelada, WABA e número intactos; teste prova que nenhuma chamada tenta apagar o WABA.
 - [ ] Exportação até D7: catálogo, encomendas, clientes (campos que a PME, como responsável, pode receber), conversas, consentimentos e ficheiros em CSV/JSON com manifesto e *hash*; ligação assinada de curta duração (24 h, *proposta*), nova geração a pedido; cada geração é auditada.
 - [ ] Revogação D7: chave LiteLLM revogada, conta Chatwoot arquivada, canal Medusa arquivado, entitlements `ativo=false`, `tenant_channels.estado='revogado'`; cada passo idempotente, com a mesma estrutura de estado e compensação da saga.
 - [ ] Purga D30: dados operacionais apagados (soft-delete → purga) em Postgres, Chatwoot, STO, traces e caches, com `log` de eliminação; fornecedores de LLM/STT recebem pedido de eliminação onde aplicável; `crypto-shredding` quando existir (KAM-008).
 - [ ] Retenção: ficam só registos fiscais (por `fiscal_retention_years`, sem apagar até estar definido) e dados sob disputa; `payment_events` pseudonimizado (sem identificadores directos); sub-estados `em_exportacao`, `em_retencao`, `purgado` (PA-GOV-6, proposta).
 - [ ] Certificado de eliminação em D30: lista classes apagadas e classes retidas com fundamento, assinado digitalmente e com *hash*; **não** afirma apagamento de cópias de segurança (indica o prazo de expiração); entregue pelo canal disponível ao titular.
-- [ ] Reexecutar qualquer fase não duplica efeitos nem falha; um *crash* a meio retoma no passo seguinte.
-- [ ] Reaplicação do *erasure ledger* após restauro de backup volta a apagar o tenant purgado (teste com restauro simulado).
+- [x] Reexecutar qualquer fase não duplica efeitos nem falha; um *crash* a meio retoma no passo seguinte.
+- [x] Reaplicação do *erasure ledger* após restauro de backup volta a apagar o tenant purgado (teste com restauro simulado).
 
 ### Detalhes Técnicos
 
@@ -1873,11 +1874,92 @@ CREATE TABLE platform.offboarding_run (
 ### Definition of Done
 
 - [ ] Critérios de Aceitação satisfeitos; simulacro ponta a ponta documentado e repetível.
-- [ ] Idempotência por fase com teste de repetição; migração reversível (ADR-009).
-- [ ] Isolamento: RLS `FORCE` e teste cruzado também na exportação (ADR-015); privilégios do `payment_events` intactos.
-- [ ] Nenhum dado pessoal em logs; prazos fiscais parametrizados, nenhum NÃO VERIFICADO tratado como requisito (ADR-010).
+- [x] Idempotência por fase com teste de repetição; migração reversível (ADR-009).
+- [x] Isolamento: RLS `FORCE` e teste cruzado também na exportação (ADR-015); privilégios do `payment_events` intactos.
+- [x] Nenhum dado pessoal em logs; prazos fiscais parametrizados, nenhum NÃO VERIFICADO tratado como requisito (ADR-010).
 - [ ] Certificado sem promessas sobre backups; dois revisores (dados pessoais e segredos).
 - [ ] Documentação e runbook actualizados; sem segredos.
+
+### Verificação dos Critérios de Aceitação
+
+**Três caixas de dez nos critérios, e três de seis na Definition of Done.** O que este ticket entrega
+é o **mecanismo inteiro das sete fases**, medido contra a base, e o que fica parcial fica pela mesma
+razão: as portas para fora (a Meta, o LiteLLM, o Chatwoot, a Medusa, o OTP e o e-mail do dono, o
+cofre de contactos, a entrega do certificado) não têm adaptador, e nenhum processo corre as fases em
+produção. Credor de tudo isso: **KAM-210**, aberto neste PR, com um critério por porta. Cada linha diz
+o que falta e o critério do credor que o paga.
+
+**Onde vive.** A tabela é a `platform.offboarding_run` da revisão
+[`0068_offboarding.py`](../db/migrations/versions/0068_offboarding.py) (sobre a `0067` do KAM-200),
+com o DDL do bloco e um sexto estado, `cancelada`. As quatro fases que usam as portas da saga — o
+pedido, os pendentes, o canal e a revogação — estão em
+[`../packages/core-ts/src/offboarding/`](../packages/core-ts/src/offboarding/index.ts); as três de
+dados — a exportação, a purga e o certificado — em
+[`../libs/py-core/src/kamba_core/offboarding/`](../libs/py-core/src/kamba_core/offboarding/__init__.py).
+Os nomes estão no dicionário §3.77, e o *runbook* em [`../docs/offboarding.md`](../docs/offboarding.md).
+
+**O que a revisão adversarial mudou.** Uma revisão independente — sem o raciocínio de quem escreveu —
+levantou catorze achados, treze CONFIRMADOS ou PLAUSÍVEIS. Fecharam-se com ensaio: o cancelamento sem dono
+(um titular que previsse a sanção pedia e cancelava, e ficava fora do alcance de T&S), a revogação sem o
+canal desligado, o tenant `restrito` preso a meio, o contacto do dono apagado antes do certificado, as
+corridas entre o canal e o cancelamento, os escopos de fora da base calados no certificado, o certificado
+a contar só a última execução, a origem T&S sem sanção verificada, a exportação do titular do KAM-058 por
+ensaiar, o restauro que deixava o tenant `ativo`, o `downgrade` que largava a tabela, o texto das
+conversas por declarar e o *hold* aplicado a meio da corrida. **Fica escrito, sem ensaio:** o `kamba_batch`
+pode escrever uma fase à mão (a fronteira de confiança do papel de lote, que é a de toda a base), e a
+idempotência das chamadas de fora é um contrato dos adaptadores do **KAM-210**.
+
+**Quatro decisões de desenho que os critérios não escreviam, e a razão de cada uma.**
+
+* **O encerramento é a `transition_tenant` do KAM-092**, como `kamba_batch`, e o evento do encerramento
+  sai na mesma transacção só quando ela devolve verdadeiro — a forma da régua (KAM-058). Repetir dá
+  falso, e não há segundo evento.
+* **Toda a acção sobre a Meta passa pelo guarda da saga** (`executarNoCanalDoCliente`), e toda a acção
+  sobre recursos nossos pelo `verificar` dele: é a «mesma estrutura de compensação da saga» do critério
+  5, e não uma cópia.
+* **A purga só apaga pelos caminhos medidos**: as tabelas da classe `relacao` do KAM-071 em que o
+  `kamba_batch` tem `DELETE` e nenhum gatilho recusa. O resto fica `recusada`/`sem_caminho` no
+  `purge_log` e no certificado — nunca `ok`. Dar `DELETE` ao lote nos contactos afrouxava o desenho do
+  cofre (KAM-008) a partir deste ticket.
+* **A disputa suspende a purga inteira**, e não só «essa classe»: uma disputa sobre uma encomenda
+  envolve o contacto, a conversa e o canal por onde passou, e escolher quais ficam é decidir a disputa.
+  A leitura diverge da letra e fica escrita.
+
+**As medições, nesta máquina, contra PostgreSQL 18 em Docker e Node 24.21 em contentor**, sobre a
+`publico/main` em `234e4739` com a revisão `0067` (hoje `0068`): `db/tests/test_offboarding.py` → **`Ran 28 tests` /
+`OK`**; `packages/core-ts/tests_bd/offboarding.bd.test.ts` (suite `tests_lote`) → **7 de 7**;
+`packages/core-ts/tests_bd/chr.bd.test.ts` (suite `tests_chr`) → **32 de 32**, com os dois fins-a-fim
+novos; os unitários `packages/core-ts/tests/offboarding.test.ts` → **12 de 12** e
+`libs/py-core/tests/test_offboarding.py` → **28 de 28** (cobertura do módulo Python **98%**); o
+`typecheck` do `core-ts` → zero erros; `python db/mutacoes.py --aplicaveis` → **1217 conferidas, 0 não
+aplicáveis**; e numa base limpa, `test_migracao` e `test_subscricao_do_chr` → **`Ran 21 tests` / `OK`**.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Dupla confirmação (OTP + e-mail), cancelável até D7; bloqueia encomendas no D0; aviso da app Business | **parcial** — sem adaptador das duas provas; credor **KAM-210**, critério 2 | `o pedido exige as duas confirmações: só com a sessão é recusado e nada se escreve` (adversarial a: com só a sessão, com uma prova só, ou com o OTP errado, `ConfirmacaoIncompletaError` e **zero** linhas), e as sete fases com os prazos D0–D30 numa transacção. `cancelado em D3: o canal volta ao que era, e nenhuma fase seguinte corre`, e depois do D7 já não se cancela. O bloqueio de encomendas no D0 **é o canal desligado** (critério 3): a encomenda nova chega pela conversa, e um canal `desligado` não chega ao AGR — é a leitura, e fica escrita. O aviso é o `AVISO_DA_APP_BUSINESS`, devolvido ao pedido. **A falta:** a porta `ProvasDoTitular` não tem adaptador — o OTP ao telefone provado e a ligação ao e-mail registado do dono **Depois da revisão adversarial:** as provas verifica-as a porta que o processo injecta, e não o pedido; T&S só encerra com uma sanção `encerramento` do KAM-097 em vigor (`T&S só encerra um tenant suspenso com uma sanção de encerramento, e o titular não a cancela`) e **toma** um pedido vivo do titular, que deixa de se poder cancelar (`um pedido de T&S toma o pedido vivo do titular…`); um pedido cancelado reabre-se com um pedido novo verificado, e o calendário recomeça. **Um tenant `restrito` não se encerra**: o grafo da `0058` não tem a aresta `restrito → encerrado`, e acrescentá-la é decidir o que a restrição da Meta permite — volta ao fundador |
+| 2 | Pendentes D0–D7; sem pendentes, a exportação arranca; disputa aberta retém | **parcial** — o portão está feito, o fecho não é desta fase | `os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui` (base) e `os pendentes: uma reserva ativa deixa a fase em curso; a disputa não impede e fica escrita` (unitário); a exportação recusa sem os pendentes concluídos (`test_sem_pendentes_fechados_ou_cancelado_nao_exporta`); a disputa suspende a purga (`test_disputa_aberta_suspende_a_purga`, adversarial c). **A leitura diverge da letra:** «encomendas entregues ou canceladas, reservas libertadas, reembolsos registados» fazem-no o dono e ops pelos caminhos que já existem (o grafo da `0030`, a libertação da `0033`, o reembolso manual da `0032`); esta fase é o portão que não deixa avançar com eles abertos. A decisão volta a quem escreveu o critério |
+| 3 | Canal desligado em D0–D1: o CHR deixa de encaminhar, subscrição cancelada, WABA e número intactos; nenhuma chamada tenta apagar o WABA | **satisfeito** | `o canal: cancela a subscrição, desliga o canal, e nenhuma chamada toca no WABA nem no número; o CHR deixa de encaminhar` (a Meta espiã regista **uma** chamada, `cancelar`, e zero às duas que apagam; o resolvedor lê `desligado` e a matriz nega o AGR). E o fim-a-fim `o encerramento pelo off-boarding (KAM-098, critério 3): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião`, na `tests_chr`, com a subscrição `chr` do encerramento que a `0067` acrescenta |
+| 4 | Exportação até D7: catálogo, encomendas, clientes, conversas, consentimentos e ficheiros em CSV/JSON com manifesto e *hash*; ligação de 24 h; nova geração a pedido; cada geração auditada | **parcial** — sem catálogo, sem telefones e sem os bytes dos ficheiros | `test_a_exportacao_de_a_nunca_contem_dados_de_b` (o ensaio cruzado), `test_o_manifesto_leva_o_sha256_de_cada_ficheiro`, `test_cada_geracao_e_auditada`, `test_a_ligacao_expirada_ou_de_outro_tenant_e_recusada` (adversarial e: o 403), e os unitários do pacote reproduzível e da ligação adulterada. **A falta:** o catálogo vive na Medusa (D3, **KAM-042**) e o manifesto di-lo `indisponivel`; os telefones dos clientes vivem cifrados no cofre (a lacuna do KAM-070); os ficheiros vão como lista, e não os bytes. Credor da fonte do catálogo, dos telefones e dos bytes: **KAM-210**, critério 4 |
+| 5 | Revogação D7: LiteLLM, Chatwoot arquivada, Medusa arquivado, entitlements `ativo=false`, `tenant_channels.estado='revogado'`; idempotente, com a estrutura da saga | **parcial** — sem adaptadores, sem arquivo da conta Chatwoot, e o estado do canal é `encerrado` | `a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma`: antes do D7 e sem a exportação recusa; as três portas da saga com as referências do `provisioning_step`, os entitlements a `false`, o tenant `encerrado` com **um** evento, e a Medusa a cair a meio não revoga a chave duas vezes. **A leitura diverge da letra:** `revogado` não está no domínio fechado de `tenant_channels.estado` (`0001`), e o domínio canónico tem `encerrado`; alargá-lo era mudar o canon por um sinónimo. **A falta:** o `HandoffProvider` não tem método para arquivar a conta (desliga-se a *inbox*), e nenhuma das portas tem adaptador. Credor **KAM-210**, critério 3 **Depois da revisão adversarial:** a revogação exige o canal desligado (sem isso a subscrição ficava viva na Meta) e recusa, **antes de qualquer porta**, um tenant que ficou `restrito` — no mesmo ensaio, com zero chamadas às portas. **O contrato que os adaptadores do credor têm de cumprir**: cada operação é idempotente do lado de fora (um recurso que já não existe é sucesso), porque um *crash* entre a chamada e a gravação do passo repete-a |
+| 6 | Purga D30 com log em Postgres, Chatwoot, STO, traces e caches; pedido aos fornecedores; *crypto-shredding* | **parcial** — só o Postgres, e não inteiro | `test_apaga_pelos_caminhos_regista_e_retem_o_resto` (varrimento a zero nas tabelas com caminho, o tenant B intacto, o `purge_log` com `ok` e `recusada`), `test_com_o_cofre_os_contactos_saem_e_ficam_registados`, `test_antes_do_d30_ou_sem_revogacao_nao_purga`. **A falta:** os contactos, os casos de onboarding, o catálogo AI e as fotos não têm caminho nesta revisão; o cofre (o apagamento do KAM-008, que é o *crypto-shredding*) não tem quem o chame; o Chatwoot, o STO, os *traces*, as *caches* e os fornecedores de LLM e STT não têm porta. Credor **KAM-210**, critério 5 **Depois da revisão adversarial:** as linhas da `media_assets` saem e os bytes no STO não — o certificado declara o STO, o Chatwoot, os *traces*, as *caches* e os fornecedores como retidos, com fundamento, e nunca os cala; um *hold* aplicado a meio da corrida pára-a na unidade seguinte (`test_um_hold_aplicado_a_meio_para_a_corrida`); duas corridas do mesmo tenant não correm juntas (trinco consultivo, `test_duas_corridas_do_mesmo_tenant_nao_correm_juntas`) |
+| 7 | Retenção: só fiscal e disputa; `payment_events` pseudonimizado; sub-estados `em_exportacao`, `em_retencao`, `purgado` | **parcial** — o `fiscal_retention_years` é global e não por tenant | Nenhum caminho da purga toca numa tabela fiscal (`test_nenhuma_tabela_fiscal_tem_caminho`), e o certificado lista as classes fiscais como retidas com o fundamento do prazo **NÃO VERIFICADO**. O `payment_events` não tem identificador directo nenhum — o `INVENTARIO["payment_events"]` do `db/tests/test_inventario.py` declara-o coluna a coluna, e o *gate* 8 confere-o contra a base —, e os privilégios dele não mudaram (`test_privilegios`). Os sub-estados lêem-se das fases (`test_o_subestado_le_se_das_fases`). **A falta:** o prazo fiscal é a variável global do KAM-071, e o bloco pede-o por tenant; com o CGT por confirmar, nenhum valor por tenant muda o que se apaga hoje (nada). Volta ao fundador com o D7 |
+| 8 | Certificado em D30: classes apagadas e retidas com fundamento, assinado e com *hash*; sem promessa sobre as cópias; entregue ao titular | **parcial** — a assinatura é HMAC, e a entrega não tem adaptador | `test_lista_o_que_saiu_e_o_que_ficou_e_nao_promete_as_copias` (as linhas do `purge_log` da execução, as classes retidas com fundamento, `apagamento_afirmado = false` e os 35 dias do `infra/backup/cobertura.yaml`, a assinatura que não sobrevive a uma alteração), `test_a_entrega_que_falha_repete_o_mesmo_documento`, `test_sem_purga_concluida_nao_ha_certificado`. **A leitura diverge da letra:** «assinado digitalmente» — não há assinatura assimétrica na plataforma, e o HMAC só o verifica quem tem a chave; volta ao fundador. **A falta:** a entrega pelo canal do titular. Credor **KAM-210**, critério 6 **Depois da revisão adversarial:** o contacto do dono (`owner_contacts`) já não sai na purga — é o canal por onde o certificado chega —, e sai logo a seguir à entrega, com a sua linha no `purge_log`; o certificado soma as linhas de **todas** as execuções da purga (`test_depois_de_uma_falha_o_certificado_soma_as_duas_execucoes`) |
+| 9 | Reexecutar qualquer fase não duplica nem falha; um *crash* a meio retoma no passo seguinte | **satisfeito** | Por fase: o pedido repetido devolve o que existe; o canal repetido não chama a Meta; a revogação com a Medusa a cair retoma sem revogar a chave outra vez, e repetida não emite; `test_repetir_nao_duplica` e `test_um_crash_a_meio_retoma_e_conclui` (a purga `falhada` conclui na corrida seguinte); `test_cada_geracao_e_auditada`; `test_a_entrega_que_falha_repete_o_mesmo_documento`. E a chave `(tenant_id, fase)` com a mutação «a fase repete-se» **Depois da revisão adversarial:** o canal volta a perguntar se o pedido está vivo antes e depois da Meta, e desfaz a dessubscrição se um cancelamento ganhar a corrida (`um cancelamento que ganha a corrida depois da Meta desfaz a dessubscrição`); o cancelamento e a exportação revalidam o pedido na última transacção |
+| 10 | Reaplicação após restauro volta a apagar o tenant purgado (restauro simulado) | **satisfeito** | `test_o_restauro_traz_o_tenant_de_volta_e_a_reaplicacao_volta_a_apaga_lo` (adversarial d): depois da purga, o «restauro» traz o canal e a conversa; uma cópia de depois da purga não pede reaplicação; uma de antes reapaga. A lista dos purgados e os *holds* vêm **de fora da cópia** e são obrigatórios (`test_a_reaplicacao_exige_as_fontes_de_fora`), pela razão do KAM-071 **Depois da revisão adversarial:** uma cópia de antes do encerramento traz o tenant `ativo`; a reaplicação encerra-o outra vez pela porta, com o evento, e desliga os entitlements (no mesmo ensaio) |
+
+| # | Definition of Done | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Critérios satisfeitos; simulacro ponta a ponta documentado e repetível | **parcial** | Três de dez. O simulacro em *staging* com tenant sintético espera os adaptadores e o processo — credor **KAM-210**, critério 7 |
+| 2 | Idempotência por fase com teste de repetição; migração reversível | **satisfeito** | O critério 9; o ciclo `upgrade → downgrade → upgrade` corre no `test_migracao` **Depois da revisão adversarial:** o `downgrade` **recusa-se** com fases escritas, com o `FORCE` desligado para contar (a forma da `0058`): `test_o_downgrade_recusa_com_fases_escritas`, e a mutação «a descida larga as fases» |
+| 3 | Isolamento: RLS `FORCE` e teste cruzado também na exportação; privilégios do `payment_events` intactos | **satisfeito** | `test_a_rls_esta_ligada_e_forcada` (como **dono** da tabela: sete linhas com o contexto do tenant, zero com o de outro e sem contexto — e a mutação do `NO FORCE` morre aqui), `test_a_aplicacao_nao_le_nada`, `test_a_exportacao_de_a_nunca_contem_dados_de_b`; o `test_privilegios` sem mudança no `payment_events` |
+| 4 | Nenhum dado pessoal em logs; prazos fiscais parametrizados, nenhum NÃO VERIFICADO tratado como requisito | **satisfeito** | Os módulos não escrevem *log*; o `resultado` de cada fase leva contagens, resumos e instantes (o `INVENTARIO["offboarding_run"]`); as provas do pedido não se guardam e a referência de T&S vai só como `sha256` no `audit_log`. O prazo fiscal é o `fiscal_retention_years` sem omissão, e sem ele nada fiscal se apaga |
+| 5 | Certificado sem promessas sobre backups; dois revisores (dados pessoais e segredos) | **parcial** | A primeira metade é o critério 8. Os dois revisores são do fundador (decisão de 2026-11-05) |
+| 6 | Documentação e runbook actualizados; sem segredos | **parcial** | O [`../docs/offboarding.md`](../docs/offboarding.md) e o dicionário §3.77. **Sem segredos**: as chaves da ligação e do certificado entram por argumento. **Falta** o *runbook* de produção, com o processo — credor **KAM-210**, critério 1 e a DoD dele |
+
+**O que este ticket recebe e deixa.** O critério 2 e o 7 do **KAM-058** eram deste ticket, e fecharam-se
+(EPIC-05). A exportação da prova de aceite do **KAM-086** e a revogação das sessões do painel do
+**KAM-099** (`revogarDoTenant`, sem chamador) ficam com o **KAM-210** (critérios 4 e 3), que é quem liga as
+fases a um processo.
 
 ### Handoff para Claude Code
 
@@ -3502,6 +3584,76 @@ Testes: as fronteiras, contra a base, e o isolamento.
 
 ---
 
+## KAM-210 — KAM-098 em produção: o processo que corre as fases, os adaptadores das portas e o cofre no encerramento
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-09 — Onboarding e Governação |
+| Fase | 1 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | L |
+| Dependências | KAM-098 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (TEN), com o Responsável de Segurança |
+| Documentos de referência | `EPIC-09_Onboarding_Governanca.md` (bloco KAM-098), `02_Dicionario_de_Dados_Canonico.md` (§3.77), `../docs/offboarding.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§15.2), `../docs/tecnica/08_Seguranca_Conformidade.md` (§8.4, §11) |
+
+### Contexto
+
+O KAM-098 pôs na base as sete fases do encerramento de um tenant (`platform.offboarding_run`) e as funções
+que as correm — o pedido com a dupla confirmação, os pendentes, o canal e a revogação em
+`../packages/core-ts/src/offboarding/`, a exportação, a purga, o certificado e a reaplicação depois de um
+restauro em `../libs/py-core/src/kamba_core/offboarding/` —, medidas contra a base. **Ninguém as chama, e
+as portas para fora não têm adaptador.** Sem isto, nenhum tenant sai de facto: o OTP e a ligação ao e-mail
+do dono não se enviam, a Meta, o LiteLLM, a Medusa e o Chatwoot não recebem nada, os contactos não saem
+do cofre, e o certificado não chega ao titular. Este ticket é o credor das caixas 1, 4, 5, 6 e 8 do
+KAM-098 e das caixas 1 e 6 da DoD dele, e nasce no PR que as devolve.
+
+### Objectivo
+
+O off-boarding a correr em `prod`, de ponta a ponta: um processo que corre as fases pelo calendário, e um
+adaptador por cada porta que o KAM-098 deixou declarada.
+
+### Critérios de Aceitação
+
+- [ ] **O processo.** O processo de lote (KAM-198) corre as fases de cada tenant com pedido, como `kamba_batch`: o canal no D0, os pendentes até concluírem, a exportação quando eles concluem, a revogação no D7, a purga e o certificado no D30; uma fase parada (`falhada`, ou `em_curso` além do prazo) dá alerta, e as métricas não levam `tenant_id` nas etiquetas.
+- [ ] **As provas do titular.** Um adaptador da porta `ProvasDoTitular`: o OTP ao telefone provado do dono (o agregador do KAM-116) e a ligação ao e-mail registado (o canal do KAM-115), cada um com validade e uso único, e a ligação ao pedido por `tenant_id` sem nenhum dado do dono no `resultado`.
+- [ ] **O canal e a revogação.** Cada operação idempotente do lado de fora — um recurso que já não existe é sucesso, porque um *crash* entre a chamada e a gravação do passo repete-a. Adaptadores do `CanalDoCliente` (cancelar e refazer a subscrição de *webhooks* na Meta, sem método que apague o WABA ou o número a ser chamado), da chave do LiteLLM (revogar), do canal da Medusa (arquivar, KAM-042) e do Chatwoot — a *inbox* desligada e a **conta arquivada**, o que pede um método novo no `HandoffProvider`; e as sessões do painel do dono revogadas no encerramento (o `revogarDoTenant` do KAM-099, hoje sem chamador).
+- [ ] **A exportação completa.** O catálogo no pacote, a partir da Medusa; os telefones dos clientes decifrados só para os campos exportáveis, pelo cofre e com auditoria; os bytes dos ficheiros do STO, e não só a lista; e a prova de aceite do KAM-086.
+- [ ] **A purga completa.** Os contactos pelo cofre (o apagamento do KAM-008, que é o *crypto-shredding*), passados à purga como `apagar_contactos`; um caminho de eliminação para as tabelas da classe `relacao` que ficam `sem_caminho` (os casos de onboarding e o que deles depende, as ingestões do catálogo, os trabalhos de foto, os `fraud_signals`); e a eliminação no Chatwoot, no STO, nos *traces* e nas *caches*, com o pedido de eliminação aos fornecedores de LLM e STT onde se aplique, cada uma no `purge_log`.
+- [ ] **A entrega do certificado.** O certificado chega ao titular pelo canal disponível, e a entrega fica registada; uma entrega que falha repete-se com o mesmo documento.
+- [ ] **O simulacro.** Ponta a ponta em *staging* com um tenant sintético: pedido → exportação → revogação → purga → certificado, duas execuções seguidas e um *crash* simulado em cada fase; o varrimento de Postgres, Chatwoot, STO, LiteLLM e Medusa por `tenant_id` devolve zero fora das classes de retenção.
+
+### Detalhes Técnicos
+
+- **Componentes:** GOV (lote), TEN, HND, COM, LLM, STO, CHR, e o cofre de identidade.
+- **Fora deste ticket:** as fases e a tabela (KAM-098); o prazo fiscal do CGT, que continua NÃO VERIFICADO; a assinatura assimétrica do certificado, que é decisão do fundador.
+
+### Testes Requeridos
+
+- Integração: o processo contra o PostgreSQL do *gate* 8 leva um tenant sintético do pedido ao certificado com os adaptadores falsos das portas, e duas corridas seguidas não duplicam efeitos.
+- Contrato: cada adaptador contra o seu duplo de contrato; o da Meta não tem caminho para apagar o WABA ou o número.
+- *Staging*: o simulacro do critério 7, documentado e repetível.
+
+### Definition of Done
+
+- [ ] Critérios de Aceitação satisfeitos; as caixas 1, 4, 5, 6 e 8 do KAM-098, e a 1 e a 6 da DoD dele, revistas com a evidência.
+- [ ] *Runbook* de produção no `../docs/offboarding.md`; métricas e alertas nascem com o processo; sem segredos.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-210 da KAMBÁ (o off-boarding em produção).
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-098 e KAM-210), o dicionário §3.77, docs/offboarding.md,
+packages/core-ts/src/offboarding/ e libs/py-core/src/kamba_core/offboarding/.
+Objectivo: o processo de lote que corre as fases e um adaptador por cada porta que o KAM-098 deixou declarada.
+Regras: nunca apagar o WABA nem o número do cliente; kamba_batch; idempotente por fase; o prazo fiscal continua
+NÃO VERIFICADO; nenhum dado pessoal no resultado das fases.
+Testes: integração com duplos, contrato por adaptador, e o simulacro em staging.
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação / critério de saída | Decisão |
@@ -3569,3 +3721,4 @@ Testes: as fronteiras, contra a base, e o isolamento.
 | 1.25 | Novembro 2026 | KAM-096: entram as duas secções de verificação do bloco da confiança gradual — **oito** critérios (um satisfeito, sete parciais) e **cinco** linhas de DoD (duas satisfeitas), e a revisão `0065`. O que falta é sobretudo um: **nenhum processo corre o recálculo** (todos os dias, em `order.delivered` e na aprovação), e o credor é o **KAM-203**, aberto neste PR, porque o KAM-200 diz que o tecto não é dele; o KAM-203 é também o credor do alerta da caixa 7, e o **KAM-204** (EPIC-04) o da caixa 3. O EPIC-09 passa a **25** tickets. E o tecto fica em `trust_level` e não em `entitlements.limites`, pela decisão do `registry/plans.yaml`; a leitura devolve-se a quem escreveu o critério 1. | Equipa KAMBÁ |
 | 1.26 | Novembro 2026 | KAM-190: entram as duas secções de verificação do bloco das caixas devolvidas pelo KAM-099 — **cinco** critérios (dois satisfeitos: o `/metrics` do `onboarding-web` e a leitura de uma oferta; três parciais ou por fechar: o filtro de data no COM com o contacto por fazer, o adaptador e a reentrada com a ligação a servir só o caso em `aguarda_es`, e os 3 s em 3G medidos e não cumpridos) e **duas** caixas da DoD de três. As linhas 6, 7 e 9 e a DoD 5 da verificação do KAM-099 passam a dizer o que o KAM-190 fechou. Entram o **KAM-206** (o contacto da encomenda, mascarado e auditado) e o **KAM-207** (religar o número de um tenant activo), credores do que o KAM-190 devolve; o `Bloqueia` do KAM-190 ganha os dois e o do KAM-093 o KAM-207. O EPIC-09 passa a **27** tickets. **Sem revisão de base de dados.** | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | KAM-200 (Trust & Safety em produção): os critérios 1, 2, 3, 5 e 8 e a caixa 2 da DoD marcados, com a secção «Verificação dos Critérios de Aceitação»; os critérios 7 e 9 ficam parciais e o 4 e o 6 por satisfazer, com o credor escrito. O consumidor, as varreduras auditadas e as métricas correm no processo de lote do onboarding; a escada passa pela `transition_tenant` e emite os eventos do tenant; a revisão `0067` escreve as subscrições, a fonte da mudança de conta e a limitação no catálogo. **E o KAM-208 e o KAM-209**, acrescentados no mesmo PR como credores dos critérios 6 e 4 (escritos como KAM-206 e KAM-207 e renumerados na integração, depois do KAM-190 que os tomou). **29** tickets. | Equipa KAMBÁ |
+| 1.28 | Novembro 2026 | KAM-098: entra a secção de verificação do bloco do off-boarding — **três dos dez critérios e três das seis caixas da DoD**. O mecanismo das sete fases está medido contra a base; ficam parciais as portas para fora e o processo que as corre, com o credor **KAM-210**. Três leituras que divergem da letra voltam a quem escreveu os critérios: o fecho dos pendentes, o estado `encerrado` do canal em vez de `revogado`, e a assinatura HMAC do certificado. Escrita como 1.26, com a revisão `0067` e o dicionário §3.76, e renumerada na integração depois do KAM-190 e do KAM-200: a revisão é a `0068`, a secção do dicionário a §3.77 e o credor fica KAM-210. | Equipa KAMBÁ |

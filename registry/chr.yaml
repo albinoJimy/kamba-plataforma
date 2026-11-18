@@ -13,7 +13,8 @@
 # v<versao>.schema.json`.
 #
 # ---------------------------------------------------------------------------
-# ESTE FICHEIRO E A REVISAO DE DADOS `*_subscricao_do_chr.py` DIZEM O MESMO, e
+# ESTE FICHEIRO E AS REVISOES `*_subscricao_do_chr.py` E `*_offboarding.py` DIZEM
+# O MESMO, e
 # um ensaio confronta-os (`services/agr/tests/test_subscricoes_0052.py`). As
 # linhas de `platform.evt_subscricoes` so as escreve o dono das tabelas: em
 # producao nao ha escritor, e por isso vem por uma revisao de dados.
@@ -28,4 +29,11 @@ consumidor: chr
 version: 1.0.0
 subscriptions:
   - tipo: tenant.activated
+    versao: 1
+  # KAM-098: a suspensao (emitida pela regua do KAM-058) e o encerramento
+  # (emitido pelo off-boarding) esquecem o tenant como a activacao. As linhas
+  # vem da revisao `*_offboarding.py`.
+  - tipo: tenant.suspended
+    versao: 1
+  - tipo: tenant.closed
     versao: 1

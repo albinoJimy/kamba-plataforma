@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.109"
+versao_dicionario: "1.110"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -19519,6 +19519,206 @@ entradas:
       - "contacts"
       - "kamba_app"
     variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Fases do encerramento"
+    canonico: "platform.offboarding_run, cinco colunas"
+    literais:
+      - "platform.offboarding_run"
+    nomes:
+      - "platform.offboarding_run"
+    nomes_nota:
+      - "tenant_id"
+      - "fase"
+      - "estado"
+      - "prazo_at"
+      - "resultado"
+      - "UNIQUE"
+      - "tenants"
+      - "FORCE"
+      - "kamba_batch"
+      - "INSERT"
+      - "UPDATE"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "As fases"
+    canonico: "offboarding_run.fase ∈ {verificacao, pendentes, canal, exportacao, revogacao, purga, certificado}"
+    literais:
+      - "offboarding_run.fase"
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "exportacao"
+      - "revogacao"
+      - "purga"
+      - "certificado"
+    nomes:
+      - "offboarding_run.fase"
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "exportacao"
+      - "revogacao"
+      - "purga"
+      - "certificado"
+    nomes_nota:
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "revogacao"
+      - "exportacao"
+      - "purga"
+      - "certificado"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Estado de uma fase"
+    canonico: "offboarding_run.estado ∈ {pendente, em_curso, concluida, suspensa_disputa, falhada, cancelada}"
+    literais:
+      - "offboarding_run.estado"
+      - "pendente"
+      - "em_curso"
+      - "concluida"
+      - "suspensa_disputa"
+      - "falhada"
+      - "cancelada"
+    nomes:
+      - "offboarding_run.estado"
+      - "pendente"
+      - "em_curso"
+      - "concluida"
+      - "suspensa_disputa"
+      - "falhada"
+      - "cancelada"
+    nomes_nota:
+      - "cancelada"
+      - "falhada"
+      - "concluida"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Calendário"
+    canonico: "DIA_DA_FASE: verificação D0, canal D1, pendentes, exportação e revogação D7, purga e certificado D30; DIAS_DE_CANCELAMENTO = 7"
+    literais:
+      - "DIA_DA_FASE"
+      - "DIAS_DE_CANCELAMENTO"
+    nomes:
+      - "DIA_DA_FASE"
+      - "DIAS_DE_CANCELAMENTO"
+    nomes_nota:
+      - "prazo_at"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Sub-estados de encerrado"
+    canonico: "em_exportacao, em_retencao, purgado"
+    literais:
+      - "em_exportacao"
+      - "em_retencao"
+      - "purgado"
+    nomes:
+      - "encerrado"
+      - "em_exportacao"
+      - "em_retencao"
+      - "purgado"
+    nomes_nota:
+      - "subestado"
+      - "em_retencao"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A dupla confirmação"
+    canonico: "ProvasDoTitular: otpConfere e ligacaoDoEmailConfere"
+    literais:
+      - "ProvasDoTitular"
+      - "otpConfere"
+      - "ligacaoDoEmailConfere"
+    nomes:
+      - "ProvasDoTitular"
+      - "otpConfere"
+      - "ligacaoDoEmailConfere"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O aviso ao dono"
+    canonico: "AVISO_DA_APP_BUSINESS"
+    literais:
+      - "AVISO_DA_APP_BUSINESS"
+    nomes:
+      - "AVISO_DA_APP_BUSINESS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Motivo do encerramento"
+    canonico: "pedido_do_titular, decisao_trust_safety, reaplicacao_apos_restauro"
+    literais:
+      - "pedido_do_titular"
+      - "decisao_trust_safety"
+      - "reaplicacao_apos_restauro"
+    nomes:
+      - "pedido_do_titular"
+      - "decisao_trust_safety"
+      - "reaplicacao_apos_restauro"
+    nomes_nota:
+      - "tenant_state_log"
+      - "ativo"
+      - "encerramento"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O pacote do titular"
+    canonico: "manifesto com VERSAO_DO_MANIFESTO = 1.0.0, num ZIP reproduzível na classe dsar do STO"
+    literais:
+      - "VERSAO_DO_MANIFESTO"
+      - "1.0.0"
+      - "dsar"
+    nomes:
+      - "VERSAO_DO_MANIFESTO"
+      - "dsar"
+    nomes_nota:
+      - "sha256"
+      - "audit_log"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "A ligação de 24 h"
+    canonico: "ligacao_assinada, com VALIDADE_DA_LIGACAO = 24 h"
+    literais:
+      - "ligacao_assinada"
+      - "VALIDADE_DA_LIGACAO"
+    nomes:
+      - "ligacao_assinada"
+      - "VALIDADE_DA_LIGACAO"
+    nomes_nota:
+      - "LigacaoRecusada"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "Os caminhos da purga"
+    canonico: "CAMINHOS_DO_ENCERRAMENTO"
+    literais:
+      - "CAMINHOS_DO_ENCERRAMENTO"
+    nomes:
+      - "CAMINHOS_DO_ENCERRAMENTO"
+    nomes_nota:
+      - "relacao"
+      - "kamba_batch"
+      - "DELETE"
+      - "purge_log"
+      - "recusada"
+      - "sem_caminho"
+      - "ok"
+      - "apagar_contactos"
+    variantes_literais: []
+  - seccao: "3.77"
+    conceito: "O certificado de eliminação"
+    canonico: "VERSAO_DO_CERTIFICADO = 1.0.0, assinado HMAC-SHA256 com o kid"
+    literais:
+      - "VERSAO_DO_CERTIFICADO"
+      - "1.0.0"
+      - "HMAC-SHA256"
+      - "kid"
+    nomes:
+      - "VERSAO_DO_CERTIFICADO"
+      - "HMAC"
+      - "SHA256"
+      - "kid"
+    nomes_nota:
+      - "purge_log"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -22656,6 +22856,29 @@ dominios:
       - "recalibracao"
     seccao: "3.75"
     conceito: "Porque está no nível"
+    so_no_registo: false
+  - coluna: "offboarding_run.fase"
+    valores:
+      - "verificacao"
+      - "pendentes"
+      - "canal"
+      - "exportacao"
+      - "revogacao"
+      - "purga"
+      - "certificado"
+    seccao: "3.77"
+    conceito: "As fases"
+    so_no_registo: false
+  - coluna: "offboarding_run.estado"
+    valores:
+      - "pendente"
+      - "em_curso"
+      - "concluida"
+      - "suspensa_disputa"
+      - "falhada"
+      - "cancelada"
+    seccao: "3.77"
+    conceito: "Estado de uma fase"
     so_no_registo: false
 
 variantes:

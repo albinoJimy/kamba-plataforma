@@ -1787,6 +1787,27 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: As fases do off-boarding (KAM-098, revisao do off-boarding). **So o lote
+#: escreve**: `INSERT`, e `UPDATE` por coluna (ver `COLUNAS_POR_PAPEL`), so do
+#: `estado`, do `prazo_at` (a reabertura de um pedido cancelado) e do
+#: `resultado` — o tenant e a fase de uma linha nao se reescrevem. A auditoria le.
+#: O `kamba_app` **nao tem nada**: nao ha painel do encerramento. Ninguem apaga.
+ESPERADO_POR_TABELA.update(
+    {
+        "offboarding_run": {
+            "kamba_app": set(),
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_audit": {"SELECT"},
+            "kamba_agr": set(),
+            "kamba_pay_hooks": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+    }
+)
+
 #: O `kamba_pay` (KAM-197) em **todas** as tabelas, de uma vez e no fim.
 #:
 #: E o consumidor do PAY, e consumir pede tres tabelas e mais nenhuma: le o
@@ -2376,6 +2397,9 @@ COLUNAS_POR_PAPEL = {
     # quem e porque. **Fora**: o `tenant_id` (a chave) e a `currency`, que e
     # `AOA` por `CHECK`. As datas estao na lista, mas quem as escreve e o
     # *trigger* `trust_level_guardar`, que ignora o que o lote mandar.
+    # KAM-098 (revisao do off-boarding): o lote muda o estado e o resultado de
+    # uma fase, e mais nada.
+    ("kamba_batch", "offboarding_run", "UPDATE"): {"estado", "prazo_at", "resultado"},
     ("kamba_batch", "trust_level", "UPDATE"): {
         "nivel", "tecto_pedido_minor", "motivo", "actor", "versao_config",
         "desde", "alterado_em",
@@ -2509,6 +2533,9 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # para a aplicacao. Um `GRANT UPDATE (tenant_id)` ou um `GRANT SELECT
     # (motivo)` a aplicacao era invisivel na matriz de tabela.
     "trust_level",
+    # KAM-098: as fases do off-boarding, com `UPDATE` por coluna para o lote. Um
+    # `GRANT UPDATE (fase)` mudava a fase de uma linha e era invisivel na matriz.
+    "offboarding_run",
     # KAM-054 (0032): as quatro. Duas tem privilegio por coluna — o
     # `payment_confirmers` (`papel`, `pode_segunda_aprovacao`, `ativo`) e a
     # `refund_cases` (`estado`, `prova_ref`, `fechado_at`) —, e as outras duas

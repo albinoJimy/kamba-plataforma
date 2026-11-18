@@ -217,7 +217,7 @@ describe("ResolvedorDeCanal", () => {
     assert.equal(resolvedor.invalidarTenant("99999999-9999-4999-8999-999999999999"), 0);
   });
 
-  it("o efeito da activacao esquece o tenant do envelope, e uma versao desconhecida lanca", async () => {
+  it("o efeito esquece o tenant na activacao, na suspensao e no encerramento, e uma versao ou tipo desconhecido lanca", async () => {
     const pedidos: string[] = [];
     const efeito = efeitoDaActivacao({ invalidarTenant: (t) => (pedidos.push(t), 3) });
     const envelope = (tipo: string, versao: number) =>
@@ -230,8 +230,15 @@ describe("ResolvedorDeCanal", () => {
     // Uma versao nova engolida era uma activacao que o CHR nunca via: lanca, e o
     // `consumir` leva-a pela escada ate a DLQ.
     await assert.rejects(efeito(bd, envelope(TIPO_DA_ACTIVACAO, 2)), VersaoDaActivacaoError);
-    await assert.rejects(efeito(bd, envelope("tenant.suspended", 1)), VersaoDaActivacaoError);
     assert.equal(pedidos.length, 1);
+    // A suspensao (KAM-058) e o encerramento (KAM-098) esquecem da mesma forma;
+    // a reactivacao e um tipo que este consumidor nao subscreve, e lanca.
+    await efeito(bd, envelope("tenant.suspended", 1));
+    await efeito(bd, envelope("tenant.closed", 1));
+    assert.equal(pedidos.length, 3);
+    await assert.rejects(efeito(bd, envelope("tenant.suspended", 2)), VersaoDaActivacaoError);
+    await assert.rejects(efeito(bd, envelope("tenant.reactivated", 1)), VersaoDaActivacaoError);
+    assert.equal(pedidos.length, 3);
   });
 
   it("o tecto de entradas expulsa a mais antiga", async () => {

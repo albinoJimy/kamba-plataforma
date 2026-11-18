@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.109 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.110 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -4780,6 +4780,48 @@ valores, que se calibram com o Piloto.
 
 ---
 
+### 3.77 Off-boarding do tenant: `offboarding_run`, as fases e o certificado (KAM-098)
+
+*Emenda 1.110, **proposta**.* Os nomes do encerramento de um tenant: a tabela das fases da revisão
+[`0068`](../db/migrations/versions/0068_offboarding.py), o lado do pedido e dos recursos em
+[`../packages/core-ts/src/offboarding/`](../packages/core-ts/src/offboarding/index.ts) e o lado dos dados
+em [`../libs/py-core/src/kamba_core/offboarding/`](../libs/py-core/src/kamba_core/offboarding/__init__.py).
+É o credor que o §3.55 (a classe `relacao` da retenção, «sai no encerramento») e o §3.70 (o encerramento
+que ninguém emitia) deixaram escrito.
+
+**A regra que nenhuma coluna exprime: o encerramento é uma porta só, e o evento sai com ela.** O tenant
+passa a `encerrado` pela `transition_tenant` do §3.70, como `kamba_batch`, no fim da revogação, e o
+evento do encerramento emite-se na mesma transacção, só quando a porta devolve verdadeiro — repetir dá
+falso, e não há segundo evento. O WABA e o número **continuam do cliente** (E1): toda a acção sobre eles
+passa pelo guarda da saga do §3.47, que recusa em execução uma acção destrutiva, e a única que se faz é
+cancelar a subscrição de *webhooks*.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Fases do encerramento | `platform.offboarding_run`, **cinco** colunas | — | *proposta* (emenda 1.110, KAM-098). `tenant_id`, `fase`, `estado`, `prazo_at`, `resultado`; chave `(tenant_id, fase)` — o «`UNIQUE (tenant_id, fase)`» do bloco —, FK para `tenants`, RLS `FORCE`. **Só o `kamba_batch` escreve**: `INSERT`, e `UPDATE` só do `estado`, do `prazo_at` e do `resultado` (o tenant e a fase não se reescrevem; o prazo reescreve-o só a reabertura de um pedido cancelado). O `kamba_app` não tem nada. Ninguém apaga: é a prova do encerramento, e o certificado lê-se dela |
+| As fases | `offboarding_run.fase` ∈ {`verificacao`, `pendentes`, `canal`, `exportacao`, `revogacao`, `purga`, `certificado`} | — | *proposta* (emenda 1.110, KAM-098). As **sete** do bloco. O TypeScript escreve as quatro primeiras que usam as portas da saga (a `verificacao`, os `pendentes`, o `canal`, a `revogacao`); o Python escreve a `exportacao`, a `purga` e o `certificado` |
+| Estado de uma fase | `offboarding_run.estado` ∈ {`pendente`, `em_curso`, `concluida`, `suspensa_disputa`, `falhada`, `cancelada`} | — | *proposta* (emenda 1.110, KAM-098). Os **cinco** do bloco e `cancelada`: o pedido é cancelável até D7 (critério 1), e um pedido cancelado não é `falhada` nem `concluida` |
+| Calendário | `DIA_DA_FASE`: verificação D0, canal D1, pendentes, exportação e revogação D7, purga e certificado D30; `DIAS_DE_CANCELAMENTO` = 7 | — | *proposta* (emenda 1.110, KAM-098). **Todos os prazos são *proposta*** (`../docs/tecnica/10` §15.2). O pedido escreve o `prazo_at` das sete fases de uma vez; o Python lê-o e não tem cópia do calendário. A revogação só começa no D7, quando o cancelamento acaba |
+| Sub-estados de `encerrado` | `em_exportacao`, `em_retencao`, `purgado` | — | *proposta* (emenda 1.110, KAM-098; PA-GOV-6). **Lêem-se das fases** (`subestado`), sem coluna: uma coluna era uma segunda resposta à mesma pergunta. Enquanto o prazo fiscal estiver por definir (§3.55), as classes fiscais ficam sempre, pelo que o fim é `em_retencao` |
+| A dupla confirmação | `ProvasDoTitular`: `otpConfere` e `ligacaoDoEmailConfere` | — | *proposta* (emenda 1.110, KAM-098). Duas portas, e as **duas** perguntadas; o resultado guarda só que passaram. **Sem adaptador**: o envio do OTP e da ligação ao dono é do canal da KAMBÁ (D10) e da identidade do dono |
+| O aviso ao dono | `AVISO_DA_APP_BUSINESS` | — | *proposta* (emenda 1.110, KAM-098). Texto fixo, igual para todos: o número e a conta continuam do dono, e a aplicação WhatsApp Business volta a funcionar |
+| Motivo do encerramento | `pedido_do_titular`, `decisao_trust_safety`, `reaplicacao_apos_restauro` | — | *proposta* (emenda 1.110, KAM-098). O motivo do `tenant_state_log` e do evento do encerramento, por origem; o terceiro é o da reaplicação da purga quando uma cópia trouxe o tenant de volta a `ativo`. Sem nada do dono. **T&S só encerra com uma sanção `encerramento` do KAM-097 em vigor**, e toma um pedido vivo do titular |
+| O pacote do titular | manifesto com `VERSAO_DO_MANIFESTO` = `1.0.0`, num ZIP reproduzível na classe `dsar` do STO | — | *proposta* (emenda 1.110, KAM-098). Clientes, encomendas, conversas, consentimentos e a lista dos ficheiros, em JSON e CSV, com o `sha256` de cada ficheiro; o catálogo quando houver fonte (vive na Medusa, D3). O objecto expira no prazo da purga. Cada geração vai ao `audit_log` |
+| A ligação de 24 h | `ligacao_assinada`, com `VALIDADE_DA_LIGACAO` = 24 h | — | *proposta* (emenda 1.110, KAM-098). Um *token* HMAC com o tenant, o objecto e a validade; cada abertura assina um URL do STO de cinco minutos (o tecto do §3.11). Expirado, de outro tenant ou adulterado: `LigacaoRecusada`, o 403 do bloco |
+| Os caminhos da purga | `CAMINHOS_DO_ENCERRAMENTO` | — | *proposta* (emenda 1.110, KAM-098). As tabelas da classe `relacao` (§3.55) em que o `kamba_batch` tem `DELETE`, pela ordem das FK, cada unidade com a sua linha no `purge_log` na mesma transacção. As que não têm caminho ficam `recusada`/`sem_caminho`, nunca `ok`. Os contactos saem pelo cofre (`apagar_contactos`, o apagamento do KAM-008) e, sem ele, ficam `sem_caminho` |
+| O certificado de eliminação | `VERSAO_DO_CERTIFICADO` = `1.0.0`, assinado `HMAC-SHA256` com o `kid` | — | *proposta* (emenda 1.110, KAM-098). O que saiu (por tabela, do `purge_log`) e o que ficou, com fundamento; **não afirma** o apagamento das cópias de segurança e diz até quando elas podem ter os dados (os 35 dias do KAM-079). A assinatura é HMAC e não assimétrica: verifica-a quem tem a chave |
+
+**Os dois eventos de estado que o CHR passa a ouvir.** A revisão `0068` acrescenta ao consumidor `chr`
+(§3.70) a suspensão e o encerramento, ambos na versão 1: com a *cache* do resolvedor a guardar o contexto
+60 s, o CHR continuava a pôr no AGR as mensagens de um tenant que a base já dizia suspenso ou encerrado.
+O efeito é o mesmo da activação — esquecer o tenant —, e a decisão de encaminhar continua a ser da matriz
+de estados, lida da base na resolução seguinte.
+
+**O que esta emenda não decide, e a quem.** O envio do OTP e da ligação ao e-mail do dono (D10 e a
+identidade do dono). O apagamento dos contactos, que é do cofre do KAM-008 e não tem quem o chame no
+encerramento. O prazo fiscal do CGT, que continua **NÃO VERIFICADO** (§3.55): até lá, nada fiscal se apaga.
+A assinatura assimétrica do certificado, se a letra «assinado digitalmente» a pedir — volta ao fundador.
+
 ---
 
 ## 4. Itens que continuam por decidir
@@ -4912,3 +4954,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.107 | Novembro 2026 | **Emenda (*proposta*), KAM-072: a rotação de chaves no registo de auditoria.** Sobre a 1.106 do KAM-096. §3.2: o domínio de `action` do `audit_log` passa de dezassete a **dezanove**, com as duas acções do rotador, pela revisão `0066` — rodar uma versão nova e revogar a anterior, na cadeia de plataforma. **O que não decide:** quem corre o rotador contra o cofre real, nem a métrica da idade dos segredos, que não é nome deste dicionário. | Equipa KAMBÁ |
 | 1.108 | Novembro 2026 | **Emenda (*proposta*), KAM-190: o painel do dono depois das cinco caixas devolvidas pelo KAM-099.** Sobre a 1.107 do KAM-072. §3.76 nova: as duas leituras do painel no COM (`POST /internal/get-offer` e `POST /internal/channel-view`, a API interna passa a **onze** rotas), a `VistaDoCanal` com **sete** campos lidos de quatro fontes, o intervalo de criação do `listOrders` (`criadoDesde` inclusive, `criadoAte` exclusive) **dentro da assinatura do cursor**, a reentrada por código (`POST /painel/codigo`, `POST /painel/verificar`) com o bilhete de domínio próprio, a ponte `GET /painel/ligar` e o `GET /metrics` do `onboarding-web`. §3.56: as duas linhas que deixaram de ser verdade (as métricas «não servidas» e o adaptador do canal que «não existe») passam a apontar para a §3.76, e os domínios de `rota` e de `motivo` ganham os valores novos. **Sem revisão de base de dados.** **O que não decide:** o contacto da encomenda com auditoria, que pede uma acção nova no domínio fechado de `audit_log.action`. | Equipa KAMBÁ |
 | 1.109 | Novembro 2026 | **Emenda (*proposta*), KAM-200: Trust & Safety em produção.** Sobre a 1.108 do KAM-190. §3.68: o consumidor `trust` e as suas sete subscrições, o motivo da transição de T&S no registo de estados do tenant e no evento, a fonte da mudança de conta (a função e os dois *triggers* da revisão `0067`), a limitação no catálogo (a função e os três *triggers*) e a entidade `ts_varredura` da acção `batch.run`. A escada deixa de transitar por um CAS directo e passa pela porta do §3.70. **O que não decide:** a correlação entre tenants (KAM-208) e a categoria do produto (KAM-209). | Equipa KAMBÁ |
+| 1.110 | Novembro 2026 | **Emenda (*proposta*), KAM-098: o off-boarding do tenant.** Sobre a 1.109 do KAM-200. §3.77 nova: a `offboarding_run` (cinco colunas, chave `(tenant_id, fase)`, as sete fases e os seis estados), o calendário D0–D30, os sub-estados de `encerrado` lidos das fases, a dupla confirmação, o pacote do titular e a ligação de 24 h, os caminhos da purga e o certificado sem promessa sobre as cópias. O consumidor do CHR passa a ouvir a suspensão e o encerramento. Todos os prazos são *proposta*. | Equipa KAMBÁ |
