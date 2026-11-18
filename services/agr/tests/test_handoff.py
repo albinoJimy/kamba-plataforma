@@ -74,6 +74,13 @@ _COM_LETRAS = str(uuid.UUID(int=0xABCDEF0123456789ABCDEF0123456789))
 #: ensaio de prazos tem de correr num relogio que exista.
 _AGORA = 1_700_000_000.0
 
+#: Quanto uma secção espera pela outra na barreira (KAM-214). **Nao e uma
+#: janela de sobreposicao:** com o codigo certo a barreira abre assim que as
+#: duas entram, e o prazo nunca se gasta. So o paga um trinco que serializa
+#: (duas vezes, uma por secção), e e largo de proposito para que nenhuma
+#: maquina carregada o confunda com serializacao.
+PRAZO_DA_BARREIRA_S = 5.0
+
 
 # --------------------------------------------------------------- a maquina
 
@@ -956,21 +963,35 @@ class TestATrancaExcluiDentroDoProcesso(unittest.IsolatedAsyncioTestCase):
         Um trinco por processo em vez de por `thread_id` era bloqueio de cabeca
         de fila a atravessar *tenants*, que e exactamente o que o criterio 5 do
         KAM-025 proibe — e o que a primeira versao do `trancas.py` pagou.
+
+        **Mede-se com uma barreira, e nao com o relogio (KAM-214).** A primeira
+        versao dormia 10 ms dentro da tranca e esperava ver as duas la dentro;
+        mas a segunda so entra depois de uma ida ao *pool* de `to_thread` (a
+        `_exclusiva` serializa as idas a base, e com razao), e numa maquina
+        carregada essa ida passa dos 10 ms. A primeira saia antes de a segunda
+        entrar, e o ensaio afirmava «serializaram» sobre um codigo que nao
+        serializa: medido 5 em 300 com `--cpus=0.3`, e na *suite* inteira.
+
+        Com a barreira, cada uma so sai **depois de ver a outra la dentro**,
+        pelo que a latencia ja nao decide nada. Um trinco global nao chega a
+        juntar as duas: a primeira espera o prazo sozinha, sai, e so entao entra
+        a segunda — e o ensaio falha pela assercao, nao por ficar pendurado.
         """
         from kamba_agr.trancas import TrancaDeConversas
 
         trancas = TrancaDeConversas(lambda: self.LigacaoQueConta())
-        dentro = {"agora": 0, "maximo": 0}
+        juntas = asyncio.Barrier(2)
 
-        async def seccao(chave: str):
+        async def seccao(chave: str) -> bool:
             async with trancas.tomar(chave):
-                dentro["agora"] += 1
-                dentro["maximo"] = max(dentro["maximo"], dentro["agora"])
-                await asyncio.sleep(0.01)
-                dentro["agora"] -= 1
+                try:
+                    await asyncio.wait_for(juntas.wait(), timeout=PRAZO_DA_BARREIRA_S)
+                except TimeoutError:
+                    return False
+                return True
 
-        await asyncio.gather(seccao("t:um"), seccao("t:dois"))
-        self.assertEqual(dentro["maximo"], 2, "duas conversas serializaram")
+        viram_a_outra = await asyncio.gather(seccao("t:um"), seccao("t:dois"))
+        self.assertEqual(viram_a_outra, [True, True], "duas conversas serializaram")
 
     async def test_o_dicionario_de_trincos_nao_cresce(self) -> None:
         """Um `dict` de trincos sem limpeza e uma fuga proporcional ao numero de
