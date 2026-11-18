@@ -3154,19 +3154,19 @@ nem um dono escrevem qualquer valor.
 
 ### Critérios de Aceitação
 
-- [ ] **O papel fica preso ao actor, na base.** Numa transição para `entregue`, o *trigger* da encomenda lê
+- [x] **O papel fica preso ao actor, na base.** Numa transição para `entregue`, o *trigger* da encomenda lê
       a linha do `order_state_log` dessa `version` e recusa (`23514`) um `entrega_confirmada_por` que o
       `actor_kind` não pode declarar. `cliente` não se aceita de `dono` nem de `ops`. O ticket decide e
       escreve no bloco qual é o actor que fala pelo cliente: o `agente`, num turno do contacto da encomenda,
       ou o `sistema`, com um evento ancorado no `events_consumed`, como o `paga` já faz.
-- [ ] **O instante é o da transacção.** O `entregue_at` passa a `now()` da transacção, escrito pelo
+- [x] **O instante é o da transacção.** O `entregue_at` passa a `now()` da transacção, escrito pelo
       *trigger* em cada entrada em `entregue`, e o valor que a aplicação mande é ignorado. No fim de uma
       disputa (KAM-050) mantém-se o da entrega que houve.
-- [ ] **Depois de gravados, não se mudam.** Fora de uma transição para `entregue`, um `UPDATE` que mude
+- [x] **Depois de gravados, não se mudam.** Fora de uma transição para `entregue`, um `UPDATE` que mude
       qualquer das duas colunas é recusado, também ao `kamba_app` com o seu `UPDATE` de coluna.
-- [ ] **O caminho novo de escrita está escrito.** O `transition` deixa de passar o `entregue_at` e pede o
+- [x] **O caminho novo de escrita está escrito.** O `transition` deixa de passar o `entregue_at` e pede o
       papel ao `ctx`. O bloco nomeia quem passa a gravar cada coluna, e o dicionário (§3.43) diz o mesmo.
-- [ ] O critério 3 do KAM-096 é revisto com esta evidência.
+- [x] O critério 3 do KAM-096 é revisto com esta evidência.
 
 ### Detalhes Técnicos
 
@@ -3203,8 +3203,8 @@ nem um dono escrevem qualquer valor.
 
 ### Definition of Done
 
-- [ ] Critérios de Aceitação satisfeitos; migração reversível; RLS `FORCE` intacta (ADR-015).
-- [ ] O critério 3 do KAM-096 revisto com a evidência; sem segredos.
+- [x] Critérios de Aceitação satisfeitos; migração reversível; RLS `FORCE` intacta (ADR-015).
+- [x] O critério 3 do KAM-096 revisto com a evidência; sem segredos.
 
 ### Handoff para Claude Code
 
@@ -3218,6 +3218,27 @@ pela base no instante da transição; os dois imutáveis depois.
 Regras: a barreira é da base; o transition muda na mesma entrega; migração reversível.
 Testes: integração, mutações, fim de disputa.
 ```
+
+### Verificação dos Critérios de Aceitação
+
+Cinco critérios, **cinco marcados**. Os ensaios de base estão em `../db/tests_encomendas/test_entrega_presa.py`
+e correm na suite `tests_encomendas` do *gate* 8, contra um PostgreSQL real, sobre a árvore integrada com a
+`publico/main` em `7245e5e3`: **`Ran 217`, `OK`**. As mutações são as **oito** da revisão em `../db/mutacoes.py`: **oito apanhadas em oito. Três deram primeiro `PROVA INVALIDA` por a suite passar dos 900 s com a máquina carregada; corridas outra vez, as duas de «fora de uma entrega» foram apanhadas pelo executor, e a de «o cliente deixa de exigir a janela» com a suite inteira corrida à mão sobre a cópia mutada (`Ran 217`, uma falha: o `test_a_janela_fechada_nao_serve`)**.
+
+| Critério | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | `TestOPapelFicaPresoAoActor`: um dono com `cliente` dá `23514` no `COMMIT` e a encomenda fica `paga` (`test_um_dono_nao_declara_cliente`); com `dono` entra; o `ops` é recusado com os três papéis; o agente com `cliente` entra com a janela aberta, e é recusado sem ela, com a janela de outro contacto e com a janela fechada. A janela lê-se pela cadeia de `merged_into` (`test_a_janela_do_contacto_que_ficou_serve`). Pelo `kamba_app`, com a RLS: o agente entra (`test_o_agente_entrega_como_kamba_app`), e o diferido corrido antes do registo por `SET CONSTRAINTS … IMMEDIATE` recusa com `KA005` (`test_correr_o_papel_antes_do_registo_e_recusado`). O actor escolhido está nos Detalhes Técnicos, com as duas decisões do fundador de 2026-11-18 |
+| 2 | marcado | `test_um_instante_no_passado_vindo_da_aplicacao_e_ignorado`: a aplicação manda `2020-01-01` e a coluna fica com o `now()` lido na mesma transacção. O fim de uma disputa mantém o instante e o papel da entrega, com o ops a mandar outros (`test_o_instante_e_o_papel_ficam_os_da_entrega`). Uma encomenda não nasce com nenhuma das duas (`test_uma_encomenda_nao_nasce_com_entrega`) |
+| 3 | marcado | `TestDepoisDeGravadosNaoSeMudam`: o `kamba_app` não escreve o instante (`42501`, porque a revisão lhe tira o `UPDATE (entregue_at)`) nem muda o papel (`23514`); o administrador também não muda nenhum dos dois (`23514`); e, antes da entrega, o papel também não se escreve. **O limite:** quem é dono da tabela pode desligar o *trigger*, e é assim que o `recuar_entrega` dos ensaios recua uma entrega |
+| 4 | marcado | O `transition` (`../services/com/src/orders/transition.ts`) tira o papel do `ctx` pelo `PAPEL_POR_ACTOR` (`../services/com/src/orders/contrato.ts`), e o `SQL_TRANSITAR` deixou de nomear o `entregue_at`. Medido nos ensaios do módulo: `` `entregue` por ops é recusado antes do CAS `` e os três `` `entregue` por <actor> grava o papel <papel> `` (`../services/com/tests/orders.modulo.test.ts`); a suite do `com` dá **569 de 569**. Quem grava cada coluna está nos Detalhes Técnicos e no dicionário §3.43 (emenda 1.113), e os três comandos do *gate* 3b estão conformes. O `entregue` passou a ser alcançável pela porta, e o `../docs/com/port-coverage.md` diz o mesmo |
+| 5 | marcado | O critério 3 do KAM-096 passa a **satisfeito**, com esta evidência e o limite escrito, no `../specs/EPIC-09_Onboarding_Governanca.md` (versão 1.32) |
+
+### Verificação da Definition of Done
+
+| DoD | Estado | Evidência nomeada |
+|---|---|---|
+| 1 | marcado | Os cinco acima. A migração é reversível: o `TestDowngradeDaEntregaPresa` desce à anterior, lida do próprio ficheiro, afirma que a base fica nela, e sobe; o ciclo do `tests.test_migracao` passa (**`Ran 126`, `OK`, com o `test_privilegios`, o `test_catalogo` e os ensaios de esquema**). A RLS `FORCE` fica intacta: a revisão não toca em política nenhuma, e o `test_isolamento` da suite passa, com a lista dos *triggers* `ALWAYS` a ter os dois novos |
+| 2 | marcado | Critério 5. Sem segredos: o `scan_secrets` do *hook* de *commit* está limpo. A revisão adversarial independente trouxe **dois achados a corrigir**, ambos corrigidos e medidos: o diferido sem linha de registo deixava passar o papel com `SET CONSTRAINTS … IMMEDIATE` (agora `KA005`, com ensaio e mutação), e a versão do epic. Trouxe também três a escrever: o limite do `kamba_app` (escrito na revisão, no §3.43 e no critério 3 do KAM-096), a janela depois de uma fusão de contactos (corrigido: a cadeia de `merged_into`), e o `port-coverage.md` desactualizado (corrigido). **Uma frase dos Detalhes Técnicos não descreve nada:** o `tests_pagamentos` não escreve `entregue` em sítio nenhum, pelo que as sementes que mudaram são só as do `tests_encomendas` |
 
 ---
 
@@ -3284,3 +3305,4 @@ Testes: integração, mutações, fim de disputa.
 | 1.25 | Novembro 2026 | **KAM-197 fecha o critério 4 do KAM-050.** As regras 3 e 4 terminam com o caso de reembolso aberto pelo PAY (revisão `0051`, papel `kamba_pay`), e o `pagamento_duplicado` da mesma cobrança passa a chegar ao COM. A caixa marca-se e a linha da verificação passa a `satisfeito`, com o registo anterior intacto. | Equipa KAMBÁ |
 | 1.26 | Novembro 2026 | **KAM-202 acrescentado**, no PR do **KAM-094**, que o abre e não o implementa: é o credor das caixas que o KAM-094 deixa parciais — o observador de produção do teste, a activação e o *verify* no lote do KAM-198, o filtro de `is_test` nas métricas, na golden e no Score, e a restrição de BD na publicação da `offer_terms`, que se liga depois de o KAM-119 pôr o COM a gravar a decisão. Dependências KAM-094, KAM-119 e KAM-198. | Equipa KAMBÁ |
 | 1.27 | Novembro 2026 | **KAM-204 acrescentado, no PR do KAM-096 (EPIC-09)**, que o abre e não o implementa: é o credor do critério 3 do KAM-096. O `entrega_confirmada_por = 'cliente'` e o `entregue_at` escrevem-se hoje à mão, pelo `transition` ou por um `UPDATE` de coluna do `kamba_app`, e o ticket prende-os ao actor e ao instante da transição, na base. O `Bloqueia` do KAM-044 passa a nomear o KAM-204. O epic passa a **16** tickets, seis na Fase 1. | Equipa KAMBÁ |
+| 1.28 | Novembro 2026 | **KAM-204 implementado.** A revisão `0071` prende o `entrega_confirmada_por` ao actor do `order_state_log` e o `entregue_at` ao instante da transacção, na base; o `transition` pede o papel ao `ctx`. Entram no bloco as duas decisões do fundador de 2026-11-18 — o agente fala pelo cliente, com a janela de 24 h aberta, e o mapa actor → papel — e as duas secções de verificação, com as sete caixas marcadas. | Equipa KAMBÁ |

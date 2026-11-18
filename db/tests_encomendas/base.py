@@ -356,16 +356,28 @@ class ComEncomendas(ComBase):
             versao = self.transitar(tenant, encomenda, de, para, versao, causa)
         return versao
 
-    def abrir_janela(self, tenant: str, encomenda: str) -> None:
+    def abrir_janela(
+        self, tenant: str, encomenda: str, contacto: str | None = None
+    ) -> None:
         """Abre a janela de 24 h na conversa do contacto da encomenda (KAM-204).
 
         E o que o `order_entrega_exige_papel` da revisao `0071` le para aceitar
         `cliente`: o cliente escreveu nas ultimas 24 h. Idempotente pela
         unicidade `(tenant_id, contact_id, channel_id)` da conversa, que aqui e
         um canal por chamada — pelo que a segunda chamada abre outra conversa,
-        o que nao muda a resposta.
+        o que nao muda a resposta. Com `contacto`, a conversa e desse contacto e
+        nao do da encomenda (a fusao de contactos).
         """
         canal = factories.canal(self.semente, tenant)
+        if contacto is not None:
+            self.semente.execute(
+                "INSERT INTO platform.conversations "
+                "       (tenant_id, contact_id, channel_id, last_inbound_at, "
+                "        window_expires_at) "
+                "VALUES (%s, %s, %s, now(), now() + interval '24 hours')",
+                (tenant, contacto, canal),
+            )
+            return
         self.semente.execute(
             "INSERT INTO platform.conversations "
             "       (tenant_id, contact_id, channel_id, last_inbound_at, "

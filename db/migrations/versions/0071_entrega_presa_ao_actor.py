@@ -36,9 +36,33 @@ num *trigger* proprio por duas razoes: o `downgrade` passa a ser um `DROP`, sem
 copia literal do corpo da `0046`; e o SQLSTATE e outro (`23514`, que o criterio 1
 do bloco pede), pelo que as recusas ficam em funcoes diferentes.
 
-**Os dois diferidos leem a mesma linha, e so um recusa a falta dela.** Sem linha
-de registo, o `order_estado_exige_log` levanta `KA005`; este devolve sem
-verificar, para que a recusa seja uma e a do registo.
+**Os dois diferidos leem a mesma linha, e os dois recusam a falta dela**, com o
+mesmo `KA005`. A primeira versao desta revisao devolvia sem verificar, a contar
+com o `order_estado_exige_log` — e a revisao adversarial mostrou que isso so vale
+se os dois correrem no mesmo instante: um `SET CONSTRAINTS
+platform.order_entrega_exige_papel IMMEDIATE` (que nao pede privilegio nenhum)
+entre o `UPDATE` e o `INSERT` do registo corria este diferido antes de haver
+linha, e um dono gravava `cliente`. O `test_correr_o_papel_antes_do_registo_e_recusado`
+mede-o.
+
+## A janela procura-se no contacto canonico
+
+A fusao de contactos (KAM-008) reaponta as conversas do contacto absorvido para
+o que fica, e a `orders_mirror.contact_id` nao muda. Por isso a janela le-se
+sobre a cadeia de `merged_into` do contacto da encomenda, ate oito passos, como o
+`SQL_PEDIDOS_ENTREGUES` do KAM-096: sem isso, um cliente fundido que escreve hoje
+nao confirmava uma encomenda de antes da fusao.
+
+## O que a base prova, e o que nao prova
+
+Prova que o actor do registo e um `agente` e que o cliente do contacto escreveu
+nas ultimas 24 h. **Nao prova** que foi o agente quem escreveu a linha: o
+`actor_kind` do `order_state_log` e a janela da `conversations` sao os dois
+escritos pelo `kamba_app` (a `0009` da-lhe `UPDATE (last_inbound_at,
+window_expires_at)`), pelo que uma instrucao directa do proprio `kamba_app`,
+fora do `transition`, consegue as duas coisas. E o mesmo limite do `paga` da
+`0030`: a base distingue actores pelo que o registo diz, e nao distingue
+caminhos de codigo dentro do mesmo papel.
 
 ## `SECURITY INVOKER`, como o `order_estado_exige_log`
 
@@ -68,6 +92,9 @@ PAPEL_DA_APP = "kamba_app"
 #: O SQLSTATE das recusas desta revisao. O criterio 1 do bloco pede `23514`
 #: (`check_violation`), e o 3 recusa pela mesma regra de coluna.
 SQLSTATE_PAPEL = "23514"
+
+#: O SQLSTATE da `0030` para a mudanca de estado sem `order_state_log`.
+SQLSTATE_REGISTO = "KA005"
 
 #: Os pares `(actor_kind, entrega_confirmada_por)` que entram. **Um papel por
 #: actor** (decisao do fundador, 2026-11-18), e e o que deixa o `transition`
@@ -159,7 +186,11 @@ def upgrade() -> None:
              AND l.order_id = NEW.id
              AND l.version = NEW.version;
           IF NOT FOUND THEN
-            RETURN NULL;
+            RAISE EXCEPTION
+              'orders_mirror: a entrega da version % nao tem order_state_log; '
+              'o papel verifica-se contra o actor do registo (KAM-204)',
+              NEW.version
+              USING ERRCODE = '{SQLSTATE_REGISTO}';
           END IF;
           IF (v_log.actor_kind, NEW.entrega_confirmada_por)
              NOT IN ({", ".join(PARES_ACTOR_PAPEL)}) THEN
@@ -170,10 +201,18 @@ def upgrade() -> None:
               USING ERRCODE = '{SQLSTATE_PAPEL}';
           END IF;
           IF NEW.entrega_confirmada_por = 'cliente' AND NOT EXISTS (
-               SELECT 1 FROM platform.conversations c
-                WHERE c.tenant_id = NEW.tenant_id
-                  AND c.contact_id = NEW.contact_id
-                  AND c.window_expires_at > now()) THEN
+               WITH RECURSIVE cadeia(contacto, passos) AS (
+                   SELECT NEW.contact_id, 0
+                   UNION ALL
+                   SELECT k.merged_into, c.passos + 1
+                     FROM cadeia c
+                     JOIN platform.contacts k
+                       ON k.tenant_id = NEW.tenant_id AND k.contact_id = c.contacto
+                    WHERE k.merged_into IS NOT NULL AND c.passos < 8)
+               SELECT 1 FROM platform.conversations v
+                 JOIN cadeia c ON v.contact_id = c.contacto
+                WHERE v.tenant_id = NEW.tenant_id
+                  AND v.window_expires_at > now()) THEN
             RAISE EXCEPTION
               'orders_mirror: a entrega confirmada pelo cliente exige a janela '
               'de 24 h aberta na conversa do contacto da encomenda (KAM-204)'

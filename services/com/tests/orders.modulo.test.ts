@@ -419,9 +419,10 @@ for (const [kind, papel] of [
     assert.equal(r.tipo, "ok");
     const cas = repo.vistas.find((v) => v.sql === SQL_TRANSITAR);
     assert.ok(cas, "chegou ao CAS");
-    // `$8` é o papel; não há parâmetro do instante, que é da base (`0071`).
-    assert.equal(cas.valores[7], papel);
-    assert.equal(cas.valores.length, 9);
+    // `$8` é o papel; não há parâmetro do instante, que é da base (`0071`). O
+    // repo falso não acrescenta o tenant (`$1`), pelo que o `$8` é o índice 6.
+    assert.equal(cas.valores[6], papel);
+    assert.equal(cas.valores.length, 8);
     assert.ok(!SQL_TRANSITAR.includes("entregue_at"));
   });
 }

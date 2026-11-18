@@ -25,7 +25,7 @@ import bootstrap
 import ligacao
 import pg8000.dbapi
 from tests.base import alembic_ok, em_head, exigir_base_descartavel, sqlstate
-from tests_encomendas.base import ENTREGA_RECUSADA, ComEncomendas
+from tests_encomendas.base import ENTREGA_RECUSADA, REGISTO_EM_FALTA, ComEncomendas
 
 #: O ficheiro da revisao, pelo *glob*: o numero e da integracao.
 REVISAO = next(
@@ -147,6 +147,93 @@ class TestOPapelFicaPresoAoActor(_ComPaga):
             ),
             ENTREGA_RECUSADA,
         )
+
+    def test_a_janela_do_contacto_que_ficou_serve(self) -> None:
+        """A fusao (KAM-008) leva a conversa para o contacto que fica, e a
+        encomenda continua no absorvido: a janela le-se pela cadeia de
+        `merged_into`."""
+        tenant = self.criar_tenant()
+        absorvido = self.criar_contacto(tenant)
+        fica = self.criar_contacto(tenant)
+        encomenda = self.criar_encomenda(tenant, absorvido)
+        versao = self.levar_a(tenant, encomenda, "paga")
+        self.semente.execute(
+            "UPDATE platform.contacts SET merged_into = %s, merged_at = now() "
+            "WHERE tenant_id = %s AND contact_id = %s",
+            (fica, tenant, absorvido),
+        )
+        # A limpeza apaga o contacto que fica (nao tem encomendas), e o
+        # `contacts_merged_fk` recusa-o enquanto o absorvido apontar para ele.
+        # Os `addCleanup` correm do ultimo para o primeiro: este antes do geral.
+        self.addCleanup(
+            self.semente.execute,
+            "UPDATE platform.contacts SET merged_into = NULL, merged_at = NULL "
+            "WHERE tenant_id = %s AND contact_id = %s",
+            (tenant, absorvido),
+        )
+        self.abrir_janela(tenant, encomenda, contacto=fica)
+        self.transitar(
+            tenant, encomenda, "paga", "entregue", versao, "levantamento",
+            actor_kind="agente", actor_id="grafo-vendedor", janela=False,
+        )
+        self.assertEqual(self.ler(encomenda)[0::2], ("entregue", "cliente"))
+
+
+class TestComoKambaApp(_ComPaga):
+    """O caminho da aplicacao, com a RLS: os diferidos leem como invocador."""
+
+    def como_app(self, tenant: str, passos) -> str | None:
+        conexao = ligacao.ligar("app")
+        try:
+            cursor = conexao.cursor()
+            cursor.execute("SELECT set_config('app.tenant_id', %s, true)", (tenant,))
+            cursor.fetchone()
+            for sql, parametros in passos:
+                cursor.execute(sql, parametros)
+            conexao.commit()
+            return None
+        except pg8000.dbapi.DatabaseError as erro:
+            conexao.rollback()
+            return sqlstate(erro)
+        finally:
+            conexao.close()
+
+    def entregar(self, tenant: str, encomenda: str, versao: int, papel: str,
+                 actor: str, *, imediato: bool = False) -> str | None:
+        passos = [(
+            "UPDATE platform.orders_mirror "
+            "   SET estado = 'entregue', version = version + 1, "
+            "       entrega_confirmada_por = %s "
+            " WHERE tenant_id = %s AND id = %s AND version = %s",
+            (papel, tenant, encomenda, versao),
+        )]
+        if imediato:
+            passos.append((
+                "SET CONSTRAINTS platform.order_entrega_exige_papel IMMEDIATE", ()))
+        passos.append((
+            "INSERT INTO platform.order_state_log "
+            "       (tenant_id, order_id, de, para, version, causa, actor_kind, actor_id) "
+            "VALUES (%s, %s, 'paga', 'entregue', %s, 'levantamento', %s, 'x-1')",
+            (tenant, encomenda, versao + 1, actor),
+        ))
+        return self.como_app(tenant, passos)
+
+    def test_o_agente_entrega_como_kamba_app(self) -> None:
+        tenant, encomenda, versao = self.paga()
+        self.abrir_janela(tenant, encomenda)
+        self.assertIsNone(self.entregar(tenant, encomenda, versao, "cliente", "agente"))
+        self.assertEqual(self.ler(encomenda)[0::2], ("entregue", "cliente"))
+
+    def test_correr_o_papel_antes_do_registo_e_recusado(self) -> None:
+        """O achado 1 da revisao adversarial: o `SET CONSTRAINTS ... IMMEDIATE`
+        entre o `UPDATE` e o registo corria o diferido sem linha, e um dono
+        gravava `cliente`. Recusa-se com o `KA005` do registo em falta."""
+        tenant, encomenda, versao = self.paga()
+        self.assertEqual(
+            self.entregar(tenant, encomenda, versao, "cliente", "dono", imediato=True),
+            REGISTO_EM_FALTA,
+        )
+        self.assertEqual(self.ler(encomenda)[0], "paga")
 
 
 class TestOInstanteEDaTransaccao(_ComPaga):

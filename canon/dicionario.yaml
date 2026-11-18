@@ -11490,7 +11490,10 @@ entradas:
       - "order_state_log"
       - "version"
       - "order_entrega_exige_papel"
+      - "merged_into"
       - "conversations.window_expires_at"
+      - "kamba_app"
+      - "paga"
     variantes_literais: []
   - seccao: "3.43"
     conceito: "Instante da entrega"

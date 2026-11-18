@@ -6379,9 +6379,10 @@ MUTACOES = [
      "tests_encomendas"),
     # ---------------------------------- KAM-204, a entrega presa ao actor
     #
-    # Cinco, uma por barreira da revisao, pela ordem do que custa mais se nao
-    # morder: o papel que o actor nao declara, o instante da aplicacao, a
-    # imutabilidade, a janela do cliente e o fim da disputa. Correm na suite
+    # Oito, uma por barreira da revisao, pela ordem do que custa mais se nao
+    # morder: o papel que o actor nao declara, o papel verificado antes do
+    # registo, o instante da aplicacao, a imutabilidade de cada coluna, a janela
+    # do cliente, a cadeia da fusao e o fim da disputa. Correm na suite
     # `tests_encomendas`, e o `test_entrega_presa.py` e quem as mata.
     ("entrega presa: o papel deixa de ser comparado com o actor", REV_ENTREGA_PRESA,
      "             NOT IN ({\", \".join(PARES_ACTOR_PAPEL)}) THEN",
@@ -6390,23 +6391,47 @@ MUTACOES = [
     # Com a comparacao desligada, um dono escreve `cliente` e a confianca
     # gradual do KAM-096 sobe com vendas que ninguem confirmou. O
     # `test_um_dono_nao_declara_cliente` tem de morder.
+    ("entrega presa: o papel sem registo passa", REV_ENTREGA_PRESA,
+     "          IF NOT FOUND THEN\n            RAISE EXCEPTION\n"
+     "              'orders_mirror: a entrega da version",
+     "          IF NOT FOUND THEN\n            RETURN NULL;\n            RAISE EXCEPTION\n"
+     "              'orders_mirror: a entrega da version",
+     "tests_encomendas"),
+    # O achado 1 da revisao adversarial: com o `SET CONSTRAINTS ... IMMEDIATE`
+    # entre o `UPDATE` e o registo, o diferido corria sem linha e deixava passar.
+    # O `test_correr_o_papel_antes_do_registo_e_recusado` tem de morder.
     ("entrega presa: o instante da aplicacao passa", REV_ENTREGA_PRESA,
      "              NEW.entregue_at := now();",
      "              NULL;",
      "tests_encomendas"),
     # Sem a reescrita, o `entregue_at` e o que a aplicacao manda. O
     # `test_um_instante_no_passado_vindo_da_aplicacao_e_ignorado` tem de morder.
-    ("entrega presa: as duas colunas mudam fora de uma entrega", REV_ENTREGA_PRESA,
+    ("entrega presa: o instante muda fora de uma entrega", REV_ENTREGA_PRESA,
      "          IF NEW.entregue_at IS DISTINCT FROM OLD.entregue_at",
-     "          IF false AND NEW.entregue_at IS DISTINCT FROM OLD.entregue_at",
+     "          IF false",
      "tests_encomendas"),
-    # O criterio 3: o `TestDepoisDeGravadosNaoSeMudam` tem de morder.
+    # O criterio 3, metade do instante: o administrador do
+    # `test_nem_o_administrador_muda_qualquer_das_duas` tem de morder (o
+    # `kamba_app` da `42501` com ou sem *trigger*, por nao ter o privilegio).
+    ("entrega presa: o papel muda fora de uma entrega", REV_ENTREGA_PRESA,
+     "             OR NEW.entrega_confirmada_por\n"
+     "                IS DISTINCT FROM OLD.entrega_confirmada_por THEN",
+     "             OR false THEN",
+     "tests_encomendas"),
+    # A outra metade: o `test_o_kamba_app_nao_muda_o_papel` tem de morder.
     ("entrega presa: o cliente deixa de exigir a janela", REV_ENTREGA_PRESA,
-     "                  AND c.window_expires_at > now()) THEN",
+     "                  AND v.window_expires_at > now()) THEN",
      "                  ) THEN",
      "tests_encomendas"),
     # Sem a janela, qualquer conversa do contacto serve, aberta ou fechada. O
     # `test_a_janela_fechada_nao_serve` tem de morder.
+    ("entrega presa: a janela deixa de seguir a fusao", REV_ENTREGA_PRESA,
+     "                    WHERE k.merged_into IS NOT NULL AND c.passos < 8)",
+     "                    WHERE false)",
+     "tests_encomendas"),
+    # O achado 4: sem a cadeia, um cliente fundido que escreve hoje nao confirma
+    # uma encomenda de antes da fusao. O `test_a_janela_do_contacto_que_ficou_serve`
+    # tem de morder.
     ("entrega presa: o fim de uma disputa reescreve o instante", REV_ENTREGA_PRESA,
      "              NEW.entregue_at := OLD.entregue_at;",
      "              NULL;",
