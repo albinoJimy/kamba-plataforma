@@ -283,10 +283,11 @@ def chave_do_registo(persona: object, vertical: object) -> str:
     """A chave do `AgentRegistry`: `dono` se quem escreve e o dono, senao a vertical.
 
     **E o unico sitio onde a regra vive** (KAM-118), e tem dois leitores: o
-    `AgentRegistry.resolve`, no turno, e a `PortaDeGrafos.da_thread`, que le a
-    `persona` e a `vertical` do *checkpoint* para reencontrar o grafo de uma
-    *thread* interrompida. Escrita duas vezes, a retoma de um *handoff* do dono
-    podia acordar o grafo do Vendedor.
+    `AgentRegistry.resolve`, no turno, e a `PortaDeGrafos.da_thread`, que da a
+    esta funcao a `vertical` do *checkpoint* e a persona do papel **actual** do
+    contacto, lido da base (KAM-211) — e nao a persona do *checkpoint*, que e a
+    de quem era dono quando a *thread* parou. Escrita duas vezes, a retoma de
+    um *handoff* do dono podia acordar o grafo do Vendedor.
 
     So a igualdade exacta a `dono` muda a chave. Qualquer outro valor — a
     omissao, um `None` de um *checkpoint* anterior ao campo — da a vertical, que

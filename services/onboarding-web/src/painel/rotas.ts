@@ -696,20 +696,20 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
   // ------------------------------------------------- a troca de telefone (KAM-211)
 
   app.post("/painel/telefone", async (c) => {
-    metricas.pedido("telefone");
+    metricas.pedido("troca");
     const t = opcoes.troca;
     if (t === undefined) {
-      falhou("telefone", "indisponivel");
+      falhou("troca", "indisponivel");
       return json({ erro: "indisponivel" }, 503);
     }
     const sessao = await sessaoDe(c.req.header("cookie"));
     if (sessao === null) {
-      falhou("telefone", "sem_sessao");
+      falhou("troca", "sem_sessao");
       return json({ erro: "sessao" }, 401);
     }
     const corpo = await corpoDaReentrada(c);
     if (corpo === null) {
-      falhou("telefone", "invalido");
+      falhou("troca", "invalido");
       return json({ erro: "corpo" }, 400, sessao.renovar);
     }
     let telefone: Telefone;
@@ -717,14 +717,14 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
       telefone = new Telefone(corpo["telefone"], t.anelDoPepper);
     } catch (erro) {
       if (!(erro instanceof IdentificadorInvalidoError)) throw erro;
-      falhou("telefone", "invalido");
+      falhou("troca", "invalido");
       return json({ erro: "campo", campo: "telefone" }, 400, sessao.renovar);
     }
     // O tenant e o da sessao, e so ele: um `tenant_id` no corpo, na consulta ou
     // num cabecalho nao e lido (a nota do modulo).
     const envio = await t.troca.pedir(pedidoDaTroca(sessao.s), sessao.s.tenantId, telefone);
     if (!envio.enviado) {
-      falhou("telefone", "limite");
+      falhou("troca", "limite");
       return json({ erro: "limite" }, 429, sessao.renovar);
     }
     log?.info({ outcome: "painel_troca_pedida" });
@@ -732,21 +732,21 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
   });
 
   app.post("/painel/telefone/verificar", async (c) => {
-    metricas.pedido("telefone_verificar");
+    metricas.pedido("troca_verificar");
     const t = opcoes.troca;
     if (t === undefined) {
-      falhou("telefone_verificar", "indisponivel");
+      falhou("troca_verificar", "indisponivel");
       return json({ erro: "indisponivel" }, 503);
     }
     const sessao = await sessaoDe(c.req.header("cookie"));
     if (sessao === null) {
-      falhou("telefone_verificar", "sem_sessao");
+      falhou("troca_verificar", "sem_sessao");
       return json({ erro: "sessao" }, 401);
     }
     const corpo = await corpoDaReentrada(c);
     const codigo = corpo?.["codigo"];
     if (typeof codigo !== "string") {
-      falhou("telefone_verificar", "invalido");
+      falhou("troca_verificar", "invalido");
       return json({ erro: "corpo" }, 400, sessao.renovar);
     }
     // **O papel so se move aqui, e so com o codigo certo.** Um aviso que falhe
@@ -754,7 +754,7 @@ export function rotasDoPainel(opcoes: OpcoesDoPainel): Hono {
     // na base, e a resposta 500 nao o esconde.
     const desfecho = await t.troca.verificar(pedidoDaTroca(sessao.s), sessao.s.tenantId, codigo);
     if (!desfecho.trocado) {
-      falhou("telefone_verificar", "invalido");
+      falhou("troca_verificar", "invalido");
       return json({ erro: "codigo" }, 401, sessao.renovar);
     }
     log?.info({ outcome: "painel_troca_feita" });

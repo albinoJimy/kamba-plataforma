@@ -236,9 +236,9 @@ describe("KAM-211 — a troca de telefone pelo painel", () => {
   it("as duas rotas contam-se nas metricas do painel", async () => {
     await post(m, "/painel/telefone", { telefone: NUMERO_NOVO });
     await post(m, "/painel/telefone/verificar", { codigo: "x" }, deA);
-    assert.equal(m.metricas.valor("telefone"), 1);
-    assert.equal(m.metricas.valor("telefone", "sem_sessao"), 1);
-    assert.equal(m.metricas.valor("telefone_verificar", "invalido"), 1);
+    assert.equal(m.metricas.valor("troca"), 1);
+    assert.equal(m.metricas.valor("troca", "sem_sessao"), 1);
+    assert.equal(m.metricas.valor("troca_verificar", "invalido"), 1);
   });
 });
 

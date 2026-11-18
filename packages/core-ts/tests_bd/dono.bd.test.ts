@@ -50,7 +50,7 @@ before(async () => {
   admin = await ligar("admin");
   identidadeBd = await ligar("identity");
   app = await ligar("app");
-  identidade = await new ChavesDeTeste("kid-dono-211").identidade();
+  identidade = await new ChavesDeTeste("k-chr").identidade();
 });
 
 after(async () => {

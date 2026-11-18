@@ -111,9 +111,10 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "conversation_id": invocacao.conversation_id,
         "vertical": invocacao.vertical,
         # KAM-118. **Nasce aqui, e em cada turno, de proposito**: e da invocacao
-        # e nao da conversa, e e o que o *checkpoint* guarda para a
-        # `PortaDeGrafos.da_thread` reencontrar o grafo de uma *thread*
-        # interrompida (`contexto.chave_do_registo`). A `vertical` continua a
+        # e nao da conversa. **A retoma ja nao a le** (KAM-211): a
+        # `PortaDeGrafos.da_thread` decide o grafo pelo papel de agora, porque
+        # a persona guardada e a de quem era dono quando a *thread* parou, e
+        # depois de uma troca de telefone ja nao e. A `vertical` continua a
         # ser a do canal, e e ela que vai ao `ToolContext`, as metricas do
         # validador e a `tool_audit`: o dono de uma loja escreve num canal do
         # Vendedor, e a linha de auditoria diz o canal por onde a tool correu.
