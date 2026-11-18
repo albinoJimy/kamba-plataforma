@@ -29,9 +29,12 @@ RLS). O isolamento mede-se pelo ensaio cruzado (exportacao de A sem nada de B).
   modo e as janelas, e nao o texto — o CHR nao o guarda, e as mensagens vivem
   no Chatwoot (o espelho do KAM-019). A coleccao `conversas` sai com os
   metadados, e o texto e do credor (KAM-210, criterio 4).
-* **Os ficheiros em si**: o pacote leva a **lista** dos objectos do tenant no
-  STO (chave e tamanho), e nao os bytes — um pacote com as fotos todas dentro
-  nao cabia num pedido, e cada objecto continua a ter `retain_until` proprio.
+* **Os ficheiros em si, acima de um tecto**: o pacote leva a lista dos objectos
+  do tenant no STO (chave e tamanho) e, desde o KAM-210, **os bytes** de cada um
+  em `objectos/<chave>`, com o `sha256` no manifesto. Acima de
+  `TECTO_DOS_BYTES` (*proposta*) os bytes nao entram, e o manifesto di-lo em
+  `indisponiveis` com a razao, em vez de um pacote que nao cabe num pedido ou
+  de uma exportacao que nunca acaba (e com ela a revogacao, que a espera).
 
 ## A suspensao nao bloqueia a exportacao (KAM-058, criterio 7)
 
@@ -57,6 +60,7 @@ from typing import Any, Final
 from .. import tenant_guard
 from ..direitos.exportacao import CLASSE_DA_EXPORTACAO, documento, resumo
 from ..storage.chave import nova_chave
+from ..storage.guarda import LIMITE_MAXIMO_DE_LISTAGEM
 from ..storage.port import TTL_MAXIMO_S, Ctx, ObjectMeta, ObjectRef, StorageProvider
 from .contrato import (
     FaseForaDeOrdem,
@@ -70,7 +74,19 @@ from .contrato import (
 
 #: A versao do manifesto, em SemVer (bloco: «formato estruturado estavel»). Sobe
 #: o *major* quando um campo muda de sentido ou sai; o *minor* quando entra um.
-VERSAO_DO_MANIFESTO: Final = "1.0.0"
+#: 1.1.0 (KAM-210): os bytes dos objectos do STO em `objectos/<chave>`.
+VERSAO_DO_MANIFESTO: Final = "1.1.0"
+
+#: O tecto dos bytes dos objectos dentro do pacote. *Proposta*, sem medicao: o
+#: pacote monta-se em memoria no processo dos dados. Acima dele, os bytes ficam
+#: de fora e o manifesto di-lo (`RAZAO_ACIMA_DO_TECTO`).
+TECTO_DOS_BYTES: Final = 256 * 1024 * 1024
+
+#: A razao dos bytes em falta, quando passam do tecto.
+RAZAO_ACIMA_DO_TECTO: Final = (
+    "os objectos do armazenamento passam o tecto do pacote; a lista vai em ficheiros.json "
+    "e cada objecto pede-se a parte"
+)
 
 #: Quanto vale a ligacao ao titular. *Proposta* (bloco: «24 h»).
 VALIDADE_DA_LIGACAO: Final = timedelta(hours=24)
@@ -152,11 +168,13 @@ def montar_pacote(
     gerado_at: datetime,
     *,
     indisponiveis: Mapping[str, str] | None = None,
+    conteudos: Mapping[str, bytes] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     """O ZIP e o manifesto. Puro e reproduzivel: o mesmo conteudo da o mesmo `sha256`.
 
     Cada coleccao sai em `<nome>.json` (documento canonico) e `<nome>.csv`; a
-    lista dos objectos do STO em `ficheiros.json`. O manifesto leva, por
+    lista dos objectos do STO em `ficheiros.json`, e os bytes de cada um (quando
+    `conteudos` os traz) em `objectos/<chave>`. O manifesto leva, por
     ficheiro, o nome, o `sha256` e os bytes, e por coleccao o numero de linhas.
     O `sha256` do pacote calcula quem o recebe sobre o ZIP inteiro; o do
     manifesto vai no `resultado` da fase.
@@ -170,6 +188,8 @@ def montar_pacote(
     lista = [{"chave": str(o.key), "bytes": o.tamanho} for o in sorted(objectos, key=lambda o: str(o.key))]
     ficheiros["ficheiros.json"] = documento({"coleccao": "ficheiros", "linhas": lista})
     contagens["ficheiros"] = len(lista)
+    for chave, conteudo in (conteudos or {}).items():
+        ficheiros[f"objectos/{chave}"] = bytes(conteudo)
     manifesto = {
         "versao": VERSAO_DO_MANIFESTO,
         "tenant_id": tenant_id,
@@ -237,12 +257,22 @@ def exportar(
 
     ctx = Ctx(tenant_id)
     objectos = [
-        o for o in armazenamento.list(ctx, f"t/{tenant_id}/")
+        # Ate ao maximo da guarda, e nao o limite por omissao de 1 000 (achado 5):
+        # a listagem recusa acima dele, e a exportacao falhava em todas as voltas.
+        # shortcut: acima de 10 000 objectos a exportacao falha e a fase fica
+        # parada, com alerta; revê-se com a paginacao da porta do armazenamento.
+        o for o in armazenamento.list(ctx, f"t/{tenant_id}/", limite=LIMITE_MAXIMO_DE_LISTAGEM)
         # Os pacotes de geracoes anteriores nao entram no seguinte.
         if f"/{CLASSE_DA_EXPORTACAO}/" not in str(o.key)
     ]
+    conteudos: dict[str, bytes] = {}
+    if sum(max(o.tamanho, 0) for o in objectos) > TECTO_DOS_BYTES:
+        indisponiveis["objectos"] = RAZAO_ACIMA_DO_TECTO
+    else:
+        for o in objectos:
+            conteudos[str(o.key)] = b"".join(armazenamento.get(ctx, o))
     pacote, manifesto = montar_pacote(
-        tenant_id, coleccoes, objectos, agora, indisponiveis=indisponiveis
+        tenant_id, coleccoes, objectos, agora, indisponiveis=indisponiveis, conteudos=conteudos
     )
     ref = armazenamento.put(
         ctx,
@@ -352,7 +382,9 @@ def abrir_ligacao(
 
 __all__ = [
     "COLECCOES",
+    "RAZAO_ACIMA_DO_TECTO",
     "RAZAO_SEM_CATALOGO",
+    "TECTO_DOS_BYTES",
     "VALIDADE_DA_LIGACAO",
     "VERSAO_DO_MANIFESTO",
     "abrir_ligacao",

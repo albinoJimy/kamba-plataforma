@@ -43,6 +43,7 @@ import {
   opcoesDoConjunto,
   registarVolta,
   registarVoltaDaConfianca,
+  registarVoltaDoOffboarding,
   registarVoltaDoTrust,
 } from "./lote/processo.ts";
 
@@ -111,6 +112,11 @@ async function principal(): Promise<void> {
       (r) => registarVoltaDaConfianca(log, "descida", r),
       falhouAConfianca,
     );
+    // KAM-210: as fases do off-boarding deste lado, e as métricas das sete.
+    const pararOffboarding = processo.cicloDoOffboarding.agendar(config.intervaloDoOffboardingMs, (r) =>
+      registarVoltaDoOffboarding(log, r),
+    );
+    void processo.cicloDoOffboarding.correr().then((r) => registarVoltaDoOffboarding(log, r));
     // E o consumidor dos sete tipos de evento de T&S, como `kamba_app`. O
     // `bullmq` carrega-se aqui, com a porta já aberta (ver o `consumidorDoTrust`).
     const { criarTrabalhadores } = await import("@kamba/core-ts/eventos/trabalhador_bullmq");
@@ -132,6 +138,7 @@ async function principal(): Promise<void> {
     pararTrust();
     pararDiaria();
     pararDescidas();
+    pararOffboarding();
     // Os *workers* e as ligações que cada fila abriu — **com tecto**: com a fila
     // em baixo, fechar um *worker* espera por uma ligação que não vem, e um
     // `SIGTERM` que pendura é um contentor que o orquestrador mata à força.

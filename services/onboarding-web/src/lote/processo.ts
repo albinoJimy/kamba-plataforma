@@ -7,6 +7,7 @@
  * montarProcesso      a fila sobre os adaptadores SQL, o ciclo, as duas portas do KAM-092,
  *                     e o T&S ligado à fila com as suas varreduras (KAM-200)
  * consumidorDoTrust   o consumidor dos sete tipos de evento de T&S, como `kamba_app`
+ * cicloDoOffboarding  as fases do encerramento deste lado, agendadas (KAM-210)
  * criarApp            `/healthz` e `/metrics`, e mais nada
  * arrancar            os papéis verificados, o processo montado e a app das métricas dele
  * opcoesDoConjunto    a ligação de cada papel, com limites de tempo
@@ -62,6 +63,23 @@
  * de o consumidor de T&S o consumir (`depoisDoTrust`), e cada aprovação que
  * passa pela porta (`OnboardingsQueRecalculam`). O nome do consumidor que marca
  * a independência é o da subscrição (`SUBSCRICAO_DO_TRUST`), e não um literal.
+ *
+ * ## O off-boarding corre aqui (KAM-210)
+ *
+ * As três fases do encerramento deste lado que correm sem pedido — o canal, os
+ * pendentes e a revogação; o pedido corre-o quem o recebe — correm num ciclo
+ * agendado, como `kamba_batch` (`CicloDoOffboarding`). As métricas dele contam as
+ * **sete** fases, lidas da base, e são as do alerta da fase parada
+ * (`infra/compose/prometheus/regras/kamba-offboarding.yml`). As três do lado dos
+ * dados correm pelo `correr_volta` do `kamba_core.offboarding.processo`, que
+ * ainda não tem processo que o chame (credor KAM-218).
+ *
+ * **As portas para fora montam-se sem adaptador** (`CANAL_SEM_ADAPTADOR`,
+ * `REVOGACAO_SEM_ADAPTADOR`): o adaptador da Meta existe (`CanalDaMetaPelaGraph`)
+ * mas precisa do *token* de cada WABA, e o cofre não tem leitor neste processo;
+ * o LiteLLM, a Medusa e o Chatwoot não têm cliente nenhum. Uma fase que precise
+ * de uma delas falha pelo nome e fica parada, com alerta — nunca «feita» sem o
+ * lado de fora saber. Credor: **KAM-218**.
  *
  * ## O aviso ao dono não sai deste processo, e é de propósito
  *
@@ -119,6 +137,15 @@ import { EscritorSql, LeitorSql, type EscritorDeDecisoes } from "@kamba/core-ts/
 import { isAmbiente } from "@kamba/core-ts/secrets";
 import { comTenant } from "@kamba/core-ts/tenant_guard";
 import {
+  CANAL_SEM_ADAPTADOR,
+  CicloDoOffboarding,
+  INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS,
+  MetricasDoOffboarding,
+  REVOGACAO_SEM_ADAPTADOR,
+  type PortasDoCiclo,
+  type ResultadoDoCicloDoOffboarding,
+} from "@kamba/core-ts/offboarding";
+import {
   AvisoDeSancaoSemDestinoError,
   CONSUMIDOR_DE_TRUST,
   CicloDoTrust,
@@ -150,6 +177,8 @@ export const VARIAVEIS_DO_LOTE = {
   fila: "KAMBA_QUEUE_URL",
   /** O intervalo das varreduras de T&S. */
   intervaloDoTrust: "LOTE_TRUST_INTERVALO_MS",
+  /** O intervalo do ciclo do off-boarding (KAM-210). */
+  intervaloDoOffboarding: "LOTE_OFFBOARDING_INTERVALO_MS",
   /** O dia em que a amostragem das aprovações automáticas começou (`AAAA-MM-DD`). */
   amostragem: "ONBOARDING_LOTE_AMOSTRAGEM_DESDE",
 } as const;
@@ -181,6 +210,7 @@ export interface ConfiguracaoDoLote {
   readonly inicioDaAmostragem: Date | null;
   readonly urlDaFila: string;
   readonly intervaloDoTrustMs: number;
+  readonly intervaloDoOffboardingMs: number;
 }
 
 /**
@@ -241,6 +271,13 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     1_000,
     86_400_000,
   );
+  const intervaloDoOffboardingMs = inteiro(
+    env,
+    VARIAVEIS_DO_LOTE.intervaloDoOffboarding,
+    INTERVALO_DO_OFFBOARDING_POR_OMISSAO_MS,
+    1_000,
+    86_400_000,
+  );
   const bruto = (env[VARIAVEIS_DO_LOTE.amostragem] ?? "").trim();
   let inicioDaAmostragem: Date | null = null;
   if (bruto !== "") {
@@ -252,7 +289,17 @@ export function lerConfiguracao(env: Ambiente): ConfiguracaoDoLote {
     }
     inicioDaAmostragem = dia;
   }
-  return { ambiente, urlDoLote, urlDaApp, porta, intervaloMs, inicioDaAmostragem, urlDaFila, intervaloDoTrustMs };
+  return {
+    ambiente,
+    urlDoLote,
+    urlDaApp,
+    porta,
+    intervaloMs,
+    inicioDaAmostragem,
+    urlDaFila,
+    intervaloDoTrustMs,
+    intervaloDoOffboardingMs,
+  };
 }
 
 /** Uma ligação que não é do papel que a variável promete. */
@@ -469,6 +516,10 @@ export interface OpcoesDoProcesso {
   readonly avisoDeSancao?: AvisoDeSancao;
   /** As métricas do recálculo da confiança. Por omissão, uma instância nova. */
   readonly metricasDaConfianca?: MetricasDaConfianca;
+  /** As métricas do off-boarding. Por omissão, uma instância nova. */
+  readonly metricasDoOffboarding?: MetricasDoOffboarding;
+  /** As portas do off-boarding. Por omissão, as sem adaptador (ver a nota do módulo). */
+  readonly portasDoOffboarding?: PortasDoCiclo;
 }
 
 /** O processo montado: o ciclo, o serviço da fila e o gancho do KAM-092. */
@@ -485,6 +536,9 @@ export interface ProcessoDeLote {
   /** A volta diária e a varredura das descidas, para a casca agendar. */
   readonly cicloDaConfianca: CicloDaConfianca;
   readonly metricasDaConfianca: MetricasDaConfianca;
+  /** As fases do encerramento deste lado, para a casca agendar (KAM-210, critério 1). */
+  readonly cicloDoOffboarding: CicloDoOffboarding;
+  readonly metricasDoOffboarding: MetricasDoOffboarding;
   /**
    * **O ponto onde o KAM-092 chama o `amostrar`** sobre cada aprovação
    * automática, que é ele quem conhece (critério 4). Corre neste processo, com
@@ -594,6 +648,13 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
   });
   const aprovacaoAutomatica = (onboardingId: string, tenantId: string) =>
     ciclo.aprovacaoAutomatica(onboardingId, tenantId);
+  const metricasDoOffboarding = o.metricasDoOffboarding ?? new MetricasDoOffboarding();
+  const cicloDoOffboarding = new CicloDoOffboarding({
+    lote: o.lote,
+    portas: o.portasDoOffboarding ?? { canal: CANAL_SEM_ADAPTADOR, revogacao: REVOGACAO_SEM_ADAPTADOR },
+    metricas: metricasDoOffboarding,
+    ...(o.relogio === undefined ? {} : { relogio: o.relogio }),
+  });
   return {
     servico,
     ciclo,
@@ -603,6 +664,8 @@ export function montarProcesso(o: OpcoesDoProcesso): ProcessoDeLote {
     recalculo,
     cicloDaConfianca: new CicloDaConfianca({ lote: o.lote, recalculo }),
     metricasDaConfianca,
+    cicloDoOffboarding,
+    metricasDoOffboarding,
     aprovacaoAutomatica,
     aprovacaoDoKyc: aprovacaoDoKyc(onboardings, aprovacaoAutomatica),
   };
@@ -668,6 +731,12 @@ export function registarVolta(log: Pick<Logger, "info" | "error">, r: ResultadoD
   else log.error({ outcome: "ciclo_com_falhas", error_code: r.falhas.join(",") });
 }
 
+/** A linha de registo de uma volta do off-boarding: pelo nome da fase, nunca pelo tenant. */
+export function registarVoltaDoOffboarding(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDoOffboarding): void {
+  if (r.falhas.length === 0) log.info({ outcome: "offboarding_volta_concluida" });
+  else log.error({ outcome: "offboarding_volta_com_falhas", error_code: r.falhas.join(",") });
+}
+
 /** A linha de registo de uma volta das varreduras de T&S: pelo nome da varredura. */
 export function registarVoltaDoTrust(log: Pick<Logger, "info" | "error">, r: ResultadoDoCicloDoTrust): void {
   if (r.falhas.length === 0) log.info({ outcome: "trust_varreduras_concluidas" });
@@ -699,14 +768,23 @@ export function criarApp(
   metricas: MetricasDaRevisao = new MetricasDaRevisao(),
   metricasDoTrust: MetricasDoTrust = new MetricasDoTrust(),
   metricasDaConfianca: MetricasDaConfianca = new MetricasDaConfianca(),
+  metricasDoOffboarding: MetricasDoOffboarding = new MetricasDoOffboarding(),
 ): Hono {
   const app = new Hono();
   app.onError((_erro, c) => c.json({ error: "internal" }, 500));
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   app.get("/metrics", (c) =>
-    c.text(metricas.exposicao() + metricasDoTrust.exposicao() + metricasDaConfianca.exposicao() + METRICAS.exposicao(), 200, {
-      "content-type": "text/plain; version=0.0.4; charset=utf-8",
-    }),
+    c.text(
+      metricas.exposicao() +
+        metricasDoTrust.exposicao() +
+        metricasDaConfianca.exposicao() +
+        metricasDoOffboarding.exposicao() +
+        METRICAS.exposicao(),
+      200,
+      {
+        "content-type": "text/plain; version=0.0.4; charset=utf-8",
+      },
+    ),
   );
   return app;
 }
@@ -768,6 +846,11 @@ export async function arrancar(o: {
   });
   return {
     processo,
-    app: criarApp(processo.ciclo.metricas, processo.metricasDoTrust, processo.metricasDaConfianca),
+    app: criarApp(
+      processo.ciclo.metricas,
+      processo.metricasDoTrust,
+      processo.metricasDaConfianca,
+      processo.metricasDoOffboarding,
+    ),
   };
 }

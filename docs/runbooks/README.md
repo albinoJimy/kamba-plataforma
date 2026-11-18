@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | **KAM-083** — Runbooks operacionais (`specs/EPIC-08_Topologia_Operacao.md`) |
-| Versão | 1.5 |
+| Versão | 1.6 |
 | Fontes | [`../tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §9.2 (alertas), §12 (degradação N0–N6), §13 (os dez runbooks), §16 (*on-call*) |
 | Ensaios | [`folha-de-ensaio.md`](folha-de-ensaio.md) — o roteiro de cada ensaio, a folha de tempos e o calendário do *game day* |
 | Evidência | [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) |
@@ -32,10 +32,11 @@
 | RB-K09 | [`RB-K09-flood-e-denial-of-wallet.md`](RB-K09-flood-e-denial-of-wallet.md) | Pico de um contacto ou IP; custo de LLM anómalo | P3 → P1 | `llm_sem_budget` (via RB-K03); manual | N2 |
 | RB-K10 | [`RB-K10-incidente-de-seguranca.md`](RB-K10-incidente-de-seguranca.md) | Incidente de segurança | P1 | **manual**, por desenho | — |
 
-Fora da lista fechada do §13 há mais sete: três que alertas reais apontam,
+Fora da lista fechada do §13 há mais oito: quatro que alertas reais apontam,
 [`degradacao-do-agr.md`](degradacao-do-agr.md) (KAM-037),
-[`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082) e
-[`trust-e-safety.md`](trust-e-safety.md) (KAM-200), três procedimentos sem
+[`orcamento-de-erro.md`](orcamento-de-erro.md) (KAM-082),
+[`trust-e-safety.md`](trust-e-safety.md) (KAM-200) e
+[`offboarding.md`](offboarding.md) (KAM-210), três procedimentos sem
 alerta, [`rotacao-de-chaves-de-llm.md`](rotacao-de-chaves-de-llm.md) (KAM-030),
 [`simulacro-de-dr.md`](simulacro-de-dr.md) (KAM-085) e
 [`../../ops/runbooks/secrets-export.md`](../../ops/runbooks/secrets-export.md)
@@ -144,13 +145,14 @@ sentidos a 2026-11-09 sobre as regras de `infra/compose/prometheus/regras/`
 `regras_por_escrever` de [`../../ops/metricas/catalogo.yaml`](../../ops/metricas/catalogo.yaml).
 O comando e a saída estão em [`../evidencia/KAM-083.md`](../evidencia/KAM-083.md) §3. O
 KAM-200 acrescentou o `kamba-trust.yml`, com as duas regras de Trust & Safety, a
-2026-11-17, e o KAM-203 a do recálculo da confiança no mesmo ficheiro; o `obs_lint`
-verifica o `runbook_url` das treze.
+2026-11-17, o KAM-210 o `kamba-offboarding.yml`, com a da fase parada do
+off-boarding, e o KAM-203 a do recálculo da confiança no `kamba-trust.yml`; o
+`obs_lint` verifica o `runbook_url` das catorze.
 
 **Nenhum alerta foi removido nem alterado aqui.** Mudar o que dispara, ou para
 onde aponta, é do fundador; o que se entrega é a medição.
 
-### 5.1 As treze regras que existem, e para onde apontam
+### 5.1 As catorze regras que existem, e para onde apontam
 
 | Regra | Sev. | Aponta para | O runbook fala dela? | Nota |
 |---|---|---|---|---|
@@ -166,11 +168,12 @@ onde aponta, é do fundador; o que se entrega é a medição.
 | `orcamento_de_erro_burn_lento` | P3 | `orcamento-de-erro.md` | sim | — |
 | `ts_suspensao_decidida` | P3 | `trust-e-safety.md` | sim | KAM-200. Não é do §9.2 |
 | `ts_escada_automatica_acima_do_ritmo` | P2 | `trust-e-safety.md` | sim | KAM-200. Não é do §9.2; o ritmo é *proposta* |
+| `offboarding_fase_parada` | P2 | `offboarding.md` | sim | KAM-210. Não é do §9.2; a folga e o `for` são *proposta* |
 | `confianca_recalculo_com_falhas` | P2 | `trust-e-safety.md` | sim | KAM-203. Não é do §9.2; a janela é *proposta* |
 
 ### 5.2 Lista A — alertas sem runbook
 
-**Entre as regras escritas: nenhuma.** As treze têm `runbook_url`, e o
+**Entre as regras escritas: nenhuma.** As catorze têm `runbook_url`, e o
 `tools/obs_lint` exige que o ficheiro exista.
 
 **Entre os alertas que o §9.2 pede e não estão escritos: um.** A linha
@@ -263,4 +266,5 @@ procedimento.
 | 1.2 | Novembro 2026 | **KAM-187**, integrado depois deste: a linha «nenhum consumidor lê a `wa-inbound`» passa a dizer porquê — o compose corre os quatro processos, e em `prod` o `entrada.ts` não arranca | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | **KAM-117**: o esboço [`churn.md`](churn.md) entra na lista dos que estão fora do §13 (passam a seis). O alerta dele é a linha aberta da `v_churn_signals`, por tenant, e não uma regra Prometheus. | Equipa KAMBÁ |
 | 1.4 | Novembro 2026 | **KAM-200**: o esboço [`trust-e-safety.md`](trust-e-safety.md) entra na lista dos que estão fora do §13 (passam a sete), e as duas regras do `kamba-trust.yml` na tabela do §5.1 (passam a doze). | Equipa KAMBÁ |
-| 1.5 | Novembro 2026 | **KAM-203**: a regra `confianca_recalculo_com_falhas` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a treze), com o §4 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **KAM-210**: o esboço [`offboarding.md`](offboarding.md) entra na lista dos que estão fora do §13 (passam a oito), e a regra do `kamba-offboarding.yml` na tabela do §5.1 (passam a treze). | Equipa KAMBÁ |
+| 1.6 | Novembro 2026 | **KAM-203**: a regra `confianca_recalculo_com_falhas` entra no `kamba-trust.yml` e na tabela do §5.1 (passam a catorze, depois da do KAM-210), com o §4 do [`trust-e-safety.md`](trust-e-safety.md). Nenhum runbook novo. | Equipa KAMBÁ |

@@ -330,7 +330,7 @@ class TestExportacao(ComOffboarding):
         r = exportar(self.batch, self.app, a, self.armazenamento, D0 + timedelta(days=2))
         ficheiros = self.ficheiros(r["ref"])
         manifesto = json.loads(ficheiros.pop("manifesto.json"))
-        self.assertEqual(manifesto["versao"], "1.0.0")
+        self.assertEqual(manifesto["versao"], "1.1.0")
         self.assertEqual(sorted(f["nome"] for f in manifesto["ficheiros"]), sorted(ficheiros))
         for f in manifesto["ficheiros"]:
             self.assertEqual(hashlib.sha256(ficheiros[f["nome"]]).hexdigest(), f["sha256"])
@@ -573,6 +573,40 @@ class TestPurga(ComOffboarding):
 def _retencao_das_copias() -> int:
     texto = (_RAIZ / "infra" / "backup" / "cobertura.yaml").read_text(encoding="utf-8")
     return int(re.search(r"(?m)^\s*retencao_dias:\s*(\d+)\s*$", texto).group(1))
+
+
+
+class TestCicloDosDados(ComOffboarding):
+    """KAM-210, criterio 1: a listagem do ciclo das fases de dados, contra a base."""
+
+    def test_a_listagem_traz_so_as_fases_que_ja_podem_correr(self) -> None:
+        from kamba_core.offboarding.processo import fases_por_correr
+
+        concluidas = dict(canal="concluida", pendentes="concluida",
+                          exportacao="concluida", revogacao="concluida")
+        exporta = self.tenant()
+        self.pedido(exporta, pendentes="concluida")
+        espera = self.tenant()
+        self.pedido(espera)
+        purga = self.tenant()
+        self.pedido(purga, **concluidas)
+        cedo = self.tenant()
+        self.pedido(cedo, d0=D0 + timedelta(days=20), **concluidas)
+        falhada = self.tenant()
+        self.pedido(falhada, purga="falhada", **concluidas)
+        disputa = self.tenant()
+        self.pedido(disputa, purga="suspensa_disputa", **concluidas)
+        certificado = self.tenant()
+        self.pedido(certificado, purga="concluida", **concluidas)
+        cancelado = self.tenant()
+        self.pedido(cancelado, pendentes="concluida")
+        self.cur.execute(
+            "UPDATE platform.offboarding_run SET resultado = resultado || '{\"cancelado_at\": \"x\"}'::jsonb "
+            "WHERE tenant_id = %s AND fase = 'verificacao'", (cancelado,))
+        meus = {exporta, espera, purga, cedo, falhada, disputa, certificado, cancelado}
+        listadas = [(t, f) for t, f in fases_por_correr(self.batch, D0 + timedelta(days=31)) if t in meus]
+        self.assertEqual(sorted(listadas), sorted([
+            (exporta, "exportacao"), (purga, "purga"), (certificado, "certificado")]))
 
 
 class TestCertificado(ComOffboarding):

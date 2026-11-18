@@ -159,6 +159,10 @@
       "types": "./dist/trust/index.d.ts",
       "default": "./dist/trust/index.js"
     },
+    "./offboarding": {
+      "types": "./dist/offboarding/index.d.ts",
+      "default": "./dist/offboarding/index.js"
+    },
     "./confianca": {
       "types": "./dist/confianca/index.d.ts",
       "default": "./dist/confianca/index.js"

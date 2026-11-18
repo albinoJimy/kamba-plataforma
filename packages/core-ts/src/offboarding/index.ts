@@ -6,3 +6,6 @@
 
 export * from "./contrato.ts";
 export * from "./encerramento.ts";
+export * from "./ciclo.ts";
+export * from "./metricas.ts";
+export * from "./meta.ts";

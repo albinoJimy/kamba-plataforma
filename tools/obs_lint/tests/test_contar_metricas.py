@@ -255,6 +255,12 @@ class TestRepositorio(unittest.TestCase):
         # `ts_sancoes_total`. Modulo proprio porque a fonte e o `ServicoDeTrust`,
         # que corre tambem no consumidor, e a fila nao o conhece.
         "packages/core-ts/src/trust/metricas.ts",
+        # Nasceu com o KAM-210 (o off-boarding em producao). Dois *gauges* e um
+        # contador, **servidos** pelo processo de lote do onboarding na 3014,
+        # ao lado dos de T&S, e citados pela regra do `kamba-offboarding.yml`.
+        # Os *gauges* leem-se da base e cobrem as sete fases, tambem as do lado
+        # dos dados, que corre outro processo.
+        "packages/core-ts/src/offboarding/metricas.ts",
         "packages/core-ts/src/ten/metricas.ts",
         "services/agr/src/kamba_agr/metricas.py",
         # Conta **zero** nomes, e esta aqui por isso: e um modulo de exposicao
