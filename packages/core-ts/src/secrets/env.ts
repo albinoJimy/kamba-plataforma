@@ -22,6 +22,7 @@ import {
   type SecretRingTuple,
   validarRef,
 } from "./port.ts";
+import { ROTULOS_POSICIONAIS, kidsDasVersoes } from "./kid.ts";
 
 /** Subconjunto de `process.env` de que este módulo depende. */
 export type ProcessEnv = Record<string, string | undefined>;
@@ -32,8 +33,11 @@ export const PREFIXO = "KAMBA_SECRET_";
 /** Sufixo da variável que guarda a versão anterior de um segredo. */
 export const SUFIXO_ANTERIOR = "_ANTERIOR";
 
-/** Rótulos de versão que este provedor sabe produzir, do mais recente ao mais antigo. */
-export const VERSOES = ["actual", "anterior"] as const;
+/**
+ * Rótulos posicionais que este provedor dá a um valor **sem** `kid`, do mais
+ * recente ao mais antigo. Um valor `<kid>:<base64>` dá o seu `kid` (KAM-205).
+ */
+export const VERSOES = ROTULOS_POSICIONAIS;
 
 /**
  * Nome da variável de ambiente que guarda uma referência.
@@ -112,12 +116,16 @@ export class EnvSecretProvider implements SecretProvider {
     return [actual, this.#ler(base + SUFIXO_ANTERIOR)];
   }
 
+  /**
+   * O `kid` de cada versão, lido do valor (KAM-205, ver o `kid.ts`).
+   *
+   * Um valor `<kid>:<base64>` dá o seu `kid`, que vai com ele quando passa de
+   * actual a anterior. Só um valor sem `kid` recebe o rótulo posicional, e esse
+   * não é estável: quem guarda o `kid` ao lado de um dado recusa-o.
+   */
   async versions(ref: SecretRef): Promise<readonly string[]> {
-    const base = nomeDaVariavel(ref);
-    if (this.#ler(base) === null) throw new SecretAusenteError(validarRef(ref), this.nome);
-    const vivas: string[] = ["actual"];
-    if (this.#ler(base + SUFIXO_ANTERIOR) !== null) vivas.push("anterior");
-    return vivas;
+    const [actual, anterior] = await this.getRing(ref);
+    return kidsDasVersoes(validarRef(ref), actual, anterior);
   }
 
   /**

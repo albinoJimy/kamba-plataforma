@@ -30,7 +30,7 @@
  */
 
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 
 import type pg from "pg";
@@ -39,8 +39,10 @@ import { GraphFalso, Gerador as GeradorDeFixtures } from "@kamba/meta-sim";
 
 import {
   CAMPOS_DE_WEBHOOK,
+  FAMILIA_DO_TOKEN,
   FASES,
   JANELA_DE_ONBOARDINGS_DIAS,
+  KID_LEGADO,
   LIMITE_DE_ONBOARDINGS,
   NumeroJaUsadoError,
   Onboarding,
@@ -52,7 +54,10 @@ import {
   SQL_TRANSITAR,
   SubscricaoIncompletaError,
   TRANSICOES,
+  anelDaKek,
+  cifrarToken,
   decifrarToken,
+  kidDoCriptograma,
   resumoDoCode,
   transicaoValida,
 } from "../src/onboarding/index.ts";
@@ -64,7 +69,17 @@ import type {
   ResultadoDoEs,
 } from "../src/onboarding/index.ts";
 import { FEATURE_TYPE_DE_COEXISTENCIA } from "../src/onboarding/contrato.ts";
-import { OpenBaoFakeProvider, cunharRef } from "../src/secrets/index.ts";
+import {
+  RecifraSemPapelDeLoteError,
+  SQL_CANAIS_A_RECIFRAR,
+  recifrarTokensGuardados,
+} from "../src/keyring/index.ts";
+import {
+  EnvSecretProvider,
+  OpenBaoFakeProvider,
+  SecretAusenteError,
+  cunharRef,
+} from "../src/secrets/index.ts";
 import { apagarTenant, criarCanal, criarTenant, emParalelo, ligar } from "./apoio.ts";
 
 /** A KEK de ensaio, 32 octetos em base64. */
@@ -1064,5 +1079,171 @@ describe("isolamento (Testes Requeridos: X-03 sobre channel_onboarding)", () => 
     assert.equal(rows[0].relrowsecurity, true);
     assert.equal(rows[0].relforcerowsecurity, true);
     assert.equal(rows[0].politicas, 1);
+  });
+});
+
+// ------------------------------------------------- KAM-205: a re-cifra na base
+
+/**
+ * Rodar, re-cifrar e revogar sobre *tokens* gravados, contra o PostgreSQL do
+ * *gate* 8 (KAM-205, Testes Requeridos).
+ *
+ * Os *tokens* semeiam-se como o código do KAM-016 os gravava antes da
+ * correcção: a KEK **sem** `kid` no valor, e o rótulo `actual` no criptograma. A
+ * KEK lê-se de um `EnvSecretProvider`, que é o provedor do Piloto; os
+ * criptogramas vivem num `OpenBaoFakeProvider`, que é quem cunha e revoga.
+ *
+ * **A tabela não é só destes ensaios.** Os outros blocos deste ficheiro deixam
+ * canais com referências que este cofre não conhece; a re-cifra passa por eles,
+ * regista-os em `falhados` e segue. As asserções são sobre os canais daqui, e
+ * esse convívio prova de passagem que um canal estranho não pára a passagem.
+ */
+describe("a re-cifra dos tokens guardados contra a base (KAM-205)", () => {
+  const legada = randomBytes(32).toString("base64");
+  const nova = `k2:${randomBytes(32).toString("base64")}`;
+  let kek: EnvSecretProvider;
+  let bao: OpenBaoFakeProvider;
+  let cofreDaRecifra: Cofre;
+  const tenants: string[] = [];
+  /** `tenant_channels.id` → [tenant, token em claro], dos canais destes ensaios. */
+  const meus = new Map<string, readonly [string, string]>();
+
+  function ambienteDaKek(actual: string, anterior?: string): EnvSecretProvider {
+    const env: Record<string, string> = { KAMBA_SECRET_KEK_TOKEN_CLIENTE: actual };
+    if (anterior !== undefined) env.KAMBA_SECRET_KEK_TOKEN_CLIENTE_ANTERIOR = anterior;
+    return new EnvSecretProvider({ ambiente: "dev", env });
+  }
+
+  /** Três canais num tenant novo, com o token cifrado como antes do KAM-205. */
+  async function semearLegados(rotulo: string): Promise<readonly string[]> {
+    const tenant = await criarTenant(admin, rotulo);
+    tenants.push(tenant);
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const token = `EAAG${randomBytes(24).toString("base64url")}`;
+      const ref = await bao.cunhar(FAMILIA_DO_TOKEN, cifrarToken(legada, KID_LEGADO, tenant, token));
+      const canal = await criarCanal(admin, tenant);
+      await admin.query("UPDATE platform.tenant_channels SET token_ref = $2 WHERE id = $1", [canal.id, ref]);
+      meus.set(canal.id, [tenant, token]);
+      ids.push(canal.id);
+    }
+    return ids;
+  }
+
+  /** O `token_ref` de cada canal, lido pelo administrador. */
+  async function refs(ids: readonly string[]): Promise<Map<string, string>> {
+    const { rows } = await admin.query(
+      "SELECT id::text AS id, token_ref FROM platform.tenant_channels WHERE id = ANY($1::uuid[])",
+      [ids],
+    );
+    return new Map((rows as { id: string; token_ref: string }[]).map((r) => [r.id, r.token_ref]));
+  }
+
+  /** Cada canal abre, com a KEK de agora, no token que lhe foi semeado. */
+  async function todosAbrem(ids: readonly string[]): Promise<void> {
+    const anel = anelDaKek(await kek.getRing(REF_DA_KEK), await kek.versions(REF_DA_KEK));
+    for (const [id, ref] of await refs(ids)) {
+      const [tenant, token] = meus.get(id) as readonly [string, string];
+      const guardado = await bao.get(ref);
+      assert.equal(kidDoCriptograma(guardado), "k2");
+      assert.equal(decifrarToken(anel, tenant, guardado), token, `o canal ${id} perdeu o token`);
+    }
+  }
+
+  before(() => {
+    kek = ambienteDaKek(legada);
+    bao = new OpenBaoFakeProvider({ ambiente: "dev" });
+    cofreDaRecifra = {
+      get: (ref) => (ref === REF_DA_KEK ? kek.get(ref) : bao.get(ref)),
+      getRing: () => kek.getRing(REF_DA_KEK),
+      versions: () => kek.versions(REF_DA_KEK),
+      cunhar: (familia, valor) => bao.cunhar(familia, valor),
+      revogar: (ref) => bao.revogar(ref),
+    };
+  });
+
+  after(async () => {
+    for (const tenant of tenants) await apagarTenant(admin, tenant);
+  });
+
+  it("com o kamba_app recusa: sem BYPASSRLS a tabela le-se vazia, e vazia parecia acabada", async () => {
+    await semearLegados("recifra-rls");
+    kek = ambienteDaKek(nova, legada);
+    const { rows } = await app.query(SQL_CANAIS_A_RECIFRAR, ["00000000-0000-0000-0000-000000000000", 1000]);
+    assert.equal(rows.length, 0, "o perigo e real: o kamba_app sem tenant ve zero canais");
+    await assert.rejects(
+      recifrarTokensGuardados({ cofre: cofreDaRecifra, sql: app }),
+      RecifraSemPapelDeLoteError,
+    );
+  });
+
+  it("rodar, re-cifrar e revogar: nenhum token perdido, e a repeticao nao muda nada", async () => {
+    const ids = [...(await semearLegados("recifra-a")), ...(await semearLegados("recifra-b"))];
+    kek = ambienteDaKek(nova, legada);
+    const antigas = await refs(ids);
+
+    const primeira = await recifrarTokensGuardados({ cofre: cofreDaRecifra, sql: batch, lote: 2 });
+    for (const id of ids) assert.ok(!primeira.falhados.includes(id), `o canal ${id} falhou`);
+    assert.ok(primeira.recifrados >= ids.length);
+    const depois = await refs(ids);
+    for (const id of ids) assert.notEqual(depois.get(id), antigas.get(id), "a referencia foi trocada");
+    for (const ref of antigas.values()) {
+      await assert.rejects(bao.get(ref), SecretAusenteError, "a referencia antiga foi revogada");
+    }
+
+    const segunda = await recifrarTokensGuardados({ cofre: cofreDaRecifra, sql: batch, lote: 2 });
+    assert.equal(segunda.recifrados, 0, "idempotente: nada por re-cifrar");
+    for (const id of ids) assert.ok(!segunda.falhados.includes(id));
+    assert.deepEqual(await refs(ids), depois, "a repeticao nao troca referencias");
+
+    kek = ambienteDaKek(nova);
+    await todosAbrem(ids);
+  });
+
+  it("duas re-cifras ao mesmo tempo: cada canal fica numa referencia que abre, no mesmo token", async () => {
+    const ids = await semearLegados("recifra-par");
+    kek = ambienteDaKek(nova, legada);
+    const outra = await ligar("batch");
+    try {
+      await Promise.all([
+        recifrarTokensGuardados({ cofre: cofreDaRecifra, sql: batch, lote: 1 }),
+        recifrarTokensGuardados({ cofre: cofreDaRecifra, sql: outra, lote: 1 }),
+      ]);
+    } finally {
+      await outra.end();
+    }
+    // Uma terceira passagem apanha o que a corrida tenha deixado: é o «retomável».
+    const fecho = await recifrarTokensGuardados({ cofre: cofreDaRecifra, sql: batch });
+    for (const id of ids) assert.ok(!fecho.falhados.includes(id), `o canal ${id} ficou sem token`);
+    kek = ambienteDaKek(nova);
+    await todosAbrem(ids);
+  });
+
+  it("outro escritor muda a token_ref a meio: a re-cifra nao a pisa, e revoga so o que cunhou", async () => {
+    // Mede o `AND token_ref = $2` contra a tabela real: sem ele, o `UPDATE` do
+    // job escrevia por cima da troca do outro escritor.
+    const ids = await semearLegados("recifra-outro");
+    kek = ambienteDaKek(nova, legada);
+    const alvo = ids[0] as string;
+    const antes = (await refs([alvo])).get(alvo) as string;
+    const [tenant, token] = meus.get(alvo) as readonly [string, string];
+    const doOutro = await bao.cunhar(FAMILIA_DO_TOKEN, cifrarToken(legada, KID_LEGADO, tenant, token));
+    const comOutroEscritor: Cofre = {
+      ...cofreDaRecifra,
+      get: async (ref) => {
+        const valor = await cofreDaRecifra.get(ref);
+        if (ref === antes) {
+          await admin.query("UPDATE platform.tenant_channels SET token_ref = $2 WHERE id = $1", [alvo, doOutro]);
+        }
+        return valor;
+      },
+    };
+    const r = await recifrarTokensGuardados({ cofre: comOutroEscritor, sql: batch });
+    assert.ok(r.concorrentes >= 1, "a troca perdida conta-se em concorrentes");
+    assert.equal((await refs([alvo])).get(alvo), doOutro, "a troca do outro escritor ficou");
+    // As duas continuam no cofre: o job revogou so a que cunhou, e a antiga nao
+    // se revoga quando a troca nao aconteceu. `get` rejeita uma revogada.
+    await bao.get(doOutro);
+    await bao.get(antes);
   });
 });
