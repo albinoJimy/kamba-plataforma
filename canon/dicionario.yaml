@@ -19479,17 +19479,15 @@ entradas:
       - "ChannelContext"
   - seccao: "3.76"
     conceito: "Registo da persona"
-    canonico: "registry/dono.yaml, id: dono, entitlements.modulo: catalogo"
+    canonico: "registry/dono.yaml, id: dono, sem entitlements.modulo"
     literais:
       - "id: dono"
-      - "entitlements.modulo: catalogo"
+      - "entitlements.modulo"
     nomes:
       - "id"
       - "dono"
       - "entitlements.modulo"
-      - "catalogo"
-    nomes_nota:
-      - "catalogo"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.76"
     conceito: "Canal do dono"
@@ -19508,28 +19506,30 @@ entradas:
     variantes_literais: []
   - seccao: "3.76"
     conceito: "Política de proactivas"
-    canonico: "decidirProactiva, com MOTIVOS_DE_SUPRESSAO ∈ {sem_opt_in, tecto_semanal, tecto_mensal, contagem_invalida} e os tectos PUSH_POR_SEMANA (1) e PUSH_POR_MES (4)"
+    canonico: "decidirProactiva, com MOTIVOS_DE_SUPRESSAO ∈ {fora_da_janela}"
     literais:
       - "decidirProactiva"
       - "MOTIVOS_DE_SUPRESSAO"
-      - "sem_opt_in"
-      - "tecto_semanal"
-      - "tecto_mensal"
-      - "contagem_invalida"
-      - "PUSH_POR_SEMANA"
-      - "PUSH_POR_MES"
+      - "fora_da_janela"
     nomes:
       - "decidirProactiva"
       - "MOTIVOS_DE_SUPRESSAO"
-      - "sem_opt_in"
-      - "tecto_semanal"
-      - "tecto_mensal"
-      - "contagem_invalida"
-      - "PUSH_POR_SEMANA"
-      - "PUSH_POR_MES"
+      - "fora_da_janela"
     nomes_nota:
-      - "consent_event"
       - "marketing"
+    variantes_literais: []
+  - seccao: "3.76"
+    conceito: "Módulo de uma tool"
+    canonico: "EspecificacaoDeTool.modulo; as quatro do catálogo com MODULO_DO_DONO (catalogo)"
+    literais:
+      - "EspecificacaoDeTool.modulo"
+      - "MODULO_DO_DONO"
+      - "catalogo"
+    nomes:
+      - "EspecificacaoDeTool.modulo"
+      - "MODULO_DO_DONO"
+      - "catalogo"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.76"
     conceito: "Troca de telefone"
@@ -22854,10 +22854,7 @@ dominios:
     so_no_registo: false
   - coluna: "MOTIVOS_DE_SUPRESSAO"
     valores:
-      - "sem_opt_in"
-      - "tecto_semanal"
-      - "tecto_mensal"
-      - "contagem_invalida"
+      - "fora_da_janela"
     seccao: "3.76"
     conceito: "Política de proactivas"
     so_no_registo: false

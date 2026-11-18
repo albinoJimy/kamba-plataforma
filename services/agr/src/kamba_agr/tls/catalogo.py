@@ -124,30 +124,38 @@ _AS_SEIS_QUE_NAO_SAO_DO_VENDEDOR: Final = (
 CREDOR_DO_DONO: Final = "KAM-119"
 
 #: As quatro do Assistente do Dono, `declaradas` (KAM-118). Ver o cabecalho.
+#: O modulo que fecha as quatro no passo 2 (decisao do fundador de 2026-11-18):
+#: o dono de um tenant sem `catalogo` e atendido, e estas recusam pelo entitlement.
+MODULO_DO_DONO: Final = "catalogo"
+
 _AS_QUATRO_DO_DONO: Final = (
     EspecificacaoDeTool(
         nome="create_product_draft",
         klass="write",
         backend="plataforma",
         credor=CREDOR_DO_DONO,
+        modulo=MODULO_DO_DONO,
     ),
     EspecificacaoDeTool(
         nome="ask_missing_fields",
         klass="read",
         backend="plataforma",
         credor=CREDOR_DO_DONO,
+        modulo=MODULO_DO_DONO,
     ),
     EspecificacaoDeTool(
         nome="publish_product",
         klass="write",
         backend="plataforma",
         credor=CREDOR_DO_DONO,
+        modulo=MODULO_DO_DONO,
     ),
     EspecificacaoDeTool(
         nome="get_catalog_status",
         klass="read",
         backend="plataforma",
         credor=CREDOR_DO_DONO,
+        modulo=MODULO_DO_DONO,
     ),
 )
 

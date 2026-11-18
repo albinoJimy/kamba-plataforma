@@ -40,13 +40,23 @@ from kamba_agr.registo.validar import NOS_OBRIGATORIOS, nos_do_grafo
 from kamba_agr.tls import auditoria, erros
 from kamba_agr.tls.catalogo import ESPECIFICACOES_DO_PILOTO, catalogo_do_piloto
 from kamba_agr.tls.contexto import Confirmation
+from kamba_agr.tls.especificacoes import EspecificacaoDeTool, EspecificacaoInvalidaError
 from kamba_agr.verticais.dono import arestas as tabela_do_dono
 from kamba_agr.verticais.dono import encaminhadores as enc_do_dono
 from kamba_agr.verticais.dono import nos as nos_do_dono
 from kamba_agr.verticais.vendedor import encaminhadores as enc_do_vendedor
 from kamba_agr.verticais.vendedor import nos as nos_do_vendedor
 from test_grafos import PASTA, RAIZ, _config, _estado_com_texto, _porta
-from test_tls import CONTACTO, _Base, contexto
+from test_tls import (
+    CONTACTO,
+    ArgumentosDeEnsaio,
+    _Base,
+    _chave_do_sql,
+    _Cursor,
+    _executor_ok,
+    _Ligacao,
+    contexto,
+)
 
 TOOLS_DO_DONO_SO = ("create_product_draft", "ask_missing_fields", "publish_product", "get_catalog_status")
 
@@ -149,8 +159,13 @@ class TestChaveDoRegisto(unittest.TestCase):
         self.assertEqual(chave_do_registo("dono", None), CHAVE_DO_DONO)
         self.assertEqual(chave_do_registo(None, None), "")
 
-    def test_o_resolve_da_ao_dono_o_registo_dele_e_le_o_entitlement_dele(self) -> None:
-        agentes = _agentes_com({"vendedor", "servicos", "catalogo"})
+    def test_o_dono_de_um_tenant_sem_catalogo_e_atendido(self) -> None:
+        """Decisao do fundador de 2026-11-18: o Assistente do Dono serve todo o dono.
+
+        Sem o `catalogo`, e com os modulos dos dois canais, o dono resolve o
+        registo dele nos dois, e o cliente o do canal.
+        """
+        agentes = _agentes_com({"vendedor", "servicos"})
         for vertical in ("vendedor", "servicos"):
             with self.subTest(vertical=vertical):
                 self.assertEqual(
@@ -161,12 +176,35 @@ class TestChaveDoRegisto(unittest.TestCase):
                     vertical,
                 )
 
-    def test_sem_o_modulo_do_dono_a_persona_e_recusada_e_o_cliente_nao(self) -> None:
-        agentes = _agentes_com({"vendedor", "servicos"})
-        recusa = agentes.resolve(_inv(persona="dono"))
-        self.assertIsNone(recusa.vertical)
-        self.assertEqual(recusa.motivo, "sem_entitlement")
-        self.assertEqual(agentes.resolve(_inv(persona="cliente")).vertical.id, "vendedor")
+    def test_o_entitlement_do_dono_e_o_do_canal(self) -> None:
+        """O dono herda o modulo do canal: sem ele, e recusado como o cliente.
+
+        O tenant tem o `catalogo` e o `vendedor`, e nao o `servicos`: o dono
+        que escreve no canal de Servicos e recusado, e o `catalogo` nao o abre.
+        """
+        agentes = _agentes_com({"vendedor", "catalogo"})
+        self.assertEqual(agentes.resolve(_inv(vertical="vendedor", persona="dono")).vertical.id, "dono")
+        for persona in ("dono", "cliente"):
+            with self.subTest(persona=persona):
+                recusa = agentes.resolve(_inv(vertical="servicos", persona=persona))
+                self.assertIsNone(recusa.vertical)
+                self.assertEqual(recusa.motivo, "sem_entitlement")
+
+    def test_so_a_persona_do_dono_pode_omitir_o_modulo(self) -> None:
+        """Uma vertical de canal sem `entitlements.modulo` nao arranca."""
+        caminho = RAIZ / "registry" / "vendedor.yaml"
+        documento = registo.esquema.ler_yaml(caminho)
+        documento["entitlements"] = {
+            k: v for k, v in documento["entitlements"].items() if k != "modulo"
+        }
+        with self.assertRaises(registo.esquema.FicheiroIlegivelError) as capturado:
+            registo.esquema.ler_vertical(caminho, documento)
+        self.assertIn("entitlements.modulo", str(capturado.exception))
+        do_dono = registo.esquema.ler_vertical(
+            RAIZ / "registry" / "dono.yaml",
+            registo.esquema.ler_yaml(RAIZ / "registry" / "dono.yaml"),
+        )
+        self.assertIsNone(do_dono.entitlements.modulo)
 
     def test_o_turno_e_a_thread_do_dono_resolvem_o_grafo_do_dono(self) -> None:
         """A `da_thread` reencontra o grafo pela persona do *checkpoint*."""
@@ -183,6 +221,116 @@ class TestChaveDoRegisto(unittest.TestCase):
         )
         grafo = asyncio.run(porta.do_turno(cliente))
         self.assertIs(grafo._grafo, compilados["vendedor"])
+
+
+# --------------------------------- as tools do dono, pelo modulo de cada uma
+
+
+class _CursorDosModulos(_Cursor):
+    """Responde ao entitlement **pelo modulo pedido** (o segundo parametro).
+
+    O duplo da `test_tls` responde o mesmo a todo o modulo; aqui a resposta e a
+    do modulo que o `SQL_ENTITLEMENT` leva, e por isso um passo 2 que pedisse o
+    modulo errado (o do canal, em vez do da tool) dava outra resposta.
+    """
+
+    def execute(self, sql: str, parametros: Any = ()) -> None:
+        if _chave_do_sql(sql) == "entitlement":
+            self._ligacao.sql.append((sql, tuple(parametros)))
+            modulo = tuple(parametros)[1]
+            self.description = [("permitido",), ("modulo",)]
+            self._linhas = [(modulo in self._ligacao.modulos, modulo)]
+            return
+        super().execute(sql, parametros)
+
+
+class _LigacaoDosModulos(_Ligacao):
+    def __init__(self, modulos: set[str]) -> None:
+        super().__init__()
+        self.modulos = modulos
+
+    def cursor(self) -> _CursorDosModulos:
+        return _CursorDosModulos(self)
+
+    def nova_vaga(self) -> "_LigacaoDosModulos":
+        return self
+
+    def modulos_pedidos(self) -> list[str]:
+        return [p[1] for sql, p in self.sql if _chave_do_sql(sql) == "entitlement"]
+
+
+def _ligada(nome: str, modulo: str | None) -> EspecificacaoDeTool:
+    """Uma tool do dono **ligada** para o ensaio, com o modulo que o catalogo lhe da."""
+    return EspecificacaoDeTool(
+        nome=nome,
+        klass="read",
+        backend="plataforma",
+        modelo=ArgumentosDeEnsaio,
+        executor=_executor_ok,
+        modulo=modulo,
+    )
+
+
+class TestModulosDasToolsDoDono(_Base):
+    """Decisao do fundador de 2026-11-18: cada tool fecha-se pelo seu modulo.
+
+    As quatro do catalogo estao **declaradas** no catalogo real (credor
+    KAM-119), e o passo 1 recusa-as antes do 2. O ensaio liga-as aqui com o
+    `modulo` que o catalogo real lhes da, que e o que o KAM-119 herda.
+    """
+
+    def _camada(self, modulos: set[str]):
+        do_catalogo = catalogo_do_piloto()
+        especificacoes = tuple(
+            _ligada(nome, do_catalogo[nome].modulo) for nome in ("get_catalog_status", "ask_missing_fields")
+        ) + (_ligada("get_store_info", do_catalogo["get_store_info"].modulo),)
+        return self.camada(especificacoes=especificacoes, ligacao=_LigacaoDosModulos(modulos))
+
+    def _invocar(self, camada, nome: str):
+        return self.invocar(
+            camada,
+            ctx=contexto(vertical="vendedor", turn_id=f"m-{nome}"),
+            name=nome,
+            args={"cart_id": "c-1"},
+            allowed=("get_catalog_status", "ask_missing_fields", "get_store_info"),
+            confirmation=None,
+            idempotency_key=None,
+        )
+
+    def test_o_catalogo_real_fecha_as_quatro_pelo_catalogo(self) -> None:
+        catalogo = catalogo_do_piloto()
+        for nome in TOOLS_DO_DONO_SO:
+            with self.subTest(tool=nome):
+                self.assertEqual(catalogo[nome].modulo, "catalogo")
+        self.assertIsNone(catalogo["get_store_info"].modulo)
+
+    def test_sem_catalogo_o_dono_e_atendido_e_as_do_catalogo_recusam(self) -> None:
+        camada, ligacao, _ = self._camada({"vendedor"})
+        self.assertTrue(self._invocar(camada, "get_store_info").ok)
+        for nome in ("get_catalog_status", "ask_missing_fields"):
+            with self.subTest(tool=nome):
+                resultado = self._invocar(camada, nome)
+                self.assertFalse(resultado.ok)
+                self.assertEqual(resultado.error.codigo, erros.ENTITLEMENT_DENIED)
+        # O passo 2 pediu o modulo de cada tool, e nao o do canal para todas.
+        self.assertEqual(ligacao.modulos_pedidos(), ["vendedor", "catalogo", "catalogo"])
+
+    def test_com_catalogo_as_do_catalogo_abrem(self) -> None:
+        camada, _ligacao, _ = self._camada({"vendedor", "catalogo"})
+        for nome in ("get_catalog_status", "ask_missing_fields", "get_store_info"):
+            with self.subTest(tool=nome):
+                self.assertTrue(self._invocar(camada, nome).ok)
+
+    def test_o_catalogo_nao_abre_as_tools_do_canal(self) -> None:
+        """Sem o modulo do canal, a `get_store_info` recusa, com ou sem `catalogo`."""
+        camada, _ligacao, _ = self._camada({"catalogo"})
+        resultado = self._invocar(camada, "get_store_info")
+        self.assertEqual(resultado.error.codigo, erros.ENTITLEMENT_DENIED)
+        self.assertTrue(self._invocar(camada, "get_catalog_status").ok)
+
+    def test_um_modulo_que_nao_e_nome_e_recusado(self) -> None:
+        with self.assertRaises(EspecificacaoInvalidaError):
+            _ligada("get_catalog_status", "Catalogo AI")
 
 
 # ------------------------------------------------- a allowlist, 50 tentativas

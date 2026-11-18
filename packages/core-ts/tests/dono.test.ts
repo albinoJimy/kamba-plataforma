@@ -14,19 +14,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { eParar } from "../src/consentimento/parar.ts";
 import {
   CONSUMIDOR_DO_DONO,
   canalDoDono,
   decidirProactiva,
+  MOTIVOS_DE_SUPRESSAO,
   DESTINOS_DO_AVISO,
   efeitoDoProvisionamento,
   type OtpDaTroca,
   PAPEIS,
   PERSONAS,
   personaDe,
-  PUSH_POR_MES,
-  PUSH_POR_SEMANA,
   TelefoneDoCasoIndisponivelError,
   TrocaDeTelefone,
   VersaoDoProvisionamentoError,
@@ -86,62 +84,34 @@ describe("KAM-118 criterio 7 — o canal do dono", () => {
   });
 });
 
-describe("KAM-118 criterio 8 — a politica de proactivas", () => {
-  const base = { janelaAberta: false, optInMarketing: true, pushNaSemana: 0, pushNoMes: 0 };
-
-  it("dentro da janela e service message, sem template, mesmo sem opt-in", () => {
-    for (const optInMarketing of [true, false, null]) {
-      assert.deepEqual(decidirProactiva({ ...base, janelaAberta: true, optInMarketing }), {
-        accao: "service",
-      });
-    }
+describe("KAM-118 criterio 8 — as mensagens ao dono no Piloto (decisao de 2026-11-18)", () => {
+  it("dentro da janela e service message, sem template", () => {
+    assert.deepEqual(decidirProactiva({ janelaAberta: true }), { accao: "service" });
   });
 
-  it("fora da janela so sai template com opt-in de marketing", () => {
-    assert.deepEqual(decidirProactiva(base), { accao: "template" });
-  });
-
-  it("sem opt-in, 0 templates em 100 tentativas", () => {
-    let templates = 0;
+  it("fora da janela nada sai: 0 templates em 100 tentativas", () => {
+    let saidas = 0;
     for (let i = 0; i < 100; i += 1) {
-      const optIn = i % 2 === 0 ? false : null;
-      if (decidirProactiva({ ...base, optInMarketing: optIn }).accao === "template") templates += 1;
+      const decisao = decidirProactiva({ janelaAberta: false });
+      if (decisao.accao !== "suprimir") saidas += 1;
+      else assert.equal(decisao.motivo, "fora_da_janela");
     }
-    assert.equal(templates, 0);
+    assert.equal(saidas, 0);
   });
 
-  it("«PARAR» suprime na primeira proactiva a seguir", () => {
-    // O ConsentGate do KAM-022 grava `marketing` com `accepted=false` na
-    // mensagem «PARAR»; a proactiva seguinte le esse estado.
-    assert.equal(eParar("PARAR"), true);
-    assert.deepEqual(decidirProactiva({ ...base, optInMarketing: false }), {
-      accao: "suprimir",
-      motivo: "sem_opt_in",
-    });
+  it("nao ha template ao dono no Piloto: a decisao so tem service e suprimir", () => {
+    assert.deepEqual([...MOTIVOS_DE_SUPRESSAO], ["fora_da_janela"]);
+    for (const janelaAberta of [true, false]) {
+      assert.notEqual(decidirProactiva({ janelaAberta }).accao, "template");
+    }
   });
 
-  it("tecto de 1 por semana e 4 por mes", () => {
-    assert.equal(PUSH_POR_SEMANA, 1);
-    assert.equal(PUSH_POR_MES, 4);
-    assert.deepEqual(decidirProactiva({ ...base, pushNaSemana: 1, pushNoMes: 1 }), {
-      accao: "suprimir",
-      motivo: "tecto_semanal",
-    });
-    assert.deepEqual(decidirProactiva({ ...base, pushNaSemana: 0, pushNoMes: 4 }), {
-      accao: "suprimir",
-      motivo: "tecto_mensal",
-    });
-    assert.deepEqual(decidirProactiva({ ...base, pushNaSemana: 0, pushNoMes: 3 }), {
-      accao: "template",
-    });
-  });
-
-  it("uma contagem invalida suprime", () => {
-    for (const n of [-1, 0.5, Number.NaN]) {
-      assert.deepEqual(decidirProactiva({ ...base, pushNaSemana: n }), {
-        accao: "suprimir",
-        motivo: "contagem_invalida",
-      });
+  it("uma janela que nao se leu bem suprime — falha fechada", () => {
+    for (const lida of [undefined, null, "true", 1]) {
+      assert.deepEqual(
+        decidirProactiva({ janelaAberta: lida as unknown as boolean }),
+        { accao: "suprimir", motivo: "fora_da_janela" },
+      );
     }
   });
 });

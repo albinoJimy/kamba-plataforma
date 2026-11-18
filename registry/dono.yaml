@@ -28,14 +28,16 @@
 # activos — que e verdade.
 #
 # ---------------------------------------------------------------------------
-# `entitlements.modulo: catalogo` E *PROPOSTA*.
+# SEM `entitlements.modulo`: O DONO HERDA O DO CANAL.
 #
-# O catalogo e o pre-requisito do onboarding (o modulo de entrada que os outros
-# tres usam), e e um dos quatro modulos que o
-# `registry/entitlement_keys.schema.json` ja conhece. Um tenant sem o modulo
-# activo recebe a recusa do criterio 6 do KAM-027 (`servico_indisponivel`) —
-# o `resolve` le o entitlement do registo resolvido, que e este, e nao o do
-# canal. A decisao de qual modulo abre a porta do dono e do fundador.
+# Decisao do fundador de 2026-11-18: o Assistente do Dono atende QUALQUER dono.
+# O `resolve` le o entitlement do modulo da vertical por onde o dono escreve
+# (`vendedor` ou `servicos`), e e so isso que o fecha — um tenant suspenso fica
+# recusado ao dono como ao cliente. As tools dos modulos de entrada fecham-se
+# cada uma pelo seu modulo no passo 2 da ToolLayer (`modulo` da especificacao
+# em `tls/catalogo.py`): as quatro do catalogo pelo `catalogo`. A persona do
+# dono e a unica que pode omitir o modulo; o `esquema.py` recusa-o a uma
+# vertical de canal.
 #
 # ---------------------------------------------------------------------------
 # SEM `subscriptions`, DE PROPOSITO.
@@ -65,7 +67,6 @@ tools:
   - publish_product
   - get_catalog_status
 entitlements:
-  modulo: catalogo
   limites:
     - msgs_ai_mes
 models:

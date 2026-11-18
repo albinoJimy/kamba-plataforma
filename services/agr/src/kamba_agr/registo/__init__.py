@@ -288,9 +288,14 @@ class AgentRegistry:
         **A unica excepcao e quem escreve, e nao e escolha entre verticais**
         (KAM-118): o CHR so poe `persona: dono` quando o remetente e o contacto
         `papel='dono'` do tenant do canal, e entao a chave e a persona `dono`.
-        Quem decide e o CHR, contra a base; o registo so le o veredicto. O
-        entitlement que se le e o do registo resolvido — o do Assistente do
-        Dono, e nao o do canal.
+        Quem decide e o CHR, contra a base; o registo so le o veredicto.
+
+        **O entitlement do dono e o do canal** (decisao do fundador de
+        2026-11-18): o Assistente do Dono atende qualquer dono, e o
+        `registry/dono.yaml` nao declara modulo — herda o da vertical por onde o
+        dono escreve. Um tenant suspenso, ou sem o modulo do canal, continua
+        recusado ao dono como ao cliente. As tools dos modulos de entrada fecham-
+        se cada uma pelo seu, no passo 2 da ToolLayer.
         """
         if not self._carregado:
             raise RegistoInvalidoError(
@@ -300,7 +305,13 @@ class AgentRegistry:
         vertical = self._verticais.get(chave_do_registo(ctx.persona, ctx.vertical))
         if vertical is None:
             return self._negar("vertical_desconhecida")
-        entitlement = self._ler_entitlement(ctx.tenant_id, vertical.entitlements.modulo)
+        modulo = vertical.entitlements.modulo
+        if modulo is None:
+            do_canal = self._verticais.get(ctx.vertical)
+            if do_canal is None or do_canal.entitlements.modulo is None:
+                return self._negar("vertical_desconhecida")
+            modulo = do_canal.entitlements.modulo
+        entitlement = self._ler_entitlement(ctx.tenant_id, modulo)
         if not entitlement.permitido:
             return self._negar("sem_entitlement")
         return Resolucao(vertical=vertical)

@@ -56,8 +56,11 @@ se e só se o remetente é o contacto `papel='dono'` do tenant. A regra vive num
 sítio só, a `chave_do_registo` de `services/agr/src/kamba_agr/contexto.py`.
 
 As quatro tools do módulo `catalogo` estão no catálogo da ToolLayer como
-**declaradas** (credor KAM-119), o `entitlements.modulo: catalogo` é *proposta*,
-e não há `subscriptions` (uma subscrição numa vertical exige a linha da revisão
+**declaradas** (credor KAM-119), e cada uma fecha-se pelo entitlement do
+`catalogo` no passo 2 da ToolLayer. O `dono.yaml` **não** declara
+`entitlements.modulo`: herda o do canal, porque o Assistente do Dono atende
+qualquer dono (decisão do fundador de 2026-11-18). É o único registo que o pode
+omitir. Não há `subscriptions` (uma subscrição numa vertical exige a linha da revisão
 `0052`). A linha `dono` do `gates.yaml` adia o `golden` para o **KAM-125**.
 
 ## O `gates.yaml`, e porque é que apagar uma linha é que fecha um gate

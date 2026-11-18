@@ -34,9 +34,3 @@ export type Persona = Papel;
 
 /** O papel com que um contacto nasce. É a omissão da coluna. */
 export const PAPEL_POR_OMISSAO: Papel = "cliente";
-
-/** Tecto de *push* ao dono por semana. ***Proposta***: 1. */
-export const PUSH_POR_SEMANA = 1;
-
-/** Tecto de *push* ao dono por mês. ***Proposta***: 4. */
-export const PUSH_POR_MES = 4;
