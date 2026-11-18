@@ -47,10 +47,12 @@ from typing import Any, Final
 from .. import tenant_guard
 from ..direitos.exportacao import documento, resumo
 from ..retencao import politica, purge_log
+from .purga import UNIDADE_DO_STO
 from .contrato import FaseForaDeOrdem, auditar, exigir_pedido_vivo, ler_fases, marcar
 
-#: A versao do formato do certificado, em SemVer.
-VERSAO_DO_CERTIFICADO: Final = "1.0.0"
+#: A versao do formato do certificado, em SemVer. 1.1.0 (KAM-210): os objectos
+#: do STO apagados, no escopo `sto` das `apagadas`.
+VERSAO_DO_CERTIFICADO: Final = "1.1.0"
 
 ALGORITMO: Final = "HMAC-SHA256"
 
@@ -72,7 +74,9 @@ FUNDAMENTO_CANAL_DO_TITULAR: Final = (
 )
 
 #: O que vive fora da base e nao tem caminho de eliminacao nesta versao, com o
-#: fundamento. Sai da lista quando o credor (KAM-210, criterio 5) lhe der caminho.
+#: fundamento. O `sto` sai da lista quando a purga o apagou (a unidade
+#: `sto.objectos` com `ok`, KAM-210); os outros quatro, quando o credor deles
+#: (KAM-218) lhes der caminho.
 ESCOPOS_SEM_CAMINHO: Final[tuple[tuple[str, str], ...]] = (
     ("sto", "objectos no armazenamento (fotos, midia recebida, pacotes de exportacao): "
             "expiram pelo prazo de retencao de cada objecto, sem eliminacao antecipada nesta versao"),
@@ -89,9 +93,11 @@ REFERENCIADAS_PELO_FISCAL: Final = frozenset({"platform.tenants", "platform.paym
 EntregarAoTitular = Callable[[str, bytes], bool]
 AbrirLigacao = Callable[[], Any]
 
-#: As linhas de **todas** as execucoes da purga deste encerramento (achado 7).
+#: As linhas de **todas** as execucoes da purga deste encerramento (achado 7). A
+#: contagem e a das linhas, ou a dos objectos na unidade do STO (as duas nunca
+#: juntas: cada unidade conta uma coisa).
 SQL_REGISTOS_DA_EXECUCAO: Final = """
-  SELECT tabela, resultado, motivo, linhas
+  SELECT tabela, resultado, motivo, linhas + objectos
     FROM platform.purge_log
    WHERE execucao_id = ANY(%s::uuid[]) AND tenant_id = %s::uuid
    ORDER BY tabela, resultado
@@ -123,12 +129,18 @@ def montar(
         raise ValueError("o ciclo das copias e um numero de dias positivo")
     apagadas: dict[str, int] = {}
     retidas: dict[str, str] = {}
+    objectos_apagados: int | None = None
     for tabela, resultado, _motivo, linhas in registos:
-        if resultado == "ok":
+        if resultado == "ok" and tabela == UNIDADE_DO_STO:
+            objectos_apagados = (objectos_apagados or 0) + int(linhas)
+        elif resultado == "ok":
             apagadas[tabela] = apagadas.get(tabela, 0) + int(linhas)
     for tabela, resultado, _motivo, _linhas in registos:
         # Uma tabela que saiu numa execucao nao fica retida por outra.
         if resultado == "ok" or tabela in apagadas:
+            continue
+        if tabela == UNIDADE_DO_STO:
+            # O STO declara-se pelo escopo, abaixo, e nao como tabela.
             continue
         if tabela == "platform.owner_contacts":
             retidas[tabela] = FUNDAMENTO_CANAL_DO_TITULAR
@@ -141,11 +153,15 @@ def montar(
         "versao": VERSAO_DO_CERTIFICADO,
         "tenant_id": tenant_id,
         "emitido_at": emitido_at.isoformat(),
-        "apagadas": [{"tabela": t, "linhas": n} for t, n in sorted(apagadas.items())],
+        "apagadas": [
+            *({"tabela": t, "linhas": n} for t, n in sorted(apagadas.items())),
+            *([] if objectos_apagados is None else [{"escopo": "sto", "objectos": objectos_apagados}]),
+        ],
         "retidas": [
             *({"classe": c.nome, "fundamento": FUNDAMENTO_FISCAL} for c in fiscais),
             *({"tabela": t, "fundamento": f} for t, f in sorted(retidas.items())),
-            *({"escopo": e, "fundamento": f} for e, f in ESCOPOS_SEM_CAMINHO),
+            *({"escopo": e, "fundamento": f} for e, f in ESCOPOS_SEM_CAMINHO
+              if not (e == "sto" and objectos_apagados is not None)),
         ],
         "prazo_fiscal": {"fiscal_retention_years": anos_fiscais, "estado": "NAO VERIFICADO"},
         "copias_de_seguranca": {

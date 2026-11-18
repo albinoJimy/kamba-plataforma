@@ -385,6 +385,75 @@ metricas:
           - mudanca_de_conta
           - violacao_de_categoria
 
+  # ------------------------------------------------- off-boarding (KAM-210)
+  #
+  # Servidas pelo processo de lote do onboarding (`onboarding-lote`, `job`
+  # `onboarding_lote`), onde corre o ciclo das fases do encerramento. Os dois
+  # *gauges* recalculam-se a cada volta a partir da `platform.offboarding_run` e
+  # cobrem as sete fases, tambem as do lado dos dados; o contador conta as
+  # chamadas do ciclo as tres fases deste lado. Nascem a zero em todo o
+  # dominio, e nenhuma etiqueta leva tenant (`OBS-I`): qual encerramento le-se
+  # da `platform.offboarding_run`. A regra esta no `kamba-offboarding.yml`.
+  - nome: offboarding_fases_paradas
+    tipo: gauge
+    fonte: packages/core-ts/src/offboarding/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Fases do off-boarding paradas, falhadas ou por acabar alem do prazo e da folga.
+    etiquetas:
+      - nome: fase
+        dominio:
+          - verificacao
+          - pendentes
+          - canal
+          - exportacao
+          - revogacao
+          - purga
+          - certificado
+
+  - nome: offboarding_fases
+    tipo: gauge
+    fonte: packages/core-ts/src/offboarding/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Fases do off-boarding na base, por fase e estado.
+    etiquetas:
+      - nome: fase
+        dominio:
+          - verificacao
+          - pendentes
+          - canal
+          - exportacao
+          - revogacao
+          - purga
+          - certificado
+      - nome: estado
+        dominio:
+          - pendente
+          - em_curso
+          - concluida
+          - suspensa_disputa
+          - falhada
+          - cancelada
+
+  - nome: offboarding_execucoes_total
+    tipo: counter
+    fonte: packages/core-ts/src/offboarding/metricas.ts
+    exposta_por:
+      - onboarding-lote
+    ajuda: Chamadas do ciclo do off-boarding a uma fase, por desfecho.
+    etiquetas:
+      - nome: fase
+        dominio:
+          - canal
+          - pendentes
+          - revogacao
+      - nome: desfecho
+        dominio:
+          - concluida
+          - em_curso
+          - falhou
+
   # ------------------------------------------------- backup (KAM-079)
   #
   # **As quatro tem `exposta_por` vazio, e e a declaracao que importa.** A

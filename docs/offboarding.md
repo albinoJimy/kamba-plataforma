@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/offboarding.md` |
 | Ticket | KAM-098 — Off-boarding: exportação, revogação, purga e certificado |
-| Estado | **Proposta.** As fases estão na revisão do off-boarding e medidas em `db/tests/test_offboarding.py` e em `packages/core-ts/tests_bd/offboarding.bd.test.ts`; **nenhum processo as corre em produção** e as portas não têm adaptador (§6). Todos os prazos são *proposta* |
+| Estado | **Proposta.** As fases estão na revisão do off-boarding e medidas em `db/tests/test_offboarding.py` e em `packages/core-ts/tests_bd/offboarding.bd.test.ts`; o processo de lote corre as fases do lado TypeScript desde o KAM-210, e as de dados e as portas para fora ainda não correm em produção (§6). Todos os prazos são *proposta* |
 | Âmbito | O que acontece, e em que ordem, quando uma PME pede para sair ou quando T&S encerra um tenant suspenso; o que se apaga, o que fica e porquê; e o que fazer quando uma fase pára |
 | Fontes | `docs/tecnica/10` §15.2; `docs/tecnica/08` §8.4, §8.8 e §11; `specs/02` §3.55 e §3.77; ADR-010, ADR-014; E1, E3 §6 |
 
@@ -46,9 +46,11 @@ refaz-se), as fases por fazer ficam `cancelada`, e nada se apaga. Um pedido novo
 * **O que ainda não tem caminho**: os contactos (só o cofre lhes toca), os casos de onboarding e o
   que deles depende, as ingestões do catálogo e os trabalhos de foto. Ficam `recusada` /
   `sem_caminho` no `purge_log` e no certificado, nunca como apagados.
-* **O que vive fora da base**: os objectos do STO (as fotos, os bytes da mídia cujas linhas saíram, os
-  pacotes de exportação), o Chatwoot, os *traces*, as *caches* e os fornecedores de LLM e STT. Não têm
-  caminho de eliminação nesta versão, e o certificado lista-os como retidos, com o fundamento.
+* **O que vive fora da base**: o Chatwoot, os *traces*, as *caches* e os fornecedores de LLM e STT.
+  Não têm caminho de eliminação nesta versão, e o certificado lista-os como retidos, com o fundamento.
+  Os objectos do STO (as fotos, os bytes da mídia cujas linhas saíram, os pacotes de exportação) saem
+  desde o KAM-210 quando a purga recebe o armazenamento, e o certificado diz quantos; sem ele, ficam
+  retidos como os outros.
 * **O contacto do dono** fica até o certificado lhe ser entregue, e sai logo a seguir.
 
 ## 4. As cópias de segurança
@@ -68,15 +70,28 @@ exportação do KAM-079): um tenant purgado depois da cópia volta a ser apagado
 | `purga` em `suspensa_disputa` | Esperar o fecho da disputa, levantar o *hold*, correr outra vez |
 | `certificado` em `em_curso` | A entrega falhou. Correr outra vez: entrega o mesmo documento, com a mesma data |
 
-## 6. O que falta para correr em produção
+## 6. O processo, e o que falta para correr em produção
 
-Nenhum processo corre as fases, e as portas não têm adaptador: o OTP e a ligação ao e-mail do
-dono, a Meta, o LiteLLM, o Chatwoot (que não tem método para arquivar a conta), a Medusa, o cofre
-para os contactos, a entrega do certificado. O catálogo não entra no pacote enquanto viver só na
-Medusa. A assinatura do certificado é HMAC, e não assimétrica.
+**Desde o KAM-210**, o processo de lote do onboarding (`onboarding-lote`) corre o canal, os
+pendentes e a revogação num ciclo agendado (`LOTE_OFFBOARDING_INTERVALO_MS`, 15 min por omissão,
+*proposta*) e serve as métricas das **sete** fases; a regra `offboarding_fase_parada` dispara sobre
+uma fase `falhada`, ou por acabar 24 h depois do prazo, e o *runbook* é o
+[`runbooks/offboarding.md`](runbooks/offboarding.md). As três fases de dados correm pelo
+`correr_volta` do `kamba_core.offboarding`, cada uma no seu `try`; uma purga `falhada` ou suspensa
+não se repete sozinha. A exportação leva os bytes do STO (até um tecto, *proposta*), e a purga apaga
+os objectos do tenant no STO, com a sua linha no `purge_log`.
+
+**O que falta** (credor **KAM-218**): o processo que chama o `correr_volta` em produção; as portas
+sem adaptador, que o processo monta como tal e que fazem a fase falhar em vez de fingir — o OTP e a
+ligação ao e-mail do dono, o *token* de cada WABA para a Meta (o adaptador existe, falta o leitor do
+cofre), o LiteLLM, o Chatwoot (sem método para arquivar a conta), a Medusa, o cofre para os contactos
+e os telefones, e a entrega do certificado; o caminho de eliminação das tabelas `sem_caminho`, que é
+esquema; e o simulacro em *staging*. O catálogo não entra no pacote enquanto viver só na Medusa. A
+assinatura do certificado é HMAC, e não assimétrica.
 
 ## 7. Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Novembro 2026 | KAM-098: emissão inicial — as sete fases, o cancelamento e a reabertura, o que fica (incluindo o que vive fora da base), as cópias de segurança e o que fazer quando uma fase pára. Um tenant `restrito` não se encerra: o grafo da `0058` não tem a aresta. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | KAM-210: o §6 passa a dizer o processo que corre as fases, as métricas e o alerta da fase parada (com o *runbook* próprio), e o STO na exportação e na purga; o que falta tem credor, o KAM-218. | Equipa KAMBÁ |

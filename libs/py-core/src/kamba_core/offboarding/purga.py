@@ -30,6 +30,10 @@ STO nao**: expiram pelo `retain_until` de cada objecto, e o certificado di-lo.
   4 da revisao adversarial: apagado antes, o certificado nao tinha por onde ir);
 * **o tenant e as contas de pagamento**: as tabelas fiscais (encomendas,
   pagamentos) apontam-nas por FK, e ficam enquanto o prazo fiscal ficar;
+* **os objectos do STO** saem pelo `armazenamento`, quando a purga o recebe
+  (KAM-210): cada objecto sob `t/<tenant>/` apagado, e uma linha `sto.objectos`
+  no `purge_log` com a contagem em `objectos`. Sem ele, o certificado declara-os
+  retidos, com o fundamento;
 * **os casos de onboarding e o que deles depende** (`onboarding_case`, os
   gates, o teste, o KYC, a lista de espera), **as ingestoes do catalogo e os
   trabalhos de foto**, e os `fraud_signals`: o `kamba_batch` nao tem `DELETE`
@@ -71,6 +75,7 @@ from typing import Any, Final
 
 from .. import tenant_guard
 from ..retencao import hold, politica, purge_log
+from ..storage.port import Ctx, StorageProvider
 from .contrato import (
     ACTOR,
     FaseForaDeOrdem,
@@ -117,12 +122,20 @@ CAMINHOS_DO_ENCERRAMENTO: Final[tuple[Caminho, ...]] = (
     Caminho("platform.tenant_channels", ("platform.channel_quality_log",)),
 )
 
+#: A unidade do STO no `purge_log`. Nao e uma tabela: e o nome da unidade, na
+#: forma `<esquema>.<nome>` que o `purge_log_tabela_ck` exige, e o certificado
+#: le-a como o escopo `sto`.
+UNIDADE_DO_STO: Final = "sto.objectos"
+
 #: As do cofre. Saem pelo `apagar_contactos` (o apagamento do KAM-008).
 TABELAS_DOS_CONTACTOS: Final = (
     "platform.contact_endpoints",
     "platform.contact_deks",
     "platform.contacts",
 )
+
+#: Quantos objectos se listam de cada vez na eliminacao do STO.
+LOTE_DO_STO: Final = 500
 
 #: Quem apaga os contactos do tenant, e devolve quantos. O cofre, em producao.
 ApagarContactos = Callable[[str], int]
@@ -227,10 +240,11 @@ class _Corrida:
         self.registos: list[purge_log.Registo] = []
         self.suspensa: dict[str, Any] = {}
 
-    def registo(self, tabela: str, resultado: str, motivo: str | None = None, linhas: int = 0):
+    def registo(self, tabela: str, resultado: str, motivo: str | None = None, linhas: int = 0,
+                objectos: int = 0):
         return purge_log.Registo(
             self.execucao_id, CLASSE, tabela, self.tenant_id, purge_log.MODO_EFECTIVA,
-            resultado, motivo, linhas, 0, None, politica.VERSAO_DA_POLITICA, self.agora,
+            resultado, motivo, linhas, objectos, None, politica.VERSAO_DA_POLITICA, self.agora,
         )
 
     def anotar(self, cursor: Any, tabela: str, resultado: str, motivo: str) -> None:
@@ -286,11 +300,56 @@ class _Corrida:
 
         _em_batch(self.abrir, "offboarding_purga", corpo)
 
-    def apagar_tudo(self, apagar_contactos: ApagarContactos | None) -> None:
+    def sto(self, armazenamento: StorageProvider | None) -> None:
+        """Os objectos do tenant no STO: a pergunta da disputa, os `delete` e o `purge_log`.
+
+        A pergunta da disputa vem antes, numa transaccao; os `delete` correm fora
+        dela (o STO nao entra numa transaccao da base) e sao idempotentes; a linha
+        do `purge_log` vem depois, com a contagem. Repete-se a listagem ate vir
+        vazia: o `list` recusa acima do limite em vez de truncar, e cada volta
+        apaga o que listou. Um *crash* a meio deixa a fase por concluir, e a
+        corrida seguinte apaga o resto.
+        """
+        if armazenamento is None:
+            return
+        disputa = _em_batch(self.abrir, "offboarding_purga",
+                            lambda cur: _disputa(cur, self.tenant_id, self.holds_externos))
+        if disputa:
+            self.suspensa = disputa
+            _em_batch(self.abrir, "offboarding_purga", lambda cur: self.anotar(
+                cur, UNIDADE_DO_STO, purge_log.RESULTADO_RETIDA, purge_log.MOTIVO_HOLD_TENANT))
+            return
+        ctx = Ctx(self.tenant_id)
+        apagados = 0
+        try:
+            while True:
+                refs = list(armazenamento.list(ctx, f"t/{self.tenant_id}/", limite=LOTE_DO_STO))
+                if not refs:
+                    break
+                for ref in refs:
+                    armazenamento.delete(ctx, ref)
+                    apagados += 1
+        except Exception:  # noqa: BLE001 — a unidade que falha fica escrita, e a fase nao conclui
+            _em_batch(self.abrir, "offboarding_purga", lambda cur: self.anotar(
+                cur, UNIDADE_DO_STO, purge_log.RESULTADO_FALHOU, purge_log.MOTIVO_ERRO))
+            return
+
+        def corpo(cursor: Any) -> None:
+            r = self.registo(UNIDADE_DO_STO, purge_log.RESULTADO_OK, objectos=apagados)
+            purge_log.escrever(cursor, r)
+            self.registos.append(r)
+
+        _em_batch(self.abrir, "offboarding_purga", corpo)
+
+    def apagar_tudo(self, apagar_contactos: ApagarContactos | None,
+                    armazenamento: StorageProvider | None = None) -> None:
         for caminho in CAMINHOS_DO_ENCERRAMENTO:
             self.apagar(caminho)
             if self.suspensa:
                 return
+        self.sto(armazenamento)
+        if self.suspensa:
+            return
         self.contactos(apagar_contactos)
         _em_batch(self.abrir, "offboarding_purga", lambda cur: [
             self.anotar(cur, t, purge_log.RESULTADO_RECUSADA, purge_log.MOTIVO_SEM_CAMINHO)
@@ -305,7 +364,7 @@ class _Corrida:
         apagadas: dict[str, int] = {}
         for r in self.registos:
             if r.resultado == purge_log.RESULTADO_OK:
-                apagadas[r.tabela] = apagadas.get(r.tabela, 0) + r.linhas
+                apagadas[r.tabela] = apagadas.get(r.tabela, 0) + r.linhas + r.objectos
         return {
             "execucao_id": self.execucao_id,
             "execucoes": [*anteriores, self.execucao_id],
@@ -323,14 +382,19 @@ def purgar(
     *,
     apagar_contactos: ApagarContactos | None = None,
     holds_externos: hold.Holds | None = None,
+    armazenamento: StorageProvider | None = None,
 ) -> dict[str, Any]:
-    """A fase `purga`. Devolve o `resultado` que gravou (ou o que ja la estava)."""
+    """A fase `purga`. Devolve o `resultado` que gravou (ou o que ja la estava).
+
+    Com o `armazenamento` (KAM-210), os objectos do tenant no STO saem tambem.
+    """
     tenant_id = tenant_guard.normalizar_tenant(tenant_id)
     with _trinco(abrir_batch, tenant_id):
-        return _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos)
+        return _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos, armazenamento)
 
 
-def _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos) -> dict[str, Any]:
+def _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos,
+            armazenamento=None) -> dict[str, Any]:
     def antes(cursor: Any) -> tuple[dict[str, Any] | None, list[str]]:
         fases = ler_fases(cursor, tenant_id)
         exigir_pedido_vivo(fases, "purga")
@@ -349,7 +413,7 @@ def _purgar(abrir_batch, tenant_id, agora, apagar_contactos, holds_externos) -> 
         return feito["ja"]
 
     corrida = _Corrida(abrir_batch, tenant_id, agora, holds_externos)
-    corrida.apagar_tudo(apagar_contactos)
+    corrida.apagar_tudo(apagar_contactos, armazenamento)
     if corrida.suspensa:
         resultado = {"disputa": sorted(corrida.suspensa), "verificado_at": agora.isoformat(),
                      "execucoes": [*anteriores, corrida.execucao_id]}
@@ -457,6 +521,7 @@ __all__ = [
     "Caminho",
     "MOTIVO_DA_REAPLICACAO",
     "TABELAS_DOS_CONTACTOS",
+    "UNIDADE_DO_STO",
     "purgar",
     "reaplicar_apos_restauro",
     "sem_caminho",

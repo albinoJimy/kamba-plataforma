@@ -70,6 +70,7 @@ class BaseFalsa:
         self.eventos: list[tuple] = []
         self.hold_a_meio_em: str | None = None
         self.holds: set[str] = set()
+        self.por_correr: list[tuple[str, str]] = []
 
 
 class Cursor:
@@ -134,7 +135,13 @@ class Cursor:
             b.apagadas[tabela] = b.apagadas.get(tabela, 0) + 2
         elif "FROM platform.purge_log" in sql:
             execucoes, t = parametros
-            self._linhas = [(p[2], p[5], p[6], p[7]) for p in b.purge_log if p[0] in execucoes and p[3] == t]
+            # A contagem e a que o texto pede: `linhas + objectos` desde o KAM-210.
+            soma = "linhas + objectos" in sql
+            self._linhas = [(p[2], p[5], p[6], p[7] + (p[8] if soma else 0))
+                            for p in b.purge_log if p[0] in execucoes and p[3] == t]
+        elif "array_position(ARRAY['exportacao', 'purga', 'certificado']" in sql:
+            # A listagem do ciclo dos dados: o que o ensaio pos, com o limite do texto.
+            self._linhas = list(b.por_correr)[: parametros[-1]]
         elif "INSERT INTO platform.purge_log" in sql:
             b.purge_log.append(tuple(parametros))
         elif "FROM platform.contacts" in sql:
@@ -216,7 +223,7 @@ class TestPacote(unittest.TestCase):
         for f in manifesto["ficheiros"]:
             self.assertEqual(hashlib.sha256(ficheiros[f["nome"]]).hexdigest(), f["sha256"])
             self.assertEqual(len(ficheiros[f["nome"]]), f["bytes"])
-        self.assertEqual(manifesto["versao"], "1.0.0")
+        self.assertEqual(manifesto["versao"], "1.1.0")
         self.assertEqual(manifesto["coleccoes"], {"clientes": 1, "encomendas": 1, "ficheiros": 2})
         self.assertEqual(manifesto["indisponiveis"], [{"coleccao": "catalogo", "razao": RAZAO_SEM_CATALOGO}])
 
@@ -539,6 +546,173 @@ class TestCertificado(unittest.TestCase):
         self.assertFalse(verificar_certificado(cert, CHAVE))
         with self.assertRaises(ValueError):
             assinar(self.doc(), b"curta", "k1")
+
+
+
+# ------------------------------------------------------------ KAM-210
+
+
+def _sto_com_objectos(*conteudos: tuple[str, bytes]):
+    """Um STO em memoria com objectos de cada tenant dado, como o KAM-011 os escreve."""
+    from kamba_core.storage.chave import nova_chave
+    from kamba_core.storage.port import Ctx, ObjectMeta
+
+    sto = ArmazenamentoPorTenant(MotorEmMemoria())
+    refs = []
+    for tenant, corpo in conteudos:
+        ctx = Ctx(tenant)
+        refs.append(sto.put(ctx, nova_chave(ctx, "foto", D0), corpo,
+                            ObjectMeta("image/jpeg", "foto", D0 + timedelta(days=400))))
+    return sto, refs
+
+
+class TestExportacaoComBytes(unittest.TestCase):
+    """Criterio 4 do KAM-210: os bytes dos ficheiros do STO, e nao so a lista."""
+
+    def test_o_pacote_leva_os_bytes_de_cada_objecto_com_o_sha256_no_manifesto(self) -> None:
+        sto, refs = _sto_com_objectos((A, b"foto-de-a"), (B, b"foto-de-b"))
+        base = BaseFalsa({A: fases(pendentes="concluida")})
+        r = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+        self.assertEqual(r["manifesto"]["versao"], "1.1.0")
+        from kamba_core.storage.port import Ctx
+
+        pacote = b"".join(sto.get(Ctx(A), r["ref"]))
+        with zipfile.ZipFile(io.BytesIO(pacote)) as z:
+            self.assertEqual(z.read(f"objectos/{refs[0].key}"), b"foto-de-a")
+            self.assertFalse(any("foto-de-b" in n or str(refs[1].key) in n for n in z.namelist()),
+                             "nada do tenant B no pacote de A")
+        nomes = {f["nome"]: f["sha256"] for f in r["manifesto"]["ficheiros"]}
+        self.assertEqual(nomes[f"objectos/{refs[0].key}"], hashlib.sha256(b"foto-de-a").hexdigest())
+
+    def test_acima_do_tecto_os_bytes_ficam_de_fora_e_o_manifesto_di_lo(self) -> None:
+        from kamba_core.offboarding import exportacao as modulo
+
+        sto, _ = _sto_com_objectos((A, b"x" * 64))
+        base = BaseFalsa({A: fases(pendentes="concluida")})
+        antes = modulo.TECTO_DOS_BYTES
+        modulo.TECTO_DOS_BYTES = 10
+        try:
+            r = exportar(lambda: Ligacao(base), lambda: Ligacao(base), A, sto, D0 + timedelta(days=2))
+        finally:
+            modulo.TECTO_DOS_BYTES = antes
+        self.assertIn({"coleccao": "objectos", "razao": modulo.RAZAO_ACIMA_DO_TECTO},
+                      r["manifesto"]["indisponiveis"])
+        self.assertFalse(any(f["nome"].startswith("objectos/") for f in r["manifesto"]["ficheiros"]))
+        self.assertEqual(r["manifesto"]["coleccoes"]["ficheiros"], 1, "a lista continua la")
+
+
+class TestPurgaDoSto(unittest.TestCase):
+    """Criterio 5 do KAM-210: os objectos do STO saem, cada eliminacao no `purge_log`."""
+
+    def test_apaga_os_objectos_do_tenant_e_so_os_dele_e_regista_a_contagem(self) -> None:
+        from kamba_core.offboarding.purga import UNIDADE_DO_STO
+        from kamba_core.storage.port import Ctx
+
+        sto, _ = _sto_com_objectos((A, b"1"), (A, b"2"), (A, b"3"), (B, b"b"))
+        base = BaseFalsa({A: ate_a_purga()})
+        r = purgar(lambda: Ligacao(base), A, D0 + timedelta(days=31), armazenamento=sto)
+        self.assertEqual(sto.list(Ctx(A), f"t/{A}/"), [])
+        self.assertEqual(len(sto.list(Ctx(B), f"t/{B}/")), 1, "o tenant B fica intacto")
+        linhas = [p for p in base.purge_log if p[2] == UNIDADE_DO_STO]
+        self.assertEqual([(p[5], p[7], p[8]) for p in linhas], [("ok", 0, 3)])
+        self.assertEqual(r["apagadas"][UNIDADE_DO_STO], 3)
+        self.assertEqual(base.fases[A]["purga"].estado, "concluida")
+
+    def test_um_hold_aplicado_antes_do_sto_retem_os_objectos(self) -> None:
+        from kamba_core.offboarding.purga import UNIDADE_DO_STO
+        from kamba_core.storage.port import Ctx
+
+        sto, _ = _sto_com_objectos((A, b"1"))
+        base = BaseFalsa({A: ate_a_purga()})
+        base.hold_a_meio_em = CAMINHOS_DO_ENCERRAMENTO[-1].tabela
+        purgar(lambda: Ligacao(base), A, D0 + timedelta(days=31), armazenamento=sto)
+        self.assertEqual(len(sto.list(Ctx(A), f"t/{A}/")), 1, "nada saiu do STO")
+        self.assertIn((UNIDADE_DO_STO, "retida"), {(p[2], p[5]) for p in base.purge_log})
+        self.assertEqual(base.fases[A]["purga"].estado, "suspensa_disputa")
+
+    def test_o_certificado_diz_os_objectos_apagados_e_deixa_de_reter_o_sto(self) -> None:
+        sto, _ = _sto_com_objectos((A, b"1"), (A, b"2"))
+        base = BaseFalsa({A: ate_a_purga()})
+        abrir = lambda: Ligacao(base)  # noqa: E731
+        purgar(abrir, A, D0 + timedelta(days=31), armazenamento=sto)
+        entregues: list[bytes] = []
+        emitir_certificado(abrir, A, D0 + timedelta(days=31), chave=CHAVE, kid="k1",
+                           copias_expiram_em_dias=35,
+                           entregar=lambda t, corpo: (entregues.append(corpo), True)[1])
+        cert = json.loads(entregues[0])
+        self.assertEqual(cert["versao"], "1.1.0")
+        self.assertIn({"escopo": "sto", "objectos": 2}, cert["apagadas"])
+        escopos = {x.get("escopo") for x in cert["retidas"]}
+        self.assertNotIn("sto", escopos)
+        self.assertTrue({"chatwoot", "traces", "caches", "fornecedores_llm_stt"} <= escopos)
+        self.assertNotIn("sto.objectos", {x.get("tabela") for x in cert["retidas"]})
+
+
+class TestCicloDosDados(unittest.TestCase):
+    """Criterio 1 do KAM-210, o lado Python: uma volta corre as fases listadas, cada uma no seu `try`."""
+
+    def portas(self, sto=None, **kw):
+        from kamba_core.offboarding import PortasDosDados
+
+        return PortasDosDados(armazenamento=sto or ArmazenamentoPorTenant(MotorEmMemoria()),
+                              chave_do_certificado=CHAVE, kid_do_certificado="k1",
+                              copias_expiram_em_dias=35, **kw)
+
+    def test_corre_o_que_a_listagem_traz_e_uma_fase_que_falha_nao_para_as_outras(self) -> None:
+        from kamba_core.offboarding import correr_volta
+
+        base = BaseFalsa({A: fases(pendentes="concluida"), B: fases()})
+        base.por_correr = [(B, "purga"), (A, "exportacao"), (A, "verificacao")]
+        r = correr_volta(lambda: Ligacao(base), lambda: Ligacao(base), self.portas(), D0 + timedelta(days=2))
+        self.assertEqual(r.feitas, {"exportacao": 1})
+        self.assertEqual(r.falhas, ["purga"], "a purga de B, sem revogacao, falha pelo nome")
+        self.assertEqual(base.fases[A]["exportacao"].estado, "concluida")
+        self.assertNotIn(A, repr(r))
+        self.assertNotIn(B, repr(r))
+
+    def test_sem_adaptador_da_entrega_o_certificado_falha_e_fica_onde_estava(self) -> None:
+        from kamba_core.offboarding import correr_volta
+
+        base = BaseFalsa({A: ate_a_purga()})
+        abrir = lambda: Ligacao(base)  # noqa: E731
+        purgar(abrir, A, D0 + timedelta(days=31))
+        base.por_correr = [(A, "certificado")]
+        r = correr_volta(abrir, abrir, self.portas(), D0 + timedelta(days=31))
+        self.assertEqual(r.falhas, ["certificado"])
+        self.assertEqual(base.fases[A]["certificado"].estado, "pendente")
+        self.assertFalse(any("owner_contacts" in sql for sql, _ in base.instrucoes),
+                         "o canal do titular nao sai sem a entrega")
+
+    def test_a_purga_do_ciclo_leva_o_armazenamento(self) -> None:
+        from kamba_core.offboarding import correr_volta
+        from kamba_core.storage.port import Ctx
+
+        sto, _ = _sto_com_objectos((A, b"1"))
+        base = BaseFalsa({A: ate_a_purga()})
+        base.por_correr = [(A, "purga")]
+        r = correr_volta(lambda: Ligacao(base), lambda: Ligacao(base), self.portas(sto), D0 + timedelta(days=31))
+        self.assertEqual(r.feitas, {"purga": 1})
+        self.assertEqual(sto.list(Ctx(A), f"t/{A}/"), [])
+
+    def test_a_listagem_so_traz_fases_dos_dados_de_um_pedido_vivo_e_nao_repete_falhadas(self) -> None:
+        from kamba_core.offboarding.processo import SQL_FASES_POR_CORRER
+
+        self.assertIn("v.estado = 'concluida'", SQL_FASES_POR_CORRER)
+        self.assertIn("NOT (v.resultado ? 'cancelado_at')", SQL_FASES_POR_CORRER)
+        self.assertIn("o.fase = 'exportacao' AND o.estado = 'pendente'", SQL_FASES_POR_CORRER)
+        self.assertIn("o.fase = 'purga' AND o.estado IN ('pendente', 'em_curso') AND o.prazo_at <= %s",
+                      SQL_FASES_POR_CORRER)
+        self.assertNotIn("falhada", SQL_FASES_POR_CORRER)
+        self.assertNotIn("suspensa_disputa", SQL_FASES_POR_CORRER)
+
+    def test_a_listagem_que_falha_diz_se(self) -> None:
+        from kamba_core.offboarding import correr_volta
+
+        def abrir():
+            raise RuntimeError("base em baixo")
+
+        r = correr_volta(abrir, abrir, self.portas(), D0)
+        self.assertEqual(r.falhas, ["listagem"])
 
 
 if __name__ == "__main__":
