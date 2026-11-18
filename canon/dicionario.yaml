@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.112"
+versao_dicionario: "1.114"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -11480,6 +11480,34 @@ entradas:
     nomes_nota:
       - "id"
       - "order_state_log.actor_id"
+      - "transition"
+      - "ctx"
+      - "cliente"
+      - "dono"
+      - "estafeta"
+      - "COMMIT"
+      - "actor_kind"
+      - "order_state_log"
+      - "version"
+      - "order_entrega_exige_papel"
+      - "merged_into"
+      - "conversations.window_expires_at"
+      - "kamba_app"
+      - "paga"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Instante da entrega"
+    canonico: "orders_mirror.entregue_at"
+    literais:
+      - "orders_mirror.entregue_at"
+    nomes:
+      - "orders_mirror.entregue_at"
+    nomes_nota:
+      - "order_entrega_presa"
+      - "now"
+      - "entregue"
+      - "kamba_app"
+      - "UPDATE"
     variantes_literais: []
   - seccao: "3.43"
     conceito: "Tipo de divergência"
@@ -14737,6 +14765,8 @@ entradas:
       - "codigo"
       - "verificar"
       - "ligar"
+      - "troca"
+      - "troca_verificar"
       - "motivo"
       - "sem_sessao"
       - "nao_encontrado"
@@ -20109,21 +20139,27 @@ entradas:
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"
-    canonico: "intent ∈ {modulos, info_loja, humano, outro}"
+    canonico: "intent ∈ {modulos, info_loja, humano, confirmar, outro}"
     literais:
       - "intent"
       - "modulos"
       - "info_loja"
       - "humano"
+      - "confirmar"
       - "outro"
     nomes:
       - "intent"
       - "modulos"
       - "info_loja"
       - "humano"
+      - "confirmar"
       - "outro"
     nomes_nota:
+      - "confirmar"
       - "kamba_agr.verticais.dono"
+      - "confirm"
+      - "action_id"
+      - "interactive"
     variantes_literais: []
   - seccao: "3.78"
     conceito: "Desfecho de uma confirmação"
@@ -20150,6 +20186,125 @@ entradas:
       - "confirmar"
       - "VALIDADE_DO_BOTAO"
       - "BLOQUEIO_DEPOIS_DA_TROCA"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Botão na invocação"
+    canonico: "agent_invocation.botao"
+    literais:
+      - "agent_invocation.botao"
+    nomes:
+      - "agent_invocation.botao"
+    nomes_nota:
+      - "persona"
+      - "reply.id"
+      - "button_reply"
+      - "list_reply"
+      - "type"
+      - "interactive"
+      - "dependentSchemas"
+      - "campo_invalido_botao"
+      - "A"
+      - "Za"
+      - "z0"
+      - "_"
+      - "FORMA_DO_BOTAO"
+      - "_BOTAO"
+      - "contexto.py"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Botão no estado do grafo"
+    canonico: "ConversaState.botao"
+    literais:
+      - "ConversaState.botao"
+    nomes:
+      - "ConversaState.botao"
+    nomes_nota:
+      - "estado_inicial"
+      - "messages"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "O portão do botão no grafo do dono"
+    canonico: "nó confirm, porta accoes_do_dono das Dependencias, PortaDeConfirmacao"
+    literais:
+      - "confirm"
+      - "accoes_do_dono"
+      - "Dependencias"
+      - "PortaDeConfirmacao"
+    nomes:
+      - "confirm"
+      - "accoes_do_dono"
+      - "Dependencias"
+      - "PortaDeConfirmacao"
+    nomes_nota:
+      - "confirmar"
+      - "kamba_app"
+      - "kamba"
+      - "agr"
+      - "accoes"
+      - "desconhecida"
+      - "outro_contacto"
+      - "nao_e_dono"
+      - "nao_e_botao"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A retoma pelo papel de agora"
+    canonico: "porta papel_do_contacto da PortaDeGrafos, leitor_de_papel"
+    literais:
+      - "papel_do_contacto"
+      - "PortaDeGrafos"
+      - "leitor_de_papel"
+    nomes:
+      - "papel_do_contacto"
+      - "PortaDeGrafos"
+      - "leitor_de_papel"
+    nomes_nota:
+      - "PortaDeGrafos.da_thread"
+      - "contacts.papel"
+      - "SQL_PAPEL_DO_CONTACTO"
+      - "chave_do_registo"
+      - "dono"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "A troca de telefone no painel"
+    canonico: "POST /painel/telefone, POST /painel/telefone/verificar, OpcoesDaTroca, pedidoDaTroca"
+    literais:
+      - "OpcoesDaTroca"
+      - "pedidoDaTroca"
+    nomes:
+      - "OpcoesDaTroca"
+      - "pedidoDaTroca"
+    nomes_nota:
+      - "onboarding"
+      - "web"
+      - "TrocaDeTelefone"
+      - "troca"
+      - "activo"
+      - "FASE_DA_TROCA"
+      - "server.ts"
+    variantes_literais: []
+  - seccao: "3.78"
+    conceito: "Os adaptadores da porta do dono"
+    canonico: "trocaNaBase, definirDonoNaBase, contactoDoNumero, SQL_DEFINIR_DONO, ORIGEM_DA_TROCA, FusaoNaTrocaError"
+    literais:
+      - "trocaNaBase"
+      - "definirDonoNaBase"
+      - "contactoDoNumero"
+      - "SQL_DEFINIR_DONO"
+      - "ORIGEM_DA_TROCA"
+      - "FusaoNaTrocaError"
+    nomes:
+      - "trocaNaBase"
+      - "definirDonoNaBase"
+      - "contactoDoNumero"
+      - "SQL_DEFINIR_DONO"
+      - "ORIGEM_DA_TROCA"
+      - "FusaoNaTrocaError"
+    nomes_nota:
+      - "kamba_identity"
+      - "definir_dono"
+      - "troca_de_telefone"
+      - "provisionamento"
+      - "resolveContact"
     variantes_literais: []
 
 tabelas:
@@ -23388,6 +23543,7 @@ dominios:
       - "modulos"
       - "info_loja"
       - "humano"
+      - "confirmar"
       - "outro"
     seccao: "3.78"
     conceito: "Intenções do Assistente do Dono"

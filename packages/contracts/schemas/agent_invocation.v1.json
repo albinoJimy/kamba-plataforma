@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.kamba.ao/agent_invocation.v1.json",
   "title": "Invocacao do Agent Runtime",
-  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos obrigatorios e um opcional (`persona`, aditivo do KAM-118), e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
+  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos obrigatorios e dois opcionais (`persona`, aditivo do KAM-118, e `botao`, aditivo do KAM-211), e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -81,6 +81,20 @@
     "persona": {
       "description": "Quem escreve (KAM-118): `dono` se e so se o contacto e o `contacts.papel = 'dono'` do tenant do canal, senao `cliente`. Com `dono`, a chave do AgentRegistry e a persona `dono` (Assistente do Dono); com `cliente`, e o `vertical`. Campo ADITIVO da v1 e por isso opcional: um consumidor que o nao receba le `cliente`, que e a omissao segura. O CHR escreve-o sempre. Lista fechada, igual ao `CHECK` de `contacts.papel`.",
       "enum": ["cliente", "dono"]
+    },
+    "botao": {
+      "description": "O `reply.id` de uma resposta interactiva (`button_reply` ou `list_reply`) — o `id` que a plataforma emitiu no botao, e nunca o titulo (KAM-211). E por ele que o botao `confirm:{action_id}` de uma accao sensivel do dono chega ao `confirmar`. So com `type` `interactive`: um texto que imite um botao chega como texto, sem este campo, e o AGR recusa um `botao` noutro tipo. Campo ADITIVO da v1 e por isso opcional. Alfabeto fechado e sem espaco: um identificador, nao texto do cliente.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9_.:-]{1,256}$"
+    }
+  },
+  "dependentSchemas": {
+    "botao": {
+      "properties": {
+        "type": { "const": "interactive" }
+      }
     }
   }
 }

@@ -113,10 +113,25 @@ def _portas_de_ensaio(**trocar: Any) -> tuple[dict[str, Any], Saida]:
     return portas, saida
 
 
+def _papeis(papeis: dict[tuple[str, str], str] | None = None):
+    """O papel actual de cada `(tenant, contacto)`, como a base o devolve.
+
+    Sem entrada, `None` — o contacto que nao se ve —, que e o que o leitor real
+    devolve com zero linhas.
+    """
+    tabela = dict(papeis or {})
+
+    async def papel(tenant_id: str, contact_id: str) -> str | None:
+        return tabela.get((tenant_id, contact_id))
+
+    return papel
+
+
 def _porta(
     permitidos: set[str] = frozenset({"vendedor", "servicos"}),
     bloqueado=_nunca_bloqueado,
     metricas: Any = None,
+    papel=None,
     **trocar: Any,
 ) -> tuple[grafos_mod.PortaDeGrafos, dict[str, Any], Saida]:
     agentes = _agentes(set(permitidos), metricas)
@@ -127,6 +142,7 @@ def _porta(
         grafos=compilados,
         checkpointer=portas["checkpointer"],
         contacto_bloqueado=bloqueado,
+        papel_do_contacto=_papeis() if papel is None else papel,
     )
     return porta, compilados, saida
 
@@ -200,6 +216,9 @@ class TestLigacaoDoArranque(unittest.TestCase):
         self.permitidos = {"vendedor", "servicos"}
         self.bloqueado = False
         self.contacto_ligado_a: list[Any] = []
+        self.papel: str | None = None
+        self.papel_ligado_a: list[Any] = []
+        self.papel_lido: list[tuple[str, str]] = []
         teste = self
 
         class _Leitor:
@@ -218,6 +237,15 @@ class TestLigacaoDoArranque(unittest.TestCase):
 
             return bloqueado
 
+        def _leitor_de_papel(abrir: Any):
+            teste.papel_ligado_a.append(abrir)
+
+            async def papel(tenant_id: str, contact_id: str) -> str | None:
+                teste.papel_lido.append((tenant_id, contact_id))
+                return teste.papel
+
+            return papel
+
         self.saver = InMemorySaver()
         remendos = [
             mock.patch.object(arranque, nome, espiar(nome)) for nome in reais
@@ -225,6 +253,7 @@ class TestLigacaoDoArranque(unittest.TestCase):
             mock.patch.object(arranque.evt, "LeitorDeEntitlements", _Leitor),
             mock.patch.object(arranque, "CheckpointerDoAgr", lambda *_a, **_k: self.saver),
             mock.patch.object(arranque, "leitor_de_contacto", _leitor_de_contacto),
+            mock.patch.object(arranque, "leitor_de_papel", _leitor_de_papel),
         ]
         for remendo in remendos:
             remendo.start()
@@ -291,6 +320,45 @@ class TestLigacaoDoArranque(unittest.TestCase):
                 da_thread = self.capturado[nome][1]["grafos"]
                 self.assertEqual(da_thread.__func__, grafos_mod.PortaDeGrafos.da_thread)
                 self.assertIs(da_thread.__self__, do_turno.__self__)
+
+    def test_o_portao_do_botao_escreve_pela_ligacao_das_accoes(self) -> None:
+        """KAM-211 (achado 10 da revisao): o `confirm` do dono chega a uma
+        `PortaDeConfirmacao` que abre a ligacao **das accoes**, e nao a de
+        leitura — o `confirmar` escreve."""
+        from kamba_agr.dono.accoes import PortaDeConfirmacao
+
+        portas = self.capturado["compilar"][0][1]
+        porta = portas["accoes_do_dono"]
+        self.assertIsInstance(porta, PortaDeConfirmacao)
+        self.assertIs(porta._abrir, arranque.ligar_para_accoes)
+        self.assertIsNot(porta._abrir, arranque.ligar_para_leitura)
+
+    def test_o_papel_da_retoma_le_se_pela_ligacao_de_leitura(self) -> None:
+        """KAM-211, «Retoma»: o `main()` liga a porta do papel a ligacao de
+        leitura (`kamba_app`), e a `da_thread` le-a com o par da *thread* e
+        decide o grafo pelo valor lido — nao por um duplo que responde sempre o
+        mesmo."""
+        self.assertEqual(self.papel_ligado_a, [arranque.ligar_para_leitura])
+        compilados = self.capturado["compilar"][2]
+        da_thread = self.capturado["Retomador"][1]["grafos"]
+        invocacao = _invocacao()
+        ponto = empty_checkpoint()
+        ponto["channel_values"] = {"vertical": "vendedor", "persona": "cliente"}
+        ponto["channel_versions"] = {"vertical": 1, "persona": 1}
+        asyncio.run(
+            self.saver.aput(
+                {"configurable": {"thread_id": invocacao.thread_id, "checkpoint_ns": ""}},
+                ponto,
+                {},
+                {"vertical": 1, "persona": 1},
+            )
+        )
+        self.assertIs(asyncio.run(da_thread(invocacao.thread_id)), compilados["vendedor"])
+        self.papel = "dono"
+        self.assertIs(asyncio.run(da_thread(invocacao.thread_id)), compilados["dono"])
+        self.assertEqual(
+            self.papel_lido[-1], (invocacao.tenant_id, invocacao.contact_id)
+        )
 
     def test_a_porta_por_thread_le_a_vertical_do_checkpoint(self) -> None:
         compilados = self.capturado["compilar"][2]
@@ -808,6 +876,7 @@ class TestFicaForaDaEventLoop(unittest.TestCase):
             grafos=compilados,
             checkpointer=porta._checkpointer,
             contacto_bloqueado=_nunca_bloqueado,
+            papel_do_contacto=_papeis(),
             politica=grafos_mod.PoliticaDoTurno(Politica()),
         )
 

@@ -1,0 +1,17 @@
+{
+  "_nota": "KAM-211, criterio «Botao». O agent_invocation que o CHR monta para um toque no botao confirm:{action_id} do dono. O chr.botao.test.ts prova que o caminho webhook -> explosao -> Chr.tratar produz EXACTAMENTE este corpo; o services/agr/tests/test_dono.py (TestBotaoPeloContrato) le o mesmo ficheiro, passa-o ao ler_invocacao e corre o turno do dono ate ao confirmar. E a ponte entre as duas linguagens: nenhum ensaio corre o CHR e o AGR no mesmo processo. Identificadores ficticios.",
+  "action_id": "5b0e6c2a-7d14-4f39-8a2e-1c9d3b7f6a40",
+  "corpo": {
+    "tenant_id": "11111111-1111-4111-8111-111111111111",
+    "contact_id": "c0c0c0c0-0000-4000-8000-000000000999",
+    "conversation_id": "44444444-4444-4444-8444-444444444444",
+    "channel_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "wamid": "wamid.HBgLOTk5MDAwMDAwMDAxFQIAEhgUM0E5OUZGRkZGRkZGRkZGRkZGRkYA",
+    "type": "interactive",
+    "modo": "bot",
+    "thread_id": "11111111-1111-4111-8111-111111111111:c0c0c0c0-0000-4000-8000-000000000999",
+    "vertical": "vendedor",
+    "persona": "dono",
+    "botao": "confirm:5b0e6c2a-7d14-4f39-8a2e-1c9d3b7f6a40"
+  }
+}

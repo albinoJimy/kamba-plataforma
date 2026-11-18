@@ -402,6 +402,11 @@ class Dependencias:
     #: um `None` tirava o turno do modo degradado em silencio — e aqui o lado
     #: errado de errar e **nao** degradar, porque e um cliente sem resposta.
     degradacao: Any = field(default_factory=SemDegradacao)
+    #: KAM-211. O portao das accoes sensiveis do dono: a `PortaDeConfirmacao`
+    #: de `kamba_agr/dono/accoes.py`, que so o no `confirm` do grafo do dono
+    #: chama. `None` enquanto ninguem a liga, e nesse caso **nada se confirma**
+    #: — que e o lado seguro: uma accao sensivel por confirmar nao executa.
+    accoes_do_dono: Any | None = None
 
     def __post_init__(self) -> None:
         if self.relogio is None:

@@ -360,6 +360,11 @@ export function hmacDe(chave: Uint8Array, dominio: Dominio | string, valor: stri
  * adaptador SQL), omitindo os dois reais. Apanhou-o a revisão adversarial, com
  * um `grep`. Quando o adaptador SQL existir, ele é o terceiro, e esta conta
  * muda com ele.
+ *
+ * **Fora do módulo há um, e é do KAM-211:** o `contactoDoNumero` de
+ * `../dono/sql.ts`, que entrega o número que o OTP da troca de telefone
+ * verificou ao `resolveContact` do KAM-008 — que o cunha com a chave **dele**,
+ * noutro espaço que o deste módulo.
  */
 abstract class ComHmac extends Opaco {
   /**

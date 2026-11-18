@@ -879,6 +879,12 @@ registar_caso(
 #     verificar (KAM-190)     o bilhete de B com codigo errado, o `ticket` do
 #                             registo de B e o id nu: 401 uniforme, nenhuma
 #                             sessao, e so o bilhete do painel chega ao OTP
+#     telefone (KAM-211)      a sessao de A com o tenant de B no corpo, na
+#                             consulta e no cabecalho: 200, e o pedido de troca
+#                             fica so no tenant e na sessao de A
+#     telefone/verificar      a sessao de A com o codigo certo do pedido de B, o
+#       (KAM-211)             tenant de B e o pedido de B no corpo: 401 uniforme,
+#                             e a troca de B nao acontece
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -896,6 +902,9 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar",
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/codigo",
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/verificar",
+    # KAM-211: a troca de telefone do dono.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -915,6 +924,10 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar": (200,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/codigo": (200,),
     "rota:onboarding-web:painel/rotas:actor:POST:/painel/verificar": (401,),
+    # KAM-211. O pedido de troca responde 200 com a sessao de A, e a
+    # verificacao responde **so** 401 a um codigo que nao e o do pedido dela.
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone": (200,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/telefone/verificar": (401,),
 }
 
 #: Ataques por rota do painel.
@@ -942,7 +955,16 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
     # A sonda positiva: nas listas, os dados de A chegaram a resposta dos
     # ataques; no `PATCH` e no detalhe, um pedido legitimo de A, fora das
     # entradas, deu 200. Sem ela, uma rota morta (401 ou 404 a tudo) passava.
-    if not item.endswith(("/painel/sair", "/painel/entrar", "/painel/codigo", "/painel/verificar")):
+    if not item.endswith(
+        (
+            "/painel/sair",
+            "/painel/entrar",
+            "/painel/codigo",
+            "/painel/verificar",
+            "/painel/telefone",
+            "/painel/telefone/verificar",
+        )
+    ):
         achados.extend(
             _exigir_marca(
                 item,
@@ -1009,6 +1031,30 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "so-b",
                 "O codigo do telefone de B nao foi para o caso de B, ou o telefone "
                 "sem painel mandou um SMS: a sonda positiva da reentrada.",
+            )
+        )
+    if item.endswith("POST:/painel/telefone"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "pedido",
+                "a",
+                "O `/painel/telefone` registou um pedido de troca noutro tenant ou "
+                "noutra sessao que nao a de A: o pedido escolheu o tenant, e o "
+                "dono de A podia mudar o telefone do dono de B.",
+            )
+        )
+    if item.endswith("POST:/painel/telefone/verificar"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "troca",
+                "nenhuma",
+                "Um ataque ao `/painel/telefone/verificar` trocou o dono, ou chegou "
+                "a `TrocaDeTelefone` com o pedido ou o tenant de B: a sessao de A "
+                "verificou o pedido de outro dono.",
             )
         )
     if item.endswith("POST:/painel/verificar"):

@@ -100,10 +100,11 @@ export function exigeHumano(de: OrderState, para: OrderState): boolean {
 /**
  * A ida a `entregue` é uma **entrega**, ou o fim de uma disputa a favor da PME?
  *
- * A diferença decide três coisas no `transition`: o fim de uma disputa não exige
- * `entrega_confirmada_por` novo, não reescreve o `entregue_at` da entrega que
- * houve, e não emite um segundo `order.delivered` — que um consumidor contaria
- * como outra entrega.
+ * A diferença decide três coisas no `transition`: o fim de uma disputa não pede
+ * papel ao `ctx`, não reescreve o `entregue_at` nem o `entrega_confirmada_por`
+ * da entrega que houve — e isto é a base que o garante, pelo
+ * `order_entrega_presa` da revisão `0071` (KAM-204) —, e não emite um segundo
+ * `order.delivered`, que um consumidor contaria como outra entrega.
  */
 export function eFimDeDisputa(de: OrderState, para: OrderState): boolean {
   return de === "em_disputa" && para === "entregue";

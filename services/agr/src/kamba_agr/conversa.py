@@ -34,6 +34,7 @@ from kamba_core import tenant_guard
 
 from .consultas import SQL_CONTACTO_BLOQUEADO, SQL_PALAVRA_DA_CONVERSA
 from .contexto import InvocacaoDoAgente
+from .dono.accoes import SQL_PAPEL_DO_CONTACTO
 from .turno import Palavra
 
 
@@ -137,3 +138,45 @@ def leitor_de_contacto(
         return await asyncio.to_thread(ler, invocacao)
 
     return bloqueado
+
+
+def papel_do_contacto_sincrono(ligacao: Any, tenant_id: str, contact_id: str) -> str | None:
+    """O papel **actual** do contacto (KAM-211), ou `None` se nao se ve.
+
+    A consulta e a das accoes sensiveis (`SQL_PAPEL_DO_CONTACTO`), e nao uma
+    copia: so um contacto vivo — nem apagado nem fundido — tem papel. Zero
+    linhas e `None`, e quem le trata `None` como `cliente`: um contacto que nao
+    se ve nao e dono (a regra da lista de permitidos do `personaDe`).
+    """
+    with tenant_guard.tx(ligacao, tenant_id) as cursor:
+        cursor.execute(SQL_PAPEL_DO_CONTACTO, (tenant_id, contact_id))
+        linha = cursor.fetchone()
+    return None if linha is None else linha[0]
+
+
+def leitor_de_papel(
+    abrir_ligacao: Callable[[], Any],
+) -> Callable[[str, str], Any]:
+    """A porta `papel_do_contacto` da `PortaDeGrafos.da_thread` (KAM-211, «Retoma»).
+
+    Uma ligacao por leitura, pela razao do `leitor_de_contacto`: a retoma e
+    rara (um *handoff* que acaba, um rascunho decidido) e corre num *executor*.
+    Uma excepcao **sobe**: a retoma resolve o grafo antes do CAS, e sem papel
+    lido a rota responde 503 sem escrever nada — a mesma promessa da falta de
+    *checkpoint*.
+    """
+
+    def ler(tenant_id: str, contact_id: str) -> str | None:
+        ligacao = abrir_ligacao()
+        try:
+            return papel_do_contacto_sincrono(ligacao, tenant_id, contact_id)
+        finally:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — a leitura ja aconteceu
+                pass
+
+    async def papel(tenant_id: str, contact_id: str) -> str | None:
+        return await asyncio.to_thread(ler, tenant_id, contact_id)
+
+    return papel

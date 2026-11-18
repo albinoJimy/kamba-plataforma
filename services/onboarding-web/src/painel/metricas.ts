@@ -33,6 +33,9 @@ export const ROTAS_DO_PAINEL = [
   "codigo",
   "verificar",
   "ligar",
+  // KAM-211: a troca de telefone do dono.
+  "troca",
+  "troca_verificar",
 ] as const;
 export type RotaDoPainel = (typeof ROTAS_DO_PAINEL)[number];
 

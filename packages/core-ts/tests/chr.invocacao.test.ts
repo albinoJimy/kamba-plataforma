@@ -47,17 +47,20 @@ function invocacao(troca: Partial<Pedido> = {}) {
 }
 
 describe("o contrato agent_invocation", () => {
-  it("o esquema exige exactamente os campos que o codigo escreve, menos a `persona`", () => {
-    // A `persona` (KAM-118) e campo **aditivo** da v1: o codigo escreve-o
-    // sempre e o esquema nao o exige, para que um consumidor de antes do
-    // KAM-118 nao recuse e um produtor de antes nao seja recusado.
+  it("o esquema exige exactamente os campos que o codigo escreve, menos os opcionais", () => {
+    // A `persona` (KAM-118) e o `botao` (KAM-211) sao campos **aditivos** da
+    // v1: o esquema nao os exige, para que um consumidor de antes nao recuse e
+    // um produtor de antes nao seja recusado. A `persona` vai sempre; o
+    // `botao` so num toque, e por isso o conjunto completo mede-se num.
+    const toque = invocacao({ type: "interactive", botao: "confirm:x" });
     assert.deepEqual(
       [...esquema.required].sort(),
       Object.keys(invocacao()).filter((c) => c !== "persona").sort(),
     );
+    assert.deepEqual(Object.keys(esquema.properties).sort(), Object.keys(toque).sort());
     assert.deepEqual(
-      Object.keys(esquema.properties).sort(),
-      Object.keys(invocacao()).sort(),
+      Object.keys(toque).filter((c) => !Object.keys(invocacao()).includes(c)),
+      ["botao"],
     );
   });
 

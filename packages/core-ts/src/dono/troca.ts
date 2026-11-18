@@ -81,6 +81,8 @@ export type DesfechoDaTroca =
 interface Pedido {
   readonly tenantId: string;
   readonly telefone: Telefone;
+  /** Quando o desafio do OTP deixa de valer. Depois disto o pedido é lixo. */
+  readonly expiraEm: Date;
 }
 
 /**
@@ -95,18 +97,28 @@ export class TrocaDeTelefone {
   readonly #contacto: ContactoDoNumero;
   readonly #trocar: TrocaNaBase;
   readonly #avisar: AvisoDaTroca;
+  readonly #relogio: () => Date;
   readonly #pedidos = new Map<string, Pedido>();
+  /** Os pedidos com um envio a meio. Ver o `pedir`. */
+  readonly #aEnviar = new Set<string>();
 
   constructor(portas: {
     readonly otp: OtpDaTroca;
     readonly contacto: ContactoDoNumero;
     readonly trocar: TrocaNaBase;
     readonly avisar: AvisoDaTroca;
+    readonly relogio?: () => Date;
   }) {
     this.#otp = portas.otp;
     this.#contacto = portas.contacto;
     this.#trocar = portas.trocar;
     this.#avisar = portas.avisar;
+    this.#relogio = portas.relogio ?? ((): Date => new Date());
+  }
+
+  /** Quantos pedidos estão guardados. Para os ensaios de crescimento. */
+  get pedidosGuardados(): number {
+    return this.#pedidos.size;
   }
 
   /**
@@ -116,9 +128,36 @@ export class TrocaDeTelefone {
    * parâmetro do pedido (critério 9).
    */
   async pedir(pedidoId: string, tenantId: string, telefone: Telefone): Promise<ResultadoDeEnvio> {
-    const envio = await this.#otp.enviar(pedidoId, telefone);
-    if (envio.enviado) this.#pedidos.set(pedidoId, { tenantId, telefone });
-    return envio;
+    // **Um envio de cada vez por pedido** (KAM-211, achado 8 da revisão). O
+    // `Otp` grava o desafio antes de esperar pelo fornecedor, e o registo do
+    // pedido só se faz depois: dois `pedir` concorrentes da mesma sessão
+    // podiam deixar o desafio de Y com o telefone de X, e o código de Y movia
+    // o papel para X, que ninguém verificou. O segundo recusa-se como um
+    // envio cedo demais, que é o que ele é.
+    if (this.#aEnviar.has(pedidoId)) return { enviado: false, recusa: "intervalo" };
+    this.#aEnviar.add(pedidoId);
+    try {
+      this.#esquecerExpirados();
+      const envio = await this.#otp.enviar(pedidoId, telefone);
+      if (envio.enviado) {
+        this.#pedidos.set(pedidoId, { tenantId, telefone, expiraEm: envio.expiraEm });
+      }
+      return envio;
+    } finally {
+      this.#aEnviar.delete(pedidoId);
+    }
+  }
+
+  /**
+   * Os pedidos cujo desafio já expirou saem do mapa (KAM-211, achado 9 da
+   * revisão). Sem isto, cada sessão que pedisse e não verificasse deixava uma
+   * entrada para sempre na memória do processo.
+   */
+  #esquecerExpirados(): void {
+    const agora = this.#relogio().getTime();
+    for (const [id, pedido] of this.#pedidos) {
+      if (pedido.expiraEm.getTime() <= agora) this.#pedidos.delete(id);
+    }
   }
 
   /**
