@@ -304,7 +304,7 @@ class TestMigracoes(unittest.TestCase):
         """A segunda divergencia que o KAM-003 deixou registada: tres estados.
 
         O DDL do documento 03 tem uma coluna `persona`, e era ela o achado
-        `fora-do-dicionario`. **Desde a emenda 1.108 (KAM-118) `persona` e
+        `fora-do-dicionario`. **Desde a emenda 1.112 (KAM-118) `persona` e
         nome conhecido** — `agent_invocation.persona` e `ConversaState.persona`
         —, e o `dicionario.py` aceita a ultima parte de um nome qualificado como
         coluna de qualquer tabela (o `vertical` ja o era). A coluna da fixture

@@ -27,6 +27,11 @@ do alvo do *gate* 8 no `Makefile`.
 **E a regua de cobranca do KAM-058** (`packages/core-ts/tests_bd/regua.bd.test.ts`),
 pela mesma razao: o motor corre como `kamba_batch` e suspende pelo
 `transition_tenant` da `0058`, e so a base verdadeira prova a funcao.
+
+**E o off-boarding do KAM-098** (`packages/core-ts/tests_bd/offboarding.bd.test.ts`),
+pela mesma razao outra vez: o pedido, o canal e a revogacao correm como
+`kamba_batch` e encerram pelo `transition_tenant` da `0058`. A limpeza do
+`tenant_state_log` e a do KAM-092, no `after` do ficheiro.
 """
 
 from __future__ import annotations
@@ -44,6 +49,10 @@ FICHEIROS = (
     "tests_bd/lote.bd.test.ts",
     "tests_bd/capacidade.bd.test.ts",
     "tests_bd/regua.bd.test.ts",
+    "tests_bd/offboarding.bd.test.ts",
+    # KAM-200: o T&S corre no processo de lote (o consumidor, as varreduras e as
+    # decisoes da fila), e so a base prova a porta, o registo e os triggers.
+    "tests_bd/trust.bd.test.ts",
 )
 
 #: Os `describe` do ficheiro: os dezanove cenarios do processo de lote partilham as
@@ -53,6 +62,8 @@ GRUPOS = (
     "o processo de lote contra a base",
     "a lista de espera contra a base",
     "a régua de cobrança contra a base",
+    "o off-boarding contra a base",
+    "Trust & Safety em produção contra a base",
 )
 
 #: Os testes que **tem** de ter corrido e passado, pelo nome. Sao a letra dos
@@ -95,6 +106,22 @@ TESTES_OBRIGATORIOS = (
     "o pagamento no D+9 cancela o passo pendente e o tenant não é suspenso",
     "um tenant restrito não é suspenso nem sai do restrito",
     "vinte tenants pagos repõem-se numa volta, e a volta dura menos do que o intervalo",
+    # KAM-098: o off-boarding pelo codigo TypeScript, como `kamba_batch` — o
+    # pedido com a dupla confirmacao (1, adversarial a), o canal pelo guarda da
+    # saga (3), o cancelamento em D3 (adversarial b) e a revogacao com o
+    # `tenant.closed` e o crash a meio (5 e 9).
+    "o pedido exige as duas confirmações: só com a sessão é recusado e nada se escreve",
+    "T&S só encerra um tenant suspenso com uma sanção de encerramento, e o titular não a cancela",
+    "um pedido de T&S toma o pedido vivo do titular, que deixa de se poder cancelar",
+    "o canal: cancela a subscrição, desliga o canal, e nenhuma chamada toca no WABA nem no número; o CHR deixa de encaminhar",
+    "cancelado em D3: o canal volta ao que era, e nenhuma fase seguinte corre",
+    "os pendentes: sem encomendas, reservas nem reembolsos abertos, a fase conclui",
+    "a revogação no D7: as portas da saga, os entitlements, os canais e um tenant.closed; um crash a meio retoma",
+    # KAM-200: o consumidor (1), a escada pela porta com o evento (8 e 9), e as
+    # varreduras auditadas com a mudanca de conta (2 e 5).
+    "o consumidor como kamba_app: a encomenda do próprio dono dá um auto_compra e o aviso, e a reentrega é duplicada",
+    "a escada humana suspende pela porta, com registo e evento, e o recurso provido reactiva",
+    "uma volta das varreduras deixa uma linha batch.run por varredura, e a mudança de NIF abre um caso, uma vez, no tenant dela",
 )
 
 

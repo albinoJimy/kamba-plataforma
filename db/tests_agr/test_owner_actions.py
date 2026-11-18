@@ -5,7 +5,7 @@ O que o duplo de `services/agr/tests/test_dono.py` nao prova, e so a base diz:
 | Propriedade | Porque precisa da base |
 |---|---|
 | duplo toque concorrente -> **1** confirmacao | e a tranca de linha do `UPDATE ... RETURNING`, entre duas sessoes |
-| o SQL do `accoes.py` **corre** com o papel `kamba_app` | os privilegios por coluna da `0068` (`SELECT (papel, papel_mudou_at)`, `UPDATE (estado, confirmada_at)`) |
+| o SQL do `accoes.py` **corre** com o papel `kamba_app` | os privilegios por coluna da `0070` (`SELECT (papel, papel_mudou_at)`, `UPDATE (estado, confirmada_at)`) |
 | um botao de outro tenant e `desconhecida` | a RLS `FORCE` da `owner_actions` esconde a linha |
 | propor tres vezes da uma linha | a `UNIQUE (tenant_id, tipo, ref)` e o `ON CONFLICT ON CONSTRAINT` com o nome dela |
 

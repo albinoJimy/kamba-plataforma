@@ -771,13 +771,18 @@ services:
       <<: *node-env
       KAMBA_AMBIENTE: prod
       LOTE_PORT: "3014"
-      # `kamba_batch` (a fila atravessa tenants) e `kamba_app` (so a decisao
-      # humana de screening, dentro do `comTenant` do tenant do caso).
+      # `kamba_batch` (a fila atravessa tenants, e as varreduras de T&S) e
+      # `kamba_app` (a decisao humana de screening, dentro do `comTenant` do
+      # tenant do caso, e o consumidor de T&S, KAM-200).
       KAMBA_LOTE_DB_URL: ${KAMBA_LOTE_DB_URL:?o deploy passa a cadeia de ligacao do kamba_batch}
       KAMBA_LOTE_APP_DB_URL: ${KAMBA_LOTE_APP_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
+      KAMBA_QUEUE_URL: redis://queue:6379
     networks:
       - app
       - data
+    # shortcut: 128m sem medicao com os dezasseis *workers* BullMQ do consumidor
+    # de T&S (KAM-200), que o `worker-canal-consumidor` tem em 192m; reve-se com
+    # a primeira medicao de repouso do processo em `staging`.
     mem_limit: 128m
     cpus: 0.25
     healthcheck:

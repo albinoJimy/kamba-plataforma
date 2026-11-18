@@ -25,6 +25,7 @@ export type { CanalResolvido, LeituraDoCanal } from "./canal.ts";
 export {
   CONSUMIDOR_DO_CHR,
   TIPO_DA_ACTIVACAO,
+  TIPOS_QUE_ESQUECEM_O_TENANT,
   VERSOES_DA_ACTIVACAO,
   VersaoDaActivacaoError,
   efeitoDaActivacao,

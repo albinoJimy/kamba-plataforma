@@ -77,8 +77,11 @@ class TestRevisaoDaSubscricaoDoChr(unittest.TestCase):
         """As linhas que a revisao **nao** escreveu, pela chave e nao pelo `consumer`.
 
         Pela chave: uma linha alheia do **mesmo** `consumer` (`chr`,
-        `tenant.suspended`) tem de sobreviver a descida, e um filtro por
+        `tenant.reactivated`) tem de sobreviver a descida, e um filtro por
         `consumer` escondia-a (o achado da revisao adversarial do KAM-194).
+        Era a `tenant.suspended` ate o KAM-098 a subscrever (revisao
+        `*_offboarding.py`): com ela, o `tearDown` subia a cabeca antes do
+        `addCleanup` a apagar, e o `INSERT` da revisao colidia.
         """
         nossas = {(linha[0], linha[1]) for linha in LINHAS}
         return sorted(
@@ -114,7 +117,7 @@ class TestRevisaoDaSubscricaoDoChr(unittest.TestCase):
             cursor.execute(
                 "INSERT INTO platform.evt_subscricoes (consumer, tipo, finalidade) "
                 "VALUES ('ensaio_0061', 'catalog.product_changed', 'transacao'), "
-                "       ('chr', 'tenant.suspended', 'transacao') "
+                "       ('chr', 'tenant.reactivated', 'transacao') "
                 "ON CONFLICT DO NOTHING"
             )
             conexao.commit()
@@ -123,11 +126,11 @@ class TestRevisaoDaSubscricaoDoChr(unittest.TestCase):
         self.addCleanup(
             self._consultar_e_confirmar,
             "DELETE FROM platform.evt_subscricoes WHERE consumer = 'ensaio_0061' "
-            "OR (consumer = 'chr' AND tipo = 'tenant.suspended')",
+            "OR (consumer = 'chr' AND tipo = 'tenant.reactivated')",
         )
         antes = self._alheias()
         self.assertIn(("ensaio_0061", "catalog.product_changed"), antes)
-        self.assertIn(("chr", "tenant.suspended"), antes)
+        self.assertIn(("chr", "tenant.reactivated"), antes)
         alembic_ok("downgrade", ANTERIOR)
         self.assertEqual(self._alheias(), antes)
 

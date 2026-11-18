@@ -14,7 +14,7 @@ sensiveis ficam bloqueadas vinte e quatro horas.
 
 * **Propor duas vezes a mesma coisa da a mesma accao.** O `INSERT ... ON
   CONFLICT ON CONSTRAINT owner_actions_uq DO NOTHING` e a `UNIQUE (tenant_id,
-  tipo, ref)` da revisao `0068`; sem linha devolvida, le-se a que la esta. Duas
+  tipo, ref)` da revisao `0070`; sem linha devolvida, le-se a que la esta. Duas
   reentregas do mesmo *job* nao pedem dois botoes.
 * **Confirmar duas vezes confirma uma.** O `UPDATE ... WHERE estado =
   'pendente' AND expira_at > %s AND contact_id = %s RETURNING` e um
@@ -38,7 +38,7 @@ botao ao turno e do KAM-211.
 
 ## O `tenant_id` vem do contexto, e vai nas duas barreiras
 
-Cada instrucao corre dentro de `tenant_guard.tx` (a RLS `FORCE` da `0068`) **e**
+Cada instrucao corre dentro de `tenant_guard.tx` (a RLS `FORCE` da `0070`) **e**
 leva o `tenant_id` no predicado, pela disciplina do `consultas.py`: com a
 politica desligada por engano, o predicado continua a separar tenants.
 
@@ -71,7 +71,7 @@ VALIDADE_DO_BOTAO: Final = datetime.timedelta(minutes=15)
 #: bloqueio e o que separa «o atacante tem o numero» de «o atacante publica».
 BLOQUEIO_DEPOIS_DA_TROCA: Final = datetime.timedelta(hours=24)
 
-#: Os tres tipos do `CHECK` de `owner_actions.tipo` (revisao `0068`).
+#: Os tres tipos do `CHECK` de `owner_actions.tipo` (revisao `0070`).
 TIPOS: Final = ("preco_stock_em_massa", "aprovar_conteudo", "enviar_proposta")
 
 #: O papel que confirma. O `CHECK` de `contacts.papel`.
@@ -188,7 +188,7 @@ def _bloqueada(papel_mudou_at: Any, agora: datetime.datetime) -> bool:
     """Se a troca de telefone e recente demais. `None` e um dono de sempre.
 
     O `papel_mudou_at` so se escreve na **troca** (no provisionamento fica
-    `NULL`, pela `definir_dono` da `0068`), pelo que um dono que nunca trocou de
+    `NULL`, pela `definir_dono` da `0070`), pelo que um dono que nunca trocou de
     telefone nunca esta bloqueado.
     """
     if papel_mudou_at is None:

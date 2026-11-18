@@ -65,6 +65,8 @@ GRUPOS = (
     "critério 8 — latência de `resolve`",
     "privacidade — nada do interlocutor chega ao job nem à conversa",
     "KAM-092 — o tenant.activated esquece o tenant na cache do CHR",
+    # KAM-098: a suspensao (o criterio 2 do KAM-058) e o encerramento.
+    "KAM-058 e KAM-098 — a suspensão e o encerramento esquecem o tenant na cache do CHR",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -91,6 +93,10 @@ TESTES_OBRIGATORIOS = (
     # KAM-092, criterio 7: a activacao emitida pelas portas da base, consumida
     # pelo `consumir` do KAM-006 com o efeito do CHR, esquece o tenant na cache.
     "a activação pelas portas chega ao consumidor do CHR, e a primeira mensagem seguinte chega ao AGR",
+    # KAM-058, criterio 2, e KAM-098, criterio 3: o fim-a-fim com o `Chr` e um
+    # AGR espiao, pelos envelopes que a regua e o encerramento emitem.
+    "a suspensão pela régua (KAM-058, critério 2): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião",
+    "o encerramento pelo off-boarding (KAM-098, critério 3): chega ao consumidor do CHR, e a mensagem seguinte já não chega ao AGR espião",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

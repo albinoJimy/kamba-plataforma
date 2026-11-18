@@ -93,6 +93,7 @@ export function conteudoSha256(entrada: EntradaDoScreen): Uint8Array {
 async function consultar(
   classificador: ClassificadorDeCategorias | null,
   entrada: EntradaDoScreen,
+  tenantId: string,
 ): Promise<VeredictoDoClassificador | null> {
   if (classificador === null) return null;
   try {
@@ -101,7 +102,7 @@ async function consultar(
     // pode chegar ao `maxRestricao` (o `grau` de uma decisão desconhecida é -1,
     // e passava por `permitida`).
     return lerVeredicto(
-      await classificador.classificar(prepararPedido(entrada.categoria_declarada, entrada.textos)),
+      await classificador.classificar(prepararPedido(entrada.categoria_declarada, entrada.textos), { tenantId }),
     );
   } catch {
     // Qualquer falha — rede, tempo, resposta fora do esquema — é «sem
@@ -129,7 +130,7 @@ export async function screen(
     lista = [...lista, REGRA_CLASSIFICADOR_PARCIAL];
     confianca = 0;
   } else if (decisao === "permitida" && confianca < LIMIAR_DE_CONFIANCA) {
-    const veredicto = await consultar(dependencias.classificador, entrada);
+    const veredicto = await consultar(dependencias.classificador, entrada, sujeito.tenantId);
     if (veredicto === null) {
       decisao = "condicional";
       lista = [...lista, REGRA_CLASSIFICADOR_INDISPONIVEL];

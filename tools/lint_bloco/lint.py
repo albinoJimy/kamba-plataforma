@@ -334,11 +334,27 @@ REGRAS_OBRIGATORIAS = ("estado_contra_caixa",)
 #: em `1869a0c2` (o #209 do KAM-096 ja fundido): **137 medidos**, e `137 // 2`
 #: sao 68. Fica em 68, e o 138.o sobe-o para 69.
 #:
-#: **O KAM-118 mede-se em 138**, na arvore sobre a `publico/main` em
-#: `234e4739` (o #208 do KAM-072 ja fundido): `138 // 2` sao 69. Sobe para 69,
-#: que serve ate aos 139. Um ramo em paralelo que tambem acrescente uma seccao
-#: mede outra vez na arvore da fusao: e quem funde em segundo que acerta o piso.
-MINIMO_DE_BLOCOS_MEDIDOS = 69
+#: **O 138.o e o do KAM-190**, medido no ramo dele sobre a `publico/main` em
+#: `234e4739`: **138 medidos**, e `138 // 2` sao 69. Sobe para 69, que serve ate
+#: aos 139. *Provisorio*: o KAM-098, o KAM-118, o KAM-195 e o KAM-200 correm ao
+#: lado, e quem fundir em segundo remede na arvore integrada.
+#:
+#: **O 139.o e o do KAM-200**, medido na arvore integrada com a `publico/main`
+#: em `b2f2a108` (o #210 do KAM-190 ja fundido): **139 medidos**, e `139 // 2`
+#: sao 69. Fica em 69, e o 140.o sobe-o para 70.
+#:
+#: **O 140.o e o do KAM-098**, medido na arvore integrada com a `publico/main`
+#: em `4dbe709a` (o #212 do KAM-200 ja fundido): **140 medidos**, e `140 // 2`
+#: sao 70. Sobe para 70, que serve ate aos 141.
+#:
+#: **O 141.o e o do KAM-195**, medido na arvore integrada com a `publico/main`
+#: em `7ae41e27` (o #211 do KAM-098 ja fundido): **141 medidos**, e `141 // 2`
+#: sao 70. Fica em 70, e o 142.o sobe-o para 71.
+#:
+#: **O 142.o e o do KAM-118**, medido na arvore integrada com a `publico/main`
+#: em `5ef99f83` (o #213 do KAM-195 ja fundido): **142 medidos**, e `142 // 2`
+#: sao 71. Sobe para 71, que serve ate aos 143.
+MINIMO_DE_BLOCOS_MEDIDOS = 71
 
 #: Quantos blocos existem, no minimo. O mesmo argumento, para a camada de baixo:
 #: se o `ler_blocos` deixar de ver a populacao, o piso de cima podia continuar a

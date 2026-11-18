@@ -324,6 +324,10 @@ REV_TRUST = _revisao_por_glob("*_trust_e_sancoes.py")
 #: ensaio que a prova (`db/tests/test_foto_schema.py`) descobre-a pelo mesmo
 #: padrao.
 REV_FOTO = _revisao_por_glob("*_foto_de_produtos.py")
+#: KAM-195: a revisao da finalidade do screening, pela razao da da Foto — o
+#: numero (`0069`) e o da fila de integracao. O ensaio que a prova e o
+#: `db/tests/test_finalidade_do_screening_schema.py`.
+REV_FINALIDADE_DO_SCREENING = _revisao_por_glob("*_finalidade_do_screening.py")
 #: KAM-095: a revisao da lista de espera, pela razao da do Catalogo AI — o
 #: numero (`0059`) e provisorio. O ensaio que a prova e o
 #: `db/tests/test_lista_espera_schema.py`.
@@ -354,9 +358,15 @@ CAPACIDADE_SQL = "packages/core-ts/src/capacidade/sql.ts"
 #: `db/tests_pagamentos/test_tecto_de_confianca.py` e o
 #: `db/tests_lote/test_confianca_concorrencia.py`.
 REV_CONFIANCA = _revisao_por_glob("*_confianca_gradual.py")
+#: KAM-098: a revisao do off-boarding, pela razao da do Catalogo AI — o numero
+#: (`0068`, sobre a `0067` do KAM-200) fixou-o a integracao. O ensaio que a prova e o
+#: `db/tests/test_offboarding.py`, e o fim-a-fim do CHR o
+#: `packages/core-ts/tests_bd/chr.bd.test.ts` (suite `tests_chr`).
+REV_OFFBOARDING = _revisao_por_glob("*_offboarding.py")
+
 #: KAM-118: a revisao do canal do dono, pela razao da do Catalogo AI — o numero
-#: (`0068`) e provisorio e na integracao assenta na `0067` do KAM-098. O ensaio
-#: que a prova e o `db/tests/test_canal_do_dono_schema.py`.
+#: (`0070`, sobre a `0069` do KAM-195) fixou-o a integracao. O ensaio que a
+#: prova e o `db/tests/test_canal_do_dono_schema.py`.
 REV_CANAL_DO_DONO = _revisao_por_glob("*_canal_do_dono.py")
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
@@ -7356,6 +7366,27 @@ MUTACOES = [
     # O botao do dono deixava duas versoes marcadas, e a vitrine escolhia uma ao
     # acaso. O `test_so_uma_versao_escolhida_por_original` tem de a matar.
 
+    # ------------------------ KAM-195 (revisao da finalidade do screening)
+    #
+    # Duas, uma por direccao. O alvo e a revisao descoberta pelo *glob*
+    # (`REV_FINALIDADE_DO_SCREENING`), porque o numero e provisorio.
+    ('finalidade do screening: o dominio nao a ganha', REV_FINALIDADE_DO_SCREENING,
+     "    \"'classificacao_de_catalogo'\",\n",
+     "",
+     "tests"),
+    # A revisao corria e o `CHECK` ficava com as catorze: um destino da
+    # finalidade do classificador nao cabia, e o *gate* negava para sempre por
+    # «destino nao registado». O
+    # `test_o_dominio_tem_as_quinze_e_a_classificacao_e_aceite` tem de a matar.
+    ('finalidade do screening: a descida apaga a decisao', REV_FINALIDADE_DO_SCREENING,
+     "    if linhas:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(",
+     "tests"),
+    # A descida deixava de recusar com um destino `classificacao_de_catalogo`,
+    # e o `ADD CONSTRAINT` das catorze rebentava a meio — ou, sem a linha,
+    # apagava-se em silencio um registo de transferencia. O
+    # `test_com_um_destino_recusa_e_sem_ele_desce_e_volta` tem de a matar.
+
     # ------------------------------------------------------------- KAM-061
     # O indice de pesquisa: o DDL e a funcao (`db/indice.py`), a camada de
     # resposta e o consumidor (`kamba_core.idx`). **Metade ataca a ligacao e nao
@@ -8130,6 +8161,42 @@ MUTACOES = [
     ('catalogo minimo: as falhas nao recomecam na fila', ACTIVACAO_SQL,
      "WHERE b.resultado = 'ok' OR b.levou_a_fila)",
      "WHERE b.resultado = 'ok')",
+     "tests"),
+    # ------------------------------------- KAM-098 (revisao do off-boarding)
+    #
+    # Seis, e cada uma tira uma barreira que so a base tem. O alvo e a revisao
+    # descoberta pelo *glob* (`REV_OFFBOARDING`).
+    #
+    # Uma fase repetida entra (criterio 9): `test_uma_linha_por_tenant_e_por_fase`.
+    ("offboarding: a fase repete-se", REV_OFFBOARDING,
+     "          CONSTRAINT offboarding_run_pkey PRIMARY KEY (tenant_id, fase),\n",
+     "          CONSTRAINT offboarding_run_pkey PRIMARY KEY (tenant_id, fase, prazo_at),\n",
+     "tests"),
+    # O lote muda a fase de uma linha: `test_o_lote_muda_o_estado_o_prazo_e_o_resultado_e_nao_a_fase`.
+    ("offboarding: o lote reescreve a fase", REV_OFFBOARDING,
+     '    op.execute("GRANT UPDATE (estado, prazo_at, resultado) ON platform.offboarding_run TO kamba_batch")\n',
+     '    op.execute("GRANT UPDATE (estado, prazo_at, resultado, fase) ON platform.offboarding_run TO kamba_batch")\n',
+     "tests"),
+    # A descida larga as fases escritas: `test_o_downgrade_recusa_com_fases_escritas`.
+    ("offboarding: a descida larga as fases", REV_OFFBOARDING,
+     "          IF EXISTS (SELECT 1 FROM platform.offboarding_run) THEN\n",
+     "          IF false THEN\n",
+     "tests"),
+    # A aplicacao le as fases de todos: `test_a_aplicacao_nao_le_nada`.
+    ("offboarding: a aplicacao le as fases", REV_OFFBOARDING,
+     '    op.execute("GRANT SELECT ON platform.offboarding_run TO kamba_audit")\n',
+     '    op.execute("GRANT SELECT ON platform.offboarding_run TO kamba_audit, kamba_app")\n',
+     "tests"),
+    # O dono da tabela le as fases de todos os tenants: `test_a_rls_esta_ligada_e_forcada`.
+    ("offboarding: as fases perdem o FORCE da RLS", REV_OFFBOARDING,
+     '    rls.enable_tenant_rls("offboarding_run")\n',
+     '    rls.enable_tenant_rls("offboarding_run")\n    op.execute("ALTER TABLE platform.offboarding_run NO FORCE ROW LEVEL SECURITY")\n',
+     "tests"),
+    # O CHR deixa de subscrever a suspensao, e a cache serve o tenant suspenso
+    # ao AGR ate ao TTL (KAM-058, criterio 2): `test_o_chr_subscreve_a_suspensao_e_o_encerramento`.
+    ("offboarding: o CHR nao subscreve a suspensao", REV_OFFBOARDING,
+     '    ("chr", "tenant.suspended", "1", "transacao", "false"),\n',
+     "",
      "tests"),
 ]
 

@@ -756,6 +756,12 @@ class TestConvencoes(ComBase):
                 # poe o `sku` antes do `tenant_id` ("sk" < "te"), e nao a
                 # ordem da chave; e poe a tabela antes de `outbound_messages`
                 # ("of" < "ou").
+                # KAM-098 (revisao do off-boarding): a chave e o par do bloco,
+                # `(tenant_id, fase)`, sem `uuid` nenhum — uma linha por fase,
+                # e e ela que torna a repeticao de uma fase impossivel de
+                # duplicar. Antes da oferta («offb» < «offe»).
+                ("offboarding_run", "fase", "text", None),
+                ("offboarding_run", "tenant_id", "uuid", None),
                 ("offer_terms", "sku", "text", None),
                 ("offer_terms", "tenant_id", "uuid", None),
                 # KAM-087 (0043): o caso de onboarding, `uuid` gerada; entre a
@@ -1467,6 +1473,10 @@ class TestConvencoes(ComBase):
              # chave primaria, que e o indice que a serve. **Com** FK para
              # `tenants`: so tem nivel um tenant que existe.
              "trust_level",
+             # KAM-098 (revisao do off-boarding). O `tenant_id` e a primeira
+             # coluna da chave primaria, que e o indice que o serve. **Com** FK
+             # para `tenants`: so se encerra um tenant que existe.
+             "offboarding_run",
              # KAM-118 (revisao do canal do dono). Pela `owner_actions_uq
              # (tenant_id, tipo, ref)`, que e a idempotencia da criacao e o
              # indice que a RLS precisa. **Com** FK para `tenants` e FK
@@ -2143,12 +2153,15 @@ class TestConvencoes(ComBase):
         # **104** desde a revisao da confianca gradual (KAM-096): a
         # `trust_level_tenant_fk`, simples para `tenants(id)`.
         #
-        # **106** desde a revisao do canal do dono (KAM-118): a
+        # **105** desde a revisao do off-boarding (KAM-098): a
+        # `offboarding_run_tenant_fk`, simples para `tenants(id)`.
+        #
+        # **107** desde a revisao do canal do dono (KAM-118): a
         # `owner_actions_tenant_fk`, simples para `tenants(id)`, e a
         # `owner_actions_contact_fk`, composta `(tenant_id, contact_id)` para a
         # `contacts_tenant_contact_uq`, pela regra da `0030`: a ficha de um
         # tenant nao aponta para o contacto de outro.
-        self.assertEqual(len(linhas), 106)
+        self.assertEqual(len(linhas), 107)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

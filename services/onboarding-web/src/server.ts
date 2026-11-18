@@ -73,7 +73,7 @@ import { createApp } from "./app.ts";
 import { exigirComunicacaoLimpa } from "./comunicacao.ts";
 import type { OpcoesDoGuia } from "./guia.ts";
 import { LigadorPorHttp } from "./ligador.ts";
-import { CanalEmMemoria } from "./painel/canal.ts";
+import { CanalPeloCom } from "./painel/canal.ts";
 import { ComercioPorHttp } from "./painel/comercio.ts";
 import type { OpcoesDoPainel } from "./painel/rotas.ts";
 import { RevogacoesEmMemoria } from "./painel/sessao.ts";
@@ -281,8 +281,10 @@ function montarGuia(): OpcoesDoGuia | undefined {
  * a credencial `com_internal_token` é obrigatória: sem ela o arranque **falha**
  * (o `get` do cofre lança), em vez de subir um painel que responde 503 a tudo.
  *
- * O estado do canal é o duplo em memória, e diz `sem_canal`: o adaptador que o
- * lê de `platform.channels` é o credor da caixa do critério 7.
+ * O estado do canal vem do COM (`CanalPeloCom`, KAM-190), pela mesma credencial:
+ * o `onboarding-web` não tem rota para a base. A reentrada por código usa o
+ * mesmo `Otp`, os mesmos casos e os mesmos contadores do registo — um telefone
+ * esgotado no registo está esgotado aqui.
  */
 async function montarPainel(): Promise<OpcoesDoPainel | undefined> {
   const com = (process.env["ONBOARDING_COM_INTERNO_URL"] ?? "").trim();
@@ -290,13 +292,22 @@ async function montarPainel(): Promise<OpcoesDoPainel | undefined> {
     log.info({ outcome: "painel_desligado" });
     return undefined;
   }
+  const comercio = new ComercioPorHttp(com, await secrets.get("com_internal_token"));
   return {
-    comercio: new ComercioPorHttp(com, await secrets.get("com_internal_token")),
-    canal: new CanalEmMemoria(),
+    comercio,
+    canal: new CanalPeloCom(comercio),
     revogacoes: new RevogacoesEmMemoria(),
     casos,
     anelDaAssinatura: [assinatura, assinaturaAnterior],
     precoMaximoKz: precoMaximoKz(process.env["PAINEL_PRECO_MAXIMO_KZ"]),
+    reentrada: {
+      otp,
+      telefoneDoCaso: (id) => registo.telefoneDoCaso(id),
+      casosPorTelefone: (hmac) => casos.porTelefoneHmac(hmac),
+      anelDoPepper: [pepper, pepperAnterior],
+      contadores,
+      proxiesDeConfianca: proxiesDeConfianca(),
+    },
   };
 }
 

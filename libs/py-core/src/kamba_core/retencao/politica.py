@@ -183,7 +183,10 @@ _CONVERSAS_PENDENTE = (
     "conteudo de conversa sem caminho de purga nesta revisao: as FK para "
     "conversations e o append-only por trigger pedem ordem propria; credor KAM-098"
 )
-_RELACAO = "dura a relacao com o tenant e sai no encerramento (criterio 9, KAM-098)"
+_RELACAO = (
+    "dura a relacao com o tenant e sai no encerramento pela purga do off-boarding "
+    "(kamba_core.offboarding.purga, KAM-098); a que la nao tem caminho fica recusada"
+)
 _FISCAL_IMUTAVEL = (
     "registo imutavel por trigger (deny_mutation); com o prazo fiscal definido "
     "a purga e listada em dry-run e recusada em efectiva ate haver caminho de "
@@ -547,6 +550,9 @@ SEM_DADOS_PESSOAIS: Final[Mapping[str, str]] = {
     # KAM-096: o nivel de confianca e o tecto por pedido, uma linha por tenant.
     # O historico das alteracoes vive no `audit_log` (`trust.tecto`).
     "platform.trust_level": "nivel e tecto por pedido do tenant: um limite, sem pessoa",
+    # KAM-098: as fases do encerramento de um tenant. Sao a prova do
+    # encerramento e da purga, e o certificado le-se delas; contagens e resumos.
+    "platform.offboarding_run": "fases do encerramento: estado, prazo e resumos, sem pessoa",
     # KAM-117: os episodios de churn e de dormente. Um tenant, um sinal de
     # dominio fechado e instantes; recalculaveis pelo *job* a qualquer altura.
     "platform.churn_signal_episode": "sinais de churn do negocio: um sinal e instantes",

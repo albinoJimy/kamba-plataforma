@@ -249,7 +249,7 @@ ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
         # `confirm:{action_id}`. As quatro condicoes:
         #
         # 1. **nada depende de modelo nem de texto** — o `INSERT` leva um `tipo`
-        #    de lista fechada (`CHECK` da `0068`) e uma referencia do modulo que
+        #    de lista fechada (`CHECK` da `0070`) e uma referencia do modulo que
         #    propoe; o `UPDATE` so corre com um botao validado pela forma
         #    (`confirm:` seguido de um UUID) e do mesmo `contact_id`, e um texto
         #    («sim», «ok») nao chega a ele;
@@ -257,7 +257,7 @@ ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
         #    accao; nao mexe em preco, stock, conteudo nem contacto, que sao dos
         #    modulos (KAM-119, KAM-122, KAM-123) e passam pela ToolLayer;
         # 3. **o `tenant_id` esta na instrucao e ela corre em `tenant_guard.tx`**
-        #    — a `0068` da a `owner_actions` com RLS `FORCE`, e ao `kamba_app`
+        #    — a `0070` da a `owner_actions` com RLS `FORCE`, e ao `kamba_app`
         #    so `INSERT` e o `UPDATE (estado, confirmada_at)`;
         # 4. **o bloco do ticket nomeia a tabela e o botao** — o DDL de
         #    `owner_actions` e o criterio 5 do KAM-118, no EPIC-11.

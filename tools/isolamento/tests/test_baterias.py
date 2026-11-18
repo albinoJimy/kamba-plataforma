@@ -109,6 +109,7 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             x01_rotas.ROTAS_INTERNAS_DO_AGR
             + x01_rotas.SONDA_DO_AGR
             + x01_rotas.METRICAS_DO_AGR
+            + x01_rotas.ROTA_DO_SCREENING_DO_AGR
         ):
             with self.subTest(item=item):
                 self.assertIn(item, self.itens)
@@ -135,6 +136,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
             - set(x01_rotas.ROTAS_INTERNAS_DO_AGR)
             - set(x01_rotas.SONDA_DO_AGR)
             - set(x01_rotas.METRICAS_DO_AGR)
+            # KAM-195: a rota do screening e a quarta lista do AGR.
+            - set(x01_rotas.ROTA_DO_SCREENING_DO_AGR)
             # KAM-194: as tres do processo do IDX tambem sao Python, e tem o
             # ensaio delas abaixo; sem a subtraccao apareciam aqui como rotas
             # de TypeScript que ninguem declarou.
@@ -155,8 +158,8 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         )
         self.assertEqual(len(do_idx), 3)
 
-    def test_as_onze_superficies_da_api_interna_do_com(self) -> None:
-        """As onze (KAM-178 e KAM-099) sao **exactamente** as que a enumeracao da ao COM.
+    def test_as_treze_superficies_da_api_interna_do_com(self) -> None:
+        """As treze (KAM-178, KAM-099 e KAM-190) sao **exactamente** as que a enumeracao da ao COM.
 
         A lista de cima ja apanharia uma divergencia, mas apanha-a somada as
         outras tres. Esta diz o que importa dizer: no dia em que uma decima rota
@@ -173,15 +176,15 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
         # ficheiro escreve: derivar esta lista da outra fazia uma sonda nova do
         # COM nascer coberta aqui. Quem apanha a divergencia entre a enumeracao
         # e a lista declarada e o `test_as_rotas_de_typescript`; o que este
-        # ensaio prende e as **onze** superficies da API interna.
+        # ensaio prende e as **treze** superficies da API interna.
         esperadas = set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM) | {
             "rota:com:app:createApp:GET:/healthz",
             "rota:com:payments/arranque:criarApp:GET:/healthz",
             "rota:com:payments/arranque:criarApp:GET:/metrics",
         }
         self.assertEqual(do_com, esperadas)
-        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 11)
-        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 11)
+        self.assertEqual(len(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM), 13)
+        self.assertEqual(len(set(x01_rotas.ROTAS_DA_API_INTERNA_DO_COM)), 13)
 
     def test_as_onze_tools(self) -> None:
         declaradas = set(x02_tools.TOOLS_LIGADAS) | set(x02_tools.TOOLS_DECLARADAS)

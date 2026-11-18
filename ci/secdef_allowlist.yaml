@@ -192,6 +192,23 @@ funcoes:
       contorna o `FORCE`: `db/tests_pagamentos/test_reembolsos_do_pay.py` mede
       as quatro, o isolamento e o `42501` do `kamba_app`.
 
+  - funcao: platform.ts_mudanca_de_conta()
+    adr: ADR-015
+    razao: >-
+      O *trigger* que grava o sinal `mudanca_de_conta` quando o NIF ou a conta
+      de pagamento de uma PME muda depois da activacao (KAM-200, revisao `0067`).
+      Ha dois escritores com papeis diferentes — o `kamba_app` escreve o
+      `tenants.nif`, o `kamba_batch` a `payment_accounts`, este sem contexto de
+      tenant —, e como `SECURITY INVOKER` o sinal dependia de quem escreveu:
+      uma escrita sem contexto falhava na politica da `ts_signal`, e partia a
+      escrita da conta. Como dono, escreve sempre.
+      A excepcao e **estreita**: a funcao nao recebe tenant de ninguem — usa o
+      da linha que o escritor ja tinha autoridade para escrever —, poe o
+      `app.tenant_id` nesse tenant so para a escrita e repoe o que estava, e so
+      grava um sinal de tipo e severidade fixos (`mudanca_de_conta`, `alta`),
+      sem `detalhe`. Nao contorna o `FORCE`: e por o respeitar que poe o
+      contexto. `db/tests/test_trust_schema.py` mede os dois escritores, o
+      antes e o depois da activacao, e que o contexto do lote volta ao que era.
   - funcao: platform.definir_dono(p_contact_id uuid, p_origem text)
     adr: ADR-010
     razao: >-

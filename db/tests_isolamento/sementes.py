@@ -2102,6 +2102,14 @@ SEM_RECEITA_COM_RAZAO = {
     # linha), com o de outro tenant (zero) e sem contexto (zero), e mede a RLS
     # ligada e forcada e o `42501` da aplicacao a escrever.
     ("platform", "trust_level"),
+    # KAM-098: as fases do off-boarding, pela razao da regua de cobranca. **A
+    # aplicacao nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na
+    # tabela, e quem escreve e o `kamba_batch`, com `BYPASSRLS`. **A politica
+    # mede-se noutro sitio**: o `test_a_rls_esta_ligada_e_forcada` do
+    # `db/tests/test_offboarding.py` le as fases pela auditoria com o contexto do
+    # tenant dono (sete linhas), com o de outro (zero) e sem contexto (zero), e o
+    # `test_a_aplicacao_nao_le_nada` mede o `42501` da aplicacao.
+    ("platform", "offboarding_run"),
     # KAM-095: a lista de espera, pela razao da fila de revisao. **A aplicacao
     # nao a alcanca**: o `kamba_app` nao tem privilegio nenhum na tabela, e quem
     # escreve e o `kamba_batch`, com `BYPASSRLS`. E uma receita nao tinha onde

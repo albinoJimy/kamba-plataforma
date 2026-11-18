@@ -16,8 +16,8 @@ as respostas a identificadores de B sao indistinguiveis entre si.
                                  `tenant_id`, e que o oraculo morderia se levasse
 ```
 
-As nove `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099) entram na
-primeira metade, e o
+As onze `POST /internal/*` do COM (sete do KAM-178, duas do KAM-099, duas do
+KAM-190) entram na primeira metade, e o
 `ALL /internal/*` da app sem API montada entra nela tambem: ele recebe os mesmos
 corpos, e o que se afirma e que os recusa de forma indistinguivel. O
 `GET /metrics` do COM entra na segunda.
@@ -121,6 +121,13 @@ ROTAS_INTERNAS_DO_AGR = (
     "rota:agr:kamba_agr/api_interna:rotas:POST:/internal/draft-decision",
 )
 
+#: A rota do classificador de screening do GOV (KAM-195). Leva o `tenant_id`
+#: no corpo, mas como atribuicao da linha de custo e do *gate* de destino, e nao
+#: como chave de uma leitura: o caso diz o que isso muda no ataque.
+ROTA_DO_SCREENING_DO_AGR = (
+    "rota:agr:kamba_agr/llm/screening:rotas:POST:/internal/screening",
+)
+
 #: A sonda do AGR. Sem identificadores.
 SONDA_DO_AGR = ("rota:agr:kamba_agr/app:create_app:GET:/healthz",)
 
@@ -144,6 +151,9 @@ SONDAS_TS = (
     "rota:gwy:app:criarAppDeMetricas:GET:/healthz",
     "rota:gwy:app:criarAppDeMetricas:GET:/metrics",
     "rota:onboarding-web:app:createApp:GET:/healthz",
+    # KAM-190: as series do painel do dono, `painel_pedidos_total{rota}` e
+    # `painel_erros_total{rota,motivo}`, de dominios fechados e sem tenant.
+    "rota:onboarding-web:app:createApp:GET:/metrics",
     "rota:worker-canal:agr_shim:criarApp:GET:/healthz",
     "rota:worker-canal:agr_shim:criarApp:GET:/metrics",
     "rota:worker-canal:app:createApp:GET:/healthz",
@@ -247,6 +257,12 @@ def _conduzir_agr(ctx) -> list[str]:  # noqa: ANN001 — Contexto, sem importar 
     from ._agr import atacar_rotas_internas  # noqa: PLC0415
 
     return atacar_rotas_internas(ctx)
+
+
+def _conduzir_screening_do_agr(ctx) -> list[str]:  # noqa: ANN001
+    from ._agr import atacar_rota_do_screening  # noqa: PLC0415
+
+    return atacar_rota_do_screening(ctx)
 
 
 def _conduzir_sonda_do_agr(ctx) -> list[str]:  # noqa: ANN001
@@ -376,6 +392,16 @@ registar_caso(
     camada="rotas",
     enumeravel=ROTAS_INTERNAS_DO_AGR,
     fn=_conduzir_agr,
+    precisa="agr",
+    origens=("corpo", "cabecalhos", "logs"),
+)
+
+registar_caso(
+    id="X-01/agr/screening",
+    bateria="X-01",
+    camada="rotas",
+    enumeravel=ROTA_DO_SCREENING_DO_AGR,
+    fn=_conduzir_screening_do_agr,
     precisa="agr",
     origens=("corpo", "cabecalhos", "logs"),
 )
@@ -527,8 +553,9 @@ registar_caso(
 # sao exigidas aqui: uma afirmacao nao medida nao e um verde.
 
 
-#: As nove rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM: as
-#: sete do KAM-178 e as duas do painel do dono (KAM-099) no fim.
+#: As onze rotas `POST /internal/*`, pela ordem da constante `ROTAS` do COM: as
+#: sete do KAM-178, as duas do painel do dono (KAM-099) e as duas leituras do
+#: KAM-190 — uma oferta so, e o estado do canal — no fim.
 ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/offer-view",
     "rota:com:api/interna:apiInterna:POST:/internal/propose-cart",
@@ -539,6 +566,8 @@ ROTAS_POST_DA_API_INTERNA_DO_COM = (
     "rota:com:api/interna:apiInterna:POST:/internal/request-owner-confirmation",
     "rota:com:api/interna:apiInterna:POST:/internal/list-offers",
     "rota:com:api/interna:apiInterna:POST:/internal/update-offer",
+    "rota:com:api/interna:apiInterna:POST:/internal/get-offer",
+    "rota:com:api/interna:apiInterna:POST:/internal/channel-view",
 )
 
 #: O `GET /metrics` do COM. Sem credencial e sem identificadores (§3.39).
@@ -547,7 +576,7 @@ ITEM_DAS_METRICAS_DO_COM = "rota:com:api/interna:rotaDasMetricas:GET:/metrics"
 #: O `ALL /internal/*` da app construida **sem** a API montada.
 ITEM_SEM_API_DO_COM = "rota:com:app:createApp:ALL:/internal/*"
 
-#: As onze, que e o que o caso cobre. Literais pela razao do topo do modulo: um
+#: As treze, que e o que o caso cobre. Literais pela razao do topo do modulo: um
 #: filtro fazia uma rota nova nascer coberta.
 ROTAS_DA_API_INTERNA_DO_COM = (
     *ROTAS_POST_DA_API_INTERNA_DO_COM,
@@ -841,6 +870,15 @@ registar_caso(
 #                             o bilhete de B e o id de B nu: 401 uniforme
 #     sair                    sessoes forjadas com o `sid` e o tenant de B: 200,
 #                             e a sessao de B continua viva
+#     ligar (KAM-190)         a sessao de A com o tenant e o caso de B no pedido:
+#                             200 com o codigo pedido, so ao caso de A, e nenhuma
+#                             sessao do registo cunhada sem o codigo
+#     codigo (KAM-190)        o telefone de B, com o tenant de B no corpo, e um
+#                             sem painel: 200 com a **mesma** forma nos tres, sem
+#                             o caso de B em nenhum, e o codigo so ao caso de B
+#     verificar (KAM-190)     o bilhete de B com codigo errado, o `ticket` do
+#                             registo de B e o id nu: 401 uniforme, nenhuma
+#                             sessao, e so o bilhete do painel chega ao OTP
 #
 # **O 200 das listas entra por item e nao no global**, pela razao do `/metrics`
 # do COM: a afirmacao delas e «o tenant e o da sessao», e essa mede-se a ver os
@@ -855,6 +893,9 @@ ROTAS_DO_PAINEL = (
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas",
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas/:id",
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal",
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/codigo",
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/verificar",
 )
 
 #: Os estados de cada rota, quando nao sao os do `RECUSAS_ACEITAVEIS`. As listas
@@ -868,6 +909,12 @@ ACEITAVEIS_DO_PAINEL: dict[str, tuple[int, ...]] = {
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/produtos": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/encomendas": (200,),
     "rota:onboarding-web:painel/rotas:actor:GET:/painel/canal": (200,),
+    # KAM-190. O `ligar` responde **sempre** 200 com o codigo do caso de A; o
+    # `codigo` responde 200 a qualquer telefone (e a recusa de enumeracao); o
+    # `verificar` responde **so** 401 a qualquer falha.
+    "rota:onboarding-web:painel/rotas:actor:GET:/painel/ligar": (200,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/codigo": (200,),
+    "rota:onboarding-web:painel/rotas:actor:POST:/painel/verificar": (401,),
 }
 
 #: Ataques por rota do painel.
@@ -895,7 +942,7 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
     # A sonda positiva: nas listas, os dados de A chegaram a resposta dos
     # ataques; no `PATCH` e no detalhe, um pedido legitimo de A, fora das
     # entradas, deu 200. Sem ela, uma rota morta (401 ou 404 a tudo) passava.
-    if not item.endswith(("/painel/sair", "/painel/entrar")):
+    if not item.endswith(("/painel/sair", "/painel/entrar", "/painel/codigo", "/painel/verificar")):
         achados.extend(
             _exigir_marca(
                 item,
@@ -926,6 +973,53 @@ def _afirmacoes_do_painel(item: str, entradas: list[dict]) -> list[str]:
                 "viva",
                 "Uma sessao forjada com o `sid` de B revogou a sessao de B: quem "
                 "ataca desliga o dono do lado.",
+            )
+        )
+    if item.endswith("GET:/painel/ligar"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "caso",
+                "a",
+                "O `/painel/ligar` mandou o codigo, ou abriu o bilhete, noutro caso "
+                "que nao o da sessao de A, ou cunhou a sessao do registo sem o "
+                "codigo: o pedido escolheu o caso, ou a sessao do painel voltou a "
+                "renovar-se sozinha.",
+            )
+        )
+    if item.endswith("POST:/painel/codigo"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "uniforme",
+                "sim",
+                "O `/painel/codigo` respondeu de forma diferente ao telefone de B "
+                "e a um telefone sem painel, ou um bilhete levou o caso de B, ou os "
+                "dois de B foram iguais: e a enumeracao de donos que a rota existe "
+                "para nao dar.",
+            )
+        )
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "envio",
+                "so-b",
+                "O codigo do telefone de B nao foi para o caso de B, ou o telefone "
+                "sem painel mandou um SMS: a sonda positiva da reentrada.",
+            )
+        )
+    if item.endswith("POST:/painel/verificar"):
+        achados.extend(
+            _exigir_marca(
+                item,
+                entradas,
+                "sessao",
+                "nenhuma",
+                "Um ataque ao `/painel/verificar` cunhou sessao, ou uma referencia "
+                "que nao e o bilhete do painel chegou ao OTP do caso de B.",
             )
         )
     return achados

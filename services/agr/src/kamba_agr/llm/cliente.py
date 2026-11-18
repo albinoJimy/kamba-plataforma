@@ -95,6 +95,15 @@ REF_CHAVE_VIRTUAL: Final = "litellm_virtual_key"
 MARGEM_SEGUNDOS: Final = 2.0
 TENTATIVAS_DO_PROXY: Final = 3
 
+#: Os campos que quem chama pode acrescentar ao corpo do `/chat/completions`
+#: (KAM-195). **Lista fechada, e curta de proposito**: o `model`, as
+#: `messages` e o `max_tokens` sao do cliente — o alias, o texto minimizado e o
+#: tecto de resposta do KAM-189 —, e um `corpo_extra` que os pudesse reescrever
+#: era uma via para chamar outro alias que o *gate* nao consultou, ou para mandar
+#: texto que nao passou pelo `minimise`. O classificador de screening precisa da
+#: saida estruturada e da temperatura zero, e mais nada.
+CAMPOS_EXTRA_PERMITIDOS: Final = frozenset({"response_format", "temperature"})
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ContextoDeChamada:
@@ -189,8 +198,14 @@ class ClienteDeLlm:
         papel: str,
         mensagens: Sequence[MensagemMinimizada],
         ctx: ContextoDeChamada,
+        *,
+        tecto_s: float | None = None,
+        corpo_extra: dict[str, Any] | None = None,
     ) -> Resposta:
         """Chama o modelo do papel. Levanta `ErroDeLlm`; grava sempre uma linha.
+
+        `tecto_s` substitui o tecto do transporte, como no `embeber`; `corpo_extra`
+        acrescenta ao corpo so os campos de `CAMPOS_EXTRA_PERMITIDOS` (KAM-195).
 
         **`mensagens` sao `MensagemMinimizada` e nao `dict`, e e o criterio 1 do
         KAM-112.** Um `MensagemMinimizada` traz um `MinimisedText`, e um
@@ -226,6 +241,14 @@ class ClienteDeLlm:
                     f"o conteudo da mensagem {posicao} nao e um "
                     f"`MinimisedText` mas um {type(item.conteudo).__name__}"
                 )
+        # **Antes do *gate* e sem linha**: um campo fora da lista e um defeito
+        # de quem chama, e nao uma chamada que se recusou. Nada sai.
+        fora = sorted(set(corpo_extra or ()) - CAMPOS_EXTRA_PERMITIDOS)
+        if fora:
+            raise ValueError(
+                f"campos {fora} fora de {sorted(CAMPOS_EXTRA_PERMITIDOS)}: o "
+                "`model`, as `messages` e o `max_tokens` sao do cliente"
+            )
         try:
             alias = self._aliases[papel]
         except KeyError:
@@ -242,6 +265,11 @@ class ClienteDeLlm:
         self._autorizar(alias, papel, ctx, inicio)
 
         # 2. A chamada.
+        tecto = (
+            alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS
+            if tecto_s is None
+            else tecto_s
+        )
         try:
             estado, corpo, cabecalhos = self._transporte(
                 f"{self._url}/chat/completions",
@@ -260,14 +288,13 @@ class ClienteDeLlm:
                     # que convenca o modelo a escrever paga-se ate ao limite do
                     # fornecedor, e so o orcamento por *tenant* o travava.
                     **({"max_tokens": alias.max_tokens} if alias.max_tokens else {}),
+                    **(corpo_extra or {}),
                 },
-                alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS,
+                tecto,
             )
         except TimeoutError as excepcao:
             erro = TempoEsgotado(
-                f"o proxy nao respondeu em "
-                f"{alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS:.0f} s: "
-                f"{excepcao}",
+                f"o proxy nao respondeu em {tecto:.1f} s: {excepcao}",
                 papel,
             )
             self._falhou(alias, ctx, erro, inicio)

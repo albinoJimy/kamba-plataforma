@@ -3,13 +3,12 @@
 A primeira linha e **sem acentos**, pela razao das revisoes anteriores: e a
 mensagem que o `alembic history` imprime.
 
-## O numero e provisorio
+## O numero
 
-`down_revision = "0066"` e o que corre hoje sobre a `publico/main`. O
-orquestrador deu a `0067` ao KAM-098: **na integracao esta revisao passa a
-assentar na `0067`** (ou renumera-se, pela regra da casa — quem funde em
-segundo renumera, e nunca por `sed`). Os ensaios descobrem-na pelo *glob*
-`*_canal_do_dono.py` e leem o `down_revision` daqui, pelo que nao mudam.
+Escrita como `0068` sobre a `0066`, assenta na integracao na `0069` da
+finalidade do screening (KAM-195), e e a `0070`: quem funde em segundo
+renumera. Os ensaios descobrem-na pelo *glob* `*_canal_do_dono.py` e leem o
+`down_revision` daqui, pelo que nao mudaram.
 
 ## O que esta revisao cria
 
@@ -97,9 +96,8 @@ from alembic import op
 
 import rls
 
-revision = "0068"
-#: **Provisorio**: na integracao passa a `0067` (KAM-098). Ver o cabecalho.
-down_revision = "0066"
+revision = "0070"
+down_revision = "0069"
 branch_labels = None
 depends_on = None
 

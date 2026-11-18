@@ -63,8 +63,8 @@ from catalogo_apoio import (  # noqa: E402
     responder,
 )
 from kamba_core.catalogo import estados  # noqa: E402
-from kamba_core.catalogo.pipeline import ServicoDeIngestao  # noqa: E402
-from kamba_core.catalogo.repositorio import ConflitoDeEstado, RepositorioDbapi  # noqa: E402
+from kamba_core.catalogo.pipeline import ConfirmacaoRecusada, ServicoDeIngestao  # noqa: E402
+from kamba_core.catalogo.repositorio import ConflitoDeEstado, LojaLimitada, RepositorioDbapi  # noqa: E402
 from kamba_core.storage.fake import criar_storage_fake  # noqa: E402
 
 TABELA = "platform.catalog_ingestions"
@@ -354,6 +354,49 @@ class TestPipelineNaBase(ComBase):
         self.assertEqual(escrita.versao, lida.versao + 1)
         with self.assertRaises(ConflitoDeEstado):
             repo.gravar(lida, replace(lida, perguntas_feitas=lida.perguntas_feitas + 2))
+
+    def _limitar(self, tenant: str) -> None:
+        """O aviso e a limitacao automaticos de T&S (KAM-200), confirmados: a pipeline
+        corre noutras ligacoes."""
+        admin = self.ligar("admin")
+        cursor = admin.cursor()
+        factories.contexto(cursor, tenant)
+        for passo, motivo in (("aviso", "conduta_em_analise"), ("limitacao", "actividade_limitada")):
+            cursor.execute(
+                "INSERT INTO platform.ts_sanction (tenant_id, chave, passo, origem, motivo_interno, "
+                "motivo_publico, autor, regra, sinais) VALUES (%s, %s, %s, 'automatica', 'ensaio', %s, "
+                "'sistema:1.0.0', 'risco_ts>=30', '[]'::jsonb)",
+                (tenant, f"auto:{passo}:{uuid.uuid4()}", passo, motivo),
+            )
+        admin.commit()
+
+    def test_com_limitacao_de_ts_a_foto_nova_e_uma_recusa_de_dominio(self) -> None:
+        """KAM-200: o `23514` do *trigger* chega como `LojaLimitada`, e nao fica linha."""
+        a, b = self._tenants()
+        self._limitar(a)
+        servico, visao, _ = self._servico((a, b), {"m1": jpeg(b"LIM1"), "m2": jpeg(b"LIM2")})
+        with self.assertRaises(LojaLimitada):
+            servico.receber(a, "m1")
+        self.assertEqual(self.consultar(f"SELECT count(*) FROM {TABELA} WHERE tenant_id = %s", (a,)), [(0,)])
+        self.assertEqual(visao.imagens, [], "nada foi a extraccao")
+        # O controlo: o outro tenant, pelo mesmo papel e pela mesma pipeline, recebe.
+        self.assertEqual(servico.receber(b, "m2").estado, estados.A_PERGUNTAR)
+
+    def test_com_limitacao_de_ts_a_confirmacao_e_recusada_e_fica_rascunho(self) -> None:
+        a, _ = self._tenants()
+        servico, _, registo = self._servico((a,), {"m1": jpeg(b"LIM3")})
+        r = servico.receber(a, "m1")
+        for resposta in ({"preco_tipo": "fixo"}, {"preco": "12 mil"}, {"stock_modo": "garantido"},
+                         {"stock": "5"}, {"entrega": "entrega"}):
+            r = responder(servico, a, r.ingestao.id, resposta)
+        self.assertEqual(r.estado, estados.RASCUNHO)
+        self._limitar(a)
+        with self.assertRaises(ConfirmacaoRecusada):
+            servico.confirmar(a, r.ingestao.id, confirmacao(r.versao_texto or ""))
+        self.assertEqual(
+            self.consultar(f"SELECT estado FROM {TABELA} WHERE id = %s", (r.ingestao.id,)), [("rascunho",)]
+        )
+        self.assertEqual(registo.publicados, [])
 
     def test_a_versao_e_o_atualizado_at_sao_do_gatilho(self) -> None:
         admin = self.ligar("admin")

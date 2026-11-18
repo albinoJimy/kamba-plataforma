@@ -504,6 +504,143 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
     return achados
 
 
+#: O item da rota do screening (KAM-195). Fora do `ITEM_DE`, porque nao e do
+#: `api_interna.rotas` e o corpo nao tem `thread_id` que uma mistura parta.
+ITEM_DO_SCREENING = "rota:agr:kamba_agr/llm/screening:rotas:POST:/internal/screening"
+
+#: O que o duplo do classificador devolve. **Fixo**, e nao um eco do pedido: o
+#: que o caso afirma e que a rota nao acrescenta nada de B ao que o modelo diz.
+_VEREDICTO_DO_DUPLO = '{"decisao":"condicional","confianca":0.5}'
+
+
+def atacar_rota_do_screening(ctx) -> list[str]:  # noqa: ANN001
+    """O X-01 do `POST /internal/screening` (KAM-195).
+
+    ## O que «A usa IDs de B» quer dizer nesta superficie
+
+    A rota nao le recurso nenhum de tenant: recebe categoria e textos de
+    produto, chama o modelo, e devolve o texto dele. O `tenant_id` do corpo e
+    **atribuicao** — a linha de `dat.llm_call_log` e o *gate* de destino —, e
+    nao a chave de uma leitura. Nao ha, por isso, um recurso de B a pedir pela
+    via de A; o que pode fugir e **o que a rota escreve**: a resposta, os
+    cabecalhos e os *logs*. O ataque e a mistura que um chamador consegue
+    fazer — o tenant de A com o canario de B nos campos de texto livre — e o
+    que se afirma e que nada disso volta, nem num erro.
+
+    Tres medicoes, e a terceira e a que faz o caso valer alguma coisa:
+
+    1. os ataques nao devolvem nada de B, nem na resposta, nem nos cabecalhos,
+       nem nos *logs* — isto e, a **rota** nao acrescenta nada ao que o
+       classificador devolve, e nao escreve os textos num erro;
+    2. um tenant que **nao existe** responde o mesmo estado **na rota**: ela
+       nao le nada por tenant antes de chamar o classificador;
+    3. a sonda positiva chega ao duplo, e um pedido sem credencial **nao**
+       chega — sem isto, as duas primeiras passavam com uma rota que recusa
+       tudo ou que aceita tudo.
+
+    **O que este caso nao mede, dito pela revisao adversarial:** o classificador
+    e um duplo, pelo que o *gate* de destino nao corre aqui. Em producao ele
+    consulta `platform.tenant_destinations` pelo `tenant_id` do corpo, e um
+    tenant com linha propria autorizada responde 200 onde um UUID inventado
+    responde 503 `destino_negado`. Quem ve essa diferenca e quem tem a
+    `agr_screening_token`, que e o GOV — o mesmo nivel de confianca do
+    `/internal/turn`, cujo `tenant_id` do corpo tambem e autoridade. Fica
+    declarado em vez de medido. A finalidade do screening existe desde o
+    KAM-195 (`classificacao_de_catalogo`), e a diferenca aparece no dia em que
+    um destino lhe for autorizado.
+    """
+    _no_caminho()
+    from kamba_agr.app import create_app  # noqa: PLC0415
+    from kamba_agr.llm import screening  # noqa: PLC0415
+
+    chamadas: list[Any] = []
+
+    def classificar(pedido: Any) -> str:
+        chamadas.append(pedido)
+        return _VEREDICTO_DO_DUPLO
+
+    app = create_app(
+        rotas_internas=screening.rotas(
+            credencial=lambda: CREDENCIAL,
+            classificar=classificar,
+            # Uma folga larga: a guarda da fila nao e o que este caso mede, e
+            # numa maquina carregada a de producao (2 s) faria a sonda falhar.
+            folga_s=3600.0,
+        )
+    )
+    canario_de_b = next(iter(ctx.oraculo.proibidos.values()))
+    cabecalhos = {"content-type": "application/json", "x-kamba-interno": CREDENCIAL}
+
+    def _corpo(tenant: str, categoria: str, textos: list[str]) -> bytes:
+        return json.dumps(
+            {
+                "tenant_id": tenant,
+                "trace_id": uuid.uuid4().hex,
+                "categoria_declarada": categoria,
+                "textos": textos,
+            }
+        ).encode()
+
+    achados: list[str] = []
+    estados: list[int] = []
+    for corpo in (
+        _corpo(ctx.a.id, "moda", [canario_de_b]),
+        _corpo(ctx.a.id, canario_de_b[:200], ["camisola"]),
+    ):
+        estado, resposta_cabecalhos, texto, registo = _pedir_com_logs(
+            app, "POST", screening.ROTA, corpo, cabecalhos
+        )
+        ctx.logs.append(registo)
+        estados.append(estado)
+        achados.extend(
+            f"{ITEM_DO_SCREENING}: {fuga}"
+            for fuga in ctx.oraculo.varrer_tudo(
+                {"corpo": texto, "cabecalhos": resposta_cabecalhos, "logs": ctx.logs}
+            )
+        )
+
+    from .x01_rotas import _uniformidade  # noqa: PLC0415
+
+    # **`aceitaveis=(200,)`, e nao as recusas por omissao.** O corpo de A com o
+    # canario de B em texto livre e um pedido legitimo de A — nao ha recurso de
+    # B a pedir, e uma rota que o recusasse estava errada. O que se mede e que
+    # as tentativas respondem todas 200 e que nada de B volta; um estado fora de
+    # 200 quer dizer que a rota nao respondeu, e o caso nao mediu nada. E o
+    # mesmo uso que o `aceitaveis_por_item` faz para o `GET /metrics` do COM.
+    # Medido no gate 6: com as recusas por omissao, o caso acusava o 200.
+    achados.extend(_uniformidade(ITEM_DO_SCREENING, estados, aceitaveis=(200,)))
+    estado_de_controlo, _, _, _ = _pedir_com_logs(
+        app, "POST", screening.ROTA, _corpo(str(uuid.uuid4()), "moda", ["camisola"]), cabecalhos
+    )
+    if estados and estado_de_controlo not in estados:
+        achados.append(
+            f"{ITEM_DO_SCREENING}: o tenant de A deu {sorted(set(estados))} e um "
+            f"tenant que **nao existe** deu {estado_de_controlo}. A diferenca e um "
+            "oraculo de existencia de tenant."
+        )
+
+    # A sonda: o corpo de A chega ao duplo, e um pedido sem credencial nao.
+    antes = len(chamadas)
+    estado, _, _, _ = _pedir_com_logs(
+        app,
+        "POST",
+        screening.ROTA,
+        _corpo(ctx.a.id, "moda", ["camisola"]),
+        {"content-type": "application/json"},
+    )
+    if estado != 401 or len(chamadas) != antes:
+        achados.append(
+            f"{ITEM_DO_SCREENING}: um pedido sem credencial deu {estado} e chegou "
+            f"{len(chamadas) - antes} vez(es) ao classificador."
+        )
+    if not chamadas or chamadas[0].tenant_id != ctx.a.id:
+        achados.append(
+            f"{ITEM_DO_SCREENING}: a sonda positiva falhou — o corpo de A nao chegou "
+            "ao classificador, e as medicoes acima nao provam nada."
+        )
+    return achados
+
+
 def atacar_sonda(ctx) -> list[str]:  # noqa: ANN001
     """O X-01 da `/healthz` do AGR: responde, e nao leva nada de B."""
     app, _ = _montar(ctx)

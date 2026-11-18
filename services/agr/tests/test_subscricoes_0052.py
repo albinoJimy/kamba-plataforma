@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -118,17 +119,24 @@ class TestRevisaoContraORegisto(unittest.TestCase):
         self.assertNotEqual(da_revisao, do_registo)
 
 
-#: A revisao de dados do consumidor do CHR (KAM-201) e a sua declaracao.
-SUFIXO_DO_CHR = "_subscricao_do_chr.py"
+#: As revisoes que escrevem linhas do consumidor do CHR: a da activacao
+#: (KAM-201) e a do off-boarding (KAM-098), que lhe acrescenta a suspensao e o
+#: encerramento. A declaracao e uma so, o `registry/chr.yaml`.
+SUFIXOS_DO_CHR = ("_subscricao_do_chr.py", "_offboarding.py")
 
 
 def linhas_do_chr() -> list[tuple[str, str, str, str, str]]:
-    [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DO_CHR}"))
-    arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
-    for no in arvore.body:
-        if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
-            return [tuple(linha) for linha in ast.literal_eval(no.value)]
-    raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+    linhas: list[tuple[str, str, str, str, str]] = []
+    for sufixo in SUFIXOS_DO_CHR:
+        [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{sufixo}"))
+        arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
+        for no in arvore.body:
+            if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
+                linhas.extend(tuple(linha) for linha in ast.literal_eval(no.value))
+                break
+        else:
+            raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+    return linhas
 
 
 class TestRevisaoDoChrContraORegisto(unittest.TestCase):
@@ -153,6 +161,20 @@ class TestRevisaoDoChrContraORegisto(unittest.TestCase):
         self.assertIn('export const CONSUMIDOR_DO_CHR = "chr";', fonte)
         self.assertEqual({c for c, *_ in linhas_do_chr()}, {"chr"})
 
+    def test_o_efeito_trata_os_tipos_subscritos(self) -> None:
+        """A terceira fonte: o efeito do CHR esquece o tenant em cada tipo subscrito.
+
+        Um tipo subscrito que o efeito nao conhecesse ia a DLQ em cada entrega,
+        e a *cache* continuava com o estado velho ate ao TTL (KAM-098).
+        """
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "chr" / "activacao.ts").read_text(encoding="utf-8")
+        inicio = fonte.index("export const TIPOS_QUE_ESQUECEM_O_TENANT")
+        lista = fonte[inicio : fonte.index("];", inicio)]
+        for _consumer, tipo, *_ in linhas_do_chr():
+            with self.subTest(tipo=tipo):
+                self.assertTrue(f'"{tipo}"' in lista or tipo == "tenant.activated", tipo)
+        self.assertEqual(len(linhas_do_chr()), 3)
+
     def test_a_finalidade_esta_nas_do_contrato(self) -> None:
         for _consumer, tipo, _versao, finalidade, _ordem in linhas_do_chr():
             with self.subTest(tipo=tipo):
@@ -164,6 +186,57 @@ class TestRevisaoDoChrContraORegisto(unittest.TestCase):
     def test_nenhuma_chave_repete_uma_da_0052(self) -> None:
         da_0052 = {(c, t) for c, t, *_ in linhas_da_revisao()}
         self.assertFalse(da_0052 & {(c, t) for c, t, *_ in linhas_do_chr()})
+
+
+#: A revisao de dados do consumidor de Trust & Safety (KAM-200) e a sua declaracao.
+SUFIXO_DE_TRUST = "_subscricoes_de_trust.py"
+
+
+def linhas_de_trust() -> list[tuple[str, str, str, str, str]]:
+    [ficheiro] = sorted((RAIZ / "db" / "migrations" / "versions").glob(f"*{SUFIXO_DE_TRUST}"))
+    arvore = ast.parse(ficheiro.read_text(encoding="utf-8"))
+    for no in arvore.body:
+        if isinstance(no, ast.Assign) and [getattr(a, "id", None) for a in no.targets] == ["LINHAS"]:
+            return [tuple(linha) for linha in ast.literal_eval(no.value)]
+    raise AssertionError(f"{ficheiro.name} nao tem a constante LINHAS")
+
+
+class TestRevisaoDeTrustContraORegisto(unittest.TestCase):
+    """A mesma confrontacao para o consumidor de T&S (KAM-200): `registry/trust.yaml`."""
+
+    def test_as_linhas_sao_as_da_declaracao(self) -> None:
+        declaracao = load_file(RAIZ / "registry" / "trust.yaml")
+        nome = declaracao["consumidor"]
+        declaradas = {
+            (nome, s["tipo"], int(s["versao"]), subscricoes.e_de_pagamento(s["tipo"]))
+            for s in declaracao["subscriptions"]
+        }
+        da_revisao = {
+            (consumer, tipo, int(versao), _bool(ordem))
+            for consumer, tipo, versao, _finalidade, ordem in linhas_de_trust()
+        }
+        self.assertEqual(da_revisao, declaradas)
+
+    def test_o_nome_e_os_tipos_sao_os_do_efeito(self) -> None:
+        """O `consumer` e a constante do efeito, e os tipos sao os `TIPOS_CONSUMIDOS`."""
+        fonte = (RAIZ / "packages" / "core-ts" / "src" / "trust" / "efeito.ts").read_text(encoding="utf-8")
+        self.assertIn('export const CONSUMIDOR_DE_TRUST = "trust";', fonte)
+        self.assertEqual({c for c, *_ in linhas_de_trust()}, {"trust"})
+        bloco = fonte.split("export const TIPOS_CONSUMIDOS = [", 1)[1].split("] as const;", 1)[0]
+        consumidos = set(re.findall(r'"([a-z_.]+)"', bloco))
+        self.assertEqual({t for _c, t, *_ in linhas_de_trust()}, consumidos)
+
+    def test_a_finalidade_esta_nas_do_contrato(self) -> None:
+        for _consumer, tipo, _versao, finalidade, _ordem in linhas_de_trust():
+            with self.subTest(tipo=tipo):
+                exemplo = json.loads(
+                    (RAIZ / "contratos" / "eventos" / tipo / "exemplo.json").read_text(encoding="utf-8")
+                )
+                self.assertIn(finalidade, exemplo["finalidades"])
+
+    def test_nenhuma_chave_repete_uma_de_outra_revisao(self) -> None:
+        outras = {(c, t) for c, t, *_ in linhas_da_revisao()} | {(c, t) for c, t, *_ in linhas_do_chr()}
+        self.assertFalse(outras & {(c, t) for c, t, *_ in linhas_de_trust()})
 
 
 if __name__ == "__main__":
