@@ -752,19 +752,57 @@ class TestProcurarHibrido(ComRegisto):
         self.assertEqual(procura.linhas, ())
 
     def test_o_tempo_do_vector_desconta_se_do_tecto_da_pesquisa(self) -> None:
-        inicio = time.monotonic()
-        instantes = iter((inicio, inicio + 0.3))
-        ligacao = _LigacaoComModelos([(MODELO,)], [(MODELO,)])
-        fornecedor = FakeEmbeddingProvider()
-        pesquisa.procurar(
-            ligacao, TENANT, "arroz", tecto_ms=2_000,
-            vectorial=self.consulta_autorizada(fornecedor),
-            relogio=lambda: next(instantes),
+        # KAM-212: nenhum relogio real, e diferencas exactas em virgula
+        # flutuante. Com `inicio = time.monotonic()` e `inicio + 0.3`, a
+        # diferenca dependia do valor do relogio da maquina: sai
+        # `0.30000000004656613` com `inicio = 844422.0071031966`, e o `int()`
+        # do `procurar` trunca 1699,99... para 1699 — o vermelho ao acaso do
+        # gate 4. Um inteiro mais 0,25 e exacto (0,25 e uma potencia de dois).
+        #
+        # O relogio so anda onde se gasta tempo: 125 ms na primeira transaccao
+        # e 250 ms no fornecedor. Um relogio que avancasse a cada leitura nao
+        # distinguia onde o `procurar` le o inicio e o fim, e um fim lido antes
+        # do vector, ou um inicio lido depois da transaccao, passavam (achado
+        # da revisao adversarial). O cliente le o mesmo relogio, porque o
+        # `prazo` conta-se no dele.
+        agora = [1_000.0]
+
+        class _CursorQueGasta(_CursorComModelos):
+            def fetchall(self):
+                if self.ultima is embeddings.SQL_MODELOS_DO_INDICE and len(self.ligacao.modelos) == 2:
+                    agora[0] += 0.125
+                return super().fetchall()
+
+        class _LigacaoQueGasta(_LigacaoComModelos):
+            def cursor(self) -> _CursorQueGasta:
+                return _CursorQueGasta(self)
+
+        class _FornecedorQueGasta(FakeEmbeddingProvider):
+            def __call__(self, tenant_id: str, textos: Sequence[str], tecto_s: float) -> Vectores:
+                agora[0] += 0.25
+                return super().__call__(tenant_id, textos, tecto_s)
+
+        ligacao = _LigacaoQueGasta([(MODELO,)], [(MODELO,)])
+        fornecedor = _FornecedorQueGasta()
+        cliente = ClienteDeEmbeddings(
+            PortaSobreDestinos(Leitor({"openai": [destino()]}), relogio=self.relogio),
+            fornecedor,
+            metricas=self.registo,
+            relogio=lambda: agora[0],
         )
-        self.assertIn((pesquisa.SQL_TECTO, ("1700",)), ligacao.chamadas)
-        # E o vector teve o prazo do tecto menos a reserva da pesquisa.
-        self.assertLessEqual(
-            fornecedor.chamadas[0][2], (2_000 - pesquisa.RESERVA_DA_PESQUISA_MS) / 1000
+        pesquisa.procurar(
+            ligacao, TENANT, "arroz", tecto_ms=1_000,
+            vectorial=ConsultaVectorial(cliente, nunca_sensivel, metricas=self.registo),
+            relogio=lambda: agora[0],
+        )
+        # O tecto do servidor e o da pesquisa menos a transaccao e o vector.
+        self.assertIn((pesquisa.SQL_TECTO, ("625",)), ligacao.chamadas)
+        # E o vector teve o tecto menos a reserva da pesquisa (0,5 s, abaixo
+        # dos 1,5 s do `TECTO_DA_CONSULTA_S`, pelo que o `min()` nao o esconde),
+        # contado do inicio: a transaccao ja gastou 0,125 s dele.
+        self.assertEqual(
+            fornecedor.chamadas[0][2],
+            (1_000 - pesquisa.RESERVA_DA_PESQUISA_MS) / 1000 - 0.125,
         )
 
 

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.19 |
+| Versão | 1.20 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -1802,7 +1802,7 @@ Testes: transições, 100 intercalações, conversas independentes, evidência d
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-014 |
-| Bloqueia | KAM-031, KAM-034, KAM-091 |
+| Bloqueia | KAM-031, KAM-034, KAM-091, KAM-213 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§11, §14, §15), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.6), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§12), `../docs/tecnica/evidencia/E4_Stack_Licencas.md` (§2.2), ADR-001, ADR-002 |
 
@@ -3748,3 +3748,4 @@ um `--suite tests` de dois minutos teria dito.
 | 1.17 | Outubro 2026 | **A décima mutação do KAM-017 sobreviveu, e fecha agora.** A corrida completa do filtro `coexistencia` — que só terminou depois do PR da 1.16 fundir — deu **41 mutações e 1 não apanhada**: a «o desligamento volta a registar antes de transitar». O ensaio que a devia matar chama o `SQL_DESLIGAR_CANAL` **directamente**, com o seu próprio parâmetro, e a mutação está no **sítio onde o módulo o chama**, dentro do `tratarAccountUpdate` — provou-se a instrução em vez do caminho que a usa, que é a armadilha da `BaseFalsa` um nível acima. Fecha-se no ensaio `as duas tabelas concordam depois de um desligamento`, que passa pelo `tratarAccountUpdate` e afirmava `desligado_em !== null` — satisfeito por um `new Date(0)`: passa a afirmar o `desligado_em` e o `last_account_update_at` **pelo valor**. **A 1.16 dizia que as dez estavam fechadas, e estavam nove.** Fica escrita a regra que isto impõe, pela terceira vez neste par de tickets: uma mutação não se declara fechada antes de a corrida que a mede terminar. Nenhuma caixa de critério muda. | Equipa KAMBÁ |
 | 1.18 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-013 ganha o KAM-187** (EPIC-08), que põe o `entrada.ts` deste ticket a correr no compose de produção — hoje o `CMD` do `worker-canal` é o `server.ts`, e ninguém consome a `wa-inbound`. | Equipa KAMBÁ |
 | 1.19 | Novembro 2026 | KAM-118: a decisão 1 da verificação do KAM-014 deixa de dizer que o `contacts.papel` não existe — a revisão `0070` cria-o, e a persona viaja na invocação e não no `ChannelContext` (dicionário §3.78). Nenhuma caixa muda. | Equipa KAMBÁ |
+| 1.20 | Novembro 2026 | **Aresta recíproca, sem alteração de conteúdo: o `Bloqueia` do KAM-019 ganha o KAM-213** (EPIC-01), que torna determinístico o ensaio «duas chamadas concorrentes: o ON CONFLICT da conta» do `handoff.bd.test.ts` — uma barreira no provedor falso força as duas chamadas a passarem a leitura antes do `INSERT`, em vez de o deixar ao `Promise.all`. | Equipa KAMBÁ |
